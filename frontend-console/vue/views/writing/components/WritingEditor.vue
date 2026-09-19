@@ -43,6 +43,8 @@
             <div id="writing-check-tools" class="writing-tools-menu__body">
               <div class="writing-tools-menu__group">
                 <button id="btn-conflict-check" class="btn btn-sm" :disabled="!chapterReady || state.readonly || conflictLoading" @click="$emit('conflict-check')">{{ conflictLoading ? '检查中...' : '检查前后设定' }}</button>
+                <button v-if="deepReviewAvailable" class="btn btn-sm" :disabled="!chapterReady || state.readonly || state.dirty || state.saving" @click="$emit('deep-review')">深度审稿</button>
+                <small v-if="deepReviewAvailable && state.dirty">保存正文后可开始深度审稿。</small>
                 <button class="btn btn-sm" :disabled="!chapterReady" @click="$emit('export')">导出本章</button>
               </div>
             </div>
@@ -167,6 +169,7 @@ import AIResultTraceDetails from "../../../components/AIResultTraceDetails.vue"
 const props = defineProps({
   projectId: { type: String, default: null },
   narrow: Boolean,
+  deepReviewAvailable: Boolean,
   state: { type: Object, required: true },
   targetChapter: { type: Number, default: null },
   saveStatus: { type: String, default: "已保存" },
@@ -185,7 +188,7 @@ const emit = defineEmits(["open-chapters", "create-chapter",
   "autosave", "checkpoint", "conflict-check", "publish", "discard",
   "generate-draft", "generate-continuation", "generate-pov", "regenerate-candidate",
   "auto-extract", "open-deep-import-settings", "open-ai-tools", "adopt", "reject",
-  "semantic-review", "targeted-revision", "compare-candidate", "export",
+  "semantic-review", "deep-review", "targeted-revision", "compare-candidate", "export",
   "retry-load", "reload-server",
 ])
 

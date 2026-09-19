@@ -82,6 +82,7 @@ from modules.world.map_atlas_facade import (  # noqa: F401
 from modules.world.services.core.knowledge_visibility_service import (
     check_knowledge_visibility as _check_knowledge_visibility_impl,
 )
+from modules.world.team_stress import review_team_stress
 from modules.world.worldbuilding_facade import (  # noqa: F401
     append_demo_import_revision,
     apply_focused_world_package,
@@ -115,6 +116,7 @@ check_knowledge_visibility = _check_knowledge_visibility_impl
 # Frozen cross-module API. New names require a deletion test, contract/README
 # update, and an explicit change to the public-surface regression test.
 __all__ = [
+    "review_team_stress",
     "list_review_resolution_candidates",
     "authorize_review_resolution",
     "prepare_review_resolution_decision",

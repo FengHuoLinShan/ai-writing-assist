@@ -79,3 +79,7 @@ ADR-0023/ADR-0025 的有界 Agent、canonical capability 和回执约束由统�
 evidence_focused_search / targeted_completion 任务由原 task registry 登记。
 
 知识治理的跨模块决策见 [ADR-0025](../adr/0025-product-knowledge-governance.md)。Evidence 持有契约与策略，Writing/World/Story/Imports/Interaction/Assistant 持有各自生成、采用与恢复语义；未新增模块、调度器或事实库。
+
+ADR-0027 在现有九模块中加入注册蓝图的有限协作，不改变模块归属或引入新服务。
+来源投影属 Evidence，调查属 Assistant，回合属 Story，分支观察属 Interaction；普通采用继续
+由各领域负责。详见 [有限协作决定](../adr/0027-bounded-collaboration.md)。

@@ -296,3 +296,10 @@ async def scan_manuscript_terms(
 ):
     """Read the next literal-search slice from a frozen source manifest."""
     return await _manuscript_source.scan_terms(db, novel_id, terms, **kwargs)
+
+
+async def get_semantic_review_result(db, novel_id, task_id):
+    """Read the domain-owned report with current source validation."""
+    from modules.writing.assistant_tools import _review_result
+
+    return await _review_result(db, novel_id, {"task_id": task_id})

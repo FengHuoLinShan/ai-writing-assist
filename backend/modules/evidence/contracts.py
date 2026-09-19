@@ -12,3 +12,4 @@ from modules.evidence.compilation.focused_contracts import (  # noqa: F401
     FocusedEvidenceTarget,
 )
 from modules.evidence.indexing.contracts import *  # noqa: F403
+from modules.evidence.team_projection import TeamProjection as TeamProjection

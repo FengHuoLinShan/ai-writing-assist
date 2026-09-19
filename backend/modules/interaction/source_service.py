@@ -401,7 +401,7 @@ class InteractionSourceService:
             reference = references.get(str(setup.player_identity.reference_key))
             if reference is None or reference.get("entity_type") != "character":
                 raise ValidationError("所选原作角色已不可用")
-            if not self._reference_visible(revision, reference, anchor):
+            if not self.reference_visible(revision, reference, anchor):
                 raise ValidationError("所选角色在当前剧情进度尚未登场")
             player["label"] = reference["label"]
             player["target_id"] = reference["target_id"]
@@ -409,7 +409,7 @@ class InteractionSourceService:
         if any(key not in references for key in pinned):
             raise ValidationError("部分固定资料已不可用")
         if any(
-            not self._reference_visible(revision, references[key], anchor)
+            not self.reference_visible(revision, references[key], anchor)
             for key in pinned
         ):
             raise ValidationError("部分固定资料超出当前剧情进度")
@@ -576,7 +576,7 @@ class InteractionSourceService:
         )
 
     @classmethod
-    def _reference_visible(
+    def reference_visible(
         cls,
         revision: InteractionSourceRevision,
         item: dict,
@@ -871,7 +871,7 @@ class InteractionSourceService:
         for item in revision.reference_manifest or []:
             if entity_type and item.get("entity_type") != entity_type:
                 continue
-            if chapter_index is not None and not self._reference_visible(
+            if chapter_index is not None and not self.reference_visible(
                 revision,
                 item,
                 {"chapter_index": chapter_index, "end_offset": end_offset or 0},

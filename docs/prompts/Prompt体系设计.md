@@ -3,7 +3,7 @@
 ## 1. 设计原则
 
 系统使用受确定性工作流编排的 Prompt 完成正文生成、结构生成、
-抽取和切分任务，不构建自治多 Agent 运行时。
+抽取和切分任务。ADR-0027 另允许服务端注册、有界预算的协作蓝图。
 ADR-0023 增加单次有界 Agent 的工具选择；固定领域工作流继续持有输入/输出契约。
 
 统一原则：
@@ -16,6 +16,12 @@ ADR-0023 增加单次有界 Agent 的工具选择；固定领域工作流继续�
 - reveal、知识边界以及待处理建议与已采用资产的隔离由调用方服务和上下文编译器共同保证
 
 ## 2. 当前活跃 Prompt
+
+有限协作内联指令位于 `assistant/teams/runner.py`（调查与汇总）、`blind_reader.py`（逐章认知）、
+`world/team_stress.py`（情境复核）、`story/simulation.py`（人物意图与环境裁决）。输入和输出
+分别以 Investigation/TeamAnswer、ReadingNode、WorldStressAssessment、ActionIntent/
+RoundResolution 校验。角色只收到自身包，环境不接收私有动机，叙述只接收可观察事件；
+知识复核继续使用 ADR-0025 公共出口。内联指令不是作者采用授权。
 
 Agent 内联指令还包括 `modules/assistant/service.py::_INSTRUCTIONS`（工作位置、证据与
 确认边界）、`modules/interaction/agent_runtime.py`（本轮准备，输出 StoryPreparation）、

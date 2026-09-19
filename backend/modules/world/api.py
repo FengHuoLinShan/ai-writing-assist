@@ -273,6 +273,7 @@ from modules.world.services.worldbuilding.worldbuilding_service import (
     WorldBibleSynopsisService,
     WorldProfileService,
 )
+from modules.world.team_stress import StressDecision
 from modules.world.world_object_images import (
     MAX_UPLOAD_BYTES as MAX_WORLD_OBJECT_IMAGE_BYTES,
 )
@@ -1984,9 +1985,7 @@ async def get_bible_draft(
 async def get_bible_draft_publication(
     db: DbSession, draft_id: str, *, novel_id: ActiveNovelIdQuery
 ):
-    return await _world_authority_service.find_page_publication(
-        db, novel_id, draft_id
-    )
+    return await _world_authority_service.find_page_publication(db, novel_id, draft_id)
 
 
 @router.patch("/bible/drafts/{draft_id}", response_model=WorldBiblePageDraftResponse)
@@ -3894,3 +3893,27 @@ async def delete_alias(
         entity_id,
         alias,
     )
+
+
+@router.get("/stress-reports/{report_id}")
+async def get_world_stress_report(db: DbSession, report_id: str, novel_id: NovelIdQuery):
+    from modules.account.facade import is_demo_readonly_principal
+    from modules.world.team_stress import read_stress_report
+
+    await require_active_project(db, novel_id)
+    if is_demo_readonly_principal():
+        raise HTTPException(status_code=404, detail="报告不存在")
+    return await read_stress_report(db, novel_id, report_id)
+
+
+@router.post("/stress-reports/{report_id}/decisions")
+async def decide_world_stress_report(
+    db: DbSession, report_id: str, data: StressDecision, novel_id: NovelIdQuery
+):
+    from modules.account.facade import is_demo_readonly_principal
+    from modules.world.team_stress import decide_stress_scenario
+
+    await require_active_project(db, novel_id)
+    if is_demo_readonly_principal():
+        raise HTTPException(status_code=404, detail="报告不存在")
+    return await decide_stress_scenario(db, novel_id, report_id, data)

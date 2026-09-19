@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from "vue"
-import { getApi, getConfirm, getRouter } from "../bridge/index.js"
+import { getApi, getConfirm, getRouter, openProjectAssistant } from "../bridge/index.js"
 import { useWorkflowPolling } from "../composables/useWorkflowPolling.js"
 import { persistActiveWorkflow, recoverActiveWorkflows } from "../../shared/workflowProgress.js"
 
@@ -23,6 +23,15 @@ const visibleGroups = computed(() => {
   }
   return [...groups.values()]
 })
+async function consultGroup(group) {
+  try {
+    const capability = (await api.assistant.capabilities(props.projectId)).collaboration?.find(item => item.id === "import_consult")
+    if (!capability?.available) throw new Error(capability?.reason || "深入查证尚未开启。")
+    await openProjectAssistant({ projectId: props.projectId, blueprint: "import_consult",
+      context: { page: "world", scope: "project", target: { target_type: "import_review_resolution", target_id: taskId.value, target_path: group.key } },
+      message: `深入查证这组疑难：${group.question || '身份、别名与关系有待核对'}。请分别查找合并证据与必须区分的反证，尊重已经作出的作者裁定。` })
+  } catch (cause) { error.value = cause.message || "深入查证暂不可用。" }
+}
 async function acceptGroup(group) {
   const selected = group.items.filter(item => !excluded.value[item.key])
   if (!selected.length || busy.value) return
@@ -148,6 +157,7 @@ onBeforeUnmount(() => { epoch += 1 })
     <p v-if="taskId" role="status">已处理 {{ info.processed_count || 0 }} / {{ info.fact_count || 0 }} 项资料；{{ info.question_count || 0 }} 组问题需要决定。</p>
     <article v-for="group in visibleGroups" :key="group.key">
       <strong>{{ group.question || labels[filter] }} · {{ group.items.length }} 项资料</strong>
+      <button v-if="['decision', 'incomplete'].includes(filter)" class="btn btn-sm" :disabled="busy" @click="consultGroup(group)">深入查证这一组</button>
       <div v-for="item in group.items" :key="item.key">
         <label v-if="['decision', 'optional'].includes(filter)"><input type="checkbox" :checked="!excluded[item.key]" @change="excluded[item.key] = !$event.target.checked" /> {{ item.label || '待核对资料' }}</label>
         <p v-else>{{ item.label }}</p>

@@ -19,7 +19,7 @@ Story 同时拥有原 Outline 与 Memory 的唯一生产实现，内部子域位
 `plot_threads`、`outline_arcs`、`scenes`、`scene_spans`、`scene_fusion_suggestions`、
 `scene_summary_checkpoints`、`scene_chapter_links`、`foreshadowing_plans`、`reveal_plans`、
 `memory_events`、`memory_snapshots`、`memory_scene_checkpoints`、`memory_scene_snapshots`、
-`delta_log`，以及下方四张 Scene Story asset 表。公开 API 前缀不变：`/api/outline`、
+`delta_log`，以及四张 Scene Story asset 表与两张排演历史表。公开 API 前缀不变：`/api/outline`、
 `/api/novels/{novel_id}/memories`、`/api/story`。
 
 ## 对外能力
@@ -97,3 +97,10 @@ Story 经 list_world_dependencies/read_world_dependency 提供故事线、篇章
 Story 持有智能整理中的场景基线、必要问题和可选字段状态；Imports 只编排来源查证与提案。自动核对不得覆盖作者编辑，不能把“边界正确”替代语义字段证据，也不授予人物知识。详情和警报均定位到对应场景，来源失效时保留受影响使用门禁。
 
 Story 生成预览与 Imports Phase 1c/3 均保留组级回执。P20/总纲采用要求 passed；被作者编辑或上游指纹漂移的回执不再有效。
+
+## 有限排演与分叉
+
+ADR-0027 增加 `story_simulation_runs` / `story_simulation_steps` 两张领域历史表，复用原
+one-click task。人物独立意图 → 环境结果 → 按观察者投影 → 下一回合，最终剧本仍是候选。
+回放复用不可变完成回合；分叉绑定准确父回合 hash 和来源，来源变化拒绝继续。Scene 工作台
+可选人物、回合和观察视角，并从完成回合另试发展；默认关闭，不改变旧卡片/剧本采用流。

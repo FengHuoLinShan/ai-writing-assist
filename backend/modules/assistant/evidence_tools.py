@@ -18,6 +18,7 @@ from modules.evidence import facade as evidence
 from modules.evidence.contracts import VisibilityContextContract
 from modules.project.facade import get_any_project_context, require_any_active_project
 from modules.story.facade import get_scene_contract
+from modules.writing.contracts import SourceRangeRefContract
 from modules.writing.facade import get_draft, get_latest_draft_for_chapter
 
 
@@ -48,6 +49,7 @@ class AssistantToolContext:
     final_requests: int = 1
     session_id: str | None = None
     web_snapshot: dict | None = None
+    team_blueprint: str | None = None
 
     async def guard(self):
         await require_any_active_project(self.db, self.novel_id)
@@ -163,10 +165,19 @@ class AssistantToolContext:
                 # Each proposed operation still rechecks its concrete baseline.
                 continue
             if item.get("source_ref"):
+                source = SourceRangeRefContract(**item["source_ref"])
+                if source.content_mode == "working":
+                    latest = await get_latest_draft_for_chapter(
+                        self.db, self.novel_id, source.chapter_index
+                    )
+                    if latest is None or str(latest.id) != source.draft_id:
+                        raise ConflictError(
+                            "参考正文的当前版本已变化", code="assistant_source_stale"
+                        )
                 await evidence.read_novel_evidence(
                     self.db,
                     novel_id=self.novel_id,
-                    source_ref=item["source_ref"],
+                    source_ref=source,
                     visibility=self.visibility,
                     before=0,
                     after=0,
@@ -242,7 +253,7 @@ async def search_project(
         scope not in {"manuscript", "world", "outline"}
         or not 1 <= len(query.strip()) <= 1000
     ):
-        raise ValueError("请使用有效资料范围和简短查询")
+        raise ModelRetry("请使用 manuscript、world 或 outline 范围与简短查询")
     await deps.guard()
     if deps.fixed_context is not None:
         item = deps.remember(deps.fixed_context)
@@ -289,12 +300,13 @@ async def read_evidence(ctx: RunContext[AssistantToolContext], evidence_id: str)
     await deps.guard()
     item = deps.evidence_refs.get(evidence_id)
     if item is None:
-        raise ValueError("证据不属于本轮授权资料")
+        await deps.db.rollback()
+        raise ModelRetry("请选择本轮实际返回的 evidence_id")
     if item.get("source_ref"):
         item = await evidence.read_novel_evidence(
             deps.db,
             novel_id=deps.novel_id,
-            source_ref=item["source_ref"],
+            source_ref=SourceRangeRefContract(**item["source_ref"]),
             visibility=deps.visibility,
             before=0,
             after=0,
@@ -386,7 +398,10 @@ async def inspect_current(ctx: RunContext[AssistantToolContext], offset: int = 0
         draft = await get_draft(deps.db, deps.novel_id, str(deps.work.draft_id))
         text = draft.content or ""
         if not 0 <= offset < max(1, len(text)):
-            raise ValueError("正文位置超出当前版本")
+            await deps.db.rollback()
+            raise ModelRetry(
+                "正文位置超出当前版本，请使用返回的 next_offset；为空表示已到正文末尾"
+            )
         if not text:
             await deps.db.commit()
             return {"omission": "当前正文为空"}

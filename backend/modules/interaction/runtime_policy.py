@@ -74,6 +74,11 @@ def clear_private_agent_state(attempt):
     if checkpoint:
         preserved = {
             "budget": checkpoint.get("budget", {}),
+            **(
+                {"actor_state_refs": checkpoint["actor_state_refs"]}
+                if "actor_state_refs" in checkpoint
+                else {}
+            ),
             "evidence_receipts": checkpoint.get("evidence_receipts")
             or [
                 {key: value for key, value in ref.items() if key != "text"}
@@ -95,6 +100,20 @@ def agent_story_enabled(snapshot: dict) -> bool:
     policy = snapshot.get("agent_runtime")
     if policy is None:
         return False
+    if isinstance(policy, dict) and policy.get("version") == "3":
+        if set(policy) != {"version", "mode", "web_search", "collaboration"} or policy[
+            "collaboration"
+        ] != {"protocol": "team_v1", "max_actors": 3}:
+            raise ValueError("Unsupported frozen RP collaboration protocol")
+        return agent_story_enabled(
+            {
+                "agent_runtime": {
+                    key: value
+                    for key, value in {**policy, "version": "2"}.items()
+                    if key != "collaboration"
+                }
+            }
+        )
     if policy == {"version": "1", "mode": "rp", "allow_web": True}:
         return True
     if (
@@ -143,21 +162,25 @@ def new_interaction_story_envelope(
 ) -> dict:
     from infrastructure.llm.workflow_budget import new_ai_run_envelope
 
-    return new_ai_run_envelope(
-        operation_id=attempt_id,
-        run_id=attempt_id,
-        root_capability_id="interaction.story_generate",
-        novel_id=novel_id,
-        request_limit=(
-            request_limit
-            if request_limit is not None
-            else _STORY_REQUEST_LIMITS.get(
-                task_type,
-                _STORY_REQUEST_LIMITS[LEGACY_STORY_TASK],
-            )
-        ),
-        legacy_untracked=legacy_untracked,
-    ).snapshot().model_dump(mode="json")
+    return (
+        new_ai_run_envelope(
+            operation_id=attempt_id,
+            run_id=attempt_id,
+            root_capability_id="interaction.story_generate",
+            novel_id=novel_id,
+            request_limit=(
+                request_limit
+                if request_limit is not None
+                else _STORY_REQUEST_LIMITS.get(
+                    task_type,
+                    _STORY_REQUEST_LIMITS[LEGACY_STORY_TASK],
+                )
+            ),
+            legacy_untracked=legacy_untracked,
+        )
+        .snapshot()
+        .model_dump(mode="json")
+    )
 
 
 async def authorize_interaction_story_continuation(

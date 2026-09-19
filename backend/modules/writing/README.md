@@ -394,3 +394,11 @@ confirmation、正文、finding、Scene bundle 校验。恢复历史版本创建
 ## 知识治理与采用
 
 正文生成保存 scope/director/audit 指纹，作者修改后标记 stale。AI candidate copy-on-adopt 先重验上游，再经 Evidence 公共门禁要求 passed；手写草稿不走该 AI 采用入口。冲突 AI review/suggestion 按 check/item 冻结回执，blocked 不追加判断或修复建议。
+
+## 深度审稿调查受理
+
+`writing.review_team` 接收独立调查的待证假设，仍由原 semantic review 重新物化与审查。
+假设只作问题线索，不扩大原生成 confirmation，也不能替代正文/世界引用校验。AI 正文
+必须绑定原 confirmation，人工正文沿显式世界约束范围并明示未检查人物知识边界。
+`GET /api/writing/semantic-reviews/{task_id}` 读取本域报告，核对正文版本与世界来源；
+失效回执不展示为当前稿已通过。修改、定向返修和采用继续走原流程。

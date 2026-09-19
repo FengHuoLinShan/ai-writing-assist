@@ -49,10 +49,12 @@
         </div>
       </div>
     </div>
+    <div v-if="teamCapabilities.some(item => item.available)" class="world-stress-entry"><button v-if="teamCapabilities.some(item => item.id === 'world_stress' && item.available)" class="btn btn-sm" type="button" @click="openTeam('world_stress')">测试这条规则</button><button v-if="teamCapabilities.some(item => item.id === 'cross_revision' && item.available)" class="btn btn-sm" type="button" @click="openTeam('cross_revision')">查看设定改动影响</button></div>
+    <WorldStressReport v-if="stressReportId" :project-id="props.projectId" :report-id="stressReportId" @close="closeStressReport" />
     <WorldSidebarToolCard v-if="sidebarToolActions.length" :actions="sidebarToolActions" :show-smart-dedup="subView === 'relations'" @select="handleSidebarTool" />
     <component
       :is="activeTab"
-      v-if="activeTab"
+      v-if="activeTab && !stressReportId"
       v-bind="$props"
       :object-view-mode="localObjectViewMode"
       :default-display-mode="subView === 'bible' ? 'gallery' : undefined"
@@ -75,7 +77,8 @@
 
 <script setup>
 import { computed, defineAsyncComponent, ref, watch } from "vue"
-import { getAppState, getRouter } from "../../bridge/index.js"
+import { getAppState, getRouter, getApi, getToast, getRouteQuery, getAssistantWorkContext, openProjectAssistant } from "../../bridge/index.js"
+import WorldStressReport from "./components/WorldStressReport.vue"
 import { worldSession as session } from "./worldSession.js"
 import { objectQueryFromState } from "./logic/worldQuery.js"
 import { clearBulkSelection } from "./logic/worldBulkSelection.js"
@@ -98,6 +101,18 @@ const WorldReviewTab = lazyView(() => import("./components/WorldReviewTab.vue"))
 const WorldBibleTab = lazyView(() => import("./bible/WorldBibleTab.vue"))
 const OwnerAiDrawer = lazyView(() => import("../../components/OwnerAiDrawer.vue"))
 
+const teamCapabilities = ref([])
+const stressReportId = ref(getRouteQuery().get("stress_report_id") || null)
+function closeStressReport() { stressReportId.value = null }
+async function openTeam(blueprint) {
+  try {
+    const capability = (await getApi().assistant.capabilities(props.projectId)).collaboration?.find(item => item.id === blueprint)
+    if (!capability?.available) throw new Error(capability?.reason || "这项检查尚未开启。")
+    const context = getAssistantWorkContext(props.projectId, "world")
+    if (!context.target) throw new Error("请先打开要检查的资料页或世界对象。")
+    await openProjectAssistant({ projectId: props.projectId, blueprint, context: { ...context, scope: "project" }, message: blueprint === "world_stress" ? "测试这条规则的前提、组合利用和有效反例，给出修法代价；保留有意缺陷。" : "查清这项设定变更的跨章影响，并比较最小修订与结构调整方案。请先补充你准备怎样改变规则、哪些情节必须保留。" })
+  } catch (cause) { getToast()(cause.message, "error") }
+}
 const props = defineProps({
   projectId: { type: String, default: null },
   subView: { type: String, default: "bible" },
@@ -149,6 +164,11 @@ function openOwnerAi() {
   aiDrawerMounted.value = true
   aiDrawerOpen.value = true
 }
+watch(() => props.projectId, async projectId => {
+  teamCapabilities.value = []
+  try { const value = await getApi().assistant.capabilities(projectId); if (projectId === props.projectId) teamCapabilities.value = value.collaboration || [] } catch { /* unavailable capabilities keep ordinary author tools */ }
+}, { immediate: true })
+
 watch(() => props.bibleDeepLink?.ownerAiOpen, (open) => {
   if (!open) return
   aiDrawerMounted.value = true

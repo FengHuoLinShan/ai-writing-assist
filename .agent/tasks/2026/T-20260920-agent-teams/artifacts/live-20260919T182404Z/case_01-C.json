@@ -1,0 +1,78 @@
+{
+  "case_id": "case_01",
+  "path": "C",
+  "task_status": "failed",
+  "run_status": "failed",
+  "seconds": 8.53,
+  "provider_requests": 9,
+  "prompt_tokens": 15298,
+  "completion_tokens": 2670,
+  "output": {},
+  "failure": {
+    "kind": "ValueError",
+    "frames": [
+      {
+        "file": "combined.py",
+        "line": 1032,
+        "function": "wrapped"
+      },
+      {
+        "file": "abstract.py",
+        "line": 1141,
+        "function": "wrap_tool_execute"
+      },
+      {
+        "file": "tool_manager.py",
+        "line": 454,
+        "function": "do_execute"
+      },
+      {
+        "file": "tool_manager.py",
+        "line": 1014,
+        "function": "_raw_execute"
+      },
+      {
+        "file": "combined.py",
+        "line": 99,
+        "function": "call_tool"
+      },
+      {
+        "file": "_tool_search.py",
+        "line": 437,
+        "function": "call_tool"
+      },
+      {
+        "file": "wrapper.py",
+        "line": 70,
+        "function": "call_tool"
+      },
+      {
+        "file": "combined.py",
+        "line": 99,
+        "function": "call_tool"
+      },
+      {
+        "file": "function.py",
+        "line": 711,
+        "function": "call_tool"
+      },
+      {
+        "file": "_function_schema.py",
+        "line": 85,
+        "function": "call"
+      },
+      {
+        "file": "workflow_budget.py",
+        "line": 97,
+        "function": "run"
+      },
+      {
+        "file": "evidence_tools.py",
+        "line": 390,
+        "function": "inspect_current"
+      }
+    ]
+  },
+  "fees": "not_estimated",
+  "human_review": "pending"
+}

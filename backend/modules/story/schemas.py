@@ -6,7 +6,14 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 StoryText = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=12000)
@@ -303,6 +310,31 @@ class StoryOneClickTaskRequest(StorySchema):
     )
     accepted_beats: list[ScriptBeat] = Field(default_factory=list, max_length=100)
     submit_authorized: bool = False
+    use_round_candidates: bool = False
+    simulation_protocol: Literal["legacy", "rehearsal_v1"] = "legacy"
+    rehearsal_rounds: int = Field(default=2, ge=1, le=3)
+    narrator_character_id: uuid.UUID | None = None
+    parent_rehearsal_id: uuid.UUID | None = None
+    fork_round: int = Field(default=0, ge=0, le=100)
+    parent_round_hash: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+
+    @model_validator(mode="after")
+    def bounded_rehearsal(self):
+        if self.simulation_protocol == "rehearsal_v1":
+            if not 1 <= len(self.character_ids) <= 3:
+                raise ValueError("排演每轮需要一至三名人物")
+            if (
+                self.narrator_character_id
+                and str(self.narrator_character_id) not in self.character_ids
+            ):
+                raise ValueError("叙述视角必须属于本轮人物")
+            if bool(self.parent_rehearsal_id) != bool(self.parent_round_hash) or (
+                self.parent_rehearsal_id and self.fork_round < 1
+            ):
+                raise ValueError("分叉需要原回合及准确来源版本")
+        elif self.parent_rehearsal_id:
+            raise ValueError("旧推演不能携带排演分叉")
+        return self
 
     @field_validator("novel_id", "scene_id")
     @classmethod

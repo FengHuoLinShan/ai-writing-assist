@@ -197,6 +197,7 @@ class BatchDecision(StrictModel):
     selected: list[str] = Field(default_factory=list, max_length=20)
     confirmed: Literal[True]
     retry_operation_id: UUID | None = None
+    review_after: bool = False
 
 
 class NoticeDisposition(StrictModel):

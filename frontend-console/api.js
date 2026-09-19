@@ -768,6 +768,9 @@ const api = {
     session: (novelId, sessionId) => request(withQuery(`/assistant/sessions/${sessionId}`, { novel_id: novelId }), { cache: "no-store" }),
     messages: (novelId, sessionId, params = {}) => request(withQuery(`/assistant/sessions/${sessionId}/messages`, { ...params, novel_id: novelId }), { cache: "no-store" }),
     submit: (sessionId, payload) => post(`/assistant/sessions/${sessionId}/turns`, payload),
+    submitTeam: (sessionId, payload) => post(`/assistant/sessions/${sessionId}/team-runs`, payload),
+    selectPlan: (runId, payload) => post(`/assistant/runs/${runId}/select-plan`, payload),
+    collaboration: (novelId, runId) => request(withQuery(`/assistant/runs/${runId}/collaboration`, { novel_id: novelId }), { cache: "no-store" }),
     run: (novelId, runId) => request(withQuery(`/assistant/runs/${runId}`, { novel_id: novelId }), { cache: "no-store" }),
     stop: (novelId, runId) => post(withQuery(`/assistant/runs/${runId}/stop`, { novel_id: novelId })),
     resume: (runId, payload) => post(`/assistant/runs/${runId}/resume`, payload),
@@ -1774,6 +1777,9 @@ const api = {
       return request(withQuery(`/world/bible/validation-runs/${runId}/source`, { novel_id: novelId, source_key: sourceKey }))
     },
 
+    stressReport: (novelId, reportId) => request(withQuery(`/world/stress-reports/${reportId}`, { novel_id: novelId }), { cache: "no-store" }),
+    decideStressScenario: (novelId, reportId, payload) => post(withQuery(`/world/stress-reports/${reportId}/decisions`, { novel_id: novelId }), payload),
+
     async previewWorldImpact(params = {}) {
       return request(withQuery("/world/impact-preview", params))
     },
@@ -2264,6 +2270,8 @@ const api = {
       return contractJson("writing.generate", {}, {}, payload)
     },
 
+    semanticReviewResult: (novelId, taskId) => request(withQuery(`/writing/semantic-reviews/${taskId}`, { novel_id: novelId }), { cache: "no-store" }),
+
     async semanticReview(payload) {
       return contractJson("writing.semanticReview", {}, {}, payload)
     },
@@ -2698,6 +2706,9 @@ const api = {
   // Story 端点保持在 API facade 内；页面只通过 bridge 读取这一组方法。
   // 页面只消费作者可见的卡片、预览任务与剧本版本契约。
   story: {
+    startRehearsal: (sceneId, payload) => post(`/story/scenes/${sceneId}/rehearsals`, payload),
+    rehearsal: (novelId, runId, actorId = null) => request(withQuery(`/story/rehearsals/${runId}`, { novel_id: novelId, actor_id: actorId }), { cache: "no-store" }),
+    forkRehearsal: (runId, payload) => post(`/story/rehearsals/${runId}/forks`, payload),
     async getSceneContext(novelId, sceneId) {
       return request(withQuery(`/story/scenes/${sceneId}/story-context`, { novel_id: novelId }))
     },

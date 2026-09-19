@@ -11,6 +11,7 @@
       </div>
     </header>
 
+    <SceneRehearsalPanel v-if="scene && projectId" :project-id="projectId" :characters="characters" :rehearsal-id="simulation?.rehearsalId" :running="running" @run="$emit('run', $event)" />
     <div v-if="!scene" class="scene-runtime-empty">
       <strong>请先从“管理”选择一个场景</strong>
       <p>推演会读取本场目标、冲突和人物资料。</p>
@@ -68,8 +69,11 @@
 
 <script setup>
 import { computed } from "vue"
+import SceneRehearsalPanel from "./SceneRehearsalPanel.vue"
 
 const props = defineProps({
+  projectId: { type: String, default: null },
+  characters: { type: Array, default: () => [] },
   scene: { type: Object, default: null },
   simulation: { type: Object, default: null },
   progress: { type: Object, default: null },

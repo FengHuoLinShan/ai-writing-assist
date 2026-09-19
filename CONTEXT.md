@@ -217,3 +217,9 @@ migration 与测试，再更新此词汇表。跨模块语义或资产所有权�
 ## 知识治理
 
 用户可见 AI 能力按 [ADR-0025](docs/adr/0025-product-knowledge-governance.md) 区分权威资料、生成可见资料与仅复核资料。`knowledge_review` 是现有 task/provenance JSON 中的回执，不是新事实源；AI 待采用产物只有在回执仍新鲜且为 `passed` 时才能采用。
+
+## 有限协作边界
+
+ADR-0027 的 Assistant 工作项与调查成果是有界私有 checkpoint；World 压力报告借建议队列
+保存不可采用报告，Story 回合、Interaction 分支观察各归所属领域的新历史表。
+共享 task/root、Evidence、账户模型和原确认/采用协议，不新增正史或通用 Agent 调度服务。

@@ -449,6 +449,7 @@ class SuggestionQueueService:
         if suggestion.target_type in {
             "world_core_checkpoint",
             "world_design_checkpoint",
+            "world_stress_report",
         }:
             raise ValidationError("World checkpoints are read-only and cannot be adopted")
         if suggestion.target_type == "worldbook_import":
@@ -1100,6 +1101,10 @@ class SuggestionQueueService:
             return WorldDesignCheckpointPayload.model_validate(payload).model_dump(
                 mode="json", by_alias=True
             )
+        if target_type == "world_stress_report":
+            from modules.world.team_stress import WorldStressReport
+
+            return WorldStressReport.model_validate(payload).model_dump(mode="json")
         if target_type == "worldbook_import":
             return WorldbookImportPayload.model_validate(payload).model_dump(mode="json")
         if target_type == "world_adoption_package":

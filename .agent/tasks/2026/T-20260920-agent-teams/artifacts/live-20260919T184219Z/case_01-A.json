@@ -1,0 +1,129 @@
+{
+  "case_id": "case_01",
+  "path": "A",
+  "task_status": "done",
+  "run_status": "done",
+  "seconds": 10.54,
+  "provider_requests": 1,
+  "prompt_tokens": 1771,
+  "completion_tokens": 2194,
+  "output": {
+    "schema": "writing_semantic_review.v2",
+    "review_task_id": "0471e78f-7e1d-4207-8196-c4fd0915782c",
+    "scope": "selection",
+    "verdict": "needs_revision",
+    "blocking_count": 1,
+    "coverage": {
+      "target_draft_ids": [
+        "c5c55673-0f57-4ac8-b296-aec403020dc1"
+      ],
+      "target_chapters": [
+        1
+      ],
+      "adjacent_regression_draft_ids": [],
+      "context_checked_draft_ids": [],
+      "knowledge_boundary_checked_draft_ids": [],
+      "context_not_checked_draft_ids": [
+        "c5c55673-0f57-4ac8-b296-aec403020dc1"
+      ],
+      "frozen_manifest_hash": "df328d175810cbd9dd6613d19d880121dddbd3bf63bc518df0422a9dff630562",
+      "world_constraints": {
+        "c5c55673-0f57-4ac8-b296-aec403020dc1": {
+          "chapter_index": 1,
+          "scene_id": null,
+          "checked": false,
+          "sources": []
+        }
+      },
+      "chunk_count": 1,
+      "semantic_checks": {
+        "c5c55673-0f57-4ac8-b296-aec403020dc1": {
+          "scene_contract": "not_applicable",
+          "timeline_location": "not_applicable",
+          "space_continuity": "not_applicable",
+          "time_continuity": "not_applicable",
+          "logic_continuity": "not_applicable",
+          "identity_relation": "not_applicable",
+          "ability_world_rule": "checked",
+          "knowledge_boundary": "not_applicable"
+        }
+      },
+      "incomplete_draft_ids": []
+    },
+    "frozen_manifest": [
+      {
+        "draft_id": "c5c55673-0f57-4ac8-b296-aec403020dc1",
+        "chapter_index": 1,
+        "content_hash": "e30908b97fe9aceb0add78ec68affc8caf9e9c29779be88ea3ff45e26f363572",
+        "scene_id": null,
+        "scene_execution_bundle_hash": null,
+        "role": "target",
+        "context_fingerprint": "adf9071c739458dcb3904dfddce7cff6c18bb73379f85569a171c98f75b7ede2"
+      }
+    ],
+    "findings": [
+      {
+        "finding_id": "finding_a769611f7adc9d8cbab2",
+        "severity": "blocker",
+        "category": "causality",
+        "location": {
+          "draft_id": "c5c55673-0f57-4ac8-b296-aec403020dc1",
+          "chapter_index": 1,
+          "excerpt": "她按下门外的开启机关，铜门依照原来的规则打开了。",
+          "start_hint": 75,
+          "end_hint": 99
+        },
+        "message": "同一段内规则与结果直接冲突，无法唯一解读：前文以全称规则声明“唯一的开启机关位于内侧，外侧没有锁孔，也没有遥控装置”，并进一步限定阿澄站在门外、从未进过门内、手中没有工具，且“没有其他人在场”，即排除了内侧操作、既有工具与外部协助三条通路；但结尾却让阿澄“按下门外的开启机关”，并强调铜门“依照原来的规则”打开。若门外不存在开启机关，该动作在物理上不可执行；若门外机关确实存在，则前文的“唯一”“没有锁孔、也没有遥控装置”的规则陈述被推翻。二者不能同时为真，且文本未给出任何例外、隐瞒或规则被改写的提示（“依照原来的规则”反而强化了同一规则）。建议二选一：要么把规则改成门外有可触发的机关（相应地调整“唯一”表述），要么让开门动作经由门内之人、预留工具或规则失效等新信息完成，并明示该信息的来源。",
+        "contract_refs": [],
+        "world_evidence": [],
+        "preserve": [
+          "铜门规则明文规定：唯一的开启机关位于内侧，外侧没有锁孔，也没有遥控装置。"
+        ]
+      }
+    ],
+    "not_checked": [
+      "只核对本次回读的世界资料，未覆盖整部作品或人物知识边界",
+      "没有可用于核对的世界资料，本次仅检查正文",
+      "第 1 章没有已确认 AI 参考资料，未检查角色知识边界"
+    ],
+    "managed_llm_steps": [
+      {
+        "step_name": "writing.semantic_review.chunk",
+        "novel_id": "b7ea82db-eee1-4770-b068-954bf2755080",
+        "profile_source": "project_snapshot",
+        "profile_summary": {
+          "provider_id": "deepseek",
+          "label": "DeepSeek",
+          "model": "deepseek-flash",
+          "default_model": "deepseek-flash",
+          "base_url_host": "api.deepseek.com",
+          "timeout": 1800,
+          "max_tokens": 8192,
+          "temperature": 0.1,
+          "top_p": null,
+          "api_key_configured": true,
+          "sources": {
+            "provider_id": "account",
+            "label": "account",
+            "base_url": "account",
+            "model": "account",
+            "timeout": "timeout_override",
+            "max_tokens": "account",
+            "temperature": "account",
+            "top_p": "account",
+            "extra": "account",
+            "creative_mode": "account",
+            "api_key": "account"
+          },
+          "extra_keys": []
+        },
+        "profile_hash": "fdd3c1ce3aca9faa8b9e6bc534bc100e87ddc7a6bee84116a008129797d50f9b"
+      }
+    ],
+    "mechanical_checks_can_sign_literary_pass": false,
+    "reviewer_separate_from_generator": true
+  },
+  "failure": null,
+  "fees": "not_estimated",
+  "human_review": "pending"
+}

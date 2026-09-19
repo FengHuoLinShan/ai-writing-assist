@@ -126,7 +126,7 @@ Markdown 故事显示、composer、并列的复制/重新生成按钮、其他�
 - 多作品 crossover、自动旅程升级、回退已开始旅程的剧情锚点；
 - 项目共享、公开发布、多人协作或公共作品库；
 - D&D 数值、固定 DM 身份、复杂文风/篇幅设置；
-- 通用实体抽取、矛盾审核、幕后承诺或自治/多 Agent 运行时。
+- 通用实体抽取、矛盾审核、幕后承诺或未注册的自治运行时。
 
 代码邻近的稳定约束、API 分组和任务语义见
 [`backend/modules/interaction/README.md`](../../backend/modules/interaction/README.md)。
@@ -154,3 +154,11 @@ RP 新运行 v2 使用显式的旅程 `web_search_enabled` 与冻结 SearXNG 后
 RP 正文使用 held 释放语义：审查前 SSE 不发 chunk，PASS 后一次释放，返修后 blocked 则仅显示安全错误与重试入口。
 审查消费生成器实际收到的完整消息，不再二次截断到 24K 字符；最新用户要求另作明确投影。
 详见 `backend/modules/interaction/README.md`。
+
+## 多角色演绎（ADR-0027）
+
+已登录且绑定冻结作品资料的旅程可选择实验 ensemble 模式。Project 构造并签名 v3 策略，
+成员共享当前 attempt 预算，旧快照保持旧模式。角色资料按 source revision/截止点投影，
+观察历史仅来自选中祖先的 `interaction_actor_state_revisions`，未知历史不能补成事实。
+正式 story 节点和角色状态同一事务提交；held 审查、取消、epoch/租约、看海停止仍走原状态机。
+不为匿名或无资料来源旅程创建该模式，也不向 RP 用户展示幕后调查面板。

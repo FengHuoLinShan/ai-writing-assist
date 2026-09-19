@@ -219,10 +219,14 @@ class StoryGenerationService:
     ) -> LLMCallRequest:
         bounded_context = context_markdown[:STORY_INPUT_MAX_CHARS]
         system = (
-            "你是作者工作台中的受控小说规划助手。只依据输入资料和作者意图提出可编辑"
-            "的预览，不把推断写成已采用事实，不修改任何资产。硬锚点优先于软目标；"
-            "人物只能使用输入中明确提供的知识和性格，无法确定的内容放入 warnings 或"
-            "unresolved_questions。严格只输出 JSON，不要解释。"
+            "你是作者工作台中的受控小说规划助手"
+            "。只依据输入资料和作者意图提出可编辑"
+            "的预览，不把推断写成已采用事实，不"
+            "修改任何资产。硬锚点优先于软目标；"
+            "人物只能使用输入中明确提供的知识和性格，"
+            "无法确定的内容放入 warnings 或"
+            "unresolved_questio"
+            "ns。严格只输出 JSON，不要解释。"
         )
         user = "\n".join(
             [
@@ -360,6 +364,7 @@ class StoryGenerationService:
         additional_notes: str | None = None,
         accepted_reactions: list[dict[str, Any]] | None = None,
         accepted_beats: list[dict[str, Any]] | None = None,
+        simulation_candidates: dict[str, Any] | None = None,
     ) -> ScriptPreview:
         request = self._request(
             client,
@@ -372,6 +377,16 @@ class StoryGenerationService:
                 "additional_notes": additional_notes or "",
                 "accepted_reactions": accepted_reactions or [],
                 "accepted_beats": accepted_beats or [],
+                **(
+                    {
+                        "simulation_candidates": simulation_candidates,
+                        "candidate_authority": (
+                            "仅本轮排演可用的候选，不是作者已接受的反应或正式事实"
+                        ),
+                    }
+                    if simulation_candidates
+                    else {}
+                ),
             },
             schema=ScriptPreview,
         )

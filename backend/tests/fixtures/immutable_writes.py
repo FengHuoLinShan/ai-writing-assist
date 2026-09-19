@@ -25,6 +25,8 @@ IMMUTABLE_TABLES = frozenset(
         "world_bible_page_revisions",
         "story_outline_revisions",
         "map_atlas_revisions",
+        "story_simulation_steps",
+        "interaction_actor_state_revisions",
     }
 )
 
@@ -54,9 +56,7 @@ def forbid_immutable_writes(session: AsyncSession) -> Iterator[ImmutableWriteRep
         if isinstance(statement, Update | Delete):
             table_name = statement.table.name
             if table_name in IMMUTABLE_TABLES:
-                report.violations.append(
-                    (type(statement).__name__, table_name)
-                )
+                report.violations.append((type(statement).__name__, table_name))
 
     event.listen(Session, "do_orm_execute", watch)
     try:

@@ -1,0 +1,65 @@
+{
+  "case_id": "case_04",
+  "path": "A",
+  "task_status": "pending",
+  "run_status": "pending",
+  "seconds": 0.15,
+  "provider_requests": 0,
+  "prompt_tokens": 0,
+  "completion_tokens": 0,
+  "output": {
+    "lifecycle": {
+      "reason": "handler_error",
+      "error_code": "task_failed",
+      "recovery_policy": "auto_requeue",
+      "recovery_required": false,
+      "transitions": [
+        {
+          "at": "2026-09-19T18:56:18.170164+00:00",
+          "from": "running",
+          "to": "pending",
+          "reason": "handler_error",
+          "error_code": "task_failed",
+          "attempt": 1
+        }
+      ]
+    },
+    "managed_llm_steps": [
+      {
+        "step_name": "writing.semantic_review.chunk",
+        "novel_id": "3f7fed6d-fb59-4571-b757-50b1b243077c",
+        "profile_source": "project_snapshot",
+        "profile_summary": {
+          "provider_id": "deepseek",
+          "label": "DeepSeek",
+          "model": "deepseek-flash",
+          "default_model": "deepseek-flash",
+          "base_url_host": "api.deepseek.com",
+          "timeout": 1800,
+          "max_tokens": 8192,
+          "temperature": 0.1,
+          "top_p": null,
+          "api_key_configured": true,
+          "sources": {
+            "provider_id": "account",
+            "label": "account",
+            "base_url": "account",
+            "model": "account",
+            "timeout": "timeout_override",
+            "max_tokens": "account",
+            "temperature": "account",
+            "top_p": "account",
+            "extra": "account",
+            "creative_mode": "account",
+            "api_key": "account"
+          },
+          "extra_keys": []
+        },
+        "profile_hash": "fdd3c1ce3aca9faa8b9e6bc534bc100e87ddc7a6bee84116a008129797d50f9b"
+      }
+    ]
+  },
+  "failure": null,
+  "fees": "not_estimated",
+  "human_review": "pending"
+}

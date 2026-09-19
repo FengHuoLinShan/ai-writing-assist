@@ -1,0 +1,296 @@
+{
+  "version": 1,
+  "synthetic": true,
+  "cases": [
+    {
+      "id": "case_01",
+      "family": "door",
+      "split": "development",
+      "input": {
+        "text": "铜门规则明文规定：唯一的开启机关位于内侧，外侧没有锁孔，也没有遥控装置。阿澄站在门外，从未进过门内，手中也没有工具。叙述者确认没有其他人在场。下一刻，她按下门外的开启机关，铜门依照原来的规则打开了。",
+        "goal": "检查这份正文中的明确矛盾；尊重不可靠叙述、人物有意违约和未揭示信息，证据不足时不要制造错误。"
+      },
+      "oracle": {
+        "major_issue": true,
+        "evidence_terms": [
+          "门外",
+          "机关"
+        ]
+      }
+    },
+    {
+      "id": "case_02",
+      "family": "coins",
+      "split": "development",
+      "input": {
+        "text": "盒中最初有五枚硬币。少年先取走两枚，又取走三枚。期间无人放入硬币，盒子也没有夹层。掌柜翻开盒子，叙述明确数出里面仍有五枚硬币。",
+        "goal": "检查这份正文中的明确矛盾；尊重不可靠叙述、人物有意违约和未揭示信息，证据不足时不要制造错误。"
+      },
+      "oracle": {
+        "major_issue": true,
+        "evidence_terms": [
+          "硬币",
+          "五"
+        ]
+      }
+    },
+    {
+      "id": "case_03",
+      "family": "unreliable",
+      "split": "development",
+      "input": {
+        "text": "门卫拍着胸口说：“昨夜没有任何人出入。”但读者此前已经看到他收下贿赂，让商贩溜进了城。阿澄尚不知此事，暂时相信门卫。门卫撒谎是作者有意安排的线索。",
+        "goal": "检查这份正文中的明确矛盾；尊重不可靠叙述、人物有意违约和未揭示信息，证据不足时不要制造错误。"
+      },
+      "oracle": {
+        "major_issue": false,
+        "evidence_terms": []
+      }
+    },
+    {
+      "id": "case_04",
+      "family": "thin",
+      "split": "development",
+      "input": {
+        "text": "风吹动蓝色旗帜。阿澄在路口停步，等待远方的钟声。这个片段尚未交代钟楼制度或城市地理。",
+        "goal": "检查这份正文中的明确矛盾；尊重不可靠叙述、人物有意违约和未揭示信息，证据不足时不要制造错误。"
+      },
+      "oracle": {
+        "major_issue": false,
+        "evidence_terms": []
+      }
+    },
+    {
+      "id": "case_05",
+      "family": "tide",
+      "split": "development",
+      "input": {
+        "text": "港口的潮门每天只在正午开放一次。当天清晨尚未到开门时间，值守人却称这是当天第二次按规定开放。叙述确认当天规则未变，也无人违规。",
+        "goal": "检查这份正文中的明确矛盾；尊重不可靠叙述、人物有意违约和未揭示信息，证据不足时不要制造错误。"
+      },
+      "oracle": {
+        "major_issue": true,
+        "evidence_terms": [
+          "正午",
+          "第二次"
+        ]
+      }
+    },
+    {
+      "id": "case_06",
+      "family": "letter",
+      "split": "development",
+      "input": {
+        "text": "信封一直封闭，唯一知道密码的是写信人。阿澄没有看过密码，也没收到任何传话。世界没有读心能力。她忽然准确说出密码，并宣称自己此前已经读过这封一直未拆的信。",
+        "goal": "检查这份正文中的明确矛盾；尊重不可靠叙述、人物有意违约和未揭示信息，证据不足时不要制造错误。"
+      },
+      "oracle": {
+        "major_issue": true,
+        "evidence_terms": [
+          "密码",
+          "信"
+        ]
+      }
+    },
+    {
+      "id": "case_07",
+      "family": "fog",
+      "split": "development",
+      "input": {
+        "text": "雾越来越浓。船长放慢速度，水手借助绳索确认彼此的位置。他们无法看见对岸，这让船长更加谨慎。",
+        "goal": "检查这份正文中的明确矛盾；尊重不可靠叙述、人物有意违约和未揭示信息，证据不足时不要制造错误。"
+      },
+      "oracle": {
+        "major_issue": false,
+        "evidence_terms": []
+      }
+    },
+    {
+      "id": "case_08",
+      "family": "theatre",
+      "split": "development",
+      "input": {
+        "text": "台上国王死去，观众惊呼。幕落后，饰演国王的演员起身卸妆。死亡属于剧中情节，演员并未真的死亡。",
+        "goal": "检查这份正文中的明确矛盾；尊重不可靠叙述、人物有意违约和未揭示信息，证据不足时不要制造错误。"
+      },
+      "oracle": {
+        "major_issue": false,
+        "evidence_terms": []
+      }
+    },
+    {
+      "id": "case_09",
+      "family": "heir",
+      "split": "development",
+      "input": {
+        "text": "王位继承只允许长女继承，故事明确没有例外。君王的长女仍在世。长子按照这条没有例外的规定合法继承了王位。",
+        "goal": "检查这份正文中的明确矛盾；尊重不可靠叙述、人物有意违约和未揭示信息，证据不足时不要制造错误。"
+      },
+      "oracle": {
+        "major_issue": true,
+        "evidence_terms": [
+          "长女",
+          "长子"
+        ]
+      }
+    },
+    {
+      "id": "case_10",
+      "family": "train",
+      "split": "development",
+      "input": {
+        "text": "列车在当日十点开车，十一点抵达，时区和时钟一致。叙述者接着说，这趟列车抵达的时间比出发早两个小时。",
+        "goal": "检查这份正文中的明确矛盾；尊重不可靠叙述、人物有意违约和未揭示信息，证据不足时不要制造错误。"
+      },
+      "oracle": {
+        "major_issue": true,
+        "evidence_terms": [
+          "时间",
+          "小时"
+        ]
+      }
+    },
+    {
+      "id": "case_11",
+      "family": "rumour",
+      "split": "development",
+      "input": {
+        "text": "村民传说井底住着龙。调查者只找到几块鱼骨，没有下结论。传说是否真实仍是故事刻意保留的疑问。",
+        "goal": "检查这份正文中的明确矛盾；尊重不可靠叙述、人物有意违约和未揭示信息，证据不足时不要制造错误。"
+      },
+      "oracle": {
+        "major_issue": false,
+        "evidence_terms": []
+      }
+    },
+    {
+      "id": "case_12",
+      "family": "sacrifice",
+      "split": "development",
+      "input": {
+        "text": "守卫曾许诺绝不离岗。洪水袭来，为救困在街上的孩子，他明知违背承诺仍离开岗亭，并承担处罚。",
+        "goal": "检查这份正文中的明确矛盾；尊重不可靠叙述、人物有意违约和未揭示信息，证据不足时不要制造错误。"
+      },
+      "oracle": {
+        "major_issue": false,
+        "evidence_terms": []
+      }
+    },
+    {
+      "id": "case_13",
+      "family": "lantern",
+      "split": "holdout",
+      "input": {
+        "text": "灯油耗尽之后这盏普通油灯必定熄灭，没有其他能源。油已完全耗尽，灯芯也没有残油。它没有任何变化地继续燃烧了一整天。",
+        "goal": "检查这份正文中的明确矛盾；尊重不可靠叙述、人物有意违约和未揭示信息，证据不足时不要制造错误。"
+      },
+      "oracle": {
+        "major_issue": true,
+        "evidence_terms": [
+          "油",
+          "燃烧"
+        ]
+      }
+    },
+    {
+      "id": "case_14",
+      "family": "bridge",
+      "split": "holdout",
+      "input": {
+        "text": "整座桥只有一条通道，必须经过有人值守的关卡。阿澄从桥头走到桥尾，沿途没有隐藏道路、飞行或其他例外。叙述确认她从未经过关卡。",
+        "goal": "检查这份正文中的明确矛盾；尊重不可靠叙述、人物有意违约和未揭示信息，证据不足时不要制造错误。"
+      },
+      "oracle": {
+        "major_issue": true,
+        "evidence_terms": [
+          "关卡",
+          "通道"
+        ]
+      }
+    },
+    {
+      "id": "case_15",
+      "family": "disguise",
+      "split": "holdout",
+      "input": {
+        "text": "来客自称林先生，随后揭开面具，承认这是掩护身份，真名为陈望。前后不同称呼是他主动使用的化名。",
+        "goal": "检查这份正文中的明确矛盾；尊重不可靠叙述、人物有意违约和未揭示信息，证据不足时不要制造错误。"
+      },
+      "oracle": {
+        "major_issue": false,
+        "evidence_terms": []
+      }
+    },
+    {
+      "id": "case_16",
+      "family": "dream",
+      "split": "holdout",
+      "input": {
+        "text": "阿澄梦见自己飞过城墙。醒来后她仍躺在床上，世界中没有人具备飞行能力。叙述始终明确那只是梦。",
+        "goal": "检查这份正文中的明确矛盾；尊重不可靠叙述、人物有意违约和未揭示信息，证据不足时不要制造错误。"
+      },
+      "oracle": {
+        "major_issue": false,
+        "evidence_terms": []
+      }
+    },
+    {
+      "id": "case_17",
+      "family": "vessel",
+      "split": "holdout",
+      "input": {
+        "text": "两只量杯分别装满三升和四升水。水全部倒入空桶，没有蒸发或洒漏。最后的准确读数是十升，刻度没有故障。",
+        "goal": "检查这份正文中的明确矛盾；尊重不可靠叙述、人物有意违约和未揭示信息，证据不足时不要制造错误。"
+      },
+      "oracle": {
+        "major_issue": true,
+        "evidence_terms": [
+          "三升",
+          "十升"
+        ]
+      }
+    },
+    {
+      "id": "case_18",
+      "family": "oath",
+      "split": "holdout",
+      "input": {
+        "text": "本城契约规定违誓者立即失去声音，没有豁免。阿澄在清醒状态明确违誓，规则正常生效。她的声音毫无变化，继续高声歌唱。",
+        "goal": "检查这份正文中的明确矛盾；尊重不可靠叙述、人物有意违约和未揭示信息，证据不足时不要制造错误。"
+      },
+      "oracle": {
+        "major_issue": true,
+        "evidence_terms": [
+          "声音",
+          "违誓"
+        ]
+      }
+    },
+    {
+      "id": "case_19",
+      "family": "memory",
+      "split": "holdout",
+      "input": {
+        "text": "老人把过去的街名记错了。孙女拿出旧地图纠正他，老人接受纠正。他的记忆失误不代表地图或世界设定发生了变化。",
+        "goal": "检查这份正文中的明确矛盾；尊重不可靠叙述、人物有意违约和未揭示信息，证据不足时不要制造错误。"
+      },
+      "oracle": {
+        "major_issue": false,
+        "evidence_terms": []
+      }
+    },
+    {
+      "id": "case_20",
+      "family": "choice",
+      "split": "holdout",
+      "input": {
+        "text": "阿澄可以向东去港口，也可以向西去山村。她犹豫片刻后选择向东。这是一项未被任何规则禁止的个人决定。",
+        "goal": "检查这份正文中的明确矛盾；尊重不可靠叙述、人物有意违约和未揭示信息，证据不足时不要制造错误。"
+      },
+      "oracle": {
+        "major_issue": false,
+        "evidence_terms": []
+      }
+    }
+  ]
+}

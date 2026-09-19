@@ -662,3 +662,7 @@ Imports 的 review_resolution 通过本域读取完整场景/章节并保存 Con
 ## Knowledge 子包
 
 `knowledge/` 拥有 capability 注册表、scope/director/audit 版本化契约、组级治理和采用门禁。导演只能缩小生成可见集；audit 绑定输出 hash，语义返修最多一次，`unverifiable/not_checked` 失败关闭。
+
+ADR-0027 协作通过原 confirmation 和调用者范围重新物化资料。作者调查输出继承全部 source keys；
+角色回合与盲读分别使用人物/读者投影，标题、后文与作者目标不能回流读者阶段。
+`import_review_resolution` 只对作者物化请求的疑难组，不能由一个组展开其他组或扩大采用授权。

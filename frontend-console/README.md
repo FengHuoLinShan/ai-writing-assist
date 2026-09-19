@@ -613,3 +613,11 @@ World 待处理页复用 ImportReviewResolutionPanel：一次授权、按问题�
 CSS、主题、组件等前端改动 PR 及 main 运行完整集合；后端相关 PR 保留 smoke。截图目录保留为历史资料，无平台基线门禁。
 
 项目助手功能另由 `test:e2e:assistant` 使用已有的合成模型 harness 验证（专用库名含 `agent_e2e`）；普通 functional 不加载此用例。CI 两者都运行，仍无付费模型调用。
+
+## 有限协作工作流
+
+深度审稿、World 压力测试、修订方案和导入疑难组从原工作区进入项目助手。助手保留本次
+范围/保留项/提交标识，轮询展示实际完成与遗漏；方案选择后仍需确认具体差异。
+Scene 排演显示回合、观察视角和分叉；RP 多角色开关只改变后续 attempt。
+相关接口均经 `api.js` 与 Vue bridge，不读取私有 checkpoint。新能力默认关闭，查询
+capabilities 后按可用性启用；报告留在原领域并允许返回处理。

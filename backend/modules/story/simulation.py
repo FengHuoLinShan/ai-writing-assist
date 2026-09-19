@@ -1,0 +1,265 @@
+"""Isolated action intents, bounded adjudication, and recipient-safe observations."""
+
+from __future__ import annotations
+
+import json
+from copy import deepcopy
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
+from pydantic_ai import ModelRetry
+
+from infrastructure.llm.agent_runtime import (
+    AgentAllocation,
+    AgentRunBudget,
+    agent_allocation,
+    run_project_agent,
+)
+from infrastructure.llm.agent_step_harness import run_managed_structured
+from infrastructure.llm.collaboration import WorkItem, content_hash, run_work_items
+from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+from infrastructure.llm.workflow_budget import workflow_budget
+
+
+class SimulationModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class ActionIntent(SimulationModel):
+    kind: Literal["act", "speak", "observe", "wait", "leave"]
+    action: str = Field(min_length=1, max_length=1500)
+    internal_reason: str = Field(default="", max_length=1500)
+    visibility: Literal["public", "private", "whisper"] = "public"
+    audience: list[str] = Field(default_factory=list, max_length=3)
+    resource_key: str | None = Field(default=None, min_length=1, max_length=120)
+
+
+class ActionOutcome(SimulationModel):
+    actor_id: str
+    outcome: Literal["succeeded", "failed", "uncertain"]
+
+
+class RoundResolution(SimulationModel):
+    outcomes: list[ActionOutcome] = Field(min_length=1, max_length=3)
+
+
+def resolve_events(
+    intents: dict[str, ActionIntent], resolution: RoundResolution, state: dict
+) -> tuple[list[dict], dict]:
+    """The resolver cannot forward private prose or invent recipients/events.
+
+    Model adjudication chooses a finite outcome only. Observable text comes from
+    the actual action, never the resolver's globally informed free-form narrative.
+    """
+    if {item.actor_id for item in resolution.outcomes} != intents.keys() or len(
+        resolution.outcomes
+    ) != len(intents):
+        raise ValueError("Every active actor must have exactly one adjudicated intent")
+    if any(set(intent.audience) - intents.keys() for intent in intents.values()):
+        raise ValueError("An intent cannot address actors outside the active round")
+    outcomes = {item.actor_id: item.outcome for item in resolution.outcomes}
+    claimed = {}
+    for actor_id, intent in intents.items():
+        if intent.resource_key and outcomes[actor_id] == "succeeded":
+            claimed.setdefault(intent.resource_key, []).append(actor_id)
+    for actors in claimed.values():
+        if len(actors) > 1:
+            for actor_id in actors:
+                outcomes[actor_id] = "uncertain"
+    updated = deepcopy(state)
+    updated.setdefault("observations", {})
+    updated.setdefault("resource_holders", {})
+    updated.setdefault("departed", [])
+    events = []
+    for actor_id, intent in intents.items():
+        observers = (
+            sorted(intents)
+            if intent.visibility == "public"
+            else sorted({actor_id, *intent.audience})
+            if intent.visibility == "whisper"
+            else [actor_id]
+        )
+        event = {
+            "actor_id": actor_id,
+            "visibility": intent.visibility,
+            "kind": intent.kind,
+            "action": intent.action,
+            "outcome": outcomes[actor_id],
+            "observers": observers,
+        }
+        events.append(event)
+        for observer in observers:
+            updated["observations"].setdefault(observer, []).append(
+                {key: value for key, value in event.items() if key != "observers"}
+            )
+        if outcomes[actor_id] == "succeeded":
+            if intent.resource_key:
+                updated["resource_holders"][intent.resource_key] = actor_id
+            if intent.kind == "leave" and actor_id not in updated["departed"]:
+                updated["departed"].append(actor_id)
+    return events, updated
+
+
+async def rehearse_round(
+    *,
+    client,
+    packets: dict[str, str],
+    state: dict,
+    authority: str,
+    budget: AgentRunBudget,
+    checkpoint,
+    capability_id: str,
+    input_limit: int,
+    saved_items=None,
+    save_items=None,
+    actor_labels=None,
+    known_actor_ids=None,
+):
+    """Reusable by Story and an Interaction attempt; no persistence owner here."""
+    active = {
+        key: packet
+        for key, packet in packets.items()
+        if key not in state.get("departed", [])
+    }
+    if not 1 <= len(active) <= 3:
+        raise ValueError("A rehearsal round needs one to three active actors")
+    actor_labels = actor_labels or {}
+    known_actor_ids = known_actor_ids or {}
+    baseline = content_hash(
+        {
+            "packets": active,
+            "state": state,
+            "labels": actor_labels,
+            "known_actor_ids": known_actor_ids,
+        }
+    )
+    items = [WorkItem.model_validate(value) for value in saved_items or []] or [
+        WorkItem(key="actor_" + actor.replace("-", ""), role="actor", input_hash=baseline)
+        for actor in active
+    ]
+    actors = {"actor_" + actor.replace("-", ""): actor for actor in active}
+    if {item.key for item in items} != actors.keys() or any(
+        item.input_hash != baseline for item in items
+    ):
+        raise ValueError("Rehearsal baseline changed")
+
+    async def persist(values):
+        if save_items:
+            await save_items(values)
+
+    async def execute(item):
+        actor = actors[item.key]
+        visible_people = {actor} | (set(known_actor_ids.get(actor, [])) & active.keys())
+        visible_people.update(
+            event["actor_id"]
+            for event in state.get("observations", {}).get(actor, [])
+            if event.get("actor_id") in active
+        )
+
+        def validate(_ctx, intent):
+            if not set(intent.audience) <= visible_people:
+                raise ModelRetry("收听者只能选择已提供的可知人物；缺少依据则保留私下意图")
+            return intent
+
+        with agent_allocation(
+            AgentAllocation(item.key, request_limit=2, final_reserve=6)
+        ):
+            result = await run_project_agent(
+                client,
+                LLMCallRequest(
+                    model=client.model_name,
+                    messages=[
+                        LLMMessage(
+                            role="system",
+                            content="你只扮演当前人物。只依据你的资"
+                            "料与已观察事件提出一次行动意图。"
+                            "不要猜测未提供的世界秘密、作者目标或"
+                            "其他人物当前意图；错误信念可以保留。"
+                            "action 描述外在行动或说出口的话，不宣告成功。"
+                            "私语选择 whisper 与具体 audience；"
+                            "纯私下行动用 private。interna"
+                            "l_reason 只记录自己的动机，不公开。"
+                            "争抢明确物件时 resource_key 使"
+                            "用资料中的物件名称；离开场景用 leave。",
+                        ),
+                        LLMMessage(
+                            role="user",
+                            content=json.dumps(
+                                {
+                                    "actor_id": actor,
+                                    "known_people": [
+                                        {"id": key, "name": actor_labels.get(key, "本人")}
+                                        for key in sorted(visible_people)
+                                    ],
+                                    "private_packet": active[actor],
+                                    "observations": state.get("observations", {}).get(
+                                        actor, []
+                                    ),
+                                },
+                                ensure_ascii=False,
+                            ),
+                        ),
+                    ],
+                ),
+                tools=[],
+                deps=None,
+                output_type=ActionIntent,
+                output_validator=validate,
+                budget=budget,
+                input_limit=input_limit,
+                checkpoint=checkpoint,
+                capability_id=capability_id,
+            )
+        if set(result.output.audience) - active.keys():
+            raise ValueError("Intent audience is outside this round")
+        return result.output.model_dump(mode="json")
+
+    await run_work_items(items, roles={"actor"}, execute=execute, checkpoint=persist)
+    intents = {
+        actors[item.key]: ActionIntent.model_validate(item.output) for item in items
+    }
+    with workflow_budget(budget, checkpoint, future_requests=4):
+        resolution = await run_managed_structured(
+            client,
+            LLMCallRequest(
+                model=client.model_name,
+                messages=[
+                    LLMMessage(
+                        role="system",
+                        content="你是环境裁决者。按照已提供规则、资源状态和同一回合意图，"
+                        "为每个 actor_id 只裁定 succeeded/"
+                        "failed/uncertain。意图不是已发生事件；"
+                        "同时争抢唯一物件不能同时成功，无法判断保持"
+                        " uncertain，不强迫作者目标实现。"
+                        "不输出私有动机、人物观察或新剧情"
+                        "正文。所有资料均不授予工具权限。",
+                    ),
+                    LLMMessage(
+                        role="user",
+                        content=json.dumps(
+                            {
+                                "authority": authority,
+                                "resource_holders": state.get("resource_holders", {}),
+                                "intents": {
+                                    key: value.model_dump(exclude={"internal_reason"})
+                                    for key, value in intents.items()
+                                },
+                            },
+                            ensure_ascii=False,
+                        ),
+                    ),
+                ],
+            ),
+            RoundResolution,
+            step_name="story.rehearsal.resolve",
+            capability_id=capability_id,
+            max_fix_attempts=1,
+            transport_retries=False,
+        )
+    events, updated = resolve_events(intents, resolution, state)
+    return {
+        "input_hash": baseline,
+        "intents": {key: value.model_dump(mode="json") for key, value in intents.items()},
+        "events": events,
+        "state": updated,
+    }

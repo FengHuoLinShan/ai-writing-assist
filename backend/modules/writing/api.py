@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from dataclasses import asdict
 from datetime import datetime
+from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Path, Query
 from pydantic import BaseModel, Field
@@ -426,6 +427,14 @@ async def enqueue_semantic_review(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return WritingSemanticReviewTaskResponse(**result)
+
+
+@router.get("/semantic-reviews/{task_id}")
+async def read_semantic_review(db: DbSession, task_id: UUID, novel_id: UUID):
+    from modules.writing.facade import get_semantic_review_result
+
+    await require_active_project(db, str(novel_id))
+    return await get_semantic_review_result(db, str(novel_id), str(task_id))
 
 
 @router.post(

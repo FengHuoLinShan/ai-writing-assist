@@ -87,9 +87,7 @@ def test_order_rows_for_insert_rejects_cycles() -> None:
         {"id": "y", "base_revision_id": "x", "restored_from_revision_id": None},
     ]
     with pytest.raises(RuntimeError, match="cycle"):
-        DemoProjectCopyService._order_rows_for_insert(
-            Base.metadata.tables[OUTLINE], rows
-        )
+        DemoProjectCopyService._order_rows_for_insert(Base.metadata.tables[OUTLINE], rows)
 
 
 def test_order_rows_for_insert_allows_multiple_roots_and_optional_parents() -> None:
@@ -192,3 +190,19 @@ async def test_immutable_write_guard_allows_pointer_updates(db_session) -> None:
             .values(current_revision_id=None)
         )
         guard.assert_clean()
+
+
+@pytest.mark.parametrize(
+    "table_name", ["story_simulation_steps", "interaction_actor_state_revisions"]
+)
+async def test_team_history_immutable_write_guard(db_session, table_name):
+    from sqlalchemy import delete, update
+
+    from tests.fixtures.immutable_writes import forbid_immutable_writes
+
+    table = Base.metadata.tables[table_name]
+    for statement in (update(table).values(state_json={}), delete(table)):
+        with forbid_immutable_writes(db_session) as guard:
+            await db_session.execute(statement.where(table.c.novel_id == uuid.uuid4()))
+        with pytest.raises(AssertionError, match=table_name):
+            guard.assert_clean()

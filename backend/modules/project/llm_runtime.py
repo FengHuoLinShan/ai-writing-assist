@@ -89,6 +89,7 @@ async def build_project_llm_execution_snapshot(
     novel_id: str,
     *,
     web_search_enabled: bool = False,
+    interaction_ensemble: bool = False,
 ) -> dict[str, Any]:
     """Freeze a secret-free project runtime profile for a resumable task.
 
@@ -132,16 +133,27 @@ async def build_project_llm_execution_snapshot(
             inherited_llm_max_tokens=profile.max_tokens,
         ),
     }
-    if get_settings().interaction_agent_enabled:
+    if get_settings().interaction_agent_enabled or interaction_ensemble:
         context = await _service.get_project_context(db, novel_id, project_kind=None)
         if context is not None and context.project_kind == "interaction":
             from infrastructure.llm.web_search import search_snapshot
 
+            if interaction_ensemble and not get_settings().interaction_team_enabled:
+                raise ProjectLLMConfigurationError("RP collaboration is not enabled")
             payload["agent_runtime"] = {
-                "version": "2",
+                "version": "3" if interaction_ensemble else "2",
                 "mode": "rp",
                 "web_search": search_snapshot() if web_search_enabled else None,
+                **(
+                    {"collaboration": {"protocol": "team_v1", "max_actors": 3}}
+                    if interaction_ensemble
+                    else {}
+                ),
             }
+        elif interaction_ensemble:
+            raise ProjectLLMConfigurationError(
+                "RP collaboration needs an interaction project"
+            )
     payload["profile_hash"] = _stable_hash(payload)
     return payload
 

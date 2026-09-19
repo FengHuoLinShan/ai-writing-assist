@@ -1199,3 +1199,13 @@ resolve_redundant_review_alias、prepare_review_resolution_decision、apply_revi
 ## 世界生成与地图复核
 
 生成中心、Ask World、简介、对象融合、别名/关系任务及地图结构/图集 brief 均保存组级回执。建议与采用包确认时要求 passed；blocked 对话/检查不返回生成正文或写诊断。地图像素仍不是事实来源。
+
+## 世界规则压力测试（ADR-0027）
+
+Assistant 的独立调查交给 World `review_team_stress` 复核。`world_stress_report.v1` 借原建议队列
+保存不可采用的情境报告，分清有效反例、无效反例、不确定与未发现；知识审核缺失/失败不能当通过。
+作者可标记有意保留、拒绝、继续查证或已解决。定向重测必须沿用原目标与资料许可，生成新报告，
+保留历史情境和作者决定；未重测项明确遗漏。设定修订仍是原领域批次提案，不能采用报告直接写正史。
+
+压力报告独立读取时复验全部 evidence_refs 的当前正文/目标/confirmation/场景资料，不仅比较
+主规则；任一关联来源变化都标为历史过期，原情境内容保留供对照。

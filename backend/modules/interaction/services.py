@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.config import get_settings
 from core.errors import ConflictError, NotFoundError, ValidationError
 from infrastructure.llm.schemas import AI_RUN_ENVELOPE_KEY
 from infrastructure.tasks.facade import (
@@ -269,6 +270,7 @@ class InteractionService:
             see_sea_last_heartbeat_at=now if data.see_sea_enabled else None,
             action_options_enabled=data.action_options_enabled,
             web_search_enabled=data.web_search_enabled,
+            generation_mode=data.generation_mode,
             selection_epoch=0,
             overview_epoch=0,
             source_revision_id=source_binding[0].id if source_binding else None,
@@ -309,6 +311,11 @@ class InteractionService:
                 db,
                 str(journey.novel_id),
                 **({"web_search_enabled": True} if journey.web_search_enabled else {}),
+                **(
+                    {"interaction_ensemble": True}
+                    if journey.generation_mode == "ensemble"
+                    else {}
+                ),
             )
         )
         attempt = await self._create_attempt(
@@ -445,6 +452,12 @@ class InteractionService:
                     see_sea_enabled=journey.see_sea_enabled,
                     action_options_enabled=journey.action_options_enabled,
                     web_search_enabled=journey.web_search_enabled,
+                    generation_mode=journey.generation_mode,
+                    ensemble_available=bool(
+                        get_settings().interaction_team_enabled
+                        and journey.source_revision_id
+                        and not is_anonymous_rp_principal()
+                    ),
                     selection_epoch=journey.selection_epoch,
                     latest_activity_at=journey.latest_activity_at,
                     current_excerpt=current[:240] if current else None,
@@ -523,7 +536,7 @@ class InteractionService:
 
         def available(item: dict | None) -> bool:
             return bool(
-                item and self._sources._reference_visible(target, item, target_anchor)
+                item and self._sources.reference_visible(target, item, target_anchor)
             )
 
         def remap(keys: list[str], *, required: bool) -> list[str]:
@@ -599,7 +612,7 @@ class InteractionService:
         elif key not in references:
             raise ValidationError("所选作品资料已不可用")
         elif data.action == "pin":
-            if not self._sources._reference_visible(
+            if not self._sources.reference_visible(
                 revision,
                 references[key],
                 journey.source_anchor or {},
@@ -1539,6 +1552,7 @@ class InteractionService:
         action_options_enabled: bool | None,
         expected_selection_epoch: int,
         web_search_enabled: bool | None = None,
+        generation_mode: str | None = None,
     ) -> InteractionMutationResponse:
         if is_anonymous_rp_principal() and (
             see_sea_enabled is True or web_search_enabled is True
@@ -1546,6 +1560,17 @@ class InteractionService:
             raise ValidationError("匿名体验不支持持续观看或联网")
         journey = await self._active_journey_for_update(db, journey_id)
         self._check_epoch(journey, expected_selection_epoch)
+        if generation_mode is not None:
+            if generation_mode not in {"standard", "ensemble"}:
+                raise ValidationError("不支持的演绎方式")
+            if generation_mode == "ensemble":
+                if (
+                    not get_settings().interaction_team_enabled
+                    or not journey.source_revision_id
+                    or is_anonymous_rp_principal()
+                ):
+                    raise ValidationError("多角色演绎尚未开启，或尚未选择作品资料")
+            journey.generation_mode = generation_mode
         if see_sea_enabled is not None:
             journey.see_sea_enabled = see_sea_enabled
             journey.see_sea_last_heartbeat_at = (
@@ -2292,6 +2317,11 @@ class InteractionService:
                 db,
                 str(journey.novel_id),
                 **({"web_search_enabled": True} if journey.web_search_enabled else {}),
+                **(
+                    {"interaction_ensemble": True}
+                    if journey.generation_mode == "ensemble"
+                    else {}
+                ),
             )
         )
         return await self._create_attempt(
@@ -2317,6 +2347,15 @@ class InteractionService:
         llm_execution_snapshot: dict,
         reference_node_ids: list[uuid.UUID] | None = None,
     ) -> InteractionGenerationAttempt:
+        if journey.generation_mode == "ensemble":
+            if (
+                not get_settings().interaction_team_enabled
+                or not journey.source_revision_id
+                or is_anonymous_rp_principal()
+            ):
+                raise ValidationError("多角色演绎需要已启用的功能与冻结作品资料")
+            if (llm_execution_snapshot.get("agent_runtime") or {}).get("version") != "3":
+                raise ValidationError("多角色演绎没有有效的项目执行快照")
         attempt = InteractionGenerationAttempt(
             novel_id=journey.novel_id,
             journey_id=journey.id,
@@ -2438,6 +2477,11 @@ class InteractionService:
                 db,
                 str(journey.novel_id),
                 **({"web_search_enabled": True} if journey.web_search_enabled else {}),
+                **(
+                    {"interaction_ensemble": True}
+                    if journey.generation_mode == "ensemble"
+                    else {}
+                ),
             )
         )
         return await self._create_attempt(
@@ -2723,6 +2767,12 @@ class InteractionService:
             see_sea_enabled=journey.see_sea_enabled,
             action_options_enabled=journey.action_options_enabled,
             web_search_enabled=journey.web_search_enabled,
+            generation_mode=journey.generation_mode,
+            ensemble_available=bool(
+                get_settings().interaction_team_enabled
+                and journey.source_revision_id
+                and not is_anonymous_rp_principal()
+            ),
             selection_epoch=journey.selection_epoch,
             overview_epoch=journey.overview_epoch,
             selected_leaf_node_id=(

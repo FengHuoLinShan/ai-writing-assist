@@ -1436,6 +1436,27 @@ class NovelEvidenceService:
 
     async def _visible_target(self, db, *, novel_id, target, content_mode, visibility):
         warnings: list[str] = []
+        if target.target_type == "import_review_resolution":
+            if visibility.mode != "author":
+                return None, ["导入疑难结果仅供作者审阅"]
+            from modules.imports.facade import inspect_review_resolution
+
+            result = await inspect_review_resolution(
+                db,
+                novel_id=novel_id,
+                task_id=target.target_id,
+                cutoff_chapter=visibility.cutoff_chapter,
+            )
+            if target.target_path:
+                groups = [
+                    item
+                    for item in result.get("summary", {}).get("groups", [])
+                    if (item.get("group_key") or item.get("key")) == target.target_path
+                ]
+                if not groups:
+                    return None, ["原疑难组已变化或已由作者处理"]
+                result = {**result, "summary": {"groups": groups}}
+            return result, ["疑难组是待核对提案，作者裁定仍由导入领域处理"]
         if target.target_type == "writing_candidate":
             if visibility.mode != "author":
                 return None, ["正文候选仅供作者审阅，不是已采用故事"]

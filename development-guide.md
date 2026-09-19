@@ -371,3 +371,18 @@ API 与 worker 的进程环境设置 `WEB_SEARCH_URL=http://127.0.0.1:8888`。�
 ### 知识治理开发门禁
 
 新增生产 LLM/Agent/stream/image 调用时必须在 `tools/prompt_contracts/capability_bindings.py` 绑定 capability，或声明不产出事实的基础设施豁免。使用 `modules.evidence.contracts` 的公共治理出口，不跨模块导入 compilation 实现；改动后运行 `python -m tools.prompt_contracts check`。
+
+### 有限协作实验开关（ADR-0027）
+
+先在独立、明确可丢弃的测试库应用 `20260920_story_simulation`、`20260920_interaction_ensemble`；
+它们只增加历史表、复合约束和 RP 模式字段，不重建已有库。
+`ASSISTANT_DEEP_REVIEW_ENABLED`、`ASSISTANT_WORLD_STRESS_ENABLED`、
+`ASSISTANT_CROSS_REVISION_ENABLED`、`ASSISTANT_BLIND_READER_ENABLED`、
+`ASSISTANT_RESEARCH_ENABLED`、`ASSISTANT_IMPORT_CONSULT_ENABLED`、
+`STORY_REHEARSAL_ENABLED`、`INTERACTION_TEAM_ENABLED` 均默认 false。作者调查还需
+ASSISTANT_ENABLED 和当前账户已验证模型；研究另需本次明确联网授权。
+
+逐蓝图完成工程与独立质量准入后才能开启。普通关闭阻止新运行、新方案物化及修改后的新复核，历史仍可读取；已物化批次仍可确认，复核关闭时明确返回未检查。紧急停用
+沿原任务取消，保留未知用量和已完成回合。回退应用时保留新增表/列，不执行破坏性 downgrade。
+两条迁移提供对称 downgrade 并清理触发器函数；仅在已授权的可丢弃库演练，不能作为保留历史的应用回退步骤。
+无真实质量证据时保持实验关闭；发布仍需独立授权及固定 origin/main SHA。

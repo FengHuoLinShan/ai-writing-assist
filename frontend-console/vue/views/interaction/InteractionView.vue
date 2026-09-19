@@ -407,6 +407,8 @@ function applyModeJourney(nextJourney, expectedEpoch) {
     "see_sea_enabled",
     "action_options_enabled",
     "web_search_enabled",
+    "generation_mode",
+    "ensemble_available",
   ])
   return false
 }
@@ -1558,6 +1560,15 @@ async function toggleMode(field) {
   }
 }
 
+async function setGenerationMode(event) {
+  const expected = journey.value?.selection_epoch
+  if (!journey.value || isGenerating.value) return
+  try {
+    const result = await getApi().interactions.updateModes(journeyId.value, { generation_mode: event.target.value, expected_selection_epoch: expected })
+    applyModeJourney(result.journey, expected)
+  } catch (cause) { getToast()(cause.message || "演绎方式暂不可更改。", "error"); event.target.value = journey.value.generation_mode || "standard" }
+}
+
 function requestModeToggle(field) {
   if (
     field === "see_sea_enabled"
@@ -2314,6 +2325,10 @@ onBeforeUnmount(() => {
           :aria-pressed="journey.action_options_enabled"
           @click="requestModeToggle('action_options_enabled')"
         >行动选项</button>
+        <details v-if="journey.source && (journey.ensemble_available || journey.generation_mode === 'ensemble')" class="rp-public-research">
+          <summary>演绎方式</summary><p>多角色演绎会增加等待和模型用量，从下一轮生效。仅使用当前作品进度和选中发展，旧故事保持原样。</p>
+          <label>选择方式 <select :value="journey.generation_mode || 'standard'" :disabled="isGenerating" @change="setGenerationMode"><option value="standard">普通演绎</option><option value="ensemble" :disabled="!journey.ensemble_available">多角色演绎（实验）</option></select></label>
+        </details>
         <details class="rp-public-research">
           <summary>现实资料查证</summary>
           <p>仅向本站搜索服务及上游搜索网站发送通用事实问题，不发送故事原文，也不查原作剧情。开启后从下一轮生效；关闭后停止新查证，已查资料保留。</p>
