@@ -752,6 +752,22 @@ class RevertInputV1(AuthorityValue):
     compatibility_judgment: RevertCompatibilityJudgmentV1
 
 
+class DemoImportInputV1(AuthorityValue):
+    """Admit one system-scoped import of a demo project's world manifest.
+
+    The destination owner explicitly authorized the copy; the source head is
+    recorded as provenance only and is never validated against the source.
+    """
+
+    kind: Literal["demo_import"] = "demo_import"
+    version: Literal[1] = 1
+    novel_id: uuid.UUID
+    source_project_id: uuid.UUID
+    source_demo_version: Identifier
+    source_head_revision_id: uuid.UUID
+    source_head_manifest_digest: Sha256
+
+
 class FamilyCutoverInputV1(AuthorityValue):
     kind: Literal["family_cutover"] = "family_cutover"
     version: Literal[1] = 1
@@ -765,6 +781,7 @@ type AdmissionInputValueV1 = Annotated[
     | PagePublishInputV1
     | AssertBatchInputV1
     | RevertInputV1
+    | DemoImportInputV1
     | FamilyCutoverInputV1,
     Field(discriminator="kind"),
 ]
@@ -831,6 +848,7 @@ class CanonAdmissionReceiptV1(AuthorityValue):
         "assert_batch",
         "revert",
         "family_cutover",
+        "demo_import",
     ]
     affected_families: list[
         Literal["name", "typed_scalar", "binary_relation", "event_time", "belief"]
@@ -858,6 +876,7 @@ class CanonAdmissionReceiptV1(AuthorityValue):
             "assert_batch": "assert_batch",
             "revert": "revert",
             "family_cutover": "family_cutover",
+            "demo_import": "demo_import",
         }
         if self.action != action_by_input[self.admission_input.kind]:
             raise ValueError("receipt action does not match admission input")

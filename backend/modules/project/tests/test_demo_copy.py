@@ -22,12 +22,31 @@ from modules.project.schemas import ProjectCreate
 from modules.project.services import ProjectService
 from modules.story.continuity.models import MemoryEvent
 from modules.story.outline_state.models import StoryOutlineHead, StoryOutlineRevision
+from modules.world.authority import (
+    CanonManifestV1,
+    ExactResourceRevisionRef,
+    ResourceRef,
+    bootstrap_decision_id,
+    canonical_digest,
+    resource_revision_digest,
+)
 from modules.world.map_atlas_models import MapAtlasNode, MapAtlasPage, MapAtlasRun
 from modules.world.map_atlas_storage import page_object_key
 from modules.world.models import CoreEntity, EntityRelation
-from modules.world.models.authority import WorldCanonHead, WorldCanonRevision
+from modules.world.models.authority import (
+    EntityProfileTemplateRevision,
+    WorldCanonHead,
+    WorldCanonRevision,
+)
+from modules.world.models.profiles import EntityProfileTemplate
+from modules.world.services.worldbuilding.world_authority_service import (
+    WorldAuthorityService,
+)
 from modules.world.world_object_images import CHARACTER_IMAGE_LIMIT, image_object_key
 from modules.writing.models import WritingDraft
+
+_FAMILIES = ("name", "typed_scalar", "binary_relation", "event_time", "belief")
+_TEMPLATE_SNAPSHOT = {"fields": [], "title": "人物模板"}
 
 
 def _principal(
@@ -152,15 +171,57 @@ async def _seed_source(db: AsyncSession) -> tuple[Account, Account, Project]:
         status="active",
         provenance={},
     )
+    template = EntityProfileTemplate(
+        id=uuid.uuid4(),
+        novel_id=source.id,
+        profile_type="character",
+        template_schema_json={"fields": []},
+        display_schema_json={},
+        version_number=1,
+        status="active",
+    )
+    template_revision = EntityProfileTemplateRevision(
+        id=uuid.uuid4(),
+        novel_id=source.id,
+        template_id=template.id,
+        version_number=1,
+        snapshot_json=_TEMPLATE_SNAPSHOT,
+        revision_reason="bootstrap",
+    )
+    template_revision.revision_digest = resource_revision_digest(
+        ResourceRef(
+            kind="entity_profile_template",
+            novel_id=source.id,
+            resource_id=template.id,
+        ),
+        template_revision.id,
+        _TEMPLATE_SNAPSHOT,
+    )
+    source_manifest = CanonManifestV1(
+        family_authority={family: "formal-disabled" for family in _FAMILIES},
+        active_resources=[
+            ExactResourceRevisionRef(
+                resource=ResourceRef(
+                    kind="entity_profile_template",
+                    novel_id=source.id,
+                    resource_id=template.id,
+                ),
+                revision_id=template_revision.id,
+                revision_digest=template_revision.revision_digest,
+            )
+        ],
+    )
     canon_revision = WorldCanonRevision(
+        id=uuid.uuid4(),
         novel_id=source.id,
         version_number=1,
         parent_revision_id=None,
-        manifest_json={"entity_id": str(first.id), "project_id": str(source.id)},
-        manifest_digest="d" * 64,
+        manifest_json=source_manifest.model_dump(mode="json"),
+        manifest_digest=canonical_digest(source_manifest),
         receipt_json={},
         decision_id=uuid.uuid4(),
         decision_digest="e" * 64,
+        created_at=datetime.now(UTC),
     )
     db.add_all(
         [
@@ -168,6 +229,8 @@ async def _seed_source(db: AsyncSession) -> tuple[Account, Account, Project]:
             relation,
             memory_event,
             evidence,
+            template,
+            template_revision,
             canon_revision,
             WritingDraft(
                 novel_id=source.id,
@@ -213,9 +276,13 @@ async def test_demo_copy_rewrites_author_assets_and_is_idempotent(
     get_settings.cache_clear()
     token = bind_principal(_principal(target_owner))
     try:
+        from tests.fixtures.immutable_writes import forbid_immutable_writes
+
         service = DemoProjectCopyService()
-        created = await service.copy(db_session)
-        existing = await service.copy(db_session)
+        with forbid_immutable_writes(db_session) as guard:
+            created = await service.copy(db_session)
+            existing = await service.copy(db_session)
+        guard.assert_clean()
         copied_id = uuid.UUID(created.project.id)
 
         assert created.status == "created"
@@ -290,15 +357,79 @@ async def test_demo_copy_rewrites_author_assets_and_is_idempotent(
         }
         copied_canon_head = await db_session.get(WorldCanonHead, copied_id)
         assert copied_canon_head is not None
-        copied_canon = await db_session.get(
-            WorldCanonRevision,
-            copied_canon_head.current_revision_id,
+        copied_canon_revisions = list(
+            (
+                await db_session.execute(
+                    select(WorldCanonRevision).where(
+                        WorldCanonRevision.novel_id == copied_id
+                    )
+                )
+            ).scalars()
         )
-        assert copied_canon is not None
-        assert copied_canon.manifest_json == {
-            "entity_id": str(copied_entities["林舟"].id),
-            "project_id": str(copied_id),
+        assert sorted(rev.version_number for rev in copied_canon_revisions) == [0, 1]
+        bootstrap_revision = next(
+            rev for rev in copied_canon_revisions if rev.version_number == 0
+        )
+        import_revision = next(
+            rev for rev in copied_canon_revisions if rev.version_number == 1
+        )
+        assert copied_canon_head.current_revision_id == import_revision.id
+        assert bootstrap_revision.decision_id == bootstrap_decision_id(copied_id)
+        assert import_revision.parent_revision_id == bootstrap_revision.id
+        source_canon_revision = (
+            await db_session.execute(
+                select(WorldCanonRevision).where(
+                    WorldCanonRevision.novel_id == source.id
+                )
+            )
+        ).scalar_one()
+        receipt = import_revision.receipt_json
+        assert receipt["action"] == "demo_import"
+        assert receipt["authorizer"] == {
+            "kind": "account",
+            "version": 1,
+            "account_id": str(target_owner.id),
         }
+        assert receipt["expected_previous_head"] == str(bootstrap_revision.id)
+        admission_input = receipt["admission_input"]
+        assert admission_input["kind"] == "demo_import"
+        assert admission_input["source_project_id"] == str(source.id)
+        assert (
+            admission_input["source_head_revision_id"]
+            == str(source_canon_revision.id)
+        )
+        assert (
+            admission_input["source_head_manifest_digest"]
+            == source_canon_revision.manifest_digest
+        )
+        copied_template = (
+            await db_session.execute(
+                select(EntityProfileTemplate).where(
+                    EntityProfileTemplate.novel_id == copied_id
+                )
+            )
+        ).scalar_one()
+        copied_template_revision = (
+            await db_session.execute(
+                select(EntityProfileTemplateRevision).where(
+                    EntityProfileTemplateRevision.novel_id == copied_id
+                )
+            )
+        ).scalar_one()
+        manifest_ref = import_revision.manifest_json["active_resources"][0]
+        assert manifest_ref["resource"]["resource_id"] == str(copied_template.id)
+        assert manifest_ref["revision_id"] == str(copied_template_revision.id)
+        from modules.world.canon_import import revision_import_digest
+
+        assert manifest_ref["revision_digest"] == revision_import_digest(
+            "entity_profile_template",
+            novel_id=copied_id,
+            resource_id=copied_template.id,
+            revision_id=copied_template_revision.id,
+            snapshot=_TEMPLATE_SNAPSHOT,
+        )
+        # The copied canon must replay end to end through the authority kernel.
+        await WorldAuthorityService().get_head(db_session, str(copied_id))
         source_outline = (
             await db_session.execute(
                 select(StoryOutlineRevision).where(
