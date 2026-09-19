@@ -27,7 +27,6 @@ afterEach(() => {
 
 describe("settingsIslands 注册", () => {
   it("注册 settings / project-settings 两个视图", () => {
-    const views = registeredViews()
     expect(views.settings).toBeTruthy()
     expect(views["project-settings"]).toBeTruthy()
   })

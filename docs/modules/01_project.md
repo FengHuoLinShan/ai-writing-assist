@@ -124,6 +124,8 @@ Outline seam 验证属于当前项目，并以 `chapter_ids` 或 `scene_chunks` 
 `created`、`existing` 或 `restored`。副本保留正文、World/Canon、总纲、Scene、来源证据、创作记忆
 与历史等长期作者资产，并分配新 UUID、重写内部引用及复制私有对象/地图媒体；账户凭据、RP、助手
 和任务记录、临时候选、偏好、Context 回执与 RAG 索引均不复制。
+不可变修订在目标身份空间中一次写入，引用与摘要均按目标 UUID 重算；Canon 不复制来源准入历史，
+而是在目标空 C0 后追加一条带来源 head 指纹的 `demo_import` 修订。整个复制保持单事务与重试幂等。
 
 项目级智能去重以 `project.smart_dedup` 作为跨 World/Story 的运行父能力，只聚合各资产模块的建议；World 扫描复用 `3 × max_suggestions` 的有界候选前沿，`schema_version=2` 任务结果同时提供
 group 裁决和 legacy suggestions。group apply 必须引用原扫描任务，服务端以任务结果

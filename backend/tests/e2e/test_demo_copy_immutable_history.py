@@ -206,20 +206,20 @@ async def _seed_history_source(
         active_resources=[
             ExactResourceRevisionRef(
                 resource=ResourceRef(
-                    kind="world_bible_page", novel_id=source_id, resource_id=page.id
-                ),
-                revision_id=page_revision.id,
-                revision_digest=page_revision.revision_digest,
-            ),
-            ExactResourceRevisionRef(
-                resource=ResourceRef(
                     kind="entity_profile_template",
                     novel_id=source_id,
                     resource_id=template_id,
                 ),
                 revision_id=template_revision_id,
                 revision_digest=template_revision.revision_digest,
-            )
+            ),
+            ExactResourceRevisionRef(
+                resource=ResourceRef(
+                    kind="world_bible_page", novel_id=source_id, resource_id=page.id
+                ),
+                revision_id=page_revision.id,
+                revision_digest=page_revision.revision_digest,
+            ),
         ],
     )
     # The ORM unit of work does not order this composite-FK pair reliably on

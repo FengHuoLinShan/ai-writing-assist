@@ -184,6 +184,8 @@ map / rag / outline / settings / project-settings`，其主 DOM 全部由 Vue SF
   编辑/生成/保存控件不可用，浏览、章节切换、标签、展开、筛选、地图和检索保持可用。CTA 把一次性
   copy intent 放入 sessionStorage；登录成功后立即调用 `POST /api/projects/demo-copy`，按
   `created / existing / restored` 结果打开用户自己的副本，不将演示项目或 intent 写入项目缓存。
+- `/resume/` 是前端 `public/resume/` 中的静态简历入口，二维码指向该路径；
+  PDF 与页面随 Vite 生产构建进入同一静态站点。
 - RP source 向导只使用读者语言，不展示 UUID/JSON/task/token/Prompt。四步只挂载当前决定，已完成
   步骤保留摘要与返回编辑；步骤、revision、剧情点和身份随既有 session + 服务端 source 恢复。
   session 作为账户私有浏览器状态纳入统一账户切换清理；所有会回写 revision、步骤或剧情候选的异步
