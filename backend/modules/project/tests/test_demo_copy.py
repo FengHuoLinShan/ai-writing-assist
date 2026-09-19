@@ -23,6 +23,8 @@ from modules.project.services import ProjectService
 from modules.story.continuity.models import MemoryEvent
 from modules.story.outline_state.models import StoryOutlineHead, StoryOutlineRevision
 from modules.world.authority import (
+    EXPLICIT_AUTHOR_POLICY_REF,
+    CanonAdmissionReceiptV1,
     CanonManifestV1,
     ExactResourceRevisionRef,
     ResourceRef,
@@ -386,6 +388,13 @@ async def test_demo_copy_rewrites_author_assets_and_is_idempotent(
         receipt = import_revision.receipt_json
         assert receipt["action"] == "demo_import"
         assert receipt["authorization_policy"]["artifact_id"] == "world.canon.demo-import"
+        with pytest.raises(ValueError, match="invalid explicit-author receipt"):
+            CanonAdmissionReceiptV1.model_validate({
+                **receipt,
+                "authorization_policy": EXPLICIT_AUTHOR_POLICY_REF.model_dump(
+                    mode="json"
+                ),
+            })
         assert receipt["authorizer"] == {
             "kind": "account",
             "version": 1,
