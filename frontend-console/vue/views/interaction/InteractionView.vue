@@ -132,6 +132,7 @@ const composerToolsEl = ref(null)
 const carePanelCare = ref(null)
 const toolsPanelTitles = { care: "回访与提醒", mode: "演绎方式", verify: "现实资料查证" }
 const careAvailable = computed(() => Boolean(carePanelCare.value?.available))
+const careErrored = computed(() => Boolean(carePanelCare.value?.error))
 const careUnread = computed(() => carePanelCare.value?.unread ?? 0)
 const toolsPanelTitle = computed(() => toolsPanelTitles[toolsPanel.value] || "")
 const dataInfoOpen = ref(false)
@@ -2272,7 +2273,7 @@ onBeforeUnmount(() => {
       <button type="button" class="rp-mutation-button rp-mutation-button--conflict" :disabled="sending" :aria-busy="sending && mutationAction === 'continue-from-visible'" @click="continueFromVisible"><span v-if="sending && mutationAction === 'continue-from-visible'" class="rp-button-spinner" aria-hidden="true"></span>{{ sending && mutationAction === 'continue-from-visible' ? '正在继续…' : '仍从我看到的位置继续' }}</button>
     </div>
 
-    <footer class="rp-composer-dock">
+    <footer class="rp-composer-dock" :class="{ 'is-tools-open': toolsPanel }">
       <div v-if="editingNodeId" class="rp-editing-note">
         正在修改旧输入；保存后会形成一个新分支。
         <button type="button" @click="cancelEdit">取消</button>
@@ -2331,11 +2332,10 @@ onBeforeUnmount(() => {
       </div>
       <div ref="composerToolsEl" class="rp-composer-tools">
         <button
-          v-if="careAvailable"
+          v-if="careAvailable || careErrored"
           type="button"
           class="rp-mode-toggle"
           :class="{ active: toolsPanel === 'care' }"
-          aria-haspopup="true"
           :aria-expanded="toolsPanel === 'care'"
           :aria-controls="toolsPanel === 'care' ? 'rp-tools-panel' : undefined"
           @click="toggleToolsPanel('care')"
@@ -2379,7 +2379,6 @@ onBeforeUnmount(() => {
           type="button"
           class="rp-mode-toggle"
           :class="{ active: toolsPanel === 'mode' || journey.generation_mode === 'ensemble' }"
-          aria-haspopup="true"
           :aria-expanded="toolsPanel === 'mode'"
           :aria-controls="toolsPanel === 'mode' ? 'rp-tools-panel' : undefined"
           @click="toggleToolsPanel('mode')"
@@ -2388,7 +2387,6 @@ onBeforeUnmount(() => {
           type="button"
           class="rp-mode-toggle"
           :class="{ active: toolsPanel === 'verify' || journey.web_search_enabled }"
-          aria-haspopup="true"
           :aria-expanded="toolsPanel === 'verify'"
           :aria-controls="toolsPanel === 'verify' ? 'rp-tools-panel' : undefined"
           @click="toggleToolsPanel('verify')"

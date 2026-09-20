@@ -14717,8 +14717,10 @@ button.rp-journey-card__main:hover {
   background: linear-gradient(to top, var(--rp-bg) 78%, transparent);
 }
 
-/* 面板打开时抬高输入坞层级，避免「新内容」浮标压在面板上 */
-.rp-composer-dock:has(.rp-tools-panel) {
+/* 面板打开时抬高输入坞层级，避免「新内容」浮标压在面板上。
+   按打开状态类而非 :has(#rp-tools-panel)：面板由 v-show 控制常驻 DOM，
+   :has() 会让输入坞永久居于 48，盖住顶栏(20)「更多操作」下拉的底部项。 */
+.rp-composer-dock.is-tools-open {
   z-index: 48;
 }
 

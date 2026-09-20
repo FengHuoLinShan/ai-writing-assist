@@ -78,7 +78,7 @@ function reset() { generation++; notices.value = []; policy.value = null; availa
 globalThis.addEventListener?.(ACCOUNT_INVALIDATED_EVENT, reset)
 watch(() => [props.targetId, props.interaction], () => { busy.value = false; void load() }, { immediate: true })
 onBeforeUnmount(() => { reset(); globalThis.removeEventListener?.(ACCOUNT_INVALIDATED_EVENT, reset) })
-defineExpose({ available, unread })
+defineExpose({ available, unread, error })
 </script>
 
 <template>
