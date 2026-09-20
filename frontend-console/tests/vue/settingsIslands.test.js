@@ -125,6 +125,17 @@ describe("settings island（全局设置）", () => {
 describe("project-settings island（项目设置）", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    globalThis.api.assistant = {
+      capabilities: vi.fn(async () => ({
+        enabled: true,
+        collaboration: [],
+        rehearsal: { available: true, reason: null },
+        model: { available: true, reason: null },
+      })),
+    }
+    globalThis.api.interactions = {
+      listJourneys: vi.fn(async () => ({ items: [], total: 0 })),
+    }
   })
 
   it("无 currentProjectId 时渲染空态", async () => {
@@ -173,7 +184,7 @@ describe("project-settings island（项目设置）", () => {
 
     expect(content.querySelector(".project-settings-view")).toBeTruthy()
     expect(content.textContent).toContain("测试项目")
-    expect(content.querySelectorAll(".settings-tab-nav .tab-btn")).toHaveLength(2)
+    expect(content.querySelectorAll(".settings-tab-nav .tab-btn")).toHaveLength(3)
     expect(content.querySelector(".settings-shell h1")?.textContent).toBe("当前作品设置")
     island.onLeave()
   })

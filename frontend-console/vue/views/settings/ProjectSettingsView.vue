@@ -24,6 +24,7 @@ const props = defineProps({
 const TABS = [
   { key: "author", label: "创作偏好" },
   { key: "deep", label: "高级导入" },
+  { key: "ai", label: "AI 能力" },
 ]
 
 function deepImportSettingsSource(llm) {
@@ -45,6 +46,10 @@ const effectivePrefs = ref(props.effectivePrefs)
 const accountConnections = ref(null)
 const accountConnectionLoading = ref(Boolean(props.projectId))
 const accountConnectionLoadError = ref(false)
+const aiCapabilities = ref(null)
+const aiCapabilitiesLoading = ref(false)
+const aiCapabilitiesError = ref(false)
+const ensembleJourney = ref(null)
 const authorForm = ref(authorFormFromEffective(props.effectivePrefs))
 const deepImportForm = ref(
   deepImportFormFromSettings(deepImportSettingsSource(props.effectiveLLM)),
@@ -92,6 +97,35 @@ async function loadAccountConnectionMetadata(projectId = props.projectId) {
   }
 }
 
+async function loadAiCapabilities(projectId = props.projectId) {
+  if (!projectId) return false
+  aiCapabilitiesLoading.value = true
+  aiCapabilitiesError.value = false
+  try {
+    const [capabilities, journeysResult] = await Promise.allSettled([
+      getApi().assistant.capabilities(projectId),
+      getApi().interactions.listJourneys({ status: "active" }),
+    ])
+    if (!ownsProjectSettings(projectId)) return false
+    if (capabilities.status === "fulfilled") {
+      aiCapabilities.value = capabilities.value
+    } else {
+      aiCapabilities.value = null
+      aiCapabilitiesError.value = true
+      return false
+    }
+    if (journeysResult.status === "fulfilled") {
+      const bound = (journeysResult.value?.items || [])
+        .filter((journey) => Boolean(journey.source))
+        .sort((a, b) => String(b.latest_activity_at || "").localeCompare(String(a.latest_activity_at || "")))
+      ensembleJourney.value = bound[0] || null
+    }
+    return true
+  } finally {
+    if (ownsProjectSettings(projectId)) aiCapabilitiesLoading.value = false
+  }
+}
+
 const dataReady = computed(() => Boolean(effectiveLLM.value && effectivePrefs.value))
 const deepImportSource = computed(() => (
   effectiveLLM.value?.deep_import || { source: "system", value: null }
@@ -125,6 +159,59 @@ const activeModelLabel = computed(() => {
 })
 const authorDirty = computed(() => JSON.stringify(authorForm.value) !== authorBaseline.value)
 const deepImportDirty = computed(() => JSON.stringify(deepImportForm.value) !== deepImportBaseline.value)
+const assistantEnabledRow = computed(() => {
+  if (!aiCapabilities.value) return null
+  return {
+    key: "assistant",
+    label: "项目助手",
+    experimental: false,
+    available: Boolean(aiCapabilities.value.enabled),
+    reason: aiCapabilities.value.enabled ? null : "项目助手尚未开启",
+  }
+})
+const capabilityRows = computed(() => {
+  const collaboration = (aiCapabilities.value?.collaboration || []).map((item) => ({
+    key: item.id,
+    label: item.label,
+    experimental: Boolean(item.experimental),
+    available: Boolean(item.available),
+    reason: item.reason || null,
+  }))
+  const rehearsal = aiCapabilities.value?.rehearsal
+  if (rehearsal) {
+    collaboration.push({
+      key: "rehearsal",
+      label: "多人物排演",
+      experimental: true,
+      available: Boolean(rehearsal.available),
+      reason: rehearsal.reason || null,
+    })
+  }
+  return collaboration
+})
+const ensembleRow = computed(() => {
+  if (!aiCapabilities.value) return null
+  if (ensembleJourney.value) {
+    return {
+      key: "ensemble",
+      label: "多角色演绎",
+      experimental: true,
+      available: Boolean(ensembleJourney.value.ensemble_available),
+      reason: ensembleJourney.value.ensemble_available
+        ? null
+        : "多角色演绎尚未开启",
+      detail: `旅程「${ensembleJourney.value.title || "未命名"}」`,
+    }
+  }
+  return {
+    key: "ensemble",
+    label: "多角色演绎",
+    experimental: true,
+    available: false,
+    reason: null,
+    detail: "需在互动故事中创建绑定作品资料的旅程后使用",
+  }
+})
 const authorState = computed(() => {
   if (authorFeedback.value) return authorFeedback.value
   return authorDirty.value
@@ -403,6 +490,7 @@ function beforeUnload(event) {
 onMounted(() => {
   window.addEventListener("beforeunload", beforeUnload)
   void loadAccountConnectionMetadata()
+  void loadAiCapabilities()
 })
 onBeforeUnmount(() => {
   disposed = true
@@ -500,6 +588,74 @@ onBeforeUnmount(() => {
             >恢复默认</button>
             <p class="settings-save-state" :class="`is-${deepImportState.kind}`" role="status">{{ deepImportState.message }}</p>
           </div>
+        </section>
+
+        <section v-else-if="tab === 'ai'" class="settings-section ai-capabilities-tab">
+          <div class="settings-section-heading">
+            <div>
+              <h2>AI 能力</h2>
+              <p>当前作品可用的 AI 协作与生成能力，随部署配置和模型连接变化，这里只读查看。</p>
+            </div>
+          </div>
+          <p v-if="aiCapabilitiesLoading" role="status">正在读取当前作品的 AI 能力…</p>
+          <div v-else-if="aiCapabilitiesError" class="error-card settings-load-error" role="alert">
+            <div>
+              <strong>AI 能力暂时无法读取</strong>
+              <p>已有能力不受影响，可以重新加载。</p>
+            </div>
+            <button class="btn btn-primary" type="button" :disabled="aiCapabilitiesLoading" @click="loadAiCapabilities()">
+              重新加载
+            </button>
+          </div>
+          <template v-else-if="aiCapabilities">
+            <div
+              v-if="aiCapabilities.model && !aiCapabilities.model.available"
+              class="settings-account-model-notice"
+              role="status"
+            >
+              <span>模型连接：{{ aiCapabilities.model.reason || "尚未连接模型" }}</span>
+              <button class="btn btn-sm btn-link" @click="gotoGlobalSettings">去连接模型</button>
+            </div>
+            <ul class="ai-capability-list">
+              <li v-if="assistantEnabledRow" class="ai-capability-row">
+                <span class="ai-capability-label">
+                  {{ assistantEnabledRow.label }}
+                  <small v-if="assistantEnabledRow.experimental" class="ai-capability-badge">实验</small>
+                </span>
+                <span
+                  class="ai-capability-state"
+                  :class="assistantEnabledRow.available ? 'is-available' : 'is-unavailable'"
+                >
+                  {{ assistantEnabledRow.available ? "可用" : assistantEnabledRow.reason || "尚未开启" }}
+                </span>
+              </li>
+              <li v-for="row in capabilityRows" :key="row.key" class="ai-capability-row">
+                <span class="ai-capability-label">
+                  {{ row.label }}
+                  <small v-if="row.experimental" class="ai-capability-badge">实验</small>
+                </span>
+                <span class="ai-capability-state" :class="row.available ? 'is-available' : 'is-unavailable'">
+                  {{ row.available ? "可用" : row.reason || "尚未开启" }}
+                </span>
+              </li>
+              <li v-if="ensembleRow" class="ai-capability-row">
+                <span class="ai-capability-label">
+                  {{ ensembleRow.label }}
+                  <small v-if="ensembleRow.experimental" class="ai-capability-badge">实验</small>
+                  <small v-if="ensembleRow.detail" class="ai-capability-detail">{{ ensembleRow.detail }}</small>
+                </span>
+                <span
+                  class="ai-capability-state"
+                  :class="ensembleRow.available ? 'is-available' : 'is-unavailable'"
+                >
+                  {{ ensembleRow.available ? "可用" : ensembleRow.reason || "未就绪" }}
+                </span>
+              </li>
+            </ul>
+            <p class="settings-section-hint">
+              实验能力会消耗更多模型用量；每次使用仍会单独说明并可在发起后停止。
+            </p>
+          </template>
         </section>
 
         <section v-else class="settings-section author-prefs-tab" data-mode="project">

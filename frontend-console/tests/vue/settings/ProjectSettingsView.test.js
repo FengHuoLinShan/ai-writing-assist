@@ -55,6 +55,17 @@ beforeEach(() => {
   globalThis.api.settings.getEffectiveAuthorPrefs.mockImplementation(
     async () => makeEffectivePrefs(),
   )
+  globalThis.api.assistant = {
+    capabilities: vi.fn(async () => ({
+      enabled: true,
+      collaboration: [],
+      rehearsal: { available: true, reason: null },
+      model: { available: true, reason: null },
+    })),
+  }
+  globalThis.api.interactions = {
+    listJourneys: vi.fn(async () => ({ items: [], total: 0 })),
+  }
 })
 
 afterEach(() => {
@@ -79,7 +90,7 @@ describe("结构与导航", () => {
     const wrapper = mount(ProjectSettingsView, { props: makeProps() })
     await flushPromises()
     const tabs = wrapper.findAll(".settings-tab-nav .tab-btn")
-    expect(tabs.map((item) => item.text())).toEqual(["创作偏好", "高级导入"])
+    expect(tabs.map((item) => item.text())).toEqual(["创作偏好", "高级导入", "AI 能力"])
     expect(wrapper.text()).toContain("AI 文本服务：DeepSeek · deepseek-v4-flash · 未连接")
     expect(wrapper.find("#llm-model").exists()).toBe(false)
 
@@ -226,6 +237,99 @@ describe("结构与导航", () => {
     save.resolve()
     await flushPromises()
     expect(wrapper.get("#project-settings-tab-panel").attributes("aria-busy")).toBe("false")
+  })
+})
+
+describe("AI 能力", () => {
+  function makeCapabilities(overrides = {}) {
+    return {
+      enabled: true,
+      collaboration: [
+        { id: "deep_review", label: "深度审稿", experimental: true, available: true, reason: null },
+        { id: "blind_reader", label: "盲读者检查", experimental: true, available: false, reason: "这项专项协作尚未开启" },
+      ],
+      rehearsal: { available: true, reason: null },
+      model: { available: true, reason: null },
+      ...overrides,
+    }
+  }
+
+  it("列出蓝图、排演与多角色状态，不暴露内部 id", async () => {
+    globalThis.api.assistant.capabilities.mockImplementation(
+      async () => makeCapabilities(),
+    )
+    globalThis.api.interactions.listJourneys.mockImplementation(
+      async () => ({
+        items: [{
+          id: "j1",
+          title: "雾中廷根",
+          source: { source_title: "诡秘之主" },
+          ensemble_available: true,
+          latest_activity_at: "2026-09-20T10:00:00Z",
+        }],
+        total: 1,
+      }),
+    )
+    const wrapper = mount(ProjectSettingsView, { props: makeProps() })
+    await wrapper.findAll(".settings-tab-nav .tab-btn")[2].trigger("click")
+    await flushPromises()
+
+    const rows = wrapper.findAll(".ai-capability-row")
+    const labels = rows.map((row) => row.find(".ai-capability-label").text()).join("|")
+    expect(labels).toContain("深度审稿")
+    expect(labels).toContain("盲读者检查")
+    expect(labels).toContain("多人物排演")
+    expect(wrapper.text()).toContain("这项专项协作尚未开启")
+    expect(wrapper.text()).toContain("旅程「雾中廷根」")
+    expect(wrapper.text()).not.toContain("deep_review")
+    expect(wrapper.text()).not.toContain("blind_reader")
+    expect(wrapper.text()).not.toContain("reason")
+  })
+
+  it("无绑源旅程时多角色演绎给引导文案而非误导原因", async () => {
+    globalThis.api.assistant.capabilities.mockImplementation(
+      async () => makeCapabilities(),
+    )
+    const wrapper = mount(ProjectSettingsView, { props: makeProps() })
+    await wrapper.findAll(".settings-tab-nav .tab-btn")[2].trigger("click")
+    await flushPromises()
+
+    expect(wrapper.text()).toContain("需在互动故事中创建绑定作品资料的旅程后使用")
+    expect(wrapper.text()).not.toContain("多角色演绎尚未开启")
+  })
+
+  it("模型未连接时提示并提供去连接入口", async () => {
+    globalThis.api.assistant.capabilities.mockImplementation(
+      async () => makeCapabilities({
+        model: { available: false, reason: "请先连接并验证当前模型，讨论记录仍可查看。" },
+      }),
+    )
+    const wrapper = mount(ProjectSettingsView, { props: makeProps() })
+    await wrapper.findAll(".settings-tab-nav .tab-btn")[2].trigger("click")
+    await flushPromises()
+
+    expect(wrapper.text()).toContain("请先连接并验证当前模型")
+    await wrapper.findAll("button").find((button) => button.text() === "去连接模型").trigger("click")
+    expect(globalThis.router.navigate).toHaveBeenCalledWith("settings")
+  })
+
+  it("能力读取失败时保留可重试的错误卡，不影响其他页签", async () => {
+    globalThis.api.assistant.capabilities.mockRejectedValue(new Error("读取失败"))
+    const wrapper = mount(ProjectSettingsView, { props: makeProps() })
+    await wrapper.findAll(".settings-tab-nav .tab-btn")[2].trigger("click")
+    await flushPromises()
+
+    expect(wrapper.find(".ai-capabilities-tab .settings-load-error").attributes("role")).toBe("alert")
+    expect(wrapper.find("#author-daily-goal").exists()).toBe(false)
+
+    globalThis.api.assistant.capabilities.mockImplementation(async () => makeCapabilities())
+    await wrapper.find(".ai-capabilities-tab .settings-load-error button").trigger("click")
+    await flushPromises()
+    expect(wrapper.find(".ai-capabilities-tab .settings-load-error").exists()).toBe(false)
+    expect(wrapper.text()).toContain("深度审稿")
+
+    await wrapper.findAll(".settings-tab-nav .tab-btn")[0].trigger("click")
+    expect(wrapper.find("#author-daily-goal").exists()).toBe(true)
   })
 })
 

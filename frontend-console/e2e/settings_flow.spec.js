@@ -101,7 +101,9 @@ test.describe("设置流程", () => {
     await expect(page.locator("#workspace-content").getByRole("heading", { name: "当前作品设置" })).toBeVisible({ timeout: 10000 })
     const deepTab = page.getByRole("tab", { name: "高级导入" })
     const authorTab = page.getByRole("tab", { name: "创作偏好" })
+    const aiTab = page.getByRole("tab", { name: "AI 能力" })
     await expect(deepTab).toBeVisible()
+    await expect(aiTab).toBeVisible()
     await expect(authorTab).toHaveAttribute("aria-selected", "true")
     await expect(deepTab).toHaveAttribute("aria-controls", "project-settings-tab-panel")
     await expect(page.locator("#project-settings-tab-panel")).toHaveAttribute(
@@ -110,6 +112,10 @@ test.describe("设置流程", () => {
     )
     await authorTab.focus()
     await page.keyboard.press("End")
+    await expect(aiTab).toBeFocused()
+    await expect(aiTab).toHaveAttribute("aria-selected", "true")
+    await expect(page.locator(".ai-capabilities-tab")).toBeVisible()
+    await aiTab.press("ArrowLeft")
     await expect(deepTab).toBeFocused()
     await expect(deepTab).toHaveAttribute("aria-selected", "true")
     await expect(page.locator("#project-settings-tab-panel")).toHaveAttribute(
