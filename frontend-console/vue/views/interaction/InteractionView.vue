@@ -126,6 +126,15 @@ const seeSeaConfirming = ref(false)
 const seeSeaNoticeAcknowledged = ref(
   props.preferences?.see_sea_notice_acknowledged === true,
 )
+const toolsPanel = ref(null)
+const toolsPanelEl = ref(null)
+const composerToolsEl = ref(null)
+const carePanelCare = ref(null)
+const toolsPanelTitles = { care: "回访与提醒", mode: "演绎方式", verify: "现实资料查证" }
+const careAvailable = computed(() => Boolean(carePanelCare.value?.available))
+const careErrored = computed(() => Boolean(carePanelCare.value?.error))
+const careUnread = computed(() => carePanelCare.value?.unread ?? 0)
+const toolsPanelTitle = computed(() => toolsPanelTitles[toolsPanel.value] || "")
 const dataInfoOpen = ref(false)
 const sourceInfoOpen = ref(false)
 const sourceInfo = ref(null)
@@ -1569,6 +1578,36 @@ async function setGenerationMode(event) {
   } catch (cause) { getToast()(cause.message || "演绎方式暂不可更改。", "error"); event.target.value = journey.value.generation_mode || "standard" }
 }
 
+function toggleToolsPanel(name) {
+  toolsPanel.value = toolsPanel.value === name ? null : name
+}
+
+function closeToolsPanel() {
+  toolsPanel.value = null
+}
+
+function onToolsPanelGlobalPointerdown(event) {
+  const panel = toolsPanelEl.value
+  const tools = composerToolsEl.value
+  if (!panel || !tools) return
+  if (panel.contains(event.target) || tools.contains(event.target)) return
+  toolsPanel.value = null
+}
+
+function onToolsPanelGlobalKeydown(event) {
+  if (event.key === "Escape") toolsPanel.value = null
+}
+
+watch(toolsPanel, (value) => {
+  if (value) {
+    document?.addEventListener("pointerdown", onToolsPanelGlobalPointerdown, true)
+    document?.addEventListener("keydown", onToolsPanelGlobalKeydown)
+  } else {
+    document?.removeEventListener("pointerdown", onToolsPanelGlobalPointerdown, true)
+    document?.removeEventListener("keydown", onToolsPanelGlobalKeydown)
+  }
+})
+
 function requestModeToggle(field) {
   if (
     field === "see_sea_enabled"
@@ -1943,6 +1982,8 @@ onBeforeUnmount(() => {
   document.removeEventListener("selectionchange", syncStorySelection)
   document.removeEventListener("visibilitychange", onVisibilityChange)
   window.removeEventListener("beforeunload", beforeUnload)
+  document.removeEventListener("pointerdown", onToolsPanelGlobalPointerdown, true)
+  document.removeEventListener("keydown", onToolsPanelGlobalKeydown)
   if (scrollFrame != null) {
     const cancel = globalThis.cancelAnimationFrame || clearTimeout
     cancel(scrollFrame)
@@ -2232,7 +2273,7 @@ onBeforeUnmount(() => {
       <button type="button" class="rp-mutation-button rp-mutation-button--conflict" :disabled="sending" :aria-busy="sending && mutationAction === 'continue-from-visible'" @click="continueFromVisible"><span v-if="sending && mutationAction === 'continue-from-visible'" class="rp-button-spinner" aria-hidden="true"></span>{{ sending && mutationAction === 'continue-from-visible' ? '正在继续…' : '仍从我看到的位置继续' }}</button>
     </div>
 
-    <footer class="rp-composer-dock">
+    <footer class="rp-composer-dock" :class="{ 'is-tools-open': toolsPanel }">
       <div v-if="editingNodeId" class="rp-editing-note">
         正在修改旧输入；保存后会形成一个新分支。
         <button type="button" @click="cancelEdit">取消</button>
@@ -2289,8 +2330,16 @@ onBeforeUnmount(() => {
         <span>当前模型尚未连接。故事和草稿仍保留在这里。</span>
         <button type="button" @click="goConnect">去连接模型</button>
       </div>
-      <div class="rp-composer-tools">
-        <ProactiveCare :target-id="journey.id" interaction @locate="source => source.location?.node_id ? locateMessage(source.location.node_id) : openOverview()" />
+      <div ref="composerToolsEl" class="rp-composer-tools">
+        <button
+          v-if="careAvailable || careErrored"
+          type="button"
+          class="rp-mode-toggle"
+          :class="{ active: toolsPanel === 'care' }"
+          :aria-expanded="toolsPanel === 'care'"
+          :aria-controls="toolsPanel === 'care' ? 'rp-tools-panel' : undefined"
+          @click="toggleToolsPanel('care')"
+        >回访与提醒<span v-if="careUnread"> · {{ careUnread }} 项待看</span></button>
         <button
           v-if="storyStarted"
           type="button"
@@ -2325,16 +2374,23 @@ onBeforeUnmount(() => {
           :aria-pressed="journey.action_options_enabled"
           @click="requestModeToggle('action_options_enabled')"
         >行动选项</button>
-        <details v-if="journey.source" class="rp-public-research">
-          <summary>演绎方式</summary><p>多角色演绎会增加等待和模型用量，从下一轮生效。仅使用当前作品进度和选中发展，旧故事保持原样。</p>
-          <p v-if="!journey.ensemble_available && journey.generation_mode !== 'ensemble'" class="rp-mode-unavailable" role="note">多角色演绎尚未开启。</p>
-          <label>选择方式 <select :value="journey.generation_mode || 'standard'" :disabled="isGenerating" @change="setGenerationMode"><option value="standard">普通演绎</option><option value="ensemble" :disabled="!journey.ensemble_available">多角色演绎（实验）</option></select></label>
-        </details>
-        <details class="rp-public-research">
-          <summary>现实资料查证</summary>
-          <p>仅向本站搜索服务及上游搜索网站发送通用事实问题，不发送故事原文，也不查原作剧情。开启后从下一轮生效；关闭后停止新查证，已查资料保留。</p>
-          <label><input type="checkbox" :checked="journey.web_search_enabled" @change="requestModeToggle('web_search_enabled')">允许按需查证公开资料</label>
-        </details>
+        <button
+          v-if="journey.source"
+          type="button"
+          class="rp-mode-toggle"
+          :class="{ active: toolsPanel === 'mode' || journey.generation_mode === 'ensemble' }"
+          :aria-expanded="toolsPanel === 'mode'"
+          :aria-controls="toolsPanel === 'mode' ? 'rp-tools-panel' : undefined"
+          @click="toggleToolsPanel('mode')"
+        >演绎方式</button>
+        <button
+          type="button"
+          class="rp-mode-toggle"
+          :class="{ active: toolsPanel === 'verify' || journey.web_search_enabled }"
+          :aria-expanded="toolsPanel === 'verify'"
+          :aria-controls="toolsPanel === 'verify' ? 'rp-tools-panel' : undefined"
+          @click="toggleToolsPanel('verify')"
+        >现实资料查证</button>
         <span>{{
           stopAfterCurrentNotice
             ? "将在本段结束后停止"
@@ -2344,6 +2400,37 @@ onBeforeUnmount(() => {
                 : "⌘/Ctrl + Enter 发送"
             )
         }}</span>
+      </div>
+      <div
+        v-show="toolsPanel"
+        id="rp-tools-panel"
+        ref="toolsPanelEl"
+        class="rp-tools-panel"
+        role="group"
+        :aria-label="toolsPanelTitle"
+        @keydown.esc.stop.prevent="closeToolsPanel"
+      >
+        <header class="rp-tools-panel__head">
+          <strong>{{ toolsPanelTitle }}</strong>
+          <button type="button" aria-label="关闭面板" @click="closeToolsPanel">×</button>
+        </header>
+        <ProactiveCare
+          v-show="toolsPanel === 'care'"
+          ref="carePanelCare"
+          interaction
+          flat
+          :target-id="journey.id"
+          @locate="source => source.location?.node_id ? locateMessage(source.location.node_id) : openOverview()"
+        />
+        <div v-show="toolsPanel === 'mode'" class="rp-tools-panel__body">
+          <p>多角色演绎会增加等待和模型用量，从下一轮生效。仅使用当前作品进度和选中发展，旧故事保持原样。</p>
+          <p v-if="!journey.ensemble_available && journey.generation_mode !== 'ensemble'" class="rp-mode-unavailable" role="note">多角色演绎尚未开启。</p>
+          <label>选择方式 <select :value="journey.generation_mode || 'standard'" :disabled="isGenerating" @change="setGenerationMode"><option value="standard">普通演绎</option><option value="ensemble" :disabled="!journey.ensemble_available">多角色演绎（实验）</option></select></label>
+        </div>
+        <div v-show="toolsPanel === 'verify'" class="rp-tools-panel__body">
+          <p>仅向本站搜索服务及上游搜索网站发送通用事实问题，不发送故事原文，也不查原作剧情。开启后从下一轮生效；关闭后停止新查证，已查资料保留。</p>
+          <label><input type="checkbox" :checked="journey.web_search_enabled" @change="requestModeToggle('web_search_enabled')">允许按需查证公开资料</label>
+        </div>
       </div>
       <RpAdaptiveConfirmPopover
         id="rp-story-see-sea-confirm"

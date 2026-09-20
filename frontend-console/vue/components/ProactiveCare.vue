@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from "vue"
 import { getApi } from "../bridge/index.js"
 import { ACCOUNT_INVALIDATED_EVENT } from "../../shared/accountStorage.js"
 
-const props = defineProps({ targetId: { type: String, default: "" }, interaction: Boolean, standalone: Boolean })
+const props = defineProps({ targetId: { type: String, default: "" }, interaction: Boolean, standalone: Boolean, flat: Boolean })
 const emit = defineEmits(["locate"])
 const available = ref(false), policy = ref(null), notices = ref([]), error = ref("")
 const busy = ref(false), saved = ref(false), pending = ref(0), overflow = ref(false), active = ref(false)
@@ -78,10 +78,17 @@ function reset() { generation++; notices.value = []; policy.value = null; availa
 globalThis.addEventListener?.(ACCOUNT_INVALIDATED_EVENT, reset)
 watch(() => [props.targetId, props.interaction], () => { busy.value = false; void load() }, { immediate: true })
 onBeforeUnmount(() => { reset(); globalThis.removeEventListener?.(ACCOUNT_INVALIDATED_EVENT, reset) })
+defineExpose({ available, unread, error })
 </script>
 
 <template>
-  <details v-if="available || error" class="proactive-care" :class="{ 'proactive-care--standalone': standalone }" :open="standalone">
+  <!-- flat：由外部面板提供标题与展开态，隐藏自身 summary，仅渲染内容 -->
+  <details
+    v-if="available || error"
+    class="proactive-care"
+    :class="{ 'proactive-care--standalone': standalone, 'proactive-care--flat': flat }"
+    :open="standalone || flat"
+  >
     <summary>回访与提醒<span v-if="unread"> · {{ unread }} 项待看</span></summary>
     <div class="proactive-care-body">
       <p v-if="error" role="alert">{{ error }}</p>
