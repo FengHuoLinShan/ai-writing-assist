@@ -69,6 +69,25 @@ test.describe("首页与导航", () => {
     await expect(page.getByText("更多工具", { exact: true })).toBeVisible()
   })
 
+  test("更多工具展开面板完整可见不被侧栏裁剪", async ({ page }) => {
+    await page.goto("/")
+    await enterAuthor(page)
+
+    const summary = page.locator(".sidebar-more > summary")
+    await expect(summary).toBeVisible()
+    await summary.click()
+    const panel = page.locator(".sidebar-more__panel")
+    await expect(panel).toBeVisible()
+    // 面板完整落在视口内(修复前被 #sidebar 的 overflow 裁剪,rect 宽度趋近于零)
+    const box = await panel.boundingBox()
+    expect(box).toBeTruthy()
+    expect(box.width).toBeGreaterThan(200)
+    await expect(panel.getByText("更多创作工具")).toBeVisible()
+    await expect(panel.getByRole("button", { name: /作品偏好/ })).toBeVisible()
+    await summary.click()
+    await expect(panel).toBeHidden()
+  })
+
   test("点击导航切换视图", async ({ page }) => {
     await page.goto("/")
     await enterAuthor(page)
