@@ -2609,4 +2609,45 @@ describe("RP 故事页", () => {
       },
     )
   })
+
+  it("绑源旅程在多角色演绎不可用时仍显示演绎方式并说明原因", async () => {
+    const source = {
+      revision_id: "22222222-2222-4222-8222-222222222222",
+      source_title: "雾都之夜",
+      version_number: 1,
+      status: "ready",
+      progress_label: "第一章 · 抵达雾都",
+      progress_chapter_index: 1,
+      progress_end_offset: 120,
+      player_label: "林默",
+      source_context_epoch: 0,
+      update_available: false,
+    }
+    const unavailable = journey({
+      source,
+      ensemble_available: false,
+      generation_mode: "standard",
+    })
+    api.interactions.getJourney.mockResolvedValue(unavailable)
+    const wrapper = mount(InteractionView, { props: { initialJourney: unavailable } })
+    await flushPromises()
+
+    const details = wrapper.findAll("details").find((node) => node.text().includes("演绎方式"))
+    expect(details).toBeTruthy()
+    expect(wrapper.text()).toContain("多角色演绎尚未开启")
+    const ensembleOption = wrapper.find("option[value='ensemble']")
+    expect(ensembleOption.attributes("disabled")).toBeDefined()
+    wrapper.unmount()
+
+    const available = journey({
+      source,
+      ensemble_available: true,
+      generation_mode: "standard",
+    })
+    api.interactions.getJourney.mockResolvedValue(available)
+    const ready = mount(InteractionView, { props: { initialJourney: available } })
+    await flushPromises()
+    expect(ready.text()).not.toContain("多角色演绎尚未开启")
+    ready.unmount()
+  })
 })

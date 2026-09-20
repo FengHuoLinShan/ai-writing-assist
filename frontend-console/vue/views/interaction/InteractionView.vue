@@ -2325,8 +2325,9 @@ onBeforeUnmount(() => {
           :aria-pressed="journey.action_options_enabled"
           @click="requestModeToggle('action_options_enabled')"
         >行动选项</button>
-        <details v-if="journey.source && (journey.ensemble_available || journey.generation_mode === 'ensemble')" class="rp-public-research">
+        <details v-if="journey.source" class="rp-public-research">
           <summary>演绎方式</summary><p>多角色演绎会增加等待和模型用量，从下一轮生效。仅使用当前作品进度和选中发展，旧故事保持原样。</p>
+          <p v-if="!journey.ensemble_available && journey.generation_mode !== 'ensemble'" class="rp-mode-unavailable" role="note">多角色演绎尚未开启。</p>
           <label>选择方式 <select :value="journey.generation_mode || 'standard'" :disabled="isGenerating" @change="setGenerationMode"><option value="standard">普通演绎</option><option value="ensemble" :disabled="!journey.ensemble_available">多角色演绎（实验）</option></select></label>
         </details>
         <details class="rp-public-research">
