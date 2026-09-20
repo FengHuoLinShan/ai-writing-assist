@@ -12,7 +12,8 @@
   font-family: var(--font-ui, -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif);
 }
 
-.entry-choice { max-width: 1040px; padding: 72px 48px 96px; background: var(--rp-bg); }
+/* 块级页用 auto 边距居中；#app 是 flex 容器，需 width:100% 防止 flex 项收缩到内容宽 */
+.entry-choice { width: 100%; max-width: 1040px; margin-inline: auto; padding: 72px 48px 96px; background: var(--rp-bg); }
 .entry-choice__heading { max-width: 760px; margin: 0 auto 42px; }
 .entry-choice__brand { display: inline-flex; align-items: center; gap: 9px; margin-bottom: 28px; color: var(--rp-heading); font-size: 14px; font-weight: 650; }
 .entry-choice__brand-mark, .auth-brand__mark { display: inline-grid; width: 30px; height: 33px; place-items: center; border-radius: 8px 8px 8px 2px; background: linear-gradient(145deg, #5879f3, #253aa9); color: #fff; font: italic 600 23px Georgia, serif; box-shadow: 0 3px 8px color-mix(in srgb, #253aa9 18%, transparent); }
@@ -26,7 +27,7 @@
 .entry-choice .entry-card span:not(.entry-card__eyebrow) { color: var(--rp-muted); line-height: 1.8; }
 .entry-choice .entry-card i { color: var(--rp-accent); font-size: 12px; font-style: normal; }
 
-.rp-list-page { max-width: 960px; padding: 28px 40px 72px; background: var(--rp-bg); }
+.rp-list-page { width: 100%; max-width: 960px; margin-inline: auto; padding: 28px 40px 72px; background: var(--rp-bg); }
 .rp-list-header { min-height: 62px; padding: 0 0 20px; border-bottom: 1px solid var(--rp-border); }
 .rp-list-header h1 { color: var(--rp-heading); font-size: 23px; letter-spacing: -.035em; }
 .rp-list-header p { color: var(--rp-muted); }
