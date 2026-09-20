@@ -13884,11 +13884,6 @@ details[open] > .world-bible-support-summary::after {
   .rp-composer-tools > span {
     white-space: nowrap;
   }
-
-  /* 演绎方式/现实资料查证与相邻按钮等高；触屏保留 44px 命中高度 */
-  .rp-composer-tools .rp-public-research > summary {
-    min-height: 0;
-  }
 }
 
 .rp-mode-toggle {
@@ -14712,6 +14707,7 @@ button.rp-journey-card__main:hover {
 }
 
 .rp-composer-dock {
+  position: relative;
   z-index: 18;
   grid-column: 1;
   grid-row: 3;
@@ -14719,6 +14715,73 @@ button.rp-journey-card__main:hover {
   min-width: 0;
   padding: 8px max(52px, calc((100% - 760px) / 2)) 16px;
   background: linear-gradient(to top, var(--rp-bg) 78%, transparent);
+}
+
+/* 面板打开时抬高输入坞层级，避免「新内容」浮标压在面板上 */
+.rp-composer-dock:has(.rp-tools-panel) {
+  z-index: 48;
+}
+
+/* 工具面板：一次只显示一个低频设置，从输入坞上方弹出，不再在工具行内原地展开 */
+.rp-tools-panel {
+  position: absolute;
+  z-index: 46;
+  right: max(16px, calc((100% - 760px) / 2));
+  bottom: calc(100% + 6px);
+  display: grid;
+  width: min(460px, calc(100% - 32px));
+  max-height: min(56vh, 480px);
+  overflow: auto;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--rp-border);
+  border-radius: 14px;
+  background: var(--rp-panel);
+  box-shadow: 0 -12px 34px rgba(24, 42, 70, 0.14);
+  overscroll-behavior: contain;
+  color: var(--rp-text);
+}
+
+.rp-tools-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.rp-tools-panel__head strong {
+  color: var(--rp-heading);
+  font-size: 13px;
+}
+
+.rp-tools-panel__head button {
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--rp-muted);
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.rp-tools-panel__body {
+  display: grid;
+  gap: 9px;
+}
+
+.rp-tools-panel p {
+  margin: 0;
+  color: var(--rp-muted);
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+
+.rp-tools-panel label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--rp-text);
+  font-size: 13px;
 }
 
 .rp-composer {
@@ -15396,6 +15459,12 @@ button.rp-journey-card__main:hover {
 
   .rp-conflict-banner {
     margin-inline: 10px;
+  }
+
+  .rp-tools-panel {
+    right: 10px;
+    left: 10px;
+    width: auto;
   }
 }
 
@@ -16960,11 +17029,8 @@ button.rp-journey-card__main:hover {
 .form-grid--2 { grid-template-columns:repeat(2,minmax(0,1fr)) }
 .writing-form-hint { margin:10px 0 0;padding-left:9px;border-left:2px solid var(--border);color:var(--text-tertiary);font-size:var(--text-xs);line-height:1.65 }
 .today-author-task-row strong,.settings-account-model-notice>* { min-width:0;overflow-wrap:anywhere }
-.rp-public-research { display:grid;min-width:0;max-width:min(100%,360px);gap:var(--space-2);color:var(--rp-muted);white-space:normal }
-.rp-public-research>summary { display:flex;min-height:44px;align-items:center;padding:7px 11px;border:1px solid var(--rp-border);border-radius:10px;background:var(--rp-panel);cursor:pointer;font-weight:600 }
-.rp-public-research>p,.rp-public-research>label { margin:0;overflow-wrap:anywhere;font-size:var(--text-xs);line-height:1.5 }
 .rp-mode-unavailable { color:var(--rp-muted) }
-.rp-public-research>label { display:flex;align-items:flex-start;gap:var(--space-2) }
+.proactive-care--flat>summary { display:none }
 .story-structure-import { display:grid;max-height:60vh;max-height:60dvh;gap:var(--space-3);overflow-y:auto;padding:var(--space-4);border:1px solid var(--border);border-radius:var(--radius-md) }
 .story-structure-import>summary { display:flex;min-height:44px;align-items:center;cursor:pointer;font-weight:700 }
 .structure-choice { display:flex;min-width:0;min-height:44px;align-items:flex-start;gap:var(--space-2);padding:var(--space-2);overflow-wrap:anywhere;border:1px solid var(--border);border-radius:var(--radius-sm) }
