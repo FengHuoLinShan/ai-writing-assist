@@ -657,6 +657,7 @@ html, body {
 
 /* ===== 左侧导航 ===== */
 #sidebar {
+  position: relative; /* z-index 依赖定位；static 下无论何值都不参与层叠 */
   width: var(--sidebar-width);
   min-width: var(--sidebar-width);
   background: var(--bg-panel);
@@ -666,7 +667,10 @@ html, body {
   align-items: stretch;
   padding: var(--space-4) var(--space-3);
   gap: var(--space-2);
-  z-index: 90;
+  /* 侧栏建立层叠上下文：内部“更多工具”面板的 z-index 只在本上下文内比较，
+     该值必须高于主内容区浮层（≤200），否则弹出面板被主面板盖住；
+     同时保持低于移动端 sheet(650)、账户菜单(700)、场景抽屉(800)与 modal(1300)。 */
+  z-index: 640;
 }
 
 /* 侧栏本体不滚动，滚动只发生在内容区；“更多工具”弹出面板才能向右溢出而不被裁剪 */
