@@ -666,9 +666,22 @@ html, body {
   align-items: stretch;
   padding: var(--space-4) var(--space-3);
   gap: var(--space-2);
+}
+
+/* 侧栏保持 static（不建层叠上下文）：“更多工具”面板靠自身 z-index(600) 在根上下文
+   参与层叠，盖过工作区浮层(≤200)、低于 sheet(650)/账户菜单(700)/modal(1300)。
+   若给 #sidebar 定位+z-index，会压住 owner AI 抽屉(95)与 body 挂载的
+   浮动操作菜单(110)等全窗浮层，它们在窄视口下会横跨侧栏区域。 */
+
+/* 侧栏本体不滚动，滚动只发生在内容区；“更多工具”弹出面板才能向右溢出而不被裁剪 */
+.sidebar-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
   overflow-y: auto;
   overscroll-behavior: contain;
-  z-index: 90;
 }
 
 #nav-list {

@@ -9,21 +9,23 @@
       <span class="sidebar-project-switcher__copy"><small>当前作品</small><strong>{{ projectTitle || '选择作品' }}</strong></span>
       <span class="sidebar-project-switcher__chevron" aria-hidden="true">⌄</span>
     </button>
-    <nav aria-label="主导航">
-      <span class="creative-nav-heading">创作空间</span>
-      <ul id="nav-list" class="sidebar-desktop-nav">
-        <li v-for="item in navItems" :key="item.view">
-          <button type="button" class="nav-item" :class="[`nav-item--${item.view}`, { active: currentView === item.view || (item.view === 'today' && currentView === 'writing') }]"
-            :data-view="item.view" :title="item.title" :aria-current="currentView === item.view || (item.view === 'today' && currentView === 'writing') ? 'page' : undefined"
-            @click="$emit('navigate', item.view)"
-            @keydown.enter.prevent="$emit('navigate', item.view)"
-            @keydown.space.prevent="$emit('navigate', item.view)">
-            <span class="nav-icon-frame"><NavIcon :name="item.icon" /></span><span class="nav-label">{{ item.label }}</span>
-          </button>
-        </li>
-      </ul>
-    </nav>
-    <div id="sidebar-context-slot" aria-label="当前页面工具"></div>
+    <div class="sidebar-scroll">
+      <nav aria-label="主导航">
+        <span class="creative-nav-heading">创作空间</span>
+        <ul id="nav-list" class="sidebar-desktop-nav">
+          <li v-for="item in navItems" :key="item.view">
+            <button type="button" class="nav-item" :class="[`nav-item--${item.view}`, { active: currentView === item.view || (item.view === 'today' && currentView === 'writing') }]"
+              :data-view="item.view" :title="item.title" :aria-current="currentView === item.view || (item.view === 'today' && currentView === 'writing') ? 'page' : undefined"
+              @click="$emit('navigate', item.view)"
+              @keydown.enter.prevent="$emit('navigate', item.view)"
+              @keydown.space.prevent="$emit('navigate', item.view)">
+              <span class="nav-icon-frame"><NavIcon :name="item.icon" /></span><span class="nav-label">{{ item.label }}</span>
+            </button>
+          </li>
+        </ul>
+      </nav>
+      <div id="sidebar-context-slot" aria-label="当前页面工具"></div>
+    </div>
     <div v-if="!publicDemo" class="sidebar-footer">
       <details class="sidebar-more" :open="moreOpen" @toggle="moreOpen = $event.target.open">
         <summary class="nav-item" :class="{ active: moreActive }"><span class="nav-icon-frame sidebar-more__icon" aria-hidden="true">•••</span><span class="nav-label">更多工具</span></summary>
