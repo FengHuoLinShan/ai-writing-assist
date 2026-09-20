@@ -52,7 +52,9 @@
 .rp-story-page .rp-story-topbar { min-height: 66px; border-bottom-color: var(--rp-border); background: color-mix(in srgb, var(--rp-bg) 96%, transparent); }
 .rp-story-page .rp-story-title strong { color: var(--rp-heading); font-size: 15px; }
 .rp-story-page .rp-story-title span { color: var(--rp-muted); }
-.rp-story-page .rp-story-scroll { max-width: 760px; padding-inline: 30px; }
+/* 正文列与输入坞同为 760px 测量：用对称内边距居中（max-width 会贴左），
+   100% 取所在网格区域宽度，保证与 .rp-composer-dock 在任意容器宽度下对齐 */
+.rp-story-page .rp-story-scroll { padding-inline: max(30px, calc((100% - 760px) / 2)); }
 .rp-story-page .rp-message { padding-block: 20px; border-bottom: 1px solid color-mix(in srgb, var(--rp-border) 65%, transparent); }
 .rp-story-page .rp-message__label { color: var(--rp-muted); font-size: 10px; letter-spacing: .08em; }
 .rp-story-page .rp-message__text { color: var(--rp-text); font-size: 17px; line-height: 1.95; }
@@ -81,7 +83,7 @@
   .rp-list-page { padding: 18px 16px 48px; }
   .rp-list-header { gap: 10px; }
   .rp-list-page .rp-opening-card { padding-top: 24px; }
-  .rp-story-page .rp-story-scroll { padding-inline: 16px; }
+  .rp-story-page .rp-story-scroll { padding-inline: 16px 52px; } /* 右侧 52px 留给定位轨道 */
   .rp-story-page .rp-message__text { font-size: 16px; }
   .auth-page { padding: 24px 16px; }
   .auth-page .auth-card { padding: 24px 20px; }

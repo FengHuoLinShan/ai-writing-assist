@@ -13861,6 +13861,7 @@ details[open] > .world-bible-support-summary::after {
 .rp-mode-row,
 .rp-composer-tools {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   margin-top: 12px;
@@ -13871,6 +13872,23 @@ details[open] > .world-bible-support-summary::after {
 .rp-shortcut-hint {
   color: var(--rp-dim);
   font-size: 12px;
+}
+
+/* 工具行按钮标签保持单行，放不下时整枚按钮换行，而不是把文字压成两行。
+   仅桌面端：移动端工具行是横向滚动容器（见 760px 断点），
+   nowrap 会抬高 min-content 把页面网格轨道撑出视口 */
+@media (min-width: 761px) {
+  .rp-mode-row :is(button, summary),
+  .rp-mode-row > span,
+  .rp-composer-tools :is(button, summary),
+  .rp-composer-tools > span {
+    white-space: nowrap;
+  }
+
+  /* 演绎方式/现实资料查证与相邻按钮等高；触屏保留 44px 命中高度 */
+  .rp-composer-tools .rp-public-research > summary {
+    min-height: 0;
+  }
 }
 
 .rp-mode-toggle {
@@ -13887,10 +13905,6 @@ details[open] > .world-bible-support-summary::after {
   border-color: var(--rp-accent);
   background: var(--rp-accent-soft);
   color: var(--rp-accent);
-}
-
-.rp-remember-button {
-  min-height: 44px;
 }
 
 .rp-remember-button:disabled {
@@ -14222,13 +14236,14 @@ button.rp-journey-card__main:hover {
   position: relative;
   display: grid;
   height: 100%;
-  grid-template-rows: 58px minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
 }
 
 .rp-story-topbar {
   grid-template-columns: 44px minmax(0, 1fr) 44px;
-  padding: 0 max(12px, calc((100vw - 920px) / 2));
+  /* 与正文列/输入坞同一 760px 测量，返回和更多按钮锚在阅读区两缘 */
+  padding: 0 max(12px, calc((100% - 760px) / 2));
   border-bottom: 1px solid var(--rp-border);
 }
 
@@ -14283,7 +14298,7 @@ button.rp-journey-card__main:hover {
   right: 0;
   display: grid;
   width: 180px;
-  /* 故事页首行轨道 58px，但 .rp-story-topbar 有 min-height:66px（rp-redesign），
+  /* 首行轨道随 .rp-story-topbar 实际高度（rp-redesign 下 66px），
      以 66px 为基准再加呼吸空间，不引用全局 --topbar-height */
   max-height: calc(100vh - 90px);
   max-height: calc(100dvh - 90px);
@@ -14336,7 +14351,8 @@ button.rp-journey-card__main:hover {
   grid-column: 1;
   grid-row: 2;
   overflow: auto;
-  padding: 34px max(52px, calc((100vw - 640px) / 2)) 28px;
+  /* 水平内边距由 rp-redesign.css 的正文列居中规则提供（760px 测量） */
+  padding-block: 34px 28px;
 }
 
 .rp-load-older {
@@ -14699,7 +14715,9 @@ button.rp-journey-card__main:hover {
   z-index: 18;
   grid-column: 1;
   grid-row: 3;
-  padding: 8px max(52px, calc((100vw - 760px) / 2)) 16px;
+  /* 网格项最小宽度不随内容（工具行）增长，避免窄视口横向溢出 */
+  min-width: 0;
+  padding: 8px max(52px, calc((100% - 760px) / 2)) 16px;
   background: linear-gradient(to top, var(--rp-bg) 78%, transparent);
 }
 
@@ -14747,7 +14765,7 @@ button.rp-journey-card__main:hover {
   grid-row: 2;
   align-self: end;
   justify-self: end;
-  margin: 0 max(62px, calc((100vw - 760px) / 2)) 12px 0;
+  margin: 0 max(62px, calc((100% - 760px) / 2)) 12px 0;
   padding: 8px 12px;
   border-radius: 20px;
   background: var(--rp-accent);
@@ -14853,11 +14871,14 @@ button.rp-journey-card__main:hover {
 }
 
 .rp-conflict-banner {
-  position: absolute;
+  /* 作为正文行（row 2）的网格项贴底居中，始终落在输入坞上方，
+     不再用绝对定位猜测输入坞高度 */
+  position: relative;
   z-index: 30;
-  right: max(18px, calc((100vw - 820px) / 2));
-  bottom: 150px;
-  left: max(18px, calc((100vw - 820px) / 2));
+  grid-column: 1;
+  grid-row: 2;
+  align-self: end;
+  margin: 0 max(18px, calc((100% - 760px) / 2)) 14px;
   padding: 12px 14px;
   border: 1px solid #efcf87;
   border-radius: 12px;
@@ -15330,7 +15351,7 @@ button.rp-journey-card__main:hover {
   }
 
   .rp-story-scroll {
-    padding: 24px 52px 24px 18px;
+    padding-block: 24px;
   }
 
   .rp-message--user {
@@ -15374,9 +15395,7 @@ button.rp-journey-card__main:hover {
   }
 
   .rp-conflict-banner {
-    right: 10px;
-    bottom: 165px;
-    left: 10px;
+    margin-inline: 10px;
   }
 }
 
