@@ -666,9 +666,18 @@ html, body {
   align-items: stretch;
   padding: var(--space-4) var(--space-3);
   gap: var(--space-2);
+  z-index: 90;
+}
+
+/* 侧栏本体不滚动，滚动只发生在内容区；“更多工具”弹出面板才能向右溢出而不被裁剪 */
+.sidebar-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
   overflow-y: auto;
   overscroll-behavior: contain;
-  z-index: 90;
 }
 
 #nav-list {
