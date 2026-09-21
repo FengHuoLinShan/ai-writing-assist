@@ -93,6 +93,14 @@ V4 长期计划（`docs/plans/novelcraft-v4/plans/01-EVOLUTION.md`）的演化�
   canary）。E08 退役登记表见
   `docs/plans/novelcraft-v4/e08/E08-退役登记表.md`（核销条件满足前不删码）。
 
+- 生产采样器（E09 第一步，`llm_sampler.py`）：``ProjectLLMSampler`` 经
+  ``open_project_llm_client`` 使用项目 owner 账户连接；输出为 Pydantic
+  schema 化窄观察（modality 七态/提及禁造 UUID/引用必须来自原文，校验
+  失败即失败）；Prompt 确定性注入正文与前序已提交回执身份（T07 注入面）；
+  每次调用记录 paid_call_receipt 进入冻结负载可审计。生产 provider
+  ``project_llm`` 已注册到采样器注册表；真实模型验收单独授权执行，
+  单元验证用冻结 fixture 客户端（不联网）。
+
 ## 测试
 
 `modules/evolution/tests/`：契约校验语义（含游标纪律）与稳定身份性质。

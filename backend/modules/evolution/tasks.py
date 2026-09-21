@@ -48,8 +48,8 @@ async def handle_evolution_scene_step(db: AsyncSession, task) -> dict[str, Any]:
     request = EvolutionSceneStepRequest(
         **{key: value for key, value in meta.items() if key in _REQUEST_FIELDS}
     )
-    sampler = resolve_scene_sampler(
-        provider=request.sampler_provider, novel_id=request.novel_id
+    sampler = await resolve_scene_sampler(
+        provider=request.sampler_provider, novel_id=request.novel_id, db=db
     )
     store = PostgresAttemptStore(db, request.novel_id)
     await store.register_run(

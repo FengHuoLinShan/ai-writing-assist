@@ -258,7 +258,7 @@ async def test_task_handler_runs_real_path_with_wired_sampler(
             "modules.evolution.tasks", fromlist=["handle_evolution_scene_step"]
         ).handle_evolution_scene_step(db, _Task(meta=request))
 
-    register_scene_sampler("test-echo", lambda novel_id: _Sampler())
+    register_scene_sampler("test-echo", lambda db, novel_id: _Sampler())
     result = await __import__(
         "modules.evolution.tasks", fromlist=["handle_evolution_scene_step"]
     ).handle_evolution_scene_step(db, _Task(meta=request))
