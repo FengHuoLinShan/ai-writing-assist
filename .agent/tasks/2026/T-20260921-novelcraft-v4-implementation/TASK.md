@@ -78,8 +78,17 @@
       `producer_family="deep_import"`；facade `replace_scene_memory_events`
       加性可选参数。测试：`test_producer_replacement.py` 4 例（重排稳定/
       家族隔离/内容换键重建/legacy 全派生面）。
-- [ ] E03c evolution/commit 窄提交（prepare/apply 短事务重验来源与 parent
-      receipt，T10/T11 故障注入）（未开始）
+- [x] 2026-09-21 会话 3：E03c 完成——`evolution/commit.py` 窄提交协议：
+      freeze_attempt 先持久化冻结负载（T10 恢复基础）；apply_frozen 短事务内
+      重验 owner epoch（T12 前置，StaleOwnerError）→ 来源 manifest
+      （CommitConflictError source_changed）→ 父回执身份与前缀
+      （parent_advanced/parent_missing），再执行注入 applier 并保存回执——
+      游标只在回执持久化后推进；同 attempt 重入直接重放原回执（T11，不重复
+      领域写入）；recover_attempt 复用冻结负载、全程不接触 provider。
+      存储经 AttemptStore port 注入（InMemoryAttemptStore 供测试；生产 PG
+      实现随 E04/E07 接线）。T10/T11/来源漂移/父推进/失败无回执/旧 owner
+      拒绝共 6 例故障注入测试。测试坑：rollback 会过期 ORM 属性（固化
+      scene_id 字符串）并把未 commit 的场景行卷走（先 db.commit() 封存）。
 - [ ] E04 orchestrator（前序屏障、有限并行、游标与预算）（未开始）
 
 ## 验证
@@ -101,16 +110,18 @@
   test_repositories 2 例、test_foreshadowing_reveal 2 例、writing
   test_create_many_reads_versions_once_and_flushes_once 1 例。
 
-## 恢复快照（2026-09-21 会话 2 结束，含 E03b）
+## 恢复快照（2026-09-21 会话 3 结束，含 E03c）
 
-分支 `codex/novelcraft-v4-g0-baseline`，累计 9 个提交：G0×2、E01、E02
+分支 `codex/novelcraft-v4-g0-baseline`，累计 11 个提交：G0×2、E01、E02
 （00d92dfb9）、E03a（d9bacadc2）、T13 对齐（60879dfd3）、E03b（1a9bb215e）、
-两轮任务记录。**未推送、未合 main、未部署、未建 PR。**
+E03c（d11fb140c）及任务/文档记录。**未推送、未合 main、未部署、未建 PR。**
 E03b 与计划 §2.2 的差异（有意收窄）：以 `meta.event_key` JSON 键替代新列
 （避免生产迁移，语义等价——身份=语义指纹而非输出位置）；producer_family
 暂用 source 字符串（deep_import/ai_extraction），generation/input_revision
 登记在 delta meta，完整 `replace_derived_scene_events(...)` 签名留给 E03c
 随 evolution/commit 落地。
-下一步：E03c evolution/commit 窄提交（prepare/apply、短事务重验来源与
-parent receipt、T10/T11 故障注入）；随后 E04 orchestrator。协作/导入索引
-缺口留 I02。G0 可并行项（R00 前端选区/V00 地图壳）尚未认领。
+下一步：E04 orchestrator——前序屏障（后一 Scene 的输入必须实际包含前一
+Scene 已提交回执，T07）、有限并行（read-set/dependency key 证明）、游标与
+预算（T21 原子预留）；需要先落 AttemptStore 的 PG 实现与 run 注册表
+（Alembic migration）。协作/导入索引缺口留 I02。G0 可并行项（R00/V00）
+尚未认领。
