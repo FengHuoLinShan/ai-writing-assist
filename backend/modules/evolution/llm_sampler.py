@@ -88,15 +88,23 @@ def build_scene_messages(
     scene_text: str,
     input_manifest: dict[str, Any],
 ) -> list[LLMMessage]:
-    """确定性 Prompt：正文 + 前序已提交回执身份（T07 注入面）。"""
+    """确定性 Prompt：正文 + 前序已提交回执身份与**实际状态内容**（T07）。
+
+    前序理解不只传回执 ID——前序观察的有界摘要（谓词列表）一并注入，
+    让模型拿到真实理解内容，而不是靠身份引用冒充上下文（返修 R3）。
+    """
     previous = input_manifest.get("previous_scene_attempt_id")
     previous_prefix = input_manifest.get("previous_committed_prefix")
+    prior_observations = input_manifest.get("previous_observations") or []
     context_lines = [f"【Scene {input_manifest.get('scene_index', 0)} 正文】", scene_text]
     if previous:
         context_lines.append(
             "【前序已提交理解（回执身份）】"
             f"attempt_id={previous}；committed_prefix={previous_prefix}"
         )
+        if prior_observations:
+            context_lines.append("【前序已确认的观察（有界摘要）】")
+            context_lines.extend(f"- {line}" for line in prior_observations)
     else:
         context_lines.append("【前序已提交理解】无（本 Scene 为链头）")
     return [
@@ -110,7 +118,11 @@ class _StructuredClient(Protocol):
 
 
 class ProjectLLMSampler:
-    """经项目 LLM 入口的场景采样器（E09 生产路径）。"""
+    """经项目 LLM 入口的场景采样器（E09 生产路径）。
+
+    客户端由调用方经 async context manager 持有（见 sampler.py 工厂）；
+    采样器本身不负责客户端生命周期。
+    """
 
     def __init__(self, client: _StructuredClient) -> None:
         self._client = client
@@ -126,10 +138,21 @@ class ProjectLLMSampler:
             temperature=0.2,
         )
         result: SceneSample = await self._client.generate_structured(request, SceneSample)
+        usage = getattr(result, "usage", None)
         receipt = {
-            "provider": "project_llm",
+            "provider": getattr(self._client, "provider_id", None) or "project_llm",
+            "model": getattr(self._client, "model_id", None)
+            or getattr(self._client, "model", None),
             "schema": "evolution.scene_sample.v1",
-            "usage": None,
+            "usage": (
+                {
+                    "prompt_tokens": getattr(usage, "prompt_tokens", None),
+                    "completion_tokens": getattr(usage, "completion_tokens", None),
+                    "total_tokens": getattr(usage, "total_tokens", None),
+                }
+                if usage is not None
+                else None
+            ),
         }
         self.last_call_receipt = receipt
         payload: dict[str, Any] = result.model_dump(mode="json")

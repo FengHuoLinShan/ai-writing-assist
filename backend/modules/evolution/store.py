@@ -17,6 +17,7 @@ from __future__ import annotations
 import uuid
 
 from sqlalchemy import and_, or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.evolution.commit import CommitConflictError, FrozenAttempt
@@ -65,10 +66,18 @@ class PostgresAttemptStore:
     ) -> EvolutionRun:
         existing = await self.load_run(run_key)
         if existing is not None:
+            if existing.status != "active":
+                # 排空/停止的 run 不因重复注册而复活（返修 R5 重入约束）。
+                raise CommitConflictError(
+                    "run_not_active",
+                    f"evolution run {run_key} is {existing.status}; "
+                    "register a new run instead of reviving it",
+                )
             return existing
         if execution_mode == "live":
             # E07.c 单写者门禁：同项目同时只有一个 live 写入 run；
-            # shadow run 只读来源、产物隔离，不占写入位。
+            # shadow run 只读来源、产物隔离，不占写入位。预检后仍以
+            # 部分唯一索引为最终不变量——并发注册在数据库层只有一个赢者。
             await self._assert_single_live_writer(exclude_run_key=run_key)
         run = EvolutionRun(
             novel_id=self._novel_id,
@@ -80,7 +89,15 @@ class PostgresAttemptStore:
             budget_remaining=budget_total,
         )
         self._db.add(run)
-        await self._db.flush()
+        try:
+            await self._db.flush()
+        except IntegrityError as exc:
+            await self._db.rollback()
+            raise CommitConflictError(
+                "single_writer_violation",
+                "concurrent registration won the single live writer slot "
+                "for this novel (unique index on active live runs)",
+            ) from exc
         return run
 
     async def load_run(self, run_key: str) -> EvolutionRun | None:
@@ -159,7 +176,10 @@ class PostgresAttemptStore:
         return run
 
     async def reserve_budget(self, run_key: str, units: int) -> int:
-        """原子预留根预算（T21）：剩余不足即失败，绝不透支。"""
+        """原子预留根预算（T21）：剩余不足即失败，绝不透支。
+
+        仅 active run 可预留（返修 R5）：排空/停止的 run 不再消耗预算。
+        """
         if units <= 0:
             raise ValueError("budget reservation must be positive")
         result = await self._db.execute(
@@ -167,11 +187,19 @@ class PostgresAttemptStore:
             .where(
                 EvolutionRun.novel_id == self._novel_id,
                 EvolutionRun.run_key == run_key,
+                EvolutionRun.status == "active",
                 EvolutionRun.budget_remaining >= units,
             )
             .values(budget_remaining=EvolutionRun.budget_remaining - units)
         )
         if result.rowcount != 1:
+            run = await self.load_run(run_key)
+            if run is None or run.status != "active":
+                raise CommitConflictError(
+                    "run_not_active",
+                    f"evolution run {run_key} is missing or not active; "
+                    "budget cannot be reserved",
+                )
             raise BudgetExhaustedError(
                 f"budget exhausted: cannot reserve {units} for run {run_key}"
             )
@@ -252,6 +280,9 @@ class PostgresAttemptStore:
                 "receipt requires its frozen attempt to exist first",
             )
         record = EvolutionReceiptRecord(
+            # 显式生成主键：head_attempt_id 指针在 INSERT 前就要引用它
+            # （返修 P2：默认值到 INSERT 才生效，指针会落成 NULL）。
+            id=uuid.uuid4(),
             novel_id=self._novel_id,
             run_key=receipt.run_id,
             attempt_key=receipt.attempt_id,
@@ -333,6 +364,64 @@ class PostgresAttemptStore:
         if row is None:
             return None
         return EvolutionReceipt.model_validate(row.receipt_json)
+
+    async def load_head_observations(self, run_id: str) -> list[str]:
+        """链头回执对应冻结负载里的观察谓词（T07 前序状态内容注入面）。"""
+        head = await self.load_head_receipt(run_id)
+        if head is None:
+            return []
+        frozen = await self.load_frozen(run_id, head.attempt_id)
+        if frozen is None:
+            return []
+        payload = frozen.payload or {}
+        compiled = payload.get("compiled_observations")
+        if compiled:
+            return [
+                item["predicate"]
+                for item in compiled
+                if item.get("predicate")
+            ]
+        return [
+            str(item.get("predicate", ""))
+            for item in payload.get("observations") or []
+            if item.get("predicate")
+        ]
+
+    async def load_pending_frozen(
+        self, run_id: str, scene_index: int
+    ) -> FrozenAttempt | None:
+        """按 Scene 找未应用的冻结 attempt（返修 R4 恢复入口）。"""
+        rows = (
+            (
+                await self._db.execute(
+                    select(EvolutionFrozenAttempt)
+                    .where(
+                        EvolutionFrozenAttempt.novel_id == self._novel_id,
+                        EvolutionFrozenAttempt.run_key == run_id,
+                        EvolutionFrozenAttempt.status == "frozen",
+                    )
+                    .order_by(EvolutionFrozenAttempt.created_at.desc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for row in rows:
+            payload = row.payload_json or {}
+            if payload.get("scene_index") == scene_index:
+                return await self.load_frozen(run_id, row.attempt_key)
+        return None
+
+    async def load_scene_receipt(
+        self, run_id: str, scene_index: int
+    ) -> EvolutionReceipt | None:
+        """本 Scene 已是链头回执时返回它（T11 幂等重放判定）。"""
+        head = await self.load_head_receipt(run_id)
+        if head is None:
+            return None
+        if head.committed_prefix.through_scene_index == scene_index:
+            return head
+        return None
 
     async def page_receipts(
         self,

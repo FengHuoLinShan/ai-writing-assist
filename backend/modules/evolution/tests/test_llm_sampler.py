@@ -126,12 +126,27 @@ async def test_invalid_fixture_fails_closed() -> None:
 
 
 async def test_project_llm_provider_resolve_paths() -> None:
-    # 未注册 provider：fail-closed 拒伪造。
+    # 未注册 provider：fail-closed 拒伪造（进入 context manager 即抛）。
     with pytest.raises(SamplerNotWiredError):
-        await resolve_scene_sampler(provider="nope", novel_id="n1", db=None)
+        async with resolve_scene_sampler(provider="nope", novel_id="n1", db=None):
+            pass
 
     # project_llm 工厂存在且指向项目 LLM 入口；无 owner 连接的项目在
     # 真实调用时 fail-closed（此处只验证装配指向，不发真实请求）。
     from modules.evolution.sampler import project_llm_sampler_factory
 
     assert callable(project_llm_sampler_factory)
+
+    # 测试替身经 registry 解析为 context manager（普通可等待对象被包装）。
+    from modules.evolution.sampler import register_scene_sampler
+
+    class _Echo:
+        async def sample(self, *, scene_text: str, input_manifest: dict) -> dict:
+            return {"observations": [], "scene_events": []}
+
+    register_scene_sampler("test-wrap", lambda db, novel_id: _Echo())
+    async with resolve_scene_sampler(
+        provider="test-wrap", novel_id="n1", db=None
+    ) as sampler:
+        payload = await sampler.sample(scene_text="x", input_manifest={})
+        assert payload == {"observations": [], "scene_events": []}

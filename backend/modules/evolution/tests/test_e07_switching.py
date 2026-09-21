@@ -23,6 +23,7 @@ from modules.evolution.legacy_adapter import (
     LegacyDeepImportRequest,
     adapt_deep_import_start,
 )
+from modules.evolution.pipeline import SceneSourceBinding
 from modules.evolution.sampler import (
     SamplerNotWiredError,
     register_scene_sampler,
@@ -31,13 +32,15 @@ from modules.evolution.store import PostgresAttemptStore
 from modules.story.continuity.models import MemoryEvent
 from modules.story.continuity.services import MemoryService
 from modules.story.outline_state.models import Scene
+from modules.writing.facade import create_draft_only, get_latest_draft_for_chapter
 
 RUN = "run-e07"
+SCENE_TEXT = "林舟与青竹在白石城重逢。"
 
 
 @dataclass
 class _Sampler:
-    def sample(self, *, scene_text: str, input_manifest: dict[str, Any]) -> dict:
+    async def sample(self, *, scene_text: str, input_manifest: dict[str, Any]) -> dict:
         return {
             "scene_events": [
                 {
@@ -64,10 +67,21 @@ async def _scene(db: AsyncSession, novel_id: str) -> Scene:
     return item
 
 
+async def _binding(db: AsyncSession, novel_id: str) -> SceneSourceBinding:
+    draft = await get_latest_draft_for_chapter(db, novel_id, 1)
+    assert draft is not None
+    return SceneSourceBinding(
+        draft_id=str(draft.id),
+        chapter_index=1,
+        content_hash=str(draft.content_hash),
+    )
+
+
 def _live_applier(novel_id: str, scene_id: str):
     async def applier(db, frozen) -> ApplierResult:
         events = [
-            {**event, "source": "evolution"} for event in frozen.payload["scene_events"]
+            {**event, "source": "evolution"}
+            for event in (frozen.payload or {}).get("scene_events") or []
         ]
         await MemoryService().record_scene_events(
             db,
@@ -107,14 +121,19 @@ async def test_shadow_run_writes_no_production_facts(
     db_session: AsyncSession,
     test_project_id: str,
 ) -> None:
-    """E07.b：影子运行读同一来源，产物隔离——不写正式 World/Story。"""
+    """E07.b：影子运行读同一来源，产物隔离——不写正式 World/Story。
+
+    影子游标按真实位置推进（返修 P2）：多 Scene 影子对比依赖它。
+    """
     from modules.evolution.pipeline import run_scene_step
 
     db, nid = db_session, test_project_id
     scene = await _scene(db, nid)
+    await create_draft_only(db, nid, 1, "重逢", SCENE_TEXT)
     await db.commit()
     store = PostgresAttemptStore(db, nid)
     await store.register_run(RUN, mode="append", budget_total=5)
+    binding = await _binding(db, nid)
 
     # 影子 run：即使传入会写正式表的 live applier 也被强制隔离。
     await store.register_run(
@@ -125,7 +144,8 @@ async def test_shadow_run_writes_no_production_facts(
         store,
         run_key="run-shadow",
         scene_index=0,
-        scene_text="林舟与青竹在白石城重逢。",
+        scene_text=SCENE_TEXT,
+        source=binding,
         sampler=_Sampler(),
         applier=_live_applier(nid, str(scene.id)),
     )
@@ -133,6 +153,8 @@ async def test_shadow_run_writes_no_production_facts(
     assert await _evolution_events(db, nid) == []  # 未产生第二套有效事实
     head = await store.load_head_receipt("run-shadow")
     assert head is not None  # 影子回执留在 evolution 自己的表里供对比
+    assert head.committed_prefix.through_scene_index == 0  # 影子游标真实推进
+    assert result.committed_prefix.through_scene_index == 0
 
     # live run 照常写入。
     await run_scene_step(
@@ -140,7 +162,8 @@ async def test_shadow_run_writes_no_production_facts(
         store,
         run_key=RUN,
         scene_index=0,
-        scene_text="林舟与青竹在白石城重逢。",
+        scene_text=SCENE_TEXT,
+        source=binding,
         sampler=_Sampler(),
         applier=_live_applier(nid, str(scene.id)),
     )
@@ -163,6 +186,10 @@ async def test_single_live_writer_and_drain_fences_old_owner(
     drained = await store.switch_project_engine(RUN, to_engine="evolution")
     assert drained.status == "drained"
     assert drained.owner_epoch == 2
+
+    # 排空的 run 不因重复注册而复活（返修 R5 重入约束）。
+    with pytest.raises(CommitConflictError, match="run_not_active"):
+        await store.register_run(RUN, mode="append", budget_total=5)
 
     # 排空后旧 epoch 的冻结尝试在持久化边界被拒（E06 fencing 复验）。
     from modules.evolution.commit import FrozenAttempt
@@ -232,10 +259,56 @@ async def test_task_handler_runs_real_path_with_wired_sampler(
     db_session: AsyncSession,
     test_project_id: str,
 ) -> None:
-    """E07.e：evolution_scene_step 走真实路径；采样器未接线 fail-closed。"""
+    """E07.e：evolution_scene_step 走真实路径；采样器未接线 fail-closed。
+
+    返修 R1/R2：handler 集成经过 registry async sampler（观察-only）、
+    world facade 精确名身份召回、一致性门、领域 applier 与数据库回执。
+    """
+    from modules.world.models.core import CoreEntity
+
     db, nid = db_session, test_project_id
     scene = await _scene(db, nid)
+    scene_text = "青竹把铜钥匙收进包袱。"
+    # 来源绑定真实草稿：任务文本必须与当前 working 草稿逐字一致。
+    await create_draft_only(db, nid, 1, "钥匙", scene_text)
+    qingzhu = CoreEntity(
+        novel_id=uuid.UUID(nid),
+        entity_type="character",
+        name="青竹",
+        status="canonical",
+    )
+    db.add(qingzhu)
     await db.commit()
+
+    class _ObservationSampler:
+        async def sample(
+            self, *, scene_text: str, input_manifest: dict[str, Any]
+        ) -> dict:
+            return {
+                "observations": [
+                    {
+                        "predicate": "青竹收起铜钥匙",
+                        "modality": "event_observed",
+                        "quote": "青竹把铜钥匙收进包袱",
+                        "mentions": [
+                            {"surface": "青竹", "entity_type": "character"}
+                        ],
+                    }
+                ],
+                "scene_events": [
+                    {
+                        "dimension": "entities",
+                        "event_type": "manual_correction",
+                        "entity_id": str(qingzhu.id),
+                        "snapshot_after": {"summary": "保管"},
+                    }
+                ],
+                "paid_call_receipt": {
+                    "provider": "test",
+                    "schema": "evolution.scene_sample.v1",
+                    "usage": {"total_tokens": 1},
+                },
+            }
 
     @dataclass
     class _Task:
@@ -245,7 +318,7 @@ async def test_task_handler_runs_real_path_with_wired_sampler(
         "novel_id": nid,
         "run_key": "run-task",
         "scene_index": 0,
-        "scene_text": "青竹把铜钥匙收进包袱。",
+        "scene_text": scene_text,
         "scene_id": str(scene.id),
         "chapter_index": 1,
         "budget_total": 5,
@@ -258,13 +331,63 @@ async def test_task_handler_runs_real_path_with_wired_sampler(
             "modules.evolution.tasks", fromlist=["handle_evolution_scene_step"]
         ).handle_evolution_scene_step(db, _Task(meta=request))
 
-    register_scene_sampler("test-echo", lambda db, novel_id: _Sampler())
+    register_scene_sampler("test-echo", lambda db, novel_id: _ObservationSampler())
     result = await __import__(
         "modules.evolution.tasks", fromlist=["handle_evolution_scene_step"]
     ).handle_evolution_scene_step(db, _Task(meta=request))
     assert result["attempt_id"]
     assert result["committed_prefix"]["through_scene_index"] == 0
+    assert result["identity_outcomes"] == {"reuse": 1}  # world 精确名召回生效
+    assert result["gated_scene_events"] == 0  # 提议的实体已获解析支持
     assert len(await _evolution_events(db, nid)) == 1
+
+
+@pytest.mark.asyncio
+async def test_task_handler_recovery_replays_frozen_without_resample(
+    db_session: AsyncSession,
+    test_project_id: str,
+) -> None:
+    """返修 R4：handler 恢复优先重放冻结 attempt，provider 不被再次调用。"""
+    from modules.evolution.tasks import handle_evolution_scene_step
+
+    db, nid = db_session, test_project_id
+    scene = await _scene(db, nid)
+    scene_text = "青竹把铜钥匙收进包袱。"
+    await create_draft_only(db, nid, 1, "钥匙", scene_text)
+    await db.commit()
+
+    calls = 0
+
+    @dataclass
+    class _CountingSampler:
+        async def sample(self, *, scene_text: str, input_manifest: dict) -> dict:
+            nonlocal calls
+            calls += 1
+            return {"scene_events": [], "observations": []}
+
+    @dataclass
+    class _Task:
+        meta: dict
+
+    request = {
+        "novel_id": nid,
+        "run_key": "run-recover",
+        "scene_index": 0,
+        "scene_text": scene_text,
+        "scene_id": str(scene.id),
+        "chapter_index": 1,
+        "budget_total": 5,
+        "sampler_provider": "test-recover",
+    }
+    register_scene_sampler("test-recover", lambda db, novel_id: _CountingSampler())
+
+    first = await handle_evolution_scene_step(db, _Task(meta=request))
+    assert calls == 1
+
+    second = await handle_evolution_scene_step(db, _Task(meta=request))
+    assert second["attempt_id"] == first["attempt_id"]
+    assert second.get("recovered") is True
+    assert calls == 1  # T10：恢复重放冻结负载，不重采样
 
 
 def test_deep_import_adapter_maps_and_deprecates() -> None:
@@ -279,7 +402,8 @@ def test_deep_import_adapter_maps_and_deprecates() -> None:
     assert adapted.deprecated is True
     assert adapted.deprecation_notice == DEPRECATION_NOTICE
     assert adapted.evolution_mode == "append"
-    assert adapted.budget_total == 3  # max(请求预算, 章节数)
+    # 返修 R6：预算严格沿用授权值，章节数不抬额。
+    assert adapted.budget_total == 2
     assert [step["scene_index"] for step in adapted.scene_steps] == [1, 2, 3]
     assert all(
         step["task_type"] == "evolution_scene_step" for step in adapted.scene_steps

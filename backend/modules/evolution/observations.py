@@ -63,3 +63,30 @@ def derive_observation_id(
         modality=modality,
         observer_contract_version=observer_contract_version,
     )
+
+
+_MENTION_ID_NAMESPACE = "novelcraft.evolution.mention.v1"
+
+
+def derive_mention_id(
+    *,
+    observation_id: str,
+    surface: str,
+    ordinal: int,
+    entity_type: str | None = None,
+) -> str:
+    """宿主侧稳定提及 ID：观察身份 + 表面名 + 序位。
+
+    模型输出只有表面名（禁止编造实体 UUID，也不指定提及身份）；提及
+    身份由宿主按真实来源范围派生的观察身份生成——同一观察内同一表面
+    名按出现序位区分，批次重排不改变身份。
+    """
+    return content_hash(
+        {
+            "namespace": _MENTION_ID_NAMESPACE,
+            "observation_id": observation_id,
+            "surface": surface,
+            "ordinal": ordinal,
+            "entity_type": entity_type,
+        }
+    )

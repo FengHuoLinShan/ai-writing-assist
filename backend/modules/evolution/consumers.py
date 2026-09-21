@@ -74,7 +74,25 @@ async def check_suggestion_validity(
             requested_hash=requested,
             detail="来源已变化待重建：旧建议立即失效，历史可查看",
         )
-    if claimed_hash is not None and indexed is not None and claimed_hash != indexed:
+    if indexed is None:
+        # 有索引状态但没有任何已索引指纹：无法证明一致（返修 P2）。
+        return SuggestionValidity(
+            verdict="unknown",
+            claimed_hash=claimed_hash,
+            indexed_hash=indexed,
+            requested_hash=requested,
+            detail="索引状态存在但尚无已索引指纹，无法证明来源有效",
+        )
+    if claimed_hash is None:
+        # 声称侧为空：没有可对照的指纹就不能宣称一致（返修 P2）。
+        return SuggestionValidity(
+            verdict="unknown",
+            claimed_hash=claimed_hash,
+            indexed_hash=indexed,
+            requested_hash=requested,
+            detail="建议未声称来源指纹，无法证明一致",
+        )
+    if claimed_hash != indexed:
         return SuggestionValidity(
             verdict="stale",
             claimed_hash=claimed_hash,

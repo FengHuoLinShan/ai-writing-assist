@@ -16,10 +16,12 @@ from typing import Any
 from sqlalchemy import (
     JSON,
     DateTime,
+    Index,
     Integer,
     String,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -27,6 +29,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 from core.base import Base, NovelMixin, UUIDMixin
 
 EVOLUTION_RUN_MODES = ("bootstrap", "append", "revise", "scoped_recompute")
+
+_SINGLE_LIVE_WRITER_PREDICATE = "execution_mode = 'live' AND status = 'active'"
 
 
 class EvolutionRun(Base, UUIDMixin, NovelMixin):
@@ -38,6 +42,15 @@ class EvolutionRun(Base, UUIDMixin, NovelMixin):
             "novel_id",
             "run_key",
             name="uq_evolution_run_novel_key",
+        ),
+        # E07.c 单写者的数据库级不变量（返修 R5）：同项目同时至多一个
+        # active live run——count-then-insert 竞态在数据库层只有一赢者。
+        Index(
+            "uq_evolution_run_single_live_writer",
+            "novel_id",
+            unique=True,
+            postgresql_where=text(_SINGLE_LIVE_WRITER_PREDICATE),
+            sqlite_where=text(_SINGLE_LIVE_WRITER_PREDICATE),
         ),
         {"comment": "演化理解运行注册表：owner epoch / 游标 / 根预算"},
     )

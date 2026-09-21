@@ -49,14 +49,18 @@ _LEGACY_TO_EVOLUTION_MODE = {"full": "bootstrap", "append": "append"}
 def adapt_deep_import_start(
     request: LegacyDeepImportRequest,
 ) -> AdaptedEvolutionStart:
-    """把旧 deep-import 请求映射为演化 run 注册负载（E07.e 参数适配）。"""
+    """把旧 deep-import 请求映射为演化 run 注册负载（E07.e 参数适配）。
+
+    预算严格沿用旧请求的授权值（返修 R6）：预计工作量不变成授权费用——
+    章节数超出预算时由演化引擎按预算分批推进/阻塞，不擅自抬额。
+    """
     evolution_mode = _LEGACY_TO_EVOLUTION_MODE.get(request.import_mode, "bootstrap")
     run_key = f"legacy-{request.import_mode}-{request.novel_id[:8]}"
     return AdaptedEvolutionStart(
         novel_id=request.novel_id,
         run_key=run_key,
         evolution_mode=evolution_mode,
-        budget_total=max(request.requested_budget, len(request.chapter_indices)),
+        budget_total=request.requested_budget,
         scene_steps=[
             {
                 "scene_index": index,

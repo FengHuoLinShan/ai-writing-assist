@@ -182,3 +182,63 @@ E03b 与计划 §2.2 的差异（有意收窄）：以 `meta.event_key` JSON 键
 切换落地/前端统一宿主 U 系列/地图 V 系列/R 系列推荐）。E08 实际删码
 被 E09+canary 阻断（登记表已列）。world 知识/地图册资产留 V/MI。
 合并 main 需用户授权；建议合并前跑 PostgreSQL e2e 专用库（配方在 memory）。
+
+## 评审返修（2026-09-21 会话 10，PR #158 Request changes → 全项修复）
+
+**PR #159（独立前端修复）已全绿合入 main（610d3872a）**：main 上
+"Frontend functional browser" 必需检查红的根因是 65df0c789（前瞻/创作
+试验，直推未走 PR 门禁）——creative-forecast.spec.js 留在 functional 套件
+（无 ASSISTANT_ENABLED/合成 provider，等「项目助手」按钮超时）+ RP 页
+forecasts/capabilities 未 mock 打真实后端 403 噪声。修复：接线
+playwright.creative.config.js（script+CI 步骤+functional testIgnore）、
+mockRpApis 补 capabilities mock、useForecast.refresh() dirty/saving 期间
+跳过（保存落库竞态必然 SOURCE_STALE 409，建议入口此间本就禁用）、spec
+补资源勾选。本地专用库全绿（interaction 16/writing 28/agent-teams 1/
+assistant 1/creative 1/vitest 2536/eslint）。
+
+**PR #158 评审（用户提供的 Request changes 报告）R1–R6+P2×3 逐项核实
+（全部属实）并返修**：
+
+- R1：SceneSampler 协议改 async；提及身份宿主派生
+  （observations.derive_mention_id，观察身份+表面名+序位）；采样器工厂改
+  async context manager（客户端 __aexit__ 成对）；handler 集成测试经过
+  registry async sampler→world facade 精确名召回→一致性门→领域 applier→
+  数据库回执（test_e07_switching + test_review_remediation）。
+- R2：SceneSourceBinding 锚定真实 Writing 草稿（指纹来自 DB；scene_text
+  须与草稿逐字一致，sha256 同 writing.source_hashing）；提交时
+  _source_verifier 重查当前草稿（非自比较）；一致性门——scene_events
+  引用未解析实体的提议 gated 进 pending_decisions；编译后观察（含提及
+  身份与解析结论）持久化进冻结负载；G2 夹具引文改逐字子串。
+- R3：屏障顺序检查（head.through_scene_index 必须恰为 N-1；scene 0 有
+  head 即拒；跳场/倒序显式 blocked）；plan_parallel_batches 每 Scene 取
+  最大批次（后放小批不回写）；前序输入带 previous_observations（链头
+  冻结负载观察谓词有界摘要），build_scene_messages 注入真实前序理解。
+- R4：事务边界重排——预算预留先 commit 持久化；provider 调用在提交点
+  之间；冻结单独 commit；apply 为最后一笔短事务。域失败回滚不抹预算与
+  冻结（test_review_remediation 故障注入：budget 只扣 1、frozen 仍在、
+  recover_scene_step 免采样重放、sampler.calls==1）。handler 恢复优先：
+  已提交→原回执幂等重放（load_scene_receipt）；已冻结→recover_scene_step；
+  才走新采样（test_task_handler_recovery_replays_frozen_without_resample）。
+- R5：单写者改数据库不变量——部分唯一索引
+  uq_evolution_run_single_live_writer（novel_id WHERE live+active，
+  migration 20260921_evolution_single_writer）；register_run 捕
+  IntegrityError→single_writer_violation；排空/停止 run 重复注册拒绝
+  （run_not_active）；reserve_budget 仅 active。真实 PG 双会话竞态 e2e
+  （tests/e2e/test_evolution_single_writer_concurrency.py，专用库
+  ai_novel_agent_e2e_evolution 全迁移含新 head 验证）恰好一个 owner。
+- R6：legacy_adapter 预算严格沿用 requested_budget（不再 max 抬额）；
+  paid_call_receipts 类型放宽 dict[str,Any]，sampler 回执带 provider/
+  model/usage，applier 并入 ApplierResult→EvolutionReceipt。
+- P2×3：save_receipt 显式生成 record.id（head_attempt_id 指针非空断言）；
+  consumers 有效性收窄（indexed None 或 claimed None→unknown，不宣称
+  一致）；_shadow_applier 按本步真实位置推进影子游标。
+
+**G2 声明收窄（按评审）**：test_g2_vertical_slice 定位为「确定性夹具下的
+存储/投影集成切片」（模块 README 已改）；完整 G2（持续认知闭环、真实模型
+质量、独立 case 经 Evidence 消费、地图消费合法状态）留后续里程碑。
+评审门槛第 6 条（独立 case 经 Evidence 消费+地图消费）未在本轮实施——
+consumers seam 已收紧，Evidence 入模消费链待 E09+。
+
+验证：modules/evolution 78 passed + 1 real-llm deselected；evidence fusion
+contract 通过；ruff 全绿；docs-check 通过（01_数据库设计 §3.11 已登记新
+索引）；真实 PG 迁移至新 head + 双会话并发 e2e 通过。全量后端单测运行中。

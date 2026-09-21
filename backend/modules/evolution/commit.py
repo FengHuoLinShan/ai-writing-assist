@@ -90,7 +90,7 @@ class ApplierResult(BaseModel):
     observation_dispositions: dict[ObservationDisposition, int] = Field(
         default_factory=dict
     )
-    paid_call_receipts: list[dict[str, str]] = Field(default_factory=list)
+    paid_call_receipts: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class AttemptStore(Protocol):

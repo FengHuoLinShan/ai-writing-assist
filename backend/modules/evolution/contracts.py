@@ -402,7 +402,7 @@ class EvolutionReceipt(BaseModel):
     coverage: CoverageContract = Field(default_factory=CoverageContract)
     committed_prefix: CommittedPrefix
     blocked_dependencies: list[str] = Field(default_factory=list)
-    paid_call_receipts: list[dict[str, str]] = Field(default_factory=list)
+    paid_call_receipts: list[dict[str, Any]] = Field(default_factory=list)
     execution_status: ExecutionStatus
     outcome_status: OutcomeStatus
     freshness: FreshnessStatus = "fresh"
