@@ -163,7 +163,7 @@
   test_repositories 2 例、test_foreshadowing_reveal 2 例、writing
   test_create_many_reads_versions_once_and_flushes_once 1 例。
 
-## 恢复快照（2026-09-21 会话 9 结束，含 E09 第一步 + PG e2e 归属判定）
+## 恢复快照（2026-09-21 会话 9，历史参考；最新状态见下方会话 10）
 
 分支 `codex/novelcraft-v4-g0-baseline`，累计 26 个提交：G0×2、E01–E07、
 G2、E09 第一步 + 真实模型验收（0cee8a3c5）。**用户已授权推送并建 PR；
@@ -242,3 +242,39 @@ consumers seam 已收紧，Evidence 入模消费链待 E09+。
 验证：modules/evolution 78 passed + 1 real-llm deselected；evidence fusion
 contract 通过；ruff 全绿；docs-check 通过（01_数据库设计 §3.11 已登记新
 索引）；真实 PG 迁移至新 head + 双会话并发 e2e 通过。全量后端单测运行中。
+
+## 会话 10 收尾（2026-09-21）
+
+- PR #158 CI 11/11 全绿（PostgreSQL critical 一次红为 artifact 上传 403
+  基础设施抖动，测试本身 37 通过，rerun 即绿），已合入 main（41b2377d0）。
+- main 现状：41b2377d0（V4 主链 + 评审返修 + 前端 CI 修复）。
+- 下一里程碑（用户指令二选一）：E09 长书规模验证（真实作品多 Scene 影子
+  运行对比）；或 G3+/U 系列前端统一宿主（R00 选区传递、U01 单右侧宿主）。
+- 遗留（登记未做）：复审门槛第 6 条（独立 case 经 Evidence 入模消费 +
+  地图消费合法状态）；E08 实际删码（待 canary+E09）；真实作者试用。
+
+## E09 长书规模验证（2026-09-22 会话 11，分支 codex/evo-e09-scale-validation）
+
+新增 `backend/tools/evolution_scale_harness.py`：专用空库上把
+synthetic_ten_chapters（真实叙事，回归人物林舟/柳青/星盘/钥匙/顾遥）按章
+建真实 Scene+Writing 草稿，shadow run 走真实 handler（evolution_scene_step）
+逐 Scene 推进，按计划 §9 退出标准断言并出报告（stdout MD + --json-path）。
+
+**deterministic 档**（10 Scene 0.26s；--repeat 5 → 50 Scene 1.12s，专用库
+ai_novel_agent_e2e_evoscale）：链完整、前序状态注入 Scene 1..N-1、预算
+恰尽且幂等重跑零扣减、影子零 MemoryEvent、跳场拒、重跑同回执、改原文后
+旧文本推进被 source_changed 拒、引用逐字、提及有据——全部通过。
+
+**real 档**（十幕，DeepSeek 经账户连接，用户已授权真实模型验证；~10 次
+调用/轮）：43→41 条 schema 化观察、逐字引用、提及有据（模型实际跟踪了
+顾遥/观星会/篡改星盘记忆等剧情线）、completion_tokens ~1.0-1.2k/幕进
+回执；退出标准全过（耗时 ~52-89s/十幕）。
+
+顺手修两处真实链路缺陷：①ProjectLLMSampler 经 generate_structured 的
+diagnostics 通道捕获 structured_usage 计量（原 usage 恒 None）；②
+_shadow_applier 现在把 provider 计量带入回执——影子运行消耗真实额度，
+费用必须可审计（此前影子回执 paid_call_receipts 恒空）。
+
+遗留：真实档观察里混有「本章标题为…」类平凡观察（质量噪音，非阻塞）；
+身份全为 new_candidate（专用库无 World 实体，诚实待作者裁定）；跨模块
+消费链（Evidence 入模+地图）仍属复审门槛第 6 条，未在本轮。

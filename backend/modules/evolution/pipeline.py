@@ -456,7 +456,8 @@ def exact_name_candidate_lookup(db) -> Callable[[str, str], Awaitable[list[Any]]
 def _shadow_applier(scene_index: int, source_revision: int):
     """E07.b 隔离 applier：不写任何正式领域表，只回执化影子产物。
 
-    影子游标按本步真实位置推进——否则无法对比多 Scene 影子运行。
+    影子游标按本步真实位置推进；provider 计量照常进入回执——影子运行
+    消耗真实额度，费用必须可审计，只是不产生正式领域写入。
     """
 
     async def applier(db, frozen) -> ApplierResult:
@@ -469,6 +470,11 @@ def _shadow_applier(scene_index: int, source_revision: int):
             ),
             outcome_status="nothing_to_do",
             coverage={"unsupported": ["production_world_story_writes"]},
+            paid_call_receipts=[
+                payload["paid_call_receipt"]
+                for _ in [1]
+                if payload.get("paid_call_receipt")
+            ],
         )
 
     return applier
