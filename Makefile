@@ -5,7 +5,7 @@ BACKEND_DIR := $(ROOT_DIR)backend
 FRONTEND_DIR := $(ROOT_DIR)frontend-console
 BACKEND_COVERAGE_PACKAGES := app core shared infrastructure modules
 BACKEND_COVERAGE_ARGS := $(addprefix --cov=,$(BACKEND_COVERAGE_PACKAGES))
-BACKEND_REAL_LLM_TESTS := modules/imports/tests/test_real_extraction.py modules/rag/tests/test_real_index.py modules/interaction/tests/test_real_llm.py tests/integration/test_extraction_pipeline.py
+BACKEND_REAL_LLM_TESTS := modules/imports/tests/test_real_extraction.py modules/rag/tests/test_real_index.py modules/interaction/tests/test_real_llm.py tests/integration/test_extraction_pipeline.py modules/evolution/tests/test_real_llm_sampler.py
 BACKEND_REAL_KIMI_TESTS := modules/interaction/tests/test_real_kimi.py
 BACKEND_INTERACTION_LONG_CONTEXT_TESTS := tests/e2e/test_interaction_long_context_real_kimi.py
 BACKEND_MANUAL_TESTS := $(BACKEND_REAL_LLM_TESTS) tests/e2e/test_writing_conflict_real_llm.py tests/e2e/test_extraction_real_file.py tests/e2e/test_outline_generation.py
