@@ -24,6 +24,14 @@ owner epoch、窄事务与影子运行规则逐步落地，替代而非并存旧
   `IdentityCandidatePort` 注入，world 侧用 `facade.find_similar_entities` 做
   结构适配。
 
+- 窄提交（E03c，`commit.py`）：prepare 阶段 `freeze_attempt` 先持久化冻结
+  负载（T10 恢复基础）；`apply_frozen` 短事务内依次重验 owner epoch（T12
+  前置）→ 来源 manifest → 父回执身份与前缀，再执行注入的领域 applier 并
+  保存回执——游标只在回执持久化后推进；同 attempt 重入直接重放原回执
+  （T11：不重复领域写入）。`recover_attempt` 复用冻结负载重验重提交，
+  全程不接触 provider。存储经 `AttemptStore` port 注入（生产 PG 实现随
+  E04/E07 接线）。
+
 ## 测试
 
 `tests/`：契约校验语义与稳定观察身份（重排不变、同断言去重、

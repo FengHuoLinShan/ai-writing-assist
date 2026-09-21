@@ -29,6 +29,13 @@ V4 长期计划（`docs/plans/novelcraft-v4/plans/01-EVOLUTION.md`）的演化�
   sha256，不含输出位置与 run id——批次重排/合并不重建身份（T06），另一 run
   同断言去重，契约版本提升产生新一代观察并保留旧身份可对照。
 
+- 窄提交协调器（E03c，`commit.py`）：freeze → apply 两段协议。模型返回后
+  先冻结负载；apply 短事务内重验 owner epoch、来源 manifest 与父回执，
+  任一漂移抛 `CommitConflictError` 作废重准备；领域写入由注入 applier 完成，
+  回执持久化后游标才推进；同 attempt 重入重放原回执不重复写入（T10/T11
+  故障注入测试覆盖：持久化失败复用冻结不重采样、响应丢失重放原回执）。
+  存储经 `AttemptStore` port 注入，生产 PG 实现随 E04/E07 接线。
+
 ## 测试
 
 `modules/evolution/tests/`：契约校验语义（含游标纪律）与稳定身份性质。
