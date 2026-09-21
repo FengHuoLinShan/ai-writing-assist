@@ -114,8 +114,23 @@
       supersede_scene_projections_from（story/facade __all__ 已登记）。
       测试坑：全角句号与逗号同为一字符（长度变更用例别拿它造长度差）；
       stage0 快照 scene_index 为 None 断言要排除。
-- [ ] G2 整体纵切（原文→前序状态→后序理解→新 case→地图→修订失效，
-      T03/T17 等）（未开始）
+- [x] 2026-09-21 会话 6：G2 纵切完成——pipeline.run_scene_step 组合器
+      （屏障→预算预留→采样→观察→身份解析→冻结→窄提交，sampler 注入）；
+      consumers.check_suggestion_validity（T17：索引指纹分叉即失效，含
+      "已请求未重建"态；失效回执接线 assistant_suggestion_validity）；
+      story/continuity/presence.py 在场投影（T03：仅自带 moved_from 证据
+      才 traveled，否则 unknown 不造路程）。端到端切片
+      test_g2_vertical_slice.py（林舟/青竹/白石城/铜钥匙）：Scene0 重逢
+      （身份 reuse×2）→ Scene1（输入含 Scene0 回执，T07）→ 新 case 重放
+      读到 custody 知识 → Scene2 渡口（presence 两节点+unknown 段）→
+      修订 Scene0 → 失效传播 → 旧建议 verdict=stale；全新 run 的 Scene1
+      未提交前 BarrierBlocked。**边界**：worker/async_tasks 挂接有意不做
+      （E07 前接 handler = 第二编排 owner，违反 N03）；world 知识与地图册
+      资产仍 unsupported（V/MI 接线）。
+- [ ] E06 story checkpoints + evolution/recovery（分页回放/检查点/owner
+      fence，T12 完整）（未开始）
+- [ ] E07 迁移切换（影子运行/canary/在途兼容/入口重定向）（未开始）
+- [ ] E08 deep_import 退役（未开始）
 
 ## 验证
 
@@ -136,19 +151,17 @@
   test_repositories 2 例、test_foreshadowing_reveal 2 例、writing
   test_create_many_reads_versions_once_and_flushes_once 1 例。
 
-## 恢复快照（2026-09-21 会话 5 结束，含 E05）
+## 恢复快照（2026-09-21 会话 6 结束，含 G2）
 
-分支 `codex/novelcraft-v4-g0-baseline`，累计 15 个提交：G0×2、E01、E02、
-E03a、T13、E03b、E03c、E04（3e7a31eb8）、E05（85576f358）及任务/文档记录。
-**未推送、未合 main、未部署、未建 PR。**
+分支 `codex/novelcraft-v4-g0-baseline`，累计 17 个提交：G0×2、E01–E05、
+G2 纵切（f6161766a）及任务/文档记录。**未推送、未合 main、未部署、未建 PR。**
 E03b 与计划 §2.2 的差异（有意收窄）：以 `meta.event_key` JSON 键替代新列
 （避免生产迁移，语义等价——身份=语义指纹而非输出位置）；producer_family
 暂用 source 字符串（deep_import/ai_extraction），generation/input_revision
 登记在 delta meta，完整 `replace_derived_scene_events(...)` 签名留给 E03c
 随 evolution/commit 落地。
-下一步：G2 整体纵切——用虚构测试小说（林舟/青竹/白石城/铜钥匙）串起
-原文→前序状态→后序理解→新 case→地图→修订失效（计划 §9 最小纵切；
-T03 未知路线不造真、T17 原文撤回旧建议失效）。E04/E05 留给接线期的项：
-orchestrator 与 worker 挂接、provider 采样循环、三个 unsupported 消费者
-的缝（world 知识/地图/建议）。协作/导入索引缺口留 I02。G0 可并行项
-（R00/V00）尚未认领。合并 main 需用户授权。
+下一步：E06（分页回放/检查点/owner fence，性能档位 1k/5k/10k 场景）→
+E07（影子运行→canary→在途兼容→入口重定向，届时把 run_scene_step 挂上
+async_tasks handler 并排空 deep_import owner）→ E08 退役。world 知识/
+地图册资产两个 unsupported 消费者留 V/MI 系列。合并 main 需用户授权；
+建议合并前跑一次 PostgreSQL e2e 专用库（memory 里有配方）。
