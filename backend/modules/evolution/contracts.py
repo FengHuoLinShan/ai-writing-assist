@@ -194,6 +194,7 @@ class ObservationEnvelope(BaseModel):
 # ---------------------------------------------------------------------------
 
 IdentityOutcome = Literal["reuse", "new_candidate", "ambiguous", "unrelated"]
+EvidenceKind = Literal["exact_name", "exact_alias", "fuzzy", "semantic"]
 
 
 class IdentityCandidate(BaseModel):
@@ -201,6 +202,10 @@ class IdentityCandidate(BaseModel):
 
     entity_id: str = Field(min_length=1)
     evidence: str = Field(min_length=1, max_length=1000)
+    evidence_kind: EvidenceKind | None = Field(
+        default=None,
+        description="适配器归一后的证据类别；解析内核只对 exact_* 证据自动 reuse",
+    )
     same_name: bool = False
     alias_used: str | None = Field(default=None, max_length=200)
 
@@ -429,6 +434,7 @@ __all__ = [
     "CoverageStatus",
     "EVOLUTION_CONTRACT_VERSION",
     "EvidenceQuote",
+    "EvidenceKind",
     "EvolutionReceipt",
     "ExecutionStatus",
     "FreshnessStatus",

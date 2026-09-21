@@ -17,6 +17,12 @@ owner epoch、窄事务与影子运行规则逐步落地，替代而非并存旧
   `documentary_assertion` 不改变核心状态）。
 - 回执与游标：`EvolutionReceipt`（failed/blocked/unknown_billing 禁止推进
   committed_prefix——游标只在领域提交成功后推进）。
+- 身份解析（E02，`identity.py`）：确定性裁决内核——仅精确名称/别名证据自动
+  reuse，相似度阈值永不自动合并已采用对象；同名多候选保持竞争（ambiguous）；
+  观察者自带实体绑定必须经精确证据重验，不支持则 unrelated。观察积累与身份
+  解析分离：解析结论不改 observation_id、不吞观察。候选召回经
+  `IdentityCandidatePort` 注入，world 侧用 `facade.find_similar_entities` 做
+  结构适配。
 
 ## 测试
 
