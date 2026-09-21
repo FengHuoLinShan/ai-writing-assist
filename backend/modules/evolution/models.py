@@ -60,6 +60,12 @@ class EvolutionRun(Base, UUIDMixin, NovelMixin):
         default="evolution",
         comment="当前有效引擎标识；E07 切换期区分 evolution/legacy",
     )
+    execution_mode: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="live",
+        comment="live=正式写入；shadow=影子运行，产物隔离不写正式 World/Story",
+    )
     status: Mapped[str] = mapped_column(
         String(32),
         nullable=False,

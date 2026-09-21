@@ -99,6 +99,14 @@ async def run_scene_step(
     except BudgetExhaustedError:
         raise
 
+    # E07.b 影子运行：只读同一冻结来源，产物隔离——即使调用方传入了会写
+    # 正式 World/Story 的 applier，也强制替换为隔离 applier，绝不产生
+    # 第二套有效事实。回执照常落在 evolution 自己的表里供对比。
+    run_row = await store.load_run(run_key)
+    execution_mode = run_row.execution_mode if run_row else "live"
+    if execution_mode == "shadow":
+        applier = _shadow_applier()
+
     head = await store.load_head_receipt(run_key)
     payload = sampler.sample(
         scene_text=scene_text, input_manifest=input_manifest.model_dump()
@@ -164,12 +172,11 @@ async def run_scene_step(
     payload["observation_ids"] = observation_ids
     payload["identity_outcomes"] = identity_outcomes
 
-    run = await store.load_run(run_key)
     frozen = FrozenAttempt(
         novel_id=str(store.novel_id),
         run_id=run_key,
         attempt_id=new_attempt_id(),
-        owner_epoch=run.owner_epoch if run else 1,
+        owner_epoch=run_row.owner_epoch if run_row else 1,
         producer_version=producer_version,
         source_manifest_hash=manifest_hash,
         previous_receipt=head.attempt_id if head else None,
@@ -206,6 +213,23 @@ class _CandidatePort:
         from modules.evolution.identity import candidates_from_world_results
 
         return candidates_from_world_results(await self._lookup(novel_id, surface))
+
+
+def _shadow_applier():
+    """E07.b 隔离 applier：不写任何正式领域表，只回执化影子产物。"""
+
+    async def applier(db, frozen) -> ApplierResult:
+        payload = dict(frozen.payload or {})
+        payload["shadow_isolated"] = True
+        return ApplierResult(
+            committed_prefix=(
+                CommittedPrefix(through_scene_index=0, through_source_revision=0)
+            ),
+            outcome_status="nothing_to_do",
+            coverage={"unsupported": ["production_world_story_writes"]},
+        )
+
+    return applier
 
 
 def _manifest_verifier(manifest_hash: str):

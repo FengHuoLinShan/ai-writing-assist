@@ -61,15 +61,21 @@ class PostgresAttemptStore:
         mode: str,
         budget_total: int = 0,
         owner_epoch: int = 1,
+        execution_mode: str = "live",
     ) -> EvolutionRun:
         existing = await self.load_run(run_key)
         if existing is not None:
             return existing
+        if execution_mode == "live":
+            # E07.c 单写者门禁：同项目同时只有一个 live 写入 run；
+            # shadow run 只读来源、产物隔离，不占写入位。
+            await self._assert_single_live_writer(exclude_run_key=run_key)
         run = EvolutionRun(
             novel_id=self._novel_id,
             run_key=run_key,
             mode=mode,
             owner_epoch=owner_epoch,
+            execution_mode=execution_mode,
             budget_total=budget_total,
             budget_remaining=budget_total,
         )
@@ -109,6 +115,48 @@ class PostgresAttemptStore:
             return run.owner_epoch
 
         return _provider
+
+    async def _assert_single_live_writer(self, *, exclude_run_key: str) -> None:
+        from sqlalchemy import func
+
+        count = (
+            await self._db.execute(
+                select(func.count(EvolutionRun.id)).where(
+                    EvolutionRun.novel_id == self._novel_id,
+                    EvolutionRun.run_key != exclude_run_key,
+                    EvolutionRun.execution_mode == "live",
+                    EvolutionRun.status == "active",
+                )
+            )
+        ).scalar_one()
+        if count:
+            raise CommitConflictError(
+                "single_writer_violation",
+                f"novel already has {count} active live evolution run(s); "
+                "drain or stop them before registering a new writer",
+            )
+
+    async def switch_project_engine(
+        self,
+        run_key: str,
+        *,
+        to_engine: str,
+    ) -> EvolutionRun:
+        """E07.c 项目级切换：排空旧 owner 并推进 epoch（fence 在途旧 worker）。
+
+        只改变本 run 的引擎归属与代际，不删除任何历史回执；排空后旧
+        epoch 的 worker 即使恢复也在持久化边界被拒（E06 fencing）。
+        """
+        run = await self.load_run(run_key)
+        if run is None:
+            raise CommitConflictError(
+                "run_missing", f"evolution run {run_key} not registered"
+            )
+        run.status = "drained"
+        run.owner_epoch += 1
+        run.active_engine = to_engine
+        await self._db.flush()
+        return run
 
     async def reserve_budget(self, run_key: str, units: int) -> int:
         """原子预留根预算（T21）：剩余不足即失败，绝不透支。"""

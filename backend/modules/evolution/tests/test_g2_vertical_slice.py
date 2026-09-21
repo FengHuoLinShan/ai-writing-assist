@@ -301,7 +301,10 @@ async def test_g2_vertical_slice(
     # 前序屏障在头提交被并发清空前的阻断语义已由 T07 专测覆盖；
     # 此处补一条：全新 run 的 Scene 1 在 Scene 0 未提交时阻塞。
     fresh_store = PostgresAttemptStore(db, nid)
-    await fresh_store.register_run("run-g2-b", mode="bootstrap", budget_total=2)
+    # shadow 注册：不占用同项目的 live 单写者位（E07.c 门禁），屏障语义一致。
+    await fresh_store.register_run(
+        "run-g2-b", mode="bootstrap", budget_total=2, execution_mode="shadow"
+    )
     with pytest.raises(BarrierBlockedError):
         await run_scene_step(
             db,

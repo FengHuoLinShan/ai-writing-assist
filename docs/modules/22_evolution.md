@@ -80,6 +80,19 @@ V4 长期计划（`docs/plans/novelcraft-v4/plans/01-EVOLUTION.md`）的演化�
   `tools/evolution_checkpoint_bench.py` 与 1k/5k/10k 档位结果见
   `docs/plans/novelcraft-v4/e06/E06-恢复与性能测量.md`。
 
+- 迁移切换（E07，`compat.py` / `sampler.py` / `tasks.py` / `legacy_adapter.py`）：
+  影子运行 `execution_mode=shadow`（迁移 `20260921_evolution_shadow`）——
+  pipeline 强制替换为隔离 applier，即使调用方传入会写正式表的 applier 也不
+  产生第二套有效事实，影子回执留在 evolution 自己的表里供对比；项目级
+  单 live 写入者门禁（`register_run` 拒绝第二个 active live run）；
+  `switch_project_engine` 排空旧 owner 并推进 epoch（在途旧 worker 在
+  持久化边界被 fence）；在途兼容分类（冻结契约 → 续接，未知 → 保留费用
+  从可验证批次继续）；`evolution_scene_step` async_tasks handler 走真实
+  路径（采样器未接线 fail-closed 拒伪造，生产 LLM 接线属 E09）；deep_import
+  入口适配层返回真实新回执形状 + deprecation 提示（实际路由重定向待
+  canary）。E08 退役登记表见
+  `docs/plans/novelcraft-v4/e08/E08-退役登记表.md`（核销条件满足前不删码）。
+
 ## 测试
 
 `modules/evolution/tests/`：契约校验语义（含游标纪律）与稳定身份性质。
