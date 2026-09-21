@@ -309,3 +309,37 @@ _shadow_applier 现在把 provider 计量带入回执——影子运行消耗真
 （含 4 条 assistantContext 新用例：码点偏移/emoji/dirty 门控/项目隔离）、
 eslint；assistant e2e 与 creative-forecast e2e（专用库）通过；docs-check
 带理由通过。全量后端单测（无 .env）后台复核中。
+
+- PR #161 CI 11/11 全绿（Architecture docs 首跑因 module-contract 规则要求
+  评审清单文档，真实更新 assistant README + 20_assistant.md 并走第三项
+  理由行后通过），已合入 main（561bcc133）。U00+R00 工作包完成。
+- U 系列下一步候选：U01 AppShell/overlay/返回栈（以 U00 清单为底账）、
+  U02 选区/intent/单 feed store；R01 scope/snapshot/task/focus 分离。
+
+## U01 AppShell/overlay/返回栈（2026-09-22 会话 13，分支 codex/u01-appshell-overlay-backstack）
+
+以 U00 清单为底账正式化 overlay 层（04-FRONTEND-HIFI §4「只有一个 overlay
+root」），保持功能等价与公开演示路由白名单可达：
+
+- 新增 `frontend-console/vue/shell/overlayStack.js`：模块级 LIFO overlay
+  注册表（registerOverlay/unregister、topOverlay/isTopOverlay、
+  closeTopOverlay）。`installOverlayEscapeRouter()` 在 AppShell 安装一次，
+  **冒泡阶段** document keydown 兜底路由：未被元素级处理消费的 Escape 才
+  关闭最上层 overlay；`#modal-overlay` 遗留全局模态可见时让位（先走旧链）。
+  早期 capture 实现会在嵌套浮层（版本历史「更多操作」popover）首按时抢关
+  底层对话框——回退为 bubble 兜底后语义正确。
+- `useModalDialog` 开启时自动登记（requestClose 复用 canClose 守卫）；自身
+  Escape 处理改为「非栈顶则放行冒泡给路由」，17 个既有模态零改动纳入。
+- shell 三浮层显式登记：AccountDialog（shell:account）、ShortcutHelp
+  （shell:help）、CommandPalette（shell:command-palette，Esc→close 且还原
+  触发控件焦点=§4 返回触发控件）。
+- 新增 `tests/vue/shell/overlayStack.test.js` 6 用例（最上层才关/逐层退/
+  空栈不拦截/遗留模态让位/序关系/closeTopOverlay 返回值）。
+
+验证：vitest 全量 2544 通过；eslint 清洁；e2e 回归 writing 28 + interaction
+16 + assistant 1 + creative-forecast 1 全绿（功能等价）；docs-check 带理由
+通过；U00 清单归宿决定记录已补 U01 行。
+
+- PR 待建/合入后此处补记。
+- U 系列下一步候选：U02 选区/intent/单 feed store；R01 scope/snapshot/
+  task/focus 分离。

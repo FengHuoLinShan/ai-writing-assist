@@ -30,6 +30,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue"
 import { getApi } from "../../bridge/index.js"
+import { registerOverlay } from "../overlayStack.js"
 import { useResendCountdown } from "../../composables/useResendCountdown.js"
 
 const props = defineProps({
@@ -52,6 +53,8 @@ const dialog = ref(null)
 const originFocus = ref(null)
 const ownInert = new Set()
 let focusGeneration = 0
+// U01：登记进 overlay 栈，Escape 由 AppShell 栈路由按最上层关闭。
+let overlayEntry = null
 const { canResend, resendLabel, start: startResendCountdown } = useResendCountdown()
 const reauthenticated = computed(() => new URLSearchParams(location.search).get("auth") === "reauthenticated")
 
@@ -115,6 +118,8 @@ function onOverlayKeydown(event) {
 watch(() => props.open, (isOpen) => {
   const generation = ++focusGeneration
   if (!isOpen) {
+    overlayEntry?.unregister()
+    overlayEntry = null
     restoreBackground()
     const origin = originFocus.value
     originFocus.value = null
@@ -124,6 +129,8 @@ watch(() => props.open, (isOpen) => {
     return
   }
   originFocus.value = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  overlayEntry?.unregister()
+  overlayEntry = registerOverlay({ id: "shell:account", requestClose: () => emit("close") })
   void nextTick(() => {
     if (generation !== focusGeneration || !props.open || !overlay.value) return
     isolateBackground()
@@ -135,6 +142,8 @@ watch(() => props.open, (isOpen) => {
 
 onBeforeUnmount(() => {
   ++focusGeneration
+  overlayEntry?.unregister()
+  overlayEntry = null
   restoreBackground()
 })
 

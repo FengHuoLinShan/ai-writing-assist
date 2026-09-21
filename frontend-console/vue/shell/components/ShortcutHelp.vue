@@ -12,9 +12,12 @@
 
 <script setup>
 import { nextTick, onBeforeUnmount, ref, watch } from "vue"
+import { registerOverlay } from "../overlayStack.js"
 
 const props = defineProps({ open: Boolean })
 const emit = defineEmits(["close"])
+// U01：登记进 overlay 栈，Escape 由 AppShell 栈路由按最上层关闭。
+let overlayEntry = null
 const overlay = ref(null)
 let previouslyFocused = null
 let inertedSiblings = []
@@ -73,6 +76,8 @@ watch(() => props.open, async (open) => {
   const generation = ++focusGeneration
   if (open) {
     previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    overlayEntry?.unregister()
+    overlayEntry = registerOverlay({ id: "shell:help", requestClose: () => emit("close") })
     isolateBackground()
     await nextTick()
     if (!props.open || generation !== focusGeneration) return
@@ -80,6 +85,8 @@ watch(() => props.open, async (open) => {
     target?.focus?.()
     return
   }
+  overlayEntry?.unregister()
+  overlayEntry = null
   restoreBackground()
   await nextTick()
   if (generation !== focusGeneration) return
@@ -87,7 +94,11 @@ watch(() => props.open, async (open) => {
   previouslyFocused = null
 }, { immediate: true })
 
-onBeforeUnmount(restoreBackground)
+onBeforeUnmount(() => {
+  overlayEntry?.unregister()
+  overlayEntry = null
+  restoreBackground()
+})
 
 const shortcuts = [
   { keys: "?", label: "显示快捷键帮助面板" }, { keys: ":", label: "聚焦命令栏（命令模式）" }, { keys: "/", label: "聚焦命令栏（搜索模式）" },
