@@ -150,3 +150,16 @@ pro 模式将本轮实际工具证据冻结为 `assistant.turn` 组级 scope，�
 prepare 为一个具体选择创建独立子 run 与唯一 batch，重新校验父评估，再经原领域确认。
 确定性域回执可导航回原页面，缺少前置资料计入未检查。试改版本和跨域原子采用属于
 [Collaboration](../../../docs/modules/21_collaboration.md)，不改变普通批次的部分成功与恢复语义。
+
+## 工作上下文的意图与选区范围（R00）
+
+`WorkContext` 在既有定位字段之外携带两项经服务端复核的输入：
+
+- `task_hint`：作者意图封闭集（`schemas.TASK_HINTS`，与 forecast 契约同源）。
+  面板「这次要求」选择器经 turn/前瞻上下文传入；`work_directive` 把意图
+  行为边界渲染进最终 user 消息（polish=不得扩大情节、新增设定或改动事实）。
+  forecast runtime 对 polish 另有既有能力收窄（剔除扩情节项）。
+- `selection_start/selection_end`：写作页选区的码点偏移（与前端
+  `Array.from` 计数一致），必须成对、绑定草稿且与选区文本长度一致；
+  `submit` 载草稿后 `verify_selection_range` 逐字复核，漂移抛
+  `assistant_selection_stale`（失败关闭，不带失真选区进模型）。

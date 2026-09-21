@@ -40,6 +40,14 @@ PydanticAI 复用 Project 当前账户客户端与冻结快照；按 author/rp/b
 生成工具复用原队列和领域结果，并计入同一工作预算；确认操作不接受模型提供会话身份、来源
 manifest 或危险执行表达式。工具存在并不代表所有产品验收已完成，未关闭项见项目能力台账。
 
+工作上下文（WorkContext）自 R00 起携带作者意图与选区范围：`task_hint` 取
+封闭集（不限/续写/只润色/修改/设定设计/查证/检查/整理/演绎，与前瞻契约同源），
+意图行为边界随最终用户消息进入模型输入（如「只润色」=不得扩大情节、新增设定或
+改动事实）；写作页干净编辑器上的选区带码点偏移（`selection_start/end`，须绑定
+草稿），提交时服务端对草稿逐字复核，漂移即 `assistant_selection_stale` 失败关闭。
+前瞻 FocusRequest 的 `selected_range` 由前端在干净状态随 draft+hash 发送，前瞻
+据此实际分析选中段落。
+
 ## 公共查证与受控维护
 
 作者 v3 运行使用 `search_general_fact` 与 `read_web_source`，首次开启须明确选择
