@@ -46,22 +46,35 @@
       入口副作用矩阵发现：助手应用/创意采用/协作采用/导入四类入口缺
       `request_chapter_index`（上下文失效已由仓储层 `_changed/_created` 收敛），
       留 I02 统一领域变更回执时修。
-- [ ] E01 evolution contracts（下一里程碑，未开始）
+- [x] 2026-09-21 会话 1：E01 契约层完成——`backend/modules/evolution/`（contracts.py +
+      observations.py + 23 测试）。SourceRevisionRef（range_hash 确定性推导）、
+      ObservationEnvelope（modality 七态、MentionRef 禁伪造 UUID）、IdentityResolution
+      （reuse 须候选证据、ambiguous 须 ≥2 候选）、TypedStateOperation（observe/move 分离、
+      knowledge 须主体、documentary_assertion 不改状态）、EvolutionReceipt
+      （failed/blocked/unknown_billing 游标必须等于前值且禁止倒退）。
+      稳定观察 ID = sha256(来源范围+观察语义+契约版本)，无输出位置/run id（T06）。
+      已注册 architecture-documents.toml / 00_整体设计 / CONTEXT / docs README /
+      架构图 drawio+HTML（docs-check 带 no-change-reason 通过）。
+- [ ] E02 world identity seam + evolution/identity（未开始）
+- [ ] E03 story reducer 统一 + evolution/commit（未开始）
 
 ## 验证
 
 - 2026-09-21 会话 1：`modules/story/continuity + modules/imports` 815 passed；
-  `make lint` 通过；`make docs-check BASE_REF=origin/main` 通过。
+  `modules/evolution + continuity` 121 passed；`make lint` 通过；
+  `python3 scripts/check_architecture_docs.py --base-ref origin/main --no-change-reason "..."`
+  通过（Makefile 的 docs-check 目标不透传 NO_CHANGE_REASON，须直接调脚本，
+  理由见当日命令记录：E01 无 make 目标/文档流程/测试分级变化）。
 - 本机既有基线失败（与本改动无关，基线 commit 复现）：outline_state
   test_repositories 2 例、test_foreshadowing_reveal 2 例、writing
   test_create_many_reads_versions_once_and_flushes_once 1 例。
 
 ## 恢复快照（2026-09-21 会话 1 结束）
 
-分支 `codex/novelcraft-v4-g0-baseline`（自 origin/main 新建），G0 改动已提交
-（fix(story) 人工事件保护 + docs 计划包与 G0 基线）。**未推送、未合 main、未部署。**
-下一步：E01 从 `docs/plans/novelcraft-v4/plans/01-EVOLUTION.md` §3 类型契约草案开始
-（SourceRevisionRef / ObservationEnvelope / IdentityResolution / TypedStateOperation /
-EvolutionReceipt），建议位置 `backend/modules/evolution/`，纯契约层先行、不带迁移；
-E02/E03 再接 world identity seam 与 story reducer 统一。G0 可并行项（R00 前端选区
-传递、V00 地图壳）尚未认领。
+分支 `codex/novelcraft-v4-g0-baseline`（自 origin/main 新建），3 个提交：
+`6da363557` docs 计划包+G0 基线 → `9448184c2` fix(story) 人工事件保护 →
+`752b5c5a7` feat(evolution) E01 契约层。**未推送、未合 main、未部署、未建 PR。**
+下一步：E02（world facade + evolution/identity：身份去重与观察积累分离，
+重点验证"已有身份不跳过新观察"）；随后 E03（统一两套 reducer 为单一语义内核 +
+evolution/commit 窄提交，消化 G0 钉住的两个缺口测试）。
+G0 可并行项（R00 前端选区传递、V00 地图壳）尚未认领。
