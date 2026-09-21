@@ -55,11 +55,29 @@
       稳定观察 ID = sha256(来源范围+观察语义+契约版本)，无输出位置/run id（T06）。
       已注册 architecture-documents.toml / 00_整体设计 / CONTEXT / docs README /
       架构图 drawio+HTML（docs-check 带 no-change-reason 通过）。
-- [ ] E02 world identity seam + evolution/identity（未开始）
-- [ ] E03 story reducer 统一 + evolution/commit（未开始）
+- [x] 2026-09-21 会话 2：E02 完成——`evolution/identity.py` 确定性解析内核：
+      仅精确名/别名证据自动 reuse（阈值永不自动合并）；同名多候选保持竞争
+      （ambiguous，绑定冲突时把绑定对象补进候选集满足 ≥2 契约）；无精确 →
+      new_candidate 记录模糊候选；观察者自带 UUID 绑定必须重验否则 unrelated。
+      观察积累分离：解析不改 observation_id 不吞观察。world 候选经
+      `facade.find_similar_entities` 结构适配（`candidates_from_world_results`）。
+- [x] 2026-09-21 会话 2：E03a 完成——`continuity/reducer.py::StoryStateReducer`
+      单一语义内核，章节重放与 Scene 投影委托；统一语义：manual_correction 与
+      未知实体 entity_updated 一律入 changes（不造幻影不丢信息）、knowledge 同 id
+      后写覆盖；章节重放状态/快照续算携带 changes。G0 两个缺口钉住测试转为
+      一致性断言；T04 强化（knowledge 替换 + changes 相等）。
+- [x] 2026-09-21 会话 2：T13 第一段对齐——助手新章/改写应用保存后显式
+      `request_chapter_index`（与 API/candidate 工具同一调用），
+      `test_assistant_side_effects.py` 断言。协作/导入两处仍缺，留 I02。
+- [ ] E03b producer/generation 替换签名 + evolution/commit 窄提交（未开始）
+- [ ] E04 orchestrator（未开始）
 
 ## 验证
 
+- 2026-09-21 会话 2：`continuity` 105 passed；`evolution` 33 passed；`writing`
+  仅 1 例既有基线失败；`imports` 全通过；world 35 例失败为基线既有
+  （未改动基线复现归属，本地环境问题）。lint 与 docs-check（带
+  no-change-reason）通过。已回退 ruff format 对范围外文件的无关重排。
 - 2026-09-21 会话 1：`modules/story/continuity + modules/imports` 815 passed；
   `modules/evolution + continuity` 121 passed；`make lint` 通过；
   `python3 scripts/check_architecture_docs.py --base-ref origin/main --no-change-reason "..."`
@@ -69,12 +87,14 @@
   test_repositories 2 例、test_foreshadowing_reveal 2 例、writing
   test_create_many_reads_versions_once_and_flushes_once 1 例。
 
-## 恢复快照（2026-09-21 会话 1 结束）
+## 恢复快照（2026-09-21 会话 2 结束）
 
-分支 `codex/novelcraft-v4-g0-baseline`（自 origin/main 新建），3 个提交：
-`6da363557` docs 计划包+G0 基线 → `9448184c2` fix(story) 人工事件保护 →
-`752b5c5a7` feat(evolution) E01 契约层。**未推送、未合 main、未部署、未建 PR。**
-下一步：E02（world facade + evolution/identity：身份去重与观察积累分离，
-重点验证"已有身份不跳过新观察"）；随后 E03（统一两套 reducer 为单一语义内核 +
-evolution/commit 窄提交，消化 G0 钉住的两个缺口测试）。
-G0 可并行项（R00 前端选区传递、V00 地图壳）尚未认领。
+分支 `codex/novelcraft-v4-g0-baseline`，累计 7 个提交：G0×2 + E01 + 任务记录 +
+E02（00d92dfb9）+ E03a（d9bacadc2）+ T13 对齐（60879dfd3）+ 本轮任务记录。
+**未推送、未合 main、未部署、未建 PR。**
+下一步：E03b——`replace_derived_scene_events` 升级为 producer/generation 签名
+（`replace_derived_scene_events(novel_id, scene_id, producer_family, generation,
+input_revision, owned_event_keys, new_operations, expected_parent_receipt)`，
+见 plans/01-EVOLUTION §2.2）+ evolution/commit 窄提交（短事务重验来源与 parent
+receipt，T10/T11 故障注入测试）；随后 E04 orchestrator（前序屏障、游标与预算）。
+协作/导入的索引缺口留 I02。G0 可并行项（R00/V00）尚未认领。
