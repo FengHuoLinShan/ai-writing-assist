@@ -15,4 +15,3 @@
 - [T-20260917-review-remediation](tasks/2026/T-20260917-review-remediation/TASK.md) — 审计报告核查与全量修复（World 根因/LLM 边界/信封/配额）
 - [T-20260917-ai-generation-quality](tasks/2026/T-20260917-ai-generation-quality/TASK.md) — AI 生成可用性修复与真实质量验证
 - [T-20260920-forecast-creative-engine](tasks/2026/T-20260920-forecast-creative-engine/TASK.md) — 短期前瞻辅助与协作创作试验引擎 V2
-- [T-20260921-branch-consolidation](tasks/2026/T-20260921-branch-consolidation/TASK.md) — 审查并整合活跃分支到本地 main
