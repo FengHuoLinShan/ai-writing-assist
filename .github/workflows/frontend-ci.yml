@@ -157,6 +157,12 @@ jobs:
           uv run --project backend --locked --extra ci --
           npm --prefix frontend-console run test:e2e:assistant -- --workers=1 --retries=0
 
+      - name: Run creative forecast with its isolated synthetic model harness
+        if: steps.changes.outputs.browser == 'true'
+        run: >-
+          uv run --project backend --locked --extra ci --
+          npm --prefix frontend-console run test:e2e:creative -- --workers=1 --retries=0
+
       - name: Upload frontend functional browser diagnostics
         if: failure() && steps.changes.outputs.browser == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
