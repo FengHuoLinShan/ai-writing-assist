@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import select, update
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.evolution.commit import CommitConflictError, FrozenAttempt
@@ -212,13 +212,15 @@ class PostgresAttemptStore:
             committed_source_revision=(receipt.committed_prefix.through_source_revision),
             receipt_json=receipt.model_dump(mode="json"),
         )
-        self._db.add(record)
-        # 游标与 head 只在回执落库的同一事务内推进（E03c 纪律的落库面）。
-        await self._db.execute(
+        # T12 完整 fencing：游标推进以 owner_epoch 匹配为条件——即使旧
+        # worker 在 epoch 推进前通过了 apply 起点的检查，持久化边界也会
+        # 拒绝其回执，run 游标与 head 不被旧代际移动。
+        fenced = await self._db.execute(
             update(EvolutionRun)
             .where(
                 EvolutionRun.novel_id == self._novel_id,
                 EvolutionRun.run_key == receipt.run_id,
+                EvolutionRun.owner_epoch == receipt.owner_epoch,
             )
             .values(
                 committed_scene_index=receipt.committed_prefix.through_scene_index,
@@ -228,6 +230,17 @@ class PostgresAttemptStore:
                 head_attempt_id=record.id,
             )
         )
+        if fenced.rowcount != 1:
+            run = await self.load_run(receipt.run_id)
+            from modules.evolution.commit import StaleOwnerError
+
+            raise StaleOwnerError(
+                f"receipt fenced at persistence boundary: run epoch is "
+                f"{run.owner_epoch if run else 'missing'}, receipt froze "
+                f"{receipt.owner_epoch}"
+            )
+        # fencing 通过后才落回执记录并把冻结尝试标记 applied（同事务）。
+        self._db.add(record)
         await self._db.execute(
             update(EvolutionFrozenAttempt)
             .where(
@@ -272,3 +285,43 @@ class PostgresAttemptStore:
         if row is None:
             return None
         return EvolutionReceipt.model_validate(row.receipt_json)
+
+    async def page_receipts(
+        self,
+        run_id: str,
+        *,
+        after: tuple[int, str] | None = None,
+        limit: int,
+    ) -> list[EvolutionReceipt]:
+        """按 (committed_scene_index, attempt_key) 键集分页读取回执。"""
+        conditions = [
+            EvolutionReceiptRecord.novel_id == self._novel_id,
+            EvolutionReceiptRecord.run_key == run_id,
+        ]
+        if after is not None:
+            after_scene, after_attempt = after
+            conditions.append(
+                or_(
+                    EvolutionReceiptRecord.committed_scene_index > after_scene,
+                    and_(
+                        EvolutionReceiptRecord.committed_scene_index == after_scene,
+                        EvolutionReceiptRecord.attempt_key > after_attempt,
+                    ),
+                )
+            )
+        rows = (
+            (
+                await self._db.execute(
+                    select(EvolutionReceiptRecord)
+                    .where(*conditions)
+                    .order_by(
+                        EvolutionReceiptRecord.committed_scene_index,
+                        EvolutionReceiptRecord.attempt_key,
+                    )
+                    .limit(limit)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return [EvolutionReceipt.model_validate(row.receipt_json) for row in rows]

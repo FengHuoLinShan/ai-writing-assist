@@ -72,6 +72,14 @@ V4 长期计划（`docs/plans/novelcraft-v4/plans/01-EVOLUTION.md`）的演化�
   last_observed 与路线段——仅当后一事件自带移动来源证据才标 traveled，
   否则 unknown（T03：不造路程/方式/时间）。只读 DTO，不占地图几何。
 
+- 恢复与 fencing（E06，`recovery.py`）：`replay_committed_prefix`
+  键集分页有界重放已提交回执链（链缺口 fail-closed、检查点信任锚跳过
+  早期页）；`verify_run_checkpoint` 校验游标与 head 一致性并执行恢复期
+  owner fence；`store.save_receipt` 以 epoch 条件更新完成 T12 完整
+  fencing（旧 worker 回执在持久化边界被拒，游标不动）。性能测量工具
+  `tools/evolution_checkpoint_bench.py` 与 1k/5k/10k 档位结果见
+  `docs/plans/novelcraft-v4/e06/E06-恢复与性能测量.md`。
+
 ## 测试
 
 `modules/evolution/tests/`：契约校验语义（含游标纪律）与稳定身份性质。
