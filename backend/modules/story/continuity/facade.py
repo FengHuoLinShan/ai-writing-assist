@@ -98,8 +98,13 @@ async def replace_scene_memory_events(
     scene_index: int,
     chapter_index: int,
     events: list[dict[str, Any]],
+    producer_family: str | None = None,
 ):
-    """Replace one Scene event stream, including an explicitly empty rerun."""
+    """Replace one Scene event stream, including an explicitly empty rerun.
+
+    ``producer_family`` 限定只替换该来源家族的派生行；None 表示替换全部
+    派生行（作者确认始终保留）。
+    """
     return await _memory.record_scene_events(
         db,
         novel_id,
@@ -107,6 +112,7 @@ async def replace_scene_memory_events(
         scene_index=scene_index,
         chapter_index=chapter_index,
         events=events,
+        producer_family=producer_family,
     )
 
 

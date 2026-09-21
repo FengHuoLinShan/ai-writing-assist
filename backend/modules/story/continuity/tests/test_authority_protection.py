@@ -350,13 +350,18 @@ async def test_manual_correction_delta_kept_as_observation_not_state_operation(
         "entities"
     ]
     assert entities_state["entities"] == {}
+    def _without_meta(changes: list) -> list:
+        return [
+            {k: v for k, v in change.items() if k != "meta"} for change in changes
+        ]
+
     expected_change = {
         "category": "profile",
         "field_path": "林舟.status",
         "new_value": "持有铜钥匙",
     }
-    assert entities_state["changes"] == [expected_change]
-    assert chapter_state["changes"] == [expected_change]
+    assert _without_meta(entities_state["changes"]) == [expected_change]
+    assert _without_meta(chapter_state["changes"]) == [expected_change]
 
 
 @pytest.mark.asyncio

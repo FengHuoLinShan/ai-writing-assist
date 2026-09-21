@@ -138,8 +138,14 @@ class MemoryService:
         scene_index: int,
         chapter_index: int,
         events: list[dict[str, Any]],
+        producer_family: str | None = None,
     ) -> list[MemoryEventResponse]:
-        """Replace one Scene's event stream using Scene as the atomic stage."""
+        """Replace one Scene's event stream using Scene as the atomic stage.
+
+        ``producer_family`` 限定本调用只替换该来源家族的派生产物；行内容
+        携带稳定 ``event_key``（语义指纹，不含输出位置），重跑时按键原地
+        更新而不是重建行（V4 E03b / T06）。
+        """
         from modules.story.outline_state.facade import get_scene_contract
 
         scene = await get_scene_contract(db, novel_id, scene_id)
@@ -155,6 +161,21 @@ class MemoryService:
             if dimension not in SCENE_MEMORY_DIMENSIONS:
                 raise ValidationError("Unsupported memory event dimension")
             payload = event.get("snapshot_after", event.get("payload", {}))
+            source = event.get("source", "ai_extraction")
+            event_type = event.get("event_type", "manual_correction")
+            entity_id = (
+                parse_uuid(event["entity_id"], "entity_id")
+                if event.get("entity_id")
+                else None
+            )
+            payload = self._with_scene_event_key(
+                payload,
+                scene_id=scene_id,
+                dimension=dimension,
+                event_type=event_type,
+                entity_id=event.get("entity_id"),
+                source=source,
+            )
             serialized = json.dumps(payload, ensure_ascii=False, default=str)
             if len(serialized) > MAX_MEMORY_EVENT_PAYLOAD_CHARS:
                 raise ValidationError("Memory event payload exceeds limit")
@@ -162,14 +183,12 @@ class MemoryService:
                 {
                     "scene_sequence": sequence,
                     "dimension": dimension,
-                    "event_type": event.get("event_type", "manual_correction"),
-                    "entity_id": parse_uuid(event["entity_id"], "entity_id")
-                    if event.get("entity_id")
-                    else None,
+                    "event_type": event_type,
+                    "entity_id": entity_id,
                     "entity_type": event.get("entity_type"),
                     "snapshot_before": event.get("snapshot_before"),
                     "snapshot_after": payload,
-                    "source": event.get("source", "ai_extraction"),
+                    "source": source,
                 }
             )
         records = await self._event_repo.replace_scene_events(
@@ -179,6 +198,7 @@ class MemoryService:
             scene_index=scene_index,
             chapter_index=chapter_index,
             rows=rows,
+            producer_family=producer_family,
         )
         await self._scene_checkpoint_repo.supersede_system_from(
             db,
@@ -194,6 +214,36 @@ class MemoryService:
             include_start=True,
         )
         return [MemoryEventResponse.model_validate(item) for item in records]
+
+    @staticmethod
+    def _with_scene_event_key(
+        payload: Any,
+        *,
+        scene_id: str,
+        dimension: str | None,
+        event_type: str,
+        entity_id: Any,
+        source: str,
+    ) -> Any:
+        """给 dict 负载注入稳定事件键：语义指纹，与输出位置无关。"""
+        if not isinstance(payload, dict):
+            return payload
+        from infrastructure.llm.collaboration import content_hash
+
+        content = {k: v for k, v in payload.items() if k != "meta"}
+        key = content_hash(
+            {
+                "scene_id": scene_id,
+                "dimension": dimension,
+                "event_type": event_type,
+                "entity_id": str(entity_id) if entity_id else None,
+                "source": source,
+                "content": content,
+            }
+        )
+        meta = dict(payload.get("meta") or {})
+        meta["event_key"] = key
+        return {**payload, "meta": meta}
 
     async def confirm_scene_continuity_event(
         self,
@@ -408,11 +458,16 @@ class MemoryService:
             delta_logs.append(delta)
             if result_refs is not None and delta.get("id"):
                 result_refs.append({"type": "delta_log", "id": delta["id"]})
-        scene_groups: dict[tuple[str, int, int], list[dict[str, Any]]] = {}
+        scene_groups: dict[tuple[str, int, int, str], list[dict[str, Any]]] = {}
         for event in events:
             if not event.scene_id or event.source_chapter_index is None:
                 continue
-            key = (event.scene_id, event.scene_index, event.source_chapter_index)
+            key = (
+                event.scene_id,
+                event.scene_index,
+                event.source_chapter_index,
+                event.source,
+            )
             scene_groups.setdefault(key, []).append(
                 {
                     "event_type": "manual_correction",
@@ -430,7 +485,12 @@ class MemoryService:
                     "source": event.source,
                 }
             )
-        for (scene_id, scene_index, chapter_index), scene_events in scene_groups.items():
+        for (
+            scene_id,
+            scene_index,
+            chapter_index,
+            group_source,
+        ), scene_events in scene_groups.items():
             recorded = await self.record_scene_events(
                 db,
                 novel_id,
@@ -438,6 +498,7 @@ class MemoryService:
                 scene_index=scene_index,
                 chapter_index=chapter_index,
                 events=scene_events,
+                producer_family=group_source,
             )
             if result_refs is not None:
                 result_refs.extend(
