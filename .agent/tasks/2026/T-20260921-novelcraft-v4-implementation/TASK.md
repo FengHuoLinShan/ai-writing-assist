@@ -163,19 +163,18 @@
   test_repositories 2 例、test_foreshadowing_reveal 2 例、writing
   test_create_many_reads_versions_once_and_flushes_once 1 例。
 
-## 恢复快照（2026-09-21 会话 7 结束，含 E06）
+## 恢复快照（2026-09-21 会话 8 结束，含 E07/E08 登记）
 
-分支 `codex/novelcraft-v4-g0-baseline`，累计 19 个提交：G0×2、E01–E06
-（E06=ed77e4021：分页恢复+T12 完整 fencing+1k/5k/10k 实测）及任务/文档
-记录。**未推送、未合 main、未部署、未建 PR。**
+分支 `codex/novelcraft-v4-g0-baseline`，累计 21 个提交：G0×2、E01–E07
+（E07=29c7a612e：影子隔离/切换排空/兼容分类/handler 挂接/退役登记）及
+任务/文档记录。**未推送、未合 main、未部署、未建 PR。**
 E03b 与计划 §2.2 的差异（有意收窄）：以 `meta.event_key` JSON 键替代新列
 （避免生产迁移，语义等价——身份=语义指纹而非输出位置）；producer_family
 暂用 source 字符串（deep_import/ai_extraction），generation/input_revision
 登记在 delta meta，完整 `replace_derived_scene_events(...)` 签名留给 E03c
 随 evolution/commit 落地。
-下一步：E07 迁移切换六步（E07.a 旧链保护已由 G0 完成）——E07.b 影子
-运行（新引擎只读同源写隔离实验产物，禁止给正式 World/Story 第二套有效
-事实）、E07.c 项目级 canary（active_engine/owner_epoch 排空切换）、
-E07.d 在途兼容、E07.e 入口重定向（挂 async_tasks handler、deep_import
-API 参数适配）、E08 退役清单核销。world 知识/地图册资产留 V/MI。
+下一步：E09（真实模型采样器接线 + 真实质量验收——需要账户连接与
+用户授权跑真实 LLM，超出纯代码范围）；或按计划并行推进 G3+（项目级
+切换落地/前端统一宿主 U 系列/地图 V 系列/R 系列推荐）。E08 实际删码
+被 E09+canary 阻断（登记表已列）。world 知识/地图册资产留 V/MI。
 合并 main 需用户授权；建议合并前跑 PostgreSQL e2e 专用库（配方在 memory）。
