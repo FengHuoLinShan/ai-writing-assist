@@ -159,6 +159,9 @@ async function mockRpApis(
     available: false, policy: { enabled: false, categories: [], allow_web: false, web_backend: "none", daily_limit: 1 },
     pending_count: 0, overflow: false, active_run_id: null,
   } }))
+  await page.route(`**/api/interactions/journeys/${journeyId}/forecasts/capabilities`, route => route.fulfill({ json: {
+    enabled: false, semantic_enabled: false,
+  } }))
   await page.route(`**/api/interactions/journeys/${journeyId}`, (route) => {
     if (route.request().method() === "DELETE") {
       archivedJourney = false

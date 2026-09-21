@@ -35,6 +35,7 @@ test("前瞻与两种真实试改：保存保护、确认、恢复和窄屏", as
   const creative = panel.getByRole("region", { name: "隔离试改" })
   await creative.getByLabel("想解决什么").fill("补足合作的动机，比较保留谨慎与交换条件")
   await creative.getByLabel("必须保留什么").fill("不提前揭露身份")
+  await creative.getByRole("checkbox", { name: "当前正文工作稿" }).check()
   await creative.getByRole("button", { name: "开始调查与试改" }).click()
   await expect(creative.getByText("本轮处理完成", { exact: true }).first()).toBeVisible({ timeout: 60000 })
   await expect(creative.locator(".creative-trial-button")).toHaveCount(2)

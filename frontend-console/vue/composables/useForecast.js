@@ -35,7 +35,9 @@ export function createForecast({ editor = () => null, composing = () => false } 
   }
   function acceptFeed() { if (!composing() && state.pendingFeed) { state.feed = state.pendingFeed; state.pendingFeed = null; state.stale = false } }
   async function refresh(token = generation) {
-    if (!state.projectId || !state.focus || !api() || composing()) return
+    // 未保存/保存中不拉 feed：保存落库会让在途焦点的 draft 校验失效（SOURCE_STALE），
+    // 且此期间建议入口本就禁用；保存完成后的焦点重建会带来干净刷新。
+    if (!state.projectId || !state.focus || !api() || composing() || dirty()) return
     const focus = { ...state.focus, editor_state: dirty() ? "dirty" : state.focus.draft_id ? "saved" : "not_applicable" }
     const feed = await api().feed(state.projectId, { context: focus, include_deferred: state.includeDeferred })
     if (!owned(token) || feed.client_context_id !== state.focus.client_context_id || feed.focus_seq !== state.focus.focus_seq) return
