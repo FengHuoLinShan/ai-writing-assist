@@ -592,3 +592,10 @@ handler 普通失败时保留领域经 fenced checkpoint 写入的双恢复标�
 ADR-0027 在原任务租约内增加 `collaboration.py` 有界 DAG helper，不新增队列。
 三成员共享根计量，member allocation 只是份额；请求前 checkpoint 失败不发送 provider，
 未知费用不返还为新额度。JSON checkpoint 单写，所有成员读取使用独立短生命周期 session。
+
+## 工具历史与恢复证据
+
+Agent 工具历史 v2 按调用 ID 保留真实工具身份，旧 v1 的丢名记录仅在可唯一回查
+原调用时迁移。诊断不导出供应商思考或原始工具参数。SSE 正文位置使用 Unicode code
+point；重复/重叠片段按正文位置合并，缺口或冲突回读同一 attempt 快照，状态事件独立处理。
+PG 容量实验使用固定替身及专用临时库，只衡量入队/worker 路径，不代表推理吞吐。

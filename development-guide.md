@@ -73,6 +73,7 @@ make test-frontend FRONTEND_ARGS="stateTopbarHelp.test.js"  # Frontend Vitest
 npm --prefix frontend-console run test:e2e:functional -- interaction.spec.js --workers=1 --retries=0  # Requires the same dedicated DATABASE_URL/PW_REUSE_EXISTING_SERVER=0 gate
 uv --directory backend run pytest -q evals/tests/test_rp_context.py  # Hash/ref-only RP context comparison rubric contract; no copyrighted prose
 make eval-ask-world             # Offline Ask World retrieval/citation launch gate
+make eval-technical-coverage    # Synthetic RAG/tools/collaboration/memory + stdio MCP; no paid models or DB
 make eval-context-planner NOVEL_ID='<fixture-project-id>' OUTPUT=/tmp/context-planner.json
 make eval-context-planner NOVEL_ID='<fixture-project-id>' LLM_PLANNER=1 OUTPUT=/tmp/context-planner-llm-dev.json  # explicit model calls; dev split only
 make audit-backend-deps          # Locked backend audit; all extras, temporary no-fix exceptions re-open on fix

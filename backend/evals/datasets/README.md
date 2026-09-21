@@ -373,3 +373,13 @@ no_answer（货船记录无数量、角色知识受限不算正史）、版本�
 The first local run produced a legacy 300-case raw candidate set before the
 2x oversampling and strict scenario/persona guards were added. It remains a
 local diagnostic artifact and must not be frozen as the Pilot baseline.
+
+## Technical coverage offline experiments
+
+`technical-rag-v1.jsonl` contains copyright-safe synthetic stories with immutable source-range
+gold, aliases, negation, stale/future/other-project sources and no-answer cases. Split identity
+is the story family; these are offline contract fixtures, not a new sealed model-quality holdout.
+`precision_at_k` retains the returned-count denominator; `precision_at_fixed_k` is a separately
+versioned fixed-K companion. Evidence groups require every range, unioning overlapping hits.
+The `experiments` extra contains BM25 and the stdio MCP SDK; production dependencies are unchanged.
+Commands, model/non-model boundaries and demonstrations: [technical coverage](../../../docs/testing/technical-coverage.md).

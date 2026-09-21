@@ -9,7 +9,13 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from evals.metrics import ndcg_at_k, precision_at_k, recall_at_k, reciprocal_rank
+from evals.metrics import (
+    ndcg_at_k,
+    precision_at_fixed_k,
+    precision_at_k,
+    recall_at_k,
+    reciprocal_rank,
+)
 from evals.schemas import DatasetCase, EvalResult, EvalSuite, MetricValue
 from modules.evidence.contracts import RagResultBundle
 
@@ -137,6 +143,7 @@ async def evaluate_rag_cases(
                 "result_count": len(retrieved_ids),
                 "degraded": bundle.degraded,
                 "p_at_5": p5,
+                "p_at_fixed_5_v2": precision_at_fixed_k(retrieved_ids, relevant_ids, 5),
                 "r_at_10": r10,
                 "reciprocal_rank": rr,
                 "ndcg_at_10": ndcg,
@@ -162,12 +169,27 @@ async def evaluate_rag_cases(
         "no_answer_case_count": no_answer_count,
     }
     metrics = [
+        MetricValue(
+            name="p_at_fixed_5_v2",
+            value=_mean(
+                [
+                    item["p_at_fixed_5_v2"]
+                    for item in case_results
+                    if item["ranking_eligible"]
+                ]
+            ),
+            details={"metric_version": "fixed-k-v2", "denominator": 5},
+        ),
         _metric(
             "p_at_5",
             _mean(p5_values),
             0.80,
             greater=True,
-            details=ranking_details,
+            details={
+                **ranking_details,
+                "metric_version": "legacy-ranking-v1",
+                "precision_denominator": "min(k, returned_count)",
+            },
         ),
         _metric(
             "mrr",

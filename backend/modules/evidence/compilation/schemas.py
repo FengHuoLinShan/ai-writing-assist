@@ -944,6 +944,7 @@ class EvidenceReadRequest(BaseModel):
     source_ref: SourceRangeRefRequest
     before: int = Field(3, ge=0, le=20)
     after: int = Field(3, ge=0, le=20)
+    expand_parent: bool = False
 
 
 class EvidenceInspectRequest(BaseModel):
@@ -983,6 +984,19 @@ class EvidenceSearchResponse(BaseModel):
     missing_chapters: list[int] = Field(default_factory=list)
 
 
+class ParentEvidenceSegmentResponse(BaseModel):
+    source_ref: SourceRangeRefRequest
+    text: str
+    title: str | None = None
+
+
+class ParentEvidenceContextResponse(BaseModel):
+    policy: Literal["scene-or-paragraph-v1"]
+    segments: list[ParentEvidenceSegmentResponse]
+    omissions: list[str]
+    complete: bool
+
+
 class EvidenceReadResponse(BaseModel):
     source_ref: dict
     title: str | None = None
@@ -995,6 +1009,7 @@ class EvidenceReadResponse(BaseModel):
     visibility_decision: dict = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
     degraded: bool = False
+    parent_context: ParentEvidenceContextResponse | None = None
 
 
 class EvidenceInspectResponse(BaseModel):

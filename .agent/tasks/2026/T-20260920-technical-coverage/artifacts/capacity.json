@@ -1,0 +1,1752 @@
+{
+  "evidence": {
+    "schema_version": "technical-evidence-v1",
+    "metric_version": "range-v2+legacy-ranking-v1",
+    "code_revision": "a7173869ca832537cf476e0a05e97f1f5275012a",
+    "tracked_patch_hash": "0cb4aeee2c4ed98f55435b97e318baf184672ce17bee5888ec74eb86961538af",
+    "implementation_hashes": {
+      "backend/evals/task_capacity.py": "07b58b2f4af18d0113be9adfca4f00e763f0d85ac56a3be81dc31164902b11d4"
+    },
+    "dataset_hash": "19cb7f1d2c84e0225e691e90eedbf3c8ed892f7fbfb461a3ee5618c365dea1df",
+    "source_fingerprints": {},
+    "effective_profile": null,
+    "reasoning_effort": null,
+    "observation_mode": "offline",
+    "usage": {
+      "actual_requests": 0,
+      "unknown_usage_requests": 0,
+      "usage_complete": true,
+      "known_input_tokens": 0,
+      "known_output_tokens": 0,
+      "total_input_tokens": 0,
+      "total_output_tokens": 0,
+      "failed_requests": 0
+    },
+    "requests": [],
+    "quality_claim_allowed": false
+  },
+  "scope": "PG enqueue/worker only; no HTTP load, real model or 100K DAU claim",
+  "workers": 3,
+  "pool_size": 8,
+  "substitute_delay_ms": 25,
+  "phases": [
+    {
+      "target_arrival_rps": 30,
+      "offered": 60,
+      "elapsed_seconds": 2.0274866248946637,
+      "states": {
+        "done": 60
+      },
+      "success_rate": 1.0,
+      "rejection_rate": 0.0,
+      "queue_wait_p95_ms": 12.554333079606295,
+      "complete_p95_ms": 71.21070893481374,
+      "first_effective_content_ms": null,
+      "max_pending": 1,
+      "max_active_connections": 2,
+      "max_pool_checked_out": 3,
+      "errors": [],
+      "requests": [
+        {
+          "offered": 1103027.726958458,
+          "status": "done",
+          "accepted": 1103027.759485541,
+          "started": 1103027.774278333,
+          "finished": 1103027.832088416
+        },
+        {
+          "offered": 1103027.75836,
+          "status": "done",
+          "accepted": 1103027.767037958,
+          "started": 1103027.777213791,
+          "finished": 1103027.856751666
+        },
+        {
+          "offered": 1103027.793581791,
+          "status": "done",
+          "accepted": 1103027.804037208,
+          "started": 1103027.831692875,
+          "finished": 1103027.8647925
+        },
+        {
+          "offered": 1103027.824992375,
+          "status": "done",
+          "accepted": 1103027.859164458,
+          "started": 1103027.865094416,
+          "finished": 1103027.903278791
+        },
+        {
+          "offered": 1103027.858353375,
+          "status": "done",
+          "accepted": 1103027.861814625,
+          "started": 1103027.867347791,
+          "finished": 1103027.903766125
+        },
+        {
+          "offered": 1103027.8918115,
+          "status": "done",
+          "accepted": 1103027.898458458,
+          "started": 1103027.904375,
+          "finished": 1103027.937702166
+        },
+        {
+          "offered": 1103027.926746916,
+          "status": "done",
+          "accepted": 1103027.931890625,
+          "started": 1103027.937655291,
+          "finished": 1103027.970080333
+        },
+        {
+          "offered": 1103027.960214333,
+          "status": "done",
+          "accepted": 1103027.963915333,
+          "started": 1103027.970564666,
+          "finished": 1103028.00279675
+        },
+        {
+          "offered": 1103027.992634583,
+          "status": "done",
+          "accepted": 1103027.996632333,
+          "started": 1103028.0048445,
+          "finished": 1103028.038163541
+        },
+        {
+          "offered": 1103028.026923291,
+          "status": "done",
+          "accepted": 1103028.03091775,
+          "started": 1103028.037317958,
+          "finished": 1103028.072721375
+        },
+        {
+          "offered": 1103028.060245125,
+          "status": "done",
+          "accepted": 1103028.066304916,
+          "started": 1103028.073444333,
+          "finished": 1103028.105697333
+        },
+        {
+          "offered": 1103028.092889541,
+          "status": "done",
+          "accepted": 1103028.097263041,
+          "started": 1103028.103991958,
+          "finished": 1103028.138145333
+        },
+        {
+          "offered": 1103028.12618725,
+          "status": "done",
+          "accepted": 1103028.131985583,
+          "started": 1103028.139231916,
+          "finished": 1103028.175764
+        },
+        {
+          "offered": 1103028.160264625,
+          "status": "done",
+          "accepted": 1103028.165977,
+          "started": 1103028.174938625,
+          "finished": 1103028.21533875
+        },
+        {
+          "offered": 1103028.19362875,
+          "status": "done",
+          "accepted": 1103028.202225708,
+          "started": 1103028.211256208,
+          "finished": 1103028.242585041
+        },
+        {
+          "offered": 1103028.226875,
+          "status": "done",
+          "accepted": 1103028.235514416,
+          "started": 1103028.241342875,
+          "finished": 1103028.274008541
+        },
+        {
+          "offered": 1103028.259913083,
+          "status": "done",
+          "accepted": 1103028.264592083,
+          "started": 1103028.270806125,
+          "finished": 1103028.301622875
+        },
+        {
+          "offered": 1103028.29172,
+          "status": "done",
+          "accepted": 1103028.295671833,
+          "started": 1103028.300605,
+          "finished": 1103028.340290541
+        },
+        {
+          "offered": 1103028.3269775,
+          "status": "done",
+          "accepted": 1103028.3349295,
+          "started": 1103028.342917458,
+          "finished": 1103028.380335833
+        },
+        {
+          "offered": 1103028.360320625,
+          "status": "done",
+          "accepted": 1103028.367612666,
+          "started": 1103028.378215458,
+          "finished": 1103028.412395583
+        },
+        {
+          "offered": 1103028.391645,
+          "status": "done",
+          "accepted": 1103028.400118541,
+          "started": 1103028.409181916,
+          "finished": 1103028.448108
+        },
+        {
+          "offered": 1103028.427202833,
+          "status": "done",
+          "accepted": 1103028.43729425,
+          "started": 1103028.447316125,
+          "finished": 1103028.479262458
+        },
+        {
+          "offered": 1103028.460273708,
+          "status": "done",
+          "accepted": 1103028.466988375,
+          "started": 1103028.476329625,
+          "finished": 1103028.508435666
+        },
+        {
+          "offered": 1103028.492569208,
+          "status": "done",
+          "accepted": 1103028.497236875,
+          "started": 1103028.504522208,
+          "finished": 1103028.539521875
+        },
+        {
+          "offered": 1103028.526903958,
+          "status": "done",
+          "accepted": 1103028.532912375,
+          "started": 1103028.540400958,
+          "finished": 1103028.57815725
+        },
+        {
+          "offered": 1103028.560288958,
+          "status": "done",
+          "accepted": 1103028.571805208,
+          "started": 1103028.579249875,
+          "finished": 1103028.616150416
+        },
+        {
+          "offered": 1103028.593739583,
+          "status": "done",
+          "accepted": 1103028.609999708,
+          "started": 1103028.6173035,
+          "finished": 1103028.651984708
+        },
+        {
+          "offered": 1103028.626813833,
+          "status": "done",
+          "accepted": 1103028.638679708,
+          "started": 1103028.650529916,
+          "finished": 1103028.68700775
+        },
+        {
+          "offered": 1103028.659761583,
+          "status": "done",
+          "accepted": 1103028.666111208,
+          "started": 1103028.671327625,
+          "finished": 1103028.70820125
+        },
+        {
+          "offered": 1103028.691985083,
+          "status": "done",
+          "accepted": 1103028.700927333,
+          "started": 1103028.708480583,
+          "finished": 1103028.743943375
+        },
+        {
+          "offered": 1103028.726193166,
+          "status": "done",
+          "accepted": 1103028.736630541,
+          "started": 1103028.743514583,
+          "finished": 1103028.777258041
+        },
+        {
+          "offered": 1103028.760304666,
+          "status": "done",
+          "accepted": 1103028.7715985,
+          "started": 1103028.77733325,
+          "finished": 1103028.810740541
+        },
+        {
+          "offered": 1103028.793566041,
+          "status": "done",
+          "accepted": 1103028.799962875,
+          "started": 1103028.808456208,
+          "finished": 1103028.838178916
+        },
+        {
+          "offered": 1103028.824947,
+          "status": "done",
+          "accepted": 1103028.830135625,
+          "started": 1103028.836916166,
+          "finished": 1103028.873923375
+        },
+        {
+          "offered": 1103028.859825291,
+          "status": "done",
+          "accepted": 1103028.867881791,
+          "started": 1103028.875513333,
+          "finished": 1103028.908201125
+        },
+        {
+          "offered": 1103028.893562083,
+          "status": "done",
+          "accepted": 1103028.901858375,
+          "started": 1103028.908012916,
+          "finished": 1103028.941112083
+        },
+        {
+          "offered": 1103028.926087625,
+          "status": "done",
+          "accepted": 1103028.936231791,
+          "started": 1103028.94176425,
+          "finished": 1103028.983703083
+        },
+        {
+          "offered": 1103028.96033325,
+          "status": "done",
+          "accepted": 1103028.977412458,
+          "started": 1103028.984084083,
+          "finished": 1103029.017441916
+        },
+        {
+          "offered": 1103028.993403375,
+          "status": "done",
+          "accepted": 1103028.996414708,
+          "started": 1103029.004606916,
+          "finished": 1103029.039299958
+        },
+        {
+          "offered": 1103029.025398708,
+          "status": "done",
+          "accepted": 1103029.032720041,
+          "started": 1103029.03915475,
+          "finished": 1103029.073372
+        },
+        {
+          "offered": 1103029.060415541,
+          "status": "done",
+          "accepted": 1103029.068742083,
+          "started": 1103029.074161416,
+          "finished": 1103029.109314708
+        },
+        {
+          "offered": 1103029.093663833,
+          "status": "done",
+          "accepted": 1103029.103424625,
+          "started": 1103029.110060291,
+          "finished": 1103029.144057166
+        },
+        {
+          "offered": 1103029.126893083,
+          "status": "done",
+          "accepted": 1103029.133200583,
+          "started": 1103029.142299416,
+          "finished": 1103029.174602666
+        },
+        {
+          "offered": 1103029.159044833,
+          "status": "done",
+          "accepted": 1103029.165229333,
+          "started": 1103029.172947458,
+          "finished": 1103029.208001416
+        },
+        {
+          "offered": 1103029.192218041,
+          "status": "done",
+          "accepted": 1103029.199302208,
+          "started": 1103029.207880125,
+          "finished": 1103029.247169541
+        },
+        {
+          "offered": 1103029.227077958,
+          "status": "done",
+          "accepted": 1103029.233822583,
+          "started": 1103029.245221833,
+          "finished": 1103029.279710625
+        },
+        {
+          "offered": 1103029.259036458,
+          "status": "done",
+          "accepted": 1103029.264894041,
+          "started": 1103029.277640833,
+          "finished": 1103029.313015041
+        },
+        {
+          "offered": 1103029.293548666,
+          "status": "done",
+          "accepted": 1103029.302576916,
+          "started": 1103029.311624625,
+          "finished": 1103029.349558958
+        },
+        {
+          "offered": 1103029.326970833,
+          "status": "done",
+          "accepted": 1103029.339596625,
+          "started": 1103029.34965875,
+          "finished": 1103029.382346083
+        },
+        {
+          "offered": 1103029.360864083,
+          "status": "done",
+          "accepted": 1103029.371343541,
+          "started": 1103029.379397458,
+          "finished": 1103029.41715075
+        },
+        {
+          "offered": 1103029.393546666,
+          "status": "done",
+          "accepted": 1103029.408175708,
+          "started": 1103029.416364375,
+          "finished": 1103029.451259333
+        },
+        {
+          "offered": 1103029.42683175,
+          "status": "done",
+          "accepted": 1103029.436316958,
+          "started": 1103029.448871291,
+          "finished": 1103029.493465625
+        },
+        {
+          "offered": 1103029.458713041,
+          "status": "done",
+          "accepted": 1103029.463658625,
+          "started": 1103029.468769958,
+          "finished": 1103029.502069375
+        },
+        {
+          "offered": 1103029.49154225,
+          "status": "done",
+          "accepted": 1103029.495475083,
+          "started": 1103029.50243825,
+          "finished": 1103029.539933666
+        },
+        {
+          "offered": 1103029.52669475,
+          "status": "done",
+          "accepted": 1103029.532954,
+          "started": 1103029.541509583,
+          "finished": 1103029.575941791
+        },
+        {
+          "offered": 1103029.559027125,
+          "status": "done",
+          "accepted": 1103029.564992666,
+          "started": 1103029.572936916,
+          "finished": 1103029.610641875
+        },
+        {
+          "offered": 1103029.593583833,
+          "status": "done",
+          "accepted": 1103029.601858041,
+          "started": 1103029.611072416,
+          "finished": 1103029.647148
+        },
+        {
+          "offered": 1103029.626913375,
+          "status": "done",
+          "accepted": 1103029.636123708,
+          "started": 1103029.645806291,
+          "finished": 1103029.679927875
+        },
+        {
+          "offered": 1103029.660329833,
+          "status": "done",
+          "accepted": 1103029.666749833,
+          "started": 1103029.678096166,
+          "finished": 1103029.712022041
+        },
+        {
+          "offered": 1103029.693546708,
+          "status": "done",
+          "accepted": 1103029.702089125,
+          "started": 1103029.710979041,
+          "finished": 1103029.752262666
+        }
+      ]
+    },
+    {
+      "target_arrival_rps": 90,
+      "offered": 180,
+      "elapsed_seconds": 2.6783463328611106,
+      "states": {
+        "done": 180
+      },
+      "success_rate": 1.0,
+      "rejection_rate": 0.0,
+      "queue_wait_p95_ms": 610.8794999308884,
+      "complete_p95_ms": 650.7218331098557,
+      "first_effective_content_ms": null,
+      "max_pending": 44,
+      "max_active_connections": 4,
+      "max_pool_checked_out": 5,
+      "errors": [],
+      "requests": [
+        {
+          "offered": 1103029.901697916,
+          "status": "done",
+          "accepted": 1103029.97131725,
+          "started": 1103030.043479,
+          "finished": 1103030.075970666
+        },
+        {
+          "offered": 1103029.925713458,
+          "status": "done",
+          "accepted": 1103030.02227175,
+          "started": 1103030.049662958,
+          "finished": 1103030.084343125
+        },
+        {
+          "offered": 1103029.925914875,
+          "status": "done",
+          "accepted": 1103030.025045041,
+          "started": 1103030.081497041,
+          "finished": 1103030.114043666
+        },
+        {
+          "offered": 1103029.966139875,
+          "status": "done",
+          "accepted": 1103030.022286208,
+          "started": 1103030.049161791,
+          "finished": 1103030.082203041
+        },
+        {
+          "offered": 1103029.966332625,
+          "status": "done",
+          "accepted": 1103030.043719833,
+          "started": 1103030.091215541,
+          "finished": 1103030.127051583
+        },
+        {
+          "offered": 1103029.967891208,
+          "status": "done",
+          "accepted": 1103030.045186,
+          "started": 1103030.132329416,
+          "finished": 1103030.165769583
+        },
+        {
+          "offered": 1103029.968517333,
+          "status": "done",
+          "accepted": 1103030.045636291,
+          "started": 1103030.162526958,
+          "finished": 1103030.1953145
+        },
+        {
+          "offered": 1103030.018489291,
+          "status": "done",
+          "accepted": 1103030.043736833,
+          "started": 1103030.1248155,
+          "finished": 1103030.155296541
+        },
+        {
+          "offered": 1103030.018686791,
+          "status": "done",
+          "accepted": 1103030.043115166,
+          "started": 1103030.089705541,
+          "finished": 1103030.122798916
+        },
+        {
+          "offered": 1103030.018758958,
+          "status": "done",
+          "accepted": 1103030.050634583,
+          "started": 1103030.21019425,
+          "finished": 1103030.240453666
+        },
+        {
+          "offered": 1103030.020488083,
+          "status": "done",
+          "accepted": 1103030.043744166,
+          "started": 1103030.1329935,
+          "finished": 1103030.164235583
+        },
+        {
+          "offered": 1103030.022391666,
+          "status": "done",
+          "accepted": 1103030.04763175,
+          "started": 1103030.170620875,
+          "finished": 1103030.206276958
+        },
+        {
+          "offered": 1103030.042955333,
+          "status": "done",
+          "accepted": 1103030.047620958,
+          "started": 1103030.170376958,
+          "finished": 1103030.203775666
+        },
+        {
+          "offered": 1103030.044313583,
+          "status": "done",
+          "accepted": 1103030.047697291,
+          "started": 1103030.202472125,
+          "finished": 1103030.232919041
+        },
+        {
+          "offered": 1103030.0564535,
+          "status": "done",
+          "accepted": 1103030.059228166,
+          "started": 1103030.210559041,
+          "finished": 1103030.242096958
+        },
+        {
+          "offered": 1103030.068216416,
+          "status": "done",
+          "accepted": 1103030.071572416,
+          "started": 1103030.239434583,
+          "finished": 1103030.27300475
+        },
+        {
+          "offered": 1103030.077667166,
+          "status": "done",
+          "accepted": 1103030.081288375,
+          "started": 1103030.24647075,
+          "finished": 1103030.280363958
+        },
+        {
+          "offered": 1103030.088971541,
+          "status": "done",
+          "accepted": 1103030.091411416,
+          "started": 1103030.246771416,
+          "finished": 1103030.282408791
+        },
+        {
+          "offered": 1103030.100748083,
+          "status": "done",
+          "accepted": 1103030.103447083,
+          "started": 1103030.2798525,
+          "finished": 1103030.30959725
+        },
+        {
+          "offered": 1103030.110938666,
+          "status": "done",
+          "accepted": 1103030.117091791,
+          "started": 1103030.286038208,
+          "finished": 1103030.316757958
+        },
+        {
+          "offered": 1103030.121988458,
+          "status": "done",
+          "accepted": 1103030.128828916,
+          "started": 1103030.286654666,
+          "finished": 1103030.318311416
+        },
+        {
+          "offered": 1103030.133063333,
+          "status": "done",
+          "accepted": 1103030.135446666,
+          "started": 1103030.315563708,
+          "finished": 1103030.346204833
+        },
+        {
+          "offered": 1103030.146227416,
+          "status": "done",
+          "accepted": 1103030.149422166,
+          "started": 1103030.326176833,
+          "finished": 1103030.356141583
+        },
+        {
+          "offered": 1103030.156945625,
+          "status": "done",
+          "accepted": 1103030.160158416,
+          "started": 1103030.326356208,
+          "finished": 1103030.35773425
+        },
+        {
+          "offered": 1103030.167027,
+          "status": "done",
+          "accepted": 1103030.170663375,
+          "started": 1103030.350857583,
+          "finished": 1103030.382627708
+        },
+        {
+          "offered": 1103030.177813583,
+          "status": "done",
+          "accepted": 1103030.181290875,
+          "started": 1103030.362498416,
+          "finished": 1103030.392381041
+        },
+        {
+          "offered": 1103030.189568625,
+          "status": "done",
+          "accepted": 1103030.193877333,
+          "started": 1103030.362729291,
+          "finished": 1103030.394692916
+        },
+        {
+          "offered": 1103030.200307416,
+          "status": "done",
+          "accepted": 1103030.203440291,
+          "started": 1103030.387207458,
+          "finished": 1103030.41838825
+        },
+        {
+          "offered": 1103030.210895541,
+          "status": "done",
+          "accepted": 1103030.213195875,
+          "started": 1103030.398011541,
+          "finished": 1103030.4287765
+        },
+        {
+          "offered": 1103030.223231708,
+          "status": "done",
+          "accepted": 1103030.226889916,
+          "started": 1103030.399319625,
+          "finished": 1103030.430613833
+        },
+        {
+          "offered": 1103030.235035791,
+          "status": "done",
+          "accepted": 1103030.238012541,
+          "started": 1103030.425753208,
+          "finished": 1103030.4581615
+        },
+        {
+          "offered": 1103030.244450458,
+          "status": "done",
+          "accepted": 1103030.246977125,
+          "started": 1103030.435721,
+          "finished": 1103030.467102125
+        },
+        {
+          "offered": 1103030.255341041,
+          "status": "done",
+          "accepted": 1103030.25825175,
+          "started": 1103030.436035416,
+          "finished": 1103030.469508875
+        },
+        {
+          "offered": 1103030.266748958,
+          "status": "done",
+          "accepted": 1103030.26966825,
+          "started": 1103030.463797041,
+          "finished": 1103030.494622333
+        },
+        {
+          "offered": 1103030.277529916,
+          "status": "done",
+          "accepted": 1103030.282137083,
+          "started": 1103030.475007833,
+          "finished": 1103030.50740925
+        },
+        {
+          "offered": 1103030.289107,
+          "status": "done",
+          "accepted": 1103030.291833791,
+          "started": 1103030.475242333,
+          "finished": 1103030.505633416
+        },
+        {
+          "offered": 1103030.301714666,
+          "status": "done",
+          "accepted": 1103030.304361041,
+          "started": 1103030.500412583,
+          "finished": 1103030.5297355
+        },
+        {
+          "offered": 1103030.311157541,
+          "status": "done",
+          "accepted": 1103030.315666625,
+          "started": 1103030.513191416,
+          "finished": 1103030.543537041
+        },
+        {
+          "offered": 1103030.322682125,
+          "status": "done",
+          "accepted": 1103030.32608425,
+          "started": 1103030.513530708,
+          "finished": 1103030.545677666
+        },
+        {
+          "offered": 1103030.334754041,
+          "status": "done",
+          "accepted": 1103030.337556458,
+          "started": 1103030.535389166,
+          "finished": 1103030.565937458
+        },
+        {
+          "offered": 1103030.344500791,
+          "status": "done",
+          "accepted": 1103030.347982583,
+          "started": 1103030.550533375,
+          "finished": 1103030.58089075
+        },
+        {
+          "offered": 1103030.355520833,
+          "status": "done",
+          "accepted": 1103030.361423208,
+          "started": 1103030.550882833,
+          "finished": 1103030.582733125
+        },
+        {
+          "offered": 1103030.366665375,
+          "status": "done",
+          "accepted": 1103030.369370875,
+          "started": 1103030.570927208,
+          "finished": 1103030.602630083
+        },
+        {
+          "offered": 1103030.378188166,
+          "status": "done",
+          "accepted": 1103030.381271625,
+          "started": 1103030.587232416,
+          "finished": 1103030.617415291
+        },
+        {
+          "offered": 1103030.388669916,
+          "status": "done",
+          "accepted": 1103030.391916666,
+          "started": 1103030.587390416,
+          "finished": 1103030.619041416
+        },
+        {
+          "offered": 1103030.399818958,
+          "status": "done",
+          "accepted": 1103030.402214375,
+          "started": 1103030.60865875,
+          "finished": 1103030.638751541
+        },
+        {
+          "offered": 1103030.41288975,
+          "status": "done",
+          "accepted": 1103030.416476708,
+          "started": 1103030.623158958,
+          "finished": 1103030.65340525
+        },
+        {
+          "offered": 1103030.422258958,
+          "status": "done",
+          "accepted": 1103030.426297333,
+          "started": 1103030.62446775,
+          "finished": 1103030.656834666
+        },
+        {
+          "offered": 1103030.433572375,
+          "status": "done",
+          "accepted": 1103030.436358541,
+          "started": 1103030.644035916,
+          "finished": 1103030.673389625
+        },
+        {
+          "offered": 1103030.444610916,
+          "status": "done",
+          "accepted": 1103030.448620916,
+          "started": 1103030.660439,
+          "finished": 1103030.693281125
+        },
+        {
+          "offered": 1103030.455308666,
+          "status": "done",
+          "accepted": 1103030.4599625,
+          "started": 1103030.661079,
+          "finished": 1103030.695068
+        },
+        {
+          "offered": 1103030.466526833,
+          "status": "done",
+          "accepted": 1103030.473246458,
+          "started": 1103030.678451291,
+          "finished": 1103030.708394333
+        },
+        {
+          "offered": 1103030.478083708,
+          "status": "done",
+          "accepted": 1103030.483726166,
+          "started": 1103030.699708458,
+          "finished": 1103030.730903125
+        },
+        {
+          "offered": 1103030.489520416,
+          "status": "done",
+          "accepted": 1103030.493157375,
+          "started": 1103030.700324708,
+          "finished": 1103030.732742333
+        },
+        {
+          "offered": 1103030.499892125,
+          "status": "done",
+          "accepted": 1103030.503053666,
+          "started": 1103030.713486833,
+          "finished": 1103030.74297575
+        },
+        {
+          "offered": 1103030.511368666,
+          "status": "done",
+          "accepted": 1103030.514020458,
+          "started": 1103030.7372935,
+          "finished": 1103030.767987416
+        },
+        {
+          "offered": 1103030.522655208,
+          "status": "done",
+          "accepted": 1103030.526307,
+          "started": 1103030.737761458,
+          "finished": 1103030.769875375
+        },
+        {
+          "offered": 1103030.5335325,
+          "status": "done",
+          "accepted": 1103030.535986333,
+          "started": 1103030.747613083,
+          "finished": 1103030.7770205
+        },
+        {
+          "offered": 1103030.545178625,
+          "status": "done",
+          "accepted": 1103030.549904541,
+          "started": 1103030.775061291,
+          "finished": 1103030.807970875
+        },
+        {
+          "offered": 1103030.556419458,
+          "status": "done",
+          "accepted": 1103030.559425625,
+          "started": 1103030.775168583,
+          "finished": 1103030.809464958
+        },
+        {
+          "offered": 1103030.567653791,
+          "status": "done",
+          "accepted": 1103030.570563958,
+          "started": 1103030.782124958,
+          "finished": 1103030.815657041
+        },
+        {
+          "offered": 1103030.577531916,
+          "status": "done",
+          "accepted": 1103030.580766625,
+          "started": 1103030.814272333,
+          "finished": 1103030.844952625
+        },
+        {
+          "offered": 1103030.588952583,
+          "status": "done",
+          "accepted": 1103030.591525041,
+          "started": 1103030.814822375,
+          "finished": 1103030.847195833
+        },
+        {
+          "offered": 1103030.599922291,
+          "status": "done",
+          "accepted": 1103030.604949583,
+          "started": 1103030.819949791,
+          "finished": 1103030.857169625
+        },
+        {
+          "offered": 1103030.611381291,
+          "status": "done",
+          "accepted": 1103030.615245791,
+          "started": 1103030.855346291,
+          "finished": 1103030.892592458
+        },
+        {
+          "offered": 1103030.622125416,
+          "status": "done",
+          "accepted": 1103030.624886208,
+          "started": 1103030.855376791,
+          "finished": 1103030.890711958
+        },
+        {
+          "offered": 1103030.633696916,
+          "status": "done",
+          "accepted": 1103030.636631166,
+          "started": 1103030.861141583,
+          "finished": 1103030.895030458
+        },
+        {
+          "offered": 1103030.644193458,
+          "status": "done",
+          "accepted": 1103030.647446041,
+          "started": 1103030.898821083,
+          "finished": 1103030.931134375
+        },
+        {
+          "offered": 1103030.655432916,
+          "status": "done",
+          "accepted": 1103030.66008275,
+          "started": 1103030.898928458,
+          "finished": 1103030.929495041
+        },
+        {
+          "offered": 1103030.667749208,
+          "status": "done",
+          "accepted": 1103030.670739708,
+          "started": 1103030.900381583,
+          "finished": 1103030.932691666
+        },
+        {
+          "offered": 1103030.677593833,
+          "status": "done",
+          "accepted": 1103030.68007025,
+          "started": 1103030.937407083,
+          "finished": 1103030.971984375
+        },
+        {
+          "offered": 1103030.6886425,
+          "status": "done",
+          "accepted": 1103030.691943,
+          "started": 1103030.937739208,
+          "finished": 1103030.970125625
+        },
+        {
+          "offered": 1103030.699822666,
+          "status": "done",
+          "accepted": 1103030.701884375,
+          "started": 1103030.937941208,
+          "finished": 1103030.97341425
+        },
+        {
+          "offered": 1103030.710903208,
+          "status": "done",
+          "accepted": 1103030.713607,
+          "started": 1103030.978428041,
+          "finished": 1103031.011389041
+        },
+        {
+          "offered": 1103030.723456541,
+          "status": "done",
+          "accepted": 1103030.727044625,
+          "started": 1103030.978207791,
+          "finished": 1103031.009178875
+        },
+        {
+          "offered": 1103030.734104416,
+          "status": "done",
+          "accepted": 1103030.737539833,
+          "started": 1103030.978520583,
+          "finished": 1103031.012676708
+        },
+        {
+          "offered": 1103030.7446035,
+          "status": "done",
+          "accepted": 1103030.747256208,
+          "started": 1103031.017760875,
+          "finished": 1103031.05277875
+        },
+        {
+          "offered": 1103030.756943458,
+          "status": "done",
+          "accepted": 1103030.760230666,
+          "started": 1103031.01794375,
+          "finished": 1103031.050974541
+        },
+        {
+          "offered": 1103030.766591333,
+          "status": "done",
+          "accepted": 1103030.771655958,
+          "started": 1103031.018090625,
+          "finished": 1103031.054089666
+        },
+        {
+          "offered": 1103030.778558208,
+          "status": "done",
+          "accepted": 1103030.782042291,
+          "started": 1103031.059057791,
+          "finished": 1103031.093290916
+        },
+        {
+          "offered": 1103030.78868075,
+          "status": "done",
+          "accepted": 1103030.791833166,
+          "started": 1103031.059479666,
+          "finished": 1103031.094854333
+        },
+        {
+          "offered": 1103030.80149,
+          "status": "done",
+          "accepted": 1103030.806256416,
+          "started": 1103031.05951375,
+          "finished": 1103031.0916425
+        },
+        {
+          "offered": 1103030.810972666,
+          "status": "done",
+          "accepted": 1103030.814477291,
+          "started": 1103031.0989245,
+          "finished": 1103031.139379875
+        },
+        {
+          "offered": 1103030.822444333,
+          "status": "done",
+          "accepted": 1103030.825213916,
+          "started": 1103031.099169333,
+          "finished": 1103031.143875291
+        },
+        {
+          "offered": 1103030.833715,
+          "status": "done",
+          "accepted": 1103030.836639166,
+          "started": 1103031.099653125,
+          "finished": 1103031.141148416
+        },
+        {
+          "offered": 1103030.8442095,
+          "status": "done",
+          "accepted": 1103030.852615375,
+          "started": 1103031.148912833,
+          "finished": 1103031.182358333
+        },
+        {
+          "offered": 1103030.855395666,
+          "status": "done",
+          "accepted": 1103030.858859291,
+          "started": 1103031.148752666,
+          "finished": 1103031.184123791
+        },
+        {
+          "offered": 1103030.867624125,
+          "status": "done",
+          "accepted": 1103030.873138791,
+          "started": 1103031.150063708,
+          "finished": 1103031.1856225
+        },
+        {
+          "offered": 1103030.878600625,
+          "status": "done",
+          "accepted": 1103030.88765825,
+          "started": 1103031.191494958,
+          "finished": 1103031.225936
+        },
+        {
+          "offered": 1103030.8890415,
+          "status": "done",
+          "accepted": 1103030.894550875,
+          "started": 1103031.191456333,
+          "finished": 1103031.224252291
+        },
+        {
+          "offered": 1103030.899896,
+          "status": "done",
+          "accepted": 1103030.9017955,
+          "started": 1103031.191614,
+          "finished": 1103031.227259083
+        },
+        {
+          "offered": 1103030.912883541,
+          "status": "done",
+          "accepted": 1103030.916216416,
+          "started": 1103031.232655666,
+          "finished": 1103031.26743125
+        },
+        {
+          "offered": 1103030.923425333,
+          "status": "done",
+          "accepted": 1103030.92707,
+          "started": 1103031.233002041,
+          "finished": 1103031.269305583
+        },
+        {
+          "offered": 1103030.934028916,
+          "status": "done",
+          "accepted": 1103030.937982083,
+          "started": 1103031.233098416,
+          "finished": 1103031.270790916
+        },
+        {
+          "offered": 1103030.94467925,
+          "status": "done",
+          "accepted": 1103030.949859375,
+          "started": 1103031.276454958,
+          "finished": 1103031.314647
+        },
+        {
+          "offered": 1103030.956652833,
+          "status": "done",
+          "accepted": 1103030.962104125,
+          "started": 1103031.276579791,
+          "finished": 1103031.312900125
+        },
+        {
+          "offered": 1103030.966407625,
+          "status": "done",
+          "accepted": 1103030.969482541,
+          "started": 1103031.276661,
+          "finished": 1103031.310487458
+        },
+        {
+          "offered": 1103030.977664375,
+          "status": "done",
+          "accepted": 1103030.9799355,
+          "started": 1103031.320143791,
+          "finished": 1103031.36812775
+        },
+        {
+          "offered": 1103030.990100458,
+          "status": "done",
+          "accepted": 1103030.992787291,
+          "started": 1103031.320399666,
+          "finished": 1103031.365701916
+        },
+        {
+          "offered": 1103031.00018025,
+          "status": "done",
+          "accepted": 1103031.002929333,
+          "started": 1103031.320580541,
+          "finished": 1103031.369905083
+        },
+        {
+          "offered": 1103031.010938958,
+          "status": "done",
+          "accepted": 1103031.016853958,
+          "started": 1103031.375441208,
+          "finished": 1103031.423515041
+        },
+        {
+          "offered": 1103031.022680875,
+          "status": "done",
+          "accepted": 1103031.027880208,
+          "started": 1103031.375748833,
+          "finished": 1103031.425313458
+        },
+        {
+          "offered": 1103031.034283458,
+          "status": "done",
+          "accepted": 1103031.036976583,
+          "started": 1103031.37619875,
+          "finished": 1103031.42674025
+        },
+        {
+          "offered": 1103031.04451925,
+          "status": "done",
+          "accepted": 1103031.047289833,
+          "started": 1103031.436819916,
+          "finished": 1103031.471225666
+        },
+        {
+          "offered": 1103031.05569,
+          "status": "done",
+          "accepted": 1103031.059559041,
+          "started": 1103031.43719175,
+          "finished": 1103031.4693475
+        },
+        {
+          "offered": 1103031.068128875,
+          "status": "done",
+          "accepted": 1103031.071262416,
+          "started": 1103031.437311583,
+          "finished": 1103031.473062208
+        },
+        {
+          "offered": 1103031.079084458,
+          "status": "done",
+          "accepted": 1103031.0837235,
+          "started": 1103031.478944958,
+          "finished": 1103031.515321041
+        },
+        {
+          "offered": 1103031.088883416,
+          "status": "done",
+          "accepted": 1103031.096705375,
+          "started": 1103031.478508625,
+          "finished": 1103031.513445125
+        },
+        {
+          "offered": 1103031.099737291,
+          "status": "done",
+          "accepted": 1103031.102996708,
+          "started": 1103031.478640666,
+          "finished": 1103031.511670458
+        },
+        {
+          "offered": 1103031.111678958,
+          "status": "done",
+          "accepted": 1103031.114680416,
+          "started": 1103031.520733708,
+          "finished": 1103031.553518041
+        },
+        {
+          "offered": 1103031.123806541,
+          "status": "done",
+          "accepted": 1103031.135327916,
+          "started": 1103031.520299666,
+          "finished": 1103031.55612425
+        },
+        {
+          "offered": 1103031.133095708,
+          "status": "done",
+          "accepted": 1103031.137224541,
+          "started": 1103031.521284,
+          "finished": 1103031.557815875
+        },
+        {
+          "offered": 1103031.146275041,
+          "status": "done",
+          "accepted": 1103031.149303875,
+          "started": 1103031.563064291,
+          "finished": 1103031.599576208
+        },
+        {
+          "offered": 1103031.155929166,
+          "status": "done",
+          "accepted": 1103031.158969375,
+          "started": 1103031.563356,
+          "finished": 1103031.597332458
+        },
+        {
+          "offered": 1103031.168279625,
+          "status": "done",
+          "accepted": 1103031.175998833,
+          "started": 1103031.563646708,
+          "finished": 1103031.601979708
+        },
+        {
+          "offered": 1103031.17764025,
+          "status": "done",
+          "accepted": 1103031.182051208,
+          "started": 1103031.607311958,
+          "finished": 1103031.648533
+        },
+        {
+          "offered": 1103031.189411791,
+          "status": "done",
+          "accepted": 1103031.191755166,
+          "started": 1103031.607598791,
+          "finished": 1103031.64491375
+        },
+        {
+          "offered": 1103031.201756583,
+          "status": "done",
+          "accepted": 1103031.206491375,
+          "started": 1103031.607767,
+          "finished": 1103031.646906875
+        },
+        {
+          "offered": 1103031.211832291,
+          "status": "done",
+          "accepted": 1103031.216152208,
+          "started": 1103031.653401083,
+          "finished": 1103031.691820125
+        },
+        {
+          "offered": 1103031.222175041,
+          "status": "done",
+          "accepted": 1103031.231801583,
+          "started": 1103031.65375325,
+          "finished": 1103031.69336125
+        },
+        {
+          "offered": 1103031.233108958,
+          "status": "done",
+          "accepted": 1103031.235456541,
+          "started": 1103031.653853333,
+          "finished": 1103031.689727833
+        },
+        {
+          "offered": 1103031.245969166,
+          "status": "done",
+          "accepted": 1103031.251576541,
+          "started": 1103031.698681041,
+          "finished": 1103031.735349291
+        },
+        {
+          "offered": 1103031.255379583,
+          "status": "done",
+          "accepted": 1103031.261845666,
+          "started": 1103031.698405708,
+          "finished": 1103031.733509541
+        },
+        {
+          "offered": 1103031.266465083,
+          "status": "done",
+          "accepted": 1103031.274956041,
+          "started": 1103031.698634125,
+          "finished": 1103031.731721833
+        },
+        {
+          "offered": 1103031.277708083,
+          "status": "done",
+          "accepted": 1103031.280460416,
+          "started": 1103031.739874833,
+          "finished": 1103031.774969583
+        },
+        {
+          "offered": 1103031.290533416,
+          "status": "done",
+          "accepted": 1103031.29581675,
+          "started": 1103031.7403575,
+          "finished": 1103031.773195791
+        },
+        {
+          "offered": 1103031.300721208,
+          "status": "done",
+          "accepted": 1103031.308881291,
+          "started": 1103031.7405325,
+          "finished": 1103031.776592875
+        },
+        {
+          "offered": 1103031.312269833,
+          "status": "done",
+          "accepted": 1103031.319819166,
+          "started": 1103031.781447541,
+          "finished": 1103031.813931333
+        },
+        {
+          "offered": 1103031.322294125,
+          "status": "done",
+          "accepted": 1103031.325013916,
+          "started": 1103031.781889416,
+          "finished": 1103031.815793125
+        },
+        {
+          "offered": 1103031.333686708,
+          "status": "done",
+          "accepted": 1103031.336672916,
+          "started": 1103031.782154583,
+          "finished": 1103031.817602375
+        },
+        {
+          "offered": 1103031.345725333,
+          "status": "done",
+          "accepted": 1103031.363271416,
+          "started": 1103031.823267708,
+          "finished": 1103031.85793725
+        },
+        {
+          "offered": 1103031.355686208,
+          "status": "done",
+          "accepted": 1103031.363351375,
+          "started": 1103031.823427916,
+          "finished": 1103031.854063125
+        },
+        {
+          "offered": 1103031.367553458,
+          "status": "done",
+          "accepted": 1103031.3751865,
+          "started": 1103031.823507583,
+          "finished": 1103031.856495583
+        },
+        {
+          "offered": 1103031.377629291,
+          "status": "done",
+          "accepted": 1103031.380434375,
+          "started": 1103031.863248958,
+          "finished": 1103031.897718041
+        },
+        {
+          "offered": 1103031.389717541,
+          "status": "done",
+          "accepted": 1103031.393013583,
+          "started": 1103031.863665375,
+          "finished": 1103031.895821166
+        },
+        {
+          "offered": 1103031.401446625,
+          "status": "done",
+          "accepted": 1103031.420843416,
+          "started": 1103031.863892875,
+          "finished": 1103031.8991475
+        },
+        {
+          "offered": 1103031.412678541,
+          "status": "done",
+          "accepted": 1103031.420857,
+          "started": 1103031.903566,
+          "finished": 1103031.9442625
+        },
+        {
+          "offered": 1103031.422510375,
+          "status": "done",
+          "accepted": 1103031.436304041,
+          "started": 1103031.903386875,
+          "finished": 1103031.942147875
+        },
+        {
+          "offered": 1103031.433162541,
+          "status": "done",
+          "accepted": 1103031.437354458,
+          "started": 1103031.903642,
+          "finished": 1103031.940353916
+        },
+        {
+          "offered": 1103031.444680375,
+          "status": "done",
+          "accepted": 1103031.44797625,
+          "started": 1103031.948814291,
+          "finished": 1103031.984054458
+        },
+        {
+          "offered": 1103031.455871416,
+          "status": "done",
+          "accepted": 1103031.459184125,
+          "started": 1103031.949410958,
+          "finished": 1103031.98217625
+        },
+        {
+          "offered": 1103031.466717208,
+          "status": "done",
+          "accepted": 1103031.474631958,
+          "started": 1103031.949186916,
+          "finished": 1103031.985532416
+        },
+        {
+          "offered": 1103031.477599708,
+          "status": "done",
+          "accepted": 1103031.4806325,
+          "started": 1103031.997002333,
+          "finished": 1103032.037971208
+        },
+        {
+          "offered": 1103031.488709625,
+          "status": "done",
+          "accepted": 1103031.492199458,
+          "started": 1103031.997424125,
+          "finished": 1103032.034638041
+        },
+        {
+          "offered": 1103031.501640458,
+          "status": "done",
+          "accepted": 1103031.505781375,
+          "started": 1103031.997697,
+          "finished": 1103032.036532208
+        },
+        {
+          "offered": 1103031.51114525,
+          "status": "done",
+          "accepted": 1103031.520201,
+          "started": 1103032.043356416,
+          "finished": 1103032.082069708
+        },
+        {
+          "offered": 1103031.522109,
+          "status": "done",
+          "accepted": 1103031.526660791,
+          "started": 1103032.043652416,
+          "finished": 1103032.085610875
+        },
+        {
+          "offered": 1103031.53445725,
+          "status": "done",
+          "accepted": 1103031.538320916,
+          "started": 1103032.043898083,
+          "finished": 1103032.083976833
+        },
+        {
+          "offered": 1103031.545562583,
+          "status": "done",
+          "accepted": 1103031.55131325,
+          "started": 1103032.091340916,
+          "finished": 1103032.133237541
+        },
+        {
+          "offered": 1103031.555553833,
+          "status": "done",
+          "accepted": 1103031.562617458,
+          "started": 1103032.091079375,
+          "finished": 1103032.136902291
+        },
+        {
+          "offered": 1103031.567077291,
+          "status": "done",
+          "accepted": 1103031.569810208,
+          "started": 1103032.091557541,
+          "finished": 1103032.135223916
+        },
+        {
+          "offered": 1103031.579465875,
+          "status": "done",
+          "accepted": 1103031.582909541,
+          "started": 1103032.143569,
+          "finished": 1103032.178219791
+        },
+        {
+          "offered": 1103031.59073675,
+          "status": "done",
+          "accepted": 1103031.595055833,
+          "started": 1103032.144885,
+          "finished": 1103032.181991958
+        },
+        {
+          "offered": 1103031.601449666,
+          "status": "done",
+          "accepted": 1103031.60698575,
+          "started": 1103032.144686791,
+          "finished": 1103032.18028725
+        },
+        {
+          "offered": 1103031.611601583,
+          "status": "done",
+          "accepted": 1103031.614780666,
+          "started": 1103032.187844708,
+          "finished": 1103032.2231385
+        },
+        {
+          "offered": 1103031.623774125,
+          "status": "done",
+          "accepted": 1103031.627519958,
+          "started": 1103032.189297375,
+          "finished": 1103032.224549125
+        },
+        {
+          "offered": 1103031.635316708,
+          "status": "done",
+          "accepted": 1103031.641770625,
+          "started": 1103032.188915208,
+          "finished": 1103032.221341958
+        },
+        {
+          "offered": 1103031.64438325,
+          "status": "done",
+          "accepted": 1103031.652466333,
+          "started": 1103032.231358166,
+          "finished": 1103032.266697666
+        },
+        {
+          "offered": 1103031.655640041,
+          "status": "done",
+          "accepted": 1103031.658277833,
+          "started": 1103032.231233333,
+          "finished": 1103032.263125333
+        },
+        {
+          "offered": 1103031.668433291,
+          "status": "done",
+          "accepted": 1103031.672997333,
+          "started": 1103032.231198583,
+          "finished": 1103032.265042875
+        },
+        {
+          "offered": 1103031.678653375,
+          "status": "done",
+          "accepted": 1103031.687719708,
+          "started": 1103032.271488666,
+          "finished": 1103032.304554041
+        },
+        {
+          "offered": 1103031.688629375,
+          "status": "done",
+          "accepted": 1103031.697014166,
+          "started": 1103032.271731541,
+          "finished": 1103032.30864625
+        },
+        {
+          "offered": 1103031.699976666,
+          "status": "done",
+          "accepted": 1103031.702307458,
+          "started": 1103032.27192425,
+          "finished": 1103032.306676125
+        },
+        {
+          "offered": 1103031.712887583,
+          "status": "done",
+          "accepted": 1103031.718234708,
+          "started": 1103032.314062083,
+          "finished": 1103032.351631208
+        },
+        {
+          "offered": 1103031.722903916,
+          "status": "done",
+          "accepted": 1103031.729993291,
+          "started": 1103032.314270625,
+          "finished": 1103032.347707708
+        },
+        {
+          "offered": 1103031.734888958,
+          "status": "done",
+          "accepted": 1103031.740116625,
+          "started": 1103032.314900833,
+          "finished": 1103032.349743666
+        },
+        {
+          "offered": 1103031.745077708,
+          "status": "done",
+          "accepted": 1103031.748836916,
+          "started": 1103032.359257208,
+          "finished": 1103032.394199791
+        },
+        {
+          "offered": 1103031.75534125,
+          "status": "done",
+          "accepted": 1103031.757935958,
+          "started": 1103032.359368208,
+          "finished": 1103032.396221791
+        },
+        {
+          "offered": 1103031.767166375,
+          "status": "done",
+          "accepted": 1103031.770246833,
+          "started": 1103032.35933975,
+          "finished": 1103032.398222291
+        },
+        {
+          "offered": 1103031.778536625,
+          "status": "done",
+          "accepted": 1103031.782331791,
+          "started": 1103032.405017875,
+          "finished": 1103032.443562791
+        },
+        {
+          "offered": 1103031.790202458,
+          "status": "done",
+          "accepted": 1103031.793368375,
+          "started": 1103032.405467416,
+          "finished": 1103032.440924291
+        },
+        {
+          "offered": 1103031.800767208,
+          "status": "done",
+          "accepted": 1103031.803885041,
+          "started": 1103032.405871708,
+          "finished": 1103032.445581708
+        },
+        {
+          "offered": 1103031.811174166,
+          "status": "done",
+          "accepted": 1103031.81915075,
+          "started": 1103032.451677041,
+          "finished": 1103032.489716
+        },
+        {
+          "offered": 1103031.822156208,
+          "status": "done",
+          "accepted": 1103031.824803666,
+          "started": 1103032.452367791,
+          "finished": 1103032.491552041
+        },
+        {
+          "offered": 1103031.835099708,
+          "status": "done",
+          "accepted": 1103031.841976833,
+          "started": 1103032.452856333,
+          "finished": 1103032.487278583
+        },
+        {
+          "offered": 1103031.844717416,
+          "status": "done",
+          "accepted": 1103031.849917916,
+          "started": 1103032.498163125,
+          "finished": 1103032.5373045
+        },
+        {
+          "offered": 1103031.855967875,
+          "status": "done",
+          "accepted": 1103031.862559708,
+          "started": 1103032.498533291,
+          "finished": 1103032.533110333
+        },
+        {
+          "offered": 1103031.866921416,
+          "status": "done",
+          "accepted": 1103031.871470291,
+          "started": 1103032.4988525,
+          "finished": 1103032.535462333
+        },
+        {
+          "offered": 1103031.879026375,
+          "status": "done",
+          "accepted": 1103031.884279875,
+          "started": 1103032.541087333,
+          "finished": 1103032.578003541
+        },
+        {
+          "offered": 1103031.889994041,
+          "status": "done",
+          "accepted": 1103031.894672083,
+          "started": 1103032.541391458,
+          "finished": 1103032.577729625
+        }
+      ]
+    }
+  ]
+}

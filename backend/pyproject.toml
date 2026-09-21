@@ -92,6 +92,10 @@ eval = [
     # Ragas 0.4.3 imports a module removed by langchain-community 0.4.2.
     "langchain-community==0.4.1",
 ]
+experiments = [
+    "mcp>=2,<3",
+    "rank-bm25>=0.2.2,<0.3",
+]
 
 [build-system]
 requires = ["setuptools>=68.0"]

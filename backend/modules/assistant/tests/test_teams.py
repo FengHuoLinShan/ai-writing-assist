@@ -90,6 +90,39 @@ def test_forged_quotes_and_unknown_sources_rejected():
     assert validate_investigation(ctx, output) is output
 
 
+def test_opposing_member_reports_cannot_vote_themselves_verified():
+    from modules.assistant.teams.contracts import TeamAnswer
+    from modules.assistant.teams.runner import validate_team_answer
+
+    ctx = SimpleNamespace(
+        deps=SimpleNamespace(
+            evidence_refs={
+                "yes": {"text": "他声称自己知道。"},
+                "no": {"text": "信中说他并不知道。"},
+            },
+            team_blueprint="deep_review",
+            operations={},
+        )
+    )
+    result = TeamAnswer(
+        answer="两段证据矛盾，尚不能裁定。",
+        findings=[
+            {
+                "title": "知识状态待核实",
+                "summary": "仍有反证未解释",
+                "kind": "suggestion",
+                "evidence_ids": ["yes", "no"],
+            }
+        ],
+        omissions=["没有领域复核回执"],
+    )
+    assert validate_team_answer(ctx, result) is result
+    result.findings[0].kind = "issue"
+    result.findings[0].domain_finding_id = "invented-majority-vote"
+    with pytest.raises(ModelRetry, match="领域复核"):
+        validate_team_answer(ctx, result)
+
+
 async def test_team_start_idempotency_scope_and_switch(
     async_client,
     db_session,

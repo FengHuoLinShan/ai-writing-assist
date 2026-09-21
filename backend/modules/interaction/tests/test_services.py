@@ -136,9 +136,7 @@ async def test_story_attempt_freezes_one_run_envelope_across_task_projection(
     )
     task = await db_session.get(AsyncTask, attempt.task_id)
     assert task is not None
-    task_envelope = read_ai_run_envelope(
-        (task.meta or {}).get(AI_RUN_ENVELOPE_KEY)
-    )
+    task_envelope = read_ai_run_envelope((task.meta or {}).get(AI_RUN_ENVELOPE_KEY))
     attempt_envelope = read_ai_run_envelope(
         (attempt.agent_checkpoint_json or {}).get(AI_RUN_ENVELOPE_KEY)
     )
@@ -314,7 +312,9 @@ async def test_agreements_survive_three_real_reducer_passes_and_clear(db_session
             )
         assert prepared is not None
         assert agreements in prepared.messages[-1].content
-        assert "当前回顾继承过用户保存的回顾" not in prepared.messages[-1].content
+        assert ("当前回顾继承过用户保存的回顾" in prepared.messages[-1].content) == (
+            index > 0
+        )
         assert "用户当前确认的活动基线" not in prepared.messages[0].content
         task = SimpleNamespace(id=uuid.uuid4(), update_progress=lambda _: None)
         db_session.task_checkpoint_enabled = True
@@ -337,6 +337,34 @@ async def test_agreements_survive_three_real_reducer_passes_and_clear(db_session
         )
         assert head.sections["long_term_agreements"] == agreements
         assert head.sections["current_situation"] == f"恢复阶段{index}"
+        current_path = await service._repo.get_selected_path(db_session, journey=journey)
+        messages = compile_story_messages(
+            path=current_path,
+            overview=render_overview_sections(head.sections),
+            overview_anchor_node_id=str(head.coverage_anchor_node_id),
+            long_term_agreements=head.sections["long_term_agreements"],
+            see_sea_enabled=False,
+            action_options_enabled=False,
+            request_kind="message",
+        )
+        compiled = "\n".join(message.content for message in messages)
+        assert agreements in compiled
+        assert "模型越权修改" not in compiled
+        if index == 0:
+            editable = await service.get_overview(db_session, journey_id=str(journey.id))
+            agreements = "用户已纠正：我能使用火焰，但不能把传闻写成已知真相。"
+            await service.update_overview(
+                db_session,
+                journey_id=str(journey.id),
+                sections=editable.sections.model_copy(
+                    update={"long_term_agreements": agreements}
+                ),
+                expected_overview_epoch=editable.overview_epoch,
+                expected_selection_epoch=journey.selection_epoch,
+                base_revision_id=editable.base_revision_id,
+                base_selected_leaf_node_id=editable.base_selected_leaf_node_id,
+                base_selected_path_hash=editable.base_selected_path_hash,
+            )
     editable = await service.get_overview(db_session, journey_id=str(journey.id))
     updated = editable.sections.model_copy(update={"long_term_agreements": ""})
     cleared = await service.update_overview(
@@ -351,6 +379,22 @@ async def test_agreements_survive_three_real_reducer_passes_and_clear(db_session
     )
     assert cleared.sections.long_term_agreements == ""
     assert cleared.sections.current_situation == "恢复阶段2"
+    selected_path = await service._repo.get_selected_path(db_session, journey=journey)
+    selected_head = await service._best_overview_for_path(
+        db_session,
+        journey=journey,
+        path=selected_path,
+    )
+    messages = compile_story_messages(
+        path=selected_path,
+        overview=render_overview_sections(selected_head.sections),
+        overview_anchor_node_id=str(selected_head.coverage_anchor_node_id),
+        long_term_agreements=selected_head.sections["long_term_agreements"],
+        see_sea_enabled=False,
+        action_options_enabled=False,
+        request_kind="message",
+    )
+    assert agreements not in "\n".join(message.content for message in messages)
 
 
 async def test_only_agreement_can_be_cleared_and_exported(db_session):
@@ -1868,9 +1912,7 @@ async def test_legacy_awaiting_continue_creates_stable_untracked_run(
     envelope = read_ai_run_envelope(
         (attempt.agent_checkpoint_json or {}).get(AI_RUN_ENVELOPE_KEY)
     )
-    task_envelope = read_ai_run_envelope(
-        (task.meta or {}).get(AI_RUN_ENVELOPE_KEY)
-    )
+    task_envelope = read_ai_run_envelope((task.meta or {}).get(AI_RUN_ENVELOPE_KEY))
     assert envelope is not None and task_envelope is not None
     assert envelope == task_envelope
     assert envelope.run_id == str(attempt.id)

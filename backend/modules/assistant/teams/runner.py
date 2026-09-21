@@ -186,7 +186,7 @@ async def run_team(service, db, task, run_id, payload, deps, profile) -> Assista
         from modules.assistant.teams.blind_reader import run_blind_reading
 
         return await run_blind_reading(service, db, task, run_id, payload, deps, profile)
-    if frozen != blueprint_snapshot(frozen["id"]):
+    if frozen != blueprint_snapshot(frozen["id"], version=frozen.get("version", 1)):
         raise ConflictError(
             "此协作协议版本不可恢复，请开始新任务", code="team_protocol_changed"
         )
@@ -356,7 +356,15 @@ async def run_team(service, db, task, run_id, payload, deps, profile) -> Assista
                                     role="system",
                                     content=_INSTRUCTIONS
                                     + "\n你的专项："
-                                    + frozen["roles"][item.role],
+                                    + frozen["roles"][item.role]
+                                    + (
+                                        "\n"
+                                        + "\n".join(
+                                            frozen["methods"].get(item.role, {}).values()
+                                        )
+                                        if "methods" in frozen
+                                        else ""
+                                    ),
                                 ),
                                 LLMMessage(
                                     role="user",

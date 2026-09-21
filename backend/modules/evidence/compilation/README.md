@@ -666,3 +666,14 @@ Imports 的 review_resolution 通过本域读取完整场景/章节并保存 Con
 ADR-0027 协作通过原 confirmation 和调用者范围重新物化资料。作者调查输出继承全部 source keys；
 角色回合与盲读分别使用人物/读者投影，标题、后文与作者目标不能回流读者阶段。
 `import_review_resolution` 只对作者物化请求的疑难组，不能由一个组展开其他组或扩大采用授权。
+
+## 父级回读契约
+
+`read_novel_evidence(..., expand_parent=True)` 加性返回 `parent_context`：策略、
+带独立 `source_ref` 的 segments、omissions 和 complete。上限为 12000 Unicode 字符，
+精确 Scene 映射优先，缺失时仅补命中段落；跨章分别检查版本和可见性。角色扩展默认拒绝。
+携带原 confirmation 的内部调用方须重新物化该确认，并传其 `source_manifest`、
+`allowed_ranges`、`excluded_ranges`；这些授权参数不由浏览器传入。受限片段在读取前
+取交集并扣除排除区间，预算/来源失败显式列入遗漏。
+`before=after=0` 的 Evidence 回读现在只返回所引用区间，去掉底层文稿读器的同段扩展；
+其他带段落前后文的旧读取行为保持。

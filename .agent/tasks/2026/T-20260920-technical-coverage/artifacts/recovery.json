@@ -1,0 +1,7 @@
+{
+  "injection": "committed expired heartbeat simulating lost worker",
+  "elapsed_ms": 134.05812485143542,
+  "stale_heartbeat_rejected": true,
+  "stale_finalize_rejected": true,
+  "duplicate_finalize_rejected": true
+}

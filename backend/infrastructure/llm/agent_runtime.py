@@ -228,7 +228,8 @@ class AgentRunBudget(BaseModel):
 
 
 BudgetCheckpoint = Callable[[dict[str, Any]], Awaitable[None]]
-_HISTORY_VERSION = "pydantic-ai-2.42.0"
+_LEGACY_HISTORY_VERSION = "pydantic-ai-2.42.0"
+_HISTORY_VERSION = "pydantic-ai-2.42.0/tool-identity-v2"
 
 
 def _usage(value: LLMUsage) -> RequestUsage:
@@ -239,8 +240,10 @@ def _usage(value: LLMUsage) -> RequestUsage:
 
 def _history(messages: list[LLMMessage]) -> list[ModelMessage]:
     result: list[ModelMessage] = []
+    tool_names: dict[str, str] = {}
     for message in messages:
         if message.role == "assistant":
+            tool_names.update({call.id: call.name for call in message.tool_calls})
             parts: list[Any] = []
             if message.reasoning_content:
                 parts.append(ThinkingPart(message.reasoning_content))
@@ -253,7 +256,13 @@ def _history(messages: list[LLMMessage]) -> list[ModelMessage]:
         elif message.role == "tool":
             result.append(
                 ModelRequest(
-                    [ToolReturnPart("result", message.content, message.tool_call_id)]
+                    [
+                        ToolReturnPart(
+                            tool_names[message.tool_call_id],
+                            message.content,
+                            message.tool_call_id,
+                        )
+                    ]
                 )
             )
         else:
@@ -264,6 +273,32 @@ def _history(messages: list[LLMMessage]) -> list[ModelMessage]:
             )
             result.append(ModelRequest([part]))
     return result
+
+
+def _restore_history(state: dict) -> list[ModelMessage]:
+    version = state.get("version")
+    if version not in {_HISTORY_VERSION, _LEGACY_HISTORY_VERSION}:
+        raise ValueError("Agent history version changed; start a new run")
+    history = ModelMessagesTypeAdapter.validate_python(state["messages"])
+    calls, returned = {}, set()
+    for message in history:
+        for part in message.parts:
+            if isinstance(part, ToolCallPart):
+                if part.tool_call_id in calls:
+                    raise ValueError("Agent history contains duplicate tool calls")
+                calls[part.tool_call_id] = part.tool_name
+            elif isinstance(part, ToolReturnPart):
+                expected = calls.get(part.tool_call_id)
+                if expected is None or part.tool_call_id in returned:
+                    raise ValueError("Agent history contains an unpaired tool return")
+                if part.tool_name != expected:
+                    if version != _LEGACY_HISTORY_VERSION or part.tool_name != "result":
+                        raise ValueError("Agent history tool identity mismatch")
+                    # v1's initial-history adapter lost names. The original call
+                    # is the only authority for this deterministic migration.
+                    part.tool_name = expected
+                returned.add(part.tool_call_id)
+    return history
 
 
 class ProjectGatewayModel(Model):
@@ -650,9 +685,7 @@ async def run_project_agent(
     if output_validator is not None:
         agent.output_validator(output_validator)
     if state is not None:
-        if state.get("version") != _HISTORY_VERSION:
-            raise ValueError("Agent history version changed; start a new run")
-        history = ModelMessagesTypeAdapter.validate_python(state["messages"])
+        history = _restore_history(state)
     else:
         history = _history(request.messages)
     async with asyncio.timeout(budget.remaining_seconds):

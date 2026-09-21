@@ -97,6 +97,15 @@ async def test_stream_reconnect_resumes_from_persisted_offset() -> None:
     assert "event: reset" not in "".join(events)
 
 
+async def test_stream_unicode_offsets_and_terminal_status_survive_resume() -> None:
+    events = await _collect(row=_row(text="甲😀乙🪶"), offset=2)
+    assert '"text":"乙🪶"' in events[0]
+    assert events[0].startswith("id: 4\n")
+    resumed = await _collect(row=_row(text="甲😀乙🪶"), offset=4)
+    assert all("event: chunk" not in event for event in resumed)
+    assert "event: status" in resumed[0] and "event: done" in resumed[1]
+
+
 async def test_stream_offset_ahead_resets_then_replays() -> None:
     events = await _collect(row=_row(text="正文"), offset=99)
 

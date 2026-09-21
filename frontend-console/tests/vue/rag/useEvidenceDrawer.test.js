@@ -36,6 +36,23 @@ afterEach(() => {
 })
 
 describe("openHit（原文）", () => {
+  it("按服务器 Unicode 字符位置高亮 emoji 并保留父级来源", async () => {
+    const parent = { source_ref: { chapter_index: 1, version_number: 2 }, text: "甲😀乙。" }
+    globalThis.api.context.readEvidence.mockResolvedValueOnce({
+      text: "甲😀乙", highlight_start: 1, highlight_end: 2,
+      source_ref: parent.source_ref,
+      parent_context: { segments: [parent], complete: false },
+    })
+    const scope = effectScope()
+    const drawer = scope.run(() => useEvidenceDrawer())
+    await drawer.openHit(sourceHit)
+    expect(drawer.content.value.mark).toBe("😀")
+    expect(drawer.content.value.after).toBe("乙")
+    expect(drawer.content.value.parentSegments).toEqual([parent])
+    expect(drawer.content.value.parentComplete).toBe(false)
+    scope.stop()
+  })
+
   it("读取原文并高亮片段", async () => {
     const scope = effectScope()
     const drawer = scope.run(() => useEvidenceDrawer())

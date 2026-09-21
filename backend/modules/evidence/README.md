@@ -125,3 +125,9 @@ World 使用确认后保留的 compiled items 作为实际语义输入，Focused
 `TeamProjection` 和 `project_team_artifact` 校验接收者的项目、scope hash 和完整来源依赖。
 来源依赖由宿主根据成员实际输入和读取记录构造，不使用模型自报的引用替代。依赖受限资料
 的摘要不能发给未获授权的成员；拒绝消息不包含被限制的资料内容。
+
+## 有界父级原文
+
+原文回读可显式请求 `expand_parent`，按精确 Scene span 或命中段落补齐前后文，
+逐段保留 Writing 来源和版本。角色知识无法证明时不扩展。原文检索抽屉展示覆盖和遗漏，
+不把父级元数据当作已读正文；默认 AI confirmation 的读取范围不会自动扩大。

@@ -35,6 +35,7 @@ import {
 import RpAdaptiveConfirmPopover from "./RpAdaptiveConfirmPopover.vue"
 import { safeInteractionError } from "./interactionErrors.js"
 import { sourceEntityTypeLabel } from "./sourceLabels.js"
+import { mergePersistedChunk } from "./persistedStream.js"
 import RpMarkdownContent from "./RpMarkdownContent.vue"
 import ProactiveCare from "../../components/ProactiveCare.vue"
 
@@ -571,7 +572,7 @@ async function followAttempt(attempt) {
   currentAttempt.value = attempt
   streamText.value = attempt.visible_text || ""
   streamOffset.value = Number(
-    attempt.visible_offset ?? streamText.value.length,
+    attempt.visible_offset ?? Array.from(streamText.value).length,
   )
   streamError.value = ""
   const controller = new AbortController()
@@ -591,8 +592,25 @@ async function followAttempt(attempt) {
           streamOffset.value = 0
         } else if (event.event === "chunk") {
           const follow = isNearBottom()
-          streamText.value += event.data?.text || ""
-          streamOffset.value = Number(event.data?.offset || streamText.value.length)
+          const merged = mergePersistedChunk(streamText.value, streamOffset.value, event.data)
+          if (merged.needsSnapshot) {
+            const snapshot = await getApi().interactions.getAttempt(journeyId.value, attempt.id)
+            if (controller.signal.aborted || disposed) return
+            const savedText = String(snapshot.visible_text || "")
+            if (snapshot.id !== attempt.id || !Number.isSafeInteger(snapshot.visible_offset)
+              || snapshot.visible_offset !== Array.from(savedText).length) {
+              throw new Error("Invalid persisted story snapshot")
+            }
+            streamText.value = savedText
+            streamOffset.value = snapshot.visible_offset
+            currentAttempt.value = snapshot
+            if (snapshot.visible_offset < Number(event.data?.offset)) {
+              throw new Error("Persisted story snapshot has not caught up")
+            }
+          } else {
+            streamText.value = merged.text
+            streamOffset.value = merged.offset
+          }
           if (follow) await scrollToBottom()
           else newContent.value = true
         } else if (event.event === "status") {

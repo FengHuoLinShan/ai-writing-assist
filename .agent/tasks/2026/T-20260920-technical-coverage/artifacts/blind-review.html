@@ -1,0 +1,51 @@
+<!doctype html><meta charset='utf-8'><title>Eval Review</title><style>body{font-family:system-ui;max-width:1100px;margin:auto;padding:1rem}.toolbar{position:sticky;top:0;background:white;padding:1rem;border-bottom:1px solid #bbb}article{border-bottom:2px solid #ddd;padding:1rem 0}pre{white-space:pre-wrap}textarea{width:100%}.complete{border-left:5px solid #27864a;padding-left:1rem}</style><div class='toolbar'><strong id='progress'></strong> <button id='download' type='button'>Download review JSONL</button></div><article class='review-case' data-case-id='blind-review-01'><h2>blind-review-01</h2><p><strong>Scenario:</strong> review_candidate</p><h3>Input</h3><pre>{
+  &quot;text&quot;: &quot;昨日林晚承诺守住大门。今日他离开了，但作者没有说明离开的原因。&quot;,
+  &quot;status&quot;: &quot;脚本替身样本，仅用于检查评审材料流程&quot;
+}</pre><h3>Reference</h3><pre>{
+  &quot;candidate&quot;: {
+    &quot;summary&quot;: &quot;离开的动机缺失，不能据此认定作者写错。&quot;,
+    &quot;findings&quot;: [],
+    &quot;checked_dimensions&quot;: [
+      &quot;characters&quot;,
+      &quot;facts&quot;,
+      &quot;narrative&quot;
+    ],
+    &quot;omissions&quot;: [
+      &quot;离开的原因尚未给出；不替代领域复核。&quot;
+    ]
+  }
+}</pre><h3>Source refs</h3><pre>[]</pre><h3>Hard negatives</h3><pre>[]</pre><h3>Judge</h3><pre>[]</pre><h3>Source excerpt</h3><pre></pre><fieldset><legend>Human decision</legend><label>Status <select class='status'><option value='unreviewed'>unreviewed</option><option value='accepted'>accepted</option><option value='edited'>edited</option><option value='rejected'>rejected</option><option value='ambiguous'>ambiguous</option></select></label> <label>Score <select class='score'><option value=''>-</option><option value='1'>1</option><option value='2'>2</option><option value='3'>3</option><option value='4'>4</option><option value='5'>5</option></select></label><br><label>Reason<br><textarea class='reason' rows='3'></textarea></label><br><label>Corrected reference JSON (edited only)<br><textarea class='corrected-reference' rows='5'></textarea></label></fieldset></article>
+<article class='review-case' data-case-id='blind-review-02'><h2>blind-review-02</h2><p><strong>Scenario:</strong> review_candidate</p><h3>Input</h3><pre>{
+  &quot;text&quot;: &quot;昨日林晚承诺守住大门。今日他离开了，但作者没有说明离开的原因。&quot;,
+  &quot;status&quot;: &quot;脚本替身样本，仅用于检查评审材料流程&quot;
+}</pre><h3>Reference</h3><pre>{
+  &quot;candidate&quot;: {
+    &quot;summary&quot;: &quot;离开的动机缺失，不能据此认定作者写错。&quot;,
+    &quot;findings&quot;: [],
+    &quot;checked_dimensions&quot;: [
+      &quot;characters&quot;,
+      &quot;facts&quot;,
+      &quot;narrative&quot;
+    ],
+    &quot;omissions&quot;: [
+      &quot;离开的原因尚未给出；不替代领域复核。&quot;
+    ]
+  }
+}</pre><h3>Source refs</h3><pre>[]</pre><h3>Hard negatives</h3><pre>[]</pre><h3>Judge</h3><pre>[]</pre><h3>Source excerpt</h3><pre></pre><fieldset><legend>Human decision</legend><label>Status <select class='status'><option value='unreviewed'>unreviewed</option><option value='accepted'>accepted</option><option value='edited'>edited</option><option value='rejected'>rejected</option><option value='ambiguous'>ambiguous</option></select></label> <label>Score <select class='score'><option value=''>-</option><option value='1'>1</option><option value='2'>2</option><option value='3'>3</option><option value='4'>4</option><option value='5'>5</option></select></label><br><label>Reason<br><textarea class='reason' rows='3'></textarea></label><br><label>Corrected reference JSON (edited only)<br><textarea class='corrected-reference' rows='5'></textarea></label></fieldset></article>
+<article class='review-case' data-case-id='blind-review-03'><h2>blind-review-03</h2><p><strong>Scenario:</strong> review_candidate</p><h3>Input</h3><pre>{
+  &quot;text&quot;: &quot;昨日林晚承诺守住大门。今日他离开了，但作者没有说明离开的原因。&quot;,
+  &quot;status&quot;: &quot;脚本替身样本，仅用于检查评审材料流程&quot;
+}</pre><h3>Reference</h3><pre>{
+  &quot;candidate&quot;: {
+    &quot;summary&quot;: &quot;离开的动机缺失，不能据此认定作者写错。&quot;,
+    &quot;findings&quot;: [],
+    &quot;checked_dimensions&quot;: [
+      &quot;characters&quot;,
+      &quot;facts&quot;,
+      &quot;narrative&quot;
+    ],
+    &quot;omissions&quot;: [
+      &quot;离开的原因尚未给出；不替代领域复核。&quot;
+    ]
+  }
+}</pre><h3>Source refs</h3><pre>[]</pre><h3>Hard negatives</h3><pre>[]</pre><h3>Judge</h3><pre>[]</pre><h3>Source excerpt</h3><pre></pre><fieldset><legend>Human decision</legend><label>Status <select class='status'><option value='unreviewed'>unreviewed</option><option value='accepted'>accepted</option><option value='edited'>edited</option><option value='rejected'>rejected</option><option value='ambiguous'>ambiguous</option></select></label> <label>Score <select class='score'><option value=''>-</option><option value='1'>1</option><option value='2'>2</option><option value='3'>3</option><option value='4'>4</option><option value='5'>5</option></select></label><br><label>Reason<br><textarea class='reason' rows='3'></textarea></label><br><label>Corrected reference JSON (edited only)<br><textarea class='corrected-reference' rows='5'></textarea></label></fieldset></article><script>const cases=[...document.querySelectorAll('.review-case')];const progress=document.getElementById('progress');function update(){let done=0;for(const item of cases){const ok=item.querySelector('.status').value!=='unreviewed'&&item.querySelector('.score').value;item.classList.toggle('complete',Boolean(ok));if(ok)done++;}progress.textContent=`${done}/${cases.length} completed`;return done;}for(const item of cases)item.addEventListener('change',update);update();document.getElementById('download').addEventListener('click',()=>{if(update()!==cases.length){alert('Complete status and score for every case first.');return;}const lines=[];for(const item of cases){const status=item.querySelector('.status').value;const raw=item.querySelector('.corrected-reference').value.trim();let corrected=null;if(status==='edited'){try{corrected=JSON.parse(raw);}catch(error){alert(`Invalid corrected reference JSON for ${item.dataset.caseId}`);return;}}lines.push(JSON.stringify({case_id:item.dataset.caseId,status,reason:item.querySelector('.reason').value||null,score:Number(item.querySelector('.score').value),corrected_reference:corrected}));}const blob=new Blob([lines.join('\n')+'\n'],{type:'application/x-ndjson'});const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download="blind-review.completed.jsonl";link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);});</script>

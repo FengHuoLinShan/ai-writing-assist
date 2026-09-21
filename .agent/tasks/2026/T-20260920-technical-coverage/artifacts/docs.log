@@ -1,0 +1,4 @@
+NOTE: inventory: 9 business modules, 118 ORM tables, 47 task handlers, 16 frontend routes, 35 ADR files
+NOTE: review user-facing behavior documentation if needed: frontend-production, infrastructure-production, module-production
+WARNING: impact rules architecture-governance, llm-infrastructure, module-contract, module-schema require review of: docs/architecture/README.md, docs/architecture/documentation-maintenance.md; explicitly acknowledged as no current-doc change: 已复核 docs/architecture/README.md 与 docs/architecture/documentation-maintenance.md：Makefile 仅增加显式离线实验入口，九模块归属、运行时拓扑、文档清单和门禁协议均不改变。命令与实验边界已更新 development-guide.md、testing-guide.md 及受影响模块文档。
+Architecture documentation checks passed.

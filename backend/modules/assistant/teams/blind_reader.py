@@ -31,7 +31,9 @@ class ReadingNode(StrictModel):
 
 
 async def run_blind_reading(service, db, task, run_id, payload, deps, profile):
-    if payload["team"] != blueprint_snapshot("blind_reader"):
+    if payload["team"] != blueprint_snapshot(
+        "blind_reader", version=payload["team"].get("version", 1)
+    ):
         raise ConflictError("原盲读协议不可恢复，请开始新任务")
     if deps.work.context_confirmation_id:
         raise ValidationError("盲读只解锁已选正文，不能把作者资料确认包交给读者")

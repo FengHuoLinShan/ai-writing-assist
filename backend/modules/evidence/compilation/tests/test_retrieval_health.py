@@ -104,7 +104,9 @@ async def test_loader_records_hydration_drop_trace_and_health(
     await RagChunksLoader(retrieve_fn=retrieve).load(db_session, options, bundle)
 
     assert len(bundle.rag_chunks) == 1
-    assert bundle.rag_chunks[0]["text"] == content
+    # Exact rehydration must not silently include the next (stale) range.
+    assert bundle.rag_chunks[0]["text"] == content[:6]
+    assert bundle.rag_chunks[0]["source_ref"]["end_offset"] == 6
     traces = await list_retrieval_traces(
         db_session,
         novel_id=test_project_id,

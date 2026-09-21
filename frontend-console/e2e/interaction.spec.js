@@ -283,6 +283,40 @@ test.describe("RP 路由与窄屏故事页", () => {
     await waitForBackend(60000)
   })
 
+  test("390px 流式重复与缺口从持久快照恢复，刷新保留正文和草稿", async ({ page, browserErrors }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    const attempt = { id: "unicode-replay", status: "running", visible_text: "", visible_offset: 0 }
+    const current = await mockRpApis(page, { activeAttempt: attempt })
+    let snapshots = 0
+    await page.route("**/attempts/unicode-replay", route => {
+      snapshots++
+      Object.assign(attempt, { visible_text: "甲😀乙丙丁", visible_offset: 5, status: "failed", error_message: "连接中断，正文已保留" })
+      current.active_attempt = attempt
+      return route.fulfill({ json: attempt })
+    })
+    await page.route("**/attempts/unicode-replay/events*", route => route.fulfill({
+      contentType: "text/event-stream",
+      body: [
+        'id: 2\nevent: chunk\ndata: {"text":"甲😀","offset":2}\n\n',
+        'id: 2\nevent: chunk\ndata: {"text":"甲😀","offset":2}\n\n',
+        'id: 3\nevent: chunk\ndata: {"text":"😀乙","offset":3}\n\n',
+        'id: 5\nevent: chunk\ndata: {"text":"丁","offset":5}\n\n',
+        'id: 5\nevent: status\ndata: {"status":"failed","offset":5}\n\n',
+        'id: 5\nevent: done\ndata: {"status":"failed","offset":5}\n\n',
+      ].join(""),
+    }))
+    await page.goto(`/#interaction/${journeyId}`)
+    const story = page.locator(".rp-message--streaming .rp-message__text")
+    await expect(story).toHaveText("甲😀乙丙丁")
+    expect(snapshots).toBe(1)
+    await page.getByRole("textbox", { name: "继续旅程" }).fill("这条想法尚未发送")
+    await page.reload()
+    await expect(story).toHaveText("甲😀乙丙丁")
+    await expect(page.getByRole("textbox", { name: "继续旅程" })).toHaveValue("这条想法尚未发送")
+    await page.screenshot({ path: testInfo.outputPath("unicode-recovery-390.png"), fullPage: true })
+    expect(browserErrors).toEqual([])
+  })
+
   test("390px 长思考等待可用键盘停止并保留草稿", async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 390, height: 844 })
     const attempt = { id: "max-wait", status: "running", visible_text: "", visible_offset: 0,

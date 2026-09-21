@@ -350,6 +350,7 @@ test.describe("RAG 检索模块", () => {
     })
     await page.route("**/api/evidence/compilation/evidence/read", async (route) => {
       const payload = route.request().postDataJSON()
+      expect(payload.expand_parent).toBe(true)
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -359,6 +360,10 @@ test.describe("RAG 检索模块", () => {
           highlight_start: 0,
           highlight_end: 2,
           source_ref: payload.source_ref,
+          parent_context: {
+            policy: "scene-or-paragraph-v1", complete: false, omissions: ["visibility_cutoff"],
+            segments: [{ source_ref: payload.source_ref, text: "旧塔的铜铃在夜里响起。只有守卫知道它的含义。" }],
+          },
           scene_refs: [],
           object_refs: [],
           warnings: [],
@@ -395,6 +400,8 @@ test.describe("RAG 检索模块", () => {
 
     await firstOpenButton.click()
     await expect(drawer).toContainText("旧塔的铜铃")
+    await drawer.getByText("查看本次可读的前后文", { exact: true }).click()
+    await expect(drawer).toContainText("只有守卫知道它的含义")
     await page.keyboard.press("Escape")
     await expect(drawer).toHaveCount(0)
     await expect(firstOpenButton).toBeFocused()

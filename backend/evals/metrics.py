@@ -11,12 +11,57 @@ def precision_at_k(
     relevant_ids: set[str],
     k: int,
 ) -> float:
+    """Legacy v1: divide by the number returned (not fixed K)."""
     if k <= 0:
         raise ValueError("k must be positive")
     selected = list(retrieved_ids[:k])
     if not selected:
         return 0.0
     return sum(item in relevant_ids for item in selected) / len(selected)
+
+
+def precision_at_fixed_k(
+    retrieved_ids: Sequence[str], relevant_ids: set[str], k: int
+) -> float:
+    """v2 companion metric; missing results occupy non-relevant slots."""
+    if k <= 0:
+        raise ValueError("k must be positive")
+    return len(set(retrieved_ids[:k]) & relevant_ids) / k
+
+
+def evidence_group_recall(retrieved, groups) -> float:
+    """Fraction of gold groups whose every immutable source range is covered.
+
+    Inputs are LogicalSourceRef instances. Overlapping hits are unioned; another
+    version, corpus, or source cannot satisfy a gold range. Offsets are Unicode
+    code points, matching the production manuscript reader.
+    """
+    if not groups:
+        return 1.0 if not retrieved else 0.0
+
+    def covered(gold):
+        if gold.start_offset is None or gold.end_offset is None:
+            raise ValueError("range gold requires both offsets")
+        intervals = sorted(
+            (hit.start_offset, hit.end_offset)
+            for hit in retrieved
+            if (hit.corpus_id, hit.source_alias, hit.chapter_index, hit.content_hash)
+            == (gold.corpus_id, gold.source_alias, gold.chapter_index, gold.content_hash)
+            and hit.start_offset is not None
+            and hit.end_offset is not None
+        )
+        cursor = gold.start_offset
+        for start, end in intervals:
+            if start > cursor:
+                break
+            cursor = max(cursor, end)
+            if cursor >= gold.end_offset:
+                return True
+        return False
+
+    if any(not group for group in groups):
+        raise ValueError("gold evidence groups must not be empty")
+    return sum(all(covered(gold) for gold in group) for group in groups) / len(groups)
 
 
 def recall_at_k(

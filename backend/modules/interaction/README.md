@@ -266,3 +266,9 @@ NPC 仅从当前场景提及且可见的人物中选择（最多三名），私�
 角色意图经 Story 回合裁决，玩家可见事件同时进入叙述和 held 审查。只有完整正文通过原审查、
 selection/source epoch 与租约复验，才与 `interaction_actor_state_revisions` 在原节点事务中提交。
 取消或失败的私有片段不外发，也不写角色状态。匿名及无来源旅程沿用普通模式。
+
+## 流式正文位置
+
+SSE offset 始终按 Unicode code point 计数（与 Python len 一致）。客户端按当前
+attempt 和正文位置去重/补齐重叠片段，冲突或缺口读取同一 attempt 的持久快照，
+不会以 JavaScript UTF-16 长度推进 offset；相同位置的状态/终态事件仍处理。

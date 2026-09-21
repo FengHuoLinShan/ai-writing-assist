@@ -411,6 +411,11 @@ class NovelEvidenceService:
         visibility: VisibilityContextContract,
         before: int = 3,
         after: int = 3,
+        expand_parent: bool = False,
+        source_manifest: dict[str, str] | None = None,
+        allowed_ranges: list[dict] | None = None,
+        excluded_ranges: list[dict] = (),
+        max_parent_characters: int = 12000,
     ) -> dict:
         self._require_visibility(visibility)
         visibility, visibility_warnings = await self._resolve_visibility_cursor(
@@ -421,7 +426,36 @@ class NovelEvidenceService:
         )
         if not _source_visible(asdict(source_ref), visibility):
             raise ValueError("来源超出当前可见截止位置")
-        return await self._read_visible_source_ref(
+        if expand_parent and (allowed_ranges is not None or excluded_ranges):
+            from modules.evidence.compilation.services.parent_evidence import (
+                bounded_ranges,
+            )
+
+            allowed = (
+                None
+                if allowed_ranges is None
+                else [
+                    (ref["start_offset"], ref["end_offset"])
+                    for ref in allowed_ranges
+                    if ref.get("draft_id") == source_ref.draft_id
+                    and ref.get("source_hash") == source_ref.source_hash
+                    and ref.get("content_mode") == source_ref.content_mode
+                ]
+            )
+            excluded = [
+                (ref["start_offset"], ref["end_offset"])
+                for ref in excluded_ranges
+                if ref.get("draft_id") == source_ref.draft_id
+            ]
+            if bounded_ranges(
+                source_ref.start_offset,
+                source_ref.end_offset,
+                allowed=allowed,
+                excluded=excluded,
+            ) != [(source_ref.start_offset, source_ref.end_offset)]:
+                raise ValueError("来源不在原确认允许的区间内")
+            before = after = 0
+        result = await self._read_visible_source_ref(
             db,
             novel_id=novel_id,
             source_ref=source_ref,
@@ -430,6 +464,28 @@ class NovelEvidenceService:
             before=before,
             after=after,
         )
+        if expand_parent:
+            from modules.evidence.compilation.services.parent_evidence import (
+                read_parent_context,
+            )
+
+            result["parent_context"] = await read_parent_context(
+                self,
+                db,
+                novel_id=novel_id,
+                source_ref=source_ref,
+                visibility=visibility,
+                source_manifest=source_manifest,
+                allowed_ranges=allowed_ranges,
+                excluded_ranges=excluded_ranges,
+                max_characters=max_parent_characters,
+            )
+            if not result["parent_context"]["complete"]:
+                result["warnings"] = [
+                    *result["warnings"],
+                    "前后文仅展示本次允许且能够核实的部分，未读取范围不能视为已查清。",
+                ]
+        return result
 
     async def rehydrate_manuscript_candidates(
         self,
@@ -602,12 +658,18 @@ class NovelEvidenceService:
                 else None
             ),
         )
+        # The manuscript reader includes the containing paragraph even at 0/0.
+        # Evidence consumers requesting exact ranges must not receive its tail.
+        exact = before == 0 and after == 0
+        text = (
+            item.text[item.highlight_start : item.highlight_end] if exact else item.text
+        )
         return {
             "source_ref": asdict(item.source_ref),
             "title": item.title,
-            "text": item.text,
-            "highlight_start": item.highlight_start,
-            "highlight_end": item.highlight_end,
+            "text": text,
+            "highlight_start": 0 if exact else item.highlight_start,
+            "highlight_end": len(text) if exact else item.highlight_end,
             "scene_refs": await self._scene_refs(
                 db,
                 novel_id,

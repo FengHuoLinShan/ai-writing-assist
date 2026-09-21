@@ -100,6 +100,13 @@ function precisionLabel(value) {
           <template v-else-if="content && content.type === 'chapter'">
             <p class="novel-evidence-source-meta">第 {{ content.chapterIndex }} 章 · v{{ content.versionNumber }}</p>
             <div class="novel-evidence-text">{{ content.before }}<mark>{{ content.mark }}</mark>{{ content.after }}</div>
+            <details v-if="content.parentSegments?.length">
+              <summary>{{ content.parentComplete ? '查看完整前后文' : '查看本次可读的前后文' }}</summary>
+              <article v-for="(segment, index) in content.parentSegments" :key="index">
+                <p class="novel-evidence-source-meta">第 {{ segment.source_ref.chapter_index }} 章 · v{{ segment.source_ref.version_number }}</p>
+                <div class="novel-evidence-text">{{ segment.text }}</div>
+              </article>
+            </details>
             <button type="button" class="btn btn-sm" data-action="navigate-chapter-ref" :data-chapter-index="content.chapterIndex" @click="emit('navigate-chapter', content.chapterIndex)">跳转章节</button>
             <div v-if="session.drawerRefs.length" class="novel-evidence-links">
               <template v-for="(ref, index) in session.drawerRefs" :key="index">

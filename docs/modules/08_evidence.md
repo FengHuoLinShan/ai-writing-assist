@@ -462,3 +462,10 @@ Knowledge 子包提供跨模块稳定契约：capability policy、scope receipt�
 ADR-0027 的 TeamProjection 将项目、许可范围 hash 与全部来源依赖绑定到接收者。
 摘要不能自行去掉来源限制；来源不属于接收范围时拒绝交接。作者调查仍使用原确认、排除和
 工作稿指纹；人物与盲读使用独立投影，不共享调查者历史。导入会诊仅读取原疑难组的当前版本。
+
+## 有界前后文读取
+
+`POST /api/evidence/compilation/evidence/read` 可选择 `expand_parent=true`，返回
+逐段来源与覆盖信息。作者可在原证据抽屉展开阅读；Scene 跨章、来源过期、截止点及
+字符预算均逐段检查。默认 confirmation 消费不自动扩大，精确 0/0 回读仅含引用区间。
+实验指标和技术覆盖边界见 [技术覆盖说明](../testing/technical-coverage.md)。

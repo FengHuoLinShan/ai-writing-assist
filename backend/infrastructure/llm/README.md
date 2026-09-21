@@ -290,3 +290,10 @@ DeepSeek 新能力快照以可选 `interaction_reasoning_effort=max`、`interact
 公布成功产物，验证输入/输出 hash，失败阻塞依赖，系统故障取消在途工作。宿主负责身份、
 短事务和 lease fencing。`AgentAllocation` 只限制根预算的成员份额；legacy_v1 预算保持
 旧语义，team_v1 共享 30/48/4 上限，成员额度不会成为第二计费账本。
+
+## Agent 工具历史身份
+
+新 checkpoint 标记 `pydantic-ai-2.42.0/tool-identity-v2`。初始工具回包按
+`tool_call_id` 回查真实工具名。旧 `pydantic-ai-2.42.0` 记录仅在原调用唯一可证明时
+修复历史适配器留下的 `result` 名称；重复、未配对和其它身份冲突拒绝恢复。
+模型思考内容仍为私有信息，离线工具诊断只导出关联、来源和 hash。

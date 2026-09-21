@@ -1,0 +1,81 @@
+{
+  "case_count": 8,
+  "dataset_hash": "3818365fca675af4df9dad7545ada90f79c4ce5606779220c18ae6649ddfe5ca",
+  "compiler_hash": "06925ae36695eb7f152e03d785418c5e90583006dd9a48fe65513af9b1a67839",
+  "hard_failures": [],
+  "quality_claim_allowed": false,
+  "metrics": [
+    {
+      "available": true,
+      "blocking": true,
+      "name": "offline_hard_assertions",
+      "passed": true,
+      "reason": null,
+      "threshold": 111,
+      "value": 111
+    },
+    {
+      "available": true,
+      "blocking": true,
+      "name": "branch_and_future_source_leakage",
+      "passed": true,
+      "reason": null,
+      "threshold": 0,
+      "value": 0
+    },
+    {
+      "available": false,
+      "blocking": true,
+      "name": "owner_novel_leakage",
+      "passed": null,
+      "reason": "offline dataset does not open a database isolation fixture",
+      "threshold": null,
+      "value": null
+    },
+    {
+      "available": false,
+      "blocking": false,
+      "name": "fact_probe_accuracy",
+      "passed": null,
+      "reason": "model stage not run",
+      "threshold": null,
+      "value": null
+    },
+    {
+      "available": false,
+      "blocking": false,
+      "name": "blind_review_dimensions",
+      "passed": null,
+      "reason": "review stage not run",
+      "threshold": null,
+      "value": null
+    },
+    {
+      "available": false,
+      "blocking": false,
+      "name": "provider_input_output_usage",
+      "passed": null,
+      "reason": "offline compile performs no provider I/O",
+      "threshold": null,
+      "value": null
+    },
+    {
+      "available": false,
+      "blocking": false,
+      "name": "provider_cache_usage",
+      "passed": null,
+      "reason": "offline compile performs no provider I/O",
+      "threshold": null,
+      "value": null
+    },
+    {
+      "available": false,
+      "blocking": false,
+      "name": "end_to_end_latency",
+      "passed": null,
+      "reason": "model stage not run",
+      "threshold": null,
+      "value": null
+    }
+  ]
+}

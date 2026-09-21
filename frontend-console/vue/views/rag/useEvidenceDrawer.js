@@ -66,10 +66,11 @@ export function useEvidenceDrawer() {
           source_ref: hit.source_ref,
           before: 3,
           after: 3,
+          expand_parent: true,
         }, { signal: request.controller.signal })
         if (!isCurrent(request)) return
         ragSearchSession.drawerRefs = [...(result.scene_refs || []), ...(result.object_refs || [])]
-        const text = String(result.text || "")
+        const text = Array.from(String(result.text || ""))
         const start = Math.max(0, Number(result.highlight_start) || 0)
         const end = Math.max(start, Number(result.highlight_end) || start)
         content.value = {
@@ -77,9 +78,11 @@ export function useEvidenceDrawer() {
           title: result.title || "原文",
           chapterIndex: result.source_ref?.chapter_index || "-",
           versionNumber: result.source_ref?.version_number || "-",
-          before: text.slice(0, start),
-          mark: text.slice(start, end),
-          after: text.slice(end),
+          before: text.slice(0, start).join(""),
+          mark: text.slice(start, end).join(""),
+          after: text.slice(end).join(""),
+          parentSegments: result.parent_context?.segments || [],
+          parentComplete: result.parent_context?.complete === true,
           warnings: result.warnings || [],
         }
       } else if (hit.target_ref) {

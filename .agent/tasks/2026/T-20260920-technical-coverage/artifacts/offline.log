@@ -1,0 +1,11 @@
+cd /Users/tywww/.codex/worktrees/technical-coverage/ai-writing-assist/backend && uv run --python 3.13 --locked --extra ci --extra eval --extra experiments -- python -m evals.retrieval_comparison --output evals/artifacts/technical-coverage/retrieval.json
+Using CPython 3.13.5 interpreter at: /opt/anaconda3/bin/python3
+Removed virtual environment at: .venv
+Creating virtual environment at: .venv
+Installed 155 packages in 682ms
+cd /Users/tywww/.codex/worktrees/technical-coverage/ai-writing-assist/backend && uv run --python 3.13 --locked --extra ci --extra eval --extra experiments -- python -m evals.tool_selection --output evals/artifacts/technical-coverage/tools.json
+cd /Users/tywww/.codex/worktrees/technical-coverage/ai-writing-assist/backend && uv run --python 3.13 --locked --extra ci --extra eval --extra experiments -- python -m evals.collaboration_comparison --output-dir evals/artifacts/technical-coverage
+cd /Users/tywww/.codex/worktrees/technical-coverage/ai-writing-assist/backend && uv run --python 3.13 --locked --extra ci --extra eval --extra experiments -- python -m evals.rp_long_memory compile evals/datasets/baselines/rp-long-memory-v2.jsonl --split dev --output evals/artifacts/technical-coverage/memory-compile.json
+cd /Users/tywww/.codex/worktrees/technical-coverage/ai-writing-assist/backend && uv run --python 3.13 --locked --extra ci --extra eval --extra experiments -- pytest evals/tests/test_experiment.py evals/tests/test_retrieval_comparison.py evals/tests/test_tool_selection.py evals/tests/test_mcp_reference_lab.py evals/tests/test_collaboration_comparison.py evals/tests/test_task_capacity.py -q --timeout=60
+..............                                                           [100%]
+14 passed in 5.39s

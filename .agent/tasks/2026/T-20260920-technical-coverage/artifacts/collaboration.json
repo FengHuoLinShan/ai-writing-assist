@@ -1,0 +1,246 @@
+{
+  "evidence": {
+    "schema_version": "technical-evidence-v1",
+    "metric_version": "range-v2+legacy-ranking-v1",
+    "code_revision": "a7173869ca832537cf476e0a05e97f1f5275012a",
+    "python_version": "3.13.5",
+    "tracked_patch_hash": "1b68738e5d700cd76a006b7a6c1338a9541856945a7cfdb879e1582d3011de8d",
+    "implementation_hashes": {
+      "backend/evals/collaboration_comparison.py": "ec5aae45a9b864f8838aadf904ee815ffce4ffe1acf2918e09f2e1bc61071026",
+      "backend/evals/metrics.py": "928a67740feeae2e1ed6507fb4ef3a4ad5d3edb68b3c784d6e5c233317296105",
+      "backend/evals/runners/rag.py": "6c07792e2181e53d1eb189e473c54aa7aa8d3a8a4bb8951beddb7bb62f94a474",
+      "backend/infrastructure/llm/agent_runtime.py": "f125211158db2f009d89046cce08a1809bfa840cd217c6d4ec738c93bebefa72",
+      "backend/infrastructure/llm/tests/test_agent_runtime.py": "e38437396320ce2997216919290bc9ad336d916e5e5abd0374816fb1f4ed5d6f",
+      "backend/modules/assistant/teams/blind_reader.py": "b2004375dfcd07584376ba4dd9ad72b88ae2a4d736bc44edad38ab21903ac917",
+      "backend/modules/assistant/teams/contracts.py": "559bee41dfff74b0fb9845f0505fae105d590722286a8f6c9609928f5812307f",
+      "backend/modules/assistant/teams/runner.py": "5fd76d47b7f159d3b33115c13bef0ef75da4c35106a08f87fdae8fba90ffc3b2",
+      "backend/modules/assistant/tests/test_teams.py": "6b5c293913f10c7bc031c8579e2cbefe207edc19639f84e09f4eec19c7ac16d1",
+      "backend/modules/evidence/compilation/api.py": "dfda3ccd1f7becbc0fb486f1f392c600dafccf7f1c6716f4618013677d827f05",
+      "backend/modules/evidence/compilation/facade.py": "b4a2e24136a1c20ba7dfa1e0551c5f015a2a5171adfe24e5f82824495069854c",
+      "backend/modules/evidence/compilation/novel_evidence.py": "f214a5385bd3611f4af2729806bacfe381d40eee822660a437c52b9b27f5ff00",
+      "backend/modules/evidence/compilation/schemas.py": "f3bdd51a99f55e990b95157d4ecc35c7b4c96dcceb10b73068281c6fd87d6697",
+      "backend/modules/evidence/compilation/tests/test_retrieval_health.py": "001d8c3774e8e645b456617be84f526783ea1e231b84ef8154c06b4cdd1c3359",
+      "backend/modules/evidence/indexing/reranker.py": "ccc63887e91ddf405798ae8d13cd6d92899e6025db33363025f8eead6a9fe025",
+      "backend/modules/interaction/tests/test_services.py": "46bc9191eac999ef4a62eb5f2809ca2e7caff0bdd3b2e35ae91d21564f600a2c",
+      "backend/modules/interaction/tests/test_streaming.py": "83c0505ee83e341f8753f27a428b2cd6b310d6eb3d0a5d19725225e381293e0c",
+      "backend/pyproject.toml": "97841d2b5309df0cd72d05db221dbc4de8df203955ba04a2117be2b0e2ef67cb",
+      "backend/uv.lock": "b2c740779d90c76b802bd90010e8006312f2aa57b30809f371cf7c71e8bd73f8",
+      "frontend-console/e2e/interaction.spec.js": "718fc43b85b10f09950bbdbbbe6b7f314b0764083da21fb3037ccd41152895fe",
+      "frontend-console/e2e/rag.spec.js": "5c35b462c39b6c234974f4683943e860b432802166074682a6a3fd99fce0717b",
+      "frontend-console/tests/vue/rag/useEvidenceDrawer.test.js": "a84e415402ab7369b13cbf72569003be0c0fcff8aaed1e20d714390d86b329bd",
+      "frontend-console/vue/views/interaction/InteractionView.vue": "d1789148879789e6dd8c6967ff723a9fc1b5363d114f4ef276f8200148b95090",
+      "frontend-console/vue/views/rag/components/RagEvidenceDrawer.vue": "7e04691a06759a58e322b9978ccd9280d1cdb86c2f4cbf770881124900128dc5",
+      "frontend-console/vue/views/rag/useEvidenceDrawer.js": "1d8a8e40cfec039db8157105cdc2f0cf5ad6f206bd52477e1cb83af53ef8b8e4",
+      "backend/evals/datasets/baselines/technical-rag-v1.jsonl": "04b39b817b3260bd3637d2463cfed3e11da71a42c39afc1cd5f2635934af82b6",
+      "backend/evals/experiment.py": "646ff6a5f8b434a25c9886d614baed9a868e40bdf62cb8f01d04957b6486a196",
+      "backend/evals/mcp_reference_lab.py": "63005f5970a739b84ce7b7f7e5c1aa0451c9a440a191509c571781634382257b",
+      "backend/evals/retrieval_comparison.py": "8a2c7e3d58aedd0872a27e07d57594c10728f2d17aa02257b8bb1ba335745d80",
+      "backend/evals/task_capacity.py": "07b58b2f4af18d0113be9adfca4f00e763f0d85ac56a3be81dc31164902b11d4",
+      "backend/evals/tests/test_collaboration_comparison.py": "b2184e9ee2c5d81d3cab66cde6766f5775faff4a3bf879f8207bbd10b6bf243b",
+      "backend/evals/tests/test_experiment.py": "d17d6893000d4bd268a89baff2c66777c0e2cc4768aa3edd7ea27d71ce3c8a34",
+      "backend/evals/tests/test_mcp_reference_lab.py": "3c0a6ba79763d82a8c6ad582b58de1604d950eed9cf2946ce4328833612badc2",
+      "backend/evals/tests/test_retrieval_comparison.py": "a268aea1c6afa1637bb852f038b85ec32814459aa6451ba7911197b1f53b40db",
+      "backend/evals/tests/test_task_capacity.py": "dbbaf3ea0b7f915390594edf27368ed4dbcc61db6edc683c9b4141e3ab793a21",
+      "backend/evals/tests/test_tool_selection.py": "d5e05e7c3425e2d62ce72d39b67d682e0b676162e95064a2d9fe273c93cec041",
+      "backend/evals/tool_selection.py": "30fab1eb6e4417ab1757c11ce51b392b686e42b00d032682fc1ebe9aeea7574d",
+      "backend/modules/assistant/teams/review_methods.py": "4328e80e3d72fc805bee4c143c14d004dee5c2640c79b689970471e94df53d78",
+      "backend/modules/evidence/compilation/services/parent_evidence.py": "398186748df02bd954ef55bad2c6ff050ace1589f7738b8340012726a7f15846",
+      "backend/modules/evidence/compilation/tests/test_parent_evidence.py": "f38b6904493cdf98a12e8dbbfffb78739a39dd243dcebe68b60cb0dbd5470582",
+      "backend/tests/e2e/test_technical_recovery.py": "fde316f5be619b28250bd9cb393c281f806407dc2189af53a38402ad9b20e2d2",
+      "frontend-console/tests/vue/interaction/persistedStream.test.js": "f42d937c86b5e425425d259035e1c1d34ffd912c76b8f25dca0aa031a9c89926",
+      "frontend-console/vue/views/interaction/persistedStream.js": "bc6d1cce8e5c07a6670d64d420fa591f41357e74fd05b7374f473499a3eb93c4"
+    },
+    "dataset_hash": "9dc2480e71165d451e45ef3ade10ad6129bd8f1c370cd6588bc844e6212e1e3e",
+    "source_fingerprints": {
+      "synthetic-commitment": "030f6f927344502158e9154b5d2a98a9449f732b86e11da7ccbf1120b390286a"
+    },
+    "effective_profile": null,
+    "reasoning_effort": null,
+    "observation_mode": "offline",
+    "usage": {
+      "actual_requests": 0,
+      "unknown_usage_requests": 0,
+      "usage_complete": true,
+      "known_input_tokens": 0,
+      "known_output_tokens": 0,
+      "total_input_tokens": 0,
+      "total_output_tokens": 0,
+      "failed_requests": 0
+    },
+    "requests": [],
+    "quality_claim_allowed": false
+  },
+  "scope": "orchestration contracts only; domain acceptance has separate PostgreSQL tests",
+  "arms": [
+    {
+      "arm": "single_agent",
+      "scope_hash": "d756c857393db5f9ade359cdd3fa32967dca5c89e50c6a48785550cd2e016f61",
+      "tool_contract_hash": "99334726611ccf58a148b0814696bfa6fe08c1b2d027e946beccf5a74331c9aa",
+      "profile": {
+        "model": "offline-scripted-collaboration",
+        "provider": "in_process"
+      },
+      "budget_limit": {
+        "requests": 30,
+        "tools": 48,
+        "investigation": 12,
+        "final_reserve": 12
+      },
+      "scripted_requests": 1,
+      "provider_requests": 0,
+      "usage": {
+        "input_tokens": null,
+        "output_tokens": null,
+        "reason": "no_model_executed"
+      },
+      "recovery_repeated_requests": 0,
+      "domain_verification": "not_run_in_scheduler_lab",
+      "results": [
+        {
+          "summary": "离开的动机缺失，不能据此认定作者写错。",
+          "findings": [],
+          "read_evidence_ids": [],
+          "checked_dimensions": [
+            "facts",
+            "characters",
+            "narrative"
+          ],
+          "omissions": [
+            "离开的原因尚未给出；不替代领域复核。"
+          ]
+        }
+      ],
+      "statuses": [
+        "succeeded"
+      ]
+    },
+    {
+      "arm": "workflow",
+      "scope_hash": "d756c857393db5f9ade359cdd3fa32967dca5c89e50c6a48785550cd2e016f61",
+      "tool_contract_hash": "99334726611ccf58a148b0814696bfa6fe08c1b2d027e946beccf5a74331c9aa",
+      "profile": {
+        "model": "offline-scripted-collaboration",
+        "provider": "in_process"
+      },
+      "budget_limit": {
+        "requests": 30,
+        "tools": 48,
+        "investigation": 12,
+        "final_reserve": 12
+      },
+      "scripted_requests": 3,
+      "provider_requests": 0,
+      "usage": {
+        "input_tokens": null,
+        "output_tokens": null,
+        "reason": "no_model_executed"
+      },
+      "recovery_repeated_requests": 0,
+      "domain_verification": "not_run_in_scheduler_lab",
+      "results": [
+        {
+          "summary": "离开的动机缺失，不能据此认定作者写错。",
+          "findings": [],
+          "read_evidence_ids": [],
+          "checked_dimensions": [
+            "facts"
+          ],
+          "omissions": [
+            "离开的原因尚未给出；不替代领域复核。"
+          ]
+        },
+        {
+          "summary": "离开的动机缺失，不能据此认定作者写错。",
+          "findings": [],
+          "read_evidence_ids": [],
+          "checked_dimensions": [
+            "characters"
+          ],
+          "omissions": [
+            "离开的原因尚未给出；不替代领域复核。"
+          ]
+        },
+        {
+          "summary": "离开的动机缺失，不能据此认定作者写错。",
+          "findings": [],
+          "read_evidence_ids": [],
+          "checked_dimensions": [
+            "narrative"
+          ],
+          "omissions": [
+            "离开的原因尚未给出；不替代领域复核。"
+          ]
+        }
+      ],
+      "statuses": [
+        "succeeded",
+        "succeeded",
+        "succeeded"
+      ]
+    },
+    {
+      "arm": "bounded_team",
+      "scope_hash": "d756c857393db5f9ade359cdd3fa32967dca5c89e50c6a48785550cd2e016f61",
+      "tool_contract_hash": "99334726611ccf58a148b0814696bfa6fe08c1b2d027e946beccf5a74331c9aa",
+      "profile": {
+        "model": "offline-scripted-collaboration",
+        "provider": "in_process"
+      },
+      "budget_limit": {
+        "requests": 30,
+        "tools": 48,
+        "investigation": 12,
+        "final_reserve": 12
+      },
+      "scripted_requests": 3,
+      "provider_requests": 0,
+      "usage": {
+        "input_tokens": null,
+        "output_tokens": null,
+        "reason": "no_model_executed"
+      },
+      "recovery_repeated_requests": 0,
+      "domain_verification": "not_run_in_scheduler_lab",
+      "results": [
+        {
+          "summary": "离开的动机缺失，不能据此认定作者写错。",
+          "findings": [],
+          "read_evidence_ids": [],
+          "checked_dimensions": [
+            "facts"
+          ],
+          "omissions": [
+            "离开的原因尚未给出；不替代领域复核。"
+          ]
+        },
+        {
+          "summary": "离开的动机缺失，不能据此认定作者写错。",
+          "findings": [],
+          "read_evidence_ids": [],
+          "checked_dimensions": [
+            "characters"
+          ],
+          "omissions": [
+            "离开的原因尚未给出；不替代领域复核。"
+          ]
+        },
+        {
+          "summary": "离开的动机缺失，不能据此认定作者写错。",
+          "findings": [],
+          "read_evidence_ids": [],
+          "checked_dimensions": [
+            "narrative"
+          ],
+          "omissions": [
+            "离开的原因尚未给出；不替代领域复核。"
+          ]
+        }
+      ],
+      "statuses": [
+        "succeeded",
+        "succeeded",
+        "succeeded"
+      ]
+    }
+  ]
+}

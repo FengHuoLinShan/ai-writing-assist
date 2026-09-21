@@ -217,9 +217,13 @@ BLUEPRINTS = {
 }
 
 
-def blueprint_snapshot(blueprint="deep_review") -> dict:
+def blueprint_snapshot(blueprint="deep_review", *, version=2) -> dict:
     from infrastructure.llm.collaboration import content_hash
     from modules.assistant.evidence_tools import author_read_tools
+    from modules.assistant.teams.review_methods import review_methods
+
+    if version not in {1, 2}:
+        raise ValueError("unsupported collaboration blueprint version")
 
     allowed = {"inspect_current", "search_project", "read_evidence", "current_scene"}
     if blueprint == "research":
@@ -229,7 +233,7 @@ def blueprint_snapshot(blueprint="deep_review") -> dict:
     snapshot = {
         "id": blueprint,
         "label": BLUEPRINTS[blueprint]["label"],
-        "version": 1,
+        "version": version,
         "protocol": "collaboration_v1",
         "roles": BLUEPRINTS[blueprint]["roles"],
         "concurrency": 3,
@@ -242,4 +246,9 @@ def blueprint_snapshot(blueprint="deep_review") -> dict:
             if tool.name in allowed
         },
     }
+    if version == 2:
+        snapshot["methods"] = {
+            role: review_methods(blueprint, role)
+            for role in BLUEPRINTS[blueprint]["roles"]
+        }
     return {**snapshot, "hash": content_hash(snapshot)}

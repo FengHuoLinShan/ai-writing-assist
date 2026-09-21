@@ -874,6 +874,11 @@ async def read_novel_evidence(
     visibility: VisibilityContextContract,
     before: int = 3,
     after: int = 3,
+    expand_parent: bool = False,
+    source_manifest: dict[str, str] | None = None,
+    allowed_ranges: list[dict] | None = None,
+    excluded_ranges: list[dict] = (),
+    max_parent_characters: int = 12000,
 ) -> dict:
     return await _evidence_service().read(
         db,
@@ -882,6 +887,17 @@ async def read_novel_evidence(
         visibility=visibility,
         before=before,
         after=after,
+        **(
+            {
+                "expand_parent": True,
+                "source_manifest": source_manifest,
+                "allowed_ranges": allowed_ranges,
+                "excluded_ranges": excluded_ranges,
+                "max_parent_characters": max_parent_characters,
+            }
+            if expand_parent
+            else {}
+        ),
     )
 
 

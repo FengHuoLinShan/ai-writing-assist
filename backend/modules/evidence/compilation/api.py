@@ -529,6 +529,7 @@ async def read_evidence(
             visibility=_visibility(request.visibility),
             before=request.before,
             after=request.after,
+            **({"expand_parent": True} if request.expand_parent else {}),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

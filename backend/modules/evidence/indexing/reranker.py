@@ -306,6 +306,22 @@ async def rerank_results(
         llm_client=llm_client,
         model=model,
     )
+    return apply_rerank_output(
+        output, scored_chunks, top_k=top_k, retrieval_mode=retrieval_mode
+    )
+
+
+def apply_rerank_output(
+    output: RerankerOutput,
+    scored_chunks: list[tuple[Any, float]],
+    *,
+    top_k: int,
+    retrieval_mode: str,
+) -> RerankOutcome:
+    """Apply the same validated decision to live or recorded candidate pools."""
+    _validate_candidate_references(
+        output, [f"candidate-{index + 1:03d}" for index in range(len(scored_chunks))]
+    )
 
     if output.support_status == RerankerSupportStatus.uncertain:
         return RerankOutcome(

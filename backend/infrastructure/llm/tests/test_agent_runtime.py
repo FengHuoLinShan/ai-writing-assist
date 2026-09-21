@@ -160,6 +160,50 @@ def test_tool_history_rejects_unpaired_duplicate_and_unresolved_calls():
     assert message.provider_message()["reasoning_content"] == "private"
 
 
+def test_initial_and_legacy_history_preserve_tool_identity_by_call_id():
+    from pydantic_ai.messages import ModelMessagesTypeAdapter, ToolReturnPart
+
+    from infrastructure.llm.agent_runtime import _history, _restore_history
+
+    messages = [
+        LLMMessage(
+            role="assistant",
+            tool_calls=[
+                LLMToolCall(id="a", name="read_evidence", arguments="{}"),
+                LLMToolCall(id="b", name="search_project", arguments="{}"),
+            ],
+        ),
+        LLMMessage(role="tool", tool_call_id="b", content="search"),
+        LLMMessage(role="tool", tool_call_id="a", content="read"),
+    ]
+    history = _history(messages)
+    returns = [
+        part
+        for message in history
+        for part in message.parts
+        if isinstance(part, ToolReturnPart)
+    ]
+    assert [part.tool_name for part in returns] == ["search_project", "read_evidence"]
+    for part in returns:
+        part.tool_name = "result"
+    old = {
+        "version": "pydantic-ai-2.42.0",
+        "messages": ModelMessagesTypeAdapter.dump_python(history, mode="json"),
+    }
+    restored = _restore_history(old)
+    assert [
+        part.tool_name
+        for message in restored
+        for part in message.parts
+        if isinstance(part, ToolReturnPart)
+    ] == ["search_project", "read_evidence"]
+    with pytest.raises(ValueError, match="identity mismatch"):
+        _restore_history({**old, "version": "pydantic-ai-2.42.0/tool-identity-v2"})
+    old["messages"][1]["parts"][0]["tool_call_id"] = "unpaired"
+    with pytest.raises(ValueError, match="unpaired"):
+        _restore_history(old)
+
+
 def test_provider_only_serializes_typed_tools_and_rejects_extra_bypass():
     provider = OpenAIProvider.__new__(OpenAIProvider)
     request = LLMCallRequest(
@@ -701,9 +745,7 @@ async def test_agent_without_an_active_run_keeps_previous_accounting():
     class StepAwareClient(ScriptedClient):
         async def generate(self, request, *, transport_retries):
             seen.append(current_managed_step_context())
-            return await super().generate(
-                request, transport_retries=transport_retries
-            )
+            return await super().generate(request, transport_retries=transport_retries)
 
     budget = AgentRunBudget()
     checkpoints = []

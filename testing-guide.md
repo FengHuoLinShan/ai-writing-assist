@@ -4,6 +4,14 @@
 目标模块内部测试可按该文件直接检查 implementation，跨模块行为仍优先从 facade、DI port 或
 HTTP 验证。
 
+## 技术覆盖离线实验
+
+`make eval-technical-coverage` 使用 Python 3.13 与锁定的 `ci/eval/experiments` extras，
+重跑合成检索、工具调用、协作、长记忆和 stdio MCP 检查。普通 CI 未安装实验 extra 时，
+BM25/MCP 用例会 skip；完整离线验收须另外执行该目标。报告保留脚本替身与真实模型的区别，
+不自动开启协作或记忆质量开关。专用 PostgreSQL 故障和浏览器验收不包含在此目标内，
+命令、数据边界和演示见 [技术覆盖说明](docs/testing/technical-coverage.md)。
+
 ## Review Severity Levels
 
 ### P0 — Blocking (must fix before merge)
