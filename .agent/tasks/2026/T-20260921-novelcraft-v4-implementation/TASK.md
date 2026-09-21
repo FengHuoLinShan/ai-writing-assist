@@ -69,12 +69,26 @@
 - [x] 2026-09-21 会话 2：T13 第一段对齐——助手新章/改写应用保存后显式
       `request_chapter_index`（与 API/candidate 工具同一调用），
       `test_assistant_side_effects.py` 断言。协作/导入两处仍缺，留 I02。
-- [ ] E03b producer/generation 替换签名 + evolution/commit 窄提交（未开始）
-- [ ] E04 orchestrator（未开始）
+- [x] 2026-09-21 会话 2：E03b 完成——`replace_scene_events` 家族分区 +
+      稳定 `meta.event_key`：作者确认与其他 producer 家族永不参与本调用替换；
+      按键匹配的行原地更新（行 ID/槽位不变，T06 重排不重建）；未匹配行
+      Core 立即删除 + expunge 防幽灵行；服务层统一注入 event_key
+      （content_hash 语义指纹，不含输出位置）；`ingest_delta_events` 按
+      (scene, source) 分组传 family；imports 空 Delta 重跑限定
+      `producer_family="deep_import"`；facade `replace_scene_memory_events`
+      加性可选参数。测试：`test_producer_replacement.py` 4 例（重排稳定/
+      家族隔离/内容换键重建/legacy 全派生面）。
+- [ ] E03c evolution/commit 窄提交（prepare/apply 短事务重验来源与 parent
+      receipt，T10/T11 故障注入）（未开始）
+- [ ] E04 orchestrator（前序屏障、有限并行、游标与预算）（未开始）
 
 ## 验证
 
-- 2026-09-21 会话 2：`continuity` 105 passed；`evolution` 33 passed；`writing`
+- 2026-09-21 会话 2（E03b 后终态）：`continuity` 109 passed；`evolution`
+  33 passed；`imports` 717 passed（含更新后的空重跑签名断言）；`writing`
+  仅 1 例既有基线失败；lint 与 docs-check 通过（05_memory.md 已同步替换
+  接口语义）。
+- 2026-09-21 会话 2（中段记录）：`continuity` 105 passed；`evolution` 33 passed；`writing`
   仅 1 例既有基线失败；`imports` 全通过；world 35 例失败为基线既有
   （未改动基线复现归属，本地环境问题）。lint 与 docs-check（带
   no-change-reason）通过。已回退 ruff format 对范围外文件的无关重排。
@@ -87,14 +101,16 @@
   test_repositories 2 例、test_foreshadowing_reveal 2 例、writing
   test_create_many_reads_versions_once_and_flushes_once 1 例。
 
-## 恢复快照（2026-09-21 会话 2 结束）
+## 恢复快照（2026-09-21 会话 2 结束，含 E03b）
 
-分支 `codex/novelcraft-v4-g0-baseline`，累计 7 个提交：G0×2 + E01 + 任务记录 +
-E02（00d92dfb9）+ E03a（d9bacadc2）+ T13 对齐（60879dfd3）+ 本轮任务记录。
-**未推送、未合 main、未部署、未建 PR。**
-下一步：E03b——`replace_derived_scene_events` 升级为 producer/generation 签名
-（`replace_derived_scene_events(novel_id, scene_id, producer_family, generation,
-input_revision, owned_event_keys, new_operations, expected_parent_receipt)`，
-见 plans/01-EVOLUTION §2.2）+ evolution/commit 窄提交（短事务重验来源与 parent
-receipt，T10/T11 故障注入测试）；随后 E04 orchestrator（前序屏障、游标与预算）。
-协作/导入的索引缺口留 I02。G0 可并行项（R00/V00）尚未认领。
+分支 `codex/novelcraft-v4-g0-baseline`，累计 9 个提交：G0×2、E01、E02
+（00d92dfb9）、E03a（d9bacadc2）、T13 对齐（60879dfd3）、E03b（1a9bb215e）、
+两轮任务记录。**未推送、未合 main、未部署、未建 PR。**
+E03b 与计划 §2.2 的差异（有意收窄）：以 `meta.event_key` JSON 键替代新列
+（避免生产迁移，语义等价——身份=语义指纹而非输出位置）；producer_family
+暂用 source 字符串（deep_import/ai_extraction），generation/input_revision
+登记在 delta meta，完整 `replace_derived_scene_events(...)` 签名留给 E03c
+随 evolution/commit 落地。
+下一步：E03c evolution/commit 窄提交（prepare/apply、短事务重验来源与
+parent receipt、T10/T11 故障注入）；随后 E04 orchestrator。协作/导入索引
+缺口留 I02。G0 可并行项（R00 前端选区/V00 地图壳）尚未认领。
