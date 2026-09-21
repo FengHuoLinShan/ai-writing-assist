@@ -137,22 +137,30 @@ class ProjectLLMSampler:
             ),
             temperature=0.2,
         )
-        result: SceneSample = await self._client.generate_structured(request, SceneSample)
-        usage = getattr(result, "usage", None)
+        diagnostics: list[dict[str, Any]] = []
+        result: SceneSample = await self._client.generate_structured(
+            request, SceneSample, diagnostics=diagnostics
+        )
+        usage_entries = [
+            item
+            for item in diagnostics
+            if item.get("kind") == "structured_usage"
+            and item.get("status") == "succeeded"
+        ]
+        final_usage = usage_entries[-1] if usage_entries else {}
         receipt = {
             "provider": getattr(self._client, "provider_id", None) or "project_llm",
-            "model": getattr(self._client, "model_id", None)
-            or getattr(self._client, "model", None),
+            "model": getattr(self._client, "model", None)
+            or getattr(self._client, "model_id", None),
             "schema": "evolution.scene_sample.v1",
-            "usage": (
-                {
-                    "prompt_tokens": getattr(usage, "prompt_tokens", None),
-                    "completion_tokens": getattr(usage, "completion_tokens", None),
-                    "total_tokens": getattr(usage, "total_tokens", None),
-                }
-                if usage is not None
-                else None
-            ),
+            "usage": {
+                "prompt_tokens": final_usage.get("prompt_tokens"),
+                "completion_tokens": final_usage.get("completion_tokens"),
+                "total_tokens": final_usage.get("total_tokens"),
+                "attempts": len(usage_entries),
+            }
+            if final_usage
+            else None,
         }
         self.last_call_receipt = receipt
         payload: dict[str, Any] = result.model_dump(mode="json")

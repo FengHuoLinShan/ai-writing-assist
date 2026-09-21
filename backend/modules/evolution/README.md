@@ -75,3 +75,7 @@ V4 长期计划（`docs/plans/novelcraft-v4/plans/01-EVOLUTION.md`）的演化�
 `tests/`：契约语义、稳定观察身份、身份解析、窄提交协议、编排与预算、
 失效传播、迁移切换、G2 夹具切片与评审返修行为；真实 PG 并发在
 `tests/e2e/`（`RUN_E2E_TESTS=1` + 专用库）。
+
+E09 长书规模验证（真实叙事语料 × 真实 handler × shadow 链 × 退出标准
+断言）用 `tools/evolution_scale_harness.py`（专用库；`--sampler real`
+经账户连接真实模型，另行授权）。

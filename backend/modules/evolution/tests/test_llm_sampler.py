@@ -60,14 +60,31 @@ FROZEN_FABRICATED_FIELD = {
 
 
 class _FrozenClient:
-    """冻结 fixture 客户端：记录请求，返回逐字节固定响应。"""
+    """冻结 fixture 客户端：记录请求，返回逐字节固定响应与用量诊断。"""
 
     def __init__(self, payload: Any) -> None:
         self.payload = payload
         self.requests: list[LLMCallRequest] = []
 
-    async def generate_structured(self, request: LLMCallRequest, schema: type):
+    async def generate_structured(
+        self,
+        request: LLMCallRequest,
+        schema: type,
+        *,
+        diagnostics: list[dict[str, Any]] | None = None,
+    ):
         self.requests.append(request)
+        if diagnostics is not None:
+            diagnostics.append(
+                {
+                    "kind": "structured_usage",
+                    "status": "succeeded",
+                    "attempt": 1,
+                    "finish_reason": "stop",
+                    "completion_tokens": 137,
+                    "max_tokens": 4096,
+                }
+            )
         return schema.model_validate(self.payload)
 
 
@@ -113,6 +130,9 @@ async def test_frozen_fixture_sampling_records_paid_call() -> None:
     assert parsed.observations[0].modality == "event_observed"
     assert parsed.observations[0].mentions[0].surface == "青竹"
     assert payload["paid_call_receipt"]["schema"] == "evolution.scene_sample.v1"
+    # 计量来自结构化调用诊断通道（completion_tokens 真实进入回执）。
+    assert payload["paid_call_receipt"]["usage"]["completion_tokens"] == 137
+    assert payload["paid_call_receipt"]["usage"]["attempts"] == 1
     # Prompt 实际携带前序回执身份（采样器没有丢掉注入面）。
     rendered = "\n".join(message.content for message in client.requests[0].messages)
     assert "abc123" in rendered
