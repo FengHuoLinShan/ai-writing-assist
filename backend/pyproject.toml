@@ -60,7 +60,7 @@ dependencies = [
     "joserfc>=1.7.4,<2.0",
     "pypinyin>=0.50",
     "pyyaml>=6.0.3,<7.0",
-    "pydantic-ai-slim==2.42.0",
+    "pydantic-ai-slim==2.45.0",
 ]
 
 [project.optional-dependencies]
@@ -90,7 +90,7 @@ dev = [
 eval = [
     "ragas==0.4.3",
     # Ragas 0.4.3 imports a module removed by langchain-community 0.4.2.
-    "langchain-community==0.4.1",
+    "langchain-community==0.4.2",
 ]
 experiments = [
     "mcp>=2,<3",
