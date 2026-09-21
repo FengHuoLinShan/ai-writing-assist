@@ -70,9 +70,7 @@ class MemoryService:
         self._event_repo = event_repo or EventRepository()
         self._snapshot_repo = snapshot_repo or SnapshotRepository()
         self._delta_log_repo = delta_log_repo or DeltaLogRepository()
-        self._scene_checkpoint_repo = (
-            scene_checkpoint_repo or SceneCheckpointRepository()
-        )
+        self._scene_checkpoint_repo = scene_checkpoint_repo or SceneCheckpointRepository()
         self._scene_snapshot_repo = scene_snapshot_repo or SceneSnapshotRepository()
 
     # ============================================================
@@ -418,8 +416,7 @@ class MemoryService:
             scene_groups.setdefault(key, []).append(
                 {
                     "event_type": "manual_correction",
-                    "dimension": event.dimension
-                    or self._delta_dimension(event.category),
+                    "dimension": event.dimension or self._delta_dimension(event.category),
                     "entity_id": (event.meta or {}).get("entity_id"),
                     "snapshot_after": {
                         "category": event.category,
@@ -783,6 +780,7 @@ class MemoryService:
             "relations": [],
             "character_locations": {},
             "character_knowledge": [],
+            "changes": [],
         }
 
     async def _apply_events_in_range(
@@ -842,6 +840,9 @@ class MemoryService:
             "relations": deepcopy(state.get("relations", [])),
             "character_locations": deepcopy(state.get("character_locations", {})),
             "character_knowledge": deepcopy(state.get("character_knowledge", [])),
+            # 观察层：统一内核把未获准入的负载（manual_correction、未知实体的
+            # entity_updated）保存在这里，跨快照续算时不丢失。
+            "changes": deepcopy(state.get("changes", [])),
         }
 
     def _apply_event_to_replay_state(
@@ -849,26 +850,9 @@ class MemoryService:
         state: dict[str, Any],
         event: Any,
     ) -> None:
-        etype = event.event_type
-        after = deepcopy(event.snapshot_after or {})
-        eid = str(event.entity_id) if event.entity_id else None
+        from modules.story.continuity.reducer import StoryStateReducer
 
-        if etype == EventType.entity_created and eid:
-            state["entities"][eid] = after
-        elif etype == EventType.entity_updated and eid:
-            if eid in state["entities"]:
-                state["entities"][eid].update(after)
-        elif etype == EventType.entity_removed and eid:
-            state["entities"].pop(eid, None)
-        elif etype == EventType.entity_moved and eid:
-            state["character_locations"][eid] = after
-        elif etype == EventType.relation_established:
-            state["relations"].append(after)
-        elif etype == EventType.relation_ended:
-            rel_id = after.get("relation_id") or after.get("id")
-            state["relations"] = [r for r in state["relations"] if r.get("id") != rel_id]
-        elif etype == EventType.knowledge_changed:
-            state["character_knowledge"].append(after)
+        StoryStateReducer.apply_chapter_event(state, event)
 
     @staticmethod
     def _finalize_replay_state(state: dict[str, Any]) -> dict[str, Any]:

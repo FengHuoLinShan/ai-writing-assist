@@ -267,6 +267,17 @@ async def test_scene_and_chapter_replay_agree_on_core_state(
                     "knowledge": "青竹保管铜钥匙",
                 },
             },
+            {
+                "dimension": "knowledge",
+                "event_type": "knowledge_changed",
+                "entity_id": ENTITY_ID,
+                "entity_type": "character",
+                "snapshot_after": {
+                    "id": "know-1",
+                    "character_id": ENTITY_ID,
+                    "knowledge": "青竹保管铜钥匙（作者核对后修订）",
+                },
+            },
         ],
     )
 
@@ -286,9 +297,13 @@ async def test_scene_and_chapter_replay_agree_on_core_state(
 
     assert dimension_states["relations"]["relations"] == chapter_state["relations"]
 
+    # 同 id 知识后写覆盖：两视图一致且重放幂等。
     scene_knowledge = dimension_states["knowledge"]["character_knowledge"]
     assert scene_knowledge == chapter_state["character_knowledge"]
-    assert scene_knowledge[0]["knowledge"] == "青竹保管铜钥匙"
+    assert len(scene_knowledge) == 1
+    assert scene_knowledge[0]["knowledge"] == "青竹保管铜钥匙（作者核对后修订）"
+
+    assert dimension_states["entities"]["changes"] == chapter_state["changes"]
 
 
 @pytest.mark.asyncio
@@ -296,12 +311,11 @@ async def test_manual_correction_delta_kept_as_observation_not_state_operation(
     db_session: AsyncSession,
     test_project_id: str,
 ) -> None:
-    """缺口钉住（E03 统一前不得静默改变）：
+    """统一语义（E03a 已消化 G0 缺口）：
 
-    manual_correction（Delta 观察）在两套归约里都不改变核心状态——章节
-    重放忽略该类型，Scene 投影归入 changes 列表。这正是 V4 计划
-    01-EVOLUTION §2.1「观察/解释/状态操作分离」要修的断层；在此钉住
-    现状，防止 E03 之前的改动无意间让某一套视图单边开始解释观察。
+    manual_correction（Delta 观察）在两套归约里都不改变核心状态、一律进入
+    changes 观察层。让观察影响状态属于 evolution 类型化操作路径，归约器
+    不 reinterpret；两视图对同一事件流的解释必须一致。
     """
     scene = await _scene(db_session, test_project_id, 0, 1)
     memory = MemoryService()
@@ -332,29 +346,29 @@ async def test_manual_correction_delta_kept_as_observation_not_state_operation(
     projection = await SceneMemoryProjectionService().ensure_scene(
         db_session, test_project_id, str(scene.id)
     )
-    entities_state = {
-        item.dimension: item.state_json for item in projection.items
-    }["entities"]
-    assert entities_state["entities"] == {}
-    assert entities_state["changes"] == [
-        {
-            "category": "profile",
-            "field_path": "林舟.status",
-            "new_value": "持有铜钥匙",
-        }
+    entities_state = {item.dimension: item.state_json for item in projection.items}[
+        "entities"
     ]
+    assert entities_state["entities"] == {}
+    expected_change = {
+        "category": "profile",
+        "field_path": "林舟.status",
+        "new_value": "持有铜钥匙",
+    }
+    assert entities_state["changes"] == [expected_change]
+    assert chapter_state["changes"] == [expected_change]
 
 
 @pytest.mark.asyncio
-async def test_entity_update_on_unknown_entity_diverges_between_views(
+async def test_entity_update_on_unknown_entity_kept_as_pending_change(
     db_session: AsyncSession,
     test_project_id: str,
 ) -> None:
-    """缺口钉住（E03 统一前不得静默改变）：
+    """统一语义（E03a 已消化 G0 缺口）：
 
-    对未见实体的 entity_updated，章节重放丢弃（信息丢失），Scene 投影
-    凭更新负载创建实体（幻影准入）。两套语义分叉是已知缺口，统一归约
-    内核归 E03；E07.b 影子运行会以此对照新旧结果。
+    对未见实体的 entity_updated，两视图一致：不凭更新负载创建幻影实体
+    （不冒充准入），也不丢弃信息（不跳过观察）——负载进入 changes 待
+    身份/创建证据补齐；E02 身份解析负责裁决提及归属。
     """
     scene = await _scene(db_session, test_project_id, 0, 1)
     memory = MemoryService()
@@ -377,11 +391,13 @@ async def test_entity_update_on_unknown_entity_diverges_between_views(
 
     chapter_state = await memory.replay_state(db_session, test_project_id, 1)
     assert chapter_state["entities"] == []
+    assert chapter_state["changes"][0]["name"] == "林舟"
 
     projection = await SceneMemoryProjectionService().ensure_scene(
         db_session, test_project_id, str(scene.id)
     )
-    entities_state = {
-        item.dimension: item.state_json for item in projection.items
-    }["entities"]
-    assert entities_state["entities"][ENTITY_ID]["name"] == "林舟"
+    entities_state = {item.dimension: item.state_json for item in projection.items}[
+        "entities"
+    ]
+    assert entities_state["entities"] == {}
+    assert entities_state["changes"] == chapter_state["changes"]

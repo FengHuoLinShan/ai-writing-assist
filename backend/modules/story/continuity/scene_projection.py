@@ -508,45 +508,9 @@ class SceneMemoryProjectionService:
 
     @staticmethod
     def _apply_event(state: dict[str, Any], dimension: str, event: Any) -> None:
-        after = deepcopy(event.snapshot_after or {})
-        entity_id = str(event.entity_id) if event.entity_id else None
-        event_type = str(event.event_type)
-        if dimension == "entities":
-            entities = state.setdefault("entities", {})
-            if event_type == "entity_removed" and entity_id:
-                entities.pop(entity_id, None)
-            elif event_type in {"entity_created", "entity_updated"} and entity_id:
-                entities.setdefault(entity_id, {}).update(after)
-            else:
-                state.setdefault("changes", []).append(after)
-        elif dimension == "relations":
-            relations = state.setdefault("relations", [])
-            if event_type == "relation_ended":
-                relation_id = after.get("relation_id") or after.get("id")
-                state["relations"] = [
-                    item for item in relations if item.get("id") != relation_id
-                ]
-            elif event_type == "relation_established":
-                relations.append(after)
-            else:
-                state.setdefault("changes", []).append(after)
-        elif dimension == "locations":
-            if event_type == "entity_moved" and entity_id:
-                state.setdefault("character_locations", {})[entity_id] = after
-            else:
-                state.setdefault("changes", []).append(after)
-        elif dimension == "knowledge":
-            knowledge = state.setdefault("character_knowledge", [])
-            knowledge_id = after.get("id")
-            if knowledge_id:
-                knowledge[:] = [
-                    item for item in knowledge if item.get("id") != knowledge_id
-                ]
-            knowledge.append(after)
-        elif dimension == "timeline":
-            state.setdefault("facts", []).append(after)
-        elif dimension == "causality":
-            state.setdefault("claims", []).append(after)
+        from modules.story.continuity.reducer import StoryStateReducer
+
+        StoryStateReducer.apply_scene_dimension_event(state, dimension, event)
 
     @staticmethod
     def _manual_state(
