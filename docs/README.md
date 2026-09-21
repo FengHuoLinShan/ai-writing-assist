@@ -88,6 +88,13 @@
 - [`adr/README.md`](adr/README.md) — 全部编号 ADR、主题 ADR、细化索引、当前状态及取代关系；
   新增或调整 ADR 状态只维护这一份完整索引，不再在此复制容易漏项的子集
 
+## 长程计划
+
+- [`plans/novelcraft-v4/`](plans/novelcraft-v4/) — NovelCraft V4 演化式小说整体引擎长期计划
+  （G0–G8 里程碑、T01–T36 验收矩阵、48 画面 HiFi 与设计资产）。计划包为权威输入，
+  实施进展与基线证据见 [`plans/novelcraft-v4/g0/G0-基线与保护.md`](plans/novelcraft-v4/g0/G0-基线与保护.md)；
+  计划文档本身按交付原样保存，实施状态不回写计划正文。
+
 ## 参考与历史资料
 
 - `references/` — 当前实现可查阅但不构成契约的分析和历史设计依据；包括

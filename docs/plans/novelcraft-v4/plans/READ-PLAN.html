@@ -1,0 +1,1970 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NovelCraft V4 · 长期总计划</title><style>*{box-sizing:border-box}body{margin:0;color:#1e2a3b;background:#f6f4f0;font:16px/1.85 "Noto Sans SC","Microsoft YaHei",system-ui,sans-serif}a{overflow-wrap:anywhere;color:#284c56;text-decoration-thickness:1px;text-underline-offset:3px}header{padding:38px max(28px,calc((100vw - 1120px)/2));background:#1e2a3b;color:#fffdf9}header a{color:#d6e5de}h1{font-size:34px;line-height:1.4}h2{font-size:26px;margin-top:52px;line-height:1.5}h3{font-size:20px;margin-top:32px}main{max-width:1180px;margin:0 auto;padding:28px}article{padding:38px 42px;background:#fffdf9;margin:30px 0;border:1px solid #dedcd5;border-radius:18px;scroll-margin-top:20px}pre{white-space:pre-wrap;word-break:break-word;background:#eeebe5;padding:22px;border-radius:12px;font-size:13px;line-height:1.75}code{font-size:.86em;background:#eeebe5;border-radius:4px;padding:2px 4px}pre code{padding:0}table{display:block;overflow:auto;border-collapse:collapse;font-size:14px;line-height:1.75;width:100%;margin:24px 0}th,td{padding:13px 15px;border:1px solid #dedcd5;text-align:left;vertical-align:top}th{background:#e5eeeb;color:#284c56}p{margin:16px 0}li{margin:9px 0}.toc{display:grid;grid-template-columns:1fr 1fr;gap:10px}.toc a{display:block;border:1px solid #dedcd5;background:#fffdf9;border-radius:10px;padding:14px 20px;text-decoration:none}.notice{border-left:4px solid #91601d;padding:13px 20px;background:#f7eedb;font-size:14px}.cards{display:grid;grid-template-columns:1fr 1fr;gap:20px}.card{padding:28px;background:#fffdf9;border:1px solid #dedcd5;border-radius:16px;text-decoration:none}.card strong{display:block;font-size:22px}.card span{display:block;color:#667281;font-size:14px;margin-top:10px}.screens{display:grid;grid-template-columns:1fr 1fr;gap:20px}.screens img{width:100%;border-radius:12px;border:1px solid #dedcd5}.tag{font-size:12px;color:#c5dacc;letter-spacing:1px}@media(max-width:760px){.toc,.cards,.screens{grid-template-columns:1fr}article{padding:22px 19px}main{padding:15px}h1{font-size:28px}table{font-size:13px}}@media print{header{background:white;color:black}.toc{display:block}article{border:0;padding:0;break-before:page}main{padding:0}a{color:inherit}}</style></head><body><header><div class="tag">NOVELCRAFT / LONG-RANGE PROGRAM 04</div><h1>演化式小说整体引擎<br>长期计划与实施契约</h1><p>2026-09-21 · 演化替代深度导入 · 持久认知 · 两轨多 Agent · 推荐 · 地图 · 全前端</p><a href="../design/prototype.html">打开高保真交互原型</a>　 <a href="../START-HERE.html">返回交付首页</a></header><main><p class="notice">本文为设计与实施计划。未改动业务仓库或生产系统；Figma 原生写入受额度阻断，离线设计与重建代码已交付。</p><div class="toc"><a href="#d0">NovelCraft V4：演化式小说整体引擎长期总计划</a><a href="#d1">E：演化系统详细计划——替代深度导入</a><a href="#d2">V + MI：地图、场景舞台与空间智能详细计划</a><a href="#d3">C + A + R：持久认知、多 Agent 与主动建议</a><a href="#d4">U：全前端任务工作台与 HiFi 交付规范</a><a href="#d5">追踪矩阵、实施工作包与整体验收</a><a href="#d6">来源、第二轮分析与交付边界</a></div><article id="d0"><h1>NovelCraft V4：演化式小说整体引擎长期总计划</h1>
+<p>版本：4.0｜2026-09-21｜状态：设计与实施计划，不是已完成的业务改造。</p>
+<p>代码基线：<code>FengHuoLinShan/ai-writing-assist@b5a3ef2e660ddaa65b9bf0ac1ada48f795c53201</code>。本次是静态、定向跨模块审查和设计原型检查；没有运行完整 PostgreSQL、真实模型或生产应用端到端验收。依据、原计划及证据等级见 <code>06-SOURCES-AND-AUDIT.md</code>。界面中的小说、人物、文字与数字全部为虚构设计样例。</p>
+<h2>1. 本轮真正改变的方向</h2>
+<p>项目的目标不再是继续增加相互调用的小说工具，而是形成一个闭环：作者写作或导入正文，系统逐步建立对这本书的可验证理解；理解进入后续写作、检查、建议与地图；作者修订之后，相关理解被精确修正，而不是让作者重新管理一串抽取任务。</p>
+<p>V4 对两份输入计划作出以下实质性整合，不是把章节拼接到一起。</p>
+<table>
+<thead>
+<tr>
+  <th>决策</th>
+  <th>最终边界</th>
+  <th>对原计划的影响</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>演化系统替代深度导入</td>
+  <td>一个项目只有一个有效的演化写入世代；旧深度导入不再是独立编排器</td>
+  <td>原 W 计划扩展为 E 计划；Imports 最终只保留文件解析、来源差异与正文写入适配</td>
+</tr>
+<tr>
+  <td>事实重建与认知成长分开</td>
+  <td>World/Story 管事实身份和状态；Collaboration 的认知子域管可修订解释与方法</td>
+  <td>不把“系统越来越会理解”实现为第二套正史表</td>
+</tr>
+<tr>
+  <td>推荐不是又一个认知引擎</td>
+  <td>Assistant 消费有作用域的事实、理解与用户当前任务，生成解释性建议</td>
+  <td>原助手审计中的选区、作用域、轮询、引用问题进入前置工作包</td>
+</tr>
+<tr>
+  <td>地图不是独立世界</td>
+  <td>Map 在 World 内负责空间表现与约束，人物在场和历史来自 Story，来源来自 Evidence</td>
+  <td>地图基础体验可以独立交付；高级智能再依赖演化及认知</td>
+</tr>
+<tr>
+  <td>多 Agent 分为可靠性与创意两条轨道</td>
+  <td>事实不靠投票；创意不强迫共识；共同复用现有运行预算与领域操作</td>
+  <td>从“默认不用多 Agent”变为“按任务证明价值后启用注册配方”</td>
+</tr>
+<tr>
+  <td>全前端按任务组织</td>
+  <td>一个主任务、一个右侧宿主、一个浮层根；不同领域共享来源与结果状态</td>
+  <td>不再让提醒、预测、共创、Agent 面板各自抢占界面</td>
+</tr>
+<tr>
+  <td>演化不等于自动采用</td>
+  <td>派生理解可以在持续授权范围内维护；正式设定和正文修改仍走领域采用</td>
+  <td>保留一次授权、精确采用、历史与可撤回边界</td>
+</tr>
+</tbody>
+</table>
+<p>“不再保留旧深度导入”指替代其产品入口、运行所有权、重试恢复和阶段调度；不是抛弃已验证的解析器、逐字证据校验、身份解析、结构抽取和模型调用适配器。替代以退役清单验收，而不是靠改名宣告完成。</p>
+<h2>2. 一个整体，六种职责</h2>
+<pre><code class="language-text">作者动作 / 正文来源变化
+        │
+        ▼
+Writing：版本化正文与编辑命令
+        │ source revision + transactional change receipt
+        ▼
+Evolution：读取 → 观察 → 身份解析 → 状态解释 → 校验 → 窄批次提交
+        ├── World：对象身份、关系、正式设定、地图约束
+        ├── Story：场景、叙事顺序、类型化事件、历史状态
+        └── Evidence：原文范围、可见性、依赖与重验
+                     │
+                     ▼
+Collaboration/Cognition：持久理解、竞争解释、开放问题、方法试验
+        │                    │                    │
+        ▼                    ▼                    ▼
+Writing/Review          Assistant 推荐       Map/Scene 舞台
+        │                    │                    │
+        └────── 用户决定 → 领域命令 → 新版本/变更回执 ──┘
+</code></pre>
+<p>上图是职责与数据流，不表示新增六个服务、六个数据库或全局分布式事务。继续使用现有应用、PostgreSQL、异步 worker、项目 LLM 入口、运行信封、Vue 3 与 bridge。</p>
+<h3>2.1 每类信息只有一个权威所有者</h3>
+<table>
+<thead>
+<tr>
+  <th>信息</th>
+  <th>权威所有者</th>
+  <th>其他模块允许做什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>正文与版本</td>
+  <td>Writing</td>
+  <td>按指定版本、字符范围读取；提交明确修改命令</td>
+</tr>
+<tr>
+  <td>实体身份与已采用事实</td>
+  <td>World</td>
+  <td>引用、提出更新候选，不各建一份人物主表</td>
+</tr>
+<tr>
+  <td>场景顺序与状态事件</td>
+  <td>Story</td>
+  <td>读取带截止点的状态，不从当前 World 倒填过去</td>
+</tr>
+<tr>
+  <td>来源与权限证明</td>
+  <td>Evidence</td>
+  <td>统一检索、编译、确认、物化与验证</td>
+</tr>
+<tr>
+  <td>演化运行和推进游标</td>
+  <td>Evolution</td>
+  <td>展示其状态，不另起“导入推进”主游标</td>
+</tr>
+<tr>
+  <td>本书的派生理解与方法</td>
+  <td>Collaboration/Cognition</td>
+  <td>在合法快照下消费、提出更新，不据此自动准入正史</td>
+</tr>
+<tr>
+  <td>推荐呈现与处置</td>
+  <td>Assistant</td>
+  <td>排序、暂缓、展开、调用领域提案入口；不持有独立事实</td>
+</tr>
+<tr>
+  <td>地图几何、视觉与媒体选择</td>
+  <td>World/Map</td>
+  <td>作为有版本的表现资产；不证明人物知识或实际旅程</td>
+</tr>
+<tr>
+  <td>当前操作焦点</td>
+  <td>前端任务上下文</td>
+  <td>选择展示与请求范围；不能成为授权或事实</td>
+</tr>
+</tbody>
+</table>
+<p>跨模块 facade 继续保持稳定。不要把大量业务判断搬进组合根；不要为了遵守形式再增加一层只转发参数的“总控服务”。</p>
+<h2>3. 本次再分析后的主要问题与整改顺序</h2>
+<h3>3.1 不是所有“连接”都带来语义闭环</h3>
+<p>原审查及输入计划指出：实体和 Delta 已记录，不等于可查询历史状态发生了对应变化；同一人物的重复身份观察可能因去重而提前跳过；所有 Scene 输入预先冻结后再顺序落库，不等于后一 Scene 继承本轮前一 Scene 的解释。本计划把这些作为发布前必须验证的语义契约，而不是只检查模块接口能够互调。</p>
+<p>本轮新增的定向核对还发现：<code>EventRepository.replace_scene_events()</code> 按 Scene 读取全部旧事件，再按 <code>scene_sequence</code> 覆盖、删除剩余行；该函数没有按来源保护作者确认事件。结合现有人工事件追加到同一 Scene 流的机制，重跑必须先解决“机器替换范围与人工确认共存”的问题。这里是静态实现风险，不是已观察到的生产数据丢失。</p>
+<h3>3.2 前端焦点、授权和结果身份不应共用一个模糊 hash</h3>
+<p>助手审计中的关键问题包括：选区未完整传递、后台与前台 Scene 焦点不一致、各组件各自轮询、任务意图未进入后端、整轮证据被误当成每条结论的支持。V4 不通过放宽来源校验解决“看不见建议”，而是分开授权作用域、证据快照、任务意图和界面焦点，再检查结果能否适用于此刻。</p>
+<h3>3.3 全部入口必须具有同一组领域副作用</h3>
+<p>API、助手、协作试改均能写入工作稿；来源失效、索引请求、演化排程不应依靠每个调用者记住补做一遍。V4 引入“领域命令 + 变更回执 + 确定性副作用投递”契约，并核对所有入口。批量纯持久化 helper 可以保留，但调用方必须显式取得并消费待交付副作用，不得返回普通成功后遗漏。</p>
+<h3>3.4 完成、可靠和采用是不同状态</h3>
+<p>统一结果外壳至少区分：执行状态、实际覆盖、来源新鲜度、当前任务适用性、审查状态、采用状态。局部完成不能在助手投影中折叠成全量完成；一份旧检查仍可作为历史查看，但不能计为当前有效严重问题。</p>
+<h2>4. 长程能力蓝图</h2>
+<h3>4.1 第一层：可靠地理解刚刚写下的内容</h3>
+<p>从少量正文开始，不要求先建立完备设定。逐字观察、来源范围、身份解析和状态变化组成最小链。对未知、角色说法、传闻、假设、作者规划分别记录。一次授权可以推进多个 Scene，但每个状态提交都可追踪、可重验、可恢复。</p>
+<h3>4.2 第二层：理解不断反哺下一项真实任务</h3>
+<p>持久认知不是额外生成一份长摘要。新建的写作或调查 case 必须实际读取相关认知版本，明确列出哪些解释被使用、哪些因时态或来源变化不能用。变化触发局部重查；无变化允许 <code>no_change</code>。真实消费链未建立前，不宣称完成“认知成长”。</p>
+<h3>4.3 第三层：扩大认知，但不扩大未经授权的真相</h3>
+<p>逐步加入竞争动机解释、因果条件、承诺与代价、开放问题、制度规则、角色信念、读者信息分布、反事实与局部写作经验。外壳的来源、范围、方法与权限固定，内部表达可随本书形成；不预设无穷 taxonomy，也不允许模型自行迁移数据库、注册任意工具或改写安全策略。</p>
+<h3>4.4 第四层：推荐、创意与空间推演</h3>
+<p>推荐从“当前页面有什么未处理项”扩大为“作者正在做什么，这一步最值得注意什么”。保留一个主建议和少量可选方向；每项有依据、为什么现在、适用条件、新增叙事负担与局部行动。</p>
+<p>地图智能从位置展示扩大为条件路线、通行约束、地理矛盾、行程准备和空间创意。明确区分已知事实、示意布局和假设方案；没有距离与路径证据就不承诺到达时间。高级角色视角与读者地图在独立安全门禁后开放。</p>
+<h2>5. 多 Agent 的整体定位</h2>
+<p>可靠性轨道和创意轨道共享执行底座，不共享裁判逻辑。</p>
+<p>可靠性轨道：窄任务抽取者 → 代码检查 → 独立证据复核者 → 有限争议裁定 → 类型化候选。评审者不能只看生成者的解释；事实不能由多数同意决定。无法证明时进入待决定或未知。</p>
+<p>创意轨道：先独立产生人物、悬念、情绪等不同方向，再对作者展示对比，不立即融合。作者选定方向或片段之后，才生成具体可预览修改。审美差异不能被可靠性裁判误判为错误。</p>
+<p>初始上限沿用现有有限协作边界：单宿主、最多三名并发成员、一个根预算、共享租约及取消。更多角色通过分阶段复用，不以增加并发数量为目标。没有第二个真实模型连接时明确称为角色分工，不称为异构模型。</p>
+<p>研究只能支持设计假设，不能替项目证明质量收益。受控架构研究表明多 Agent 收益依赖任务结构；无外部反馈的自我修正研究显示在其测试推理任务中可能退化；短篇创意实验同时提示个体收益与群体同质化风险。[R1–R4，详见 06]</p>
+<h2>6. 前端产品方向</h2>
+<p>默认导航保留“概览、写作、故事结构、世界资料、故事地图、待我决定”。运行、恢复、模型授权进入次级位置。作者不应看到 Phase2b、raw ID、JSON 或内部 token 枚举。</p>
+<p>写作区以正文为主，伙伴区在“当前、讨论、历史”之间切换；不是三个悬浮窗。详情按三层展开：卡片要点 → 同宿主证据/备选 → 独立大任务工作区。全屏地图、全屏写作和大规模差异比较都是任务态，不覆盖底层未保存输入。</p>
+<p>“智能排布”由可测试的界面策略决定：任务意图、内容宽度、当前焦点、输入法状态、是否阅读中、是否有未保存内容、是否已锁定选择。模型只提供结构化建议内容，不直接输出任意布局指令。</p>
+<p>本轮设计包含 48 个工作流/状态画面及 1 个设计规范画板。它覆盖主要工作流族，不等于穷举所有字段、API 或所有输入组合。功能迁移仍须按 <code>04</code> 的等价矩阵验收。</p>
+<h2>7. 可并行交付的长期路线</h2>
+<table>
+<thead>
+<tr>
+  <th>里程碑</th>
+  <th>核心交付</th>
+  <th>进入下一阶段的证据</th>
+  <th>可并行工作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>G0 基线与保护</td>
+  <td>作者事件保护、状态契约、重复实现清单、入口副作用矩阵</td>
+  <td>不再误删人工确认；关键语义用例可复现；缺口明确</td>
+  <td>前端选区传递、地图壳、样例库</td>
+</tr>
+<tr>
+  <td>G1 最小基础</td>
+  <td>演化运行/观察/类型化提交；持久认知最小读写；统一前端宿主</td>
+  <td>一条 Scene 提交有完整回执；一项新 case 真正消费认知</td>
+  <td>地图 M1：全屏、相机、媒体与对象浏览独立交付</td>
+</tr>
+<tr>
+  <td>G2 整体纵切</td>
+  <td>原文→前序状态→后序理解→新 case→地图→修订失效</td>
+  <td>同一事实在各视图一致；无未来泄漏；重跑可恢复</td>
+  <td>小模型可靠性配方开始等预算对照</td>
+</tr>
+<tr>
+  <td>G3 主链替代</td>
+  <td>项目级切换、旧 owner 排空、旧入口适配、旧编排退役</td>
+  <td>同项目只一个写入世代；历史读取与回滚路径可用</td>
+  <td>新统一写作/审阅前端逐页替换</td>
+</tr>
+<tr>
+  <td>G4 可靠性产品化</td>
+  <td>注册多 Agent 配方、有限升级、部分结果与证据裁定</td>
+  <td>相同预算下对既定任务有实际收益；不合格任务仍用单 Agent</td>
+  <td>创意方向独立实验</td>
+</tr>
+<tr>
+  <td>G5 创意与推荐</td>
+  <td>独立发散、当前意图、机会建议、稳定去重与处置</td>
+  <td>人工任务测试：建议有用且不夺权，不重复制造问题</td>
+  <td>地图条件排演、制度压力测试</td>
+</tr>
+<tr>
+  <td>G6 地图智能</td>
+  <td>真实位置/最后出现/未知、条件路线、约束解释、视觉状态</td>
+  <td>不伪造轨迹，不把图像当事实；抽屉避让与移动端可用</td>
+  <td>高级历史和受限视角安全测试</td>
+</tr>
+<tr>
+  <td>G7 扩大认知</td>
+  <td>竞争解释、开放结构、方法试验、长书局部重算</td>
+  <td>A–E 等预算对照；实际任务消费、纠错与遗忘均可证</td>
+  <td>长期作者试用，不以点击替代有效性</td>
+</tr>
+<tr>
+  <td>G8 长期维护</td>
+  <td>大规模性能、删除清理、迁移回退、持续回归与灰度</td>
+  <td>工程、模型质量、用户效果三类门禁分别通过</td>
+  <td>按证据引入新的受限能力</td>
+</tr>
+</tbody>
+</table>
+<p>这里的 G 不是固定周数估算。各包先得到代码与测量基线，再做容量排期；不以“AI 开发很快”省略迁移与真实验证。</p>
+<p>关键依赖：<code>G0 → E01/E02/E03 → E04 → G2 → E07/E08 → G3</code>。地图壳、媒体管线与前端统一宿主不必等待完整认知；高级历史地图必须等待可靠状态与可见性契约。C 的首次消费也不必等待所有方法演化。</p>
+<h2>8. 不做什么</h2>
+<p>不新增通用自治 Agent 平台，不默认迁移 LangGraph，不建立第二个任务队列，不用新世界数据库替换现有领域；不把当前 World 注入过去；不把作者点击、模型一致或图像像素当事实；不把不支持的读者视角回退成作者全量；不将所有派生更新塞进一个跨全书大事务。</p>
+<p>也不以“傻瓜式操作”为由隐藏费用、授权、删除范围和冲突。简单应当来自合理默认、自动维护和渐进展开，而不是省略真实状态。</p>
+<h2>9. 文档入口与验收口径</h2>
+<p><code>01-EVOLUTION.md</code>：替代深度导入的运行、契约、迁移与失败恢复。</p>
+<p><code>02-MAP.md</code>：地图基础、场景舞台、媒体、空间智能与视角。</p>
+<p><code>03-AGENTS-COGNITION-RECOMMENDATION.md</code>：持久认知、多 Agent 两轨及推荐。</p>
+<p><code>04-FRONTEND-HIFI.md</code>：页面、数据、操作面板、浮层、响应式与 Figma 交付。</p>
+<p><code>05-TRACEABILITY-ACCEPTANCE.md</code>：两份原计划逐包继承、新增包、验收矩阵。</p>
+<p><code>06-SOURCES-AND-AUDIT.md</code>：证据、第二轮新增分析、研究与边界。</p>
+<p>最终“完成”不是各模块按钮都能点，而是作者改动一处剧情后，系统能说明哪些理解失效、哪些正在维护、哪些需要作者决定，并让下一次写作、推荐和地图实际使用同一个合法状态。</p>
+</article><article id="d1"><h1>E：演化系统详细计划——替代深度导入</h1>
+<p>V4.0｜设计提案｜代码基线与证据等级同总计划。本文中的类型和新模块为拟议接口，除特别说明外不是已存在实现。</p>
+<h2>1. 替代范围与最终所有权</h2>
+<p>最终只有 Evolution 负责“理解推进”的运行所有权、批次、重试、恢复、状态提交与进度解释。Imports 保留格式解析、上传校验、章节识别、来源差异和 Writing 适配，不继续拥有 deep_import 的独立推进事实。</p>
+<p>保留现有 PostgreSQL worker lease、项目所有权门禁、<code>AIRunEnvelopeV1</code>、账户模型连接、Evidence 物化、World/Story 领域命令及人工采用。新模块建议放在 <code>backend/modules/evolution/</code>；运行记录能合理迁移或适配现有 <code>import_workflow_runs</code> 时优先复用，不机械添加重复 ORM。名称和表结构最终由迁移设计核定。</p>
+<h3>1.1 四种用户任务，一条内部主链</h3>
+<table>
+<thead>
+<tr>
+  <th>用户任务</th>
+  <th>内部模式</th>
+  <th>来源边界</th>
+  <th>预期效果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>让系统读懂这本书</td>
+  <td>bootstrap</td>
+  <td>已保存指定来源版本与范围</td>
+  <td>从有限初始信息逐步建立观察和状态</td>
+</tr>
+<tr>
+  <td>继续理解新章节</td>
+  <td>append</td>
+  <td>现有已提交前缀 + 新来源</td>
+  <td>继承前序状态，不重新盲扫全书</td>
+</tr>
+<tr>
+  <td>我修改了这里</td>
+  <td>revise</td>
+  <td>新旧版本差异 + 明确依赖闭包</td>
+  <td>使相关旧产物失效并局部重算</td>
+</tr>
+<tr>
+  <td>重新核对这件事</td>
+  <td>scoped_recompute</td>
+  <td>用户指定对象/命题/范围</td>
+  <td>定向查证、保留其他已完成产物</td>
+</tr>
+</tbody>
+</table>
+<p>用户看到“读取正文—整理变化—需要决定—理解已更新”，不需要选择抽取 Phase 或手工串联按钮。没有 Scene 时系统先准备场景边界；没有世界对象时从观察开始，不阻塞写作。</p>
+<h2>2. 先修复现有语义风险</h2>
+<h3>2.1 观察、变化日志与状态操作不能混为一谈</h3>
+<p>现有 <code>ingest_delta_events()</code> 会把 Delta 组织成 <code>manual_correction</code> 的 MemoryEvent。状态归约不能仅保存一条 changes 就宣称位置、实体或关系已更新。V4 定义独立的三层：</p>
+<ul>
+<li>Observation：原文确实出现了什么说法或行为；必须可定位，允许未解析身份。</li>
+<li>Interpretation：系统如何理解观察，可能含竞争解释、推断和不确定性。</li>
+<li>StateOperation：在明确权限与准入资格下，对指定状态做什么操作。</li>
+</ul>
+<p>“逐字证据命中”只证明引用定位，不证明该引用一定蕴含解释。角色说“我已杀死某人”可以成为 statement/character_belief；不能仅因这句话存在就产生 objective death operation。</p>
+<h3>2.2 保护人工确认事件</h3>
+<p>当前 <code>replace_scene_events()</code> 按 Scene 的全部事件和序号替换，没有在此函数中过滤人工来源。V4 的替换操作必须明确命名其机器产物代际：</p>
+<pre><code class="language-text">replace_derived_scene_events(
+  novel_id, scene_id, producer_family, generation, input_revision,
+  owned_event_keys, new_operations, expected_parent_receipt
+)
+</code></pre>
+<p>允许替换的仅是同一 producer/generation 的派生产物。作者确认、作者修复和已采用事实由独立 authority/source identity 标识，不能因机器输出条数减少、顺序改变或返回空列表而被删除。新证据反驳人工修正时产生争议决定，不直接覆盖。</p>
+<p>身份键不能继续把“第几个输出”视为事件身份。使用来源范围、观察身份、操作语义及生产器版本构成稳定键；输出重新排序不改变事件身份。作者确认修复必须在空重跑、部分重跑、分章重排和历史恢复测试中保留。</p>
+<h3>2.3 统一归约语义，而非强行统一所有输出形状</h3>
+<p>同一契约版本的类型化操作只有一个解释内核。章节和 Scene 允许保留不同投影结构，但截止到同一叙事位置时，核心实体状态、关系、位置和知识必须一致。</p>
+<p>建议 <code>StoryStateReducer</code> 做纯函数解释；Repository 负责序列化写入，ProjectionService 负责检查点与读取。历史事件通过显式版本 adapter 读取，不在数据库中就地改变其含义。</p>
+<h2>3. 类型契约草案</h2>
+<p>下面是实现边界说明，不是要求一次建出所有字段。</p>
+<h3>3.1 SourceRevisionRef</h3>
+<pre><code class="language-text">novel_id; source_kind; draft_id; content_hash;
+chapter_identity; start_offset; end_offset; range_hash;
+source_revision; segmentation_version; source_visibility
+</code></pre>
+<p>章节序号用于展示与排序，不独自承担不可变来源身份。修改标题、同字数替换、复制工作稿、恢复旧稿和整章删除都必须产生可识别变化。</p>
+<h3>3.2 ObservationEnvelope</h3>
+<pre><code class="language-text">observation_id; source_ref; observer_contract_version;
+mention_refs[]; predicate_or_description; modality;
+speaker_ref?; valid_story_time?; learned_at_position;
+evidence_quotes[]; unresolved_parts[]; disposition;
+producer_run_id; input_manifest_hash
+</code></pre>
+<p>modality 至少区分观察到的事件、角色陈述、信念、假设、作者规划、比喻/非字面表达、不明确。不能因 schema 只能填实体 ID 就让模型伪造 UUID；未解析提及保留可追踪 mention identity。</p>
+<h3>3.3 IdentityResolution</h3>
+<p>身份解析返回 <code>reuse / new_candidate / ambiguous / unrelated</code>，包含同名、别名、类型、证据与候选集合。去重分为：身份去重避免创建影子人物；观察去重避免同一来源同一断言重复记录。已有身份不能导致新的字段观察、反证和来源被跳过。</p>
+<p>合并身份时保留别名来源和全部 observation lineage，按领域命令迁移引用；同名不同人、冒名、称号复用保持竞争身份，不能靠相似度阈值直接合并已采用对象。</p>
+<h3>3.4 TypedStateOperation</h3>
+<pre><code class="language-text">operation_id; schema_version; operation_kind;
+subject_ref; relation_or_field; before_precondition; value;
+story_position; valid_time?; knowledge_subject?;
+source_observation_ids[]; authority_basis; derivation_version
+</code></pre>
+<p>初始操作族：entity.create/update/remove、relation.establish/end、location.observe/move、knowledge.learn/revise/revoke、timeline.assert、causal_constraint.assert。不是为每种文学句式设计一个永久枚举；通用 documentary assertion 可承载尚不能安全投影的观察，但不得冒充已改变状态。</p>
+<p>对于未知前值，操作可为 <code>assert_observed</code>，不能伪造 before 值。对位置要分“此处出现”与“从甲移动到乙”，后一项只有在移动事实有据时使用。物品 ownership、custody、carried_by 不混为一条关系。</p>
+<h3>3.5 EvolutionReceipt 与游标</h3>
+<pre><code class="language-text">run_id; attempt_id; owner_epoch; producer_version;
+source_manifest_hash; input_state_receipt; previous_receipt;
+observation_dispositions; world_result_refs; story_result_refs;
+evidence_result_refs; pending_decisions; coverage;
+committed_prefix; blocked_dependencies; paid_call_receipts;
+execution_status; outcome_status; freshness
+</code></pre>
+<p>Receipt 是跨模块交接证明，不是另存全部世界表。游标只在领域提交成功后推进，模型返回或任务进度到 100% 不足以推进 committed prefix。</p>
+<h2>4. 顺序语义与并行效率</h2>
+<h3>4.1 正确的推进顺序</h3>
+<pre><code class="language-text">读取冻结原文
+  → 准备当前 Scene 的观察任务
+  → 编译当前可用前序状态（前一批已提交）
+  → 窄任务模型处理与确定性定位
+  → 独立复核 / 冲突分流
+  → 准备 World/Story/Evidence 写入
+  → 短事务内重验来源与 parent receipt
+  → 提交操作、来源、回执与推进游标
+  → 编译下一 Scene 的依赖状态
+</code></pre>
+<p>前一 Scene 未完成的争议不必总是阻塞全书，但后续必须明确继承 unknown/blocked 的依赖，不能继承尚未提交的假结论。若某项身份裁决是后续解释的必要条件，则暂停相关依赖分支，不把其他无关范围一起停止。</p>
+<h3>4.2 可以并行什么</h3>
+<p>可并行纯来源读取、无副作用解析、当前 Scene 内独立命题的提取与复核、与时间推进无依赖的资料检查、不同小说运行。预取后续正文只提高 I/O 效率，不冻结其依赖前序理解的最终 Prompt。</p>
+<p>不允许把所有 Scene 的“当前世界解释”提前冻结，再把顺序落库包装成顺序认知。可把大书分成有依赖的批次屏障，批次内已证明独立的任务并行；必须以 read-set / dependency key 证明，而不是模型自称“可以并行”。</p>
+<h3>4.3 小模型适配</h3>
+<p>Evidence 为每个窄任务提供最小充分资料、固定身份候选和原文范围。模型负责解释，不负责构造数据库写入、预算或 retry。输出短且有类型；当前 Scene 超出能力时显式分片并记录跨片覆盖，不能静默截断后宣称完整。</p>
+<p>引用定位、来源版本、类型、单位、同项目约束、前置条件、矛盾检查先由代码完成；语义蕴含再交独立复核。多 Agent 使用场景见 03，不要求所有 Scene 走昂贵团队。</p>
+<h2>5. 窄事务及运行可靠性</h2>
+<p>Provider I/O 不在长期数据库事务内执行。每个窄批次的准备阶段收集输入 manifest 和 expected parent；最终提交短事务内锁定当前项目/运行 owner，重验来源、代际和领域写集。沿用项目锁定顺序，避免持有共享锁后升级排他锁形成死锁。</p>
+<p>同数据库中的 World 工作变化、Story 事件、Evidence 引用和该批次回执可以组成一个有限 UoW；正文大范围改写、正式世界采用、媒体对象存储不必和它处于同一巨型事务。超范围成果由后续领域确认处理。</p>
+<h3>5.1 三种失败不能使用同一个重试</h3>
+<table>
+<thead>
+<tr>
+  <th>失败位置</th>
+  <th>恢复方式</th>
+  <th>禁止行为</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>Provider 尚未返回，是否计费未知</td>
+  <td>优先读取供应商请求/任务回执；无法判定则标 unknown 并按策略要求确认</td>
+  <td>立即重发整条流水线造成重复计费</td>
+</tr>
+<tr>
+  <td>Provider 已返回，持久化前失败</td>
+  <td>复用冻结返回内容重新验证；不重新采样模型</td>
+  <td>把数据库错误当模型质量问题重生成</td>
+</tr>
+<tr>
+  <td>领域提交完成，响应/投影失败</td>
+  <td>按 operation_id 返回原回执并补投递</td>
+  <td>再次执行领域写入或再次消耗模型预算</td>
+</tr>
+</tbody>
+</table>
+<p>Root budget 跨重试、requeue、成员和人工恢复累计。并发调用先原子预留额度，再发请求；取消后已发调用可能仍计费，记录实际消耗，不显示“撤销了费用”。成员完成但根任务过期时，禁止晚到结果修改当前状态。</p>
+<h3>5.2 幂等键与 fencing</h3>
+<p>幂等键建议覆盖 novel、来源范围、输入状态回执、方法版本、任务意图和操作版本，而不是只含章节号。owner_epoch 随切换或重建推进；旧 epoch 的 worker 即使恢复也不能提交。未变化输入返回原 receipt；改变了来源或方法需要新 attempt 并保留旧结果。</p>
+<h2>6. 修改、重排、删除与失效传播</h2>
+<h3>6.1 修订影响范围</h3>
+<p>正文变更先计算物理来源差异，再查询显式依赖；对尚无细粒度依赖的范围，采用保守扩大并向 UI 说明范围。不要以文字相似度证明完整因果影响。</p>
+<p>同字数修改和标题变化也需要 source hash；复制、还原、切换当前工作版本意味着 current selection 改变，即使旧版本本身不可变。Scene 切分变化要保存旧新 lineage，不能复用不再匹配的 offsets。重排不仅重写 scene_index，还使依赖顺序的事件、检查点、角色知识与推荐失效。</p>
+<h3>6.2 发布与自动保存</h3>
+<p>自动保存默认只保存正文、标明变化并合并维护请求。长模型任务在安静窗口或明确授权条件触发，不逐按键运行。发布是正文成熟度变化，不等于语义理解完成；UI 可显示“正文已发布，相关理解待更新”。</p>
+<p>统一写入命令须由 API、助手、协作采用、导入、恢复和批量操作消费。提议 <code>WritingChangeReceipt</code> 输出旧新 current source、affected chapters、requested effects；领域在同事务记录待投递变化，消费者按幂等键执行。已有 outbox 可扩展为窄协议，不另造泛化全局消息总线。</p>
+<h3>6.3 失效不是删除历史</h3>
+<p>旧推断标记失效，原观察与历史回执保留。历史首次阅读使用当时合法信息；事后解释可以读取后来的授权证据，但标为 retrospective。认知方法、题目、缩略图、图片和角色外观同样可能剧透，不能只过滤正文。</p>
+<p>删除项目则不同：原文、观察、认知、派生索引、媒体引用和缓存都必须按现有删除工作流清理；不能以“追加式历史”为由保留用户已要求永久删除的数据。</p>
+<h2>7. 从旧系统迁移</h2>
+<h3>7.1 不可省略的迁移资产分类</h3>
+<table>
+<thead>
+<tr>
+  <th>旧资产/能力</th>
+  <th>去向</th>
+  <th>处理要求</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>文件解析、章节识别</td>
+  <td>Imports 保留</td>
+  <td>不变更已经验证的输入格式边界</td>
+</tr>
+<tr>
+  <td>原文 draft/hash/offset</td>
+  <td>Writing/Evidence 保留</td>
+  <td>不重新编号破坏引用</td>
+</tr>
+<tr>
+  <td>场景切分、补全、抽取 adapters</td>
+  <td>迁为可调用步骤</td>
+  <td>保留 schema、预算、回读和实际测试，解除旧编排所有权</td>
+</tr>
+<tr>
+  <td>import_workflow_runs</td>
+  <td>迁移或适配为 Evolution legacy run</td>
+  <td>历史只读、来源与已消耗预算可查</td>
+</tr>
+<tr>
+  <td>旧 deep_import handler/阶段调度</td>
+  <td>最终退役</td>
+  <td>所有新入口转向 Evolution；禁止双提交</td>
+</tr>
+<tr>
+  <td>旧 checkpoint</td>
+  <td>版本适配器</td>
+  <td>不兼容则明确失效/人工续接，不无条件跳过</td>
+</tr>
+<tr>
+  <td>manual_correction/Delta</td>
+  <td>分级转换</td>
+  <td>有据可转 typed op；仅文献记录；缺依据则未知</td>
+</tr>
+<tr>
+  <td>人工确认与采用历史</td>
+  <td>原领域保留</td>
+  <td>不被机器回放删除或重新解释</td>
+</tr>
+<tr>
+  <td>旧进度文案与状态</td>
+  <td>兼容读取</td>
+  <td>不把旧 done 当作新版全部维度完成</td>
+</tr>
+</tbody>
+</table>
+<p>不能因为历史信息已丢失就在 migration 中造出新的“原始证据”。只有真实来源可重读时才能重建；不存在的历史图像也无法凭放大恢复。</p>
+<h3>7.2 六步切换</h3>
+<p><strong>E07.a 先修旧链关键保护。</strong> 在新模块开发前补人工事件保护、两视图归约契约测试、观察去重和入口副作用测试，避免迁移期间继续扩大风险。</p>
+<p><strong>E07.b 影子运行。</strong> 新引擎读取同一冻结来源，只保存隔离实验产物；禁止给正式 World/Story 写第二套有效事实。对比 observation disposition、typed state、coverage、实际调用及成本。</p>
+<p><strong>E07.c 项目级 canary。</strong> 为一个测试项目记录 active engine、schema version、owner_epoch。新旧运行不可同时拥有同项目的有效提交权。先排空或显式停止旧 owner，再切换代际。</p>
+<p><strong>E07.d 在途兼容。</strong> 能证明兼容的旧任务按冻结 contract adapter 继续；不兼容的保留费用与成果，提示从可验证批次继续。不得伪装原 task 原地换模型换方法。</p>
+<p><strong>E07.e 入口重定向。</strong> 新用户入口只显示“理解这本书/继续理解”；旧 deep-import API 暂作参数适配，返回真实新回执和 deprecation 提示。旧状态页可读不可启动第二个 owner。</p>
+<p><strong>E08 彻底退役。</strong> 移除旧独立调度、自动重跑策略、重复恢复 owner、旧前端阶段面板及无调用副本；保留历史读取 adapter 到明确的兼容期。完成登记表逐项核销。</p>
+<h3>7.3 回滚不是复活第二套世界</h3>
+<p>回滚到兼容二进制与已验证 active pointer，提升 epoch，使旧 worker 无权提交。已提交新版本不物理擦除；不能回到不能解释新事件 schema 的旧引擎继续写。必要时停止自动处理、保留只读和正文写作，再通过前向修复恢复。</p>
+<h2>8. 代码落点与包划分</h2>
+<table>
+<thead>
+<tr>
+  <th>包</th>
+  <th>建议位置</th>
+  <th>关键结果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>E00</td>
+  <td>现有 imports/story/writing tests</td>
+  <td>复现与保护、入口副作用清单</td>
+</tr>
+<tr>
+  <td>E01</td>
+  <td>evolution/contracts、observations、sources</td>
+  <td>来源与观察外壳，稳定观察 ID</td>
+</tr>
+<tr>
+  <td>E02</td>
+  <td>world facade + evolution/identity</td>
+  <td>身份去重与观察积累分离</td>
+</tr>
+<tr>
+  <td>E03</td>
+  <td>story/continuity reducer + evolution/commit</td>
+  <td>单一语义内核、人工保护、窄提交</td>
+</tr>
+<tr>
+  <td>E04</td>
+  <td>evolution/orchestrator + existing tasks</td>
+  <td>前序屏障、有限并行、游标与预算</td>
+</tr>
+<tr>
+  <td>E05</td>
+  <td>Evidence dependencies + evolution/invalidation</td>
+  <td>修订、时态、重排、删除影响</td>
+</tr>
+<tr>
+  <td>E06</td>
+  <td>story checkpoints + evolution/recovery</td>
+  <td>分页回放、检查点、owner fence</td>
+</tr>
+<tr>
+  <td>E07</td>
+  <td>legacy adapters + migration</td>
+  <td>影子、canary、在途与回滚</td>
+</tr>
+<tr>
+  <td>E08</td>
+  <td>handlers/frontend/旧文档退役</td>
+  <td>唯一编排所有权、旧代码删除证明</td>
+</tr>
+<tr>
+  <td>E09</td>
+  <td>end-to-end evaluation fixtures</td>
+  <td>真实模型、长书、跨模块质量验收</td>
+</tr>
+</tbody>
+</table>
+<h2>9. 最小纵切与退出标准</h2>
+<p>虚构测试小说包含林舟、青竹、白石城、铜钥匙。第 1 个 Scene 建立人物；后续同名观察补充而不重复建人；青竹保管钥匙但所有权不变；林舟的移动与“最后出现”分开。下一 Scene 的输入必须实际包含前一 Scene 的已提交理解。新的独立写作 case 读取相同合法认知，地图展示来源一致的在场和未知。</p>
+<p>然后修改前文为同长度文本、调换场景顺序、注入一次作者修复，分别在 provider 返回前、返回后、领域提交后中断。验收最终状态、来源与费用回执，而不是仅比较运行日志或页面有绿色成功条。</p>
+<p>必须通过：人工事实不被重跑覆盖；同输入串行/分批/恢复语义一致；不同版本的历史有明确解释；失败不推进 committed prefix；旧 epoch 无权写；原文完整保存；认知和地图实际消费新回执；缺失来源不造假通过。</p>
+<p>性能测试以 1k/5k/10k 场景分别测 checkpoint 命中与回放长度；这些是测量档位，不是已证明的性能承诺。长链不逐次全书重算，只有明确依赖和观察账本才能支持可解释的局部恢复。</p>
+</article><article id="d2"><h1>V + MI：地图、场景舞台与空间智能详细计划</h1>
+<p>V4.0｜设计提案。地图基础体验与演化主链并行交付，高级智能依赖可验证的 Story 状态和 Evidence 边界。空间画面是作品的一个视图，不是另一套事实数据库。</p>
+<h2>1. 地图系统的五层</h2>
+<table>
+<thead>
+<tr>
+  <th>层</th>
+  <th>所有者/数据</th>
+  <th>用户得到什么</th>
+  <th>不得混淆</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>地理与约束</td>
+  <td>World/Map 采用的结构与关系</td>
+  <td>地点层级、空间拓扑、已知规则</td>
+  <td>图元拖动不自动改世界地理</td>
+</tr>
+<tr>
+  <td>时态与在场</td>
+  <td>Story 的指定截止点投影</td>
+  <td>人物出现、物品保管、过去节点</td>
+  <td>最后见到不等于现在仍在此处</td>
+</tr>
+<tr>
+  <td>证据与作用域</td>
+  <td>Evidence 物化回执</td>
+  <td>来源、范围、缺失及可见性</td>
+  <td>可搜索到不等于当前可见</td>
+</tr>
+<tr>
+  <td>表现与媒体</td>
+  <td>Map revision/presentation/media</td>
+  <td>底图、场景插画、人物与物品形象</td>
+  <td>图片不是事实证明</td>
+</tr>
+<tr>
+  <td>智能解释与排演</td>
+  <td>认知 + 注册协作配方</td>
+  <td>缺失条件、条件路线、地理创意</td>
+  <td>排演不等于已经发生的行程</td>
+</tr>
+</tbody>
+</table>
+<p>保留当前地图结构与 API seam，优先抽出一个 <code>MapViewerShell</code>。不创建孤立的“认知地图数据库”，不把 World 对象复制进地图主表。地图内的成员引用现有 identity，并保存表现选择与来源版本。</p>
+<h2>2. 默认作者体验</h2>
+<p>作者进入地图时直接看到一个完整的空间舞台，可切换地图、配图与场景。当前章节和场景由工作焦点推导，但可明确切换；只有确实有位置依据的对象落点。未知对象进入可搜索列表，不为了“惊艳”随机撒点。</p>
+<p>选择地点时在唯一详情抽屉中展示：地点图、当前在场、相关场景、一项最相关信息和返回正文按钮。抽屉不再打开另一个抽屉；需要更多证据时复用同一个宿主并提供返回栈。全屏模式仍在统一 overlay 根中，退出后恢复相机、选中对象、滚动、图层和编辑草稿。</p>
+<p>场景舞台把背景图、人物图、物品图与当前原文连接起来。无配图时使用清晰的地点信息和抽象底图，不自动付费生成图片。角色图和物品图是表现参考，不能借图片暗示未揭露身份。</p>
+<h3>2.1 本轮 HiFi 对应</h3>
+<table>
+<thead>
+<tr>
+  <th>画面</th>
+  <th>设计目的</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>S20 沉浸地图</td>
+  <td>浮动顶栏、探索范围、唯一详情抽屉、故事回看带；地名避让面板</td>
+</tr>
+<tr>
+  <td>S21 场景舞台</td>
+  <td>背景、在场人物、物品与原文串联</td>
+</tr>
+<tr>
+  <td>S22 历史旅程</td>
+  <td>有据节点与未知连接分开；明确首次阅读/事后解释</td>
+</tr>
+<tr>
+  <td>S23 地图编辑</td>
+  <td>图元布局与事实变更分离；撤销、预览与离开保护</td>
+</tr>
+<tr>
+  <td>S24 条件排演</td>
+  <td>已知约束、缺失条件、可选设想；不造出到达时间</td>
+</tr>
+<tr>
+  <td>S25 配图与校准</td>
+  <td>媒体、范围、校准及候选采用分离</td>
+</tr>
+<tr>
+  <td>S26 形象资料</td>
+  <td>人物、地点、物品视觉资产与来源</td>
+</tr>
+<tr>
+  <td>S36 范围与视角</td>
+  <td>作者、当时已知和事后解释清晰分开</td>
+</tr>
+<tr>
+  <td>S39 移动地图</td>
+  <td>可折叠底部详情，不将桌面三栏压缩到手机</td>
+</tr>
+<tr>
+  <td>S46 图片调用确认</td>
+  <td>实际生成范围、费用未知、回执与不自动采用</td>
+</tr>
+</tbody>
+</table>
+<p>画面中的点位、插画和路径全部是虚构设计样例，不是生产地图事实；地图坐标为示意，不按比例。</p>
+<h2>3. MapSceneContext 与在场语义</h2>
+<p>建议由 Map facade 聚合只读 DTO，数据来自合法 World/Story/Evidence，而非前端拼接一串原始表。</p>
+<pre><code class="language-text">MapSceneContextV1
+  view_ref; scene_ref; map_revision; presentation_revision
+  location_refs[]; presence_items[]; object_links[]
+  source_receipts[]; coverage; omissions; unsupported_dimensions
+  freshness; generation_stamp; request_context_id
+</code></pre>
+<p><code>view_ref</code> 复用全项目经验视图的引用，不创建一张总快照表。正文来源、World/Story 版本、认知、地图、媒体及方法只绑定本次实际依赖，避免任何变化使全部视图过期。</p>
+<h3>3.1 人物与物品位置</h3>
+<table>
+<thead>
+<tr>
+  <th>presence_kind</th>
+  <th>可以怎样显示</th>
+  <th>禁止表达</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>confirmed_in_scene</td>
+  <td>本场在这里，有原文/已确认事件</td>
+  <td>不自动推出角色知道此地全部秘密</td>
+</tr>
+<tr>
+  <td>profile_location</td>
+  <td>仅当前作者资料中的常驻/档案地点</td>
+  <td>不回填成某历史 Scene 的实际在场</td>
+</tr>
+<tr>
+  <td>last_observed</td>
+  <td>最后一次明确出现于此，显示来源位置</td>
+  <td>不称“当前就在这里”</td>
+</tr>
+<tr>
+  <td>related_only</td>
+  <td>和地点有关，放关联列表</td>
+  <td>不在地图上放实心位置点</td>
+</tr>
+<tr>
+  <td>unknown</td>
+  <td>位置未确定，保留搜索入口</td>
+  <td>不随机定位，不用档案地兜底</td>
+</tr>
+</tbody>
+</table>
+<p>物品另列 custody、ownership、carried_by。青竹保管铜钥匙不表示她获得所有权，也不表示每个后续场景她都随身携带。一个角色关于位置的信念是 belief layer，不应进入客观在场层。</p>
+<h3>3.2 历史轨迹</h3>
+<p>只把明确出现节点画为真实节点。两个节点中间没有路线证据时可画有文字标记的虚线以表达“关系待定”，但默认不标路程、交通方式、速度或到达时间。已知道路的拓扑路径与人物实际走过的路线是两套不同的命题；前者也不能自动转成后者。</p>
+<p>地图历史不仅按章节号。需要 story position、world valid time、learned position、source revision、interpretation mode；倒叙和后揭示必须可表达。新方法产生的回顾性解释不能以“这段原文在早期出现”为由混入首次阅读视图。</p>
+<h2>4. 渲染、相机与智能排布</h2>
+<h3>4.1 相机坐标</h3>
+<p>世界坐标、底图像素坐标、归一化热点坐标和屏幕坐标分开。拖动与缩放修改相机矩阵；修改地理位置或底图校准必须是显式领域操作。重绘后保留同一语义锚点，不依赖 DOM 坐标碰巧一致。</p>
+<p><code>fitSelection</code> / <code>fitScene</code> 以扣除顶部工具条、侧抽屉和底部时间带后的可用画布为目标。展开抽屉不应挤动每个地点的世界坐标，而是调整相机或标签布局。必要时用“被遮挡地点列表”保持可达性；不把对象藏掉却不提供入口。</p>
+<h3>4.2 标签策略</h3>
+<p>以真实字体测量文本边界；优先显示选中对象、当前场景地点、关键路线端点，再显示普通地名。候选标签位置按锚点上下左右尝试，不能占用浮层障碍区；碰撞时缩短次级说明、聚合或转入列表，不缩小到不可读。</p>
+<p>使用屏幕像素级碰撞索引，缩放时带迟滞，避免标签不断出现消失。每次相机微动不重排全部排名；对正在阅读的选中标签和卡片冻结位置。几何层、标签层、媒体层、交互层分别更新，避免鼠标悬停触发全书查询或整个地图重绘。</p>
+<h3>4.3 地图性能工作包</h3>
+<p>先以仓库当前支持规模作为实际基线，记录真实图元、边、图片数；输入 v3 提到的 200 图元/400 约束等限制须在实施时重核 schema，不能当成无限容量承诺。</p>
+<p>建立固定 fixture：上限图元、长中文标签、密集地点、多个图层、抽屉开关、低端移动设备、网络慢与缓存失效。候选目标是交互有稳定反馈、可用帧率与有界媒体内存；阈值需要实机测量后冻结，不能用设计截图证明性能。</p>
+<h2>5. 媒体、热点与保留形象</h2>
+<h3>5.1 媒体处理</h3>
+<p>沿用专用 owner/novel 门禁，不暴露私有对象存储 key。提议将展示图提升至适合大画布的分辨率档位，例如最长边 2048、显示资源约 1MiB 上限；这些是 v3 继承的设计候选，不是已实现规格，也不替代原上传输入限制。格式、透明度、WebP 编码和内存需实测；不能对已压缩旧图声称恢复原有细节。</p>
+<p>人物/物品透明背景须在服务端保留 alpha，背景图按真实输入转换；不要统一 RGB 破坏透明形象。缩略图和展示图分级加载，较高分辨率只在需要时取。媒体管线复用共享 <code>PrivateMedia</code>，并发上限作为可配置资源策略，不由每个组件各起一套请求。</p>
+<p>缓存键包含 account、novel、media revision、授权作用域；切换项目或视角先释放旧图和 object URL，取消旧请求，晚到结果不得挂回当前页面。卸载、替换、失败和删除均需释放资源。</p>
+<h3>5.2 Presentation revision</h3>
+<p>场景背景、形象选择、热点与裁切保存在独立版本化表现资产，不修改 CanonRevision 来表达视觉布局。热点使用归一化位置，绑定源图片身份与 hash；同一图片等比例派生不会丢失定位，换图或不同裁切映射必须重验，不能悄悄沿用旧热点。</p>
+<p>单表现修订的热点数量可先采用 v3 的 50 个候选限制，使用完整 revision CAS 处理并发；数量不足则通过有版本的 schema 扩展，不让前端绕过限制。若当前 map schema 尚不支持室内/街道变体，先标 unsupported，再在独立工作包扩展，不临时塞入不被后端理解的字段。</p>
+<h3>5.3 图像生成</h3>
+<p>图像生成是单独授权和计费的命令。请求冻结实际可外发的资料，不把隐藏角色身份、私人正文或未授权的整个知识库交给供应商。返回候选后先审阅，再批准为某场景/角色使用。</p>
+<p>超时后根据 request receipt 查询是否完成，不能默认再次付费。配额、保留数量、原图与派生文件、未被引用的失败资源均需要一致清理。删除项目清除所有媒体与残留；替换图片保留/释放的规则与配额账本不能各自实现。</p>
+<h2>6. MI：空间智能的逐级开放</h2>
+<h3>MI00 地理依据与缺失条件</h3>
+<p>从显式位置、连接和规则给出“已知什么、缺什么”。例如夜间城门关闭，但渡口是否通行未知。输出不是“无路可走”，而是“无法在当前证据下确认夜间通行”。</p>
+<h3>MI01 路线与时间排演</h3>
+<p>只有采用的拓扑、方向、单位和通行规则可作为规划约束。模型解释叙事意义，代码做可执行约束与图搜索。若距离和速度缺失，输出路径选择或条件比较，不给分钟数。把方案标为 hypothetical；采用方案也只是采用作者规划，实际旅程需后来正文或作者事实命令确认。</p>
+<h3>MI02 地理—剧情联动检查</h3>
+<p>校验人物跨场景移动、携带物品、地点进入条件与时间冲突。结果每项绑定来源与受检范围；没有完整路线不能宣称没有空间漏洞。修订地图或前文时通过依赖清单使旧判断失效。</p>
+<h3>MI03 空间创意工作坊</h3>
+<p>三条独立提案可以围绕地形阻碍、社会规则、人物选择展开。必须保留一种不扩地图的方案；新增关卡、捷径或地理规则列出会约束后文的代价。不可自动画出新城、新路后把它当成既有正史。</p>
+<h3>MI04 多视角与多尺度</h3>
+<p>角色所知地理、读者可见地图、历史政权/道路变化、室内场景等分别经过合约和访问门禁。外观、名称、连线和地图缩略图都参与泄漏测试。早期没有能力的视图返回 unsupported，不回退作者全量。</p>
+<h3>MI05 长期空间认知</h3>
+<p>跨章节积累移动习惯、制度约束与空间叙事经验，只能作为可重验派生理解。统计相关性不能变成地理因果；“经常出现的地方”不是当前所在地。与 C 的方法实验使用相同输入和预算对照，验证其是否改善真实场景设计，而不是只增加图层数量。</p>
+<h2>7. 原 V 包继承与新增依赖</h2>
+<table>
+<thead>
+<tr>
+  <th>包</th>
+  <th>内容</th>
+  <th>依赖</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>V00</td>
+  <td>现有地图、媒体、接口与演示基线</td>
+  <td>可立即执行</td>
+</tr>
+<tr>
+  <td>V01</td>
+  <td>单画布/事件处理复用</td>
+  <td>V00</td>
+</tr>
+<tr>
+  <td>V02</td>
+  <td>全屏 ViewerShell、统一浮层、恢复</td>
+  <td>V01 + U01</td>
+</tr>
+<tr>
+  <td>V03</td>
+  <td>世界/屏幕相机、标签障碍与迟滞</td>
+  <td>V01</td>
+</tr>
+<tr>
+  <td>V04</td>
+  <td>前端 PrivateMedia、取消、缓存、释放</td>
+  <td>V00</td>
+</tr>
+<tr>
+  <td>V05</td>
+  <td>展示媒体分辨率/透明度/配额清理</td>
+  <td>V04，服务端核验</td>
+</tr>
+<tr>
+  <td>V06</td>
+  <td>SceneContext 与 presentation revision</td>
+  <td>I01；历史部分依赖 E03/E05</td>
+</tr>
+<tr>
+  <td>V07</td>
+  <td>场景舞台、人物和物品图</td>
+  <td>V02/V04/V06</td>
+</tr>
+<tr>
+  <td>V08</td>
+  <td>在场、历史、未知路线</td>
+  <td>E03/E05 + V06</td>
+</tr>
+<tr>
+  <td>V09</td>
+  <td>保留形象与回滚</td>
+  <td>V05/V06</td>
+</tr>
+<tr>
+  <td>V10</td>
+  <td>局部授权图片生成</td>
+  <td>V05/V09 + Root budget</td>
+</tr>
+<tr>
+  <td>V11</td>
+  <td>视觉、作用域、交互、性能与清理验收</td>
+  <td>每个子包持续执行</td>
+</tr>
+<tr>
+  <td>MI00–05</td>
+  <td>依据/路线/联动/创意/视角/长期认知</td>
+  <td>按上述分级，不阻塞 M1</td>
+</tr>
+</tbody>
+</table>
+<p>M1 可先交付 V01–05 的基础地图体验与已有资料浏览，不等待认知研究结束。V08 与 MI 不能越过历史状态正确性门禁。</p>
+<h2>8. 验收与反例</h2>
+<p>地图缩放或抽屉打开后，当前地点的名字不被遮挡；不能显示的次级地点仍可从列表定位。移动端底部详情不能盖住唯一当前状态和返回正文动作。全屏进出不丢失编辑草稿，ESC 首先退出当前最上层任务而非关闭整个作品。</p>
+<p>甲地出现与乙地出现之间没有旅程时，不造连续实线；角色档案地不能回填历史在场；钥匙保管不改变所有权；角色知道某地点不等于客观位于该地。换到早期读者视角，作者图片、标签、缓存和晚到请求都不能泄漏。图片生成失败/重复恢复时不双扣配额；项目永久删除后对象存储清理可验证。</p>
+<p>真实验收分别记录：地图数据语义、前端交互、媒体安全/资源、模型提案质量。高保真图是设计契约，不是这四类测试已经通过的证明。</p>
+</article><article id="d3"><h1>C + A + R：持久认知、多 Agent 与主动建议</h1>
+<p>V4.0｜长期设计。保留现有 PydanticAI、有限协作配方、项目账户模型入口与根预算；框架不是质量收益的替代品。</p>
+<h2>1. 三者怎样组成一条价值链</h2>
+<p>演化系统回答“原文发生了什么、当前哪些状态有据”；认知子域回答“这些信息怎样组织成可继续使用、可修订的理解”；协作配方决定“用哪些隔离任务取得更可靠或更多样的成果”；推荐层回答“作者此刻值得先看什么，并怎样安全地行动”。</p>
+<p>避免三个反模式：为每个推荐重新全书理解；每个 Agent 各写一份人物事实；把历史对话自动升格为长期认知。对话、模型推断、作者采用与原文证据必须继续有不同资格。</p>
+<h2>2. 持久认知 C 的数据与生命周期</h2>
+<h3>2.1 最小 durable domain</h3>
+<p>在 Collaboration 中建立独立于短期 run retention 的认知子域。可从 head、commit、record 三类持久实体及可重建索引开始；不要教条地限制为三张表，也不要预建庞大的不可演化字段全集。</p>
+<p><code>CognitionRecord</code> 外壳固定：novel、scope、record identity、kind、content schema/version、来源引用、依赖、有效时间、学得位置、方法版本、作者处置、freshness。content 可表达本书逐渐形成的关系、规律、竞争解释和开放问题。模型可以提议表达形式，不能自行执行 schema migration 或扩大工具能力。</p>
+<p><code>CognitionCommit</code> 冻结完整实际读集、记录变更、未决项与方法版本，用 CAS 指向该作用域的 head。认知更新不调用 World 准入来把推断变成事实；采用为正式设定是另一个可预览的领域命令。</p>
+<h3>2.2 新任务必须真实消费</h3>
+<p>第一批 C 交付就要接入一个新的、独立创建的写作或调查 case。InputManifest 记录读取了哪个 cognition commit、哪些记录实际进入模型、为什么有助于任务、哪些记录因范围/失效被排除。</p>
+<p>任务完成后只沉淀有长期价值的内容：有来源的新理解、可复用决定、明确反证、有效工作方法。无需沉淀则 <code>no_change</code>。把整个聊天历史复制成摘要，或向所有后续 Prompt 默认加入全量记忆，不算完成这个目标。</p>
+<h3>2.3 依赖与负面证据</h3>
+<p>正向证据依赖绑定资源版本和范围；“在已检查范围没有发现另一条通路”还依赖查询范围、检索条件、集合版本与覆盖程度。后来加入新章节或新增对象，负面结论也可能失效。不能只登记被检索命中的几条来源。</p>
+<p>A 由 B 推导、B 又被 A 的摘要支持，属于循环支持，不能提高可信资格。派生解释最终需追溯到合法原始观察/作者决定；循环引用用于组织索引可以存在，但不能当成独立证据。</p>
+<h3>2.4 历史视角</h3>
+<p>首次阅读视角仅使用截止点前合法的内容和可用方法成果；事后解释允许后来的授权资料但必须标为 retrospective。模型不能通过“去掉剧透句”把含未来知识的完整摘要变成安全历史版本，需要从受限来源重新编译或返回无法提供。</p>
+<p>删除与用户纠正进入依赖链：纠正保留旧解释历史并改变 current selection；永久删除清理认知与索引，不因其“有用”而保留。作者拒绝的是建议呈现还是事实解释，应是不同命令。</p>
+<h2>3. 扩大认知的长期阶梯</h2>
+<table>
+<thead>
+<tr>
+  <th>层级</th>
+  <th>新能力</th>
+  <th>进入默认任务的条件</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>C0 可继承</td>
+  <td>稳定人物、地点、事件及来源索引；任务间承接</td>
+  <td>新 case 真实读取，来源可回读</td>
+</tr>
+<tr>
+  <td>C1 可修订</td>
+  <td>竞争动机解释、身份歧义、反证和待查问题</td>
+  <td>能保留分歧；来源改变可失效</td>
+</tr>
+<tr>
+  <td>C2 因果与制度</td>
+  <td>行动前提、代价、规则例外、承诺和后果</td>
+  <td>条件关系不冒充确定因果；有可检查约束</td>
+</tr>
+<tr>
+  <td>C3 多主体理解</td>
+  <td>人物信念、误解、读者已知与作者规划</td>
+  <td>各自 scope 隔离，防知识穿透</td>
+</tr>
+<tr>
+  <td>C4 创作经验</td>
+  <td>本书叙事声音、节奏、作者保留项和局部写作方法</td>
+  <td>不能由点击率推断作者审美；允许例外和不采用</td>
+</tr>
+<tr>
+  <td>C5 方法演化</td>
+  <td>调查顺序、证据策略、表达组织的有界实验</td>
+  <td>等输入/预算比较，真实收益后再成为默认</td>
+</tr>
+</tbody>
+</table>
+<p>不能用单个“认知完成 95%”描述这些维度。每项能力列出 inspected、not_run、unknown、excluded、stale、unsupported。系统更复杂不等于认知更成熟。</p>
+<h2>4. 多 Agent：根据任务结构选择，而不是默认团队</h2>
+<h3>4.1 研究依据和使用边界</h3>
+<p>R1（2026-04-08 v3）对 260 种配置、六个任务基准的受控分析强调架构与任务结构匹配；这支持“有依赖的演化推进不能自由并行”，不证明我们的小说任务已有收益。</p>
+<p>R2 的推理自我修正研究指出，在其测试设定中，没有外部反馈的自纠错可能失败或退化。这支持加入原文、代码验证和可定位错误反馈；不意味着所有当代模型、所有任务都不具备自修正能力。</p>
+<p>R3 的短篇写作实验同时观察到个体创意评价收益与故事间相似性上升。这支持保留独立方向和作者选择；它不是长篇小说专业作者的直接效果证据。</p>
+<p>R4 的工程报告说明独立并行研究适合广度探索，也带来显著协调和消耗成本。R5 当前 PydanticAI 文档提供 delegation、程序交接等方式；实施时必须先核对仓库锁定版本，不能直接复制最新版 API。[完整出处见 06]</p>
+<h3>4.2 分流规则</h3>
+<table>
+<thead>
+<tr>
+  <th>任务</th>
+  <th>默认实现</th>
+  <th>升级条件</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>保存、来源校验、可见性、CAS、范围切分</td>
+  <td>确定性代码</td>
+  <td>永不委托模型决定权限/提交成功</td>
+</tr>
+<tr>
+  <td>简单润色、明确的小范围提取</td>
+  <td>单 Agent + schema/来源检查</td>
+  <td>有真实失败特征且团队对照有收益</td>
+</tr>
+<tr>
+  <td>身份、所有权、角色所知等高风险解释</td>
+  <td>窄生成 + 独立证据复核</td>
+  <td>争议仍未解时定向查证或人工决定</td>
+</tr>
+<tr>
+  <td>跨资料大范围调查</td>
+  <td>多个有界、互补的只读成员</td>
+  <td>可分解且不会共享一个未提交状态</td>
+</tr>
+<tr>
+  <td>创意构思</td>
+  <td>独立多输出或最多三名方向成员</td>
+  <td>按多样性/质量/预算比较选择，而非总上团队</td>
+</tr>
+<tr>
+  <td>后一 Scene 依赖前一 Scene 的解释</td>
+  <td>有顺序屏障的主链</td>
+  <td>无关叶任务可并行；提交顺序不可放开</td>
+</tr>
+</tbody>
+</table>
+<p>“低端模型”使用实测能力 profile，而不是供应商名称。记录该模型对指定输出、上下文长度、结构遵循、引用定位、歧义识别的实际表现；允许账户只配置一个模型，系统仍可用独立回合和角色隔离。</p>
+<h2>5. A-Reliability：增强轻量模型可靠性的配方</h2>
+<h3>5.1 默认有限流程</h3>
+<pre><code class="language-text">Host（代码）冻结任务、资料、根预算与不可变输入
+   ↓
+Extractor：只提出当前窄范围的观察/解释
+   ↓
+Deterministic gates：来源/类型/单位/身份/时态/前置条件
+   ↓
+Verifier：独立回读原文，先作判断，再看候选差异
+   ↓
+Disagreement resolver：只查争议命题，最多有限返修
+   ↓
+Outcome：supported / contradicted / uncertain / not_checked
+   ↓
+Domain prepare/apply 或作者决定
+</code></pre>
+<p>主模型或 Planner 的名字不授予真值权威。Host 是代码级控制边界，不必为每次任务再消费一个“总负责人模型”。评审者的第一遍尽量不接收生成者的理由，以降低锚定；第二遍可接收具体命题、来源与代码诊断。</p>
+<h3>5.2 小模型输入设计</h3>
+<p>每个成员明确 objective、allowed tools、exact source range、identity candidates、expected output schema、stop condition、unknown handling。只发送当前任务必要信息，缺失信息在输出中显式登记；不能以缩减上下文为理由藏掉与判断相反的证据。</p>
+<p>对长 Scene，先定义覆盖所有来源的分片和跨片连接，再做有界聚合；不能仅取头尾或摘要后仍写 complete。输出以原子命题为主，避免一个模型一次生成几十种混合结构和完整状态更新。</p>
+<h3>5.3 代码与语义复核分工</h3>
+<p>代码可以验证引用是否存在、版本是否一致、ID 是否同项目、区间是否越界、数量与单位是否合法、操作前置状态是否匹配。代码不能仅凭引用命中证明“这是赠予”。语义复核需要辨别说话者、否定、假设、时间、传闻和角色误信。</p>
+<p>Verifier 的 <code>supported</code> 必须引用自己实际读过的来源，不能引用成员给的一段无来源总结。多名成员引用同一段正文是共享证据，不是多份独立证据，不能加票提高事实资格。</p>
+<h3>5.4 争议、升级与退出</h3>
+<p>修复优先使用具体失败位置和错误类别，不让模型无限“再认真检查”。策略登记最多轮数、累计 token/request、wall deadline 和争议条目上限；超出后返回 partial/uncertain，而非把最后一个答案视为正确。</p>
+<p>配置了真实更强模型且有授权时，可仅升级争议命题；没有则请求用户决定或保留未知。升级不自动扩大来源、账户或外部网络权限。部分已验证的独立命题可保存，依赖它们之外的未知不能被补成确定结论。</p>
+<h3>5.5 初始角色配方</h3>
+<ul>
+<li>identity-and-observation：提及识别 → 身份/反证核对 → 归并候选。</li>
+<li>continuity-review：人物位置、时间条件、物品持有按职责拆分，再统一来源与约束检查。</li>
+<li>world-rule-stress：规则解释、极端边界案例、叙事代价检查分别输出，不直接改规则。</li>
+<li>weak-model-repair：只有确定性定位到失败或独立复核明确的条目进入返修。</li>
+</ul>
+<p>这些角色复用现有 Collaboration recipe、资源 port 和 Assistant domain operations。不要给每个配方独立 session 表、持久世界、计费账本和调度器。</p>
+<h2>6. A-Creative：帮助作者发散，而不是代替作者裁决</h2>
+<h3>6.1 两阶段而非自由争论</h3>
+<p>第一阶段独立生成：各成员只看到用户目标、保留项、合法来源与自己的视角，不看到其他成员的方案。可采用人物主动性、情节悬念、情绪/文风三个初始角度；视角只是配方，可按任务调整，不永久固定所有创意为三种。</p>
+<p>第二阶段形成比较：去除实际重复提案，但保留有意义分歧。聚合者输出可选择方向，不默认把它们写成一个折中故事。至少保留一个“不扩大情节/不新增世界规则”的方向，允许作者全部不选。</p>
+<h3>6.2 CreativeOption 外壳</h3>
+<pre><code class="language-text">option_id; viewpoint; premise; proposal; intended_effect;
+required_existing_facts; new_assumptions; story_debt;
+what_is_preserved; what_changes; counterarguments;
+source_refs; hypothetical_status; suggested_next_action
+</code></pre>
+<p>story_debt 指需要在后文兑现的因果、规则、关系或伏笔负担，不是负面评分。一个精彩的设想可以代价很高，作者应看得见。不同方向不能用未经校准的“创新度 98”或隐藏评分替作者选出正确剧情。</p>
+<h3>6.3 采用路径</h3>
+<p>作者可以只借一句对白、组合两个方向中的局部元素、要求反向思考或保留原文。选中后生成有限的 domain patch，展示原文/候选/影响/新增假设。通过对应审查后保存为工作稿，不自动发布。</p>
+<p>事实核验者只能检查硬约束、来源和明确保留项，不以“我觉得节奏不好”为由否决作者审美。情绪偏好和风格选择进入解释性比较，而不是强制门禁。</p>
+<h3>6.4 前端不显示一堵 Agent 聊天墙</h3>
+<p>用户默认看到三个有区别的方向、每个方向的优点/代价/未知和一个行动。成员往返、Prompt、日志放诊断入口。研究流程和创意流程可用同一伙伴区域，但必须以“核对事实”与“探索想法”标清成果性质。</p>
+<h2>7. 共用运行底座的可靠性</h2>
+<p>使用 <code>TeamRunEnvelope</code> 适配现有根运行信封：root run、operation、owner、scope、allowed tools、model execution snapshot、总预算、每个成员剩余额度、deadline、lease epoch、cancellation token、producer contract。并发请求先做原子预算预留，失败/重试累计，而不是每个成员独享完整项目额度。</p>
+<p>Agent 各自拥有受控历史和资料清单，跨成员传递以可重验 artifact 引用为主，避免自由文本接力导致来源丢失。任意工具注入、成员自行放宽 scope、子任务循环生成团队均禁止。跨模型共享资料需要逐成员权限物化；不能只在父 Agent 校验一次。</p>
+<p>当前最多三名并发成员不阻止多轮复杂任务：可以分阶段轮换，但所有阶段累计同一个预算。内部只读工具失败可以有窄恢复；领域写入仍由确定性 prepare/apply 和最终来源重验完成。</p>
+<h2>8. R：主动推荐的统一设计</h2>
+<h3>8.1 四种 key，而不是一个 hash 解决全部问题</h3>
+<table>
+<thead>
+<tr>
+  <th>Key</th>
+  <th>代表什么</th>
+  <th>改变后怎样处理</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>authority_scope_key</td>
+  <td>owner、novel、视角、截止点、排除项、授权版本</td>
+  <td>必须重授权/重新物化，旧数据不能继续显示</td>
+</tr>
+<tr>
+  <td>evidence_snapshot_key</td>
+  <td>实际读取资源、hash、范围、集合版本</td>
+  <td>重验来源；失效结果不能标有效</td>
+</tr>
+<tr>
+  <td>task_context_key</td>
+  <td>当前目标、intent、draft/scene、任务范围</td>
+  <td>检查建议适用性，不自动扩大证据</td>
+</tr>
+<tr>
+  <td>presentation_focus</td>
+  <td>光标、选区、折叠态、当前页面、读取位置</td>
+  <td>影响排序与展示；不成为事实或权限</td>
+</tr>
+</tbody>
+</table>
+<p>允许旧建议在新的焦点下继续显示，前提是领域 <code>is_applicable</code> 明确确认作用对象、来源和任务匹配；不是直接忽略 context_hash。</p>
+<h3>8.2 选区与未保存输入</h3>
+<p>优先级：显式选区 → 光标所在语义段落/当前场景 → 最近保存差异 → 有说明的尾部回退。完整传递 intent，例如“只润色”“探索反应”“校对事实”，不能只把它留在前端。</p>
+<p>初版后台默认 saved-only。显式选择未保存文字的即时操作，可以在独立 U-Ephemeral 包通过后使用临时快照，绑定全文 hash、selection range、TTL、client epoch；禁止用新 UI 的 offset 读取旧 draft。该包未通过前禁用执行并提示保存，不伪装支持。HiFi S07 展示的是这一目标行为。</p>
+<h3>8.3 推荐候选、排序与处置</h3>
+<p>推荐来源包括受检问题、开放问题、认知解释、场景过渡、人物反应、世界规则决定、空间条件和创作机会。候选至少有 stable issue_key、basis、why_now、scope、unknowns、actions、freshness、coverage 和逐 claim 支持来源。</p>
+<p>排序先过来源/权限/适用性硬门，再看当前任务相关性、影响、时机、成本、作者处置与方向多样性。模型输出分数不是概率；默认不展示“置信度百分比”。同一问题跨 Writing/World/Map 由稳定 issue identity 关联，不各弹一次。</p>
+<p>屏幕只突出一个主建议、至多两个次要方向，其他进入 backlog；有限显示不等于未显示项消失，提供覆盖说明。排版可重排，但用户阅读、输入法组合、正在预览差异或已固定某卡时不抢焦点。来源变化可立即撤去“有效”资格，内容区用安静提示而非强弹窗。</p>
+<p>暂缓/拒绝是呈现决定，不会删除事实或改写人物状态。再次提醒要有新的相关依据或用户指定条件；不能因定时器轮询又复活同一建议。</p>
+<h3>8.4 统一前端状态与后台执行</h3>
+<p>同账户/项目使用一个共享 feed store，组件订阅，不各起轮询。标签页焦点仍是本地，授权与持久结果来自服务端。读取 feed 无模型副作用；计算由单独显式请求或持久授权驱动。请求携带 context id/epoch，晚到结果不能盖回旧选区。</p>
+<p>从建议进入操作时：重新物化依据 → 准备具体领域提案 → 一处差异预览 → 用户采用 → 返回领域回执 → 统一刷新。不要从三个面板各走一套采用实现。</p>
+<h2>9. 评估：可靠性和创意不能共用一个分数</h2>
+<h3>9.1 可靠性对照</h3>
+<p>至少比较单模型一次、单模型有限自检查、单模型多采样/选择、隔离生成+复核、真实异构团队（仅真实连接可用时）。固定原文范围、工具、总预算和可见信息，记录语义准确、错误修改、未知保留、来源错配、调用/成本、延迟与恢复结果。</p>
+<p>历史 v3 的小样本实验中存在预算不等和样本不足，不能作为团队质量提升已证实的结论。此处不预先写出收益百分比。错误类型按否定、传闻、冒名、时态、物品关系、伏笔与现实规则分层，避免平均分掩盖高代价错误。</p>
+<h3>9.2 创意对照</h3>
+<p>同题比较单强模型多方向、隔离同模型角色、异构/不同目标成员。由作者或独立读者盲评方向实质差异、符合保留项、可用性、意外性、叙事负担与最终采用片段。点击率不等于质量；不给模型自己的审美评分充当 ground truth。</p>
+<h3>9.3 认知 A–E 五臂实验</h3>
+<p>A：普通检索，无持久认知。B：固定表示+固定方法。C：开放表示+固定方法。D：固定表示+可调方法。E：开放表示+可调方法。相同作品分段、来源截止、工具和总预算；每臂都必须服务真实后续任务。展示用 fixture/oracle 不得进入模型输入或评估资产。</p>
+<p>方法候选仅在留出任务与故障场景证明收益后提升为默认。失败可退回已验证方法版本，但不丢弃真实观察或作者决定。</p>
+<h2>10. 工作包</h2>
+<p>保留 C00–C06：隔离实验、持久域、Evidence 接入、维护、方法演化、作者视图、五臂验证。新增 C07 竞争解释/负面依赖、C08 多主体与历史、安全视角、C09 长书局部维护与真实消费。</p>
+<p>A00 能力/成本基线；A01 共享根预算和隔离输入；A02 可靠性窄配方；A03 盲复核与争议裁定；A04 创意独立发散；A05 对比与领域采用；A06 等预算评估与受控默认路由。</p>
+<p>R00 选区/intent/数据链修复；R01 scope/snapshot/task/focus 分离；R02 单 feed store；R03 逐 claim 支持与 stable issue；R04 排序和安静策略；R05 领域行动闭环；R06 认知驱动预测/机会建议；R07 真实用户与成本验证。</p>
+<p>新增范围以阶段门禁控制，而不是给主 Agent 无限权限。未来可以扩角色和方法，但所有新增能力仍必须带来源、边界、预算、测试与实际消费者。</p>
+</article><article id="d4"><h1>U：全前端任务工作台与 HiFi 交付规范</h1>
+<p>V4.0｜设计方案与可点击示例。当前提供 48 个工作流/状态画面 + 1 个设计规范画板。不是已经迁移到生产的界面，也不代表全字段或所有 API 场景均已实现。</p>
+<h2>1. 产品标准怎样变成可验收规则</h2>
+<p>“傻瓜式操作”不是只留下一个聊天框，而是用户不必理解内部阶段、数据表与模型调度，也能知道当前状态、下一步和操作影响。</p>
+<p>默认每张任务卡只有一个主操作；下一步由当前真实领域状态推导。自动完成不需要作者反复确认的只读整理，遇到有歧义的事实、正式采用、真实费用和破坏性动作才问。提供保留未知、稍后处理和不采用，而不是逼迫作者替模型补完一切。</p>
+<p>“智能排布”不是让 LLM 任意生成 DOM。定义 <code>SurfacePolicy</code>：输入为用户任务、合法资料范围、屏幕尺寸、阅读/输入状态、是否 dirty、是否有活跃长任务与结果类型；输出为主内容、旁栏槽位、展开层级、主操作与面板锁定策略。每条策略都可用 fixture 测试。</p>
+<h2>2. 一套壳，六个默认入口</h2>
+<p>导航：概览、写作、故事结构、世界资料、故事地图、待我决定。运行恢复、模型授权、项目与版本在次级入口；Account 和 RP 保持各自入口，不向 RP 用户暴露作者后台。</p>
+<p>用户页面不展示 raw UUID、JSON、Phase2a、Prompt 预算枚举或内部状态名。需要定位来源时使用章节、场景、人物名、日期与可读说明，诊断可按需展开精确版本。</p>
+<p>当前代码中的 <code>--nc-*</code> 语义颜色与 Vue bridge 是应继承的接口。本轮温和纸色、深墨/青绿色主动作和紫色 AI 是 V4 提议的视觉主题，不声称与现有蓝色现代简约主题完全一致。实施时保留语义 token 名与现有主题能力，再通过新增主题/令牌映射切换，不硬编码逐页面颜色。</p>
+<h2>3. 四层状态，避免“看起来完成”</h2>
+<h3>3.1 永久可见的最低信息</h3>
+<p>每个涉及 AI 成果的任务至少能找到：基于哪个保存范围；是什么性质（原文观察/系统理解/创作候选）；当前是否过期；是否需要作者决定；实际下一步。小卡片可以合并成一行，但不能删除这些语义。</p>
+<h3>3.2 OutcomeView 契约</h3>
+<pre><code class="language-text">execution: pending | running | paused | terminal
+outcome: complete | partial | failed | cancelled | unknown
+coverage: checked / not_checked / excluded / unavailable
+freshness: current | stale | historical
+applicability: applicable | wrong_focus | unsupported
+adoption: proposed | reviewed | adopted | superseded | not_applicable
+primary_action; secondary_actions; evidence_refs; omissions
+</code></pre>
+<p>前端展示由后端结果和本地未保存状态组合，不凭内容长度/前几千字猜测来源新鲜度。后台停机、读取失败和权限拒绝不能呈现“没有问题”；旧检查可以留在历史区，但不计入当前可行动高风险问题数量。</p>
+<h3>3.3 不伪装用户操作反馈</h3>
+<p>服务端成功才显示“已保存”；仅本地备份成功显示“已在本机保留，尚未同步”；两处都失败必须明确提示并保留可复制内容。任务提交成功不显示理解完成，已采用工作稿不显示已发布，图片生成成功不显示视觉配置已批准。</p>
+<h2>4. 展开、抽屉、弹窗与合并策略</h2>
+<table>
+<thead>
+<tr>
+  <th>情况</th>
+  <th>默认表现</th>
+  <th>原因/退出行为</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>简短解释、为什么现在</td>
+  <td>卡片内折叠</td>
+  <td>不丢当前位置，按钮含展开状态</td>
+</tr>
+<tr>
+  <td>当前建议的原文、来源、少量备选</td>
+  <td>同一个右侧宿主切换内容</td>
+  <td>不新开第二个右栏，提供返回栈</td>
+</tr>
+<tr>
+  <td>自然语言讨论</td>
+  <td>伙伴“讨论”页签</td>
+  <td>当前任务上下文保留，不另起全局悬浮窗</td>
+</tr>
+<tr>
+  <td>长任务历史与恢复</td>
+  <td>伙伴历史摘要 → 独立运行页</td>
+  <td>不把日志墙铺在正文旁</td>
+</tr>
+<tr>
+  <td>多段差异、大规模审阅、版本冲突</td>
+  <td>独立宽工作区</td>
+  <td>足够宽度比较，保留返程锚点与本地输入</td>
+</tr>
+<tr>
+  <td>授权、真实计费、永久删除</td>
+  <td>单层模态</td>
+  <td>明确影响、取消与确认；禁止层层嵌套</td>
+</tr>
+<tr>
+  <td>地图/写作专注模式</td>
+  <td>全屏任务壳</td>
+  <td>退出恢复相机、选区、滚动及草稿</td>
+</tr>
+<tr>
+  <td>手机对象详情、建议</td>
+  <td>单底部 sheet</td>
+  <td>限制高度，可扩展；关闭后回原文/地图</td>
+</tr>
+<tr>
+  <td>调试、模型、范围精确版本</td>
+  <td>第三级诊断</td>
+  <td>普通用户不必打开也能完成核心任务</td>
+</tr>
+</tbody>
+</table>
+<p>只有一个 overlay root。DOM 焦点进入模态、Tab 保持在模态内、Escape 关闭当前模态，关闭后返回触发控件；长内容初始焦点可置于标题而不是把第一项按钮滚到不可见位置。依据 W3C APG 的模态模式（R6），还需实际键盘和辅助技术测试；截图不代表可访问性已经通过。</p>
+<p>自动建议不得在 IME composition、拖拽、选区调整或用户正在阅读时抢焦点。真正来源失效可以立即显示状态，但不突然重排全部卡片。浮动宠物/伙伴图标只是同一 store 和宿主的另一种入口，不能另建轮询、推荐队列或确认操作。</p>
+<h2>5. 核心工作流重新组织</h2>
+<h3>5.1 开始一本书：S02–S05、S34</h3>
+<p>上传、确认来源差异、授权整理、持续进度、单项歧义决定组成一条流程。正常路径只问一次批量整理授权；不要求选择 Scene/世界对象/关系/剧情结构阶段。首次空态不显示不存在的“已理解 12 章”，也不逼作者填世界表。</p>
+<p>上传格式能力按已验证后端呈现；导入预览不是覆盖。来源确认之后，页面显示“哪些内容保存了、理解推进到哪里、哪些需要决定”。用户可以离开并继续写作，后台任务不靠页面挂着维持。</p>
+<h3>5.2 写作：S06–S10、S12、S37–S38</h3>
+<p>正文占据主要空间；伙伴区合并原提醒、预测与讨论入口。选区操作显示当前选段与本次意图；没有 Scene 时仍能继续，只明确哪些约束未检查。左侧保留章节导航/当前章节入口，富文本/段落格式与发布入口紧凑放置，不挤占正文。</p>
+<p>按段续写、人物反应、只润色三种目标分开。创意比较默认不是事实检查。采用前查看精确差异、范围外保留项与新增假设；采用只保存新工作稿，不自动发布。</p>
+<p>S07 的未保存选区属于目标能力，须在临时快照包完成后开放；此前执行按钮必须要求保存，不能拿 UI 新偏移去读取旧版本。</p>
+<h3>5.3 故事与信息推进：S11–S12、S45</h3>
+<p>上位总纲、剧情线、篇章与场景连贯展示，但不重复要求作者维护每一层。调整规划不等于实际发生。当前已采用剧本、人物反应、不得发生事项与写作入口在同一个场景工作区。</p>
+<p>伏笔与揭示归入信息推进，不各自成为孤立顶级工具。自然产生的开放问题与明确作者计划分开；系统可以提醒潜在机会，但不把每个道具变成待回收伏笔。</p>
+<h3>5.4 世界资料：S13–S15、S19、S43–S44</h3>
+<p>资料库默认人物、地点、物品和规则等可理解主题。正式资料、派生理解和开放问题保持明显身份。对象详情同时提供摘要、当前版本、历史变化、证据和相关场景，不分散到多个相互不承接的编辑器。</p>
+<p>同名对象去重先比较身份依据再准备合并；观察不得因去重被丢弃。高级认知和方法视图只在需要时出现，作者日常不必管理认知 schema、方法版本或调度状态。</p>
+<h3>5.5 检查与决定：S05、S16–S17、S33、S40</h3>
+<p>待决定中心按真正问题而不是模块来源分组。一项空间矛盾被写作、世界和地图同时发现时，关联为同一议题，仍保留各自检查范围；不能简单按文字相似就合并不同问题。</p>
+<p>严重问题、创意机会、历史检查分别呈现。处理某条问题后返回原任务锚点。409 冲突使用左右对照保留双方，优先提供另存/手动合并，不以刷新覆盖本地文本。</p>
+<h3>5.6 地图与媒体：S20–S26、S36、S39、S46</h3>
+<p>见 02。主画布、唯一详情宿主、回看带与搜索可相互切换，不同时弹出地图设置、助手、对象编辑三个面板。读者/人物视角尚未支持时显示明确能力边界；不可把作者视图删掉几个字段冒充安全视图。</p>
+<h3>5.7 助手、任务与模型：S27–S29、S35、S42、S47</h3>
+<p>助手默认理解当前任务，但当前焦点不授予全书读取权。任务页统一显示执行、部分完成、费用与恢复，实际领域回执仍是权威。预算到限不会让已保存正文不可用；恢复继续累计原已耗预算。</p>
+<p>模型连接在账户下配置，项目只提供非 secret 工作流偏好。已验证的连接不等于全部高级能力都有质量保障；多模型身份以真实配置而非 Agent 名称为准。命令面板区分导航（只读）与需要确认的付费/写入动作。</p>
+<h3>5.8 RP、版本与生命周期：S30–S32、S41、S48</h3>
+<p>RP 入口使用私人故事语言，选中分支、原作截止点、回顾与自然语言行动是主线；私人故事不写回原作。作者项目导出与 RP 分支导出分别核对来源；未选中的兄弟分支不进入后续故事。</p>
+<p>项目归档和永久删除是不同动作，不能共用“危险删除”确认逻辑。永久删除清单覆盖正文、派生理解、索引、地图与媒体，提供先导出路径。前端不能声称删除已完成直到实际删除工作流有结果。</p>
+<h2>6. 数据装配与状态组织</h2>
+<p><code>TaskWorkspaceContext</code> 可包含 novel/owner、draft/scene refs、selection/cursor、intent、saved revision、editor_state、client epoch、scope ref、active operation。存储分层：授权与持久任务在后端；跨组件 feed 在 account/novel store；标签页焦点在 tab-local；未保存稿有受控恢复存储。</p>
+<p>编译服务器按场景返回最小充分 <code>ExperienceView</code>；首次加载不串行等待所有模块。每个分区有独立 loading/error/coverage，不用一个全屏 spinner 掩盖哪个范围失败。lazy details 不得在授权失效后复用旧缓存。</p>
+<p>每个写入入口只调用领域命令，不在 Vue 页面重新实现采用、费用或状态转移。UI 读取 <code>ChangeReceipt</code> 来更新当前视图、失效标记和长任务，而不是通过广播“所有页面刷新”使项目进入抖动。</p>
+<h2>7. 自适应与操作稳定性</h2>
+<p>宽桌面：正文 + 单伙伴列；中等宽度：伙伴变侧抽屉；手机：单主内容 + 底部 sheet。使用独立移动稿而不是等比缩小桌面。具体断点在真实组件重构后按内容测量决定，不能把 HiFi 的固定尺寸当成业务硬边界。</p>
+<p>地图和差异页需要更大操作面积，默认独立任务态。按钮可点击目标建议至少 44px；正文支持阅读宽度、字体和行距偏好。不能为了给更多信息而把正文缩成窄缝或让滚动被嵌套面板夺走。</p>
+<p>智能排序具有 hysteresis：新卡只有明显更相关或更高风险时才替换主卡；被用户固定、展开或选中时保持位置。危险来源变化另以状态提示处理，不靠随机移动卡片。</p>
+<h2>8. 旧入口到新工作区的迁移矩阵</h2>
+<table>
+<thead>
+<tr>
+  <th>当前能力族</th>
+  <th>新入口/宿主</th>
+  <th>必须保留</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>上传/深度导入/阶段进度</td>
+  <td>开始一本书 / 持续理解 / 运行页</td>
+  <td>来源确认、恢复、预算、旧回执可读</td>
+</tr>
+<tr>
+  <td>写作编辑/候选/续写</td>
+  <td>写作工作区 + 选区动作</td>
+  <td>多版本、并发冲突、采用与发布分离</td>
+</tr>
+<tr>
+  <td>Scene/剧情线/伏笔/揭示</td>
+  <td>故事结构 + 信息推进</td>
+  <td>已采用边界、原文映射、知识截止</td>
+</tr>
+<tr>
+  <td>世界对象/世界书/共创</td>
+  <td>世界资料 + 伙伴讨论</td>
+  <td>编辑基线、校验、原文证据、正式采用</td>
+</tr>
+<tr>
+  <td>检索/Context confirmation</td>
+  <td>搜索 + 依据抽屉 + 范围选择</td>
+  <td>真实选中/排除、不扩大原确认</td>
+</tr>
+<tr>
+  <td>主动检查/Forecast</td>
+  <td>单 feed + 当前任务页签</td>
+  <td>稳定去重、暂缓、覆盖、无费用读取</td>
+</tr>
+<tr>
+  <td>Assistant/Collaboration</td>
+  <td>伙伴讨论 + 方向比较 + 试改预览</td>
+  <td>根预算、独立历史、领域写入与审查</td>
+</tr>
+<tr>
+  <td>Map/图片/校准</td>
+  <td>地图壳 + 详情 + 独立编辑</td>
+  <td>坐标语义、私有媒体、恢复与明确费用</td>
+</tr>
+<tr>
+  <td>RP</td>
+  <td>私人旅程工作区</td>
+  <td>分支、冻结原作版本、截止点与不回写</td>
+</tr>
+<tr>
+  <td>项目/账户/备份</td>
+  <td>次级设置/版本/删除确认</td>
+  <td>权限、真实保存、完整删除清理</td>
+</tr>
+</tbody>
+</table>
+<p>这是工作流族矩阵。实施前通过 routes、commands、Vue views、API 调用点生成完整清单；每个旧行为必须指向新入口或得到明确删除决定。不能因为截图没有画某个低频字段就删除它。</p>
+<h2>9. 本轮设计资产与 Figma 状态</h2>
+<p><code>design/prototype.html</code> 是离线单文件可点击示例，可浏览全部画面、热点、设计说明与场景串联；不会调用模型、保存真实小说或执行删除。<code>design/screens/</code> 是分层 SVG；<code>design/previews/</code> 是同一 SVG 的 PNG 审阅图；<code>design/design.json</code> 是唯一离线场景图源。</p>
+<p><code>design/figma-plugin/</code> 提供从该场景图建立原生 Figma 图层的本地开发插件：文字、frame、按钮/状态组件及矢量插画可编辑。大屏内容以固定高保真 frame 排布，控件使用 Auto Layout；不能声称所有卡片已经完成生产级响应式 Auto Layout。</p>
+<p>Figma MCP 在本轮返回 Starter 额度耗尽；原生画布写入未完成。已有空文件不计为设计成果。插件交付代码和本地语法检查，不代表已在 Figma 运行验证；导入后的中文字体替换、组件布局、原型连接仍需现场检查。SVG 和离线原型是不依赖该额度的实际可用交付。</p>
+<h2>10. UI 验收包</h2>
+<p>U00 原入口/状态清单；U01 AppShell/overlay/返回栈；U02 选区/intent/单 feed store；U03 写作与采用；U04 世界/结构/检查；U05 地图壳与媒体；U06 RP/模型/恢复/删除；U07 临时快照与 dirty 保护；U08 响应式与键盘；U09 全链路功能等价及用户测试。</p>
+<p>每个受影响流程至少检查正常、首次空态、加载、局部错误、来源过期、保存冲突、取消、离开恢复和窄屏；费用与破坏性动作加确认和重复提交。后台与前台同时运行、切项目、改视角、输入法组合、长文本同长度修改是必测反例。</p>
+<p>截图检查验证文字不溢出、面板不遮挡关键内容、状态标签可读。浏览器示例验证热点和页面导航。生产应用需要另外完成真实 API、权限、数据回执与状态恢复测试。三者不能互相替代。</p>
+</article><article id="d5"><h1>追踪矩阵、实施工作包与整体验收</h1>
+<p>V4.0｜本文件把两份原计划中的工作转成一个长程项目，防止合并后遗漏细节，也防止不同 Agent 重复实现同一能力。</p>
+<h2>1. 原计划与本次决策的关系</h2>
+<p>原稿 A：<code>novel-assistant-audit-and-plan.md</code>。原稿 B：<code>PLAN-novel-world-cognition-map-v3.md</code>。完整原文保存在包内 <code>sources/</code>，未修改。来源行范围和 hash 见 06。</p>
+<p>A 的“统一助手内核、单右侧宿主、严格权限与证据”继续保留；其对不增加默认多 Agent 的阶段边界，被用户此次明确要求扩展为可评估的两轨协作。B 的 W/C/V 分责、窄事务、历史可见性、媒体与实验要求继续保留；W 升级为明确替代 deep_import 的 E 系统，而不是额外加一条演化链。</p>
+<p>所有原包均有下列去向。映射表示实施责任和继承要求，不表示包已开发完成。</p>
+<h2>2. 原 W/C/V/I 工作包逐项映射</h2>
+<table>
+<thead>
+<tr>
+  <th>原包</th>
+  <th>原目的</th>
+  <th>V4 去向</th>
+  <th>不能丢掉的验收</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>W00</td>
+  <td>基线与复现</td>
+  <td>E00</td>
+  <td>固定来源、真实代码与静态/运行证据分开</td>
+</tr>
+<tr>
+  <td>W01</td>
+  <td>观察与处置</td>
+  <td>E01</td>
+  <td>未解析、矛盾、无变化有显式结果</td>
+</tr>
+<tr>
+  <td>W02</td>
+  <td>身份解析与去重</td>
+  <td>E02</td>
+  <td>不重复建身份，也不丢新观察</td>
+</tr>
+<tr>
+  <td>W03</td>
+  <td>reducer 与 Scene UoW</td>
+  <td>E03</td>
+  <td>统一状态语义、同批次来源、人工事实保护</td>
+</tr>
+<tr>
+  <td>W04</td>
+  <td>顺序屏障</td>
+  <td>E04</td>
+  <td>下一 Scene 真正继承上一提交，不仅按序落库</td>
+</tr>
+<tr>
+  <td>W05</td>
+  <td>时态、修订与缺失</td>
+  <td>E05</td>
+  <td>首次阅读/回顾分离，未知不伪造</td>
+</tr>
+<tr>
+  <td>W06</td>
+  <td>检查点与代际</td>
+  <td>E06</td>
+  <td>有界回放、旧 owner 禁止提交</td>
+</tr>
+<tr>
+  <td>W07</td>
+  <td>复核与决定</td>
+  <td>E03 + A02/A03 + U04</td>
+  <td>作者决定与独立证据复核分开</td>
+</tr>
+<tr>
+  <td>W08</td>
+  <td>真实验证</td>
+  <td>E09 + QA01</td>
+  <td>不是只跑 mock；实际后续任务消费</td>
+</tr>
+<tr>
+  <td>C00</td>
+  <td>隔离认知实验</td>
+  <td>C00</td>
+  <td>实验无正式写权，保留基线</td>
+</tr>
+<tr>
+  <td>C01</td>
+  <td>持久认知域</td>
+  <td>C01</td>
+  <td>不随短 run 清理丢失；随项目删除清理</td>
+</tr>
+<tr>
+  <td>C02</td>
+  <td>Evidence 接入</td>
+  <td>C02 + I01</td>
+  <td>原文、作用域、排除项重验</td>
+</tr>
+<tr>
+  <td>C03</td>
+  <td>认知维护</td>
+  <td>C03 + C07</td>
+  <td>失效、无变化、负面查询依赖</td>
+</tr>
+<tr>
+  <td>C04</td>
+  <td>方法演化</td>
+  <td>C04 + C09</td>
+  <td>只在注册能力内实验，不能改权限</td>
+</tr>
+<tr>
+  <td>C05</td>
+  <td>作者认知视图</td>
+  <td>C05 + U04</td>
+  <td>不把认知内部维护转嫁普通作者</td>
+</tr>
+<tr>
+  <td>C06</td>
+  <td>五臂实验</td>
+  <td>C06 + A06</td>
+  <td>相同输入、工具与总预算，留出任务</td>
+</tr>
+<tr>
+  <td>V00</td>
+  <td>地图实现基线</td>
+  <td>V00</td>
+  <td>限制和能力实施前按当前 schema 重核</td>
+</tr>
+<tr>
+  <td>V01</td>
+  <td>单地图画布</td>
+  <td>V01</td>
+  <td>避免地图页和全屏页重复实现</td>
+</tr>
+<tr>
+  <td>V02</td>
+  <td>ViewerShell</td>
+  <td>V02 + U01</td>
+  <td>一个浮层根，退出保留编辑和相机</td>
+</tr>
+<tr>
+  <td>V03</td>
+  <td>相机与标签</td>
+  <td>V03</td>
+  <td>坐标分离、实际字宽、障碍避让、迟滞</td>
+</tr>
+<tr>
+  <td>V04</td>
+  <td>前端媒体</td>
+  <td>V04</td>
+  <td>共享 PrivateMedia、取消、释放与权限键</td>
+</tr>
+<tr>
+  <td>V05</td>
+  <td>后端媒体展示</td>
+  <td>V05</td>
+  <td>分辨率、alpha、大小与内存按真实输入测试</td>
+</tr>
+<tr>
+  <td>V06</td>
+  <td>Scene context / presentation</td>
+  <td>V06 + I01</td>
+  <td>表现不占有事实，源图 hash 和全量 CAS</td>
+</tr>
+<tr>
+  <td>V07</td>
+  <td>场景舞台</td>
+  <td>V07</td>
+  <td>缺图不阻塞，人物/物品引用来源</td>
+</tr>
+<tr>
+  <td>V08</td>
+  <td>在场和历史</td>
+  <td>V08 + E05</td>
+  <td>最后出现不等于仍在，未知路线不造真</td>
+</tr>
+<tr>
+  <td>V09</td>
+  <td>保留形象</td>
+  <td>V09</td>
+  <td>配额、历史、引用和清理一致</td>
+</tr>
+<tr>
+  <td>V10</td>
+  <td>授权局部图像生成</td>
+  <td>V10 + A01</td>
+  <td>真实范围、预算、无重复计费、候选不自采用</td>
+</tr>
+<tr>
+  <td>V11</td>
+  <td>地图验证</td>
+  <td>V11 + QA03</td>
+  <td>视觉、语义、安全、性能分开验收</td>
+</tr>
+<tr>
+  <td>I00</td>
+  <td>共同基线</td>
+  <td>E00 + QA00</td>
+  <td>fixture 和部署/仓库版本分开</td>
+</tr>
+<tr>
+  <td>I01</td>
+  <td>ExperienceViewRef</td>
+  <td>I01</td>
+  <td>引用而非全局事实表，只记实际依赖</td>
+</tr>
+<tr>
+  <td>I02</td>
+  <td>变更协议</td>
+  <td>I02 + E05 + R01</td>
+  <td>不依赖助手开关才做必要失效</td>
+</tr>
+<tr>
+  <td>I03</td>
+  <td>整体纵切</td>
+  <td>I03 + E09</td>
+  <td>写作、认知和地图真实读取同一合法状态</td>
+</tr>
+</tbody>
+</table>
+<h2>3. 原助手计划问题逐项归宿</h2>
+<table>
+<thead>
+<tr>
+  <th>A 的问题/方向</th>
+  <th>工作包</th>
+  <th>验收方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>显式选区丢失</td>
+  <td>R00/U02</td>
+  <td>前端选中范围、服务器 SourceRange 与实际模型输入一致</td>
+</tr>
+<tr>
+  <td>尾部 12000 字回退忽略用户焦点</td>
+  <td>R00/U07</td>
+  <td>选区优先，回退有说明；dirty 不复用旧 offset</td>
+</tr>
+<tr>
+  <td>后台与前台 focus/hash 不匹配</td>
+  <td>R01</td>
+  <td>分开授权/证据/任务/展示，保留来源硬门</td>
+</tr>
+<tr>
+  <td>多个 controller 各自轮询</td>
+  <td>R02</td>
+  <td>同一 store 单读循环；卸载不重复请求</td>
+</tr>
+<tr>
+  <td>task_hint/intent 未到后端</td>
+  <td>R00</td>
+  <td>“只润色”不主动扩大情节</td>
+</tr>
+<tr>
+  <td>显式 ContextAssembler</td>
+  <td>C02/R05</td>
+  <td>所有实际证据、排除和覆盖可回读</td>
+</tr>
+<tr>
+  <td>排名与聚类不足</td>
+  <td>R03/R04</td>
+  <td>同问题不多处提醒，当前阅读不抢位</td>
+</tr>
+<tr>
+  <td>每个结论的支持来源不足</td>
+  <td>R03</td>
+  <td>per-claim 引用，不把整轮来源全贴给每条建议</td>
+</tr>
+<tr>
+  <td>主提醒、预测、讨论重复界面</td>
+  <td>U01/R02</td>
+  <td>一个伙伴宿主、当前/讨论/历史</td>
+</tr>
+<tr>
+  <td>图标/宠物入口</td>
+  <td>U01</td>
+  <td>仅视图适配，不另建模型循环和持久队列</td>
+</tr>
+<tr>
+  <td>未保存、失效、无结果的说明</td>
+  <td>U03/U07</td>
+  <td>不假装已保存、不把读取失败当没有问题</td>
+</tr>
+<tr>
+  <td>后续更深预测与认知</td>
+  <td>R06/C07–09/MI00–05</td>
+  <td>通过实际任务验证，不仅改变提示词</td>
+</tr>
+<tr>
+  <td>手动计算与后台授权分离</td>
+  <td>A01/R02</td>
+  <td>读 feed 零模型调用，预算跨重试累计</td>
+</tr>
+<tr>
+  <td>原计划列出的典型回归</td>
+  <td>QA00/QA02</td>
+  <td>纳入以下测试矩阵和分阶段出口</td>
+</tr>
+</tbody>
+</table>
+<h2>4. 本轮新增工作包与 Definition of Done</h2>
+<table>
+<thead>
+<tr>
+  <th>包</th>
+  <th>输出</th>
+  <th>完成判据</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>E07</td>
+  <td>项目级迁移与切换</td>
+  <td>旧 owner 排空/封锁，预算保留，canary/rollback 可演练</td>
+</tr>
+<tr>
+  <td>E08</td>
+  <td>deep_import 编排退役</td>
+  <td>无新请求进入旧独立 owner；重复恢复/调度代码清单核销</td>
+</tr>
+<tr>
+  <td>E09</td>
+  <td>演化真实质量与规模验证</td>
+  <td>真实输入/模型、故障恢复和跨模块结果可审计</td>
+</tr>
+<tr>
+  <td>I01</td>
+  <td>统一经验视图引用</td>
+  <td>状态/认知/媒体/方法实际依赖可解析；不新建第二事实根</td>
+</tr>
+<tr>
+  <td>I02</td>
+  <td>领域变更回执</td>
+  <td>API、助手、协作、导入、恢复有等价副作用</td>
+</tr>
+<tr>
+  <td>A00–01</td>
+  <td>能力基线与共享预算</td>
+  <td>真实模型身份、预算预留、租约和输入隔离测试</td>
+</tr>
+<tr>
+  <td>A02–03</td>
+  <td>可靠性配方</td>
+  <td>原文独立复核、具体失败反馈、争议不靠多数票</td>
+</tr>
+<tr>
+  <td>A04–05</td>
+  <td>创意配方与采用</td>
+  <td>第一轮独立方向；对比保留代价；局部采用有差异</td>
+</tr>
+<tr>
+  <td>A06</td>
+  <td>Agent 评估与默认路由</td>
+  <td>等预算胜出任务才升级默认，其他保留单 Agent</td>
+</tr>
+<tr>
+  <td>C07</td>
+  <td>竞争解释与负面依赖</td>
+  <td>新来源能使“未发现”结论失效；循环引用不加权</td>
+</tr>
+<tr>
+  <td>C08</td>
+  <td>多主体/历史</td>
+  <td>信念、首次阅读、回顾不混用；图片方法同样隔离</td>
+</tr>
+<tr>
+  <td>C09</td>
+  <td>长书与方法演化</td>
+  <td>局部可重算、实际任务改善、没有收益不自动晋升</td>
+</tr>
+<tr>
+  <td>R00–02</td>
+  <td>当前任务与统一 feed</td>
+  <td>选区/intent 全链传递、单读循环、无付费读</td>
+</tr>
+<tr>
+  <td>R03–05</td>
+  <td>引用、排序、行动</td>
+  <td>stable issue、per-claim 支持、领域采用闭环</td>
+</tr>
+<tr>
+  <td>R06–07</td>
+  <td>智能预测和用户验证</td>
+  <td>机会建议不强制新增伏笔；有用性/打扰/成本分开测</td>
+</tr>
+<tr>
+  <td>MI00–05</td>
+  <td>地图智能</td>
+  <td>每级有独立安全与数据门，不把假设路径画成事实</td>
+</tr>
+<tr>
+  <td>U00–09</td>
+  <td>全工作流重构</td>
+  <td>旧入口等价映射、状态矩阵、响应式、键盘、冲突与恢复</td>
+</tr>
+</tbody>
+</table>
+<h2>5. 单一能力所有权防重复表</h2>
+<table>
+<thead>
+<tr>
+  <th>核心能力</th>
+  <th>唯一实现原则</th>
+  <th>允许的多种形式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>状态归约</td>
+  <td>Story 一个契约版本内一个解释内核</td>
+  <td>Chapter/Scene/Map 可以有不同只读投影</td>
+</tr>
+<tr>
+  <td>来源/权限/截止点</td>
+  <td>Evidence 的物化与重验</td>
+  <td>各领域可加自有执行资料，不带回排除项</td>
+</tr>
+<tr>
+  <td>身份解析</td>
+  <td>World identity seam</td>
+  <td>导入、写作、地图均可调用，不各建 dedup engine</td>
+</tr>
+<tr>
+  <td>演化推进</td>
+  <td>Evolution run owner</td>
+  <td>bootstrap/append/revise/scoped 四种模式</td>
+</tr>
+<tr>
+  <td>LLM 与计费</td>
+  <td>Project connection + Root envelope</td>
+  <td>不同配方、不同真实模型，共享根额度</td>
+</tr>
+<tr>
+  <td>领域采用</td>
+  <td>对应 World/Story/Writing 命令</td>
+  <td>API、助手、协作是适配入口</td>
+</tr>
+<tr>
+  <td>推荐呈现</td>
+  <td>Assistant stable issue + feed</td>
+  <td>侧栏、卡片、可选图标入口</td>
+</tr>
+<tr>
+  <td>地图壳/相机</td>
+  <td>单一 ViewerShell/camera</td>
+  <td>嵌入、全屏、移动表现</td>
+</tr>
+<tr>
+  <td>私有媒体</td>
+  <td>共享加载/缓存/释放协议</td>
+  <td>背景、头像、物品、缩略图</td>
+</tr>
+<tr>
+  <td>新鲜度</td>
+  <td>后端来源与依赖回执</td>
+  <td>前端可额外叠加本地 dirty</td>
+</tr>
+</tbody>
+</table>
+<p>检查重复不以函数名字相同或文件数为依据。区分合理 adapter、历史版本解释和真实业务规则复制；建立“同一输入、多个入口、同一副作用/语义”对照测试才有价值。</p>
+<h2>6. 核心跨模块测试矩阵</h2>
+<table>
+<thead>
+<tr>
+  <th>ID</th>
+  <th>场景</th>
+  <th>必须观察的结果</th>
+  <th>级别</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>T01</td>
+  <td>同人物跨 5 个 Scene 出现</td>
+  <td>一身份，多份来源观察；矛盾保留</td>
+  <td>语义/数据库</td>
+</tr>
+<tr>
+  <td>T02</td>
+  <td>保管钥匙与赠予钥匙</td>
+  <td>custody 与 ownership 不混淆</td>
+  <td>真实模型+规则</td>
+</tr>
+<tr>
+  <td>T03</td>
+  <td>甲地出现后乙地出现，路径未知</td>
+  <td>不造移动细节；地图标未知连接</td>
+  <td>跨域</td>
+</tr>
+<tr>
+  <td>T04</td>
+  <td>同契约事件经章节/Scene查询</td>
+  <td>相同截止点的核心状态一致</td>
+  <td>纯函数+PG</td>
+</tr>
+<tr>
+  <td>T05</td>
+  <td>Scene 重跑为空，存在人工确认</td>
+  <td>人工确认不删除、不按序号覆写</td>
+  <td>PG/发布阻断</td>
+</tr>
+<tr>
+  <td>T06</td>
+  <td>输出顺序改变、批次合并</td>
+  <td>stable event identity 不重建事实</td>
+  <td>PG/幂等</td>
+</tr>
+<tr>
+  <td>T07</td>
+  <td>后一 Scene 依赖前一解释</td>
+  <td>实际 Prompt 包含前序已提交回执</td>
+  <td>模型输入审计</td>
+</tr>
+<tr>
+  <td>T08</td>
+  <td>同长度正文修改、位置在 4000 字后</td>
+  <td>来源失效、检查不误显示有效</td>
+  <td>API+UI</td>
+</tr>
+<tr>
+  <td>T09</td>
+  <td>修改前文/调换场景</td>
+  <td>受影响历史、知识、地图和建议失效</td>
+  <td>跨域</td>
+</tr>
+<tr>
+  <td>T10</td>
+  <td>provider 返回后持久化失败</td>
+  <td>复用返回，不再次采样/重复计费</td>
+  <td>故障注入</td>
+</tr>
+<tr>
+  <td>T11</td>
+  <td>领域提交后响应失败</td>
+  <td>返回原 receipt，不重复写入</td>
+  <td>PG/恢复</td>
+</tr>
+<tr>
+  <td>T12</td>
+  <td>切新 owner 后旧 worker 回来</td>
+  <td>旧 epoch 拒绝提交</td>
+  <td>PG 并发</td>
+</tr>
+<tr>
+  <td>T13</td>
+  <td>API/助手/协作分别保存同类工作稿</td>
+  <td>索引、演化、失效副作用一致</td>
+  <td>调用链</td>
+</tr>
+<tr>
+  <td>T14</td>
+  <td>后台无 Scene，前台有 Scene</td>
+  <td>合法结果检查适用性；不放宽权限</td>
+  <td>推荐</td>
+</tr>
+<tr>
+  <td>T15</td>
+  <td>同时挂载两推荐组件</td>
+  <td>一个 feed store，不双请求/双计费</td>
+  <td>UI</td>
+</tr>
+<tr>
+  <td>T16</td>
+  <td>输入法、阅读展开、拖拽时新建议到达</td>
+  <td>不抢焦点不重排选中项</td>
+  <td>UI</td>
+</tr>
+<tr>
+  <td>T17</td>
+  <td>原文撤回，旧建议还在</td>
+  <td>立即失去有效资格；历史可查看</td>
+  <td>跨域</td>
+</tr>
+<tr>
+  <td>T18</td>
+  <td>角色传闻、否定、假设</td>
+  <td>statement/belief 不进入客观事实</td>
+  <td>真实模型</td>
+</tr>
+<tr>
+  <td>T19</td>
+  <td>多个成员共享同一原文</td>
+  <td>不当成多票独立支持</td>
+  <td>Agent</td>
+</tr>
+<tr>
+  <td>T20</td>
+  <td>只有一个真实模型</td>
+  <td>展示独立角色，不伪称异构</td>
+  <td>UI/审计</td>
+</tr>
+<tr>
+  <td>T21</td>
+  <td>多成员并发超预算</td>
+  <td>原子预留失败，不发生额外请求</td>
+  <td>并发/费用</td>
+</tr>
+<tr>
+  <td>T22</td>
+  <td>创意多方向高度相似</td>
+  <td>对照单模型多输出；不以角色数假装多样</td>
+  <td>人工盲评</td>
+</tr>
+<tr>
+  <td>T23</td>
+  <td>用户选择“不扩大情节”</td>
+  <td>不强制加新秘密/伏笔/世界规则</td>
+  <td>创意</td>
+</tr>
+<tr>
+  <td>T24</td>
+  <td>新 case 读取持久认知</td>
+  <td>真实 manifest/Prompt 中有合法 cognition refs</td>
+  <td>纵切</td>
+</tr>
+<tr>
+  <td>T25</td>
+  <td>新章节反驳旧的“未发现路径”</td>
+  <td>负面查询依赖失效</td>
+  <td>认知</td>
+</tr>
+<tr>
+  <td>T26</td>
+  <td>作者视图转早期读者视图</td>
+  <td>标题、配图、cache、晚到请求不泄漏</td>
+  <td>安全</td>
+</tr>
+<tr>
+  <td>T27</td>
+  <td>图元/底图/相机分别移动</td>
+  <td>坐标语义不混用；事实不随像素移动</td>
+  <td>地图</td>
+</tr>
+<tr>
+  <td>T28</td>
+  <td>抽屉展开、密集中文标签</td>
+  <td>关键标签可见，其他可从列表到达</td>
+  <td>地图UI</td>
+</tr>
+<tr>
+  <td>T29</td>
+  <td>图片替换、失焦、页面卸载</td>
+  <td>取消请求、URL释放、私有缓存隔离</td>
+  <td>资源</td>
+</tr>
+<tr>
+  <td>T30</td>
+  <td>图片超时恢复/重复确认</td>
+  <td>原回执复用、无重复配额/扣费</td>
+  <td>费用/媒体</td>
+</tr>
+<tr>
+  <td>T31</td>
+  <td>缺 Scene、缺图、无大纲</td>
+  <td>写作可用；未覆盖明确说明</td>
+  <td>首次体验</td>
+</tr>
+<tr>
+  <td>T32</td>
+  <td>保存 409/离开/刷新</td>
+  <td>本地输入与服务器版本均可恢复</td>
+  <td>UI</td>
+</tr>
+<tr>
+  <td>T33</td>
+  <td>私人 RP 切换分支</td>
+  <td>未选分支不入 Prompt，不写回原作</td>
+  <td>RP</td>
+</tr>
+<tr>
+  <td>T34</td>
+  <td>永久删除项目</td>
+  <td>原文、历史、认知、索引、媒体、缓存均清理</td>
+  <td>全生命周期</td>
+</tr>
+<tr>
+  <td>T35</td>
+  <td>旧 deep_import 请求与新演化同时到达</td>
+  <td>一个有效 owner，新旧不能双写</td>
+  <td>迁移</td>
+</tr>
+<tr>
+  <td>T36</td>
+  <td>新 schema 产生后回滚旧二进制</td>
+  <td>禁止不兼容继续写；保留只读/前向修复</td>
+  <td>迁移</td>
+</tr>
+</tbody>
+</table>
+<h2>7. 三类门禁分别报告</h2>
+<p>工程门禁：来源一致、数据库并发、幂等、权限、恢复、API 等价、前端状态、删除清理。</p>
+<p>模型质量门禁：原子命题正确性、引用语义、未知保留、错误改写、创意有效差异、同预算对照。</p>
+<p>用户门禁：首次任务完成、能否理解当前状态、采用前能否说清影响、建议是否打扰、能否找回来源和本地修改。样本、角色、设备、模型、作品与预算必须注明。</p>
+<p>任何一个门禁通过都不能替代另外两个。百分比目标、延迟目标和帧率目标均在基线测量后冻结；当前设计图上的任何数字都不作为测量结果。</p>
+<h2>8. 开发 Agent 的协作分包</h2>
+<p>一个包一个明确产物与验收，不按目录让多个 Agent 同时改同一事实规则。先做契约和消费者清单，再给各执行成员互不冲突的实现范围。接口变更必须同步所有真实调用者；合并前由独立验证任务从端到端输入检查，而非只读实施者总结。</p>
+<p>建议实施顺序：E00/I01/I02/R00/U00 先建立基线 → E01–04/C01–02/V01–05/U01–03 并行 → I03 纵切 → E05–08 主链替代 → A/R/MI/C 高级能力按实测推进。</p>
+<p>每次提交记录：影响契约、来源/状态、修改路径、真实运行测试、未覆盖项、是否需要迁移、回退方案。没有运行命令就写未运行，不引用旧绿灯或其他分支结果。</p>
+</article><article id="d6"><h1>来源、第二轮分析与交付边界</h1>
+<p>2026-09-21｜本文件区分原计划继承、本轮代码核对、设计推断、研究证据和实际交付。</p>
+<h2>1. 来源及信任等级</h2>
+<p>输入 A：<code>../sources/novel-assistant-audit-and-plan.md</code>。重点：L34–82 当前焦点与轮询问题；L84–128 上下文与排序；L130–160 单宿主；L198–229 回归测试。</p>
+<p>输入 B：<code>../sources/PLAN-novel-world-cognition-map-v3.md</code>。重点：L175–224 经验视图与兼容；L232–340 W/C；L342–570 地图、媒体、失效；L724–826 工作包与实验；L828–955 验证/灰度/远期。</p>
+<p>输入 B 明确继承旧代码基线，不等于该文档每项问题都已在当前运行系统复现。其提到的更早世界重构原稿不在本轮附件内，未把它当作已完整重读的第三份来源。完整源文件与 SHA-256 在包内 manifest 中保留。</p>
+<p>代码基线：<a href="https://github.com/FengHuoLinShan/ai-writing-assist/tree/b5a3ef2e660ddaa65b9bf0ac1ada48f795c53201">ai-writing-assist / b5a3ef2e660ddaa65b9bf0ac1ada48f795c53201</a>。定向读取通过 GitHub 连接完成，没有完整 checkout、完整 PG 测试或线上部署检查。</p>
+<h2>2. 新一轮审查中的主要增量</h2>
+<h3>N01：机器 Scene 替换与人工确认之间缺少来源分区</h3>
+<p>已核对：<a href="https://github.com/FengHuoLinShan/ai-writing-assist/blob/b5a3ef2e660ddaa65b9bf0ac1ada48f795c53201/backend/modules/story/continuity/repositories.py#L370-L445">continuity/repositories.py L370–445</a>。<code>replace_scene_events()</code> 按 novel/scene 取全部旧行，再按 scene_sequence 替换、删除剩余行；此函数没有限制可替换的 source family。</p>
+<p>结合 <a href="https://github.com/FengHuoLinShan/ai-writing-assist/blob/b5a3ef2e660ddaa65b9bf0ac1ada48f795c53201/backend/modules/story/continuity/services.py#L188-L270">continuity/services.py 的人工确认追加</a> 和 <a href="https://github.com/FengHuoLinShan/ai-writing-assist/blob/b5a3ef2e660ddaa65b9bf0ac1ada48f795c53201/backend/modules/imports/entity_extraction/scene_entity_persistence.py#L1020-L1125">imports 的空 Delta 替换入口</a>，机器回放范围与作者权威必须分区。结论是明确的 repository 行为与跨链风险，不是宣称生产中已经发生数据丢失。整改：E00/E03 发布阻断，按 producer/epoch/input generation 替换派生事件，保留作者决定。</p>
+<h3>N02：入口复用并不自动保证副作用一致</h3>
+<p>已读路径：Writing API 在更新/采用后请求索引；Writing assistant 操作与 Collaboration port 复用领域工作稿创建；Collaboration outbox 投递 context changed。相关代码见 <a href="https://github.com/FengHuoLinShan/ai-writing-assist/blob/b5a3ef2e660ddaa65b9bf0ac1ada48f795c53201/backend/modules/writing/api.py#L460-L650">writing/api.py</a>、<a href="https://github.com/FengHuoLinShan/ai-writing-assist/blob/b5a3ef2e660ddaa65b9bf0ac1ada48f795c53201/backend/modules/writing/assistant_tools.py#L390-L495">writing/assistant_tools.py</a>、<a href="https://github.com/FengHuoLinShan/ai-writing-assist/blob/b5a3ef2e660ddaa65b9bf0ac1ada48f795c53201/backend/modules/writing/creative.py">writing/creative.py</a>、<a href="https://github.com/FengHuoLinShan/ai-writing-assist/blob/b5a3ef2e660ddaa65b9bf0ac1ada48f795c53201/backend/modules/collaboration/tasks.py">collaboration/tasks.py</a>。</p>
+<p>这里不把局部未见某个调用夸大为“全局一定没有索引”。本轮提出的架构整改是：建立统一领域变更回执及所有入口对照测试，不依靠每个 adapter 记住同一组后置步骤。I02/E05/U03 负责实现与验证。</p>
+<h3>N03：复用适配器，替代所有权，而不是平行建第二引擎</h3>
+<p><a href="https://github.com/FengHuoLinShan/ai-writing-assist/blob/b5a3ef2e660ddaa65b9bf0ac1ada48f795c53201/backend/modules/imports/orchestrator.py">imports/orchestrator.py</a> 已拥有领域 run 与恢复 checkpoint，<a href="https://github.com/FengHuoLinShan/ai-writing-assist/blob/b5a3ef2e660ddaa65b9bf0ac1ada48f795c53201/backend/modules/imports/workflow.py">imports/workflow.py</a> 组织各 phase runner。若新增 Evolution 后还保留它们的新请求调度权，就产生两个主游标、两套恢复和双写风险。</p>
+<p>因此新要求必须通过项目级 owner epoch、排空/停止、历史 adapter 和旧 handler 退役落实。Shadow 只读比较允许共存，正式写入不允许双 owner。这是本轮设计推论，不是当前仓库已有 Evolution 的描述。</p>
+<h3>N04：多 Agent 应扩现有有限协作，而非再建框架</h3>
+<p><a href="https://github.com/FengHuoLinShan/ai-writing-assist/blob/b5a3ef2e660ddaa65b9bf0ac1ada48f795c53201/backend/modules/collaboration/recipes.py">collaboration/recipes.py</a>、<a href="https://github.com/FengHuoLinShan/ai-writing-assist/blob/b5a3ef2e660ddaa65b9bf0ac1ada48f795c53201/backend/modules/collaboration/merge.py">merge.py</a> 与 <a href="https://github.com/FengHuoLinShan/ai-writing-assist/blob/b5a3ef2e660ddaa65b9bf0ac1ada48f795c53201/backend/app/bootstrap.py">bootstrap.py</a> 提供配方、资源 port、manifest 重验和领域采用基础。V4 扩展可靠性/创意配方及共享预算，不另建自由文本团队世界或独立采用路径。</p>
+<h3>N05：前端新主题是设计选择，不冒充当前实现</h3>
+<p><a href="https://github.com/FengHuoLinShan/ai-writing-assist/blob/b5a3ef2e660ddaa65b9bf0ac1ada48f795c53201/frontend-console/editorial-theme.css#L1-L120">editorial-theme.css L1–120</a> 当前定义较冷的简约底色、蓝色主操作及语义别名。本轮使用暖纸色/深墨青绿为新的创作工作区提案。应保留令牌接口与主题切换，不说“仓库目前就是这套样式”。</p>
+<h2>3. 原审计问题怎样使用</h2>
+<p>Delta 与状态归约断层、两个 reducer 的语义分叉、身份去重跳过观察、顺序落库非顺序认知、发布链只做索引/历史快照等，作为原审查与 B 的继承项，进入 E00 基线复现与 E01–06 方案。上一轮聊天中个别引用标记与文件名存在对照不一致风险；本交付不把那些标记当成精确定位依据，改用固定 commit 的路径和可复现契约。</p>
+<p>整个计划中的“应当”“拟议”“建议”均是设计方向。没有执行迁移、没有更改生产代码、没有在数据库中测试新协议。新命名不是仓库现存能力的声明。</p>
+<h2>4. 原始研究及为何采用</h2>
+<h3>R1：架构与任务匹配</h3>
+<p>Kim 等，<em>Towards a Science of Scaling Agent Systems</em>，arXiv:2512.08296，v3，2026-04-08。</p>
+<p><a href="https://arxiv.org/abs/2512.08296v3">https://arxiv.org/abs/2512.08296v3</a></p>
+<p>该版本报告对多种架构和任务的受控比较，并强调任务结构与协调方式匹配。用于支持有依赖任务保留顺序、团队按任务评估的设计；不是小说项目收益证明。不再混用 v1 的配置数量和 v3 结果。</p>
+<h3>R2：自纠错需要可信反馈</h3>
+<p>Huang 等，<em>Large Language Models Cannot Self-Correct Reasoning Yet</em>，ICLR 2024，arXiv:2310.01798。</p>
+<p><a href="https://arxiv.org/abs/2310.01798">https://arxiv.org/abs/2310.01798</a></p>
+<p>研究对象是在其设定下没有外部反馈的推理自修正。用于支持原文回读、代码验证与具体失败反馈；不宣称所有 2026 模型在所有任务都无法自纠错。</p>
+<h3>R3：创意辅助与同质化</h3>
+<p>Doshi 与 Hauser，<em>Generative AI enhances individual creativity but reduces the collective diversity of novel content</em>，Science Advances，2024，DOI 10.1126/sciadv.adn5290。作者机构存档：</p>
+<p><a href="https://discovery.ucl.ac.uk/id/eprint/10195027/">https://discovery.ucl.ac.uk/id/eprint/10195027/</a></p>
+<p>短篇实验中的个人评价收益与故事间相似性风险支持独立发散、保留多种方向。不能直接外推为专业长篇作者的提升率；真实项目仍需人工盲评。</p>
+<h3>R4：多 Agent 工程实践</h3>
+<p>Anthropic，<em>How we built our multi-agent research system</em>，2025-06-13。</p>
+<p><a href="https://www.anthropic.com/engineering/multi-agent-research-system">https://www.anthropic.com/engineering/multi-agent-research-system</a></p>
+<p>其独立并行研究及执行恢复经验用于借鉴输入隔离、明确成员任务、artifact 交接、成本与端态验收。内部 research 指标不移植成小说质量指标。</p>
+<h3>R5：现有技术栈的协作能力</h3>
+<p>Pydantic 官方文档，<em>Multi-agent Applications</em>，读取日期 2026-09-21。</p>
+<p><a href="https://pydantic.dev/docs/ai/guides/multi-agent-applications/">https://pydantic.dev/docs/ai/guides/multi-agent-applications/</a></p>
+<p>用于确认 delegation、程序交接及共享 usage 的实现方向；部署要先核对仓库锁定版本，不能把在线文档的新 API 当成已安装功能。</p>
+<h3>R6：模态交互规范</h3>
+<p>W3C WAI APG，<em>Dialog (Modal) Pattern</em>。</p>
+<p><a href="https://www.w3.org/WAI/ARIA/apg/patterns/dialog-modal/">https://www.w3.org/WAI/ARIA/apg/patterns/dialog-modal/</a></p>
+<p>用于焦点进入、Tab 范围、Escape 和焦点返回设计。尚未进行真实辅助技术认证。</p>
+<h3>R7：Figma 原生导入器</h3>
+<p>Figma Plugin Manifest 和 FrameNode 官方参考，读取日期 2026-09-21。</p>
+<p><a href="https://developers.figma.com/docs/plugins/manifest/">https://developers.figma.com/docs/plugins/manifest/</a>
+<a href="https://developers.figma.com/docs/plugins/api/FrameNode/">https://developers.figma.com/docs/plugins/api/FrameNode/</a></p>
+<p>插件 ID 必须由 Figma 分配，不伪造。交付提供不含账号密钥的离线数据和创建代码；安装时使用 Figma 创建的本地插件 ID。</p>
+<h2>5. 交付与未完成的精确边界</h2>
+<p>已产出：长期总计划、独立演化/地图/多 Agent 与认知推荐/前端计划、追踪与验收矩阵、分层 SVG、PNG 审阅图、离线交互原型、Figma 重建插件代码和设计数据。</p>
+<p>Figma MCP 的实际调用返回 Starter 额度耗尽，原生设计写入没有完成。空文件不能当成果。插件运行、字体替换与原生截图仍需在有可用编辑能力的 Figma 环境验证；不为额度问题安排付款或更改用户套餐。</p>
+<p>已验证的离线结果和测试数量以 <code>../validation/DELIVERY-QA.md</code> 为准。那里只报告本轮实际执行的验证，不把待实施门禁写成通过。</p>
+</article></main></body></html>
