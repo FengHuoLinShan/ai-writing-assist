@@ -16,6 +16,16 @@ export function captureWorkContext(state, router, projectId, page, activeElement
     const editor = activeElement?.id === "writing-editor" ? activeElement : workspace?.querySelector?.("#writing-editor")
     if (editor?.tagName === "TEXTAREA" && owns(editor)) {
       context.selection = editor.value.slice(editor.selectionStart, editor.selectionEnd)
+      const editorState = state._writingForecastState
+      const clean = !(editorState?.projectId === projectId && (editorState?.dirty || editorState?.saving))
+      if (context.selection && clean) {
+        // R00：选区带 SourceRange 语义——码点偏移（与服务端码点计数一致，
+        // 不用 UTF-16 下标，emoji 等增补平面字符不漂移）。未保存编辑期间
+        // 偏移必然与已存草稿漂移，只保留文本不带偏移。
+        const before = editor.value.slice(0, editor.selectionStart)
+        context.selection_start = Array.from(before).length
+        context.selection_end = context.selection_start + Array.from(context.selection).length
+      }
     }
   }
   const query = router?.getCurrentQuery?.()
