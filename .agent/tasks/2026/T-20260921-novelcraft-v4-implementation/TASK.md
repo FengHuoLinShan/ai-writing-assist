@@ -89,7 +89,21 @@
       实现随 E04/E07 接线）。T10/T11/来源漂移/父推进/失败无回执/旧 owner
       拒绝共 6 例故障注入测试。测试坑：rollback 会过期 ORM 属性（固化
       scene_id 字符串）并把未 commit 的场景行卷走（先 db.commit() 封存）。
-- [ ] E04 orchestrator（前序屏障、有限并行、游标与预算）（未开始）
+- [x] 2026-09-21 会话 4：E04 完成——三表 + 迁移 + 编排内核：
+      `evolution_models`（evolution_runs：owner epoch/已提交前缀游标/根预算；
+      evolution_frozen_attempts；evolution_receipts）+ Alembic
+      `20260921_evolution_tables`（本地真 PG ai_novel_acceptance_guimi 验证
+      到 head、三表建成；注意 alembic.ini 写的 ai_novel_engine 是旧库，
+      实际走 settings 的 guimi 库）。`store.PostgresAttemptStore` 绑定
+      (db, novel_id) 实现 AttemptStore：回执落库同事务推进游标+head、
+      回执不可改写、reserve_budget 条件 UPDATE 原子预留（T21）。
+      `orchestrator.py`：prepare_scene_input 前序屏障（T07：Scene N+1 输入
+      实际包含 Scene N 已提交回执，前序未提交显式 blocked 不带假结论）；
+      plan_parallel_batches 确定性准入（同 Scene 依赖键不相交并行、
+      键冲突/叙事顺序分批）。10 例新测试（含并发预留恰好耗尽预算）。
+      本机坑：出现 `* 2.py` 陈旧副本文件破坏 lint（第三次遇到，删除即可）。
+- [ ] E05 Evidence dependencies + evolution/invalidation（修订/时态/重排/删除
+      影响传播，T08/T09）（未开始）
 
 ## 验证
 
@@ -110,18 +124,19 @@
   test_repositories 2 例、test_foreshadowing_reveal 2 例、writing
   test_create_many_reads_versions_once_and_flushes_once 1 例。
 
-## 恢复快照（2026-09-21 会话 3 结束，含 E03c）
+## 恢复快照（2026-09-21 会话 4 结束，含 E04）
 
-分支 `codex/novelcraft-v4-g0-baseline`，累计 11 个提交：G0×2、E01、E02
-（00d92dfb9）、E03a（d9bacadc2）、T13 对齐（60879dfd3）、E03b（1a9bb215e）、
-E03c（d11fb140c）及任务/文档记录。**未推送、未合 main、未部署、未建 PR。**
+分支 `codex/novelcraft-v4-g0-baseline`，累计 13 个提交：G0×2、E01、E02、
+E03a、T13、E03b（1a9bb215e）、E03c（d11fb140c）、E04（3e7a31eb8）及任务/
+文档记录。**未推送、未合 main、未部署、未建 PR。**
 E03b 与计划 §2.2 的差异（有意收窄）：以 `meta.event_key` JSON 键替代新列
 （避免生产迁移，语义等价——身份=语义指纹而非输出位置）；producer_family
 暂用 source 字符串（deep_import/ai_extraction），generation/input_revision
 登记在 delta meta，完整 `replace_derived_scene_events(...)` 签名留给 E03c
 随 evolution/commit 落地。
-下一步：E04 orchestrator——前序屏障（后一 Scene 的输入必须实际包含前一
-Scene 已提交回执，T07）、有限并行（read-set/dependency key 证明）、游标与
-预算（T21 原子预留）；需要先落 AttemptStore 的 PG 实现与 run 注册表
-（Alembic migration）。协作/导入索引缺口留 I02。G0 可并行项（R00/V00）
-尚未认领。
+下一步：E05（Evidence dependencies + evolution/invalidation：修订/时态/
+重排/删除的影响传播，T08 同长度修改失效、T09 前文修改/场景调序失效），
+随后 G2 整体纵切（原文→前序状态→后序理解→新 case→地图→修订失效）。
+E04 留给接线期的项：orchestrator 与 async_tasks/worker 的实际挂接、
+provider 采样循环组合（现在只有协议与内核）。协作/导入索引缺口留 I02。
+G0 可并行项（R00/V00）尚未认领。
