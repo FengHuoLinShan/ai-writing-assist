@@ -24,6 +24,7 @@ class AuthConfigResponse(BaseModel):
     privacy_url: str = "/legal/privacy"
     support_email: str
     demo: PublicDemoConfigResponse = Field(default_factory=PublicDemoConfigResponse)
+    demo_login_enabled: bool = False
 
 
 class EmailCodeRequest(BaseModel):
@@ -60,6 +61,12 @@ class AnonymousRpSessionResponse(BaseModel):
 
 
 class AnonymousRpSessionRequest(BaseModel):
+    accept_terms: bool = False
+    accept_privacy: bool = False
+
+
+class DemoLoginRequest(BaseModel):
+    secret: str = Field(min_length=1, max_length=256)
     accept_terms: bool = False
     accept_privacy: bool = False
 

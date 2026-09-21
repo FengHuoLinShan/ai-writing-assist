@@ -19,8 +19,10 @@ from core.errors import ConflictError, NotFoundError, ValidationError
 from modules.account.constants import (
     ANONYMOUS_RP_IDENTITY_TYPE,
     ANONYMOUS_RP_SESSION_SECONDS,
+    DEMO_SHARED_IDENTITY_TYPE,
 )
 from modules.account.contracts import BOOTSTRAP_ACCOUNT_ID, AccountPrincipal
+from modules.account.demo_login import configured_demo_login
 from modules.account.email_sender import send_login_code
 from modules.account.models import (
     Account,
@@ -152,6 +154,92 @@ class AccountService:
         )
         await self._record_event(db, account.id, "anonymous_rp_started", "")
         return AnonymousRpLoginResult(login=login, expires_at=expires_at)
+
+    async def create_demo_login_session(
+        self,
+        db: AsyncSession,
+        *,
+        secret: str,
+        accept_terms: bool,
+        accept_privacy: bool,
+        peer: str,
+        settings: Settings | None = None,
+    ) -> LoginResult:
+        """Issue a full browser session for the configured shared demo account."""
+        resolved = settings or get_settings()
+        config = configured_demo_login(resolved)
+        if not config.enabled or config.account_id is None:
+            raise NotFoundError("Demo login is not enabled")
+        if not accept_terms or not accept_privacy:
+            raise ValidationError("开始体验前必须同意用户协议和隐私政策")
+        peer_digest = _keyed_digest(resolved, "peer", peer)
+        now = _utcnow()
+        recent_rejections = (
+            await db.execute(
+                select(func.count(AccountSecurityEvent.id)).where(
+                    AccountSecurityEvent.event_type == "demo_login_rejected",
+                    AccountSecurityEvent.peer_digest == peer_digest,
+                    AccountSecurityEvent.created_at >= now - timedelta(minutes=15),
+                )
+            )
+        ).scalar_one()
+        if recent_rejections >= 5:
+            raise ConflictError("演示登录尝试过于频繁，请稍后再试")
+        if not hmac.compare_digest(secret.encode(), config.secret.encode()):
+            await self._record_event(
+                db, config.account_id, "demo_login_rejected", peer_digest
+            )
+            await db.flush()
+            raise ValidationError("演示口令无效")
+        account = await db.get(Account, config.account_id)
+        if account is None or account.status != "active":
+            await self._record_event(
+                db, config.account_id, "demo_login_unavailable", peer_digest
+            )
+            await db.flush()
+            raise NotFoundError("Account not found")
+        await self._ensure_account_consents(db, account.id, resolved, now)
+        result = await self.create_session(
+            db,
+            account=account,
+            identity_type=DEMO_SHARED_IDENTITY_TYPE,
+            settings=resolved,
+        )
+        await self._record_event(db, account.id, "demo_login_succeeded", peer_digest)
+        return result
+
+    async def _ensure_account_consents(
+        self,
+        db: AsyncSession,
+        account_id: uuid.UUID,
+        settings: Settings,
+        now: datetime,
+    ) -> None:
+        existing = {
+            (row.policy_type, row.version)
+            for row in (
+                await db.execute(
+                    select(AccountConsent).where(AccountConsent.account_id == account_id)
+                )
+            ).scalars()
+        }
+        rows = []
+        for policy_type, version in (
+            ("terms", settings.terms_version),
+            ("privacy", settings.privacy_version),
+        ):
+            if (policy_type, version) not in existing:
+                rows.append(
+                    AccountConsent(
+                        account_id=account_id,
+                        policy_type=policy_type,
+                        version=version,
+                        accepted_at=now,
+                    )
+                )
+        if rows:
+            db.add_all(rows)
+            await db.flush()
 
     async def login_oidc(
         self,

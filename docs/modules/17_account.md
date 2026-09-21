@@ -20,12 +20,17 @@
 读取账号/凭据、助手、任务、Prompt 模板、检索轨迹、上下文快照或其他项目，也不能写入。
 作者 `workspace-summary` 不对演示 principal 开放；公开首页仅消费 Writing 返回的 `published` 章节投影。
 
+演示共享登录（ADR-0028）由 `PUBLIC_DEMO_LOGIN_ENABLED`、`PUBLIC_DEMO_LOGIN_ACCOUNT_ID` 与
+`PUBLIC_DEMO_LOGIN_SECRET` 三项部署配置控制：口令常时比较、同一 peer 15 分钟 5 次失败节流、
+成败均记安全事件，为配置指向的唯一既有账号签发与邮箱登录完全等价的 `demo_shared` 会话。
+口令不进入 config 响应、API 或日志；配置无效时入口整体关闭。
+
 ## 数据与隔离
 
 | 表 | 职责 |
 |---|---|
 | `accounts` | 账号状态、支持码、删除申请和到期时间；匿名 RP 账户额外记录 24 小时临时到期点 |
-| `account_identities` | 唯一邮箱、Authing 微信或 `anonymous_rp` 临时身份 |
+| `account_identities` | 唯一邮箱、Authing 微信、`anonymous_rp` 临时身份或 `demo_shared` 演示身份 |
 | `web_sessions` | 单一有效浏览器会话及令牌/CSRF 摘要 |
 | `email_login_challenges` | 邮箱验证码 keyed HMAC、尝试次数和过期状态 |
 | `account_security_events` | 不含项目内容的脱敏安全审计 |
@@ -41,6 +46,7 @@ owner 门禁。
 
 - `/api/auth`：配置、邮箱登录/注册、当前账号、退出和邮箱重新认证；
 - `/api/auth/anonymous-rp`：仅在公开演示及精确 source 配置均启用后，记录条款/隐私同意并建立 24 小时匿名 RP 会话；独立 session Cookie 为 HttpOnly，只用于显式标记的 RP 交互请求，不覆盖已登录作者会话；API Key 不进入 cookie、账号或会话表；
+- `/api/auth/demo-login`：口令校验通过后为配置的唯一演示账号签发与邮箱登录等价的会话（ADR-0028）；配置无效时 404；
 - `/api/account`：延期删除状态、申请与撤销；
 - `/api/auth/wechat`：Authing 微信登录；
 - `/api/auth/reauth/wechat`：微信重新认证。

@@ -84,7 +84,9 @@ Prompt 或 token；预算遗漏另行解释。作者可逐项移除/恢复、用
 - Vue 基建：`vue/bridge/`、`vue/composables/`、`vue/mountIsland.js`
 - 通用交互：`shared/`、`ui/`
 - 公共入口认证：`vue/auth/AuthGate.vue` 复用 `HomeChoiceView`，`vue/auth/entryMode.js`
-  只在 `sessionStorage` 保存一次性作者 / RP 目的地，不改账号、项目或后端 wire
+  只在 `sessionStorage` 保存一次性作者 / RP 目的地，不改账号、项目或后端 wire；
+  服务端 `demo_login_enabled` 时登录卡片额外展示「演示账号登录」次级块（口令 +
+  同一条款勾选，走 `POST /api/auth/demo-login`，成功复用与邮箱登录相同的认证消费点）
 
 当前 router 识别的 hash 名称为：
 
