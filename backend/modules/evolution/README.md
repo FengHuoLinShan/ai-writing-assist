@@ -32,6 +32,12 @@ owner epoch、窄事务与影子运行规则逐步落地，替代而非并存旧
   全程不接触 provider。存储经 `AttemptStore` port 注入（生产 PG 实现随
   E04/E07 接线）。
 
+- 持久化与编排（E04）：三张表（run 注册表 / 冻结尝试 / 回执）+ Alembic
+  `20260921_evolution_tables`；`store.PostgresAttemptStore` 绑定
+  `(db, novel_id)` 实现 AttemptStore（回执落库同事务推进游标；预算条件
+  UPDATE 原子预留）；`orchestrator.prepare_scene_input` 前序屏障（T07）与
+  `plan_parallel_batches` 依赖键准入。
+
 ## 测试
 
 `tests/`：契约校验语义与稳定观察身份（重排不变、同断言去重、

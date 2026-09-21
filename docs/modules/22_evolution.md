@@ -36,6 +36,18 @@ V4 长期计划（`docs/plans/novelcraft-v4/plans/01-EVOLUTION.md`）的演化�
   故障注入测试覆盖：持久化失败复用冻结不重采样、响应丢失重放原回执）。
   存储经 `AttemptStore` port 注入，生产 PG 实现随 E04/E07 接线。
 
+- 持久化与编排（E04，`models.py` / `store.py` / `orchestrator.py`）：
+  `evolution_runs`（owner epoch、已提交前缀游标、根预算）、
+  `evolution_frozen_attempts`、`evolution_receipts` 三表与 Alembic 迁移
+  `20260921_evolution_tables`；`PostgresAttemptStore` 绑定 `(db, novel_id)`
+  作用域实现 AttemptStore 协议——回执落库同事务推进游标与 head（不可改写），
+  `reserve_budget` 条件 UPDATE 原子预留（T21 不透支）。编排内核：
+  `prepare_scene_input` 前序屏障（T07：Scene N+1 输入实际包含 Scene N 的
+  已提交回执；前序未提交显式 blocked，不携带假结论）；`plan_parallel_batches`
+  确定性准入（同 Scene 依赖键不相交可并行；键冲突或叙事顺序强制分批，
+  不采信模型自称可并行）。当前无生产写入方，deep_import 仍是唯一编排
+  owner；E07 切换前禁止双写。
+
 ## 测试
 
 `modules/evolution/tests/`：契约校验语义（含游标纪律）与稳定身份性质。
