@@ -3,19 +3,19 @@ id: T-20260921-branch-consolidation
 title: 审查并整合活跃分支到本地 main
 status: active
 created: 2026-09-21T11:46:20+08:00
-updated: 2026-09-21T11:46:20+08:00
+updated: 2026-09-21T12:03:46+08:00
 ---
 
 # 审查并整合活跃分支到本地 main
 
 ## 恢复快照
 
-- 实际完成：已 fetch/prune，盘点全部 branch/worktree；确认 `main` 与 `origin/main` 同为 `6e901693a`，主工作树有受保护 WIP。
-- 当前里程碑：在隔离分支逐一验证并提交三个活跃工作树的成果，随后解决集成冲突和回归。
-- 下一步：先交付 `codex/technical-coverage`，再处理 `codex/forecast-creative-engine` 与 `codex/dsflash-balance` 的重叠调用链。
+- 实际完成：三个活跃工作树已形成提交并按技术覆盖、Forecast/Collaboration、DS Flash 顺序线性整合；冲突已修复，完整 CI、PostgreSQL 和浏览器门禁通过。
+- 当前里程碑：整合分支 `6e9b027a3` 加收尾文档修复已就绪，等待快进本地 `main` 并清理已合并的干净活跃 worktree/ref。
+- 下一步：提交收尾文档，核对主工作树脏文件与整合改动无交集，然后 `git merge --ff-only codex/branch-consolidation-20260921`。
 - 阻塞：无；归档分支、detached worktree、主工作树 WIP 不纳入整合或清理。
 - 工作区：主笔记位于 `/Users/tywww/.codex/worktrees/branch-consolidation-20260921/ai-writing-assist`，分支 `codex/branch-consolidation-20260921`；原工作树和候选工作树保持各自现状。
-- 最后核实：2026-09-21T11:46:20+08:00。
+- 最后核实：2026-09-21T12:03:46+08:00。
 
 ## 目标与验收
 
@@ -34,22 +34,29 @@ updated: 2026-09-21T11:46:20+08:00
 ## 里程碑与进度
 
 - [x] 远端、分支、worktree、WIP、归档和基线盘点。
-- [ ] 逐分支验证并形成可审查提交。
-- [ ] 在隔离整合分支解决冲突并跑适用回归。
+- [x] 逐分支验证并形成可审查提交。
+- [x] 在隔离整合分支解决冲突并跑适用回归。
 - [ ] 快进本地 `main`，安全清理仅已合并且干净的活跃分支/worktree。
 
 ## 决策、发现与失败
 
 - 2026-09-21：归档 refs 与 detached demo/immutable-history 明确保留；它们不是待合并候选。
 - 2026-09-21：主工作树 README、promo、outline CSS 与未跟踪录屏资料视为用户 WIP，不移动、不提交。
+- 2026-09-21：唯一代码冲突位于 `LLMClient.resolve_request_defaults`；同时保留未显式 model 的客户端默认继承与 DeepSeek 高质量档覆盖，360 项共享调用链回归通过。
+- 2026-09-21：PostgreSQL/浏览器首次命令分别因专用库命名护栏和工作目录错误未执行测试；改用带 `test`、`agent_e2e` 标记的新库后通过，未修改门禁。
 
 ## 验证证据
 
 - 基线 `make docs-check`：通过；9 business modules / 118 ORM tables / 47 task handlers / 16 routes / 35 ADR。
+- `make eval-technical-coverage`：14 passed；`ragas==0.4.3` / `langchain-community==0.4.1` 关键导入通过。
+- 共享调用链专项：360 passed。
+- `make test-ci TEST_WORKERS=2`：deploy 270 passed；backend 5980 passed、15 skipped、coverage 85.60%；frontend 2536 passed；docs、secret、audit、Ruff 通过。
+- 新建专用 PostgreSQL 库从空库升级到 head；`make test-postgresql-critical` 37 passed；Forecast/Collaboration/technical recovery 17 passed。
+- Creative Forecast Playwright：1 passed，覆盖保存、前瞻、两方案试改、检查、精确采用、刷新和 390px。
 
 ## 交付结果
 
-- 已交付：执行中。
-- 未交付：候选提交、整合验证、本地 main 更新与安全清理。
-- 交付边界：仅本地；未提交、未推送、未部署。
+- 已交付：候选提交、冲突修复和隔离整合验证。
+- 未交付：本地 `main` 快进与安全清理。
+- 交付边界：本地整合分支已提交；尚未更新 `main`，未推送、未部署。
 - 正式知识与后续任务：无。

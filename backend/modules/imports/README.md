@@ -489,6 +489,7 @@ Phase 1a 按窗口、Phase 1b/2a 按 Scene、Phase 1c/3 按候选组、review re
 
 `forecast.py` 读取原 organization owner/generation/恢复资格及 review_summary 的精确组，
 呈现原待决与未完成部分。前瞻不会创建平行导入 owner 或自动采用整批资料。
+
 ### 普通与高质量档
 
 普通导入继续high思考及冻结的阶段输出预算（一般32,768）；历史小预算截断多，不能以压低

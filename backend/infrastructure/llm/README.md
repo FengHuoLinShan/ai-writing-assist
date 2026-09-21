@@ -303,6 +303,7 @@ provider 等待至少900秒，仍受领域总 deadline/请求次数护栏约束�
 `tool_call_id` 回查真实工具名。旧 `pydantic-ai-2.42.0` 记录仅在原调用唯一可证明时
 修复历史适配器留下的 `result` 名称；重复、未配对和其它身份冲突拒绝恢复。
 模型思考内容仍为私有信息，离线工具诊断只导出关联、来源和 hash。
+
 ## V2 工作图与前瞻预算
 
 `collaboration_v2.py` 只处理有界 DAG 与失败传播，领域运行由 Collaboration 持有。

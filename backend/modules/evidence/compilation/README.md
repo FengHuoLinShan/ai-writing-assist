@@ -645,6 +645,7 @@ Agent 重用原 confirmation 的 selected/excluded 与可见性，不把跨 cons
 `public_demo_source` 参数不能由浏览器任意放宽：它经 interaction facade 重新验证配置 revision ID、
 ready 状态、fingerprint 与 exact manifest 后才跳过这一次 owner 比较；source/consumer 的项目 kind、
 manifest/hash、章节/offset、reader/character 可见性及 snapshot 审计继续全部生效。
+
 ### 世界复核的精确范围
 
 world.validation.semantic 的调用方冻结原 confirmation 编译后保留的 items，而非根据 selected ID 重新读取整份未裁剪资产。确认后的模型输入、源 hash、范围与遗漏共同形成 World 回执，续接保持同一确认。pinned prose 使用 highlight_start/end 截取精确选段；Story 规划与地图当前版本只向无章节/Scene/offset 截止的作者 inspect 开放，reader/character 不走这条缺少可见性投影的路径。
@@ -677,6 +678,7 @@ ADR-0027 协作通过原 confirmation 和调用者范围重新物化资料。作
 取交集并扣除排除区间，预算/来源失败显式列入遗漏。
 `before=after=0` 的 Evidence 回读现在只返回所引用区间，去掉底层文稿读器的同段扩展；
 其他带段落前后文的旧读取行为保持。
+
 ## 精确试改与前瞻资料
 
 Evidence 为 Collaboration 收集授权的冻结资源集合，manifest 同时绑定命中与查询范围，

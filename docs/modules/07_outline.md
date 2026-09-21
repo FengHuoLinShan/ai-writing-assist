@@ -327,6 +327,7 @@ Story 为 Collaboration 提供 Scene、伏笔/揭示安排的冻结可编辑字�
 试改独立保存，采用仍验证当前结构版本。`observations.py` 区分输入刺激、私有意图、
 可观察事件和可重放的 ResolutionBatch；说法不是事实，未知资源或唯一资源冲突不宣告成功。
 `observation_v2` 不重新解释旧 rehearsal_v1。读者推测与作者安排分开，派生前瞻不是新信息计划。
+
 ### DS Flash 档位调优（2026-09-21）
 
 深度导入Phase3高质量档在同一账户Flash上使用max，结构生成和逐条证据复核均保留至少65,536输出余量；普通档保留冻结阶段预算与high。预算不改变Scene证据、角色边界及采用门禁。

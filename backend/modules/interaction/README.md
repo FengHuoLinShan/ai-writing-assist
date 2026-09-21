@@ -274,6 +274,7 @@ selection/source epoch 与租约复验，才与 `interaction_actor_state_revisio
 SSE offset 始终按 Unicode code point 计数（与 Python len 一致）。客户端按当前
 attempt 和正文位置去重/补齐重叠片段，冲突或缺口读取同一 attempt 的持久快照，
 不会以 JavaScript UTF-16 长度推进 offset；相同位置的状态/终态事件仍处理。
+
 ## 观察协议与私人旅程前瞻
 
 `observation_v2` 在用户明确本轮输入类型后分开处理说话、行动尝试和场外要求。

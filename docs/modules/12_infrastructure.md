@@ -575,6 +575,7 @@ UUID。过滤在领取 SQL 中完成，只处理匹配的 pending 任务；不�
 handler 普通失败时保留领域经 fenced checkpoint 写入的双恢复标记；只有既有 manual_resume 策略且 meta/result 都明确为 true 才提示可恢复。未标记、单边标记、其他恢复策略仍按既有规则处理。标记不替代项目、lease 或各模块恢复 API 的校验。
 
 任务生命周期保留原恢复默认；Imports 对已核验 deferred 阶段可显式请求 completed task 再入队，仍受类型、项目和领域锁约束。详见 tasks README。
+
 ### 共创回合恢复
 
 `world_cocreation_turn` 使用 `auto_requeue`、至多两个 attempt 与现有 transport retry scope，并以
@@ -600,10 +601,12 @@ Agent 工具历史 v2 按调用 ID 保留真实工具身份，旧 v1 的丢名�
 原调用时迁移。诊断不导出供应商思考或原始工具参数。SSE 正文位置使用 Unicode code
 point；重复/重叠片段按正文位置合并，缺口或冲突回读同一 attempt 快照，状态事件独立处理。
 PG 容量实验使用固定替身及专用临时库，只衡量入队/worker 路径，不代表推理吞吐。
+
 ## 有界创作执行
 
 Collaboration 的动态工作图和 Assistant 的短期前瞻复用 PostgreSQL 队列、Project
 账户连接快照、同一请求账本和 lease。新增任务见 tasks README；不会另建调度服务。
+
 ### DeepSeek 质量优先执行
 
 World `pro`、导入 `high_quality` 通过 Project snapshot client 的显式 high_quality 参数选择

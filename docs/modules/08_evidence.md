@@ -469,6 +469,7 @@ ADR-0027 的 TeamProjection 将项目、许可范围 hash 与全部来源依赖�
 逐段来源与覆盖信息。作者可在原证据抽屉展开阅读；Scene 跨章、来源过期、截止点及
 字符预算均逐段检查。默认 confirmation 消费不自动扩大，精确 0/0 回读仅含引用区间。
 实验指标和技术覆盖边界见 [技术覆盖说明](../testing/technical-coverage.md)。
+
 ## 精确试改与前瞻资料
 
 Evidence 为 Collaboration 收集授权的冻结资源集合，manifest 同时绑定命中与查询范围，

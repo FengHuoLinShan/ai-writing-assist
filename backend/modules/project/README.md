@@ -342,6 +342,7 @@ AuthorTaskService 的 today/inbox/later/completed/archived 与分页规则，每
 
 `forecast.py` 消费原 workspace continuation 与 attention，不按访问时长猜测重要任务。
 Project 仍持有 author tasks，只有作者明确选择并确认才从前瞻创建一条待办。
+
 ### 质量优先参数
 
 `create_project_snapshot_llm_client(high_quality=True)` 和 `open_project_llm_client(high_quality=True)`

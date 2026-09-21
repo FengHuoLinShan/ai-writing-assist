@@ -96,6 +96,7 @@ read_organization_evidence 只返回原整理状态与恢复投影，不把任�
 存储 key 或生图 Prompt。正文精确回读、排除、同 owner 固定 RP 来源版本约束不变。
 
 共享一跳提名使用明确的32768输出上限与600秒截止，首轮传完整schema并使用低强度low推理；恢复仍只重做未完成提名，不丢弃已查原文。
+
 ### World 跨域复核消费
 
 World 使用确认后保留的 compiled items 作为实际语义输入，Focused Evidence 继续只读且限深 0/1。Story/map 规划目标的 inspect 仅向无 Scene 截止的作者开放；其他视角因没有对应投影而失败关闭。原文 pinned_ref 只取经验证的 highlight 区间，不把整个段落追加到选择中；回执与修订仍归 World，Evidence 不写跨域资产。
@@ -131,6 +132,7 @@ World 使用确认后保留的 compiled items 作为实际语义输入，Focused
 原文回读可显式请求 `expand_parent`，按精确 Scene span 或命中段落补齐前后文，
 逐段保留 Writing 来源和版本。角色知识无法证明时不扩展。原文检索抽屉展示覆盖和遗漏，
 不把父级元数据当作已读正文；默认 AI confirmation 的读取范围不会自动扩大。
+
 ## 精确试改与前瞻资料
 
 Evidence 为 Collaboration 收集授权的冻结资源集合，manifest 同时绑定命中与查询范围，
