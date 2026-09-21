@@ -5,6 +5,9 @@
 indexed 指纹分叉——旧建议立即失去有效资格，历史记录仍可查看（失效不
 删历史）。
 
+指纹读取经 ``modules.evidence.facade`` 的薄缝
+（``read_chapter_index_fingerprint``），不触碰 evidence 内部模块。
+
 world 知识与地图册资产的有效性缝仍属 V/MI 系列（见
 ``invalidation.UNSUPPORTED_CONSUMERS``），不以本模块冒充全量接线。
 """
@@ -14,11 +17,7 @@ from __future__ import annotations
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from modules.evidence.indexing.models import RagIndexState
-from shared.utils import parse_uuid
 
 ValidityVerdict = Literal["valid", "stale", "unknown"]
 
@@ -50,23 +49,22 @@ async def check_suggestion_validity(
       有效资格，历史可查；
     - ``unknown``：该章尚无索引状态，无法证明有效。
     """
-    state = (
-        await db.execute(
-            select(RagIndexState).where(
-                RagIndexState.novel_id == parse_uuid(novel_id, "novel_id"),
-                RagIndexState.chapter_index == chapter_index,
-                RagIndexState.content_mode == content_mode,
-            )
-        )
-    ).scalar_one_or_none()
-    if state is None:
+    from modules.evidence.facade import read_chapter_index_fingerprint
+
+    fingerprint = await read_chapter_index_fingerprint(
+        db,
+        novel_id,
+        chapter_index,
+        content_mode=content_mode,
+    )
+    if fingerprint is None:
         return SuggestionValidity(
             verdict="unknown",
             claimed_hash=claimed_hash,
             detail="该章尚无索引状态，无法证明来源有效",
         )
-    requested = state.requested_hash
-    indexed = state.indexed_hash
+    requested = fingerprint.get("requested_hash")
+    indexed = fingerprint.get("indexed_hash")
     if requested is not None and (indexed is None or indexed != requested):
         # 新来源已请求、尚未完成重建：任何旧来源的派生物立即失效。
         return SuggestionValidity(
