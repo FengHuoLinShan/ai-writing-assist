@@ -28,6 +28,7 @@ from modules.account.services import service
 _PUBLIC_AUTH_PATHS = {
     "/api/auth/config",
     "/api/auth/anonymous-rp",
+    "/api/auth/demo-login",
     "/api/demo/rp-source",
     "/api/auth/email/request-code",
     "/api/auth/email/verify",

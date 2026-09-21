@@ -10,3 +10,4 @@ DEMO_RP_CSRF_COOKIE_NAME = "aaw_demo_rp_csrf"
 DEMO_RP_SESSION_HEADER = "x-demo-rp-session"
 ANONYMOUS_RP_IDENTITY_TYPE = "anonymous_rp"
 ANONYMOUS_RP_SESSION_SECONDS = 24 * 60 * 60
+DEMO_SHARED_IDENTITY_TYPE = "demo_shared"

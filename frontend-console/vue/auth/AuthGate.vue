@@ -35,6 +35,11 @@
         </label>
         <button type="button" :disabled="busy || !accepted || !challengeId || code.length !== 6" @click="verify">邮箱登录</button>
         <a v-if="config.wechat_enabled && accepted" class="button-link" :href="api.auth.wechatStartUrl(config)">微信扫码登录</a>
+        <div v-if="config.demo_login_enabled" class="demo-login">
+          <p class="demo-login__hint">已有演示口令？无需邮箱验证码，直接进入演示账号体验完整功能。</p>
+          <label>演示口令<input v-model.trim="demoSecret" type="password" autocomplete="off" placeholder="演示口令"></label>
+          <button type="button" :disabled="busy || !accepted || !demoSecret" @click="demoEntry">演示账号登录</button>
+        </div>
       </template>
       <p v-if="message" class="message" :class="{ error }" :role="error ? 'alert' : 'status'">{{ message }}</p>
     </section>
@@ -63,6 +68,7 @@ const emailInput = ref(null)
 const email = ref("")
 const code = ref("")
 const accepted = ref(false)
+const demoSecret = ref("")
 const challengeId = ref("")
 const busy = ref(false)
 const message = ref("")
@@ -122,6 +128,14 @@ async function verify() {
   }))
   if (result) emit("authenticated", result)
 }
+async function demoEntry() {
+  const result = await run(() => api.auth.demoLogin({
+    secret: demoSecret.value,
+    accept_terms: accepted.value,
+    accept_privacy: accepted.value,
+  }))
+  if (result) emit("authenticated", result)
+}
 async function reauthAndRestore() {
   const verified = await run(() => api.auth.verifyReauthEmail({
     email: email.value,
@@ -143,6 +157,7 @@ async function restore() {
 .auth-brand{font-weight:700;letter-spacing:.04em;color:var(--text-primary)}.auth-card h1{margin:0;font-size:28px}.auth-card p{margin:0;line-height:1.6}
 .auth-card label{display:grid;gap:8px;font-size:14px}.auth-card input{min-width:0;padding:12px;border:1px solid var(--nc-hairline-strong);border-radius:9px;font:inherit}
 .code-row{display:grid;grid-template-columns:1fr auto;gap:10px}.auth-card button,.button-link{padding:12px 16px;border:0;border-radius:9px;background:var(--nc-primary);color:var(--nc-on-primary);font:inherit;text-align:center;text-decoration:none;cursor:pointer}
+.demo-login{display:grid;gap:12px;padding-top:16px;border-top:1px solid var(--border)}.demo-login__hint{margin:0;font-size:13px;color:var(--text-secondary)}
 .auth-card button:disabled{opacity:.5;cursor:not-allowed}.auth-card .secondary{background:var(--bg-muted);color:var(--text-body)}.consent{grid-template-columns:auto 1fr!important;align-items:start}.consent input{margin-top:3px}.message{color:var(--success)}.message.error{color:var(--error)}.support{font-size:13px;color:var(--text-secondary)}
 /* 局部组件自适应断点保留（design-standard.md §6：全局仅 760/1100 两档，此处为组件级微调） */
 @media(max-width:520px){.auth-card{padding:24px}.code-row{grid-template-columns:1fr}.auth-card .secondary{width:100%}}

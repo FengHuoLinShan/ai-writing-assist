@@ -841,6 +841,8 @@ const api = {
       post("/auth/email/request-code", { email }, { cache: "no-store" }),
     verifyEmail: (payload) =>
       post("/auth/email/verify", payload, { cache: "no-store" }),
+    demoLogin: (payload) =>
+      post("/auth/demo-login", payload, { cache: "no-store" }),
     requestReauthEmailCode: (email) =>
       post("/auth/reauth/email/request-code", { email }, { cache: "no-store" }),
     verifyReauthEmail: (payload) =>

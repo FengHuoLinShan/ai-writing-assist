@@ -24,6 +24,7 @@ from modules.account.schemas import (
     AnonymousRpSessionResponse,
     AuthConfigResponse,
     DeletionStateResponse,
+    DemoLoginRequest,
     EmailCodeRequest,
     EmailCodeResponse,
     EmailVerifyRequest,
@@ -100,6 +101,7 @@ def _verification_rejected_response(
 @router.get("/config", response_model=AuthConfigResponse)
 async def auth_config() -> AuthConfigResponse:
     settings = get_settings()
+    from modules.account.demo_login import configured_demo_login
     from modules.account.public_demo import configured_public_demo
 
     demo = configured_public_demo(settings)
@@ -118,6 +120,7 @@ async def auth_config() -> AuthConfigResponse:
             version=demo.version,
             rp_enabled=demo.rp_enabled,
         ),
+        demo_login_enabled=configured_demo_login(settings).enabled,
     )
 
 
@@ -182,6 +185,26 @@ async def verify_email(
         return _verification_rejected_response(result)
     if not isinstance(result, LoginResult):
         raise RuntimeError("Login verification did not create a browser session")
+    _set_login_cookies(response, result)
+    return result.me
+
+
+@router.post("/demo-login", response_model=AccountMeResponse)
+async def demo_login(
+    db: DbSession,
+    request: Request,
+    response: Response,
+    data: DemoLoginRequest,
+) -> AccountMeResponse:
+    if get_settings().auth_mode != "public":
+        raise NotFoundError("Demo login is not enabled")
+    result = await service.create_demo_login_session(
+        db,
+        secret=data.secret,
+        accept_terms=data.accept_terms,
+        accept_privacy=data.accept_privacy,
+        peer=_peer(request),
+    )
     _set_login_cookies(response, result)
     return result.me
 

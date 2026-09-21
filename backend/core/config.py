@@ -545,6 +545,15 @@ class Settings:
     public_demo_rp_source_revision_id: str = field(
         default_factory=lambda: _env("PUBLIC_DEMO_RP_SOURCE_REVISION_ID", "").strip()
     )
+    public_demo_login_enabled: bool = field(
+        default_factory=lambda: _env_bool("PUBLIC_DEMO_LOGIN_ENABLED", False)
+    )
+    public_demo_login_account_id: str = field(
+        default_factory=lambda: _env("PUBLIC_DEMO_LOGIN_ACCOUNT_ID", "")
+    )
+    public_demo_login_secret: str = field(
+        default_factory=lambda: _env("PUBLIC_DEMO_LOGIN_SECRET", "")
+    )
     http_rate_limit_per_minute: int = field(
         default_factory=lambda: _env_int("HTTP_RATE_LIMIT_PER_MINUTE", 0)
     )

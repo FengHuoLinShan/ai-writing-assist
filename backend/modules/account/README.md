@@ -32,6 +32,14 @@ claims。ID token 提供 `at_hash` 且授权码响应有 access token 时，也�
 作者首页 `workspace-summary` 不对演示 principal 开放；演示首页只从 Writing 的 `published` 章节投影生成简化统计与续读入口。
 匿名 RP 使用独立的 session/CSRF Cookie；仅显式标记的 RP 交互请求选择该会话，不覆盖或接管已登录作者会话。
 
+演示共享登录（ADR-0028）由 `PUBLIC_DEMO_LOGIN_ENABLED`、`PUBLIC_DEMO_LOGIN_ACCOUNT_ID` 与
+`PUBLIC_DEMO_LOGIN_SECRET` 控制。`POST /api/auth/demo-login` 以常时比较校验口令，为配置指向的
+唯一既有账号签发与邮箱登录完全等价的 `demo_shared` 会话（无路径白名单限制，复用单一有效会话
+语义）；同一 peer 15 分钟内 5 次口令失败即节流，成败均记录 `account_security_events`。口令只
+保存在部署 env（轮换即改配置重建容器），配置无效时入口整体 404，`/api/auth/config` 仅暴露
+`demo_login_enabled` 开关。共享账号会互踢旧会话，且系统没有按账号的模型消费上限——持口令者
+可消耗该账号名下项目解析到的 key。
+
 ## 数据表
 
 - `accounts`：账号状态、支持码和延期删除；
@@ -46,7 +54,7 @@ claims。ID token 提供 `at_hash` 且授权码响应有 access token 时，也�
 
 ## HTTP 入口
 
-- `/api/auth`：邮箱登录/注册、当前账号、退出和邮箱重新认证；
+- `/api/auth`：邮箱登录/注册、演示共享登录、当前账号、退出和邮箱重新认证；
 - `/api/account`：延期删除状态、申请与撤销；
 - `/api/auth/wechat`：Authing 微信登录；
 - `/api/auth/reauth/wechat`：微信重新认证；

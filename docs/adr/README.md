@@ -43,6 +43,7 @@ make docs-check BASE_REF=origin/main
 | [ADR-0025](0025-product-knowledge-governance.md) | Accepted / Implemented | 全产品知识治理：全知导演、最小知情生成、独立复核；静态能力注册表 + 版本化回执 + 一次语义返修 + held release；不新增表/事实库/Agent 平台。 |
 | [ADR-0026](0026-persistence-write-semantics-and-copy-policy.md) | Accepted / Implemented | 持久化数据五分类（可变/不可变修订/可变指针/派生/引导）；触发器为权威守卫；复制走身份映射→拓扑→单次最终态 INSERT；不可变历史不转移，demo copy 以追加 demo_import 修订重建副本历史。 |
 | [ADR-0027](0027-bounded-collaboration.md) | Accepted / Implemented (experimental) | 注册业务蓝图的有限协作，单宿主三成员、受限投影、共享根预算和领域受理；角色排演保持观察与分支隔离。 |
+| [ADR-0028](0028-shared-demo-account-login.md) | Accepted / Implemented | 演示共享账号口令登录：fail-closed 配置、常时比较 + peer 节流 + 安全审计、单配置账号的等价会话；不引入通用口令体系。 |
 
 2026-09-15 的运行信封实现补充：已冻结能力使用 `AIRunEnvelopeV1` 累计请求与恢复，未冻结规模的
 C3 任务仍按 ADR-0023/0025 的授权和领域边界暂停，不以通用临时额度替代产品裁决。
