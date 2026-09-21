@@ -66,7 +66,7 @@ class _StructuredClient:
         assert _args[0].max_tokens == 65_536
         assert _args[0].extra == {
             "thinking": {"type": "enabled"},
-            "reasoning_effort": "max",
+            "reasoning_effort": "high",
         }
         self.calls += 1
         outcome = self._outcomes.pop(0)
@@ -217,7 +217,7 @@ class _StreamingClient:
 
     async def generate_stream(self, _request, *, transport_retries: bool = True):
         assert _request.max_tokens == 65_536
-        assert _request.extra["reasoning_effort"] == "max"
+        assert _request.extra["reasoning_effort"] == "high"
         self.transport_retries.append(transport_retries)
         yield LLMStreamChunk(content="文" * 600)
         yield LLMStreamChunk(content="结尾", finish_reason="stop")

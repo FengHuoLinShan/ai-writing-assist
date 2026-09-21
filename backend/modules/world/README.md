@@ -945,8 +945,9 @@ section，且不会进入可投影正文。页面预览保持零写入并把页�
 - entity fusion 和世界生成中心通过 project runtime seam 消费项目 owner 当前已验证的
   账户连接。生成中心每次操作先冻结一份不含 Key 的 provider/model 快照，聊天、
   建议、决定编译、语义守卫和必要修订全部沿用同一模型，不再按请求档位覆盖账户模型。
-  `quality_mode=pro` 仅表示用同一冻结模型多做一遍有界复核并返回完整修订结果；
-  `fast` 保持单遍生成。LLM 输出继续只形成 suggestion/draft，不直接成为 canonical。
+  `quality_mode=pro` 表示质量优先：同一冻结Flash模型整条调用链使用max、至少65,536输出余量，
+  并保留有界复核和完整修订；
+  `fast` 保持普通生成及必需知识审查。LLM 输出继续只形成 suggestion/draft，不直接成为 canonical。
 - 世界生成中心的受管模型步骤总上限为 1800 秒。服务在 provider 调用前提交准备阶段
   checkpoint，确保等待期间没有数据库事务；聊天或结构化结果返回后在落库事务内重新校验
   项目仍 active 并持有共享项目锁，以 page→draft 行锁重读来源页面，再按同一准备流程只读

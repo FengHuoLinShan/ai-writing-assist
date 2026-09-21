@@ -3084,9 +3084,19 @@ async def test_non_reducing_summary_does_not_advance_coverage(db_session) -> Non
     assert journey.overview_head_revision_id is None
 
 
+@pytest.mark.parametrize("high_quality", [False, True])
 async def test_two_prefix_summary_passes_are_contiguous_and_keep_suffix_raw(
     db_session,
+    monkeypatch,
+    high_quality,
 ) -> None:
+    monkeypatch.setitem(
+        _SNAPSHOT,
+        LLM_CAPABILITY_SNAPSHOT_KEY,
+        resolve_llm_capability_profile(
+            "deepseek", "deepseek-v4-flash", high_quality=high_quality
+        ).to_snapshot(),
+    )
     service, journey, _attempt, _response = await _create_journey(
         db_session,
         key="two-prefix-summary-passes",
@@ -4033,9 +4043,19 @@ async def test_pending_adopted_beat_keeps_sea_prompt_after_loop_is_disabled(
     assert story_request(prepared).max_tokens == 65_536
 
 
+@pytest.mark.parametrize("high_quality", [False, True])
 async def test_extended_context_uses_full_selected_path_without_forced_summary(
     db_session,
+    monkeypatch,
+    high_quality,
 ) -> None:
+    monkeypatch.setitem(
+        _SNAPSHOT,
+        LLM_CAPABILITY_SNAPSHOT_KEY,
+        resolve_llm_capability_profile(
+            "deepseek", "deepseek-v4-flash", high_quality=high_quality
+        ).to_snapshot(),
+    )
     _service, journey, attempt, _response = await _create_journey(
         db_session,
         key="create-journey-extended-context",
@@ -4054,7 +4074,7 @@ async def test_extended_context_uses_full_selected_path_without_forced_summary(
         patch(
             "modules.interaction.generation.estimate_input_tokens",
             autospec=True,
-            return_value=300_000,
+            return_value=300_000 if high_quality else 160_000,
         ),
         patch(
             "modules.interaction.generation.restore_project_llm_execution_settings",
@@ -4075,13 +4095,25 @@ async def test_extended_context_uses_full_selected_path_without_forced_summary(
     assert any(message.content == opening_content for message in prepared.messages)
     assert refreshed_attempt.status == "running"
     assert refreshed_attempt.usage["context_tier"] == "extended"
-    assert refreshed_attempt.usage["estimated_input_tokens"] == 300_000
+    assert refreshed_attempt.usage["estimated_input_tokens"] == (
+        300_000 if high_quality else 160_000
+    )
     assert refreshed_attempt.usage["prompt_version"] == "interaction-story-v8"
 
 
+@pytest.mark.parametrize("high_quality", [False, True])
 async def test_emergency_summary_resumes_same_story_attempt_without_losing_path(
     db_session,
+    monkeypatch,
+    high_quality,
 ) -> None:
+    monkeypatch.setitem(
+        _SNAPSHOT,
+        LLM_CAPABILITY_SNAPSHOT_KEY,
+        resolve_llm_capability_profile(
+            "deepseek", "deepseek-v4-flash", high_quality=high_quality
+        ).to_snapshot(),
+    )
     service, journey, attempt, _response = await _create_journey(
         db_session,
         key="create-journey-emergency-summary",
@@ -4105,7 +4137,9 @@ async def test_emergency_summary_resumes_same_story_attempt_without_losing_path(
         patch(
             "modules.interaction.generation.estimate_input_tokens",
             autospec=True,
-            side_effect=[600_000, 200_000, 200_000],
+            side_effect=[600_000, 200_000, 200_000]
+            if high_quality
+            else [300_000, 100_000, 100_000],
         ),
         patch(
             "modules.interaction.generation.restore_project_llm_execution_settings",
@@ -4389,7 +4423,7 @@ async def test_leaving_story_page_revokes_sea_without_cancelling_current_step(
     assert heartbeat.attempt is None
 
 
-async def test_new_deepseek_story_and_see_sea_use_frozen_max_budget() -> None:
+async def test_deepseek_story_uses_balanced_effort_and_full_output() -> None:
     common = {
         "novel_id": str(uuid.uuid4()),
         "journey_id": str(uuid.uuid4()),
@@ -4413,11 +4447,11 @@ async def test_new_deepseek_story_and_see_sea_use_frozen_max_budget() -> None:
     assert (
         see_sea.extra
         == manual.extra
-        == {"thinking": {"type": "enabled"}, "reasoning_effort": "max"}
+        == {"thinking": {"type": "enabled"}, "reasoning_effort": "high"}
     )
 
 
-async def test_new_deepseek_summary_uses_json_contract_and_max_budget() -> None:
+async def test_new_deepseek_summary_uses_json_contract_and_balanced_effort() -> None:
     prepared = PreparedSummaryGeneration(
         novel_id=str(uuid.uuid4()),
         journey_id=str(uuid.uuid4()),
@@ -4439,7 +4473,7 @@ async def test_new_deepseek_summary_uses_json_contract_and_max_budget() -> None:
 
     assert request.response_format == {"type": "json_object"}
     assert request.max_tokens == 65_536
-    assert request.extra == {"thinking": {"type": "enabled"}, "reasoning_effort": "max"}
+    assert request.extra == {"thinking": {"type": "enabled"}, "reasoning_effort": "high"}
 
 
 async def test_unknown_model_request_uses_short_fallback_output_budget() -> None:

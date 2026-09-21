@@ -340,3 +340,6 @@ Phase 1/2/3、定向补全与 review resolution 按窗口/Scene/候选组/问题
 仍交给 imports.resolve_review / imports.accept_review / imports.resume。恢复复用原任务，
 不重新整理已完成内容。V2 import_consult 使用 ImportConsultScope 冻结最多二十章的原组和
 实际来源，仅出会诊意见；配方和前瞻都不扩大原导入授权，也不负责 World Canon 采用。
+### DS Flash 档位调优（2026-09-21）
+
+导入high_quality保留更充分的证据链，并在账户Flash上统一max思考和至少65,536输出余量；普通档high及各阶段冻结预算不变。历史实测的结构化截断不支持全局降低输出上限。完整Scene来源和可见性不因价格目标缩减；有界重试/超时继续生效。

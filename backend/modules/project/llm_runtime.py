@@ -129,6 +129,7 @@ async def build_project_llm_execution_snapshot(
         LLM_CAPABILITY_SNAPSHOT_KEY: resolve_llm_capability_profile(
             profile.provider_id,
             profile.model,
+            high_quality=profile.extra.get("reasoning_effort") == "max",
         ).to_snapshot(),
         "deep_import": materialize_effective_deep_import_settings(
             materialized,
@@ -264,6 +265,7 @@ def create_project_snapshot_llm_client(
     *,
     timeout_override: int | None = None,
     novel_id: str | None = None,
+    high_quality: bool = False,
 ) -> LLMClient:
     """Create a client from a persisted effective project profile snapshot.
 
@@ -294,7 +296,12 @@ def create_project_snapshot_llm_client(
         raise ProjectLLMConfigurationError(
             "Project LLM base_url and model are required",
         )
-    client = LLMClient.from_resolved_profile(profile)
+    if high_quality:
+        # Keep provider identity/credentials; only extend this explicit quality run.
+        profile = replace(profile, timeout=max(profile.timeout, 900))
+    client = LLMClient.from_resolved_profile(
+        profile, **({"high_quality": True} if high_quality else {})
+    )
     bind_runtime_scope = getattr(client, "bind_runtime_scope", None)
     if callable(bind_runtime_scope) and novel_id is not None:
         bind_runtime_scope(
@@ -334,12 +341,13 @@ async def open_project_llm_client(
     novel_id: str,
     *,
     timeout_override: int | None = None,
+    high_quality: bool = False,
 ) -> AsyncIterator[LLMClient]:
     """Open one managed client for a novel-scoped business LLM workflow.
 
     Provider connection fields and secrets always come from the project's owner
     account. ``novel_id`` remains the isolation and ownership gate. Callers may
-    only narrow or extend the request timeout within the bounded override.
+    select quality-first execution or adjust the bounded request timeout.
     """
     if timeout_override is not None and not (
         1 <= timeout_override <= MAX_LLM_TIMEOUT_OVERRIDE_SECONDS
@@ -367,7 +375,11 @@ async def open_project_llm_client(
             "Project LLM base_url and model are required",
         )
 
-    client = LLMClient.from_resolved_profile(profile)
+    if high_quality:
+        profile = replace(profile, timeout=max(profile.timeout, 900))
+    client = LLMClient.from_resolved_profile(
+        profile, **({"high_quality": True} if high_quality else {})
+    )
     bind_runtime_scope = getattr(client, "bind_runtime_scope", None)
     if callable(bind_runtime_scope):
         bind_runtime_scope(

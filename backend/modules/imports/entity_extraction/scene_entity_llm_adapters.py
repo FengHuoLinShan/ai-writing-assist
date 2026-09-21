@@ -82,6 +82,7 @@ async def call_llm_extraction(
     llm_client = create_project_snapshot_llm_client(
         project_settings,
         timeout_override=client_timeout,
+        high_quality=current_phase2_high_quality(),
         novel_id=novel_id,
     )
     request_model = current_phase2_request_model() or llm_client.model_name
@@ -161,9 +162,7 @@ async def call_llm_extraction(
             current_scene_text=chapters_text,
             context_bundle=materialization_context,
         )
-        return materialized.model_copy(
-            update={"knowledge_review": governed["review"]}
-        )
+        return materialized.model_copy(update={"knowledge_review": governed["review"]})
     finally:
         await llm_client.close()
 
@@ -462,6 +461,7 @@ async def call_alias_relation_extraction(
     llm_client = create_project_snapshot_llm_client(
         project_settings,
         timeout_override=client_timeout,
+        high_quality=current_phase2_high_quality(),
         novel_id=current_phase2_novel_id(),
     )
     request_model = current_phase2_request_model() or llm_client.model_name
@@ -520,16 +520,7 @@ def _reasoning_extra(
     high_quality: bool,
     request_model: str | None = None,
 ) -> dict[str, Any]:
-    summary = getattr(llm_client, "profile_summary", {})
-    if callable(summary):
-        summary = summary()
-    if not isinstance(summary, dict):
-        summary = {}
-    provider_id = str(summary.get("provider_id") or "")
+    from infrastructure.llm.profiles import deepseek_reasoning_extra
+
     model = str(request_model or getattr(llm_client, "model_name", "") or "")
-    if provider_id != "deepseek" and not model.startswith("deepseek"):
-        return {}
-    return {
-        "thinking": {"type": "enabled"},
-        "reasoning_effort": "max" if high_quality else "high",
-    }
+    return deepseek_reasoning_extra(model, high_quality=high_quality)

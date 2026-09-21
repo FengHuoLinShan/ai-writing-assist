@@ -549,3 +549,54 @@ async def test_browser_runtime_cannot_open_another_owners_project(
     with pytest.raises(Exception, match="not found"):
         async with open_project_llm_client(db_session, second_id):
             pass
+
+
+@pytest.mark.parametrize("high_quality", [False, True])
+async def test_snapshot_client_quality_policy_preserves_identity_and_input(high_quality):
+    from copy import deepcopy
+
+    from infrastructure.llm.schemas import LLMCallRequest
+
+    settings = {
+        "llm": {
+            "provider_id": "deepseek",
+            "model": "deepseek-flash",
+            "base_url": "https://api.deepseek.com",
+            "api_key": "unit-test-key",
+            "timeout": 180,
+            "extra": {"reasoning_effort": "low"},
+        }
+    }
+    original = deepcopy(settings)
+    client = create_project_snapshot_llm_client(
+        settings, novel_id="quality-project", high_quality=high_quality
+    )
+    try:
+        request = client.resolve_request_defaults(LLMCallRequest(max_tokens=12000))
+        assert request.extra["reasoning_effort"] == ("max" if high_quality else "low")
+        assert request.max_tokens == (65536 if high_quality else 12000)
+        assert client.profile_summary["timeout"] == (900 if high_quality else 180)
+        assert client.model_name == "deepseek-flash"
+        assert client.runtime_scope["novel_id"] == "quality-project"
+        assert settings == original
+    finally:
+        await client.close()
+
+
+async def test_account_max_effort_freezes_rp_quality_profile(db_session, test_project_id):
+    await _seed_account_connection(db_session)
+    await GlobalLLMDefaultsRepository().upsert(
+        db_session,
+        {
+            "owner_id": LOCAL_OWNER_ID,
+            "extra": {"reasoning_effort": "max"},
+        },
+    )
+    snapshot = await build_project_llm_execution_snapshot(db_session, test_project_id)
+    profile = capability_from_execution_snapshot(snapshot)
+    assert profile.interaction_reasoning_effort == "max"
+    assert profile.normal_input_tokens == 256000
+    restored = await restore_project_llm_execution_settings(
+        db_session, test_project_id, snapshot
+    )
+    assert capability_from_execution_settings(restored) == profile

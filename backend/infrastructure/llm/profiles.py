@@ -40,6 +40,22 @@ _DEFAULT_LLM_PROFILE: dict[str, Any] = {
     "extra": {},
 }
 
+# Supported V4 thinking controls; legacy chat and other providers keep their settings.
+DEEPSEEK_THINKING_MODELS = frozenset(
+    {"deepseek-flash", "deepseek-v4-flash", "deepseek-v4-pro"}
+)
+DEEPSEEK_QUALITY_OUTPUT_TOKENS = 65_536
+
+
+def deepseek_reasoning_extra(model: str, *, high_quality: bool = False) -> dict[str, Any]:
+    if model not in DEEPSEEK_THINKING_MODELS:
+        return {}
+    return {
+        "thinking": {"type": "enabled"},
+        "reasoning_effort": "max" if high_quality else "high",
+    }
+
+
 _NUMERIC_FIELDS = {"timeout", "max_tokens"}
 _FLOAT_FIELDS = {"temperature", "top_p"}
 

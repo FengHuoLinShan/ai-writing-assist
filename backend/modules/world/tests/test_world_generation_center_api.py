@@ -113,9 +113,7 @@ class _FakeWorldGenerationClient(GovernedWorldAuditMixin):
             if not hasattr(self, "audit_requests"):
                 self.audit_requests = []
             self.audit_requests.append(request)
-            return await self._governed_generate_structured(
-                request, schema, **_kwargs
-            )
+            return await self._governed_generate_structured(request, schema, **_kwargs)
         self.requests.append(request)
         if self.error is not None:
             raise self.error
@@ -330,7 +328,8 @@ async def _create_llm_project(async_client: AsyncClient, title: str) -> str:
 def _install_fake_llm(monkeypatch: pytest.MonkeyPatch) -> _FakeWorldGenerationClient:
     fake = _FakeWorldGenerationClient()
 
-    def create_fake(profile):
+    def create_fake(profile, *, high_quality=False):
+        fake.high_quality = high_quality
         fake.profile = profile
         fake.model_name = profile.model
         return fake
@@ -1400,6 +1399,7 @@ async def test_generation_center_chat_pro_reviews_with_same_account_model(
     assert {request.model for request in fake.requests} == {
         account_llm_connection["model"]
     }
+    assert fake.high_quality is True
     assert "加强复核" in fake.requests[1].messages[-1].content
 
 

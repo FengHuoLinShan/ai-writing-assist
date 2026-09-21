@@ -480,6 +480,7 @@ async def test_project_remote_embedding_routes_once_with_project_scope(
 @pytest.mark.asyncio
 async def test_usage_stats_omit_complete_endpoint_and_credentials() -> None:
     client = LLMClient.__new__(LLMClient)
+    client._high_quality = False
     client._provider = SimpleNamespace(
         name="openai",
         _base_url=(
@@ -1286,6 +1287,7 @@ async def test_client_accepts_real_provider_stream_coroutine_shape(monkeypatch) 
     provider._timeout = 15
 
     client = LLMClient.__new__(LLMClient)
+    client._high_quality = False
     client._provider = provider
     client._settings = _retry_settings(base_delay=0.0, max_delay=0.0)
     client._default_max_tokens = 12_000
@@ -2186,3 +2188,39 @@ def test_provider_rejects_extra_token_and_sampling_overrides() -> None:
         provider._build_kwargs(
             base.model_copy(update={"extra": {"top_p": 1.5}}), "deepseek-chat"
         )
+
+
+@pytest.mark.parametrize("model", ["deepseek-flash", "deepseek-v4-flash", "kimi-k3"])
+def test_quality_mode_reaches_requests_without_mutating_input(model):
+    profile = resolve_llm_profile(
+        test_overrides={
+            "api_key": "sk-test",
+            "model": model,
+            "extra": {"thinking": {"type": "disabled"}, "reasoning_effort": "low"},
+        }
+    )
+    normal = LLMClient.from_resolved_profile(profile)
+    quality = LLMClient.from_resolved_profile(profile, high_quality=True)
+    request = LLMCallRequest(
+        model=model, messages=[LLMMessage(role="user", content="核对")], max_tokens=12000
+    )
+    before = request.model_dump()
+    regular = normal.resolve_request_defaults(request)
+    resolved = quality.resolve_request_defaults(request)
+    assert regular.max_tokens == 12000
+    assert regular.extra["reasoning_effort"] == "low"
+    if model.startswith("deepseek"):
+        assert resolved.max_tokens == 65536
+        assert resolved.extra == {
+            "thinking": {"type": "enabled"},
+            "reasoning_effort": "max",
+        }
+        assert (
+            quality.resolve_request_defaults(
+                request.model_copy(update={"max_tokens": 100000})
+            ).max_tokens
+            == 100000
+        )
+    else:
+        assert resolved == regular
+    assert request.model_dump() == before

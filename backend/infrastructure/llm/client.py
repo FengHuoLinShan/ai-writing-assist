@@ -28,7 +28,9 @@ from core.config import get_settings
 from infrastructure.llm.errors import LLMInvalidResponseError
 from infrastructure.llm.limits import LLMLimiterScope, get_llm_limiter
 from infrastructure.llm.profiles import (
+    DEEPSEEK_QUALITY_OUTPUT_TOKENS,
     ResolvedLLMProfile,
+    deepseek_reasoning_extra,
     default_llm_profile,
     resolve_llm_profile,
 )
@@ -591,6 +593,7 @@ class LLMClient:
     """
 
     def __init__(self, provider_name: str = "openai", **provider_kwargs: Any) -> None:
+        self._high_quality = bool(provider_kwargs.pop("high_quality", False))
         defaults = default_llm_profile()
         self._default_model = str(
             provider_kwargs.pop("default_model", None) or defaults["model"]
@@ -688,6 +691,7 @@ class LLMClient:
         """
         if hasattr(self, "_provider") and hasattr(self._provider, "close"):
             await self._provider.close()
+        self._high_quality = bool(provider_kwargs.pop("high_quality", False))
         defaults = default_llm_profile()
         self._default_model = str(
             provider_kwargs.pop("default_model", None) or defaults["model"]
@@ -743,7 +747,7 @@ class LLMClient:
         """Return a request copy with client-owned defaults materialized.
 
         Profile 请求默认（model/temperature/top_p/extra）只填充请求未显式设置的槽位；
-        显式 request 值始终优先，避免覆盖各能力的定制采样参数。
+        普通模式显式 request 值优先；显式质量优先客户端统一 DeepSeek 思考强度与输出余量。
         """
         resolved = request.model_copy(deep=True)
         if "model" not in request.model_fields_set:
@@ -758,6 +762,15 @@ class LLMClient:
             merged_extra = dict(self._profile_extra_defaults)
             merged_extra.update(resolved.extra)
             resolved.extra = merged_extra
+        if self._high_quality:
+            quality_extra = deepseek_reasoning_extra(
+                resolved.model or self._default_model, high_quality=True
+            )
+            if quality_extra:
+                resolved.extra.update(quality_extra)
+                resolved.max_tokens = max(
+                    resolved.max_tokens or 0, DEEPSEEK_QUALITY_OUTPUT_TOKENS
+                )
         return resolved
 
     def _provider_call_timeout(self, remaining_run_seconds: float | None) -> float | None:

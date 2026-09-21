@@ -82,9 +82,10 @@ selection epoch 仍匹配的第一个结果可成为当前路径。Prompt、回�
   fail-closed，不退回纯模型知识。服务器在统一渲染边界中转义资料里的围栏结束标记，
   身份描述、人物知识和原文都只能作为引用数据，不能闭合资料块后注入指令。
 - 输入预算来自 attempt 冻结的 model capability profile，并取字符估算与 shared tokenizer 的较大值。
-  当前已校准 DeepSeek V4 Flash 使用 256K normal、360K compact、400K hard input；unknown model
+  DeepSeek Flash 新普通档使用 128K normal、192K compact、400K hard input；质量优先档保留
+  256K/360K/400K；unknown model
   使用 16K/20K/24K short fallback。超过 compact trigger 时在同一 attempt 内先做紧急结构化回顾。
-  整理只读取兼容回顾后的最老连续 whole-node prefix；DeepSeek 单次摘要输入不超过 256K，并保留近期
+  整理只读取兼容回顾后的最老连续 whole-node prefix；DeepSeek 两档单次摘要输入均不超过256K，并保留近期
   至少一个完整对话节拍和约 16K 原文后缀；最多 4 个短事务 pass，仍无法容纳才 fail-closed。
   不把整条 530K+ tail 先发给摘要模型，也不依赖 provider 静默截头。这些数字仍是待校准参数，
   不是产品承诺。
@@ -204,11 +205,12 @@ Scene/span 与对象资料；只有 `--execute` 才在同一事务中物化或�
 
 ## DeepSeek RP 执行参数
 
-新建执行快照使用 `deepseek-v4-flash-rp-max-20260908-v2`：正文、看海、续写及后台/紧急摘要
-均启用 max，单次总输出 65,536 token，专用超时 900 秒。领域请求覆盖账户通用输出默认值，
-不修改账户连接。其他模型沿用原规则；旧快照缺少思考字段时保留原输出与超时，恢复任务不升级。
-输入阈值不变，最终检查包括实际输出预留。策略及预算通过既有 capability snapshot/hash 固定，
-客户端继续通过 Project facade 创建，不新增表或公开接口。
+新建执行快照使用 `<model>-rp-balanced-20260921-v1`：正文、看海、续写及后台/紧急摘要
+均启用 high，单次总输出65,536 token，专用超时900秒。普通档更早按已有 whole-node 流程整理历史，
+不截断用户约定、确认资料或近期完整节拍；400K硬输入边界保持不变。
+账户高级默认 `extra.reasoning_effort=max` 选择质量优先档，保留256K/360K/400K输入和max思考。
+两档都不强制消耗完整输出额度；较早整理是否带来整体收益仍待真实长会话对照。
+已有任务快照包括旧max策略按原值恢复，不因代码默认变化升级；缺字段的旧任务继续短窗口兼容策略。
 
 首段尚未出现时显示等待状态，超过30秒提示“仍在生成，可随时停止”；收到正文或终态后清除。
 `interaction-story-v7` 保留长期约定接入，正文风格沿用 v5；未通过评审的 v6 写作实验已撤下。

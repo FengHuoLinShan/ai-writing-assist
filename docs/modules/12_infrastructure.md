@@ -168,7 +168,8 @@ stop/archive 的 attempt→task 锁序互等；运行中跳过会在 provider �
 
 `infrastructure.llm.capabilities` 是唯一 model capability budget registry。当前只有官方
 `deepseek-flash` 经 dev eval 校准（旧 `deepseek-v4-flash` 快照兼容）：官方 context 为 1M，生产 hard input 仍限制为已验证的
-400K；normal/compact 为 256K/360K，summary input ceiling 为 256K。unknown model 使用
+400K；新普通档high的normal/compact为128K/192K、summary input ceiling保留256K。
+账户高级默认extra.reasoning_effort=max选择质量优先，保留256K/360K及256K摘要上限；旧快照不重算。unknown model 使用
 16K/20K/24K short fallback，不继承上一模型档案，也不接受浏览器自报窗口。
 
 新增带 `novel_id` 的业务 LLM 服务必须使用 project facade 的 runtime seam，不能直接
@@ -553,7 +554,7 @@ API/worker 不取得 root 凭据，应用 policy 仅允许两桶的定位、列�
 按节点冻结地图基准及项目文本连接，最多四个 attempt，成功批次 checkpoint 可复用。模型结果
 只落空间候选，任务完成不推进地图当前版本；不使用图片连接或新增队列基础设施。
 
-RP DeepSeek能力快照可固定max/900秒及65,536输出预算，旧快照按空策略恢复。流式只计数
+RP DeepSeek能力快照固定high或max/900秒及65,536输出预算，旧快照按原字段恢复。流式只计数
 思考字符且不进入wire；结构化诊断保存通道字符数。完整JSON可修复最多8处解码器明确定位的
 字面反斜杠，截断/损坏Unicode仍失败。截断重试不减少已有更大预算。
 
@@ -603,3 +604,11 @@ PG 容量实验使用固定替身及专用临时库，只衡量入队/worker 路
 
 Collaboration 的动态工作图和 Assistant 的短期前瞻复用 PostgreSQL 队列、Project
 账户连接快照、同一请求账本和 lease。新增任务见 tasks README；不会另建调度服务。
+### DeepSeek 质量优先执行
+
+World `pro`、导入 `high_quality` 通过 Project snapshot client 的显式 high_quality 参数选择
+Flash max 思考与至少65,536输出上限，provider 等待至少900秒。客户端统一应用于生成、审查和
+返修，保留更大的显式输出上限；其他模型不套用Flash参数，账户连接身份不变。
+普通模式保留窄查证low、复杂生成high和领域输出预算。两档均保留run deadline/次数及数据门禁。
+历史实测显示压缩输出预算会造成推理耗尽与JSON截断，但没有足够同源high/max A/B证据；
+不得将参数调整宣称为已验证的质量提升或价格下降。

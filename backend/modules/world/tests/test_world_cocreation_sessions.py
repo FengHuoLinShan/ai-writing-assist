@@ -801,7 +801,8 @@ async def test_enabled_cocreation_reuses_identity_and_queues_only_one_agent(
 def _install_fake_llm(monkeypatch: pytest.MonkeyPatch) -> _FakeChatClient:
     fake = _FakeChatClient()
 
-    def create_fake(profile):
+    def create_fake(profile, *, high_quality=False):
+        fake.high_quality = high_quality
         fake.model_name = profile.model
         return fake
 

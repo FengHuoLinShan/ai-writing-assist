@@ -55,7 +55,7 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
 - Phase 2b 在写入 world 候选别名前会拒绝模型字段占位词（当前包括 `变量`、
   `variable`、`placeholder`）；这类输出不进入待处理别名，也不参与实体别名去重。
 - Phase 3 第一遍只基于已提交 Scene 卡生成结构候选。第一遍置信度不低于 `0.80` 的候选再用同一无状态 client 做独立证据复核；每批只含候选和其引用 Scene 的 hash/offset 校验后精确正文，约不超过 60000 字符。复核 verdict 固定为 `supported / structural_inference / unsupported / conflict / uncertain`。只有复核置信度不低于 `0.90`、全部来源 exact 且非 `needs_review`、逐字 quote 有效、剧情线/人物弧至少两 Scene、伏笔/揭示/转折至少一 Scene时才自动采用；否则保留待复核候选及具体原因。
-- Phase 3 结构化请求同样使用冻结的 `deep_import.phase3.structure_max_tokens`（默认 32768），不再按 prompt 长度进行 token 阶梯扩容；该字段会出现在项目设置与任务冻结快照中。格式/transport 故障可保留一次同预算修复/重试，业务质量 replacement rerun 继续是独立门禁，两者都不扩大 `max_tokens`。
+- Phase 3 结构化请求同样使用冻结的 `deep_import.phase3.structure_max_tokens`（默认 32768），不再按 prompt 长度进行 token 阶梯扩容；该字段会出现在项目设置与任务冻结快照中。格式/transport 故障可保留一次同预算修复/重试，业务质量 replacement rerun 继续是独立门禁，两者不因重试改变档位。
 - 深度导入 Phase 2 拆为 Phase 2a 世界对象/Delta 抽取与 Phase 2b 别名/关系提取；Phase 2b 失败只降级，不丢弃已抽取对象
 - 深度导入 Phase 2/Phase 3 的真实 LLM 调用通过 `modules.evidence.facade` 写入 `context_snapshots` 审计记录
 - Phase 2a/2b 的活跃 LLM adapter 只消费 workflow 持久化的 effective project
@@ -489,3 +489,10 @@ Phase 1a 按窗口、Phase 1b/2a 按 Scene、Phase 1c/3 按候选组、review re
 
 `forecast.py` 读取原 organization owner/generation/恢复资格及 review_summary 的精确组，
 呈现原待决与未完成部分。前瞻不会创建平行导入 owner 或自动采用整批资料。
+### 普通与高质量档
+
+普通导入继续high思考及冻结的阶段输出预算（一般32,768）；历史小预算截断多，不能以压低
+输出上限冒充降价。`high_quality=true` 在同一账户Flash上统一max思考，生成、证据复核、知识审查
+及返修请求保留至少65,536输出余量（更大显式值保留）；provider至少900秒，领域总超时/次数仍有界。
+Phase3生成与独立证据复核同样使用质量档，不把复核遗留12K上限作为质量档的瓶颈。
+已确认资料、完整Scene正文、角色截止点、排除项和来源重验保持原合同。

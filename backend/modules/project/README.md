@@ -91,7 +91,7 @@ async def require_interaction_project(db, novel_id: str) -> None: ...
 
 @asynccontextmanager
 async def open_project_llm_client(
-    db, novel_id: str, *, timeout_override: int | None = None
+    db, novel_id: str, *, timeout_override: int | None = None, high_quality: bool = False
 ): ...
 
 async def build_project_llm_execution_snapshot(
@@ -107,6 +107,7 @@ def create_project_snapshot_llm_client(
     *,
     timeout_override: int | None = None,
     novel_id: str | None = None,
+    high_quality: bool = False,
 ): ...
 
 @asynccontextmanager
@@ -341,3 +342,10 @@ AuthorTaskService 的 today/inbox/later/completed/archived 与分页规则，每
 
 `forecast.py` 消费原 workspace continuation 与 attention，不按访问时长猜测重要任务。
 Project 仍持有 author tasks，只有作者明确选择并确认才从前瞻创建一条待办。
+### 质量优先参数
+
+`create_project_snapshot_llm_client(high_quality=True)` 和 `open_project_llm_client(high_quality=True)`
+仅调整执行策略：Flash 强制max思考、
+输出至少65,536、provider timeout至少900秒；不切换账户provider/model，不取消上层预算。
+RP capability在新snapshot中按账户extra.reasoning_effort=max选择质量优先，否则为high普通档；
+恢复始终读取快照中的阈值，保持旧任务不漂移。

@@ -100,6 +100,7 @@ class PlotStructureGenerator:
                 client = create_project_snapshot_llm_client(
                     project_settings_snapshot,
                     novel_id=novel_id,
+                    high_quality=high_quality,
                 )
                 try:
                     return await PlotStructureGenerator(
@@ -128,7 +129,9 @@ class PlotStructureGenerator:
 
             from modules.project.facade import open_project_llm_client
 
-            async with open_project_llm_client(db, novel_id) as client:
+            async with open_project_llm_client(
+                db, novel_id, **({"high_quality": True} if high_quality else {})
+            ) as client:
                 return await PlotStructureGenerator(
                     context_builder=self._context_builder,
                     llm_client=client,
@@ -194,9 +197,7 @@ class PlotStructureGenerator:
             )
         except Exception as exc:
             if snapshot_id is not None:
-                await self._mark_structure_snapshot_failed(
-                    db, novel_id, snapshot_id, exc
-                )
+                await self._mark_structure_snapshot_failed(db, novel_id, snapshot_id, exc)
                 await db.commit()
             raise
 
@@ -383,9 +384,7 @@ class PlotStructureGenerator:
                 )
         except Exception as exc:
             if snapshot_id is not None:
-                await self._mark_structure_snapshot_failed(
-                    db, novel_id, snapshot_id, exc
-                )
+                await self._mark_structure_snapshot_failed(db, novel_id, snapshot_id, exc)
                 await db.commit()
             raise
         return data

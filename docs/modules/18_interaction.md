@@ -94,9 +94,9 @@ coverage/fingerprint 检查；确认后才使用同一参数加 `--execute` 物�
 automatic descendant 就重新采用旧当前值。
 
 输入预算由 attempt 的 project LLM snapshot 冻结 capability profile，并取字符估算与 shared tokenizer
-的较大值。当前 DeepSeek 档案为 256K normal / 360K compact / 400K hard，unknown model 为
+的较大值。DeepSeek 新普通档为128K normal / 192K compact / 400K hard，质量优先为256K/360K/400K，unknown model 为
 16K/20K/24K short fallback。超过 compact 阈值时，同一 attempt 以最多 4 个短事务依次折叠
-兼容回顾之后的最老连续 whole-node prefix；DeepSeek 单次摘要输入不超过 256K，近期至少一个完整
+兼容回顾之后的最老连续 whole-node prefix；DeepSeek 两档单次摘要输入均不超过256K，近期至少一个完整
 对话节拍和约 16K 原文后缀保持原 role/bytes。每次只把 coverage 推进到 chunk end，输出未净缩减
 至少 128 token、单节点/完整节拍超限或 pass 用尽时均 fail-closed，不向 provider 发送整条 530K+
 tail，也不依赖静默截头。只有通过真实 provider 校准的新模型才新增档案。
@@ -135,7 +135,8 @@ Markdown 故事显示、composer、并列的复制/重新生成按钮、其他�
 严格校验epoch、当前叶与路径指纹，覆盖为零，不跳过原文。约定在分配可选资料前计入输入预算，
 不改变来源/账户隔离；新保存从下次准备生效。摘要v3不把自动内容当作用户逐项确认。
 
-DeepSeek新RP快照固定max思考、65,536总输出与900秒专用超时，旧快照及其他模型不升级。
+DeepSeek新RP快照默认high思考；账户高级默认extra.reasoning_effort=max选择质量优先。
+两档均保留65,536总输出与900秒专用超时，旧快照及其他模型不升级。更早整理的质量/时延收益尚未实测。
 故事v8保留约定接入和既有写作风格，并要求遵守用户明确的持有物、数量与能力边界；
 不得凭职业常识补出装备或资源。v6正文实验未通过模型/用户评审，未进入保留范围。
 

@@ -205,7 +205,10 @@ fail-closed。业务 LLM Profile 不从 `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MO
 继承；代理、重试和 health gate 等运行参数仍由 `core.config.Settings` 管理。
 
 DeepSeek V4 Flash 当前 capability 使用官方 1M context，但只按本地 dev eval 已验证的 400K
-input ceiling 放行：256K normal、360K compact、400K hard，单次 summary 输入最多 256K。
+input ceiling 放行。新运行普通档为 high、128K normal、192K compact、400K hard，单次
+summary 输入最多 256K；账户高级默认 extra.reasoning_effort=max 时冻结质量优先档：
+max、256K/360K/400K、summary 最多 256K。旧快照按原值恢复。更早整理是基于历史证据的
+调优假设，尚无新的速度/价格/质量 A/B 结论，不截断固定证据或取消可见性门禁。
 unknown model 使用 16K/20K/24K normal/compact/hard short fallback；这些值不从浏览器或项目
 设置读取。旧 task snapshot 缺 capability 字段时可恢复，但明确使用 unfrozen short fallback。
 
@@ -267,9 +270,12 @@ LRU 回收；API 与 worker 进程之间不共享 breaker 状态。
 
 ### RP 兼容性与诊断
 
-DeepSeek 新能力快照以可选 `interaction_reasoning_effort=max`、`interaction_timeout_seconds=900`
-及三个65,536输出预算保存 RP 专用策略；旧快照恢复为空策略并保留原数字。其他模型与业务调用
-默认参数不变。流式片段只计数 `reasoning_chars` 且序列化排除，不保存或显示思考文本；结构化
+DeepSeek 新能力快照以 `interaction_reasoning_effort=high`（质量优先为 max）、
+`interaction_timeout_seconds=900` 及三个65,536输出预算保存 RP 专用策略；旧快照保留原字段与数字。
+World pro 和导入 high_quality 经 Project snapshot client 显式选择质量优先：Flash 整条客户端调用链
+包括生成、知识审查和格式返修都强制 thinking/max，输出上限至少65,536（更大的显式上限保留），
+provider 等待至少900秒，仍受领域总 deadline/请求次数护栏约束。普通请求保留各阶段输出上限及
+显式 low/high。其他模型不被强加 Flash 的参数。流式片段只计数 `reasoning_chars` 且序列化排除，不保存或显示思考文本；结构化
 诊断同时记录可见/思考字符数，便于区分有用量无正文与正常输出。
 
 完整 JSON 仅在解码器定位为非法反斜杠转义时最多修复8处，保留字面内容并继续schema校验；

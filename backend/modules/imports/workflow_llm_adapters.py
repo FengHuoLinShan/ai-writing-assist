@@ -206,6 +206,7 @@ def _llm_client_for_profile(
     project_settings: dict[str, Any] | None,
     *,
     novel_id: str | None = None,
+    high_quality: bool = False,
     **overrides: Any,
 ):
     from modules.project.facade import create_project_snapshot_llm_client
@@ -217,6 +218,7 @@ def _llm_client_for_profile(
         project_settings or {},
         timeout_override=timeout_override,
         novel_id=novel_id,
+        high_quality=high_quality,
     )
 
 
@@ -240,12 +242,12 @@ def _deepseek_request_extra(
     model: str,
     high_quality: bool = False,
 ) -> dict[str, Any]:
-    extra = dict(profile.extra or {})
-    if profile.provider_id == "deepseek" or model.startswith("deepseek"):
-        extra.setdefault("thinking", {"type": "enabled"})
-        extra["thinking"] = {"type": "enabled"}
-        extra["reasoning_effort"] = "max" if high_quality else "high"
-    return extra
+    from infrastructure.llm.profiles import deepseek_reasoning_extra
+
+    return {
+        **(profile.extra or {}),
+        **deepseek_reasoning_extra(model, high_quality=high_quality),
+    }
 
 
 def _chapters_text(chapters: list[dict[str, Any]]) -> str:
@@ -477,7 +479,11 @@ class _Phase1aSceneSlicingLLM:
         )
         try:
             output = await _call_structured(
-                _llm_client_for_profile(self.project_settings, novel_id=self.novel_id),
+                _llm_client_for_profile(
+                    self.project_settings,
+                    novel_id=self.novel_id,
+                    high_quality=self.high_quality,
+                ),
                 request,
                 SceneSlicingOutput,
                 step_name="phase1a_scene_slicing",
@@ -605,7 +611,11 @@ class _Phase1aSceneSlicingLLM:
             extra=request_extra,
         )
         return await _call_structured(
-            _llm_client_for_profile(self.project_settings, novel_id=self.novel_id),
+            _llm_client_for_profile(
+                self.project_settings,
+                novel_id=self.novel_id,
+                high_quality=self.high_quality,
+            ),
             request,
             SceneAnchorRepairOutput,
             step_name="phase1a_scene_anchor_repair",
@@ -726,7 +736,11 @@ class _Phase1aSceneSlicingLLM:
             extra=request_extra,
         )
         return await _call_structured(
-            _llm_client_for_profile(self.project_settings, novel_id=self.novel_id),
+            _llm_client_for_profile(
+                self.project_settings,
+                novel_id=self.novel_id,
+                high_quality=self.high_quality,
+            ),
             request,
             SceneRecoveryOutput,
             step_name="phase1a_missing_chapter_recovery",
@@ -869,7 +883,11 @@ class _Phase1bSceneEnrichmentLLM:
         )
         try:
             output = await _call_structured(
-                _llm_client_for_profile(self.project_settings, novel_id=self.novel_id),
+                _llm_client_for_profile(
+                    self.project_settings,
+                    novel_id=self.novel_id,
+                    high_quality=self.high_quality,
+                ),
                 request,
                 SceneEnrichmentOutput,
                 step_name="phase1b_enrichment",
@@ -890,26 +908,26 @@ class _Phase1bSceneEnrichmentLLM:
                     "capability": "imports.scene_enrichment",
                     "novel_id": self.novel_id,
                     "group_key": f"scene:{scene_group_key}",
-                "sources": (
-                    _group_source(
-                        key="scene_source",
-                        source_type="prior_prose",
-                        value=scene_source,
-                        dimensions=("prior_prose",),
+                    "sources": (
+                        _group_source(
+                            key="scene_source",
+                            source_type="prior_prose",
+                            value=scene_source,
+                            dimensions=("prior_prose",),
+                        ),
+                        _group_source(
+                            key="scene_context",
+                            source_type="imported_assets",
+                            value={
+                                "locked_scene": locked_scene,
+                                "related_context": related_context,
+                                "context_fingerprint": context_fingerprint,
+                            },
+                            dimensions=("scene_state", "imported_assets"),
+                        ),
                     ),
-                    _group_source(
-                        key="scene_context",
-                        source_type="imported_assets",
-                        value={
-                            "locked_scene": locked_scene,
-                            "related_context": related_context,
-                            "context_fingerprint": context_fingerprint,
-                        },
-                        dimensions=("scene_state", "imported_assets"),
-                    ),
-                ),
-                "context": _serialize_phase1a_untrusted_json(prompt_input),
-                "task_instruction": "在不改变锁定边界的前提下充实 Scene 叙事字段。",
+                    "context": _serialize_phase1a_untrusted_json(prompt_input),
+                    "task_instruction": "在不改变锁定边界的前提下充实 Scene 叙事字段。",
                 },
             )
         except ImportKnowledgeGovernanceBlockedError as exc:
@@ -1081,13 +1099,15 @@ class _Phase1cSceneFusionLLM:
         )
         try:
             output = await _call_structured(
-                _llm_client_for_profile(self.project_settings, novel_id=self.novel_id),
+                _llm_client_for_profile(
+                    self.project_settings,
+                    novel_id=self.novel_id,
+                    high_quality=self.high_quality,
+                ),
                 request,
                 schema_model,
                 step_name=(
-                    "phase1c_scene_synthesis"
-                    if synthesis
-                    else "phase1c_boundary_review"
+                    "phase1c_scene_synthesis" if synthesis else "phase1c_boundary_review"
                 ),
                 transport_retries=False,
                 timeout_seconds=deep_import_int_setting(
@@ -1101,25 +1121,25 @@ class _Phase1cSceneFusionLLM:
                 project_settings=self.project_settings,
                 fix_prompt=fix_prompt,
                 governance={
-                "capability": "imports.scene_fusion",
-                "novel_id": self.novel_id,
-                "group_key": group_key,
-                "sources": (
-                    _group_source(
-                        key="scene_fusion_input",
-                        source_type="prior_prose",
-                        value=payload,
-                        dimensions=(
-                            "prior_prose",
-                            "scene_state",
-                            "imported_assets",
+                    "capability": "imports.scene_fusion",
+                    "novel_id": self.novel_id,
+                    "group_key": group_key,
+                    "sources": (
+                        _group_source(
+                            key="scene_fusion_input",
+                            source_type="prior_prose",
+                            value=payload,
+                            dimensions=(
+                                "prior_prose",
+                                "scene_state",
+                                "imported_assets",
+                            ),
                         ),
                     ),
-                ),
-                "context": _serialize_phase1a_untrusted_json(payload),
-                "task_instruction": (
-                    "综合 Scene 候选组。" if synthesis else "复核 Scene 候选边界。"
-                ),
+                    "context": _serialize_phase1a_untrusted_json(payload),
+                    "task_instruction": (
+                        "综合 Scene 候选组。" if synthesis else "复核 Scene 候选边界。"
+                    ),
                 },
             )
         except ImportKnowledgeGovernanceBlockedError as exc:
@@ -1287,7 +1307,11 @@ class _Phase2WorldExtractionLLM:
             ),
         )
         return await _call_structured(
-            _llm_client_for_profile(self.project_settings, novel_id=self.novel_id),
+            _llm_client_for_profile(
+                self.project_settings,
+                novel_id=self.novel_id,
+                high_quality=self.high_quality,
+            ),
             request,
             Phase2WorldExtractionOutput,
             step_name="phase2_world_extraction",

@@ -13,7 +13,9 @@ from infrastructure.llm.capabilities import (
 
 
 def test_deepseek_capability_is_deterministic_and_bounded() -> None:
-    profile = resolve_llm_capability_profile("deepseek", "deepseek-v4-flash")
+    profile = resolve_llm_capability_profile(
+        "deepseek", "deepseek-v4-flash", high_quality=True
+    )
 
     assert profile.context_limit_tokens == 1_048_576
     assert profile.hard_input_tokens == 400_000
@@ -21,7 +23,9 @@ def test_deepseek_capability_is_deterministic_and_bounded() -> None:
     assert profile.summary_input_ceiling_tokens == 256_000
     assert profile.to_snapshot() == profile.to_snapshot()
 
-    canonical = resolve_llm_capability_profile("deepseek", "deepseek-flash")
+    canonical = resolve_llm_capability_profile(
+        "deepseek", "deepseek-flash", high_quality=True
+    )
     assert canonical.model == "deepseek-flash"
     assert canonical.hard_input_tokens == profile.hard_input_tokens
     assert canonical.interaction_reasoning_effort == "max"
@@ -80,7 +84,9 @@ def test_legacy_capability_retains_output_and_no_thinking_override():
         story_request,
     )
 
-    current = resolve_llm_capability_profile("deepseek", "deepseek-v4-flash")
+    current = resolve_llm_capability_profile(
+        "deepseek", "deepseek-v4-flash", high_quality=True
+    )
     old = replace(
         current,
         profile_id="deepseek-v4-flash-20260901-v1",
@@ -119,3 +125,28 @@ def test_legacy_capability_retains_output_and_no_thinking_override():
     assert rp_timeout_seconds(prepared) is None
     assert current.story_output_tokens == current.summary_output_tokens == 65536
     assert current.interaction_reasoning_effort == "max"
+
+
+def test_balanced_and_quality_profiles_freeze_independently():
+    balanced = resolve_llm_capability_profile("deepseek", "deepseek-flash")
+    quality = resolve_llm_capability_profile(
+        "deepseek", "deepseek-flash", high_quality=True
+    )
+    assert balanced.interaction_reasoning_effort == "high"
+    assert (balanced.normal_input_tokens, balanced.compact_trigger_tokens) == (
+        128000,
+        192000,
+    )
+    assert balanced.summary_input_ceiling_tokens == quality.summary_input_ceiling_tokens
+    assert balanced.hard_input_tokens == quality.hard_input_tokens == 400000
+    snapshot = {
+        "profile": {"provider_id": "deepseek", "model": "deepseek-flash"},
+        LLM_CAPABILITY_SNAPSHOT_KEY: quality.to_snapshot(),
+    }
+    assert capability_from_execution_snapshot(snapshot) == quality
+    assert (
+        capability_from_execution_settings(
+            {"llm": {**snapshot["profile"], "extra": {"reasoning_effort": "max"}}}
+        )
+        == quality
+    )

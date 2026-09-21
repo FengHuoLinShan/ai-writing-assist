@@ -8,6 +8,10 @@ from dataclasses import dataclass
 
 from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.client import LLMClient
+from infrastructure.llm.profiles import (
+    DEEPSEEK_QUALITY_OUTPUT_TOKENS,
+    deepseek_reasoning_extra,
+)
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.schemas import LLMCallRequest
 from infrastructure.llm.workflow_budget import AIRunEnvelopeError
@@ -151,7 +155,9 @@ class PlotStructureParser:
         }
         token_attempts = _phase3_token_attempts(
             prompt_chars,
-            max_tokens=self._max_tokens,
+            max_tokens=max(self._max_tokens, DEEPSEEK_QUALITY_OUTPUT_TOKENS)
+            if self._high_quality and deepseek_reasoning_extra(model)
+            else self._max_tokens,
         )
         last_error: Exception | None = None
         for attempt_index, max_tokens in enumerate(token_attempts):
@@ -280,7 +286,9 @@ class PlotStructureParser:
                 temperature=0.2,
                 max_tokens=_phase3_token_attempts(
                     prompt_chars,
-                    max_tokens=self._max_tokens,
+                    max_tokens=max(self._max_tokens, DEEPSEEK_QUALITY_OUTPUT_TOKENS)
+                    if self._high_quality and deepseek_reasoning_extra(model)
+                    else self._max_tokens,
                 )[0],
                 response_format={"type": "json_object"},
                 extra=_deepseek_extra(model, high_quality=self._high_quality),
@@ -594,19 +602,16 @@ def _phase3_evidence_request(
             },
         ],
         temperature=0,
-        max_tokens=12_000,
+        max_tokens=DEEPSEEK_QUALITY_OUTPUT_TOKENS
+        if high_quality and deepseek_reasoning_extra(model)
+        else 12_000,
         response_format={"type": "json_object"},
         extra=_deepseek_extra(model, high_quality=high_quality),
     )
 
 
 def _deepseek_extra(model: str, *, high_quality: bool = False) -> dict[str, object]:
-    if str(model).startswith("deepseek"):
-        return {
-            "thinking": {"type": "enabled"},
-            "reasoning_effort": "max" if high_quality else "high",
-        }
-    return {}
+    return deepseek_reasoning_extra(model, high_quality=high_quality)
 
 
 def _phase3_token_attempts(

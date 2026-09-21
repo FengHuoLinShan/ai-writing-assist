@@ -212,6 +212,7 @@ async def test_deep_import_structure_generator_high_quality_keeps_model() -> Non
 
     assert llm.requests[0].model == "deepseek-v4-flash"
     assert llm.requests[0].extra["reasoning_effort"] == "max"
+    assert llm.requests[0].max_tokens == 65_536
 
 
 @pytest.mark.asyncio
@@ -266,7 +267,7 @@ async def test_deep_import_structure_generator_uses_and_closes_snapshot_client(
     assert captured == [
         (
             settings,
-            {"novel_id": "00000000-0000-0000-0000-000000000001"},
+            {"novel_id": "00000000-0000-0000-0000-000000000001", "high_quality": True},
         )
     ]
     # No adopted Scene evidence means Phase 3 returns an empty review result

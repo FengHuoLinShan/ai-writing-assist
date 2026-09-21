@@ -594,7 +594,10 @@ class WorldGenerationCenterService:
 
         try:
             async with self._open_client(
-                db, data.novel_id, execution_snapshot=execution_snapshot
+                db,
+                data.novel_id,
+                execution_snapshot=execution_snapshot,
+                high_quality=data.quality_mode == "pro",
             ) as client:
                 if data.quality_mode == "pro":
                     raw_brief = (review_state or {}).get("task_brief")
@@ -1456,6 +1459,7 @@ class WorldGenerationCenterService:
                 db,
                 data.novel_id,
                 execution_snapshot=execution_snapshot,
+                high_quality=data.quality_mode == "pro",
             ) as client:
                 request = LLMCallRequest(
                     model=model,
@@ -1610,6 +1614,7 @@ class WorldGenerationCenterService:
                 db,
                 data.novel_id,
                 execution_snapshot=execution_snapshot,
+                high_quality=data.quality_mode == "pro",
             ) as client:
                 provider = str(client.provider)
                 async with asyncio.timeout(WORLD_GENERATION_TIMEOUT_SECONDS):
@@ -1695,6 +1700,7 @@ class WorldGenerationCenterService:
                     db,
                     data.novel_id,
                     execution_snapshot=execution_snapshot,
+                    high_quality=data.quality_mode == "pro",
                 ) as client:
                     provider = str(client.provider)
                     async with asyncio.timeout(WORLD_GENERATION_TIMEOUT_SECONDS):
@@ -1784,6 +1790,7 @@ class WorldGenerationCenterService:
                 db,
                 data.novel_id,
                 execution_snapshot=execution_snapshot,
+                high_quality=data.quality_mode == "pro",
             ) as client:
                 provider = str(client.provider)
                 async with asyncio.timeout(WORLD_GENERATION_TIMEOUT_SECONDS):
@@ -1932,6 +1939,7 @@ class WorldGenerationCenterService:
                 db,
                 data.novel_id,
                 execution_snapshot=execution_snapshot,
+                high_quality=data.quality_mode == "pro",
             ) as client:
                 async with asyncio.timeout(WORLD_GENERATION_TIMEOUT_SECONDS):
                     prepared[
@@ -5008,6 +5016,7 @@ class WorldGenerationCenterService:
         novel_id: str,
         *,
         execution_snapshot: dict[str, Any] | None = None,
+        high_quality: bool = False,
     ) -> AsyncIterator[LLMClient]:
         if self._llm_client is not None:
             await self._checkpoint_before_provider(db)
@@ -5033,6 +5042,7 @@ class WorldGenerationCenterService:
             settings,
             timeout_override=WORLD_GENERATION_TIMEOUT_SECONDS,
             novel_id=novel_id,
+            high_quality=high_quality,
         )
         try:
             await self._checkpoint_before_provider(db)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Any
 
 from infrastructure.stable_hash import stable_hash
@@ -49,7 +49,7 @@ class LLMCapabilityProfile:
         if self.interaction_reasoning_effort is not None and (
             self.provider_id != "deepseek"
             or self.model not in {"deepseek-flash", "deepseek-v4-flash"}
-            or self.interaction_reasoning_effort != "max"
+            or self.interaction_reasoning_effort not in {"high", "max"}
             or self.interaction_timeout_seconds != 900
         ):
             raise LLMCapabilityError("Unsupported RP execution policy")
@@ -144,12 +144,23 @@ def _short_fallback(
 def resolve_llm_capability_profile(
     provider_id: str | None,
     model: str | None,
+    *,
+    high_quality: bool = False,
 ) -> LLMCapabilityProfile:
     provider = str(provider_id or "")
     model_name = str(model or "")
     for profile in (_DEEPSEEK_FLASH, _DEEPSEEK_V4_FLASH):
         if (provider, model_name) == (profile.provider_id, profile.model):
-            return profile
+            if high_quality:
+                return profile
+            return replace(
+                profile,
+                profile_id=f"{model_name}-rp-balanced-20260921-v1",
+                normal_input_tokens=128_000,
+                compact_trigger_tokens=192_000,
+                interaction_reasoning_effort="high",
+                calibration_status="historical_evidence_tuning",
+            ).validate()
     return _short_fallback(provider, model_name)
 
 
@@ -193,7 +204,11 @@ def capability_from_execution_settings(settings: dict[str, Any]) -> LLMCapabilit
     model = str(llm.get("model") or "")
     value = settings.get(LLM_CAPABILITY_EXECUTION_KEY)
     if not isinstance(value, dict):
-        return resolve_llm_capability_profile(provider_id, model)
+        return resolve_llm_capability_profile(
+            provider_id,
+            model,
+            high_quality=(llm.get("extra") or {}).get("reasoning_effort") == "max",
+        )
     return _profile_from_snapshot(value, provider_id=provider_id, model=model)
 
 

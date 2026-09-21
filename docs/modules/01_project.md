@@ -151,3 +151,7 @@ group 裁决和 legacy suggestions。group apply 必须引用原扫描任务，�
 
 Project 的执行快照入口支持明确的 `interaction_ensemble` 选择，在签名之前冻结受开关控制的
 RP v3 策略；该参数不覆盖账户 provider/model/Key，也不能用于 author 项目。
+
+### DS Flash 档位调优（2026-09-21）
+
+Project snapshot client支持显式high_quality执行策略：同一账户Flash使用max思考、至少65,536输出与900秒provider等待；不覆盖连接身份或解除运行护栏。RP新snapshot按账户extra.reasoning_effort=max选择质量优先，其余默认high及较早历史整理；旧快照继续原参数。
