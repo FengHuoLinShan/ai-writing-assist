@@ -102,8 +102,20 @@
       plan_parallel_batches 确定性准入（同 Scene 依赖键不相交并行、
       键冲突/叙事顺序分批）。10 例新测试（含并发预留恰好耗尽预算）。
       本机坑：出现 `* 2.py` 陈旧副本文件破坏 lint（第三次遇到，删除即可）。
-- [ ] E05 Evidence dependencies + evolution/invalidation（修订/时态/重排/删除
-      影响传播，T08/T09）（未开始）
+- [x] 2026-09-21 会话 5：E05 完成——`evolution/invalidation.py`：
+      compute_source_change 物理差异（同字数替换给出非空窗口，T08 的
+      4000 字后场景有专测）；apply_source_invalidation 传播正文变更
+      （evidence request_chapter_index 换源重建 + Scene 投影软 supersede，
+      保守扩大自锚定受影响章的最早 Scene，回执记 coverage）；
+      apply_scene_reorder_invalidation（align_scene_indices + 从最早移动
+      Scene 起失效，T09）。失效不删历史（作者确认保留有专测）。未接缝
+      消费者 world_knowledge/map_atlas/assistant_suggestions 显式
+      unsupported（待 G2/V/R 接线）。新增 story facade 薄缝
+      supersede_scene_projections_from（story/facade __all__ 已登记）。
+      测试坑：全角句号与逗号同为一字符（长度变更用例别拿它造长度差）；
+      stage0 快照 scene_index 为 None 断言要排除。
+- [ ] G2 整体纵切（原文→前序状态→后序理解→新 case→地图→修订失效，
+      T03/T17 等）（未开始）
 
 ## 验证
 
@@ -124,19 +136,19 @@
   test_repositories 2 例、test_foreshadowing_reveal 2 例、writing
   test_create_many_reads_versions_once_and_flushes_once 1 例。
 
-## 恢复快照（2026-09-21 会话 4 结束，含 E04）
+## 恢复快照（2026-09-21 会话 5 结束，含 E05）
 
-分支 `codex/novelcraft-v4-g0-baseline`，累计 13 个提交：G0×2、E01、E02、
-E03a、T13、E03b（1a9bb215e）、E03c（d11fb140c）、E04（3e7a31eb8）及任务/
-文档记录。**未推送、未合 main、未部署、未建 PR。**
+分支 `codex/novelcraft-v4-g0-baseline`，累计 15 个提交：G0×2、E01、E02、
+E03a、T13、E03b、E03c、E04（3e7a31eb8）、E05（85576f358）及任务/文档记录。
+**未推送、未合 main、未部署、未建 PR。**
 E03b 与计划 §2.2 的差异（有意收窄）：以 `meta.event_key` JSON 键替代新列
 （避免生产迁移，语义等价——身份=语义指纹而非输出位置）；producer_family
 暂用 source 字符串（deep_import/ai_extraction），generation/input_revision
 登记在 delta meta，完整 `replace_derived_scene_events(...)` 签名留给 E03c
 随 evolution/commit 落地。
-下一步：E05（Evidence dependencies + evolution/invalidation：修订/时态/
-重排/删除的影响传播，T08 同长度修改失效、T09 前文修改/场景调序失效），
-随后 G2 整体纵切（原文→前序状态→后序理解→新 case→地图→修订失效）。
-E04 留给接线期的项：orchestrator 与 async_tasks/worker 的实际挂接、
-provider 采样循环组合（现在只有协议与内核）。协作/导入索引缺口留 I02。
-G0 可并行项（R00/V00）尚未认领。
+下一步：G2 整体纵切——用虚构测试小说（林舟/青竹/白石城/铜钥匙）串起
+原文→前序状态→后序理解→新 case→地图→修订失效（计划 §9 最小纵切；
+T03 未知路线不造真、T17 原文撤回旧建议失效）。E04/E05 留给接线期的项：
+orchestrator 与 worker 挂接、provider 采样循环、三个 unsupported 消费者
+的缝（world 知识/地图/建议）。协作/导入索引缺口留 I02。G0 可并行项
+（R00/V00）尚未认领。合并 main 需用户授权。
