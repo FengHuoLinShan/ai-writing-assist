@@ -63,6 +63,7 @@ from modules.assistant.schemas import (
     SessionCreate,
     TurnCreate,
     WorkContext,
+    work_directive,
 )
 from modules.assistant.sessions import AssistantSessionService
 from modules.evidence.contracts import GroupSource, govern_group_output
@@ -479,6 +480,17 @@ class AssistantService:
                 raise ConflictError(
                     "正文已变化，请重新读取当前版本", code="assistant_source_stale"
                 )
+            if data.context.selection_start is not None:
+                # R00：服务端 SourceRange 一致性——选区必须逐字来自当前
+                # 草稿的声称范围，漂移即失败关闭，不带失真选区进模型。
+                from modules.assistant.schemas import verify_selection_range
+
+                try:
+                    verify_selection_range(draft.content or "", data.context)
+                except ValueError as exc:
+                    raise ConflictError(
+                        str(exc), code="assistant_selection_stale"
+                    ) from exc
         snapshot = await build_project_llm_execution_snapshot(db, novel_id)
         frozen_payload = dict(payload)
         frozen_payload["calendar_date"] = (
@@ -1049,7 +1061,12 @@ class AssistantService:
                         exclude={"context_confirmation_id", "context_confirmation_action"}
                     )
                     + "\n作者要求："
-                    + payload["message"],
+                    + payload["message"]
+                    + (
+                        "\n" + work_directive(work)
+                        if work_directive(work)
+                        else ""
+                    ),
                 )
             )
             await db.commit()

@@ -13,6 +13,69 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+TASK_HINTS = (
+    "unknown",
+    "continue",
+    "polish",
+    "revise",
+    "design",
+    "retrieve",
+    "review",
+    "organize",
+    "roleplay",
+)
+"""作者意图封闭集（R00）。turn 与 forecast 共用；"polish" 在 forecast 侧
+还会收窄能力集（runtime 只保留非扩情节项）。"""
+
+TaskHint = Literal[
+    "unknown",
+    "continue",
+    "polish",
+    "revise",
+    "design",
+    "retrieve",
+    "review",
+    "organize",
+    "roleplay",
+]
+
+TASK_HINT_DIRECTIVES = {
+    "continue": "续写：只推进作者指定方向的下文，不回改已发布内容。",
+    "polish": "只润色：仅改进指定内容的文字表达，不得扩大情节、新增设定或改动事实。",
+    "revise": "修改：按作者要求改动指定内容，改法先说明再动手。",
+    "design": "设定设计：只产出设定草案与理由，不直接改正文。",
+    "retrieve": "查证：优先检索并给出出处，不确定就明说。",
+    "review": "检查：逐条给出问题与依据，不主动改写。",
+    "organize": "整理：归纳现状与待办，不新增创作决定。",
+    "roleplay": "演绎：保持角色视角与已建立的世界事实。",
+}
+"""意图 → 模型输入中的行为边界（R00：作者意图实际进入模型输入）。"""
+
+
+def work_directive(work: WorkContext) -> str:
+    """turn 最终 user 消息里的意图指令行；unknown 不注入。"""
+    if work.task_hint in TASK_HINT_DIRECTIVES:
+        return f"作者意图：{TASK_HINT_DIRECTIVES[work.task_hint]}"
+    return ""
+
+
+def verify_selection_range(draft_content: str, work: WorkContext) -> None:
+    """服务端 SourceRange 一致性（R00）：选区文本必须逐字来自绑定草稿
+    的声称偏移范围——漂移即失败关闭，不带着失真的选区进模型。
+
+    偏移按 Unicode 码点计数（与前端 ``Array.from`` 计数一致）。
+    """
+    if work.selection_start is None and work.selection_end is None:
+        return
+    if work.draft_id is None:
+        raise ValueError("选区偏移必须绑定正文草稿")
+    start, end = work.selection_start, work.selection_end
+    if len(work.selection) != end - start or end > len(draft_content):
+        raise ValueError("选区偏移与选区文本不一致")
+    if draft_content[start:end] != work.selection:
+        raise ValueError("选区与当前正文不一致，请重新选择")
+
+
 class WorkContext(StrictModel):
     timezone: str = Field(default="Asia/Shanghai", max_length=64)
     page: Literal[
@@ -32,10 +95,30 @@ class WorkContext(StrictModel):
     draft_id: UUID | None = None
     source_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     selection: str = Field(default="", max_length=30000)
+    task_hint: TaskHint = "unknown"
+    selection_start: int | None = Field(default=None, ge=0)
+    selection_end: int | None = Field(default=None, ge=0)
     scope: Literal["current", "project"] = "current"
     excluded_targets: list[str] = Field(default_factory=list, max_length=200)
     context_confirmation_id: UUID | None = None
     context_confirmation_action: str | None = Field(default=None, max_length=100)
+
+    @model_validator(mode="after")
+    def require_selection_range_pair(self):
+        # R00：偏移成对出现，且必须绑定草稿与非空选区；逐字一致性在
+        # submit 载入草稿后经 verify_selection_range 复核（码点计数）。
+        start, end = self.selection_start, self.selection_end
+        if (start is None) != (end is None):
+            raise ValueError("选区偏移必须成对")
+        if start is None:
+            return self
+        if not self.selection:
+            raise ValueError("选区偏移需要非空选区")
+        if self.draft_id is None:
+            raise ValueError("选区偏移必须绑定正文草稿")
+        if len(self.selection) != end - start:
+            raise ValueError("选区偏移与选区文本长度不一致")
+        return self
 
     @model_validator(mode="after")
     def require_confirmation_action(self):

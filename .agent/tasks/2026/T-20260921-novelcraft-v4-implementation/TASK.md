@@ -278,3 +278,34 @@ _shadow_applier 现在把 provider 计量带入回执——影子运行消耗真
 遗留：真实档观察里混有「本章标题为…」类平凡观察（质量噪音，非阻塞）；
 身份全为 new_candidate（专用库无 World 实体，诚实待作者裁定）；跨模块
 消费链（Evidence 入模+地图）仍属复审门槛第 6 条，未在本轮。
+
+- PR #160 CI 11/11 全绿，已合入 main（2f3e6e9dd）。E09 里程碑完成。
+- 下一候选：G3+/U 系列前端统一宿主（R00 选区传递、U01 单右侧宿主）；
+  或复审门槛第 6 条（独立 case 经 Evidence 入模消费 + 地图消费）。
+
+## U00+R00（2026-09-22 会话 12，分支 codex/u00-r00-entry-selection）
+
+**U00**：`docs/plans/novelcraft-v4/u00/U00-入口与状态清单.md` 建立——15 路由
+→岛→视图全清单、6 个命令模式命令、顶栏入口、公开演示白名单、状态面
+必测清单、R00 断点事实底账与归宿决定记录（04-FRONTEND-HIFI §10 要求）。
+
+**R00 三断点修复**（选区/intent 数据链一致传递）：
+1. 选区 SourceRange：`captureWorkContext` 在写作页干净编辑器上捕获码点
+   偏移（`Array.from` 计数，emoji 不漂移；dirty/saving 只留文本不带偏移）；
+   `WorkContext` 新增 `selection_start/end`（成对+须绑定草稿+长度=码点数）；
+   `AssistantService.submit` 载草稿后 `verify_selection_range` 逐字复核——
+   漂移即 `assistant_selection_stale` 409 失败关闭。
+2. task_hint/intent：`WorkContext.task_hint`（schemas.TASK_HINTS 封闭集，
+   forecast 契约同源）；助手面板新增「这次要求」选择器（不限/续写/只润色/
+   修改/设定设计/查证/检查/整理），经 withIntent 并入 turn 与前瞻上下文；
+   `work_directive` 把意图行为边界渲染进最终 user 消息（如 polish="不得
+   扩大情节、新增设定或改动事实"）——forecast 侧既有 polish 能力收窄
+   （runtime 剔除扩情节项）自此可被触发。
+3. forecast selected_range：`useForecast.focusFrom` 在干净写作页带
+   draft+hash 时发送 `{start,end}`（契约本就要求并消费），前瞻实际分析
+   选中段落。
+
+验证：后端 assistant 89（77+12 新增）通过、ruff；前端 vitest 2538
+（含 4 条 assistantContext 新用例：码点偏移/emoji/dirty 门控/项目隔离）、
+eslint；assistant e2e 与 creative-forecast e2e（专用库）通过；docs-check
+带理由通过。全量后端单测（无 .env）后台复核中。

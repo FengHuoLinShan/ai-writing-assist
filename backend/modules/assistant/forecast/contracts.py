@@ -91,6 +91,7 @@ class FocusRequest(StrictModel):
         "account",
         "interaction",
     ]
+    # R00：turn 与 forecast 共用同一意图封闭集（schemas.TASK_HINTS）。
     task_hint: Literal[
         "unknown",
         "continue",

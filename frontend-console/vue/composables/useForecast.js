@@ -31,6 +31,18 @@ export function createForecast({ editor = () => null, composing = () => false } 
     }
     const saved = writing?.lastSavedContent ?? writing?.savedContent
     if (result.draft_id && typeof saved === "string") result.expected_source_hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(saved))), value => value.toString(16).padStart(2, "0")).join("")
+    // R00：写作页干净状态下带选区范围（码点偏移 + 已存内容指纹），让
+    // 前瞻实际分析选中段落；契约要求 selected_range 必须伴随 draft+hash。
+    if (
+      result.draft_id
+      && result.expected_source_hash
+      && result.editor_state === "saved"
+      && Number.isInteger(context.selection_start)
+      && Number.isInteger(context.selection_end)
+      && context.selection_end > context.selection_start
+    ) {
+      result.selected_range = { start_offset: context.selection_start, end_offset: context.selection_end }
+    }
     return result
   }
   function acceptFeed() { if (!composing() && state.pendingFeed) { state.feed = state.pendingFeed; state.pendingFeed = null; state.stale = false } }
