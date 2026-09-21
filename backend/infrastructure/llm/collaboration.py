@@ -139,12 +139,14 @@ async def run_work_items(
                 await save()
 
     while pending := [item for item in items if item.status == "pending"]:
+        blocked = False
         for item in pending:
             if any(
                 by_key[key].status in {"failed", "blocked", "cancelled"}
                 for key in item.depends_on
             ):
                 item.status, item.stop_reason = "blocked", "dependency"
+                blocked = True
         ready = [
             item
             for item in pending
@@ -153,7 +155,9 @@ async def run_work_items(
         ]
         await save()
         if not ready:
-            break
+            if blocked:
+                continue
+            raise ValueError("Pending work has no runnable or terminal dependency path")
         tasks = [asyncio.create_task(one(item)) for item in ready[:concurrency]]
         try:
             await asyncio.gather(*tasks)

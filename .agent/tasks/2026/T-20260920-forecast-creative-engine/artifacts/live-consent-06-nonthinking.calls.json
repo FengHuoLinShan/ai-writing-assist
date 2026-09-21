@@ -1,0 +1,23 @@
+{
+  "spent_peak_usd": 0.004154699999999999,
+  "calls": [
+    {
+      "request_hash": "1a799a5559240304dbd1b3a087a64c1af522cd7a30e21cce197c38cc59e33bf5",
+      "provider_call_id": "ebcc6821-6e4d-4f41-af37-3e19d550293d",
+      "model": "deepseek-flash",
+      "input_tokens": 958,
+      "output_tokens": 734,
+      "finish_reason": "stop",
+      "peak_cost_usd": 0.0011681999999999999
+    },
+    {
+      "request_hash": "381f3ced79e83abf5931ddcaeeef520bbf165c40a536d7442a6da2c80b22b053",
+      "provider_call_id": "12e90401-4704-485f-9819-5f1e8d0b86e6",
+      "model": "deepseek-flash",
+      "input_tokens": 1619,
+      "output_tokens": 2084,
+      "finish_reason": "stop",
+      "peak_cost_usd": 0.0029864999999999996
+    }
+  ]
+}

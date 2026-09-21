@@ -187,6 +187,7 @@
         @export="vm.exportChapter"
         @retry-load="vm.retryChapterLoad"
         @reload-server="reloadServerDraft"
+        @composition="setComposition"
       >
         <template #context-actions>
           <div v-if="versionChoices.length" id="writing-versions-container" class="writing-version-bar writing-version-bar--compact">
@@ -238,6 +239,14 @@
       aria-label="本章资料"
     >
       <div id="writing-panel-container">
+        <ForecastDock
+          v-if="vm.editorState.draftId && !vm.editorState.readonly && !vm.editorState.loading && !vm.editorState.loadError"
+          :project-id="props.projectId"
+          :context="{ page: 'writing', draft_id: vm.editorState.draftId, scene_id: vm.currentScene.value?.id || null }"
+          :editor="vm.editorState"
+          :composing="forecastComposing"
+          :active="rightRailOpen"
+        />
         <SceneCockpit
           :project-id="projectId"
           :chapter="vm.selectedChapter.value"
@@ -357,6 +366,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import AssistantReviewResult from "../../components/AssistantReviewResult.vue"
+import ForecastDock from "../../components/ForecastDock.vue"
 import ChapterTree from "./components/ChapterTree.vue"
 import ChapterMapDialog from "./components/ChapterMapDialog.vue"
 import AutoExtractionDialog from "./components/AutoExtractionDialog.vue"
@@ -372,7 +382,7 @@ import WritingWorkflowBars from "./components/WritingWorkflowBars.vue"
 import WritingHomeView from "./home/WritingHomeView.vue"
 import { authorTaskPanelQuery } from "./home/authorTaskSource.js"
 import OwnerAiDrawer from "../../components/OwnerAiDrawer.vue"
-import { getRouter, getApi, getToast, openProjectAssistant } from "../../bridge/index.js"
+import { getRouter, getApi, getToast, openProjectAssistant, setForecastComposing } from "../../bridge/index.js"
 import { useWritingWorkspace } from "./useWritingWorkspace.js"
 import "./writing-desk.css"
 
@@ -396,6 +406,8 @@ const vm = useWritingWorkspace(props)
 const versionChoices = computed(() => vm.versions.value.filter(version => version.status !== "deprecated" || version.id === vm.editorState.draftId))
 const router = getRouter()
 const deepReviewAvailable = ref(false)
+const forecastComposing = ref(false)
+function setComposition(value) { forecastComposing.value = value; setForecastComposing(props.projectId, value) }
 watch(() => props.projectId, async projectId => {
   deepReviewAvailable.value = false
   try { const value = await getApi().assistant.capabilities(projectId); if (projectId === props.projectId) deepReviewAvailable.value = value.collaboration?.some(item => item.id === "deep_review" && item.available) === true } catch { /* ordinary review remains available */ }

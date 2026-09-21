@@ -26,15 +26,25 @@ from modules.interaction.services import InteractionService
 from modules.interaction.tasks import handle_interaction_story_generate
 from modules.interaction.tests.governance_fakes import GovernedAuditMixin
 from modules.interaction.tests.test_sources import _ready_source
+from modules.story.observations import ResolutionProposal
 from modules.story.simulation import RoundResolution
 
 
 @pytest.mark.parametrize("interrupt", [False, True])
+@pytest.mark.parametrize("observation_v2", [False, True])
 async def test_ensemble_held_stream_commits_actor_state_only_with_story(
-    db_session, project_factory, account_llm_connection, monkeypatch, interrupt
+    db_session,
+    project_factory,
+    account_llm_connection,
+    monkeypatch,
+    interrupt,
+    observation_v2,
 ):
     settings = replace(
-        get_settings(), interaction_agent_enabled=True, interaction_team_enabled=True
+        get_settings(),
+        interaction_agent_enabled=True,
+        interaction_team_enabled=True,
+        collaboration_v2_enabled=observation_v2,
     )
     monkeypatch.setattr("core.config.get_settings", lambda: settings)
     monkeypatch.setattr("modules.interaction.services.get_settings", lambda: settings)
@@ -55,6 +65,15 @@ async def test_ensemble_held_stream_commits_actor_state_only_with_story(
 
         async def generate(self, request, **kwargs):
             calls.append("actor")
+            if observation_v2:
+                payload = json.loads(request.messages[-1].content)
+                assert any(
+                    "我来到车站" in event["action"] for event in payload["observations"]
+                )
+                assert all(
+                    event["outcome"] == "spoken_claim"
+                    for event in payload["observations"]
+                )
             tool = next(t for t in request.tools if t.name.startswith("final_result"))
             return LLMCallResponse(
                 tool_calls=[
@@ -74,7 +93,7 @@ async def test_ensemble_held_stream_commits_actor_state_only_with_story(
             )
 
         async def generate_structured(self, request, schema, **kwargs):
-            if schema is RoundResolution:
+            if schema in {RoundResolution, ResolutionProposal}:
                 calls.append("resolver")
                 return schema(outcomes=[{"actor_id": actor, "outcome": "succeeded"}])
             assert "私密动机" not in str(request.messages)
@@ -106,6 +125,11 @@ async def test_ensemble_held_stream_commits_actor_state_only_with_story(
             opening_text="我来到车站，看见林默。",
             idempotency_key="ensemble-integration",
             generation_mode="ensemble",
+            **(
+                {"ensemble_cast_keys": [key], "opening_input_kind": "speech"}
+                if observation_v2
+                else {}
+            ),
             source_setup={
                 "source_revision_id": str(source.id),
                 "progress_anchor_key": anchor["anchor_key"],
@@ -135,6 +159,11 @@ async def test_ensemble_held_stream_commits_actor_state_only_with_story(
             autospec=True,
             return_value=compiled,
         ),
+        patch(
+            "modules.interaction.ensemble_v2.compile_interaction_story_context",
+            autospec=True,
+            return_value=compiled,
+        ),
     ):
         if interrupt:
             with pytest.raises(ConnectionError):
@@ -156,8 +185,12 @@ async def test_ensemble_held_stream_commits_actor_state_only_with_story(
     if interrupt:
         assert not states and attempt.visible_text == ""
     else:
-        assert len(states) == 1
-        assert str(states[0].actor_id) == actor
+        assert len(states) == (2 if observation_v2 else 1)
+        actor_state = next(state for state in states if str(state.actor_id) == actor)
         assert attempt.visible_text == "林默在车站等候。"
-        assert str(states[0].id) in attempt.agent_checkpoint_json["actor_state_refs"]
-        assert "私密动机" not in json.dumps(states[0].state_json, ensure_ascii=False)
+        assert str(actor_state.id) in attempt.agent_checkpoint_json["actor_state_refs"]
+        assert "私密动机" not in json.dumps(actor_state.state_json, ensure_ascii=False)
+        if observation_v2:
+            observer = next(state for state in states if str(state.actor_id) != actor)
+            assert observer.state_json["agent_invoked"] is False
+            assert actor_state.state_json["environment"]["participants"] == [actor]

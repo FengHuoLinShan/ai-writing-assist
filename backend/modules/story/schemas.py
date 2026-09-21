@@ -294,6 +294,9 @@ class StoryCardTaskRequest(StorySchema):
         return str(uuid.UUID(str(value)))
 
 
+from modules.story.observations import SimulationSeed  # noqa: E402
+
+
 class StoryOneClickTaskRequest(StorySchema):
     """One-click simulation consumes one author-reviewed context confirmation."""
 
@@ -311,7 +314,8 @@ class StoryOneClickTaskRequest(StorySchema):
     accepted_beats: list[ScriptBeat] = Field(default_factory=list, max_length=100)
     submit_authorized: bool = False
     use_round_candidates: bool = False
-    simulation_protocol: Literal["legacy", "rehearsal_v1"] = "legacy"
+    simulation_protocol: Literal["legacy", "rehearsal_v1", "observation_v2"] = "legacy"
+    simulation_seed: SimulationSeed | None = None
     rehearsal_rounds: int = Field(default=2, ge=1, le=3)
     narrator_character_id: uuid.UUID | None = None
     parent_rehearsal_id: uuid.UUID | None = None
@@ -320,7 +324,13 @@ class StoryOneClickTaskRequest(StorySchema):
 
     @model_validator(mode="after")
     def bounded_rehearsal(self):
-        if self.simulation_protocol == "rehearsal_v1":
+        if self.simulation_seed and self.simulation_protocol != "observation_v2":
+            raise ValueError("旧协议不能重新解释试验初始状态")
+        if self.simulation_seed:
+            from modules.story.observations import seeded_state
+
+            seeded_state(self.simulation_seed, self.character_ids)
+        if self.simulation_protocol in {"rehearsal_v1", "observation_v2"}:
             if not 1 <= len(self.character_ids) <= 3:
                 raise ValueError("排演每轮需要一至三名人物")
             if (

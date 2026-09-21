@@ -549,7 +549,7 @@ export function createEditorController({
     return savePromise
   }
 
-  async function reloadServerDraft() {
+  async function reloadServerDraft({ confirmReload = true } = {}) {
     const chapter = state.chapter
     const projectId = getProjectId()
     if (!projectId || !chapter || state.saving || state.reloadingServer) return false
@@ -567,7 +567,7 @@ export function createEditorController({
       load: loadGeneration,
       editRevision,
     }
-    if (!(await confirmDialog(
+    if (confirmReload && !(await confirmDialog(
       "将加载服务器最新版，当前文字会保留在本机备份中，建议先导出后继续。是否继续？",
       "载入服务器最新版",
     ))) return false

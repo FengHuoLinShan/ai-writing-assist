@@ -1,0 +1,5 @@
+python3 /Users/tywww/.codex/worktrees/forecast-creative-engine/ai-writing-assist/scripts/check_architecture_docs.py --base-ref origin/main
+NOTE: inventory: 10 business modules, 128 ORM tables, 50 task handlers, 16 frontend routes, 35 ADR files
+NOTE: review user-facing behavior documentation if needed: frontend-production, infrastructure-production, module-production
+NOTE: impact: all required documents changed for rules application-topology, architecture-governance, database-migrations, frontend-routing, frontend-wire, llm-infrastructure, module-contract, module-schema, module-tasks, shared-foundation, task-infrastructure
+Architecture documentation checks passed.

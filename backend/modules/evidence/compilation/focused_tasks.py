@@ -66,7 +66,7 @@ class FocusedSearchSubmit(FocusedModel):
     )
 
 
-async def submit_focused_search(db, data: FocusedSearchSubmit):
+async def prepare_focused_search(db, data: FocusedSearchSubmit):
     await require_active_project(db, data.novel_id)
     character_id = None
     if data.scene_id:
@@ -142,6 +142,11 @@ async def submit_focused_search(db, data: FocusedSearchSubmit):
         except ProjectLLMConfigurationError:
             # Literal and database retrieval remain useful without a model connection.
             pass
+    return request, snapshot
+
+
+async def submit_focused_search(db, data: FocusedSearchSubmit):
+    request, snapshot = await prepare_focused_search(db, data)
     return await _enqueue(db, request, snapshot)
 
 

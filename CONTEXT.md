@@ -223,3 +223,11 @@ migration 与测试，再更新此词汇表。跨模块语义或资产所有权�
 ADR-0027 的 Assistant 工作项与调查成果是有界私有 checkpoint；World 压力报告借建议队列
 保存不可采用报告，Story 回合、Interaction 分支观察各归所属领域的新历史表。
 共享 task/root、Evidence、账户模型和原确认/采用协议，不新增正史或通用 Agent 调度服务。
+
+## Collaboration 与短期前瞻
+
+新增业务模块 `collaboration` 持有目标、授权、不可变试改与精确采用回执；
+`assistant` 持有短期前瞻和处置，`story` / `interaction` 持有观察及分支事实。
+当前共十个业务模块，继续复用原 PostgreSQL 队列、Evidence 与 Project 连接。
+模块职责与采用/恢复边界见 `docs/modules/21_collaboration.md`、
+`backend/modules/collaboration/README.md`，前瞻见 `docs/modules/20_assistant.md`。

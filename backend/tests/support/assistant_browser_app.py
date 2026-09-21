@@ -47,6 +47,11 @@ from run_worker import _build_task_worker
 
 async def _generate(_self, request):
     await asyncio.sleep(0.1)
+    from tests.support.creative_browser_provider import structured_reply
+
+    structured = structured_reply(request)
+    if structured is not None:
+        return structured
     planning = next(
         (
             tool

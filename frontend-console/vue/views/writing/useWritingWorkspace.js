@@ -14,6 +14,7 @@ import {
   getRouteQuery,
   getRouter,
   getToast,
+  onCreativeMerged,
 } from "../../bridge/index.js"
 import { useLeaveGuard } from "../../composables/useLeaveGuard.js"
 import { buildSceneAlerts } from "./sceneAlerts.js"
@@ -381,6 +382,7 @@ export function useWritingWorkspace(props) {
     appState._currentContent = editorState.content
     appState._currentTitle = editorState.title
     appState._currentDraftId = editorState.status === "candidate" ? null : editorState.draftId
+    appState._writingForecastState = { projectId, sceneId: currentSceneId, draftId: editorState.draftId, dirty: editorState.dirty, saving: editorState.saving, savedContent: editorState.lastSavedContent, composing: appState._writingForecastState?.projectId === projectId && appState._writingForecastState?.composing === true }
     appState._currentSuggestionDraftId = editorState.status === "candidate" ? editorState.draftId : null
     appState._currentVersionNumber = editorState.versionNumber
     appState._currentUpdatedAt = editorState.updatedAt
@@ -1534,6 +1536,21 @@ export function useWritingWorkspace(props) {
   function attachEditor(elements) { editor.attach(elements) }
   function detachEditor() { editor.detach() }
 
+  const stopMergeListener = onCreativeMerged(async ({ projectId: sourceProject, receipt }) => {
+    if (sourceProject !== projectId || editorState.readonly || !receipt.results?.some(item => item.before.kind === "writing_draft" && item.before.chapter_index === selectedChapter.value)) return
+    if (editor.hasUnsavedChanges() || editorState.saving) {
+      editor.persist(); editorState.saveConflict = true
+      editorState.saveError = "试改已采用，当前新输入仍保留。请核对服务器最新版后继续。"
+    } else {
+      const loaded = await editor.reloadServerDraft({ confirmReload: false })
+      if (!loaded && !disposed.value) {
+        editorState.saveConflict = true
+        editorState.saveError = "服务器已有采用后的版本，当前输入保留，请核对后继续。"
+      }
+      syncLegacyState()
+    }
+  })
+
   useLeaveGuard(() => {
     if (!editor.hasUnsavedChanges()) return true
     const backupComplete = editor.persist()
@@ -1610,6 +1627,7 @@ export function useWritingWorkspace(props) {
   })
 
   onBeforeUnmount(() => {
+    stopMergeListener()
     disposed.value = true
     selectionGeneration += 1
     sceneGeneration += 1

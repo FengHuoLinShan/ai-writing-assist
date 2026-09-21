@@ -331,3 +331,12 @@ P13 v4 的 `entity_type` 清单来自同一系统校验集合，同时进入首�
 `backend/modules/imports/README.md` 的“智能整理现有候选”。旧候选与旧授权不自动迁移。
 
 Phase 1/2/3、定向补全与 review resolution 按窗口/Scene/候选组/问题组执行知识复核；blocked 不进入正式写入，回执进现有 checkpoint 以供恢复。
+
+
+### 前瞻与会诊适配
+
+前瞻只显示原流程的代次、恢复资格和具体待决组。单组查证预览绑定 asset_keys 与该组的
+章节范围，repair_scenes=false；采用预览绑定原任务、candidate_keys 和 fingerprints，确认
+仍交给 imports.resolve_review / imports.accept_review / imports.resume。恢复复用原任务，
+不重新整理已完成内容。V2 import_consult 使用 ImportConsultScope 冻结最多二十章的原组和
+实际来源，仅出会诊意见；配方和前瞻都不扩大原导入授权，也不负责 World Canon 采用。

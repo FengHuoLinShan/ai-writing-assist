@@ -422,3 +422,13 @@ design pro 初始额度为 78 次，覆盖反例返修后至多一次知识修�
 
 有限协作复用宿主任务、心跳和租约，不为成员另建队列。统一信封的短 checkpoint 事务屏蔽
 AnyIO 重复取消直到连接归还，仍执行原 lease fence；模型与网络等待保持可取消。
+
+## 创作试验与前瞻任务
+
+| task handler | 恢复策略 | 预算与持久化 |
+|---|---|---|
+| `assistant_forecast` | manual_resume | 四次总请求，复用 AssistantRun 与 forecast_v1 检查点 |
+| `collaboration_run` | manual_resume | 30 次 / 1800 秒的运行上限，Case 累计消费不因恢复重置 |
+| `collaboration_projection` | auto_requeue | 以采用 receipt 为幂等身份投递同事务 outbox |
+
+三类任务沿现有 worker lease；运行自己的 generation 与来源重验不能替代 worker 提交栅栏。

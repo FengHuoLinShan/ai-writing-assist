@@ -91,7 +91,7 @@ ADR-0023 的 `agent_runtime.py` 通过 `ProjectGatewayModel` 接入锁定的 Pyd
 ### Profile 请求默认与 extra 信任边界
 
 `from_resolved_profile` 构造的 client 携带 profile 请求默认：
-`resolve_request_defaults` 仅为请求未显式设置的 temperature / top_p / max_tokens
+`resolve_request_defaults` 仅为请求未显式设置的 model / temperature / top_p / max_tokens
 填充 profile 值，并把 profile `extra` 按键合并为请求 extra 的底座（请求键优先）。
 `LLMCallRequest.temperature` 默认 None，未设置时继承 profile 默认（代码默认 0.3），
 不再内置 0.7。`extra` 只允许 provider 特定参数：正式 request 字段与其 token 同义词
@@ -297,3 +297,8 @@ DeepSeek 新能力快照以可选 `interaction_reasoning_effort=max`、`interact
 `tool_call_id` 回查真实工具名。旧 `pydantic-ai-2.42.0` 记录仅在原调用唯一可证明时
 修复历史适配器留下的 `result` 名称；重复、未配对和其它身份冲突拒绝恢复。
 模型思考内容仍为私有信息，离线工具诊断只导出关联、来源和 hash。
+## V2 工作图与前瞻预算
+
+`collaboration_v2.py` 只处理有界 DAG 与失败传播，领域运行由 Collaboration 持有。
+`collaboration_v2`、`forecast_v1` 的 AgentRunBudget 策略共用原请求与未知用量记账。
+前瞻的生成、审查、修复共享四次额度；创作试验还校验 Case 的跨轮累计上限。

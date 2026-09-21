@@ -5,8 +5,16 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from modules.assistant.contracts import AssistantOperation
-from modules.story.outline_state.schemas import OutlineArcCreate, PlotThreadCreate
-from modules.story.outline_state.services import OutlineArcService, PlotThreadService
+from modules.story.outline_state.schemas import (
+    ForeshadowingPlanCreate,
+    OutlineArcCreate,
+    PlotThreadCreate,
+)
+from modules.story.outline_state.services import (
+    ForeshadowingPlanService,
+    OutlineArcService,
+    PlotThreadService,
+)
 
 
 class NewThread(BaseModel):
@@ -42,6 +50,36 @@ class NewArc(BaseModel):
         ):
             raise ValueError("篇章结束位置不能早于开始位置")
         return self
+
+
+class NewInformationPlan(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=255)
+    summary: str = Field(min_length=1, max_length=4000)
+    surface_meaning: str = Field(default="", max_length=4000)
+
+
+async def _information_preview(db, novel_id, args, *, context=None):
+    return {
+        "title": args.name,
+        "after": args.model_dump(mode="json"),
+        "effect": "保存作者选定的开放安排；不规定回收章节，也不改变正文或世界事实",
+    }
+
+
+async def _information_apply(db, novel_id, args, preview, *, context=None):
+    result = await ForeshadowingPlanService().create(
+        db,
+        novel_id,
+        ForeshadowingPlanCreate(
+            **args.model_dump(mode="json"), provenance_meta=_provenance(context)
+        ),
+    )
+    return {
+        "type": "foreshadowing_plan",
+        "id": result.id,
+        "label": "已保存选定的信息安排",
+    }
 
 
 def _provenance(context):
@@ -112,6 +150,9 @@ async def _arc_apply(db, novel_id, args, preview, *, context=None):
 
 
 OPERATIONS = {
+    "story.create_information_plan": AssistantOperation(
+        "保存选定的信息安排", NewInformationPlan, _information_preview, _information_apply
+    ),
     "story.create_thread": AssistantOperation(
         "规划新剧情线", NewThread, _thread_preview, _thread_apply
     ),

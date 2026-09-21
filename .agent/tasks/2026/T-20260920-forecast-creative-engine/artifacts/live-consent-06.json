@@ -1,0 +1,106 @@
+{
+  "case_id": "consent-06",
+  "novel_id": "520e0bd1-15ab-4ca9-9646-e399c6942f68",
+  "run_id": "62e5a273-a79b-40ac-ab63-594537973471",
+  "provider": "deepseek",
+  "model": "deepseek-flash",
+  "spent_peak_usd": 0.0315372,
+  "result": {
+    "id": "62e5a273-a79b-40ac-ab63-594537973471",
+    "case_id": "2bd2380f-bcbe-40c9-b1f2-56a3e482813c",
+    "task_id": "62e5a273-a79b-40ac-ab63-594537973471",
+    "status": "partial",
+    "can_resume": true,
+    "stale": false,
+    "error_code": null,
+    "question_for_author": "请确认：当前前缀中哪些关于“合作不是信任或恋爱、双方可随时退出”的表述属于作者保留项，哪些允许在两种试改中显隐调整？",
+    "coverage": {
+      "completed": 0,
+      "total": 7,
+      "scope": "本次授权资料",
+      "semantic_exhaustive": false
+    },
+    "missing_deliverables": [
+      "尚未形成两种不同试改",
+      "尚有试改未通过独立检查",
+      "尚未比较原文与两个方案",
+      "需要作者补充决定"
+    ],
+    "work": [
+      {
+        "id": "333b15b6-70c7-47e2-b6ff-cd01e595d34f",
+        "status": "superseded",
+        "generation": 0
+      },
+      {
+        "id": "1c3d11ef-6fe4-4943-bf2d-c5a43eb7f064",
+        "status": "failed",
+        "generation": 0
+      },
+      {
+        "id": "68ac4351-2cd3-4f1f-8f0f-924ce40a0ec1",
+        "status": "superseded",
+        "generation": 0
+      },
+      {
+        "id": "ad0f5360-6c1b-4e65-a6f8-55209d868fdc",
+        "status": "superseded",
+        "generation": 0
+      },
+      {
+        "id": "b98c407f-b839-4165-9c96-a37251ea5eca",
+        "status": "superseded",
+        "generation": 0
+      },
+      {
+        "id": "e6132494-11ac-4258-9e22-08ed0f63d012",
+        "status": "superseded",
+        "generation": 0
+      },
+      {
+        "id": "efe35606-89f6-46f7-9e56-ee84904ba5ed",
+        "status": "superseded",
+        "generation": 0
+      },
+      {
+        "id": "0caae20d-4203-4eda-8494-072123e8c9c0",
+        "status": "pending",
+        "generation": 1
+      },
+      {
+        "id": "c5340010-5499-4ccf-8344-4d061d6d7de6",
+        "status": "pending",
+        "generation": 1
+      },
+      {
+        "id": "76f2a16d-fe97-4ac5-ba20-26325afe1592",
+        "status": "pending",
+        "generation": 1
+      },
+      {
+        "id": "2b2012b7-c635-4113-8d17-bbfc6c999819",
+        "status": "pending",
+        "generation": 1
+      },
+      {
+        "id": "ab7d2200-0be8-4ddb-9767-8e4aab75a387",
+        "status": "pending",
+        "generation": 1
+      },
+      {
+        "id": "485163e8-c9c7-40cf-a4ea-09a437f1801f",
+        "status": "pending",
+        "generation": 1
+      }
+    ],
+    "artifacts": [],
+    "usage": {
+      "requests": 3,
+      "prompt_tokens": 3732,
+      "completion_tokens": 25348,
+      "usage_complete": true,
+      "pending_usage": 0,
+      "usage_unknown": false
+    }
+  }
+}

@@ -301,3 +301,9 @@ async def get_review_dispositions(db, novel_id):
     from modules.imports.review_resolution import review_dispositions
 
     return await review_dispositions(db, novel_id)
+
+
+async def inspect_consultation_scope(db, novel_id, selection):
+    from modules.imports.consultation import inspect_scope
+
+    return await inspect_scope(db, novel_id, selection)

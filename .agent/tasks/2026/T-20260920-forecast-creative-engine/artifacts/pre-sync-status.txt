@@ -1,0 +1,154 @@
+ M .agent/TASKS.md
+ M CLAUDE.md
+ M CONTEXT.md
+ M backend/alembic/env.py
+ M backend/app/bootstrap.py
+ M backend/app/main.py
+ M backend/app/task_runtime.py
+ M backend/conftest.py
+ M backend/core/config.py
+ M backend/infrastructure/llm/README.md
+ M backend/infrastructure/llm/agent_runtime.py
+ M backend/infrastructure/llm/client.py
+ M backend/infrastructure/llm/collaboration.py
+ M backend/infrastructure/llm/schemas.py
+ M backend/infrastructure/llm/tests/test_client.py
+ M backend/infrastructure/llm/tests/test_collaboration.py
+ M backend/infrastructure/tasks/README.md
+ M backend/infrastructure/tasks/models.py
+ M backend/modules/account/README.md
+ M backend/modules/assistant/README.md
+ M backend/modules/assistant/api.py
+ M backend/modules/assistant/contracts.py
+ M backend/modules/assistant/facade.py
+ M backend/modules/assistant/models.py
+ M backend/modules/assistant/operations.py
+ M backend/modules/assistant/proactive.py
+ M backend/modules/assistant/service.py
+ M backend/modules/assistant/tasks.py
+ M backend/modules/assistant/teams/blind_reader.py
+ M backend/modules/evidence/README.md
+ M backend/modules/evidence/compilation/README.md
+ M backend/modules/evidence/compilation/focused_tasks.py
+ M backend/modules/evidence/compilation/knowledge/policies.py
+ M backend/modules/evidence/compilation/knowledge/tests/test_policies.py
+ M backend/modules/evidence/facade.py
+ M backend/modules/evidence/indexing/README.md
+ M backend/modules/imports/README.md
+ M backend/modules/imports/contracts.py
+ M backend/modules/imports/facade.py
+ M backend/modules/interaction/README.md
+ M backend/modules/interaction/api.py
+ M backend/modules/interaction/ensemble.py
+ M backend/modules/interaction/models.py
+ M backend/modules/interaction/runtime_policy.py
+ M backend/modules/interaction/schemas.py
+ M backend/modules/interaction/services.py
+ M backend/modules/interaction/tests/test_ensemble.py
+ M backend/modules/project/README.md
+ M backend/modules/project/llm_runtime.py
+ M backend/modules/story/README.md
+ M backend/modules/story/api.py
+ M backend/modules/story/assistant_planning_tools.py
+ M backend/modules/story/contracts.py
+ M backend/modules/story/rehearsals.py
+ M backend/modules/story/schemas.py
+ M backend/modules/story/simulation.py
+ M backend/modules/story/tasks.py
+ M backend/modules/world/README.md
+ M backend/modules/world/contracts.py
+ M backend/modules/writing/README.md
+ M backend/tests/support/assistant_browser_app.py
+ M backend/tools/prompt_contracts/capability_bindings.py
+ M deploy/compose.production.yml
+ M development-guide.md
+ M "docs/00_\346\225\264\344\275\223\350\256\276\350\256\241.md"
+ M "docs/01_\346\225\260\346\215\256\345\272\223\350\256\276\350\256\241.md"
+ M docs/README.md
+ M docs/architecture/README.md
+ M docs/architecture/architecture-documents.toml
+ M docs/architecture/documentation-maintenance.md
+ M docs/architecture/module-architecture.drawio
+ M docs/architecture/module-architecture.html
+ M docs/modules/02_world.md
+ M docs/modules/05_memory.md
+ M docs/modules/07_outline.md
+ M docs/modules/08_evidence.md
+ M docs/modules/12_infrastructure.md
+ M docs/modules/13_imports.md
+ M docs/modules/14_frontend.md
+ M docs/modules/15_map.md
+ M docs/modules/18_interaction.md
+ M docs/modules/19_story.md
+ M docs/modules/20_assistant.md
+ M "docs/prompts/Prompt\344\275\223\347\263\273\350\256\276\350\256\241.md"
+ M frontend-console/README.md
+ M frontend-console/api.js
+ M frontend-console/router.js
+ M frontend-console/tests/apiCache.test.js
+ M frontend-console/tests/vue/interaction/InteractionView.test.js
+ M frontend-console/vue/bridge/index.js
+ M frontend-console/vue/components/AssistantValue.vue
+ M frontend-console/vue/components/ProjectAssistant.vue
+ M frontend-console/vue/views/interaction/InteractionView.vue
+ M frontend-console/vue/views/interaction/interactionSession.js
+ M frontend-console/vue/views/scene/SceneRehearsalPanel.vue
+ M frontend-console/vue/views/scene/useStorySceneWorkspace.js
+ M frontend-console/vue/views/writing/WritingView.vue
+ M frontend-console/vue/views/writing/components/WritingEditor.vue
+ M frontend-console/vue/views/writing/controllers/editorController.js
+ M frontend-console/vue/views/writing/useWritingWorkspace.js
+ M testing-guide.md
+?? .agent/tasks/2026/T-20260920-forecast-creative-engine/
+?? backend/alembic/versions/20260920_assistant_forecast.py
+?? backend/alembic/versions/20260920_creative_engine.py
+?? backend/alembic/versions/20260920_creative_recovery.py
+?? backend/alembic/versions/20260920_interaction_input.py
+?? backend/evals/creative_forecast.py
+?? backend/evals/datasets/creative_forecast/
+?? backend/evals/tests/test_creative_forecast.py
+?? backend/infrastructure/llm/collaboration_v2.py
+?? backend/infrastructure/llm/tests/test_collaboration_v2.py
+?? backend/modules/account/forecast.py
+?? backend/modules/assistant/creative_queue.py
+?? backend/modules/assistant/forecast/
+?? backend/modules/collaboration/
+?? backend/modules/evidence/creative.py
+?? backend/modules/evidence/forecast.py
+?? backend/modules/imports/consultation.py
+?? backend/modules/imports/forecast.py
+?? backend/modules/imports/tests/test_consultation.py
+?? backend/modules/interaction/ensemble_input.py
+?? backend/modules/interaction/ensemble_v2.py
+?? backend/modules/interaction/forecast.py
+?? backend/modules/interaction/forecast_api.py
+?? backend/modules/interaction/tests/test_ensemble_input.py
+?? backend/modules/interaction/tests/test_ensemble_state.py
+?? backend/modules/interaction/tests/test_forecast.py
+?? backend/modules/project/forecast.py
+?? backend/modules/story/creative.py
+?? backend/modules/story/forecast.py
+?? backend/modules/story/observations.py
+?? backend/modules/story/tests/test_observations.py
+?? backend/modules/world/creative.py
+?? backend/modules/world/creative_scenarios.py
+?? backend/modules/world/forecast.py
+?? backend/modules/world/tests/test_creative_scenarios.py
+?? backend/modules/writing/creative.py
+?? backend/modules/writing/forecast.py
+?? backend/tests/e2e/test_creative_engine.py
+?? backend/tests/e2e/test_creative_worker.py
+?? backend/tests/e2e/test_forecast_creative_concurrency.py
+?? backend/tests/e2e/test_forecast_performance.py
+?? backend/tests/support/creative_browser_provider.py
+?? docs/modules/21_collaboration.md
+?? frontend-console/e2e/creative-forecast.spec.js
+?? frontend-console/playwright.creative.config.js
+?? frontend-console/tests/vue/assistant/CreativeTrialEditor.test.js
+?? frontend-console/tests/vue/assistant/Forecast.test.js
+?? frontend-console/tests/vue/interaction/InteractionForecast.test.js
+?? frontend-console/vue/components/CreativeExperiments.vue
+?? frontend-console/vue/components/CreativeTrialEditor.vue
+?? frontend-console/vue/components/ForecastDock.vue
+?? frontend-console/vue/composables/useForecast.js
+?? frontend-console/vue/views/interaction/InteractionForecast.vue

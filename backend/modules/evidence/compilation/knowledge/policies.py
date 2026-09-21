@@ -768,6 +768,51 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
                 "最终输出独立审查一次；领域生成委托领域工作流。"
             ),
         ),
+        *(
+            _policy(
+                capability,
+                "collaboration",
+                title,
+                subjects=("author", "reader"),
+                dimensions=("prior_prose", "world_rules", "outline"),
+                confirmation=CONFIRMATION_OPTIONAL,
+                snapshot=SNAPSHOT_REQUIRED,
+                outputs=(OUTPUT_PROPOSAL, OUTPUT_ANSWER),
+                gate=ADOPTION_REQUIRES_PASS_AND_REVIEW,
+                notes="授权、预算与精确工作区版本由宿主控制；产物不成为正式事实。",
+            )
+            for capability, title in (
+                ("collaboration.run", "创作试验"),
+                ("collaboration.plan", "创作问题规划"),
+                ("collaboration.investigate", "创作调查与反证"),
+                ("collaboration.revise", "隔离工作区试改"),
+                ("collaboration.check", "精确试改检查"),
+            )
+        ),
+        _policy(
+            "assistant.forecast",
+            DOMAIN_ASSISTANT,
+            "保存资料的短期前瞻",
+            subjects=("author",),
+            dimensions=("prior_prose", "world_rules", "outline"),
+            confirmation=CONFIRMATION_OPTIONAL,
+            snapshot=SNAPSHOT_REQUIRED,
+            outputs=(OUTPUT_PROPOSAL,),
+            gate=ADOPTION_DISPLAY_ONLY,
+            notes="新创意是条件式候选；观察有据、未知保留、不把普通细节变为义务。",
+        ),
+        _policy(
+            "interaction.forecast",
+            DOMAIN_INTERACTION,
+            "玩家可见前瞻",
+            subjects=("reader",),
+            dimensions=("prior_prose", "reader_reveal"),
+            confirmation=CONFIRMATION_NONE,
+            snapshot=SNAPSHOT_REQUIRED,
+            outputs=(OUTPUT_PROPOSAL,),
+            gate=ADOPTION_DISPLAY_ONLY,
+            notes="只能使用当前选中路径、已读内容和玩家可感知资料；不发送玩家行动。",
+        ),
         # --- 基础设施豁免：不得产出答案、权限或事实 ---
         _policy(
             "infrastructure.rag_query_planner",

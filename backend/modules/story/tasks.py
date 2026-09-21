@@ -653,7 +653,7 @@ async def handle_story_one_click(db, task):
         request_model=StoryOneClickTaskRequest,
     )
     character_ids = _require_character_ids(data.character_ids)
-    if data.simulation_protocol == "rehearsal_v1":
+    if data.simulation_protocol in {"rehearsal_v1", "observation_v2"}:
         from modules.story.rehearsals import run_rehearsal
 
         async with _open_client(settings, data.novel_id) as client:

@@ -484,3 +484,8 @@ result.review_resolution 单独列出 organized、decision、optional、incomple
 ## 组级知识治理
 
 Phase 1a 按窗口、Phase 1b/2a 按 Scene、Phase 1c/3 按候选组、review resolution/targeted completion 按问题组冻结 receipt。结果在持久化前复核，blocked 沿用原失败/降级/恢复语义且不落正式资产；Scene checkpoint、补全页和问题组保存脱敏回执。
+
+## 前瞻读取与原流程恢复
+
+`forecast.py` 读取原 organization owner/generation/恢复资格及 review_summary 的精确组，
+呈现原待决与未完成部分。前瞻不会创建平行导入 owner 或自动采用整批资料。

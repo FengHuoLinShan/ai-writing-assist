@@ -8,3 +8,6 @@
 
 有界 Agent 执行例外见共享约束与 ADR-0023；此导入文件不另行定义权限。
 匿名公开演示的窄 source/前台执行例外见 ADR-0024，仍以 `AGENTS.md` 的隔离规则为准。
+
+修改前瞻或创作试验时，模块导航见 `backend/modules/assistant/README.md` 与
+`backend/modules/collaboration/README.md`；共享规则仍只从 `AGENTS.md` 导入。

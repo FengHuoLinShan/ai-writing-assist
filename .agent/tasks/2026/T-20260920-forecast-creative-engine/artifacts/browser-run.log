@@ -1,0 +1,230 @@
+[WebServer] INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+[WebServer] INFO  [alembic.runtime.migration] Will assume transactional DDL.
+[WebServer] INFO:     Started server process [71691]
+[WebServer] INFO:     Waiting for application startup.
+[WebServer] 2026-09-21 02:04:15 [INFO] app.main: Starting ai-novel-structural-engine v2.0.0
+[WebServer] 2026-09-21 02:04:15 [INFO] core.database: DatabaseManager initialized — pool_size=10, max_overflow=20
+[WebServer] 2026-09-21 02:04:15 [WARNING] core.database: DatabaseManager already initialized, skipping.
+[WebServer] 2026-09-21 02:04:15 [INFO] app.main: pgvector extension detected — vector ops enabled.
+[WebServer] 2026-09-21 02:04:15 [INFO] app.main: Application startup complete.
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: TaskWorker started — poll_interval=2.0s, heartbeat_interval=30.0s, max_concurrent_tasks=2
+[WebServer] INFO:     Application startup complete.
+[WebServer] INFO:     Uvicorn running on http://127.0.0.1:8133 (Press CTRL+C to quit)
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Task claimed: 1d354419-b329-45f6-a02a-2505c56cd197 (type=world_object_image_cleanup, novel_id=<none>)
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Executing task 1d354419-b329-45f6-a02a-2505c56cd197 (type=world_object_image_cleanup, novel_id=<none>) with handler handle_world_object_image_cleanup
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Task claimed: 0c61e5fe-3085-44c9-ae06-5b525a17c223 (type=map_atlas_storage_cleanup, novel_id=<none>)
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Executing task 0c61e5fe-3085-44c9-ae06-5b525a17c223 (type=map_atlas_storage_cleanup, novel_id=<none>) with handler handle_map_atlas_storage_cleanup
+[WebServer] 2026-09-21 02:04:15 [WARNING] infrastructure.tasks.worker: Task requeued after handler failure: 0c61e5fe-3085-44c9-ae06-5b525a17c223 (type=map_atlas_storage_cleanup, accepted=True, novel_id=<none>) — RuntimeError: MAP_ATLAS_S3_BUCKET is required
+[WebServer] 2026-09-21 02:04:15 [WARNING] infrastructure.tasks.worker: Task requeued after handler failure: 1d354419-b329-45f6-a02a-2505c56cd197 (type=world_object_image_cleanup, accepted=True, novel_id=<none>) — RuntimeError: WORLD_OBJECT_S3_BUCKET is required
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Task claimed: 52a4bb9e-b96b-4cde-aab1-a751df3209b0 (type=world_object_image_cleanup, novel_id=<none>)
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Executing task 52a4bb9e-b96b-4cde-aab1-a751df3209b0 (type=world_object_image_cleanup, novel_id=<none>) with handler handle_world_object_image_cleanup
+[WebServer] 2026-09-21 02:04:15 [WARNING] infrastructure.tasks.worker: Task requeued after handler failure: 52a4bb9e-b96b-4cde-aab1-a751df3209b0 (type=world_object_image_cleanup, accepted=True, novel_id=<none>) — RuntimeError: WORLD_OBJECT_S3_BUCKET is required
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Task claimed: 3a25023f-e873-44ce-9f27-f01aab6c9f42 (type=map_atlas_storage_cleanup, novel_id=<none>)
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Executing task 3a25023f-e873-44ce-9f27-f01aab6c9f42 (type=map_atlas_storage_cleanup, novel_id=<none>) with handler handle_map_atlas_storage_cleanup
+[WebServer] 2026-09-21 02:04:15 [WARNING] infrastructure.tasks.worker: Task requeued after handler failure: 3a25023f-e873-44ce-9f27-f01aab6c9f42 (type=map_atlas_storage_cleanup, accepted=True, novel_id=<none>) — RuntimeError: MAP_ATLAS_S3_BUCKET is required
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Task claimed: 58f88dbd-8cfa-4033-b701-ad854057c20b (type=map_atlas_storage_cleanup, novel_id=<none>)
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Executing task 58f88dbd-8cfa-4033-b701-ad854057c20b (type=map_atlas_storage_cleanup, novel_id=<none>) with handler handle_map_atlas_storage_cleanup
+[WebServer] 2026-09-21 02:04:15 [WARNING] infrastructure.tasks.worker: Task requeued after handler failure: 58f88dbd-8cfa-4033-b701-ad854057c20b (type=map_atlas_storage_cleanup, accepted=True, novel_id=<none>) — RuntimeError: MAP_ATLAS_S3_BUCKET is required
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Task claimed: 58de6f12-eefe-4cd6-a2e9-273bd6d714d3 (type=world_object_image_cleanup, novel_id=<none>)
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Executing task 58de6f12-eefe-4cd6-a2e9-273bd6d714d3 (type=world_object_image_cleanup, novel_id=<none>) with handler handle_world_object_image_cleanup
+[WebServer] 2026-09-21 02:04:15 [WARNING] infrastructure.tasks.worker: Task requeued after handler failure: 58de6f12-eefe-4cd6-a2e9-273bd6d714d3 (type=world_object_image_cleanup, accepted=True, novel_id=<none>) — RuntimeError: WORLD_OBJECT_S3_BUCKET is required
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Task claimed: b9afe61b-6faa-4a6f-a753-fe47e1b6f669 (type=map_atlas_storage_cleanup, novel_id=<none>)
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Executing task b9afe61b-6faa-4a6f-a753-fe47e1b6f669 (type=map_atlas_storage_cleanup, novel_id=<none>) with handler handle_map_atlas_storage_cleanup
+[WebServer] 2026-09-21 02:04:15 [WARNING] infrastructure.tasks.worker: Task requeued after handler failure: b9afe61b-6faa-4a6f-a753-fe47e1b6f669 (type=map_atlas_storage_cleanup, accepted=True, novel_id=<none>) — RuntimeError: MAP_ATLAS_S3_BUCKET is required
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Task claimed: 9edf047e-a958-43ed-8f98-e29a42bb70d6 (type=world_object_image_cleanup, novel_id=<none>)
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Executing task 9edf047e-a958-43ed-8f98-e29a42bb70d6 (type=world_object_image_cleanup, novel_id=<none>) with handler handle_world_object_image_cleanup
+[WebServer] 2026-09-21 02:04:15 [WARNING] infrastructure.tasks.worker: Task requeued after handler failure: 9edf047e-a958-43ed-8f98-e29a42bb70d6 (type=world_object_image_cleanup, accepted=True, novel_id=<none>) — RuntimeError: WORLD_OBJECT_S3_BUCKET is required
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Task claimed: 80501698-2e20-4eab-b395-a75bae07312b (type=map_atlas_storage_cleanup, novel_id=<none>)
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Executing task 80501698-2e20-4eab-b395-a75bae07312b (type=map_atlas_storage_cleanup, novel_id=<none>) with handler handle_map_atlas_storage_cleanup
+[WebServer] 2026-09-21 02:04:15 [WARNING] infrastructure.tasks.worker: Task requeued after handler failure: 80501698-2e20-4eab-b395-a75bae07312b (type=map_atlas_storage_cleanup, accepted=True, novel_id=<none>) — RuntimeError: MAP_ATLAS_S3_BUCKET is required
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Task claimed: 0477d50b-7585-4ea4-ad3b-c3130d669611 (type=world_object_image_cleanup, novel_id=<none>)
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Executing task 0477d50b-7585-4ea4-ad3b-c3130d669611 (type=world_object_image_cleanup, novel_id=<none>) with handler handle_world_object_image_cleanup
+[WebServer] 2026-09-21 02:04:15 [WARNING] infrastructure.tasks.worker: Task requeued after handler failure: 0477d50b-7585-4ea4-ad3b-c3130d669611 (type=world_object_image_cleanup, accepted=True, novel_id=<none>) — RuntimeError: WORLD_OBJECT_S3_BUCKET is required
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Task claimed: f1c0cd1a-a7ab-4599-bb99-64b101d5a0da (type=map_atlas_storage_cleanup, novel_id=<none>)
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Executing task f1c0cd1a-a7ab-4599-bb99-64b101d5a0da (type=map_atlas_storage_cleanup, novel_id=<none>) with handler handle_map_atlas_storage_cleanup
+[WebServer] 2026-09-21 02:04:15 [WARNING] infrastructure.tasks.worker: Task requeued after handler failure: f1c0cd1a-a7ab-4599-bb99-64b101d5a0da (type=map_atlas_storage_cleanup, accepted=True, novel_id=<none>) — RuntimeError: MAP_ATLAS_S3_BUCKET is required
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Task claimed: 78c05386-e56a-4239-b9d2-620fd83d360c (type=world_object_image_cleanup, novel_id=<none>)
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Executing task 78c05386-e56a-4239-b9d2-620fd83d360c (type=world_object_image_cleanup, novel_id=<none>) with handler handle_world_object_image_cleanup
+[WebServer] 2026-09-21 02:04:15 [WARNING] infrastructure.tasks.worker: Task requeued after handler failure: 78c05386-e56a-4239-b9d2-620fd83d360c (type=world_object_image_cleanup, accepted=True, novel_id=<none>) — RuntimeError: WORLD_OBJECT_S3_BUCKET is required
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Task claimed: ba1fca11-acbb-4b49-b573-224c1aec5c76 (type=map_atlas_storage_cleanup, novel_id=<none>)
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Executing task ba1fca11-acbb-4b49-b573-224c1aec5c76 (type=map_atlas_storage_cleanup, novel_id=<none>) with handler handle_map_atlas_storage_cleanup
+[WebServer] 2026-09-21 02:04:15 [WARNING] infrastructure.tasks.worker: Task requeued after handler failure: ba1fca11-acbb-4b49-b573-224c1aec5c76 (type=map_atlas_storage_cleanup, accepted=True, novel_id=<none>) — RuntimeError: MAP_ATLAS_S3_BUCKET is required
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Task claimed: 234e85a7-1026-4717-9a37-726cc59ea2e0 (type=world_object_image_cleanup, novel_id=<none>)
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Executing task 234e85a7-1026-4717-9a37-726cc59ea2e0 (type=world_object_image_cleanup, novel_id=<none>) with handler handle_world_object_image_cleanup
+[WebServer] 2026-09-21 02:04:15 [WARNING] infrastructure.tasks.worker: Task requeued after handler failure: 234e85a7-1026-4717-9a37-726cc59ea2e0 (type=world_object_image_cleanup, accepted=True, novel_id=<none>) — RuntimeError: WORLD_OBJECT_S3_BUCKET is required
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Task claimed: 22afbc00-d56c-4c94-b4b7-3b8d93919fe0 (type=map_atlas_storage_cleanup, novel_id=<none>)
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Executing task 22afbc00-d56c-4c94-b4b7-3b8d93919fe0 (type=map_atlas_storage_cleanup, novel_id=<none>) with handler handle_map_atlas_storage_cleanup
+[WebServer] 2026-09-21 02:04:15 [WARNING] infrastructure.tasks.worker: Task requeued after handler failure: 22afbc00-d56c-4c94-b4b7-3b8d93919fe0 (type=map_atlas_storage_cleanup, accepted=True, novel_id=<none>) — RuntimeError: MAP_ATLAS_S3_BUCKET is required
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Task claimed: 2436867d-97d1-47df-b48c-ad842aacf1b1 (type=world_object_image_cleanup, novel_id=<none>)
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Executing task 2436867d-97d1-47df-b48c-ad842aacf1b1 (type=world_object_image_cleanup, novel_id=<none>) with handler handle_world_object_image_cleanup
+[WebServer] 2026-09-21 02:04:15 [WARNING] infrastructure.tasks.worker: Task requeued after handler failure: 2436867d-97d1-47df-b48c-ad842aacf1b1 (type=world_object_image_cleanup, accepted=True, novel_id=<none>) — RuntimeError: WORLD_OBJECT_S3_BUCKET is required
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Task claimed: 44a2cab7-c9ee-47ca-9779-43338e725edc (type=map_atlas_storage_cleanup, novel_id=<none>)
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Executing task 44a2cab7-c9ee-47ca-9779-43338e725edc (type=map_atlas_storage_cleanup, novel_id=<none>) with handler handle_map_atlas_storage_cleanup
+[WebServer] 2026-09-21 02:04:15 [WARNING] infrastructure.tasks.worker: Task requeued after handler failure: 44a2cab7-c9ee-47ca-9779-43338e725edc (type=map_atlas_storage_cleanup, accepted=True, novel_id=<none>) — RuntimeError: MAP_ATLAS_S3_BUCKET is required
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Task claimed: 7a9eb3ef-4f2a-471e-a466-0fb120428c42 (type=world_object_image_cleanup, novel_id=<none>)
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Executing task 7a9eb3ef-4f2a-471e-a466-0fb120428c42 (type=world_object_image_cleanup, novel_id=<none>) with handler handle_world_object_image_cleanup
+[WebServer] 2026-09-21 02:04:15 [WARNING] infrastructure.tasks.worker: Task requeued after handler failure: 7a9eb3ef-4f2a-471e-a466-0fb120428c42 (type=world_object_image_cleanup, accepted=True, novel_id=<none>) — RuntimeError: WORLD_OBJECT_S3_BUCKET is required
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Task claimed: e7ce3eae-3368-4fea-8e6e-0fd79c503512 (type=map_atlas_storage_cleanup, novel_id=<none>)
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Executing task e7ce3eae-3368-4fea-8e6e-0fd79c503512 (type=map_atlas_storage_cleanup, novel_id=<none>) with handler handle_map_atlas_storage_cleanup
+[WebServer] 2026-09-21 02:04:15 [WARNING] infrastructure.tasks.worker: Task requeued after handler failure: e7ce3eae-3368-4fea-8e6e-0fd79c503512 (type=map_atlas_storage_cleanup, accepted=True, novel_id=<none>) — RuntimeError: MAP_ATLAS_S3_BUCKET is required
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Task claimed: 84336ba9-2e53-4713-99d1-af24b2f06501 (type=world_object_image_cleanup, novel_id=<none>)
+[WebServer] 2026-09-21 02:04:15 [INFO] infrastructure.tasks.worker: Executing task 84336ba9-2e53-4713-99d1-af24b2f06501 (type=world_object_image_cleanup, novel_id=<none>) with handler handle_world_object_image_cleanup
+[WebServer] 2026-09-21 02:04:15 [WARNING] infrastructure.tasks.worker: Task requeued after handler failure: 84336ba9-2e53-4713-99d1-af24b2f06501 (type=world_object_image_cleanup, accepted=True, novel_id=<none>) — RuntimeError: WORLD_OBJECT_S3_BUCKET is required
+[WebServer] 2026-09-21 02:04:16 [INFO] app.main: Request completed method=GET route=/api/health status=200 duration_ms=5.9 novel_id=<none>
+[WebServer] (node:72132) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 1 test using 1 worker
+
+(node:72198) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] 2026-09-21 02:04:17 [INFO] infrastructure.tasks.worker: Task claimed: e7ce3eae-3368-4fea-8e6e-0fd79c503512 (type=map_atlas_storage_cleanup, novel_id=<none>)
+[WebServer] 2026-09-21 02:04:17 [INFO] infrastructure.tasks.worker: Executing task e7ce3eae-3368-4fea-8e6e-0fd79c503512 (type=map_atlas_storage_cleanup, novel_id=<none>) with handler handle_map_atlas_storage_cleanup
+[WebServer] 2026-09-21 02:04:17 [WARNING] infrastructure.tasks.worker: Task requeued after handler failure: e7ce3eae-3368-4fea-8e6e-0fd79c503512 (type=map_atlas_storage_cleanup, accepted=True, novel_id=<none>) — RuntimeError: MAP_ATLAS_S3_BUCKET is required
+[WebServer] 2026-09-21 02:04:17 [INFO] infrastructure.tasks.worker: Task claimed: 84336ba9-2e53-4713-99d1-af24b2f06501 (type=world_object_image_cleanup, novel_id=<none>)
+[WebServer] 2026-09-21 02:04:17 [INFO] infrastructure.tasks.worker: Executing task 84336ba9-2e53-4713-99d1-af24b2f06501 (type=world_object_image_cleanup, novel_id=<none>) with handler handle_world_object_image_cleanup
+[WebServer] 2026-09-21 02:04:17 [WARNING] infrastructure.tasks.worker: Task requeued after handler failure: 84336ba9-2e53-4713-99d1-af24b2f06501 (type=world_object_image_cleanup, accepted=True, novel_id=<none>) — RuntimeError: WORLD_OBJECT_S3_BUCKET is required
+[WebServer] 2026-09-21 02:04:18 [INFO] app.main: Request completed method=POST route=/api/projects status=201 duration_ms=76.2 novel_id=<none>
+[WebServer] 2026-09-21 02:04:18 [INFO] app.main: Request completed method=POST route=/api/writing/drafts status=201 duration_ms=326.3 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:18 [INFO] app.main: Request completed method=GET route=/api/auth/config status=200 duration_ms=1.6 novel_id=<none>
+[WebServer] 2026-09-21 02:04:18 [INFO] app.main: Request completed method=GET route=/api/health status=200 duration_ms=8.1 novel_id=<none>
+[WebServer] 2026-09-21 02:04:19 [INFO] app.main: Request completed method=GET route=/api/assistant/capabilities status=200 duration_ms=39.5 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:19 [INFO] app.main: Request completed method=GET route=/api/assistant/policy status=200 duration_ms=17.9 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:19 [INFO] app.main: Request completed method=GET route=/api/assistant/sessions status=200 duration_ms=25.7 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:19 [INFO] app.main: Request completed method=GET route=/api/assistant/notices status=200 duration_ms=11.3 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:19 [INFO] app.main: Request completed method=GET route=/api/outline/scenes/ordered status=200 duration_ms=24.4 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:19 [INFO] app.main: Request completed method=GET route=/api/writing/chapters status=200 duration_ms=26.4 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:19 [INFO] app.main: Request completed method=GET route=/api/projects/{project_id}/effective-author-preferences status=200 duration_ms=35.3 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:19 [INFO] app.main: Request completed method=GET route=/api/assistant/capabilities status=200 duration_ms=14.0 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:19 [INFO] app.main: Request completed method=GET route=/api/assistant/capabilities status=200 duration_ms=19.1 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:19 [INFO] app.main: Request completed method=GET route=/api/writing/chapters/{chapter_index}/versions status=200 duration_ms=10.3 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:19 [INFO] app.main: Request completed method=GET route=/api/writing/drafts/{draft_id} status=200 duration_ms=10.0 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:19 [INFO] app.main: Request completed method=GET route=/forecasts/policy status=200 duration_ms=12.7 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:19 [INFO] infrastructure.tasks.worker: Task claimed: a766defc-c600-440f-8f87-1389e27c2a58 (type=rag_index_chapter, novel_id=<unverified>)
+[WebServer] 2026-09-21 02:04:19 [INFO] app.main: Request completed method=GET route=/forecasts/capabilities status=200 duration_ms=34.0 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:19 [INFO] infrastructure.tasks.worker: Task claimed: 73192161-8960-45ac-a2bd-d027fb80f3fb (type=publish_chapter, novel_id=<unverified>)
+[WebServer] 2026-09-21 02:04:19 [INFO] app.main: Request completed method=OPTIONS route=<unresolved> status=200 duration_ms=0.2 novel_id=<none>
+[WebServer] 2026-09-21 02:04:19 [INFO] infrastructure.tasks.worker: Executing task 73192161-8960-45ac-a2bd-d027fb80f3fb (type=publish_chapter, novel_id=f052d11c-292b-4b15-9a08-d629c12037d2) with handler handle_publish_chapter
+[WebServer] 2026-09-21 02:04:19 [INFO] infrastructure.tasks.worker: Executing task a766defc-c600-440f-8f87-1389e27c2a58 (type=rag_index_chapter, novel_id=f052d11c-292b-4b15-9a08-d629c12037d2) with handler handle_rag_index_chapter
+[WebServer] 2026-09-21 02:04:20 [INFO] app.main: Request completed method=POST route=/forecasts/activity status=200 duration_ms=36.0 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:20 [INFO] app.main: Request completed method=OPTIONS route=<unresolved> status=200 duration_ms=0.3 novel_id=<none>
+[WebServer] 2026-09-21 02:04:20 [INFO] modules.writing.tasks: Publish chapter 1 — RAG done (attempt 1): 0 chunks
+[WebServer] 2026-09-21 02:04:20 [INFO] app.main: Request completed method=POST route=/forecasts/feed status=200 duration_ms=35.4 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:20 [INFO] infrastructure.llm.providers: OpenAIProvider initialized
+[WebServer] 2026-09-21 02:04:20 [INFO] modules.writing.tasks: Publish chapter 1 — snapshot done (attempt 1): 3256bc7c-3854-471d-8e3f-830a6f330738
+[WebServer] 2026-09-21 02:04:20 [INFO] infrastructure.tasks.worker: Task completed: 73192161-8960-45ac-a2bd-d027fb80f3fb (type=publish_chapter, novel_id=f052d11c-292b-4b15-9a08-d629c12037d2)
+[WebServer] 2026-09-21 02:04:20 [INFO] infrastructure.tasks.worker: Task claimed: e7ce3eae-3368-4fea-8e6e-0fd79c503512 (type=map_atlas_storage_cleanup, novel_id=<none>)
+[WebServer] 2026-09-21 02:04:20 [INFO] infrastructure.tasks.worker: Executing task e7ce3eae-3368-4fea-8e6e-0fd79c503512 (type=map_atlas_storage_cleanup, novel_id=<none>) with handler handle_map_atlas_storage_cleanup
+[WebServer] 2026-09-21 02:04:20 [WARNING] infrastructure.tasks.worker: Task requeued after handler failure: e7ce3eae-3368-4fea-8e6e-0fd79c503512 (type=map_atlas_storage_cleanup, accepted=True, novel_id=<none>) — RuntimeError: MAP_ATLAS_S3_BUCKET is required
+[WebServer] 2026-09-21 02:04:20 [INFO] infrastructure.tasks.worker: Task claimed: 84336ba9-2e53-4713-99d1-af24b2f06501 (type=world_object_image_cleanup, novel_id=<none>)
+[WebServer] 2026-09-21 02:04:20 [INFO] infrastructure.tasks.worker: Executing task 84336ba9-2e53-4713-99d1-af24b2f06501 (type=world_object_image_cleanup, novel_id=<none>) with handler handle_world_object_image_cleanup
+[WebServer] 2026-09-21 02:04:20 [WARNING] infrastructure.tasks.worker: Task requeued after handler failure: 84336ba9-2e53-4713-99d1-af24b2f06501 (type=world_object_image_cleanup, accepted=True, novel_id=<none>) — RuntimeError: WORLD_OBJECT_S3_BUCKET is required
+[WebServer] 2026-09-21 02:04:20 [INFO] app.main: Request completed method=GET route=/forecasts/policy status=200 duration_ms=10.9 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:20 [INFO] app.main: Request completed method=GET route=/forecasts/capabilities status=200 duration_ms=12.6 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:20 [INFO] app.main: Request completed method=OPTIONS route=<unresolved> status=200 duration_ms=0.2 novel_id=<none>
+[WebServer] 2026-09-21 02:04:20 [INFO] app.main: Request completed method=POST route=/forecasts/feed status=200 duration_ms=73.4 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:20 [INFO] app.main: Request completed method=GET route=/forecasts/policy status=200 duration_ms=57.2 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:20 [INFO] app.main: Request completed method=GET route=/forecasts/capabilities status=200 duration_ms=62.9 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:20 [INFO] app.main: Request completed method=GET route=/forecasts/policy status=200 duration_ms=62.4 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:20 [INFO] app.main: Request completed method=GET route=/forecasts/capabilities status=200 duration_ms=67.8 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:20 [INFO] app.main: Request completed method=POST route=/forecasts/feed status=200 duration_ms=22.1 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:20 [INFO] app.main: Request completed method=PUT route=/api/writing/drafts/{draft_id} status=200 duration_ms=99.1 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:20 [INFO] app.main: Request completed method=GET route=/api/writing/chapters/{chapter_index}/versions status=200 duration_ms=11.1 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:20 [INFO] app.main: Request completed method=GET route=/api/writing/chapters status=200 duration_ms=10.7 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:20 [INFO] app.main: Request completed method=GET route=/forecasts/policy status=200 duration_ms=15.7 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:20 [INFO] app.main: Request completed method=GET route=/forecasts/capabilities status=200 duration_ms=20.2 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:20 [INFO] app.main: Request completed method=GET route=/forecasts/capabilities status=200 duration_ms=14.3 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:20 [INFO] app.main: Request completed method=GET route=/forecasts/policy status=200 duration_ms=15.7 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:20 [INFO] app.main: Request completed method=POST route=/forecasts/activity status=200 duration_ms=20.2 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:20 [INFO] app.main: Request completed method=POST route=/forecasts/feed status=200 duration_ms=24.4 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:20 [INFO] app.main: Request completed method=GET route=/api/writing/chapters/{chapter_index}/draft status=200 duration_ms=10.9 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:20 [INFO] app.main: Request completed method=OPTIONS route=<unresolved> status=200 duration_ms=0.2 novel_id=<none>
+[WebServer] 2026-09-21 02:04:20 [INFO] app.main: Request completed method=POST route=/forecasts/evaluate status=202 duration_ms=52.1 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:20 [INFO] app.main: Request completed method=GET route=/forecasts/runs/{run_id} status=200 duration_ms=12.0 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:20 [INFO] app.main: Request completed method=GET route=/api/tasks/{task_id} status=200 duration_ms=35.7 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] [BGE-Worker] ERROR Failed to load any embedding backend: No module named 'huggingface_hub'
+[WebServer] 2026-09-21 02:04:21 [INFO] infrastructure.embedding.worker: BGE worker stopped
+[WebServer] [BGE-Worker] ERROR Failed to load any embedding backend: No module named 'huggingface_hub'
+[WebServer] 2026-09-21 02:04:22 [INFO] infrastructure.embedding.worker: BGE worker stopped
+[WebServer] 2026-09-21 02:04:22 [INFO] modules.evidence.indexing.tasks: Indexed chapter 1: 1 chunks created
+[WebServer] 2026-09-21 02:04:22 [INFO] app.main: Request completed method=GET route=/api/tasks/{task_id} status=200 duration_ms=9.0 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:22 [INFO] infrastructure.tasks.worker: Task completed: a766defc-c600-440f-8f87-1389e27c2a58 (type=rag_index_chapter, novel_id=f052d11c-292b-4b15-9a08-d629c12037d2)
+[WebServer] 2026-09-21 02:04:22 [INFO] infrastructure.tasks.worker: Task claimed: 12bda1bb-46d8-4f13-8716-af13243a92e7 (type=rag_index_chapter, novel_id=<unverified>)
+[WebServer] 2026-09-21 02:04:22 [INFO] infrastructure.tasks.worker: Task claimed: 5ed7a7a6-e147-448b-b8ad-525a87656424 (type=assistant_forecast, novel_id=<unverified>)
+[WebServer] 2026-09-21 02:04:22 [INFO] infrastructure.tasks.worker: Executing task 12bda1bb-46d8-4f13-8716-af13243a92e7 (type=rag_index_chapter, novel_id=f052d11c-292b-4b15-9a08-d629c12037d2) with handler handle_rag_index_chapter
+[WebServer] 2026-09-21 02:04:22 [INFO] infrastructure.tasks.worker: Executing task 5ed7a7a6-e147-448b-b8ad-525a87656424 (type=assistant_forecast, novel_id=f052d11c-292b-4b15-9a08-d629c12037d2) with handler handle_assistant_forecast
+[WebServer] 2026-09-21 02:04:22 [INFO] infrastructure.llm.providers: OpenAIProvider initialized
+[WebServer] 2026-09-21 02:04:22 [INFO] infrastructure.llm.providers: OpenAIProvider initialized
+[WebServer] 2026-09-21 02:04:22 [INFO] infrastructure.tasks.worker: Task completed: 5ed7a7a6-e147-448b-b8ad-525a87656424 (type=assistant_forecast, novel_id=f052d11c-292b-4b15-9a08-d629c12037d2)
+[WebServer] [BGE-Worker] ERROR Failed to load any embedding backend: No module named 'huggingface_hub'
+[WebServer] 2026-09-21 02:04:23 [INFO] infrastructure.embedding.worker: BGE worker stopped
+[WebServer] 2026-09-21 02:04:23 [INFO] app.main: Request completed method=GET route=/api/tasks/{task_id} status=200 duration_ms=16.0 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:23 [INFO] app.main: Request completed method=GET route=/forecasts/runs/{run_id} status=200 duration_ms=13.5 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:23 [INFO] app.main: Request completed method=POST route=/forecasts/feed status=200 duration_ms=29.6 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] [BGE-Worker] ERROR Failed to load any embedding backend: No module named 'huggingface_hub'
+[WebServer] 2026-09-21 02:04:23 [INFO] app.main: Request completed method=OPTIONS route=<unresolved> status=200 duration_ms=0.2 novel_id=<none>
+[WebServer] 2026-09-21 02:04:23 [INFO] app.main: Request completed method=POST route=/forecasts/candidates/{candidate_id}/prepare status=200 duration_ms=135.4 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:23 [INFO] infrastructure.embedding.worker: BGE worker stopped
+[WebServer] 2026-09-21 02:04:24 [INFO] app.main: Request completed method=GET route=/api/assistant/runs/{run_id} status=200 duration_ms=38.2 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:24 [INFO] modules.evidence.indexing.tasks: Indexed chapter 1: 1 chunks created
+[WebServer] 2026-09-21 02:04:24 [INFO] infrastructure.tasks.worker: Task completed: 12bda1bb-46d8-4f13-8716-af13243a92e7 (type=rag_index_chapter, novel_id=f052d11c-292b-4b15-9a08-d629c12037d2)
+[WebServer] 2026-09-21 02:04:24 [INFO] app.main: Request completed method=OPTIONS route=<unresolved> status=200 duration_ms=0.2 novel_id=<none>
+[WebServer] 2026-09-21 02:04:24 [INFO] app.main: Request completed method=POST route=/api/assistant/batches/{batch_id}/decide status=200 duration_ms=91.2 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:24 [INFO] app.main: Request completed method=GET route=/api/writing/chapters/{chapter_index}/draft status=200 duration_ms=5.6 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:24 [INFO] app.main: Request completed method=GET route=/api/collaboration/cases status=200 duration_ms=11.0 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:24 [INFO] app.main: Request completed method=GET route=/api/collaboration/capabilities status=200 duration_ms=12.6 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:24 [INFO] app.main: Request completed method=OPTIONS route=<unresolved> status=200 duration_ms=0.2 novel_id=<none>
+[WebServer] 2026-09-21 02:04:24 [INFO] app.main: Request completed method=POST route=/api/collaboration/cases status=201 duration_ms=24.1 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:24 [INFO] app.main: Request completed method=OPTIONS route=<unresolved> status=200 duration_ms=0.1 novel_id=<none>
+[WebServer] 2026-09-21 02:04:24 [INFO] app.main: Request completed method=POST route=/api/collaboration/cases/{case_id}/runs status=202 duration_ms=45.8 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:24 [INFO] app.main: Request completed method=GET route=/api/collaboration/runs/{run_id} status=200 duration_ms=25.5 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:24 [INFO] app.main: Request completed method=GET route=/api/tasks/{task_id} status=200 duration_ms=6.4 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:24 [INFO] app.main: Request completed method=GET route=/api/collaboration/cases/{case_id}/runs status=200 duration_ms=9.9 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:24 [INFO] app.main: Request completed method=GET route=/api/collaboration/cases/{case_id}/workspaces status=200 duration_ms=9.8 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:25 [INFO] app.main: Request completed method=GET route=/api/tasks/{task_id} status=200 duration_ms=8.0 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:26 [INFO] infrastructure.tasks.worker: Task claimed: 82060ea0-b421-4194-ac32-24fba3650aa0 (type=collaboration_run, novel_id=<unverified>)
+[WebServer] 2026-09-21 02:04:26 [INFO] infrastructure.tasks.worker: Task claimed: e7ce3eae-3368-4fea-8e6e-0fd79c503512 (type=map_atlas_storage_cleanup, novel_id=<none>)
+[WebServer] 2026-09-21 02:04:26 [INFO] infrastructure.tasks.worker: Executing task e7ce3eae-3368-4fea-8e6e-0fd79c503512 (type=map_atlas_storage_cleanup, novel_id=<none>) with handler handle_map_atlas_storage_cleanup
+[WebServer] 2026-09-21 02:04:26 [INFO] infrastructure.tasks.worker: Executing task 82060ea0-b421-4194-ac32-24fba3650aa0 (type=collaboration_run, novel_id=f052d11c-292b-4b15-9a08-d629c12037d2) with handler handle_collaboration_run
+[WebServer] 2026-09-21 02:04:26 [WARNING] infrastructure.tasks.worker: Task requeued after handler failure: e7ce3eae-3368-4fea-8e6e-0fd79c503512 (type=map_atlas_storage_cleanup, accepted=True, novel_id=<none>) — RuntimeError: MAP_ATLAS_S3_BUCKET is required
+[WebServer] 2026-09-21 02:04:26 [INFO] infrastructure.tasks.worker: Task claimed: 84336ba9-2e53-4713-99d1-af24b2f06501 (type=world_object_image_cleanup, novel_id=<none>)
+[WebServer] 2026-09-21 02:04:26 [INFO] infrastructure.tasks.worker: Executing task 84336ba9-2e53-4713-99d1-af24b2f06501 (type=world_object_image_cleanup, novel_id=<none>) with handler handle_world_object_image_cleanup
+[WebServer] 2026-09-21 02:04:26 [WARNING] infrastructure.tasks.worker: Task requeued after handler failure: 84336ba9-2e53-4713-99d1-af24b2f06501 (type=world_object_image_cleanup, accepted=True, novel_id=<none>) — RuntimeError: WORLD_OBJECT_S3_BUCKET is required
+[WebServer] 2026-09-21 02:04:26 [INFO] infrastructure.llm.providers: OpenAIProvider initialized
+[WebServer] 2026-09-21 02:04:27 [INFO] app.main: Request completed method=GET route=/api/tasks/{task_id} status=200 duration_ms=8.9 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:29 [INFO] app.main: Request completed method=GET route=/api/tasks/{task_id} status=200 duration_ms=7.8 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:29 [INFO] infrastructure.tasks.worker: Task completed: 82060ea0-b421-4194-ac32-24fba3650aa0 (type=collaboration_run, novel_id=f052d11c-292b-4b15-9a08-d629c12037d2)
+[WebServer] 2026-09-21 02:04:30 [INFO] app.main: Request completed method=GET route=/api/tasks/{task_id} status=200 duration_ms=13.8 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:30 [INFO] app.main: Request completed method=GET route=/api/collaboration/runs/{run_id} status=200 duration_ms=15.8 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:30 [INFO] app.main: Request completed method=GET route=/api/collaboration/cases/{case_id}/runs status=200 duration_ms=10.3 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:30 [INFO] app.main: Request completed method=GET route=/api/collaboration/cases/{case_id}/workspaces status=200 duration_ms=9.8 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:30 [INFO] app.main: Request completed method=GET route=/api/writing/chapters/{chapter_index}/draft status=200 duration_ms=7.8 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:30 [INFO] app.main: Request completed method=GET route=/api/collaboration/workspaces/{workspace_id}/diff status=200 duration_ms=32.3 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:30 [INFO] app.main: Request completed method=OPTIONS route=<unresolved> status=200 duration_ms=0.2 novel_id=<none>
+[WebServer] 2026-09-21 02:04:31 [INFO] app.main: Request completed method=POST route=/api/collaboration/workspaces/{workspace_id}/seal status=200 duration_ms=37.7 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:31 [INFO] app.main: Request completed method=OPTIONS route=<unresolved> status=200 duration_ms=0.2 novel_id=<none>
+[WebServer] 2026-09-21 02:04:31 [INFO] app.main: Request completed method=POST route=/api/collaboration/workspaces/{workspace_id}/merge status=200 duration_ms=58.4 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:31 [INFO] app.main: Request completed method=GET route=/api/writing/chapters/{chapter_index}/versions status=200 duration_ms=7.4 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:31 [INFO] app.main: Request completed method=GET route=/api/collaboration/cases/{case_id}/runs status=200 duration_ms=8.7 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:31 [INFO] app.main: Request completed method=GET route=/api/collaboration/cases/{case_id}/workspaces status=200 duration_ms=9.2 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:31 [INFO] app.main: Request completed method=GET route=/api/writing/drafts/{draft_id} status=200 duration_ms=6.6 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:31 [INFO] app.main: Request completed method=GET route=/api/writing/chapters status=200 duration_ms=6.9 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:31 [INFO] app.main: Request completed method=GET route=/api/collaboration/workspaces/{workspace_id}/diff status=200 duration_ms=18.0 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:31 [INFO] app.main: Request completed method=GET route=/api/auth/config status=200 duration_ms=0.5 novel_id=<none>
+[WebServer] 2026-09-21 02:04:31 [INFO] app.main: Request completed method=GET route=/api/health status=200 duration_ms=7.0 novel_id=<none>
+[WebServer] 2026-09-21 02:04:31 [INFO] app.main: Request completed method=GET route=/api/projects/{project_id} status=200 duration_ms=11.8 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:31 [INFO] app.main: Request completed method=GET route=/api/assistant/capabilities status=200 duration_ms=20.8 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:31 [INFO] app.main: Request completed method=GET route=/api/assistant/policy status=200 duration_ms=13.7 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:31 [INFO] app.main: Request completed method=GET route=/api/assistant/sessions status=200 duration_ms=21.0 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:31 [INFO] app.main: Request completed method=GET route=/api/assistant/notices status=200 duration_ms=14.5 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:31 [INFO] app.main: Request completed method=GET route=/api/outline/scenes/ordered status=200 duration_ms=14.9 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:31 [INFO] app.main: Request completed method=GET route=/api/writing/chapters status=200 duration_ms=17.4 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:31 [INFO] app.main: Request completed method=GET route=/api/projects/{project_id}/effective-author-preferences status=200 duration_ms=17.2 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:31 [INFO] app.main: Request completed method=GET route=/api/writing/chapters/{chapter_index}/versions status=200 duration_ms=7.3 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:31 [INFO] app.main: Request completed method=GET route=/api/assistant/capabilities status=200 duration_ms=17.9 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:31 [INFO] app.main: Request completed method=GET route=/api/writing/drafts/{draft_id} status=200 duration_ms=8.2 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:31 [INFO] app.main: Request completed method=DELETE route=/api/projects/{project_id} status=204 duration_ms=19.3 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+[WebServer] 2026-09-21 02:04:31 [INFO] app.main: Request completed method=DELETE route=/api/projects/{project_id}/permanent status=204 duration_ms=39.6 novel_id=f052d11c-292b-4b15-9a08-d629c12037d2
+  ✓  1 e2e/creative-forecast.spec.js:4:1 › 前瞻与两种真实试改：保存保护、确认、恢复和窄屏 (13.7s)
+
+  1 passed (22.3s)

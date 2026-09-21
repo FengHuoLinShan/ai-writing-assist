@@ -38,6 +38,14 @@ class AssistantRun(Base, UUIDMixin, TimestampMixin, NovelMixin):
     __tablename__ = "assistant_runs"
     __table_args__ = (
         UniqueConstraint("novel_id", "id", name="uq_assistant_run_novel"),
+        Index(
+            "uq_assistant_run_operation",
+            "novel_id",
+            "operation_id",
+            unique=True,
+            postgresql_where=text("operation_id IS NOT NULL"),
+            sqlite_where=text("operation_id IS NOT NULL"),
+        ),
         ForeignKeyConstraint(
             ["novel_id", "session_id"],
             ["world_cocreation_sessions.novel_id", "world_cocreation_sessions.id"],
@@ -63,6 +71,9 @@ class AssistantRun(Base, UUIDMixin, TimestampMixin, NovelMixin):
     )
     owner_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("accounts.id"), nullable=False
+    )
+    operation_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
     )
     session_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), nullable=True
@@ -102,6 +113,7 @@ class AssistantActionBatch(Base, UUIDMixin, TimestampMixin, NovelMixin):
 
 class AssistantNotice(Base, UUIDMixin, TimestampMixin, NovelMixin):
     __tablename__ = "assistant_notices"
+    __mapper_args__ = {"eager_defaults": True}
     __table_args__ = (
         UniqueConstraint(
             "novel_id", "fingerprint", name="uq_assistant_notice_fingerprint"
@@ -112,6 +124,9 @@ class AssistantNotice(Base, UUIDMixin, TimestampMixin, NovelMixin):
         ),
     )
     fingerprint: Mapped[str] = mapped_column(String(64))
+    row_version: Mapped[int] = mapped_column(
+        Integer, default=0, server_default=text("0"), onupdate=text("row_version + 1")
+    )
     kind: Mapped[str] = mapped_column(String(20), default="suggestion")
     status: Mapped[str] = mapped_column(String(20), default="unread")
     title: Mapped[str] = mapped_column(String(200))

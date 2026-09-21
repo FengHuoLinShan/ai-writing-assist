@@ -86,6 +86,18 @@ describe("api.js cache behavior", () => {
     globalThis.fetch = originalFetch
   })
 
+  it.each(["/collaboration/workspaces/trial/merge", "/assistant/batches/batch/decide"])("确认 %s 后跨领域读取不返回旧缓存", async path => {
+    let version = 1
+    globalThis.fetch = vi.fn(async (_url, options) => {
+      if (options.method === "POST") version++
+      return { ok: true, status: 200, json: async () => ({ version }) }
+    })
+    expect((await window.api.writing.getVersionHistory(1, "p1")).version).toBe(1)
+    await window.api.request(path, { method: "POST", body: "{}" })
+    expect((await window.api.writing.getVersionHistory(1, "p1")).version).toBe(2)
+    expect(globalThis.fetch).toHaveBeenCalledTimes(3)
+  })
+
   it("focused task reads bypass cached pending state and refreshed entities can bypass old rows", async () => {
     let reads = 0
     globalThis.fetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ version: ++reads }) }))

@@ -18,6 +18,13 @@ from modules.story.continuity.contracts import (
     MemoryDeltaIngestResult,
     scene_memory_dimensions,
 )
+from modules.story.observations import (
+    InputStimulus as InputStimulusContract,  # noqa: F401
+)
+from modules.story.observations import (
+    ObservationIntent as ActionIntentContract,  # noqa: F401
+)
+from modules.story.observations import ReadingNode as ReadingNode
 from modules.story.outline_state.contracts import (
     SCENE_SEMANTIC_FIELD_STATUSES,
     SCENE_SEMANTIC_FIELDS,

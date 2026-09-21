@@ -1,0 +1,278 @@
+{
+  "case_id": "consent-06",
+  "suite": "forecast",
+  "novel_id": "14f81c5f-b7fe-4172-a979-51455f62783c",
+  "run_id": "de76f143-6333-44a0-a6be-eb68141cbd4b",
+  "provider": "deepseek",
+  "model": "deepseek-flash",
+  "thinking": "disabled",
+  "spent_peak_usd": 0.002607,
+  "result": {
+    "run_id": "de76f143-6333-44a0-a6be-eb68141cbd4b",
+    "task_id": "de76f143-6333-44a0-a6be-eb68141cbd4b",
+    "status": "completed",
+    "phase": "done",
+    "completion": "complete",
+    "candidate_ids": [
+      "e9d8149a-f5a2-49f8-b47e-7a6cf0e2e613"
+    ],
+    "coverage": {
+      "scope_label": "当前授权的保存资料；未检查全书",
+      "enumerated_total": 1,
+      "enumeration_complete": true,
+      "semantic_search": "complete_for_declared_plan",
+      "counts": {
+        "presented": 1,
+        "merged": 0,
+        "backlog": 0,
+        "waiting_condition": 0,
+        "suppressed": 0,
+        "needs_verification": 0,
+        "not_checked": 0,
+        "source_invalid": 0
+      },
+      "omissions": []
+    },
+    "usage": {
+      "requests": 2,
+      "input_tokens": 4874,
+      "output_tokens": 954,
+      "usage_complete": true
+    },
+    "error_code": null,
+    "can_resume": false,
+    "candidates": [
+      {
+        "anchor": {
+          "question_kind": "continuation",
+          "resource_kind": "writing_draft",
+          "resource_id": "98e926fa-e5f6-4b77-ab9d-ddf11170fa50",
+          "chapter_index": 1,
+          "start": 71,
+          "end": 97
+        },
+        "proposal": {
+          "title": "对照之后：可退出的下一步",
+          "kind": "next_step",
+          "statements": [
+            {
+              "text": "当前段落停在“只同意当场对照，不交出原件，也不承诺共同出发”，双方都保留了随时退出的余地。",
+              "basis": "observed",
+              "evidence_ids": [
+                "source_0"
+              ],
+              "assumptions": []
+            },
+            {
+              "text": "两人已分别盖住私人批注，只比较公开的两处路标，因此任何下一步都建立在有限共享之上。",
+              "basis": "observed",
+              "evidence_ids": [
+                "source_0"
+              ],
+              "assumptions": []
+            },
+            {
+              "text": "未确认人物知识、世界约束和继承资料，路线图内容与两人关系史仍属未知。",
+              "basis": "inferred",
+              "evidence_ids": [
+                "source_1"
+              ],
+              "assumptions": [
+                "source_1 的 unknowns 仍适用于当前正文"
+              ]
+            }
+          ],
+          "why_now": "段落已给出一个明确的行动结果（当场对照、不交原件），适合在“对照完成”这一节点选择收束、轻推或切场，而不必升级为信任或结盟。",
+          "directions": [
+            {
+              "direction_id": "close_and_part",
+              "title": "对照完毕，各自离开",
+              "condition": "若作者希望本节以“合作有限、随时可退”收束，不引入新承诺。",
+              "proposal": "对照完两处公开路标后，其中一人先合上自己的半张图，起身；另一人不挽留，只确认下次是否还在此处碰面——不作承诺，或干脆不回答。",
+              "possible_effects": [
+                "保持双方退出权",
+                "不产生新义务",
+                "为日后偶遇留白"
+              ],
+              "assumptions": [
+                "两人没有必须当场达成的共识"
+              ],
+              "narrative_commitment": "low",
+              "may_leave_open": true
+            },
+            {
+              "direction_id": "discrepancy_notice",
+              "title": "发现一处对不上",
+              "condition": "若作者想让对照产生具体结果，但不改变双方的不信任状态。",
+              "proposal": "两人发现两处公开路标中有一处无法对齐；一人指出，另一人只记下、不解释，也不提出共同去核实。管理员再次提醒放低声音，成为自然的收束点。",
+              "possible_effects": [
+                "给出可追踪的具体线索",
+                "维持互不交底的姿态",
+                "把是否追查留给后续"
+              ],
+              "assumptions": [
+                "路线图之间存在可对照的差异"
+              ],
+              "narrative_commitment": "medium",
+              "may_leave_open": true
+            },
+            {
+              "direction_id": "cut_to_after",
+              "title": "直接切场",
+              "condition": "若作者认为本节信息已足够，不需要描写对照过程本身。",
+              "proposal": "不写对照细节，直接切到阅览室之外或之后的时间点，只保留“他们对照过、但谁都没交出原件”这一结果。",
+              "possible_effects": [
+                "压缩节奏",
+                "保留结果、省略过程",
+                "避免过早定义两人关系"
+              ],
+              "assumptions": [
+                "对照过程本身不含必须展示的信息"
+              ],
+              "narrative_commitment": "low",
+              "may_leave_open": true
+            }
+          ],
+          "unknowns": [
+            "路线图的具体内容与两处公开路标是什么",
+            "两人此前冲突的性质",
+            "管理员是否会再次介入"
+          ],
+          "verdict": "propose"
+        },
+        "evidence": [
+          {
+            "evidence_id": "source_0",
+            "resource_kind": "writing_draft",
+            "resource_id": "98e926fa-e5f6-4b77-ab9d-ddf11170fa50",
+            "source_hash": "ee178744fd942e952d8224c31114d3555ee49d38dfa3f889c34cdab801ccc09a",
+            "revision_token": "1:ee178744fd942e952d8224c31114d3555ee49d38dfa3f889c34cdab801ccc09a",
+            "source_range": {
+              "start_offset": 0,
+              "end_offset": 119
+            },
+            "range_hash": "ee178744fd942e952d8224c31114d3555ee49d38dfa3f889c34cdab801ccc09a",
+            "label": "consent-06"
+          },
+          {
+            "evidence_id": "source_1",
+            "resource_kind": "domain_result",
+            "resource_id": "ab4d9cfa-986d-5f1c-ba80-eb52d771152e",
+            "source_hash": "fa8616350545156ed0c291ff778486775b99e3cb95cc7ff800707dc063eb9e35",
+            "revision_token": "fa8616350545156ed0c291ff778486775b99e3cb95cc7ff800707dc063eb9e35",
+            "source_range": null,
+            "range_hash": null,
+            "label": "接着写前，回看当前保存段落"
+          },
+          {
+            "evidence_id": "source_2",
+            "resource_kind": "domain_result",
+            "resource_id": "e6dc1f04-e1e3-5d8c-b254-87cf266ac6ab",
+            "source_hash": "281396c9c94cb3d75e2a8f70f0fd3fed73fece4eeedd9b323b7c75e822c8ffd6",
+            "revision_token": "281396c9c94cb3d75e2a8f70f0fd3fed73fece4eeedd9b323b7c75e822c8ffd6",
+            "source_range": null,
+            "range_hash": null,
+            "label": "生成连接已配置"
+          },
+          {
+            "evidence_id": "source_3",
+            "resource_kind": "policy",
+            "resource_id": "04ed4bc3-c87e-5caa-96de-09e22b2496b3",
+            "source_hash": "01fcbef87105cea0e9f254af44b5f79d7c29df9365f6eaad4c6c67818c45ccf3",
+            "revision_token": "01fcbef87105cea0e9f254af44b5f79d7c29df9365f6eaad4c6c67818c45ccf3",
+            "source_range": null,
+            "range_hash": null,
+            "label": "按本次授权开始计算"
+          }
+        ],
+        "knowledge_review": {
+          "status": "passed",
+          "review": {
+            "status": "passed",
+            "repaired": false,
+            "coverage": [
+              {
+                "dimension": "prior_prose",
+                "covered_by": [],
+                "omitted": false,
+                "omission_reason": null
+              },
+              {
+                "dimension": "world_rules",
+                "covered_by": [],
+                "omitted": false,
+                "omission_reason": null
+              },
+              {
+                "dimension": "outline",
+                "covered_by": [],
+                "omitted": false,
+                "omission_reason": null
+              },
+              {
+                "dimension": "scope_and_permissions",
+                "covered_by": [],
+                "omitted": false,
+                "omission_reason": null
+              },
+              {
+                "dimension": "candidate_status",
+                "covered_by": [],
+                "omitted": false,
+                "omission_reason": null
+              }
+            ],
+            "issue_counts": {
+              "conflict": 0,
+              "irrelevant_content": 0,
+              "missing_required": 0,
+              "out_of_scope_knowledge": 0,
+              "premature_reveal": 0,
+              "unchecked": 0,
+              "unsupported_fact": 0
+            },
+            "issues": []
+          }
+        },
+        "ranking": {
+          "window": 2,
+          "task_help": 2,
+          "explicit_relevance": 1,
+          "evidence": 1,
+          "executable": 1,
+          "narrative_lockin": 2
+        },
+        "actions": [
+          {
+            "action_id": "writing.prepare_candidate.close_and_part",
+            "label": "试写：对照完毕，各自离开",
+            "kind": "prepare_domain",
+            "requires_confirmation": true,
+            "available": true
+          },
+          {
+            "action_id": "writing.prepare_candidate.discrepancy_notice",
+            "label": "试写：发现一处对不上",
+            "kind": "prepare_domain",
+            "requires_confirmation": true,
+            "available": true
+          },
+          {
+            "action_id": "writing.prepare_candidate.cut_to_after",
+            "label": "试写：直接切场",
+            "kind": "prepare_domain",
+            "requires_confirmation": true,
+            "available": true
+          },
+          {
+            "action_id": "project.prepare_task",
+            "label": "加入稍后处理",
+            "kind": "prepare_domain",
+            "requires_confirmation": true,
+            "available": true
+          }
+        ]
+      }
+    ]
+  }
+}

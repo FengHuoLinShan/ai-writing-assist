@@ -1,0 +1,12 @@
+
+ RUN  v5.0.1 /Users/tywww/.codex/worktrees/forecast-creative-engine/ai-writing-assist/frontend-console
+
+
+ Test Files  19 passed (19)
+      Tests  248 passed (248)
+   Start at  01:51:50
+   Duration  5.21s (environment 36%, transform 32%, tests 23%, import 8%, setup 1%)
+
+Environment  happy-dom was created 19 times · 7.43s total, 36% of tracked time
+             create it once per worker with pool: 'vmThreads' (keeps per-file isolation) or isolate: false (shares it across files)
+             learn more: https://vitest.dev/guide/improving-performance#test-environments

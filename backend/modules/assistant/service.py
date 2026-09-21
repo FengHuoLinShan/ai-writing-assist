@@ -201,6 +201,11 @@ def record_run_event(run, phase):
 
 async def expire_run_histories(db):
     """Bounded task-metadata maintenance; no project content or model analysis."""
+    from modules.assistant.forecast.maintenance import expire_assessments
+    from modules.collaboration.facade import stop_unavailable_runs
+
+    await expire_assessments(db)
+    await stop_unavailable_runs(db)
     rows = await db.scalars(
         select(AssistantRun)
         .where(
@@ -579,6 +584,13 @@ class AssistantService:
 
     async def get_run(self, db, novel_id, run_id):
         await require_active_project(db, novel_id)
+        run = await self.require_run(db, novel_id, run_id)
+        if run.request_json.get("protocol") == "creative_projection_v2":
+            from modules.collaboration.facade import read_projected_run
+
+            return await read_projected_run(db, novel_id, run_id)
+        if run.request_json.get("protocol") == "forecast_v1":
+            return self.view(run)
         run = await self.require_run(db, novel_id, run_id, lock=True)
         lifecycle = None
         if run.status in {"pending", "running"} and run.task_id is None:
@@ -629,6 +641,19 @@ class AssistantService:
                 and AgentRunBudget.model_validate(run.budget_json).remaining_seconds > 0
             ),
         )
+        if run.request_json.get("forecast_parent") and run.status != "completed":
+            from core.errors import DomainError
+            from modules.assistant.forecast.preparation import require_parent
+
+            try:
+                await require_parent(db, novel_id, run)
+            except DomainError:
+                return {
+                    **view,
+                    "result": {"answer": "此预览的资料或作者决定已变化，请重新选择。"},
+                    "error": "原建议已失效",
+                    "can_resume": False,
+                }
         if run.request_json.get("team"):
             from modules.assistant.teams.runner import public_collaboration
 
@@ -728,6 +753,11 @@ class AssistantService:
         novel_id = str(data.novel_id)
         await require_active_project(db, novel_id)
         run = await self.require_run(db, novel_id, run_id, lock=True)
+        if run.request_json.get("protocol") in {"creative_projection_v2", "forecast_v1"}:
+            raise ConflictError(
+                "请从原创作试验或前瞻记录恢复；这里仅展示进度",
+                code="PROJECTED_RUN_READ_ONLY",
+            )
         if str(run.owner_id) != owner_id:
             raise NotFoundError("助手任务不存在")
         if run.status in {"pending", "running"}:

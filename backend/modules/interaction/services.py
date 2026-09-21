@@ -285,6 +285,8 @@ class InteractionService:
         )
         db.add(journey)
         await db.flush()
+        from modules.interaction.schemas import interaction_input_metadata
+
         opening = InteractionMessageNode(
             novel_id=journey.novel_id,
             journey_id=journey.id,
@@ -292,6 +294,9 @@ class InteractionService:
             role="user",
             message_kind="setup",
             content=data.opening_text,
+            input_json=interaction_input_metadata(
+                data.opening_input_kind, data.ensemble_cast_keys
+            ),
             completion_state="complete",
             token_estimate=estimate_story_tokens(data.opening_text),
         )
@@ -771,6 +776,54 @@ class InteractionService:
             ],
         )
 
+    async def _validate_observation_input(self, db, journey, input_meta, nodes, content):
+        if not input_meta:
+            return
+        if (
+            not get_settings().collaboration_v2_enabled
+            or journey.generation_mode != "ensemble"
+        ):
+            raise ConflictError("当前旅程未开启本轮输入分类")
+        if len(content) > (
+            1500 if input_meta.get("kind") in {"action", "narration"} else 12000
+        ):
+            raise ValidationError("请将本轮输入分成更短的动作或对话")
+        from modules.interaction.ensemble import selected_actor_states
+        from modules.interaction.ensemble_v2 import restore_environment
+
+        revision = await self._sources.require_ready_revision(
+            db, journey.source_revision_id
+        )
+        references = {
+            item["reference_key"]: str(item["target_id"])
+            for item in revision.reference_manifest or []
+            if item.get("entity_type") == "character"
+            and item["reference_key"]
+            not in (journey.reference_policy or {}).get("excluded", [])
+            and self._sources.reference_visible(revision, item, journey.source_anchor)
+        }
+        prior = await selected_actor_states(db, journey, nodes, revision.id)
+        present = set(restore_environment(prior, nodes).get("participants", []))
+        cast = input_meta.get("cast_keys")
+        if cast is not None:
+            if len(cast) > 3 or set(cast) - references.keys():
+                raise ValidationError("本场人物不在可用资料内")
+            present = {references[key] for key in cast}
+        whispers = input_meta.get("whisper_to") or []
+        if set(whispers) - references.keys() or any(
+            references[key] not in present for key in whispers
+        ):
+            raise ValidationError("请确认私语对象仍在本场人物中")
+
+    async def _validate_input_replay(self, db, journey, attempt, content, input_meta):
+        previous = await self._required_node(
+            db, journey, str(attempt.response_to_node_id)
+        )
+        if previous.content != content or (
+            input_meta and previous.input_json != input_meta
+        ):
+            raise ConflictError("同一发送请求已用于不同的文字或接收范围")
+
     async def send_message(
         self,
         db: AsyncSession,
@@ -779,6 +832,7 @@ class InteractionService:
         content: str,
         expected_selection_epoch: int,
         idempotency_key: str,
+        input_meta: dict | None = None,
     ) -> InteractionMutationResponse:
         journey = await self._active_journey_for_update(db, journey_id)
         existing = await self._idempotent_attempt(
@@ -787,6 +841,7 @@ class InteractionService:
             idempotency_key=idempotency_key,
         )
         if existing is not None:
+            await self._validate_input_replay(db, journey, existing, content, input_meta)
             return InteractionMutationResponse(
                 journey=await self._detail(db, journey),
                 attempt=self._attempt_response(existing),
@@ -796,6 +851,9 @@ class InteractionService:
         selected_path = await self._repo.get_selected_path(db, journey=journey)
         if not selected_path:
             raise ConflictError("当前发展不存在")
+        await self._validate_observation_input(
+            db, journey, input_meta, selected_path, content
+        )
         parent = selected_path[-1]
         story_started = self._story_started(selected_path)
         message_kind = "story" if story_started else "setup"
@@ -806,6 +864,7 @@ class InteractionService:
             role="user",
             message_kind=message_kind,
             content=content,
+            input_json=input_meta or {},
             completion_state="complete",
             token_estimate=estimate_story_tokens(content),
         )
@@ -843,6 +902,7 @@ class InteractionService:
         content: str,
         expected_selection_epoch: int,
         idempotency_key: str,
+        input_meta: dict | None = None,
     ) -> InteractionMutationResponse:
         """Explicitly branch from the client's still-visible old position."""
         journey = await self._active_journey_for_update(db, journey_id)
@@ -852,6 +912,7 @@ class InteractionService:
             idempotency_key=idempotency_key,
         )
         if existing is not None:
+            await self._validate_input_replay(db, journey, existing, content, input_meta)
             return InteractionMutationResponse(
                 journey=await self._detail(db, journey),
                 attempt=self._attempt_response(existing),
@@ -864,6 +925,7 @@ class InteractionService:
             journey=journey,
             node=branch_point,
         )
+        await self._validate_observation_input(db, journey, input_meta, ancestry, content)
         story_started = self._story_started(ancestry)
         message_kind = "story" if story_started else "setup"
         await self._select_ancestry(db, journey=journey, ancestry=ancestry)
@@ -874,6 +936,7 @@ class InteractionService:
             role="user",
             message_kind=message_kind,
             content=content,
+            input_json=input_meta or {},
             completion_state="complete",
             token_estimate=estimate_story_tokens(content),
         )
@@ -1121,6 +1184,7 @@ class InteractionService:
         content: str,
         expected_selection_epoch: int,
         idempotency_key: str,
+        input_meta: dict | None = None,
     ) -> InteractionMutationResponse:
         journey = await self._active_journey_for_update(db, journey_id)
         existing = await self._idempotent_attempt(
@@ -1129,6 +1193,7 @@ class InteractionService:
             idempotency_key=idempotency_key,
         )
         if existing is not None:
+            await self._validate_input_replay(db, journey, existing, content, input_meta)
             return InteractionMutationResponse(
                 journey=await self._detail(db, journey),
                 attempt=self._attempt_response(existing),
@@ -1144,6 +1209,7 @@ class InteractionService:
             raise ConflictError("请先切换到这个发展再修改")
         original_index = selected_ids.index(original.id)
         prefix = selected_path[:original_index]
+        await self._validate_observation_input(db, journey, input_meta, prefix, content)
         edited = InteractionMessageNode(
             novel_id=journey.novel_id,
             journey_id=journey.id,
@@ -1151,6 +1217,7 @@ class InteractionService:
             role="user",
             message_kind=original.message_kind,
             content=content,
+            input_json=input_meta or dict(original.input_json or {}),
             completion_state="complete",
             token_estimate=estimate_story_tokens(content),
         )
@@ -2746,6 +2813,23 @@ class InteractionService:
         story = [node for node in path if node.message_kind == "story"]
         recent = story[-RECENT_MESSAGE_LIMIT:]
         active = await self._repo.get_active_attempt(db, journey=journey)
+        cast_keys = []
+        if journey.generation_mode == "ensemble" and journey.source_revision_id:
+            from modules.interaction.ensemble import selected_actor_states
+            from modules.interaction.ensemble_v2 import restore_environment
+
+            actor_states = await selected_actor_states(
+                db, journey, path, journey.source_revision_id
+            )
+            participants = set(
+                restore_environment(actor_states, path).get("participants", [])
+            )
+            cast_keys = [
+                row.state_json["reference_key"]
+                for row in actor_states.values()
+                if row.state_json.get("reference_key")
+                and str(row.actor_id) in participants
+            ]
         if active is None and path:
             latest = await self._repo.get_latest_attempt_for_selected_leaf(
                 db,
@@ -2768,6 +2852,10 @@ class InteractionService:
             action_options_enabled=journey.action_options_enabled,
             web_search_enabled=journey.web_search_enabled,
             generation_mode=journey.generation_mode,
+            ensemble_protocol="observation_v2"
+            if get_settings().collaboration_v2_enabled
+            else "team_v1",
+            ensemble_cast_keys=cast_keys,
             ensemble_available=bool(
                 get_settings().interaction_team_enabled
                 and journey.source_revision_id
@@ -2828,6 +2916,9 @@ class InteractionService:
             branch_hint=node.branch_hint or InteractionService._branch_hint(node.content),
             story_ended=node.story_ended,
             action_suggestions=suggestions[:3],
+            input_kind=(node.input_json or {}).get("kind"),
+            ensemble_cast_keys=(node.input_json or {}).get("cast_keys"),
+            whisper_to=(node.input_json or {}).get("whisper_to", []),
             created_at=node.created_at,
         )
 

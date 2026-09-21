@@ -90,6 +90,7 @@ async def build_project_llm_execution_snapshot(
     *,
     web_search_enabled: bool = False,
     interaction_ensemble: bool = False,
+    provider_id: str | None = None,
 ) -> dict[str, Any]:
     """Freeze a secret-free project runtime profile for a resumable task.
 
@@ -102,6 +103,7 @@ async def build_project_llm_execution_snapshot(
     materialized, profile, sources = await _resolve_project_runtime_profile(
         db,
         novel_id,
+        provider_id=provider_id,
     )
     summary = profile.sanitized_summary()
     public_profile = {
@@ -145,7 +147,14 @@ async def build_project_llm_execution_snapshot(
                 "mode": "rp",
                 "web_search": search_snapshot() if web_search_enabled else None,
                 **(
-                    {"collaboration": {"protocol": "team_v1", "max_actors": 3}}
+                    {
+                        "collaboration": {
+                            "protocol": "observation_v2"
+                            if get_settings().collaboration_v2_enabled
+                            else "team_v1",
+                            "max_actors": 3,
+                        }
+                    }
                     if interaction_ensemble
                     else {}
                 ),

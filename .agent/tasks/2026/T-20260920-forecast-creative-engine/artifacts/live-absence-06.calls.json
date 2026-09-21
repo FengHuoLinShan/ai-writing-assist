@@ -1,0 +1,14 @@
+{
+  "spent_peak_usd": 0.0010827,
+  "calls": [
+    {
+      "request_hash": "3b546bef01064ad74a162ed5fa933cfd8c74178794b1daff74ba079a7e3e66ff",
+      "provider_call_id": "6ceb2685-2447-4fcb-80b5-d19095c6009a",
+      "model": "deepseek-flash",
+      "input_tokens": 961,
+      "output_tokens": 662,
+      "finish_reason": "stop",
+      "peak_cost_usd": 0.0010827
+    }
+  ]
+}

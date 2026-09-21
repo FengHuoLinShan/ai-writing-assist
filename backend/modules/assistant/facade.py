@@ -66,3 +66,70 @@ async def run_discussion_scope(db, novel_id, run_id, owner_id, *, lock=False):
     return await AssistantService().discussion_scope(
         db, novel_id, run_id, owner_id, lock=lock
     )
+
+
+async def forecast_feed(db, novel_id, data, *, persona="author"):
+    from modules.assistant.forecast.service import feed
+
+    return await feed(db, novel_id, data, persona=persona)
+
+
+async def forecast_submit(db, novel_id, data, *, persona="author"):
+    from modules.assistant.forecast.runtime import submit
+
+    return await submit(db, novel_id, data, persona=persona)
+
+
+async def forecast_run(db, novel_id, run_id, *, persona="author"):
+    from modules.assistant.forecast.runtime import view
+
+    return await view(db, novel_id, run_id, persona=persona)
+
+
+async def forecast_cancel(db, novel_id, run_id, *, persona="author"):
+    from modules.assistant.forecast.runtime import cancel
+
+    return await cancel(db, novel_id, run_id, persona=persona)
+
+
+async def forecast_decide(db, novel_id, candidate_id, data, *, persona="author"):
+    from modules.assistant.forecast.service import decide
+
+    return await decide(db, novel_id, candidate_id, data, persona=persona)
+
+
+async def forecast_candidate(db, novel_id, candidate_id, *, persona="author"):
+    from core.errors import ConflictError
+    from modules.assistant.forecast.ranking import hidden_by_decision
+    from modules.assistant.forecast.service import _notice, require_candidate
+
+    candidate, ctx = await require_candidate(db, novel_id, candidate_id, persona=persona)
+    if hidden_by_decision(await _notice(db, candidate)):
+        raise ConflictError("该建议已被暂缓或拒绝，请先重新留意")
+    return candidate, ctx
+
+
+async def forecast_resume(db, novel_id, run_id, *, persona="author"):
+    from modules.assistant.forecast.runtime import resume
+
+    return await resume(db, novel_id, run_id, persona=persona)
+
+
+async def lock_background_slot(db, novel_id):
+    from modules.assistant.proactive import _watch
+    from modules.project.facade import require_active_project
+
+    await require_active_project(db, novel_id)
+    return await _watch(db, novel_id, lock=True)
+
+
+async def register_creative_watch(db, novel_id, case_id, active):
+    from modules.assistant.creative_queue import register
+
+    return await register(db, novel_id, case_id, active)
+
+
+async def project_creative_run(db, novel_id, run_id, **values):
+    from modules.assistant.creative_queue import project_run
+
+    return await project_run(db, novel_id, run_id, **values)

@@ -487,3 +487,28 @@ PostgreSQL 用例 `tests/e2e/test_agent_teams_runtime.py` 与 `test_team_history
 浏览器 `e2e/agent-teams.spec.js` 验证真实 UI 的启动、恢复、遗漏和窄屏导航（模型响应受控替身）。
 真实模型探索单独保留输入族、分组、请求/用量/未知和失败证据；DI、绿色测试和生成报告均不
 代替人工盲评，不据此宣称文学质量或默认开启。
+
+## 前瞻与创作试验回归
+
+有界运行覆盖 `modules/assistant/forecast/tests`、`modules/collaboration/tests` 与
+`modules/interaction/tests/test_forecast.py`；PostgreSQL 不可变与原子采用覆盖
+`tests/e2e/test_creative_engine.py`，显式使用本任务可丢弃的 E2E_DATABASE_URL。
+只有 provider.generate 替身的运行测试保留真实 gateway、SQL、预算与知识治理；
+这些结果不替代真实模型质量或人工盲评。Vue 回归核对原操作恢复、私语草稿和跨焦点迟到响应。
+
+
+V2/前瞻离线质量工具：`python -m evals.creative_forecast corpus --output <file>` 生成
+120 个冻结前缀（12 个独立机制，8 个开发族/4 个留出族，48 个安静反例）；来源是本仓库
+原创合成语料，数据集人工审阅初始为 not_run。`blind --records <jsonl> --output <dir>
+--seed <seed>` 导出两份独立评分 CSV/HTML，operator-only 映射不得发送给评阅者；
+`report --mapping <file> --reviews <csv> <csv> --output <file>` 保留初评分歧与失败，
+按故事族重采样区间，分别报告 C−B、C−D 及留出族结果。creative 对照 A/B/C/D，B/C 必须有相同工具与 workspace；forecast
+对照静态资料 A 与前瞻 B。真实请求必须有 gateway 调用回执，未知用量不计为零成本。
+这些命令不会请求 Provider，也不会把替身结果作为真实质量通过或自动启用凭据。
+
+固定负载复验：`RUN_E2E_TESTS=1 E2E_DATABASE_URL=<本任务专用测试库> uv run --locked
+--extra ci -- pytest tests/e2e/test_forecast_performance.py -m 'not real_llm and not external_data'
+-q -s`（backend 目录）创建 300 章、1,500 Scene、5,000 对象、20,000 条保留评估，
+500 个当前事项；预热 3 次、测量 30 次。输出服务层（含 PostgreSQL，不含 HTTP）
+feed/入队 P95，断言无 Provider 调用、feed 无任务写入；事务回滚隔离所有合成资料。
+这不代表生产高并发、20,000 个同时有效事项或文学质量验收。

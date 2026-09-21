@@ -47,6 +47,15 @@ async def prepare_ensemble(run):
     journey, attempt, source = await run.guard()
     if source is None:
         raise ValueError("RP ensemble requires a frozen source revision")
+    if (
+        (run.prepared.executable_settings.get("_agent_runtime") or {}).get(
+            "collaboration"
+        )
+        or {}
+    ).get("protocol") == "observation_v2":
+        from modules.interaction.ensemble_v2 import prepare_ensemble_v2
+
+        return await prepare_ensemble_v2(run, journey, attempt, source)
     if run.state.get("collaboration", {}).get("resolved"):
         return StoryPreparation.model_validate(run.state["collaboration"]["plan"])
     nodes = await run.workflow.selected_context_nodes(
@@ -205,7 +214,9 @@ async def prepare_ensemble(run):
 async def persist_actor_states(db, *, journey, attempt, node):
     """Called inside the existing node/selection transaction, before private cleanup."""
     data = (attempt.agent_checkpoint_json or {}).get("collaboration") or {}
-    if data.get("protocol") != "team_v1" or not data.get("resolved"):
+    if data.get("protocol") not in {"team_v1", "observation_v2"} or not data.get(
+        "resolved"
+    ):
         raise ValueError("RP ensemble state is not ready for node commit")
     if str(attempt.source_revision_id) != data["source_revision_id"]:
         raise ValueError("RP ensemble source changed")

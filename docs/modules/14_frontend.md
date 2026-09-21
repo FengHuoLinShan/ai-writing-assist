@@ -638,3 +638,13 @@ WorldDesignPanel 编辑本轮 typed 变化，并将知识来源审查与设计�
 Writing 检查菜单在保存正文后打开项目助手的深度审稿模式；作者可修改任务目标再启动。
 沿用助手提交回执、后台轮询、离开恢复和停止。结果显示实际专项进度、覆盖、遗漏和来源
 过期，并导航到 Writing 原语义审稿报告；不展示内部成员历史，不自动采用或改稿。
+
+## 下一步与创作试验
+
+Writing 资料栏及 ProjectAssistant 使用 ForecastDock；输入法 composition、焦点序号与
+项目代次保护迟到响应。dirty 状态只显示保存基线；卡片展开期间保留阅读位置。
+CreativeExperiments / CreativeTrialEditor 支持原文对照、手动试改、版本检查、冲突选择与
+精确采用；未知提交持久化原操作身份。RP 的 InteractionForecast 只预填用户输入。
+RP 文字草稿与输入类型、人物/私语范围一起存储，失败保留；实际发送仍由作者点击。
+
+跨域确认（创作试验 merge 与助手 batch decide）成功后清除相关应用缓存代次，阻止旧 GET 回填；写作台使用带编辑修订校验的原安全载入路径显示采用后的新工作稿，未保存输入仍保留。

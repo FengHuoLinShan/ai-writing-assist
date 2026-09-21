@@ -63,3 +63,8 @@ HTTP 路由只从当前 account principal 解析 owner。跨模块 owner 查询�
 snapshot 均不得包含 Key。图片连接同样归 account，但仍只通过 project 的图片运行时 seam 使用。
 DeepSeek 新连接使用 `/models` 实测的 canonical `deepseek-flash`；已有
 `deepseek-v4-flash` 连接及其冻结任务继续兼容，不在恢复时静默改名。
+
+## 前瞻就绪投影
+
+`forecast.py` 仅投影当前项目 owner 的连接是否配置及所选 provider，不读取或返回密钥、
+完整端点，不发探测请求；真实执行继续经 Project 验证连接与快照。

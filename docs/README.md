@@ -171,8 +171,8 @@
 
 ## 当前状态
 
-当前代码注册 9 个业务模块：`account` / `project` / `imports` / `world` /
-`evidence` / `story` / `writing` / `interaction` / `assistant`。Story 内部的 outline_state / continuity
+当前代码注册 10 个业务模块：`account` / `project` / `imports` / `world` /
+`evidence` / `story` / `writing` / `interaction` / `assistant` / `collaboration`。Story 内部的 outline_state / continuity
 吸收原 memory / outline 唯一生产实现，旧兼容包已退场。RAG 索引与 Context
 编译/确认归 `evidence`；账户连接与全局偏好归
 `account`，项目偏好与有效配置归 `project`；前端与后端只保留 owner-aligned canonical 路径。
@@ -183,3 +183,11 @@
   `world / rag / outline / scene / writing / map / generate / llm / settings / project-settings`；
   主导航不显示兼容 `llm` 路由
 - `world/map` 旧入口只做兼容跳转
+
+## Collaboration 与短期前瞻
+
+新增业务模块 `collaboration` 持有目标、授权、不可变试改与精确采用回执；
+`assistant` 持有短期前瞻和处置，`story` / `interaction` 持有观察及分支事实。
+当前共十个业务模块，继续复用原 PostgreSQL 队列、Evidence 与 Project 连接。
+模块职责与采用/恢复边界见 `docs/modules/21_collaboration.md`、
+`backend/modules/collaboration/README.md`，前瞻见 `docs/modules/20_assistant.md`。

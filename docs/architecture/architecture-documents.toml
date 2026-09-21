@@ -48,7 +48,15 @@ kind = "business"
 source_roots = ["backend/modules/assistant"]
 design_docs = ["docs/modules/20_assistant.md"]
 code_docs = ["backend/modules/assistant/README.md"]
-api_prefixes = ["/api/assistant"]
+api_prefixes = ["/api/assistant", "/forecasts"]
+
+[[components]]
+name = "collaboration"
+kind = "business"
+source_roots = ["backend/modules/collaboration"]
+design_docs = ["docs/modules/21_collaboration.md"]
+code_docs = ["backend/modules/collaboration/README.md"]
+api_prefixes = ["/api/collaboration"]
 
 [[components]]
 name = "account"
@@ -133,7 +141,7 @@ kind = "business"
 source_roots = ["backend/modules/interaction"]
 design_docs = ["docs/modules/18_interaction.md"]
 code_docs = ["backend/modules/interaction/README.md"]
-api_prefixes = ["/api/interactions", "/api/demo"]
+api_prefixes = ["/api/interactions", "/api/demo", "/api/interactions/journeys/{journey_id}/forecasts"]
 
 [[components]]
 name = "infrastructure"

@@ -417,6 +417,13 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
         )
     )
     operation_context = AssistantOperationContext(str(run.id), owner_id, context.work)
+    if run.request_json.get("forecast_parent"):
+        from modules.assistant.forecast.preparation import require_parent
+
+        await require_parent(db, novel_id, run)
+        operation_context = AssistantOperationContext(
+            str(run.id), owner_id, context.work, operation_id=str(run.id)
+        )
     for item in selected:
         if item["key"] in completed:
             continue

@@ -563,10 +563,13 @@ async def api_submit_one_click_task(
     db: DbSession,
 ) -> StoryTaskResponse:
     await require_active_project(db, data.novel_id)
-    if data.simulation_protocol == "rehearsal_v1":
+    if data.simulation_protocol in {"rehearsal_v1", "observation_v2"}:
         from core.config import get_settings
 
-        if not get_settings().story_rehearsal_enabled:
+        if not get_settings().story_rehearsal_enabled or (
+            data.simulation_protocol == "observation_v2"
+            and not get_settings().collaboration_v2_enabled
+        ):
             raise HTTPException(status_code=409, detail="场景排演尚未开启")
     return await _enqueue_confirmed_task(
         db,
@@ -782,7 +785,10 @@ async def api_scene_simulate(
     "/scenes/{scene_id}/rehearsals", response_model=StoryTaskResponse, status_code=202
 )
 async def start_rehearsal(scene_id: str, data: StoryOneClickTaskRequest, db: DbSession):
-    if data.scene_id != scene_id or data.simulation_protocol != "rehearsal_v1":
+    if data.scene_id != scene_id or data.simulation_protocol not in {
+        "rehearsal_v1",
+        "observation_v2",
+    }:
         raise HTTPException(status_code=422, detail="请选择当前场景的排演方式")
     return await api_submit_one_click_task(data, db)
 
@@ -805,6 +811,16 @@ async def get_rehearsal(
     )
 
 
+@router.post("/rehearsals/{run_id}/replay")
+async def replay_recorded_rehearsal(
+    run_id: uuid.UUID, db: DbSession, novel_id: NovelIdQuery
+):
+    from modules.story.rehearsals import replay_rehearsal
+
+    await require_active_project(db, novel_id)
+    return await replay_rehearsal(db, novel_id, str(run_id))
+
+
 @router.post(
     "/rehearsals/{run_id}/forks", response_model=StoryTaskResponse, status_code=202
 )
@@ -815,6 +831,9 @@ async def fork_rehearsal(
 
     await require_active_project(db, data.novel_id)
     await read_rehearsal(db, data.novel_id, str(run_id))
-    if data.parent_rehearsal_id != run_id or data.simulation_protocol != "rehearsal_v1":
+    if data.parent_rehearsal_id != run_id or data.simulation_protocol not in {
+        "rehearsal_v1",
+        "observation_v2",
+    }:
         raise HTTPException(status_code=422, detail="分叉必须绑定准确的原排演")
     return await api_submit_one_click_task(data, db)

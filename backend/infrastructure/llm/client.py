@@ -742,10 +742,12 @@ class LLMClient:
     def resolve_request_defaults(self, request: LLMCallRequest) -> LLMCallRequest:
         """Return a request copy with client-owned defaults materialized.
 
-        Profile 请求默认（temperature/top_p/extra）只填充请求未显式设置的槽位；
+        Profile 请求默认（model/temperature/top_p/extra）只填充请求未显式设置的槽位；
         显式 request 值始终优先，避免覆盖各能力的定制采样参数。
         """
         resolved = request.model_copy(deep=True)
+        if "model" not in request.model_fields_set:
+            resolved.model = self._default_model
         if resolved.max_tokens is None:
             resolved.max_tokens = self._default_max_tokens
         if resolved.temperature is None:

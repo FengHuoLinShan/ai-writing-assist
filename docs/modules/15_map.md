@@ -303,3 +303,11 @@ World 设计精细模式的反例审查仍只核对本轮 typed 世界变化及�
 世界对象可经作者审核或已授权、通过证据及准入门禁的智能整理成为已采用资料。地图仍只消费已采用资料；导入整理不生成/采用地图，也不把普通地点名称当作坐标或地理关系。已有空间位置和地图采用/回滚状态机继续由地图域维护。
 
 地图结构关系、Atlas plan 和图像 Prompt brief 分别绑定 `world.map_structure.generate / world.map_atlas.plan / world.map_image_prompt` 回执。栵格图像不参与事实审查，blocked plan/brief 不进入生图。
+
+
+### 前瞻读取边界
+
+地图前瞻读取当前已保存 Atlas revision 的结构约束、features 与哈希，只提出需要核对的
+路线前提。缺少距离、速度或道路条件时不承诺耗时；不从图片像素估算距离。规则影响继续
+引用原 WorldImpactService 的地图依赖回执，点击后进入原地图页面处理；普通前瞻和创作
+试验不会直接改写 Atlas revision、重新生图或自动采用地图。

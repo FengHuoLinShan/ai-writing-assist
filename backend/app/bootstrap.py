@@ -101,6 +101,8 @@ def _register_orm_models() -> None:
     """Import ORM models with Base.metadata for FK dependency resolution."""
     import modules.account.models  # noqa: F401, I001
     import modules.assistant.models  # noqa: F401, E402
+    import modules.assistant.forecast.models  # noqa: F401, E402
+    import modules.collaboration.models  # noqa: F401, E402
     import modules.account.settings_models  # noqa: F401, I001
     import modules.evidence.models  # noqa: F401, I001
     import modules.imports.models  # noqa: F401, I001
@@ -119,8 +121,68 @@ def _container_services() -> Iterable[tuple[str, Any]]:
     scene_extraction = _SceneExtractSvc()
     memory = MemoryService()
     rag_indexing = _RagIndexingService()
+    from modules.writing.creative import PORT as WRITING_CREATIVE
+    from modules.story.creative import ports as story_creative
+    from modules.world.creative import PORT as WORLD_CREATIVE
+    from modules.writing import forecast as writing_forecast
+    from modules.story import forecast as story_forecast
+    from modules.world import forecast as world_forecast
+    from modules.evidence import forecast as evidence_forecast
+    from modules.imports import forecast as imports_forecast
+    from modules.project import forecast as project_forecast
+    from modules.account import forecast as account_forecast
+    from modules.interaction import forecast as interaction_forecast
+    from modules.assistant.forecast import domain as assistant_forecast
 
     return (
+        (
+            "assistant.forecast.instructions",
+            {
+                **writing_forecast.INSTRUCTIONS,
+                **story_forecast.INSTRUCTIONS,
+                **world_forecast.INSTRUCTIONS,
+                **evidence_forecast.INSTRUCTIONS,
+                **assistant_forecast.INSTRUCTIONS,
+                **interaction_forecast.INSTRUCTIONS,
+            },
+        ),
+        (
+            "assistant.forecast.personas",
+            {
+                "rp": {
+                    "authorize": interaction_forecast.authorize,
+                    "materialize": interaction_forecast.materialize,
+                }
+            },
+        ),
+        (
+            "assistant.forecast.choices",
+            {
+                "world": world_forecast.prepare_direction,
+                "evidence": evidence_forecast.prepare_direction,
+            },
+        ),
+        (
+            "assistant.forecast.sources",
+            {
+                "writing": writing_forecast.inspect,
+                "story": story_forecast.inspect,
+                "world": world_forecast.inspect,
+                "evidence": evidence_forecast.inspect,
+                "imports": imports_forecast.inspect,
+                "project": project_forecast.inspect,
+                "account": account_forecast.inspect,
+                "assistant": assistant_forecast.inspect,
+            },
+        ),
+        (
+            "collaboration.resources",
+            {
+                "writing_draft": WRITING_CREATIVE,
+                "world_bible_draft": WORLD_CREATIVE,
+                **story_creative(),
+            },
+        ),
         (
             "assistant.operations",
             {
@@ -138,6 +200,7 @@ def _container_services() -> Iterable[tuple[str, Any]]:
                 **_STORY_STRUCTURE_OPERATIONS,
                 **_STORY_PLANNING_OPERATIONS,
                 **_IMPORTS_OPERATIONS,
+                **evidence_forecast.OPERATIONS,
                 **_MAP_OPERATIONS,
                 **_WORLD_REVIEW_OPERATIONS,
             },

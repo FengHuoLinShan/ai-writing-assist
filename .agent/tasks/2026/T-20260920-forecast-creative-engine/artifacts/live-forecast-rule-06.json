@@ -1,0 +1,268 @@
+{
+  "case_id": "rule-06",
+  "suite": "forecast",
+  "novel_id": "438f06c3-cfd0-4d08-a825-599b6442274d",
+  "run_id": "6ef03a84-aa8f-48da-8277-e3af622f5940",
+  "provider": "deepseek",
+  "model": "deepseek-flash",
+  "thinking": "disabled",
+  "spent_peak_usd": 0.0029163,
+  "result": {
+    "run_id": "6ef03a84-aa8f-48da-8277-e3af622f5940",
+    "task_id": "6ef03a84-aa8f-48da-8277-e3af622f5940",
+    "status": "completed",
+    "phase": "done",
+    "completion": "complete",
+    "candidate_ids": [
+      "6e791348-272a-4574-9c50-c29b3c62eb1b"
+    ],
+    "coverage": {
+      "scope_label": "当前授权的保存资料；未检查全书",
+      "enumerated_total": 1,
+      "enumeration_complete": true,
+      "semantic_search": "complete_for_declared_plan",
+      "counts": {
+        "presented": 1,
+        "merged": 0,
+        "backlog": 0,
+        "waiting_condition": 0,
+        "suppressed": 0,
+        "needs_verification": 0,
+        "not_checked": 0,
+        "source_invalid": 0
+      },
+      "omissions": []
+    },
+    "usage": {
+      "requests": 2,
+      "input_tokens": 5013,
+      "output_tokens": 1177,
+      "usage_complete": true
+    },
+    "error_code": null,
+    "can_resume": false,
+    "candidates": [
+      {
+        "anchor": {
+          "question_kind": "continuation",
+          "resource_kind": "writing_draft",
+          "resource_id": "2e0a365b-7f03-4450-ae9c-da7a21d2d1d7",
+          "chapter_index": 1,
+          "start": 82,
+          "end": 103
+        },
+        "proposal": {
+          "title": "手温不足之后：规则边界内的下一节拍",
+          "kind": "next_step",
+          "statements": [
+            {
+              "text": "已保存段落建立了可观察的规则边界：干印泥显字需要持续外部热源；铜盘提供足够热量时字迹浮现，手心的体温不足以触发。",
+              "basis": "observed",
+              "evidence_ids": [
+                "source_0"
+              ],
+              "assumptions": []
+            },
+            {
+              "text": "学徒擦干桌面并等候示范，说明他处于观察与学习位置，尚未掌握可复现的热源条件。",
+              "basis": "observed",
+              "evidence_ids": [
+                "source_0"
+              ],
+              "assumptions": []
+            },
+            {
+              "text": "若下一节拍要检验规则边界，最自然的压力点是热源的可获得性、持续性与代价，而非引入新的万能显字方式。",
+              "basis": "inferred",
+              "evidence_ids": [
+                "source_0"
+              ],
+              "assumptions": []
+            }
+          ],
+          "why_now": "当前正文停在一次对照实验的结果上：同一张封纸，铜盘显字、手心空白。规则已被演示，但尚未被人物主动利用或挑战，适合在下一节拍推进而不新增无代价力量。",
+          "directions": [
+            {
+              "direction_id": "test_heat_source",
+              "title": "换一个热源，检验持续性与代价",
+              "condition": "作者希望继续在同一场景内做规则对照，不切场。",
+              "proposal": "学徒尝试用炉边可得的另一种热源（如刚离火的石块或反复摩擦的金属片）加热封纸，观察字迹是否浮现、浮现后是否稳定；结果可以部分成功但伴随新负担，例如烫伤风险、字迹消退或需要持续维持热源。",
+              "possible_effects": [
+                "明确规则的关键变量是持续外部热源而非单纯温度峰值",
+                "给学徒一个可操作但有限的学习成果",
+                "引入维持热源的实际代价，避免规则被免费绕过"
+              ],
+              "assumptions": [
+                "炉边存在可用的替代热源",
+                "作者愿意让规则在场景内被进一步测试"
+              ],
+              "narrative_commitment": "medium",
+              "may_leave_open": true
+            },
+            {
+              "direction_id": "master_withholds",
+              "title": "大师不解释，只给条件",
+              "condition": "作者希望保持大师的知识优势与学徒的摸索状态。",
+              "proposal": "大师不直接说明原理，只把铜盘推回炉边或要求学徒自己维持热源；对白结果停留在条件层面，学徒必须自行推断。情绪收束在学徒的挫败或专注上，不放大为冲突。",
+              "possible_effects": [
+                "保持规则的神秘感与师徒权力差",
+                "把下一节拍的驱动力放在学徒的自主尝试上",
+                "避免一次性解释完规则，保留后续检验空间"
+              ],
+              "assumptions": [
+                "大师有意控制信息",
+                "学徒愿意继续尝试"
+              ],
+              "narrative_commitment": "low",
+              "may_leave_open": true
+            },
+            {
+              "direction_id": "cut_to_consequence",
+              "title": "直接切场，把空白纸留作悬念",
+              "condition": "作者希望本场景在此收束，不继续演示。",
+              "proposal": "以学徒手中仍空白的封纸作为场景收尾，直接切到下一场；不解释手温为何不够，也不立刻给替代方案。空白纸成为未解问题，留待后续场景处理。",
+              "possible_effects": [
+                "以视觉对照收束当前场景",
+                "把规则检验推迟到后续场景",
+                "保留学徒未完成的学习线"
+              ],
+              "assumptions": [
+                "后续场景有空间回收这条线",
+                "作者接受暂时不解释"
+              ],
+              "narrative_commitment": "low",
+              "may_leave_open": true
+            }
+          ],
+          "unknowns": [
+            "未确认人物知识、世界约束和继承资料。",
+            "炉边是否存在可用的替代热源。",
+            "封纸显字后是否需要持续热源维持。",
+            "学徒与大师的关系设定与知识边界。"
+          ],
+          "verdict": "propose"
+        },
+        "evidence": [
+          {
+            "evidence_id": "source_0",
+            "resource_kind": "writing_draft",
+            "resource_id": "2e0a365b-7f03-4450-ae9c-da7a21d2d1d7",
+            "source_hash": "fb6f7c16d001afc30a78d99a468be956844445ff4350656b10c1021680f32744",
+            "revision_token": "1:fb6f7c16d001afc30a78d99a468be956844445ff4350656b10c1021680f32744",
+            "source_range": {
+              "start_offset": 0,
+              "end_offset": 103
+            },
+            "range_hash": "fb6f7c16d001afc30a78d99a468be956844445ff4350656b10c1021680f32744",
+            "label": "rule-06"
+          },
+          {
+            "evidence_id": "source_1",
+            "resource_kind": "domain_result",
+            "resource_id": "cb26ac0b-a62f-5611-90d2-602993b2173c",
+            "source_hash": "97c8bd1f9e6f6443469ee693ed0ed70c324314c4f3e288ef69d2b62362601d3a",
+            "revision_token": "97c8bd1f9e6f6443469ee693ed0ed70c324314c4f3e288ef69d2b62362601d3a",
+            "source_range": null,
+            "range_hash": null,
+            "label": "接着写前，回看当前保存段落"
+          },
+          {
+            "evidence_id": "source_2",
+            "resource_kind": "domain_result",
+            "resource_id": "e1228df5-c28d-5b13-966c-b249c7c791b5",
+            "source_hash": "281396c9c94cb3d75e2a8f70f0fd3fed73fece4eeedd9b323b7c75e822c8ffd6",
+            "revision_token": "281396c9c94cb3d75e2a8f70f0fd3fed73fece4eeedd9b323b7c75e822c8ffd6",
+            "source_range": null,
+            "range_hash": null,
+            "label": "生成连接已配置"
+          },
+          {
+            "evidence_id": "source_3",
+            "resource_kind": "policy",
+            "resource_id": "39b5b3d3-28a4-5189-ac40-3ecdb8c58ba0",
+            "source_hash": "01fcbef87105cea0e9f254af44b5f79d7c29df9365f6eaad4c6c67818c45ccf3",
+            "revision_token": "01fcbef87105cea0e9f254af44b5f79d7c29df9365f6eaad4c6c67818c45ccf3",
+            "source_range": null,
+            "range_hash": null,
+            "label": "按本次授权开始计算"
+          }
+        ],
+        "knowledge_review": {
+          "status": "passed",
+          "review": {
+            "status": "passed",
+            "repaired": false,
+            "coverage": [
+              {
+                "dimension": "prior_prose",
+                "covered_by": [],
+                "omitted": false,
+                "omission_reason": null
+              },
+              {
+                "dimension": "world_rules",
+                "covered_by": [],
+                "omitted": false,
+                "omission_reason": null
+              },
+              {
+                "dimension": "outline",
+                "covered_by": [],
+                "omitted": false,
+                "omission_reason": null
+              }
+            ],
+            "issue_counts": {
+              "conflict": 0,
+              "irrelevant_content": 0,
+              "missing_required": 0,
+              "out_of_scope_knowledge": 0,
+              "premature_reveal": 0,
+              "unchecked": 0,
+              "unsupported_fact": 0
+            },
+            "issues": []
+          }
+        },
+        "ranking": {
+          "window": 2,
+          "task_help": 2,
+          "explicit_relevance": 1,
+          "evidence": 1,
+          "executable": 1,
+          "narrative_lockin": 2
+        },
+        "actions": [
+          {
+            "action_id": "writing.prepare_candidate.test_heat_source",
+            "label": "试写：换一个热源，检验持续性与代价",
+            "kind": "prepare_domain",
+            "requires_confirmation": true,
+            "available": true
+          },
+          {
+            "action_id": "writing.prepare_candidate.master_withholds",
+            "label": "试写：大师不解释，只给条件",
+            "kind": "prepare_domain",
+            "requires_confirmation": true,
+            "available": true
+          },
+          {
+            "action_id": "writing.prepare_candidate.cut_to_consequence",
+            "label": "试写：直接切场，把空白纸留作悬念",
+            "kind": "prepare_domain",
+            "requires_confirmation": true,
+            "available": true
+          },
+          {
+            "action_id": "project.prepare_task",
+            "label": "加入稍后处理",
+            "kind": "prepare_domain",
+            "requires_confirmation": true,
+            "available": true
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -131,3 +131,9 @@ World 使用确认后保留的 compiled items 作为实际语义输入，Focused
 原文回读可显式请求 `expand_parent`，按精确 Scene span 或命中段落补齐前后文，
 逐段保留 Writing 来源和版本。角色知识无法证明时不扩展。原文检索抽屉展示覆盖和遗漏，
 不把父级元数据当作已读正文；默认 AI confirmation 的读取范围不会自动扩大。
+## 精确试改与前瞻资料
+
+Evidence 为 Collaboration 收集授权的冻结资源集合，manifest 同时绑定命中与查询范围，
+因此新增来源也能使旧否定结论失效。试改 read overlay 不读取当前领域默认版本；读者投影
+只接收截止前正文。前瞻沿原 confirmation 重新物化选中与排除资产，领域只读回执不会扩大
+原确认。生成和审查都受可完整核对的上下文上限约束，超限保持明确未覆盖。

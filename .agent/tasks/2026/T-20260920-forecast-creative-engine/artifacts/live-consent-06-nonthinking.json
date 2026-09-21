@@ -1,0 +1,62 @@
+{
+  "case_id": "consent-06",
+  "novel_id": "4bd4a200-60f2-4ea5-8ef5-0ea00271abae",
+  "run_id": "239735fc-a318-4c3b-975f-55fe928caee5",
+  "provider": "deepseek",
+  "model": "deepseek-flash",
+  "thinking": "disabled",
+  "spent_peak_usd": 0.004154699999999999,
+  "result": {
+    "id": "239735fc-a318-4c3b-975f-55fe928caee5",
+    "case_id": "343cf199-1178-4f88-9346-2e450989fcf0",
+    "task_id": "239735fc-a318-4c3b-975f-55fe928caee5",
+    "status": "failed",
+    "can_resume": false,
+    "stale": false,
+    "error_code": "GRANT_SCOPE_CONFLICT",
+    "question_for_author": null,
+    "coverage": null,
+    "missing_deliverables": [],
+    "work": [
+      {
+        "id": "2a6fd59b-e24f-48f8-a602-247a37a3db4e",
+        "status": "pending",
+        "generation": 0
+      },
+      {
+        "id": "c393de1c-28d5-49a3-906b-2a672d5d9939",
+        "status": "pending",
+        "generation": 0
+      },
+      {
+        "id": "d0e783a2-3c36-49e0-9243-679a817acc1b",
+        "status": "pending",
+        "generation": 0
+      },
+      {
+        "id": "40f766e5-9723-46f2-8396-acdc9bddb008",
+        "status": "pending",
+        "generation": 0
+      },
+      {
+        "id": "0c150619-4f7a-4f68-a290-c6c09de8893a",
+        "status": "pending",
+        "generation": 0
+      },
+      {
+        "id": "904e668c-d16e-401f-a43a-d457058d5956",
+        "status": "running",
+        "generation": 0
+      }
+    ],
+    "artifacts": [],
+    "usage": {
+      "requests": 2,
+      "prompt_tokens": 2577,
+      "completion_tokens": 2818,
+      "usage_complete": true,
+      "pending_usage": 0,
+      "usage_unknown": false
+    }
+  }
+}

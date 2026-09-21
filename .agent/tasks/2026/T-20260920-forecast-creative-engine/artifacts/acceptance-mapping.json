@@ -1,0 +1,693 @@
+{
+  "source_sha256": "afb8f9095f72863b9d736cdfe824fea72183ccb03f142e95440c69c697f08386",
+  "baseline": "6e901693a5d79826d292324e9787f3df7e5230cc",
+  "code_state": "local_uncommitted",
+  "meaning": "Counts are an honest coverage ledger, not 85 acceptance passes.",
+  "counts": {
+    "verified_at_recorded_level": 20,
+    "partial_verification": 52,
+    "not_run_quality": 13
+  },
+  "cases": [
+    {
+      "id": "AT001",
+      "requested_level": "integration",
+      "expected": "统一 404，不暴露存在性、标题、条数。",
+      "status": "verified_at_recorded_level",
+      "evidence": "backend/modules/assistant/forecast/tests/test_access.py",
+      "note": "跨 owner 的 feed/evaluate/详情/运行/能力目录均 404，任务数不变。"
+    },
+    {
+      "id": "AT002",
+      "requested_level": "integration",
+      "expected": "404；不跨项目寻找或合并事项。",
+      "status": "partial_verification",
+      "evidence": "backend/modules/assistant/forecast/tests/test_forecasts.py",
+      "note": "API 查询均 novel_id 过滤；有跨项目 FK 和 owner 回归，未单独重演该 candidate 组合。"
+    },
+    {
+      "id": "AT003",
+      "requested_level": "integration",
+      "expected": "拒绝 kind 不符，不把 RP 数据展示到作者台。",
+      "status": "verified_at_recorded_level",
+      "evidence": "backend/modules/interaction/tests/test_forecast.py",
+      "note": "作者路由拒绝 hidden 项目；旅程路由按本人选中路径回读。"
+    },
+    {
+      "id": "AT004",
+      "requested_level": "integration",
+      "expected": "不提供前瞻资料、不入队；沿原门禁拒绝。",
+      "status": "verified_at_recorded_level",
+      "evidence": "backend/modules/assistant/forecast/tests/test_access.py",
+      "note": "demo principal 的新增作者路由拒绝，未读取标题或创建任务。"
+    },
+    {
+      "id": "AT005",
+      "requested_level": "integration",
+      "expected": "新路由主动拒绝 anonymous_rp，不能靠既有路径白名单放行。",
+      "status": "partial_verification",
+      "evidence": "backend/modules/assistant/forecast/tests/test_access.py",
+      "note": "作者匿名入口已测；RP require_personal 同时拒绝匿名/demo，具体旅程 cookie 场景未另跑。"
+    },
+    {
+      "id": "AT006",
+      "requested_level": "integration",
+      "expected": "沿原账户状态门禁拒绝，不读取小说内容。",
+      "status": "verified_at_recorded_level",
+      "evidence": "backend/modules/assistant/forecast/tests/test_access.py",
+      "note": "真实 pending_deletion 账户行被拒绝，未入队。"
+    },
+    {
+      "id": "AT007",
+      "requested_level": "integration",
+      "expected": "403 detail 错误体；没有任何新增任务或业务写入。",
+      "status": "partial_verification",
+      "evidence": "backend/modules/assistant/forecast/tests/test_access.py",
+      "note": "新增 POST 缺 XHR 为 403；完整 Origin/CSRF 各组合沿既有账户中间件门禁。"
+    },
+    {
+      "id": "AT008",
+      "requested_level": "integration",
+      "expected": "显式范围冲突；不扩张原确认，不重新编造确认。",
+      "status": "partial_verification",
+      "evidence": "backend/modules/collaboration/tests/test_workspaces.py",
+      "note": "原 confirmation 重新物化且严格资源覆盖；未逐一重演附件指定 Scene 的组合。"
+    },
+    {
+      "id": "AT009",
+      "requested_level": "integration",
+      "expected": "过滤发生在阅读前；提示、计数和摘要均不透露它。",
+      "status": "partial_verification",
+      "evidence": "backend/modules/collaboration/tests/test_workspaces.py",
+      "note": "原 Evidence 排除/截止门禁仍在；新代码关闭已确认范围之外的领域扩展，专项组合未另跑。"
+    },
+    {
+      "id": "AT010",
+      "requested_level": "integration",
+      "expected": "终检拒绝发布；记录已发生调用及未知用量，原编辑仍可用。",
+      "status": "partial_verification",
+      "evidence": "backend/tests/e2e/test_creative_worker.py",
+      "note": "真实 worker 测试 Case shutdown；Forecast 有同样末段授权重验，未重复各阶段注入。"
+    },
+    {
+      "id": "AT011",
+      "requested_level": "integration",
+      "expected": "因完整输入依赖而拒绝；不是删除引用后发布。",
+      "status": "partial_verification",
+      "evidence": "backend/modules/collaboration/tests/test_workspaces.py",
+      "note": "全输入和授权集合指纹决定旧结论有效性；高低权限摘要专项未单独运行。"
+    },
+    {
+      "id": "AT012",
+      "requested_level": "integration",
+      "expected": "不返回原标题/摘要/私有 ID；给通用不可访问说明。",
+      "status": "partial_verification",
+      "evidence": "backend/modules/assistant/forecast/tests/test_access.py",
+      "note": "跨 owner/受限账户入口不返回标题；撤销后的每个历史导出组合未单独运行。"
+    },
+    {
+      "id": "AT013",
+      "requested_level": "model_blind_eval",
+      "expected": "可保持普通细节，不产生“必须回收杯子”的强提醒。",
+      "status": "not_run_quality",
+      "evidence": "backend/evals/creative_forecast.py",
+      "note": "已提供原创冻结前缀、盲评与公平性/成本汇总工具；未调用真实付费模型、未安排人工独立评分。"
+    },
+    {
+      "id": "AT014",
+      "requested_level": "model_blind_eval",
+      "expected": "可以指出共同问题，但不声称钥匙/信物为事实。",
+      "status": "not_run_quality",
+      "evidence": "backend/evals/creative_forecast.py",
+      "note": "已提供原创冻结前缀、盲评与公平性/成本汇总工具；未调用真实付费模型、未安排人工独立评分。"
+    },
+    {
+      "id": "AT015",
+      "requested_level": "model_blind_eval",
+      "expected": "记录角色陈述；不自动确认客观未见过。",
+      "status": "not_run_quality",
+      "evidence": "backend/evals/creative_forecast.py",
+      "note": "已提供原创冻结前缀、盲评与公平性/成本汇总工具；未调用真实付费模型、未安排人工独立评分。"
+    },
+    {
+      "id": "AT016",
+      "requested_level": "integration",
+      "expected": "独立证据仍为一处，支持程度不能因摘要数膨胀。",
+      "status": "partial_verification",
+      "evidence": "backend/modules/assistant/forecast/tests/test_forecasts.py",
+      "note": "宿主仅计一个已核对锚点，不以输入摘要数抬高评分；摘要语义独立性需要真实内容评审。"
+    },
+    {
+      "id": "AT017",
+      "requested_level": "model_blind_eval",
+      "expected": "改变剧情的默认候选被过滤，不是仅降低排序。",
+      "status": "not_run_quality",
+      "evidence": "backend/evals/creative_forecast.py",
+      "note": "已提供原创冻结前缀、盲评与公平性/成本汇总工具；未调用真实付费模型、未安排人工独立评分。"
+    },
+    {
+      "id": "AT018",
+      "requested_level": "model_blind_eval",
+      "expected": "识别已回应，不继续催问；历史当时判断保持原样。",
+      "status": "not_run_quality",
+      "evidence": "backend/evals/creative_forecast.py",
+      "note": "已提供原创冻结前缀、盲评与公平性/成本汇总工具；未调用真实付费模型、未安排人工独立评分。"
+    },
+    {
+      "id": "AT019",
+      "requested_level": "model_blind_eval",
+      "expected": "解释可并存，允许 unknown；不强制合计100%的概率。",
+      "status": "not_run_quality",
+      "evidence": "backend/evals/creative_forecast.py",
+      "note": "已提供原创冻结前缀、盲评与公平性/成本汇总工具；未调用真实付费模型、未安排人工独立评分。"
+    },
+    {
+      "id": "AT020",
+      "requested_level": "model_blind_eval",
+      "expected": "不恢复秘密方向，可保留独立情感呼应。",
+      "status": "not_run_quality",
+      "evidence": "backend/evals/creative_forecast.py",
+      "note": "已提供原创冻结前缀、盲评与公平性/成本汇总工具；未调用真实付费模型、未安排人工独立评分。"
+    },
+    {
+      "id": "AT021",
+      "requested_level": "model_blind_eval",
+      "expected": "允许新设定，明确是提案并说明新增承诺；不以无来源一律拒绝。",
+      "status": "not_run_quality",
+      "evidence": "backend/evals/creative_forecast.py",
+      "note": "已提供原创冻结前缀、盲评与公平性/成本汇总工具；未调用真实付费模型、未安排人工独立评分。"
+    },
+    {
+      "id": "AT022",
+      "requested_level": "model_blind_eval",
+      "expected": "说“当面回应更不方便”，不无证据断言唯一/最后机会。",
+      "status": "not_run_quality",
+      "evidence": "backend/evals/creative_forecast.py",
+      "note": "已提供原创冻结前缀、盲评与公平性/成本汇总工具；未调用真实付费模型、未安排人工独立评分。"
+    },
+    {
+      "id": "AT023",
+      "requested_level": "model_blind_eval",
+      "expected": "说明缺少前提；不给伪精确天数。",
+      "status": "not_run_quality",
+      "evidence": "backend/evals/creative_forecast.py",
+      "note": "已提供原创冻结前缀、盲评与公平性/成本汇总工具；未调用真实付费模型、未安排人工独立评分。"
+    },
+    {
+      "id": "AT024",
+      "requested_level": "integration",
+      "expected": "记录建议造成的干预；不算猜中作者原计划。",
+      "status": "partial_verification",
+      "evidence": "backend/modules/collaboration/tests/test_workspaces.py",
+      "note": "采用 receipt 绑定 run/revision/source 与授权，评测工具保留 intervention；真实文学对照未运行。"
+    },
+    {
+      "id": "AT025",
+      "requested_level": "integration",
+      "expected": "stale/409，不通过 ID 相同继续用旧段落。",
+      "status": "verified_at_recorded_level",
+      "evidence": "backend/modules/assistant/forecast/tests/test_forecasts.py",
+      "note": "旧稿/期望 hash 失配的入口保护，具体处置绑定 assessment。"
+    },
+    {
+      "id": "AT026",
+      "requested_level": "integration",
+      "expected": "查询集合/manifest 依赖触发重查，不维持旧负向结论。",
+      "status": "partial_verification",
+      "evidence": "backend/modules/collaboration/tests/test_workspaces.py",
+      "note": "新增集合成员使旧负向结论失效有实际域测试；原附件回答疑问的语义效果未评测。"
+    },
+    {
+      "id": "AT027",
+      "requested_level": "postgres",
+      "expected": "先选 B 再判断失效，不复活 A。",
+      "status": "partial_verification",
+      "evidence": "backend/modules/assistant/forecast/tests/test_forecasts.py",
+      "note": "SQLite 验证旧 A 有效/新 B 失效不复活 A；尚未单独以 PG 重演此排序样本。"
+    },
+    {
+      "id": "AT028",
+      "requested_level": "integration",
+      "expected": "实际原域重验发现漂移；事件只作加速。",
+      "status": "partial_verification",
+      "evidence": "backend/modules/collaboration/tests/test_workspaces.py",
+      "note": "实际源重验与新集合失效已测，不依赖事件投递；特定丢事件流程未独立重演。"
+    },
+    {
+      "id": "AT029",
+      "requested_level": "integration",
+      "expected": "不能覆盖新决定的 notice；旧分析可留历史。",
+      "status": "verified_at_recorded_level",
+      "evidence": "backend/modules/assistant/forecast/tests/test_forecasts.py",
+      "note": "处置进入下一次输入与 compute_key；重算仍继承明确拒绝。"
+    },
+    {
+      "id": "AT030",
+      "requested_level": "postgres",
+      "expected": "新 assessment 引用新来源；旧 assessment 不被改写。",
+      "status": "partial_verification",
+      "evidence": "backend/tests/e2e/test_forecast_creative_concurrency.py",
+      "note": "PG 不可变约束与不同版本写入已验；前瞻 published 切换专项未单独重演。"
+    },
+    {
+      "id": "AT031",
+      "requested_level": "integration",
+      "expected": "缩小读取或停止，不能截掉依赖清单后发布。",
+      "status": "partial_verification",
+      "evidence": "backend/modules/assistant/forecast/tests/test_forecasts.py",
+      "note": "发布前 256 完整依赖和 64 KiB 上限，超限拒绝；未做极限规模单独用例。"
+    },
+    {
+      "id": "AT032",
+      "requested_level": "integration",
+      "expected": "明确拒绝或兼容旧实现，不按新 prompt 静默重解释。",
+      "status": "partial_verification",
+      "evidence": "backend/modules/assistant/forecast/tests/test_forecasts.py",
+      "note": "原 protocol 非 forecast_v1 拒绝读取/续跑，保存冻结 snapshot；无未来协议迁移声明。"
+    },
+    {
+      "id": "AT033",
+      "requested_level": "postgres",
+      "expected": "一个逻辑运行和一份原回执，不双批次。",
+      "status": "verified_at_recorded_level",
+      "evidence": "backend/tests/e2e/test_forecast_creative_concurrency.py",
+      "note": "真实 PostgreSQL 独立 session 同 operation 并发仅一个 run；原确认同样幂等。"
+    },
+    {
+      "id": "AT034",
+      "requested_level": "postgres",
+      "expected": "409 OPERATION_MISMATCH；原任务不被修改。",
+      "status": "partial_verification",
+      "evidence": "backend/tests/e2e/test_forecast_creative_concurrency.py",
+      "note": "请求内容 hash 比对与原 operation 复读；同 ID 异内容 HTTP 专项未独立重演。"
+    },
+    {
+      "id": "AT035",
+      "requested_level": "postgres",
+      "expected": "各自独立子 run，各自至多一 batch；父分析不违反唯一键。",
+      "status": "partial_verification",
+      "evidence": "backend/modules/assistant/forecast/tests/test_forecasts.py",
+      "note": "prepare 独立子 run，重复只一 batch 已验；多 candidate 并发子 run 专项未独立重演。"
+    },
+    {
+      "id": "AT036",
+      "requested_level": "postgres",
+      "expected": "fence 拒绝，不发布晚到结果。",
+      "status": "partial_verification",
+      "evidence": "backend/tests/e2e/test_creative_worker.py",
+      "note": "真实 task 信封/lease 门禁与取消晚到已测；逐节点换 lease 的新工作项矩阵未全部重演。"
+    },
+    {
+      "id": "AT037",
+      "requested_level": "postgres",
+      "expected": "无业务事务/项目锁跨 Provider 等待。",
+      "status": "partial_verification",
+      "evidence": "backend/tests/e2e/test_creative_worker.py",
+      "note": "实际 worker/provider 延迟 + PG 会话，Provider I/O 无领域事务；覆盖创作主链。"
+    },
+    {
+      "id": "AT038",
+      "requested_level": "postgres",
+      "expected": "复用合法 checkpoint；成本诚实计量；不重复已成功领域写入。",
+      "status": "partial_verification",
+      "evidence": "backend/tests/e2e/test_creative_worker.py",
+      "note": "取消/超时/未知用量/partial 原 task 恢复已测，所有崩溃点未逐一注入。"
+    },
+    {
+      "id": "AT039",
+      "requested_level": "postgres",
+      "expected": "按项目锁序只允许一个有效顺序，删除后不再发布。",
+      "status": "partial_verification",
+      "evidence": "backend/tests/e2e/test_forecast_creative_concurrency.py",
+      "note": "新表项目级联删除和共用项目锁序已测；删除与发布的精确同时发生专项未重演。"
+    },
+    {
+      "id": "AT040",
+      "requested_level": "postgres",
+      "expected": "一个成功，另一个409；不丢最新作者决定。",
+      "status": "verified_at_recorded_level",
+      "evidence": "backend/tests/e2e/test_forecast_creative_concurrency.py",
+      "note": "同时处置同 notice 一次成功、一次 ConflictError。"
+    },
+    {
+      "id": "AT041",
+      "requested_level": "integration",
+      "expected": "保留成功回执，只重试原资格下剩余项，依赖失败被阻断。",
+      "status": "partial_verification",
+      "evidence": "backend/modules/assistant/forecast/tests/test_forecasts.py",
+      "note": "复用原 AssistantActionBatch 的部分成功回执/重试门禁；新单操作预览已验。"
+    },
+    {
+      "id": "AT042",
+      "requested_level": "postgres",
+      "expected": "共用 watch 行锁/active_run；同项目不出现两个后台 owner。",
+      "status": "partial_verification",
+      "evidence": "backend/tests/e2e/test_forecast_creative_concurrency.py",
+      "note": "Case 占用原 Watch 与只读投影、既有 Assistant 并发门禁；review/forecast 到期精确竞态未另跑。"
+    },
+    {
+      "id": "AT043",
+      "requested_level": "integration",
+      "expected": "新分区保留，generation 前进，正在执行者按版本失效。",
+      "status": "partial_verification",
+      "evidence": "backend/modules/assistant/forecast/tests/test_lifecycle.py",
+      "note": "policy 分区合并保留 forecast，generation 参与指纹；沿原 policy 回归。"
+    },
+    {
+      "id": "AT044",
+      "requested_level": "integration",
+      "expected": "不能走第二预算；排队/说明额度。",
+      "status": "verified_at_recorded_level",
+      "evidence": "backend/modules/assistant/forecast/tests/test_lifecycle.py",
+      "note": "旧 review 消耗计入共享额度；时区和滚动 24 小时同时约束。"
+    },
+    {
+      "id": "AT045",
+      "requested_level": "integration",
+      "expected": "服务端不凭客户端标记授予手动预算。",
+      "status": "verified_at_recorded_level",
+      "evidence": "backend/modules/assistant/forecast/tests/test_forecasts.py",
+      "note": "客户端 saved_change 不能获得手动运行身份，dirty 不可分析。"
+    },
+    {
+      "id": "AT046",
+      "requested_level": "integration",
+      "expected": "分别保留 overflow 与明确未查范围，不冒充全部完成。",
+      "status": "partial_verification",
+      "evidence": "backend/modules/assistant/forecast/tests/test_lifecycle.py",
+      "note": "共享 overflow 和 dirty 分区边界保留，枚举遗漏可见；200+ 列表单独负载未重演。"
+    },
+    {
+      "id": "AT047",
+      "requested_level": "integration",
+      "expected": "稳定阶段后再分析；保留标记，不产生高噪声连发。",
+      "status": "partial_verification",
+      "evidence": "backend/modules/assistant/forecast/tests/test_lifecycle.py",
+      "note": "活跃 Imports 保留 dirty 且延后扫描，原导入幂等门禁保留；长导入噪声观察未跑。"
+    },
+    {
+      "id": "AT048",
+      "requested_level": "integration",
+      "expected": "年龄/公平规则使合法旧任务不永久饿死；手动优先不抢在途调用。",
+      "status": "partial_verification",
+      "evidence": "backend/modules/assistant/forecast/tests/test_lifecycle.py",
+      "note": "due 轮转/冷却持久化，忙项目推迟 30 秒；长期负载下调度公平性未做持续测试。"
+    },
+    {
+      "id": "AT049",
+      "requested_level": "integration",
+      "expected": "ForeshadowingPlan 状态不变。",
+      "status": "partial_verification",
+      "evidence": "backend/modules/assistant/forecast/tests/test_forecasts.py",
+      "note": "处置只更新 notice；原域写入仅在独立 prepare/confirm，伏笔专门样本未重演。"
+    },
+    {
+      "id": "AT050",
+      "requested_level": "integration",
+      "expected": "同稳定身份保留拒绝，不绕过。",
+      "status": "verified_at_recorded_level",
+      "evidence": "backend/modules/assistant/forecast/tests/test_forecasts.py",
+      "note": "物理引用跨保存稿保持 issue；换标题无影响，不相关替换不继承拒绝。"
+    },
+    {
+      "id": "AT051",
+      "requested_level": "integration",
+      "expected": "本次 Scene 不立即唤醒；仅处置后新事件满足。",
+      "status": "verified_at_recorded_level",
+      "evidence": "backend/modules/assistant/forecast/tests/test_lifecycle.py",
+      "note": "相同已观察章节不唤醒；后续 indexed 章节的新出现才触发。"
+    },
+    {
+      "id": "AT052",
+      "requested_level": "integration",
+      "expected": "保持待处理并提示不可判定；不猜日期到期。",
+      "status": "verified_at_recorded_level",
+      "evidence": "backend/modules/assistant/forecast/tests/test_lifecycle.py",
+      "note": "归档 Scene 保持 snoozed 并给 unavailable，不猜测到期。"
+    },
+    {
+      "id": "AT053",
+      "requested_level": "integration",
+      "expected": "不错误合并，完整清单仍可找到。",
+      "status": "partial_verification",
+      "evidence": "backend/modules/assistant/forecast/tests/test_forecasts.py",
+      "note": "身份包含类型与物理引用，标题不参与；跨不同领域同标题的专项未重演。"
+    },
+    {
+      "id": "AT054",
+      "requested_level": "integration",
+      "expected": "根事项统一，来源/动作/遗漏独立；不重复三条首屏。",
+      "status": "partial_verification",
+      "evidence": "backend/modules/assistant/forecast/tests/test_forecasts.py",
+      "note": "同源反向依赖只读汇总，领域意见/遗漏保留；三域冲突语义样本未评测。"
+    },
+    {
+      "id": "AT055",
+      "requested_level": "integration",
+      "expected": "恢复可评估状态，未直接认定问题为事实或已解决。",
+      "status": "verified_at_recorded_level",
+      "evidence": "backend/modules/assistant/forecast/tests/test_forecasts.py",
+      "note": "明确 reopen 走原 CAS；只改变 notice，不改正文或结构。"
+    },
+    {
+      "id": "AT056",
+      "requested_level": "integration",
+      "expected": "各主去向之和为8；没有全书百分比推断。",
+      "status": "partial_verification",
+      "evidence": "backend/modules/assistant/forecast/tests/test_forecasts.py",
+      "note": "完整已枚举项目按互斥去向计数；性能负载验证 500 项，附件 8 项精确样本未独立重演。"
+    },
+    {
+      "id": "AT057",
+      "requested_level": "integration",
+      "expected": "partial/not_run和具体遗漏；不返回“没有问题”。",
+      "status": "partial_verification",
+      "evidence": "backend/modules/assistant/forecast/tests/test_forecasts.py",
+      "note": "真实域 freshness 与 not_checked/partial 回执，不承诺语义穷尽；所有检索超时组合未重演。"
+    },
+    {
+      "id": "AT058",
+      "requested_level": "integration",
+      "expected": "不泄露受限资料数量、名称或ID。",
+      "status": "partial_verification",
+      "evidence": "backend/modules/assistant/forecast/tests/test_access.py",
+      "note": "读取先按 owner/novel/原确认过滤；不可读计数专项未重演。"
+    },
+    {
+      "id": "AT059",
+      "requested_level": "integration",
+      "expected": "只标 supported/uncertain；无finding不可标 domain_verified。",
+      "status": "partial_verification",
+      "evidence": "backend/modules/assistant/forecast/tests/test_forecasts.py",
+      "note": "语义经原知识审查；前瞻 Proposal 不提供 domain_verified，领域采用沿原专门门禁。"
+    },
+    {
+      "id": "AT060",
+      "requested_level": "browser",
+      "expected": "不打断 composition、不抢焦点、不将临时拼音发给模型。",
+      "status": "verified_at_recorded_level",
+      "evidence": "frontend-console/e2e/creative-forecast.spec.js",
+      "note": "真实浏览器 composition/dirty 禁止分析，焦点保留；保存后恢复。"
+    },
+    {
+      "id": "AT061",
+      "requested_level": "browser",
+      "expected": "A不覆盖B feed，按 client_context_id+focus_seq隔离。",
+      "status": "partial_verification",
+      "evidence": "frontend-console/tests/vue/assistant/Forecast.test.js",
+      "note": "Vue 单测 A 晚到不能覆盖 B，浏览器闭环另验；跨页迟到时序未在浏览器重复。"
+    },
+    {
+      "id": "AT062",
+      "requested_level": "browser",
+      "expected": "独立context ID，不以全局单一当前章互相污染。",
+      "status": "partial_verification",
+      "evidence": "frontend-console/tests/vue/assistant/Forecast.test.js",
+      "note": "client_context_id 每个实例生成，操作 CAS 在 PG 已验；双标签页端到端未另跑。"
+    },
+    {
+      "id": "AT063",
+      "requested_level": "browser",
+      "expected": "保护输入；先保存/明确处理脏态，返回有意义错误。",
+      "status": "verified_at_recorded_level",
+      "evidence": "frontend-console/e2e/creative-forecast.spec.js",
+      "note": "编辑、保存、原动作确认、试改采用和刷新；脏稿处理有真实保存反馈。"
+    },
+    {
+      "id": "AT064",
+      "requested_level": "browser",
+      "expected": "位置和焦点稳定，新的提醒不导致文本跳动。",
+      "status": "partial_verification",
+      "evidence": "frontend-console/tests/vue/assistant/Forecast.test.js",
+      "note": "展开卡片保持旧 feed，明确点击后更新；键盘焦点新提醒专项未在浏览器重演。"
+    },
+    {
+      "id": "AT065",
+      "requested_level": "browser",
+      "expected": "浏览器UTF-16与服务端offset转换一致；首offset=0合法。",
+      "status": "partial_verification",
+      "evidence": "frontend-console/tests/vue/assistant/Forecast.test.js",
+      "note": "桥接按 Unicode codepoint→UTF-16 转换且重验 range_hash；组合字符浏览器专项未另跑。"
+    },
+    {
+      "id": "AT066",
+      "requested_level": "browser",
+      "expected": "不出现页面级横向溢出；代码/表格内部可滚动；按钮可聚焦。",
+      "status": "verified_at_recorded_level",
+      "evidence": "frontend-console/e2e/creative-forecast.spec.js",
+      "note": "390 px 截图与页面 scrollWidth 断言通过。"
+    },
+    {
+      "id": "AT067",
+      "requested_level": "browser",
+      "expected": "原工作流可用；没有阻塞性“必须开AI”。",
+      "status": "partial_verification",
+      "evidence": "frontend-console/e2e/creative-forecast.spec.js",
+      "note": "默认关闭且普通写作原流程保持；缺模型下的静态能力有单测，独立关闭浏览器回退未另跑。"
+    },
+    {
+      "id": "AT068",
+      "requested_level": "integration",
+      "expected": "旧A提示不在B出现；Prompt与projection都没有A私有历史。",
+      "status": "verified_at_recorded_level",
+      "evidence": "backend/modules/interaction/tests/test_forecast.py",
+      "note": "Prompt 和 feed 均排除未选 sibling，原选中消息才作来源。"
+    },
+    {
+      "id": "AT069",
+      "requested_level": "integration",
+      "expected": "不读取后章内容，标题、推测和计数也不泄露。",
+      "status": "partial_verification",
+      "evidence": "backend/modules/interaction/tests/test_forecast.py",
+      "note": "只输入选中正式历史和有效回顾，不直接读取原作后章；带未来原作的专门旅程未另跑。"
+    },
+    {
+      "id": "AT070",
+      "requested_level": "integration",
+      "expected": "仍使用冻结manifest，不自动吃到新稿。",
+      "status": "partial_verification",
+      "evidence": "backend/modules/interaction/tests/test_forecast.py",
+      "note": "固定 source_revision 和 source epoch 由原旅程回读；作者新稿变化专项未另跑。"
+    },
+    {
+      "id": "AT071",
+      "requested_level": "integration",
+      "expected": "不写入已发生历史，不把未发送输入当正式节点。",
+      "status": "verified_at_recorded_level",
+      "evidence": "backend/modules/interaction/tests/test_forecast.py",
+      "note": "prefill 仅返回输入文字，消息表数量不变。"
+    },
+    {
+      "id": "AT072",
+      "requested_level": "integration",
+      "expected": "使用有效明确修正链，不复活旧回顾。",
+      "status": "partial_verification",
+      "evidence": "backend/modules/interaction/tests/test_forecast.py",
+      "note": "沿既有有效明确修正链和 overview epoch；新前瞻修正冲突专项未另跑。"
+    },
+    {
+      "id": "AT073",
+      "requested_level": "integration",
+      "expected": "只提供合法只读提示；不创建后继step或sibling。",
+      "status": "partial_verification",
+      "evidence": "backend/modules/interaction/tests/test_forecast.py",
+      "note": "活动/未完成 attempt fail closed，不建 step/sibling；逐种 length 恢复状态未另跑。"
+    },
+    {
+      "id": "AT074",
+      "requested_level": "integration",
+      "expected": "失败关闭；不改成纯模型知识继续。",
+      "status": "verified_at_recorded_level",
+      "evidence": "backend/modules/interaction/tests/test_forecast.py",
+      "note": "source_context_epoch 改变后旧 prefill 拒绝。"
+    },
+    {
+      "id": "AT075",
+      "requested_level": "integration",
+      "expected": "usage_complete=false，不能报零消费；重试按明确策略。",
+      "status": "partial_verification",
+      "evidence": "backend/tests/e2e/test_creative_worker.py",
+      "note": "真实 worker timeout/缺 usage 保留未知消费、不重置；Forecast 单独超时未重复。"
+    },
+    {
+      "id": "AT076",
+      "requested_level": "integration",
+      "expected": "停止新计算与prepare；已确认正文保留；合法历史可读。",
+      "status": "partial_verification",
+      "evidence": "backend/modules/collaboration/tests/test_maintenance.py",
+      "note": "到期/关开关取消执行并保留 workspace/预算；已采用正文不回滚，前瞻 prepare 同时重验。"
+    },
+    {
+      "id": "AT077",
+      "requested_level": "integration",
+      "expected": "归档/保留必要引用，不破坏审计；项目删除才按级联策略清理。",
+      "status": "partial_verification",
+      "evidence": "backend/tests/e2e/test_forecast_creative_concurrency.py",
+      "note": "新表级联不跨项目；expiry 只标失效并保留 receipt，到期清理专项未独立重演。"
+    },
+    {
+      "id": "AT078",
+      "requested_level": "integration",
+      "expected": "开放入队前部署兼容worker；不丢任务、不由旧worker误执行。",
+      "status": "partial_verification",
+      "evidence": "backend/tests/e2e/test_creative_worker.py",
+      "note": "注册新 task 类型及部署共用开关，默认关闭；未部署旧 worker/新 API 混部演练。"
+    },
+    {
+      "id": "AT079",
+      "requested_level": "integration",
+      "expected": "当数据处理；工具目录与宿主范围不变。",
+      "status": "partial_verification",
+      "evidence": "backend/modules/assistant/forecast/tests/test_forecasts.py",
+      "note": "宿主封闭能力目录/范围，Prompt 明确数据不授予权力；真实模型注入样本未跑。"
+    },
+    {
+      "id": "AT080",
+      "requested_level": "integration",
+      "expected": "schema/注册表拒绝；不触发任何外部写入。",
+      "status": "partial_verification",
+      "evidence": "backend/modules/assistant/forecast/tests/test_forecasts.py",
+      "note": "Pydantic forbid extras/有限动作注册表，无动态 SQL/provider/URL 执行口；恶意输出专项未另跑。"
+    },
+    {
+      "id": "AT081",
+      "requested_level": "integration",
+      "expected": "逐项回读与本轮依赖验证失败，不发布有据结论。",
+      "status": "partial_verification",
+      "evidence": "backend/modules/assistant/forecast/tests/test_forecasts.py",
+      "note": "anchor 和各 evidence_id 均从本轮输入复核，未知来源拒绝；真实模型伪造样本未跑。"
+    },
+    {
+      "id": "AT082",
+      "requested_level": "model_blind_eval",
+      "expected": "只用当时可见信息；同作品不跨调参/留出集；报告分歧。",
+      "status": "not_run_quality",
+      "evidence": "backend/evals/creative_forecast.py",
+      "note": "已提供原创冻结前缀、盲评与公平性/成本汇总工具；未调用真实付费模型、未安排人工独立评分。"
+    },
+    {
+      "id": "AT083",
+      "requested_level": "model_blind_eval",
+      "expected": "不持续增加催促；可提示表达选择而不要求闭合。",
+      "status": "not_run_quality",
+      "evidence": "backend/evals/creative_forecast.py",
+      "note": "已提供原创冻结前缀、盲评与公平性/成本汇总工具；未调用真实付费模型、未安排人工独立评分。"
+    },
+    {
+      "id": "AT084",
+      "requested_level": "model_blind_eval",
+      "expected": "加入轻量回应、保留/收束方向；不以套路一致性代替质量。",
+      "status": "not_run_quality",
+      "evidence": "backend/evals/creative_forecast.py",
+      "note": "已提供原创冻结前缀、盲评与公平性/成本汇总工具；未调用真实付费模型、未安排人工独立评分。"
+    },
+    {
+      "id": "AT085",
+      "requested_level": "performance",
+      "expected": "feed无Provider、目标P95可复现；质量未达门槛不自动发布。",
+      "status": "partial_verification",
+      "evidence": "backend/tests/e2e/test_forecast_performance.py",
+      "note": "PG 20,000 条评估/500 个事项，30 样本：feed P95 254.82 ms、入队 43.69 ms；不含 HTTP、高并发与保存链计时。"
+    }
+  ]
+}

@@ -45,3 +45,30 @@ class SourceUpdateApplyContract:
     first_chapter: int
     last_chapter: int
     changed_chapters: list[int] = field(default_factory=list)
+
+
+from typing import Annotated  # noqa: E402
+from uuid import UUID  # noqa: E402
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator  # noqa: E402
+
+
+class ImportConsultScope(BaseModel):
+    """Exact author-selected groups; consultation never grants their adoption."""
+
+    model_config = ConfigDict(extra="forbid")
+    workflow_id: UUID | None = None
+    chapter_from: int = Field(ge=1)
+    chapter_to: int = Field(ge=1)
+    asset_keys: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(
+        min_length=1, max_length=30
+    )
+    expected_hash: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+
+    @model_validator(mode="after")
+    def exact_range(self):
+        if not self.chapter_from <= self.chapter_to < self.chapter_from + 20:
+            raise ValueError("会诊范围需要一至二十个连续章节")
+        if len(self.asset_keys) != len(set(self.asset_keys)):
+            raise ValueError("所选待决组不能重复")
+        return self

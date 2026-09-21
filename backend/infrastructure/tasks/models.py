@@ -18,6 +18,7 @@ from sqlalchemy import (
     Index,
     String,
     Text,
+    UniqueConstraint,
     event,
     inspect,
     text,
@@ -39,22 +40,19 @@ class AsyncTask(Base, UUIDMixin, TimestampMixin):
 
     __tablename__ = "async_tasks"
     __table_args__ = (
+        UniqueConstraint("novel_id", "id", name="uq_async_task_novel_identity"),
         Index(
             "uq_async_tasks_coalescing_pending",
             "coalescing_key",
             unique=True,
-            postgresql_where=text(
-                "coalescing_key IS NOT NULL AND status = 'pending'"
-            ),
+            postgresql_where=text("coalescing_key IS NOT NULL AND status = 'pending'"),
             sqlite_where=text("coalescing_key IS NOT NULL AND status = 'pending'"),
         ),
         Index(
             "uq_async_tasks_coalescing_running",
             "coalescing_key",
             unique=True,
-            postgresql_where=text(
-                "coalescing_key IS NOT NULL AND status = 'running'"
-            ),
+            postgresql_where=text("coalescing_key IS NOT NULL AND status = 'running'"),
             sqlite_where=text("coalescing_key IS NOT NULL AND status = 'running'"),
         ),
         Index(

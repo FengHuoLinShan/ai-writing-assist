@@ -125,7 +125,9 @@ def agent_allocation(allocation: AgentAllocation):
 class AgentRunBudget(BaseModel):
     model_config = ConfigDict(extra="forbid")
     mode: Literal["author", "rp", "background"] = "author"
-    policy_version: Literal["legacy_v1", "team_v1"] = "legacy_v1"
+    policy_version: Literal["legacy_v1", "team_v1", "collaboration_v2", "forecast_v1"] = (
+        "legacy_v1"
+    )
     started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     requests: int = Field(default=0, ge=0)
     tool_attempts: int = Field(default=0, ge=0)
@@ -149,8 +151,10 @@ class AgentRunBudget(BaseModel):
 
     @property
     def limits(self) -> tuple[int, int, int]:
-        if self.policy_version == "team_v1":
+        if self.policy_version in {"team_v1", "collaboration_v2"}:
             return (30, 48, 4)
+        if self.policy_version == "forecast_v1":
+            return (4, 8, 0)
         return {"author": (12, 32, 4), "rp": (8, 24, 2), "background": (6, 16, 2)}[
             self.mode
         ]

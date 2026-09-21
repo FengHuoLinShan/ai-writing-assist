@@ -276,6 +276,7 @@ class InteractionMessageNode(Base, UUIDMixin, TimestampMixin, NovelMixin):
         default="story",
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    input_json: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
     completion_state: Mapped[str] = mapped_column(
         String(16),
         nullable=False,

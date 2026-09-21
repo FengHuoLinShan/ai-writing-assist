@@ -402,3 +402,9 @@ confirmation、正文、finding、Scene bundle 校验。恢复历史版本创建
 必须绑定原 confirmation，人工正文沿显式世界约束范围并明示未检查人物知识边界。
 `GET /api/writing/semantic-reviews/{task_id}` 读取本域报告，核对正文版本与世界来源；
 失效回执不展示为当前稿已通过。修改、定向返修和采用继续走原流程。
+
+## 隔离试改与短期前瞻
+
+`creative.py` 仅为当前章节工作稿提供完整标题/正文快照和原 `writing.revise` 操作 port。
+前瞻 `forecast.py` 读取实际版本差异、候选回执及保存位置，不把候选写入 working。
+领域采用继续保留历史与出处，试改检查不代替原候选确认。

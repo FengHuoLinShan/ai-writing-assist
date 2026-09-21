@@ -621,3 +621,11 @@ CSS、主题、组件等前端改动 PR 及 main 运行完整集合；后端相�
 Scene 排演显示回合、观察视角和分叉；RP 多角色开关只改变后续 attempt。
 相关接口均经 `api.js` 与 Vue bridge，不读取私有 checkpoint。新能力默认关闭，查询
 capabilities 后按可用性启用；报告留在原领域并允许返回处理。
+
+## 下一步与创作试验
+
+Writing 资料栏及 ProjectAssistant 使用 ForecastDock；输入法 composition、焦点序号与
+项目代次保护迟到响应。dirty 状态只显示保存基线；卡片展开期间保留阅读位置。
+CreativeExperiments / CreativeTrialEditor 支持原文对照、手动试改、版本检查、冲突选择与
+精确采用；未知提交持久化原操作身份。RP 的 InteractionForecast 只预填用户输入。
+RP 文字草稿与输入类型、人物/私语范围一起存储，失败保留；实际发送仍由作者点击。

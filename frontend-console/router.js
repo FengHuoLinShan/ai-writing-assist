@@ -589,6 +589,8 @@ function _isRouteTransition(routeState) {
 
 // Only asynchronous leave decisions serialize navigation; ordinary loader races
 // retain the existing generation-based cancellation behavior.
+const auxiliaryLeaveGuards = new Set()
+function registerLeaveGuard(guard) { auxiliaryLeaveGuards.add(guard); return () => auxiliaryLeaveGuards.delete(guard) }
 let _guardTransition = null
 async function _runGuardedNavigation(action) {
   while (_guardTransition) await _guardTransition.done
@@ -608,8 +610,9 @@ async function _canLeaveMountedRoute(routeState) {
       ? viewRenderers.get(state.currentView)
       : null
   )
-  if (!renderer?.canLeave) return true
   try {
+    for (const guard of auxiliaryLeaveGuards) if ((await guard()) === false) return false
+    if (!renderer?.canLeave) return true
     const decision = renderer.canLeave()
     if (decision && typeof decision.then === "function" && !_guardTransition) {
       let finish
@@ -1312,4 +1315,4 @@ async function _initializeRouter() {
 }
 
 // 导出
-window.router = { navigate, replace, refresh, commitCurrentQuery, getCurrentView, getRoute, getSubViewTitle, registerView, registerViewLoader, onNavigate, initRouter, getLastSubView, renderCurrentView, getCurrentQuery }
+window.router = { registerLeaveGuard, navigate, replace, refresh, commitCurrentQuery, getCurrentView, getRoute, getSubViewTitle, registerView, registerViewLoader, onNavigate, initRouter, getLastSubView, renderCurrentView, getCurrentQuery }

@@ -2,32 +2,18 @@
 
 import json
 
-from pydantic import Field
 from pydantic_ai import ModelRetry
 
 from core.errors import ConflictError, ValidationError
 from infrastructure.llm.agent_runtime import run_project_agent
 from infrastructure.llm.collaboration import content_hash
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
-from modules.assistant.schemas import StrictModel
 from modules.assistant.teams.contracts import TeamAnswer, blueprint_snapshot
 from modules.assistant.teams.runner import validate_team_answer
 from modules.evidence.contracts import VisibilityContextContract
 from modules.evidence.facade import read_novel_evidence
+from modules.story.contracts import ReadingNode
 from modules.writing.facade import build_manuscript_range_ref, list_manuscript_sources
-
-
-class ReaderBelief(StrictModel):
-    belief: str = Field(min_length=1, max_length=1500)
-    excerpt: str = Field(min_length=1, max_length=1000)
-    interpretation: str = Field(default="", max_length=1500)
-
-
-class ReadingNode(StrictModel):
-    known: list[ReaderBelief] = Field(default_factory=list, max_length=15)
-    guesses: list[ReaderBelief] = Field(default_factory=list, max_length=15)
-    unanswered: list[str] = Field(default_factory=list, max_length=12)
-    newly_revealed: list[ReaderBelief] = Field(default_factory=list, max_length=10)
 
 
 async def run_blind_reading(service, db, task, run_id, payload, deps, profile):

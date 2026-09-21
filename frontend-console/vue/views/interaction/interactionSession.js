@@ -31,21 +31,34 @@ export function writeOpeningDraft(value) {
 }
 
 export function readJourneyDraft(journeyId) {
-  if (!journeyId) return ""
+  return readJourneyInput(journeyId).content
+}
+
+export function readJourneyInput(journeyId) {
+  const empty = { content: "" }
+  if (!journeyId) return empty
   try {
-    return globalThis.localStorage?.getItem(journeyKey("draft", journeyId)) || ""
+    const raw = globalThis.localStorage?.getItem(journeyKey("draft", journeyId)) || ""
+    if (raw.startsWith('{"format":"rp-input-v2"')) {
+      const value = JSON.parse(raw)
+      return typeof value.content === "string" ? value : empty
+    }
+    return { content: raw }
   } catch {
-    return ""
+    return empty
   }
 }
 
-export function writeJourneyDraft(journeyId, value) {
-  if (!journeyId) return
+export function writeJourneyDraft(journeyId, value, input = null) {
+  if (!journeyId) return false
   try {
+    if (!globalThis.localStorage) return false
     const key = journeyKey("draft", journeyId)
-    if (value) globalThis.localStorage?.setItem(key, value)
-    else globalThis.localStorage?.removeItem(key)
-  } catch {}
+    const stored = input ? JSON.stringify({ format: "rp-input-v2", ...input, content: value }) : value
+    if (value) globalThis.localStorage.setItem(key, stored)
+    else globalThis.localStorage.removeItem(key)
+    return true
+  } catch { return false }
 }
 
 export function readJourneyScroll(journeyId) {

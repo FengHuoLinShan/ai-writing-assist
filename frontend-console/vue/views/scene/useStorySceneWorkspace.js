@@ -1048,7 +1048,7 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
         operation_id: submission.operationId,
         submit_authorized: !options.rehearsal,
         use_round_candidates: !options.rehearsal,
-        ...(options.rehearsal ? { simulation_protocol: "rehearsal_v1", rehearsal_rounds: options.rounds || 2,
+        ...(options.rehearsal ? { simulation_protocol: options.protocol || "rehearsal_v1", ...(options.seed ? { simulation_seed: options.seed } : {}), rehearsal_rounds: options.rounds || 2,
           ...(options.parentId ? { parent_rehearsal_id: options.parentId, fork_round: options.forkRound, parent_round_hash: options.parentHash } : {}) } : {}),
         additional_notes: additionalNotes(),
         accepted_reactions: acceptedReactionPayload(simulation.value),

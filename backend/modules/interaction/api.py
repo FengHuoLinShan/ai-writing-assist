@@ -515,10 +515,15 @@ async def send_message(
     journey_id: str,
     data: InteractionSendRequest,
 ) -> InteractionMutationResponse:
+    from modules.interaction.schemas import interaction_input_metadata
+
     return await _service.send_message(
         db,
         journey_id=journey_id,
         content=data.content,
+        input_meta=interaction_input_metadata(
+            data.input_kind, data.ensemble_cast_keys, data.whisper_to
+        ),
         expected_selection_epoch=data.expected_selection_epoch,
         idempotency_key=data.idempotency_key,
     )
@@ -535,11 +540,16 @@ async def continue_from_node(
     node_id: str,
     data: InteractionSendRequest,
 ) -> InteractionMutationResponse:
+    from modules.interaction.schemas import interaction_input_metadata
+
     return await _service.continue_from_node(
         db,
         journey_id=journey_id,
         node_id=node_id,
         content=data.content,
+        input_meta=interaction_input_metadata(
+            data.input_kind, data.ensemble_cast_keys, data.whisper_to
+        ),
         expected_selection_epoch=data.expected_selection_epoch,
         idempotency_key=data.idempotency_key,
     )
@@ -576,11 +586,16 @@ async def edit_user_message(
     node_id: str,
     data: InteractionEditUserRequest,
 ) -> InteractionMutationResponse:
+    from modules.interaction.schemas import interaction_input_metadata
+
     return await _service.edit_user_message(
         db,
         journey_id=journey_id,
         user_node_id=node_id,
         content=data.content,
+        input_meta=interaction_input_metadata(
+            data.input_kind, data.ensemble_cast_keys, data.whisper_to
+        ),
         expected_selection_epoch=data.expected_selection_epoch,
         idempotency_key=data.idempotency_key,
     )

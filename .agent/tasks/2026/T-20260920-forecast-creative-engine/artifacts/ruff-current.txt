@@ -1,0 +1,66 @@
+alembic/versions/20260920_assistant_forecast.py:49:88: E501 Line too long (93 > 90)
+alembic/versions/20260920_assistant_forecast.py:55:91: E501 Line too long (108 > 90)
+alembic/versions/20260920_assistant_forecast.py:58:91: E501 Line too long (115 > 90)
+alembic/versions/20260920_assistant_forecast.py:61:91: E501 Line too long (140 > 90)
+alembic/versions/20260920_assistant_forecast.py:74:88: E501 Line too long (113 > 90)
+alembic/versions/20260920_assistant_forecast.py:77:91: E501 Line too long (126 > 90)
+alembic/versions/20260920_creative_engine.py:61:88: E501 Line too long (99 > 90)
+alembic/versions/20260920_creative_engine.py:63:88: E501 Line too long (105 > 90)
+alembic/versions/20260920_creative_engine.py:84:88: E501 Line too long (99 > 90)
+alembic/versions/20260920_creative_engine.py:106:88: E501 Line too long (104 > 90)
+alembic/versions/20260920_creative_engine.py:107:88: E501 Line too long (101 > 90)
+alembic/versions/20260920_creative_engine.py:111:91: E501 Line too long (106 > 90)
+alembic/versions/20260920_creative_engine.py:126:88: E501 Line too long (97 > 90)
+alembic/versions/20260920_creative_engine.py:127:88: E501 Line too long (104 > 90)
+alembic/versions/20260920_creative_engine.py:131:91: E501 Line too long (96 > 90)
+alembic/versions/20260920_creative_engine.py:150:88: E501 Line too long (97 > 90)
+alembic/versions/20260920_creative_engine.py:152:88: E501 Line too long (100 > 90)
+alembic/versions/20260920_creative_engine.py:156:91: E501 Line too long (98 > 90)
+alembic/versions/20260920_creative_engine.py:174:88: E501 Line too long (94 > 90)
+alembic/versions/20260920_creative_engine.py:179:91: E501 Line too long (96 > 90)
+alembic/versions/20260920_creative_engine.py:191:88: E501 Line too long (106 > 90)
+alembic/versions/20260920_creative_engine.py:196:91: E501 Line too long (214 > 90)
+alembic/versions/20260920_creative_engine.py:204:91: E501 Line too long (184 > 90)
+alembic/versions/20260920_creative_engine.py:207:91: E501 Line too long (174 > 90)
+alembic/versions/20260920_creative_engine.py:210:91: E501 Line too long (174 > 90)
+app/bootstrap.py:124:42: N811 Constant `PORT` imported as non-constant `writing_creative`
+app/bootstrap.py:126:40: N811 Constant `PORT` imported as non-constant `world_creative`
+app/main.py:766:1: E402 Module level import not at top of file
+modules/assistant/contracts.py:88:1: E402 Module level import not at top of file
+modules/assistant/contracts.py:91:1: E402 Module level import not at top of file
+modules/assistant/contracts.py:94:1: E402 Module level import not at top of file
+modules/assistant/contracts.py:99:1: E402 Module level import not at top of file
+modules/assistant/contracts.py:102:1: E402 Module level import not at top of file
+modules/assistant/forecast/deterministic.py:18:64: E501 Line too long (116 > 90)
+modules/assistant/forecast/domain.py:13:65: E501 Line too long (121 > 90)
+modules/assistant/forecast/preparation.py:47:91: E501 Line too long (92 > 90)
+modules/assistant/forecast/runtime.py:347:77: E501 Line too long (93 > 90)
+modules/assistant/forecast/service.py:289:91: E501 Line too long (95 > 90)
+modules/collaboration/runtime.py:343:75: E501 Line too long (96 > 90)
+modules/evidence/forecast.py:6:62: E501 Line too long (130 > 90)
+modules/evidence/forecast.py:22:77: E501 Line too long (121 > 90)
+modules/imports/forecast.py:49:91: E501 Line too long (105 > 90)
+modules/interaction/ensemble_v2.py:220:59: E501 Line too long (92 > 90)
+modules/interaction/forecast.py:4:68: E501 Line too long (115 > 90)
+modules/interaction/forecast.py:5:68: E501 Line too long (123 > 90)
+modules/interaction/forecast.py:8:1: E402 Module level import not at top of file
+modules/interaction/forecast.py:9:1: E402 Module level import not at top of file
+modules/interaction/forecast.py:11:1: E402 Module level import not at top of file
+modules/interaction/forecast.py:13:1: E402 Module level import not at top of file
+modules/interaction/forecast.py:14:1: E402 Module level import not at top of file
+modules/interaction/forecast.py:15:1: E402 Module level import not at top of file
+modules/interaction/forecast.py:20:1: E402 Module level import not at top of file
+modules/interaction/forecast.py:26:1: E402 Module level import not at top of file
+modules/interaction/forecast.py:27:1: E402 Module level import not at top of file
+modules/interaction/forecast.py:28:1: E402 Module level import not at top of file
+modules/story/forecast.py:4:62: E501 Line too long (163 > 90)
+modules/story/forecast.py:5:64: E501 Line too long (150 > 90)
+modules/story/forecast.py:6:63: E501 Line too long (130 > 90)
+modules/story/forecast.py:7:64: E501 Line too long (148 > 90)
+modules/story/observations.py:156:91: E501 Line too long (91 > 90)
+modules/story/simulation.py:217:80: E501 Line too long (112 > 90)
+modules/world/forecast.py:4:62: E501 Line too long (121 > 90)
+modules/world/forecast.py:5:65: E501 Line too long (135 > 90)
+modules/writing/forecast.py:51:91: E501 Line too long (96 > 90)
+tests/e2e/test_creative_engine.py:32:91: E501 Line too long (102 > 90)
+Found 95 errors (30 fixed, 65 remaining).

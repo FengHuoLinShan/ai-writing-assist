@@ -18,3 +18,17 @@ from modules.assistant.service import AssistantService
 )
 async def handle_assistant_turn(db, task):
     return await AssistantService().execute(db, task)
+
+
+@task_handler(
+    "assistant_forecast",
+    recovery_policy="manual_resume",
+    root_capability_id="assistant.forecast",
+    run_request_limit=4,
+    run_deadline_seconds=1800.0,
+    run_id=lambda task: str(task.meta["run_id"]),
+)
+async def handle_assistant_forecast(db, task):
+    from modules.assistant.forecast.runtime import execute
+
+    return await execute(db, task)

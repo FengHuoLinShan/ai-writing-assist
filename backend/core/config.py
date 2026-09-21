@@ -293,6 +293,36 @@ class Settings:
     assistant_enabled: bool = field(
         default_factory=lambda: _env_bool("ASSISTANT_ENABLED", False)
     )
+    collaboration_v2_enabled: bool = field(
+        default_factory=lambda: _env_bool("COLLABORATION_V2_ENABLED", False)
+    )
+    assistant_forecast_enabled: bool = field(
+        default_factory=lambda: _env_bool("ASSISTANT_FORECAST_ENABLED", False)
+    )
+    assistant_forecast_semantic_enabled: bool = field(
+        default_factory=lambda: _env_bool("ASSISTANT_FORECAST_SEMANTIC_ENABLED", False)
+    )
+    assistant_forecast_automatic_enabled: bool = field(
+        default_factory=lambda: _env_bool("ASSISTANT_FORECAST_AUTOMATIC_ENABLED", False)
+    )
+    interaction_forecast_enabled: bool = field(
+        default_factory=lambda: _env_bool("INTERACTION_FORECAST_ENABLED", False)
+    )
+    forecast_project_allowlist: tuple[str, ...] = field(
+        default_factory=lambda: tuple(
+            filter(None, _env("FORECAST_PROJECT_ALLOWLIST").split(","))
+        )
+    )
+    forecast_disabled_capabilities: tuple[str, ...] = field(
+        default_factory=lambda: tuple(
+            filter(None, _env("FORECAST_DISABLED_CAPABILITIES").split(","))
+        )
+    )
+    creative_disabled_recipes: tuple[str, ...] = field(
+        default_factory=lambda: tuple(
+            filter(None, _env("CREATIVE_DISABLED_RECIPES").split(","))
+        )
+    )
     assistant_deep_review_enabled: bool = field(
         default_factory=lambda: _env_bool("ASSISTANT_DEEP_REVIEW_ENABLED", False)
     )

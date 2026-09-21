@@ -1,0 +1,261 @@
+{
+  "case_id": "absence-06",
+  "suite": "forecast",
+  "novel_id": "c138b6c8-78b7-4fd5-9249-a029626cdc4e",
+  "run_id": "3043805f-45ae-4185-8008-0de6044d9068",
+  "provider": "deepseek",
+  "model": "deepseek-flash",
+  "thinking": "disabled",
+  "spent_peak_usd": 0.0023936999999999995,
+  "result": {
+    "run_id": "3043805f-45ae-4185-8008-0de6044d9068",
+    "task_id": "3043805f-45ae-4185-8008-0de6044d9068",
+    "status": "completed",
+    "phase": "done",
+    "completion": "complete",
+    "candidate_ids": [
+      "9ea80365-2eff-4851-8631-882979384caa"
+    ],
+    "coverage": {
+      "scope_label": "当前授权的保存资料；未检查全书",
+      "enumerated_total": 1,
+      "enumeration_complete": true,
+      "semantic_search": "complete_for_declared_plan",
+      "counts": {
+        "presented": 1,
+        "merged": 0,
+        "backlog": 0,
+        "waiting_condition": 0,
+        "suppressed": 0,
+        "needs_verification": 0,
+        "not_checked": 0,
+        "source_invalid": 0
+      },
+      "omissions": []
+    },
+    "usage": {
+      "requests": 2,
+      "input_tokens": 4831,
+      "output_tokens": 787,
+      "usage_complete": true
+    },
+    "error_code": null,
+    "can_resume": false,
+    "candidates": [
+      {
+        "anchor": {
+          "question_kind": "continuation",
+          "resource_kind": "writing_draft",
+          "resource_id": "b58d9c6b-cc2a-4c34-b118-cf2fecbe9405",
+          "chapter_index": 1,
+          "start": 65,
+          "end": 83
+        },
+        "proposal": {
+          "title": "从第四册借走处接下一节拍",
+          "kind": "next_step",
+          "statements": [
+            {
+              "text": "当前正文停在“第四册暂时借走”，检索线索被暂时截断，而非被否定。",
+              "basis": "observed",
+              "evidence_ids": [
+                "source_0"
+              ],
+              "assumptions": []
+            },
+            {
+              "text": "木牌只剩半个姓氏、档案目录无完整名字、看守人猜测无出处，这三处都是未解而非已定为虚构。",
+              "basis": "observed",
+              "evidence_ids": [
+                "source_0"
+              ],
+              "assumptions": []
+            },
+            {
+              "text": "下一节拍可以只处理站务员当下的行动或情绪，不必立刻补全名字。",
+              "basis": "proposed",
+              "evidence_ids": [
+                "source_0"
+              ],
+              "assumptions": []
+            }
+          ],
+          "why_now": "当前保存段落正好停在一个可继续也可收束的位置，适合给出短期方向而不把检索失败写成世界事实。",
+          "directions": [
+            {
+              "direction_id": "wait_for_ledger",
+              "title": "等第四册归还，先不补名字",
+              "condition": "若作者希望保持未知、不引入新档案来源。",
+              "proposal": "站务员把三册账簿放回原处，记下第四册借走的日期或借阅人，继续扫落叶；车次照常到站。名字仍不出现。",
+              "possible_effects": [
+                "维持悬念但不放大",
+                "给后续留一个自然的回看点"
+              ],
+              "assumptions": [
+                "第四册借走是行政流程，不是线索被销毁"
+              ],
+              "narrative_commitment": "low",
+              "may_leave_open": true
+            },
+            {
+              "direction_id": "station_keeper_reaction",
+              "title": "站务员对半个姓氏的私人反应",
+              "condition": "若作者想让情绪收束而非推进谜题。",
+              "proposal": "站务员再看一眼木牌上的半个姓氏，想起或不想起某个人，但叙述不确认那是谁；随后切到下一班车。",
+              "possible_effects": [
+                "把焦点从档案转到人物",
+                "不新增世界事实"
+              ],
+              "assumptions": [
+                "站务员与木牌可能有个人关联，但可保持模糊"
+              ],
+              "narrative_commitment": "medium",
+              "may_leave_open": true
+            },
+            {
+              "direction_id": "cut_to_next_train",
+              "title": "直接切场，不处理木牌",
+              "condition": "若作者想暂时离开这条线。",
+              "proposal": "以清晨车次到站为切口，直接切到下一场景或下一人物，木牌留在背景里。",
+              "possible_effects": [
+                "节奏加快",
+                "木牌线暂时搁置"
+              ],
+              "assumptions": [
+                "这条线可以在别处再回来"
+              ],
+              "narrative_commitment": "low",
+              "may_leave_open": true
+            }
+          ],
+          "unknowns": [
+            "第四册何时归还、借走者是谁",
+            "半个姓氏对应的完整名字是否存在",
+            "看守人猜测是否有任何出处"
+          ],
+          "verdict": "propose"
+        },
+        "evidence": [
+          {
+            "evidence_id": "source_0",
+            "resource_kind": "writing_draft",
+            "resource_id": "b58d9c6b-cc2a-4c34-b118-cf2fecbe9405",
+            "source_hash": "5bcd0ab2f9f178fca16cdfeaa5a464e75391b0143060c9ca6c68f3470f0f6469",
+            "revision_token": "1:5bcd0ab2f9f178fca16cdfeaa5a464e75391b0143060c9ca6c68f3470f0f6469",
+            "source_range": {
+              "start_offset": 0,
+              "end_offset": 104
+            },
+            "range_hash": "5bcd0ab2f9f178fca16cdfeaa5a464e75391b0143060c9ca6c68f3470f0f6469",
+            "label": "absence-06"
+          },
+          {
+            "evidence_id": "source_1",
+            "resource_kind": "domain_result",
+            "resource_id": "18886437-d380-5756-9acc-a21494bee16a",
+            "source_hash": "daeb14d5523b45addc483b212ec5e60265072d22c022f20bba8fc5b51f1799cb",
+            "revision_token": "daeb14d5523b45addc483b212ec5e60265072d22c022f20bba8fc5b51f1799cb",
+            "source_range": null,
+            "range_hash": null,
+            "label": "接着写前，回看当前保存段落"
+          },
+          {
+            "evidence_id": "source_2",
+            "resource_kind": "domain_result",
+            "resource_id": "9bb4f36f-422c-5521-94d3-48af0606a5aa",
+            "source_hash": "281396c9c94cb3d75e2a8f70f0fd3fed73fece4eeedd9b323b7c75e822c8ffd6",
+            "revision_token": "281396c9c94cb3d75e2a8f70f0fd3fed73fece4eeedd9b323b7c75e822c8ffd6",
+            "source_range": null,
+            "range_hash": null,
+            "label": "生成连接已配置"
+          },
+          {
+            "evidence_id": "source_3",
+            "resource_kind": "policy",
+            "resource_id": "b95f87fd-f571-5643-8d67-a6cedb3e36fe",
+            "source_hash": "01fcbef87105cea0e9f254af44b5f79d7c29df9365f6eaad4c6c67818c45ccf3",
+            "revision_token": "01fcbef87105cea0e9f254af44b5f79d7c29df9365f6eaad4c6c67818c45ccf3",
+            "source_range": null,
+            "range_hash": null,
+            "label": "按本次授权开始计算"
+          }
+        ],
+        "knowledge_review": {
+          "status": "passed",
+          "review": {
+            "status": "passed",
+            "repaired": false,
+            "coverage": [
+              {
+                "dimension": "prior_prose",
+                "covered_by": [],
+                "omitted": false,
+                "omission_reason": null
+              },
+              {
+                "dimension": "world_rules",
+                "covered_by": [],
+                "omitted": false,
+                "omission_reason": null
+              },
+              {
+                "dimension": "outline",
+                "covered_by": [],
+                "omitted": false,
+                "omission_reason": null
+              }
+            ],
+            "issue_counts": {
+              "conflict": 0,
+              "irrelevant_content": 0,
+              "missing_required": 0,
+              "out_of_scope_knowledge": 0,
+              "premature_reveal": 0,
+              "unchecked": 0,
+              "unsupported_fact": 0
+            },
+            "issues": []
+          }
+        },
+        "ranking": {
+          "window": 2,
+          "task_help": 2,
+          "explicit_relevance": 1,
+          "evidence": 1,
+          "executable": 1,
+          "narrative_lockin": 2
+        },
+        "actions": [
+          {
+            "action_id": "writing.prepare_candidate.wait_for_ledger",
+            "label": "试写：等第四册归还，先不补名字",
+            "kind": "prepare_domain",
+            "requires_confirmation": true,
+            "available": true
+          },
+          {
+            "action_id": "writing.prepare_candidate.station_keeper_reaction",
+            "label": "试写：站务员对半个姓氏的私人反应",
+            "kind": "prepare_domain",
+            "requires_confirmation": true,
+            "available": true
+          },
+          {
+            "action_id": "writing.prepare_candidate.cut_to_next_train",
+            "label": "试写：直接切场，不处理木牌",
+            "kind": "prepare_domain",
+            "requires_confirmation": true,
+            "available": true
+          },
+          {
+            "action_id": "project.prepare_task",
+            "label": "加入稍后处理",
+            "kind": "prepare_domain",
+            "requires_confirmation": true,
+            "available": true
+          }
+        ]
+      }
+    ]
+  }
+}

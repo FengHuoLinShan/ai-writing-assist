@@ -210,6 +210,11 @@ function _isRelatedCacheKey(key, collectionRoot) {
 }
 
 function _invalidateRelatedCache(path) {
+  // These confirmations can write several domain collections in one request.
+  if (/^\/(?:collaboration\/workspaces\/[^/]+\/merge|assistant\/batches\/[^/]+\/decide)(?:\?|$)/.test(path)) {
+    _clearRequestCache()
+    return
+  }
   // 失效该资源集合的所有 GET 缓存。
   // 写操作(含 /{id}/restore、/{id}/permanent 这类子动作)都会影响同一集合的列表,
   // 因此按集合根(第一路径段,如 /projects)清除,避免子路径动作遗漏集合级列表(如 recycle-bin)缓存。
@@ -758,6 +763,45 @@ async function* streamSse(path, {
 // ============================================================
 
 const api = {
+  forecasts: {
+    activity: (novelId, body) => post(withQuery("/assistant/forecasts/activity", { novel_id: novelId }), body),
+    resume: (novelId, id) => post(withQuery(`/assistant/forecasts/runs/${id}/resume`, { novel_id: novelId })),
+    capabilities: (novelId) => request(withQuery("/assistant/forecasts/capabilities", { novel_id: novelId }), { cache: "no-store" }),
+    policy: (novelId) => request(withQuery("/assistant/forecasts/policy", { novel_id: novelId }), { cache: "no-store" }),
+    savePolicy: (novelId, body) => request(withQuery("/assistant/forecasts/policy", { novel_id: novelId }), { method: "PUT", body: JSON.stringify(body) }),
+    feed: (novelId, body) => post(withQuery("/assistant/forecasts/feed", { novel_id: novelId }), body),
+    evaluate: (novelId, body) => post(withQuery("/assistant/forecasts/evaluate", { novel_id: novelId }), body),
+    run: (novelId, runId) => request(withQuery(`/assistant/forecasts/runs/${encodeURIComponent(runId)}`, { novel_id: novelId }), { cache: "no-store" }),
+    cancel: (novelId, runId) => post(withQuery(`/assistant/forecasts/runs/${encodeURIComponent(runId)}/cancel`, { novel_id: novelId })),
+    decide: (novelId, id, body) => post(withQuery(`/assistant/forecasts/candidates/${encodeURIComponent(id)}/decision`, { novel_id: novelId }), body),
+    prepare: (novelId, id, body) => post(withQuery(`/assistant/forecasts/candidates/${encodeURIComponent(id)}/prepare`, { novel_id: novelId }), body),
+    operation: (novelId, id) => request(withQuery(`/assistant/forecasts/operations/${encodeURIComponent(id)}`, { novel_id: novelId }), { cache: "no-store" }),
+    recheck: (novelId, id, operationId) => post(withQuery(`/assistant/forecasts/candidates/${encodeURIComponent(id)}/recheck`, { novel_id: novelId }), { operation_id: operationId }),
+  },
+  collaboration: {
+    resources: (novelId, params = {}) => request(withQuery("/collaboration/resources", { novel_id: novelId, ...params }), { cache: "no-store" }),
+    importScope: (novelId, body) => post(withQuery("/collaboration/import-scope", { novel_id: novelId }), body),
+    updateGrant: (novelId, id, body) => request(withQuery(`/collaboration/cases/${encodeURIComponent(id)}/grant`, { novel_id: novelId }), { method: "PUT", body: JSON.stringify(body) }),
+    resume: (novelId, id) => post(withQuery(`/collaboration/runs/${encodeURIComponent(id)}/resume`, { novel_id: novelId })),
+    rebase: (novelId, id, body) => post(withQuery(`/collaboration/workspaces/${encodeURIComponent(id)}/rebase`, { novel_id: novelId }), body),
+    revert: (novelId, id, body) => post(withQuery(`/collaboration/workspaces/${encodeURIComponent(id)}/revert`, { novel_id: novelId }), body),
+    capabilities: (novelId) => request(withQuery("/collaboration/capabilities", { novel_id: novelId }), { cache: "no-store" }),
+    cases: (novelId) => request(withQuery("/collaboration/cases", { novel_id: novelId }), { cache: "no-store" }),
+    createCase: (novelId, body) => post(withQuery("/collaboration/cases", { novel_id: novelId }), body),
+    getCase: (novelId, id) => request(withQuery(`/collaboration/cases/${encodeURIComponent(id)}`, { novel_id: novelId }), { cache: "no-store" }),
+    runs: (novelId, id) => request(withQuery(`/collaboration/cases/${encodeURIComponent(id)}/runs`, { novel_id: novelId }), { cache: "no-store" }),
+    updateGoal: (novelId, id, body) => request(withQuery(`/collaboration/cases/${encodeURIComponent(id)}/goal`, { novel_id: novelId }), { method: "PUT", body: JSON.stringify(body) }),
+    submit: (novelId, id, body) => post(withQuery(`/collaboration/cases/${encodeURIComponent(id)}/runs`, { novel_id: novelId }), body),
+    run: (novelId, id) => request(withQuery(`/collaboration/runs/${encodeURIComponent(id)}`, { novel_id: novelId }), { cache: "no-store" }),
+    stop: (novelId, id) => post(withQuery(`/collaboration/runs/${encodeURIComponent(id)}/stop`, { novel_id: novelId })),
+    workspaces: (novelId, id) => request(withQuery(`/collaboration/cases/${encodeURIComponent(id)}/workspaces`, { novel_id: novelId }), { cache: "no-store" }),
+    diff: (novelId, id) => request(withQuery(`/collaboration/workspaces/${encodeURIComponent(id)}/diff`, { novel_id: novelId }), { cache: "no-store" }),
+    test: (novelId, id, body) => post(withQuery(`/collaboration/workspaces/${encodeURIComponent(id)}/test`, { novel_id: novelId }), body),
+    seal: (novelId, id, body) => post(withQuery(`/collaboration/workspaces/${encodeURIComponent(id)}/seal`, { novel_id: novelId }), body),
+    merge: (novelId, id, body) => post(withQuery(`/collaboration/workspaces/${encodeURIComponent(id)}/merge`, { novel_id: novelId }), body),
+    fork: (novelId, id, body) => post(withQuery(`/collaboration/workspaces/${encodeURIComponent(id)}/fork`, { novel_id: novelId }), body),
+    edit: (novelId, id, body) => post(withQuery(`/collaboration/workspaces/${encodeURIComponent(id)}/revisions`, { novel_id: novelId }), body),
+  },
   setAccessToken: _setAccessToken,
   clearAccessToken: _clearAccessToken,
   reportFrontendError,
@@ -892,6 +936,17 @@ const api = {
     },
   },
 
+  interactionForecasts: {
+    resume: (journeyId, id) => post(`/interactions/journeys/${encodeURIComponent(journeyId)}/forecasts/runs/${encodeURIComponent(id)}/resume`),
+    capabilities: (journeyId) => request(`/interactions/journeys/${encodeURIComponent(journeyId)}/forecasts/capabilities`, { cache: "no-store" }),
+    feed: (journeyId, body) => post(`/interactions/journeys/${encodeURIComponent(journeyId)}/forecasts/feed`, body),
+    evaluate: (journeyId, body) => post(`/interactions/journeys/${encodeURIComponent(journeyId)}/forecasts/evaluate`, body),
+    run: (journeyId, id) => request(`/interactions/journeys/${encodeURIComponent(journeyId)}/forecasts/runs/${encodeURIComponent(id)}`, { cache: "no-store" }),
+    operation: (journeyId, id) => request(`/interactions/journeys/${encodeURIComponent(journeyId)}/forecasts/operations/${encodeURIComponent(id)}`, { cache: "no-store" }),
+    cancel: (journeyId, id) => post(`/interactions/journeys/${encodeURIComponent(journeyId)}/forecasts/runs/${encodeURIComponent(id)}/cancel`),
+    prefill: (journeyId, id, body) => post(`/interactions/journeys/${encodeURIComponent(journeyId)}/forecasts/candidates/${encodeURIComponent(id)}/prefill`, body),
+    decide: (journeyId, id, body) => post(`/interactions/journeys/${encodeURIComponent(journeyId)}/forecasts/candidates/${encodeURIComponent(id)}/decision`, body),
+  },
   interactions: {
     demoSource: () => request("/demo/rp-source", { cache: "no-store", _suppressAccountInvalidation: true }),
     listDemoJourneys: (params = {}) => request(withQuery("/interactions/demo-journeys", params), { cache: "no-store", _suppressAccountInvalidation: true }),
@@ -2707,6 +2762,7 @@ const api = {
   // 页面只消费作者可见的卡片、预览任务与剧本版本契约。
   story: {
     startRehearsal: (sceneId, payload) => post(`/story/scenes/${sceneId}/rehearsals`, payload),
+    replayRehearsal: (novelId, runId) => post(withQuery(`/story/rehearsals/${runId}/replay`, { novel_id: novelId })),
     rehearsal: (novelId, runId, actorId = null) => request(withQuery(`/story/rehearsals/${runId}`, { novel_id: novelId, actor_id: actorId }), { cache: "no-store" }),
     forkRehearsal: (runId, payload) => post(`/story/rehearsals/${runId}/forks`, payload),
     async getSceneContext(novelId, sceneId) {

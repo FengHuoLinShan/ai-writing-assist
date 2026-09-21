@@ -1,5 +1,7 @@
 # 开放任务
 
+- [T-20260920-forecast-creative-engine](tasks/2026/T-20260920-forecast-creative-engine/TASK.md) — 短期前瞻辅助与协作创作试验引擎 V2
+
 | 任务 | 状态 | 记录 |
 |---|---|---|
 | Agent 核心接入与全项目能力整合 | 已合入本地 main；正式验收、人工质量与发布延期 | [主记录](tasks/agent-integration.md) |

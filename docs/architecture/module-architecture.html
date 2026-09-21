@@ -93,11 +93,11 @@
         <button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" title="Export options" aria-label="Export options">⋯</button>
       </div>
     </div>
-    <p class="subtitle">浏览器兼容预览 · 9 个业务模块 · 当前可编辑图源：module-architecture.drawio</p>
+    <p class="subtitle">浏览器兼容预览 · 10 个业务模块 · 当前可编辑图源：module-architecture.drawio</p>
   </div>
 
   <div class="diagram-container">
-    <svg viewBox="0 0 1100 780">
+    <svg viewBox="0 0 1100 875">
       <defs>
         <marker id="arrow-amber" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
           <polygon points="0 0, 10 3.5, 0 7" fill="#fbbf24" />
@@ -285,6 +285,10 @@
       <text x="910" y="614" fill="#34d399" font-size="8" text-anchor="middle">正文事实源</text>
 
       <!-- ===== LEGEND ===== -->
+      <rect x="180" y="685" width="740" height="70" rx="6" fill="#172554" stroke="#60a5fa" />
+      <text x="550" y="709" fill="white" font-size="13" text-anchor="middle">collaboration 创作试验 · 派生工作区</text>
+      <text x="550" y="731" fill="#cbd5e1" font-size="10" text-anchor="middle">Evidence 冻结来源 → 试改 / 检查 → 原领域 port 确认采用 → receipt / outbox</text>
+      <g transform="translate(0, 90)">
       <rect x="60" y="690" width="980" height="72" rx="6" fill="rgba(15, 23, 42, 0.6)" stroke="#1e293b" stroke-width="1"/>
       <text x="75" y="708" fill="white" font-size="10" font-weight="600">图例 Legend</text>
 
@@ -319,6 +323,7 @@
       <line x1="915" y1="723" x2="940" y2="723" stroke="#a78bfa" stroke-width="1.5"/>
       <polygon points="940,719 948,723 940,727" fill="#a78bfa"/>
       <text x="953" y="726" fill="#94a3b8" font-size="8">双向</text>
+      </g>
     </svg>
   </div>
 
@@ -329,7 +334,7 @@
         <h3>模块数量</h3>
       </div>
       <ul>
-        <li>• 8 个活动业务模块（indexing/compilation 归 evidence，outline_state/continuity 归 story）</li>
+        <li>• 10 个活动业务模块（indexing/compilation 归 evidence，outline_state/continuity 归 story）</li>
         <li>• interaction 只读同 owner author source revision；私人旅程不写回原作</li>
         <li>• Canonical API 使用 /api/evidence/* 与 account/project owner 路径；旧前缀仅薄别名</li>
         <li>• 已移除：geo / review / character / timeline（人物和事件能力并入 world）</li>

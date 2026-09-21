@@ -1,13 +1,17 @@
 <template>
   <div v-if="state.enabled" v-show="open" ref="overlayRef" class="project-assistant" :class="{ 'project-assistant--mobile': narrow }">
-    <button v-if="narrow" type="button" class="project-assistant-backdrop" aria-label="关闭项目助手" @click="$emit('close')"></button>
+    <button v-if="narrow" type="button" class="project-assistant-backdrop" aria-label="关闭项目助手" @click="close"></button>
     <aside id="project-assistant-panel" ref="dialogRef" class="project-assistant-panel" :role="narrow ? 'dialog' : 'complementary'" :aria-modal="narrow || undefined" aria-label="项目助手" tabindex="-1" @keydown="handleKeydown" @focusin="onFocusin">
-      <header class="project-assistant-header"><div><strong>项目助手</strong><p>查资料、理思路，准备可审阅的修改。</p></div><button class="btn btn-sm" type="button" aria-label="关闭项目助手" @click="$emit('close')">关闭</button></header>
+      <header class="project-assistant-header"><div><strong>项目助手</strong><p>查资料、理思路，准备可审阅的修改。</p></div><button class="btn btn-sm" type="button" aria-label="关闭项目助手" @click="close">关闭</button></header>
       <div class="project-assistant-tabs" role="group" aria-label="助手页面">
-        <button type="button" :aria-pressed="activeTab === 'chat'" @click="activeTab = 'chat'">讨论</button>
-        <button type="button" :aria-pressed="activeTab === 'care'" @click="activeTab = 'care'">提醒</button>
+        <button type="button" :aria-pressed="activeTab === 'chat'" @click="switchTab('chat')">讨论</button>
+        <button type="button" :aria-pressed="activeTab === 'care'" @click="switchTab('care')">提醒</button>
+        <button type="button" :aria-pressed="activeTab === 'forecast'" @click="openForecast">下一步</button>
+        <button type="button" :aria-pressed="activeTab === 'creative'" @click="openCreative">试改</button>
       </div>
       <ProactiveCare v-show="activeTab === 'care'" :target-id="projectId" standalone @locate="locateAssistantSource" />
+      <div v-if="activeTab === 'forecast'" class="project-assistant-history"><ForecastDock :project-id="projectId" :context="experimentContext" :active="open" standalone /></div>
+      <div v-if="activeTab === 'creative'" class="project-assistant-history"><CreativeExperiments ref="creativeRef" :project-id="projectId" :context="experimentContext" :active="open" /></div>
       <div v-show="activeTab === 'chat'" class="project-assistant-chat">
       <div class="project-assistant-sessions"><label for="assistant-session">讨论</label><select id="assistant-session" :value="state.sessionId || ''" :disabled="state.busy || state.loading" @change="assistant.selectSession($event.target.value)"><option v-if="!state.sessionId" value="">新的讨论</option><option v-for="session in state.sessions" :key="session.id" :value="session.id">{{ session.title }}</option></select><button type="button" class="btn btn-sm" :disabled="state.busy" @click="assistant.newSession">新讨论</button></div>
       <div v-if="state.error" class="project-assistant-error" role="alert">{{ state.error }}</div>
@@ -66,6 +70,8 @@ import TeamProgress from "./TeamProgress.vue"
 import AssistantValue from "./AssistantValue.vue"
 import AssistantReviewResult from "./AssistantReviewResult.vue"
 import ProactiveCare from "./ProactiveCare.vue"
+import ForecastDock from "./ForecastDock.vue"
+import CreativeExperiments from "./CreativeExperiments.vue"
 import { locateAssistantSource, openAssistantDestination } from "../shared/assistantNavigation.js"
 
 const props = defineProps({ projectId: { type: String, default: null }, page: { type: String, default: "today" }, open: Boolean, initialContext: { type: Object, default: null } })
@@ -75,15 +81,24 @@ const state = assistant.state
 const receiptMessageIds = computed(() => new Set(new Map(state.messages.filter(message => message.assistant_run_id).map(message => [message.assistant_run_id, message.id])).values()))
 const narrow = ref(false)
 const activeTab = ref("chat")
+const experimentContext = ref({ page: "today" })
+const creativeRef = ref(null)
+function switchTab(tab) { if (activeTab.value === "creative" && creativeRef.value?.canLeave?.() === false) return; activeTab.value = tab }
+function openForecast() { if (activeTab.value === "creative" && creativeRef.value?.canLeave?.() === false) return; try { experimentContext.value = capture(true); activeTab.value = "forecast" } catch (error) { state.error = error.message } }
+function openCreative() { try { experimentContext.value = capture(true); activeTab.value = "creative" } catch (error) { state.error = error.message } }
 let media
-const close = () => emit("close")
+const close = () => { if (activeTab.value !== "creative" || creativeRef.value?.canLeave?.() !== false) emit("close") }
 const { overlayRef, dialogRef, onKeydown, onFocusin } = useModalDialog({ isOpen: () => props.open && state.enabled && narrow.value, requestClose: close })
 const hints = ["检查当前章节的前后设定", "帮我整理已有正文", "把接下来要处理的事项理清楚"]
 const running = computed(() => ["pending", "running"].includes(state.run?.status))
 const batch = computed(() => state.run?.result?.batch)
 const statusLabel = computed(() => ({ pending: "已提交，等待处理。", running: "正在分析和查证，可离开后继续查看。", completed: "本次处理已完成。", waiting_approval: "修改方案已准备好，等待你确认。", failed: "本次处理未完成。", cancelled: "本次处理已停止。", budget_exceeded: "本次查证已达到预算。" })[state.run?.status] || "")
 const contextLabel = computed(() => state.context?.chapter_index ? `第 ${state.context.chapter_index} 章` : ({ world: "人物与世界", writing: "写作页面", outline: "故事结构", scene: "当前场景", map: "地图", rag: "查找结果" })[state.context?.page || props.page] || "当前作品")
-function capture() { return props.initialContext?.projectId === props.projectId ? props.initialContext.context : getAssistantWorkContext(props.projectId, props.page) }
+function capture(refresh = false) {
+  const original = props.initialContext?.projectId === props.projectId ? props.initialContext.context : null
+  if (original && (!refresh || original.context_confirmation_id)) return original
+  return { ...original, ...getAssistantWorkContext(props.projectId, props.page), excluded_targets: original?.excluded_targets || [] }
+}
 function handleKeydown(event) { if (!narrow.value && event.key === "Escape") { event.stopPropagation(); close() } else onKeydown(event) }
 function useCurrent() { try { state.context = { ...getAssistantWorkContext(props.projectId, props.page), excluded_targets: state.context?.excluded_targets || [] }; assistant.setInput(state.input) } catch (error) { state.error = error.message } }
 function setScope(value) { try { state.context = { ...(state.context || capture()), scope: value }; assistant.setInput(state.input) } catch (error) { state.error = error.message } }

@@ -49,8 +49,8 @@ ADR-0023/ADR-0025 的有界 Agent、canonical capability 和回执约束由统�
 
 ## 当前读图约定
 
-- 业务模块共 9 个：`account`、`project`、`world`、`evidence`、`story`、`imports`、
-  `writing`、`interaction`、`assistant`。原 `memory` 与 `outline` 目录已在兼容准备版本发布后删除。
+- 业务模块共 10 个：`account`、`project`、`world`、`evidence`、`story`、`imports`、
+  `writing`、`interaction`、`assistant`、`collaboration`。原 `memory` 与 `outline` 目录已在兼容准备版本发布后删除。
 - Assistant 持有项目讨论、运行、成组确认和提醒投影；经 Evidence 只读查证，经领域操作提交
   具体修改。有限 PydanticAI 核心复用共享 LLM/队列，RP 继续持有自己的树、回顾和 attempt。
 - 创作三层为事实层（`project/world`）、结构与连续性层（`story/outline_state`、
@@ -80,6 +80,14 @@ evidence_focused_search / targeted_completion 任务由原 task registry 登记�
 
 知识治理的跨模块决策见 [ADR-0025](../adr/0025-product-knowledge-governance.md)。Evidence 持有契约与策略，Writing/World/Story/Imports/Interaction/Assistant 持有各自生成、采用与恢复语义；未新增模块、调度器或事实库。
 
-ADR-0027 在现有九模块中加入注册蓝图的有限协作，不改变模块归属或引入新服务。
+ADR-0027 的 V1 在当时九模块中加入注册蓝图的有限协作，不改变模块归属或引入新服务。
 来源投影属 Evidence，调查属 Assistant，回合属 Story，分支观察属 Interaction；普通采用继续
 由各领域负责。详见 [有限协作决定](../adr/0027-bounded-collaboration.md)。
+
+## Collaboration 与短期前瞻
+
+新增业务模块 `collaboration` 持有目标、授权、不可变试改与精确采用回执；
+`assistant` 持有短期前瞻和处置，`story` / `interaction` 持有观察及分支事实。
+当前共十个业务模块，继续复用原 PostgreSQL 队列、Evidence 与 Project 连接。
+模块职责与采用/恢复边界见 `docs/modules/21_collaboration.md`、
+`backend/modules/collaboration/README.md`，前瞻见 `docs/modules/20_assistant.md`。

@@ -9,6 +9,7 @@ __all__ = ["register_task_handlers"]
 
 _TASK_HANDLER_MODULES = (
     "modules.assistant.tasks",
+    "modules.collaboration.tasks",
     "modules.imports.tasks",
     "modules.world.map_atlas_tasks",
     "modules.interaction.tasks",

@@ -1,11 +1,29 @@
 """Stable assistant contracts."""
 
+import json
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from modules.assistant.forecast.contracts import (
+    DecisionRequest as DecisionRequest,
+)
+from modules.assistant.forecast.contracts import (
+    EvaluateRequest as EvaluateRequest,
+)
+from modules.assistant.forecast.contracts import (
+    EvidenceRef,
+    FocusRequest,
+    ResolvedScope,
+)
+from modules.assistant.forecast.contracts import (
+    FeedRequest as FeedRequest,
+)
+from modules.assistant.forecast.contracts import (
+    Horizon as Horizon,
+)
 from modules.assistant.schemas import NoticeDecision as NoticeDecision
 from modules.assistant.schemas import NoticeDisposition as NoticeDisposition
 from modules.assistant.schemas import NoticeRecheck as NoticeRecheck
@@ -68,3 +86,35 @@ class AssistantOperation:
     permission: str = "confirm"
     read_result: Callable[..., Awaitable[dict[str, Any]]] | None = None
     revision: str = "1"
+
+
+class ForecastDomainFact(BaseModel):
+    """Code-owned read projection. Text is evidence, never execution authority."""
+
+    capability_id: str
+    subject: str
+    title: str
+    summary: str
+    source: dict[str, Any]
+    scope_label: str
+    unknowns: list[str] = []
+    target: dict[str, Any] | None = None
+    actionable: bool = True
+    preparations: list[dict[str, Any]] = Field(default_factory=list, max_length=4)
+
+
+@dataclass
+class ForecastContext:
+    scope: ResolvedScope
+    focus: FocusRequest
+    sources: list[dict]
+    evidence: list[EvidenceRef]
+    dependencies: list[dict]
+    chapter_index: int | None
+    excluded_targets: list[str] = field(default_factory=list)
+    facts: list = field(default_factory=list)
+    saved_draft_hash: str | None = None
+
+    @property
+    def text(self):
+        return json.dumps(self.sources, ensure_ascii=False, sort_keys=True)

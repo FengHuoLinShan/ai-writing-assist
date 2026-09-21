@@ -104,3 +104,10 @@ ADR-0027 增加 `story_simulation_runs` / `story_simulation_steps` 两张领域�
 one-click task。人物独立意图 → 环境结果 → 按观察者投影 → 下一回合，最终剧本仍是候选。
 回放复用不可变完成回合；分叉绑定准确父回合 hash 和来源，来源变化拒绝继续。Scene 工作台
 可选人物、回合和观察视角，并从完成回合另试发展；默认关闭，不改变旧卡片/剧本采用流。
+
+## 创作试验的结构与观察边界
+
+Story 为 Collaboration 提供 Scene、伏笔/揭示安排的冻结可编辑字段与原领域操作 port。
+试改独立保存，采用仍验证当前结构版本。`observations.py` 区分输入刺激、私有意图、
+可观察事件和可重放的 ResolutionBatch；说法不是事实，未知资源或唯一资源冲突不宣告成功。
+`observation_v2` 不重新解释旧 rehearsal_v1。读者推测与作者安排分开，派生前瞻不是新信息计划。

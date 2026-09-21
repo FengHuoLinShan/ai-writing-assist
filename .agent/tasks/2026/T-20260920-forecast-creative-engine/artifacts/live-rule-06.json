@@ -1,0 +1,3118 @@
+{
+  "case_id": "rule-06",
+  "novel_id": "d28c6e55-c566-43c1-b171-8d79c4ff268c",
+  "run_id": "eb1cd499-2ac1-4188-98a0-03859fa0a014",
+  "provider": "deepseek",
+  "model": "deepseek-flash",
+  "thinking": "disabled",
+  "spent_peak_usd": 0.09499560000000003,
+  "result": {
+    "id": "eb1cd499-2ac1-4188-98a0-03859fa0a014",
+    "case_id": "f4a39c83-611b-43bf-a13f-9420b96b3f6b",
+    "task_id": "eb1cd499-2ac1-4188-98a0-03859fa0a014",
+    "status": "budget_exceeded",
+    "can_resume": false,
+    "stale": false,
+    "error_code": "BUDGET_EXCEEDED",
+    "question_for_author": null,
+    "coverage": null,
+    "missing_deliverables": [],
+    "work": [
+      {
+        "id": "3b02cc89-f23f-4b58-afca-0507543071f2",
+        "status": "succeeded",
+        "generation": 0
+      },
+      {
+        "id": "7f49e036-36b7-4e6f-a0ea-41b296af2bf2",
+        "status": "failed",
+        "generation": 0
+      },
+      {
+        "id": "cdaf6088-698d-4e5c-ae59-ba8e7ba26dce",
+        "status": "succeeded",
+        "generation": 0
+      },
+      {
+        "id": "a3d8e22d-4208-4ca9-ac08-cc5a968f4384",
+        "status": "succeeded",
+        "generation": 0
+      },
+      {
+        "id": "acb92af1-77a4-4eb7-8f1d-f7127749ea96",
+        "status": "superseded",
+        "generation": 0
+      },
+      {
+        "id": "c3f31ed2-8fae-4107-bc59-bb61a375579c",
+        "status": "superseded",
+        "generation": 0
+      },
+      {
+        "id": "7e431802-72fb-47e9-94f1-166cc4a21cc2",
+        "status": "succeeded",
+        "generation": 0
+      },
+      {
+        "id": "5abd7e5d-f11f-4d30-a5f9-b2ff1354a04c",
+        "status": "succeeded",
+        "generation": 0
+      },
+      {
+        "id": "a6222bb1-4e62-4c0a-8c56-8667fccde270",
+        "status": "succeeded",
+        "generation": 1
+      },
+      {
+        "id": "fac2373e-f57c-4a03-a686-40b7bbf65b65",
+        "status": "succeeded",
+        "generation": 1
+      },
+      {
+        "id": "6de90a1b-caf3-4588-8bf9-97d3e5e54d76",
+        "status": "succeeded",
+        "generation": 0
+      },
+      {
+        "id": "184ac4b5-f25c-4f6b-b6fa-b84e28888925",
+        "status": "succeeded",
+        "generation": 0
+      },
+      {
+        "id": "5ef716d8-99cc-4c50-84b5-9127e95a96e4",
+        "status": "running",
+        "generation": 0
+      },
+      {
+        "id": "bfdd7bfc-f56a-48f9-83ee-16488bdf4e85",
+        "status": "succeeded",
+        "generation": 0
+      }
+    ],
+    "artifacts": [
+      {
+        "id": "ade1d57a-1a91-4e84-b6e7-2e24b684a7b5",
+        "kind": "investigate",
+        "workspace_revision_id": null,
+        "result": {
+          "scenarios": [
+            {
+              "expected": "holds",
+              "key": "frozen-baseline",
+              "title": "冻结前提与不变量：当前前缀的六行动作序列",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "两张同样的封纸、一只空铜盘、干印泥、热铜盘成功、手心失败这五个事实在试改前后都不得被删除或替换为相反结果。",
+              "assumptions": [
+                "试改只改措辞，不改动作序列"
+              ],
+              "actions": [
+                "保留纸匠拿出两张同样的封纸",
+                "保留炉边空铜盘",
+                "保留学徒擦干水并等候",
+                "保留规程转述句",
+                "保留热铜盘显字",
+                "保留手心空白"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "test-a-continuity",
+              "title": "试改 A 重测：把“持续”读成硬条件",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "若“持续”是硬条件，则任何中断热源的动作都应导致不显字；但当前前缀没有中断实验，因此只能检验措辞是否仍与手心失败兼容。",
+              "assumptions": [
+                "不新增情节，只做措辞试改"
+              ],
+              "actions": [
+                "把规程句改为强调热源不能中断",
+                "保留手心失败",
+                "检查是否新增了未授权的温度阈值"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "test-b-externality",
+              "title": "试改 B 重测：把“外部”读成硬条件",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "若“外部”是硬条件，则手心失败可由位置解释；但当前前缀没有“外部但低温”或“内部但高温”的对照，因此只能检验措辞是否仍与热铜盘成功兼容。",
+              "assumptions": [
+                "不新增情节，只做措辞试改"
+              ],
+              "actions": [
+                "把规程句改为强调热源须在纸外",
+                "保留热铜盘成功",
+                "检查是否新增了未授权的人物或器具"
+              ]
+            }
+          ],
+          "summary": "对 source key writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7（rule-06）做字面回读：该资源只有一段六行正文，没有独立编号条款、没有显式“适用范围”段、没有显式“代价/限制”段、也没有作者注形式的留白标记。可确认的字面措辞是“规程说干印泥不会显字，除非得到持续的外部热源”，以及“手温不够，纸仍空白”。因此规则的可操作边界只能从这两个动作结果反推：外部热源必须“持续”，且学徒的手心温度被文本判为“不够”。前文（即本资源内部）存在一处与“任何热源都能显字”竞争解释相冲突的反证：同一张封纸握在手心仍空白。但本资源没有出现与“需要持续外部热源”这一主解释相冲突的反证；也没有出现关于铜盘温度阈值、持续时间、印泥成分、封纸材质、失败后是否可逆的反证。由于 work_capability 为 investigate，patches 必须为空。两个试改方案分别针对两种竞争解释：A 把“持续”具体化为时间/热源连续性条件；B 把“外部”具体化为热源位置与手温的对比条件。两者都不新增万能力量，也不消除代价。",
+          "claims": [
+            {
+              "kind": "source_statement",
+              "text": "资源标题为 rule-06，正文共六行：纸匠拿出两张同样的封纸；炉边有一只空铜盘；学徒把桌上的水擦干，等候示范；规程说干印泥不会显字，除非得到持续的外部热源；大师把封纸放进热铜盘，字迹慢慢浮现；学徒把另一张握在手心，手温不够，纸仍空白。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "这是对当前前缀内可见内容的概括，不代表该资源之外没有其他条款。"
+            },
+            {
+              "kind": "source_statement",
+              "text": "规则的确切措辞只以转述形式出现：“规程说干印泥不会显字，除非得到持续的外部热源。”文本没有给出规程编号、条目名或原文引号内的完整条文。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "“规程说”是叙述者转述，不能等同于规程原文。"
+            },
+            {
+              "kind": "source_statement",
+              "text": "可观察的适用范围证据是两类对象与两种热源条件：两张同样的封纸；热铜盘；手心。结果是热铜盘上字迹慢慢浮现，手心里纸仍空白。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "文本未说明封纸是否必须同批、印泥是否已干、铜盘是否必须空置。"
+            },
+            {
+              "kind": "source_statement",
+              "text": "代价/限制条款没有以独立条款形式写出；字面可见的限制是“持续的外部热源”和“手温不够”。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "“持续”的时长、“外部”的边界、“不够”的阈值均未量化。"
+            },
+            {
+              "kind": "source_statement",
+              "text": "作者明确保留或有意留白的部分在字面上没有标记；只能确认文本未解释干印泥的显字机理、未解释为何手心失败、未说明失败后能否补救。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "未写出不等于作者有意留白，也可能是当前前缀尚未展开。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "主解释：规则要求的是“持续的外部热源”，热铜盘满足该条件，手心不满足，因此同一张封纸在两种条件下结果不同。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "文本没有直接说手心失败是因为“不持续”还是因为“不够热”。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "竞争解释一：关键变量是热源是否“外部”而非是否“持续”；手心是身体的一部分，因此即使温度足够也不显字。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "当前前缀没有给出“手心温度足够但位置不对”的对照实验，因此该解释未被证伪也未被证实。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "竞争解释二：关键变量是温度是否达到阈值，“持续”只是叙述者对热铜盘散热过程的描述；手心失败仅因温度低。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "文本用“手温不够”支持温度解释，但没有给出温度读数或临界点。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "前文反证：本资源内部已出现与“任何热源都能显字”相冲突的反证，即学徒把另一张握在手心，纸仍空白。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "该反证只排除“任意热源即可”，不排除“手心温度接近阈值但差一点”。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "若把“持续”作为硬条件，则短时高温可能不足以显字；若把“外部”作为硬条件，则贴身热源即使持久也可能无效。两种假设在当前前缀内都无法判定。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "需要新的对照场景才能区分，但本轮不新增情节。"
+            },
+            {
+              "kind": "proposal",
+              "text": "试改 A（针对“持续”解释）：在现有六行内只调整措辞，把“持续的外部热源”具体化为“热源不能中断”，并保留手心失败作为反证；不新增温度数值、不新增人物、不新增器具。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "允许在授权资源内做局部措辞试改",
+                "不改变六行动作序列"
+              ],
+              "uncertainty": "该试改会强化“持续”解释，但可能削弱“外部”解释的可见度。"
+            },
+            {
+              "kind": "proposal",
+              "text": "试改 B（针对“外部”解释）：在现有六行内只调整措辞，把“持续的外部热源”具体化为“热源须在纸外，不能来自握持者”，并保留热铜盘成功、手心失败；不新增万能力量、不取消代价。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "允许在授权资源内做局部措辞试改",
+                "不改变六行动作序列"
+              ],
+              "uncertainty": "该试改会强化“外部”解释，但可能把“持续”降为次要条件。"
+            }
+          ],
+          "patches": [],
+          "followups": [
+            {
+              "logical_key": "countercheck-rule06-alternatives",
+              "capability": "countercheck",
+              "question": "在不新增情节的前提下，当前前缀是否还存在第三种竞争解释，例如“封纸必须平放”或“印泥必须接触铜盘”，并能与手心失败兼容？",
+              "depends_on": [],
+              "dependency_policy": "all_succeeded",
+              "search_query": "rule-06 封纸 手心 铜盘 竞争解释",
+              "web_queries": [],
+              "workspace_revision_id": null
+            },
+            {
+              "logical_key": "compare-rule06-ab",
+              "capability": "compare",
+              "question": "试改 A 与试改 B 在保留同一组不变量时，哪一个更少引入未授权假设，并更能保留“持续”与“外部”两种解释的竞争空间？",
+              "depends_on": [
+                "countercheck-rule06-alternatives"
+              ],
+              "dependency_policy": "all_terminal",
+              "search_query": null,
+              "web_queries": [],
+              "workspace_revision_id": null
+            }
+          ],
+          "omissions": [
+            "未找到独立编号的规程原文、适用范围条款、代价条款或作者注形式的留白标记。",
+            "未找到铜盘温度、持续时间、印泥成分、封纸材质、手心温度阈值等量化信息。",
+            "未找到失败后是否可逆、是否可补救、是否可重复尝试的说明。",
+            "未找到“外部热源”与“持续热源”两个条件之间优先级的明确表述。",
+            "未找到本资源之外是否存在其他 rule-06 版本或修订稿；本轮只回读至多三处，不能宣称全书未出现。",
+            "未找到与“需要持续外部热源”主解释相冲突的反证；只找到与“任何热源都能显字”相冲突的反证。"
+          ],
+          "knowledge_review": {
+            "status": "passed",
+            "review": {
+              "status": "passed",
+              "repaired": false,
+              "coverage": [
+                {
+                  "dimension": "prior_prose",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "world_rules",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "outline",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                }
+              ],
+              "issue_counts": {
+                "conflict": 0,
+                "irrelevant_content": 0,
+                "missing_required": 0,
+                "out_of_scope_knowledge": 0,
+                "premature_reveal": 0,
+                "unchecked": 0,
+                "unsupported_fact": 0
+              },
+              "issues": []
+            }
+          }
+        },
+        "evidence": [
+          {
+            "key": "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7",
+            "label": "rule-06",
+            "excerpt": "纸匠拿出两张同样的封纸。\n炉边有一只空铜盘。\n学徒把桌上的水擦干，等候示范。\n规程说干印泥不会显字，除非得到持续的外部热源。\n大师把封纸放进热铜盘，字迹慢慢浮现。\n学徒把另一张握在手心，手温不够，纸仍空白。",
+            "url": null,
+            "read_range": null,
+            "source_hash": "61fdf30bdc4a000a4310fe2ccbc29bb6022d6a2b9d458679de5412864f4df586"
+          }
+        ]
+      },
+      {
+        "id": "68b603fb-0fae-49aa-b454-75d329ef4262",
+        "kind": "countercheck",
+        "workspace_revision_id": null,
+        "result": {
+          "scenarios": [
+            {
+              "expected": "holds",
+              "key": "frozen-prefix",
+              "title": "冻结前提：当前前缀只允许手心失败作为已发生结果",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "手心失败这一结果保持不变；不新增万能力量；不使用当前前缀之后的情节。",
+              "assumptions": [],
+              "actions": [
+                "保留两张同样封纸、空铜盘、规程句、大师热铜盘显字、学徒手心空白。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "trial-a-flat-contact",
+              "title": "试改 A 重测：平放/贴合作为关键变量",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "手心仍空白；大师仍显字；不新增道具或规则。",
+              "assumptions": [],
+              "actions": [
+                "把大师动作改为平放并压合热铜盘。",
+                "把学徒动作改为握持导致纸面弯曲、未贴合铜面。",
+                "保留规程句作为外部热源条件。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "trial-b-ink-contact",
+              "title": "试改 B 重测：印泥直接接触铜盘作为关键变量",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "手心仍空白；大师仍显字；不新增道具或规则。",
+              "assumptions": [],
+              "actions": [
+                "把大师动作改为印泥面直接压在热铜盘上。",
+                "把学徒动作改为印泥未接触铜盘。",
+                "保留规程句作为外部热源条件。"
+              ]
+            }
+          ],
+          "summary": "在 rule-06 当前前缀内，手心失败只直接排除“手温足以显字”。它并不排除第三种竞争解释：显字可能依赖封纸与铜盘之间的接触/贴合条件，而非单纯热源温度。可构造两个与手心失败兼容的试改方向：A 把关键变量改为“封纸必须平放并贴合铜盘”；B 把关键变量改为“印泥必须直接接触铜盘”。两者都保留手心空白，但解释不同，且都不新增万能力量。",
+          "claims": [
+            {
+              "kind": "source_statement",
+              "text": "规程说干印泥不会显字，除非得到持续的外部热源。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": ""
+            },
+            {
+              "kind": "source_statement",
+              "text": "大师把封纸放进热铜盘，字迹慢慢浮现；学徒把另一张握在手心，手温不够，纸仍空白。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": ""
+            },
+            {
+              "kind": "interpretation",
+              "text": "手心失败只证明“手温不够”这一条路径失败，不能单独排除接触方式、放置姿态或印泥与铜盘接触等竞争变量。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "当前前缀未给出铜盘温度、手心温度、封纸姿态或印泥接触状态的量化信息。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "竞争解释 A：封纸必须平放并贴合铜盘，热源只是通过铜盘均匀传导；手心握持导致封纸弯曲、接触不均，因此即使有手温也不显字。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "assumptions": [
+                "手心失败可归因于姿态/接触而非温度"
+              ],
+              "uncertainty": "规程原文只提持续外部热源，未提平放或贴合。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "竞争解释 B：显字依赖印泥直接接触铜盘，铜盘作为反应面；手心没有铜盘，因此失败，与手温高低无关。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "assumptions": [
+                "铜盘可能参与显字反应而非仅作热源"
+              ],
+              "uncertainty": "当前前缀未说明印泥是否接触铜盘，也未说明铜盘材质是否特殊。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "竞争解释 C：显字依赖铜盘本身而非热源本身；热铜盘只是常见触发条件，手心失败因缺少铜盘。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "assumptions": [
+                "铜盘具有未说明的显字相关属性"
+              ],
+              "uncertainty": "规程明确说需要持续外部热源，因此该解释与规程字面存在张力，只能作为竞争解释保留。"
+            },
+            {
+              "kind": "proposal",
+              "text": "试改 A：在现有段落内只调整动作描述，让大师“把封纸平放进热铜盘并压合”，学徒“把另一张握在手心，纸面弯曲未贴合任何铜面”，从而把失败变量指向平放/贴合而非仅温度。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "不新增人物、道具或规则条目"
+              ],
+              "uncertainty": "该试改会改变原句中“手温不够”的显式归因，需作者确认是否接受。"
+            },
+            {
+              "kind": "proposal",
+              "text": "试改 B：在现有段落内只调整道具接触描述，让大师“把封纸放进热铜盘，印泥面直接压在盘底”，学徒“把另一张握在手心，印泥未接触铜盘”，从而把失败变量指向印泥-铜盘接触而非温度。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "不新增人物、道具或规则条目"
+              ],
+              "uncertainty": "该试改同样会改变原句对“手温不够”的显式归因，且需要后续文本处理印泥朝向。"
+            }
+          ],
+          "patches": [],
+          "followups": [
+            {
+              "logical_key": "compare-third-explanations",
+              "capability": "compare",
+              "question": "比较试改 A 与试改 B 对“手心失败”的解释力：哪一个更少改动原句显式归因，且更能保留规程句的约束？",
+              "depends_on": [],
+              "dependency_policy": "all_succeeded",
+              "search_query": null,
+              "web_queries": [],
+              "workspace_revision_id": null
+            }
+          ],
+          "omissions": [
+            "未找到字面词语 rule-06、封纸、手心、铜盘、干印泥、显字 的独立资源；本轮仅回读至多三处，未找到不等于不存在相同含义。",
+            "当前前缀未说明铜盘温度、手心温度、封纸姿态、印泥朝向或铜盘材质。",
+            "未宣称全书未出现其他解释；仅就当前前缀讨论。",
+            "未采用或发布任何试改。"
+          ],
+          "knowledge_review": {
+            "status": "passed",
+            "review": {
+              "status": "passed",
+              "repaired": false,
+              "coverage": [
+                {
+                  "dimension": "prior_prose",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "world_rules",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "outline",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                }
+              ],
+              "issue_counts": {
+                "conflict": 0,
+                "irrelevant_content": 0,
+                "missing_required": 0,
+                "out_of_scope_knowledge": 0,
+                "premature_reveal": 0,
+                "unchecked": 0,
+                "unsupported_fact": 0
+              },
+              "issues": []
+            }
+          }
+        },
+        "evidence": [
+          {
+            "key": "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7",
+            "label": "rule-06",
+            "excerpt": "纸匠拿出两张同样的封纸。\n炉边有一只空铜盘。\n学徒把桌上的水擦干，等候示范。\n规程说干印泥不会显字，除非得到持续的外部热源。\n大师把封纸放进热铜盘，字迹慢慢浮现。\n学徒把另一张握在手心，手温不够，纸仍空白。",
+            "url": null,
+            "read_range": null,
+            "source_hash": "61fdf30bdc4a000a4310fe2ccbc29bb6022d6a2b9d458679de5412864f4df586"
+          }
+        ]
+      },
+      {
+        "id": "42375f23-a563-43ac-9098-9eb30345eff5",
+        "kind": "revise",
+        "workspace_revision_id": "fc0ea319-a8b3-4df3-94d6-785d3e1fd117",
+        "result": {
+          "scenarios": [
+            {
+              "expected": "holds",
+              "key": "frozen-prefix",
+              "title": "冻结前提：当前前缀只允许手心失败作为已发生结果",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "手心失败这一结果保持不变；不新增万能力量；不使用当前前缀之后的情节。",
+              "assumptions": [],
+              "actions": [
+                "保留两张同样封纸、空铜盘、规程句、大师热铜盘显字、学徒手心空白。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "trial-b-external-source",
+              "title": "试改 B 重测：热源须位于纸外、不能来自握持者身体",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "手心仍空白；大师仍显字；不新增道具或规则；不取消代价。",
+              "assumptions": [],
+              "actions": [
+                "把规程句改为“热源须位于纸外，不能来自握持者身体”。",
+                "保留大师把封纸放进热铜盘并显字。",
+                "保留学徒把另一张握在手心、纸仍空白。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "trial-a-flat-contact",
+              "title": "试改 A 重测：平放/贴合作为关键变量",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "手心仍空白；大师仍显字；不新增道具或规则。",
+              "assumptions": [],
+              "actions": [
+                "把大师动作改为平放并压合热铜盘。",
+                "把学徒动作改为握持导致纸面弯曲、未贴合铜面。",
+                "保留规程句作为外部热源条件。"
+              ]
+            }
+          ],
+          "summary": "在 rule-06 当前前缀内，手心失败只直接排除“手温足以显字”这一条路径；它不排除显字依赖封纸与铜盘之间的接触/贴合条件，也不排除显字依赖印泥直接接触铜盘。按本轮问题要求，试改 B 只调整措辞，把“持续的外部热源”具体化为“热源须位于纸外、不能来自握持者身体”，同时保留热铜盘显字与手心空白。该试改不新增万能力量、不取消代价，也不使用当前前缀之后的情节。它与试改 A（把关键变量改为平放/贴合）针对不同竞争解释：B 针对“热源位置/来源”这一解释，A 针对“接触姿态”这一解释。两者都保留手心失败，但解释力不同；B 更贴近规程句字面（规程只谈外部热源），A 更贴近“手心握持”这一动作差异。未知项保留在 omissions，不宣称全书未出现其他解释，也未采用或发布任何试改。",
+          "claims": [
+            {
+              "kind": "source_statement",
+              "text": "规程说干印泥不会显字，除非得到持续的外部热源。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": ""
+            },
+            {
+              "kind": "source_statement",
+              "text": "大师把封纸放进热铜盘，字迹慢慢浮现；学徒把另一张握在手心，手温不够，纸仍空白。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": ""
+            },
+            {
+              "kind": "interpretation",
+              "text": "手心失败只证明“手温不够”这一条路径失败，不能单独排除接触方式、放置姿态或印泥与铜盘接触等竞争变量。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "当前前缀未给出铜盘温度、手心温度、封纸姿态或印泥接触状态的量化信息。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "竞争解释 A：封纸必须平放并贴合铜盘，热源只是通过铜盘均匀传导；手心握持导致封纸弯曲、接触不均，因此即使有手温也不显字。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "assumptions": [
+                "手心失败可归因于姿态/接触而非温度"
+              ],
+              "uncertainty": "规程原文只提持续外部热源，未提平放或贴合。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "竞争解释 B：显字依赖印泥直接接触铜盘，铜盘作为反应面；手心没有铜盘，因此失败，与手温高低无关。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "assumptions": [
+                "铜盘可能参与显字反应而非仅作热源"
+              ],
+              "uncertainty": "当前前缀未说明印泥是否接触铜盘，也未说明铜盘材质是否特殊。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "竞争解释 D：显字要求热源位于纸外且不来自握持者身体；手心失败因热源来自身体内部，而非温度绝对值不足。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "assumptions": [
+                "规程句中的“外部”可被读作位置/来源约束而非仅温度来源"
+              ],
+              "uncertainty": "规程原文只说“持续的外部热源”，未明确“外部”指位置还是来源；该解释与“手温不够”的显式归因存在张力。"
+            },
+            {
+              "kind": "proposal",
+              "text": "试改 B：在现有段落内只调整措辞，把规程句改为“干印泥不会显字，除非得到持续的外部热源——热源须位于纸外，不能来自握持者身体”，其余动作序列与结果不变。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "不新增人物、道具或规则条目",
+                "不取消代价、不新增万能力量"
+              ],
+              "uncertainty": "该试改会改变原句对“手温不够”的显式归因，需作者确认是否接受。"
+            },
+            {
+              "kind": "proposal",
+              "text": "试改 A：在现有段落内只调整动作描述，让大师“把封纸平放进热铜盘并压合”，学徒“把另一张握在手心，纸面弯曲未贴合任何铜面”，从而把失败变量指向平放/贴合而非仅温度。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "不新增人物、道具或规则条目"
+              ],
+              "uncertainty": "该试改会改变原句中“手温不够”的显式归因，需作者确认是否接受。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "试改 B 与试改 A 针对不同竞争解释：B 针对“热源位置/来源”这一解释，A 针对“接触姿态”这一解释；两者都保留手心失败，但解释力不同。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "当前前缀不足以判定哪一种解释更符合作者意图。"
+            }
+          ],
+          "patches": [
+            {
+              "kind": "writing_draft",
+              "id": "d1a9537a-415c-4a80-bc04-55ef6bef05a7",
+              "operation": "replace",
+              "value": {
+                "content": "纸匠拿出两张同样的封纸。\n炉边有一只空铜盘。\n学徒把桌上的水擦干，等候示范。\n规程说干印泥不会显字，除非得到持续的外部热源——热源须位于纸外，不能来自握持者身体。\n大师把封纸放进热铜盘，字迹慢慢浮现。\n学徒把另一张握在手心，手温不够，纸仍空白。",
+                "title": "rule-06"
+              }
+            }
+          ],
+          "followups": [
+            {
+              "logical_key": "compare-third-explanations",
+              "capability": "compare",
+              "question": "比较试改 A 与试改 B 对“手心失败”的解释力：哪一个更少改动原句显式归因，且更能保留规程句的约束？",
+              "depends_on": [],
+              "dependency_policy": "all_succeeded",
+              "search_query": null,
+              "web_queries": [],
+              "workspace_revision_id": null
+            }
+          ],
+          "omissions": [
+            "未找到字面词语 rule-06、封纸、手心、铜盘、干印泥、显字 的独立资源；本轮仅回读至多三处，未找到不等于不存在相同含义。",
+            "当前前缀未说明铜盘温度、手心温度、封纸姿态、印泥朝向或铜盘材质。",
+            "未宣称全书未出现其他解释；仅就当前前缀讨论。",
+            "未采用或发布任何试改。",
+            "试改 B 中“热源须位于纸外，不能来自握持者身体”为新增措辞，属于对规程句的具体化，不是当前前缀的既有事实。"
+          ],
+          "knowledge_review": {
+            "status": "passed",
+            "review": {
+              "status": "passed",
+              "repaired": false,
+              "coverage": [
+                {
+                  "dimension": "prior_prose",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "world_rules",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "outline",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                }
+              ],
+              "issue_counts": {
+                "conflict": 0,
+                "irrelevant_content": 0,
+                "missing_required": 0,
+                "out_of_scope_knowledge": 0,
+                "premature_reveal": 0,
+                "unchecked": 0,
+                "unsupported_fact": 0
+              },
+              "issues": []
+            }
+          }
+        },
+        "evidence": [
+          {
+            "key": "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7",
+            "label": "rule-06",
+            "excerpt": "纸匠拿出两张同样的封纸。\n炉边有一只空铜盘。\n学徒把桌上的水擦干，等候示范。\n规程说干印泥不会显字，除非得到持续的外部热源。\n大师把封纸放进热铜盘，字迹慢慢浮现。\n学徒把另一张握在手心，手温不够，纸仍空白。",
+            "url": null,
+            "read_range": null,
+            "source_hash": "61fdf30bdc4a000a4310fe2ccbc29bb6022d6a2b9d458679de5412864f4df586"
+          }
+        ]
+      },
+      {
+        "id": "de83e849-a3c6-4356-812b-8b7b4f6ac0c0",
+        "kind": "test",
+        "workspace_revision_id": null,
+        "result": {
+          "scenarios": [
+            {
+              "expected": "holds",
+              "key": "frozen-prefix",
+              "title": "冻结前提：当前前缀只允许手心失败作为已发生结果",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "手心失败这一结果保持不变；不新增万能力量；不使用当前前缀之后的情节。",
+              "assumptions": [],
+              "actions": [
+                "保留两张同样封纸、空铜盘、规程句、大师热铜盘显字、学徒手心空白。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "trial-b-external-source",
+              "title": "试改 B 重测：热源须位于纸外、不能来自握持者身体",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "手心仍空白；大师仍显字；不新增道具或规则；不取消代价。",
+              "assumptions": [],
+              "actions": [
+                "把规程句改为“热源须位于纸外，不能来自握持者身体”。",
+                "保留大师把封纸放进热铜盘并显字。",
+                "保留学徒把另一张握在手心、纸仍空白。"
+              ]
+            },
+            {
+              "expected": "violated",
+              "key": "trial-b-continuity-check",
+              "title": "试改 B 直接后果检查：持续条件是否被降为次要",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "原文“持续的外部热源”这一时间性条件在试改 B 中是否仍为首要约束；若被位置/来源条件替换，则边界改变。",
+              "assumptions": [
+                "试改 B 的措辞即为其规则含义"
+              ],
+              "actions": [
+                "对比原句“持续的外部热源”与试改 B“热源须位于纸外，不能来自握持者身体”。",
+                "检查试改 B 是否仍要求热源在时间上持续。"
+              ]
+            },
+            {
+              "expected": "violated",
+              "key": "trial-b-body-source-check",
+              "title": "试改 B 直接后果检查：身体热源一律无效是否为未授权假设",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "当前前缀只显示手温不够导致手心失败，未说明身体热源在温度足够时是否仍无效；若试改 B 断言一律无效，则超出当前前缀。",
+              "assumptions": [],
+              "actions": [
+                "检查试改 B 是否把“手温不够”升级为“身体热源一律无效”。",
+                "检查当前前缀是否提供身体热源温度足够时的实验结果。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "trial-b-hot-copper-compat",
+              "title": "试改 B 直接后果检查：热铜盘成功是否仍与原文一致",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "热铜盘位于纸外、不来自握持者身体，且可被读作持续热源；大师显字结果不被试改 B 破坏。",
+              "assumptions": [
+                "热铜盘可被读作持续热源"
+              ],
+              "actions": [
+                "检查热铜盘是否满足试改 B 的“位于纸外、不来自握持者身体”。",
+                "检查热铜盘是否仍可被读作持续热源。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "trial-a-flat-contact",
+              "title": "试改 A 重测：平放/贴合作为关键变量",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "手心仍空白；大师仍显字；不新增道具或规则。",
+              "assumptions": [],
+              "actions": [
+                "把大师动作改为平放并压合热铜盘。",
+                "把学徒动作改为握持导致纸面弯曲、未贴合铜面。",
+                "保留规程句作为外部热源条件。"
+              ]
+            }
+          ],
+          "summary": "对试改 B 做直接后果检查：该试改把规程句从“持续的外部热源”改写为“热源须位于纸外，不能来自握持者身体”。直接后果有三点。第一，它把“持续”这一时间性条件替换为“位置/来源”条件，原文的可操作边界因此改变：原句要求热源在时间上持续，试改 B 要求热源在空间上位于纸外且不来自握持者身体，两者不是同一约束，试改 B 并未保留“持续”作为首要条件。第二，它引入了一个未授权假设——身体热源一律无效。当前前缀只显示“手温不够”导致手心失败，并未说明身体热源在温度足够时也无效；试改 B 的措辞把这一条从“温度不足”升级为“来源禁止”，属于超出当前前缀的规则具体化。第三，热铜盘成功与原文仍一致：热铜盘位于纸外、不来自握持者身体，且仍可被读作持续热源，因此大师显字这一结果不被试改 B 破坏。综合看，试改 B 在“热铜盘成功”上保持兼容，但在“持续”条件与“身体热源一律无效”两点上改变了原文可操作边界并引入未授权假设。试改 A（把关键变量改为平放/贴合）针对的是另一竞争解释，与试改 B 不重叠。未知项保留在 omissions，不宣称全书未出现其他解释，也未采用或发布任何试改。",
+          "claims": [
+            {
+              "kind": "source_statement",
+              "text": "规程说干印泥不会显字，除非得到持续的外部热源。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": ""
+            },
+            {
+              "kind": "source_statement",
+              "text": "大师把封纸放进热铜盘，字迹慢慢浮现；学徒把另一张握在手心，手温不够，纸仍空白。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": ""
+            },
+            {
+              "kind": "interpretation",
+              "text": "试改 B 把“持续的外部热源”改写为“热源须位于纸外，不能来自握持者身体”，直接后果是“持续”这一时间性条件被位置/来源条件替换，原文可操作边界因此改变。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "试改 B 的措辞即为其规则含义"
+              ],
+              "uncertainty": "当前前缀未定义“持续”的时长阈值，也未定义“外部”的判定标准。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "试改 B 引入未授权假设：身体热源一律无效。当前前缀只显示手温不够导致手心失败，未说明身体热源在温度足够时是否仍无效。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "当前前缀未给出身体热源在温度足够时的实验结果。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "热铜盘成功与原文仍一致：热铜盘位于纸外、不来自握持者身体，且可被读作持续热源，因此试改 B 不破坏大师显字这一结果。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "热铜盘可被读作持续热源"
+              ],
+              "uncertainty": "当前前缀未说明铜盘温度是否恒定或热源是否持续供给。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "竞争解释 A：封纸必须平放并贴合铜盘，热源只是通过铜盘均匀传导；手心握持导致封纸弯曲、接触不均，因此即使有手温也不显字。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "assumptions": [
+                "手心失败可归因于姿态/接触而非温度"
+              ],
+              "uncertainty": "规程原文只提持续外部热源，未提平放或贴合。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "竞争解释 B：显字依赖印泥直接接触铜盘，铜盘作为反应面；手心没有铜盘，因此失败，与手温高低无关。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "assumptions": [
+                "铜盘可能参与显字反应而非仅作热源"
+              ],
+              "uncertainty": "当前前缀未说明印泥是否接触铜盘，也未说明铜盘材质是否特殊。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "竞争解释 D：显字要求热源位于纸外且不来自握持者身体；手心失败因热源来自身体内部，而非温度绝对值不足。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "assumptions": [
+                "规程句中的“外部”可被读作位置/来源约束而非仅温度来源"
+              ],
+              "uncertainty": "规程原文只说“持续的外部热源”，未明确“外部”指位置还是来源；该解释与“手温不够”的显式归因存在张力。"
+            },
+            {
+              "kind": "proposal",
+              "text": "试改 B：在现有段落内只调整措辞，把规程句改为“干印泥不会显字，除非得到持续的外部热源——热源须位于纸外，不能来自握持者身体”，其余动作序列与结果不变。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "不新增人物、道具或规则条目",
+                "不取消代价、不新增万能力量"
+              ],
+              "uncertainty": "该试改会改变原句对“手温不够”的显式归因，需作者确认是否接受。"
+            },
+            {
+              "kind": "proposal",
+              "text": "试改 A：在现有段落内只调整动作描述，让大师“把封纸平放进热铜盘并压合”，学徒“把另一张握在手心，纸面弯曲未贴合任何铜面”，从而把失败变量指向平放/贴合而非仅温度。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "不新增人物、道具或规则条目"
+              ],
+              "uncertainty": "该试改会改变原句中“手温不够”的显式归因，需作者确认是否接受。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "试改 B 与试改 A 针对不同竞争解释：B 针对“热源位置/来源”这一解释，A 针对“接触姿态”这一解释；两者都保留手心失败，但解释力不同。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "当前前缀不足以判定哪一种解释更符合作者意图。"
+            }
+          ],
+          "patches": [],
+          "followups": [
+            {
+              "logical_key": "compare-third-explanations",
+              "capability": "compare",
+              "question": "比较试改 A 与试改 B 对“手心失败”的解释力：哪一个更少改动原句显式归因，且更能保留规程句的约束？",
+              "depends_on": [],
+              "dependency_policy": "all_succeeded",
+              "search_query": null,
+              "web_queries": [],
+              "workspace_revision_id": null
+            }
+          ],
+          "omissions": [
+            "未找到字面词语 rule-06、封纸、手心、铜盘、干印泥、显字 的独立资源；本轮仅回读至多三处，未找到不等于不存在相同含义。",
+            "当前前缀未说明铜盘温度、手心温度、封纸姿态、印泥朝向或铜盘材质。",
+            "当前前缀未定义“持续”的时长阈值，也未定义“外部”的判定标准。",
+            "当前前缀未给出身体热源在温度足够时的实验结果。",
+            "未宣称全书未出现其他解释；仅就当前前缀讨论。",
+            "未采用或发布任何试改。",
+            "试改 B 中“热源须位于纸外，不能来自握持者身体”为新增措辞，属于对规程句的具体化，不是当前前缀的既有事实。"
+          ],
+          "knowledge_review": {
+            "status": "passed",
+            "review": {
+              "status": "passed",
+              "repaired": false,
+              "coverage": [
+                {
+                  "dimension": "prior_prose",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "world_rules",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "outline",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                }
+              ],
+              "issue_counts": {
+                "conflict": 0,
+                "irrelevant_content": 0,
+                "missing_required": 0,
+                "out_of_scope_knowledge": 0,
+                "premature_reveal": 0,
+                "unchecked": 0,
+                "unsupported_fact": 0
+              },
+              "issues": []
+            }
+          }
+        },
+        "evidence": [
+          {
+            "key": "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7",
+            "label": "rule-06",
+            "excerpt": "纸匠拿出两张同样的封纸。\n炉边有一只空铜盘。\n学徒把桌上的水擦干，等候示范。\n规程说干印泥不会显字，除非得到持续的外部热源。\n大师把封纸放进热铜盘，字迹慢慢浮现。\n学徒把另一张握在手心，手温不够，纸仍空白。",
+            "url": null,
+            "read_range": null,
+            "source_hash": "61fdf30bdc4a000a4310fe2ccbc29bb6022d6a2b9d458679de5412864f4df586"
+          }
+        ]
+      },
+      {
+        "id": "d34eeb49-322c-4cd4-843e-79d024920d92",
+        "kind": "compare",
+        "workspace_revision_id": null,
+        "result": {
+          "scenarios": [
+            {
+              "expected": "holds",
+              "key": "frozen-prefix",
+              "title": "冻结前提：当前前缀只允许手心失败作为已发生结果",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "手心失败这一结果保持不变；不新增万能力量；不使用当前前缀之后的情节。",
+              "assumptions": [],
+              "actions": [
+                "保留两张同样封纸、空铜盘、规程句、大师热铜盘显字、学徒手心空白。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "trial-b-external-source",
+              "title": "试改 B 重测：热源须位于纸外、不能来自握持者身体",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "手心仍空白；大师仍显字；不新增道具或规则；不取消代价。",
+              "assumptions": [],
+              "actions": [
+                "把规程句改为“热源须位于纸外，不能来自握持者身体”。",
+                "保留大师把封纸放进热铜盘并显字。",
+                "保留学徒把另一张握在手心、纸仍空白。"
+              ]
+            },
+            {
+              "expected": "violated",
+              "key": "trial-b-continuity-check",
+              "title": "试改 B 直接后果检查：持续条件是否被降为次要",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "原文“持续的外部热源”这一时间性条件在试改 B 中是否仍为首要约束；若被位置/来源条件替换，则边界改变。",
+              "assumptions": [
+                "试改 B 的措辞即为其规则含义"
+              ],
+              "actions": [
+                "对比原句“持续的外部热源”与试改 B“热源须位于纸外，不能来自握持者身体”。",
+                "检查试改 B 是否仍要求热源在时间上持续。"
+              ]
+            },
+            {
+              "expected": "violated",
+              "key": "trial-b-body-source-check",
+              "title": "试改 B 直接后果检查：身体热源一律无效是否为未授权假设",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "当前前缀只显示手温不够导致手心失败，未说明身体热源在温度足够时是否仍无效；若试改 B 断言一律无效，则超出当前前缀。",
+              "assumptions": [],
+              "actions": [
+                "检查试改 B 是否把“手温不够”升级为“身体热源一律无效”。",
+                "检查当前前缀是否提供身体热源温度足够时的实验结果。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "trial-b-hot-copper-compat",
+              "title": "试改 B 直接后果检查：热铜盘成功是否仍与原文一致",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "热铜盘位于纸外、不来自握持者身体，且可被读作持续热源；大师显字结果不被试改 B 破坏。",
+              "assumptions": [
+                "热铜盘可被读作持续热源"
+              ],
+              "actions": [
+                "检查热铜盘是否满足试改 B 的“位于纸外、不来自握持者身体”。",
+                "检查热铜盘是否仍可被读作持续热源。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "trial-a-flat-contact",
+              "title": "试改 A 重测：平放/贴合作为关键变量",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "手心仍空白；大师仍显字；不新增道具或规则。",
+              "assumptions": [],
+              "actions": [
+                "把大师动作改为平放并压合热铜盘。",
+                "把学徒动作改为握持导致纸面弯曲、未贴合铜面。",
+                "保留规程句作为外部热源条件。"
+              ]
+            },
+            {
+              "expected": "violated",
+              "key": "trial-a-unauthorized-check",
+              "title": "试改 A 直接后果检查：平放/贴合是否为未授权变量",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "当前前缀未提平放或贴合；若试改 A 把失败归因于姿态/接触，则改动原句“手温不够”的显式归因。",
+              "assumptions": [],
+              "actions": [
+                "检查试改 A 是否新增“平放/贴合”这一当前前缀未提的变量。",
+                "检查试改 A 是否仍保留“手温不够”的显式归因。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "trial-a-competition-space",
+              "title": "试改 A 直接后果检查：持续与外部竞争空间是否保留",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "试改 A 保留原规程句不动，因此“持续”与“外部”两种解释的竞争空间未被关闭。",
+              "assumptions": [],
+              "actions": [
+                "检查试改 A 是否改写规程句。",
+                "检查试改 A 是否把“外部”具体化为位置/来源。"
+              ]
+            }
+          ],
+          "summary": "本轮为 compare 工作，不输出 patches。仅依据当前前缀（writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7）比较试改 A 与试改 B 对“手心失败”的解释力。冻结前提：两张同样封纸、空铜盘、规程句“干印泥不会显字，除非得到持续的外部热源”、大师热铜盘显字、学徒手心空白。试改 A 把关键变量指向平放/贴合（接触姿态），试改 B 把规程句改写为“热源须位于纸外，不能来自握持者身体”（位置/来源）。直接后果检查：试改 B 把“持续”这一时间性条件替换为位置/来源条件，改变了原文可操作边界；并引入未授权假设“身体热源一律无效”，因为当前前缀只显示手温不够导致手心失败，未给出身体热源在温度足够时的实验结果。试改 B 与热铜盘成功仍兼容（铜盘位于纸外、不来自握持者身体，且可被读作持续热源）。试改 A 不新增规则措辞，但把“手温不够”的显式归因替换为姿态/接触归因，同样改动原句显式归因，且引入“平放/贴合”这一当前前缀未提的变量。就“更少引入未授权假设”而言，试改 A 未新增规则条目、未断言身体热源一律无效，未授权假设更少；就“更能保留‘持续’与‘外部’两种解释的竞争空间”而言，试改 A 保留原规程句不动，因此“持续”与“外部”的竞争空间未被关闭，而试改 B 把“外部”具体化为位置/来源并弱化“持续”，压缩了竞争空间。综合：试改 A 在两项标准上均优于试改 B，但两者都改动原句显式归因，需作者确认。未采用或发布任何试改；未知保留在 omissions，不宣称全书未出现其他解释。",
+          "claims": [
+            {
+              "kind": "source_statement",
+              "text": "规程说干印泥不会显字，除非得到持续的外部热源。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": ""
+            },
+            {
+              "kind": "source_statement",
+              "text": "大师把封纸放进热铜盘，字迹慢慢浮现；学徒把另一张握在手心，手温不够，纸仍空白。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": ""
+            },
+            {
+              "kind": "interpretation",
+              "text": "试改 B 把“持续的外部热源”改写为“热源须位于纸外，不能来自握持者身体”，直接后果是“持续”这一时间性条件被位置/来源条件替换，原文可操作边界因此改变。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "试改 B 的措辞即为其规则含义"
+              ],
+              "uncertainty": "当前前缀未定义“持续”的时长阈值，也未定义“外部”的判定标准。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "试改 B 引入未授权假设：身体热源一律无效。当前前缀只显示手温不够导致手心失败，未说明身体热源在温度足够时是否仍无效。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "当前前缀未给出身体热源在温度足够时的实验结果。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "热铜盘成功与原文仍一致：热铜盘位于纸外、不来自握持者身体，且可被读作持续热源，因此试改 B 不破坏大师显字这一结果。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "热铜盘可被读作持续热源"
+              ],
+              "uncertainty": "当前前缀未说明铜盘温度是否恒定或热源是否持续供给。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "试改 A 把关键变量指向平放/贴合，未新增规则条目、未断言身体热源一律无效，因此其未授权假设少于试改 B。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "不新增人物、道具或规则条目"
+              ],
+              "uncertainty": "当前前缀未提平放或贴合，试改 A 仍改动原句显式归因。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "试改 A 保留原规程句不动，因此“持续”与“外部”两种解释的竞争空间未被关闭；试改 B 把“外部”具体化为位置/来源并弱化“持续”，压缩了该竞争空间。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "当前前缀不足以判定作者更倾向保留哪一种解释。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "竞争解释 A：封纸必须平放并贴合铜盘，热源只是通过铜盘均匀传导；手心握持导致封纸弯曲、接触不均，因此即使有手温也不显字。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "assumptions": [
+                "手心失败可归因于姿态/接触而非温度"
+              ],
+              "uncertainty": "规程原文只提持续外部热源，未提平放或贴合。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "竞争解释 B：显字依赖印泥直接接触铜盘，铜盘作为反应面；手心没有铜盘，因此失败，与手温高低无关。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "assumptions": [
+                "铜盘可能参与显字反应而非仅作热源"
+              ],
+              "uncertainty": "当前前缀未说明印泥是否接触铜盘，也未说明铜盘材质是否特殊。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "竞争解释 D：显字要求热源位于纸外且不来自握持者身体；手心失败因热源来自身体内部，而非温度绝对值不足。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "assumptions": [
+                "规程句中的“外部”可被读作位置/来源约束而非仅温度来源"
+              ],
+              "uncertainty": "规程原文只说“持续的外部热源”，未明确“外部”指位置还是来源；该解释与“手温不够”的显式归因存在张力。"
+            },
+            {
+              "kind": "proposal",
+              "text": "试改 B：在现有段落内只调整措辞，把规程句改为“干印泥不会显字，除非得到持续的外部热源——热源须位于纸外，不能来自握持者身体”，其余动作序列与结果不变。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "不新增人物、道具或规则条目",
+                "不取消代价、不新增万能力量"
+              ],
+              "uncertainty": "该试改会改变原句对“手温不够”的显式归因，需作者确认是否接受。"
+            },
+            {
+              "kind": "proposal",
+              "text": "试改 A：在现有段落内只调整动作描述，让大师“把封纸平放进热铜盘并压合”，学徒“把另一张握在手心，纸面弯曲未贴合任何铜面”，从而把失败变量指向平放/贴合而非仅温度。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "不新增人物、道具或规则条目"
+              ],
+              "uncertainty": "该试改会改变原句中“手温不够”的显式归因，需作者确认是否接受。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "试改 B 与试改 A 针对不同竞争解释：B 针对“热源位置/来源”这一解释，A 针对“接触姿态”这一解释；两者都保留手心失败，但解释力不同。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "当前前缀不足以判定哪一种解释更符合作者意图。"
+            }
+          ],
+          "patches": [],
+          "followups": [
+            {
+              "logical_key": "compare-third-explanations",
+              "capability": "compare",
+              "question": "比较试改 A 与试改 B 对“手心失败”的解释力：哪一个更少改动原句显式归因，且更能保留规程句的约束？",
+              "depends_on": [],
+              "dependency_policy": "all_succeeded",
+              "search_query": null,
+              "web_queries": [],
+              "workspace_revision_id": null
+            }
+          ],
+          "omissions": [
+            "未找到字面词语 rule-06、封纸、手心、铜盘、干印泥、显字 的独立资源；本轮仅回读至多三处，未找到不等于不存在相同含义。",
+            "当前前缀未说明铜盘温度、手心温度、封纸姿态、印泥朝向或铜盘材质。",
+            "当前前缀未定义“持续”的时长阈值，也未定义“外部”的判定标准。",
+            "当前前缀未给出身体热源在温度足够时的实验结果。",
+            "未宣称全书未出现其他解释；仅就当前前缀讨论。",
+            "未采用或发布任何试改。",
+            "试改 B 中“热源须位于纸外，不能来自握持者身体”为新增措辞，属于对规程句的具体化，不是当前前缀的既有事实。",
+            "试改 A 中“平放/贴合”为新增动作描述，不是当前前缀的既有事实。",
+            "当前前缀不足以判定试改 A 与试改 B 哪一种更符合作者意图。"
+          ],
+          "knowledge_review": {
+            "status": "passed",
+            "review": {
+              "status": "passed",
+              "repaired": false,
+              "coverage": [
+                {
+                  "dimension": "prior_prose",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "world_rules",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "outline",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "invariants",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "comparison_validity",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "internal_consistency",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                }
+              ],
+              "issue_counts": {
+                "conflict": 0,
+                "irrelevant_content": 0,
+                "missing_required": 0,
+                "out_of_scope_knowledge": 0,
+                "premature_reveal": 0,
+                "unchecked": 0,
+                "unsupported_fact": 0
+              },
+              "issues": []
+            }
+          }
+        },
+        "evidence": [
+          {
+            "key": "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7",
+            "label": "rule-06",
+            "excerpt": "纸匠拿出两张同样的封纸。\n炉边有一只空铜盘。\n学徒把桌上的水擦干，等候示范。\n规程说干印泥不会显字，除非得到持续的外部热源。\n大师把封纸放进热铜盘，字迹慢慢浮现。\n学徒把另一张握在手心，手温不够，纸仍空白。",
+            "url": null,
+            "read_range": null,
+            "source_hash": "61fdf30bdc4a000a4310fe2ccbc29bb6022d6a2b9d458679de5412864f4df586"
+          }
+        ]
+      },
+      {
+        "id": "d644fef9-f40c-4faf-9ad5-01f743212838",
+        "kind": "test",
+        "workspace_revision_id": null,
+        "result": {
+          "scenarios": [
+            {
+              "expected": "holds",
+              "key": "frozen-prefix",
+              "title": "冻结前提：当前前缀只允许手心失败作为已发生结果",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "手心失败这一结果保持不变；不新增万能力量；不使用当前前缀之后的情节。",
+              "assumptions": [],
+              "actions": [
+                "保留两张同样封纸、空铜盘、规程句、大师热铜盘显字、学徒手心空白。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "trial-a1-persistence",
+              "title": "试改 A1 重测：只把“持续”具体化为“热源不能中断”",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "手心仍空白；大师仍显字；动作序列与结果不变；不新增道具或规则；不把“外部”降为次要条件。",
+              "assumptions": [
+                "“持续”与“不能中断”在当前前缀内可视为同义收紧"
+              ],
+              "actions": [
+                "把规程句的“持续”具体化为“热源不能中断”。",
+                "保留大师热铜盘显字与学徒手心空白。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "trial-a2-flat-contact",
+              "title": "试改 A2 重测：平放/贴合作为关键变量",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "手心仍空白；大师仍显字；不新增道具或规则；显式归因由“手温不够”替换为姿态/贴合。",
+              "assumptions": [
+                "不新增人物、道具或规则条目"
+              ],
+              "actions": [
+                "把大师动作改为平放并压合热铜盘。",
+                "把学徒动作改为握持导致纸面弯曲、未贴合铜面。",
+                "保留规程句作为外部热源条件。"
+              ]
+            }
+          ],
+          "summary": "对试改 A 的两个版本分别做独立直接后果检查。版本 A1（只把规程句的“持续”具体化为“热源不能中断”，动作序列与结果不变）不改变原文可操作边界，不引入未授权假设，仍与热铜盘显字和手心空白兼容；它只是把规程中已有的“持续”一词显式化，属于同义收紧而非新增规则。版本 A2（把关键变量改为“封纸必须平放并贴合铜盘”）确实把原句“手温不够”的显式归因替换为姿态/贴合归因，得失并存：得是能解释手心失败而不依赖温度量化，失是改动了原文显式归因、且“平放/贴合”是当前前缀未授权的假设。两者都不新增万能力量，都不使用当前前缀之后的情节。",
+          "claims": [
+            {
+              "kind": "source_statement",
+              "text": "规程说干印泥不会显字，除非得到持续的外部热源。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": ""
+            },
+            {
+              "kind": "source_statement",
+              "text": "大师把封纸放进热铜盘，字迹慢慢浮现；学徒把另一张握在手心，手温不够，纸仍空白。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": ""
+            },
+            {
+              "kind": "interpretation",
+              "text": "A1 只把规程句的“持续”具体化为“热源不能中断”，动作序列与结果不变；这是对原文已有词语的显式化，不改变可操作边界，不把“外部”降为次要条件，仍与热铜盘显字和手心空白兼容。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "“持续”与“不能中断”在当前前缀内可视为同义收紧"
+              ],
+              "uncertainty": "若作者认为“持续”还包含强度或时长门槛，则 A1 可能被读作轻微收紧；当前前缀未给出该门槛。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "A2 把关键变量改为“封纸必须平放并贴合铜盘”，确实把原句“手温不够”的显式归因替换为姿态/贴合归因；得是能解释手心失败而不依赖温度量化，失是改动原文显式归因，且“平放/贴合”是当前前缀未授权的假设。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "不新增人物、道具或规则条目"
+              ],
+              "uncertainty": "当前前缀未说明封纸姿态或贴合状态，因此 A2 的得失判断依赖作者是否接受姿态作为显式变量。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "竞争解释 A2′：手心失败可归因于姿态/接触而非温度；该解释与手心空白兼容，但与规程字面只提“持续外部热源”存在张力。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "assumptions": [
+                "手心失败可归因于姿态/接触而非温度"
+              ],
+              "uncertainty": "规程原文只提持续外部热源，未提平放或贴合。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "竞争解释 B′：显字依赖印泥直接接触铜盘，手心失败因缺少铜盘接触，与手温高低无关；该解释同样与手心空白兼容。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "assumptions": [
+                "铜盘可能参与显字反应而非仅作热源"
+              ],
+              "uncertainty": "当前前缀未说明印泥是否接触铜盘，也未说明铜盘材质是否特殊。"
+            },
+            {
+              "kind": "proposal",
+              "text": "试改 A1：在现有段落内只把规程句的“持续”具体化为“热源不能中断”，动作序列与结果不变；不新增人物、道具或规则条目。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "不新增人物、道具或规则条目"
+              ],
+              "uncertainty": "若作者认为“持续”还包含强度或时长门槛，则 A1 可能被读作轻微收紧。"
+            },
+            {
+              "kind": "proposal",
+              "text": "试改 A2：在现有段落内只调整动作描述，让大师“把封纸平放进热铜盘并压合”，学徒“把另一张握在手心，纸面弯曲未贴合任何铜面”，从而把失败变量指向平放/贴合而非仅温度。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "不新增人物、道具或规则条目"
+              ],
+              "uncertainty": "该试改会改变原句中“手温不够”的显式归因，需作者确认是否接受。"
+            }
+          ],
+          "patches": [],
+          "followups": [
+            {
+              "logical_key": "compare-a1-a2-boundary",
+              "capability": "compare",
+              "question": "比较试改 A1 与 A2：哪一个更少改动原文可操作边界与显式归因，且更能保留规程句“持续的外部热源”的约束？",
+              "depends_on": [],
+              "dependency_policy": "all_succeeded",
+              "search_query": null,
+              "web_queries": [],
+              "workspace_revision_id": null
+            }
+          ],
+          "omissions": [
+            "未找到字面词语 rule-06、封纸、手心、铜盘、干印泥、显字 的独立资源；本轮仅回读至多三处，未找到不等于不存在相同含义。",
+            "当前前缀未说明铜盘温度、手心温度、封纸姿态、印泥朝向或铜盘材质。",
+            "未宣称全书未出现其他解释；仅就当前前缀讨论。",
+            "未采用或发布任何试改。",
+            "A1 是否被读作轻微收紧，取决于作者对“持续”是否含强度/时长门槛的判定；当前前缀未给出该门槛。"
+          ],
+          "knowledge_review": {
+            "status": "passed",
+            "review": {
+              "status": "passed",
+              "repaired": false,
+              "coverage": [
+                {
+                  "dimension": "prior_prose",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "world_rules",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "outline",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                }
+              ],
+              "issue_counts": {
+                "conflict": 0,
+                "irrelevant_content": 0,
+                "missing_required": 0,
+                "out_of_scope_knowledge": 0,
+                "premature_reveal": 0,
+                "unchecked": 0,
+                "unsupported_fact": 0
+              },
+              "issues": []
+            }
+          }
+        },
+        "evidence": [
+          {
+            "key": "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7",
+            "label": "rule-06",
+            "excerpt": "纸匠拿出两张同样的封纸。\n炉边有一只空铜盘。\n学徒把桌上的水擦干，等候示范。\n规程说干印泥不会显字，除非得到持续的外部热源。\n大师把封纸放进热铜盘，字迹慢慢浮现。\n学徒把另一张握在手心，手温不够，纸仍空白。",
+            "url": null,
+            "read_range": null,
+            "source_hash": "61fdf30bdc4a000a4310fe2ccbc29bb6022d6a2b9d458679de5412864f4df586"
+          }
+        ]
+      },
+      {
+        "id": "64f09a7a-3a93-46ea-ae5b-eaaab4925e45",
+        "kind": "compare",
+        "workspace_revision_id": null,
+        "result": {
+          "scenarios": [
+            {
+              "expected": "holds",
+              "key": "frozen-prefix",
+              "title": "冻结前提：当前前缀只允许手心失败作为已发生结果",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "手心失败这一结果保持不变；不新增万能力量；不使用当前前缀之后的情节。",
+              "assumptions": [],
+              "actions": [
+                "保留两张同样封纸、空铜盘、规程句、大师热铜盘显字、学徒手心空白。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "trial-a-persistence",
+              "title": "试改 A 重测：只把“持续”具体化为“热源不能中断”",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "手心仍空白；大师仍显字；动作序列与结果不变；不新增道具或规则；不把“外部”降为次要条件。",
+              "assumptions": [
+                "“持续”与“不能中断”在当前前缀内可视为同义收紧"
+              ],
+              "actions": [
+                "把规程句的“持续”具体化为“热源不能中断”。",
+                "保留大师热铜盘显字与学徒手心空白。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "trial-b-external-source",
+              "title": "试改 B 重测：热源须位于纸外、不能来自握持者身体",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "手心仍空白；大师仍显字；不新增道具或规则；不取消代价。",
+              "assumptions": [],
+              "actions": [
+                "把规程句改为“热源须位于纸外，不能来自握持者身体”。",
+                "保留大师把封纸放进热铜盘并显字。",
+                "保留学徒把另一张握在手心、纸仍空白。"
+              ]
+            },
+            {
+              "expected": "violated",
+              "key": "trial-b-continuity-check",
+              "title": "试改 B 直接后果检查：持续条件是否被降为次要",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "原文“持续的外部热源”这一时间性条件在试改 B 中是否仍为首要约束；若被位置/来源条件替换，则边界改变。",
+              "assumptions": [
+                "试改 B 的措辞即为其规则含义"
+              ],
+              "actions": [
+                "对比原句“持续的外部热源”与试改 B“热源须位于纸外，不能来自握持者身体”。",
+                "检查试改 B 是否仍要求热源在时间上持续。"
+              ]
+            },
+            {
+              "expected": "violated",
+              "key": "trial-b-body-source-check",
+              "title": "试改 B 直接后果检查：身体热源一律无效是否为未授权假设",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "当前前缀只显示手温不够导致手心失败，未说明身体热源在温度足够时是否仍无效；若试改 B 断言一律无效，则超出当前前缀。",
+              "assumptions": [],
+              "actions": [
+                "检查试改 B 是否把“手温不够”升级为“身体热源一律无效”。",
+                "检查当前前缀是否提供身体热源温度足够时的实验结果。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "trial-b-hot-copper-compat",
+              "title": "试改 B 直接后果检查：热铜盘成功是否仍与原文一致",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "热铜盘位于纸外、不来自握持者身体，且可被读作持续热源；大师显字结果不被试改 B 破坏。",
+              "assumptions": [
+                "热铜盘可被读作持续热源"
+              ],
+              "actions": [
+                "检查热铜盘是否满足试改 B 的“位于纸外、不来自握持者身体”。",
+                "检查热铜盘是否仍可被读作持续热源。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "trial-a-competition-space",
+              "title": "试改 A 直接后果检查：持续与外部两种解释的竞争空间是否保留",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "试改 A 只显式化“持续”，不替换“外部”；“持续”与“外部”两种解释仍可并存，手心失败仍可由温度、姿态或接触等竞争解释说明。",
+              "assumptions": [
+                "“持续”与“不能中断”在当前前缀内可视为同义收紧"
+              ],
+              "actions": [
+                "检查试改 A 是否把“外部”降为次要条件。",
+                "检查试改 A 是否排除温度、姿态或接触等竞争解释。"
+              ]
+            }
+          ],
+          "summary": "在冻结同一组不变量（六行动作序列、热铜盘成功、手心失败、无新增万能力量）下，试改 A 与试改 B 的未授权假设与竞争空间保留程度不同。试改 A 只把规程句已有的“持续”显式化为“热源不能中断”，动作序列与结果不变，不新增人物、道具或规则条目，不把“外部”降为次要条件，因此未授权假设最少，且“持续”与“外部”两种解释的竞争空间基本保留（“持续”被显式化后仍可与“外部”并列，手心失败仍可由温度、姿态或接触等竞争解释说明）。试改 B 把“持续的外部热源”改写为“热源须位于纸外，不能来自握持者身体”，直接后果是把时间性条件替换为位置/来源条件，并引入“身体热源一律无效”这一当前前缀未授权的假设；它虽仍与热铜盘成功兼容，但改变了原文可操作边界，且把“手温不够”的显式归因升级为来源禁止，压缩了竞争空间。因此，就“更少引入未授权假设”与“更能保留‘持续’与‘外部’两种解释的竞争空间”而言，试改 A 优于试改 B。两者都不新增万能力量，都不使用当前前缀之后的情节。未知项保留在 omissions，不宣称全书未出现其他解释，也未采用或发布任何试改。",
+          "claims": [
+            {
+              "kind": "source_statement",
+              "text": "规程说干印泥不会显字，除非得到持续的外部热源。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": ""
+            },
+            {
+              "kind": "source_statement",
+              "text": "大师把封纸放进热铜盘，字迹慢慢浮现；学徒把另一张握在手心，手温不够，纸仍空白。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": ""
+            },
+            {
+              "kind": "interpretation",
+              "text": "试改 A 只把规程句的“持续”具体化为“热源不能中断”，动作序列与结果不变；这是对原文已有词语的显式化，不改变可操作边界，不把“外部”降为次要条件，仍与热铜盘显字和手心空白兼容。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "“持续”与“不能中断”在当前前缀内可视为同义收紧"
+              ],
+              "uncertainty": "若作者认为“持续”还包含强度或时长门槛，则试改 A 可能被读作轻微收紧；当前前缀未给出该门槛。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "试改 B 把“持续的外部热源”改写为“热源须位于纸外，不能来自握持者身体”，直接后果是“持续”这一时间性条件被位置/来源条件替换，原文可操作边界因此改变。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "试改 B 的措辞即为其规则含义"
+              ],
+              "uncertainty": "当前前缀未定义“持续”的时长阈值，也未定义“外部”的判定标准。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "试改 B 引入未授权假设：身体热源一律无效。当前前缀只显示手温不够导致手心失败，未说明身体热源在温度足够时是否仍无效。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "当前前缀未给出身体热源在温度足够时的实验结果。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "热铜盘成功与原文仍一致：热铜盘位于纸外、不来自握持者身体，且可被读作持续热源，因此试改 B 不破坏大师显字这一结果。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "热铜盘可被读作持续热源"
+              ],
+              "uncertainty": "当前前缀未说明铜盘温度是否恒定或热源是否持续供给。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "竞争解释 A：封纸必须平放并贴合铜盘，热源只是通过铜盘均匀传导；手心握持导致封纸弯曲、接触不均，因此即使有手温也不显字。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "assumptions": [
+                "手心失败可归因于姿态/接触而非温度"
+              ],
+              "uncertainty": "规程原文只提持续外部热源，未提平放或贴合。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "竞争解释 B：显字依赖印泥直接接触铜盘，铜盘作为反应面；手心没有铜盘，因此失败，与手温高低无关。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "assumptions": [
+                "铜盘可能参与显字反应而非仅作热源"
+              ],
+              "uncertainty": "当前前缀未说明印泥是否接触铜盘，也未说明铜盘材质是否特殊。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "竞争解释 D：显字要求热源位于纸外且不来自握持者身体；手心失败因热源来自身体内部，而非温度绝对值不足。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "assumptions": [
+                "规程句中的“外部”可被读作位置/来源约束而非仅温度来源"
+              ],
+              "uncertainty": "规程原文只说“持续的外部热源”，未明确“外部”指位置还是来源；该解释与“手温不够”的显式归因存在张力。"
+            },
+            {
+              "kind": "proposal",
+              "text": "试改 A：在现有段落内只把规程句的“持续”具体化为“热源不能中断”，动作序列与结果不变；不新增人物、道具或规则条目。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "不新增人物、道具或规则条目"
+              ],
+              "uncertainty": "若作者认为“持续”还包含强度或时长门槛，则试改 A 可能被读作轻微收紧。"
+            },
+            {
+              "kind": "proposal",
+              "text": "试改 B：在现有段落内只调整措辞，把规程句改为“干印泥不会显字，除非得到持续的外部热源——热源须位于纸外，不能来自握持者身体”，其余动作序列与结果不变。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "不新增人物、道具或规则条目",
+                "不取消代价、不新增万能力量"
+              ],
+              "uncertainty": "该试改会改变原句对“手温不够”的显式归因，需作者确认是否接受。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "试改 A 与试改 B 针对不同竞争解释：A 只显式化“持续”，不替换“外部”，因此“持续”与“外部”两种解释的竞争空间基本保留；B 把“外部”具体化为位置/来源约束并引入“身体热源一律无效”，压缩了竞争空间。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "当前前缀不足以判定哪一种解释更符合作者意图。"
+            }
+          ],
+          "patches": [],
+          "followups": [
+            {
+              "logical_key": "compare-a-b-unauthorized-assumptions",
+              "capability": "compare",
+              "question": "比较试改 A 与试改 B：哪一个更少引入未授权假设，并更能保留“持续”与“外部”两种解释的竞争空间？",
+              "depends_on": [],
+              "dependency_policy": "all_succeeded",
+              "search_query": null,
+              "web_queries": [],
+              "workspace_revision_id": null
+            }
+          ],
+          "omissions": [
+            "未找到字面词语 rule-06、封纸、手心、铜盘、干印泥、显字 的独立资源；本轮仅回读至多三处，未找到不等于不存在相同含义。",
+            "当前前缀未说明铜盘温度、手心温度、封纸姿态、印泥朝向或铜盘材质。",
+            "当前前缀未定义“持续”的时长阈值，也未定义“外部”的判定标准。",
+            "当前前缀未给出身体热源在温度足够时的实验结果。",
+            "未宣称全书未出现其他解释；仅就当前前缀讨论。",
+            "未采用或发布任何试改。",
+            "试改 B 中“热源须位于纸外，不能来自握持者身体”为新增措辞，属于对规程句的具体化，不是当前前缀的既有事实。",
+            "试改 A 是否被读作轻微收紧，取决于作者对“持续”是否含强度/时长门槛的判定；当前前缀未给出该门槛。"
+          ],
+          "knowledge_review": {
+            "status": "passed",
+            "review": {
+              "status": "passed",
+              "repaired": false,
+              "coverage": [
+                {
+                  "dimension": "prior_prose",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "world_rules",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "outline",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                }
+              ],
+              "issue_counts": {
+                "conflict": 0,
+                "irrelevant_content": 0,
+                "missing_required": 0,
+                "out_of_scope_knowledge": 0,
+                "premature_reveal": 0,
+                "unchecked": 0,
+                "unsupported_fact": 0
+              },
+              "issues": []
+            }
+          }
+        },
+        "evidence": [
+          {
+            "key": "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7",
+            "label": "rule-06",
+            "excerpt": "纸匠拿出两张同样的封纸。\n炉边有一只空铜盘。\n学徒把桌上的水擦干，等候示范。\n规程说干印泥不会显字，除非得到持续的外部热源。\n大师把封纸放进热铜盘，字迹慢慢浮现。\n学徒把另一张握在手心，手温不够，纸仍空白。",
+            "url": null,
+            "read_range": null,
+            "source_hash": "61fdf30bdc4a000a4310fe2ccbc29bb6022d6a2b9d458679de5412864f4df586"
+          }
+        ]
+      },
+      {
+        "id": "544f8640-96cd-4f3c-9b44-3e690bbbe7aa",
+        "kind": "compare",
+        "workspace_revision_id": null,
+        "result": {
+          "scenarios": [
+            {
+              "expected": "holds",
+              "key": "frozen-prefix",
+              "title": "冻结前提：当前前缀只允许手心失败作为已发生结果",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "手心失败这一结果保持不变；不新增万能力量；不使用当前前缀之后的情节。",
+              "assumptions": [],
+              "actions": [
+                "保留两张同样封纸、空铜盘、规程句、大师热铜盘显字、学徒手心空白。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "trial-a-flat-contact",
+              "title": "试改 A 重测：平放/贴合作为关键变量",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "手心仍空白；大师仍显字；不新增道具或规则；显式归因由“手温不够”替换为姿态/贴合。",
+              "assumptions": [
+                "不新增人物、道具或规则条目"
+              ],
+              "actions": [
+                "把大师动作改为平放并压合热铜盘。",
+                "把学徒动作改为握持导致纸面弯曲、未贴合铜面。",
+                "保留规程句作为外部热源条件。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "trial-a-continuity-check",
+              "title": "试改 A 直接后果检查：是否保留“持续的外部热源”约束",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "原文“持续的外部热源”这一约束在试改 A 中是否仍为首要条件；A 只调整动作描述，未改写规程句。",
+              "assumptions": [
+                "试改 A 的措辞即为其规则含义"
+              ],
+              "actions": [
+                "对比原句“持续的外部热源”与试改 A 的动作描述。",
+                "检查试改 A 是否仍要求热源在时间上持续。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "trial-a-body-source-check",
+              "title": "试改 A 直接后果检查：是否引入身体热源一律无效",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "试改 A 未断言身体热源一律无效；它只把失败变量指向姿态/贴合。",
+              "assumptions": [],
+              "actions": [
+                "检查试改 A 是否把“手温不够”升级为“身体热源一律无效”。",
+                "检查试改 A 是否保留手温作为可能变量。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "trial-b-external-source",
+              "title": "试改 B 重测：热源须位于纸外、不能来自握持者身体",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "手心仍空白；大师仍显字；不新增道具或规则；不取消代价。",
+              "assumptions": [],
+              "actions": [
+                "把规程句改为“热源须位于纸外，不能来自握持者身体”。",
+                "保留大师把封纸放进热铜盘并显字。",
+                "保留学徒把另一张握在手心、纸仍空白。"
+              ]
+            },
+            {
+              "expected": "violated",
+              "key": "trial-b-continuity-check",
+              "title": "试改 B 直接后果检查：持续条件是否被降为次要",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "原文“持续的外部热源”这一时间性条件在试改 B 中是否仍为首要约束；若被位置/来源条件替换，则边界改变。",
+              "assumptions": [
+                "试改 B 的措辞即为其规则含义"
+              ],
+              "actions": [
+                "对比原句“持续的外部热源”与试改 B“热源须位于纸外，不能来自握持者身体”。",
+                "检查试改 B 是否仍要求热源在时间上持续。"
+              ]
+            },
+            {
+              "expected": "violated",
+              "key": "trial-b-body-source-check",
+              "title": "试改 B 直接后果检查：身体热源一律无效是否为未授权假设",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "当前前缀只显示手温不够导致手心失败，未说明身体热源在温度足够时是否仍无效；若试改 B 断言一律无效，则超出当前前缀。",
+              "assumptions": [],
+              "actions": [
+                "检查试改 B 是否把“手温不够”升级为“身体热源一律无效”。",
+                "检查当前前缀是否提供身体热源温度足够时的实验结果。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "trial-b-hot-copper-compat",
+              "title": "试改 B 直接后果检查：热铜盘成功是否仍与原文一致",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "热铜盘位于纸外、不来自握持者身体，且可被读作持续热源；大师显字结果不被试改 B 破坏。",
+              "assumptions": [
+                "热铜盘可被读作持续热源"
+              ],
+              "actions": [
+                "检查热铜盘是否满足试改 B 的“位于纸外、不来自握持者身体”。",
+                "检查热铜盘是否仍可被读作持续热源。"
+              ]
+            }
+          ],
+          "summary": "逐项比较试改 A 与试改 B 相对当前前缀原文的得失。原文事实（source_statement）只有两条：规程说干印泥不会显字，除非得到持续的外部热源；大师把封纸放进热铜盘，字迹慢慢浮现，学徒把另一张握在手心，手温不够，纸仍空白。\n\n试改 A（把关键变量改为“封纸必须平放并贴合铜盘”）：保留的原文事实——干印泥不显字、需要外部热源、大师热铜盘显字、学徒手心空白，这四项结果全部保留；动作序列（大师放纸入盘、学徒握纸在手）不变。改动的显式归因——把“手温不够”替换为“纸面弯曲未贴合铜面”，即从温度归因改为姿态/贴合归因。新增的未授权假设——“平放”“贴合”是当前前缀未授权的变量，原文未提封纸姿态或接触状态。关闭或保留的竞争解释空间——它关闭了“仅温度不足”这一解释，保留并强化“接触姿态”解释（竞争解释 A），但对“铜盘作为反应面”（竞争解释 B）和“热源位置/来源”（竞争解释 D）不置可否。\n\n试改 B（把规程句改为“热源须位于纸外，不能来自握持者身体”）：保留的原文事实——干印泥不显字、大师热铜盘显字、学徒手心空白，这三项结果保留；但“持续的外部热源”这一时间性条件被位置/来源条件替换，原文可操作边界改变。改动的显式归因——把“手温不够”替换为“热源来自身体内部”，即从温度归因改为来源归因。新增的未授权假设——身体热源一律无效；当前前缀只显示手温不够导致手心失败，未说明身体热源在温度足够时是否仍无效。关闭或保留的竞争解释空间——它关闭了“仅温度不足”这一解释，保留并强化“热源位置/来源”解释（竞争解释 D），但对“接触姿态”（竞争解释 A）和“铜盘作为反应面”（竞争解释 B）不置可否。\n\n逐项对比：保留原文事实方面，A 保留四项结果且动作序列不变，B 保留三项结果但替换了“持续”这一时间性条件，A 更完整。改动显式归因方面，两者都替换了“手温不够”，但 A 替换为姿态/贴合，B 替换为来源禁止；两者都偏离原文显式归因，程度相当，但 B 的替换同时改动了规程句本身，A 只改动动作描述。新增未授权假设方面，A 新增“平放/贴合”一个假设，B 新增“身体热源一律无效”一个假设；两者都是当前前缀未授权的具体化，但 B 的假设直接与规程句“持续的外部热源”的“持续”条件冲突，A 的假设与规程句不直接冲突。关闭或保留竞争解释空间方面，A 针对接触姿态解释，B 针对热源位置/来源解释，两者关闭的竞争解释不同，不重叠。\n\n结论：试改 A 更少偏离当前前缀。理由有三：第一，A 不改变规程句本身，只调整动作描述，保留了“持续的外部热源”这一原文约束；B 直接改写规程句，把“持续”降为次要甚至被替换。第二，A 新增的“平放/贴合”假设与原文“手温不够”的显式归因存在张力，但不与规程句冲突；B 新增的“身体热源一律无效”假设与规程句“持续的外部热源”存在直接张力。第三，A 保留的动作序列与结果不变，B 改变了规程句的可操作边界。需要说明的是，这一结论依赖作者对“持续”是否含强度/时长门槛的判定；若作者认为“持续”还包含强度或时长门槛，则 A 的偏离程度会上升，但 B 的偏离程度不会因此下降。未采用或发布任何试改；未知项保留在 omissions，不宣称全书未出现其他解释。",
+          "claims": [
+            {
+              "kind": "source_statement",
+              "text": "规程说干印泥不会显字，除非得到持续的外部热源。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": ""
+            },
+            {
+              "kind": "source_statement",
+              "text": "大师把封纸放进热铜盘，字迹慢慢浮现；学徒把另一张握在手心，手温不够，纸仍空白。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": ""
+            },
+            {
+              "kind": "interpretation",
+              "text": "试改 A 保留的原文事实：干印泥不显字、需要外部热源、大师热铜盘显字、学徒手心空白，四项结果全部保留；动作序列（大师放纸入盘、学徒握纸在手）不变。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "试改 A 的措辞即为其规则含义"
+              ],
+              "uncertainty": "当前前缀未说明封纸姿态或接触状态，A 的“平放/贴合”为新增变量。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "试改 A 改动的显式归因：把“手温不够”替换为“纸面弯曲未贴合铜面”，即从温度归因改为姿态/贴合归因。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "当前前缀未说明封纸姿态或贴合状态。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "试改 A 新增的未授权假设：“平放”“贴合”是当前前缀未授权的变量，原文未提封纸姿态或接触状态。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "当前前缀未说明封纸姿态或接触状态。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "试改 A 关闭或保留的竞争解释空间：它关闭了“仅温度不足”这一解释，保留并强化“接触姿态”解释（竞争解释 A），但对“铜盘作为反应面”（竞争解释 B）和“热源位置/来源”（竞争解释 D）不置可否。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "当前前缀不足以判定哪一种解释更符合作者意图。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "试改 B 保留的原文事实：干印泥不显字、大师热铜盘显字、学徒手心空白，三项结果保留；但“持续的外部热源”这一时间性条件被位置/来源条件替换，原文可操作边界改变。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "试改 B 的措辞即为其规则含义"
+              ],
+              "uncertainty": "当前前缀未定义“持续”的时长阈值，也未定义“外部”的判定标准。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "试改 B 改动的显式归因：把“手温不够”替换为“热源来自身体内部”，即从温度归因改为来源归因。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "当前前缀未说明身体热源在温度足够时的实验结果。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "试改 B 新增的未授权假设：身体热源一律无效；当前前缀只显示手温不够导致手心失败，未说明身体热源在温度足够时是否仍无效。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "当前前缀未给出身体热源在温度足够时的实验结果。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "试改 B 关闭或保留的竞争解释空间：它关闭了“仅温度不足”这一解释，保留并强化“热源位置/来源”解释（竞争解释 D），但对“接触姿态”（竞争解释 A）和“铜盘作为反应面”（竞争解释 B）不置可否。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "当前前缀不足以判定哪一种解释更符合作者意图。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "逐项对比保留原文事实：A 保留四项结果且动作序列不变，B 保留三项结果但替换了“持续”这一时间性条件，A 更完整。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "当前前缀未定义“持续”的时长阈值。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "逐项对比改动显式归因：两者都替换了“手温不够”，但 A 替换为姿态/贴合，B 替换为来源禁止；两者都偏离原文显式归因，程度相当，但 B 的替换同时改动了规程句本身，A 只改动动作描述。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "当前前缀未说明封纸姿态或接触状态，也未说明身体热源在温度足够时的实验结果。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "逐项对比新增未授权假设：A 新增“平放/贴合”一个假设，B 新增“身体热源一律无效”一个假设；两者都是当前前缀未授权的具体化，但 B 的假设直接与规程句“持续的外部热源”的“持续”条件冲突，A 的假设与规程句不直接冲突。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "当前前缀未定义“持续”的时长阈值，也未定义“外部”的判定标准。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "逐项对比关闭或保留的竞争解释空间：A 针对接触姿态解释，B 针对热源位置/来源解释，两者关闭的竞争解释不同，不重叠。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "当前前缀不足以判定哪一种解释更符合作者意图。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "结论：试改 A 更少偏离当前前缀。理由有三：第一，A 不改变规程句本身，只调整动作描述，保留了“持续的外部热源”这一原文约束；B 直接改写规程句，把“持续”降为次要甚至被替换。第二，A 新增的“平放/贴合”假设与原文“手温不够”的显式归因存在张力，但不与规程句冲突；B 新增的“身体热源一律无效”假设与规程句“持续的外部热源”存在直接张力。第三，A 保留的动作序列与结果不变，B 改变了规程句的可操作边界。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "“持续”与“不能中断”在当前前缀内可视为同义收紧",
+                "试改 A 的措辞即为其规则含义",
+                "试改 B 的措辞即为其规则含义"
+              ],
+              "uncertainty": "这一结论依赖作者对“持续”是否含强度/时长门槛的判定；若作者认为“持续”还包含强度或时长门槛，则 A 的偏离程度会上升，但 B 的偏离程度不会因此下降。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "竞争解释 A：封纸必须平放并贴合铜盘，热源只是通过铜盘均匀传导；手心握持导致封纸弯曲、接触不均，因此即使有手温也不显字。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "assumptions": [
+                "手心失败可归因于姿态/接触而非温度"
+              ],
+              "uncertainty": "规程原文只提持续外部热源，未提平放或贴合。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "竞争解释 B：显字依赖印泥直接接触铜盘，铜盘作为反应面；手心没有铜盘，因此失败，与手温高低无关。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "assumptions": [
+                "铜盘可能参与显字反应而非仅作热源"
+              ],
+              "uncertainty": "当前前缀未说明印泥是否接触铜盘，也未说明铜盘材质是否特殊。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "竞争解释 D：显字要求热源位于纸外且不来自握持者身体；手心失败因热源来自身体内部，而非温度绝对值不足。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "assumptions": [
+                "规程句中的“外部”可被读作位置/来源约束而非仅温度来源"
+              ],
+              "uncertainty": "规程原文只说“持续的外部热源”，未明确“外部”指位置还是来源；该解释与“手温不够”的显式归因存在张力。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "试改 A 与试改 B 针对不同竞争解释：A 针对“接触姿态”这一解释，B 针对“热源位置/来源”这一解释；两者都保留手心失败，但解释力不同。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "当前前缀不足以判定哪一种解释更符合作者意图。"
+            }
+          ],
+          "patches": [],
+          "followups": [
+            {
+              "logical_key": "compare-a-b-deviation",
+              "capability": "compare",
+              "question": "在 A、B 各自完成独立检查后，逐项比较两者相对原文的得失：分别列出各自保留的原文事实、改动的显式归因、新增的未授权假设、关闭或保留的竞争解释空间，并给出哪一个更少偏离当前前缀。",
+              "depends_on": [],
+              "dependency_policy": "all_succeeded",
+              "search_query": null,
+              "web_queries": [],
+              "workspace_revision_id": null
+            }
+          ],
+          "omissions": [
+            "未找到字面词语 rule-06、封纸、手心、铜盘、干印泥、显字 的独立资源；本轮仅回读至多三处，未找到不等于不存在相同含义。",
+            "当前前缀未说明铜盘温度、手心温度、封纸姿态、印泥朝向或铜盘材质。",
+            "当前前缀未定义“持续”的时长阈值，也未定义“外部”的判定标准。",
+            "当前前缀未给出身体热源在温度足够时的实验结果。",
+            "未宣称全书未出现其他解释；仅就当前前缀讨论。",
+            "未采用或发布任何试改。",
+            "试改 A 中“平放/贴合”与试改 B 中“热源须位于纸外，不能来自握持者身体”均为新增措辞，属于对原文的具体化，不是当前前缀的既有事实。",
+            "“哪一个更少偏离当前前缀”的结论依赖作者对“持续”是否含强度/时长门槛的判定；当前前缀未给出该门槛。"
+          ],
+          "knowledge_review": {
+            "status": "passed",
+            "review": {
+              "status": "passed",
+              "repaired": false,
+              "coverage": [
+                {
+                  "dimension": "prior_prose",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "world_rules",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "outline",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                }
+              ],
+              "issue_counts": {
+                "conflict": 0,
+                "irrelevant_content": 0,
+                "missing_required": 0,
+                "out_of_scope_knowledge": 0,
+                "premature_reveal": 0,
+                "unchecked": 0,
+                "unsupported_fact": 0
+              },
+              "issues": []
+            }
+          }
+        },
+        "evidence": [
+          {
+            "key": "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7",
+            "label": "rule-06",
+            "excerpt": "纸匠拿出两张同样的封纸。\n炉边有一只空铜盘。\n学徒把桌上的水擦干，等候示范。\n规程说干印泥不会显字，除非得到持续的外部热源。\n大师把封纸放进热铜盘，字迹慢慢浮现。\n学徒把另一张握在手心，手温不够，纸仍空白。",
+            "url": null,
+            "read_range": null,
+            "source_hash": "61fdf30bdc4a000a4310fe2ccbc29bb6022d6a2b9d458679de5412864f4df586"
+          }
+        ]
+      },
+      {
+        "id": "65a436dc-78a7-4488-9919-0e32aec6ba36",
+        "kind": "investigate",
+        "workspace_revision_id": null,
+        "result": {
+          "scenarios": [],
+          "summary": "字面回读 writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7（标题 rule-06）后，未发现与主解释“需要持续外部热源”直接冲突的反证，也未发现“持续”与“外部”两条件之间优先级的任何字面线索，也未发现作者注、编号或留白标记形式的保留项。\n\n(a) 反证检查：原文只有两条 source_statement 级事实——规程说干印泥不会显字，除非得到持续的外部热源；大师把封纸放进热铜盘，字迹慢慢浮现，学徒把另一张握在手心，手温不够，纸仍空白。手心空白这一结果与主解释相容（可读作手温不构成“持续的外部热源”），不构成直接冲突；但“手温不够”这一显式归因与“外部/来源”类解释（竞争解释 D）存在张力，这一张力是解释层面的，不是字面反证。\n\n(b) 优先级线索：原文把“持续”与“外部”并列写在同一条件短语内，未用“首先/其次”“主要/次要”“只要/除非”等标记区分优先级；因此两条件之间无字面优先级线索。\n\n(c) 保留项：全文为六行短句，无作者注、无编号、无留白标记、无“待定/存疑”类字样；标题“rule-06”是唯一编号形式，属资源标题而非正文保留项。\n\n试改比较（承接 prior_results，不新增情节）：试改 A 把关键变量改为“封纸必须平放并贴合铜盘”，保留四项结果与动作序列，只改动作描述，未改写规程句；试改 B 把规程句改为“热源须位于纸外，不能来自握持者身体”，保留三项结果但把“持续”这一时间性条件替换为位置/来源条件。逐项看：保留原文事实 A 更完整；改动显式归因两者程度相当，但 B 同时改动了规程句本身；新增未授权假设两者各一，B 的“身体热源一律无效”与规程句“持续的外部热源”存在直接张力，A 的“平放/贴合”与规程句不直接冲突；关闭的竞争解释不重叠（A 针对接触姿态，B 针对热源位置/来源）。据此，在当前前缀内试改 A 更少偏离原文。该结论依赖作者对“持续”是否含强度/时长门槛的判定；若含，则 A 的偏离程度上升，B 不因此下降。\n\n未采用或发布任何试改；未知项保留在 omissions，不宣称全书未出现其他解释。",
+          "claims": [],
+          "patches": [],
+          "followups": [],
+          "omissions": [],
+          "knowledge_review": {
+            "status": "passed",
+            "review": {
+              "status": "passed",
+              "repaired": false,
+              "coverage": [
+                {
+                  "dimension": "prior_prose",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "world_rules",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "outline",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                }
+              ],
+              "issue_counts": {
+                "conflict": 0,
+                "irrelevant_content": 0,
+                "missing_required": 0,
+                "out_of_scope_knowledge": 0,
+                "premature_reveal": 0,
+                "unchecked": 0,
+                "unsupported_fact": 0
+              },
+              "issues": []
+            }
+          }
+        },
+        "evidence": [
+          {
+            "key": "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7",
+            "label": "rule-06",
+            "excerpt": "纸匠拿出两张同样的封纸。\n炉边有一只空铜盘。\n学徒把桌上的水擦干，等候示范。\n规程说干印泥不会显字，除非得到持续的外部热源。\n大师把封纸放进热铜盘，字迹慢慢浮现。\n学徒把另一张握在手心，手温不够，纸仍空白。",
+            "url": null,
+            "read_range": null,
+            "source_hash": "61fdf30bdc4a000a4310fe2ccbc29bb6022d6a2b9d458679de5412864f4df586"
+          }
+        ]
+      },
+      {
+        "id": "7a7cf1f1-a7cb-4ae6-980a-232bfc598fd0",
+        "kind": "countercheck",
+        "workspace_revision_id": null,
+        "result": {
+          "scenarios": [
+            {
+              "expected": "holds",
+              "key": "frozen-prefix",
+              "title": "冻结前提：当前前缀只允许手心失败作为已发生结果",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "手心失败这一结果保持不变；不新增万能力量；不使用当前前缀之后的情节。",
+              "assumptions": [],
+              "actions": [
+                "保留两张同样封纸、空铜盘、规程句、大师热铜盘显字、学徒手心空白。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "trial-a-flat-contact",
+              "title": "试改 A 重测：平放/贴合作为关键变量",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "手心仍空白；大师仍显字；不新增道具或规则。",
+              "assumptions": [],
+              "actions": [
+                "把大师动作改为平放并压合热铜盘。",
+                "把学徒动作改为握持导致纸面弯曲、未贴合铜面。",
+                "保留规程句作为外部热源条件。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "trial-b-ink-contact",
+              "title": "试改 B 重测：印泥直接接触铜盘作为关键变量",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "手心仍空白；大师仍显字；不新增道具或规则。",
+              "assumptions": [],
+              "actions": [
+                "把大师动作改为印泥面直接压在热铜盘上。",
+                "把学徒动作改为印泥未接触铜盘。",
+                "保留规程句作为外部热源条件。"
+              ]
+            }
+          ],
+          "summary": "在 rule-06 当前前缀内，未找到任何独立描述封纸姿态、印泥朝向、铜盘材质或手心温度的语句，因此“接触/姿态”解释与“来源”解释均未被证伪，二者与“手心失败=手温不够”这一显式归因的相容性无法由字面线索区分。原文只有六行：规程说干印泥不会显字，除非得到持续的外部热源；大师把封纸放进热铜盘，字迹慢慢浮现；学徒把另一张握在手心，手温不够，纸仍空白。手心空白只直接排除“手温足以显字”，不排除接触方式、放置姿态、印泥与铜盘接触等竞争变量。\n\n反证检查：无字面反证。手心失败与“接触/姿态”解释相容（握持可同时导致温度不足与姿态不贴合），与“来源”解释相容（手心非外部热源），两者均未被证伪。\n\n字面线索检查：原文未给出封纸姿态、印泥朝向、铜盘材质、手心温度的独立描述；无作者注、编号或留白标记；“rule-06”是资源标题而非正文保留项。\n\n试改比较（承接 prior_results，不新增情节）：试改 A 把关键变量改为“封纸必须平放并贴合铜盘”，保留四项结果与动作序列，只改动作描述，未改写规程句；试改 B 把关键变量改为“印泥必须直接接触铜盘”，保留三项结果但把“持续”这一时间性条件替换为位置/接触条件。逐项看：保留原文事实 A 更完整；改动显式归因两者程度相当，但 B 同时改动了规程句本身；新增未授权假设两者各一，B 的“印泥必须直接接触铜盘”与规程句“持续的外部热源”存在直接张力，A 的“平放/贴合”与规程句不直接冲突；关闭的竞争解释不重叠（A 针对接触姿态，B 针对印泥-铜盘接触）。据此，在当前前缀内试改 A 更少偏离原文。该结论依赖作者对“持续”是否含强度/时长门槛的判定；若含，则 A 的偏离程度上升，B 不因此下降。\n\n未采用或发布任何试改；未知项保留在 omissions，不宣称全书未出现其他解释。",
+          "claims": [
+            {
+              "kind": "source_statement",
+              "text": "规程说干印泥不会显字，除非得到持续的外部热源。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": ""
+            },
+            {
+              "kind": "source_statement",
+              "text": "大师把封纸放进热铜盘，字迹慢慢浮现；学徒把另一张握在手心，手温不够，纸仍空白。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": ""
+            },
+            {
+              "kind": "interpretation",
+              "text": "手心失败只直接排除“手温足以显字”，不能单独排除接触方式、放置姿态或印泥与铜盘接触等竞争变量。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "当前前缀未给出铜盘温度、手心温度、封纸姿态或印泥接触状态的量化信息。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "原文未给出任何关于封纸姿态、印泥朝向、铜盘材质或手心温度的独立描述，因此“接触/姿态”解释与“来源”解释均未被证伪。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "未找到字面词语不等于不存在相同含义；本轮仅回读至多三处。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "竞争解释 A：封纸必须平放并贴合铜盘，热源只是通过铜盘均匀传导；手心握持导致封纸弯曲、接触不均，因此即使有手温也不显字。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "assumptions": [
+                "手心失败可归因于姿态/接触而非温度"
+              ],
+              "uncertainty": "规程原文只提持续外部热源，未提平放或贴合。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "竞争解释 B：显字依赖印泥直接接触铜盘，铜盘作为反应面；手心没有铜盘，因此失败，与手温高低无关。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "assumptions": [
+                "铜盘可能参与显字反应而非仅作热源"
+              ],
+              "uncertainty": "当前前缀未说明印泥是否接触铜盘，也未说明铜盘材质是否特殊。"
+            },
+            {
+              "kind": "proposal",
+              "text": "试改 A：在现有段落内只调整动作描述，让大师“把封纸平放进热铜盘并压合”，学徒“把另一张握在手心，纸面弯曲未贴合任何铜面”，从而把失败变量指向平放/贴合而非仅温度。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "不新增人物、道具或规则条目"
+              ],
+              "uncertainty": "该试改会改变原句中“手温不够”的显式归因，需作者确认是否接受。"
+            },
+            {
+              "kind": "proposal",
+              "text": "试改 B：在现有段落内只调整道具接触描述，让大师“把封纸放进热铜盘，印泥面直接压在盘底”，学徒“把另一张握在手心，印泥未接触铜盘”，从而把失败变量指向印泥-铜盘接触而非温度。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "不新增人物、道具或规则条目"
+              ],
+              "uncertainty": "该试改同样会改变原句对“手温不够”的显式归因，且需要后续文本处理印泥朝向。"
+            }
+          ],
+          "patches": [],
+          "followups": [
+            {
+              "logical_key": "compare-third-explanations",
+              "capability": "compare",
+              "question": "比较试改 A 与试改 B 对“手心失败”的解释力：哪一个更少改动原句显式归因，且更能保留规程句的约束？",
+              "depends_on": [],
+              "dependency_policy": "all_succeeded",
+              "search_query": null,
+              "web_queries": [],
+              "workspace_revision_id": null
+            }
+          ],
+          "omissions": [
+            "未找到字面词语 rule-06、封纸、手心、铜盘、干印泥、显字 的独立资源；本轮仅回读至多三处，未找到不等于不存在相同含义。",
+            "当前前缀未说明铜盘温度、手心温度、封纸姿态、印泥朝向或铜盘材质。",
+            "未宣称全书未出现其他解释；仅就当前前缀讨论。",
+            "未采用或发布任何试改。"
+          ],
+          "knowledge_review": {
+            "status": "passed",
+            "review": {
+              "status": "passed",
+              "repaired": false,
+              "coverage": [
+                {
+                  "dimension": "prior_prose",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "world_rules",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "outline",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                }
+              ],
+              "issue_counts": {
+                "conflict": 0,
+                "irrelevant_content": 0,
+                "missing_required": 0,
+                "out_of_scope_knowledge": 0,
+                "premature_reveal": 0,
+                "unchecked": 0,
+                "unsupported_fact": 0
+              },
+              "issues": []
+            }
+          }
+        },
+        "evidence": [
+          {
+            "key": "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7",
+            "label": "rule-06",
+            "excerpt": "纸匠拿出两张同样的封纸。\n炉边有一只空铜盘。\n学徒把桌上的水擦干，等候示范。\n规程说干印泥不会显字，除非得到持续的外部热源。\n大师把封纸放进热铜盘，字迹慢慢浮现。\n学徒把另一张握在手心，手温不够，纸仍空白。",
+            "url": null,
+            "read_range": null,
+            "source_hash": "61fdf30bdc4a000a4310fe2ccbc29bb6022d6a2b9d458679de5412864f4df586"
+          }
+        ]
+      },
+      {
+        "id": "756db121-344f-4366-b55e-5c7749741645",
+        "kind": "revise",
+        "workspace_revision_id": "10a024cd-142a-4847-89fb-fc8d09873d4e",
+        "result": {
+          "scenarios": [
+            {
+              "expected": "holds",
+              "key": "frozen-prefix",
+              "title": "冻结前提：当前前缀只允许手心失败作为已发生结果",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "手心失败这一结果保持不变；不新增万能力量；不使用当前前缀之后的情节。",
+              "assumptions": [],
+              "actions": [
+                "保留两张同样封纸、空铜盘、规程句、大师热铜盘显字、学徒手心空白。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "trial-a-prime-continuity",
+              "title": "试改 A′ 重测：把“持续”显式化为“不能中断”",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "第四行仍保留“外部”一词；其余五行逐字不变；手心仍空白；大师仍显字；不新增人物、道具或规则条目。",
+              "assumptions": [
+                "“持续”与“不能中断”在当前前缀内可视为同义收紧"
+              ],
+              "actions": [
+                "把第四行“持续的外部热源”改为“不能中断的外部热源”。",
+                "检查其余五行是否逐字保留。",
+                "检查是否新增温度阈值、封纸姿态或铜盘材质等未授权变量。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "trial-a-prime-externality-preserved",
+              "title": "试改 A′ 直接后果检查：是否保留“外部”这一竞争解释",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "“外部”一词在试改 A′ 中未被替换，因此“外部/来源”解释仍可与“持续/不能中断”解释竞争。",
+              "assumptions": [],
+              "actions": [
+                "对比原句“持续的外部热源”与试改 A′“不能中断的外部热源”。",
+                "检查“外部”是否仍为首要约束之一。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "trial-a-prime-body-source-check",
+              "title": "试改 A′ 直接后果检查：是否引入身体热源一律无效",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "试改 A′ 未断言身体热源一律无效；它只把“持续”收紧为“不能中断”，不改变“手温不够”的显式归因。",
+              "assumptions": [],
+              "actions": [
+                "检查试改 A′ 是否把“手温不够”升级为“身体热源一律无效”。",
+                "检查试改 A′ 是否保留手温作为可能变量。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "trial-b-external-source",
+              "title": "对照方案 B 重测：热源须位于纸外、不能来自握持者身体",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "手心仍空白；大师仍显字；不新增道具或规则；不取消代价。",
+              "assumptions": [],
+              "actions": [
+                "把规程句改为“热源须位于纸外，不能来自握持者身体”。",
+                "保留大师把封纸放进热铜盘并显字。",
+                "保留学徒把另一张握在手心、纸仍空白。"
+              ]
+            },
+            {
+              "expected": "violated",
+              "key": "trial-b-continuity-check",
+              "title": "对照方案 B 直接后果检查：持续条件是否被降为次要",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "原文“持续的外部热源”这一时间性条件在 B 中是否仍为首要约束；若被位置/来源条件替换，则边界改变。",
+              "assumptions": [
+                "试改 B 的措辞即为其规则含义"
+              ],
+              "actions": [
+                "对比原句“持续的外部热源”与试改 B“热源须位于纸外，不能来自握持者身体”。",
+                "检查试改 B 是否仍要求热源在时间上持续。"
+              ]
+            },
+            {
+              "expected": "violated",
+              "key": "trial-b-body-source-check",
+              "title": "对照方案 B 直接后果检查：身体热源一律无效是否为未授权假设",
+              "source_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "invariant": "当前前缀只显示手温不够导致手心失败，未说明身体热源在温度足够时是否仍无效；若试改 B 断言一律无效，则超出当前前缀。",
+              "assumptions": [],
+              "actions": [
+                "检查试改 B 是否把“手温不够”升级为“身体热源一律无效”。",
+                "检查当前前缀是否提供身体热源温度足够时的实验结果。"
+              ]
+            }
+          ],
+          "summary": "针对 revise-rule06-a-continuity 的失败点，本轮只做一件事：在 source key writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7（rule-06）的六行正文内，把第四行规程转述句中的“持续”显式化为“热源不能中断”，保留“外部”一词不作替换，不新增人物、道具或规则条目，不改动其余五行的动作序列与结果。\n\n可确认的字面事实：该资源只有一段六行正文，无独立编号条款、无显式适用范围段、无显式代价/限制段、无作者注形式的留白标记。第四行原文为“规程说干印泥不会显字，除非得到持续的外部热源。”第五、六行给出两个对照结果：热铜盘上字迹慢慢浮现；手心握持、手温不够，纸仍空白。\n\n本轮试改 A′ 的完整可编辑字段为六行文本，唯一改动是第四行：把“持续的外部热源”改为“不能中断的外部热源”，即“规程说干印泥不会显字，除非得到不能中断的外部热源。”其余五行逐字保留。该改动把“持续”这一时间性条件显式收紧为“不能中断”，同时保留“外部”一词，因此不关闭“外部”这一竞争解释，也不新增温度阈值、封纸姿态、铜盘材质等未授权变量。\n\n边界与代价：A′ 不新增万能力量，不取消代价；代价仍由“干印泥不显字”“手温不够则空白”承担。A′ 不引入“身体热源一律无效”这一未授权断言，因此与原文“手温不够”的显式归因保持张力但不冲突。A′ 也不引入“平放/贴合”这一未授权变量。\n\n未知与反证：当前前缀未给出“持续”的时长阈值、未定义“外部”的判定标准、未说明身体热源在温度足够时是否仍无效、未说明失败后是否可逆。本资源内部存在与“任何热源都能显字”相冲突的反证（手心空白），但不存在与“需要不能中断的外部热源”这一主解释相冲突的反证。以上未知保留在 omissions，不宣称全书未出现其他解释。\n\npatches 仅包含对 writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7 的 replace，value 为完整六行文本，保留其他字段。未采用或发布任何试改。",
+          "claims": [
+            {
+              "kind": "source_statement",
+              "text": "资源 rule-06 正文共六行：纸匠拿出两张同样的封纸；炉边有一只空铜盘；学徒把桌上的水擦干，等候示范；规程说干印泥不会显字，除非得到持续的外部热源；大师把封纸放进热铜盘，字迹慢慢浮现；学徒把另一张握在手心，手温不够，纸仍空白。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "这是对当前前缀内可见内容的概括，不代表该资源之外没有其他条款。"
+            },
+            {
+              "kind": "source_statement",
+              "text": "规则的确切措辞只以转述形式出现：“规程说干印泥不会显字，除非得到持续的外部热源。”文本没有给出规程编号、条目名或原文引号内的完整条文。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "“规程说”是叙述者转述，不能等同于规程原文。"
+            },
+            {
+              "kind": "source_statement",
+              "text": "可观察的适用范围证据是两类对象与两种热源条件：两张同样的封纸；热铜盘；手心。结果是热铜盘上字迹慢慢浮现，手心里纸仍空白。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "文本未说明封纸是否必须同批、印泥是否已干、铜盘是否必须空置。"
+            },
+            {
+              "kind": "source_statement",
+              "text": "代价/限制条款没有以独立条款形式写出；字面可见的限制是“持续的外部热源”和“手温不够”。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "“持续”的时长、“外部”的边界、“不够”的阈值均未量化。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "主解释：规则要求的是“持续的外部热源”，热铜盘满足该条件，手心不满足，因此同一张封纸在两种条件下结果不同。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "文本没有直接说手心失败是因为“不持续”还是因为“不够热”。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "竞争解释一：关键变量是热源是否“外部”而非是否“持续”；手心是身体的一部分，因此即使温度足够也不显字。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "当前前缀没有给出“手心温度足够但位置不对”的对照实验，因此该解释未被证伪也未被证实。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "竞争解释二：关键变量是温度是否达到阈值，“持续”只是叙述者对热铜盘散热过程的描述；手心失败仅因温度低。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "文本用“手温不够”支持温度解释，但没有给出温度读数或临界点。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "前文反证：本资源内部已出现与“任何热源都能显字”相冲突的反证，即学徒把另一张握在手心，纸仍空白。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "该反证只排除“任意热源即可”，不排除“手心温度接近阈值但差一点”。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "若把“持续”作为硬条件，则短时高温可能不足以显字；若把“外部”作为硬条件，则贴身热源即使持久也可能无效。两种假设在当前前缀内都无法判定。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "需要新的对照场景才能区分，但本轮不新增情节。"
+            },
+            {
+              "kind": "proposal",
+              "text": "试改 A′：在现有六行内只调整第四行规程转述句，把“持续的外部热源”显式化为“不能中断的外部热源”，保留“外部”一词不作替换，不新增人物/道具/规则条目，不改动其余五行的动作序列与结果。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "允许在授权资源内做局部措辞试改",
+                "不改变六行动作序列",
+                "“持续”与“不能中断”在当前前缀内可视为同义收紧"
+              ],
+              "uncertainty": "该试改会强化“持续”解释，但不替换“外部”，因此不关闭“外部”解释；若作者认为“持续”还含强度或时长门槛，则 A′ 的收紧程度仍不足。"
+            },
+            {
+              "kind": "proposal",
+              "text": "对照方案 B（仅用于比较，不作为本轮 patches）：把第四行改为“热源须位于纸外，不能来自握持者身体”，即把“持续”降为次要甚至被替换，强化“外部/来源”解释。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "允许在授权资源内做局部措辞试改",
+                "不改变六行动作序列"
+              ],
+              "uncertainty": "该方案直接改写规程句的时间性条件，并新增“身体热源一律无效”这一未授权断言，偏离当前前缀的程度高于 A′。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "A′ 与 B 针对不同竞争解释：A′ 针对“持续”这一时间性条件，B 针对“外部/来源”这一位置性条件；A′ 保留“外部”一词，因此两种解释的竞争空间在 A′ 中仍被保留。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "当前前缀不足以判定哪一种解释更符合作者意图。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "A′ 保留的原文事实：干印泥不显字、需要外部热源、大师热铜盘显字、学徒手心空白，四项结果全部保留；动作序列不变。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "当前前缀未说明封纸姿态或接触状态。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "A′ 新增的未授权假设：把“持续”读作“不能中断”是对原文的具体化，当前前缀未定义“持续”的时长阈值，因此该收紧本身是新增措辞而非既有事实。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "当前前缀未定义“持续”的时长阈值。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "A′ 关闭或保留的竞争解释空间：它强化“持续/不能中断”解释，但保留“外部”一词，因此不关闭“外部/来源”解释；对“接触姿态”“铜盘作为反应面”不置可否。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "当前前缀不足以判定哪一种解释更符合作者意图。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "结论：A′ 比 B 更少偏离当前前缀。理由：A′ 不替换“外部”，保留两种解释的竞争空间；B 直接改写规程句的时间性条件并新增“身体热源一律无效”这一未授权断言。A′ 的唯一新增是把“持续”具体化为“不能中断”，与原文“持续”同向收紧，不产生方向性冲突。",
+              "evidence_keys": [
+                "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "“持续”与“不能中断”在当前前缀内可视为同义收紧"
+              ],
+              "uncertainty": "这一结论依赖作者对“持续”是否含强度/时长门槛的判定；若作者认为“持续”还包含强度或时长门槛，则 A′ 的偏离程度会上升，但 B 的偏离程度不会因此下降。"
+            }
+          ],
+          "patches": [
+            {
+              "kind": "writing_draft",
+              "id": "d1a9537a-415c-4a80-bc04-55ef6bef05a7",
+              "operation": "replace",
+              "value": {
+                "title": "rule-06",
+                "content": "纸匠拿出两张同样的封纸。\n炉边有一只空铜盘。\n学徒把桌上的水擦干，等候示范。\n规程说干印泥不会显字，除非得到不能中断的外部热源。\n大师把封纸放进热铜盘，字迹慢慢浮现。\n学徒把另一张握在手心，手温不够，纸仍空白。"
+              }
+            }
+          ],
+          "followups": [
+            {
+              "logical_key": "countercheck-rule06-third-explanation",
+              "capability": "countercheck",
+              "question": "在不新增情节的前提下，当前前缀是否还存在第三种竞争解释，例如“封纸必须平放”或“印泥必须接触铜盘”，并能与手心失败兼容？",
+              "depends_on": [],
+              "dependency_policy": "all_succeeded",
+              "search_query": "rule-06 封纸 手心 铜盘 竞争解释",
+              "web_queries": [],
+              "workspace_revision_id": null
+            },
+            {
+              "logical_key": "compare-rule06-a-prime-vs-b",
+              "capability": "compare",
+              "question": "试改 A′ 与对照方案 B 在保留同一组不变量时，哪一个更少引入未授权假设，并更能保留“持续”与“外部”两种解释的竞争空间？",
+              "depends_on": [
+                "countercheck-rule06-third-explanation"
+              ],
+              "dependency_policy": "all_terminal",
+              "search_query": null,
+              "web_queries": [],
+              "workspace_revision_id": null
+            }
+          ],
+          "omissions": [
+            "未找到独立编号的规程原文、适用范围条款、代价条款或作者注形式的留白标记。",
+            "未找到铜盘温度、持续时间、印泥成分、封纸材质、手心温度阈值等量化信息。",
+            "未找到失败后是否可逆、是否可补救、是否可重复尝试的说明。",
+            "未找到“外部热源”与“持续热源”两个条件之间优先级的明确表述。",
+            "未找到本资源之外是否存在其他 rule-06 版本或修订稿；本轮只回读至多三处，不能宣称全书未出现。",
+            "未找到与“需要不能中断的外部热源”主解释相冲突的反证；只找到与“任何热源都能显字”相冲突的反证。",
+            "试改 A′ 中“不能中断”为新增措辞，属于对原文“持续”的具体化，不是当前前缀的既有事实。",
+            "“A′ 比 B 更少偏离当前前缀”的结论依赖作者对“持续”是否含强度/时长门槛的判定；当前前缀未给出该门槛。",
+            "未采用或发布任何试改。"
+          ],
+          "knowledge_review": {
+            "status": "passed",
+            "review": {
+              "status": "passed",
+              "repaired": false,
+              "coverage": [
+                {
+                  "dimension": "prior_prose",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "world_rules",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "outline",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                }
+              ],
+              "issue_counts": {
+                "conflict": 0,
+                "irrelevant_content": 0,
+                "missing_required": 0,
+                "out_of_scope_knowledge": 0,
+                "premature_reveal": 0,
+                "unchecked": 0,
+                "unsupported_fact": 0
+              },
+              "issues": []
+            }
+          }
+        },
+        "evidence": [
+          {
+            "key": "writing_draft:d1a9537a-415c-4a80-bc04-55ef6bef05a7",
+            "label": "rule-06",
+            "excerpt": "纸匠拿出两张同样的封纸。\n炉边有一只空铜盘。\n学徒把桌上的水擦干，等候示范。\n规程说干印泥不会显字，除非得到持续的外部热源。\n大师把封纸放进热铜盘，字迹慢慢浮现。\n学徒把另一张握在手心，手温不够，纸仍空白。",
+            "url": null,
+            "read_range": null,
+            "source_hash": "61fdf30bdc4a000a4310fe2ccbc29bb6022d6a2b9d458679de5412864f4df586"
+          }
+        ]
+      }
+    ],
+    "usage": {
+      "requests": 29,
+      "prompt_tokens": 161004,
+      "completion_tokens": 38912,
+      "usage_complete": true,
+      "pending_usage": 0,
+      "usage_unknown": false
+    }
+  }
+}

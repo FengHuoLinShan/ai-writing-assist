@@ -1,0 +1,30 @@
+{
+  "case_id": "consent-06",
+  "novel_id": "7bd6f0ba-9482-4b02-99f7-6b211bf0ec4a",
+  "run_id": "20685c83-a35e-44b1-85c4-2917431fe534",
+  "provider": "deepseek",
+  "model": "deepseek-flash",
+  "spent_peak_usd": 0.0,
+  "result": {
+    "id": "20685c83-a35e-44b1-85c4-2917431fe534",
+    "case_id": "8a158cc0-df31-4cf2-a377-fe68b74ab61f",
+    "task_id": "20685c83-a35e-44b1-85c4-2917431fe534",
+    "status": "failed",
+    "can_resume": false,
+    "stale": false,
+    "error_code": null,
+    "question_for_author": null,
+    "coverage": null,
+    "missing_deliverables": [],
+    "work": [],
+    "artifacts": [],
+    "usage": {
+      "requests": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "usage_complete": true,
+      "pending_usage": 0,
+      "usage_unknown": false
+    }
+  }
+}

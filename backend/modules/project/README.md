@@ -336,3 +336,8 @@ AuthorTaskService 的 today/inbox/later/completed/archived 与分页规则，每
 `build_project_llm_execution_snapshot(..., interaction_ensemble=True)` 仅对启用后的 interaction
 项目冻结 ADR-0027 v3 策略，再计算完整快照 hash；provider/model/轮换 Key 仍由原 owner 连接解析。
 恢复不根据新开关升级旧运行，也不接受业务模块手工改写快照。
+
+## 前瞻恢复位置
+
+`forecast.py` 消费原 workspace continuation 与 attention，不按访问时长猜测重要任务。
+Project 仍持有 author tasks，只有作者明确选择并确认才从前瞻创建一条待办。

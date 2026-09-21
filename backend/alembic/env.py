@@ -22,7 +22,9 @@ if config.config_file_name is not None:
 import infrastructure.tasks.models  # noqa: E402, F401
 import modules.account.models  # noqa: E402, F401
 import modules.account.settings_models  # noqa: E402, F401
+import modules.assistant.forecast.models  # noqa: F401, E402
 import modules.assistant.models  # noqa: F401, E402
+import modules.collaboration.models  # noqa: F401, E402
 
 # character 模块已删除，模型在 modules.world.models
 import modules.evidence.models  # noqa: E402, F401

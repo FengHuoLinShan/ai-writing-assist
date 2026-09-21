@@ -734,12 +734,16 @@ from modules.account.oidc import (  # noqa: E402
 )
 from modules.account.oidc import router as account_oidc_router  # noqa: E402
 from modules.assistant import api as assistant_api  # noqa: E402
+from modules.collaboration import api as collaboration_api  # noqa: E402
 from modules.evidence import api as evidence_api  # noqa: E402
 
 # geo/review — 已从 minimal-core 移除
 # character API 已迁入 modules.world.api；模块已删除
 from modules.imports import api as imports_api  # noqa: E402
 from modules.interaction import api as interaction_api  # noqa: E402
+from modules.interaction.forecast_api import (  # noqa: E402
+    router as interaction_forecast_router,  # noqa: E402
+)
 from modules.project.api import router as project_router  # noqa: E402
 from modules.project.settings_api import (  # noqa: E402
     defaults_handler_router as project_defaults_handler_router,
@@ -752,6 +756,7 @@ from modules.world import map_atlas_api as world_map_atlas_api  # noqa: E402
 from modules.writing import api as writing_api  # noqa: E402
 
 app.include_router(assistant_api.router)
+app.include_router(collaboration_api.router)
 app.include_router(project_router)
 app.include_router(account_auth_router)
 app.include_router(account_router)
@@ -761,6 +766,8 @@ app.include_router(legal_router)
 app.include_router(interaction_api.demo_router)
 app.include_router(imports_api.router)
 app.include_router(interaction_api.router)
+
+app.include_router(interaction_forecast_router)
 app.include_router(world_api.router)
 app.include_router(world_map_atlas_api.router)
 app.include_router(memory_api.router)

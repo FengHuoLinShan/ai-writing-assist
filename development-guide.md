@@ -387,3 +387,18 @@ ASSISTANT_ENABLED 和当前账户已验证模型；研究另需本次明确联�
 沿原任务取消，保留未知用量和已完成回合。回退应用时保留新增表/列，不执行破坏性 downgrade。
 两条迁移提供对称 downgrade 并清理触发器函数；仅在已授权的可丢弃库演练，不能作为保留历史的应用回退步骤。
 无真实质量证据时保持实验关闭；发布仍需独立授权及固定 origin/main SHA。
+
+## 前瞻与创作试验开发
+
+前瞻与 Collaboration 的模块入口、默认关闭开关、原领域写入 port 和迁移说明见
+`backend/modules/assistant/README.md`、`backend/modules/collaboration/README.md`。
+本地验证需使用任务专用数据库，运行源迁移后再做 PostgreSQL 的不可变/CAS/事务验收；
+前端用既有 Vue bridge 与工作流恢复机制，未知提交保留原操作标识。
+
+
+新能力启用从默认关闭开始：COLLABORATION_V2_ENABLED、ASSISTANT_FORECAST_ENABLED、
+ASSISTANT_FORECAST_SEMANTIC_ENABLED、ASSISTANT_FORECAST_AUTOMATIC_ENABLED、
+INTERACTION_FORECAST_ENABLED。FORECAST_PROJECT_ALLOWLIST 可先限定测试作品；
+FORECAST_DISABLED_CAPABILITIES / CREATIVE_DISABLED_RECIPES 可按能力/配方暂停。
+API 与 worker 使用相同 Compose runtime 环境。回退不降级表、不撤回作者已确认修改；
+在途结果仍经当前权限、来源与开关重验。

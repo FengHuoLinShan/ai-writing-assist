@@ -31,6 +31,9 @@ from modules.project.facade import require_active_project
 
 router = APIRouter(prefix="/api/assistant", tags=["assistant"])
 service = AssistantService()
+from modules.assistant.forecast.api import router as forecast_router  # noqa: E402
+
+router.include_router(forecast_router)
 
 
 @router.post("/notices/{notice_id}/recheck")
@@ -100,6 +103,9 @@ async def capabilities(db: DbSession, novel_id: UUID):
             {"id": key, "label": label} for key, label in CONTROLLED_DESTINATIONS.items()
         ],
         "rehearsal": {
+            "observation_v2_available": model_ready
+            and get_settings().story_rehearsal_enabled
+            and get_settings().collaboration_v2_enabled,
             "available": model_ready and get_settings().story_rehearsal_enabled,
             "reason": None
             if model_ready and get_settings().story_rehearsal_enabled

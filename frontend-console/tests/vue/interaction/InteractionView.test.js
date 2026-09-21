@@ -182,6 +182,26 @@ afterEach(() => {
 })
 
 describe("RP 故事页", () => {
+  it("私语与输入类型随草稿恢复，并在发送失败后保留", async () => {
+    const current = journey({ generation_mode: "ensemble", ensemble_protocol: "observation_v2", ensemble_cast_keys: ["person-a"] })
+    api.interactions.getJourney.mockResolvedValue(current)
+    api.interactions.sendMessage.mockRejectedValue(new Error("offline"))
+    let wrapper = mount(InteractionView, { props: { initialJourney: current, llmConnections: connected() } })
+    await wrapper.get('[aria-label="本轮输入类型"]').setValue("speech")
+    await wrapper.get('[aria-label="本轮接收范围"]').setValue("person-a")
+    await wrapper.get('[aria-label="继续旅程"]').setValue("这件事只告诉你。")
+    wrapper.unmount()
+    wrapper = mount(InteractionView, { props: { initialJourney: current, llmConnections: connected() } })
+    expect(wrapper.get('[aria-label="本轮接收范围"]').element.value).toBe("person-a")
+    expect(wrapper.get('[aria-label="本轮输入类型"]').element.value).toBe("speech")
+    await wrapper.get('[aria-label="继续旅程"]').trigger("keydown", { key: "Enter", ctrlKey: true })
+    await flushPromises()
+    expect(api.interactions.sendMessage).toHaveBeenCalledWith(current.id, expect.objectContaining({ input_kind: "speech", whisper_to: ["person-a"] }))
+    expect(wrapper.get('[aria-label="继续旅程"]').element.value).toBe("这件事只告诉你。")
+    expect(wrapper.get('[aria-label="本轮接收范围"]').element.value).toBe("person-a")
+    wrapper.unmount()
+  })
+
   it("首段等待满30秒提示可停止，收到正文后移除等待提示", async () => {
     vi.useFakeTimers()
     const nextChunk = deferred()

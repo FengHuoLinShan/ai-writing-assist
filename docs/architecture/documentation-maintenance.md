@@ -201,3 +201,10 @@ Claude Code 通过 `CLAUDE.md` 导入同一规则。安全、隔离、用户确�
 真实仓库完整性检查归 `make docs-check`，checker 单元测试仅验证算法与失败路径，不再重复全库检查。
 
 知识治理改动除所属模块外，必查 ADR-0025、Evidence compilation README、Prompt 清单、采用所有者文档与前端状态投影。只改回执 JSON 不等于数据库 schema 变更，但仍应在数据库文档说明其只使用现有 JSON 载体。
+
+## 派生运行模块的登记
+
+Collaboration 的工作区/采用回执与 Assistant 的前瞻属于不同所有者，分别在模块清单与
+数据库目录登记。子 APIRouter 的声明前缀和实际挂载入口需在模块说明中同时解释，
+例如 `/forecasts` 挂载为 `/api/assistant/forecasts`；独立旅程路由仍归 Interaction。
+验收记录保留真实的来源、主体、作用范围与执行证据，不以注册了能力名代替业务实现。

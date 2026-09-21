@@ -84,7 +84,7 @@ class LLMCallRequest(BaseModel):
     """LLM 调用请求参数"""
 
     model: str = "deepseek-flash"
-    """模型名称"""
+    """模型名称；经 LLMClient 调用时，未显式指定则继承当前项目连接的模型。"""
     messages: list[LLMMessage] = Field(default_factory=list)
     """对话消息列表"""
     temperature: float | None = None
@@ -534,8 +534,7 @@ class AIRunEnvelopeV1(BaseModel):
     def token_budget_exhausted(self) -> bool:
         """累计 token 闸门：按已结算用量判定；未声明 token_limit 时恒 False。"""
         return (
-            self.token_limit is not None
-            and self.usage.total_tokens >= self.token_limit
+            self.token_limit is not None and self.usage.total_tokens >= self.token_limit
         )
 
     @model_validator(mode="after")

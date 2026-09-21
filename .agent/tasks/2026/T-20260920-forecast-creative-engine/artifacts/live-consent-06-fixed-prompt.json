@@ -1,0 +1,2919 @@
+{
+  "case_id": "consent-06",
+  "novel_id": "07677020-885f-4b26-bab4-0016046da676",
+  "run_id": "eba0f801-74c6-4926-b676-11d357ffd71d",
+  "provider": "deepseek",
+  "model": "deepseek-flash",
+  "thinking": "disabled",
+  "spent_peak_usd": 0.07487400000000001,
+  "result": {
+    "id": "eba0f801-74c6-4926-b676-11d357ffd71d",
+    "case_id": "79fc6b52-6d32-4ecb-9823-7124f0305306",
+    "task_id": "eba0f801-74c6-4926-b676-11d357ffd71d",
+    "status": "budget_exceeded",
+    "can_resume": false,
+    "stale": false,
+    "error_code": "BUDGET_EXCEEDED",
+    "question_for_author": null,
+    "coverage": null,
+    "missing_deliverables": [],
+    "work": [
+      {
+        "id": "b9f037e3-3ee7-4a8f-a944-1f8da926ecad",
+        "status": "blocked",
+        "generation": 0
+      },
+      {
+        "id": "a70bbca4-c40d-4724-a478-e3b2918eb142",
+        "status": "succeeded",
+        "generation": 0
+      },
+      {
+        "id": "b77aaf74-0a0b-4efc-80b1-420e457afc5a",
+        "status": "succeeded",
+        "generation": 0
+      },
+      {
+        "id": "d45f3a99-8c75-44e6-8394-e0fda39a4e9c",
+        "status": "succeeded",
+        "generation": 0
+      },
+      {
+        "id": "d3eca677-5782-4ae2-9833-6783272f5a51",
+        "status": "blocked",
+        "generation": 0
+      },
+      {
+        "id": "f85b5db7-5c4a-47e0-9a72-c6f67ca4c8f4",
+        "status": "failed",
+        "generation": 0
+      },
+      {
+        "id": "f660bba3-a928-4bc3-8f9f-080f95d569d5",
+        "status": "succeeded",
+        "generation": 0
+      },
+      {
+        "id": "ca33bf0f-d2e2-402e-b66e-553298a6eefa",
+        "status": "succeeded",
+        "generation": 0
+      },
+      {
+        "id": "84969551-96ae-47e4-b527-fc9be14b00e5",
+        "status": "succeeded",
+        "generation": 0
+      },
+      {
+        "id": "eb7cb980-7356-4280-9066-3fcaaff6fba4",
+        "status": "succeeded",
+        "generation": 0
+      },
+      {
+        "id": "67ba44c7-9de5-4381-bd51-91754f0f52e4",
+        "status": "succeeded",
+        "generation": 0
+      },
+      {
+        "id": "4f7b0af6-af19-4b10-a99b-f7c048ac1f67",
+        "status": "succeeded",
+        "generation": 0
+      },
+      {
+        "id": "4e90ea0d-78f3-4582-bd5e-953de5e63bd3",
+        "status": "succeeded",
+        "generation": 0
+      },
+      {
+        "id": "cf5f5a55-5b83-46b3-9333-bcbdc40bc43e",
+        "status": "succeeded",
+        "generation": 0
+      }
+    ],
+    "artifacts": [
+      {
+        "id": "87b6cfaa-a90e-42c2-93e0-cb1db6fe46e7",
+        "kind": "investigate",
+        "workspace_revision_id": null,
+        "result": {
+          "scenarios": [
+            {
+              "expected": "holds",
+              "key": "exit_condition_frozen",
+              "title": "退出条件在原文中的冻结前提",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "在只读当前前缀时，「不承诺共同出发」是唯一与退出条件直接相关的字面表述；不得扩写为已建立退出机制。",
+              "assumptions": [
+                "只使用 consent-06 当前前缀"
+              ],
+              "actions": [
+                "回读原文中「不交出原件，也不承诺共同出发」",
+                "回读原文中「只同意当场对照」",
+                "回读原文中「两人分别盖住私人批注」"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "relation_undefined_frozen",
+              "title": "关系定性在原文中的冻结前提",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "原文未出现「信任」「恋爱」「合作」字面词；不得把「旧对手」扩写为恋爱或信任关系。",
+              "assumptions": [
+                "只使用 consent-06 当前前缀"
+              ],
+              "actions": [
+                "回读原文中「旧对手在公共阅览室碰面」",
+                "回读原文中「各坐桌子一端」",
+                "回读原文中「一人提议交换各自持有的半张路线图」"
+              ]
+            }
+          ],
+          "summary": "在授权来源 consent-06 中，与「双方随时可退出」「一次合作不等于信任或恋爱」相关的字面表述有限：原文只写到「不交出原件，也不承诺共同出发」，以及「只同意当场对照」；没有出现「退出」「信任」「恋爱」「合作」这些词。因此，可确认的明示退出条件只有「不承诺共同出发」这一处，其余关于动机、关系定性、后续走向均属有意留白。以下逐条引用原文词语，不做解释性扩写。",
+          "claims": [
+            {
+              "kind": "source_statement",
+              "text": "原文出现「不交出原件，也不承诺共同出发」，其中「不承诺共同出发」是与退出条件最直接相关的字面表述。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": ""
+            },
+            {
+              "kind": "source_statement",
+              "text": "原文出现「另一人只同意当场对照」，其中「只同意」限定了同意范围，「当场」限定了时间范围。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": ""
+            },
+            {
+              "kind": "source_statement",
+              "text": "原文出现「两人分别盖住私人批注，比较公开的两处路标」，其中「盖住私人批注」与「比较公开的」形成公开/私人区分。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": ""
+            },
+            {
+              "kind": "source_statement",
+              "text": "原文出现「一人提议交换各自持有的半张路线图」，其中「提议」未写明对方是否接受，也未写明交换是否完成。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": ""
+            },
+            {
+              "kind": "interpretation",
+              "text": "「不承诺共同出发」可被读作对共同行动的退出保留，但原文没有出现「退出」一词，也没有写明退出方式、时限或条件。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "原文未出现「退出」字面词，此处仅为对「不承诺」的局部读解。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "「只同意当场对照」可被读作对合作范围的限定，但原文没有出现「合作」一词，也没有写明这次对照之后是否继续。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "原文未出现「合作」字面词，此处仅为对「只同意」的局部读解。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "若把「不交出原件」与「盖住私人批注」并读，可假设双方在保留私人信息的前提下进行有限对照；但原文未写明这是出于不信任。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "原文未出现「信任」或「不信任」字面词，动机未写明。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "若把「旧对手」与「各坐桌子一端」并读，可假设双方关系仍带距离；但原文未写明这是恋爱、友谊或单纯对手关系。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "原文未出现「恋爱」字面词，关系定性未写明。"
+            }
+          ],
+          "patches": [],
+          "followups": [
+            {
+              "logical_key": "compare_exit_readings",
+              "capability": "compare",
+              "question": "比较两种竞争解释：一种把「不承诺共同出发」读作退出保留；另一种把「只同意当场对照」读作合作范围限定。两者在原文中各自依赖哪些字面词？",
+              "depends_on": [],
+              "dependency_policy": "all_succeeded",
+              "search_query": "不承诺共同出发 只同意当场对照",
+              "web_queries": [],
+              "workspace_revision_id": null
+            },
+            {
+              "logical_key": "countercheck_relation_words",
+              "capability": "countercheck",
+              "question": "在当前前缀中反查是否存在「信任」「恋爱」「合作」「退出」的字面词或同义替换；若不存在，保留为未知而非断言全书未出现。",
+              "depends_on": [],
+              "dependency_policy": "all_succeeded",
+              "search_query": "信任 恋爱 合作 退出",
+              "web_queries": [],
+              "workspace_revision_id": null
+            }
+          ],
+          "omissions": [
+            "原文未写明双方是否最终交换路线图。",
+            "原文未写明「不承诺共同出发」之后是否仍可能共同出发。",
+            "原文未写明「盖住私人批注」的动机。",
+            "原文未写明「旧对手」的具体过往。",
+            "原文未写明两人关系是否涉及信任或恋爱。",
+            "原文未写明公共阅览室之外的时间线。",
+            "原文未出现「退出」「信任」「恋爱」「合作」字面词；这不等于全书其他位置未出现。"
+          ],
+          "knowledge_review": {
+            "status": "passed",
+            "review": {
+              "status": "passed",
+              "repaired": false,
+              "coverage": [
+                {
+                  "dimension": "prior_prose",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "world_rules",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "outline",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                }
+              ],
+              "issue_counts": {
+                "conflict": 0,
+                "irrelevant_content": 0,
+                "missing_required": 0,
+                "out_of_scope_knowledge": 0,
+                "premature_reveal": 0,
+                "unchecked": 0,
+                "unsupported_fact": 0
+              },
+              "issues": []
+            }
+          }
+        },
+        "evidence": [
+          {
+            "key": "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc",
+            "label": "consent-06",
+            "excerpt": "旧对手在公共阅览室碰面，各坐桌子一端。\n管理员先要求他们放低声音。\n窗边的灯有些暗，两人各自挪开了椅子。\n一人提议交换各自持有的半张路线图。\n另一人只同意当场对照，不交出原件，也不承诺共同出发。\n两人分别盖住私人批注，比较公开的两处路标。",
+            "url": null,
+            "read_range": null,
+            "source_hash": "69e9773ed9d898fbfa81aa16c3f5677442a006cc944f4ed719820ffa6db57a31"
+          }
+        ]
+      },
+      {
+        "id": "bb6ccea7-3432-4190-b555-625cd2fa873e",
+        "kind": "countercheck",
+        "workspace_revision_id": null,
+        "result": {
+          "scenarios": [
+            {
+              "expected": "holds",
+              "key": "limited_reciprocity",
+              "title": "有限互惠：对照可发生，承诺不产生",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "任何信息交换都不产生共同出发义务，双方保留随时中止的条件。",
+              "assumptions": [
+                "「不承诺共同出发」等价于保留退出条件"
+              ],
+              "actions": [
+                "一人提议交换半张路线图",
+                "另一人降级为当场对照",
+                "双方盖住私人批注",
+                "比较公开的两处路标"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "exit_preserved",
+              "title": "退出条件未被文本取消",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "文本中不存在任何绑定双方继续会面或共同行动的语句。",
+              "assumptions": [
+                "未承诺即未绑定"
+              ],
+              "actions": [
+                "不交出原件",
+                "不承诺共同出发",
+                "仅比较公开路标"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "trust_absent",
+              "title": "信任未被字面或明确同义地建立",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "在无「信任」字面词与明确同义替换的情况下，不将到场行为判定为信任。",
+              "assumptions": [
+                "同义替换需可确证，推测不算"
+              ],
+              "actions": [
+                "回读当前前缀",
+                "检索字面词与同义替换"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "romance_absent",
+              "title": "恋爱线索在本前缀内缺失",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "不将旧对手关系或公共阅览室场景读作恋爱关系。",
+              "assumptions": [
+                "关系性质需文本支持"
+              ],
+              "actions": [
+                "回读当前前缀",
+                "检索字面词与同义替换"
+              ]
+            }
+          ],
+          "summary": "在当前唯一资源 consent-06 的序列化内容中，按字面检索未发现「信任」「恋爱」「合作」「退出」四词，也未发现可确证的同义替换。文本呈现的是旧对手在公共阅览室进行有限、可撤回的信息对照：交换半张路线图的提议被降级为当场对照，原件不交出，共同出发不被承诺，私人批注被盖住。该场景可读作对「合作」的弱化版本与对「退出」的保留，但这是解释而非字面事实；「信任」「恋爱」在本前缀内无证据，保留为未知。countercheck 能力下 patches 为空。",
+          "claims": [
+            {
+              "kind": "source_statement",
+              "text": "资源 consent-06 的序列化内容中，未出现「信任」「恋爱」「合作」「退出」这四个字面词。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "仅回读至多三处、仅覆盖当前前缀；未出现不等于全书未出现。"
+            },
+            {
+              "kind": "source_statement",
+              "text": "文本事实：一人提议交换各自持有的半张路线图；另一人只同意当场对照，不交出原件，也不承诺共同出发；两人分别盖住私人批注，比较公开的两处路标。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": ""
+            },
+            {
+              "kind": "interpretation",
+              "text": "「只同意当场对照、不交出原件、不承诺共同出发」可读作对「合作」的弱化或条件化版本：存在有限协作动作，但缺少共同目标承诺。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "assumptions": [],
+              "uncertainty": "「合作」为解释性标签，非文本用词；反证在于两人确实进行了信息对照，可被读作合作。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "「不承诺共同出发」与「盖住私人批注」可读作对「退出」条件的保留：任何一方未被绑定，且保留不共享的部分。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "文本未明示退出机制或退出权，仅为结构性推断。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "「信任」在本前缀内可能以行为替代形式存在（如愿意到场、愿意对照公开路标），但无字面或明确同义证据，故不作为事实主张。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "到场与对照也可能出于算计或验证，而非信任。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "「恋爱」在本前缀内无任何支持证据；旧对手关系与公共阅览室场景不构成恋爱线索。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "无证据不等于排除后续可能；此处仅限当前前缀。"
+            }
+          ],
+          "patches": [],
+          "followups": [
+            {
+              "logical_key": "check_synonym_expansion",
+              "capability": "investigate",
+              "question": "在更宽的检索范围内，是否存在可确证的「信任」「恋爱」「合作」「退出」同义替换表达？",
+              "depends_on": [],
+              "dependency_policy": "all_succeeded",
+              "search_query": "信任 同义 恋爱 同义 合作 同义 退出 同义",
+              "web_queries": [],
+              "workspace_revision_id": null
+            },
+            {
+              "logical_key": "compare_two_readings",
+              "capability": "compare",
+              "question": "将「有限互惠」与「算计性验证」两种竞争解释并置，比较其对当前前缀的覆盖度与反证。",
+              "depends_on": [
+                "check_synonym_expansion"
+              ],
+              "dependency_policy": "all_terminal",
+              "search_query": null,
+              "web_queries": [],
+              "workspace_revision_id": null
+            }
+          ],
+          "omissions": [
+            "未检索当前前缀之外的任何资源，因此不宣称全书未出现「信任」「恋爱」「合作」「退出」。",
+            "未确认是否存在非字面的同义替换，仅确认未发现可确证者。",
+            "未评估两人此前关系史、路线图内容与私人批注内容。",
+            "未判断该场景是否会被后续文本重新定性为合作、信任或恋爱。",
+            "未输出任何 patches：countercheck 能力不产出修改。"
+          ],
+          "knowledge_review": {
+            "status": "passed",
+            "review": {
+              "status": "passed",
+              "repaired": false,
+              "coverage": [
+                {
+                  "dimension": "prior_prose",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "world_rules",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "outline",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                }
+              ],
+              "issue_counts": {
+                "conflict": 0,
+                "irrelevant_content": 0,
+                "missing_required": 0,
+                "out_of_scope_knowledge": 0,
+                "premature_reveal": 0,
+                "unchecked": 0,
+                "unsupported_fact": 0
+              },
+              "issues": []
+            }
+          }
+        },
+        "evidence": [
+          {
+            "key": "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc",
+            "label": "consent-06",
+            "excerpt": "旧对手在公共阅览室碰面，各坐桌子一端。\n管理员先要求他们放低声音。\n窗边的灯有些暗，两人各自挪开了椅子。\n一人提议交换各自持有的半张路线图。\n另一人只同意当场对照，不交出原件，也不承诺共同出发。\n两人分别盖住私人批注，比较公开的两处路标。",
+            "url": null,
+            "read_range": null,
+            "source_hash": "69e9773ed9d898fbfa81aa16c3f5677442a006cc944f4ed719820ffa6db57a31"
+          }
+        ]
+      },
+      {
+        "id": "e496e0a4-4685-4cc2-99c3-841fab0806dc",
+        "kind": "compare",
+        "workspace_revision_id": null,
+        "result": {
+          "scenarios": [
+            {
+              "expected": "holds",
+              "key": "exit_preserved",
+              "title": "退出条件未被文本取消",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "文本中不存在任何绑定双方继续会面或共同行动的语句；任何一方保留随时中止的条件。",
+              "assumptions": [
+                "未承诺即未绑定"
+              ],
+              "actions": [
+                "不交出原件",
+                "不承诺共同出发",
+                "仅比较公开路标"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "scope_limited",
+              "title": "协作范围被限定在当场与公开路标",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "协作动作仅覆盖当场对照与公开路标，不延伸至原件交付或私人批注。",
+              "assumptions": [
+                "「只」限定范围"
+              ],
+              "actions": [
+                "只同意当场对照",
+                "比较公开的两处路标",
+                "分别盖住私人批注"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "no_trust_romance",
+              "title": "信任与恋爱未被字面或明确同义地建立",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "在无字面词与可确证同义替换的情况下，不将到场或对照判定为信任，也不将旧对手关系读作恋爱。",
+              "assumptions": [
+                "同义替换需可确证，推测不算"
+              ],
+              "actions": [
+                "回读当前前缀",
+                "检索字面词与同义替换"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "no_joint_departure",
+              "title": "共同出发未被承诺",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "文本未出现共同出发的承诺或等价表述。",
+              "assumptions": [],
+              "actions": [
+                "回读当前前缀"
+              ]
+            }
+          ],
+          "summary": "针对当前唯一资源 consent-06（旧对手在公共阅览室进行有限信息对照）比较两种竞争解释。解释A「退出保留」：把「不承诺共同出发」读作双方未被绑定、保留随时中止的条件；其字面依赖为「不交出原件」「也不承诺共同出发」「分别盖住私人批注」。解释B「合作范围限定」：把「只同意当场对照」读作对协作动作的边界设定，即协作仅限当场、仅限公开路标；其字面依赖为「只同意当场对照」「比较公开的两处路标」。就贴合度而言，B 更贴合原文：它直接由「只同意当场对照」与「比较公开的两处路标」两个动作句支撑，且与「不交出原件」一致；A 依赖「不承诺共同出发」这一否定句，属于对未发生事项的推断，文本未明示任何退出机制或退出权，故 A 为结构性推断而非字面事实。两者并非互斥：B 描述协作范围，A 描述绑定状态，可同时成立。按约束，一次对照不构成信任或恋爱，也不构成共同出发承诺；双方保留随时退出的条件。本能力为 compare，patches 为空。",
+          "claims": [
+            {
+              "kind": "source_statement",
+              "text": "文本事实：一人提议交换各自持有的半张路线图；另一人只同意当场对照，不交出原件，也不承诺共同出发；两人分别盖住私人批注，比较公开的两处路标。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "仅覆盖当前前缀。"
+            },
+            {
+              "kind": "source_statement",
+              "text": "解释A的字面依赖词为「不交出原件」「也不承诺共同出发」「分别盖住私人批注」；解释B的字面依赖词为「只同意当场对照」「比较公开的两处路标」。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "依赖词为回读定位，非作者标注。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "解释A（退出保留）：「不承诺共同出发」可读作双方未被绑定，任何一方保留中止或不再会面的条件；「盖住私人批注」可读作保留不共享部分。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "assumptions": [
+                "未承诺即未绑定"
+              ],
+              "uncertainty": "文本未明示退出机制或退出权，属结构性推断；反证在于两人确实到场并进行了对照，可读作存在最低限度的持续互动。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "解释B（合作范围限定）：「只同意当场对照」把协作动作限定在当场、限定在公开路标，构成对「合作」的弱化或条件化版本：有有限协作动作，无共同目标承诺。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "assumptions": [
+                "「合作」为解释性标签，非文本用词"
+              ],
+              "uncertainty": "「合作」非原文用词；反证在于「不交出原件」也可读作不合作而非限定合作。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "贴合度比较：B 由两个肯定性动作句（当场对照、比较公开路标）直接支撑，A 依赖一个否定句（不承诺共同出发）并需推断未发生的绑定；就当前前缀而言 B 更贴合原文。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "肯定性动作句比否定句提供更强的字面支撑"
+              ],
+              "uncertainty": "该比较基于当前前缀，后续文本可能改变权重。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "两解释并非互斥：B 描述协作范围（当场、公开路标），A 描述绑定状态（无共同出发承诺），可同时成立，共同指向有限、可撤回的互动。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": ""
+            },
+            {
+              "kind": "hypothesis",
+              "text": "「信任」在本前缀内可能以行为替代形式存在（愿意到场、愿意对照公开路标），但无字面或明确同义证据，故不作为事实主张。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "assumptions": [],
+              "uncertainty": "到场与对照也可能出于算计或验证，而非信任。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "「恋爱」在本前缀内无任何支持证据；旧对手关系与公共阅览室场景不构成恋爱线索。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "无证据不等于排除后续可能；此处仅限当前前缀。"
+            }
+          ],
+          "patches": [],
+          "followups": [
+            {
+              "logical_key": "check_synonym_expansion",
+              "capability": "investigate",
+              "question": "在更宽的检索范围内，是否存在可确证的「信任」「恋爱」「合作」「退出」同义替换表达？",
+              "depends_on": [],
+              "dependency_policy": "all_succeeded",
+              "search_query": "信任 同义 恋爱 同义 合作 同义 退出 同义",
+              "web_queries": [],
+              "workspace_revision_id": null
+            },
+            {
+              "logical_key": "test_two_readings",
+              "capability": "test",
+              "question": "将「退出保留」与「合作范围限定」两种读法分别代入后续场景，检验哪一种在当前前缀内更少需要额外假设？",
+              "depends_on": [
+                "check_synonym_expansion"
+              ],
+              "dependency_policy": "all_terminal",
+              "search_query": null,
+              "web_queries": [],
+              "workspace_revision_id": null
+            }
+          ],
+          "omissions": [
+            "未检索当前前缀之外的任何资源，因此不宣称全书未出现「信任」「恋爱」「合作」「退出」。",
+            "未确认是否存在非字面的同义替换，仅确认未发现可确证者。",
+            "未评估两人此前关系史、路线图内容与私人批注内容。",
+            "未判断该场景是否会被后续文本重新定性为合作、信任或恋爱。",
+            "未输出任何 patches：compare 能力不产出修改。",
+            "「哪一种更贴合」为基于当前前缀的局部判断，非最终定论。"
+          ],
+          "knowledge_review": {
+            "status": "passed",
+            "review": {
+              "status": "passed",
+              "repaired": false,
+              "coverage": [
+                {
+                  "dimension": "prior_prose",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "world_rules",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "outline",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                }
+              ],
+              "issue_counts": {
+                "conflict": 0,
+                "irrelevant_content": 0,
+                "missing_required": 0,
+                "out_of_scope_knowledge": 0,
+                "premature_reveal": 0,
+                "unchecked": 0,
+                "unsupported_fact": 0
+              },
+              "issues": []
+            }
+          }
+        },
+        "evidence": [
+          {
+            "key": "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc",
+            "label": "consent-06",
+            "excerpt": "旧对手在公共阅览室碰面，各坐桌子一端。\n管理员先要求他们放低声音。\n窗边的灯有些暗，两人各自挪开了椅子。\n一人提议交换各自持有的半张路线图。\n另一人只同意当场对照，不交出原件，也不承诺共同出发。\n两人分别盖住私人批注，比较公开的两处路标。",
+            "url": null,
+            "read_range": null,
+            "source_hash": "69e9773ed9d898fbfa81aa16c3f5677442a006cc944f4ed719820ffa6db57a31"
+          }
+        ]
+      },
+      {
+        "id": "33463b58-7a45-4bb2-9c0f-25e862256eca",
+        "kind": "revise",
+        "workspace_revision_id": "e940b68e-2a62-4ffd-b48a-765f34b0ea2b",
+        "result": {
+          "scenarios": [
+            {
+              "expected": "holds",
+              "key": "exit_preserved",
+              "title": "退出条件未被文本取消",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "文本中不存在任何绑定双方继续会面或共同行动的语句；任何一方保留随时中止的条件。",
+              "assumptions": [
+                "未承诺即未绑定"
+              ],
+              "actions": [
+                "不交出原件",
+                "不承诺共同出发",
+                "仅比较公开路标"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "scope_limited",
+              "title": "协作范围被限定在当场与公开路标",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "协作动作仅覆盖当场对照与公开路标，不延伸至原件交付或私人批注。",
+              "assumptions": [
+                "「只」限定范围"
+              ],
+              "actions": [
+                "只同意当场对照",
+                "比较公开的两处路标",
+                "分别盖住私人批注"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "no_trust_romance",
+              "title": "信任与恋爱未被字面或明确同义地建立",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "在无字面词与可确证同义替换的情况下，不将到场或对照判定为信任，也不将旧对手关系读作恋爱。",
+              "assumptions": [
+                "同义替换需可确证，推测不算"
+              ],
+              "actions": [
+                "回读当前前缀",
+                "检索字面词与同义替换"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "no_joint_departure",
+              "title": "共同出发未被承诺",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "文本未出现共同出发的承诺或等价表述。",
+              "assumptions": [],
+              "actions": [
+                "回读当前前缀"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "boundary_inserted_no_scope_shift",
+              "title": "补句未改变既有动作句的范围与措辞",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "补句仅新增关系边界声明；「不交出原件」「也不承诺共同出发」「分别盖住私人批注」「比较公开的两处路标」四处措辞保持原样，未新增后续情节。",
+              "assumptions": [
+                "新增句不覆盖或改写既有动作句"
+              ],
+              "actions": [
+                "插入边界声明句",
+                "回读四处原句"
+              ]
+            }
+          ],
+          "summary": "试改方案B：仅在「旧对手」「各坐桌子一端」附近补一句明示关系边界，不改动退出条件措辞、不补后续情节。按约束，一次合作不是信任或恋爱，保留双方随时退出的条件；不使用当前前缀之后的情节。本能力为 revise，故输出 patches。\n\n世界压力检查（先列冻结前提、动作与不变量，再试改与重测）：\n- 冻结前提：当前唯一资源 consent-06 的六行文本；「旧对手」「各坐桌子一端」「只同意当场对照」「不交出原件」「也不承诺共同出发」「分别盖住私人批注」「比较公开的两处路标」均为既有事实。\n- 动作：在「各坐桌子一端」之后、管理员要求放低声音之前，插入一句关系边界声明。\n- 不变量：① 不出现共同出发承诺或等价表述；② 不交出原件、不承诺共同出发、盖住私人批注三处措辞保持原样；③ 不引入信任或恋爱的字面或明确同义表述；④ 不引入当前前缀之后的情节。\n\n两种竞争解释的试改方向不同：\n- 解释A「退出保留」：把「不承诺共同出发」读作双方未被绑定、保留随时中止的条件。其字面依赖为「不交出原件」「也不承诺共同出发」「分别盖住私人批注」。\n- 解释B「合作范围限定」：把「只同意当场对照」读作对协作动作的边界设定，即协作仅限当场、仅限公开路标。其字面依赖为「只同意当场对照」「比较公开的两处路标」。\n\n就贴合度而言，B 更贴合原文：它直接由「只同意当场对照」与「比较公开的两处路标」两个动作句支撑，且与「不交出原件」一致；A 依赖「不承诺共同出发」这一否定句，属于对未发生事项的推断，文本未明示任何退出机制或退出权，故 A 为结构性推断而非字面事实。两者并非互斥：B 描述协作范围，A 描述绑定状态，可同时成立。\n\n本方案B的补句同时覆盖两种解释的边界：既声明这次对照不构成信任、也不构成恋爱（回应解释B的范围限定），又声明双方可随时退出（回应解释A的退出保留），且不改动退出条件措辞、不补后续情节。补句为新增创意，非原文事实；其措辞为提案性质，未宣称已采用或已发布。\n\npatches 仅含一个 writing_draft 资源的完整可编辑字段替换，保留其他字段（title、source_hash 等）不变。",
+          "claims": [
+            {
+              "kind": "source_statement",
+              "text": "文本事实：一人提议交换各自持有的半张路线图；另一人只同意当场对照，不交出原件，也不承诺共同出发；两人分别盖住私人批注，比较公开的两处路标。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "仅覆盖当前前缀。"
+            },
+            {
+              "kind": "source_statement",
+              "text": "解释A的字面依赖词为「不交出原件」「也不承诺共同出发」「分别盖住私人批注」；解释B的字面依赖词为「只同意当场对照」「比较公开的两处路标」。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "依赖词为回读定位，非作者标注。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "解释A（退出保留）：「不承诺共同出发」可读作双方未被绑定，任何一方保留中止或不再会面的条件；「盖住私人批注」可读作保留不共享部分。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "assumptions": [
+                "未承诺即未绑定"
+              ],
+              "uncertainty": "文本未明示退出机制或退出权，属结构性推断；反证在于两人确实到场并进行了对照，可读作存在最低限度的持续互动。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "解释B（合作范围限定）：「只同意当场对照」把协作动作限定在当场、限定在公开路标，构成对「合作」的弱化或条件化版本：有有限协作动作，无共同目标承诺。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "assumptions": [
+                "「合作」为解释性标签，非文本用词"
+              ],
+              "uncertainty": "「合作」非原文用词；反证在于「不交出原件」也可读作不合作而非限定合作。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "贴合度比较：B 由两个肯定性动作句（当场对照、比较公开路标）直接支撑，A 依赖一个否定句（不承诺共同出发）并需推断未发生的绑定；就当前前缀而言 B 更贴合原文。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "肯定性动作句比否定句提供更强的字面支撑"
+              ],
+              "uncertainty": "该比较基于当前前缀，后续文本可能改变权重。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "两解释并非互斥：B 描述协作范围（当场、公开路标），A 描述绑定状态（无共同出发承诺），可同时成立，共同指向有限、可撤回的互动。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": ""
+            },
+            {
+              "kind": "hypothesis",
+              "text": "「信任」在本前缀内可能以行为替代形式存在（愿意到场、愿意对照公开路标），但无字面或明确同义证据，故不作为事实主张。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "assumptions": [],
+              "uncertainty": "到场与对照也可能出于算计或验证，而非信任。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "「恋爱」在本前缀内无任何支持证据；旧对手关系与公共阅览室场景不构成恋爱线索。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "无证据不等于排除后续可能；此处仅限当前前缀。"
+            },
+            {
+              "kind": "proposal",
+              "text": "试改B新增句（提案，非原文事实）：在「各坐桌子一端」之后插入「这次对照不构成信任，也不构成恋爱；双方可随时退出。」该句同时覆盖解释A的退出保留与解释B的范围限定，且不改动退出条件措辞、不补后续情节。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "明示边界不改变既有动作句的字面事实"
+              ],
+              "uncertainty": "该句为新增创意，未宣称已采用或已发布；是否与后续文本冲突未评估。"
+            }
+          ],
+          "patches": [
+            {
+              "kind": "writing_draft",
+              "id": "a404f165-74ec-4fb7-901b-d5bbbdd791fc",
+              "operation": "replace",
+              "value": {
+                "content": "旧对手在公共阅览室碰面，各坐桌子一端。\n这次对照不构成信任，也不构成恋爱；双方可随时退出。\n管理员先要求他们放低声音。\n窗边的灯有些暗，两人各自挪开了椅子。\n一人提议交换各自持有的半张路线图。\n另一人只同意当场对照，不交出原件，也不承诺共同出发。\n两人分别盖住私人批注，比较公开的两处路标。",
+                "title": "consent-06"
+              }
+            }
+          ],
+          "followups": [
+            {
+              "logical_key": "check_synonym_expansion",
+              "capability": "investigate",
+              "question": "在更宽的检索范围内，是否存在可确证的「信任」「恋爱」「合作」「退出」同义替换表达？",
+              "depends_on": [],
+              "dependency_policy": "all_succeeded",
+              "search_query": "信任 同义 恋爱 同义 合作 同义 退出 同义",
+              "web_queries": [],
+              "workspace_revision_id": null
+            },
+            {
+              "logical_key": "test_two_readings",
+              "capability": "test",
+              "question": "将「退出保留」与「合作范围限定」两种读法分别代入后续场景，检验哪一种在当前前缀内更少需要额外假设？",
+              "depends_on": [
+                "check_synonym_expansion"
+              ],
+              "dependency_policy": "all_terminal",
+              "search_query": null,
+              "web_queries": [],
+              "workspace_revision_id": null
+            },
+            {
+              "logical_key": "compare_patch_b_side_effects",
+              "capability": "compare",
+              "question": "试改B的补句是否引入与既有动作句冲突的绑定或承诺含义？",
+              "depends_on": [
+                "test_two_readings"
+              ],
+              "dependency_policy": "all_terminal",
+              "search_query": null,
+              "web_queries": [],
+              "workspace_revision_id": null
+            }
+          ],
+          "omissions": [
+            "未检索当前前缀之外的任何资源，因此不宣称全书未出现「信任」「恋爱」「合作」「退出」。",
+            "未确认是否存在非字面的同义替换，仅确认未发现可确证者。",
+            "未评估两人此前关系史、路线图内容与私人批注内容。",
+            "未判断该场景是否会被后续文本重新定性为合作、信任或恋爱。",
+            "试改B的补句为新增创意，未宣称已采用或已发布。",
+            "「哪一种更贴合」为基于当前前缀的局部判断，非最终定论。",
+            "未评估补句措辞是否与后续文本冲突。"
+          ],
+          "knowledge_review": {
+            "status": "passed",
+            "review": {
+              "status": "passed",
+              "repaired": false,
+              "coverage": [
+                {
+                  "dimension": "prior_prose",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "world_rules",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "outline",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                }
+              ],
+              "issue_counts": {
+                "conflict": 0,
+                "irrelevant_content": 0,
+                "missing_required": 0,
+                "out_of_scope_knowledge": 0,
+                "premature_reveal": 0,
+                "unchecked": 0,
+                "unsupported_fact": 0
+              },
+              "issues": []
+            }
+          }
+        },
+        "evidence": [
+          {
+            "key": "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc",
+            "label": "consent-06",
+            "excerpt": "旧对手在公共阅览室碰面，各坐桌子一端。\n管理员先要求他们放低声音。\n窗边的灯有些暗，两人各自挪开了椅子。\n一人提议交换各自持有的半张路线图。\n另一人只同意当场对照，不交出原件，也不承诺共同出发。\n两人分别盖住私人批注，比较公开的两处路标。",
+            "url": null,
+            "read_range": null,
+            "source_hash": "69e9773ed9d898fbfa81aa16c3f5677442a006cc944f4ed719820ffa6db57a31"
+          }
+        ]
+      },
+      {
+        "id": "e2afb660-e4fb-4266-b648-47b23e66d37d",
+        "kind": "test",
+        "workspace_revision_id": null,
+        "result": {
+          "scenarios": [
+            {
+              "expected": "holds",
+              "key": "boundary_no_conflict_with_old_rivals",
+              "title": "补句与「旧对手」「各坐桌子一端」不冲突",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "补句不否定旧对手关系，不改变座位安排；「旧对手」「各坐桌子一端」两处措辞保持原样。",
+              "assumptions": [
+                "关系定性句不改变既有动作句的字面事实"
+              ],
+              "actions": [
+                "插入边界声明句",
+                "回读「旧对手」「各坐桌子一端」"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "boundary_not_trust_or_romance",
+              "title": "补句未把一次合作写成信任或恋爱",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "补句为否定式边界声明，不建立信任、不建立恋爱、不建立共同目标承诺；不出现信任或恋爱的肯定性字面或明确同义表述。",
+              "assumptions": [
+                "否定式声明不构成对关系性质的肯定"
+              ],
+              "actions": [
+                "插入边界声明句",
+                "回读补句与既有动作句"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "boundary_within_prefix_timeline",
+              "title": "补句未越出当前前缀时间线",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "补句使用「这次」限定当场，未提及共同出发、后续会面或前缀之后情节；「双方可随时退出」为条件声明，不叙述退出事件本身。",
+              "assumptions": [
+                "条件声明不构成对未发生事件的叙述"
+              ],
+              "actions": [
+                "插入边界声明句",
+                "回读补句时间指涉"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "exit_preserved",
+              "title": "退出条件未被文本取消",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "文本中不存在任何绑定双方继续会面或共同行动的语句；任何一方保留随时中止的条件。",
+              "assumptions": [
+                "未承诺即未绑定"
+              ],
+              "actions": [
+                "不交出原件",
+                "不承诺共同出发",
+                "仅比较公开路标"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "scope_limited",
+              "title": "协作范围被限定在当场与公开路标",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "协作动作仅覆盖当场对照与公开路标，不延伸至原件交付或私人批注。",
+              "assumptions": [
+                "「只」限定范围"
+              ],
+              "actions": [
+                "只同意当场对照",
+                "比较公开的两处路标",
+                "分别盖住私人批注"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "no_trust_romance",
+              "title": "信任与恋爱未被字面或明确同义地建立",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "在无字面词与可确证同义替换的情况下，不将到场或对照判定为信任，也不将旧对手关系读作恋爱。",
+              "assumptions": [
+                "同义替换需可确证，推测不算"
+              ],
+              "actions": [
+                "回读当前前缀",
+                "检索字面词与同义替换"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "no_joint_departure",
+              "title": "共同出发未被承诺",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "文本未出现共同出发的承诺或等价表述。",
+              "assumptions": [],
+              "actions": [
+                "回读当前前缀"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "boundary_inserted_no_scope_shift",
+              "title": "补句未改变既有动作句的范围与措辞",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "补句仅新增关系边界声明；「不交出原件」「也不承诺共同出发」「分别盖住私人批注」「比较公开的两处路标」四处措辞保持原样，未新增后续情节。",
+              "assumptions": [
+                "新增句不覆盖或改写既有动作句"
+              ],
+              "actions": [
+                "插入边界声明句",
+                "回读四处原句"
+              ]
+            }
+          ],
+          "summary": "试改方案B直接后果检查：新增关系边界句与「旧对手」「各坐桌子一端」不冲突，未把一次合作写成信任或恋爱，未越出当前前缀时间线。本能力为 test，故 patches 为空。\n\n世界压力检查（先列冻结前提、动作与不变量，再试改与重测）：\n- 冻结前提：当前唯一资源 consent-06 的六行文本；「旧对手」「各坐桌子一端」「管理员先要求他们放低声音」「窗边的灯有些暗」「一人提议交换各自持有的半张路线图」「另一人只同意当场对照，不交出原件，也不承诺共同出发」「两人分别盖住私人批注，比较公开的两处路标」均为既有事实。\n- 动作：在「各坐桌子一端」之后、管理员要求放低声音之前，插入「这次对照不构成信任，也不构成恋爱；双方可随时退出。」\n- 不变量：① 不出现共同出发承诺或等价表述；② 不交出原件、不承诺共同出发、盖住私人批注、比较公开路标四处措辞保持原样；③ 不引入信任或恋爱的字面或明确同义表述；④ 不引入当前前缀之后的情节。\n\n三种直接后果逐项检查：\n1. 与「旧对手」「各坐桌子一端」的冲突：无。补句不否定旧对手关系，也不改变座位安排；「这次对照」回指「只同意当场对照」与「比较公开的两处路标」，属对既有动作的关系定性，而非新增事件。\n2. 是否把一次合作写成信任或恋爱：否。补句为否定式边界声明（「不构成信任」「不构成恋爱」），方向与约束一致；它不建立信任或恋爱，也不建立共同目标承诺。\n3. 是否越出当前前缀时间线：否。补句使用「这次」限定当场，未提及共同出发、后续会面或任何前缀之后的情节；「双方可随时退出」为条件声明，不叙述退出事件本身。\n\n竞争解释的分别代入：\n- 解释A「退出保留」：补句「双方可随时退出」与该读法一致，且不把退出写成已发生事件；但文本仍未明示退出机制或退出权，A 仍属结构性推断。\n- 解释B「合作范围限定」：补句「这次对照不构成信任，也不构成恋爱」与该读法一致，把协作限定在当场对照与公开路标；但「合作」仍非原文用词，B 仍属解释性标签。\n两解释并非互斥：B 描述协作范围，A 描述绑定状态，补句同时覆盖两者，未偏向任一方。\n\n残留风险：补句为新增创意，非原文事实；其措辞是否与后续文本冲突未评估；「不构成信任」是否会被读作对既有动作句的重新定性而非边界声明，存在解释空间。未宣称已采用或已发布。",
+          "claims": [
+            {
+              "kind": "source_statement",
+              "text": "文本事实：当前前缀含「旧对手在公共阅览室碰面，各坐桌子一端」「管理员先要求他们放低声音」「窗边的灯有些暗，两人各自挪开了椅子」「一人提议交换各自持有的半张路线图」「另一人只同意当场对照，不交出原件，也不承诺共同出发」「两人分别盖住私人批注，比较公开的两处路标」。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "仅覆盖当前前缀。"
+            },
+            {
+              "kind": "source_statement",
+              "text": "文本事实：前缀中不存在「信任」「恋爱」「合作」「退出」的字面词；「旧对手」为关系标签，「各坐桌子一端」为空间安排。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "未检索前缀之外资源，不宣称全书未出现。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "补句「这次对照不构成信任，也不构成恋爱；双方可随时退出。」与「旧对手」「各坐桌子一端」不冲突：补句不否定旧对手关系，不改变座位安排，且「这次对照」回指既有动作句（当场对照、比较公开路标），属关系定性而非新增事件。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "关系定性句不改变既有动作句的字面事实"
+              ],
+              "uncertainty": "「不构成信任」是否会被读作对既有动作的重新定性而非边界声明，存在解释空间。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "补句未把一次合作写成信任或恋爱：其为否定式边界声明，方向与约束「一次合作不是信任或恋爱」一致；补句不建立信任、不建立恋爱、不建立共同目标承诺。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "否定式声明不构成对关系性质的肯定"
+              ],
+              "uncertainty": "「合作」非原文用词，此处沿用解释性标签。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "补句未越出当前前缀时间线：使用「这次」限定当场，未提及共同出发、后续会面或前缀之后情节；「双方可随时退出」为条件声明，不叙述退出事件本身。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "条件声明不构成对未发生事件的叙述"
+              ],
+              "uncertainty": "「可随时退出」是否隐含未来时间点，存在解释空间。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "解释A「退出保留」代入补句：补句「双方可随时退出」与该读法一致，且不把退出写成已发生事件；但文本仍未明示退出机制或退出权，A 仍属结构性推断。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "assumptions": [
+                "未承诺即未绑定"
+              ],
+              "uncertainty": "反证在于两人确实到场并进行了对照，可读作存在最低限度的持续互动。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "解释B「合作范围限定」代入补句：补句「这次对照不构成信任，也不构成恋爱」与该读法一致，把协作限定在当场对照与公开路标；但「合作」仍非原文用词，B 仍属解释性标签。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "assumptions": [
+                "「合作」为解释性标签，非文本用词"
+              ],
+              "uncertainty": "反证在于「不交出原件」也可读作不合作而非限定合作。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "两解释并非互斥：B 描述协作范围（当场、公开路标），A 描述绑定状态（无共同出发承诺），补句同时覆盖两者，未偏向任一方。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": ""
+            },
+            {
+              "kind": "hypothesis",
+              "text": "「信任」在本前缀内可能以行为替代形式存在（愿意到场、愿意对照公开路标），但无字面或明确同义证据，故不作为事实主张；补句的否定式声明不改变这一状态。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "assumptions": [],
+              "uncertainty": "到场与对照也可能出于算计或验证，而非信任。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "「恋爱」在本前缀内无任何支持证据；旧对手关系与公共阅览室场景不构成恋爱线索，补句的否定式声明亦不建立恋爱。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "无证据不等于排除后续可能；此处仅限当前前缀。"
+            },
+            {
+              "kind": "proposal",
+              "text": "试改B新增句（提案，非原文事实）：在「各坐桌子一端」之后插入「这次对照不构成信任，也不构成恋爱；双方可随时退出。」该句同时覆盖解释A的退出保留与解释B的范围限定，且不改动退出条件措辞、不补后续情节。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "明示边界不改变既有动作句的字面事实"
+              ],
+              "uncertainty": "该句为新增创意，未宣称已采用或已发布；是否与后续文本冲突未评估。"
+            }
+          ],
+          "patches": [],
+          "followups": [
+            {
+              "logical_key": "check_boundary_reading_risk",
+              "capability": "countercheck",
+              "question": "补句「这次对照不构成信任，也不构成恋爱」是否可能被读作对既有动作的重新定性，从而与「旧对手」关系标签产生张力？",
+              "depends_on": [],
+              "dependency_policy": "all_succeeded",
+              "search_query": null,
+              "web_queries": [],
+              "workspace_revision_id": null
+            },
+            {
+              "logical_key": "test_boundary_against_later_text",
+              "capability": "test",
+              "question": "若后续文本出现共同出发或信任建立，补句的否定式边界是否会被推翻或需重新解释？",
+              "depends_on": [
+                "check_boundary_reading_risk"
+              ],
+              "dependency_policy": "all_terminal",
+              "search_query": null,
+              "web_queries": [],
+              "workspace_revision_id": null
+            },
+            {
+              "logical_key": "compare_boundary_wording",
+              "capability": "compare",
+              "question": "补句措辞「不构成信任，也不构成恋爱」与「双方可随时退出」相比，哪一部分更可能被后续文本冲突？",
+              "depends_on": [
+                "test_boundary_against_later_text"
+              ],
+              "dependency_policy": "all_terminal",
+              "search_query": null,
+              "web_queries": [],
+              "workspace_revision_id": null
+            }
+          ],
+          "omissions": [
+            "未检索当前前缀之外的任何资源，因此不宣称全书未出现「信任」「恋爱」「合作」「退出」。",
+            "未确认是否存在非字面的同义替换，仅确认未发现可确证者。",
+            "未评估两人此前关系史、路线图内容与私人批注内容。",
+            "未判断该场景是否会被后续文本重新定性为合作、信任或恋爱。",
+            "补句为新增创意，未宣称已采用或已发布。",
+            "未评估补句措辞是否与后续文本冲突。",
+            "「不构成信任」是否会被读作对既有动作的重新定性，存在解释空间，未定论。",
+            "「可随时退出」是否隐含未来时间点，存在解释空间，未定论。",
+            "本能力为 test，patches 为空；未输出任何可编辑字段替换。"
+          ],
+          "knowledge_review": {
+            "status": "passed",
+            "review": {
+              "status": "passed",
+              "repaired": false,
+              "coverage": [
+                {
+                  "dimension": "prior_prose",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "world_rules",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "outline",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                }
+              ],
+              "issue_counts": {
+                "conflict": 0,
+                "irrelevant_content": 0,
+                "missing_required": 0,
+                "out_of_scope_knowledge": 0,
+                "premature_reveal": 0,
+                "unchecked": 0,
+                "unsupported_fact": 0
+              },
+              "issues": []
+            }
+          }
+        },
+        "evidence": [
+          {
+            "key": "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc",
+            "label": "consent-06",
+            "excerpt": "旧对手在公共阅览室碰面，各坐桌子一端。\n管理员先要求他们放低声音。\n窗边的灯有些暗，两人各自挪开了椅子。\n一人提议交换各自持有的半张路线图。\n另一人只同意当场对照，不交出原件，也不承诺共同出发。\n两人分别盖住私人批注，比较公开的两处路标。",
+            "url": null,
+            "read_range": null,
+            "source_hash": "69e9773ed9d898fbfa81aa16c3f5677442a006cc944f4ed719820ffa6db57a31"
+          }
+        ]
+      },
+      {
+        "id": "7a4bfb6e-990d-41bc-99cb-90f49c986747",
+        "kind": "revise",
+        "workspace_revision_id": "2c27575a-8537-40b8-8a16-41550e0a6826",
+        "result": {
+          "scenarios": [
+            {
+              "expected": "holds",
+              "key": "exit_via_external_procedure",
+              "title": "方案A：退出条件由外部程序提供",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "在补句后，「不交出原件」「不承诺共同出发」「盖住私人批注」「比较公开的两处路标」四处措辞逐字不变；补句不引入对照之后的情节。",
+              "assumptions": [
+                "管理员已在场，可作为程序性第三方。"
+              ],
+              "actions": [
+                "在「也不承诺共同出发」之后插入补句：任何一方可随时请管理员中止这次对照，无需说明理由，也无需对方同意。",
+                "重读全段，核对四处既有措辞未被改动。",
+                "检查补句未提及对照结束后的去向或共同行动。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "exit_embedded_in_comparison",
+              "title": "方案B方向（对照）：退出条件内嵌于对照行为",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "若退出条件被写成「对照结束即各自离开」，则退出不依赖外部程序，与方案A形成不同竞争解释。",
+              "assumptions": [
+                "此为对照方向，非本次请求要输出的方案A补句。"
+              ],
+              "actions": [
+                "假设补句为：对照一结束，两人即可各自离开，无需再约定。",
+                "核对四处既有措辞仍逐字不变。",
+                "比较该方向与方案A在「退出依赖谁」上的差异。"
+              ]
+            }
+          ],
+          "summary": "针对「也不承诺共同出发」之后补一句明示退出条件的提案，给出方案A的完整可编辑字段替换。方案A与已成功的试改B方向不同：B若偏向把退出条件绑定在「对照行为本身」（如对照结束即各自离开），A则把退出条件绑定在「外部程序/第三方介入」这一竞争解释上——即由管理员或阅览室规则提供可随时终止对照的通道。两方案针对不同竞争解释，均不触碰「不交出原件」「不承诺共同出发」「盖住私人批注」「比较公开的两处路标」四处既有措辞，不补后续情节。补句为提案性质，未宣称已采用或已发布。",
+          "claims": [
+            {
+              "kind": "source_statement",
+              "text": "当前前缀中，一人只同意当场对照，不交出原件，也不承诺共同出发；两人分别盖住私人批注，比较公开的两处路标。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": ""
+            },
+            {
+              "kind": "interpretation",
+              "text": "「不承诺共同出发」在字面上排除了对共同行动的承诺，但未明示任何一方可单方面终止当前对照的退出条件；补一句退出条件属于对既有留白的局部填充，而非改写既有措辞。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "「不承诺共同出发」是否已隐含退出权，存在多种读法，此处只作竞争解释之一。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "竞争解释一：退出条件可由外部程序提供（管理员在场、阅览室规则允许随时中止），使退出不依赖双方互信。",
+              "evidence_keys": [],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "管理员已在场并要求放低声音，具备作为程序性第三方的条件。"
+              ],
+              "uncertainty": ""
+            },
+            {
+              "kind": "hypothesis",
+              "text": "竞争解释二：退出条件内嵌于对照行为本身（对照结束即自然终止），无需外部程序。此即试改B可能采取的方向，方案A有意与之不同。",
+              "evidence_keys": [],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": ""
+            },
+            {
+              "kind": "proposal",
+              "text": "方案A补句：任何一方可随时请管理员中止这次对照，无需说明理由，也无需对方同意。该句仅明示退出条件，不改变四处既有措辞，不引入后续情节。",
+              "evidence_keys": [],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "补句置于「也不承诺共同出发」之后、「两人分别盖住私人批注」之前，保持段落顺序。"
+              ],
+              "uncertainty": "补句是否与既有语气协调、是否过度具体化管理员角色，均未验证。"
+            }
+          ],
+          "patches": [
+            {
+              "kind": "writing_draft",
+              "id": "a404f165-74ec-4fb7-901b-d5bbbdd791fc",
+              "operation": "replace",
+              "value": {
+                "content": "旧对手在公共阅览室碰面，各坐桌子一端。\n管理员先要求他们放低声音。\n窗边的灯有些暗，两人各自挪开了椅子。\n一人提议交换各自持有的半张路线图。\n另一人只同意当场对照，不交出原件，也不承诺共同出发。\n任何一方可随时请管理员中止这次对照，无需说明理由，也无需对方同意。\n两人分别盖住私人批注，比较公开的两处路标。",
+                "title": "consent-06",
+                "source_hash": "69e9773ed9d898fbfa81aa16c3f5677442a006cc944f4ed719820ffa6db57a31"
+              }
+            }
+          ],
+          "followups": [
+            {
+              "logical_key": "compare_exit_directions",
+              "capability": "compare",
+              "question": "在方案A（外部程序退出）与方案B方向（对照结束即终止）之间，哪一方向更贴合当前前缀中「不承诺共同出发」的留白，且不引入后续情节？",
+              "depends_on": [],
+              "dependency_policy": "all_terminal",
+              "search_query": null,
+              "web_queries": [],
+              "workspace_revision_id": null
+            }
+          ],
+          "omissions": [
+            "未验证补句与全段语气是否协调。",
+            "未确认「不承诺共同出发」是否已隐含退出权，故保留竞争解释。",
+            "未回读当前前缀之后的情节，不宣称全书未出现其他退出条件表述。",
+            "未宣称本补句已被采用或已发布。",
+            "未评估管理员作为第三方是否与既有设定一致。"
+          ],
+          "knowledge_review": {
+            "status": "passed",
+            "review": {
+              "status": "passed",
+              "repaired": false,
+              "coverage": [
+                {
+                  "dimension": "prior_prose",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "world_rules",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "outline",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                }
+              ],
+              "issue_counts": {
+                "conflict": 0,
+                "irrelevant_content": 0,
+                "missing_required": 0,
+                "out_of_scope_knowledge": 0,
+                "premature_reveal": 0,
+                "unchecked": 0,
+                "unsupported_fact": 0
+              },
+              "issues": []
+            }
+          }
+        },
+        "evidence": [
+          {
+            "key": "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc",
+            "label": "consent-06",
+            "excerpt": "旧对手在公共阅览室碰面，各坐桌子一端。\n管理员先要求他们放低声音。\n窗边的灯有些暗，两人各自挪开了椅子。\n一人提议交换各自持有的半张路线图。\n另一人只同意当场对照，不交出原件，也不承诺共同出发。\n两人分别盖住私人批注，比较公开的两处路标。",
+            "url": null,
+            "read_range": null,
+            "source_hash": "69e9773ed9d898fbfa81aa16c3f5677442a006cc944f4ed719820ffa6db57a31"
+          }
+        ]
+      },
+      {
+        "id": "bc06cc4f-fb9f-47a9-8b54-e9fc37e2df8b",
+        "kind": "test",
+        "workspace_revision_id": null,
+        "result": {
+          "scenarios": [
+            {
+              "expected": "holds",
+              "key": "exit_via_external_procedure",
+              "title": "方案A：退出条件由外部程序提供",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "在补句后，「不交出原件」「不承诺共同出发」「盖住私人批注」「比较公开的两处路标」四处措辞逐字不变；补句不引入对照之后的情节。",
+              "assumptions": [
+                "管理员已在场，可作为程序性第三方。"
+              ],
+              "actions": [
+                "在「也不承诺共同出发」之后插入补句：任何一方可随时请管理员中止这次对照，无需说明理由，也无需对方同意。",
+                "重读全段，核对四处既有措辞未被改动。",
+                "检查补句未提及对照结束后的去向或共同行动。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "exit_embedded_in_comparison",
+              "title": "方案B方向（对照）：退出条件内嵌于对照行为",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "若退出条件被写成「对照结束即各自离开」，则退出不依赖外部程序，与方案A形成不同竞争解释。",
+              "assumptions": [
+                "此为对照方向，非本次请求要输出的方案A补句。"
+              ],
+              "actions": [
+                "假设补句为：对照一结束，两人即可各自离开，无需再约定。",
+                "核对四处既有措辞仍逐字不变。",
+                "比较该方向与方案A在「退出依赖谁」上的差异。"
+              ]
+            }
+          ],
+          "summary": "针对方案A补句（在「也不承诺共同出发」之后插入「任何一方可随时请管理员中止这次对照，无需说明理由，也无需对方同意。」）做直接后果检查。逐项对照冻结前提：旧对手关系、各坐桌子一端、只同意当场对照、不交出原件、不承诺共同出发、分别盖住私人批注、比较公开的两处路标。结论：补句与上述七项前提均不冲突；它只明示退出通道，不把一次对照写成信任或恋爱，不越出当前前缀时间线，不隐含共同出发承诺。方案A与方案B方向（退出内嵌于对照行为）针对不同竞争解释：A把退出绑定在外部程序/第三方，B把退出绑定在对照行为本身。补句为提案性质，未宣称已采用或已发布。残留风险：补句是否与全段语气协调、管理员作为第三方是否与既有设定一致，均未验证。",
+          "claims": [
+            {
+              "kind": "source_statement",
+              "text": "当前前缀中，一人只同意当场对照，不交出原件，也不承诺共同出发；两人分别盖住私人批注，比较公开的两处路标。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": ""
+            },
+            {
+              "kind": "source_statement",
+              "text": "当前前缀中，管理员先要求他们放低声音，说明管理员已在场并已行使程序性职能。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": ""
+            },
+            {
+              "kind": "interpretation",
+              "text": "「不承诺共同出发」在字面上排除了对共同行动的承诺，但未明示任何一方可单方面终止当前对照的退出条件；补一句退出条件属于对既有留白的局部填充，而非改写既有措辞。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "「不承诺共同出发」是否已隐含退出权，存在多种读法，此处只作竞争解释之一。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "竞争解释一：退出条件可由外部程序提供（管理员在场、阅览室规则允许随时中止），使退出不依赖双方互信。方案A即采取此方向。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "管理员已在场并要求放低声音，具备作为程序性第三方的条件。"
+              ],
+              "uncertainty": ""
+            },
+            {
+              "kind": "hypothesis",
+              "text": "竞争解释二：退出条件内嵌于对照行为本身（对照结束即自然终止），无需外部程序。此即试改B可能采取的方向，方案A有意与之不同。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": ""
+            },
+            {
+              "kind": "proposal",
+              "text": "方案A补句：任何一方可随时请管理员中止这次对照，无需说明理由，也无需对方同意。该句仅明示退出条件，不改变四处既有措辞，不引入后续情节。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "补句置于「也不承诺共同出发」之后、「两人分别盖住私人批注」之前，保持段落顺序。"
+              ],
+              "uncertainty": "补句是否与既有语气协调、是否过度具体化管理员角色，均未验证。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "直接后果检查逐项：与「旧对手」不冲突（补句不改变关系性质）；与「各坐桌子一端」不冲突（补句不涉及座位）；与「只同意当场对照」不冲突（补句只加退出通道，不扩大同意范围）；与「不交出原件」不冲突（补句不涉及原件）；与「不承诺共同出发」不冲突（补句只给退出，不给共同行动）；与「分别盖住私人批注」不冲突（补句不涉及批注）；与「比较公开的两处路标」不冲突（补句不涉及对照内容）。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "逐项判断基于字面语义，未做读者接受度验证。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "补句不把一次对照写成信任或恋爱：它只提供程序性退出，不引入情感依赖、互信承诺或亲密关系措辞。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": ""
+            },
+            {
+              "kind": "interpretation",
+              "text": "补句不越出当前前缀时间线：它只描述对照进行中可用的中止通道，不提及对照结束后的去向、后续会面或共同行动。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": ""
+            },
+            {
+              "kind": "interpretation",
+              "text": "补句不隐含共同出发承诺：它只给单方退出权，未给任何一方要求对方继续或同行的权利。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": ""
+            }
+          ],
+          "patches": [],
+          "followups": [
+            {
+              "logical_key": "compare_exit_directions",
+              "capability": "compare",
+              "question": "在方案A（外部程序退出）与方案B方向（对照结束即终止）之间，哪一方向更贴合当前前缀中「不承诺共同出发」的留白，且不引入后续情节？",
+              "depends_on": [],
+              "dependency_policy": "all_terminal",
+              "search_query": null,
+              "web_queries": [],
+              "workspace_revision_id": null
+            }
+          ],
+          "omissions": [
+            "未验证补句与全段语气是否协调。",
+            "未确认「不承诺共同出发」是否已隐含退出权，故保留竞争解释。",
+            "未回读当前前缀之后的情节，不宣称全书未出现其他退出条件表述。",
+            "未宣称本补句已被采用或已发布。",
+            "未评估管理员作为第三方是否与既有设定一致。",
+            "未做读者接受度或语气一致性测试。"
+          ],
+          "knowledge_review": {
+            "status": "passed",
+            "review": {
+              "status": "passed",
+              "repaired": false,
+              "coverage": [
+                {
+                  "dimension": "prior_prose",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "world_rules",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "outline",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                }
+              ],
+              "issue_counts": {
+                "conflict": 0,
+                "irrelevant_content": 0,
+                "missing_required": 0,
+                "out_of_scope_knowledge": 0,
+                "premature_reveal": 0,
+                "unchecked": 0,
+                "unsupported_fact": 0
+              },
+              "issues": []
+            }
+          }
+        },
+        "evidence": [
+          {
+            "key": "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc",
+            "label": "consent-06",
+            "excerpt": "旧对手在公共阅览室碰面，各坐桌子一端。\n管理员先要求他们放低声音。\n窗边的灯有些暗，两人各自挪开了椅子。\n一人提议交换各自持有的半张路线图。\n另一人只同意当场对照，不交出原件，也不承诺共同出发。\n两人分别盖住私人批注，比较公开的两处路标。",
+            "url": null,
+            "read_range": null,
+            "source_hash": "69e9773ed9d898fbfa81aa16c3f5677442a006cc944f4ed719820ffa6db57a31"
+          }
+        ]
+      },
+      {
+        "id": "e619ac70-a42e-4c87-83dd-3cd71940fa41",
+        "kind": "compare",
+        "workspace_revision_id": null,
+        "result": {
+          "scenarios": [
+            {
+              "expected": "holds",
+              "key": "compare_a_adds_exit_channel",
+              "title": "试改A新增退出通道且不改动既有措辞",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "在试改A补句后，「不交出原件」「不承诺共同出发」「分别盖住私人批注」「比较公开的两处路标」四处措辞逐字不变；补句不引入对照之后的情节。",
+              "assumptions": [
+                "管理员已在场，可作为程序性第三方。"
+              ],
+              "actions": [
+                "在「也不承诺共同出发」之后插入「任何一方可随时请管理员中止这次对照，无需说明理由，也无需对方同意。」",
+                "重读全段，核对四处既有措辞未被改动。",
+                "检查补句未提及对照结束后的去向或共同行动。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "compare_b_adds_boundary_terms",
+              "title": "试改B新增关系边界词项且不改动既有措辞",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "在试改B补句后，「不交出原件」「不承诺共同出发」「分别盖住私人批注」「比较公开的两处路标」四处措辞逐字不变；补句不引入对照之后的情节。",
+              "assumptions": [
+                "关系定性句不改变既有动作句的字面事实。"
+              ],
+              "actions": [
+                "在「各坐桌子一端」之后插入「这次对照不构成信任，也不构成恋爱；双方可随时退出。」",
+                "重读全段，核对四处既有措辞未被改动。",
+                "检查补句未提及共同出发、后续会面或前缀之后情节。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "compare_a_leans_exit_reading",
+              "title": "试改A偏向解释A「退出保留」",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "试改A把退出绑定在外部程序/第三方，不描述协作范围，故偏向解释A而对解释B基本中立。",
+              "assumptions": [
+                "管理员已在场，具备作为程序性第三方的条件。"
+              ],
+              "actions": [
+                "代入解释A「退出保留」：补句「可随时请管理员中止」与该读法一致。",
+                "代入解释B「合作范围限定」：补句不涉及协作范围，故不偏向B。",
+                "比较两解释代入后的贴合度差异。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "compare_b_covers_both_readings",
+              "title": "试改B同时覆盖解释A与解释B",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "试改B的「不构成信任，也不构成恋爱」偏向解释B（范围限定），「双方可随时退出」偏向解释A（退出保留），故B不偏向单一解释。",
+              "assumptions": [
+                "「合作」为解释性标签，非文本用词。"
+              ],
+              "actions": [
+                "代入解释B「合作范围限定」：补句把协作限定在当场对照与公开路标。",
+                "代入解释A「退出保留」：补句保留随时退出。",
+                "比较两解释代入后是否均成立。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "compare_stack_no_new_binding",
+              "title": "两方案叠加后不引入原文未有的绑定或承诺",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "叠加后不新增共同出发承诺、不新增继续会面义务、不新增原件交付或批注公开；四处既有措辞保持原样。",
+              "assumptions": [
+                "新增句不覆盖或改写既有动作句。"
+              ],
+              "actions": [
+                "叠加试改A句与试改B句。",
+                "逐项检查是否新增共同出发承诺、继续会面义务、原件交付、批注公开。",
+                "回读四处既有措辞是否保持原样。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "compare_stack_dual_exit_ambiguity",
+              "title": "叠加后退出路径存在双读可能",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "叠加后「双方可随时退出」（B）与「请管理员中止」（A）并存，可能被读作两套退出路径，或读作B的退出声明被A具体化为单一机制。",
+              "assumptions": [],
+              "actions": [
+                "叠加试改A句与试改B句。",
+                "分别按「两套退出路径」与「单一机制」两种读法回读。",
+                "记录两种读法均未被文本排除。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "compare_no_trust_romance_established",
+              "title": "两方案均未字面或明确同义地建立信任或恋爱",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "试改A不引入情感依赖或亲密关系措辞；试改B为否定式边界声明，不建立信任、不建立恋爱。",
+              "assumptions": [
+                "否定式声明不构成对关系性质的肯定。"
+              ],
+              "actions": [
+                "回读试改A句，检查是否出现信任或恋爱的肯定性表述。",
+                "回读试改B句，检查其否定式声明方向。",
+                "确认两方案均未新增共同目标承诺。"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "compare_no_joint_departure_commitment",
+              "title": "两方案均未新增共同出发承诺",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "试改A只给单方退出权，未给任何一方要求对方继续或同行的权利；试改B只给否定式边界与退出声明，未给共同出发承诺。",
+              "assumptions": [],
+              "actions": [
+                "回读试改A句，检查是否含共同出发或同行义务。",
+                "回读试改B句，检查是否含共同出发或同行义务。",
+                "确认两方案均未新增共同行动承诺。"
+              ]
+            }
+          ],
+          "summary": "本能力为 compare，patches 为空。仅依据当前唯一资源 consent-06（六行前缀）并置试改A（仅退出条件句）与试改B（仅关系边界句），比较二者相对原文的得失、各自新增的字面信息、各自偏向哪一竞争解释，以及可否叠加。\n\n原文既有字面事实（冻结）：旧对手在公共阅览室碰面、各坐桌子一端；管理员先要求他们放低声音；窗边的灯有些暗、两人各自挪开了椅子；一人提议交换各自持有的半张路线图；另一人只同意当场对照、不交出原件、也不承诺共同出发；两人分别盖住私人批注、比较公开的两处路标。原文不含「信任」「恋爱」「合作」「退出」的字面词。\n\n试改A（仅退出条件句，提案）：在「也不承诺共同出发」之后插入「任何一方可随时请管理员中止这次对照，无需说明理由，也无需对方同意。」\n- 相对原文新增的字面信息：①「中止」这一动作词；②「管理员」被赋予可被请求中止对照的职能（原文中管理员只行使过「要求放低声音」的程序性动作）；③「无需说明理由」「无需对方同意」两条单方性条件；④退出通道的存在本身。\n- 偏向：偏向解释A「退出保留」——把退出绑定在外部程序/第三方，使退出不依赖双方互信。它不描述协作范围，故对解释B「合作范围限定」基本中立。\n- 得失：得——把「不承诺共同出发」的留白局部填成可操作的退出通道，且不扩大同意范围、不涉及原件与批注；失——把管理员从「已行使程序性职能的在场者」推进为「退出机制的执行方」，属对既有留白的填充，可能过度具体化第三方角色。\n\n试改B（仅关系边界句，提案）：在「各坐桌子一端」之后插入「这次对照不构成信任，也不构成恋爱；双方可随时退出。」\n- 相对原文新增的字面信息：①「信任」「恋爱」两个原文没有的否定式词项；②「这次对照」的关系定性框架；③「双方可随时退出」这一退出声明（但不指明机制、不指明由谁执行）。\n- 偏向：同时覆盖两解释——「不构成信任，也不构成恋爱」偏向解释B「合作范围限定」（把协作限定在当场对照与公开路标）；「双方可随时退出」偏向解释A「退出保留」（保留绑定状态）。故B不偏向单一解释，而是把两解释并置。\n- 得失：得——以否定式边界声明直接呼应约束「一次合作不是信任或恋爱」，且不新增事件；失——引入原文未有的「信任」「恋爱」词项，存在被读作对既有动作重新定性而非边界声明的解释空间。\n\n两方案是否可叠加：可叠加，且叠加后不必然引入原文未有的绑定或承诺含义。叠加句为「这次对照不构成信任，也不构成恋爱；任何一方可随时请管理员中止这次对照，无需说明理由，也无需对方同意。」叠加后：退出条件由外部程序提供（A），关系边界由否定式声明给出（B），二者作用面不同（一为退出机制，一为关系定性），不互相取消。叠加不新增共同出发承诺、不新增继续会面义务、不新增原件交付或批注公开。\n\n叠加的残留风险：①叠加后「双方可随时退出」（B）与「请管理员中止」（A）并存，可能被读作两套退出路径，或读作B的退出声明被A具体化为单一机制，存在解释空间；②「不构成信任」是否会被读作对既有动作的重新定性，未定论；③管理员作为第三方是否与既有设定一致，未验证。\n\n保留竞争状态：解释A「退出保留」与解释B「合作范围限定」并非互斥——A描述绑定状态（无共同出发承诺），B描述协作范围（当场、公开路标）。试改A偏向A，试改B同时覆盖A与B，二者可叠加而不择一裁定。本输出不裁定哪一解释为真。\n\n未宣称：本输出未宣称任何补句已被采用或已发布；未回读当前前缀之后的情节，不宣称全书未出现其他退出条件或关系边界表述。",
+          "claims": [
+            {
+              "kind": "source_statement",
+              "text": "当前唯一资源 consent-06 的六行前缀含：旧对手在公共阅览室碰面、各坐桌子一端；管理员先要求他们放低声音；窗边的灯有些暗、两人各自挪开了椅子；一人提议交换各自持有的半张路线图；另一人只同意当场对照、不交出原件、也不承诺共同出发；两人分别盖住私人批注、比较公开的两处路标。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "仅覆盖当前前缀，未检索前缀之外资源。"
+            },
+            {
+              "kind": "source_statement",
+              "text": "当前前缀中不存在「信任」「恋爱」「合作」「退出」的字面词；「旧对手」为关系标签，「各坐桌子一端」为空间安排。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "未检索前缀之外资源，不宣称全书未出现。"
+            },
+            {
+              "kind": "proposal",
+              "text": "试改A（仅退出条件句，提案，非原文事实）：在「也不承诺共同出发」之后插入「任何一方可随时请管理员中止这次对照，无需说明理由，也无需对方同意。」",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "补句置于「也不承诺共同出发」之后、「两人分别盖住私人批注」之前，保持段落顺序。"
+              ],
+              "uncertainty": "该句为新增创意，未宣称已采用或已发布；是否与后续文本冲突未评估。"
+            },
+            {
+              "kind": "proposal",
+              "text": "试改B（仅关系边界句，提案，非原文事实）：在「各坐桌子一端」之后插入「这次对照不构成信任，也不构成恋爱；双方可随时退出。」",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "关系定性句不改变既有动作句的字面事实。"
+              ],
+              "uncertainty": "该句为新增创意，未宣称已采用或已发布；是否与后续文本冲突未评估。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "试改A相对原文新增的字面信息：①「中止」动作词；②管理员被赋予可被请求中止对照的职能（原文中管理员只行使过「要求放低声音」）；③「无需说明理由」「无需对方同意」两条单方性条件；④退出通道的存在本身。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "「管理员」职能的扩展是否与既有设定一致，未验证。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "试改B相对原文新增的字面信息：①「信任」「恋爱」两个原文没有的否定式词项；②「这次对照」的关系定性框架；③「双方可随时退出」这一退出声明（不指明机制、不指明由谁执行）。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "「不构成信任」是否会被读作对既有动作的重新定性而非边界声明，存在解释空间。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "试改A偏向解释A「退出保留」：把退出绑定在外部程序/第三方，使退出不依赖双方互信；它不描述协作范围，故对解释B「合作范围限定」基本中立。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "管理员已在场并要求放低声音，具备作为程序性第三方的条件。"
+              ],
+              "uncertainty": "「不承诺共同出发」是否已隐含退出权，存在多种读法。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "试改B同时覆盖两解释：「不构成信任，也不构成恋爱」偏向解释B「合作范围限定」（把协作限定在当场对照与公开路标）；「双方可随时退出」偏向解释A「退出保留」（保留绑定状态）。故B不偏向单一解释，而是把两解释并置。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "「合作」非原文用词，此处沿用解释性标签。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "两解释并非互斥：解释A描述绑定状态（无共同出发承诺），解释B描述协作范围（当场、公开路标）。试改A偏向A，试改B同时覆盖A与B，二者可叠加而不择一裁定。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": ""
+            },
+            {
+              "kind": "interpretation",
+              "text": "叠加方案（提案）：试改A句与试改B句可并存，叠加后为「这次对照不构成信任，也不构成恋爱；任何一方可随时请管理员中止这次对照，无需说明理由，也无需对方同意。」二者作用面不同（一为退出机制，一为关系定性），不互相取消。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "叠加不改变既有动作句的字面事实。"
+              ],
+              "uncertainty": "叠加后是否被读作两套退出路径，存在解释空间。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "叠加后不新增原文未有的绑定或承诺含义：不新增共同出发承诺、不新增继续会面义务、不新增原件交付或批注公开；「不交出原件」「不承诺共同出发」「分别盖住私人批注」「比较公开的两处路标」四处措辞可保持原样。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "新增句不覆盖或改写既有动作句。"
+              ],
+              "uncertainty": "逐项判断基于字面语义，未做读者接受度验证。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "试改A与试改B均不把一次对照写成信任或恋爱：A只提供程序性退出，不引入情感依赖或亲密关系措辞；B为否定式边界声明，方向与约束「一次合作不是信任或恋爱」一致。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "否定式声明不构成对关系性质的肯定。"
+              ],
+              "uncertainty": ""
+            },
+            {
+              "kind": "hypothesis",
+              "text": "「信任」在本前缀内可能以行为替代形式存在（愿意到场、愿意对照公开路标），但无字面或明确同义证据，故不作为事实主张；试改B的否定式声明不改变这一状态。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "assumptions": [],
+              "uncertainty": "到场与对照也可能出于算计或验证，而非信任。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "「恋爱」在本前缀内无任何支持证据；旧对手关系与公共阅览室场景不构成恋爱线索，试改B的否定式声明亦不建立恋爱。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "无证据不等于排除后续可能；此处仅限当前前缀。"
+            }
+          ],
+          "patches": [],
+          "followups": [
+            {
+              "logical_key": "compare_stack_vs_single",
+              "capability": "compare",
+              "question": "在试改A（仅退出条件句）、试改B（仅关系边界句）与叠加方案三者之间，哪一方案在保留两解释非互斥状态的同时，新增的原文未有的字面信息最少？",
+              "depends_on": [],
+              "dependency_policy": "all_terminal",
+              "search_query": null,
+              "web_queries": [],
+              "workspace_revision_id": null
+            },
+            {
+              "logical_key": "countercheck_admin_role_extension",
+              "capability": "countercheck",
+              "question": "试改A把管理员从「已行使程序性职能的在场者」推进为「退出机制的执行方」，这一职能扩展是否与既有设定一致，还是过度具体化第三方角色？",
+              "depends_on": [],
+              "dependency_policy": "all_terminal",
+              "search_query": null,
+              "web_queries": [],
+              "workspace_revision_id": null
+            },
+            {
+              "logical_key": "test_boundary_against_later_text",
+              "capability": "test",
+              "question": "若后续文本出现共同出发或信任建立，试改B的否定式边界与试改A的退出通道是否会被推翻或需重新解释？",
+              "depends_on": [],
+              "dependency_policy": "all_terminal",
+              "search_query": null,
+              "web_queries": [],
+              "workspace_revision_id": null
+            }
+          ],
+          "omissions": [
+            "未检索当前前缀之外的任何资源，因此不宣称全书未出现「信任」「恋爱」「合作」「退出」或其他退出条件表述。",
+            "未确认「不承诺共同出发」是否已隐含退出权，故保留竞争解释。",
+            "未评估管理员作为第三方是否与既有设定一致。",
+            "未评估两人此前关系史、路线图内容与私人批注内容。",
+            "未判断该场景是否会被后续文本重新定性为合作、信任或恋爱。",
+            "试改A、试改B与叠加方案均为新增创意，未宣称已采用或已发布。",
+            "未评估补句措辞是否与后续文本冲突。",
+            "「不构成信任」是否会被读作对既有动作的重新定性，存在解释空间，未定论。",
+            "叠加后「双方可随时退出」与「请管理员中止」是否被读作两套退出路径，存在解释空间，未定论。",
+            "未做读者接受度或语气一致性测试。",
+            "本能力为 compare，patches 为空；未输出任何可编辑字段替换。"
+          ],
+          "knowledge_review": {
+            "status": "passed",
+            "review": {
+              "status": "passed",
+              "repaired": false,
+              "coverage": [
+                {
+                  "dimension": "prior_prose",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "world_rules",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "outline",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "scope_and_permission",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "internal_consistency",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                }
+              ],
+              "issue_counts": {
+                "conflict": 0,
+                "irrelevant_content": 0,
+                "missing_required": 0,
+                "out_of_scope_knowledge": 0,
+                "premature_reveal": 0,
+                "unchecked": 0,
+                "unsupported_fact": 0
+              },
+              "issues": []
+            }
+          }
+        },
+        "evidence": [
+          {
+            "key": "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc",
+            "label": "consent-06",
+            "excerpt": "旧对手在公共阅览室碰面，各坐桌子一端。\n管理员先要求他们放低声音。\n窗边的灯有些暗，两人各自挪开了椅子。\n一人提议交换各自持有的半张路线图。\n另一人只同意当场对照，不交出原件，也不承诺共同出发。\n两人分别盖住私人批注，比较公开的两处路标。",
+            "url": null,
+            "read_range": null,
+            "source_hash": "69e9773ed9d898fbfa81aa16c3f5677442a006cc944f4ed719820ffa6db57a31"
+          }
+        ]
+      },
+      {
+        "id": "01a79df2-019a-4c9c-803b-5cf8f67745da",
+        "kind": "countercheck",
+        "workspace_revision_id": null,
+        "result": {
+          "scenarios": [
+            {
+              "expected": "holds",
+              "key": "admin_volume_only",
+              "title": "管理员职能限于音量要求",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "管理员在前缀内只被写出对音量提出要求，不被写出有中止对照的权限或可被请求的通道。",
+              "assumptions": [
+                "未写出不等于不存在，仅就前缀内回读。"
+              ],
+              "actions": [
+                "回读前缀中管理员出现的全部字面表述",
+                "确认只有「管理员先要求他们放低声音」一处",
+                "检查是否有中止对照或请求管理员的字面表述"
+              ]
+            },
+            {
+              "expected": "violated",
+              "key": "admin_escalation_added",
+              "title": "试改A新增管理员执行方职能",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "试改A加入请求管理员留下监督对照过程并获应允，新增了前缀未写出的权限与互动通道。",
+              "assumptions": [
+                "「延伸」指不新增未被前缀支持的角色能力或互动通道。"
+              ],
+              "actions": [
+                "在管理员要求放低声音后加入请求其监督对照",
+                "让管理员应允并站在两桌之间",
+                "重测该改动是否与前缀字面冲突"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "admin_ambient_pressure",
+              "title": "试改B保留管理员为环境压力",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "试改B不新增对管理员的请求或回应，只写两人各自压低声音、挪近椅子低声对照。",
+              "assumptions": [
+                "该改动不新增第三方职能。"
+              ],
+              "actions": [
+                "保留管理员要求放低声音原句",
+                "加入两人各自压低声音",
+                "加入两人挪近椅子低声对照"
+              ]
+            }
+          ],
+          "summary": "在当前前缀（consent-06）内，管理员仅以「管理员先要求他们放低声音」一处字面表述出现，其被写出的职能范围限于对公共阅览室音量提出要求。据此，试改A把管理员推进为「可被请求中止对照的执行方」属于对第三方角色的过度具体化：前缀既未写出管理员有中止对照的权限，也未写出两人可向其提出此类请求，更未写出管理员会回应此类请求。试改B改为不新增管理员职能，只让管理员的要求作为环境压力被两人各自内化，从而与既有设定一致。两个方案针对不同竞争解释：A假设管理员是潜在程序执行方，B假设管理员只是场景约束来源。未知项保留：管理员是否还有其他职能、是否在场持续、是否可被请求，均不在前缀内，不作断言。",
+          "claims": [
+            {
+              "kind": "source_statement",
+              "text": "前缀中管理员出现的字面表述只有一处：「管理员先要求他们放低声音。」",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "仅就当前前缀回读，未扫描其他资源。"
+            },
+            {
+              "kind": "source_statement",
+              "text": "前缀写出的管理员职能范围：对公共阅览室的音量提出要求。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": ""
+            },
+            {
+              "kind": "source_statement",
+              "text": "前缀未写出管理员有中止对照的权限，也未写出两人可向管理员提出中止对照的请求。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "未写出不等于不存在；此处只作前缀内回读结论。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "试改A把管理员推进为「可被请求中止对照的执行方」，需要新增三项前缀未写出的设定：管理员有中止权限、两人知晓并可请求该权限、管理员会回应请求。因此属于过度具体化第三方角色，而非既有设定的延伸。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "「延伸」指不新增未被前缀支持的角色能力或互动通道。"
+              ],
+              "uncertainty": "若后续资源写出管理员的其他职能，此判断需重估。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "试改B把管理员的要求处理为环境压力，由两人各自内化（压低声音、缩短或加快对照），不新增第三方互动通道，与前缀一致。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": ""
+            },
+            {
+              "kind": "hypothesis",
+              "text": "竞争解释一：管理员是公共空间的程序执行方，其要求可升级为对行为的干预。前缀不支持该解释的升级部分，但也不排除。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "保留为未知，不作断言。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "竞争解释二：管理员只是场景约束来源，其职能止于音量要求。该解释与前缀字面一致，但同样不能断言管理员无其他职能。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "保留为未知，不作断言。"
+            },
+            {
+              "kind": "proposal",
+              "text": "试改A（针对竞争解释一）：在「管理员先要求他们放低声音」之后，加入两人中一人向管理员示意、请求其留下监督对照过程，管理员应允并站在两桌之间。此改动把管理员推进为可被请求的执行方。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "试改仅用于比较，不代表已采用或已发布。"
+              ],
+              "uncertainty": "该改动新增了前缀未写出的权限与互动通道，属于过度具体化。"
+            },
+            {
+              "kind": "proposal",
+              "text": "试改B（针对竞争解释二）：保留「管理员先要求他们放低声音」原句，在其后只写两人各自压低声音、把椅子挪得更近以便低声对照，不新增任何对管理员的请求或回应。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "试改仅用于比较，不代表已采用或已发布。"
+              ],
+              "uncertainty": "该改动不新增第三方职能，但会略微改变两人对照时的空间关系。"
+            }
+          ],
+          "patches": [],
+          "followups": [
+            {
+              "logical_key": "countercheck_admin_scope",
+              "capability": "countercheck",
+              "question": "若后续资源写出管理员的其他职能（如巡视、登记、制止），当前「管理员职能限于音量要求」的前缀内结论是否需要重估？请仅依据新资源回读，不推断未写出的职能。",
+              "depends_on": [],
+              "dependency_policy": "all_succeeded",
+              "search_query": null,
+              "web_queries": [],
+              "workspace_revision_id": null
+            },
+            {
+              "logical_key": "compare_two_trials",
+              "capability": "compare",
+              "question": "在试改A与试改B之间，哪一个更符合「一次合作不是信任或恋爱，保留双方随时退出的条件」这一约束？请分别评估两方案是否新增了退出条件之外的依赖通道。",
+              "depends_on": [],
+              "dependency_policy": "all_succeeded",
+              "search_query": null,
+              "web_queries": [],
+              "workspace_revision_id": null
+            }
+          ],
+          "omissions": [
+            "管理员是否还有其他职能，前缀未写出，不作断言。",
+            "管理员是否在场持续、是否可被请求，前缀未写出，不作断言。",
+            "两人是否知晓管理员有中止对照的权限，前缀未写出，不作断言。",
+            "前缀未写出管理员对两人对照行为的任何后续反应。",
+            "未扫描其他资源，不能宣称全书未出现管理员的其他职能。"
+          ],
+          "knowledge_review": {
+            "status": "passed",
+            "review": {
+              "status": "passed",
+              "repaired": false,
+              "coverage": [
+                {
+                  "dimension": "prior_prose",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "world_rules",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "outline",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                }
+              ],
+              "issue_counts": {
+                "conflict": 0,
+                "irrelevant_content": 0,
+                "missing_required": 0,
+                "out_of_scope_knowledge": 0,
+                "premature_reveal": 0,
+                "unchecked": 0,
+                "unsupported_fact": 0
+              },
+              "issues": []
+            }
+          }
+        },
+        "evidence": [
+          {
+            "key": "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc",
+            "label": "consent-06",
+            "excerpt": "旧对手在公共阅览室碰面，各坐桌子一端。\n管理员先要求他们放低声音。\n窗边的灯有些暗，两人各自挪开了椅子。\n一人提议交换各自持有的半张路线图。\n另一人只同意当场对照，不交出原件，也不承诺共同出发。\n两人分别盖住私人批注，比较公开的两处路标。",
+            "url": null,
+            "read_range": null,
+            "source_hash": "69e9773ed9d898fbfa81aa16c3f5677442a006cc944f4ed719820ffa6db57a31"
+          }
+        ]
+      },
+      {
+        "id": "1ca1d4f3-d80c-4708-af40-1f1c6a7e8ef7",
+        "kind": "compare",
+        "workspace_revision_id": null,
+        "result": {
+          "scenarios": [
+            {
+              "expected": "holds",
+              "key": "frozen_premises",
+              "title": "冻结前提：前缀字面事实",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "公共阅览室碰面、管理员要求放低声音、各自挪椅、一人提议交换半张路线图、另一人只同意当场对照且不交出原件、不承诺共同出发、分别盖住私人批注、比较公开的两处路标，这些字面事实不被试改删除或改写。",
+              "assumptions": [
+                "前缀即当前授权资源全文"
+              ],
+              "actions": [
+                "读取前缀字面事实",
+                "标记退出相关字面词",
+                "不引入前缀之后情节"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "reading_a_external_exit",
+              "title": "读法一：外部程序退出（试改A）",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "退出由管理员或阅览室规则提供中止通道，当事人无需自行声明退出。",
+              "assumptions": [
+                "管理员权限可被扩展为中止通道"
+              ],
+              "actions": [
+                "在可编辑字段中补入管理员/阅览室规则可中止对照的表述",
+                "保留不交出原件与不承诺共同出发"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "reading_b_natural_termination",
+              "title": "读法二：对照结束即自然终止（试改B）",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "退出内嵌于对照行为本身，对照完成即终止，无需第三方。",
+              "assumptions": [
+                "对照被理解为一次性有界行为"
+              ],
+              "actions": [
+                "在可编辑字段中补入对照完成即各自结束的表述",
+                "不新增第三方中止通道"
+              ]
+            },
+            {
+              "expected": "unchanged",
+              "key": "retest_no_commitment",
+              "title": "重测：不承诺共同出发的两种读法",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "不承诺共同出发既可读为隐含退出权，也可仅读为排除共同行动承诺；两读法并存不裁定。",
+              "assumptions": [
+                "不做裁定性改写"
+              ],
+              "actions": [
+                "分别以读法A与读法B重读该短语",
+                "记录两读法各自依赖的字面词"
+              ]
+            }
+          ],
+          "summary": "仅依据当前前缀（consent-06）做局部比较。前缀字面只给出：两人在公共阅览室碰面、管理员要求放低声音、各自挪椅、一人提议交换半张路线图、另一人只同意当场对照且不交出原件、不承诺共同出发、分别盖住私人批注后比较公开的两处路标。由此可提出两种退出机制读法：读法一（试改A）把中止通道外置给管理员/阅览室规则；读法二（试改B）把退出内嵌于“对照结束即自然终止”，无需第三方。两读法依赖的字面词不同，且“不承诺共同出发”既可被读为隐含退出权，也可仅被读为排除共同行动承诺；本输出保留两读法并存，不裁定。",
+          "claims": [
+            {
+              "kind": "source_statement",
+              "text": "前缀字面包含的退出相关词仅有：管理员先要求放低声音、只同意当场对照、不交出原件、不承诺共同出发、分别盖住私人批注、比较公开的两处路标。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "未出现“退出”“中止”“离开”“结束”等字面词。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "读法一（外部程序退出）依赖的字面词是“管理员”与“公共阅览室”：管理员先要求放低声音，说明存在可介入的第三方角色；公共阅览室暗示场所规则可作为中止通道。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "assumptions": [
+                "管理员对场所内行为有可执行的规则权限"
+              ],
+              "uncertainty": "前缀未写管理员除“要求放低声音”外的任何权限，也未写阅览室规则内容。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "读法二（对照结束即自然终止）依赖的字面词是“当场对照”“比较公开的两处路标”“分别盖住私人批注”：对照行为有明确对象（两处路标）与边界（公开部分），比较完成即无继续事项，退出内嵌于行为本身。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "对照被理解为一次性、有界的行为"
+              ],
+              "uncertainty": "前缀未写对照结束后双方是否离场或是否再有互动。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "“不承诺共同出发”至少排除共同行动承诺（不共同启程、不绑定后续行程）；它是否隐含退出权，取决于把“不承诺”读为对关系约束的拒绝（隐含可随时不继续）还是仅读为对行动范围的限定（只排除共同出发，不涉及中止）。两读法在此分歧上并存。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "前缀未出现“退出”“中止”“随时”等词，无法从字面确定。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "试改A（外部程序退出）在前缀中新增可被第三方触发的规则性中止通道，使退出不依赖当事人意愿；试改B（对照结束即自然终止）不新增第三方，只把退出写成对照行为完成后的默认状态。两者针对不同竞争解释：A 认为退出需要外部程序，B 认为退出是行为边界自带的。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "试改只改授权资源的可编辑字段，保留其他字段"
+              ],
+              "uncertainty": "两读法均未被前缀字面确证，属竞争解释。"
+            }
+          ],
+          "patches": [],
+          "followups": [
+            {
+              "logical_key": "compare_exit_readings",
+              "capability": "compare",
+              "question": "在保留两读法并存的前提下，进一步比较：若管理员在对照中途介入，读法A与读法B分别如何解释“不承诺共同出发”？",
+              "depends_on": [],
+              "dependency_policy": "all_succeeded",
+              "search_query": null,
+              "web_queries": [],
+              "workspace_revision_id": null
+            }
+          ],
+          "omissions": [
+            "前缀未出现“退出”“中止”“离开”“结束”等字面词，不能据此宣称全书未出现。",
+            "前缀未写管理员除“要求放低声音”外的权限，也未写阅览室规则内容。",
+            "前缀未写对照结束后双方是否离场或是否再有互动。",
+            "未回读前缀之后的情节，故不判断两读法在后续是否被确证或推翻。",
+            "未宣称任何试改已被采用或已发布。"
+          ],
+          "knowledge_review": {
+            "status": "passed",
+            "review": {
+              "status": "passed",
+              "repaired": false,
+              "coverage": [
+                {
+                  "dimension": "prior_prose",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "world_rules",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "outline",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                }
+              ],
+              "issue_counts": {
+                "conflict": 0,
+                "irrelevant_content": 0,
+                "missing_required": 0,
+                "out_of_scope_knowledge": 0,
+                "premature_reveal": 0,
+                "unchecked": 0,
+                "unsupported_fact": 0
+              },
+              "issues": []
+            }
+          }
+        },
+        "evidence": [
+          {
+            "key": "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc",
+            "label": "consent-06",
+            "excerpt": "旧对手在公共阅览室碰面，各坐桌子一端。\n管理员先要求他们放低声音。\n窗边的灯有些暗，两人各自挪开了椅子。\n一人提议交换各自持有的半张路线图。\n另一人只同意当场对照，不交出原件，也不承诺共同出发。\n两人分别盖住私人批注，比较公开的两处路标。",
+            "url": null,
+            "read_range": null,
+            "source_hash": "69e9773ed9d898fbfa81aa16c3f5677442a006cc944f4ed719820ffa6db57a31"
+          }
+        ]
+      },
+      {
+        "id": "e9ffa393-964e-4830-838b-02cb748ed3e9",
+        "kind": "test",
+        "workspace_revision_id": null,
+        "result": {
+          "scenarios": [
+            {
+              "expected": "holds",
+              "key": "baseline_no_insert",
+              "title": "单句方案：不插入退出句",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "原文四处措辞保持原样，不新增绑定或承诺含义。",
+              "assumptions": [
+                "比较基准为原文该处不插入该句。"
+              ],
+              "actions": [
+                "保留「各坐桌子一端」后直接接「管理员先要求他们放低声音」",
+                "保留「不交出原件」「不承诺共同出发」「分别盖住私人批注」「比较公开的两处路标」原样"
+              ]
+            },
+            {
+              "expected": "holds",
+              "key": "overlay_insert",
+              "title": "叠加方案：插入退出句",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "插入句不新增绑定或承诺含义；四处措辞保持原样；不被读作两套退出路径。",
+              "assumptions": [
+                "「请管理员中止」被读作程序性退出，而非需批准的新条件。"
+              ],
+              "actions": [
+                "在「各坐桌子一端」后插入「这次对照不构成信任，也不构成恋爱；任何一方可随时请管理员中止这次对照，无需说明理由，也无需对方同意。」",
+                "保留「不交出原件」「不承诺共同出发」「分别盖住私人批注」「比较公开的两处路标」原样"
+              ]
+            },
+            {
+              "expected": "violated",
+              "key": "overlay_misread_approval",
+              "title": "反证：叠加方案被读作需管理员批准",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "若「请管理员中止」被读作需管理员裁量或批准，则可能新增原文未有的条件。",
+              "assumptions": [
+                "该读法为解释风险，非原文事实。"
+              ],
+              "actions": [
+                "将「请管理员中止」读作需第三方批准",
+                "检查是否因此新增绑定或承诺含义"
+              ]
+            },
+            {
+              "expected": "violated",
+              "key": "overlay_misread_two_paths",
+              "title": "反证：叠加方案被读作两套退出路径",
+              "source_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "invariant": "若行为边界与程序性退出被视为独立机制，则可能被读作两套退出路径。",
+              "assumptions": [
+                "该读法为解释风险，非原文事实。"
+              ],
+              "actions": [
+                "将「不交出原件」「不承诺共同出发」与「请管理员中止」视为独立机制",
+                "检查是否因此被读作两套退出路径"
+              ]
+            }
+          ],
+          "summary": "仅依据当前前缀（consent-06）做局部试改比较。原文事实：旧对手在公共阅览室碰面、各坐桌子一端；管理员先要求放低声音；窗边灯暗、两人各自挪开椅子；一人提议交换各自持有的半张路线图；另一人只同意当场对照，不交出原件，也不承诺共同出发；两人分别盖住私人批注，比较公开的两处路标。\n\n问题焦点：在「各坐桌子一端」后插入「这次对照不构成信任，也不构成恋爱；任何一方可随时请管理员中止这次对照，无需说明理由，也无需对方同意。」（叠加方案）相对单句方案（仅保留原文该处，不插入该句）是否新增原文未有的绑定或承诺含义。\n\n结论（解释，非事实）：叠加方案不新增绑定或承诺，反而把「不构成信任/恋爱」与「可随时请管理员中止、无需理由、无需对方同意」写成显式不变量；但它确实新增了原文未有的措辞与程序性退出路径，因此属于新增表达而非新增义务。四处措辞在叠加方案下仍可保持原样，且不会被读作两套退出路径——因为「不交出原件」「不承诺共同出发」是行为边界，「请管理员中止」是程序性退出，二者是同一退出立场的不同层面，而非两套并行机制。\n\n反证与未知：若读者把「请管理员中止」理解为需要管理员裁量或批准，则可能被读作额外条件；若把「不构成信任/恋爱」读作关系定性而非边界声明，则可能被读作对关系的额外承诺。这些是解释风险，不是原文事实。未回读当前前缀之后的情节，因此不宣称全书未出现类似措辞或机制。\n\n试改仅输出授权资源的完整可编辑字段，保留其他字段；patches 为空（work_capability=test）。",
+          "claims": [
+            {
+              "kind": "source_statement",
+              "text": "原文：旧对手在公共阅览室碰面，各坐桌子一端；管理员先要求放低声音；窗边灯暗，两人各自挪开椅子；一人提议交换各自持有的半张路线图；另一人只同意当场对照，不交出原件，也不承诺共同出发；两人分别盖住私人批注，比较公开的两处路标。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [],
+              "uncertainty": "仅回读至多三处，未扫描当前前缀之后内容。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "「不交出原件」「不承诺共同出发」「分别盖住私人批注」「比较公开的两处路标」四处措辞在叠加方案下仍可保持原样：它们描述行为边界与对照范围，不因插入句而改变语义。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "插入句位于「各坐桌子一端」之后，不替换或改写四处措辞。"
+              ],
+              "uncertainty": "若插入句被读作对四处措辞的限定，则可能改变其语气，但字面仍可保持。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "叠加方案不新增绑定或承诺含义：它声明「不构成信任/恋爱」并给出「可随时请管理员中止、无需理由、无需对方同意」的退出条件，方向与原文「只同意当场对照、不交出原件、不承诺共同出发」一致。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "「请管理员中止」被读作程序性退出，而非需要管理员批准的新条件。"
+              ],
+              "uncertainty": "若读者把「请管理员中止」读作需第三方裁量，则可能被读作额外条件。"
+            },
+            {
+              "kind": "interpretation",
+              "text": "四处措辞不会被读作两套退出路径：「不交出原件」「不承诺共同出发」是行为边界，「请管理员中止」是程序性退出；二者是同一退出立场的不同层面，而非两套并行机制。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "读者按同一退出立场理解行为边界与程序性退出。"
+              ],
+              "uncertainty": "若读者把行为边界与程序性退出视为独立机制，则可能读作两套路径。"
+            },
+            {
+              "kind": "hypothesis",
+              "text": "叠加方案相对单句方案新增的是显式措辞与程序性退出路径，而非新增义务；单句方案保留更多留白，叠加方案降低关系误读风险但增加文本显性度。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "比较基准为原文该处不插入该句的单句方案。"
+              ],
+              "uncertainty": "留白价值与显性度收益的权衡属解释，非原文事实。"
+            },
+            {
+              "kind": "proposal",
+              "text": "试改A（单句方案）：保留原文该处不插入，仅在「另一人只同意当场对照，不交出原件，也不承诺共同出发」后保持原样，不新增退出句。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "试改仅输出授权资源的完整可编辑字段，保留其他字段。"
+              ],
+              "uncertainty": "未宣称已采用或已发布。"
+            },
+            {
+              "kind": "proposal",
+              "text": "试改B（叠加方案）：在「各坐桌子一端」后插入「这次对照不构成信任，也不构成恋爱；任何一方可随时请管理员中止这次对照，无需说明理由，也无需对方同意。」其余字段保持原样。",
+              "evidence_keys": [
+                "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc"
+              ],
+              "counterevidence_keys": [],
+              "assumptions": [
+                "插入句不替换或改写四处措辞。"
+              ],
+              "uncertainty": "未宣称已采用或已发布。"
+            }
+          ],
+          "patches": [],
+          "followups": [
+            {
+              "logical_key": "compare_overlay_vs_single",
+              "capability": "compare",
+              "question": "在 consent-06 当前前缀下，叠加方案与单句方案在「不交出原件」「不承诺共同出发」「分别盖住私人批注」「比较公开的两处路标」四处措辞上的语义差异与留白损失分别是什么？",
+              "depends_on": [],
+              "dependency_policy": "all_succeeded",
+              "search_query": "consent-06 叠加方案 单句方案 四处措辞 语义差异 留白",
+              "web_queries": [],
+              "workspace_revision_id": null
+            },
+            {
+              "logical_key": "countercheck_admin_approval",
+              "capability": "countercheck",
+              "question": "「请管理员中止」在公共阅览室场景中是否可能被读作需管理员批准或裁量？若会，是否构成原文未有的额外条件？",
+              "depends_on": [],
+              "dependency_policy": "all_succeeded",
+              "search_query": "consent-06 请管理员中止 批准 裁量 额外条件",
+              "web_queries": [],
+              "workspace_revision_id": null
+            }
+          ],
+          "omissions": [
+            "未回读当前前缀之后的情节，因此不宣称全书未出现类似措辞或机制。",
+            "未宣称已采用或已发布任何试改。",
+            "未对「信任」「恋爱」在全书中的定义做跨文本核对。",
+            "未评估插入句对节奏、语气或人物声音的影响。",
+            "未确认管理员在公共阅览室场景中的权限范围。"
+          ],
+          "knowledge_review": {
+            "status": "passed",
+            "review": {
+              "status": "passed",
+              "repaired": false,
+              "coverage": [
+                {
+                  "dimension": "prior_prose",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "world_rules",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "outline",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "scope_and_authority",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "fact_vs_candidate",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                },
+                {
+                  "dimension": "task_coverage",
+                  "covered_by": [],
+                  "omitted": false,
+                  "omission_reason": null
+                }
+              ],
+              "issue_counts": {
+                "conflict": 0,
+                "irrelevant_content": 0,
+                "missing_required": 0,
+                "out_of_scope_knowledge": 0,
+                "premature_reveal": 0,
+                "unchecked": 0,
+                "unsupported_fact": 0
+              },
+              "issues": []
+            }
+          }
+        },
+        "evidence": [
+          {
+            "key": "writing_draft:a404f165-74ec-4fb7-901b-d5bbbdd791fc",
+            "label": "consent-06",
+            "excerpt": "旧对手在公共阅览室碰面，各坐桌子一端。\n管理员先要求他们放低声音。\n窗边的灯有些暗，两人各自挪开了椅子。\n一人提议交换各自持有的半张路线图。\n另一人只同意当场对照，不交出原件，也不承诺共同出发。\n两人分别盖住私人批注，比较公开的两处路标。",
+            "url": null,
+            "read_range": null,
+            "source_hash": "69e9773ed9d898fbfa81aa16c3f5677442a006cc944f4ed719820ffa6db57a31"
+          }
+        ]
+      }
+    ],
+    "usage": {
+      "requests": 28,
+      "prompt_tokens": 114320,
+      "completion_tokens": 33815,
+      "usage_complete": true,
+      "pending_usage": 0,
+      "usage_unknown": false
+    }
+  }
+}

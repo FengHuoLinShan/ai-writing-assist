@@ -71,6 +71,13 @@ EXPECTED_CAPABILITIES = (
     "interaction.anonymous_story",
     # Assistant
     "assistant.turn",
+    "assistant.forecast",
+    "interaction.forecast",
+    "collaboration.run",
+    "collaboration.plan",
+    "collaboration.investigate",
+    "collaboration.revise",
+    "collaboration.check",
     # 基础设施豁免
     "infrastructure.rag_query_planner",
     "infrastructure.reranker",
@@ -102,6 +109,7 @@ def test_registry_covers_all_domains() -> None:
         "imports",
         "interaction",
         "assistant",
+        "collaboration",
         "project",
         "infrastructure",
     }

@@ -156,6 +156,8 @@
           aria-label="章节正文"
           :aria-describedby="state.status === 'candidate' ? 'writing-candidate-review-description' : undefined"
           placeholder="开始写作..."
+          @compositionstart="$emit('composition', true)"
+          @compositionend="$emit('composition', false)"
         />
       </div>
     </template>
@@ -184,7 +186,7 @@ const props = defineProps({
   attach: { type: Function, required: true },
   detach: { type: Function, required: true },
 })
-const emit = defineEmits(["open-chapters", "create-chapter",
+const emit = defineEmits(["composition", "open-chapters", "create-chapter",
   "autosave", "checkpoint", "conflict-check", "publish", "discard",
   "generate-draft", "generate-continuation", "generate-pov", "regenerate-candidate",
   "auto-extract", "open-deep-import-settings", "open-ai-tools", "adopt", "reject",

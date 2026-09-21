@@ -592,3 +592,12 @@ README 记录省略字段继承、完整审查参考与原稿返修契约。
 `backend/modules/imports/README.md` 的“智能整理现有候选”。旧候选与旧授权不自动迁移。
 
 世界生成、融合、别名/关系与地图 brief 的回执和采用门禁见 `backend/modules/world/README.md`；旧待采用 AI 产物缺 passed 回执时要求重新生成，不回写旧已采用正史。
+
+
+### 受限前瞻与规则试验
+
+World 的前瞻 port 读取原影响服务的显式引用、当前 Atlas revision 和原待决组；未知距离、
+速度或身份不补成事实。作者选择的规则方向可经原 `world.edit_page_draft` 预览为工作稿中的
+待核对方案，不自动发布。Collaboration 世界压力配方先冻结至多八个具体情境，再用同一组
+情境比较原稿与精确试改；原样保留的有意例外可以声明为 unchanged。未知或遗漏不能通过，
+检查及情境的生产工作项被替代后，旧检查不能继续封存。

@@ -103,7 +103,10 @@ def agent_story_enabled(snapshot: dict) -> bool:
     if isinstance(policy, dict) and policy.get("version") == "3":
         if set(policy) != {"version", "mode", "web_search", "collaboration"} or policy[
             "collaboration"
-        ] != {"protocol": "team_v1", "max_actors": 3}:
+        ] not in (
+            {"protocol": "team_v1", "max_actors": 3},
+            {"protocol": "observation_v2", "max_actors": 3},
+        ):
             raise ValueError("Unsupported frozen RP collaboration protocol")
         return agent_story_enabled(
             {

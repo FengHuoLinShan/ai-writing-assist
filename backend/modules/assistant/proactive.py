@@ -7,7 +7,7 @@ import uuid
 from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from core.config import get_settings
@@ -127,11 +127,21 @@ async def save_policy(db, novel_id, value: ProactivePolicy, *, interaction=False
     row = await _watch(db, novel_id, create=True, lock=True)
     row.generation += 1
     row.policy_json = {
+        **(row.policy_json or {}),
         "settings": value.model_dump(mode="json"),
         "owner_id": str(current_account_id()),
         "version": row.generation,
         "authorized_at": _now().isoformat(),
     }
+    if "forecast_v1" in row.policy_json:
+        row.policy_json = {
+            **row.policy_json,
+            "forecast_v1": {
+                **row.policy_json["forecast_v1"],
+                "shared_daily_limit": value.daily_limit,
+                "timezone": value.timezone,
+            },
+        }
     if value.enabled and row.dirty_json:
         row.dirty_json = {
             key: {name: item for name, item in change.items() if name != "blocked"}
@@ -143,6 +153,10 @@ async def save_policy(db, novel_id, value: ProactivePolicy, *, interaction=False
         row.due_at = _now() + timedelta(seconds=60)
     if not value.enabled:
         row.due_at = None
+    if "forecast_v1" in row.policy_json or "creative_v2" in row.policy_json:
+        from modules.assistant.forecast.queue import refresh_due
+
+        refresh_due(row)
     await db.flush()
     return await policy(db, novel_id, interaction=interaction)
 
@@ -166,6 +180,12 @@ async def mark_changed(db, novel_id, asset_type, asset_id, *, related_scene_ids=
     row = await _watch(db, novel_id, lock=True)
     if row is None:
         return
+    from modules.assistant.creative_queue import mark_changed as mark_creative
+    from modules.assistant.forecast.queue import record_change, refresh_due
+
+    await mark_creative(db, row, asset_type, str(asset_id))
+    record_change(row, asset_type, str(asset_id), _now())
+    refresh_due(row)
     setting = ProactivePolicy.model_validate(
         (row.policy_json or {}).get("settings") or {}
     )
@@ -217,6 +237,7 @@ async def mark_changed(db, novel_id, asset_type, asset_id, *, related_scene_ids=
         if not key.startswith("_") and not item.get("blocked")
     ]
     row.due_at = min(dates) if dates else None
+    refresh_due(row)
     await db.flush()
 
 
@@ -254,24 +275,44 @@ async def _notice(
 
 
 async def schedule_due(db):
+    from modules.assistant import creative_queue
+    from modules.assistant.forecast import queue as forecast_queue
     from modules.assistant.service import expire_run_histories
 
     await expire_run_histories(db)
     if not (get_settings().assistant_enabled or get_settings().interaction_agent_enabled):
         return 0
     now = _now()
-    rows = (
+    target_ids = (
         await db.scalars(
-            select(AssistantWatch)
+            select(AssistantWatch.novel_id)
             .where(AssistantWatch.due_at <= now)
             .order_by(AssistantWatch.due_at)
             .limit(10)
-            .with_for_update(skip_locked=True)
         )
     ).all()
     count = 0
     submitters = get("assistant.proactive.submitters")
-    for row in rows:
+    for target_id in target_ids:
+        project = await get_any_project_context(db, str(target_id))
+        if project is None:
+            continue
+        try:
+            await (
+                require_interaction_project
+                if project.project_kind == "interaction"
+                else require_active_project
+            )(db, str(target_id))
+        except NotFoundError:
+            continue
+        row = await db.scalar(
+            select(AssistantWatch)
+            .where(AssistantWatch.novel_id == target_id, AssistantWatch.due_at <= now)
+            .with_for_update(skip_locked=True)
+            .execution_options(populate_existing=True)
+        )
+        if row is None:
+            continue
         setting = ProactivePolicy.model_validate(
             (row.policy_json or {}).get("settings") or {}
         )
@@ -282,7 +323,11 @@ async def schedule_due(db):
         }
         project = await get_any_project_context(db, str(row.novel_id))
         if (
-            not setting.enabled
+            not (
+                setting.enabled
+                or forecast_queue.automatic(row)
+                or creative_queue.enabled(row)
+            )
             or project is None
             or str(project.owner_id) != (row.policy_json or {}).get("owner_id")
         ):
@@ -299,6 +344,7 @@ async def schedule_due(db):
         if await get_active_organization(db, str(row.novel_id)):
             # Derived assets may still be changing during an authorized import.
             # Keep their markers until that workflow has a stable terminal state.
+            row.due_at = now + timedelta(seconds=30)
             continue
         if row.active_run_id:
             previous = await db.scalar(
@@ -317,6 +363,7 @@ async def schedule_due(db):
                     )
                 ).get(str(previous.task_id))
                 if life and life.status in _ACTIVE:
+                    row.due_at = now + timedelta(seconds=30)
                     continue
                 if previous.status in _ACTIVE:
                     previous.status = "failed"
@@ -339,27 +386,65 @@ async def schedule_due(db):
         zone = ZoneInfo(setting.timezone)
         day = datetime.combine(now.astimezone(zone).date(), time.min, tzinfo=zone)
         start, end = day.astimezone(UTC), (day + timedelta(days=1)).astimezone(UTC)
-        used = await db.scalar(
-            select(func.count())
-            .select_from(AssistantRun)
-            .where(
-                AssistantRun.novel_id == row.novel_id,
-                AssistantRun.mode == "background",
-                AssistantRun.created_at >= start,
-                AssistantRun.created_at < end,
-            )
+        timestamps = sorted(
+            _aware(value)
+            for value in (
+                await db.scalars(
+                    select(AssistantRun.created_at).where(
+                        AssistantRun.novel_id == row.novel_id,
+                        AssistantRun.mode == "background",
+                        AssistantRun.created_at >= min(start, now - timedelta(days=1)),
+                    )
+                )
+            ).all()
         )
-        if used >= setting.daily_limit:
-            row.due_at = end
+        calendar = [value for value in timestamps if start <= value < end]
+        rolling = [value for value in timestamps if value > now - timedelta(days=1)]
+        resume_at = now
+        if len(calendar) >= setting.daily_limit:
+            resume_at = max(resume_at, end)
+        if (
+            "forecast_v1" in (row.policy_json or {}) or creative_queue.enabled(row)
+        ) and len(rolling) >= setting.daily_limit:
+            resume_at = max(resume_at, rolling[-setting.daily_limit] + timedelta(days=1))
+        dirty = dict(row.dirty_json or {})
+        if resume_at > now:
+            row.due_at = resume_at
+            row.dirty_json = {
+                **dirty,
+                "_scheduler": {"not_before": resume_at.isoformat()},
+            }
             continue
+        dirty.pop("_scheduler", None)
+        row.dirty_json = dirty
         dirty = dict(row.dirty_json or {})
         eligible = [
             (key, item)
             for key, item in dirty.items()
             if not key.startswith("_")
             and not item.get("blocked")
+            and setting.enabled
             and _aware(datetime.fromisoformat(item["due_at"])) <= now
         ]
+        forecasts = forecast_queue.due_targets(row, now)
+        creative = creative_queue.due_targets(row, now)
+        if creative:
+            case_id, change = min(creative, key=lambda pair: pair[1]["due_at"])
+            others = [value["due_at"] for _, value in [*eligible, *forecasts]]
+            if not others or change["due_at"] <= min(others):
+                count += int(await creative_queue.claim(db, row, case_id, change))
+                continue
+        if forecasts:
+            forecast_key, forecast_change = min(
+                forecasts, key=lambda pair: pair[1]["due_at"]
+            )
+            if not eligible or forecast_change["due_at"] <= min(
+                item["due_at"] for _, item in eligible
+            ):
+                count += int(
+                    await forecast_queue.claim(db, row, forecast_key, forecast_change)
+                )
+                continue
         if not eligible:
             dates = [
                 _aware(datetime.fromisoformat(item["due_at"]))
@@ -367,6 +452,7 @@ async def schedule_due(db):
                 if not key.startswith("_") and not item.get("blocked")
             ]
             row.due_at = min(dates) if dates else None
+            forecast_queue.refresh_due(row)
             continue
         key, change = min(eligible, key=lambda pair: pair[1]["due_at"])
         submit = submitters.get(change["domain"])
@@ -695,7 +781,8 @@ async def list_notices(db, novel_id, *, interaction=False):
                 ),
             }
             for row in rows
-            if row.status != "snoozed" or (row.wake_at and _aware(row.wake_at) <= now)
+            if row.result_ref_json.get("type") != "forecast"
+            and (row.status != "snoozed" or (row.wake_at and _aware(row.wake_at) <= now))
         ]
     }
 
@@ -714,6 +801,10 @@ async def decide_notice(db, notice_id, value: NoticeDecision, *, interaction=Fal
     )
     if row is None:
         raise NotFoundError("提醒不存在")
+    if (row.result_ref_json or {}).get("type") == "forecast":
+        from modules.assistant.forecast.service import legacy_decide_notice
+
+        return await legacy_decide_notice(db, str(value.novel_id), row, value)
     if value.action == "snooze":
         if value.until is None or _aware(value.until) <= _now():
             raise ValidationError("请选择之后的提醒时间")

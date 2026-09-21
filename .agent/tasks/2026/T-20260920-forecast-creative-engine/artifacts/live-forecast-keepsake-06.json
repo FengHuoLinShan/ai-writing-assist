@@ -1,0 +1,273 @@
+{
+  "case_id": "keepsake-06",
+  "suite": "forecast",
+  "novel_id": "e093261f-74d0-45dc-9110-fc0d2e313823",
+  "run_id": "25f7c4d5-824e-47fc-b35d-c15883f32d3a",
+  "provider": "deepseek",
+  "model": "deepseek-flash",
+  "thinking": "disabled",
+  "spent_peak_usd": 0.002502,
+  "result": {
+    "run_id": "25f7c4d5-824e-47fc-b35d-c15883f32d3a",
+    "task_id": "25f7c4d5-824e-47fc-b35d-c15883f32d3a",
+    "status": "completed",
+    "phase": "done",
+    "completion": "complete",
+    "candidate_ids": [
+      "933eec6a-f9ff-4f54-94ad-45b626df0ea4"
+    ],
+    "coverage": {
+      "scope_label": "当前授权的保存资料；未检查全书",
+      "enumerated_total": 1,
+      "enumeration_complete": true,
+      "semantic_search": "complete_for_declared_plan",
+      "counts": {
+        "presented": 1,
+        "merged": 0,
+        "backlog": 0,
+        "waiting_condition": 0,
+        "suppressed": 0,
+        "needs_verification": 0,
+        "not_checked": 0,
+        "source_invalid": 0
+      },
+      "omissions": []
+    },
+    "usage": {
+      "requests": 2,
+      "input_tokens": 4832,
+      "output_tokens": 877,
+      "usage_complete": true
+    },
+    "error_code": null,
+    "can_resume": false,
+    "candidates": [
+      {
+        "anchor": {
+          "question_kind": "continuation",
+          "resource_kind": "writing_draft",
+          "resource_id": "10f0ff10-9062-4c93-b396-b2ea5052960e",
+          "chapter_index": 1,
+          "start": 101,
+          "end": 121
+        },
+        "proposal": {
+          "title": "旧收据之后的安静收束",
+          "kind": "next_step",
+          "statements": [
+            {
+              "text": "当前段落停在榆桐找到旧收据、确认它只是买木板的价钱；这是可继续的落点，不需要把收据或铜铃升级为秘密。",
+              "basis": "observed",
+              "evidence_ids": [
+                "source_0"
+              ],
+              "assumptions": []
+            },
+            {
+              "text": "邻居提出配新铃舌被拒后，榆桐与邻居的互动已有一个轻量结果：她选择保留坏掉的铃，而不是修复它。",
+              "basis": "observed",
+              "evidence_ids": [
+                "source_0"
+              ],
+              "assumptions": []
+            },
+            {
+              "text": "下一节拍可以只处理收据的归处或榆桐当下的动作，不引入新信息。",
+              "basis": "inferred",
+              "evidence_ids": [
+                "source_0"
+              ],
+              "assumptions": []
+            }
+          ],
+          "why_now": "段落已有物件、动作和拒绝修复的选择，适合在场景内收束，而不是展开新线索。",
+          "directions": [
+            {
+              "direction_id": "receipt_place",
+              "title": "把收据放回原处",
+              "condition": "若作者希望维持安静收束，不新增解释。",
+              "proposal": "榆桐把旧收据折回原处，或压在铜铃旁边，继续做搬家后的琐事；不说明收据的意义。",
+              "possible_effects": [
+                "场景以日常动作收尾",
+                "铜铃与收据保持普通遗物关系"
+              ],
+              "assumptions": [
+                "作者不打算让收据承载隐藏信息"
+              ],
+              "narrative_commitment": "low",
+              "may_leave_open": true
+            },
+            {
+              "direction_id": "neighbor_exit",
+              "title": "邻居离开后的短暂停顿",
+              "condition": "若作者想让场景自然切出。",
+              "proposal": "邻居不再坚持配铃舌，起身告辞；榆桐关上门，听见窗外修路声，场景结束。",
+              "possible_effects": [
+                "完成邻居来访这一节拍",
+                "保留修路作为环境声，不发展为事件"
+              ],
+              "assumptions": [
+                "邻居来访是当前场景的主要互动"
+              ],
+              "narrative_commitment": "low",
+              "may_leave_open": true
+            },
+            {
+              "direction_id": "direct_cut",
+              "title": "直接切到下一场",
+              "condition": "若作者不需要在搬家现场继续停留。",
+              "proposal": "在旧收据之后直接切场，不补写榆桐的反应；下一场可从别的时间或地点开始。",
+              "possible_effects": [
+                "节奏更快",
+                "当前场景以物件特写结束"
+              ],
+              "assumptions": [
+                "当前场景没有未完成的动作必须收尾"
+              ],
+              "narrative_commitment": "low",
+              "may_leave_open": true
+            }
+          ],
+          "unknowns": [
+            "榆桐接下来是否有必须处理的搬家事务",
+            "邻居是否还会再次出现",
+            "旧收据是否需要在后文被再次提及"
+          ],
+          "verdict": "propose"
+        },
+        "evidence": [
+          {
+            "evidence_id": "source_0",
+            "resource_kind": "writing_draft",
+            "resource_id": "10f0ff10-9062-4c93-b396-b2ea5052960e",
+            "source_hash": "9e92e3e3a3bfa68d54b9bd866b8c15718707d27902e99dc0ae1b2f43575837eb",
+            "revision_token": "1:9e92e3e3a3bfa68d54b9bd866b8c15718707d27902e99dc0ae1b2f43575837eb",
+            "source_range": {
+              "start_offset": 0,
+              "end_offset": 121
+            },
+            "range_hash": "9e92e3e3a3bfa68d54b9bd866b8c15718707d27902e99dc0ae1b2f43575837eb",
+            "label": "keepsake-06"
+          },
+          {
+            "evidence_id": "source_1",
+            "resource_kind": "domain_result",
+            "resource_id": "24633627-e674-5b17-aee5-f7a335bd1289",
+            "source_hash": "31b5eb585cec97d53931a7f63857a0101f1e37f93740c8aa8aedc14233ae1236",
+            "revision_token": "31b5eb585cec97d53931a7f63857a0101f1e37f93740c8aa8aedc14233ae1236",
+            "source_range": null,
+            "range_hash": null,
+            "label": "接着写前，回看当前保存段落"
+          },
+          {
+            "evidence_id": "source_2",
+            "resource_kind": "domain_result",
+            "resource_id": "2e3d4a25-2928-5f8b-bc08-66d57830a879",
+            "source_hash": "281396c9c94cb3d75e2a8f70f0fd3fed73fece4eeedd9b323b7c75e822c8ffd6",
+            "revision_token": "281396c9c94cb3d75e2a8f70f0fd3fed73fece4eeedd9b323b7c75e822c8ffd6",
+            "source_range": null,
+            "range_hash": null,
+            "label": "生成连接已配置"
+          },
+          {
+            "evidence_id": "source_3",
+            "resource_kind": "policy",
+            "resource_id": "589bb219-7ac1-52d7-806a-89637247b9b4",
+            "source_hash": "01fcbef87105cea0e9f254af44b5f79d7c29df9365f6eaad4c6c67818c45ccf3",
+            "revision_token": "01fcbef87105cea0e9f254af44b5f79d7c29df9365f6eaad4c6c67818c45ccf3",
+            "source_range": null,
+            "range_hash": null,
+            "label": "按本次授权开始计算"
+          }
+        ],
+        "knowledge_review": {
+          "status": "passed",
+          "review": {
+            "status": "passed",
+            "repaired": false,
+            "coverage": [
+              {
+                "dimension": "prior_prose",
+                "covered_by": [],
+                "omitted": false,
+                "omission_reason": null
+              },
+              {
+                "dimension": "world_rules",
+                "covered_by": [],
+                "omitted": false,
+                "omission_reason": null
+              },
+              {
+                "dimension": "outline",
+                "covered_by": [],
+                "omitted": false,
+                "omission_reason": null
+              },
+              {
+                "dimension": "scope_and_permission",
+                "covered_by": [],
+                "omitted": false,
+                "omission_reason": null
+              },
+              {
+                "dimension": "anchor_and_evidence",
+                "covered_by": [],
+                "omitted": false,
+                "omission_reason": null
+              }
+            ],
+            "issue_counts": {
+              "conflict": 0,
+              "irrelevant_content": 0,
+              "missing_required": 0,
+              "out_of_scope_knowledge": 0,
+              "premature_reveal": 0,
+              "unchecked": 0,
+              "unsupported_fact": 0
+            },
+            "issues": []
+          }
+        },
+        "ranking": {
+          "window": 2,
+          "task_help": 2,
+          "explicit_relevance": 1,
+          "evidence": 1,
+          "executable": 1,
+          "narrative_lockin": 0
+        },
+        "actions": [
+          {
+            "action_id": "writing.prepare_candidate.receipt_place",
+            "label": "试写：把收据放回原处",
+            "kind": "prepare_domain",
+            "requires_confirmation": true,
+            "available": true
+          },
+          {
+            "action_id": "writing.prepare_candidate.neighbor_exit",
+            "label": "试写：邻居离开后的短暂停顿",
+            "kind": "prepare_domain",
+            "requires_confirmation": true,
+            "available": true
+          },
+          {
+            "action_id": "writing.prepare_candidate.direct_cut",
+            "label": "试写：直接切到下一场",
+            "kind": "prepare_domain",
+            "requires_confirmation": true,
+            "available": true
+          },
+          {
+            "action_id": "project.prepare_task",
+            "label": "加入稍后处理",
+            "kind": "prepare_domain",
+            "requires_confirmation": true,
+            "available": true
+          }
+        ]
+      }
+    ]
+  }
+}

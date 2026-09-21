@@ -161,3 +161,10 @@ P20、人物卡/反应/剧本预览、总纲与 Scene fusion 在输出后复核�
 回合不可变；分叉校验原回合 hash 与当前来源，不修改父排演。叙述只消费已裁决事件，仍是待审预览。
 旧 one-click 默认不消费本轮候选；新客户端显式使用 `simulation_candidates`，不冒充 `accepted_reactions`。
 启用见 development-guide；工程验证与模型自然性验收分别记录。
+
+## 创作试验的结构与观察边界
+
+Story 为 Collaboration 提供 Scene、伏笔/揭示安排的冻结可编辑字段与原领域操作 port。
+试改独立保存，采用仍验证当前结构版本。`observations.py` 区分输入刺激、私有意图、
+可观察事件和可重放的 ResolutionBatch；说法不是事实，未知资源或唯一资源冲突不宣告成功。
+`observation_v2` 不重新解释旧 rehearsal_v1。读者推测与作者安排分开，派生前瞻不是新信息计划。

@@ -2131,6 +2131,7 @@ def test_resolved_profile_request_defaults_fill_unset_slots() -> None:
     filled = client.resolve_request_defaults(
         LLMCallRequest(messages=[LLMMessage(role="user", content="hi")])
     )
+    assert filled.model == "deepseek-chat"
     assert filled.temperature == 0.2
     assert filled.top_p == 0.9
     assert filled.extra["reasoning_effort"] == "high"
@@ -2139,11 +2140,13 @@ def test_resolved_profile_request_defaults_fill_unset_slots() -> None:
     explicit = client.resolve_request_defaults(
         LLMCallRequest(
             messages=[LLMMessage(role="user", content="hi")],
+            model="deepseek-flash",
             temperature=1.1,
             extra={"reasoning_effort": "low"},
         )
     )
     assert explicit.temperature == 1.1
+    assert explicit.model == "deepseek-flash"
     assert explicit.extra["reasoning_effort"] == "low"
 
 

@@ -15,6 +15,23 @@ def _clean_required_text(value: str) -> str:
     return cleaned
 
 
+def interaction_input_metadata(kind=None, cast_keys=None, whisper_to=()):
+    if kind is None and cast_keys is None and not whisper_to:
+        return {}
+    cast = [str(value) for value in cast_keys] if cast_keys is not None else None
+    keys = [*(cast or []), *whisper_to]
+    if any(not isinstance(value, str) or not 1 <= len(value) <= 180 for value in keys):
+        raise ValueError("人物引用无效")
+    if cast is not None and len(cast) != len(set(cast)):
+        raise ValueError("本场人物不能重复")
+    return {
+        "protocol": "observation_v2",
+        "kind": kind or "action",
+        "cast_keys": cast,
+        "whisper_to": [str(value) for value in whisper_to],
+    }
+
+
 class InteractionActionSuggestion(BaseModel):
     label: str = Field(..., min_length=1, max_length=80)
     text: str = Field(..., min_length=1, max_length=1000)
@@ -146,6 +163,10 @@ class JourneyCreateRequest(BaseModel):
     source_setup: JourneySourceSetup | None = None
     web_search_enabled: bool = False
     generation_mode: Literal["standard", "ensemble"] = "standard"
+    ensemble_cast_keys: list[str] | None = Field(default=None, max_length=3)
+    opening_input_kind: Literal["action", "speech", "instruction", "narration"] | None = (
+        None
+    )
 
     @field_validator("opening_text")
     @classmethod
@@ -174,6 +195,9 @@ class InteractionSendRequest(BaseModel):
     content: str = Field(..., min_length=1, max_length=100_000)
     expected_selection_epoch: int = Field(..., ge=0)
     idempotency_key: str = Field(..., min_length=8, max_length=128)
+    input_kind: Literal["action", "speech", "instruction", "narration"] | None = None
+    ensemble_cast_keys: list[str] | None = Field(default=None, max_length=3)
+    whisper_to: list[str] = Field(default_factory=list, max_length=3)
 
     @field_validator("content")
     @classmethod
@@ -190,6 +214,9 @@ class InteractionEditUserRequest(BaseModel):
     content: str = Field(..., min_length=1, max_length=100_000)
     expected_selection_epoch: int = Field(..., ge=0)
     idempotency_key: str = Field(..., min_length=8, max_length=128)
+    input_kind: Literal["action", "speech", "instruction", "narration"] | None = None
+    ensemble_cast_keys: list[str] | None = Field(default=None, max_length=3)
+    whisper_to: list[str] = Field(default_factory=list, max_length=3)
 
     @field_validator("content")
     @classmethod
@@ -247,6 +274,9 @@ class InteractionMessageResponse(BaseModel):
     branch_hint: str | None = None
     story_ended: bool = False
     action_suggestions: list[InteractionActionSuggestion] = Field(default_factory=list)
+    input_kind: Literal["speech", "action", "instruction", "narration"] | None = None
+    ensemble_cast_keys: list[str] | None = None
+    whisper_to: list[str] = Field(default_factory=list)
     created_at: datetime
 
 
@@ -339,6 +369,8 @@ class JourneyDetailResponse(BaseModel):
     web_search_enabled: bool = False
     generation_mode: Literal["standard", "ensemble"] = "standard"
     ensemble_available: bool = False
+    ensemble_protocol: Literal["team_v1", "observation_v2"] = "team_v1"
+    ensemble_cast_keys: list[str] = Field(default_factory=list)
     selection_epoch: int
     overview_epoch: int
     selected_leaf_node_id: str | None = None

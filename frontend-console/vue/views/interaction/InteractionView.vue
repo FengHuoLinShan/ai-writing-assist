@@ -20,6 +20,7 @@ import {
   cancelSeeSeaGrace,
   interactionOperationKey,
   readJourneyDraft,
+  readJourneyInput,
   readJourneyScroll,
   readOverviewDraft,
   scheduleSeeSeaGrace,
@@ -38,6 +39,7 @@ import { sourceEntityTypeLabel } from "./sourceLabels.js"
 import { mergePersistedChunk } from "./persistedStream.js"
 import RpMarkdownContent from "./RpMarkdownContent.vue"
 import ProactiveCare from "../../components/ProactiveCare.vue"
+import InteractionForecast from "./InteractionForecast.vue"
 
 const props = defineProps({
   initialJourney: { type: Object, default: null },
@@ -54,9 +56,14 @@ const currentAttempt = ref(props.initialJourney?.active_attempt || null)
 const streamText = ref(props.initialJourney?.active_attempt?.visible_text || "")
 const streamOffset = ref(0)
 const streamError = ref("")
-const composer = ref(readJourneyDraft(props.initialJourney?.id))
+const savedInput = readJourneyInput(props.initialJourney?.id)
+const composer = ref(savedInput.content)
+const draftBackupFailed = ref(false)
 const branchDraftNotice = ref(false)
 const composing = ref(false)
+const inputKind = ref(savedInput.input_kind || "action")
+const pendingCastKeys = ref(savedInput.ensemble_cast_keys ?? null)
+const whisperTo = ref(savedInput.whisper_to?.[0] || "")
 const editingNodeId = ref(null)
 const sending = ref(false)
 const mutationAction = ref("")
@@ -180,6 +187,16 @@ const knownStoryNodeIds = new Set([
 ])
 
 const journeyId = computed(() => journey.value?.id || "")
+const observationMode = computed(() => journey.value?.generation_mode === "ensemble"
+  && journey.value?.ensemble_protocol === "observation_v2")
+const currentCastKeys = computed(() => pendingCastKeys.value ?? journey.value?.ensemble_cast_keys ?? [])
+const privateRecipients = computed(() => [...new Set([...currentCastKeys.value, ...(whisperTo.value ? [whisperTo.value] : [])])]
+  .map((key) => ({ key, label: sourceObjects.value.find((item) => item.reference_key === key)?.label || "已选人物" })))
+function inputOptions() {
+  return { input_kind: inputKind.value,
+    ...(pendingCastKeys.value === null ? {} : { ensemble_cast_keys: [...pendingCastKeys.value] }),
+    whisper_to: whisperTo.value ? [whisperTo.value] : [] }
+}
 const activeProvider = computed(() => (
   props.llmConnections?.providers?.find((provider) => provider.active) || null
 ))
@@ -316,11 +333,14 @@ function resizeComposer() {
   input.style.overflowY = input.scrollHeight > maxHeight ? "auto" : "hidden"
 }
 
-watch(composer, (value) => {
+watch(composer, () => {
   if (branchDraftNotice.value) branchDraftNotice.value = false
-  writeJourneyDraft(journeyId.value, value)
   void nextTick(resizeComposer)
 })
+
+watch([composer, inputKind, pendingCastKeys, whisperTo], () => {
+  draftBackupFailed.value = !writeJourneyDraft(journeyId.value, composer.value, observationMode.value || savedInput.format === "rp-input-v2" ? inputOptions() : null)
+}, { deep: true, flush: "sync" })
 
 watch(overviewDraft, (sections) => {
   if (!overviewEditing.value) return
@@ -419,6 +439,8 @@ function applyModeJourney(nextJourney, expectedEpoch) {
     "web_search_enabled",
     "generation_mode",
     "ensemble_available",
+    "ensemble_protocol",
+    "ensemble_cast_keys",
   ])
   return false
 }
@@ -692,6 +714,8 @@ async function startMutation(
       composer.value = ""
       writeJourneyDraft(requestJourneyId, "")
       editingNodeId.value = null
+      pendingCastKeys.value = null
+      whisperTo.value = ""
     }
     connectionProblem.value = false
     void refreshPathIndex(result.journey.selection_epoch)
@@ -731,6 +755,7 @@ async function send() {
     return
   }
   const epoch = journey.value.selection_epoch
+  const observationInput = observationMode.value ? inputOptions() : {}
   if (editingNodeId.value) {
     await startMutation(() => getApi().interactions.editUserMessage(
       journeyId.value,
@@ -739,6 +764,7 @@ async function send() {
         content,
         expected_selection_epoch: epoch,
         idempotency_key: interactionOperationKey("edit"),
+        ...observationInput,
       },
     ), { action: "send", usesComposer: true })
     return
@@ -749,6 +775,7 @@ async function send() {
       content,
       expected_selection_epoch: epoch,
       idempotency_key: interactionOperationKey("message"),
+      ...observationInput,
     },
   ), { action: "send", usesComposer: true })
 }
@@ -884,6 +911,9 @@ async function confirmHistoricalRegenerate() {
 }
 
 function editUser(message) {
+  inputKind.value = message.input_kind || "instruction"
+  pendingCastKeys.value = message.ensemble_cast_keys ?? null
+  whisperTo.value = message.whisper_to?.[0] || ""
   composer.value = message.content
   editingNodeId.value = message.id
   nextTick(() => composerInput.value?.focus())
@@ -1110,6 +1140,13 @@ async function openSourceInfo() {
   } finally {
     sourceLoading.value = false
   }
+}
+
+function selectParticipant(key, selected) {
+  const values = new Set(pendingCastKeys.value || journey.value.ensemble_cast_keys || [])
+  if (selected) values.add(key); else values.delete(key)
+  if (values.size > 3) { getToast()("每轮最多让三名人物独立回应。", "info"); return }
+  pendingCastKeys.value = [...values]
 }
 
 function closeSourceInfo() {
@@ -1775,6 +1812,7 @@ async function continueFromVisible() {
       content,
       expected_selection_epoch: value.currentEpoch,
       idempotency_key: interactionOperationKey("from-here"),
+      ...(observationMode.value ? inputOptions() : {}),
     },
   ), { action: "continue-from-visible", usesComposer: true })
   if (result) conflict.value = null
@@ -1958,12 +1996,13 @@ function onVisibilityChange() {
 }
 
 useLeaveGuard(() => (
-  !overviewDirty.value
-  || getConfirm()("回顾有未保存修改，确定放弃并离开吗？")
+  draftBackupFailed.value && composer.value
+    ? getConfirm()("输入未能备份，请先复制文字及私语设置。确定放弃并离开吗？")
+    : !overviewDirty.value || getConfirm()("回顾有未保存修改，确定放弃并离开吗？")
 ))
 
 function beforeUnload(event) {
-  if (!overviewDirty.value) return
+  if (!overviewDirty.value && !(draftBackupFailed.value && composer.value)) return
   event.preventDefault()
   event.returnValue = ""
 }
@@ -2291,14 +2330,34 @@ onBeforeUnmount(() => {
       <button type="button" class="rp-mutation-button rp-mutation-button--conflict" :disabled="sending" :aria-busy="sending && mutationAction === 'continue-from-visible'" @click="continueFromVisible"><span v-if="sending && mutationAction === 'continue-from-visible'" class="rp-button-spinner" aria-hidden="true"></span>{{ sending && mutationAction === 'continue-from-visible' ? '正在继续…' : '仍从我看到的位置继续' }}</button>
     </div>
 
+    <InteractionForecast :journey="journey" :locked="isGenerating || awaitingContinue || sending" :composing="composing" @prefill="fillAction($event.text)" />
     <footer class="rp-composer-dock" :class="{ 'is-tools-open': toolsPanel }">
       <div v-if="editingNodeId" class="rp-editing-note">
         正在修改旧输入；保存后会形成一个新分支。
         <button type="button" @click="cancelEdit">取消</button>
       </div>
       <p v-if="branchDraftNotice" class="rp-stream-status">
-        已切换发展；草稿仍保留，请确认内容还适用。
+        已切换发展；草稿仍保留，请核对内容、本场人物与私语范围。
       </p>
+      <p v-if="draftBackupFailed && composer" role="alert">输入暂未备份，请留在此页或先复制文字及私语设置。</p>
+      <fieldset v-if="observationMode" class="rp-input-policy" :disabled="sending || isGenerating">
+        <legend class="sr-only">本轮输入方式</legend>
+        <label>这次是
+          <select v-model="inputKind" aria-label="本轮输入类型">
+            <option value="action">行动尝试</option><option value="speech">角色说话</option>
+            <option value="instruction">场外要求</option><option value="narration">叙述要求</option>
+          </select>
+        </label>
+        <label v-if="inputKind !== 'instruction'">接收范围
+          <select v-model="whisperTo" aria-label="本轮接收范围">
+            <option value="">公开</option>
+            <option v-for="person in privateRecipients" :key="person.key" :value="person.key">仅对 {{ person.label }}</option>
+          </select>
+        </label>
+        <button type="button" @click="openSourceInfo">本场人物 · {{ currentCastKeys.length }}</button>
+        <small v-if="inputKind === 'instruction'">场外要求不会传给场内人物。</small>
+        <small v-else-if="whisperTo">仅指定人物能听见或看见这次输入。</small>
+      </fieldset>
       <div class="rp-composer">
         <textarea
           ref="composerInput"
@@ -2691,6 +2750,13 @@ onBeforeUnmount(() => {
             @click="updateJourneySource(sourceUpgrade, sourceUpgradeAnchorKey)"
           >升级并确认进度</button>
         </section>
+        <fieldset v-if="observationMode" class="rp-cast-options" :disabled="sending || isGenerating">
+          <legend>本场人物</legend>
+          <p>最多三名人物独立回应；你的角色无需占用名额。勾选将在发送本轮输入时生效。</p>
+          <label v-for="person in sourceObjects.filter((item) => item.entity_type === 'character' && !isExcluded(item.reference_key) && item.reference_key !== journey.player_identity?.reference_key)" :key="person.reference_key">
+            <input type="checkbox" :checked="currentCastKeys.includes(person.reference_key)" @change="selectParticipant(person.reference_key, $event.target.checked)"> {{ person.label }}
+          </label>
+        </fieldset>
         <section>
           <h3>固定或忽略对象</h3>
           <p>固定项会优先进入每轮资料；忽略项不会被关系扩展重新带回。</p>
@@ -2745,3 +2811,11 @@ onBeforeUnmount(() => {
     <button type="button" @click="getRouter().navigate('journeys')">返回旅程列表</button>
   </main>
 </template>
+
+<style scoped>
+.rp-input-policy { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; border: 0; padding: .5rem 0; font-size: .8rem; }
+.rp-input-policy label { display: inline-flex; gap: .4rem; align-items: center; }
+.rp-input-policy select { max-width: 12rem; padding: .3rem; }
+.rp-input-policy small { flex-basis: 100%; }
+.rp-cast-options { display: grid; gap: .7rem; padding: 1rem; margin-block: 1rem; border: 1px solid var(--border-color); border-radius: .5rem; }
+</style>

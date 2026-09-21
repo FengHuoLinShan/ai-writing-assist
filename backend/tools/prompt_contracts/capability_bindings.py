@@ -101,9 +101,7 @@ CAPABILITY_BINDINGS: dict[str, tuple[str, ...]] = {
         "story.script",
     ),
     "modules/story/outline_state/structure_dedup.py": ("story.structure_dedup",),
-    "modules/story/outline_state/scene_fusion_draft.py": (
-        "story.scene_fusion",
-    ),
+    "modules/story/outline_state/scene_fusion_draft.py": ("story.scene_fusion",),
     # Imports
     "modules/imports/workflow_scene_phase.py": (
         "imports.scene_plan",
@@ -132,7 +130,24 @@ CAPABILITY_BINDINGS: dict[str, tuple[str, ...]] = {
         "interaction.story_generate",
         "interaction.continuity_review",
     ),
+    "modules/interaction/ensemble_input.py": ("interaction.story_generate",),
     "modules/interaction/proactive.py": ("interaction.continuity_review",),
+    # Bounded collaboration and saved-only forecasts, including reused V1 entry points.
+    "modules/assistant/forecast/runtime.py": (
+        "assistant.forecast",
+        "interaction.forecast",
+    ),
+    "modules/collaboration/runtime.py": (
+        "collaboration.run",
+        "collaboration.plan",
+        "collaboration.investigate",
+        "collaboration.revise",
+        "collaboration.check",
+    ),
+    "modules/assistant/teams/runner.py": ("assistant.turn",),
+    "modules/assistant/teams/blind_reader.py": ("assistant.turn",),
+    "modules/story/simulation.py": ("story.one_click", "interaction.story_generate"),
+    "modules/world/team_stress.py": ("assistant.turn", "world.team_stress"),
     # Assistant
     "modules/assistant/service.py": ("assistant.turn",),
     "modules/assistant/evidence_tools.py": ("assistant.turn",),
@@ -252,9 +267,7 @@ def validate_capability_bindings() -> list[ContractIssue]:
                     severity="P1",
                     contract_id="capability_bindings",
                     code="binding.unknown_capability",
-                    message=(
-                        f"{relative} 声明了未注册的能力: {', '.join(unknown)}"
-                    ),
+                    message=(f"{relative} 声明了未注册的能力: {', '.join(unknown)}"),
                 )
             )
         if not (BACKEND_ROOT / relative).exists():

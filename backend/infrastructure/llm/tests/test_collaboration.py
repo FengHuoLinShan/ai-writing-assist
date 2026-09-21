@@ -2,6 +2,7 @@
 
 import asyncio
 from copy import deepcopy
+from itertools import permutations
 
 import pytest
 
@@ -92,6 +93,33 @@ async def test_recovery_keeps_success_and_blocks_failed_dependencies():
         "blocked",
     ]
     assert receipts[-1][0]["output"] == {"value": 1}
+
+
+@pytest.mark.parametrize("order", list(permutations(("root", "child", "leaf"))))
+async def test_failure_propagates_to_all_descendants_in_any_input_order(order):
+    work = {
+        "root": item("root"),
+        "child": item("child", depends_on=["root"]),
+        "leaf": item("leaf", depends_on=["child"]),
+    }
+    saved = []
+
+    async def execute(current):
+        assert current.key == "root"
+        raise MemberFailureError("provider")
+
+    async def checkpoint(values):
+        saved.append(deepcopy(values))
+
+    await run_work_items(
+        [work[key] for key in order],
+        roles={"reader"},
+        execute=execute,
+        checkpoint=checkpoint,
+    )
+    assert work["root"].status == "failed"
+    assert work["child"].status == work["leaf"].status == "blocked"
+    assert all(value["status"] != "pending" for value in saved[-1])
 
 
 async def test_system_failure_cancels_sibling_without_publishing_late_output():

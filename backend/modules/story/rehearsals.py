@@ -52,10 +52,21 @@ async def run_rehearsal(
     db, task, data, *, client, authority, scene_context, character_reveals
 ):
     from modules.story.facade import get_scene_story_context
+    from modules.story.observations import seeded_state
 
     novel_id, run_id = data.novel_id, str(task.id)
     source_hash = content_hash(
         {
+            **(
+                {
+                    "protocol": data.simulation_protocol,
+                    "seed": data.simulation_seed.model_dump(mode="json")
+                    if data.simulation_seed
+                    else None,
+                }
+                if data.simulation_protocol == "observation_v2"
+                else {}
+            ),
             "scene": scene_context["context_hash"],
             "characters": {
                 key: value["hash"] for key, value in character_reveals.items()
@@ -123,7 +134,7 @@ async def run_rehearsal(
     state = (
         deepcopy(steps[-1].state_json)
         if steps
-        else {"observations": {}, "resource_holders": {}, "departed": []}
+        else seeded_state(data.simulation_seed, packets)
     )
     pending = dict(row.request_json.get("pending_round") or {})
     lock = asyncio.Lock()
@@ -185,6 +196,7 @@ async def run_rehearsal(
                 key: value.get("known_actor_ids", [])
                 for key, value in character_reveals.items()
             },
+            protocol=data.simulation_protocol,
         )
         await revalidate()
         step = StorySimulationStep(
@@ -193,7 +205,12 @@ async def run_rehearsal(
             round_number=number,
             input_hash=result["input_hash"],
             output_hash=content_hash(result),
-            intents_json=result["intents"],
+            intents_json={
+                "intents": result["intents"],
+                "resolution_batch": result["resolution_batch"],
+            }
+            if data.simulation_protocol == "observation_v2"
+            else result["intents"],
             events_json=result["events"],
             state_json=result["state"],
         )
@@ -255,6 +272,10 @@ async def read_rehearsal(db, novel_id, run_id, actor_id=None):
         "scene_id": str(row.scene_id),
         "parent_id": str(row.parent_id) if row.parent_id else None,
         "source_hash": row.source_hash,
+        "protocol": data.simulation_protocol,
+        "scenario_seed": data.simulation_seed.model_dump(mode="json")
+        if data.simulation_seed and not actor_id
+        else None,
         "result": row.result_json
         if not actor_id or str(data.narrator_character_id) == actor_id
         else {},
@@ -272,3 +293,30 @@ async def read_rehearsal(db, novel_id, run_id, actor_id=None):
             for step in steps
         ],
     }
+
+
+async def replay_rehearsal(db, novel_id, run_id):
+    from modules.story.observations import (
+        ResolutionBatch,
+        SimulationSeed,
+        replay_batch,
+        seeded_state,
+    )
+
+    row = await _run(db, novel_id, run_id)
+    if row.request_json.get("simulation_protocol") != "observation_v2":
+        raise ConflictError("这份旧排演没有可重放的状态差量，仍可查看原回合")
+    state = seeded_state(
+        SimulationSeed.model_validate(row.request_json["simulation_seed"])
+        if row.request_json.get("simulation_seed")
+        else None,
+        row.request_json["character_ids"],
+    )
+    rounds = []
+    for step in await _steps(db, novel_id, run_id):
+        batch = ResolutionBatch.model_validate(step.intents_json["resolution_batch"])
+        state = replay_batch(state, batch)
+        if content_hash(state) != content_hash(step.state_json):
+            raise ConflictError("排演状态回执不一致")
+        rounds.append({"number": step.round_number, "state_hash": content_hash(state)})
+    return {"verified": True, "model_requests": 0, "rounds": rounds}

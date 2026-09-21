@@ -1,0 +1,74 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { flushPromises, mount } from "@vue/test-utils"
+import { reactive } from "vue"
+import { createForecast } from "../../../vue/composables/useForecast.js"
+import ForecastDock from "../../../vue/components/ForecastDock.vue"
+import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
+
+const projectA = "10000000-0000-4000-8000-000000000001"
+const projectB = "10000000-0000-4000-8000-000000000002"
+const draftId = "20000000-0000-4000-8000-000000000001"
+const item = { candidate_id: "30000000-0000-4000-8000-000000000001", issue_key: "bell", notice_version: 0, assessment_hash: "a".repeat(64), title: "可以追问，也可以保留疑问", kind: "creative_opportunity", why_now: "人物仍在这里。", statements: [], directions: [], unknowns: ["也可能只是普通遗物"], evidence: [], actions: [{ action_id: "project.prepare_task", kind: "prepare_domain", label: "加入稍后处理", available: true }], notice_status: "unread" }
+const feed = (body, title = "当前建议") => ({ client_context_id: body.context.client_context_id, focus_seq: body.context.focus_seq, context_hash: title, state: "ready", items: [{ ...item, title }], coverage: { scope_label: "本章保存资料", counts: {} }, next_cursor: null })
+let instances, wrappers
+function apiFixture() {
+  return { forecasts: { capabilities: vi.fn(async () => ({ items: [{ available: true, compute_kind: "semantic" }] })), policy: vi.fn(async () => ({ generation: 0, policy: { automatic: false, shared_daily_limit: 12 } })), feed: vi.fn(async (_id, body) => feed(body)), prepare: vi.fn(), evaluate: vi.fn() }, assistant: { run: vi.fn(async () => ({ result: { actions: [{ key: "selected", title: "待办" }] } })), decide: vi.fn() } }
+}
+beforeEach(() => { localStorage.clear(); instances = []; wrappers = []; vi.useFakeTimers() })
+afterEach(() => { for (const wrapper of wrappers) wrapper.unmount(); for (const instance of instances) instance.dispose(); resetBridgeOverrides(); vi.useRealTimers(); vi.restoreAllMocks() })
+
+describe("forecast ownership and author control", () => {
+  it("does not let a late feed replace another project's context", async () => {
+    const api = apiFixture()
+    let release
+    api.forecasts.feed.mockImplementation((id, body) => id === projectA ? new Promise(resolve => { release = () => resolve(feed(body, "旧作品的资料")) }) : Promise.resolve(feed(body, "当前作品的资料")))
+    setBridgeOverrides({ api, state: { currentProjectId: projectA } })
+    const forecast = createForecast(); instances.push(forecast)
+    const old = forecast.configure(projectA, { page: "writing", draft_id: draftId })
+    await flushPromises()
+    await forecast.configure(projectB, { page: "today" })
+    release(); await old
+    expect(forecast.state.projectId).toBe(projectB)
+    expect(forecast.state.feed.items[0].title).toBe("当前作品的资料")
+  })
+  it("reuses an uncertain prepare operation and rejects new unsaved input", async () => {
+    const api = apiFixture(), editor = { dirty: false }
+    api.forecasts.prepare.mockRejectedValueOnce(new Error("连接中断")).mockResolvedValue({ operation_id: "same", run_id: "run", batch_id: "batch", batch_fingerprint: "b".repeat(64), status: "preview_ready" })
+    setBridgeOverrides({ api, state: { currentProjectId: projectA } })
+    const forecast = createForecast({ editor: () => editor }); instances.push(forecast)
+    await forecast.configure(projectA, { page: "writing", draft_id: draftId })
+    await forecast.prepare(item, item.actions[0])
+    await forecast.prepare(item, item.actions[0])
+    expect(api.forecasts.prepare.mock.calls[0][2].operation_id).toBe(api.forecasts.prepare.mock.calls[1][2].operation_id)
+    editor.dirty = true
+    await forecast.confirm()
+    expect(api.assistant.decide).not.toHaveBeenCalled()
+    expect(forecast.state.prepared.batch_id).toBe("batch")
+  })
+  it("holds open cards while new results arrive", async () => {
+    const api = apiFixture()
+    setBridgeOverrides({ api, state: { currentProjectId: projectA } })
+    const forecast = createForecast(); instances.push(forecast)
+    await forecast.configure(projectA, { page: "writing", draft_id: draftId })
+    forecast.state.hold = true
+    api.forecasts.feed.mockImplementation(async (_id, body) => feed(body, "新的建议"))
+    await forecast.refresh()
+    expect(forecast.state.feed.items[0].title).toBe("当前建议")
+    expect(forecast.state.pendingFeed.items[0].title).toBe("新的建议")
+    forecast.acceptFeed()
+    expect(forecast.state.feed.items[0].title).toBe("新的建议")
+  })
+  it("does not refresh during composition or submit a dirty editor", async () => {
+    const api = apiFixture(), editor = reactive({ dirty: true })
+    setBridgeOverrides({ api, state: { currentProjectId: projectA } })
+    const wrapper = mount(ForecastDock, { props: { projectId: projectA, context: { page: "writing", draft_id: draftId }, editor, composing: true } }); wrappers.push(wrapper)
+    await flushPromises()
+    const count = api.forecasts.feed.mock.calls.length
+    await vi.advanceTimersByTimeAsync(30000)
+    expect(api.forecasts.feed).toHaveBeenCalledTimes(count)
+    const analyze = wrapper.findAll("button").find(button => button.text() === "帮我想下一步")
+    expect(analyze.attributes("disabled")).toBeDefined()
+    expect(wrapper.text()).toContain("尚有未保存文字")
+    expect(api.forecasts.evaluate).not.toHaveBeenCalled()
+  })
+})

@@ -1,6 +1,18 @@
 """Single stable cross-module facade for evidence indexing and compilation."""
 
 from modules.evidence.compilation.facade import *  # noqa: F403
+from modules.evidence.creative import (
+    collect_creative_manifest as collect_creative_manifest,
+)
+from modules.evidence.creative import (
+    creative_context_text as creative_context_text,
+)
+from modules.evidence.creative import (
+    project_creative_resources as project_creative_resources,
+)
+from modules.evidence.creative import (
+    revalidate_creative_manifest as revalidate_creative_manifest,
+)
 from modules.evidence.indexing.facade import *  # noqa: F403
 from modules.evidence.team_projection import (
     project_team_artifact as project_team_artifact,

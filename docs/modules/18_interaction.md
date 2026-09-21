@@ -162,3 +162,15 @@ RP 正文使用 held 释放语义：审查前 SSE 不发 chunk，PASS 后一次�
 观察历史仅来自选中祖先的 `interaction_actor_state_revisions`，未知历史不能补成事实。
 正式 story 节点和角色状态同一事务提交；held 审查、取消、epoch/租约、看海停止仍走原状态机。
 不为匿名或无资料来源旅程创建该模式，也不向 RP 用户展示幕后调查面板。
+
+## 观察协议与私人旅程前瞻
+
+`observation_v2` 在用户明确本轮输入类型后分开处理说话、行动尝试和场外要求。
+玩家是观察者，无需成为 Agent；本场人物由来源引用键选择，提及名字不代表在场。
+私语只投递给明确接收者。环境裁决返回有限结果，失败行动不被写成成功；状态与正式正文
+继续同事务提交，跨轮恢复只读取选中路径，旧 team_v1 回执保留原语义。
+
+`/api/interactions/journeys/{journey_id}/forecasts` 是独立前瞻入口，服务端解析 consumer
+project，额外拒绝匿名/demo。模型只接收已选正式发展和有效回顾；固定 source 不可用时
+失败关闭。路径、selection/source/overview epoch 变化会拒绝旧建议。预填只返回文字，
+不发送消息、不建立后继、不更新回顾或原作品。

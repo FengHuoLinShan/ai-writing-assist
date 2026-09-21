@@ -656,3 +656,15 @@ Phase 2a/2b 的可选 mention_name 仅在对应原文逐字出现时进入 compl
 专项补全调用将 CompletionOutput 的完整 JSON Schema 附入首轮系统指令；名称保留为目标身份依据，输出使用 target_key/source_key 引用，不另造 name 或数据库 ID 字段。
 
 简单剧情结构的参数版本为 phase3_structure_simple_v3，输出线程分类 main/sub/background，兼容旧生成词项的显式映射见 Story README。
+
+
+## 短期前瞻与 V2 创作试验
+
+前瞻的结构与身份约束在 Assistant，具体写作/Story/World/Evidence/RP 语义由对应领域
+`forecast.py` 持有，通过注册的只读 port 提供来源。生成与独立知识复核共享四次预算，
+审核实际输入包含任务、horizon、明确要求与相同保存来源。缺口不会被模型标题或分数掩盖。
+
+Collaboration planner 只输出 GraphDelta，工作成员只输出有出处的 WorkOutput；均不获得
+任意工具或领域写入权。Workspace 的 CheckOutput 必须逐项报告实际检查过的作者保留项和
+配方要求，原文与精确试改共同接受复核；部分检查不能签署通过。Recipe 不授予额外权限。
+`observation_v2` 的人物只收到自身观察包，Resolver 只能选择有限结果，不能转发私有动机。

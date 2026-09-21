@@ -134,3 +134,18 @@ pro 模式将本轮实际工具证据冻结为 `assistant.turn` 组级 scope，�
 协作蓝图 v2 冻结连续性、人物知识、世界规则方法文本与 hash，成员加载冻结方法，
 不增加工具权限。旧 v1 按原快照恢复。`deep_review` 的离线单调查员/顺序工作流/三成员
 对照仅验证运行协议；原领域 finding 仍是已核实问题的唯一依据，默认质量开关保持关闭。
+## 保存资料的短期前瞻
+
+`forecast_v1` 子路由声明前缀 `/forecasts`，挂载后的完整入口是
+`/api/assistant/forecasts`。feed 仅读取保存稿、领域回执和派生候选，不请求模型或创建任务。
+显式 evaluate 用原 AssistantRun 和 `assistant_forecast`，最多四次请求（含复核与修复）。
+语义任务、自动触发与 RP 各有默认关闭的开关。后台 forecast 与原 review 共享 active_run
+和每日额度，分别保留自身稳定期与冷却期；原客户端保存设置不会覆盖新授权分区。
+
+候选 assessment 不可变，读取先选择最新评估，再核对完整依赖和来源集合。正文、范围、
+原 confirmation、排除项或主体变化会使旧结果失效。处置通过 notice.row_version CAS，
+普通细节/拒绝方向不随标题变化重开。dirty 编辑器仅能查看上次保存稿。
+
+prepare 为一个具体选择创建独立子 run 与唯一 batch，重新校验父评估，再经原领域确认。
+确定性域回执可导航回原页面，缺少前置资料计入未检查。试改版本和跨域原子采用属于
+[Collaboration](../../../docs/modules/21_collaboration.md)，不改变普通批次的部分成功与恢复语义。

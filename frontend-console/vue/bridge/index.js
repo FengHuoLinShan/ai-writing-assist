@@ -82,6 +82,32 @@ export function getAssistantWorkContext(projectId, page) {
     globalThis.document?.getElementById("workspace-content"))
 }
 
+export function getForecastEditorState(projectId) {
+  const state = getAppState()?._writingForecastState
+  return state?.projectId === projectId ? state : null
+}
+
+export function setForecastComposing(projectId, composing) {
+  const state = getForecastEditorState(projectId)
+  if (state) getAppState()._writingForecastState = { ...state, composing }
+}
+
+export async function locateForecastEvidence(projectId, reference) {
+  const editor = globalThis.document?.getElementById("writing-editor")
+  if (getAppState()?.currentProjectId !== projectId || getAppState()?._currentDraftId !== reference.resource_id || !editor || !reference.source_range) return false
+  const fingerprint = await getCurrentWritingFingerprint(projectId, reference.resource_id)
+  if (fingerprint !== reference.source_hash) throw new Error("正文已变化，请先保存并重新核对定位。")
+  const points = Array.from(editor.value)
+  const start = points.slice(0, reference.source_range.start_offset).join("").length
+  const end = points.slice(0, reference.source_range.end_offset).join("").length
+  const bytes = new TextEncoder().encode(editor.value.slice(start, end))
+  const rangeHash = Array.from(new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", bytes)), value => value.toString(16).padStart(2, "0")).join("")
+  if (rangeHash !== reference.range_hash) throw new Error("原文范围已变化，请重新核对。")
+  editor.focus()
+  editor.setSelectionRange(start, end)
+  return true
+}
+
 export async function getCurrentWritingFingerprint(projectId, draftId) {
   if (_overrides.writingFingerprint) return _overrides.writingFingerprint(projectId, draftId)
   const state = getAppState()
@@ -205,4 +231,18 @@ export function useStateKey(key) {
     if (getCurrentScope()) onScopeDispose(off)
   }
   return readonly(value)
+}
+
+
+export function registerAuxiliaryLeaveGuard(guard) {
+  return getRouter()?.registerLeaveGuard?.(guard) || (() => {})
+}
+
+const creativeMergeListeners = new Set()
+export function onCreativeMerged(listener) {
+  creativeMergeListeners.add(listener)
+  return () => creativeMergeListeners.delete(listener)
+}
+export function notifyCreativeMerged(projectId, receipt) {
+  for (const listener of creativeMergeListeners) listener({ projectId, receipt })
 }
