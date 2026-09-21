@@ -2,6 +2,7 @@
 
 | 任务 | 状态 | 记录 |
 |---|---|---|
+| NovelCraft V4 长期计划实施 | G0 基线与保护进行中（分支 codex/novelcraft-v4-g0-baseline） | [主记录](tasks/2026/T-20260921-novelcraft-v4-implementation/TASK.md) |
 | Agent 核心接入与全项目能力整合 | 已合入本地 main；正式验收、人工质量与发布延期 | [主记录](tasks/agent-integration.md) |
 | 全库代码简化审查 | 审查完成；首批批量选择旧 DOM 清理完成，验证通过；其余候选未执行 | [主记录](tasks/code-simplification-audit.md) |
 

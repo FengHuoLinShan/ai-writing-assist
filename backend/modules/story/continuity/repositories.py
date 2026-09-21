@@ -371,7 +371,12 @@ class EventRepository:
         chapter_index: int,
         rows: list[dict],
     ) -> list[MemoryEvent]:
-        """Replace one Scene stream without colliding with sibling Scenes."""
+        """Replace one Scene's derived stream without colliding with sibling Scenes.
+
+        作者确认事件（author authority）不参与机器替换：不会被覆写、不会被
+        机器输出变短/变空删除，也不让机器行占用其序号槽。机器行按到达顺序
+        分配"跳过保护槽位后"的空槽，因此输出条数变化只会增删派生事件本身。
+        """
         bind = db.get_bind()
         if bind is not None and bind.dialect.name == "postgresql":
             await db.execute(
@@ -390,31 +395,55 @@ class EventRepository:
             .scalars()
             .all()
         )
-        by_sequence = {item.scene_sequence: item for item in existing}
+        protected_sequences: set[int] = set()
+        derived_by_sequence: dict[int, MemoryEvent] = {}
+        for item in existing:
+            sequence = item.scene_sequence
+            if sequence is None or self.is_authority_event(item):
+                # 无序号或作者权威的行不可按键替换，一律保留。
+                if sequence is not None:
+                    protected_sequences.add(int(sequence))
+                continue
+            derived_by_sequence[int(sequence)] = item
         # 场景事件序号必须避开章级事件带（1..500）：scene_index 从 0 开始，
         # 若基数为 scene_index*1000，首个场景会与同章章级事件在
         # (novel_id, chapter_index, sequence) 唯一键上互相覆盖
         sequence_base = (scene_index + 1) * 1000
-        for row in rows:
-            local_sequence = int(row["scene_sequence"])
+        next_slot = 1
+        allocated: dict[int, dict] = {}
+        for row in sorted(rows, key=lambda item: int(item["scene_sequence"])):
+            while next_slot in protected_sequences:
+                next_slot += 1
+            allocated[next_slot] = row
+            next_slot += 1
+        for slot, row in allocated.items():
             values = {
                 **row,
                 "novel_id": novel_id,
                 "scene_id": scene_id,
                 "scene_index": scene_index,
                 "chapter_index": chapter_index,
-                "sequence": sequence_base + local_sequence,
+                "scene_sequence": slot,
+                "sequence": sequence_base + slot,
             }
-            current = by_sequence.pop(local_sequence, None)
+            current = derived_by_sequence.pop(slot, None)
             if current is None:
                 db.add(MemoryEvent(**values))
                 continue
             for key, value in values.items():
                 setattr(current, key, value)
-        for stale in by_sequence.values():
+        for stale in derived_by_sequence.values():
             await db.delete(stale)
         await db.flush()
         return await self.get_through_scene(db, novel_id, scene_index, scene_id=scene_id)
+
+    @staticmethod
+    def is_authority_event(item: MemoryEvent) -> bool:
+        """Author-confirmed/authoritative rows are never machine-replaceable."""
+        if item.source == "author_confirmation":
+            return True
+        meta = (item.snapshot_after or {}).get("meta") or {}
+        return bool(meta.get("author_confirmed"))
 
     async def get_through_scene(
         self,
