@@ -73,6 +73,8 @@
 12. `modules/18_interaction.md` — RP 互动旅程、不可变分支、流式恢复、回顾与看海
 13. `modules/19_story.md` — Scene 人物卡、可编辑剧本 revision、采用与 one-click 预览
 14. `modules/20_assistant.md` — 项目助手的有界运行时、操作回执与恢复语义
+15. `modules/21_collaboration.md` — 创作试验目标、授权、不可变试改与精确采用回执
+16. `modules/22_evolution.md` — `evolution` V4 演化引擎 E01 契约层：来源引用、观察、身份解析、类型化操作与回执游标（建设中，无运行时）
 
 `modules/` 只放当前模块的设计与稳定接口说明；已替代的模块文档位于
 `archive/modules/`，代码分析参考位于 `references/`。

@@ -144,6 +144,14 @@ code_docs = ["backend/modules/interaction/README.md"]
 api_prefixes = ["/api/interactions", "/api/demo", "/api/interactions/journeys/{journey_id}/forecasts"]
 
 [[components]]
+name = "evolution"
+kind = "business"
+source_roots = ["backend/modules/evolution"]
+design_docs = ["docs/modules/22_evolution.md"]
+code_docs = ["backend/modules/evolution/README.md"]
+api_prefixes = []
+
+[[components]]
 name = "infrastructure"
 kind = "shared"
 source_roots = ["backend/infrastructure"]
