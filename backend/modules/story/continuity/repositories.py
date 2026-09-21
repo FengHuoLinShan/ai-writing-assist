@@ -370,8 +370,21 @@ class EventRepository:
         scene_index: int,
         chapter_index: int,
         rows: list[dict],
+        producer_family: str | None = None,
     ) -> list[MemoryEvent]:
-        """Replace one Scene stream without colliding with sibling Scenes."""
+        """Replace one Scene's derived stream without colliding with sibling Scenes.
+
+        分区替换（V4 E03b，plans/01-EVOLUTION §2.2）：
+
+        - 作者确认事件（author authority）永不参与机器替换；
+        - 指定 ``producer_family`` 时，其他家族的派生行同样保留——每个
+          producer 只替换自己的产物，空重跑只清空自己家族的派生带；
+        - 行携带 ``snapshot_after.meta.event_key`` 时按键匹配原地更新
+          （行 ID 与槽位保持不变——输出重排不重建事实，T06）；无键的
+          旧数据在同家族内按槽位顺序匹配；
+        - 未匹配的本家族行先以 Core 语句立即删除，再插入新行，避免
+          ORM 插入先于删除造成唯一键瞬态冲突。
+        """
         bind = db.get_bind()
         if bind is not None and bind.dialect.name == "postgresql":
             await db.execute(
@@ -390,31 +403,119 @@ class EventRepository:
             .scalars()
             .all()
         )
-        by_sequence = {item.scene_sequence: item for item in existing}
-        # 场景事件序号必须避开章级事件带（1..500）：scene_index 从 0 开始，
-        # 若基数为 scene_index*1000，首个场景会与同章章级事件在
-        # (novel_id, chapter_index, sequence) 唯一键上互相覆盖
-        sequence_base = (scene_index + 1) * 1000
-        for row in rows:
-            local_sequence = int(row["scene_sequence"])
+        retained_sequences: set[int] = set()
+        family_by_key: dict[str, MemoryEvent] = {}
+        family_unkeyed: list[MemoryEvent] = []
+        for item in existing:
+            sequence = item.scene_sequence
+            if (
+                sequence is None
+                or self.is_authority_event(item)
+                or (producer_family is not None and item.source != producer_family)
+            ):
+                # 作者权威、其他 producer 家族与无序号行不在本调用替换范围。
+                if sequence is not None:
+                    retained_sequences.add(int(sequence))
+                continue
+            key = self._event_key(item)
+            if key:
+                family_by_key[key] = item
+            else:
+                family_unkeyed.append(item)
+        family_unkeyed.sort(key=lambda item: int(item.scene_sequence or 0))
+
+        matched: list[tuple[MemoryEvent, dict]] = []
+        fresh_rows: list[dict] = []
+        for row in sorted(rows, key=lambda item: int(item["scene_sequence"])):
+            key = self._row_event_key(row)
+            current = family_by_key.pop(key, None) if key else None
+            if current is None and not key and family_unkeyed:
+                current = family_unkeyed.pop(0)
+            if current is not None:
+                matched.append((current, row))
+            else:
+                fresh_rows.append(row)
+
+        # 先删除本家族未匹配行（Core 立即执行），释放槽位且不与后续插入竞态；
+        # 同时从会话摘除对应 ORM 对象，避免身份映射残留幽灵行。
+        await db.flush()
+        unmatched = [*family_by_key.values(), *family_unkeyed]
+        if unmatched:
+            await db.execute(
+                delete(MemoryEvent).where(
+                    MemoryEvent.id.in_([item.id for item in unmatched])
+                )
+            )
+            for item in unmatched:
+                db.expunge(item)
+
+        # 匹配行保留原槽位，只更新内容；scene_index 变化时同步重算章内序号。
+        occupied_sequences = set(retained_sequences)
+        for current, row in matched:
+            slot = int(current.scene_sequence or 0)
+            occupied_sequences.add(slot)
             values = {
                 **row,
                 "novel_id": novel_id,
                 "scene_id": scene_id,
                 "scene_index": scene_index,
                 "chapter_index": chapter_index,
-                "sequence": sequence_base + local_sequence,
+                "scene_sequence": slot,
+                "sequence": (scene_index + 1) * 1000 + slot,
             }
-            current = by_sequence.pop(local_sequence, None)
-            if current is None:
-                db.add(MemoryEvent(**values))
-                continue
-            for key, value in values.items():
-                setattr(current, key, value)
-        for stale in by_sequence.values():
-            await db.delete(stale)
+            for field, value in values.items():
+                setattr(current, field, value)
+
+        # 场景事件序号必须避开章级事件带（1..500）：scene_index 从 0 开始，
+        # 若基数为 scene_index*1000，首个场景会与同章章级事件在
+        # (novel_id, chapter_index, sequence) 唯一键上互相覆盖
+        next_slot = 1
+        for row in fresh_rows:
+            while next_slot in occupied_sequences:
+                next_slot += 1
+            slot = next_slot
+            next_slot += 1
+            db.add(
+                MemoryEvent(
+                    **{
+                        **row,
+                        "novel_id": novel_id,
+                        "scene_id": scene_id,
+                        "scene_index": scene_index,
+                        "chapter_index": chapter_index,
+                        "scene_sequence": slot,
+                        "sequence": (scene_index + 1) * 1000 + slot,
+                    }
+                )
+            )
         await db.flush()
         return await self.get_through_scene(db, novel_id, scene_index, scene_id=scene_id)
+
+    @staticmethod
+    def _event_key(item: MemoryEvent) -> str | None:
+        payload = item.snapshot_after or {}
+        if not isinstance(payload, dict):
+            return None
+        meta = payload.get("meta") or {}
+        key = meta.get("event_key") if isinstance(meta, dict) else None
+        return str(key) if key else None
+
+    @staticmethod
+    def _row_event_key(row: dict) -> str | None:
+        payload = row.get("snapshot_after") or {}
+        if not isinstance(payload, dict):
+            return None
+        meta = payload.get("meta") or {}
+        key = meta.get("event_key") if isinstance(meta, dict) else None
+        return str(key) if key else None
+
+    @staticmethod
+    def is_authority_event(item: MemoryEvent) -> bool:
+        """Author-confirmed/authoritative rows are never machine-replaceable."""
+        if item.source == "author_confirmation":
+            return True
+        meta = (item.snapshot_after or {}).get("meta") or {}
+        return bool(meta.get("author_confirmed"))
 
     async def get_through_scene(
         self,

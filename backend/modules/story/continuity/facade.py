@@ -98,8 +98,13 @@ async def replace_scene_memory_events(
     scene_index: int,
     chapter_index: int,
     events: list[dict[str, Any]],
+    producer_family: str | None = None,
 ):
-    """Replace one Scene event stream, including an explicitly empty rerun."""
+    """Replace one Scene event stream, including an explicitly empty rerun.
+
+    ``producer_family`` 限定只替换该来源家族的派生行；None 表示替换全部
+    派生行（作者确认始终保留）。
+    """
     return await _memory.record_scene_events(
         db,
         novel_id,
@@ -107,6 +112,7 @@ async def replace_scene_memory_events(
         scene_index=scene_index,
         chapter_index=chapter_index,
         events=events,
+        producer_family=producer_family,
     )
 
 
@@ -157,3 +163,58 @@ async def rollback_deep_import_delta_logs_by_workflow(
         novel_id,
         workflow_id,
     )
+
+
+async def supersede_scene_projections_from(
+    db: AsyncSession,
+    novel_id: str,
+    *,
+    from_scene_index: int,
+    dimensions: list[str] | None = None,
+) -> dict[str, Any]:
+    """Invalidate derived Scene projections from a scene onward (V4 E05).
+
+    只失效（软 supersede）、不删除历史：系统生成的 checkpoint 与稀疏快照
+    标记为不再当前，人工确认/已采用版本保留。供演化失效传播等上游调用；
+    重建由 ensure_scene_checkpoints 按需执行。
+    """
+    from modules.story.continuity.contracts import SCENE_MEMORY_DIMENSIONS
+    from modules.story.continuity.repositories import (
+        SceneCheckpointRepository,
+        SceneSnapshotRepository,
+    )
+    from shared.utils import parse_uuid
+
+    nid = parse_uuid(novel_id, "novel_id")
+    target_dimensions = list(dimensions or SCENE_MEMORY_DIMENSIONS)
+    checkpoints = await SceneCheckpointRepository().supersede_system_from(
+        db,
+        nid,
+        from_scene_index,
+        target_dimensions,
+        include_start=True,
+    )
+    snapshots = await SceneSnapshotRepository().supersede_from(
+        db,
+        nid,
+        from_scene_index,
+        include_start=True,
+    )
+    return {
+        "from_scene_index": from_scene_index,
+        "dimensions": target_dimensions,
+        "superseded_checkpoints": checkpoints,
+        "superseded_snapshots": snapshots,
+    }
+
+
+async def project_scene_presence(
+    db: AsyncSession,
+    novel_id: str,
+    *,
+    through_scene_index: int,
+):
+    """Read-only presence/history projection for map-side consumers (V4 G2)."""
+    from modules.story.continuity.presence import project_scene_presence as _project
+
+    return await _project(db, novel_id, through_scene_index=through_scene_index)

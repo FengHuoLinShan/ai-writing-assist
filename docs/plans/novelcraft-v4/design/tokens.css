@@ -1,0 +1,25 @@
+/* NovelCraft V4 proposed theme; opt-in, not the deployed CSS baseline. */
+[data-theme="novelcraft-v4"] {
+  --nc-bg: #F6F4F0;
+  --nc-surface: #FFFDF9;
+  --nc-muted: #EEEBE5;
+  --nc-ink: #1E2A3B;
+  --nc-body: #485365;
+  --nc-dim: #667281;
+  --nc-accent: #284C56;
+  --nc-accent-soft: #E5EEEB;
+  --nc-ai: #6D5C95;
+  --nc-ai-soft: #EFEAF5;
+  --nc-success: #326F62;
+  --nc-success-soft: #E8F1EB;
+  --nc-warning: #91601D;
+  --nc-warning-soft: #F7EEDB;
+  --nc-error: #AC4544;
+  --nc-error-soft: #F9E8E3;
+  --nc-border: #DEDCD5;
+  --nc-white: #FFFFFF;
+  --nc-map-bg: #182B36;
+  --nc-map-land: #34504E;
+  --nc-map-line: #6F8980;
+  --nc-map-text: #E1E9E3;
+}

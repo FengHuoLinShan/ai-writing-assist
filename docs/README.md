@@ -73,6 +73,8 @@
 12. `modules/18_interaction.md` — RP 互动旅程、不可变分支、流式恢复、回顾与看海
 13. `modules/19_story.md` — Scene 人物卡、可编辑剧本 revision、采用与 one-click 预览
 14. `modules/20_assistant.md` — 项目助手的有界运行时、操作回执与恢复语义
+15. `modules/21_collaboration.md` — 创作试验目标、授权、不可变试改与精确采用回执
+16. `modules/22_evolution.md` — `evolution` V4 演化引擎 E01 契约层：来源引用、观察、身份解析、类型化操作与回执游标（建设中，无运行时）
 
 `modules/` 只放当前模块的设计与稳定接口说明；已替代的模块文档位于
 `archive/modules/`，代码分析参考位于 `references/`。
@@ -87,6 +89,13 @@
 
 - [`adr/README.md`](adr/README.md) — 全部编号 ADR、主题 ADR、细化索引、当前状态及取代关系；
   新增或调整 ADR 状态只维护这一份完整索引，不再在此复制容易漏项的子集
+
+## 长程计划
+
+- [`plans/novelcraft-v4/`](plans/novelcraft-v4/) — NovelCraft V4 演化式小说整体引擎长期计划
+  （G0–G8 里程碑、T01–T36 验收矩阵、48 画面 HiFi 与设计资产）。计划包为权威输入，
+  实施进展与基线证据见 [`plans/novelcraft-v4/g0/G0-基线与保护.md`](plans/novelcraft-v4/g0/G0-基线与保护.md)；
+  计划文档本身按交付原样保存，实施状态不回写计划正文。
 
 ## 参考与历史资料
 

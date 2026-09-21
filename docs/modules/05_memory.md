@@ -49,6 +49,10 @@ Story continuity 子域维护小说世界的“变化历史”，不是再存一
   V1 四维或 V2 六维（追加 `timeline`、`causality`）派生投影；不读取当前
   World 作历史兜底，AI 地图册不属于 Scene memory
 - `facade.confirm_scene_continuity_event()`：在 Scene 事件锁内按 Writing 问题 ID 幂等追加作者确认事实，只失效并重建对应维度；不替换原事件流
+- `facade.replace_scene_memory_events()`：替换一个 Scene 的派生事件流（含显式空重跑）。
+  作者确认永不参与机器替换；可选 `producer_family` 限定只替换该来源家族的派生行
+  （deep_import 空重跑只清自己的产物）；行内容携带稳定 `meta.event_key` 语义指纹，
+  重跑按键原地更新——输出条数变化或重排不重建事实、不覆盖作者决定（V4 G0/E03b）
 
 ## API
 

@@ -1071,6 +1071,7 @@ class SceneEntityPersistenceMixin:
                 scene_index=scene_index,
                 chapter_index=source_chapter_index,
                 events=[],
+                producer_family="deep_import",
             )
             return 0
 

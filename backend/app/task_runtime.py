@@ -16,6 +16,7 @@ _TASK_HANDLER_MODULES = (
     "modules.story.outline_state.tasks",
     "modules.project.tasks",
     "modules.evidence.indexing.tasks",
+    "modules.evolution.tasks",
     "modules.evidence.compilation.focused_tasks",
     "modules.story.tasks",
     "modules.world.tasks",

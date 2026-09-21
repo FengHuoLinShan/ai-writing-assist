@@ -1112,6 +1112,7 @@ async def test_process_scene_builds_scene_memory_checkpoints(
         scene_index=1,
         chapter_index=1,
         events=[],
+        producer_family="deep_import",
     )
     mock_checkpoints.assert_awaited_once_with(
         db_session,

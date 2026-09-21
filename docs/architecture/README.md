@@ -49,8 +49,11 @@ ADR-0023/ADR-0025 的有界 Agent、canonical capability 和回执约束由统�
 
 ## 当前读图约定
 
-- 业务模块共 10 个：`account`、`project`、`world`、`evidence`、`story`、`imports`、
-  `writing`、`interaction`、`assistant`、`collaboration`。原 `memory` 与 `outline` 目录已在兼容准备版本发布后删除。
+- 业务模块共 11 个：`account`、`project`、`world`、`evidence`、`story`、`imports`、
+  `writing`、`interaction`、`assistant`、`collaboration`、`evolution`。原 `memory` 与
+  `outline` 目录已在兼容准备版本发布后删除。`evolution` 当前只有 V4 契约层
+  （来源引用、观察、身份解析、类型化操作与回执游标），无运行时；deep_import
+  仍是唯一编排 owner，禁止双写。
 - Assistant 持有项目讨论、运行、成组确认和提醒投影；经 Evidence 只读查证，经领域操作提交
   具体修改。有限 PydanticAI 核心复用共享 LLM/队列，RP 继续持有自己的树、回顾和 attempt。
 - 创作三层为事实层（`project/world`）、结构与连续性层（`story/outline_state`、
@@ -88,6 +91,6 @@ ADR-0027 的 V1 在当时九模块中加入注册蓝图的有限协作，不改�
 
 新增业务模块 `collaboration` 持有目标、授权、不可变试改与精确采用回执；
 `assistant` 持有短期前瞻和处置，`story` / `interaction` 持有观察及分支事实。
-当前共十个业务模块，继续复用原 PostgreSQL 队列、Evidence 与 Project 连接。
+当前共十一个业务模块（含契约层 `evolution`），继续复用原 PostgreSQL 队列、Evidence 与 Project 连接。
 模块职责与采用/恢复边界见 `docs/modules/21_collaboration.md`、
 `backend/modules/collaboration/README.md`，前瞻见 `docs/modules/20_assistant.md`。

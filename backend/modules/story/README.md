@@ -173,3 +173,12 @@ Story 为 Collaboration 提供 Scene、伏笔/揭示安排的冻结可编辑字�
 ### DS Flash 档位调优（2026-09-21）
 
 深度导入Phase3的high_quality=True在Flash上统一max，生成与独立证据复核输出上限至少65,536；普通档仍为high及冻结阶段预算，引用和采用门禁不变。
+
+### 演化引擎 seam（V4，2026-09-21）
+
+continuity 归约统一为单一 `reducer.py::StoryStateReducer`（章节重放与 Scene
+投影共用内核；manual_correction 与未知实体更新入 changes 观察层）。facade
+新增两个只读/失效缝供 evolution 消费：`supersede_scene_projections_from`
+（E05 失效传播：软 supersede，不删历史）与 `project_scene_presence`
+（G2 在场投影：未知路线标 unknown，不造移动细节）。Scene 事件替换按
+producer family 分区 + 稳定 `meta.event_key`（作者确认永不参与机器替换）。

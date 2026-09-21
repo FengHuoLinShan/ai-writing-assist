@@ -491,3 +491,21 @@ async def mark_chapter_index_dirty(
         chapter_index=chapter_index,
         content_mode=content_mode,
     )
+
+
+async def read_chapter_index_fingerprint(
+    db: AsyncSession,
+    novel_id: str,
+    chapter_index: int,
+    *,
+    content_mode: str,
+) -> dict | None:
+    """Expose one chapter's index fingerprints to non-evidence consumers."""
+    from modules.evidence.indexing.index_state import RagIndexStateService
+
+    return await RagIndexStateService().chapter_fingerprint(
+        db,
+        novel_id=novel_id,
+        chapter_index=chapter_index,
+        content_mode=content_mode,
+    )

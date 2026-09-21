@@ -432,3 +432,9 @@ AnyIO 重复取消直到连接归还，仍执行原 lease fence；模型与网�
 | `collaboration_projection` | auto_requeue | 以采用 receipt 为幂等身份投递同事务 outbox |
 
 三类任务沿现有 worker lease；运行自己的 generation 与来源重验不能替代 worker 提交栅栏。
+
+## 演化任务（V4）
+
+| task handler | 恢复策略 | 预算与持久化 |
+|---|---|---|
+| `evolution_scene_step` | manual_resume | 单 Scene 窄批次：run 根预算原子预留（T21），freeze/apply 窄提交（T10/T11），回执幂等重放；采样器未接线时 fail-closed 拒绝伪造观察（生产 LLM 接线属 E09）；入口重定向待 canary（E07.e） |

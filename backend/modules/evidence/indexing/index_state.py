@@ -787,6 +787,36 @@ class RagIndexStateService:
             "statuses": sorted({item.status for item in states}),
         }
 
+    async def chapter_fingerprint(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        chapter_index: int,
+        content_mode: str,
+    ) -> dict | None:
+        """Read one chapter's requested/indexed fingerprints for consumers."""
+        state = await self._get(
+            db,
+            novel_id=novel_id,
+            chapter_index=chapter_index,
+            content_mode=content_mode,
+            lock=False,
+        )
+        if state is None:
+            return None
+        return {
+            "status": state.status,
+            "requested_hash": state.requested_hash,
+            "indexed_hash": state.indexed_hash,
+            "requested_source_id": (
+                str(state.requested_source_id) if state.requested_source_id else None
+            ),
+            "indexed_source_id": (
+                str(state.indexed_source_id) if state.indexed_source_id else None
+            ),
+        }
+
     async def _get(
         self,
         db: AsyncSession,

@@ -1,0 +1,402 @@
+[
+  {
+    "id": "DS00",
+    "title": "设计系统与展开规则",
+    "category": "设计规范",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S01",
+    "title": "今天，继续你的故事",
+    "category": "作品概览",
+    "width": 1440,
+    "height": 960,
+    "notes": [
+      "按创作任务而非模块计数组织首页。",
+      "待决定项只计真实领域回执，系统理解与正式设定分开。"
+    ]
+  },
+  {
+    "id": "S02",
+    "title": "把故事带进来",
+    "category": "开始一本书",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S03",
+    "title": "先核对这次导入",
+    "category": "正文来源确认",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S04",
+    "title": "故事正在逐步被理解",
+    "category": "持续演化",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S05",
+    "title": "这把钥匙，是保管还是赠予？",
+    "category": "需要你决定",
+    "width": 1440,
+    "height": 960,
+    "notes": [
+      "只决定当前命题，不连带采用整批候选。",
+      "模型结论不替代作者决定；不确定可继续保留。"
+    ]
+  },
+  {
+    "id": "S06",
+    "title": "第 12 章 · 没有寄出的信",
+    "category": "写作",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S07",
+    "title": "围绕你选中的这一句",
+    "category": "就地建议",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S08",
+    "title": "专注写作",
+    "category": "写作",
+    "width": 1440,
+    "height": 960,
+    "notes": [
+      "专注状态不自动弹出推荐；仅保留安静入口。"
+    ]
+  },
+  {
+    "id": "S09",
+    "title": "不要急着选一个答案",
+    "category": "探索创意",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S10",
+    "title": "看清差异，再采用",
+    "category": "局部改写预览",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S11",
+    "title": "故事结构，一眼看清",
+    "category": "故事结构",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S12",
+    "title": "把一场戏准备好",
+    "category": "场景工作区",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S13",
+    "title": "这本书，我们理解到了哪里",
+    "category": "世界资料",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S14",
+    "title": "林舟",
+    "category": "人物资料",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S15",
+    "title": "先把一个规则说清楚",
+    "category": "世界共创",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S16",
+    "title": "先处理真正重要的事",
+    "category": "统一审阅",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S17",
+    "title": "这一章的检查与返修",
+    "category": "写作检查",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S18",
+    "title": "在原文里找到答案",
+    "category": "检索与查证",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S19",
+    "title": "这条结论，具体依据是什么",
+    "category": "证据追踪",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S20",
+    "title": "在地图里走进故事",
+    "category": "故事地图",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S21",
+    "title": "门廊的回答",
+    "category": "地图 / 场景舞台",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S22",
+    "title": "林舟的旅程，哪些是确定的",
+    "category": "地图 / 历史",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S23",
+    "title": "编辑地图，不改写世界",
+    "category": "地图结构编辑",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S24",
+    "title": "到达之前，还缺什么条件？",
+    "category": "地图智能 / 路线排演",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S25",
+    "title": "地图配图与校准",
+    "category": "地图图像",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S26",
+    "title": "人物与物品的形象",
+    "category": "形象图库",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S27",
+    "title": "围绕这一段，继续讨论",
+    "category": "项目助手",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S28",
+    "title": "任务完成到哪一步，一目了然",
+    "category": "运行与恢复",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S29",
+    "title": "让系统自动整理，但不替你作决定",
+    "category": "模型与授权",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S30",
+    "title": "进入一个故事，而不是配置一套系统",
+    "category": "私人故事 / 开场",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S31",
+    "title": "城门将关",
+    "category": "私人故事 / 阅读",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S32",
+    "title": "保存与带走你的作品",
+    "category": "项目与版本",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S33",
+    "title": "两处修改相遇了，先保留双方",
+    "category": "保存冲突 / 409",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S34",
+    "title": "先写一句，世界会逐渐长出来",
+    "category": "首次空态",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S35",
+    "title": "已保存的内容仍然安全",
+    "category": "模型任务暂停",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S36",
+    "title": "选择你正在看的世界",
+    "category": "范围与视角",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S37",
+    "title": "移动写作",
+    "category": "移动端",
+    "width": 390,
+    "height": 844,
+    "notes": []
+  },
+  {
+    "id": "S38",
+    "title": "建议底部抽屉",
+    "category": "移动端",
+    "width": 390,
+    "height": 844,
+    "notes": []
+  },
+  {
+    "id": "S39",
+    "title": "移动地图",
+    "category": "移动端",
+    "width": 390,
+    "height": 844,
+    "notes": []
+  },
+  {
+    "id": "S40",
+    "title": "移动审阅",
+    "category": "移动端",
+    "width": 390,
+    "height": 844,
+    "notes": []
+  },
+  {
+    "id": "S41",
+    "title": "移动私人故事",
+    "category": "移动端",
+    "width": 390,
+    "height": 844,
+    "notes": []
+  },
+  {
+    "id": "S42",
+    "title": "用一句话到达你想做的事",
+    "category": "命令面板",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S43",
+    "title": "同名，不一定是同一个人",
+    "category": "对象去重与融合",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S44",
+    "title": "理解可以进步，规则不能被绕过",
+    "category": "本书理解 / 进阶",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S45",
+    "title": "信息什么时候出现，比列出伏笔更重要",
+    "category": "剧情线 / 信息推进",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S46",
+    "title": "图片生成前的确认",
+    "category": "图片费用与范围",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S47",
+    "title": "连接你的模型",
+    "category": "账户设置",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  },
+  {
+    "id": "S48",
+    "title": "危险操作单独确认",
+    "category": "项目永久删除",
+    "width": 1440,
+    "height": 960,
+    "notes": []
+  }
+]

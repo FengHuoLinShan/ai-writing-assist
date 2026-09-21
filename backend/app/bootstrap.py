@@ -105,6 +105,7 @@ def _register_orm_models() -> None:
     import modules.collaboration.models  # noqa: F401, E402
     import modules.account.settings_models  # noqa: F401, I001
     import modules.evidence.models  # noqa: F401, I001
+    import modules.evolution.models  # noqa: F401, I001
     import modules.imports.models  # noqa: F401, I001
     import modules.interaction.models  # noqa: F401, I001
     import modules.project.models  # noqa: F401, I001
