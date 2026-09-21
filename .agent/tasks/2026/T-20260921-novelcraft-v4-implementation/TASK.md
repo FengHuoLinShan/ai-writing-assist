@@ -127,8 +127,20 @@
       未提交前 BarrierBlocked。**边界**：worker/async_tasks 挂接有意不做
       （E07 前接 handler = 第二编排 owner，违反 N03）；world 知识与地图册
       资产仍 unsupported（V/MI 接线）。
-- [ ] E06 story checkpoints + evolution/recovery（分页回放/检查点/owner
-      fence，T12 完整）（未开始）
+- [x] 2026-09-21 会话 7：E06 完成——recovery.py：replay_committed_prefix
+      键集分页有界重放（链缺口 ChainGapError fail-closed、checkpoint 信任锚
+      跳过早期页、max_pages 拒绝无界扫描）；verify_run_checkpoint（游标与
+      head 漂移 CheckpointDriftError + 恢复期 owner fence）。
+      T12 完整：store.save_receipt 游标推进以 epoch 匹配为条件——中途切换
+      的旧 worker 回执在持久化边界被拒（专测：applier 内推进 epoch →
+      StaleOwnerError，游标不动，新代际可提交）。测量：
+      tools/evolution_checkpoint_bench.py 在本地真 PG 专用库跑 1k/5k/10k
+      档位——全量回放线性（5/25/50 页），增量回放三档均 1 页/100 行
+      <10ms，检查点校验 <10ms；报告在
+      docs/plans/novelcraft-v4/e06/E06-恢复与性能测量.md（本机档位非承诺）。
+      bench 坑：create_all 前须 _register_orm_models()（FK 依赖）且库要先
+      建 pgvector 扩展；种数据先插 Account 再 Project（owner FK）。
+- [ ] E07 迁移切换（影子运行/canary/在途兼容/入口重定向）（未开始）
 - [ ] E07 迁移切换（影子运行/canary/在途兼容/入口重定向）（未开始）
 - [ ] E08 deep_import 退役（未开始）
 
@@ -151,17 +163,19 @@
   test_repositories 2 例、test_foreshadowing_reveal 2 例、writing
   test_create_many_reads_versions_once_and_flushes_once 1 例。
 
-## 恢复快照（2026-09-21 会话 6 结束，含 G2）
+## 恢复快照（2026-09-21 会话 7 结束，含 E06）
 
-分支 `codex/novelcraft-v4-g0-baseline`，累计 17 个提交：G0×2、E01–E05、
-G2 纵切（f6161766a）及任务/文档记录。**未推送、未合 main、未部署、未建 PR。**
+分支 `codex/novelcraft-v4-g0-baseline`，累计 19 个提交：G0×2、E01–E06
+（E06=ed77e4021：分页恢复+T12 完整 fencing+1k/5k/10k 实测）及任务/文档
+记录。**未推送、未合 main、未部署、未建 PR。**
 E03b 与计划 §2.2 的差异（有意收窄）：以 `meta.event_key` JSON 键替代新列
 （避免生产迁移，语义等价——身份=语义指纹而非输出位置）；producer_family
 暂用 source 字符串（deep_import/ai_extraction），generation/input_revision
 登记在 delta meta，完整 `replace_derived_scene_events(...)` 签名留给 E03c
 随 evolution/commit 落地。
-下一步：E06（分页回放/检查点/owner fence，性能档位 1k/5k/10k 场景）→
-E07（影子运行→canary→在途兼容→入口重定向，届时把 run_scene_step 挂上
-async_tasks handler 并排空 deep_import owner）→ E08 退役。world 知识/
-地图册资产两个 unsupported 消费者留 V/MI 系列。合并 main 需用户授权；
-建议合并前跑一次 PostgreSQL e2e 专用库（memory 里有配方）。
+下一步：E07 迁移切换六步（E07.a 旧链保护已由 G0 完成）——E07.b 影子
+运行（新引擎只读同源写隔离实验产物，禁止给正式 World/Story 第二套有效
+事实）、E07.c 项目级 canary（active_engine/owner_epoch 排空切换）、
+E07.d 在途兼容、E07.e 入口重定向（挂 async_tasks handler、deep_import
+API 参数适配）、E08 退役清单核销。world 知识/地图册资产留 V/MI。
+合并 main 需用户授权；建议合并前跑 PostgreSQL e2e 专用库（配方在 memory）。
