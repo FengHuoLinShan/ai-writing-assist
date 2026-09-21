@@ -163,11 +163,11 @@
   test_repositories 2 例、test_foreshadowing_reveal 2 例、writing
   test_create_many_reads_versions_once_and_flushes_once 1 例。
 
-## 恢复快照（2026-09-21 会话 8 结束，含 E07/E08 登记）
+## 恢复快照（2026-09-21 会话 9 结束，含 E09 第一步 + PG e2e 归属判定）
 
-分支 `codex/novelcraft-v4-g0-baseline`，累计 21 个提交：G0×2、E01–E07
-（E07=29c7a612e：影子隔离/切换排空/兼容分类/handler 挂接/退役登记）及
-任务/文档记录。**未推送、未合 main、未部署、未建 PR。**
+分支 `codex/novelcraft-v4-g0-baseline`，累计 23 个提交：G0×2、E01–E07、
+E09 第一步（d7bdd9db2 生产采样器）及任务/文档记录。**已向用户请示
+推送/合并授权（AskUserQuestion），等待答复。**
 E03b 与计划 §2.2 的差异（有意收窄）：以 `meta.event_key` JSON 键替代新列
 （避免生产迁移，语义等价——身份=语义指纹而非输出位置）；producer_family
 暂用 source 字符串（deep_import/ai_extraction），generation/input_revision
