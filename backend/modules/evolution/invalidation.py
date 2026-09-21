@@ -35,11 +35,6 @@ UNSUPPORTED_CONSUMERS: tuple[dict[str, str], ...] = (
         "consumer": "map_atlas",
         "reason": "地图册 revision 无失效缝；表现资产在生成时绑定来源版本，待 V 系列接线",
     },
-    {
-        "consumer": "assistant_suggestions",
-        "reason": "助手建议无独立事实（A 审计边界）；来源失效经 Evidence 新鲜度间接生效，"
-        "待 R03 stable issue 接线",
-    },
 )
 
 
@@ -176,11 +171,19 @@ async def apply_source_invalidation(
     index_state = await request_chapter_index(
         db, novel_id, chapter_index, content_mode=content_mode
     )
+    requested_hash = index_state.get("requested_hash")
     receipt.invalidated_consumers["evidence_chapter_index"] = {
         "chapter_index": chapter_index,
         "content_mode": content_mode,
         "requested_source_id": index_state.get("requested_source_id"),
-        "requested_hash": index_state.get("requested_hash"),
+        "requested_hash": requested_hash,
+    }
+    # 建议有效性缝（T17）：来源指纹分叉后，声称旧来源的建议立即失效。
+    receipt.invalidated_consumers["assistant_suggestion_validity"] = {
+        "mode": "evidence_freshness",
+        "chapter_index": chapter_index,
+        "content_mode": content_mode,
+        "validity_check": "modules.evolution.consumers.check_suggestion_validity",
     }
 
     earliest = await affected_scene_window(db, novel_id, chapter_index=chapter_index)

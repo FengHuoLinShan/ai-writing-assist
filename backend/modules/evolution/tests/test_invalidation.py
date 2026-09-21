@@ -185,12 +185,12 @@ async def test_t08_same_length_edit_invalidates_index_and_projections(
     )
     assert superseded != []
 
-    # 未接线消费者显式列出，不冒充全量失效。
+    # 未接线消费者显式列出，不冒充全量失效；建议有效性已接线（T17）。
     assert {item["consumer"] for item in receipt.unsupported_consumers} == {
         "world_knowledge",
         "map_atlas",
-        "assistant_suggestions",
     }
+    assert "assistant_suggestion_validity" in receipt.invalidated_consumers
     assert receipt.coverage_note
 
 

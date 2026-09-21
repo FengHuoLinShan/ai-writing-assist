@@ -46,6 +46,10 @@ class PostgresAttemptStore:
         self._db = db
         self._novel_id = _parse_uuid(novel_id)
 
+    @property
+    def novel_id(self) -> uuid.UUID:
+        return self._novel_id
+
     # ------------------------------------------------------------------
     # run 注册表
     # ------------------------------------------------------------------

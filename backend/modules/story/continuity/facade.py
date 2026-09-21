@@ -206,3 +206,15 @@ async def supersede_scene_projections_from(
         "superseded_checkpoints": checkpoints,
         "superseded_snapshots": snapshots,
     }
+
+
+async def project_scene_presence(
+    db: AsyncSession,
+    novel_id: str,
+    *,
+    through_scene_index: int,
+):
+    """Read-only presence/history projection for map-side consumers (V4 G2)."""
+    from modules.story.continuity.presence import project_scene_presence as _project
+
+    return await _project(db, novel_id, through_scene_index=through_scene_index)

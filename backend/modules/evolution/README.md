@@ -43,6 +43,12 @@ owner epoch、窄事务与影子运行规则逐步落地，替代而非并存旧
   跨域失效（evidence 索引换源 + story 投影软 supersede + 未接缝消费者
   显式 unsupported），回执带保守扩大说明。
 
+- 管线与消费者（G2）：`pipeline.run_scene_step`（屏障→预算→采样→观察→
+  身份→冻结→窄提交，sampler 注入）；`consumers.check_suggestion_validity`
+  （T17 建议有效资格按索引指纹）；story 侧新增只读在场投影
+  `project_scene_presence`（T03 未知路线不造真）。端到端切片见
+  `tests/test_g2_vertical_slice.py`（林舟/青竹/白石城/铜钥匙）。
+
 ## 测试
 
 `tests/`：契约校验语义与稳定观察身份（重排不变、同断言去重、

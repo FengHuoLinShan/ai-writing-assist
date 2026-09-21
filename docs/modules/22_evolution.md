@@ -57,6 +57,21 @@ V4 长期计划（`docs/plans/novelcraft-v4/plans/01-EVOLUTION.md`）的演化�
   消费者（world 知识/地图册/助手建议）在回执显式列为 unsupported，不以
   局部完成冒充全量失效（G2/V/R 系列接线）。
 
+- 场景步管线（G2，`pipeline.py`）：`run_scene_step` 按 §4.1 顺序组合——
+  前序屏障（T07）→ 预算原子预留（T21，先预留再采样）→ provider 采样
+  （sampler 注入，事务外；生产接项目 LLM 入口）→ 稳定观察 → E02 身份
+  解析 → 冻结（T10）→ 窄提交（E03c/E04）。解析结论与观察 ID 进入冻结
+  负载可审计。不注册 async_tasks handler——deep_import 仍是唯一编排
+  owner（计划 N03 禁双写），E07 切换期由新 handler 调用本组合函数。
+- 建议有效性缝（G2，`consumers.py`）：`check_suggestion_validity` 按证据
+  索引指纹判定（T17）——新来源已请求未重建、或声称指纹与当前索引不符
+  即失效；来源一致才保持有效资格；无状态返回 unknown。失效回执已把
+  assistant_suggestion_validity 列为接线消费者。
+- 在场投影（G2，story/continuity/presence.py，经 story facade
+  `project_scene_presence` 导出）：从已提交事件推导 confirmed_in_scene /
+  last_observed 与路线段——仅当后一事件自带移动来源证据才标 traveled，
+  否则 unknown（T03：不造路程/方式/时间）。只读 DTO，不占地图几何。
+
 ## 测试
 
 `modules/evolution/tests/`：契约校验语义（含游标纪律）与稳定身份性质。
