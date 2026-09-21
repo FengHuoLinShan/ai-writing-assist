@@ -165,9 +165,13 @@
 
 ## 恢复快照（2026-09-21 会话 9 结束，含 E09 第一步 + PG e2e 归属判定）
 
-分支 `codex/novelcraft-v4-g0-baseline`，累计 23 个提交：G0×2、E01–E07、
-E09 第一步（d7bdd9db2 生产采样器）及任务/文档记录。**已向用户请示
-推送/合并授权（AskUserQuestion），等待答复。**
+分支 `codex/novelcraft-v4-g0-baseline`，累计 26 个提交：G0×2、E01–E07、
+G2、E09 第一步 + 真实模型验收（0cee8a3c5）。**用户已授权推送并建 PR；
+分支已推送，PR #158 已建（未自动合并，等 CI 与评审）。**
+E09 真实模型验收已通过（用户授权，DeepSeek 实调：schema 化观察 + 计量
+回执，`modules/evolution/tests/test_real_llm_sampler.py`，Makefile
+BACKEND_REAL_LLM_TESTS 已登记；密钥从 ~/.zshrc 种入账户连接，不经环境
+直连）。
 E03b 与计划 §2.2 的差异（有意收窄）：以 `meta.event_key` JSON 键替代新列
 （避免生产迁移，语义等价——身份=语义指纹而非输出位置）；producer_family
 暂用 source 字符串（deep_import/ai_extraction），generation/input_revision
