@@ -48,6 +48,15 @@ V4 长期计划（`docs/plans/novelcraft-v4/plans/01-EVOLUTION.md`）的演化�
   不采信模型自称可并行）。当前无生产写入方，deep_import 仍是唯一编排
   owner；E07 切换前禁止双写。
 
+- 失效传播（E05，`invalidation.py`）：`compute_source_change` 物理差异
+  （同字数替换也给出非空受影响窗口，T08）；`apply_source_invalidation`
+  传播正文变更——证据索引换源重建（旧结果不再显示有效）+ Scene 派生投影
+  软 supersede（保守扩大到受影响章锚定的最早 Scene 起，范围记入回执）；
+  `apply_scene_reorder_invalidation` 处理场景重排（事件序号对齐 + 从最早
+  移动 Scene 起失效）。失效不删历史：作者确认与已提交回执保留。未接线
+  消费者（world 知识/地图册/助手建议）在回执显式列为 unsupported，不以
+  局部完成冒充全量失效（G2/V/R 系列接线）。
+
 ## 测试
 
 `modules/evolution/tests/`：契约校验语义（含游标纪律）与稳定身份性质。

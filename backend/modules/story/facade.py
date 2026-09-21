@@ -70,6 +70,7 @@ from modules.story.continuity.facade import (  # noqa: E402,F401
     ingest_delta_events,
     replace_scene_memory_events,
     rollback_deep_import_delta_logs_by_workflow,
+    supersede_scene_projections_from,
 )
 from modules.story.outline_state.facade import *  # noqa: E402,F401,F403
 from modules.story.outline_state.facade import (  # noqa: E402,F401
@@ -398,6 +399,7 @@ __all__ = [
     "apply_import_scene_resolution_group",
     "preview_import_scene_resolution",
     "replace_scene_memory_events",
+    "supersede_scene_projections_from",
     "rollback_import_scene_resolution",
     "rollback_deep_import_delta_logs_by_workflow",
 ]

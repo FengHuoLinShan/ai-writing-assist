@@ -38,6 +38,11 @@ owner epoch、窄事务与影子运行规则逐步落地，替代而非并存旧
   UPDATE 原子预留）；`orchestrator.prepare_scene_input` 前序屏障（T07）与
   `plan_parallel_batches` 依赖键准入。
 
+- 失效传播（E05）：`compute_source_change`（同长度修改也检出，含受影响
+  偏移窗口）；`apply_source_invalidation` / `apply_scene_reorder_invalidation`
+  跨域失效（evidence 索引换源 + story 投影软 supersede + 未接缝消费者
+  显式 unsupported），回执带保守扩大说明。
+
 ## 测试
 
 `tests/`：契约校验语义与稳定观察身份（重排不变、同断言去重、
