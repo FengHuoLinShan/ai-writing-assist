@@ -340,6 +340,45 @@ root」），保持功能等价与公开演示路由白名单可达：
 16 + assistant 1 + creative-forecast 1 全绿（功能等价）；docs-check 带理由
 通过；U00 清单归宿决定记录已补 U01 行。
 
-- PR 待建/合入后此处补记。
+- PR #162（head c0b378d4d）CI 11/11 全绿，2026-09-22 合入 main（merge
+  cb97d3f79）。
 - U 系列下一步候选：U02 选区/intent/单 feed store；R01 scope/snapshot/
   task/focus 分离。
+
+## PR160–162 审查补修（2026-09-22 会话 14，分支 codex/v4-pr160-162-review-fix）
+
+用户提交 PR160-162-review.md（8 项：F1/F2 两个 P1 + F3–F8 六个 P2），按报告
+建议顺序全部补修：
+
+- F1（P1）useProjectAssistant.send：新操作上下文以入参为唯一权威并冻结
+  （含 task_hint），未传才沿用 state.context；blueprint 指纹刷进冻结副本而非
+  面板态；未确认 pending 仍原样重试。两条依赖旧「入参被忽略」契约的既有用例
+  按组件契约（withIntent(state.context)）迁移断言。
+- F2（P1）useForecast.focusFrom：选区文本/偏移与 draft_id+指纹做原子重验——
+  携带 selected_range 前先在当前已存正文原偏移处切片比对原选区文本，验不上
+  即失效（不带范围），不允许新 hash 配旧 offsets。
+- F6 overlayStack：注册身份改栈管理器唯一 token（两个 modal:2 不再认错栈顶）。
+- F7 useModalDialog：非栈顶 Escape 在 stopPropagation 之前放行（原来入口先
+  stop，document 栈路由永远收不到，底层按键两层全不关）。
+- F8 Escape 单次消费：栈路由终结消费处加 stopImmediatePropagation（先于旧
+  useShellShortcuts 注册），旧处理器的关面板/返回父视图分支尊重
+  defaultPrevented（纵深防御）。
+- F3 llm_sampler：回执计入结构化修复全部已发生请求（failed 也计费）——
+  usage 跨尝试累计（100+120+80→300）、attempts=全部次数、新增
+  succeeded_attempts 与 attempts_detail；未知用量保持 None 不当零。
+- F4 harness 退出判定：real 模式 usage_recorded 非 True 判失败；前序注入改
+  精确覆盖集断言（除链头外每 Scene，单 Scene 语料期望空集）。
+- F5 harness 验证源统一：跳场请求 scene_id/正文/章节号同章（--limit 裁剪
+  曾第六章正文配第十章号，触发 source 拒绝而非屏障拒绝）；过期测试修订与
+  请求同指链尾第 budget_total 章、scene_index 取下一 Scene 防幂等短路。
+
+回归：新增 F1（意图冻结/pending 原负载）、F2（携带/插字失效/切稿失效，dock
+级含 crypto 真实异步需 real timers 的 settle）、F6/F8（overlayStack 同 id 身
+份 + 终结消费阻断）、F7（双模态内部派发：非栈顶放行/退栈后关底层/嵌套
+popover 先消费/canClose 拒绝不外漏）、F8（useShellShortcuts 尊重已消费）、
+F3（三次尝试 300 tokens/未知 None）、F4/F5（新 test_scale_harness_gates.py：
+13 项变异全拒 + 单 Scene 不适用 + --limit 2/5/9/10 请求字段同章不变量）。
+
+验证：vitest 全量 2556 通过（+12）；eslint 清洁；后端 evolution 模块 103 通过
++ ruff 清洁；e2e writing 28 + interaction 16 全绿（Escape 行为变更回归）；
+docs-check 带理由通过。

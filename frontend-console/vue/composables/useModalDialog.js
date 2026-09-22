@@ -246,15 +246,18 @@ export function useModalDialog({ isOpen, requestClose, canClose = () => true }) 
   }
 
   function onKeydown(event) {
-    event.stopPropagation()
     if (event.key === "Escape") {
-      // U01：Escape 归栈权威——本模态不是最上层时不自行关闭，事件继续
-      // 冒泡给 AppShell 栈路由去关上层（preventDefault 会让路由跳过）。
+      // U01：Escape 归栈权威——本模态不是最上层时不消费也不拦截事件，
+      // 让它继续冒泡给 AppShell 栈路由去关上层。放行必须在
+      // stopPropagation 之前：入口先 stop 会让 document 路由永远收不到
+      // （PR160-162 审查 F7）。
       if (stackEntry && !isTopOverlay(stackEntry)) return
+      event.stopPropagation()
       event.preventDefault()
       if (canClose()) requestClose()
       return
     }
+    event.stopPropagation()
     if (event.key !== "Tab") return
     const dialog = dialogRef.value
     const items = focusables(dialog)

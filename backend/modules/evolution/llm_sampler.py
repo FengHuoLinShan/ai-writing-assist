@@ -141,26 +141,50 @@ class ProjectLLMSampler:
         result: SceneSample = await self._client.generate_structured(
             request, SceneSample, diagnostics=diagnostics
         )
-        usage_entries = [
-            item
-            for item in diagnostics
-            if item.get("kind") == "structured_usage"
-            and item.get("status") == "succeeded"
+        # 结构化修复的每次请求都已实际发生（解析/schema 失败的响应同样
+        # 可能已计费）：回执保留全部请求明细与状态，用量跨全部尝试累计，
+        # 未知用量保持 None 而不当零（PR160-162 审查 F3）。
+        attempts = [
+            item for item in diagnostics if item.get("kind") == "structured_usage"
         ]
-        final_usage = usage_entries[-1] if usage_entries else {}
+
+        def _known_total(field: str) -> int | None:
+            known = [
+                item[field]
+                for item in attempts
+                if isinstance(item.get(field), int)
+            ]
+            return sum(known) if known else None
+
         receipt = {
             "provider": getattr(self._client, "provider_id", None) or "project_llm",
             "model": getattr(self._client, "model", None)
             or getattr(self._client, "model_id", None),
             "schema": "evolution.scene_sample.v1",
             "usage": {
-                "prompt_tokens": final_usage.get("prompt_tokens"),
-                "completion_tokens": final_usage.get("completion_tokens"),
-                "total_tokens": final_usage.get("total_tokens"),
-                "attempts": len(usage_entries),
+                "prompt_tokens": _known_total("prompt_tokens"),
+                "completion_tokens": _known_total("completion_tokens"),
+                "total_tokens": _known_total("total_tokens"),
+                "attempts": len(attempts),
+                "succeeded_attempts": sum(
+                    1 for item in attempts if item.get("status") == "succeeded"
+                ),
             }
-            if final_usage
+            if attempts
             else None,
+            "attempts_detail": [
+                {
+                    "attempt": item.get("attempt"),
+                    "status": item.get("status"),
+                    "completion_tokens": item.get("completion_tokens"),
+                    **(
+                        {"error_kind": item["error_kind"]}
+                        if item.get("error_kind")
+                        else {}
+                    ),
+                }
+                for item in attempts
+            ],
         }
         self.last_call_receipt = receipt
         payload: dict[str, Any] = result.model_dump(mode="json")

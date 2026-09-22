@@ -346,6 +346,12 @@ async def run_harness(args: argparse.Namespace) -> HarnessReport:
             # ---- 屏障顺序：跳场被拒 ----
             from modules.evolution.pipeline import BarrierBlockedError
 
+            # 跳场请求指向链尾之后的下一 Scene；语料全部推进时没有下一章，
+            # 退而指向末章。scene_id/正文/章节号必须始终指向同一章——来源
+            # 指纹在屏障之前核验，任何错配都会变成 source 拒绝而非跳场拒绝，
+            # 验证就失真了（PR160-162 审查 F5：--limit 裁剪时曾用第六章
+            # 正文配第十章章节号）。
+            skip_source = budget_total if budget_total < len(texts) else len(texts) - 1
             try:
                 await handle_evolution_scene_step(
                     db,
@@ -354,11 +360,11 @@ async def run_harness(args: argparse.Namespace) -> HarnessReport:
                             novel_id,
                             scene_ids,
                             texts,
-                            budget_total,  # 占位 index 取末章文本
+                            skip_source,
                             provider=provider,
                             budget_total=budget_total,
                             scene_index=budget_total + 1,  # 跳过下一步
-                            chapter_index=len(texts),
+                            chapter_index=skip_source + 1,
                         )
                     ),
                 )
@@ -384,10 +390,18 @@ async def run_harness(args: argparse.Namespace) -> HarnessReport:
             report.budget_remaining_after_rerun = int(run.budget_remaining)
             report.rerun_same_attempt = replay["attempt_id"] == attempt_ids[-1]
 
-        # ---- 失效关闭：改末章原文 → 旧文本的下一步被拒 ----
+        # ---- 失效关闭：改链尾章节原文 → 旧文本的下一步被拒 ----
+        # 修订的草稿与请求的 scene_id/正文/章节号必须指向同一章（链尾第
+        # budget_total 章）；scene_index 取链尾之后的下一 Scene，避免被
+        # 幂等重放短路，使来源核验真正走到指纹比对（PR160-162 审查 F5：
+        # --limit 裁剪时曾改末章、却用链尾之外的章节请求测试）。
         async with maker() as db:
             await create_draft_only(
-                db, novel_id, len(texts), "末章（修订）", texts[-1] + "修订补记。"
+                db,
+                novel_id,
+                budget_total,
+                f"第{budget_total}章（修订）",
+                texts[budget_total - 1] + "修订补记。",
             )
             await db.commit()
         async with maker() as db:
@@ -405,7 +419,6 @@ async def run_harness(args: argparse.Namespace) -> HarnessReport:
                             provider=provider,
                             budget_total=budget_total,
                             scene_index=budget_total,
-                            scene_text=texts[budget_total - 1],
                         )
                     ),
                 )
@@ -428,7 +441,12 @@ async def run_harness(args: argparse.Namespace) -> HarnessReport:
 
 
 def _assert_exit_criteria(report: HarnessReport) -> None:
-    """按计划 §9 退出标准逐项判定；任何一项失败即抛错。"""
+    """按计划 §9 退出标准逐项判定；任何一项失败即抛错。
+
+    负向能力（PR160-162 审查 F4）：real 模式的 usage 计量缺失必须判失败；
+    前序注入断言精确覆盖集——链上除链头外每个 Scene 都应携带前序输入，
+    单 Scene 语料的期望集为空（不适用），不以"列表非空"代替覆盖断言。
+    """
     failures: list[str] = []
     if report.scenes_run <= 0:
         failures.append("未推进任何 Scene")
@@ -438,8 +456,12 @@ def _assert_exit_criteria(report: HarnessReport) -> None:
         failures.append("幂等重跑后预算剩余应为 0（重跑不得扣减）")
     if report.memory_events_written != 0:
         failures.append("影子运行写入了正式 MemoryEvent")
-    if not report.prior_state_injected_scenes:
-        failures.append("没有任何后序 Scene 携带前序状态内容")
+    expected_prior = set(range(1, report.scenes_run))
+    if set(report.prior_state_injected_scenes) != expected_prior:
+        failures.append(
+            "前序状态注入覆盖不符：期望 "
+            f"{sorted(expected_prior)}，实际 {sorted(report.prior_state_injected_scenes)}"
+        )
     if report.barrier_skip_rejected is not True:
         failures.append("跳场未被屏障拒绝")
     if report.rerun_same_attempt is not True:
@@ -450,6 +472,9 @@ def _assert_exit_criteria(report: HarnessReport) -> None:
         failures.append("存在非逐字引用")
     if report.mention_grounded is not True:
         failures.append("存在无据提及")
+    if report.sampler == "real" and report.usage_recorded is not True:
+        failures.append("真实模型采样的 usage 计量未进入回执（usage_recorded="
+                        f"{report.usage_recorded}）")
     if failures:
         raise HarnessError("；".join(failures))
 

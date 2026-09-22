@@ -16,7 +16,8 @@
  */
 
 const overlays = []
-let sequence = 0
+let idSequence = 0
+let tokenSequence = 0
 let routerInstalled = false
 
 function legacyGlobalModalVisible() {
@@ -25,10 +26,15 @@ function legacyGlobalModalVisible() {
 }
 
 export function registerOverlay({ id, requestClose }) {
-  const entry = { id: id || `overlay-${++sequence}`, requestClose }
+  // 身份用栈管理器生成的唯一 token，展示 id 不兼任唯一身份：不同模态
+  // 组件的局部 generation 完全可能拼出相同 id（modal:2），按 id 比较栈顶
+  // 会认错实例（PR160-162 审查 F6）。
+  const token = ++tokenSequence
+  const entry = { token, id: id || `overlay-${++idSequence}`, requestClose }
   overlays.push(entry)
   return {
     get id() { return entry.id },
+    token,
     unregister() {
       const index = overlays.indexOf(entry)
       if (index !== -1) overlays.splice(index, 1)
@@ -47,7 +53,7 @@ export function topOverlay() {
 
 export function isTopOverlay(handle) {
   if (!handle) return overlays.length === 0
-  return topOverlay()?.id === handle.id
+  return topOverlay()?.token === handle.token
 }
 
 export function closeTopOverlay() {
@@ -67,6 +73,10 @@ export function installOverlayEscapeRouter() {
     if (event.key !== "Escape" || event.defaultPrevented) return
     if (legacyGlobalModalVisible()) return
     if (!closeTopOverlay()) return
+    // 终结消费：本路由先于旧 document 快捷键处理器注册；preventDefault
+    // 标记已消费，stopImmediatePropagation 阻止同节点上后注册的
+    // useShellShortcuts 把同一次 Escape 再解释成第二个动作（返回父视图）。
     event.preventDefault()
+    event.stopImmediatePropagation()
   })
 }
