@@ -102,21 +102,55 @@ def build_scene_messages(
 ) -> list[LLMMessage]:
     """确定性 Prompt：正文 + 前序已提交回执身份与**实际状态内容**（T07）。
 
-    前序理解不只传回执 ID——前序观察的有界摘要（谓词列表）一并注入，
-    让模型拿到真实理解内容，而不是靠身份引用冒充上下文（返修 R3）。
+    前序理解不只传回执 ID——结构化前序观察（A04）按 modality 原样注入：
+    belief/hypothesis/character_statement 在输入里保持传闻/假设语义，
+    不再压成裸谓词冒充"已确认的观察"；主体与来源 Scene 一并携带，
+    截断条数显式披露（未注入不等于不存在）。
     """
     previous = input_manifest.get("previous_scene_attempt_id")
     previous_prefix = input_manifest.get("previous_committed_prefix")
     prior_observations = input_manifest.get("previous_observations") or []
-    context_lines = [f"【Scene {input_manifest.get('scene_index', 0)} 正文】", scene_text]
+    coverage = input_manifest.get("previous_observations_coverage") or {}
+    context_lines = [
+        f"【Scene {input_manifest.get('scene_index', 0)} 正文】",
+        scene_text,
+    ]
     if previous:
         context_lines.append(
             "【前序已提交理解（回执身份）】"
             f"attempt_id={previous}；committed_prefix={previous_prefix}"
         )
         if prior_observations:
-            context_lines.append("【前序已确认的观察（有界摘要）】")
-            context_lines.extend(f"- {line}" for line in prior_observations)
+            context_lines.append(
+                "【前序观察（按 modality 标注：belief/hypothesis/"
+                "character_statement 是传闻、假设或角色陈述，"
+                "不是客观事实；author_plan 是规划意图）】"
+            )
+            for item in prior_observations:
+                if isinstance(item, str):  # 兼容裸谓词条目的存量输入
+                    context_lines.append(f"- {item}")
+                    continue
+                subjects = "、".join(str(s) for s in item.get("subjects") or [])
+                scene_anchor = item.get("scene_index")
+                anchor = (
+                    f"；来自 Scene {scene_anchor}" if scene_anchor is not None else ""
+                )
+                suffix = (
+                    f"（主体：{subjects}{anchor}）"
+                    if subjects
+                    else (
+                        f"（来自 Scene {scene_anchor}）"
+                        if scene_anchor is not None
+                        else ""
+                    )
+                )
+                context_lines.append(
+                    f"- [{item.get('modality', 'unclear')}] "
+                    f"{item.get('predicate', '')}{suffix}"
+                )
+            omitted = coverage.get("omitted_observations")
+            if isinstance(omitted, int) and omitted > 0:
+                context_lines.append(f"（另有 {omitted} 条前序观察因注入上限未列出）")
     else:
         context_lines.append("【前序已提交理解】无（本 Scene 为链头）")
     return [

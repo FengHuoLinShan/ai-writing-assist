@@ -32,11 +32,10 @@ async_tasks 任务 handler 的流量**——deep_import 仍是唯一编排 owner
 
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from infrastructure.llm.collaboration import content_hash
 from modules.evolution.commit import (
@@ -74,10 +73,16 @@ class SceneSampler(Protocol):
 
 
 class SceneSourceBinding(BaseModel):
-    """真实来源绑定（返修 R2）：观察与提交都锚定真实正文版本。
+    """真实来源绑定（A02）：整稿版本与 Scene 来源区间分别可验。
 
-    ``content_hash`` 是 Writing 侧草稿内容指纹；采样文本必须能在提交时
-    重新对照同一草稿版本——来源漂移即整批作废，不消费旧冻结。
+    ``content_hash`` 是整稿指纹（版本门）；``start_offset``/``end_offset``
+    是 Scene 正文在草稿内的码点区间（来源门，``end_offset=None`` 表示至
+    稿尾）。服务端按权威草稿取出精确片段与 scene_text 逐字比对，不信任
+    请求独立声称的正文——同一章的前半段与后半段可以是两个不同 Scene，
+    各自逐字来自草稿即可推进；整稿换版、区间漂移或片段不再逐字一致都判
+    ``source_changed``。区间变化（重排/重分段）即不同绑定、不同 attempt
+    身份（``range_hash`` 可选携带，与整稿指纹+区间一致性由模型校验）。
+    跨章 Scene 需多区间绑定契约，当前为已登记缺口。
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -85,6 +90,21 @@ class SceneSourceBinding(BaseModel):
     draft_id: str = Field(min_length=1)
     chapter_index: int = Field(ge=1)
     content_hash: str = Field(min_length=32, max_length=64)
+    start_offset: int = Field(default=0, ge=0)
+    end_offset: int | None = Field(default=None, ge=0)
+    range_hash: str | None = Field(default=None, min_length=32, max_length=64)
+
+    @model_validator(mode="after")
+    def _validate_range(self) -> SceneSourceBinding:
+        if self.end_offset is not None and self.end_offset < self.start_offset:
+            raise ValueError("end_offset must be >= start_offset")
+        if self.range_hash is not None and self.end_offset is not None:
+            expected = SourceRevisionRef.compute_range_hash(
+                self.content_hash, self.start_offset, self.end_offset
+            )
+            if self.range_hash != expected:
+                raise ValueError("range_hash does not match content_hash + offsets")
+        return self
 
 
 class BarrierBlockedError(Exception):
@@ -117,10 +137,16 @@ class PipelineStepResult(BaseModel):
     input_manifest: dict[str, Any]
 
 
-async def load_current_source_hash(
+async def load_current_source(
     db, novel_id: str, binding: SceneSourceBinding
-) -> SceneSourceBinding | None:
-    """经 Writing facade 读取当前真实草稿指纹（R2 重验数据源）。"""
+) -> tuple[SceneSourceBinding, str] | None:
+    """经 Writing facade 重验来源（A02）：整稿版本 + 权威区间切片。
+
+    返回（规范化绑定，权威切片文本）：绑定草稿必须存在且仍是本章最新
+    版本；``end_offset=None`` 落定为稿长。返回 None 表示草稿缺失、被新
+    版本顶替或区间越界。调用方以返回的切片文本与 scene_text 逐字比对，
+    不做自比较。
+    """
 
     from modules.writing.facade import get_draft, get_latest_draft_for_chapter
 
@@ -130,10 +156,45 @@ async def load_current_source_hash(
     latest = await get_latest_draft_for_chapter(db, novel_id, binding.chapter_index)
     if latest is None or str(latest.id) != str(draft.id):
         return None
-    return SceneSourceBinding(
+    content = draft.content
+    if not isinstance(content, str):
+        return None
+    end = binding.end_offset if binding.end_offset is not None else len(content)
+    if end < binding.start_offset or end > len(content):
+        return None
+    normalized = SceneSourceBinding(
         draft_id=str(draft.id),
         chapter_index=binding.chapter_index,
         content_hash=str(draft.content_hash),
+        start_offset=binding.start_offset,
+        end_offset=end,
+    )
+    return normalized, content[binding.start_offset : end]
+
+
+def compute_scene_manifest_hash(
+    run_key: str,
+    scene_index: int,
+    scene_text: str,
+    source: SceneSourceBinding,
+) -> str:
+    """Scene 步请求身份指纹（A08 幂等重放按它判同源）。
+
+    输入 = 调用方传入的**原始**绑定（未规范化），任务层重放判定与管线
+    用同一公式，保证同请求重试得到同一指纹；正文/整稿版本/区间任一变化
+    都是新身份。
+    """
+
+    return content_hash(
+        {
+            "run": run_key,
+            "scene": scene_index,
+            "text": scene_text,
+            "draft_id": source.draft_id,
+            "draft_hash": source.content_hash,
+            "start_offset": source.start_offset,
+            "end_offset": source.end_offset,
+        }
     )
 
 
@@ -161,18 +222,25 @@ async def _compile_sample_payload(
     identity_outcomes: dict[str, int] = {}
     resolution_records: list[dict[str, Any]] = []
     for observation_spec in payload.get("observations") or []:
+        # 观察区间是 Scene 正文内的相对码点（模型引用的是 scene_text），
+        # 映射回草稿绝对空间后进入 SourceRevisionRef——观察身份锚定草稿
+        # 位置，Scene 分段变化不 silently 复用旧观察身份（A02）。
+        relative_start = int(observation_spec.get("start_offset", 0))
+        relative_end = int(observation_spec.get("end_offset", len(scene_text)))
+        draft_start = source.start_offset + max(0, relative_start)
+        draft_end = source.start_offset + max(0, relative_end)
         source_ref = SourceRevisionRef(
             novel_id=novel_id,
             source_kind="chapter_draft",
             draft_id=source.draft_id,
             content_hash=source.content_hash,
             chapter_identity=f"chapter:{source.chapter_index}",
-            start_offset=int(observation_spec.get("start_offset", 0)),
-            end_offset=int(observation_spec.get("end_offset", len(scene_text))),
+            start_offset=draft_start,
+            end_offset=draft_end,
             range_hash=SourceRevisionRef.compute_range_hash(
                 source.content_hash,
-                int(observation_spec.get("start_offset", 0)),
-                int(observation_spec.get("end_offset", len(scene_text))),
+                draft_start,
+                draft_end,
             ),
             source_revision=int(observation_spec.get("source_revision", 1)),
             segmentation_version=1,
@@ -322,29 +390,23 @@ async def run_scene_step(
     预算持久化、请求前冻结、采样结果冻结、编译冻结、apply 各成一笔；
     provider 调用发生在提交点之间，不携带任何未提交的域事务。
     """
-    # 来源与采样文本的一致性先于一切：scene_text 必须逐字来自绑定草稿的
-    # 当前内容（sha256 与 writing.source_hashing.hash_text 同法），且该
-    # 草稿仍是本章最新版本——来源漂移即整批作废，不消费旧冻结。
-    current = await load_current_source_hash(db, str(store.novel_id), source)
+    # 来源与采样文本的一致性先于一切（A02）：整稿版本与 Scene 区间分别
+    # 验证——服务端按权威草稿取出绑定区间的精确片段，与 scene_text 逐字
+    # 比对（非自比较）；草稿缺失、被顶替、换版或区间漂移都判 source_changed。
+    # 请求身份指纹取自原始绑定（任务层 A08 重放判定用同一公式）。
+    manifest_hash = compute_scene_manifest_hash(run_key, scene_index, scene_text, source)
+    resolved = await load_current_source(db, str(store.novel_id), source)
     if (
-        current is None
-        or current.content_hash != source.content_hash
-        or hashlib.sha256(scene_text.encode("utf-8")).hexdigest() != source.content_hash
+        resolved is None
+        or resolved[0].content_hash != source.content_hash
+        or resolved[1] != scene_text
     ):
         raise CommitConflictError(
             "source_changed",
-            "scene text source draft is missing, superseded or changed",
+            "scene text does not verbatim match its bound draft range "
+            "(draft missing, superseded, re-versioned, or range drifted)",
         )
-
-    manifest_hash = content_hash(
-        {
-            "run": run_key,
-            "scene": scene_index,
-            "text": scene_text,
-            "draft_id": source.draft_id,
-            "draft_hash": source.content_hash,
-        }
-    )
+    source = resolved[0]
     input_manifest = await prepare_scene_input(
         store,
         run_key=run_key,
@@ -650,14 +712,25 @@ def _shadow_applier(scene_index: int, source_revision: int):
 
 
 def _source_verifier(expected: SceneSourceBinding):
-    """提交时真实来源重验（返修 R2）：对照当前 Writing 草稿，非自比较。"""
+    """提交时真实来源重验（返修 R2 + A02）：整稿版本与区间切片都重验。
+
+    对照当前 Writing 草稿取出权威切片，与冻结负载里的 scene_text 逐字
+    比对（非自比较）；阶段化之前的存量冻结负载没有 scene_text 时退回
+    整稿指纹比对。
+    """
 
     async def _verifier(db, frozen: FrozenAttempt) -> None:
-        current = await load_current_source_hash(db, frozen.novel_id, expected)
-        if current is None or current.content_hash != expected.content_hash:
+        resolved = await load_current_source(db, frozen.novel_id, expected)
+        scene_text = (frozen.payload or {}).get("scene_text")
+        if (
+            resolved is None
+            or resolved[0].content_hash != expected.content_hash
+            or (isinstance(scene_text, str) and scene_text and resolved[1] != scene_text)
+        ):
             raise CommitConflictError(
                 "source_changed",
-                "scene source draft is missing, superseded or changed after freeze",
+                "scene source draft is missing, superseded, re-versioned, "
+                "or its range drifted after freeze",
             )
 
     return _verifier
