@@ -82,7 +82,9 @@ V4 长期计划（`docs/plans/novelcraft-v4/plans/01-EVOLUTION.md`）的演化�
 
 - 迁移切换（E07，`compat.py` / `sampler.py` / `tasks.py` / `legacy_adapter.py`）：
   影子运行 `execution_mode=shadow`（迁移 `20260921_evolution_shadow`）——
-  pipeline 强制替换为隔离 applier，即使调用方传入会写正式表的 applier 也不
+  执行模式盖章进冻结负载，首次执行与恢复经同一写入策略解析强制替换为
+  隔离 applier（即使调用方传入会写正式表的 applier），提交边界
+  `apply_frozen` 亦拒绝影子负载的正式领域写（2026-09-22 审查 A01），不
   产生第二套有效事实，影子回执留在 evolution 自己的表里供对比；项目级
   单 live 写入者门禁（`register_run` 拒绝第二个 active live run）；
   `switch_project_engine` 排空旧 owner 并推进 epoch（在途旧 worker 在
@@ -96,8 +98,12 @@ V4 长期计划（`docs/plans/novelcraft-v4/plans/01-EVOLUTION.md`）的演化�
 - 生产采样器（E09 第一步，`llm_sampler.py`）：``ProjectLLMSampler`` 经
   ``open_project_llm_client`` 使用项目 owner 账户连接；输出为 Pydantic
   schema 化窄观察（modality 七态/提及禁造 UUID/引用必须来自原文，校验
-  失败即失败）；Prompt 确定性注入正文与前序已提交回执身份（T07 注入面）；
-  每次调用记录 paid_call_receipt 进入冻结负载可审计。生产 provider
+  失败即失败；scene_events 状态提议须引用本批观察序号 `source_observation_indices`
+  作证据，knowledge 提议须带 `knowledge_subject`——经 `state_gate.py`
+  语义门验证，2026-09-22 审查 A03）；Prompt 确定性注入正文与前序已提交
+  回执身份（T07 注入面）；每次调用记录 paid_call_receipt 进入冻结负载可
+  审计（任一尝试用量未知则总量 None + `usage_complete`/`unknown_attempts`
+  显式留痕；最终失败也固化 failed_final 回执——A06/A07）。生产 provider
   ``project_llm`` 已注册到采样器注册表；真实模型验收单独授权执行，
   单元验证用冻结 fixture 客户端（不联网）。
 

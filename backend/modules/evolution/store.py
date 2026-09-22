@@ -239,6 +239,35 @@ class PostgresAttemptStore:
         )
         await self._db.flush()
 
+    async def replace_frozen_payload(self, attempt: FrozenAttempt) -> None:
+        """阶段化充实（A07）：更新既有冻结 attempt 的负载，attempt 身份不变。
+
+        管线在同一 attempt 上推进 ``sampling → sampled → compiled``——
+        请求身份（attempt_id + manifest）稳定，负载按阶段充实。绝不允许
+        出现后改写 manifest；行不存在即失败关闭。
+        """
+        existing = await self.load_frozen(attempt.run_id, attempt.attempt_id)
+        if existing is None:
+            raise CommitConflictError(
+                "frozen_missing",
+                "cannot replace payload of an attempt that was never frozen",
+            )
+        if existing.source_manifest_hash != attempt.source_manifest_hash:
+            raise CommitConflictError(
+                "frozen_exists",
+                "attempt already frozen with a different manifest",
+            )
+        await self._db.execute(
+            update(EvolutionFrozenAttempt)
+            .where(
+                EvolutionFrozenAttempt.novel_id == self._novel_id,
+                EvolutionFrozenAttempt.run_key == attempt.run_id,
+                EvolutionFrozenAttempt.attempt_key == attempt.attempt_id,
+            )
+            .values(payload_json=attempt.payload)
+        )
+        await self._db.flush()
+
     async def load_frozen(self, run_id: str, attempt_id: str) -> FrozenAttempt | None:
         row = (
             await self._db.execute(
@@ -376,11 +405,7 @@ class PostgresAttemptStore:
         payload = frozen.payload or {}
         compiled = payload.get("compiled_observations")
         if compiled:
-            return [
-                item["predicate"]
-                for item in compiled
-                if item.get("predicate")
-            ]
+            return [item["predicate"] for item in compiled if item.get("predicate")]
         return [
             str(item.get("predicate", ""))
             for item in payload.get("observations") or []

@@ -53,7 +53,13 @@ class SamplerObservation(BaseModel):
 
 
 class SamplerSceneEvent(BaseModel):
-    """模型提议的场景事件（仍走 E03b producer 分区与校验）。"""
+    """模型提议的场景事件（仍走 E03b producer 分区与校验）。
+
+    ``source_observation_indices`` 指向同一响应里本批观察的序号——状态
+    提议必须自附证据（A03 语义门）；``knowledge_subject`` 是 knowledge
+    维度事件的认知主体（谁知道）。两者缺失不会使 schema 失败，但会被
+    状态门拦下进入待裁定，而非取得状态效果。
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -63,6 +69,8 @@ class SamplerSceneEvent(BaseModel):
     event_type: str = Field(min_length=1, max_length=64)
     entity_id: str | None = None
     snapshot_after: dict[str, Any] = Field(default_factory=dict)
+    source_observation_indices: list[int] = Field(default_factory=list, max_length=16)
+    knowledge_subject: str | None = Field(default=None, max_length=120)
 
 
 class SceneSample(BaseModel):
@@ -79,7 +87,11 @@ SYSTEM_PROMPT = (
     "你是小说理解引擎的窄任务观察者。只依据给定正文与给定前序理解，"
     "输出结构化观察：逐字引用必须来自本段正文；无法确定 modality 时用 "
     "unclear；提及只给表面名与类型，绝不编造实体 ID；不确定的内容放进 "
-    "unresolved_parts，不要猜测。"
+    "unresolved_parts，不要猜测。scene_events 是状态提议，不是复述：每条"
+    "必须用 source_observation_indices 引用本批观察的序号作为证据；客观"
+    "状态变化只能基于 event_observed 观察，传闻/假设/角色陈述最多支撑"
+    " knowledge 维度且必须写明 knowledge_subject；引用不上证据的提议"
+    "会被拦下待作者裁定。"
 )
 
 
@@ -138,37 +150,72 @@ class ProjectLLMSampler:
             temperature=0.2,
         )
         diagnostics: list[dict[str, Any]] = []
-        result: SceneSample = await self._client.generate_structured(
-            request, SceneSample, diagnostics=diagnostics
-        )
-        # 结构化修复的每次请求都已实际发生（解析/schema 失败的响应同样
-        # 可能已计费）：回执保留全部请求明细与状态，用量跨全部尝试累计，
-        # 未知用量保持 None 而不当零（PR160-162 审查 F3）。
+        try:
+            result: SceneSample = await self._client.generate_structured(
+                request, SceneSample, diagnostics=diagnostics
+            )
+        except Exception:
+            # 最终失败也必须留下回执（A07）：请求可能已发出、可能已计费，
+            # 回执先行固化再重抛，调用方据此进入待核对而非盲目重采样。
+            self.last_call_receipt = self._build_receipt(
+                diagnostics, outcome="failed_final"
+            )
+            raise
+        receipt = self._build_receipt(diagnostics, outcome="succeeded")
+        self.last_call_receipt = receipt
+        payload: dict[str, Any] = result.model_dump(mode="json")
+        payload["paid_call_receipt"] = receipt
+        return payload
+
+    def _build_receipt(
+        self, diagnostics: list[dict[str, Any]], *, outcome: str
+    ) -> dict[str, Any]:
+        """结构化修复的每次请求都已实际发生（解析/schema 失败的响应同样
+        可能已计费）：回执保留全部请求明细与状态。
+
+        用量口径（A06）：任一尝试对某字段未知，该字段总量即未知（None），
+        绝不把未知次数默认为免费。``unknown_attempts`` 计缺失任一字段的
+        尝试（部分或完全未知）；``usage_complete`` 为真当且仅当全部尝试
+        报齐三个字段。attempts_detail 保留逐次对账明细。
+        """
         attempts = [
             item for item in diagnostics if item.get("kind") == "structured_usage"
         ]
+        usage_fields = ("prompt_tokens", "completion_tokens", "total_tokens")
 
-        def _known_total(field: str) -> int | None:
-            known = [
-                item[field]
-                for item in attempts
-                if isinstance(item.get(field), int)
-            ]
-            return sum(known) if known else None
+        def _field_total(field: str) -> int | None:
+            values: list[int] = []
+            for item in attempts:
+                value = item.get(field)
+                if isinstance(value, bool) or not isinstance(value, int):
+                    return None
+                values.append(value)
+            return sum(values) if values else None
 
-        receipt = {
+        unknown_attempts = sum(
+            1
+            for item in attempts
+            if any(
+                isinstance(item.get(field), bool) or not isinstance(item.get(field), int)
+                for field in usage_fields
+            )
+        )
+        return {
             "provider": getattr(self._client, "provider_id", None) or "project_llm",
             "model": getattr(self._client, "model", None)
             or getattr(self._client, "model_id", None),
             "schema": "evolution.scene_sample.v1",
+            "outcome": outcome,
             "usage": {
-                "prompt_tokens": _known_total("prompt_tokens"),
-                "completion_tokens": _known_total("completion_tokens"),
-                "total_tokens": _known_total("total_tokens"),
+                "prompt_tokens": _field_total("prompt_tokens"),
+                "completion_tokens": _field_total("completion_tokens"),
+                "total_tokens": _field_total("total_tokens"),
                 "attempts": len(attempts),
                 "succeeded_attempts": sum(
                     1 for item in attempts if item.get("status") == "succeeded"
                 ),
+                "unknown_attempts": unknown_attempts,
+                "usage_complete": bool(attempts) and unknown_attempts == 0,
             }
             if attempts
             else None,
@@ -186,7 +233,3 @@ class ProjectLLMSampler:
                 for item in attempts
             ],
         }
-        self.last_call_receipt = receipt
-        payload: dict[str, Any] = result.model_dump(mode="json")
-        payload["paid_call_receipt"] = receipt
-        return payload

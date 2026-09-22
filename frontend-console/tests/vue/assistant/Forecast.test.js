@@ -123,4 +123,19 @@ describe("selection snapshot stays bound to its source version (PR160-162 F2)", 
     expect(focus.draft_id).toBe(otherDraft)
     expect(focus.selected_range).toBeUndefined()
   })
+  it("invalidates the selection on another draft even when identical text sits at the same offsets", async () => {
+    // A05（2026-09-22 审查）：原稿 A 选「白石城」→ 切到稿 B（内容恰好
+    // 同位置同文字）——切片文本重验会通过，但选区只对捕获它的原稿有效，
+    // 不得把旧范围绑到新稿指纹上。既有「切稿失效」用例换了文字，证明
+    // 不了草稿身份检测，此例补齐。
+    const api = apiFixture()
+    setBridgeOverrides({ api, state: { currentProjectId: projectA } })
+    const otherDraft = "20000000-0000-4000-8000-000000000002"
+    const forecast = createForecast({ editor: () => editorWith(savedWithSelection, otherDraft) }); instances.push(forecast)
+    await forecast.configure(projectA, selectionContext)
+    const focus = lastFocus(api)
+    expect(focus.draft_id).toBe(otherDraft)
+    expect(focus.expected_source_hash).toHaveLength(64)  // 新稿指纹照常携带
+    expect(focus.selected_range).toBeUndefined()          // 旧选区跨稿失效
+  })
 })

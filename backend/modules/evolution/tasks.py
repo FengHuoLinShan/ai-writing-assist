@@ -119,9 +119,7 @@ async def handle_evolution_scene_step(db: AsyncSession, task) -> dict[str, Any]:
 
     # 恢复优先（返修 R4）：本 Scene 已提交时幂等重放原回执（T11）；
     # 已冻结未应用时重放冻结负载（T10 不重采样）；都没有才走全新采样步。
-    committed = await store.load_scene_receipt(
-        request.run_key, request.scene_index
-    )
+    committed = await store.load_scene_receipt(request.run_key, request.scene_index)
     if committed is not None:
         return {
             "run_key": request.run_key,
@@ -135,6 +133,7 @@ async def handle_evolution_scene_step(db: AsyncSession, task) -> dict[str, Any]:
         run_key=request.run_key,
         scene_index=request.scene_index,
         applier=applier,
+        identity_candidates=exact_name_candidate_lookup(db),
     )
     if replayed is not None:
         return {

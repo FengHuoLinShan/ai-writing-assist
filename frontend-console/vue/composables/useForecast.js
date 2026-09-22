@@ -21,6 +21,9 @@ export function createForecast({ editor = () => null, composing = () => false } 
   }
   function setInstruction(value) { state.instruction = value; save() }
   async function focusFrom(context) {
+    // A05（2026-09-22 审查）：选区快照不可拆分——origin draft_id、指纹、
+    // 偏移与选中文本须同源。先记下选区捕获时的原稿，跨稿一律失效。
+    const selectionOriginDraftId = context.draft_id || null
     const result = { client_context_id: clientContextId, focus_seq: ++focusSeq, page: context.page || "today", task_hint: context.task_hint || "unknown", draft_id: context.draft_id || null, scene_id: context.scene_id || null, context_confirmation_id: context.context_confirmation_id || null, context_confirmation_action: context.context_confirmation_action || null, editor_state: dirty() ? "dirty" : context.draft_id ? "saved" : "not_applicable", explicit_instruction: state.instruction }
     if (context.target?.target_id) result.target = { resource_kind: targetKinds[context.target.target_type] || context.target.target_type, resource_id: context.target.target_id }
     const writing = editor() || getForecastEditorState(state.projectId)
@@ -33,11 +36,14 @@ export function createForecast({ editor = () => null, composing = () => false } 
     if (result.draft_id && typeof saved === "string") result.expected_source_hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(saved))), value => value.toString(16).padStart(2, "0")).join("")
     // R00：写作页干净状态下带选区范围（码点偏移 + 已存内容指纹），让
     // 前瞻实际分析选中段落；契约要求 selected_range 必须伴随 draft+hash。
-    // F2（PR160-162 审查）：draft_id、指纹、选区文本与偏移是不可拆分的
-    // 快照——草稿/内容变化后旧偏移不得重绑到新指纹。携带前先在当前已存
-    // 正文的原偏移处重验选区文本，验不上即令选区失效（不带范围）。
+    // F2（PR160-162 审查）：草稿/内容变化后旧偏移不得重绑到新指纹。携带前
+    // 先在当前已存正文的原偏移处重验选区文本，验不上即令选区失效（不带
+    // 范围）。A05：仅文本相等不够——选区只对捕获它的原稿有效，跨稿
+    // （即使新稿同位置同文字）直接失效，不带范围。
     if (
-      result.draft_id
+      selectionOriginDraftId
+      && result.draft_id === selectionOriginDraftId
+      && result.draft_id
       && result.expected_source_hash
       && result.editor_state === "saved"
       && Number.isInteger(context.selection_start)

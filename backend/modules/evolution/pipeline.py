@@ -3,14 +3,26 @@
 把既有内核按正确顺序串成一个 Scene 的推进步：
 
     前序屏障（T07，含顺序检查与前序状态内容） → 预算原子预留（T21）
+    → 请求前冻结（attempt 身份 + 预算关系先行落库，A07）
     → provider 采样（持久化边界之外，async）
+    → 采样结果先行耐久化（sampled 阶段，A07）
     → 观察（稳定身份；提及身份由宿主派生） → 身份解析（E02）
-    → 状态操作一致性门（观察与解析支持的场景事件才取得状态效果）
-    → 冻结（T10） → 窄提交（E03c/E04，真实来源重验）
+    → 状态操作语义门（A03：证据绑定 + modality 分级 + 主体要求）
+    → 编译冻结（compiled 阶段，T10） → 窄提交（E03c/E04，真实来源重验）
 
-事务边界（返修 R4）：预留先提交持久化；provider 调用不携带域事务；
-冻结负载单独提交；apply 是最后一笔短事务。域失败回滚不再抹掉预算
-预留与冻结负载——恢复走 :func:`recover_scene_step`，绝不重采样（T10）。
+事务边界（返修 R4 + A07）：预留先提交持久化；**发出 provider 请求前**先把
+attempt 身份与预算关系冻结落库（``sampling`` 阶段）——进程在请求后任何一点
+崩溃，恢复都能按阶段区分"结果已取回/费用未知"，不盲目重采样。provider
+返回后负载立即以 ``sampled`` 阶段耐久化，观察编译失败时冻结停在 sampled，
+恢复走确定性重编译（同一 World 候选 → 同一输出），绝不重采样（T10）。
+apply 是最后一笔短事务。域失败回滚不再抹掉预算预留与冻结负载——恢复走
+:func:`recover_scene_step`。
+
+执行模式进入冻结/提交协议（A01）：影子 run 的冻结负载盖章
+``execution_mode=shadow``，首次执行与恢复走**同一**写入策略解析（任一
+来源为 shadow 即强制隔离 applier，不信任调用方传入），且提交边界
+(:func:`modules.evolution.commit.apply_frozen`) 拒绝影子负载经正式领域
+applier 写入。
 
 provider 以 async sampler 注入：生产接真实项目 LLM 入口（E07 影子运行/
 E09 真实质量验证），本模块与测试用确定性 async sampler。**不注册
@@ -44,6 +56,7 @@ from modules.evolution.contracts import (
 from modules.evolution.identity import resolve_observation_mentions
 from modules.evolution.observations import derive_mention_id
 from modules.evolution.orchestrator import prepare_scene_input
+from modules.evolution.state_gate import gate_scene_events
 from modules.evolution.store import BudgetExhaustedError, PostgresAttemptStore
 
 
@@ -76,6 +89,19 @@ class SceneSourceBinding(BaseModel):
 
 class BarrierBlockedError(Exception):
     """前序 Scene 未按顺序提交：本步不推进（不继承未提交的解释）。"""
+
+
+class SamplePendingReconciliationError(Exception):
+    """采样已发起或已失败但无可应用结果：费用可能已发生（unknown_billing）。
+
+    恢复遇到 ``sampling``（请求后崩溃、结果未取回）或 ``failed``（最终
+    失败、回执已固化）阶段的冻结负载时抛出——对账依据在冻结负载的
+    ``paid_call_receipt`` 里，确认后登记新 run 重来，不自动重采样。
+    """
+
+    def __init__(self, stage: str, detail: str) -> None:
+        super().__init__(f"{stage}: {detail}")
+        self.stage = stage
 
 
 class PipelineStepResult(BaseModel):
@@ -111,95 +137,32 @@ async def load_current_source_hash(
     )
 
 
-async def run_scene_step(
-    db,
-    store: PostgresAttemptStore,
+async def _compile_sample_payload(
+    payload: dict[str, Any],
     *,
+    novel_id: str,
     run_key: str,
     scene_index: int,
     scene_text: str,
     source: SceneSourceBinding,
-    sampler: SceneSampler,
-    applier: Callable[..., Awaitable[ApplierResult]],
-    identity_candidates: Callable[[str, str], Awaitable[list[Any]]] | None = None,
-    content_mode: str = "working",
-    producer_version: str = "evolution/pipeline",
-    observer_contract_version: int = 1,
-) -> PipelineStepResult:
-    """推进一个 Scene：屏障 → 预算 → 采样 → 观察/身份/一致性门 → 冻结 → 窄提交。
+    manifest_hash: str,
+    content_mode: str,
+    observer_contract_version: int,
+    identity_candidates: Callable[[str, str], Awaitable[list[Any]]] | None,
+) -> dict[str, Any]:
+    """把采样输出确定性编译进负载：观察身份、提及身份、身份解析与语义门。
 
-    事务边界由本函数显式提交（与任务 handler 持有会话的仓库惯例一致）：
-    预算持久化、冻结持久化、apply 各成一笔；provider 调用发生在提交点
-    之间，不携带任何未提交的域事务。
+    纯确定性推导（同一输入 + 同一 World 候选 → 同一输出，不接触 provider）：
+    恢复路径在 ``sampled`` 阶段负载上重跑本函数即得到同一编译结果（T10）。
     """
-    # 来源与采样文本的一致性先于一切：scene_text 必须逐字来自绑定草稿的
-    # 当前内容（sha256 与 writing.source_hashing.hash_text 同法），且该
-    # 草稿仍是本章最新版本——来源漂移即整批作废，不消费旧冻结。
-    current = await load_current_source_hash(db, str(store.novel_id), source)
-    if (
-        current is None
-        or current.content_hash != source.content_hash
-        or hashlib.sha256(scene_text.encode("utf-8")).hexdigest()
-        != source.content_hash
-    ):
-        raise CommitConflictError(
-            "source_changed",
-            "scene text source draft is missing, superseded or changed",
-        )
 
-    manifest_hash = content_hash(
-        {
-            "run": run_key,
-            "scene": scene_index,
-            "text": scene_text,
-            "draft_id": source.draft_id,
-            "draft_hash": source.content_hash,
-        }
-    )
-    input_manifest = await prepare_scene_input(
-        store,
-        run_key=run_key,
-        scene_index=scene_index,
-        source_manifest_hash=manifest_hash,
-    )
-    if input_manifest.dependency_status != "committed":
-        reason = input_manifest.blocked_reason or "前序 Scene 未按顺序提交"
-        raise BarrierBlockedError(reason)
-
-    # T21：先原子预留并持久化，再允许采样；预算不足不发出请求。
-    try:
-        await store.reserve_budget(run_key, 1)
-    except BudgetExhaustedError:
-        raise
-    run_row = await store.load_run(run_key)
-    await db.commit()
-
-    # E07.b 影子运行：只读同一冻结来源，产物隔离——即使调用方传入了会写
-    # 正式 World/Story 的 applier，也强制替换为隔离 applier，绝不产生
-    # 第二套有效事实。回执照常落在 evolution 自己的表里供对比；影子游标
-    # 按本步真实位置推进（不写正式域表 ≠ 游标原地踏步）。
-    execution_mode = run_row.execution_mode if run_row else "live"
-    if execution_mode == "shadow":
-        applier = _shadow_applier(scene_index, source.chapter_index)
-
-    head = await store.load_head_receipt(run_key)
-    payload = await sampler.sample(
-        scene_text=scene_text, input_manifest=input_manifest.model_dump()
-    )
-    payload = dict(payload)
-    payload["input_manifest"] = input_manifest.model_dump(mode="json")
-    payload["scene_index"] = scene_index
-    payload["source_binding"] = source.model_dump(mode="json")
-
-    # 观察：稳定身份 + 宿主派生提及身份 + 身份解析结论进入冻结负载（可审计）。
     observation_ids: list[str] = []
     compiled_observations: list[dict[str, Any]] = []
     identity_outcomes: dict[str, int] = {}
-    resolved_entities: set[str] = set()
     resolution_records: list[dict[str, Any]] = []
     for observation_spec in payload.get("observations") or []:
         source_ref = SourceRevisionRef(
-            novel_id=str(store.novel_id),
+            novel_id=novel_id,
             source_kind="chapter_draft",
             draft_id=source.draft_id,
             content_hash=source.content_hash,
@@ -279,7 +242,7 @@ async def run_scene_step(
         if identity_candidates is not None:
             port = _CandidatePort(identity_candidates)
             _, resolutions = await resolve_observation_mentions(
-                envelope, candidate_port=port, novel_id=str(store.novel_id)
+                envelope, candidate_port=port, novel_id=novel_id
             )
             resolution_by_surface: dict[str, dict[str, Any]] = {}
             for resolution in resolutions:
@@ -294,8 +257,6 @@ async def run_scene_step(
                 }
                 resolution_records.append(record)
                 resolution_by_surface[resolution.mention_ref.surface] = record
-                if resolution.outcome == "reuse" and resolution.resolved_entity_id:
-                    resolved_entities.add(resolution.resolved_entity_id)
             observation_mentions = [
                 {
                     "mention_id": mention.mention_id,
@@ -325,26 +286,92 @@ async def run_scene_step(
             }
         )
 
-    payload["observation_ids"] = observation_ids
-    payload["compiled_observations"] = compiled_observations
-    payload["identity_outcomes"] = identity_outcomes
-    payload["identity_resolutions"] = resolution_records
+    # 状态操作语义门（A03）：证据绑定 + modality 分级 + knowledge 主体；
+    # 拦下的提议带原因进入 gated_scene_events 待作者裁定，不取得状态效果。
+    applied_events, gated_events = gate_scene_events(
+        payload.get("scene_events") or [], compiled_observations
+    )
+    return {
+        "observation_ids": observation_ids,
+        "compiled_observations": compiled_observations,
+        "identity_outcomes": identity_outcomes,
+        "identity_resolutions": resolution_records,
+        "scene_events": applied_events,
+        "gated_scene_events": gated_events,
+    }
 
-    # 状态操作一致性门（返修 R2）：模型提议的 scene_events 凡引用具体实体，
-    # 该实体必须经观察与身份解析实际支持（reuse 解析）；引用未解析实体的
-    # 提议保持待处理，不因模型单方面声称而写入。无实体引用的全局事件
-    # （时间线等）不在此门内——它们不主张身份。
-    gated_events: list[dict[str, Any]] = []
-    applied_events: list[dict[str, Any]] = []
-    for event in payload.get("scene_events") or []:
-        entity_id = str(event.get("entity_id") or "")
-        if entity_id and entity_id not in resolved_entities:
-            gated_events.append(event)
-        else:
-            applied_events.append(event)
-    payload["scene_events"] = applied_events
-    payload["gated_scene_events"] = gated_events
 
+async def run_scene_step(
+    db,
+    store: PostgresAttemptStore,
+    *,
+    run_key: str,
+    scene_index: int,
+    scene_text: str,
+    source: SceneSourceBinding,
+    sampler: SceneSampler,
+    applier: Callable[..., Awaitable[ApplierResult]],
+    identity_candidates: Callable[[str, str], Awaitable[list[Any]]] | None = None,
+    content_mode: str = "working",
+    producer_version: str = "evolution/pipeline",
+    observer_contract_version: int = 1,
+) -> PipelineStepResult:
+    """推进一个 Scene：屏障 → 预算 → 冻结请求 → 采样 → 编译 → 窄提交。
+
+    事务边界由本函数显式提交（与任务 handler 持有会话的仓库惯例一致）：
+    预算持久化、请求前冻结、采样结果冻结、编译冻结、apply 各成一笔；
+    provider 调用发生在提交点之间，不携带任何未提交的域事务。
+    """
+    # 来源与采样文本的一致性先于一切：scene_text 必须逐字来自绑定草稿的
+    # 当前内容（sha256 与 writing.source_hashing.hash_text 同法），且该
+    # 草稿仍是本章最新版本——来源漂移即整批作废，不消费旧冻结。
+    current = await load_current_source_hash(db, str(store.novel_id), source)
+    if (
+        current is None
+        or current.content_hash != source.content_hash
+        or hashlib.sha256(scene_text.encode("utf-8")).hexdigest() != source.content_hash
+    ):
+        raise CommitConflictError(
+            "source_changed",
+            "scene text source draft is missing, superseded or changed",
+        )
+
+    manifest_hash = content_hash(
+        {
+            "run": run_key,
+            "scene": scene_index,
+            "text": scene_text,
+            "draft_id": source.draft_id,
+            "draft_hash": source.content_hash,
+        }
+    )
+    input_manifest = await prepare_scene_input(
+        store,
+        run_key=run_key,
+        scene_index=scene_index,
+        source_manifest_hash=manifest_hash,
+    )
+    if input_manifest.dependency_status != "committed":
+        reason = input_manifest.blocked_reason or "前序 Scene 未按顺序提交"
+        raise BarrierBlockedError(reason)
+
+    # T21：先原子预留并持久化，再允许采样；预算不足不发出请求。
+    try:
+        await store.reserve_budget(run_key, 1)
+    except BudgetExhaustedError:
+        raise
+    run_row = await store.load_run(run_key)
+    await db.commit()
+
+    # 执行模式以 run 登记为准，并盖章进冻结负载（A01：恢复与提交边界
+    # 都以协议内标记为准，不依赖调用方自觉换 applier）。
+    execution_mode = run_row.execution_mode if run_row else "live"
+
+    head = await store.load_head_receipt(run_key)
+
+    # A07 请求前冻结：attempt 身份、来源绑定、预算关系（run 行已扣减）在
+    # provider 请求发出**之前**耐久化。此后任何一点崩溃，恢复按阶段区分
+    # 结果已取回（sampled/compiled）与费用未知（sampling），不盲目重采样。
     frozen = FrozenAttempt(
         novel_id=str(store.novel_id),
         run_id=run_key,
@@ -354,16 +381,87 @@ async def run_scene_step(
         source_manifest_hash=manifest_hash,
         previous_receipt=head.attempt_id if head else None,
         previous_committed_prefix=head.committed_prefix if head else None,
-        payload=payload,
+        payload={
+            "stage": "sampling",
+            "scene_index": scene_index,
+            "scene_text": scene_text,
+            "source_binding": source.model_dump(mode="json"),
+            "execution_mode": execution_mode,
+            "observer_contract_version": observer_contract_version,
+            "input_manifest": input_manifest.model_dump(mode="json"),
+        },
     )
     await store.save_frozen(frozen)
+    await db.commit()
+
+    try:
+        sampled = await sampler.sample(
+            scene_text=scene_text, input_manifest=input_manifest.model_dump()
+        )
+    except Exception as exc:
+        # A07：最终失败也固化回执——请求可能已发出、可能已计费；采样器
+        # 失败回执（若有）随冻结负载留档，恢复进入待核对而非重采样。
+        frozen = frozen.model_copy(
+            update={
+                "payload": {
+                    **frozen.payload,
+                    "stage": "failed",
+                    "error": f"{type(exc).__name__}: {exc}"[:500],
+                    "paid_call_receipt": getattr(sampler, "last_call_receipt", None),
+                }
+            }
+        )
+        await store.replace_frozen_payload(frozen)
+        await db.commit()
+        raise
+
+    # provider 结果先于任何领域推导耐久化（A07）：观察构建/身份解析失败
+    # 时冻结停在 sampled 阶段，恢复可免采样重编译。
+    payload: dict[str, Any] = dict(sampled)
+    payload.update(
+        {
+            "stage": "sampled",
+            "scene_index": scene_index,
+            "scene_text": scene_text,
+            "source_binding": source.model_dump(mode="json"),
+            "execution_mode": execution_mode,
+            "observer_contract_version": observer_contract_version,
+            "input_manifest": input_manifest.model_dump(mode="json"),
+        }
+    )
+    frozen = frozen.model_copy(update={"payload": payload})
+    await store.replace_frozen_payload(frozen)
+    await db.commit()
+
+    compiled = await _compile_sample_payload(
+        payload,
+        novel_id=str(store.novel_id),
+        run_key=run_key,
+        scene_index=scene_index,
+        scene_text=scene_text,
+        source=source,
+        manifest_hash=manifest_hash,
+        content_mode=content_mode,
+        observer_contract_version=observer_contract_version,
+        identity_candidates=identity_candidates,
+    )
+    payload.update(compiled)
+    payload["stage"] = "compiled"
+    frozen = frozen.model_copy(update={"payload": payload})
+    await store.replace_frozen_payload(frozen)
     await db.commit()
 
     receipt = await apply_frozen(
         db,
         frozen=frozen,
         store=store,
-        applier=applier,
+        applier=_resolve_step_applier(
+            run_row=run_row,
+            payload=payload,
+            scene_index=scene_index,
+            chapter_index=source.chapter_index,
+            applier=applier,
+        ),
         source_verifier=_source_verifier(source),
         owner_epoch_provider=store.owner_epoch_provider(run_key),
     )
@@ -371,9 +469,9 @@ async def run_scene_step(
     return PipelineStepResult(
         receipt_attempt_id=receipt.attempt_id,
         committed_prefix=receipt.committed_prefix,
-        observation_ids=observation_ids,
-        identity_outcomes=identity_outcomes,
-        gated_scene_events=gated_events,
+        observation_ids=compiled["observation_ids"],
+        identity_outcomes=compiled["identity_outcomes"],
+        gated_scene_events=compiled["gated_scene_events"],
         input_manifest=input_manifest.model_dump(mode="json"),
     )
 
@@ -385,27 +483,76 @@ async def recover_scene_step(
     run_key: str,
     scene_index: int,
     applier: Callable[..., Awaitable[ApplierResult]],
+    identity_candidates: Callable[[str, str], Awaitable[list[Any]]] | None = None,
     content_mode: str = "working",
 ) -> Any:
-    """故障恢复入口（返修 R4）：优先重放本 Scene 已冻结的 attempt。
+    """故障恢复入口（返修 R4 + A07）：按冻结负载的阶段恢复，绝不重采样。
 
-    provider 绝不被再次调用（T10）；无冻结负载时返回 None，调用方才可
-    重新走 :func:`run_scene_step`。
+    - ``compiled``（或无阶段标记的既有负载）：直接重验重提交；
+    - ``sampled``：确定性重编译（观察身份/身份解析/语义门）后提交；
+    - ``sampling`` / ``failed``：费用可能已发生（unknown_billing），抛
+      :class:`SamplePendingReconciliationError` 待对账；
+    - 无冻结负载：返回 None，调用方才可重新走 :func:`run_scene_step`。
+
+    写入策略与首次执行同一解析（A01）：影子负载强制隔离 applier，即使
+    调用方传入了正式写入器。
     """
     frozen = await store.load_pending_frozen(run_key, scene_index)
     if frozen is None:
         return None
-    binding_data = (frozen.payload or {}).get("source_binding") or {}
+    payload = dict(frozen.payload or {})
+    binding_data = payload.get("source_binding") or {}
     source = SceneSourceBinding.model_validate(binding_data) if binding_data else None
     if source is None:
         raise CommitConflictError(
             "frozen_incomplete", "frozen attempt lacks its source binding"
         )
+    stage = payload.get("stage")
+    if stage in {"sampling", "failed"}:
+        raise SamplePendingReconciliationError(
+            stage,
+            "provider request was initiated or finally failed; reconcile billing "
+            "from the frozen receipt (register a new run to retry the scene)",
+        )
+    # sampled 阶段（结果已耐久化、编译未完成）确定性重编译；无阶段标记的
+    # 既有负载在旧协议下总是编译后才冻结，直接应用。
+    if stage == "sampled" or "compiled_observations" not in payload:
+        scene_text = payload.get("scene_text")
+        if not isinstance(scene_text, str) or not scene_text:
+            raise CommitConflictError(
+                "frozen_incomplete",
+                "sampled frozen attempt lacks its scene text for recompilation",
+            )
+        compiled = await _compile_sample_payload(
+            payload,
+            novel_id=str(store.novel_id),
+            run_key=run_key,
+            scene_index=scene_index,
+            scene_text=scene_text,
+            source=source,
+            manifest_hash=frozen.source_manifest_hash,
+            content_mode=content_mode,
+            observer_contract_version=int(payload.get("observer_contract_version", 1)),
+            identity_candidates=identity_candidates,
+        )
+        payload.update(compiled)
+        payload["stage"] = "compiled"
+        frozen = frozen.model_copy(update={"payload": payload})
+        await store.replace_frozen_payload(frozen)
+        await db.commit()
+
+    run_row = await store.load_run(run_key)
     receipt = await apply_frozen(
         db,
         frozen=frozen,
         store=store,
-        applier=applier,
+        applier=_resolve_step_applier(
+            run_row=run_row,
+            payload=frozen.payload,
+            scene_index=scene_index,
+            chapter_index=source.chapter_index,
+            applier=applier,
+        ),
         source_verifier=_source_verifier(source),
         owner_epoch_provider=store.owner_epoch_provider(run_key),
     )
@@ -453,11 +600,32 @@ def exact_name_candidate_lookup(db) -> Callable[[str, str], Awaitable[list[Any]]
     return _lookup
 
 
+def _resolve_step_applier(
+    *,
+    run_row,
+    payload: dict[str, Any] | None,
+    scene_index: int,
+    chapter_index: int,
+    applier: Callable[..., Awaitable[ApplierResult]],
+):
+    """统一写入策略解析（A01）：run 登记模式与冻结负载盖章任一为 shadow，
+    即强制隔离 applier——首次执行与恢复走同一规则，不信任调用方传入。"""
+
+    modes = {
+        run_row.execution_mode if run_row is not None else "live",
+        str((payload or {}).get("execution_mode") or "live"),
+    }
+    if "shadow" in modes:
+        return _shadow_applier(scene_index, chapter_index)
+    return applier
+
+
 def _shadow_applier(scene_index: int, source_revision: int):
     """E07.b 隔离 applier：不写任何正式领域表，只回执化影子产物。
 
     影子游标按本步真实位置推进；provider 计量照常进入回执——影子运行
     消耗真实额度，费用必须可审计，只是不产生正式领域写入。
+    ``shadow_isolated`` 标记供提交边界（apply_frozen）识别（A01）。
     """
 
     async def applier(db, frozen) -> ApplierResult:
@@ -477,6 +645,7 @@ def _shadow_applier(scene_index: int, source_revision: int):
             ],
         )
 
+    applier.shadow_isolated = True  # type: ignore[attr-defined]
     return applier
 
 

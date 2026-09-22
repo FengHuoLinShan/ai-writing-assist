@@ -345,6 +345,63 @@ root」），保持功能等价与公开演示路由白名单可达：
 - U 系列下一步候选：U02 选区/intent/单 feed store；R01 scope/snapshot/
   task/focus 分离。
 
+## V4 审查修复包 1（2026-09-22 会话 15，分支 codex/v4-audit-fixpack-1）
+
+用户提交 NovelCraft-V4-PR-Goal-Audit-2026-09-22（A01–A09）。按报告建议顺序
+实施**修复包 1**（A01/A03/A05/A06/A07），五项均在当前 main（#164 已合并）
+核实成立后修复：
+
+- **A01（P1）影子恢复隔离**：执行模式进入冻结/提交协议——run_scene_step
+  把 execution_mode 盖章进冻结负载；`_resolve_step_applier` 统一写入策略
+  解析（run 登记模式或负载盖章任一 shadow 即换隔离 applier），首次与
+  恢复同规则，不信任调用方；`apply_frozen` 提交边界拒绝影子负载经未标记
+  `shadow_isolated` 的 applier（CommitConflictError shadow_write_rejected）；
+  未盖章 legacy 负载按 run 登记兜底。回归：影子冻结后回执持久化前故障 →
+  恢复正式写入器零调用、Story 零写入；边界直接拒；legacy 兜底。
+- **A03（P1）语义证据门**：新 `state_gate.py::gate_scene_events`——证据
+  绑定（scene_events 必须引用同批观察 `source_observation_indices`，伪造/
+  越界/缺引用一律拦）、modality 分级（客观维度只认 event_observed；
+  statement/belief/hypothesis 只撑 knowledge 且须 `knowledge_subject`；
+  author_plan/figurative/unclear 不撑任何状态操作）、主体须在被引用证据
+  中解析。通过事件带 `source_observation_ids`+`authority_basis` 证据链；
+  被拦提议带 `_gate_reasons` 进 gated/pending_decisions 待作者裁定。
+  SamplerSceneEvent schema 增两可选字段，SYSTEM_PROMPT 同步约束。
+- **A06（P2）计量未知口径**：`_build_receipt` 任一尝试某字段未知 → 该
+  字段总量 None；`usage_complete`（全部尝试报齐三字段）+ `unknown_attempts`
+  （缺失任一字段的尝试数）显式留痕。混合未知（100+未知≠100）有专测。
+- **A07（P1）阶段化持久化+失败回执**：冻结负载按 `sampling → sampled →
+  compiled` 阶段推进（attempt 身份+预算关系请求前落库；provider 结果任何
+  领域推导前落库；编译为纯确定性推导）。sampler 最终抛错也固化
+  failed_final 回执（含已发生请求真实用量）再重抛；`recover_scene_step`
+  按阶段恢复：compiled→重验重提交，sampled→确定性重编译（需
+  identity_candidates，handler 已补传）后提交，sampling/failed→
+  `SamplePendingReconciliationError` 待核对（费用可能已发生，不自动
+  重采样）。store 增 `replace_frozen_payload`（阶段充实，manifest 不变）。
+  预算单位在 README 声明：Scene 步为准入控制单位，计费以回执为准。
+- **A05（P1）前端选区绑原稿**：`useForecast.focusFrom` 记录选区捕获时
+  origin draft_id，`result.draft_id !== origin` 一律不带 selected_range——
+  不同稿同位置同文字（审查反例，文本重验会通过）也失效；新测试补齐
+  （既有「切稿失效」用例换了文字，证明不了草稿身份检测）。
+
+夹具更新：test_review_remediation/_e07_switching/_g2_vertical_slice 的
+scene_events 补 `source_observation_indices`（g2 knowledge 事件补
+knowledge_subject）。新测试：test_state_gate.py（9 例审查反例清单）、
+test_audit_fixpack.py（6 例 A01/A07 管线级故障注入）、test_llm_sampler
++4 例（混合未知/字段级/失败回执）、Forecast +1 例（跨稿同文本）。
+
+验证：modules/evolution 121 通过；modules/story 仅 4 例本机既有基线失败
+（outline_state×2+foreshadowing_reveal×2，与改动无关）；ruff check+format
+清洁；vitest 全量 2557 通过；eslint 清洁；docs-check 带理由通过
+（22_evolution.md 已同步影子边界/语义门/计量口径）。deterministic
+harness（专用库 ai_novel_agent_e2e_evoscale 重建 + --repeat 2，20 Scene）
+全绿：链完整/前序注入 1..19/预算恰尽且幂等重跑零扣减/影子隔离 0 正式
+写入/跳场拒/同回执/过期来源拒/引用逐字/提及有据。坑：harness 命令里
+dropdb/createdb 必须带 PGPASSWORD=novel_dev_pass，否则后台卡密码提示。
+
+审查遗留（未在本包）：A02 Scene 来源范围绑定、A04 前序认知结构化输入、
+A08 任意已提交 Scene 幂等回放（属修复包 2）；A09 harness 精确 code 断言
+（P2，后续顺手）；G2 重做/迁移包/前端包按报告第七节顺序。
+
 ## PR160–162 审查补修（2026-09-22 会话 14，分支 codex/v4-pr160-162-review-fix）
 
 用户提交 PR160-162-review.md（8 项：F1/F2 两个 P1 + F3–F8 六个 P2），按报告
