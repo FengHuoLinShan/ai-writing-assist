@@ -51,7 +51,9 @@ export function useShellShortcuts({
 
     const overlayOpen = command.isOpen() || help.isOpen() || services.modal.isOpen()
     if (overlayOpen) {
-      if (key === "Escape") {
+      // overlayStack 栈路由消费过的 Escape 已 preventDefault——一次按键
+      // 只允许关闭一层，不在此重复解释（PR160-162 审查 F8）。
+      if (key === "Escape" && !event.defaultPrevented) {
         if (command.isOpen()) command.close()
         else if (services.modal.isOpen()) services.modal.close(event)
         else if (help.isOpen()) help.close()
@@ -86,7 +88,8 @@ export function useShellShortcuts({
       event.preventDefault()
       command.open(key)
     } else if (key === "Escape") {
-      if (shellState.currentSubView) {
+      // 栈路由已消费（关闭 overlay）的 Escape 不得再触发返回父视图。
+      if (!event.defaultPrevented && shellState.currentSubView) {
         Promise.resolve(services.router.navigate(shellState.currentView, null)).catch(report("导航失败"))
       }
     } else if (["n", "e", "g", "x"].includes(actionKey)) {

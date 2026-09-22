@@ -88,6 +88,27 @@ class _FrozenClient:
         return schema.model_validate(self.payload)
 
 
+class _RepairingClient:
+    """结构化修复路径的冻结形状：失败尝试同样产生 structured_usage
+    诊断（响应已发生、可能已计费），最终一次成功。"""
+
+    def __init__(self, attempts: list[dict[str, Any]]) -> None:
+        self._attempts = attempts
+        self.provider_id = "deepseek"
+        self.model = "deepseek-chat"
+
+    async def generate_structured(
+        self,
+        request: LLMCallRequest,
+        schema: type,
+        *,
+        diagnostics: list[dict[str, Any]] | None = None,
+    ):
+        if diagnostics is not None:
+            diagnostics.extend(self._attempts)
+        return schema.model_validate(FROZEN_VALID)
+
+
 def _manifest(previous: str | None = None) -> dict[str, Any]:
     return {
         "scene_index": 1,
@@ -143,6 +164,61 @@ async def test_invalid_fixture_fails_closed() -> None:
         SceneSample.model_validate(FROZEN_INVALID_MODALITY)
     with pytest.raises(Exception):
         SceneSample.model_validate(FROZEN_FABRICATED_FIELD)
+
+
+async def test_receipt_counts_every_paid_attempt_including_failed_repairs() -> None:
+    # PR160-162 审查 F3：两次解析/schema 失败 + 一次成功——三次请求都已
+    # 实际发生，回执必须体现 3 次与全部用量（300 tokens），不能只留最后
+    # 一次成功的用量、把 attempts 记成 1。
+    attempts = [
+        {
+            "kind": "structured_usage",
+            "status": "failed",
+            "error_kind": "invalid_json",
+            "attempt": 1,
+            "completion_tokens": 100,
+        },
+        {
+            "kind": "structured_usage",
+            "status": "failed",
+            "error_kind": "schema_validation",
+            "attempt": 2,
+            "completion_tokens": 120,
+        },
+        {
+            "kind": "structured_usage",
+            "status": "succeeded",
+            "attempt": 3,
+            "completion_tokens": 80,
+        },
+    ]
+    sampler = ProjectLLMSampler(_RepairingClient(attempts))
+
+    payload = await sampler.sample(
+        scene_text="林舟与青竹在白石城重逢。", input_manifest=_manifest()
+    )
+
+    usage = payload["paid_call_receipt"]["usage"]
+    assert usage["completion_tokens"] == 300
+    assert usage["attempts"] == 3
+    assert usage["succeeded_attempts"] == 1
+    detail = payload["paid_call_receipt"]["attempts_detail"]
+    assert [item["status"] for item in detail] == ["failed", "failed", "succeeded"]
+    assert [
+        item.get("error_kind") for item in detail
+    ] == ["invalid_json", "schema_validation", None]
+
+
+async def test_receipt_keeps_unknown_usage_as_none_not_zero() -> None:
+    # 计量通道没给出用量时保持未知（None），不得当作 0 记账。
+    attempts = [{"kind": "structured_usage", "status": "succeeded", "attempt": 1}]
+    sampler = ProjectLLMSampler(_RepairingClient(attempts))
+
+    payload = await sampler.sample(scene_text="正文。", input_manifest=_manifest())
+
+    usage = payload["paid_call_receipt"]["usage"]
+    assert usage["completion_tokens"] is None
+    assert usage["attempts"] == 1
 
 
 async def test_project_llm_provider_resolve_paths() -> None:

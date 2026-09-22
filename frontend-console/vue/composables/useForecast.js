@@ -33,6 +33,9 @@ export function createForecast({ editor = () => null, composing = () => false } 
     if (result.draft_id && typeof saved === "string") result.expected_source_hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(saved))), value => value.toString(16).padStart(2, "0")).join("")
     // R00：写作页干净状态下带选区范围（码点偏移 + 已存内容指纹），让
     // 前瞻实际分析选中段落；契约要求 selected_range 必须伴随 draft+hash。
+    // F2（PR160-162 审查）：draft_id、指纹、选区文本与偏移是不可拆分的
+    // 快照——草稿/内容变化后旧偏移不得重绑到新指纹。携带前先在当前已存
+    // 正文的原偏移处重验选区文本，验不上即令选区失效（不带范围）。
     if (
       result.draft_id
       && result.expected_source_hash
@@ -40,6 +43,10 @@ export function createForecast({ editor = () => null, composing = () => false } 
       && Number.isInteger(context.selection_start)
       && Number.isInteger(context.selection_end)
       && context.selection_end > context.selection_start
+      && typeof context.selection === "string"
+      && context.selection
+      && context.selection_end <= Array.from(saved).length
+      && Array.from(saved).slice(context.selection_start, context.selection_end).join("") === context.selection
     ) {
       result.selected_range = { start_offset: context.selection_start, end_offset: context.selection_end }
     }

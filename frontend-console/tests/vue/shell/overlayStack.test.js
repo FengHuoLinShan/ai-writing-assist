@@ -106,6 +106,45 @@ it("unregister removes the entry and isTopOverlay reflects stack order", () => {
   expect(isTopOverlay(null)).toBe(true)
 })
 
+it("identifies registered instances by unique token, not display id (PR160-162 F6)", () => {
+  // 不同模态组件的局部 generation 可能拼出相同展示 id（两个 modal:2）；
+  // 栈顶身份必须按注册实例判定，只有后注册者为栈顶。
+  const lowerClose = vi.fn()
+  const lower = track(registerOverlay({ id: "modal:2", requestClose: lowerClose }))
+  const upper = track(registerOverlay({ id: "modal:2", requestClose: () => {} }))
+  expect(isTopOverlay(lower)).toBe(false)
+  expect(isTopOverlay(upper)).toBe(true)
+  expect(lower.token).not.toBe(upper.token)
+
+  upper.unregister()
+  expect(isTopOverlay(lower)).toBe(true)
+  // 相同 id 的两个实例只有一个在栈内时，栈顶关闭仍指向正确实例。
+  pressEscape()
+  expect(lowerClose).toHaveBeenCalledTimes(1)
+})
+
+it("terminal consumption blocks later document listeners for the same Escape (PR160-162 F8)", () => {
+  const close = vi.fn()
+  const entry = track(registerOverlay({ id: "cmd", requestClose: close }))
+  // 旧 useShellShortcuts 在 mounted 后注册——晚于栈路由；同一次按键不得
+  // 再被解释为第二个动作（如返回父视图）。
+  const legacy = vi.fn()
+  document.addEventListener("keydown", legacy)
+  pressEscape()
+  expect(close).toHaveBeenCalledTimes(1)
+  expect(legacy).not.toHaveBeenCalled()
+  document.removeEventListener("keydown", legacy)
+  entry.unregister()
+
+  // 栈内无登记（未消费）时事件照常到达后续 document 监听器。
+  const idle = vi.fn()
+  document.addEventListener("keydown", idle)
+  const event = pressEscape()
+  expect(idle).toHaveBeenCalledTimes(1)
+  expect(event.defaultPrevented).toBe(false)
+  document.removeEventListener("keydown", idle)
+})
+
 it("closeTopOverlay reports whether anything closed", () => {
   // 栈内可能残留其他用例句柄的防御不存在——closeTop 只关当前最上层。
   const close = vi.fn()
