@@ -39,6 +39,7 @@ export async function openWorkbench(page, project, view = "writing", subview = n
     context: "写作",
     generate: "人物与世界",
     project: "作品档案",
+    "project-settings": "作品偏好",
     map: "地图",
   }[view]
   await expect(page.locator(SEL.viewTitle)).toHaveText(expectedTitle, { timeout: 10000 })

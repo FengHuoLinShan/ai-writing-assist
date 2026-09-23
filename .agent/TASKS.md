@@ -2,7 +2,6 @@
 
 | 任务 | 状态 | 记录 |
 |---|---|---|
-| NovelCraft V4 长期计划实施 | G0 基线与保护进行中（分支 codex/novelcraft-v4-g0-baseline） | [主记录](tasks/2026/T-20260921-novelcraft-v4-implementation/TASK.md) |
 | Agent 核心接入与全项目能力整合 | 已合入本地 main；正式验收、人工质量与发布延期 | [主记录](tasks/agent-integration.md) |
 | 全库代码简化审查 | 审查完成；首批批量选择旧 DOM 清理完成，验证通过；其余候选未执行 | [主记录](tasks/code-simplification-audit.md) |
 
@@ -16,3 +15,5 @@
 - [T-20260917-review-remediation](tasks/2026/T-20260917-review-remediation/TASK.md) — 审计报告核查与全量修复（World 根因/LLM 边界/信封/配额）
 - [T-20260917-ai-generation-quality](tasks/2026/T-20260917-ai-generation-quality/TASK.md) — AI 生成可用性修复与真实质量验证
 - [T-20260920-forecast-creative-engine](tasks/2026/T-20260920-forecast-creative-engine/TASK.md) — 短期前瞻辅助与协作创作试验引擎 V2
+
+- [T-20260923-guimi-flagship](tasks/2026/T-20260923-guimi-flagship/TASK.md) — 现有 guimi 旗舰演示增量升级

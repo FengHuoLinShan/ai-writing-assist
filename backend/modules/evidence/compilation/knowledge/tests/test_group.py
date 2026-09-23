@@ -62,6 +62,44 @@ def test_build_group_scope_freezes_stable_receipt() -> None:
     assert set(first[0].generator_keys) == {item.source_key for item in _SOURCES}
 
 
+def test_durable_audit_request_keeps_full_source_and_requires_all_dimensions():
+    from modules.evidence.facade import build_group_audit_request, materialize_group_audit
+
+    scope = {
+        "capability": "imports.scene_enrichment",
+        "novel_id": "n1",
+        "group_key": "scene:1",
+        "sources": [
+            *_SOURCES,
+            GroupSource(
+                source_key="scene",
+                source_type="scene",
+                content_hash="c" * 64,
+                dimensions=("scene_state",),
+            ),
+        ],
+        "output": "城门关闭",
+    }
+    context = "正文" * 14000 + "【尾部反证：城门并未关闭】"
+    request, _ = build_group_audit_request(
+        **scope, task_instruction="检查场景字段", context=context
+    )
+    assert context in request.messages[-1].content
+    result = {
+        "verdict": "pass",
+        "findings": [],
+        "dimensions": [
+            {"dimension": key, "checked": True}
+            for key in ("prior_prose", "scene_state", "imported_assets")
+        ],
+    }
+    assert materialize_group_audit(**scope, result=result)["status"] == "passed"
+    result["dimensions"].pop()
+    assert materialize_group_audit(**scope, result=result)["status"] == "unverifiable"
+    result["dimensions"].append(result["dimensions"][0])
+    assert materialize_group_audit(**scope, result=result)["status"] == "unverifiable"
+
+
 class _GroupFakeClient:
     provider = "fake"
     model_name = "fake-model"
@@ -75,9 +113,7 @@ class _GroupFakeClient:
         assert schema is AuditVerdictOutput
         return AuditVerdictOutput(
             findings=[],
-            dimensions=[
-                AuditDimensionCheck(dimension="prior_prose", checked=True)
-            ],
+            dimensions=[AuditDimensionCheck(dimension="prior_prose", checked=True)],
             verdict=self.verdicts.pop(0) if self.verdicts else "pass",
         )
 

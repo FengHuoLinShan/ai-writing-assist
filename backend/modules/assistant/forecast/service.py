@@ -6,7 +6,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from core.config import get_settings
 from core.errors import ConflictError, NotFoundError, ValidationError
@@ -23,6 +23,8 @@ from modules.assistant.forecast.contracts import (
 from modules.assistant.forecast.models import ForecastCandidate, ForecastDependency
 from modules.assistant.forecast.ranking import (
     assessment_hash,
+    declined_direction_ids,
+    direction_fingerprint,
     hidden_by_decision,
     notice_key,
     rank_key,
@@ -68,6 +70,7 @@ def public_actions(candidate, *, dirty=False):
 def candidate_view(candidate, notice, *, dirty=False):
     payload = candidate.payload_json
     proposal = payload["proposal"]
+    declined = declined_direction_ids(candidate, notice)
     return CandidateView(
         candidate_id=candidate.id,
         issue_key=candidate.issue_key,
@@ -85,7 +88,11 @@ def candidate_view(candidate, notice, *, dirty=False):
         freshness="valid",
         statements=proposal["statements"],
         why_now=proposal["why_now"],
-        directions=proposal.get("directions", []),
+        directions=[
+            item
+            for item in proposal.get("directions", [])
+            if item["direction_id"] not in declined
+        ],
         unknowns=[
             *proposal.get("unknowns", []),
             *(
@@ -96,7 +103,11 @@ def candidate_view(candidate, notice, *, dirty=False):
             ),
         ],
         evidence=payload["evidence"],
-        actions=public_actions(candidate, dirty=dirty),
+        actions=[
+            action
+            for action in public_actions(candidate, dirty=dirty)
+            if not any(action.action_id.endswith("." + key) for key in declined)
+        ],
         navigation=payload.get("navigation"),
         basis_label="基于上次保存；尚有未保存输入" if dirty else "基于当前保存版本",
         expires_at=aware(candidate.expires_at),
@@ -114,6 +125,17 @@ async def _notice(db, candidate, *, lock=False):
     if lock:
         query = query.with_for_update()
     return await db.scalar(query.execution_options(populate_existing=True))
+
+
+async def require_current_notice(db, candidate):
+    notice = await _notice(db, candidate, lock=True)
+    current = (notice.result_ref_json or {}).get("forecast_v1", {}) if notice else {}
+    if (
+        current.get("candidate_id") != str(candidate.id)
+        or current.get("assessment_hash") != candidate.assessment_hash
+    ):
+        raise ConflictError("已有更新的判断，请读取最新结果", code="ASSESSMENT_CHANGED")
+    return notice
 
 
 async def _valid(db, candidate, ctx, dependencies=None):
@@ -146,8 +168,20 @@ async def _valid(db, candidate, ctx, dependencies=None):
         candidate.validation_state == "valid"
         and aware(candidate.expires_at) > datetime.now(UTC)
         and candidate.scope_hash == ctx.scope.scope_hash
-        and candidate.context_hash == ctx.scope.context_hash
+        and is_applicable(candidate, ctx)
         and assessment_hash(candidate.payload_json, values) == candidate.assessment_hash
+    )
+
+
+def is_applicable(candidate, ctx):
+    """Presentation changes never grant a new source, target or task scope."""
+    previous = candidate.payload_json.get("context_keys")
+    current = ctx.scope.context_keys
+    if not previous or not current:
+        return candidate.context_hash == ctx.scope.context_hash
+    return all(
+        previous.get(key) == current.get(key)
+        for key in ("authority_scope_key", "evidence_snapshot_key", "task_context_key")
     )
 
 
@@ -182,6 +216,14 @@ async def feed(db, novel_id, data, *, persona="author"):
             .where(latest_ids.c.position == 1)
         )
     ).all()
+    legacy_ctx = (
+        await materialize(
+            db, novel_id, data.context, persona=persona, include_understanding=False
+        )
+        if ctx.understanding.get("records")
+        and any(not row.payload_json.get("understanding_enabled") for row in rows)
+        else ctx
+    )
     deps = {}
     if rows:
         for dependency in (
@@ -213,7 +255,8 @@ async def feed(db, novel_id, data, *, persona="author"):
     )
     valid, counts = [], {key: 0 for key in CoverageCounts.model_fields}
     for row in rows:
-        if not await _valid(db, row, ctx, deps.get(row.id, [])):
+        row_ctx = ctx if row.payload_json.get("understanding_enabled") else legacy_ctx
+        if not await _valid(db, row, row_ctx, deps.get(row.id, [])):
             counts["source_invalid"] += 1
             continue
         notice = notices.get(fingerprints[row.id])
@@ -252,6 +295,7 @@ async def feed(db, novel_id, data, *, persona="author"):
         client_context_id=data.context.client_context_id,
         focus_seq=data.context.focus_seq,
         context_hash=ctx.scope.context_hash,
+        context_keys=ctx.scope.context_keys,
         items=items,
         coverage=coverage(
             counts,
@@ -300,6 +344,7 @@ async def require_candidate(db, novel_id, candidate_id, *, focus=None, persona="
         novel_id,
         focus or FocusRequest.model_validate(run.request_json["context"]),
         persona=persona,
+        include_understanding=bool(run.request_json.get("understanding_enabled")),
     )
     if not await _valid(db, candidate, ctx):
         raise ConflictError("资料或授权已变化，请重新检查", code="SOURCE_STALE")
@@ -321,7 +366,7 @@ async def require_candidate(db, novel_id, candidate_id, *, focus=None, persona="
 
 async def decide(db, novel_id, candidate_id, data, *, persona="author"):
     candidate, ctx = await require_candidate(db, novel_id, candidate_id, persona=persona)
-    notice = await _notice(db, candidate, lock=True)
+    notice = await require_current_notice(db, candidate)
     if (
         notice is None
         or notice.row_version != data.expected_notice_version
@@ -357,7 +402,7 @@ async def decide(db, novel_id, candidate_id, data, *, persona="author"):
         "read": "read",
         "keep_observing": "read",
         "as_ordinary_detail": "dismissed",
-        "not_this_direction": "dismissed",
+        "not_this_direction": "read",
         "snooze": "snoozed",
         "reopen": "unread",
     }[data.action]
@@ -367,12 +412,32 @@ async def decide(db, novel_id, candidate_id, data, *, persona="author"):
     notice.disposition = data.action
     notice.row_version += 1
     previous = (notice.result_ref_json or {}).get("forecast_v1", {})
+    declined = list(previous.get("declined_directions", []))
+    declined_choices = dict(previous.get("declined_choices", {}))
+    if data.action == "not_this_direction":
+        selected = next(
+            item
+            for item in candidate.payload_json["proposal"]["directions"]
+            if item["direction_id"] == data.direction_id
+        )
+        declined = list(dict.fromkeys([*declined, direction_fingerprint(selected)]))[-30:]
+        declined_choices[direction_fingerprint(selected)] = {
+            key: selected[key] for key in ("title", "condition", "proposal")
+        }
+        declined_choices = {
+            key: declined_choices[key] for key in declined if key in declined_choices
+        }
+    elif data.action == "reopen":
+        declined = []
+        declined_choices = {}
     notice.result_ref_json = {
         **notice.result_ref_json,
         "forecast_v1": {
             **previous,
             "disposition": data.action,
             "direction_id": data.direction_id,
+            "declined_directions": declined,
+            "declined_choices": declined_choices,
             "wake_condition": wake,
             "decided_at": datetime.now(UTC).isoformat(),
             "decision_boundary": decision_boundary(ctx),
@@ -422,21 +487,38 @@ async def explicit_decisions(db, ctx):
                     "decision_boundary"
                 ].as_string()
                 == decision_boundary(ctx),
-                AssistantNotice.disposition.in_(
-                    ["not_this_direction", "as_ordinary_detail"]
+                or_(
+                    AssistantNotice.disposition.in_(
+                        ["not_this_direction", "as_ordinary_detail"]
+                    ),
+                    AssistantNotice.result_ref_json["forecast_v1"][
+                        "declined_choices"
+                    ].as_string()
+                    != "{}",
                 ),
             )
             .order_by(AssistantNotice.updated_at.desc(), AssistantNotice.id.desc())
             .limit(10)
         )
     ).all()
-    return [
-        {
-            "disposition": row.disposition,
-            "choice": row.result_ref_json["forecast_v1"].get("declined_choice"),
-        }
-        for row in rows
-    ]
+    result = []
+    for row in rows:
+        saved = row.result_ref_json["forecast_v1"]
+        if row.disposition == "as_ordinary_detail" or "declined_choices" not in saved:
+            result.append(
+                {"disposition": row.disposition, "choice": saved.get("declined_choice")}
+            )
+        elif saved["declined_choices"]:
+            result.append(
+                {
+                    "disposition": "not_this_direction",
+                    "choice": {
+                        "question": row.title,
+                        "directions": list(saved["declined_choices"].values()),
+                    },
+                }
+            )
+    return result
 
 
 async def inherit_issue_identity(db, run, item, cache):
@@ -516,7 +598,11 @@ async def publish(db, run, ctx, assessments):
         raise ValidationError("依赖过多，请缩小本次资料范围", code="DEPENDENCY_LIMIT")
     rows = []
     for ordinal, item in enumerate(assessments):
-        payload = item["payload"]
+        payload = {
+            **item["payload"],
+            "context_keys": ctx.scope.context_keys,
+            "understanding_enabled": bool(run.request_json.get("understanding_enabled")),
+        }
         if len(json.dumps(payload, ensure_ascii=False).encode()) > 65536:
             raise ValidationError(
                 "单项建议资料过大，请缩小本次范围", code="PAYLOAD_LIMIT"
@@ -567,6 +653,7 @@ async def publish(db, run, ctx, assessments):
             )
             db.add(notice)
         else:
+            notice.row_version += 1
             notice.result_ref_json = {
                 **notice.result_ref_json,
                 "forecast_v1": {

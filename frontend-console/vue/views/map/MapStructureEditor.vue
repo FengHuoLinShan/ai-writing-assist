@@ -25,6 +25,7 @@
     <p v-if="!focused || dirty || busy" role="status" class="map-save-status">{{ saveLabel }}</p>
     <p v-if="error" role="alert" class="map-error">{{ error }}</p>
     <p v-if="reviewNotice" role="status" class="map-caption">{{ reviewNotice }}</p>
+    <MapScenePanel v-if="revision && !dirty && !reader && !candidateView && !compareServer && !referenceOnly" :project-id="projectId" :node-id="node.id" :revision-id="revision.id" @locate="locateFeature" @open-source="openSourceChapter" />
     <div v-if="backupError && dirty" class="map-warning" role="alert">
       本机备份不可用。请保存到服务端，或下载备份并确认文件已保留后再离开。
       <button class="btn btn-sm" @click="downloadBackup">下载地图备份</button>
@@ -104,6 +105,7 @@
         </svg>
       </div>
       <aside v-if="inspectorOpen && selectedFeature && !readOnly && !focused" class="map-inspector" aria-label="地图内容详情">
+        <img v-for="layer in selectedIllustrations" :key="layer.page_id" :src="imageUrls[imageKey(layer.page_id)]" :alt="selectedFeature.label + ' · 地点配图'" class="map-detail-image" />
         <div v-if="images.length" class="map-actions"><button class="btn" @click="chooseImageRole('illustration')">添加配图</button></div>
         <label>显示名称<input :value="selectedFeature.label" class="form-input" maxlength="200" @input="changeFeature('label', $event.target.value)" /></label>
         <form v-if="['location', 'landmark', 'area'].includes(selectedFeature.kind)" class="map-inline-form" @submit.prevent="searchBindings"><label>搜索关联地点<input v-model="bindingQuery" class="form-input" placeholder="名称或别名" /></label><button class="btn btn-sm" :disabled="bindingLoading">{{ bindingLoading ? '查找中…' : '查找地点' }}</button></form>
@@ -134,7 +136,6 @@
         <label>打开子图<select :value="selectedFeature.target_node_id || ''" class="form-select" @change="changeFeature('target_node_id', $event.target.value || null)"><option value="">不跳转</option><option v-for="target in childChoices" :key="target.id" :value="target.id">{{ target.title }}</option></select></label>
         <div class="map-actions"><button v-if="selectedFeature.target_node_id" class="btn btn-sm" @click="emit('open-node', selectedFeature.target_node_id)">进入子图</button><button v-if="childLevel && ['location', 'landmark', 'area'].includes(selectedFeature.kind) && !selectedFeature.target_node_id" class="btn btn-sm" :disabled="busy" @click="createChild">为此地点创建{{ childLevel.label }}图</button><button v-if="selectedFeature.entity_id" class="btn btn-sm" @click="openEntity">查看世界资料</button><button class="btn btn-sm" @click="removeFeature">移出地图</button></div>
         <ul v-if="selectedRelations.length"><li v-for="item in selectedRelations" :key="item.id">{{ featureLabel(item.subject) }} · {{ relationLabels[item.relation] }} · {{ featureLabel(item.target) }}<button class="btn btn-sm" @click="locateFeature(item.subject === selectedId ? item.target : item.subject)">查看关联位置</button></li></ul>
-        <img v-for="layer in selectedIllustrations" :key="layer.page_id" :src="imageUrls[imageKey(layer.page_id)]" alt="地点配图" class="map-detail-image" />
       </aside>
       </div>
       <p v-if="!displayDocument.features.length" class="map-caption">{{ reader ? '这个阅读进度暂无可展示的地图内容。' : '先加入已有地点，或添加标记。已知道路和区域可以用折线与轮廓表示。' }}</p>
@@ -246,6 +247,7 @@ import MapChangeReview from './MapChangeReview.vue'
 import MapRehearsalPanel from './MapRehearsalPanel.vue'
 import MapBindAcrossMaps from "./MapBindAcrossMaps.vue"
 import MapSourcePicker from './MapSourcePicker.vue'
+import MapScenePanel from './MapScenePanel.vue'
 
 const props = defineProps({ projectId: { type: String, required: true }, node: { type: Object, required: true }, images: { type: Array, default: () => [] }, knownNodes: { type: Array, default: () => [] }, hasReference: Boolean, externalTools: Boolean, reviewImageId: { type: String, default: "" }, initialFeatureId: { type: String, default: '' }, initialRevisionId: { type: String, default: '' }, evidenceRefs: { type: Array, default: () => [] } })
 const emit = defineEmits(["saved", "open-node", "reference-visible", "state", "select-feature", "pin-evidence", "clear-evidence"])
@@ -315,7 +317,7 @@ const adoptionChanges = computed(() => candidateChanges.value.filter(change => a
 const rehearsal = computed(() => readOnly.value ? { message: '', legs: [], featureIds: [] } : rehearseMapRoute(doc.value, rehearsalStops.value, problems.value.flatMap(problem => problem.feature_ids)))
 const selectedRelations = computed(() => doc.value.constraints.filter(item => [item.subject, item.target].includes(selectedId.value)))
 const selectedFaces = computed(() => (displayDocument.value.constraints || []).filter(item => item.relation === 'faces' && item.subject === selectedId.value).map(item => ({ id: item.id, points: [item.subject, item.target].map(id => mapFeatureCenter(displayDocument.value.features.find(feature => feature.id === id))) })).filter(item => item.points.every(Boolean)))
-const childLevel = computed(() => ({ region: { value: 'city', label: '城市' }, city: { value: 'district', label: '街区' }, district: { value: 'street', label: '街道' } })[props.node.level])
+const childLevel = computed(() => ({ region: { value: 'city', label: '城市' }, city: { value: 'district', label: '街区' }, district: { value: 'street', label: '街道' }, street: { value: 'interior', label: '室内' } })[props.node.level])
 const relationSubjects = computed(() => doc.value.features.filter(item => !['along_street', 'entrance_to', 'faces'].includes(relation.relation) || ['location', 'landmark'].includes(item.kind)))
 const relationTargets = computed(() => doc.value.features.filter(item => item.id !== relation.subject && (relation.relation === 'along_street' ? item.kind === 'road' : ['entrance_to', 'faces'].includes(relation.relation) ? ['location', 'landmark', 'area'].includes(item.kind) : true)))
 const imageImpact = computed(() => imageBaseline.value ? mapImageChanges(doc.value.images.find(item => item.page_id === imageForm.page_id) || { anchors: [] }, imageBaseline.value.document, doc.value) : { anchors: [], content: [] })

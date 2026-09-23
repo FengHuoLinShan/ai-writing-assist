@@ -5,6 +5,7 @@ from uuid import UUID, uuid5
 
 from core.errors import ConflictError, ValidationError
 from infrastructure.llm.collaboration import content_hash
+from modules.collaboration.contracts import CognitionSelection
 from modules.collaboration.models import CollaborationArtifact
 from modules.story.contracts import ReadingNode
 
@@ -47,7 +48,9 @@ async def freeze_reading(db, novel_id, run_id, manifest, grant, *, call, audit, 
     for index, source in enumerate(reading_segments(manifest, grant)):
         identity = uuid5(UUID(run_id), f"reading-point:{index}")
         prior = await db.get(CollaborationArtifact, identity)
-        local = manifest.model_copy(update={"resources": [source]})
+        local = manifest.model_copy(
+            update={"resources": [source], "cognition": CognitionSelection()}
+        )
         if prior is not None:
             if (
                 prior.novel_id != UUID(novel_id)

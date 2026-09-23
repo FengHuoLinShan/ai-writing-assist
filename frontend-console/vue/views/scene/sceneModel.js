@@ -18,6 +18,7 @@ export const STATUS_OPTIONS = [
 export const SOURCE_OPTIONS = [
   ["manual", "手动"],
   ["deep_import", "深度导入"],
+  ["evolution", "正文理解"],
   ["ai_generated", "AI 生成"],
   ["manual_fusion", "融合结果"],
 ]
@@ -308,10 +309,11 @@ export function sceneContextAction(item, healthKey = null) {
   const structure = reasons.find((reason) => [
     "manual_organize", "duplicate_chapter", "overlapping_span", "chunk_chapter_mismatch",
   ].includes(reason.code))
+  const boundaryOnly = scene.source === "evolution" && scene.status === "draft" && scene.structure_meta?.semantic_origin === "boundary_only" && !item?.boundary_review_current
   const reviewAction = {
-    key: "review",
+    key: boundaryOnly ? "review_boundary" : "review",
     action: "context-review-scene",
-    label: display.displayState === "active" ? "标记已检查" : "采用",
+    label: boundaryOnly ? "确认边界，继续整理" : display.displayState === "active" ? "标记已检查" : "采用",
   }
   if (healthKey === "unreviewed") return reviewAction
   if (healthKey === "needs_organize") {

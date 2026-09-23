@@ -22,7 +22,7 @@ from modules.assistant.forecast.analysis import (
     assessments,
     instructions,
 )
-from modules.assistant.forecast.context import authorize, materialize
+from modules.assistant.forecast.context import authorize, materialize, scope_matches
 from modules.assistant.forecast.contracts import (
     EvaluateRequest,
     FocusRequest,
@@ -141,10 +141,12 @@ async def submit(
         "author_decisions": choices,
         "decision_hash": content_hash(choices),
         "protocol": "forecast_v1",
+        "understanding_enabled": True,
         "selected_capabilities": selected,
         "scope": ctx.scope.model_dump(mode="json"),
         "llm_snapshot": snapshot,
         "chapter_index": ctx.chapter_index,
+        "understanding_manifest": ctx.understanding,
         "compute_key": content_hash(
             [
                 ctx.scope.model_dump(mode="json"),
@@ -245,10 +247,11 @@ async def view(db, novel_id, run_id, *, persona="author"):
                     novel_id,
                     FocusRequest.model_validate(run.request_json["context"]),
                     persona=persona,
+                    include_understanding=bool(
+                        run.request_json.get("understanding_enabled")
+                    ),
                 )
-                can_resume = (
-                    ctx.scope.model_dump(mode="json") == run.request_json["scope"]
-                )
+                can_resume = scope_matches(ctx.scope, run.request_json["scope"])
             except DomainError:
                 pass
     return RunView(
@@ -319,8 +322,9 @@ async def resume(db, novel_id, run_id, *, persona="author"):
         novel_id,
         FocusRequest.model_validate(run.request_json["context"]),
         persona=persona,
+        include_understanding=bool(run.request_json.get("understanding_enabled")),
     )
-    if ctx.scope.model_dump(mode="json") != run.request_json["scope"]:
+    if not scope_matches(ctx.scope, run.request_json["scope"]):
         raise ConflictError("来源或授权已变化，请重新分析", code="SOURCE_STALE")
     budget = AgentRunBudget.model_validate(run.budget_json)
     needed = 1 if run.checkpoint_json.get("proposal") else 2
@@ -372,14 +376,20 @@ async def execute(db, task):
     async def guard(*, phase=None):
         enabled(persona)
         require_rollout(novel_id, selected)
-        ctx = await materialize(db, novel_id, focus, persona=persona)
+        ctx = await materialize(
+            db,
+            novel_id,
+            focus,
+            persona=persona,
+            include_understanding=bool(payload.get("understanding_enabled")),
+        )
         watch = await _watch(db, novel_id, lock=True)
         current = await require_run(db, novel_id, run_id, lock=True, persona=persona)
         if current.status not in {"pending", "running"} or str(current.task_id) != str(
             task.id
         ):
             raise ConflictError("任务已停止或被替代", code="RUN_SUPERSEDED")
-        if ctx.scope.model_dump(mode="json") != payload["scope"]:
+        if not scope_matches(ctx.scope, payload["scope"]):
             raise ConflictError("保存资料或授权已变化", code="SOURCE_STALE")
         if (
             any(key in SEMANTIC for key in selected)
@@ -470,6 +480,11 @@ async def execute(db, task):
                                                 "horizon": payload["horizon"],
                                                 "analyses": instructions(semantic),
                                                 "sources": ctx.sources,
+                                                "understanding": {
+                                                    key: ctx.understanding[key]
+                                                    for key in ("records", "source_map")
+                                                    if key in ctx.understanding
+                                                },
                                                 "review_feedback": extra,
                                                 ("coverage"): (
                                                     "只核对以上保存资料；未搜索全书"

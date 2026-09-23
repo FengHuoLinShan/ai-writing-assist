@@ -18,6 +18,7 @@ DiscardReason = Literal[
     "outside_scope",
 ]
 FinalScenePhase = Literal[
+    "phase1a_slicing",
     "phase1b_fusion",
     "phase1b_enrichment",
     "phase1a_fallback",
@@ -33,9 +34,7 @@ class FinalSceneCandidate(BaseModel):
     title: str = ""
     goal: str = ""
     core_conflict: str = ""
-    core_conflict_status: Literal["present", "not_applicable", "uncertain"] = (
-        "uncertain"
-    )
+    core_conflict_status: Literal["present", "not_applicable", "uncertain"] = "uncertain"
     phase1a_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     boundary_basis: str = ""
     emotional_beat: str | None = None
@@ -209,9 +208,7 @@ class FinalSceneCandidate(BaseModel):
         allowed = {"emotional_beat", "must_happen", "must_not_happen"}
         return {
             str(key): list(
-                dict.fromkeys(
-                    str(item).strip() for item in quotes if str(item).strip()
-                )
+                dict.fromkeys(str(item).strip() for item in quotes if str(item).strip())
             )
             for key, quotes in value.items()
             if str(key) in allowed and isinstance(quotes, list)
@@ -249,8 +246,7 @@ class FinalSceneCandidate(BaseModel):
                 "uncertain"
                 if field in uncertain
                 else "not_applicable"
-                if value in (None, "")
-                or (field == "narrative_tag" and value == "draft")
+                if value in (None, "") or (field == "narrative_tag" and value == "draft")
                 else "present"
             )
         if not self.candidate_id:

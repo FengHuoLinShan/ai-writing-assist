@@ -89,6 +89,7 @@ beforeEach(() => {
       })),
       getSource: vi.fn(async () => revision),
       sourceFromProject: vi.fn(async () => revision),
+      refreshSource: vi.fn(async () => ({ ...revision, id: 'refreshed-source', version_number: 2 })),
       resolveSourceAmbiguity: vi.fn(),
       matchSourceAnchors: vi.fn(async () => ({ items: revision.anchors })),
       previewSourceImport: vi.fn(),
@@ -117,6 +118,17 @@ async function continueToIdentity(wrapper) {
 }
 
 describe("RP 作品资料设置", () => {
+  it('可冻结新资料版本而不重新调用完整整理', async () => {
+    const wrapper = mount(RpSourceSetup)
+    await openSourceSelection(wrapper)
+    await chooseAvailableProject(wrapper)
+    const button = wrapper.findAll('button').find(item => item.text() === '更新已整理的作品资料')
+    await button.trigger('click'); await flushPromises()
+    expect(api.interactions.refreshSource).toHaveBeenCalledWith(revision.id)
+    expect(api.interactions.sourceFromProject).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('资料版本 2')
+  })
+
   it("从资料方式开始，只展开当前一步并支持键盘返回摘要", async () => {
     const wrapper = mount(RpSourceSetup, { attachTo: document.body })
 

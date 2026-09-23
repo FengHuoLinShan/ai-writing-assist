@@ -138,9 +138,9 @@ async def _index_state(
 @pytest.mark.asyncio
 async def test_t08_same_length_edit_invalidates_index_and_projections(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
-    db, nid = db_session, test_project_id
+    db, nid = db_session, evolution_project_id
     old_text = _make_text(6000, "青竹取出铜钥匙，递给林舟。")
     await create_draft_only(db, nid, 1, "第一章", old_text)
     scene = await _scene(db, nid, 0, 1)
@@ -152,6 +152,7 @@ async def test_t08_same_length_edit_invalidates_index_and_projections(
     assert change.first_offset is not None and change.first_offset >= 4000
 
     first_state = await _index_state(db, nid, 1)
+    previous_hash = first_state.requested_hash if first_state else None
     await create_draft_only(db, nid, 1, "第一章", same_length_edit)
     receipt = await apply_source_invalidation(
         db, nid, chapter_index=1, change=change, content_mode="working"
@@ -160,10 +161,7 @@ async def test_t08_same_length_edit_invalidates_index_and_projections(
     # 索引换源：请求 hash 不再是旧内容，旧结果不能冒充有效。
     state = await _index_state(db, nid, 1)
     assert state is not None
-    if first_state is not None:
-        assert state.requested_hash != first_state.requested_hash or (
-            state.generation != first_state.generation
-        )
+    assert state.requested_hash != previous_hash
     assert (
         receipt.invalidated_consumers["evidence_chapter_index"]["requested_hash"]
         == state.requested_hash
@@ -197,9 +195,9 @@ async def test_t08_same_length_edit_invalidates_index_and_projections(
 @pytest.mark.asyncio
 async def test_unchanged_source_is_noop(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
-    db, nid = db_session, test_project_id
+    db, nid = db_session, evolution_project_id
     text = _make_text(100, "舟")
     await create_draft_only(db, nid, 1, "第一章", text)
     scene = await _scene(db, nid, 0, 1)
@@ -225,10 +223,10 @@ async def test_unchanged_source_is_noop(
 @pytest.mark.asyncio
 async def test_t09_editing_earlier_chapter_invalidates_downstream_only(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
     """改第 2 章：锚定它的 Scene 2 起失效，Scene 0/1 的投影保持有效。"""
-    db, nid = db_session, test_project_id
+    db, nid = db_session, evolution_project_id
     await create_draft_only(db, nid, 1, "第一章", _make_text(200, "舟"))
     await create_draft_only(db, nid, 2, "第二章", _make_text(200, "帆"))
     await create_draft_only(db, nid, 3, "第三章", _make_text(200, "钟"))
@@ -274,11 +272,11 @@ async def test_t09_editing_earlier_chapter_invalidates_downstream_only(
 @pytest.mark.asyncio
 async def test_t09_scene_reorder_aligns_events_and_invalidates_from_earliest(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
     """调换 Scene 1/2：事件序号对齐、从最早移动 Scene 起投影失效、
     作者确认事件保留。"""
-    db, nid = db_session, test_project_id
+    db, nid = db_session, evolution_project_id
     scene1 = await _scene(db, nid, 1, 1)
     scene2 = await _scene(db, nid, 2, 2)
     scene3 = await _scene(db, nid, 3, 3)

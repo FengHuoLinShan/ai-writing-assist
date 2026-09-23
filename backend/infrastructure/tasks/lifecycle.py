@@ -320,9 +320,7 @@ class TaskLifecycleService:
             declared = registry.get_root_capability(task.task_type)
             if additional is None or declared != payload.root_capability_id:
                 raise ValueError("task run envelope cannot authorize this resume")
-            additional_tokens = registry.resolve_run_token_limit(
-                task.task_type, task
-            )
+            additional_tokens = registry.resolve_run_token_limit(task.task_type, task)
             ledger = AIRunEnvelope(payload)
             await ledger.authorize_additional_requests(
                 additional,
@@ -722,6 +720,7 @@ class TaskLifecycleService:
         *,
         novel_id: str,
         transition_reason: str,
+        task_types: set[str] | None = None,
     ) -> int:
         """Cancel pending/running tasks owned by one novel without committing."""
         result = await db.execute(
@@ -729,6 +728,11 @@ class TaskLifecycleService:
             .where(
                 AsyncTask.novel_id == uuid.UUID(str(novel_id)),
                 AsyncTask.status.in_(("pending", "running")),
+                *(
+                    [AsyncTask.task_type.in_(sorted(task_types))]
+                    if task_types is not None
+                    else []
+                ),
             )
             .values(
                 status="cancelled",

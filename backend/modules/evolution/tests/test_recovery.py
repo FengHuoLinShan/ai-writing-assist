@@ -99,10 +99,10 @@ async def _commit(
 @pytest.mark.asyncio
 async def test_t12_midflight_epoch_switch_fences_at_persistence(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
     """apply 起点检查通过后 owner 才切换：回执在持久化边界被拒（T12 完整）。"""
-    db, nid = db_session, test_project_id
+    db, nid = db_session, evolution_project_id
     store = PostgresAttemptStore(db, nid)
     await store.register_run(RUN, mode="append", budget_total=10)
 
@@ -140,11 +140,11 @@ async def test_t12_midflight_epoch_switch_fences_at_persistence(
 @pytest.mark.asyncio
 async def test_recovery_fence_rejects_stale_epoch(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
     from modules.evolution.commit import StaleOwnerError
 
-    db, nid = db_session, test_project_id
+    db, nid = db_session, evolution_project_id
     store = PostgresAttemptStore(db, nid)
     await store.register_run(RUN, mode="append")
     await _commit(db, store, nid, scene=3)
@@ -156,10 +156,10 @@ async def test_recovery_fence_rejects_stale_epoch(
 @pytest.mark.asyncio
 async def test_chain_gap_fails_closed(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
     """链缺口：fail-closed 并指出断点，不跳过、不猜。"""
-    db, nid = db_session, test_project_id
+    db, nid = db_session, evolution_project_id
     store = PostgresAttemptStore(db, nid)
     await store.register_run(RUN, mode="append")
     first = await _commit(db, store, nid, scene=0)
@@ -195,10 +195,10 @@ async def test_chain_gap_fails_closed(
 @pytest.mark.asyncio
 async def test_paged_replay_is_bounded_and_checkpoint_anchor_hits(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
     """分页有界；检查点锚点命中时只扫描增量页（计划 §9 的语义基础）。"""
-    db, nid = db_session, test_project_id
+    db, nid = db_session, evolution_project_id
     store = PostgresAttemptStore(db, nid)
     await store.register_run(RUN, mode="append")
     for scene in range(6):

@@ -6,6 +6,11 @@ AI 长篇小说结构化创作引擎 (AI Novel Structural Engine) v2.0 — a str
 
 ## Agent instruction sources
 
+本地实际运行 BGE 检索须安装运行 extra；CI 精简环境不能代替可体验的应用环境。
+隔离演示可用 `UV_PROJECT_ENVIRONMENT=<独立目录> uv --directory backend sync --locked --extra dev`
+安装独立运行环境；不要对正在运行的共享虚拟环境执行会卸载运行依赖的 CI 同步。
+应用与 worker 应从同一代码版本启动，显式核对 `DATABASE_URL`，并先备份真实演示库。
+
 `AGENTS.md` is the only shared coding-agent contract. Read the repository root file and the nearest
 directory-local `AGENTS.md`, then the target module README. `CLAUDE.md` files only import the adjacent
 `AGENTS.md` for Claude Code; they are not a second architecture or command reference.

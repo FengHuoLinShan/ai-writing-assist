@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from modules.evolution.state_gate import gate_scene_events
 
 E1 = "11111111-1111-4111-8111-111111111111"
@@ -48,6 +50,138 @@ EVENT_LINZHOU = _obs("e" * 64, "event_observed", {"林舟": E1})
 EVENT_QINGZHU = _obs("f" * 64, "event_observed", {"青竹": E2})
 STATEMENT_LINZHOU = _obs("c" * 64, "character_statement", {"林舟": E1, "青竹": E2})
 PLAN_LINZHOU = _obs("a" * 64, "author_plan", {"林舟": E1})
+
+
+def test_provider_surface_subject_resolves_only_within_referenced_evidence():
+    event = {
+        "dimension": "locations",
+        "event_type": "entity_moved",
+        "subject_surface": "林舟",
+        "snapshot_after": {"text_state": "白石城"},
+        "source_observation_indices": [0],
+    }
+    applied, gated = gate_scene_events([event], [EVENT_LINZHOU])
+    assert not gated and applied[0]["entity_id"] == E1
+    assert gate_scene_events([event], [EVENT_QINGZHU])[1]
+    assert gate_scene_events([{**event, "entity_id": E2}], [EVENT_LINZHOU])[1]
+    assert gate_scene_events([{**event, "subject_surface": None}], [EVENT_LINZHOU])[1]
+    knowledge = {
+        "dimension": "knowledge",
+        "event_type": "knowledge_changed",
+        "subject_surface": "林舟",
+        "knowledge_subject": "林舟",
+        "source_observation_indices": [0],
+        "snapshot_after": {
+            "target_type": "event",
+            "known_content": "渡口封锁",
+            "knowledge_level": "rumor",
+        },
+    }
+    assert (
+        gate_scene_events([knowledge], [BELIEF_LINZHOU])[0][0]["knowledge_subject"] == E1
+    )
+
+
+def test_knowledge_cannot_borrow_another_subject_or_launder_a_rumor():
+    event = {
+        "dimension": "knowledge",
+        "event_type": "knowledge_changed",
+        "knowledge_subject": "林舟",
+        "source_observation_indices": [0, 1],
+        "snapshot_after": {
+            "target_type": "event",
+            "known_content": "封锁消息",
+            "knowledge_level": "full",
+        },
+    }
+    _, rejected = gate_scene_events([event], [STATEMENT_LINZHOU, EVENT_LINZHOU])
+    assert "knowledge_level_not_grounded" in rejected[0]["_gate_reasons"]
+    event["snapshot_after"]["knowledge_level"] = "rumor"
+    accepted, rejected = gate_scene_events([event], [STATEMENT_LINZHOU, EVENT_LINZHOU])
+    assert not rejected and accepted[0]["snapshot_after"]["character_id"] == E1
+    first_id = accepted[0]["snapshot_after"]["id"]
+    event["snapshot_after"]["known_content"] = "另一条消息"
+    assert (
+        gate_scene_events([event], [STATEMENT_LINZHOU, EVENT_LINZHOU])[0][0][
+            "snapshot_after"
+        ]["id"]
+        != first_id
+    )
+    assert gate_scene_events([event], [EVENT_QINGZHU, EVENT_LINZHOU])[1]
+    event["snapshot_after"]["character_id"] = E2
+    assert (
+        "payload_subject_mismatch"
+        in gate_scene_events([event], [STATEMENT_LINZHOU, EVENT_LINZHOU])[1][0][
+            "_gate_reasons"
+        ]
+    )
+
+
+@pytest.mark.parametrize(
+    "event_type",
+    ["entity_moved", "entity_removed", "relation_established", "timeline_changed"],
+)
+def test_belief_cannot_disguise_an_objective_operation_as_knowledge(event_type):
+    applied, gated = gate_scene_events(
+        [
+            {
+                "dimension": "knowledge",
+                "event_type": event_type,
+                "entity_id": E1,
+                "knowledge_subject": E1,
+                "snapshot_after": {"text_state": "白石城"},
+                "source_observation_indices": [0],
+            }
+        ],
+        [BELIEF_LINZHOU],
+    )
+    assert not applied and "event_dimension_mismatch" in gated[0]["_gate_reasons"]
+
+
+def test_knowledge_subject_must_resolve_in_its_own_evidence():
+    applied, gated = gate_scene_events(
+        [
+            {
+                "dimension": "knowledge",
+                "event_type": "knowledge_changed",
+                "entity_id": E1,
+                "knowledge_subject": E2,
+                "snapshot_after": {"knowledge": "城门关闭"},
+                "source_observation_indices": [0],
+            }
+        ],
+        [BELIEF_LINZHOU],
+    )
+    assert (
+        not applied
+        and "knowledge_subject_unresolved_in_evidence" in gated[0]["_gate_reasons"]
+    )
+
+
+def test_model_cannot_grant_its_events_author_authority():
+    from types import SimpleNamespace
+
+    from modules.story.continuity.repositories import EventRepository
+
+    applied, gated = gate_scene_events(
+        [
+            {
+                "dimension": "locations",
+                "event_type": "entity_moved",
+                "entity_id": E1,
+                "snapshot_after": {
+                    "text_state": "白石城",
+                    "meta": {"author_confirmed": True},
+                },
+                "source_observation_indices": [0],
+            }
+        ],
+        [EVENT_LINZHOU],
+    )
+    assert not gated
+    assert not EventRepository.is_authority_event(
+        SimpleNamespace(source="evolution", snapshot_after=applied[0]["snapshot_after"])
+    )
 
 
 def test_rumor_observation_cannot_ground_objective_state_change() -> None:
@@ -105,7 +239,11 @@ def test_statement_grounds_knowledge_but_requires_subject() -> None:
             "dimension": "knowledge",
             "event_type": "knowledge_changed",
             "entity_id": E1,
-            "snapshot_after": {"knowledge": "青竹保管铜钥匙"},
+            "snapshot_after": {
+                "target_type": "event",
+                "known_content": "青竹保管铜钥匙",
+                "knowledge_level": "rumor",
+            },
             "source_observation_indices": [0],
             "knowledge_subject": E1,
         }

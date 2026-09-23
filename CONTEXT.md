@@ -83,7 +83,7 @@ README、ORM 模型与 Alembic migration。当前文档范围由
 | Context 指纹 | compiled_context_fingerprint | 对 provider 可见 sections/items、来源身份、选择与有效范围的通用 SHA-256；预览、确认、执行必须一致。 |
 | 定向查证 | `retrieve_focused_evidence()` / `focused_evidence_neighbors` | 导入、地图和写作副客服用的只读稳定入口：按对象引用或未入库名称与关注问题做最大深度 0/1 的受限一跳查读；邻居模型步骤只对已核验根证据提名，不选工具、不扩大范围、不写事实。checkpoint 由服务端保存并可续查；手动新增资料须重新预览确认。 |
 | 角色原文许可 | CharacterKnowledge + 精确 EvidenceLink | character 视角引用原文须有截止点前 canonical/full 的 `known_content` 与精确原文一致，并由 active 精确 EvidenceLink 绑定该字段；缺少证明时保留已知 metadata、省略原文，固定来源无法证明则 blocker。该许可不等于完整知识边界审查，coverage 明示 `not_performed`。 |
-| 统一地图 | `map_atlas_nodes` / `map_atlas_revisions`，以及既有图片 run/page/annotation | 区域、城市、街区、街道四级空间结构（`cover → world → region → city → district → street → interior`，默认最深到街道）的空间示意、底图和配图；空间图元、来源与生成身份追加写入并由数据库 trigger 禁止原地修改，写入比较 `base_revision_id`、冲突 409；底图三锚点仿射校准只改图片展示、不改空间位置。版本可恢复，不作为时间化世界事实。 |
+| 统一地图 | `map_atlas_nodes` / `map_atlas_revisions`，以及既有图片 run/page/annotation | 区域、城市、街区、街道与显式创建的室内结构（`cover → world → region → city → district → street → interior`，默认最深到街道）的空间示意、底图和配图；空间图元、来源与生成身份追加写入并由数据库 trigger 禁止原地修改，写入比较 `base_revision_id`、冲突 409；底图三锚点仿射校准只改图片展示、不改空间位置。版本可恢复，不作为时间化世界事实。 |
 
 地图册经既有 generation-background operation `world.map_atlas.generate` 取得 author-full 的
 canonical world background，并以 RAG `map_atlas` purpose 补充已确认正文和 Scene。工作稿仅在
@@ -193,8 +193,12 @@ ADR-0023 增加有限单 Agent 运行时，允许作者助手与 RP 在服务端
 唯一生产实现，旧 Outline/Memory 兼容包已退场。RAG 索引与 Context 编译/确认归 evidence，
 账户连接与全局偏好归 account，项目偏好及有效配置
 归 project；`map` 是 world 子系统，`infrastructure/tasks` 是共享基础设施。
-`evolution` 是 V4 计划的演化引擎模块，当前只有 E01 契约层（来源引用、观察、
-身份解析、类型化操作、回执游标），无运行时；deep_import 仍是唯一编排 owner。
+`evolution` 已有来源/观察契约、单 Scene 采样与冻结恢复、回执/预算存储及
+`evolution_scene_step_v2` handler；跨章来源按精确区间绑定，影子运行隔离正式写入。
+Project 的理解引擎/epoch/schema floor 统一封锁 Imports 与 Evolution 旧 owner，迁移保留预算与历史。
+默认导入入口尚未切换，旧 deep_import 仍持有该入口编排。Collaboration 保存作者明确授权的
+持久理解及追加历史，Evidence 冻结并重验其精确来源与继承引用；World 地图经 Story
+读取指定 Scene 截止点的人物在场投影。工程接线不代表真实模型质量或 G2/G3 全部验收。
 
 Assistant 拥有项目讨论、运行、操作批次及提醒展示（`/api/assistant`）；World 通用会话
 保留原物理表与 ID 后移交 Assistant。RP 树和 attempt 留在 Interaction，共用有限执行核心。
@@ -230,6 +234,6 @@ ADR-0027 的 Assistant 工作项与调查成果是有界私有 checkpoint；Worl
 
 新增业务模块 `collaboration` 持有目标、授权、不可变试改与精确采用回执；
 `assistant` 持有短期前瞻和处置，`story` / `interaction` 持有观察及分支事实。
-当前共十个业务模块，继续复用原 PostgreSQL 队列、Evidence 与 Project 连接。
+继续复用原 PostgreSQL 队列、Evidence 与 Project 连接。
 模块职责与采用/恢复边界见 `docs/modules/21_collaboration.md`、
 `backend/modules/collaboration/README.md`，前瞻见 `docs/modules/20_assistant.md`。

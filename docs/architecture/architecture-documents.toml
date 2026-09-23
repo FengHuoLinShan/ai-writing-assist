@@ -149,7 +149,7 @@ kind = "business"
 source_roots = ["backend/modules/evolution"]
 design_docs = ["docs/modules/22_evolution.md"]
 code_docs = ["backend/modules/evolution/README.md"]
-api_prefixes = []
+api_prefixes = ["/api/evolution"]
 
 [[components]]
 name = "infrastructure"

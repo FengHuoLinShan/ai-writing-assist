@@ -27,6 +27,7 @@ IMMUTABLE_TABLES = frozenset(
         "map_atlas_revisions",
         "story_simulation_steps",
         "interaction_actor_state_revisions",
+        "cognition_commits",
     }
 )
 

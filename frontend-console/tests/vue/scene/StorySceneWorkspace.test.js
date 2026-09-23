@@ -210,6 +210,47 @@ describe("Story Scene workspace panels", () => {
     expect(wrapper.get(".scene-character-card__facts").text()).not.toContain("active")
   })
 
+  it("resolves saved card names and keeps hidden card fields when editing", async () => {
+    const original = {
+      version: "character_card.v1",
+      personality: "谨慎",
+      current_goal: "找到入口",
+      knowledge: ["只知道入口位置"],
+      behavior_constraints: ["不泄露暗号"],
+    }
+    story.getSceneContext.mockResolvedValue({
+      character_cards: [{ id: "card-1", character_id: "c1", current_revision_id: "rev-1", revision: { id: "rev-1", content: original } }],
+      script_files: [],
+    })
+    story.saveCharacterCard.mockResolvedValue({
+      id: "card-1", character_id: "c1", current_revision_id: "rev-2",
+      revision: { id: "rev-2", content: { ...original, current_goal: "安全离开" } },
+    })
+    setBridgeOverrides({ api: {
+      outline: { getSceneWorkbench: vi.fn().mockResolvedValue(payload), listFusionSuggestions: vi.fn().mockResolvedValue({ items: [] }), updateScene: vi.fn() },
+      world: { listEntities: vi.fn().mockResolvedValue({ items: [{ id: "c1", name: "阿遥" }], total: 1 }) },
+      story, tasks, imports: { startStage: vi.fn() },
+    }, state, router, toast, showModalHtml: vi.fn(), closeModal: vi.fn(), esc: (value) => String(value ?? "") })
+    createWrapper({ selectedSceneId: "s1" })
+    await wrapper.get('[data-action="scene-runtime-tab-characters"]').trigger("click")
+    await flushPromises()
+    expect(wrapper.get(".scene-character-card h3").text()).toBe("阿遥")
+    await wrapper.get('[data-action="edit-scene-character-c1"]').trigger("click")
+    await wrapper.get(".scene-character-card__editor input").setValue("安全离开")
+    await wrapper.get('[data-action="save-scene-character-card"]').trigger("click")
+    await flushPromises()
+    expect(story.saveCharacterCard.mock.calls[0][3].content).toEqual(expect.objectContaining({
+      current_goal: "安全离开",
+      knowledge: ["只知道入口位置"],
+      behavior_constraints: ["不泄露暗号"],
+    }))
+    expect(story.saveCharacterCard.mock.calls[0][3].source_manifest).toEqual({
+      derived_from_revision_id: "rev-1",
+      source_status: "requires_recheck_after_manual_edit",
+    })
+    expect(wrapper.get(".scene-character-card h3").text()).toBe("阿遥")
+  })
+
   it("persists generated character-card provenance after the suggestion is applied", async () => {
     story.getSceneContext.mockResolvedValue({
       character_cards: [{ character_id: "c1", name: "阿遥", content: { personality: "谨慎" } }],

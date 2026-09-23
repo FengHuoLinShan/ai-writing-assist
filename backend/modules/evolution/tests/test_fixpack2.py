@@ -30,7 +30,6 @@ from modules.evolution.commit import ApplierResult, CommitConflictError
 from modules.evolution.contracts import CommittedPrefix
 from modules.evolution.llm_sampler import build_scene_messages
 from modules.evolution.pipeline import (
-    BarrierBlockedError,
     SceneSourceBinding,
     compute_scene_manifest_hash,
     run_scene_step,
@@ -131,11 +130,11 @@ async def _binding_for_segment(
 @pytest.mark.asyncio
 async def test_same_chapter_multiple_scenes_advance_via_sub_ranges(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
     """审查反例：后半段逐字来自草稿却非整章哈希。修复后两段各成 Scene，
     各自推进；观察身份锚定草稿绝对区间（分段不同 → 身份不同）。"""
-    db, nid = db_session, test_project_id
+    db, nid = db_session, evolution_project_id
     await _seed_scenes(db, nid, 3)
     await create_draft_only(db, nid, 1, "一章两景", CHAPTER_TEXT)
     await db.commit()
@@ -183,10 +182,10 @@ async def test_same_chapter_multiple_scenes_advance_via_sub_ranges(
 @pytest.mark.asyncio
 async def test_sub_range_mismatch_out_of_range_and_reversion_rejected(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
     """区间与正文不一致、区间越界、整稿换版（含同长度替换）都拒绝。"""
-    db, nid = db_session, test_project_id
+    db, nid = db_session, evolution_project_id
     await _seed_scenes(db, nid, 2)
     await create_draft_only(db, nid, 1, "一章两景", CHAPTER_TEXT)
     await db.commit()
@@ -231,8 +230,7 @@ async def test_sub_range_mismatch_out_of_range_and_reversion_rejected(
         )
 
     # 正常推进 Scene 0 后整稿换版（首段同长度替换）：修订前的旧绑定在
-    # 新步被拒（旧稿已非本章最新）。注意：首段同长度替换不移动后段偏移，
-    # 后段逐字未变、重绑新稿后仍可推进——被拒的是旧绑定，不是后段本身。
+    # 新步被拒（旧稿已非本章最新）；后段逐字未变也不能继承失效前序。
     step0 = await run_scene_step(
         db,
         store,
@@ -259,18 +257,20 @@ async def test_sub_range_mismatch_out_of_range_and_reversion_rejected(
             sampler=sampler,
             applier=_noop_applier(1, 1),
         )
-    # 同长度替换不移动后段偏移：重绑修订稿后，逐字未变的后段照常推进。
-    step1 = await run_scene_step(
-        db,
-        store,
-        run_key="run-a02b",
-        scene_index=1,
-        scene_text=SEGMENTS[1],
-        source=await _binding_for_segment(db, nid, 1),
-        sampler=sampler,
-        applier=_noop_applier(1, 1),
-    )
-    assert step1.committed_prefix.through_scene_index == 1
+    with pytest.raises(CommitConflictError, match="source_changed"):
+        await run_scene_step(
+            db,
+            store,
+            run_key="run-a02b",
+            scene_index=1,
+            scene_text=SEGMENTS[1],
+            source=await _binding_for_segment(db, nid, 1),
+            sampler=sampler,
+            applier=_noop_applier(1, 1),
+        )
+    assert (
+        await store.load_head_receipt("run-a02b")
+    ).attempt_id == step0.receipt_attempt_id
 
 
 def test_binding_range_hash_consistency_enforced() -> None:
@@ -307,11 +307,11 @@ def test_binding_range_hash_consistency_enforced() -> None:
 @pytest.mark.asyncio
 async def test_prior_observation_window_discloses_coverage(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
     """前序观察窗口覆盖最近 3 个已提交 Scene；更早的 Scene（含其传闻）
     不在注入面时由覆盖度显式披露——未注入不等于不存在。"""
-    db, nid = db_session, test_project_id
+    db, nid = db_session, evolution_project_id
     await _seed_scenes(db, nid, 4)
     await create_draft_only(db, nid, 1, "一章四景", CHAPTER_TEXT)
     await db.commit()
@@ -407,14 +407,14 @@ class _ChapterSampler:
 @pytest.mark.asyncio
 async def test_handler_replays_any_committed_scene_by_request_identity(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
     """0→1→2 提交后重复 0/1/2 都拿回原回执（不重采样不扣费）；修订请求
     指纹不同不套用旧回执，走屏障语义拒绝。"""
     from modules.evolution.sampler import register_scene_sampler
     from modules.evolution.tasks import handle_evolution_scene_step
 
-    db, nid = db_session, test_project_id
+    db, nid = db_session, evolution_project_id
     texts = {
         1: "林舟走进白石城，灯市如昼。",
         2: "青竹递出铜钥匙，说是故人所托。",
@@ -479,11 +479,11 @@ async def test_handler_replays_any_committed_scene_by_request_identity(
     assert int(run.budget_remaining) == 2  # 幂等重放零扣减
 
     # 修订请求（同 Scene、正文变化）：指纹不同不套用旧回执；head 已推进，
-    # 屏障拒绝——不是拿旧回执冒充成功。
+    # 原运行的来源失效——不是拿旧回执冒充成功。
     revised = "林舟走进白石城，灯市如昼，风起。"
     await create_draft_only(db, nid, 1, "第1章（修订）", revised)
     await db.commit()
-    with pytest.raises(BarrierBlockedError):
+    with pytest.raises(CommitConflictError, match="source_changed"):
         await handle_evolution_scene_step(db, _request(1, revised))
     assert sampler.calls == 3
 
@@ -522,13 +522,13 @@ async def test_handler_replays_any_committed_scene_by_request_identity(
 @pytest.mark.asyncio
 async def test_handler_rejects_scene_chapter_mismatch(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
     """A02：scene_id 与章号的组合经 outline_state 权威校验——场景不属于
     声称的章即拒绝，不信任请求独立声称的映射。"""
     from modules.evolution.tasks import handle_evolution_scene_step
 
-    db, nid = db_session, test_project_id
+    db, nid = db_session, evolution_project_id
     scene = Scene(
         novel_id=uuid.UUID(nid),
         scene_index=0,

@@ -14,10 +14,12 @@ from pydantic import (
     ConfigDict,
     Field,
     field_serializer,
+    model_serializer,
     model_validator,
 )
 
 from infrastructure.llm.collaboration import content_hash
+from modules.evolution.contracts import CommittedUnderstanding
 from modules.imports.contracts import ImportConsultScope
 
 Hash = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
@@ -78,6 +80,7 @@ class Grant(StrictModel):
         Annotated[str, Field(min_length=1, max_length=100)],
     ] = Field(default_factory=dict)
     follow_changes: bool = False
+    retain_understanding: bool = False
     allow_background_web: bool = False
     allow_web: bool = False
     request_limit: int = Field(default=60, ge=4, le=120)
@@ -90,6 +93,13 @@ class Grant(StrictModel):
     @field_serializer("expires_at")
     def normalized_expiry(self, value):
         return value.astimezone(UTC).isoformat()
+
+    @model_serializer(mode="wrap")
+    def preserve_existing_grant_hash(self, handler):
+        data = handler(self)
+        if not self.retain_understanding:
+            data.pop("retain_understanding", None)
+        return data
 
     @model_validator(mode="after")
     def authority(self):
@@ -178,6 +188,41 @@ class SubjectView(StrictModel):
         return self
 
 
+class CognitionRef(StrictModel):
+    commit_id: UUID
+    record_id: UUID
+    revision_id: UUID
+    content_hash: Hash
+    content: dict[str, Any]
+    author_status: Literal["derived", "corrected"] = "derived"
+    purpose: str = "复用本次所选资料上的派生理解；不作为独立事实证据"
+
+
+class CognitionSelection(StrictModel):
+    inspected: bool = False
+    head_commit_id: UUID | None = None
+    records: list[CognitionRef] = Field(default_factory=list, max_length=32)
+    excluded: list[dict[str, str]] = Field(default_factory=list, max_length=200)
+    complete: bool = True
+
+
+class CognitionCorrection(StrictModel):
+    operation_id: UUID
+    expected_commit_id: UUID
+    expected_revision_id: UUID
+    action: Literal["correct", "withdraw"]
+    text: str = Field(default="", max_length=3000)
+    confirm_withdrawal: bool = False
+
+    @model_validator(mode="after")
+    def correction(self):
+        if self.action == "correct" and not self.text.strip():
+            raise ValueError("请填写修正后的理解")
+        if self.action == "withdraw" and not self.confirm_withdrawal:
+            raise ValueError("请确认撤回这条理解；历史仍会保留")
+        return self
+
+
 class InputManifest(StrictModel):
     protocol: Literal["collaboration_v2"] = "collaboration_v2"
     goal_version: int = Field(ge=1)
@@ -187,6 +232,20 @@ class InputManifest(StrictModel):
     query_scope_hash: Hash
     workspace_revision_id: UUID | None = None
     subject: SubjectView = Field(default_factory=SubjectView)
+    cognition: CognitionSelection = Field(default_factory=CognitionSelection)
+    evolution: list[CommittedUnderstanding] = Field(default_factory=list, max_length=3)
+    evolution_omissions: list[str] = Field(default_factory=list)
+
+    @model_serializer(mode="wrap")
+    def preserve_existing_manifest_hash(self, handler):
+        data = handler(self)
+        if self.cognition == CognitionSelection():
+            data.pop("cognition", None)
+        if not self.evolution:
+            data.pop("evolution", None)
+        if not self.evolution_omissions:
+            data.pop("evolution_omissions", None)
+        return data
 
     @property
     def fingerprint(self) -> str:
@@ -209,9 +268,15 @@ class WorkProposal(StrictModel):
 class GraphDelta(StrictModel):
     expected_plan_revision: int = Field(ge=0)
     items: list[WorkProposal] = Field(default_factory=list, max_length=12)
-    finish: bool = False
+    finish: bool = Field(
+        default=False, description="已执行的调查足以回答目标时结束；不能代替工作成果"
+    )
     question_for_author: str | None = Field(default=None, max_length=2000)
-    reason: str = Field(min_length=1, max_length=3000)
+    reason: str = Field(
+        min_length=1,
+        max_length=3000,
+        description="工作安排的简短理由，不在此输出调查结论",
+    )
 
 
 class Claim(StrictModel):

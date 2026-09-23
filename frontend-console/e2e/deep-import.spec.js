@@ -71,11 +71,11 @@ test.describe("深度导入流水线", () => {
     // Step 3: 上传完成后由用户在写作现场显式开始整理导入内容
     await page.locator(SEL.writingAiMenu).click()
     const organizeGroup = page.locator(".writing-tools-menu__group").filter({ hasText: "从正文整理资料" })
-    await expect(organizeGroup.getByRole("button", { name: "先整理场景骨架（推荐）" })).toBeVisible()
-    const deepImportButton = organizeGroup.getByRole("button", { name: "完整整理世界与结构" })
+    const deepImportButton = organizeGroup.getByRole("button", { name: "理解与整理正文…" })
     await expect(deepImportButton).toBeVisible()
     await deepImportButton.click()
     const extractionDialog = page.getByRole("dialog", { name: "自动提取" })
+    await extractionDialog.getByLabel("本次整理目标").selectOption("deep")
     await expect(extractionDialog).toContainText("完整整理导入内容")
 
     // Step 4: Mock 后端执行，但保留真实 UI 提交和本地恢复凭据写入。
@@ -423,6 +423,6 @@ test.describe("深度导入流水线", () => {
 
     // 空状态下（无章节）不渲染编辑器区域，因此深度导入按钮不显示
     await expect(page.getByRole("button", { name: "新建章节", exact: true })).toBeVisible()
-    await expect(page.getByRole("button", { name: "先整理场景骨架（推荐）" })).not.toBeVisible()
+    await expect(page.getByRole("button", { name: "理解与整理正文…" })).not.toBeVisible()
   })
 })

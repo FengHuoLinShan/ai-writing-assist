@@ -57,6 +57,10 @@ async def test_foreshadowing_update_reuses_loaded_plan(
         return plan
 
     monkeypatch.setattr(repo, "get", fake_get)
+    capture = mock.AsyncMock(return_value=[])
+    monkeypatch.setattr(
+        "modules.story.information_dependencies.capture_change_scenes", capture
+    )
     monkeypatch.setattr(
         "modules.story.outline_state.repositories._notify_structure_change",
         mock.AsyncMock(),
@@ -69,6 +73,7 @@ async def test_foreshadowing_update_reuses_loaded_plan(
     assert plan.name == "新伏笔"
     assert get_calls == 1
     assert db.added == [plan]
+    capture.assert_awaited_once_with(db, plan)
     assert db.flush_count == 1
 
 
@@ -89,6 +94,10 @@ async def test_reveal_update_reuses_loaded_plan(
         return plan
 
     monkeypatch.setattr(repo, "get", fake_get)
+    capture = mock.AsyncMock(return_value=[])
+    monkeypatch.setattr(
+        "modules.story.information_dependencies.capture_change_scenes", capture
+    )
     monkeypatch.setattr(
         "modules.story.outline_state.repositories._notify_structure_change",
         mock.AsyncMock(),
@@ -105,6 +114,7 @@ async def test_reveal_update_reuses_loaded_plan(
     assert plan.secret_summary == "新秘密"
     assert get_calls == 1
     assert db.added == [plan]
+    capture.assert_awaited_once_with(db, plan)
     assert db.flush_count == 1
 
 

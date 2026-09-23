@@ -437,4 +437,17 @@ AnyIO 重复取消直到连接归还，仍执行原 lease fence；模型与网�
 
 | task handler | 恢复策略 | 预算与持久化 |
 |---|---|---|
-| `evolution_scene_step` | manual_resume | 单 Scene 窄批次：run 根预算原子预留（T21），freeze/apply 窄提交（T10/T11），回执幂等重放；采样器未接线时 fail-closed 拒绝伪造观察（生产 LLM 接线属 E09）；入口重定向待 canary（E07.e） |
+| `evolution_scene_step_v2` | manual_resume | 单 Scene 窄批次：run 根预算原子预留（T21），freeze/apply 窄提交（T10/T11），回执幂等重放；项目账户采样器与冻结 owner token；入口重定向待 canary（E07.e） |
+
+## Evolution 场景步恢复
+
+`evolution_scene_step_v2` 使用现有队列和 `manual_resume`；入队合并键绑定完整请求
+（包括全部来源区间），不能只按正文前缀合并。领域层核对 Scene 身份、run 的固定
+live/shadow 模式及来源指纹；已提交结果重放原回执，sampled/compiled 复用冻结结果，
+sampling/failed 保留计量待核对，不能由通用重试静默再次付费。恢复请求变化返回
+request_changed。当前没有把 deep_import 的生产入口重定向到此 handler。
+
+理解任务在 project preflight/commit guard 校验冻结的 engine/epoch/schema token。项目切换
+通过 task_types 限定取消理解任务，保留其他任务与历史计量。PG guard 拒绝旧 v1
+（含 shadow）及失效 owner 写入；Project share 锁使用 NOWAIT，避免旧心跳反向持锁
+与项目切换互等。迁移先取消不再可执行的旧队列项，不能令最早 pending 阻塞整个队列。

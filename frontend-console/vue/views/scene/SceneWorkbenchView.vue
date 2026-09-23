@@ -297,6 +297,7 @@ import { sceneAutoExtractManager } from "./sceneAutoExtractManager.js"
 import SceneRuntimeTabs from "./SceneRuntimeTabs.vue"
 import SceneScriptsPanel from "./SceneScriptsPanel.vue"
 import SceneSimulationPanel from "./SceneSimulationPanel.vue"
+import SceneVisual from "./SceneVisual.vue"
 import { useSceneWorkbench } from "./useSceneWorkbench.js"
 import { useStorySceneWorkspace } from "./useStorySceneWorkspace.js"
 import {
@@ -436,6 +437,7 @@ const batchLabel = computed(() => {
   const kinds = new Set(selected.map((item) => sceneContextAction(item).key))
   if (kinds.size === 1) return ({
     review: "批量采用 / 标记已检查",
+    review_boundary: "批量确认场景边界",
     source_mapping: "批量确认章节定位",
     organize: "处理选中整理项",
     suggestion: "逐项处理融合建议",
@@ -627,6 +629,8 @@ const SceneDetailPanel = defineComponent({
       const reviewLabel = review.reviewed ? `已检查 · ${new Date(review.reviewedAt).toLocaleString("zh-CN")}` : review.needsReview ? "需要人工检查" : "无注意项"
       const action = sceneContextAction(item)
       const secondaryHint = componentProps.saving ? "保存完成后可用" : componentProps.dirty ? "请先保存或放弃当前修改" : ""
+      const proposal = scene.structure_meta?.user_edited || scene.structure_meta?.semantic_reviewed_by === "manual" ? null : scene.structure_meta?.evolution_semantic_proposal
+      const proposedFields = [["emotional_beat", "情绪变化"], ["must_happen", "必须保留"], ["must_not_happen", "需要避免"]]
       const field = (label, key, type = "input", options = []) => h("label", { class: ["scene-detail-field", type === "textarea" && "scene-detail-field--wide"] }, [
         h("span", label),
         type === "select"
@@ -654,6 +658,16 @@ const SceneDetailPanel = defineComponent({
       ])
       return h("div", { class: "scene-detail-panel", "aria-busy": componentProps.saving }, [
         h("div", { class: "scene-detail-panel__head" }, [h("div", [componentProps.narrow ? h("div", { class: "scene-detail-panel__eyebrow" }, "场景详情") : null, h("h3", scene.title || "未命名场景")]), h("button", { type: "button", class: "btn btn-sm btn-text scene-detail-panel__close", disabled: componentProps.saving, "data-action": "close-scene-detail", onClick: () => emit("close") }, "返回列表")]),
+        scene.structure_meta?.scene_visual?.entity_id ? h(SceneVisual, { projectId: componentProps.projectId, visual: scene.structure_meta.scene_visual, sceneTitle: scene.title || "场景" }) : null,
+        proposal ? h("section", { class: "scene-detail-section", "aria-label": "待核对的整理建议" }, [
+          h("h4", "待核对的整理建议"),
+          h("p", "这份建议尚未通过独立核对，未替换场景内容。请对照正文检查后再保存。"),
+          ...(proposal.review?.issues || []).map((issue, index) => h("p", { key: `issue-${index}` }, issue.message)),
+          ...proposedFields.filter(([key]) => proposal.candidate?.[key]).map(([key, label]) => h("p", { key }, [h("strong", `${label}：`), proposal.candidate[key]])),
+          h("button", { type: "button", class: "btn btn-sm", disabled: componentProps.saving || componentProps.dirty, onClick: () => {
+            for (const [key] of proposedFields) if (typeof proposal.candidate?.[key] === "string") componentProps.draft[key] = proposal.candidate[key]
+          } }, "填入表单后修改"),
+        ]) : null,
         h("fieldset", { class: "scene-detail-section" }, [
           h("legend", "基本信息"),
           h("div", { class: "scene-detail-grid" }, [

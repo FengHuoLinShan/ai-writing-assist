@@ -36,6 +36,8 @@
 - `compile_interaction_story_context()` 是 Evidence 拥有的深层稳定入口；它固定
   `consumer_action=interaction.story`、读者/人物知识与章节/offset 截止。调用方可传本轮
   剩余预算，Evidence 将其限制在 0～16K；必需资料无法容纳时返回 blocker。
+- RP 冻结目录中的精修身份依据按确切 draft/hash/范围回读；原作角色还须命中人物检索已经
+  准入的范围。固定对象与玩家身份的原文证明一起计入必需预算，不能只保留对象名而省略证明。
 - ADR-0024 仅为 `PUBLIC_DEMO_RP_SOURCE_REVISION_ID` 精确指向、ready、fingerprint 与 manifest
   均重验通过的公开 source 放宽一次 source/consumer 同 owner 比较；调用方必须显式携带该 contract，
   任意其它 source 仍按 ADR-0018 拒绝，渲染正文或临时 Key 不进入 snapshot。
@@ -139,3 +141,12 @@ Evidence 为 Collaboration 收集授权的冻结资源集合，manifest 同时�
 因此新增来源也能使旧否定结论失效。试改 read overlay 不读取当前领域默认版本；读者投影
 只接收截止前正文。前瞻沿原 confirmation 重新物化选中与排除资产，领域只读回执不会扩大
 原确认。生成和审查都受可完整核对的上下文上限约束，超限保持明确未覆盖。
+
+## 创作任务的跨轮理解
+
+`creative.py` 经 Collaboration facade 读取持久理解，再按本轮完整根来源、排除项、主体、
+查询范围及精确修订重验。附加理解是有出处的派生材料，不作为独立事实证据；实际引用写入
+InputManifest，后续调用和终态均回验原引用。确认的选中/排除边界仍由原 confirmation 持有。
+同一入口附加已提交 Evolution 观察，保留模态和完整递归根；作者回顾理解不作首次阅读证据。
+前瞻仅复用焦点章之前的完整正文根，旧稿排除扩到整章，Scene/历史截止明确不支持。
+生成和独立审查接收相同引用与来源映射，容量不足整条省略，不截断后声称完整检查。

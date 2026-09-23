@@ -195,6 +195,7 @@ class EventRepository:
             .where(
                 MemoryEvent.novel_id == novel_id,
                 MemoryEvent.chapter_index == chapter_index,
+                MemoryEvent.source_stale.is_(False),
             )
             .order_by(MemoryEvent.sequence, MemoryEvent.id)
         )
@@ -214,6 +215,7 @@ class EventRepository:
                 MemoryEvent.novel_id == novel_id,
                 MemoryEvent.chapter_index >= from_chapter,
                 MemoryEvent.chapter_index <= to_chapter,
+                MemoryEvent.source_stale.is_(False),
             )
             .order_by(MemoryEvent.chapter_index, MemoryEvent.sequence, MemoryEvent.id)
         )
@@ -231,6 +233,7 @@ class EventRepository:
             MemoryEvent.novel_id == novel_id,
             MemoryEvent.chapter_index >= from_chapter,
             MemoryEvent.chapter_index <= to_chapter,
+            MemoryEvent.source_stale.is_(False),
         )
         result = await db.execute(stmt)
         return result.scalar_one()
@@ -246,6 +249,7 @@ class EventRepository:
             MemoryEvent.novel_id == novel_id,
             MemoryEvent.chapter_index >= from_chapter,
             MemoryEvent.chapter_index <= to_chapter,
+            MemoryEvent.source_stale.is_(False),
         )
         result = await db.execute(stmt)
         return result.scalar_one()
@@ -264,6 +268,7 @@ class EventRepository:
             MemoryEvent.novel_id == novel_id,
             MemoryEvent.chapter_index >= from_chapter,
             MemoryEvent.chapter_index <= to_chapter,
+            MemoryEvent.source_stale.is_(False),
         ]
         if after is not None:
             after_chapter, after_sequence, after_id = after
@@ -302,6 +307,7 @@ class EventRepository:
         conditions = [
             MemoryEvent.novel_id == novel_id,
             MemoryEvent.entity_id == entity_id,
+            MemoryEvent.source_stale.is_(False),
         ]
         count_stmt = select(func.count(MemoryEvent.id)).where(*conditions)
         total = (await db.execute(count_stmt)).scalar() or 0
@@ -456,6 +462,7 @@ class EventRepository:
             occupied_sequences.add(slot)
             values = {
                 **row,
+                "source_stale": False,
                 "novel_id": novel_id,
                 "scene_id": scene_id,
                 "scene_index": scene_index,
@@ -533,6 +540,7 @@ class EventRepository:
             MemoryEvent.scene_id.is_not(None),
             MemoryEvent.scene_index.is_not(None),
             MemoryEvent.scene_index <= scene_index,
+            MemoryEvent.source_stale.is_(False),
         ]
         if after_scene_index is not None:
             conditions.append(MemoryEvent.scene_index > after_scene_index)
@@ -592,10 +600,13 @@ class EventRepository:
             meta = (item.snapshot_after or {}).get("meta") or {}
             if meta.get("idempotency_key") == idempotency_key:
                 return item, False
-        scene_sequence = max(
-            (int(item.scene_sequence or 0) for item in existing),
-            default=0,
-        ) + 1
+        scene_sequence = (
+            max(
+                (int(item.scene_sequence or 0) for item in existing),
+                default=0,
+            )
+            + 1
+        )
         if scene_sequence > 500:
             raise ValueError("Too many memory events for Scene")
         event = MemoryEvent(
@@ -611,15 +622,56 @@ class EventRepository:
         await db.flush()
         return event, True
 
-    async def align_scene_indices(
+    async def earliest_chapter_from_scene(
+        self, db: AsyncSession, novel_id: uuid.UUID, scene_index: int
+    ) -> int | None:
+        return await db.scalar(
+            select(func.min(MemoryEvent.chapter_index)).where(
+                MemoryEvent.novel_id == novel_id, MemoryEvent.scene_index >= scene_index
+            )
+        )
+
+    async def invalidate_derived_sources(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        from_scene_index: int | None,
+        from_chapter: int | None,
+    ) -> int:
+        """Exclude stale machine events from every replay without erasing history."""
+        windows = []
+        if from_scene_index is not None:
+            windows.append(MemoryEvent.scene_index >= from_scene_index)
+        if from_chapter is not None:
+            windows.append(MemoryEvent.chapter_index >= from_chapter)
+        if not windows:
+            return 0
+        result = await db.execute(
+            update(MemoryEvent)
+            .where(
+                MemoryEvent.novel_id == novel_id,
+                MemoryEvent.source_stale.is_(False),
+                MemoryEvent.source != "author_confirmation",
+                func.coalesce(
+                    MemoryEvent.snapshot_after["meta"]["author_confirmed"].as_boolean(),
+                    False,
+                ).is_(False),
+                or_(*windows),
+            )
+            .values(source_stale=True)
+        )
+        return result.rowcount
+
+    async def scene_index_changes(
         self,
         db: AsyncSession,
         novel_id: uuid.UUID,
         scene_positions: dict[uuid.UUID, int],
-    ) -> int | None:
-        """Align denormalized event order with the authoritative Scene identity."""
+    ) -> list[tuple[uuid.UUID, int, int]]:
+        """Read the affected window before acquiring any event write locks."""
         if not scene_positions:
-            return None
+            return []
         rows = (
             await db.execute(
                 select(MemoryEvent.scene_id, MemoryEvent.scene_index)
@@ -631,17 +683,35 @@ class EventRepository:
                 .distinct()
             )
         ).all()
-        mismatches = [
+        return [
             (scene_id, int(old_index), scene_positions[scene_id])
             for scene_id, old_index in rows
             if scene_id is not None
             and old_index is not None
             and int(old_index) != scene_positions[scene_id]
         ]
+
+    async def align_scene_indices(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        scene_positions: dict[uuid.UUID, int],
+    ) -> int | None:
+        """Align denormalized event order with the authoritative Scene identity."""
+        mismatches = await self.scene_index_changes(db, novel_id, scene_positions)
         if not mismatches:
             return None
         earliest = min(
             min(old_index, new_index) for _, old_index, new_index in mismatches
+        )
+        # Release the old chapter slots before swapping two Scenes in that chapter.
+        await db.execute(
+            update(MemoryEvent)
+            .where(
+                MemoryEvent.novel_id == novel_id,
+                MemoryEvent.scene_id.in_([scene_id for scene_id, _, _ in mismatches]),
+            )
+            .values(sequence=-MemoryEvent.sequence)
         )
         for scene_id, _, new_index in mismatches:
             await db.execute(
@@ -672,6 +742,7 @@ class EventRepository:
                 MemoryEvent.novel_id == novel_id,
                 MemoryEvent.chapter_index <= chapter_index,
                 MemoryEvent.scene_id.is_(None),
+                MemoryEvent.source_stale.is_(False),
             )
         )
         return int(result.scalar() or 0)

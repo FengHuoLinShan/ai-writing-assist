@@ -108,6 +108,14 @@ Vite 开发与预览服务通过 HTTP 响应头发送 CSP，并用 `frame-ancest
 `http://localhost:8000` 或 `http://localhost:8000/api`。本地代理目标也可通过
 `BACKEND_PORT` 或完整的 `API_PROXY_TARGET` 覆盖。
 
+## 正文理解与整理入口
+
+写作菜单统一进入“理解与整理正文”弹窗。ReadingFlow 按项目运行归属展示逐场景理解；
+旧流程项目仍可选择场景、世界、结构、完整整理及质量档位。查询失败时不猜测归属。
+新流程支持从场景、已解析对象或已有观察定位保守后缀重算；搜索/预览不发模型请求，
+确认绑定真实范围与调用上限。旧整理记录及查漏详情保留，切换后隐藏旧恢复/重算操作。
+世界与结构完整整理尚未接入新流程，不能将当前试用当作旧导入的等价替代。
+
 ## E2E 测试
 
 Playwright 的所有 profile 都 fail-closed：必须显式提供名称含独立 `audit` / `e2e` / `test`
@@ -238,6 +246,7 @@ frontend-console/
 - 世界书内的“关联图”复用 `GET /api/world/knowledge-graph`：默认从当前页面读取一跳，可显式扩展到两跳或全局；可访问节点列表是主交互，SVG 只作最多 40 节点 / 80 边的辅助示意。结果会明确显示截断/部分扫描，并不把关联表述为依赖或变更影响。
 - 地图册 run 有空间资料摘要时才显示该摘要；它只表达核对/降级状态，不显示事实文本、来源键或 prompt，窄屏保持折叠可读。
 - 图片 wrapper 返回 Blob 并创建短期 Object URL；切换项目或视图时释放，不暴露对象 key。
+- Scene 详情可展示来源绑定的世界对象配图；读取时带上 Scene 固定的 `image_version`，对象图片更新后提示重新核对，避免悄悄显示另一个版本。
 - 所有 UI 文字为中文
 - 作者主流程的对象引用统一按名称搜索和选择；共享 `referencePicker` 仅把 ID 回写到现有隐藏字段/请求 payload。同名项用类型、状态和摘要消歧，无法解析的旧引用保留为“不可用引用”。Workflow、任务和原始 Scene ID 只位于折叠诊断区，并标记 `data-diagnostic-field`。
 - 全站默认现代简约，明暗偏好为 light/dark/system，解析结果为 light/dark。色值集中于
@@ -629,3 +638,14 @@ Writing 资料栏及 ProjectAssistant 使用 ForecastDock；输入法 compositio
 CreativeExperiments / CreativeTrialEditor 支持原文对照、手动试改、版本检查、冲突选择与
 精确采用；未知提交持久化原操作身份。RP 的 InteractionForecast 只预填用户输入。
 RP 文字草稿与输入类型、人物/私语范围一起存储，失败保留；实际发送仍由作者点击。
+
+## 跨任务理解与地图场景
+
+Writing 和项目助手复用账户/项目级前瞻 store 与单个十五秒轮询，焦点宿主负责当前意图；
+选区、光标段落、排除项沿保存基线传入。范围/证据/任务/焦点分别验配，晚到响应与旧卡片
+不能覆盖新稿；逐方向拒绝保持稳定，润色与修改会携带原选区打开讨论，冲突时保留未发草稿。
+
+助手试改区域新增默认关闭的理解保留授权和按需展开的历史/修正界面；修正输入受失联恢复、
+冲突、路由离开与页内标签切换保护。地图已保存作者视图可按 Scene 查看本场、最后出现或未知位置，
+从同一地图定位和返回章节依据；未保存/候选/读者视图不混入这份作者资料。相关回归位于
+`tests/vue/assistant/CognitionPanel.test.js`、`tests/vue/map/MapScenePanel.test.js` 与现有浏览器用例。

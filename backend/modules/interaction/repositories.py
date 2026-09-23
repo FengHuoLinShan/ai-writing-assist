@@ -123,11 +123,14 @@ class InteractionRepository:
     ) -> InteractionSourceRevision | None:
         return (
             await db.execute(
-                select(InteractionSourceRevision).where(
+                select(InteractionSourceRevision)
+                .where(
                     InteractionSourceRevision.source_novel_id == source_novel_id,
                     InteractionSourceRevision.owner_id == owner_id,
                     InteractionSourceRevision.manifest_hash == manifest_hash,
                 )
+                .order_by(InteractionSourceRevision.version_number.desc())
+                .limit(1)
             )
         ).scalar_one_or_none()
 

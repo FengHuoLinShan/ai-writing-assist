@@ -274,10 +274,15 @@ class DeepImportOrchestrator:
         if resolution:
             authorization_snapshot["review_resolution"] = resolution
 
-        if targeted_completion and targeted_completion.get("enabled") and stage not in {
-            None,
-            "world_objects",
-        }:
+        if (
+            targeted_completion
+            and targeted_completion.get("enabled")
+            and stage
+            not in {
+                None,
+                "world_objects",
+            }
+        ):
             raise ValueError("自动专项补全仅用于完整导入或世界对象提取")
         from modules.imports.targeted_completion import freeze_completion_permission
 
@@ -1756,12 +1761,8 @@ class DeepImportOrchestrator:
                 "status": run.status,
                 "updated_at": run.updated_at.isoformat() if run.updated_at else None,
                 "asset_summary": asset_summary,
-                "targeted_completion": (run.checkpoints or {}).get(
-                    "targeted_completion"
-                ),
-                "review_resolution": (run.checkpoints or {}).get(
-                    "review_resolution"
-                ),
+                "targeted_completion": (run.checkpoints or {}).get("targeted_completion"),
+                "review_resolution": (run.checkpoints or {}).get("review_resolution"),
                 "previous_cleanup": cleanup,
             }
         )
@@ -2047,6 +2048,9 @@ class DeepImportOrchestrator:
         # project row lock so direct facade/internal callers cannot race a
         # different task type into an orphan queue row.
         await require_active_project_exclusive(db, novel_id)
+        from modules.project.facade import require_understanding_writer
+
+        engine_owner = await require_understanding_writer(db, novel_id, engine="legacy")
         await self._runs.reconcile_scoped_task_owners(
             db,
             novel_id=novel_id,
@@ -2063,6 +2067,7 @@ class DeepImportOrchestrator:
             )
 
         task_meta = {
+            "_understanding_owner": engine_owner,
             "novel_id": novel_id,
             "start_chapter": start_chapter,
             "end_chapter": end_chapter,

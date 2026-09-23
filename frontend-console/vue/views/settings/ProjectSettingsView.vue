@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import AuthorPreferencesForm from "./components/AuthorPreferencesForm.vue"
 import DeepImportFields from "./components/DeepImportFields.vue"
+import ReadingFlow from "../../components/ReadingFlow.vue"
 import { getApi, getAppState, getConfirm, getRouter, getToast } from "../../bridge/index.js"
 import { useSaveButton } from "../../composables/useSaveButton.js"
 import { useLeaveGuard } from "../../composables/useLeaveGuard.js"
@@ -568,6 +569,7 @@ onBeforeUnmount(() => {
             {{ deepImportSourceSummary }}，通常无需调整。
           </p>
           <DeepImportFields v-model="deepImportForm" :validation-error="deepImportValidationError" />
+          <ReadingFlow v-if="projectId" :project-id="projectId" />
           <div class="settings-actions">
             <button
               id="deep-import-tab-save"

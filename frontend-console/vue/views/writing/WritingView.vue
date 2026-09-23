@@ -188,6 +188,7 @@
         @retry-load="vm.retryChapterLoad"
         @reload-server="reloadServerDraft"
         @composition="setComposition"
+        @focus-context="forecastFocus = $event"
       >
         <template #context-actions>
           <div v-if="versionChoices.length" id="writing-versions-container" class="writing-version-bar writing-version-bar--compact">
@@ -242,7 +243,7 @@
         <ForecastDock
           v-if="vm.editorState.draftId && !vm.editorState.readonly && !vm.editorState.loading && !vm.editorState.loadError"
           :project-id="props.projectId"
-          :context="{ page: 'writing', draft_id: vm.editorState.draftId, scene_id: vm.currentScene.value?.id || null }"
+          :context="{ page: 'writing', draft_id: vm.editorState.draftId, ...(forecastFocus?.draft_id === vm.editorState.draftId ? forecastFocus : {}), scene_id: vm.currentScene.value?.id || null }"
           :editor="vm.editorState"
           :composing="forecastComposing"
           :active="rightRailOpen"
@@ -407,6 +408,7 @@ const versionChoices = computed(() => vm.versions.value.filter(version => versio
 const router = getRouter()
 const deepReviewAvailable = ref(false)
 const forecastComposing = ref(false)
+const forecastFocus = ref(null)
 function setComposition(value) { forecastComposing.value = value; setForecastComposing(props.projectId, value) }
 watch(() => props.projectId, async projectId => {
   deepReviewAvailable.value = false

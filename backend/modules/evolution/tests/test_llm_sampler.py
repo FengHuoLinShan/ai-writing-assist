@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 from infrastructure.llm.schemas import LLMCallRequest
 from modules.evolution.llm_sampler import (
@@ -52,6 +53,28 @@ FROZEN_INVALID_MODALITY = {
     "observations": [{"predicate": "x", "modality": "definitely_true", "quote": "x"}]
 }
 
+
+def test_scene_event_can_reference_all_observations_without_dropping_evidence() -> None:
+    payload = {
+        "observations": [
+            {"predicate": f"观察 {index}", "quote": f"原句 {index}"}
+            for index in range(17)
+        ],
+        "scene_events": [
+            {
+                "dimension": "knowledge",
+                "event_type": "knowledge_changed",
+                "source_observation_indices": list(range(17)),
+            }
+        ],
+    }
+    sample = SceneSample.model_validate(payload)
+    references = sample.scene_events[0].source_observation_indices
+    assert len(references) == 17
+    payload["scene_events"][0]["source_observation_indices"] = list(range(65))
+    with pytest.raises(ValidationError, match="too_long"):
+        SceneSample.model_validate(payload)
+
 FROZEN_FABRICATED_FIELD = {
     "observations": [],
     "scene_events": [],
@@ -72,7 +95,9 @@ class _FrozenClient:
         schema: type,
         *,
         diagnostics: list[dict[str, Any]] | None = None,
+        **options,
     ):
+        assert options == {"max_fix_attempts": 0, "transport_retries": False}
         self.requests.append(request)
         if diagnostics is not None:
             diagnostics.append(
@@ -85,6 +110,36 @@ class _FrozenClient:
                     "max_tokens": 4096,
                 }
             )
+        return schema.model_validate(self.payload)
+
+
+class _PartialClient(_FrozenClient):
+    async def generate_structured(self, request, schema, *, diagnostics=None, **options):
+        assert options == {
+            "max_fix_attempts": 0,
+            "transport_retries": False,
+            "partial_list_fields": {"uncertain_items"},
+        }
+        self.requests.append(request)
+        diagnostics.extend(
+            [
+                {
+                    "kind": "partial_list_validation",
+                    "field": "uncertain_items",
+                    "kept": 2,
+                    "skipped": 1,
+                    "errors": [{"index": 1, "errors": []}],
+                },
+                {
+                    "kind": "structured_usage",
+                    "status": "succeeded",
+                    "attempt": 1,
+                    "prompt_tokens": 10,
+                    "completion_tokens": 20,
+                    "total_tokens": 30,
+                },
+            ]
+        )
         return schema.model_validate(self.payload)
 
 
@@ -103,10 +158,49 @@ class _RepairingClient:
         schema: type,
         *,
         diagnostics: list[dict[str, Any]] | None = None,
+        **options,
     ):
+        assert options == {"max_fix_attempts": 0, "transport_retries": False}
         if diagnostics is not None:
             diagnostics.extend(self._attempts)
         return schema.model_validate(FROZEN_VALID)
+
+
+@pytest.mark.parametrize(
+    "text,quote,declared,expected,aligned",
+    [
+        ("😀也没有提起封锁。", "也没有提起封锁", [2, 8], [1, 8], True),
+        ("aaa", "aa", [0, 1], [0, 1], False),
+        ("两次两次", "两次", [2, 4], [2, 4], False),
+        ("正文", "不存在", [0, 3], [0, 3], False),
+    ],
+)
+async def test_host_only_aligns_a_unique_exact_scene_quote(
+    text, quote, declared, expected, aligned
+):
+    sampler = ProjectLLMSampler(
+        _FrozenClient(
+            {
+                "observations": [
+                    {
+                        "predicate": "窄观察",
+                        "quote": quote,
+                        "start_offset": declared[0],
+                        "end_offset": declared[1],
+                    }
+                ]
+            }
+        )
+    )
+    payload = await sampler.sample(scene_text=text, input_manifest={})
+    observation = payload["observations"][0]
+    assert [observation["start_offset"], observation["end_offset"]] == expected
+    assert bool(payload["paid_call_receipt"].get("quote_alignment")) == aligned
+    if aligned:
+        assert (
+            payload["paid_call_receipt"]["quote_alignment"]["changes"][0]["declared"]
+            == declared
+        )
 
 
 def _manifest(previous: str | None = None) -> dict[str, Any]:
@@ -128,6 +222,8 @@ def test_prompt_carries_text_and_previous_receipt_identity() -> None:
     assert "林舟与青竹在白石城重逢。" in rendered
     assert "abc123" in rendered  # T07：前序回执身份实际进入 Prompt
     assert "committed_prefix" in rendered
+    assert "最多40条观察" in rendered
+    assert "回忆、传闻" in rendered
 
 
 def test_head_scene_prompt_declares_no_previous() -> None:
@@ -157,6 +253,154 @@ async def test_frozen_fixture_sampling_records_paid_call() -> None:
     # Prompt 实际携带前序回执身份（采样器没有丢掉注入面）。
     rendered = "\n".join(message.content for message in client.requests[0].messages)
     assert "abc123" in rendered
+
+
+async def test_flash_observation_sampling_uses_nonthinking_json_budget() -> None:
+    client = _FrozenClient(FROZEN_VALID)
+    client.model_name = "deepseek-flash"
+    await ProjectLLMSampler(client).sample(
+        scene_text="林舟与青竹在白石城重逢。", input_manifest=_manifest()
+    )
+    assert client.requests[0].extra == {"thinking": {"type": "disabled"}}
+    assert client.requests[0].temperature == 0.1
+    assert client.requests[0].max_tokens == 16384
+    assert (
+        "仍不唯一就把该观察放进 unresolved_parts"
+        in client.requests[0].messages[0].content
+    )
+
+
+async def test_flash_complex_calls_use_high_thinking_and_larger_json_budget() -> None:
+    client = _FrozenClient(FROZEN_VALID)
+    client.model_name = "deepseek-flash"
+    sampler = ProjectLLMSampler(client)
+    await sampler._scene_call(LLMCallRequest(), SceneSample, "evolution.state_review.v1")
+    await sampler._scene_call(
+        LLMCallRequest(), SceneSample, "imports.AuditVerdictOutput.v1"
+    )
+    await sampler._scene_call(
+        LLMCallRequest(), SceneSample, "imports.Phase2aSceneExtractionOutput.v1"
+    )
+    assert [request.extra for request in client.requests] == [
+        {"thinking": {"type": "enabled"}, "reasoning_effort": "high"},
+    ] * 3
+    assert [request.max_tokens for request in client.requests] == [
+        32768,
+        65536,
+        65536,
+    ]
+
+
+async def test_relation_uncertainty_quarantine_is_in_call_receipt() -> None:
+    client = _PartialClient(FROZEN_VALID)
+    client.model_name = "deepseek-flash"
+    payload = await ProjectLLMSampler(client)._scene_call(
+        LLMCallRequest(), SceneSample, "imports.AliasRelationExtractionOutput.v1"
+    )
+    assert client.requests[0].max_tokens == 65536
+    assert payload["paid_call_receipt"]["validation_quarantine"] == [
+        {
+            "field": "uncertain_items",
+            "kept": 2,
+            "skipped": 1,
+            "errors": [{"index": 1, "errors": []}],
+        }
+    ]
+
+
+async def test_repeated_quote_without_exact_offset_is_quarantined() -> None:
+    client = _FrozenClient(
+        {
+            "observations": [
+                {
+                    "predicate": "甲看见晨光",
+                    "quote": "晨光。",
+                    "modality": "event_observed",
+                },
+                {
+                    "predicate": "乙看见夜色",
+                    "quote": "夜色。",
+                    "modality": "event_observed",
+                },
+            ],
+            "scene_events": [
+                {
+                    "dimension": "knowledge",
+                    "event_type": "knowledge_changed",
+                    "source_observation_indices": [0],
+                },
+                {
+                    "dimension": "knowledge",
+                    "event_type": "knowledge_changed",
+                    "source_observation_indices": [1],
+                },
+            ],
+            "unresolved_parts": [],
+        }
+    )
+    payload = await ProjectLLMSampler(client).sample(
+        scene_text="晨光。晨光。夜色。", input_manifest=_manifest()
+    )
+    assert [item["predicate"] for item in payload["observations"]] == ["乙看见夜色"]
+    assert [item["source_observation_indices"] for item in payload["scene_events"]] == [
+        [0]
+    ]
+    assert "人工核对" in payload["unresolved_parts"][-1]
+    quarantine = payload["paid_call_receipt"]["quote_quarantine"]
+    assert quarantine["observations"][0]["index"] == 0
+    assert quarantine["observations"][0]["reason"] == "ambiguous_duplicate_quote"
+    assert quarantine["scene_events"][0]["index"] == 0
+
+
+async def test_small_number_of_nonverbatim_quotes_stays_out_of_source_chain() -> None:
+    client = _FrozenClient(
+        {
+            "observations": [
+                {"predicate": "误引", "quote": "正文里没有这一句"},
+                {"predicate": "夜色", "quote": "夜色。"},
+            ],
+            "scene_events": [
+                {
+                    "dimension": "knowledge",
+                    "event_type": "knowledge_changed",
+                    "source_observation_indices": [0],
+                }
+            ],
+            "unresolved_parts": [],
+        }
+    )
+    payload = await ProjectLLMSampler(client).sample(
+        scene_text="夜色。", input_manifest=_manifest()
+    )
+    assert [item["predicate"] for item in payload["observations"]] == ["夜色"]
+    assert payload["scene_events"] == []
+    assert (
+        payload["paid_call_receipt"]["quote_quarantine"]["observations"][0]["reason"]
+        == "quote_not_in_scene"
+    )
+
+
+async def test_unique_whitespace_variant_uses_exact_source_span() -> None:
+    client = _FrozenClient(
+        {
+            "observations": [
+                {"predicate": "甲回答", "quote": "甲说：\n“好。”"},
+            ],
+            "scene_events": [],
+            "unresolved_parts": [],
+        }
+    )
+    payload = await ProjectLLMSampler(client).sample(
+        scene_text="甲说：\n　　“好。”", input_manifest=_manifest()
+    )
+    assert payload["observations"][0]["quote"] == "甲说：\n　　“好。”"
+    assert payload["observations"][0]["start_offset"] == 0
+    assert (
+        payload["paid_call_receipt"]["whitespace_alignment"]["changes"][0][
+            "declared_quote"
+        ]
+        == "甲说：\n“好。”"
+    )
 
 
 async def test_invalid_fixture_fails_closed() -> None:
@@ -288,7 +532,9 @@ async def test_final_failure_still_records_paid_receipt() -> None:
             schema: type,
             *,
             diagnostics: list[dict[str, Any]] | None = None,
+            **options,
         ):
+            assert options == {"max_fix_attempts": 0, "transport_retries": False}
             if diagnostics is not None:
                 diagnostics.append(
                     {
@@ -318,6 +564,9 @@ async def test_project_llm_provider_resolve_paths() -> None:
     with pytest.raises(SamplerNotWiredError):
         async with resolve_scene_sampler(provider="nope", novel_id="n1", db=None):
             pass
+    with pytest.raises(SamplerNotWiredError, match="frozen model"):
+        async with resolve_scene_sampler(provider="project_llm", novel_id="n1"):
+            pytest.fail("must not resolve the current default for an old run")
 
     # project_llm 工厂存在且指向项目 LLM 入口；无 owner 连接的项目在
     # 真实调用时 fail-closed（此处只验证装配指向，不发真实请求）。

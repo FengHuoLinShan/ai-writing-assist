@@ -1,6 +1,7 @@
 <template>
   <main ref="toolsRoot" class="atlas-workspace" :class="{ 'atlas-focused': structureState.focused }">
     <WorkspaceToolCard title="地图工具" :context="mapToolContext" :status="currentMapToolbar?.status || ''" :actions="mapToolActions" :more-actions="mapMoreTools" action-prefix="map-tool" @select="runMapTool" />
+    <button class="btn btn-sm atlas-rp-entry" :disabled="loading || busy || structureState.dirty" @click="startSourceRp">从本作品开始 RP</button>
     <button v-if="fromChapter" class="btn btn-sm atlas-writing-return" @click="returnToWriting">回到第 {{ fromChapter }} 章写作</button>
     <header v-if="!structureState.focused" class="atlas-header">
       <div>
@@ -16,7 +17,7 @@
 
     <form v-if="creatingMap" class="card atlas-options" aria-label="新建空间地图" @submit.prevent="createMap">
       <label>地图名称<input v-model="newMap.title" class="form-input" maxlength="200" required /></label>
-      <label>范围<select v-model="newMap.level" class="form-select"><option value="region">区域</option><option value="city">城市</option><option value="district">街区</option><option value="street">街道</option></select></label>
+      <label>范围<select v-model="newMap.level" class="form-select"><option value="region">区域</option><option value="city">城市</option><option value="district">街区</option><option value="street">街道</option><option value="interior">室内</option></select></label>
       <label>上级地图<select v-model="newMap.parent_id" class="form-select"><option value="">无（顶层）</option><option v-for="item in adoptedNodes.filter(item => levelChoices.findIndex(level => level.value === item.level) < levelChoices.findIndex(level => level.value === newMap.level))" :key="item.id" :value="item.id">{{ item.title }}</option></select></label>
       <button class="btn btn-primary" :disabled="busy || !newMap.title.trim()">建立地图</button><button type="button" class="btn btn-sm" @click="creatingMap = false">取消</button>
     </form>
@@ -942,6 +943,10 @@ const mapToolActions = computed(() => {
 })
 function updateStructureState(value) {
   if (value.nodeId === activeNode.value?.id) structureState.value = value
+}
+function startSourceRp() {
+  if (loading.value || busy.value || structureState.value.dirty) return
+  return getRouter().navigate('journeys', 'new', true, new URLSearchParams({ project_id: props.projectId }))
 }
 async function runMapTool(key) {
   if (![...mapToolActions.value, ...mapMoreTools.value].some(item => item.key === key && !item.disabled)) return

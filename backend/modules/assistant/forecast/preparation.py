@@ -12,7 +12,7 @@ from infrastructure.llm.collaboration import content_hash
 from modules.assistant.contracts import AssistantOperationContext
 from modules.assistant.forecast.context import authorize
 from modules.assistant.forecast.contracts import PreparationReceipt
-from modules.assistant.forecast.ranking import hidden_by_decision
+from modules.assistant.forecast.ranking import declined_direction_ids, hidden_by_decision
 from modules.assistant.models import AssistantActionBatch, AssistantRun
 from modules.assistant.operations import operation_manifest, prepare_actions
 from modules.assistant.schemas import ProposedAction, WorkContext
@@ -58,12 +58,16 @@ def actions_for(proposal, ctx, capability):
                     }
                 )
         if ctx.focus.draft_id and not ctx.excluded_targets:
+            revision = ctx.focus.task_hint in {"polish", "revise"}
+            action = "discuss_revision" if revision else "prepare_candidate"
             result.append(
                 {
-                    "action_id": f"writing.prepare_candidate.{direction.direction_id}",
-                    "label": f"试写：{direction.title}",
-                    "kind": "prepare_domain",
-                    "requires_confirmation": True,
+                    "action_id": f"writing.{action}.{direction.direction_id}",
+                    "label": f"与伙伴修订：{direction.title}"
+                    if revision
+                    else f"试写：{direction.title}",
+                    "kind": "inspect" if revision else "prepare_domain",
+                    "requires_confirmation": not revision,
                     "available": True,
                 }
             )
@@ -91,8 +95,21 @@ def actions_for(proposal, ctx, capability):
     return result
 
 
-def work_context(ctx):
+async def work_context(db, novel_id, ctx):
     focus = ctx.focus
+    selection = {}
+    if focus.selected_range:
+        from modules.writing.facade import get_draft
+
+        draft = await get_draft(db, novel_id, str(focus.draft_id))
+        if draft is None or draft.content_hash != ctx.saved_draft_hash:
+            raise ConflictError("所选正文已变化", code="SOURCE_STALE")
+        start, end = focus.selected_range.start_offset, focus.selected_range.end_offset
+        selection = {
+            "selection": draft.content[start:end],
+            "selection_start": start,
+            "selection_end": end,
+        }
     return WorkContext(
         page=focus.page
         if focus.page
@@ -109,6 +126,8 @@ def work_context(ctx):
         }
         else "today",
         scope="current",
+        task_hint=focus.task_hint,
+        **selection,
         chapter_index=ctx.chapter_index,
         scene_id=focus.scene_id,
         draft_id=focus.draft_id,
@@ -120,12 +139,16 @@ def work_context(ctx):
 
 
 async def require_parent(db, novel_id, run):
-    from modules.assistant.forecast.service import _notice, require_candidate
+    from modules.assistant.forecast.service import (
+        require_candidate,
+        require_current_notice,
+    )
 
     parent = run.request_json.get("forecast_parent")
     if not parent:
         return
     candidate, _ = await require_candidate(db, novel_id, parent["candidate_id"])
+    notice = await require_current_notice(db, candidate)
     from modules.assistant.forecast.registry import SEMANTIC, require_rollout
     from modules.assistant.forecast.runtime import enabled, get_settings
 
@@ -139,9 +162,13 @@ async def require_parent(db, novel_id, run):
             "语义前瞻已暂停，原采用记录仍保留", code="SEMANTIC_UNAVAILABLE"
         )
     if candidate.assessment_hash != parent["assessment_hash"] or hidden_by_decision(
-        await _notice(db, candidate, lock=True)
+        notice
     ):
         raise ConflictError("原建议已变化或已被处置，请重新选择", code="SOURCE_STALE")
+    if parent.get("direction_id") in declined_direction_ids(candidate, notice):
+        raise ConflictError("该方向已被暂缓，请重新选择", code="SOURCE_STALE")
+    if "direction_id" not in parent and declined_direction_ids(candidate, notice):
+        raise ConflictError("旧预览未绑定具体方向，请重新准备", code="SOURCE_STALE")
 
 
 async def receipt(db, novel_id, run):
@@ -172,7 +199,10 @@ async def receipt(db, novel_id, run):
 
 async def prepare(db, novel_id, candidate_id, data):
     from modules.assistant.forecast.runtime import enabled
-    from modules.assistant.forecast.service import _notice, require_candidate
+    from modules.assistant.forecast.service import (
+        require_candidate,
+        require_current_notice,
+    )
 
     await authorize(db, novel_id)
     request_hash = content_hash([str(candidate_id), data.model_dump(mode="json")])
@@ -190,8 +220,9 @@ async def prepare(db, novel_id, candidate_id, data):
     candidate, ctx = await require_candidate(
         db, novel_id, candidate_id, focus=data.context
     )
+    notice = await require_current_notice(db, candidate)
     if candidate.assessment_hash != data.expected_assessment_hash or hidden_by_decision(
-        await _notice(db, candidate, lock=True)
+        notice
     ):
         raise ConflictError("所选建议已变化或已处置", code="ASSESSMENT_CHANGED")
     action = next(
@@ -215,6 +246,10 @@ async def prepare(db, novel_id, candidate_id, data):
         ),
         None,
     )
+    if direction and direction["direction_id"] in declined_direction_ids(
+        candidate, notice
+    ):
+        raise ConflictError("该方向已被暂缓，请重新选择", code="ASSESSMENT_CHANGED")
     original = next(
         (
             value
@@ -231,6 +266,10 @@ async def prepare(db, novel_id, candidate_id, data):
             raise ConflictError("原领域的范围或可用动作已经变化", code="SOURCE_STALE")
         capability, arguments = original["capability"], original["arguments"]
     elif data.action_id.startswith("writing.prepare_candidate.") and direction:
+        if ctx.focus.task_hint in {"polish", "revise"}:
+            raise ConflictError(
+                "修改与润色须先准备精确替换，不能转为续写", code="ACTION_UNAVAILABLE"
+            )
         capability = "writing.generate_candidate"
         arguments = {
             "chapter_index": ctx.chapter_index,
@@ -266,8 +305,9 @@ async def prepare(db, novel_id, candidate_id, data):
         "candidate_id": str(candidate.id),
         "assessment_hash": candidate.assessment_hash,
         "run_id": str(candidate.run_id),
+        "direction_id": direction["direction_id"] if direction else None,
     }
-    work = work_context(ctx)
+    work = await work_context(db, novel_id, ctx)
     run = AssistantRun(
         id=data.operation_id,
         novel_id=UUID(novel_id),

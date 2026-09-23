@@ -454,14 +454,9 @@ class WritingDraftService:
                 and base is not None
                 and not has_substantive_change(base.content, sanitized_data.content)
             ):
-                current.status = "deprecated"
-                current.provenance_json = {
-                    **provenance,
-                    "deprecated_from_status": "draft",
-                    "discard_reason": "publish_without_substantive_change",
-                }
-                db.add(current)
-                await db.flush()
+                await self._discard_loaded_draft(
+                    db, current, base, "publish_without_substantive_change"
+                )
                 if base.status == "draft":
                     promoted = await self._promote_loaded_draft(db, base)
                     return promoted, True
@@ -859,6 +854,7 @@ class WritingDraftService:
         content: str | None = None,
         replace_content: bool = False,
     ) -> WritingDraftResponse:
+        old_content = draft.content
         if replace_content:
             await self._repo.lock_version_chapters_for_revalidation(
                 db,
@@ -875,6 +871,7 @@ class WritingDraftService:
         }
         db.add(draft)
         await db.flush()
+        await self._repo._changed(db, draft, old_content=old_content)
         return WritingDraftResponse.model_validate(draft)
 
     async def _get_base_draft(self, db: AsyncSession, draft):
@@ -894,6 +891,7 @@ class WritingDraftService:
         return await self._repo.get_previous_working_version(db, draft)
 
     async def _discard_loaded_draft(self, db, draft, base, reason: str):
+        previous_status = draft.status
         draft.provenance_json = {
             **(draft.provenance_json or {}),
             "deprecated_from_status": draft.status,
@@ -902,6 +900,9 @@ class WritingDraftService:
         draft.status = "deprecated"
         db.add(draft)
         await db.flush()
+        await self._repo._changed(
+            db, draft, previous_status=previous_status, old_content=draft.content
+        )
         return WritingDraftResponse.model_validate(base)
 
     async def delete_draft(

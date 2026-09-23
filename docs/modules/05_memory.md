@@ -120,3 +120,15 @@ Story 为 Collaboration 提供 Scene、伏笔/揭示安排的冻结可编辑字�
 试改独立保存，采用仍验证当前结构版本。`observations.py` 区分输入刺激、私有意图、
 可观察事件和可重放的 ResolutionBatch；说法不是事实，未知资源或唯一资源冲突不宣告成功。
 `observation_v2` 不重新解释旧 rehearsal_v1。读者推测与作者安排分开，派生前瞻不是新信息计划。
+
+## 软失效与有效场景投影
+
+`memory_events.source_stale` 仅标记派生机器事件；原事件与作者确认保留。正文变化从受影响最早
+Scene 起封锁 Evolution run，再使事件和 checkpoint/snapshot 失效，所有 replay/presence 查询
+排除 stale 行。Scene 重排先取 run 栅栏再改事件顺序，避免与提交路径反锁。
+地图在场额外限制当前 draft/canonical Scene ID；被废弃或删除场景的作者事件只留历史，不会因
+序号复用被说成本场出现。位置 identity 保留；没有明确行程证据的两次出现只返回 unknown 路线。
+
+Story facade 的 `validate_machine_event_snapshot` 复用全景物化 schema，校验外部机器
+事件负载，保留合法部分更新和删除语义。未解析地点允许 `location_id=None` 并保留
+`text_state`，章节全景、Evidence 与地图均可读取，不伪造地点 UUID。

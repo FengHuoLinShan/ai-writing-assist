@@ -86,9 +86,7 @@ async def _new_apply(db, novel_id, args, preview, *, context=None):
             },
         ),
     )
-    from modules.evidence.facade import request_chapter_index
 
-    await request_chapter_index(db, novel_id, draft.chapter_index, content_mode="working")
     return {
         "type": "writing_draft",
         "id": draft.id,
@@ -451,9 +449,7 @@ async def _apply(db, novel_id, args, preview, *, context=None):
             provenance_json=provenance,
         ),
     )
-    from modules.evidence.facade import request_chapter_index
 
-    await request_chapter_index(db, novel_id, draft.chapter_index, content_mode="working")
     return {
         "type": "writing_draft",
         "id": draft.id,

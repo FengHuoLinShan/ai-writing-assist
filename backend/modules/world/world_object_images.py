@@ -79,7 +79,9 @@ def normalize_world_object_image(
                     raise ValueError("图片尺寸不能超过 4096×4096")
                 probe.verify()
             with Image.open(io.BytesIO(payload)) as source:
-                image = ImageOps.exif_transpose(source).convert("RGB")
+                transposed = ImageOps.exif_transpose(source)
+                has_alpha = "A" in transposed.getbands() or "transparency" in source.info
+                image = transposed.convert("RGBA" if has_alpha else "RGB")
     except (Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
         raise ValueError("图片尺寸不能超过 4096×4096") from exc
     except (OSError, SyntaxError) as exc:
@@ -327,12 +329,15 @@ class WorldObjectImageService:
         novel_id: str,
         entity_id: str,
         variant: Literal["thumbnail", "full"],
+        expected_version: str | None = None,
     ) -> bytes:
         if await get_project_context(db, novel_id) is None:
             raise NotFoundError(f"Project {novel_id} not found")
         entity = await self._entity(db, novel_id, entity_id)
         if entity.image_version is None:
             raise NotFoundError(f"CoreEntityImage {entity_id} not found")
+        if expected_version is not None and str(entity.image_version) != expected_version:
+            raise NotFoundError("所引用的图片版本已不可用")
         try:
             return await self._storage().get_webp(
                 image_object_key(

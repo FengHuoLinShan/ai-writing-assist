@@ -141,6 +141,8 @@ reserve/settle 一次，缺 usage 记 unknown/possible；deadline 到期不再�
 deadline 前一刻发出的在途请求不会运行完整 provider timeout 越过 run 边界。远程 embedding
 经同一信封计量（provider 不返回用量，按 unknown/possible 落账，归属
 `infrastructure.embedding` step）；本地 BGE 是登记的非计费窄例外；健康检查不计费。
+本地 BGE 子进程保留 300 秒冷启动上限，每秒检查启动结果及子进程存活；子进程已退出时立即
+清理并报告启动失败，不等满冷启动窗口。应用实际检索是否降级须以运行回执验证。
 `managed_llm_steps` 保持 v0 五字段兼容，v1 由同一信封的 step receipt 派生。
 
 Task 路径把同一信封落在 `async_tasks.meta` 的私有键 `_ai_run_envelope`：worker 与 inline 在 handler
@@ -615,3 +617,14 @@ Flash max 思考与至少65,536输出上限，provider 等待至少900秒。客�
 普通模式保留窄查证low、复杂生成high和领域输出预算。两档均保留run deadline/次数及数据门禁。
 历史实测显示压缩输出预算会造成推理耗尽与JSON截断，但没有足够同源high/max A/B证据；
 不得将参数调整宣称为已验证的质量提升或价格下降。
+
+### Evolution 场景步
+
+`evolution_scene_step_v2` 复用 PostgreSQL 队列与 manual_resume，完整请求指纹用于
+合并；来源/Scene 身份、live/shadow 模式与阶段化免采样恢复由 Evolution 校验。
+未取得结果的请求保留费用待核对，不由队列盲目重采样；旧 deep_import 入口尚未切换。
+契约见 [Evolution](22_evolution.md) 和 [tasks README](../../backend/infrastructure/tasks/README.md)。
+
+理解任务的 project preflight/commit guard 同时验证 engine/epoch/schema token；项目切换只
+取消理解任务，保留预算和结果。PG trigger 对旧 v1 任务和失效 owner 失败关闭，以 NOWAIT
+避免旧心跳持锁死锁；迁移先取消不可执行的旧任务，保证其他项目队列可领取。

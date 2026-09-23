@@ -245,6 +245,7 @@ def _mock_entity(**overrides) -> MagicMock:
         "created_at": None,
         "updated_at": None,
         "ranking": None,
+        "image_version": None,
     }
     defaults.update(overrides)
     e = MagicMock()
@@ -1529,7 +1530,9 @@ class TestDedupResolveCandidate:
         db = MagicMock()
         db.flush = AsyncMock()
 
-        result = await svc.resolve_candidate(db, str(uuid.uuid4()), str(uuid.uuid4()))
+        result = await svc.resolve_candidate(
+            db, str(candidate.novel_id), str(candidate.id)
+        )
 
         assert result.action == "promoted"
         svc._entity_repo.update.assert_awaited_once()
@@ -1559,7 +1562,9 @@ class TestDedupResolveCandidate:
         svc.merge_candidate_into_entity = AsyncMock(return_value=MagicMock())
         db = MagicMock()
 
-        result = await svc.resolve_candidate(db, str(uuid.uuid4()), str(uuid.uuid4()))
+        result = await svc.resolve_candidate(
+            db, str(candidate.novel_id), str(candidate.id)
+        )
 
         assert result.action == "merged"
 
@@ -1585,7 +1590,9 @@ class TestDedupResolveCandidate:
         )
         db = MagicMock()
 
-        result = await svc.resolve_candidate(db, str(uuid.uuid4()), str(uuid.uuid4()))
+        result = await svc.resolve_candidate(
+            db, str(candidate.novel_id), str(candidate.id)
+        )
 
         assert result.action == "needs_user_decision"
         assert len(result.suggestions) == 1

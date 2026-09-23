@@ -5,7 +5,13 @@ from modules.evidence.creative import (
     collect_creative_manifest as collect_creative_manifest,
 )
 from modules.evidence.creative import (
+    collect_forecast_understanding as collect_forecast_understanding,
+)
+from modules.evidence.creative import (
     creative_context_text as creative_context_text,
+)
+from modules.evidence.creative import (
+    inspect_cognition_freshness as inspect_cognition_freshness,
 )
 from modules.evidence.creative import (
     project_creative_resources as project_creative_resources,
@@ -67,3 +73,19 @@ async def read_review_resolution_evidence(db, *, novel_id, task_id, visibility):
     return await inspect_review_resolution(
         db, novel_id=novel_id, task_id=task_id, cutoff_chapter=visibility.cutoff_chapter
     )
+
+
+def build_group_audit_request(**kwargs):
+    from modules.evidence.compilation.knowledge.group import (
+        build_group_audit_request as build,
+    )
+
+    return build(**kwargs)
+
+
+def materialize_group_audit(**kwargs):
+    from modules.evidence.compilation.knowledge.group import (
+        materialize_group_audit as materialize,
+    )
+
+    return materialize(**kwargs)

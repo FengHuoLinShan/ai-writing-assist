@@ -21,6 +21,7 @@ DOMAIN_WRITING = "writing"
 DOMAIN_WORLD = "world"
 DOMAIN_STORY = "story"
 DOMAIN_IMPORTS = "imports"
+DOMAIN_EVOLUTION = "evolution"
 DOMAIN_INTERACTION = "interaction"
 DOMAIN_ASSISTANT = "assistant"
 DOMAIN_PROJECT = "project"
@@ -686,6 +687,31 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             dimensions=("imported_assets", "world_entities", "prior_prose"),
             outputs=(OUTPUT_PROPOSAL,),
             notes="targeted completion 每问题组冻结一份 receipt。",
+        ),
+        # --- Evolution ---
+        _policy(
+            "evolution.scene_observe",
+            DOMAIN_EVOLUTION,
+            "逐场景来源观察与状态提议",
+            subjects=("author", "scene"),
+            dimensions=("prior_prose", "scene_state"),
+            confirmation=CONFIRMATION_REQUIRED,
+            snapshot=SNAPSHOT_REQUIRED,
+            outputs=(OUTPUT_FINDING, OUTPUT_PROPOSAL),
+            gate=ADOPTION_REQUIRES_PASS,
+            notes="逐字引用与模态经宿主校验；状态提议过语义门后才允许窄提交。",
+        ),
+        _policy(
+            "evolution.state_review",
+            DOMAIN_EVOLUTION,
+            "独立回读正文核验状态提议",
+            subjects=("author", "scene"),
+            dimensions=("prior_prose", "scene_state"),
+            confirmation=CONFIRMATION_REQUIRED,
+            snapshot=SNAPSHOT_REQUIRED,
+            outputs=(OUTPUT_FINDING,),
+            gate=ADOPTION_REQUIRES_PASS,
+            notes="独立调用逐项复核；冻结来源、前序回执、候选和根预算，漏项或矛盾不得取得状态效果。",
         ),
         # --- Interaction / RP ---
         _policy(

@@ -139,3 +139,170 @@ describe("selection snapshot stays bound to its source version (PR160-162 F2)", 
     expect(focus.selected_range).toBeUndefined()          // 旧选区跨稿失效
   })
 })
+
+describe("shared feed and authority fencing", () => {
+  it("clears the old authorization before a replacement request fails", async () => {
+    const api = apiFixture()
+    setBridgeOverrides({ api, state: { currentProjectId: projectA } })
+    const forecast = createForecast(); instances.push(forecast)
+    await forecast.configure(projectA, { page: "writing", draft_id: draftId, context_confirmation_id: "first", context_confirmation_action: "writing.generate" })
+    forecast.state.hold = true
+    api.forecasts.feed.mockRejectedValue(new Error("CONFIRMATION_SCOPE_CONFLICT"))
+    const next = forecast.configure(projectA, { page: "writing", draft_id: draftId, context_confirmation_id: "second", context_confirmation_action: "writing.generate" })
+    expect(forecast.state.feed).toBeNull()
+    await next
+    expect(forecast.state.feed).toBeNull()
+    expect(forecast.state.stale).toBe(true)
+  })
+  it("does not let an earlier read resurrect a card after a later refresh", async () => {
+    const api = apiFixture(), pending = []
+    setBridgeOverrides({ api, state: { currentProjectId: projectA } })
+    const forecast = createForecast(); instances.push(forecast)
+    await forecast.configure(projectA, { page: "today" })
+    api.forecasts.feed.mockImplementation((_id, body) => new Promise(resolve => pending.push(title => resolve(feed(body, title)))))
+    const first = forecast.refresh(), second = forecast.refresh()
+    pending[1]("新的处置"); await second
+    pending[0]("旧轮询"); await first
+    expect(forecast.state.feed.items[0].title).toBe("新的处置")
+  })
+  it("shares one poll and one input across two hosts, releasing the last subscription", async () => {
+    const api = apiFixture()
+    setBridgeOverrides({ api, state: { currentProjectId: projectA } })
+    const props = { projectId: projectA, context: { page: "today" } }
+    const first = mount(ForecastDock, { props }), second = mount(ForecastDock, { props })
+    wrappers.push(first, second)
+    await flushPromises()
+    expect(api.forecasts.feed).toHaveBeenCalledTimes(1)
+    await first.find("textarea").setValue("保留未知")
+    expect(second.find("textarea").element.value).toBe("保留未知")
+    await vi.advanceTimersByTimeAsync(15000)
+    expect(api.forecasts.feed).toHaveBeenCalledTimes(2)
+    first.unmount(); wrappers.shift()
+    await vi.advanceTimersByTimeAsync(15000)
+    expect(api.forecasts.feed).toHaveBeenCalledTimes(3)
+    second.unmount(); wrappers.shift()
+    await vi.advanceTimersByTimeAsync(15000)
+    expect(api.forecasts.feed).toHaveBeenCalledTimes(3)
+  })
+  it("keeps a held card valid for presentation changes but revokes changed sources", async () => {
+    const api = apiFixture(), keys = { authority_scope_key: "scope", evidence_snapshot_key: "source", task_context_key: "task", presentation_focus: "first" }
+    api.forecasts.feed.mockImplementation(async (_id, body) => ({ ...feed(body), context_keys: { ...keys } }))
+    setBridgeOverrides({ api, state: { currentProjectId: projectA } })
+    const forecast = createForecast(); instances.push(forecast)
+    await forecast.configure(projectA, { page: "today" })
+    forecast.state.hold = true
+    keys.presentation_focus = "second"
+    await forecast.refresh()
+    expect(forecast.state.stale).toBe(false)
+    keys.evidence_snapshot_key = "revised"
+    await forecast.refresh()
+    expect(forecast.state.stale).toBe(true)
+  })
+  it("hands a polish choice to exact revision with the selected saved range", async () => {
+    vi.useRealTimers()
+    const api = apiFixture(), assistantOpener = vi.fn(), content = "潮水来了。她关上门。"
+    const editor = { draftId, lastSavedContent: content, dirty: false }
+    setBridgeOverrides({ api, assistantOpener, state: { currentProjectId: projectA } })
+    const forecast = createForecast({ editor: () => editor }); instances.push(forecast)
+    await forecast.configure(projectA, { page: "writing", draft_id: draftId, task_hint: "polish", selection: "她关上门。", selection_start: 5, selection_end: 10 })
+    const action = { action_id: "writing.discuss_revision.quiet" }
+    await forecast.prepare({ ...item, directions: [{ direction_id: "quiet", proposal: "收短句子" }] }, action)
+    expect(api.forecasts.prepare).not.toHaveBeenCalled()
+    expect(assistantOpener).toHaveBeenCalledWith(expect.objectContaining({ context: expect.objectContaining({ task_hint: "polish", draft_id: draftId, selection: "她关上门。", selection_start: 5, selection_end: 10 }) }))
+  })
+})
+
+describe("recovery and host handoff boundaries", () => {
+  it("requires resolving an uncertain operation before evaluating a changed exclusion scope", async () => {
+    const api = apiFixture()
+    api.forecasts.evaluate.mockRejectedValue(new Error("connection lost"))
+    setBridgeOverrides({ api, state: { currentProjectId: projectA } })
+    const forecast = createForecast(); instances.push(forecast)
+    await forecast.configure(projectA, { page: "today" })
+    await forecast.evaluate()
+    const original = forecast.state.pending
+    await forecast.configure(projectA, { page: "today", excluded_targets: ["private"] })
+    await forecast.evaluate()
+    expect(api.forecasts.evaluate).toHaveBeenCalledTimes(1)
+    expect(forecast.state.pending).toEqual(original)
+    expect(forecast.state.error).toContain("不会按旧范围")
+  })
+  it("retries legacy pending bodies without adding new default fields", async () => {
+    const api = apiFixture()
+    api.forecasts.evaluate.mockRejectedValue(new Error("connection lost"))
+    api.forecasts.prepare.mockRejectedValue(new Error("connection lost"))
+    setBridgeOverrides({ api, state: { currentProjectId: projectA } })
+    const forecast = createForecast(); instances.push(forecast)
+    await forecast.configure(projectA, { page: "today" })
+    await forecast.evaluate()
+    delete forecast.state.pending.context.excluded_targets
+    const pending = JSON.stringify(forecast.state.pending)
+    await forecast.evaluate()
+    expect(JSON.stringify(api.forecasts.evaluate.mock.lastCall[1])).toBe(pending)
+    await forecast.prepare(item, item.actions[0])
+    delete forecast.state.pendingPrepare.body.context.excluded_targets
+    const prepare = JSON.stringify(forecast.state.pendingPrepare.body)
+    await forecast.prepare(item, item.actions[0])
+    expect(JSON.stringify(api.forecasts.prepare.mock.lastCall[2])).toBe(prepare)
+  })
+  it("starts again at the first page when pagination detects a new authority", async () => {
+    const api = apiFixture()
+    let scope = "old"
+    api.forecasts.feed.mockImplementation(async (_id, body) => ({ ...feed(body, scope), context_keys: { authority_scope_key: scope, evidence_snapshot_key: "s", task_context_key: "t" }, items: scope === "old" ? [item] : [], next_cursor: scope === "old" ? "3" : null }))
+    setBridgeOverrides({ api, state: { currentProjectId: projectA } })
+    const forecast = createForecast(); instances.push(forecast)
+    await forecast.configure(projectA, { page: "today" })
+    scope = "new"
+    await forecast.more()
+    expect(forecast.state.feed.items).toEqual([])
+    expect(api.forecasts.feed.mock.lastCall[1].cursor).toBeUndefined()
+  })
+  it("submits the intent of the host the author actually focused", async () => {
+    const api = apiFixture()
+    api.forecasts.evaluate.mockResolvedValue({ run: { status: "completed" } })
+    setBridgeOverrides({ api, state: { currentProjectId: projectA } })
+    const lower = mount(ForecastDock, { props: { projectId: projectA, context: { page: "writing", draft_id: draftId } } })
+    const upper = mount(ForecastDock, { props: { projectId: projectA, context: { page: "writing", draft_id: draftId, task_hint: "continue" }, standalone: true } })
+    wrappers.push(lower, upper)
+    await flushPromises()
+    await lower.find("select[aria-label='当前写作意图']").trigger("focusin")
+    await lower.find("select[aria-label='当前写作意图']").setValue("polish")
+    await flushPromises()
+    await lower.find("form").trigger("submit")
+    await flushPromises()
+    expect(api.forecasts.evaluate).toHaveBeenCalledTimes(1)
+    expect(api.forecasts.evaluate.mock.lastCall[1].context.task_hint).toBe("polish")
+  })
+  it("cancels an old analyze click when another host takes focus during its read", async () => {
+    const api = apiFixture()
+    setBridgeOverrides({ api, state: { currentProjectId: projectA } })
+    const lower = mount(ForecastDock, { props: { projectId: projectA, context: { page: "writing", draft_id: draftId, task_hint: "polish" } } })
+    const upper = mount(ForecastDock, { props: { projectId: projectA, context: { page: "writing", draft_id: draftId, task_hint: "continue" }, standalone: true } })
+    wrappers.push(lower, upper)
+    await flushPromises()
+    let release
+    api.forecasts.feed.mockImplementation((_id, body) => body.context.task_hint === "polish" ? new Promise(resolve => { release = () => resolve(feed(body)) }) : Promise.resolve(feed(body)))
+    await lower.find("form").trigger("submit")
+    await flushPromises()
+    await upper.find("section").trigger("focusin")
+    await flushPromises()
+    release(); await flushPromises()
+    expect(api.forecasts.evaluate).not.toHaveBeenCalled()
+  })
+  it("cancels a revision handoff when the draft changes during hashing", async () => {
+    vi.useRealTimers()
+    const api = apiFixture(), assistantOpener = vi.fn(), content = "甲乙丙丁"
+    const editor = reactive({ draftId, lastSavedContent: content, dirty: false })
+    setBridgeOverrides({ api, assistantOpener, state: { currentProjectId: projectA } })
+    const forecast = createForecast({ editor: () => editor }); instances.push(forecast)
+    await forecast.configure(projectA, { page: "writing", draft_id: draftId, task_hint: "polish", selection: "甲乙", selection_start: 0, selection_end: 2 })
+    const digest = crypto.subtle.digest.bind(crypto.subtle)
+    let release
+    vi.spyOn(crypto.subtle, "digest").mockImplementationOnce((...args) => new Promise(resolve => { release = async () => resolve(await digest(...args)) }))
+    const old = forecast.prepare({ ...item, directions: [{ direction_id: "a", proposal: "收短句子" }] }, { action_id: "writing.discuss_revision.a" })
+    editor.draftId = "20000000-0000-4000-8000-000000000002"
+    await forecast.configure(projectA, { page: "writing", draft_id: editor.draftId, task_hint: "revise", selection: "丙丁", selection_start: 2, selection_end: 4 })
+    await release(); await old
+    expect(assistantOpener).not.toHaveBeenCalled()
+  })
+})

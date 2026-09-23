@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import asdict
 
 import pytest
 from sqlalchemy import func, select
@@ -17,9 +18,91 @@ from modules.evidence.indexing.facade import retrieve
 from modules.evidence.indexing.models import RagChunk
 from modules.evidence.indexing.repositories import RagChunkRepository
 from modules.evidence.indexing.schemas import RagChunkCreate
-from modules.writing.facade import create_published_draft_only
+from modules.writing.facade import build_manuscript_range_ref, create_published_draft_only
 
 pytestmark = pytest.mark.asyncio
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "reader",
+        "character",
+        "unknown_character",
+        "wrong_hash",
+        "future_range",
+        "insufficient_budget",
+    ],
+)
+async def test_frozen_manual_identity_requires_exact_visible_proof(
+    db_session, project_factory, case
+):
+    source, consumer, old, _new, text, _new_text, character = await _versioned_chapter(
+        db_session, project_factory
+    )
+    source_ref = asdict(
+        await build_manuscript_range_ref(
+            db_session,
+            str(source),
+            draft_id=str(old.id),
+            start_offset=0,
+            end_offset=len(text),
+            content_mode="canonical",
+        )
+    )
+    if case == "wrong_hash":
+        source_ref["source_hash"] = "0" * 64
+    player = {"kind": "original", "name": "旅人"}
+    if case in {"character", "unknown_character"}:
+        player = {
+            "kind": "source_character",
+            "target_id": character if case == "character" else str(uuid.uuid4()),
+        }
+    compiled = await InteractionStoryContextService().compile(
+        db_session,
+        source_novel_id=str(source),
+        consumer_novel_id=str(consumer),
+        source_revision_id=str(uuid.uuid4()),
+        source_manifest=[
+            {
+                "draft_id": str(old.id),
+                "source_hash": old.content_hash,
+                "chapter_index": 1,
+                "char_count": len(text),
+            }
+        ],
+        anchor={
+            "anchor_key": "a" * 64,
+            "chapter_index": 1,
+            "end_offset": 5 if case == "future_range" else len(text),
+        },
+        player_identity=player,
+        reference_manifest=[
+            {
+                "reference_key": "f" * 64,
+                "target_id": str(uuid.uuid4()),
+                "label": "精修港口",
+                "entity_type": "location",
+                "first_chapter_index": 1,
+                "first_end_offset": 1,
+                "identity_source_refs": [source_ref],
+            }
+        ],
+        ambiguities=[],
+        resolutions={},
+        reference_policy={"pinned": ["f" * 64]},
+        query="林默",
+        task_id=None,
+        model="test-model",
+        budget_tokens=1 if case == "insufficient_budget" else 16000,
+    )
+    if case in {"reader", "character"}:
+        assert not compiled.blockers
+        assert text in compiled.rendered_context
+        assert source_ref in compiled.source_refs
+    else:
+        assert compiled.blockers
+        assert not compiled.rendered_context
 
 
 async def _versioned_chapter(db_session, project_factory):  # noqa: ANN001

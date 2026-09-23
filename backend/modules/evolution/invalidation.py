@@ -26,6 +26,8 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.evolution.store import PostgresAttemptStore
+
 UNSUPPORTED_CONSUMERS: tuple[dict[str, str], ...] = (
     {
         "consumer": "world_knowledge",
@@ -188,13 +190,22 @@ async def apply_source_invalidation(
 
     earliest = await affected_scene_window(db, novel_id, chapter_index=chapter_index)
     receipt.earliest_affected_scene_index = earliest
-    if earliest is not None:
-        from modules.story.facade import supersede_scene_projections_from
+    runs = await PostgresAttemptStore(db, novel_id).invalidate_sources(
+        from_scene_index=earliest, chapter_index=chapter_index, reason="source_changed"
+    )
+    receipt.invalidated_consumers["evolution_runs"] = {
+        "run_keys": runs,
+        "recompute_required": bool(runs),
+    }
+    from modules.story.facade import invalidate_derived_state
 
-        outcome = await supersede_scene_projections_from(
-            db, novel_id, from_scene_index=earliest
+    receipt.invalidated_consumers["story_state"] = await invalidate_derived_state(
+        db, novel_id, from_scene_index=earliest, from_chapter=chapter_index
+    )
+    if earliest is not None:
+        receipt.invalidated_consumers["story_scene_projections"] = (
+            receipt.invalidated_consumers["story_state"]
         )
-        receipt.invalidated_consumers["story_scene_projections"] = outcome
         receipt.coverage_note = (
             "保守扩大：从锚定受影响章的最早 Scene（含）起的全部系统派生投影"
             "已失效；细粒度依赖登记后可收窄"
@@ -204,42 +215,80 @@ async def apply_source_invalidation(
     return receipt
 
 
+async def record_writing_source_change(
+    db: AsyncSession,
+    novel_id: str,
+    *,
+    chapter_index: int,
+    old_content: str | None,
+    new_content: str | None,
+    published_changed: bool = False,
+) -> InvalidationReceipt:
+    """Writing's mutation boundary; index tasks and invalidation share its transaction."""
+    change = compute_source_change(old_content, new_content)
+    # This entry is called only for a real version/title/content/lifecycle change.
+    # Identical text in a new version still changes the authoritative source identity.
+    change.changed = True
+    receipt = await apply_source_invalidation(
+        db, novel_id, chapter_index=chapter_index, change=change
+    )
+    if published_changed:
+        from modules.evidence.facade import request_chapter_index
+
+        receipt.invalidated_consumers[
+            "canonical_chapter_index"
+        ] = await request_chapter_index(
+            db, novel_id, chapter_index, content_mode="canonical"
+        )
+    return receipt
+
+
 async def apply_scene_reorder_invalidation(
     db: AsyncSession,
     novel_id: str,
     *,
     scene_positions: dict[str, int],
+    earliest_affected_scene_index: int | None = None,
 ) -> InvalidationReceipt:
     """场景重排失效（T09 调换场景）：对齐事件序号并从最早移动 Scene 起失效。
 
     重排不只重写 scene_index——依赖顺序的历史事件、检查点与角色知识
     一并软失效；原事件与作者确认保留（§6.1）。
     """
-    from modules.story.continuity.repositories import EventRepository
-    from modules.story.facade import supersede_scene_projections_from
-    from shared.utils import parse_uuid
+    from modules.story.facade import (
+        align_scene_event_indices,
+        get_scene_event_order_start,
+        invalidate_derived_state,
+    )
 
-    nid = parse_uuid(novel_id, "novel_id")
     receipt = InvalidationReceipt(
         novel_id=str(novel_id),
         unsupported_consumers=[dict(item) for item in UNSUPPORTED_CONSUMERS],
     )
-    positions = {
-        parse_uuid(scene_id, "scene_id"): int(index)
-        for scene_id, index in scene_positions.items()
-    }
-    earliest = await EventRepository().align_scene_indices(db, nid, positions)
+    earliest = await get_scene_event_order_start(db, novel_id, scene_positions)
+    if earliest_affected_scene_index is not None:
+        earliest = (
+            min(earliest, earliest_affected_scene_index)
+            if earliest is not None
+            else earliest_affected_scene_index
+        )
     receipt.earliest_affected_scene_index = earliest
     if earliest is None:
         receipt.nothing_to_do = True
         receipt.coverage_note = "事件序号与权威顺序一致，无失效需要传播"
         return receipt
-    outcome = await supersede_scene_projections_from(
-        db, novel_id, from_scene_index=earliest
+    runs = await PostgresAttemptStore(db, novel_id).invalidate_sources(
+        from_scene_index=earliest, chapter_index=None, reason="scene_order_changed"
+    )
+    # All writers take run rows before event rows, matching apply_frozen's lock order.
+    await align_scene_event_indices(db, novel_id, scene_positions)
+    receipt.invalidated_consumers["evolution_runs"] = {"run_keys": runs}
+    outcome = await invalidate_derived_state(
+        db, novel_id, from_scene_index=earliest, from_chapter=None
     )
     receipt.invalidated_consumers["story_scene_projections"] = outcome
     receipt.invalidated_consumers["scene_event_order"] = {
-        "aligned_scenes": len(positions),
+        "aligned_scenes": len(scene_positions),
         "from_scene_index": earliest,
     }
     receipt.coverage_note = "场景重排：事件序号已对齐，最早移动 Scene（含）起派生投影失效"
