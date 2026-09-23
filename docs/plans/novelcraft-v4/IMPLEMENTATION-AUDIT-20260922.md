@@ -229,3 +229,29 @@ Imports README 的 Phase 1–3 与采用契约；新实现为 `evolution/workflo
 
 任务继续 active。当前工程缺口可以继续实现；真实作者观察和发布另有边界，不是停止
 所有工程工作的理由。
+
+## 2026-09-23 修复批（Phase 3 接线收口）
+
+主任务快照列出的五项已知缺陷已修复并回归：
+
+1. **start_reading 重建计划丢 structure_version/structure**：`_plan`/`_plan_recompute`
+   产出 `structure_version`（新 run 为 1，append 继承旧值，旧计划缺省 0 不追加费用）；
+   `start_reading` 重建持久化 `structure_version` 并保留已持久化 `structure` 阶段，
+   已完成批次不因追加额度/续读重跑。Scene 前缀提交完毕后经同一 v2 队列进入结构阶段，
+   完成态包含结构完成（`reading_status` 既有语义）。
+2. **生成/复核 model 空字符串覆盖冻结配置**：Story 纯端口（`reading_structure.py`）
+   剥离构造器钉入的 model 槽位，冻结请求不带 model，由 run 冻结模型连接解析默认；
+   provider 侧断言 `request.model` 非空进入回归。
+3. **候选摘要复核只看前 4000 字却物化全文**：摘要超出 `_PHASE3_EVIDENCE_SUMMARY_CHARS`
+   （4000）的候选直接失败关闭（reason `summary_exceeds_review_window`），不生成复核单元、
+   不能通过证据门，全文仅作为待核对草稿保留给作者。
+4. **能力注册缺 imports.structure_analysis**：`evolution/structure.py` 登记绑定，
+   `llm_sampler.py` 能力元组补 `imports.structure_analysis`（结构生成/复核执行点）。
+5. **结构阶段未默认启用、未接 UI**：随 1 默认启用；ReadingFlow 状态行显示
+   「整理剧情结构候选」，确认/预览文案改为结构候选经独立复核进入故事大纲草稿并
+   带来源采用保护。
+
+架构文档同步：`22_evolution.md` 与 evolution README 增补结构阶段小节；数据库设计/
+CONTEXT/toml 由快照携带。CLAUDE/development/testing/maintenance 四份指针或通用
+指南经逐项核对无过时内容，按 no-change-reason 通道声明。高质量融合、细粒度依赖
+闭包、E08 旧入口等价替代与真实作者验收仍按上表推进，本批不核销。

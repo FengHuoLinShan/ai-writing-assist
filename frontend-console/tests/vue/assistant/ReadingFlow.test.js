@@ -170,3 +170,17 @@ it("按页回看世界提案，转义模型内容并丢弃跨项目迟到结果"
   expect(wrapper.text()).not.toContain("候选摘要")
   wrapper.unmount()
 })
+
+it("结构整理阶段在状态行与场景计数分开显示", async () => {
+  const status = vi.fn().mockResolvedValue({
+    engine: { engine: "evolution", epoch: 2 },
+    run: { run_key: "run-s", status: "running", completed_scenes: 2, total_scenes: 2, preparing_scenes: false, preparing_structure: true },
+  })
+  setBridgeOverrides({ api: { evolution: { status } } })
+  const wrapper = mount(ReadingFlow, { props: { projectId: "a", entry: true } })
+  await flushPromises()
+  const line = wrapper.get('[role="status"]').text()
+  expect(line).toContain("整理剧情结构候选")
+  expect(line).not.toContain("2 / 2 场景")
+  wrapper.unmount()
+})

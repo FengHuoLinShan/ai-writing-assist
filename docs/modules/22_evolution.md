@@ -183,6 +183,19 @@ Scene 起点，若前序变化则保守扩大。继承场景还须是当前最�
 及来源首变位置确定保守后缀，实际目标、起点和扩大说明一起进入确认指纹与分段授权。
 这已覆盖目标选择与顺序后缀重算；细粒度依赖闭包和旧入口等价替代仍未完成。
 
+### 剧情结构阶段（Phase 3 迁移）
+
+新 Reading plan 携带 `structure_version=1`（旧计划缺省 0，不追加费用）；`start_reading`
+重建计划时保留 `structure_version` 与已持久化的 `structure` 阶段，已完成批次不因
+追加额度/续读重跑。Scene 前缀提交完毕后经同一 v2 队列 `structure` 操作进入结构阶段：
+每批最多 16 个已提交 Scene 经 Story 纯端口（`outline_state/reading_structure.py`，
+复用 deep-import Phase 3 契约与 `imports.structure_analysis` 能力绑定）生成剧情线/
+人物弧/伏笔候选，再按 Scene 正文分片独立证据复核。生成/复核请求不钉 model，由 run
+冻结的模型连接解析默认；候选摘要超出 4000 字复核窗口直接失败关闭为待核对草稿，不物化
+未复核结论。复核通过的批次以 `needs_review` Story 草稿持久化并登记
+`evolution_structure_ref`；故事大纲四类结构资产（剧情线/人物弧/伏笔/揭示）采用时
+重验原回执与最新来源，来源漂移拒绝采用，已采用条目回归作者自由编辑。
+
 ## 测试
 
 `modules/evolution/tests/`：契约校验语义（含游标纪律）与稳定身份性质。

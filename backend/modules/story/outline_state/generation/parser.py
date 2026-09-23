@@ -299,6 +299,7 @@ class PlotStructureParser:
 
 _PHASE3_EVIDENCE_BATCH_CHARS = 60_000
 _PHASE3_EVIDENCE_TEXT_PART_CHARS = 48_000
+_PHASE3_EVIDENCE_SUMMARY_CHARS = 4_000
 
 
 async def _review_structure_evidence(
@@ -389,6 +390,12 @@ def _prepare_structure_evidence(output, scene_by_id):
             if not refs:
                 state["reasons"].append("missing_valid_supporting_scene_evidence")
                 continue
+            if len(item.summary) > _PHASE3_EVIDENCE_SUMMARY_CHARS:
+                # The reviewer only ever sees the first window of the claim while
+                # materialization keeps the full summary; a longer claim can never
+                # be fully verified, so it stays an author-facing draft.
+                state["reasons"].append("summary_exceeds_review_window")
+                continue
             for scene_id in refs:
                 scene = scene_by_id.get(scene_id) or {}
                 evidence = scene.get("_evidence") or {}
@@ -414,7 +421,7 @@ def _prepare_structure_evidence(output, scene_by_id):
                             "candidate_id": unit_id,
                             "category": category,
                             "title": item.title[:500],
-                            "summary": item.summary[:4000],
+                            "summary": item.summary[:_PHASE3_EVIDENCE_SUMMARY_CHARS],
                             "first_pass_confidence": item.confidence,
                             "supporting_scene_ids": refs,
                             "scene_id": scene_id,

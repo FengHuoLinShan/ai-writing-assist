@@ -49,6 +49,47 @@ def provider_stub(db, calls):
         )
         calls.append(text)
         schema = json.loads(request.messages[-1].content.split("schema: ", 1)[1])["title"]
+        if schema == "SimpleStructureOutput":
+            cards = json.loads(
+                text.split("【Scene卡片 JSON】\n", 1)[1].split("\n\n", 1)[0]
+            )
+            return LLMCallResponse(
+                content=json.dumps(
+                    {
+                        "plot_threads": [
+                            {
+                                "title": "出门与归来",
+                                "summary": "主角在家门与外界之间往返。",
+                                "confidence": 0.95,
+                                "supporting_scene_ids": [
+                                    item["scene_id"] for item in cards
+                                ],
+                            }
+                        ]
+                    }
+                ),
+                finish_reason="stop",
+                usage=LLMUsage(prompt_tokens=10, completion_tokens=10, total_tokens=20),
+            )
+        if schema == "StructureEvidenceReviewOutput":
+            units = json.loads(text)["review_items"]
+            return LLMCallResponse(
+                content=json.dumps(
+                    {
+                        "reviews": [
+                            {
+                                "candidate_id": item["candidate_id"],
+                                "verdict": "supported",
+                                "confidence": 0.96,
+                                "evidence": [{"quote": item["scene_text"]}],
+                            }
+                            for item in units
+                        ]
+                    }
+                ),
+                finish_reason="stop",
+                usage=LLMUsage(prompt_tokens=10, completion_tokens=10, total_tokens=20),
+            )
         if "CHAPTER_TEXT_JSON" in text:
             chapters = json.loads(
                 text.split("<CHAPTER_TEXT_JSON>", 1)[1].split("</CHAPTER_TEXT_JSON>", 1)[
@@ -165,16 +206,19 @@ async def test_prepare_replays_then_budget_continuation_reads_exact_scenes(
         and scene["structure_meta"]["semantic_origin"] == "boundary_only"
         for scene in scenes
     )
-    body, continued = await start(db, nid, 8, mode="continue", run_key=key)
-    assert (await start_reading(db, nid, body))["run"]["budget_total"] == 9
+    body, continued = await start(db, nid, 10, mode="continue", run_key=key)
+    assert (await start_reading(db, nid, body))["run"]["budget_total"] == 11
     first = await db.get(AsyncTask, UUID(continued["task_id"]))
     result = await handle_evolution_scene_step(db, first)
     assert "天亮了，他走出家门。" in calls[1] and "天黑了，他回到家中。" not in calls[1]
     second = await db.get(AsyncTask, UUID(result["next_task_id"]))
-    await handle_evolution_scene_step(db, second)
+    second_result = await handle_evolution_scene_step(db, second)
+    # The reading completes through the structure stage over the same budget.
+    structure = await db.get(AsyncTask, UUID(second_result["next_task_id"]))
+    await handle_evolution_scene_step(db, structure)
     state = (await reading_status(db, nid, key))["run"]
     assert state["status"] == "completed" and state["completed_scenes"] == 2
-    assert len(calls) == 9 and state["budget_remaining"] == 0
+    assert len(calls) == 11 and state["budget_remaining"] == 0
     scenes = await get_scenes_by_novel(db, nid, status_filter=["draft", "canonical"])
     assert all(
         scene["structure_meta"]["semantic_origin"] == "phase1b_enrichment"
@@ -202,7 +246,7 @@ async def test_prepare_replays_then_budget_continuation_reads_exact_scenes(
     await handle_evolution_scene_step(db, final)
     stored = await PostgresAttemptStore(db, nid).load_run(key)
     assert stored.reading_plan_json["preparation_history"][0]["calls"] == old_calls
-    assert len(calls) == 14 and stored.budget_remaining == 0
+    assert len(calls) == 16 and stored.budget_remaining == 0
     assert (await reading_status(db, nid, key))["run"]["completed_scenes"] == 3
 
     # Recompute an already enriched automatic Scene; its previous semantic
@@ -221,7 +265,7 @@ async def test_prepare_replays_then_budget_continuation_reads_exact_scenes(
     )
     queued_task = await db.get(AsyncTask, UUID(recomputed["task_id"]))
     await handle_evolution_scene_step(db, queued_task)
-    assert len(calls) == 18
+    assert len(calls) == 20
     assert (await reading_status(db, nid, recomputed["run_key"]))["run"][
         "completed_scenes"
     ] == 3
@@ -377,7 +421,7 @@ async def test_bootstrap_reuses_existing_scenes_and_prepares_only_missing_tail(
     await seed(db, nid, 2, "雨停了，他再次出门。", scene=False)
     calls = []
     monkeypatch.setattr(OpenAIProvider, "generate", provider_stub(db, calls))
-    _, run = await start(db, nid, 7, end_chapter=2)
+    _, run = await start(db, nid, 9, end_chapter=2)
     task = await db.get(AsyncTask, UUID(run["task_id"]))
     result = await handle_evolution_scene_step(db, task)
     assert (
@@ -397,7 +441,7 @@ async def test_bootstrap_reuses_existing_scenes_and_prepares_only_missing_tail(
         result = await handle_evolution_scene_step(db, task)
     stored = await PostgresAttemptStore(db, nid).load_run(run["run_key"])
     assert [step["scene_index"] for step in stored.reading_plan_json["steps"]] == [0, 1]
-    assert len(calls) == 7 and stored.budget_remaining == 0
+    assert len(calls) == 9 and stored.budget_remaining == 0
 
 
 @pytest.mark.parametrize(

@@ -25,6 +25,24 @@ c4e9a7ba1（分支 codex/v4-phase3-wip），fixpack 两个 commit 拆为独立�
 仅创建 PR，未合并、未部署；合并仍需用户授权。原「未提交、推送」表述自此作废，
 其余快照记录（缺陷清单、费用、验证口径）仍有效。
 
+## 2026-09-23 修复批（#167 转正）
+
+用户指令「修复所有问题并pr」后修复 #167 全部已知缺陷：①`_plan`/`_plan_recompute`/
+`start_reading` 产出并保留 `structure_version`（新 run=1、append 继承、旧计划 0）与
+已持久化 `structure` 阶段，结构阶段正式接入默认链路；②Story 纯端口剥离 model 钉值，
+结构请求由冻结模型连接解析默认；③摘要超 4000 字复核失败关闭（reason
+`summary_exceeds_review_window`）；④能力绑定补 `evolution/structure.py` 与
+`imports.structure_analysis`；⑤ReadingFlow 接入结构状态与文案（含费用说明）。
+架构文档同步 22_evolution.md/README/审计文档修复批注；CLAUDE/development/testing/
+maintenance 四份指针或通用指南核对无过时，按 no-change-reason 通道声明。
+
+验证：modules/evolution 222 通过（新增 structure_response 共享桩与结构阶段回归）；
+story/outline_state 8 通过（新增 model 未钉与超长摘要失败关闭回归）；后端 fast 全层
+6251 passed/15 skipped，18 失败全部在本机既有基线集（world generation center/governance，
+v4-audit-verification.json 已载明，非本批引入）；前端 203 文件/2587 通过、eslint 清洁；
+ruff check 清洁；prompt-contracts 24 通过（含新绑定）；docs-check 带 no-change-reason
+通过（base origin/codex/v4-audit-fixpack-2）。#167 已转正 ready；合并与部署仍需用户授权。
+
 
 
 # NovelCraft V4 长期计划实施

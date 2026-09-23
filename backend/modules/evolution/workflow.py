@@ -102,6 +102,7 @@ async def _plan(db, novel_id, request):
             "state_review_version": run.reading_plan_json.get("state_review_version", 0),
             "enrichment_version": run.reading_plan_json.get("enrichment_version", 0),
             "world_version": run.reading_plan_json.get("world_version", 0),
+            "structure_version": run.reading_plan_json.get("structure_version", 0),
             "request": request.model_dump(
                 mode="json", exclude={"expected_fingerprint", "authorization_confirmed"}
             ),
@@ -139,6 +140,7 @@ async def _plan(db, novel_id, request):
         "state_review_version": previous.get("state_review_version", 0) if run else 1,
         "enrichment_version": previous.get("enrichment_version", 0) if run else 1,
         "world_version": previous.get("world_version", 0) if run else 2,
+        "structure_version": previous.get("structure_version", 0) if run else 1,
         "request": request.model_dump(
             mode="json", exclude={"expected_fingerprint", "authorization_confirmed"}
         ),
@@ -289,6 +291,7 @@ async def _plan_recompute(db, novel_id, request, run, store):
         "state_review_version": 1,
         "enrichment_version": 1,
         "world_version": 2,
+        "structure_version": 1,
         "request": request.model_dump(
             mode="json", exclude={"expected_fingerprint", "authorization_confirmed"}
         ),
@@ -524,6 +527,7 @@ async def start_reading(db, novel_id, request):
         "state_review_version": plan["state_review_version"],
         "enrichment_version": plan["enrichment_version"],
         "world_version": plan["world_version"],
+        "structure_version": plan.get("structure_version", 0),
         "preparation_history": [
             *previous.get("preparation_history", []),
             *(
@@ -545,6 +549,9 @@ async def start_reading(db, novel_id, request):
             else {}
         ),
         **({"preparation": plan["preparation"]} if plan.get("preparation") else {}),
+        # The persisted structure stage survives re authorization; batches over the
+        # already-committed prefix must not restart or silently drop on rebuild.
+        **({"structure": previous["structure"]} if previous.get("structure") else {}),
         "segments": [
             *segments,
             {

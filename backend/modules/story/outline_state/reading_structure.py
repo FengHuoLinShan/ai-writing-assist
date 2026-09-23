@@ -3,6 +3,7 @@
 import json
 from uuid import UUID
 
+from infrastructure.llm.schemas import LLMCallRequest
 from modules.story.outline_state.generation.context_builder import PlotStructureContext
 from modules.story.outline_state.generation.models import (
     SimpleStructureOutput,
@@ -20,6 +21,16 @@ from modules.story.outline_state.generation.parser import (
 )
 
 
+def _unpinned(request):
+    """Drop the builder's model slot so the run's frozen snapshot owns the model.
+
+    resolve_request_defaults only backfills the frozen default when the request
+    leaves ``model`` unset; the deep-import builders pin whatever string they were
+    given, so passing "" through would override the frozen connection.
+    """
+    return LLMCallRequest.model_validate(request.model_dump(exclude={"model"}))
+
+
 def build_structure_request(scene_cards, world_context):
     context = PlotStructureContext(
         markdown=json.dumps(world_context, ensure_ascii=False), scenes=scene_cards
@@ -32,7 +43,7 @@ def build_structure_request(scene_cards, world_context):
         max(item["end_chapter"] for item in scene_cards),
         scene_cards,
     )
-    return request, SimpleStructureOutput
+    return _unpinned(request), SimpleStructureOutput
 
 
 def prepare_structure_review(raw, scene_cards):
@@ -43,7 +54,9 @@ def prepare_structure_review(raw, scene_cards):
     _, units, _ = _prepare_structure_evidence(output, scenes)
     return [
         (
-            _phase3_evidence_request(model="", batch=batch, high_quality=False),
+            _unpinned(
+                _phase3_evidence_request(model="", batch=batch, high_quality=False)
+            ),
             StructureEvidenceReviewOutput,
         )
         for batch in _phase3_evidence_batches(units)
