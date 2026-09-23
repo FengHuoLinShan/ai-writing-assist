@@ -1,0 +1,17 @@
+{
+  "at": "2026-09-22T11:11:59.553297+00:00",
+  "provider": "deepseek",
+  "before_model": "deepseek-v4-flash",
+  "after_model": "deepseek-flash",
+  "runtime_model": "deepseek-flash",
+  "preserved_parameters": [
+    "timeout",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "extra",
+    "creative_mode"
+  ],
+  "authority": "User requested default model alignment to latest V4.1 Flash",
+  "paid_requests": 0
+}

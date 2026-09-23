@@ -72,7 +72,7 @@ async function changeEngine(engine) {
   const stop = engine === "read_only"
   const message = stop
     ? "暂停当前作品的自动理解？已完成结果与费用记录会保留。"
-    : "为当前作品启用逐场景理解试用？没有场景时会先准备边界，并计入本次调用额度。切换后，旧的完整和分阶段整理不能继续，世界资料会保留候选供核对采用，剧情结构的完整整理尚未接入新流程。已保存正文与历史保留，可暂停自动理解后继续写作。"
+    : "为当前作品启用逐场景理解试用？没有场景时会先准备边界，并计入本次调用额度。切换后，旧的完整和分阶段整理不能继续，世界资料会保留候选供核对采用，剧情结构候选经独立复核后进入故事大纲草稿，采用时会重新校验原文。已保存正文与历史保留，可暂停自动理解后继续写作。"
   if (!await getConfirm()(message)) return
   if (token !== generation) return
   await perform(async current => {
@@ -166,7 +166,7 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer) })
     <p v-if="busy" role="status">正在处理…</p>
     <p v-if="error" role="alert">{{ error }}</p>
     <template v-if="state">
-      <p v-if="run" role="status">{{ statusText }} · {{ run.preparing_scenes ? "准备场景边界" : `${run.completed_scenes} / ${run.total_scenes} 场景` }}</p>
+      <p v-if="run" role="status">{{ statusText }} · {{ run.preparing_scenes ? "准备场景边界" : run.preparing_structure ? "整理剧情结构候选" : `${run.completed_scenes} / ${run.total_scenes} 场景` }}</p>
       <progress v-if="run?.total_scenes" :value="run.completed_scenes" :max="run.total_scenes" aria-label="理解进度" />
       <div class="reading-actions">
         <button class="btn btn-sm" type="button" :disabled="busy" @click="refresh">刷新进度</button>
@@ -177,7 +177,7 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer) })
       <section v-if="run" class="reading-proposals" aria-label="本次世界资料提案">
         <button class="btn btn-sm" type="button" :disabled="busy" @click="loadProposals()">查看世界资料提案</button>
         <template v-if="proposals">
-          <p>这里只回看提案和原文证据。已保存的候选请到世界资料中核对后采用；有疑问的提案可修改正文或从对应场景重新理解。</p>
+          <p>这里只回看提案和原文证据。已保存的候选请到世界资料中核对后采用；剧情结构候选完成后进入故事大纲草稿，采用时会重新校验理解来源。有疑问的提案可修改正文或从对应场景重新理解。</p>
           <p v-if="!proposals.items.length">本页暂未产生世界资料提案。</p>
           <details v-for="(item, index) in proposals.items" :key="`${item.scene_index}-${index}`">
             <summary>第 {{ item.scene_index + 1 }} 场 · {{ item.stale ? "历史或尚未提交" : item.review_status === "passed" ? "候选待采用" : "仍需核对" }}</summary>
@@ -228,9 +228,9 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer) })
         <button class="btn" type="submit" :disabled="busy || !!pending || ((run?.status === 'failed' || recomputeCompleted) && scopeKind !== 'scene' && !targetId)">查看理解范围</button>
         <div v-if="preview" class="reading-confirmation">
           <p v-if="preview.recompute_target">核对目标：{{ preview.recompute_target.label }}。以它最早出现的场景定位，重新读取该场及依赖它的后续场景。</p>
-          <p v-if="preview.scene_count === null">先准备场景边界，完成后逐场景理解。边界准备、必要修复、理解和独立复核共同使用最多 {{ preview.request_limit }} 次模型调用；额度用完会暂停，不自动追加。</p>
+          <p v-if="preview.scene_count === null">先准备场景边界，完成后逐场景理解。边界准备、必要修复、理解、独立复核和剧情结构整理共同使用最多 {{ preview.request_limit }} 次模型调用；额度用完会暂停，不自动追加。</p>
           <p v-else-if="Number.isInteger(preview.recompute_from_scene_index)">保留前 {{ preview.inherited_scene_count }} 场已核实的理解，从第 {{ preview.recompute_from_scene_index + 1 }} 场起重新核对后续场景；最多调用模型 {{ preview.request_limit }} 次。旧结果与费用记录保留。<template v-if="preview.expanded_scope">前面的来源或场景已变化，范围已向前扩大。</template></p>
-          <p v-else>本次{{ preview.request.mode === 'continue' ? "继续读取" : "读取" }} {{ preview.scene_count }} 个场景，理解与独立复核合计最多调用模型 {{ preview.request_limit }} 次。理解结果可追溯来源，冲突留待确认；不会改写正文或覆盖作者确认。</p>
+          <p v-else>本次{{ preview.request.mode === 'continue' ? "继续读取" : "读取" }} {{ preview.scene_count }} 个场景，理解、独立复核与剧情结构整理合计最多调用模型 {{ preview.request_limit }} 次。理解结果可追溯来源，冲突留待确认；不会改写正文或覆盖作者确认。</p>
           <p>本次使用模型：{{ preview.model }}</p>
           <button class="btn btn-primary" type="button" :disabled="busy" @click="start">{{ pending ? "确认启动结果" : "确认并开始理解" }}</button>
         </div>

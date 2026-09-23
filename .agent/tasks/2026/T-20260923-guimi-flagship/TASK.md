@@ -3,7 +3,7 @@ id: T-20260923-guimi-flagship
 title: 现有 guimi 旗舰演示增量升级
 status: active
 created: 2026-09-23T02:57:27+08:00
-updated: 2026-09-24T06:46:00+08:00
+updated: 2026-09-24T07:03:00+08:00
 ---
 
 ## 目标与验收
@@ -198,3 +198,11 @@ RP开局目录已实现但未完成原项目数据与UI验收：新增models.Int
 - 当前分支同本机12个实验开关全开的 `make test-ci` 后端有44失败；干净 `origin/main` 使用相同.env和依赖有38个同失败。6个本分支新增失败已定位修正（RP opening route项目门禁、Evolution显式输出预算清单、World image_version mock、旧助手map schema兼容），定向34/34且Ruff通过。默认关闭实验开关的完整 `make test-ci` 正在跑，私有日志 `evolution-60/current-clean-config-ci.log`。不要把38个共同配置失败藏成绿色。
 - 线上只读对照：生产guimi与本地动工前备份在113/114个已有项目表全字段（排时间戳）digest一致；唯一差异为两条assistant_runs的owner_id，生产owner是真实账户，本地为零UUID；生产另有11个项目/9账户。基线恢复到隔离本地库 `ai_novel_compare_production_baseline_20260924`。生产当前固定commit `b5a3ef2e660ddaa65b9bf0ac1ada48f795c53201`，15/15检查的演示及作者功能开关已开；上线只能在代码并入main后按release.sh固定SHA发布，随后做按项目增量数据/对象存储同步，绝不整库替换。当前本地相对基线已有34个项目表内容变化、新增4表及新迁移；细目见私有 `evolution-60/current-project-hashes.json`。尚无远端写入。
 - 下一步：等待重算结束并检查66/66跨run回执与原文保护；收完整CI并解决新失败；更新Evolution验收文档参数/失败账本；提交分支、同最新main整合复测与PR评审；备份生产并做guimi项目级同步演练/校验、固定SHA发布与线上浏览器代理验收。并行可只读准备数据迁移方案，勿触碰生产其他项目或账户。
+
+## 2026-09-24 07:03 续接检查点（以此为准）
+
+- 运行检出固定提交 `7450ca0f5`（原 `codex/guimi-flagship`），前一轮默认配置 `make test-ci`：后端6300通过/15跳过、覆盖86.10%，前端2593通过，Ruff/部署测试/依赖审计通过。12个实验开关全开时的38个共同基线失败单列，不冒充全开绿色。
+- 独立整合检出 `/Users/tywww/.codex/worktrees/guimi-flagship-integration/ai-writing-assist`，分支 `codex/guimi-flagship-integration`，已 `merge --no-commit origin/main=d70528b5b` 并解27处冲突；保留主干Phase3结构阶段修复和本轮DS调参/来源隔离/地图/Scene视觉。尚未提交merge。该整合结果默认配置 `make test-ci` 后端6303通过/15跳过、覆盖86.11%，前端2594通过，其他门禁通过；仍需 `docs-check BASE_REF=origin/main` 的治理文档核对说明、差异审查、merge commit/PR。
+- 原运行检出与付费worker未切换，`evolution-follow.py` 会话10792仍串行处理 run `reading-49d85219-1dee-4cac-975b-8668b0e57e21`；最后见 tail-07 已done，累计保守费用 USD7.0932693，账本正常。不可在运行检出改执行代码或二次领同任务。当前后缀未到66/66，暂不可称最终演化完成。
+- 生产同步设计预检：本地初始备份对线上同项目114个已有表中113完全一致、唯一assistant_runs owner差异；线上其他11项目/9账户须保留。本地当前37个项目表相对基线变化（运行中会继续变化），含Scene/World/Story/Atlas/Evolution；有地图与卡片 revision 循环FK，不能盲目表级替换。需要冻结最终源快照，先把迁移在隔离库演练，再线上备份、项目级upsert/受控删除过期Scene span并校验媒体对象和原文哈希。生产至今只读，未发布或迁移。
+- 下一步：在整合检出完成docs/差异审查和merge commit、推PR并审查；继续监控旧检出重算；制作项目级同步工具与恢复演练，全部完成后再按main固定SHA发布并对线上正常账户/匿名代理验收。

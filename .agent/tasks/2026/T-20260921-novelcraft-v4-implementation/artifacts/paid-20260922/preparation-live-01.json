@@ -1,0 +1,97 @@
+{
+  "mode": "paid_default",
+  "started_at": "2026-09-22T13:40:42.826346+00:00",
+  "novel_id": "133190ab-82df-489f-8ae1-2da35f196f91",
+  "database": "ai_novel_agent_e2e_v4_live_20260922",
+  "provider": "deepseek",
+  "model": "deepseek-flash",
+  "scenario": "preparation",
+  "stage": "failed",
+  "worker_tasks": [
+    {
+      "task_id": "e60e81ce-243c-4ed8-a8ee-ee2cf5e829d9",
+      "type": "evolution_scene_step_v2",
+      "status": "failed",
+      "result": {
+        "recovery_required": true,
+        "recoverable": true,
+        "lifecycle": {
+          "reason": "handler_error",
+          "error_code": "task_failed",
+          "recovery_policy": "manual_resume",
+          "recovery_required": true,
+          "transitions": [
+            {
+              "at": "2026-09-22T13:40:55.738872+00:00",
+              "from": "running",
+              "to": "failed",
+              "reason": "handler_error",
+              "error_code": "task_failed",
+              "attempt": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "task_id": "e60e81ce-243c-4ed8-a8ee-ee2cf5e829d9",
+      "type": "evolution_scene_step_v2",
+      "status": "done",
+      "result": {
+        "run_key": "reading-7389fede-e4c2-442d-95c8-ae76d983b7a8",
+        "next_task_id": "f729cf34-0655-4a8e-80ac-7ea842a22b2a",
+        "reading_complete": false
+      }
+    },
+    {
+      "task_id": "f729cf34-0655-4a8e-80ac-7ea842a22b2a",
+      "type": "evolution_scene_step_v2",
+      "status": "done",
+      "result": {
+        "run_key": "reading-7389fede-e4c2-442d-95c8-ae76d983b7a8",
+        "attempt_id": "6e346899f8ce4109838971e28b6cdd1c",
+        "committed_prefix": {
+          "through_scene_index": 0,
+          "through_source_revision": 1
+        },
+        "observation_ids": [
+          "180213d7df1b906a90465682abcd371fbb209ad68403abdf24cac0121b1b6368",
+          "54772672b330b9cf801191bc48151b0d7307de0a9050c3ab0e8278a8978e92cd",
+          "d320faa4237d83ea1cc007e2dab1abc50703dc5eef6a223669134132c80aa5c7"
+        ],
+        "identity_outcomes": {
+          "new_candidate": 5
+        },
+        "gated_scene_events": 2,
+        "next_task_id": "3a203397-c903-4c8e-a4ad-f2a9cb0e624d",
+        "reading_complete": false
+      }
+    },
+    {
+      "task_id": "3a203397-c903-4c8e-a4ad-f2a9cb0e624d",
+      "type": "evolution_scene_step_v2",
+      "status": "failed",
+      "result": {
+        "recovery_required": true,
+        "recoverable": true,
+        "lifecycle": {
+          "reason": "handler_error",
+          "error_code": "task_failed",
+          "recovery_policy": "manual_resume",
+          "recovery_required": true,
+          "transitions": [
+            {
+              "at": "2026-09-22T13:41:21.336232+00:00",
+              "from": "running",
+              "to": "failed",
+              "reason": "handler_error",
+              "error_code": "task_failed",
+              "attempt": 1
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "error_type": "RuntimeError"
+}

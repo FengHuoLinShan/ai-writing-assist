@@ -284,7 +284,9 @@ async def materialize(
             if not scene.chapter_ids:
                 understanding_boundary_known = False
             else:
-                first_chapter = min(scene.chapter_ids)
+                # chapter_ids are stringified indices; compare numerically so a
+                # focus Scene can only tighten, never break, the chapter cutoff.
+                first_chapter = min(int(value) for value in scene.chapter_ids)
                 chapter_index = (
                     min(chapter_index, first_chapter) if chapter_index else first_chapter
                 )

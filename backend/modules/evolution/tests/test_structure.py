@@ -32,6 +32,7 @@ async def test_structure_frozen_calls_and_drafts_share_the_reading_owner(
 
     async def provider(self, request):
         assert not db.in_transaction()
+        assert request.model, "structure calls must run on the frozen model default"
         schema = json.loads(request.messages[-1].content.split("schema: ", 1)[1])["title"]
         prompt = next(item.content for item in request.messages if item.role == "user")
         calls.append(schema)

@@ -399,3 +399,33 @@ async def test_declined_direction_survives_read_and_rewording_without_hiding_the
         direction.direction_id
         for direction in service.candidate_view(newer, notice).directions
     ] == ["leave"]
+
+
+async def test_scene_focus_chapter_ids_compare_numerically_as_stored_strings(
+    db_session, test_project_id
+):
+    """Production scenes store chapter ids as strings; the cutoff stays numeric."""
+    from modules.story.outline_state.models import Scene
+
+    db, nid = db_session, test_project_id
+    draft = await create_draft_only(db, nid, 2, content="林舟继续等候。")
+    scene = Scene(
+        novel_id=UUID(nid),
+        scene_index=0,
+        chapter_ids=["3"],
+        scene_chunks=[],
+        status="draft",
+    )
+    db.add(scene)
+    await db.flush()
+    focus = FocusRequest.model_validate(
+        {
+            "client_context_id": uuid4(),
+            "focus_seq": 0,
+            "page": "writing",
+            "draft_id": draft.id,
+            "scene_id": scene.id,
+        }
+    )
+    context = await materialize(db, nid, focus)
+    assert context.sources

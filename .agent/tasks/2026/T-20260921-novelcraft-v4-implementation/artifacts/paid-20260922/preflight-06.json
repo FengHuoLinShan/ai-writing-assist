@@ -1,0 +1,10 @@
+{
+  "mode": "synthetic_native_preflight",
+  "started_at": "2026-09-22T11:50:36.551281+00:00",
+  "novel_id": "b943e662-d11f-475a-bf4b-230db43b7e71",
+  "database": "ai_novel_agent_e2e_v4_live_20260922",
+  "provider": "deepseek",
+  "model": "deepseek-flash",
+  "stage": "finished",
+  "preflight_passed": true
+}

@@ -1,0 +1,30 @@
+{
+  "scope": "Original failed second Scene repaired through a new author-confirmed scoped_recompute run in the dedicated live probe database",
+  "formal_acceptance": false,
+  "original_failure_preserved": true,
+  "preflight": "repair-preflight-02.json",
+  "paid_probe_report": "repair-live-01.json",
+  "independent_postcheck": "repair-live-01-postcheck.json",
+  "transport_sequence": 85,
+  "new_estimated_usd": 0.0013395,
+  "new_peak_no_cache_upper_usd": 0.002679,
+  "cumulative_calls": 85,
+  "cumulative_estimated_usd": 0.235453932,
+  "cumulative_peak_no_cache_upper_usd": 0.4840038,
+  "semantic_review": {
+    "source_excerpt": "他没有说明这三日的行程，也没有提起封锁。",
+    "old_invalid_quote": "他没有提起封锁",
+    "new_exact_quote": "也没有提起封锁",
+    "exact_quote_present": true,
+    "predicate_subject_is_interpretive": "他也没有提起封锁",
+    "unknown_preserved": [
+      "三日行程和路线",
+      "封锁来源及真伪",
+      "渡口与白石城空间关系"
+    ],
+    "limit": "One short synthetic story and one model completion; no long-form or real-author quality conclusion",
+    "state_write": "Model proposed entity_moved from appearance at the ferry, but the subject was unresolved; host gated it with subject_unresolved_in_evidence and subject_required. No Story location state was applied in this case.",
+    "remaining_risk": "This repair validates the quote and mixed-run lineage, not resolved-entity location application or route inference."
+  },
+  "report_correction": "Paid report stage failed only because the temporary probe accessed an expired ORM task after rollback; the worker was done. No paid retry followed."
+}

@@ -1,0 +1,32 @@
+{
+  "acceptance_type": "代理验收，非人工试用",
+  "source_report": "world-live-20260923.json",
+  "engineering_result": "two_scene_worker_sequence_completed_9_calls_all_costs_known",
+  "findings": [
+    {
+      "severity": "info",
+      "finding": "林舟为character candidate，青竹为other candidate且置信0.55；不能将二者都称为已确认人物。人物/关系/别名均未采用正史。"
+    },
+    {
+      "severity": "info",
+      "finding": "第二场世界复核正确指出通称渡口身份未定、刻意回避动机无据、未被告知改变否定方向等问题；该场世界候选没有入库。"
+    },
+    {
+      "severity": "major",
+      "finding": "状态独立复核把无moved_from的entity_moved兼容类型误解为必须证明位移，拒绝了原文明确支持的在场。已补具体事件契约，待定向真实复核。"
+    },
+    {
+      "severity": "minor",
+      "finding": "采样器时间提案使用未注册time_elapsed且绑定未被时间引文提及的主体。已给schema事件名枚举与timeline_changed/text_state/null主体指令，未重写原冻结结果。"
+    },
+    {
+      "severity": "info",
+      "finding": "第一场新对象尚无正式身份时的状态事件留待决定；本用例不证明首场工作状态已完整物化。"
+    }
+  ],
+  "limits": [
+    "短合成故事不是长篇质量或长期作者试用",
+    "人物类别、通称地点、相对时间与在场语义仍需分别核对",
+    "保留所有原始失败/阻断，不把completed视为全部语义通过"
+  ]
+}

@@ -11,7 +11,7 @@ from infrastructure.llm.schemas import LLMCallResponse, LLMMessage, LLMUsage
 from infrastructure.tasks.models import AsyncTask
 from modules.evolution.store import PostgresAttemptStore
 from modules.evolution.tasks import handle_evolution_scene_step
-from modules.evolution.tests.test_workflow import request_start, seed
+from modules.evolution.tests.test_workflow import request_start, seed, structure_response
 from modules.evolution.workflow import start_reading
 from modules.world.models import CoreEntity, EntityRelation
 
@@ -25,6 +25,8 @@ def world_provider(db, calls, *, blocked=False):
         schema = json.loads(request.messages[-1].content.split("schema: ", 1)[1])["title"]
         prompt = next(item.content for item in request.messages if item.role == "user")
         calls.append((schema, prompt))
+        if response := structure_response(request):
+            return response
         if schema == "SceneSample":
             result = {
                 "observations": [
@@ -216,7 +218,7 @@ async def test_world_budget_pause_only_sends_unfinished_calls(
             await request_start(
                 db,
                 nid,
-                request_limit=2,
+                request_limit=4,
                 end_chapter=1,
                 mode="continue",
                 run_key=run["run_key"],
@@ -226,12 +228,18 @@ async def test_world_budget_pause_only_sends_unfinished_calls(
     result = await handle_evolution_scene_step(
         db, await db.get(AsyncTask, UUID(continued["task_id"]))
     )
-    assert result["reading_complete"] and result["attempt_id"] == frozen.attempt_id
+    assert not result["reading_complete"] and result["attempt_id"] == frozen.attempt_id
+    # The remaining budget finishes the reading through the structure stage.
+    structure = await db.get(AsyncTask, UUID(result["next_task_id"]))
+    result = await handle_evolution_scene_step(db, structure)
+    assert result["reading_complete"]
     assert [schema for schema, _ in calls] == [
         "SceneSample",
         "Phase2aSceneExtractionOutput",
         "AliasRelationExtractionOutput",
         "AuditVerdictOutput",
+        "SimpleStructureOutput",
+        "StructureEvidenceReviewOutput",
     ]
     assert (await store.load_run(run["run_key"])).budget_remaining == 0
 
@@ -759,6 +767,9 @@ async def test_relation_history_uses_real_prefix_and_not_mutated_world_rows(
     task = await db.get(AsyncTask, UUID(first["next_task_id"]))
     result = await handle_evolution_scene_step(db, task)
     task.status = "done"
+    # Settle the queued structure stage so the scoped recompute can take over.
+    structure = await db.get(AsyncTask, UUID(result["next_task_id"]))
+    structure.status = "done"
     await db.commit()
     store = PostgresAttemptStore(db, nid)
     frozen = await store.load_frozen(run["run_key"], result["attempt_id"])

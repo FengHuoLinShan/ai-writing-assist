@@ -36,6 +36,60 @@ def empty_world_response(prompt):
     return None
 
 
+def structure_response(prompt):
+    """One fully-supported plot thread through the structure generate/review pair."""
+    schema = json.loads(prompt.messages[-1].content.split("schema: ", 1)[1])["title"]
+    usage = LLMUsage(prompt_tokens=10, completion_tokens=10, total_tokens=20)
+    if schema == "SimpleStructureOutput":
+        cards = json.loads(
+            next(
+                message.content
+                for message in prompt.messages
+                if message.role == "user" and "【Scene卡片 JSON】" in message.content
+            )
+            .split("【Scene卡片 JSON】\n", 1)[1]
+            .split("\n\n", 1)[0]
+        )
+        return LLMCallResponse(
+            content=json.dumps(
+                {
+                    "plot_threads": [
+                        {
+                            "title": "主线",
+                            "summary": "主角推进当前目标。",
+                            "confidence": 0.95,
+                            "supporting_scene_ids": [item["scene_id"] for item in cards],
+                        }
+                    ]
+                }
+            ),
+            finish_reason="stop",
+            usage=usage,
+        )
+    if schema == "StructureEvidenceReviewOutput":
+        units = json.loads(
+            next(message.content for message in prompt.messages if message.role == "user")
+        )["review_items"]
+        return LLMCallResponse(
+            content=json.dumps(
+                {
+                    "reviews": [
+                        {
+                            "candidate_id": item["candidate_id"],
+                            "verdict": "supported",
+                            "confidence": 0.96,
+                            "evidence": [{"quote": item["scene_text"]}],
+                        }
+                        for item in units
+                    ]
+                }
+            ),
+            finish_reason="stop",
+            usage=usage,
+        )
+    return None
+
+
 @pytest.mark.parametrize("kind", ["entity", "observation"])
 async def test_targeted_scope_uses_original_receipts_and_preserves_prefix(
     db_session, evolution_project_id, account_llm_connection, monkeypatch, kind
@@ -61,7 +115,9 @@ async def test_targeted_scope_uses_original_receipts_and_preserves_prefix(
         if response := empty_world_response(prompt):
             return response
         calls.append(prompt)
-        text = texts[[0, 1, 2, 1, 2][len(calls) - 1]]
+        if response := structure_response(prompt):
+            return response
+        text = texts[[0, 1, 2, 2, 2, 1, 2][len(calls) - 1]]
         return LLMCallResponse(
             content=json.dumps(
                 {
@@ -93,6 +149,12 @@ async def test_targeted_scope_uses_original_receipts_and_preserves_prefix(
         task.status = "done"
         task_id = result.get("next_task_id")
         await db.commit()
+    # The Scene prefix alone is not completion; settle the structure stage so the
+    # scoped recompute below is not blocked by a still-running old task.
+    structure_task = await db.get(AsyncTask, UUID(task_id))
+    await handle_evolution_scene_step(db, structure_task)
+    structure_task.status = "done"
+    await db.commit()
     targets = await reading_targets(
         db, nid, original["run_key"], kind=kind, query="林舟", limit=1
     )
@@ -118,7 +180,7 @@ async def test_targeted_scope_uses_original_receipts_and_preserves_prefix(
     preview = await preview_reading(db, nid, request)
     assert preview["inherited_scene_count"] == 1
     assert preview["recompute_target"] == selected
-    assert len(calls) == 3  # Searching and previewing never call the model.
+    assert len(calls) == 5  # Searching and previewing never call the model.
     invalid = {f"{kind}_id": uuid4() if kind == "entity" else "0" * 64}
     with pytest.raises(ConflictError, match="不在本次"):
         await request_start(
@@ -141,7 +203,7 @@ async def test_targeted_scope_uses_original_receipts_and_preserves_prefix(
         task.status = "done"
         task_id = result.get("next_task_id")
         await db.commit()
-    assert len(calls) == 5
+    assert len(calls) == 7
     store = PostgresAttemptStore(db, nid)
     pairs = await store.load_committed_pairs(updated["run_key"])
     assert [receipt.run_key for receipt, _ in pairs] == [
@@ -215,7 +277,11 @@ async def test_reading_entry_sequences_replays_and_appends_without_resampling(
             message.content for message in prompt.messages if message.role == "user"
         )
         calls.append(user)
-        text = ["天亮了。", "下雨了。", "风停了。"][len(calls) - 1]
+        if response := structure_response(prompt):
+            return response
+        text = ["天亮了。", "下雨了。", "风停了。", "风停了。", "风停了。"][
+            len(calls) - 1
+        ]
         return LLMCallResponse(
             content=json.dumps(
                 {
@@ -260,8 +326,12 @@ async def test_reading_entry_sequences_replays_and_appends_without_resampling(
     assert replay["next_task_id"] == first_result["next_task_id"]
     second = await db.get(AsyncTask, UUID(replay["next_task_id"]))
     assert second.meta["source_revisions"]
-    assert (await handle_evolution_scene_step(db, second))["reading_complete"]
-    assert len(calls) == 2 and "天亮了。" in calls[1]
+    # The Scene prefix alone is not completion: the structure stage follows.
+    second_result = await handle_evolution_scene_step(db, second)
+    assert not second_result["reading_complete"]
+    structure = await db.get(AsyncTask, UUID(second_result["next_task_id"]))
+    assert (await handle_evolution_scene_step(db, structure))["reading_complete"]
+    assert len(calls) == 4 and "天亮了。" in calls[1]
     assert (await reading_status(db, nid, key))["run"]["status"] == "completed"
     await seed(db, nid, 3, "风停了。")
     append = await request_start(db, nid, mode="append", run_key=key, end_chapter=3)
@@ -270,9 +340,14 @@ async def test_reading_entry_sequences_replays_and_appends_without_resampling(
     assert (await start_reading(db, nid, append))["run"]["budget_total"] == 20
     third = await db.get(AsyncTask, UUID(next_run["task_id"]))
     await handle_evolution_scene_step(db, third)
-    assert len(calls) == 3 and "下雨了。" in calls[-1]
+    assert len(calls) == 5 and "下雨了。" in calls[-1]
     run = await PostgresAttemptStore(db, nid).load_run(key)
-    assert run.mode == "bootstrap" and run.budget_remaining == 14
+    assert run.mode == "bootstrap" and run.budget_remaining == 12
+    # The re-authorization rebuild keeps the completed structure stage and its
+    # batches instead of silently restarting or dropping them.
+    assert run.reading_plan_json["structure_version"] == 1
+    assert run.reading_plan_json["structure"]["complete"]
+    assert len(run.reading_plan_json["structure"]["batches"]) == 1
     assert len(run.reading_plan_json["segments"]) == 2
 
 
@@ -291,10 +366,14 @@ async def test_scoped_recompute_inherits_real_prefix_after_invalid_quote(
         if response := empty_world_response(prompt):
             return response
         calls.append(prompt)
+        if response := structure_response(prompt):
+            return response
         quote = [
             "天亮了。",
             "他没有提起封锁。",
             "也没有提起封锁。",
+            "风停了。",
+            "风停了。",
             "风停了。",
         ][len(calls) - 1]
         return LLMCallResponse(
@@ -341,8 +420,11 @@ async def test_scoped_recompute_inherits_real_prefix_after_invalid_quote(
     assert (await start_reading(db, nid, repair))["run"]["task_id"] == new["task_id"]
     assert len(calls) == 2
     repaired_task = await db.get(AsyncTask, UUID(new["task_id"]))
-    await handle_evolution_scene_step(db, repaired_task)
+    repaired = await handle_evolution_scene_step(db, repaired_task)
     assert len(calls) == 3
+    structure_task = await db.get(AsyncTask, UUID(repaired["next_task_id"]))
+    await handle_evolution_scene_step(db, structure_task)
+    assert len(calls) == 5
     assert (await reading_status(db, nid, new["run_key"]))["run"]["status"] == "completed"
     observations, coverage = await store.load_prior_observations(new["run_key"])
     assert [item["scene_index"] for item in observations] == [0, 1]
@@ -369,7 +451,7 @@ async def test_scoped_recompute_inherits_real_prefix_after_invalid_quote(
     )
     next_task_id = (await start_reading(db, nid, appended))["run"]["task_id"]
     await handle_evolution_scene_step(db, await db.get(AsyncTask, UUID(next_task_id)))
-    assert len(calls) == 4
+    assert len(calls) == 6
     observations, _ = await store.load_prior_observations(new["run_key"])
     assert [item["scene_index"] for item in observations] == [0, 1, 2]
     await create_draft_only(db, nid, 1, "第一章", "天黑了。")
@@ -414,7 +496,9 @@ async def test_revise_keeps_unchanged_prefix_and_rejects_unfinished_old_task(
     first = await db.get(AsyncTask, UUID(old["task_id"]))
     first_result = await handle_evolution_scene_step(db, first)
     second = await db.get(AsyncTask, UUID(first_result["next_task_id"]))
-    await handle_evolution_scene_step(db, second)
+    second_result = await handle_evolution_scene_step(db, second)
+    # The run's latest task after the Scene prefix is the structure stage.
+    structure = await db.get(AsyncTask, UUID(second_result["next_task_id"]))
     await create_draft_only(db, nid, 2, "第二章", "风停了。")
     await db.commit()
     assert (
@@ -426,11 +510,11 @@ async def test_revise_keeps_unchanged_prefix_and_rejects_unfinished_old_task(
     preview = await preview_reading(db, nid, revise)
     assert preview["inherited_scene_count"] == 1
     assert preview["recompute_from_scene_index"] == 1
-    second.status = "running"
+    structure.status = "running"
     await db.commit()
     with pytest.raises(ConflictError, match="原理解任务仍在运行"):
         await start_reading(db, nid, revise)
-    second.status = "done"
+    structure.status = "done"
     await db.commit()
     new = (await start_reading(db, nid, revise))["run"]
     await handle_evolution_scene_step(db, await db.get(AsyncTask, UUID(new["task_id"])))
@@ -486,8 +570,11 @@ async def test_revise_rejects_prefix_superseded_by_another_run(
         db, await db.get(AsyncTask, UUID(a["task_id"]))
     )
     second = await db.get(AsyncTask, UUID(first["next_task_id"]))
-    await handle_evolution_scene_step(db, second)
+    second_result = await handle_evolution_scene_step(db, second)
     second.status = "done"
+    # Settle the queued structure task so the replacement can take over the run.
+    structure = await db.get(AsyncTask, UUID(second_result["next_task_id"]))
+    structure.status = "done"
     await db.commit()
     await create_draft_only(db, nid, 2, "第二章", "风停了。")
     await db.commit()
