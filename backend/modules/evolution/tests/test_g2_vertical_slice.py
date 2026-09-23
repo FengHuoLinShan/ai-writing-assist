@@ -82,6 +82,7 @@ class _DeterministicSampler:
                             "text_state": "白石城",
                         },
                         "source": "evolution",
+                        "source_observation_indices": [0],
                     },
                     {
                         "dimension": "locations",
@@ -92,10 +93,11 @@ class _DeterministicSampler:
                             "text_state": "白石城",
                         },
                         "source": "evolution",
+                        "source_observation_indices": [0],
                     },
                     {
                         # 未获本 Scene 观察解析支持的提议（引用观察未提及的
-                        # 实体）：一致性门应拦下，不取得状态效果。
+                        # 实体且无证据引用）：语义门应拦下，不取得状态效果。
                         "dimension": "entities",
                         "event_type": "manual_correction",
                         "entity_id": "99999999-9999-4999-8999-999999999999",
@@ -127,6 +129,9 @@ class _DeterministicSampler:
                             "knowledge": "青竹保管铜钥匙（保管≠所有权）",
                         },
                         "source": "evolution",
+                        # 角色陈述合法建立认知（谁知道什么），但必须写明主体。
+                        "source_observation_indices": [0],
+                        "knowledge_subject": LINZHOU,
                     }
                 ],
                 "observations": [
@@ -153,6 +158,7 @@ class _DeterministicSampler:
                         "text_state": "渡口",
                     },
                     "source": "evolution",
+                    "source_observation_indices": [0],
                 }
             ],
             "observations": [
@@ -205,9 +211,7 @@ async def _scene(
     return item
 
 
-async def _binding(
-    db: AsyncSession, novel_id: str, chapter: int
-) -> SceneSourceBinding:
+async def _binding(db: AsyncSession, novel_id: str, chapter: int) -> SceneSourceBinding:
     draft = await get_latest_draft_for_chapter(db, novel_id, chapter)
     assert draft is not None, f"chapter {chapter} must have a working draft"
     return SceneSourceBinding(
@@ -298,8 +302,10 @@ async def test_g2_vertical_slice(
     )
     assert step1.input_manifest["previous_scene_attempt_id"] == (step0.receipt_attempt_id)
     assert step0.receipt_attempt_id in str(step1.input_manifest)
-    # 前序实际状态内容（观察摘要）进入输入清单——不靠回执 ID 冒充理解。
-    assert any("铜钥匙" in line for line in step1.input_manifest["previous_observations"])
+    # 前序实际状态内容进入输入清单（A04 结构化观察：谓词+modality+主体），
+    # 不靠回执 ID 冒充理解。
+    prior = step1.input_manifest["previous_observations"]
+    assert any("铜钥匙" in str(item.get("predicate", "")) for item in prior)
 
     # ---- 3. 新 case 消费同一合法状态：章节重放含 custody 知识 ----
     replay = await MemoryService().replay_state(db, nid, 2)

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { enableAutoUnmount, mount } from "@vue/test-utils"
 import { defineComponent, h, nextTick } from "vue"
 import { useModalDialog } from "../../../vue/composables/useModalDialog.js"
+import { installOverlayEscapeRouter } from "../../../vue/shell/overlayStack.js"
 
 enableAutoUnmount(afterEach)
 
@@ -279,5 +280,59 @@ describe("useModalDialog", () => {
     expect(document.getElementById("toast-container").hasAttribute("inert")).toBe(false)
     wrapper.unmount()
     expect(document.getElementById("app-content").hasAttribute("inert")).toBe(false)
+  })
+
+  describe("Escape routing between stacked dialogs (PR160-162 F7)", () => {
+    beforeEach(() => { installOverlayEscapeRouter() })
+
+    function pressEscapeFrom(element) {
+      const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })
+      element.dispatchEvent(event)
+      return event
+    }
+
+    // 与生产一致的双模态：先开者在下（后注册者为栈顶）。
+    async function mountStacked(upperProps = {}) {
+      const lower = mountInShell()
+      await nextTick()
+      const secondHost = document.createElement("div")
+      lower.host.parentElement.appendChild(secondHost)
+      const upperWrapper = mount(Harness, { attachTo: secondHost, props: { open: true, ...upperProps } })
+      await nextTick()
+      return { lower, upper: { wrapper: upperWrapper } }
+    }
+
+    it("lets an Escape from inside the lower dialog bubble to close only the upper one", async () => {
+      const { lower, upper } = await mountStacked()
+      // 从底层模态内部子元素派发：底层不消费也不拦截，document 栈路由只关上层。
+      const event = pressEscapeFrom(lower.wrapper.get("input").element)
+      expect(event.defaultPrevented).toBe(true)
+      expect(lower.wrapper.emitted("close")).toBeUndefined()
+      expect(upper.wrapper.emitted("close")).toHaveLength(1)
+      await upper.wrapper.setProps({ open: false })
+      await nextTick()
+      // 上层退栈后再按一次（同样从底层内部派发）：这次关底层。
+      pressEscapeFrom(lower.wrapper.get("input").element)
+      expect(lower.wrapper.emitted("close")).toHaveLength(1)
+    })
+
+    it("keeps a nested popover's own Escape consumption ahead of both dialogs", async () => {
+      const { lower, upper } = await mountStacked()
+      const popoverChild = upper.wrapper.get("input").element
+      popoverChild.addEventListener("keydown", (event) => { event.preventDefault(); event.stopPropagation() })
+      const event = pressEscapeFrom(popoverChild)
+      expect(event.defaultPrevented).toBe(true)
+      expect(upper.wrapper.emitted("close")).toBeUndefined()
+      expect(lower.wrapper.emitted("close")).toBeUndefined()
+    })
+
+    it("does not close anything when the top dialog refuses via canClose", async () => {
+      const { lower, upper } = await mountStacked({ canClose: false })
+      const event = pressEscapeFrom(upper.wrapper.get("input").element)
+      expect(event.defaultPrevented).toBe(true)
+      expect(upper.wrapper.emitted("close")).toBeUndefined()
+      // 拒绝关闭的栈顶已消费事件：不得漏给栈路由去关底层或触发底层导航。
+      expect(lower.wrapper.emitted("close")).toBeUndefined()
+    })
   })
 })

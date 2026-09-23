@@ -45,12 +45,16 @@ import { useShellState } from "./composables/useShellState.js"
 import { useTheme } from "./composables/useTheme.js"
 import { useWordcountDashboard } from "./composables/useWordcountDashboard.js"
 import { navDestination, normalizeRpReturnTarget } from "./navigation.js"
+import { installOverlayEscapeRouter } from "./overlayStack.js"
 import { storeDemoCopyIntent } from "../auth/entryMode.js"
 
 const props = defineProps({
   services: { type: Object, required: true },
   healthIntervalMs: { type: Number, default: 30_000 },
 })
+// U01：AppShell 是唯一 overlay 根——安装一次 Escape 栈路由，Escape 只关
+// 最上层已登记 overlay（含 useModalDialog 全部模态与下述 shell 层浮层）。
+installOverlayEscapeRouter()
 const assistantOpen = ref(false)
 const assistantEnabled = ref(false)
 const assistantContext = ref(null)

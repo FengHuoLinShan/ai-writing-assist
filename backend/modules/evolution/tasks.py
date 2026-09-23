@@ -1,12 +1,16 @@
 """演化任务的 async_tasks 挂接（V4 E07.e）。
 
-handler 走真实路径（返修 R2/R4/R6）：
+handler 走真实路径（返修 R2/R4/R6 + 2026-09-22 审查 A02/A08）：
 
 - 来源绑定真实 Writing 草稿：按 ``chapter_index`` 取当前 working 草稿，
-  内容指纹来自数据库而非任务负载声称；提交时再经同一来源重验。
+  内容指纹来自数据库而非任务负载声称；Scene/章映射经 outline_state 权威
+  校验（scene_id 声称的章必须与请求章一致）；提交时再经同一来源重验。
+- Scene 来源区间（A02）：``start_offset``/``end_offset`` 是章稿内码点
+  区间，服务端按权威草稿切片与 scene_text 逐字比对，同一章可分多 Scene。
 - 身份候选经 world facade 精确名召回（只产生精确证据，模糊留作者裁定）。
-- 恢复优先：本 Scene 已有冻结 attempt 时先重放（T10 不重采样），没有
-  才走全新采样步。
+- 恢复优先（A08）：本 Scene 已提交且请求来源指纹一致时幂等重放原回执
+  （T11 不重采样不扣费）；已冻结未应用时按阶段重放（T10）；修订请求
+  指纹不同，不套用旧回执。
 - 采样器经 ``sampler.resolve_scene_sampler`` 以 async context manager
   持有；provider 计量回执进入 ApplierResult 的 paid_call_receipts。
 
@@ -26,7 +30,13 @@ from infrastructure.tasks.registry import task_handler
 
 
 class EvolutionSceneStepRequest(BaseModel):
-    """evolution_scene_step 任务的 secret-free 请求负载。"""
+    """evolution_scene_step 任务的 secret-free 请求负载。
+
+    ``start_offset``/``end_offset`` 是 Scene 正文在章稿内的码点区间
+    （A02；``end_offset=None`` 表示至章稿末尾，缺省绑定整章）。scene_text
+    必须逐字等于服务端按权威草稿取出的该区间切片，请求独立声称的正文
+    不作数。
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -36,6 +46,8 @@ class EvolutionSceneStepRequest(BaseModel):
     scene_text: str = Field(min_length=1)
     scene_id: str = Field(min_length=1)
     chapter_index: int = Field(ge=1)
+    start_offset: int = Field(default=0, ge=0)
+    end_offset: int | None = Field(default=None, ge=0)
     budget_total: int = Field(default=10, ge=0)
     execution_mode: str = Field(default="live", pattern="^(live|shadow)$")
     sampler_provider: str = Field(default="project_llm")
@@ -49,6 +61,7 @@ async def handle_evolution_scene_step(db: AsyncSession, task) -> dict[str, Any]:
     from modules.evolution.pipeline import (
         PipelineStepResult,
         SceneSourceBinding,
+        compute_scene_manifest_hash,
         exact_name_candidate_lookup,
         recover_scene_step,
         run_scene_step,
@@ -56,6 +69,7 @@ async def handle_evolution_scene_step(db: AsyncSession, task) -> dict[str, Any]:
     from modules.evolution.sampler import resolve_scene_sampler
     from modules.evolution.store import PostgresAttemptStore
     from modules.story.continuity.services import MemoryService
+    from modules.story.outline_state.facade import get_scene_contract
     from modules.writing.facade import get_latest_draft_for_chapter
 
     meta = dict(task.meta or {})
@@ -64,7 +78,22 @@ async def handle_evolution_scene_step(db: AsyncSession, task) -> dict[str, Any]:
         **{key: value for key, value in meta.items() if key in _REQUEST_FIELDS}
     )
 
-    # 真实来源绑定（返修 R2）：指纹来自当前 working 草稿，不信任务负载。
+    # Scene/章映射权威校验（A02）：不信任请求独立声称的 scene_id 与章号
+    # 组合——场景在 outline_state 里的章归属是权威。
+    scene = await get_scene_contract(db, request.novel_id, request.scene_id)
+    if scene is None:
+        raise ValueError(
+            f"scene {request.scene_id} not found; refusing unbound scene step"
+        )
+    if request.chapter_index not in (scene.chapter_ids or []):
+        raise ValueError(
+            f"chapter {request.chapter_index} is not part of scene "
+            f"{request.scene_id} (chapters={scene.chapter_ids}); refusing "
+            "scene/chapter mismatch"
+        )
+
+    # 真实来源绑定（返修 R2 + A02）：指纹与区间锚定当前 working 草稿，
+    # 不信任务负载；scene_text 是否逐字等于权威切片由管线判定。
     draft = await get_latest_draft_for_chapter(
         db, request.novel_id, request.chapter_index
     )
@@ -77,6 +106,8 @@ async def handle_evolution_scene_step(db: AsyncSession, task) -> dict[str, Any]:
         draft_id=str(draft.id),
         chapter_index=request.chapter_index,
         content_hash=str(draft.content_hash),
+        start_offset=request.start_offset,
+        end_offset=request.end_offset,
     )
 
     store = PostgresAttemptStore(db, request.novel_id)
@@ -117,10 +148,18 @@ async def handle_evolution_scene_step(db: AsyncSession, task) -> dict[str, Any]:
             ],
         )
 
-    # 恢复优先（返修 R4）：本 Scene 已提交时幂等重放原回执（T11）；
-    # 已冻结未应用时重放冻结负载（T10 不重采样）；都没有才走全新采样步。
-    committed = await store.load_scene_receipt(
-        request.run_key, request.scene_index
+    # 恢复优先（返修 R4 + A08）：本 Scene 已提交且来源指纹一致时幂等重放
+    # 原回执（T11 不重采样不扣费；修订请求指纹不同不套用旧回执）；已冻结
+    # 未应用时按阶段重放（T10）；都没有才走全新采样步。
+    committed = await store.load_committed_scene_receipt(
+        request.run_key,
+        request.scene_index,
+        source_manifest_hash=compute_scene_manifest_hash(
+            request.run_key,
+            request.scene_index,
+            request.scene_text,
+            binding,
+        ),
     )
     if committed is not None:
         return {
@@ -135,6 +174,7 @@ async def handle_evolution_scene_step(db: AsyncSession, task) -> dict[str, Any]:
         run_key=request.run_key,
         scene_index=request.scene_index,
         applier=applier,
+        identity_candidates=exact_name_candidate_lookup(db),
     )
     if replayed is not None:
         return {

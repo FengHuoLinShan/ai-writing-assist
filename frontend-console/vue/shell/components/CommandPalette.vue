@@ -17,6 +17,7 @@
 
 <script setup>
 import { computed, nextTick, ref, watch } from "vue"
+import { registerOverlay } from "../overlayStack.js"
 
 const props = defineProps({ services: { type: Object, required: true } })
 const active = ref(false); const value = ref(""); const input = ref(null); const bar = ref(null)
@@ -39,6 +40,8 @@ const activeSuggestionId = computed(() => activeSuggestion.value ? suggestionId(
 
 function suggestionId(index) { return `command-suggestion-${index}` }
 function clearActiveSuggestion() { activeSuggestionIndex.value = -1 }
+// U01：登记进 overlay 栈，Escape 由 AppShell 栈路由按最上层关闭。
+let overlayEntry = null
 function setActiveSuggestion(index) {
   if (index >= 0 && index < renderedSuggestions.value.length) activeSuggestionIndex.value = index
 }
@@ -54,6 +57,8 @@ async function open(prefix = ":") {
   if (!active.value) originFocus.value = isValidReturnTarget(document.activeElement) ? document.activeElement : null
   value.value = prefix
   active.value = true
+  overlayEntry?.unregister()
+  overlayEntry = registerOverlay({ id: "shell:command-palette", requestClose: () => close({ restoreOrigin: true }) })
   clearActiveSuggestion()
   await nextTick()
   input.value?.focus()
@@ -62,6 +67,8 @@ async function open(prefix = ":") {
 function close({ restoreOrigin = false } = {}) {
   const returnTarget = restoreOrigin ? originFocus.value : null
   const inputWasFocused = document.activeElement === input.value
+  overlayEntry?.unregister()
+  overlayEntry = null
   value.value = ""
   active.value = false
   clearActiveSuggestion()

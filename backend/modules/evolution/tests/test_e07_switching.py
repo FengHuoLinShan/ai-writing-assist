@@ -47,9 +47,18 @@ class _Sampler:
                     "dimension": "entities",
                     "event_type": "manual_correction",
                     "snapshot_after": {"summary": scene_text[:24]},
+                    # A03 语义门：提议须引用本批观察作证据。
+                    "source_observation_indices": [0],
                 }
             ],
-            "observations": [],
+            "observations": [
+                {
+                    "predicate": "林舟与青竹在白石城重逢",
+                    "modality": "event_observed",
+                    "quote": "林舟与青竹在白石城重逢",
+                    "mentions": [],
+                }
+            ],
         }
 
 
@@ -290,9 +299,7 @@ async def test_task_handler_runs_real_path_with_wired_sampler(
                         "predicate": "青竹收起铜钥匙",
                         "modality": "event_observed",
                         "quote": "青竹把铜钥匙收进包袱",
-                        "mentions": [
-                            {"surface": "青竹", "entity_type": "character"}
-                        ],
+                        "mentions": [{"surface": "青竹", "entity_type": "character"}],
                     }
                 ],
                 "scene_events": [
@@ -301,6 +308,7 @@ async def test_task_handler_runs_real_path_with_wired_sampler(
                         "event_type": "manual_correction",
                         "entity_id": str(qingzhu.id),
                         "snapshot_after": {"summary": "保管"},
+                        "source_observation_indices": [0],
                     }
                 ],
                 "paid_call_receipt": {

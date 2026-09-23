@@ -1,4 +1,5 @@
 import { nextTick, onBeforeUnmount, ref, watch } from "vue"
+import { isTopOverlay, registerOverlay } from "../shell/overlayStack.js"
 
 const inertLeases = new Map()
 const FOCUSABLE = "a[href], button, input, select, textarea, summary, [contenteditable]:not([contenteditable='false']), [tabindex]"
@@ -106,6 +107,14 @@ export function useModalDialog({ isOpen, requestClose, canClose = () => true }) 
   let restoreFrame = null
   let expectedOriginInertMutations = 0
   let originBecameInert = false
+  // U01 overlay 返回栈：打开即登记，Escape 由 AppShell 的栈路由按
+  // 最上层统一关闭；关闭/卸载时退栈。
+  let stackEntry = null
+
+  function unregisterFromStack() {
+    stackEntry?.unregister()
+    stackEntry = null
+  }
 
   function observeOriginInert() {
     originObserver?.disconnect()
@@ -237,12 +246,18 @@ export function useModalDialog({ isOpen, requestClose, canClose = () => true }) 
   }
 
   function onKeydown(event) {
-    event.stopPropagation()
     if (event.key === "Escape") {
+      // U01：Escape 归栈权威——本模态不是最上层时不消费也不拦截事件，
+      // 让它继续冒泡给 AppShell 栈路由去关上层。放行必须在
+      // stopPropagation 之前：入口先 stop 会让 document 路由永远收不到
+      // （PR160-162 审查 F7）。
+      if (stackEntry && !isTopOverlay(stackEntry)) return
+      event.stopPropagation()
       event.preventDefault()
       if (canClose()) requestClose()
       return
     }
+    event.stopPropagation()
     if (event.key !== "Tab") return
     const dialog = dialogRef.value
     const items = focusables(dialog)
@@ -268,6 +283,7 @@ export function useModalDialog({ isOpen, requestClose, canClose = () => true }) 
     if (!open) {
       const blockedOrigin = originBecameInert
       releaseAll()
+      unregisterFromStack()
       const previous = origin.value
       origin.value = null
       void nextTick(() => {
@@ -275,6 +291,13 @@ export function useModalDialog({ isOpen, requestClose, canClose = () => true }) 
       })
       return
     }
+    unregisterFromStack()
+    stackEntry = registerOverlay({
+      id: `modal:${currentGeneration}`,
+      requestClose: () => {
+        if (canClose()) requestClose()
+      },
+    })
     origin.value = document.activeElement instanceof HTMLElement ? document.activeElement : null
     observeOriginInert()
     void nextTick(() => {
@@ -291,6 +314,7 @@ export function useModalDialog({ isOpen, requestClose, canClose = () => true }) 
   onBeforeUnmount(() => {
     ++generation
     releaseAll()
+    unregisterFromStack()
   })
 
   return { overlayRef, dialogRef, onKeydown, onFocusin }

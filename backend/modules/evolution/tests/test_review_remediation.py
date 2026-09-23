@@ -39,9 +39,7 @@ SCENE_TEXT = "林舟与青竹在白石城重逢。青竹从袖中取出铜钥匙
 QINGZHU_NAME = "青竹"
 
 
-async def _seed(
-    db: AsyncSession, novel_id: str
-) -> tuple[str, SceneSourceBinding, str]:
+async def _seed(db: AsyncSession, novel_id: str) -> tuple[str, SceneSourceBinding, str]:
     scene = Scene(
         novel_id=uuid.UUID(novel_id),
         scene_index=0,
@@ -110,6 +108,8 @@ class _ObservationOnlySampler:
                     "event_type": "entity_moved",
                     "entity_id": self.entity_id,
                     "snapshot_after": {"text_state": "白石城"},
+                    # A03 语义门：状态提议须自附本批观察证据（引用序号）。
+                    "source_observation_indices": [0],
                 },
                 {
                     "dimension": "entities",

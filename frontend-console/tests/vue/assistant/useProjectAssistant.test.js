@@ -111,12 +111,44 @@ describe("project assistant durable interaction", () => {
     controller.state.context = { page: "writing", chapter_index: 3, excluded_targets: ["world_entity:hidden"], scope: "current" }
     controller.setInput("核对 IANA")
     controller.setAllowWeb(true)
-    await controller.send({ page: "world" })
+    // 组件契约（PR160-162 审查 F1 后）：send 始终携带 withIntent(state.context)
+    // ——入参即新操作上下文权威，composition scope 经调用方保留。
+    await controller.send({ ...controller.state.context, task_hint: "unknown" })
     expect(api.submit).toHaveBeenCalledWith("p1-new", expect.objectContaining({
       message: "核对 IANA", allow_web: true, web_backend: "searxng-v1",
-      context: { page: "writing", chapter_index: 3, excluded_targets: ["world_entity:hidden"], scope: "current" },
+      context: { page: "writing", chapter_index: 3, excluded_targets: ["world_entity:hidden"], scope: "current", task_hint: "unknown" },
     }))
   })
+  it("freezes the passed context (with task_hint) as the new operation's authority instead of stale state.context", async () => {
+    api.submit.mockImplementation(async (_id, body) => ({ ...run(body), status: "completed" }))
+    await controller.load("p1")
+    // 面板已打开：state.context 带旧意图；界面切换 polish 后发送——
+    // 实际请求必须携带本次入参（PR160-162 审查 F1）。
+    controller.state.context = { page: "writing", chapter_index: 2, task_hint: "review" }
+    controller.setInput("只润色选中段落")
+    await controller.send({ ...controller.state.context, task_hint: "polish" })
+    expect(api.submit.mock.calls[0][1].context).toEqual({ page: "writing", chapter_index: 2, task_hint: "polish" })
+    // 切换 review 再发：新操作使用 review，不被上一轮 state.context 覆盖。
+    controller.state.context = { page: "writing", chapter_index: 2, task_hint: "polish" }
+    controller.setInput("复查这一章")
+    await controller.send({ ...controller.state.context, task_hint: "review" })
+    expect(api.submit.mock.calls[1][1].context).toEqual({ page: "writing", chapter_index: 2, task_hint: "review" })
+  })
+  it("keeps an unconfirmed pending payload untouched when a newer intent arrives", async () => {
+    api.submit.mockRejectedValueOnce(Object.assign(new Error("response lost"), { status: 502 }))
+    await controller.load("p1")
+    controller.state.context = { page: "writing", chapter_index: 2, task_hint: "polish" }
+    controller.setInput("原请求")
+    await controller.send({ ...controller.state.context })
+    const body = api.submit.mock.calls[0][1]
+    // 未确认请求仍以原幂等负载重试：新意图不重写旧 payload.context。
+    controller.state.context = { page: "writing", chapter_index: 9, task_hint: "review" }
+    controller.setInput("原请求")
+    await controller.send({ ...controller.state.context })
+    expect(api.submit.mock.calls[1][1]).toEqual(body)
+    expect(body.context.task_hint).toBe("polish")
+  })
+
   it("reopens an older partial receipt and preserves unsent input across reload", async () => {
     const latest = { id: "latest", status: "completed", result: {} }
     const old = { id: "old", status: "completed", result: { batch: { id: "old-batch", status: "partial", selected: ["edit"] } } }
@@ -152,7 +184,9 @@ describe("project assistant durable interaction", () => {
     await controller.load("p1")
     expect(controller.state.context).toEqual(scope)
     controller.setInput("继续检查")
-    await controller.send({ page: "world", scope: "project" })
+    // 组件契约：入参携带 withIntent(state.context)（此处 scope 即
+    // state.context），入参是新操作的冻结权威。
+    await controller.send({ ...scope })
     expect(api.submit.mock.calls[0][1].context).toEqual(scope)
     expect(api.submit.mock.calls[0][1].allow_web).toBe(false)
     expect(controller.state.context).toEqual(scope)

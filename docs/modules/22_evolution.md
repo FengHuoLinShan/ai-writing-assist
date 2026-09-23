@@ -43,7 +43,12 @@ V4 长期计划（`docs/plans/novelcraft-v4/plans/01-EVOLUTION.md`）的演化�
   作用域实现 AttemptStore 协议——回执落库同事务推进游标与 head（不可改写），
   `reserve_budget` 条件 UPDATE 原子预留（T21 不透支）。编排内核：
   `prepare_scene_input` 前序屏障（T07：Scene N+1 输入实际包含 Scene N 的
-  已提交回执；前序未提交显式 blocked，不携带假结论）；`plan_parallel_batches`
+  已提交回执；前序未提交显式 blocked，不携带假结论）；前序状态内容为
+  **结构化观察**（A04，2026-09-22 审查）：覆盖最近
+  `PRIOR_OBSERVATION_WINDOW` 个已提交 Scene，保留 modality/主体/来源
+  Scene——传闻在下一 Scene 输入里仍是传闻，窗口与截断在
+  `previous_observations_coverage` 显式披露（未注入不等于不存在）；
+  `plan_parallel_batches`
   确定性准入（同 Scene 依赖键不相交可并行；键冲突或叙事顺序强制分批，
   不采信模型自称可并行）。当前无生产写入方，deep_import 仍是唯一编排
   owner；E07 切换前禁止双写。
@@ -60,7 +65,11 @@ V4 长期计划（`docs/plans/novelcraft-v4/plans/01-EVOLUTION.md`）的演化�
 - 场景步管线（G2，`pipeline.py`）：`run_scene_step` 按 §4.1 顺序组合——
   前序屏障（T07）→ 预算原子预留（T21，先预留再采样）→ provider 采样
   （sampler 注入，事务外；生产接项目 LLM 入口）→ 稳定观察 → E02 身份
-  解析 → 冻结（T10）→ 窄提交（E03c/E04）。解析结论与观察 ID 进入冻结
+  解析 → 冻结（T10）→ 窄提交（E03c/E04）。来源绑定（A02，2026-09-22
+  审查）携带草稿内码点区间：整稿指纹与 Scene 区间分别验证，服务端按
+  权威草稿切片逐字比对 scene_text——同一章可分多 Scene；观察偏移映射
+  回草稿绝对空间（分段变化不复用旧观察身份）；跨章 Scene 需多区间
+  绑定契约，为已登记缺口。解析结论与观察 ID 进入冻结
   负载可审计。不注册 async_tasks handler——deep_import 仍是唯一编排
   owner（计划 N03 禁双写），E07 切换期由新 handler 调用本组合函数。
 - 建议有效性缝（G2，`consumers.py`）：`check_suggestion_validity` 按证据
@@ -82,13 +91,20 @@ V4 长期计划（`docs/plans/novelcraft-v4/plans/01-EVOLUTION.md`）的演化�
 
 - 迁移切换（E07，`compat.py` / `sampler.py` / `tasks.py` / `legacy_adapter.py`）：
   影子运行 `execution_mode=shadow`（迁移 `20260921_evolution_shadow`）——
-  pipeline 强制替换为隔离 applier，即使调用方传入会写正式表的 applier 也不
+  执行模式盖章进冻结负载，首次执行与恢复经同一写入策略解析强制替换为
+  隔离 applier（即使调用方传入会写正式表的 applier），提交边界
+  `apply_frozen` 亦拒绝影子负载的正式领域写（2026-09-22 审查 A01），不
   产生第二套有效事实，影子回执留在 evolution 自己的表里供对比；项目级
   单 live 写入者门禁（`register_run` 拒绝第二个 active live run）；
   `switch_project_engine` 排空旧 owner 并推进 epoch（在途旧 worker 在
   持久化边界被 fence）；在途兼容分类（冻结契约 → 续接，未知 → 保留费用
   从可验证批次继续）；`evolution_scene_step` async_tasks handler 走真实
-  路径（采样器未接线 fail-closed 拒伪造，生产 LLM 接线属 E09）；deep_import
+  路径（采样器未接线 fail-closed 拒伪造，生产 LLM 接线属 E09；请求可带
+  章稿内码点区间，scene_id 与章号经 outline_state 权威校验——A02；恢复
+  优先含**任意已提交 Scene** 的幂等重放，按稳定请求身份
+  `compute_scene_manifest_hash`（run/scene/正文/整稿版本/区间）判定，
+  同请求重试拿原回执不重采样不扣费，修订请求指纹不同不套用旧回执
+  ——A08）；deep_import
   入口适配层返回真实新回执形状 + deprecation 提示（实际路由重定向待
   canary）。E08 退役登记表见
   `docs/plans/novelcraft-v4/e08/E08-退役登记表.md`（核销条件满足前不删码）。
@@ -96,8 +112,12 @@ V4 长期计划（`docs/plans/novelcraft-v4/plans/01-EVOLUTION.md`）的演化�
 - 生产采样器（E09 第一步，`llm_sampler.py`）：``ProjectLLMSampler`` 经
   ``open_project_llm_client`` 使用项目 owner 账户连接；输出为 Pydantic
   schema 化窄观察（modality 七态/提及禁造 UUID/引用必须来自原文，校验
-  失败即失败）；Prompt 确定性注入正文与前序已提交回执身份（T07 注入面）；
-  每次调用记录 paid_call_receipt 进入冻结负载可审计。生产 provider
+  失败即失败；scene_events 状态提议须引用本批观察序号 `source_observation_indices`
+  作证据，knowledge 提议须带 `knowledge_subject`——经 `state_gate.py`
+  语义门验证，2026-09-22 审查 A03）；Prompt 确定性注入正文与前序已提交
+  回执身份（T07 注入面）；每次调用记录 paid_call_receipt 进入冻结负载可
+  审计（任一尝试用量未知则总量 None + `usage_complete`/`unknown_attempts`
+  显式留痕；最终失败也固化 failed_final 回执——A06/A07）。生产 provider
   ``project_llm`` 已注册到采样器注册表；真实模型验收单独授权执行，
   单元验证用冻结 fixture 客户端（不联网）。
 

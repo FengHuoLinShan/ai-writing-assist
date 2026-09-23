@@ -15,6 +15,7 @@ store 的方言中立约定一致）。store 绑定单个会话与 ``novel_id``�
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from sqlalchemy import and_, or_, select, update
 from sqlalchemy.exc import IntegrityError
@@ -239,6 +240,35 @@ class PostgresAttemptStore:
         )
         await self._db.flush()
 
+    async def replace_frozen_payload(self, attempt: FrozenAttempt) -> None:
+        """阶段化充实（A07）：更新既有冻结 attempt 的负载，attempt 身份不变。
+
+        管线在同一 attempt 上推进 ``sampling → sampled → compiled``——
+        请求身份（attempt_id + manifest）稳定，负载按阶段充实。绝不允许
+        出现后改写 manifest；行不存在即失败关闭。
+        """
+        existing = await self.load_frozen(attempt.run_id, attempt.attempt_id)
+        if existing is None:
+            raise CommitConflictError(
+                "frozen_missing",
+                "cannot replace payload of an attempt that was never frozen",
+            )
+        if existing.source_manifest_hash != attempt.source_manifest_hash:
+            raise CommitConflictError(
+                "frozen_exists",
+                "attempt already frozen with a different manifest",
+            )
+        await self._db.execute(
+            update(EvolutionFrozenAttempt)
+            .where(
+                EvolutionFrozenAttempt.novel_id == self._novel_id,
+                EvolutionFrozenAttempt.run_key == attempt.run_id,
+                EvolutionFrozenAttempt.attempt_key == attempt.attempt_id,
+            )
+            .values(payload_json=attempt.payload)
+        )
+        await self._db.flush()
+
     async def load_frozen(self, run_id: str, attempt_id: str) -> FrozenAttempt | None:
         row = (
             await self._db.execute(
@@ -376,16 +406,93 @@ class PostgresAttemptStore:
         payload = frozen.payload or {}
         compiled = payload.get("compiled_observations")
         if compiled:
-            return [
-                item["predicate"]
-                for item in compiled
-                if item.get("predicate")
-            ]
+            return [item["predicate"] for item in compiled if item.get("predicate")]
         return [
             str(item.get("predicate", ""))
             for item in payload.get("observations") or []
             if item.get("predicate")
         ]
+
+    async def load_prior_observations(
+        self,
+        run_id: str,
+        *,
+        max_scenes: int = 3,
+        per_scene_limit: int = 20,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """结构化前序观察（A04）：保留 modality、主体、出处与覆盖度。
+
+        覆盖最近 ``max_scenes`` 个已提交 Scene 的编译观察（modality 七态、
+        提及表面名、观察身份、来源 Scene），不再压成裸谓词——传闻在下一
+        Scene 的输入里仍是传闻。截断显式披露：``scenes_included`` 与
+        ``total_committed_scenes`` 标明窗口，``omitted_observations`` 记
+        因上限未注入的条数，未注入不等于不存在。
+        """
+        from sqlalchemy import func
+
+        rows = (
+            (
+                await self._db.execute(
+                    select(EvolutionReceiptRecord)
+                    .where(
+                        EvolutionReceiptRecord.novel_id == self._novel_id,
+                        EvolutionReceiptRecord.run_key == run_id,
+                    )
+                    .order_by(
+                        EvolutionReceiptRecord.committed_scene_index.desc(),
+                        EvolutionReceiptRecord.attempt_key.desc(),
+                    )
+                    .limit(max_scenes)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        total_committed = (
+            await self._db.execute(
+                select(func.count(EvolutionReceiptRecord.id)).where(
+                    EvolutionReceiptRecord.novel_id == self._novel_id,
+                    EvolutionReceiptRecord.run_key == run_id,
+                )
+            )
+        ).scalar_one()
+        coverage: dict[str, Any] = {
+            "window_scenes": max_scenes,
+            "total_committed_scenes": int(total_committed),
+            "scenes_included": [],
+            "omitted_observations": 0,
+        }
+        entries: list[dict[str, Any]] = []
+        for row in reversed(rows):
+            scene_index = int(row.committed_scene_index)
+            frozen = await self.load_frozen(run_id, row.attempt_key)
+            compiled = (
+                (frozen.payload or {}).get("compiled_observations")
+                if frozen is not None
+                else None
+            )
+            scene_entries = [
+                {
+                    "observation_id": item.get("observation_id"),
+                    "predicate": item.get("predicate"),
+                    "modality": item.get("modality"),
+                    "quote": item.get("quote"),
+                    "subjects": [
+                        mention.get("surface")
+                        for mention in item.get("mentions") or []
+                        if mention.get("surface")
+                    ],
+                    "scene_index": scene_index,
+                }
+                for item in compiled or []
+                if item.get("predicate")
+            ]
+            coverage["omitted_observations"] += max(
+                0, len(scene_entries) - per_scene_limit
+            )
+            entries.extend(scene_entries[:per_scene_limit])
+            coverage["scenes_included"].append(scene_index)
+        return entries, coverage
 
     async def load_pending_frozen(
         self, run_id: str, scene_index: int
@@ -412,15 +519,43 @@ class PostgresAttemptStore:
                 return await self.load_frozen(run_id, row.attempt_key)
         return None
 
-    async def load_scene_receipt(
-        self, run_id: str, scene_index: int
+    async def load_committed_scene_receipt(
+        self,
+        run_id: str,
+        scene_index: int,
+        *,
+        source_manifest_hash: str | None = None,
     ) -> EvolutionReceipt | None:
-        """本 Scene 已是链头回执时返回它（T11 幂等重放判定）。"""
-        head = await self.load_head_receipt(run_id)
-        if head is None:
-            return None
-        if head.committed_prefix.through_scene_index == scene_index:
-            return head
+        """任意已提交 Scene 的原回执（A08：Scene 级幂等重放判定）。
+
+        幂等语义按**稳定请求身份**判定：仅当该 Scene 的已提交回执与本次
+        请求的来源指纹（manifest）一致才返回——同请求重试拿回原结果、不
+        重复采样扣费；修订请求（正文/整稿版本/区间任一变化）指纹不同，
+        不套用旧回执，走正常屏障语义。
+        """
+        rows = (
+            (
+                await self._db.execute(
+                    select(EvolutionReceiptRecord)
+                    .where(
+                        EvolutionReceiptRecord.novel_id == self._novel_id,
+                        EvolutionReceiptRecord.run_key == run_id,
+                        EvolutionReceiptRecord.committed_scene_index == scene_index,
+                    )
+                    .order_by(EvolutionReceiptRecord.created_at.desc())
+                    .limit(4)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for row in rows:
+            receipt = EvolutionReceipt.model_validate(row.receipt_json)
+            if (
+                source_manifest_hash is None
+                or receipt.source_manifest_hash == source_manifest_hash
+            ):
+                return receipt
         return None
 
     async def page_receipts(

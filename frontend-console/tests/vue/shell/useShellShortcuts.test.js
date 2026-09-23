@@ -99,3 +99,51 @@ describe("useShellShortcuts — 输入框内的保存与快速打开", () => {
     expect(blurSpy).toHaveBeenCalled()
   })
 })
+
+describe("useShellShortcuts — 已被栈路由消费的 Escape 不再重复解释（PR160-162 F8）", () => {
+  function mountGuardHost({ shellState, command }) {
+    const Host = defineComponent({
+      setup() {
+        useShellShortcuts({
+          services,
+          shellState,
+          getRouteHost: () => host,
+          command: command || { isOpen: () => false, open: () => {}, close: () => {} },
+          help: { isOpen: () => false, open: () => {}, close: () => {} },
+          focusSidebar: () => {},
+        })
+        return () => h("div")
+      },
+    })
+    return mount(Host, { attachTo: host })
+  }
+
+  function dispatchEscape(preventDefault) {
+    const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })
+    if (preventDefault) event.preventDefault()
+    document.dispatchEvent(event)
+    return event
+  }
+
+  it("已消费的 Escape 不关闭命令面板；未消费的才关闭", () => {
+    const close = vi.fn()
+    const wrapper = mountGuardHost({
+      shellState: { currentView: "world", currentSubView: null },
+      command: { isOpen: () => true, open: () => {}, close },
+    })
+    dispatchEscape(true)
+    expect(close).not.toHaveBeenCalled()
+    dispatchEscape(false)
+    expect(close).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
+  it("已消费的 Escape 不触发返回父视图；未消费的才返回", () => {
+    const wrapper = mountGuardHost({ shellState: { currentView: "writing", currentSubView: "outline" } })
+    dispatchEscape(true)
+    expect(services.router.navigate).not.toHaveBeenCalled()
+    dispatchEscape(false)
+    expect(services.router.navigate).toHaveBeenCalledWith("writing", null)
+    wrapper.unmount()
+  })
+})

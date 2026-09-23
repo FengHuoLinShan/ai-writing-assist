@@ -171,14 +171,18 @@ export function createProjectAssistant() {
   }
   async function send(context) {
     if (!state.input.trim() || state.busy || active(state.run?.status)) return
-    if (state.blueprint && (state.context || context)?.draft_id) {
+    // 新操作的上下文以本次入参为唯一权威并冻结（界面意图/选区随发送生效）；
+    // 未传入才沿用面板当前上下文。state.context 不得覆盖入参——否则界面
+    // 选择的 task_hint 永远进不了实际请求（PR160-162 审查 F1）。未确认
+    // pending 请求仍原样重试，保留其原始幂等负载。
+    const originalContext = JSON.parse(JSON.stringify(context || state.context || {}))
+    if (state.blueprint && originalContext.draft_id) {
       try {
-        const sourceHash = await getCurrentWritingFingerprint(state.projectId, (state.context || context).draft_id)
-        if (sourceHash) state.context = { ...(state.context || context), source_hash: sourceHash }
+        const sourceHash = await getCurrentWritingFingerprint(state.projectId, originalContext.draft_id)
+        if (sourceHash) originalContext.source_hash = sourceHash
       } catch (error) { state.error = error.message; return }
     }
     const originalInput = state.input
-    const originalContext = JSON.parse(JSON.stringify(state.context || context || {}))
     const originalAllowWeb = state.allowWeb
     const originalBlueprint = state.blueprint
     const originalConstraints = state.preservedConstraints
@@ -205,7 +209,7 @@ export function createProjectAssistant() {
     const saved = record(token.projectId)
     const previous = saved.pending[token.sessionId]
     if (previous && previous.message !== state.input) { state.error = "上一条提交尚未确认，请先恢复原请求；当前输入已保留。"; return }
-    const payload = previous || { novel_id: token.projectId, operation_id: crypto.randomUUID(), message: state.input, context: state.context || context, allow_web: state.allowWeb, web_backend: state.allowWeb && (!state.blueprint || state.blueprint === "research") ? "searxng-v1" : null, ...(state.blueprint ? { blueprint: state.blueprint, preserved_constraints: state.preservedConstraints.split("\n").map(value => value.trim()).filter(Boolean), ...(state.previousReportId ? { previous_report_id: state.previousReportId, scenario_keys: state.scenarioKeys } : {}), allow_web: state.blueprint === "research" && state.allowWeb } : {}) }
+    const payload = previous || { novel_id: token.projectId, operation_id: crypto.randomUUID(), message: state.input, context: originalContext, allow_web: state.allowWeb, web_backend: state.allowWeb && (!state.blueprint || state.blueprint === "research") ? "searxng-v1" : null, ...(state.blueprint ? { blueprint: state.blueprint, preserved_constraints: state.preservedConstraints.split("\n").map(value => value.trim()).filter(Boolean), ...(state.previousReportId ? { previous_report_id: state.previousReportId, scenario_keys: state.scenarioKeys } : {}), allow_web: state.blueprint === "research" && state.allowWeb } : {}) }
     saved.pending[token.sessionId] = payload
     state.pendingSubmission = true
     save(token.projectId)

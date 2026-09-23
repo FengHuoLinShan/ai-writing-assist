@@ -68,6 +68,7 @@ class HarnessReport:
     barrier_skip_rejected: bool | None = None
     rerun_same_attempt: bool | None = None
     stale_source_rejected: bool | None = None
+    stale_source_rejected_code: str | None = None
     observation_count: int = 0
     quote_verbatim: bool | None = None
     mention_grounded: bool | None = None
@@ -197,9 +198,7 @@ async def run_harness(args: argparse.Namespace) -> HarnessReport:
 
         register_scene_sampler(
             "e09-deterministic",
-            lambda db, novel_id: GroundedDeterministicSampler(
-                dict(enumerate(texts))
-            ),
+            lambda db, novel_id: GroundedDeterministicSampler(dict(enumerate(texts))),
         )
         provider = "e09-deterministic"
     else:
@@ -262,9 +261,7 @@ async def run_harness(args: argparse.Namespace) -> HarnessReport:
             async with maker() as db:
                 from modules.account.settings_service import SettingsService
 
-                await SettingsService().connect_account_llm_provider(
-                    db, "deepseek", key
-                )
+                await SettingsService().connect_account_llm_provider(db, "deepseek", key)
                 await db.commit()
 
         from modules.evolution.tasks import handle_evolution_scene_step
@@ -281,7 +278,11 @@ async def run_harness(args: argparse.Namespace) -> HarnessReport:
                     db,
                     _task(
                         _step_request(
-                            novel_id, scene_ids, texts, index, provider=provider,
+                            novel_id,
+                            scene_ids,
+                            texts,
+                            index,
+                            provider=provider,
                             budget_total=budget_total,
                         )
                     ),
@@ -333,10 +334,14 @@ async def run_harness(args: argparse.Namespace) -> HarnessReport:
                 if args.sampler == "real":
                     receipt = await store.load_receipt(RUN_KEY, attempt_id)
                     entries = receipt.paid_call_receipts if receipt else []
-                    usage_ok = usage_ok and bool(entries) and all(
-                        (entry.get("usage") or {}).get("completion_tokens")
-                        is not None
-                        for entry in entries
+                    usage_ok = (
+                        usage_ok
+                        and bool(entries)
+                        and all(
+                            (entry.get("usage") or {}).get("completion_tokens")
+                            is not None
+                            for entry in entries
+                        )
                     )
             report.prior_state_injected_scenes = prior_scenes
             report.quote_verbatim = quote_ok
@@ -346,6 +351,12 @@ async def run_harness(args: argparse.Namespace) -> HarnessReport:
             # ---- 屏障顺序：跳场被拒 ----
             from modules.evolution.pipeline import BarrierBlockedError
 
+            # 跳场请求指向链尾之后的下一 Scene；语料全部推进时没有下一章，
+            # 退而指向末章。scene_id/正文/章节号必须始终指向同一章——来源
+            # 指纹在屏障之前核验，任何错配都会变成 source 拒绝而非跳场拒绝，
+            # 验证就失真了（PR160-162 审查 F5：--limit 裁剪时曾用第六章
+            # 正文配第十章章节号）。
+            skip_source = budget_total if budget_total < len(texts) else len(texts) - 1
             try:
                 await handle_evolution_scene_step(
                     db,
@@ -354,11 +365,11 @@ async def run_harness(args: argparse.Namespace) -> HarnessReport:
                             novel_id,
                             scene_ids,
                             texts,
-                            budget_total,  # 占位 index 取末章文本
+                            skip_source,
                             provider=provider,
                             budget_total=budget_total,
                             scene_index=budget_total + 1,  # 跳过下一步
-                            chapter_index=len(texts),
+                            chapter_index=skip_source + 1,
                         )
                     ),
                 )
@@ -384,10 +395,18 @@ async def run_harness(args: argparse.Namespace) -> HarnessReport:
             report.budget_remaining_after_rerun = int(run.budget_remaining)
             report.rerun_same_attempt = replay["attempt_id"] == attempt_ids[-1]
 
-        # ---- 失效关闭：改末章原文 → 旧文本的下一步被拒 ----
+        # ---- 失效关闭：改链尾章节原文 → 旧文本的下一步被拒 ----
+        # 修订的草稿与请求的 scene_id/正文/章节号必须指向同一章（链尾第
+        # budget_total 章）；scene_index 取链尾之后的下一 Scene，避免被
+        # 幂等重放短路，使来源核验真正走到指纹比对（PR160-162 审查 F5：
+        # --limit 裁剪时曾改末章、却用链尾之外的章节请求测试）。
         async with maker() as db:
             await create_draft_only(
-                db, novel_id, len(texts), "末章（修订）", texts[-1] + "修订补记。"
+                db,
+                novel_id,
+                budget_total,
+                f"第{budget_total}章（修订）",
+                texts[budget_total - 1] + "修订补记。",
             )
             await db.commit()
         async with maker() as db:
@@ -405,21 +424,26 @@ async def run_harness(args: argparse.Namespace) -> HarnessReport:
                             provider=provider,
                             budget_total=budget_total,
                             scene_index=budget_total,
-                            scene_text=texts[budget_total - 1],
                         )
                     ),
                 )
                 report.stale_source_rejected = False
-            except CommitConflictError:
-                report.stale_source_rejected = True
+            except CommitConflictError as exc:
+                # A09（2026-09-22 审查）：只有精确的 source_changed 才算
+                # 过期来源被正确拦截——run_not_active/parent_advanced 等其他
+                # 冲突同样抛 CommitConflictError，混过该门禁是假阳性。
+                code = str(getattr(exc, "code", "") or "")
+                report.stale_source_rejected = code == "source_changed"
+                report.stale_source_rejected_code = code or None
+            except Exception:
+                report.stale_source_rejected = False
+                report.stale_source_rejected_code = "unexpected_exception"
 
         report.wall_seconds = round(time.monotonic() - started, 2)
 
         if not args.keep:
             async with maker() as db:
-                await db.execute(
-                    delete(Project).where(Project.id == uuid.UUID(novel_id))
-                )
+                await db.execute(delete(Project).where(Project.id == uuid.UUID(novel_id)))
                 await db.commit()
         return report
     finally:
@@ -428,7 +452,12 @@ async def run_harness(args: argparse.Namespace) -> HarnessReport:
 
 
 def _assert_exit_criteria(report: HarnessReport) -> None:
-    """按计划 §9 退出标准逐项判定；任何一项失败即抛错。"""
+    """按计划 §9 退出标准逐项判定；任何一项失败即抛错。
+
+    负向能力（PR160-162 审查 F4）：real 模式的 usage 计量缺失必须判失败；
+    前序注入断言精确覆盖集——链上除链头外每个 Scene 都应携带前序输入，
+    单 Scene 语料的期望集为空（不适用），不以"列表非空"代替覆盖断言。
+    """
     failures: list[str] = []
     if report.scenes_run <= 0:
         failures.append("未推进任何 Scene")
@@ -438,18 +467,37 @@ def _assert_exit_criteria(report: HarnessReport) -> None:
         failures.append("幂等重跑后预算剩余应为 0（重跑不得扣减）")
     if report.memory_events_written != 0:
         failures.append("影子运行写入了正式 MemoryEvent")
-    if not report.prior_state_injected_scenes:
-        failures.append("没有任何后序 Scene 携带前序状态内容")
+    expected_prior = set(range(1, report.scenes_run))
+    if set(report.prior_state_injected_scenes) != expected_prior:
+        failures.append(
+            "前序状态注入覆盖不符：期望 "
+            f"{sorted(expected_prior)}，实际 {sorted(report.prior_state_injected_scenes)}"
+        )
     if report.barrier_skip_rejected is not True:
         failures.append("跳场未被屏障拒绝")
     if report.rerun_same_attempt is not True:
         failures.append("重跑未幂等返回原回执")
     if report.stale_source_rejected is not True:
-        failures.append("过期来源未被提交边界拒绝")
+        failures.append(
+            "过期来源未被提交边界以精确 source_changed 拒绝"
+            f"（stale_source_rejected={report.stale_source_rejected}，"
+            f"code={report.stale_source_rejected_code!r}）"
+        )
+    elif report.stale_source_rejected_code != "source_changed":
+        failures.append(
+            "过期来源拒绝未断言精确 code（期望 source_changed，实际 "
+            f"{report.stale_source_rejected_code!r}）——其他 CommitConflictError "
+            "code 混过门禁是假阳性（A09）"
+        )
     if report.quote_verbatim is not True:
         failures.append("存在非逐字引用")
     if report.mention_grounded is not True:
         failures.append("存在无据提及")
+    if report.sampler == "real" and report.usage_recorded is not True:
+        failures.append(
+            "真实模型采样的 usage 计量未进入回执（usage_recorded="
+            f"{report.usage_recorded}）"
+        )
     if failures:
         raise HarnessError("；".join(failures))
 
@@ -469,7 +517,8 @@ def _render_markdown(report: HarnessReport) -> str:
             f"- 影子隔离（正式 MemoryEvent 写入数）：{report.memory_events_written}",
             f"- 屏障跳场拒绝：{report.barrier_skip_rejected}；"
             f"幂等重跑同回执：{report.rerun_same_attempt}；"
-            f"过期来源拒绝：{report.stale_source_rejected}",
+            f"过期来源拒绝：{report.stale_source_rejected}"
+            f"（code={report.stale_source_rejected_code!r}）",
             f"- 引用逐字：{report.quote_verbatim}；提及有据：{report.mention_grounded}；"
             f"计量入回执：{report.usage_recorded}",
             f"- 总耗时：{report.wall_seconds}s",

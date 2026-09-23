@@ -309,3 +309,176 @@ _shadow_applier 现在把 provider 计量带入回执——影子运行消耗真
 （含 4 条 assistantContext 新用例：码点偏移/emoji/dirty 门控/项目隔离）、
 eslint；assistant e2e 与 creative-forecast e2e（专用库）通过；docs-check
 带理由通过。全量后端单测（无 .env）后台复核中。
+
+- PR #161 CI 11/11 全绿（Architecture docs 首跑因 module-contract 规则要求
+  评审清单文档，真实更新 assistant README + 20_assistant.md 并走第三项
+  理由行后通过），已合入 main（561bcc133）。U00+R00 工作包完成。
+- U 系列下一步候选：U01 AppShell/overlay/返回栈（以 U00 清单为底账）、
+  U02 选区/intent/单 feed store；R01 scope/snapshot/task/focus 分离。
+
+## U01 AppShell/overlay/返回栈（2026-09-22 会话 13，分支 codex/u01-appshell-overlay-backstack）
+
+以 U00 清单为底账正式化 overlay 层（04-FRONTEND-HIFI §4「只有一个 overlay
+root」），保持功能等价与公开演示路由白名单可达：
+
+- 新增 `frontend-console/vue/shell/overlayStack.js`：模块级 LIFO overlay
+  注册表（registerOverlay/unregister、topOverlay/isTopOverlay、
+  closeTopOverlay）。`installOverlayEscapeRouter()` 在 AppShell 安装一次，
+  **冒泡阶段** document keydown 兜底路由：未被元素级处理消费的 Escape 才
+  关闭最上层 overlay；`#modal-overlay` 遗留全局模态可见时让位（先走旧链）。
+  早期 capture 实现会在嵌套浮层（版本历史「更多操作」popover）首按时抢关
+  底层对话框——回退为 bubble 兜底后语义正确。
+- `useModalDialog` 开启时自动登记（requestClose 复用 canClose 守卫）；自身
+  Escape 处理改为「非栈顶则放行冒泡给路由」，17 个既有模态零改动纳入。
+- shell 三浮层显式登记：AccountDialog（shell:account）、ShortcutHelp
+  （shell:help）、CommandPalette（shell:command-palette，Esc→close 且还原
+  触发控件焦点=§4 返回触发控件）。
+- 新增 `tests/vue/shell/overlayStack.test.js` 6 用例（最上层才关/逐层退/
+  空栈不拦截/遗留模态让位/序关系/closeTopOverlay 返回值）。
+
+验证：vitest 全量 2544 通过；eslint 清洁；e2e 回归 writing 28 + interaction
+16 + assistant 1 + creative-forecast 1 全绿（功能等价）；docs-check 带理由
+通过；U00 清单归宿决定记录已补 U01 行。
+
+- PR #162（head c0b378d4d）CI 11/11 全绿，2026-09-22 合入 main（merge
+  cb97d3f79）。
+- U 系列下一步候选：U02 选区/intent/单 feed store；R01 scope/snapshot/
+  task/focus 分离。
+
+## V4 审查修复包 2（2026-09-22 会话 16，分支 codex/v4-audit-fixpack-1 续）
+
+用户指令「继续修复」，按审查报告第七节顺序实施修复包 2（A02/A04/A08，
+顺带 A09）：
+
+- **A02（P1）Scene 来源区间**：`SceneSourceBinding` 增码点区间
+  （start/end offset，缺省整章；end=None 落定稿尾；range_hash 可选自洽
+  校验）；`load_current_source` 重验整稿版本+权威区间切片——服务端按
+  草稿取出精确片段与 scene_text 逐字比对（非自比较），同章多 Scene 各自
+  推进；观察 SourceRevisionRef 偏移映射回草稿绝对空间（分段变化不复用
+  旧观察身份）；handler 请求带 start/end_offset 并经 outline_state 校验
+  scene_id↔章号权威映射。**已登记缺口：跨章 Scene 多区间绑定契约未做**
+  （审查回归清单中的跨章项仅部分覆盖，README 已注明）。审查反例修正趣闻：
+  首段同长度替换后，后段逐字未变、重绑新稿仍可推进——被拒的是旧绑定。
+- **A04（P1）结构化前序认知**：`store.load_prior_observations` 覆盖最近
+  `PRIOR_OBSERVATION_WINDOW=3` 个已提交 Scene 的结构化观察（modality/
+  主体表面名/观察身份/来源 Scene），SceneInputManifest.previous_observations
+  改 list[dict] + `previous_observations_coverage`（scenes_included/
+  total_committed_scenes/omitted_observations，未注入≠不存在）；
+  build_scene_messages 按 modality 分级渲染（"[belief] 谓词（主体：…；来自
+  Scene N）"，标题不再宣称"已确认的观察"，截断条数披露）。传闻在下一
+  Scene 输入保持传闻有专测。完整历史认知/持久知识查询仍属验收包 3。
+- **A08（P2）任意已提交 Scene 幂等回放**：`load_committed_scene_receipt`
+  按 scene_index + 稳定请求身份（新 `compute_scene_manifest_hash`：
+  run/scene/正文/整稿版本/区间，raw binding 口径）查任意已提交回执；
+  handler 重放判定用它——同请求重试拿原回执不重采样不扣费，修订请求
+  指纹不同不套用旧回执（走屏障拒绝）。旧 `load_scene_receipt`（仅链尾）
+  已删。0→1→2 后重复 0/1/2 + 修订不套用有专测。
+- **A09（P2）harness 精确 code**：stale-source 分支断言 `exc.code ==
+  "source_changed"`，报告新字段 stale_source_rejected_code，退出门禁校验
+  code 一致性（parent_advanced 混过判失败）；门禁测试加两条负向变异。
+
+验证：modules/evolution 130 通过（+9 fixpack2 +2 gates 变异）；
+story/writing 仅 5 例本机既有基线失败；venv ruff（0.16.7，**注意 anaconda
+0.16.2 格式化有版本差，须用 .venv/bin/python -m ruff**）全绿；docs-check
+带理由通过；deterministic harness 专用库重建 20 Scene 全绿（报告显示
+code='source_changed'）。harness venv 直跑需 PYTHONPATH=.（.venv 无项目
+安装）。
+
+审查遗留（未做）：A02 跨章多区间绑定；A04 完整历史认知/合法 cognition
+refs 消费（验收包 3）；验收包 3 不作弊 G2 重做、迁移包 4 canary/旧 owner
+退役、前端包 U02+；harness real 档复跑需授权。
+
+## V4 审查修复包 1（2026-09-22 会话 15，分支 codex/v4-audit-fixpack-1）
+
+用户提交 NovelCraft-V4-PR-Goal-Audit-2026-09-22（A01–A09）。按报告建议顺序
+实施**修复包 1**（A01/A03/A05/A06/A07），五项均在当前 main（#164 已合并）
+核实成立后修复：
+
+- **A01（P1）影子恢复隔离**：执行模式进入冻结/提交协议——run_scene_step
+  把 execution_mode 盖章进冻结负载；`_resolve_step_applier` 统一写入策略
+  解析（run 登记模式或负载盖章任一 shadow 即换隔离 applier），首次与
+  恢复同规则，不信任调用方；`apply_frozen` 提交边界拒绝影子负载经未标记
+  `shadow_isolated` 的 applier（CommitConflictError shadow_write_rejected）；
+  未盖章 legacy 负载按 run 登记兜底。回归：影子冻结后回执持久化前故障 →
+  恢复正式写入器零调用、Story 零写入；边界直接拒；legacy 兜底。
+- **A03（P1）语义证据门**：新 `state_gate.py::gate_scene_events`——证据
+  绑定（scene_events 必须引用同批观察 `source_observation_indices`，伪造/
+  越界/缺引用一律拦）、modality 分级（客观维度只认 event_observed；
+  statement/belief/hypothesis 只撑 knowledge 且须 `knowledge_subject`；
+  author_plan/figurative/unclear 不撑任何状态操作）、主体须在被引用证据
+  中解析。通过事件带 `source_observation_ids`+`authority_basis` 证据链；
+  被拦提议带 `_gate_reasons` 进 gated/pending_decisions 待作者裁定。
+  SamplerSceneEvent schema 增两可选字段，SYSTEM_PROMPT 同步约束。
+- **A06（P2）计量未知口径**：`_build_receipt` 任一尝试某字段未知 → 该
+  字段总量 None；`usage_complete`（全部尝试报齐三字段）+ `unknown_attempts`
+  （缺失任一字段的尝试数）显式留痕。混合未知（100+未知≠100）有专测。
+- **A07（P1）阶段化持久化+失败回执**：冻结负载按 `sampling → sampled →
+  compiled` 阶段推进（attempt 身份+预算关系请求前落库；provider 结果任何
+  领域推导前落库；编译为纯确定性推导）。sampler 最终抛错也固化
+  failed_final 回执（含已发生请求真实用量）再重抛；`recover_scene_step`
+  按阶段恢复：compiled→重验重提交，sampled→确定性重编译（需
+  identity_candidates，handler 已补传）后提交，sampling/failed→
+  `SamplePendingReconciliationError` 待核对（费用可能已发生，不自动
+  重采样）。store 增 `replace_frozen_payload`（阶段充实，manifest 不变）。
+  预算单位在 README 声明：Scene 步为准入控制单位，计费以回执为准。
+- **A05（P1）前端选区绑原稿**：`useForecast.focusFrom` 记录选区捕获时
+  origin draft_id，`result.draft_id !== origin` 一律不带 selected_range——
+  不同稿同位置同文字（审查反例，文本重验会通过）也失效；新测试补齐
+  （既有「切稿失效」用例换了文字，证明不了草稿身份检测）。
+
+夹具更新：test_review_remediation/_e07_switching/_g2_vertical_slice 的
+scene_events 补 `source_observation_indices`（g2 knowledge 事件补
+knowledge_subject）。新测试：test_state_gate.py（9 例审查反例清单）、
+test_audit_fixpack.py（6 例 A01/A07 管线级故障注入）、test_llm_sampler
++4 例（混合未知/字段级/失败回执）、Forecast +1 例（跨稿同文本）。
+
+验证：modules/evolution 121 通过；modules/story 仅 4 例本机既有基线失败
+（outline_state×2+foreshadowing_reveal×2，与改动无关）；ruff check+format
+清洁；vitest 全量 2557 通过；eslint 清洁；docs-check 带理由通过
+（22_evolution.md 已同步影子边界/语义门/计量口径）。deterministic
+harness（专用库 ai_novel_agent_e2e_evoscale 重建 + --repeat 2，20 Scene）
+全绿：链完整/前序注入 1..19/预算恰尽且幂等重跑零扣减/影子隔离 0 正式
+写入/跳场拒/同回执/过期来源拒/引用逐字/提及有据。坑：harness 命令里
+dropdb/createdb 必须带 PGPASSWORD=novel_dev_pass，否则后台卡密码提示。
+
+审查遗留（未在本包）：A02 Scene 来源范围绑定、A04 前序认知结构化输入、
+A08 任意已提交 Scene 幂等回放（属修复包 2）；A09 harness 精确 code 断言
+（P2，后续顺手）；G2 重做/迁移包/前端包按报告第七节顺序。
+
+## PR160–162 审查补修（2026-09-22 会话 14，分支 codex/v4-pr160-162-review-fix）
+
+用户提交 PR160-162-review.md（8 项：F1/F2 两个 P1 + F3–F8 六个 P2），按报告
+建议顺序全部补修：
+
+- F1（P1）useProjectAssistant.send：新操作上下文以入参为唯一权威并冻结
+  （含 task_hint），未传才沿用 state.context；blueprint 指纹刷进冻结副本而非
+  面板态；未确认 pending 仍原样重试。两条依赖旧「入参被忽略」契约的既有用例
+  按组件契约（withIntent(state.context)）迁移断言。
+- F2（P1）useForecast.focusFrom：选区文本/偏移与 draft_id+指纹做原子重验——
+  携带 selected_range 前先在当前已存正文原偏移处切片比对原选区文本，验不上
+  即失效（不带范围），不允许新 hash 配旧 offsets。
+- F6 overlayStack：注册身份改栈管理器唯一 token（两个 modal:2 不再认错栈顶）。
+- F7 useModalDialog：非栈顶 Escape 在 stopPropagation 之前放行（原来入口先
+  stop，document 栈路由永远收不到，底层按键两层全不关）。
+- F8 Escape 单次消费：栈路由终结消费处加 stopImmediatePropagation（先于旧
+  useShellShortcuts 注册），旧处理器的关面板/返回父视图分支尊重
+  defaultPrevented（纵深防御）。
+- F3 llm_sampler：回执计入结构化修复全部已发生请求（failed 也计费）——
+  usage 跨尝试累计（100+120+80→300）、attempts=全部次数、新增
+  succeeded_attempts 与 attempts_detail；未知用量保持 None 不当零。
+- F4 harness 退出判定：real 模式 usage_recorded 非 True 判失败；前序注入改
+  精确覆盖集断言（除链头外每 Scene，单 Scene 语料期望空集）。
+- F5 harness 验证源统一：跳场请求 scene_id/正文/章节号同章（--limit 裁剪
+  曾第六章正文配第十章号，触发 source 拒绝而非屏障拒绝）；过期测试修订与
+  请求同指链尾第 budget_total 章、scene_index 取下一 Scene 防幂等短路。
+
+回归：新增 F1（意图冻结/pending 原负载）、F2（携带/插字失效/切稿失效，dock
+级含 crypto 真实异步需 real timers 的 settle）、F6/F8（overlayStack 同 id 身
+份 + 终结消费阻断）、F7（双模态内部派发：非栈顶放行/退栈后关底层/嵌套
+popover 先消费/canClose 拒绝不外漏）、F8（useShellShortcuts 尊重已消费）、
+F3（三次尝试 300 tokens/未知 None）、F4/F5（新 test_scale_harness_gates.py：
+13 项变异全拒 + 单 Scene 不适用 + --limit 2/5/9/10 请求字段同章不变量）。
+
+验证：vitest 全量 2556 通过（+12）；eslint 清洁；后端 evolution 模块 103 通过
++ ruff 清洁；e2e writing 28 + interaction 16 全绿（Escape 行为变更回归）；
+docs-check 带理由通过。
