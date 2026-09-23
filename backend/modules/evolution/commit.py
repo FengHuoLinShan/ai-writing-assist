@@ -98,6 +98,8 @@ class AttemptStore(Protocol):
 
     async def save_frozen(self, attempt: FrozenAttempt) -> None: ...
 
+    async def replace_frozen_payload(self, attempt: FrozenAttempt) -> None: ...
+
     async def load_frozen(self, run_id: str, attempt_id: str) -> FrozenAttempt | None: ...
 
     async def save_receipt(self, receipt: EvolutionReceipt) -> None: ...
@@ -118,6 +120,14 @@ class InMemoryAttemptStore:
         self._heads: dict[str, EvolutionReceipt] = {}
 
     async def save_frozen(self, attempt: FrozenAttempt) -> None:
+        self._frozen[(attempt.run_id, attempt.attempt_id)] = attempt
+
+    async def replace_frozen_payload(self, attempt: FrozenAttempt) -> None:
+        if (attempt.run_id, attempt.attempt_id) not in self._frozen:
+            raise CommitConflictError(
+                "frozen_missing",
+                "cannot replace payload of an attempt that was never frozen",
+            )
         self._frozen[(attempt.run_id, attempt.attempt_id)] = attempt
 
     async def load_frozen(self, run_id: str, attempt_id: str) -> FrozenAttempt | None:
@@ -170,6 +180,17 @@ async def apply_frozen(
     if replayed is not None:
         # T11：领域已提交、回执已保存——直接返回原回执，不重复写入。
         return replayed
+
+    # A01 提交边界：影子冻结负载绝不允许经正式领域 applier 写入——执行
+    # 模式进入冻结协议后，任何恢复/旁路路径漏换 applier 都在这里失败关闭。
+    if (frozen.payload or {}).get("execution_mode") == "shadow" and not getattr(
+        applier, "shadow_isolated", False
+    ):
+        raise CommitConflictError(
+            "shadow_write_rejected",
+            "shadow frozen attempt must not run a production domain applier; "
+            "route it through the isolated shadow applier",
+        )
 
     bind = db.get_bind()
     if bind is not None and bind.dialect.name == "postgresql":

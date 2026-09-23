@@ -204,9 +204,11 @@ async def test_receipt_counts_every_paid_attempt_including_failed_repairs() -> N
     assert usage["succeeded_attempts"] == 1
     detail = payload["paid_call_receipt"]["attempts_detail"]
     assert [item["status"] for item in detail] == ["failed", "failed", "succeeded"]
-    assert [
-        item.get("error_kind") for item in detail
-    ] == ["invalid_json", "schema_validation", None]
+    assert [item.get("error_kind") for item in detail] == [
+        "invalid_json",
+        "schema_validation",
+        None,
+    ]
 
 
 async def test_receipt_keeps_unknown_usage_as_none_not_zero() -> None:
@@ -219,6 +221,96 @@ async def test_receipt_keeps_unknown_usage_as_none_not_zero() -> None:
     usage = payload["paid_call_receipt"]["usage"]
     assert usage["completion_tokens"] is None
     assert usage["attempts"] == 1
+
+
+async def test_mixed_unknown_usage_totals_stay_unknown() -> None:
+    # A06（2026-09-22 审查）：已知 100 + 未知 ≠ 100——部分未知不得汇总成
+    # 貌似完整的数值；usage_complete=False 且 unknown_attempts 显式留痕。
+    attempts = [
+        {
+            "kind": "structured_usage",
+            "status": "failed",
+            "error_kind": "invalid_json",
+            "attempt": 1,
+            "completion_tokens": 100,
+        },
+        {"kind": "structured_usage", "status": "succeeded", "attempt": 2},
+    ]
+    sampler = ProjectLLMSampler(_RepairingClient(attempts))
+
+    payload = await sampler.sample(scene_text="正文。", input_manifest=_manifest())
+
+    usage = payload["paid_call_receipt"]["usage"]
+    assert usage["completion_tokens"] is None  # 第二次未知 → 总量未知
+    assert usage["attempts"] == 2
+    # 口径：任一字段缺失即部分未知——第一次缺 prompt/total 也计入。
+    assert usage["unknown_attempts"] == 2
+    assert usage["usage_complete"] is False
+
+
+async def test_partial_field_totals_track_completeness_per_field() -> None:
+    # A06：字段级独立计量——prompt 全已知可汇总，completion 存在未知即未知。
+    attempts = [
+        {
+            "kind": "structured_usage",
+            "status": "succeeded",
+            "attempt": 1,
+            "prompt_tokens": 10,
+            "completion_tokens": 50,
+        },
+        {
+            "kind": "structured_usage",
+            "status": "succeeded",
+            "attempt": 2,
+            "prompt_tokens": 20,
+        },
+    ]
+    sampler = ProjectLLMSampler(_RepairingClient(attempts))
+
+    payload = await sampler.sample(scene_text="正文。", input_manifest=_manifest())
+
+    usage = payload["paid_call_receipt"]["usage"]
+    assert usage["prompt_tokens"] == 30
+    assert usage["completion_tokens"] is None
+    assert usage["usage_complete"] is False
+
+
+async def test_final_failure_still_records_paid_receipt() -> None:
+    # A07（2026-09-22 审查）：最终抛错时回执不得凭空消失——采样器固化
+    # 失败回执（含已发生请求的真实用量）后再重抛，供调用方留档对账。
+    class _FailingStructuredClient:
+        provider_id = "deepseek"
+        model = "deepseek-chat"
+
+        async def generate_structured(
+            self,
+            request: LLMCallRequest,
+            schema: type,
+            *,
+            diagnostics: list[dict[str, Any]] | None = None,
+        ):
+            if diagnostics is not None:
+                diagnostics.append(
+                    {
+                        "kind": "structured_usage",
+                        "status": "failed",
+                        "error_kind": "invalid_json",
+                        "attempt": 1,
+                        "completion_tokens": 123,
+                    }
+                )
+            raise ValueError("structured generation failed after repair attempts")
+
+    sampler = ProjectLLMSampler(_FailingStructuredClient())
+    with pytest.raises(ValueError, match="failed after repair"):
+        await sampler.sample(scene_text="正文。", input_manifest=_manifest())
+
+    receipt = sampler.last_call_receipt
+    assert receipt is not None
+    assert receipt["outcome"] == "failed_final"
+    assert receipt["usage"]["completion_tokens"] == 123
+    assert receipt["usage"]["attempts"] == 1
+    assert receipt["attempts_detail"][0]["error_kind"] == "invalid_json"
 
 
 async def test_project_llm_provider_resolve_paths() -> None:
