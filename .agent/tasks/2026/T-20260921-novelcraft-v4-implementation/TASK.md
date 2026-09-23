@@ -16,6 +16,15 @@ Phase3 新纯 Story 端口、Evolution structure runtime/queue、候选来源采
 
 费用：124请求、123 settled、请求124 CancelledError/usage_unknown。用户已授权按预留最高额 USD0.0443025 计入预算后继续新实测，不重试原请求；实际用量仍未知。保守累计USD0.6728103、原总上限USD5不重置，沿用原paid-calls.json。待加入可审计的最高额结算记录与测试后再调用。后续验收标记代理验收，非人工试用。
 
+## 2026-09-23 分支整理与 PR 交付
+
+用户指令「整理分支进度，逐个提pr」后执行：工作树 243 文件 WIP 固化为单快照提交
+c4e9a7ba1（分支 codex/v4-phase3-wip），fixpack 两个 commit 拆为独立分支。三分支已推送
+并建 PR：#165 fixpack 1 → main；#166 fixpack 2 → base #165；#167 draft Phase-3 WIP 快照
+→ base #166（未完成勿合，转正前须修上文 4+1 项并跑 docs-check BASE_REF=origin/main）。
+仅创建 PR，未合并、未部署；合并仍需用户授权。原「未提交、推送」表述自此作废，
+其余快照记录（缺陷清单、费用、验证口径）仍有效。
+
 
 
 # NovelCraft V4 长期计划实施
