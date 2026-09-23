@@ -68,9 +68,25 @@ async def test_defer_retains_roots_and_resume_writes_once(
     assert history["items"][0]["cleanup_eligible"] is False
     assert history["items"][0]["cleanup_status"] == "pending"
     assert history["items"][0]["cleanup_summary"] == {}
-    assert await list_recent_workflows(
-        db_session, novel_id=str(uuid.uuid4()), skip=0, limit=20
-    ) == {"items": [], "total": 0}
+    assert history["can_continue"] is True
+    from core.errors import NotFoundError
+    from modules.evolution.facade import switch_project_engine
+
+    await switch_project_engine(
+        db_session,
+        test_project_id,
+        to_engine="evolution",
+        expected_epoch=1,
+        stop_active=True,
+    )
+    readonly = await list_recent_workflows(
+        db_session, novel_id=test_project_id, skip=0, limit=20
+    )
+    assert readonly["can_continue"] is False and readonly["items"]
+    with pytest.raises(NotFoundError):
+        await list_recent_workflows(
+            db_session, novel_id=str(uuid.uuid4()), skip=0, limit=20
+        )
 
 
 async def test_deferred_resume_rejects_changed_manuscript(

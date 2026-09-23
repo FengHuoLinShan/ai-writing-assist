@@ -21,7 +21,7 @@ Writing 模块是章节正文的事实源，同时负责在 fresh context confir
 - 按 `canonical` / `working` 选择章节事实源
 - 字面 grep、稳定范围引用与段落扩展读取
 - 版本历史查看
-- 创建草稿后提交 `publish_chapter` 异步索引任务
+- 正文保存时经 Evidence 投递 working/canonical 索引；发布快照沿用发布流程
 - 写作页剧情设定冲突检查记录、问题状态与发布前检查快照归档
 - 从已确认 context 生成 AI 正文 candidate，并保存 confirmation/task provenance
 - 对规则冲突结果追加 AI 软复核和可编辑修复建议
@@ -408,3 +408,11 @@ confirmation、正文、finding、Scene bundle 校验。恢复历史版本创建
 `creative.py` 仅为当前章节工作稿提供完整标题/正文快照和原 `writing.revise` 操作 port。
 前瞻 `forecast.py` 读取实际版本差异、候选回执及保存位置，不把候选写入 working。
 领域采用继续保留历史与出处，试改检查不代替原候选确认。
+
+## 保存变化的统一传播
+
+仓储 `_created/_changed` 是正文版本创建、内容修改、发布、回退和删除的共同传播边界：同事务
+标记原 Context、合并 working/canonical 索引投递，并使相关 Evolution run 与 Story 机器状态
+失效。失败时随正文写入一并回滚；作者确认事件和旧回执保留。API/助手不再重复投递。
+`*_only` facade 表示不派生发布流程、由调用方提交事务，仍执行这些必要的保存副作用；未采用
+candidate 不视为正文变化。失效不自动触发付费重算。

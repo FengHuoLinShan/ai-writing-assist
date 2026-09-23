@@ -48,6 +48,7 @@ describe("WritingView", () => {
     clearWritingSession()
     const state = { currentProjectId: "p1", viewStates: {} }
     const api = globalThis.api
+    api.evolution = { status: vi.fn().mockResolvedValue({ engine: { engine: "legacy", epoch: 1 }, run: null }) }
     api.writing.get.mockResolvedValue({ id: "d1", novel_id: "p1", title: "<img src=x>", content: "正文", version_number: 1, status: "draft" })
     api.writing.autosave.mockImplementation(async (_id, payload) => ({
       id: "d1",
@@ -1015,7 +1016,7 @@ describe("WritingView", () => {
 
     expect(wrapper.find("#writing-editor").exists()).toBe(false)
     expect(wrapper.find("#btn-autosave").attributes("disabled")).toBeDefined()
-    const extractionButton = wrapper.findAll("button").find((button) => button.text() === "先整理场景骨架（推荐）")
+    const extractionButton = wrapper.findAll("button").find((button) => button.text() === "理解与整理正文…")
     expect(extractionButton).toBeDefined()
     await extractionButton.trigger("click")
     expect(wrapper.find('[aria-label="自动提取"]').exists()).toBe(true)
@@ -1030,7 +1031,7 @@ describe("WritingView", () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain("选择一章，继续你的故事。")
-    expect(wrapper.findAll("button").some((button) => button.text() === "先整理场景骨架（推荐）")).toBe(false)
+    expect(wrapper.findAll("button").some((button) => button.text() === "理解与整理正文…")).toBe(false)
     wrapper.unmount()
   })
 
@@ -1081,11 +1082,11 @@ describe("WritingView", () => {
     const wrapper = mount(WritingView, { props: props({ requestedLocation: { chapter: 1, draftId: "d2" } }), attachTo: document.body })
     await flushPromises()
 
-    for (const label of ["续写建议", "AI 正文建议", "AI 角色视角建议", "先整理场景骨架（推荐）", "完整整理世界与结构", "整理人物、设定与关系", "整理剧情线", "导出本章"]) {
+    for (const label of ["续写建议", "AI 正文建议", "AI 角色视角建议", "理解与整理正文…", "导出本章"]) {
       expect(wrapper.findAll("button").some((button) => button.text() === label)).toBe(true)
     }
 
-    await wrapper.findAll("button").find((button) => button.text() === "先整理场景骨架（推荐）").trigger("click")
+    await wrapper.findAll("button").find((button) => button.text() === "理解与整理正文…").trigger("click")
     expect(wrapper.find('[aria-label="自动提取"]').exists()).toBe(true)
     wrapper.vm.$.setupState.vm.autoExtraction.open = false
 
@@ -1720,7 +1721,8 @@ describe("WritingView", () => {
     globalThis.api.outline.listScenesOrdered.mockResolvedValue([{ id: "scene-new", title: "新场景", status: "draft", chapter_ids: ["1"], scene_chunks: [] }])
     const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
     await flushPromises()
-    await wrapper.findAll("button").find((button) => button.text() === "先整理场景骨架（推荐）").trigger("click")
+    await wrapper.findAll("button").find((button) => button.text() === "理解与整理正文…").trigger("click")
+    await flushPromises()
     await wrapper.findAll("button").find((button) => button.text() === "确认并开始提取").trigger("click")
     await flushPromises()
     expect(globalThis.api.imports.startStage).toHaveBeenCalledWith("scenes", "p1", 1, 1, false, false, expect.objectContaining({
@@ -1744,6 +1746,7 @@ describe("WritingView", () => {
     const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
     await flushPromises()
     await wrapper.vm.$.setupState.vm.openAutoExtraction("world_objects")
+    await flushPromises()
     await wrapper.findAll("button").find((button) => button.text() === "确认并开始提取").trigger("click")
     await flushPromises()
 
@@ -1759,7 +1762,9 @@ describe("WritingView", () => {
     globalThis.api.outline.listScenesOrdered.mockResolvedValue([{ id: "scene-full", title: "完整导入场景", status: "draft", chapter_ids: ["1"], scene_chunks: [] }])
     const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
     await flushPromises()
-    await wrapper.findAll("button").find((button) => button.text() === "完整整理世界与结构").trigger("click")
+    await wrapper.findAll("button").find((button) => button.text() === "理解与整理正文…").trigger("click")
+    await flushPromises()
+    await wrapper.get(".writing-auto-extract-dialog select.form-select").setValue("deep")
     await wrapper.findAll("button").find((button) => button.text() === "确认并开始提取").trigger("click")
     await flushPromises()
 
@@ -1772,6 +1777,22 @@ describe("WritingView", () => {
     ])
     expect(globalThis.api.outline.listScenesOrdered).toHaveBeenCalledWith("p1")
     expect(wrapper.vm.$.setupState.vm.chapterScenes.value.map((scene) => scene.title)).toContain("完整导入场景")
+    wrapper.unmount()
+  })
+
+  it("切换理解流程后，写作入口提供新流程而不提交旧整理", async () => {
+    globalThis.api.evolution.status.mockResolvedValue({ engine: { engine: "evolution", epoch: 2 }, run: null })
+    const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
+    await flushPromises()
+    await wrapper.findAll("button").find(button => button.text() === "理解与整理正文…").trigger("click")
+    await flushPromises()
+    const dialog = wrapper.get('.writing-auto-extract-dialog')
+    expect(dialog.find('.reading-flow').element.open).toBe(true)
+    expect(dialog.text()).toContain("查看理解范围")
+    expect(dialog.text()).toContain("完整整理尚未接入")
+    expect(dialog.findAll("button").some(button => button.text() === "确认并开始提取")).toBe(false)
+    expect(globalThis.api.imports.deepImport).not.toHaveBeenCalled()
+    expect(globalThis.api.imports.startStage).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 
@@ -1794,7 +1815,9 @@ describe("WritingView", () => {
       status: "running",
       workflowType: "deep_import",
     }
-    await wrapper.findAll("button").find((button) => button.text() === "完整整理世界与结构").trigger("click")
+    await wrapper.findAll("button").find((button) => button.text() === "理解与整理正文…").trigger("click")
+    await flushPromises()
+    await wrapper.get(".writing-auto-extract-dialog select.form-select").setValue("deep")
     await wrapper.findAll("button").find((button) => button.text() === "确认并开始提取").trigger("click")
     await flushPromises()
 
@@ -1816,7 +1839,9 @@ describe("WritingView", () => {
     globalThis.api.tasks.get.mockImplementation(() => new Promise(() => {}))
     const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
     await flushPromises()
-    await wrapper.findAll("button").find((button) => button.text() === "完整整理世界与结构").trigger("click")
+    await wrapper.findAll("button").find((button) => button.text() === "理解与整理正文…").trigger("click")
+    await flushPromises()
+    await wrapper.get(".writing-auto-extract-dialog select.form-select").setValue("deep")
     await wrapper.findAll("button").find((button) => button.text() === "确认并开始提取").trigger("click")
     await flushPromises()
 

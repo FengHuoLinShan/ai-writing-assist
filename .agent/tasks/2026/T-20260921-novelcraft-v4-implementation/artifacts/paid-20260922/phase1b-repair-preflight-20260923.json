@@ -1,0 +1,47 @@
+{
+  "mode": "phase1b_repair_preflight",
+  "started_at": "2026-09-22T16:51:19.648412+00:00",
+  "database": "ai_novel_agent_e2e_v4_live_20260922",
+  "novel_id": "0a044d00-619d-4f5d-b391-422cd76aa495",
+  "old_run_key": "reading-0ae76589-054e-421e-857d-d495315c31ad",
+  "operation_id": "9489795b-7565-4e7e-a6d1-64631fd7c1c7",
+  "preview": {
+    "fingerprint": "49d0792791002a111fe69cb4a3c96af452e3b5fdadb1bc0e349fe04b05306e48",
+    "recompute_from_scene_index": 0,
+    "inherited_scene_count": 0,
+    "expanded_scope": false,
+    "recompute_target": null,
+    "scene_count": 2,
+    "preparation_windows": 0,
+    "end_chapter": 1,
+    "request_limit": 10,
+    "model": "deepseek-flash"
+  },
+  "original_failed_hash": "4cd71833267f78d9bd6f649160b4eeca39c9b7fe2e7b67c08785f86fe0f96850",
+  "before": {
+    "run_key": "reading-0ae76589-054e-421e-857d-d495315c31ad",
+    "task_id": "0a10d532-1ade-44d2-96bb-c95f0598589b",
+    "status": "needs_reconciliation",
+    "completed_scenes": 0,
+    "total_scenes": 2,
+    "budget_total": 10,
+    "budget_remaining": 7,
+    "end_chapter": 1,
+    "preparing_scenes": false,
+    "model": "deepseek-flash",
+    "can_resume": false
+  },
+  "boundary_review": {
+    "acceptance_type": "代理验收，非人工试用",
+    "decision": "review_boundary",
+    "scene_ids": [
+      "69d3c6a3-435d-4791-a2c6-2cccc1fca106",
+      "99719a8c-a8c2-4191-99d8-c802e0068678"
+    ],
+    "basis": "第一段为白石城的未核实传闻；第二段以三日后及渡口另起时空，逐字范围覆盖两段正文，未推断中间行程。",
+    "source_hash": "fd613c0ab059835fde8f04af34a87f2a302fa3f94b625c4fe3b7cd96d8d778c6",
+    "frozen_preparation_hash": "91f0dcd44fc9ac2d9d7eda687d657c8e9ea351770df8d134c512f741a5d4cb2e"
+  },
+  "preflight_passed": true,
+  "stage": "finished"
+}

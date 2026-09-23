@@ -33,6 +33,13 @@ from modules.writing.facade import (
 )
 
 
+def scope_matches(scope, frozen):
+    current = scope.model_dump(mode="json")
+    if "context_keys" not in frozen:
+        current.pop("context_keys", None)
+    return current == frozen
+
+
 async def authorize(db, novel_id, *, persona="author"):
     if persona == "rp":
         return await get("assistant.forecast.personas")["rp"]["authorize"](db, novel_id)
@@ -46,7 +53,9 @@ async def authorize(db, novel_id, *, persona="author"):
     return project
 
 
-async def materialize(db, novel_id, focus: FocusRequest, *, persona="author"):
+async def materialize(
+    db, novel_id, focus: FocusRequest, *, persona="author", include_understanding=True
+):
     if persona == "rp":
         return await get("assistant.forecast.personas")["rp"]["materialize"](
             db, novel_id, focus
@@ -67,6 +76,11 @@ async def materialize(db, novel_id, focus: FocusRequest, *, persona="author"):
         else set()
     )
     confirmed = None
+    excluded.update(str(value).rsplit(":", 1)[-1] for value in focus.excluded_targets)
+    if focus.context_confirmation_id and focus.excluded_targets:
+        raise ConflictError(
+            "请先在参考资料中更新排除项并重新确认", code="CONFIRMATION_SCOPE_CONFLICT"
+        )
     if focus.context_confirmation_id:
         confirmed = await evidence.prepare_confirmed_ai_action(
             db,
@@ -146,6 +160,7 @@ async def materialize(db, novel_id, focus: FocusRequest, *, persona="author"):
         saved_draft_hash = draft.content_hash
         content = draft.content or ""
         selected = focus.selected_range
+        focus_label = "选中文字" if selected else "章末资料（未指定位置）"
         if selected and selected.end_offset > len(content):
             raise ValidationError(
                 "所选文字超出保存版本", code="INVALID_RANGE", status_code=422
@@ -169,6 +184,18 @@ async def materialize(db, novel_id, focus: FocusRequest, *, persona="author"):
                     "焦点正文不在原确认的资料内", code="CONFIRMATION_SCOPE_CONFLICT"
                 )
         if content and not confirmed:
+            if selected is None and focus.cursor_offset is not None:
+                cursor = focus.cursor_offset
+                if cursor > len(content):
+                    raise ValidationError(
+                        "光标超出保存版本", code="INVALID_RANGE", status_code=422
+                    )
+                start = content.rfind("\n", 0, cursor) + 1
+                end = content.find("\n", cursor)
+                end = end if end >= 0 else len(content)
+                if end > start:
+                    selected = TextRange(start_offset=start, end_offset=end)
+                    focus_label = "光标所在段落"
             selected = selected or TextRange(
                 start_offset=max(0, len(content) - 12000), end_offset=len(content)
             )
@@ -196,7 +223,7 @@ async def materialize(db, novel_id, focus: FocusRequest, *, persona="author"):
                 "writing_draft",
                 draft.id,
                 content[selected.start_offset : selected.end_offset],
-                label=draft.title or f"第 {chapter_index} 章",
+                label=f"{draft.title or f'第 {chapter_index} 章'} · {focus_label}",
                 revision=f"{draft.version_number}:{draft.content_hash}",
                 text_range=selected,
                 full_hash=draft.content_hash,
@@ -243,12 +270,26 @@ async def materialize(db, novel_id, focus: FocusRequest, *, persona="author"):
             )
     targets = []
     if focus.scene_id:
-        scene = await get_scene_contract(db, novel_id, str(focus.scene_id))
-        if scene is None:
-            raise NotFoundError("场景不可访问")
         targets.append(("scene", focus.scene_id))
     if focus.target:
         targets.append((focus.target.resource_kind, focus.target.resource_id))
+    understanding_boundary_known = True
+    for kind, resource_id in targets:
+        if kind == "scene":
+            # Case goals and author constraints have no Scene-time proof.
+            understanding_boundary_known = False
+            scene = await get_scene_contract(db, novel_id, str(resource_id))
+            if scene is None:
+                raise NotFoundError("场景不可访问")
+            if not scene.chapter_ids:
+                understanding_boundary_known = False
+            else:
+                # chapter_ids are stringified indices; compare numerically so a
+                # focus Scene can only tighten, never break, the chapter cutoff.
+                first_chapter = min(int(value) for value in scene.chapter_ids)
+                chapter_index = (
+                    min(chapter_index, first_chapter) if chapter_index else first_chapter
+                )
     for kind, resource_id in targets:
         if confirmed:
             continue
@@ -324,6 +365,75 @@ async def materialize(db, novel_id, focus: FocusRequest, *, persona="author"):
             label=fact.title,
         )
         facts.append((fact, refs[-1]))
+    understanding = {}
+    if include_understanding and not confirmed and understanding_boundary_known:
+        packet, omissions = await evidence.collect_forecast_understanding(
+            db, novel_id, chapter_index=chapter_index, excluded=excluded
+        )
+        understanding = {"records": [], "excluded": omissions}
+        if packet and any(
+            source.content["content"] != sources[index]["text"]
+            for source in packet.resources
+            for index, ref in enumerate(refs)
+            if str(ref.resource_id) == str(source.id)
+        ):
+            packet = None
+            understanding["excluded"].append({"reason": "root_not_fully_selected"})
+        if packet:
+            original_lengths = len(sources), len(refs), len(dependencies)
+            source_map = {}
+            for source in packet.resources:
+                body = source.content["content"]
+                if str(source.id) not in {str(ref.resource_id) for ref in refs}:
+                    remember(
+                        "writing_draft",
+                        source.id,
+                        body,
+                        label=f"前文依据 · {source.label}",
+                        revision=source.revision,
+                        full_hash=hashlib.sha256(body.encode()).hexdigest(),
+                        text_range=TextRange(start_offset=0, end_offset=len(body))
+                        if body
+                        else None,
+                    )
+                    sources[-1]["chapter_index"] = source.chapter_index
+                source_map[source.key] = next(
+                    ref.evidence_id
+                    for ref in refs
+                    if str(ref.resource_id) == str(source.id)
+                )
+            understanding = {
+                **packet.cognition.model_dump(mode="json"),
+                "source_map": source_map,
+                "excluded": [*omissions, *packet.cognition.excluded],
+            }
+            for ref in packet.cognition.records:
+                dependencies.append(
+                    {
+                        "dependency_key": f"cognition:{ref.record_id}",
+                        "resource_kind": "cognition",
+                        "resource_id": str(ref.record_id),
+                        "revision_token": f"{ref.revision_id}:{ref.content_hash}",
+                        "role": "interpretation",
+                        "required": True,
+                    }
+                )
+            if (
+                len(json.dumps([sources, understanding["records"]], ensure_ascii=False))
+                > 22000
+            ):
+                del sources[original_lengths[0] :]
+                del refs[original_lengths[1] :]
+                del dependencies[original_lengths[2] :]
+                understanding = {
+                    "records": [],
+                    "excluded": [{"reason": "not_selected_capacity"}],
+                }
+    elif include_understanding and not confirmed:
+        understanding = {
+            "records": [],
+            "excluded": [{"reason": "historical_understanding_unavailable"}],
+        }
     # Include the authorized collection, not just cited hits, in negative-query freshness.
     manuscript = await list_manuscript_sources(db, novel_id, content_mode="working")
     collection = [
@@ -362,12 +472,43 @@ async def materialize(db, novel_id, focus: FocusRequest, *, persona="author"):
             "expected_source_hash",
         },
     )
+    if not focus.excluded_targets:
+        context_fields.pop("excluded_targets", None)
+    if focus.cursor_offset is None:
+        context_fields.pop("cursor_offset", None)
     scope["chapter_index"] = chapter_index
     scope_hash = content_hash(scope)
     context_hash = content_hash(
         {"focus": context_fields, "scope": scope_hash, "dependencies": dependencies}
     )
-    if len(json.dumps(sources, ensure_ascii=False)) > 22000:
+    context_keys = {
+        "authority_scope_key": scope_hash,
+        "evidence_snapshot_key": content_hash(
+            {
+                "dependencies": dependencies,
+                "evidence": [ref.model_dump(mode="json") for ref in refs],
+            }
+        ),
+        "task_context_key": content_hash(
+            {
+                key: value
+                for key, value in context_fields.items()
+                if key not in {"page", "cursor_offset"}
+            }
+        ),
+        "presentation_focus": content_hash(
+            {
+                "page": focus.page,
+                "cursor": focus.cursor_offset,
+                "client": str(focus.client_context_id),
+                "sequence": focus.focus_seq,
+            }
+        ),
+    }
+    if (
+        len(json.dumps([sources, understanding.get("records", [])], ensure_ascii=False))
+        > 22000
+    ):
         raise ValidationError("本次资料过多，请缩小选择范围", code="CONTEXT_TOO_LARGE")
     for item in dependencies:
         item["scope_stamp"] = scope_hash
@@ -381,6 +522,7 @@ async def materialize(db, novel_id, focus: FocusRequest, *, persona="author"):
             context_hash=context_hash,
             policy_generation=generation,
             source_manifest_hash=manifest_hash,
+            context_keys=context_keys,
         ),
         focus,
         sources,
@@ -390,4 +532,5 @@ async def materialize(db, novel_id, focus: FocusRequest, *, persona="author"):
         sorted(excluded),
         facts,
         saved_draft_hash,
+        understanding,
     )

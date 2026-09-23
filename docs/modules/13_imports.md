@@ -344,3 +344,15 @@ Phase 1/2/3、定向补全与 review resolution 按窗口/Scene/候选组/问题
 ### DS Flash 档位调优（2026-09-21）
 
 导入high_quality保留更充分的证据链，并在账户Flash上统一max思考和至少65,536输出余量；普通档high及各阶段冻结预算不变。历史实测的结构化截断不支持全局降低输出上限。完整Scene来源和可见性不因价格目标缩减；有界重试/超时继续生效。
+
+## 演化切换期间的写入边界
+
+深度导入及其分阶段任务仅在项目理解引擎为 legacy 时入队，冻结项目 epoch/schema token。
+claim、checkpoint、恢复和 reconcile 都重验；旧无 token 任务仅兼容未切换项目。
+`imports.facade.drain_understanding_runs` 在项目独占锁下拒绝未排空运行，或按显式 stop
+停止并推进 generation，保留来源、预算、结果和 checkpoint。Evolution 统一撤销相关队列
+lease、推进项目 epoch，PG trigger 拒绝旧 SQL 后写与终态复活。默认导入入口仍未重定向，
+也未删除历史编排；详见 [Evolution](22_evolution.md)。
+
+旧流程历史列表返回 `can_continue`（由 Project 当前理解 owner 决定）；Evolution/只读项目
+只能回看旧整理与查漏结果。此展示标记不替代启动、恢复和提交时的服务端 owner 栅栏。

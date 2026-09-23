@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 
 def _uuid_validator(v: object) -> str:
@@ -345,6 +345,20 @@ class SceneWorkbenchItem(BaseModel):
     overlap_details: list[SceneSpanOverlapDetail] = []
     segment: Literal["current", "upcoming", "past", "unassigned"] | None = None
 
+    @computed_field
+    @property
+    def boundary_fingerprint(self) -> str:
+        from modules.story.outline_state.review_attention import boundary_fingerprint
+
+        return boundary_fingerprint(self.scene)
+
+    @computed_field
+    @property
+    def boundary_review_current(self) -> bool:
+        from modules.story.outline_state.review_attention import boundary_review_current
+
+        return boundary_review_current(self.scene)
+
 
 class SceneFusionSuggestionSummary(BaseModel):
     pending_count: int = 0
@@ -365,16 +379,16 @@ class SceneWorkbenchResponse(BaseModel):
     skip: int = 0
     unassigned_chapters: list[int] = []
     selected_scene_id: str | None = None
-    fusion_suggestions: SceneFusionSuggestionSummary = (
-        SceneFusionSuggestionSummary()
-    )
+    fusion_suggestions: SceneFusionSuggestionSummary = SceneFusionSuggestionSummary()
     progress: SceneProgressSummary | None = None
 
 
 class SceneReviewRequest(BaseModel):
     scene_ids: list[str] = Field(..., min_length=1, max_length=100)
+    boundary_fingerprints: dict[str, str] = Field(default_factory=dict)
     decision: Literal[
         "review",
+        "review_boundary",
         "reopen",
         "ignore_structure",
         "restore_structure",

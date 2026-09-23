@@ -185,7 +185,7 @@ class TestSyntheticFileImportService:
         real_project: str,
         synthetic_file_bytes: bytes,
     ):
-        """导入后应为每章节创建发布任务，避免重复 RAG 索引任务。"""
+        """导入保留发布快照任务；working/canonical 各投递一次索引请求。"""
         await service.upload_and_import(
             db_session,
             real_project,
@@ -207,7 +207,16 @@ class TestSyntheticFileImportService:
         rag_result = await db_session.execute(
             select(AsyncTask).where(AsyncTask.task_type == "rag_index_chapter")
         )
-        assert list(rag_result.scalars().all()) == []
+        rag_tasks = list(rag_result.scalars().all())
+        expected = {
+            (task.meta["chapter_index"], mode)
+            for task in tasks
+            for mode in ("working", "canonical")
+        }
+        assert len(rag_tasks) == len(expected)
+        assert {
+            (task.meta["chapter_index"], task.meta["content_mode"]) for task in rag_tasks
+        } == expected
 
     @pytest.mark.asyncio
     async def test_import_record_persisted_correctly(

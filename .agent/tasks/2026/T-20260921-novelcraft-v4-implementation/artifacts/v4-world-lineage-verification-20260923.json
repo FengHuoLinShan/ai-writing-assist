@@ -1,0 +1,45 @@
+{
+  "acceptance_type": "代理验收，非人工试用",
+  "recorded_at": "2026-09-22T18:31:30.786317+00:00",
+  "gate_scope": "World v2 first-Scene identity and frozen relation history; not whole V4",
+  "checks": {
+    "ci": {
+      "log": "/tmp/v4-lineage-ci.log",
+      "backend_passed": 6257,
+      "backend_skipped": 15,
+      "coverage_percent": 85.99,
+      "frontend_passed": 2586,
+      "deployment_passed": 270
+    },
+    "native_pg": {
+      "log": "/tmp/v4-lineage-native.log",
+      "passed": 31
+    },
+    "browser": {
+      "log": "/tmp/v4-lineage-browser.log",
+      "passed": 6
+    },
+    "world_modules": {
+      "log": "/tmp/v4-lineage-modules.log",
+      "passed": 2101
+    },
+    "structure_ports": {
+      "log": "/tmp/v4-structure-ports.log",
+      "passed": 17
+    }
+  },
+  "limitations": [
+    "Full CI preceded final Phase3 pure helper changes; these have targeted 17-test verification only.",
+    "Final alias/history/review contract Prompt clarifications are not yet validated with real models.",
+    "Paid acceptance remains failed; call124 usage_unknown. No further paid calls without reconciliation decision.",
+    "Phase3 pure ports are not yet connected to production reading."
+  ],
+  "files": {
+    "backend/modules/evolution/world.py": "289e736beda08a5678189b828bfae2c89bc0e35e037300a280af9fd29dbad70d",
+    "backend/modules/evolution/pipeline.py": "322888e883f57485a9fbb1cf2a11ae4e4a806373a995d76b5ab3145faa713c3f",
+    "backend/modules/imports/scene_world.py": "0123aa74a98b2845a876b0b82c4381a3dc72c6f25019feb456d6d890407e9c69",
+    "backend/modules/evolution/tests/test_world.py": "bbd3d1bbad67c6d9b9dfb04f4a50feacee9ab3ca97c722e8c0eb8fa294122b87",
+    "backend/modules/story/outline_state/reading_structure.py": "d5aa87a14ea5af0f65227be445ba770366520804bd19d7180cc415cfc209c535",
+    "backend/modules/story/outline_state/generation/parser.py": "a3d2d9280737d78d46c5c17f42984af5cd60e91708dc1e2853e45f73960173bd"
+  }
+}

@@ -311,3 +311,23 @@ World 设计精细模式的反例审查仍只核对本轮 typed 世界变化及�
 路线前提。缺少距离、速度或道路条件时不承诺耗时；不从图片像素估算距离。规则影响继续
 引用原 WorldImpactService 的地图依赖回执，点击后进入原地图页面处理；普通前瞻和创作
 试验不会直接改写 Atlas revision、重新生图或自动采用地图。
+
+## 场景人物位置
+
+`GET /api/world/map-atlas/{novel_id}/nodes/{node_id}/scene-context?scene_id=…&view=author`
+由 Map facade 聚合现有地图版本和 Story 指定截止点的有效 Scene 事件，返回
+`map_scene_context_v1`：scene_ref、map_revision、presence_items、历史节点、路线、source_receipts、
+coverage/omissions、freshness、generation_stamp 和 request_context_id。没有独立地图事实表。
+
+仅当前 draft/canonical Scene 与未失效事件参加投影；明确位置身份优先于显示名，同名不同对象
+不得互相绑定。无身份的文字只可对应唯一独立地图标记，不自动匹配到绑定身份的地点；歧义、
+失效地图来源和无几何时保留文字列表。本场有事件才称 confirmed_in_scene，先前事件是
+last_observed，缺少记录则 unknown；不从档案地址回填。
+
+历史只展示明确出现节点；没有移动来源证据时路线为 unknown，不附距离、速度、交通方式或耗时。
+最多展示 200 名人物、最近 200 个历史节点和 200 段关系，并显式记录截断。来源修订经统一失效
+链排除旧机器事件；作者已删场景的历史仍保存，但不进入当前投影。当前不支持物品保管、世界有效
+时间及角色/读者视角，请求不支持的 view 返回 422，不回退作者全集。
+
+界面按需选择场景，可定位有依据的地图标记、返回来源章；新地图版本会重载展开的面板。
+读取不调用模型，不自动生成地图、路线或图片；此切片不等于 V/MI 全部能力或真实模型验收。

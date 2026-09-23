@@ -299,6 +299,7 @@ class PlotStructureParser:
 
 _PHASE3_EVIDENCE_BATCH_CHARS = 60_000
 _PHASE3_EVIDENCE_TEXT_PART_CHARS = 48_000
+_PHASE3_EVIDENCE_SUMMARY_CHARS = 4_000
 
 
 async def _review_structure_evidence(
@@ -309,74 +310,7 @@ async def _review_structure_evidence(
     scene_by_id: dict[str, dict],
     high_quality: bool,
 ) -> tuple[SimpleStructureOutput, dict[str, int]]:
-    collections = (
-        "plot_threads",
-        "arcs",
-        "foreshadowing",
-        "reveals",
-        "turning_points",
-    )
-    states: dict[str, dict] = {}
-    units: list[dict] = []
-    unit_map: dict[str, tuple[str, str]] = {}
-
-    for category in collections:
-        for index, item in enumerate(getattr(output, category)):
-            candidate_id = f"{category}:{index}"
-            refs = list(dict.fromkeys(item.supporting_scene_ids))
-            state = {
-                "category": category,
-                "item": item,
-                "refs": refs,
-                "reasons": [],
-                "reviews": [],
-            }
-            states[candidate_id] = state
-            if item.confidence < 0.80:
-                state["reasons"].append("first_pass_confidence_below_0.80")
-                continue
-            if item.needs_review:
-                state["reasons"].append("first_pass_requested_review")
-                continue
-            if not refs:
-                state["reasons"].append("missing_valid_supporting_scene_evidence")
-                continue
-            for scene_id in refs:
-                scene = scene_by_id.get(scene_id) or {}
-                evidence = scene.get("_evidence") or {}
-                if evidence.get("status") != "exact":
-                    state["reasons"].append(f"scene_source_not_exact:{scene_id}")
-                    continue
-                sources = evidence.get("sources") or []
-                scene_text = "\n\n".join(
-                    str(source.get("text") or "")
-                    for source in sources
-                    if isinstance(source, dict)
-                )
-                if not scene_text:
-                    state["reasons"].append(f"scene_source_empty:{scene_id}")
-                    continue
-                for part_index, start in enumerate(
-                    range(0, len(scene_text), _PHASE3_EVIDENCE_TEXT_PART_CHARS),
-                    start=1,
-                ):
-                    unit_id = f"{candidate_id}@{scene_id}:{part_index}"
-                    units.append(
-                        {
-                            "candidate_id": unit_id,
-                            "category": category,
-                            "title": item.title[:500],
-                            "summary": item.summary[:4000],
-                            "first_pass_confidence": item.confidence,
-                            "supporting_scene_ids": refs,
-                            "scene_id": scene_id,
-                            "scene_text": scene_text[
-                                start : start + _PHASE3_EVIDENCE_TEXT_PART_CHARS
-                            ],
-                        }
-                    )
-                    unit_map[unit_id] = (candidate_id, scene_id)
-
+    states, units, unit_map = _prepare_structure_evidence(output, scene_by_id)
     review_calls = 0
     call_failures = 0
     raw_verdicts: list[str] = []
@@ -416,35 +350,133 @@ async def _review_structure_evidence(
                 redact_diagnostic(exc, limit=300),
             )
             continue
-        for review in reviewed.reviews:
-            expected = unit_map.get(review.candidate_id)
-            if expected is None:
-                continue
-            candidate_id, scene_id = expected
-            source_texts = [
-                str(source.get("text") or "")
-                for source in (
-                    (scene_by_id.get(scene_id) or {}).get("_evidence") or {}
-                ).get("sources", [])
-                if isinstance(source, dict)
-            ]
-            exact_evidence = [
-                {"scene_id": scene_id, **evidence.model_dump(mode="json")}
-                for evidence in review.evidence
-                if evidence.quote and any(evidence.quote in text for text in source_texts)
-            ]
-            verdict = review.verdict if exact_evidence else "uncertain"
-            raw_verdicts.append(review.verdict)
-            states[candidate_id]["reviews"].append(
-                {
-                    "scene_id": scene_id,
-                    "raw_verdict": review.verdict,
-                    "verdict": verdict,
-                    "confidence": review.confidence,
-                    "evidence": exact_evidence,
-                }
-            )
+        raw_verdicts.extend(_apply_structure_evidence(states, unit_map, reviewed, batch))
 
+    return _materialize_structure_evidence(
+        output, states, review_calls, call_failures, raw_verdicts, cache_usage
+    )
+
+
+def _prepare_structure_evidence(output, scene_by_id):
+    collections = (
+        "plot_threads",
+        "arcs",
+        "foreshadowing",
+        "reveals",
+        "turning_points",
+    )
+    states: dict[str, dict] = {}
+    units: list[dict] = []
+    unit_map: dict[str, tuple[str, str]] = {}
+
+    for category in collections:
+        for index, item in enumerate(getattr(output, category)):
+            candidate_id = f"{category}:{index}"
+            refs = list(dict.fromkeys(item.supporting_scene_ids))
+            state = {
+                "category": category,
+                "item": item,
+                "refs": refs,
+                "reasons": [],
+                "reviews": [],
+            }
+            states[candidate_id] = state
+            if item.confidence < 0.80:
+                state["reasons"].append("first_pass_confidence_below_0.80")
+                continue
+            if item.needs_review:
+                state["reasons"].append("first_pass_requested_review")
+                continue
+            if not refs:
+                state["reasons"].append("missing_valid_supporting_scene_evidence")
+                continue
+            if len(item.summary) > _PHASE3_EVIDENCE_SUMMARY_CHARS:
+                # The reviewer only ever sees the first window of the claim while
+                # materialization keeps the full summary; a longer claim can never
+                # be fully verified, so it stays an author-facing draft.
+                state["reasons"].append("summary_exceeds_review_window")
+                continue
+            for scene_id in refs:
+                scene = scene_by_id.get(scene_id) or {}
+                evidence = scene.get("_evidence") or {}
+                if evidence.get("status") != "exact":
+                    state["reasons"].append(f"scene_source_not_exact:{scene_id}")
+                    continue
+                sources = evidence.get("sources") or []
+                scene_text = "\n\n".join(
+                    str(source.get("text") or "")
+                    for source in sources
+                    if isinstance(source, dict)
+                )
+                if not scene_text:
+                    state["reasons"].append(f"scene_source_empty:{scene_id}")
+                    continue
+                for part_index, start in enumerate(
+                    range(0, len(scene_text), _PHASE3_EVIDENCE_TEXT_PART_CHARS),
+                    start=1,
+                ):
+                    unit_id = f"{candidate_id}@{scene_id}:{part_index}"
+                    units.append(
+                        {
+                            "candidate_id": unit_id,
+                            "category": category,
+                            "title": item.title[:500],
+                            "summary": item.summary[:_PHASE3_EVIDENCE_SUMMARY_CHARS],
+                            "first_pass_confidence": item.confidence,
+                            "supporting_scene_ids": refs,
+                            "scene_id": scene_id,
+                            "scene_text": scene_text[
+                                start : start + _PHASE3_EVIDENCE_TEXT_PART_CHARS
+                            ],
+                        }
+                    )
+                    unit_map[unit_id] = (candidate_id, scene_id)
+
+    return states, units, unit_map
+
+
+def _apply_structure_evidence(states, unit_map, reviewed, batch):
+    expected = {item["candidate_id"] for item in batch}
+    actual = [item.candidate_id for item in reviewed.reviews]
+    if set(actual) != expected or len(actual) != len(expected):
+        for unit_id in expected:
+            states[unit_map[unit_id][0]]["reasons"].append("invalid_review_item_coverage")
+        return []
+    raw_verdicts = []
+    for review in reviewed.reviews:
+        expected = unit_map.get(review.candidate_id)
+        if expected is None:
+            continue
+        candidate_id, scene_id = expected
+        source_text = next(
+            item["scene_text"]
+            for item in batch
+            if item["candidate_id"] == review.candidate_id
+        )
+        exact_evidence = [
+            {"scene_id": scene_id, **evidence.model_dump(mode="json")}
+            for evidence in review.evidence
+            if evidence.quote and evidence.quote in source_text
+        ]
+        verdict = review.verdict if exact_evidence else "uncertain"
+        raw_verdicts.append(review.verdict)
+        states[candidate_id]["reviews"].append(
+            {
+                "scene_id": scene_id,
+                "raw_verdict": review.verdict,
+                "verdict": verdict,
+                "confidence": review.confidence,
+                "evidence": exact_evidence,
+            }
+        )
+
+    return raw_verdicts
+
+
+def _materialize_structure_evidence(
+    output, states, review_calls, call_failures, raw_verdicts, cache_usage
+):
+    collections = ("plot_threads", "arcs", "foreshadowing", "reveals", "turning_points")
     replacements: dict[str, list[SimpleSupportedStructureItem]] = {
         key: [] for key in collections
     }

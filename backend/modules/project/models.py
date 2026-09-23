@@ -14,6 +14,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -93,6 +94,15 @@ class Project(Base, UUIDMixin, TimestampMixin):
         nullable=False,
         default=dict,
         comment="小说配置（JSON，如 temporary_entity_expiry_chapters）",
+    )
+    understanding_engine: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="legacy", server_default="legacy"
+    )
+    understanding_epoch: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
+    understanding_schema_floor: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
     )
     deleted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),

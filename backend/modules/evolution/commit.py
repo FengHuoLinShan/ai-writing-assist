@@ -232,6 +232,30 @@ async def apply_frozen(
                 "run head moved beyond the parent this attempt prepared on",
             )
 
+    if frozen.payload.get("enrichment_version") == 1 and not frozen.payload.get(
+        "enrichment_result"
+    ):
+        raise CommitConflictError(
+            "enrichment_incomplete", "Scene enrichment is not yet frozen"
+        )
+    if frozen.payload.get("world_version") in {1, 2} and not frozen.payload.get(
+        "world_result"
+    ):
+        raise CommitConflictError(
+            "world_incomplete", "Scene World candidates are not yet frozen"
+        )
+    if frozen.payload.get("scene_events"):
+        from modules.evolution.state_review import reviewed_events
+
+        accepted, _ = reviewed_events(frozen)
+        if (
+            frozen.payload.get("stage") != "verified"
+            or accepted != frozen.payload["scene_events"]
+        ):
+            raise CommitConflictError(
+                "state_review_required",
+                "state effects require a bound independent review",
+            )
     result = await applier(db, frozen)
 
     receipt = EvolutionReceipt(

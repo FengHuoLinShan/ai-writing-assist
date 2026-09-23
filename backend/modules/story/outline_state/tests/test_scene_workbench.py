@@ -3753,6 +3753,7 @@ class TestFusionDecisionLocking:
             status="dismissed",
         )
 
+
 @pytest.fixture(autouse=True)
 def _exercise_scene_fusion_behavior_without_repeating_preflight(
     monkeypatch: pytest.MonkeyPatch,
@@ -3764,3 +3765,75 @@ def _exercise_scene_fusion_behavior_without_repeating_preflight(
         "modules.story.outline_state.api._require_scene_fusion_confirmation",
         skip_preflight,
     )
+
+
+async def test_boundary_confirmation_rejects_stale_view_and_never_adopts_semantics(
+    async_client, test_project_id
+):
+    scene = await _create_scene(
+        async_client,
+        test_project_id,
+        {
+            "scene_index": 0,
+            "title": "待核对边界",
+            "status": "draft",
+            "source": "evolution",
+            "chapter_ids": ["1"],
+            "structure_meta": {
+                "semantic_origin": "boundary_only",
+                "auto_ingested": True,
+                "phase1a_fallback": True,
+                "needs_review": True,
+            },
+        },
+    )
+
+    async def read_item():
+        response = await async_client.get(
+            "/api/outline/scene-workbench", params={"novel_id": test_project_id}
+        )
+        assert response.status_code == 200
+        return next(
+            item
+            for item in response.json()["items"]
+            if item["scene"]["id"] == scene["id"]
+        )
+
+    initial = await read_item()
+    changed = await async_client.patch(
+        f"/api/outline/scenes/{scene['id']}",
+        params={"novel_id": test_project_id},
+        json={"scene_index": 1},
+    )
+    assert changed.status_code == 200
+    body = {
+        "scene_ids": [scene["id"]],
+        "decision": "review_boundary",
+        "boundary_fingerprints": {scene["id"]: initial["boundary_fingerprint"]},
+    }
+    stale = await async_client.post(
+        "/api/outline/scene-workbench/review",
+        params={"novel_id": test_project_id},
+        json=body,
+    )
+    assert stale.status_code == 400 and "边界已变化" in stale.text
+    current = await read_item()
+    assert not current["boundary_review_current"]
+    body["boundary_fingerprints"][scene["id"]] = current["boundary_fingerprint"]
+    confirmed = await async_client.post(
+        "/api/outline/scene-workbench/review",
+        params={"novel_id": test_project_id},
+        json=body,
+    )
+    assert confirmed.status_code == 200
+    current = await read_item()
+    assert current["boundary_review_current"]
+    assert current["scene"]["status"] == "draft"
+    assert "semantic_reviewed_by" not in current["scene"]["structure_meta"]
+    changed = await async_client.patch(
+        f"/api/outline/scenes/{scene['id']}",
+        params={"novel_id": test_project_id},
+        json={"scene_index": 2},
+    )
+    assert changed.status_code == 200
+    assert not (await read_item())["boundary_review_current"]

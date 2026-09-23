@@ -330,6 +330,34 @@ class MapNodeMapResponse(SpatialModel):
     generation_summary: MapExtractionSummary | None = None
 
 
+class MapPresenceItem(SpatialModel):
+    character_id: str
+    character_name: str
+    presence_kind: Literal["confirmed_in_scene", "last_observed", "unknown"]
+    location: str | None = None
+    location_id: str | None = None
+    feature_id: str | None = None
+    scene_index: int | None = None
+    source_receipt: dict = Field(default_factory=dict)
+
+
+class MapSceneContext(SpatialModel):
+    protocol: Literal["map_scene_context_v1"] = "map_scene_context_v1"
+    view: Literal["author"] = "author"
+    scene_ref: dict
+    map_revision: str | None
+    presence_items: list[MapPresenceItem]
+    history: list[MapPresenceItem]
+    routes: list[dict]
+    source_receipts: list[dict]
+    coverage: dict
+    omissions: list[str]
+    unsupported_dimensions: list[str]
+    freshness: Literal["current", "partial"]
+    generation_stamp: str
+    request_context_id: str
+
+
 class MapRelationEvidence(SpatialModel):
     source_key: str = Field(min_length=1, max_length=200)
     quote: str = Field(min_length=1, max_length=1000)

@@ -1,4 +1,4 @@
-"""状态操作一致性门（V4 审查 A03：观察解释 → 确定性验证 → 领域事件）。
+"""状态操作结构一致性门（V4 审查 A03：观察解释 → 确定性验证 → 领域事件）。
 
 旧门只做身份检查（``entity_id`` 是否被 reuse 解析），观察与状态操作之间
 没有语义绑定：传闻（belief/hypothesis/character_statement）观察恰好提及
@@ -19,14 +19,18 @@ pending_decisions，留给作者裁定。通过的事件被附加 ``source_obser
 （宿主派生的稳定观察身份，非模型可控）与 ``authority_basis``，使领域写入
 携带可审计的证据链。
 
-move/observe 之辨（只有移动证据才算 traveled）不在本门：那是在场投影
-（story/continuity/presence，T03）的职责分层。
+这些确定性检查不能证明语义蕴含。pipeline 还须经 state_review 独立回读正文，
+通过后才可写状态；在场投影区分出现与有来源的移动（T03）。
 """
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable
 from typing import Any
+from uuid import NAMESPACE_URL, uuid5
+
+from modules.story.contracts import STATE_EVENT_DIMENSIONS
 
 # 各状态维度接受的观察 modality（证据分级）。
 # 客观维度只认叙述者视角观察到的 event_observed；knowledge 维度额外接受
@@ -87,6 +91,8 @@ def gate_scene_events(
     携带证据信息的独立副本，不改动调用方输入。
     """
 
+    from modules.story.facade import validate_machine_event_snapshot
+
     applied: list[dict[str, Any]] = []
     gated: list[dict[str, Any]] = []
     for event in events:
@@ -97,14 +103,41 @@ def gate_scene_events(
         referenced = [
             compiled_observations[index]
             for index in raw_indices
-            if isinstance(index, int) and 0 <= index < len(compiled_observations)
+            if type(index) is int and 0 <= index < len(compiled_observations)
         ]
         reasons: list[str] = []
+
+        def resolve_surface(surface):
+            identities = {
+                mention["resolution"]["resolved_entity_id"]
+                for observation in referenced
+                for mention in observation.get("mentions", [])
+                if mention.get("surface") == surface
+                and (mention.get("resolution") or {}).get("outcome") == "reuse"
+                and mention["resolution"].get("resolved_entity_id")
+            }
+            return next(iter(identities)) if len(identities) == 1 else None
+
+        if event.get("subject_surface"):
+            resolved = resolve_surface(event["subject_surface"])
+            if resolved is None or entity_id not in {None, resolved}:
+                reasons.append("subject_unresolved_in_evidence")
+            else:
+                entity_id = event["entity_id"] = resolved
+        if dimension in {"entities", "locations", "relations"} and not entity_id:
+            reasons.append("subject_required")
+        if event.get("knowledge_subject"):
+            event["knowledge_subject"] = (
+                resolve_surface(event["knowledge_subject"]) or event["knowledge_subject"]
+            )
+        expected_dimension = STATE_EVENT_DIMENSIONS.get(event.get("event_type"))
+        if expected_dimension is not None and dimension != expected_dimension:
+            reasons.append("event_dimension_mismatch")
         if len(referenced) != len(raw_indices):
             reasons.append("fabricated_reference")
         if not referenced:
             reasons.append("no_evidence_binding")
-        elif not any(
+        elif not all(
             _observation_grounds(observation, dimension=dimension, entity_id=entity_id)
             for observation in referenced
         ):
@@ -119,7 +152,70 @@ def gate_scene_events(
                 reasons.append("modality_not_grounding")
         if dimension == KNOWLEDGE_DIMENSION and not event.get("knowledge_subject"):
             reasons.append("knowledge_requires_subject")
+        elif dimension == KNOWLEDGE_DIMENSION and not all(
+            _observation_grounds(
+                observation,
+                dimension=dimension,
+                entity_id=str(event["knowledge_subject"]),
+            )
+            for observation in referenced
+        ):
+            reasons.append("knowledge_subject_unresolved_in_evidence")
 
+        if reasons:
+            event["_gate_reasons"] = reasons
+            gated.append(event)
+            continue
+        after = dict(event.get("snapshot_after") or {})
+        resolved_ids = {
+            mention["resolution"]["resolved_entity_id"]
+            for observation in referenced
+            for mention in observation.get("mentions", [])
+            if (mention.get("resolution") or {}).get("outcome") == "reuse"
+        }
+        if dimension == "entities" and event.get("event_type") in {
+            "entity_created",
+            "entity_updated",
+        }:
+            if after.get("id") not in (None, entity_id):
+                reasons.append("payload_subject_mismatch")
+            after.setdefault("id", entity_id)
+        if event.get("event_type") == "relation_established":
+            if after.get("source_id") not in (None, entity_id) or after.get(
+                "target_id"
+            ) not in tuple(resolved_ids):
+                reasons.append("relation_endpoints_unresolved")
+            after.setdefault("source_id", entity_id)
+        if event.get("event_type") == "knowledge_changed":
+            subject = event.get("knowledge_subject")
+            if after.get("character_id") not in (None, subject) or (
+                after.get("target_id") and after["target_id"] not in tuple(resolved_ids)
+            ):
+                reasons.append("payload_subject_mismatch")
+            if (
+                not all(item.get("modality") == "event_observed" for item in referenced)
+                and after.get("knowledge_level") != "rumor"
+            ):
+                reasons.append("knowledge_level_not_grounded")
+            after["character_id"] = subject
+            identity = json.dumps(
+                [
+                    subject,
+                    {
+                        key: value
+                        for key, value in after.items()
+                        if key not in {"id", "meta"}
+                    },
+                    sorted(item["observation_id"] for item in referenced),
+                ],
+                sort_keys=True,
+                ensure_ascii=False,
+            )
+            after["id"] = str(uuid5(NAMESPACE_URL, "evolution:knowledge:" + identity))
+        try:
+            validate_machine_event_snapshot(event.get("event_type"), after)
+        except (ValueError, TypeError):
+            reasons.append("state_payload_not_materializable")
         if reasons:
             event["_gate_reasons"] = reasons
             gated.append(event)
@@ -128,6 +224,24 @@ def gate_scene_events(
             observation["observation_id"] for observation in referenced
         ]
         event["authority_basis"] = "derived_observation"
+        # Story 持久化的是 snapshot_after；顶层证据字段不能只留在冻结负载里。
+        after["meta"] = {
+            **(after.get("meta") or {}),
+            "author_confirmed": False,
+            "source_observation_ids": event["source_observation_ids"],
+            "source_receipts": [
+                {
+                    "observation_id": observation["observation_id"],
+                    "source_ref": observation.get("source_ref"),
+                    "evidence_quotes": observation.get("evidence_quotes", []),
+                }
+                for observation in referenced
+            ],
+            "authority_basis": event["authority_basis"],
+        }
+        if dimension == KNOWLEDGE_DIMENSION:
+            after["knowledge_subject"] = event["knowledge_subject"]
+        event["snapshot_after"] = after
         applied.append(event)
     return applied, gated
 

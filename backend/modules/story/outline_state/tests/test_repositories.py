@@ -231,6 +231,10 @@ class TestPlotThreadRepository:
                 self.flush_count += 1
 
         monkeypatch.setattr(repo, "get", fake_get)
+        capture = AsyncMock(return_value=[])
+        monkeypatch.setattr(
+            "modules.story.information_dependencies.capture_change_scenes", capture
+        )
         monkeypatch.setattr(
             "modules.story.outline_state.repositories._notify_structure_change",
             AsyncMock(),
@@ -253,6 +257,7 @@ class TestPlotThreadRepository:
         assert thread.related_entity_ids == ["e1"]
         assert get_calls == 1
         assert db.added == [thread]
+        capture.assert_awaited_once_with(db, thread)
         assert db.flush_count == 1
 
     @pytest.mark.asyncio
@@ -453,6 +458,10 @@ class TestOutlineArcRepository:
                 self.flush_count += 1
 
         monkeypatch.setattr(repo, "get", fake_get)
+        capture = AsyncMock(return_value=[])
+        monkeypatch.setattr(
+            "modules.story.information_dependencies.capture_change_scenes", capture
+        )
         monkeypatch.setattr(
             "modules.story.outline_state.repositories._notify_structure_change",
             AsyncMock(),
@@ -475,6 +484,7 @@ class TestOutlineArcRepository:
         assert arc.related_thread_ids == ["t1"]
         assert get_calls == 1
         assert db.added == [arc]
+        capture.assert_awaited_once_with(db, arc)
         assert db.flush_count == 1
 
     @pytest.mark.asyncio

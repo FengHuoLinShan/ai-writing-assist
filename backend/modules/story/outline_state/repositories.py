@@ -952,7 +952,10 @@ class SceneRepository:
         if statuses:
             conditions.append(SceneSpan.status.in_(statuses))
         stmt = (
-            select(SceneSpan).where(*conditions).order_by(SceneSpan.part_no, SceneSpan.id)
+            select(SceneSpan)
+            .where(*conditions)
+            .order_by(SceneSpan.part_no, SceneSpan.id)
+            .execution_options(populate_existing=True)
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
@@ -1150,6 +1153,8 @@ class SceneRepository:
         await db.flush()
         self._add_new_scene_indexes(db, [scene])
         await db.flush()
+        if scene.status in {"canonical", "draft"}:
+            await self.invalidate_scene_sources(db, [scene])
         await _notify_structure_change(db, scene, "outline_scene")
         return scene
 
@@ -1166,6 +1171,9 @@ class SceneRepository:
         await db.flush()
         self._add_new_scene_indexes(db, scenes)
         await db.flush()
+        await self.invalidate_scene_sources(
+            db, [scene for scene in scenes if scene.status in {"canonical", "draft"}]
+        )
         for scene in scenes:
             await _notify_structure_change(db, scene, "outline_scene")
         return scenes
@@ -1191,7 +1199,11 @@ class SceneRepository:
             db.add_all(spans)
 
     async def get(self, db: AsyncSession, scene_id: uuid.UUID) -> Scene | None:
-        stmt = select(Scene).where(Scene.id == scene_id)
+        stmt = (
+            select(Scene)
+            .where(Scene.id == scene_id)
+            .execution_options(populate_existing=True)
+        )
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -1639,6 +1651,7 @@ class SceneRepository:
         scene = await self.get(db, scene_id)
         if scene is None:
             return None
+        previous_index = scene.scene_index
 
         update_values: dict[str, Any] = {}
         fields_set = data.model_fields_set
@@ -1696,6 +1709,15 @@ class SceneRepository:
         } & fields_set:
             await self.stale_fusion_suggestions_for_scene(db, scene)
         if changed:
+            if {"scene_index", "chapter_ids", "scene_chunks", "status"} & fields_set:
+                from modules.evolution.facade import apply_scene_reorder_invalidation
+
+                await apply_scene_reorder_invalidation(
+                    db,
+                    str(scene.novel_id),
+                    scene_positions={str(scene.id): scene.scene_index},
+                    earliest_affected_scene_index=min(previous_index, scene.scene_index),
+                )
             await _notify_structure_change(
                 db,
                 scene,
@@ -1741,9 +1763,33 @@ class SceneRepository:
                 await self.delete_scene_spans(db, scene)
             else:
                 await self.mirror_scene_span_lifecycle(db, scene)
+        await self.invalidate_scene_sources(db, scene_list)
         return len(scene_list)
 
+    async def invalidate_scene_sources(
+        self, db: AsyncSession, scenes: Sequence[Scene]
+    ) -> None:
+        """Fence the consumed prefix when a Scene's mapping or lifecycle changes."""
+        from modules.evolution.facade import apply_scene_reorder_invalidation
+
+        for novel_id in {scene.novel_id for scene in scenes}:
+            positions = {
+                str(scene.id): scene.scene_index
+                for scene in scenes
+                if scene.novel_id == novel_id
+            }
+            await apply_scene_reorder_invalidation(
+                db,
+                str(novel_id),
+                scene_positions=positions,
+                earliest_affected_scene_index=min(positions.values()),
+            )
+
     async def delete(self, db: AsyncSession, scene_id: uuid.UUID) -> bool:
+        scene = await self.get(db, scene_id)
+        if scene is None:
+            return False
+        await self.invalidate_scene_sources(db, [scene])
         stmt = delete(Scene).where(Scene.id == scene_id)
         result = await db.execute(stmt)
         await db.flush()
@@ -1759,6 +1805,18 @@ class SceneRepository:
         if not scene_ids:
             return 0
         scene_order = {scene_id: index for index, scene_id in enumerate(scene_ids)}
+        previous = (
+            await db.execute(
+                select(Scene.id, Scene.scene_index).where(
+                    Scene.id.in_(scene_ids), Scene.novel_id == novel_id
+                )
+            )
+        ).all()
+        affected = [
+            min(index, scene_order[scene_id])
+            for scene_id, index in previous
+            if index != scene_order[scene_id]
+        ]
         stmt = (
             update(Scene)
             .where(Scene.id.in_(scene_ids), Scene.novel_id == novel_id)
@@ -1766,6 +1824,15 @@ class SceneRepository:
         )
         result = await db.execute(stmt)
         await db.flush()
+        if affected:
+            from modules.evolution.facade import apply_scene_reorder_invalidation
+
+            await apply_scene_reorder_invalidation(
+                db,
+                str(novel_id),
+                scene_positions={str(key): value for key, value in scene_order.items()},
+                earliest_affected_scene_index=min(affected),
+            )
         return result.rowcount or 0
 
     async def shift_scene_indices_after(
@@ -1787,6 +1854,23 @@ class SceneRepository:
             stmt.values(scene_index=Scene.scene_index + 1),
         )
         await db.flush()
+        if result.rowcount:
+            from modules.evolution.facade import apply_scene_reorder_invalidation
+
+            rows = (
+                await db.execute(
+                    select(Scene.id, Scene.scene_index).where(
+                        Scene.novel_id == novel_id,
+                        Scene.scene_index > scene_index,
+                    )
+                )
+            ).all()
+            await apply_scene_reorder_invalidation(
+                db,
+                str(novel_id),
+                scene_positions={str(key): value for key, value in rows},
+                earliest_affected_scene_index=scene_index + 1,
+            )
         return result.rowcount or 0
 
 

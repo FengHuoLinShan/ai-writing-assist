@@ -108,6 +108,14 @@ Vite 开发与预览服务通过 HTTP 响应头发送 CSP，并用 `frame-ancest
 `http://localhost:8000` 或 `http://localhost:8000/api`。本地代理目标也可通过
 `BACKEND_PORT` 或完整的 `API_PROXY_TARGET` 覆盖。
 
+## 正文理解与整理入口
+
+写作菜单统一进入“理解与整理正文”弹窗。ReadingFlow 按项目运行归属展示逐场景理解；
+旧流程项目仍可选择场景、世界、结构、完整整理及质量档位。查询失败时不猜测归属。
+新流程支持从场景、已解析对象或已有观察定位保守后缀重算；搜索/预览不发模型请求，
+确认绑定真实范围与调用上限。旧整理记录及查漏详情保留，切换后隐藏旧恢复/重算操作。
+世界与结构完整整理尚未接入新流程，不能将当前试用当作旧导入的等价替代。
+
 ## E2E 测试
 
 Playwright 的所有 profile 都 fail-closed：必须显式提供名称含独立 `audit` / `e2e` / `test`
@@ -629,3 +637,14 @@ Writing 资料栏及 ProjectAssistant 使用 ForecastDock；输入法 compositio
 CreativeExperiments / CreativeTrialEditor 支持原文对照、手动试改、版本检查、冲突选择与
 精确采用；未知提交持久化原操作身份。RP 的 InteractionForecast 只预填用户输入。
 RP 文字草稿与输入类型、人物/私语范围一起存储，失败保留；实际发送仍由作者点击。
+
+## 跨任务理解与地图场景
+
+Writing 和项目助手复用账户/项目级前瞻 store 与单个十五秒轮询，焦点宿主负责当前意图；
+选区、光标段落、排除项沿保存基线传入。范围/证据/任务/焦点分别验配，晚到响应与旧卡片
+不能覆盖新稿；逐方向拒绝保持稳定，润色与修改会携带原选区打开讨论，冲突时保留未发草稿。
+
+助手试改区域新增默认关闭的理解保留授权和按需展开的历史/修正界面；修正输入受失联恢复、
+冲突、路由离开与页内标签切换保护。地图已保存作者视图可按 Scene 查看本场、最后出现或未知位置，
+从同一地图定位和返回章节依据；未保存/候选/读者视图不混入这份作者资料。相关回归位于
+`tests/vue/assistant/CognitionPanel.test.js`、`tests/vue/map/MapScenePanel.test.js` 与现有浏览器用例。

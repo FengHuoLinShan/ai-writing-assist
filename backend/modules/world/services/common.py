@@ -86,3 +86,40 @@ def assert_edit_baseline(
             f"{label}已在别处更新，请刷新后重试",
             code="edit_baseline_stale",
         )
+
+
+async def require_fresh_understanding_source(db, novel_id, metadata):
+    """Explicit adoption of an Evolution candidate still revalidates its source."""
+    if not isinstance(metadata, dict):
+        return
+    if "evolution_ref" in metadata:
+        reference = metadata["evolution_ref"]
+    elif (
+        isinstance(metadata.get("review_meta"), dict)
+        and "evolution_ref" in metadata["review_meta"]
+    ):
+        reference = metadata["review_meta"]["evolution_ref"]
+    else:
+        return
+    from core.errors import ConflictError
+    from modules.evolution.facade import require_current_world_candidate
+
+    if (
+        not isinstance(reference, dict)
+        or not reference.get("run_key")
+        or not reference.get("attempt_id")
+    ):
+        raise ConflictError("理解来源记录不完整，请重新核对候选")
+    from sqlalchemy.exc import DBAPIError
+
+    from modules.project.facade import require_active_project_exclusive
+
+    # Some review paths already hold domain rows. Never wait to upgrade the
+    # shared project lock: a concurrent writer gets a retryable conflict.
+    try:
+        await require_active_project_exclusive(db, novel_id, nowait=True)
+    except DBAPIError as error:
+        if getattr(error.orig, "sqlstate", None) != "55P03":
+            raise
+        raise ConflictError("正文或资料正在更新，请刷新后再采用") from error
+    await require_current_world_candidate(db, novel_id, reference)

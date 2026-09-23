@@ -211,8 +211,11 @@ class CoreEntityRepository:
         db: AsyncSession,
         novel_id: uuid.UUID,
         data: CoreEntityCreate,
+        *,
+        candidate_id: uuid.UUID | None = None,
     ) -> CoreEntity:
         entity = CoreEntity(
+            **({"id": candidate_id} if candidate_id is not None else {}),
             novel_id=novel_id,
             entity_type=data.entity_type,
             name=data.name,
@@ -419,6 +422,7 @@ class CoreEntityRepository:
             select(
                 CoreEntity.id,
                 CoreEntity.name,
+                CoreEntity.entity_type,
                 CoreEntity.status,
                 CoreEntity.content_json["aliases"].label("aliases"),
                 CoreEntity.content_json["_meta"].label("owner_meta"),

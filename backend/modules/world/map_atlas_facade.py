@@ -12,6 +12,12 @@ from modules.world.map_atlas_storage import project_object_prefix
 from modules.world.world_object_images import project_image_prefix
 
 
+async def get_map_scene_context(db, novel_id, node_id, scene_id):
+    from modules.world.map_scene_context import get_scene_context
+
+    return await get_scene_context(db, novel_id, node_id, scene_id)
+
+
 async def list_adopted_map_continuity_facts(
     db: AsyncSession,
     novel_id: str,

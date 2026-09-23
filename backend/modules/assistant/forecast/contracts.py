@@ -6,7 +6,14 @@ from typing import Annotated, Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    model_serializer,
+    model_validator,
+)
 
 Hash64 = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 CapabilityId = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_.]{1,100}$")]
@@ -115,14 +122,27 @@ class FocusRequest(StrictModel):
     draft_id: UUID | None = None
     expected_source_hash: Hash64 | None = None
     selected_range: TextRange | None = None
+    cursor_offset: int | None = Field(default=None, ge=0)
     editor_state: Literal["saved", "dirty", "not_applicable"] = "not_applicable"
     explicit_instruction: str = Field(default="", max_length=4000)
+    excluded_targets: list[str] = Field(default_factory=list, max_length=200)
     context_confirmation_id: UUID | None = None
     context_confirmation_action: str | None = Field(default=None, max_length=100)
 
+    @model_serializer(mode="wrap")
+    def compatible_shape(self, handler):
+        value = handler(self)
+        if not self.excluded_targets:
+            value.pop("excluded_targets", None)
+        if self.cursor_offset is None:
+            value.pop("cursor_offset", None)
+        return value
+
     @model_validator(mode="after")
     def source_and_confirmation(self):
-        if self.selected_range and not (self.draft_id and self.expected_source_hash):
+        if (self.selected_range or self.cursor_offset is not None) and not (
+            self.draft_id and self.expected_source_hash
+        ):
             raise ValueError("A selected range needs a draft and source hash")
         if self.expected_source_hash and not self.draft_id:
             raise ValueError("A source hash needs its draft")
@@ -337,6 +357,7 @@ class FeedResponse(StrictModel):
     client_context_id: UUID
     focus_seq: int = Field(ge=0)
     context_hash: Hash64
+    context_keys: dict[str, Hash64] = Field(default_factory=dict)
     items: list[CandidateView] = Field(default_factory=list, max_length=10)
     coverage: CoverageReport
     state: Literal["ready", "empty", "not_checked", "disabled", "unavailable", "stale"]
@@ -562,6 +583,7 @@ class ResolvedScope(StrictModel):
     context_hash: Hash64
     policy_generation: int = Field(ge=0)
     source_manifest_hash: Hash64
+    context_keys: dict[str, Hash64] = Field(default_factory=dict)
     journey_id: UUID | None = None
     selected_path_hash: Hash64 | None = None
     selection_epoch: int | None = Field(default=None, ge=0)

@@ -544,18 +544,56 @@ class MemoryService:
 
     @classmethod
     def _event_dimension(cls, event: dict[str, Any]) -> str:
+        from modules.story.continuity.contracts import STATE_EVENT_DIMENSIONS
+
         event_type = str(event.get("event_type") or "")
-        if event_type.startswith("relation_"):
-            return "relations"
-        if event_type == "entity_moved":
-            return "locations"
-        if event_type == "knowledge_changed":
-            return "knowledge"
-        if event_type == "timeline_changed":
-            return "timeline"
-        if event_type == "causality_changed":
-            return "causality"
-        return cls._delta_dimension(str(event.get("category") or event_type))
+        return STATE_EVENT_DIMENSIONS.get(event_type) or cls._delta_dimension(
+            str(event.get("category") or event_type)
+        )
+
+    async def invalidate_derived_state(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        from_scene_index: int | None,
+        from_chapter: int | None,
+    ) -> dict[str, Any]:
+        nid = parse_uuid(novel_id, "novel_id")
+        snapshot_chapter = from_chapter
+        if snapshot_chapter is None and from_scene_index is not None:
+            snapshot_chapter = await self._event_repo.earliest_chapter_from_scene(
+                db, nid, from_scene_index
+            )
+        result = {
+            "stale_events": await self._event_repo.invalidate_derived_sources(
+                db, nid, from_scene_index=from_scene_index, from_chapter=from_chapter
+            )
+        }
+        if snapshot_chapter is not None:
+            result["stale_chapter_snapshots"] = await self._snapshot_repo.mark_stale_from(
+                db, nid, snapshot_chapter
+            )
+        if from_scene_index is not None:
+            checkpoints = await self._scene_checkpoint_repo.supersede_system_from(
+                db,
+                nid,
+                from_scene_index,
+                list(SCENE_MEMORY_DIMENSIONS),
+                include_start=True,
+            )
+            snapshots = await self._scene_snapshot_repo.supersede_from(
+                db, nid, from_scene_index, include_start=True
+            )
+            result.update(
+                {
+                    "from_scene_index": from_scene_index,
+                    "dimensions": list(SCENE_MEMORY_DIMENSIONS),
+                    "superseded_checkpoints": checkpoints,
+                    "superseded_snapshots": snapshots,
+                }
+            )
+        return result
 
     async def rollback_deep_import_delta_logs_by_workflow(
         self,

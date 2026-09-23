@@ -64,6 +64,7 @@ class ProjectRepository:
         project_id: uuid.UUID,
         owner_id: uuid.UUID | None = None,
         project_kind: str | None = "author",
+        nowait: bool = False,
     ) -> Project | None:
         """Exclusively lock one active project for a short finalizer.
 
@@ -75,7 +76,7 @@ class ProjectRepository:
             conditions.append(Project.owner_id == owner_id)
         if project_kind is not None:
             conditions.append(Project.project_kind == project_kind)
-        stmt = select(Project).where(*conditions).with_for_update()
+        stmt = select(Project).where(*conditions).with_for_update(nowait=nowait)
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 

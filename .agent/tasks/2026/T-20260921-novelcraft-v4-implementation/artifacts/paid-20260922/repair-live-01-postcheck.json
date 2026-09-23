@@ -1,0 +1,36 @@
+{
+  "stage": "verified_after_probe_report_error",
+  "probe_report_error": "DetachedInstanceError after worker result was saved",
+  "old_run_status": "drained",
+  "new_run_status": "active",
+  "new_run_cursor": 1,
+  "new_task_status": "done",
+  "old_frozen_hash": "e51bf8b816a05e51aff1cd9ec5ef23898de9fda6e5d1d18faac5bccecba407bf",
+  "old_frozen_unchanged": true,
+  "inherited_pairs": [
+    [
+      "reading-7389fede-e4c2-442d-95c8-ae76d983b7a8",
+      "6e346899f8ce4109838971e28b6cdd1c",
+      0
+    ],
+    [
+      "reading-374f7573-6779-4254-bd4b-b239b97c72b2",
+      "c12945121f4546f6941460567256b4f0",
+      1
+    ]
+  ],
+  "consumer_refs": [
+    [
+      "reading-7389fede-e4c2-442d-95c8-ae76d983b7a8",
+      "6e346899f8ce4109838971e28b6cdd1c",
+      0
+    ],
+    [
+      "reading-374f7573-6779-4254-bd4b-b239b97c72b2",
+      "c12945121f4546f6941460567256b4f0",
+      1
+    ]
+  ],
+  "consumer_omissions": [],
+  "test_owner_credentials_remaining": 0
+}

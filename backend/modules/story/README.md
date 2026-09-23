@@ -1,5 +1,9 @@
 # Story Scene vertical slice
 
+`validate_machine_event_snapshot` 经 facade 复用全景 schema 校验机器事件，保留合法
+部分更新和删除；地点尚未解析时 `location_id` 可空，原文字位置继续供全景、Evidence
+和地图读取。类型检查不代替来源的语义证明。
+
 Story 的异步 AI handler 在 worker 领取时冻结 root capability 与 L0 请求额度，auto-requeue 和
 manual resume 累计同一 run；各 step/attempt 保留既有 timeout，串行长链补保守总墙钟护栏
 （reaction 3600s、one_click 7200s，只切病态挂起）。信封只作为任务私有审计元数据，不改变
@@ -182,3 +186,20 @@ continuity 归约统一为单一 `reducer.py::StoryStateReducer`（章节重放�
 （E05 失效传播：软 supersede，不删历史）与 `project_scene_presence`
 （G2 在场投影：未知路线标 unknown，不造移动细节）。Scene 事件替换按
 producer family 分区 + 稳定 `meta.event_key`（作者确认永不参与机器替换）。
+
+## 演化来源失效与地图消费
+
+continuity 保留原事件历史，通过 `source_stale` 排除已失效机器事件；作者确认事件保持独立权威。
+Scene 生命周期/来源范围/重排在同事务使受影响派生流失效，重排先封锁演化 run，再对齐事件，避免反锁。
+`facade.project_scene_presence` 只读取当前 draft/canonical Scene，在场附带事件/章节/观察出处；
+World 地图是其只读消费者，不持有另一份人物位置事实。无 Scene 身份或失效事件不进入投影。
+
+### 自动场景的边界确认
+
+场景工作台的 `review_boundary` 只确认 Evolution 的 `boundary_only` 草稿范围，绑定当前
+Scene 顺序、章节和区间指纹，保留 draft 与尚未整理的语义字段。请求须携带工作台返回的
+`boundary_fingerprint`，在行锁内对照；旧页面确认拒绝，`boundary_review_current=false`
+时保留纯边界确认入口。作者在工作台点击
+“确认边界，继续整理”后可回到正文理解恢复原运行；该操作不标记语义已审核、不提升为
+canonical。重新标记待检查撤销该边界确认；区间/顺序变化使指纹失效，正文来源仍由正常
+来源门禁重验。正式 `review` 的完整采用语义保持原契约。

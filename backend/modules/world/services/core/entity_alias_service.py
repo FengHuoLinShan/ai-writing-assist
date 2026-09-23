@@ -954,6 +954,15 @@ class EntityAliasService:
             ):
                 await self._require_legacy_canon_write_allowed(db, novel_id)
 
+            if current_status not in ACTIVE_ALIAS_STATUSES and changes.get(
+                "status", current_status
+            ) in ACTIVE_ALIAS_STATUSES:
+                from modules.world.services.common import (
+                    require_fresh_understanding_source,
+                )
+
+                await require_fresh_understanding_source(db, novel_id, alias_item)
+
             updated = (
                 dict(alias_item)
                 if isinstance(alias_item, dict)
@@ -971,6 +980,15 @@ class EntityAliasService:
                     updated.pop(key, None)
                 else:
                     updated[key] = value
+
+            original_review = (
+                alias_item.get("review_meta") if isinstance(alias_item, dict) else None
+            )
+            if original_review and original_review.get("evolution_ref"):
+                updated["review_meta"] = {
+                    **(updated.get("review_meta") or {}),
+                    "evolution_ref": original_review["evolution_ref"],
+                }
 
             updated["kind"] = self._resolve_alias_kind(
                 str(updated.get("type") or "name"),
@@ -1043,6 +1061,14 @@ class EntityAliasService:
             raise NotFoundError(f"Alias not found: {old_alias}")
 
         old_item = source_aliases[source_index]
+        if (
+            confirm_review
+            and isinstance(old_item, dict)
+            and old_item.get("status") not in ACTIVE_ALIAS_STATUSES
+        ):
+            from modules.world.services.common import require_fresh_understanding_source
+
+            await require_fresh_understanding_source(db, novel_id, old_item)
         existing_alias, existing_type = self._normalize_alias_item(old_item)
         next_alias = " ".join(
             str(alias if alias is not None else existing_alias).strip().split()
@@ -1157,6 +1183,11 @@ class EntityAliasService:
                 f"conversion is explicitly allowed, got {candidate.status}",
                 status_code=422,
             )
+        from modules.world.services.common import require_fresh_understanding_source
+
+        await require_fresh_understanding_source(
+            db, novel_id, (candidate.content_json or {}).get("_meta")
+        )
         source_was_canonical = candidate.status == "canonical"
         candidate_meta = dict((candidate.content_json or {}).get("_meta") or {})
         if candidate_meta.get("compatibility_shadow") is True and candidate_meta.get(

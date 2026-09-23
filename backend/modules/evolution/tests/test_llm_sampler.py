@@ -72,7 +72,9 @@ class _FrozenClient:
         schema: type,
         *,
         diagnostics: list[dict[str, Any]] | None = None,
+        **options,
     ):
+        assert options == {"max_fix_attempts": 0, "transport_retries": False}
         self.requests.append(request)
         if diagnostics is not None:
             diagnostics.append(
@@ -103,10 +105,49 @@ class _RepairingClient:
         schema: type,
         *,
         diagnostics: list[dict[str, Any]] | None = None,
+        **options,
     ):
+        assert options == {"max_fix_attempts": 0, "transport_retries": False}
         if diagnostics is not None:
             diagnostics.extend(self._attempts)
         return schema.model_validate(FROZEN_VALID)
+
+
+@pytest.mark.parametrize(
+    "text,quote,declared,expected,aligned",
+    [
+        ("😀也没有提起封锁。", "也没有提起封锁", [2, 8], [1, 8], True),
+        ("aaa", "aa", [0, 1], [0, 1], False),
+        ("两次两次", "两次", [2, 4], [2, 4], False),
+        ("正文", "不存在", [0, 3], [0, 3], False),
+    ],
+)
+async def test_host_only_aligns_a_unique_exact_scene_quote(
+    text, quote, declared, expected, aligned
+):
+    sampler = ProjectLLMSampler(
+        _FrozenClient(
+            {
+                "observations": [
+                    {
+                        "predicate": "窄观察",
+                        "quote": quote,
+                        "start_offset": declared[0],
+                        "end_offset": declared[1],
+                    }
+                ]
+            }
+        )
+    )
+    payload = await sampler.sample(scene_text=text, input_manifest={})
+    observation = payload["observations"][0]
+    assert [observation["start_offset"], observation["end_offset"]] == expected
+    assert bool(payload["paid_call_receipt"].get("quote_alignment")) == aligned
+    if aligned:
+        assert (
+            payload["paid_call_receipt"]["quote_alignment"]["changes"][0]["declared"]
+            == declared
+        )
 
 
 def _manifest(previous: str | None = None) -> dict[str, Any]:
@@ -288,7 +329,9 @@ async def test_final_failure_still_records_paid_receipt() -> None:
             schema: type,
             *,
             diagnostics: list[dict[str, Any]] | None = None,
+            **options,
         ):
+            assert options == {"max_fix_attempts": 0, "transport_retries": False}
             if diagnostics is not None:
                 diagnostics.append(
                     {
@@ -318,6 +361,9 @@ async def test_project_llm_provider_resolve_paths() -> None:
     with pytest.raises(SamplerNotWiredError):
         async with resolve_scene_sampler(provider="nope", novel_id="n1", db=None):
             pass
+    with pytest.raises(SamplerNotWiredError, match="frozen model"):
+        async with resolve_scene_sampler(provider="project_llm", novel_id="n1"):
+            pytest.fail("must not resolve the current default for an old run")
 
     # project_llm 工厂存在且指向项目 LLM 入口；无 owner 连接的项目在
     # 真实调用时 fail-closed（此处只验证装配指向，不发真实请求）。

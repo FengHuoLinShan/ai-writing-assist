@@ -25,6 +25,7 @@
     <p v-if="!focused || dirty || busy" role="status" class="map-save-status">{{ saveLabel }}</p>
     <p v-if="error" role="alert" class="map-error">{{ error }}</p>
     <p v-if="reviewNotice" role="status" class="map-caption">{{ reviewNotice }}</p>
+    <MapScenePanel v-if="revision && !dirty && !reader && !candidateView && !compareServer && !referenceOnly" :project-id="projectId" :node-id="node.id" :revision-id="revision.id" @locate="locateFeature" @open-source="openSourceChapter" />
     <div v-if="backupError && dirty" class="map-warning" role="alert">
       本机备份不可用。请保存到服务端，或下载备份并确认文件已保留后再离开。
       <button class="btn btn-sm" @click="downloadBackup">下载地图备份</button>
@@ -246,6 +247,7 @@ import MapChangeReview from './MapChangeReview.vue'
 import MapRehearsalPanel from './MapRehearsalPanel.vue'
 import MapBindAcrossMaps from "./MapBindAcrossMaps.vue"
 import MapSourcePicker from './MapSourcePicker.vue'
+import MapScenePanel from './MapScenePanel.vue'
 
 const props = defineProps({ projectId: { type: String, required: true }, node: { type: Object, required: true }, images: { type: Array, default: () => [] }, knownNodes: { type: Array, default: () => [] }, hasReference: Boolean, externalTools: Boolean, reviewImageId: { type: String, default: "" }, initialFeatureId: { type: String, default: '' }, initialRevisionId: { type: String, default: '' }, evidenceRefs: { type: Array, default: () => [] } })
 const emit = defineEmits(["saved", "open-node", "reference-visible", "state", "select-feature", "pin-evidence", "clear-evidence"])

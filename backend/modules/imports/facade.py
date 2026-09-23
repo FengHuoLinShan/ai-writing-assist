@@ -208,6 +208,14 @@ async def reconcile_workflow_task_owners(db: AsyncSession) -> int:
     return await ImportWorkflowRunService().reconcile_task_owners(db)
 
 
+async def drain_understanding_owner(db, novel_id, *, stop_active=False):
+    from modules.imports.workflow_runs import ImportWorkflowRunService
+
+    return await ImportWorkflowRunService().drain_for_engine_switch(
+        db, novel_id, stop_active=stop_active
+    )
+
+
 async def preview_source_update(
     db: AsyncSession,
     *,
@@ -307,3 +315,104 @@ async def inspect_consultation_scope(db, novel_id, selection):
     from modules.imports.consultation import inspect_scope
 
     return await inspect_scope(db, novel_id, selection)
+
+
+def plan_scene_boundaries(chapters, boundary_chapters=()):
+    from modules.imports.scene_preparation import plan_boundaries
+
+    return plan_boundaries(chapters, boundary_chapters)
+
+
+def build_scene_boundary_request(payload):
+    from modules.imports.scene_preparation import boundary_request
+
+    return boundary_request(payload)
+
+
+async def slice_scene_boundaries(plan, chapters, call):
+    from modules.imports.scene_preparation import slice_boundaries
+
+    return await slice_boundaries(plan, chapters, call)
+
+
+async def commit_scene_boundaries(db, novel_id, result, **kwargs):
+    from modules.imports.scene_preparation import commit_boundaries
+
+    return await commit_boundaries(db, novel_id, result, **kwargs)
+
+
+def prepare_scene_enrichment(scene, source_parts, scene_text, input_manifest):
+    from modules.imports.scene_preparation import scene_enrichment_input
+
+    return scene_enrichment_input(scene, source_parts, scene_text, input_manifest)
+
+
+def build_scene_enrichment_request(payload):
+    from modules.imports.scene_preparation import enrichment_request
+
+    return enrichment_request(payload)
+
+
+def materialize_scene_enrichment(payload, result):
+    from modules.imports.scene_preparation import materialize_enrichment
+
+    return materialize_enrichment(payload, result)
+
+
+def scene_enrichment_update(scene, result, workflow_id):
+    from modules.imports.scene_preparation import enrichment_update
+
+    return enrichment_update(scene, result, workflow_id)
+
+
+def build_scene_world_request(scene_text, context):
+    from modules.imports.entity_extraction.scene_entity_llm_adapters import (
+        build_entity_extraction_request,
+    )
+    from modules.imports.llm_schemas import Phase2aSceneExtractionOutput
+
+    return build_entity_extraction_request(
+        scene_text, context_bundle=context
+    ), Phase2aSceneExtractionOutput
+
+
+def materialize_scene_world(scene_text, context, result):
+    from modules.imports.entity_extraction.scene_entity_llm_adapters import (
+        _materialize_phase2a_output,
+    )
+    from modules.imports.llm_schemas import Phase2aSceneExtractionOutput
+
+    return _materialize_phase2a_output(
+        Phase2aSceneExtractionOutput.model_validate(result),
+        current_scene_text=scene_text,
+        context_bundle=context,
+    ).model_dump(mode="json")
+
+
+def build_scene_relations_request(scene_text, context):
+    from modules.imports.entity_extraction.scene_entity_llm_adapters import (
+        build_alias_relation_request,
+    )
+    from modules.imports.llm_schemas import AliasRelationExtractionOutput
+
+    return build_alias_relation_request(
+        scene_text, context_bundle=context
+    ), AliasRelationExtractionOutput
+
+
+async def prepare_scene_world_context(db, novel_id, terms):
+    from modules.imports.scene_world import identity_context
+
+    return await identity_context(db, novel_id, terms)
+
+
+def prepare_scene_relations_context(context, world):
+    from modules.imports.scene_world import relation_context
+
+    return relation_context(context, world)
+
+
+async def apply_scene_world_candidates(db, novel_id, **inputs):
+    from modules.imports.scene_world import apply_world_candidates
+
+    return await apply_world_candidates(db, novel_id, **inputs)

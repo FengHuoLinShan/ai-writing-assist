@@ -17,7 +17,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import and_, func, or_, select, tuple_, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -64,15 +64,36 @@ class PostgresAttemptStore:
         budget_total: int = 0,
         owner_epoch: int = 1,
         execution_mode: str = "live",
+        llm_snapshot: dict[str, Any] | None = None,
     ) -> EvolutionRun:
+        engine_owner = None
+        if execution_mode == "live":
+            from modules.project.facade import require_understanding_writer
+
+            engine_owner = await require_understanding_writer(
+                self._db, self._novel_id, engine="evolution"
+            )
         existing = await self.load_run(run_key)
         if existing is not None:
+            if existing.status == "source_stale":
+                raise CommitConflictError(
+                    "source_changed", "run inputs changed; prepare a new run"
+                )
+            if existing.mode != mode or existing.execution_mode != execution_mode:
+                raise CommitConflictError(
+                    "run_mode_conflict",
+                    "run execution mode is immutable; use a new run for a different mode",
+                )
             if existing.status != "active":
                 # 排空/停止的 run 不因重复注册而复活（返修 R5 重入约束）。
                 raise CommitConflictError(
                     "run_not_active",
                     f"evolution run {run_key} is {existing.status}; "
                     "register a new run instead of reviving it",
+                )
+            if engine_owner and existing.project_owner_epoch != engine_owner["epoch"]:
+                raise CommitConflictError(
+                    "stale_owner", "project engine generation changed"
                 )
             return existing
         if execution_mode == "live":
@@ -85,9 +106,11 @@ class PostgresAttemptStore:
             run_key=run_key,
             mode=mode,
             owner_epoch=owner_epoch,
+            project_owner_epoch=engine_owner["epoch"] if engine_owner else 1,
             execution_mode=execution_mode,
             budget_total=budget_total,
             budget_remaining=budget_total,
+            llm_snapshot_json=llm_snapshot,
         )
         self._db.add(run)
         try:
@@ -101,15 +124,100 @@ class PostgresAttemptStore:
             ) from exc
         return run
 
-    async def load_run(self, run_key: str) -> EvolutionRun | None:
-        return (
+    async def load_run(
+        self, run_key: str, *, for_update: bool = False
+    ) -> EvolutionRun | None:
+        stmt = (
+            select(EvolutionRun)
+            .where(
+                EvolutionRun.novel_id == self._novel_id,
+                EvolutionRun.run_key == run_key,
+            )
+            .execution_options(populate_existing=True)
+        )
+        if for_update:
+            stmt = stmt.with_for_update()
+        return (await self._db.execute(stmt)).scalar_one_or_none()
+
+    async def invalidate_sources(
+        self, *, from_scene_index: int | None, chapter_index: int | None, reason: str
+    ) -> list[str]:
+        """Fence affected active runs; frozen attempts and receipts remain history."""
+        rows = await self._db.execute(
+            select(
+                EvolutionFrozenAttempt.run_key,
+                EvolutionFrozenAttempt.payload_json["scene_index"].as_integer(),
+                EvolutionFrozenAttempt.payload_json["source_binding"],
+            )
+            .join(
+                EvolutionRun,
+                and_(
+                    EvolutionRun.novel_id == EvolutionFrozenAttempt.novel_id,
+                    EvolutionRun.run_key == EvolutionFrozenAttempt.run_key,
+                ),
+            )
+            .where(
+                EvolutionRun.novel_id == self._novel_id,
+                EvolutionRun.status == "active",
+            )
+        )
+        bindings = list(rows)
+        planned = await self._db.scalars(
+            select(EvolutionRun).where(
+                EvolutionRun.novel_id == self._novel_id,
+                EvolutionRun.status == "active",
+                EvolutionRun.reading_plan_json.is_not(None),
+            )
+        )
+        for run in planned:
+            bindings.extend(
+                (run.run_key, step["scene_index"], step["source_binding"])
+                for step in run.reading_plan_json["steps"]
+            )
+            bindings.extend(
+                (run.run_key, None, source)
+                for source in [
+                    *run.reading_plan_json.get("preparation", {}).get("sources", []),
+                    *run.reading_plan_json.get("preparation", {}).get(
+                        "context_sources", []
+                    ),
+                ]
+            )
+        affected = set()
+        for run_key, scene_index, binding in bindings:
+            sources = [binding, *((binding or {}).get("additional_sources") or [])]
+            if (
+                from_scene_index is not None
+                and scene_index is not None
+                and scene_index >= from_scene_index
+            ) or (
+                chapter_index is not None
+                and any(
+                    source and source.get("chapter_index") == chapter_index
+                    for source in sources
+                )
+            ):
+                affected.add(run_key)
+        if affected:
             await self._db.execute(
-                select(EvolutionRun).where(
+                update(EvolutionRun)
+                .where(
                     EvolutionRun.novel_id == self._novel_id,
-                    EvolutionRun.run_key == run_key,
+                    EvolutionRun.run_key.in_(affected),
+                    EvolutionRun.status == "active",
+                )
+                .values(
+                    status="source_stale",
+                    owner_epoch=EvolutionRun.owner_epoch + 1,
+                    invalidation_json={
+                        "reason": reason,
+                        "chapter_index": chapter_index,
+                        "from_scene_index": from_scene_index,
+                        "recompute_required": True,
+                    },
                 )
             )
-        ).scalar_one_or_none()
+        return sorted(affected)
 
     async def advance_owner_epoch(self, run_key: str) -> int:
         run = await self.load_run(run_key)
@@ -125,14 +233,34 @@ class PostgresAttemptStore:
         """装配 E03c ``apply_frozen`` 的 epoch provider。"""
 
         async def _provider(db: AsyncSession) -> int:
-            run = await self.load_run(run_key)
+            await self.require_project_owner(run_key)
+            run = await self.load_run(run_key, for_update=True)
             if run is None:
                 raise CommitConflictError(
                     "run_missing", f"evolution run {run_key} not registered"
                 )
+            if run.status == "source_stale":
+                raise CommitConflictError("source_changed", "run sources are stale")
             return run.owner_epoch
 
         return _provider
+
+    async def require_project_owner(self, run_key):
+        run = await self.load_run(run_key)
+        if run is not None and run.execution_mode == "live":
+            from core.errors import ConflictError
+            from modules.evolution.commit import StaleOwnerError
+            from modules.project.facade import require_understanding_writer
+
+            try:
+                await require_understanding_writer(
+                    self._db,
+                    self._novel_id,
+                    engine="evolution",
+                    epoch=run.project_owner_epoch,
+                )
+            except ConflictError as exc:
+                raise StaleOwnerError("project understanding owner changed") from exc
 
     async def _assert_single_live_writer(self, *, exclude_run_key: str) -> None:
         from sqlalchemy import func
@@ -154,17 +282,9 @@ class PostgresAttemptStore:
                 "drain or stop them before registering a new writer",
             )
 
-    async def switch_project_engine(
-        self,
-        run_key: str,
-        *,
-        to_engine: str,
-    ) -> EvolutionRun:
-        """E07.c 项目级切换：排空旧 owner 并推进 epoch（fence 在途旧 worker）。
-
-        只改变本 run 的引擎归属与代际，不删除任何历史回执；排空后旧
-        epoch 的 worker 即使恢复也在持久化边界被拒（E06 fencing）。
-        """
+    async def drain_run(self, run_key: str) -> EvolutionRun:
+        """Drain one run; project engine changes use evolution.facade instead."""
+        await self.require_project_owner(run_key)
         run = await self.load_run(run_key)
         if run is None:
             raise CommitConflictError(
@@ -172,7 +292,6 @@ class PostgresAttemptStore:
             )
         run.status = "drained"
         run.owner_epoch += 1
-        run.active_engine = to_engine
         await self._db.flush()
         return run
 
@@ -183,6 +302,7 @@ class PostgresAttemptStore:
         """
         if units <= 0:
             raise ValueError("budget reservation must be positive")
+        await self.require_project_owner(run_key)
         result = await self._db.execute(
             update(EvolutionRun)
             .where(
@@ -195,6 +315,8 @@ class PostgresAttemptStore:
         )
         if result.rowcount != 1:
             run = await self.load_run(run_key)
+            if run is not None and run.status == "source_stale":
+                raise CommitConflictError("source_changed", "run inputs changed")
             if run is None or run.status != "active":
                 raise CommitConflictError(
                     "run_not_active",
@@ -272,11 +394,13 @@ class PostgresAttemptStore:
     async def load_frozen(self, run_id: str, attempt_id: str) -> FrozenAttempt | None:
         row = (
             await self._db.execute(
-                select(EvolutionFrozenAttempt).where(
+                select(EvolutionFrozenAttempt)
+                .where(
                     EvolutionFrozenAttempt.novel_id == self._novel_id,
                     EvolutionFrozenAttempt.run_key == run_id,
                     EvolutionFrozenAttempt.attempt_key == attempt_id,
                 )
+                .execution_options(populate_existing=True)
             )
         ).scalar_one_or_none()
         if row is None:
@@ -298,6 +422,7 @@ class PostgresAttemptStore:
         )
 
     async def save_receipt(self, receipt: EvolutionReceipt) -> None:
+        await self.require_project_owner(receipt.run_id)
         existing = await self.load_receipt(receipt.run_id, receipt.attempt_id)
         if existing is not None:
             raise CommitConflictError(
@@ -330,6 +455,13 @@ class PostgresAttemptStore:
                 EvolutionRun.novel_id == self._novel_id,
                 EvolutionRun.run_key == receipt.run_id,
                 EvolutionRun.owner_epoch == receipt.owner_epoch,
+                EvolutionRun.status == "active",
+                EvolutionRun.committed_scene_index
+                == (
+                    frozen.previous_committed_prefix.through_scene_index
+                    if frozen.previous_committed_prefix
+                    else -1
+                ),
             )
             .values(
                 committed_scene_index=receipt.committed_prefix.through_scene_index,
@@ -343,6 +475,10 @@ class PostgresAttemptStore:
             run = await self.load_run(receipt.run_id)
             from modules.evolution.commit import StaleOwnerError
 
+            if run and run.owner_epoch == receipt.owner_epoch and run.status == "active":
+                raise CommitConflictError(
+                    "parent_advanced", "run prefix changed before commit"
+                )
             raise StaleOwnerError(
                 f"receipt fenced at persistence boundary: run epoch is "
                 f"{run.owner_epoch if run else 'missing'}, receipt froze "
@@ -375,32 +511,148 @@ class PostgresAttemptStore:
             return None
         return EvolutionReceipt.model_validate(row.receipt_json)
 
-    async def load_head_receipt(self, run_id: str) -> EvolutionReceipt | None:
-        row = (
-            await self._db.execute(
-                select(EvolutionReceiptRecord)
-                .where(
-                    EvolutionReceiptRecord.novel_id == self._novel_id,
-                    EvolutionReceiptRecord.run_key == run_id,
-                )
-                .order_by(
-                    EvolutionReceiptRecord.committed_scene_index.desc(),
-                    EvolutionReceiptRecord.committed_source_revision.desc(),
-                    EvolutionReceiptRecord.created_at.desc(),
-                )
-                .limit(1)
+    async def load_committed_pairs(
+        self,
+        run_id,
+        *,
+        descending=False,
+        limit=None,
+        relation_entity_ids=None,
+        after_scene_index=None,
+    ):
+        """Read original receipts, including the explicitly inherited prefix.
+
+        Inheritance stores exact run/attempt identities, never copied or synthetic
+        receipts. The author entry validates their full source chain before use.
+        """
+        run = await self.load_run(run_id)
+        inherited = (
+            (run.reading_plan_json or {}).get("inherited_receipts", []) if run else []
+        )
+        inherited_keys = [(item["run_key"], item["attempt_id"]) for item in inherited]
+        query = (
+            select(EvolutionReceiptRecord, EvolutionFrozenAttempt)
+            .join(
+                EvolutionFrozenAttempt,
+                (EvolutionFrozenAttempt.novel_id == EvolutionReceiptRecord.novel_id)
+                & (EvolutionFrozenAttempt.run_key == EvolutionReceiptRecord.run_key)
+                & (
+                    EvolutionFrozenAttempt.attempt_key
+                    == EvolutionReceiptRecord.attempt_key
+                ),
             )
-        ).scalar_one_or_none()
-        if row is None:
-            return None
-        return EvolutionReceipt.model_validate(row.receipt_json)
+            .where(
+                EvolutionReceiptRecord.novel_id == self._novel_id,
+                EvolutionReceiptRecord.execution_status == "succeeded",
+                EvolutionFrozenAttempt.status == "applied",
+                or_(
+                    EvolutionReceiptRecord.run_key == run_id,
+                    tuple_(
+                        EvolutionReceiptRecord.run_key, EvolutionReceiptRecord.attempt_key
+                    ).in_(inherited_keys),
+                ),
+            )
+        )
+        order = EvolutionReceiptRecord.committed_scene_index
+        if after_scene_index is not None:
+            query = query.where(order > after_scene_index)
+        if relation_entity_ids is not None:
+            if not relation_entity_ids:
+                return []
+            history = EvolutionFrozenAttempt.payload_json["world_materialization"][
+                "relations"
+            ].as_string()
+            # ponytail: bounded JSON scan; add a relation provenance index if the
+            # long-book capacity gate shows this query is a bottleneck.
+            query = query.where(
+                or_(*(history.contains(value) for value in relation_entity_ids))
+            )
+        query = query.order_by(order.desc() if descending else order)
+        if limit is not None:
+            query = query.limit(limit)
+        pairs = (await self._db.execute(query)).all()
+        if limit is None and inherited_keys and relation_entity_ids is None:
+            found = {(receipt.run_key, receipt.attempt_key) for receipt, _ in pairs}
+            if len(set(inherited_keys)) != len(inherited_keys) or not set(
+                inherited_keys
+            ).issubset(found):
+                raise CommitConflictError(
+                    "inherited_receipt_missing", "inherited prefix is incomplete"
+                )
+        return pairs
+
+    async def latest_scene_attempts(self, scene_ids):
+        if not scene_ids:
+            return {}
+        scene = EvolutionFrozenAttempt.payload_json["scene_id"].as_string()
+        ranked = (
+            select(
+                scene.label("scene_id"),
+                EvolutionReceiptRecord.run_key,
+                EvolutionReceiptRecord.attempt_key,
+                func.row_number()
+                .over(
+                    partition_by=scene,
+                    order_by=(
+                        EvolutionReceiptRecord.created_at.desc(),
+                        EvolutionReceiptRecord.id.desc(),
+                    ),
+                )
+                .label("position"),
+            )
+            .join(
+                EvolutionReceiptRecord,
+                (EvolutionReceiptRecord.novel_id == EvolutionFrozenAttempt.novel_id)
+                & (EvolutionReceiptRecord.run_key == EvolutionFrozenAttempt.run_key)
+                & (
+                    EvolutionReceiptRecord.attempt_key
+                    == EvolutionFrozenAttempt.attempt_key
+                ),
+            )
+            .join(
+                EvolutionRun,
+                (EvolutionRun.novel_id == EvolutionFrozenAttempt.novel_id)
+                & (EvolutionRun.run_key == EvolutionFrozenAttempt.run_key),
+            )
+            .where(
+                EvolutionFrozenAttempt.novel_id == self._novel_id,
+                EvolutionFrozenAttempt.status == "applied",
+                EvolutionRun.execution_mode == "live",
+                EvolutionReceiptRecord.execution_status == "succeeded",
+                scene.in_(scene_ids),
+            )
+            .subquery()
+        )
+        return {
+            scene_id: (run_key, attempt_key)
+            for scene_id, run_key, attempt_key in (
+                await self._db.execute(
+                    select(
+                        ranked.c.scene_id,
+                        ranked.c.run_key,
+                        ranked.c.attempt_key,
+                    ).where(ranked.c.position == 1)
+                )
+            ).all()
+        }
+
+    async def load_head_receipt(self, run_id: str) -> EvolutionReceipt | None:
+        pairs = await self.load_committed_pairs(run_id, descending=True, limit=1)
+        return (
+            EvolutionReceipt.model_validate(pairs[0][0].receipt_json) if pairs else None
+        )
 
     async def load_head_observations(self, run_id: str) -> list[str]:
         """链头回执对应冻结负载里的观察谓词（T07 前序状态内容注入面）。"""
+        run = await self.load_run(run_id)
+        if run is not None and run.status == "source_stale":
+            raise CommitConflictError(
+                "source_changed", "run sources require recomputation"
+            )
         head = await self.load_head_receipt(run_id)
         if head is None:
             return []
-        frozen = await self.load_frozen(run_id, head.attempt_id)
+        frozen = await self.load_frozen(head.run_id, head.attempt_id)
         if frozen is None:
             return []
         payload = frozen.payload or {}
@@ -430,24 +682,13 @@ class PostgresAttemptStore:
         """
         from sqlalchemy import func
 
-        rows = (
-            (
-                await self._db.execute(
-                    select(EvolutionReceiptRecord)
-                    .where(
-                        EvolutionReceiptRecord.novel_id == self._novel_id,
-                        EvolutionReceiptRecord.run_key == run_id,
-                    )
-                    .order_by(
-                        EvolutionReceiptRecord.committed_scene_index.desc(),
-                        EvolutionReceiptRecord.attempt_key.desc(),
-                    )
-                    .limit(max_scenes)
-                )
+        run = await self.load_run(run_id)
+        if run is not None and run.status == "source_stale":
+            raise CommitConflictError(
+                "source_changed", "stale observations cannot be reused"
             )
-            .scalars()
-            .all()
-        )
+
+        pairs = await self.load_committed_pairs(run_id, descending=True, limit=max_scenes)
         total_committed = (
             await self._db.execute(
                 select(func.count(EvolutionReceiptRecord.id)).where(
@@ -458,19 +699,17 @@ class PostgresAttemptStore:
         ).scalar_one()
         coverage: dict[str, Any] = {
             "window_scenes": max_scenes,
-            "total_committed_scenes": int(total_committed),
+            "total_committed_scenes": int(total_committed)
+            + len(
+                (run.reading_plan_json or {}).get("inherited_receipts", []) if run else []
+            ),
             "scenes_included": [],
             "omitted_observations": 0,
         }
         entries: list[dict[str, Any]] = []
-        for row in reversed(rows):
+        for row, frozen in reversed(pairs):
             scene_index = int(row.committed_scene_index)
-            frozen = await self.load_frozen(run_id, row.attempt_key)
-            compiled = (
-                (frozen.payload or {}).get("compiled_observations")
-                if frozen is not None
-                else None
-            )
+            compiled = frozen.payload_json.get("compiled_observations")
             scene_entries = [
                 {
                     "observation_id": item.get("observation_id"),
