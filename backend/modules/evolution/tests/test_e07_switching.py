@@ -33,6 +33,7 @@ from modules.story.continuity.models import MemoryEvent
 from modules.story.continuity.services import MemoryService
 from modules.story.outline_state.models import Scene
 from modules.writing.facade import create_draft_only, get_latest_draft_for_chapter
+from tests.support.evolution_review import frozen_state_review
 
 RUN = "run-e07"
 SCENE_TEXT = "林舟与青竹在白石城重逢。"
@@ -44,8 +45,8 @@ class _Sampler:
         return {
             "scene_events": [
                 {
-                    "dimension": "entities",
-                    "event_type": "manual_correction",
+                    "dimension": "timeline",
+                    "event_type": "timeline_changed",
                     "snapshot_after": {"summary": scene_text[:24]},
                     # A03 语义门：提议须引用本批观察作证据。
                     "source_observation_indices": [0],
@@ -128,7 +129,7 @@ async def _evolution_events(db: AsyncSession, novel_id: str) -> list[MemoryEvent
 @pytest.mark.asyncio
 async def test_shadow_run_writes_no_production_facts(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
     """E07.b：影子运行读同一来源，产物隔离——不写正式 World/Story。
 
@@ -136,7 +137,7 @@ async def test_shadow_run_writes_no_production_facts(
     """
     from modules.evolution.pipeline import run_scene_step
 
-    db, nid = db_session, test_project_id
+    db, nid = db_session, evolution_project_id
     scene = await _scene(db, nid)
     await create_draft_only(db, nid, 1, "重逢", SCENE_TEXT)
     await db.commit()
@@ -156,6 +157,7 @@ async def test_shadow_run_writes_no_production_facts(
         scene_text=SCENE_TEXT,
         source=binding,
         sampler=_Sampler(),
+        state_reviewer=frozen_state_review,
         applier=_live_applier(nid, str(scene.id)),
     )
     assert result.receipt_attempt_id
@@ -174,6 +176,7 @@ async def test_shadow_run_writes_no_production_facts(
         scene_text=SCENE_TEXT,
         source=binding,
         sampler=_Sampler(),
+        state_reviewer=frozen_state_review,
         applier=_live_applier(nid, str(scene.id)),
     )
     assert len(await _evolution_events(db, nid)) == 1
@@ -182,17 +185,17 @@ async def test_shadow_run_writes_no_production_facts(
 @pytest.mark.asyncio
 async def test_single_live_writer_and_drain_fences_old_owner(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
     """E07.c：同项目单 live 写入者；切换排空后旧 epoch 无提交权。"""
-    db, nid = db_session, test_project_id
+    db, nid = db_session, evolution_project_id
     store = PostgresAttemptStore(db, nid)
     await store.register_run(RUN, mode="append", budget_total=5)
 
     with pytest.raises(CommitConflictError, match="single_writer"):
         await store.register_run("run-second", mode="append", budget_total=5)
 
-    drained = await store.switch_project_engine(RUN, to_engine="evolution")
+    drained = await store.drain_run(RUN)
     assert drained.status == "drained"
     assert drained.owner_epoch == 2
 
@@ -266,7 +269,7 @@ def test_legacy_checkpoint_classification() -> None:
 @pytest.mark.asyncio
 async def test_task_handler_runs_real_path_with_wired_sampler(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
     """E07.e：evolution_scene_step 走真实路径；采样器未接线 fail-closed。
 
@@ -275,7 +278,7 @@ async def test_task_handler_runs_real_path_with_wired_sampler(
     """
     from modules.world.models.core import CoreEntity
 
-    db, nid = db_session, test_project_id
+    db, nid = db_session, evolution_project_id
     scene = await _scene(db, nid)
     scene_text = "青竹把铜钥匙收进包袱。"
     # 来源绑定真实草稿：任务文本必须与当前 working 草稿逐字一致。
@@ -290,6 +293,8 @@ async def test_task_handler_runs_real_path_with_wired_sampler(
     await db.commit()
 
     class _ObservationSampler:
+        verify_state_events = staticmethod(frozen_state_review)
+
         async def sample(
             self, *, scene_text: str, input_manifest: dict[str, Any]
         ) -> dict:
@@ -331,6 +336,7 @@ async def test_task_handler_runs_real_path_with_wired_sampler(
         "chapter_index": 1,
         "budget_total": 5,
         "sampler_provider": "test-echo",
+        "state_review_version": 1,
     }
 
     # 未接线：拒绝伪造观察。
@@ -353,12 +359,12 @@ async def test_task_handler_runs_real_path_with_wired_sampler(
 @pytest.mark.asyncio
 async def test_task_handler_recovery_replays_frozen_without_resample(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
     """返修 R4：handler 恢复优先重放冻结 attempt，provider 不被再次调用。"""
     from modules.evolution.tasks import handle_evolution_scene_step
 
-    db, nid = db_session, test_project_id
+    db, nid = db_session, evolution_project_id
     scene = await _scene(db, nid)
     scene_text = "青竹把铜钥匙收进包袱。"
     await create_draft_only(db, nid, 1, "钥匙", scene_text)
@@ -414,5 +420,5 @@ def test_deep_import_adapter_maps_and_deprecates() -> None:
     assert adapted.budget_total == 2
     assert [step["scene_index"] for step in adapted.scene_steps] == [1, 2, 3]
     assert all(
-        step["task_type"] == "evolution_scene_step" for step in adapted.scene_steps
+        step["task_type"] == "evolution_scene_step_v2" for step in adapted.scene_steps
     )

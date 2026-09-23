@@ -1,0 +1,91 @@
+{
+  "mode": "paid_default",
+  "started_at": "2026-09-22T11:06:37.893892+00:00",
+  "novel_id": "9d60301b-d33f-48b1-b44a-390ff174036a",
+  "database": "ai_novel_agent_e2e_v4_live_20260922",
+  "provider": "deepseek",
+  "model": "deepseek-v4-flash",
+  "stage": "failed",
+  "draft_ids": [
+    "2a707dc1-1aae-479a-886e-42b7026b0f05",
+    "b7dbdfe6-3690-4349-b95d-c6f927f6d731",
+    "c3cbdffc-0842-4be0-b289-495df1521ba9"
+  ],
+  "scene_ids": [
+    "141d49a1-4d16-4e84-9a0e-6cb277af0104",
+    "497c79d9-5395-40b7-8e69-54d3b7e33228"
+  ],
+  "worker_tasks": [
+    {
+      "task_id": "c9fa997e-58bc-468e-97f9-1f890b7bad5b",
+      "type": "evolution_scene_step_v2",
+      "status": "done",
+      "result": {
+        "run_key": "v4-vertical-slice",
+        "attempt_id": "cb54e5d360334e1a916aeffbf59ca461",
+        "committed_prefix": {
+          "through_scene_index": 0,
+          "through_source_revision": 1
+        },
+        "observation_ids": [
+          "4555d63b455c30978074b8342a35ccac27de5b876bc7d46b4e25d7761c8ba7ae",
+          "3be351325340de4b2c5b244caa61c915d60244c005715ce910e0f192d481336f",
+          "17a65d065b8a128e9bcdad90f43ce42d4ecd057927fa1b853cc4ce592fd3b0e3"
+        ],
+        "identity_outcomes": {
+          "reuse": 3,
+          "new_candidate": 2
+        },
+        "gated_scene_events": 0
+      }
+    },
+    {
+      "task_id": "fe7bf21e-b1c0-4dd4-a701-479b98a2e479",
+      "type": "evolution_scene_step_v2",
+      "status": "failed",
+      "result": {
+        "lifecycle": {
+          "reason": "handler_error",
+          "error_code": "task_failed",
+          "recovery_policy": "manual_resume",
+          "recovery_required": false,
+          "transitions": [
+            {
+              "at": "2026-09-22T11:07:09.044554+00:00",
+              "from": "running",
+              "to": "failed",
+              "reason": "handler_error",
+              "error_code": "task_failed",
+              "attempt": 1
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "evolution_tasks": [
+    {
+      "id": "c9fa997e-58bc-468e-97f9-1f890b7bad5b",
+      "status": "done",
+      "result": {
+        "run_key": "v4-vertical-slice",
+        "attempt_id": "cb54e5d360334e1a916aeffbf59ca461",
+        "committed_prefix": {
+          "through_scene_index": 0,
+          "through_source_revision": 1
+        },
+        "observation_ids": [
+          "4555d63b455c30978074b8342a35ccac27de5b876bc7d46b4e25d7761c8ba7ae",
+          "3be351325340de4b2c5b244caa61c915d60244c005715ce910e0f192d481336f",
+          "17a65d065b8a128e9bcdad90f43ce42d4ecd057927fa1b853cc4ce592fd3b0e3"
+        ],
+        "identity_outcomes": {
+          "reuse": 3,
+          "new_candidate": 2
+        },
+        "gated_scene_events": 0
+      }
+    }
+  ],
+  "error_type": "RuntimeError"
+}

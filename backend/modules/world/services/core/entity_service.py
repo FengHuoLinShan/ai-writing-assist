@@ -72,8 +72,11 @@ class WorldEntityService(
         data: CoreEntityCreate,
         *,
         _validation_prechecked: bool = False,
+        candidate_id: str | None = None,
     ) -> CoreEntityResponse:
         nid = parse_uuid(novel_id, "novel_id")
+        if candidate_id is not None and data.status != "candidate":
+            raise ValidationError("A reserved identity may only create a candidate")
 
         if data.content_json is not None:
             from modules.world.services.core.entity_alias_service import (
@@ -137,7 +140,16 @@ class WorldEntityService(
                     },
                 )
 
-        obj = await self.repo.create(db, nid, data)
+        obj = await self.repo.create(
+            db,
+            nid,
+            data,
+            **(
+                {"candidate_id": parse_uuid(candidate_id, "candidate_id")}
+                if candidate_id is not None
+                else {}
+            ),
+        )
         if obj.status == "canonical":
             if obj.entity_type == "character":
                 from modules.world.services.core.character_service import (
@@ -481,22 +493,55 @@ class WorldEntityService(
             raise ValidationError("该实体由待处理建议管理，请通过对应建议执行编辑或裁决")
 
         if data.content_json is not None:
+            from modules.world.services.common import require_fresh_understanding_source
             from modules.world.services.core.entity_alias_service import (
+                ACTIVE_ALIAS_STATUSES,
                 EntityAliasService,
             )
 
-            data = data.model_copy(
-                update={
-                    "content_json": EntityAliasService.normalize_content_aliases(
-                        data.content_json,
-                        default_status=(
-                            "candidate"
-                            if (data.status or existing.status) in {"candidate", "draft"}
-                            else None
-                        ),
-                    )
-                }
+            submitted = EntityAliasService.normalize_content_aliases(
+                data.content_json,
+                default_status="candidate"
+                if (data.status or existing.status) in {"candidate", "draft"}
+                else None,
             )
+            original = existing.content_json or {}
+            original_ref = (original.get("_meta") or {}).get("evolution_ref")
+            if original_ref:
+                submitted["_meta"] = {
+                    **(submitted.get("_meta") or {}),
+                    "evolution_ref": original_ref,
+                }
+            previous_aliases = {
+                str(item["alias"]).strip(): item
+                for item in original.get("aliases", [])
+                if isinstance(item, dict) and item.get("alias")
+            }
+            aliases = []
+            for item in submitted.get("aliases", []):
+                old = (
+                    previous_aliases.get(item.get("alias"))
+                    if isinstance(item, dict)
+                    else None
+                )
+                old_review = (old or {}).get("review_meta") or {}
+                if old_review.get("evolution_ref"):
+                    item = {
+                        **item,
+                        "review_meta": {
+                            **(item.get("review_meta") or {}),
+                            "evolution_ref": old_review["evolution_ref"],
+                        },
+                    }
+                    if (
+                        old.get("status") not in ACTIVE_ALIAS_STATUSES
+                        and item.get("status") in ACTIVE_ALIAS_STATUSES
+                    ):
+                        await require_fresh_understanding_source(db, novel_id, old)
+                aliases.append(item)
+            if "aliases" in submitted:
+                submitted["aliases"] = aliases
+            data = data.model_copy(update={"content_json": submitted})
 
         changed = data.model_dump(exclude_unset=True)
         new_type = changed.get("entity_type")
@@ -764,6 +809,9 @@ class WorldEntityService(
         if meta.get("compatibility_shadow") is True and not _from_suggestion_queue:
             raise ValidationError("该实体由待处理建议管理，请通过对应建议执行采用")
 
+        from modules.world.services.common import require_fresh_understanding_source
+
+        await require_fresh_understanding_source(db, novel_id, meta)
         changes = {
             key: value
             for key, value in data.model_dump(

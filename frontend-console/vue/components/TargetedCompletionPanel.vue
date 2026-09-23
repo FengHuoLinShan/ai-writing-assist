@@ -5,7 +5,7 @@ import { useWorkflowPolling } from "../composables/useWorkflowPolling.js"
 import { clearActiveWorkflow, persistActiveWorkflow, recoverActiveWorkflows } from "../../shared/workflowProgress.js"
 import { ACCOUNT_MARKER_KEY } from "../../shared/accountStorage.js"
 
-const props = defineProps({ deferRequested: { type: Boolean, default: false }, initialOpen: { type: Boolean, default: false }, projectId: { type: String, required: true }, entityId: { type: String, default: null }, initialName: { type: String, default: "" }, sourceTaskId: { type: String, default: null } })
+const props = defineProps({ readOnly: { type: Boolean, default: false }, deferRequested: { type: Boolean, default: false }, initialOpen: { type: Boolean, default: false }, projectId: { type: String, required: true }, entityId: { type: String, default: null }, initialName: { type: String, default: "" }, sourceTaskId: { type: String, default: null } })
 const emit = defineEmits(["applied", "updated"])
 const api = getApi(), confirm = getConfirm(), polling = useWorkflowPolling()
 const name = ref(props.initialName), startChapter = ref(1), endChapter = ref(0)
@@ -64,6 +64,7 @@ async function loadIdentities(item) {
   if (owns(token, scope)) identities.value = { ...identities.value, ...Object.fromEntries(results) }
 }
 async function completeIdentity(item) {
+  if (props.readOnly) return
   const id = identityChoices.value[item.key]
   if (busy.value || !item.candidate_ids.includes(id) || identities.value[id]?.unavailable) return
   const token = ++epoch, scope = key.value
@@ -86,6 +87,7 @@ function observe(id, token = epoch, scope = key.value) {
   })
 }
 async function start() {
+  if (props.readOnly) return
   if (busy.value) return
   if (!name.value.trim() && !props.entityId) { error.value = "请输入要补全的名称。"; return }
   if (!Number.isInteger(startChapter.value) || startChapter.value < 1 || !Number.isInteger(endChapter.value) || endChapter.value < 0 || (endChapter.value && endChapter.value < startChapter.value)) { error.value = "请填写有效的章节范围。"; return }
@@ -105,6 +107,7 @@ async function start() {
   finally { if (owns(token, scope)) submitting.value = false }
 }
 async function act(action) {
+  if (props.readOnly) return
   if (!taskId.value || submitting.value) return
   if (action === "rollback" && !confirm("撤销这次补全？仅恢复仍与本次结果一致的内容，后续人工修改或引用冲突会留待处理。")) return
   const token = epoch, scope = key.value, id = taskId.value
@@ -154,7 +157,7 @@ onBeforeUnmount(() => { alive = false; epoch += 1 })
   <details class="targeted-completion" :open="initialOpen || undefined">
     <summary>{{ sourceTaskId ? '本轮补全结果' : '查漏补全' }}<span v-if="taskId"> · {{ statusLabel }}</span></summary>
     <div class="targeted-completion__body">
-      <form v-if="!sourceTaskId" @submit.prevent="start">
+      <form v-if="!readOnly && !sourceTaskId" @submit.prevent="start">
         <label>补全对象<input v-model="name" class="form-input" maxlength="200" :disabled="busy" placeholder="已有对象或漏掉的名称" /></label>
         <div class="targeted-completion__range">
           <label>起始章节<input v-model.number="startChapter" class="form-input" type="number" min="1" :disabled="busy" /></label>
@@ -169,7 +172,7 @@ onBeforeUnmount(() => { alive = false; epoch += 1 })
       <p v-if="storageWarning" role="alert">{{ storageWarning }}</p>
       <p v-if="taskId">已处理 {{ info.completed_roots || 0 }} / {{ info.root_count || 0 }} 个目标 · 新增 {{ info.created || 0 }} · 填空 {{ info.filled || 0 }} · 待审 {{ info.review || 0 }}</p>
       <p v-for="warning in info.warnings || []" :key="warning">{{ warning }}</p>
-      <fieldset v-for="item in info.ambiguities || []" :key="item.key">
+      <fieldset v-for="item in info.ambiguities || []" :key="item.key" :disabled="readOnly">
         <legend>{{ item.name }}：需要确认身份</legend>
         <label>选择这次要补全的对象
           <select v-model="identityChoices[item.key]" class="form-select" :disabled="busy" @focus="loadIdentities(item)">
@@ -180,8 +183,8 @@ onBeforeUnmount(() => { alive = false; epoch += 1 })
         <p>确认后按原章节范围发起一次新的查漏；原任务和已有结果保留。</p>
         <button class="btn btn-sm" :disabled="busy || !identityChoices[item.key]" @click="completeIdentity(item)">确认身份并重新查漏</button>
       </fieldset>
-      <p v-if="sourceTaskId && busy">可暂缓查漏，当前批次保存后停止；其余基础整理继续。</p>
-      <div class="targeted-completion__actions"><button v-if="busy && taskId" type="button" class="btn btn-sm" :disabled="submitting || deferPending" @click="act('defer')">{{ deferPending ? '正在等待当前批次保存…' : '暂缓查漏' }}</button>
+      <p v-if="!readOnly && sourceTaskId && busy">可暂缓查漏，当前批次保存后停止；其余基础整理继续。</p>
+      <div v-if="!readOnly" class="targeted-completion__actions"><button v-if="busy && taskId" type="button" class="btn btn-sm" :disabled="submitting || deferPending" @click="act('defer')">{{ deferPending ? '正在等待当前批次保存…' : '暂缓查漏' }}</button>
         <button v-if="!sourceTaskId && busy && taskId" type="button" class="btn btn-sm" :disabled="submitting" @click="act('cancel')">停止补全</button>
         <button v-if="canResume && !busy" type="button" class="btn btn-sm" @click="act('resume')">继续未完成的补全</button>
         <button v-if="canRollback" type="button" class="btn btn-sm" @click="act('rollback')">撤销这次补全</button>

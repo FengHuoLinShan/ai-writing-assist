@@ -119,6 +119,9 @@ class MemoryEvent(Base, NovelMixin):
         default="ai_extraction",
         comment="来源",
     )
+    source_stale: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

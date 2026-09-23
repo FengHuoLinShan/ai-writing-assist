@@ -34,6 +34,7 @@ from modules.evolution.store import PostgresAttemptStore
 from modules.story.outline_state.models import Scene
 from modules.world.models.core import CoreEntity
 from modules.writing.facade import create_draft_only, get_latest_draft_for_chapter
+from tests.support.evolution_review import frozen_state_review
 
 SCENE_TEXT = "林舟与青竹在白石城重逢。青竹从袖中取出铜钥匙。"
 QINGZHU_NAME = "青竹"
@@ -130,11 +131,11 @@ class _ObservationOnlySampler:
 @pytest.mark.asyncio
 async def test_real_chain_observation_only_sampler(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
     """R1/R2：async sampler 只回观察；宿主派生提及身份并经 world 精确名解析；
     一致性门放行已解析实体、拦截未解析实体；paid 回执与 head 指针落库。"""
-    db, nid = db_session, test_project_id
+    db, nid = db_session, evolution_project_id
     # World 已有 青竹（canonical）——精确名证据；白石城 未注册（new_candidate）。
     qingzhu = CoreEntity(
         novel_id=uuid.UUID(nid),
@@ -158,6 +159,7 @@ async def test_real_chain_observation_only_sampler(
         scene_text=SCENE_TEXT,
         source=binding,
         sampler=sampler,
+        state_reviewer=frozen_state_review,
         applier=_applier(nid, scene_id),
         identity_candidates=exact_name_candidate_lookup(db),
     )
@@ -189,10 +191,10 @@ async def test_real_chain_observation_only_sampler(
 @pytest.mark.asyncio
 async def test_domain_failure_keeps_freeze_and_budget_then_recovers(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
     """R4：域提交失败不抹掉预算预留与冻结负载；恢复重放不重采样。"""
-    db, nid = db_session, test_project_id
+    db, nid = db_session, evolution_project_id
     scene_id, binding, _draft_id = await _seed(db, nid)
     await db.commit()
 
@@ -257,13 +259,13 @@ def test_barrier_ordering_rejections() -> None:
 @pytest.mark.asyncio
 async def test_drained_run_cannot_be_revived_or_charged(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
     """R5：排空 run 不因重复注册复活；非 active run 不再消耗预算。"""
-    db, nid = db_session, test_project_id
+    db, nid = db_session, evolution_project_id
     store = PostgresAttemptStore(db, nid)
     await store.register_run("run-drain", mode="append", budget_total=5)
-    await store.switch_project_engine("run-drain", to_engine="evolution")
+    await store.drain_run("run-drain")
 
     with pytest.raises(CommitConflictError, match="run_not_active"):
         await store.register_run("run-drain", mode="append", budget_total=5)
@@ -277,13 +279,13 @@ async def test_drained_run_cannot_be_revived_or_charged(
 @pytest.mark.asyncio
 async def test_consumers_validity_requires_claimed_and_indexed_fingerprints(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
     """P2：无声称指纹或无已索引指纹时不能宣称 valid。"""
     from modules.evidence.indexing.models import RagIndexState
     from modules.evolution.consumers import check_suggestion_validity
 
-    db, nid = db_session, test_project_id
+    db, nid = db_session, evolution_project_id
     await db.commit()
 
     state = RagIndexState(
@@ -305,6 +307,7 @@ async def test_consumers_validity_requires_claimed_and_indexed_fingerprints(
     state.status = "succeeded"
     state.requested_hash = "b" * 64
     state.indexed_hash = "b" * 64
+    state.requested_source_id = state.indexed_source_id = uuid.uuid4()
     await db.commit()
     validity = await check_suggestion_validity(
         db, nid, chapter_index=9, claimed_hash=None, content_mode="working"
@@ -316,3 +319,11 @@ async def test_consumers_validity_requires_claimed_and_indexed_fingerprints(
         db, nid, chapter_index=9, claimed_hash="b" * 64, content_mode="working"
     )
     assert validity.verdict == "valid"
+
+    # 来源撤回等待索引清理时，旧 indexed_hash 不能继续证明当前有效。
+    state.requested_hash = state.requested_source_id = None
+    await db.commit()
+    validity = await check_suggestion_validity(
+        db, nid, chapter_index=9, claimed_hash="b" * 64, content_mode="working"
+    )
+    assert validity.verdict == "stale"

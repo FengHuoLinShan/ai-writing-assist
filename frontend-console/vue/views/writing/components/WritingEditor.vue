@@ -26,10 +26,7 @@
               </div>
               <div v-if="hasChapters && state.status !== 'candidate'" class="writing-tools-menu__group">
                 <strong>从正文整理资料</strong>
-                <button class="btn btn-sm" @click="$emit('auto-extract', 'scenes')">先整理场景骨架（推荐）</button>
-                <button class="btn btn-sm" @click="$emit('auto-extract', 'deep')">完整整理世界与结构</button>
-                <button class="btn btn-sm" @click="$emit('auto-extract', 'world_objects')">整理人物、设定与关系</button>
-                <button class="btn btn-sm" @click="$emit('auto-extract', 'plot_structure')">整理剧情线</button>
+                <button class="btn btn-sm" @click="$emit('auto-extract', 'scenes')">理解与整理正文…</button>
                 <button class="btn btn-sm btn-link" @click="$emit('open-deep-import-settings')">调整深度导入设置</button>
               </div>
               <div class="writing-tools-menu__group">
@@ -158,6 +155,9 @@
           placeholder="开始写作..."
           @compositionstart="$emit('composition', true)"
           @compositionend="$emit('composition', false)"
+          @select="captureFocus"
+          @keyup="captureFocus"
+          @pointerup="captureFocus"
         />
       </div>
     </template>
@@ -167,6 +167,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import AIResultTraceDetails from "../../../components/AIResultTraceDetails.vue"
+import { readWritingFocus } from "../../../shared/assistantContext.js"
 
 const props = defineProps({
   projectId: { type: String, default: null },
@@ -191,11 +192,14 @@ const emit = defineEmits(["composition", "open-chapters", "create-chapter",
   "generate-draft", "generate-continuation", "generate-pov", "regenerate-candidate",
   "auto-extract", "open-deep-import-settings", "open-ai-tools", "adopt", "reject",
   "semantic-review", "deep-review", "targeted-revision", "compare-candidate", "export",
-  "retry-load", "reload-server",
+  "retry-load", "reload-server", "focus-context",
 ])
 
 const titleEl = ref(null)
 const editorEl = ref(null)
+function captureFocus() {
+  if (editorEl.value) emit("focus-context", readWritingFocus(editorEl.value, props.state.draftId))
+}
 const reviewPanelEl = ref(null)
 const toolMenusEl = ref(null)
 const openToolMenu = ref(null)

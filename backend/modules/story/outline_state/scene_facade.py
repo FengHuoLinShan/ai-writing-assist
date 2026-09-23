@@ -171,6 +171,20 @@ async def get_scene_spans_for_scene(
     )
 
 
+async def validate_scene_source_ranges(
+    db: AsyncSession,
+    novel_id: str,
+    scene_id: str,
+    scene_index: int,
+    sources: list[dict],
+) -> None:
+    from modules.story.outline_state.services import SceneService
+
+    await SceneService().validate_source_ranges(
+        db, novel_id, scene_id, scene_index, sources
+    )
+
+
 async def get_scene_span_coverage(
     db: AsyncSession,
     novel_id: str,
@@ -412,6 +426,15 @@ async def update_scene(
     return _scene_to_dict(updated)
 
 
+async def apply_scene_understanding_enrichment(db, novel_id, scene_id, **kwargs):
+    from modules.story.outline_state.services import SceneService
+
+    result = await SceneService().apply_understanding_enrichment(
+        db, novel_id, scene_id, **kwargs
+    )
+    return _scene_to_dict(result)
+
+
 async def get_next_scene_index(db: AsyncSession, novel_id: str) -> int:
     """获取该 novel 的下一个 scene_index（当前最大 + 1）。"""
     from modules.story.outline_state.services import SceneService
@@ -477,6 +500,7 @@ def _scene_to_contract(scene) -> SceneContract:
 
 
 __all__ = [
+    "apply_scene_understanding_enrichment",
     "bind_scene_spans_to_source",
     "batch_create_scenes",
     "count_scenes_by_novel",

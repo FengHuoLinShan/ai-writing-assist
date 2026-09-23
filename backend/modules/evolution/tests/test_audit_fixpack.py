@@ -39,6 +39,7 @@ from modules.evolution.store import PostgresAttemptStore
 from modules.story.continuity.models import MemoryEvent
 from modules.story.outline_state.models import Scene
 from modules.writing.facade import create_draft_only, get_latest_draft_for_chapter
+from tests.support.evolution_review import frozen_state_review
 
 SCENE_TEXT = "林舟与青竹在白石城重逢。青竹从袖中取出铜钥匙。"
 LINZHOU = "11111111-1111-4111-8111-111111111111"
@@ -85,8 +86,8 @@ class _FixpackSampler:
             ],
             "scene_events": [
                 {
-                    "dimension": "locations",
-                    "event_type": "entity_moved",
+                    "dimension": "timeline",
+                    "event_type": "timeline_changed",
                     "snapshot_after": {"text_state": "白石城"},
                     "source_observation_indices": [0],
                 }
@@ -103,7 +104,9 @@ class _FixpackSampler:
 class _KnownCandidates:
     """林舟 已在 World 注册（精确名证据）。"""
 
-    async def lookup(self, novel_id: str, surface: str) -> list:
+    async def lookup(
+        self, novel_id: str, surface: str, entity_type: str | None = None
+    ) -> list:
         if surface != "林舟":
             return []
 
@@ -173,12 +176,12 @@ def _formal_applier(counter: dict[str, int]):
 @pytest.mark.asyncio
 async def test_shadow_recovery_after_receipt_loss_stays_isolated(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """审查 A01 反例：影子冻结后、回执持久化前故障——恢复必须仍走隔离
     applier，正式写入器（即使再次传入）一次都不执行。"""
-    db, nid = db_session, test_project_id
+    db, nid = db_session, evolution_project_id
     _scene, binding = await _seed(db, nid)
     await db.commit()
 
@@ -219,7 +222,7 @@ async def test_shadow_recovery_after_receipt_loss_stays_isolated(
     frozen = await store.load_pending_frozen("run-a01", 0)
     assert frozen is not None
     assert frozen.payload["execution_mode"] == "shadow"
-    assert frozen.payload["stage"] == "compiled"
+    assert frozen.payload["stage"] == "verified"
 
     # 恢复：调用方又传入正式写入器——统一写入策略解析必须换回隔离 applier。
     receipt = await recover_scene_step(
@@ -240,10 +243,10 @@ async def test_shadow_recovery_after_receipt_loss_stays_isolated(
 @pytest.mark.asyncio
 async def test_commit_boundary_rejects_shadow_frozen_with_formal_applier(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
     """A01 纵深防御：提交边界本身拒绝影子负载经未标记的正式 applier 写入。"""
-    db, nid = db_session, test_project_id
+    db, nid = db_session, evolution_project_id
     await db.commit()
     store = PostgresAttemptStore(db, nid)
     await store.register_run(
@@ -286,11 +289,11 @@ async def test_commit_boundary_rejects_shadow_frozen_with_formal_applier(
 @pytest.mark.asyncio
 async def test_legacy_unstamped_shadow_frozen_recovered_isolated(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
     """A01 兼容面：未盖章的既有冻结负载，恢复按 run 登记模式解析——
     影子 run 的正式写入器同样被替换。"""
-    db, nid = db_session, test_project_id
+    db, nid = db_session, evolution_project_id
     _scene, binding = await _seed(db, nid)
     await db.commit()
 
@@ -344,10 +347,10 @@ async def test_legacy_unstamped_shadow_frozen_recovered_isolated(
 @pytest.mark.asyncio
 async def test_final_sampler_failure_freezes_receipt_and_blocks_resample(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
     """A07：provider 最终抛错也固化失败回执；恢复进入待核对，不自动重采样。"""
-    db, nid = db_session, test_project_id
+    db, nid = db_session, evolution_project_id
     _scene, binding = await _seed(db, nid)
     await db.commit()
 
@@ -393,11 +396,11 @@ async def test_final_sampler_failure_freezes_receipt_and_blocks_resample(
 @pytest.mark.asyncio
 async def test_crash_mid_request_enters_unknown_billing_state(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
     """A07：请求发出后进程崩溃（结果未取回）——恢复按 unknown_billing
     待核对，不当作未发生。"""
-    db, nid = db_session, test_project_id
+    db, nid = db_session, evolution_project_id
     _scene, binding = await _seed(db, nid)
     await db.commit()
 
@@ -435,12 +438,12 @@ async def test_crash_mid_request_enters_unknown_billing_state(
 @pytest.mark.asyncio
 async def test_compile_crash_recovers_by_deterministic_recompilation(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A07：provider 结果耐久化后、观察编译崩溃——恢复确定性重编译并提交，
     provider 不被再次调用。"""
-    db, nid = db_session, test_project_id
+    db, nid = db_session, evolution_project_id
     _scene, binding = await _seed(db, nid)
     await db.commit()
 
@@ -494,6 +497,7 @@ async def test_compile_crash_recovers_by_deterministic_recompilation(
         run_key="run-a07c",
         scene_index=0,
         applier=live_applier,
+        state_reviewer=frozen_state_review,
         identity_candidates=_KnownCandidates().lookup,
     )
     assert receipt.committed_prefix.through_scene_index == 0
@@ -501,7 +505,7 @@ async def test_compile_crash_recovers_by_deterministic_recompilation(
     assert crashes["n"] == 2  # 恢复重跑了确定性编译
     refrozen = await store.load_frozen("run-a07c", receipt.attempt_id)
     assert refrozen is not None
-    assert refrozen.payload["stage"] == "compiled"
+    assert refrozen.payload["stage"] == "verified"
     assert refrozen.payload["identity_outcomes"] == {
         "reuse": 1,
         "new_candidate": 1,

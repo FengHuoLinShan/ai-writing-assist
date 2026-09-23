@@ -64,6 +64,9 @@ EXPECTED_CAPABILITIES = (
     "imports.structure_analysis",
     "imports.review_resolution",
     "imports.targeted_completion",
+    # Evolution
+    "evolution.scene_observe",
+    "evolution.state_review",
     # Interaction
     "interaction.story_generate",
     "interaction.summary_refresh",
@@ -107,6 +110,7 @@ def test_registry_covers_all_domains() -> None:
         "world",
         "story",
         "imports",
+        "evolution",
         "interaction",
         "assistant",
         "collaboration",

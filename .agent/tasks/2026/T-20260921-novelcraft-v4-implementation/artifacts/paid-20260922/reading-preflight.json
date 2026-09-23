@@ -1,0 +1,341 @@
+{
+  "mode": "synthetic_native_preflight",
+  "started_at": "2026-09-22T12:52:05.380910+00:00",
+  "novel_id": "7b570afe-52e2-4b3a-accf-eb1df6d56350",
+  "database": "ai_novel_agent_e2e_v4_live_20260922",
+  "provider": "deepseek",
+  "model": "deepseek-flash",
+  "scenario": "reading",
+  "stage": "finished",
+  "worker_tasks": [
+    {
+      "task_id": "5cb4f327-d3e2-4601-86e2-5e65a2ef0f50",
+      "type": "evolution_scene_step_v2",
+      "status": "failed",
+      "result": {
+        "recovery_required": true,
+        "recoverable": true,
+        "lifecycle": {
+          "reason": "handler_error",
+          "error_code": "task_failed",
+          "recovery_policy": "manual_resume",
+          "recovery_required": true,
+          "transitions": [
+            {
+              "at": "2026-09-22T12:52:06.090320+00:00",
+              "from": "running",
+              "to": "failed",
+              "reason": "handler_error",
+              "error_code": "task_failed",
+              "attempt": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "task_id": "5cb4f327-d3e2-4601-86e2-5e65a2ef0f50",
+      "type": "evolution_scene_step_v2",
+      "status": "done",
+      "result": {
+        "run_key": "reading-4f961ead-f39b-4f76-9c25-159866a7bace",
+        "attempt_id": "bd91c265eca149afa91a3cc57354effc",
+        "recovered": true,
+        "committed_prefix": {
+          "through_scene_index": 0,
+          "through_source_revision": 1
+        },
+        "next_task_id": "31fd84e6-66d3-46b6-9f3a-2ac82318c60c",
+        "reading_complete": false
+      }
+    },
+    {
+      "task_id": "31fd84e6-66d3-46b6-9f3a-2ac82318c60c",
+      "type": "evolution_scene_step_v2",
+      "status": "done",
+      "result": {
+        "run_key": "reading-4f961ead-f39b-4f76-9c25-159866a7bace",
+        "attempt_id": "86027b6818e74f5da84ae36147021dd0",
+        "committed_prefix": {
+          "through_scene_index": 1,
+          "through_source_revision": 2
+        },
+        "observation_ids": [],
+        "identity_outcomes": {},
+        "gated_scene_events": 0,
+        "reading_complete": true
+      }
+    },
+    {
+      "task_id": "4e506869-bb74-4549-9d06-5c817cc20ce7",
+      "type": "evolution_scene_step_v2",
+      "status": "done",
+      "result": {
+        "run_key": "reading-4f961ead-f39b-4f76-9c25-159866a7bace",
+        "attempt_id": "41db68e9240b4e34b5c17405facad990",
+        "committed_prefix": {
+          "through_scene_index": 2,
+          "through_source_revision": 3
+        },
+        "observation_ids": [],
+        "identity_outcomes": {},
+        "gated_scene_events": 0,
+        "reading_complete": true
+      }
+    }
+  ],
+  "scenario_version": 1,
+  "initial": {
+    "run_key": "reading-4f961ead-f39b-4f76-9c25-159866a7bace",
+    "task_id": "5cb4f327-d3e2-4601-86e2-5e65a2ef0f50",
+    "status": "pending",
+    "completed_scenes": 0,
+    "total_scenes": 2,
+    "budget_total": 2,
+    "budget_remaining": 2,
+    "end_chapter": 2,
+    "model": "deepseek-flash",
+    "can_resume": false
+  },
+  "interrupted": {
+    "run_key": "reading-4f961ead-f39b-4f76-9c25-159866a7bace",
+    "task_id": "5cb4f327-d3e2-4601-86e2-5e65a2ef0f50",
+    "status": "failed",
+    "completed_scenes": 0,
+    "total_scenes": 2,
+    "budget_total": 2,
+    "budget_remaining": 1,
+    "end_chapter": 2,
+    "model": "deepseek-flash",
+    "can_resume": true
+  },
+  "completed": {
+    "run_key": "reading-4f961ead-f39b-4f76-9c25-159866a7bace",
+    "task_id": "31fd84e6-66d3-46b6-9f3a-2ac82318c60c",
+    "status": "completed",
+    "completed_scenes": 2,
+    "total_scenes": 2,
+    "budget_total": 2,
+    "budget_remaining": 0,
+    "end_chapter": 2,
+    "model": "deepseek-flash",
+    "can_resume": false
+  },
+  "final": {
+    "run_key": "reading-4f961ead-f39b-4f76-9c25-159866a7bace",
+    "task_id": "4e506869-bb74-4549-9d06-5c817cc20ce7",
+    "status": "completed",
+    "completed_scenes": 3,
+    "total_scenes": 3,
+    "budget_total": 3,
+    "budget_remaining": 0,
+    "end_chapter": 3,
+    "model": "deepseek-flash",
+    "can_resume": false
+  },
+  "recovered_attempt_id": "bd91c265eca149afa91a3cc57354effc",
+  "evolution_inputs": [
+    {
+      "observations": [],
+      "scene_events": [],
+      "unresolved_parts": [],
+      "paid_call_receipt": {
+        "provider": "deepseek",
+        "model": "deepseek-flash",
+        "schema": "evolution.scene_sample.v1",
+        "outcome": "succeeded",
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 8,
+          "total_tokens": 18,
+          "attempts": 1,
+          "succeeded_attempts": 1,
+          "unknown_attempts": 0,
+          "usage_complete": true
+        },
+        "attempts_detail": [
+          {
+            "attempt": 1,
+            "status": "succeeded",
+            "completion_tokens": 8
+          }
+        ]
+      },
+      "stage": "compiled",
+      "scene_index": 0,
+      "scene_id": "801bbb93-fba4-4515-9e02-8ad371a53686",
+      "scene_text": "林舟出现在白石城。青竹说渡口已经封锁。林舟并没有亲眼确认这句话。",
+      "source_binding": {
+        "draft_id": "e9f8a775-0df9-4efe-940f-ad4e4d5fe49d",
+        "chapter_index": 1,
+        "content_hash": "34bc70e8e7cbd9dcb6563ec316fd098af81f7b5288693e185592a26cb79cfbe6",
+        "start_offset": 0,
+        "end_offset": 32,
+        "range_hash": null,
+        "additional_sources": []
+      },
+      "execution_mode": "live",
+      "observer_contract_version": 1,
+      "input_manifest": {
+        "run_key": "reading-4f961ead-f39b-4f76-9c25-159866a7bace",
+        "scene_index": 0,
+        "source_manifest_hash": "bde83bcd16eb45f28226e857797e67832770e3a8d0f37c8a87c17f37f6285676",
+        "dependency_status": "committed",
+        "previous_scene_attempt_id": null,
+        "previous_committed_prefix": null,
+        "previous_observations": [],
+        "previous_observations_coverage": null,
+        "blocked_reason": null
+      },
+      "observation_ids": [],
+      "compiled_observations": [],
+      "identity_outcomes": {},
+      "identity_resolutions": [],
+      "gated_scene_events": []
+    },
+    {
+      "observations": [],
+      "scene_events": [],
+      "unresolved_parts": [],
+      "paid_call_receipt": {
+        "provider": "deepseek",
+        "model": "deepseek-flash",
+        "schema": "evolution.scene_sample.v1",
+        "outcome": "succeeded",
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 8,
+          "total_tokens": 18,
+          "attempts": 1,
+          "succeeded_attempts": 1,
+          "unknown_attempts": 0,
+          "usage_complete": true
+        },
+        "attempts_detail": [
+          {
+            "attempt": 1,
+            "status": "succeeded",
+            "completion_tokens": 8
+          }
+        ]
+      },
+      "stage": "compiled",
+      "scene_index": 1,
+      "scene_id": "1dfcb80f-c583-4f08-a6c9-612371a6a0cb",
+      "scene_text": "三日后，林舟出现在渡口。他没有说明这三日的行程，也没有提起封锁。",
+      "source_binding": {
+        "draft_id": "59423d18-d3cf-4c59-88b6-6177811d3e74",
+        "chapter_index": 2,
+        "content_hash": "51640d441c9fcee2294a9ca3d2f06125ff3aaaa4207855111a636f3281d7cbe8",
+        "start_offset": 0,
+        "end_offset": 32,
+        "range_hash": null,
+        "additional_sources": []
+      },
+      "execution_mode": "live",
+      "observer_contract_version": 1,
+      "input_manifest": {
+        "run_key": "reading-4f961ead-f39b-4f76-9c25-159866a7bace",
+        "scene_index": 1,
+        "source_manifest_hash": "e2b3435fe83eadce5381b0f8dbc4028e7022a8d100501cbd2de55a3937efdc71",
+        "dependency_status": "committed",
+        "previous_scene_attempt_id": "bd91c265eca149afa91a3cc57354effc",
+        "previous_committed_prefix": {
+          "through_scene_index": 0,
+          "through_source_revision": 1
+        },
+        "previous_observations": [],
+        "previous_observations_coverage": {
+          "window_scenes": 3,
+          "total_committed_scenes": 1,
+          "scenes_included": [
+            0
+          ],
+          "omitted_observations": 0
+        },
+        "blocked_reason": null
+      },
+      "observation_ids": [],
+      "compiled_observations": [],
+      "identity_outcomes": {},
+      "identity_resolutions": [],
+      "gated_scene_events": []
+    },
+    {
+      "observations": [],
+      "scene_events": [],
+      "unresolved_parts": [],
+      "paid_call_receipt": {
+        "provider": "deepseek",
+        "model": "deepseek-flash",
+        "schema": "evolution.scene_sample.v1",
+        "outcome": "succeeded",
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 8,
+          "total_tokens": 18,
+          "attempts": 1,
+          "succeeded_attempts": 1,
+          "unknown_attempts": 0,
+          "usage_complete": true
+        },
+        "attempts_detail": [
+          {
+            "attempt": 1,
+            "status": "succeeded",
+            "completion_tokens": 8
+          }
+        ]
+      },
+      "stage": "compiled",
+      "scene_index": 2,
+      "scene_id": "509bbb25-7d8d-4b24-bba8-11a9fd9cd3ca",
+      "scene_text": "林舟在渡口等候。青竹的消息还没有传来。",
+      "source_binding": {
+        "draft_id": "9acebf25-cbde-4ed2-ad9d-98d8ed0ef3ca",
+        "chapter_index": 3,
+        "content_hash": "6722a770f71154c8156c04bab6f57a77f7090e6043fc7b838b57ab00ec0441b6",
+        "start_offset": 0,
+        "end_offset": 19,
+        "range_hash": null,
+        "additional_sources": []
+      },
+      "execution_mode": "live",
+      "observer_contract_version": 1,
+      "input_manifest": {
+        "run_key": "reading-4f961ead-f39b-4f76-9c25-159866a7bace",
+        "scene_index": 2,
+        "source_manifest_hash": "3271906c1ea1850003248a03ed284e5fbf8cca038e00844042fde60bf56fa90b",
+        "dependency_status": "committed",
+        "previous_scene_attempt_id": "86027b6818e74f5da84ae36147021dd0",
+        "previous_committed_prefix": {
+          "through_scene_index": 1,
+          "through_source_revision": 2
+        },
+        "previous_observations": [],
+        "previous_observations_coverage": {
+          "window_scenes": 3,
+          "total_committed_scenes": 2,
+          "scenes_included": [
+            0,
+            1
+          ],
+          "omitted_observations": 0
+        },
+        "blocked_reason": null
+      },
+      "observation_ids": [],
+      "compiled_observations": [],
+      "identity_outcomes": {},
+      "identity_resolutions": [],
+      "gated_scene_events": []
+    }
+  ],
+  "engineering_checks": {
+    "sequential_reading": true,
+    "free_recovery": true,
+    "append_preserves_budget": true,
+    "duplicate_start": true
+  },
+  "preflight_passed": true
+}

@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from core.errors import ConflictError
+
 MAX_IMPORT_FILE_SIZE = 50 * 1024 * 1024
 
 
@@ -72,3 +74,23 @@ class ImportConsultScope(BaseModel):
         if len(self.asset_keys) != len(set(self.asset_keys)):
             raise ValueError("所选待决组不能重复")
         return self
+
+
+def scene_world_schema(name):
+    """Registered schemas for frozen single-call Scene World requests."""
+    from modules.evidence.contracts import AuditVerdictOutput
+    from modules.imports.llm_schemas import (
+        AliasRelationExtractionOutput,
+        Phase2aSceneExtractionOutput,
+    )
+
+    schemas = (
+        Phase2aSceneExtractionOutput,
+        AliasRelationExtractionOutput,
+        AuditVerdictOutput,
+    )
+    return {schema.__name__: schema for schema in schemas}[name]
+
+
+class SceneWorldIdentityChangedError(ConflictError):
+    """A frozen World identity claim needs new source-bound authorization."""

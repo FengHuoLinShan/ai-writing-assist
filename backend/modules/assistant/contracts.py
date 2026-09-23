@@ -114,7 +114,15 @@ class ForecastContext:
     excluded_targets: list[str] = field(default_factory=list)
     facts: list = field(default_factory=list)
     saved_draft_hash: str | None = None
+    understanding: dict = field(default_factory=dict)
 
     @property
     def text(self):
-        return json.dumps(self.sources, ensure_ascii=False, sort_keys=True)
+        text = json.dumps(self.sources, ensure_ascii=False, sort_keys=True)
+        if self.understanding.get("records"):
+            text += "\n派生理解（可修订，非独立事实；核对所引原文）：\n" + json.dumps(
+                {key: self.understanding.get(key) for key in ("records", "source_map")},
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+        return text

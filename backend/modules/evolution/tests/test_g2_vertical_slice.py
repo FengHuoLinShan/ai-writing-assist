@@ -44,6 +44,7 @@ from modules.story.continuity.presence import project_scene_presence
 from modules.story.continuity.services import MemoryService
 from modules.story.outline_state.models import Scene
 from modules.writing.facade import create_draft_only, get_latest_draft_for_chapter
+from tests.support.evolution_review import frozen_state_review
 
 RUN = "run-g2"
 LINZHOU = "11111111-1111-4111-8111-111111111111"
@@ -126,7 +127,9 @@ class _DeterministicSampler:
                         "snapshot_after": {
                             "id": "know-custody",
                             "character_id": LINZHOU,
-                            "knowledge": "青竹保管铜钥匙（保管≠所有权）",
+                            "known_content": "青竹保管铜钥匙（保管≠所有权）",
+                            "target_type": "event",
+                            "knowledge_level": "rumor",
                         },
                         "source": "evolution",
                         # 角色陈述合法建立认知（谁知道什么），但必须写明主体。
@@ -178,7 +181,9 @@ class _WorldCandidates:
 
     known: dict[str, str]
 
-    async def lookup(self, novel_id: str, surface: str) -> list:
+    async def lookup(
+        self, novel_id: str, surface: str, entity_type: str | None = None
+    ) -> list:
         entity_id = self.known.get(surface)
         if entity_id is None:
             return []
@@ -250,9 +255,9 @@ def _applier(novel_id: str, scene_id: str, scene_index: int, chapter: int):
 @pytest.mark.asyncio
 async def test_g2_vertical_slice(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
-    db, nid = db_session, test_project_id
+    db, nid = db_session, evolution_project_id
     await db.commit()  # 封存场景等已写入数据，后续失效回滚不波及
 
     scene0 = await _scene(db, nid, 0, 1, "重逢")
@@ -279,6 +284,7 @@ async def test_g2_vertical_slice(
         scene_text=SCENE_0_TEXT,
         source=await _binding(db, nid, 1),
         sampler=sampler,
+        state_reviewer=frozen_state_review,
         applier=_applier(nid, str(scene0.id), 0, 1),
         identity_candidates=candidates.lookup,
     )
@@ -297,6 +303,7 @@ async def test_g2_vertical_slice(
         scene_text=SCENE_1_TEXT,
         source=await _binding(db, nid, 2),
         sampler=sampler,
+        state_reviewer=frozen_state_review,
         applier=_applier(nid, str(scene1.id), 1, 2),
         identity_candidates=candidates.lookup,
     )
@@ -310,7 +317,7 @@ async def test_g2_vertical_slice(
     # ---- 3. 新 case 消费同一合法状态：章节重放含 custody 知识 ----
     replay = await MemoryService().replay_state(db, nid, 2)
     knowledge = replay["character_knowledge"]
-    assert any("保管" in item.get("knowledge", "") for item in knowledge)
+    assert any("保管" in item.get("known_content", "") for item in knowledge)
 
     # ---- 4. 地图在场：Scene 2 后林舟在渡口，路线未知不造真（T03） ----
     step2 = await run_scene_step(
@@ -321,6 +328,7 @@ async def test_g2_vertical_slice(
         scene_text=SCENE_2_TEXT,
         source=await _binding(db, nid, 3),
         sampler=sampler,
+        state_reviewer=frozen_state_review,
         applier=_applier(nid, str(scene2.id), 2, 3),
         identity_candidates=candidates.lookup,
     )
@@ -329,8 +337,8 @@ async def test_g2_vertical_slice(
     presence = await project_scene_presence(db, nid, through_scene_index=2)
     linzhou_nodes = [node for node in presence.nodes if node.character_id == LINZHOU]
     assert [(node.location, node.presence_kind) for node in linzhou_nodes] == [
-        ("白石城", "confirmed_in_scene"),
-        ("渡口", "last_observed"),
+        ("白石城", "last_observed"),
+        ("渡口", "confirmed_in_scene"),
     ]
     qingzhu_nodes = [node for node in presence.nodes if node.character_id == QINGZHU]
     assert [(node.location, node.presence_kind) for node in qingzhu_nodes] == [
@@ -368,6 +376,7 @@ async def test_g2_vertical_slice(
             scene_text=SCENE_0_TEXT,
             source=stale_binding,
             sampler=sampler,
+            state_reviewer=frozen_state_review,
             applier=_applier(nid, str(scene0.id), 3, 1),
         )
 
@@ -390,6 +399,7 @@ async def test_g2_vertical_slice(
             scene_text=SCENE_2_TEXT,
             source=await _binding(db, nid, 3),
             sampler=sampler,
+            state_reviewer=frozen_state_review,
             applier=_applier(nid, str(scene2.id), 7, 3),
         )
     # 重复 Scene 0：正文取当前修订稿（来源校验通过），顺序检查拒绝。
@@ -403,6 +413,7 @@ async def test_g2_vertical_slice(
             scene_text=revised,
             source=await _binding(db, nid, 1),
             sampler=sampler,
+            state_reviewer=frozen_state_review,
             applier=_applier(nid, str(scene0.id), 0, 1),
         )
 

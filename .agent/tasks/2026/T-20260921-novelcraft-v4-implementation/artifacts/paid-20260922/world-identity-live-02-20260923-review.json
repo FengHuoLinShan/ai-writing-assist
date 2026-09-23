@@ -1,0 +1,13 @@
+{
+  "acceptance_type": "代理验收，非人工试用",
+  "source_report": "world-identity-live-02-20260923.json",
+  "reviewed_at": "2026-09-22T18:30:23.344975+00:00",
+  "verdict": "failed",
+  "findings": [
+    "职业误作别名根因修复在本次生成生效：医生留为职业相关uncertain item，未进aliases。",
+    "第一场World复核正确阻断关系basis将空候选推为历史上首次建立；别名分段schema中实体aliases=null被当成矛盾是审查器次要误判，须澄清分阶段契约。未保存World或位置状态。",
+    "第二场Phase2a超时取消，ledger第124次usage_unknown；本次6次请求中前5次settled，未知请求保持最高USD0.0443025预留。不得重试原冻结请求。",
+    "原报告/请求/冻结/费用全部保留，运行未完成，不作语义验收通过。"
+  ],
+  "paid_gate": "暂停所有新付费。已询问用户是否按预留最高额计入USD5总限额再开展新实测；等待答复，独立开发继续。"
+}

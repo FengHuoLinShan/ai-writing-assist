@@ -113,6 +113,16 @@ CAPABILITY_BINDINGS: dict[str, tuple[str, ...]] = {
     "modules/imports/workflow_structure_phase.py": ("imports.structure_analysis",),
     "modules/imports/review_resolution.py": ("imports.review_resolution",),
     "modules/imports/targeted_completion.py": ("imports.targeted_completion",),
+    # Evolution preparation reuses Imports Phase 1a; observation has its own source gate.
+    "modules/evolution/preparation.py": ("imports.scene_slicing",),
+    "modules/evolution/structure.py": ("imports.structure_analysis",),
+    "modules/evolution/llm_sampler.py": (
+        "evolution.scene_observe",
+        "evolution.state_review",
+        "imports.scene_enrichment",
+        "imports.entity_extraction",
+        "imports.structure_analysis",
+    ),
     # Interaction / RP
     "modules/interaction/tasks.py": (
         "interaction.story_generate",

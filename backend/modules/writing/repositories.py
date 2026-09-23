@@ -35,10 +35,14 @@ class WritingDraftRepository:
     """正文草稿数据访问"""
 
     @staticmethod
-    async def _changed(db, draft):
-        if draft.status not in WORKING_DRAFT_STATUSES:
+    async def _changed(db, draft, *, previous_status=None, old_content=None):
+        if (
+            draft.status not in WORKING_DRAFT_STATUSES
+            and previous_status not in WORKING_DRAFT_STATUSES
+        ):
             return
         from modules.evidence.facade import mark_asset_context_changed
+        from modules.evolution.facade import record_writing_source_change
 
         await mark_asset_context_changed(
             db,
@@ -47,18 +51,18 @@ class WritingDraftRepository:
             asset_id=str(draft.id),
             reason="source_changed",
         )
+        await record_writing_source_change(
+            db,
+            str(draft.novel_id),
+            chapter_index=draft.chapter_index,
+            old_content=old_content,
+            new_content=draft.content,
+            published_changed="published" in {draft.status, previous_status},
+        )
 
     @staticmethod
     async def _created(db, draft):
-        if draft.status not in WORKING_DRAFT_STATUSES:
-            return
-        from core.container import get
-
-        try:
-            observer = get("source.changed")
-        except KeyError:
-            return
-        await observer(db, str(draft.novel_id), "writing_draft", str(draft.id))
+        await WritingDraftRepository._changed(db, draft)
 
     async def _build_draft(
         self,
@@ -313,19 +317,17 @@ class WritingDraftRepository:
                 update_values[field] = value
 
         if update_values:
-            if "content" in update_values:
-                await self.lock_version_chapters_for_revalidation(
-                    db,
-                    draft.novel_id,
-                    [draft.chapter_index],
-                )
+            old_content = draft.content
+            await self.lock_version_chapters_for_revalidation(
+                db, draft.novel_id, [draft.chapter_index]
+            )
             for field, value in update_values.items():
                 setattr(draft, field, value)
             if "content" in update_values:
                 draft.content_hash = hash_text(draft.content)
             db.add(draft)
             await db.flush()
-            await self._changed(db, draft)
+            await self._changed(db, draft, old_content=old_content)
 
         return draft
 
@@ -346,6 +348,9 @@ class WritingDraftRepository:
         draft.status = "deprecated"
         db.add(draft)
         await db.flush()
+        await self._changed(
+            db, draft, previous_status=previous_status, old_content=draft.content
+        )
         return draft
 
     async def count_versions(
@@ -385,12 +390,17 @@ class WritingDraftRepository:
         chapter_index: int,
     ) -> int:
         """软废弃某章全部活跃版本。"""
+        await self.lock_version_chapters_for_revalidation(db, novel_id, [chapter_index])
         stmt = select(WritingDraft).where(
             WritingDraft.novel_id == novel_id,
             WritingDraft.chapter_index == chapter_index,
             WritingDraft.status != "deprecated",
         )
         drafts = list((await db.execute(stmt)).scalars().all())
+        source_drafts = [
+            draft for draft in drafts if draft.status in WORKING_DRAFT_STATUSES
+        ]
+        had_published = any(draft.status == "published" for draft in source_drafts)
         for draft in drafts:
             draft.provenance_json = {
                 **(draft.provenance_json or {}),
@@ -400,6 +410,12 @@ class WritingDraftRepository:
         if drafts:
             db.add_all(drafts)
         await db.flush()
+        if source_drafts:
+            await self._changed(
+                db,
+                source_drafts[-1],
+                previous_status="published" if had_published else "draft",
+            )
         return len(drafts)
 
     # ============================================================

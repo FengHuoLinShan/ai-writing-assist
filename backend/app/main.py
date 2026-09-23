@@ -736,6 +736,7 @@ from modules.account.oidc import router as account_oidc_router  # noqa: E402
 from modules.assistant import api as assistant_api  # noqa: E402
 from modules.collaboration import api as collaboration_api  # noqa: E402
 from modules.evidence import api as evidence_api  # noqa: E402
+from modules.evolution import api as evolution_api  # noqa: E402
 
 # geo/review — 已从 minimal-core 移除
 # character API 已迁入 modules.world.api；模块已删除
@@ -773,6 +774,7 @@ app.include_router(world_map_atlas_api.router)
 app.include_router(memory_api.router)
 app.include_router(outline_api.router)
 app.include_router(evidence_api.router)
+app.include_router(evolution_api.router)
 app.include_router(writing_api.router)
 app.include_router(story_api.router)
 app.include_router(tasks_api.router)

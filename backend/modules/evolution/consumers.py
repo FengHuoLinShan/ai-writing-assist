@@ -65,7 +65,14 @@ async def check_suggestion_validity(
         )
     requested = fingerprint.get("requested_hash")
     indexed = fingerprint.get("indexed_hash")
-    if requested is not None and (indexed is None or indexed != requested):
+    if requested != indexed or (
+        indexed is not None
+        and (
+            not fingerprint.get("requested_source_id")
+            or fingerprint.get("requested_source_id")
+            != fingerprint.get("indexed_source_id")
+        )
+    ):
         # 新来源已请求、尚未完成重建：任何旧来源的派生物立即失效。
         return SuggestionValidity(
             verdict="stale",

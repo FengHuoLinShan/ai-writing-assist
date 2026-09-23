@@ -39,7 +39,9 @@ async def _wrap_plain(value: Any) -> AsyncIterator[Any]:
 
 
 @asynccontextmanager
-async def project_llm_sampler_factory(db, novel_id: str) -> AsyncIterator[Any]:
+async def project_llm_sampler_factory(
+    db, novel_id: str, *, llm_snapshot: dict[str, Any]
+) -> AsyncIterator[Any]:
     """生产 provider：经项目 LLM 入口构造采样器（E09 接线点）。
 
     真实模型调用需项目 owner 的账户连接；连接缺失时抛出
@@ -47,15 +49,19 @@ async def project_llm_sampler_factory(db, novel_id: str) -> AsyncIterator[Any]:
     客户端的进入/退出由本 context manager 成对持有。
     """
     from modules.evolution.llm_sampler import ProjectLLMSampler
-    from modules.project.facade import open_project_llm_client
+    from modules.project.facade import open_project_snapshot_llm_client
 
-    async with open_project_llm_client(db, novel_id) as client:
+    async with open_project_snapshot_llm_client(db, novel_id, llm_snapshot) as client:
         yield ProjectLLMSampler(client)
 
 
 @asynccontextmanager
 async def resolve_scene_sampler(
-    *, provider: str, novel_id: str, db: Any | None = None
+    *,
+    provider: str,
+    novel_id: str,
+    db: Any | None = None,
+    llm_snapshot: dict[str, Any] | None = None,
 ) -> AsyncIterator[Any]:
     """解析采样器为 async context manager；未接线时 fail-closed。"""
     factory = _SAMPLER_REGISTRY.get(provider)
@@ -64,7 +70,15 @@ async def resolve_scene_sampler(
             f"evolution sampler provider {provider!r} is not wired; "
             "refusing to fabricate observations (E09 wiring pending)"
         )
-    built = factory(db, novel_id)
+    if provider == "project_llm":
+        if not llm_snapshot:
+            raise SamplerNotWiredError(
+                "run has no frozen model connection; "
+                "preserve prior results and start a new run"
+            )
+        built = factory(db, novel_id, llm_snapshot=llm_snapshot)
+    else:
+        built = factory(db, novel_id)
     if hasattr(built, "__aenter__"):
         async with built as sampler:
             yield sampler

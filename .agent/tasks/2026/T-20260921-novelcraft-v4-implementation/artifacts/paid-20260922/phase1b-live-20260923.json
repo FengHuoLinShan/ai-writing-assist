@@ -1,0 +1,47 @@
+{
+  "mode": "paid_default",
+  "started_at": "2026-09-22T16:42:35.988841+00:00",
+  "novel_id": "0a044d00-619d-4f5d-b391-422cd76aa495",
+  "database": "ai_novel_agent_e2e_v4_live_20260922",
+  "provider": "deepseek",
+  "model": "deepseek-flash",
+  "scenario": "preparation",
+  "stage": "failed",
+  "worker_tasks": [
+    {
+      "task_id": "0e7b5f20-4660-4e65-88ba-7741f311356d",
+      "type": "evolution_scene_step_v2",
+      "status": "failed",
+      "result": {
+        "recovery_required": true,
+        "recoverable": true,
+        "lifecycle": {
+          "reason": "handler_error",
+          "error_code": "task_failed",
+          "recovery_policy": "manual_resume",
+          "recovery_required": true,
+          "transitions": [
+            {
+              "at": "2026-09-22T16:42:53.859301+00:00",
+              "from": "running",
+              "to": "failed",
+              "reason": "handler_error",
+              "error_code": "task_failed",
+              "attempt": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "task_id": "0e7b5f20-4660-4e65-88ba-7741f311356d",
+      "type": "evolution_scene_step_v2",
+      "status": "done",
+      "result": {
+        "run_key": "reading-0ae76589-054e-421e-857d-d495315c31ad",
+        "reading_complete": false
+      }
+    }
+  ],
+  "error_type": "AssertionError"
+}

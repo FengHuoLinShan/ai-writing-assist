@@ -73,7 +73,7 @@ class RelationInPanorama(BaseModel):
 class CharacterLocationInPanorama(BaseModel):
     """全景中的角色位置"""
 
-    location_id: str
+    location_id: str | None = None
     text_state: str = ""
     chapter_index: int | None = None
 
@@ -89,6 +89,34 @@ class KnowledgeInPanorama(BaseModel):
     known_content: str | None = None
     source_chapter_index: int | None = None
     status: str = "canonical"
+
+
+def validate_machine_event_snapshot(event_type: str, payload: dict) -> None:
+    """Reject machine state that neither existing projection can materialize."""
+    from pydantic import TypeAdapter
+
+    schema = {
+        "entity_created": EntityInPanorama,
+        "relation_established": RelationInPanorama,
+        "entity_moved": CharacterLocationInPanorama,
+        "knowledge_changed": KnowledgeInPanorama,
+    }.get(event_type)
+    if schema:
+        schema.model_validate(payload)
+    if event_type == "entity_moved" and not (
+        payload.get("location_id") or payload.get("text_state")
+    ):
+        raise ValueError("Location has neither identity nor description")
+    if event_type == "entity_updated":
+        for key, value in payload.items():
+            if key in EntityInPanorama.model_fields:
+                TypeAdapter(
+                    EntityInPanorama.model_fields[key].annotation
+                ).validate_python(value)
+    if event_type == "relation_ended" and not (
+        payload.get("relation_id") or payload.get("id")
+    ):
+        raise ValueError("Relation removal requires its existing identity")
 
 
 # ============================================================

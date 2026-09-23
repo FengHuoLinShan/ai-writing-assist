@@ -118,6 +118,26 @@ def _task(request: dict[str, Any]) -> SimpleNamespace:
     return SimpleNamespace(meta=dict(request), novel_id=request["novel_id"])
 
 
+async def _probe_request(db, request: dict[str, Any]) -> dict[str, Any]:
+    """为拒绝路径建立真实 Scene 锚点，不伪造既有 Scene 的叙事序号。"""
+    from modules.story.outline_state.models import Scene
+
+    scene_id = uuid.uuid4()
+    db.add(
+        Scene(
+            id=scene_id,
+            novel_id=uuid.UUID(request["novel_id"]),
+            scene_index=request["scene_index"],
+            title="工程拒绝路径验证",
+            chapter_ids=[request["chapter_index"]],
+            scene_chunks=[],
+            status="draft",
+        )
+    )
+    await db.commit()
+    return {**request, "scene_id": str(scene_id)}
+
+
 def _step_request(
     novel_id: str,
     scene_ids: list[str],
@@ -273,6 +293,18 @@ async def run_harness(args: argparse.Namespace) -> HarnessReport:
         # ---- 链推进（真实 handler，shadow） ----
         attempt_ids: list[str] = []
         async with maker() as db:
+            if args.sampler == "real":
+                from modules.evolution.store import PostgresAttemptStore
+                from modules.project.facade import build_project_llm_execution_snapshot
+
+                await PostgresAttemptStore(db, novel_id).register_run(
+                    RUN_KEY,
+                    mode="append",
+                    execution_mode="shadow",
+                    budget_total=budget_total,
+                    llm_snapshot=await build_project_llm_execution_snapshot(db, novel_id),
+                )
+                await db.commit()
             for index in range(budget_total):
                 result = await handle_evolution_scene_step(
                     db,
@@ -361,15 +393,18 @@ async def run_harness(args: argparse.Namespace) -> HarnessReport:
                 await handle_evolution_scene_step(
                     db,
                     _task(
-                        _step_request(
-                            novel_id,
-                            scene_ids,
-                            texts,
-                            skip_source,
-                            provider=provider,
-                            budget_total=budget_total,
-                            scene_index=budget_total + 1,  # 跳过下一步
-                            chapter_index=skip_source + 1,
+                        await _probe_request(
+                            db,
+                            _step_request(
+                                novel_id,
+                                scene_ids,
+                                texts,
+                                skip_source,
+                                provider=provider,
+                                budget_total=budget_total,
+                                scene_index=len(texts) + 1,  # 真实序号；跳过下一步
+                                chapter_index=skip_source + 1,
+                            ),
                         )
                     ),
                 )
@@ -416,14 +451,17 @@ async def run_harness(args: argparse.Namespace) -> HarnessReport:
                 await handle_evolution_scene_step(
                     db,
                     _task(
-                        _step_request(
-                            novel_id,
-                            scene_ids,
-                            texts,
-                            budget_total - 1,
-                            provider=provider,
-                            budget_total=budget_total,
-                            scene_index=budget_total,
+                        await _probe_request(
+                            db,
+                            _step_request(
+                                novel_id,
+                                scene_ids,
+                                texts,
+                                budget_total - 1,
+                                provider=provider,
+                                budget_total=budget_total,
+                                scene_index=len(texts) + 2,
+                            ),
                         )
                     ),
                 )

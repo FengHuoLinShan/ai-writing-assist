@@ -1,0 +1,1536 @@
+{
+  "mode": "paid_default",
+  "started_at": "2026-09-22T11:27:21.347808+00:00",
+  "novel_id": "849dcff5-8976-494b-9b38-681da38b46f6",
+  "database": "ai_novel_agent_e2e_v4_live_20260922",
+  "provider": "deepseek",
+  "model": "deepseek-flash",
+  "stage": "failed",
+  "draft_ids": [
+    "79c2f7ec-58ff-4a09-bcf3-314d6d8a8dce",
+    "6fa1c235-8e78-44eb-a6bf-f26cf56aa288",
+    "b5683522-0272-4d88-93c6-955402d3ec00"
+  ],
+  "scene_ids": [
+    "73e0a276-17d6-44af-a660-ac5e52908b51",
+    "b1c47d00-2133-482a-acc8-1c396e6c8991"
+  ],
+  "worker_tasks": [
+    {
+      "task_id": "e2488d69-75c7-4c9a-be2f-faf6a14b5bcc",
+      "type": "evolution_scene_step_v2",
+      "status": "done",
+      "result": {
+        "run_key": "v4-vertical-slice",
+        "attempt_id": "c49754af185a45f680e4fd8216448a8d",
+        "committed_prefix": {
+          "through_scene_index": 0,
+          "through_source_revision": 1
+        },
+        "observation_ids": [
+          "e0f8e4f273fca042d7601a2f4d54433d600f191d82926611088008e39a45fb2e",
+          "68dd12d406382f6d1cba9fb17b86c96732c8c8849f366adbe954e097e5f1b3bf",
+          "26c9aa2fa1ee9eddfdde464d7b8738feac0365266b99ff62af63736c06e497ce"
+        ],
+        "identity_outcomes": {
+          "reuse": 3,
+          "new_candidate": 2
+        },
+        "gated_scene_events": 1
+      }
+    },
+    {
+      "task_id": "ab05b22d-7656-4764-b5f4-d032e87ece0c",
+      "type": "evolution_scene_step_v2",
+      "status": "done",
+      "result": {
+        "run_key": "v4-vertical-slice",
+        "attempt_id": "f8291e6377044474a241cb30559766d8",
+        "committed_prefix": {
+          "through_scene_index": 1,
+          "through_source_revision": 2
+        },
+        "observation_ids": [
+          "65217e0fdff688da885b90b6e296f51ef7f18aa0beadbe575b3f27ed4dcd8a3e",
+          "a555e6241f4e0a48287a40788144099366f14e2df72482f7236c3344992e6f0a",
+          "febf32df116b380185eab21ff382dc9c02aaa9a09e79e0300240056cc04555ba"
+        ],
+        "identity_outcomes": {
+          "reuse": 3,
+          "new_candidate": 1
+        },
+        "gated_scene_events": 0
+      }
+    },
+    {
+      "task_id": "89659c19-2df5-400b-8abb-719f52df5b93",
+      "type": "collaboration_run",
+      "status": "done",
+      "result": {
+        "run_id": "89659c19-2df5-400b-8abb-719f52df5b93",
+        "status": "partial",
+        "managed_llm_steps": [
+          {
+            "step_name": "collaboration.plan",
+            "novel_id": "849dcff5-8976-494b-9b38-681da38b46f6",
+            "profile_source": "project_snapshot",
+            "profile_summary": {
+              "provider_id": "deepseek",
+              "label": "DeepSeek",
+              "model": "deepseek-flash",
+              "default_model": "deepseek-flash",
+              "base_url_host": "api.deepseek.com",
+              "timeout": 180,
+              "max_tokens": 12000,
+              "temperature": null,
+              "top_p": null,
+              "api_key_configured": true,
+              "sources": {
+                "provider_id": "account",
+                "label": "account",
+                "base_url": "account",
+                "model": "account",
+                "timeout": "account",
+                "max_tokens": "account",
+                "temperature": "account",
+                "top_p": "account",
+                "extra": "account",
+                "creative_mode": "account",
+                "api_key": "account"
+              },
+              "extra_keys": []
+            },
+            "profile_hash": "710e4d15b378a9fe463d6f46cb39e1c51163db5f3091312399bb0cf295d91d6f"
+          }
+        ]
+      }
+    },
+    {
+      "task_id": "b4e15f0d-6a2f-4132-b8b6-1a8dd4b64718",
+      "type": "collaboration_run",
+      "status": "failed",
+      "result": {
+        "lifecycle": {
+          "reason": "handler_error",
+          "error_code": "task_failed",
+          "recovery_policy": "manual_resume",
+          "recovery_required": false,
+          "transitions": [
+            {
+              "at": "2026-09-22T11:35:56.954358+00:00",
+              "from": "running",
+              "to": "failed",
+              "reason": "handler_error",
+              "error_code": "task_failed",
+              "attempt": 1
+            }
+          ]
+        },
+        "managed_llm_steps": [
+          {
+            "step_name": "collaboration.plan",
+            "novel_id": "849dcff5-8976-494b-9b38-681da38b46f6",
+            "profile_source": "project_snapshot",
+            "profile_summary": {
+              "provider_id": "deepseek",
+              "label": "DeepSeek",
+              "model": "deepseek-flash",
+              "default_model": "deepseek-flash",
+              "base_url_host": "api.deepseek.com",
+              "timeout": 180,
+              "max_tokens": 12000,
+              "temperature": null,
+              "top_p": null,
+              "api_key_configured": true,
+              "sources": {
+                "provider_id": "account",
+                "label": "account",
+                "base_url": "account",
+                "model": "account",
+                "timeout": "account",
+                "max_tokens": "account",
+                "temperature": "account",
+                "top_p": "account",
+                "extra": "account",
+                "creative_mode": "account",
+                "api_key": "account"
+              },
+              "extra_keys": []
+            },
+            "profile_hash": "710e4d15b378a9fe463d6f46cb39e1c51163db5f3091312399bb0cf295d91d6f"
+          },
+          {
+            "step_name": "collaboration.investigate",
+            "novel_id": "849dcff5-8976-494b-9b38-681da38b46f6",
+            "profile_source": "project_snapshot",
+            "profile_summary": {
+              "provider_id": "deepseek",
+              "label": "DeepSeek",
+              "model": "deepseek-flash",
+              "default_model": "deepseek-flash",
+              "base_url_host": "api.deepseek.com",
+              "timeout": 180,
+              "max_tokens": 12000,
+              "temperature": null,
+              "top_p": null,
+              "api_key_configured": true,
+              "sources": {
+                "provider_id": "account",
+                "label": "account",
+                "base_url": "account",
+                "model": "account",
+                "timeout": "account",
+                "max_tokens": "account",
+                "temperature": "account",
+                "top_p": "account",
+                "extra": "account",
+                "creative_mode": "account",
+                "api_key": "account"
+              },
+              "extra_keys": []
+            },
+            "profile_hash": "710e4d15b378a9fe463d6f46cb39e1c51163db5f3091312399bb0cf295d91d6f"
+          },
+          {
+            "step_name": "collaboration.investigate.group.verdict",
+            "novel_id": "849dcff5-8976-494b-9b38-681da38b46f6",
+            "profile_source": "project_snapshot",
+            "profile_summary": {
+              "provider_id": "deepseek",
+              "label": "DeepSeek",
+              "model": "deepseek-flash",
+              "default_model": "deepseek-flash",
+              "base_url_host": "api.deepseek.com",
+              "timeout": 180,
+              "max_tokens": 12000,
+              "temperature": 0.0,
+              "top_p": null,
+              "api_key_configured": true,
+              "sources": {
+                "provider_id": "account",
+                "label": "account",
+                "base_url": "account",
+                "model": "account",
+                "timeout": "account",
+                "max_tokens": "account",
+                "temperature": "account",
+                "top_p": "account",
+                "extra": "account",
+                "creative_mode": "account",
+                "api_key": "account"
+              },
+              "extra_keys": []
+            },
+            "profile_hash": "efbb8eb1b0488e6729de6a18ccbcb85242f151204cf9f3dcd6e3768c77ef6184"
+          }
+        ]
+      }
+    }
+  ],
+  "evolution_tasks": [
+    {
+      "id": "e2488d69-75c7-4c9a-be2f-faf6a14b5bcc",
+      "status": "done",
+      "result": {
+        "run_key": "v4-vertical-slice",
+        "attempt_id": "c49754af185a45f680e4fd8216448a8d",
+        "committed_prefix": {
+          "through_scene_index": 0,
+          "through_source_revision": 1
+        },
+        "observation_ids": [
+          "e0f8e4f273fca042d7601a2f4d54433d600f191d82926611088008e39a45fb2e",
+          "68dd12d406382f6d1cba9fb17b86c96732c8c8849f366adbe954e097e5f1b3bf",
+          "26c9aa2fa1ee9eddfdde464d7b8738feac0365266b99ff62af63736c06e497ce"
+        ],
+        "identity_outcomes": {
+          "reuse": 3,
+          "new_candidate": 2
+        },
+        "gated_scene_events": 1
+      }
+    },
+    {
+      "id": "ab05b22d-7656-4764-b5f4-d032e87ece0c",
+      "status": "done",
+      "result": {
+        "run_key": "v4-vertical-slice",
+        "attempt_id": "f8291e6377044474a241cb30559766d8",
+        "committed_prefix": {
+          "through_scene_index": 1,
+          "through_source_revision": 2
+        },
+        "observation_ids": [
+          "65217e0fdff688da885b90b6e296f51ef7f18aa0beadbe575b3f27ed4dcd8a3e",
+          "a555e6241f4e0a48287a40788144099366f14e2df72482f7236c3344992e6f0a",
+          "febf32df116b380185eab21ff382dc9c02aaa9a09e79e0300240056cc04555ba"
+        ],
+        "identity_outcomes": {
+          "reuse": 3,
+          "new_candidate": 1
+        },
+        "gated_scene_events": 0
+      }
+    }
+  ],
+  "evolution_inputs": [
+    {
+      "observations": [
+        {
+          "predicate": "林舟出现在白石城",
+          "modality": "event_observed",
+          "quote": "林舟出现在白石城。",
+          "start_offset": 0,
+          "end_offset": 9,
+          "mentions": [
+            {
+              "surface": "林舟",
+              "entity_type": "character"
+            },
+            {
+              "surface": "白石城",
+              "entity_type": "location"
+            }
+          ]
+        },
+        {
+          "predicate": "青竹说渡口已经封锁",
+          "modality": "character_statement",
+          "quote": "青竹说渡口已经封锁。",
+          "start_offset": 9,
+          "end_offset": 19,
+          "mentions": [
+            {
+              "surface": "青竹",
+              "entity_type": "character"
+            },
+            {
+              "surface": "渡口",
+              "entity_type": "location"
+            }
+          ]
+        },
+        {
+          "predicate": "林舟并没有亲眼确认这句话",
+          "modality": "event_observed",
+          "quote": "林舟并没有亲眼确认这句话。",
+          "start_offset": 19,
+          "end_offset": 32,
+          "mentions": [
+            {
+              "surface": "林舟",
+              "entity_type": "character"
+            }
+          ]
+        }
+      ],
+      "scene_events": [
+        {
+          "dimension": "locations",
+          "event_type": "entity_moved",
+          "entity_id": "95a57932-5aa7-4aa9-a36e-1fa53ff1365c",
+          "subject_surface": "林舟",
+          "snapshot_after": {
+            "text_state": "白石城",
+            "meta": {
+              "author_confirmed": false,
+              "source_observation_ids": [
+                "e0f8e4f273fca042d7601a2f4d54433d600f191d82926611088008e39a45fb2e"
+              ],
+              "source_receipts": [
+                {
+                  "observation_id": "e0f8e4f273fca042d7601a2f4d54433d600f191d82926611088008e39a45fb2e",
+                  "source_ref": {
+                    "novel_id": "849dcff5-8976-494b-9b38-681da38b46f6",
+                    "source_kind": "chapter_draft",
+                    "draft_id": "79c2f7ec-58ff-4a09-bcf3-314d6d8a8dce",
+                    "content_hash": "34bc70e8e7cbd9dcb6563ec316fd098af81f7b5288693e185592a26cb79cfbe6",
+                    "chapter_identity": "chapter:1",
+                    "start_offset": 0,
+                    "end_offset": 9,
+                    "range_hash": "028ba3b1047e6f8f5ae677c1f2958cec3c1bba3aab6de152263e25f624fa1236",
+                    "source_revision": 1,
+                    "segmentation_version": 1,
+                    "source_visibility": "working"
+                  },
+                  "evidence_quotes": [
+                    {
+                      "quote": "林舟出现在白石城。",
+                      "source_ref": {
+                        "novel_id": "849dcff5-8976-494b-9b38-681da38b46f6",
+                        "source_kind": "chapter_draft",
+                        "draft_id": "79c2f7ec-58ff-4a09-bcf3-314d6d8a8dce",
+                        "content_hash": "34bc70e8e7cbd9dcb6563ec316fd098af81f7b5288693e185592a26cb79cfbe6",
+                        "chapter_identity": "chapter:1",
+                        "start_offset": 0,
+                        "end_offset": 9,
+                        "range_hash": "028ba3b1047e6f8f5ae677c1f2958cec3c1bba3aab6de152263e25f624fa1236",
+                        "source_revision": 1,
+                        "segmentation_version": 1,
+                        "source_visibility": "working"
+                      }
+                    }
+                  ]
+                }
+              ],
+              "authority_basis": "derived_observation"
+            }
+          },
+          "source_observation_indices": [
+            0
+          ],
+          "knowledge_subject": null,
+          "source_observation_ids": [
+            "e0f8e4f273fca042d7601a2f4d54433d600f191d82926611088008e39a45fb2e"
+          ],
+          "authority_basis": "derived_observation"
+        },
+        {
+          "dimension": "knowledge",
+          "event_type": "knowledge_changed",
+          "entity_id": "95c6a478-87b6-42d9-a78c-0a8450f7f5d6",
+          "subject_surface": "青竹",
+          "snapshot_after": {
+            "target_type": "event",
+            "known_content": "渡口已经封锁",
+            "knowledge_level": "rumor",
+            "character_id": "95c6a478-87b6-42d9-a78c-0a8450f7f5d6",
+            "id": "e8b6d1c1-0ffe-5b37-866b-f9e83b14f2d8",
+            "meta": {
+              "author_confirmed": false,
+              "source_observation_ids": [
+                "68dd12d406382f6d1cba9fb17b86c96732c8c8849f366adbe954e097e5f1b3bf"
+              ],
+              "source_receipts": [
+                {
+                  "observation_id": "68dd12d406382f6d1cba9fb17b86c96732c8c8849f366adbe954e097e5f1b3bf",
+                  "source_ref": {
+                    "novel_id": "849dcff5-8976-494b-9b38-681da38b46f6",
+                    "source_kind": "chapter_draft",
+                    "draft_id": "79c2f7ec-58ff-4a09-bcf3-314d6d8a8dce",
+                    "content_hash": "34bc70e8e7cbd9dcb6563ec316fd098af81f7b5288693e185592a26cb79cfbe6",
+                    "chapter_identity": "chapter:1",
+                    "start_offset": 9,
+                    "end_offset": 19,
+                    "range_hash": "0a2582e5f12504408641d743ec31e9cfea9ce85d5b5af901f59c52c5c0071b4b",
+                    "source_revision": 1,
+                    "segmentation_version": 1,
+                    "source_visibility": "working"
+                  },
+                  "evidence_quotes": [
+                    {
+                      "quote": "青竹说渡口已经封锁。",
+                      "source_ref": {
+                        "novel_id": "849dcff5-8976-494b-9b38-681da38b46f6",
+                        "source_kind": "chapter_draft",
+                        "draft_id": "79c2f7ec-58ff-4a09-bcf3-314d6d8a8dce",
+                        "content_hash": "34bc70e8e7cbd9dcb6563ec316fd098af81f7b5288693e185592a26cb79cfbe6",
+                        "chapter_identity": "chapter:1",
+                        "start_offset": 9,
+                        "end_offset": 19,
+                        "range_hash": "0a2582e5f12504408641d743ec31e9cfea9ce85d5b5af901f59c52c5c0071b4b",
+                        "source_revision": 1,
+                        "segmentation_version": 1,
+                        "source_visibility": "working"
+                      }
+                    }
+                  ]
+                }
+              ],
+              "authority_basis": "derived_observation"
+            },
+            "knowledge_subject": "95c6a478-87b6-42d9-a78c-0a8450f7f5d6"
+          },
+          "source_observation_indices": [
+            1
+          ],
+          "knowledge_subject": "95c6a478-87b6-42d9-a78c-0a8450f7f5d6",
+          "source_observation_ids": [
+            "68dd12d406382f6d1cba9fb17b86c96732c8c8849f366adbe954e097e5f1b3bf"
+          ],
+          "authority_basis": "derived_observation"
+        }
+      ],
+      "unresolved_parts": [
+        "渡口是否真的已经封锁无法从本段确定",
+        "青竹是否是对林舟说这句话未明说",
+        "林舟出现在白石城之前从何而来未说明",
+        "林舟与青竹的具体关系未说明"
+      ],
+      "paid_call_receipt": {
+        "provider": "project_llm",
+        "model": null,
+        "schema": "evolution.scene_sample.v1",
+        "outcome": "succeeded",
+        "usage": {
+          "prompt_tokens": 1229,
+          "completion_tokens": 2894,
+          "total_tokens": 4123,
+          "attempts": 1,
+          "succeeded_attempts": 1,
+          "unknown_attempts": 0,
+          "usage_complete": true
+        },
+        "attempts_detail": [
+          {
+            "attempt": 1,
+            "status": "succeeded",
+            "completion_tokens": 2894
+          }
+        ]
+      },
+      "stage": "compiled",
+      "scene_index": 0,
+      "scene_id": "73e0a276-17d6-44af-a660-ac5e52908b51",
+      "scene_text": "林舟出现在白石城。青竹说渡口已经封锁。林舟并没有亲眼确认这句话。",
+      "source_binding": {
+        "draft_id": "79c2f7ec-58ff-4a09-bcf3-314d6d8a8dce",
+        "chapter_index": 1,
+        "content_hash": "34bc70e8e7cbd9dcb6563ec316fd098af81f7b5288693e185592a26cb79cfbe6",
+        "start_offset": 0,
+        "end_offset": 32,
+        "range_hash": null,
+        "additional_sources": []
+      },
+      "execution_mode": "live",
+      "observer_contract_version": 1,
+      "input_manifest": {
+        "run_key": "v4-vertical-slice",
+        "scene_index": 0,
+        "source_manifest_hash": "ae95f971e30c76dccfa45f7130c9e599e72f653f0fc955b071de3a7c7d75eddb",
+        "dependency_status": "committed",
+        "previous_scene_attempt_id": null,
+        "previous_committed_prefix": null,
+        "previous_observations": [],
+        "previous_observations_coverage": null,
+        "blocked_reason": null
+      },
+      "observation_ids": [
+        "e0f8e4f273fca042d7601a2f4d54433d600f191d82926611088008e39a45fb2e",
+        "68dd12d406382f6d1cba9fb17b86c96732c8c8849f366adbe954e097e5f1b3bf",
+        "26c9aa2fa1ee9eddfdde464d7b8738feac0365266b99ff62af63736c06e497ce"
+      ],
+      "compiled_observations": [
+        {
+          "source_ref": {
+            "novel_id": "849dcff5-8976-494b-9b38-681da38b46f6",
+            "source_kind": "chapter_draft",
+            "draft_id": "79c2f7ec-58ff-4a09-bcf3-314d6d8a8dce",
+            "content_hash": "34bc70e8e7cbd9dcb6563ec316fd098af81f7b5288693e185592a26cb79cfbe6",
+            "chapter_identity": "chapter:1",
+            "start_offset": 0,
+            "end_offset": 9,
+            "range_hash": "028ba3b1047e6f8f5ae677c1f2958cec3c1bba3aab6de152263e25f624fa1236",
+            "source_revision": 1,
+            "segmentation_version": 1,
+            "source_visibility": "working"
+          },
+          "evidence_quotes": [
+            {
+              "quote": "林舟出现在白石城。",
+              "source_ref": {
+                "novel_id": "849dcff5-8976-494b-9b38-681da38b46f6",
+                "source_kind": "chapter_draft",
+                "draft_id": "79c2f7ec-58ff-4a09-bcf3-314d6d8a8dce",
+                "content_hash": "34bc70e8e7cbd9dcb6563ec316fd098af81f7b5288693e185592a26cb79cfbe6",
+                "chapter_identity": "chapter:1",
+                "start_offset": 0,
+                "end_offset": 9,
+                "range_hash": "028ba3b1047e6f8f5ae677c1f2958cec3c1bba3aab6de152263e25f624fa1236",
+                "source_revision": 1,
+                "segmentation_version": 1,
+                "source_visibility": "working"
+              }
+            }
+          ],
+          "observation_id": "e0f8e4f273fca042d7601a2f4d54433d600f191d82926611088008e39a45fb2e",
+          "predicate": "林舟出现在白石城",
+          "modality": "event_observed",
+          "quote": "林舟出现在白石城。",
+          "mentions": [
+            {
+              "mention_id": "61f786e0b7bca20900e9326df68ed11706192b301be0f425a9cf06edd2ddf7d4",
+              "surface": "林舟",
+              "entity_type": "character",
+              "resolution": {
+                "mention_id": "61f786e0b7bca20900e9326df68ed11706192b301be0f425a9cf06edd2ddf7d4",
+                "surface": "林舟",
+                "outcome": "reuse",
+                "resolved_entity_id": "95a57932-5aa7-4aa9-a36e-1fa53ff1365c",
+                "rationale": "唯一精确名称/别名证据命中"
+              }
+            },
+            {
+              "mention_id": "e55870aa4013b09d478edbd5c906c645fd5954d32cc081a447e466b3330b843c",
+              "surface": "白石城",
+              "entity_type": "location",
+              "resolution": {
+                "mention_id": "e55870aa4013b09d478edbd5c906c645fd5954d32cc081a447e466b3330b843c",
+                "surface": "白石城",
+                "outcome": "new_candidate",
+                "resolved_entity_id": null,
+                "rationale": "无任何已有候选，提议新身份"
+              }
+            }
+          ]
+        },
+        {
+          "source_ref": {
+            "novel_id": "849dcff5-8976-494b-9b38-681da38b46f6",
+            "source_kind": "chapter_draft",
+            "draft_id": "79c2f7ec-58ff-4a09-bcf3-314d6d8a8dce",
+            "content_hash": "34bc70e8e7cbd9dcb6563ec316fd098af81f7b5288693e185592a26cb79cfbe6",
+            "chapter_identity": "chapter:1",
+            "start_offset": 9,
+            "end_offset": 19,
+            "range_hash": "0a2582e5f12504408641d743ec31e9cfea9ce85d5b5af901f59c52c5c0071b4b",
+            "source_revision": 1,
+            "segmentation_version": 1,
+            "source_visibility": "working"
+          },
+          "evidence_quotes": [
+            {
+              "quote": "青竹说渡口已经封锁。",
+              "source_ref": {
+                "novel_id": "849dcff5-8976-494b-9b38-681da38b46f6",
+                "source_kind": "chapter_draft",
+                "draft_id": "79c2f7ec-58ff-4a09-bcf3-314d6d8a8dce",
+                "content_hash": "34bc70e8e7cbd9dcb6563ec316fd098af81f7b5288693e185592a26cb79cfbe6",
+                "chapter_identity": "chapter:1",
+                "start_offset": 9,
+                "end_offset": 19,
+                "range_hash": "0a2582e5f12504408641d743ec31e9cfea9ce85d5b5af901f59c52c5c0071b4b",
+                "source_revision": 1,
+                "segmentation_version": 1,
+                "source_visibility": "working"
+              }
+            }
+          ],
+          "observation_id": "68dd12d406382f6d1cba9fb17b86c96732c8c8849f366adbe954e097e5f1b3bf",
+          "predicate": "青竹说渡口已经封锁",
+          "modality": "character_statement",
+          "quote": "青竹说渡口已经封锁。",
+          "mentions": [
+            {
+              "mention_id": "f15de90b43d32fd8989f5f750020af1c4bbc1f6c426fba2d05ae03cf346d3ddf",
+              "surface": "青竹",
+              "entity_type": "character",
+              "resolution": {
+                "mention_id": "f15de90b43d32fd8989f5f750020af1c4bbc1f6c426fba2d05ae03cf346d3ddf",
+                "surface": "青竹",
+                "outcome": "reuse",
+                "resolved_entity_id": "95c6a478-87b6-42d9-a78c-0a8450f7f5d6",
+                "rationale": "唯一精确名称/别名证据命中"
+              }
+            },
+            {
+              "mention_id": "bf1e0ebf1480910b10f7caee5ac012768cc66d7a06b137cef3682d55319207f1",
+              "surface": "渡口",
+              "entity_type": "location",
+              "resolution": {
+                "mention_id": "bf1e0ebf1480910b10f7caee5ac012768cc66d7a06b137cef3682d55319207f1",
+                "surface": "渡口",
+                "outcome": "new_candidate",
+                "resolved_entity_id": null,
+                "rationale": "无任何已有候选，提议新身份"
+              }
+            }
+          ]
+        },
+        {
+          "source_ref": {
+            "novel_id": "849dcff5-8976-494b-9b38-681da38b46f6",
+            "source_kind": "chapter_draft",
+            "draft_id": "79c2f7ec-58ff-4a09-bcf3-314d6d8a8dce",
+            "content_hash": "34bc70e8e7cbd9dcb6563ec316fd098af81f7b5288693e185592a26cb79cfbe6",
+            "chapter_identity": "chapter:1",
+            "start_offset": 19,
+            "end_offset": 32,
+            "range_hash": "9f6b798356b89a0b958e58d71290f8512d6cb25157c1669e1402b015521343a6",
+            "source_revision": 1,
+            "segmentation_version": 1,
+            "source_visibility": "working"
+          },
+          "evidence_quotes": [
+            {
+              "quote": "林舟并没有亲眼确认这句话。",
+              "source_ref": {
+                "novel_id": "849dcff5-8976-494b-9b38-681da38b46f6",
+                "source_kind": "chapter_draft",
+                "draft_id": "79c2f7ec-58ff-4a09-bcf3-314d6d8a8dce",
+                "content_hash": "34bc70e8e7cbd9dcb6563ec316fd098af81f7b5288693e185592a26cb79cfbe6",
+                "chapter_identity": "chapter:1",
+                "start_offset": 19,
+                "end_offset": 32,
+                "range_hash": "9f6b798356b89a0b958e58d71290f8512d6cb25157c1669e1402b015521343a6",
+                "source_revision": 1,
+                "segmentation_version": 1,
+                "source_visibility": "working"
+              }
+            }
+          ],
+          "observation_id": "26c9aa2fa1ee9eddfdde464d7b8738feac0365266b99ff62af63736c06e497ce",
+          "predicate": "林舟并没有亲眼确认这句话",
+          "modality": "event_observed",
+          "quote": "林舟并没有亲眼确认这句话。",
+          "mentions": [
+            {
+              "mention_id": "a736fc893fc1654b49618432d72bbab222a5718f74db75e32895df673f414abd",
+              "surface": "林舟",
+              "entity_type": "character",
+              "resolution": {
+                "mention_id": "a736fc893fc1654b49618432d72bbab222a5718f74db75e32895df673f414abd",
+                "surface": "林舟",
+                "outcome": "reuse",
+                "resolved_entity_id": "95a57932-5aa7-4aa9-a36e-1fa53ff1365c",
+                "rationale": "唯一精确名称/别名证据命中"
+              }
+            }
+          ]
+        }
+      ],
+      "identity_outcomes": {
+        "reuse": 3,
+        "new_candidate": 2
+      },
+      "identity_resolutions": [
+        {
+          "mention_id": "61f786e0b7bca20900e9326df68ed11706192b301be0f425a9cf06edd2ddf7d4",
+          "surface": "林舟",
+          "outcome": "reuse",
+          "resolved_entity_id": "95a57932-5aa7-4aa9-a36e-1fa53ff1365c",
+          "rationale": "唯一精确名称/别名证据命中"
+        },
+        {
+          "mention_id": "e55870aa4013b09d478edbd5c906c645fd5954d32cc081a447e466b3330b843c",
+          "surface": "白石城",
+          "outcome": "new_candidate",
+          "resolved_entity_id": null,
+          "rationale": "无任何已有候选，提议新身份"
+        },
+        {
+          "mention_id": "f15de90b43d32fd8989f5f750020af1c4bbc1f6c426fba2d05ae03cf346d3ddf",
+          "surface": "青竹",
+          "outcome": "reuse",
+          "resolved_entity_id": "95c6a478-87b6-42d9-a78c-0a8450f7f5d6",
+          "rationale": "唯一精确名称/别名证据命中"
+        },
+        {
+          "mention_id": "bf1e0ebf1480910b10f7caee5ac012768cc66d7a06b137cef3682d55319207f1",
+          "surface": "渡口",
+          "outcome": "new_candidate",
+          "resolved_entity_id": null,
+          "rationale": "无任何已有候选，提议新身份"
+        },
+        {
+          "mention_id": "a736fc893fc1654b49618432d72bbab222a5718f74db75e32895df673f414abd",
+          "surface": "林舟",
+          "outcome": "reuse",
+          "resolved_entity_id": "95a57932-5aa7-4aa9-a36e-1fa53ff1365c",
+          "rationale": "唯一精确名称/别名证据命中"
+        }
+      ],
+      "gated_scene_events": [
+        {
+          "dimension": "knowledge",
+          "event_type": "knowledge_changed",
+          "entity_id": "95a57932-5aa7-4aa9-a36e-1fa53ff1365c",
+          "subject_surface": "林舟",
+          "snapshot_after": {
+            "target_type": "event",
+            "known_content": "渡口已经封锁",
+            "knowledge_level": "rumor"
+          },
+          "source_observation_indices": [
+            1,
+            2
+          ],
+          "knowledge_subject": "95a57932-5aa7-4aa9-a36e-1fa53ff1365c",
+          "_gate_reasons": [
+            "modality_not_grounding",
+            "knowledge_subject_unresolved_in_evidence"
+          ]
+        }
+      ]
+    },
+    {
+      "observations": [
+        {
+          "predicate": "三日后，林舟出现在渡口",
+          "modality": "event_observed",
+          "quote": "三日后，林舟出现在渡口。",
+          "start_offset": 0,
+          "end_offset": 12,
+          "mentions": [
+            {
+              "surface": "林舟",
+              "entity_type": "character"
+            },
+            {
+              "surface": "渡口",
+              "entity_type": "location"
+            }
+          ]
+        },
+        {
+          "predicate": "林舟没有说明这三日的行程",
+          "modality": "event_observed",
+          "quote": "他没有说明这三日的行程",
+          "start_offset": 12,
+          "end_offset": 23,
+          "mentions": [
+            {
+              "surface": "林舟",
+              "entity_type": "character"
+            }
+          ]
+        },
+        {
+          "predicate": "林舟没有提起封锁",
+          "modality": "event_observed",
+          "quote": "也没有提起封锁",
+          "start_offset": 24,
+          "end_offset": 31,
+          "mentions": [
+            {
+              "surface": "林舟",
+              "entity_type": "character"
+            }
+          ]
+        }
+      ],
+      "scene_events": [
+        {
+          "dimension": "locations",
+          "event_type": "entity_moved",
+          "entity_id": "95a57932-5aa7-4aa9-a36e-1fa53ff1365c",
+          "subject_surface": "林舟",
+          "snapshot_after": {
+            "text_state": "渡口",
+            "meta": {
+              "author_confirmed": false,
+              "source_observation_ids": [
+                "65217e0fdff688da885b90b6e296f51ef7f18aa0beadbe575b3f27ed4dcd8a3e"
+              ],
+              "source_receipts": [
+                {
+                  "observation_id": "65217e0fdff688da885b90b6e296f51ef7f18aa0beadbe575b3f27ed4dcd8a3e",
+                  "source_ref": {
+                    "novel_id": "849dcff5-8976-494b-9b38-681da38b46f6",
+                    "source_kind": "chapter_draft",
+                    "draft_id": "6fa1c235-8e78-44eb-a6bf-f26cf56aa288",
+                    "content_hash": "51640d441c9fcee2294a9ca3d2f06125ff3aaaa4207855111a636f3281d7cbe8",
+                    "chapter_identity": "chapter:2",
+                    "start_offset": 0,
+                    "end_offset": 12,
+                    "range_hash": "48253533cd1ecb8f5f086ed9307ccb08acc3f3c6096b82f076648e78ec9c68d8",
+                    "source_revision": 1,
+                    "segmentation_version": 1,
+                    "source_visibility": "working"
+                  },
+                  "evidence_quotes": [
+                    {
+                      "quote": "三日后，林舟出现在渡口。",
+                      "source_ref": {
+                        "novel_id": "849dcff5-8976-494b-9b38-681da38b46f6",
+                        "source_kind": "chapter_draft",
+                        "draft_id": "6fa1c235-8e78-44eb-a6bf-f26cf56aa288",
+                        "content_hash": "51640d441c9fcee2294a9ca3d2f06125ff3aaaa4207855111a636f3281d7cbe8",
+                        "chapter_identity": "chapter:2",
+                        "start_offset": 0,
+                        "end_offset": 12,
+                        "range_hash": "48253533cd1ecb8f5f086ed9307ccb08acc3f3c6096b82f076648e78ec9c68d8",
+                        "source_revision": 1,
+                        "segmentation_version": 1,
+                        "source_visibility": "working"
+                      }
+                    }
+                  ]
+                }
+              ],
+              "authority_basis": "derived_observation"
+            }
+          },
+          "source_observation_indices": [
+            0
+          ],
+          "knowledge_subject": null,
+          "source_observation_ids": [
+            "65217e0fdff688da885b90b6e296f51ef7f18aa0beadbe575b3f27ed4dcd8a3e"
+          ],
+          "authority_basis": "derived_observation"
+        },
+        {
+          "dimension": "timeline",
+          "event_type": "time_advanced",
+          "entity_id": null,
+          "subject_surface": null,
+          "snapshot_after": {
+            "text_state": "三日后",
+            "meta": {
+              "author_confirmed": false,
+              "source_observation_ids": [
+                "65217e0fdff688da885b90b6e296f51ef7f18aa0beadbe575b3f27ed4dcd8a3e"
+              ],
+              "source_receipts": [
+                {
+                  "observation_id": "65217e0fdff688da885b90b6e296f51ef7f18aa0beadbe575b3f27ed4dcd8a3e",
+                  "source_ref": {
+                    "novel_id": "849dcff5-8976-494b-9b38-681da38b46f6",
+                    "source_kind": "chapter_draft",
+                    "draft_id": "6fa1c235-8e78-44eb-a6bf-f26cf56aa288",
+                    "content_hash": "51640d441c9fcee2294a9ca3d2f06125ff3aaaa4207855111a636f3281d7cbe8",
+                    "chapter_identity": "chapter:2",
+                    "start_offset": 0,
+                    "end_offset": 12,
+                    "range_hash": "48253533cd1ecb8f5f086ed9307ccb08acc3f3c6096b82f076648e78ec9c68d8",
+                    "source_revision": 1,
+                    "segmentation_version": 1,
+                    "source_visibility": "working"
+                  },
+                  "evidence_quotes": [
+                    {
+                      "quote": "三日后，林舟出现在渡口。",
+                      "source_ref": {
+                        "novel_id": "849dcff5-8976-494b-9b38-681da38b46f6",
+                        "source_kind": "chapter_draft",
+                        "draft_id": "6fa1c235-8e78-44eb-a6bf-f26cf56aa288",
+                        "content_hash": "51640d441c9fcee2294a9ca3d2f06125ff3aaaa4207855111a636f3281d7cbe8",
+                        "chapter_identity": "chapter:2",
+                        "start_offset": 0,
+                        "end_offset": 12,
+                        "range_hash": "48253533cd1ecb8f5f086ed9307ccb08acc3f3c6096b82f076648e78ec9c68d8",
+                        "source_revision": 1,
+                        "segmentation_version": 1,
+                        "source_visibility": "working"
+                      }
+                    }
+                  ]
+                }
+              ],
+              "authority_basis": "derived_observation"
+            }
+          },
+          "source_observation_indices": [
+            0
+          ],
+          "knowledge_subject": null,
+          "source_observation_ids": [
+            "65217e0fdff688da885b90b6e296f51ef7f18aa0beadbe575b3f27ed4dcd8a3e"
+          ],
+          "authority_basis": "derived_observation"
+        }
+      ],
+      "unresolved_parts": [
+        "林舟这三日的行程内容未知。",
+        "林舟是否知道渡口封锁未知。",
+        "林舟出现在渡口的原因未知。"
+      ],
+      "paid_call_receipt": {
+        "provider": "project_llm",
+        "model": null,
+        "schema": "evolution.scene_sample.v1",
+        "outcome": "succeeded",
+        "usage": {
+          "prompt_tokens": 1383,
+          "completion_tokens": 3939,
+          "total_tokens": 5322,
+          "attempts": 1,
+          "succeeded_attempts": 1,
+          "unknown_attempts": 0,
+          "usage_complete": true
+        },
+        "attempts_detail": [
+          {
+            "attempt": 1,
+            "status": "succeeded",
+            "completion_tokens": 3939
+          }
+        ]
+      },
+      "stage": "compiled",
+      "scene_index": 1,
+      "scene_id": "b1c47d00-2133-482a-acc8-1c396e6c8991",
+      "scene_text": "三日后，林舟出现在渡口。他没有说明这三日的行程，也没有提起封锁。",
+      "source_binding": {
+        "draft_id": "6fa1c235-8e78-44eb-a6bf-f26cf56aa288",
+        "chapter_index": 2,
+        "content_hash": "51640d441c9fcee2294a9ca3d2f06125ff3aaaa4207855111a636f3281d7cbe8",
+        "start_offset": 0,
+        "end_offset": 32,
+        "range_hash": null,
+        "additional_sources": []
+      },
+      "execution_mode": "live",
+      "observer_contract_version": 1,
+      "input_manifest": {
+        "run_key": "v4-vertical-slice",
+        "scene_index": 1,
+        "source_manifest_hash": "227abf884c1d9cb80b75c5401a9b637798ede259d5bfb58192e6b756e5582fd6",
+        "dependency_status": "committed",
+        "previous_scene_attempt_id": "c49754af185a45f680e4fd8216448a8d",
+        "previous_committed_prefix": {
+          "through_scene_index": 0,
+          "through_source_revision": 1
+        },
+        "previous_observations": [
+          {
+            "observation_id": "e0f8e4f273fca042d7601a2f4d54433d600f191d82926611088008e39a45fb2e",
+            "predicate": "林舟出现在白石城",
+            "modality": "event_observed",
+            "quote": "林舟出现在白石城。",
+            "subjects": [
+              "林舟",
+              "白石城"
+            ],
+            "scene_index": 0
+          },
+          {
+            "observation_id": "68dd12d406382f6d1cba9fb17b86c96732c8c8849f366adbe954e097e5f1b3bf",
+            "predicate": "青竹说渡口已经封锁",
+            "modality": "character_statement",
+            "quote": "青竹说渡口已经封锁。",
+            "subjects": [
+              "青竹",
+              "渡口"
+            ],
+            "scene_index": 0
+          },
+          {
+            "observation_id": "26c9aa2fa1ee9eddfdde464d7b8738feac0365266b99ff62af63736c06e497ce",
+            "predicate": "林舟并没有亲眼确认这句话",
+            "modality": "event_observed",
+            "quote": "林舟并没有亲眼确认这句话。",
+            "subjects": [
+              "林舟"
+            ],
+            "scene_index": 0
+          }
+        ],
+        "previous_observations_coverage": {
+          "window_scenes": 3,
+          "total_committed_scenes": 1,
+          "scenes_included": [
+            0
+          ],
+          "omitted_observations": 0
+        },
+        "blocked_reason": null
+      },
+      "observation_ids": [
+        "65217e0fdff688da885b90b6e296f51ef7f18aa0beadbe575b3f27ed4dcd8a3e",
+        "a555e6241f4e0a48287a40788144099366f14e2df72482f7236c3344992e6f0a",
+        "febf32df116b380185eab21ff382dc9c02aaa9a09e79e0300240056cc04555ba"
+      ],
+      "compiled_observations": [
+        {
+          "source_ref": {
+            "novel_id": "849dcff5-8976-494b-9b38-681da38b46f6",
+            "source_kind": "chapter_draft",
+            "draft_id": "6fa1c235-8e78-44eb-a6bf-f26cf56aa288",
+            "content_hash": "51640d441c9fcee2294a9ca3d2f06125ff3aaaa4207855111a636f3281d7cbe8",
+            "chapter_identity": "chapter:2",
+            "start_offset": 0,
+            "end_offset": 12,
+            "range_hash": "48253533cd1ecb8f5f086ed9307ccb08acc3f3c6096b82f076648e78ec9c68d8",
+            "source_revision": 1,
+            "segmentation_version": 1,
+            "source_visibility": "working"
+          },
+          "evidence_quotes": [
+            {
+              "quote": "三日后，林舟出现在渡口。",
+              "source_ref": {
+                "novel_id": "849dcff5-8976-494b-9b38-681da38b46f6",
+                "source_kind": "chapter_draft",
+                "draft_id": "6fa1c235-8e78-44eb-a6bf-f26cf56aa288",
+                "content_hash": "51640d441c9fcee2294a9ca3d2f06125ff3aaaa4207855111a636f3281d7cbe8",
+                "chapter_identity": "chapter:2",
+                "start_offset": 0,
+                "end_offset": 12,
+                "range_hash": "48253533cd1ecb8f5f086ed9307ccb08acc3f3c6096b82f076648e78ec9c68d8",
+                "source_revision": 1,
+                "segmentation_version": 1,
+                "source_visibility": "working"
+              }
+            }
+          ],
+          "observation_id": "65217e0fdff688da885b90b6e296f51ef7f18aa0beadbe575b3f27ed4dcd8a3e",
+          "predicate": "三日后，林舟出现在渡口",
+          "modality": "event_observed",
+          "quote": "三日后，林舟出现在渡口。",
+          "mentions": [
+            {
+              "mention_id": "cb47d1a2e872fb0acd19d3c146bce3feb74f0b18b6e55fe5cc0691037a8216f4",
+              "surface": "林舟",
+              "entity_type": "character",
+              "resolution": {
+                "mention_id": "cb47d1a2e872fb0acd19d3c146bce3feb74f0b18b6e55fe5cc0691037a8216f4",
+                "surface": "林舟",
+                "outcome": "reuse",
+                "resolved_entity_id": "95a57932-5aa7-4aa9-a36e-1fa53ff1365c",
+                "rationale": "唯一精确名称/别名证据命中"
+              }
+            },
+            {
+              "mention_id": "bbc43fb1943bcf8767cf541737e8637b34032938b0e93a48b23eb1ffc76e7342",
+              "surface": "渡口",
+              "entity_type": "location",
+              "resolution": {
+                "mention_id": "bbc43fb1943bcf8767cf541737e8637b34032938b0e93a48b23eb1ffc76e7342",
+                "surface": "渡口",
+                "outcome": "new_candidate",
+                "resolved_entity_id": null,
+                "rationale": "无任何已有候选，提议新身份"
+              }
+            }
+          ]
+        },
+        {
+          "source_ref": {
+            "novel_id": "849dcff5-8976-494b-9b38-681da38b46f6",
+            "source_kind": "chapter_draft",
+            "draft_id": "6fa1c235-8e78-44eb-a6bf-f26cf56aa288",
+            "content_hash": "51640d441c9fcee2294a9ca3d2f06125ff3aaaa4207855111a636f3281d7cbe8",
+            "chapter_identity": "chapter:2",
+            "start_offset": 12,
+            "end_offset": 23,
+            "range_hash": "2212c7e1be293c389c7d678372464396d228dd39d5d486125adf3a0e2663c02e",
+            "source_revision": 1,
+            "segmentation_version": 1,
+            "source_visibility": "working"
+          },
+          "evidence_quotes": [
+            {
+              "quote": "他没有说明这三日的行程",
+              "source_ref": {
+                "novel_id": "849dcff5-8976-494b-9b38-681da38b46f6",
+                "source_kind": "chapter_draft",
+                "draft_id": "6fa1c235-8e78-44eb-a6bf-f26cf56aa288",
+                "content_hash": "51640d441c9fcee2294a9ca3d2f06125ff3aaaa4207855111a636f3281d7cbe8",
+                "chapter_identity": "chapter:2",
+                "start_offset": 12,
+                "end_offset": 23,
+                "range_hash": "2212c7e1be293c389c7d678372464396d228dd39d5d486125adf3a0e2663c02e",
+                "source_revision": 1,
+                "segmentation_version": 1,
+                "source_visibility": "working"
+              }
+            }
+          ],
+          "observation_id": "a555e6241f4e0a48287a40788144099366f14e2df72482f7236c3344992e6f0a",
+          "predicate": "林舟没有说明这三日的行程",
+          "modality": "event_observed",
+          "quote": "他没有说明这三日的行程",
+          "mentions": [
+            {
+              "mention_id": "0e5b1af2e9b0e1fb680e45071363196bf7e05677f25ac812345f6aa9786789d0",
+              "surface": "林舟",
+              "entity_type": "character",
+              "resolution": {
+                "mention_id": "0e5b1af2e9b0e1fb680e45071363196bf7e05677f25ac812345f6aa9786789d0",
+                "surface": "林舟",
+                "outcome": "reuse",
+                "resolved_entity_id": "95a57932-5aa7-4aa9-a36e-1fa53ff1365c",
+                "rationale": "唯一精确名称/别名证据命中"
+              }
+            }
+          ]
+        },
+        {
+          "source_ref": {
+            "novel_id": "849dcff5-8976-494b-9b38-681da38b46f6",
+            "source_kind": "chapter_draft",
+            "draft_id": "6fa1c235-8e78-44eb-a6bf-f26cf56aa288",
+            "content_hash": "51640d441c9fcee2294a9ca3d2f06125ff3aaaa4207855111a636f3281d7cbe8",
+            "chapter_identity": "chapter:2",
+            "start_offset": 24,
+            "end_offset": 31,
+            "range_hash": "b33567b6911ae2c3501167a0f8c8b0a01ad878b5c9e43dc9f20d57dbde731e74",
+            "source_revision": 1,
+            "segmentation_version": 1,
+            "source_visibility": "working"
+          },
+          "evidence_quotes": [
+            {
+              "quote": "也没有提起封锁",
+              "source_ref": {
+                "novel_id": "849dcff5-8976-494b-9b38-681da38b46f6",
+                "source_kind": "chapter_draft",
+                "draft_id": "6fa1c235-8e78-44eb-a6bf-f26cf56aa288",
+                "content_hash": "51640d441c9fcee2294a9ca3d2f06125ff3aaaa4207855111a636f3281d7cbe8",
+                "chapter_identity": "chapter:2",
+                "start_offset": 24,
+                "end_offset": 31,
+                "range_hash": "b33567b6911ae2c3501167a0f8c8b0a01ad878b5c9e43dc9f20d57dbde731e74",
+                "source_revision": 1,
+                "segmentation_version": 1,
+                "source_visibility": "working"
+              }
+            }
+          ],
+          "observation_id": "febf32df116b380185eab21ff382dc9c02aaa9a09e79e0300240056cc04555ba",
+          "predicate": "林舟没有提起封锁",
+          "modality": "event_observed",
+          "quote": "也没有提起封锁",
+          "mentions": [
+            {
+              "mention_id": "87318e09ed20f1cf886f9f03f86d6bd91a4c947b199670ba2e05a72cc386ff67",
+              "surface": "林舟",
+              "entity_type": "character",
+              "resolution": {
+                "mention_id": "87318e09ed20f1cf886f9f03f86d6bd91a4c947b199670ba2e05a72cc386ff67",
+                "surface": "林舟",
+                "outcome": "reuse",
+                "resolved_entity_id": "95a57932-5aa7-4aa9-a36e-1fa53ff1365c",
+                "rationale": "唯一精确名称/别名证据命中"
+              }
+            }
+          ]
+        }
+      ],
+      "identity_outcomes": {
+        "reuse": 3,
+        "new_candidate": 1
+      },
+      "identity_resolutions": [
+        {
+          "mention_id": "cb47d1a2e872fb0acd19d3c146bce3feb74f0b18b6e55fe5cc0691037a8216f4",
+          "surface": "林舟",
+          "outcome": "reuse",
+          "resolved_entity_id": "95a57932-5aa7-4aa9-a36e-1fa53ff1365c",
+          "rationale": "唯一精确名称/别名证据命中"
+        },
+        {
+          "mention_id": "bbc43fb1943bcf8767cf541737e8637b34032938b0e93a48b23eb1ffc76e7342",
+          "surface": "渡口",
+          "outcome": "new_candidate",
+          "resolved_entity_id": null,
+          "rationale": "无任何已有候选，提议新身份"
+        },
+        {
+          "mention_id": "0e5b1af2e9b0e1fb680e45071363196bf7e05677f25ac812345f6aa9786789d0",
+          "surface": "林舟",
+          "outcome": "reuse",
+          "resolved_entity_id": "95a57932-5aa7-4aa9-a36e-1fa53ff1365c",
+          "rationale": "唯一精确名称/别名证据命中"
+        },
+        {
+          "mention_id": "87318e09ed20f1cf886f9f03f86d6bd91a4c947b199670ba2e05a72cc386ff67",
+          "surface": "林舟",
+          "outcome": "reuse",
+          "resolved_entity_id": "95a57932-5aa7-4aa9-a36e-1fa53ff1365c",
+          "rationale": "唯一精确名称/别名证据命中"
+        }
+      ],
+      "gated_scene_events": []
+    }
+  ],
+  "cases": [
+    {
+      "id": "0adf7b4f-d5a3-43e1-bf2e-4f4ce62bed6a",
+      "run_id": "89659c19-2df5-400b-8abb-719f52df5b93",
+      "manifest": {
+        "protocol": "collaboration_v2",
+        "goal_version": 1,
+        "grant_hash": "6090996a606536a6eab69f6ef61067ff41dd54fab08df8224b633238f4e6802c",
+        "resources": [
+          {
+            "kind": "writing_draft",
+            "id": "6fa1c235-8e78-44eb-a6bf-f26cf56aa288",
+            "revision": "1:51640d441c9fcee2294a9ca3d2f06125ff3aaaa4207855111a636f3281d7cbe8",
+            "source_hash": "08a53da6d9e792a52a1cb812cd6af55abdf292ba1abf401fdbaf5586fd53528b",
+            "label": "纵切 2",
+            "content": {
+              "title": "纵切 2",
+              "content": "三日后，林舟出现在渡口。他没有说明这三日的行程，也没有提起封锁。"
+            },
+            "read_range": null,
+            "range_hash": null,
+            "chapter_index": 2
+          },
+          {
+            "kind": "writing_draft",
+            "id": "79c2f7ec-58ff-4a09-bcf3-314d6d8a8dce",
+            "revision": "1:34bc70e8e7cbd9dcb6563ec316fd098af81f7b5288693e185592a26cb79cfbe6",
+            "source_hash": "6128c0643df5c3ad4268fa0d230bafaee59cae3cefc92abc9596b05530403d32",
+            "label": "纵切 1",
+            "content": {
+              "title": "纵切 1",
+              "content": "林舟出现在白石城。青竹说渡口已经封锁。林舟并没有亲眼确认这句话。"
+            },
+            "read_range": null,
+            "range_hash": null,
+            "chapter_index": 1
+          }
+        ],
+        "query_receipt": null,
+        "query_scope_hash": "77d75ccfd95511b0e63af2620cb2607e26315aae4c2611c3b3dc8ab7ece9ce59",
+        "workspace_revision_id": null,
+        "subject": {
+          "kind": "author",
+          "actor_id": null,
+          "cutoff_chapter": null
+        },
+        "cognition": {
+          "inspected": true,
+          "head_commit_id": null,
+          "records": [],
+          "excluded": [],
+          "complete": true
+        },
+        "evolution": [
+          {
+            "novel_id": "849dcff5-8976-494b-9b38-681da38b46f6",
+            "run_key": "v4-vertical-slice",
+            "attempt_id": "c49754af185a45f680e4fd8216448a8d",
+            "receipt_id": "761b3baf-b030-41dd-af23-31b80b2608ed",
+            "scene_id": "73e0a276-17d6-44af-a660-ac5e52908b51",
+            "scene_index": 0,
+            "source_keys": [
+              "writing_draft:79c2f7ec-58ff-4a09-bcf3-314d6d8a8dce"
+            ],
+            "content_hash": "b32fe796523ae0dea31fe6b7e78e982433710d5256c6e64ea78f3299db76b4d2",
+            "observations": [
+              {
+                "observation_id": "e0f8e4f273fca042d7601a2f4d54433d600f191d82926611088008e39a45fb2e",
+                "predicate": "林舟出现在白石城",
+                "modality": "event_observed",
+                "evidence_quotes": [
+                  {
+                    "quote": "林舟出现在白石城。",
+                    "source_ref": {
+                      "novel_id": "849dcff5-8976-494b-9b38-681da38b46f6",
+                      "source_kind": "chapter_draft",
+                      "draft_id": "79c2f7ec-58ff-4a09-bcf3-314d6d8a8dce",
+                      "content_hash": "34bc70e8e7cbd9dcb6563ec316fd098af81f7b5288693e185592a26cb79cfbe6",
+                      "chapter_identity": "chapter:1",
+                      "start_offset": 0,
+                      "end_offset": 9,
+                      "range_hash": "028ba3b1047e6f8f5ae677c1f2958cec3c1bba3aab6de152263e25f624fa1236",
+                      "source_revision": 1,
+                      "segmentation_version": 1,
+                      "source_visibility": "working"
+                    }
+                  }
+                ],
+                "subjects": [
+                  "林舟",
+                  "白石城"
+                ]
+              },
+              {
+                "observation_id": "68dd12d406382f6d1cba9fb17b86c96732c8c8849f366adbe954e097e5f1b3bf",
+                "predicate": "青竹说渡口已经封锁",
+                "modality": "character_statement",
+                "evidence_quotes": [
+                  {
+                    "quote": "青竹说渡口已经封锁。",
+                    "source_ref": {
+                      "novel_id": "849dcff5-8976-494b-9b38-681da38b46f6",
+                      "source_kind": "chapter_draft",
+                      "draft_id": "79c2f7ec-58ff-4a09-bcf3-314d6d8a8dce",
+                      "content_hash": "34bc70e8e7cbd9dcb6563ec316fd098af81f7b5288693e185592a26cb79cfbe6",
+                      "chapter_identity": "chapter:1",
+                      "start_offset": 9,
+                      "end_offset": 19,
+                      "range_hash": "0a2582e5f12504408641d743ec31e9cfea9ce85d5b5af901f59c52c5c0071b4b",
+                      "source_revision": 1,
+                      "segmentation_version": 1,
+                      "source_visibility": "working"
+                    }
+                  }
+                ],
+                "subjects": [
+                  "青竹",
+                  "渡口"
+                ]
+              },
+              {
+                "observation_id": "26c9aa2fa1ee9eddfdde464d7b8738feac0365266b99ff62af63736c06e497ce",
+                "predicate": "林舟并没有亲眼确认这句话",
+                "modality": "event_observed",
+                "evidence_quotes": [
+                  {
+                    "quote": "林舟并没有亲眼确认这句话。",
+                    "source_ref": {
+                      "novel_id": "849dcff5-8976-494b-9b38-681da38b46f6",
+                      "source_kind": "chapter_draft",
+                      "draft_id": "79c2f7ec-58ff-4a09-bcf3-314d6d8a8dce",
+                      "content_hash": "34bc70e8e7cbd9dcb6563ec316fd098af81f7b5288693e185592a26cb79cfbe6",
+                      "chapter_identity": "chapter:1",
+                      "start_offset": 19,
+                      "end_offset": 32,
+                      "range_hash": "9f6b798356b89a0b958e58d71290f8512d6cb25157c1669e1402b015521343a6",
+                      "source_revision": 1,
+                      "segmentation_version": 1,
+                      "source_visibility": "working"
+                    }
+                  }
+                ],
+                "subjects": [
+                  "林舟"
+                ]
+              }
+            ]
+          },
+          {
+            "novel_id": "849dcff5-8976-494b-9b38-681da38b46f6",
+            "run_key": "v4-vertical-slice",
+            "attempt_id": "f8291e6377044474a241cb30559766d8",
+            "receipt_id": "0fb7af2b-6541-442a-8fae-a9b1a056b8bd",
+            "scene_id": "b1c47d00-2133-482a-acc8-1c396e6c8991",
+            "scene_index": 1,
+            "source_keys": [
+              "writing_draft:6fa1c235-8e78-44eb-a6bf-f26cf56aa288",
+              "writing_draft:79c2f7ec-58ff-4a09-bcf3-314d6d8a8dce"
+            ],
+            "content_hash": "3e41ea96da1667c697fb76664df4d7e8d348edd5887c05645de36660224a3cb8",
+            "observations": [
+              {
+                "observation_id": "65217e0fdff688da885b90b6e296f51ef7f18aa0beadbe575b3f27ed4dcd8a3e",
+                "predicate": "三日后，林舟出现在渡口",
+                "modality": "event_observed",
+                "evidence_quotes": [
+                  {
+                    "quote": "三日后，林舟出现在渡口。",
+                    "source_ref": {
+                      "novel_id": "849dcff5-8976-494b-9b38-681da38b46f6",
+                      "source_kind": "chapter_draft",
+                      "draft_id": "6fa1c235-8e78-44eb-a6bf-f26cf56aa288",
+                      "content_hash": "51640d441c9fcee2294a9ca3d2f06125ff3aaaa4207855111a636f3281d7cbe8",
+                      "chapter_identity": "chapter:2",
+                      "start_offset": 0,
+                      "end_offset": 12,
+                      "range_hash": "48253533cd1ecb8f5f086ed9307ccb08acc3f3c6096b82f076648e78ec9c68d8",
+                      "source_revision": 1,
+                      "segmentation_version": 1,
+                      "source_visibility": "working"
+                    }
+                  }
+                ],
+                "subjects": [
+                  "林舟",
+                  "渡口"
+                ]
+              },
+              {
+                "observation_id": "a555e6241f4e0a48287a40788144099366f14e2df72482f7236c3344992e6f0a",
+                "predicate": "林舟没有说明这三日的行程",
+                "modality": "event_observed",
+                "evidence_quotes": [
+                  {
+                    "quote": "他没有说明这三日的行程",
+                    "source_ref": {
+                      "novel_id": "849dcff5-8976-494b-9b38-681da38b46f6",
+                      "source_kind": "chapter_draft",
+                      "draft_id": "6fa1c235-8e78-44eb-a6bf-f26cf56aa288",
+                      "content_hash": "51640d441c9fcee2294a9ca3d2f06125ff3aaaa4207855111a636f3281d7cbe8",
+                      "chapter_identity": "chapter:2",
+                      "start_offset": 12,
+                      "end_offset": 23,
+                      "range_hash": "2212c7e1be293c389c7d678372464396d228dd39d5d486125adf3a0e2663c02e",
+                      "source_revision": 1,
+                      "segmentation_version": 1,
+                      "source_visibility": "working"
+                    }
+                  }
+                ],
+                "subjects": [
+                  "林舟"
+                ]
+              },
+              {
+                "observation_id": "febf32df116b380185eab21ff382dc9c02aaa9a09e79e0300240056cc04555ba",
+                "predicate": "林舟没有提起封锁",
+                "modality": "event_observed",
+                "evidence_quotes": [
+                  {
+                    "quote": "也没有提起封锁",
+                    "source_ref": {
+                      "novel_id": "849dcff5-8976-494b-9b38-681da38b46f6",
+                      "source_kind": "chapter_draft",
+                      "draft_id": "6fa1c235-8e78-44eb-a6bf-f26cf56aa288",
+                      "content_hash": "51640d441c9fcee2294a9ca3d2f06125ff3aaaa4207855111a636f3281d7cbe8",
+                      "chapter_identity": "chapter:2",
+                      "start_offset": 24,
+                      "end_offset": 31,
+                      "range_hash": "b33567b6911ae2c3501167a0f8c8b0a01ad878b5c9e43dc9f20d57dbde731e74",
+                      "source_revision": 1,
+                      "segmentation_version": 1,
+                      "source_visibility": "working"
+                    }
+                  }
+                ],
+                "subjects": [
+                  "林舟"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "question_for_author": "林舟从一地到另一地的行程，正文里是否有叙述事实层的时间或位置锚点，还是有意留白、只保留角色各自的说法？",
+        "planning_reason": "目标是核对林舟在两地的出现记录并厘清角色知识边界，区分叙述事实、角色说法与未知行程。现有两份纵切（writing_draft:79c2f7ec…、writing_draft:6fa1c235…）可作为唯一出处。工作分三步且互相独立：先逐处回读“林舟”的字面出现并标注呈现层级（叙述呈现在场、他人提及、他人推断）；再对“封锁”做反证与修正检索，明确青竹的说法只是角色信念候选，不能当作客观封锁事实；最后比较叙述层与角色知识层，列出有出处支持的行程陈述、仅有信念支持的说法、以及无正文锚点的缺口。三项均为查证/比较，不含试改或试验；不预设两地之间存在中间路线，也不把两次出现拼接为连续行程。",
+        "artifact_ids": [],
+        "coverage": {
+          "completed": 0,
+          "total": 3,
+          "scope": "本次授权资料",
+          "semantic_exhaustive": false
+        },
+        "missing_deliverables": [
+          "需要作者补充决定"
+        ]
+      },
+      "view": {
+        "id": "89659c19-2df5-400b-8abb-719f52df5b93",
+        "case_id": "0adf7b4f-d5a3-43e1-bf2e-4f4ce62bed6a",
+        "task_id": "89659c19-2df5-400b-8abb-719f52df5b93",
+        "status": "partial",
+        "can_resume": true,
+        "stale": false,
+        "error_code": null,
+        "question_for_author": "林舟从一地到另一地的行程，正文里是否有叙述事实层的时间或位置锚点，还是有意留白、只保留角色各自的说法？",
+        "coverage": {
+          "completed": 0,
+          "total": 3,
+          "scope": "本次授权资料",
+          "semantic_exhaustive": false
+        },
+        "understanding": null,
+        "missing_deliverables": [
+          "需要作者补充决定"
+        ],
+        "work": [
+          {
+            "id": "136aad32-f943-4e69-a2a8-efc9e42477db",
+            "status": "pending",
+            "generation": 0
+          },
+          {
+            "id": "39bf7948-0bfb-443f-9009-057d214a7960",
+            "status": "pending",
+            "generation": 0
+          },
+          {
+            "id": "148c8ca9-7601-410f-8280-9ed18f01a08b",
+            "status": "pending",
+            "generation": 0
+          }
+        ],
+        "artifacts": [],
+        "usage": {
+          "requests": 1,
+          "prompt_tokens": 1005,
+          "completion_tokens": 1410,
+          "usage_complete": true,
+          "pending_usage": 0,
+          "usage_unknown": false
+        }
+      }
+    }
+  ],
+  "error_type": "RuntimeError"
+}

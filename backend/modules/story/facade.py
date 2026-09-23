@@ -28,6 +28,30 @@ from modules.story.service import (
 _service = StoryService()
 
 
+def build_reading_structure_request(scene_cards, world_context):
+    from modules.story.outline_state.reading_structure import build_structure_request
+
+    return build_structure_request(scene_cards, world_context)
+
+
+def prepare_reading_structure_review(raw, scene_cards):
+    from modules.story.outline_state.reading_structure import prepare_structure_review
+
+    return prepare_structure_review(raw, scene_cards)
+
+
+def materialize_reading_structure_review(raw, scene_cards, results):
+    from modules.story.outline_state.reading_structure import materialize_structure_review
+
+    return materialize_structure_review(raw, scene_cards, results)
+
+
+async def persist_reading_structure_drafts(db, novel_id, **inputs):
+    from modules.story.outline_state.reading_structure import persist_structure_drafts
+
+    return await persist_structure_drafts(db, novel_id, **inputs)
+
+
 async def inspect_information_plan(db, novel_id: str, kind: str, plan_id: str) -> dict:
     from modules.story.assistant_information_tools import (
         inspect_information_plan as inspect,
@@ -61,17 +85,23 @@ async def read_world_dependency(
 # subdomains keep their own locality, while this root facade is the stable
 # cross-module seam during and after the compatibility release.
 from modules.story.continuity.facade import (  # noqa: E402,F401
+    align_scene_event_indices,
     capture_snapshot,
     confirm_scene_continuity_event,
     ensure_scene_checkpoints,
     get_continuity_evidence_for_writing,
     get_memory_panorama,
     get_scene_checkpoints,
+    get_scene_event_order_start,
     ingest_delta_events,
+    invalidate_derived_state,
     project_scene_presence,
     replace_scene_memory_events,
     rollback_deep_import_delta_logs_by_workflow,
     supersede_scene_projections_from,
+)
+from modules.story.continuity.schemas import (  # noqa: E402,F401
+    validate_machine_event_snapshot,
 )
 from modules.story.outline_state.facade import *  # noqa: E402,F401,F403
 from modules.story.outline_state.facade import (  # noqa: E402,F401
@@ -402,6 +432,9 @@ __all__ = [
     "replace_scene_memory_events",
     "supersede_scene_projections_from",
     "project_scene_presence",
+    "invalidate_derived_state",
+    "align_scene_event_indices",
+    "get_scene_event_order_start",
     "rollback_import_scene_resolution",
     "rollback_deep_import_delta_logs_by_workflow",
 ]

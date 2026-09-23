@@ -725,6 +725,21 @@ class SceneWorkbenchService:
         )
         if any(scene.status == "deprecated" for scene in scenes):
             raise ValueError("Deprecated Scene cannot be reviewed")
+        if data.decision == "review_boundary" and any(
+            scene.source != "evolution"
+            or scene.status != "draft"
+            or (scene.structure_meta or {}).get("semantic_origin") != "boundary_only"
+            for scene in scenes
+        ):
+            raise ValueError("只能单独确认自动场景草稿的边界")
+        if data.decision == "review_boundary":
+            from modules.story.outline_state.review_attention import boundary_fingerprint
+
+            if set(data.boundary_fingerprints) != set(data.scene_ids) or any(
+                data.boundary_fingerprints[str(scene.id)] != boundary_fingerprint(scene)
+                for scene in scenes
+            ):
+                raise ValueError("场景边界已变化，请重新查看后确认")
         structure_reasons: dict[uuid.UUID, list[str]] = {}
         if data.decision == "review":
             for scene in scenes:
@@ -744,7 +759,22 @@ class SceneWorkbenchService:
         updated_items: list[SceneResponse] = []
         for scene in scenes:
             meta = dict(scene.structure_meta or {})
-            if data.decision == "review":
+            if data.decision == "review_boundary":
+                meta.update(
+                    {
+                        "needs_review": False,
+                        "boundary_review": {
+                            "decision": "confirmed",
+                            "reviewed_at": action_at,
+                            "reviewed_by": "manual",
+                            "source_fingerprint": data.boundary_fingerprints[
+                                str(scene.id)
+                            ],
+                        },
+                    }
+                )
+                update_data = SceneUpdate(structure_meta=meta)
+            elif data.decision == "review":
                 meta.update(
                     {
                         "needs_review": False,
@@ -775,6 +805,7 @@ class SceneWorkbenchService:
                     "reviewed_by",
                     "reviewed_from",
                     "reviewed_attention_reasons",
+                    "boundary_review",
                 ):
                     meta.pop(key, None)
                 update_data = SceneUpdate(structure_meta=meta)
