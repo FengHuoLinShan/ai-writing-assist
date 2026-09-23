@@ -159,6 +159,36 @@ def structured_reply(request):
                 )
             ],
         }
+    elif schema == "SimpleStructureOutput":
+        user = next(
+            message.content for message in request.messages if message.role == "user"
+        )
+        cards = json.loads(user.split("【Scene卡片 JSON】\n", 1)[1].split("\n\n", 1)[0])
+        value = {
+            "plot_threads": [
+                {
+                    "title": "本轮剧情线索",
+                    "summary": cards[0]["summary"],
+                    "confidence": 0.95,
+                    "supporting_scene_ids": [card["scene_id"] for card in cards],
+                }
+            ]
+        }
+    elif schema == "StructureEvidenceReviewOutput":
+        user = next(
+            message.content for message in request.messages if message.role == "user"
+        )
+        value = {
+            "reviews": [
+                {
+                    "candidate_id": item["candidate_id"],
+                    "verdict": "supported",
+                    "confidence": 0.96,
+                    "evidence": [{"quote": item["scene_text"]}],
+                }
+                for item in json.loads(user)["review_items"]
+            ]
+        }
     elif schema in {
         "GraphDelta",
         "WorkOutput",
