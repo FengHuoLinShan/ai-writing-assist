@@ -250,3 +250,9 @@ AI 正文候选的采用现统一要求新鲜 `knowledge_review.status=passed`�
 AI candidate 必须复验原 confirmation、正文和 world 来源；人工稿可 prose-only 或按授权复核设定。
 读取报告重新检查正文版本及来源，过期不能作为当前审查。原位入口需保存正文，结果可返回本章，
 不会自动改稿。跨章修订先选择一套精确版本的方案，再通过原 batch 确认；确认后复核是另一个计量任务。
+
+## 来源变化的原子传播
+
+所有 working/published 写入和回退经仓储统一通知 Context、working/canonical 索引及演化/Story
+失效；包括助手应用、创意采用、协作和导入入口。候选未采用时不触发。传播失败回滚正文事务，
+不会显示假保存；作者确认与原回执保留，重算只标 recompute_required，不自动支付模型调用。

@@ -417,6 +417,21 @@ class EntityRelationService(
                 "relation": self._response_with_endpoint_names(existing),
             }
 
+        if existing.status != "canonical" and data.status == "canonical":
+            from modules.world.services.common import require_fresh_understanding_source
+
+            await require_fresh_understanding_source(db, novel_id, existing.review_meta)
+        old_ref = (existing.review_meta or {}).get("evolution_ref")
+        new_ref = (data.review_meta or {}).get("evolution_ref")
+        if data.status != "canonical" and (old_ref or new_ref) and old_ref != new_ref:
+            # Never attach a fresh receipt to a union containing another attempt's
+            # old description. The new proposal remains in its frozen Scene.
+            return {
+                "action": "deduplicated",
+                "reason": "candidate_sources_differ",
+                "relation": self._response_with_endpoint_names(existing),
+            }
+
         existing.description = _merge_text(existing.description, data.description)
         existing.quote = _merge_text(existing.quote, data.quote)
         existing.strength = max(
@@ -842,6 +857,13 @@ class EntityRelationService(
         strength: float | None,
         action: str,
     ) -> dict[str, object]:
+        from modules.world.services.common import require_fresh_understanding_source
+
+        for candidate in selected:
+            if candidate.status != "canonical":
+                await require_fresh_understanding_source(
+                    db, str(nid), candidate.review_meta
+                )
         relation_kind = self._resolve_relation_kind(
             relation_type,
             relation_kind,
@@ -1192,6 +1214,10 @@ class EntityRelationService(
             raise NotFoundError(f"EntityRelation {id} not found")
         if rel.status == "canonical" or data.status == "canonical":
             await self._require_legacy_canon_write_allowed(db, novel_id)
+        if data.status == "canonical" and rel.status != "canonical":
+            from modules.world.services.common import require_fresh_understanding_source
+
+            await require_fresh_understanding_source(db, novel_id, rel.review_meta)
         before = self._relation_snapshot(rel)
         if data.status is not None and data.status not in _RELATION_STATUSES:
             raise ValidationError("Invalid relation status")
@@ -1241,6 +1267,10 @@ class EntityRelationService(
         if rel.status == "canonical" or data.confirm_review:
             await self._require_legacy_canon_write_allowed(db, novel_id)
 
+        if data.confirm_review and rel.status != "canonical":
+            from modules.world.services.common import require_fresh_understanding_source
+
+            await require_fresh_understanding_source(db, novel_id, rel.review_meta)
         before = self._relation_snapshot(rel)
         sid = parse_uuid(data.source_id, "source_id") if data.source_id else rel.source_id
         tid = parse_uuid(data.target_id, "target_id") if data.target_id else rel.target_id

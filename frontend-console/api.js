@@ -763,6 +763,15 @@ async function* streamSse(path, {
 // ============================================================
 
 const api = {
+  evolution: {
+    status: (novelId) => request(withQuery("/evolution/reading", { novel_id: novelId }), { cache: "no-store" }),
+    targets: (novelId, runKey, options) => request(withQuery(`/evolution/reading/${encodeURIComponent(runKey)}/targets`, { novel_id: novelId, ...options }), { cache: "no-store" }),
+    proposals: (novelId, runKey, offset = 0) => request(withQuery(`/evolution/reading/${encodeURIComponent(runKey)}/proposals`, { novel_id: novelId, offset }), { cache: "no-store" }),
+    switchEngine: (novelId, body) => post(withQuery("/evolution/engine", { novel_id: novelId }), body),
+    preview: (novelId, body) => post(withQuery("/evolution/reading/preview", { novel_id: novelId }), body),
+    start: (novelId, body) => post(withQuery("/evolution/reading", { novel_id: novelId }), body),
+    resume: (novelId, runKey) => post(withQuery(`/evolution/reading/${encodeURIComponent(runKey)}/resume`, { novel_id: novelId })),
+  },
   forecasts: {
     activity: (novelId, body) => post(withQuery("/assistant/forecasts/activity", { novel_id: novelId }), body),
     resume: (novelId, id) => post(withQuery(`/assistant/forecasts/runs/${id}/resume`, { novel_id: novelId })),
@@ -779,6 +788,9 @@ const api = {
     recheck: (novelId, id, operationId) => post(withQuery(`/assistant/forecasts/candidates/${encodeURIComponent(id)}/recheck`, { novel_id: novelId }), { operation_id: operationId }),
   },
   collaboration: {
+    understanding: (novelId) => request(withQuery("/collaboration/understanding", { novel_id: novelId })),
+    understandingHistory: (novelId, id) => request(withQuery(`/collaboration/understanding/${encodeURIComponent(id)}/history`, { novel_id: novelId })),
+    correctUnderstanding: (novelId, id, body) => post(withQuery(`/collaboration/understanding/${encodeURIComponent(id)}`, { novel_id: novelId }), body),
     resources: (novelId, params = {}) => request(withQuery("/collaboration/resources", { novel_id: novelId, ...params }), { cache: "no-store" }),
     importScope: (novelId, body) => post(withQuery("/collaboration/import-scope", { novel_id: novelId }), body),
     updateGrant: (novelId, id, body) => request(withQuery(`/collaboration/cases/${encodeURIComponent(id)}/grant`, { novel_id: novelId }), { method: "PUT", body: JSON.stringify(body) }),
@@ -1990,6 +2002,9 @@ const api = {
     },
     async getNodeMap(novelId, nodeId) {
       return contractFetch("world.getNodeMap", { novelId, nodeId }, {}, { cache: "no-store" })
+    },
+    async getMapSceneContext(novelId, nodeId, sceneId) {
+      return request(withQuery(`/world/map-atlas/${novelId}/nodes/${nodeId}/scene-context`, { scene_id: sceneId, view: 'author' }), { cache: 'no-store' })
     },
     async saveMapRevision(novelId, nodeId, payload) {
       return contractJson("world.saveMapRevision", { novelId, nodeId }, {}, payload)

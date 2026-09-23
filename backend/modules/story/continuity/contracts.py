@@ -27,6 +27,18 @@ SCENE_MEMORY_DIMENSIONS_V2 = (
 )
 SCENE_MEMORY_DIMENSIONS = SCENE_MEMORY_DIMENSIONS_V2
 
+STATE_EVENT_DIMENSIONS = {
+    "entity_created": "entities",
+    "entity_updated": "entities",
+    "entity_removed": "entities",
+    "entity_moved": "locations",
+    "relation_established": "relations",
+    "relation_ended": "relations",
+    "knowledge_changed": "knowledge",
+    "timeline_changed": "timeline",
+    "causality_changed": "causality",
+}
+
 
 def scene_memory_dimensions(contract_version: int) -> tuple[str, ...]:
     """Return the exact dimensions covered by a persisted contract version."""

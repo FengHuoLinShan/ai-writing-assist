@@ -1578,6 +1578,7 @@ async def test_publish_content_replacement_takes_writing_version_lock() -> None:
     novel_id = uuid.uuid4()
     draft = _make_draft(novel_id=novel_id, chapter_index=4, content="old")
     repo = MagicMock()
+    repo._changed = AsyncMock()
     repo.lock_version_chapters_for_revalidation = AsyncMock()
     service = WritingDraftService(repo=repo)
     db = MagicMock()

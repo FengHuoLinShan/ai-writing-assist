@@ -34,6 +34,7 @@ from modules.imports.workflow import (
 )
 from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
 from modules.project.contracts import ProjectLLMConfigurationError
+from modules.project.models import Project
 
 
 def _authorized_task_meta(
@@ -325,6 +326,9 @@ async def _create_recoverable_deep_import_task(
     novel_id: str | None = None,
 ) -> AsyncTask:
     novel_id = novel_id or str(uuid.uuid4())
+    if await db_session.get(Project, uuid.UUID(novel_id)) is None:
+        db_session.add(Project(id=uuid.UUID(novel_id), title="恢复测试项目"))
+        await db_session.flush()
     recovery_flags = {
         "interrupted": recovery_required,
         "recoverable": recovery_required,
@@ -534,8 +538,9 @@ class TestDeepImportOrchestrator:
     async def test_start_discovers_persisted_pending_task_for_same_novel(
         self,
         db_session,
+        test_project_id,
     ):
-        novel_id = str(uuid.uuid4())
+        novel_id = test_project_id
         active = AsyncTask(
             task_type="deep_import",
             status="pending",

@@ -10,6 +10,7 @@ from core.errors import NotFoundError
 from modules.collaboration import cases, views, workspaces
 from modules.collaboration.contracts import (
     CaseCreate,
+    CognitionCorrection,
     GoalUpdate,
     GrantUpdate,
     MergeRequest,
@@ -43,6 +44,29 @@ router = APIRouter(
     tags=["collaboration"],
     dependencies=[Depends(_guard_project)],
 )
+
+
+@router.get("/understanding")
+async def understanding(db: DbSession, novel_id: UUID):
+    from modules.collaboration.cognition import understanding_view
+
+    return await understanding_view(db, str(novel_id))
+
+
+@router.get("/understanding/{record_id}/history")
+async def understanding_history(db: DbSession, novel_id: UUID, record_id: UUID):
+    from modules.collaboration.cognition import understanding_view
+
+    return await understanding_view(db, str(novel_id), record_id=record_id)
+
+
+@router.post("/understanding/{record_id}")
+async def correct_understanding(
+    db: DbSession, novel_id: UUID, record_id: UUID, data: CognitionCorrection
+):
+    from modules.collaboration.cognition import correct_record
+
+    return await correct_record(db, str(novel_id), record_id, data)
 
 
 @router.get("/resources")

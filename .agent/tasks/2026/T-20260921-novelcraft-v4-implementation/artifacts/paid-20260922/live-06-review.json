@@ -1,0 +1,78 @@
+{
+  "reviewed_at": "2026-09-22T12:00:56.358440+00:00",
+  "report": "live-06.json",
+  "scenario_version": 2,
+  "model": "deepseek-flash",
+  "engineering_checks": {
+    "two_committed_scenes": true,
+    "independent_cases": true,
+    "case_reads_evolution": true,
+    "second_case_reads_cognition": true,
+    "forecast_reads_cognition": true,
+    "map_has_grounded_history": true,
+    "panorama_and_evidence_readable": true,
+    "source_change_invalidates_case": true,
+    "source_change_invalidates_cognition": true,
+    "source_change_invalidates_map": true,
+    "source_change_invalidates_forecast": true
+  },
+  "actual_provider_prompt_checks": {
+    "scene_two_received_prior_receipt": true,
+    "first_case_work_received_evolution": true,
+    "second_case_work_received_original_cognition": true,
+    "forecast_generator_received_cognition": true,
+    "forecast_audit_received_same_cognition": true,
+    "all_paid_attempts_accounted": true
+  },
+  "paid_call_sequences": [
+    61,
+    62,
+    63,
+    64,
+    65,
+    66,
+    67,
+    68,
+    69,
+    70,
+    71,
+    72,
+    73,
+    74,
+    75,
+    76,
+    77,
+    78
+  ],
+  "observed_quality": [
+    "Narrated appearances remain White Stone City then ferry; intermediate route/time/distance stay unknown.",
+    "Qingzhu statement is retained as character_statement; no objective blockade fact is committed.",
+    "Proposed Lin knowledge upgrade lacks grounding and is pending; no character knowledge claim is inferred from silence.",
+    "Two distinct cases complete. The second produces conditional writing directions using the prior C records; no prose/canon is adopted.",
+    "Forecast generation and independent audit use the same retained records and raw roots. Creative additions are conditional proposals.",
+    "Real source save makes old case stale and clears eligible old cognition, map history and forecast feed."
+  ],
+  "remaining_quality_findings": [
+    {
+      "calls": [
+        64,
+        66,
+        72
+      ],
+      "issue": "Some free-text claim offsets omit punctuation present in the quoted text; audit calls 65 and 73 flag this as minor. Authoritative source refs remain host-bound. Original outputs are retained."
+    },
+    {
+      "scope": "G2/E09",
+      "issue": "This is one short synthetic story executed with a real provider, not long-book semantic, comparative, author-usability or rollout acceptance."
+    }
+  ],
+  "billing": {
+    "requests": 78,
+    "estimated_usd": 0.224587872,
+    "peak_no_cache_upper_usd": 0.4617072,
+    "cap_usd": 5,
+    "basis": "provider usage receipts and verified published prices; not an invoice"
+  },
+  "post_run_code": "Connection snapshot and single-attempt enforcement were added after live-06; separately tested through real gateway with synthetic provider and native PostgreSQL preflight.",
+  "gate_status": "bounded_vertical_slice_passed_with_minor_quality_findings; G3-G8 not accepted"
+}

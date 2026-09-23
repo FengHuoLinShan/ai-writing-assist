@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
@@ -43,6 +43,7 @@ from modules.world.map_structure_schemas import (
     MapRevisionResponse,
     MapRevisionReview,
     MapSaveRequest,
+    MapSceneContext,
     MapTaskResponse,
 )
 from modules.world.map_structure_service import MapStructureService
@@ -103,6 +104,19 @@ async def get_map_links(
 @router.get("/{novel_id}/nodes/{node_id}/map", response_model=MapNodeMapResponse)
 async def get_node_map(db: DbSession, novel_id: ActiveNovelId, node_id: str):
     return await _structure.get_map(db, novel_id, node_id)
+
+
+@router.get("/{novel_id}/nodes/{node_id}/scene-context", response_model=MapSceneContext)
+async def get_map_scene_context(
+    db: DbSession,
+    novel_id: ActiveNovelId,
+    node_id: str,
+    scene_id: UUID,
+    view: Literal["author"] = "author",
+):
+    from modules.world.map_atlas_facade import get_map_scene_context
+
+    return await get_map_scene_context(db, novel_id, node_id, scene_id)
 
 
 @router.get(

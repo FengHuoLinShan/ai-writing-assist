@@ -685,3 +685,9 @@ Evidence 为 Collaboration 收集授权的冻结资源集合，manifest 同时�
 因此新增来源也能使旧否定结论失效。试改 read overlay 不读取当前领域默认版本；读者投影
 只接收截止前正文。前瞻沿原 confirmation 重新物化选中与排除资产，领域只读回执不会扩大
 原确认。生成和审查都受可完整核对的上下文上限约束，超限保持明确未覆盖。
+
+## 与持久理解的边界
+
+创作专用 `Evidence.creative` 消费认知时继续重验原 confirmation；所选资源的全文/hash 与确认
+不符即拒绝，不能用旧理解带回排除资料。它不扩张通用 Context 编译范围，也不向 Scene-local
+生成或受限阅读投影注入作者理解。具体接口见 Evidence README 与 Collaboration 模块设计。

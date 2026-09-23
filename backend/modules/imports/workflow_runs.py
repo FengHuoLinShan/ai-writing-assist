@@ -13,6 +13,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import ConflictError, NotFoundError
 from modules.imports.models import ImportWorkflowRun
 
 ACTIVE_RUN_STATUSES = {"pending", "running"}
@@ -180,6 +181,25 @@ class ImportWorkflowRunService:
             stmt = stmt.where(
                 ImportWorkflowRun.novel_id == _parse_uuid(novel_id),
             )
+        # Lock projects before runs/tasks, matching the engine switch boundary.
+        from modules.project.facade import get_understanding_engine
+
+        scoped_novels = sorted(
+            set(
+                (
+                    await db.scalars(stmt.with_only_columns(ImportWorkflowRun.novel_id))
+                ).all()
+            ),
+            key=str,
+        )
+        engine_states = {}
+        for scoped_novel in scoped_novels:
+            try:
+                engine_states[str(scoped_novel)] = await get_understanding_engine(
+                    db, scoped_novel
+                )
+            except NotFoundError:
+                engine_states[str(scoped_novel)] = None
         runs = list(
             (
                 await db.execute(
@@ -231,7 +251,22 @@ class ImportWorkflowRunService:
                 run.owner_attempt,
                 run.owner_lease_id,
             )
-            if task is None or task.status == "cancelled":
+            current = engine_states[str(run.novel_id)]
+            token = (run.prepare_checkpoint or {}).get("_understanding_owner") or {
+                "epoch": 1
+            }
+            fenced = (
+                current is None
+                or current["engine"] != "legacy"
+                or current["epoch"] != token.get("epoch")
+            )
+            if fenced:
+                if run.status in ACTIVE_RUN_STATUSES or run.recovery_required:
+                    run.status = "cancelled"
+                    run.recovery_required = False
+                    run.generation += 1
+                    self._clear_owner(run)
+            elif task is None or task.status == "cancelled":
                 run.status = "cancelled"
                 run.recovery_required = False
                 self._clear_owner(run)
@@ -293,8 +328,20 @@ class ImportWorkflowRunService:
         task_id: str,
         for_update: bool = False,
     ) -> ImportWorkflowRun | None:
-        stmt = select(ImportWorkflowRun).where(
-            ImportWorkflowRun.task_id == _parse_uuid(task_id)
+        if for_update:
+            from modules.project.facade import require_active_project
+
+            novel_id = await db.scalar(
+                select(ImportWorkflowRun.novel_id).where(
+                    ImportWorkflowRun.task_id == _parse_uuid(task_id)
+                )
+            )
+            if novel_id is not None:
+                await require_active_project(db, str(novel_id))
+        stmt = (
+            select(ImportWorkflowRun)
+            .where(ImportWorkflowRun.task_id == _parse_uuid(task_id))
+            .execution_options(populate_existing=True)
         )
         if for_update:
             stmt = stmt.with_for_update()
@@ -322,6 +369,9 @@ class ImportWorkflowRunService:
             raise ValueError(f"unsupported imports workflow type: {workflow_type}")
         if start_chapter < 1 or end_chapter < start_chapter:
             raise ValueError("invalid imports workflow chapter range")
+        from modules.project.facade import require_understanding_writer
+
+        engine_owner = await require_understanding_writer(db, novel_id, engine="legacy")
         parsed_task_id = _parse_uuid(task_id)
         run = ImportWorkflowRun(
             # First-version API compatibility: workflow_id == task_id.
@@ -341,6 +391,7 @@ class ImportWorkflowRunService:
             authorization_snapshot=deepcopy(authorization_snapshot),
             llm_execution_snapshot=deepcopy(llm_execution_snapshot),
             prepare_checkpoint={
+                "_understanding_owner": engine_owner,
                 "context_mode": context_mode,
                 "include_pending_objects": bool(include_pending_objects),
                 "high_quality": bool(high_quality),
@@ -366,6 +417,8 @@ class ImportWorkflowRunService:
         if attempt < 1 or not lease_id:
             raise ImportWorkflowOwnershipLost
         run = await self.get_by_task(db, task_id=task_id, for_update=True)
+        if run is not None:
+            await self._require_engine(db, run)
         if (
             run is None
             or run.workflow_type != workflow_type
@@ -393,6 +446,8 @@ class ImportWorkflowRunService:
     ) -> ImportWorkflowRun:
         """Lock and return the run only if the complete owner token still wins."""
         run = await self.get_by_task(db, task_id=owner.task_id, for_update=True)
+        if run is not None:
+            await self._require_engine(db, run)
         if (
             run is None
             or str(run.id) != owner.workflow_id
@@ -433,7 +488,13 @@ class ImportWorkflowRunService:
                 checkpoints = {**checkpoints, "completion_control": control}
         run.progress = deepcopy(progress)
         if prepare_checkpoint is not None:
-            run.prepare_checkpoint = deepcopy(prepare_checkpoint)
+            frozen = run.prepare_checkpoint or {}
+            prepared = deepcopy(prepare_checkpoint)
+            if "_understanding_owner" in frozen:
+                prepared["_understanding_owner"] = frozen["_understanding_owner"]
+            else:
+                prepared.pop("_understanding_owner", None)
+            run.prepare_checkpoint = prepared
         if checkpoints is not None:
             run.checkpoints = deepcopy(checkpoints)
         await db.flush()
@@ -469,6 +530,7 @@ class ImportWorkflowRunService:
         run = await self.get_by_task(db, task_id=task_id, for_update=True)
         if run is None:
             raise LookupError(task_id)
+        await self._require_engine(db, run)
         if run.status != "failed" or not run.recovery_required:
             raise ValueError("only recovery-required imports workflows can resume")
         run.generation = int(run.generation) + 1
@@ -494,6 +556,48 @@ class ImportWorkflowRunService:
         self._clear_owner(run)
         await db.flush()
         return run
+
+    @staticmethod
+    async def _require_engine(db, run):
+        from modules.project.facade import validate_understanding_owner
+
+        try:
+            await validate_understanding_owner(
+                db,
+                str(run.novel_id),
+                engine="legacy",
+                token=(run.prepare_checkpoint or {}).get("_understanding_owner"),
+            )
+        except ConflictError as exc:
+            raise ImportWorkflowOwnershipLost from exc
+
+    async def drain_for_engine_switch(self, db, novel_id, *, stop_active):
+        from modules.project.facade import require_active_project_exclusive
+
+        await require_active_project_exclusive(db, novel_id)
+        runs = list(
+            (
+                await db.scalars(
+                    select(ImportWorkflowRun)
+                    .where(
+                        ImportWorkflowRun.novel_id == _parse_uuid(novel_id),
+                        ImportWorkflowRun.status.in_(sorted(ACTIVE_RUN_STATUSES))
+                        | ImportWorkflowRun.recovery_required.is_(True),
+                    )
+                    .order_by(ImportWorkflowRun.id)
+                    .with_for_update()
+                )
+            ).all()
+        )
+        if runs and not stop_active:
+            raise ConflictError("旧整理流程尚未排空；请完成或明确停止后切换")
+        for run in runs:
+            run.status = "cancelled"
+            run.recovery_required = False
+            run.generation += 1
+            self._clear_owner(run)
+        await db.flush()
+        return len(runs)
 
     @staticmethod
     def _attempt_from_run(run: ImportWorkflowRun) -> ImportWorkflowAttempt:

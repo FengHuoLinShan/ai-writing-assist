@@ -34,6 +34,7 @@ from modules.story.outline_state.scene_execution_bundle import (
     get_scene_execution_bundle,  # noqa: F401
 )
 from modules.story.outline_state.scene_facade import (  # noqa: F401
+    apply_scene_understanding_enrichment,
     batch_create_scenes,
     bind_scene_spans_to_source,
     commit_deep_import_scene_candidates,
@@ -56,6 +57,7 @@ from modules.story.outline_state.scene_facade import (  # noqa: F401
     rebuild_scene_summary_checkpoint,
     split_scene_chunk_to_new_chapter,
     update_scene,
+    validate_scene_source_ranges,
 )
 from modules.story.outline_state.structure_dedup_facade import (  # noqa: F401
     apply_structure_dedup,
@@ -70,6 +72,7 @@ from modules.story.outline_state.thread_facade import (
 # Frozen cross-module API. New names require a deletion test, contract/README
 # update, and an explicit change to the public-surface regression test.
 __all__ = [
+    "apply_scene_understanding_enrichment",
     "apply_structure_dedup",
     "apply_structure_dedup_group",
     "bind_scene_spans_to_source",
@@ -97,6 +100,7 @@ __all__ = [
     "get_scene_contract",
     "get_scene_spans_by_chapter",
     "get_scene_spans_for_scene",
+    "validate_scene_source_ranges",
     "get_scene_span_coverage",
     "get_scene_summary_checkpoint",
     "get_scenes_by_chapter",

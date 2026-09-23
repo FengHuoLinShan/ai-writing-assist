@@ -24,6 +24,7 @@ from typing import Any, Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+from modules.story.continuity.contracts import STATE_EVENT_DIMENSIONS
 
 
 class SamplerMention(BaseModel):
@@ -48,7 +49,13 @@ class SamplerObservation(BaseModel):
             "author_plan|figurative|unclear)$"
         ),
     )
-    quote: str = Field(min_length=1, max_length=2000)
+    quote: str = Field(
+        min_length=1,
+        max_length=2000,
+        description="当前 Scene 正文中的连续逐字片段；不得补主语、替换代词或改动连词。",
+    )
+    start_offset: int | None = Field(default=None, ge=0)
+    end_offset: int | None = Field(default=None, ge=0)
     mentions: list[SamplerMention] = Field(default_factory=list, max_length=32)
 
 
@@ -66,8 +73,13 @@ class SamplerSceneEvent(BaseModel):
     dimension: str = Field(
         pattern="^(entities|relations|locations|knowledge|timeline|causality)$"
     )
-    event_type: str = Field(min_length=1, max_length=64)
+    event_type: str = Field(
+        min_length=1,
+        max_length=64,
+        json_schema_extra={"enum": list(STATE_EVENT_DIMENSIONS)},
+    )
     entity_id: str | None = None
+    subject_surface: str | None = Field(default=None, max_length=200)
     snapshot_after: dict[str, Any] = Field(default_factory=dict)
     source_observation_indices: list[int] = Field(default_factory=list, max_length=16)
     knowledge_subject: str | None = Field(default=None, max_length=120)
@@ -87,11 +99,26 @@ SYSTEM_PROMPT = (
     "你是小说理解引擎的窄任务观察者。只依据给定正文与给定前序理解，"
     "输出结构化观察：逐字引用必须来自本段正文；无法确定 modality 时用 "
     "unclear；提及只给表面名与类型，绝不编造实体 ID；不确定的内容放进 "
-    "unresolved_parts，不要猜测。scene_events 是状态提议，不是复述：每条"
+    "unresolved_parts，不要猜测。predicate 可以概括或还原代词，quote 必须保留原句的"
+    "省略、代词和连词，不能把改写后的 predicate 当引用；无法逐字支持则留待核对。"
+    "引用重复出现时必须提供本段正文内的 Unicode "
+    "码点半开区间 start_offset/end_offset；不要按 UTF-16 或字节计数。"
+    "scene_events 是状态提议，不是复述：每条"
     "必须用 source_observation_indices 引用本批观察的序号作为证据；客观"
     "状态变化只能基于 event_observed 观察，传闻/假设/角色陈述最多支撑"
     " knowledge 维度且必须写明 knowledge_subject；引用不上证据的提议"
     "会被拦下待作者裁定。"
+    "状态主体请填 subject_surface（正文中的准确名称），不要编造 entity_id；"
+    "knowledge_subject 同样填写被引用观察中实际提及的名称，由宿主解析身份。"
+    "knowledge_changed 的 snapshot_after 必须填 target_type=event、"
+    "known_content（所知内容）"
+    "及 knowledge_level（rumor/partial/full；传闻或角色陈述只能用 rumor）；"
+    "不填写 id/character_id/target_id，这些身份由宿主处理。"
+    "位置变化用 dimension=locations、event_type=entity_moved，snapshot_after.text_state "
+    "填写当前地点，不编造 location_id。仅两次出现不证明途中路线；只有原文明说从哪里"
+    "移动到哪里才填写 snapshot_after.moved_from，否则省略。"
+    "时间变化使用 timeline_changed 和 snapshot_after.text_state；全局时间无需人物主体，"
+    "subject_surface 留 null。别名只是观察，不新造 alias_declared 等事件类型。"
 )
 
 
@@ -160,7 +187,9 @@ def build_scene_messages(
 
 
 class _StructuredClient(Protocol):
-    async def generate_structured(self, request: LLMCallRequest, schema: type): ...
+    async def generate_structured(
+        self, request: LLMCallRequest, schema: type, **kwargs
+    ): ...
 
 
 class ProjectLLMSampler:
@@ -174,6 +203,92 @@ class ProjectLLMSampler:
         self._client = client
         self.last_call_receipt: dict[str, Any] | None = None
 
+    async def verify_state_events(self, **inputs) -> dict[str, Any]:
+        from modules.evolution.state_review import (
+            StateReview,
+            build_state_review_messages,
+        )
+
+        return await self._scene_call(
+            LLMCallRequest(messages=build_state_review_messages(**inputs), temperature=0),
+            StateReview,
+            "evolution.state_review.v1",
+        )
+
+    async def enrich_scene(self, *, payload):
+        from modules.imports.facade import build_scene_enrichment_request
+
+        request, schema = build_scene_enrichment_request(payload)
+        return await self._scene_call(request, schema, "imports.scene_enrichment.v1")
+
+    async def review_scene_enrichment(self, **inputs):
+        from modules.evidence.facade import build_group_audit_request
+
+        request, schema = build_group_audit_request(**inputs)
+        return await self._scene_call(
+            request, schema, "imports.scene_enrichment.audit.v1"
+        )
+
+    async def execute_world_request(self, *, request, schema_name, schema_hash):
+        from modules.imports.contracts import scene_world_schema
+
+        return await self._execute_frozen_request(
+            request,
+            scene_world_schema(schema_name),
+            schema_hash,
+            f"imports.{schema_name}.v1",
+        )
+
+    async def execute_structure_request(self, *, request, schema_name, schema_hash):
+        from modules.story.contracts import reading_structure_schema
+
+        return await self._execute_frozen_request(
+            request,
+            reading_structure_schema(schema_name),
+            schema_hash,
+            f"story.{schema_name}.v1",
+        )
+
+    async def _execute_frozen_request(self, request, schema, schema_hash, method):
+        from infrastructure.llm.collaboration import content_hash
+
+        if content_hash(schema.model_json_schema()) != schema_hash:
+            raise ValueError("frozen response contract changed")
+        return await self._scene_call(
+            LLMCallRequest.model_validate(request), schema, method
+        )
+
+    async def _scene_call(self, request, schema, method):
+        from modules.evolution.state_review import SceneCallFailedError
+
+        diagnostics: list[dict[str, Any]] = []
+        try:
+            result = await self._client.generate_structured(
+                request,
+                schema,
+                diagnostics=diagnostics,
+                max_fix_attempts=0,
+                transport_retries=False,
+            )
+        except Exception as error:
+            raise SceneCallFailedError(
+                build_call_receipt(
+                    self._client,
+                    diagnostics,
+                    schema=method,
+                    outcome="failed_final",
+                )
+            ) from error
+        return {
+            "result": result.model_dump(mode="json"),
+            "paid_call_receipt": build_call_receipt(
+                self._client,
+                diagnostics,
+                schema=method,
+                outcome="succeeded",
+            ),
+        }
+
     async def sample(
         self, *, scene_text: str, input_manifest: dict[str, Any]
     ) -> dict[str, Any]:
@@ -186,84 +301,117 @@ class ProjectLLMSampler:
         diagnostics: list[dict[str, Any]] = []
         try:
             result: SceneSample = await self._client.generate_structured(
-                request, SceneSample, diagnostics=diagnostics
+                request,
+                SceneSample,
+                diagnostics=diagnostics,
+                max_fix_attempts=0,
+                transport_retries=False,
             )
         except Exception:
             # 最终失败也必须留下回执（A07）：请求可能已发出、可能已计费，
             # 回执先行固化再重抛，调用方据此进入待核对而非盲目重采样。
-            self.last_call_receipt = self._build_receipt(
-                diagnostics, outcome="failed_final"
+            self.last_call_receipt = build_call_receipt(
+                self._client,
+                diagnostics,
+                schema="evolution.scene_sample.v1",
+                outcome="failed_final",
             )
             raise
-        receipt = self._build_receipt(diagnostics, outcome="succeeded")
+        receipt = build_call_receipt(
+            self._client,
+            diagnostics,
+            schema="evolution.scene_sample.v1",
+            outcome="succeeded",
+        )
         self.last_call_receipt = receipt
         payload: dict[str, Any] = result.model_dump(mode="json")
+        aligned = []
+        for index, observation in enumerate(payload["observations"]):
+            quote = observation["quote"]
+            start = scene_text.find(quote)
+            if start < 0 or scene_text.find(quote, start + 1) >= 0:
+                continue
+            declared = [observation.get("start_offset"), observation.get("end_offset")]
+            resolved = [start, start + len(quote)]
+            if declared != [None, None] and declared != resolved:
+                aligned.append(
+                    {
+                        "observation_index": index,
+                        "declared": declared,
+                        "resolved": resolved,
+                    }
+                )
+                observation["start_offset"], observation["end_offset"] = resolved
+        if aligned:
+            receipt["quote_alignment"] = {
+                "method": "exact-unique-scene/v1",
+                "changes": aligned,
+            }
         payload["paid_call_receipt"] = receipt
         return payload
 
-    def _build_receipt(
-        self, diagnostics: list[dict[str, Any]], *, outcome: str
-    ) -> dict[str, Any]:
-        """结构化修复的每次请求都已实际发生（解析/schema 失败的响应同样
-        可能已计费）：回执保留全部请求明细与状态。
 
-        用量口径（A06）：任一尝试对某字段未知，该字段总量即未知（None），
-        绝不把未知次数默认为免费。``unknown_attempts`` 计缺失任一字段的
-        尝试（部分或完全未知）；``usage_complete`` 为真当且仅当全部尝试
-        报齐三个字段。attempts_detail 保留逐次对账明细。
-        """
-        attempts = [
-            item for item in diagnostics if item.get("kind") == "structured_usage"
-        ]
-        usage_fields = ("prompt_tokens", "completion_tokens", "total_tokens")
+def build_call_receipt(
+    client, diagnostics: list[dict[str, Any]], *, schema: str, outcome: str
+) -> dict[str, Any]:
+    """结构化修复的每次请求都已实际发生（解析/schema 失败的响应同样
+    可能已计费）：回执保留全部请求明细与状态。
 
-        def _field_total(field: str) -> int | None:
-            values: list[int] = []
-            for item in attempts:
-                value = item.get(field)
-                if isinstance(value, bool) or not isinstance(value, int):
-                    return None
-                values.append(value)
-            return sum(values) if values else None
+    用量口径（A06）：任一尝试对某字段未知，该字段总量即未知（None），
+    绝不把未知次数默认为免费。``unknown_attempts`` 计缺失任一字段的
+    尝试（部分或完全未知）；``usage_complete`` 为真当且仅当全部尝试
+    报齐三个字段。attempts_detail 保留逐次对账明细。
+    """
+    attempts = [item for item in diagnostics if item.get("kind") == "structured_usage"]
+    usage_fields = ("prompt_tokens", "completion_tokens", "total_tokens")
 
-        unknown_attempts = sum(
-            1
-            for item in attempts
-            if any(
-                isinstance(item.get(field), bool) or not isinstance(item.get(field), int)
-                for field in usage_fields
-            )
+    def _field_total(field: str) -> int | None:
+        values: list[int] = []
+        for item in attempts:
+            value = item.get(field)
+            if isinstance(value, bool) or not isinstance(value, int):
+                return None
+            values.append(value)
+        return sum(values) if values else None
+
+    unknown_attempts = sum(
+        1
+        for item in attempts
+        if any(
+            isinstance(item.get(field), bool) or not isinstance(item.get(field), int)
+            for field in usage_fields
         )
-        return {
-            "provider": getattr(self._client, "provider_id", None) or "project_llm",
-            "model": getattr(self._client, "model", None)
-            or getattr(self._client, "model_id", None),
-            "schema": "evolution.scene_sample.v1",
-            "outcome": outcome,
-            "usage": {
-                "prompt_tokens": _field_total("prompt_tokens"),
-                "completion_tokens": _field_total("completion_tokens"),
-                "total_tokens": _field_total("total_tokens"),
-                "attempts": len(attempts),
-                "succeeded_attempts": sum(
-                    1 for item in attempts if item.get("status") == "succeeded"
-                ),
-                "unknown_attempts": unknown_attempts,
-                "usage_complete": bool(attempts) and unknown_attempts == 0,
-            }
-            if attempts
-            else None,
-            "attempts_detail": [
-                {
-                    "attempt": item.get("attempt"),
-                    "status": item.get("status"),
-                    "completion_tokens": item.get("completion_tokens"),
-                    **(
-                        {"error_kind": item["error_kind"]}
-                        if item.get("error_kind")
-                        else {}
-                    ),
-                }
-                for item in attempts
-            ],
+    )
+    profile = getattr(client, "profile_summary", {}) or {}
+    return {
+        "provider": profile.get("provider_id")
+        or getattr(client, "provider_id", None)
+        or "project_llm",
+        "model": getattr(client, "model_name", None)
+        or getattr(client, "model", None)
+        or getattr(client, "model_id", None),
+        "schema": schema,
+        "outcome": outcome,
+        "usage": {
+            "prompt_tokens": _field_total("prompt_tokens"),
+            "completion_tokens": _field_total("completion_tokens"),
+            "total_tokens": _field_total("total_tokens"),
+            "attempts": len(attempts),
+            "succeeded_attempts": sum(
+                1 for item in attempts if item.get("status") == "succeeded"
+            ),
+            "unknown_attempts": unknown_attempts,
+            "usage_complete": bool(attempts) and unknown_attempts == 0,
         }
+        if attempts
+        else None,
+        "attempts_detail": [
+            {
+                "attempt": item.get("attempt"),
+                "status": item.get("status"),
+                "completion_tokens": item.get("completion_tokens"),
+                **({"error_kind": item["error_kind"]} if item.get("error_kind") else {}),
+            }
+            for item in attempts
+        ],
+    }

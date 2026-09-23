@@ -35,3 +35,15 @@ it("同名对象须明确选择后另开原章节范围的查漏，不修改旧�
   expect(JSON.stringify(receipt)).toBe(original)
   wrapper.unmount()
 })
+
+it("旧流程只读详情保留计数与歧义，不能发起新查漏", async () => {
+  const targetedCompletion = vi.fn()
+  setBridgeOverrides({ state: { currentProjectId: "p1" }, api: { imports: { targetedCompletion } } })
+  const wrapper = mount(TargetedCompletionPanel, { props: { projectId: "p1", sourceTaskId: "old-task", readOnly: true } })
+  await flushPromises()
+  expect(wrapper.text()).toContain("林舟：需要确认身份")
+  expect(wrapper.get("fieldset").element.disabled).toBe(true)
+  expect(wrapper.find(".targeted-completion__actions").exists()).toBe(false)
+  expect(targetedCompletion).not.toHaveBeenCalled()
+  wrapper.unmount()
+})

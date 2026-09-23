@@ -186,7 +186,45 @@ class ObservationEnvelope(BaseModel):
             modality=payload["modality"],
             observer_contract_version=payload["observer_contract_version"],
         )
+        # 单区间保留 v1 身份；跨章引用的身份必须同时绑定所有实际证据范围。
+        quotes = [
+            EvidenceQuote.model_validate(item) for item in payload["evidence_quotes"]
+        ]
+        if len(quotes) > 1:
+            payload["observation_id"] = content_hash(
+                {
+                    "namespace": "novelcraft.evolution.observation.multi_source.v1",
+                    "primary_observation_id": payload["observation_id"],
+                    "source_refs": [
+                        item.source_ref.model_dump(mode="json") for item in quotes
+                    ],
+                }
+            )
         return cls(**payload)
+
+
+class CommittedObservation(BaseModel):
+    """A source-bound model observation, not an independently established fact."""
+
+    model_config = ConfigDict(extra="forbid")
+    observation_id: str = Field(min_length=64, max_length=64)
+    predicate: str = Field(min_length=1, max_length=2000)
+    modality: ObservationModality
+    evidence_quotes: list[EvidenceQuote] = Field(min_length=1, max_length=16)
+    subjects: list[str] = Field(default_factory=list, max_length=64)
+
+
+class CommittedUnderstanding(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    novel_id: str
+    run_key: str
+    attempt_id: str
+    receipt_id: str
+    scene_id: str
+    scene_index: int = Field(ge=0)
+    source_keys: list[str]
+    content_hash: str = Field(min_length=64, max_length=64)
+    observations: list[CommittedObservation] = Field(max_length=64)
 
 
 # ---------------------------------------------------------------------------

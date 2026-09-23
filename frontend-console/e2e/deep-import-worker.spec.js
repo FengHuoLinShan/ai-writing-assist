@@ -182,8 +182,9 @@ test.describe("深度导入异步 Worker 受理", () => {
       await page.locator(SEL.writingAiMenu).click()
       await page.locator(".writing-tools-menu__group", {
         hasText: "从正文整理资料",
-      }).getByRole("button", { name: "完整整理世界与结构" }).click()
+      }).getByRole("button", { name: "理解与整理正文…" }).click()
       const dialog = page.getByRole("dialog", { name: "自动提取" })
+      await dialog.getByLabel("本次整理目标").selectOption("deep")
       await expect(dialog).toContainText("完整整理导入内容")
       await dialog.getByRole("button", { name: "确认并开始提取" }).click()
       await expect(page.locator(SEL.toastContainer)).toContainText("整理导入内容已启动", {

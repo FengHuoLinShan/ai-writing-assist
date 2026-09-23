@@ -6,7 +6,7 @@ from modules.assistant.forecast.registry import SEMANTIC
 
 
 def calculate(ctx, selected):
-    rows, covered = [], set()
+    rows, covered, seen = [], set(), set()
     facts = list(ctx.facts)
     if "assistant.cross_domain_root.v1" in selected:
         facts += [
@@ -32,6 +32,17 @@ def calculate(ctx, selected):
         covered.add(capability)
         if not fact.actionable:
             continue
+        issue_key = stable_issue_key(
+            "world.rule_impact.v1"
+            if capability == "assistant.cross_domain_root.v1"
+            else capability,
+            ctx.scope.audience_key,
+            fact.subject,
+            "domain_receipt",
+        )
+        if issue_key in seen:
+            continue
+        seen.add(issue_key)
         proposal = CandidateProposal(
             title=fact.title,
             kind="prepared_reference",
@@ -46,9 +57,7 @@ def calculate(ctx, selected):
         )
         rows.append(
             {
-                "issue_key": stable_issue_key(
-                    capability, ctx.scope.audience_key, fact.subject, "domain_receipt"
-                ),
+                "issue_key": issue_key,
                 "capability_id": capability,
                 "tier": "next",
                 "payload": {

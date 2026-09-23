@@ -6,13 +6,16 @@ import uuid
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     CheckConstraint,
     ForeignKey,
     ForeignKeyConstraint,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -23,6 +26,67 @@ def scoped_fk(field, table, *, delete="CASCADE"):
     return ForeignKeyConstraint(
         ["novel_id", field], [f"{table}.novel_id", f"{table}.id"], ondelete=delete
     )
+
+
+class CognitionHead(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """Author understanding survives task/run retention; never canonical facts."""
+
+    __tablename__ = "cognition_heads"
+    __table_args__ = (
+        UniqueConstraint("novel_id", "scope"),
+        scoped_fk("commit_id", "cognition_commits", delete=None),
+    )
+    scope: Mapped[str] = mapped_column(String(32), default="author")
+    commit_id: Mapped[uuid.UUID | None] = mapped_column(UUIDType)
+    generation: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class CognitionCommit(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    __tablename__ = "cognition_commits"
+    __table_args__ = (
+        UniqueConstraint("novel_id", "id"),
+        UniqueConstraint("novel_id", "operation_id"),
+        scoped_fk("parent_id", "cognition_commits", delete=None),
+    )
+    operation_id: Mapped[uuid.UUID] = mapped_column(UUIDType)
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(UUIDType)
+    request_hash: Mapped[str] = mapped_column(String(64))
+    scope: Mapped[str] = mapped_column(String(32), default="author")
+    outcome: Mapped[str] = mapped_column(String(24))
+    method_version: Mapped[str] = mapped_column(String(64))
+    read_set_json: Mapped[list] = mapped_column(JSON)
+    changes_json: Mapped[list] = mapped_column(JSON)
+    provenance_json: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class CognitionRecord(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    __tablename__ = "cognition_records"
+    __table_args__ = (
+        UniqueConstraint("novel_id", "id"),
+        scoped_fk("commit_id", "cognition_commits"),
+        Index(
+            "uq_cognition_current_record",
+            "novel_id",
+            "record_id",
+            unique=True,
+            postgresql_where=text("is_current"),
+            sqlite_where=text("is_current"),
+        ),
+    )
+    record_id: Mapped[uuid.UUID] = mapped_column(UUIDType)
+    commit_id: Mapped[uuid.UUID] = mapped_column(UUIDType)
+    scope: Mapped[str] = mapped_column(String(32), default="author")
+    is_current: Mapped[bool] = mapped_column(Boolean, default=True)
+    content_json: Mapped[dict] = mapped_column(JSON)
+    dependencies_json: Mapped[list] = mapped_column(JSON)
+    cognition_refs_json: Mapped[list] = mapped_column(JSON, default=list)
+    evolution_refs_json: Mapped[list] = mapped_column(
+        JSON, default=list, server_default="[]"
+    )
+    query_dependencies_json: Mapped[list] = mapped_column(JSON, default=list)
+    content_hash: Mapped[str] = mapped_column(String(64))
+    author_status: Mapped[str] = mapped_column(String(24), default="derived")
+    learned_at_chapter: Mapped[int | None] = mapped_column(Integer)
 
 
 class CollaborationCase(Base, UUIDMixin, TimestampMixin, NovelMixin):

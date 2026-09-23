@@ -1617,7 +1617,7 @@ test.describe("写作台模块", () => {
     await expect(page.locator('[data-action="open-owner-ai-drawer"]')).toHaveCount(0)
     await expect(page.locator('[data-action="writing-ai-menu"]')).toHaveCount(1)
     await page.locator('[data-action="writing-ai-menu"]').click()
-    const sceneExtraction = page.getByRole("button", { name: "先整理场景骨架（推荐）" })
+    const sceneExtraction = page.getByRole("button", { name: "理解与整理正文…" })
     await expect(sceneExtraction).toBeVisible()
     await expect(sceneExtraction).toHaveCount(1)
 
@@ -1695,7 +1695,7 @@ test.describe("写作台模块", () => {
     })
 
     await page.locator('[data-action="writing-ai-menu"]').click()
-    await page.getByRole("button", { name: "完整整理世界与结构" }).click()
+    await page.getByRole("button", { name: "理解与整理正文…" }).click()
     const dialog = page.getByRole("dialog", { name: "自动提取" })
     await dialog.getByRole("tab", { name: /回收站/ }).click()
     await expect(dialog).toContainText("停止只会停止整理")

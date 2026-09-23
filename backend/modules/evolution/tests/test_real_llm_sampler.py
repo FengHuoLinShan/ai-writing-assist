@@ -43,7 +43,7 @@ def _manifest() -> dict[str, Any]:
 @real_llm_required
 async def test_project_llm_sampler_real_call(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
     from modules.account.settings_service import SettingsService
     from modules.project.facade import open_project_llm_client
@@ -54,7 +54,7 @@ async def test_project_llm_sampler_real_call(
         os.environ["DEEPSEEK_API_KEY"],
     )
 
-    async with open_project_llm_client(db_session, test_project_id) as client:
+    async with open_project_llm_client(db_session, evolution_project_id) as client:
         sampler = ProjectLLMSampler(client)
         payload = await sampler.sample(
             scene_text=SCENE_TEXT,

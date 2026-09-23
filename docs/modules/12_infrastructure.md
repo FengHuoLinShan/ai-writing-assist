@@ -615,3 +615,14 @@ Flash max 思考与至少65,536输出上限，provider 等待至少900秒。客�
 普通模式保留窄查证low、复杂生成high和领域输出预算。两档均保留run deadline/次数及数据门禁。
 历史实测显示压缩输出预算会造成推理耗尽与JSON截断，但没有足够同源high/max A/B证据；
 不得将参数调整宣称为已验证的质量提升或价格下降。
+
+### Evolution 场景步
+
+`evolution_scene_step_v2` 复用 PostgreSQL 队列与 manual_resume，完整请求指纹用于
+合并；来源/Scene 身份、live/shadow 模式与阶段化免采样恢复由 Evolution 校验。
+未取得结果的请求保留费用待核对，不由队列盲目重采样；旧 deep_import 入口尚未切换。
+契约见 [Evolution](22_evolution.md) 和 [tasks README](../../backend/infrastructure/tasks/README.md)。
+
+理解任务的 project preflight/commit guard 同时验证 engine/epoch/schema token；项目切换只
+取消理解任务，保留预算和结果。PG trigger 对旧 v1 任务和失效 owner 失败关闭，以 NOWAIT
+避免旧心跳持锁死锁；迁移先取消不可执行的旧任务，保证其他项目队列可领取。

@@ -307,10 +307,12 @@ export function useSceneWorkbench(props) {
       return false
     }
     try {
-      await api.outline.reviewSceneWorkbench(projectId, { scene_ids: sceneIds, decision })
+      const boundary = decision === "review_boundary" ? { boundary_fingerprints: Object.fromEntries(sceneIds.map(id => [id, workbench.value?.items?.find(item => item.scene.id === id)?.boundary_fingerprint])) } : {}
+      await api.outline.reviewSceneWorkbench(projectId, { scene_ids: sceneIds, decision, ...boundary })
       removeSelection(sceneIds)
       const messages = {
         review: `已处理 ${sceneIds.length} 个场景`,
+        review_boundary: "边界已确认，可回到正文理解继续整理",
         reopen: `已将 ${sceneIds.length} 个场景标记为需要人工检查`,
         ignore_structure: "已标记为无需整理，可从场景更多菜单恢复",
         restore_structure: "已恢复整理提醒",
@@ -327,7 +329,7 @@ export function useSceneWorkbench(props) {
   async function runContextAction(item, action = sceneContextAction(item)) {
     const sceneId = item?.scene?.id
     if (!sceneId) return
-    if (action.key === "review") return reviewScenes([sceneId])
+    if (["review", "review_boundary"].includes(action.key)) return reviewScenes([sceneId], action.key)
     if (action.key === "suggestion") return modalController.showSuggestions(action.suggestionId)
     if (action.key === "source_mapping") return modalController.confirmSourceMapping(sceneId, action.fingerprint)
     if (action.key === "organize") return modalController.organizeMapping(sceneId, workbench.value?.unassigned_chapters || [])
@@ -377,6 +379,7 @@ export function useSceneWorkbench(props) {
   function actionGroupLabel(key) {
     return {
       review: "采用 / 标记已检查",
+      review_boundary: "确认场景边界",
       source_mapping: "确认章节定位",
       organize: "整理映射",
       suggestion: "逐项处理融合建议",
@@ -424,7 +427,7 @@ export function useSceneWorkbench(props) {
 
   function runActionGroup(group) {
     const key = group[0]?.action?.key
-    if (key === "review") return reviewScenes(group.map(({ item }) => item.scene.id))
+    if (["review", "review_boundary"].includes(key)) return reviewScenes(group.map(({ item }) => item.scene.id), key)
     if (key === "source_mapping") return confirmSourceMappingGroup(group)
     if (key === "organize") return organizeGroup(group)
     return runContextAction(group[0].item, group[0].action)

@@ -1,0 +1,38 @@
+{
+  "mode": "synthetic_native_preflight",
+  "started_at": "2026-09-22T13:34:44.355248+00:00",
+  "novel_id": "105f6cd4-8b8a-4f28-b551-8ec97344a62e",
+  "database": "ai_novel_agent_e2e_v4_live_20260922",
+  "provider": "deepseek",
+  "model": "deepseek-flash",
+  "scenario": "preparation",
+  "stage": "failed",
+  "worker_tasks": [
+    {
+      "task_id": "d8292577-d50a-45fc-8009-7ac1fe56fbfe",
+      "type": "evolution_scene_step_v2",
+      "status": "failed",
+      "result": {
+        "recovery_required": false,
+        "recoverable": false,
+        "lifecycle": {
+          "reason": "handler_error",
+          "error_code": "ai_run_failed",
+          "recovery_policy": "manual_resume",
+          "recovery_required": false,
+          "transitions": [
+            {
+              "at": "2026-09-22T13:34:44.782163+00:00",
+              "from": "running",
+              "to": "failed",
+              "reason": "handler_error",
+              "error_code": "ai_run_failed",
+              "attempt": 1
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "error_type": "AssertionError"
+}

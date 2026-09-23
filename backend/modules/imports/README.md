@@ -497,3 +497,43 @@ Phase 1a 按窗口、Phase 1b/2a 按 Scene、Phase 1c/3 按候选组、review re
 及返修请求保留至少65,536输出余量（更大显式值保留）；provider至少900秒，领域总超时/次数仍有界。
 Phase3生成与独立证据复核同样使用质量档，不把复核遗留12K上限作为质量档的瓶颈。
 已确认资料、完整Scene正文、角色截止点、排除项和来源重验保持原合同。
+
+## 与 Evolution 的项目写入归属
+
+默认作者入口仍使用本模块编排。提交理解任务前先取得 Project 独占锁并要求 legacy owner；
+队列 meta 与 run.prepare_checkpoint 冻结 engine/epoch/schema token。claim、checkpoint、resume
+和 reconcile 重验该 token，锁序先 Project 后 run；切换后不能复活旧 run。兼容旧无 token
+checkpoint 时保留键缺失状态，不写 JSON null 冒充 token。
+
+Evolution 的项目切换经 Imports facade 排空或明确停止 pending/running/recovery run，推进
+其 generation，保留预算、来源、结果与 checkpoint；队列同时取消并撤销 lease。PG trigger
+拒绝旧 worker 回写。同项目不能同时由旧导入和 live Evolution 写入。旧 API 暂未重定向，
+历史导入读取保留；默认入口替代与 E08 删除仍须独立验收。
+
+Evolution 经本模块 facade 复用 `scene_preparation.py` 的纯 Phase 0/1a 和 SceneCommitter，
+不启动 Imports workflow，也不调用旧 adapter 的隐式治理/修复链。调用方为每次实际
+切分请求负责根预算与冻结；本文原 deep import 主链保持独立 owner 门禁。新
+`phase1a_slicing` 产物只声明边界准备（semantic_origin=boundary_only），不冒充语义补全；
+低置信/未闭合/未解承接留必需审核，精确来源由宿主排序并验证。
+
+### 切换后的历史读取
+
+`/workflows/recent` 返回项目当前归属决定的 `can_continue`；切换到 Evolution 或只读后，
+历史、成果统计与查漏依据继续可读，UI 隐藏旧任务恢复/重算。写作的共用弹窗按实际归属
+展示入口，不把 Scene-only 理解伪装为完整世界/结构整理。服务端旧 writer 门禁仍是权威。
+
+Evolution 迁入准备：`scene_preparation` 提供单 Scene 精确来源与已提交 parent 输入、
+复用 Phase1b Prompt 的纯请求构造及原字段证据验证；旧 adapter 使用相同构造器。
+这些纯端口不拥有 provider、重试或预算；Evolution 已接 Phase1b 生成、独立复核与
+原子提交，旧完整整理仍有结构与高质量融合等能力待迁入。
+
+
+Evolution 经 facade 复用 Phase2a/Phase2b 的纯请求、schema、引文物化及候选持久化，
+不启动 Imports 旧 owner。`scene_world.py` 只处理本场精确身份、局部候选引用与短事务写入；
+根预算、冻结 provider 请求和顺序屏障归 Evolution。strict persistence 传播数据库错误，
+既有对象只追加身份字段证据，新描述留提案；新资产全部 candidate，不自动转正史。
+所有新候选的 `evolution_ref` 随对象/别名/关系保存，采用时由 World 回读真实回执来源。
+
+World v2 的本场新对象使用 Evolution 冻结的候选 UUID；本批同类型同名的新对象保持
+身份竞争。关系持久化返回本次实际创建记录的快照，由 Evolution 与回执原子保存，
+后续场景仅以这些冻结历史作关系承接，不回读后续可变描述作为过去事实。

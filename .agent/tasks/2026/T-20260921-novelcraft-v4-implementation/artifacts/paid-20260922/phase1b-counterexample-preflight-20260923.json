@@ -1,0 +1,10 @@
+{
+  "mode": "phase1b_repair_preflight",
+  "started_at": "2026-09-22T17:05:04.316907+00:00",
+  "database": "ai_novel_agent_e2e_v4_live_20260922",
+  "novel_id": "0a044d00-619d-4f5d-b391-422cd76aa495",
+  "old_run_key": "reading-9489795b-7565-4e7e-a6d1-64631fd7c1c7",
+  "operation_id": "6f0a98ef-420a-4b36-b54d-c44cd4a32758",
+  "stage": "failed",
+  "error_type": "KeyError"
+}

@@ -264,14 +264,15 @@ def test_character_reveal_guard_matches_normalized_hidden_text() -> None:
 
 class TestWritingDraftRepository:
     @pytest.mark.asyncio
-    async def test_create_many_reads_versions_once_and_flushes_once(self) -> None:
+    async def test_create_many_reads_versions_once_and_flushes_once(
+        self, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(WritingDraftRepository, "_changed", AsyncMock())
         novel_id = uuid.uuid4()
         rows = MagicMock()
         rows.all.return_value = [(1, 3)]
         db = MagicMock()
-        db.get_bind.return_value = SimpleNamespace(
-            dialect=SimpleNamespace(name="sqlite")
-        )
+        db.get_bind.return_value = SimpleNamespace(dialect=SimpleNamespace(name="sqlite"))
         db.execute = AsyncMock(return_value=rows)
         db.flush = AsyncMock()
         items = [

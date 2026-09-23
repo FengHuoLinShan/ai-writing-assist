@@ -8,7 +8,6 @@ from core.errors import ConflictError, NotFoundError
 from infrastructure.tasks.facade import get_completed_task_payload
 from modules.assistant.contracts import AssistantOperation
 from modules.assistant.facade import require_operation_targets
-from modules.evidence.facade import request_chapter_index
 from modules.writing.facade import (
     get_draft,
     get_latest_draft_for_chapter,
@@ -195,7 +194,6 @@ async def _apply_version(db, novel_id, args, preview, *, context, adopt):
                 provenance_json=provenance,
             ),
         )
-    await request_chapter_index(db, novel_id, draft.chapter_index, content_mode="working")
     return {
         "type": "writing_draft",
         "id": draft.id,

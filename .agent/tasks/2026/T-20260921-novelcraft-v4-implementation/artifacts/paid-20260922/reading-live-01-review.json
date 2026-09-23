@@ -1,0 +1,40 @@
+{
+  "scenario": "reading-live-01",
+  "provider": "deepseek",
+  "model": "deepseek-flash",
+  "call_sequences": [
+    79,
+    80,
+    81
+  ],
+  "actual_provider_requests": 3,
+  "budget_total": 3,
+  "budget_remaining": 0,
+  "recovery": "first result persisted before injected domain failure; same attempt recovered without fourth request",
+  "checks": {
+    "sequential_reading": true,
+    "free_recovery": true,
+    "append_preserves_budget": true,
+    "duplicate_start": true
+  },
+  "semantic_review": [
+    "青竹的封锁说法保持 character_statement，后两场实际收到此前模态。",
+    "林舟未亲见、未说明行程、未提封锁均保留负面观察；没有把路线或封锁真伪写成客观事实。",
+    "第三场保留前两场观察，并把消息内容及封锁真伪列为未知。",
+    "本测试未预建世界对象。所有 location/knowledge/timeline 状态提议因主体未解析被保留待决定，未写 Story 状态；不能声称本次验证了 World 新对象创建或完整地图更新。",
+    "第二场一个逐字引用的 end_offset 为 22，实际 23；宿主按唯一准确引用校准，原偏移在回执 quote_alignment 中保留。",
+    "第一场知识提议仍过度推断林舟听闻情况，被门禁留待处理；类型和来源门不等于模型毫无语义错误。"
+  ],
+  "estimated_run_cost_usd": 0.004100724,
+  "cumulative_estimated_cost_usd": 0.228688596,
+  "cumulative_peak_no_cache_upper_usd": 0.4703226,
+  "not_proven": [
+    "Scene 自动准备",
+    "World 新身份采用",
+    "长篇真实质量",
+    "局部重算",
+    "等预算收益",
+    "作者验收",
+    "E08 退役"
+  ]
+}

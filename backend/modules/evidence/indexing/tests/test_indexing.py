@@ -19,6 +19,26 @@ from modules.evidence.indexing.repositories import RagChunkRepository
 from modules.evidence.indexing.schemas import RagChunkCreate
 
 
+async def _create_unindexed_source(db, novel_id, chapter_index, *, content):
+    """Legacy fixture intentionally lacks the current Writing save outbox."""
+    from hashlib import sha256
+
+    from modules.writing.models import WritingDraft
+    from modules.writing.schemas import WritingDraftResponse
+
+    draft = WritingDraft(
+        novel_id=uuid.UUID(novel_id),
+        chapter_index=chapter_index,
+        content=content,
+        content_hash=sha256(content.encode()).hexdigest(),
+        version_number=1,
+        status="draft",
+    )
+    db.add(draft)
+    await db.flush()
+    return WritingDraftResponse.model_validate(draft)
+
+
 @pytest.fixture
 def repo() -> RagChunkRepository:
     return RagChunkRepository()
@@ -368,9 +388,8 @@ async def test_unchanged_request_reuses_live_owner_from_other_workflow(
     from infrastructure.tasks.models import AsyncTask
     from modules.evidence.indexing.index_state import RagIndexStateService
     from modules.evidence.indexing.models import RagIndexState
-    from modules.writing.facade import create_draft_only
 
-    source = await create_draft_only(
+    source = await _create_unindexed_source(
         db_session,
         test_project_id,
         37,
@@ -615,9 +634,8 @@ async def test_reconcile_repairs_pending_state_after_owner_fk_is_cleared(
 ) -> None:
     from modules.evidence.indexing.index_state import RagIndexStateService
     from modules.evidence.indexing.models import RagIndexState
-    from modules.writing.facade import create_draft_only
 
-    source = await create_draft_only(
+    source = await _create_unindexed_source(
         db_session,
         test_project_id,
         24,
@@ -826,9 +844,8 @@ async def test_queued_index_claim_creates_missing_state(
     test_project_id: str,  # noqa: F811
 ) -> None:
     from modules.evidence.indexing.index_state import RagIndexStateService
-    from modules.writing.facade import create_draft_only
 
-    source = await create_draft_only(
+    source = await _create_unindexed_source(
         db_session,
         test_project_id,
         22,
@@ -885,9 +902,8 @@ async def test_prepared_index_claim_rejects_a_changed_source_before_writes(
     test_project_id: str,  # noqa: F811
 ) -> None:
     from modules.evidence.indexing.index_state import RagIndexStateService
-    from modules.writing.facade import create_draft_only
 
-    source = await create_draft_only(
+    source = await _create_unindexed_source(
         db_session,
         test_project_id,
         24,

@@ -1229,6 +1229,23 @@ async def test_smart_search_aggregates_exact_matches_by_chapter(
         "克莱恩抵达车站。",
     )
 
+    from unittest.mock import patch
+
+    from modules.evidence.indexing.facade import index_chapter_with_report
+    from modules.evidence.indexing.index_state import RagIndexStateService
+
+    # Saving now requests the index; exercise completed indexing before testing
+    # exact-match aggregation. Pending-index exclusion has its own test above.
+    with patch("infrastructure.llm.client.LLMClient", autospec=True) as client:
+        client.return_value.generate_embedding.side_effect = RuntimeError("offline")
+        for chapter_index in (21, 22):
+            report = await index_chapter_with_report(
+                db_session, test_project_id, chapter_index, content_mode="canonical"
+            )
+            await RagIndexStateService().finish(
+                db_session, novel_id=test_project_id, report=report
+            )
+
     result = await search_novel_evidence(
         db_session,
         novel_id=test_project_id,

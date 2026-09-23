@@ -193,8 +193,12 @@ ADR-0023 增加有限单 Agent 运行时，允许作者助手与 RP 在服务端
 唯一生产实现，旧 Outline/Memory 兼容包已退场。RAG 索引与 Context 编译/确认归 evidence，
 账户连接与全局偏好归 account，项目偏好及有效配置
 归 project；`map` 是 world 子系统，`infrastructure/tasks` 是共享基础设施。
-`evolution` 是 V4 计划的演化引擎模块，当前只有 E01 契约层（来源引用、观察、
-身份解析、类型化操作、回执游标），无运行时；deep_import 仍是唯一编排 owner。
+`evolution` 已有来源/观察契约、单 Scene 采样与冻结恢复、回执/预算存储及
+`evolution_scene_step_v2` handler；跨章来源按精确区间绑定，影子运行隔离正式写入。
+Project 的理解引擎/epoch/schema floor 统一封锁 Imports 与 Evolution 旧 owner，迁移保留预算与历史。
+默认导入入口尚未切换，旧 deep_import 仍持有该入口编排。Collaboration 保存作者明确授权的
+持久理解及追加历史，Evidence 冻结并重验其精确来源与继承引用；World 地图经 Story
+读取指定 Scene 截止点的人物在场投影。工程接线不代表真实模型质量或 G2/G3 全部验收。
 
 Assistant 拥有项目讨论、运行、操作批次及提醒展示（`/api/assistant`）；World 通用会话
 保留原物理表与 ID 后移交 Assistant。RP 树和 attempt 留在 Interaction，共用有限执行核心。
@@ -230,6 +234,6 @@ ADR-0027 的 Assistant 工作项与调查成果是有界私有 checkpoint；Worl
 
 新增业务模块 `collaboration` 持有目标、授权、不可变试改与精确采用回执；
 `assistant` 持有短期前瞻和处置，`story` / `interaction` 持有观察及分支事实。
-当前共十个业务模块，继续复用原 PostgreSQL 队列、Evidence 与 Project 连接。
+继续复用原 PostgreSQL 队列、Evidence 与 Project 连接。
 模块职责与采用/恢复边界见 `docs/modules/21_collaboration.md`、
 `backend/modules/collaboration/README.md`，前瞻见 `docs/modules/20_assistant.md`。

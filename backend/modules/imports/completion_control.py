@@ -177,6 +177,9 @@ async def resume_deferred_completion(db, *, task_id: str, orchestrator) -> dict:
 
 
 async def list_recent_workflows(db, *, novel_id: str, skip: int, limit: int) -> dict:
+    from modules.project.facade import get_understanding_engine
+
+    engine = await get_understanding_engine(db, novel_id)
     condition = ImportWorkflowRun.novel_id == uuid.UUID(novel_id)
     total = (
         await db.execute(
@@ -199,6 +202,7 @@ async def list_recent_workflows(db, *, novel_id: str, skip: int, limit: int) -> 
         .all()
     )
     return {
+        "can_continue": engine["engine"] == "legacy",
         "total": total,
         "items": [
             {
@@ -261,10 +265,14 @@ def _recent_cleanup_projection(run: ImportWorkflowRun) -> dict:
         for key, value in ((run.progress or {}).get("asset_summary") or {}).items()
         if isinstance(value, int | float)
     }
-    eligible = run.status == "cancelled" and status != "complete" and (
-        any(asset_summary.values())
-        or bool((run.checkpoints or {}).get("targeted_completion"))
-        or bool((run.checkpoints or {}).get("review_resolution"))
+    eligible = (
+        run.status == "cancelled"
+        and status != "complete"
+        and (
+            any(asset_summary.values())
+            or bool((run.checkpoints or {}).get("targeted_completion"))
+            or bool((run.checkpoints or {}).get("review_resolution"))
+        )
     )
     return {
         "cleanup_eligible": eligible,

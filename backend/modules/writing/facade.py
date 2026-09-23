@@ -56,7 +56,7 @@ async def create_draft_only(
     title: str | None = None,
     content: str = "",
 ) -> WritingDraftContract:
-    """创建正文草稿（纯持久化，不入队任务）"""
+    """创建正文草稿并投递保存失效；不派生发布流程，由调用方提交事务。"""
     data = WritingDraftCreate(
         novel_id=novel_id,
         chapter_index=chapter_index,
@@ -73,7 +73,7 @@ async def create_published_draft_only(
     title: str | None = None,
     content: str = "",
 ) -> WritingDraftContract:
-    """创建已发布正文版本（纯持久化，不入队任务）"""
+    """创建发布版本并投递保存失效；不派生发布流程，由调用方提交事务。"""
     data = WritingDraftCreate(
         novel_id=novel_id,
         chapter_index=chapter_index,
@@ -88,7 +88,7 @@ async def create_published_drafts_only(
     novel_id: str,
     chapters: list[dict[str, object]],
 ) -> list[WritingDraftContract]:
-    """批量创建已发布正文版本（纯持久化，不入队任务）。"""
+    """批量创建发布版本并投递保存失效；不派生发布流程，由调用方提交事务。"""
     data_items = [
         WritingDraftCreate(
             novel_id=novel_id,

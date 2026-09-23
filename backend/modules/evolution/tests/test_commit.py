@@ -167,25 +167,25 @@ class _Harness:
         )
 
 
-async def _harness(db: AsyncSession, test_project_id: str) -> _Harness:
-    scene = await _scene(db, test_project_id)
+async def _harness(db: AsyncSession, evolution_project_id: str) -> _Harness:
+    scene = await _scene(db, evolution_project_id)
     # 场景是"既有已提交数据"：先封存，使故障注入后的 rollback 只回滚
     # 窄事务内的写入（与生产语义一致——正文/场景不在演化提交事务里创建）。
     await db.commit()
-    return _Harness(db, test_project_id, scene)
+    return _Harness(db, evolution_project_id, scene)
 
 
 @pytest.mark.asyncio
 async def test_t10_persistence_failure_resumes_frozen_without_resampling(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
     """T10：持久化失败后复用冻结返回，provider 只采样一次、领域只写一次。"""
-    harness = await _harness(db_session, test_project_id)
+    harness = await _harness(db_session, evolution_project_id)
     sampler = _Sampler()
     run_id, attempt_id = "run-1", new_attempt_id()
     frozen = _attempt(
-        test_project_id,
+        evolution_project_id,
         run_id=run_id,
         attempt_id=attempt_id,
         manifest=harness.manifest(),
@@ -229,13 +229,13 @@ async def test_t10_persistence_failure_resumes_frozen_without_resampling(
 @pytest.mark.asyncio
 async def test_t11_response_loss_replays_original_receipt(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
     """T11：领域提交后响应丢失，按尝试 ID 重放原回执，不重复写入。"""
-    harness = await _harness(db_session, test_project_id)
+    harness = await _harness(db_session, evolution_project_id)
     run_id, attempt_id = "run-1", new_attempt_id()
     frozen = _attempt(
-        test_project_id,
+        evolution_project_id,
         run_id=run_id,
         attempt_id=attempt_id,
         manifest=harness.manifest(),
@@ -263,11 +263,11 @@ async def test_t11_response_loss_replays_original_receipt(
 @pytest.mark.asyncio
 async def test_failure_leaves_no_receipt_and_cursor_unchanged(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
-    harness = await _harness(db_session, test_project_id)
+    harness = await _harness(db_session, evolution_project_id)
     frozen = _attempt(
-        test_project_id,
+        evolution_project_id,
         run_id="run-1",
         attempt_id=new_attempt_id(),
         manifest=harness.manifest(),
@@ -297,11 +297,11 @@ def self_raising_applier():
 @pytest.mark.asyncio
 async def test_source_drift_conflicts_and_requires_new_attempt(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
-    harness = await _harness(db_session, test_project_id)
+    harness = await _harness(db_session, evolution_project_id)
     frozen = _attempt(
-        test_project_id,
+        evolution_project_id,
         run_id="run-1",
         attempt_id=new_attempt_id(),
         manifest=harness.manifest(),
@@ -316,7 +316,7 @@ async def test_source_drift_conflicts_and_requires_new_attempt(
 
     # 新 manifest 的新尝试可以提交。
     fresh = _attempt(
-        test_project_id,
+        evolution_project_id,
         run_id="run-1",
         attempt_id=new_attempt_id(),
         manifest=harness.manifest(),
@@ -330,12 +330,12 @@ async def test_source_drift_conflicts_and_requires_new_attempt(
 @pytest.mark.asyncio
 async def test_parent_advanced_conflict_rejects_stale_attempt(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
-    harness = await _harness(db_session, test_project_id)
+    harness = await _harness(db_session, evolution_project_id)
     run_id = "run-1"
     first = _attempt(
-        test_project_id,
+        evolution_project_id,
         run_id=run_id,
         attempt_id=new_attempt_id(),
         manifest=harness.manifest(),
@@ -345,7 +345,7 @@ async def test_parent_advanced_conflict_rejects_stale_attempt(
     first_receipt = await harness.apply(first)
 
     second = _attempt(
-        test_project_id,
+        evolution_project_id,
         run_id=run_id,
         attempt_id=new_attempt_id(),
         manifest=harness.manifest(),
@@ -356,7 +356,7 @@ async def test_parent_advanced_conflict_rejects_stale_attempt(
 
     # 另一个批次抢先在同一 run 上提交，head 前移。
     winner = _attempt(
-        test_project_id,
+        evolution_project_id,
         run_id=run_id,
         attempt_id=new_attempt_id(),
         manifest=harness.manifest(),
@@ -375,12 +375,12 @@ async def test_parent_advanced_conflict_rejects_stale_attempt(
 @pytest.mark.asyncio
 async def test_stale_owner_epoch_cannot_commit(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
     """T12 前置：切换/重建后的旧 worker 恢复也无提交权。"""
-    harness = await _harness(db_session, test_project_id)
+    harness = await _harness(db_session, evolution_project_id)
     frozen = _attempt(
-        test_project_id,
+        evolution_project_id,
         run_id="run-1",
         attempt_id=new_attempt_id(),
         manifest=harness.manifest(),

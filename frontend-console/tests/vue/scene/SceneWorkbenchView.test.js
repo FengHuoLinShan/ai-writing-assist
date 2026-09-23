@@ -145,6 +145,50 @@ describe("SceneWorkbenchView", () => {
     return wrapper
   }
 
+  it("confirms automatic Scene boundaries without adopting semantic fields", async () => {
+    const pending = structuredClone(payload)
+    Object.assign(pending.items[0].scene, { source: "evolution", structure_meta: {
+      semantic_origin: "boundary_only", needs_review: true,
+    } })
+    pending.items[0].scene.structure_meta.boundary_review = { source_fingerprint: "obsolete" }
+    pending.items[0].boundary_review_current = false
+    pending.items[0].boundary_fingerprint = "a".repeat(64)
+    api.outline.getSceneWorkbench.mockResolvedValue(pending)
+    createWrapper({ workbench: pending, selectedSceneId: "s1" })
+    await flushPromises()
+    const action = wrapper.get(".scene-detail-context-action")
+    expect(action.text()).toBe("确认边界，继续整理")
+    await action.trigger("click")
+    await flushPromises()
+    expect(api.outline.reviewSceneWorkbench).toHaveBeenCalledWith("p1", { scene_ids: ["s1"], decision: "review_boundary", boundary_fingerprints: { s1: "a".repeat(64) } })
+    expect(api.outline.updateScene).not.toHaveBeenCalled()
+  })
+
+  it("shows unadopted enrichment safely and requires an explicit draft save", async () => {
+    const pending = structuredClone(payload)
+    pending.items[0].scene.source = "evolution"
+    pending.items[0].scene.structure_meta = {
+      needs_review: true,
+      evolution_semantic_proposal: {
+        candidate: { must_happen: "<img src=x onerror=alert(2)>保留进城" },
+        review: { status: "blocked", issues: [{ message: "进城的依据需要核对" }] },
+      },
+    }
+    api.outline.getSceneWorkbench.mockResolvedValue(pending)
+    createWrapper({ workbench: pending, selectedSceneId: "s1" })
+    await flushPromises()
+    const panel = wrapper.get('[aria-label="待核对的整理建议"]')
+    expect(panel.text()).toContain("进城的依据需要核对")
+    expect(panel.find("img").exists()).toBe(false)
+    expect(wrapper.text()).toContain("正文理解")
+    await panel.get("button").trigger("click")
+    expect(api.outline.updateScene).not.toHaveBeenCalled()
+    expect(wrapper.get("#scene-detail-must_happen").element.value).toContain("保留进城")
+    await wrapper.get('[data-action="save-scene-detail"]').trigger("click")
+    await flushPromises()
+    expect(api.outline.updateScene).toHaveBeenCalledWith("s1", "p1", expect.objectContaining({ must_happen: "<img src=x onerror=alert(2)>保留进城" }))
+  })
+
   function actionItem(key, id = "s1") {
     const item = {
       scene: {

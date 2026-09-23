@@ -10,15 +10,18 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
+from infrastructure.llm.schemas import LLMCallRequest
 from modules.evidence.compilation.knowledge.contracts import (
+    KnowledgeDimensionCoverage,
     KnowledgeDirectorDisposition,
     KnowledgeDirectorPlan,
     KnowledgeScopeReceipt,
     KnowledgeSourceEntry,
     KnowledgeSubject,
 )
+from modules.evidence.compilation.knowledge.llm_schemas import AuditVerdictOutput
 from modules.evidence.compilation.knowledge.policies import (
     require_capability_policy,
 )
@@ -26,6 +29,8 @@ from modules.evidence.compilation.knowledge.projection import knowledge_review_p
 from modules.evidence.compilation.knowledge.scope import KnowledgeScopeBuild
 from modules.evidence.compilation.knowledge.workflow import (
     GovernedWorkflowHooks,
+    _audit_messages,
+    _build_audit_receipt,
     run_knowledge_audit,
 )
 
@@ -44,6 +49,71 @@ class GroupSource:
 
 async def _noop_generate(_plan, _generator_keys) -> str:  # noqa: ANN001
     return ""
+
+
+def build_group_audit_request(
+    *, capability, novel_id, group_key, sources, output, task_instruction, context
+):
+    """Pure audit request for a caller that owns durable per-request budgets.
+
+    Unlike the legacy convenience workflow this does not truncate the source,
+    invoke a provider, retry, or claim an audit result.
+    """
+    policy = require_capability_policy(capability)
+    _, plan = build_group_scope(
+        capability=capability, novel_id=novel_id, group_key=group_key, sources=sources
+    )
+    hooks = GovernedWorkflowHooks(
+        generate=_noop_generate,
+        task_instruction=task_instruction,
+        generator_context=context,
+        authority_context=context,
+    )
+    return LLMCallRequest(
+        messages=_audit_messages(policy, hooks, plan, output),
+        temperature=0,
+    ), AuditVerdictOutput
+
+
+def materialize_group_audit(*, capability, novel_id, group_key, sources, output, result):
+    """Bind a frozen raw verdict to its original group and enforce coverage."""
+    policy = require_capability_policy(capability)
+    scope, plan = build_group_scope(
+        capability=capability, novel_id=novel_id, group_key=group_key, sources=sources
+    )
+    verdict = AuditVerdictOutput.model_validate(result)
+    audit = _build_audit_receipt(
+        policy=policy,
+        scope_build=scope,
+        plan=plan,
+        output=output,
+        verdict_output=verdict,
+    )
+    dimensions = [item.dimension for item in verdict.dimensions]
+    checked = {item.dimension for item in verdict.dimensions if item.checked}
+    complete = (
+        len(dimensions) == len(set(dimensions))
+        and set(policy.required_dimensions) <= checked
+    )
+    coverage = tuple(
+        KnowledgeDimensionCoverage(
+            dimension=dimension,
+            covered_by=tuple(
+                source.source_key for source in sources if dimension in source.dimensions
+            ),
+            omitted=dimension not in checked,
+            omission_reason="未独立检查" if dimension not in checked else None,
+        )
+        for dimension in policy.required_dimensions
+    )
+    complete = complete and all(item.covered_by for item in coverage)
+    audit = replace(
+        audit, coverage=coverage, verdict=audit.verdict if complete else "unverifiable"
+    )
+    return {
+        **knowledge_review_payload(audit=audit, visible_keys=scope.generator_keys),
+        "audit_receipt": audit.to_dict(),
+    }
 
 
 def build_group_scope(
@@ -184,7 +254,5 @@ async def govern_group_output(
 def serialize_group_output(output) -> str:  # noqa: ANN001
     """结构化组输出折成待审文本。"""
     if hasattr(output, "model_dump"):
-        return json.dumps(
-            output.model_dump(mode="json"), ensure_ascii=False, default=str
-        )
+        return json.dumps(output.model_dump(mode="json"), ensure_ascii=False, default=str)
     return str(output)

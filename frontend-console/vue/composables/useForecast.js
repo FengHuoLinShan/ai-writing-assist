@@ -1,15 +1,19 @@
 import { reactive } from "vue"
 import { locateAssistantSource, openAssistantDestination } from "../shared/assistantNavigation.js"
-import { getApi, getRouter, getForecastEditorState, getCurrentWritingFingerprint } from "../bridge/index.js"
+import { getApi, getRouter, getForecastEditorState, getCurrentWritingFingerprint, openProjectAssistant } from "../bridge/index.js"
 import { createWorkflowManager } from "../shared/workflowManager.js"
 import { ACCOUNT_INVALIDATED_EVENT, ACCOUNT_MARKER_KEY } from "../../shared/accountStorage.js"
 
 const active = run => ["pending", "running"].includes(run?.status)
+const requestContextKey = context => JSON.stringify(Object.fromEntries(Object.entries(context || {}).filter(([key, value]) => !["client_context_id", "focus_seq", "editor_state", "prior_forecast_run_id"].includes(key) && !(key === "excluded_targets" && !value?.length) && !(key === "cursor_offset" && value == null)).sort(([a], [b]) => a.localeCompare(b))))
+const sameFeedScope = (a, b) => a?.context_keys?.authority_scope_key && b?.context_keys?.authority_scope_key
+  ? ["authority_scope_key", "evidence_snapshot_key", "task_context_key"].every(key => a.context_keys[key] === b.context_keys[key])
+  : a?.context_hash === b?.context_hash
 const targetKinds = { world_entity: "core_entity", outline_scene: "scene", world_bible_page_draft: "world_bible_draft" }
 
 export function createForecast({ editor = () => null, composing = () => false } = {}) {
   const state = reactive({ projectId: null, focus: null, available: false, capabilities: [], feed: null, pendingFeed: null, policy: null, run: null, error: "", loading: false, busy: false, hold: false, stale: false, instruction: "", prepared: null, preparationRun: null, pending: null, pendingPrepare: null, includeDeferred: false, backupError: false })
-  let generation = 0, focusSeq = 0, disposed = false
+  let generation = 0, focusSeq = 0, readSeq = 0, disposed = false
   const clientContextId = crypto.randomUUID()
   const api = () => getApi()?.forecasts
   const owned = token => !disposed && token === generation
@@ -24,7 +28,7 @@ export function createForecast({ editor = () => null, composing = () => false } 
     // A05（2026-09-22 审查）：选区快照不可拆分——origin draft_id、指纹、
     // 偏移与选中文本须同源。先记下选区捕获时的原稿，跨稿一律失效。
     const selectionOriginDraftId = context.draft_id || null
-    const result = { client_context_id: clientContextId, focus_seq: ++focusSeq, page: context.page || "today", task_hint: context.task_hint || "unknown", draft_id: context.draft_id || null, scene_id: context.scene_id || null, context_confirmation_id: context.context_confirmation_id || null, context_confirmation_action: context.context_confirmation_action || null, editor_state: dirty() ? "dirty" : context.draft_id ? "saved" : "not_applicable", explicit_instruction: state.instruction }
+    const result = { client_context_id: clientContextId, focus_seq: ++focusSeq, page: context.page || "today", task_hint: context.task_hint || "unknown", draft_id: context.draft_id || null, scene_id: context.scene_id || null, context_confirmation_id: context.context_confirmation_id || null, context_confirmation_action: context.context_confirmation_action || null, excluded_targets: context.excluded_targets || [], editor_state: dirty() ? "dirty" : context.draft_id ? "saved" : "not_applicable", explicit_instruction: state.instruction }
     if (context.target?.target_id) result.target = { resource_kind: targetKinds[context.target.target_type] || context.target.target_type, resource_id: context.target.target_id }
     const writing = editor() || getForecastEditorState(state.projectId)
     if (context.page === "writing" && writing && !context.context_confirmation_id) {
@@ -34,6 +38,7 @@ export function createForecast({ editor = () => null, composing = () => false } 
     }
     const saved = writing?.lastSavedContent ?? writing?.savedContent
     if (result.draft_id && typeof saved === "string") result.expected_source_hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(saved))), value => value.toString(16).padStart(2, "0")).join("")
+    if (result.draft_id === selectionOriginDraftId && result.expected_source_hash && result.editor_state === "saved" && context.focus_content === saved && Number.isInteger(context.cursor_offset)) result.cursor_offset = context.cursor_offset
     // R00：写作页干净状态下带选区范围（码点偏移 + 已存内容指纹），让
     // 前瞻实际分析选中段落；契约要求 selected_range 必须伴随 draft+hash。
     // F2（PR160-162 审查）：草稿/内容变化后旧偏移不得重绑到新指纹。携带前
@@ -63,10 +68,23 @@ export function createForecast({ editor = () => null, composing = () => false } 
     // 未保存/保存中不拉 feed：保存落库会让在途焦点的 draft 校验失效（SOURCE_STALE），
     // 且此期间建议入口本就禁用；保存完成后的焦点重建会带来干净刷新。
     if (!state.projectId || !state.focus || !api() || composing() || dirty()) return
+    const request = ++readSeq
     const focus = { ...state.focus, editor_state: dirty() ? "dirty" : state.focus.draft_id ? "saved" : "not_applicable" }
-    const feed = await api().feed(state.projectId, { context: focus, include_deferred: state.includeDeferred })
-    if (!owned(token) || feed.client_context_id !== state.focus.client_context_id || feed.focus_seq !== state.focus.focus_seq) return
-    if ((state.hold || composing()) && state.feed) { state.pendingFeed = feed; state.stale = state.feed.context_hash !== feed.context_hash }
+    let feed
+    try { feed = await api().feed(state.projectId, { context: focus, include_deferred: state.includeDeferred }) }
+    catch (error) {
+      if (owned(token) && request === readSeq) { state.feed = state.pendingFeed = null; state.stale = true }
+      throw error
+    }
+    if (!owned(token) || request !== readSeq || feed.client_context_id !== state.focus.client_context_id || feed.focus_seq !== state.focus.focus_seq) return
+    const oldKeys = state.feed?.context_keys, newKeys = feed.context_keys
+    if (oldKeys?.authority_scope_key && oldKeys.authority_scope_key !== newKeys?.authority_scope_key) state.feed = state.pendingFeed = null
+    if ((state.hold || composing()) && state.feed) {
+      state.pendingFeed = feed
+      state.stale = oldKeys?.evidence_snapshot_key && newKeys?.evidence_snapshot_key
+        ? ["evidence_snapshot_key", "task_context_key"].some(key => oldKeys[key] !== newKeys[key])
+        : state.feed.context_hash !== feed.context_hash
+    }
     else { state.feed = feed; state.pendingFeed = null; state.stale = false }
   }
   const workflow = createWorkflowManager({
@@ -83,6 +101,10 @@ export function createForecast({ editor = () => null, composing = () => false } 
   async function configure(projectId, context) {
     const token = ++generation
     const switched = projectId !== state.projectId
+    const authorityChanged = ["context_confirmation_id", "context_confirmation_action"].some(key => (context[key] || null) !== (state.focus?.[key] || null))
+      || JSON.stringify([...(context.excluded_targets || [])].sort()) !== JSON.stringify([...(state.focus?.excluded_targets || [])].sort())
+    if (switched || authorityChanged) { state.feed = state.pendingFeed = state.prepared = state.preparationRun = null; state.stale = true; state.hold = false }
+    else if (state.feed) state.stale = true
     workflow.resetMemoryScope()
     state.projectId = projectId
     state.error = ""
@@ -109,7 +131,7 @@ export function createForecast({ editor = () => null, composing = () => false } 
       await refresh(token)
       if (state.prepared) { const run = await getApi().assistant.run(projectId, state.prepared.run_id); if (owned(token)) state.preparationRun = run }
       workflow.recover(projectId)
-    } catch (error) { if (owned(token)) state.error = error.message || "前瞻暂时不可用，仍可继续写作。" }
+    } catch (error) { if (owned(token)) { state.feed = state.pendingFeed = null; state.stale = true; state.error = error.message || "前瞻暂时不可用，仍可继续写作。" } }
     finally { if (owned(token)) state.loading = false }
   }
   async function completeSubmission(submission, projectId, token) {
@@ -120,7 +142,8 @@ export function createForecast({ editor = () => null, composing = () => false } 
     else await refresh(token)
   }
   async function evaluate({ priorRunId = null } = {}) {
-    if (state.busy || active(state.run) || dirty() || composing() || !state.focus) return
+    if (state.busy || state.loading || state.stale || active(state.run) || dirty() || composing() || !state.focus) return
+    if (state.pending && requestContextKey(state.pending.context) !== requestContextKey({ ...state.focus, explicit_instruction: state.instruction })) { state.error = "上次提交结果尚未确认，且资料或任务已变化。请先找回上次提交；不会按旧范围重新分析。"; return }
     const token = generation, projectId = state.projectId
     state.busy = true; state.error = ""
     try {
@@ -155,7 +178,24 @@ export function createForecast({ editor = () => null, composing = () => false } 
   }
   async function prepare(item, action) {
     if (state.busy || dirty() || state.stale) return
+    if (action.action_id.startsWith("writing.discuss_revision.")) {
+      const token = generation, projectId = state.projectId, focus = { ...state.focus }, instruction = state.instruction
+      const writing = editor() || getForecastEditorState(projectId)
+      const saved = writing?.lastSavedContent ?? writing?.savedContent
+      const reference = item.evidence.find(value => value.resource_kind === "writing_draft" && value.resource_id === focus.draft_id)
+      const range = focus.selected_range || reference?.source_range
+      const direction = item.directions.find(value => action.action_id.endsWith(`.${value.direction_id}`))
+      if (!direction || !range || typeof saved !== "string" || writing?.draftId !== focus.draft_id) { state.error = "请打开对应正文并选定要修改的文字。"; return }
+      try {
+        const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(saved))), value => value.toString(16).padStart(2, "0")).join("")
+        if (!owned(token) || dirty() || composing() || state.stale || !state.feed?.items.some(value => value.candidate_id === item.candidate_id && value.assessment_hash === item.assessment_hash)) return
+        if (hash !== focus.expected_source_hash) throw new Error("正文已变化，请刷新建议。")
+        await openProjectAssistant({ projectId, context: { page: "writing", scope: "current", task_hint: focus.task_hint, draft_id: focus.draft_id, scene_id: focus.scene_id, source_hash: hash, selection: Array.from(saved).slice(range.start_offset, range.end_offset).join(""), selection_start: range.start_offset, selection_end: range.end_offset, context_confirmation_id: focus.context_confirmation_id, context_confirmation_action: focus.context_confirmation_action, excluded_targets: focus.excluded_targets }, message: `${focus.task_hint === "polish" ? "只润色" : "修改"}所选文字，先给出精确替换预览，等待我确认。\n方向：${direction.proposal}\n保留要求：${instruction}` })
+      } catch (error) { if (owned(token)) state.error = error.message || "修订入口暂时无法打开。" }
+      return
+    }
     const token = generation, projectId = state.projectId
+    if (state.pendingPrepare && requestContextKey(state.pendingPrepare.body.context) !== requestContextKey(state.focus)) { state.error = "上次预览的资料范围已变化，请先从历史中核对原操作。"; return }
     state.busy = true; state.error = ""
     try {
       if (!state.pendingPrepare || state.pendingPrepare.candidateId !== item.candidate_id || state.pendingPrepare.body.action_id !== action.action_id) {
@@ -182,7 +222,7 @@ export function createForecast({ editor = () => null, composing = () => false } 
         if (hash && hash !== prepared.sourceHash) throw new Error("编辑器已有新的输入，请先保存后重新准备。")
       }
       const result = await getApi().assistant.decide(prepared.batch_id, { novel_id: projectId, fingerprint: prepared.batch_fingerprint, selected: ["selected"], confirmed: true })
-      if (owned(token)) { state.prepared = { ...prepared, outcome: result }; save() }
+      if (owned(token)) { state.prepared = { ...prepared, outcome: result }; save(); await refresh(token) }
     } catch (error) { if (owned(token)) state.error = error.message || "执行结果尚未确认，可以重试原确认。" }
     finally { if (owned(token)) state.busy = false }
   }
@@ -209,11 +249,14 @@ export function createForecast({ editor = () => null, composing = () => false } 
   }
   async function more() {
     if (!state.feed?.next_cursor || state.loading) return
-    const token = generation
+    const token = generation, request = ++readSeq
     state.loading = true
     try {
       const value = await api().feed(state.projectId, { context: state.focus, cursor: state.feed.next_cursor, max_items: 10, include_deferred: state.includeDeferred })
-      if (owned(token) && value.focus_seq === state.focus.focus_seq) state.feed = { ...value, items: Array.from(new Map([...state.feed.items, ...value.items].map(item => [item.candidate_id, item])).values()) }
+      if (owned(token) && request === readSeq && value.focus_seq === state.focus.focus_seq) {
+        if (sameFeedScope(state.feed, value)) state.feed = { ...value, items: Array.from(new Map([...state.feed.items, ...value.items].map(item => [item.candidate_id, item])).values()) }
+        else { state.feed = state.pendingFeed = null; state.stale = true; await refresh(token) }
+      }
     } catch (error) { if (owned(token)) state.error = error.message }
     finally { if (owned(token)) state.loading = false }
   }
@@ -234,7 +277,7 @@ export function createForecast({ editor = () => null, composing = () => false } 
     if (target.page === "today" || target.page === "project") return getRouter().navigate("writing", null, true, new URLSearchParams({ home: "1" }))
     if (target.page === "assistant") return getRouter().navigate("writing", null, true, new URLSearchParams({ panel: "assistant", ...(target.run_id ? { run_id: target.run_id } : {}), ...(target.tab ? { tab: target.tab } : {}) }))
   }
-  function invalidated() { generation++; workflow.resetMemoryScope(); state.feed = state.pendingFeed = state.prepared = state.preparationRun = state.run = null; state.instruction = ""; state.pending = state.pendingPrepare = null; state.available = false }
+  function invalidated() { generation++; workflow.resetMemoryScope(); state.focus = state.feed = state.pendingFeed = state.prepared = state.preparationRun = state.run = null; state.instruction = ""; state.pending = state.pendingPrepare = null; state.available = false; state.stale = true }
   globalThis.addEventListener?.(ACCOUNT_INVALIDATED_EVENT, invalidated)
   function dispose() { disposed = true; generation++; workflow.resetMemoryScope(); globalThis.removeEventListener?.(ACCOUNT_INVALIDATED_EVENT, invalidated) }
   return { state, configure, refresh, evaluate, recover, decide, prepare, confirm, cancel, saveAutomatic, acceptFeed, setInstruction, more, openDomain, resume, revisit, dispose, dirty }

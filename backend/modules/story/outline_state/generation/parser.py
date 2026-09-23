@@ -309,6 +309,54 @@ async def _review_structure_evidence(
     scene_by_id: dict[str, dict],
     high_quality: bool,
 ) -> tuple[SimpleStructureOutput, dict[str, int]]:
+    states, units, unit_map = _prepare_structure_evidence(output, scene_by_id)
+    review_calls = 0
+    call_failures = 0
+    raw_verdicts: list[str] = []
+    cache_usage: dict[str, int] = {}
+    for batch in _phase3_evidence_batches(units):
+        request = _phase3_evidence_request(
+            model=model,
+            batch=batch,
+            high_quality=high_quality,
+        )
+        review_calls += 1
+        batch_diagnostics: list[dict] = []
+        try:
+            reviewed = await run_managed_structured(
+                llm_client,
+                request,
+                StructureEvidenceReviewOutput,
+                step_name="outline.structure_parser.evidence_review",
+                max_fix_attempts=1,
+                transport_retries=True,
+                format_repair_attempts=1,
+                diagnostics=batch_diagnostics,
+                fix_prompt=(
+                    "只输出 JSON object，顶层仅含 reviews。每项必须逐字复用输入中的 "
+                    "candidate_id，并包含 verdict、confidence、evidence。"
+                ),
+            )
+            batch_usage = _cache_usage_summary(batch_diagnostics)
+            for key, value in batch_usage.items():
+                cache_usage[key] = cache_usage.get(key, 0) + int(value or 0)
+        except Exception as exc:
+            if isinstance(exc, AIRunEnvelopeError):
+                raise
+            call_failures += 1
+            logger.warning(
+                "Phase 3 evidence review batch failed: %s",
+                redact_diagnostic(exc, limit=300),
+            )
+            continue
+        raw_verdicts.extend(_apply_structure_evidence(states, unit_map, reviewed, batch))
+
+    return _materialize_structure_evidence(
+        output, states, review_calls, call_failures, raw_verdicts, cache_usage
+    )
+
+
+def _prepare_structure_evidence(output, scene_by_id):
     collections = (
         "plot_threads",
         "arcs",
@@ -377,74 +425,51 @@ async def _review_structure_evidence(
                     )
                     unit_map[unit_id] = (candidate_id, scene_id)
 
-    review_calls = 0
-    call_failures = 0
-    raw_verdicts: list[str] = []
-    cache_usage: dict[str, int] = {}
-    for batch in _phase3_evidence_batches(units):
-        request = _phase3_evidence_request(
-            model=model,
-            batch=batch,
-            high_quality=high_quality,
-        )
-        review_calls += 1
-        batch_diagnostics: list[dict] = []
-        try:
-            reviewed = await run_managed_structured(
-                llm_client,
-                request,
-                StructureEvidenceReviewOutput,
-                step_name="outline.structure_parser.evidence_review",
-                max_fix_attempts=1,
-                transport_retries=True,
-                format_repair_attempts=1,
-                diagnostics=batch_diagnostics,
-                fix_prompt=(
-                    "只输出 JSON object，顶层仅含 reviews。每项必须逐字复用输入中的 "
-                    "candidate_id，并包含 verdict、confidence、evidence。"
-                ),
-            )
-            batch_usage = _cache_usage_summary(batch_diagnostics)
-            for key, value in batch_usage.items():
-                cache_usage[key] = cache_usage.get(key, 0) + int(value or 0)
-        except Exception as exc:
-            if isinstance(exc, AIRunEnvelopeError):
-                raise
-            call_failures += 1
-            logger.warning(
-                "Phase 3 evidence review batch failed: %s",
-                redact_diagnostic(exc, limit=300),
-            )
-            continue
-        for review in reviewed.reviews:
-            expected = unit_map.get(review.candidate_id)
-            if expected is None:
-                continue
-            candidate_id, scene_id = expected
-            source_texts = [
-                str(source.get("text") or "")
-                for source in (
-                    (scene_by_id.get(scene_id) or {}).get("_evidence") or {}
-                ).get("sources", [])
-                if isinstance(source, dict)
-            ]
-            exact_evidence = [
-                {"scene_id": scene_id, **evidence.model_dump(mode="json")}
-                for evidence in review.evidence
-                if evidence.quote and any(evidence.quote in text for text in source_texts)
-            ]
-            verdict = review.verdict if exact_evidence else "uncertain"
-            raw_verdicts.append(review.verdict)
-            states[candidate_id]["reviews"].append(
-                {
-                    "scene_id": scene_id,
-                    "raw_verdict": review.verdict,
-                    "verdict": verdict,
-                    "confidence": review.confidence,
-                    "evidence": exact_evidence,
-                }
-            )
+    return states, units, unit_map
 
+
+def _apply_structure_evidence(states, unit_map, reviewed, batch):
+    expected = {item["candidate_id"] for item in batch}
+    actual = [item.candidate_id for item in reviewed.reviews]
+    if set(actual) != expected or len(actual) != len(expected):
+        for unit_id in expected:
+            states[unit_map[unit_id][0]]["reasons"].append("invalid_review_item_coverage")
+        return []
+    raw_verdicts = []
+    for review in reviewed.reviews:
+        expected = unit_map.get(review.candidate_id)
+        if expected is None:
+            continue
+        candidate_id, scene_id = expected
+        source_text = next(
+            item["scene_text"]
+            for item in batch
+            if item["candidate_id"] == review.candidate_id
+        )
+        exact_evidence = [
+            {"scene_id": scene_id, **evidence.model_dump(mode="json")}
+            for evidence in review.evidence
+            if evidence.quote and evidence.quote in source_text
+        ]
+        verdict = review.verdict if exact_evidence else "uncertain"
+        raw_verdicts.append(review.verdict)
+        states[candidate_id]["reviews"].append(
+            {
+                "scene_id": scene_id,
+                "raw_verdict": review.verdict,
+                "verdict": verdict,
+                "confidence": review.confidence,
+                "evidence": exact_evidence,
+            }
+        )
+
+    return raw_verdicts
+
+
+def _materialize_structure_evidence(
+    output, states, review_calls, call_failures, raw_verdicts, cache_usage
+):
+    collections = ("plot_threads", "arcs", "foreshadowing", "reveals", "turning_points")
     replacements: dict[str, list[SimpleSupportedStructureItem]] = {
         key: [] for key in collections
     }

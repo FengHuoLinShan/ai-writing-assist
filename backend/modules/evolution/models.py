@@ -67,6 +67,9 @@ class EvolutionRun(Base, UUIDMixin, NovelMixin):
         default=1,
         comment="切换或重建时推进；旧 epoch 的 worker 无提交权",
     )
+    project_owner_epoch: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
     active_engine: Mapped[str] = mapped_column(
         String(64),
         nullable=False,
@@ -83,8 +86,11 @@ class EvolutionRun(Base, UUIDMixin, NovelMixin):
         String(32),
         nullable=False,
         default="active",
-        comment="active / drained / stopped",
+        comment="active / drained / stopped / source_stale",
     )
+    invalidation_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    llm_snapshot_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    reading_plan_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     committed_scene_index: Mapped[int] = mapped_column(
         Integer,
         nullable=False,

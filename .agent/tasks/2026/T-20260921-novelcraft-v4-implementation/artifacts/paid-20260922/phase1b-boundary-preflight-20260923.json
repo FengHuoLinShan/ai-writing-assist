@@ -1,0 +1,10 @@
+{
+  "mode": "boundary_review_preflight",
+  "started_at": "2026-09-22T16:48:07.516302+00:00",
+  "database": "ai_novel_agent_e2e_v4_live_20260922",
+  "novel_id": "0a044d00-619d-4f5d-b391-422cd76aa495",
+  "old_run_key": "reading-0ae76589-054e-421e-857d-d495315c31ad",
+  "operation_id": "374f7573-6779-4254-bd4b-b239b97c72b2",
+  "stage": "failed",
+  "error_type": "AssertionError"
+}

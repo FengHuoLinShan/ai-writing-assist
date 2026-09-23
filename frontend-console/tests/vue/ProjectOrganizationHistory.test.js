@@ -26,7 +26,7 @@ beforeEach(() => {
     imports: {
       recentWorkflows: vi.fn(async () => ({
         items: [{ ...cancelled, ...(cleaned ? { cleanup_status: "complete", cleanup_eligible: false } : {}) }],
-        total: 1,
+        total: 1, can_continue: true,
       })),
       previewCancelledCleanup: vi.fn(async () => ({
         ...cancelled,
@@ -59,6 +59,17 @@ beforeEach(() => {
 afterEach(() => resetBridgeOverrides())
 
 describe("深度整理回收站", () => {
+  it("切换后仍展示历史但不提供旧任务继续或重算", async () => {
+    api.imports.recentWorkflows.mockResolvedValue({
+      can_continue: false, total: 1, items: [{ ...cancelled, recovery_required: true, failed_stages: ["scenes"] }],
+    })
+    const wrapper = mount(ProjectOrganizationHistory, { props: { projectId: "project-1" } })
+    await flushPromises()
+    expect(wrapper.text()).toContain("完整整理")
+    expect(wrapper.text()).toContain("不能从旧流程继续")
+    expect(wrapper.findAll("button").some(button => /从检查点继续|重新核对/.test(button.text()))).toBe(false)
+  })
+
   it("取消仅停止，作者预览范围并二次确认后才清理", async () => {
     const wrapper = mount(ProjectOrganizationHistory, { props: { projectId: "project-1" } })
     await flushPromises()

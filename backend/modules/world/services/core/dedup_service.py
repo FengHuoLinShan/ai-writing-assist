@@ -334,6 +334,14 @@ class EntityDedupService:
         if candidate.novel_id != nid or target.novel_id != nid:
             raise DomainValidationError("Cannot merge entities outside requested novel")
 
+        from modules.world.services.common import require_fresh_understanding_source
+
+        for item in (candidate, target):
+            if item.status != "canonical":
+                await require_fresh_understanding_source(
+                    db, novel_id, (item.content_json or {}).get("_meta")
+                )
+
         if target.status not in {"candidate", "draft", "canonical"}:
             raise DomainValidationError(
                 (
@@ -480,6 +488,15 @@ class EntityDedupService:
         candidate = await self._entity_repo.get(db, cid)
         if candidate is None:
             raise NotFoundError(f"Candidate entity {candidate_id} not found")
+
+        if str(candidate.novel_id) != str(novel_id):
+            raise NotFoundError(f"Candidate entity {candidate_id} not found")
+        from modules.world.services.common import require_fresh_understanding_source
+
+        if candidate.status != "canonical":
+            await require_fresh_understanding_source(
+                db, novel_id, (candidate.content_json or {}).get("_meta")
+            )
 
         suggestions = await self.find_similar_entities(
             db,
@@ -645,6 +662,14 @@ class EntityDedupService:
                 rel.relation_type,
             )
             if existing is not None and str(existing.id) != str(rel.id):
+                if existing.status == "canonical" and rel.status != "canonical":
+                    from modules.world.services.common import (
+                        require_fresh_understanding_source,
+                    )
+
+                    await require_fresh_understanding_source(
+                        db, str(nid), rel.review_meta
+                    )
                 # 合并描述到已有边，标记当前边为 deprecated
                 merged_desc = merge_text_field(existing.description, rel.description)
                 if merged_desc != (existing.description or ""):

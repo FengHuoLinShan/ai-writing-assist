@@ -1,0 +1,471 @@
+{
+  "mode": "frozen_counterexample_audit",
+  "started_at": "2026-09-22T17:06:14.438681+00:00",
+  "database": "ai_novel_agent_e2e_v4_live_20260922",
+  "novel_id": "0a044d00-619d-4f5d-b391-422cd76aa495",
+  "old_run_key": "reading-9489795b-7565-4e7e-a6d1-64631fd7c1c7",
+  "operation_id": "6f0a98ef-420a-4b36-b54d-c44cd4a32758",
+  "acceptance_type": "代理验收，非人工试用",
+  "source_attempt": "c5d0654212584ce7911fbf9041ac230e",
+  "source_hash": "dc3b0fa2c1438184fee588438805514d537dfbd5b1f6cd34568a8393da328bc1",
+  "cases": [
+    {
+      "label": "preserved_overgeneralization",
+      "candidate": {
+        "candidate_id": "phase1b-enriched-0001-69d3c6a3-435d-4791-a2c6-2cccc1fca106",
+        "phase": "phase1b_enrichment",
+        "title": "白石城的封锁消息",
+        "goal": "引入渡口封锁的消息，并强调林舟并未亲自确认，建立信息不确定性。",
+        "core_conflict": "",
+        "core_conflict_status": "not_applicable",
+        "phase1a_confidence": 0.76,
+        "boundary_basis": "这一段构成独立的信息单元：林舟在城中听青竹提及封锁，但本人未验证，为后续行动留下悬念。下一段发生时间跳转与地点变化，因此应在此断开。",
+        "emotional_beat": null,
+        "must_happen": "林舟通过青竹的转述获知渡口已被封锁，同时这一消息在 Scene 内保持未被林舟本人验证的状态（转述与未验证两个环节缺一不可）。",
+        "must_not_happen": "不得让林舟在本 Scene 内亲自抵达渡口、亲眼确认封锁，或用任何间接方式把这条转述坐实为已验证的事实。",
+        "narrative_tag": "hook",
+        "narrative_function": "以一句转述植入一个未经验证的封锁信息，用信息缺口而非情绪冲突建立阅读牵引：它既是故事开端的第一个悬念（渡口是否真的封锁、封锁意味着什么），也预埋了“听来的消息不可靠/需自行验证”的后续行动动机与信任变量。",
+        "phase1b_basis": "锁定卡目标为“引入渡口封锁的消息，并强调林舟并未亲自确认，建立信息不确定性”，与正文三句完全吻合：出现地点（白石城）、消息来源（青竹转述）、认识状态（未亲眼确认）。正文极短，无角色情绪反应、无冲突交锋、无状态变化描写，因此不虚构情绪运动；其实际贡献是开篇的信息性悬念与后续验证行动的因果起点，故归为 hook。来源窗口无前置已提交场景，缺乏更大结构参照，故叙事分类保留一定不确定性。",
+        "phase1b_field_evidence": {
+          "must_happen": [
+            "青竹说渡口已经封锁。",
+            "林舟并没有亲眼确认这句话。"
+          ],
+          "must_not_happen": [
+            "林舟并没有亲眼确认这句话。"
+          ]
+        },
+        "phase1b_field_statuses": {
+          "emotional_beat": "not_applicable",
+          "must_happen": "present",
+          "must_not_happen": "present",
+          "narrative_tag": "uncertain",
+          "narrative_function": "present"
+        },
+        "phase1b_uncertain_fields": [
+          "narrative_tag"
+        ],
+        "phase1b_confidence": 0.6,
+        "phase1b_context_fingerprint": "a892cea4a092810f3665ef46ffc0919c22f8bd45af0af4f0792598bec27b5f73",
+        "phase1b_source_fingerprint": "3ca0bb618d67e9310fdb5ee087700699393b12d8a11a6c51fbc6274e9b150176",
+        "scene_chunks": [
+          {
+            "chapter_index": 1,
+            "start_paragraph": 0,
+            "end_paragraph": null,
+            "start_offset": 0,
+            "end_offset": 34,
+            "source_draft_id": "c467b00f-2339-4a73-b387-8841b72e599d",
+            "source_content_hash": "fd613c0ab059835fde8f04af34a87f2a302fa3f94b625c4fe3b7cd96d8d778c6",
+            "anchor_hash": null,
+            "anchor_excerpt": null
+          }
+        ],
+        "source_candidate_ids": [
+          "69d3c6a3-435d-4791-a2c6-2cccc1fca106"
+        ],
+        "source_rounds": [
+          "A"
+        ],
+        "source_chapter_indices": [
+          1
+        ],
+        "operation": "kept",
+        "confidence": 0.6,
+        "fallback_required": false,
+        "discard_reasons": {},
+        "boundary_status": "complete",
+        "boundary_reason": "这一段构成独立的信息单元：林舟在城中听青竹提及封锁，但本人未验证，为后续行动留下悬念。下一段发生时间跳转与地点变化，因此应在此断开。",
+        "needs_review": false,
+        "review_reason": "Phase1b uncertain fields: narrative_tag."
+      },
+      "raw_review": {
+        "result": {
+          "findings": [
+            {
+              "kind": "conflict",
+              "severity": "major",
+              "message": "权威来源只说明林舟本人没有亲眼确认这条转述，输出却把禁令扩成“用任何间接方式把这条转述坐实为已验证的事实”，等于替作者规定“本 Scene 内任何渠道都不得使该消息获得验证”。这是把“未亲眼确认”的否定范围从单一视角扩大到全渠道封锁，属于超出原文的强制边界，会锁死作者后续合法的验证路径与信息流动空间。建议把约束收回到来源支持的范围，例如仅限定“本 Scene 内不得由林舟本人亲自核实”，删除对间接方式的普遍禁令。",
+              "excerpt": "不得让林舟在本 Scene 内亲自抵达渡口、亲眼确认封锁，或用任何间接方式把这条转述坐实为已验证的事实。",
+              "source_key": null
+            }
+          ],
+          "dimensions": [
+            {
+              "dimension": "prior_prose",
+              "checked": true,
+              "note": "related_context 显示此前无已提交场景、previous_committed_prefix 为空，前文散文不可得；输出未引用或改写任何前置散文，核验范围内无冲突。"
+            },
+            {
+              "dimension": "scene_state",
+              "checked": true,
+              "note": "地点（白石城）、消息来源（青竹转述）、认识状态（林舟未亲眼确认）与锁定场景一致；must_happen 与来源相符，must_not_happen 的否定范围被放大，另见 findings。"
+            },
+            {
+              "dimension": "imported_assets",
+              "checked": true,
+              "note": "本轮场景充实无外部导入资产或引用清单，输出未引入来源之外的实体、命名或引用，无越权取用问题。"
+            }
+          ],
+          "verdict": "blocked"
+        },
+        "paid_call_receipt": {
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "schema": "imports.scene_enrichment.audit.v1",
+          "outcome": "succeeded",
+          "usage": {
+            "prompt_tokens": 3321,
+            "completion_tokens": 2449,
+            "total_tokens": 5770,
+            "attempts": 1,
+            "succeeded_attempts": 1,
+            "unknown_attempts": 0,
+            "usage_complete": true
+          },
+          "attempts_detail": [
+            {
+              "attempt": 1,
+              "status": "succeeded",
+              "completion_tokens": 2449
+            }
+          ]
+        }
+      },
+      "review": {
+        "status": "blocked",
+        "repaired": false,
+        "coverage": [
+          {
+            "dimension": "prior_prose",
+            "covered_by": [
+              "scene_source"
+            ],
+            "omitted": false,
+            "omission_reason": null
+          },
+          {
+            "dimension": "scene_state",
+            "covered_by": [
+              "scene_context"
+            ],
+            "omitted": false,
+            "omission_reason": null
+          },
+          {
+            "dimension": "imported_assets",
+            "covered_by": [
+              "scene_context"
+            ],
+            "omitted": false,
+            "omission_reason": null
+          }
+        ],
+        "issue_counts": {
+          "conflict": 1,
+          "irrelevant_content": 0,
+          "missing_required": 0,
+          "out_of_scope_knowledge": 0,
+          "premature_reveal": 0,
+          "unchecked": 0,
+          "unsupported_fact": 0
+        },
+        "issues": [
+          {
+            "kind": "conflict",
+            "severity": "major",
+            "message": "权威来源只说明林舟本人没有亲眼确认这条转述，输出却把禁令扩成“用任何间接方式把这条转述坐实为已验证的事实”，等于替作者规定“本 Scene 内任何渠道都不得使该消息获得验证”。这是把“未亲眼确认”的否定范围从单一视角扩大到全渠道封锁，属于超出原文的强制边界，会锁死作者后续合法的验证路径与信息流动空间。建议把约束收回到来源支持的范围，例如仅限定“本 Scene 内不得由林舟本人亲自核实”，删除对间接方式的普遍禁令。",
+            "open_target": ""
+          }
+        ],
+        "audit_receipt": {
+          "kind": "knowledge_audit_receipt",
+          "policy_version": 1,
+          "capability": "imports.scene_enrichment",
+          "receipt_fingerprint": "113249b2846b0d381c67bc122315720cf9907a611a893009a2eb65009d8a80ff",
+          "plan_fingerprint": "d16d417c44762e2d54e1d68794547ae39a1dc98ee4db6e1fe47be00682f5f69c",
+          "output_hash": "bcdf9733cac7847e7877fe86f97023637e736326fe654805ec4443d52dbe65bd",
+          "verdict": "blocked",
+          "findings": [
+            {
+              "kind": "conflict",
+              "severity": "major",
+              "message": "权威来源只说明林舟本人没有亲眼确认这条转述，输出却把禁令扩成“用任何间接方式把这条转述坐实为已验证的事实”，等于替作者规定“本 Scene 内任何渠道都不得使该消息获得验证”。这是把“未亲眼确认”的否定范围从单一视角扩大到全渠道封锁，属于超出原文的强制边界，会锁死作者后续合法的验证路径与信息流动空间。建议把约束收回到来源支持的范围，例如仅限定“本 Scene 内不得由林舟本人亲自核实”，删除对间接方式的普遍禁令。",
+              "excerpt": "不得让林舟在本 Scene 内亲自抵达渡口、亲眼确认封锁，或用任何间接方式把这条转述坐实为已验证的事实。",
+              "source_key": null
+            }
+          ],
+          "coverage": [
+            {
+              "dimension": "prior_prose",
+              "covered_by": [
+                "scene_source"
+              ],
+              "omitted": false,
+              "omission_reason": null
+            },
+            {
+              "dimension": "scene_state",
+              "covered_by": [
+                "scene_context"
+              ],
+              "omitted": false,
+              "omission_reason": null
+            },
+            {
+              "dimension": "imported_assets",
+              "covered_by": [
+                "scene_context"
+              ],
+              "omitted": false,
+              "omission_reason": null
+            }
+          ],
+          "checked_at": "2026-09-22T17:06:27.301710+00:00"
+        }
+      }
+    },
+    {
+      "label": "corrected_constraint_control",
+      "candidate": {
+        "candidate_id": "phase1b-enriched-0001-69d3c6a3-435d-4791-a2c6-2cccc1fca106",
+        "phase": "phase1b_enrichment",
+        "title": "白石城的封锁消息",
+        "goal": "引入渡口封锁的消息，并强调林舟并未亲自确认，建立信息不确定性。",
+        "core_conflict": "",
+        "core_conflict_status": "not_applicable",
+        "phase1a_confidence": 0.76,
+        "boundary_basis": "这一段构成独立的信息单元：林舟在城中听青竹提及封锁，但本人未验证，为后续行动留下悬念。下一段发生时间跳转与地点变化，因此应在此断开。",
+        "emotional_beat": null,
+        "must_happen": "林舟通过青竹的转述获知渡口已被封锁，同时这一消息在 Scene 内保持未被林舟本人验证的状态（转述与未验证两个环节缺一不可）。",
+        "must_not_happen": "不得把青竹转述的封锁消息改为林舟亲眼证实的事实。",
+        "narrative_tag": "hook",
+        "narrative_function": "以一句转述植入一个未经验证的封锁信息，用信息缺口而非情绪冲突建立阅读牵引：它既是故事开端的第一个悬念（渡口是否真的封锁、封锁意味着什么），也预埋了“听来的消息不可靠/需自行验证”的后续行动动机与信任变量。",
+        "phase1b_basis": "锁定卡目标为“引入渡口封锁的消息，并强调林舟并未亲自确认，建立信息不确定性”，与正文三句完全吻合：出现地点（白石城）、消息来源（青竹转述）、认识状态（未亲眼确认）。正文极短，无角色情绪反应、无冲突交锋、无状态变化描写，因此不虚构情绪运动；其实际贡献是开篇的信息性悬念与后续验证行动的因果起点，故归为 hook。来源窗口无前置已提交场景，缺乏更大结构参照，故叙事分类保留一定不确定性。",
+        "phase1b_field_evidence": {
+          "must_happen": [
+            "青竹说渡口已经封锁。",
+            "林舟并没有亲眼确认这句话。"
+          ],
+          "must_not_happen": [
+            "林舟并没有亲眼确认这句话。"
+          ]
+        },
+        "phase1b_field_statuses": {
+          "emotional_beat": "not_applicable",
+          "must_happen": "present",
+          "must_not_happen": "present",
+          "narrative_tag": "uncertain",
+          "narrative_function": "present"
+        },
+        "phase1b_uncertain_fields": [
+          "narrative_tag"
+        ],
+        "phase1b_confidence": 0.6,
+        "phase1b_context_fingerprint": "a892cea4a092810f3665ef46ffc0919c22f8bd45af0af4f0792598bec27b5f73",
+        "phase1b_source_fingerprint": "3ca0bb618d67e9310fdb5ee087700699393b12d8a11a6c51fbc6274e9b150176",
+        "scene_chunks": [
+          {
+            "chapter_index": 1,
+            "start_paragraph": 0,
+            "end_paragraph": null,
+            "start_offset": 0,
+            "end_offset": 34,
+            "source_draft_id": "c467b00f-2339-4a73-b387-8841b72e599d",
+            "source_content_hash": "fd613c0ab059835fde8f04af34a87f2a302fa3f94b625c4fe3b7cd96d8d778c6",
+            "anchor_hash": null,
+            "anchor_excerpt": null
+          }
+        ],
+        "source_candidate_ids": [
+          "69d3c6a3-435d-4791-a2c6-2cccc1fca106"
+        ],
+        "source_rounds": [
+          "A"
+        ],
+        "source_chapter_indices": [
+          1
+        ],
+        "operation": "kept",
+        "confidence": 0.6,
+        "fallback_required": false,
+        "discard_reasons": {},
+        "boundary_status": "complete",
+        "boundary_reason": "这一段构成独立的信息单元：林舟在城中听青竹提及封锁，但本人未验证，为后续行动留下悬念。下一段发生时间跳转与地点变化，因此应在此断开。",
+        "needs_review": false,
+        "review_reason": "Phase1b uncertain fields: narrative_tag."
+      },
+      "raw_review": {
+        "result": {
+          "findings": [
+            {
+              "kind": "unsupported_fact",
+              "severity": "minor",
+              "message": "叙事功能字段把\"未亲眼确认\"进一步解释为\"听来的消息不可靠\"并断言本段\"预埋了后续行动动机与信任变量\"。原文只呈现转述与未验证这一信息状态，并未对消息真假或后续剧情动机作出任何交代；作为候选设计可以提出，但以\"预埋\"这种已然口吻表述，超出了三句原文可核验的范围。建议改为\"可解读为\"或标注为候选推论。",
+              "excerpt": "也预埋了“听来的消息不可靠/需自行验证”的后续行动动机与信任变量",
+              "source_key": "narrative_function"
+            },
+            {
+              "kind": "unchecked",
+              "severity": "minor",
+              "message": "boundary_basis 中\"下一段发生时间跳转与地点变化\"的判断来自锁定卡，本能力可见的源窗口只含当前段落，无法据此核验后段结构。转述锁定理由本身允许，但该断句依据在本轮资料内不可验证，宜标明为沿用锁定卡判断而非本轮复核结论。",
+              "excerpt": "下一段发生时间跳转与地点变化，因此应在此断开",
+              "source_key": "boundary_basis"
+            }
+          ],
+          "dimensions": [
+            {
+              "dimension": "prior_prose",
+              "checked": true,
+              "note": "已核对 related_context.committed_parent 与 previous_observations：无前置已提交正文、无前缀文本，生成输出未引用或补造任何前文内容。"
+            },
+            {
+              "dimension": "scene_state",
+              "checked": true,
+              "note": "已逐句比对 scene_source：地点（白石城）、消息来源（青竹）、内容（渡口封锁）、认识状态（林舟未亲眼确认）四项一致；must_happen/must_not_happen 未把\"未亲眼确认\"扩写为\"无从得知\"，也未对行程、未来披露加禁止性约束。"
+            },
+            {
+              "dimension": "imported_assets",
+              "checked": true,
+              "note": "已核对 scene_chunks、source_content_hash、source_draft_id、phase1a/phase1b 指纹与 source_candidate_ids：均原样承接锁定卡，未引入外部素材或跨场景设定。"
+            }
+          ],
+          "verdict": "pass"
+        },
+        "paid_call_receipt": {
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "schema": "imports.scene_enrichment.audit.v1",
+          "outcome": "succeeded",
+          "usage": {
+            "prompt_tokens": 3306,
+            "completion_tokens": 2652,
+            "total_tokens": 5958,
+            "attempts": 1,
+            "succeeded_attempts": 1,
+            "unknown_attempts": 0,
+            "usage_complete": true
+          },
+          "attempts_detail": [
+            {
+              "attempt": 1,
+              "status": "succeeded",
+              "completion_tokens": 2652
+            }
+          ]
+        }
+      },
+      "review": {
+        "status": "passed",
+        "repaired": false,
+        "coverage": [
+          {
+            "dimension": "prior_prose",
+            "covered_by": [
+              "scene_source"
+            ],
+            "omitted": false,
+            "omission_reason": null
+          },
+          {
+            "dimension": "scene_state",
+            "covered_by": [
+              "scene_context"
+            ],
+            "omitted": false,
+            "omission_reason": null
+          },
+          {
+            "dimension": "imported_assets",
+            "covered_by": [
+              "scene_context"
+            ],
+            "omitted": false,
+            "omission_reason": null
+          }
+        ],
+        "issue_counts": {
+          "conflict": 0,
+          "irrelevant_content": 0,
+          "missing_required": 0,
+          "out_of_scope_knowledge": 0,
+          "premature_reveal": 0,
+          "unchecked": 1,
+          "unsupported_fact": 1
+        },
+        "issues": [
+          {
+            "kind": "unsupported_fact",
+            "severity": "minor",
+            "message": "叙事功能字段把\"未亲眼确认\"进一步解释为\"听来的消息不可靠\"并断言本段\"预埋了后续行动动机与信任变量\"。原文只呈现转述与未验证这一信息状态，并未对消息真假或后续剧情动机作出任何交代；作为候选设计可以提出，但以\"预埋\"这种已然口吻表述，超出了三句原文可核验的范围。建议改为\"可解读为\"或标注为候选推论。",
+            "open_target": ""
+          },
+          {
+            "kind": "unchecked",
+            "severity": "minor",
+            "message": "boundary_basis 中\"下一段发生时间跳转与地点变化\"的判断来自锁定卡，本能力可见的源窗口只含当前段落，无法据此核验后段结构。转述锁定理由本身允许，但该断句依据在本轮资料内不可验证，宜标明为沿用锁定卡判断而非本轮复核结论。",
+            "open_target": ""
+          }
+        ],
+        "audit_receipt": {
+          "kind": "knowledge_audit_receipt",
+          "policy_version": 1,
+          "capability": "imports.scene_enrichment",
+          "receipt_fingerprint": "3a4001befebdb16205cfe5ae1123070140278ee24e7c902e2da1649ef462b548",
+          "plan_fingerprint": "c15e7a4cdc9c7aadc93c3a4e7334eeb13febf313e5026c8c99cc6b49f2992517",
+          "output_hash": "420e96dadb4f4503daa4cd6911129a8b4d2d6bb7af1c49209e442be02feb70b6",
+          "verdict": "pass",
+          "findings": [
+            {
+              "kind": "unsupported_fact",
+              "severity": "minor",
+              "message": "叙事功能字段把\"未亲眼确认\"进一步解释为\"听来的消息不可靠\"并断言本段\"预埋了后续行动动机与信任变量\"。原文只呈现转述与未验证这一信息状态，并未对消息真假或后续剧情动机作出任何交代；作为候选设计可以提出，但以\"预埋\"这种已然口吻表述，超出了三句原文可核验的范围。建议改为\"可解读为\"或标注为候选推论。",
+              "excerpt": "也预埋了“听来的消息不可靠/需自行验证”的后续行动动机与信任变量",
+              "source_key": "narrative_function"
+            },
+            {
+              "kind": "unchecked",
+              "severity": "minor",
+              "message": "boundary_basis 中\"下一段发生时间跳转与地点变化\"的判断来自锁定卡，本能力可见的源窗口只含当前段落，无法据此核验后段结构。转述锁定理由本身允许，但该断句依据在本轮资料内不可验证，宜标明为沿用锁定卡判断而非本轮复核结论。",
+              "excerpt": "下一段发生时间跳转与地点变化，因此应在此断开",
+              "source_key": "boundary_basis"
+            }
+          ],
+          "coverage": [
+            {
+              "dimension": "prior_prose",
+              "covered_by": [
+                "scene_source"
+              ],
+              "omitted": false,
+              "omission_reason": null
+            },
+            {
+              "dimension": "scene_state",
+              "covered_by": [
+                "scene_context"
+              ],
+              "omitted": false,
+              "omission_reason": null
+            },
+            {
+              "dimension": "imported_assets",
+              "covered_by": [
+                "scene_context"
+              ],
+              "omitted": false,
+              "omission_reason": null
+            }
+          ],
+          "checked_at": "2026-09-22T17:06:40.408178+00:00"
+        }
+      }
+    }
+  ],
+  "stage": "finished",
+  "transport_calls": 2,
+  "checks": {
+    "overgeneralization_blocked": true,
+    "corrected_control_passed": true
+  }
+}

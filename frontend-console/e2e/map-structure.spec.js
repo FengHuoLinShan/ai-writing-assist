@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { test, expect } from "./fixtures.js"
-import { API_BASE } from "./helpers/api-client.js"
+import { API_BASE, createEntity, createScene } from "./helpers/api-client.js"
 
 import { openWorkbench, reloadWorkbench } from "./helpers/workbench.js"
 
@@ -17,6 +17,26 @@ async function createMap(request, projectId) {
   expect(saved.ok()).toBeTruthy()
   return { ...node, current_revision_id: (await saved.json()).id }
 }
+
+test("地图人物位置保持未知并支持场景选择与窄屏", async ({ page, request, projectFactory, browserErrors }, testInfo) => {
+  const project = await projectFactory({ title: "地图在场 · 临时合成验收" })
+  await createEntity(project.id, { name: "青竹", entity_type: "character", status: "canonical", summary: "档案住址不能证明当前在场" })
+  const scene = await createScene(project.id, { scene_index: 0, title: "渡口相逢", chapter_ids: ["1"] })
+  await createMap(request, project.id)
+  await openWorkbench(page, project, "map")
+  const panel = page.locator(".map-scene-panel")
+  await panel.locator("summary").click()
+  await panel.getByLabel("看到哪个场景").selectOption(scene.id)
+  await expect(panel).toContainText("青竹")
+  await expect(panel).toContainText("位置未确定")
+  await expect(panel.getByRole("button", { name: "在地图上查看" })).toHaveCount(0)
+  await page.screenshot({ path: testInfo.outputPath("map-scene-desktop.png"), fullPage: true })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await panel.scrollIntoViewIfNeeded()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath("map-scene-mobile.png"), fullPage: true })
+  expect(browserErrors).toEqual([])
+})
 
 test("无需图片模型即可创建、编辑保存并进入城市子图", async ({ page, request, projectFactory }, testInfo) => {
   const project = await projectFactory({ title: "统一地图手动闭环" })
