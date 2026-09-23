@@ -10,9 +10,20 @@ V4 长期计划（`docs/plans/novelcraft-v4/plans/01-EVOLUTION.md`）的演化�
 
 - 来源身份：`SourceRevisionRef`（章节序号不独自承担来源身份；
   range_hash 由 content_hash + 偏移确定性推导）。场景步的来源绑定
-  （`pipeline.SceneSourceBinding`）锚定真实 Writing 草稿：指纹来自数据库，
-  采样文本必须与绑定草稿逐字一致，提交时再经同一来源重验——来源漂移
-  即整批作废，不消费旧冻结。
+  （`pipeline.SceneSourceBinding`，A02）锚定真实 Writing 草稿并携带码点
+  区间（start/end offset，缺省整章）：整稿指纹（版本门）与 Scene 区间
+  （来源门）分别验证，服务端按权威草稿取出区间精确切片与 scene_text
+  逐字比对（非自比较，不信任请求声称的正文）——同一章可分多个 Scene
+  各自推进；区间漂移、越界、整稿换版（含同长度替换）都判 source_changed。
+  任务层另经 outline_state 校验 scene_id 与章号的权威映射。观察的
+  SourceRevisionRef 偏移映射回草稿绝对空间，分段变化不复用旧观察身份。
+  已登记缺口：跨章 Scene 需多区间绑定契约，尚未支持。
+- 前序认知（A04）：`store.load_prior_observations` 覆盖最近
+  `PRIOR_OBSERVATION_WINDOW` 个已提交 Scene 的**结构化**观察（modality、
+  主体表面名、观察身份、来源 Scene），不再压成裸谓词——传闻在下一
+  Scene 的输入里仍是传闻；Prompt 按 modality 分级渲染并显式披露截断
+  （scenes_included / total_committed_scenes / omitted_observations，
+  未注入不等于不存在）。完整历史认知/持久知识查询仍属后续里程碑。
 - 观察：`ObservationEnvelope`（modality 区分事件/陈述/信念/假设/规划/比喻/不明；
   未解析提及保留 mention 身份，禁止伪造实体 UUID）。模型只输出表面名；
   提及身份由宿主按观察身份派生（`observations.derive_mention_id`），
@@ -71,9 +82,12 @@ V4 长期计划（`docs/plans/novelcraft-v4/plans/01-EVOLUTION.md`）的演化�
   推导之前落库；观察编译是纯确定性推导，恢复可在 sampled 阶段负载上重跑
   而不接触 provider。域提交失败回滚不抹掉预算预留与冻结负载；
   `pipeline.recover_scene_step` 与任务 handler 的恢复优先重放（已提交→
-  原回执幂等重放；compiled→免采样重提交；sampled→确定性重编译后提交；
-  sampling/failed→`SamplePendingReconciliationError` 待核对——请求已
-  发起或已失败、费用可能已发生，不得自动重采样，对账后登记新 run 重来）。
+  **任意已提交 Scene** 按稳定请求身份（`compute_scene_manifest_hash`：
+  run/scene/正文/整稿版本/区间）幂等重放原回执，不重采样不扣费；修订
+  请求指纹不同不套用旧回执（A08）；compiled→免采样重提交；sampled→
+  确定性重编译后提交；sampling/failed→`SamplePendingReconciliationError`
+  待核对——请求已发起或已失败、费用可能已发生，不得自动重采样，对账后
+  登记新 run 重来）。
 - 执行模式进入冻结/提交协议（A01）：影子 run 的冻结负载盖章
   `execution_mode=shadow`；首次执行与恢复经同一写入策略解析
   （`_resolve_step_applier`：run 登记模式或负载盖章任一为 shadow 即强制
@@ -92,6 +106,8 @@ V4 长期计划（`docs/plans/novelcraft-v4/plans/01-EVOLUTION.md`）的演化�
   观察-only sampler、故障注入、屏障顺序、单写者重入、计量回执）；
   `tests/test_audit_fixpack.py` + `tests/test_state_gate.py` 覆盖 2026-09-22
   审查 A01/A03/A07（影子恢复隔离、语义证据门、阶段化恢复与费用待核对）；
+  `tests/test_fixpack2.py` 覆盖同轮审查 A02/A04/A08（同章多 Scene 区间
+  来源、传闻保持传闻的前序注入与覆盖度、任意已提交 Scene 幂等回放）；
   `tests/e2e/test_evolution_single_writer_concurrency.py` 为真实 PG 双会话
   并发门禁。完整 G2（持续认知闭环、真实模型质量、独立 case 经 Evidence
   消费）在后续里程碑验收。

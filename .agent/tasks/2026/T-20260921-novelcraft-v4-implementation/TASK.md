@@ -345,6 +345,49 @@ root」），保持功能等价与公开演示路由白名单可达：
 - U 系列下一步候选：U02 选区/intent/单 feed store；R01 scope/snapshot/
   task/focus 分离。
 
+## V4 审查修复包 2（2026-09-22 会话 16，分支 codex/v4-audit-fixpack-1 续）
+
+用户指令「继续修复」，按审查报告第七节顺序实施修复包 2（A02/A04/A08，
+顺带 A09）：
+
+- **A02（P1）Scene 来源区间**：`SceneSourceBinding` 增码点区间
+  （start/end offset，缺省整章；end=None 落定稿尾；range_hash 可选自洽
+  校验）；`load_current_source` 重验整稿版本+权威区间切片——服务端按
+  草稿取出精确片段与 scene_text 逐字比对（非自比较），同章多 Scene 各自
+  推进；观察 SourceRevisionRef 偏移映射回草稿绝对空间（分段变化不复用
+  旧观察身份）；handler 请求带 start/end_offset 并经 outline_state 校验
+  scene_id↔章号权威映射。**已登记缺口：跨章 Scene 多区间绑定契约未做**
+  （审查回归清单中的跨章项仅部分覆盖，README 已注明）。审查反例修正趣闻：
+  首段同长度替换后，后段逐字未变、重绑新稿仍可推进——被拒的是旧绑定。
+- **A04（P1）结构化前序认知**：`store.load_prior_observations` 覆盖最近
+  `PRIOR_OBSERVATION_WINDOW=3` 个已提交 Scene 的结构化观察（modality/
+  主体表面名/观察身份/来源 Scene），SceneInputManifest.previous_observations
+  改 list[dict] + `previous_observations_coverage`（scenes_included/
+  total_committed_scenes/omitted_observations，未注入≠不存在）；
+  build_scene_messages 按 modality 分级渲染（"[belief] 谓词（主体：…；来自
+  Scene N）"，标题不再宣称"已确认的观察"，截断条数披露）。传闻在下一
+  Scene 输入保持传闻有专测。完整历史认知/持久知识查询仍属验收包 3。
+- **A08（P2）任意已提交 Scene 幂等回放**：`load_committed_scene_receipt`
+  按 scene_index + 稳定请求身份（新 `compute_scene_manifest_hash`：
+  run/scene/正文/整稿版本/区间，raw binding 口径）查任意已提交回执；
+  handler 重放判定用它——同请求重试拿原回执不重采样不扣费，修订请求
+  指纹不同不套用旧回执（走屏障拒绝）。旧 `load_scene_receipt`（仅链尾）
+  已删。0→1→2 后重复 0/1/2 + 修订不套用有专测。
+- **A09（P2）harness 精确 code**：stale-source 分支断言 `exc.code ==
+  "source_changed"`，报告新字段 stale_source_rejected_code，退出门禁校验
+  code 一致性（parent_advanced 混过判失败）；门禁测试加两条负向变异。
+
+验证：modules/evolution 130 通过（+9 fixpack2 +2 gates 变异）；
+story/writing 仅 5 例本机既有基线失败；venv ruff（0.16.7，**注意 anaconda
+0.16.2 格式化有版本差，须用 .venv/bin/python -m ruff**）全绿；docs-check
+带理由通过；deterministic harness 专用库重建 20 Scene 全绿（报告显示
+code='source_changed'）。harness venv 直跑需 PYTHONPATH=.（.venv 无项目
+安装）。
+
+审查遗留（未做）：A02 跨章多区间绑定；A04 完整历史认知/合法 cognition
+refs 消费（验收包 3）；验收包 3 不作弊 G2 重做、迁移包 4 canary/旧 owner
+退役、前端包 U02+；harness real 档复跑需授权。
+
 ## V4 审查修复包 1（2026-09-22 会话 15，分支 codex/v4-audit-fixpack-1）
 
 用户提交 NovelCraft-V4-PR-Goal-Audit-2026-09-22（A01–A09）。按报告建议顺序

@@ -302,8 +302,10 @@ async def test_g2_vertical_slice(
     )
     assert step1.input_manifest["previous_scene_attempt_id"] == (step0.receipt_attempt_id)
     assert step0.receipt_attempt_id in str(step1.input_manifest)
-    # 前序实际状态内容（观察摘要）进入输入清单——不靠回执 ID 冒充理解。
-    assert any("铜钥匙" in line for line in step1.input_manifest["previous_observations"])
+    # 前序实际状态内容进入输入清单（A04 结构化观察：谓词+modality+主体），
+    # 不靠回执 ID 冒充理解。
+    prior = step1.input_manifest["previous_observations"]
+    assert any("铜钥匙" in str(item.get("predicate", "")) for item in prior)
 
     # ---- 3. 新 case 消费同一合法状态：章节重放含 custody 知识 ----
     replay = await MemoryService().replay_state(db, nid, 2)

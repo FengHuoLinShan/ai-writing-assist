@@ -33,6 +33,7 @@ def _passing_report(sampler: str = "deterministic") -> HarnessReport:
         barrier_skip_rejected=True,
         rerun_same_attempt=True,
         stale_source_rejected=True,
+        stale_source_rejected_code="source_changed",
         quote_verbatim=True,
         mention_grounded=True,
         usage_recorded=True if sampler == "real" else None,
@@ -84,7 +85,17 @@ class TestExitCriteriaRejectsBrokenReports:
             ),
             (
                 lambda r: setattr(r, "stale_source_rejected", False),
-                "过期来源未被提交边界拒绝",
+                "过期来源未被提交边界以精确",
+            ),
+            (
+                # A09（2026-09-22 审查）：非 source_changed 的冲突 code 不得
+                # 计为"过期来源被正确拦截"——parent_advanced 混过是假阳性。
+                lambda r: setattr(r, "stale_source_rejected_code", "parent_advanced"),
+                "过期来源拒绝未断言精确 code",
+            ),
+            (
+                lambda r: setattr(r, "stale_source_rejected_code", None),
+                "过期来源拒绝未断言精确 code",
             ),
             (
                 lambda r: setattr(r, "quote_verbatim", False),

@@ -19,7 +19,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -28,8 +28,12 @@ from modules.evolution.store import PostgresAttemptStore
 
 DependencyStatus = Literal["committed", "blocked"]
 
+PRIOR_OBSERVATION_WINDOW = 3
+"""前序观察覆盖的已提交 Scene 窗口（A04）：不只看上一个 Scene，截断在
+manifest 覆盖度里显式披露，未注入不等于不存在。"""
+
 PRIOR_OBSERVATION_LIMIT = 20
-"""前序状态注入的有界条数：Prompt 携带真实理解但不无限膨胀。"""
+"""每个 Scene 注入的前序观察有界条数：Prompt 携带真实理解但不无限膨胀。"""
 
 
 class SceneInputManifest(BaseModel):
@@ -39,6 +43,11 @@ class SceneInputManifest(BaseModel):
     ``previous_observations`` 是 T07 断言面——后一 Scene 的实际输入里
     必须真的带着前一 Scene 的已提交回执身份**和**有界的前序状态内容，
     而不是按序落库碰巧相邻、也不是只传回执 ID 冒充理解。
+
+    ``previous_observations`` 是结构化条目（A04）：保留 modality、主体、
+    观察身份与来源 Scene——传闻/假设在输入里保持传闻/假设，不再压成
+    裸谓词冒充已确认事实；``previous_observations_coverage`` 披露窗口与
+    截断（未注入条数显式在册）。
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -49,7 +58,10 @@ class SceneInputManifest(BaseModel):
     dependency_status: DependencyStatus
     previous_scene_attempt_id: str | None = Field(default=None)
     previous_committed_prefix: CommittedPrefix | None = None
-    previous_observations: list[str] = Field(default_factory=list, max_length=64)
+    previous_observations: list[dict[str, Any]] = Field(
+        default_factory=list, max_length=64
+    )
+    previous_observations_coverage: dict[str, Any] | None = None
     blocked_reason: str | None = Field(default=None, max_length=500)
 
 
@@ -69,9 +81,7 @@ async def prepare_scene_input(
                 scene_index=scene_index,
                 source_manifest_hash=source_manifest_hash,
                 dependency_status="blocked",
-                blocked_reason=(
-                    "run 已提交过链头之后的回执，Scene 0 不能重复或倒序推进"
-                ),
+                blocked_reason=("run 已提交过链头之后的回执，Scene 0 不能重复或倒序推进"),
             )
         return SceneInputManifest(
             run_key=run_key,
@@ -99,7 +109,11 @@ async def prepare_scene_input(
                 f"下一步只接受 Scene {head_position + 1}（收到 Scene {scene_index}）"
             ),
         )
-    previous_observations = await store.load_head_observations(run_key)
+    previous_observations, coverage = await store.load_prior_observations(
+        run_key,
+        max_scenes=PRIOR_OBSERVATION_WINDOW,
+        per_scene_limit=PRIOR_OBSERVATION_LIMIT,
+    )
     return SceneInputManifest(
         run_key=run_key,
         scene_index=scene_index,
@@ -107,7 +121,8 @@ async def prepare_scene_input(
         dependency_status="committed",
         previous_scene_attempt_id=head.attempt_id,
         previous_committed_prefix=head.committed_prefix,
-        previous_observations=previous_observations[:PRIOR_OBSERVATION_LIMIT],
+        previous_observations=previous_observations,
+        previous_observations_coverage=coverage,
     )
 
 
@@ -153,9 +168,7 @@ def plan_parallel_batches(tasks: list[SceneTask]) -> list[list[SceneTask]]:
 
     for task in ordered:
         earliest = (
-            scene_max_batch.get(task.scene_index - 1, -1) + 1
-            if task.scene_index
-            else 0
+            scene_max_batch.get(task.scene_index - 1, -1) + 1 if task.scene_index else 0
         )
         placed = False
         for index in range(earliest, len(batches)):
