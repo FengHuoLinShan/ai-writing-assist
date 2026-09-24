@@ -3,7 +3,7 @@ id: T-20260924-agent-cli-adapters
 title: Agent 底座接入五种本机 CLI
 status: active
 created: 2026-09-24T00:24:52+08:00
-updated: 2026-09-24T09:35:00+08:00
+updated: 2026-09-24T09:45:00+08:00
 ---
 
 # Agent 底座接入五种本机 CLI
@@ -23,6 +23,8 @@ updated: 2026-09-24T09:35:00+08:00
 - 本机实现与验证不授权自动提交、推送、合并、部署或清理用户数据。
 
 - 2026-09-24 09:35 +08:00：为依次合并 PR #171/#172/#173，本分支已合入前两项当前 head，解决 16 处共享冲突，统一 Alembic 为 `editorial_assistant -> writing_comments -> local_agent_cli` 单 head。前瞻保留共享订阅 store 并接回本机 CLI 逐次授权；新增定向前端回归。合并后文档、Prompt、密钥、Ruff、前端 lint/build 均通过；后端 395 passed / 2 deselected，前端 203 passed；新建专用 PG 库从零迁移及 5 项 E2E 通过并已清理。远端 CI 与正式合并仍待核对。
+
+- 2026-09-24 09:45 +08:00：PR #173 Backend quality 的 6298 项已通过，仅 `test_every_module_test_directory_is_a_package` 因新 `local_agent/tests` 缺 `__init__.py` 失败；已补空包文件，本机 test harness 与 local_agent 24 passed，待远端复验。
 
 ## 验证
 
