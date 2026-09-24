@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +23,27 @@ from modules.world.services import (
 )
 from modules.world.services.core.dedup_service import EntityDedupService
 from modules.world.services.core.review_queue import default_alias_kind
+
+
+async def read_world_object_image(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    entity_id: str,
+    expected_version: str,
+    variant: Literal["thumbnail", "full"] = "full",
+) -> bytes:
+    """Read an authorized project image only while its reviewed version matches."""
+    from modules.world.world_object_images import WorldObjectImageService
+
+    return await WorldObjectImageService().get(
+        db,
+        novel_id=novel_id,
+        entity_id=entity_id,
+        expected_version=expected_version,
+        variant=variant,
+    )
+
 
 _entity_service = WorldEntityService()
 _context_service = EntityContextService()

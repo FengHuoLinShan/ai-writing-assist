@@ -12,6 +12,9 @@ task attempt 恢复沿用同一运行信封，消息树和公开 wire 不暴露�
 `legacy_untracked/usage_complete=false`；不更换已有 task/attempt ID，也不猜测历史用量。
 已在 `awaiting_continue` 的旧 attempt 不把历史分段当作未消费额度；续段授权后只有新分段
 46（legacy）/29（Agent）次可用额度，而非 92/58。
+独立知识审查返修所得的完整回复重新经过正文/元数据分帧，复审只看正文，发布时的
+行动建议以返修版本为准。历史不可变节点若含格式正确的元数据尾块，API、导出与后续
+Prompt 只投影故事正文，不改写原节点或私人审计记录。
 
 ## 定位
 
@@ -71,7 +74,9 @@ selection epoch 仍匹配的第一个结果可成为当前路径。Prompt、回�
   被关系扩展带回。
 - source 检索 query 由本轮输入、当前局面、重要人物、未决事项和最近发展确定性组成并有界
   截断；即使用户只说“继续”，也不会丢掉当前旅程态种子。
-- 对象目录只收录冻结 draft/hash chunk 能证明的版本内出场，并保存首次出场章和最早完整 chunk
+- 对象目录收录冻结 draft/hash chunk 能证明的版本内出场，以及已采用对象的名称身份 EvidenceLink
+  经准确原文回读后证明的人工精修出场（provenance `curated`，同一 canonical draft/hash/章）；
+  失效、待审或缺少回读的证据不纳入。保存首次出场章和最早完整 chunk／精确引文
   的 end offset；身份、搜索、固定项和生成激活都按剧情截止点过滤，未证明字段不进入 Prompt。
 - 关系只在其服务端 EvidenceLink 能回读并精确匹配当前冻结 `draft_id + source_hash + chapter` 时进入
   资料版本；仅有旧 `review_meta` 章节号、未定位证据或旧稿证据的关系会被省略。
@@ -286,3 +291,24 @@ attempt 和正文位置去重/补齐重叠片段，冲突或缺口读取同一 a
 project，额外拒绝匿名/demo。模型只接收已选正式发展和有效回顾；固定 source 不可用时
 失败关闭。路径、selection/source/overview epoch 变化会拒绝旧建议。预填只返回文字，
 不发送消息、不建立后继、不更新回顾或原作品。
+
+### 已整理资料的冻结刷新
+
+`POST /api/interactions/sources/{revision_id}/refresh` 仅允许来源项目 owner，持有项目写锁后
+重新检查正文、索引与精确 Scene 覆盖，读取当前已整理对象和锚点；此路径不调用模型或重新导入。
+资料变化时追加新版本与新指纹，正文 manifest 可以保持不变；无变化时复用最新匹配版本。
+旧冻结行、现有旅程绑定及私人剧情均保留，旅程仍经既有显式升级流程选择新版本。
+迁移 `20260923_rp_reference_refresh` 将正文 manifest 唯一约束改为检索索引，版本号唯一约束
+保留；正文过期、索引未就绪或歧义尚未消除时刷新失败，不伪造 ready。存在同正文多版本后，
+降级迁移会拒绝恢复旧唯一约束，不能通过删除旧资料版本或旅程来强行降级。
+
+### 作品开局目录
+
+`interaction_openings` 保存 owner 整理的开局文案、类型、固定 `JourneySourceSetup` 和可选的
+已审查配图版本，归属原作者项目；不保存生成回答。`/api/interactions/openings` 只列本人项目，
+PUT 持项目锁并比较 `expected_updated_at`，相同 payload 幂等复用。保存重验冻结来源及索引/Scene
+覆盖，配图对象必须在开局锚点前已登场且 `reviewed_for_anchor=true`。开始接口复用既有
+`InteractionService.create_journey` 和调用方幂等键，默认不启用看海或联网。原作不接收私人发展。
+前端“开始新旅程”先展示可用开局卡，选择即可进入；普通自定义向导保留。配图独立鉴权并绑定
+对象版本，版本变化不换图；开局可归档，不硬删。当前此目录为普通登录/本地账户路径，匿名路径
+仍经已有公开来源入口，尚未接入同一目录。

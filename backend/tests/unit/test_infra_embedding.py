@@ -647,7 +647,7 @@ class TestBgeOnnxWorkerStart:
             name="bge-worker",
         )
         process_mock.start.assert_called_once_with()
-        result_queue.get.assert_called_once_with(timeout=300.0)
+        result_queue.get.assert_called_once_with(timeout=1.0)
         assert worker._task_queue is task_queue
         assert worker._result_queue is result_queue
         assert worker._healthy is True
@@ -657,6 +657,36 @@ class TestBgeOnnxWorkerStart:
         task_queue.join_thread.assert_called_once_with()
         result_queue.close.assert_called_once_with()
         result_queue.join_thread.assert_called_once_with()
+
+    def test_start_detects_child_exit_without_waiting_for_cold_start_timeout(
+        self,
+    ) -> None:
+        import queue
+
+        from infrastructure.embedding.worker import BgeOnnxWorker
+
+        worker = BgeOnnxWorker(model_path="test", startup_timeout=300)
+        task_queue, result_queue, process = MagicMock(), MagicMock(), MagicMock()
+        result_queue.get.side_effect = queue.Empty
+        process.is_alive.return_value = False
+        with (
+            patch(
+                "infrastructure.embedding.worker.mp.Queue",
+                autospec=True,
+                side_effect=[task_queue, result_queue],
+            ),
+            patch(
+                "infrastructure.embedding.worker.mp.Process",
+                autospec=True,
+                return_value=process,
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="exited during initialization"):
+                worker.start()
+        result_queue.get.assert_called_once_with(timeout=1.0)
+        assert worker._process is None
+        task_queue.close.assert_called_once_with()
+        result_queue.close.assert_called_once_with()
 
     def test_start_worker_init_failure_raises(self) -> None:
         """RED: worker 初始化失败时抛出 RuntimeError"""

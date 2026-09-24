@@ -6,7 +6,7 @@ import uuid
 from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 from core.csrf import require_xhr_request
 from core.dependencies import DbSession
@@ -25,6 +25,11 @@ from modules.assistant.contracts import (
 )
 from modules.imports.contracts import MAX_IMPORT_FILE_SIZE
 from modules.imports.facade import apply_source_update, preview_source_update
+from modules.interaction.openings import (
+    InteractionOpeningService,
+    OpeningSaveRequest,
+    OpeningStartRequest,
+)
 from modules.interaction.schemas import (
     InteractionArchiveRequest,
     InteractionAttemptResponse,
@@ -77,6 +82,7 @@ router = APIRouter(prefix="/api/interactions", tags=["interactions"])
 demo_router = APIRouter(prefix="/api/demo", tags=["public-demo"])
 _service = InteractionService()
 _source_service = InteractionSourceService()
+_opening_service = InteractionOpeningService()
 _xhr = [Depends(require_xhr_request)]
 
 
@@ -170,6 +176,39 @@ def _source_preview_response(preview) -> InteractionSourceImportPreviewResponse:
 @router.get("/sources", response_model=InteractionSourceListResponse)
 async def list_sources(db: DbSession) -> InteractionSourceListResponse:
     return await _source_service.list_sources(db)
+
+
+@router.get("/openings")
+async def list_openings(db: DbSession, project_id: str | None = None):
+    if project_id:
+        await require_active_project(db, project_id)
+    return await _opening_service.list(db, project_id)
+
+
+@router.put("/openings/{opening_id}", dependencies=_xhr)
+async def save_opening(
+    db: DbSession, opening_id: str, project_id: str, data: OpeningSaveRequest
+):
+    await require_active_project(db, project_id)
+    return await _opening_service.save(db, project_id, opening_id, data)
+
+
+@router.get("/openings/{opening_id}/image")
+async def read_opening_image(db: DbSession, opening_id: str):
+    payload = await _opening_service.image(db, opening_id)
+    return Response(
+        payload, media_type="image/webp", headers={"Cache-Control": "private, no-store"}
+    )
+
+
+@router.post(
+    "/openings/{opening_id}/start",
+    response_model=InteractionMutationResponse,
+    status_code=201,
+    dependencies=_xhr,
+)
+async def start_opening(db: DbSession, opening_id: str, data: OpeningStartRequest):
+    return await _opening_service.start(db, opening_id, data)
 
 
 @router.post(
@@ -280,6 +319,17 @@ async def create_source_from_project(
         project_id=data.project_id,
         authorization_confirmed=data.authorization_confirmed,
     )
+
+
+@router.post(
+    "/sources/{revision_id}/refresh",
+    response_model=InteractionSourceRevisionResponse,
+    dependencies=_xhr,
+)
+async def refresh_source_references(
+    db: DbSession, revision_id: str
+) -> InteractionSourceRevisionResponse:
+    return await _source_service.refresh_references(db, revision_id)
 
 
 @router.get(

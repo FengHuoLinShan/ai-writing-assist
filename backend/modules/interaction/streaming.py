@@ -388,7 +388,7 @@ async def stream_anonymous_rp_attempt(
                 db,
                 task=task,
                 finish_reason=finish_reason,
-                metadata=metadata,
+                metadata=governed.get("metadata", metadata),
             )
             await db.commit()
             db.expire_all()

@@ -246,6 +246,7 @@ frontend-console/
 - 世界书内的“关联图”复用 `GET /api/world/knowledge-graph`：默认从当前页面读取一跳，可显式扩展到两跳或全局；可访问节点列表是主交互，SVG 只作最多 40 节点 / 80 边的辅助示意。结果会明确显示截断/部分扫描，并不把关联表述为依赖或变更影响。
 - 地图册 run 有空间资料摘要时才显示该摘要；它只表达核对/降级状态，不显示事实文本、来源键或 prompt，窄屏保持折叠可读。
 - 图片 wrapper 返回 Blob 并创建短期 Object URL；切换项目或视图时释放，不暴露对象 key。
+- Scene 详情可展示来源绑定的世界对象配图；读取时带上 Scene 固定的 `image_version`，对象图片更新后提示重新核对，避免悄悄显示另一个版本。
 - 所有 UI 文字为中文
 - 作者主流程的对象引用统一按名称搜索和选择；共享 `referencePicker` 仅把 ID 回写到现有隐藏字段/请求 payload。同名项用类型、状态和摘要消歧，无法解析的旧引用保留为“不可用引用”。Workflow、任务和原始 Scene ID 只位于折叠诊断区，并标记 `data-diagnostic-field`。
 - 全站默认现代简约，明暗偏好为 light/dark/system，解析结果为 light/dark。色值集中于

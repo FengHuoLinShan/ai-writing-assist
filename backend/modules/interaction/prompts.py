@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from infrastructure.llm.schemas import LLMMessage
 from infrastructure.llm.token_estimation import estimate_token_count
-from modules.interaction.framing import META_END, META_START
+from modules.interaction.framing import META_END, META_START, visible_story_content
 from modules.interaction.models import InteractionMessageNode
 from modules.interaction.schemas import (
     InteractionOverviewSections,
@@ -248,7 +248,15 @@ def compile_story_messages(
                     ),
                 )
             )
-    messages.extend(LLMMessage(role=node.role, content=node.content) for node in tail)
+    messages.extend(
+        LLMMessage(
+            role=node.role,
+            content=visible_story_content(node.content)
+            if node.role == "assistant"
+            else node.content,
+        )
+        for node in tail
+    )
     if continuation_text:
         messages.append(LLMMessage(role="assistant", content=continuation_text))
     if request_kind in {"see_sea", "see_sea_continue", "continue"}:

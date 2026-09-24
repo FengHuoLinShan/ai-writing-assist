@@ -989,6 +989,18 @@ const api = {
         options,
       )
     },
+    refreshSource(revisionId) {
+      return contractFetch("interactions.refreshSource", { revisionId })
+    },
+    listOpenings(params = {}) {
+      return contractFetch("interactions.listOpenings", {}, params, { cache: "no-store" })
+    },
+    fetchOpeningImage(openingId) {
+      return contractFetch("interactions.fetchOpeningImage", { openingId }, {}, { cache: "no-store", _responseType: "blob" })
+    },
+    startOpening(openingId, payload) {
+      return contractJson("interactions.startOpening", { openingId }, {}, payload)
+    },
     sourceFromProject(payload) {
       return contractJson(
         "interactions.sourceFromProject",
@@ -1383,11 +1395,12 @@ const api = {
     },
 
     async fetchEntityImage(id, novelId, variant = "full", options = {}) {
+      const { expectedVersion, ...requestOptions } = options
       return contractFetch(
         "world.fetchEntityImage",
         { id },
-        { novel_id: novelId, variant },
-        { cache: "no-store", _responseType: "blob", ...options },
+        { novel_id: novelId, variant, expected_version: expectedVersion },
+        { cache: "no-store", _responseType: "blob", ...requestOptions },
       )
     },
 

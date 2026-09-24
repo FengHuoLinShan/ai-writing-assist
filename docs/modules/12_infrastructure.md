@@ -141,6 +141,8 @@ reserve/settle 一次，缺 usage 记 unknown/possible；deadline 到期不再�
 deadline 前一刻发出的在途请求不会运行完整 provider timeout 越过 run 边界。远程 embedding
 经同一信封计量（provider 不返回用量，按 unknown/possible 落账，归属
 `infrastructure.embedding` step）；本地 BGE 是登记的非计费窄例外；健康检查不计费。
+本地 BGE 子进程保留 300 秒冷启动上限，每秒检查启动结果及子进程存活；子进程已退出时立即
+清理并报告启动失败，不等满冷启动窗口。应用实际检索是否降级须以运行回执验证。
 `managed_llm_steps` 保持 v0 五字段兼容，v1 由同一信封的 step receipt 派生。
 
 Task 路径把同一信封落在 `async_tasks.meta` 的私有键 `_ai_run_envelope`：worker 与 inline 在 handler

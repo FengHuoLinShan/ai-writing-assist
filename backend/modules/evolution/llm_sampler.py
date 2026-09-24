@@ -23,6 +23,10 @@ from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from infrastructure.llm.profiles import (
+    DEEPSEEK_THINKING_MODELS,
+    deepseek_reasoning_extra,
+)
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from modules.story.continuity.contracts import STATE_EVENT_DIMENSIONS
 
@@ -81,7 +85,7 @@ class SamplerSceneEvent(BaseModel):
     entity_id: str | None = None
     subject_surface: str | None = Field(default=None, max_length=200)
     snapshot_after: dict[str, Any] = Field(default_factory=dict)
-    source_observation_indices: list[int] = Field(default_factory=list, max_length=16)
+    source_observation_indices: list[int] = Field(default_factory=list, max_length=64)
     knowledge_subject: str | None = Field(default=None, max_length=120)
 
 
@@ -101,8 +105,14 @@ SYSTEM_PROMPT = (
     "unclear；提及只给表面名与类型，绝不编造实体 ID；不确定的内容放进 "
     "unresolved_parts，不要猜测。predicate 可以概括或还原代词，quote 必须保留原句的"
     "省略、代词和连词，不能把改写后的 predicate 当引用；无法逐字支持则留待核对。"
+    "只提取影响后续连续性的人物、关系、物件、地点、规则和转折，最多40条观察；"
+    "同一连续行动合并，背景摆设与修辞不逐句拆；超出容量时在 unresolved_parts"
+    "说明未覆盖范围，不宣称已经理解全部细节。回忆、传闻和角色推断保留主观模态，"
+    "不得直接升级为当前客观事件。"
     "引用重复出现时必须提供本段正文内的 Unicode "
     "码点半开区间 start_offset/end_offset；不要按 UTF-16 或字节计数。"
+    "拿不准重复引文的区间时，改选包含邻近上下文且唯一出现的连续原文；"
+    "仍不唯一就把该观察放进 unresolved_parts，不填 0–0 等猜测区间。"
     "scene_events 是状态提议，不是复述：每条"
     "必须用 source_observation_indices 引用本批观察的序号作为证据；客观"
     "状态变化只能基于 event_observed 观察，传闻/假设/角色陈述最多支撑"
@@ -186,6 +196,20 @@ def build_scene_messages(
     ]
 
 
+def _unique_whitespace_span(scene_text: str, quote: str) -> tuple[int, int, str] | None:
+    positions = [index for index, char in enumerate(scene_text) if not char.isspace()]
+    compact_scene = "".join(scene_text[index] for index in positions)
+    compact_quote = "".join(char for char in quote if not char.isspace())
+    if not compact_quote:
+        return None
+    start = compact_scene.find(compact_quote)
+    if start < 0 or compact_scene.find(compact_quote, start + 1) >= 0:
+        return None
+    left, right = positions[start], positions[start + len(compact_quote) - 1] + 1
+    exact = scene_text[left:right]
+    return (left, right, exact) if len(exact) <= 2000 else None
+
+
 class _StructuredClient(Protocol):
     async def generate_structured(
         self, request: LLMCallRequest, schema: type, **kwargs
@@ -261,7 +285,30 @@ class ProjectLLMSampler:
     async def _scene_call(self, request, schema, method):
         from modules.evolution.state_review import SceneCallFailedError
 
+        model = getattr(self._client, "model_name", None)
+        if model in DEEPSEEK_THINKING_MODELS and "thinking" not in request.extra:
+            output_budget = (
+                65536
+                if method
+                in {
+                    "imports.Phase2aSceneExtractionOutput.v1",
+                    "imports.AliasRelationExtractionOutput.v1",
+                    "imports.AuditVerdictOutput.v1",
+                }
+                else 32768
+            )
+            request = request.model_copy(
+                update={
+                    "extra": {**request.extra, **deepseek_reasoning_extra(model)},
+                    "max_tokens": max(request.max_tokens or 0, output_budget),
+                }
+            )
         diagnostics: list[dict[str, Any]] = []
+        options = (
+            {"partial_list_fields": {"uncertain_items"}}
+            if method == "imports.AliasRelationExtractionOutput.v1"
+            else {}
+        )
         try:
             result = await self._client.generate_structured(
                 request,
@@ -269,6 +316,7 @@ class ProjectLLMSampler:
                 diagnostics=diagnostics,
                 max_fix_attempts=0,
                 transport_retries=False,
+                **options,
             )
         except Exception as error:
             raise SceneCallFailedError(
@@ -292,11 +340,14 @@ class ProjectLLMSampler:
     async def sample(
         self, *, scene_text: str, input_manifest: dict[str, Any]
     ) -> dict[str, Any]:
+        flash = getattr(self._client, "model_name", None) in DEEPSEEK_THINKING_MODELS
         request = LLMCallRequest(
             messages=build_scene_messages(
                 scene_text=scene_text, input_manifest=input_manifest
             ),
-            temperature=0.2,
+            temperature=0.1,
+            max_tokens=16384 if flash else None,
+            extra=({"thinking": {"type": "disabled"}} if flash else {}),
         )
         diagnostics: list[dict[str, Any]] = []
         try:
@@ -326,13 +377,61 @@ class ProjectLLMSampler:
         self.last_call_receipt = receipt
         payload: dict[str, Any] = result.model_dump(mode="json")
         aligned = []
+        whitespace_aligned = []
+        kept = []
+        remap = {}
+        quarantined = []
         for index, observation in enumerate(payload["observations"]):
             quote = observation["quote"]
             start = scene_text.find(quote)
-            if start < 0 or scene_text.find(quote, start + 1) >= 0:
-                continue
+            if start < 0:
+                match = _unique_whitespace_span(scene_text, quote)
+                if match is None:
+                    quarantined.append(
+                        {
+                            "index": index,
+                            "reason": "quote_not_in_scene",
+                            "observation": observation,
+                        }
+                    )
+                    continue
+                start, _, quote = match
+                whitespace_aligned.append(
+                    {
+                        "observation_index": index,
+                        "declared_quote": observation["quote"],
+                        "resolved_quote": quote,
+                        "declared_offsets": [
+                            observation.get("start_offset"),
+                            observation.get("end_offset"),
+                        ],
+                        "resolved_offsets": [start, start + len(quote)],
+                    }
+                )
+                observation["quote"] = quote
+                observation["start_offset"] = start
+                observation["end_offset"] = start + len(quote)
             declared = [observation.get("start_offset"), observation.get("end_offset")]
             resolved = [start, start + len(quote)]
+            if scene_text.find(quote, start + 1) >= 0:
+                left, right = declared
+                if (
+                    type(left) is not int
+                    or type(right) is not int
+                    or not 0 <= left < right <= len(scene_text)
+                    or scene_text[left:right] != quote
+                ):
+                    quarantined.append(
+                        {
+                            "index": index,
+                            "reason": "ambiguous_duplicate_quote",
+                            "observation": observation,
+                        }
+                    )
+                    continue
+                remap[index] = len(kept)
+                kept.append(observation)
+                continue
             if declared != [None, None] and declared != resolved:
                 aligned.append(
                     {
@@ -342,10 +441,42 @@ class ProjectLLMSampler:
                     }
                 )
                 observation["start_offset"], observation["end_offset"] = resolved
+            remap[index] = len(kept)
+            kept.append(observation)
         if aligned:
             receipt["quote_alignment"] = {
                 "method": "exact-unique-scene/v1",
                 "changes": aligned,
+            }
+        if whitespace_aligned:
+            receipt["whitespace_alignment"] = {
+                "method": "unique-nonwhitespace-scene/v1",
+                "changes": whitespace_aligned,
+            }
+        # ponytail: quarantine at most three bad quotes; review larger failures.
+        if quarantined and kept and len(quarantined) <= 3:
+            dropped = {item["index"] for item in quarantined}
+            retained_events = []
+            dropped_events = []
+            for index, event in enumerate(payload["scene_events"]):
+                refs = event["source_observation_indices"]
+                if any(ref in dropped for ref in refs):
+                    dropped_events.append({"index": index, "event": event})
+                    continue
+                event["source_observation_indices"] = [
+                    remap.get(ref, ref) for ref in refs
+                ]
+                retained_events.append(event)
+            payload["observations"] = kept
+            payload["scene_events"] = retained_events
+            if len(payload["unresolved_parts"]) < 32:
+                payload["unresolved_parts"].append(
+                    f"{len(quarantined)} 条引文未能精确定位；"
+                    "相关状态提议已隔离，需人工核对。"
+                )
+            receipt["quote_quarantine"] = {
+                "observations": quarantined,
+                "scene_events": dropped_events,
             }
         payload["paid_call_receipt"] = receipt
         return payload
@@ -413,5 +544,15 @@ def build_call_receipt(
                 **({"error_kind": item["error_kind"]} if item.get("error_kind") else {}),
             }
             for item in attempts
+        ],
+        "validation_quarantine": [
+            {
+                "field": item["field"],
+                "kept": item["kept"],
+                "skipped": item["skipped"],
+                "errors": item["errors"],
+            }
+            for item in diagnostics
+            if item.get("kind") == "partial_list_validation"
         ],
     }

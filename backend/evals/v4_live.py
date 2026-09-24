@@ -1,10 +1,11 @@
-"""Opt-in V4 handler probe using the existing verified default, capped at USD 5."""
+"""Opt-in V4 handler probe using the existing verified default and spend ledger."""
 
 import argparse
 import asyncio
 import fcntl
 import hashlib
 import json
+import math
 import os
 import subprocess
 import sys
@@ -50,101 +51,195 @@ class Meter:
                 "calls": [],
             }
         )
-        if self.ledger["cap_usd"] != 5 or self.ledger["model"] != "deepseek-flash":
+        cap = self.ledger["cap_usd"]
+        if (
+            cap is not None
+            and (type(cap) not in (int, float) or not math.isfinite(cap) or cap <= 0)
+            or self.ledger["model"] != "deepseek-flash"
+        ):
             raise RuntimeError("Ledger does not match this authorization")
-        self.blocked = any(call["status"] != "settled" for call in self.ledger["calls"])
+        self.blocked = any(self._unresolved(call) for call in self.ledger["calls"])
+
+    @staticmethod
+    def _unresolved(call):
+        if call["status"] == "settled":
+            return False
+        resolution = call.get("budget_resolution") or {}
+        return not (
+            call["status"] == "usage_unknown"
+            and resolution.get("kind") == "authorized_reserved_cap"
+            and resolution.get("amount_usd") == call["cost_upper_usd"]
+            and call["cost_upper_usd"] > 0
+            and resolution.get("authorization")
+        )
+
+    def account_unknown_at_reserved_cap(self, sequence, *, request_hash, authorization):
+        """Record explicit budget authorization; actual usage stays unknown forever."""
+        call = next(c for c in self.ledger["calls"] if c["sequence"] == sequence)
+        if (
+            call["status"] != "usage_unknown"
+            or call["request_hash"] != request_hash
+            or not authorization.strip()
+            or call["cost_upper_usd"] <= 0
+        ):
+            raise ValueError("Expected the explicitly authorized unknown request")
+        if not call.get("budget_resolution"):
+            call["budget_resolution"] = {
+                "kind": "authorized_reserved_cap",
+                "amount_usd": call["cost_upper_usd"],
+                "authorization": authorization,
+                "recorded_at": datetime.now(UTC).isoformat(),
+                "retry_original": False,
+            }
+            save(self.path, self.ledger)
+        self.blocked = any(self._unresolved(c) for c in self.ledger["calls"])
+
+    def _reserve(self, provider, request):
+        calls = self.ledger["calls"]
+        if self.blocked:
+            raise RuntimeError("Unreconciled request: all further paid calls are blocked")
+        if (
+            provider._base_url.rstrip("/") != "https://api.deepseek.com"
+            or request.model not in FLASH_MODELS
+        ):
+            raise RuntimeError("The verified default does not match this price schedule")
+        if not request.max_tokens or request.max_tokens < 1:
+            raise RuntimeError("A finite output limit is required before spending")
+        payload = request.model_dump(mode="json")
+        encoded = json.dumps(payload, ensure_ascii=False).encode()
+        request_hash = hashlib.sha256(encoded).hexdigest()
+        if any(
+            call.get("budget_resolution") and call.get("request_hash") == request_hash
+            for call in calls
+        ):
+            raise RuntimeError("The unknown original request must not be retried")
+        reserve = ((len(encoded) + 4096) * 0.30 + request.max_tokens * 1.20) / 1_000_000
+        spent = sum(call["cost_upper_usd"] for call in calls)
+        cap = self.ledger["cap_usd"]
+        if cap is not None and spent + reserve > cap:
+            raise RuntimeError(
+                f"USD {cap:g} cap reached before the next provider request"
+            )
+        started = datetime.now(UTC)
+        call = {
+            "sequence": len(calls) + 1,
+            "status": "pending",
+            "started_at": started.isoformat(),
+            "cost_upper_usd": reserve,
+            "request_hash": request_hash,
+            "request": payload,
+        }
+        calls.append(call)
+        save(self.path, self.ledger)
+        return call, started, reserve
+
+    def _settle(self, call, started, reserve, response):
+        usage = response.usage
+        if (
+            not usage
+            or usage.total_tokens <= 0
+            or usage.prompt_tokens < 0
+            or usage.completion_tokens < 0
+        ):
+            raise RuntimeError(
+                "Usage unknown; reservation retained and paid calls stopped"
+            )
+        ended = datetime.now(UTC)
+        raw_usage = response.raw.get("usage") or {}
+        hits = raw_usage.get("prompt_cache_hit_tokens", 0)
+        if type(hits) is not int or not 0 <= hits <= usage.prompt_tokens:
+            hits = 0
+        factor = 1 if peak(started) or peak(ended) else 0.5
+        upper = (usage.prompt_tokens * 0.30 + usage.completion_tokens * 1.20) / 1_000_000
+        actual = (
+            (
+                (usage.prompt_tokens - hits) * 0.30
+                + hits * 0.006
+                + usage.completion_tokens * 1.20
+            )
+            * factor
+            / 1_000_000
+        )
+        call.update(
+            status="settled",
+            ended_at=ended.isoformat(),
+            cost_upper_usd=upper,
+            estimated_cost_usd=actual,
+            usage=usage.model_dump(),
+            cache_hit_tokens=hits,
+            price_band="peak" if factor == 1 else "off_peak",
+            provider_call_id=response.raw.get("id"),
+            model=response.model,
+            finish_reason=response.finish_reason,
+            content=response.content,
+        )
+        if upper > reserve:
+            call["status"] = "reservation_exceeded"
+            raise RuntimeError("Token reservation exceeded; further paid calls stopped")
+        save(self.path, self.ledger)
+
+    def _failed(self, call, error):
+        self.blocked = True
+        if call["status"] == "pending":
+            call.update(status="usage_unknown", error_type=type(error).__name__)
+        save(self.path, self.ledger)
 
     def wrap(self, original):
         async def metered(provider, request):
-            calls = self.ledger["calls"]
-            if self.blocked:
-                raise RuntimeError(
-                    "Unreconciled request: all further paid calls are blocked"
-                )
-            if (
-                provider._base_url.rstrip("/") != "https://api.deepseek.com"
-                or request.model not in FLASH_MODELS
-            ):
-                raise RuntimeError(
-                    "The verified default does not match this price schedule"
-                )
-            if not request.max_tokens or request.max_tokens < 1:
-                raise RuntimeError("A finite output limit is required before spending")
-            payload = request.model_dump(mode="json")
-            encoded = json.dumps(payload, ensure_ascii=False).encode()
-            reserve = (
-                (len(encoded) + 4096) * 0.30 + request.max_tokens * 1.20
-            ) / 1_000_000
-            spent = sum(call["cost_upper_usd"] for call in calls)
-            if spent + reserve > 5:
-                raise RuntimeError("USD 5 cap reached before the next provider request")
-            started = datetime.now(UTC)
-            call = {
-                "sequence": len(calls) + 1,
-                "status": "pending",
-                "started_at": started.isoformat(),
-                "cost_upper_usd": reserve,
-                "request_hash": hashlib.sha256(encoded).hexdigest(),
-                "request": payload,
-            }
-            calls.append(call)
-            save(self.path, self.ledger)
+            call, started, reserve = self._reserve(provider, request)
             try:
                 response = await original(provider, request)
-                usage = response.usage
-                if (
-                    not usage
-                    or usage.total_tokens <= 0
-                    or usage.prompt_tokens < 0
-                    or usage.completion_tokens < 0
-                ):
-                    raise RuntimeError(
-                        "Usage unknown; reservation retained and paid calls stopped"
-                    )
-                ended = datetime.now(UTC)
-                raw_usage = response.raw.get("usage") or {}
-                hits = raw_usage.get("prompt_cache_hit_tokens", 0)
-                if type(hits) is not int or not 0 <= hits <= usage.prompt_tokens:
-                    hits = 0
-                factor = 1 if peak(started) or peak(ended) else 0.5
-                upper = (
-                    usage.prompt_tokens * 0.30 + usage.completion_tokens * 1.20
-                ) / 1_000_000
-                actual = (
-                    (
-                        (usage.prompt_tokens - hits) * 0.30
-                        + hits * 0.006
-                        + usage.completion_tokens * 1.20
-                    )
-                    * factor
-                    / 1_000_000
-                )
-                call.update(
-                    status="settled",
-                    ended_at=ended.isoformat(),
-                    cost_upper_usd=upper,
-                    estimated_cost_usd=actual,
-                    usage=usage.model_dump(),
-                    cache_hit_tokens=hits,
-                    price_band="peak" if factor == 1 else "off_peak",
-                    provider_call_id=response.raw.get("id"),
-                    model=response.model,
-                    finish_reason=response.finish_reason,
-                    content=response.content,
-                )
-                if upper > reserve:
-                    call["status"] = "reservation_exceeded"
-                    raise RuntimeError(
-                        "Token reservation exceeded; further paid calls stopped"
-                    )
-                save(self.path, self.ledger)
+                self._settle(call, started, reserve, response)
                 return response
             except BaseException as error:
-                self.blocked = True
-                if call["status"] == "pending":
-                    call.update(status="usage_unknown", error_type=type(error).__name__)
-                save(self.path, self.ledger)
+                self._failed(call, error)
                 raise
+
+        return metered
+
+    def wrap_stream(self, original):
+        """Meter actual streamed chunks; cancellation retains the full reservation."""
+
+        async def metered(provider, request):
+            call, started, reserve = self._reserve(provider, request)
+            try:
+                stream = await original(provider, request)
+            except BaseException as error:
+                self._failed(call, error)
+                raise
+
+            async def observed():
+                usage, finish = None, None
+                content = []
+                try:
+                    async for chunk in stream:
+                        if chunk.usage is not None:
+                            usage = chunk.usage
+                        if chunk.finish_reason is not None:
+                            finish = chunk.finish_reason
+                        content.append(chunk.content or "")
+                        yield chunk
+                    call["streamed"] = True
+                    call["cache_usage_available"] = False
+                    self._settle(
+                        call,
+                        started,
+                        reserve,
+                        SimpleNamespace(
+                            usage=usage,
+                            raw={},
+                            model=request.model,
+                            finish_reason=finish,
+                            content="".join(content),
+                        ),
+                    )
+                except BaseException as error:
+                    self._failed(call, error)
+                    raise
+                finally:
+                    await stream.aclose()
+
+            return observed()
 
         return metered
 

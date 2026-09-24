@@ -22,8 +22,8 @@ from modules.writing.contracts import SourceRangeRefContract
 
 FeatureKey = Annotated[str, Field(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9:_.-]{0,95}$")]
 Coordinate = Annotated[float, Field(ge=-100000, le=100000, allow_inf_nan=False)]
-StructureLevel = Literal["region", "city", "district", "street"]
-STRUCTURE_LEVELS = {"region", "city", "district", "street"}
+StructureLevel = Literal["region", "city", "district", "street", "interior"]
+STRUCTURE_LEVELS = {"region", "city", "district", "street", "interior"}
 
 
 SpatialRelation = Literal[

@@ -63,6 +63,7 @@ from modules.world.entity_facade import (  # noqa: F401
     list_entities,
     list_entity_terms,
     merge_candidate_into_entity,
+    read_world_object_image,
     repair_deep_import_alias_metadata,
     rollback_deep_import_aliases_by_workflow,
     rollback_deep_import_relations_by_workflow,
@@ -117,6 +118,7 @@ check_knowledge_visibility = _check_knowledge_visibility_impl
 # Frozen cross-module API. New names require a deletion test, contract/README
 # update, and an explicit change to the public-surface regression test.
 __all__ = [
+    "read_world_object_image",
     "review_team_stress",
     "list_review_resolution_candidates",
     "authorize_review_resolution",

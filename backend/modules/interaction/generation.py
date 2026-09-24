@@ -938,7 +938,11 @@ class InteractionGenerationWorkflow:
             repair_request,
             step_name="interaction.story_generate.knowledge.repair",
         )
-        repaired_text = str(repair_response.content or "")
+        from modules.interaction.framing import frame_complete_story
+
+        repaired_text, repaired_metadata = frame_complete_story(
+            str(repair_response.content or "")
+        )
         repair_audit = await _audit(repaired_text)
         review = knowledge_review_payload(
             audit=repair_audit,
@@ -946,7 +950,12 @@ class InteractionGenerationWorkflow:
             visible_keys=scope_build.generator_keys,
         )
         if repair_audit.verdict == "pass":
-            return {"status": "passed", "text": repaired_text, "review": review}
+            return {
+                "status": "passed",
+                "text": repaired_text,
+                "metadata": repaired_metadata,
+                "review": review,
+            }
         return {"status": "blocked", "text": "", "review": review}
 
     async def finalize_story_task(

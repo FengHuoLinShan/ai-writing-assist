@@ -511,6 +511,42 @@ def test_phase2a_schema_rejects_relations_and_entity_aliases() -> None:
         )
 
 
+def test_phase2a_existing_identity_without_ref_stays_uncertain() -> None:
+    item = Phase2aEntityObservation.model_validate(
+        {
+            "name": "甲",
+            "entity_type": "character",
+            "identity_disposition": "existing",
+            "matched_existing_ref": "",
+            "evidence_quotes": ["甲走进房间。"],
+        }
+    )
+    assert item.identity_disposition == "uncertain"
+    assert item.matched_existing_ref is None
+    assert "model_existing_without_matched_ref" in item.uncertainties
+
+
+def test_relation_redundant_type_only_normalizes_when_identical() -> None:
+    from modules.imports.llm_schemas import Phase2bRelationObservation
+
+    payload = {
+        "source_ref": "new_0",
+        "target_ref": "new_1",
+        "relation_type": "owns",
+        "type": "owns",
+        "persistence_scope": "enduring",
+        "directionality": "directed",
+        "claim_status": "established",
+        "description": "甲拥有乙",
+        "basis": "原文直述",
+        "evidence_quotes": ["甲拥有乙。"],
+        "confidence": 0.9,
+    }
+    assert Phase2bRelationObservation.model_validate(payload).relation_type == "owns"
+    with pytest.raises(ValidationError):
+        Phase2bRelationObservation.model_validate({**payload, "type": "ally"})
+
+
 @pytest.mark.asyncio
 async def test_manual_alias_relation_entry_establishes_and_resets_project_context(
     monkeypatch: pytest.MonkeyPatch,

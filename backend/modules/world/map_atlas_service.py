@@ -967,7 +967,9 @@ class MapAtlasService:
         )
         new_level = data.level or node.level
         if node.current_revision_id is not None and new_level not in STRUCTURE_LEVELS:
-            raise ValidationError("已有位置示意的地图只能使用区域、城市、街区或街道层级")
+            raise ValidationError(
+                "已有位置示意的地图只能使用区域、城市、街区、街道或室内层级"
+            )
         if new_parent_id == node.id:
             raise ValidationError("地图节点不能成为自己的上级")
         parent = by_id.get(new_parent_id) if new_parent_id else None

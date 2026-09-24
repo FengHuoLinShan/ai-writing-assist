@@ -50,6 +50,7 @@ WORLD_FACADE_API = {
     "get_characters_context",
     "get_deep_import_alias_metadata_summary",
     "get_entity_importance_map",
+    "read_world_object_image",
     "get_entity_relations",
     "get_entity_revisions",
     "get_events_context",

@@ -16,13 +16,18 @@
       <p v-if="context.freshness === 'partial'" role="status">部分地图来源已变化，相关人物只列文字，等待核对。</p>
       <p v-if="!context.presence_items.length">本书还没有可展示的人物位置。</p>
       <ul class="map-presence-list">
-        <li v-for="item in context.presence_items" :key="item.character_id">
+        <li v-for="item in locatedPeople" :key="item.character_id">
           <strong>{{ item.character_name }}</strong>
           <span>{{ presenceLabel(item) }}</span>
+          <small v-if="item.source_receipt.source === 'agent_curation'">代理精修</small>
           <button v-if="item.feature_id" class="btn btn-sm" @click="$emit('locate', item.feature_id)">在地图上查看</button>
           <button v-if="item.source_receipt.chapter_index" class="btn btn-sm" @click="openSource(item.source_receipt)">查看第 {{ item.source_receipt.chapter_index }} 章依据</button>
         </li>
       </ul>
+      <details v-if="unknownPeople.length">
+        <summary>{{ unknownPeople.length }} 名人物位置未确定</summary>
+        <p class="map-caption">{{ unknownPeople.map(item => item.character_name).join('、') }}。未找到这个截止点前的明确位置依据，不在地图上推定位置。</p>
+      </details>
       <details v-if="context.history.length"><summary>出现记录与未知行程</summary>
         <ol><li v-for="(item, index) in context.history" :key="index">{{ item.character_name }} · 场景 {{ item.scene_index + 1 }} · {{ item.location }}</li></ol>
         <p v-for="(route, index) in context.routes" :key="index">{{ characterName(route.character_id) }}：{{ route.from_location }} → {{ route.to_location }} · {{ route.status === 'unknown' ? '中间路线未知' : '有移动事件依据；距离与耗时未核定' }}</p>
@@ -34,12 +39,14 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { getApi } from '../../bridge/index.js'
 const props = defineProps({ projectId: { type: String, required: true }, nodeId: { type: String, required: true }, revisionId: { type: String, required: true } })
 const emit = defineEmits(['locate', 'open-source'])
 const panel = ref(null)
 const scenes = ref([]), sceneId = ref(''), context = ref(null), busy = ref(false), loaded = ref(false), error = ref('')
+const locatedPeople = computed(() => (context.value?.presence_items || []).filter(item => item.presence_kind !== 'unknown'))
+const unknownPeople = computed(() => (context.value?.presence_items || []).filter(item => item.presence_kind === 'unknown'))
 let epoch = 0
 const api = () => getApi()
 async function loadScenes() {

@@ -792,3 +792,125 @@ async def test_source_list_includes_author_project_without_revision(
 
     project = next(item for item in result.projects if item.project_id == str(project_id))
     assert project.latest_revision is None
+
+
+async def test_curated_appearance_requires_read_back_and_exact_frozen_source(db_session):
+    draft_id = str(uuid.uuid4())
+    source_hash = "a" * 64
+    ref = {
+        "draft_id": draft_id,
+        "source_hash": source_hash,
+        "chapter_index": 2,
+        "content_mode": "canonical",
+        "end_offset": 45,
+    }
+    valid = {
+        "status": "active",
+        "read": {"text": "原文"},
+        "provenance": {"source": "curated"},
+        "source_ref": ref,
+    }
+    links = [
+        valid,
+        {**valid, "status": "needs_review"},
+        {**valid, "read": None},
+        {**valid, "provenance": {"source": "generated"}},
+        {**valid, "source_ref": {**ref, "source_hash": "b" * 64}},
+        {**valid, "source_ref": {**ref, "content_mode": "working"}},
+        {**valid, "source_ref": {**ref, "chapter_index": 1}},
+    ]
+    with patch(
+        "modules.interaction.source_service.trace_novel_evidence",
+        autospec=True,
+        return_value={"links": links},
+    ) as trace:
+        sources = await InteractionSourceService._curated_identity_sources(
+            db_session,
+            source_id=str(uuid.uuid4()),
+            entity_id=str(uuid.uuid4()),
+            frozen_sources={draft_id: (source_hash, 2)},
+        )
+    assert sources == [ref]
+    assert trace.call_args.kwargs["claim_path"] == "name"
+
+
+async def test_manual_object_enters_reference_catalog_using_terms_status(db_session):
+    entity_id, draft_id = str(uuid.uuid4()), str(uuid.uuid4())
+    revision = SimpleNamespace(
+        source_novel_id=uuid.uuid4(),
+        manifest_hash="f" * 64,
+        source_manifest=[
+            {"draft_id": draft_id, "source_hash": "a" * 64, "chapter_index": 1}
+        ],
+    )
+    service = InteractionSourceService()
+    # list_entities intentionally returns only id/name/type, never status.
+    entity = {"id": entity_id, "name": "早期居所", "entity_type": "location"}
+    with (
+        patch(
+            "modules.interaction.source_service.get_manifest_entity_appearances",
+            autospec=True,
+            return_value={},
+        ),
+        patch(
+            "modules.interaction.source_service.list_entities",
+            autospec=True,
+            return_value=[entity],
+        ),
+        patch(
+            "modules.interaction.source_service.list_entity_terms",
+            autospec=True,
+            return_value=[{**entity, "status": "canonical", "terms": ["早期居所"]}],
+        ),
+        patch.object(
+            service,
+            "_curated_identity_sources",
+            autospec=True,
+            return_value=[
+                {
+                    "chapter_index": 1,
+                    "end_offset": 50,
+                    "draft_id": draft_id,
+                    "source_hash": "a" * 64,
+                }
+            ],
+        ),
+        patch(
+            "modules.interaction.source_service.get_world_context",
+            autospec=True,
+            return_value=SimpleNamespace(entities=[]),
+        ),
+        patch(
+            "modules.interaction.source_service.list_characters",
+            autospec=True,
+            return_value=([], 0),
+        ),
+        patch(
+            "modules.interaction.source_service.get_characters_context",
+            autospec=True,
+            return_value=SimpleNamespace(characters=[]),
+        ),
+        patch(
+            "modules.interaction.source_service.get_character_knowledge_entries",
+            autospec=True,
+            return_value=[],
+        ),
+        patch(
+            "modules.interaction.source_service.get_entity_relations",
+            autospec=True,
+            return_value=([], 0),
+        ),
+    ):
+        references, ambiguities = await service._reference_manifest(db_session, revision)
+    assert not ambiguities
+    assert references[0]["identity_source_refs"][0]["draft_id"] == draft_id
+    assert [
+        (r["target_id"], r["first_chapter_index"], r["first_end_offset"])
+        for r in references
+    ] == [(entity_id, 1, 50)]
+    assert not service.reference_visible(
+        revision, references[0], {"chapter_index": 1, "end_offset": 49}
+    )
+    assert service.reference_visible(
+        revision, references[0], {"chapter_index": 1, "end_offset": 50}
+    )

@@ -8,7 +8,7 @@ from collections.abc import Iterable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.errors import NotFoundError
+from core.errors import NotFoundError, ValidationError
 from infrastructure.llm.token_estimation import estimate_token_count
 from modules.evidence.compilation.contracts import (
     INTERACTION_SOURCE_CONTEXT_MAX_TOKENS,
@@ -20,6 +20,7 @@ from modules.evidence.compilation.services.snapshot_service import (
     ContextSnapshotService,
 )
 from modules.evidence.indexing.facade import retrieve
+from modules.writing.contracts import SourceRangeRefContract
 
 
 class InteractionStoryContextService:
@@ -256,6 +257,7 @@ class InteractionStoryContextService:
         )
         excerpts: list[dict] = []
         validated_targets: set[str] = set()
+        proof_by_target: dict[str, dict] = {}
         for chunk in retrieval.chunks:
             chunk_targets = {
                 str(value) for value in [*chunk.character_ids, *chunk.entity_ids]
@@ -268,8 +270,49 @@ class InteractionStoryContextService:
             excerpts.append(read)
             for target_id in [*chunk.character_ids, *chunk.entity_ids]:
                 validated_targets.add(str(target_id))
+                proof_by_target.setdefault(str(target_id), read)
                 item = object_by_target.get(str(target_id))
                 activate(item.get("reference_key") if item else None, "原文片段关联")
+
+        # Manual identity evidence is frozen with the source revision. Re-read
+        # that exact range; never use today's mutable object summary as proof.
+        for key in ordered_keys:
+            item = references[key]
+            target = str(item.get("target_id") or "")
+            if target in validated_targets or item.get("entity_type") == "relation":
+                continue
+            for raw in item.get("identity_source_refs") or []:
+                if exact_manifest.get(raw.get("draft_id")) != raw.get("source_hash"):
+                    continue
+                # Character mode may only reuse ranges already admitted by the
+                # character-filtered retrieval; a Scene alone proves no knowledge.
+                if viewpoint_id and not any(
+                    read["source_ref"]["draft_id"] == raw.get("draft_id")
+                    and read["source_ref"]["start_offset"] <= raw.get("start_offset", -1)
+                    and read["source_ref"]["end_offset"] >= raw.get("end_offset", 0)
+                    for read in excerpts
+                ):
+                    continue
+                try:
+                    read = await self._evidence.read(
+                        db,
+                        novel_id=source_novel_id,
+                        source_ref=SourceRangeRefContract(**raw),
+                        visibility=visibility,
+                        before=0,
+                        after=0,
+                    )
+                except (NotFoundError, ValidationError, ValueError, TypeError):
+                    continue
+                if any(
+                    str(ref.get("target_id")) in ignored_targets
+                    for ref in read.get("object_refs") or []
+                ):
+                    continue
+                excerpts.append(read)
+                validated_targets.add(target)
+                proof_by_target[target] = read
+                break
 
         unverified_required = [
             key
@@ -330,6 +373,12 @@ class InteractionStoryContextService:
             ),
         ]
         included_keys = [key for key in ordered_keys if key in mandatory]
+        included_reads: list[dict] = []
+        for key in included_keys:
+            proof = proof_by_target[str(references[key]["target_id"])]
+            if proof not in included_reads:
+                blocks.append(self._excerpt_block(proof))
+                included_reads.append(proof)
         if player_identity.get("reference_key") in references:
             knowledge = self._knowledge_block(
                 references[str(player_identity["reference_key"])],
@@ -362,8 +411,9 @@ class InteractionStoryContextService:
                 continue
             blocks.append(candidate)
             included_keys.append(key)
-        included_reads: list[dict] = []
         for read in excerpts:
+            if read in included_reads:
+                continue
             candidate = self._excerpt_block(read)
             if estimate_token_count("\n\n".join([*blocks, candidate])) > budget_tokens:
                 break

@@ -23,6 +23,26 @@ from sqlalchemy.orm import Mapped, mapped_column
 from core.base import Base, NovelMixin, TimestampMixin, UUIDMixin, UUIDType
 
 
+class InteractionOpening(Base, NovelMixin, UUIDMixin, TimestampMixin):
+    """Owner-curated entry card reusing a frozen source and normal journey creation."""
+
+    __tablename__ = "interaction_openings"
+
+    source_revision_id: Mapped[uuid.UUID] = mapped_column(
+        UUIDType,
+        ForeignKey("interaction_source_revisions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    title: Mapped[str] = mapped_column(String(120), nullable=False)
+    description: Mapped[str] = mapped_column(String(1000), nullable=False)
+    experience_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_setup: Mapped[dict] = mapped_column(JSON, nullable=False)
+    opening_text: Mapped[str] = mapped_column(Text, nullable=False)
+    image_reference: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
 class InteractionSourceRevision(Base, UUIDMixin, TimestampMixin):
     """Immutable same-owner author-project snapshot used by RP journeys."""
 
@@ -41,10 +61,10 @@ class InteractionSourceRevision(Base, UUIDMixin, TimestampMixin):
             "version_number",
             name="uq_interaction_source_revision_version",
         ),
-        UniqueConstraint(
+        Index(
+            "ix_interaction_source_revision_manifest",
             "source_novel_id",
             "manifest_hash",
-            name="uq_interaction_source_revision_manifest",
         ),
         Index(
             "ix_interaction_source_revision_owner_status",

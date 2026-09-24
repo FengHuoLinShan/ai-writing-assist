@@ -538,10 +538,10 @@ async def test_freeze_candidate_is_dry_run_by_default_and_writes_only_after_gate
         )
 
     async def references(_db, _revision):  # noqa: ANN001
-        return [reference], []
+        return [dict(reference)], []
 
     async def anchors(_db, _revision):  # noqa: ANN001
-        return [anchor]
+        return [{**anchor, "anchor_key": str(_revision.id)}]
 
     monkeypatch.setattr(source_module, "get_project_context", project_context)
     monkeypatch.setattr(source_module, "list_effective_chapter_indices", chapter_indices)
@@ -573,6 +573,35 @@ async def test_freeze_candidate_is_dry_run_by_default_and_writes_only_after_gate
     assert list(
         (await db_session.execute(select(InteractionSourceRevision))).scalars()
     ) == [stored]
+
+    unchanged, created = await service.materialize_frozen_source_candidate(
+        db_session, project_id=str(project_id), execute=True, refresh_existing=True
+    )
+    assert not created and unchanged.id == stored.id
+    original_fingerprint = stored.fingerprint
+    reference["summary"] = "新核对的人物资料"
+    refreshed, created = await service.materialize_frozen_source_candidate(
+        db_session, project_id=str(project_id), execute=True, refresh_existing=True
+    )
+    assert created and refreshed.id != stored.id
+    assert refreshed.version_number == stored.version_number + 1
+    assert refreshed.parent_revision_id == stored.id
+    assert refreshed.manifest_hash == stored.manifest_hash
+    assert stored.fingerprint == original_fingerprint
+    assert "summary" not in stored.reference_manifest[0]
+    latest = await service._repo.source_revision_by_manifest(
+        db_session,
+        source_novel_id=project_id,
+        owner_id=owner.id,
+        manifest_hash=stored.manifest_hash,
+    )
+    assert latest.id == refreshed.id
+
+
+async def test_reference_refresh_rejects_another_owner(db_session, project_factory):
+    revision, _anchor, _reference = await _public_source(db_session, project_factory)
+    with pytest.raises(NotFoundError):
+        await InteractionSourceService().refresh_references(db_session, str(revision.id))
 
 
 async def test_anonymous_attempt_claim_is_single_owner_and_blocks_background_modes(

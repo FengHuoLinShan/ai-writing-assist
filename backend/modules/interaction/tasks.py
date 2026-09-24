@@ -298,7 +298,7 @@ async def handle_interaction_story_generate(db, task):
             db,
             task=task,
             finish_reason=finish_reason,
-            metadata=metadata,
+            metadata=governed.get("metadata", metadata),
         )
     except Exception as exc:
         trailing, _, _ = framer.finish()

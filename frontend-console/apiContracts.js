@@ -119,8 +119,14 @@
     }),
 
     "interactions.listJourneys": define("GET", () => "/interactions/journeys"),
+    "interactions.listOpenings": define("GET", () => "/interactions/openings"),
+    "interactions.fetchOpeningImage": define("GET", ({ openingId }) => `/interactions/openings/${required(openingId, "openingId", "interactions.fetchOpeningImage")}/image`, { requiredParams: ["openingId"] }),
+    "interactions.startOpening": define("POST", ({ openingId }) => `/interactions/openings/${required(openingId, "openingId", "interactions.startOpening")}/start`, { requiredParams: ["openingId"], hasBody: true, requiredBody: ["idempotency_key"] }),
     "interactions.listSources": define("GET", () => "/interactions/sources"),
     "interactions.getSource": define("GET", ({ revisionId }) => `/interactions/sources/${required(revisionId, "revisionId", "interactions.getSource")}`, {
+      requiredParams: ["revisionId"],
+    }),
+    "interactions.refreshSource": define("POST", ({ revisionId }) => `/interactions/sources/${required(revisionId, "revisionId", "interactions.refreshSource")}/refresh`, {
       requiredParams: ["revisionId"],
     }),
     "interactions.sourceFromProject": define("POST", () => "/interactions/sources/from-project", {

@@ -20,6 +20,7 @@ from infrastructure.tasks.facade import (
     list_task_lifecycle_contracts,
 )
 from modules.account.facade import current_account_id, is_anonymous_rp_principal
+from modules.interaction.framing import visible_story_content
 from modules.interaction.models import (
     InteractionAccountPreference,
     InteractionGenerationAttempt,
@@ -2135,7 +2136,7 @@ class InteractionService:
         if story_only:
             for node in path:
                 if node.role == "assistant" and node.message_kind == "story":
-                    lines.extend([node.content, ""])
+                    lines.extend([visible_story_content(node.content), ""])
         else:
             lines.extend([f"# {journey.title}", ""])
             setup_nodes = [node for node in path if node.message_kind == "setup"]
@@ -2143,13 +2144,31 @@ class InteractionService:
                 lines.extend(["## 开场设定", ""])
                 for node in setup_nodes:
                     label = "我" if node.role == "user" else "开场说明"
-                    lines.extend([f"### {label}", "", node.content, ""])
+                    lines.extend(
+                        [
+                            f"### {label}",
+                            "",
+                            visible_story_content(node.content)
+                            if node.role == "assistant"
+                            else node.content,
+                            "",
+                        ]
+                    )
         for node in path:
             if story_only or node.message_kind != "story":
                 continue
             label = "我" if node.role == "user" else "故事"
             suffix = "（保留的未完整片段）" if node.completion_state == "partial" else ""
-            lines.extend([f"## {label}{suffix}", "", node.content, ""])
+            lines.extend(
+                [
+                    f"## {label}{suffix}",
+                    "",
+                    visible_story_content(node.content)
+                    if node.role == "assistant"
+                    else node.content,
+                    "",
+                ]
+            )
         if include_overview and not story_only:
             head = await self._repo.get_overview_head(db, journey=journey)
             if head is not None and self._overview_matches_path(head, path):
@@ -2910,7 +2929,9 @@ class InteractionService:
             parent_node_id=str(node.parent_node_id) if node.parent_node_id else None,
             role=node.role,
             message_kind=node.message_kind,
-            content=node.content,
+            content=visible_story_content(node.content)
+            if node.role == "assistant"
+            else node.content,
             completion_state=node.completion_state,
             end_reason=node.end_reason,
             branch_hint=node.branch_hint or InteractionService._branch_hint(node.content),

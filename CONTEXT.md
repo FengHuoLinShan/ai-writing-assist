@@ -83,7 +83,7 @@ README、ORM 模型与 Alembic migration。当前文档范围由
 | Context 指纹 | compiled_context_fingerprint | 对 provider 可见 sections/items、来源身份、选择与有效范围的通用 SHA-256；预览、确认、执行必须一致。 |
 | 定向查证 | `retrieve_focused_evidence()` / `focused_evidence_neighbors` | 导入、地图和写作副客服用的只读稳定入口：按对象引用或未入库名称与关注问题做最大深度 0/1 的受限一跳查读；邻居模型步骤只对已核验根证据提名，不选工具、不扩大范围、不写事实。checkpoint 由服务端保存并可续查；手动新增资料须重新预览确认。 |
 | 角色原文许可 | CharacterKnowledge + 精确 EvidenceLink | character 视角引用原文须有截止点前 canonical/full 的 `known_content` 与精确原文一致，并由 active 精确 EvidenceLink 绑定该字段；缺少证明时保留已知 metadata、省略原文，固定来源无法证明则 blocker。该许可不等于完整知识边界审查，coverage 明示 `not_performed`。 |
-| 统一地图 | `map_atlas_nodes` / `map_atlas_revisions`，以及既有图片 run/page/annotation | 区域、城市、街区、街道四级空间结构（`cover → world → region → city → district → street → interior`，默认最深到街道）的空间示意、底图和配图；空间图元、来源与生成身份追加写入并由数据库 trigger 禁止原地修改，写入比较 `base_revision_id`、冲突 409；底图三锚点仿射校准只改图片展示、不改空间位置。版本可恢复，不作为时间化世界事实。 |
+| 统一地图 | `map_atlas_nodes` / `map_atlas_revisions`，以及既有图片 run/page/annotation | 区域、城市、街区、街道与显式创建的室内结构（`cover → world → region → city → district → street → interior`，默认最深到街道）的空间示意、底图和配图；空间图元、来源与生成身份追加写入并由数据库 trigger 禁止原地修改，写入比较 `base_revision_id`、冲突 409；底图三锚点仿射校准只改图片展示、不改空间位置。版本可恢复，不作为时间化世界事实。 |
 
 地图册经既有 generation-background operation `world.map_atlas.generate` 取得 author-full 的
 canonical world background，并以 RAG `map_atlas` purpose 补充已确认正文和 Scene。工作稿仅在

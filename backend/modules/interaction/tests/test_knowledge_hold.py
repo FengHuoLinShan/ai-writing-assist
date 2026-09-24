@@ -193,3 +193,42 @@ async def test_govern_held_story_pass_and_block_paths(monkeypatch) -> None:  # n
     assert governed_blocked["review"]["status"] == "blocked"
     assert governed_blocked["review"]["repaired"] is True
     assert blocker.repair_calls == 1, "一次语义返修后仍失败即阻断"
+
+    class _RepairPassClient(_BlockClient):
+        async def generate_structured(self, request, schema, **kwargs):  # noqa: ANN001
+            if schema is DirectorShardPlan:
+                return DirectorShardPlan(dispositions=[])
+            if self.repair_calls:
+                assert "INTERACTION_META_V1" not in request.messages[-1].content
+                return AuditVerdictOutput(
+                    findings=[],
+                    dimensions=[
+                        AuditDimensionCheck(dimension="source_canon", checked=True)
+                    ],
+                    verdict="pass",
+                )
+            return await super().generate_structured(request, schema, **kwargs)
+
+        async def generate(self, request, **kwargs):  # noqa: ANN001
+            from infrastructure.llm.schemas import LLMCallResponse
+            from modules.interaction.framing import META_END, META_START
+
+            self.repair_calls += 1
+            return LLMCallResponse(
+                content=(
+                    "返修后的故事。"
+                    + META_START
+                    + '{"version":1,"response_kind":"story","suggested_title":"返修标题"}'
+                    + META_END
+                )
+            )
+
+    repaired = await workflow.govern_held_story(
+        None,
+        task=task,
+        client=_RepairPassClient(),
+        prepared=replace(prepared, messages=[LLMMessage(role="user", content="继续")]),
+    )
+    assert repaired["status"] == "passed"
+    assert repaired["text"] == "返修后的故事。"
+    assert repaired["metadata"].suggested_title == "返修标题"

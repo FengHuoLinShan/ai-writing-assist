@@ -19,6 +19,9 @@ _EXPLICIT_OUTPUT_BUDGET_ALLOWLIST = {
     "modules/interaction/generation.py",
     # ADR-0023 continuity review and typed World iteration bound their JSON replies.
     "modules/interaction/proactive.py",
+    # Scene extraction has a bounded typed response and needs room for the
+    # observations plus their evidence-linked scene events.
+    "modules/evolution/llm_sampler.py",
     "modules/world/services/worldbuilding/world_generation_center_service.py",
     "modules/world/map_atlas_workflow.py",
     # Five-location spatial extraction shares the atlas's bounded JSON output budget.

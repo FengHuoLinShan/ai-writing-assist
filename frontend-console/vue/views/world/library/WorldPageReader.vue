@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from "vue"
+import { computed, onBeforeUnmount, ref, watch } from "vue"
 import RpMarkdownContent from "../../interaction/RpMarkdownContent.vue"
 import { displayStateBadgeClass, worldAssetDisplay } from "../../../../shared/assetDisplayState.js"
 import { getApi, getAppState, getCloseModal, getEsc, getRouter, getShowModalHtml, getToast } from "../../../bridge/index.js"
@@ -18,6 +18,48 @@ const emit = defineEmits(["edit", "back"])
 const collapsed = ref(new Set())
 const wikiLookupGeneration = ref(0)
 const wikiLookingUp = ref(false)
+const sourceCitations = computed(() => (Array.isArray(props.source?.page_meta_json?.source_citations)
+  ? props.source.page_meta_json.source_citations.filter((item) => item?.source_ref?.draft_id && item?.source_ref?.range_hash && item?.quote)
+  : []))
+const sourcePreview = ref(null)
+const sourceError = ref("")
+const readingSource = ref(false)
+const activeSourceIndex = ref(-1)
+let sourceReadGeneration = 0
+
+function resetSourceRead() {
+  sourceReadGeneration += 1
+  sourcePreview.value = null
+  sourceError.value = ""
+  readingSource.value = false
+  activeSourceIndex.value = -1
+}
+watch(() => [props.source?.id, props.source?.version_number], resetSourceRead)
+onBeforeUnmount(resetSourceRead)
+
+async function readSource(item, index) {
+  const projectId = getAppState()?.currentProjectId
+  if (!projectId || projectId !== props.source?.novel_id || !getApi()?.context?.readEvidence) {
+    activeSourceIndex.value = index
+    sourceError.value = "原文回读暂不可用，请稍后重试。"
+    return
+  }
+  const generation = ++sourceReadGeneration
+  activeSourceIndex.value = index
+  readingSource.value = true
+  sourcePreview.value = null
+  sourceError.value = ""
+  try {
+    const result = await getApi().context.readEvidence({ novel_id: projectId, content_mode: item.source_ref.content_mode || "canonical", visibility: { mode: "author" }, source_ref: item.source_ref, before: 1, after: 1 })
+    if (generation !== sourceReadGeneration || projectId !== getAppState()?.currentProjectId) return
+    if (result.text?.slice(result.highlight_start, result.highlight_end) !== item.quote) throw new Error("stale_source")
+    sourcePreview.value = result
+  } catch {
+    if (generation === sourceReadGeneration) sourceError.value = "引文与当前正文不一致，请重新核对来源。"
+  } finally {
+    if (generation === sourceReadGeneration) readingSource.value = false
+  }
+}
 
 const display = computed(() => worldAssetDisplay(props.source || {}))
 
@@ -30,6 +72,7 @@ const tocEntries = computed(() => {
     const label = String(section?.title || "").trim()
     if (label) entries.push({ id: `reader-section-${section.section_id}`, label })
   }
+  if (sourceCitations.value.length) entries.push({ id: "reader-sources", label: "原文依据" })
   return entries
 })
 
@@ -134,6 +177,7 @@ async function openWikiReference(name) {
             <span class="badge" :class="displayStateBadgeClass(display.displayState)">{{ display.label }}</span>
           </template>
         </p>
+        <p v-if="source?.page_meta_json?.acceptance" class="world-page-reader__acceptance">{{ source.page_meta_json.acceptance }}</p>
       </div>
       <div class="world-page-reader__actions">
         <button type="button" class="btn btn-sm btn-ghost world-page-reader__back" data-action="world-reader-back" @click="emit('back')">返回资料库</button>
@@ -185,6 +229,18 @@ async function openWikiReference(name) {
           </div>
         </section>
 
+        <section v-if="sourceCitations.length" id="reader-sources" class="world-page-reader__block world-page-reader__sources" aria-label="原文依据">
+          <h3>原文依据</h3>
+          <ol>
+            <li v-for="(item, index) in sourceCitations" :key="`${item.source_ref.draft_id}:${item.source_ref.start_offset}`">
+              <span>第 {{ item.source_ref.chapter_index }} 章 · {{ item.quote }}</span>
+              <button type="button" class="btn btn-sm" :disabled="readingSource && activeSourceIndex === index" @click="readSource(item, index)">{{ readingSource && activeSourceIndex === index ? "正在回读…" : "回读原文" }}</button>
+              <p v-if="activeSourceIndex === index && sourceError" role="alert">{{ sourceError }}</p>
+              <blockquote v-if="activeSourceIndex === index && sourcePreview">{{ sourcePreview.text }}</blockquote>
+            </li>
+          </ol>
+        </section>
+
         <section v-if="visibleRefs.length" class="world-page-reader__refs" aria-label="引用的资料">
           <h3>引用的资料</h3>
           <ul>
@@ -204,6 +260,7 @@ async function openWikiReference(name) {
 .world-page-reader__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .world-page-reader__header h2 { margin: 0; font-size: var(--text-lg); }
 .world-page-reader__meta { margin: 6px 0 0; color: var(--text-secondary); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.world-page-reader__acceptance { margin: 6px 0 0; color: var(--text-muted); font-size: var(--text-sm); }
 .world-page-reader__actions { display: flex; gap: 8px; flex-shrink: 0; }
 .world-page-reader__layout { display: grid; grid-template-columns: 208px minmax(0, 1fr); gap: 20px; align-items: start; }
 .world-page-reader__toc { position: sticky; top: 12px; display: grid; gap: 2px; max-height: calc(100vh - 160px); overflow-y: auto; }
@@ -214,6 +271,10 @@ async function openWikiReference(name) {
 .world-page-reader__content { display: grid; gap: 14px; min-width: 0; max-width: 76ch; }
 .world-page-reader__block { border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-panel); padding: 14px 18px; }
 .world-page-reader__block > h3 { margin: 0 0 8px; font-size: var(--text-md); }
+.world-page-reader__sources ol { display: grid; gap: 10px; margin: 0; padding-left: 22px; }
+.world-page-reader__sources li { line-height: 1.6; }
+.world-page-reader__sources li button { margin-left: 8px; }
+.world-page-reader__sources blockquote { margin: 8px 0 0; padding: 8px 12px; border-left: 2px solid var(--accent); white-space: pre-wrap; }
 .world-page-reader__section { padding: 0; }
 .world-page-reader__section-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; width: 100%; min-height: 48px; border: 0; background: transparent; padding: 12px 16px; color: var(--text-primary); text-align: left; cursor: pointer; }
 .world-page-reader__section-head:hover { background: var(--bg-hover); }

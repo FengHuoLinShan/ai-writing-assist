@@ -67,6 +67,16 @@ describe("统一地图编辑器", () => {
     return wrapper
   }
 
+  it('街道地点可创建室内子图并保存跳转关系', async () => {
+    api.world.createMapNode.mockResolvedValue({ id: nextId })
+    const wrapper = await render({ node: { id: nodeId, title: '街道', level: 'street' } })
+    await button(wrapper, '为此地点创建室内图').trigger('click')
+    await flushPromises()
+    expect(api.world.createMapNode).toHaveBeenCalledWith(projectId, { title: '临江城', level: 'interior', parent_id: nodeId, location_entity_id: null })
+    await button(wrapper, '进入子图').trigger('click')
+    expect(wrapper.emitted('open-node')).toEqual([[nextId]])
+  })
+
   it('默认先展示画布，详情按需打开，阅读预览只有一份', async () => {
     const wrapper = await render({ browseOnly: true })
     expect(wrapper.findAll('.map-reader')).toHaveLength(1)
