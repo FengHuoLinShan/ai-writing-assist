@@ -35,4 +35,4 @@ updated: 2026-09-24T09:09:00+08:00
 - DSH headless 只提供纯文本最终输出，stderr 是自由格式 reasoning，没有可核对的原生工具事件；因此原生文件/命令工具次数不能硬限，产品工具次数、运行时间和输出量仍受限。设置界面已明示。
 - 本机现有 `~/.dsh/.env` 的 `http_proxy` 被 DSH 拒绝；隔离 `DSH_HOME` 合成试跑成功，不改用户配置。Pi 默认模型不可用，显式 DeepSeek 模型成功；Codex 默认模型在当前 CLI 登录态不可用，显式 Luna 成功。伴随进程支持 Codex/Pi 模型覆盖与外部 `DSH_HOME`。
 - 尚无真实浏览器操作及 pyz 通过独立网络服务器执行完整产品 Agent 的验收；PostgreSQL 测试使用 ASGI HTTP 路由与真实 worker runtime，覆盖协议核心但非完整部署形态。
-- 当前实现已提交并推送为草稿 PR #173；远端 CI 待核对，未合并或部署。
+- 当前实现已提交并推送为草稿 PR #173；GitHub 判定与 `main` 有冲突，本地 `git merge-tree` 显示 11 个冲突文件，完整远端 CI 尚未运行。合并前需专门集成并重新验证；未合并或部署。
