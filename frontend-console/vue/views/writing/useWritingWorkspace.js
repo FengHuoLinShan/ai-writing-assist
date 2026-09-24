@@ -189,6 +189,7 @@ export function useWritingWorkspace(props) {
   const editorState = reactive({
     chapter: null,
     draftId: null,
+    contentHash: null,
     versionNumber: null,
     updatedAt: null,
     status: "draft",
@@ -1720,6 +1721,7 @@ export function useWritingWorkspace(props) {
     adoptCandidate: editor.adoptCandidate,
     rejectCandidate: editor.rejectCandidate,
     insertText: editor.insertText,
+    selectRange: editor.selectRange,
     publish,
     retryPublish,
     dismissPublishError,

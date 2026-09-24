@@ -148,6 +148,7 @@
 
     <main id="writing-editor-container">
       <WritingEditor
+        ref="writingEditorRef"
         :project-id="props.projectId"
         :deep-review-available="deepReviewAvailable"
         :narrow="vm.isNarrow.value"
@@ -161,6 +162,7 @@
         :generation-loading="vm.generationLoading.value"
         :conflict-loading="vm.conflictState.loading"
         :review-result="vm.generationTask.result"
+        :comments="writingComments.comments.value"
         :candidate-comparison-available="vm.candidateComparisonAvailable.value"
         :attach="vm.attachEditor"
         :detach="vm.detachEditor"
@@ -189,6 +191,7 @@
         @reload-server="reloadServerDraft"
         @composition="setComposition"
         @focus-context="forecastFocus = $event"
+        @add-comment="openWritingComment"
       >
         <template #context-actions>
           <div v-if="versionChoices.length" id="writing-versions-container" class="writing-version-bar writing-version-bar--compact">
@@ -240,6 +243,23 @@
       aria-label="本章资料"
     >
       <div id="writing-panel-container">
+        <WritingCommentsPanel
+          :comments="writingComments.comments.value"
+          :selection="writingComments.selection.value"
+          :task="writingComments.task.value"
+          :busy="writingComments.busy.value"
+          :error="writingComments.error.value"
+          :can-run="commentCanRun"
+          @save-comment="writingComments.create($event)"
+          @cancel-comment="writingComments.selection.value = null"
+          @run-review="writingComments.run($event, true)"
+          @run-comments="writingComments.run($event, false)"
+          @refresh-task="writingComments.poll($event)"
+          @locate="locateWritingComment"
+          @set-status="writingComments.setStatus"
+          @open-candidate="writingComments.openCandidate($event)"
+          @open-proposals="writingComments.openProposals($event)"
+        />
         <ForecastDock
           v-if="vm.editorState.draftId && !vm.editorState.readonly && !vm.editorState.loading && !vm.editorState.loadError"
           :project-id="props.projectId"
@@ -379,12 +399,14 @@ import OutlineFloat from "./components/OutlineFloat.vue"
 import SceneCockpit from "./components/SceneCockpit.vue"
 import VersionHistoryDialog from "./components/VersionHistoryDialog.vue"
 import WritingEditor from "./components/WritingEditor.vue"
+import WritingCommentsPanel from "./components/WritingCommentsPanel.vue"
 import WritingWorkflowBars from "./components/WritingWorkflowBars.vue"
 import WritingHomeView from "./home/WritingHomeView.vue"
 import { authorTaskPanelQuery } from "./home/authorTaskSource.js"
 import OwnerAiDrawer from "../../components/OwnerAiDrawer.vue"
 import { getRouter, getApi, getToast, openProjectAssistant, setForecastComposing } from "../../bridge/index.js"
 import { useWritingWorkspace } from "./useWritingWorkspace.js"
+import { useWritingComments } from "./useWritingComments.js"
 import "./writing-desk.css"
 
 const props = defineProps({
@@ -404,6 +426,25 @@ const props = defineProps({
 })
 
 const vm = useWritingWorkspace(props)
+const writingEditorRef = ref(null)
+const writingComments = useWritingComments(
+  props.projectId, vm.editorState, vm.selectChapter, vm.selectRange,
+  start => writingEditorRef.value?.scrollCommentIntoView(start),
+)
+const commentCanRun = computed(() => Boolean(
+  vm.editorState.draftId && vm.editorState.contentHash && !vm.editorState.readonly
+  && !vm.editorState.dirty && !vm.editorState.saving && !vm.editorState.loading
+))
+function openWritingComment(focus) {
+  if (writingComments.prepare(focus)) rightRailOpen.value = true
+}
+async function locateWritingComment(item) {
+  if (vm.isNarrow.value) {
+    rightRailOpen.value = false
+    await nextTick()
+  }
+  writingComments.locate(item)
+}
 const versionChoices = computed(() => vm.versions.value.filter(version => version.status !== "deprecated" || version.id === vm.editorState.draftId))
 const router = getRouter()
 const deepReviewAvailable = ref(false)

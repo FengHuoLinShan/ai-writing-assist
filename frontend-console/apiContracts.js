@@ -565,6 +565,18 @@
       hasBody: true,
       timeout: AI_TASK_SUBMIT_TIMEOUT,
     }),
+    "writing.listComments": define("GET", ({ draftId }) => `/writing/drafts/${required(draftId, "draftId", "writing.listComments")}/comments`, {
+      requiredParams: ["draftId"], requiredQuery: ["novel_id"],
+    }),
+    "writing.createComment": define("POST", ({ draftId }) => `/writing/drafts/${required(draftId, "draftId", "writing.createComment")}/comments`, {
+      requiredParams: ["draftId"], requiredBody: ["novel_id", "source_hash", "start_offset", "end_offset", "excerpt", "body"], hasBody: true,
+    }),
+    "writing.updateComment": define("PATCH", ({ commentId }) => `/writing/comments/${required(commentId, "commentId", "writing.updateComment")}`, {
+      requiredParams: ["commentId"], requiredBody: ["novel_id", "status"], hasBody: true,
+    }),
+    "writing.runComments": define("POST", () => "/writing/comment-runs", {
+      requiredBody: ["novel_id", "draft_id", "operation_id"], hasBody: true, timeout: AI_TASK_SUBMIT_TIMEOUT,
+    }),
 
     "outline.analyze": define("POST", () => "/outline/analyze", {
       hasBody: true,

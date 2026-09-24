@@ -1,5 +1,7 @@
 # 开放任务
 
+- [T-20260924-writing-comment-agents](tasks/2026/T-20260924-writing-comment-agents/TASK.md) — 正文批注驱动的 Agent 修订
+
 | 任务 | 状态 | 记录 |
 |---|---|---|
 | Agent 核心接入与全项目能力整合 | 已合入本地 main；正式验收、人工质量与发布延期 | [主记录](tasks/agent-integration.md) |

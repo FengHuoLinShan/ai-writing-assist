@@ -39,6 +39,9 @@ from modules.writing.schemas import (
     PublicChapterSummaryItem,
     PublicWritingDraftResponse,
     VersionHistoryResponse,
+    WritingCommentCreate,
+    WritingCommentRunRequest,
+    WritingCommentUpdate,
     WritingConflictAiReviewRequest,
     WritingConflictAiReviewTaskResponse,
     WritingConflictAiSuggestionTaskRequest,
@@ -91,6 +94,36 @@ router = APIRouter(prefix="/api/writing", tags=["writing"])
 logger = logging.getLogger(__name__)
 _service = WritingDraftService()
 _conflict_service = WritingConflictCheckService()
+
+
+@router.get("/drafts/{draft_id}/comments")
+async def get_writing_comments(db: DbSession, draft_id: UUID, novel_id: NovelIdQuery):
+    from modules.writing.comments import list_comments
+
+    return {"items": await list_comments(db, novel_id, draft_id)}
+
+
+@router.post("/drafts/{draft_id}/comments", status_code=201)
+async def post_writing_comment(db: DbSession, draft_id: UUID, data: WritingCommentCreate):
+    from modules.writing.comments import create_comment
+
+    return await create_comment(db, draft_id, data)
+
+
+@router.patch("/comments/{comment_id}")
+async def patch_writing_comment(
+    db: DbSession, comment_id: UUID, data: WritingCommentUpdate
+):
+    from modules.writing.comments import set_comment_status
+
+    return await set_comment_status(db, data.novel_id, comment_id, data.status)
+
+
+@router.post("/comment-runs", status_code=201)
+async def post_writing_comment_run(db: DbSession, data: WritingCommentRunRequest):
+    from modules.writing.comments import submit_comment_run
+
+    return await submit_comment_run(db, data)
 
 
 @router.post(

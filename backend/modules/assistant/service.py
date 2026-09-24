@@ -359,6 +359,7 @@ class AssistantService:
         cocreation_intent=None,
         cocreation_request_hash=None,
         regression_targets=None,
+        operation_names: set[str] | None = None,
     ):
         if not get_settings().assistant_enabled:
             raise ValidationError("项目助手暂未开启")
@@ -516,7 +517,11 @@ class AssistantService:
                 "web_search": search_snapshot()
                 if data.allow_web and data.web_backend == "searxng-v1"
                 else None,
-                "operations": operation_manifest(),
+                "operations": {
+                    name: value
+                    for name, value in operation_manifest().items()
+                    if operation_names is None or name in operation_names
+                },
                 "read_tools": {
                     tool.name: fingerprint(tool.function_schema.json_schema)
                     for tool in author_read_tools(allow_web=True, version="3")
@@ -1062,11 +1067,7 @@ class AssistantService:
                     )
                     + "\n作者要求："
                     + payload["message"]
-                    + (
-                        "\n" + work_directive(work)
-                        if work_directive(work)
-                        else ""
-                    ),
+                    + ("\n" + work_directive(work) if work_directive(work) else ""),
                 )
             )
             await db.commit()

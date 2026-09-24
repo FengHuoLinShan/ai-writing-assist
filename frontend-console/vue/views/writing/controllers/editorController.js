@@ -270,6 +270,7 @@ export function createEditorController({
 
   function applyDraft(draft = {}, options = {}) {
     state.draftId = draft.id || null
+    state.contentHash = draft.content_hash || null
     state.versionNumber = options.versionNumber ?? draft.version_number ?? null
     state.updatedAt = draft.updated_at || null
     state.status = draft.status || "draft"
@@ -291,6 +292,7 @@ export function createEditorController({
 
   function applyAutosaveMetadata(draft = {}, savedContent, savedTitle) {
     state.draftId = draft.id || state.draftId
+    state.contentHash = draft.content_hash || state.contentHash
     state.versionNumber = draft.version_number ?? state.versionNumber
     state.updatedAt = draft.updated_at || state.updatedAt
     state.status = draft.status || state.status

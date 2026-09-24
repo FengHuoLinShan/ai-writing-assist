@@ -206,6 +206,16 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             notes="返修者只收到生成者上下文与脱敏 finding，复审不过则阻断采用。",
         ),
         _policy(
+            "writing.comment_revision",
+            DOMAIN_WRITING,
+            "作者批注约束下的局部正文候选",
+            dimensions=("prior_prose",),
+            confirmation=CONFIRMATION_OPTIONAL,
+            outputs=(OUTPUT_PROSE,),
+            gate=ADOPTION_REQUIRES_PASS_AND_REVIEW,
+            notes="仅以冻结工作稿与批注修订选区；跨资产修改另交作者确认。",
+        ),
+        _policy(
             "writing.conflict_check.ai_review",
             DOMAIN_WRITING,
             "冲突软判断（检查类）",

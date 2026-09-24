@@ -3,6 +3,7 @@
     <div class="writing-editor-header">
       <div id="writing-editor-buttons" class="writing-editor-buttons">
         <button v-if="state.status !== 'candidate'" id="btn-autosave" class="btn btn-primary btn-sm writing-save-action" :disabled="!chapterReady || state.readonly || state.saving" :aria-busy="state.saving" @click="$emit('autosave')">{{ state.saving ? '保存中…' : state.restoreSourceVersion ? '保存为新工作稿' : '保存工作稿' }}</button>
+        <button v-if="state.status !== 'candidate'" type="button" class="btn btn-sm" :disabled="!canComment" @click="addComment">批注选中内容</button>
         <div ref="toolMenusEl" class="writing-editor-buttons__menus" @click.capture="closeToolMenuAfterAction" @keydown="onToolMenuKeydown">
           <details v-if="state.status !== 'candidate'" class="writing-tools-menu" @toggle="onToolMenuToggle('save', $event)">
             <summary class="btn btn-sm" aria-controls="writing-save-tools" :aria-expanded="String(openToolMenu === 'save')">版本与发布</summary>
@@ -124,7 +125,7 @@
         />
         <div class="writing-candidate-review-actions">
           <button v-if="canAdoptCandidate" class="btn btn-primary" :disabled="candidateBusy" @click="$emit('adopt')">{{ state.candidateAction === 'adopt' ? '采用中…' : '采用到工作稿' }}</button>
-          <button v-else-if="reviewBlocked" class="btn btn-primary" :disabled="candidateBusy" @click="$emit('targeted-revision')">{{ generationLoading ? '处理中…' : '按问题定向返修' }}</button>
+          <button v-else-if="reviewBlocked && !commentCandidate" class="btn btn-primary" :disabled="candidateBusy" @click="$emit('targeted-revision')">{{ generationLoading ? '处理中…' : '按问题定向返修' }}</button>
           <button v-else class="btn btn-primary" :disabled="candidateBusy" @click="$emit('semantic-review')">{{ generationLoading ? '处理中…' : independentReview ? '重新独立审查' : '运行独立语义审查' }}</button>
           <button v-if="canAdoptCandidate || reviewBlocked" class="btn" :disabled="candidateBusy" @click="$emit('semantic-review')">{{ independentReview ? '重新独立审查' : '运行独立语义审查' }}</button>
           <button class="btn writing-candidate-reject" :disabled="candidateBusy" @click="$emit('reject')">{{ state.candidateAction === 'reject' ? '拒绝中…' : '拒绝建议' }}</button>
@@ -143,6 +144,8 @@
           </div>
           <input id="writing-title-input" ref="titleEl" class="writing-title-input" type="text" :value="state.title" :readonly="state.readonly || state.reloadingServer" aria-label="章节标题" placeholder="为这一章命名" />
         </div>
+        <div class="writing-comment-editor-layer">
+        <pre ref="mirrorEl" class="writing-comment-mirror" :style="mirrorSize" aria-hidden="true"><span v-for="(segment, index) in highlightedSegments" :key="index" :data-start="segment.start" :class="{ 'is-highlighted': segment.highlighted }">{{ segment.text }}</span></pre>
         <textarea
           id="writing-editor"
           ref="editorEl"
@@ -158,7 +161,9 @@
           @select="captureFocus"
           @keyup="captureFocus"
           @pointerup="captureFocus"
+          @scroll="syncMirrorScroll"
         />
+        </div>
       </div>
     </template>
   </div>
@@ -182,6 +187,7 @@ const props = defineProps({
   generationLoading: { type: Boolean, default: false },
   conflictLoading: { type: Boolean, default: false },
   reviewResult: { type: Object, default: null },
+  comments: { type: Array, default: () => [] },
   candidateComparisonAvailable: { type: Boolean, default: false },
   hasChapters: { type: Boolean, default: false },
   attach: { type: Function, required: true },
@@ -192,13 +198,76 @@ const emit = defineEmits(["composition", "open-chapters", "create-chapter",
   "generate-draft", "generate-continuation", "generate-pov", "regenerate-candidate",
   "auto-extract", "open-deep-import-settings", "open-ai-tools", "adopt", "reject",
   "semantic-review", "deep-review", "targeted-revision", "compare-candidate", "export",
-  "retry-load", "reload-server", "focus-context",
+  "retry-load", "reload-server", "focus-context", "add-comment",
 ])
 
 const titleEl = ref(null)
 const editorEl = ref(null)
+const mirrorEl = ref(null)
+const mirrorSize = ref({})
+const selectedFocus = ref(null)
+let mirrorObserver = null
 function captureFocus() {
-  if (editorEl.value) emit("focus-context", readWritingFocus(editorEl.value, props.state.draftId))
+  if (editorEl.value) {
+    selectedFocus.value = readWritingFocus(editorEl.value, props.state.draftId)
+    emit("focus-context", selectedFocus.value)
+  }
+}
+const canComment = computed(() => Boolean(
+  chapterReady.value && !props.state.readonly && !props.state.dirty && !props.state.saving
+  && props.state.draftId && selectedFocus.value?.selection
+))
+function addComment() {
+  if (canComment.value) emit("add-comment", selectedFocus.value)
+}
+const highlightedSegments = computed(() => {
+  const content = props.state.content || ""
+  if (props.state.dirty || !content) return [{ text: content + "\u200b", highlighted: false }]
+  const chars = Array.from(content)
+  const ranges = props.comments.filter(item => (
+    item.status === "open" && item.draft_id === props.state.draftId
+    && Number.isInteger(item.start_offset) && Number.isInteger(item.end_offset)
+    && chars.slice(item.start_offset, item.end_offset).join("") === item.excerpt
+  )).map(item => ({
+    start: chars.slice(0, item.start_offset).join("").length,
+    end: chars.slice(0, item.end_offset).join("").length,
+  }))
+  const bounds = [...new Set([0, content.length, ...ranges.flatMap(item => [item.start, item.end])])].sort((a, b) => a - b)
+  return bounds.slice(0, -1).map((start, index) => {
+    const end = bounds[index + 1]
+    return { start, text: content.slice(start, end) + (end === content.length ? "\u200b" : ""), highlighted: ranges.some(item => item.start < end && item.end > start) }
+  })
+})
+function syncMirrorScroll(event) {
+  if (mirrorEl.value) {
+    mirrorEl.value.scrollTop = event.target.scrollTop
+    mirrorEl.value.scrollLeft = event.target.scrollLeft
+  }
+}
+function scrollCommentIntoView(start) {
+  const editor = editorEl.value
+  const mirror = mirrorEl.value
+  const marker = [...(mirror?.children || [])].find(element => Number(element.dataset.start) === start)
+  if (!editor || !mirror || !marker) return
+  const top = marker.getBoundingClientRect().top - mirror.getBoundingClientRect().top + mirror.scrollTop
+  editor.scrollTop = Math.max(0, top - editor.clientHeight / 3)
+  syncMirrorScroll({ target: editor })
+}
+defineExpose({ scrollCommentIntoView })
+function watchMirrorSize() {
+  mirrorObserver?.disconnect()
+  if (!editorEl.value || !globalThis.ResizeObserver) return
+  mirrorObserver = new ResizeObserver(() => {
+    const style = getComputedStyle(editorEl.value)
+    mirrorSize.value = {
+      width: `${editorEl.value.clientWidth}px`, height: `${editorEl.value.clientHeight}px`,
+      fontFamily: style.fontFamily, fontSize: style.fontSize, fontWeight: style.fontWeight,
+      lineHeight: style.lineHeight, letterSpacing: style.letterSpacing,
+      padding: style.padding, tabSize: style.tabSize,
+    }
+    syncMirrorScroll({ target: editorEl.value })
+  })
+  mirrorObserver.observe(editorEl.value)
 }
 const reviewPanelEl = ref(null)
 const toolMenusEl = ref(null)
@@ -211,7 +280,12 @@ const chapterReady = computed(() => hasChapter.value
   && Number(props.state.chapter) === chapterNumber.value)
 const independentReview = computed(() => props.state.provenanceJson?.independent_review || null)
 const reviewBlocked = computed(() => independentReview.value?.verdict === "needs_revision" || Number(independentReview.value?.blocking_count || 0) > 0)
-const canAdoptCandidate = computed(() => !props.state.provenanceJson?.review_required || independentReview.value?.verdict === "pass")
+const commentCandidate = computed(() => props.state.provenanceJson?.source === "writing_comment_revision")
+const canAdoptCandidate = computed(() => commentCandidate.value
+  ? props.state.provenanceJson?.knowledge_review?.status === "passed"
+    && independentReview.value?.verdict === "pass"
+    && (!(["writing_generate", "writing_targeted_revision", "ai", "llm"].includes(props.state.provenanceJson?.context_origin)) || independentReview.value?.context_checked)
+  : !props.state.provenanceJson?.review_required || independentReview.value?.verdict === "pass")
 const candidateBusy = computed(() => Boolean(props.generationLoading || props.state.candidateAction))
 const candidateIdentity = computed(() => props.state.status === "candidate" ? props.state.draftId : null)
 const candidateConfirmationId = computed(() => props.state.provenanceJson?.context_confirmation_id || props.state.provenanceJson?.source_confirmation_id || null)
@@ -219,15 +293,17 @@ const candidateTaskId = computed(() => props.state.provenanceJson?.source_task_i
 const candidateReady = computed(() => !props.state.loading && !props.state.loadError ? candidateIdentity.value : null)
 const reviewStatusText = computed(() => {
   if (!props.state.provenanceJson?.review_required) return "请先阅读建议正文；采用会创建新工作稿，拒绝只会将建议留在版本历史中。"
+  if (commentCandidate.value && props.state.provenanceJson?.knowledge_review?.status !== "passed") return "知识审查未通过，当前候选只能查看。请回到工作稿重新执行批注。"
   if (!independentReview.value) return "采用前需要一次独立语义审查，正文仍保持只读。"
-  if (reviewBlocked.value) return `独立审查发现 ${independentReview.value.blocking_count || 0} 个必须先处理的问题。`
+  if (reviewBlocked.value) return `独立审查发现 ${independentReview.value.blocking_count || 0} 个必须先处理的问题。${commentCandidate.value ? '请回到工作稿重新执行批注。' : ''}`
+  if (commentCandidate.value && !canAdoptCandidate.value) return "独立审查未完成必要资料核对，当前候选只能查看。"
   if (independentReview.value.verdict === "pass") return "独立语义审查已通过，可以采用。"
   return "独立审查尚未完成必要检查，当前不能采用。请重新审查，或保留这份建议稍后处理。"
 })
 const visibleFindings = computed(() => (props.reviewResult?.findings || []).filter((item) => item?.location?.draft_id === props.state.draftId).slice(0, 20))
 const severityLabel = (severity) => ({ blocker: "阻断", major: "重要", minor: "建议" }[severity] || "问题")
 const attachElements = () => nextTick(() => {
-  if (editorEl.value) props.attach({ title: titleEl.value, editor: editorEl.value })
+  if (editorEl.value) { props.attach({ title: titleEl.value, editor: editorEl.value }); watchMirrorSize() }
   else props.detach()
 })
 const focusCandidateReview = () => nextTick(() => reviewPanelEl.value?.focus())
@@ -277,6 +353,7 @@ onMounted(() => {
   document.addEventListener("pointerdown", onDocumentPointerdown)
 })
 watch(chapterReady, attachElements)
+watch(() => [props.state.draftId, props.state.updatedAt, props.state.content], () => { selectedFocus.value = null })
 watch(candidateReady, (current, previous) => {
   if (current && current !== previous) focusCandidateReview()
 })
@@ -285,6 +362,7 @@ watch(() => props.state.status, (current, previous) => {
   if (previous === "candidate" && current !== "candidate") nextTick(() => editorEl.value?.focus())
 })
 onBeforeUnmount(() => {
+  mirrorObserver?.disconnect()
   document.removeEventListener("pointerdown", onDocumentPointerdown)
   props.detach()
 })

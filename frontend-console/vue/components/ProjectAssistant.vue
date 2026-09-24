@@ -118,6 +118,7 @@ const removeOpener = registerProjectAssistantOpener(async request => {
   if (disposed || request.projectId !== props.projectId || !state.enabled) throw new Error("该作品的项目助手尚未启用。")
   if (state.busy || state.loading) throw new Error("项目助手正在保存或读取讨论，请稍后打开；本页内容仍保留。")
   if (request.sessionId) await assistant.selectSession(request.sessionId)
+  if (request.runId) await assistant.openRun(request.runId)
   if (disposed || request.projectId !== props.projectId || state.error) throw new Error(state.error || "作品已切换。")
   if (request.message && state.input && state.input !== request.message) throw new Error("项目助手中还有未发送的输入，请先处理；这次内容仍保留在共创页。")
   if (request.blueprint) {

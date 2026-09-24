@@ -21,6 +21,7 @@ EXPECTED_CAPABILITIES = (
     "writing.generate",
     "writing.semantic_review",
     "writing.targeted_revision",
+    "writing.comment_revision",
     "writing.conflict_check.ai_review",
     "writing.conflict_check.ai_suggestion",
     # Project
