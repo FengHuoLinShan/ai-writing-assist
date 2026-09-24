@@ -1,6 +1,7 @@
 """World proposals share the real gateway, root budget and atomic Scene receipt."""
 
 import json
+from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
@@ -13,9 +14,20 @@ from modules.evolution.store import PostgresAttemptStore
 from modules.evolution.tasks import handle_evolution_scene_step
 from modules.evolution.tests.test_workflow import request_start, seed, structure_response
 from modules.evolution.workflow import start_reading
+from modules.evolution.world import _known_format_failure
 from modules.world.models import CoreEntity, EntityRelation
 
 TEXT = "林舟又名小舟。林舟和青竹是盟友。"
+
+
+def test_unknown_usage_never_qualifies_for_world_format_deferral():
+    error = SimpleNamespace(
+        receipt={
+            "usage": {"usage_complete": False},
+            "attempts_detail": [{"error_kind": "schema_validation"}],
+        }
+    )
+    assert not _known_format_failure(error)
 
 
 def world_provider(db, calls, *, blocked=False):
@@ -324,6 +336,45 @@ async def test_known_world_format_failure_defers_only_world_and_keeps_receipt(
     ).all()
     replay = await handle_evolution_scene_step(db, task)
     assert replay["attempt_id"] == result["attempt_id"] and len(calls) == 2
+
+
+async def test_known_relation_format_failure_keeps_observations_and_defers_world(
+    db_session, evolution_project_id, account_llm_connection, monkeypatch
+):
+    db, nid = db_session, evolution_project_id
+    await seed(db, nid, 1, TEXT)
+    calls = []
+    base = world_provider(db, calls)
+
+    async def provider(self, request):
+        response = await base(self, request)
+        if calls[-1][0] == "AliasRelationExtractionOutput":
+            return LLMCallResponse(
+                content="not json",
+                finish_reason="stop",
+                usage=LLMUsage(prompt_tokens=10, completion_tokens=10, total_tokens=20),
+            )
+        return response
+
+    monkeypatch.setattr(OpenAIProvider, "generate", provider)
+    run = (await start_reading(db, nid, await request_start(db, nid, end_chapter=1)))[
+        "run"
+    ]
+    task = await db.get(AsyncTask, UUID(run["task_id"]))
+    result = await handle_evolution_scene_step(db, task)
+    store = PostgresAttemptStore(db, nid)
+    frozen = await store.load_frozen(run["run_key"], result["attempt_id"])
+    receipt = await store.load_receipt(run["run_key"], result["attempt_id"])
+    assert frozen.payload["scene_relations"]["stage"] == "failed"
+    assert (
+        frozen.payload["world_result"]["review"]["review_kind"]
+        == "extraction_deferred"
+    )
+    assert len(receipt.paid_call_receipts) == len(calls) == 3
+    assert not receipt.world_result_refs
+    assert "scene_world_requires_review" in receipt.pending_decisions
+    replay = await handle_evolution_scene_step(db, task)
+    assert replay["attempt_id"] == result["attempt_id"] and len(calls) == 3
 
 
 async def test_world_identity_change_after_model_preserves_frozen_results(

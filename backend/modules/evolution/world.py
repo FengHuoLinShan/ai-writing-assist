@@ -13,6 +13,32 @@ from modules.imports import facade as imports
 WORLD_AUDIT_INPUT_CHAR_LIMIT = 45_000
 
 
+def _known_format_failure(error) -> bool:
+    receipt = error.receipt or {}
+    details = receipt.get("attempts_detail") or []
+    return bool(
+        (receipt.get("usage") or {}).get("usage_complete") is True
+        and details
+        and details[-1].get("error_kind")
+        in {"invalid_json", "truncated_json", "schema_validation"}
+    )
+
+
+def _deferred_world_result(context, stage: str) -> dict:
+    return {
+        "world": {"entities": [], "delta_events": [], "uncertain_items": []},
+        "relations": {"aliases": [], "relations": [], "uncertain_items": []},
+        "context": context,
+        "review": {
+            "status": "blocked",
+            "review_kind": "extraction_deferred",
+            "issues": [
+                {"message": f"{stage}格式失败；结果和费用已保留，需另行核对。"}
+            ],
+        },
+    }
+
+
 def request_spec(request, schema):
     return {
         "request": request.model_dump(mode="json", exclude_unset=True),
@@ -89,33 +115,13 @@ async def finish_scene_world(db, store, frozen, source, call):
             frozen, "scene_world", frozen.payload["world_preparation"]["call"]
         )
     except SceneCallFailedError as error:
-        receipt = error.receipt or {}
-        details = receipt.get("attempts_detail") or []
-        known_format_failure = (
-            (receipt.get("usage") or {}).get("usage_complete") is True
-            and details
-            and details[-1].get("error_kind")
-            in {"invalid_json", "truncated_json", "schema_validation"}
-        )
-        if not known_format_failure:
+        if not _known_format_failure(error):
             raise
 
         async def defer_world(payload):
-            return {
-                "world": {"entities": [], "delta_events": [], "uncertain_items": []},
-                "relations": {"aliases": [], "relations": [], "uncertain_items": []},
-                "context": payload["world_preparation"]["context"],
-                "review": {
-                    "status": "blocked",
-                    "review_kind": "extraction_deferred",
-                    "issues": [
-                        {
-                            "message": "世界资料抽取格式失败；结果和费用已保留，"
-                            "需另行核对。"
-                        }
-                    ],
-                },
-            }
+            return _deferred_world_result(
+                payload["world_preparation"]["context"], "世界资料抽取"
+            )
 
         return await freeze_value(db, store, frozen, "world_result", defer_world)
 
@@ -170,7 +176,20 @@ async def finish_scene_world(db, store, frozen, source, call):
     )
     prepared = frozen.payload["relations_preparation"]
     if prepared["call"]:
-        frozen = await run_call(frozen, "scene_relations", prepared["call"])
+        try:
+            frozen = await run_call(frozen, "scene_relations", prepared["call"])
+        except SceneCallFailedError as error:
+            if not _known_format_failure(error):
+                raise
+
+            async def defer_relations(payload):
+                return _deferred_world_result(
+                    payload["relations_preparation"]["context"], "别名关系抽取"
+                )
+
+            return await freeze_value(
+                db, store, frozen, "world_result", defer_relations
+            )
     relations = (frozen.payload.get("scene_relations") or {}).get(
         "result", {"aliases": [], "relations": [], "uncertain_items": []}
     )
