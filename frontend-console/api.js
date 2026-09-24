@@ -818,6 +818,16 @@ const api = {
   clearAccessToken: _clearAccessToken,
   reportFrontendError,
   assistant: {
+    editorialPolicy: (novelId) => request(withQuery("/assistant/editorial/policy", { novel_id: novelId }), { cache: "no-store" }),
+    saveEditorialPolicy: (novelId, policy, expectedGeneration) => request("/assistant/editorial/policy", { method: "PUT", body: JSON.stringify({ novel_id: novelId, policy, expected_generation: expectedGeneration }) }),
+    editorialReviews: (novelId) => request(withQuery("/assistant/editorial/reviews", { novel_id: novelId }), { cache: "no-store" }),
+    editorialReview: (novelId, id) => request(withQuery(`/assistant/editorial/reviews/${encodeURIComponent(id)}`, { novel_id: novelId }), { cache: "no-store" }),
+    submitEditorialReview: (body) => post("/assistant/editorial/reviews", body),
+    resumeEditorialReview: (novelId, id) => post(withQuery(`/assistant/editorial/reviews/${encodeURIComponent(id)}/resume`, { novel_id: novelId })),
+    stopEditorialReview: (novelId, id) => post(withQuery(`/assistant/editorial/reviews/${encodeURIComponent(id)}/stop`, { novel_id: novelId })),
+    editorialIssues: (novelId) => request(withQuery("/assistant/editorial/issues", { novel_id: novelId }), { cache: "no-store" }),
+    decideEditorialIssue: (id, body) => request(`/assistant/editorial/issues/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) }),
+    recheckEditorialIssue: (id, body) => post(`/assistant/editorial/issues/${encodeURIComponent(id)}/recheck`, body),
     capabilities: (novelId) => request(withQuery("/assistant/capabilities", { novel_id: novelId }), { cache: "no-store" }),
     sessions: (novelId, params = {}) => request(withQuery("/assistant/sessions", { ...params, novel_id: novelId }), { cache: "no-store" }),
     createSession: (novelId, title = "项目助手") => post("/assistant/sessions", { novel_id: novelId, title }),
@@ -880,6 +890,8 @@ const api = {
   // 项目
   // ============================================================
   projects: {
+    editorialBrief: (id) => request(`/projects/${encodeURIComponent(id)}/editorial-brief`, { cache: "no-store" }),
+    saveEditorialBrief: (id, body) => request(`/projects/${encodeURIComponent(id)}/editorial-brief`, { method: "PUT", body: JSON.stringify(body) }),
     demoCopy: () => post("/projects/demo-copy", undefined, { cache: "no-store" }),
     async smartDedupReviewState(id, taskId) { return request(`/projects/${encodeURIComponent(id)}/smart-dedup/scans/${encodeURIComponent(taskId)}/review-state`) },
     async recentSmartDedupScans(id) { return request(`/projects/${encodeURIComponent(id)}/smart-dedup/scans`) },
@@ -2282,6 +2294,7 @@ const api = {
   // 草稿
   // ============================================================
   writing: {
+    markEditorialReady: (draftId, novelId, expectedContentHash) => post(withQuery(`/writing/drafts/${encodeURIComponent(draftId)}/editorial-ready`, { novel_id: novelId }), { expected_content_hash: expectedContentHash }),
     async publish(payload) {
       return contractJson("writing.publish", {}, {}, payload)
     },

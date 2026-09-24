@@ -690,3 +690,12 @@ Evolution `SceneSample` 可用 `subject_surface`，禁止猜测实体 ID；主�
 解析结果确定。唯一逐字引文可由宿主校准码点偏移，原值和对齐方法写进调用回执；重复或
 缺失引文仍严格失败。全部引用须满足主体/模态和 Story 物化 schema，不据结构通过宣称
 语义蕴含正确；来源不足的状态提议保持待决定。
+
+## 作者编辑台内联指令
+
+`modules/assistant/editorial.py` 的 `assistant.editorial.review` / `.recheck` 走
+`run_managed_structured`，分别校验 `ReviewPass` 与 `RecheckOutput`。单章审读只给意见，不输出
+替换正文；读者 pass 只含当前片段与先前读者状态，不含作者约定、世界资料和后文。作者 pass
+可含已精确回读的世界/结构资料。finding 必须给当前冻结正文的唯一逐字引文，资料引用须属于
+本次实际送入的来源；服务端验证 ID/hash、文本和反证/未覆盖，不合格意见丢弃。改后结果只
+能是仍在、可能改善或无法判断，不能替作者关闭。模型输出是编辑建议，绝非正式采用回执。

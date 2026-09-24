@@ -147,6 +147,7 @@ CAPABILITY_BINDINGS: dict[str, tuple[str, ...]] = {
         "assistant.forecast",
         "interaction.forecast",
     ),
+    "modules/assistant/editorial.py": ("assistant.editorial",),
     "modules/collaboration/runtime.py": (
         "collaboration.run",
         "collaboration.plan",

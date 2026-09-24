@@ -61,6 +61,7 @@ from modules.writing.repositories import (
 from modules.writing.schemas import (
     ChapterSummaryItem,
     DraftListItem,
+    EditorialReadyRequest,
     VersionHistoryResponse,
     WritingConflictAiReviewRequest,
     WritingConflictAiSuggestionRequest,
@@ -526,6 +527,46 @@ class WritingDraftService:
                     dict.fromkeys([*response.attention_reasons, "upstream_stale"])
                 )
         return response
+
+    async def mark_editorial_ready(
+        self,
+        db: AsyncSession,
+        draft_id: str,
+        novel_id: str,
+        data: EditorialReadyRequest,
+    ) -> WritingDraftResponse:
+        """Freeze the author's explicit completion signal for one saved version."""
+        did = _parse_uuid(draft_id, "draft")
+        nid = _parse_uuid(novel_id, "novel")
+        draft = await self._repo.get(db, did)
+        if draft is None or draft.novel_id != nid:
+            raise NotFoundError(f"Draft {draft_id} not found")
+        await self._repo.lock_version_chapters_for_revalidation(
+            db, nid, [draft.chapter_index]
+        )
+        draft = await self._repo.get_for_update(db, did)
+        if draft is None or draft.novel_id != nid:
+            raise NotFoundError(f"Draft {draft_id} not found")
+        latest = await self._repo.get_latest_by_chapter(db, nid, draft.chapter_index)
+        if (
+            latest is None
+            or draft.id != latest.id
+            or draft.status != "draft"
+            or not (draft.content or "").strip()
+        ):
+            raise ConflictError("请先保存当前章节工作稿，再交给编辑查看")
+        if draft.content_hash != data.expected_content_hash:
+            raise ConflictError("正文已有新版本，请先保存并刷新")
+        if draft.editorial_ready_hash != draft.content_hash:
+            draft.editorial_ready_at = datetime.now(UTC)
+            draft.editorial_ready_hash = draft.content_hash
+            await db.flush()
+            from modules.assistant.facade import mark_editorial_ready
+
+            await mark_editorial_ready(
+                db, novel_id, draft.chapter_index, str(draft.id), draft.content_hash
+            )
+        return WritingDraftResponse.model_validate(draft)
 
     async def adopt_candidate_to_working(
         self,
@@ -1125,6 +1166,8 @@ class WritingDraftService:
             source=projection["source"],
             attention_reasons=projection["attention_reasons"],
             knowledge_review=projection.get("knowledge_review"),
+            editorial_ready_at=getattr(draft, "editorial_ready_at", None),
+            editorial_ready_hash=getattr(draft, "editorial_ready_hash", None),
             created_at=draft.created_at,  # type: ignore[union-attr]
             updated_at=draft.updated_at,  # type: ignore[union-attr]
         )

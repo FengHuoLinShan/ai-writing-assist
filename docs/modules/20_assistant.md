@@ -120,3 +120,15 @@ focused search 与 Project author tasks。focused search 仍沿原来源 manifes
 明确拒绝和普通细节处置仅在相同资料边界内成为下一次输入偏好，并进入运行和缓存指纹；
 运行中处置变化会拒绝旧结果发布。同一原文问题按类型和物理引用对齐，不按标题合并；
 重复摘要不会提高本地锚点的证据分数。
+
+## 作者编辑员级意见
+
+Assistant 的 `/editorial/*` 持有 `assistant_editorial_reviews`、`assistant_editorial_issues` 和
+站内提醒投影，不拥有正文或正史。提交以 `operation_id` 幂等、冻结编辑约定/工作稿 hash/
+排除范围/模型快照；逐章分片、再按所列组层级汇总，明确遗漏与部分完成。读者层只读前序
+正文；作者层可查 Evidence 世界资料及 Story 当章结构。唯一原文引文、来源版本和模型权限
+由服务端重验。所有意见标 `editorial_suggestion`；只有原领域真实 finding 才可称领域已核实。
+作者决定保留历史；改后检查不能自动关闭。主动授权以 `editorial_v1` 存 Watch，正常保存
+不触发，完成标记和未关闭问题相关结构变化才排队；设置写入核对 Watch generation。
+作者可停止审读并在来源、授权和用量均可确认时续跑未完成段。原创内容评测样本及量表见
+`backend/evals/datasets/editorial/README.md`；独立人工标注前不得宣称强提醒精确率达标。

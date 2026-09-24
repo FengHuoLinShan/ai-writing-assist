@@ -5,6 +5,7 @@ export default createE2EConfig({
   testIgnore: [
     "assistant.spec.js",
     "creative-forecast.spec.js",
+    "editorial.spec.js",
     "outline-real-llm.spec.js",
     "writing-conflict-real-llm.spec.js",
     "deep-import-worker.spec.js",
