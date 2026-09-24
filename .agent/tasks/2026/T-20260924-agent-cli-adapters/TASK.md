@@ -3,7 +3,7 @@ id: T-20260924-agent-cli-adapters
 title: Agent 底座接入五种本机 CLI
 status: active
 created: 2026-09-24T00:24:52+08:00
-updated: 2026-09-24T09:09:00+08:00
+updated: 2026-09-24T09:35:00+08:00
 ---
 
 # Agent 底座接入五种本机 CLI
@@ -21,6 +21,8 @@ updated: 2026-09-24T09:09:00+08:00
 - 五 CLI 独立服务本机产品 Agent 与离线评测；Mac 伴随进程按作品配对，项目默认原 gateway，每个根任务单独确认完整本地文件/命令权限；离线等待、租约失效失败关闭、显式新运行重试。
 - 逻辑关键路径和失败路径经定向测试；五个真实 CLI 用合成资料试跑，测试绿色不能代替真实作品或产品质量验收。
 - 本机实现与验证不授权自动提交、推送、合并、部署或清理用户数据。
+
+- 2026-09-24 09:35 +08:00：为依次合并 PR #171/#172/#173，本分支已合入前两项当前 head，解决 16 处共享冲突，统一 Alembic 为 `editorial_assistant -> writing_comments -> local_agent_cli` 单 head。前瞻保留共享订阅 store 并接回本机 CLI 逐次授权；新增定向前端回归。合并后文档、Prompt、密钥、Ruff、前端 lint/build 均通过；后端 395 passed / 2 deselected，前端 203 passed；新建专用 PG 库从零迁移及 5 项 E2E 通过并已清理。远端 CI 与正式合并仍待核对。
 
 ## 验证
 
