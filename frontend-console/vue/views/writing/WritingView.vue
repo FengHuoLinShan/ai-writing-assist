@@ -151,6 +151,7 @@
         ref="writingEditorRef"
         :project-id="props.projectId"
         :deep-review-available="deepReviewAvailable"
+        :editorial-available="editorialAvailable"
         :narrow="vm.isNarrow.value"
         :state="vm.editorState"
         :target-chapter="vm.selectedChapter.value"
@@ -183,6 +184,8 @@
         @reject="rejectCandidate"
         @semantic-review="vm.reviewCandidate"
         @deep-review="openDeepReview"
+        @editorial-ready="markEditorialReady"
+        @editorial-open="openEditorialDesk"
         @targeted-revision="vm.reviseCandidate"
         @regenerate-candidate="vm.regenerateCandidate"
         @compare-candidate="vm.compareCandidateWithWorkingDraft"
@@ -448,13 +451,43 @@ async function locateWritingComment(item) {
 const versionChoices = computed(() => vm.versions.value.filter(version => version.status !== "deprecated" || version.id === vm.editorState.draftId))
 const router = getRouter()
 const deepReviewAvailable = ref(false)
+const editorialAvailable = ref(false)
 const forecastComposing = ref(false)
 const forecastFocus = ref(null)
 function setComposition(value) { forecastComposing.value = value; setForecastComposing(props.projectId, value) }
 watch(() => props.projectId, async projectId => {
   deepReviewAvailable.value = false
-  try { const value = await getApi().assistant.capabilities(projectId); if (projectId === props.projectId) deepReviewAvailable.value = value.collaboration?.some(item => item.id === "deep_review" && item.available) === true } catch { /* ordinary review remains available */ }
+  editorialAvailable.value = false
+  try {
+    const value = await getApi().assistant.capabilities(projectId)
+    if (projectId === props.projectId) {
+      deepReviewAvailable.value = value.collaboration?.some(item => item.id === "deep_review" && item.available) === true
+      editorialAvailable.value = value.editorial?.available === true
+    }
+  } catch { /* ordinary writing remains available */ }
 }, { immediate: true })
+async function openEditorialDesk() {
+  try { await openProjectAssistant({ projectId: props.projectId, editorial: true, chapterIndex: vm.selectedChapter.value }) }
+  catch (error) { getToast()(error.message || "暂时无法打开编辑台。", "error") }
+}
+async function markEditorialReady() {
+  const state = vm.editorState
+  if (!state.draftId || state.status !== "draft" || state.dirty || state.saving || !state.content.trim()) return
+  const draftId = state.draftId
+  const chapter = vm.selectedChapter.value
+  const content = state.lastSavedContent
+  try {
+    const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(content)))
+    const expectedHash = Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("")
+    const saved = await getApi().writing.markEditorialReady(draftId, props.projectId, expectedHash)
+    if (draftId === state.draftId && chapter === vm.selectedChapter.value && !state.dirty && state.lastSavedContent === content) {
+      state.editorialReadyHash = saved.editorial_ready_hash
+      state.contentHash = saved.content_hash
+    }
+    getToast()("这版工作稿已交编辑；可在编辑台查看或开始审读。", "success")
+  } catch (error) { getToast()(error.message || "交给编辑失败，工作稿仍保留。", "error"); return }
+  await openEditorialDesk()
+}
 async function openDeepReview() {
   if (vm.editorState.dirty || vm.editorState.saving) return
   try {

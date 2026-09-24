@@ -1,7 +1,7 @@
 """Saved manuscript comments anchored to exact ranges.
 
 Revision ID: 20260924_writing_comments
-Revises: 20260922_evolution_reading
+Revises: 20260924_editorial_assistant
 """
 
 import sqlalchemy as sa
@@ -10,7 +10,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 revision = "20260924_writing_comments"
-down_revision = "20260922_evolution_reading"
+down_revision = "20260924_editorial_assistant"
 branch_labels = None
 depends_on = None
 

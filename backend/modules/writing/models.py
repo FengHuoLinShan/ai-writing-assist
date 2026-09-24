@@ -8,11 +8,13 @@ Writing ORM 模型
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 from sqlalchemy import (
     JSON,
     Boolean,
     CheckConstraint,
+    DateTime,
     Float,
     ForeignKey,
     Index,
@@ -64,6 +66,10 @@ class WritingDraft(Base, UUIDMixin, TimestampMixin, NovelMixin):
         index=True,
         comment="正文 SHA-256，用于稳定来源引用和索引新鲜度校验",
     )
+    editorial_ready_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    editorial_ready_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     conflict_check_snapshot_json: Mapped[dict | None] = mapped_column(
         JSON,
         nullable=True,

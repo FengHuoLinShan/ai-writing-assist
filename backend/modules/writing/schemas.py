@@ -159,6 +159,10 @@ class WritingDraftCheckpoint(WritingDraftUpdate):
     )
 
 
+class EditorialReadyRequest(BaseModel):
+    expected_content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
 class WritingPublishRequest(WritingDraftCreate):
     """发布当前工作版本，兼容未传 draft_id 的旧调用方。"""
 
@@ -193,6 +197,8 @@ class WritingDraftResponse(BaseModel):
     title: str | None = None
     content: str | None = None
     content_hash: str = ""
+    editorial_ready_at: datetime | None = None
+    editorial_ready_hash: str | None = None
     version_number: int = 1
     status: str = "draft"
     conflict_check_snapshot_json: dict | None = None

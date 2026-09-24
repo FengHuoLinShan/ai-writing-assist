@@ -35,6 +35,7 @@ from modules.writing.facade import (
 )
 from modules.writing.schemas import (
     ChapterSummaryItem,
+    EditorialReadyRequest,
     PublicChapterListResponse,
     PublicChapterSummaryItem,
     PublicWritingDraftResponse,
@@ -558,6 +559,20 @@ async def get_draft(
         novel_id,
         published_only=is_demo_readonly_principal(),
     )
+
+
+@router.post("/drafts/{draft_id}/editorial-ready", response_model=WritingDraftResponse)
+async def mark_editorial_ready(
+    db: DbSession,
+    draft_id: str,
+    data: EditorialReadyRequest,
+    *,
+    novel_id: NovelIdQuery,
+) -> WritingDraftResponse:
+    await require_active_project(db, novel_id)
+    if is_demo_readonly_principal():
+        raise HTTPException(status_code=404, detail="Project not found")
+    return await _service.mark_editorial_ready(db, draft_id, novel_id, data)
 
 
 @router.get(

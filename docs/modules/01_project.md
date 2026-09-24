@@ -168,3 +168,10 @@ legacy/1/1 项目兼容。原生 PG trigger 另封锁旧二进制，详见 [Evol
 `require_active_project_exclusive(..., nowait=True)` 供候选采用的短事务来源重验使用。
 NOWAIT 保证已持领域锁的入口不会等待项目锁升级；并发作者写入时失败关闭并提示重试。
 该锁不跨 provider I/O，仍执行 account owner 与活跃项目门禁。
+
+## 作者编辑约定
+
+`projects.settings.editorial_brief_v1` 只保存作者确认的目标读者、类型承诺、创作目标、声音、
+保留安排、刻意留白和排除资料。`GET/PUT /api/projects/{id}/editorial-brief` 提供读取和
+`expected_version` 冲突保存；每次 Assistant 编辑任务冻结版本。单次意见忽略不会自动形成
+长期偏好；公开只读演示源拒绝写入。

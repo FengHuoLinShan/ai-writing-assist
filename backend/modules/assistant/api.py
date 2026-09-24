@@ -10,6 +10,12 @@ from core.dependencies import DbSession
 from core.errors import NotFoundError
 from infrastructure.tasks.facade import cancel_exact_task
 from modules.account.facade import current_account_id
+from modules.assistant.editorial_contracts import (
+    EditorialPolicyUpdate,
+    IssueDecision,
+    RecheckRequest,
+    ReviewSubmit,
+)
 from modules.assistant.models import AssistantRun
 from modules.assistant.operations import catalog, decide_batch
 from modules.assistant.schemas import (
@@ -34,6 +40,91 @@ service = AssistantService()
 from modules.assistant.forecast.api import router as forecast_router  # noqa: E402
 
 router.include_router(forecast_router)
+
+
+@router.get("/editorial/policy")
+async def editorial_policy(db: DbSession, novel_id: UUID):
+    await require_active_project(db, str(novel_id))
+    from modules.assistant.editorial_queue import policy
+
+    return await policy(db, str(novel_id))
+
+
+@router.put("/editorial/policy")
+async def update_editorial_policy(db: DbSession, data: EditorialPolicyUpdate):
+    await require_active_project(db, str(data.novel_id))
+    from modules.assistant.editorial_queue import save_policy
+
+    return await save_policy(
+        db,
+        str(data.novel_id),
+        data.policy,
+        expected_generation=data.expected_generation,
+    )
+
+
+@router.post("/editorial/reviews")
+async def submit_editorial_review(db: DbSession, data: ReviewSubmit):
+    await require_active_project(db, str(data.novel_id))
+    from modules.assistant.editorial import submit
+
+    return await submit(db, data)
+
+
+@router.get("/editorial/reviews")
+async def list_editorial_reviews(db: DbSession, novel_id: UUID):
+    await require_active_project(db, str(novel_id))
+    from modules.assistant.editorial import list_reviews
+
+    return await list_reviews(db, str(novel_id))
+
+
+@router.get("/editorial/reviews/{review_id}")
+async def get_editorial_review(db: DbSession, novel_id: UUID, review_id: UUID):
+    await require_active_project(db, str(novel_id))
+    from modules.assistant.editorial import view
+
+    return await view(db, str(novel_id), review_id)
+
+
+@router.post("/editorial/reviews/{review_id}/resume")
+async def resume_editorial_review(db: DbSession, novel_id: UUID, review_id: UUID):
+    await require_active_project(db, str(novel_id))
+    from modules.assistant.editorial import resume
+
+    return await resume(db, str(novel_id), review_id)
+
+
+@router.post("/editorial/reviews/{review_id}/stop")
+async def stop_editorial_review(db: DbSession, novel_id: UUID, review_id: UUID):
+    await require_active_project(db, str(novel_id))
+    from modules.assistant.editorial import stop
+
+    return await stop(db, str(novel_id), review_id)
+
+
+@router.get("/editorial/issues")
+async def list_editorial_issues(db: DbSession, novel_id: UUID):
+    await require_active_project(db, str(novel_id))
+    from modules.assistant.editorial import list_issues
+
+    return await list_issues(db, str(novel_id))
+
+
+@router.put("/editorial/issues/{issue_id}")
+async def decide_editorial_issue(db: DbSession, issue_id: UUID, data: IssueDecision):
+    await require_active_project(db, str(data.novel_id))
+    from modules.assistant.editorial import decide_issue
+
+    return await decide_issue(db, issue_id, data)
+
+
+@router.post("/editorial/issues/{issue_id}/recheck")
+async def recheck_editorial_issue(db: DbSession, issue_id: UUID, data: RecheckRequest):
+    await require_active_project(db, str(data.novel_id))
+    from modules.assistant.editorial import request_recheck
+
+    return await request_recheck(db, issue_id, data)
 
 
 @router.post("/notices/{notice_id}/recheck")
@@ -73,6 +164,13 @@ async def capabilities(db: DbSession, novel_id: UUID):
     )
     return {
         "enabled": get_settings().assistant_enabled,
+        "editorial": {
+            "available": bool(
+                get_settings().assistant_enabled
+                and get_settings().assistant_editorial_enabled
+            ),
+            "automatic_available": get_settings().assistant_editorial_automatic_enabled,
+        },
         "collaboration": [
             {
                 "id": key,

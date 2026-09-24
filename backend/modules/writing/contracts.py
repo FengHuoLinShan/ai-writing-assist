@@ -34,6 +34,8 @@ class WritingDraftContract:
     source: str = "manual"
     attention_reasons: list[str] = field(default_factory=list)
     knowledge_review: dict[str, Any] | None = None
+    editorial_ready_at: datetime | None = None
+    editorial_ready_hash: str | None = None
 
 
 @dataclass(frozen=True)

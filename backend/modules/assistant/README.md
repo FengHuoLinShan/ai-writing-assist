@@ -174,3 +174,31 @@ prepare 为一个具体选择创建独立子 run 与唯一 batch，重新校验�
   `Array.from` 计数一致），必须成对、绑定草稿且与选区文本长度一致；
   `submit` 载草稿后 `verify_selection_range` 逐字复核，漂移抛
   `assistant_selection_stale`（失败关闭，不带失真选区进模型）。
+
+## 作者编辑台
+
+`/api/assistant/editorial/*` 仅服务当前 owner 的作者项目。Project 持有作者确认的版本化
+编辑约定；Writing 持有工作稿与“交给编辑看”哈希；Assistant 持有 review、issue、作者处置和
+定向复核。`assistant_editorial_reviews` 冻结工作稿 ID/hash、约定版本、排除范围和不含密钥的
+Project 模型快照；worker 按 12000 字符片段顺序近读，卷/全书再按最多八节点逐层汇总。
+每段前及报告发布前重验来源，缺章、排除或预算上限保留部分覆盖，续跑不重算已保存段。
+作者可用 `/editorial/reviews/{id}/stop` 停止排队或运行中的审读；已完成分段保留，
+来源与授权未变且用量已知时可从 `/resume` 续查。
+
+读者层仅接收已读正文片段与先前读者状态；作者层可读取 Evidence 精确回读的世界资料和 Story
+当前范围的结构资料，保留引用清单和遗漏。模型 finding 必须有当前冻结正文中的唯一准确引文；
+世界/结构引用也需精确回读。服务端将其标为 `editorial_suggestion`，绝不写 Writing 的
+`independent_review`、正文、Story 或 World。作者处置保留版本与历史；改后复核只给仍在、
+可能改善或无法判断，作者确认关闭。旧来源和约定变化标明失效。
+意见卡的处理方向逐项列出涉及章节与代价；报告优先展示最多三项根因，后台提醒也只取这些
+根因中来源仍有效、严重度高且无未核对事项的意见。优先级先看未核对范围、跨章覆盖和可回读
+依据，再以模型给的严重度排序；作者意图关联必须精确命中已冻结约定，不能由模型自报充当证据。
+
+手动审稿由 `ASSISTANT_ENABLED` 与默认关闭的 `ASSISTANT_EDITORIAL_ENABLED` 控制；后台还需
+默认关闭的 `ASSISTANT_EDITORIAL_AUTOMATIC_ENABLED` 与单项目 `editorial_v1` 明确授权。
+主动编辑设置保存使用 Watch `generation` 冲突校验，双标签页的旧设置不能静默覆盖新授权。
+Watch 复用稳定期、每日额度和项目后台执行槽，仅在完成标记或未关闭问题相关结构变化排队；
+旧结论失效、授权撤销或模型用量未知时失败关闭。只有已完成且来源仍新的高严重度问题进入
+AssistantNotice，其余意见留在编辑台。联网不用于小说内审读。
+原创内容评测样本、固定量表和零费用预检见
+`backend/evals/datasets/editorial/README.md`；工程绿灯不代表真实模型内容质量通过。

@@ -626,3 +626,10 @@ Flash max 思考与至少65,536输出上限，provider 等待至少900秒。客�
 理解任务的 project preflight/commit guard 同时验证 engine/epoch/schema token；项目切换只
 取消理解任务，保留预算和结果。PG trigger 对旧 v1 任务和失效 owner 失败关闭，以 NOWAIT
 避免旧心跳持锁死锁；迁移先取消不可执行的旧任务，保证其他项目队列可领取。
+
+## 编辑任务执行
+
+`assistant_editorial_review` 与 `assistant_editorial_recheck` 沿现有 PostgreSQL worker、租约
+栅栏、Project secret-free snapshot 和 managed LLM budget 执行；每个审稿段最多四次请求，
+改后复核一次。分段结果在领域 review 中持久化；用量未知不重试。作者主动编辑复用 Watch
+单项目后台执行槽、稳定期和每日额度，单独的服务端开关与项目授权均默认关闭。

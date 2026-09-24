@@ -34,7 +34,7 @@ infrastructure/tasks/
 并由 API 与 worker 两个组合根共同调用以注册这些声明。基础设施本身不导入或发现业务模块。
 当前注册项为：
 
-- assistant：`assistant_turn`，持久化 PydanticAI 消息检查点，manual_resume 不重置预算。
+- assistant：`assistant_turn`，持久化 PydanticAI 消息检查点，manual_resume 不重置预算；`assistant_editorial_review` / `assistant_editorial_recheck` 只读、租约保护，分别按冻结正文分段续读与定向复核。
 - 变化后的确定性回访：`imports_completion_review`、`story_reference_review`，分别由
   Imports、Story 持有覆盖缺口和引用失效结果，不伪装成语义审稿。
 - interaction Agent：`interaction_agent_story_generate` 沿原 attempt 的 restart_origin 规则；
@@ -428,6 +428,8 @@ AnyIO 重复取消直到连接归还，仍执行原 lease fence；模型与网�
 | task handler | 恢复策略 | 预算与持久化 |
 |---|---|---|
 | `assistant_forecast` | manual_resume | 四次总请求，复用 AssistantRun 与 forecast_v1 检查点 |
+| `assistant_editorial_review` | manual_resume | 每个队列任务最多四次请求、30 分钟；领域 review 保存已核实段、来源/遗漏和用量，续跑仅处理剩余段，用量未知阻断重试。 |
+| `assistant_editorial_recheck` | manual_resume | 一次请求、30 分钟；只读原问题关联的当前正文，结果不自动关闭意见。 |
 | `collaboration_run` | manual_resume | 30 次 / 1800 秒的运行上限，Case 累计消费不因恢复重置 |
 | `collaboration_projection` | auto_requeue | 以采用 receipt 为幂等身份投递同事务 outbox |
 

@@ -13,7 +13,7 @@ from modules.assistant.proactive import (
     list_notices as list_notices,
 )
 from modules.assistant.proactive import (
-    mark_changed as mark_changed,
+    mark_changed as _mark_proactive_changed,
 )
 from modules.assistant.proactive import (
     policy as policy,
@@ -28,6 +28,21 @@ from modules.assistant.proactive import (
     schedule_due as schedule_due,
 )
 from modules.assistant.sessions import AssistantSessionService as AssistantSessionService
+
+
+async def mark_editorial_ready(db, novel_id, chapter_index, draft_id, content_hash):
+    from modules.assistant.editorial_queue import mark_ready
+
+    await mark_ready(db, novel_id, chapter_index, draft_id, content_hash)
+
+
+async def mark_changed(db, novel_id, asset_type, asset_id, *, related_scene_ids=None):
+    from modules.assistant.editorial import mark_reference_changed
+
+    await mark_reference_changed(db, novel_id, asset_type)
+    await _mark_proactive_changed(
+        db, novel_id, asset_type, asset_id, related_scene_ids=related_scene_ids
+    )
 
 
 async def submit_cocreation(db, data):

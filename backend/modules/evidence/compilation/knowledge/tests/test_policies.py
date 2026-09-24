@@ -76,6 +76,7 @@ EXPECTED_CAPABILITIES = (
     # Assistant
     "assistant.turn",
     "assistant.forecast",
+    "assistant.editorial",
     "interaction.forecast",
     "collaboration.run",
     "collaboration.plan",

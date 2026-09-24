@@ -22,6 +22,10 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.base import Base, NovelMixin, TimestampMixin, UUIDMixin
+from modules.assistant.editorial_models import (  # noqa: F401
+    EditorialIssue,
+    EditorialReview,
+)
 from modules.assistant.session_models import AssistantMessage, AssistantSession
 
 __all__ = [

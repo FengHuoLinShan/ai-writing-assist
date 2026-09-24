@@ -56,6 +56,7 @@ CAPABILITY_BINDINGS: dict[str, tuple[str, ...]] = {
         "writing.semantic_review",
         "writing.targeted_revision",
     ),
+    "modules/writing/comment_run.py": ("writing.comment_revision",),
     "modules/writing/conflict_ai.py": (
         "writing.conflict_check.ai_review",
         "writing.conflict_check.ai_suggestion",
@@ -147,6 +148,7 @@ CAPABILITY_BINDINGS: dict[str, tuple[str, ...]] = {
         "assistant.forecast",
         "interaction.forecast",
     ),
+    "modules/assistant/editorial.py": ("assistant.editorial",),
     "modules/collaboration/runtime.py": (
         "collaboration.run",
         "collaboration.plan",

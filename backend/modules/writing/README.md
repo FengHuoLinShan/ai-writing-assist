@@ -428,3 +428,11 @@ confirmation、正文、finding、Scene bundle 校验。恢复历史版本创建
 失效。失败时随正文写入一并回滚；作者确认事件和旧回执保留。API/助手不再重复投递。
 `*_only` facade 表示不派生发布流程、由调用方提交事务，仍执行这些必要的保存副作用；未采用
 candidate 不视为正文变化。失效不自动触发付费重算。
+
+## 交给编辑看
+
+作者在已保存、非空的最新 `draft` 工作稿上调用 `POST /api/writing/drafts/{id}/editorial-ready`
+并携带 `expected_content_hash`。Writing 锁定章节与草稿后校验最新版本，同一 hash 重复点击
+幂等；修改正文使旧标记失效，但不改变发布状态。只有新标记才通过 Assistant facade 通知已
+明确开启的后台编辑，普通自动保存不排队。编辑意见和改后复核由 Assistant 持有，Writing 的
+`independent_review` 仍只服务 AI candidate 的正式审稿与采用门禁。
