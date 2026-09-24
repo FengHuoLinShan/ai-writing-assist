@@ -3,7 +3,7 @@ id: T-20260923-guimi-flagship
 title: 现有 guimi 旗舰演示增量升级
 status: active
 created: 2026-09-23T02:57:27+08:00
-updated: 2026-09-24T07:03:00+08:00
+updated: 2026-09-24T08:16:00+08:00
 ---
 
 ## 目标与验收
@@ -206,3 +206,11 @@ RP开局目录已实现但未完成原项目数据与UI验收：新增models.Int
 - 原运行检出与付费worker未切换，`evolution-follow.py` 会话10792仍串行处理 run `reading-49d85219-1dee-4cac-975b-8668b0e57e21`；最后见 tail-07 已done，累计保守费用 USD7.0932693，账本正常。不可在运行检出改执行代码或二次领同任务。当前后缀未到66/66，暂不可称最终演化完成。
 - 生产同步设计预检：本地初始备份对线上同项目114个已有表中113完全一致、唯一assistant_runs owner差异；线上其他11项目/9账户须保留。本地当前37个项目表相对基线变化（运行中会继续变化），含Scene/World/Story/Atlas/Evolution；有地图与卡片 revision 循环FK，不能盲目表级替换。需要冻结最终源快照，先把迁移在隔离库演练，再线上备份、项目级upsert/受控删除过期Scene span并校验媒体对象和原文哈希。生产至今只读，未发布或迁移。
 - 下一步：在整合检出完成docs/差异审查和merge commit、推PR并审查；继续监控旧检出重算；制作项目级同步工具与恢复演练，全部完成后再按main固定SHA发布并对线上正常账户/匿名代理验收。
+
+## 2026-09-24 08:16 续接检查点（以此为准）
+
+- 整合分支 `codex/guimi-flagship-integration` 已推送，当前 `0b9027db6`，Draft PR #170 已附任务；最新通用修复把用量完整的别名关系格式/schema失败冻结为 `extraction_deferred`，未知费用仍阻断且不重试。`make test-ci` 最新后端6305通过/15跳过、覆盖86.11%，前端2594通过，Ruff/部署测试/文档检查通过；PR 最新CI尚有1项运行中。12个开关全开的共同基线38失败仍单列，不能称该配置绿灯。
+- 原库续跑 `reading-b9bc9757-fb5d-467e-8faa-72b124fa4b5a` 继承前36场，串行私有 `evolution-follow.py` session73469 正执行 tail，最后已见 tail-03 完成，保守累计 USD8.2533897。前次未知费 call503 按预留上限 USD0.0980841 入账，原请求不重发；所有旧失败/回执保留。运行检出已含相同关系失败修复，不得在付费 worker 活动时改动其代码或重复领取任务。
+- 私有项目级同步工具 `evolution-60/project_bundle.py` 已在隔离库完成完整36变动表/3368行交易导入及只读verify，并对模拟真实非零 owner 目标通过。最终源尚未冻结。新建隔离基线 `ai_novel_guimi_final_baseline_e2e_20260924`，从线上一致的动工前备份副本克隆并迁移到当前head，保留未导入状态以待最终包检查。原库和线上其他项目没有被此工具改动。
+- 私有媒体工具 `evolution-60/media_bundle.py` 从本地正常MinIO导出 guimi 前缀34件/18.4MB，回读逐件校验；另在同存储的隔离随机项目路径复制地图和World图各一件，目标verify后清理测试对象。应用凭据不能创建新bucket，故不把新bucket试验当作成功；项目路径复制已证实。线上目前只有只读 SSH 检查：`/opt/ai-writing-assist` detached HEAD与release state均为`b5a3ef2e...`。仍未发布、未同步数据或媒体。
+- 下一步：等串行run完成后审计66份跨run回执、原60章草稿和费用；处理本地剩余挂起RAG任务，生成最终项目包并在隔离基线复验；完成PR评审/检查后按授权合并、固定SHA发布，再受控同步guimi项目级数据及媒体，线上代理验收正常账户/匿名路径。READY=false，代理验收明确不是人工试用。
