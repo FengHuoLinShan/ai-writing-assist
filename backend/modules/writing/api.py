@@ -99,6 +99,7 @@ _conflict_service = WritingConflictCheckService()
 
 @router.get("/drafts/{draft_id}/comments")
 async def get_writing_comments(db: DbSession, draft_id: UUID, novel_id: NovelIdQuery):
+    await require_active_project(db, novel_id)
     from modules.writing.comments import list_comments
 
     return {"items": await list_comments(db, novel_id, draft_id)}
@@ -106,6 +107,7 @@ async def get_writing_comments(db: DbSession, draft_id: UUID, novel_id: NovelIdQ
 
 @router.post("/drafts/{draft_id}/comments", status_code=201)
 async def post_writing_comment(db: DbSession, draft_id: UUID, data: WritingCommentCreate):
+    await require_active_project(db, data.novel_id)
     from modules.writing.comments import create_comment
 
     return await create_comment(db, draft_id, data)
@@ -115,6 +117,7 @@ async def post_writing_comment(db: DbSession, draft_id: UUID, data: WritingComme
 async def patch_writing_comment(
     db: DbSession, comment_id: UUID, data: WritingCommentUpdate
 ):
+    await require_active_project(db, data.novel_id)
     from modules.writing.comments import set_comment_status
 
     return await set_comment_status(db, data.novel_id, comment_id, data.status)
@@ -122,6 +125,7 @@ async def patch_writing_comment(
 
 @router.post("/comment-runs", status_code=201)
 async def post_writing_comment_run(db: DbSession, data: WritingCommentRunRequest):
+    await require_active_project(db, data.novel_id)
     from modules.writing.comments import submit_comment_run
 
     return await submit_comment_run(db, data)
