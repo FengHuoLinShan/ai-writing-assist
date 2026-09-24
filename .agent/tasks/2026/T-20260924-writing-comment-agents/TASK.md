@@ -3,7 +3,7 @@ id: T-20260924-writing-comment-agents
 title: 正文批注驱动的 Agent 修订
 status: active
 created: 2026-09-24T00:38:33+08:00
-updated: 2026-09-24T01:33:00+08:00
+updated: 2026-09-24T09:09:00+08:00
 ---
 
 # 正文批注驱动的 Agent 修订
@@ -12,10 +12,10 @@ updated: 2026-09-24T01:33:00+08:00
 
 - 实际完成：从原工作树 HEAD `aaa5fc94893f791cf1072e3d0a219b9cfb621a2c` 创建独立 worktree 与 `codex/writing-comment-agents`；批注持久化、精确锚点、AI 审稿与局部修订任务、知识与复核门禁、Assistant 独立提案、textarea 高亮镜像和卡片界面已实现。
 - 当前里程碑：实现及离线工程验证完成。专用 PostgreSQL 从零迁移、后端 539 项、前端 95 项、桌面/窄屏/任务恢复浏览器 3 项、lint、生产构建、文档门禁均通过。截图复查后补上卡片精确滚动，高亮已在视口可见。
-- 下一步：按作者授权进行有成本边界的真实模型质量验证；从新建任务专用项目检查批注语义、局部修订和 World/Story 提案的实际输出，记录失败证据。正式合并、发布另按仓库门禁。
+- 下一步：先核对草稿 PR #172 的远端 CI；合并前更新主干基线并处理与同期 PR 的共享文件和迁移。按作者授权进行有成本边界的真实模型质量验证，记录批注、修订与提案的实际输出和失败证据。
 - 阻塞：真实模型质量尚无本轮付费验收记录；离线检查不能替代。
 - 工作区：`/Users/tywww/.codex/worktrees/writing-comment-agents/ai-writing-assist`；原 checkout 中 `.agent/TASKS.md`、V4 付费账本及 PR merge 任务为其他 WIP，未复制或修改。
-- 最后核实：2026-09-24T01:33:00+08:00。
+- 最后核实：2026-09-24T09:09:00+08:00。
 
 ## 目标与验收
 
@@ -57,4 +57,4 @@ updated: 2026-09-24T01:33:00+08:00
 
 - 已交付：Writing 批注表与 API、批量审稿修订任务、候选治理与采用门禁、独立 Assistant 提案、textarea 高亮与卡片、桌面/窄屏操作、任务恢复、领域文档和自动化回归。
 - 未交付：真实模型语义质量验收；无已确认的 World/Story 资产写入。
-- 交付边界：仅 `codex/writing-comment-agents` 隔离 worktree 的未提交本地改动；未提交、推送、合并、运行 CI 或部署。原 checkout 的其他 WIP 保留。
+- 交付边界：本地实现已提交并推送为草稿 PR https://github.com/FengHuoLinShan/ai-writing-assist/pull/172，初始实现提交 `585be279d`；远端 CI 待核对，未合并或部署。原 checkout 的其他 WIP 保留。
