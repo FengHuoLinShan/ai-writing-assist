@@ -3,18 +3,18 @@ id: T-20260924-agent-cli-adapters
 title: Agent 底座接入五种本机 CLI
 status: active
 created: 2026-09-24T00:24:52+08:00
-updated: 2026-09-24T02:04:00+08:00
+updated: 2026-09-24T09:09:00+08:00
 ---
 
 # Agent 底座接入五种本机 CLI
 
 ## 恢复快照
 
-- 隔离工作树：`/Users/tywww/.codex/worktrees/agent-cli-adapters/ai-writing-assist`，分支 `codex/agent-cli-adapters`，基线 `eeccc4e26bd56294b13666b2111b61874e925c42`。原 V4 工作树 WIP 未触碰；本分支未提交、推送、合并或部署。
+- 隔离工作树：`/Users/tywww/.codex/worktrees/agent-cli-adapters/ai-writing-assist`，分支 `codex/agent-cli-adapters`，基线 `eeccc4e26bd56294b13666b2111b61874e925c42`。原 V4 工作树 WIP 未触碰；本分支已提交并推送为草稿 PR https://github.com/FengHuoLinShan/ai-writing-assist/pull/173，初始实现提交 `dec4af7fd`，未合并或部署。
 - 已实现五种 CLI 子进程适配、离线结构化评测入口、项目配对与出站伴随进程、逐根任务主机权限确认、租约/产品工具/回执协议；Assistant、已登录 RP、前瞻、创作协作、连续性检查及 Story 场景排演的人物意图 Agent 接入项目选择。匿名 RP 和普通非 Agent LLM 流程保持原连接。场景排演的环境裁决与剧本仍用项目账户连接。
 - 本机任务统一 `never_retry`，中断保留已见回执，显式新任务重试。项目/owner、Evidence、确认、CAS、预算和租约校验保留；本机 CLI 工作目录不是主机权限沙箱。
-- 下一步：解决或明确验收 DSH headless 无结构化原生工具事件导致的原生工具次数不可核对；再做真实浏览器与伴随进程跨网络流程验收。没有这些证据不要宣称正式全量验收。
-- 最后核实：2026-09-24T02:04:00+08:00。
+- 下一步：先核对草稿 PR #173 的远端 CI；合并前更新主干基线并处理与同期 PR 的共享文件和迁移。再解决或明确验收 DSH 原生工具次数不可核对问题，并做真实浏览器与跨网络流程验收。
+- 最后核实：2026-09-24T09:09:00+08:00。
 
 ## 目标与验收边界
 
@@ -35,4 +35,4 @@ updated: 2026-09-24T02:04:00+08:00
 - DSH headless 只提供纯文本最终输出，stderr 是自由格式 reasoning，没有可核对的原生工具事件；因此原生文件/命令工具次数不能硬限，产品工具次数、运行时间和输出量仍受限。设置界面已明示。
 - 本机现有 `~/.dsh/.env` 的 `http_proxy` 被 DSH 拒绝；隔离 `DSH_HOME` 合成试跑成功，不改用户配置。Pi 默认模型不可用，显式 DeepSeek 模型成功；Codex 默认模型在当前 CLI 登录态不可用，显式 Luna 成功。伴随进程支持 Codex/Pi 模型覆盖与外部 `DSH_HOME`。
 - 尚无真实浏览器操作及 pyz 通过独立网络服务器执行完整产品 Agent 的验收；PostgreSQL 测试使用 ASGI HTTP 路由与真实 worker runtime，覆盖协议核心但非完整部署形态。
-- 当前本地实现没有提交、推送、合并、CI 或部署结果。
+- 当前实现已提交并推送为草稿 PR #173；远端 CI 待核对，未合并或部署。
