@@ -43,9 +43,9 @@ from modules.assistant.forecast.service import coverage, explicit_decisions, pub
 from modules.assistant.models import AssistantRun
 from modules.assistant.proactive import _watch
 from modules.evidence.contracts import GroupSource, govern_group_output
+from modules.local_agent.facade import local_task_meta, open_task_snapshot_client
 from modules.project.facade import (
     build_project_llm_execution_snapshot,
-    open_project_snapshot_llm_client,
 )
 
 
@@ -133,7 +133,9 @@ async def submit(
     ):
         raise ConflictError("后台计算授权已撤销", code="POLICY_CHANGED")
     snapshot = (
-        await build_project_llm_execution_snapshot(db, novel_id) if semantic else None
+        await build_project_llm_execution_snapshot(db, novel_id, agent_executor=True)
+        if semantic
+        else None
     )
     choices = await explicit_decisions(db, ctx) if semantic else []
     payload = {
@@ -174,6 +176,7 @@ async def submit(
         meta={
             "run_id": str(run.id),
             "persona": persona,
+            **local_task_meta(snapshot),
             **({"_task_priority": "background"} if background else {}),
         },
     )
@@ -231,7 +234,8 @@ async def view(db, novel_id, run_id, *, persona="author"):
     can_resume = False
     status, life = await effective_status(db, run)
     if (
-        status in {"failed", "cancelled"}
+        not (run.request_json.get("llm_snapshot") or {}).get("local_agent")
+        and status in {"failed", "cancelled"}
         and run.task_id
         and not budget.pending_usage
         and budget.remaining_seconds > 0
@@ -255,6 +259,12 @@ async def view(db, novel_id, run_id, *, persona="author"):
         can_resume=can_resume,
         run_id=run.id,
         task_id=run.task_id,
+        local_agent={
+            "kind": run.request_json["llm_snapshot"]["local_agent"]["kind"],
+            "approved": bool((run.checkpoint_json or {}).get("local_approved")),
+        }
+        if (run.request_json.get("llm_snapshot") or {}).get("local_agent")
+        else None,
         status=status,
         phase="done"
         if status != run.status
@@ -307,6 +317,8 @@ async def resume(db, novel_id, run_id, *, persona="author"):
     await authorize(db, novel_id, persona=persona)
     watch = await _watch(db, novel_id, lock=True)
     run = await require_run(db, novel_id, run_id, lock=True, persona=persona)
+    if (run.request_json.get("llm_snapshot") or {}).get("local_agent"):
+        raise ConflictError("本机任务中断后请开始新一轮分析", code="NOT_RESUMABLE")
     run.status, _ = await effective_status(db, run)
     if run.status in {"pending", "running"}:
         return await view(db, novel_id, run_id, persona=persona)
@@ -443,8 +455,8 @@ async def execute(db, task):
         calculated, missing = calculate(ctx, selected)
         semantic = [key for key in selected if key in SEMANTIC]
         if semantic and ctx.sources:
-            async with open_project_snapshot_llm_client(
-                db, novel_id, payload["llm_snapshot"]
+            async with open_task_snapshot_client(
+                db, task, payload["llm_snapshot"], budget=budget, checkpoint=checkpoint
             ) as client:
                 await db.commit()
 

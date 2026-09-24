@@ -320,9 +320,7 @@ class TaskLifecycleService:
             declared = registry.get_root_capability(task.task_type)
             if additional is None or declared != payload.root_capability_id:
                 raise ValueError("task run envelope cannot authorize this resume")
-            additional_tokens = registry.resolve_run_token_limit(
-                task.task_type, task
-            )
+            additional_tokens = registry.resolve_run_token_limit(task.task_type, task)
             ledger = AIRunEnvelope(payload)
             await ledger.authorize_additional_requests(
                 additional,
@@ -828,6 +826,14 @@ class TaskLifecycleService:
                 func.coalesce(AsyncTask.meta["_execution_mode"].as_string(), "queue")
                 != "inline_only"
             )
+            scope.append(
+                or_(
+                    func.coalesce(AsyncTask.meta["_local_agent"].as_boolean(), False).is_(
+                        False
+                    ),
+                    AsyncTask.meta["_local_ready"].as_boolean().is_(True),
+                )
+            )
         if foreground_only:
             scope.append(
                 func.coalesce(AsyncTask.meta["_task_priority"].as_string(), "foreground")
@@ -892,6 +898,10 @@ class TaskLifecycleService:
         task = result.scalar_one_or_none()
         if task is None:
             return None
+        if (task.meta or {}).get("_local_agent") and not (
+            task.meta.get("_local_ready") and task.meta.get("_local_approved")
+        ):
+            return None
         coalescing_key = (
             task.coalescing_key if isinstance(task.coalescing_key, str) else None
         )
@@ -910,6 +920,8 @@ class TaskLifecycleService:
         ):
             return None
         task.mark_running(lease_id=str(uuid.uuid4()))
+        if (task.meta or {}).get("_local_agent"):
+            task.meta = {**task.meta, "_local_ready": False}
         await db.commit()
         return task
 
@@ -934,6 +946,10 @@ class TaskLifecycleService:
         ).scalar_one_or_none()
         if task is None:
             return None
+        if (task.meta or {}).get("_local_agent") and not (
+            task.meta.get("_local_ready") and task.meta.get("_local_approved")
+        ):
+            return None
         coalescing_key = (
             task.coalescing_key if isinstance(task.coalescing_key, str) else None
         )
@@ -952,6 +968,8 @@ class TaskLifecycleService:
         ):
             return None
         task.mark_running(lease_id=str(uuid.uuid4()))
+        if (task.meta or {}).get("_local_agent"):
+            task.meta = {**task.meta, "_local_ready": False}
         await db.commit()
         return task
 

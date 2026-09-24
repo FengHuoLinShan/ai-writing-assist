@@ -230,6 +230,13 @@ ADR-0027 的 Assistant 工作项与调查成果是有界私有 checkpoint；Worl
 
 新增业务模块 `collaboration` 持有目标、授权、不可变试改与精确采用回执；
 `assistant` 持有短期前瞻和处置，`story` / `interaction` 持有观察及分支事实。
-当前共十个业务模块，继续复用原 PostgreSQL 队列、Evidence 与 Project 连接。
+当前共十二个业务模块（含 Evolution 契约层与本机 Agent 设备模块），继续复用原 PostgreSQL 队列、Evidence 与 Project 连接。
 模块职责与采用/恢复边界见 `docs/modules/21_collaboration.md`、
 `backend/modules/collaboration/README.md`，前瞻见 `docs/modules/20_assistant.md`。
+
+## 本机 Agent 执行器
+
+`local_agent` 持有作品绑定的设备、逐次本机运行授权和调用回执；它不是世界事实或
+作品模型连接的 owner。Project 保留默认执行器选择，Assistant/Interaction/协作等
+领域保留各自的任务与正式写入权。Mac CLI 本地文件变化只属于作者主机；进入产品的
+资料和修改仍经过 Evidence、owner/`novel_id`、确认、来源与事务门禁。

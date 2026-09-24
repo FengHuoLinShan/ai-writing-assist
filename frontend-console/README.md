@@ -629,3 +629,9 @@ Writing 资料栏及 ProjectAssistant 使用 ForecastDock；输入法 compositio
 CreativeExperiments / CreativeTrialEditor 支持原文对照、手动试改、版本检查、冲突选择与
 精确采用；未知提交持久化原操作身份。RP 的 InteractionForecast 只预填用户输入。
 RP 文字草稿与输入类型、人物/私语范围一起存储，失败保留；实际发送仍由作者点击。
+
+## 本机 CLI Agent
+
+`ProjectSettingsView` 经 `api.js.localAgent` 管理设备配对、执行器选择与后台任务逐次确认。
+`ProjectAssistant` 和已登录 `InteractionView` 为各自根任务展示完整主机权限告知；
+设备离线时仍保持 pending，失败文本从授权回执读取，不能当作已保存产品成果。

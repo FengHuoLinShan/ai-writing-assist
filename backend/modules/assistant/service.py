@@ -491,7 +491,14 @@ class AssistantService:
                     raise ConflictError(
                         str(exc), code="assistant_selection_stale"
                     ) from exc
-        snapshot = await build_project_llm_execution_snapshot(db, novel_id)
+        from modules.local_agent.facade import selected_executor
+
+        executor = await selected_executor(db, novel_id, owner_id)
+        snapshot = (
+            await build_project_llm_execution_snapshot(db, novel_id)
+            if executor.kind == "gateway"
+            else None
+        )
         frozen_payload = dict(payload)
         frozen_payload["calendar_date"] = (
             calendar_date
@@ -511,6 +518,10 @@ class AssistantService:
             request_json=frozen_payload
             | {
                 "llm_snapshot": snapshot,
+                "agent_executor": {
+                    "kind": executor.kind,
+                    "device_id": executor.device_id,
+                },
                 "runtime_version": "3",
                 **({"team": team} if team else {}),
                 "web_search": search_snapshot()
@@ -525,6 +536,9 @@ class AssistantService:
             budget_json=AgentRunBudget(
                 policy_version="team_v1" if team or regression_targets else "legacy_v1"
             ).model_dump(mode="json"),
+            checkpoint_json={"local_approved": False}
+            if executor.kind != "gateway"
+            else {},
             status="pending",
         )
         try:
@@ -534,7 +548,19 @@ class AssistantService:
                 task_type="assistant_turn",
                 novel_id=novel_id,
                 request_payload=payload,
-                meta={"run_id": str(run.id)},
+                meta={
+                    "run_id": str(run.id),
+                    **(
+                        {
+                            "_local_agent": True,
+                            "_local_ready": False,
+                            "_local_approved": False,
+                            "_local_device_id": executor.device_id,
+                        }
+                        if executor.kind != "gateway"
+                        else {}
+                    ),
+                },
             )
         except ValueError as exc:
             raise ConflictError(
@@ -582,6 +608,7 @@ class AssistantService:
         return row
 
     def view(self, run, *, can_resume: bool = False):
+        executor = (run.request_json or {}).get("agent_executor") or {}
         return {
             "id": str(run.id),
             "session_id": str(run.session_id) if run.session_id else None,
@@ -590,8 +617,14 @@ class AssistantService:
             "usage": run.budget_json or {},
             "error": run.error,
             "task_id": str(run.task_id) if run.task_id else None,
-            "can_resume": can_resume,
+            "can_resume": can_resume and executor.get("kind") in {None, "gateway"},
             "updated_at": run.updated_at,
+            "local_agent": {
+                "kind": executor["kind"],
+                "approved": bool((run.checkpoint_json or {}).get("local_approved")),
+            }
+            if executor.get("kind") not in {None, "gateway"}
+            else None,
         }
 
     async def get_run(self, db, novel_id, run_id):
@@ -824,6 +857,13 @@ class AssistantService:
             )
         if run.status != "failed" or not run.task_id:
             raise ConflictError("请开始新一轮查证", code="assistant_new_budget_required")
+        if (run.request_json.get("agent_executor") or {}).get("kind") not in {
+            None,
+            "gateway",
+        }:
+            raise ConflictError(
+                "本机任务中断后请开始新一轮查证", code="assistant_new_budget_required"
+            )
         try:
             AgentRunBudget.model_validate(run.budget_json).reserve()
         except AgentBudgetError as exc:
@@ -906,12 +946,29 @@ class AssistantService:
                 )
         saved_state = dict(run.checkpoint_json or {})
         budget = AgentRunBudget.model_validate(run.budget_json)
+        if (payload.get("agent_executor") or {}).get("kind") not in {
+            None,
+            "gateway",
+        } and budget.requests == 0:
+            budget.started_at = datetime.now(UTC)
+            run.budget_json = budget.model_dump(mode="json")
         owner_id = str(run.owner_id)
         work = WorkContext.model_validate(payload.get("context", {}))
-        settings = await restore_project_llm_execution_settings(
-            db, novel_id, payload["llm_snapshot"]
-        )
-        profile = capability_from_execution_snapshot(payload["llm_snapshot"])
+        local_executor = payload.get("agent_executor") or {}
+        if local_executor.get("kind") and local_executor["kind"] != "gateway":
+            from types import SimpleNamespace
+
+            settings = None
+            profile = SimpleNamespace(
+                provider_id="local-cli",
+                model=local_executor["kind"],
+                hard_input_tokens=32000,
+            )
+        else:
+            settings = await restore_project_llm_execution_settings(
+                db, novel_id, payload["llm_snapshot"]
+            )
+            profile = capability_from_execution_snapshot(payload["llm_snapshot"])
         run.status = "running"
         record_run_event(run, "running")
         await db.commit()
@@ -942,7 +999,21 @@ class AssistantService:
             await db.commit()
 
         try:
-            client = create_project_snapshot_llm_client(settings, novel_id=novel_id)
+            if settings is None:
+                from modules.local_agent.client import LocalCLIClient
+
+                client = LocalCLIClient(
+                    db,
+                    task_id=str(task.id),
+                    novel_id=novel_id,
+                    owner_id=owner_id,
+                    device_id=local_executor["device_id"],
+                    kind=local_executor["kind"],
+                    budget=budget,
+                    checkpoint=checkpoint,
+                )
+            else:
+                client = create_project_snapshot_llm_client(settings, novel_id=novel_id)
             from infrastructure.llm.native_search import verified_native_search
 
             deps = AssistantToolContext(
@@ -1062,11 +1133,7 @@ class AssistantService:
                     )
                     + "\n作者要求："
                     + payload["message"]
-                    + (
-                        "\n" + work_directive(work)
-                        if work_directive(work)
-                        else ""
-                    ),
+                    + ("\n" + work_directive(work) if work_directive(work) else ""),
                 )
             )
             await db.commit()

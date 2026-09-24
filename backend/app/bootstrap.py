@@ -108,6 +108,7 @@ def _register_orm_models() -> None:
     import modules.evolution.models  # noqa: F401, I001
     import modules.imports.models  # noqa: F401, I001
     import modules.interaction.models  # noqa: F401, I001
+    import modules.local_agent.models  # noqa: F401, I001
     import modules.project.models  # noqa: F401, I001
     import modules.story.models  # noqa: F401, I001
     import modules.story.continuity.models  # noqa: F401, I001

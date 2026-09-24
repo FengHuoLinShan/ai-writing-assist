@@ -11,3 +11,5 @@
 
 修改前瞻或创作试验时，模块导航见 `backend/modules/assistant/README.md` 与
 `backend/modules/collaboration/README.md`；共享规则仍只从 `AGENTS.md` 导入。
+本机 CLI Agent 的设备与任务协议见 `backend/modules/local_agent/README.md`，
+Claude Code 的仓库协作规则仍只从 `AGENTS.md` 导入。

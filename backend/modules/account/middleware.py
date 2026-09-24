@@ -225,6 +225,7 @@ class AccountAuthMiddleware:
             scope.get("type") != "http"
             or settings.auth_mode != "public"
             or not path.startswith("/api/")
+            or path.startswith("/api/local-agent/companion/")
             or method == "OPTIONS"
             or path in {"/api/health", "/api/health/llm"}
         ):

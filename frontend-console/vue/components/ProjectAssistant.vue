@@ -15,6 +15,14 @@
       <div v-show="activeTab === 'chat'" class="project-assistant-chat">
       <div class="project-assistant-sessions"><label for="assistant-session">讨论</label><select id="assistant-session" :value="state.sessionId || ''" :disabled="state.busy || state.loading" @change="assistant.selectSession($event.target.value)"><option v-if="!state.sessionId" value="">新的讨论</option><option v-for="session in state.sessions" :key="session.id" :value="session.id">{{ session.title }}</option></select><button type="button" class="btn btn-sm" :disabled="state.busy" @click="assistant.newSession">新讨论</button></div>
       <div v-if="state.error" class="project-assistant-error" role="alert">{{ state.error }}</div>
+      <div v-if="state.run?.local_agent && state.run?.task_id && !running" class="project-assistant-error">
+        <button class="btn btn-sm" type="button" @click="loadLocalReceipts">查看本机运行记录</button>
+        <pre v-for="receipt in localReceipts" :key="receipt.ordinal">{{ receipt.visible_text || receipt.error || receipt.status }}</pre>
+      </div>
+      <div v-if="state.run?.status === 'pending' && state.run?.local_agent && !state.run.local_agent.approved" class="project-assistant-error" role="status">
+        <p>本轮将使用 {{ state.run.local_agent.kind }} CLI。它在你的 Mac 上直接运行，可访问当前 macOS 用户允许的文件和命令；专用工作目录不是沙箱。费用可能无法准确估算。</p>
+        <button class="btn btn-primary" type="button" :disabled="state.busy" @click="approveLocalRun">确认本轮在本机执行</button>
+      </div>
       <button v-if="state.pendingSubmission && state.error" class="btn" type="button" :disabled="state.busy" @click="assistant.recoverSubmission">恢复上次提交</button>
       <button v-if="state.sessions.length < state.total" class="btn btn-sm" type="button" :disabled="state.loading" @click="assistant.moreSessions">更多讨论</button>
       <p v-if="state.backupError" class="project-assistant-error" role="alert">本地备份暂不可用。未提交的输入仍保留在此页，请勿刷新。</p>
@@ -62,7 +70,7 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
-import { getAssistantWorkContext } from "../bridge/index.js"
+import { getApi, getAssistantWorkContext, getConfirm } from "../bridge/index.js"
 import { createProjectAssistant } from "../composables/useProjectAssistant.js"
 import { registerProjectAssistantOpener } from "../bridge/index.js"
 import { useModalDialog } from "../composables/useModalDialog.js"
@@ -81,6 +89,7 @@ const state = assistant.state
 const receiptMessageIds = computed(() => new Set(new Map(state.messages.filter(message => message.assistant_run_id).map(message => [message.assistant_run_id, message.id])).values()))
 const narrow = ref(false)
 const activeTab = ref("chat")
+const localReceipts = ref([])
 const experimentContext = ref({ page: "today" })
 const creativeRef = ref(null)
 // R00 作者意图：turn 与前瞻共用（后端 schemas.TASK_HINTS 封闭集）；
@@ -108,6 +117,18 @@ function useCurrent() { try { state.context = { ...getAssistantWorkContext(props
 function setScope(value) { try { state.context = { ...(state.context || capture()), scope: value }; assistant.setInput(state.input) } catch (error) { state.error = error.message } }
 function clearSelection() { const { selection_start: _s, selection_end: _e, ...rest } = state.context || {}; state.context = { ...rest, selection: "" }; assistant.setInput(state.input) }
 async function send() { try { await assistant.send(withIntent(state.context || capture())) } catch (error) { state.error = error.message || "暂时无法提交。" } }
+async function approveLocalRun() {
+  if (!state.run?.task_id || !getConfirm()("确认本轮 CLI 可使用当前 macOS 用户的文件与命令权限？")) return
+  try {
+    await getApi().localAgent.approve(props.projectId, state.run.task_id)
+    state.run = await getApi().assistant.run(props.projectId, state.run.id)
+  } catch (error) { state.error = error.message || "本轮授权未完成。" }
+}
+async function loadLocalReceipts() {
+  try { localReceipts.value = (await getApi().localAgent.receipts(props.projectId, state.run.task_id)).items || [] }
+  catch (error) { state.error = error.message || "本机运行记录暂时无法读取。" }
+}
+watch(() => state.run?.id, () => { localReceipts.value = [] })
 function dependencyTitles(action) { return action.depends_on.map(key => state.run.result.actions.find(item => item.key === key)?.title || "前置修改").join("、") }
 function safeUrl(value) { try { const url = new URL(value); return ["https:", "http:"].includes(url.protocol) && !url.username && !url.password } catch { return false } }
 function syncMedia() { narrow.value = media?.matches || false }
@@ -158,6 +179,7 @@ onBeforeUnmount(() => { disposed = true; removeOpener(); assistant.dispose(); me
 .project-assistant-empty{display:grid;gap:10px;color:var(--text-secondary);padding:20px 0}
 .project-assistant-empty .btn{text-align:left;white-space:normal;min-height:44px}
 .project-assistant-error{color:var(--danger);padding:8px 16px;line-height:1.6;overflow-wrap:anywhere}
+.project-assistant-error pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:16rem;overflow:auto}
 .project-assistant-result{padding-top:12px}.project-assistant-result details{margin:12px 0}.project-assistant-result summary{cursor:pointer;min-height:32px;line-height:32px}
 .project-assistant-proposal{border:1px solid var(--border-color,var(--border));border-radius:8px;padding:12px;margin:12px 0}.project-assistant-effect{color:var(--text-secondary);font-size:13px;line-height:1.6}
 .project-assistant-actions{flex-wrap:wrap}.project-assistant-actions label{font-size:12px}.project-assistant-usage{color:var(--text-secondary);font-size:12px}

@@ -1,5 +1,7 @@
 # 开放任务
 
+- [T-20260924-agent-cli-adapters](tasks/2026/T-20260924-agent-cli-adapters/TASK.md) — Agent 底座接入五种本机 CLI
+
 | 任务 | 状态 | 记录 |
 |---|---|---|
 | NovelCraft V4 长期计划实施 | G0 基线与保护进行中（分支 codex/novelcraft-v4-g0-baseline） | [主记录](tasks/2026/T-20260921-novelcraft-v4-implementation/TASK.md) |

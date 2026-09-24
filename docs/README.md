@@ -75,6 +75,7 @@
 14. `modules/20_assistant.md` — 项目助手的有界运行时、操作回执与恢复语义
 15. `modules/21_collaboration.md` — 创作试验目标、授权、不可变试改与精确采用回执
 16. `modules/22_evolution.md` — `evolution` V4 演化引擎 E01 契约层：来源引用、观察、身份解析、类型化操作与回执游标（建设中，无运行时）
+17. `modules/23_local_agent.md` — `local_agent` 作者 Mac 本机 CLI 的项目配对、逐任务权限与回执边界
 
 `modules/` 只放当前模块的设计与稳定接口说明；已替代的模块文档位于
 `archive/modules/`，代码分析参考位于 `references/`。

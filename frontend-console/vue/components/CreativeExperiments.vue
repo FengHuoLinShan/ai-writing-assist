@@ -4,6 +4,10 @@
     <p v-if="loading" role="status">正在恢复试改记录…</p>
     <p v-if="error" class="creative-error" role="alert">{{ error }}</p>
     <p v-if="backupError" class="creative-error" role="alert">本地备份不可用，输入仍在此页，请勿刷新。</p>
+    <div v-if="run?.status === 'pending' && run?.local_agent && !run.local_agent.approved" role="status">
+      <p>本轮 {{ run.local_agent.kind }} CLI 在你的 Mac 上直接运行，可访问当前用户允许的文件和命令；工作目录不是沙箱。用量和费用可能无法准确估算。</p>
+      <button type="button" class="btn btn-primary" :disabled="busy" @click="approveLocalRun">确认本轮在本机执行</button>
+    </div>
     <label v-if="cases.length" class="creative-label">继续已有目标<select :value="currentCase?.id || ''" :disabled="busy" @change="selectCase($event.target.value)"><option value="">新的创作目标</option><option v-for="item in cases" :key="item.id" :value="item.id">{{ item.goal }}</option></select></label>
     <form @submit.prevent="start()"><fieldset class="creative-form-fields" :disabled="busy">
       <label class="creative-label">想解决什么<textarea v-model="goal" rows="3" maxlength="8000" placeholder="例如：主角为什么会突然相信旧敌？" @input="saveDraft" /></label>
@@ -39,7 +43,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, reactive, ref, watch } from "vue"
-import { getApi, getForecastEditorState, notifyCreativeMerged, registerAuxiliaryLeaveGuard, useStateKey } from "../bridge/index.js"
+import { getApi, getConfirm, getForecastEditorState, notifyCreativeMerged, registerAuxiliaryLeaveGuard, useStateKey } from "../bridge/index.js"
 import { createWorkflowManager } from "../shared/workflowManager.js"
 import { ACCOUNT_INVALIDATED_EVENT, ACCOUNT_MARKER_KEY } from "../../shared/accountStorage.js"
 import AssistantValue from "./AssistantValue.vue"
@@ -80,6 +84,13 @@ function readable(value) { if (!value) return "此试验中不保留"; return va
 const workflow = createWorkflowManager({ workflowType: "collaboration_run", label: "创作试验", view: "writing", pollNovelId: (_state, id) => id, matchRecovered: items => items.find(item => item.workflowType === "collaboration_run" && item.meta?.caseId === currentCase.value?.id), onTerminal: async (_progress, value, _task, projectId) => { if (projectId === props.projectId) { await openRun(value.meta.runId); await refreshCase() } } })
 let runRequest = 0, trialRequest = 0
 async function openRun(id) { const token = generation, request = ++runRequest; try { const value = await api().run(props.projectId, id); if (current(token) && request === runRequest) run.value = value } catch (err) { if (current(token)) error.value = err.message } }
+async function approveLocalRun() {
+  if (!run.value?.task_id || !getConfirm()("确认本轮 CLI 可使用当前 Mac 用户的文件与命令权限？")) return
+  try {
+    await getApi().localAgent.approve(props.projectId, run.value.task_id)
+    await openRun(run.value.id)
+  } catch (err) { error.value = err.message || "本轮授权未完成。" }
+}
 async function refreshCase() {
   if (!currentCase.value || !api()) return
   const token = generation, id = currentCase.value.id

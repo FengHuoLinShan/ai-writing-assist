@@ -38,6 +38,12 @@ async def test_round_replay_fork_and_source_change(
     class Client:
         model_name = "synthetic"
 
+        async def run_agent(self, _request, **kwargs):
+            calls.append("local_actor")
+            return SimpleNamespace(
+                output=kwargs["output_type"](kind="wait", action="在门边等候")
+            )
+
         async def generate(self, request, **kwargs):
             calls.append("actor")
             tool = next(t for t in request.tools if t.name.startswith("final_result"))
@@ -112,6 +118,29 @@ async def test_round_replay_fork_and_source_change(
     assert fork_view["rounds"][0] == view["rounds"][0]
     assert calls.count("actor") == calls.count("resolver") == 3
     assert await read_rehearsal(db_session, test_project_id, str(parent.id)) == view
+    local = task()
+    local.meta.update(
+        {"_local_agent": True, "agent_llm_execution_snapshot": {"synthetic": True}}
+    )
+
+    async def restore(*_args):
+        return {"_local_agent": {"kind": "pi", "device_id": "synthetic"}}
+
+    async def local_client(*_args, **_kwargs):
+        result = Client()
+        result.is_local_agent = True
+        return result
+
+    monkeypatch.setattr(
+        "modules.project.facade.restore_project_llm_execution_settings", restore
+    )
+    monkeypatch.setattr("modules.local_agent.facade.task_snapshot_client", local_client)
+    await run_rehearsal(
+        db_session, local, data.model_copy(update={"rehearsal_rounds": 1}), **kwargs
+    )
+    assert calls.count("local_actor") == 1
+    assert calls.count("actor") == 3
+    assert calls.count("resolver") == 4
     current.context_hash = "source-v2"
     with pytest.raises(ConflictError):
         await run_rehearsal(db_session, task(), data, **kwargs)

@@ -8,7 +8,7 @@
         <mxCell id="2" value="AI 长篇小说结构化创作引擎 — 模块架构" style="text;html=1;align=left;verticalAlign=middle;fontSize=24;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
           <mxGeometry x="40" y="20" width="740" height="40" as="geometry" />
         </mxCell>
-        <mxCell id="3" value="11 个业务模块 · 作者创作三层 + 独立 RP 领域 + 身份边界 + 共享基础设施 + 演化契约层（E01）" style="text;html=1;align=right;verticalAlign=middle;fontSize=13;fontColor=#475569;" vertex="1" parent="1">
+        <mxCell id="3" value="12 个业务模块 · 作者创作三层 + 独立 RP / 本机 Agent 领域 + 身份边界 + 共享基础设施 + 演化契约层（E01）" style="text;html=1;align=right;verticalAlign=middle;fontSize=13;fontColor=#475569;" vertex="1" parent="1">
           <mxGeometry x="800" y="25" width="760" height="30" as="geometry" />
         </mxCell>
 
@@ -150,6 +150,7 @@
         <mxCell id="collaboration_evidence" value="授权来源与查询集合" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#60a5fa;endArrow=classic;" edge="1" parent="1" source="16" target="collaboration"><mxGeometry as="geometry" relative="1" /></mxCell>
         <mxCell id="collaboration_writing" value="确认后经原领域操作" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#60a5fa;endArrow=classic;" edge="1" parent="1" source="collaboration" target="18"><mxGeometry as="geometry" relative="1" /></mxCell>
         <mxCell id="evolution" value="evolution 演化引擎（建设中，V4 E01 契约层）&#10;来源引用 · 观察 · 身份解析 · 类型化操作 · 回执游标&#10;后续按 owner epoch 替代 deep_import 编排；当前无运行时" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;fontSize=13;spacing=8;" vertex="1" parent="1"><mxGeometry as="geometry" x="1160" y="930" width="360" height="95" /></mxCell>
+        <mxCell id="local_agent" value="local_agent 本机 CLI 设备&#10;作者 Mac 出站领取 · 项目/双租约 · 逐任务授权&#10;Codex / Claude / Kimi / DSH / Pi；cwd 非沙箱" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ede9fe;strokeColor=#7c3aed;fontColor=#3b0764;fontSize=13;spacing=8;" vertex="1" parent="1"><mxGeometry as="geometry" x="40" y="930" width="420" height="95" /></mxCell>
       </root>
     </mxGraphModel>
   </diagram>

@@ -8,6 +8,10 @@
     </form>
     <p v-if="dirty" class="forecast-note">尚有未保存文字；只查看上次保存的资料。保存后可以分析与试写。</p>
     <p v-if="running" role="status">正在核对资料与准备方向，可以继续写作或离开此页。</p>
+    <div v-if="state.run?.status === 'pending' && state.run?.local_agent && !state.run.local_agent.approved" role="status">
+      <p>本轮 {{ state.run.local_agent.kind }} CLI 在你的 Mac 上直接运行，可访问当前用户允许的文件和命令；工作目录不是沙箱。用量和费用可能无法准确估算。</p>
+      <button type="button" class="btn btn-primary btn-sm" @click="approveLocalForecast">确认本轮在本机执行</button>
+    </div>
     <p v-if="state.run && !running && state.run.status !== 'completed'" role="status">{{ runLabel }}</p>
     <button v-if="state.run?.can_resume" class="btn btn-sm" type="button" :disabled="dirty || state.busy" @click="forecast.resume">继续原分析（保留用量）</button>
     <p v-if="state.error" class="forecast-error" role="alert">{{ state.error }}</p>
@@ -41,7 +45,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from "vue"
-import { locateForecastEvidence, getToast, useStateKey } from "../bridge/index.js"
+import { getApi, getConfirm, locateForecastEvidence, getToast, useStateKey } from "../bridge/index.js"
 import { createForecast } from "../composables/useForecast.js"
 import AssistantValue from "./AssistantValue.vue"
 
@@ -71,6 +75,13 @@ const runLabel = computed(() => ({ failed: "这次分析未完成，原稿与已
 const kindLabel = kind => ({ prepared_reference: "相关资料", next_step: "下一步", creative_opportunity: "创作选项", impact_preview: "影响预览", decision_prompt: "一个待定问题" })[kind] || "建议"
 function hold(event) { state.hold = [...event.currentTarget.closest(".forecast-items").querySelectorAll("details")].some(item => item.open) }
 async function refresh() { try { await forecast.refresh() } catch (error) { state.error = error.message || "资料暂时无法刷新。" } }
+async function approveLocalForecast() {
+  if (!state.run?.task_id || !getConfirm()("确认本轮 CLI 可使用当前 Mac 用户的文件与命令权限？")) return
+  try {
+    await getApi().localAgent.approve(props.projectId, state.run.task_id)
+    state.run = await getApi().forecasts.run(props.projectId, state.run.run_id)
+  } catch (error) { state.error = error.message || "本轮授权未完成。" }
+}
 async function locate(reference) { try { if (!await locateForecastEvidence(props.projectId, reference)) getToast()("请先打开对应的正文版本。", "info") } catch (error) { state.error = error.message } }
 watch(() => [props.projectId, JSON.stringify(props.context), editorState.value?.draftId, editorState.value?.sceneId, editorState.value?.dirty, editorState.value?.saving, editorState.value?.lastSavedContent ?? editorState.value?.savedContent, isComposing.value, props.active], () => { if (props.active && (!isComposing.value || state.projectId !== props.projectId)) void forecast.configure(props.projectId, props.context) }, { immediate: true })
 const refreshTimer = setInterval(() => { if (props.active && state.available && !isComposing.value && !state.loading) void refresh() }, 15000)

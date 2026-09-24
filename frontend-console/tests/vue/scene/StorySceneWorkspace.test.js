@@ -52,6 +52,8 @@ describe("Story Scene workspace panels", () => {
   let router
   let tasks
   let toast
+  let assistant
+  let localAgent
 
   beforeEach(() => {
     confirmAiReference.mockReset()
@@ -86,6 +88,7 @@ describe("Story Scene workspace panels", () => {
       listSceneScripts: vi.fn().mockResolvedValue({ items: [], total: 0 }),
       listSceneScriptRevisions: vi.fn().mockResolvedValue([]),
       startOneClickTask: vi.fn(),
+      startRehearsal: vi.fn(),
       startReactionTask: vi.fn(),
       startScriptTask: vi.fn(),
       startCharacterCardTask: vi.fn(),
@@ -99,6 +102,11 @@ describe("Story Scene workspace panels", () => {
     }
     tasks = { get: vi.fn(), cancel: vi.fn() }
     toast = vi.fn()
+    assistant = { capabilities: vi.fn().mockResolvedValue({ rehearsal: { available: false } }) }
+    localAgent = {
+      pending: vi.fn().mockResolvedValue({ items: [] }),
+      approve: vi.fn().mockResolvedValue({ approved: true }),
+    }
     const api = {
       outline: {
         getSceneWorkbench: vi.fn().mockResolvedValue(payload),
@@ -107,6 +115,8 @@ describe("Story Scene workspace panels", () => {
       },
       world: { listEntities: vi.fn().mockResolvedValue({ items: [], total: 0 }) },
       story,
+      assistant,
+      localAgent,
       tasks,
       imports: { startStage: vi.fn() },
     }
@@ -432,6 +442,27 @@ describe("Story Scene workspace panels", () => {
       character_ids: ["c1"],
     }))
     expect(wrapper.find(".scene-reaction-card").exists()).toBe(false)
+  })
+
+  it("confirms host access for a paired scene rehearsal task", async () => {
+    assistant.capabilities.mockResolvedValue({ rehearsal: { available: true } })
+    story.getSceneContext.mockResolvedValue({
+      character_cards: [{ character_id: "c1", name: "阿遥", content: { personality: "谨慎" } }],
+      script_files: [],
+    })
+    story.startRehearsal.mockResolvedValue({ task_id: "rehearsal-1", status: "pending" })
+    localAgent.pending.mockResolvedValue({ items: [{ task_id: "rehearsal-1" }] })
+    const confirm = vi.fn(() => true)
+    setBridgeOverrides({ confirm })
+    createWrapper()
+    await wrapper.get('[data-action="select-workbench-scene"]').trigger("click")
+    await wrapper.get('[data-action="scene-runtime-tab-simulation"]').trigger("click")
+    await flushPromises()
+    await wrapper.get(".scene-rehearsal button").trigger("click")
+    await flushPromises()
+
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("macOS 用户的文件与命令权限"))
+    expect(localAgent.approve).toHaveBeenCalledWith("p1", "rehearsal-1")
   })
 
   it("keeps a clear error and no fake reactions when the Story task is unavailable", async () => {

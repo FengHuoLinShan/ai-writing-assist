@@ -44,6 +44,34 @@ _CHECKPOINT_SECONDS = 2.0
 _MAX_URGENT_SUMMARY_PASSES = 4
 
 
+async def _story_client(
+    db, task, settings, agent_run, *, novel_id, timeout_override=None
+):
+    local = settings.get("_local_agent") or {}
+    if not local:
+        return create_project_snapshot_llm_client(
+            settings,
+            novel_id=novel_id,
+            timeout_override=timeout_override,
+        )
+    from modules.local_agent.client import LocalCLIClient
+    from modules.project.models import Project
+
+    project = await db.get(Project, uuid.UUID(novel_id))
+    if project is None or agent_run is None:
+        raise RuntimeError("本机 RP 任务缺少项目或 Agent 运行状态")
+    return LocalCLIClient(
+        db,
+        task_id=str(task.id),
+        novel_id=novel_id,
+        owner_id=str(project.owner_id),
+        device_id=local["device_id"],
+        kind=local["kind"],
+        budget=agent_run.budget,
+        checkpoint=agent_run.checkpoint,
+    )
+
+
 async def checkpoint_interaction_run_envelope(session, task, envelope: dict) -> None:
     """Mirror the queue receipt into the owning InteractionGenerationAttempt."""
     from modules.interaction.models import InteractionGenerationAttempt
@@ -180,8 +208,11 @@ async def handle_interaction_story_generate(db, task):
                     "urgent summary pass budget was exhausted"
                 )
             summary_diagnostics: list[dict] = []
-            summary_client = create_project_snapshot_llm_client(
+            summary_client = await _story_client(
+                db,
+                task,
                 prepared.executable_settings,
+                agent_run,
                 novel_id=prepared.novel_id,
                 timeout_override=rp_timeout_seconds(prepared),
             )
@@ -229,8 +260,11 @@ async def handle_interaction_story_generate(db, task):
             if summary_result.get("status") != "completed":
                 return summary_result
             prepared = await _workflow.prepare_story_task(db, task=task)
-        client = create_project_snapshot_llm_client(
+        client = await _story_client(
+            db,
+            task,
             prepared.executable_settings,
+            agent_run,
             novel_id=prepared.novel_id,
             timeout_override=rp_timeout_seconds(prepared),
         )

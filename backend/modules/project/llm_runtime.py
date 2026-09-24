@@ -91,6 +91,7 @@ async def build_project_llm_execution_snapshot(
     web_search_enabled: bool = False,
     interaction_ensemble: bool = False,
     provider_id: str | None = None,
+    agent_executor: bool = False,
 ) -> dict[str, Any]:
     """Freeze a secret-free project runtime profile for a resumable task.
 
@@ -100,6 +101,63 @@ async def build_project_llm_execution_snapshot(
     the current project key may rotate without exposing or persisting it here.
     """
 
+    context = await _service.get_project_context(db, novel_id, project_kind=None)
+    if (
+        context is not None
+        and provider_id is None
+        and (context.project_kind == "interaction" or agent_executor)
+    ):
+        from infrastructure.llm.web_search import search_snapshot
+        from modules.local_agent.facade import selected_executor
+
+        executor = await selected_executor(db, novel_id, str(context.owner_id))
+        if executor.kind != "gateway":
+            if interaction_ensemble and context.project_kind != "interaction":
+                raise ProjectLLMConfigurationError(
+                    "RP collaboration needs an interaction project"
+                )
+            if interaction_ensemble and not get_settings().interaction_team_enabled:
+                raise ProjectLLMConfigurationError("RP collaboration is not enabled")
+            capability = resolve_llm_capability_profile("local-cli", executor.kind)
+            payload = {
+                "version": PROJECT_LLM_EXECUTION_SNAPSHOT_VERSION,
+                "novel_id": str(novel_id),
+                "profile": {
+                    "provider_id": "local-cli",
+                    "model": executor.kind,
+                    "api_key_configured": False,
+                },
+                "sources": {"provider_id": "project"},
+                LLM_CAPABILITY_SNAPSHOT_KEY: capability.to_snapshot(),
+                "local_agent": {"kind": executor.kind, "device_id": executor.device_id},
+                **(
+                    {
+                        "agent_runtime": {
+                            "version": "3" if interaction_ensemble else "2",
+                            "mode": "rp",
+                            "web_search": search_snapshot()
+                            if web_search_enabled
+                            else None,
+                            **(
+                                {
+                                    "collaboration": {
+                                        "protocol": "observation_v2"
+                                        if get_settings().collaboration_v2_enabled
+                                        else "team_v1",
+                                        "max_actors": 3,
+                                    }
+                                }
+                                if interaction_ensemble
+                                else {}
+                            ),
+                        }
+                    }
+                    if context.project_kind == "interaction"
+                    else {}
+                ),
+            }
+            payload["profile_hash"] = _stable_hash(payload)
+            return payload
     materialized, profile, sources = await _resolve_project_runtime_profile(
         db,
         novel_id,
@@ -187,6 +245,37 @@ async def restore_project_llm_execution_settings(
     unsigned = {key: value for key, value in snapshot.items() if key != "profile_hash"}
     if not expected_hash or _stable_hash(unsigned) != expected_hash:
         raise ProjectLLMConfigurationError("Project LLM execution snapshot hash mismatch")
+
+    if isinstance(snapshot.get("local_agent"), dict):
+        from modules.local_agent.models import LocalAgentDevice
+
+        selected = snapshot["local_agent"]
+        context = await _service.get_project_context(db, novel_id, project_kind=None)
+        try:
+            device = await db.get(LocalAgentDevice, uuid.UUID(selected["device_id"]))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ProjectLLMConfigurationError("Local Agent device is invalid") from exc
+        if (
+            device is None
+            or context is None
+            or device.owner_id != context.owner_id
+            or str(device.novel_id) != str(novel_id)
+            or device.revoked_at is not None
+            or device.token_digest is None
+            or selected.get("kind") not in {"codex", "claude", "kimi", "dsh", "pi"}
+        ):
+            raise ProjectLLMConfigurationError("Local Agent device is unavailable")
+        capability = capability_from_execution_snapshot(snapshot)
+        return {
+            "_local_agent": dict(selected),
+            "llm": {
+                "provider_id": "local-cli",
+                "model": selected["kind"],
+                "max_tokens": capability.story_output_tokens,
+            },
+            LLM_CAPABILITY_EXECUTION_KEY: capability.to_snapshot(),
+            "_agent_runtime": deepcopy(snapshot.get("agent_runtime")),
+        }
 
     public_profile = snapshot.get("profile")
     sources = snapshot.get("sources")

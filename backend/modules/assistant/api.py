@@ -51,6 +51,7 @@ async def capabilities(db: DbSession, novel_id: UUID):
     await require_active_project(db, str(novel_id))
     from infrastructure.llm.native_search import native_search_status
     from infrastructure.llm.web_search import search_availability
+    from modules.local_agent.facade import selected_executor
     from modules.project.contracts import ProjectLLMConfigurationError
     from modules.project.facade import (
         build_project_llm_execution_snapshot,
@@ -59,11 +60,14 @@ async def capabilities(db: DbSession, novel_id: UUID):
     from modules.world.map_atlas_facade import map_capabilities
 
     llm = await get_effective_llm_settings(db, novel_id)
+    executor = await selected_executor(db, str(novel_id), str(current_account_id()))
     try:
         snapshot = await build_project_llm_execution_snapshot(db, str(novel_id))
         model_ready = bool(snapshot["profile"]["api_key_configured"])
     except ProjectLLMConfigurationError:
         model_ready = False
+    if executor.kind != "gateway":
+        model_ready = True
     reason = (
         "项目助手尚未开启"
         if not get_settings().assistant_enabled
@@ -111,7 +115,7 @@ async def capabilities(db: DbSession, novel_id: UUID):
             if model_ready and get_settings().story_rehearsal_enabled
             else "场景排演尚未开启或模型未连接",
         },
-        "runtime": "pydantic-ai-2.42.0",
+        "runtime": "local-cli" if executor.kind != "gateway" else "pydantic-ai-2.42.0",
         "model": {
             "available": model_ready,
             "reason": None

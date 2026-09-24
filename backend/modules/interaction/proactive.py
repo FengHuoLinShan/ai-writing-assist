@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from core.errors import ConflictError, NotFoundError
+from infrastructure.llm.agent_runtime import AgentRunBudget
 from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.capabilities import capability_from_execution_settings
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
@@ -15,6 +16,7 @@ from modules.evidence.facade import compile_interaction_story_context
 from modules.interaction.generation import estimate_input_tokens
 from modules.interaction.repositories import InteractionRepository
 from modules.interaction.services import InteractionService, path_hash
+from modules.local_agent.facade import local_task_meta, task_snapshot_client
 from modules.project.facade import (
     build_project_llm_execution_snapshot,
     create_project_snapshot_llm_client,
@@ -65,6 +67,7 @@ async def schedule_proactive_review(db, novel_id, change, internal_meta):
             **internal_meta,
             "journey_id": str(journey.id),
             "llm_execution_snapshot": snapshot,
+            **local_task_meta(snapshot),
         },
     )
     await db.flush()
@@ -200,7 +203,13 @@ async def handle_continuity_review(db, task):
     settings = await restore_project_llm_execution_settings(
         db, str(task.novel_id), task.meta["llm_execution_snapshot"]
     )
-    client = create_project_snapshot_llm_client(settings, novel_id=str(task.novel_id))
+    client = (
+        await task_snapshot_client(
+            db, task, settings, budget=AgentRunBudget(), checkpoint=None
+        )
+        if settings.get("_local_agent")
+        else create_project_snapshot_llm_client(settings, novel_id=str(task.novel_id))
+    )
     request = LLMCallRequest(
         model=client.model_name,
         max_tokens=4096,
@@ -239,6 +248,8 @@ async def handle_continuity_review(db, task):
             request,
             ContinuityReview,
             step_name="interaction.continuity_review.review",
+            max_fix_attempts=0 if getattr(client, "is_local_agent", False) else 2,
+            transport_retries=not getattr(client, "is_local_agent", False),
         )
     finally:
         await client.close()

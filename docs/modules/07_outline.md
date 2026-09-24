@@ -2,6 +2,8 @@
 
 大纲生成、分析、P20 与 Scene fusion handler 在领取时冻结各自 root capability、请求额度和
 可选 deadline；重排/恢复累计同一 run，信封不进入 outline 或 Scene 的公开结果。
+Scene 工作台的排演入口在 Story Scene 子域：人物意图 Agent 可按项目选择本机 CLI，
+大纲生成与 Scene fusion 继续使用项目账户连接。参见 [本机 Agent CLI](23_local_agent.md)。
 
 > 当前生产 owner 是 `modules.story.outline_state`。旧 `modules.outline` Python import
 > 兼容入口已退场；`/api/outline/*` 继续保持稳定。

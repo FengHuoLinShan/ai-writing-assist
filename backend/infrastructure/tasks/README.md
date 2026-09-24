@@ -438,3 +438,8 @@ AnyIO 重复取消直到连接归还，仍执行原 lease fence；模型与网�
 | task handler | 恢复策略 | 预算与持久化 |
 |---|---|---|
 | `evolution_scene_step` | manual_resume | 单 Scene 窄批次：run 根预算原子预留（T21），freeze/apply 窄提交（T10/T11），回执幂等重放；采样器未接线时 fail-closed 拒绝伪造观察（生产 LLM 接线属 E09）；入口重定向待 canary（E07.e） |
+
+本机 Agent task 在 `meta` 冻结设备、`_local_approved` 与 `_local_ready`。`claim_next` 和
+`claim_exact` 必须同时满足逐次授权和设备就绪；领取后清除 ready，原 task lease 与
+local invocation lease 双重栅栏拒绝迟到结果。伴随进程离线时 pending 不自动切换回
+gateway；执行中断保留已见回执，作者显式发起新任务，不能自动重放本机副作用。

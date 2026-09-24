@@ -2483,6 +2483,16 @@ class InteractionService:
             "attempt_id": str(attempt.id),
             "llm_execution_snapshot": dict(attempt.llm_execution_snapshot or {}),
         }
+        local = (attempt.llm_execution_snapshot or {}).get("local_agent") or {}
+        if local.get("device_id"):
+            meta.update(
+                {
+                    "_local_agent": True,
+                    "_local_ready": False,
+                    "_local_approved": False,
+                    "_local_device_id": local["device_id"],
+                }
+            )
         envelope = dict(attempt.agent_checkpoint_json or {}).get(AI_RUN_ENVELOPE_KEY)
         if isinstance(envelope, dict) and envelope:
             meta[AI_RUN_ENVELOPE_KEY] = envelope
@@ -2844,6 +2854,7 @@ class InteractionService:
                 active = latest
         return JourneyDetailResponse(
             id=str(journey.id),
+            novel_id=str(journey.novel_id),
             title=journey.title,
             title_source=journey.title_source,
             opening_text=journey.opening_text,
@@ -2930,6 +2941,14 @@ class InteractionService:
             id=str(attempt.id),
             journey_id=str(attempt.journey_id),
             task_id=str(attempt.task_id) if attempt.task_id else None,
+            local_agent={
+                "kind": attempt.llm_execution_snapshot["local_agent"]["kind"],
+                "approved": bool(
+                    (attempt.agent_checkpoint_json or {}).get("local_approved")
+                ),
+            }
+            if (attempt.llm_execution_snapshot or {}).get("local_agent")
+            else None,
             response_to_node_id=str(attempt.response_to_node_id),
             status=attempt.status,
             visible_text=attempt.visible_text,
