@@ -222,7 +222,10 @@ class TestWritingDraftRepository:
 
     @pytest.fixture
     def repo(self) -> WritingDraftRepository:
-        return WritingDraftRepository()
+        # This suite isolates SQL construction. Actual save/outbox behavior is
+        # covered by evolution/tests/test_production_invalidation.py.
+        with patch.object(WritingDraftRepository, "_changed", autospec=True):
+            yield WritingDraftRepository()
 
     @pytest.fixture
     def mock_db(self) -> AsyncMock:
@@ -262,6 +265,7 @@ class TestWritingDraftRepository:
         assert draft.version_number == 1
         mock_db.add.assert_called_once()
         mock_db.flush.assert_awaited_once()
+        repo._changed.assert_awaited_once_with(mock_db, draft)
 
     async def test_create_version_increment(
         self,
@@ -531,6 +535,7 @@ class TestWritingDraftRepository:
             "deprecated_from_status": "draft",
         }
         mock_db.add_all.assert_called_once_with(drafts)
+        repo._changed.assert_awaited_once()
 
     async def test_count_versions(
         self,
@@ -705,12 +710,7 @@ class TestWritingAPI:
         assert isinstance(result, WritingDraftResponse)
         assert result.title == "第一章"
         mock_service.publish_draft.assert_not_awaited()
-        mock_request_chapter_index.assert_awaited_once_with(
-            mock_db,
-            data.novel_id,
-            data.chapter_index,
-            content_mode="working",
-        )
+        mock_request_chapter_index.assert_not_awaited()
 
     async def test_create_draft_endpoint_publishes_through_service_and_enqueue(
         self,
@@ -800,12 +800,7 @@ class TestWritingAPI:
         result = await update_draft(mock_db, draft_id="did", data=data, novel_id="nid")
         assert result.title == "updated"
         mock_service.update_draft.assert_awaited_once_with(mock_db, "did", data, "nid")
-        mock_request_chapter_index.assert_awaited_once_with(
-            mock_db,
-            "nid",
-            expected.chapter_index,
-            content_mode="working",
-        )
+        mock_request_chapter_index.assert_not_awaited()
 
     async def test_delete_draft_endpoint(
         self,
@@ -825,12 +820,9 @@ class TestWritingAPI:
 
         result = await delete_draft(mock_db, draft_id="did", novel_id="nid")
         assert result is None
-        mock_service.get_draft.assert_awaited_once_with(mock_db, "did", "nid")
+        mock_service.get_draft.assert_not_awaited()
         mock_service.delete_draft.assert_awaited_once_with(mock_db, "did", "nid")
-        assert mock_request_chapter_index.await_args_list == [
-            ((mock_db, "nid", 7), {"content_mode": "canonical"}),
-            ((mock_db, "nid", 7), {"content_mode": "working"}),
-        ]
+        mock_request_chapter_index.assert_not_awaited()
 
     async def test_delete_chapter_endpoint(
         self,
@@ -847,10 +839,7 @@ class TestWritingAPI:
         assert result.chapter_index == 3
         assert result.deleted_versions == 5
         mock_service.delete_chapter.assert_awaited_once_with(mock_db, "nid", 3)
-        assert mock_request_chapter_index.await_args_list == [
-            ((mock_db, "nid", 3), {"content_mode": "canonical"}),
-            ((mock_db, "nid", 3), {"content_mode": "working"}),
-        ]
+        mock_request_chapter_index.assert_not_awaited()
 
     async def test_get_latest_chapter_draft(
         self,

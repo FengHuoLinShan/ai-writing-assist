@@ -505,7 +505,7 @@ def _build_scene_data(
         "must_happen": candidate.must_happen,
         "must_not_happen": candidate.must_not_happen,
         "narrative_tag": _safe_narrative_tag(candidate.narrative_tag),
-        "source": "deep_import",
+        "source": "evolution" if candidate.phase == "phase1a_slicing" else "deep_import",
         "scene_chunks": scene_chunks,
         "chapter_ids": [str(index) for index in source_chapter_indices],
         "structure_meta": _build_structure_meta(
@@ -584,7 +584,9 @@ def _build_structure_meta(
         "semantic_confidence": candidate.phase1b_confidence,
         "semantic_contract_version": "scene-semantic-state-v2",
         "semantic_origin": (
-            "phase1c_synthesis"
+            "boundary_only"
+            if candidate.phase == "phase1a_slicing"
+            else "phase1c_synthesis"
             if candidate.phase == "phase1c_fusion"
             else "phase1b_enrichment"
         ),

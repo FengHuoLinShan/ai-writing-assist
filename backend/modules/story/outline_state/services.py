@@ -130,6 +130,36 @@ class StructureAssetFilterMixin:
         self._assert_found_in_novel(existing, id, nid)
         payload = _update_payload(data)
         meta = dict(getattr(existing, "provenance_meta", None) or {})
+        if "evolution_structure_ref" in meta:
+            incoming = dict(payload.get("provenance_meta") or {})
+            adopting = (
+                ("needs_review" in incoming and incoming["needs_review"] is not True)
+                or bool(incoming.get("adopted_at"))
+                or (
+                    "status" in payload
+                    and payload["status"] not in {"draft", "deprecated", "archived"}
+                )
+            )
+            if adopting and not meta.get("adopted_at"):
+                from modules.evolution.facade import require_current_structure_candidate
+
+                await require_current_structure_candidate(
+                    db, novel_id, meta["evolution_structure_ref"], id
+                )
+                incoming["adopted_at"] = datetime.now(UTC).isoformat()
+                incoming["needs_review"] = False
+            kept = {
+                **meta,
+                **incoming,
+                "source": meta["source"],
+                "evolution_structure_ref": meta["evolution_structure_ref"],
+            }
+            if meta.get("adopted_at"):
+                kept["adopted_at"] = meta["adopted_at"]
+            if any(key not in {"status", "provenance_meta"} for key in payload):
+                kept = _mark_user_edited_meta(kept)
+            data = _with_update_payload(data, payload, {"provenance_meta": kept})
+            payload = _update_payload(data)
         if _should_mark_user_edited_meta(meta, payload, "provenance_meta"):
             data = _with_update_payload(
                 data,
@@ -623,6 +653,44 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
     label = "Scene"
     id_param = "scene_id"
 
+    async def apply_understanding_enrichment(
+        self, db, novel_id, scene_id, *, expected_scene_hash, data
+    ):
+        from dataclasses import asdict
+
+        from core.errors import ConflictError
+        from infrastructure.llm.collaboration import content_hash
+
+        scene = await self.repo.get_for_update(db, parse_uuid(scene_id, "scene_id"))
+        self._assert_found_in_novel(scene, scene_id, parse_uuid(novel_id, "novel_id"))
+        if content_hash(asdict(scene_to_contract(scene))) != expected_scene_hash:
+            raise ConflictError("场景已被编辑，已生成理解保留，不能覆盖当前内容")
+        meta = scene.structure_meta or {}
+        if (
+            scene.source != "evolution"
+            or scene.status != "draft"
+            or meta.get("auto_ingested") is not True
+            or meta.get("user_edited") is True
+            or meta.get("semantic_origin") not in {"boundary_only", "phase1b_enrichment"}
+        ):
+            raise ConflictError("自动理解只能充实本次流程的未编辑草稿")
+        allowed = {
+            "emotional_beat",
+            "must_happen",
+            "must_not_happen",
+            "narrative_tag",
+            "structure_meta",
+        }
+        if set(data) - allowed:
+            raise ValueError("enrichment cannot change locked Scene fields")
+        review = (data.get("structure_meta") or {}).get("knowledge_review") or {}
+        if set(data) != {"structure_meta"} and (
+            review.get("status") != "passed"
+            or (data.get("structure_meta") or {}).get("phase1b_confidence", 0) < 0.9
+        ):
+            raise ConflictError("未通过独立复核的场景理解不能自动采用")
+        return await self.repo.update(db, scene.id, SceneUpdate(**data))
+
     async def update(
         self,
         db: AsyncSession,
@@ -845,6 +913,7 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
 
         if deprecated:
             await db.flush()
+            await repo.invalidate_scene_sources(db, deprecated_scenes)
             for scene in deprecated_scenes:
                 await repo.stale_fusion_suggestions_for_scene(db, scene)
                 await repo.mirror_scene_span_lifecycle(db, scene)
@@ -900,6 +969,93 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
             content_mode=content_mode,
         )
         return [scene_span_to_contract(span) for span in spans]
+
+    async def validate_source_ranges(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        scene_id: str,
+        scene_index: int,
+        sources: list[dict],
+    ) -> None:
+        """Honor precise Scene boundaries; chapter-only legacy anchors stay explicit."""
+        nid = parse_uuid(novel_id, "novel_id")
+        scene = await self.repo.get(db, parse_uuid(scene_id, "scene_id"))
+        if (
+            scene is None
+            or scene.novel_id != nid
+            or scene.status not in {"canonical", "draft"}
+            or scene.scene_index != scene_index
+        ):
+            raise ValidationError("Scene identity or order changed")
+        meta = scene.structure_meta or {}
+        author_reviewed = (
+            meta.get("reviewed_by") == "manual"
+            and bool(meta.get("reviewed_at"))
+            and not meta.get("needs_review")
+        )
+        from modules.story.outline_state.review_attention import boundary_review_current
+
+        boundary_confirmed = boundary_review_current(scene)
+        unresolved_boundary = (
+            meta.get("phase1a_fallback")
+            or (
+                meta.get("boundary_status") == "fallback"
+                and not (scene.source != "evolution" and meta.get("boundary_review"))
+            )
+            or any(
+                issue.get("required") is True
+                and issue.get("kind") == "source_or_structure"
+                for issue in meta.get("review_issues", [])
+            )
+        )
+        if unresolved_boundary and not (author_reviewed or boundary_confirmed):
+            raise ValidationError("场景边界尚待确认，请先处理来源或结构问题")
+        chapters = set(self.repo.chapter_indices_for_scene(scene))
+        if any(source["chapter_index"] not in chapters for source in sources):
+            raise ValidationError("Source chapter is outside the Scene")
+        spans = await self.repo.get_scene_spans_for_scene(
+            db, nid, scene.id, content_mode="working"
+        )
+        if not spans:
+            spans = await self.repo.get_scene_spans_for_scene(db, nid, scene.id)
+        if not spans:
+            spans = self.repo.scene_spans_for_scene(scene)
+        if any(span.mapping_status in {"exact", "reanchored"} for span in spans):
+            if len(spans) != len(sources):
+                raise ValidationError(
+                    "Requested source does not cover the Scene boundaries"
+                )
+            for span, source in zip(spans, sources):
+                if (
+                    span.mapping_status not in {"exact", "reanchored"}
+                    or span.chapter_index != source["chapter_index"]
+                    or span.start_offset != source["start_offset"]
+                    or span.end_offset != source["end_offset"]
+                    or (
+                        span.source_draft_id
+                        and str(span.source_draft_id) != source["draft_id"]
+                    )
+                    or (
+                        span.source_content_hash
+                        and span.source_content_hash != source["content_hash"]
+                    )
+                ):
+                    raise ValidationError("Scene source boundary or revision changed")
+        else:
+            if any(span.mapping_status != "chapter_only" for span in spans):
+                raise ValidationError("Scene source mapping requires repair")
+            # Legacy manual Scenes can lack precise offsets, but two such Scenes
+            # in the same chapter cannot prove which one owns the requested text.
+            for chapter in chapters:
+                siblings = await self.repo.get_by_chapter(db, nid, chapter)
+                if any(
+                    item.id != scene.id and item.status in {"canonical", "draft"}
+                    for item in siblings
+                ):
+                    raise ValidationError(
+                        "Shared chapter requires precise Scene boundaries"
+                    )
 
     async def reorder(
         self,
@@ -1263,6 +1419,7 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
         )
         await self.repo.sync_scene_indexes(db, source)
         await self.repo.sync_scene_indexes(db, new_scene)
+        await self.repo.invalidate_scene_sources(db, [source])
 
         scenes = await self.repo.get_by_novel_ordered(db, nid)
         return list(scenes)

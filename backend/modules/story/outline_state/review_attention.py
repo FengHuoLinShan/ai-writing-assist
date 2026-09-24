@@ -22,3 +22,23 @@ def needs_scene_decision(*, source, status, meta):
         and not meta.get("reviewed_at")
         and not auto_verified
     )
+
+
+def boundary_fingerprint(scene):
+    from infrastructure.llm.collaboration import content_hash
+
+    return content_hash(
+        {
+            "scene_index": scene.scene_index,
+            "chapter_ids": scene.chapter_ids,
+            "scene_chunks": scene.scene_chunks,
+        }
+    )
+
+
+def boundary_review_current(scene):
+    review = (scene.structure_meta or {}).get("boundary_review")
+    return isinstance(review, dict) and (
+        review.get("decision") == "confirmed"
+        and review.get("source_fingerprint") == boundary_fingerprint(scene)
+    )

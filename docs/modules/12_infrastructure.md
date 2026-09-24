@@ -432,7 +432,7 @@ bucket。这不是分布式或全局 DDoS 防护，也不表示当前外部 Clou
 `world_generation_suggestion` 的 task meta 可携带 `session_id` 与 `session_action`（ADR-0021）：任务成功后由 world 域把作者回合与成果引用追加进持久化共创会话，失败或重试不落半截记录；transport 幂等仍由 operation receipt 承担，会话写入不改变任务指纹语义。
 | story | `story_outline_generate`、`outline_analyze`、`outline_generate`、`scene_fusion_preview`、`story_character_card_generate`、`story_reaction_propose`、`story_scene_script_generate`、`story_one_click`；`plot_structure_generate`、`chapter_card_extraction`、`chapter_scene_generate` 仅为存量任务的 unsupported 兼容注册 |
 | evidence | `rag_index_chapter`、`rag_reindex_novel`、`rag_retry_embeddings`、`rag_reannotate_entities`（持久化 task type 不改名） |
-| writing | `publish_chapter`、`writing_generate`、`writing_semantic_review`、`writing_targeted_revision`、`writing_conflict_ai_review`、`writing_conflict_item_ai_suggestion` |
+| writing | `publish_chapter`、`writing_generate`、`writing_semantic_review`、`writing_targeted_revision`、`writing_comment_run`、`writing_conflict_ai_review`、`writing_conflict_item_ai_suggestion` |
 | imports | `deep_import`、`scene_auto_extraction`、`world_object_auto_extraction`、`plot_structure_auto_extraction` |
 | interaction | `interaction_story_generate`、`interaction_summary_refresh` |
 
@@ -623,3 +623,21 @@ Flash max 思考与至少65,536输出上限，provider 等待至少900秒。客�
 已逐次确认的任务，原任务/调用双租约及 owner/`novel_id` 过滤拒绝迟到结果。
 客户端进程只报告可观测结果；无法核对的 token/价格记未知。CLI 原生工具按本机用户权限
 运行，专用 cwd 不形成文件沙箱，产品领域工具仍走注册清单和原写入门禁。
+
+### Evolution 场景步
+
+`evolution_scene_step_v2` 复用 PostgreSQL 队列与 manual_resume，完整请求指纹用于
+合并；来源/Scene 身份、live/shadow 模式与阶段化免采样恢复由 Evolution 校验。
+未取得结果的请求保留费用待核对，不由队列盲目重采样；旧 deep_import 入口尚未切换。
+契约见 [Evolution](22_evolution.md) 和 [tasks README](../../backend/infrastructure/tasks/README.md)。
+
+理解任务的 project preflight/commit guard 同时验证 engine/epoch/schema token；项目切换只
+取消理解任务，保留预算和结果。PG trigger 对旧 v1 任务和失效 owner 失败关闭，以 NOWAIT
+避免旧心跳持锁死锁；迁移先取消不可执行的旧任务，保证其他项目队列可领取。
+
+## 编辑任务执行
+
+`assistant_editorial_review` 与 `assistant_editorial_recheck` 沿现有 PostgreSQL worker、租约
+栅栏、Project secret-free snapshot 和 managed LLM budget 执行；每个审稿段最多四次请求，
+改后复核一次。分段结果在领域 review 中持久化；用量未知不重试。作者主动编辑复用 Watch
+单项目后台执行槽、稳定期和每日额度，单独的服务端开关与项目授权均默认关闭。

@@ -567,14 +567,14 @@ class TestImportService:
         assert result.scalar_one().status == "published"
 
     @pytest.mark.asyncio
-    async def test_upload_and_import_enqueues_publish_tasks_only(
+    async def test_upload_and_import_enqueues_coalesced_index_and_publish_tasks(
         self,
         service,
         db_session: AsyncSession,
         imports_test_project_id: str,
         sample_txt_content: bytes,
     ):
-        """导入章节后只排发布任务，由发布任务统一负责 RAG 索引。"""
+        """导入复用 Writing 统一索引投递，每章每模式只有一个请求。"""
         resp = await service.upload_and_import(
             db_session,
             imports_test_project_id,
@@ -594,7 +594,16 @@ class TestImportService:
         rag_result = await db_session.execute(
             select(AsyncTask).where(AsyncTask.task_type == "rag_index_chapter")
         )
-        assert list(rag_result.scalars().all()) == []
+        rag_tasks = list(rag_result.scalars().all())
+        expected = {
+            (task.meta["chapter_index"], mode)
+            for task in tasks
+            for mode in ("working", "canonical")
+        }
+        assert len(rag_tasks) == len(expected)
+        assert {
+            (task.meta["chapter_index"], task.meta["content_mode"]) for task in rag_tasks
+        } == expected
 
     @pytest.mark.asyncio
     async def test_upload_unsupported_type(

@@ -25,11 +25,30 @@ def notice_key(novel_id, audience, issue_key):
     return content_hash([novel_id, audience, issue_key])
 
 
+def direction_fingerprint(direction):
+    return content_hash([direction["condition"], direction["proposal"]])
+
+
+def declined_direction_ids(candidate, notice):
+    if notice is None:
+        return set()
+    decision = (notice.result_ref_json or {}).get("forecast_v1", {})
+    fingerprints = set(decision.get("declined_directions", []))
+    return {
+        item["direction_id"]
+        for item in candidate.payload_json["proposal"].get("directions", [])
+        if direction_fingerprint(item) in fingerprints
+    }
+
+
 def hidden_by_decision(notice, *, now=None, event=None):
     if notice is None:
         return False
     decision = (notice.result_ref_json or {}).get("forecast_v1", {})
-    if decision.get("disposition") in {"as_ordinary_detail", "not_this_direction"}:
+    if decision.get("disposition") == "as_ordinary_detail" or (
+        decision.get("disposition") == "not_this_direction"
+        and "declined_directions" not in decision
+    ):
         return True
     if notice.status == "dismissed":
         return True

@@ -21,6 +21,7 @@ EXPECTED_CAPABILITIES = (
     "writing.generate",
     "writing.semantic_review",
     "writing.targeted_revision",
+    "writing.comment_revision",
     "writing.conflict_check.ai_review",
     "writing.conflict_check.ai_suggestion",
     # Project
@@ -64,6 +65,9 @@ EXPECTED_CAPABILITIES = (
     "imports.structure_analysis",
     "imports.review_resolution",
     "imports.targeted_completion",
+    # Evolution
+    "evolution.scene_observe",
+    "evolution.state_review",
     # Interaction
     "interaction.story_generate",
     "interaction.summary_refresh",
@@ -72,6 +76,7 @@ EXPECTED_CAPABILITIES = (
     # Assistant
     "assistant.turn",
     "assistant.forecast",
+    "assistant.editorial",
     "interaction.forecast",
     "collaboration.run",
     "collaboration.plan",
@@ -107,6 +112,7 @@ def test_registry_covers_all_domains() -> None:
         "world",
         "story",
         "imports",
+        "evolution",
         "interaction",
         "assistant",
         "collaboration",

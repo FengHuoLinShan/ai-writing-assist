@@ -13,9 +13,15 @@ from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
-from core.errors import NotFoundError
+from core.errors import ConflictError, NotFoundError
 from core.logging_context import bind_validated_novel_id
 from modules.project.contracts import InteractionProjectContract, ProjectSummary
+from modules.project.editorial_brief import (
+    read_editorial_brief as read_editorial_brief,
+)
+from modules.project.editorial_brief import (
+    save_editorial_brief as save_editorial_brief,
+)
 from modules.project.models import Project
 from modules.project.repositories import ProjectRepository
 from modules.project.schemas import ProjectContext, ProjectCreate
@@ -259,6 +265,9 @@ async def project_task_preflight(db: AsyncSession, task) -> None:
         context = await get_project_context(db, novel_id)
     if context is None:
         raise NotFoundError(f"Project {novel_id} not found")
+    from modules.project.understanding import check_task
+
+    await check_task(db, task)
 
 
 async def project_task_commit_guard(db: AsyncSession, task) -> bool:
@@ -271,9 +280,38 @@ async def project_task_commit_guard(db: AsyncSession, task) -> bool:
             await require_interaction_project(db, novel_id)
         else:
             await require_active_project(db, novel_id)
-    except NotFoundError:
+        from modules.project.understanding import check_task
+
+        await check_task(db, task)
+    except (NotFoundError, ConflictError):
         return False
     return True
+
+
+async def get_understanding_engine(db, novel_id):
+    from modules.project.understanding import state
+
+    return await state(db, uuid.UUID(str(novel_id)))
+
+
+async def require_understanding_writer(db, novel_id, *, engine, epoch=None):
+    from modules.project.understanding import require_writer
+
+    return await require_writer(db, uuid.UUID(str(novel_id)), engine=engine, epoch=epoch)
+
+
+async def validate_understanding_owner(db, novel_id, *, engine, token):
+    from modules.project.understanding import validate_token
+
+    return await validate_token(db, uuid.UUID(str(novel_id)), engine=engine, token=token)
+
+
+async def advance_understanding_engine(db, novel_id, *, engine, expected_epoch):
+    from modules.project.understanding import advance
+
+    return await advance(
+        db, uuid.UUID(str(novel_id)), engine=engine, expected_epoch=expected_epoch
+    )
 
 
 async def require_any_active_project(
@@ -325,13 +363,17 @@ async def permanently_delete_interaction_project(
 async def require_active_project_exclusive(
     db: AsyncSession,
     novel_id: str,
+    *,
+    nowait: bool = False,
 ) -> None:
     """Exclusively fence a short DB-only finalizer for one active project.
 
     Normal business operations must keep using ``require_active_project``.
     This seam must never be held across LLM/provider I/O.
     """
-    await _service.require_active_project_exclusive(db, novel_id)
+    await _service.require_active_project_exclusive(
+        db, novel_id, **({"nowait": True} if nowait else {})
+    )
     bind_validated_novel_id(novel_id)
 
 

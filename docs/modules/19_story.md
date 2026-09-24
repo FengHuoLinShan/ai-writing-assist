@@ -1,5 +1,9 @@
 # Story Scene 模块
 
+机器事件在进入 continuity 前可经 facade `validate_machine_event_snapshot` 使用实际
+全景 schema 校验，允许合法部分更新/删除。未解析地点保留 `text_state` 和空位置 ID，
+不因缺少正式地点而使合法观察无法回读，也不伪造已采用位置身份。
+
 Story 的 AI 预览任务由统一运行信封记录 root capability、L0 与恢复累计；领域采用、CAS、
 回滚和 Scene 资产仍由本模块拥有，信封不会成为公开结果字段。
 
@@ -113,3 +117,9 @@ Story 为 Collaboration 提供 Scene、伏笔/揭示安排的冻结可编辑字�
 试改独立保存，采用仍验证当前结构版本。`observations.py` 区分输入刺激、私有意图、
 可观察事件和可重放的 ResolutionBatch；说法不是事实，未知资源或唯一资源冲突不宣告成功。
 `observation_v2` 不重新解释旧 rehearsal_v1。读者推测与作者安排分开，派生前瞻不是新信息计划。
+
+## 地图消费者与派生流生命周期
+
+Story continuity 的在场读取供 World MapSceneContext 聚合：保留位置 identity、事件摘要和
+观察出处，限制有效 Scene 与截止点。所有正文与 Scene 生命周期变化统一软失效机器状态，
+作者确认历史继续保存；当前投影不读取已删/废弃场景。详见 Memory 与地图模块契约。

@@ -293,6 +293,12 @@ class Settings:
     assistant_enabled: bool = field(
         default_factory=lambda: _env_bool("ASSISTANT_ENABLED", False)
     )
+    assistant_editorial_enabled: bool = field(
+        default_factory=lambda: _env_bool("ASSISTANT_EDITORIAL_ENABLED", False)
+    )
+    assistant_editorial_automatic_enabled: bool = field(
+        default_factory=lambda: _env_bool("ASSISTANT_EDITORIAL_AUTOMATIC_ENABLED", False)
+    )
     collaboration_v2_enabled: bool = field(
         default_factory=lambda: _env_bool("COLLABORATION_V2_ENABLED", False)
     )

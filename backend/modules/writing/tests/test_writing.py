@@ -264,14 +264,15 @@ def test_character_reveal_guard_matches_normalized_hidden_text() -> None:
 
 class TestWritingDraftRepository:
     @pytest.mark.asyncio
-    async def test_create_many_reads_versions_once_and_flushes_once(self) -> None:
+    async def test_create_many_reads_versions_once_and_flushes_once(
+        self, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(WritingDraftRepository, "_changed", AsyncMock())
         novel_id = uuid.uuid4()
         rows = MagicMock()
         rows.all.return_value = [(1, 3)]
         db = MagicMock()
-        db.get_bind.return_value = SimpleNamespace(
-            dialect=SimpleNamespace(name="sqlite")
-        )
+        db.get_bind.return_value = SimpleNamespace(dialect=SimpleNamespace(name="sqlite"))
         db.execute = AsyncMock(return_value=rows)
         db.flush = AsyncMock()
         items = [
@@ -731,6 +732,8 @@ def _make_draft(**overrides: object) -> MagicMock:
         "title": "第一章：开端",
         "content": "这是一个测试正文的段落。",
         "content_hash": "0" * 64,
+        "editorial_ready_at": None,
+        "editorial_ready_hash": None,
         "version_number": 1,
         "status": "draft",
         "created_at": datetime.now(UTC),

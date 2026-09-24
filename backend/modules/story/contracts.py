@@ -12,6 +12,7 @@ from modules.story.continuity.contracts import (
     SCENE_MEMORY_DIMENSIONS,
     SCENE_MEMORY_DIMENSIONS_V1,
     SCENE_MEMORY_DIMENSIONS_V2,
+    STATE_EVENT_DIMENSIONS,
     ConfirmedContinuityEventIngest,
     MemoryContinuityEvidenceContract,
     MemoryDeltaEventIngest,
@@ -68,6 +69,7 @@ class StoryWorldDependencyContract:
 
 
 __all__ = [
+    "STATE_EVENT_DIMENSIONS",
     "StoryWorldDependencyContract",
     "CharacterCardResponse",
     "CharacterCardRevisionResponse",
@@ -110,3 +112,19 @@ __all__ = [
 from modules.story.outline_state.scene_resolution import (  # noqa: E402
     SceneBoundaryReview,  # noqa: F401
 )
+
+
+def reading_structure_schema(name):
+    """Closed response schemas for source-pinned reading structure calls."""
+    from modules.story.outline_state.generation.models import (
+        SimpleStructureOutput,
+        StructureEvidenceReviewOutput,
+    )
+
+    return {
+        schema.__name__: schema
+        for schema in (
+            SimpleStructureOutput,
+            StructureEvidenceReviewOutput,
+        )
+    }[name]

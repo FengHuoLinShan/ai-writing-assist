@@ -1,0 +1,97 @@
+{
+  "checked_at": "2026-09-22T23:19:39.146991+08:00",
+  "head": "0efb1359d70af3bec92ad47d0493238d62bc7861",
+  "worktree_uncommitted": true,
+  "implemented": [
+    "entity/observation selection for conservative suffix recomputation",
+    "source-pinned target preview and original-prefix receipt inheritance",
+    "owner-aware writing entry and read-only legacy workflow history",
+    "failed status lookup and project-switch retry handling"
+  ],
+  "checks": {
+    "local_test_ci": {
+      "passed": true,
+      "log": "/tmp/v4-scope-ci.log",
+      "backend_passed": 6223,
+      "backend_skipped": 15,
+      "backend_warnings": 13,
+      "coverage_percent": 85.96,
+      "deploy_tests_passed": 270,
+      "frontend_passed_at_ci": 2582
+    },
+    "frontend_after_final_guard_fix": {
+      "passed": true,
+      "files": 203,
+      "tests": 2583,
+      "log": "/tmp/v4-scope-frontend-green.log"
+    },
+    "frontend_lint_build": {
+      "passed": true,
+      "logs": [
+        "/tmp/v4-scope-ui-lint-green.log",
+        "/tmp/v4-scope-ui-build-green.log"
+      ]
+    },
+    "native_pg": {
+      "tests": 23,
+      "log": "/tmp/v4-scope-native-pg.log",
+      "final_rerun_log": "/tmp/v4-scope-native-final.log"
+    },
+    "browser_real_api_worker_synthetic_provider": {
+      "passed": 4,
+      "log": "/tmp/v4-scope-browser-final.log",
+      "mobile_width": 390
+    },
+    "browser_legacy_entry": {
+      "passed": 9,
+      "log": "/tmp/v4-scope-legacy-browser.log"
+    },
+    "docs": {
+      "passed": true,
+      "log": "/tmp/v4-scope-docs-final.log",
+      "unchanged_documents_explicitly_reviewed": [
+        "CLAUDE.md",
+        "development-guide.md",
+        "testing-guide.md",
+        "docs/architecture/documentation-maintenance.md"
+      ]
+    }
+  },
+  "limitations": [
+    "No new real-model calls or quality claim.",
+    "Old full world/structure import has not been replaced.",
+    "Fine-grained dependency graph, E08 retirement and full G0-G8/model/author acceptance remain open.",
+    "deep-import-worker locator migration is not a fresh real-worker deep import acceptance."
+  ],
+  "paid_calls_added": 0,
+  "committed": false,
+  "pushed": false,
+  "deployed": false,
+  "sha256": {
+    "backend/modules/evolution/workflow.py": "99d98bc4f9ce02ce3e6599659f2f61d3a85ccfc71f556baf22b88a5fa1a13c23",
+    "backend/modules/evolution/api.py": "8ceb47a6bb082c662802a503c245d67a99b54b915614cfbd43cccd346f975ec1",
+    "backend/modules/evolution/tests/test_workflow.py": "a24f1382fb4878e17cfffc22b62ae445a067d6fd1e7c0d59c7809c9f639434c7",
+    "backend/modules/imports/completion_control.py": "f14aaf191e1c05847bfa50726e9bfb6af97cff49696f79b3a6e92ec015b1e2b3",
+    "backend/modules/imports/tests/test_completion_control.py": "6e833f679f4d2007052ebf655aa3386914ced2e59cf583b582fac87b89bf807f",
+    "frontend-console/api.js": "772aabdec285931c18b2df500b4a0c233b641484c0fb1f26ca8d7bfef02d51a9",
+    "frontend-console/vue/components/ReadingFlow.vue": "f813e0c958de217ec9e0afd5c5cda5967a0c50edc700558d13f3a8d1ec0aedc1",
+    "frontend-console/vue/components/ProjectOrganizationHistory.vue": "ebf5c546834acd990df03b2417fb28518adeeb263c34b4cf43483c79f3d5e0b5",
+    "frontend-console/vue/components/TargetedCompletionPanel.vue": "818a68d929a56feab259c966b77aba9da86f865822b5ecedb56232b7fd134be2",
+    "frontend-console/vue/views/writing/components/AutoExtractionDialog.vue": "5f25e3d4dd2403f35f1a5882455adeccc61c0afc77fc941c5ab99171126b194e",
+    "frontend-console/vue/views/writing/components/WritingEditor.vue": "20fe18bf86cf49de95a713e86ae505f62e69ddd47de61f1460dce755c8c9e0ea",
+    "frontend-console/e2e/creative-forecast.spec.js": "8fc8983ce9a00ce03051879971e03e7af6b245ac2d2eb7a4d02051b70cdb9f53",
+    "frontend-console/e2e/deep-import.spec.js": "e032ef88123e63ff37e771eaae57a084c7ab65a8567e454b2a58524e7e1d1bba",
+    "frontend-console/e2e/deep-import-worker.spec.js": "0003019f5cb70c3138abdf969ca4ad3ddc286368ade1736ce56801be09afda09",
+    "frontend-console/e2e/writing.spec.js": "f1fec061331c871cbb1648906e6c274f204172e66ac52f3cf086ca07b432efd2"
+  },
+  "development_findings": [
+    {
+      "log": "/tmp/v4-scope-tests.log",
+      "note": "Initial synthetic test used an invalid modality; corrected fixture to belief without relaxing production schema. Listed log is the corrected rerun; initial failure was recorded in the tool transcript."
+    },
+    {
+      "log": "/tmp/v4-scope-frontend-final.log",
+      "note": "New test caught collapsed entry not reloading on project change; corrected watcher; final 2583 passed."
+    }
+  ]
+}

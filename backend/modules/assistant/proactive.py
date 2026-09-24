@@ -153,7 +153,9 @@ async def save_policy(db, novel_id, value: ProactivePolicy, *, interaction=False
         row.due_at = _now() + timedelta(seconds=60)
     if not value.enabled:
         row.due_at = None
-    if "forecast_v1" in row.policy_json or "creative_v2" in row.policy_json:
+    if any(
+        key in row.policy_json for key in ("forecast_v1", "creative_v2", "editorial_v1")
+    ):
         from modules.assistant.forecast.queue import refresh_due
 
         refresh_due(row)
@@ -185,6 +187,10 @@ async def mark_changed(db, novel_id, asset_type, asset_id, *, related_scene_ids=
 
     await mark_creative(db, row, asset_type, str(asset_id))
     record_change(row, asset_type, str(asset_id), _now())
+    if domain == "story":
+        from modules.assistant.editorial_queue import mark_structure_change
+
+        await mark_structure_change(db, row, asset_type, str(asset_id))
     refresh_due(row)
     setting = ProactivePolicy.model_validate(
         (row.policy_json or {}).get("settings") or {}
@@ -275,7 +281,7 @@ async def _notice(
 
 
 async def schedule_due(db):
-    from modules.assistant import creative_queue
+    from modules.assistant import creative_queue, editorial_queue
     from modules.assistant.forecast import queue as forecast_queue
     from modules.assistant.service import expire_run_histories
 
@@ -327,6 +333,7 @@ async def schedule_due(db):
                 setting.enabled
                 or forecast_queue.automatic(row)
                 or creative_queue.enabled(row)
+                or editorial_queue.enabled(row)
             )
             or project is None
             or str(project.owner_id) != (row.policy_json or {}).get("owner_id")
@@ -404,7 +411,9 @@ async def schedule_due(db):
         if len(calendar) >= setting.daily_limit:
             resume_at = max(resume_at, end)
         if (
-            "forecast_v1" in (row.policy_json or {}) or creative_queue.enabled(row)
+            "forecast_v1" in (row.policy_json or {})
+            or creative_queue.enabled(row)
+            or editorial_queue.enabled(row)
         ) and len(rolling) >= setting.daily_limit:
             resume_at = max(resume_at, rolling[-setting.daily_limit] + timedelta(days=1))
         dirty = dict(row.dirty_json or {})
@@ -428,9 +437,10 @@ async def schedule_due(db):
         ]
         forecasts = forecast_queue.due_targets(row, now)
         creative = creative_queue.due_targets(row, now)
+        editorial = editorial_queue.due_targets(row, now)
         if creative:
             case_id, change = min(creative, key=lambda pair: pair[1]["due_at"])
-            others = [value["due_at"] for _, value in [*eligible, *forecasts]]
+            others = [value["due_at"] for _, value in [*eligible, *forecasts, *editorial]]
             if not others or change["due_at"] <= min(others):
                 count += int(await creative_queue.claim(db, row, case_id, change))
                 continue
@@ -438,11 +448,22 @@ async def schedule_due(db):
             forecast_key, forecast_change = min(
                 forecasts, key=lambda pair: pair[1]["due_at"]
             )
-            if not eligible or forecast_change["due_at"] <= min(
-                item["due_at"] for _, item in eligible
+            if not [*eligible, *editorial] or forecast_change["due_at"] <= min(
+                item["due_at"] for _, item in [*eligible, *editorial]
             ):
                 count += int(
                     await forecast_queue.claim(db, row, forecast_key, forecast_change)
+                )
+                continue
+        if editorial:
+            editorial_key, editorial_change = min(
+                editorial, key=lambda pair: pair[1]["due_at"]
+            )
+            if not eligible or editorial_change["due_at"] <= min(
+                item["due_at"] for _, item in eligible
+            ):
+                count += int(
+                    await editorial_queue.claim(db, row, editorial_key, editorial_change)
                 )
                 continue
         if not eligible:
@@ -730,8 +751,39 @@ async def list_notices(db, novel_id, *, interaction=False):
     watch = await _watch(db, novel_id)
     dirty = (watch.dirty_json or {}) if watch else {}
     stale_reviews = {}
+    editorial_stale_ids = set()
     for row in rows:
         reference = row.result_ref_json or {}
+        if reference.get("type") == "editorial_issue":
+            from modules.assistant.editorial_models import EditorialIssue, EditorialReview
+            from modules.writing.facade import get_latest_draft_for_chapter
+
+            issue = await db.scalar(
+                select(EditorialIssue).where(
+                    EditorialIssue.novel_id == row.novel_id,
+                    EditorialIssue.id == uuid.UUID(reference["id"]),
+                )
+            )
+            if issue is None:
+                editorial_stale_ids.add(row.id)
+            else:
+                review = await db.scalar(
+                    select(EditorialReview).where(
+                        EditorialReview.novel_id == row.novel_id,
+                        EditorialReview.id == issue.review_id,
+                    )
+                )
+                if review is None or review.status == "stale":
+                    editorial_stale_ids.add(row.id)
+                for evidence in row.sources_json or issue.finding_json.get(
+                    "evidence", []
+                ):
+                    draft = await get_latest_draft_for_chapter(
+                        db, str(novel_id), evidence["chapter_index"]
+                    )
+                    if draft is None or draft.content_hash != evidence["content_hash"]:
+                        editorial_stale_ids.add(row.id)
+                        break
         task_id = reference.get("task_id")
         if (
             reference.get("type") == "interaction_continuity_review"
@@ -766,7 +818,8 @@ async def list_notices(db, novel_id, *, interaction=False):
                     or row.result_ref_json.get("change_key")
                 ),
                 "needs_recheck": bool(
-                    stale_reviews.get(row.result_ref_json.get("task_id"))
+                    row.id in editorial_stale_ids
+                    or stale_reviews.get(row.result_ref_json.get("task_id"))
                     or (change := dirty.get(row.result_ref_json.get("change_key")))
                     and change.get("changed_at") != row.result_ref_json.get("change_at")
                     or (

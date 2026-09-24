@@ -193,8 +193,12 @@ ADR-0023 增加有限单 Agent 运行时，允许作者助手与 RP 在服务端
 唯一生产实现，旧 Outline/Memory 兼容包已退场。RAG 索引与 Context 编译/确认归 evidence，
 账户连接与全局偏好归 account，项目偏好及有效配置
 归 project；`map` 是 world 子系统，`infrastructure/tasks` 是共享基础设施。
-`evolution` 是 V4 计划的演化引擎模块，当前只有 E01 契约层（来源引用、观察、
-身份解析、类型化操作、回执游标），无运行时；deep_import 仍是唯一编排 owner。
+`evolution` 已有来源/观察契约、单 Scene 采样与冻结恢复、回执/预算存储及
+`evolution_scene_step_v2` handler；跨章来源按精确区间绑定，影子运行隔离正式写入。
+Project 的理解引擎/epoch/schema floor 统一封锁 Imports 与 Evolution 旧 owner，迁移保留预算与历史。
+默认导入入口尚未切换，旧 deep_import 仍持有该入口编排。Collaboration 保存作者明确授权的
+持久理解及追加历史，Evidence 冻结并重验其精确来源与继承引用；World 地图经 Story
+读取指定 Scene 截止点的人物在场投影。工程接线不代表真实模型质量或 G2/G3 全部验收。
 
 Assistant 拥有项目讨论、运行、操作批次及提醒展示（`/api/assistant`）；World 通用会话
 保留原物理表与 ID 后移交 Assistant。RP 树和 attempt 留在 Interaction，共用有限执行核心。
@@ -240,3 +244,8 @@ ADR-0027 的 Assistant 工作项与调查成果是有界私有 checkpoint；Worl
 作品模型连接的 owner。Project 保留默认执行器选择，Assistant/Interaction/协作等
 领域保留各自的任务与正式写入权。Mac CLI 本地文件变化只属于作者主机；进入产品的
 资料和修改仍经过 Evidence、owner/`novel_id`、确认、来源与事务门禁。
+
+作者“编辑约定”是 Project 内作者确认的版本化意图，不是 World 正史；“交给编辑看”是
+Writing 某一已保存工作稿的完成标记，不改变 published/canonical 状态；“编辑意见”由
+Assistant 保留证据、范围、处置和改后复核，不授予 AI candidate 的正式审稿 PASS。
+背景阅读仅在服务端开关和项目授权均开启时运行，RP 不消费这些作者私有意见。

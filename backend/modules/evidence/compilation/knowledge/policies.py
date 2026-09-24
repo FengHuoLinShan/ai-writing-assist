@@ -21,6 +21,7 @@ DOMAIN_WRITING = "writing"
 DOMAIN_WORLD = "world"
 DOMAIN_STORY = "story"
 DOMAIN_IMPORTS = "imports"
+DOMAIN_EVOLUTION = "evolution"
 DOMAIN_INTERACTION = "interaction"
 DOMAIN_ASSISTANT = "assistant"
 DOMAIN_PROJECT = "project"
@@ -203,6 +204,16 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             outputs=(OUTPUT_PROSE,),
             gate=ADOPTION_REQUIRES_PASS_AND_REVIEW,
             notes="返修者只收到生成者上下文与脱敏 finding，复审不过则阻断采用。",
+        ),
+        _policy(
+            "writing.comment_revision",
+            DOMAIN_WRITING,
+            "作者批注约束下的局部正文候选",
+            dimensions=("prior_prose",),
+            confirmation=CONFIRMATION_OPTIONAL,
+            outputs=(OUTPUT_PROSE,),
+            gate=ADOPTION_REQUIRES_PASS_AND_REVIEW,
+            notes="仅以冻结工作稿与批注修订选区；跨资产修改另交作者确认。",
         ),
         _policy(
             "writing.conflict_check.ai_review",
@@ -687,6 +698,31 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             outputs=(OUTPUT_PROPOSAL,),
             notes="targeted completion 每问题组冻结一份 receipt。",
         ),
+        # --- Evolution ---
+        _policy(
+            "evolution.scene_observe",
+            DOMAIN_EVOLUTION,
+            "逐场景来源观察与状态提议",
+            subjects=("author", "scene"),
+            dimensions=("prior_prose", "scene_state"),
+            confirmation=CONFIRMATION_REQUIRED,
+            snapshot=SNAPSHOT_REQUIRED,
+            outputs=(OUTPUT_FINDING, OUTPUT_PROPOSAL),
+            gate=ADOPTION_REQUIRES_PASS,
+            notes="逐字引用与模态经宿主校验；状态提议过语义门后才允许窄提交。",
+        ),
+        _policy(
+            "evolution.state_review",
+            DOMAIN_EVOLUTION,
+            "独立回读正文核验状态提议",
+            subjects=("author", "scene"),
+            dimensions=("prior_prose", "scene_state"),
+            confirmation=CONFIRMATION_REQUIRED,
+            snapshot=SNAPSHOT_REQUIRED,
+            outputs=(OUTPUT_FINDING,),
+            gate=ADOPTION_REQUIRES_PASS,
+            notes="独立调用逐项复核；冻结来源、前序回执、候选和根预算，漏项或矛盾不得取得状态效果。",
+        ),
         # --- Interaction / RP ---
         _policy(
             "interaction.story_generate",
@@ -800,6 +836,18 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             outputs=(OUTPUT_PROPOSAL,),
             gate=ADOPTION_DISPLAY_ONLY,
             notes="新创意是条件式候选；观察有据、未知保留、不把普通细节变为义务。",
+        ),
+        _policy(
+            "assistant.editorial",
+            DOMAIN_ASSISTANT,
+            "作者作品的只读编辑意见",
+            subjects=("author", "reader"),
+            dimensions=("prior_prose", "world_rules", "outline"),
+            confirmation=CONFIRMATION_OPTIONAL,
+            snapshot=SNAPSHOT_REQUIRED,
+            outputs=(OUTPUT_PROPOSAL,),
+            gate=ADOPTION_DISPLAY_ONLY,
+            notes="准确引文与覆盖清单；不写正文或正史，不授予 AI 正文采用资格。",
         ),
         _policy(
             "interaction.forecast",

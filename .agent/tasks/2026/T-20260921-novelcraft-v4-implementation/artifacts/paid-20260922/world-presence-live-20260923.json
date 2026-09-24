@@ -1,0 +1,218 @@
+{
+  "mode": "frozen_presence_contract_audit",
+  "started_at": "2026-09-22T17:54:40.042935+00:00",
+  "database": "ai_novel_agent_e2e_v4_live_20260922",
+  "novel_id": "94d50b59-e4d6-487d-af70-49482014478c",
+  "old_run_key": "reading-9489795b-7565-4e7e-a6d1-64631fd7c1c7",
+  "operation_id": "6f0a98ef-420a-4b36-b54d-c44cd4a32758",
+  "acceptance_type": "代理验收，非人工试用",
+  "source_attempt": "993f834235934b59a2dc44ebc55c932f",
+  "source_hash": "fdc3becc82511306d692f55a0f406fa7c311398c038c6ebda7d70b4b9c19ef67",
+  "cases": [
+    {
+      "label": "observed_presence",
+      "candidate": {
+        "dimension": "locations",
+        "event_type": "entity_moved",
+        "entity_id": "3098a013-f483-4017-9fa9-2a703ebc7fc4",
+        "subject_surface": "林舟",
+        "snapshot_after": {
+          "text_state": "渡口",
+          "meta": {
+            "author_confirmed": false,
+            "source_observation_ids": [
+              "8272adbf803997503183554ceb270841e97f979ae04415abcc216314d8e90d98"
+            ],
+            "source_receipts": [
+              {
+                "observation_id": "8272adbf803997503183554ceb270841e97f979ae04415abcc216314d8e90d98",
+                "source_ref": {
+                  "novel_id": "94d50b59-e4d6-487d-af70-49482014478c",
+                  "source_kind": "chapter_draft",
+                  "draft_id": "56a1bba9-448b-43e6-aa61-90bd8d39dc94",
+                  "content_hash": "51640d441c9fcee2294a9ca3d2f06125ff3aaaa4207855111a636f3281d7cbe8",
+                  "chapter_identity": "chapter:2",
+                  "start_offset": 0,
+                  "end_offset": 12,
+                  "range_hash": "48253533cd1ecb8f5f086ed9307ccb08acc3f3c6096b82f076648e78ec9c68d8",
+                  "source_revision": 1,
+                  "segmentation_version": 1,
+                  "source_visibility": "working"
+                },
+                "evidence_quotes": [
+                  {
+                    "quote": "三日后，林舟出现在渡口。",
+                    "source_ref": {
+                      "novel_id": "94d50b59-e4d6-487d-af70-49482014478c",
+                      "source_kind": "chapter_draft",
+                      "draft_id": "56a1bba9-448b-43e6-aa61-90bd8d39dc94",
+                      "content_hash": "51640d441c9fcee2294a9ca3d2f06125ff3aaaa4207855111a636f3281d7cbe8",
+                      "chapter_identity": "chapter:2",
+                      "start_offset": 0,
+                      "end_offset": 12,
+                      "range_hash": "48253533cd1ecb8f5f086ed9307ccb08acc3f3c6096b82f076648e78ec9c68d8",
+                      "source_revision": 1,
+                      "segmentation_version": 1,
+                      "source_visibility": "working"
+                    }
+                  }
+                ]
+              }
+            ],
+            "authority_basis": "derived_observation"
+          }
+        },
+        "source_observation_indices": [
+          1
+        ],
+        "knowledge_subject": null,
+        "source_observation_ids": [
+          "8272adbf803997503183554ceb270841e97f979ae04415abcc216314d8e90d98"
+        ],
+        "authority_basis": "derived_observation"
+      },
+      "raw_review": {
+        "result": {
+          "events": [
+            {
+              "event_index": 0,
+              "verdict": "supported",
+              "reason": "候选缺少 moved_from/from_location，依事件契约仅断言林舟此处在场；本场正文明确写“三日后，林舟出现在渡口”，足以证明该时点林舟位于渡口。",
+              "quotes": [
+                "三日后，林舟出现在渡口。"
+              ]
+            }
+          ]
+        },
+        "paid_call_receipt": {
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "schema": "evolution.state_review.v1",
+          "outcome": "succeeded",
+          "usage": {
+            "prompt_tokens": 4337,
+            "completion_tokens": 538,
+            "total_tokens": 4875,
+            "attempts": 1,
+            "succeeded_attempts": 1,
+            "unknown_attempts": 0,
+            "usage_complete": true
+          },
+          "attempts_detail": [
+            {
+              "attempt": 1,
+              "status": "succeeded",
+              "completion_tokens": 538
+            }
+          ]
+        }
+      }
+    },
+    {
+      "label": "unsupported_travel_control",
+      "candidate": {
+        "dimension": "locations",
+        "event_type": "entity_moved",
+        "entity_id": "3098a013-f483-4017-9fa9-2a703ebc7fc4",
+        "subject_surface": "林舟",
+        "snapshot_after": {
+          "text_state": "渡口",
+          "meta": {
+            "author_confirmed": false,
+            "source_observation_ids": [
+              "8272adbf803997503183554ceb270841e97f979ae04415abcc216314d8e90d98"
+            ],
+            "source_receipts": [
+              {
+                "observation_id": "8272adbf803997503183554ceb270841e97f979ae04415abcc216314d8e90d98",
+                "source_ref": {
+                  "novel_id": "94d50b59-e4d6-487d-af70-49482014478c",
+                  "source_kind": "chapter_draft",
+                  "draft_id": "56a1bba9-448b-43e6-aa61-90bd8d39dc94",
+                  "content_hash": "51640d441c9fcee2294a9ca3d2f06125ff3aaaa4207855111a636f3281d7cbe8",
+                  "chapter_identity": "chapter:2",
+                  "start_offset": 0,
+                  "end_offset": 12,
+                  "range_hash": "48253533cd1ecb8f5f086ed9307ccb08acc3f3c6096b82f076648e78ec9c68d8",
+                  "source_revision": 1,
+                  "segmentation_version": 1,
+                  "source_visibility": "working"
+                },
+                "evidence_quotes": [
+                  {
+                    "quote": "三日后，林舟出现在渡口。",
+                    "source_ref": {
+                      "novel_id": "94d50b59-e4d6-487d-af70-49482014478c",
+                      "source_kind": "chapter_draft",
+                      "draft_id": "56a1bba9-448b-43e6-aa61-90bd8d39dc94",
+                      "content_hash": "51640d441c9fcee2294a9ca3d2f06125ff3aaaa4207855111a636f3281d7cbe8",
+                      "chapter_identity": "chapter:2",
+                      "start_offset": 0,
+                      "end_offset": 12,
+                      "range_hash": "48253533cd1ecb8f5f086ed9307ccb08acc3f3c6096b82f076648e78ec9c68d8",
+                      "source_revision": 1,
+                      "segmentation_version": 1,
+                      "source_visibility": "working"
+                    }
+                  }
+                ]
+              }
+            ],
+            "authority_basis": "derived_observation"
+          },
+          "moved_from": "白石城"
+        },
+        "source_observation_indices": [
+          1
+        ],
+        "knowledge_subject": null,
+        "source_observation_ids": [
+          "8272adbf803997503183554ceb270841e97f979ae04415abcc216314d8e90d98"
+        ],
+        "authority_basis": "derived_observation"
+      },
+      "raw_review": {
+        "result": {
+          "events": [
+            {
+              "event_index": 0,
+              "verdict": "unverifiable",
+              "reason": "正文仅支持林舟三日后出现在渡口，即其在渡口在场；但未提及白石城、任何出发地或移动路线。候选 additionally 断言 moved_from 为白石城，无法由本场正文证明，因此不能判定为有效 entity_moved。",
+              "quotes": [
+                "三日后，林舟出现在渡口。"
+              ]
+            }
+          ]
+        },
+        "paid_call_receipt": {
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "schema": "evolution.state_review.v1",
+          "outcome": "succeeded",
+          "usage": {
+            "prompt_tokens": 4345,
+            "completion_tokens": 683,
+            "total_tokens": 5028,
+            "attempts": 1,
+            "succeeded_attempts": 1,
+            "unknown_attempts": 0,
+            "usage_complete": true
+          },
+          "attempts_detail": [
+            {
+              "attempt": 1,
+              "status": "succeeded",
+              "completion_tokens": 683
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "stage": "finished",
+  "transport_calls": 2,
+  "checks": {
+    "presence_supported": true,
+    "unsupported_travel_rejected": true
+  }
+}

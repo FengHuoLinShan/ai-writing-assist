@@ -148,8 +148,10 @@
 
     <main id="writing-editor-container">
       <WritingEditor
+        ref="writingEditorRef"
         :project-id="props.projectId"
         :deep-review-available="deepReviewAvailable"
+        :editorial-available="editorialAvailable"
         :narrow="vm.isNarrow.value"
         :state="vm.editorState"
         :target-chapter="vm.selectedChapter.value"
@@ -161,6 +163,7 @@
         :generation-loading="vm.generationLoading.value"
         :conflict-loading="vm.conflictState.loading"
         :review-result="vm.generationTask.result"
+        :comments="writingComments.comments.value"
         :candidate-comparison-available="vm.candidateComparisonAvailable.value"
         :attach="vm.attachEditor"
         :detach="vm.detachEditor"
@@ -181,6 +184,8 @@
         @reject="rejectCandidate"
         @semantic-review="vm.reviewCandidate"
         @deep-review="openDeepReview"
+        @editorial-ready="markEditorialReady"
+        @editorial-open="openEditorialDesk"
         @targeted-revision="vm.reviseCandidate"
         @regenerate-candidate="vm.regenerateCandidate"
         @compare-candidate="vm.compareCandidateWithWorkingDraft"
@@ -188,6 +193,8 @@
         @retry-load="vm.retryChapterLoad"
         @reload-server="reloadServerDraft"
         @composition="setComposition"
+        @focus-context="forecastFocus = $event"
+        @add-comment="openWritingComment"
       >
         <template #context-actions>
           <div v-if="versionChoices.length" id="writing-versions-container" class="writing-version-bar writing-version-bar--compact">
@@ -239,10 +246,27 @@
       aria-label="本章资料"
     >
       <div id="writing-panel-container">
+        <WritingCommentsPanel
+          :comments="writingComments.comments.value"
+          :selection="writingComments.selection.value"
+          :task="writingComments.task.value"
+          :busy="writingComments.busy.value"
+          :error="writingComments.error.value"
+          :can-run="commentCanRun"
+          @save-comment="writingComments.create($event)"
+          @cancel-comment="writingComments.selection.value = null"
+          @run-review="writingComments.run($event, true)"
+          @run-comments="writingComments.run($event, false)"
+          @refresh-task="writingComments.poll($event)"
+          @locate="locateWritingComment"
+          @set-status="writingComments.setStatus"
+          @open-candidate="writingComments.openCandidate($event)"
+          @open-proposals="writingComments.openProposals($event)"
+        />
         <ForecastDock
           v-if="vm.editorState.draftId && !vm.editorState.readonly && !vm.editorState.loading && !vm.editorState.loadError"
           :project-id="props.projectId"
-          :context="{ page: 'writing', draft_id: vm.editorState.draftId, scene_id: vm.currentScene.value?.id || null }"
+          :context="{ page: 'writing', draft_id: vm.editorState.draftId, ...(forecastFocus?.draft_id === vm.editorState.draftId ? forecastFocus : {}), scene_id: vm.currentScene.value?.id || null }"
           :editor="vm.editorState"
           :composing="forecastComposing"
           :active="rightRailOpen"
@@ -378,12 +402,14 @@ import OutlineFloat from "./components/OutlineFloat.vue"
 import SceneCockpit from "./components/SceneCockpit.vue"
 import VersionHistoryDialog from "./components/VersionHistoryDialog.vue"
 import WritingEditor from "./components/WritingEditor.vue"
+import WritingCommentsPanel from "./components/WritingCommentsPanel.vue"
 import WritingWorkflowBars from "./components/WritingWorkflowBars.vue"
 import WritingHomeView from "./home/WritingHomeView.vue"
 import { authorTaskPanelQuery } from "./home/authorTaskSource.js"
 import OwnerAiDrawer from "../../components/OwnerAiDrawer.vue"
 import { getRouter, getApi, getToast, openProjectAssistant, setForecastComposing } from "../../bridge/index.js"
 import { useWritingWorkspace } from "./useWritingWorkspace.js"
+import { useWritingComments } from "./useWritingComments.js"
 import "./writing-desk.css"
 
 const props = defineProps({
@@ -403,15 +429,65 @@ const props = defineProps({
 })
 
 const vm = useWritingWorkspace(props)
+const writingEditorRef = ref(null)
+const writingComments = useWritingComments(
+  props.projectId, vm.editorState, vm.selectChapter, vm.selectRange,
+  start => writingEditorRef.value?.scrollCommentIntoView(start),
+)
+const commentCanRun = computed(() => Boolean(
+  vm.editorState.draftId && vm.editorState.contentHash && !vm.editorState.readonly
+  && !vm.editorState.dirty && !vm.editorState.saving && !vm.editorState.loading
+))
+function openWritingComment(focus) {
+  if (writingComments.prepare(focus)) rightRailOpen.value = true
+}
+async function locateWritingComment(item) {
+  if (vm.isNarrow.value) {
+    rightRailOpen.value = false
+    await nextTick()
+  }
+  writingComments.locate(item)
+}
 const versionChoices = computed(() => vm.versions.value.filter(version => version.status !== "deprecated" || version.id === vm.editorState.draftId))
 const router = getRouter()
 const deepReviewAvailable = ref(false)
+const editorialAvailable = ref(false)
 const forecastComposing = ref(false)
+const forecastFocus = ref(null)
 function setComposition(value) { forecastComposing.value = value; setForecastComposing(props.projectId, value) }
 watch(() => props.projectId, async projectId => {
   deepReviewAvailable.value = false
-  try { const value = await getApi().assistant.capabilities(projectId); if (projectId === props.projectId) deepReviewAvailable.value = value.collaboration?.some(item => item.id === "deep_review" && item.available) === true } catch { /* ordinary review remains available */ }
+  editorialAvailable.value = false
+  try {
+    const value = await getApi().assistant.capabilities(projectId)
+    if (projectId === props.projectId) {
+      deepReviewAvailable.value = value.collaboration?.some(item => item.id === "deep_review" && item.available) === true
+      editorialAvailable.value = value.editorial?.available === true
+    }
+  } catch { /* ordinary writing remains available */ }
 }, { immediate: true })
+async function openEditorialDesk() {
+  try { await openProjectAssistant({ projectId: props.projectId, editorial: true, chapterIndex: vm.selectedChapter.value }) }
+  catch (error) { getToast()(error.message || "暂时无法打开编辑台。", "error") }
+}
+async function markEditorialReady() {
+  const state = vm.editorState
+  if (!state.draftId || state.status !== "draft" || state.dirty || state.saving || !state.content.trim()) return
+  const draftId = state.draftId
+  const chapter = vm.selectedChapter.value
+  const content = state.lastSavedContent
+  try {
+    const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(content)))
+    const expectedHash = Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("")
+    const saved = await getApi().writing.markEditorialReady(draftId, props.projectId, expectedHash)
+    if (draftId === state.draftId && chapter === vm.selectedChapter.value && !state.dirty && state.lastSavedContent === content) {
+      state.editorialReadyHash = saved.editorial_ready_hash
+      state.contentHash = saved.content_hash
+    }
+    getToast()("这版工作稿已交编辑；可在编辑台查看或开始审读。", "success")
+  } catch (error) { getToast()(error.message || "交给编辑失败，工作稿仍保留。", "error"); return }
+  await openEditorialDesk()
+}
 async function openDeepReview() {
   if (vm.editorState.dirty || vm.editorState.saving) return
   try {

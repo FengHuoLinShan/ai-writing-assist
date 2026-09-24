@@ -381,12 +381,14 @@ async def cancel_unfinished_tasks_for_novel(
     *,
     novel_id: str,
     transition_reason: str,
+    task_types: set[str] | None = None,
 ) -> int:
     """Cancel only pending/running tasks belonging to one novel."""
     return await TaskLifecycleService().cancel_unfinished_for_novel(
         db,
         novel_id=novel_id,
         transition_reason=transition_reason,
+        **({"task_types": task_types} if task_types is not None else {}),
     )
 
 

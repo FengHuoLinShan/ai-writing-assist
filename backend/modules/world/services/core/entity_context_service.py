@@ -9,7 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.world.models import CoreEntity
 from modules.world.repositories import CoreEntityRepository
-from modules.world.schemas import WorldContextBundle, WorldEntityContext
+from modules.world.schemas import (
+    DuplicateSuggestionResult,
+    WorldContextBundle,
+    WorldEntityContext,
+)
 from modules.world.services.common import parse_uuid
 
 
@@ -292,6 +296,45 @@ class EntityContextService:
                 for original in normalized_to_originals.get(normalized_alias, []):
                     resolved.setdefault(original, item_id)
         return resolved
+
+    async def find_exact_identity_candidates(
+        self, db: AsyncSession, novel_id: str, name: str, entity_type: str | None = None
+    ) -> list[DuplicateSuggestionResult]:
+        """Return literal names only; aliases lack a proven narrative cutoff here."""
+        query = " ".join(name.split()).casefold()
+        if not query:
+            return []
+        sources = await self._repo.list_alias_sources(
+            db, parse_uuid(novel_id, "novel_id")
+        )
+        matches = []
+        for item in sources:
+            meta = item["owner_meta"] or {}
+            if (
+                item["status"] not in {"canonical", "draft", "candidate"}
+                or (entity_type and item["entity_type"] != entity_type)
+                or (
+                    item["status"] != "canonical"
+                    and meta.get("compatibility_shadow") is True
+                    and meta.get("suggestion_id")
+                )
+            ):
+                continue
+            method = (
+                "exact_name"
+                if " ".join((item["name"] or "").split()).casefold() == query
+                else None
+            )
+            if method:
+                matches.append(
+                    DuplicateSuggestionResult(
+                        existing_entity_id=str(item["id"]),
+                        existing_entity_name=item["name"],
+                        similarity_score=1.0,
+                        match_method=method,
+                    )
+                )
+        return matches
 
     async def list_entity_batches(
         self,

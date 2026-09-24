@@ -64,7 +64,7 @@ def adapt_deep_import_start(
         scene_steps=[
             {
                 "scene_index": index,
-                "task_type": "evolution_scene_step",
+                "task_type": "evolution_scene_step_v2",
                 "novel_id": request.novel_id,
                 "run_key": run_key,
             }

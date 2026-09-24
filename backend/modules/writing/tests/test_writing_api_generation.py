@@ -155,6 +155,8 @@ def _make_draft(**overrides: object) -> MagicMock:
         "title": "第一章：开端",
         "content": "这是一个测试正文的段落。",
         "content_hash": "0" * 64,
+        "editorial_ready_at": None,
+        "editorial_ready_hash": None,
         "version_number": 1,
         "status": "draft",
         "created_at": datetime.now(UTC),
@@ -1578,6 +1580,7 @@ async def test_publish_content_replacement_takes_writing_version_lock() -> None:
     novel_id = uuid.uuid4()
     draft = _make_draft(novel_id=novel_id, chapter_index=4, content="old")
     repo = MagicMock()
+    repo._changed = AsyncMock()
     repo.lock_version_chapters_for_revalidation = AsyncMock()
     service = WritingDraftService(repo=repo)
     db = MagicMock()

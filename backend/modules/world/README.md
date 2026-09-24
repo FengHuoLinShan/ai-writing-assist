@@ -1216,3 +1216,26 @@ Assistant 的独立调查交给 World `review_team_stress` 复核。`world_stres
 `creative.py` 支持世界书工作稿的不可变试改及原编辑操作；不会直接发布 Canon。
 `forecast.py` 复用原影响服务、待决队列和已保存地图约束，区分引用、文字提及与未知条件。
 有排除项或原确认时，额外域读取保持在已证明范围内。
+
+## 地图场景与竞争身份
+
+精确身份候选保留同名和有效别名的全部竞争对象，并按项目、类型、状态排除失效别名与建议影子；
+不能把一条同名查询当作唯一身份。地图的 `map_atlas_facade.get_map_scene_context` 消费 Story
+有效场景投影，不改写 World、位置事件或地理；接口和显示边界见 [地图设计](../../../docs/modules/15_map.md#场景人物位置)。
+
+
+### 逐场景理解候选的采用来源
+
+Evolution 新候选复用对象、关系、别名的待采用流程；元数据中的 `evolution_ref` 绑定
+同项目已提交 Scene 回执。采用、转别名、去重合并、批量关系审查、普通采用包及建议队列
+吸收候选关系前统一回读当前正文/Scene/最新回执。来源变化保留候选历史并拒绝直接采用。
+普通 validation gate 或 `_validation_prechecked` 不免除来源重验。元数据编辑不能清掉
+原绑定；别名 None/active/published/canonical/confirmed 等所有活跃转换均受保护。
+短事务使用 Project `FOR UPDATE NOWAIT`：与作者写入交错时立即返回可重试冲突，
+不持领域行锁等待项目锁升级；原生 PG 反例已覆盖。
+`find_exact_identity_candidates` 仅召回字面精确名称并保留多身份竞争；当前 World 别名
+没有已验证的叙事截止证明，不能作为早期 Scene 的自动身份依据。普通作者搜索仍可搜别名。
+
+内部候选创建可接收宿主冻结的 `candidate_id`，只允许 candidate 状态；
+供 Evolution 将本场新身份与复核状态同事务落库，公共创建 schema 不开放此参数。
+同场同类型同名竞争不能自动压成一个候选身份。

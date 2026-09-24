@@ -119,6 +119,7 @@ async def run_view(db, novel_id, run_id):
         if stale
         else run.result_json.get("question_for_author"),
         "coverage": run.result_json.get("coverage"),
+        "understanding": run.result_json.get("understanding"),
         "missing_deliverables": run.result_json.get("missing_deliverables", []),
         "work": [
             {"id": str(row.id), "status": row.status, "generation": row.generation}

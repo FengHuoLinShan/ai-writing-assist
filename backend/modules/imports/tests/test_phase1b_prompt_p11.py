@@ -7,6 +7,66 @@ from modules.imports.llm_schemas import SceneEnrichmentOutput
 from modules.imports.workflow_llm_adapters import _Phase1bSceneEnrichmentLLM
 
 
+def test_evolution_enrichment_reuses_exact_scene_source_and_committed_parent():
+    from modules.imports.facade import (
+        build_scene_enrichment_request,
+        materialize_scene_enrichment,
+        prepare_scene_enrichment,
+    )
+
+    scene = {
+        "id": "scene-1",
+        "scene_index": 1,
+        "title": "城门",
+        "structure_meta": {"narrative_function": "后文才揭示的身份"},
+    }
+    source = [
+        {
+            "draft_id": "draft-1",
+            "chapter_index": 2,
+            "content_hash": "a" * 64,
+            "start_offset": 5,
+            "end_offset": 10,
+        }
+    ]
+    parent = {
+        "previous_scene_attempt_id": "b" * 32,
+        "previous_observations": [{"predicate": "传闻封锁", "modality": "belief"}],
+    }
+    payload = prepare_scene_enrichment(scene, source, "城门被关上", parent)
+    request, schema = build_scene_enrichment_request(payload)
+    prompt = request.messages[-1].content
+    assert "城门被关上" in prompt and "belief" in prompt and "b" * 32 in prompt
+    assert "后文才揭示的身份" not in prompt
+    result = materialize_scene_enrichment(
+        payload,
+        schema.model_validate(
+            {
+                "must_happen": "城门关闭",
+                "must_not_happen": "身份已被认出",
+                "narrative_tag": "hook",
+                "narrative_function": "建立阻力",
+                "field_evidence": {
+                    "must_happen": ["城门被关上"],
+                    "must_not_happen": ["不存在的引文"],
+                },
+            }
+        ).model_dump(),
+    )
+    assert result["must_happen"] == "城门关闭"
+    assert result["must_not_happen"] is None
+    assert "must_not_happen" in result["phase1b_uncertain_fields"]
+    assert result["scene_chunks"][0]["start_offset"] == 5
+    assert (
+        payload["scene_guard"]
+        != prepare_scene_enrichment(
+            {**scene, "title": "已由作者编辑"}, source, "城门被关上", parent
+        )["scene_guard"]
+    )
+    with pytest.raises(ValueError, match="complete source"):
+        prepare_scene_enrichment(scene, source, "城门", parent)
+
+
 def test_scene_enrichment_output_distinguishes_not_applicable_from_uncertain() -> None:
     output = SceneEnrichmentOutput.model_validate(
         {

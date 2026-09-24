@@ -57,6 +57,7 @@ output_validator 校验，修复计入同一执行预算；固定审稿保留原
 | `generation_prompt_template_service.py` | 内置创作视角与项目级自定义模板；作为 author brief 进入生成中心 | world 对象共创 |
 | `writing/services.py` | 内联 step `writing.generation.candidate.generate`：根据已确认上下文生成正文候选 | writing 正文生成 |
 | `writing/semantic_review.py` | 内联 steps `writing.semantic_review.chunk_N`、`writing.targeted_revision.generate`：冻结正文、原 confirmation CompiledContext、POV/hidden-guard 指纹和合同的独立近读，并让 finding-bound 返修复用同一资料 | writing 审查返修 |
+| `writing/comment_run.py` | 内联 step `writing.comment_revision.patch` 与统一知识治理 `writing.comment_revision.knowledge.*`：只对作者批准的精确批注范围返回 replacement；原稿与所选批注进入独立治理审查，失败不展示候选 | writing 批注修订 |
 | `story/outline_state/ai_workflow_service.py` | 内联 step `outline.ai_workflow.analyze.generate`：回答作者指定的大纲结构问题 | Story outline_state 手动大纲分析 |
 | `interaction/prompts.py` / `evidence/compilation/services/interaction_story_context.py` | 内联 `interaction-story-v8`：兼容模型知识 RP，source-bound 旅程额外注入版本/截止点经 Evidence 校验且统一转义围栏的作品参考块；相关往事数据块能力保留但当前生产门禁关闭；可选隐藏尾部元数据 | interaction 故事任务 |
 | `interaction/prompts.py` | 内联 `interaction-summary-v3` / `interaction-summary-output-v2`：一次生成新分段概要与更新后总回顾 | interaction 回顾任务 |
@@ -667,4 +668,35 @@ Phase 2a/2b 的可选 mention_name 仅在对应原文逐字出现时进入 compl
 Collaboration planner 只输出 GraphDelta，工作成员只输出有出处的 WorkOutput；均不获得
 任意工具或领域写入权。Workspace 的 CheckOutput 必须逐项报告实际检查过的作者保留项和
 配方要求，原文与精确试改共同接受复核；部分检查不能签署通过。Recipe 不授予额外权限。
+GraphDelta schema 按当前配方收窄能力枚举，世界压力试验指令只发给对应配方。规划器读取
+完整授权资料、章节位置与实际已执行问题，原文未知是有效结论，不靠反复拆词补查耗尽预算；
+仅确实阻断工作的作者决定才发起追问，能独立执行的工作先完成。
 `observation_v2` 的人物只收到自身观察包，Resolver 只能选择有限结果，不能转发私有动机。
+
+## 创作任务的持久理解输入
+
+`Evidence.creative_context_text` 在原授权资料之后附加本次实际选中的 cognition refs，保留
+原修订/hash、作者修正资格与用途，不作为独立事实 evidence key。受限主体、试改 overlay、
+不完整或被排除的根来源不能借理解进入输入；全包仍受 24000 字符复核上限。规划、成员、
+独立审查与终态重验使用原引用；保留理解不额外调用模型，也不把作者修正标成原文已证事实。
+Evolution 观察引用保留原模态、逐字出处与连续提交身份；作者理解保留实际目标/约束/工作输入，
+明确为回顾解释，禁止当成历史首次阅读或角色知识。Scene 与显式历史截止不自动装入该理解。
+前瞻生成和独立知识审查共享同一理解引用及正文 source_map；字面查询范围回执同样交给审查，
+不能把合法过程统计因未提供给审查而误判为无来源作品断言。
+
+Evolution Scene 观察调用登记为 `evolution.scene_observe`，独立状态核验登记为
+`evolution.state_review`（完整来源、逐项判定、自引原文、冻结计量，未知不写状态）；场景边界准备复用
+`imports.scene_slicing` 能力；静态能力登记不代表该窄流程另行执行 Knowledge director/audit。
+Evolution `SceneSample` 可用 `subject_surface`，禁止猜测实体 ID；主体由引用观察的实际
+解析结果确定。唯一逐字引文可由宿主校准码点偏移，原值和对齐方法写进调用回执；重复或
+缺失引文仍严格失败。全部引用须满足主体/模态和 Story 物化 schema，不据结构通过宣称
+语义蕴含正确；来源不足的状态提议保持待决定。
+
+## 作者编辑台内联指令
+
+`modules/assistant/editorial.py` 的 `assistant.editorial.review` / `.recheck` 走
+`run_managed_structured`，分别校验 `ReviewPass` 与 `RecheckOutput`。单章审读只给意见，不输出
+替换正文；读者 pass 只含当前片段与先前读者状态，不含作者约定、世界资料和后文。作者 pass
+可含已精确回读的世界/结构资料。finding 必须给当前冻结正文的唯一逐字引文，资料引用须属于
+本次实际送入的来源；服务端验证 ID/hash、文本和反证/未覆盖，不合格意见丢弃。改后结果只
+能是仍在、可能改善或无法判断，不能替作者关闭。模型输出是编辑建议，绝非正式采用回执。

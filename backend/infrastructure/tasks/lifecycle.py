@@ -720,6 +720,7 @@ class TaskLifecycleService:
         *,
         novel_id: str,
         transition_reason: str,
+        task_types: set[str] | None = None,
     ) -> int:
         """Cancel pending/running tasks owned by one novel without committing."""
         result = await db.execute(
@@ -727,6 +728,11 @@ class TaskLifecycleService:
             .where(
                 AsyncTask.novel_id == uuid.UUID(str(novel_id)),
                 AsyncTask.status.in_(("pending", "running")),
+                *(
+                    [AsyncTask.task_type.in_(sorted(task_types))]
+                    if task_types is not None
+                    else []
+                ),
             )
             .values(
                 status="cancelled",

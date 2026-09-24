@@ -155,3 +155,23 @@ RP v3 策略；该参数不覆盖账户 provider/model/Key，也不能用于 aut
 ### DS Flash 档位调优（2026-09-21）
 
 Project snapshot client支持显式high_quality执行策略：同一账户Flash使用max思考、至少65,536输出与900秒provider等待；不覆盖连接身份或解除运行护栏。RP新snapshot按账户extra.reasoning_effort=max选择质量优先，其余默认high及较早历史整理；旧快照继续原参数。
+
+## 理解运行所有权
+
+Project 独立列保存理解引擎、单调 epoch 和 schema floor，默认 legacy/1/1，不放入可自由编辑
+的 settings。`project.understanding` 经 facade 验证任务冻结 token；项目 share/exclusive 锁
+让旧任务提交与切换有确定顺序。Evolution 在排空或明确停止 Imports 和 live run 后 CAS
+切换，保留费用和历史；schema floor 为 2 后禁止旧引擎回写。旧无 token 任务只在未切换的
+legacy/1/1 项目兼容。原生 PG trigger 另封锁旧二进制，详见 [Evolution](22_evolution.md)。
+
+
+`require_active_project_exclusive(..., nowait=True)` 供候选采用的短事务来源重验使用。
+NOWAIT 保证已持领域锁的入口不会等待项目锁升级；并发作者写入时失败关闭并提示重试。
+该锁不跨 provider I/O，仍执行 account owner 与活跃项目门禁。
+
+## 作者编辑约定
+
+`projects.settings.editorial_brief_v1` 只保存作者确认的目标读者、类型承诺、创作目标、声音、
+保留安排、刻意留白和排除资料。`GET/PUT /api/projects/{id}/editorial-brief` 提供读取和
+`expected_version` 冲突保存；每次 Assistant 编辑任务冻结版本。单次意见忽略不会自动形成
+长期偏好；公开只读演示源拒绝写入。

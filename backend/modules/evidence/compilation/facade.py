@@ -851,7 +851,13 @@ async def search_novel_evidence(
 
 
 async def compile_review_world_evidence(
-    db, *, novel_id, chapter_index, scene_id=None, excluded_targets=()
+    db,
+    *,
+    novel_id,
+    chapter_index,
+    scene_id=None,
+    excluded_targets=(),
+    capability="writing.semantic_review",
 ):
     from modules.evidence.compilation.novel_evidence import (
         compile_review_world_evidence as compile_review,
@@ -863,6 +869,7 @@ async def compile_review_world_evidence(
         chapter_index=chapter_index,
         scene_id=scene_id,
         excluded_targets=list(excluded_targets),
+        capability=capability,
     )
 
 

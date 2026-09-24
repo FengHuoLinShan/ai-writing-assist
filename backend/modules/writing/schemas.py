@@ -159,6 +159,10 @@ class WritingDraftCheckpoint(WritingDraftUpdate):
     )
 
 
+class EditorialReadyRequest(BaseModel):
+    expected_content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
 class WritingPublishRequest(WritingDraftCreate):
     """发布当前工作版本，兼容未传 draft_id 的旧调用方。"""
 
@@ -193,6 +197,8 @@ class WritingDraftResponse(BaseModel):
     title: str | None = None
     content: str | None = None
     content_hash: str = ""
+    editorial_ready_at: datetime | None = None
+    editorial_ready_hash: str | None = None
     version_number: int = 1
     status: str = "draft"
     conflict_check_snapshot_json: dict | None = None
@@ -482,15 +488,9 @@ class WritingSemanticReviewCoverageItem(BaseModel):
     draft_id: str
     scene_contract: Literal["checked", "not_applicable", "not_checked"]
     timeline_location: Literal["checked", "not_applicable", "not_checked"]
-    space_continuity: (
-        Literal["checked", "not_applicable", "not_checked"] | None
-    ) = None
-    time_continuity: (
-        Literal["checked", "not_applicable", "not_checked"] | None
-    ) = None
-    logic_continuity: (
-        Literal["checked", "not_applicable", "not_checked"] | None
-    ) = None
+    space_continuity: Literal["checked", "not_applicable", "not_checked"] | None = None
+    time_continuity: Literal["checked", "not_applicable", "not_checked"] | None = None
+    logic_continuity: Literal["checked", "not_applicable", "not_checked"] | None = None
     identity_relation: Literal["checked", "not_applicable", "not_checked"]
     ability_world_rule: Literal["checked", "not_applicable", "not_checked"]
     knowledge_boundary: Literal["checked", "not_applicable", "not_checked"]
@@ -548,6 +548,39 @@ class WritingTargetedRevisionRequest(BaseModel):
         if len(normalized) != len(values) or len(set(normalized)) != len(normalized):
             raise ValueError("finding_ids must be non-empty and unique")
         return normalized
+
+
+class WritingCommentCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    novel_id: str
+    source_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    start_offset: int = Field(ge=0)
+    end_offset: int = Field(gt=0)
+    excerpt: str = Field(min_length=1, max_length=5000)
+    body: str = Field(min_length=1, max_length=4000)
+
+
+class WritingCommentUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    novel_id: str
+    status: Literal["open", "resolved"]
+
+
+class WritingCommentRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    novel_id: str
+    draft_id: uuid.UUID
+    comment_ids: list[uuid.UUID] = Field(default_factory=list, max_length=20)
+    include_ai_review: bool = False
+    operation_id: uuid.UUID
+
+    @model_validator(mode="after")
+    def require_comments_or_review(self):
+        if not self.comment_ids and not self.include_ai_review:
+            raise ValueError("Select comments or request an AI review")
+        if len(set(self.comment_ids)) != len(self.comment_ids):
+            raise ValueError("Duplicate comment IDs")
+        return self
 
 
 class WritingDraftAutosaveCreate(BaseModel):

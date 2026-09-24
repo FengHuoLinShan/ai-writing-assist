@@ -54,6 +54,7 @@ GLOBAL_EXEMPTIONS = {
 # Project owns this aggregate, so these first calls are its active-object boundary.
 # Keeping the route key in this map makes a newly added project route fail closed.
 PROJECT_OWNED_ACTIVE_BOUNDARIES = {
+    "GET /api/projects/{project_id}/editorial-brief": "read_editorial_brief",
     "DELETE /api/projects/{project_id}/author-preferences/field/{field_name}": (
         "reset_project_author_preferences_field"
     ),
@@ -78,6 +79,7 @@ PROJECT_OWNED_ACTIVE_BOUNDARIES = {
     "POST /api/projects/{project_id}/smart-dedup/apply": "get_project",
     "POST /api/projects/{project_id}/smart-dedup/scan": "get_project",
     "PUT /api/projects/{project_id}": "update_project",
+    "PUT /api/projects/{project_id}/editorial-brief": "save_editorial_brief",
     "PUT /api/projects/{project_id}/llm-settings": "update_llm_settings",
     "PUT /api/projects/{project_id}/author-preferences": (
         "upsert_project_author_preferences"

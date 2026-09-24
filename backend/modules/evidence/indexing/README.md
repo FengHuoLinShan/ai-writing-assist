@@ -407,3 +407,14 @@ ADR-0023 的 Agent 通过 Evidence facade 消费已有检索与原文回读，�
 
 前瞻只读取已有索引回执判断新鲜性，不在 feed 中触发 embedding、检索任务或索引补建。
 工作区覆盖不会进入正式索引；原子采用后，由原领域写入与 outbox 触发既有派生更新。
+
+## 正文保存与索引投递
+
+Writing 的共享仓储变更边界在原事务调用 Evolution 失效 facade，再经既有
+`request_chapter_index` 合并 working/canonical 索引投递。API、助手、协作和导入保存不再依赖
+各入口补发；candidate 尚未采用不触发正文变更。来源删除后的 requested_hash=None 同样使旧
+建议失效，不能在 chunk 等待清理时继续接受旧 source_id/hash。
+
+编辑台的全书覆盖以 Writing 当前已保存工作稿清单为准，按冻结 ID/hash 顺序读取全文；
+RAG 索引仍只作世界资料选择的辅助，不定义已审章节全集。正文变化后的旧引文由 Writing
+原稿校验与 Assistant 失效投影处理，不依赖索引重建完成才显示风险。

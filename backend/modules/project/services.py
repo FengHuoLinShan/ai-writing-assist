@@ -660,6 +660,7 @@ class ProjectService:
         novel_id: str,
         *,
         project_kind: str | None = "author",
+        nowait: bool = False,
     ) -> None:
         """Hold a short exclusive project lock for source-sensitive finalizers."""
         self._reject_demo_write()
@@ -671,12 +672,14 @@ class ProjectService:
                 pid,
                 owner_id,
                 project_kind=project_kind,
+                **({"nowait": True} if nowait else {}),
             )
             if owner_id is not None
             else await self._repo.get_active_for_update(
                 db,
                 pid,
                 project_kind=project_kind,
+                **({"nowait": True} if nowait else {}),
             )
         )
         if project is None:

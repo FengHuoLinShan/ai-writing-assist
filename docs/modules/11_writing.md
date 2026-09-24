@@ -185,6 +185,13 @@ location、contract refs、preserve 与 not_checked；机械门不能代替文�
 allowed scope、preserve/must_not_change 和 supersedes，复用同一 Context 且只创建新
 candidate。返修后重新执行 hidden guard、清除不再匹配新正文的旧 POV view，并再次独立审查。
 
+正文批注属于 Writing：作者选区或语义审稿 finding 保存为版本绑定的评论；无唯一定位的
+AI 评论仍可查看，但不能直接执行。显式“审稿并修订”先生成批注，再合并重要问题和作者
+选中的批注执行 `writing_comment_run`；轻微建议只展示，可由作者另选。任务使用既有队列、
+项目模型快照和受控知识审查，局部 patch 范围外正文保持原样；候选的独立复审及工作稿
+新鲜度在采用时重验；人工稿还重验世界资料指纹与适用的世界约束审查。
+世界书和故事结构只通过项目助手生成待确认的独立方案。
+
 POV 角色视角建议即使诊断为 `failed` 仍保留原始建议；前端标红风险。作者调用
 `POST /drafts/{id}/adopt` 后，服务以 copy-on-adopt 创建最高版本号的普通 draft，记录
 `adopted_from_candidate_id / adopted_at / adopted_by`，并把原建议转入历史。重复采用同一建议
@@ -250,3 +257,17 @@ AI 正文候选的采用现统一要求新鲜 `knowledge_review.status=passed`�
 AI candidate 必须复验原 confirmation、正文和 world 来源；人工稿可 prose-only 或按授权复核设定。
 读取报告重新检查正文版本及来源，过期不能作为当前审查。原位入口需保存正文，结果可返回本章，
 不会自动改稿。跨章修订先选择一套精确版本的方案，再通过原 batch 确认；确认后复核是另一个计量任务。
+
+## 来源变化的原子传播
+
+所有 working/published 写入和回退经仓储统一通知 Context、working/canonical 索引及演化/Story
+失效；包括助手应用、创意采用、协作和导入入口。候选未采用时不触发。传播失败回滚正文事务，
+不会显示假保存；作者确认与原回执保留，重算只标 recompute_required，不自动支付模型调用。
+
+## 交给编辑看
+
+写作台在已保存、非空、最新且非 candidate 的工作稿上提供“本章写完，交给编辑看”。
+`POST /api/writing/drafts/{id}/editorial-ready` 要求当前正文 hash，同版本幂等；
+标记独立于“设为正式正文”，普通自动保存不启动编辑任务。改稿后旧标记和旧意见显示来源
+可能失效。Assistant 编辑建议只读，不写 `independent_review` provenance，也不能替代
+AI candidate 的正式审稿、知识边界或采用门禁。

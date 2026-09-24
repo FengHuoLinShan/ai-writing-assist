@@ -1776,6 +1776,9 @@ class WorldAdoptionPackageService:
         relation = (await db.execute(stmt)).scalar_one_or_none()
         if relation is None:
             raise ConflictError("Candidate relation changed; preview again")
+        from modules.world.services.common import require_fresh_understanding_source
+
+        await require_fresh_understanding_source(db, novel_id, relation.review_meta)
         relation.review_meta = self._merge_provenance(
             relation.review_meta, package_id, item, manifest
         )

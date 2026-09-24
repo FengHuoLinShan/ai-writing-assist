@@ -455,7 +455,7 @@ World 复核使用原确认编译后实际保留的内容；Focused Evidence 只
 
 review_resolution 的场景/章节回读使用稳定 Evidence facade，补查使用既有 focused retrieval；每次模型步骤保存来源与上下文回执。输出只能引用冻结候选与实际证据，后序支持需先明确时序/可见性，不能回流为原场景已有事实。索引和角色/读者编译边界不因减少确认而放宽。
 
-Knowledge 子包提供跨模块稳定契约：capability policy、scope receipt、director plan、audit receipt、组级执行与采用门禁。完整规则见 `backend/modules/evidence/compilation/README.md` 和 ADR-0025。
+Knowledge 子包提供跨模块稳定契约：capability policy、scope receipt、director plan、audit receipt、组级执行与采用门禁。Evolution 场景观察已登记独立静态能力 `evolution.scene_observe`；边界准备复用 Imports Scene 切分能力。登记只约束能力归属，不代替实际来源与提交门禁。完整规则见 `backend/modules/evidence/compilation/README.md` 和 ADR-0025。
 
 ## 协作资料交接
 
@@ -476,3 +476,26 @@ Evidence 为 Collaboration 收集授权的冻结资源集合，manifest 同时�
 因此新增来源也能使旧否定结论失效。试改 read overlay 不读取当前领域默认版本；读者投影
 只接收截止前正文。前瞻沿原 confirmation 重新物化选中与排除资产，领域只读回执不会扩大
 原确认。生成和审查都受可完整核对的上下文上限约束，超限保持明确未覆盖。
+
+## 持久理解与精确消费
+
+创作 InputManifest 可携带原 commit/record/revision/hash 的认知引用与使用目的。物化只选择
+本轮授权中完整可见且仍新鲜的根来源；传递理解、负面查询范围和作者修正状态同样重验。
+完整上下文容量不足时整条省略并记录覆盖，原资料不被挤掉；读者、角色或试改视图不复用作者理解。
+来源未变只说明工程新鲜度，不证明作者新修正已由原文语义验证。通用 Context 与确认入口不扩权。
+
+作者 manifest 还可包含 Evolution 连续提交前缀的只读观察引用；必须选中全部递归正文根，
+保留原模态、Scene 与逐字出处，同 Scene 重算或原文换版拒绝旧引用。正文/观察/理解整包
+不超过完整复核容量，省略整条并记录原因。上下文保留章节序号和字面查询范围回执，
+规划、生成及审查使用同一来源信息，查询统计不成为作品事实。
+
+前瞻自动复用只面向作者回顾：最多三条理解，最多三十二份完整正文根（每份八千字符），
+优先保留当前任务资料；可选理解装不下则整包省略。同章/后章、旧稿对应排除章、部分根
+或受限主体均不能自动进入。Scene 与历史 cutoff 暂不支持，明确返回未覆盖原因。
+
+## 编辑台资料边界
+
+Assistant 编辑近读通过 `compile_review_world_evidence(..., capability="assistant.editorial")`
+读取当章作者可见世界资料，沿用 Evidence 的分层选择、排除、单项精确回读与截断说明。
+这些资料只进入作者编辑判断；顺序盲读仅接收截至当前片段的正文和先前读者状态。编辑卡的
+正文/世界引用须在冻结来源中逐字核对，未回读资料不被称为已检查。

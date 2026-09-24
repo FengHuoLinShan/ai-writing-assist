@@ -239,6 +239,8 @@ def _relation_review_meta(
 class SceneEntityPersistenceMixin:
     """Internal Phase 2 persistence implementation."""
 
+    _entity_key = staticmethod(entity_key)
+
     async def _record_quote_evidence(
         self,
         db: AsyncSession,
@@ -306,6 +308,7 @@ class SceneEntityPersistenceMixin:
         scene_id: str | None = None,
         result_refs: list[dict[str, str]] | None = None,
         strict: bool = False,
+        provenance: dict[str, Any] | None = None,
         context_bundle: dict[str, Any] | None = None,
         current_scene_text: str | None = None,
         context_snapshot_id: str | None = None,
@@ -391,6 +394,7 @@ class SceneEntityPersistenceMixin:
 
         aliases_created = 0
         relations_created = 0
+        relation_snapshots = []
         for alias in output.aliases:
             evidence_quotes = _phase2b_exact_evidence_quotes(
                 alias.evidence_quotes,
@@ -443,6 +447,7 @@ class SceneEntityPersistenceMixin:
                     confidence=alias.confidence,
                     quote=evidence_quotes[0],
                     review_meta={
+                        **(provenance or {}),
                         "identity_scope": alias.identity_scope,
                         "identity_basis": alias.identity_basis,
                         "confidence": alias.confidence,
@@ -602,6 +607,7 @@ class SceneEntityPersistenceMixin:
                     "needs_review": True,
                 }
             )
+            review_meta.update(provenance or {})
             if rel.claim_status in {"changed", "ended"}:
                 diagnostics.append(
                     {
@@ -646,6 +652,17 @@ class SceneEntityPersistenceMixin:
                         novel_id,
                         relation_payload,
                     )
+                    if relation_result.get("reason") == "candidate_sources_differ":
+                        diagnostics.append(
+                            _phase2b_diagnostic(
+                                kind="relation_change",
+                                refs=[source_ref, target_ref],
+                                claim=rel.description,
+                                reason="candidate_sources_differ",
+                                evidence_quotes=evidence_quotes,
+                            )
+                        )
+                        continue
                     relation = relation_result.get("relation")
                     relation_id = getattr(relation, "id", None)
                     if relation_id and (
@@ -677,6 +694,29 @@ class SceneEntityPersistenceMixin:
                 continue
             if relation_result.get("action") == "created":
                 relations_created += 1
+                if provenance and provenance.get("evolution_ref"):
+                    relation_snapshots.append(
+                        {
+                            **{
+                                key: getattr(relation, key)
+                                for key in (
+                                    "relation_type",
+                                    "relation_kind",
+                                    "description",
+                                    "quote",
+                                    "status",
+                                    "strength",
+                                )
+                            },
+                            "id": str(relation_id),
+                            "novel_id": str(novel_id),
+                            "source_id": str(relation.source_id),
+                            "target_id": str(relation.target_id),
+                            "claim_status": rel.claim_status,
+                            "previous_relation_id": review_meta["previous_relation_id"],
+                            "directionality": rel.directionality,
+                        }
+                    )
             if (
                 result_refs is not None
                 and relation_id
@@ -689,6 +729,7 @@ class SceneEntityPersistenceMixin:
             "relations": relations_created,
             "uncertain_count": len(diagnostics),
             "diagnostics": diagnostics,
+            "relation_snapshots": relation_snapshots,
         }
 
     async def _persist_entities(
@@ -705,6 +746,10 @@ class SceneEntityPersistenceMixin:
         context_snapshot_id: str | None = None,
         result_refs: list[dict[str, str]] | None = None,
         persistence_stats: dict[str, Any] | None = None,
+        strict: bool = False,
+        provenance: dict[str, Any] | None = None,
+        identity_matches: dict[tuple[str, str], str | None] | None = None,
+        candidate_id: str | None = None,
     ) -> int:
         service = self
         from modules.world.facade import (
@@ -750,17 +795,22 @@ class SceneEntityPersistenceMixin:
 
             high_confidence_target_id: str | None = None
             resolved_existing_entity_id: str | None = None
-            exact_working_entity_id = await find_working_entity_id_by_name(
-                db,
-                str(nid),
-                ent.name,
-                entity_type=ent.entity_type,
+            exact_working_entity_id = (
+                identity_matches[entity_key]
+                if identity_matches is not None
+                else await find_working_entity_id_by_name(
+                    db, str(nid), ent.name, entity_type=ent.entity_type
+                )
             )
             if exact_working_entity_id:
                 field_evidence = ent.field_evidence or {
                     "summary": list(dict.fromkeys(ent.evidence_quotes or [ent.quote]))
                 }
                 for field, quotes in field_evidence.items():
+                    # Strict Scene reuse does not claim new evidence supports an
+                    # existing description that has not been compared or adopted.
+                    if strict and field not in {"name", "entity_type"}:
+                        continue
                     for quote in quotes:
                         await self._record_quote_evidence(
                             db,
@@ -809,6 +859,8 @@ class SceneEntityPersistenceMixin:
                     if persistence_stats is not None:
                         persistence_stats["dedup_counts"]["checked"] += 1
                 except Exception:
+                    if strict:
+                        raise
                     similar = []
                     if persistence_stats is not None:
                         persistence_stats["dedup_counts"]["degraded"] += 1
@@ -833,6 +885,7 @@ class SceneEntityPersistenceMixin:
 
             content_json: dict[str, Any] = {
                 "_meta": {
+                    **(provenance or {}),
                     "auto_ingested": True,
                     "source": "deep_import",
                     "workflow_id": workflow_id,
@@ -874,7 +927,12 @@ class SceneEntityPersistenceMixin:
             }
             try:
                 async with db.begin_nested():
-                    created_entity = await create_entity(db, str(nid), entity_payload)
+                    created_entity = await create_entity(
+                        db,
+                        str(nid),
+                        entity_payload,
+                        **({"candidate_id": candidate_id} if candidate_id else {}),
+                    )
                     evidence_target_id = created_entity.get("id")
                     if evidence_target_id:
                         field_evidence = ent.field_evidence or {
@@ -911,6 +969,8 @@ class SceneEntityPersistenceMixin:
                         build_result_ref("core_entity", created_entity["id"])
                     )
             except Exception as exc:
+                if strict:
+                    raise
                 logger.warning(
                     "Failed to create entity '%s': %s",
                     redact_diagnostic(ent.name, limit=120),

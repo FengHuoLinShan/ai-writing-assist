@@ -51,9 +51,10 @@ ADR-0023/ADR-0025 的有界 Agent、canonical capability 和回执约束由统�
 
 - 业务模块共 11 个：`account`、`project`、`world`、`evidence`、`story`、`imports`、
   `writing`、`interaction`、`assistant`、`collaboration`、`evolution`。原 `memory` 与
-  `outline` 目录已在兼容准备版本发布后删除。`evolution` 当前只有 V4 契约层
-  （来源引用、观察、身份解析、类型化操作与回执游标），无运行时；deep_import
-  仍是唯一编排 owner，禁止双写。
+  `outline` 目录已在兼容准备版本发布后删除。`evolution` 持有逐 Scene 理解的队列、
+  来源冻结、提交回执与预算；Project engine/epoch 约束单一写入 owner。默认导入仍
+  由 deep_import 编排，显式启用项目经 `/api/evolution` 使用受控理解入口，旧 owner
+  必须排空或明确停止；全面替代与退役仍待独立验收。
 - Assistant 持有项目讨论、运行、成组确认和提醒投影；经 Evidence 只读查证，经领域操作提交
   具体修改。有限 PydanticAI 核心复用共享 LLM/队列，RP 继续持有自己的树、回顾和 attempt。
 - 创作三层为事实层（`project/world`）、结构与连续性层（`story/outline_state`、
@@ -91,7 +92,7 @@ ADR-0027 的 V1 在当时九模块中加入注册蓝图的有限协作，不改�
 
 新增业务模块 `collaboration` 持有目标、授权、不可变试改与精确采用回执；
 `assistant` 持有短期前瞻和处置，`story` / `interaction` 持有观察及分支事实。
-当前共十二个业务模块（含契约层 `evolution` 和本机设备模块 `local_agent`），继续复用原 PostgreSQL 队列、Evidence 与 Project 连接。
+当前共十二个业务模块（含已有 Scene 运行和项目所有权门禁的 `evolution` 和本机设备模块 `local_agent`），继续复用原 PostgreSQL 队列、Evidence 与 Project 连接。
 模块职责与采用/恢复边界见 `docs/modules/21_collaboration.md`、
 `backend/modules/collaboration/README.md`，前瞻见 `docs/modules/20_assistant.md`。
 

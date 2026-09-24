@@ -41,6 +41,9 @@ INSTRUCTIONS = (
     "允许直接推进、轻量回应、不放大或收束，不需要唯一答案。"
     "遵守明确作者指令；author_decisions 是作者明确处置，不是正史或永久人格画像。"
     "不重新推销被拒绝的方向，可保留无关的独立帮助。只润色时不建议改剧情。"
+    "understanding 是本次原文上的可修订解释，不能作为独立事实证据；"
+    "它是作者回顾理解，可能受当时题目和保留项影响；不得据此判定人物或读者当时知道什么。"
+    "仍须引用 sources 的 evidence_id，区分前序解释与当前观察。"
     "无有据帮助可返回空 items。"
     "不返回工具、权限、执行地址或内部思考。"
 )
@@ -80,8 +83,11 @@ def assessments(output, ctx, capabilities, review):
             continue
         capability = capabilities[item.capability_index]
         ref = refs[item.anchor_evidence_id]
+        anchor_chapter = evidence[item.anchor_evidence_id].get(
+            "chapter_index", ctx.chapter_index
+        )
         anchor = [
-            f"chapter:{ctx.chapter_index}"
+            f"chapter:{anchor_chapter}"
             if ref.resource_kind == "writing_draft"
             else f"{ref.resource_kind}:{ref.resource_id}",
             content_hash(item.anchor_text),
@@ -102,7 +108,7 @@ def assessments(output, ctx, capabilities, review):
                         "question_kind": item.question_kind,
                         "resource_kind": ref.resource_kind,
                         "resource_id": str(ref.resource_id),
-                        "chapter_index": ctx.chapter_index,
+                        "chapter_index": anchor_chapter,
                         "start": (
                             ref.source_range.start_offset if ref.source_range else 0
                         )

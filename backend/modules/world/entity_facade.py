@@ -210,6 +210,15 @@ async def find_working_entity_ids_by_names(
     )
 
 
+async def find_exact_identity_candidates(
+    db: AsyncSession, novel_id: str, name: str, entity_type: str | None = None
+) -> list:
+    """Literal exact names only; retain ambiguity and avoid unproven later aliases."""
+    return await _context_service.find_exact_identity_candidates(
+        db, novel_id, name, entity_type
+    )
+
+
 async def append_candidate_alias(
     db: AsyncSession,
     novel_id: str,
@@ -577,12 +586,19 @@ async def create_entity(
     db: AsyncSession,
     novel_id: str,
     data: dict[str, Any],
+    *,
+    candidate_id: str | None = None,
 ) -> dict[str, Any]:
     """创建单个 CoreEntity，返回 dict。"""
     from modules.world.schemas import CoreEntityCreate
 
     entity_data = CoreEntityCreate(**data)
-    result = await _entity_service.create(db, novel_id, entity_data)
+    result = await _entity_service.create(
+        db,
+        novel_id,
+        entity_data,
+        **({"candidate_id": candidate_id} if candidate_id is not None else {}),
+    )
     return result.model_dump()
 
 

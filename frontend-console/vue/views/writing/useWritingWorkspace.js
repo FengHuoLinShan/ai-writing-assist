@@ -109,6 +109,8 @@ export async function loadWritingProps({ homeMode: requestedHomeMode } = {}) {
     ? {
         chapter: queryChapter,
         draftId: publicDemo ? null : query.get("draft_id") || null,
+        editorialOffset: publicDemo || !query.has("editorial_offset") ? null : Number(query.get("editorial_offset")),
+        editorialHash: publicDemo ? null : query.get("editorial_hash") || null,
         restoreSourceVersion: publicDemo ? null : Number(query.get("restore_source_version")) || null,
         sceneId: publicDemo ? null : querySceneId,
         openConflict: publicDemo ? false : openConflict,
@@ -189,6 +191,8 @@ export function useWritingWorkspace(props) {
   const editorState = reactive({
     chapter: null,
     draftId: null,
+    contentHash: null,
+    editorialReadyHash: null,
     versionNumber: null,
     updatedAt: null,
     status: "draft",
@@ -1602,6 +1606,8 @@ export function useWritingWorkspace(props) {
     if (requested?.chapter && chapterList.value.includes(Number(requested.chapter))) {
       await selectChapter(requested.chapter, {
         draftId: requested.draftId || null,
+        editorialOffset: requested.editorialOffset,
+        editorialHash: requested.editorialHash,
         versionNumber: requested.versionNumber,
         isReadonly: requested.isReadonly,
         restoreSourceVersion: requested.restoreSourceVersion,
@@ -1720,6 +1726,7 @@ export function useWritingWorkspace(props) {
     adoptCandidate: editor.adoptCandidate,
     rejectCandidate: editor.rejectCandidate,
     insertText: editor.insertText,
+    selectRange: editor.selectRange,
     publish,
     retryPublish,
     dismissPublishError,

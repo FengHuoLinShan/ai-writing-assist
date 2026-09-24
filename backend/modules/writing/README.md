@@ -21,12 +21,13 @@ Writing 模块是章节正文的事实源，同时负责在 fresh context confir
 - 按 `canonical` / `working` 选择章节事实源
 - 字面 grep、稳定范围引用与段落扩展读取
 - 版本历史查看
-- 创建草稿后提交 `publish_chapter` 异步索引任务
+- 正文保存时经 Evidence 投递 working/canonical 索引；发布快照沿用发布流程
 - 写作页剧情设定冲突检查记录、问题状态与发布前检查快照归档
 - 从已确认 context 生成 AI 正文 candidate，并保存 confirmation/task provenance
 - 对规则冲突结果追加 AI 软复核和可编辑修复建议
 - 对冻结正文、总纲 profile 和 Scene 执行合同运行带结构化 coverage 的独立语义审查
 - 按审查 finding 的唯一正文范围应用 replacement patch，生成不覆盖原稿的定向返修 candidate
+- 保存正文精确范围批注；按作者显式启动的一批批注或独立审稿 finding 生成局部修订候选
 
 人工正文的可选世界约束审查由助手本次范围或后台持续授权提交，最多追加8份、16000字符
 内的完整世界资料，不扩张到邻章或未授权 Scene 合同。每份资料经 Evidence 精确回读与最终
@@ -259,6 +260,17 @@ POV view 和确定性 guard 结果送入审稿；原 hidden guard 词条只在�
 合并选中 finding 的重叠范围，模型只返回服务端 patch ID 对应的 replacement，代码应用 patch
 并保证范围外正文不变；返修结果重新运行 hidden guard，且必须再经独立审查通过才能采用。
 
+`writing_comments` 以保存稿 ID、版本、整篇 hash 和码点选区 hash 定位；编辑器的
+UTF-16 选区在提交前转为码点，跨版本批注只作为失效记录展示。作者创建批注后显式调用
+`POST /api/writing/comment-runs`；同一 operation ID 不会重复入队。`writing_comment_run`
+可先用现有语义审稿生成所有严重级别的批注，仅把 blocker/major 自动纳入本批次。
+歧义位置停止自动修订，需作者重选。重叠区间合并为一个 patch，模型只返回替换文本；
+候选另存、不覆盖工作稿，保留来源批注/任务/hash，治理审查失败不提供候选。
+独立复审失败的候选可读但不可采用；人工来源的复审核对本章世界约束，采用前重验
+工作稿和世界资料指纹；AI 来源重验原 confirmation。
+相关 World/Story 修改通过 Assistant 独立任务准备待确认方案；助手关闭或失败时明确显示
+提案未运行，正文候选不冒充跨资产完成。
+
 版本历史是审计视图：按 `version_number` 倒序返回 active、review 和
 archived 全部记录，`total` 与返回集合一致。列表项的 `display_state`
 为 `active / review / archived`；`deprecated_from_status` 保留首次软废弃前的
@@ -408,3 +420,19 @@ confirmation、正文、finding、Scene bundle 校验。恢复历史版本创建
 `creative.py` 仅为当前章节工作稿提供完整标题/正文快照和原 `writing.revise` 操作 port。
 前瞻 `forecast.py` 读取实际版本差异、候选回执及保存位置，不把候选写入 working。
 领域采用继续保留历史与出处，试改检查不代替原候选确认。
+
+## 保存变化的统一传播
+
+仓储 `_created/_changed` 是正文版本创建、内容修改、发布、回退和删除的共同传播边界：同事务
+标记原 Context、合并 working/canonical 索引投递，并使相关 Evolution run 与 Story 机器状态
+失效。失败时随正文写入一并回滚；作者确认事件和旧回执保留。API/助手不再重复投递。
+`*_only` facade 表示不派生发布流程、由调用方提交事务，仍执行这些必要的保存副作用；未采用
+candidate 不视为正文变化。失效不自动触发付费重算。
+
+## 交给编辑看
+
+作者在已保存、非空的最新 `draft` 工作稿上调用 `POST /api/writing/drafts/{id}/editorial-ready`
+并携带 `expected_content_hash`。Writing 锁定章节与草稿后校验最新版本，同一 hash 重复点击
+幂等；修改正文使旧标记失效，但不改变发布状态。只有新标记才通过 Assistant facade 通知已
+明确开启的后台编辑，普通自动保存不排队。编辑意见和改后复核由 Assistant 持有，Writing 的
+`independent_review` 仍只服务 AI candidate 的正式审稿与采用门禁。

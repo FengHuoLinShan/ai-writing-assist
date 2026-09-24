@@ -64,6 +64,7 @@ export function locateAssistantSource(source) {
     page = "writing"
     if (location.chapter_index || target.chapter_index) query.set("chapter_index", location.chapter_index || target.chapter_index)
     if (location.draft_id || id) query.set("draft_id", location.draft_id || id)
+    if (Number.isInteger(source.start) && source.content_hash) { query.set("editorial_offset", source.start); query.set("editorial_hash", source.content_hash) }
   } else if (["core_entity", "world_entity", "entity"].includes(type)) {
     page = "world"; subview = "objects"; query.set("entity_id", id)
   } else if (type === "world_bible_page_history") {

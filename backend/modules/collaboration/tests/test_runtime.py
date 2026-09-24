@@ -3,6 +3,7 @@
 import json
 from uuid import UUID, uuid4
 
+import pytest
 from sqlalchemy import select
 
 from infrastructure.llm.providers import OpenAIProvider
@@ -126,8 +127,9 @@ async def test_blind_reading_freezes_prefix_before_revelation(
     assert len(points) == 3
 
 
+@pytest.mark.parametrize("author_question", [False, True, "resumed"])
 async def test_adaptive_run_adds_countercheck_and_preserves_root_budget(
-    db_session, test_project_id, account_llm_connection, monkeypatch
+    db_session, test_project_id, account_llm_connection, monkeypatch, author_question
 ):
     db, nid = db_session, test_project_id
     case, _, drafts, _ = await setup_trial(db, nid, monkeypatch)
@@ -154,15 +156,19 @@ async def test_adaptive_run_adds_countercheck_and_preserves_root_budget(
             result = {
                 "expected_plan_revision": revision,
                 "reason": "检验竞争解释",
+                "question_for_author": "接下来选择哪种动机？"
+                if author_question
+                else None,
                 "items": [
                     {
                         "logical_key": "investigate" if revision == 0 else "counter",
                         "capability": "investigate" if revision == 0 else "countercheck",
                         "question": "是否存在有限合作的解释？",
+                        "search_query": "帮助",
                         "depends_on": [] if revision == 0 else ["investigate"],
                     }
                 ]
-                if revision < 2
+                if revision < 2 and author_question != "resumed"
                 else [],
                 "finish": revision >= 2,
             }
@@ -178,6 +184,9 @@ async def test_adaptive_run_adds_countercheck_and_preserves_root_budget(
                 ],
             }
         elif schema["title"] == "AuditVerdictOutput":
+            user = next(m.content for m in request.messages if m.role == "user")
+            assert '"matching_resources": 1' in user
+            assert '"chapter_index": 1' in user
             result = {
                 "verdict": "pass",
                 "findings": [],
@@ -198,10 +207,38 @@ async def test_adaptive_run_adds_countercheck_and_preserves_root_budget(
     submission = await cases.submit_run(
         db, nid, case["id"], RunCreate(operation_id=uuid4(), expected_goal_version=1)
     )
+    if author_question == "resumed":
+        from modules.collaboration.contracts import GraphDelta, InputManifest
+
+        run = await db.get(CollaborationRun, UUID(submission["run_id"]))
+        run.status = "running"
+        await runtime.apply_delta(
+            db,
+            nid,
+            str(run.id),
+            GraphDelta(
+                expected_plan_revision=0,
+                reason="中断前已经安排的独立工作",
+                items=[
+                    {
+                        "logical_key": "investigate",
+                        "capability": "investigate",
+                        "question": "是否存在有限合作的解释？",
+                        "search_query": "帮助",
+                    }
+                ],
+            ),
+            recipe=RECIPES["deep_review"],
+            manifest=InputManifest.model_validate(run.manifest_json),
+        )
+        pending = await db.scalar(
+            select(CollaborationWorkItem).where(CollaborationWorkItem.run_id == run.id)
+        )
+        pending.status = "running"
     await db.commit()
     task = await db.get(AsyncTask, UUID(submission["task_id"]))
     result = await runtime.execute(db, task)
-    assert result["status"] == "completed"
+    assert result["status"] == ("partial" if author_question else "completed")
     work = (
         await db.scalars(
             select(CollaborationWorkItem)
@@ -209,10 +246,11 @@ async def test_adaptive_run_adds_countercheck_and_preserves_root_budget(
             .order_by(CollaborationWorkItem.logical_key)
         )
     ).all()
-    assert len(work) == 2 and all(row.status == "succeeded" for row in work)
+    assert len(work) == (1 if author_question else 2)
+    assert all(row.status == "succeeded" for row in work)
     run = await db.get(CollaborationRun, UUID(result["run_id"]))
     case_row = await db.get(CollaborationCase, UUID(case["id"]))
-    assert seen == [
+    expected = [
         "GraphDelta",
         "WorkOutput",
         "AuditVerdictOutput",
@@ -221,7 +259,8 @@ async def test_adaptive_run_adds_countercheck_and_preserves_root_budget(
         "AuditVerdictOutput",
         "GraphDelta",
     ]
-    assert run.budget_json["requests"] == case_row.requests_used == 7
+    assert seen == (expected[:3] if author_question else expected)
+    assert run.budget_json["requests"] == case_row.requests_used == len(seen)
     assert run.budget_json["pending_usage"] == 0
     assert run.budget_json["usage_complete"] is True
 

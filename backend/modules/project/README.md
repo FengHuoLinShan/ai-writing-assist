@@ -17,6 +17,7 @@ project 模块负责统一项目隔离根。作者项目使用 `project_kind=aut
 - 提供 `novel_id` / `project_id`
 - 提供项目级默认策略（如 `default_reveal_policy`）
 - 管理项目作者偏好覆盖，并组合 account 默认与项目覆盖形成 effective 配置
+- 在 `projects.settings.editorial_brief_v1` 保存作者确认的版本化编辑约定；`GET/PUT /api/projects/{id}/editorial-brief` 读写，PUT 用 `expected_version` 校验并发。公开只读演示源不能写入，模型意见和单次忽略不会自动更新约定。
 - 根据项目 owner 打开账户级文本与图片连接；项目只保留非 secret 工作流设置和可恢复 snapshot
 - 提供项目级智能去重扫描入口，聚合各业务模块自己的去重建议
 - 提供作者“今日工作”所需的只读工作台摘要，不返回正文、owner、密钥或内部任务信息
@@ -81,7 +82,7 @@ async def get_project_context(db, novel_id: str) -> ProjectContext: ...
 
 async def require_active_project(db, novel_id: str) -> None: ...
 
-async def require_active_project_exclusive(db, novel_id: str) -> None: ...
+async def require_active_project_exclusive(db, novel_id: str, *, nowait: bool = False) -> None: ...
 
 async def lock_project_ids_for_owner(db, owner_id: UUID) -> list[UUID]: ...
 
@@ -129,7 +130,8 @@ async def build_project_image_execution_snapshot(db, novel_id: str) -> dict: ...
 普通 `FOR SHARE` 无法阻止 Scene/正文/对象并发写入，而需重验多类来源的
 task finalizer 需要一个项目级短临界区。它在 PostgreSQL 上使用 `FOR UPDATE`，
 只允许在无 provider/网络 I/O 的最终 DB 事务中持有；普通请求和长工作流
-不得以它取代 `require_active_project()`。
+不得以它取代 `require_active_project()`。候选采用的来源重验可用 `nowait=True`，
+在已持领域锁的路径立即拒绝并发项目写入，避免锁升级互等；只保护当前短提交，不能跨模型调用。
 `lock_project_ids_for_owner()` 只为账户级对象图片配额在短数据库事务内取得该 owner 的 advisory
 transaction lock 后重算项目 ID；调用方仍要按这些 ID 保持 `novel_id` 过滤，不能把它当成 owner
 或项目读取门禁，也不能在锁内进行图片处理或对象存储 I/O。
@@ -350,3 +352,13 @@ Project 仍持有 author tasks，只有作者明确选择并确认才从前瞻�
 输出至少65,536、provider timeout至少900秒；不切换账户provider/model，不取消上层预算。
 RP capability在新snapshot中按账户extra.reasoning_effort=max选择质量优先，否则为high普通档；
 恢复始终读取快照中的阈值，保持旧任务不漂移。
+
+## 理解引擎所有权
+
+`understanding.py` 持有项目 `understanding_engine / understanding_epoch /
+understanding_schema_floor`，默认 legacy/1/1，字段不接受通用项目设置写入。稳定 facade
+读取和验证冻结 token；只有从未切换的 legacy 项目允许迁移前无 token 的旧任务。
+Evolution 负责持项目独占锁、排空旧 owner 后的切换编排，Project 执行 CAS 和单调 schema
+门禁。evolution 的 schema floor 为 2；到达后不能回到 legacy，只能暂停或兼容前进。
+项目任务 preflight/commit guard 同时检查该归属；浏览器鉴权和 novel_id 隔离保持原边界。
+参见 [Evolution](../evolution/README.md) 与迁移 `20260922_understanding_owner`。

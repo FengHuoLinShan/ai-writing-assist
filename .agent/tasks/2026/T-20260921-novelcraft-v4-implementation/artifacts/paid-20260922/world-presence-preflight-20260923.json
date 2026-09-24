@@ -1,0 +1,14 @@
+{
+  "mode": "frozen_presence_contract_audit",
+  "started_at": "2026-09-22T17:54:07.468038+00:00",
+  "database": "ai_novel_agent_e2e_v4_live_20260922",
+  "novel_id": "94d50b59-e4d6-487d-af70-49482014478c",
+  "old_run_key": "reading-9489795b-7565-4e7e-a6d1-64631fd7c1c7",
+  "operation_id": "6f0a98ef-420a-4b36-b54d-c44cd4a32758",
+  "acceptance_type": "代理验收，非人工试用",
+  "source_attempt": "993f834235934b59a2dc44ebc55c932f",
+  "source_hash": "fdc3becc82511306d692f55a0f406fa7c311398c038c6ebda7d70b4b9c19ef67",
+  "cases": [],
+  "preflight_passed": true,
+  "stage": "finished"
+}

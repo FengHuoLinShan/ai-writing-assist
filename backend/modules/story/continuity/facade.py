@@ -208,6 +208,45 @@ async def supersede_scene_projections_from(
     }
 
 
+async def invalidate_derived_state(
+    db: AsyncSession,
+    novel_id: str,
+    *,
+    from_scene_index: int | None,
+    from_chapter: int | None,
+) -> dict[str, Any]:
+    return await _memory.invalidate_derived_state(
+        db, novel_id, from_scene_index=from_scene_index, from_chapter=from_chapter
+    )
+
+
+async def get_scene_event_order_start(
+    db: AsyncSession, novel_id: str, scene_positions: dict[str, int]
+) -> int | None:
+    from modules.story.continuity.repositories import EventRepository
+    from shared.utils import parse_uuid
+
+    changes = await EventRepository().scene_index_changes(
+        db,
+        parse_uuid(novel_id, "novel_id"),
+        {parse_uuid(key, "scene_id"): value for key, value in scene_positions.items()},
+    )
+    return min((min(old, new) for _, old, new in changes), default=None)
+
+
+async def align_scene_event_indices(
+    db: AsyncSession, novel_id: str, scene_positions: dict[str, int]
+) -> int | None:
+    from modules.story.continuity.repositories import EventRepository
+    from shared.utils import parse_uuid
+
+    return await EventRepository().align_scene_indices(
+        db,
+        parse_uuid(novel_id, "novel_id"),
+        {parse_uuid(key, "scene_id"): value for key, value in scene_positions.items()},
+    )
+
+
 async def project_scene_presence(
     db: AsyncSession,
     novel_id: str,

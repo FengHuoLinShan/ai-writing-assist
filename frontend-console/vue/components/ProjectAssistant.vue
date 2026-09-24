@@ -6,10 +6,12 @@
       <div class="project-assistant-tabs" role="group" aria-label="助手页面">
         <button type="button" :aria-pressed="activeTab === 'chat'" @click="switchTab('chat')">讨论</button>
         <button type="button" :aria-pressed="activeTab === 'care'" @click="switchTab('care')">提醒</button>
+        <button type="button" :aria-pressed="activeTab === 'editorial'" @click="switchTab('editorial')">编辑台</button>
         <button type="button" :aria-pressed="activeTab === 'forecast'" @click="openForecast">下一步</button>
         <button type="button" :aria-pressed="activeTab === 'creative'" @click="openCreative">试改</button>
       </div>
-      <ProactiveCare v-show="activeTab === 'care'" :target-id="projectId" standalone @locate="locateAssistantSource" />
+      <ProactiveCare v-show="activeTab === 'care'" :target-id="projectId" standalone @locate="locateAssistantSource" @editorial="openEditorialFromNotice" />
+      <EditorialDesk v-show="activeTab === 'editorial'" :project-id="projectId" :active="open && activeTab === 'editorial'" :focus-chapter="editorialFocusChapter" :focus-issue-id="editorialFocusIssueId" />
       <div v-if="activeTab === 'forecast'" class="project-assistant-history"><ForecastDock :project-id="projectId" :context="experimentContext" :active="open" standalone /></div>
       <div v-if="activeTab === 'creative'" class="project-assistant-history"><CreativeExperiments ref="creativeRef" :project-id="projectId" :context="experimentContext" :active="open" /></div>
       <div v-show="activeTab === 'chat'" class="project-assistant-chat">
@@ -78,6 +80,7 @@ import TeamProgress from "./TeamProgress.vue"
 import AssistantValue from "./AssistantValue.vue"
 import AssistantReviewResult from "./AssistantReviewResult.vue"
 import ProactiveCare from "./ProactiveCare.vue"
+import EditorialDesk from "./EditorialDesk.vue"
 import ForecastDock from "./ForecastDock.vue"
 import CreativeExperiments from "./CreativeExperiments.vue"
 import { locateAssistantSource, openAssistantDestination } from "../shared/assistantNavigation.js"
@@ -90,6 +93,8 @@ const receiptMessageIds = computed(() => new Set(new Map(state.messages.filter(m
 const narrow = ref(false)
 const activeTab = ref("chat")
 const localReceipts = ref([])
+const editorialFocusChapter = ref(null)
+const editorialFocusIssueId = ref(null)
 const experimentContext = ref({ page: "today" })
 const creativeRef = ref(null)
 // R00 作者意图：turn 与前瞻共用（后端 schemas.TASK_HINTS 封闭集）；
@@ -97,6 +102,7 @@ const creativeRef = ref(null)
 const taskHint = ref("unknown")
 function withIntent(context) { return { ...(context || {}), task_hint: taskHint.value } }
 function switchTab(tab) { if (activeTab.value === "creative" && creativeRef.value?.canLeave?.() === false) return; activeTab.value = tab }
+function openEditorialFromNotice(source) { editorialFocusIssueId.value = source?.id || null; activeTab.value = "editorial" }
 function openForecast() { if (activeTab.value === "creative" && creativeRef.value?.canLeave?.() === false) return; try { experimentContext.value = withIntent(capture(true)); activeTab.value = "forecast" } catch (error) { state.error = error.message } }
 function openCreative() { try { experimentContext.value = withIntent(capture(true)); activeTab.value = "creative" } catch (error) { state.error = error.message } }
 let media
@@ -137,9 +143,19 @@ let disposed = false
 const removeOpener = registerProjectAssistantOpener(async request => {
   await loadPromise
   if (disposed || request.projectId !== props.projectId || !state.enabled) throw new Error("该作品的项目助手尚未启用。")
+  if (request.editorial) {
+    if (activeTab.value === "creative" && creativeRef.value?.canLeave?.() === false) throw new Error("试改区还有未保存的内容，请先处理。")
+    editorialFocusChapter.value = Number(request.chapterIndex) || null
+    editorialFocusIssueId.value = null
+    activeTab.value = "editorial"
+    emit("open")
+    return
+  }
   if (state.busy || state.loading) throw new Error("项目助手正在保存或读取讨论，请稍后打开；本页内容仍保留。")
   if (request.sessionId) await assistant.selectSession(request.sessionId)
+  if (request.runId) await assistant.openRun(request.runId)
   if (disposed || request.projectId !== props.projectId || state.error) throw new Error(state.error || "作品已切换。")
+  if (request.message && state.input && state.input !== request.message) throw new Error("项目助手中还有未发送的输入，请先处理；这次内容仍保留在共创页。")
   if (request.blueprint) {
     if (state.input || running.value) throw new Error("请先处理助手中已有的输入或任务，正文保持不变。")
     state.context = request.context
@@ -148,7 +164,8 @@ const removeOpener = registerProjectAssistantOpener(async request => {
     state.previousReportId = request.previousReportId || null
     state.scenarioKeys = request.scenarioKeys || []
     state.allowWeb = false
-  } else if (request.context && !state.context && !state.input) state.context = request.context
+  } else if (request.context && (!state.input || state.input === request.message)) state.context = request.context
+  if (request.context) taskHint.value = request.context.task_hint || "unknown"
   if (request.message) {
     if (state.input && state.input !== request.message) throw new Error("项目助手中还有未发送的输入，请先处理；这次内容仍保留在共创页。")
     assistant.setInput(request.message)

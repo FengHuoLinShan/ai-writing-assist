@@ -114,10 +114,10 @@ async def _noop_verifier(db, frozen) -> None:
 @pytest.mark.asyncio
 async def test_run_registry_and_novel_scope(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
-    await _register(db_session, test_project_id, budget=5)
-    store = PostgresAttemptStore(db_session, test_project_id)
+    await _register(db_session, evolution_project_id, budget=5)
+    store = PostgresAttemptStore(db_session, evolution_project_id)
     run = await store.load_run(NOVEL_RUN)
     assert run is not None
     assert run.owner_epoch == 1
@@ -137,10 +137,12 @@ async def test_run_registry_and_novel_scope(
 @pytest.mark.asyncio
 async def test_receipt_persist_advances_cursor_and_head(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
-    await _register(db_session, test_project_id)
-    store, receipt = await _commit_attempt(db_session, test_project_id, prefix=_prefix(0))
+    await _register(db_session, evolution_project_id)
+    store, receipt = await _commit_attempt(
+        db_session, evolution_project_id, prefix=_prefix(0)
+    )
 
     run = await store.load_run(NOVEL_RUN)
     assert run.committed_scene_index == 0
@@ -165,11 +167,13 @@ async def test_receipt_persist_advances_cursor_and_head(
 @pytest.mark.asyncio
 async def test_scene_input_includes_committed_predecessor_receipt(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
     """T07：Scene 1 的输入实际包含 Scene 0 的已提交回执身份。"""
-    await _register(db_session, test_project_id)
-    store, first = await _commit_attempt(db_session, test_project_id, prefix=_prefix(0))
+    await _register(db_session, evolution_project_id)
+    store, first = await _commit_attempt(
+        db_session, evolution_project_id, prefix=_prefix(0)
+    )
 
     manifest = await prepare_scene_input(
         store,
@@ -188,11 +192,11 @@ async def test_scene_input_includes_committed_predecessor_receipt(
 @pytest.mark.asyncio
 async def test_scene_input_blocked_without_committed_predecessor(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
     """前序未提交：输入显式 blocked，不携带假的前序结论。"""
-    await _register(db_session, test_project_id)
-    store = PostgresAttemptStore(db_session, test_project_id)
+    await _register(db_session, evolution_project_id)
+    store = PostgresAttemptStore(db_session, evolution_project_id)
 
     manifest = await prepare_scene_input(
         store,
@@ -284,10 +288,10 @@ def test_scene_waits_for_all_tasks_of_predecessor_scene() -> None:
 @pytest.mark.asyncio
 async def test_budget_reservation_never_overdraws(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
-    await _register(db_session, test_project_id, budget=3)
-    store = PostgresAttemptStore(db_session, test_project_id)
+    await _register(db_session, evolution_project_id, budget=3)
+    store = PostgresAttemptStore(db_session, evolution_project_id)
 
     assert await store.reserve_budget(NOVEL_RUN, 2) == 1
     assert await store.reserve_budget(NOVEL_RUN, 1) == 0
@@ -301,11 +305,11 @@ async def test_budget_reservation_never_overdraws(
 @pytest.mark.asyncio
 async def test_concurrent_reservations_reserve_exactly_the_budget(
     db_session: AsyncSession,
-    test_project_id: str,
+    evolution_project_id: str,
 ) -> None:
     """T21：并发预留总额恰等于预算，绝不透支出额外请求额度。"""
-    await _register(db_session, test_project_id, budget=4)
-    store = PostgresAttemptStore(db_session, test_project_id)
+    await _register(db_session, evolution_project_id, budget=4)
+    store = PostgresAttemptStore(db_session, evolution_project_id)
 
     results = await asyncio.gather(
         store.reserve_budget(NOVEL_RUN, 2),

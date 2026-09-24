@@ -4,7 +4,9 @@ import { getApi, getAppState, getRouter } from "../bridge/index.js"
 import TargetedCompletionPanel from "./TargetedCompletionPanel.vue"
 
 const emit = defineEmits(["prepare"])
-const props = defineProps({ projectId: { type: String, required: true } })
+const props = defineProps({ projectId: { type: String, required: true }, allowContinuation: { type: Boolean, default: true } })
+const legacyOwner = ref(false)
+const canContinue = computed(() => props.allowContinuation && legacyOwner.value)
 const historyExpanded = ref(false)
 const activeTab = ref("history")
 const assetCounts = ref(null)
@@ -56,6 +58,7 @@ async function load(offset = skip.value) {
     const result = await getApi().imports.recentWorkflows(projectId, offset)
     if (!alive || token !== epoch || getAppState()?.currentProjectId !== projectId) return
     items.value = result.items || []
+    legacyOwner.value = result.can_continue === true
     total.value = Number(result.total || 0)
     skip.value = offset
     if (items.value.some((item) => ["pending", "running"].includes(item.status))) {
@@ -69,6 +72,7 @@ async function load(offset = skip.value) {
 }
 
 async function resumeRun(item) {
+  if (!canContinue.value) return
   loading.value = true
   error.value = ""
   try {
@@ -82,6 +86,7 @@ async function resumeRun(item) {
 }
 
 function prepareRetry(item, selectedStage = null) {
+  if (!canContinue.value) return
   const stage = selectedStage || {
     deep_import: "deep",
     scene_auto_extraction: "scenes",
@@ -178,6 +183,7 @@ watch(() => props.projectId, () => {
   epoch += 1
   clearTimeout(timer)
   items.value = []
+  legacyOwner.value = false
   cleanupPreview.value = null
   cleanupError.value = ""
   historyExpanded.value = false
@@ -215,11 +221,14 @@ onBeforeUnmount(() => {
       <template v-if="activeTab === 'history'">
         <p>{{ outcome(item) }}</p>
         <p>结束时记录：采用 {{ item.asset_summary?.adopted || 0 }} · 待审 {{ item.asset_summary?.review || 0 }} · 未采用 {{ item.asset_summary?.not_adopted || 0 }}</p>
-        <button v-for="stage in item.failed_stages || []" :key="stage" type="button" class="btn btn-sm" @click="prepareRetry(item, stage)">重新核对{{ { scenes: '场景', world_objects: '世界资料', plot_structure: '剧情结构' }[stage] }}</button>
-        <button v-if="item.recovery_required" type="button" class="btn btn-sm" :disabled="loading" @click="resumeRun(item)">从检查点继续这次整理</button>
-        <button v-else-if="['failed', 'cancelled'].includes(item.status) || item.quality_status === 'failed'" type="button" class="btn btn-sm" @click="prepareRetry(item)">重新核对本次范围</button>
-        <button v-if="item.targeted_completion?.status" type="button" class="btn btn-sm" @click="expanded = expanded === item.task_id ? '' : item.task_id">{{ item.targeted_completion.status === 'deferred' ? '继续这批查漏' : '查看查漏进度' }}</button>
-        <TargetedCompletionPanel v-if="expanded === item.task_id" :project-id="projectId" :source-task-id="item.task_id" :initial-open="true" :defer-requested="item.defer_requested" @updated="load()" @applied="load()" />
+        <template v-if="canContinue">
+          <button v-for="stage in item.failed_stages || []" :key="stage" type="button" class="btn btn-sm" @click="prepareRetry(item, stage)">重新核对{{ { scenes: '场景', world_objects: '世界资料', plot_structure: '剧情结构' }[stage] }}</button>
+          <button v-if="item.recovery_required" type="button" class="btn btn-sm" :disabled="loading" @click="resumeRun(item)">从检查点继续这次整理</button>
+          <button v-else-if="['failed', 'cancelled'].includes(item.status) || item.quality_status === 'failed'" type="button" class="btn btn-sm" @click="prepareRetry(item)">重新核对本次范围</button>
+        </template>
+        <p v-else>旧流程记录保留供回看；当前作品不能从旧流程继续处理。</p>
+        <button v-if="item.targeted_completion?.status" type="button" class="btn btn-sm" @click="expanded = expanded === item.task_id ? '' : item.task_id">{{ canContinue && item.targeted_completion.status === 'deferred' ? '继续这批查漏' : '查看查漏进度' }}</button>
+        <TargetedCompletionPanel v-if="expanded === item.task_id" :project-id="projectId" :source-task-id="item.task_id" :initial-open="true" :read-only="!canContinue" :defer-requested="item.defer_requested" @updated="load()" @applied="load()" />
       </template>
       <template v-else>
         <p>{{ cleanupOutcome(item) }}</p>
