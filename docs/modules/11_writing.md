@@ -256,3 +256,11 @@ AI candidate 必须复验原 confirmation、正文和 world 来源；人工稿�
 所有 working/published 写入和回退经仓储统一通知 Context、working/canonical 索引及演化/Story
 失效；包括助手应用、创意采用、协作和导入入口。候选未采用时不触发。传播失败回滚正文事务，
 不会显示假保存；作者确认与原回执保留，重算只标 recompute_required，不自动支付模型调用。
+
+## 交给编辑看
+
+写作台在已保存、非空、最新且非 candidate 的工作稿上提供“本章写完，交给编辑看”。
+`POST /api/writing/drafts/{id}/editorial-ready` 要求当前正文 hash，同版本幂等；
+标记独立于“设为正式正文”，普通自动保存不启动编辑任务。改稿后旧标记和旧意见显示来源
+可能失效。Assistant 编辑建议只读，不写 `independent_review` provenance，也不能替代
+AI candidate 的正式审稿、知识边界或采用门禁。

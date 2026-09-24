@@ -4,7 +4,7 @@ import { getApi } from "../bridge/index.js"
 import { ACCOUNT_INVALIDATED_EVENT } from "../../shared/accountStorage.js"
 
 const props = defineProps({ targetId: { type: String, default: "" }, interaction: Boolean, standalone: Boolean, flat: Boolean })
-const emit = defineEmits(["locate"])
+const emit = defineEmits(["locate", "editorial"])
 const available = ref(false), policy = ref(null), notices = ref([]), error = ref("")
 const busy = ref(false), saved = ref(false), pending = ref(0), overflow = ref(false), active = ref(false)
 const rechecks = new Map(), statusMessage = ref("")
@@ -102,7 +102,7 @@ defineExpose({ available, unread, error })
         <strong>{{ notice.title }}</strong><p>{{ notice.summary }}</p>
         <p v-if="notice.needs_recheck">来源后来有变化，请以当前内容为准。</p>
         <div class="proactive-care-actions">
-          <button type="button" :disabled="busy" @click="emit('locate', notice.source)">查看来源</button>
+          <button type="button" :disabled="busy" @click="emit(notice.source?.type === 'editorial_issue' ? 'editorial' : 'locate', notice.source)">{{ notice.source?.type === 'editorial_issue' ? '查看编辑意见' : '查看来源' }}</button>
           <button v-if="notice.can_recheck" type="button" :disabled="busy || !policy?.enabled" @click="recheck(notice)">重新检查（使用新额度）</button>
           <button v-if="notice.status === 'unread'" type="button" :disabled="busy" @click="decide(notice, 'read')">已看过</button>
           <button type="button" :disabled="busy" @click="decide(notice, 'snooze')">明天提醒</button>

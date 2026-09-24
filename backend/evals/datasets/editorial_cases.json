@@ -1,0 +1,138 @@
+{
+  "version": 1,
+  "provenance": "Original synthetic Chinese fiction written for NovelCraft editorial evaluation; no user manuscript",
+  "cases": [
+    {
+      "id": "unique_key_contradiction",
+      "scope": "book",
+      "stratum": "explicit_error",
+      "brief": {
+        "target_readers": "悬疑长篇读者",
+        "genre_promise": "物件去向遵守已展示的因果",
+        "voice": "克制、贴近林舟的视角"
+      },
+      "chapters": [
+        {
+          "index": 1,
+          "title": "铜钥匙",
+          "content": "守炉人说，全港只铸过这一把铜钥匙。林舟把它投入沸炉，看着齿纹消失，铜液流进模槽。她把空口袋翻给同伴看。",
+          "content_sha256": "74c69c1301baf983753ce3052f7f5bf2e7eafdb01cf7a98b628224e2f64bd333"
+        },
+        {
+          "index": 2,
+          "title": "换班",
+          "content": "夜里换班时，同伴问起铜钥匙。林舟说已经熔掉，守炉人也点头；他们决定改从侧门寻找入口。",
+          "content_sha256": "93bf012658f2da2f1eb5b777001ed458d1636161c9da16c75d1802aa5bd4bc4b"
+        },
+        {
+          "index": 3,
+          "title": "侧门",
+          "content": "侧门上仍是那道旧锁。林舟从空口袋里掏出那把齿纹完整的铜钥匙，直接打开了门。现场没有人提到重铸或替换。",
+          "content_sha256": "04791670d9589f6c33d22914d0a0218d68c5975ece909e7221ca0cde36aac3b5"
+        }
+      ],
+      "revised_chapters": [
+        {
+          "index": 3,
+          "content": "侧门上仍是那道旧锁。林舟摸出炉渣里捡回的断齿，发现它插不进锁孔，于是和同伴改找窗户。",
+          "content_sha256": "cce451fb7e2a5e01bf90db8221c34f250c3e269db985e1ea8339a4f11343ee81"
+        }
+      ],
+      "evaluation_focus": [
+        "指出第一章熔毁与第三章完好钥匙的两处原文依据",
+        "改后只给仍在、可能改善或无法判断，不自动关闭"
+      ]
+    },
+    {
+      "id": "bell_ambiguous",
+      "scope": "range",
+      "stratum": "multiple_explanations",
+      "brief": {
+        "target_readers": "悬疑读者",
+        "intentional_choices": [
+          "钟声来源暂时不解释"
+        ]
+      },
+      "chapters": [
+        {
+          "index": 1,
+          "title": "午夜",
+          "content": "午夜，林舟听见山上的钟响了一下。山路起雾，她没有看见钟楼，只记下了声音来的方向。",
+          "content_sha256": "f4b347566ba6b17b48be2f1ee48e0278e66811b5270cb50cf174dc2a52285eed"
+        },
+        {
+          "index": 2,
+          "title": "回声",
+          "content": "第二夜，同样的声音从河岸传来。林舟想，也许是山谷回声，也许有人带走了小钟；她没有证据。",
+          "content_sha256": "578e5fde5fb6323beff811784f166b9432038c3a9b8a843ef2543f401b7094ef"
+        }
+      ],
+      "evaluation_focus": [
+        "保留回声、小钟、误听等合理解释",
+        "不得把声音方向变化标为已核实矛盾"
+      ]
+    },
+    {
+      "id": "intentional_blank",
+      "scope": "book",
+      "stratum": "intentional_gap",
+      "brief": {
+        "target_readers": "连载读者",
+        "intentional_choices": [
+          "前两章不揭示纸条上的名字，第三章才让读者看见"
+        ]
+      },
+      "chapters": [
+        {
+          "index": 1,
+          "title": "纸条",
+          "content": "林舟展开湿纸条，只看见一个名字就把它折回袖口。同行的人问是谁，她摇头，先去找写字的人。",
+          "content_sha256": "84ce6748aac0b2c755999ece5ac3873b72d86b78b3252e0e20ec639b76b787df"
+        },
+        {
+          "index": 2,
+          "title": "寻找",
+          "content": "他们沿着纸条上的旧墨迹找到码头。林舟仍没说出那个名字，她担心说出口会惊动附近的人。",
+          "content_sha256": "34c3b564462edb4e5933a647399bf20b056b2653a2f8b18f2e5f8b5f29117e90"
+        },
+        {
+          "index": 3,
+          "title": "名字",
+          "content": "纸条完全干了，读者终于看清那个名字：守炉人周甲。林舟此前的沉默有了可以讨论的缘由。",
+          "content_sha256": "a4ec7e114e375752c6d4213311c6fa56b22934a6f0de2c9d7d82e1a94184381a"
+        }
+      ],
+      "evaluation_focus": [
+        "第一、二章盲读不接触第三章答案",
+        "不得把作者确认的延迟揭示强报为遗漏"
+      ]
+    },
+    {
+      "id": "quiet_clean",
+      "scope": "book",
+      "stratum": "no_major_issue",
+      "brief": {
+        "target_readers": "日常题材读者",
+        "voice": "平缓、节制"
+      },
+      "chapters": [
+        {
+          "index": 1,
+          "title": "雨停",
+          "content": "雨停后，阿禾收起门口的伞，给邻居留了一张便条：茶已经泡好。邻居下班晚，她把灯留到十点。",
+          "content_sha256": "b2c1930e5caffb6ba092fa9b80ee5867e18f8d7f68e7f34c601cbb93d38c2aee"
+        },
+        {
+          "index": 2,
+          "title": "来信",
+          "content": "十点前，邻居带着一封回信来敲门。他们坐在窗边喝茶，先谈今天的雨，再说信里提到的旧友。",
+          "content_sha256": "4efc9bba9f8ca0fa6739d07096fa93c332dfe3666244a099663de8ad8a3b0cb3"
+        }
+      ],
+      "evaluation_focus": [
+        "允许没有主要问题的报告",
+        "不得为凑三条建议捏造冲突"
+      ]
+    }
+  ]
+}

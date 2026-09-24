@@ -828,6 +828,18 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             notes="新创意是条件式候选；观察有据、未知保留、不把普通细节变为义务。",
         ),
         _policy(
+            "assistant.editorial",
+            DOMAIN_ASSISTANT,
+            "作者作品的只读编辑意见",
+            subjects=("author", "reader"),
+            dimensions=("prior_prose", "world_rules", "outline"),
+            confirmation=CONFIRMATION_OPTIONAL,
+            snapshot=SNAPSHOT_REQUIRED,
+            outputs=(OUTPUT_PROPOSAL,),
+            gate=ADOPTION_DISPLAY_ONLY,
+            notes="准确引文与覆盖清单；不写正文或正史，不授予 AI 正文采用资格。",
+        ),
+        _policy(
             "interaction.forecast",
             DOMAIN_INTERACTION,
             "玩家可见前瞻",

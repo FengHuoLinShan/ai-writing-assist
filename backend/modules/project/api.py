@@ -13,6 +13,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from core.csrf import require_xhr_request
 from core.dependencies import DbSession
 from modules.project.author_task_service import AuthorTaskService
+from modules.project.editorial_brief import EditorialBriefUpdate
+from modules.project.facade import read_editorial_brief, save_editorial_brief
 from modules.project.schemas import (
     AuthorTaskCreateRequest,
     AuthorTaskListResponse,
@@ -52,6 +54,21 @@ _workspace_summary_service = ProjectWorkspaceSummaryService(
     project_reader=_service.get_project,
     author_task_summary_reader=_author_task_service.get_workspace_summary,
 )
+
+
+@router.get("/{project_id}/editorial-brief")
+async def get_editorial_brief(db: DbSession, project_id: UUID):
+    return await read_editorial_brief(db, str(project_id))
+
+
+@router.put(
+    "/{project_id}/editorial-brief",
+    dependencies=[Depends(require_xhr_request)],
+)
+async def put_editorial_brief(
+    db: DbSession, project_id: UUID, data: EditorialBriefUpdate
+):
+    return await save_editorial_brief(db, str(project_id), data)
 
 
 @router.post(

@@ -3,6 +3,7 @@
     <div class="writing-editor-header">
       <div id="writing-editor-buttons" class="writing-editor-buttons">
         <button v-if="state.status !== 'candidate'" id="btn-autosave" class="btn btn-primary btn-sm writing-save-action" :disabled="!chapterReady || state.readonly || state.saving" :aria-busy="state.saving" @click="$emit('autosave')">{{ state.saving ? '保存中…' : state.restoreSourceVersion ? '保存为新工作稿' : '保存工作稿' }}</button>
+        <button v-if="editorialAvailable && state.status === 'draft'" class="btn btn-sm" type="button" :disabled="!chapterReady || state.readonly || state.dirty || state.saving || !state.content.trim() || !state.draftId" @click="$emit('editorial-ready')">{{ state.editorialReadyHash && state.editorialReadyHash === state.contentHash ? '本版已交编辑' : '本章写完，交给编辑看' }}</button>
         <div ref="toolMenusEl" class="writing-editor-buttons__menus" @click.capture="closeToolMenuAfterAction" @keydown="onToolMenuKeydown">
           <details v-if="state.status !== 'candidate'" class="writing-tools-menu" @toggle="onToolMenuToggle('save', $event)">
             <summary class="btn btn-sm" aria-controls="writing-save-tools" :aria-expanded="String(openToolMenu === 'save')">版本与发布</summary>
@@ -41,6 +42,7 @@
               <div class="writing-tools-menu__group">
                 <button id="btn-conflict-check" class="btn btn-sm" :disabled="!chapterReady || state.readonly || conflictLoading" @click="$emit('conflict-check')">{{ conflictLoading ? '检查中...' : '检查前后设定' }}</button>
                 <button v-if="deepReviewAvailable" class="btn btn-sm" :disabled="!chapterReady || state.readonly || state.dirty || state.saving" @click="$emit('deep-review')">深度审稿</button>
+                <button v-if="editorialAvailable" class="btn btn-sm" type="button" :disabled="!chapterReady" @click="$emit('editorial-open')">本章编辑意见</button>
                 <small v-if="deepReviewAvailable && state.dirty">保存正文后可开始深度审稿。</small>
                 <button class="btn btn-sm" :disabled="!chapterReady" @click="$emit('export')">导出本章</button>
               </div>
@@ -173,6 +175,7 @@ const props = defineProps({
   projectId: { type: String, default: null },
   narrow: Boolean,
   deepReviewAvailable: Boolean,
+  editorialAvailable: Boolean,
   state: { type: Object, required: true },
   targetChapter: { type: Number, default: null },
   saveStatus: { type: String, default: "已保存" },
@@ -191,7 +194,7 @@ const emit = defineEmits(["composition", "open-chapters", "create-chapter",
   "autosave", "checkpoint", "conflict-check", "publish", "discard",
   "generate-draft", "generate-continuation", "generate-pov", "regenerate-candidate",
   "auto-extract", "open-deep-import-settings", "open-ai-tools", "adopt", "reject",
-  "semantic-review", "deep-review", "targeted-revision", "compare-candidate", "export",
+  "semantic-review", "deep-review", "editorial-ready", "editorial-open", "targeted-revision", "compare-candidate", "export",
   "retry-load", "reload-server", "focus-context",
 ])
 

@@ -237,3 +237,8 @@ ADR-0027 的 Assistant 工作项与调查成果是有界私有 checkpoint；Worl
 继续复用原 PostgreSQL 队列、Evidence 与 Project 连接。
 模块职责与采用/恢复边界见 `docs/modules/21_collaboration.md`、
 `backend/modules/collaboration/README.md`，前瞻见 `docs/modules/20_assistant.md`。
+
+作者“编辑约定”是 Project 内作者确认的版本化意图，不是 World 正史；“交给编辑看”是
+Writing 某一已保存工作稿的完成标记，不改变 published/canonical 状态；“编辑意见”由
+Assistant 保留证据、范围、处置和改后复核，不授予 AI candidate 的正式审稿 PASS。
+背景阅读仅在服务端开关和项目授权均开启时运行，RP 不消费这些作者私有意见。
