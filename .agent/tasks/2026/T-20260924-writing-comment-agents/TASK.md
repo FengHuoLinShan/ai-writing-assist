@@ -12,7 +12,7 @@ updated: 2026-09-24T09:29:00+08:00
 
 - 实际完成：从原工作树 HEAD `aaa5fc94893f791cf1072e3d0a219b9cfb621a2c` 创建独立 worktree 与 `codex/writing-comment-agents`；批注持久化、精确锚点、AI 审稿与局部修订任务、知识与复核门禁、Assistant 独立提案、textarea 高亮镜像和卡片界面已实现。
 - 当前里程碑：实现及离线工程验证完成。专用 PostgreSQL 从零迁移、后端 539 项、前端 95 项、桌面/窄屏/任务恢复浏览器 3 项、lint、生产构建、文档门禁均通过。截图复查后补上卡片精确滚动，高亮已在视口可见。
-- 下一步：先核对草稿 PR #172 的远端 CI；合并前更新主干基线并处理与同期 PR 的共享文件和迁移。按作者授权进行有成本边界的真实模型质量验证，记录批注、修订与提案的实际输出和失败证据。
+- 下一步：推送浏览器 CI 修复，等待 PR #172 的必需检查全绿后按固定 head 合并，并核对合并后 main CI；真实模型质量另行验收。
 - 阻塞：真实模型质量尚无本轮付费验收记录；离线检查不能替代。
 - 工作区：`/Users/tywww/.codex/worktrees/writing-comment-agents/ai-writing-assist`；原 checkout 中 `.agent/TASKS.md`、V4 付费账本及 PR merge 任务为其他 WIP，未复制或修改。
 - 最后核实：2026-09-24T09:09:00+08:00。
@@ -49,6 +49,7 @@ updated: 2026-09-24T09:29:00+08:00
 - 2026-09-24 09:20 +08:00：为依次合并 PR #171/#172，在本分支预先合入 #171 当前 head；保留编辑交稿与正文批注两套入口，`writing_comments` migration 接在 `20260924_editorial_assistant` 后，补 `writing.comment_revision` 能力绑定。两项 PR 尚未合入 main，后续以最终 main 和 CI 重验。
 
 - 2026-09-24 09:29 +08:00：PR #172 Backend quality 发现四个新增批注路由缺 API 层 active-project 前置守卫；保留领域内二次检查，在路由业务调用前补 `require_active_project`。`test_active_project_route_closure.py` 与批注单测 10 passed，原 CI 失败证据保留。
+- 2026-09-27：PR #172 浏览器 CI 的 3 个失败源于两处模拟草稿缺批注响应，以及编辑器卸载后排队的 `ResizeObserver` 回调。测试草稿改用合法 UUID 并补对应批注响应，回调仅处理当前仍挂载的元素；专用 PostgreSQL 新库定向 3 项通过，前端 81 项、lint/build、文档门禁通过。主干定时全量 PostgreSQL E2E 的 8 个失败与合并前 `d70528b5b` 基线同组，未归入本 PR 的新增失败。
 
 ## 验证证据
 
