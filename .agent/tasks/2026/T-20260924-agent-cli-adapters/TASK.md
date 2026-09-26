@@ -3,7 +3,7 @@ id: T-20260924-agent-cli-adapters
 title: Agent 底座接入五种本机 CLI
 status: active
 created: 2026-09-24T00:24:52+08:00
-updated: 2026-09-27T03:39:00+09:00
+updated: 2026-09-27T04:19:00+09:00
 ---
 
 # Agent 底座接入五种本机 CLI
@@ -13,8 +13,8 @@ updated: 2026-09-27T03:39:00+09:00
 - 隔离工作树：`/Users/tywww/.codex/worktrees/agent-cli-adapters/ai-writing-assist`，分支 `codex/agent-cli-adapters`，基线 `eeccc4e26bd56294b13666b2111b61874e925c42`。原 V4 工作树 WIP 未触碰；本分支已提交并推送为草稿 PR https://github.com/FengHuoLinShan/ai-writing-assist/pull/173，初始实现提交 `dec4af7fd`，未合并或部署。
 - 已实现五种 CLI 子进程适配、离线结构化评测入口、项目配对与出站伴随进程、逐根任务主机权限确认、租约/产品工具/回执协议；Assistant、已登录 RP、前瞻、创作协作、连续性检查及 Story 场景排演的人物意图 Agent 接入项目选择。匿名 RP 和普通非 Agent LLM 流程保持原连接。场景排演的环境裁决与剧本仍用项目账户连接。
 - 本机任务统一 `never_retry`，中断保留已见回执，显式新任务重试。项目/owner、Evidence、确认、CAS、预算和租约校验保留；本机 CLI 工作目录不是主机权限沙箱。
-- 下一步：等待 #172 合并及 main CI；将本分支更新到该固定主干，等待 #173 必需检查全绿后合并。DSH 原生工具次数及完整跨网络产品验收单列。
-- 最后核实：2026-09-27。
+- 下一步：等待 #172 合并提交 `1b65113ab` 的 main CI 与本分支更新后的 #173 CI 全绿，按固定 head 合并 #173，再核对最终 main CI。DSH 原生工具次数及完整跨网络产品验收单列。
+- 最后核实：2026-09-27T04:19:00+09:00。
 
 ## 目标与验收边界
 
@@ -26,6 +26,7 @@ updated: 2026-09-27T03:39:00+09:00
 
 - 2026-09-24 09:45 +08:00：PR #173 Backend quality 的 6298 项已通过，仅 `test_every_module_test_directory_is_a_package` 因新 `local_agent/tests` 缺 `__init__.py` 失败；已补空包文件，本机 test harness 与 local_agent 24 passed，待远端复验。
 - 2026-09-27：合入 #172 浏览器 CI 修复 head。PR #173 浏览器 CI 额外失败源于 AI 设置页外层与本机 CLI 内层复用同一个 `ai-capabilities-tab` 类，使设置流程定位器命中两项；内层移除重复类，保留布局类。此前 #172 的三个失败已在 #172 分支定向重验 3 passed。
+- 2026-09-27：#172 已按全绿 head 合并为主干 `1b65113ab`；本分支合入该主干，无内容冲突。当前 #173 的前端、后端、镜像、文档 CI 已通过，因更新基线会重跑固定 head 检查。最终主干 CI 仍待核对。
 
 ## 验证
 
