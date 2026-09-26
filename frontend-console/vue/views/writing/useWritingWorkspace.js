@@ -1726,6 +1726,7 @@ export function useWritingWorkspace(props) {
     adoptCandidate: editor.adoptCandidate,
     rejectCandidate: editor.rejectCandidate,
     insertText: editor.insertText,
+    selectRange: editor.selectRange,
     publish,
     retryPublish,
     dismissPublishError,

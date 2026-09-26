@@ -185,6 +185,13 @@ location、contract refs、preserve 与 not_checked；机械门不能代替文�
 allowed scope、preserve/must_not_change 和 supersedes，复用同一 Context 且只创建新
 candidate。返修后重新执行 hidden guard、清除不再匹配新正文的旧 POV view，并再次独立审查。
 
+正文批注属于 Writing：作者选区或语义审稿 finding 保存为版本绑定的评论；无唯一定位的
+AI 评论仍可查看，但不能直接执行。显式“审稿并修订”先生成批注，再合并重要问题和作者
+选中的批注执行 `writing_comment_run`；轻微建议只展示，可由作者另选。任务使用既有队列、
+项目模型快照和受控知识审查，局部 patch 范围外正文保持原样；候选的独立复审及工作稿
+新鲜度在采用时重验；人工稿还重验世界资料指纹与适用的世界约束审查。
+世界书和故事结构只通过项目助手生成待确认的独立方案。
+
 POV 角色视角建议即使诊断为 `failed` 仍保留原始建议；前端标红风险。作者调用
 `POST /drafts/{id}/adopt` 后，服务以 copy-on-adopt 创建最高版本号的普通 draft，记录
 `adopted_from_candidate_id / adopted_at / adopted_by`，并把原建议转入历史。重复采用同一建议

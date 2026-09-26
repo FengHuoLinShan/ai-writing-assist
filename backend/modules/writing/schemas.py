@@ -550,6 +550,39 @@ class WritingTargetedRevisionRequest(BaseModel):
         return normalized
 
 
+class WritingCommentCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    novel_id: str
+    source_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    start_offset: int = Field(ge=0)
+    end_offset: int = Field(gt=0)
+    excerpt: str = Field(min_length=1, max_length=5000)
+    body: str = Field(min_length=1, max_length=4000)
+
+
+class WritingCommentUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    novel_id: str
+    status: Literal["open", "resolved"]
+
+
+class WritingCommentRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    novel_id: str
+    draft_id: uuid.UUID
+    comment_ids: list[uuid.UUID] = Field(default_factory=list, max_length=20)
+    include_ai_review: bool = False
+    operation_id: uuid.UUID
+
+    @model_validator(mode="after")
+    def require_comments_or_review(self):
+        if not self.comment_ids and not self.include_ai_review:
+            raise ValueError("Select comments or request an AI review")
+        if len(set(self.comment_ids)) != len(self.comment_ids):
+            raise ValueError("Duplicate comment IDs")
+        return self
+
+
 class WritingDraftAutosaveCreate(BaseModel):
     """检查前的纯草稿暂存请求，不触发发布任务。"""
 

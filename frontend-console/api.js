@@ -2365,6 +2365,11 @@ const api = {
       return contractJson("writing.targetedRevision", {}, {}, payload)
     },
 
+    listComments: (draftId, novelId) => contractFetch("writing.listComments", { draftId }, { novel_id: novelId }),
+    createComment: (draftId, payload) => contractJson("writing.createComment", { draftId }, {}, payload),
+    updateComment: (commentId, payload) => contractJson("writing.updateComment", { commentId }, {}, payload),
+    runComments: (payload) => contractJson("writing.runComments", {}, {}, payload),
+
     async createConflictCheck(payload) {
       return contractJson("writing.createConflictCheck", {}, {}, payload)
     },
