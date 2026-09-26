@@ -260,15 +260,17 @@ defineExpose({ scrollCommentIntoView })
 function watchMirrorSize() {
   mirrorObserver?.disconnect()
   if (!editorEl.value || !globalThis.ResizeObserver) return
-  mirrorObserver = new ResizeObserver(() => {
-    const style = getComputedStyle(editorEl.value)
+  mirrorObserver = new ResizeObserver(([entry]) => {
+    const editor = editorEl.value
+    if (!editor || entry.target !== editor) return
+    const style = getComputedStyle(editor)
     mirrorSize.value = {
-      width: `${editorEl.value.clientWidth}px`, height: `${editorEl.value.clientHeight}px`,
+      width: `${editor.clientWidth}px`, height: `${editor.clientHeight}px`,
       fontFamily: style.fontFamily, fontSize: style.fontSize, fontWeight: style.fontWeight,
       lineHeight: style.lineHeight, letterSpacing: style.letterSpacing,
       padding: style.padding, tabSize: style.tabSize,
     }
-    syncMirrorScroll({ target: editorEl.value })
+    syncMirrorScroll({ target: editor })
   })
   mirrorObserver.observe(editorEl.value)
 }

@@ -105,6 +105,7 @@ test.describe("写作台模块", () => {
   })
 
   test("AI 写作建议按当前正文给出主操作，任务可收起并回到审阅", async ({ page, browserErrors, projectFactory, openProjectWorkbench }) => {
+    const generatedDraftId = "00000000-0000-0000-0000-0000000000c1"
     const failedApiResponses = []
     page.on("response", (response) => {
       if (response.url().includes("/api/") && response.status() >= 400) {
@@ -154,15 +155,18 @@ test.describe("写作台模块", () => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ draft_id: "candidate-owner-ai" }),
+        body: JSON.stringify({ draft_id: generatedDraftId }),
       })
     })
-    await page.route("**/api/writing/drafts/candidate-owner-ai?**", async (route) => {
+    await page.route(`**/api/writing/drafts/${generatedDraftId}/comments?**`, async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [] }) })
+    })
+    await page.route(`**/api/writing/drafts/${generatedDraftId}?**`, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
-          id: "candidate-owner-ai",
+          id: generatedDraftId,
           novel_id: testProjectId,
           chapter_index: 1,
           title: "第一章 雾港来信",
@@ -426,6 +430,7 @@ test.describe("写作台模块", () => {
   })
 
   test("AI 建议在刷新和返回后仍先决策，采用前可取消确认", async ({ page, browserErrors, projectFactory }) => {
+    const adoptedDraftId = "00000000-0000-0000-0000-0000000000d1"
     const confirmationId = "confirmation-writing-review-e2e"
     const sourceTaskId = "task-writing-review-e2e"
     const baseCreated = await createDraft(testProjectId, 1, "第一章 雾港来信", "潮声退到石阶之外，石门仍旧紧闭。")
@@ -435,7 +440,7 @@ test.describe("写作台模块", () => {
     const otherProject = await projectFactory({ title: "候选隔离对照作品", genre: "mystery", language: "zh" })
     const adopted = {
       ...candidate,
-      id: "adopted-candidate",
+      id: adoptedDraftId,
       status: "draft",
       version_number: Number(candidate.version_number || 1) + 1,
       provenance_json: { source: "ai_generated", adopted_from_candidate_id: candidate.id },
@@ -512,7 +517,10 @@ test.describe("写作台模块", () => {
         },
       })
     })
-    await page.route("**/api/writing/drafts/adopted-candidate*", async (route) => {
+    await page.route(`**/api/writing/drafts/${adoptedDraftId}/comments?**`, async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [] }) })
+    })
+    await page.route(`**/api/writing/drafts/${adoptedDraftId}*`, async (route) => {
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(adopted) })
     })
 
