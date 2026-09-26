@@ -9,6 +9,10 @@
     </form>
     <p v-if="dirty" class="forecast-note">尚有未保存文字；只查看上次保存的资料。保存后可以分析与试写。</p>
     <p v-if="running" role="status">正在核对资料与准备方向，可以继续写作或离开此页。</p>
+    <div v-if="state.run?.status === 'pending' && state.run?.local_agent && !state.run.local_agent.approved" role="status">
+      <p>本轮 {{ state.run.local_agent.kind }} CLI 在你的 Mac 上直接运行，可访问当前用户允许的文件和命令；工作目录不是沙箱。用量和费用可能无法准确估算。</p>
+      <button type="button" class="btn btn-primary btn-sm" @click="approveLocalForecast">确认本轮在本机执行</button>
+    </div>
     <p v-if="state.run && !running && state.run.status !== 'completed'" role="status">{{ runLabel }}</p>
     <button v-if="state.run?.can_resume" class="btn btn-sm" type="button" :disabled="dirty || state.busy" @click="forecast.resume">继续原分析（保留用量）</button>
     <p v-if="state.error" class="forecast-error" role="alert">{{ state.error }}</p>
@@ -42,8 +46,9 @@
 
 <script setup>
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from "vue"
-import { locateForecastEvidence, getToast, useStateKey } from "../bridge/index.js"
+import { getApi, getConfirm, locateForecastEvidence, getToast, useStateKey } from "../bridge/index.js"
 import { subscribeForecast } from "../composables/forecastStore.js"
+
 import AssistantValue from "./AssistantValue.vue"
 
 const props = defineProps({ projectId: { type: String, default: null }, context: { type: Object, default: () => ({ page: "today" }) }, editor: { type: Object, default: null }, composing: Boolean, active: { type: Boolean, default: true }, standalone: Boolean })
@@ -76,12 +81,22 @@ const kindLabel = kind => ({ prepared_reference: "相关资料", next_step: "下
 function hold(event) { state.value.hold = [...event.currentTarget.closest(".forecast-items").querySelectorAll("details")].some(item => item.open) }
 async function evaluate() { if (await subscription.activate()) await forecast.value.evaluate() }
 async function refresh() { try { await forecast.value.refresh() } catch (error) { state.value.error = error.message || "资料暂时无法刷新。" } }
+async function approveLocalForecast() {
+  const projectId = props.projectId, taskId = state.value.run?.task_id, runId = state.value.run?.run_id
+  if (!taskId || !getConfirm()("确认本轮 CLI 可使用当前 Mac 用户的文件与命令权限？")) return
+  try {
+    await getApi().localAgent.approve(projectId, taskId)
+    const run = await getApi().forecasts.run(projectId, runId)
+    if (state.value.projectId === projectId && state.value.run?.run_id === runId) state.value.run = run
+  } catch (error) { if (state.value.projectId === projectId) state.value.error = error.message || "本轮授权未完成。" }
+}
 async function locate(reference) { try { if (!await locateForecastEvidence(props.projectId, reference)) getToast()("请先打开对应的正文版本。", "info") } catch (error) { state.value.error = error.message } }
 watch(() => [props.projectId, JSON.stringify(props.context), editorState.value?.draftId, editorState.value?.sceneId, editorState.value?.dirty, editorState.value?.saving, editorState.value?.lastSavedContent ?? editorState.value?.savedContent, isComposing.value, props.active, intent.value], (values, previous) => {
   if (previous && values[0] !== previous[0]) { subscription.release(); subscription = subscribeForecast(props.projectId); forecast.value = subscription.forecast }
   subscription.update({ context: { ...props.context, task_hint: intent.value }, editor: editorState.value, composing: isComposing.value, active: props.active, priority: props.standalone ? 2 : 1 })
 }, { immediate: true })
 onBeforeUnmount(() => subscription.release())
+
 </script>
 
 <style scoped>

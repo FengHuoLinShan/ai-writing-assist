@@ -30,6 +30,7 @@ import modules.collaboration.models  # noqa: F401, E402
 import modules.evidence.models  # noqa: E402, F401
 import modules.imports.models  # noqa: E402, F401
 import modules.interaction.models  # noqa: E402, F401
+import modules.local_agent.models  # noqa: E402, F401
 
 # 显式导入所有模块的模型，确保 alembic autogenerate 能检测到所有表
 import modules.project.models  # noqa: E402, F401

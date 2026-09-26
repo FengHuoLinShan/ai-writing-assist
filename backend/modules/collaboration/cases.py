@@ -21,6 +21,7 @@ from modules.collaboration.models import (
 )
 from modules.collaboration.recipes import get_recipe
 from modules.evidence.facade import collect_creative_manifest, creative_context_text
+from modules.local_agent.facade import local_task_meta
 from modules.project.facade import (
     build_project_llm_execution_snapshot,
     get_any_project_context,
@@ -248,6 +249,8 @@ async def resume_run(db, novel_id, run_id):
     prior = await require_run(db, novel_id, run_id)
     case = await require_case(db, novel_id, prior.case_id, lock=True, execute=True)
     run = await require_run(db, novel_id, run_id, lock=True)
+    if (run.llm_snapshot_json.get("primary") or {}).get("local_agent"):
+        raise ConflictError("本机任务中断后请从当前目标新建试验", code="NOT_RESUMABLE")
     if run.status in {"pending", "running"}:
         return {"run_id": str(run.id), "task_id": str(run.task_id), "replayed": True}
     if run.status not in {"failed", "partial", "cancelled"} or not run.task_id:
@@ -367,7 +370,9 @@ async def submit_run(db, novel_id, case_id, data, *, background=False):
     from infrastructure.llm.web_search import search_snapshot
 
     web_snapshot = search_snapshot() if grant.allow_web else None
-    snapshot = await build_project_llm_execution_snapshot(db, novel_id)
+    snapshot = await build_project_llm_execution_snapshot(
+        db, novel_id, agent_executor=True
+    )
     profiles = {}
     for role, provider_id in grant.model_connections.items():
         profiles[role] = await build_project_llm_execution_snapshot(
@@ -400,6 +405,7 @@ async def submit_run(db, novel_id, case_id, data, *, background=False):
         request_payload={"case_id": str(case.id), **payload},
         meta={
             "run_id": str(run.id),
+            **local_task_meta(snapshot),
             **({"_task_priority": "background"} if background else {}),
         },
     )

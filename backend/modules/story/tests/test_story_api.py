@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 from httpx import AsyncClient
 
-from modules.story.schemas import StoryTaskResponse
+from modules.story.schemas import StoryOneClickTaskRequest, StoryTaskResponse
 
 
 async def _create_project(client: AsyncClient, title: str) -> str:
@@ -102,3 +103,48 @@ async def test_story_scene_alias_rejects_path_body_mismatch(
 
     assert response.status_code == 400
     assert response.json()["detail"] == "scene path does not match body"
+
+
+@pytest.mark.asyncio
+async def test_rehearsal_submission_freezes_local_agent_separately(
+    db_session, test_project_id, monkeypatch
+):
+    from modules.story import api
+
+    captured = {}
+
+    async def fresh(*_args, **_kwargs):
+        return None
+
+    async def snapshot(*_args, agent_executor=False, **_kwargs):
+        return (
+            {"local_agent": {"kind": "pi", "device_id": str(uuid.uuid4())}}
+            if agent_executor
+            else {"gateway": True}
+        )
+
+    async def enqueue(*_args, **kwargs):
+        captured.update(kwargs["meta"])
+        return SimpleNamespace(task_id=str(uuid.uuid4()), status="pending", reused=True)
+
+    monkeypatch.setattr(api, "require_fresh_confirmation", fresh)
+    monkeypatch.setattr(api, "build_project_llm_execution_snapshot", snapshot)
+    monkeypatch.setattr(api, "enqueue_task_with_optional_operation", enqueue)
+    data = StoryOneClickTaskRequest(
+        novel_id=test_project_id,
+        scene_id=str(uuid.uuid4()),
+        character_ids=[str(uuid.uuid4())],
+        context_confirmation_id="synthetic",
+        simulation_protocol="rehearsal_v1",
+        rehearsal_rounds=1,
+    )
+    await api._enqueue_confirmed_task(
+        db_session,
+        data,
+        action="story.one_click.simulate",
+        task_type="story_one_click",
+    )
+    assert captured["llm_execution_snapshot"] == {"gateway": True}
+    assert captured["agent_llm_execution_snapshot"]["local_agent"]["kind"] == "pi"
+    assert captured["_local_agent"] is True
+    assert captured["_local_approved"] is False

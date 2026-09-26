@@ -167,6 +167,17 @@ async def run_rehearsal(
             raise ConflictError("场景或人物资料已变化，已保留完成回合")
 
     profile = capability_from_execution_snapshot(task.meta["llm_execution_snapshot"])
+    agent_client = client
+    if (task.meta or {}).get("_local_agent"):
+        from modules.local_agent.facade import task_snapshot_client
+        from modules.project.facade import restore_project_llm_execution_settings
+
+        agent_settings = await restore_project_llm_execution_settings(
+            db, novel_id, task.meta["agent_llm_execution_snapshot"]
+        )
+        agent_client = await task_snapshot_client(
+            db, task, agent_settings, budget=budget, checkpoint=checkpoint
+        )
     await db.commit()
     final_round = data.fork_round + data.rehearsal_rounds
     for number in range(len(steps) + 1, final_round + 1):
@@ -182,6 +193,7 @@ async def run_rehearsal(
 
         result = await rehearse_round(
             client=client,
+            agent_client=agent_client,
             packets=packets,
             state=state,
             authority=authority,

@@ -92,6 +92,9 @@ ADR-0027 的 V1 在当时九模块中加入注册蓝图的有限协作，不改�
 
 新增业务模块 `collaboration` 持有目标、授权、不可变试改与精确采用回执；
 `assistant` 持有短期前瞻和处置，`story` / `interaction` 持有观察及分支事实。
-当前共十一个业务模块（含 `evolution`），继续复用原 PostgreSQL 队列、Evidence 与 Project 连接。
+当前共十二个业务模块（含已有 Scene 运行和项目所有权门禁的 `evolution` 和本机设备模块 `local_agent`），继续复用原 PostgreSQL 队列、Evidence 与 Project 连接。
 模块职责与采用/恢复边界见 `docs/modules/21_collaboration.md`、
 `backend/modules/collaboration/README.md`，前瞻见 `docs/modules/20_assistant.md`。
+
+`local_agent` 是作者 Mac 上五种 CLI 的项目设备与调用边界，复用现有任务租约。
+设备协议、非沙箱权限和数据边界见 [模块设计](../modules/23_local_agent.md)。

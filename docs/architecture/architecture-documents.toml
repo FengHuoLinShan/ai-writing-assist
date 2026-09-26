@@ -51,6 +51,14 @@ code_docs = ["backend/modules/assistant/README.md"]
 api_prefixes = ["/api/assistant", "/forecasts"]
 
 [[components]]
+name = "local_agent"
+kind = "business"
+source_roots = ["backend/modules/local_agent"]
+design_docs = ["docs/modules/23_local_agent.md"]
+code_docs = ["backend/modules/local_agent/README.md"]
+api_prefixes = ["/api/local-agent"]
+
+[[components]]
 name = "collaboration"
 kind = "business"
 source_roots = ["backend/modules/collaboration"]

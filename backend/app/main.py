@@ -745,6 +745,7 @@ from modules.interaction import api as interaction_api  # noqa: E402
 from modules.interaction.forecast_api import (  # noqa: E402
     router as interaction_forecast_router,  # noqa: E402
 )
+from modules.local_agent.api import router as local_agent_router  # noqa: E402
 from modules.project.api import router as project_router  # noqa: E402
 from modules.project.settings_api import (  # noqa: E402
     defaults_handler_router as project_defaults_handler_router,
@@ -759,6 +760,7 @@ from modules.writing import api as writing_api  # noqa: E402
 app.include_router(assistant_api.router)
 app.include_router(collaboration_api.router)
 app.include_router(project_router)
+app.include_router(local_agent_router)
 app.include_router(account_auth_router)
 app.include_router(account_router)
 app.include_router(account_oidc_router)

@@ -453,3 +453,8 @@ request_changed。当前没有把 deep_import 的生产入口重定向到此 han
 通过 task_types 限定取消理解任务，保留其他任务与历史计量。PG guard 拒绝旧 v1
 （含 shadow）及失效 owner 写入；Project share 锁使用 NOWAIT，避免旧心跳反向持锁
 与项目切换互等。迁移先取消不再可执行的旧队列项，不能令最早 pending 阻塞整个队列。
+
+本机 Agent task 在 `meta` 冻结设备、`_local_approved` 与 `_local_ready`。`claim_next` 和
+`claim_exact` 必须同时满足逐次授权和设备就绪；领取后清除 ready，原 task lease 与
+local invocation lease 双重栅栏拒绝迟到结果。伴随进程离线时 pending 不自动切换回
+gateway；执行中断保留已见回执，作者显式发起新任务，不能自动重放本机副作用。

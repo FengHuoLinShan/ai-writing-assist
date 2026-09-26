@@ -50,6 +50,14 @@ const accountConnectionLoadError = ref(false)
 const aiCapabilities = ref(null)
 const aiCapabilitiesLoading = ref(false)
 const aiCapabilitiesError = ref(false)
+const localDevices = ref([])
+const localPending = ref([])
+const localExecutor = ref({ kind: "gateway", device_id: null })
+const localKind = ref("gateway")
+const localDeviceId = ref("")
+const localPairCode = ref("")
+const localAgentBusy = ref(false)
+const localAgentError = ref("")
 const ensembleJourney = ref(null)
 const authorForm = ref(authorFormFromEffective(props.effectivePrefs))
 const deepImportForm = ref(
@@ -125,6 +133,76 @@ async function loadAiCapabilities(projectId = props.projectId) {
   } finally {
     if (ownsProjectSettings(projectId)) aiCapabilitiesLoading.value = false
   }
+}
+
+async function loadLocalAgent(projectId = props.projectId) {
+  if (!projectId) return
+  try {
+    const [devices, executor, pending] = await Promise.all([
+      getApi().localAgent.devices(projectId), getApi().localAgent.executor(projectId),
+      getApi().localAgent.pending(projectId),
+    ])
+    if (!ownsProjectSettings(projectId)) return
+    localDevices.value = devices.items || []
+    localPending.value = pending.items || []
+    localExecutor.value = executor
+    localKind.value = executor.kind
+    localDeviceId.value = executor.device_id || localDevices.value.find(device => device.paired)?.id || ""
+    localAgentError.value = ""
+  } catch (error) {
+    if (ownsProjectSettings(projectId)) localAgentError.value = error.message || "本机执行器暂时无法读取。"
+  }
+}
+
+async function pairLocalAgent() {
+  if (!props.projectId || localAgentBusy.value) return
+  localAgentBusy.value = true
+  try {
+    const result = await getApi().localAgent.pair(props.projectId, "作者的 Mac")
+    localPairCode.value = result.code
+    await loadLocalAgent()
+  } catch (error) { localAgentError.value = error.message || "无法创建配对码。" }
+  finally { localAgentBusy.value = false }
+}
+
+async function downloadLocalAgent() {
+  try {
+    const blob = await getApi().localAgent.download(props.projectId)
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.href = url
+    link.download = "novelcraft-agent.pyz"
+    link.click()
+    setTimeout(() => URL.revokeObjectURL(url), 30000)
+  } catch (error) { localAgentError.value = error.message || "无法下载本机伴随程序。" }
+}
+
+async function saveLocalAgent() {
+  if (!props.projectId || localAgentBusy.value) return
+  localAgentBusy.value = true
+  try {
+    await getApi().localAgent.select(props.projectId, localKind.value, localDeviceId.value)
+    await loadLocalAgent()
+    await loadAiCapabilities()
+    getToast()("本作品的 Agent 执行器已保存", "success")
+  } catch (error) { localAgentError.value = error.message || "本机执行器未保存。" }
+  finally { localAgentBusy.value = false }
+}
+
+async function revokeLocalAgent(device) {
+  if (!getConfirm()(`撤销 ${device.name} 的本机连接？`)) return
+  try {
+    await getApi().localAgent.revoke(props.projectId, device.id)
+    await loadLocalAgent()
+  } catch (error) { localAgentError.value = error.message || "无法撤销设备。" }
+}
+
+async function approveLocalTask(task) {
+  if (!getConfirm()(`确认“${task.label}”可使用当前 macOS 用户的文件与命令权限？`)) return
+  try {
+    await getApi().localAgent.approve(props.projectId, task.task_id)
+    await loadLocalAgent()
+  } catch (error) { localAgentError.value = error.message || "本轮授权未完成。" }
 }
 
 const dataReady = computed(() => Boolean(effectiveLLM.value && effectivePrefs.value))
@@ -492,6 +570,7 @@ onMounted(() => {
   window.addEventListener("beforeunload", beforeUnload)
   void loadAccountConnectionMetadata()
   void loadAiCapabilities()
+  void loadLocalAgent()
 })
 onBeforeUnmount(() => {
   disposed = true
@@ -596,7 +675,43 @@ onBeforeUnmount(() => {
           <div class="settings-section-heading">
             <div>
               <h2>AI 能力</h2>
-              <p>当前作品可用的 AI 协作与生成能力，随部署配置和模型连接变化，这里只读查看。</p>
+              <p>查看当前作品的 AI 能力，并选择 Agent 执行器。</p>
+            </div>
+          </div>
+          <div class="settings-section">
+            <h3>本机 Agent CLI</h3>
+            <p>CLI 在你的 Mac 上以当前 macOS 用户身份直接运行，可访问该用户允许的文件和命令。专用工作目录不是沙箱；每个任务仍需单独确认。用量和费用可能无法准确估算。</p>
+            <p v-if="localAgentError" role="alert">{{ localAgentError }}</p>
+            <button type="button" class="btn" @click="downloadLocalAgent">下载 Mac 伴随程序</button>
+            <button type="button" class="btn" :disabled="localAgentBusy" @click="pairLocalAgent">生成 10 分钟配对码</button>
+            <button type="button" class="btn" :disabled="localAgentBusy" @click="loadLocalAgent()">刷新设备与待确认任务</button>
+            <p v-if="localPairCode">在下载目录运行：<code>python3 novelcraft-agent.pyz pair &lt;服务器地址&gt; {{ localPairCode }}</code>。命令会返回设备 ID；随后运行 <code>python3 novelcraft-agent.pyz run &lt;设备 ID&gt;</code> 并保持进程运行。配对码仅显示本次，失效后重新生成。</p>
+            <ul v-if="localDevices.length">
+              <li v-for="device in localDevices" :key="device.id">
+                {{ device.name }} · {{ device.online ? '在线' : device.paired ? '离线' : '待配对' }}
+                <button type="button" class="btn btn-sm" @click="revokeLocalAgent(device)">撤销</button>
+              </li>
+            </ul>
+            <label for="local-agent-kind">Agent 执行器</label>
+            <select id="local-agent-kind" v-model="localKind">
+              <option value="gateway">账户模型连接</option>
+              <option value="codex">Codex CLI</option>
+              <option value="claude">Claude CLI</option>
+              <option value="kimi">Kimi CLI</option>
+              <option value="dsh">DSH</option>
+              <option value="pi">Pi</option>
+            </select>
+            <p v-if="localKind === 'dsh'">当前 DSH 只返回纯文本，无法核对其原生文件与命令工具次数；仍限制运行时间、输出量和产品工具调用。</p>
+            <label v-if="localKind !== 'gateway'" for="local-agent-device">本机设备</label>
+            <select v-if="localKind !== 'gateway'" id="local-agent-device" v-model="localDeviceId">
+              <option value="">选择已配对设备</option>
+              <option v-for="device in localDevices.filter(item => item.paired)" :key="device.id" :value="device.id">{{ device.name }}</option>
+            </select>
+            <button class="btn btn-primary" type="button" :disabled="localAgentBusy || (localKind !== 'gateway' && !localDeviceId)" @click="saveLocalAgent">保存 Agent 执行器</button>
+            <p v-if="localExecutor.kind !== 'gateway'">当前：{{ localExecutor.kind }} · 本机任务等待设备在线及每次确认。</p>
+            <div v-if="localPending.length" role="status">
+              <h4>等待本轮确认</h4>
+              <ul><li v-for="task in localPending" :key="task.task_id">{{ task.label }} <button type="button" class="btn btn-sm" @click="approveLocalTask(task)">确认本轮执行</button></li></ul>
             </div>
           </div>
           <p v-if="aiCapabilitiesLoading" role="status">正在读取当前作品的 AI 能力…</p>

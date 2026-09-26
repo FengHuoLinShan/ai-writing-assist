@@ -175,3 +175,7 @@ RP 正文使用 held 释放语义：审查前 SSE 不发 chunk，PASS 后一次�
 project，额外拒绝匿名/demo。模型只接收已选正式发展和有效回顾；固定 source 不可用时
 失败关闭。路径、selection/source/overview epoch 变化会拒绝旧建议。预填只返回文字，
 不发送消息、不建立后继、不更新回顾或原作品。
+
+已登录 RP 的本机 Agent 选择随 consumer 项目冻结到新 attempt；每个 story 根任务需作者
+单独确认 Mac 文件与命令权限，离线等待。生成中仍受选中分支、固定来源与原 task lease
+控制，失联时已见文本只作回执，不自动成为正式故事；匿名演示不开放此能力。

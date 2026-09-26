@@ -9,6 +9,7 @@ import {
 import {
   getApi,
   getAppState,
+  getConfirm,
   getRouteQuery,
   getToast,
 } from "../../bridge/index.js"
@@ -1060,6 +1061,17 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
       if (!owns(requestToken, targetScene.id)) return false
       if (response?.task_id) {
         sceneRuntimeManager.adopt(response, { sceneId: targetScene.id, stage: "simulation" }, projectId, targetScene.id)
+        if (options.rehearsal) {
+          try {
+            const pending = await api.localAgent.pending(projectId)
+            if (pending.items?.some((item) => item.task_id === response.task_id)
+              && getConfirm()("确认本轮 CLI 可使用当前 macOS 用户的文件与命令权限？")) {
+              await api.localAgent.approve(projectId, response.task_id)
+            }
+          } catch (error) {
+            toast(error?.message || "本机运行授权未完成，可在 AI 能力设置页继续确认。", "warning")
+          }
+        }
         return true
       }
       if (response?.preview || response?.result) {

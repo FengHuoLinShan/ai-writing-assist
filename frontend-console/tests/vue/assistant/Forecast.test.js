@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { flushPromises, mount } from "@vue/test-utils"
 import { reactive } from "vue"
 import { createForecast } from "../../../vue/composables/useForecast.js"
+import { subscribeForecast } from "../../../vue/composables/forecastStore.js"
 import ForecastDock from "../../../vue/components/ForecastDock.vue"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 
@@ -71,6 +72,25 @@ describe("forecast ownership and author control", () => {
     expect(wrapper.text()).toContain("尚有未保存文字")
     expect(api.forecasts.evaluate).not.toHaveBeenCalled()
   })
+})
+
+it("confirms a pending local forecast through the shared store", async () => {
+  const api = apiFixture()
+  api.localAgent = { approve: vi.fn(async () => ({ approved: true })) }
+  api.forecasts.run = vi.fn(async () => ({ run_id: "run-1", task_id: "task-1", status: "pending", local_agent: { kind: "codex", approved: true } }))
+  setBridgeOverrides({ api, state: { currentProjectId: projectA }, confirm: () => true })
+  const wrapper = mount(ForecastDock, { props: { projectId: projectA, context: { page: "today" } } }); wrappers.push(wrapper)
+  const shared = subscribeForecast(projectA)
+  try {
+    await flushPromises()
+    shared.forecast.state.run = { run_id: "run-1", task_id: "task-1", status: "pending", local_agent: { kind: "codex", approved: false } }
+    await wrapper.vm.$nextTick()
+    await wrapper.findAll("button").find(button => button.text() === "确认本轮在本机执行").trigger("click")
+    await flushPromises()
+    expect(api.localAgent.approve).toHaveBeenCalledWith(projectA, "task-1")
+    expect(api.forecasts.run).toHaveBeenCalledWith(projectA, "run-1")
+    expect(shared.forecast.state.run.local_agent.approved).toBe(true)
+  } finally { shared.release() }
 })
 
 describe("selection snapshot stays bound to its source version (PR160-162 F2)", () => {

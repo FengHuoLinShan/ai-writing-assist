@@ -40,6 +40,7 @@ import modules.assistant.models  # noqa: F401, E402
 import modules.collaboration.models  # noqa: F401, E402
 import modules.evidence.models  # noqa: F401
 import modules.imports.models  # noqa: F401
+import modules.local_agent.models  # noqa: F401
 
 # 导入所有 ORM 模型注册到 Base.metadata
 import modules.project.models  # noqa: F401

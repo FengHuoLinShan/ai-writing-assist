@@ -1,5 +1,6 @@
 # 开放任务
 
+- [T-20260924-agent-cli-adapters](tasks/2026/T-20260924-agent-cli-adapters/TASK.md) — Agent 底座接入五种本机 CLI
 - [T-20260924-editorial-assistant](tasks/2026/T-20260924-editorial-assistant/TASK.md) — 作者助手编辑员级审读与意见闭环
 - [T-20260924-writing-comment-agents](tasks/2026/T-20260924-writing-comment-agents/TASK.md) — 正文批注驱动的 Agent 修订
 

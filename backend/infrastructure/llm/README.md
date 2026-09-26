@@ -309,3 +309,13 @@ provider 等待至少900秒，仍受领域总 deadline/请求次数护栏约束�
 `collaboration_v2.py` 只处理有界 DAG 与失败传播，领域运行由 Collaboration 持有。
 `collaboration_v2`、`forecast_v1` 的 AgentRunBudget 策略共用原请求与未知用量记账。
 前瞻的生成、审查、修复共享四次额度；创作试验还校验 Case 的跨轮累计上限。
+
+## 本机 CLI Agent transport
+
+`cli_agent.py` 把 Codex、Claude、Kimi、DSH、Pi 的非交互输出解析为最终文本、可观测工具
+次数和用量。子进程设时限、输出上限和进程组取消；stderr 丢弃，不将供应商思考或本机
+诊断传给产品。CLI 登录态和 Key 留在作者 Mac，不从服务器 Project gateway 借用。
+Kimi/Pi/DSH 通过 0600 任务文件接收正文，避免把作品资料放入进程参数；Codex/Claude
+使用 stdin。DSH headless 当前只有纯文本结果，不能从其 stdout 准确计数原生工具；
+产品工具仍由服务器限次，原生执行只受时限与输出上限约束，此限制须在验收中单列。
+产品的配对、领域工具与任务租约由 `modules/local_agent` 持有；现有 gateway 路径不变。

@@ -402,3 +402,12 @@ INTERACTION_FORECAST_ENABLED。FORECAST_PROJECT_ALLOWLIST 可先限定测试作�
 FORECAST_DISABLED_CAPABILITIES / CREATIVE_DISABLED_RECIPES 可按能力/配方暂停。
 API 与 worker 使用相同 Compose runtime 环境。回退不降级表、不撤回作者已确认修改；
 在途结果仍经当前权限、来源与开关重验。
+
+## 本机 Agent CLI 开发
+
+本机 CLI 伴随程序由作品设置页下载为 `novelcraft-agent.pyz`，需 Python 3 与所选 CLI
+已在作者 Mac 的 PATH 内；`pair` 使用一次性码，`run` 保持出站轮询。Codex 当前登录
+默认模型不可用时可在启动前设置 `NOVELCRAFT_CODEX_MODEL`；Pi 可用
+`NOVELCRAFT_PI_MODEL`，不修改项目账户连接。
+项目选择默认 gateway；本机执行需每个根 task 单独确认，离线不回退。开发时用本任务
+专用测试项目与 PostgreSQL 库，不把真实作品或本机 CLI 登录态放入服务端镜像。
