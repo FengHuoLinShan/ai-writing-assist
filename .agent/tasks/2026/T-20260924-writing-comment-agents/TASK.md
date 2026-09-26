@@ -50,6 +50,7 @@ updated: 2026-09-24T09:29:00+08:00
 
 - 2026-09-24 09:29 +08:00：PR #172 Backend quality 发现四个新增批注路由缺 API 层 active-project 前置守卫；保留领域内二次检查，在路由业务调用前补 `require_active_project`。`test_active_project_route_closure.py` 与批注单测 10 passed，原 CI 失败证据保留。
 - 2026-09-27：PR #172 浏览器 CI 的 3 个失败源于两处模拟草稿缺批注响应，以及编辑器卸载后排队的 `ResizeObserver` 回调。测试草稿改用合法 UUID 并补对应批注响应，回调仅处理当前仍挂载的元素；专用 PostgreSQL 新库定向 3 项通过，前端 81 项、lint/build、文档门禁通过。主干定时全量 PostgreSQL E2E 的 8 个失败与合并前 `d70528b5b` 基线同组，未归入本 PR 的新增失败。
+- 2026-09-27：新一轮 CI 在浏览器前因 `quay.io/minio/minio` 返回 401 失败；Docker Hub 同仓库也返回 401。CI 改用 MinIO 与 mc 官方 GitHub Release 同版本 Linux 二进制，校验固定 SHA-256 后只监听 runner 本机地址，继续复用 `docker/init-minio.sh` 建私有桶。两份二进制的官方校验值已在本机下载核实；远端全量浏览器重验待完成，开发 Compose 配置未更改。
 
 ## 验证证据
 
