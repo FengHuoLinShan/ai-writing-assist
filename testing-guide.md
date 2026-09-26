@@ -231,8 +231,8 @@ text collection metrics with an isolated local Codex evaluator. Frontend job fir
 the SHA-pinned Node setup action with `frontend-console/.node-version` (`24.21.0` LTS) and
 the committed lockfile cache, then uses `frontend-console/package-lock.json` to run `npm ci`, then
 `npm audit --package-lock-only --audit-level=high`, ESLint and complete Vitest. The production
-image job owns the production build. `Frontend functional browser` starts a fresh dedicated PostgreSQL, the Compose-managed private
-MinIO buckets, and Chromium, then runs the
+image job owns the production build. `Frontend functional browser` starts a fresh dedicated PostgreSQL, private MinIO from pinned official release binaries,
+and Chromium, then runs the
 complete functional suite on frontend-related PRs and main (smoke only for backend-related PRs), with workers=1 and
 retries=0, and retains
 `frontend-console/test-results` failure diagnostics for 14 days. The existing smoke command is
