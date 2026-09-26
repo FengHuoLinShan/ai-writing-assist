@@ -678,7 +678,7 @@ onBeforeUnmount(() => {
               <p>查看当前作品的 AI 能力，并选择 Agent 执行器。</p>
             </div>
           </div>
-          <div class="settings-section ai-capabilities-tab">
+          <div class="settings-section">
             <h3>本机 Agent CLI</h3>
             <p>CLI 在你的 Mac 上以当前 macOS 用户身份直接运行，可访问该用户允许的文件和命令。专用工作目录不是沙箱；每个任务仍需单独确认。用量和费用可能无法准确估算。</p>
             <p v-if="localAgentError" role="alert">{{ localAgentError }}</p>
