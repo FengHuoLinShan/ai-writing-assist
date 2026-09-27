@@ -105,6 +105,7 @@ async def test_alias_projection_keeps_full_pages_evidence_and_isolation(
         {
             "id": e.id,
             "name": e.name,
+            "entity_type": e.entity_type,
             "status": e.status,
             "aliases": (e.content_json or {}).get("aliases"),
             "owner_meta": (e.content_json or {}).get("_meta"),

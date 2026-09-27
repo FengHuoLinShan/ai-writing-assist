@@ -28,6 +28,7 @@ import modules.collaboration.models  # noqa: F401, E402
 
 # character 模块已删除，模型在 modules.world.models
 import modules.evidence.models  # noqa: E402, F401
+import modules.evolution.models  # noqa: E402, F401
 import modules.imports.models  # noqa: E402, F401
 import modules.interaction.models  # noqa: E402, F401
 import modules.local_agent.models  # noqa: E402, F401
