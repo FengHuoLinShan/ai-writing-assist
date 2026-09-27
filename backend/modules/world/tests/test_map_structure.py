@@ -253,7 +253,7 @@ async def test_spatial_node_level_changes_preserve_editing(
     path = f"/api/world/map-atlas/{test_project_id}/nodes/{node['id']}"
     row = await db_session.get(MapAtlasNode, uuid.UUID(node["id"]))
     baseline = row.updated_at.isoformat()
-    for level in ("cover", "world", "interior"):
+    for level in ("cover", "world"):
         response = await async_client.patch(
             path,
             json={
@@ -268,7 +268,7 @@ async def test_spatial_node_level_changes_preserve_editing(
         assert str(row.current_revision_id) == node["current_revision_id"]
     response = await async_client.patch(
         path,
-        json={"level": "city", "expected_updated_at": baseline},
+        json={"level": "interior", "expected_updated_at": baseline},
     )
     assert response.status_code == 200, response.text
     saved = await service.save(
@@ -294,6 +294,31 @@ async def test_spatial_node_level_changes_preserve_editing(
         MapAtlasNodeUpdate(level="street", expected_updated_at=image_only.updated_at),
     )
     assert updated["level"] == "street"
+
+
+@pytest.mark.asyncio
+async def test_interior_map_can_be_created_saved_and_keeps_hierarchy(
+    db_session, test_project_id
+):
+    service, parent = await create_map(db_session, test_project_id)
+    room = await service.create_node(
+        db_session,
+        test_project_id,
+        MapNodeCreate(title="租住公寓", level="interior", parent_id=parent["id"]),
+    )
+    saved = await service.save(
+        db_session,
+        test_project_id,
+        room["id"],
+        MapSaveRequest(base_revision_id=room["current_revision_id"], document=document()),
+    )
+    assert saved.document.features
+    with pytest.raises(ValidationError):
+        await service.create_node(
+            db_session,
+            test_project_id,
+            MapNodeCreate(title="非法街道子图", level="street", parent_id=room["id"]),
+        )
 
 
 @pytest.mark.asyncio
@@ -518,11 +543,14 @@ async def test_continuity_facts_require_current_adopted_revision_and_sources(
 
     source.summary = "来源已修改。"
     await db_session.flush()
-    assert await list_adopted_map_continuity_facts(
-        db_session,
-        test_project_id,
-        [str(start.id), str(end.id)],
-    ) == []
+    assert (
+        await list_adopted_map_continuity_facts(
+            db_session,
+            test_project_id,
+            [str(start.id), str(end.id)],
+        )
+        == []
+    )
 
 
 @pytest.mark.asyncio

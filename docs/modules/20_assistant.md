@@ -125,6 +125,13 @@ focused search 与 Project author tasks。focused search 仍沿原来源 manifes
 运行中处置变化会拒绝旧结果发布。同一原文问题按类型和物理引用对齐，不按标题合并；
 重复摘要不会提高本地锚点的证据分数。
 
+## 可选本机 Agent
+
+作者可按作品选择已配对 Mac 上的 Codex、Claude、Kimi、DSH、Pi。助手讨论、语义前瞻、
+创作协作任务各自等待一次本机权限确认；自动后台授权不能代替该确认。模型资料仍只由
+Evidence 与冻结任务范围提供，CLI 的本地文件写入不会变成产品事实；具体方案采用仍须
+原领域确认。设备离线时任务等待，不切换模型；中断保留回执并要求显式新任务。
+
 ## 作者编辑员级意见
 
 Assistant 的 `/editorial/*` 持有 `assistant_editorial_reviews`、`assistant_editorial_issues` 和

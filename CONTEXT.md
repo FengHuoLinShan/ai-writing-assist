@@ -83,7 +83,7 @@ README、ORM 模型与 Alembic migration。当前文档范围由
 | Context 指纹 | compiled_context_fingerprint | 对 provider 可见 sections/items、来源身份、选择与有效范围的通用 SHA-256；预览、确认、执行必须一致。 |
 | 定向查证 | `retrieve_focused_evidence()` / `focused_evidence_neighbors` | 导入、地图和写作副客服用的只读稳定入口：按对象引用或未入库名称与关注问题做最大深度 0/1 的受限一跳查读；邻居模型步骤只对已核验根证据提名，不选工具、不扩大范围、不写事实。checkpoint 由服务端保存并可续查；手动新增资料须重新预览确认。 |
 | 角色原文许可 | CharacterKnowledge + 精确 EvidenceLink | character 视角引用原文须有截止点前 canonical/full 的 `known_content` 与精确原文一致，并由 active 精确 EvidenceLink 绑定该字段；缺少证明时保留已知 metadata、省略原文，固定来源无法证明则 blocker。该许可不等于完整知识边界审查，coverage 明示 `not_performed`。 |
-| 统一地图 | `map_atlas_nodes` / `map_atlas_revisions`，以及既有图片 run/page/annotation | 区域、城市、街区、街道四级空间结构（`cover → world → region → city → district → street → interior`，默认最深到街道）的空间示意、底图和配图；空间图元、来源与生成身份追加写入并由数据库 trigger 禁止原地修改，写入比较 `base_revision_id`、冲突 409；底图三锚点仿射校准只改图片展示、不改空间位置。版本可恢复，不作为时间化世界事实。 |
+| 统一地图 | `map_atlas_nodes` / `map_atlas_revisions`，以及既有图片 run/page/annotation | 区域、城市、街区、街道与显式创建的室内结构（`cover → world → region → city → district → street → interior`，默认最深到街道）的空间示意、底图和配图；空间图元、来源与生成身份追加写入并由数据库 trigger 禁止原地修改，写入比较 `base_revision_id`、冲突 409；底图三锚点仿射校准只改图片展示、不改空间位置。版本可恢复，不作为时间化世界事实。 |
 
 地图册经既有 generation-background operation `world.map_atlas.generate` 取得 author-full 的
 canonical world background，并以 RAG `map_atlas` purpose 补充已确认正文和 Scene。工作稿仅在
@@ -234,9 +234,16 @@ ADR-0027 的 Assistant 工作项与调查成果是有界私有 checkpoint；Worl
 
 新增业务模块 `collaboration` 持有目标、授权、不可变试改与精确采用回执；
 `assistant` 持有短期前瞻和处置，`story` / `interaction` 持有观察及分支事实。
-继续复用原 PostgreSQL 队列、Evidence 与 Project 连接。
+当前共十二个业务模块（含 Evolution 契约层与本机 Agent 设备模块），继续复用原 PostgreSQL 队列、Evidence 与 Project 连接。
 模块职责与采用/恢复边界见 `docs/modules/21_collaboration.md`、
 `backend/modules/collaboration/README.md`，前瞻见 `docs/modules/20_assistant.md`。
+
+## 本机 Agent 执行器
+
+`local_agent` 持有作品绑定的设备、逐次本机运行授权和调用回执；它不是世界事实或
+作品模型连接的 owner。Project 保留默认执行器选择，Assistant/Interaction/协作等
+领域保留各自的任务与正式写入权。Mac CLI 本地文件变化只属于作者主机；进入产品的
+资料和修改仍经过 Evidence、owner/`novel_id`、确认、来源与事务门禁。
 
 作者“编辑约定”是 Project 内作者确认的版本化意图，不是 World 正史；“交给编辑看”是
 Writing 某一已保存工作稿的完成标记，不改变 published/canonical 状态；“编辑意见”由

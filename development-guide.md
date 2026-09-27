@@ -6,6 +6,11 @@ AI 长篇小说结构化创作引擎 (AI Novel Structural Engine) v2.0 — a str
 
 ## Agent instruction sources
 
+本地实际运行 BGE 检索须安装运行 extra；CI 精简环境不能代替可体验的应用环境。
+隔离演示可用 `UV_PROJECT_ENVIRONMENT=<独立目录> uv --directory backend sync --locked --extra dev`
+安装独立运行环境；不要对正在运行的共享虚拟环境执行会卸载运行依赖的 CI 同步。
+应用与 worker 应从同一代码版本启动，显式核对 `DATABASE_URL`，并先备份真实演示库。
+
 `AGENTS.md` is the only shared coding-agent contract. Read the repository root file and the nearest
 directory-local `AGENTS.md`, then the target module README. `CLAUDE.md` files only import the adjacent
 `AGENTS.md` for Claude Code; they are not a second architecture or command reference.
@@ -402,3 +407,12 @@ INTERACTION_FORECAST_ENABLED。FORECAST_PROJECT_ALLOWLIST 可先限定测试作�
 FORECAST_DISABLED_CAPABILITIES / CREATIVE_DISABLED_RECIPES 可按能力/配方暂停。
 API 与 worker 使用相同 Compose runtime 环境。回退不降级表、不撤回作者已确认修改；
 在途结果仍经当前权限、来源与开关重验。
+
+## 本机 Agent CLI 开发
+
+本机 CLI 伴随程序由作品设置页下载为 `novelcraft-agent.pyz`，需 Python 3 与所选 CLI
+已在作者 Mac 的 PATH 内；`pair` 使用一次性码，`run` 保持出站轮询。Codex 当前登录
+默认模型不可用时可在启动前设置 `NOVELCRAFT_CODEX_MODEL`；Pi 可用
+`NOVELCRAFT_PI_MODEL`，不修改项目账户连接。
+项目选择默认 gateway；本机执行需每个根 task 单独确认，离线不回退。开发时用本任务
+专用测试项目与 PostgreSQL 库，不把真实作品或本机 CLI 登录态放入服务端镜像。

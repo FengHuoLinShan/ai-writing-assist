@@ -436,8 +436,9 @@ ping 告警。operation lock 持有时 runtime 的无 ping skip 是预期行为�
 9. 一个真实账户在设置页完成文本与图片连接验证；首次付费生图另行确认权限和额度，验收记录和日志不保存 Key、请求正文或用户内容。
 
 公开演示默认关闭。启用前在 mode-0600 `deploy/.env.production` 设置固定的
-`PUBLIC_DEMO_PROJECT_ID`、`PUBLIC_DEMO_VERSION` 与 `PUBLIC_DEMO_RP_SOURCE_REVISION_ID`，并先在专用
-demo 数据库运行 `python scripts/freeze_public_demo_rp_source.py --project-id <id>` dry-run；确认后用
+`PUBLIC_DEMO_PROJECT_ID`、`PUBLIC_DEMO_VERSION` 与 `PUBLIC_DEMO_RP_SOURCE_REVISION_ID`。
+可选的 `PUBLIC_DEMO_MAP_NODE_ID` 用于匿名地图首次打开时定位已审核节点；未设置则按地图册顺序。
+先在专用 demo 数据库运行 `python scripts/freeze_public_demo_rp_source.py --project-id <id>` dry-run；确认后用
 `--execute` 物化/复用 ready revision。`PUBLIC_DEMO_RP_ENABLED=true` 不保存或提供 provider Key：每次
 匿名 RP 仅在前台请求中由体验者临时提交 Key。
 

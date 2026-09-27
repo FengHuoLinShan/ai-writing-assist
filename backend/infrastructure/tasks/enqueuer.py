@@ -80,6 +80,10 @@ def _new_task(
             raise ValueError("project-scoped tasks require a novel_id")
         if definition.owner_scope == "global" and task_novel_id is not None:
             raise ValueError("global tasks must not have a novel_id")
+    recovery_policy = definition.recovery_policy if definition else "restart_origin"
+    max_attempts = definition.max_attempts if definition else 1
+    if task_meta.get("_local_agent"):
+        recovery_policy, max_attempts = "never_retry", 1
     return AsyncTask(
         id=task_id or uuid.uuid4(),
         task_type=task_type,
@@ -87,8 +91,8 @@ def _new_task(
         novel_id=task_novel_id,
         meta=task_meta,
         progress=progress,
-        recovery_policy=(definition.recovery_policy if definition else "restart_origin"),
-        max_attempts=definition.max_attempts if definition else 1,
+        recovery_policy=recovery_policy,
+        max_attempts=max_attempts,
         attempt=0,
         coalescing_key=coalescing_key,
     )

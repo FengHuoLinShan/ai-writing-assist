@@ -535,8 +535,10 @@ class InteractionAgentRun:
             > capability.hard_input_tokens
         ):
             raise InteractionContextBudgetError("Prepared story exceeds verified context")
-        self.budget.reserve(requests=1)
-        await self.checkpoint()
+        local_cli = bool(getattr(client, "is_local_agent", False))
+        if not local_cli:
+            self.budget.reserve(requests=1)
+            await self.checkpoint()
         usage = None
         stream_opened = False
         request_released = False
@@ -552,14 +554,14 @@ class InteractionAgentRun:
                         usage = chunk.usage
                     yield chunk
         except AIRunEnvelopeError:
-            if not stream_opened:
+            if not stream_opened and not local_cli:
                 # 流从未打开：信封在 provider I/O 前拒绝建流，回滚兼容账本的
                 # 请求预留，不把这次拒绝当成未知用量的真实请求。
                 request_released = True
                 self.budget.release_pending_request()
             raise
         finally:
-            if not request_released:
+            if not request_released and not local_cli:
                 self.budget.add_usage(usage)
             # A cancelled worker no longer owns the lease. The reservation was
             # already saved with pending usage before provider I/O.

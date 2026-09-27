@@ -144,7 +144,7 @@ map / rag / outline / settings / project-settings`，其主 DOM 全部由 Vue SF
 | `vue/views/world/WorldView.vue` / `vue/views/world/{library,pages}/` | `world` 路由（Vue island）；可见子导航只有资料库/关系/需要决定。`world/bible` 首页展示最近使用、收藏、继续编辑、主题目录与按类型筛选 chips；结果页由服务端统一列表 `/api/world/library` 驱动（Page 合并其工作稿、独立工作稿与已采用对象，默认 50 项分页、紧凑列表默认），cards/list、搜索、形态、类型、状态、主题、排序与 `skip` 写 URL，服务端列表失败时回退客户端合并卡片。主题目录支持嵌套/改名/归档/排序与多主题引用，工作稿发布时服务端转换目录引用；桌面为粘性目录导航，760px 以下为抽屉。收藏与最近访问经工作区接口持久化，未归类资料始终可从目录找到。World 子页经通用 shell slot 把动态工具卡 Teleport 到一级侧栏；健康、页面未决项和更多类型使用 Vue 模态焦点边界，移动端改为页面内工具入口。统一创建先分具体对象与资料页；对象类型必选，人物详情按需编辑现有 Character 简单字段，名称/别名仍由 CoreEntity 管理。Entity 深链、关联资产、滚动恢复和人物/页面未保存离开门禁保持不变。旧 `objects/aliases` 查询规范化，原对象库图片/批量/回滚/人物认知从次级工具继续可达，review 旧深链仍定位统一工作台。对象搜索保留服务端别名/隐藏资料命中，局部失败可原位重试；760px 以下单栏且主要操作至少 44px。高风险保存、发布、采用和忽略不只放在侧栏；关联图独立在 `world/pages/WorldBibleKnowledgeGraph.vue` |
 | `vue/views/map/MapWorkspaceView.vue` | AI 地图册一级工作台：一键生成/更新、本次候选、已采用画廊、来源分类、冲突确认、停止恢复、图片编辑与标注。 |
 | `vue/views/outline/OutlineView.vue` | `outline` 的 Vue island 主视图；顶层为“故事总览、篇章、剧情线、场景”。故事总览的 AI 生成弹窗优先显示三项作者问题并渐进展开参考资料；AI 预览与 `?edit=1` 手工页共用结构化重复项编辑器，两类未采用修改都按项目本机恢复；提交仍适配原 wire payload，版本历史不可原地改写 |
-| `vue/views/scene/SceneWorkbenchView.vue` | 由 `outline/scenes` 承载的 Scene 普通/热点双模式、管理筛选、当前剧情定位、拆分/合并/替换、复核与自动提取整理；旧 `scene` 路由仅作兼容重定向 |
+| `vue/views/scene/SceneWorkbenchView.vue` | 由 `outline/scenes` 承载的 Scene 普通/热点双模式、管理筛选、当前剧情定位、拆分/合并/替换、复核与自动提取整理；有来源绑定配图的 Scene 详情通过 `SceneVisual` 读取固定 World 图片版本，版本更新后提示重新核对；旧 `scene` 路由仅作兼容重定向 |
 | `vue/views/rag/RagView.vue` | `rag` 路由（Vue island）；普通路径只显示查找。资料未准备好时提供“查看并修复”，修复范围、状态与任务进度直接可见；后台连接、语义匹配耗时、检索记录和失败片段重试等低频信息收在诊断详情中，异常只给作者可执行的重试或联系管理员路径 |
 | `vue/views/generate/GenerateView.vue` / `vue/components/OwnerAiDrawer.vue` | owner 页 AI 抽屉内复用生成中心：world 共创与 POV 正文都使用表单内唯一主操作，长等待显示真实阶段，失败可聚焦原位重试并保留作者输入；任务资料按作者语言展示标题、状态、加入理由和来源，技术诊断渐进展开，预览按项目在当前标签页恢复；POV 选择/指令进入既有 512 KiB 项目会话，跨世界/写作 owner 时替换到正确所属页；矮窗口解除裁切，手机操作避开固定底栏；保留 checkpoint、continuation、target 与 preset，API/schema/wire 不变；旧 `generate` hash 仅作兼容重定向 |
 | `vue/views/settings/SettingsShellView.vue` / `GlobalSettingsView.vue` / `ProjectSettingsView.vue` | `settings` 与 `project-settings` 共用单标题的账户/当前作品设置外壳；加载失败可原位重试，字段错误和保存状态持续可见，图片连接按需展开，窄屏单栏且无横向溢出；账户级连接、余额、全局偏好和项目级导入参数/作者偏好的 API、保存载荷与离开保护不变，字体和专注模式只在显示层本地化 |
@@ -547,6 +547,8 @@ map / rag / outline / settings / project-settings`，其主 DOM 全部由 Vue SF
 `map` 路由继续由同一 Vue island 承载。`MapStructureEditor` 在当前节点中提供空间 SVG、
 底图和地点配图，原图片参考与审核仍在相同画布区域切换。新建地图不要求图片或文本连接；
 结构生成只要求项目文本连接。编辑支持控制点、键盘替代、撤销、服务器 CAS、本机备份和版本比较。
+公开演示地图发起新 RP 时由 router 进入 `demo-rp`；登录作者沿用 `journeys/new`，匿名路由白名单不扩大。
+公开演示配置的可选地图节点只填首次导航的 `node_id`，已有地点深链保持优先；地图仍经项目范围读取门禁。
 图片设置与历史渐进展开，已完成图片任务在正式地图视图不占主要空间。“专注看图”隐藏查证与编辑工具，保留画布、定位和返回编辑入口。
 
 阅读预览只渲染专用服务端响应，并经独立图片预览接口读取获准图片；不将作者响应隐藏几个
@@ -653,6 +655,13 @@ Writing 资料栏及 ProjectAssistant 使用 ForecastDock；输入法 compositio
 CreativeExperiments / CreativeTrialEditor 支持原文对照、手动试改、版本检查、冲突选择与
 精确采用；未知提交持久化原操作身份。RP 的 InteractionForecast 只预填用户输入。
 RP 文字草稿与输入类型、人物/私语范围一起存储，失败保留；实际发送仍由作者点击。
+
+## 本机 Agent 入口
+
+作品设置的 AI 能力页可下载单文件 Mac 伴随程序、生成十分钟配对码、查看设备在线状态、
+选择五种 CLI 或恢复账户模型连接。助手与已登录 RP 在每次 pending 根任务显示本机
+文件/命令权限说明和确认按钮；前瞻、协作与后台检查可在设置页待确认清单处理。
+离线时保持等待；失败后可查看本项目已见文本回执并显式发起新任务。匿名 RP 不显示入口。
 
 跨域确认（创作试验 merge 与助手 batch decide）成功后清除相关应用缓存代次，阻止旧 GET 回填；写作台使用带编辑修订校验的原安全载入路径显示采用后的新工作稿，未保存输入仍保留。
 

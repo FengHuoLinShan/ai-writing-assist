@@ -1217,11 +1217,11 @@ describe("api.js request headers", () => {
       blob: async () => image,
     }))
 
-    await expect(window.api.world.fetchEntityImage("entity-1", "novel-1", "thumbnail"))
+    await expect(window.api.world.fetchEntityImage("entity-1", "novel-1", "thumbnail", { expectedVersion: "version-1" }))
       .resolves.toBe(image)
 
     const [url, init] = globalThis.fetch.mock.calls[0]
-    expect(url).toBe("/api/world/entities/entity-1/image?novel_id=novel-1&variant=thumbnail")
+    expect(url).toBe("/api/world/entities/entity-1/image?novel_id=novel-1&variant=thumbnail&expected_version=version-1")
     expect(init.cache).toBe("no-store")
   })
 

@@ -2101,6 +2101,27 @@ def test_complete_json_recovers_literal_invalid_escapes_without_changing_valid_o
     assert _StructuredPayload.model_validate(data).value == data["value"]
 
 
+def test_complete_json_repairs_one_mismatched_closer_only_after_schema_validation():
+    from infrastructure.llm.client import _parse_structured_json, _StructuredParseError
+
+    broken = '{"items":[{"value":"one"}}}'
+    data, strategy = _parse_structured_json(
+        broken, _StructuredItemsPayload, allow_truncated_recovery=True
+    )
+    assert strategy == "single_mismatched_closer"
+    assert _StructuredItemsPayload.model_validate(data).items[0].value == "one"
+    with pytest.raises(_StructuredParseError):
+        _parse_structured_json(
+            broken, _StructuredItemsPayload, allow_truncated_recovery=False
+        )
+    with pytest.raises(_StructuredParseError):
+        _parse_structured_json(
+            '{"items":[{"value":"one"}}}',
+            _StructuredPayload,
+            allow_truncated_recovery=True,
+        )
+
+
 @pytest.mark.parametrize(
     "text,recover",
     [

@@ -2,7 +2,7 @@ export const emptyMap = () => ({ schema_version: 1, layout_version: 1, features:
 export const copyMap = value => JSON.parse(JSON.stringify(value))
 export const pointsAttribute = points => points.map(point => `${point.x},${point.y}`).join(" ")
 export const mapRelationLabels = { inside: "位于区域内", north: "在北侧", south: "在南侧", east: "在东侧", west: "在西侧", northeast: "在东北", northwest: "在西北", southeast: "在东南", southwest: "在西南", adjacent: "相邻", connects: "有已知道路连接", passes_through: "路线经过", along_street: "位于这条街上", entrance_to: "是此处的入口", faces: "朝向此处" }
-export const structureLevels = ['region', 'city', 'district', 'street']
+export const structureLevels = ['region', 'city', 'district', 'street', 'interior']
 
 export function mapSourceRangeKey(ref) {
   const fields = ['draft_id', 'chapter_index', 'version_number', 'content_mode', 'start_offset', 'end_offset', 'source_hash', 'range_hash']

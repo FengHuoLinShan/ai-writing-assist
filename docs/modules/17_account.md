@@ -15,7 +15,8 @@
 邮箱与微信是互斥的主身份，不自动绑定。同一个人用两种方式会得到两个独立账号。
 
 部署可配置一个公开演示项目。`GET /api/auth/config` 的 `demo` 仅在配置项目 UUID 与版本有效时
-返回启用状态；未登录的 `?demo=1` 请求由服务端绑定严格的 `demo_readonly` principal，而非
+返回启用状态；可选 `PUBLIC_DEMO_MAP_NODE_ID` 解析为 UUID 后作为首选地图定位参数，仍由地图 API 校验项目归属。
+未登录的 `?demo=1` 请求由服务端绑定严格的 `demo_readonly` principal，而非
 信任浏览器 header。该 principal 只可读取配置项目的核心工作台和显式允许的检索 POST，不能
 读取账号/凭据、助手、任务、Prompt 模板、检索轨迹、上下文快照或其他项目，也不能写入。
 作者 `workspace-summary` 不对演示 principal 开放；公开首页仅消费 Writing 返回的 `published` 章节投影。

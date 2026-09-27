@@ -277,6 +277,7 @@ class InteractionSourceService:
         *,
         project_id: str,
         execute: bool,
+        refresh_existing: bool = False,
     ) -> tuple[InteractionSourceRevision, bool]:
         """Build one ready revision from already-validated author data only.
 
@@ -319,7 +320,7 @@ class InteractionSourceService:
             owner_id=owner_id,
             manifest_hash=manifest_hash,
         )
-        if existing is not None:
+        if existing is not None and not refresh_existing:
             if existing.status != "ready" or not existing.fingerprint:
                 raise ConflictError("同一正文版本的资料尚未完整冻结")
             await self.validate_frozen_source_candidate(
@@ -372,12 +373,25 @@ class InteractionSourceService:
             raise ConflictError("作品仍有需要人工确认的人物或别名")
         if not anchors or not references:
             raise ConflictError("作品缺少可冻结的剧情锚点或对象资料")
+        # Anchor keys contain revision identity; compare their actual source content.
+        if existing is not None and existing.status == "ready":
+
+            def anchor_content(values):
+                return [
+                    {key: value for key, value in item.items() if key != "anchor_key"}
+                    for item in values
+                ]
+
+            if references == existing.reference_manifest and anchor_content(
+                anchors
+            ) == anchor_content(existing.anchor_manifest):
+                return existing, False
         revision.reference_manifest = references
         revision.anchor_manifest = anchors
         self._set_fingerprint(revision)
         revision.ready_at = datetime.now(UTC)
         revision.readiness_summary = {
-            "message": "作品资料已完整冻结，可以用于公开演示",
+            "message": "作品资料已冻结，可以选择进入位置",
             "chapter_count": len(manifest),
             "scene_count": scene_coverage.scene_count,
             "reference_count": len(references),
@@ -386,6 +400,20 @@ class InteractionSourceService:
             db.add(revision)
             await db.flush()
         return revision, execute
+
+    async def refresh_references(
+        self, db: AsyncSession, revision_id: str
+    ) -> InteractionSourceRevisionResponse:
+        previous = await self._owned_revision(db, revision_id)
+        project_id = str(previous.source_novel_id)
+        await self.require_author_project(db, project_id)
+        await require_active_project_exclusive(db, project_id)
+        # Refresh is a no-model operation over already-complete source assets.
+        await self.validate_frozen_source_candidate(db, revision_id=revision_id)
+        revision, _created = await self.materialize_frozen_source_candidate(
+            db, project_id=project_id, execute=True, refresh_existing=True
+        )
+        return await self._response(db, revision)
 
     def _prepare_setup_for_revision(
         self,
@@ -1158,7 +1186,6 @@ class InteractionSourceService:
             statuses=("canonical", "draft", "candidate", "conflicted"),
             limit=10_000,
         )
-        entities = [item for item in entities if str(item["id"]) in appearances]
         terms = await list_entity_terms(
             db,
             source_id,
@@ -1166,6 +1193,30 @@ class InteractionSourceService:
             include_review=True,
         )
         term_by_id = {str(item["id"]): item for item in terms}
+        identity_sources = {}
+        for entity in entities:
+            identity = str(entity["id"])
+            if (
+                identity not in appearances
+                and term_by_id.get(identity, {}).get("status") == "canonical"
+            ):
+                sources = await self._curated_identity_sources(
+                    db,
+                    source_id=source_id,
+                    entity_id=identity,
+                    frozen_sources=frozen_sources,
+                )
+                if sources:
+                    identity_sources[identity] = sources
+                    positions = {}
+                    for source in sources:
+                        chapter, end = source["chapter_index"], source["end_offset"]
+                        positions[chapter] = min(positions.get(chapter, end), end)
+                    appearances[identity] = [
+                        {"chapter_index": chapter, "first_end_offset": end}
+                        for chapter, end in sorted(positions.items())
+                    ]
+        entities = [item for item in entities if str(item["id"]) in appearances]
         ids = [str(item["id"]) for item in entities]
         if not ids:
             return [], []
@@ -1245,6 +1296,7 @@ class InteractionSourceService:
                     else None
                 ),
                 "knowledge": knowledge_by_entity.get(entity_id, []),
+                "identity_source_refs": identity_sources.get(entity_id, []),
             }
             references.append(item)
             for value in [item["label"], *aliases]:
@@ -1321,6 +1373,52 @@ class InteractionSourceService:
                 }
             )
         return references, ambiguities
+
+    @staticmethod
+    async def _curated_identity_sources(
+        db: AsyncSession,
+        *,
+        source_id: str,
+        entity_id: str,
+        frozen_sources: dict[str, tuple[str, int]],
+    ) -> list[dict]:
+        """Admit manually identified objects only through re-read identity evidence."""
+        trace = await trace_novel_evidence(
+            db,
+            novel_id=source_id,
+            target_ref={
+                "target_type": "core_entity",
+                "target_id": entity_id,
+                "target_path": "name",
+            },
+            claim_path="name",
+            visibility=VisibilityContextContract(mode="author"),
+            content_mode="canonical",
+        )
+        sources = []
+        for link in trace.get("links") or []:
+            if (
+                link.get("status") != "active"
+                or not link.get("read")
+                or (link.get("provenance") or {}).get("source") != "curated"
+            ):
+                continue
+            source = link.get("source_ref") or {}
+            if source.get("content_mode") != "canonical":
+                continue
+            chapter = source.get("chapter_index")
+            end = source.get("end_offset")
+            if (
+                not isinstance(chapter, int)
+                or not isinstance(end, int)
+                or end <= 0
+                or frozen_sources.get(str(source.get("draft_id")))
+                != (source.get("source_hash"), chapter)
+            ):
+                continue
+            if source not in sources:
+                sources.append(dict(source))
+        return sources
 
     @staticmethod
     async def _relation_evidence_chapter(
