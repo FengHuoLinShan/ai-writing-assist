@@ -389,10 +389,12 @@ async def test_reading_worker_persists_recovery_without_resampling(
         assert completed.result["attempt_id"] == attempt_id
     async with sessions() as db:
         state = (await workflow.reading_status(db, nid, key))["run"]
-        assert (
-            state["status"] == ("needs_budget" if phase == "preparation" else "completed")
-            and state["budget_remaining"] == 0
-        )
+        # Recovery finishes the interrupted step; the next stage (Scene reading
+        # after preparation, default structure after the Scene prefix) waits for
+        # budget instead of sampling beyond the authorized limit.
+        assert state["status"] == "needs_budget" and state["budget_remaining"] == 0
+        assert state["completed_scenes"] == (0 if phase == "preparation" else 1)
+        assert state["preparing_structure"] is (phase != "preparation")
         assert state["budget_total"] == call_limit
         if phase == "preparation":
             stored = await PostgresAttemptStore(db, nid).load_run(key)
