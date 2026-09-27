@@ -6,7 +6,7 @@ import platform
 from time import perf_counter
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, insert, select
+from sqlalchemy import func, insert, select, text
 
 from infrastructure.llm.providers import OpenAIProvider
 from infrastructure.tasks.models import AsyncTask
@@ -30,6 +30,10 @@ async def test_saved_writing_feed_under_retained_history_load(
 ):
     db, nid = db_session, test_project_id
     settings_on(monkeypatch)
+
+    async def analyze(*models):
+        tables = ", ".join(model.__tablename__ for model in models)
+        await db.execute(text(f"ANALYZE {tables}"))
 
     async def forbidden_provider(*args, **kwargs):
         raise AssertionError("Feed/enqueue must never call the provider")
@@ -119,28 +123,41 @@ async def test_saved_writing_feed_under_retained_history_load(
             for value in run_ids
         ],
     )
-    for start in range(1, 20000, 500):
-        values = [
-            {
-                **template,
-                "id": uuid4(),
-                "run_id": run_ids[index // 64],
-                "ordinal": index % 64,
-                "issue_key": template["issue_key"]
-                if index % 500 == 0
-                else f"synthetic-issue-{index % 500}",
-            }
-            for index in range(start, min(start + 500, 20000))
-        ]
-        await db.execute(insert(ForecastCandidate), values)
+    candidates = [
+        {
+            **template,
+            "id": uuid4(),
+            "run_id": run_ids[index // 64],
+            "ordinal": index % 64,
+            "issue_key": template["issue_key"]
+            if index % 500 == 0
+            else f"synthetic-issue-{index % 500}",
+        }
+        for index in range(1, 20000)
+    ]
+    for start in range(0, len(candidates), 500):
+        await db.execute(insert(ForecastCandidate), candidates[start : start + 500])
+    # A just-vacuumed empty table plans cached foreign-key checks as sequential
+    # scans, which makes this seed quadratic; production autovacuum keeps
+    # statistics current, so measure the feed with analyzed tables as well.
+    await analyze(ForecastCandidate)
+    for start in range(0, len(candidates), 500):
         await db.execute(
             insert(ForecastDependency),
             [
                 {**dependency, "candidate_id": row["id"]}
-                for row in values
+                for row in candidates[start : start + 500]
                 for dependency in dependencies
             ],
         )
+    await analyze(
+        WritingDraft,
+        Scene,
+        CoreEntity,
+        AssistantRun,
+        ForecastCandidate,
+        ForecastDependency,
+    )
     await db.commit()
     before = await db.scalar(select(func.count()).select_from(AsyncTask))
     feed_times, enqueue_times = [], []
