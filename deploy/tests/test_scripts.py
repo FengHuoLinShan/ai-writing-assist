@@ -312,6 +312,16 @@ def test_runtime_auth_mode_is_shared_by_api_and_worker() -> None:
     assert "environment: *runtime-environment" in api_and_services
 
 
+def test_public_demo_map_node_reaches_api() -> None:
+    compose = yaml.safe_load(
+        (DEPLOY_ROOT / "compose.production.yml").read_text(encoding="utf-8")
+    )
+    assert (
+        compose["services"]["api"]["environment"]["PUBLIC_DEMO_MAP_NODE_ID"]
+        == "${PUBLIC_DEMO_MAP_NODE_ID:-}"
+    )
+
+
 def test_compose_uses_one_bounded_logging_extension_for_every_service() -> None:
     compose = (DEPLOY_ROOT / "compose.production.yml").read_text()
     extension, services_and_below = compose.split("x-runtime-environment:", maxsplit=1)
