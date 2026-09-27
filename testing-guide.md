@@ -85,7 +85,7 @@ Evidence indexing/compilation 回归集中在 `backend/modules/evidence/`；
 | `make audit-frontend-deps` | Audit `frontend-console/package-lock.json`; fail only on high/critical dependency advisories | npm registry/advisory data |
 | `npm --prefix frontend-console run lint` | Production JS, Vue SFC, Vitest, Playwright, and build-config correctness / Vue essential rules | Locked frontend dependencies; no formatting gate |
 | `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-e2e` | PostgreSQL/pgvector behavior | Explicit dedicated test database at Alembic head; fails fast if missing, non-dedicated, unavailable, or stale |
-| `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-postgresql-critical` | Serial merge-gate subset: fresh migration, isolation, uniqueness, CAS, advisory-lock races, and task run-envelope lease/terminal merge | Explicit dedicated PostgreSQL 17 + pgvector database at Alembic head; workers=1, retries=0 |
+| `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-postgresql-critical` | Serial merge-gate subset: fresh migration with an out-of-process `alembic check` ORM parity gate, isolation, uniqueness, CAS, advisory-lock races, and task run-envelope lease/terminal merge | Explicit dedicated PostgreSQL 17 + pgvector database at Alembic head; workers=1, retries=0 |
 | `RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv --directory backend run pytest tests/e2e/test_rp_source_versions.py -m e2e` | RP source revision 并发唯一性、历史 chunk 共存、来源删除门禁与 consumer snapshot 生命周期 | Dedicated PostgreSQL at Alembic head |
 | `RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_project_task_gate_concurrency.py -m "not real_llm and not external_data"` | Project delete vs atlas upload/cleanup race | Dedicated PostgreSQL at Alembic head |
 | `RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_task_coalescing_concurrency.py -m e2e` | Keyed coalescing and concurrent operation-receipt uniqueness | Dedicated PostgreSQL at Alembic head |
@@ -513,8 +513,10 @@ V2/前瞻离线质量工具：`python -m evals.creative_forecast corpus --output
 固定负载复验：`RUN_E2E_TESTS=1 E2E_DATABASE_URL=<本任务专用测试库> uv run --locked
 --extra ci -- pytest tests/e2e/test_forecast_performance.py -m 'not real_llm and not external_data'
 -q -s`（backend 目录）创建 300 章、1,500 Scene、5,000 对象、20,000 条保留评估，
-500 个当前事项；预热 3 次、测量 30 次。输出服务层（含 PostgreSQL，不含 HTTP）
-feed/入队 P95，断言无 Provider 调用、feed 无任务写入；事务回滚隔离所有合成资料。
+500 个当前事项；造数后 `ANALYZE` 所读表，预热 3 次、测量 30 次。输出服务层（含 PostgreSQL，
+不含 HTTP）feed/入队 P95，断言无 Provider 调用、feed 无任务写入；事务回滚隔离所有合成资料。
+feed 门禁在每个样本前执行 `gc.collect()`，只衡量 feed 自身；进程级全量 GC 停顿随整个
+测试进程堆增长，另以 `feed_p95_with_gc_ms` 记录、不作断言。
 这不代表生产高并发、20,000 个同时有效事项或文学质量验收。
 
 ## 本机 Agent CLI 验证
