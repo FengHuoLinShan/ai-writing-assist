@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -56,6 +59,18 @@ def _migration_config(monkeypatch, migration_url: URL) -> tuple[Config, set[str]
     expected_heads = set(ScriptDirectory.from_config(config).get_heads())
     assert len(expected_heads) == 1
     return config, expected_heads
+
+
+def _alembic_check() -> None:
+    """Autogenerate in a fresh process so only alembic/env.py registers models."""
+    result = subprocess.run(
+        [sys.executable, "-m", "alembic", "check"],
+        env={**os.environ, "APP_ENV": "test"},
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def _assert_current_schema(engine: Engine, expected_heads: set[str]) -> None:
@@ -188,6 +203,8 @@ def test_empty_postgresql_database_upgrades_from_base_to_head(
         command.upgrade(config, "head")
 
         _assert_current_schema(target_engine, expected_heads)
+        # Every model is registered in alembic/env.py and head matches the ORM.
+        _alembic_check()
 
 
 def test_old_dynamic_baseline_objects_do_not_break_upgrade(monkeypatch) -> None:
@@ -481,3 +498,85 @@ def test_account_llm_migration_removes_project_keys_in_postgresql(
             "provider_id": "deepseek",
             "model": "legacy-model",
         }
+
+
+def test_schema_drift_repair_cleans_orphans_and_backfills(monkeypatch) -> None:
+    with _disposable_database() as (migration_url, target_engine):
+        config, expected_heads = _migration_config(monkeypatch, migration_url)
+        command.upgrade(config, "20260927_guimi_editorial_merge")
+
+        owner_id, novel_id, card_id = uuid4(), uuid4(), uuid4()
+        kept_recent, orphan_recent = uuid4(), uuid4()
+        now = datetime.now(UTC)
+        with target_engine.begin() as connection:
+            metadata = MetaData()
+            tables = {
+                name: Table(name, metadata, autoload_with=connection)
+                for name in (
+                    "accounts",
+                    "projects",
+                    "world_library_recents",
+                    "story_character_cards",
+                )
+            }
+            connection.execute(
+                tables["accounts"].insert().values(
+                    id=owner_id,
+                    status="active",
+                    support_code=f"MIG-{owner_id.hex[:12]}",
+                )
+            )
+            connection.execute(
+                tables["projects"].insert().values(
+                    id=novel_id,
+                    owner_id=owner_id,
+                    title="Drift repair project",
+                    language="zh",
+                    default_reveal_policy="author_safe",
+                    settings={},
+                )
+            )
+            # The missing foreign key let recents outlive permanent deletion.
+            connection.execute(
+                tables["world_library_recents"].insert(),
+                [
+                    {
+                        "id": recent_id,
+                        "novel_id": project_id,
+                        "target_kind": "entity",
+                        "target_id": uuid4(),
+                        "last_opened_at": now,
+                    }
+                    for recent_id, project_id in (
+                        (kept_recent, novel_id),
+                        (orphan_recent, uuid4()),
+                    )
+                ],
+            )
+            connection.execute(
+                tables["story_character_cards"].insert().values(
+                    id=card_id,
+                    novel_id=novel_id,
+                    scene_id=uuid4(),
+                    character_id=uuid4(),
+                    created_at=None,
+                    updated_at=now,
+                )
+            )
+
+        command.upgrade(config, "head")
+
+        _assert_current_schema(target_engine, expected_heads)
+        with target_engine.connect() as connection:
+            recents = set(
+                connection.execute(
+                    text("SELECT id FROM world_library_recents")
+                ).scalars()
+            )
+            created_at = connection.execute(
+                text("SELECT created_at FROM story_character_cards WHERE id = :id"),
+                {"id": card_id},
+            ).scalar_one()
+        assert recents == {kept_recent}
+        assert created_at == now
+        _alembic_check()

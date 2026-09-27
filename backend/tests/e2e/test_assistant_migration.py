@@ -213,7 +213,7 @@ async def test_legacy_discussion_identity_outcomes_and_pagination_survive_upgrad
         await migrate("head")
         async with engine.connect() as connection:
             after_drift = await connection.run_sync(_schema_drift)
-        assert not [item for item in after_drift if item["assistant_owned"]]
+        assert after_drift == []
         async with sessions() as db:
             assert (
                 await db.scalar(select(func.count()).select_from(AssistantSession)) == 1
@@ -248,8 +248,7 @@ async def test_legacy_discussion_identity_outcomes_and_pagination_survive_upgrad
                     "checkpoint_and_outcome_links_preserved": True,
                     "history_pagination": "passed",
                     "project_isolation": "passed",
-                    "new_assistant_schema_drift": [],
-                    "unrelated_head_schema_drift": after_drift,
+                    "head_schema_drift": [],
                     "scope": "schema upgrade and discussion recovery",
                 },
                 ensure_ascii=False,
