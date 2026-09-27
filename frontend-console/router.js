@@ -455,6 +455,19 @@ function _normalizeRoute({ projectId = null, viewName = "project", subView = nul
 
   if (
     globalThis.publicDemoMode
+    && targetView === "journeys"
+    && targetSubView === "new"
+    && globalThis.publicDemoConfig?.rp_enabled
+    && targetQuery.get("project_id") === globalThis.publicDemoConfig.project_id
+  ) {
+    targetView = "demo-rp"
+    targetSubView = null
+    targetQuery = new URLSearchParams()
+    route = routes["demo-rp"]
+  }
+
+  if (
+    globalThis.publicDemoMode
     && (
       !PUBLIC_DEMO_ROUTES.has(targetView)
       || (targetView === "demo-rp" && !globalThis.publicDemoConfig?.rp_enabled)

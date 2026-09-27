@@ -842,6 +842,29 @@ describe("route guard and normalization", () => {
     expect(content.textContent).toContain("journeys:new")
   })
 
+  it("opens the anonymous RP entry from its own demo map", async () => {
+    addWorkspace()
+    registerBasicView("demo-rp")
+    registerBasicView("writing")
+    globalThis.publicDemoMode = true
+    globalThis.publicDemoConfig = { project_id: "p1", rp_enabled: true }
+    state.currentProjectId = "p1"
+    try {
+      await window.router.navigate("journeys", "new", true, new URLSearchParams({ project_id: "p1" }))
+      expect(state.currentView).toBe("demo-rp")
+      expect(window.location.hash).toBe("#demo-rp")
+
+      await window.router.navigate("journeys", "new", true, new URLSearchParams({ project_id: "other" }))
+      expect(state.currentView).toBe("writing")
+      globalThis.publicDemoConfig.rp_enabled = false
+      await window.router.navigate("journeys", "new", true, new URLSearchParams({ project_id: "p1" }))
+      expect(state.currentView).toBe("writing")
+    } finally {
+      globalThis.publicDemoMode = false
+      globalThis.publicDemoConfig = null
+    }
+  })
+
   it("replace shares route normalization and canLeave while preserving history length", async () => {
     addWorkspace()
     const canLeave = vi.fn(() => true)
