@@ -3,7 +3,7 @@ id: T-20260923-guimi-flagship
 title: 现有 guimi 旗舰演示增量升级
 status: active
 created: 2026-09-23T02:57:27+08:00
-updated: 2026-09-24T08:16:00+08:00
+updated: 2026-09-27T18:00:00+09:00
 ---
 
 ## 目标与验收
@@ -20,7 +20,14 @@ updated: 2026-09-24T08:16:00+08:00
 - 私有数据/媒体/基线位置 /Users/tywww/.codex/artifacts/guimi-flagship-20260923，禁止提交原文、数据库、媒体私有材料和凭据。
 - 实查两个backend/.env均指向ai_novel_acceptance_guimi。目标项目937c86f1-a2c3-4db5-963d-f3181095f339，owner零UUID有效active，author，标题诡秘之主·廷根篇；原TXT导入记录795b949a-6d9e-4706-ab0c-70ac210175fe，60/60 done。主开发库同ID是另一份演示项目，不能混用。
 
-## 最新检查点（2026-09-24 06:02 CST，以此为准）
+## 最新检查点（2026-09-27 JST，以此为准）
+
+- 原项目最新run `reading-044af422-0b84-4b8f-af83-57f8a54d00b6` 已完成66/66 Scene，到第60章，最终task `ebd46cb0-2b97-4a81-a64b-fcf85cb5a726` done；RAG重标注task `a095d38b-1225-41fc-8be3-d42e2f28cf91` done。私有只读审计 `evolution-60/audit-final-66.json`：2754观察、6隔离引文、40 World refs、471待决定，World审查4通过/43容量延后/1抽取延后/18其他阻断。原60条正文全字段摘要与动工前线上快照一致。617付费调用，612已结算、5真实用量未知按预留上界记账，保守USD10.1015487；禁止重试旧未知费用请求。代理验收不等于作者人工试用或文学质量证明。
+- 本地guimi已增量关联13张正式World图、34份项目媒体及5张共用v3冻结资料的RP开局卡；第1—15章做过代理回读，核心第14—15章Scene/卡/剧本/故事线精修，其他章节大量World候选和64/66 Scene作者审核仍待处理，不能称全书精修完毕。
+- 私有最终项目包 `evolution-60/guimi-final-project-20260924.json.gz` 对真实线上快照迁移的隔离库已跑`check/apply/verify`，125项目表校验、38变动表4278行，其他项目摘要保持原值；媒体包34件逐件校验并在隔离项目前缀回读。2026-09-27 `check-source`重查125表零漂移。生产尚未写入。源包和线上基线不可跳过再核，正式同步前要备份、停业务写入。
+- PR #170在`codex/guimi-flagship-integration`，旧HEAD `4b6688de5` 的11项CI曾全绿；2026-09-27 `origin/main=3bf9141d6` 已合并其他PR，使#170冲突，正在整合、复测，**未合并、未部署、未线上同步**。生产检出b5a3ef2e与部署状态文件的legacy SHA另有差异，发布前必须按release脚本状态审查。下一步完成主干整合/必要门禁及PR评审；再依已授权发布固定main SHA、项目级同步与在线代理验收。不得直接提交main或整库替换。
+
+## 较早检查点（2026-09-24 06:02 CST）
 
 - 第14—15章按原文代理精修Scene五字段、克莱恩视角、`agent_proxy`审核标记，两库apply/repeat且原正文版本/hash未变；作者界面未复核66→64、缺设定42→40，两个Scene已采用。第14章3张、第15章2张人物卡与两份可编辑原文复盘剧本通过Story facade在两库apply/repeat，浏览器实查第14章三卡与剧本区；剧本仍是可编辑草稿，未冒充作者亲自采用。两个现有canonical故事线已增量关联戴莉/邓恩/韦尔奇住所并留逐字来源，未新造平行主线。戴莉肖像v1因符号状脸颊痕迹拒绝、v2目视合格并上传原项目World图，回读全图/缩图；私有清单已记录。
 - Scene改动正确使前一Evolution run `reading-e68...` 标记`source_stale`，失效起点index13；旧66份回执不删。`revise`因正文/Scene span未变化而409，零费用`scoped_recompute`预览显示继承前13场、重算53场、无准备窗口。新run `reading-3e011044-12a5-4706-a464-91ff74e7c4e2`已开始，task `aeca714d-c4e0-4a24-b490-d42e8e748dde`，私有`evolution-follow.py`会话33803正在串行跑最多53场，**勿重复领取/重启**。首场done后账本累计保守USD6.3374034；原run已不应称当前完成，直到新run 66/66并审计。模型请求仍经原共享Meter/flock，unknown不重试。
@@ -214,3 +221,11 @@ RP开局目录已实现但未完成原项目数据与UI验收：新增models.Int
 - 私有项目级同步工具 `evolution-60/project_bundle.py` 已在隔离库完成完整36变动表/3368行交易导入及只读verify，并对模拟真实非零 owner 目标通过。最终源尚未冻结。新建隔离基线 `ai_novel_guimi_final_baseline_e2e_20260924`，从线上一致的动工前备份副本克隆并迁移到当前head，保留未导入状态以待最终包检查。原库和线上其他项目没有被此工具改动。
 - 私有媒体工具 `evolution-60/media_bundle.py` 从本地正常MinIO导出 guimi 前缀34件/18.4MB，回读逐件校验；另在同存储的隔离随机项目路径复制地图和World图各一件，目标verify后清理测试对象。应用凭据不能创建新bucket，故不把新bucket试验当作成功；项目路径复制已证实。线上目前只有只读 SSH 检查：`/opt/ai-writing-assist` detached HEAD与release state均为`b5a3ef2e...`。仍未发布、未同步数据或媒体。
 - 下一步：等串行run完成后审计66份跨run回执、原60章草稿和费用；处理本地剩余挂起RAG任务，生成最终项目包并在隔离基线复验；完成PR评审/检查后按授权合并、固定SHA发布，再受控同步guimi项目级数据及媒体，线上代理验收正常账户/匿名路径。READY=false，代理验收明确不是人工试用。
+
+## 2026-09-24 08:56 续接检查点（以此为准）
+
+- PR #170 最新推送 `4b6688de5` 的11项远端检查全绿，仍为draft；尚未合并。实际作者界面复核第14章已采用Scene、证据定位/禁项和真实图；RP入口可见5张均有实图的v3冻结资料开局卡。13个World实体有正式图（6人物、1物件、6地点）。
+- 后缀 run `reading-b9bc9757-fb5d-467e-8faa-72b124fa4b5a` 到52/66后第53场的World调用遇`LLMConnectionError`；call566真实用量未知，预留上限USD0.0959772按用户既有政策入账，保守总额USD9.1863816，私有账本备份在`evolution-60/paid-ledger-before-call566-resolution.json`；原hash被Meter拒绝重复。失败回执保留。新run `reading-044af422-0b84-4b8f-af83-57f8a54d00b6`继承前52份，指定任务`feef50e2-1273-45fb-bb5e-4d9b3779a9ba`由`evolution-follow.py` session45550串行续跑14场，勿二次领取或改运行检出代码。
+- 只读生产真实快照已私存`evolution-60/production-before-release-20260924.dump`，SHA256为`71a230e5551d4ffa9503a032f488d3ee3dc6a1780865212959c465ea375e418c`，文件600；线上当前Alembic`20260920_creative_recovery`，独立库`ai_novel_guimi_production_baseline_e2e_20260924`从真实快照恢复并迁移到目标head，与本地动工前迁移基线在125个guimi项目范围表完全一致。其克隆`ai_novel_guimi_production_apply_trial_e2e_20260924`用中途样本包完成36变动表事务导入/verify，其他项目125表摘要全未变。线上生产DB至今只读。
+- 图片工具已保留源对象的ContentType和S3 metadata，34件/约18.4MB归档回读正常；随机隔离项目路径各复制一件地图PNG与World WebP，字节及metadata校验通过并清理。线上私有只读挂载的应用UID999一次性容器入口也已验证，未导入正式图片。线上公开演示仍指向旧v1冻结资料，最终数据同步后需在mode600环境文件中指向本地5卡共用的v3 revision，并提升`PUBLIC_DEMO_VERSION`；现有账号有已验证DeepSeek连接。所有演示/作者开关已开，Authing微信按部署文档待扫码验收而关闭。
+- 下一步：收session45550；若新请求命中call566原hash，Meter应在发送前拒绝，不绕过；完成后执行唯一挂起的`rag_reannotate_entities`任务，做66回执/原稿/账本审计，再冻结最终项目及媒体包并在真实生产快照隔离克隆复验。READY=false，PR、发布和线上写入仍未执行。
