@@ -128,7 +128,9 @@ async def test_agent_runs_read_only_review_without_confirmation_or_extra_budget(
     async def review_provider(_provider, request):
         model_calls.append(request)
         if world_review:
-            material = json.loads(request.messages[-1].content)
+            material = json.loads(
+                next(m.content for m in reversed(request.messages) if m.role == "user")
+            )
             context = material["targets"][0]["review_context"]
             assert context["review_mode"] == "world_constraints"
             assert "铜门只能从内侧打开" in str(context["world_evidence"])
