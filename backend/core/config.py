@@ -542,6 +542,9 @@ class Settings:
     public_demo_project_id: str = field(
         default_factory=lambda: _env("PUBLIC_DEMO_PROJECT_ID", "")
     )
+    public_demo_map_node_id: str = field(
+        default_factory=lambda: _env("PUBLIC_DEMO_MAP_NODE_ID", "")
+    )
     public_demo_version: str = field(
         default_factory=lambda: _env("PUBLIC_DEMO_VERSION", "")
     )

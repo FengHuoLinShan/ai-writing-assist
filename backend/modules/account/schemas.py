@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 class PublicDemoConfigResponse(BaseModel):
     enabled: bool = False
     project_id: str | None = None
+    map_node_id: str | None = None
     version: str | None = None
     rp_enabled: bool = False
 

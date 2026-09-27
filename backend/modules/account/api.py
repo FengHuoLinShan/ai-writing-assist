@@ -117,6 +117,7 @@ async def auth_config() -> AuthConfigResponse:
         demo=PublicDemoConfigResponse(
             enabled=demo.enabled,
             project_id=str(demo.project_id) if demo.project_id else None,
+            map_node_id=str(demo.map_node_id) if demo.map_node_id else None,
             version=demo.version,
             rp_enabled=demo.rp_enabled,
         ),
