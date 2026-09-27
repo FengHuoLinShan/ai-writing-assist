@@ -13,7 +13,8 @@ from pathlib import Path
 import pytest
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
-from sqlalchemy import func, select, text
+from sqlalchemy import column as sa_column
+from sqlalchemy import func, insert, inspect, select, table, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -32,6 +33,9 @@ from modules.world.models.worldbuilding import CreationSuggestion
 from tests.e2e.config import require_e2e_database_url
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
+
+LEGACY_REVISION = "20260910_world_review_phase4"
+TARGET_REVISION = "20260911_assistant_runtime"
 
 
 def _schema_drift(connection):
@@ -56,8 +60,11 @@ def _schema_drift(connection):
     for group in differences:
         for difference in group if isinstance(group, list) else [group]:
             kind = difference[0]
+            detail = re.sub(r" at 0x[0-9a-fA-F]+", "", repr(difference))
             if kind in {"add_table", "remove_table"}:
                 table, name = difference[1].name, ""
+                # Table reprs list composite foreign keys in set order.
+                detail = f"{kind} {table}"
             elif kind in {"add_column", "remove_column"}:
                 table, name = difference[2], difference[3].name
             elif kind.startswith("modify_"):
@@ -78,10 +85,31 @@ def _schema_drift(connection):
                     "name": name,
                     "kind": kind,
                     "assistant_owned": owned,
-                    "detail": re.sub(r" at 0x[0-9a-fA-F]+", "", repr(difference)),
+                    "detail": detail,
                 }
             )
     return sorted(records, key=lambda item: json.dumps(item, sort_keys=True))
+
+
+async def _insert_legacy(db, model, **values):
+    """Insert through the frozen legacy columns; later ORM columns do not exist yet."""
+    legacy = await db.run_sync(
+        lambda session: {
+            column["name"]
+            for column in inspect(session.connection()).get_columns(model.__tablename__)
+        }
+    )
+    row = {}
+    for column in model.__table__.columns:
+        if column.name not in legacy:
+            continue
+        if column.key in values:
+            row[column.name] = values[column.key]
+        elif column.default is not None:
+            default = column.default.arg
+            row[column.name] = default(None) if column.default.is_callable else default
+    columns = [sa_column(name, model.__table__.c[name].type) for name in row]
+    await db.execute(insert(table(model.__tablename__, *columns)).values(row))
 
 
 async def test_legacy_discussion_identity_outcomes_and_pagination_survive_upgrade():
@@ -113,7 +141,7 @@ async def test_legacy_discussion_identity_outcomes_and_pagination_survive_upgrad
         async with admin.connect() as connection:
             await connection.execute(text(f'CREATE DATABASE "{database}"'))
         created = True
-        await migrate("20260910_world_review_phase4")
+        await migrate(LEGACY_REVISION)
         async with engine.connect() as connection:
             before_drift = await connection.run_sync(_schema_drift)
         async with sessions.begin() as db:
@@ -121,61 +149,71 @@ async def test_legacy_discussion_identity_outcomes_and_pagination_survive_upgrad
                 await db.scalar(text("SELECT to_regclass('public.assistant_runs')"))
                 is None
             )
-            db.add(
-                Account(
-                    id=owner, status="active", support_code="migration-" + owner.hex[:14]
-                )
+            await _insert_legacy(
+                db,
+                Account,
+                id=owner,
+                status="active",
+                support_code="migration-" + owner.hex[:14],
             )
-            await db.flush()
-            db.add(Project(id=novel, owner_id=owner, title="Synthetic legacy discussion"))
-            await db.flush()
-            db.add(
-                CreationSuggestion(
-                    id=checkpoint_id,
-                    novel_id=novel,
-                    source_module="world",
-                    review_group="world_adoption",
-                    target_type="world_design_checkpoint",
-                    payload_json={"schema_version": "world_design_checkpoint.v1"},
-                    evidence_refs_json=[],
-                    risk_level="low",
-                    status="pending",
-                )
+            await _insert_legacy(
+                db, Project, id=novel, owner_id=owner, title="Synthetic legacy discussion"
             )
-            db.add(
-                AssistantSession(
-                    id=session_id,
-                    novel_id=novel,
-                    title="保留原共创身份",
-                    source_kind="project",
-                    workflow_preset="world_core",
-                    current_checkpoint_id=checkpoint_id,
-                )
+            await _insert_legacy(
+                db,
+                CreationSuggestion,
+                id=checkpoint_id,
+                novel_id=novel,
+                source_module="world",
+                review_group="world_adoption",
+                target_type="world_design_checkpoint",
+                payload_json={"schema_version": "world_design_checkpoint.v1"},
+                evidence_refs_json=[],
+                risk_level="low",
+                status="pending",
             )
-            await db.flush()
+            await _insert_legacy(
+                db,
+                AssistantSession,
+                id=session_id,
+                novel_id=novel,
+                title="保留原共创身份",
+                source_kind="project",
+                workflow_preset="world_core",
+                current_checkpoint_id=checkpoint_id,
+            )
             origin = datetime(2026, 9, 1, tzinfo=UTC)
-            db.add_all(
-                [
-                    AssistantMessage(
-                        id=message_id,
-                        novel_id=novel,
-                        session_id=session_id,
-                        role="author" if index % 2 == 0 else "assistant",
-                        content=f"旧讨论第{index + 1}条",
-                        created_at=origin + timedelta(seconds=index),
-                        outcome_suggestion_id=checkpoint_id if index == 41 else None,
-                        outcome_kind="world_design_checkpoint" if index == 41 else None,
-                    )
-                    for index, message_id in enumerate(message_ids)
-                ]
+            for index, message_id in enumerate(message_ids):
+                await _insert_legacy(
+                    db,
+                    AssistantMessage,
+                    id=message_id,
+                    novel_id=novel,
+                    session_id=session_id,
+                    role="author" if index % 2 == 0 else "assistant",
+                    content=f"旧讨论第{index + 1}条",
+                    created_at=origin + timedelta(seconds=index),
+                    outcome_suggestion_id=checkpoint_id if index == 41 else None,
+                    outcome_kind="world_design_checkpoint" if index == 41 else None,
+                )
+        await migrate(TARGET_REVISION)
+        async with engine.connect() as connection:
+            target_drift = await connection.run_sync(_schema_drift)
+            tables = await connection.scalar(
+                text(
+                    "SELECT count(*) FROM pg_tables WHERE schemaname='public' "
+                    "AND tablename LIKE 'assistant_%'"
+                )
             )
+        assert tables == 4
+        # The assistant runtime migration leaves every non-assistant object as-is.
+        assert [item for item in target_drift if not item["assistant_owned"]] == [
+            item for item in before_drift if not item["assistant_owned"]
+        ]
         await migrate("head")
         async with engine.connect() as connection:
             after_drift = await connection.run_sync(_schema_drift)
         assert not [item for item in after_drift if item["assistant_owned"]]
-        assert [
-            item for item in before_drift if not item["assistant_owned"]
-        ] == after_drift
         async with sessions() as db:
             assert (
                 await db.scalar(select(func.count()).select_from(AssistantSession)) == 1
@@ -197,27 +235,21 @@ async def test_legacy_discussion_identity_outcomes_and_pagination_survive_upgrad
             ]
             with pytest.raises(NotFoundError, match="not found"):
                 await service.get_detail(db, str(uuid.uuid4()), str(session_id))
-            tables = await db.scalar(
-                text(
-                    "SELECT count(*) FROM pg_tables WHERE schemaname='public' "
-                    "AND tablename LIKE 'assistant_%'"
-                )
-            )
-            assert tables == 4
         artifact = Path(".test-artifacts/assistant-migration.json")
         artifact.parent.mkdir(exist_ok=True)
         artifact.write_text(
             json.dumps(
                 {
-                    "legacy_revision": "20260910_world_review_phase4",
-                    "target_revision": "20260911_assistant_runtime",
+                    "legacy_revision": LEGACY_REVISION,
+                    "target_revision": TARGET_REVISION,
+                    "final_revision": "head",
                     "sessions_preserved": 1,
                     "messages_preserved": 43,
                     "checkpoint_and_outcome_links_preserved": True,
                     "history_pagination": "passed",
                     "project_isolation": "passed",
-                    "new_schema_drift": [],
-                    "unchanged_legacy_schema_drift": after_drift,
+                    "new_assistant_schema_drift": [],
+                    "unrelated_head_schema_drift": after_drift,
                     "scope": "schema upgrade and discussion recovery",
                 },
                 ensure_ascii=False,
