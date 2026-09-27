@@ -1,5 +1,21 @@
 export const RP_OPENING_DRAFT_KEY = "novel_rp_opening_draft"
 const seeSeaGraceTimers = new Map()
+const openingKeys = new Map()
+
+export function openingOperationKey(openingId) {
+  const storageKey = `novel_rp_opening_operation:${openingId}`
+  let key = openingKeys.get(openingId)
+  try { key ||= globalThis.sessionStorage?.getItem(storageKey) } catch {}
+  key ||= interactionOperationKey('opening')
+  openingKeys.set(openingId, key)
+  try { globalThis.sessionStorage?.setItem(storageKey, key) } catch {}
+  return key
+}
+
+export function clearOpeningOperation(openingId) {
+  openingKeys.delete(openingId)
+  try { globalThis.sessionStorage?.removeItem(`novel_rp_opening_operation:${openingId}`) } catch {}
+}
 
 function journeyKey(kind, journeyId) {
   return `novel_rp_${kind}:${journeyId}`

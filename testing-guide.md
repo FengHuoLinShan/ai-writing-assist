@@ -43,6 +43,10 @@ BM25/MCP 用例会 skip；完整离线验收须另外执行该目标。报告保
 
 ## Per-Module Tests (every module)
 
+RP 同正文资料刷新须验证 owner 隔离、正文/索引/Scene 就绪门禁、精确来源回读、旧冻结行与旅程
+不变、无修改时幂等，以及新版引用按章内截止点过滤。SQLite 定向测试之外，迁移及同正文多版本
+必须在专用 PostgreSQL 副本验证；真实项目增量实施前先备份，不通过删除旧版本恢复唯一约束。
+
 Three layers:
 - **Repository**: basic CRUD, not found, empty update, pagination
 - **Service**: business logic happy path, exception paths (not found → 404, invalid UUID → 422)

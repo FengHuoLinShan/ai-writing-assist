@@ -3072,6 +3072,27 @@ describe("二期：资料页阅读态", () => {
     expect(labels[1]).toContain("不可用引用")
   })
 
+  it("标出代理精修并回读当前正文引文", async () => {
+    const bible = readerBible()
+    const sourceRef = { draft_id: "draft-source", chapter_index: 11, range_hash: "a".repeat(64), content_mode: "canonical" }
+    bible.pages[0].page_meta_json = {
+      acceptance: "代理精修，非人工试用",
+      source_citations: [{ quote: "原文引句", source_ref: sourceRef }],
+    }
+    const readEvidence = vi.fn(async () => ({ title: "第11章", text: "前文原文引句后文", highlight_start: 2, highlight_end: 6 }))
+    globalThis.api.context.readEvidence = readEvidence
+    const wrapper = await mountReader(bible)
+    expect(wrapper.get(".world-page-reader__acceptance").text()).toContain("非人工试用")
+    expect(wrapper.get(".world-page-reader__sources").text()).toContain("第 11 章")
+    await wrapper.get(".world-page-reader__sources button").trigger("click")
+    await vi.waitFor(() => expect(wrapper.get(".world-page-reader__sources blockquote").text()).toBe("前文原文引句后文"))
+    expect(readEvidence).toHaveBeenCalledWith(expect.objectContaining({ novel_id: "p1", source_ref: sourceRef }))
+    readEvidence.mockResolvedValueOnce({ text: "正文已变化", highlight_start: 0, highlight_end: 2 })
+    await wrapper.get(".world-page-reader__sources button").trigger("click")
+    await vi.waitFor(() => expect(wrapper.get(".world-page-reader__sources [role='alert']").text()).toContain("不一致"))
+    expect(wrapper.find(".world-page-reader__sources blockquote").exists()).toBe(false)
+  })
+
   it("阅读/编辑切换：编辑后完成编辑会冲刷自动保存并回到阅读态", async () => {
     const updateDraft = vi.fn(async (_id, payload) => ({
       id: "draft-flush", page_id: "page-1", title: payload.title, page_type: payload.page_type,

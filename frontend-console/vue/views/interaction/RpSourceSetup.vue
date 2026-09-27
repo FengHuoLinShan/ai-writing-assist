@@ -363,6 +363,24 @@ function requestOrganize(event) {
   organizeConfirmOpen.value = true
 }
 
+async function refreshReferences() {
+  if (loading.value || revision.value?.status !== 'ready') return
+  const projectId = selectedProjectId.value
+  const revisionId = revision.value.id
+  const generation = invalidateSourceRequests()
+  loading.value = true; error.value = ''
+  try {
+    const updated = await getApi().interactions.refreshSource(revisionId)
+    if (!sourceRequestIsCurrent(generation, { projectId }) || updated?.project_id !== projectId) return
+    revision.value = updated
+    syncRevisionDefaults()
+  } catch (requestError) {
+    if (sourceRequestIsCurrent(generation, { projectId })) reportError(requestError?.message || '资料刷新未完成，已有版本仍可使用。')
+  } finally {
+    if (sourceRequestIsCurrent(generation, { projectId })) loading.value = false
+  }
+}
+
 function confirmOrganize() {
   organizeConfirmOpen.value = false
   void organizeSelectedProject()
@@ -768,6 +786,10 @@ onBeforeUnmount(() => {
         <button v-if="revision.status === 'failed'" type="button" @click="requestOrganize">
           重新开始完整整理
         </button>
+        <div v-if="revision.status === 'ready'">
+          <button type="button" :disabled="loading || disabled" @click="refreshReferences">{{ loading ? '正在核对资料…' : '更新已整理的作品资料' }}</button>
+          <p>核对已保存的人物、对象与场景后冻结新版本，不调用模型。已有旅程继续使用原版本。</p>
+        </div>
 
         <section v-if="revision.status === 'needs_confirmation'" class="rp-source-ambiguities">
           <h3>确认关键指代</h3>

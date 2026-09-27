@@ -20,6 +20,7 @@ import logging
 import math
 import multiprocessing as mp
 import os
+import queue
 import threading
 import time
 
@@ -359,7 +360,19 @@ class BgeOnnxWorker:
             self._process.start()
 
             # Cold starts may need to verify or download the configured model.
-            ready_id, backend = result_queue.get(timeout=self._startup_timeout)
+            deadline = time.monotonic() + self._startup_timeout
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise queue.Empty
+                try:
+                    ready_id, backend = result_queue.get(timeout=min(1.0, remaining))
+                    break
+                except queue.Empty:
+                    if not self._process_is_alive(self._process):
+                        raise RuntimeError(
+                            "BGE worker exited during initialization"
+                        ) from None
             if ready_id == "__ready__":
                 self._healthy = True
                 logger.info(

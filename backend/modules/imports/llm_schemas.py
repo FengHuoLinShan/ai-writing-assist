@@ -717,6 +717,17 @@ class Phase2bRelationObservation(BaseModel):
     evidence_quotes: list[str] = Field(..., min_length=1)
     confidence: float = Field(..., ge=0.0, le=1.0)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_identical_redundant_type(cls, value: Any) -> Any:
+        if (
+            isinstance(value, dict)
+            and "type" in value
+            and value["type"] == value.get("relation_type")
+        ):
+            return {key: item for key, item in value.items() if key != "type"}
+        return value
+
     @field_validator("strength", "confidence", mode="before")
     @classmethod
     def _normalize_scores(cls, value: Any, info: ValidationInfo) -> float | None:
@@ -842,6 +853,24 @@ class Phase2aEntityObservation(BaseModel):
         list[str],
     ] = Field(default_factory=dict)
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _quarantine_unmatched_existing_identity(cls, value: Any) -> Any:
+        if (
+            isinstance(value, dict)
+            and value.get("identity_disposition") == "existing"
+            and not str(value.get("matched_existing_ref") or "").strip()
+        ):
+            return {
+                **value,
+                "identity_disposition": "uncertain",
+                "uncertainties": [
+                    *_coerce_string_list(value.get("uncertainties")),
+                    "model_existing_without_matched_ref",
+                ],
+            }
+        return value
 
     @field_validator("entity_type", mode="before")
     @classmethod

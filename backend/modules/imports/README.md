@@ -533,6 +533,10 @@ Evolution 经 facade 复用 Phase2a/Phase2b 的纯请求、schema、引文物化
 根预算、冻结 provider 请求和顺序屏障归 Evolution。strict persistence 传播数据库错误，
 既有对象只追加身份字段证据，新描述留提案；新资产全部 candidate，不自动转正史。
 所有新候选的 `evolution_ref` 随对象/别名/关系保存，采用时由 World 回读真实回执来源。
+模型把对象标成 existing 却未给 `matched_existing_ref` 时，schema 将该项降为
+uncertain 并注明原因；物化层忽略其身份写入、保留待核对项，不猜配到同名对象。
+关系输出多给 `type` 时，仅其值与 `relation_type` 完全相同才移除冗余字段；
+两者冲突或其他额外字段仍由严格 schema 拒绝。
 
 World v2 的本场新对象使用 Evolution 冻结的候选 UUID；本批同类型同名的新对象保持
 身份竞争。关系持久化返回本次实际创建记录的快照，由 Evolution 与回执原子保存，

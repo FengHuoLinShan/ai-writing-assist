@@ -19,6 +19,10 @@ interaction 为 `我是 RP 用户` 路径保存私人互动故事。用户可直
 歧义确认后开始。作品不必完结。RP 故事、回顾与原创玩家身份仍只写隐藏 interaction
 项目，不写回作者正文、World 或 Story。
 
+已就绪作品可经 `POST /api/interactions/sources/{revision_id}/refresh` 更新已整理资料：owner
+校验和项目写锁下重验正文、索引与 Scene 覆盖，不调用模型；资料未变复用版本，变化则追加
+新的对象目录和锚点版本。同一正文 manifest 可对应多份不可变资料，现有旅程保持旧绑定。
+
 每个旅程独占一个 `project_kind=interaction` 的隐藏项目。`novel_id + owner_id` 是隔离根；
 作者项目 API 只接受 `author`，interaction API 只接受 `interaction`。
 
@@ -104,12 +108,23 @@ tail，也不依赖静默截头。只有通过真实 provider 校准的新模型
 source-bound attempt 额外经 Evidence 编译最多 16K 的版本化原作参考块。RAG 候选在排序前
 就按 source manifest 排除其他草稿版本，每个命中再从 Writing 历史 draft 回读并校验
 hash/offset。章节上界和章内 offset 是硬边界；原作玩家再受该版本冻结的 CharacterKnowledge
-约束。对象目录只接受 exact manifest chunk 证明的出场并冻结首次出场章和最早完整 chunk
-end offset；身份、搜索、固定和激活都按截止点过滤。激活理由只由代码生成为
+约束。对象目录接受 exact manifest chunk 证明的出场，或已采用对象名称身份的人工精修
+EvidenceLink（`curated`）经原文回读并匹配同一 canonical draft/hash/章的出场，冻结首次出场
+章和最早完整 chunk／精确引文 end offset；身份、搜索、固定和激活都按截止点过滤。激活理由只由代码生成为
 “玩家身份/已固定/本轮提到/原文片段关联/相关关系”。
+精修身份的 `identity_source_refs` 随资料版本冻结，生成时按同一 draft/hash 精确回读；原作角色
+只能复用本轮人物检索已准入的范围。固定项的验证原文也计入必需预算，不能只保留名称而省略证据。
 必需固定项失效、超预算、来源归档或 epoch 漂移时失败关闭，不退回模型知识。
 
 ## 前端
+
+作品可保存可复用的 RP 开局目录：`/api/interactions/openings` 按当前 owner 与作品列出，
+`PUT /openings/{id}` 保存固定来源、截止点、玩家身份和开场指令，更新受 CAS 保护。
+`POST /openings/{id}/start` 复用现有旅程创建和幂等键；浏览器在当前会话保存未确定创建的键，
+刷新或返回后重试仍继续同一次创建。地图提供就地入口，项目参数带入目录；自行设定入口仍保留。
+开局图绑定已登场对象及审核过的图片版本，由 owner 门禁下的图片接口回读，版本替换后失效，
+不自动展示新图片。开局内容属于作者或代理整理，模型实际回应不在目录中预置。
+此目录属于正常账户作品管理，匿名体验仍遵守独立的公开来源白名单与能力限制。
 
 首页提供 `我是作家` 和 `我是 RP 用户` 两个大框。新旅程保留直接开场，并增加可选的
 “使用作品资料”向导：已有作品/导入新作、可离开的整理进度、按需歧义卡、章节+剧情点+自然

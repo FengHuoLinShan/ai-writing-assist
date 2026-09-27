@@ -210,6 +210,39 @@ def _load_json_with_literal_backslashes(candidate: str) -> Any:
     return json.loads(candidate)
 
 
+def _single_mismatched_closer(candidate: str) -> str | None:
+    """Correct one bracket typo only when the complete container shape is known."""
+    chars = list(candidate.strip())
+    stack: list[str] = []
+    mismatch = False
+    in_string = False
+    escape = False
+    for index, char in enumerate(chars):
+        if escape:
+            escape = False
+            continue
+        if char == "\\" and in_string:
+            escape = True
+            continue
+        if char == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if char in "{[":
+            stack.append("}" if char == "{" else "]")
+        elif char in "}]":
+            if not stack:
+                return None
+            expected = stack.pop()
+            if char != expected:
+                if mismatch:
+                    return None
+                chars[index] = expected
+                mismatch = True
+    return "".join(chars) if mismatch and not stack and not in_string else None
+
+
 def _balanced_json_candidate(candidate: str) -> str | None:
     """Close missing object/array brackets when a response is only lightly clipped."""
 
@@ -289,6 +322,17 @@ def _parse_structured_json(
                     ), "escaped_invalid_backslashes"
                 except json.JSONDecodeError as repair_error:
                     last_error = repair_error
+            if allow_truncated_recovery:
+                repaired = _single_mismatched_closer(candidate)
+                if repaired is not None:
+                    try:
+                        data = _wrap_bare_list_for_schema(
+                            _load_json_candidate(repaired), schema
+                        )
+                        schema.model_validate(data)
+                        return data, "single_mismatched_closer"
+                    except (json.JSONDecodeError, ValidationError):
+                        pass
 
     if allow_truncated_recovery:
         for start in (first_brace, first_bracket):

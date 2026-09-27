@@ -3025,12 +3025,14 @@ async def get_entity_image(
     *,
     novel_id: ActiveNovelIdQuery,
     variant: Literal["thumbnail", "full"] = Query(default="thumbnail"),
+    expected_version: uuid.UUID | None = Query(default=None),
 ) -> Response:
     payload = await _entity_image_service.get(
         db,
         novel_id=novel_id,
         entity_id=entity_id,
         variant=variant,
+        expected_version=str(expected_version) if expected_version else None,
     )
     return Response(
         payload,

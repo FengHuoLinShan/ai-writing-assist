@@ -57,7 +57,33 @@ def runtime_protocol(payload: dict) -> dict:
 
 def resolve_operations(manifest: dict) -> dict[str, AssistantOperation]:
     current = operation_manifest()
-    if any(current.get(name) != value for name, value in manifest.items()):
+    # The map node level schema only widened to add "interior". Old frozen
+    # runs remain safe: every value they could supply still validates. Pin
+    # both hashes so any later schema change fails closed again.
+    compatible_map_node = (
+        {
+            "schema_hash": (
+                "afb6aa06a68c39a27026fc50565cdc87"
+                "d72e266e569b362d95fdd23a428c2bc8"
+            ),
+            "revision": "1",
+        },
+        {
+            "schema_hash": (
+                "061686f1c3f683f833a391f1515de6fe"
+                "a596a0403a38f357390d53b5bc54e5e7"
+            ),
+            "revision": "1",
+        },
+    )
+    if any(
+        current.get(name) != value
+        and not (
+            name == "map.create_node"
+            and (value, current.get(name)) == compatible_map_node
+        )
+        for name, value in manifest.items()
+    ):
         raise ConflictError(
             "本次运行需要的工具版本不可用，请重新提交", code="assistant_runtime_changed"
         )

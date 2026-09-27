@@ -266,7 +266,10 @@ version、Prompt contract version、来源数量和包含完整上下文的输�
 `import-context-v3` 会使旧 checkpoint 按 fail-safe 只重跑受影响单元；v3 不把输入预算用于裁剪
 Scene 正文，且不向身份候选发送 summary/public_info。身份只能引用 `entity-xxx`，逐字证据、引用存在性与类型一致性由确定性
 materializer 校验；可见 SceneSpan 不精确或覆盖不完整时不发送部分正文。模型输出不包含持久化动作或审核状态，provider 调用期间不持有数据库事务。Phase 2b
-在其后执行全局别名/关系 reconciliation，不回写早期 Scene 的可见性语义。DeepSeek 下 Phase 2a/2b 普通模式使用 `high` reasoning，高质量模式使用 `max`；Phase 2b 单调用默认超时 120 秒，高质量模式有效超时翻倍。
+在其后执行全局别名/关系 reconciliation，不回写早期 Scene 的可见性语义。Evolution 复用
+该抽取契约时，标为 existing 却缺 `matched_existing_ref` 的候选保留为 uncertain，不猜配到
+同名对象；关系输出的冗余 `type` 仅在与 `relation_type` 完全一致时移除，冲突仍拒绝。
+DeepSeek 下 Phase 2a/2b 普通模式使用 `high` reasoning，高质量模式使用 `max`；Phase 2b 单调用默认超时 120 秒，高质量模式有效超时翻倍。
 阶段内自动修复只重跑首轮失败 Scene ID；即使首轮新增 working 世界对象使上下文指纹变化，也不会重放已完成 Scene。修复 checkpoint 按 Scene ID 合并，不能用小范围修复结果覆盖整轮 checkpoint。
 
 Phase 1/2/3 的活跃 adapter 都使用上述冻结 project settings。
