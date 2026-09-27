@@ -848,6 +848,17 @@ const api = {
     recheckCareNotice: (novelId, noticeId, operationId) => post(withQuery(`/assistant/notices/${encodeURIComponent(noticeId)}/recheck`, { novel_id: novelId }), { operation_id: operationId }),
     decideCareNotice: (novelId, noticeId, disposition) => post(`/assistant/notices/${encodeURIComponent(noticeId)}/decide`, { novel_id: novelId, ...disposition }),
   },
+  localAgent: {
+    receipts: (novelId, taskId) => request(withQuery(`/local-agent/tasks/${taskId}/receipts`, { novel_id: novelId }), { cache: "no-store" }),
+    download: (novelId) => request(withQuery("/local-agent/companion/download", { novel_id: novelId }), { cache: "no-store", _responseType: "blob" }),
+    pending: (novelId) => request(withQuery("/local-agent/tasks/pending", { novel_id: novelId }), { cache: "no-store" }),
+    devices: (novelId) => request(withQuery("/local-agent/devices", { novel_id: novelId }), { cache: "no-store" }),
+    pair: (novelId, name) => post("/local-agent/devices/pair", { novel_id: novelId, name }),
+    revoke: (novelId, deviceId) => request(withQuery(`/local-agent/devices/${deviceId}`, { novel_id: novelId }), { method: "DELETE" }),
+    executor: (novelId) => request(withQuery("/local-agent/executor", { novel_id: novelId }), { cache: "no-store" }),
+    select: (novelId, kind, deviceId) => request("/local-agent/executor", { method: "PUT", body: JSON.stringify({ novel_id: novelId, kind, device_id: deviceId || null }) }),
+    approve: (novelId, taskId) => post(`/local-agent/tasks/${taskId}/approve`, { novel_id: novelId, acknowledge_full_host_access: true }),
+  },
   auth: {
     async config() {
       const config = await request("/auth/config", { cache: "no-store" })
@@ -1000,6 +1011,18 @@ const api = {
         onProgress,
         options,
       )
+    },
+    refreshSource(revisionId) {
+      return contractFetch("interactions.refreshSource", { revisionId })
+    },
+    listOpenings(params = {}) {
+      return contractFetch("interactions.listOpenings", {}, params, { cache: "no-store" })
+    },
+    fetchOpeningImage(openingId) {
+      return contractFetch("interactions.fetchOpeningImage", { openingId }, {}, { cache: "no-store", _responseType: "blob" })
+    },
+    startOpening(openingId, payload) {
+      return contractJson("interactions.startOpening", { openingId }, {}, payload)
     },
     sourceFromProject(payload) {
       return contractJson(
@@ -1395,11 +1418,12 @@ const api = {
     },
 
     async fetchEntityImage(id, novelId, variant = "full", options = {}) {
+      const { expectedVersion, ...requestOptions } = options
       return contractFetch(
         "world.fetchEntityImage",
         { id },
-        { novel_id: novelId, variant },
-        { cache: "no-store", _responseType: "blob", ...options },
+        { novel_id: novelId, variant, expected_version: expectedVersion },
+        { cache: "no-store", _responseType: "blob", ...requestOptions },
       )
     },
 

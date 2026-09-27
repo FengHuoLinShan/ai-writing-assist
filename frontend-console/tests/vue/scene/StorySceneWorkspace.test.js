@@ -52,6 +52,8 @@ describe("Story Scene workspace panels", () => {
   let router
   let tasks
   let toast
+  let assistant
+  let localAgent
 
   beforeEach(() => {
     confirmAiReference.mockReset()
@@ -86,6 +88,7 @@ describe("Story Scene workspace panels", () => {
       listSceneScripts: vi.fn().mockResolvedValue({ items: [], total: 0 }),
       listSceneScriptRevisions: vi.fn().mockResolvedValue([]),
       startOneClickTask: vi.fn(),
+      startRehearsal: vi.fn(),
       startReactionTask: vi.fn(),
       startScriptTask: vi.fn(),
       startCharacterCardTask: vi.fn(),
@@ -99,6 +102,11 @@ describe("Story Scene workspace panels", () => {
     }
     tasks = { get: vi.fn(), cancel: vi.fn() }
     toast = vi.fn()
+    assistant = { capabilities: vi.fn().mockResolvedValue({ rehearsal: { available: false } }) }
+    localAgent = {
+      pending: vi.fn().mockResolvedValue({ items: [] }),
+      approve: vi.fn().mockResolvedValue({ approved: true }),
+    }
     const api = {
       outline: {
         getSceneWorkbench: vi.fn().mockResolvedValue(payload),
@@ -107,6 +115,8 @@ describe("Story Scene workspace panels", () => {
       },
       world: { listEntities: vi.fn().mockResolvedValue({ items: [], total: 0 }) },
       story,
+      assistant,
+      localAgent,
       tasks,
       imports: { startStage: vi.fn() },
     }
@@ -208,6 +218,47 @@ describe("Story Scene workspace panels", () => {
 
     expect(wrapper.get(".scene-character-card__facts").text()).toContain("带伤潜伏")
     expect(wrapper.get(".scene-character-card__facts").text()).not.toContain("active")
+  })
+
+  it("resolves saved card names and keeps hidden card fields when editing", async () => {
+    const original = {
+      version: "character_card.v1",
+      personality: "谨慎",
+      current_goal: "找到入口",
+      knowledge: ["只知道入口位置"],
+      behavior_constraints: ["不泄露暗号"],
+    }
+    story.getSceneContext.mockResolvedValue({
+      character_cards: [{ id: "card-1", character_id: "c1", current_revision_id: "rev-1", revision: { id: "rev-1", content: original } }],
+      script_files: [],
+    })
+    story.saveCharacterCard.mockResolvedValue({
+      id: "card-1", character_id: "c1", current_revision_id: "rev-2",
+      revision: { id: "rev-2", content: { ...original, current_goal: "安全离开" } },
+    })
+    setBridgeOverrides({ api: {
+      outline: { getSceneWorkbench: vi.fn().mockResolvedValue(payload), listFusionSuggestions: vi.fn().mockResolvedValue({ items: [] }), updateScene: vi.fn() },
+      world: { listEntities: vi.fn().mockResolvedValue({ items: [{ id: "c1", name: "阿遥" }], total: 1 }) },
+      story, tasks, imports: { startStage: vi.fn() },
+    }, state, router, toast, showModalHtml: vi.fn(), closeModal: vi.fn(), esc: (value) => String(value ?? "") })
+    createWrapper({ selectedSceneId: "s1" })
+    await wrapper.get('[data-action="scene-runtime-tab-characters"]').trigger("click")
+    await flushPromises()
+    expect(wrapper.get(".scene-character-card h3").text()).toBe("阿遥")
+    await wrapper.get('[data-action="edit-scene-character-c1"]').trigger("click")
+    await wrapper.get(".scene-character-card__editor input").setValue("安全离开")
+    await wrapper.get('[data-action="save-scene-character-card"]').trigger("click")
+    await flushPromises()
+    expect(story.saveCharacterCard.mock.calls[0][3].content).toEqual(expect.objectContaining({
+      current_goal: "安全离开",
+      knowledge: ["只知道入口位置"],
+      behavior_constraints: ["不泄露暗号"],
+    }))
+    expect(story.saveCharacterCard.mock.calls[0][3].source_manifest).toEqual({
+      derived_from_revision_id: "rev-1",
+      source_status: "requires_recheck_after_manual_edit",
+    })
+    expect(wrapper.get(".scene-character-card h3").text()).toBe("阿遥")
   })
 
   it("persists generated character-card provenance after the suggestion is applied", async () => {
@@ -432,6 +483,27 @@ describe("Story Scene workspace panels", () => {
       character_ids: ["c1"],
     }))
     expect(wrapper.find(".scene-reaction-card").exists()).toBe(false)
+  })
+
+  it("confirms host access for a paired scene rehearsal task", async () => {
+    assistant.capabilities.mockResolvedValue({ rehearsal: { available: true } })
+    story.getSceneContext.mockResolvedValue({
+      character_cards: [{ character_id: "c1", name: "阿遥", content: { personality: "谨慎" } }],
+      script_files: [],
+    })
+    story.startRehearsal.mockResolvedValue({ task_id: "rehearsal-1", status: "pending" })
+    localAgent.pending.mockResolvedValue({ items: [{ task_id: "rehearsal-1" }] })
+    const confirm = vi.fn(() => true)
+    setBridgeOverrides({ confirm })
+    createWrapper()
+    await wrapper.get('[data-action="select-workbench-scene"]').trigger("click")
+    await wrapper.get('[data-action="scene-runtime-tab-simulation"]').trigger("click")
+    await flushPromises()
+    await wrapper.get(".scene-rehearsal button").trigger("click")
+    await flushPromises()
+
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("macOS 用户的文件与命令权限"))
+    expect(localAgent.approve).toHaveBeenCalledWith("p1", "rehearsal-1")
   })
 
   it("keeps a clear error and no fake reactions when the Story task is unavailable", async () => {

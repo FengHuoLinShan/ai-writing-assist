@@ -175,6 +175,13 @@ prepare 为一个具体选择创建独立子 run 与唯一 batch，重新校验�
   `submit` 载草稿后 `verify_selection_range` 逐字复核，漂移抛
   `assistant_selection_stale`（失败关闭，不带失真选区进模型）。
 
+## 本机 Agent 执行器
+
+项目设置可将 Agent 根任务冻结到配对 Mac 的 CLI。`assistant_turn`、语义前瞻和创作协作
+仍使用各自的任务、预算、Evidence 范围、候选及采用门禁；每个任务待作者确认本机权限后
+才可领取，设备离线时不回退到 gateway。助手运行投影只公开执行器种类与授权状态；
+失败/停止的本机可见输出通过项目授权回执读取，不当作正式领域成果。
+
 ## 作者编辑台
 
 `/api/assistant/editorial/*` 仅服务当前 owner 的作者项目。Project 持有作者确认的版本化

@@ -90,3 +90,21 @@ class InteractionStreamFramer:
             except (json.JSONDecodeError, TypeError, ValidationError):
                 metadata = None
         return trailing_visible, metadata, raw_metadata
+
+
+def frame_complete_story(content: str) -> tuple[str, InteractionResponseMetadata | None]:
+    """Use the stream's wire boundary for a one-shot repair response too."""
+
+    framer = InteractionStreamFramer()
+    visible = framer.feed(content)
+    trailing, metadata, _ = framer.finish()
+    return visible + trailing, metadata
+
+
+def visible_story_content(content: str) -> str:
+    """Project older immutable nodes with a valid leaked metadata tail."""
+
+    if META_START not in content or META_END not in content:
+        return content
+    visible, metadata = frame_complete_story(content)
+    return visible if metadata is not None else content

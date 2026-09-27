@@ -135,6 +135,22 @@ def test_world_object_bucket_does_not_fall_back_to_map_bucket(
         WorldObjectImageStorage(client=object())
 
 
+@pytest.mark.parametrize("mode", ["RGBA", "P"])
+def test_normalize_preserves_png_transparency_in_both_variants(mode: str) -> None:
+    source = Image.new("RGBA", (400, 400), (0, 0, 0, 0))
+    source.paste((140, 90, 50, 255), (100, 100, 300, 300))
+    if mode == "P":
+        source = source.convert("P", palette=Image.Palette.ADAPTIVE)
+    output = io.BytesIO()
+    source.save(output, format="PNG")
+    result = normalize_world_object_image(output.getvalue(), is_character=True)
+    for payload in (result.full, result.thumbnail):
+        with Image.open(io.BytesIO(payload)) as image:
+            assert image.mode == "RGBA"
+            assert image.getpixel((0, 0))[3] == 0
+            assert image.getpixel((image.width // 2, image.height // 2))[3] == 255
+
+
 @pytest.mark.asyncio
 async def test_upload_replace_read_and_cross_novel_isolation(
     db_session: AsyncSession,
@@ -168,6 +184,14 @@ async def test_upload_replace_read_and_cross_novel_isolation(
     )
     entity = await db_session.get(CoreEntity, uuid.UUID(test_entity_id))
     assert entity.image_version != first_version
+    with pytest.raises(NotFoundError, match="图片版本"):
+        await service.get(
+            db_session,
+            novel_id=test_project_id,
+            entity_id=test_entity_id,
+            variant="full",
+            expected_version=str(first_version),
+        )
     assert len(storage.objects) == 4
     assert (
         await delete_unreferenced_image_version(
@@ -350,14 +374,30 @@ async def test_authenticated_upload_and_read_api_contract(
     )
     assert uploaded.status_code == 200
     assert uploaded.json()["has_image"] is True
-    assert "image_version" not in uploaded.json()
+    assert (
+        str(uuid.UUID(uploaded.json()["image_version"]))
+        == uploaded.json()["image_version"]
+    )
+    assert "object_key" not in uploaded.json()
 
     fetched = await async_client.get(
         f"/api/world/entities/{test_entity_id}/image",
-        params={"novel_id": test_project_id, "variant": "full"},
+        params={
+            "novel_id": test_project_id,
+            "variant": "full",
+            "expected_version": uploaded.json()["image_version"],
+        },
     )
     assert fetched.status_code == 200
     assert fetched.headers["content-type"] == "image/webp"
     assert fetched.headers["cache-control"] == "private, no-store"
     with Image.open(io.BytesIO(fetched.content)) as image:
         assert image.format == "WEBP"
+    stale = await async_client.get(
+        f"/api/world/entities/{test_entity_id}/image",
+        params={
+            "novel_id": test_project_id,
+            "expected_version": str(uuid.uuid4()),
+        },
+    )
+    assert stale.status_code == 404

@@ -15,6 +15,7 @@ import {
 } from "./interactionSession.js"
 import RpAdaptiveConfirmPopover from "./RpAdaptiveConfirmPopover.vue"
 import RpSourceSetup from "./RpSourceSetup.vue"
+import RpOpeningCatalog from "./RpOpeningCatalog.vue"
 import { safeInteractionError } from "./interactionErrors.js"
 
 const props = defineProps({
@@ -449,6 +450,7 @@ onBeforeUnmount(() => {
         <span>故事生成和作品整理使用你在账户中连接的 AI 服务；请求经本站后端代发，Key 不会进入浏览器或作品。</span>
         <button type="button" @click="goConnect('journeys:new')">去连接模型</button>
       </div>
+      <RpOpeningCatalog :disabled="creating || !hasActiveConnection" />
       <RpSourceSetup
         :disabled="creating"
         @change="sourceSelection = $event"

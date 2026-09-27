@@ -36,6 +36,8 @@
 - `compile_interaction_story_context()` 是 Evidence 拥有的深层稳定入口；它固定
   `consumer_action=interaction.story`、读者/人物知识与章节/offset 截止。调用方可传本轮
   剩余预算，Evidence 将其限制在 0～16K；必需资料无法容纳时返回 blocker。
+- RP 冻结目录中的精修身份依据按确切 draft/hash/范围回读；原作角色还须命中人物检索已经
+  准入的范围。固定对象与玩家身份的原文证明一起计入必需预算，不能只保留对象名而省略证明。
 - ADR-0024 仅为 `PUBLIC_DEMO_RP_SOURCE_REVISION_ID` 精确指向、ready、fingerprint 与 manifest
   均重验通过的公开 source 放宽一次 source/consumer 同 owner 比较；调用方必须显式携带该 contract，
   任意其它 source 仍按 ADR-0018 拒绝，渲染正文或临时 Key 不进入 snapshot。

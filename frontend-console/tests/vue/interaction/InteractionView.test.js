@@ -159,6 +159,11 @@ beforeEach(() => {
   localStorage.clear()
   sessionStorage.clear()
   api = makeApi()
+  api.localAgent = {
+    executor: vi.fn(async () => ({ kind: "gateway" })),
+    approve: vi.fn(async () => ({ approved: true })),
+    receipts: vi.fn(async () => ({ items: [] })),
+  }
   router = {
     navigate: vi.fn(),
     getCurrentQuery: vi.fn(() => new URLSearchParams()),
@@ -182,6 +187,19 @@ afterEach(() => {
 })
 
 describe("RP 故事页", () => {
+  it("已登录本机 RP 每个待执行 attempt 单独确认主机权限", async () => {
+    const active = journey({ novel_id: "p1", active_attempt: {
+      id: "attempt-1", task_id: "task-1", status: "pending", visible_text: "",
+      local_agent: { kind: "kimi", approved: false }, created_at: new Date().toISOString(),
+    } })
+    api.interactions.getJourney.mockResolvedValue(active)
+    const wrapper = mount(InteractionView, { props: { initialJourney: active, llmConnections: connected() } })
+    try {
+      expect(wrapper.text()).toContain("专用工作目录不是沙箱")
+      await wrapper.findAll("button").find(button => button.text() === "确认本轮在本机执行").trigger("click")
+      expect(api.localAgent.approve).toHaveBeenCalledWith("p1", "task-1")
+    } finally { wrapper.unmount() }
+  })
   it("私语与输入类型随草稿恢复，并在发送失败后保留", async () => {
     const current = journey({ generation_mode: "ensemble", ensemble_protocol: "observation_v2", ensemble_cast_keys: ["person-a"] })
     api.interactions.getJourney.mockResolvedValue(current)

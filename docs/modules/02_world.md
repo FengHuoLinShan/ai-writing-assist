@@ -73,9 +73,10 @@ imports 可通过 `world.facade.dedupe_deep_import_workflow_candidates` 调用�
 ### 对象图片
 
 `core_entities.image_version` 与 `image_updated_at` 只标记可选图片的当前版本；列表和详情响应
-提供 `has_image`，绝不暴露私有 object key。`PUT /api/world/entities/{id}/image` 在当前账户 owner
+提供 `has_image` 和可用于固定素材的 UUID `image_version`，绝不暴露私有 object key。`PUT /api/world/entities/{id}/image` 在当前账户 owner
 与 `novel_id` 门禁内只接受真实 PNG/JPEG（严格小于 6MiB、最大 4096×4096），服务端去 EXIF/
-元数据并输出受限 WebP；`GET .../image?variant=thumbnail|full` 只返回鉴权后的派生图。
+元数据并输出受限 WebP；`GET .../image?variant=thumbnail|full` 只返回鉴权后的派生图，
+可用 `expected_version` 锁定 Scene 或 RP 开局已审查的图片版本，替换后拒绝旧版本读取。
 
 每个账户的人物图片最多 20 张，其他对象图片合计最多 50 张；回收站项目仍计入配额，替换不新增
 占用。对象软废弃、融合和别名化不迁移或删除图片；项目永久删除才触发对象前缀清理。图片不进入
@@ -538,7 +539,7 @@ creation_suggestion_queue 中保存封闭的 owner 授权 carrier；普通建议
 
 跨模块连续性检查只经 `list_adopted_map_continuity_facts` 读取当前 adopted node 的 saved revision，返回绑定目标地点且来源 hash/引文仍有效的受限关系；不返回坐标、图片或历史候选，不写 Scene memory。来源失效或没有采用地图时由 Writing 标记未检查，不据缺失信息推断矛盾。
 
-地图持续创作沿用 World 派生资产边界：四层结构编辑、受限空间关系、`map-links` 只读定位、
+地图持续创作沿用 World 派生资产边界：区域至街道及显式室内示意的层级编辑、受限空间关系、`map-links` 只读定位、
 已有图元局部生成与依赖完整的逐项采用。来源与预算仍由 Evidence confirmation 决定，
 未采用的剩余候选继续等待确认。当前完整契约见 `docs/modules/15_map.md`。
 

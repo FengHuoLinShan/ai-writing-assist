@@ -4,6 +4,10 @@
     <p>只参考你已选择的发展，方向由你决定。</p>
     <button type="button" :disabled="busy || locked || composing || running" @click="evaluate">想几个下一步</button>
     <button v-if="running" type="button" :disabled="busy" @click="cancel">停止分析</button>
+    <div v-if="run?.status === 'pending' && run?.local_agent && !run.local_agent.approved" role="status">
+      <p>本轮 {{ run.local_agent.kind }} CLI 在你的 Mac 上直接运行，可访问当前用户允许的文件和命令；工作目录不是沙箱。用量和费用可能无法准确估算。</p>
+      <button type="button" :disabled="busy" @click="approveLocalForecast">确认本轮在本机执行</button>
+    </div>
     <button v-if="pending && !running" type="button" :disabled="busy || locked" @click="recover">找回上次请求</button>
     <button v-if="run?.can_resume" type="button" :disabled="busy || locked || composing" @click="resume">从原进度继续分析</button>
     <p v-if="locked">请先处理当前回应，再准备新的灵感。</p>
@@ -21,7 +25,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from "vue"
-import { getApi } from "../../bridge/index.js"
+import { getApi, getConfirm } from "../../bridge/index.js"
 import { ACCOUNT_INVALIDATED_EVENT, ACCOUNT_MARKER_KEY } from "../../../shared/accountStorage.js"
 const props = defineProps({ journey: { type: Object, default: null }, locked: Boolean, composing: Boolean })
 const emit = defineEmits(["prefill"])
@@ -79,6 +83,17 @@ async function recover() {
 }
 async function resume() { const token = generation; busy.value = true; try { const value = await api().resume(props.journey.id, run.value.run_id); if (current(token)) { run.value = value; save(); await refresh(token) } } catch (err) { if (current(token)) error.value = err.message } finally { if (current(token)) busy.value = false } }
 async function cancel() { const token = generation; busy.value = true; try { const value = await api().cancel(props.journey.id, run.value.run_id); if (current(token)) run.value = value } catch (err) { if (current(token)) error.value = err.message } finally { if (current(token)) busy.value = false } }
+async function approveLocalForecast() {
+  if (!run.value?.task_id || !getConfirm()("确认本轮 CLI 可使用当前 Mac 用户的文件与命令权限？")) return
+  const token = generation
+  busy.value = true
+  try {
+    await getApi().localAgent.approve(props.journey.novel_id, run.value.task_id)
+    const updated = await api().run(props.journey.id, run.value.run_id)
+    if (current(token)) run.value = updated
+  } catch (err) { if (current(token)) error.value = err.message || "本轮授权未完成。" }
+  finally { if (current(token)) busy.value = false }
+}
 async function prefill(item, direction) { const token = generation; busy.value = true; try { const value = await api().prefill(props.journey.id, item.candidate_id, { direction_id: direction.direction_id, expected_assessment_hash: item.assessment_hash }); if (current(token) && !props.locked && !props.composing) emit("prefill", value) } catch (err) { if (current(token)) error.value = err.message } finally { if (current(token)) busy.value = false } }
 async function dismiss(item) { const token = generation; busy.value = true; try { await api().decide(props.journey.id, item.candidate_id, { action: "as_ordinary_detail", expected_notice_version: item.notice_version, expected_assessment_hash: item.assessment_hash }); if (current(token)) await refresh(token) } catch (err) { if (current(token)) error.value = err.message } finally { if (current(token)) busy.value = false } }
 const timer = setInterval(() => { if (opened.value && running.value && !busy.value) void refresh() }, 15000)

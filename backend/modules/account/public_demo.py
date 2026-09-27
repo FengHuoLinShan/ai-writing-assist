@@ -12,6 +12,7 @@ from core.config import Settings, get_settings
 class PublicDemoConfig:
     enabled: bool
     project_id: uuid.UUID | None = None
+    map_node_id: uuid.UUID | None = None
     version: str | None = None
     rp_enabled: bool = False
 
@@ -29,6 +30,10 @@ def configured_public_demo(settings: Settings | None = None) -> PublicDemoConfig
         project_id = uuid.UUID(raw_project_id)
     except (AttributeError, TypeError, ValueError):
         return PublicDemoConfig(enabled=False)
+    try:
+        map_node_id = uuid.UUID(settings.public_demo_map_node_id.strip())
+    except (AttributeError, TypeError, ValueError):
+        map_node_id = None
     rp_enabled = False
     if settings.public_demo_rp_enabled:
         try:
@@ -40,6 +45,7 @@ def configured_public_demo(settings: Settings | None = None) -> PublicDemoConfig
     return PublicDemoConfig(
         enabled=True,
         project_id=project_id,
+        map_node_id=map_node_id,
         version=version,
         rp_enabled=rp_enabled,
     )

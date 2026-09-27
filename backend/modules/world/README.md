@@ -54,9 +54,9 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 ### 对象图片
 
 CoreEntity 的 `image_version` 和 `image_updated_at` 只记录可选图片的版本；API 响应派生
-`has_image`，不保存或返回私有对象 key。`PUT /api/world/entities/{entity_id}/image` 在当前账户
+`has_image` 与用于审核绑定的 opaque `image_version`，不保存或返回私有对象 key。`PUT /api/world/entities/{entity_id}/image` 在当前账户
 owner 与 `novel_id` 双门禁内只接受真实 PNG/JPEG（严格小于 6MiB、最大 4096×4096）；服务端
-去 EXIF/元数据并生成有界 WebP。`GET .../image?variant=thumbnail|full` 仅返回已鉴权的派生图。
+去 EXIF/元数据并生成有界 WebP；PNG 的透明通道在原图与缩略图中保留。`GET .../image?variant=thumbnail|full` 仅返回已鉴权的派生图；需要固定素材的 Scene 可附 UUID `expected_version`，对象图已替换时返回 404，不回退到新版本。
 
 账户最多保存 20 张人物图及合计 50 张其他对象图；回收站项目仍占配额，替换不增加占用。对象
 软废弃、融合和别名化不迁移或删除图片，项目永久删除才通过精确对象/项目前缀清理收敛。对象图片
@@ -511,7 +511,7 @@ ORM 表到同一个 `core.base.Base.metadata`。具体模型按子域拆分：
 - `public_info` — 对外公开信息
 - `hidden_truth` — 隐藏真相
 - `content_json` — 扩展信息（JSONB，内含 `aliases` 等动态属性）
-- `image_version` / `image_updated_at` — 可空图片版本元数据；响应以 `has_image` 表示可读取性，文件字节和存储 key 不进入数据库/API wire
+- `image_version` / `image_updated_at` — 可空图片版本元数据；响应以 `has_image` 表示可读取性，公开 UUID 版本供审核绑定，文件字节和存储 key 不进入对象 JSON
 - `importance` — 重要性（0~1）
 - `importance_level` — 重要性级别（core / important / normal / temporary）
 - `reveal_level` — 揭示层级（author_only / hinted / revealed / fully_known）
@@ -913,7 +913,7 @@ section，且不会进入可投影正文。页面预览保持零写入并把页�
 | GET | `/api/world/entities/{entity_id}` | 对象详情 |
 | PUT | `/api/world/entities/{entity_id}` | 更新对象 |
 | PUT | `/api/world/entities/{entity_id}/image` | 上传或替换私有对象图片；仅 PNG/JPEG，经服务端规范化为 WebP |
-| GET | `/api/world/entities/{entity_id}/image` | 读取当前账户和项目已授权的缩略图或完整图（`variant=thumbnail` 或 `full`）；不返回 object key |
+| GET | `/api/world/entities/{entity_id}/image` | 读取当前账户和项目已授权的缩略图或完整图（`variant=thumbnail` 或 `full`）；可带 `expected_version` 固定版本，不返回 object key |
 | DELETE | `/api/world/entities/{entity_id}` | 删除对象 |
 | POST | `/api/world/entities/{entity_id}/promote` | 将草稿/候选实体提升为正史；可选携带名称、类型和概要，在同一事务中编辑后采用 |
 | POST | `/api/world/entities/{candidate_id}/resolve-as-alias` | 将候选确认为目标对象别名 |
@@ -1113,7 +1113,7 @@ World Bible、生成模板，以及 AI 地图册的计划、候选、画廊和�
 空间地图仍属于 World 的可编辑派生资产，不进入 Canon 或 Scene memory。纯空间节点可显示和跳转；
 图片移出不影响空间版本。完整 API、数据上限、校准和阅读条件见 `docs/modules/15_map.md`。
 
-地图持续创作支持区域、城市、街区与街道，沿街/入口/朝向关系和按章节查询地图地点。已有图元可经
+地图持续创作支持区域、城市、街区、街道与显式创建的室内示意，沿街/入口/朝向关系和按章节查询地图地点。已有图元可经
 原确认资料生成局部候选，逐项采用由服务端计算完整依赖；历史结构与图片预览均只读。来源标记不
 进入几何指纹，正文与世界事实不回写。接口、来源和候选边界见 `docs/modules/15_map.md`。
 提取结果保留可解释的覆盖/舍弃摘要，每条来源独立核验引文。上传底图可追溯到同节点中可证明相同
@@ -1239,3 +1239,7 @@ Evolution 新候选复用对象、关系、别名的待采用流程；元数据�
 内部候选创建可接收宿主冻结的 `candidate_id`，只允许 candidate 状态；
 供 Evolution 将本场新身份与复核状态同事务落库，公共创建 schema 不开放此参数。
 同场同类型同名竞争不能自动压成一个候选身份。
+
+RP 开局配图经 `read_world_object_image` 读取已审查的对象图片版本；调用方先校验来源项目、
+冻结版本与剧情截止点，World 仍校验项目访问、对象归属及 `expected_version`。对象响应提供
+`image_version` 供版本绑定；图片替换后旧开局返回不可用，绝不回退到可能剧透的新图片。

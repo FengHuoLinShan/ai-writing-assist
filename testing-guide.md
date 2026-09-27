@@ -43,6 +43,10 @@ BM25/MCP 用例会 skip；完整离线验收须另外执行该目标。报告保
 
 ## Per-Module Tests (every module)
 
+RP 同正文资料刷新须验证 owner 隔离、正文/索引/Scene 就绪门禁、精确来源回读、旧冻结行与旅程
+不变、无修改时幂等，以及新版引用按章内截止点过滤。SQLite 定向测试之外，迁移及同正文多版本
+必须在专用 PostgreSQL 副本验证；真实项目增量实施前先备份，不通过删除旧版本恢复唯一约束。
+
 Three layers:
 - **Repository**: basic CRUD, not found, empty update, pagination
 - **Service**: business logic happy path, exception paths (not found → 404, invalid UUID → 422)
@@ -512,3 +516,13 @@ V2/前瞻离线质量工具：`python -m evals.creative_forecast corpus --output
 500 个当前事项；预热 3 次、测量 30 次。输出服务层（含 PostgreSQL，不含 HTTP）
 feed/入队 P95，断言无 Provider 调用、feed 无任务写入；事务回滚隔离所有合成资料。
 这不代表生产高并发、20,000 个同时有效事项或文学质量验收。
+
+## 本机 Agent CLI 验证
+
+离线解析与有界进程监督运行 `backend/infrastructure/llm/tests/test_cli_agent.py`；
+配对、授权、租约、工具限次和 pyz 下载运行 `backend/modules/local_agent/tests/`。
+独立 PostgreSQL 17/pgvector 库先迁移到 head，再运行
+`RUN_E2E_TESTS=1 E2E_DATABASE_URL=<专用 test/e2e 库> pytest backend/tests/e2e/test_local_agent_cli.py -m e2e`。
+前端变更运行受影响 Vue 用例、lint 与 build。真实五 CLI 只用合成数据单列验证，
+同时记录本机模型/登录配置、最终结构化结果、工具次数、未知用量及 DSH 原生工具计数限制；
+离线通过不等于作品内容质量验收。

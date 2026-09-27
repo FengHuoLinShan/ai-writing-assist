@@ -9,6 +9,7 @@ import {
 import {
   getApi,
   getAppState,
+  getConfirm,
   getRouteQuery,
   getToast,
 } from "../../bridge/index.js"
@@ -44,6 +45,7 @@ function normalizeCharacter(item, index, worldById = new Map()) {
     id: characterId || `character-${index + 1}`,
     cardId,
     name: String(name),
+    content: item?.revision?.content || {},
     status: content.current_state || item?.current_state || world.current_state || "当前状态待补充",
     personality: content.personality || item?.personality || world.personality || world.description || "尚未填写人物卡",
     currentGoal: content.current_goal || item?.current_goal || "",
@@ -229,6 +231,7 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
     characterId: null,
     cardId: null,
     expectedRevisionId: null,
+    fullContent: {},
     personality: "",
     currentGoal: "",
     currentState: "",
@@ -358,6 +361,7 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
       characterId: null,
       cardId: null,
       expectedRevisionId: null,
+      fullContent: {},
       personality: "",
       currentGoal: "",
       currentState: "",
@@ -385,6 +389,7 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
       characterId: character.id,
       cardId: character.cardId || null,
       expectedRevisionId: character.currentRevisionId || null,
+      fullContent: { ...character.content },
       personality: character.personality || "",
       currentGoal: character.currentGoal || "",
       currentState: character.status || "",
@@ -406,6 +411,7 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
     const content = generatedCard.value?.content || generatedCard.value?.preview?.content
     if (!content) return false
     Object.assign(cardDraft, {
+      fullContent: { ...cardDraft.fullContent, ...content },
       personality: content.personality || cardDraft.personality,
       currentGoal: content.current_goal || cardDraft.currentGoal,
       currentState: content.current_state || cardDraft.currentState,
@@ -454,9 +460,13 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
         card_id: cardDraft.cardId,
         expected_revision_id: cardDraft.expectedRevisionId,
         confirmed: true,
+        ...(cardDraft.expectedRevisionId && !cardDraft.sourceTaskId ? {
+          source_manifest: { derived_from_revision_id: cardDraft.expectedRevisionId, source_status: "requires_recheck_after_manual_edit" },
+        } : {}),
         ...(cardDraft.sourceTaskId ? { source_task_id: cardDraft.sourceTaskId } : {}),
         ...(cardDraft.contextSnapshotId ? { context_snapshot_id: cardDraft.contextSnapshotId } : {}),
         content: {
+          ...cardDraft.fullContent,
           version: "character_card.v1",
           personality: cardDraft.personality,
           current_goal: cardDraft.currentGoal || null,
@@ -467,11 +477,12 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
       })
       if (!owns(token)) return false
       const current = characters.value.find((item) => item.id === cardDraft.characterId)
-      if (current) Object.assign(current, normalizeCharacter(result, characters.value.indexOf(current), new Map()))
+      if (current) Object.assign(current, normalizeCharacter({ ...result, name: current.name }, characters.value.indexOf(current)))
       selectedCharacterId.value = cardDraft.characterId
       Object.assign(cardDraft, {
         cardId: current?.cardId || result?.id || cardDraft.cardId,
         expectedRevisionId: current?.currentRevisionId || result?.current_revision_id || cardDraft.expectedRevisionId,
+        fullContent: { ...(current?.content || {}) },
       })
       await loadCardHistory(current?.cardId || result?.id || cardDraft.cardId)
       toast("人物卡已保存为新版本", "success")
@@ -496,11 +507,12 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
       })
       if (!owns(token)) return false
       const current = characters.value.find((item) => item.id === cardDraft.characterId)
-      if (current) Object.assign(current, normalizeCharacter(result, characters.value.indexOf(current), new Map()))
+      if (current) Object.assign(current, normalizeCharacter({ ...result, name: current.name }, characters.value.indexOf(current)))
       selectedCharacterId.value = cardDraft.characterId
       Object.assign(cardDraft, {
         cardId: current?.cardId || cardDraft.cardId,
         expectedRevisionId: current?.currentRevisionId || result?.current_revision_id || cardDraft.expectedRevisionId,
+        fullContent: { ...(current?.content || {}) },
       })
       await loadCardHistory(cardDraft.cardId)
       toast("已按历史版本创建新的人物卡版本", "success")
@@ -526,13 +538,14 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
     const loader = api.world?.listEntities
     if (typeof loader !== "function") return []
     try {
+      // Cards scope the displayed actors; the project lookup only resolves their names.
+      // ponytail: first 50 active actors; use targeted lookups if a scene exceeds this page.
       const response = await loader({
         novel_id: projectId,
-        scene_id: targetScene.id,
         entity_type: "character",
         display_state: "active",
         skip: 0,
-        limit: 24,
+        limit: 50,
       })
       if (!owns(token, targetScene.id)) return null
       return listItems(response)
@@ -1060,6 +1073,17 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
       if (!owns(requestToken, targetScene.id)) return false
       if (response?.task_id) {
         sceneRuntimeManager.adopt(response, { sceneId: targetScene.id, stage: "simulation" }, projectId, targetScene.id)
+        if (options.rehearsal) {
+          try {
+            const pending = await api.localAgent.pending(projectId)
+            if (pending.items?.some((item) => item.task_id === response.task_id)
+              && getConfirm()("确认本轮 CLI 可使用当前 macOS 用户的文件与命令权限？")) {
+              await api.localAgent.approve(projectId, response.task_id)
+            }
+          } catch (error) {
+            toast(error?.message || "本机运行授权未完成，可在 AI 能力设置页继续确认。", "warning")
+          }
+        }
         return true
       }
       if (response?.preview || response?.result) {

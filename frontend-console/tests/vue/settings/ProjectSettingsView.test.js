@@ -66,6 +66,14 @@ beforeEach(() => {
   globalThis.api.interactions = {
     listJourneys: vi.fn(async () => ({ items: [], total: 0 })),
   }
+  globalThis.api.localAgent = {
+    devices: vi.fn(async () => ({ items: [{ id: "mac-1", name: "作者的 Mac", paired: true, online: true }] })),
+    executor: vi.fn(async () => ({ kind: "gateway", device_id: null })),
+    pending: vi.fn(async () => ({ items: [] })),
+    pair: vi.fn(async () => ({ code: "synthetic-code" })),
+    select: vi.fn(async () => ({ kind: "claude", device_id: "mac-1" })),
+    revoke: vi.fn(async () => ({ revoked: true })),
+  }
 })
 
 afterEach(() => {
@@ -73,6 +81,17 @@ afterEach(() => {
 })
 
 describe("结构与导航", () => {
+  it("本机 CLI 选择保存到当前作品并说明每轮权限", async () => {
+    const wrapper = mount(ProjectSettingsView, { props: makeProps() })
+    await flushPromises()
+    await wrapper.findAll(".settings-tab-nav .tab-btn")[2].trigger("click")
+    expect(wrapper.text()).toContain("专用工作目录不是沙箱")
+    await wrapper.find("#local-agent-kind").setValue("claude")
+    await wrapper.find("#local-agent-device").setValue("mac-1")
+    const save = wrapper.findAll("button").find(button => button.text() === "保存 Agent 执行器")
+    await save.trigger("click")
+    expect(globalThis.api.localAgent.select).toHaveBeenCalledWith("p1", "claude", "mac-1")
+  })
   it("无项目显示空态并返回账户设置", async () => {
     const wrapper = mount(ProjectSettingsView, {
       props: makeProps({

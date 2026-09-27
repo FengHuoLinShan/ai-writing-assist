@@ -675,6 +675,17 @@ async def run_project_agent(
     与信封 root 不一致时由信封拒绝；没有活动信封时省略即可保持原有 AgentRunBudget 行为。
     """
     _require_root_capability(capability_id)
+    if getattr(client, "is_local_agent", False):
+        return await client.run_agent(
+            request,
+            tools=tools,
+            deps=deps,
+            output_type=output_type,
+            output_validator=output_validator,
+            budget=budget,
+            checkpoint=checkpoint,
+            capability_id=capability_id,
+        )
     model = ProjectGatewayModel(
         client,
         request,

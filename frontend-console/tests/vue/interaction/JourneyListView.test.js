@@ -67,6 +67,7 @@ beforeEach(() => {
       get: vi.fn(),
     },
     interactions: {
+      listOpenings: vi.fn(async () => ({ items: [] })),
       createJourney: vi.fn(),
       listJourneys: vi.fn(),
       archiveJourney: vi.fn(),

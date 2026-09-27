@@ -15,6 +15,8 @@
 “进入演示 RP”。`?demo=1` 只显示固定项目的核心只读工作台；核心 GET 自动附带 `demo=1`，
 由服务端限制项目和允许的读取范围，前端隐藏设置、助手、导入、日志与写入入口，并禁用明确的
 编辑/生成/保存操作。有已发布正文时，首页可进入专用只读阅读器查看实际内容；阅读器只请求服务端 `published` 章节列表与按章最新正文，不挂载作者编辑器、版本历史、Scene、冲突检查或本地工作稿恢复。首页同样只从章节列表生成简化续读概览，不请求作者待办/未决项/世界工作稿；其他公开演示页面的浏览、筛选、标签切换、地图和检索仍可用。
+若部署配置了公开地图起点，首次进入地图会定位该节点；已有地图深链中的 `node_id` 保持优先。
+公开地图里的“从本作品开始 RP”进入同一固定来源的匿名 RP；只有登录用户才进入普通新旅程向导。
 
 只读壳的“登录并复制后尝试”将一次性 intent 放在 sessionStorage。邮箱登录成功后立即调用
 `POST /api/projects/demo-copy`，无论服务端返回 `created`、`existing` 或 `restored` 都跳转到用户自己的副本。
@@ -250,6 +252,7 @@ frontend-console/
 - 世界书内的“关联图”复用 `GET /api/world/knowledge-graph`：默认从当前页面读取一跳，可显式扩展到两跳或全局；可访问节点列表是主交互，SVG 只作最多 40 节点 / 80 边的辅助示意。结果会明确显示截断/部分扫描，并不把关联表述为依赖或变更影响。
 - 地图册 run 有空间资料摘要时才显示该摘要；它只表达核对/降级状态，不显示事实文本、来源键或 prompt，窄屏保持折叠可读。
 - 图片 wrapper 返回 Blob 并创建短期 Object URL；切换项目或视图时释放，不暴露对象 key。
+- Scene 详情可展示来源绑定的世界对象配图；读取时带上 Scene 固定的 `image_version`，对象图片更新后提示重新核对，避免悄悄显示另一个版本。
 - 所有 UI 文字为中文
 - 作者主流程的对象引用统一按名称搜索和选择；共享 `referencePicker` 仅把 ID 回写到现有隐藏字段/请求 payload。同名项用类型、状态和摘要消歧，无法解析的旧引用保留为“不可用引用”。Workflow、任务和原始 Scene ID 只位于折叠诊断区，并标记 `data-diagnostic-field`。
 - 全站默认现代简约，明暗偏好为 light/dark/system，解析结果为 light/dark。色值集中于
@@ -641,6 +644,12 @@ Writing 资料栏及 ProjectAssistant 使用 ForecastDock；输入法 compositio
 CreativeExperiments / CreativeTrialEditor 支持原文对照、手动试改、版本检查、冲突选择与
 精确采用；未知提交持久化原操作身份。RP 的 InteractionForecast 只预填用户输入。
 RP 文字草稿与输入类型、人物/私语范围一起存储，失败保留；实际发送仍由作者点击。
+
+## 本机 CLI Agent
+
+`ProjectSettingsView` 经 `api.js.localAgent` 管理设备配对、执行器选择与后台任务逐次确认。
+`ProjectAssistant` 和已登录 `InteractionView` 为各自根任务展示完整主机权限告知；
+设备离线时仍保持 pending，失败文本从授权回执读取，不能当作已保存产品成果。
 
 ## 跨任务理解与地图场景
 

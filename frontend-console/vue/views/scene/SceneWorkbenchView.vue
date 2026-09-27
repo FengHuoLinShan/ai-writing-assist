@@ -297,6 +297,7 @@ import { sceneAutoExtractManager } from "./sceneAutoExtractManager.js"
 import SceneRuntimeTabs from "./SceneRuntimeTabs.vue"
 import SceneScriptsPanel from "./SceneScriptsPanel.vue"
 import SceneSimulationPanel from "./SceneSimulationPanel.vue"
+import SceneVisual from "./SceneVisual.vue"
 import { useSceneWorkbench } from "./useSceneWorkbench.js"
 import { useStorySceneWorkspace } from "./useStorySceneWorkspace.js"
 import {
@@ -657,6 +658,7 @@ const SceneDetailPanel = defineComponent({
       ])
       return h("div", { class: "scene-detail-panel", "aria-busy": componentProps.saving }, [
         h("div", { class: "scene-detail-panel__head" }, [h("div", [componentProps.narrow ? h("div", { class: "scene-detail-panel__eyebrow" }, "场景详情") : null, h("h3", scene.title || "未命名场景")]), h("button", { type: "button", class: "btn btn-sm btn-text scene-detail-panel__close", disabled: componentProps.saving, "data-action": "close-scene-detail", onClick: () => emit("close") }, "返回列表")]),
+        scene.structure_meta?.scene_visual?.entity_id ? h(SceneVisual, { projectId: componentProps.projectId, visual: scene.structure_meta.scene_visual, sceneTitle: scene.title || "场景" }) : null,
         proposal ? h("section", { class: "scene-detail-section", "aria-label": "待核对的整理建议" }, [
           h("h4", "待核对的整理建议"),
           h("p", "这份建议尚未通过独立核对，未替换场景内容。请对照正文检查后再保存。"),
