@@ -375,6 +375,7 @@ class InteractionGenerationAttempt(Base, UUIDMixin, TimestampMixin, NovelMixin):
             "owner_id",
             "status",
         ),
+        Index("ix_interaction_attempts_source_revision_id", "source_revision_id"),
         Index(
             "ix_interaction_attempt_journey_created",
             "journey_id",
@@ -447,7 +448,6 @@ class InteractionGenerationAttempt(Base, UUIDMixin, TimestampMixin, NovelMixin):
         UUIDType,
         ForeignKey("interaction_source_revisions.id", ondelete="SET NULL"),
         nullable=True,
-        index=True,
     )
     started_source_context_epoch: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0

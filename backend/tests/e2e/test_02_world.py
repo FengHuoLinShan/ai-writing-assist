@@ -232,6 +232,7 @@ class TestRelationshipCRUD:
             "target_type": "world_entity",
             "target_id": eids["值夜者"],
             "relation_type": "works_with",
+            "relation_kind": "social",
             "description": "克莱恩与值夜者协作",
         }
 
@@ -452,6 +453,7 @@ class TestWorldCandidateAndGraphFlows:
                 "source_id": eids["克莱恩·莫雷蒂"],
                 "target_id": eids["值夜者"],
                 "relation_type": "serves_with",
+                "relation_kind": "social",
             },
         )
         assert created.status_code == 201, created.text

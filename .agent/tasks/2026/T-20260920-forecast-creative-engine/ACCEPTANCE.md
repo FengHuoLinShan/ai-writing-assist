@@ -89,4 +89,4 @@
 | AT082 | model_blind_eval | [真实质量验收未完成](REAL_MODEL_REVIEW.md) | 已有真实模型小样本与 Codex 评阅；120 前缀成对对照和两名独立人工评分未完成。 |
 | AT083 | model_blind_eval | [真实质量验收未完成](REAL_MODEL_REVIEW.md) | 已有真实模型小样本与 Codex 评阅；120 前缀成对对照和两名独立人工评分未完成。 |
 | AT084 | model_blind_eval | [真实质量验收未完成](REAL_MODEL_REVIEW.md) | 已有真实模型小样本与 Codex 评阅；120 前缀成对对照和两名独立人工评分未完成。 |
-| AT085 | performance | [部分验证](../../../../backend/tests/e2e/test_forecast_performance.py) | PG 20,000 条评估/500 个事项，30 样本：feed P95 254.82 ms、入队 43.69 ms；不含 HTTP、高并发与保存链计时。 |
+| AT085 | performance | [部分验证](../../../../backend/tests/e2e/test_forecast_performance.py) | PG 20,000 条评估/500 个事项，30 样本：feed P95 254.82 ms、入队 43.69 ms；不含 HTTP、高并发与保存链计时。2026-09-28 口径调整：门禁改为每个样本前先 `gc.collect()`（本地 feed P95 约 150 ms），含 GC 停顿的 P95（本地约 260 ms）只记录不断言。 |

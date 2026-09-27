@@ -47,7 +47,7 @@ class CharacterCard(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
             use_alter=True,
         ),
         Index(
-            "ix_story_character_card_novel_status",
+            "ix_story_character_cards_novel_status",
             "novel_id",
             "status",
         ),
@@ -87,7 +87,7 @@ class CharacterCardRevision(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelM
             name="uq_story_character_card_revision_version",
         ),
         Index(
-            "ix_story_character_card_revision_novel_card",
+            "ix_story_character_card_revisions_novel_card",
             "novel_id",
             "card_id",
             "version_number",
@@ -101,6 +101,7 @@ class CharacterCardRevision(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelM
             ["card_id", "novel_id"],
             ["story_character_cards.id", "story_character_cards.novel_id"],
             name="fk_story_character_card_revision_card_novel",
+            ondelete="CASCADE",
         ),
         {"comment": "Immutable Story character card revision"},
     )
@@ -216,6 +217,7 @@ class SceneScriptRevision(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMix
             ["file_id", "novel_id"],
             ["story_scene_script_files.id", "story_scene_script_files.novel_id"],
             name="fk_story_scene_script_revision_file_novel",
+            ondelete="CASCADE",
         ),
         {"comment": "Immutable Scene script file revision"},
     )
