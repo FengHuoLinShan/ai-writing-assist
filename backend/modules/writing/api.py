@@ -35,10 +35,14 @@ from modules.writing.facade import (
 )
 from modules.writing.schemas import (
     ChapterSummaryItem,
+    EditorialReadyRequest,
     PublicChapterListResponse,
     PublicChapterSummaryItem,
     PublicWritingDraftResponse,
     VersionHistoryResponse,
+    WritingCommentCreate,
+    WritingCommentRunRequest,
+    WritingCommentUpdate,
     WritingConflictAiReviewRequest,
     WritingConflictAiReviewTaskResponse,
     WritingConflictAiSuggestionTaskRequest,
@@ -91,6 +95,40 @@ router = APIRouter(prefix="/api/writing", tags=["writing"])
 logger = logging.getLogger(__name__)
 _service = WritingDraftService()
 _conflict_service = WritingConflictCheckService()
+
+
+@router.get("/drafts/{draft_id}/comments")
+async def get_writing_comments(db: DbSession, draft_id: UUID, novel_id: NovelIdQuery):
+    await require_active_project(db, novel_id)
+    from modules.writing.comments import list_comments
+
+    return {"items": await list_comments(db, novel_id, draft_id)}
+
+
+@router.post("/drafts/{draft_id}/comments", status_code=201)
+async def post_writing_comment(db: DbSession, draft_id: UUID, data: WritingCommentCreate):
+    await require_active_project(db, data.novel_id)
+    from modules.writing.comments import create_comment
+
+    return await create_comment(db, draft_id, data)
+
+
+@router.patch("/comments/{comment_id}")
+async def patch_writing_comment(
+    db: DbSession, comment_id: UUID, data: WritingCommentUpdate
+):
+    await require_active_project(db, data.novel_id)
+    from modules.writing.comments import set_comment_status
+
+    return await set_comment_status(db, data.novel_id, comment_id, data.status)
+
+
+@router.post("/comment-runs", status_code=201)
+async def post_writing_comment_run(db: DbSession, data: WritingCommentRunRequest):
+    await require_active_project(db, data.novel_id)
+    from modules.writing.comments import submit_comment_run
+
+    return await submit_comment_run(db, data)
 
 
 @router.post(
@@ -525,6 +563,20 @@ async def get_draft(
         novel_id,
         published_only=is_demo_readonly_principal(),
     )
+
+
+@router.post("/drafts/{draft_id}/editorial-ready", response_model=WritingDraftResponse)
+async def mark_editorial_ready(
+    db: DbSession,
+    draft_id: str,
+    data: EditorialReadyRequest,
+    *,
+    novel_id: NovelIdQuery,
+) -> WritingDraftResponse:
+    await require_active_project(db, novel_id)
+    if is_demo_readonly_principal():
+        raise HTTPException(status_code=404, detail="Project not found")
+    return await _service.mark_editorial_ready(db, draft_id, novel_id, data)
 
 
 @router.get(

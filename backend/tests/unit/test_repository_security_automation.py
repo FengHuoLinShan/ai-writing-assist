@@ -144,12 +144,23 @@ def test_frontend_browser_gate_keeps_its_independent_risk_contract() -> None:
     assert job["env"]["WORLD_OBJECT_S3_BUCKET"] == "ai-writing-assist-world-objects"
 
     steps = {step["name"]: step for step in job["steps"]}
-    assert steps["Start local object storage"]["run"] == (
-        "docker compose up --detach --wait minio"
+    storage_start = steps["Start local object storage"]["run"]
+    assert "minio.linux-amd64.RELEASE.2025-04-22T22-12-26Z" in storage_start
+    assert (
+        "53e2a2cb16c5366ea6fbbc479c19ddb4c6a0948273e752f740fb1fbf27bb817c"
+        in storage_start
     )
-    assert steps["Initialize private object buckets"]["run"] == (
-        "docker compose run --rm --no-deps minio-init"
+    assert "sha256sum --check" in storage_start
+    assert '--address "127.0.0.1:9000"' in storage_start
+    assert "/minio/health/ready" in storage_start
+    storage_init = steps["Initialize private object buckets"]["run"]
+    assert "mc.linux-amd64.RELEASE.2025-03-12T17-29-24Z" in storage_init
+    assert (
+        "a92b5f1af200ca25d54d78432ef6b0c47fd4340abf9759ce5d10275cd57e3318"
+        in storage_init
     )
+    assert "sha256sum --check" in storage_init
+    assert "sh docker/init-minio.sh" in storage_init
     assert steps["Run frontend functional browser"]["run"].endswith(
         'npm --prefix frontend-console run "$BROWSER_SUITE" -- --workers=1 --retries=0'
     )

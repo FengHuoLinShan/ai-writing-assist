@@ -21,6 +21,7 @@ EXPECTED_CAPABILITIES = (
     "writing.generate",
     "writing.semantic_review",
     "writing.targeted_revision",
+    "writing.comment_revision",
     "writing.conflict_check.ai_review",
     "writing.conflict_check.ai_suggestion",
     # Project
@@ -75,6 +76,7 @@ EXPECTED_CAPABILITIES = (
     # Assistant
     "assistant.turn",
     "assistant.forecast",
+    "assistant.editorial",
     "interaction.forecast",
     "collaboration.run",
     "collaboration.plan",

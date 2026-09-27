@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from core.errors import DomainError
 from infrastructure.llm.collaboration import content_hash
+from infrastructure.tasks.models import AsyncTask
 from modules.collaboration.cases import execution_status, require_case, require_run
 from modules.collaboration.contracts import Grant, InputManifest
 from modules.collaboration.models import (
@@ -43,6 +44,8 @@ async def resource_choices(db, novel_id, kind, offset, query):
 
 async def run_view(db, novel_id, run_id):
     run = await require_run(db, novel_id, run_id)
+    task = await db.get(AsyncTask, run.task_id) if run.task_id else None
+    local = (run.llm_snapshot_json.get("primary") or {}).get("local_agent") or {}
     case = await require_case(db, novel_id, run.case_id)
     stale = case.goal_version != run.manifest_json["goal_version"]
     try:
@@ -88,7 +91,8 @@ async def run_view(db, novel_id, run_id):
     ).get(str(run.task_id))
     status = await execution_status(db, run)
     can_resume = bool(
-        not stale
+        not local
+        and not stale
         and life
         and ("resume" in life.available_actions or status == "partial")
         and status in {"failed", "cancelled", "partial"}
@@ -101,6 +105,12 @@ async def run_view(db, novel_id, run_id):
         "id": str(run.id),
         "case_id": str(run.case_id),
         "task_id": str(run.task_id) if run.task_id else None,
+        "local_agent": {
+            "kind": local["kind"],
+            "approved": bool((task.meta or {}).get("_local_approved")),
+        }
+        if local and task
+        else None,
         "status": status,
         "can_resume": can_resume,
         "stale": stale,

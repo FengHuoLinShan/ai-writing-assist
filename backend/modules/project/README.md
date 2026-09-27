@@ -17,6 +17,7 @@ project 模块负责统一项目隔离根。作者项目使用 `project_kind=aut
 - 提供 `novel_id` / `project_id`
 - 提供项目级默认策略（如 `default_reveal_policy`）
 - 管理项目作者偏好覆盖，并组合 account 默认与项目覆盖形成 effective 配置
+- 在 `projects.settings.editorial_brief_v1` 保存作者确认的版本化编辑约定；`GET/PUT /api/projects/{id}/editorial-brief` 读写，PUT 用 `expected_version` 校验并发。公开只读演示源不能写入，模型意见和单次忽略不会自动更新约定。
 - 根据项目 owner 打开账户级文本与图片连接；项目只保留非 secret 工作流设置和可恢复 snapshot
 - 提供项目级智能去重扫描入口，聚合各业务模块自己的去重建议
 - 提供作者“今日工作”所需的只读工作台摘要，不返回正文、owner、密钥或内部任务信息

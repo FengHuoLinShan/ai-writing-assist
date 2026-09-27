@@ -155,6 +155,8 @@ def _make_draft(**overrides: object) -> MagicMock:
         "title": "第一章：开端",
         "content": "这是一个测试正文的段落。",
         "content_hash": "0" * 64,
+        "editorial_ready_at": None,
+        "editorial_ready_hash": None,
         "version_number": 1,
         "status": "draft",
         "created_at": datetime.now(UTC),

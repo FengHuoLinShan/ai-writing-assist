@@ -158,6 +158,7 @@ class RunResponse(StrictModel):
     task_id: UUID | None
     can_resume: bool = False
     updated_at: datetime | None
+    local_agent: dict[str, Any] | None = None
 
 
 class RunResume(StrictModel):

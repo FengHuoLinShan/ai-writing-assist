@@ -98,7 +98,7 @@ def due_targets(row, now):
 
 
 def refresh_due(row):
-    from modules.assistant import creative_queue
+    from modules.assistant import creative_queue, editorial_queue
 
     dates = [
         datetime.fromisoformat(value["due_at"])
@@ -115,6 +115,12 @@ def refresh_due(row):
         dates += [
             datetime.fromisoformat(value["due_at"])
             for value in creative_queue.pending(row).values()
+            if not value.get("blocked")
+        ]
+    if editorial_queue.enabled(row):
+        dates += [
+            datetime.fromisoformat(value["due_at"])
+            for value in editorial_queue.pending(row).values()
             if not value.get("blocked")
         ]
     not_before = (row.dirty_json or {}).get("_scheduler", {}).get("not_before")

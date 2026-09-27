@@ -34,7 +34,7 @@ infrastructure/tasks/
 并由 API 与 worker 两个组合根共同调用以注册这些声明。基础设施本身不导入或发现业务模块。
 当前注册项为：
 
-- assistant：`assistant_turn`，持久化 PydanticAI 消息检查点，manual_resume 不重置预算。
+- assistant：`assistant_turn`，持久化 PydanticAI 消息检查点，manual_resume 不重置预算；`assistant_editorial_review` / `assistant_editorial_recheck` 只读、租约保护，分别按冻结正文分段续读与定向复核。
 - 变化后的确定性回访：`imports_completion_review`、`story_reference_review`，分别由
   Imports、Story 持有覆盖缺口和引用失效结果，不伪装成语义审稿。
 - interaction Agent：`interaction_agent_story_generate` 沿原 attempt 的 restart_origin 规则；
@@ -65,7 +65,7 @@ infrastructure/tasks/
 - evidence（持久化 type 保留 `rag_*`）：`rag_index_chapter`、`rag_reindex_novel`、`rag_retry_embeddings`、
   `rag_reannotate_entities`
 - writing：`publish_chapter`、`writing_generate`、`writing_semantic_review`、
-  `writing_targeted_revision`、`writing_conflict_ai_review`、
+  `writing_targeted_revision`、`writing_comment_run`、`writing_conflict_ai_review`、
   `writing_conflict_item_ai_suggestion`
 - imports：`deep_import`、`scene_auto_extraction`、`world_object_auto_extraction`、
   `plot_structure_auto_extraction`
@@ -428,6 +428,8 @@ AnyIO 重复取消直到连接归还，仍执行原 lease fence；模型与网�
 | task handler | 恢复策略 | 预算与持久化 |
 |---|---|---|
 | `assistant_forecast` | manual_resume | 四次总请求，复用 AssistantRun 与 forecast_v1 检查点 |
+| `assistant_editorial_review` | manual_resume | 每个队列任务最多四次请求、30 分钟；领域 review 保存已核实段、来源/遗漏和用量，续跑仅处理剩余段，用量未知阻断重试。 |
+| `assistant_editorial_recheck` | manual_resume | 一次请求、30 分钟；只读原问题关联的当前正文，结果不自动关闭意见。 |
 | `collaboration_run` | manual_resume | 30 次 / 1800 秒的运行上限，Case 累计消费不因恢复重置 |
 | `collaboration_projection` | auto_requeue | 以采用 receipt 为幂等身份投递同事务 outbox |
 
@@ -451,3 +453,8 @@ request_changed。当前没有把 deep_import 的生产入口重定向到此 han
 通过 task_types 限定取消理解任务，保留其他任务与历史计量。PG guard 拒绝旧 v1
 （含 shadow）及失效 owner 写入；Project share 锁使用 NOWAIT，避免旧心跳反向持锁
 与项目切换互等。迁移先取消不再可执行的旧队列项，不能令最早 pending 阻塞整个队列。
+
+本机 Agent task 在 `meta` 冻结设备、`_local_approved` 与 `_local_ready`。`claim_next` 和
+`claim_exact` 必须同时满足逐次授权和设备就绪；领取后清除 ready，原 task lease 与
+local invocation lease 双重栅栏拒绝迟到结果。伴随进程离线时 pending 不自动切换回
+gateway；执行中断保留已见回执，作者显式发起新任务，不能自动重放本机副作用。

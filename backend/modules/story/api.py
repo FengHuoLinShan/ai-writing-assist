@@ -492,6 +492,19 @@ async def _enqueue_confirmed_task(
                 data.novel_id,
             ),
         }
+        if (
+            isinstance(data, StoryOneClickTaskRequest)
+            and data.simulation_protocol in {"rehearsal_v1", "observation_v2"}
+        ):
+            from modules.local_agent.facade import local_task_meta
+
+            agent_snapshot = await build_project_llm_execution_snapshot(
+                db, data.novel_id, agent_executor=True
+            )
+            local_meta = local_task_meta(agent_snapshot)
+            if local_meta:
+                meta.update(local_meta)
+                meta["agent_llm_execution_snapshot"] = agent_snapshot
         receipt = await enqueue_task_with_optional_operation(
             db,
             operation_id=str(data.operation_id) if data.operation_id else None,

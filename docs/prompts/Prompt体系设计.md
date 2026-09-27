@@ -57,6 +57,7 @@ output_validator 校验，修复计入同一执行预算；固定审稿保留原
 | `generation_prompt_template_service.py` | 内置创作视角与项目级自定义模板；作为 author brief 进入生成中心 | world 对象共创 |
 | `writing/services.py` | 内联 step `writing.generation.candidate.generate`：根据已确认上下文生成正文候选 | writing 正文生成 |
 | `writing/semantic_review.py` | 内联 steps `writing.semantic_review.chunk_N`、`writing.targeted_revision.generate`：冻结正文、原 confirmation CompiledContext、POV/hidden-guard 指纹和合同的独立近读，并让 finding-bound 返修复用同一资料 | writing 审查返修 |
+| `writing/comment_run.py` | 内联 step `writing.comment_revision.patch` 与统一知识治理 `writing.comment_revision.knowledge.*`：只对作者批准的精确批注范围返回 replacement；原稿与所选批注进入独立治理审查，失败不展示候选 | writing 批注修订 |
 | `story/outline_state/ai_workflow_service.py` | 内联 step `outline.ai_workflow.analyze.generate`：回答作者指定的大纲结构问题 | Story outline_state 手动大纲分析 |
 | `interaction/prompts.py` / `evidence/compilation/services/interaction_story_context.py` | 内联 `interaction-story-v8`：兼容模型知识 RP，source-bound 旅程额外注入版本/截止点经 Evidence 校验且统一转义围栏的作品参考块；相关往事数据块能力保留但当前生产门禁关闭；可选隐藏尾部元数据 | interaction 故事任务 |
 | `interaction/prompts.py` | 内联 `interaction-summary-v3` / `interaction-summary-output-v2`：一次生成新分段概要与更新后总回顾 | interaction 回顾任务 |
@@ -693,3 +694,12 @@ Evolution `SceneSample` 可用 `subject_surface`，禁止猜测实体 ID；主�
 满足主体/模态和 Story 物化 schema，不据结构通过宣称语义蕴含正确。DeepSeek Flash
 窄观察关闭思考并给 16,384 输出上限；身份、World 与独立复核使用 high 和分步输出预算，
 模型能力不足时保留待处理，不把格式通过当作文学质量证明。
+
+## 作者编辑台内联指令
+
+`modules/assistant/editorial.py` 的 `assistant.editorial.review` / `.recheck` 走
+`run_managed_structured`，分别校验 `ReviewPass` 与 `RecheckOutput`。单章审读只给意见，不输出
+替换正文；读者 pass 只含当前片段与先前读者状态，不含作者约定、世界资料和后文。作者 pass
+可含已精确回读的世界/结构资料。finding 必须给当前冻结正文的唯一逐字引文，资料引用须属于
+本次实际送入的来源；服务端验证 ID/hash、文本和反证/未覆盖，不合格意见丢弃。改后结果只
+能是仍在、可能改善或无法判断，不能替作者关闭。模型输出是编辑建议，绝非正式采用回执。

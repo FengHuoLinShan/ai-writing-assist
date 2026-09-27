@@ -193,6 +193,36 @@
   line-height: 2.0;
 }
 
+.writing-comment-editor-layer { position: relative; }
+.writing-sheet .writing-comment-editor-layer .novel-editor {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  background: transparent;
+}
+.writing-comment-mirror {
+  position: absolute;
+  z-index: 2;
+  inset: 0 auto auto 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  color: transparent;
+  pointer-events: none;
+  font: inherit;
+  letter-spacing: inherit;
+  line-height: inherit;
+  tab-size: 8;
+}
+.writing-comment-mirror .is-highlighted {
+  background: color-mix(in srgb, var(--accent) 32%, transparent);
+  box-shadow: inset 0 -2px var(--accent);
+}
+
 .writing-sheet .novel-editor:focus {
   box-shadow: none;
 }

@@ -32,6 +32,7 @@ async def compile_review_world_evidence(
     chapter_index: int,
     scene_id: str | None,
     excluded_targets: list[str],
+    capability: str = "writing.semantic_review",
 ) -> dict:
     """Select bounded world references, then reread each permitted source exactly."""
     from modules.evidence.compilation.facade import compile_with_tiers
@@ -54,7 +55,7 @@ async def compile_review_world_evidence(
         include_pending_objects=False,
         retrieval_purpose="conflict_review",
         budget_tokens=4000,
-        capability="writing.semantic_review",
+        capability=capability,
         scope_complete=True,
     )
     excluded = {value.rsplit(":", 1)[-1] for value in excluded_targets}

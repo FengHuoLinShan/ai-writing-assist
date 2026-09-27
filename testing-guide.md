@@ -235,8 +235,8 @@ text collection metrics with an isolated local Codex evaluator. Frontend job fir
 the SHA-pinned Node setup action with `frontend-console/.node-version` (`24.21.0` LTS) and
 the committed lockfile cache, then uses `frontend-console/package-lock.json` to run `npm ci`, then
 `npm audit --package-lock-only --audit-level=high`, ESLint and complete Vitest. The production
-image job owns the production build. `Frontend functional browser` starts a fresh dedicated PostgreSQL, the Compose-managed private
-MinIO buckets, and Chromium, then runs the
+image job owns the production build. `Frontend functional browser` starts a fresh dedicated PostgreSQL, private MinIO from pinned official release binaries,
+and Chromium, then runs the
 complete functional suite on frontend-related PRs and main (smoke only for backend-related PRs), with workers=1 and
 retries=0, and retains
 `frontend-console/test-results` failure diagnostics for 14 days. The existing smoke command is
@@ -516,3 +516,13 @@ V2/前瞻离线质量工具：`python -m evals.creative_forecast corpus --output
 500 个当前事项；预热 3 次、测量 30 次。输出服务层（含 PostgreSQL，不含 HTTP）
 feed/入队 P95，断言无 Provider 调用、feed 无任务写入；事务回滚隔离所有合成资料。
 这不代表生产高并发、20,000 个同时有效事项或文学质量验收。
+
+## 本机 Agent CLI 验证
+
+离线解析与有界进程监督运行 `backend/infrastructure/llm/tests/test_cli_agent.py`；
+配对、授权、租约、工具限次和 pyz 下载运行 `backend/modules/local_agent/tests/`。
+独立 PostgreSQL 17/pgvector 库先迁移到 head，再运行
+`RUN_E2E_TESTS=1 E2E_DATABASE_URL=<专用 test/e2e 库> pytest backend/tests/e2e/test_local_agent_cli.py -m e2e`。
+前端变更运行受影响 Vue 用例、lint 与 build。真实五 CLI 只用合成数据单列验证，
+同时记录本机模型/登录配置、最终结构化结果、工具次数、未知用量及 DSH 原生工具计数限制；
+离线通过不等于作品内容质量验收。

@@ -6,15 +6,25 @@
       <div class="project-assistant-tabs" role="group" aria-label="助手页面">
         <button type="button" :aria-pressed="activeTab === 'chat'" @click="switchTab('chat')">讨论</button>
         <button type="button" :aria-pressed="activeTab === 'care'" @click="switchTab('care')">提醒</button>
+        <button type="button" :aria-pressed="activeTab === 'editorial'" @click="switchTab('editorial')">编辑台</button>
         <button type="button" :aria-pressed="activeTab === 'forecast'" @click="openForecast">下一步</button>
         <button type="button" :aria-pressed="activeTab === 'creative'" @click="openCreative">试改</button>
       </div>
-      <ProactiveCare v-show="activeTab === 'care'" :target-id="projectId" standalone @locate="locateAssistantSource" />
+      <ProactiveCare v-show="activeTab === 'care'" :target-id="projectId" standalone @locate="locateAssistantSource" @editorial="openEditorialFromNotice" />
+      <EditorialDesk v-show="activeTab === 'editorial'" :project-id="projectId" :active="open && activeTab === 'editorial'" :focus-chapter="editorialFocusChapter" :focus-issue-id="editorialFocusIssueId" />
       <div v-if="activeTab === 'forecast'" class="project-assistant-history"><ForecastDock :project-id="projectId" :context="experimentContext" :active="open" standalone /></div>
       <div v-if="activeTab === 'creative'" class="project-assistant-history"><CreativeExperiments ref="creativeRef" :project-id="projectId" :context="experimentContext" :active="open" /></div>
       <div v-show="activeTab === 'chat'" class="project-assistant-chat">
       <div class="project-assistant-sessions"><label for="assistant-session">讨论</label><select id="assistant-session" :value="state.sessionId || ''" :disabled="state.busy || state.loading" @change="assistant.selectSession($event.target.value)"><option v-if="!state.sessionId" value="">新的讨论</option><option v-for="session in state.sessions" :key="session.id" :value="session.id">{{ session.title }}</option></select><button type="button" class="btn btn-sm" :disabled="state.busy" @click="assistant.newSession">新讨论</button></div>
       <div v-if="state.error" class="project-assistant-error" role="alert">{{ state.error }}</div>
+      <div v-if="state.run?.local_agent && state.run?.task_id && !running" class="project-assistant-error">
+        <button class="btn btn-sm" type="button" @click="loadLocalReceipts">查看本机运行记录</button>
+        <pre v-for="receipt in localReceipts" :key="receipt.ordinal">{{ receipt.visible_text || receipt.error || receipt.status }}</pre>
+      </div>
+      <div v-if="state.run?.status === 'pending' && state.run?.local_agent && !state.run.local_agent.approved" class="project-assistant-error" role="status">
+        <p>本轮将使用 {{ state.run.local_agent.kind }} CLI。它在你的 Mac 上直接运行，可访问当前 macOS 用户允许的文件和命令；专用工作目录不是沙箱。费用可能无法准确估算。</p>
+        <button class="btn btn-primary" type="button" :disabled="state.busy" @click="approveLocalRun">确认本轮在本机执行</button>
+      </div>
       <button v-if="state.pendingSubmission && state.error" class="btn" type="button" :disabled="state.busy" @click="assistant.recoverSubmission">恢复上次提交</button>
       <button v-if="state.sessions.length < state.total" class="btn btn-sm" type="button" :disabled="state.loading" @click="assistant.moreSessions">更多讨论</button>
       <p v-if="state.backupError" class="project-assistant-error" role="alert">本地备份暂不可用。未提交的输入仍保留在此页，请勿刷新。</p>
@@ -62,7 +72,7 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
-import { getAssistantWorkContext } from "../bridge/index.js"
+import { getApi, getAssistantWorkContext, getConfirm } from "../bridge/index.js"
 import { createProjectAssistant } from "../composables/useProjectAssistant.js"
 import { registerProjectAssistantOpener } from "../bridge/index.js"
 import { useModalDialog } from "../composables/useModalDialog.js"
@@ -70,6 +80,7 @@ import TeamProgress from "./TeamProgress.vue"
 import AssistantValue from "./AssistantValue.vue"
 import AssistantReviewResult from "./AssistantReviewResult.vue"
 import ProactiveCare from "./ProactiveCare.vue"
+import EditorialDesk from "./EditorialDesk.vue"
 import ForecastDock from "./ForecastDock.vue"
 import CreativeExperiments from "./CreativeExperiments.vue"
 import { locateAssistantSource, openAssistantDestination } from "../shared/assistantNavigation.js"
@@ -81,6 +92,9 @@ const state = assistant.state
 const receiptMessageIds = computed(() => new Set(new Map(state.messages.filter(message => message.assistant_run_id).map(message => [message.assistant_run_id, message.id])).values()))
 const narrow = ref(false)
 const activeTab = ref("chat")
+const localReceipts = ref([])
+const editorialFocusChapter = ref(null)
+const editorialFocusIssueId = ref(null)
 const experimentContext = ref({ page: "today" })
 const creativeRef = ref(null)
 // R00 作者意图：turn 与前瞻共用（后端 schemas.TASK_HINTS 封闭集）；
@@ -88,6 +102,7 @@ const creativeRef = ref(null)
 const taskHint = ref("unknown")
 function withIntent(context) { return { ...(context || {}), task_hint: taskHint.value } }
 function switchTab(tab) { if (activeTab.value === "creative" && creativeRef.value?.canLeave?.() === false) return; activeTab.value = tab }
+function openEditorialFromNotice(source) { editorialFocusIssueId.value = source?.id || null; activeTab.value = "editorial" }
 function openForecast() { if (activeTab.value === "creative" && creativeRef.value?.canLeave?.() === false) return; try { experimentContext.value = withIntent(capture(true)); activeTab.value = "forecast" } catch (error) { state.error = error.message } }
 function openCreative() { try { experimentContext.value = withIntent(capture(true)); activeTab.value = "creative" } catch (error) { state.error = error.message } }
 let media
@@ -108,6 +123,18 @@ function useCurrent() { try { state.context = { ...getAssistantWorkContext(props
 function setScope(value) { try { state.context = { ...(state.context || capture()), scope: value }; assistant.setInput(state.input) } catch (error) { state.error = error.message } }
 function clearSelection() { const { selection_start: _s, selection_end: _e, ...rest } = state.context || {}; state.context = { ...rest, selection: "" }; assistant.setInput(state.input) }
 async function send() { try { await assistant.send(withIntent(state.context || capture())) } catch (error) { state.error = error.message || "暂时无法提交。" } }
+async function approveLocalRun() {
+  if (!state.run?.task_id || !getConfirm()("确认本轮 CLI 可使用当前 macOS 用户的文件与命令权限？")) return
+  try {
+    await getApi().localAgent.approve(props.projectId, state.run.task_id)
+    state.run = await getApi().assistant.run(props.projectId, state.run.id)
+  } catch (error) { state.error = error.message || "本轮授权未完成。" }
+}
+async function loadLocalReceipts() {
+  try { localReceipts.value = (await getApi().localAgent.receipts(props.projectId, state.run.task_id)).items || [] }
+  catch (error) { state.error = error.message || "本机运行记录暂时无法读取。" }
+}
+watch(() => state.run?.id, () => { localReceipts.value = [] })
 function dependencyTitles(action) { return action.depends_on.map(key => state.run.result.actions.find(item => item.key === key)?.title || "前置修改").join("、") }
 function safeUrl(value) { try { const url = new URL(value); return ["https:", "http:"].includes(url.protocol) && !url.username && !url.password } catch { return false } }
 function syncMedia() { narrow.value = media?.matches || false }
@@ -116,8 +143,17 @@ let disposed = false
 const removeOpener = registerProjectAssistantOpener(async request => {
   await loadPromise
   if (disposed || request.projectId !== props.projectId || !state.enabled) throw new Error("该作品的项目助手尚未启用。")
+  if (request.editorial) {
+    if (activeTab.value === "creative" && creativeRef.value?.canLeave?.() === false) throw new Error("试改区还有未保存的内容，请先处理。")
+    editorialFocusChapter.value = Number(request.chapterIndex) || null
+    editorialFocusIssueId.value = null
+    activeTab.value = "editorial"
+    emit("open")
+    return
+  }
   if (state.busy || state.loading) throw new Error("项目助手正在保存或读取讨论，请稍后打开；本页内容仍保留。")
   if (request.sessionId) await assistant.selectSession(request.sessionId)
+  if (request.runId) await assistant.openRun(request.runId)
   if (disposed || request.projectId !== props.projectId || state.error) throw new Error(state.error || "作品已切换。")
   if (request.message && state.input && state.input !== request.message) throw new Error("项目助手中还有未发送的输入，请先处理；这次内容仍保留在共创页。")
   if (request.blueprint) {
@@ -160,6 +196,7 @@ onBeforeUnmount(() => { disposed = true; removeOpener(); assistant.dispose(); me
 .project-assistant-empty{display:grid;gap:10px;color:var(--text-secondary);padding:20px 0}
 .project-assistant-empty .btn{text-align:left;white-space:normal;min-height:44px}
 .project-assistant-error{color:var(--danger);padding:8px 16px;line-height:1.6;overflow-wrap:anywhere}
+.project-assistant-error pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:16rem;overflow:auto}
 .project-assistant-result{padding-top:12px}.project-assistant-result details{margin:12px 0}.project-assistant-result summary{cursor:pointer;min-height:32px;line-height:32px}
 .project-assistant-proposal{border:1px solid var(--border-color,var(--border));border-radius:8px;padding:12px;margin:12px 0}.project-assistant-effect{color:var(--text-secondary);font-size:13px;line-height:1.6}
 .project-assistant-actions{flex-wrap:wrap}.project-assistant-actions label{font-size:12px}.project-assistant-usage{color:var(--text-secondary);font-size:12px}

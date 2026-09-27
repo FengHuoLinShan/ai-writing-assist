@@ -16,6 +16,12 @@ from sqlalchemy.sql import Select
 from core.errors import ConflictError, NotFoundError
 from core.logging_context import bind_validated_novel_id
 from modules.project.contracts import InteractionProjectContract, ProjectSummary
+from modules.project.editorial_brief import (
+    read_editorial_brief as read_editorial_brief,
+)
+from modules.project.editorial_brief import (
+    save_editorial_brief as save_editorial_brief,
+)
 from modules.project.models import Project
 from modules.project.repositories import ProjectRepository
 from modules.project.schemas import ProjectContext, ProjectCreate

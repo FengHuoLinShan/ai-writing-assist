@@ -3,6 +3,8 @@
 This directory stores schemas, small synthetic fast-gate fixtures, and redacted
 manifests. It must not contain the local novel source text.
 
+作者编辑台的原创冻结样本与单人 AI 评阅量表见 [editorial/README.md](editorial/README.md)。
+
 ## Local corpus
 
 - Pilot: `/Users/tywww/Desktop/项目/wirting skill/诡秘之主_第一部 小丑_前60章.txt`

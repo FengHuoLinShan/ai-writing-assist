@@ -348,6 +348,26 @@ async def handle_writing_targeted_revision(db, task):
 
 
 @task_handler(
+    "writing_comment_run",
+    recovery_policy="never_retry",
+    root_capability_id="writing.comment_revision",
+    run_request_limit=160,
+    run_deadline_seconds=None,
+)
+async def handle_writing_comment_run(db, task):
+    from modules.writing.comment_run import run_comment_task
+
+    meta = dict(task.meta or {})
+    novel_id = str(meta.get("novel_id") or "")
+    if not novel_id:
+        raise ValueError("novel_id is required for writing_comment_run")
+    snapshot, _legacy = await _require_llm_execution_snapshot(
+        db, task, meta, novel_id, legacy_meta_key=None
+    )
+    return await run_comment_task(db, task, snapshot)
+
+
+@task_handler(
     "writing_conflict_ai_review",
     recovery_policy="auto_requeue",
     max_attempts=2,

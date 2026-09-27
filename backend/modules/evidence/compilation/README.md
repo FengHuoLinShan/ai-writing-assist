@@ -691,3 +691,7 @@ Evidence 为 Collaboration 收集授权的冻结资源集合，manifest 同时�
 创作专用 `Evidence.creative` 消费认知时继续重验原 confirmation；所选资源的全文/hash 与确认
 不符即拒绝，不能用旧理解带回排除资料。它不扩张通用 Context 编译范围，也不向 Scene-local
 生成或受限阅读投影注入作者理解。具体接口见 Evidence README 与 Collaboration 模块设计。
+
+编辑台调用 `compile_review_world_evidence` 时传入 `assistant.editorial` 能力，继续经现有
+`compile_with_tiers`、逐项 inspect 与排除门禁形成有上限的作者世界资料包；产物包含实际
+引用和 omission。Assistant 另验正文/资料版本，不把这个只读包当正式审稿或采用确认。

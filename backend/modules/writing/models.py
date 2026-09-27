@@ -8,10 +8,13 @@ Writing ORM 模型
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
+    DateTime,
     Float,
     ForeignKey,
     Index,
@@ -63,6 +66,10 @@ class WritingDraft(Base, UUIDMixin, TimestampMixin, NovelMixin):
         index=True,
         comment="正文 SHA-256，用于稳定来源引用和索引新鲜度校验",
     )
+    editorial_ready_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    editorial_ready_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     conflict_check_snapshot_json: Mapped[dict | None] = mapped_column(
         JSON,
         nullable=True,
@@ -91,6 +98,50 @@ class WritingDraft(Base, UUIDMixin, TimestampMixin, NovelMixin):
             f"<WritingDraft id={self.id} novel={self.novel_id} "
             f"ch={self.chapter_index} v{self.version_number}>"
         )
+
+
+class WritingComment(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """A comment anchored to one saved manuscript revision."""
+
+    __tablename__ = "writing_comments"
+    __table_args__ = (
+        Index("ix_writing_comments_scope", "novel_id", "draft_id", "created_at"),
+        UniqueConstraint(
+            "review_task_id", "finding_id", name="uq_writing_comment_finding"
+        ),
+        CheckConstraint(
+            "(start_offset IS NULL AND end_offset IS NULL) OR "
+            "(start_offset >= 0 AND end_offset > start_offset)",
+            name="ck_writing_comment_range",
+        ),
+        CheckConstraint(
+            "status IN ('open', 'resolved')", name="ck_writing_comment_status"
+        ),
+    )
+
+    draft_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("writing_drafts.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    chapter_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    range_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    start_offset: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    end_offset: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    excerpt: Mapped[str] = mapped_column(Text, nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    origin: Mapped[str] = mapped_column(String(16), nullable=False)
+    severity: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    review_task_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), nullable=True
+    )
+    finding_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    last_run_task_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), nullable=True
+    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="open")
 
 
 class WritingConflictCheck(Base, UUIDMixin, TimestampMixin, NovelMixin):

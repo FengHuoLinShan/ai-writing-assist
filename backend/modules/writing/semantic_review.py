@@ -68,7 +68,7 @@ def _candidate_confirmation_id(provenance: dict[str, Any]) -> str:
 
 def _requires_confirmed_context(provenance: dict[str, Any]) -> bool:
     source = str(provenance.get("source") or "")
-    if source == "assistant_revision":
+    if source in {"assistant_revision", "writing_comment_revision"}:
         source = str(provenance.get("context_origin") or "")
     return source in _CONTEXT_BOUND_CANDIDATE_SOURCES
 
@@ -205,6 +205,84 @@ async def validate_candidate_upstream(
 ) -> None:
     """Fail closed when a generated candidate no longer matches its sources."""
     provenance = dict(getattr(draft, "provenance_json", None) or {})
+    if provenance.get("source") == "writing_comment_revision":
+        from modules.writing.repositories import WritingDraftRepository
+
+        base_id = provenance.get("base_draft_id")
+        base = (
+            await WritingDraftRepository().get(db, uuid.UUID(str(base_id)))
+            if base_id
+            else None
+        )
+        latest = (
+            await WritingDraftRepository().get_latest_by_chapter(
+                db, draft.novel_id, draft.chapter_index
+            )
+            if base is not None
+            else None
+        )
+        if (
+            base is None
+            or latest is None
+            or latest.id != base.id
+            or base.content_hash != provenance.get("base_content_hash")
+        ):
+            raise ConflictError("正文已变化，批注修订候选需要重新生成。")
+        if _requires_confirmed_context(provenance):
+            from modules.evidence.facade import require_fresh_confirmation
+
+            confirmation_id = _candidate_confirmation_id(provenance)
+            if not confirmation_id:
+                raise ConflictError("批注修订缺少原正文的参考资料确认。")
+            try:
+                await require_fresh_confirmation(
+                    db,
+                    novel_id=str(draft.novel_id),
+                    action="writing.generate",
+                    confirmation_id=confirmation_id,
+                )
+            except (LookupError, ValueError) as exc:
+                raise ConflictError("原正文的参考资料已变化，请重新审查。") from exc
+        if require_review:
+            review = provenance.get("independent_review") or {}
+            scene_hash = review.get("scene_execution_bundle_hash")
+            if scene_hash:
+                current_scene = await _scene_bundle(
+                    db,
+                    novel_id=str(draft.novel_id),
+                    scene_id=str(provenance.get("scene_id") or "") or None,
+                )
+                if _bundle_hash(current_scene) != scene_hash:
+                    raise ConflictError("场景合同已变化，请重新审查批注候选。")
+            if (
+                review.get("draft_hash") != getattr(draft, "content_hash", None)
+                or review.get("verdict") != "pass"
+                or int(review.get("blocking_count") or 0)
+                or (
+                    _requires_confirmed_context(provenance)
+                    and not review.get("context_checked")
+                )
+            ):
+                raise ConflictError("批注修订候选尚未通过独立审稿。")
+            if not _requires_confirmed_context(provenance):
+                from modules.evidence.facade import compile_review_world_evidence
+
+                scope_data = review.get("review_scope")
+                if not isinstance(scope_data, dict):
+                    raise ConflictError("批注修订缺少世界资料审查范围。")
+                scope = WritingWorldReviewScope.model_validate(scope_data)
+                world = await compile_review_world_evidence(
+                    db,
+                    novel_id=str(draft.novel_id),
+                    chapter_index=draft.chapter_index,
+                    scene_id=str(scope.scene_id) if scope.scene_id else None,
+                    excluded_targets=scope.excluded_targets,
+                )
+                if _stable_hash(world) != review.get("context_fingerprint"):
+                    raise ConflictError("世界资料已变化，请重新审查批注候选。")
+                if world["items"] and not review.get("world_constraints_checked"):
+                    raise ConflictError("批注修订未完成世界约束审查。")
+        return
     if not _requires_confirmed_context(provenance):
         return
 

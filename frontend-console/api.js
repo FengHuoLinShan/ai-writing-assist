@@ -818,6 +818,16 @@ const api = {
   clearAccessToken: _clearAccessToken,
   reportFrontendError,
   assistant: {
+    editorialPolicy: (novelId) => request(withQuery("/assistant/editorial/policy", { novel_id: novelId }), { cache: "no-store" }),
+    saveEditorialPolicy: (novelId, policy, expectedGeneration) => request("/assistant/editorial/policy", { method: "PUT", body: JSON.stringify({ novel_id: novelId, policy, expected_generation: expectedGeneration }) }),
+    editorialReviews: (novelId) => request(withQuery("/assistant/editorial/reviews", { novel_id: novelId }), { cache: "no-store" }),
+    editorialReview: (novelId, id) => request(withQuery(`/assistant/editorial/reviews/${encodeURIComponent(id)}`, { novel_id: novelId }), { cache: "no-store" }),
+    submitEditorialReview: (body) => post("/assistant/editorial/reviews", body),
+    resumeEditorialReview: (novelId, id) => post(withQuery(`/assistant/editorial/reviews/${encodeURIComponent(id)}/resume`, { novel_id: novelId })),
+    stopEditorialReview: (novelId, id) => post(withQuery(`/assistant/editorial/reviews/${encodeURIComponent(id)}/stop`, { novel_id: novelId })),
+    editorialIssues: (novelId) => request(withQuery("/assistant/editorial/issues", { novel_id: novelId }), { cache: "no-store" }),
+    decideEditorialIssue: (id, body) => request(`/assistant/editorial/issues/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) }),
+    recheckEditorialIssue: (id, body) => post(`/assistant/editorial/issues/${encodeURIComponent(id)}/recheck`, body),
     capabilities: (novelId) => request(withQuery("/assistant/capabilities", { novel_id: novelId }), { cache: "no-store" }),
     sessions: (novelId, params = {}) => request(withQuery("/assistant/sessions", { ...params, novel_id: novelId }), { cache: "no-store" }),
     createSession: (novelId, title = "项目助手") => post("/assistant/sessions", { novel_id: novelId, title }),
@@ -837,6 +847,17 @@ const api = {
     careNotices: (novelId) => request(withQuery("/assistant/notices", { novel_id: novelId }), { cache: "no-store" }),
     recheckCareNotice: (novelId, noticeId, operationId) => post(withQuery(`/assistant/notices/${encodeURIComponent(noticeId)}/recheck`, { novel_id: novelId }), { operation_id: operationId }),
     decideCareNotice: (novelId, noticeId, disposition) => post(`/assistant/notices/${encodeURIComponent(noticeId)}/decide`, { novel_id: novelId, ...disposition }),
+  },
+  localAgent: {
+    receipts: (novelId, taskId) => request(withQuery(`/local-agent/tasks/${taskId}/receipts`, { novel_id: novelId }), { cache: "no-store" }),
+    download: (novelId) => request(withQuery("/local-agent/companion/download", { novel_id: novelId }), { cache: "no-store", _responseType: "blob" }),
+    pending: (novelId) => request(withQuery("/local-agent/tasks/pending", { novel_id: novelId }), { cache: "no-store" }),
+    devices: (novelId) => request(withQuery("/local-agent/devices", { novel_id: novelId }), { cache: "no-store" }),
+    pair: (novelId, name) => post("/local-agent/devices/pair", { novel_id: novelId, name }),
+    revoke: (novelId, deviceId) => request(withQuery(`/local-agent/devices/${deviceId}`, { novel_id: novelId }), { method: "DELETE" }),
+    executor: (novelId) => request(withQuery("/local-agent/executor", { novel_id: novelId }), { cache: "no-store" }),
+    select: (novelId, kind, deviceId) => request("/local-agent/executor", { method: "PUT", body: JSON.stringify({ novel_id: novelId, kind, device_id: deviceId || null }) }),
+    approve: (novelId, taskId) => post(`/local-agent/tasks/${taskId}/approve`, { novel_id: novelId, acknowledge_full_host_access: true }),
   },
   auth: {
     async config() {
@@ -880,6 +901,8 @@ const api = {
   // 项目
   // ============================================================
   projects: {
+    editorialBrief: (id) => request(`/projects/${encodeURIComponent(id)}/editorial-brief`, { cache: "no-store" }),
+    saveEditorialBrief: (id, body) => request(`/projects/${encodeURIComponent(id)}/editorial-brief`, { method: "PUT", body: JSON.stringify(body) }),
     demoCopy: () => post("/projects/demo-copy", undefined, { cache: "no-store" }),
     async smartDedupReviewState(id, taskId) { return request(`/projects/${encodeURIComponent(id)}/smart-dedup/scans/${encodeURIComponent(taskId)}/review-state`) },
     async recentSmartDedupScans(id) { return request(`/projects/${encodeURIComponent(id)}/smart-dedup/scans`) },
@@ -2295,6 +2318,7 @@ const api = {
   // 草稿
   // ============================================================
   writing: {
+    markEditorialReady: (draftId, novelId, expectedContentHash) => post(withQuery(`/writing/drafts/${encodeURIComponent(draftId)}/editorial-ready`, { novel_id: novelId }), { expected_content_hash: expectedContentHash }),
     async publish(payload) {
       return contractJson("writing.publish", {}, {}, payload)
     },
@@ -2364,6 +2388,11 @@ const api = {
     async targetedRevision(payload) {
       return contractJson("writing.targetedRevision", {}, {}, payload)
     },
+
+    listComments: (draftId, novelId) => contractFetch("writing.listComments", { draftId }, { novel_id: novelId }),
+    createComment: (draftId, payload) => contractJson("writing.createComment", { draftId }, {}, payload),
+    updateComment: (commentId, payload) => contractJson("writing.updateComment", { commentId }, {}, payload),
+    runComments: (payload) => contractJson("writing.runComments", {}, {}, payload),
 
     async createConflictCheck(payload) {
       return contractJson("writing.createConflictCheck", {}, {}, payload)
