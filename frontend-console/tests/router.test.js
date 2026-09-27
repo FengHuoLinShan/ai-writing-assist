@@ -865,6 +865,23 @@ describe("route guard and normalization", () => {
     }
   })
 
+  it("opens the configured demo map without overriding an explicit location", async () => {
+    addWorkspace()
+    registerBasicView("map")
+    globalThis.publicDemoMode = true
+    globalThis.publicDemoConfig = { project_id: "p1", map_node_id: "featured" }
+    state.currentProjectId = "p1"
+    try {
+      await window.router.navigate("map")
+      expect(window.location.hash).toBe("#workbench/p1/map?node_id=featured")
+      await window.router.navigate("map", null, true, new URLSearchParams({ node_id: "chosen" }))
+      expect(window.location.hash).toBe("#workbench/p1/map?node_id=chosen")
+    } finally {
+      globalThis.publicDemoMode = false
+      globalThis.publicDemoConfig = null
+    }
+  })
+
   it("replace shares route normalization and canLeave while preserving history length", async () => {
     addWorkspace()
     const canLeave = vi.fn(() => true)

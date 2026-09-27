@@ -118,6 +118,8 @@ async def test_public_demo_config_and_scoped_viewer_routes(
     monkeypatch.setenv("ALLOWED_ORIGINS", "http://test")
     monkeypatch.setenv("PUBLIC_DEMO_ENABLED", "true")
     monkeypatch.setenv("PUBLIC_DEMO_PROJECT_ID", str(demo.id))
+    featured_map_id = uuid.uuid4()
+    monkeypatch.setenv("PUBLIC_DEMO_MAP_NODE_ID", str(featured_map_id))
     monkeypatch.setenv("PUBLIC_DEMO_VERSION", "v1")
     monkeypatch.setattr(
         "modules.account.middleware.get_manager",
@@ -174,6 +176,7 @@ async def test_public_demo_config_and_scoped_viewer_routes(
         assert config.json()["demo"] == {
             "enabled": True,
             "project_id": str(demo.id),
+            "map_node_id": str(featured_map_id),
             "version": "v1",
             "rp_enabled": False,
         }
@@ -225,6 +228,7 @@ async def test_invalid_demo_configuration_is_not_exposed(
         assert response.json()["demo"] == {
             "enabled": False,
             "project_id": None,
+            "map_node_id": None,
             "version": None,
             "rp_enabled": False,
         }
@@ -324,6 +328,11 @@ def test_rp_entry_requires_a_valid_configured_source_revision() -> None:
     }
 
     assert configured_public_demo(Settings(**base)).rp_enabled is False
+    invalid_map = configured_public_demo(
+        Settings(**base, public_demo_map_node_id="not-a-uuid")
+    )
+    assert invalid_map.enabled is True
+    assert invalid_map.map_node_id is None
     assert (
         configured_public_demo(
             Settings(**base, public_demo_rp_source_revision_id=str(uuid.uuid4()))

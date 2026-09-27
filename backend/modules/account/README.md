@@ -25,8 +25,9 @@ claims。ID token 提供 `at_hash` 且授权码响应有 access token 时，也�
 
 公开演示由部署配置 `PUBLIC_DEMO_ENABLED`、`PUBLIC_DEMO_PROJECT_ID`、
 `PUBLIC_DEMO_VERSION` 与 `PUBLIC_DEMO_RP_ENABLED` 控制。`GET /api/auth/config` 只暴露
-已通过 UUID/版本校验的 `demo` 投影；无效配置一律显示为禁用。未登录浏览器只能以
-`?demo=1` 进入服务端构造的 `demo_readonly` principal，且仅限配置项目的核心工作台读取
+已通过 UUID/版本校验的 `demo` 投影；无效配置一律显示为禁用。可选的
+`PUBLIC_DEMO_MAP_NODE_ID` 给出经 UUID 校验的首选地图节点，只影响前端首次定位。
+未登录浏览器只能以 `?demo=1` 进入服务端构造的 `demo_readonly` principal，且仅限配置项目的核心工作台读取
 （及显式允许的检索 POST）。它不接受客户端身份 header，不能访问账户/凭据、助手、任务或
 其他项目，也不能读取 Prompt 模板、检索轨迹或上下文快照，且不能写入。普通登录账号可另行请求项目副本。
 作者首页 `workspace-summary` 不对演示 principal 开放；演示首页只从 Writing 的 `published` 章节投影生成简化统计与续读入口。

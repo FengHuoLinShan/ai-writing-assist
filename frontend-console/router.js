@@ -480,6 +480,11 @@ function _normalizeRoute({ projectId = null, viewName = "project", subView = nul
     route = routes.writing
   }
 
+  if (globalThis.publicDemoMode && targetView === "map" && !targetQuery.has("node_id")) {
+    const mapNodeId = globalThis.publicDemoConfig?.map_node_id
+    if (mapNodeId) targetQuery.set("node_id", mapNodeId)
+  }
+
   if (route.requiresProject) {
     targetProjectId = targetProjectId || state.currentProjectId || null
     if (!targetProjectId) {
