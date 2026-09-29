@@ -15,6 +15,7 @@ from .authority import (
 from .character import Character, CharacterKnowledge
 from .cocreation import WorldCocreationMessage, WorldCocreationSession
 from .core import CoreEntity, EntityRelation, EntityRevision, Event, TextArchive
+from .image_candidate import WorldObjectImageCandidate
 from .library import (
     WorldLibraryFavorite,
     WorldLibraryRecent,
@@ -116,5 +117,6 @@ __all__ = [
     "WorldLibraryTopic",
     "WorldLibraryTopicMember",
     "WorldLibraryWorkspaceProfile",
+    "WorldObjectImageCandidate",
     "_ProfileMixin",
 ]

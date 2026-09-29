@@ -55,6 +55,7 @@ infrastructure/tasks/
 - world：`world_alias_relation_extraction`、
   `world_entity_fusion_suggestions`、`world_bible_projection_refresh`、
   `world_bible_synopsis_refresh`、`world_generation_suggestion`、`world_cocreation_turn`、`world_validation`、`map_atlas_generate`、`world_map_schematic_generate`、
+  `world_object_image_generate`（ADR-0029，本机 CLI 对象图片候选，`recovery_policy="never_retry"`）、
   `map_atlas_storage_cleanup`、`world_object_image_cleanup`
   （`world_generation_suggestion` 的 meta 可携带 `session_id`/`session_action`：任务成功后由
   world 域把回合与成果追加进持久化共创会话，见 ADR-0021；transport 合并与任务指纹不受影响）

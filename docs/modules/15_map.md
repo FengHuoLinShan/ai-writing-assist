@@ -14,7 +14,9 @@
 
 - API 前缀：`/api/world/map-atlas`
 - 目标用户：管理长篇设定的项目 owner；提供按章首进度的作者端阅读预览，尚无公开读者或 RP 地图入口。
-- 模型：空间关系提取沿用项目文本 LLM；可选图片固定为 `gpt-image-2`。手动制图不需要模型连接。
+- 模型：空间关系提取沿用项目文本 LLM；图片默认账户连接 `gpt-image-2`，run 也可选择
+  `image_backend=local_cli`（ADR-0029）改用作者本机配对 CLI，两者互斥、按 run 冻结。
+  手动制图不需要模型连接。
 - 存储：map-atlas 自有 S3 adapter；浏览器只经 owner 与 `novel_id` 校验的图片接口读取。
 - 取代：旧 `/api/world/maps*`、六边形/路径/领地/时间轴和 Map Observation/Fact 已删除，无兼容端点或数据迁移。
 - `world_adoption_package.v1` 不纳入地图册操作；地图候选和页面仍走本模块既有作者采用流，不作为
@@ -165,6 +167,25 @@ run 保存 context snapshot、来源 hash 和 source manifest；“补全/更新
 时分别处理。图片统一为不透明 PNG。蒙版和源图必须同为 PNG、同尺寸、各小于 50MB，蒙版必须
 含 alpha；蒙版是模型指导而非像素级边界保证。
 
+### 本机 CLI 图片后端（ADR-0029）
+
+`POST /{novel_id}/runs` 接受 `image_backend: "account" | "local_cli"`（默认 `account`）。
+选择 `local_cli` 时：
+- 创建 run 不要求账户 `openai-image` 连接，仅要求项目已配对本机 CLI 执行器（未配对返回 409
+  `local_image_executor_required`）；对象存储配置要求不变。
+- 执行器（`kind` + `device_id`）在 run 创建（或 Prompt 确认延迟解析时，在确认那一刻）冻结进
+  `image_execution_snapshot`（`provider_id="local-cli"`，无账户密钥）与 `context_snapshot`；
+  regenerate/edit 派生的新 run 继承来源页的后端。
+- 该 run 的每个生图任务（首次、重试、regenerate/edit、Prompt 确认后续跑）都携带本机 Agent
+  的按任务主机权限确认 meta，任务需作者在本机 Agent 审批面板逐个批准才会被领取。
+- 单页图片经 `run_local_image` 走服务端审核包装（见 `docs/modules/23_local_agent.md`），
+  参考图与蒙版作为只读输入文件下发，不消耗账户图片 provider 的运行信封额度。
+- 本机生成不产生平台计费，失败一律 `possible_charge=false`（直接进入 `failed`，不经过
+  `retry_requires_confirmation` 的“可能重复扣费”确认）；页面记录 `provider="local-cli"`、
+  `model=<cli kind>`、`provider_request_id=NULL`。
+- `GET /capabilities?novel_id=` 增加 `local_cli: {available, kind, reason}`，与账户
+  `image_generation` 能力分开上报。
+
 ## 私有对象存储与永久删除
 
 每次尝试使用不可变 key
@@ -192,7 +213,7 @@ finalization 在短事务中取得项目 share lock 与 task lease，持锁上�
 | POST | `/{novel_id}/nodes/{node_id}/revisions/{revision_id}/review-preview` | 只读核对所选采用项及关联修改，返回实际应用范围。 |
 | GET | `/{novel_id}/nodes/{node_id}/reader-preview` | 按章首生成只读白名单。 |
 | GET | `/{novel_id}/nodes/{node_id}/reader-preview/images/{page_id}` | 重验预览白名单后读取图片。 |
-| POST | `/{novel_id}/runs` | 创建初次、更新或完整重做 run；作者请求必须携带 action 匹配的 Context confirmation。 |
+| POST | `/{novel_id}/runs` | 创建初次、更新或完整重做 run；作者请求必须携带 action 匹配的 Context confirmation；`image_backend` 可选 `account`（默认）或 `local_cli`（ADR-0029）。 |
 | GET | `/{novel_id}/runs/latest`、`/{novel_id}/runs/{run_id}` | 查询 run 与进度。 |
 | POST | `/{novel_id}/runs/{run_id}/stop`、`/resume` | 停止或恢复；重复费用风险需显式确认。 |
 | GET | `/{novel_id}/runs/{run_id}/results` | 查询本次生成结果。 |
@@ -216,6 +237,7 @@ hash；指纹变化时在图片模型调用前失败关闭。
 - 空间与集成：`backend/modules/world/tests/test_map_structure.py`、`test_map_structure_workflow.py`。
 - PostgreSQL：`backend/tests/e2e/test_unified_map_concurrency.py`；浏览器：`frontend-console/e2e/map-structure.spec.js`。
 - 后端：`backend/modules/world/tests/test_map_atlas.py`、`backend/tests/account_project_preferences/test_image_connection.py`
+- 本机 CLI 图片后端：`backend/modules/world/tests/test_map_atlas_local_backend.py`
 - 删除竞态：`backend/tests/e2e/test_project_task_gate_concurrency.py`
 - 前端：`frontend-console/tests/vue/map/MapAtlasView.test.js`
 - 图片 adapter：自动测试使用固定 PNG、mock AsyncOpenAI 和 mock boto3；付费 live smoke 默认跳过。

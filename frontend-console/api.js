@@ -1438,6 +1438,30 @@ const api = {
       )
     },
 
+    async imageGeneration(entityId, novelId) {
+      return contractFetch("world.imageGeneration", { id: entityId }, { novel_id: novelId }, { cache: "no-store" })
+    },
+
+    async createImageCandidate(entityId, novelId, prompt) {
+      return contractJson("world.createImageCandidate", { id: entityId }, {}, { novel_id: novelId, prompt })
+    },
+
+    async imageCandidate(candidateId, novelId) {
+      return contractFetch("world.imageCandidate", { candidateId }, { novel_id: novelId }, { cache: "no-store" })
+    },
+
+    async fetchImageCandidateImage(candidateId, novelId) {
+      return contractFetch("world.fetchImageCandidateImage", { candidateId }, { novel_id: novelId }, { cache: "no-store", _responseType: "blob" })
+    },
+
+    async adoptImageCandidate(candidateId, novelId) {
+      return contractJson("world.adoptImageCandidate", { candidateId }, {}, { novel_id: novelId })
+    },
+
+    async discardImageCandidate(candidateId, novelId) {
+      return contractJson("world.discardImageCandidate", { candidateId }, {}, { novel_id: novelId })
+    },
+
     async listProfiles(params = {}) {
       return request(withQuery("/world/profiles", params))
     },

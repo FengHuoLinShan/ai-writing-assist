@@ -109,9 +109,11 @@ async def list_adopted_map_continuity_facts(
 
 
 async def map_capabilities(db: AsyncSession, novel_id: str) -> dict:
+    from modules.local_agent.facade import selected_executor
     from modules.project.contracts import ProjectImageConfigurationError
     from modules.project.facade import (
         build_project_image_execution_snapshot,
+        get_project_context,
         require_active_project,
     )
     from modules.world.map_atlas_storage import storage_configuration_status
@@ -128,11 +130,22 @@ async def map_capabilities(db: AsyncSession, novel_id: str) -> dict:
                 reason="请先在账户设置中连接图片模型。",
                 destination="model_settings",
             )
+    local_cli = {
+        "available": False,
+        "kind": None,
+        "reason": "请先在项目设置中配对本机 CLI，并选择用于生成图片",
+    }
+    context = await get_project_context(db, novel_id)
+    if context is not None and context.owner_id is not None:
+        executor = await selected_executor(db, novel_id, context.owner_id)
+        if executor.kind != "gateway":
+            local_cli = {"available": True, "kind": executor.kind, "reason": None}
     return {
         "structure": {"available": True, "reason": None},
         "upload": upload,
         "image_generation": image,
         "external_prompt": {"available": True, "reason": None},
+        "local_cli": local_cli,
     }
 
 

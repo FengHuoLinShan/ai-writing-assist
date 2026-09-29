@@ -82,12 +82,23 @@ imports 可通过 `world.facade.dedupe_deep_import_workflow_candidates` 调用�
 占用。对象软废弃、融合和别名化不迁移或删除图片；项目永久删除才触发对象前缀清理。图片不进入
 RAG 或 LLM 上下文。
 
+#### 本机 CLI 生图候选（ADR-0029）
+
+`GET /api/world/entities/{id}/image-generation` 报告项目是否已配对本机生图 CLI，并按对象
+CONFIRMED 数据（名称、类型、`summary` 与少量确认属性；未确认/候选/废弃内容一律不入 prompt）
+拼出可编辑默认 prompt。作者提交后 `POST .../image-candidates` 冻结当前执行器、入队
+`world_object_image_generate`，任务经本机 Agent 按任务主机权限批准后才会执行。结果只落
+`world_object_image_candidates`，`review_ready` 供预览，作者显式 `adopt` 才复用既有
+`WorldObjectImageService.upload` 校验/配额/存储写入 `core_entities.image_version`；`discard`
+清空候选字节，同一对象只保留最新 3 张 `review_ready` 候选。
+
 ## 数据表
 
 - `core_entities` — 共享核心实体表，公共字段（name / `content_json.aliases` / summary / public_info / hidden_truth / importance / embedding / search_text / pinyin_string / image_version / image_updated_at）统一存储；别名项保存 `kind + type`，图片字节位于私有对象存储
 - `events` — 事件扩展表（entity_id PK+FK → core_entities.id）
 - `entity_relations` — 实体关系边（UUID FK → core_entities + `relation_kind` 最小分类 + `relation_type` 精确类型 + 章节追溯字段 + `review_meta` 复核审计）
 - `entity_revisions` — 实体快照版本表（旧版快照；当前活跃回滚优先使用 `TextArchive`，无归档时回退到 `EntityRevision`）
+- `world_object_image_candidates` — 本机 CLI 对象图片生成候选（ADR-0029）：冻结执行器、prompt、生成字节与采用/放弃状态；采用前不影响 `core_entities.image_version`
 - `characters` — 人物档案（entity_id PK+FK → core_entities.id）
 - `character_knowledge` — 人物知识边界
 - `world_assertions` / `world_canon_revisions` / `world_canon_heads` — 封闭 Assert carrier、完整不可变 manifest/receipt 历史与每项目唯一 head
