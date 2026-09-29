@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import io
@@ -11,22 +12,26 @@ import zipfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from fastapi import APIRouter, Header
+from fastapi import APIRouter, Header, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
 from core.dependencies import DbSession
-from core.errors import ConflictError, NotFoundError, ValidationError
+from core.errors import ConflictError, DomainError, NotFoundError, ValidationError
 from infrastructure.tasks.models import AsyncTask
 from modules.account.facade import current_account_id, require_account_active
 from modules.local_agent.facade import save_executor, selected_executor
+from modules.local_agent.images import review_generated_image
 from modules.local_agent.models import (
     LocalAgentDevice,
+    LocalAgentFile,
     LocalAgentInvocation,
     LocalAgentToolCall,
 )
 from modules.project.facade import require_active_project
+
+_MAX_OUTPUT_BYTES = 20 * 1024 * 1024
 
 router = APIRouter(prefix="/api/local-agent", tags=["local-agent"])
 
@@ -276,6 +281,8 @@ async def pending_approvals(db: DbSession, novel_id: uuid.UUID):
         "collaboration_run": "创作协作",
         "interaction_continuity_review": "旅程连续性检查",
         "story_one_click": "场景排演",
+        "world_object_image_generate": "对象图片生成",
+        "map_atlas_generate": "地图册生成",
     }
     return {
         "items": [
@@ -324,7 +331,8 @@ async def task_receipts(db: DbSession, task_id: uuid.UUID, novel_id: uuid.UUID):
                 ],
                 "tool_attempts": (row.result_json or {}).get("tool_attempts"),
                 "usage": (row.result_json or {}).get("usage"),
-                "error": row.error or (
+                "error": row.error
+                or (
                     "原始任务已中断"
                     if task.status in {"failed", "cancelled"}
                     and row.status in {"pending", "running"}
@@ -645,3 +653,87 @@ async def finish_invocation(
     }
     await db.commit()
     return {"accepted": True}
+
+
+@router.get("/companion/jobs/{invocation_id}/inputs/{ordinal}")
+async def download_input(
+    db: DbSession,
+    invocation_id: uuid.UUID,
+    ordinal: int,
+    lease_id: uuid.UUID,
+    authorization: str | None = Header(None),
+):
+    device = await _device(db, authorization)
+    invocation = await _invocation(db, device, invocation_id, lease_id)
+    if invocation.request_json.get("mode") != "image":
+        raise NotFoundError("本机任务不支持图片输入")
+    row = await db.scalar(
+        select(LocalAgentFile).where(
+            LocalAgentFile.invocation_id == invocation_id,
+            LocalAgentFile.role == "input",
+            LocalAgentFile.ordinal == ordinal,
+        )
+    )
+    if row is None:
+        raise NotFoundError("参考图片不存在")
+    return Response(row.data, media_type=row.media_type)
+
+
+@router.put("/companion/jobs/{invocation_id}/output")
+async def upload_output(
+    request: Request,
+    db: DbSession,
+    invocation_id: uuid.UUID,
+    lease_id: uuid.UUID,
+    authorization: str | None = Header(None),
+):
+    device = await _device(db, authorization)
+    content_type = (
+        (request.headers.get("content-type") or "").split(";")[0].strip().lower()
+    )
+    if content_type not in {"image/png", "image/jpeg"}:
+        raise ValidationError("仅支持 PNG 或 JPEG 图片")
+    # Read and review before taking the invocation row lock, so a slow upload
+    # never blocks heartbeats; the lease is then checked under the lock.
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > _MAX_OUTPUT_BYTES:
+            raise DomainError(
+                "图片文件过大", code="local_image_output_too_large", status_code=413
+            )
+        chunks.append(chunk)
+    reviewed = await asyncio.to_thread(review_generated_image, b"".join(chunks))
+    invocation = await _invocation(db, device, invocation_id, lease_id)
+    if invocation.request_json.get("mode") != "image":
+        raise NotFoundError("本机任务不支持图片输出")
+    existing = await db.scalar(
+        select(LocalAgentFile).where(
+            LocalAgentFile.invocation_id == invocation_id,
+            LocalAgentFile.role == "output",
+            LocalAgentFile.ordinal == 0,
+        )
+    )
+    if existing is not None:
+        await db.delete(existing)
+        await db.flush()
+    db.add(
+        LocalAgentFile(
+            invocation_id=invocation_id,
+            novel_id=device.novel_id,
+            role="output",
+            ordinal=0,
+            name="output.png",
+            media_type="image/png",
+            data=reviewed.data,
+            byte_size=len(reviewed.data),
+            sha256=reviewed.sha256,
+        )
+    )
+    await db.commit()
+    return {
+        "sha256": reviewed.sha256,
+        "width": reviewed.width,
+        "height": reviewed.height,
+    }

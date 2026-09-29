@@ -8,8 +8,31 @@ from dataclasses import dataclass
 
 from core.errors import NotFoundError, ValidationError
 from infrastructure.llm.cli_agent import CLI_KINDS, CLIKind
+from modules.local_agent.image_runtime import run_local_image
+from modules.local_agent.images import (
+    ReviewedImage,
+    fit_cover,
+    limit_edge,
+    review_generated_image,
+)
 from modules.local_agent.models import LocalAgentDevice
 from modules.project.models import Project
+
+__all__ = [
+    "AgentExecutor",
+    "ReviewedImage",
+    "fit_cover",
+    "limit_edge",
+    "local_image_task_meta",
+    "local_task_meta",
+    "open_task_snapshot_client",
+    "review_generated_image",
+    "run_local_image",
+    "save_executor",
+    "selected_executor",
+    "task_awaiting_local_approval",
+    "task_snapshot_client",
+]
 
 
 @dataclass(frozen=True)
@@ -27,6 +50,19 @@ def local_task_meta(snapshot: dict | None) -> dict:
         "_local_ready": False,
         "_local_approved": False,
         "_local_device_id": local["device_id"],
+    }
+
+
+def local_image_task_meta(executor: AgentExecutor) -> dict:
+    """Task meta the world module attaches so image jobs gate through the same
+    per-task local-device approval flow as text jobs did."""
+    if executor.kind == "gateway" or not executor.device_id:
+        return {}
+    return {
+        "_local_agent": True,
+        "_local_ready": False,
+        "_local_approved": False,
+        "_local_device_id": executor.device_id,
     }
 
 
@@ -68,6 +104,29 @@ async def open_task_snapshot_client(db, task, snapshot, *, budget, checkpoint=No
         yield client
     finally:
         await client.close()
+
+
+async def task_awaiting_local_approval(db, task_id: str) -> bool:
+    """Whether one task is a pending, not-yet-approved local-agent task.
+
+    Callers outside this module (e.g. the world object image and map atlas
+    review views) use this to show an "awaiting host approval" state without
+    reaching into the task ORM's ``meta`` payload directly.
+    """
+    from infrastructure.tasks.models import AsyncTask
+
+    try:
+        task = await db.get(AsyncTask, uuid.UUID(str(task_id)))
+    except ValueError:
+        return False
+    if task is None:
+        return False
+    meta = task.meta or {}
+    return bool(
+        task.status == "pending"
+        and meta.get("_local_agent")
+        and not meta.get("_local_approved")
+    )
 
 
 async def selected_executor(db, novel_id: str, owner_id: str) -> AgentExecutor:

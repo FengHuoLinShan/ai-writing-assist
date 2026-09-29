@@ -175,12 +175,12 @@ prepare 为一个具体选择创建独立子 run 与唯一 batch，重新校验�
   `submit` 载草稿后 `verify_selection_range` 逐字复核，漂移抛
   `assistant_selection_stale`（失败关闭，不带失真选区进模型）。
 
-## 本机 Agent 执行器
+## 本机 CLI（不再用于助手）
 
-项目设置可将 Agent 根任务冻结到配对 Mac 的 CLI。`assistant_turn`、语义前瞻和创作协作
-仍使用各自的任务、预算、Evidence 范围、候选及采用门禁；每个任务待作者确认本机权限后
-才可领取，设备离线时不回退到 gateway。助手运行投影只公开执行器种类与授权状态；
-失败/停止的本机可见输出通过项目授权回执读取，不当作正式领域成果。
+按 [ADR-0029](../../../docs/adr/0029-local-cli-image-only.md)，本机 CLI 只用于图片生成。
+`assistant_turn`、语义前瞻和创作协作一律冻结项目账户连接，不读取项目的本机执行器；
+能力接口不再因本机执行器而报告模型可用。此前冻结为本机执行的助手运行在执行时以
+`assistant_runtime_changed` 失败关闭，不改走账户连接；运行投影仍可显示其旧授权状态。
 
 ## 作者编辑台
 

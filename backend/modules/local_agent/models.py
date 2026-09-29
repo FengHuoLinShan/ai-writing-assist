@@ -11,6 +11,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -96,3 +97,36 @@ class LocalAgentToolCall(Base, UUIDMixin, TimestampMixin):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     result_json: Mapped[dict | None] = mapped_column(JSON)
     error: Mapped[str | None] = mapped_column(Text)
+
+
+class LocalAgentFile(Base, UUIDMixin, TimestampMixin):
+    """Transient binary staging for one image invocation's inputs and output.
+
+    Rows are deleted as soon as the invocation that owns them finishes; bytes
+    never linger past a single image run.
+    """
+
+    __tablename__ = "local_agent_files"
+    __table_args__ = (
+        UniqueConstraint(
+            "invocation_id", "role", "ordinal", name="uq_local_agent_file_slot"
+        ),
+        Index("ix_local_agent_file_invocation_id", "invocation_id"),
+        Index("ix_local_agent_file_novel_id", "novel_id"),
+    )
+
+    invocation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("local_agent_invocations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    role: Mapped[str] = mapped_column(String(8), nullable=False)
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    media_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    byte_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)

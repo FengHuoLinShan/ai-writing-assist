@@ -6,6 +6,8 @@ import argparse
 import asyncio
 import json
 import os
+import re
+import shutil
 import sys
 import uuid
 from pathlib import Path
@@ -20,6 +22,8 @@ _SHIM = """#!/usr/bin/env python3
 from modules.local_agent.companion import tool_main
 tool_main()
 """
+_INPUT_NAME = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+_MAX_OUTPUT_BYTES = 20 * 1024 * 1024
 
 
 class _NoRedirect(HTTPRedirectHandler):
@@ -70,6 +74,41 @@ def _request(
     return value
 
 
+def _download(base: str, path: str, *, token: str, max_bytes: int) -> bytes:
+    headers = {"Accept": "application/octet-stream", "Authorization": f"Bearer {token}"}
+    request = Request(base + path, headers=headers, method="GET")
+    try:
+        with _OPENER.open(request, timeout=30) as response:
+            data = response.read(max_bytes + 1)
+    except HTTPError as exc:
+        raise CLIAgentError(f"服务器拒绝本机任务：HTTP {exc.code}") from exc
+    except URLError as exc:
+        raise CLIAgentError("无法连接产品服务器") from exc
+    if len(data) > max_bytes:
+        raise CLIAgentError("服务器返回内容过大")
+    return data
+
+
+def _upload(base: str, path: str, *, token: str, data: bytes, content_type: str) -> dict:
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": content_type,
+        "Authorization": f"Bearer {token}",
+    }
+    request = Request(base + path, data=data, headers=headers, method="PUT")
+    try:
+        with _OPENER.open(request, timeout=60) as response:
+            body = response.read(2 * 1024 * 1024)
+    except HTTPError as exc:
+        raise CLIAgentError(f"服务器拒绝本机任务：HTTP {exc.code}") from exc
+    except URLError as exc:
+        raise CLIAgentError("无法连接产品服务器") from exc
+    value = json.loads(body)
+    if not isinstance(value, dict):
+        raise CLIAgentError("服务器返回格式错误")
+    return value
+
+
 def pair(base: str, code: str) -> str:
     base = _server(base)
     response = _request(
@@ -101,17 +140,101 @@ def _load(device_id: str) -> tuple[str, str]:
     return _server(data["server"]), data["token"]
 
 
-async def _job(base: str, token: str, job: dict) -> None:
-    invocation = str(uuid.UUID(job["id"]))
-    lease = str(uuid.UUID(job["lease_id"]))
-    request = job["request"]
-    root = _HOME / "runs" / invocation
-    root.mkdir(parents=True, exist_ok=False, mode=0o700)
+def _model_override(cli: str) -> str | None:
+    if cli not in {"codex", "pi"}:
+        return None
+    return os.environ.get(
+        "NOVELCRAFT_CODEX_MODEL" if cli == "codex" else "NOVELCRAFT_PI_MODEL"
+    )
+
+
+async def _run_image_job(
+    base: str,
+    token: str,
+    job: dict,
+    request: dict,
+    lease: str,
+    root: Path,
+    job_path: str,
+    on_event,
+    heartbeat,
+) -> bool:
+    """Stage read-only reference files, run the CLI with no product tools, upload."""
+    for item in request.get("inputs") or []:
+        name = str(item["name"])
+        if not _INPUT_NAME.match(name):
+            raise CLIAgentError("参考文件名不合法")
+        query = urlencode({"lease_id": lease})
+        payload = await asyncio.to_thread(
+            _download,
+            base,
+            f"{job_path}/inputs/{item['ordinal']}?{query}",
+            token=token,
+            max_bytes=20 * 1024 * 1024,
+        )
+        target = root / name
+        target.write_bytes(payload)
+        target.chmod(0o600)
+    spec = CLISpec(
+        kind=job["cli"],
+        prompt=request["prompt"],
+        workspace=root,
+        timeout_seconds=float(request["timeout_seconds"]),
+        max_tool_attempts=int(request["max_tool_attempts"]),
+        model=_model_override(job["cli"]),
+        env={"PATH": os.environ.get("PATH", "")},
+    )
+    async with asyncio.TaskGroup() as group:
+        running = group.create_task(run_cli_agent(spec, on_event=on_event))
+        watcher = group.create_task(heartbeat())
+        await running
+        watcher.cancel()
+    running.result()
+    output_path = next(
+        (
+            candidate
+            for candidate in (
+                root / "output.png",
+                root / "output.jpg",
+                root / "output.jpeg",
+            )
+            if candidate.is_file()
+            and not candidate.is_symlink()
+            and candidate.stat().st_size <= _MAX_OUTPUT_BYTES
+        ),
+        None,
+    )
+    if output_path is None:
+        raise CLIAgentError("本机 CLI 未生成 output.png/output.jpg")
+    content_type = "image/png" if output_path.suffix == ".png" else "image/jpeg"
+    query = urlencode({"lease_id": lease})
+    await asyncio.to_thread(
+        _upload,
+        base,
+        f"{job_path}/output?{query}",
+        token=token,
+        data=output_path.read_bytes(),
+        content_type=content_type,
+    )
+    return True
+
+
+async def _run_text_job(
+    base: str,
+    token: str,
+    job: dict,
+    request: dict,
+    lease: str,
+    root: Path,
+    socket_path: Path,
+    job_path: str,
+    invocation: str,
+    on_event,
+    heartbeat,
+):
     shim = root / "novelcraft-tool"
     shim.write_text(_SHIM, encoding="utf-8")
     shim.chmod(0o700)
-    socket_path = root / "tool.sock"
-    sequence = 0
 
     async def relay_tool(
         reader: asyncio.StreamReader, writer: asyncio.StreamWriter
@@ -153,7 +276,45 @@ async def _job(base: str, token: str, job: dict) -> None:
             await writer.wait_closed()
 
     server = await asyncio.start_unix_server(relay_tool, path=str(socket_path))
+    try:
+        async with server:
+            async with asyncio.TaskGroup() as group:
+                running = group.create_task(
+                    run_cli_agent(
+                        CLISpec(
+                            kind=job["cli"],
+                            prompt=request["prompt"],
+                            workspace=root,
+                            timeout_seconds=float(request["timeout_seconds"]),
+                            max_tool_attempts=int(request["max_tool_attempts"]),
+                            model=_model_override(job["cli"]),
+                            env={
+                                "PATH": f"{root}{os.pathsep}{os.environ.get('PATH', '')}",
+                                "NOVELCRAFT_TOOL_SOCKET": str(socket_path),
+                            },
+                        ),
+                        on_event=on_event,
+                    )
+                )
+                watcher = group.create_task(heartbeat())
+                await running
+                watcher.cancel()
+        return running.result()
+    finally:
+        socket_path.unlink(missing_ok=True)
+        (root / ".novelcraft-task.md").unlink(missing_ok=True)
+
+
+async def _job(base: str, token: str, job: dict) -> None:
+    invocation = str(uuid.UUID(job["id"]))
+    lease = str(uuid.UUID(job["lease_id"]))
+    request = job["request"]
+    is_image = request.get("mode") == "image"
+    root = _HOME / "runs" / invocation
+    root.mkdir(parents=True, exist_ok=False, mode=0o700)
+    socket_path = root / "tool.sock"
     job_path = f"/api/local-agent/companion/jobs/{invocation}"
+    sequence = 0
 
     async def on_event(event: CLIEvent) -> None:
         nonlocal sequence
@@ -189,40 +350,28 @@ async def _job(base: str, token: str, job: dict) -> None:
     result = None
     error = None
     try:
-        async with server:
-            async with asyncio.TaskGroup() as group:
-                running = group.create_task(
-                    run_cli_agent(
-                        CLISpec(
-                            kind=job["cli"],
-                            prompt=request["prompt"],
-                            workspace=root,
-                            timeout_seconds=float(request["timeout_seconds"]),
-                            max_tool_attempts=int(request["max_tool_attempts"]),
-                            model=os.environ.get(
-                                "NOVELCRAFT_CODEX_MODEL"
-                                if job["cli"] == "codex"
-                                else "NOVELCRAFT_PI_MODEL"
-                            )
-                            if job["cli"] in {"codex", "pi"}
-                            else None,
-                            env={
-                                "PATH": f"{root}{os.pathsep}{os.environ.get('PATH', '')}",
-                                "NOVELCRAFT_TOOL_SOCKET": str(socket_path),
-                            },
-                        ),
-                        on_event=on_event,
-                    )
-                )
-                watcher = group.create_task(heartbeat())
-                await running
-                watcher.cancel()
-            result = running.result()
+        if is_image:
+            result = await _run_image_job(
+                base, token, job, request, lease, root, job_path, on_event, heartbeat
+            )
+        else:
+            result = await _run_text_job(
+                base,
+                token,
+                job,
+                request,
+                lease,
+                root,
+                socket_path,
+                job_path,
+                invocation,
+                on_event,
+                heartbeat,
+            )
     except BaseException as exc:
         error = str(exc)[:2000]
     finally:
-        socket_path.unlink(missing_ok=True)
-        (root / ".novelcraft-task.md").unlink(missing_ok=True)
+        shutil.rmtree(root, ignore_errors=True)
     await asyncio.to_thread(
         _request,
         base,
@@ -232,10 +381,10 @@ async def _job(base: str, token: str, job: dict) -> None:
         payload={
             "lease_id": lease,
             "status": "completed" if result else "failed",
-            "answer": result.answer if result else "",
+            "answer": "" if is_image else (result.answer if result else ""),
             "error": error or "",
-            "tool_attempts": result.tool_attempts if result else 0,
-            "usage": result.usage if result else None,
+            "tool_attempts": 0 if is_image else (result.tool_attempts if result else 0),
+            "usage": None if is_image else (result.usage if result else None),
         },
     )
 

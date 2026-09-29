@@ -133,7 +133,7 @@ async def submit(
     ):
         raise ConflictError("后台计算授权已撤销", code="POLICY_CHANGED")
     snapshot = (
-        await build_project_llm_execution_snapshot(db, novel_id, agent_executor=True)
+        await build_project_llm_execution_snapshot(db, novel_id)
         if semantic
         else None
     )

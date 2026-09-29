@@ -106,7 +106,7 @@ async def test_story_scene_alias_rejects_path_body_mismatch(
 
 
 @pytest.mark.asyncio
-async def test_rehearsal_submission_freezes_local_agent_separately(
+async def test_rehearsal_submission_stays_on_the_project_connection(
     db_session, test_project_id, monkeypatch
 ):
     from modules.story import api
@@ -116,12 +116,8 @@ async def test_rehearsal_submission_freezes_local_agent_separately(
     async def fresh(*_args, **_kwargs):
         return None
 
-    async def snapshot(*_args, agent_executor=False, **_kwargs):
-        return (
-            {"local_agent": {"kind": "pi", "device_id": str(uuid.uuid4())}}
-            if agent_executor
-            else {"gateway": True}
-        )
+    async def snapshot(*_args, **_kwargs):
+        return {"gateway": True}
 
     async def enqueue(*_args, **kwargs):
         captured.update(kwargs["meta"])
@@ -145,6 +141,5 @@ async def test_rehearsal_submission_freezes_local_agent_separately(
         task_type="story_one_click",
     )
     assert captured["llm_execution_snapshot"] == {"gateway": True}
-    assert captured["agent_llm_execution_snapshot"]["local_agent"]["kind"] == "pi"
-    assert captured["_local_agent"] is True
-    assert captured["_local_approved"] is False
+    assert not any(key.startswith("_local") for key in captured)
+    assert "agent_llm_execution_snapshot" not in captured

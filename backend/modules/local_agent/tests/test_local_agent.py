@@ -7,7 +7,6 @@ import subprocess
 import sys
 import uuid
 from dataclasses import replace
-from types import SimpleNamespace
 
 import pytest
 
@@ -15,8 +14,6 @@ from core.config import get_settings
 from infrastructure.tasks.enqueuer import _new_task
 from infrastructure.tasks.lifecycle import TaskLifecycleService
 from infrastructure.tasks.models import AsyncTask
-from modules.assistant.schemas import AssistantAnswer
-from modules.assistant.service import AssistantService
 from modules.local_agent.models import LocalAgentDevice, LocalAgentInvocation
 from modules.local_agent.runtime import _reported_usage
 
@@ -277,7 +274,7 @@ def test_unreported_tokens_remain_unknown():
 
 
 @pytest.mark.asyncio
-async def test_assistant_submit_freezes_local_executor_without_account_model(
+async def test_local_cli_selection_does_not_route_assistant_turns(
     db_session, async_client, test_project_id, monkeypatch
 ):
     monkeypatch.setattr(
@@ -304,7 +301,6 @@ async def test_assistant_submit_freezes_local_executor_without_account_model(
     session = await async_client.post(
         "/api/assistant/sessions", json={"novel_id": test_project_id}
     )
-    assert session.status_code == 201
     response = await async_client.post(
         f"/api/assistant/sessions/{session.json()['id']}/turns",
         json={
@@ -314,27 +310,31 @@ async def test_assistant_submit_freezes_local_executor_without_account_model(
             "allow_web": False,
         },
     )
-    assert response.status_code == 202, response.text
-    assert response.json()["local_agent"] == {"kind": "claude", "approved": False}
+    # Text turns never fall back to the local CLI; they need the account model.
+    assert response.status_code == 400
+    assert response.json()["error"] == "project_llm_configuration_error"
     assert await TaskLifecycleService().claim_next(db_session) is None
-    approved = await async_client.post(
-        f"/api/local-agent/tasks/{response.json()['task_id']}/approve",
-        json={"novel_id": test_project_id, "acknowledge_full_host_access": True},
+
+
+async def test_legacy_local_text_snapshot_fails_closed(db_session, test_project_id):
+    from modules.project.contracts import ProjectLLMConfigurationError
+    from modules.project.facade import restore_project_llm_execution_settings
+    from modules.project.llm_runtime import (
+        PROJECT_LLM_EXECUTION_SNAPSHOT_VERSION,
+        _stable_hash,
     )
-    assert approved.status_code == 200
-    task = await TaskLifecycleService().claim_next(db_session)
-    assert task is not None
-    db_session.task_checkpoint_enabled = True
 
-    async def fake_local_run(*_args, **kwargs):
-        assert kwargs["cli"] == "claude"
-        assert kwargs["novel_id"] == test_project_id
-        return SimpleNamespace(output=AssistantAnswer(answer="合成结果"))
-
-    monkeypatch.setattr("modules.local_agent.client.run_local_agent", fake_local_run)
-    result = await AssistantService().execute(db_session, task)
-    assert result["status"] == "completed"
-
+    snapshot = {
+        "version": PROJECT_LLM_EXECUTION_SNAPSHOT_VERSION,
+        "novel_id": test_project_id,
+        "profile": {"provider_id": "local-cli", "model": "claude"},
+        "local_agent": {"kind": "claude", "device_id": str(uuid.uuid4())},
+    }
+    snapshot["profile_hash"] = _stable_hash(snapshot)
+    with pytest.raises(ProjectLLMConfigurationError, match="Local CLI"):
+        await restore_project_llm_execution_settings(
+            db_session, test_project_id, snapshot
+        )
 
 
 async def test_exhausted_tool_budget_ends_the_local_run(
