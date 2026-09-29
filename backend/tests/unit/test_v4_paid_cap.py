@@ -122,6 +122,14 @@ async def test_explicit_uncapped_ledger_still_blocks_unknown_and_original_retry(
         await Meter(path).wrap(failed)(provider, request)
 
 
+def test_redacted_snapshot_cannot_meter_new_calls(tmp_path):
+    path = tmp_path / "calls.json"
+    ledger = Meter(path).ledger
+    save(path, {**ledger, "payload_redacted": {"removed_fields": ["request"]}})
+    with pytest.raises(RuntimeError, match="Redacted ledger snapshot"):
+        Meter(path)
+
+
 @pytest.mark.parametrize("interrupt", [False, True])
 async def test_paid_stream_settles_final_usage_or_retains_cancelled_reservation(
     tmp_path, interrupt
