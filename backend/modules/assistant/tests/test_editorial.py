@@ -386,6 +386,10 @@ async def test_worker_keeps_advice_out_of_draft_and_marks_changed_source_stale(
         await editorial.execute(db_session, task)
     stale = await editorial.view(db_session, novel_id, UUID(second["id"]))
     assert stale["status"] == "stale"
+    stored = await db_session.get(
+        EditorialReview, UUID(second["id"]), populate_existing=True
+    )
+    assert stored.status == "stale"
     assert not stale["report"]
     issue = (
         await async_client.get(
@@ -502,6 +506,109 @@ async def test_worker_keeps_advice_out_of_draft_and_marks_changed_source_stale(
         for target in editorial_queue.pending(watch).values()
     )
     assert (await db_session.get(EditorialReview, UUID(first["id"]))).status == "stale"
+
+
+@pytest.mark.asyncio
+async def test_brief_change_before_execution_leaves_a_terminal_stale_review(
+    async_client, db_session, monkeypatch
+):
+    settings = replace(
+        get_settings(), assistant_enabled=True, assistant_editorial_enabled=True
+    )
+    monkeypatch.setattr(editorial, "get_settings", lambda: settings)
+
+    async def snapshot(_db, _novel_id):
+        return {"test_snapshot": True}
+
+    monkeypatch.setattr(editorial, "build_project_llm_execution_snapshot", snapshot)
+    novel_id = (
+        await async_client.post("/api/projects", json={"title": "约定变化"})
+    ).json()["id"]
+    await async_client.post(
+        "/api/writing/drafts/autosave",
+        json={"novel_id": novel_id, "chapter_index": 1, "content": "第一章正文。"},
+    )
+    review = (
+        await async_client.post(
+            "/api/assistant/editorial/reviews",
+            json={
+                "novel_id": novel_id,
+                "operation_id": str(uuid4()),
+                "scope": "chapter",
+                "start_chapter": 1,
+                "expected_brief_version": 0,
+                "dimensions": ["structure"],
+            },
+        )
+    ).json()
+    assert (
+        await async_client.put(
+            f"/api/projects/{novel_id}/editorial-brief",
+            json={"expected_version": 0, "brief": {"voice": "改用更克制的叙述"}},
+        )
+    ).status_code == 200
+    await db_session.commit()
+    task = await db_session.get(AsyncTask, UUID(review["task_id"]))
+    db_session.task_checkpoint_enabled = True
+    with pytest.raises(ConflictError, match="编辑约定"):
+        await editorial.execute(db_session, task)
+
+    stored = await db_session.get(
+        EditorialReview, UUID(review["id"]), populate_existing=True
+    )
+    assert (stored.status, stored.error) == ("stale", "编辑约定已变化")
+    assert (await editorial.view(db_session, novel_id, stored.id))["status"] == "stale"
+    with pytest.raises(ConflictError, match="不能续跑"):
+        await editorial.resume(db_session, novel_id, stored.id)
+
+
+@pytest.mark.asyncio
+async def test_review_whose_task_died_becomes_resumable_on_read(
+    async_client, db_session, monkeypatch
+):
+    settings = replace(
+        get_settings(), assistant_enabled=True, assistant_editorial_enabled=True
+    )
+    monkeypatch.setattr(editorial, "get_settings", lambda: settings)
+
+    async def snapshot(_db, _novel_id):
+        return {"test_snapshot": True}
+
+    monkeypatch.setattr(editorial, "build_project_llm_execution_snapshot", snapshot)
+    novel_id = (
+        await async_client.post("/api/projects", json={"title": "任务中断"})
+    ).json()["id"]
+    await async_client.post(
+        "/api/writing/drafts/autosave",
+        json={"novel_id": novel_id, "chapter_index": 1, "content": "第一章正文。"},
+    )
+    review = (
+        await async_client.post(
+            "/api/assistant/editorial/reviews",
+            json={
+                "novel_id": novel_id,
+                "operation_id": str(uuid4()),
+                "scope": "chapter",
+                "start_chapter": 1,
+                "expected_brief_version": 0,
+                "dimensions": ["structure"],
+            },
+        )
+    ).json()
+    stored = await db_session.get(EditorialReview, UUID(review["id"]))
+    stored.status = "running"
+    task = await db_session.get(AsyncTask, UUID(review["task_id"]))
+    task.status = "failed"
+    await db_session.commit()
+
+    listed = (
+        await async_client.get(
+            "/api/assistant/editorial/reviews", params={"novel_id": novel_id}
+        )
+    ).json()
+    assert listed[0]["status"] == "failed"
+    resumed = await editorial.resume(db_session, novel_id, UUID(review["id"]))
+    assert resumed["status"] == "queued"
 
 
 @pytest.mark.asyncio

@@ -26,6 +26,7 @@ import {
 } from "../../../vue/views/world/logic/worldEntityOps.js"
 import { clearBulkSelection, toggleBulkSelection } from "../../../vue/views/world/logic/worldBulkSelection.js"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
+import { invalidateEditorialReviewCache } from "../../../vue/composables/useEditorialGuard.js"
 
 const ENTITIES = [
   { id: "e1", name: "沉钟港", entity_type: "location", status: "canonical", summary: "旧港" },
@@ -52,6 +53,7 @@ function deferred() {
 }
 
 beforeEach(() => {
+  invalidateEditorialReviewCache()
   modalCalls = []
   confirmCalls = []
   toastCalls = []
@@ -411,6 +413,26 @@ describe("editEntity", () => {
     expect(document.getElementById("edit-entity-image-status").textContent)
       .toBe("图片加载失败，不影响保存")
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:broken-full")
+  })
+})
+
+describe("editEntity 编辑审读失效守卫", () => {
+  it("有进行中审读时取消确认，不调用 updateEntity", async () => {
+    setBridgeOverrides({
+      api: {
+        ...apiMock,
+        assistant: {
+          editorialPolicy: vi.fn(async () => ({ feature_available: true })),
+          editorialReviews: vi.fn(async () => [{ id: "rev-1", status: "running", scope: { scope: "book" } }]),
+        },
+      },
+      confirm: vi.fn(() => false),
+    })
+    editEntity("e1")
+    document.body.innerHTML = modalCalls[0].html
+    document.getElementById("edit-entity-name").value = "沉钟港·改"
+    await expect(modalCalls[0].buttons[0].handler()).resolves.toBe(false)
+    expect(apiMock.world.updateEntity).not.toHaveBeenCalled()
   })
 })
 

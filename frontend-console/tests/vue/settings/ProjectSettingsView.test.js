@@ -81,14 +81,19 @@ afterEach(() => {
 })
 
 describe("结构与导航", () => {
-  it("本机 CLI 选择保存到当前作品并说明每轮权限", async () => {
+  it("本机 CLI 选择保存到当前作品并说明每轮权限，且只用于生图", async () => {
     const wrapper = mount(ProjectSettingsView, { props: makeProps() })
     await flushPromises()
     await wrapper.findAll(".settings-tab-nav .tab-btn")[2].trigger("click")
+    expect(wrapper.text()).toContain("本机 CLI 生图")
+    expect(wrapper.text()).toContain("只用于生成世界对象图片和地图册页面")
+    expect(wrapper.text()).toContain("项目助手、RP、前瞻等文字功能一律使用账户模型连接")
     expect(wrapper.text()).toContain("专用工作目录不是沙箱")
-    await wrapper.find("#local-agent-kind").setValue("claude")
+    const kindSelect = wrapper.find("#local-agent-kind")
+    expect(kindSelect.findAll("option")[0].text()).toBe("不使用本机 CLI")
+    await kindSelect.setValue("claude")
     await wrapper.find("#local-agent-device").setValue("mac-1")
-    const save = wrapper.findAll("button").find(button => button.text() === "保存 Agent 执行器")
+    const save = wrapper.findAll("button").find(button => button.text() === "保存生图执行器")
     await save.trigger("click")
     expect(globalThis.api.localAgent.select).toHaveBeenCalledWith("p1", "claude", "mac-1")
   })

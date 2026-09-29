@@ -237,6 +237,7 @@ class MapAtlasRunCreate(BaseModel):
     quality: Literal["standard", "fine"] = "standard"
     full_rebuild: bool = False
     review_image_prompts: bool = False
+    image_backend: Literal["account", "local_cli"] = "account"
     target_node_id: UUID | None = None
     source_map_revision_id: UUID | None = None
     context_confirmation_id: str | None = Field(

@@ -1032,4 +1032,69 @@ describe("AI 地图册工作台", () => {
     expect(router.navigate).toHaveBeenNthCalledWith(2, "writing", null, true, expect.any(URLSearchParams))
     expect(router.navigate.mock.calls[1][3].get("chapter_index")).toBe("3")
   })
+
+  describe("本机 CLI 出图", () => {
+    function mountWithLocalCli(overrides = {}) {
+      const atlas = tree([page({ review_status: "adopted" })], "atlas")
+      atlas.nodes[0].current_revision_id = "revision-1"
+      api.world.getNodeMap.mockResolvedValue({ revision: { id: "revision-1", document: { schema_version: 1, layout_version: 1, features: [], constraints: [], images: [], annotation_bindings: [] }, problems: [] }, candidates: [], image_layers: [] })
+      api.world.getMapAtlas.mockResolvedValue(atlas)
+      api.world.getMapCapabilities = vi.fn(async () => ({
+        upload: { available: true, reason: null },
+        image_generation: { available: false, reason: "请先到账户设置连接 OpenAI 图片服务" },
+        local_cli: { available: true, kind: "codex", reason: null },
+        ...overrides,
+      }))
+      api.localAgent = { pending: vi.fn(async () => ({ items: [] })), approve: vi.fn(async () => ({})) }
+      return mount(MapWorkspaceView, { props: { projectId: "novel-1" } })
+    }
+
+    it("账户连接不可用但本机 CLI 可用时，不强制只检查画面说明，可选择本机 CLI 出图", async () => {
+      const wrapper = mountWithLocalCli()
+      await flushPromises()
+      const settings = wrapper.get(".atlas-generation-settings")
+      expect(settings.find('input[type="checkbox"]').element.checked).toBe(false)
+      const backendRadios = settings.findAll('.atlas-image-backend input[type="radio"]')
+      expect(backendRadios).toHaveLength(2)
+      await backendRadios[1].setValue(true)
+
+      api.world.createMapAtlasRun.mockResolvedValue({ id: "run-next", status: "planning", task_id: "task-1", planned_page_count: 0, completed_page_count: 0 })
+      await wrapper.findAll(".atlas-primary-actions button").find((button) => button.text() === "添加地图画面").trigger("click")
+      await flushPromises()
+      expect(api.world.createMapAtlasRun).toHaveBeenCalledWith("novel-1", expect.objectContaining({ image_backend: "local_cli" }))
+    })
+
+    it("默认仍发送账户出图方式", async () => {
+      const wrapper = mountWithLocalCli({ image_generation: { available: true, reason: null } })
+      await flushPromises()
+      api.world.createMapAtlasRun.mockResolvedValue({ id: "run-next", status: "planning", planned_page_count: 0, completed_page_count: 0 })
+      await wrapper.findAll(".atlas-primary-actions button").find((button) => button.text() === "添加地图画面").trigger("click")
+      await flushPromises()
+      expect(api.world.createMapAtlasRun).toHaveBeenCalledWith("novel-1", expect.objectContaining({ image_backend: "account" }))
+    })
+
+    it("两种出图方式都不可用时仍强制只检查画面说明", async () => {
+      const wrapper = mountWithLocalCli({ local_cli: { available: false, kind: null, reason: "尚未配置本机 CLI" } })
+      await flushPromises()
+      const settings = wrapper.get(".atlas-generation-settings")
+      expect(settings.find('.atlas-image-backend').exists()).toBe(false)
+      expect(settings.findAll('input[type="checkbox"]')[2].attributes("disabled")).toBeDefined()
+    })
+
+    it("本机运行等待授权时展示 LocalRunApproval 并在确认后调用 approve", async () => {
+      const run = { id: "run-1", status: "generating", task_id: "task-1", planned_page_count: 1, completed_page_count: 0 }
+      api.world.getLatestMapAtlasRun.mockResolvedValue(run)
+      api.localAgent = {
+        pending: vi.fn(async () => ({ items: [{ task_id: "task-1", label: "地图册生成" }] })),
+        approve: vi.fn(async () => ({})),
+      }
+      const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" } })
+      await flushPromises()
+      expect(wrapper.text()).toContain("请确认本机伴随程序正在运行")
+      await wrapper.get('input[type="checkbox"]').setValue(true)
+      await wrapper.findAll("button").find((button) => button.text() === "允许本次生成").trigger("click")
+      await flushPromises()
+      expect(api.localAgent.approve).toHaveBeenCalledWith("novel-1", "task-1")
+    })
+  })
 })

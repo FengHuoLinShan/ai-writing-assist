@@ -26,9 +26,15 @@ from infrastructure.llm.workflow_budget import (
     new_ai_run_envelope,
 )
 from infrastructure.tasks.facade import enqueue_coalesced_task, enqueue_task
+from modules.local_agent.facade import (
+    AgentExecutor,
+    local_image_task_meta,
+    selected_executor,
+)
 from modules.project.facade import (
     build_project_image_execution_snapshot,
     build_project_llm_execution_snapshot,
+    get_project_context,
     require_active_project,
     require_active_project_exclusive,
 )
@@ -84,6 +90,27 @@ def _path_part(value: str) -> str:
     return hashlib.sha256(compact.encode()).hexdigest()[:20]
 
 
+def _local_image_snapshot(executor: AgentExecutor) -> dict[str, Any]:
+    """A secret-free frozen image_execution_snapshot for a local-CLI run."""
+    return {
+        "version": 1,
+        "provider_id": "local-cli",
+        "kind": executor.kind,
+        "device_id": executor.device_id,
+    }
+
+
+def _context_local_executor(context_snapshot: dict[str, Any]) -> AgentExecutor | None:
+    if context_snapshot.get("image_backend") != "local_cli":
+        return None
+    local = dict(context_snapshot.get("local_executor") or {})
+    kind = str(local.get("kind") or "")
+    device_id = local.get("device_id")
+    if not kind or not device_id:
+        return None
+    return AgentExecutor(kind=kind, device_id=device_id)
+
+
 class MapAtlasService:
     def __init__(self, *, storage: MapAtlasStorage | None = None) -> None:
         self._storage = storage
@@ -91,6 +118,19 @@ class MapAtlasService:
     def _get_storage(self) -> MapAtlasStorage:
         self._require_storage_configuration()
         return self._storage or MapAtlasStorage()
+
+    @staticmethod
+    async def _require_local_executor(db: AsyncSession, novel_id: str) -> AgentExecutor:
+        context = await get_project_context(db, novel_id)
+        if context is None or context.owner_id is None:
+            raise NotFoundError(f"Project {novel_id} not found")
+        executor = await selected_executor(db, novel_id, context.owner_id)
+        if executor.kind == "gateway":
+            raise ConflictError(
+                "请先在项目设置中配对本机 CLI，并选择用于生成图片",
+                code="local_image_executor_required",
+            )
+        return executor
 
     def _require_storage_configuration(self) -> None:
         from modules.world.map_atlas_storage import storage_configuration_status
@@ -160,11 +200,25 @@ class MapAtlasService:
         )
         if not data.review_image_prompts:
             self._require_storage_configuration()
-        image_snapshot = (
-            {}
-            if data.review_image_prompts
-            else await build_project_image_execution_snapshot(db, novel_id)
-        )
+        backend_context: dict[str, Any] = {}
+        if data.image_backend == "local_cli":
+            executor = await self._require_local_executor(db, novel_id)
+            backend_context = {
+                "image_backend": "local_cli",
+                "local_executor": {
+                    "kind": executor.kind,
+                    "device_id": executor.device_id,
+                },
+            }
+            image_snapshot = (
+                {} if data.review_image_prompts else _local_image_snapshot(executor)
+            )
+        else:
+            image_snapshot = (
+                {}
+                if data.review_image_prompts
+                else await build_project_image_execution_snapshot(db, novel_id)
+            )
         adopted_count = await db.scalar(
             select(func.count(MapAtlasPage.id)).where(
                 MapAtlasPage.novel_id == parse_uuid(novel_id, "novel_id"),
@@ -190,6 +244,7 @@ class MapAtlasService:
             context_snapshot={
                 "context_confirmation_id": data.context_confirmation_id,
                 **bound_snapshot,
+                **backend_context,
             },
         )
         db.add(run)
@@ -798,7 +853,16 @@ class MapAtlasService:
         # Build the image connection only after the author has confirmed prompts.
         # Failure leaves the durable prompt-review state untouched.
         self._require_storage_configuration()
-        image_snapshot = await build_project_image_execution_snapshot(db, novel_id)
+        if context_snapshot.get("image_backend") == "local_cli":
+            local_executor = _context_local_executor(context_snapshot)
+            if local_executor is None:
+                raise ConflictError(
+                    "请先在项目设置中配对本机 CLI，并选择用于生成图片",
+                    code="local_image_executor_required",
+                )
+            image_snapshot = _local_image_snapshot(local_executor)
+        else:
+            image_snapshot = await build_project_image_execution_snapshot(db, novel_id)
         for page in pages:
             if page.generation_choice == "external":
                 page.generation_status = "prompt_only"
@@ -1225,7 +1289,22 @@ class MapAtlasService:
                 "context_confirmation_id": confirmation_id,
             }
         self._require_storage_configuration()
-        image_snapshot = await build_project_image_execution_snapshot(db, novel_id)
+        # A derived page inherits its source page's backend: an image
+        # generated locally is only ever edited/regenerated locally, and an
+        # account-backed image never silently starts spending local CLI time.
+        derived_backend_context: dict[str, Any] = {}
+        if source.provider == "local-cli":
+            executor = await self._require_local_executor(db, novel_id)
+            image_snapshot = _local_image_snapshot(executor)
+            derived_backend_context = {
+                "image_backend": "local_cli",
+                "local_executor": {
+                    "kind": executor.kind,
+                    "device_id": executor.device_id,
+                },
+            }
+        else:
+            image_snapshot = await build_project_image_execution_snapshot(db, novel_id)
         run = MapAtlasRun(
             id=uuid.uuid4(),
             novel_id=source.novel_id,
@@ -1237,7 +1316,7 @@ class MapAtlasService:
             page_limit=1,
             planned_page_count=1,
             image_execution_snapshot=image_snapshot,
-            context_snapshot=bound_context,
+            context_snapshot={**bound_context, **derived_backend_context},
         )
         derived = MapAtlasPage(
             id=uuid.uuid4(),
@@ -1659,6 +1738,10 @@ class MapAtlasService:
             task_envelope = ledger.snapshot().model_dump(mode="json")
             context_snapshot[AI_RUN_ENVELOPE_KEY] = task_envelope
             run.context_snapshot = context_snapshot
+        local_executor = _context_local_executor(context_snapshot)
+        local_meta = (
+            local_image_task_meta(local_executor) if local_executor is not None else {}
+        )
         queued = await enqueue_coalesced_task(
             db,
             task_type=MAP_ATLAS_TASK_TYPE,
@@ -1667,6 +1750,7 @@ class MapAtlasService:
             meta={
                 "run_id": str(run.id),
                 "run_request_limit": segment_limit,
+                **local_meta,
                 **(
                     {AI_RUN_ENVELOPE_KEY: task_envelope}
                     if task_envelope is not None

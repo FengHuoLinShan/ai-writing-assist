@@ -28,8 +28,8 @@
       <nav aria-label="选择地图页"><button v-for="item in visiblePages" :key="item.id" class="btn btn-sm" :class="{ active: activePage?.id === item.id }" @click="selectPromptPage(item)">{{ item.title }}</button></nav>
       <div v-if="activePrompt" class="atlas-prompt-editor">
         <label>画面说明<textarea v-model="activePrompt.prompt" class="form-textarea" rows="9" maxlength="64000" :disabled="!activePrompt.editable" @input="markPromptDirty" /></label>
-        <fieldset><legend>这一页怎么生成</legend><label><input v-model="activePrompt.generation_choice" value="internal" type="radio" :disabled="mapCapabilities?.image_generation?.available === false" @change="markPromptDirty" /> 站内生成</label><label><input v-model="activePrompt.generation_choice" value="external" type="radio" @change="markPromptDirty" /> 我在外部生成</label></fieldset>
-        <p v-if="mapCapabilities?.image_generation?.available === false" role="status">{{ mapCapabilities.image_generation.reason }}</p>
+        <fieldset><legend>这一页怎么生成</legend><label><input v-model="activePrompt.generation_choice" value="internal" type="radio" :disabled="imageBackendKnownUnavailable" @change="markPromptDirty" /> 站内生成</label><label><input v-model="activePrompt.generation_choice" value="external" type="radio" @change="markPromptDirty" /> 我在外部生成</label></fieldset>
+        <p v-if="imageBackendKnownUnavailable" role="status">{{ mapCapabilities.image_generation.reason }}</p>
         <div><button class="btn btn-sm" @click="copyPrompt">复制画面说明</button><span role="status">{{ promptSaveLabel }}</span></div>
       </div>
     </section>
@@ -47,6 +47,13 @@
         <span v-else>正在整理地图层级</span>
       </div>
       <progress aria-label="地图册生成进度" :value="currentRun.completed_page_count" :max="currentRun.planned_page_count || 1" />
+      <LocalRunApproval
+        v-if="currentRun.task_id"
+        :project-id="props.projectId"
+        :task-id="currentRun.task_id"
+        :executor-kind="mapCapabilities?.local_cli?.kind"
+        purpose="地图册生成"
+      />
       <p v-if="currentRun.error_message || currentRun.error_code === 'spatial_evidence_unavailable'">{{ currentRun.error_message || '空间资料提取暂时不可用；请稍后重试。' }}</p>
       <details v-if="currentRun.evidence_summary" class="atlas-evidence-summary">
         <summary>资料补充摘要</summary>
@@ -215,7 +222,7 @@
         <details v-if="activeNode && !structureState.reader && !structureState.focused" class="atlas-image-tools card">
       <summary>图片与底图</summary>
       <div class="atlas-primary-actions">
-        <button v-if="activeNode.current_revision_id || activePage" class="btn" :disabled="writeLocked || runUnfinished" @click="startRun(false)">{{ mapCapabilities?.image_generation?.available === false ? "准备画面说明" : "添加地图画面" }}</button>
+        <button v-if="activeNode.current_revision_id || activePage" class="btn" :disabled="writeLocked || runUnfinished" @click="startRun(false)">{{ imageBackendKnownUnavailable ? "准备画面说明" : "添加地图画面" }}</button>
         <button class="btn" :disabled="writeLocked || runUnfinished || mapCapabilities?.upload?.available === false" @click="openUpload">上传地图图片</button>
         <button v-if="structureEnabled && nodeImages.length" class="btn" @click="structureEditor?.runToolbarAction('image-settings')">设置底图与地点配图</button>
       </div>
@@ -227,6 +234,11 @@
     <details v-if="activeNode && !structureState.focused" class="atlas-generation-settings card">
       <summary>生成设置 <span>{{ generationSettingsSummary }}</span></summary>
       <section class="atlas-options" aria-label="地图册生成选项">
+        <fieldset v-if="localCliAvailable" class="atlas-image-backend">
+          <legend>出图方式</legend>
+          <label><input v-model="options.image_backend" value="account" type="radio" :disabled="writeLocked || runUnfinished" /> 账户图片连接（OpenAI）</label>
+          <label><input v-model="options.image_backend" value="local_cli" type="radio" :disabled="writeLocked || runUnfinished" /> 本机 CLI（{{ mapCapabilities.local_cli.kind }}）</label>
+        </fieldset>
         <label>版式
           <select v-model="options.layout" class="form-select" :disabled="writeLocked || runUnfinished">
             <option value="landscape">横版</option><option value="square">方形</option>
@@ -244,7 +256,7 @@
           <summary>高级选项</summary>
           <label><input v-model="options.include_working_drafts" type="checkbox" :disabled="writeLocked || runUnfinished" /> 加入工作稿资料</label>
           <label><input v-model="options.include_interiors" type="checkbox" :disabled="writeLocked || runUnfinished" /> 允许规划室内图</label>
-          <label><input v-model="options.review_image_prompts" type="checkbox" :disabled="writeLocked || runUnfinished || mapCapabilities?.image_generation?.available === false" /> 生图前检查画面说明</label>
+          <label><input v-model="options.review_image_prompts" type="checkbox" :disabled="writeLocked || runUnfinished || imageBackendKnownUnavailable" /> 生图前检查画面说明</label>
         </details>
       </section>
     </details>
@@ -273,6 +285,7 @@ import { getConfirmAction, getApi, getConfirm, getRouteQuery, getRouter, getToas
 import { confirmAsync } from "../../../shared/confirmAsync.js"
 import { useLeaveGuard } from "../../composables/useLeaveGuard.js"
 import WorkspaceToolCard from "../../components/WorkspaceToolCard.vue"
+import LocalRunApproval from "../../components/LocalRunApproval.vue"
 import { focusWorkspaceTool } from "../../components/workspaceTools.js"
 import MapStructureEditor from "./MapStructureEditor.vue"
 import { useEvidenceSelection } from "../../composables/useEvidenceSelection.js"
@@ -320,7 +333,7 @@ const selectedReferencePageIds = ref([])
 const imageCanvas = ref(null)
 const imageUrls = reactive({})
 const imageStatus = reactive({})
-const options = reactive({ layout: "landscape", quality: "standard", style_note: "", include_working_drafts: false, include_interiors: false, review_image_prompts: false })
+const options = reactive({ layout: "landscape", quality: "standard", style_note: "", include_working_drafts: false, include_interiors: false, review_image_prompts: false, image_backend: "account" })
 const promptRecords = reactive({})
 const promptSaving = ref(false)
 const promptDirty = ref(false)
@@ -369,6 +382,9 @@ const runUnfinished = computed(() => runActive.value || canResume.value || curre
 const pausedPromptReview = computed(() => currentRun.value?.status === "paused" && currentRun.value?.review_image_prompts)
 const writeLocked = computed(() => (structureEnabled.value && structureState.value.dirty) || loading.value || busy.value || (runActive.value && Boolean(currentRun.value?.stop_requested)))
 const connectionError = computed(() => ["image_connection_required", "image_auth_failed"].includes(errorCode.value))
+const localCliAvailable = computed(() => mapCapabilities.value?.local_cli?.available === true)
+// 与原逻辑一致：仅在能力已加载且明确不可用时才提示/禁用；加载中或未知状态默认按可用处理。
+const imageBackendKnownUnavailable = computed(() => mapCapabilities.value?.image_generation?.available === false && !localCliAvailable.value)
 const allPromptOnly = computed(() => visiblePages.value.length > 0 && visiblePages.value.every(page => page.generation_status === "prompt_only"))
 const runStatusLabel = computed(() => allPromptOnly.value ? "画面说明已确认，等待外部图片" : ({ planning: "正在规划地图册", prompt_review: "等待检查画面说明", generating: currentRun.value?.stop_requested ? "将在当前页完成后停止" : "正在逐页生成", review_ready: "本次地图册已经生成", partial: "部分页面需要处理", paused: pausedPromptReview.value ? "画面说明检查已暂停" : "生成已停止", failed: "地图册生成失败", completed: "地图册已完成" }[currentRun.value?.status] || "地图册任务"))
 const activePrompt = computed(() => activePage.value ? promptRecords[activePage.value.id] : null)
@@ -537,14 +553,15 @@ async function loadAll(preferredRunId = null) {
       api.world.getLatestMapAtlasRun(projectId),
       api.world.getMapAtlasPageHistory(projectId),
       preferredRunId ? api.world.getMapAtlasRun(projectId, preferredRunId) : null,
-      api.world.getMapCapabilities?.(projectId).catch(() => ({ upload: { available: false, reason: "图片服务状态暂时无法读取，请重试。" }, image_generation: { available: false } })),
+      api.world.getMapCapabilities?.(projectId).catch(() => ({ upload: { available: false, reason: "图片服务状态暂时无法读取，请重试。" }, image_generation: { available: false }, local_cli: { available: false, kind: null, reason: null } })),
     ])
     const selectedRun = preferredRun || latest
     const selectedReview = selectedRun ? await api.world.getMapAtlasRunResults(projectId, selectedRun.id) : { mode: "review", nodes: [], total_pages: 0 }
     if (!mounted || epoch !== dataEpoch || projectId !== props.projectId) return
     atlas.value = savedAtlas
     mapCapabilities.value = capabilities || null
-    if (capabilities?.image_generation?.available === false) options.review_image_prompts = true
+    if (capabilities?.image_generation?.available === false && capabilities?.local_cli?.available !== true) options.review_image_prompts = true
+    if (capabilities?.local_cli?.available !== true) options.image_backend = "account"
     for (const key of Object.keys(promptRecords)) delete promptRecords[key]
     pageHistory.value = history
     latestRunId.value = latest?.id || null
@@ -842,6 +859,8 @@ function friendlyError(err) {
   if (code === "insufficient_sources") return `已确认资料不足。${insufficientSourcesHelp}`
   if (code === "spatial_evidence_unavailable") return "空间资料提取暂时不可用；请稍后重试"
   if (code === "image_connection_required") return "请先到账户设置连接 OpenAI 图片服务"
+  if (code === "local_image_executor_required") return "本机 CLI 生图尚未配置，请先到作品设置完成配置"
+  if (code === "image_generation_in_progress") return "已有画面正在生成，请等待完成后再试"
   if (code === "image_auth_failed") return "OpenAI 图片连接已失效，请在账户设置中重新连接"
   if (code === "moderation_blocked") return "图片请求未通过安全检查，请调整画面说明后重试"
   if (code === "image_quota_exhausted") return "OpenAI 图片额度不足，请检查账户额度"

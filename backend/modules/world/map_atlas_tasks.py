@@ -15,6 +15,9 @@ from modules.world.map_atlas_storage import (
     require_project_object_prefix,
 )
 from modules.world.map_atlas_workflow import run_map_atlas_workflow
+from modules.world.world_object_image_generation import (
+    handle_world_object_image_generate,
+)
 from modules.world.world_object_images import (
     WorldObjectImageStorage,
     delete_unreferenced_image_version,
@@ -137,6 +140,15 @@ async def handle_map_atlas_storage_cleanup(db, task):
         "deleted_objects": deleted,
         "delete_batch": meta.get("delete_batch"),
     }
+
+
+@task_handler(
+    "world_object_image_generate",
+    recovery_policy="never_retry",
+    owner_scope="project",
+)
+async def handle_world_object_image_generate_task(db, task):
+    return await handle_world_object_image_generate(db, task)
 
 
 @task_handler(

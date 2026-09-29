@@ -407,7 +407,9 @@ retry 与 `auto_requeue` 重放都消耗同一额度，只有作者显式续算�
 确认清单中按顺序出现的前 20 个已采用地点抽取空间线索，与 AtlasPlan 的 20 页硬上限一致；
 文本规划、图片生成/编辑共用 `MapAtlasRun.id`，信封镜像保存在 run 私有 context snapshot，
 跨 task 续跑不重置计数。两个清理任务（`map_atlas_storage_cleanup` /
-`world_object_image_cleanup`）同样不声明。`world_cocreation_turn` 使用
+`world_object_image_cleanup`）同样不声明。`world_object_image_generate`（ADR-0029，本机
+CLI 对象图片生成候选）单次调用 `run_local_image`，不使用 provider 信封；`recovery_policy`
+固定 `never_retry`，因为本机主机权限每个根任务单独确认，重试会跳过该确认。`world_cocreation_turn` 使用
 `world.generation.cocreation` 作为 canonical parent；chat/design 的子步骤仍按各自知识
 策略审查，任务信封只记录 parent root，避免同一 task type 因 mode 发生身份漂移。
 design pro 的任务卡、生成、两路审查、核验、返修、知识复审与终审响应按稳定阶段写入任务
@@ -460,6 +462,7 @@ Atlas task 内归属 `world.map_atlas.generate` canonical parent（generate/edit
 | `map_atlas_pages` | 独立候选/已采用/拒绝/移出图片与派生链 |
 | `map_atlas_annotations` | 未绑定图片标注及其空间图元绑定入口 |
 | `map_atlas_revisions` | 节点拥有的不可变空间结构、来源、约束与图片展示配置 |
+| `world_object_image_candidates` | 对象图片生成候选（ADR-0029，本机 CLI）：冻结的执行器、prompt、生成结果字节与采用/放弃状态；采用前不影响 `core_entities.image_version` |
 | ~~`entity_aliases`~~ | 已移除，别名存 `core_entities.content_json.aliases` JSONB |
 | ~~`entity_candidates`~~ | 已废弃；候选对象存于 `core_entities.status="candidate"` |
 | ~~`relationships`~~ | 已废弃，使用 `entity_relations` |
@@ -914,6 +917,12 @@ section，且不会进入可投影正文。页面预览保持零写入并把页�
 | PUT | `/api/world/entities/{entity_id}` | 更新对象 |
 | PUT | `/api/world/entities/{entity_id}/image` | 上传或替换私有对象图片；仅 PNG/JPEG，经服务端规范化为 WebP |
 | GET | `/api/world/entities/{entity_id}/image` | 读取当前账户和项目已授权的缩略图或完整图（`variant=thumbnail` 或 `full`）；可带 `expected_version` 固定版本，不返回 object key |
+| GET | `/api/world/entities/{entity_id}/image-generation` | 本机 CLI 生图（ADR-0029）：执行器可用性、服务端按已确认资料拼装的默认 prompt、最近 5 条候选 |
+| POST | `/api/world/entities/{entity_id}/image-candidates` | 提交（可编辑的）prompt，冻结当前执行器并入队 `world_object_image_generate`；同对象已有进行中候选返回 409 `image_generation_in_progress`，未配对本机 CLI 返回 409 `local_image_executor_required` |
+| GET | `/api/world/image-candidates/{candidate_id}` | 候选状态（含 `awaiting_approval`：任务待作者在本机 Agent 面板批准主机权限） |
+| GET | `/api/world/image-candidates/{candidate_id}/image` | 候选生成结果 PNG；仅 `review_ready` 可读 |
+| POST | `/api/world/image-candidates/{candidate_id}/adopt` | 采用候选：复用 `WorldObjectImageService.upload` 规范化/配额/存储，成功后候选转 `adopted` 并清空图片字节 |
+| POST | `/api/world/image-candidates/{candidate_id}/discard` | 放弃候选：`review_ready`/`failed` 直接清空；`queued`/`generating` 先取消任务 |
 | DELETE | `/api/world/entities/{entity_id}` | 删除对象 |
 | POST | `/api/world/entities/{entity_id}/promote` | 将草稿/候选实体提升为正史；可选携带名称、类型和概要，在同一事务中编辑后采用 |
 | POST | `/api/world/entities/{candidate_id}/resolve-as-alias` | 将候选确认为目标对象别名 |

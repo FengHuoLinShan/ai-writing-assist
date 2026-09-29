@@ -370,9 +370,7 @@ async def submit_run(db, novel_id, case_id, data, *, background=False):
     from infrastructure.llm.web_search import search_snapshot
 
     web_snapshot = search_snapshot() if grant.allow_web else None
-    snapshot = await build_project_llm_execution_snapshot(
-        db, novel_id, agent_executor=True
-    )
+    snapshot = await build_project_llm_execution_snapshot(db, novel_id)
     profiles = {}
     for role, provider_id in grant.model_connections.items():
         profiles[role] = await build_project_llm_execution_snapshot(

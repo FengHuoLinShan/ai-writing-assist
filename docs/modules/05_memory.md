@@ -2,8 +2,8 @@
 
 Memory/continuity 不直接拥有 provider 任务；若由 Story 任务触发 AI 检查，预算与恢复归该
 Story root 的统一运行信封，memory event/snapshot 的持久化与 rollback 契约不变。
-项目本机 CLI 选择由调用它的 Agent 根任务持有；Memory 不接收设备凭据，Scene 排演也不
-绕过 continuity 来源与确认门禁。参见 [本机 Agent CLI](23_local_agent.md)。
+Memory 不接收本机设备凭据；本机 CLI 只用于图片生成（[ADR-0029](../adr/0029-local-cli-image-only.md)），
+Scene 排演使用项目账户连接，也不绕过 continuity 来源与确认门禁。
 
 > 当前生产 owner 是 `modules.story.continuity`。旧 `modules.memory` Python import
 > 兼容入口已退场；`/api/novels/{novel_id}/memories`

@@ -274,6 +274,14 @@ from modules.world.services.worldbuilding.worldbuilding_service import (
     WorldProfileService,
 )
 from modules.world.team_stress import StressDecision
+from modules.world.world_object_image_generation import (
+    WorldObjectImageCandidateAction,
+    WorldObjectImageCandidateAdoptResponse,
+    WorldObjectImageCandidateCreate,
+    WorldObjectImageCandidateView,
+    WorldObjectImageGenerationInfo,
+    WorldObjectImageGenerationService,
+)
 from modules.world.world_object_images import (
     MAX_UPLOAD_BYTES as MAX_WORLD_OBJECT_IMAGE_BYTES,
 )
@@ -338,6 +346,7 @@ router = APIRouter(
 
 _entity_service = WorldEntityService()
 _entity_image_service = WorldObjectImageService()
+_entity_image_generation_service = WorldObjectImageGenerationService()
 _alias_service = EntityAliasService()
 _context_service = EntityContextService()
 _relation_service = EntityRelationService()
@@ -3038,6 +3047,108 @@ async def get_entity_image(
         payload,
         media_type="image/webp",
         headers={"Cache-Control": "private, no-store"},
+    )
+
+
+@router.get(
+    "/entities/{entity_id}/image-generation",
+    response_model=WorldObjectImageGenerationInfo,
+)
+async def get_entity_image_generation(
+    db: DbSession,
+    entity_id: str,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> WorldObjectImageGenerationInfo:
+    return await _entity_image_generation_service.generation_info(
+        db,
+        novel_id=novel_id,
+        entity_id=entity_id,
+        owner_id=str(current_account_id()),
+    )
+
+
+@router.post(
+    "/entities/{entity_id}/image-candidates",
+    response_model=WorldObjectImageCandidateView,
+    dependencies=[Depends(require_xhr_request)],
+)
+async def create_entity_image_candidate(
+    db: DbSession,
+    entity_id: str,
+    data: WorldObjectImageCandidateCreate,
+) -> WorldObjectImageCandidateView:
+    await require_active_project(db, data.novel_id)
+    return await _entity_image_generation_service.create_candidate(
+        db,
+        novel_id=data.novel_id,
+        entity_id=entity_id,
+        owner_id=str(current_account_id()),
+        data=data,
+    )
+
+
+@router.get(
+    "/image-candidates/{candidate_id}",
+    response_model=WorldObjectImageCandidateView,
+)
+async def get_image_candidate(
+    db: DbSession,
+    candidate_id: str,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> WorldObjectImageCandidateView:
+    return await _entity_image_generation_service.get_candidate(
+        db, novel_id=novel_id, candidate_id=candidate_id
+    )
+
+
+@router.get("/image-candidates/{candidate_id}/image")
+async def get_image_candidate_image(
+    db: DbSession,
+    candidate_id: str,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> Response:
+    payload = await _entity_image_generation_service.get_candidate_image(
+        db, novel_id=novel_id, candidate_id=candidate_id
+    )
+    return Response(
+        payload,
+        media_type="image/png",
+        headers={"Cache-Control": "private, no-store"},
+    )
+
+
+@router.post(
+    "/image-candidates/{candidate_id}/adopt",
+    response_model=WorldObjectImageCandidateAdoptResponse,
+    dependencies=[Depends(require_xhr_request)],
+)
+async def adopt_image_candidate(
+    db: DbSession,
+    candidate_id: str,
+    data: WorldObjectImageCandidateAction,
+) -> WorldObjectImageCandidateAdoptResponse:
+    await require_active_project(db, data.novel_id)
+    return await _entity_image_generation_service.adopt_candidate(
+        db, novel_id=data.novel_id, candidate_id=candidate_id
+    )
+
+
+@router.post(
+    "/image-candidates/{candidate_id}/discard",
+    response_model=WorldObjectImageCandidateView,
+    dependencies=[Depends(require_xhr_request)],
+)
+async def discard_image_candidate(
+    db: DbSession,
+    candidate_id: str,
+    data: WorldObjectImageCandidateAction,
+) -> WorldObjectImageCandidateView:
+    await require_active_project(db, data.novel_id)
+    return await _entity_image_generation_service.discard_candidate(
+        db, novel_id=data.novel_id, candidate_id=candidate_id
     )
 
 

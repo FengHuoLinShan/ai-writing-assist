@@ -470,6 +470,33 @@
       requiredQuery: ["novel_id"],
       hasBody: true,
     }),
+    "world.imageGeneration": define("GET", ({ id }) => `/world/entities/${required(id, "id", "world.imageGeneration")}/image-generation`, {
+      requiredParams: ["id"],
+      requiredQuery: ["novel_id"],
+    }),
+    "world.createImageCandidate": define("POST", ({ id }) => `/world/entities/${required(id, "id", "world.createImageCandidate")}/image-candidates`, {
+      requiredParams: ["id"],
+      hasBody: true,
+      requiredBody: ["novel_id", "prompt"],
+    }),
+    "world.imageCandidate": define("GET", ({ candidateId }) => `/world/image-candidates/${required(candidateId, "candidateId", "world.imageCandidate")}`, {
+      requiredParams: ["candidateId"],
+      requiredQuery: ["novel_id"],
+    }),
+    "world.fetchImageCandidateImage": define("GET", ({ candidateId }) => `/world/image-candidates/${required(candidateId, "candidateId", "world.fetchImageCandidateImage")}/image`, {
+      requiredParams: ["candidateId"],
+      requiredQuery: ["novel_id"],
+    }),
+    "world.adoptImageCandidate": define("POST", ({ candidateId }) => `/world/image-candidates/${required(candidateId, "candidateId", "world.adoptImageCandidate")}/adopt`, {
+      requiredParams: ["candidateId"],
+      hasBody: true,
+      requiredBody: ["novel_id"],
+    }),
+    "world.discardImageCandidate": define("POST", ({ candidateId }) => `/world/image-candidates/${required(candidateId, "candidateId", "world.discardImageCandidate")}/discard`, {
+      requiredParams: ["candidateId"],
+      hasBody: true,
+      requiredBody: ["novel_id"],
+    }),
     "world.getKnowledgeGraph": define("GET", () => "/world/knowledge-graph", {
       requiredQuery: ["novel_id"],
     }),

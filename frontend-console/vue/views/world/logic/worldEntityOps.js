@@ -13,6 +13,7 @@ import { sceneNumber } from "../../../../shared/sceneNumbers.js"
  * modal/router 守卫项目导航；无模态的异步操作在回写 UI 前校验启动时作用域。
  */
 import { getApi, getAppState, getCloseModal, getConfirm, getConfirmAction, getEsc, getRouteQuery, getRouter, getShowModalHtml, getToast } from "../../../bridge/index.js"
+import { activeEditorialReviews, confirmEditorialImpact, editorialImpactMessage } from "../../../composables/useEditorialGuard.js"
 import { createReferencePicker } from "../../../../shared/referencePicker.js"
 import {
   candidateAction,
@@ -578,10 +579,14 @@ export function editEntity(id) {
           return false
         }
         if (!isPending && payload.entity_type !== entity.entity_type) {
+          const activeReviews = await activeEditorialReviews(projectId)
+          const reviewNote = activeReviews.length ? `\n\n${editorialImpactMessage("world", activeReviews.length)}` : ""
           const confirmed = getConfirm()(
-            "更改类型会迁移对象档案；若仍有地图、人物或事件等专属依赖，保存将被阻止。是否继续？",
+            `更改类型会迁移对象档案；若仍有地图、人物或事件等专属依赖，保存将被阻止。是否继续？${reviewNote}`,
           )
           if (!confirmed) return false
+        } else if (!(await confirmEditorialImpact(projectId, { kind: "world" }))) {
+          return false
         }
         submissionPending = true
         try {
@@ -625,10 +630,12 @@ export function deleteEntity(id) {
   const toast = getToast()
   const entity = findEntity(id)
   const suggestionShadow = isSuggestionShadow(entity)
+  const projectId = getAppState()?.currentProjectId
   const message = suggestionShadow
     ? `确定忽略待处理项“${esc(entity?.name || id)}”吗？`
     : "确定要删除此世界对象吗？此操作不可撤销。"
   getConfirmAction()(message, async () => {
+    if (!(await confirmEditorialImpact(projectId, { kind: "world" }))) return
     try {
       await ignoreOrDeleteEntity(entity || { id })
       toast(suggestionShadow ? "已忽略" : "已删除", "success")
@@ -645,9 +652,11 @@ export function promoteEntity(id) {
   const toast = getToast()
   const entity = findEntity(id)
   if (!entity) return
+  const projectId = getAppState()?.currentProjectId
   getConfirmAction()(
     `确定采用“${esc(entity.name)}”吗？采用后将作为当前有效世界设定参与后续创作。`,
     async () => {
+      if (!(await confirmEditorialImpact(projectId, { kind: "world" }))) return
       try {
         await adoptEntity(entity)
         toast("世界对象已采用", "success")
@@ -944,6 +953,7 @@ async function mergeEntity(candidateId, targetId) {
   const toast = getToast()
   try {
     const projectId = getAppState()?.currentProjectId
+    if (!(await confirmEditorialImpact(projectId, { kind: "world" }))) return false
     const candidate = findEntity(candidateId)
     const sid = suggestionId(candidate)
     if (sid) {
@@ -982,8 +992,10 @@ export function showRollbackForm(entityIdParam) {
     handler: async () => {
       const idx = parseInt(document.getElementById("rollback-scene-index")?.value || "0", 10)
       if (Number.isNaN(idx)) { toast("请输入有效的场景索引", "warning"); return false }
+      const projectId = getAppState()?.currentProjectId
+      if (!(await confirmEditorialImpact(projectId, { kind: "world" }))) return false
       try {
-        const result = await getApi().world.rollbackEntity(entityIdParam, idx, getAppState()?.currentProjectId)
+        const result = await getApi().world.rollbackEntity(entityIdParam, idx, projectId)
         toast((result.warnings || []).length ? "回滚完成，存在警告" : "回滚完成", (result.warnings || []).length ? "warning" : "success")
         getRouter()?.refresh?.()
       } catch (err) {

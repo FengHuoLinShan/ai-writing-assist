@@ -59,9 +59,7 @@ async def capabilities(db: DbSession, novel_id: UUID):
     await authorize(db, str(novel_id))
     settings = get_settings()
     try:
-        await build_project_llm_execution_snapshot(
-            db, str(novel_id), agent_executor=True
-        )
+        await build_project_llm_execution_snapshot(db, str(novel_id))
         model_ready = True
     except ProjectLLMConfigurationError:
         model_ready = False

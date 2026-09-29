@@ -17,7 +17,11 @@ from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from infrastructure.llm.workflow_budget import workflow_budget
-from infrastructure.tasks.facade import cancel_exact_task, enqueue_task
+from infrastructure.tasks.facade import (
+    cancel_exact_task,
+    enqueue_task,
+    list_task_lifecycle_contracts,
+)
 from modules.assistant.editorial_contracts import (
     IssueDecision,
     RecheckOutput,
@@ -41,6 +45,7 @@ from modules.writing.facade import (
     list_latest_drafts_for_chapters,
     lock_chapter_versions_for_revalidation,
 )
+from shared.constants import TASK_MAX_HEARTBEAT_GAP
 
 _CHUNK = 12000
 _SYSTEM = (
@@ -291,8 +296,35 @@ async def submit(db, data: ReviewSubmit, *, background=False, grant_version=None
     return await view(db, novel_id, row.id)
 
 
+async def _converge_orphaned(db, novel_id: str, row):
+    """Close a queued/running review whose task died without reaching execute()'s
+    exception path (lease loss, worker crash), so resume() can pick it up."""
+    lifecycle = None
+    if row.task_id:
+        lifecycle = (
+            await list_task_lifecycle_contracts(
+                db,
+                task_ids=[str(row.task_id)],
+                novel_id=novel_id,
+                max_heartbeat_gap=TASK_MAX_HEARTBEAT_GAP,
+            )
+        ).get(str(row.task_id))
+    if lifecycle is not None and lifecycle.status not in {"failed", "cancelled"}:
+        return row
+    row = await _require_review(db, novel_id, row.id, lock=True)
+    if row.status in {"queued", "running"}:
+        row.status = (
+            "cancelled" if lifecycle and lifecycle.status == "cancelled" else "failed"
+        )
+        row.error = "审读任务已中断，已完成的分段仍保留"
+        await db.flush()
+    return row
+
+
 async def view(db, novel_id: str, review_id: UUID):
     row = await _require_review(db, novel_id, review_id)
+    if row.status in {"queued", "running"}:
+        row = await _converge_orphaned(db, novel_id, row)
     checked = [
         part["chapter_index"] for part in row.progress_json.get("chapter_results", [])
     ]
@@ -1389,7 +1421,7 @@ async def execute(db, task):
         await db.commit()
         return {"review_id": str(row.id), "status": row.status}
     except Exception as exc:
-        review_id = row.id
+        review_id, task_id = row.id, str(task.id)
         background = bool(row.scope_json.get("background"))
         await db.rollback()
         if background:
@@ -1397,14 +1429,19 @@ async def execute(db, task):
 
             await _watch(db, novel_id, lock=True)
         row = await _require_review(db, novel_id, review_id, lock=True)
-        row.status = (
-            row.status
-            if row.status in {"stale", "cancelled"}
-            or isinstance(exc, ConflictError)
-            and exc.code == "SOURCE_STALE"
-            else "failed"
-        )
-        row.error = redact_diagnostic(exc, limit=300)
+        if str(row.task_id) != task_id:
+            # A newer task owns the review; leave its state untouched.
+            await db.commit()
+            raise
+        if row.status in {"queued", "running"}:
+            # Every exit is terminal: a changed source or brief is visibly stale
+            # instead of an endless "running" that resume() refuses.
+            row.status = (
+                "stale"
+                if isinstance(exc, ConflictError) and exc.code == "SOURCE_STALE"
+                else "failed"
+            )
+            row.error = redact_diagnostic(exc, limit=300)
         row.progress_json = {
             **row.progress_json,
             "budget": budget.model_dump(mode="json"),

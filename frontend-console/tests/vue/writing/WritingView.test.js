@@ -9,6 +9,7 @@ import {
   rememberWritingLocation,
 } from "../../../vue/views/writing/writingSession.js"
 import { projectSettingsSession } from "../../../vue/views/settings/projectSettingsSession.js"
+import { invalidateEditorialReviewCache } from "../../../vue/composables/useEditorialGuard.js"
 
 function deferred() {
   let resolve
@@ -43,6 +44,7 @@ describe("WritingView", () => {
   let toastMock
   beforeEach(() => {
     vi.clearAllMocks()
+    invalidateEditorialReviewCache()
     localStorage.clear()
     sessionStorage.clear()
     clearWritingSession()
@@ -1152,6 +1154,48 @@ describe("WritingView", () => {
     )
     expect(globalThis.api.writing.publish).not.toHaveBeenCalled()
     wrapper.unmount()
+  })
+
+  it("本章有进行中编辑审读时发布先确认，取消则不发布；确认框含章节号", async () => {
+    invalidateEditorialReviewCache()
+    globalThis.api.assistant = {
+      editorialPolicy: vi.fn(async () => ({ feature_available: true })),
+      editorialReviews: vi.fn(async () => [
+        { id: "rev-1", status: "running", scope: "chapter", sources: [{ chapter_index: 1 }] },
+      ]),
+    }
+    confirmMock.mockReturnValue(false)
+    const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
+    await flushPromises()
+
+    await wrapper.get("#btn-publish").trigger("click")
+    await flushPromises()
+
+    expect(confirmMock).toHaveBeenCalledWith(expect.stringContaining("第 1 章"))
+    expect(globalThis.api.writing.publish).not.toHaveBeenCalled()
+    expect(confirmActionMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+    delete globalThis.api.assistant
+    invalidateEditorialReviewCache()
+  })
+
+  it("本章有进行中编辑审读时，写作台顶部展示非阻断提醒", async () => {
+    invalidateEditorialReviewCache()
+    globalThis.api.assistant = {
+      editorialPolicy: vi.fn(async () => ({ feature_available: true })),
+      editorialReviews: vi.fn(async () => [
+        { id: "rev-1", status: "queued", scope: "chapter", sources: [{ chapter_index: 1 }] },
+      ]),
+    }
+    const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
+    await flushPromises()
+
+    const notice = wrapper.get("#writing-editorial-review-notice")
+    expect(notice.attributes("role")).toBe("status")
+    expect(notice.text()).toContain("编辑审读")
+    wrapper.unmount()
+    delete globalThis.api.assistant
+    invalidateEditorialReviewCache()
   })
 
   it("发布前阻断尚有未处理高严重度问题的章节", async () => {

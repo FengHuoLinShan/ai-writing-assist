@@ -8,10 +8,12 @@ import json
 import logging
 import re
 import uuid
+from types import SimpleNamespace
 from typing import Any
 
 from sqlalchemy import func, select, update
 
+from core.errors import ConflictError, NotFoundError
 from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.image_client import ImageGenerationError
 from infrastructure.llm.redaction import redact_diagnostic
@@ -24,8 +26,10 @@ from infrastructure.tasks.facade import (
     require_task_checkpoint_session,
 )
 from modules.evidence.contracts import GroupSource, govern_group_output
+from modules.local_agent.facade import AgentExecutor, fit_cover, run_local_image
 from modules.project.facade import (
     create_project_snapshot_llm_client,
+    get_project_context,
     open_project_image_client,
     require_active_project,
     restore_project_llm_execution_settings,
@@ -1814,9 +1818,69 @@ async def _recover_uploaded_page(
     return True
 
 
+def _is_local_image_run(run: MapAtlasRun) -> bool:
+    return str((run.image_execution_snapshot or {}).get("provider_id") or "") == (
+        "local-cli"
+    )
+
+
+def _local_run_executor(run: MapAtlasRun) -> AgentExecutor:
+    snapshot = dict(run.image_execution_snapshot or {})
+    return AgentExecutor(
+        kind=str(snapshot.get("kind") or ""), device_id=snapshot.get("device_id")
+    )
+
+
+async def _generate_page_locally(
+    db,
+    task,
+    run: MapAtlasRun,
+    page: MapAtlasPage,
+    executor: AgentExecutor,
+    references: list[tuple[str, bytes, str]],
+    mask: tuple[str, bytes, str] | None,
+) -> Any:
+    """Dispatch one page's image generation to the paired local CLI.
+
+    Returns an object exposing ``.data``/``.request_id`` like the OpenAI
+    client's ``GeneratedImage`` so the shared upload/state-transition code
+    below stays backend-agnostic.
+    """
+    width, height = (2048, 1152) if run.layout == "landscape" else (1024, 1024)
+    inputs = [(name, media_type, data) for name, data, media_type in references]
+    if mask is not None:
+        mask_name, mask_data, mask_media = mask
+        inputs.append((mask_name, mask_media, mask_data))
+    prompt = (
+        f"{page.prompt}\n修改要求：{page.edit_instruction}"
+        if page.edit_instruction
+        else page.prompt
+    )
+    context = await get_project_context(db, str(run.novel_id))
+    if context is None or context.owner_id is None:
+        raise NotFoundError(f"Project {run.novel_id} not found")
+    reviewed = await run_local_image(
+        db,
+        task=task,
+        novel_id=str(run.novel_id),
+        owner_id=context.owner_id,
+        executor=executor,
+        prompt=prompt,
+        width=width,
+        height=height,
+        inputs=inputs,
+    )
+    fitted = fit_cover(reviewed, width, height)
+    return SimpleNamespace(data=fitted.data, request_id=None)
+
+
 async def _generate_page(db, task, run: MapAtlasRun, page: MapAtlasPage) -> bool:
     page_id = page.id
     storage = MapAtlasStorage()
+    # Read once, up front: a later rollback expires ``run``'s attributes, and
+    # re-reading a JSON column on an expired ORM object outside an awaited
+    # session call raises MissingGreenlet.
+    is_local = _is_local_image_run(run)
     try:
         if await _recover_uploaded_page(db, task, run, page, storage):
             return True
@@ -1837,12 +1901,8 @@ async def _generate_page(db, task, run: MapAtlasRun, page: MapAtlasPage) -> bool
                 await storage.get_png(mask_key),
                 "image/png",
             )
-        async with open_project_image_client(
-            db,
-            str(run.novel_id),
-            snapshot=dict(run.image_execution_snapshot or {}),
-            envelope_capability_id="world.map_atlas.generate",
-        ) as client:
+        if is_local:
+            executor = _local_run_executor(run)
             await db.commit()
             await require_active_project(db, str(run.novel_id))
             run = await _require_attempt(db, task, str(run.novel_id), str(run.id))
@@ -1860,67 +1920,132 @@ async def _generate_page(db, task, run: MapAtlasRun, page: MapAtlasPage) -> bool
                     object_key=key,
                     error_code=None,
                     error_message=None,
+                    provider="local-cli",
+                    model=executor.kind,
                 )
             )
             if claimed.rowcount != 1:
                 raise asyncio.CancelledError
             await db.commit()
-            for attempt in range(3):
-                try:
-                    if page.derived_from_page_id or references:
-                        result = await client.edit(
-                            prompt=(
-                                f"{page.prompt}\n修改要求：{page.edit_instruction}"
-                                if page.edit_instruction
-                                else page.prompt
-                            ),
-                            images=references,
-                            mask=mask,
-                            size=(
-                                "2048x1152" if run.layout == "landscape" else "1024x1024"
-                            ),
-                            quality="high" if run.quality == "fine" else "medium",
+            try:
+                result = await _generate_page_locally(
+                    db, task, run, page, executor, references, mask
+                )
+            except asyncio.CancelledError:
+                raise
+            except ConflictError as error:
+                await _mark_page_failure(
+                    db,
+                    task,
+                    page_id,
+                    code=getattr(error, "code", None) or "local_image_failed",
+                    message=str(error),
+                    possible_charge=False,
+                )
+                return False
+            except BaseException as error:
+                logger.warning(
+                    "Map atlas local image generation interrupted: %s",
+                    redact_diagnostic(error, limit=300),
+                )
+                await _mark_page_failure(
+                    db,
+                    task,
+                    page_id,
+                    code="local_image_failed",
+                    message="本机图片生成中断，请重新生成",
+                    possible_charge=False,
+                )
+                return False
+        else:
+            async with open_project_image_client(
+                db,
+                str(run.novel_id),
+                snapshot=dict(run.image_execution_snapshot or {}),
+                envelope_capability_id="world.map_atlas.generate",
+            ) as client:
+                await db.commit()
+                await require_active_project(db, str(run.novel_id))
+                run = await _require_attempt(db, task, str(run.novel_id), str(run.id))
+                key = _attempt_object_key(run, page, task)
+                claimed = await db.execute(
+                    update(MapAtlasPage)
+                    .where(
+                        MapAtlasPage.novel_id == run.novel_id,
+                        MapAtlasPage.id == page.id,
+                        MapAtlasPage.run_id == run.id,
+                        MapAtlasPage.generation_status == "prepared",
+                    )
+                    .values(
+                        generation_status="provider_in_flight",
+                        object_key=key,
+                        error_code=None,
+                        error_message=None,
+                    )
+                )
+                if claimed.rowcount != 1:
+                    raise asyncio.CancelledError
+                await db.commit()
+                for attempt in range(3):
+                    try:
+                        if page.derived_from_page_id or references:
+                            result = await client.edit(
+                                prompt=(
+                                    f"{page.prompt}\n修改要求：{page.edit_instruction}"
+                                    if page.edit_instruction
+                                    else page.prompt
+                                ),
+                                images=references,
+                                mask=mask,
+                                size=(
+                                    "2048x1152"
+                                    if run.layout == "landscape"
+                                    else "1024x1024"
+                                ),
+                                quality="high" if run.quality == "fine" else "medium",
+                            )
+                        else:
+                            result = await client.generate(
+                                prompt=page.prompt,
+                                size=(
+                                    "2048x1152"
+                                    if run.layout == "landscape"
+                                    else "1024x1024"
+                                ),
+                                quality="high" if run.quality == "fine" else "medium",
+                            )
+                        break
+                    except AIRunEnvelopeError:
+                        # 信封在请求前拒绝（预算/deadline/checkpoint 失效）说明
+                        # provider 请求从未发出，不得伪装成可能已扣费的页失败。
+                        raise
+                    except ImageGenerationError as error:
+                        if error.retryable and not error.possible_charge and attempt < 2:
+                            await asyncio.sleep(2**attempt)
+                            continue
+                        await _mark_page_failure(
+                            db,
+                            task,
+                            page_id,
+                            code=error.code,
+                            message=str(error),
+                            possible_charge=error.possible_charge,
                         )
-                    else:
-                        result = await client.generate(
-                            prompt=page.prompt,
-                            size=(
-                                "2048x1152" if run.layout == "landscape" else "1024x1024"
-                            ),
-                            quality="high" if run.quality == "fine" else "medium",
+                        return False
+                    except BaseException as error:
+                        logger.warning(
+                            "Map atlas image provider interrupted: %s",
+                            redact_diagnostic(error, limit=300),
                         )
-                    break
-                except AIRunEnvelopeError:
-                    # 信封在请求前拒绝（预算/deadline/checkpoint 失效）说明
-                    # provider 请求从未发出，不得伪装成可能已扣费的页失败。
-                    raise
-                except ImageGenerationError as error:
-                    if error.retryable and not error.possible_charge and attempt < 2:
-                        await asyncio.sleep(2**attempt)
-                        continue
-                    await _mark_page_failure(
-                        db,
-                        task,
-                        page_id,
-                        code=error.code,
-                        message=str(error),
-                        possible_charge=error.possible_charge,
-                    )
-                    return False
-                except BaseException as error:
-                    logger.warning(
-                        "Map atlas image provider interrupted: %s",
-                        redact_diagnostic(error, limit=300),
-                    )
-                    await _mark_page_failure(
-                        db,
-                        task,
-                        page_id,
-                        code="image_provider_interrupted",
-                        message="图片服务请求中断，结果可能未知",
-                        possible_charge=True,
-                    )
-                    raise
+                        await _mark_page_failure(
+                            db,
+                            task,
+                            page_id,
+                            code="image_provider_interrupted",
+                            message="图片服务请求中断，结果可能未知",
+                            possible_charge=True,
+                        )
+                        raise
     except AIRunEnvelopeError:
         await db.rollback()
         await require_active_project(db, str(run.novel_id))
@@ -2007,8 +2132,12 @@ async def _generate_page(db, task, run: MapAtlasRun, page: MapAtlasPage) -> bool
                     task,
                     page_id,
                     code="image_storage_failed",
-                    message=("图片已生成但存储失败；确认可能重复扣费后才能重试"),
-                    possible_charge=True,
+                    message=(
+                        "图片已生成但存储失败，请重新生成"
+                        if is_local
+                        else "图片已生成但存储失败；确认可能重复扣费后才能重试"
+                    ),
+                    possible_charge=not is_local,
                 )
             except asyncio.CancelledError:
                 raise
@@ -2240,9 +2369,18 @@ async def reconcile_map_atlas_task_owners(db) -> int:
         )
         for page in pages:
             if page.generation_status == "provider_in_flight":
-                page.generation_status = "retry_requires_confirmation"
-                page.error_code = "possible_duplicate_charge"
-                page.error_message = "上次图片请求结果未知"
+                if page.provider == "local-cli":
+                    # Local generation carries no real billing risk, so a
+                    # stale in-flight local page fails outright instead of
+                    # routing through the account-billing duplicate-charge
+                    # confirmation gate.
+                    page.generation_status = "failed"
+                    page.error_code = "local_image_interrupted"
+                    page.error_message = "本机图片生成已中断，请重新生成"
+                else:
+                    page.generation_status = "retry_requires_confirmation"
+                    page.error_code = "possible_duplicate_charge"
+                    page.error_message = "上次图片请求结果未知"
             elif page.generation_status == "uploaded" and page.object_key:
                 page.generation_status = "review_ready"
         run.completed_page_count = sum(

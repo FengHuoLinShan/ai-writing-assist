@@ -184,8 +184,8 @@ async function saveLocalAgent() {
     await getApi().localAgent.select(props.projectId, localKind.value, localDeviceId.value)
     await loadLocalAgent()
     await loadAiCapabilities()
-    getToast()("本作品的 Agent 执行器已保存", "success")
-  } catch (error) { localAgentError.value = error.message || "本机执行器未保存。" }
+    getToast()("本作品的生图执行器已保存", "success")
+  } catch (error) { localAgentError.value = error.message || "生图执行器未保存。" }
   finally { localAgentBusy.value = false }
 }
 
@@ -675,12 +675,13 @@ onBeforeUnmount(() => {
           <div class="settings-section-heading">
             <div>
               <h2>AI 能力</h2>
-              <p>查看当前作品的 AI 能力，并选择 Agent 执行器。</p>
+              <p>查看当前作品的 AI 能力，并选择生图执行器。</p>
             </div>
           </div>
           <div class="settings-section">
-            <h3>本机 Agent CLI</h3>
-            <p>CLI 在你的 Mac 上以当前 macOS 用户身份直接运行，可访问该用户允许的文件和命令。专用工作目录不是沙箱；每个任务仍需单独确认。用量和费用可能无法准确估算。</p>
+            <h3>本机 CLI 生图</h3>
+            <p>只用于生成世界对象图片和地图册页面。项目助手、RP、前瞻等文字功能一律使用账户模型连接。每次生成都需要你单独允许，生成的图片经检查后作为候选，由你决定是否采用。</p>
+            <p>生成图片时，CLI 在你的 Mac 上以当前 macOS 用户身份直接运行，可访问该用户允许的文件和命令；专用工作目录不是沙箱，每次生成仍需单独确认。用量和费用可能无法准确估算。</p>
             <p v-if="localAgentError" role="alert">{{ localAgentError }}</p>
             <button type="button" class="btn" @click="downloadLocalAgent">下载 Mac 伴随程序</button>
             <button type="button" class="btn" :disabled="localAgentBusy" @click="pairLocalAgent">生成 10 分钟配对码</button>
@@ -692,23 +693,23 @@ onBeforeUnmount(() => {
                 <button type="button" class="btn btn-sm" @click="revokeLocalAgent(device)">撤销</button>
               </li>
             </ul>
-            <label for="local-agent-kind">Agent 执行器</label>
+            <label for="local-agent-kind">生图执行器</label>
             <select id="local-agent-kind" v-model="localKind">
-              <option value="gateway">账户模型连接</option>
+              <option value="gateway">不使用本机 CLI</option>
               <option value="codex">Codex CLI</option>
               <option value="claude">Claude CLI</option>
               <option value="kimi">Kimi CLI</option>
               <option value="dsh">DSH</option>
               <option value="pi">Pi</option>
             </select>
-            <p v-if="localKind === 'dsh'">当前 DSH 只返回纯文本，无法核对其原生文件与命令工具次数；仍限制运行时间、输出量和产品工具调用。</p>
+            <p v-if="localKind === 'dsh'">当前 DSH 只返回纯文本，不适合用于生成图片；如需生成图片，请选择 Codex、Claude、Kimi 或 Pi。</p>
             <label v-if="localKind !== 'gateway'" for="local-agent-device">本机设备</label>
             <select v-if="localKind !== 'gateway'" id="local-agent-device" v-model="localDeviceId">
               <option value="">选择已配对设备</option>
               <option v-for="device in localDevices.filter(item => item.paired)" :key="device.id" :value="device.id">{{ device.name }}</option>
             </select>
-            <button class="btn btn-primary" type="button" :disabled="localAgentBusy || (localKind !== 'gateway' && !localDeviceId)" @click="saveLocalAgent">保存 Agent 执行器</button>
-            <p v-if="localExecutor.kind !== 'gateway'">当前：{{ localExecutor.kind }} · 本机任务等待设备在线及每次确认。</p>
+            <button class="btn btn-primary" type="button" :disabled="localAgentBusy || (localKind !== 'gateway' && !localDeviceId)" @click="saveLocalAgent">保存生图执行器</button>
+            <p v-if="localExecutor.kind !== 'gateway'">当前：{{ localExecutor.kind }} · 本机生图任务等待设备在线及每次确认。</p>
             <div v-if="localPending.length" role="status">
               <h4>等待本轮确认</h4>
               <ul><li v-for="task in localPending" :key="task.task_id">{{ task.label }} <button type="button" class="btn btn-sm" @click="approveLocalTask(task)">确认本轮执行</button></li></ul>

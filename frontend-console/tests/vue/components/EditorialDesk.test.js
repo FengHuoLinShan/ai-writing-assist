@@ -1,0 +1,95 @@
+/**
+ * EditorialDesk 测试 — 编辑约定保存的编辑审读失效守卫。
+ */
+import { enableAutoUnmount, mount } from "@vue/test-utils"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { flushPromises } from "@vue/test-utils"
+
+import EditorialDesk from "../../../vue/components/EditorialDesk.vue"
+import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
+
+enableAutoUnmount(afterEach)
+
+const BRIEF = {
+  version: 1,
+  brief: {
+    target_readers: "", genre_promise: "", goals: [], voice: "",
+    preserve: [], intentional_choices: [], excluded_targets: [],
+  },
+}
+const POLICY = { feature_available: true, enabled: false, automatic_available: true, excluded_chapters: [], generation: 1 }
+
+function activeReview(id = "rev-1") {
+  return {
+    id, status: "running", scope: { scope: "book", start_chapter: 1, end_chapter: null },
+    checked_chapters: [], unchecked_chapters: [1], missing: [],
+    context_sources: [], context_omissions: [], report: null, error: null, brief_changed: false,
+  }
+}
+
+let apiMock
+let confirmMock
+
+beforeEach(() => {
+  confirmMock = vi.fn(() => true)
+  apiMock = {
+    projects: {
+      editorialBrief: vi.fn(async () => BRIEF),
+      saveEditorialBrief: vi.fn(async (_projectId, body) => ({ version: 2, brief: body.brief })),
+    },
+    assistant: {
+      editorialPolicy: vi.fn(async () => POLICY),
+      editorialReviews: vi.fn(async () => [activeReview()]),
+      editorialIssues: vi.fn(async () => []),
+    },
+  }
+  setBridgeOverrides({ api: apiMock, confirm: confirmMock, state: { currentProjectId: "p1" } })
+})
+
+afterEach(() => resetBridgeOverrides())
+
+async function mountDesk() {
+  const wrapper = mount(EditorialDesk, { props: { projectId: "p1", active: true } })
+  await flushPromises()
+  return wrapper
+}
+
+function saveBriefButton(wrapper) {
+  const button = wrapper.findAll("button").find((item) => item.text() === "保存编辑约定")
+  if (!button) throw new Error("保存编辑约定按钮未找到")
+  return button
+}
+
+describe("EditorialDesk saveBrief", () => {
+  it("有进行中审读时保存编辑约定会先确认；取消则不保存", async () => {
+    confirmMock.mockReturnValue(false)
+    const wrapper = await mountDesk()
+
+    await saveBriefButton(wrapper).trigger("click")
+    await flushPromises()
+
+    expect(confirmMock).toHaveBeenCalledWith(expect.stringContaining("编辑审读"))
+    expect(apiMock.projects.saveEditorialBrief).not.toHaveBeenCalled()
+  })
+
+  it("确认后正常保存编辑约定", async () => {
+    confirmMock.mockReturnValue(true)
+    const wrapper = await mountDesk()
+
+    await saveBriefButton(wrapper).trigger("click")
+    await flushPromises()
+
+    expect(apiMock.projects.saveEditorialBrief).toHaveBeenCalled()
+  })
+
+  it("没有进行中审读时保存不弹确认框", async () => {
+    apiMock.assistant.editorialReviews.mockResolvedValue([])
+    const wrapper = await mountDesk()
+
+    await saveBriefButton(wrapper).trigger("click")
+    await flushPromises()
+
+    expect(confirmMock).not.toHaveBeenCalled()
+    expect(apiMock.projects.saveEditorialBrief).toHaveBeenCalled()
+  })
+})

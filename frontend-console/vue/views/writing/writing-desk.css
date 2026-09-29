@@ -1437,6 +1437,18 @@
   white-space: nowrap;
 }
 
+/* 编辑审读提醒：只读告知，非阻断，视觉上弱于冲突条 */
+.writing-editorial-review-notice {
+  flex: 1 1 240px;
+  margin: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--archive-rule);
+  border-radius: 2px;
+  background: var(--archive-paper-muted);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
 .writing-conflict-strip--compact[role="button"]::after {
   content: "›";
   flex: 0 0 auto;

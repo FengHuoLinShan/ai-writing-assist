@@ -3,6 +3,7 @@
 - [T-20260924-agent-cli-adapters](tasks/2026/T-20260924-agent-cli-adapters/TASK.md) — Agent 底座接入五种本机 CLI
 - [T-20260924-editorial-assistant](tasks/2026/T-20260924-editorial-assistant/TASK.md) — 作者助手编辑员级审读与意见闭环
 - [T-20260924-writing-comment-agents](tasks/2026/T-20260924-writing-comment-agents/TASK.md) — 正文批注驱动的 Agent 修订
+- [T-20260928-cli-image-scope-editorial-stale](tasks/2026/T-20260928-cli-image-scope-editorial-stale/TASK.md) — 本机 CLI 收窄为图片生成、审稿失效闭环与本机预算中止
 
 | 任务 | 状态 | 记录 |
 |---|---|---|
