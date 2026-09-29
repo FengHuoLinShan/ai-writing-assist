@@ -216,6 +216,18 @@ async def run_local_agent(
                         if inspect.isawaitable(value):
                             value = await value
                         call.result_json = {"value": jsonable_encoder(value)}
+                    except AgentBudgetError as exc:
+                        # As on the gateway path, an exhausted budget ends the whole
+                        # run; failing the invocation also stops the companion.
+                        await db.rollback()
+                        call = await db.get(LocalAgentToolCall, call_id)
+                        call.error = str(exc)[:2000]
+                        call.status = "failed"
+                        row = await db.get(LocalAgentInvocation, invocation_id)
+                        row.status = "failed"
+                        row.error = str(exc)[:2000]
+                        await db.commit()
+                        raise
                     except Exception as exc:
                         await db.rollback()
                         call = await db.get(LocalAgentToolCall, call_id)

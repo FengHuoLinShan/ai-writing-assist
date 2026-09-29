@@ -334,3 +334,89 @@ async def test_assistant_submit_freezes_local_executor_without_account_model(
     monkeypatch.setattr("modules.local_agent.client.run_local_agent", fake_local_run)
     result = await AssistantService().execute(db_session, task)
     assert result["status"] == "completed"
+
+
+
+async def test_exhausted_tool_budget_ends_the_local_run(
+    db_session, async_client, test_project_id, monkeypatch
+):
+    from datetime import UTC, datetime
+
+    from pydantic_ai import Tool
+    from sqlalchemy import select
+
+    from infrastructure.llm.agent_runtime import AgentBudgetError, AgentRunBudget
+    from infrastructure.llm.schemas import LLMMessage
+    from modules.local_agent import runtime
+    from modules.local_agent.models import LocalAgentToolCall
+
+    pair = await async_client.post(
+        "/api/local-agent/devices/pair",
+        json={"novel_id": test_project_id, "name": "Mac"},
+    )
+    activated = await async_client.post(
+        "/api/local-agent/companion/activate", json={"code": pair.json()["code"]}
+    )
+    device = await db_session.get(
+        LocalAgentDevice, uuid.UUID(activated.json()["device_id"])
+    )
+    task = AsyncTask(
+        task_type="assistant_forecast",
+        novel_id=uuid.UUID(test_project_id),
+        status="pending",
+        meta={"_local_agent": True, "_local_device_id": str(device.id)},
+    )
+    task.mark_running(lease_id=str(uuid.uuid4()))
+    db_session.add(task)
+    await db_session.commit()
+    executed = []
+
+    async def read_fact() -> str:
+        executed.append(True)
+        return "fact"
+
+    async def companion_requests_tool(_seconds):
+        invocation = await db_session.scalar(
+            select(LocalAgentInvocation).where(LocalAgentInvocation.task_id == task.id)
+        )
+        if invocation.status == "pending":
+            invocation.status = "running"
+            invocation.heartbeat_at = datetime.now(UTC)
+            db_session.add(
+                LocalAgentToolCall(
+                    invocation_id=invocation.id,
+                    call_id="over",
+                    name="read_fact",
+                    arguments_json={},
+                )
+            )
+            await db_session.commit()
+
+    monkeypatch.setattr(runtime.asyncio, "sleep", companion_requests_tool)
+    with pytest.raises(AgentBudgetError):
+        await runtime.run_local_agent(
+            db_session,
+            task_id=str(task.id),
+            novel_id=test_project_id,
+            owner_id=str(device.owner_id),
+            device_id=str(device.id),
+            cli="pi",
+            messages=[LLMMessage(role="user", content="synthetic")],
+            tools=[Tool(read_fact)],
+            deps=None,
+            output_type=str,
+            output_validator=None,
+            budget=AgentRunBudget(policy_version="forecast_v1", tool_attempts=8),
+            checkpoint=None,
+        )
+
+    invocation = await db_session.scalar(
+        select(LocalAgentInvocation).where(LocalAgentInvocation.task_id == task.id)
+    )
+    call = await db_session.scalar(
+        select(LocalAgentToolCall).where(
+            LocalAgentToolCall.invocation_id == invocation.id
+        )
+    )
+    assert executed == []
+    assert (invocation.status, call.status) == ("failed", "failed")
