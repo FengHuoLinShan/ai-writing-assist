@@ -2,6 +2,10 @@
 
 > 回归依据：[`testing-guide.md`](../../../../testing-guide.md) 的前端重设计契约。本文外观、固定尺寸、布局、断点、DOM/组件结构及旧操作路径为实现参考，不阻断重设计；功能、数据、幂等性、安全和基本可访问性约束继续适用。
 
+> 路由现状：today 路由已归一为 writing 的薄兼容别名（`writing?home=1`，
+> `frontend-console/router.js:348-355`）；本页功能与验收以
+> [`writing.md`](writing.md) 为准，本文件保留历史执行规范定位。
+
 > 上游标准：`docs/frontend/uiux/design-standard.md`（下称「主规范」），本节号引用均指主规范。
 > 实现锚点：`frontend-console/vue/views/today/TodayView.vue` 与 `frontend-console/styles.css` 的 `.today-*` 规则。
 > 命名：页面与 router 统一称「写作首页」；主导航使用任务名「写作」，

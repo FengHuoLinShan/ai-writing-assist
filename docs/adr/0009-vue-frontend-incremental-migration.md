@@ -1,6 +1,6 @@
 # ADR-0009 — 前端栈迁移：Vue 3 渐进替换 Vanilla JS（island 模式）
 
-- **状态**: Accepted
+- **状态**: Accepted / Implemented
 - **日期**: 2026-07-18
 - **背景**: 用户明确要求"前端升级为 Vue 框架"；AGENTS.md「默认栈为 …Vanilla JS。新增…前端栈…须用户确认或 ADR」——用户指令已确认，本 ADR 记录决策与边界。
 

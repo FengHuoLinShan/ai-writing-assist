@@ -6,10 +6,10 @@
   migration、facade/contracts 和测试为准。Phase 5 的 imports opt-in 与固定质量评测、
   高级规则表单和 section diff/折叠属于后续增强，不阻塞核心工作流。
 - 日期：2026-07-14。
-- 参考：[`Novalist 与 SillyTavern 世界书设计深度对比`](../../references/2026-07-14-novalist-sillytavern-worldbook-design-analysis.md)。
+- 参考：[`Novalist 与 SillyTavern 世界书设计深度对比`](../../../references/2026-07-14-novalist-sillytavern-worldbook-design-analysis.md)。
 - 当前事实来源：`backend/modules/world/README.md`、`backend/modules/context/README.md`、
   ORM、migration、facade/contracts 与测试。
-- 架构决策：[`ADR-0006`](../../adr/0006-world-bible-context-activation-ownership.md)
+- 架构决策：[`ADR-0006`](../../../adr/0006-world-bible-context-activation-ownership.md)
   已固化“资料归 world、激活规则归 context”的长期边界。
 
 实现采用以下收敛：页面模板历史恢复直接把旧快照写成当前模板的新版本，不另建模板工作稿

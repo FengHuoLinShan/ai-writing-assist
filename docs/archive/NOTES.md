@@ -1,5 +1,7 @@
 # Notes
 
+> 已归档（2026-09-30）：内容为 context_snapshots 设计期的实现笔记，快照已实施且所有权归 evidence 模块，以当前代码与 docs/modules/08_evidence.md 为准。
+
 - "持久化快照" in the AI import upgrade refers to persistent context snapshots: records of the context view used by an AI call. It does not mean `memory_snapshots`, an import result batch snapshot, or automatic canonical promotion.
 - First implementation scope: deep import Phase 2 and Phase 3 only. Manual AI operations keep using `context_confirmations` until the new persistence path is stable.
 - Default snapshot storage should be compact: summary, asset ids, prompt hash, token and section metadata, and compile options. Full rendered context is optional and caller-enabled, not default.

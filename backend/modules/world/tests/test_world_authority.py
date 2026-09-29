@@ -50,10 +50,7 @@ from modules.world.services.worldbuilding.world_bible_lifecycle_service import (
 )
 
 _FIXTURES_PATH = (
-    Path(__file__).parents[4]
-    / "docs"
-    / "references"
-    / "world-authority-canonical-fixtures-v1.json"
+    Path(__file__).parent / "fixtures" / "world-authority-canonical-fixtures-v1.json"
 )
 
 

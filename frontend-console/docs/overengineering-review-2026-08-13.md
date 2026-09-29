@@ -1,5 +1,7 @@
 # 前端过度设计审查报告
 
+> **历史评审快照（superseded）**：2026-08-13 时点记录。
+
 - 日期：2026-08-13
 - 审查范围：`frontend-console/` 全部生产源码（约 8.5k 行 JS + 15.6k 行 CSS；含 `shared/`、`ui/`、`vue/`、`vue/views/`、`vue/components/`、`vue/composables/`）
 - 排除范围：`dist/`、`node_modules/`、`prototypes/`、`tests/`、`e2e/`、playwright/vite/vitest 配置

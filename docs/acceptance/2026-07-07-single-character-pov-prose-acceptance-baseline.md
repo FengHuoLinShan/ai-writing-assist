@@ -186,7 +186,7 @@
 - `backend/alembic/versions/20260707_writing_draft_provenance.py`
 - `docs/modules/11_writing.md`
 - `docs/01_数据库设计.md`
-- `docs/superpowers/specs/2026-07-07-merge-generate-context-design.md`
+- `docs/archive/superpowers/specs/2026-07-07-merge-generate-context-design.md`
 
 ---
 

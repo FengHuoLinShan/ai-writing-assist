@@ -1,5 +1,7 @@
 # DECISIONS.md
 
+> 已归档（2026-09-30）：全部决策已落地，长期决策以 docs/adr/ 为准。
+
 Lightweight decision log for in-progress design cleanup. ADRs in `docs/adr/` remain the authority for durable architecture decisions; this file tracks accepted design choices and follow-up document sync points while a spec is still evolving.
 
 ## 2026-07-04 — World Bible First-Version Scope

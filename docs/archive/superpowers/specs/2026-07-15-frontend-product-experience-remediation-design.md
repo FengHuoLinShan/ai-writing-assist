@@ -9,7 +9,7 @@
 - 相关设计：[`地图一级工作台设计`](./2026-06-26-map-workspace-design.md)、
   [`世界动态地图设计`](./2026-06-29-world-dynamics-map-design.md)、
   [`地图快速创建与地形设计`](./2026-06-30-map-quick-create-terrain-design.md)。
-- 当前契约来源：[`地图模块说明`](../../modules/15_map.md)、`backend/modules/world/README.md`、
+- 当前契约来源：[`地图模块说明`](../../../modules/15_map.md)、`backend/modules/world/README.md`、
   `backend/modules/imports/README.md`、ORM、Alembic migration、facade/contracts 与测试。
 
 本文档记录已确认的目标行为与实施边界。实现完成后，当前运行时事实仍须同步回模块 README、

@@ -12,7 +12,7 @@
 | `module-architecture.html` | 浏览器兼容交互预览 | 与当前模块清单和关键边界保持一致；不作为可编辑图源或代码 import 图。 |
 | `architecture-documents.toml` | 当前架构文档机器清单 | 登记中央文档、模块/组件文档、API 前缀和代码差异影响规则；新增、移动、归档文档时先改清单。 |
 | `documentation-maintenance.md` | 架构文档维护流程 | 每轮较大开发按变更影响矩阵更新当前文档，并保留验证证据。 |
-| `../rag-architecture.html` | RAG 视觉参考 | 仅说明历史 RAG 内部关系；具体接口和 schema 以 Evidence indexing 文档/代码为准。 |
+| `../diagrams/rag-architecture.html` | RAG 视觉参考 | 仅说明历史 RAG 内部关系；具体接口和 schema 以 Evidence indexing 文档/代码为准。 |
 | `../diagrams/architecture.html` | 历史架构快照 | 包含已移除的 geo/review 等模块，不可用于当前设计或实现决策。 |
 | `../diagrams/system-architecture-slim.html` | 历史瘦身分析 | 记录过去的裁剪讨论，不可用于当前模块清单或数据库判断。 |
 
@@ -49,10 +49,10 @@ ADR-0023/ADR-0025 的有界 Agent、canonical capability 和回执约束由统�
 
 ## 当前读图约定
 
-- 业务模块共 11 个：`account`、`project`、`world`、`evidence`、`story`、`imports`、
-  `writing`、`interaction`、`assistant`、`collaboration`、`evolution`。原 `memory` 与
-  `outline` 目录已在兼容准备版本发布后删除。`evolution` 持有逐 Scene 理解的队列、
-  来源冻结、提交回执与预算；Project engine/epoch 约束单一写入 owner。默认导入仍
+- 业务模块共 12 个：`account`、`project`、`world`、`evidence`、`story`、`imports`、
+  `writing`、`interaction`、`assistant`、`collaboration`、`evolution`、`local_agent`。
+  原 `memory` 与 `outline` 目录已在兼容准备版本发布后删除。`evolution` 持有逐 Scene
+  理解的队列、来源冻结、提交回执与预算；Project engine/epoch 约束单一写入 owner。默认导入仍
   由 deep_import 编排，显式启用项目经 `/api/evolution` 使用受控理解入口，旧 owner
   必须排空或明确停止；全面替代与退役仍待独立验收。
 - Assistant 持有项目讨论、运行、成组确认和提醒投影；经 Evidence 只读查证，经领域操作提交

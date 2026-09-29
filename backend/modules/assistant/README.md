@@ -9,6 +9,13 @@ Assistant 拥有跨页面讨论、Agent 执行、成组提案与提醒展示；�
 RP 历史或领域复核。PydanticAI 仅通过 Project LLM gateway 执行注册工具，内部资料只经
 Evidence 读取；业务写入需具体批次确认与来源重验。
 
+专项能力子目录：
+
+- `forecast/`：保存资料的短期前瞻——feed、显式 evaluate、候选 assessment 与 prepare
+  子 run，行为细节见「保存资料的短期前瞻」；
+- `teams/`：ADR-0027 有限协作蓝图的冻结方法文本与共享运行器，行为细节见
+  「有限协作（ADR-0027）」。
+
 ## 会话迁移
 
 `session_models.py` 接管原 World 共创会话和消息的唯一 ORM。物理表仍使用

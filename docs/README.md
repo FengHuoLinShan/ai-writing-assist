@@ -13,8 +13,8 @@
 | `AGENTS.md` | Agent 硬约束 | 协作协议、安全/数据边界与终止条件。 |
 | `CLAUDE.md` | Claude Code 适配 | 通过 `@AGENTS.md` 导入共享规则，不维护第二套契约。 |
 | `CONTEXT.md` | 领域上下文 | 稳定领域术语与跨模块语义。 |
-| `DECISIONS.md` | 临时决策日志 | 设计演进中的轻量决策；长期架构决策进入 `adr/`。 |
-| `NOTES.md` | 实现笔记 | 仍在维护的实现边界和后续同步事项。 |
+| `SECURITY.md` | 安全政策 | 支持范围与安全漏洞报告入口。 |
+| `THIRD_PARTY_LICENSES.md` | 第三方许可 | 生产直接依赖的许可清单与权威来源说明。 |
 | `development-guide.md` | 开发指南 | 本地开发、工程命令与工作流。 |
 | `testing-guide.md` | 测试指南 | 测试层级、Review 分级与门禁。 |
 
@@ -23,9 +23,8 @@
 1. [`product/user-personas.md`](product/user-personas.md) — 两类核心用户、当前双入口，以及“用户会喜欢吗 / 前端舒服吗”判断门禁
 2. [`00_整体设计.md`](00_整体设计.md) — 项目定位、核心原则、三层架构、模块职责
 3. [`01_数据库设计.md`](01_数据库设计.md) — 当前数据库表、关系、约束与 schema 权威来源说明
-4. [`AI开发规则.md`](AI开发规则.md) — 历史设计说明；Agent 运行时以根目录 `AGENTS.md` 为准
-5. [`核心业务场景与预期行为.md`](核心业务场景与预期行为.md) — 用户可感知业务流程
-6. [`architecture/documentation-maintenance.md`](architecture/documentation-maintenance.md) — 当前架构文档清单、影响矩阵、PR/CI 防遗漏流程
+4. [`核心业务场景与预期行为.md`](核心业务场景与预期行为.md) — 用户可感知业务流程
+5. [`architecture/documentation-maintenance.md`](architecture/documentation-maintenance.md) — 当前架构文档清单、影响矩阵、PR/CI 防遗漏流程
 
 ## 指导文件分工
 
@@ -46,10 +45,10 @@
 
 - 当前架构和数据库设计以 `docs/00_整体设计.md`、`docs/01_数据库设计.md`、活跃模块
   README、ORM `models.py` 与 Alembic migration 共同为准；发生冲突时，当前代码和迁移优先。
-- [`superpowers/README.md`](superpowers/README.md) 说明历史交付计划、设计快照、报告和验收
-  记录的分类。`superpowers/plans/` 中的旧计划不是当前需求或架构契约，维护时只更新分类，
+- [`archive/superpowers/README.md`](archive/superpowers/README.md) 说明历史交付计划、设计快照、报告和验收
+  记录的分类。`archive/superpowers/plans/` 中的旧计划不是当前需求或架构契约，维护时只更新分类，
   不回写历史计划正文。
-- `audit/`、`archive/maintenance/document-update-log.md` 和已完成验收报告是时间点记录，不作为当前状态判断依据。
+- `archive/audit/`、`archive/maintenance/document-update-log.md` 和已完成验收报告是时间点记录，不作为当前状态判断依据。
 - [`architecture/README.md`](architecture/README.md) 分类架构图：当前模块图以
   `module-architecture.drawio` 为可编辑图源、HTML 为兼容预览；`diagrams/` 下的旧图仅作
   历史视觉参考。
@@ -74,13 +73,19 @@
 13. `modules/19_story.md` — Scene 人物卡、可编辑剧本 revision、采用与 one-click 预览
 14. `modules/20_assistant.md` — 项目助手的有界运行时、操作回执与恢复语义
 15. `modules/21_collaboration.md` — 创作试验目标、授权、不可变试改与精确采用回执
-16. `modules/22_evolution.md` — `evolution` V4 演化引擎 E01 契约层：来源引用、观察、身份解析、类型化操作与回执游标（建设中，无运行时）
+16. `modules/22_evolution.md` — `evolution` V4 演化引擎 E01 契约层：来源引用、观察、身份解析、类型化操作与回执游标（建设中）
 17. `modules/23_local_agent.md` — `local_agent` 作者 Mac 本机 CLI 的项目配对、逐任务权限与回执边界
 
 `modules/` 只放当前模块的设计与稳定接口说明；已替代的模块文档位于
 `archive/modules/`，代码分析参考位于 `references/`。
 
 已移除的旧模块：`geo` / `character` / `timeline` / `review`。地点、人物、事件能力已并入 `world`，结构复查模块暂缓。
+
+## 测试、诊断与 Agent 规则
+
+- `testing/` — 测试技术覆盖主线与离线证据说明。
+- `agents/` — Issue 约定、triage 标签与领域文档的 Agent 消费规则。
+- `diagnostics/` — 本机性能诊断手册与带日期的时间点诊断记录，不作为 CI 门禁或当前性能事实。
 
 ## Prompt 设计
 
@@ -93,6 +98,9 @@
 
 ## 长程计划
 
+`docs/plans/` 是新实施计划的唯一入口；计划完成后移入 `docs/archive/` 作为历史记录，不在
+`docs/plans/` 长期堆积已交付内容。
+
 - [`plans/novelcraft-v4/`](plans/novelcraft-v4/) — NovelCraft V4 演化式小说整体引擎长期计划
   （G0–G8 里程碑、T01–T36 验收矩阵、48 画面 HiFi 与设计资产）。计划包为权威输入，
   实施进展与基线证据见 [`plans/novelcraft-v4/g0/G0-基线与保护.md`](plans/novelcraft-v4/g0/G0-基线与保护.md)；
@@ -104,7 +112,7 @@
   [`2026-09-01-rp-long-term-memory-research-and-decision-ledger.md`](references/2026-09-01-rp-long-term-memory-research-and-decision-ledger.md)（RP 长期记忆的跨平台调研、压缩与分支对象覆盖层持续决策台账）、
   [`world-object-worldbook-unification-research.md`](references/world-object-worldbook-unification-research.md)（世界对象、世界书与 Card 统一研究）、
   [`2026-08-27-frontend-world-task-workspace-research.md`](references/2026-08-27-frontend-world-task-workspace-research.md)（统一卡片后的世界资料库、作者任务与前端目录研究）、
-  [`world-authority-canonical-fixtures-v1.json`](references/world-authority-canonical-fixtures-v1.json)（World Authority v1 规范字节夹具）、
+  [`world-authority-canonical-fixtures-v1.json`](../backend/modules/world/tests/fixtures/world-authority-canonical-fixtures-v1.json)（World Authority v1 规范字节夹具）、
   [`map-prd-v1.1.md`](references/map-prd-v1.1.md)、
   [`2026-07-14-novalist-map-capability-analysis.md`](references/2026-07-14-novalist-map-capability-analysis.md)、
   [`2026-07-14-novalist-sillytavern-worldbook-design-analysis.md`](references/2026-07-14-novalist-sillytavern-worldbook-design-analysis.md)、
@@ -112,14 +120,14 @@
   [`2026-08-10-worldbook-system-continuous-improvement-plan.md`](references/2026-08-10-worldbook-system-continuous-improvement-plan.md)、
   [`deep-import-progress-backend-query-analysis.md`](references/deep-import-progress-backend-query-analysis.md)
   与 Scene 健康标记参考。
-- `audit/` — 代码、性能、安全和文档审计的时间点记录。
-- `acceptance/` — 验收基线、已完成验收报告和回归样本。
+- `archive/audit/` — 代码、性能、安全和文档审计的时间点记录；新审计直接带日期新增到该处。
+- 验收基线与历史验收记录已并入 [`archive/superpowers/`](archive/superpowers/) 的四篇分类（plans / specs / reports / acceptance），新的验收应新增带日期的记录。
 - [`security/content-sanitization-policy.md`](security/content-sanitization-policy.md) — 内容清理政策草案（Draft，不替代已采纳的 ADR 与安全边界）。
-- [`new-user-guide.md`](new-user-guide.md) — 新用户指南源文；[`NovelCraft-新用户指南.docx`](NovelCraft-新用户指南.docx) 为交付版，编辑时以 Markdown 源文为准重新生成。
-- [`word-guide-source.md`](word-guide-source.md) — Word 指南的可编辑源文。
-- [`典型用户路径_goal提示词.md`](典型用户路径_goal提示词.md) — Agent 验收与用户路径提示词参考。
-- `superpowers/` — 历史实施计划、设计快照、报告和验收记录；见
-  [`superpowers/README.md`](superpowers/README.md)。
+- [`product/new-user-guide.md`](product/new-user-guide.md) — 新用户指南源文；[`product/NovelCraft-新用户指南.docx`](product/NovelCraft-新用户指南.docx) 为交付版，编辑时以 Markdown 源文为准重新生成。
+- [`product/word-guide-source.md`](product/word-guide-source.md) — Word 指南的可编辑源文。
+- [`references/典型用户路径_goal提示词.md`](references/典型用户路径_goal提示词.md) — Agent 验收与用户路径提示词参考。
+- `archive/superpowers/` — 历史实施计划、设计快照、报告和验收记录；见
+  [`archive/superpowers/README.md`](archive/superpowers/README.md)。
 - `archive/` — 已完成、废弃或仅作追溯的文档；包含旧模块说明、维护记录、
   Agent 修复提示词及只读审查报告。详见 [`archive/README.md`](archive/README.md)。
 
@@ -160,44 +168,12 @@
 
 ## 代码审计
 
-1. [`audit/2026-07-07-全量代码库审计报告.md`](audit/2026-07-07-全量代码库审计报告.md) — 全量三维度审计（性能、安全、架构），88 条优化项
-2. [`audit/2026-07-07-文档审计报告.md`](audit/2026-07-07-文档审计报告.md) — 77 个文档分类审计，含归档/更新/新建计划
-3. [`audit/2026-07-07-可优化清单.md`](audit/2026-07-07-可优化清单.md) — 可追踪的逐项优化 checklist
-4. [`audit/2026-07-11-模块能力与跨模块需求分析.md`](audit/2026-07-11-模块能力与跨模块需求分析.md) — 当时 9 个活跃模块的能力、跨模块需求、RAG 精度结论与系统级优先级
-5. [`superpowers/plans/2026-07-11-p0-capability-closure-plan.md`](superpowers/plans/2026-07-11-p0-capability-closure-plan.md) — P0.1/P0.2/P0.3 详细实现计划、评测数据生产线、验收标准与首轮实测结果
-6. [`audit/2026-07-12-P0能力闭环完成审计.md`](audit/2026-07-12-P0能力闭环完成审计.md) — P0 工程/评测基础设施闭环证据、Pilot v1.1 四 suite 结果、历史 timing 限制与未达质量项
-7. [`superpowers/plans/2026-07-12-p1-observability-query-planning-stale-closure.md`](superpowers/plans/2026-07-12-p1-observability-query-planning-stale-closure.md) — P1.1 Scene/证据覆盖遥测、P1.2 context 确定性查询计划、P1.3 任务 stale 闭环的详细实现计划与验收标准
-8. [`audit/2026-07-12-P1运行盲区收敛完成审计.md`](audit/2026-07-12-P1运行盲区收敛完成审计.md) — P1 工程闭环、context-planner 正式对比结果、放宽验收与仍未达的严格质量目标
-9. [`superpowers/plans/2026-07-12-p2-compatibility-surface-doc-drift.md`](superpowers/plans/2026-07-12-p2-compatibility-surface-doc-drift.md) — P2 文档同步、world contract 解耦、facade 公共面冻结和 legacy 删除计划
-10. [`audit/2026-07-12-P2兼容面与文档漂移收敛完成审计.md`](audit/2026-07-12-P2兼容面与文档漂移收敛完成审计.md) — P2 删除清单、稳定接口影响与仓库级验证结果
-11. [`audit/2026-07-14-全量代码扫描修复收敛报告.md`](audit/2026-07-14-全量代码扫描修复收敛报告.md) — 全量 bug / 低效路径分批修复、独立复核、全仓库验证，以及 8 项未关闭 P1 结构债务、1 项已关闭重复路径与 1 项 P2 性能优化
-12. [`audit/2026-07-20-全项目持续风险审查.md`](audit/2026-07-20-全项目持续风险审查.md) — 当前 checkout 的全项目持续审查台账：完成条件、逐模块覆盖、直接修复、决策项与独立验证证据
-13. [`audit/2026-07-25-真实用户场景持续发散排查.md`](audit/2026-07-25-真实用户场景持续发散排查.md) — 持续进行中的真实用户操作台账：前端直观性、状态恢复、后端异常、真实 LLM 与逐轮未覆盖组合
-14. [`references/2026-08-13-worldbook-system-enhancement-plan.md`](references/2026-08-13-worldbook-system-enhancement-plan.md) — 基于详细世界书样本与当前代码能力核对形成的增量需求、差距矩阵和分阶段计划
-15. [`audit/2026-08-13-defensive-code-audit.md`](audit/2026-08-13-defensive-code-audit.md) — 仅后端生产代码的去冗余、哈希与异常定向审计
-16. [`audit/2026-08-31-Context能力与任务前确认诊断.md`](audit/2026-08-31-Context能力与任务前确认诊断.md) — Context 可操作资料、手动模型任务覆盖、三阶段指纹、掌控感 UI 与质量证据分层
-17. [`references/world-object-worldbook-unification-research.md`](references/world-object-worldbook-unification-research.md) — 世界对象、世界书、统一 Card 与事实权威的研究和实施交接
-18. [`references/world-authority-canonical-fixtures-v1.json`](references/world-authority-canonical-fixtures-v1.json) — Phase 0 canonical JSON 与 SHA-256 可执行夹具
+历史代码、性能、安全与文档审计统一归档在 [`archive/audit/`](archive/audit/)，按日期命名；
+新审计直接带日期新增到该处。它们是时间点记录，不作为当前状态判断依据。
 
 ## 当前状态
 
-当前代码注册 10 个业务模块：`account` / `project` / `imports` / `world` /
-`evidence` / `story` / `writing` / `interaction` / `assistant` / `collaboration`。Story 内部的 outline_state / continuity
-吸收原 memory / outline 唯一生产实现，旧兼容包已退场。RAG 索引与 Context
-编译/确认归 `evidence`；账户连接与全局偏好归
-`account`，项目偏好与有效配置归 `project`；前端与后端只保留 owner-aligned canonical 路径。
-
-- `infrastructure/tasks` 提供 PostgreSQL 异步任务队列
-- AI 地图册是 `world` 的子系统，API 前缀为 `/api/world/map-atlas`
-- 前端注册视图包括 `home / project / today / journeys / interaction` 以及
-  `world / rag / outline / scene / writing / map / generate / llm / settings / project-settings`；
-  主导航不显示兼容 `llm` 路由
-- `world/map` 旧入口只做兼容跳转
-
-## Collaboration 与短期前瞻
-
-新增业务模块 `collaboration` 持有目标、授权、不可变试改与精确采用回执；
-`assistant` 持有短期前瞻和处置，`story` / `interaction` 持有观察及分支事实。
-当前共十个业务模块，继续复用原 PostgreSQL 队列、Evidence 与 Project 连接。
-模块职责与采用/恢复边界见 `docs/modules/21_collaboration.md`、
-`backend/modules/collaboration/README.md`，前瞻见 `docs/modules/20_assistant.md`。
+当前模块清单、组件归属、API 前缀与运行事实以
+[`architecture/architecture-documents.toml`](architecture/architecture-documents.toml) 机器清单、
+根目录 [`CONTEXT.md`](../CONTEXT.md) 领域词汇与 [`00_整体设计.md`](00_整体设计.md) 为单一
+事实源；本索引不再复制模块数量与模块清单等易漂移事实。
