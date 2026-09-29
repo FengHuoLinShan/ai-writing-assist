@@ -38,6 +38,7 @@ import { resetWorldSession, worldSession } from "../../../../vue/views/world/wor
 import { pollTaskProgress } from "../../../../shared/workflowProgress.js"
 import { createReferencePicker } from "../../../../shared/referencePicker.js"
 import { readCreativeContinuation, writeCreativeContinuation } from "../../../../vue/views/generate/generateSession.js"
+import { invalidateEditorialReviewCache } from "../../../../vue/composables/useEditorialGuard.js"
 
 // ---- test data ----
 const PAGE_1 = {
@@ -202,6 +203,7 @@ enableAutoUnmount(afterEach)
 
 beforeEach(() => {
   vi.clearAllMocks()
+  invalidateEditorialReviewCache()
   confirmAiReference.mockResolvedValue({ id: "confirm-default" })
   localStorage.clear()
   resetWorldSession()
@@ -1004,7 +1006,7 @@ describe("编辑器行为", () => {
     await enterEditorFromReader(wrapper)
     await wrapper.find("#bible-title").setValue("世界基本背景")
     await wrapper.find("[data-action='bible-publish-page']").trigger("click")
-    await nextTick()
+    await vi.waitFor(() => expect(showModalHtmlMock).toHaveBeenCalled())
     expect(api.world.updateBibleDraft).toHaveBeenCalled()
     expect(api.world.previewBibleDraftPublishImpact).toHaveBeenCalledWith("draft-1", "p1")
     expect(api.world.publishBibleDraft).not.toHaveBeenCalled()
@@ -1043,7 +1045,7 @@ describe("编辑器行为", () => {
     await enterEditorFromReader(wrapper)
 
     await wrapper.find("[data-action='bible-publish-page']").trigger("click")
-    await nextTick()
+    await vi.waitFor(() => expect(showModalHtmlMock).toHaveBeenCalled())
 
     const body = showModalHtmlMock.mock.calls.at(-1)[1]
     expect(body).toContain("建议核对（1）")
@@ -1063,7 +1065,7 @@ describe("编辑器行为", () => {
     await enterEditorFromReader(wrapper)
 
     await wrapper.find("[data-action='bible-publish-page']").trigger("click")
-    await nextTick()
+    await vi.waitFor(() => expect(showModalHtmlMock).toHaveBeenCalled())
 
     const [title, body, actions] = showModalHtmlMock.mock.calls.at(-1)
     expect(title).toBe("影响预演暂不可用")
@@ -1083,7 +1085,7 @@ describe("编辑器行为", () => {
     await enterEditorFromReader(wrapper)
 
     await wrapper.find("[data-action='bible-publish-page']").trigger("click")
-    await nextTick()
+    await vi.waitFor(() => expect(showModalHtmlMock).toHaveBeenCalled())
     const actions = showModalHtmlMock.mock.calls.at(-1)[2]
     await actions.find((item) => item.text === "确认发布").handler()
 
@@ -2776,6 +2778,31 @@ describe("二期：工作稿自动保存与编辑基线", () => {
       expect(globalThis.api.world.publishBibleDraft).not.toHaveBeenCalled()
     } finally {
       vi.useRealTimers()
+    }
+  })
+
+  it("即使有进行中编辑审读，自动保存也从不弹出确认框（只有显式保存才会）", async () => {
+    vi.useFakeTimers()
+    invalidateEditorialReviewCache()
+    globalThis.api.assistant = {
+      editorialPolicy: vi.fn(async () => ({ feature_available: true })),
+      editorialReviews: vi.fn(async () => [{ id: "rev-1", status: "running", scope: { scope: "book" } }]),
+    }
+    try {
+      const updateDraft = vi.fn(async (_id, payload) => draftResponse({ free_text: payload.free_text }))
+      globalThis.api.world.updateBibleDraft = updateDraft
+      const wrapper = mountEditorTab()
+      await vi.advanceTimersByTimeAsync(0)
+
+      await wrapper.get("#bible-free-text").setValue("自动保存的新内容")
+      await vi.advanceTimersByTimeAsync(1000)
+
+      expect(updateDraft).toHaveBeenCalledTimes(1)
+      expect(confirmMock).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+      delete globalThis.api.assistant
+      invalidateEditorialReviewCache()
     }
   })
 

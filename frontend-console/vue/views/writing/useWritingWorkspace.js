@@ -17,6 +17,7 @@ import {
   onCreativeMerged,
 } from "../../bridge/index.js"
 import { useLeaveGuard } from "../../composables/useLeaveGuard.js"
+import { activeEditorialReviews, confirmEditorialImpact } from "../../composables/useEditorialGuard.js"
 import { buildSceneAlerts } from "./sceneAlerts.js"
 import { buildVersionDiff } from "./versionDiff.js"
 import { isVersionActive } from "./versionState.js"
@@ -239,6 +240,25 @@ export function useWritingWorkspace(props) {
   let publishPoller = null
   let lastPublishPayload = null
   let lastChapterSelection = null
+  const editorialReviewNotice = ref(null)
+  let editorialNoticeGeneration = 0
+  let editorialNoticeTimer = null
+
+  const EDITORIAL_NOTICE_POLL_MS = 15000
+
+  async function refreshEditorialReviewNotice() {
+    const chapter = selectedChapter.value
+    if (disposed.value || !chapter) { editorialReviewNotice.value = null; return }
+    const generation = ++editorialNoticeGeneration
+    const reviews = await activeEditorialReviews(projectId, { chapterIndex: chapter })
+    if (
+      disposed.value
+      || generation !== editorialNoticeGeneration
+      || chapter !== selectedChapter.value
+      || getAppState()?.currentProjectId !== projectId
+    ) return
+    editorialReviewNotice.value = reviews.length ? { count: reviews.length } : null
+  }
 
   const activeScenes = computed(() => scenes.value.filter(activeScene).sort(compareScenes))
   const chapterScenes = computed(() => activeScenes.value.filter((scene) => (
@@ -928,8 +948,9 @@ export function useWritingWorkspace(props) {
   }
 
   async function confirmBeforePublish() {
-    let latest = null
     const chapter = selectedChapter.value
+    if (!(await confirmEditorialImpact(projectId, { kind: "chapter", chapterIndex: chapter }))) return false
+    let latest = null
     const sceneId = currentScene.value?.id || null
     const sceneToken = sceneGeneration
     const ownsRequest = () => (
@@ -1585,6 +1606,9 @@ export function useWritingWorkspace(props) {
     if (!homeMode.value) syncLegacyState()
   }, { immediate: true })
 
+  // 编辑审读提醒：只读展示，从不阻塞自动保存；章节切换即重取，view 存活期间轻量轮询。
+  watch(selectedChapter, () => { if (!homeMode.value && !publicDemo) void refreshEditorialReviewNotice() })
+
   onMounted(async () => {
     const organize = getRouteQuery().get("organize")
     if (["deep", "scenes", "world_objects", "plot_structure"].includes(organize)) {
@@ -1598,6 +1622,10 @@ export function useWritingWorkspace(props) {
     window.addEventListener("beforeunload", beforeUnload)
     window.addEventListener("pagehide", pageHide)
     window.addEventListener("resize", resize)
+    if (!publicDemo) {
+      editorialNoticeTimer = setInterval(() => { void refreshEditorialReviewNotice() }, EDITORIAL_NOTICE_POLL_MS)
+      void refreshEditorialReviewNotice()
+    }
     const importReceipt = publicDemo ? null : getRouteQuery().get("import_task_id")
     if (!publicDemo) await deepImport.recover(importReceipt)
     if (importReceipt && !disposed.value && deepImportState.progress) deepAuditOpen.value = true
@@ -1642,6 +1670,8 @@ export function useWritingWorkspace(props) {
     versionDiffGeneration += 1
     publishPoller?.stop()
     publishPoller = null
+    if (editorialNoticeTimer) clearInterval(editorialNoticeTimer)
+    editorialNoticeTimer = null
     if (inputDerivedFrame != null) cancelAnimationFrame(inputDerivedFrame)
     inputDerivedFrame = null
     editor.dispose()
@@ -1688,6 +1718,7 @@ export function useWritingWorkspace(props) {
     generationLoading,
     generationTask,
     publishProgress,
+    editorialReviewNotice,
     conflictState,
     conflictOptions,
     conflictDialog,

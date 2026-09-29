@@ -8,6 +8,7 @@
 import { computed, nextTick, reactive, ref, watch } from "vue"
 import { getApi, getAppState, getRouteQuery, getRouter, getToast, getConfirm, getConfirmAction, getShowModalHtml, getCloseModal, getEsc, getErrorLog } from "../../../bridge/index.js"
 import { useLeaveGuard } from "../../../composables/useLeaveGuard.js"
+import { confirmEditorialImpact } from "../../../composables/useEditorialGuard.js"
 import { worldSession } from "../../world/worldSession.js"
 import { pollTaskProgress } from "../../../../shared/workflowProgress.js"
 import { worldAssetDisplay } from "../../../../shared/assetDisplayState.js"
@@ -576,6 +577,7 @@ export function useWorldBible(props) {
     const page = activePage.value
     let draft = activeDraft.value || draftForActivePage.value
     if (!page && !draft) return false
+    if (!(await confirmEditorialImpact(projectId.value, { kind: "world" }))) return false
     const owner = captureEditorOwner()
     const novelId = owner.novelId
     const revisionAtRequest = autosaveRevision

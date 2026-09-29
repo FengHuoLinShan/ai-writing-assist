@@ -6,6 +6,7 @@
  * AI 入口按钮调用另一 lane 的模块（showOutlineLayerAiForm 等，签名见任务规格）。
  */
 import { getApi, getAppState, getConfirmAction, getEsc, getRouter, getShowModalHtml, getToast } from "../../../bridge/index.js"
+import { confirmEditorialImpact } from "../../../composables/useEditorialGuard.js"
 import { structureAssetDisplay } from "../../../../shared/assetDisplayState.js"
 import { runBulkAction, bulkResultMessage, selectedItemsFrom, getBulkSelection, clearBulkSelection } from "./outlineBulkSelection.js"
 import {
@@ -91,9 +92,16 @@ function ownsConfirmOwner(owner) {
   return Boolean(owner?.isConnected && document.getElementById("modal-body")?.contains(owner))
 }
 
-function confirmOwnedMutation(message, onConfirm, confirmText) {
+/**
+ * 通用删除等二次确认；editorialKind 非空时，确认后先做编辑审读失效提醒
+ * （剧情线、篇章、伏笔与揭示的删除都会让进行中的审读失效）。
+ */
+function confirmOwnedMutation(message, onConfirm, confirmText, { editorialKind = null } = {}) {
   let owner = null
-  getConfirmAction()(message, () => onConfirm(() => ownsConfirmOwner(owner)), confirmText)
+  getConfirmAction()(message, async () => {
+    if (editorialKind && !(await confirmEditorialImpact(getAppState()?.currentProjectId, { kind: editorialKind }))) return
+    return onConfirm(() => ownsConfirmOwner(owner))
+  }, confirmText)
   owner = currentConfirmOwner()
 }
 
@@ -211,6 +219,7 @@ export function editForeshadowing(id, foreshadowingList, guessLastChapter) {
       const description = modalOwner?.value?.trim()
       if (!description) { toast("请输入描述", "warning"); return false }
       const targetChapter = parseInt(document.getElementById("edit-foreshadowing-target-chapter")?.value || "1", 10)
+      if (!(await confirmEditorialImpact(scope.projectId, { kind: "outline" }))) return false
       try {
         await getApi().outline.updateForeshadowing(id, scope.projectId, {
           name: description,
@@ -241,13 +250,18 @@ export function deleteForeshadowing(id) {
       toast(err.message || "删除失败", "error")
       return false
     }
-  })
+  }, undefined, { editorialKind: "outline" })
 }
 
 /** 伏笔状态就地更新（vanilla _bindEvents 中 .foreshadowing-status-select 的 change 事件）。 */
 export async function updateForeshadowingStatus(id, newStatus) {
   const scope = captureOutlineOperationScope()
   const toast = getToast()
+  if (!(await confirmEditorialImpact(scope.projectId, { kind: "outline" }))) {
+    // 作者取消：刷新以还原就地下拉框的显示值。
+    await getRouter()?.refresh?.()
+    return false
+  }
   try {
     await getApi().outline.updateForeshadowing(id, scope.projectId, { status: newStatus })
     return await finishMutation(scope, "伏笔状态已更新")
@@ -370,6 +384,7 @@ export function editReveal(id, revealsList, guessLastChapter, buildForeshadowing
         toast("揭示章节必须大于 0", "warning")
         return false
       }
+      if (!(await confirmEditorialImpact(scope.projectId, { kind: "outline" }))) return false
       try {
         await getApi().outline.updateReveal(id, scope.projectId, {
           secret_summary: description,
@@ -403,13 +418,17 @@ export function deleteReveal(id) {
       toast(err.message || "删除失败", "error")
       return false
     }
-  })
+  }, undefined, { editorialKind: "outline" })
 }
 
 /** 揭示状态就地更新（vanilla _bindEvents 中 .reveal-status-select 的 change 事件）。 */
 export async function updateRevealStatus(id, newStatus) {
   const scope = captureOutlineOperationScope()
   const toast = getToast()
+  if (!(await confirmEditorialImpact(scope.projectId, { kind: "outline" }))) {
+    await getRouter()?.refresh?.()
+    return false
+  }
   try {
     await getApi().outline.updateReveal(id, scope.projectId, { status: newStatus })
     return await finishMutation(scope, "揭示状态已更新")
@@ -528,6 +547,7 @@ export function editThread(id, threadsList) {
       const modalOwner = document.getElementById("edit-thread-name")
       const ownsModal = () => ownsModalControl(modalOwner)
       if (!ownsModal()) return true
+      if (!(await confirmEditorialImpact(scope.projectId, { kind: "outline" }))) return false
       try {
         await getApi().outline.updateThread(id, scope.projectId, {
           name: modalOwner?.value,
@@ -589,7 +609,7 @@ export function deleteThread(id) {
       toast(err.message || "删除失败", "error")
       return false
     }
-  }, "确认删除")
+  }, "确认删除", { editorialKind: "outline" })
 }
 
 // ============================================================
@@ -673,6 +693,7 @@ export function editArc(id, arcsList) {
       const modalOwner = document.getElementById("edit-arc-name")
       const ownsModal = () => ownsModalControl(modalOwner)
       if (!ownsModal()) return true
+      if (!(await confirmEditorialImpact(scope.projectId, { kind: "outline" }))) return false
       try {
         await getApi().outline.updateArc(id, scope.projectId, {
           title: modalOwner?.value?.trim(),
@@ -731,7 +752,7 @@ export function deleteArc(id) {
       toast(err.message || "删除失败", "error")
       return false
     }
-  }, "确认删除")
+  }, "确认删除", { editorialKind: "outline" })
 }
 
 // ============================================================
@@ -767,6 +788,7 @@ export function runBulkOutlineAction(scope, action, items) {
       return result === false && !ownsMutation(operationScope, ownsModal) ? true : result
     },
     confirmText,
+    { editorialKind: "outline" },
   )
 }
 

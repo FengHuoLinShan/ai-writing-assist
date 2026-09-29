@@ -233,6 +233,12 @@
             <strong>{{ vm.conflictState.error ? '检查失败' : '最近检查' }}</strong>
             <span>{{ conflictSummary }}</span>
           </div>
+          <p
+            v-if="vm.editorialReviewNotice.value"
+            id="writing-editorial-review-notice"
+            class="writing-editorial-review-notice"
+            role="status"
+          >本章正在接受编辑审读；保存修改后，本次审读会失效（已读部分保留）。</p>
         </template>
       </WritingEditor>
 

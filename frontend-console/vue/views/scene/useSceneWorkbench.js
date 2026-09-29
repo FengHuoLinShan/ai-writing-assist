@@ -18,6 +18,7 @@ import {
   getToast,
 } from "../../bridge/index.js"
 import { confirmAsync } from "../../../shared/confirmAsync.js"
+import { confirmEditorialImpact } from "../../composables/useEditorialGuard.js"
 import {
   importAuthorizationNotice,
   importAuthorizationPayload,
@@ -435,6 +436,7 @@ export function useSceneWorkbench(props) {
 
   async function saveScene(sceneId, draft) {
     if (!sceneId || savingSceneId.value) return false
+    if (!(await confirmEditorialImpact(projectId, { kind: "outline" }))) return false
     savingSceneId.value = sceneId
     sceneSaveError.value = null
     try {
@@ -470,6 +472,7 @@ export function useSceneWorkbench(props) {
     if (!scene || structureAssetDisplay(scene).isHistory) return false
     const confirmed = await confirmAsync(`确认将“${scene.title || "未命名场景"}”移入历史？场景正文和追踪信息会保留，可通过“状态 → 历史”查看。`, "确认移入历史")
     if (!confirmed) return false
+    if (!(await confirmEditorialImpact(projectId, { kind: "outline" }))) return false
     try {
       await api.outline.deleteScene(sceneId, projectId)
       const next = new Set(selectedIds.value); next.delete(sceneId); selectedIds.value = next

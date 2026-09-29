@@ -76,6 +76,7 @@
 import { computed, onBeforeUnmount, ref, watch } from "vue"
 import { getApi } from "../bridge/index.js"
 import { locateAssistantSource } from "../shared/assistantNavigation.js"
+import { confirmEditorialImpact } from "../composables/useEditorialGuard.js"
 import EditorialIssueCard from "./EditorialIssueCard.vue"
 
 const props = defineProps({ projectId: { type: String, required: true }, active: Boolean, focusChapter: { type: Number, default: null }, focusIssueId: { type: String, default: null } })
@@ -138,6 +139,8 @@ async function refreshResults() {
   } catch { /* keep the last readable result; explicit refresh shows an error */ }
 }
 async function saveBrief() {
+  const activeReviews = reviews.value.filter(item => ["queued", "running"].includes(item.status))
+  if (!(await confirmEditorialImpact(props.projectId, { kind: "brief", reviews: activeReviews }))) return
   busy.value = true; error.value = ""
   try {
     const value = currentBriefValue()

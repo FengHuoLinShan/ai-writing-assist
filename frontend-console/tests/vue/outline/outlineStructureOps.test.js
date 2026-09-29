@@ -3,6 +3,7 @@ import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/in
 import {
   assignInformationPlan,
   deleteThread,
+  editThread,
   executeBulkOutlineAction,
   runBulkOutlineAction,
   showCreateThreadForm,
@@ -12,6 +13,7 @@ import {
   clearAllBulkSelections,
   getBulkSelection,
 } from "../../../vue/views/outline/logic/outlineBulkSelection.js"
+import { invalidateEditorialReviewCache } from "../../../vue/composables/useEditorialGuard.js"
 
 function deferred() {
   let resolve
@@ -58,6 +60,39 @@ describe("outline structure mutation lifecycle", () => {
   afterEach(() => {
     resetBridgeOverrides()
     clearAllBulkSelections()
+    invalidateEditorialReviewCache()
+  })
+
+  it("有进行中编辑审读时编辑剧情线先确认，取消则不调用 API", async () => {
+    invalidateEditorialReviewCache()
+    api.assistant = {
+      editorialPolicy: vi.fn(async () => ({ feature_available: true })),
+      editorialReviews: vi.fn(async () => [{ id: "rev-1", status: "running", scope: { scope: "book" } }]),
+    }
+    setBridgeOverrides({ confirm: vi.fn(() => false) })
+    api.outline.updateThread = vi.fn(async () => ({}))
+
+    editThread("t1", [{ id: "t1", name: "主线", thread_type: "main" }])
+    document.body.innerHTML = modal.html
+    document.getElementById("edit-thread-name").value = "主线·改"
+
+    await expect(modal.buttons[0].handler()).resolves.toBe(false)
+    expect(api.outline.updateThread).not.toHaveBeenCalled()
+  })
+
+  it("有进行中编辑审读时就地改伏笔状态先确认，取消则还原且不调用 API", async () => {
+    api.assistant = {
+      editorialPolicy: vi.fn(async () => ({ feature_available: true })),
+      editorialReviews: vi.fn(async () => [{ id: "rev-1", status: "queued", scope: { scope: "chapter" } }]),
+    }
+    const confirm = vi.fn(() => false)
+    setBridgeOverrides({ confirm })
+    api.outline.updateForeshadowing = vi.fn(async () => ({}))
+
+    await expect(updateForeshadowingStatus("f1", "resolved")).resolves.toBe(false)
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("大纲"))
+    expect(api.outline.updateForeshadowing).not.toHaveBeenCalled()
+    expect(router.refresh).toHaveBeenCalled()
   })
 
   it("离开信息推进发起页后不刷新或提示新子页", async () => {

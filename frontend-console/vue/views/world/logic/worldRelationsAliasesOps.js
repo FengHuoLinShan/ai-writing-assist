@@ -11,6 +11,7 @@ import { sceneNumber } from "../../../../shared/sceneNumbers.js"
  * 拉取实体列表填充下拉菜单。
  */
 import { getApi, getAppState, getConfirmAction, getEsc, getRouter, getShowModalHtml, getToast } from "../../../bridge/index.js"
+import { confirmEditorialImpact } from "../../../composables/useEditorialGuard.js"
 import { runBulkAction, bulkResultMessage, clearBulkSelection } from "./worldBulkSelection.js"
 import { mountEntityReferencePickerForReview } from "./worldEntityOps.js"
 import { aliasKey } from "./worldEntityHelpers.js"
@@ -286,6 +287,7 @@ export function deleteRelation(relId) {
   const scope = captureWorldOperationScope()
   const projectId = scope.projectId
   confirmAction("确定删除此关系？", async () => {
+    if (!(await confirmEditorialImpact(projectId, { kind: "world" }))) return
     const modalOwner = captureModalOwner()
     try {
       await api.world.deleteRelationship(relId, { novel_id: projectId })
@@ -314,6 +316,7 @@ export function deleteAlias(entityId, alias) {
     return
   }
   confirmAction(`确定删除别名 "${esc(alias)}"？`, async () => {
+    if (!(await confirmEditorialImpact(projectId, { kind: "world" }))) return
     const modalOwner = captureModalOwner()
     try {
       const api = getApi()
@@ -474,6 +477,7 @@ export function showAliasEditForm(entityId, aliasText) {
         toast("请选择所属对象、别名分类并填写别名和详细类型", "warning")
         return false
       }
+      if (!(await confirmEditorialImpact(projectId, { kind: "world" }))) return false
       const modalOwner = captureModalOwner(document.getElementById("alias-edit-text"))
       try {
         await getApi().world.editAlias(entityId, aliasText, {
@@ -572,6 +576,7 @@ export function showRelationReviewEditForm(relationId) {
         toast("请填写源对象、目标对象、关系分类和详细类型", "warning")
         return false
       }
+      if (!(await confirmEditorialImpact(projectId, { kind: "world" }))) return false
       const modalOwner = captureModalOwner(document.getElementById("rel-review-type"))
       try {
         await api.world.reviewEditRelationship(relationId, {
