@@ -100,6 +100,16 @@ Evidence indexing/compilation 回归集中在 `backend/modules/evidence/`；
 | `RUN_INTERACTION_LONG_CONTEXT_CALIBRATION=1 KIMI_LONG_CONTEXT_COST_APPROVED=1 KIMI_API_KEY='<temporary-key>' KIMI_CONTEXT_LIMIT_TOKENS='<official-limit>' E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-interaction-long-context` | Paid Kimi usage-token calibration at seven sizes plus a real PostgreSQL 530K emergency-summary journey | Explicit cost approval, current official context limit, temporary Kimi key, and dedicated PostgreSQL at Alembic head |
 | `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-manual REAL_SOURCE_PATH=/abs/path/novel.txt` | Real source corpus and PostgreSQL/real-model acceptance | Source path, dedicated PostgreSQL, and configured provider credentials |
 
+### 付费实测账本与证据
+
+`backend/evals/v4_live.py` 的 `Meter` 会把完整请求和模型输出写入账本，便于核对费用和复查输出。
+同一笔预算只用一份累计账本：不为重置上限另建新账本，上限变化写入 `authorization_history`。
+输入仅为合成 fixture 时，账本和运行报告可以随任务证据提交。输入或输出含真实稿件、受版权原文、
+用户数据等私有材料时，完整账本和原始输出只能放在仓库外的私有 artifacts 目录。仓库只提交去掉
+`request`/`content` 的快照，保留序号、状态、时间、用量、费用上界、`request_hash`、
+`budget_resolution`，并用 `payload_redacted` 注明完整账本的位置和 SHA-256。`Meter` 拒绝用这类快照
+继续计费，后续付费调用只能记入私有完整账本。
+
 ### Recommended regression cadence
 
 Use the smallest existing entry point that covers the change, then stop when that layer is
