@@ -3,7 +3,7 @@ id: T-20260923-guimi-flagship
 title: 现有 guimi 旗舰演示增量升级
 status: active
 created: 2026-09-23T02:57:27+08:00
-updated: 2026-09-27T21:37:00+09:00
+updated: 2026-09-28T12:00:00+09:00
 ---
 
 ## 目标与验收
@@ -20,7 +20,16 @@ updated: 2026-09-27T21:37:00+09:00
 - 私有数据/媒体/基线位置 /Users/tywww/.codex/artifacts/guimi-flagship-20260923，禁止提交原文、数据库、媒体私有材料和凭据。
 - 实查两个backend/.env均指向ai_novel_acceptance_guimi。目标项目937c86f1-a2c3-4db5-963d-f3181095f339，owner零UUID有效active，author，标题诡秘之主·廷根篇；原TXT导入记录795b949a-6d9e-4706-ab0c-70ac210175fe，60/60 done。主开发库同ID是另一份演示项目，不能混用。
 
-## 最新检查点（2026-09-27 JST，以此为准）
+## 最新检查点（2026-09-28 JST，以此为准）
+
+- 原 guimi 60 章/212868 字正文与工作稿未改。最终 Evolution run `reading-044af422-0b84-4b8f-af83-57f8a54d00b6` 完成 66/66 Scene；最终审计 2754 观察、6 隔离引文、40 World refs、471 待决定，World 审查 4 通过/43 容量延后/1 抽取延后/18 其他阻断。617 次共享付费调用，612 已结算、5 次用量未知按预留上界计，保守 USD10.1015487；禁止重试旧未知费用请求。代理验收，不是人工作者试用或文学质量证明。
+- PR #170/#174/#175 已各自通过 CI 并合并。生产以固定 `origin/main` SHA `6d863975c8523054ba800f928f16d0356d16f107` 发布，服务器 detached checkout/权威 deployment-state manifest 一致；正式备份、隔离恢复演练、公网验证通过。guimi 项目包按 130 表守卫同步、38 表 4278 行变化、其他 11 项目零漂移，34 项媒体回读一致，v3 RP 冻结来源有效；私有包与备份见本任务 artifacts 和生产 `deploy/backups/`。
+- 线上 `PUBLIC_DEMO_MAP_NODE_ID=b948a787-d310-44f7-a0a2-ba9bd8b9314f` 已由 Compose 传入 API，公开 config 回读正确。真实匿名浏览器刷新后首次地图为“廷根市 · 前60章位置示意”；选旧公寓显示绑定 World 地点和 8 条原文依据，预览第 1 章逐字片段并返回后保留 `node_id`/`feature_id`；地图按钮进入现有匿名 RP，显示固定 guimi 来源与第 1 章开场。匿名 RP 需要用户临时 DeepSeek Key；未把开局静态文案冒充真实模型生成。正常账户官方 HTTPS 登录与项目、Evolution、地图、World、5 开局 API 均 200；登录态作者浏览器全链未完成。
+- 本地 #174 全量 `make test-ci` 为后端 6334 passed/15 skipped、覆盖 85.78%，前端 2604 passed；#175 部署测试 271 passed，Ruff/docs-check 通过。#174/#175 各 11 项 CI 成功。12 个实验开关全开的旧共享基线仍有 38 个失败，不能称全开测试绿色；生产演示和作者相关开关已开启，未配置扫码服务的微信登录保持关闭。
+- 2026-09-28 收尾：运行检出里未提交的 `backend/modules/evolution/world.py` 与 main 版本逐字相同，已丢弃；`codex/guimi-flagship` 已完整合入 main 并删除。原工作树 `/Users/tywww/.codex/worktrees/guimi-flagship/ai-writing-assist` 改为 detached 在最新 `origin/main`，保留 `backend/.env` 和私有脚本使用的 ROOT 路径。8067 API 已停止。该检出含 `20260928_schema_drift_repair` 迁移（索引、外键、时间戳约束，并清理 `world_library_recents` 中指向已删除项目的孤儿行），从这里重启 API/worker 前，先对 `ai_novel_acceptance_guimi` 执行 `make migrate`。共享付费账本已移到私有目录 `paid-ledger/paid-calls.json`（见 V4 任务 2026-09-28 记录），`evolution-run-once.py` 和 `run-rp-task.py` 已改为指向该路径。原始主 checkout 的 README 草稿已修订并合入 main。
+- 完整任务仍有 64/66 Scene 未经作者人工审核、World 延后/阻断条目和高级功能验收缺口。下一步从第 16 章起按 Scene 来源逐章代理回读，先核 World 延后/阻断的前 10 个，逐项记录“保留候选/修正/采用”与原文证据；不得重建项目或重跑旧未知费用请求。
+
+## 较早检查点（2026-09-27 21:37 JST）
 
 - PR #174 后续补充可选通用 `PUBLIC_DEMO_MAP_NODE_ID`：auth config 只输出经 UUID 校验的首选节点；router 仅在匿名地图导航没有显式`node_id`时填入，地图实际读取仍按固定项目门禁。该配置将廷根市作为公开演示首屏地图，不改动七张地图层级、旧测试画布或用户数据。账号配置目标测试5项、前端路由75项与lint通过；新增无效UUID分支测试后需复跑；完整默认`make test-ci`正在运行，PR还需更新/合并与新SHA发布，线上env尚未设置地图节点。
 - PR #170 11项检查全绿并合并为`883536aca8339ee55737cdc2de92d997d6b52be0`。服务器仅按固定main SHA运行`deploy/scripts/release.sh`，备份/恢复演练、migration、公网验证通过；生产权威manifest及checkout一致。同步前停写、再备份恢复演练，130表基线0漂移，38表4278行事务提交、130表回读0差异；34件媒体复核（27件新增、7件已同字节），v3 RP冻结来源确认。线上env备份后将v3来源、演示版本和编辑台两个新开关设为true，validate_env过；服务重启后官方`verify_public.sh`过。第一次重启后立即检查遭短暂502，全部服务healthy后重跑通过，非持续故障。

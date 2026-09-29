@@ -51,6 +51,8 @@ class Meter:
                 "calls": [],
             }
         )
+        if self.ledger.get("payload_redacted"):
+            raise RuntimeError("Redacted ledger snapshot: meter against the full ledger")
         cap = self.ledger["cap_usd"]
         if (
             cap is not None
