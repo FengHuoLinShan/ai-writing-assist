@@ -75,7 +75,7 @@
 ### 交付与操作
 
 - 产品对象合并、删除、废弃保留领域二次确认；代码清理、重复实现合并、内部组件替换不因此审批。丢弃用户工作、破坏真实数据、重写共享 Git 历史须确认。
-- 禁提交 `.env`、跳过受影响模块测试合并、为过检删除有效断言/削弱安全门禁/隐藏失败。改 `core/`、`shared/`、`infrastructure/` 须理解调用边界并验证受影响路径。
+- 禁提交 `.env`、跳过受影响模块测试合并、为过检删除有效断言/削弱安全门禁/隐藏失败。付费或真实模型运行中含真实稿件、受版权原文或用户数据的原始请求/输出留在仓库外私有目录，仓库只提交去原文的账本快照与审查结论（见 `testing-guide.md`）。改 `core/`、`shared/`、`infrastructure/` 须理解调用边界并验证受影响路径。
 - 文档维护见 `docs/architecture/documentation-maintenance.md`，机器清单见 `docs/architecture/architecture-documents.toml`。
 
 ## 协作与冲突

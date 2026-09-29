@@ -3,8 +3,12 @@ id: T-20260921-novelcraft-v4-implementation
 title: NovelCraft V4 演化式小说整体引擎长期计划实施
 status: superseded
 created: 2026-09-21T00:00:00+08:00
-updated: 2026-09-23T02:30:00+08:00
+updated: 2026-09-28T12:00:00+09:00
 ---
+
+## 2026-09-28 付费账本迁移（以此为准）
+
+共享账本在 guimi 付费运行后增至 617 次调用、38MB，其中 482 次含 guimi 原文，不能提交。完整账本已原样移到 `/Users/tywww/.codex/artifacts/guimi-flagship-20260923/paid-ledger/paid-calls.json`（SHA-256 `9cf909f2432af77c1a4787d27ae3b02a80db0712cc622ff454424a9473d5510f`），私有脚本同步改为指向该路径。仓库内 `artifacts/paid-20260922/paid-calls.json` 改为去掉 `request`/`content` 的累计快照：617 次调用、保守上界 USD 10.1015487，`cap_usd=null` 及授权记录保留。`Meter` 拒绝用快照继续计费。下文“任何重跑必须复用 `paid-calls.json`”自此指私有完整账本；2026-09-24 前提交的原始载荷仍在 Git 历史中。
 
 ## 2026-09-23 目标变更与未完成代码快照
 
