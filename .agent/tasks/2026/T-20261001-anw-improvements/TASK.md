@@ -16,30 +16,34 @@
 
 ## 进展
 
-- [x] A1 剧情线入选规则修正与到期提示(后端 get_active 条件+超期渲染;前端徽章)
-- [x] A2 Scene 合同逐项审查(冻结条目+同请求三态判定+归一化失败关闭+待核实显式纳入返修;前端三态面板)
-- [x] A3 Context 事实等级标注+裁剪说明(不影响确认指纹;任务源指纹已覆盖)
-- [x] A4 全书导出(GET /writing/export txt/md/md-zip+单章+manifest 复核+未采用章列出;前端双口径+设置页入口)
-- [x] 第一批 review + 修复(2 个审查子代理;前端 2P1+5P2、后端 1P1+3P2 全部修复,含 exportingAdopted .value、null payoff 假徽章、剥引号 excerpt 定位、无冻结条目残留、SQL trim 口径)
-- [x] B1 跨章复读确定性检查(detect_repetition_overlap 纯函数+偏移映射回原文;_repetition_items 集成 conflict check;仅提示不拒存)
-- [x] B2 意见处置稳定身份(结构化键 category+source_ids+evidence chapters;legacy 别名迁移;disposition_inherited 继承标记;前端沿用提示)
-- [x] B3 editorial brief 进 writing Context(默认关闭开关+for-writing 端点+EditorialBriefLoader+chapter/scene scope+section 进确认指纹;前端编辑台开关)
-- [x] B5 跨任务用量查询(summarize_ai_usage 扫 run envelope 按 capability 聚合;GET /projects/{id}/ai-usage;设置页 AI 用量区;作者语言)
-- [ ] 第二批 review + 修复(子代理进行中)
-- [ ] 收尾核对与门禁(docs-check、能力 vs 计划核对)
+全部完成。提交:64e2a42c3(主体)+ 95f6a4b00(验收补丁),分支 codex/anw-improvements-batch-a,未推送。
 
-范围裁定:B4 嵌入空间身份为触发式,触发条件不满足,不做;C1-C4 需产品决策,不做。
-prompt 契约文档已同步(docs/prompts/Prompt体系设计.md:semantic_review 逐项判定、正文生成类的 A1/A3/B3 说明)。
+- [x] A1 剧情线入选规则修正与到期提示
+- [x] A2 Scene 合同逐项审查
+- [x] A3 Context 事实等级标注与裁剪说明
+- [x] A4 全书导出
+- [x] 第一批 review + 修复(前端 2P1+5P2、后端 1P1+3P2 全修)
+- [x] B1 跨章复读确定性检查
+- [x] B2 意见处置稳定身份(含 legacy 别名迁移行指纹)
+- [x] B3 editorial brief 进 writing 生成(默认关闭)
+- [x] B5 跨任务用量查询
+- [x] 第二批 review + 修复(4P2+4P3 全修)
+- [x] 收尾:文档同步、门禁、提交、能力核对
 
 ## 验证
 
-- 后端全量(受影响模块):`pytest modules/writing modules/story/outline_state modules/evidence modules/assistant infrastructure/tasks` → 1291 passed(1 个基线失败 test_rag.py::test_retrieve_with_custom_top_k 在 origin/main 也失败)。
-- 前端全量:`vitest run tests/vue/` → 2112+ passed。
-- ruff check modules infrastructure 全过;eslint 改动文件全过。
+- 后端受影响模块(writing/story.outline_state/evidence/compilation/assistant/infrastructure.tasks):1293+394 passed。
+- 后端全量(modules+infrastructure):4490 passed;36 失败均为基线环境问题(35 world + 1 rag,经 stash 在 origin/main 复现同样失败)。
+- 前端全量:2115 passed。
+- ruff/eslint 全过;prompt_contracts 24 过;docs-check(BASE_REF=origin/main,no-change-reason 覆盖 indexing/数据库设计/memory 三份无影响文档)通过。
+- 能力 vs 计划目标核对:A1-A4、B1/B2/B3/B5 逐条验收通过;B4(触发条件不满足)与 C1-C4(需产品决策)按计划不实施;"明确不做"清单未引入;外部缺陷(goalReview 引文唯一性、FNV 身份)未照抄并已修正。
 
-## 恢复快照
+## 已知限制(交接注意)
 
-分支 codex/anw-improvements-batch-a(基于 origin/main@1a8aebf16),改动未提交。下一步:等第二批 review 结果并修复,然后收尾(docs-check、e2e 抽查、能力核对、提交)。
+1. A2 逐项审查与 B1 复读阈值的质量收益是假设:需按 testing-guide.md 用真实模型做合成样本离线校准(A2)与真实长稿阈值校准(B1)后才能宣称效果。
+2. A3/A1 渲染变化会使部署时在途 writing 任务按任务源指纹判漂移丢弃——需低峰发布并在发布说明写明(计划 A3 代价节预期内)。
+3. Playwright E2E 未新增用例;新端点与面板由 API/组件测试覆盖。
+4. 改动未推送、未开 PR;合并需按仓库流程另行授权。
 
 ## 阻塞
 
