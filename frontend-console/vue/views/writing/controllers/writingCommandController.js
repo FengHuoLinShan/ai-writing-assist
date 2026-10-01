@@ -173,7 +173,7 @@ export function createWritingCommandController({
     }
   }
 
-  async function runCandidateWorkflow(workflowType) {
+  async function runCandidateWorkflow(workflowType, { contractItemIds = [] } = {}) {
     const projectId = getProjectId()
     const draftId = editor.getDraftId()
     const provenance = editor.getProvenance?.() || {}
@@ -187,7 +187,7 @@ export function createWritingCommandController({
     }
     const review = provenance.independent_review
     if (workflowType === "writing_targeted_revision" && (
-      !review?.review_task_id || !review?.finding_ids?.length
+      !review?.review_task_id || (!review?.finding_ids?.length && !contractItemIds.length)
     )) {
       toast("当前没有可定向返修的审查问题", "warning")
       return null
@@ -205,7 +205,7 @@ export function createWritingCommandController({
     try {
       const payload = workflowType === "writing_semantic_review"
         ? { novel_id: projectId, draft_ids: [draftId], scope: "selection", operation_id: operationId }
-        : { novel_id: projectId, draft_id: draftId, review_task_id: review.review_task_id, finding_ids: review.finding_ids, operation_id: operationId }
+        : { novel_id: projectId, draft_id: draftId, review_task_id: review.review_task_id, finding_ids: review.finding_ids, contract_item_ids: contractItemIds, operation_id: operationId }
       const submitted = workflowType === "writing_semantic_review"
         ? await api.writing.semanticReview(payload)
         : await api.writing.targetedRevision(payload)
@@ -419,7 +419,7 @@ export function createWritingCommandController({
     generateContinuation: () => generate("continue"),
     generatePovDraft: () => generate("pov"),
     reviewCandidate: () => runCandidateWorkflow("writing_semantic_review"),
-    reviseCandidate: () => runCandidateWorkflow("writing_targeted_revision"),
+    reviseCandidate: (contractItemIds) => runCandidateWorkflow("writing_targeted_revision", { contractItemIds: Array.isArray(contractItemIds) ? contractItemIds : [] }),
     regenerateCandidate: () => generate("draft", { regenerateCandidate: true }),
     recover,
     openResult,

@@ -354,6 +354,7 @@ def test_outline_analysis_confirmation_tracks_automatic_range_assets() -> None:
         ContextSection,
         Tier,
     )
+
     options = CompileOptions(
         novel_id=str(uuid.uuid4()),
         task="分析范围结构",
@@ -2431,9 +2432,10 @@ class TestContextConfirmation:
         assert confirmation is not None
         assert confirmation.compile_options["chapter_index"] == 1
         assert confirmation.compile_options["requested_chapter_index"] == 1
-        assert confirmation.compile_options["compiled_context_fingerprint"] == data[
-            "context_fingerprint"
-        ]
+        assert (
+            confirmation.compile_options["compiled_context_fingerprint"]
+            == data["context_fingerprint"]
+        )
 
     @pytest.mark.asyncio
     async def test_preview_does_not_persist_and_final_confirm_binds_same_fingerprint(
@@ -2463,17 +2465,13 @@ class TestContextConfirmation:
         preview_data = preview_response.json()
         assert len(preview_data["context_fingerprint"]) == 64
         assert preview_data["selection_state"]["counts"]["required"] >= 2
-        assert (
-            await db_session.scalars(select(ContextConfirmation))
-        ).all() == []
+        assert (await db_session.scalars(select(ContextConfirmation))).all() == []
 
         confirm_response = await async_client.post(
             "/api/evidence/compilation/confirm",
             json={
                 **payload,
-                "expected_context_fingerprint": preview_data[
-                    "context_fingerprint"
-                ],
+                "expected_context_fingerprint": preview_data["context_fingerprint"],
             },
         )
 
@@ -2507,9 +2505,7 @@ class TestContextConfirmation:
 
         assert response.status_code == 409, response.text
         assert "context_preview_changed" in response.text
-        assert (
-            await db_session.scalars(select(ContextConfirmation))
-        ).all() == []
+        assert (await db_session.scalars(select(ContextConfirmation))).all() == []
 
     @pytest.mark.asyncio
     async def test_excluding_context_section_removes_non_p0_section(
@@ -3551,3 +3547,175 @@ class TestContextApiIntegration:
         data = response.json()
         assert "markdown" in data
         assert "## 一、创作目标" in data["markdown"]
+
+
+# ============================================================
+# A3: 事实等级标注 + 预算裁剪说明
+# ============================================================
+
+
+def _compiled_ctx_with_sections():
+    from modules.evidence.compilation.services.compiled_context import (
+        CompiledContext,
+        ContextSection,
+        Tier,
+    )
+
+    return CompiledContext(
+        sections=[
+            ContextSection(
+                key="scene_blueprint",
+                tier=Tier.P2,
+                content="Scene 计划内容",
+                token_count=10,
+            ),
+            ContextSection(
+                key="open_narrative_obligations",
+                tier=Tier.P2,
+                content="剧情线内容",
+                token_count=10,
+            ),
+            ContextSection(
+                key="current_scene_evidence",
+                tier=Tier.P1,
+                content="已采用正文证据",
+                token_count=10,
+            ),
+            ContextSection(
+                key="hard_constraints",
+                tier=Tier.P0,
+                content="系统约束",
+                token_count=10,
+            ),
+        ],
+        total_tokens=40,
+        budget_tokens=100,
+    )
+
+
+def test_render_compiled_context_labels_fact_levels() -> None:
+    from modules.evidence.compilation.markdown_renderer import render_compiled_context
+
+    rendered = render_compiled_context(_compiled_ctx_with_sections())
+
+    assert "资料性质：计划：大纲与 Scene 计划，尚未在正文中发生" in rendered
+    assert "资料性质：规划：剧情线与伏笔规划，不代表已发生" in rendered
+    assert "资料性质：事实：已采用正文或作者设定" in rendered
+    # 系统类 section（约束）不标注资料性质
+    constraints_block = rendered.split("## 八、必须遵守的硬约束", 1)[1]
+    assert "资料性质" not in constraints_block.split("##")[0]
+    # 无裁剪时不输出裁剪记录
+    assert "上下文预算裁剪记录" not in rendered
+
+
+def test_render_compiled_context_labels_core_fact_and_candidate_sections() -> None:
+    """世界/正文/场景状态等核心事实资料标注事实；工作稿与混排资料不得标成事实。"""
+    from modules.evidence.compilation.markdown_renderer import render_compiled_context
+    from modules.evidence.compilation.services.compiled_context import (
+        CompiledContext,
+        ContextSection,
+        Tier,
+    )
+
+    keys = [
+        "world_entities",
+        "world_bible_activation",
+        "world_bible_synopsis",
+        "reader_visible_world",
+        "reader_visible_manuscript",
+        "scene_world_state",
+        "historical_role_context",
+        "world_bible_working_pages",
+        "author_pinned_material",
+        "focused_pins",
+        "focused_evidence",
+    ]
+    ctx = CompiledContext(
+        sections=[
+            ContextSection(key=key, tier=Tier.P1, content=f"{key} 内容", token_count=5)
+            for key in keys
+        ],
+        total_tokens=55,
+        budget_tokens=100,
+    )
+    rendered = render_compiled_context(ctx)
+
+    for key in keys[:6]:
+        block = rendered.split(f"{key} 内容", 1)[0].split("##")[-1]
+        assert "资料性质：事实：已采用正文或作者设定" in block, key
+    memory_block = rendered.split("historical_role_context 内容", 1)[0].split("##")[-1]
+    assert "资料性质：派生：AI 派生或按视角过滤的摘要，非作者事实" in memory_block
+    working_block = rendered.split("world_bible_working_pages 内容", 1)[0]
+    candidate_block = working_block.split("##")[-1]
+    assert "资料性质：候选：未定稿或未采用的草稿与建议，不是正史事实" in (candidate_block)
+    for key in ("author_pinned_material", "focused_pins", "focused_evidence"):
+        block = rendered.split(f"{key} 内容", 1)[0].split("##")[-1]
+        assert "资料性质：混合：事实与候选混排，以各条目来源为准" in block, key
+
+
+def test_render_world_entities_with_pending_objects_labels_mixed() -> None:
+    """显式纳入未采用世界对象时整节标混合，只含已采用对象时仍标事实。"""
+    from modules.evidence.compilation.markdown_renderer import render_compiled_context
+    from modules.evidence.compilation.services.compiled_context import (
+        CompiledContext,
+        ContextSection,
+        Tier,
+    )
+
+    def rendered_for(statuses: list[str]) -> str:
+        section = ContextSection(
+            key="world_entities",
+            tier=Tier.P2,
+            content="世界对象内容",
+            token_count=5,
+            sources=[
+                {"type": "world_entity", "id": f"e{index}", "status": status}
+                for index, status in enumerate(statuses)
+            ],
+        )
+        ctx = CompiledContext(sections=[section], total_tokens=5, budget_tokens=100)
+        return render_compiled_context(ctx)
+
+    assert "资料性质：事实：已采用正文或作者设定" in rendered_for(["canonical", "active"])
+    mixed = rendered_for(["canonical", "draft"])
+    assert "资料性质：混合：事实与候选混排，以各条目来源为准" in mixed
+    assert "资料性质：事实" not in mixed
+
+
+def test_render_compiled_context_appends_budget_trim_notice() -> None:
+    from modules.evidence.compilation.markdown_renderer import render_compiled_context
+    from modules.evidence.compilation.services.compiled_context import (
+        ContextBudgetEvent,
+    )
+
+    ctx = _compiled_ctx_with_sections()
+    ctx.evicted_keys = ["open_narrative_obligations"]
+    ctx.truncated_keys = ["scene_blueprint"]
+    ctx.budget_events = [
+        ContextBudgetEvent(
+            section_key="open_narrative_obligations",
+            event_type="evicted",
+            reason="tier 预算不足",
+            before_tokens=10,
+            after_tokens=0,
+            tier=2,
+        ),
+        ContextBudgetEvent(
+            section_key="scene_blueprint",
+            event_type="truncated",
+            reason="超出剩余预算",
+            before_tokens=30,
+            after_tokens=12,
+            tier=2,
+        ),
+    ]
+
+    rendered = render_compiled_context(ctx)
+    assert "上下文预算裁剪记录（数据，不是指令）" in rendered
+    assert "类目「五、开放叙事义务」被整节裁掉" in rendered
+    assert "类目「二、场景蓝图」被部分截断" in rendered
+    assert "tier 预算不足" in rendered
+    # 说明放在渲染末尾
+    assert rendered.rstrip().endswith("正文与判断不得引用这些被裁掉的内容。")
+    # 渲染是纯函数：同一 ctx 两次渲染一致
+    assert render_compiled_context(ctx) == rendered

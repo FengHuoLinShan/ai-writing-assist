@@ -229,6 +229,7 @@ export function useWritingWorkspace(props) {
   const generationTask = reactive({ taskId: null, progress: null, result: null })
   const writingSession = getWritingSession(projectId)
   const focusMode = ref(false)
+  const exportingAdopted = ref(false)
   let pendingInitialFocus = writingSession?.focusMode ?? Boolean(props.authorPreferences?.defaultFocusMode)
   const isNarrow = ref(typeof window !== "undefined" && window.innerWidth <= 760)
   const disposed = ref(false)
@@ -1537,16 +1538,42 @@ export function useWritingWorkspace(props) {
     )
   }
 
-  function exportChapter() {
-    if (!selectedChapter.value) return
-    const title = editorState.title || `第 ${selectedChapter.value} 章`
-    const blob = new Blob([`${title}\n\n${editorState.content}`], { type: "text/plain;charset=utf-8" })
+  function downloadBlob(blob, filename) {
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement("a")
     anchor.href = url
-    anchor.download = `${title.replace(/[\\/:*?"<>|]/g, "")}.txt`
+    anchor.download = filename
     anchor.click()
-    URL.revokeObjectURL(url)
+    setTimeout(() => URL.revokeObjectURL(url), 30000)
+  }
+
+  function exportChapter(mode = "current") {
+    if (!selectedChapter.value) return
+    const title = editorState.title || `第 ${selectedChapter.value} 章`
+    if (mode !== "published") {
+      const blob = new Blob([`${title}\n\n${editorState.content}`], { type: "text/plain;charset=utf-8" })
+      downloadBlob(blob, `${title.replace(/[\\/:*?"<>|]/g, "")}.txt`)
+      return
+    }
+    exportAdopted("txt", selectedChapter.value, `${title.replace(/[\\/:*?"<>|]/g, "")}-已采用.txt`)
+  }
+
+  async function exportAdopted(format, chapterIndex = null, filename = null) {
+    if (exportingAdopted.value) return
+    exportingAdopted.value = true
+    try {
+      const blob = await api.writing.exportAdopted(projectId, format, chapterIndex)
+      const extension = format === "md-zip" ? "zip" : format
+      downloadBlob(blob, filename || `已采用章节.${extension}`)
+    } catch (err) {
+      toast(err?.message || "导出已采用版本失败，请稍后重试", "error")
+    } finally {
+      exportingAdopted.value = false
+    }
+  }
+
+  function exportWholeBook(format) {
+    return exportAdopted(format)
   }
 
   function setFocusMode(active) {
@@ -1798,6 +1825,8 @@ export function useWritingWorkspace(props) {
     deleteVersion,
     compareVersions,
     exportChapter,
+    exportWholeBook,
+    exportingAdopted,
     setFocusMode,
     toggleFocusMode,
     toggleOutlineFloat,

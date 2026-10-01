@@ -1,5 +1,10 @@
 # Evidence 模块
 
+编译产物的 Markdown 渲染（`render_compiled_context`）按资料性质标注事实等级并在有预算
+裁剪时追加裁剪记录（详见 `compilation/README.md` 与 `docs/modules/08_evidence.md`）；
+剧情线 loader 只取未终结线索、超期保留并标注，编辑约定 loader 仅在作者显式开启
+「也用于 AI 写作」时注入。
+
 ## 统一 AI 运行信封
 
 `evidence_focused_search` 在领取时冻结 `infrastructure.rag_query_planner` 和 9 次请求；planner

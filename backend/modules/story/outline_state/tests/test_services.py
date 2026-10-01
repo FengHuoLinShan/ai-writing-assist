@@ -7,10 +7,12 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.dml import Update
 from sqlalchemy.sql.selectable import Select
 
 from core.errors import NotFoundError
+from modules.story.outline_state.repositories import PlotThreadRepository
 from modules.story.outline_state.schemas import (
     OutlineArcCreate,
     PlotThreadCreate,
@@ -796,3 +798,51 @@ class TestSceneContextWindowFacade:
             previous_limit=2,
         )
         assert [b.scene_index for b in window_two.previous_briefs] == [3, 4]
+
+
+# ============================================================
+# A1: 显式选择的剧情线不受自动入选条件影响
+# ============================================================
+
+
+@pytest.mark.asyncio
+async def test_get_plot_threads_for_context_explicit_selection_bypasses_activity(
+    db_session: AsyncSession,
+    sample_novel_id: str,
+) -> None:
+    """已终结/未开始的线经作者显式 thread_ids 仍可带入上下文。"""
+    from modules.story.outline_state.thread_facade import (
+        get_plot_threads_for_context,
+    )
+
+    nid = uuid.UUID(hex=sample_novel_id)
+    repo = PlotThreadRepository()
+    resolved = await repo.create(
+        db_session,
+        nid,
+        PlotThreadCreate(
+            name="已收束线",
+            thread_type="sub",
+            start_chapter=1,
+            current_stage="resolved",
+            status="canonical",
+        ),
+    )
+    future = await repo.create(
+        db_session,
+        nid,
+        PlotThreadCreate(
+            name="未开始线",
+            thread_type="sub",
+            start_chapter=10,
+            status="draft",
+        ),
+    )
+    contracts = await get_plot_threads_for_context(
+        db_session,
+        sample_novel_id,
+        thread_ids=[str(resolved.id), str(future.id)],
+        chapter_index=3,
+    )
+    names = {contract.name for contract in contracts}
+    assert names == {"已收束线", "未开始线"}

@@ -18,7 +18,9 @@ through its stable facade and never writes World, Memory, or Writing records.
 
 ## Stable seams
 
-- `contracts.py`: read contracts for character-card and script-file responses.
+- `contracts.py`: read contracts for character-card and script-file responses, plus the
+  plot-thread stage helpers (`TERMINAL_THREAD_STAGES`, `thread_stage_is_terminal`,
+  `thread_overdue_notice`) shared by context selection and overdue rendering.
 - `facade.py`: card CRUD/restore/archive, script save/adopt/archive/unadopt,
   Scene context and the adopted-only `get_scene_story_assets` read seam, plus
   the read-only plot-thread reverse lookup `list_plot_threads_referencing_entities`

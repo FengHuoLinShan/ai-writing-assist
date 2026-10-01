@@ -106,6 +106,10 @@ await worker.run_forever()   # 常驻循环
 await worker.run_once()      # 单次执行
 ```
 
+`facade.summarize_project_ai_usage()` 是只读聚合 seam：按项目扫描窗口期任务 meta 的
+run envelope，按能力汇总模型请求与输入/输出词元（owner 次级诊断入口消费；单次扫描
+上限 500 条，截断返回 `scan_truncated`，单条坏回执跳过计数）。
+
 其他模块的稳定写入 seam 位于 `facade.py`：
 
 - `get_task_owner()` 只从一等 `AsyncTask.novel_id` 返回授权所需的

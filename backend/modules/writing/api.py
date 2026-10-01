@@ -12,6 +12,7 @@ from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Path, Query
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from core.api_params import NovelIdQuery
@@ -721,6 +722,42 @@ async def get_latest_chapter_draft(
     if public_demo:
         return PublicWritingDraftResponse.model_validate(draft, from_attributes=True)
     return draft
+
+
+@router.get("/export")
+async def export_book(
+    db: DbSession,
+    *,
+    novel_id: NovelIdQuery,
+    format: str = Query(default="txt", pattern="^(txt|md|md-zip)$"),
+    chapter_index: int | None = Query(default=None, ge=1),
+) -> Response:
+    """按章序导出每章当前已采用（published）版本；未采用章节在文件头列出。
+
+    chapter_index 指定时只导该章的已采用版本。
+    """
+    await require_active_project(db, novel_id)
+    result = await _service.build_book_export(
+        db,
+        novel_id,
+        fmt=format,
+        chapter_index=chapter_index,
+    )
+    from urllib.parse import quote
+
+    ascii_name = quote(result["filename"])
+    return Response(
+        content=result["content"],
+        media_type=result["media_type"],
+        headers={
+            "Content-Disposition": (
+                f"attachment; filename*=UTF-8''{ascii_name}"
+            ),
+            "X-Pending-Chapters": ",".join(
+                str(index) for index in result["pending_chapters"]
+            ),
+        },
+    )
 
 
 @router.get(

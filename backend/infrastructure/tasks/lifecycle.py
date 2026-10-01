@@ -788,6 +788,73 @@ class TaskLifecycleService:
             for row in rows
         ]
 
+    async def summarize_ai_usage(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        days: int = 30,
+        scan_limit: int = 500,
+    ) -> dict:
+        """Aggregate AI run envelope step receipts for one project (read-only).
+
+        不建表：直接扫描窗口期任务 meta 中的 run envelope，按能力聚合
+        requests 与 usage。供 owner 次级诊断入口消费。
+        """
+        from datetime import timedelta
+
+        from infrastructure.llm.schemas import (
+            AI_RUN_ENVELOPE_KEY,
+            read_ai_run_envelope,
+        )
+
+        since = datetime.now(UTC) - timedelta(days=max(1, min(365, days)))
+        rows = (
+            await db.execute(
+                select(AsyncTask.meta)
+                .where(
+                    AsyncTask.novel_id == uuid.UUID(novel_id),
+                    AsyncTask.created_at >= since,
+                )
+                .order_by(AsyncTask.created_at.desc(), AsyncTask.id.desc())
+                .limit(max(1, min(2000, scan_limit)))
+            )
+        ).all()
+        capabilities: dict[str, dict[str, float]] = {}
+        tasks_with_envelope = 0
+        unreadable_envelopes = 0
+        for (meta,) in rows:
+            try:
+                envelope = read_ai_run_envelope((meta or {}).get(AI_RUN_ENVELOPE_KEY))
+            except Exception:  # noqa: BLE001 - 单条坏回执不阻断整体聚合
+                unreadable_envelopes += 1
+                continue
+            if envelope is None:
+                continue
+            tasks_with_envelope += 1
+            bucket = capabilities.setdefault(
+                envelope.root_capability_id,
+                {
+                    "requests": 0,
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "tasks": 0,
+                },
+            )
+            bucket["tasks"] += 1
+            for step in envelope.steps:
+                bucket["requests"] += int(step.requests_settled)
+                bucket["prompt_tokens"] += int(step.usage.prompt_tokens)
+                bucket["completion_tokens"] += int(step.usage.completion_tokens)
+        return {
+            "window_days": max(1, min(365, days)),
+            "tasks_scanned": len(rows),
+            "tasks_with_envelope": tasks_with_envelope,
+            "unreadable_envelopes": unreadable_envelopes,
+            "scan_truncated": len(rows) >= max(1, min(2000, scan_limit)),
+            "capabilities": capabilities,
+        }
+
     async def list_contracts(
         self,
         db: AsyncSession,

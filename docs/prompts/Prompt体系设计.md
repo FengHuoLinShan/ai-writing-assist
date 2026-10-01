@@ -56,7 +56,7 @@ output_validator 校验，修复计入同一执行预算；固定审稿保留原
 | `world_validation_service.py` | 内联 steps `world.validation.packet_N`：只读审查冻结 ReviewPacket 的闭合问题；每个 question 恰好一次，引文必须在本分片，无证据时保守返回 `mixed/KEEP-GATE`。第四期起同一 step 也服务于 `semantic_gap` 定向查漏（根对象 + 声明依赖一跳的冻结分片）与失败/预算中断后的同回执续接（已持久化分片按 input hash 跳过，超预算时按剩余分片分批，不宣称全库完成） | world 世界书校验任务（仅策略开启 semantic 时） |
 | `generation_prompt_template_service.py` | 内置创作视角与项目级自定义模板；作为 author brief 进入生成中心 | world 对象共创 |
 | `writing/services.py` | 内联 step `writing.generation.candidate.generate`：根据已确认上下文生成正文候选 | writing 正文生成 |
-| `writing/semantic_review.py` | 内联 steps `writing.semantic_review.chunk_N`、`writing.targeted_revision.generate`：冻结正文、原 confirmation CompiledContext、POV/hidden-guard 指纹和合同的独立近读，并让 finding-bound 返修复用同一资料 | writing 审查返修 |
+| `writing/semantic_review.py` | 内联 steps `writing.semantic_review.chunk_N`、`writing.targeted_revision.generate`：冻结正文、原 confirmation CompiledContext、POV/hidden-guard 指纹和合同的独立近读，并让 finding-bound 返修复用同一资料。2026-10 起同一请求携带 `scene_contract_items` 逐条三态判定（met/unmet/unknown，服务端核验 excerpt 唯一定位后签署 `scene_contract`；unmet 须附最应补写处的唯一原文作为返修锚点，无位置降为待核实，带位置映射为阻断级 `contract_omission` major finding）；待核实条目经作者显式纳入返修时附带边界声明 | writing 审查返修 |
 | `writing/comment_run.py` | 内联 step `writing.comment_revision.patch` 与统一知识治理 `writing.comment_revision.knowledge.*`：只对作者批准的精确批注范围返回 replacement；原稿与所选批注进入独立治理审查，失败不展示候选 | writing 批注修订 |
 | `story/outline_state/ai_workflow_service.py` | 内联 step `outline.ai_workflow.analyze.generate`：回答作者指定的大纲结构问题 | Story outline_state 手动大纲分析 |
 | `interaction/prompts.py` / `evidence/compilation/services/interaction_story_context.py` | 内联 `interaction-story-v8`：兼容模型知识 RP，source-bound 旅程额外注入版本/截止点经 Evidence 校验且统一转义围栏的作品参考块；相关往事数据块能力保留但当前生产门禁关闭；可选隐藏尾部元数据 | interaction 故事任务 |
@@ -367,6 +367,14 @@ provider 调用前完成 context/DTO 编译并结束数据库事务。作者保�
 RAG 证据的关联顺序取 Top-K；人物上限 6，相关世界对象上限 16。
 该 Prompt 不预设字数、段落数量、描写比例或统一节奏模板，允许模型补充
 不改变重大设定的局部、可逆写作细节。结果只保存为 candidate，仍需作者显式采用。
+剧情线自动入选只取未终结（current_stage 非 resolved/paused）的线；超过计划
+兑现章仍未收束的线保留入选并在渲染中标注超期提示。2026-10 起
+`render_compiled_context` 按资料性质标注事实等级（事实/计划/规划/派生/候选/混合），
+并在有预算裁剪时于末尾附裁剪记录（数据块，非指令）；作者开启
+「编辑约定也用于 AI 写作」后，编辑约定作为 `editorial_brief` section
+在编译期进入确认预览与指纹（默认关闭，仅 writing.generate 的作者视角加载），
+文风只决定表达方式，
+不新增事实或事件。
 
 ### 手动大纲分析类
 

@@ -55,6 +55,10 @@ GLOBAL_EXEMPTIONS = {
 # Keeping the route key in this map makes a newly added project route fail closed.
 PROJECT_OWNED_ACTIVE_BOUNDARIES = {
     "GET /api/projects/{project_id}/editorial-brief": "read_editorial_brief",
+    "GET /api/projects/{project_id}/editorial-brief/for-writing": (
+        "read_editorial_brief_writing_toggle"
+    ),
+    "GET /api/projects/{project_id}/ai-usage": "get_project_ai_usage",
     "DELETE /api/projects/{project_id}/author-preferences/field/{field_name}": (
         "reset_project_author_preferences_field"
     ),
@@ -80,6 +84,9 @@ PROJECT_OWNED_ACTIVE_BOUNDARIES = {
     "POST /api/projects/{project_id}/smart-dedup/scan": "get_project",
     "PUT /api/projects/{project_id}": "update_project",
     "PUT /api/projects/{project_id}/editorial-brief": "save_editorial_brief",
+    "PUT /api/projects/{project_id}/editorial-brief/for-writing": (
+        "set_editorial_brief_for_writing"
+    ),
     "PUT /api/projects/{project_id}/llm-settings": "update_llm_settings",
     "PUT /api/projects/{project_id}/author-preferences": (
         "upsert_project_author_preferences"

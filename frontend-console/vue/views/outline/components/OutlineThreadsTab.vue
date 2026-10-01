@@ -96,7 +96,7 @@
             <td data-label="类型" class="outline-asset-meta"><select v-if="rowDrafts[t.id]" v-model="rowDrafts[t.id].thread_type" class="form-select" aria-label="剧情线分类" :disabled="rowSaving"><option v-if="!['main','sub','background'].includes(rowDrafts[t.id].thread_type)" :value="rowDrafts[t.id].thread_type">未分类（保留现值）</option><option value="main">主线</option><option value="sub">支线</option><option value="background">暗线</option></select><template v-else>{{ threadTypeLabel(t) }}</template></td>
             <td data-label="标记">
               <template v-if="threadBadges(t).length">
-                <span v-for="badge in threadBadges(t)" :key="`${badge.text}-${badge.cls}`" class="badge" :class="badge.cls">{{ badge.text }}</span>
+                <span v-for="badge in threadBadges(t)" :key="`${badge.text}-${badge.cls}`" class="badge" :class="badge.cls" :title="badge.title">{{ badge.text }}</span>
               </template>
               <template v-else>-</template>
             </td>
@@ -441,6 +441,25 @@ onMounted(async () => {
 })
 
 // ---- Status helpers ----
+const TERMINAL_THREAD_STAGES = new Set(["resolved", "paused"])
+const writingChapterTop = ref(null)
+onMounted(async () => {
+  // 超期标记以项目写作进度（最大章号）为基准；取不到时静默不显示标记。
+  try {
+    const result = await getApi().writing?.listChapters?.(props.projectId)
+    const indices = Array.isArray(result?.chapter_indices) ? result.chapter_indices : []
+    if (indices.length) writingChapterTop.value = Math.max(...indices)
+  } catch { /* 超期标记缺失不阻断剧情线列表 */ }
+})
+function threadOverdueBadge(t) {
+  if (t?.planned_payoff_chapter == null) return null
+  const payoff = Number(t.planned_payoff_chapter)
+  if (!Number.isFinite(payoff) || payoff < 1 || writingChapterTop.value === null) return null
+  if (writingChapterTop.value <= payoff) return null
+  const stage = String(t?.current_stage || "").trim().toLowerCase()
+  if (TERMINAL_THREAD_STAGES.has(stage)) return null
+  return { text: `已超计划第 ${payoff} 章未收束`, cls: "badge-processing", title: `已超过计划第 ${payoff} 章，仍未收束` }
+}
 function threadStatusLabel(t) {
   const safeStatus = new Set(["canonical", "draft", "candidate", "deprecated"]).has(t.status) ? t.status : "draft"
   return structureAssetDisplay({ ...t, status: safeStatus }).label
@@ -455,6 +474,8 @@ function threadTypeLabel(t) { return THREAD_TYPE_LABELS[t.thread_type] || "未�
 function threadBadges(t) {
   const meta = t?.provenance_meta && typeof t.provenance_meta === "object" ? t.provenance_meta : {}
   const badges = []
+  const overdue = threadOverdueBadge(t)
+  if (overdue) badges.push({ text: overdue.text, cls: overdue.cls, title: overdue.title })
   const source = meta.source || t.source
   if (source === "deep_import") badges.push({ text: "深度导入", cls: "badge-info" })
   else if (source === "manual") badges.push({ text: "手动", cls: "" })

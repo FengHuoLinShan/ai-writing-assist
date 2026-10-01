@@ -566,6 +566,45 @@ function beforeUnload(event) {
   event.returnValue = ""
 }
 
+const aiUsage = ref(null)
+const aiUsageDays = ref(30)
+const aiUsageLoading = ref(false)
+const aiUsageError = ref("")
+async function loadAiUsage() {
+  if (!props.projectId || aiUsageLoading.value) return
+  aiUsageLoading.value = true
+  aiUsageError.value = ""
+  try {
+    aiUsage.value = await getApi().projects.aiUsage(props.projectId, aiUsageDays.value)
+  } catch (err) {
+    aiUsageError.value = err?.message || "统计失败，请稍后重试"
+  } finally {
+    aiUsageLoading.value = false
+  }
+}
+const exportingBook = ref(false)
+const exportBookError = ref("")
+async function exportBook(format) {
+  if (!props.projectId || exportingBook.value) return
+  exportingBook.value = true
+  exportBookError.value = ""
+  try {
+    const blob = await getApi().writing.exportAdopted(props.projectId, format)
+    const extension = format === "md-zip" ? "zip" : format
+    const safeTitle = (props.projectTitle || "已采用章节").replace(/[\\/:*?"<>|]/g, "")
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement("a")
+    anchor.href = url
+    anchor.download = `${safeTitle}.${extension}`
+    anchor.click()
+    setTimeout(() => URL.revokeObjectURL(url), 30000)
+  } catch (err) {
+    exportBookError.value = err?.message || "导出失败，请稍后重试"
+  } finally {
+    exportingBook.value = false
+  }
+}
+
 onMounted(() => {
   window.addEventListener("beforeunload", beforeUnload)
   void loadAccountConnectionMetadata()
@@ -677,6 +716,37 @@ onBeforeUnmount(() => {
               <h2>AI 能力</h2>
               <p>查看当前作品的 AI 能力，并选择生图执行器。</p>
             </div>
+          </div>
+          <div class="settings-section">
+            <h3>AI 用量</h3>
+            <p class="settings-section-hint">按功能汇总近 {{ aiUsageDays }} 天的 AI 请求与模型计费词元（token）用量；用于排查与估算，主路径不展示这些数字。</p>
+            <div class="settings-actions">
+              <select v-model.number="aiUsageDays" aria-label="用量统计窗口">
+                <option :value="7">近 7 天</option>
+                <option :value="30">近 30 天</option>
+                <option :value="90">近 90 天</option>
+                <option :value="365">近一年</option>
+              </select>
+              <button type="button" class="btn btn-sm" :disabled="!projectId || aiUsageLoading" @click="loadAiUsage">{{ aiUsageLoading ? "统计中…" : "统计当前作品用量" }}</button>
+            </div>
+            <p v-if="aiUsageError" role="alert">{{ aiUsageError }}</p>
+            <template v-if="aiUsage">
+              <p role="status">共 {{ aiUsage.tasks_with_envelope }} 次 AI 运行、{{ aiUsage.totals.requests }} 次模型请求；输入约 {{ aiUsage.totals.input_tokens.toLocaleString() }} 词元，输出约 {{ aiUsage.totals.output_tokens.toLocaleString() }} 词元。</p>
+              <table v-if="aiUsage.capabilities.length" class="data-table">
+                <thead><tr><th>功能</th><th>运行次数</th><th>模型请求</th><th>输入词元</th><th>输出词元</th></tr></thead>
+                <tbody>
+                  <tr v-for="item in aiUsage.capabilities" :key="item.capability">
+                    <td>{{ item.label }}</td>
+                    <td>{{ item.tasks }}</td>
+                    <td>{{ item.requests }}</td>
+                    <td>{{ item.input_tokens.toLocaleString() }}</td>
+                    <td>{{ item.output_tokens.toLocaleString() }}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <p v-if="aiUsage.scan_truncated" role="status" class="settings-section-hint">统计已达单次扫描上限（{{ aiUsage.tasks_scanned }} 条任务），以上数字为最近部分的统计；如需完整口径请缩短窗口。</p>
+              <p v-if="!aiUsage.capabilities.length" class="settings-section-hint">这个窗口期内没有可统计的 AI 运行。</p>
+            </template>
           </div>
           <div class="settings-section">
             <h3>本机 CLI 生图</h3>
@@ -802,6 +872,16 @@ onBeforeUnmount(() => {
               @click="saveAuthorPrefs"
             >保存创作偏好</button>
             <p class="settings-save-state" :class="`is-${authorState.kind}`" role="status">{{ authorState.message }}</p>
+          </div>
+          <div class="settings-section">
+            <h3>导出作品</h3>
+            <p class="settings-section-hint">导出每章当前已采用的定稿版本；未采用章节会在文件头列出，不会静默跳过。</p>
+            <div class="settings-actions">
+              <button class="btn btn-sm" :disabled="!projectId || exportingBook" @click="exportBook('txt')">导出全书（TXT）</button>
+              <button class="btn btn-sm" :disabled="!projectId || exportingBook" @click="exportBook('md')">导出全书（合并 Markdown）</button>
+              <button class="btn btn-sm" :disabled="!projectId || exportingBook" @click="exportBook('md-zip')">导出全书（分章 ZIP）</button>
+              <p v-if="exportBookError" class="settings-save-state is-error" role="alert">{{ exportBookError }}</p>
+            </div>
           </div>
         </section>
       </template>

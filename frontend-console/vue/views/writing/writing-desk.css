@@ -450,6 +450,52 @@
   display: block;
 }
 
+/* Scene 合同逐项核对（A2）：三态条目 + 待核实纳入返修 */
+.writing-contract-items {
+  margin: 10px 0 0;
+  padding: 10px 0 0 20px;
+  border-top: 1px solid var(--nc-hairline);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.writing-contract-items h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: var(--nc-ink);
+}
+
+.writing-contract-items ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.writing-contract-items li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 8px;
+  align-items: baseline;
+  margin: 6px 0;
+}
+
+.writing-contract-items li[data-status="met"] .writing-contract-items__text,
+.writing-contract-items li[data-status="unmet"] .writing-contract-items__text {
+  color: var(--nc-ink);
+}
+
+.writing-contract-items small {
+  grid-column: 2;
+}
+
+.writing-contract-items__include {
+  grid-column: 2;
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--text-secondary);
+}
+
 .writing-sheet--candidate {
   background: color-mix(in srgb, var(--nc-surface-muted) 55%, var(--nc-surface));
 }

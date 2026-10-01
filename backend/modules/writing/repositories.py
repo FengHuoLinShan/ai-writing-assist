@@ -486,8 +486,14 @@ class WritingDraftRepository:
         novel_id: uuid.UUID,
         *,
         statuses: Sequence[str] = WORKING_DRAFT_STATUSES,
+        populate_existing: bool = False,
     ) -> Sequence[WritingDraft]:
-        """列出每章最新版本草稿，用于章节列表摘要。"""
+        """列出每章最新版本草稿，用于章节列表摘要。
+
+        populate_existing=True 时强制用本次查询结果刷新会话中已加载
+        的对象，绕开 identity map 复用旧属性；导出复核等需要看到
+        同一会话两次查询之间数据变化的调用方必须开启。
+        """
         latest_versions = (
             select(
                 WritingDraft.chapter_index.label("chapter_index"),
@@ -513,6 +519,8 @@ class WritingDraftRepository:
             )
             .order_by(WritingDraft.chapter_index, WritingDraft.id)
         )
+        if populate_existing:
+            stmt = stmt.execution_options(populate_existing=True)
         result = await db.execute(stmt)
         return result.scalars().all()
 

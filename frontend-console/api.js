@@ -903,6 +903,9 @@ const api = {
   projects: {
     editorialBrief: (id) => request(`/projects/${encodeURIComponent(id)}/editorial-brief`, { cache: "no-store" }),
     saveEditorialBrief: (id, body) => request(`/projects/${encodeURIComponent(id)}/editorial-brief`, { method: "PUT", body: JSON.stringify(body) }),
+    editorialBriefForWriting: (id) => request(`/projects/${encodeURIComponent(id)}/editorial-brief/for-writing`, { cache: "no-store" }),
+    aiUsage: (id, days = 30) => request(withQuery(`/projects/${encodeURIComponent(id)}/ai-usage`, { days }), { cache: "no-store" }),
+    setEditorialBriefForWriting: (id, enabled) => request(`/projects/${encodeURIComponent(id)}/editorial-brief/for-writing`, { method: "PUT", body: JSON.stringify({ enabled }) }),
     demoCopy: () => post("/projects/demo-copy", undefined, { cache: "no-store" }),
     async smartDedupReviewState(id, taskId) { return request(`/projects/${encodeURIComponent(id)}/smart-dedup/scans/${encodeURIComponent(taskId)}/review-state`) },
     async recentSmartDedupScans(id) { return request(`/projects/${encodeURIComponent(id)}/smart-dedup/scans`) },
@@ -2412,6 +2415,12 @@ const api = {
     async targetedRevision(payload) {
       return contractJson("writing.targetedRevision", {}, {}, payload)
     },
+
+    exportAdopted: (novelId, format, chapterIndex = null) => request(withQuery("/writing/export", {
+      novel_id: novelId,
+      format,
+      ...(chapterIndex ? { chapter_index: chapterIndex } : {}),
+    }), { cache: "no-store", _responseType: "blob", timeout: 120000 }),
 
     listComments: (draftId, novelId) => contractFetch("writing.listComments", { draftId }, { novel_id: novelId }),
     createComment: (draftId, payload) => contractJson("writing.createComment", { draftId }, {}, payload),
