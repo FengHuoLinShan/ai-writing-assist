@@ -57,6 +57,9 @@ async def compile_structure_context(...) -> StructureContextBundle
 async def compile_with_tiers(...) -> CompiledContext
 async def compile_interaction_story_context(...) -> InteractionStoryContextContract
 async def render_compiled_context_markdown(...) -> str
+# render_compiled_context(ctx) 在 section 标题下按资料性质标注事实等级
+# （事实/计划/规划/派生；只改渲染不改 content，不影响确认指纹），
+# 并在有预算裁剪时于末尾追加裁剪记录（budget_events/evicted/truncated 派生的数据块）
 async def compile_generation_background(...) -> dict
 async def confirm_context(...) -> ContextConfirmationContract
 async def get_context_confirmation(...) -> ContextConfirmationContract

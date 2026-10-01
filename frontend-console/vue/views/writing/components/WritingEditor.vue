@@ -45,7 +45,15 @@
                 <button v-if="deepReviewAvailable" class="btn btn-sm" :disabled="!chapterReady || state.readonly || state.dirty || state.saving" @click="$emit('deep-review')">深度审稿</button>
                 <button v-if="editorialAvailable" class="btn btn-sm" type="button" :disabled="!chapterReady" @click="$emit('editorial-open')">本章编辑意见</button>
                 <small v-if="deepReviewAvailable && state.dirty">保存正文后可开始深度审稿。</small>
-                <button class="btn btn-sm" :disabled="!chapterReady" @click="$emit('export')">导出本章</button>
+                <button class="btn btn-sm" :disabled="!chapterReady" @click="$emit('export', 'current')">导出本章（编辑器当前文字）</button>
+                <button class="btn btn-sm" :disabled="!chapterReady || exportingAdopted" @click="$emit('export', 'published')">导出本章（已采用版本）</button>
+                <small>「编辑器当前文字」包含未保存/未采用的修改；「已采用版本」来自服务器上本章最近一次采用的定稿。</small>
+              </div>
+              <div class="writing-tools-menu__group">
+                <button class="btn btn-sm" :disabled="exportingAdopted" @click="$emit('export-book', 'txt')">导出全书（TXT）</button>
+                <button class="btn btn-sm" :disabled="exportingAdopted" @click="$emit('export-book', 'md')">导出全书（合并 Markdown）</button>
+                <button class="btn btn-sm" :disabled="exportingAdopted" @click="$emit('export-book', 'md-zip')">导出全书（分章 ZIP）</button>
+                <small>全书导出只含每章当前已采用版本；未采用章节会在文件头列出。</small>
               </div>
             </div>
           </details>
@@ -117,6 +125,21 @@
             <small v-if="finding.location?.excerpt">位置：{{ finding.location.excerpt }}</small>
           </li>
         </ul>
+        <section v-if="sceneContractItems.length" class="writing-contract-items" aria-label="本章计划逐项核对">
+          <h3>本章计划逐项核对</h3>
+          <ul>
+            <li v-for="item in sceneContractItems" :key="item.id" :data-status="item.status">
+              <span class="badge" :class="contractItemBadgeClass(item)">{{ contractItemStatusLabel(item) }}</span>
+              <span class="writing-contract-items__text">{{ item.text }}</span>
+              <small v-if="item.excerpt">位置：{{ item.excerpt }}</small>
+              <label v-if="item.status === 'unknown' && item.excerpt" class="writing-contract-items__include">
+                <input type="checkbox" :value="item.id" v-model="includedContractItemIds" />
+                纳入定向返修
+              </label>
+            </li>
+          </ul>
+          <p class="writing-form-hint">「待核实」表示审查没有找到唯一的原文证据，默认不进入返修；勾选纳入时，返修只会先核对是否落实，不会当作确认的错误。</p>
+        </section>
         <p v-if="state.candidateActionError" class="writing-candidate-action-error" role="alert">{{ state.candidateActionError }}</p>
         <AIResultTraceDetails
           v-if="candidateConfirmationId && candidateTaskId && projectId"
@@ -127,7 +150,7 @@
         />
         <div class="writing-candidate-review-actions">
           <button v-if="canAdoptCandidate" class="btn btn-primary" :disabled="candidateBusy" @click="$emit('adopt')">{{ state.candidateAction === 'adopt' ? '采用中…' : '采用到工作稿' }}</button>
-          <button v-else-if="reviewBlocked && !commentCandidate" class="btn btn-primary" :disabled="candidateBusy" @click="$emit('targeted-revision')">{{ generationLoading ? '处理中…' : '按问题定向返修' }}</button>
+          <button v-else-if="(reviewBlocked || hasUnresolvedReview) && !commentCandidate" class="btn btn-primary" :disabled="candidateBusy" @click="$emit('targeted-revision', [...includedContractItemIds])">{{ generationLoading ? '处理中…' : (includedContractItemIds.length ? `按问题返修（含 ${includedContractItemIds.length} 条待核实）` : '按问题定向返修') }}</button>
           <button v-else class="btn btn-primary" :disabled="candidateBusy" @click="$emit('semantic-review')">{{ generationLoading ? '处理中…' : independentReview ? '重新独立审查' : '运行独立语义审查' }}</button>
           <button v-if="canAdoptCandidate || reviewBlocked" class="btn" :disabled="candidateBusy" @click="$emit('semantic-review')">{{ independentReview ? '重新独立审查' : '运行独立语义审查' }}</button>
           <button class="btn writing-candidate-reject" :disabled="candidateBusy" @click="$emit('reject')">{{ state.candidateAction === 'reject' ? '拒绝中…' : '拒绝建议' }}</button>
@@ -193,6 +216,7 @@ const props = defineProps({
   comments: { type: Array, default: () => [] },
   candidateComparisonAvailable: { type: Boolean, default: false },
   hasChapters: { type: Boolean, default: false },
+  exportingAdopted: { type: Boolean, default: false },
   attach: { type: Function, required: true },
   detach: { type: Function, required: true },
 })
@@ -201,7 +225,7 @@ const emit = defineEmits(["composition", "open-chapters", "create-chapter",
   "generate-draft", "generate-continuation", "generate-pov", "regenerate-candidate",
   "auto-extract", "open-deep-import-settings", "open-ai-tools", "adopt", "reject",
   "semantic-review", "deep-review", "editorial-ready", "editorial-open", "targeted-revision", "compare-candidate", "export",
-  "retry-load", "reload-server", "focus-context", "add-comment",
+  "retry-load", "reload-server", "focus-context", "add-comment", "export-book",
 ])
 
 const titleEl = ref(null)
@@ -284,6 +308,16 @@ const chapterReady = computed(() => hasChapter.value
   && !props.state.loadError
   && Number(props.state.chapter) === chapterNumber.value)
 const independentReview = computed(() => props.state.provenanceJson?.independent_review || null)
+const sceneContractItems = computed(() => (independentReview.value?.scene_contract_items || []).filter((item) => item && item.id))
+const includedContractItemIds = ref([])
+watch(() => props.state.draftId, () => { includedContractItemIds.value = [] })
+watch(sceneContractItems, (items) => {
+  const selectable = new Set(items.filter((item) => item.status === "unknown" && item.excerpt).map((item) => item.id))
+  includedContractItemIds.value = includedContractItemIds.value.filter((id) => selectable.has(id))
+})
+const hasUnresolvedReview = computed(() => sceneContractItems.value.some((item) => item.status === "unmet" || item.status === "unknown"))
+const contractItemStatusLabel = (item) => ({ met: "已落实", unmet: "未落实", unknown: "待核实" }[item?.status] || "待核实")
+const contractItemBadgeClass = (item) => ({ met: "badge-done", unmet: "badge-processing", unknown: "badge-pending" }[item?.status] || "badge-pending")
 const reviewBlocked = computed(() => independentReview.value?.verdict === "needs_revision" || Number(independentReview.value?.blocking_count || 0) > 0)
 const commentCandidate = computed(() => props.state.provenanceJson?.source === "writing_comment_revision")
 const canAdoptCandidate = computed(() => commentCandidate.value

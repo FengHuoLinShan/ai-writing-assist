@@ -71,6 +71,32 @@ def _enabled():
 
 
 def _fingerprint(finding: dict) -> str:
+    """意见的稳定身份：类目 + 涉及对象 id 集合 + 证据章节集合。
+
+    引文只作定位不作身份——正文改写措辞或模型换了首条证据 quote，
+    身份不变，作者此前的处置得以继承。涉及对象来自 context_evidence
+    的 source_id（世界/结构对象）；对象集合不同即视为不同意见。
+    """
+    source_ids = sorted(
+        {
+            str(item.get("source_id") or "")
+            for item in finding.get("context_evidence") or []
+            if item.get("source_id")
+        }
+    )
+    evidence_chapters = sorted(
+        {
+            int(item["chapter_index"])
+            for item in finding.get("evidence") or []
+            if item.get("chapter_index") is not None
+        }
+    )
+    key = [str(finding["category"]), source_ids, evidence_chapters]
+    return hashlib.sha256(json.dumps(key, ensure_ascii=False).encode()).hexdigest()
+
+
+def _legacy_fingerprint(finding: dict) -> str:
+    """2026-10 之前的身份算法（类目+首条证据章号+首条 quote），仅作迁移别名。"""
     first = finding["evidence"][0]
     key = [finding["category"], first["chapter_index"], first["quote"]]
     return hashlib.sha256(json.dumps(key, ensure_ascii=False).encode()).hexdigest()
@@ -1031,6 +1057,24 @@ async def _save_findings(db, row, findings):
             )
             .with_for_update()
         )
+        matched_legacy = False
+        if prior is None:
+            # 旧身份算法的行作为别名迁移：同一条意见沿用旧行与既有处置，
+            # 并把行指纹升级为新 key，保持与 report_json 的指纹一致，
+            # 也避免同批多条意见共享旧 key 时互相覆盖。
+            legacy_key = _legacy_fingerprint(finding)
+            prior = await db.scalar(
+                select(EditorialIssue)
+                .where(
+                    EditorialIssue.novel_id == row.novel_id,
+                    EditorialIssue.fingerprint == legacy_key,
+                )
+                .with_for_update()
+            )
+            matched_legacy = prior is not None
+        inherited_disposition = bool(
+            prior and prior.disposition and prior.disposition != "open"
+        )
         if prior:
             if prior.review_id != row.id:
                 prior.history_json = [
@@ -1041,15 +1085,27 @@ async def _save_findings(db, row, findings):
                     },
                 ]
             prior.review_id = row.id
-            prior.finding_json = finding
+            prior.finding_json = {
+                **finding,
+                "disposition_inherited": inherited_disposition,
+                "inherited_disposition": prior.disposition
+                if inherited_disposition
+                else None,
+            }
             prior.row_version += 1
+            if matched_legacy:
+                prior.fingerprint = key
         else:
             db.add(
                 EditorialIssue(
                     novel_id=row.novel_id,
                     review_id=row.id,
                     fingerprint=key,
-                    finding_json=finding,
+                    finding_json={
+                        **finding,
+                        "disposition_inherited": False,
+                        "inherited_disposition": None,
+                    },
                     history_json=[],
                     decision_json=[],
                     recheck_json=[],

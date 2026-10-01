@@ -36,6 +36,8 @@ beforeEach(() => {
     projects: {
       editorialBrief: vi.fn(async () => BRIEF),
       saveEditorialBrief: vi.fn(async (_projectId, body) => ({ version: 2, brief: body.brief })),
+      editorialBriefForWriting: vi.fn(async () => ({ enabled: false, brief: null })),
+      setEditorialBriefForWriting: vi.fn(async (_projectId, enabled) => ({ enabled })),
     },
     assistant: {
       editorialPolicy: vi.fn(async () => POLICY),

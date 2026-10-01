@@ -97,6 +97,57 @@ describe("渲染", () => {
     expect(markCell.find(".badge").exists()).toBe(true)
   })
 
+  it("超过计划兑现章未收束的线显示超期标记，已收束或未到期不显示", async () => {
+    setBridgeOverrides({
+      api: { outline: {}, writing: { listChapters: vi.fn(async () => ({ chapter_indices: [1, 2, 3, 4, 5, 6, 7] })) } },
+      state: { currentProjectId: "p-test" },
+      router: { navigate: () => {}, refresh: vi.fn(async () => true) },
+      toast: () => {},
+      confirmAction,
+      esc: (v) => String(v ?? ""),
+    })
+    const wrapper = mount(OutlineThreadsTab, {
+      props: {
+        projectId: "p1",
+        subView: "threads",
+        threads: [
+          { ...SAMPLE_THREADS[0], current_stage: "active", planned_payoff_chapter: 3 },
+          { id: "t3", name: "已收束", status: "draft", thread_type: "sub", current_stage: "resolved", planned_payoff_chapter: 3 },
+          { id: "t4", name: "未到期", status: "draft", thread_type: "sub", current_stage: "active", planned_payoff_chapter: 9 },
+          { id: "t5", name: "无兑现章", status: "draft", thread_type: "sub", current_stage: "active", planned_payoff_chapter: null },
+        ],
+      },
+    })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    await nextTick()
+    const rows = wrapper.findAll("tbody tr")
+    expect(rows[0].find('td[data-label="标记"]').text()).toContain("已超计划第 3 章未收束")
+    expect(rows[1].find('td[data-label="标记"]').text()).not.toContain("未收束")
+    expect(rows[2].find('td[data-label="标记"]').text()).not.toContain("未收束")
+    expect(rows[3].find('td[data-label="标记"]').text()).not.toContain("未收束")
+  })
+
+  it("剧情线列表页拉取章列表失败时静默，不显示超期标记也不报错", async () => {
+    setBridgeOverrides({
+      api: { outline: {}, writing: { listChapters: vi.fn(async () => { throw new Error("boom") }) } },
+      state: { currentProjectId: "p-test" },
+      router: { navigate: () => {}, refresh: vi.fn(async () => true) },
+      toast: () => {},
+      confirmAction,
+      esc: (v) => String(v ?? ""),
+    })
+    const wrapper = mount(OutlineThreadsTab, {
+      props: {
+        projectId: "p1",
+        subView: "threads",
+        threads: [{ ...SAMPLE_THREADS[0], current_stage: "active", planned_payoff_chapter: 1 }],
+      },
+    })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    await nextTick()
+    expect(wrapper.find('td[data-label="标记"]').text()).not.toContain("未收束")
+  })
+
   it("有错误显示错误态", () => {
     const wrapper = mount(OutlineThreadsTab, {
       props: { projectId: "p1", subView: "threads", threads: [], threadsTotal: 0, threadsLoadError: "加载失败" },

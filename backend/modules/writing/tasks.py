@@ -336,6 +336,9 @@ async def handle_writing_targeted_revision(db, task):
         finding_ids=[str(value) for value in meta.get("finding_ids") or []],
         instruction=meta.get("instruction"),
         llm_execution_snapshot=snapshot,
+        contract_item_ids=[
+            str(value) for value in meta.get("contract_item_ids") or []
+        ],
     )
     task.update_progress(1.0)
     await db.flush()
@@ -344,6 +347,7 @@ async def handle_writing_targeted_revision(db, task):
         "chapter_index": draft.chapter_index,
         "supersedes": meta.get("draft_id"),
         "finding_ids": list(meta.get("finding_ids") or []),
+        "contract_item_ids": list(meta.get("contract_item_ids") or []),
     }
 
 

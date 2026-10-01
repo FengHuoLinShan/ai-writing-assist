@@ -3551,3 +3551,101 @@ class TestContextApiIntegration:
         data = response.json()
         assert "markdown" in data
         assert "## 一、创作目标" in data["markdown"]
+
+
+# ============================================================
+# A3: 事实等级标注 + 预算裁剪说明
+# ============================================================
+
+
+def _compiled_ctx_with_sections():
+    from modules.evidence.compilation.services.compiled_context import (
+        CompiledContext,
+        ContextSection,
+        Tier,
+    )
+
+    return CompiledContext(
+        sections=[
+            ContextSection(
+                key="scene_blueprint",
+                tier=Tier.P2,
+                content="Scene 计划内容",
+                token_count=10,
+            ),
+            ContextSection(
+                key="open_narrative_obligations",
+                tier=Tier.P2,
+                content="剧情线内容",
+                token_count=10,
+            ),
+            ContextSection(
+                key="current_scene_evidence",
+                tier=Tier.P1,
+                content="已采用正文证据",
+                token_count=10,
+            ),
+            ContextSection(
+                key="hard_constraints",
+                tier=Tier.P0,
+                content="系统约束",
+                token_count=10,
+            ),
+        ],
+        total_tokens=40,
+        budget_tokens=100,
+    )
+
+
+def test_render_compiled_context_labels_fact_levels() -> None:
+    from modules.evidence.compilation.markdown_renderer import render_compiled_context
+
+    rendered = render_compiled_context(_compiled_ctx_with_sections())
+
+    assert "资料性质：计划：大纲与 Scene 计划，尚未在正文中发生" in rendered
+    assert "资料性质：规划：剧情线与伏笔规划，不代表已发生" in rendered
+    assert "资料性质：事实：已采用正文或作者设定" in rendered
+    # 系统类 section（约束）不标注资料性质
+    constraints_block = rendered.split("## 八、必须遵守的硬约束", 1)[1]
+    assert "资料性质" not in constraints_block.split("##")[0]
+    # 无裁剪时不输出裁剪记录
+    assert "上下文预算裁剪记录" not in rendered
+
+
+def test_render_compiled_context_appends_budget_trim_notice() -> None:
+    from modules.evidence.compilation.markdown_renderer import render_compiled_context
+    from modules.evidence.compilation.services.compiled_context import (
+        ContextBudgetEvent,
+    )
+
+    ctx = _compiled_ctx_with_sections()
+    ctx.evicted_keys = ["open_narrative_obligations"]
+    ctx.truncated_keys = ["scene_blueprint"]
+    ctx.budget_events = [
+        ContextBudgetEvent(
+            section_key="open_narrative_obligations",
+            event_type="evicted",
+            reason="tier 预算不足",
+            before_tokens=10,
+            after_tokens=0,
+            tier=2,
+        ),
+        ContextBudgetEvent(
+            section_key="scene_blueprint",
+            event_type="truncated",
+            reason="超出剩余预算",
+            before_tokens=30,
+            after_tokens=12,
+            tier=2,
+        ),
+    ]
+
+    rendered = render_compiled_context(ctx)
+    assert "上下文预算裁剪记录（数据，不是指令）" in rendered
+    assert "类目「五、开放叙事义务」被整节裁掉" in rendered
+    assert "类目「二、场景蓝图」被部分截断" in rendered
+    assert "tier 预算不足" in rendered
+    # 说明放在渲染末尾
+    assert rendered.rstrip().endswith("正文与判断不得引用这些被裁掉的内容。")
+    # 渲染是纯函数：同一 ctx 两次渲染一致
+    assert render_compiled_context(ctx) == rendered

@@ -103,6 +103,49 @@ describe("WritingEditor semantic review gate", () => {
     expect(wrapper.find('#writing-retry-save').exists()).toBe(false)
   })
 
+  it("展示本章计划逐项核对三态，待核实条目可勾选纳入返修", async () => {
+    const wrapper = mount(WritingEditor, {
+      props: {
+        state: state({
+          source: "writing_generate",
+          review_required: true,
+          independent_review: {
+            verdict: "incomplete",
+            blocking_count: 0,
+            scene_contract_items: [
+              { id: "scene:s1:must:1", text: "发现线索", status: "met", excerpt: "发现线索" },
+              { id: "scene:s1:must:2", text: "揭穿谎言", status: "unmet", excerpt: "揭穿了谎言" },
+              { id: "scene:s1:must:3", text: "拿到钥匙", status: "unknown", excerpt: "钥匙挂在墙上" },
+              { id: "scene:s1:must:4", text: "无定位条目", status: "unknown", excerpt: null },
+            ],
+          },
+        }),
+        attach: vi.fn(),
+        detach: vi.fn(),
+      },
+    })
+    const section = wrapper.get(".writing-contract-items")
+    expect(section.text()).toContain("本章计划逐项核对")
+    const rows = section.findAll("li")
+    expect(rows).toHaveLength(4)
+    expect(rows[0].attributes("data-status")).toBe("met")
+    expect(rows[0].text()).toContain("已落实")
+    expect(rows[1].text()).toContain("未落实")
+    expect(rows[2].text()).toContain("待核实")
+    // 只有带正文位置的待核实条目提供纳入勾选
+    const checkboxes = section.findAll('input[type="checkbox"]')
+    expect(checkboxes).toHaveLength(1)
+    expect(checkboxes[0].attributes("value")).toBe("scene:s1:must:3")
+    await checkboxes[0].setValue(true)
+    const revise = wrapper.findAll("button").find((button) => button.text().includes("按问题返修"))
+    expect(revise.exists()).toBe(true)
+    expect(revise.text()).toContain("1 条待核实")
+    await revise.trigger("click")
+    const events = wrapper.emitted("targeted-revision")
+    expect(events).toHaveLength(1)
+    expect(events[0][0]).toEqual(["scene:s1:must:3"])
+  })
+
   it("审查未完成时明确阻止采用，不显示审查成功", () => {
     const wrapper = mount(WritingEditor, { props: {
       state: state({ review_required: true, independent_review: { verdict: "incomplete", blocking_count: 0 } }),

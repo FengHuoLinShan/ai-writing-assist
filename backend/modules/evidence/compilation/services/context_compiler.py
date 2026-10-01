@@ -30,6 +30,7 @@ from modules.evidence.compilation.services.compiled_context import (
 from modules.evidence.compilation.services.constraint_engine import ConstraintEngine
 from modules.evidence.compilation.services.loaders import (
     CharactersLoader,
+    EditorialBriefLoader,
     EventsLoader,
     MemoryRecordsLoader,
     OutlineAnalysisLoader,
@@ -77,6 +78,7 @@ SCOPE_LOADERS: dict[str, list[str]] = {
         "scene",
         "outline_analysis",
         "project",
+        "editorial_brief",
         "world_entities",
         "characters",
         "memory_records",
@@ -93,6 +95,7 @@ SCOPE_LOADERS: dict[str, list[str]] = {
         "scene",
         "outline_analysis",
         "project",
+        "editorial_brief",
         "world_entities",
         "characters",
         "memory_records",
@@ -148,6 +151,7 @@ class ContextCompiler:
         # prerequisite/dependent phase split inside compile().
         return [
             ProjectLoader(),
+            EditorialBriefLoader(),
             WorldEntitiesLoader(),
             WorldBibleLoader(),
             CharactersLoader(),
@@ -1076,7 +1080,22 @@ class ContextCompiler:
             )
 
         if bundle.plot_threads and not bundle.outline_analysis:
-            content = "\n".join(str(t) for t in bundle.plot_threads)
+            from modules.story.contracts import thread_overdue_notice
+
+            chapter_index = (
+                options.chapter_index if options and options.chapter_index else None
+            ) or bundle.chapter_index
+            rendered_threads: list[str] = []
+            for t in bundle.plot_threads:
+                overdue = thread_overdue_notice(
+                    current_stage=t.get("current_stage"),
+                    planned_payoff_chapter=t.get("planned_payoff_chapter"),
+                    chapter_index=chapter_index,
+                )
+                rendered_threads.append(
+                    str(t) if not overdue else f"{str(t)}（超期提示：{overdue}）"
+                )
+            content = "\n".join(rendered_threads)
             sections.append(
                 ContextSection(
                     key="open_narrative_obligations",
@@ -1151,6 +1170,50 @@ class ContextCompiler:
                     activation_reason=self._retrieval_activation_reason(bundle),
                     sources=rag_sources,
                     retrieval_metadata=dict(bundle.retrieval_trace or {}),
+                )
+            )
+
+        if bundle.editorial_brief:
+            brief = bundle.editorial_brief.get("brief") or {}
+            version = int(bundle.editorial_brief.get("version") or 0)
+            lines: list[str] = [
+                f"以下为作者的长期编辑约定（编辑约定第 {version} 版）。",
+                "文风只决定表达方式，不新增事实或事件；",
+                "作者事实、前文与本章因果优先于任何表达偏好。",
+            ]
+            if brief.get("voice"):
+                lines.append(f"- 文风约定：{brief['voice']}")
+            if brief.get("preserve"):
+                lines.append(
+                    "- 必须保留：" + "；".join(str(item) for item in brief["preserve"])
+                )
+            if brief.get("intentional_choices"):
+                lines.append(
+                    "- 作者的有意安排："
+                    + "；".join(str(item) for item in brief["intentional_choices"])
+                )
+            if brief.get("target_readers"):
+                lines.append(f"- 目标读者：{brief['target_readers']}")
+            if brief.get("genre_promise"):
+                lines.append(f"- 类型承诺：{brief['genre_promise']}")
+            if brief.get("goals"):
+                lines.append(
+                    "- 创作目标：" + "；".join(str(item) for item in brief["goals"])
+                )
+            content = "\n".join(lines)
+            sections.append(
+                self._make_section(
+                    key="editorial_brief",
+                    tier=Tier.P3,
+                    title="作者编辑约定（文风与保留）",
+                    content=content,
+                    status="canonical",
+                    activation_reason="作者显式开启用于 AI 写作的长期约定",
+                    sources=self._safe_sources_from_items(
+                        [{"novel_id": options.novel_id, "brief_version": version}],
+                        default_type="project",
+                        status="canonical",
+                    ),
                 )
             )
 

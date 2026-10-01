@@ -68,3 +68,61 @@ async def save_editorial_brief(db, novel_id: str, value: EditorialBriefUpdate) -
     }
     await db.flush()
     return {"version": next_version, "brief": value.brief.model_dump()}
+
+
+_WRITING_USE_KEY = "editorial_brief_for_writing_v1"
+
+
+async def read_editorial_brief_for_writing(db, novel_id: str) -> dict | None:
+    """作者开启「编辑约定也用于 AI 写作」且约定非空时返回 {version, brief}。
+
+    默认关闭；关闭或约定为空时返回 None，编译层不注入任何 section。
+    """
+    await ProjectService().get_project(db, novel_id)
+    row = await db.scalar(select(Project).where(Project.id == UUID(novel_id)))
+    settings = row.settings or {}
+    enabled = (settings.get(_WRITING_USE_KEY) or {}).get("enabled") is True
+    if not enabled:
+        return None
+    saved = settings.get(_KEY) or {}
+    brief = EditorialBrief.model_validate(saved.get("brief") or {})
+    substantive = (
+        brief.voice.strip()
+        or brief.preserve
+        or brief.intentional_choices
+        or brief.target_readers.strip()
+        or brief.genre_promise.strip()
+        or brief.goals
+    )
+    if not substantive:
+        return None
+    return {
+        "version": int(saved.get("version") or 0),
+        "brief": brief.model_dump(),
+    }
+
+
+async def read_editorial_brief_writing_toggle(db, novel_id: str) -> dict:
+    """读取「也用于 AI 写作」的原始开关值（不叠加约定是否为空）。"""
+    await ProjectService().get_project(db, novel_id)
+    row = await db.scalar(select(Project).where(Project.id == UUID(novel_id)))
+    enabled = ((row.settings or {}).get(_WRITING_USE_KEY) or {}).get("enabled") is True
+    return {"enabled": enabled}
+
+
+async def set_editorial_brief_for_writing(
+    db, novel_id: str, *, enabled: bool
+) -> dict:
+    """切换「编辑约定也用于 AI 写作」；默认关闭，作者显式开启才生效。"""
+    service = ProjectService()
+    service._reject_demo_write()
+    await service.get_project(db, novel_id)
+    row = await db.scalar(
+        select(Project).where(Project.id == UUID(novel_id)).with_for_update()
+    )
+    row.settings = {
+        **(row.settings or {}),
+        _WRITING_USE_KEY: {"enabled": bool(enabled)},
+    }
+    await db.flush()
+    return {"enabled": bool(enabled)}

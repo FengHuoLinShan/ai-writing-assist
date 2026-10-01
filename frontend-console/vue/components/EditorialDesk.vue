@@ -19,6 +19,8 @@
         <label>刻意留白或误导 <small>每行一项</small><textarea v-model="briefLists.intentional_choices" rows="3" /></label>
         <label>本轮不审的资料 <small>每行一项，例如 chapter:12</small><textarea v-model="briefLists.excluded_targets" rows="2" /></label>
         <div class="editorial-desk__actions"><button type="button" class="btn btn-primary btn-sm" :disabled="busy" @click="saveBrief">保存编辑约定</button></div>
+        <label class="editorial-desk__writing-toggle"><input type="checkbox" :checked="briefForWriting" :disabled="writingToggleBusy" @change="toggleBriefForWriting($event.target.checked)" />也用于 AI 写作<small>开启后，这份约定会出现在每次写作的参考资料确认中；文风只影响表达方式，不会新增事实或情节。默认关闭。</small></label>
+        <p v-if="briefForWriting && !briefForWritingEffective" role="status" class="editorial-desk__inherited">开关已开启，但编辑约定还是空的；保存一份有内容的约定后才会真正进入 AI 写作。</p>
       </details>
       <p v-if="briefDraftNotice" role="status">{{ briefDraftNotice }}</p>
 
@@ -112,15 +114,35 @@ function restoreBrief(value) {
   briefLists.value = Object.fromEntries(["goals", "preserve", "intentional_choices", "excluded_targets"].map(key => [key, (source[key] || []).join("\n")]))
   briefDraftNotice.value = saved?.version === value.version ? "已恢复未保存的本地约定。" : ""
 }
+const briefForWriting = ref(false)
+const briefForWritingEffective = ref(false)
+const writingToggleBusy = ref(false)
+async function toggleBriefForWriting(enabled) {
+  if (writingToggleBusy.value || !props.projectId) return
+  writingToggleBusy.value = true; error.value = ""
+  try {
+    const saved = await getApi().projects.setEditorialBriefForWriting(props.projectId, Boolean(enabled))
+    briefForWriting.value = Boolean(saved.enabled)
+    briefForWritingEffective.value = Boolean(enabled) && briefForWritingEffective.value
+    briefDraftNotice.value = saved.enabled
+      ? "已开启：这份约定将进入 AI 写作的参考资料确认。"
+      : "已关闭：AI 写作不再读取这份约定。"
+  } catch (cause) {
+    error.value = cause.message || "切换失败，请重试。"
+  } finally { writingToggleBusy.value = false }
+}
 async function load() {
   if (!props.projectId) return
   const projectId = props.projectId
   loading.value = true; error.value = ""
   try {
-    const [nextBrief, nextPolicy, nextReviews, nextIssues] = await Promise.all([
+    const [nextBrief, nextPolicy, nextReviews, nextIssues, nextWritingUse] = await Promise.all([
       getApi().projects.editorialBrief(projectId), getApi().assistant.editorialPolicy(projectId),
       getApi().assistant.editorialReviews(projectId), getApi().assistant.editorialIssues(projectId),
+      getApi().projects.editorialBriefForWriting(projectId),
     ])
+    briefForWriting.value = Boolean(nextWritingUse?.enabled)
+    briefForWritingEffective.value = Boolean(nextWritingUse?.effective)
     if (projectId !== props.projectId) return
     restoreBrief(nextBrief); policy.value = nextPolicy; automaticEnabled.value = nextPolicy.enabled; automaticExclusionsText.value = (nextPolicy.excluded_chapters || []).join(", ")
     reviews.value = nextReviews; issues.value = nextIssues

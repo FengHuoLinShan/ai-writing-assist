@@ -20,7 +20,13 @@ from modules.project.editorial_brief import (
     read_editorial_brief as read_editorial_brief,
 )
 from modules.project.editorial_brief import (
+    read_editorial_brief_for_writing as read_editorial_brief_for_writing,
+)
+from modules.project.editorial_brief import (
     save_editorial_brief as save_editorial_brief,
+)
+from modules.project.editorial_brief import (
+    set_editorial_brief_for_writing as set_editorial_brief_for_writing,
 )
 from modules.project.models import Project
 from modules.project.repositories import ProjectRepository

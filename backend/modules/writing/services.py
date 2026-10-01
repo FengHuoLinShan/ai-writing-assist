@@ -276,6 +276,174 @@ class WritingDraftService:
     ) -> None:
         self._repo = repo or WritingDraftRepository()
 
+    async def build_book_export(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        fmt: str,
+        chapter_index: int | None = None,
+    ) -> dict[str, Any]:
+        """按章序导出每章当前已采用（published）版本。
+
+        chapter_index 指定时只导该章。组装完成后复核各章版本与内容哈希
+        清单，变化则抛冲突，不交付半新半旧的文件。未采用章节在导出结果
+        中列出，不静默跳过。
+        """
+        from modules.project.facade import get_project_context, require_active_project
+
+        await require_active_project(db, novel_id)
+        if fmt not in {"txt", "md", "md-zip"}:
+            raise ValidationError("导出格式只支持 txt、md、md-zip")
+        context = await get_project_context(db, novel_id)
+        if context is None:
+            raise NotFoundError("Project not found")
+        book_title = (context.title or "未命名作品").strip() or "未命名作品"
+
+        nid = _parse_uuid(novel_id, "novel_id")
+        published = await self._repo.list_chapter_summaries(
+            db, nid, statuses=("published",)
+        )
+        if chapter_index is not None:
+            published = [
+                item for item in published if item.chapter_index == chapter_index
+            ]
+            if not published:
+                raise ValidationError(
+                    f"第 {chapter_index} 章还没有已采用的版本，先采用后再导出。"
+                )
+        working = await self._repo.list_chapter_summaries(db, nid)
+        if chapter_index is not None:
+            working = [
+                item for item in working if item.chapter_index == chapter_index
+            ]
+        published_chapters = {item.chapter_index for item in published}
+        pending_chapters = sorted(
+            item.chapter_index
+            for item in working
+            if item.chapter_index not in published_chapters
+        )
+        if not published:
+            raise ValidationError(
+                "还没有已采用的章节，先在写作台采用至少一章后再导出全书。"
+            )
+
+        manifest = [
+            {
+                "chapter_index": item.chapter_index,
+                "title": item.title or "",
+                "version_number": int(item.version_number),
+                "content_hash": item.content_hash,
+            }
+            for item in published
+        ]
+
+        recheck = await self._repo.list_chapter_summaries(
+            db, nid, statuses=("published",)
+        )
+        if chapter_index is not None:
+            recheck = [
+                item for item in recheck if item.chapter_index == chapter_index
+            ]
+        recheck_manifest = [
+            {
+                "chapter_index": item.chapter_index,
+                "title": item.title or "",
+                "version_number": int(item.version_number),
+                "content_hash": item.content_hash,
+            }
+            for item in recheck
+        ]
+        if manifest != recheck_manifest:
+            raise ConflictError(
+                "导出期间章节版本发生变化，请稍后重试，不会交付半新半旧的文件。"
+            )
+
+        exported_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        chapters = sorted(published, key=lambda item: item.chapter_index)
+
+        def chapter_heading(item) -> str:
+            label = f"第 {item.chapter_index} 章"
+            if item.title:
+                label += f" {item.title}"
+            return label
+
+        header_lines = [
+            f"书名：{book_title}",
+            f"导出时间：{exported_at}",
+            "版本口径：每章当前已采用（published）版本",
+            "章节版本："
+            + "；".join(
+                f"第{item.chapter_index}章 v{item.version_number}"
+                f"（{item.content_hash[:12]}）"
+                for item in chapters
+            ),
+        ]
+        if pending_chapters:
+            header_lines.append(
+                "未采用章节（有工作稿但未采用，未包含在本次导出中）：第"
+                + "、第".join(str(index) for index in pending_chapters)
+                + "章"
+            )
+
+        if fmt == "txt":
+            parts = ["\n".join(header_lines), ""]
+            for item in chapters:
+                parts.append(f"===== {chapter_heading(item)} =====")
+                parts.append(item.content or "")
+                parts.append("")
+            body = "\n".join(parts)
+            return {
+                "content": body.encode("utf-8"),
+                "media_type": "text/plain; charset=utf-8",
+                "filename": f"{book_title}.txt",
+                "pending_chapters": pending_chapters,
+            }
+
+        if fmt == "md":
+            parts = [f"# {book_title}", ""]
+            parts.extend(f"> {line}" for line in header_lines[1:])
+            parts.append("")
+            for item in chapters:
+                parts.append(f"## {chapter_heading(item)}")
+                parts.append("")
+                parts.append(item.content or "")
+                parts.append("")
+            body = "\n".join(parts)
+            return {
+                "content": body.encode("utf-8"),
+                "media_type": "text/markdown; charset=utf-8",
+                "filename": f"{book_title}.md",
+                "pending_chapters": pending_chapters,
+            }
+
+        import io
+        import zipfile
+
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+            manifest_md = [f"# {book_title}", ""]
+            manifest_md.extend(f"- {line}" for line in header_lines[1:])
+            archive.writestr(
+                "manifest.md", "\n".join(manifest_md) + "\n"
+            )
+            for item in chapters:
+                chapter_md = [f"# {chapter_heading(item)}", "", item.content or ""]
+                safe_title = "".join(
+                    char if char.isalnum() or char in " _-" else "_"
+                    for char in (item.title or "")
+                ).strip()
+                name = f"chapters/{item.chapter_index:04d}"
+                if safe_title:
+                    name += f"-{safe_title[:40]}"
+                archive.writestr(f"{name}.md", "\n".join(chapter_md) + "\n")
+        return {
+            "content": buffer.getvalue(),
+            "media_type": "application/zip",
+            "filename": f"{book_title}-分章.zip",
+            "pending_chapters": pending_chapters,
+        }
+
     async def regeneration_context(
         self, db: AsyncSession, draft_id: str, novel_id: str
     ) -> WritingRegenerationContext:
@@ -1326,6 +1494,96 @@ class WritingConflictCheckService:
             llm_client=llm_client,
         )
 
+    async def _repetition_items(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        chapter_index: int,
+        content: str | None,
+        draft: object | None,
+    ) -> list[dict]:
+        """跨章复读确定性检查：仅提示，不拒存。
+
+        续写候选比较续写部分开头与冻结基稿结尾；其余比较候选开头与
+        上一章（优先已采用版本）结尾。阈值未用真实长稿校准前保持保守。
+        """
+        candidate_text = (content or "").strip()
+        if not candidate_text and draft is not None:
+            candidate_text = (getattr(draft, "content", None) or "").strip()
+        if not candidate_text:
+            return []
+        nid = _parse_uuid(novel_id, "novel_id")
+        provenance = getattr(draft, "provenance_json", None) or {}
+        if (
+            provenance.get("source") == "writing_generate"
+            and provenance.get("generation_mode") == "continue"
+            and provenance.get("base_draft_id")
+        ):
+            try:
+                base = await self._draft_repo.get(
+                    db, _parse_uuid(str(provenance["base_draft_id"]), "base draft")
+                )
+            except ValidationError:
+                base = None
+            base_text = (getattr(base, "content", None) or "").strip() if base else ""
+            candidate_lstripped = candidate_text.lstrip()
+            if (
+                base is None
+                or str(getattr(base, "novel_id", "")) != novel_id
+                or not base_text
+                or not candidate_lstripped.startswith(base_text)
+            ):
+                return []
+            continuation = candidate_lstripped[len(base_text) :].lstrip()
+            spans = detect_repetition_overlap(continuation, base_text)
+            label = "续写基稿结尾"
+        elif chapter_index >= 2:
+            previous = await self._draft_repo.get_latest_published_by_chapter(
+                db, nid, chapter_index - 1
+            )
+            if previous is None:
+                previous = await self._draft_repo.get_latest_by_chapter(
+                    db, nid, chapter_index - 1
+                )
+            previous_text = (getattr(previous, "content", None) or "").strip()
+            if not previous_text:
+                return []
+            spans = detect_repetition_overlap(candidate_text, previous_text)
+            label = f"上一章（第 {chapter_index - 1} 章）结尾"
+        else:
+            return []
+        if not spans:
+            return []
+        longest = max(spans, key=lambda span: span["normalized_length"])
+        return [
+            {
+                "kind": "cross_chapter_repetition",
+                "severity": "low",
+                "source_module": "writing",
+                "source_type": "writing.repetition_check",
+                "source_id": str(getattr(draft, "id", "") or "") or None,
+                "evidence_summary": (
+                    f"候选开头与{label}疑似复读"
+                    f"（连续约 {longest['normalized_length']} 字，仅字面命中）："
+                    f"{longest['sample']}"
+                ),
+                "needs_review": True,
+                "location_json": evidence_location(
+                    source_module="writing",
+                    source_type="writing.repetition_check",
+                    source_id=str(getattr(draft, "id", "") or "") or None,
+                    source_label=label,
+                    source_field="复读检测",
+                    source_excerpt=longest["sample"],
+                    open_target={},
+                    needs_review_reason=(
+                        "字面连续复读不代表语义问题；确认为有意复现或改写后可忽略"
+                    ),
+                ),
+            }
+        ]
+
     async def create_check(
         self,
         db: AsyncSession,
@@ -1334,6 +1592,7 @@ class WritingConflictCheckService:
         nid = _parse_uuid(data.novel_id, "novel_id")
         scene_uuid = _parse_uuid(data.scene_id, "scene_id") if data.scene_id else None
         draft_uuid = _parse_uuid(data.draft_id, "draft_id") if data.draft_id else None
+        draft = None
         if draft_uuid is not None:
             draft = await self._draft_repo.get(db, draft_uuid)
             if draft is None or draft.novel_id != nid:
@@ -1403,6 +1662,16 @@ class WritingConflictCheckService:
                     )
         else:
             scene = None
+
+        items.extend(
+            await self._repetition_items(
+                db,
+                novel_id=data.novel_id,
+                chapter_index=data.chapter_index,
+                content=data.content,
+                draft=draft if draft_uuid is not None else None,
+            )
+        )
 
         status = "degraded" if degraded_sources else "completed"
         summary_json = self._summary(items, degraded_sources, omissions)
@@ -3771,6 +4040,90 @@ def _split_rule_phrases(value: str | None) -> list[str]:
     if not value:
         return []
     return [part.strip() for part in re.split(r"[；;，,\n。]+", value) if part.strip()]
+
+
+_REPETITION_STRIP_RE = re.compile(r"[\W_]+", re.UNICODE)
+
+
+def _normalize_for_repetition(
+    value: str,
+) -> tuple[str, list[int]]:
+    """NFKC + 小写 + 去标点空白，保留 CJK 与字母数字用于复读比较。
+
+    返回 (归一化文本, 每个保留字符映射回原文字符的起始偏移)，
+    供命中样本映射回原文；NFKC 展开的字符共享原字符偏移（样本仅展示用）。
+    """
+    import unicodedata
+
+    normalized_chars: list[str] = []
+    offsets: list[int] = []
+    for pos, char in enumerate(value or ""):
+        kept = _REPETITION_STRIP_RE.sub(
+            "", unicodedata.normalize("NFKC", char).lower()
+        )
+        if not kept:
+            continue
+        normalized_chars.append(kept)
+        offsets.extend([pos] * len(kept))
+    return "".join(normalized_chars), offsets
+
+
+def detect_repetition_overlap(
+    candidate_text: str,
+    reference_text: str,
+    *,
+    ngram_size: int = 8,
+    min_overlap_chars: int = 80,
+    candidate_window: int = 1200,
+    reference_window: int = 1000,
+) -> list[dict[str, Any]]:
+    """检测候选开头对参照文本结尾的跨章复读（确定性，仅提示不拒存）。
+
+    返回命中的重叠段（按归一化坐标），每段含归一化长度与候选原文样本。
+    阈值沿用外部项目默认（8 字 n-gram、连续 ≥80 字、候选前 1200 字对
+    参照末 1000 字），上线前需用真实长稿校准。
+    """
+    candidate, candidate_offsets = _normalize_for_repetition(candidate_text)
+    candidate = candidate[:candidate_window]
+    candidate_offsets = candidate_offsets[:candidate_window]
+    reference, _ = _normalize_for_repetition(reference_text)
+    reference = reference[-reference_window:]
+    if len(candidate) < ngram_size or len(reference) < ngram_size:
+        return []
+    reference_grams = {
+        reference[i : i + ngram_size] for i in range(len(reference) - ngram_size + 1)
+    }
+    hits = [
+        candidate[i : i + ngram_size] in reference_grams
+        for i in range(len(candidate) - ngram_size + 1)
+    ]
+    spans: list[dict[str, Any]] = []
+    run_start: int | None = None
+    for index, hit in enumerate(hits):
+        if hit and run_start is None:
+            run_start = index
+        elif not hit and run_start is not None:
+            spans.append((run_start, index + ngram_size - 1))
+            run_start = None
+    if run_start is not None:
+        spans.append((run_start, len(candidate)))
+    results: list[dict[str, Any]] = []
+    for start, end in spans:
+        if end - start < min_overlap_chars:
+            continue
+        original_start = candidate_offsets[start]
+        original_end = candidate_offsets[min(end, len(candidate_offsets)) - 1] + 1
+        results.append(
+            {
+                "normalized_start": start,
+                "normalized_end": end,
+                "normalized_length": end - start,
+                "sample": candidate_text[
+                    original_start : min(original_end, original_start + 80)
+                ],
+            }
+        )
+    return results
 
 
 def _as_utc_aware(dt: datetime) -> datetime:

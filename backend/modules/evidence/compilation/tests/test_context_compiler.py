@@ -1611,6 +1611,75 @@ class TestMarkdownRenderer:
         assert "main" in md
         assert "启程阶段" in md
 
+    def test_render_plot_thread_overdue_notice(self) -> None:
+        """超过计划兑现章且未终结的线渲染超期提示；已终结/未超期不渲染"""
+        bundle = StructureContextBundle(
+            novel_id="test-id",
+            task="测试",
+            scope="full",
+            chapter_index=9,
+            plot_threads=[
+                {
+                    "name": "超期线",
+                    "thread_type": "sub",
+                    "current_stage": "active",
+                    "planned_payoff_chapter": 4,
+                },
+                {
+                    "name": "已收束线",
+                    "thread_type": "sub",
+                    "current_stage": "resolved",
+                    "planned_payoff_chapter": 4,
+                },
+                {
+                    "name": "未到期线",
+                    "thread_type": "background",
+                    "current_stage": "active",
+                    "planned_payoff_chapter": 12,
+                },
+            ],
+        )
+        md = render_md(bundle)
+        assert "已超过计划第 4 章，仍未收束" in md
+        resolved_block = md.split("### [sub] 已收束线", 1)[1].split("###", 1)[0]
+        pending_block = md.split("### [background] 未到期线", 1)[1]
+        assert "仍未收束" not in resolved_block
+        assert "仍未收束" not in pending_block
+
+    def test_open_narrative_obligations_marks_overdue_threads(self) -> None:
+        """open_narrative_obligations section 对超期未收束线附加提示"""
+        options = CompileOptions(
+            novel_id=str(uuid.uuid4()),
+            task="生成草稿",
+            scope="chapter",
+            chapter_index=8,
+        )
+        bundle = StructureContextBundle(
+            novel_id=options.novel_id,
+            task=options.task,
+            scope=options.scope,
+            chapter_index=8,
+            plot_threads=[
+                {
+                    "id": "t-overdue",
+                    "name": "超期线",
+                    "current_stage": "active",
+                    "planned_payoff_chapter": 3,
+                },
+                {
+                    "id": "t-pending",
+                    "name": "未到期线",
+                    "current_stage": "active",
+                    "planned_payoff_chapter": 10,
+                },
+            ],
+        )
+        sections = ContextCompiler()._build_sections(bundle, options)
+        obligations = next(s for s in sections if s.key == "open_narrative_obligations")
+        assert "已超过计划第 3 章，仍未收束" in obligations.content
+        pending_part = obligations.content.split("t-pending", 1)[1]
+        assert "仍未收束" not in pending_part
+
     def test_render_with_warnings(self) -> None:
         """警告应出现在风险提示段落"""
         bundle = StructureContextBundle(
@@ -1714,3 +1783,118 @@ class TestApiSchemas:
         assert item.category == "core_entities"
         assert item.budget == 8
         assert item.used == 3
+
+
+# ============================================================
+# B3: 编辑约定进入 writing Context（默认关闭）
+# ============================================================
+
+
+class TestEditorialBriefSection:
+    def _bundle(self, brief=None):
+        return StructureContextBundle(
+            novel_id="test-id",
+            task="生成草稿",
+            scope="chapter",
+            chapter_index=2,
+            editorial_brief=brief,
+        )
+
+    def _options(self):
+        return CompileOptions(
+            novel_id="test-id",
+            task="生成草稿",
+            scope="chapter",
+            chapter_index=2,
+        )
+
+    def test_brief_section_includes_version_and_boundary_note(self) -> None:
+        bundle = self._bundle(
+            {
+                "version": 3,
+                "brief": {
+                    "voice": "保留第一人称的迟疑",
+                    "preserve": ["不启用暴力描写"],
+                    "intentional_choices": [],
+                    "target_readers": "",
+                    "genre_promise": "",
+                    "goals": [],
+                    "excluded_targets": [],
+                },
+            }
+        )
+        sections = ContextCompiler()._build_sections(bundle, self._options())
+        brief = next(s for s in sections if s.key == "editorial_brief")
+        assert "编辑约定第 3 版" in brief.content
+        assert "文风只决定表达方式，不新增事实或事件" in brief.content
+        assert "作者事实、前文与本章因果优先" in brief.content
+        assert "保留第一人称的迟疑" in brief.content
+        assert "不启用暴力描写" in brief.content
+        # excluded_targets 不进入写作上下文
+        assert "excluded_targets" not in brief.content
+
+    def test_no_brief_no_section(self) -> None:
+        sections = ContextCompiler()._build_sections(
+            self._bundle(None), self._options()
+        )
+        assert all(s.key != "editorial_brief" for s in sections)
+
+    def test_brief_section_changes_confirmation_fingerprint(self) -> None:
+        from modules.evidence.compilation.services.compiled_context import (
+            compiled_context_fingerprint,
+        )
+
+        def compiled_with(brief):
+            sections = ContextCompiler()._build_sections(
+                self._bundle(brief), self._options()
+            )
+            from modules.evidence.compilation.services.compiled_context import (
+                CompiledContext,
+            )
+
+            return CompiledContext(
+                sections=sections, total_tokens=1, budget_tokens=12000
+            )
+
+        v1 = compiled_with(
+            {"version": 1, "brief": {"voice": "第一版文风", "preserve": []}}
+        )
+        v2 = compiled_with(
+            {"version": 2, "brief": {"voice": "第二版文风", "preserve": []}}
+        )
+        none = compiled_with(None)
+        assert compiled_context_fingerprint(v1) != compiled_context_fingerprint(v2)
+        assert compiled_context_fingerprint(v1) != compiled_context_fingerprint(none)
+
+
+class TestEditorialBriefLoader:
+    async def test_loader_skips_when_disabled_or_empty(self) -> None:
+        from modules.evidence.compilation.services.loaders.editorial_brief_loader import (
+            EditorialBriefLoader,
+        )
+
+        async def disabled(db, novel_id):
+            return None
+
+        async def empty(db, novel_id):
+            return {"version": 1, "brief": {}}
+
+        async def enabled(db, novel_id):
+            return {
+                "version": 2,
+                "brief": {"voice": "短句为主", "preserve": []},
+            }
+
+        bundle = StructureContextBundle(novel_id="n", task="t", scope="chapter")
+        options = CompileOptions(novel_id="n", task="t", scope="chapter")
+        await EditorialBriefLoader(get_brief_fn=disabled).load(None, options, bundle)
+        assert bundle.editorial_brief is None
+        assert bundle.budget_used["editorial_brief"] == 0
+        await EditorialBriefLoader(get_brief_fn=empty).load(None, options, bundle)
+        assert bundle.editorial_brief is None
+        await EditorialBriefLoader(get_brief_fn=enabled).load(None, options, bundle)
+        assert bundle.editorial_brief == {
+            "version": 2,
+            "brief": {"voice": "短句为主", "preserve": []},
+        }
+        assert bundle.budget_used["editorial_brief"] == 1

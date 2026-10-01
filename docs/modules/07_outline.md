@@ -41,7 +41,9 @@ Scene stage 负责。旧 `candidate` 仅兼容读取，不再允许
 
 ## 职责
 
-- 剧情线、篇章纲、Scene、伏笔、揭示计划的 CRUD
+- 剧情线、篇章纲、Scene、伏笔、揭示计划的 CRUD。剧情线自动入选写作上下文的条件为
+  未终结（current_stage 非 resolved/paused）且 start_chapter <= 当前章；超期未收束保留
+  并在渲染中标注（详见 `docs/modules/19_story.md`），剧情线页显示超期徽章
 - Scene 顺序重排
 - 按章节查询相关 Scene
 - 根据 AI 参考资料确认记录，在当前页面发起剧情线、篇章纲或 Planned Scene 创作任务

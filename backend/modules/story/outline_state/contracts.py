@@ -238,6 +238,33 @@ class PlotThreadContract:
     status: str = "draft"
 
 
+# 生成解析器约定的 current_stage 枚举见 generation/parser.py；终结指剧情线已收束或
+# 被作者主动搁置。其余取值（含历史自由文本与空值）一律视为未终结，避免把作者
+# 最需要被提醒的线静默排除出写作上下文。
+TERMINAL_THREAD_STAGES = frozenset({"resolved", "paused"})
+
+
+def thread_stage_is_terminal(current_stage: str | None) -> bool:
+    return str(current_stage or "").strip().lower() in TERMINAL_THREAD_STAGES
+
+
+def thread_overdue_notice(
+    *,
+    current_stage: str | None,
+    planned_payoff_chapter: int | None,
+    chapter_index: int | None,
+) -> str | None:
+    """超过计划兑现章仍未收束的剧情线提示文案；其余情况返回 None。"""
+    if (
+        planned_payoff_chapter is None
+        or chapter_index is None
+        or chapter_index <= planned_payoff_chapter
+        or thread_stage_is_terminal(current_stage)
+    ):
+        return None
+    return f"已超过计划第 {planned_payoff_chapter} 章，仍未收束"
+
+
 @dataclass
 class OutlineArcContract:
     id: str

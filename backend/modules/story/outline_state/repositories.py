@@ -9,6 +9,7 @@ from typing import Any, ClassVar
 from sqlalchemy import and_, case, delete, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.story.outline_state.contracts import TERMINAL_THREAD_STAGES
 from modules.story.outline_state.models import (
     OutlineArc,
     PlotThread,
@@ -329,15 +330,16 @@ class PlotThreadRepository:
     ) -> list[PlotThread]:
         """获取某个章节时活跃的剧情线。
 
-        start_chapter <= chapter_index，且未完结或 planned_payoff >= chapter。
+        start_chapter <= chapter_index 且未终结（current_stage 不是 resolved/paused）。
+        超过 planned_payoff_chapter 仍未收束的线保留入选，由渲染层标注超期提示，
+        不在这里静默排除。
         """
         conditions = [
             PlotThread.novel_id == novel_id,
             PlotThread.status.in_(["draft", "canonical"]),
             PlotThread.start_chapter <= chapter_index,
-            or_(
-                PlotThread.planned_payoff_chapter.is_(None),
-                PlotThread.planned_payoff_chapter >= chapter_index,
+            func.lower(func.coalesce(func.trim(PlotThread.current_stage), "")).notin_(
+                list(TERMINAL_THREAD_STAGES)
             ),
         ]
         stmt = (

@@ -1918,3 +1918,64 @@ async def test_same_draft_review_survives_a_newer_rule_only_check(
         params={**params, "content_hash": hash_text("别的正文")},
     )
     assert stale.json()["items"] == []
+
+
+@pytest.mark.asyncio
+async def test_conflict_check_reports_cross_chapter_repetition_hint(
+    db_session: AsyncSession,
+) -> None:
+    """候选开头复读上一章结尾时给出 low 级提示项，不阻断。"""
+    sample_novel_id = "0" * 32
+    service = WritingConflictCheckService(
+        draft_repo=SimpleNamespace(
+            get=AsyncMock(return_value=None),
+            get_latest_published_by_chapter=AsyncMock(
+                return_value=SimpleNamespace(
+                    novel_id=uuid.UUID(hex=sample_novel_id),
+                    content="他沿着河岸走了很久，月光落在水面上，碎成一片银白。" * 8,
+                )
+            ),
+            get_latest_by_chapter=AsyncMock(return_value=None),
+        )
+    )
+    repeated = "他沿着河岸走了很久，月光落在水面上，碎成一片银白。" * 6
+    response = await service.create_check(
+        db_session,
+        WritingConflictCheckCreate(
+            novel_id=sample_novel_id,
+            chapter_index=2,
+            content=f"{repeated}随后剧情转向了完全不同的方向。",
+        ),
+    )
+    repetition = [
+        item for item in response.items if item.kind == "cross_chapter_repetition"
+    ]
+    assert len(repetition) == 1
+    assert repetition[0].severity == "low"
+    assert repetition[0].needs_review is True
+    assert "上一章（第 1 章）结尾" in repetition[0].evidence_summary
+    # 提示不拒存：检查状态不受影响
+    assert response.status in {"completed", "degraded"}
+
+
+@pytest.mark.asyncio
+async def test_conflict_check_skips_repetition_without_previous_chapter(
+    db_session: AsyncSession,
+) -> None:
+    sample_novel_id = "0" * 32
+    service = WritingConflictCheckService(
+        draft_repo=SimpleNamespace(
+            get=AsyncMock(return_value=None),
+            get_latest_published_by_chapter=AsyncMock(return_value=None),
+            get_latest_by_chapter=AsyncMock(return_value=None),
+        )
+    )
+    response = await service.create_check(
+        db_session,
+        WritingConflictCheckCreate(
+            novel_id=sample_novel_id,
+            chapter_index=1,
+            content="第一章的正文内容。",
+        ),
+    )
+    assert all(item.kind != "cross_chapter_repetition" for item in response.items)

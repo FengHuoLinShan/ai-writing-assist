@@ -18,6 +18,9 @@ from modules.writing.schemas import (
 from modules.writing.semantic_review import (
     WritingSemanticWorkflowService,
     _apply_targeted_revision_patches,
+    _excerpt_uniquely_locates,
+    _freeze_scene_contract_items,
+    _normalize_contract_items,
     _review_set_fingerprint,
     _targeted_revision_ranges,
     validate_candidate_upstream,
@@ -959,3 +962,163 @@ async def test_targeted_revision_requires_and_reuses_review_context(
     assert provenance["pov_validation"]["status"] == "passed"
     assert provenance["independent_review"] is None
     assert materialize.await_count == 2
+
+
+# ============================================================
+# A2: Scene 合同逐项审查（must_happen 条目三态判定）
+# ============================================================
+
+
+def _bundle(scene_id: str, must_happen: str) -> dict:
+    return {"scene": {"id": scene_id, "must_happen": must_happen}}
+
+
+class TestSceneContractItemFreeze:
+    def test_splits_must_happen_into_stable_ids(self) -> None:
+        items = _freeze_scene_contract_items(
+            _bundle("s1", "发现线索；揭穿谎言，逃出仓库\n拿到钥匙")
+        )
+        assert [item["id"] for item in items] == [
+            "scene:s1:must:1",
+            "scene:s1:must:2",
+            "scene:s1:must:3",
+            "scene:s1:must:4",
+        ]
+        assert [item["text"] for item in items] == [
+            "发现线索",
+            "揭穿谎言",
+            "逃出仓库",
+            "拿到钥匙",
+        ]
+        assert all(len(item["text_hash"]) == 64 for item in items)
+
+    def test_empty_bundle_or_field_yields_no_items(self) -> None:
+        assert _freeze_scene_contract_items(None) == []
+        assert _freeze_scene_contract_items(_bundle("s1", "")) == []
+        assert _freeze_scene_contract_items({"scene": {}}) == []
+
+
+class TestExcerptUniquelyLocates:
+    def test_verbatim_unique_and_quoted_unique(self) -> None:
+        content = "他推门而入。风声很大。他推门而入过吗？"
+        assert _excerpt_uniquely_locates("他推门而入。", content)
+        assert _excerpt_uniquely_locates("“他推门而入。”", content)
+        assert not _excerpt_uniquely_locates("他推门而入", content)  # 出现两次
+        assert not _excerpt_uniquely_locates("", content)
+        assert not _excerpt_uniquely_locates("不存在的句子", content)
+
+
+class TestNormalizeContractItems:
+    @staticmethod
+    def _frozen() -> list[dict]:
+        return _freeze_scene_contract_items(
+            _bundle("s1", "发现线索；揭穿谎言")
+        )
+
+    def _normalize(self, model_items, content="他终于发现线索。随后揭穿了谎言。"):
+        return _normalize_contract_items(
+            frozen_items=self._frozen(),
+            model_items=model_items,
+            content=content,
+        )
+
+    def test_met_with_unique_excerpt_passes(self) -> None:
+        normalized, notes = self._normalize(
+            [
+                {
+                    "id": "scene:s1:must:1",
+                    "status": "met",
+                    "excerpt": "发现线索",
+                },
+                {
+                    "id": "scene:s1:must:2",
+                    "status": "met",
+                    "excerpt": "“揭穿了谎言。”",
+                },
+            ]
+        )
+        assert [item["status"] for item in normalized] == ["met", "met"]
+        assert notes == []
+        # 剥引号分支:excerpt 被归一为实际命中的去引号文本,可直接在正文唯一定位
+        assert normalized[1]["excerpt"] == "揭穿了谎言。"
+        assert "他终于发现线索。随后揭穿了谎言。".count(normalized[1]["excerpt"]) == 1
+
+    def test_missing_duplicate_and_bad_excerpt_downgrade_to_unknown(self) -> None:
+        # 条目 1 缺失；条目 2 重复
+        normalized, notes = self._normalize(
+            [
+                {
+                    "id": "scene:s1:must:2",
+                    "status": "met",
+                    "excerpt": "揭穿了谎言",
+                },
+                {
+                    "id": "scene:s1:must:2",
+                    "status": "met",
+                    "excerpt": "揭穿了谎言",
+                },
+            ]
+        )
+        assert normalized[0]["status"] == "unknown"
+        assert normalized[1]["status"] == "unknown"
+        assert any("重复" in note for note in notes)
+
+        # excerpt 不能唯一定位 → unknown
+        normalized, _ = self._normalize(
+            [
+                {
+                    "id": "scene:s1:must:1",
+                    "status": "met",
+                    "excerpt": "线索",
+                }
+            ],
+            content="线索出现了。线索又出现了。",
+        )
+        assert normalized[0]["status"] == "unknown"
+        assert normalized[0]["excerpt"] is None
+
+        # met 无 excerpt → unknown
+        normalized, _ = self._normalize(
+            [{"id": "scene:s1:must:1", "status": "met", "excerpt": None}]
+        )
+        assert normalized[0]["status"] == "unknown"
+
+    def test_unknown_id_discarded_and_unmet_without_excerpt_kept(self) -> None:
+        normalized, notes = self._normalize(
+            [
+                {"id": "scene:s1:must:9", "status": "met", "excerpt": "发现线索"},
+                {
+                    "id": "scene:s1:must:1",
+                    "status": "met",
+                    "excerpt": "发现线索",
+                },
+                {"id": "scene:s1:must:2", "status": "unmet", "excerpt": None},
+            ]
+        )
+        assert any("未知条目" in note for note in notes)
+        assert [item["status"] for item in normalized] == ["met", "unmet"]
+
+    def test_normalized_items_carry_text_and_hash(self) -> None:
+        normalized, _ = self._normalize([])
+        assert normalized[0]["text"] == "发现线索"
+        assert len(normalized[0]["text_hash"]) == 64
+
+
+def test_targeted_revision_request_accepts_contract_item_ids_only() -> None:
+    request = WritingTargetedRevisionRequest(
+        novel_id="00000000-0000-0000-0000-000000000001",
+        draft_id="00000000-0000-0000-0000-000000000002",
+        review_task_id="00000000-0000-0000-0000-000000000003",
+        finding_ids=[],
+        contract_item_ids=["scene:s1:must:1"],
+    )
+    assert request.contract_item_ids == ["scene:s1:must:1"]
+
+    with pytest.raises(ValueError, match="至少提供一项"):
+        WritingTargetedRevisionRequest(
+            novel_id="00000000-0000-0000-0000-000000000001",
+            draft_id="00000000-0000-0000-0000-000000000002",
+            review_task_id="00000000-0000-0000-0000-000000000003",
+            finding_ids=[],
+            contract_item_ids=[],
+        )
