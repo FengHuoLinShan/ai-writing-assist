@@ -136,6 +136,12 @@ describe("WritingEditor semantic review gate", () => {
     const checkboxes = section.findAll('input[type="checkbox"]')
     expect(checkboxes).toHaveLength(1)
     expect(checkboxes[0].attributes("value")).toBe("scene:s1:must:3")
+    // 有正文位置的条目提供“定位原文”入口
+    const locateButtons = section.findAll("button").filter((button) => button.text() === "定位原文")
+    expect(locateButtons).toHaveLength(3)  // met / unmet / unknown 各一条有 excerpt
+    await locateButtons[0].trigger("click")
+    const editor = wrapper.find("#writing-editor")
+    expect(editor.exists()).toBe(true)
     await checkboxes[0].setValue(true)
     const revise = wrapper.findAll("button").find((button) => button.text().includes("按问题返修"))
     expect(revise.exists()).toBe(true)

@@ -131,7 +131,7 @@
             <li v-for="item in sceneContractItems" :key="item.id" :data-status="item.status">
               <span class="badge" :class="contractItemBadgeClass(item)">{{ contractItemStatusLabel(item) }}</span>
               <span class="writing-contract-items__text">{{ item.text }}</span>
-              <small v-if="item.excerpt">位置：{{ item.excerpt }}</small>
+              <small v-if="item.excerpt">位置：{{ item.excerpt }} <button type="button" class="btn btn-sm" @click="locateContractItem(item)">定位原文</button></small>
               <label v-if="item.status === 'unknown' && item.excerpt" class="writing-contract-items__include">
                 <input type="checkbox" :value="item.id" v-model="includedContractItemIds" />
                 纳入定向返修
@@ -316,6 +316,19 @@ watch(sceneContractItems, (items) => {
   includedContractItemIds.value = includedContractItemIds.value.filter((id) => selectable.has(id))
 })
 const hasUnresolvedReview = computed(() => sceneContractItems.value.some((item) => item.status === "unmet" || item.status === "unknown"))
+function locateContractItem(item) {
+  const editor = editorEl.value
+  const content = props.state.content || ""
+  if (!editor || !item?.excerpt) return
+  let index = content.indexOf(item.excerpt)
+  if (index < 0) index = content.indexOf(item.excerpt.replace(/^[“”«『「'"‘]+|[”»』」'"’]+$/g, ""))
+  if (index < 0) return
+  editor.focus()
+  editor.setSelectionRange(index, index + item.excerpt.length)
+  const lineHeight = parseFloat(getComputedStyle(editor).lineHeight) || 20
+  const line = content.slice(0, index).split("\n").length
+  editor.scrollTop = Math.max(0, (line - 3) * lineHeight)
+}
 const contractItemStatusLabel = (item) => ({ met: "已落实", unmet: "未落实", unknown: "待核实" }[item?.status] || "待核实")
 const contractItemBadgeClass = (item) => ({ met: "badge-done", unmet: "badge-processing", unknown: "badge-pending" }[item?.status] || "badge-pending")
 const reviewBlocked = computed(() => independentReview.value?.verdict === "needs_revision" || Number(independentReview.value?.blocking_count || 0) > 0)
