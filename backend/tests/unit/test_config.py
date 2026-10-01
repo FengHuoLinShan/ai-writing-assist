@@ -9,6 +9,7 @@ core/config.py 单元测试
 import os
 import subprocess
 import sys
+from dataclasses import fields
 from pathlib import Path
 
 import pytest
@@ -82,6 +83,22 @@ class TestSettingsEffectiveDefaults:
         monkeypatch.delenv("DEBUG", raising=False)
         monkeypatch.delenv("APP_DEBUG", raising=False)
         assert Settings().debug is False
+
+    def test_boolean_switches_ignore_local_env(self, monkeypatch):
+        """本机环境与 backend/.env 不得改变测试中的布尔开关（见根 conftest 钉法）。"""
+        current = Settings()
+        for key in list(os.environ):
+            monkeypatch.delenv(key)
+        defaults = Settings()
+
+        leaked = {
+            item.name: getattr(current, item.name)
+            for item in fields(Settings)
+            if isinstance(getattr(defaults, item.name), bool)
+            and item.name != "llm_health_required"  # 根 conftest 有意固定为 false
+            and getattr(current, item.name) != getattr(defaults, item.name)
+        }
+        assert not leaked, f"本机环境开启了根 conftest 未钉住的开关：{leaked}"
 
     def test_env_example_uses_the_debug_key_consumed_by_settings(self):
         example = (Path(__file__).resolve().parents[2] / ".env.example").read_text(
