@@ -327,14 +327,17 @@ async def world_map(db_session: AsyncSession, project_novel_id: str):
 并可能把形如科学计数法的合法 UUID hex 转成浮点 `inf`；生产 PostgreSQL 仍使用原生
 `UUID` DDL。
 
-根 `backend/conftest.py` 在所有项目 import 之前以 `os.environ.setdefault` 钉默认配置
-（含 `ASSISTANT_ENABLED`、`RERANKER_ENABLED`、`RAG_QUERY_PLANNER_ENABLED` 等全部功能
-开关）。`core.config` 的 `load_env_file` 只填充缺失键，因此本地 `backend/.env` 的功能
-开关无法影响测试，本地与 CI 同为默认配置。显式测试开关开启路径的用例必须用
-`dataclasses.replace(get_settings(), ...)` 或
-`monkeypatch.setattr("core.config.get_settings", ...)` 注入，而非改环境变量。勿将任何
-项目 import 移到 setdefault 块之前：`app/main.py` 在 import 时调用 `get_settings()`
-冻结 `lru_cache`，先 import 会让 pin 静默失效。
+根 `backend/conftest.py` 在所有项目 import 之前以 `os.environ.setdefault` 把 `Settings`
+的全部布尔开关钉回代码默认值（`LLM_HEALTH_REQUIRED` 测试中固定为 `false`）。
+`core.config` 的 `load_env_file` 只填充缺失键，因此本机 `backend/.env` 的开关不进入测试；
+`.env` 中的其他键（如 `LOG_LEVEL`、`WEB_SEARCH_URL`）仍会生效，测试不得依赖它们。
+`Settings` 新增布尔开关时同步该列表，`tests/unit/test_config.py` 的守护用例会在本机环境
+开启了未钉开关时失败并列出字段。用例需要开启某个开关时，可 `monkeypatch.setenv` 覆盖
+（消费方经 `get_settings()` 读取时前后各 `get_settings.cache_clear()`），或用
+`dataclasses.replace(get_settings(), ...)` patch 消费方模块的 `get_settings`（如
+`modules.assistant.service.get_settings`）；patch `core.config.get_settings` 只影响在
+函数体内 import 的调用方。勿将任何项目 import 移到 setdefault 块之前：`app/main.py` 在
+import 时调用 `get_settings()` 冻结 `lru_cache`，先 import 会让钉法静默失效。
 
 Fixture 使用者只通过测试函数参数名请求 fixture。不得使用
 `from conftest import ...`、`from tests.conftest import ...` 或其他普通 Python
