@@ -327,6 +327,15 @@ async def world_map(db_session: AsyncSession, project_novel_id: str):
 并可能把形如科学计数法的合法 UUID hex 转成浮点 `inf`；生产 PostgreSQL 仍使用原生
 `UUID` DDL。
 
+根 `backend/conftest.py` 在所有项目 import 之前以 `os.environ.setdefault` 钉默认配置
+（含 `ASSISTANT_ENABLED`、`RERANKER_ENABLED`、`RAG_QUERY_PLANNER_ENABLED` 等全部功能
+开关）。`core.config` 的 `load_env_file` 只填充缺失键，因此本地 `backend/.env` 的功能
+开关无法影响测试，本地与 CI 同为默认配置。显式测试开关开启路径的用例必须用
+`dataclasses.replace(get_settings(), ...)` 或
+`monkeypatch.setattr("core.config.get_settings", ...)` 注入，而非改环境变量。勿将任何
+项目 import 移到 setdefault 块之前：`app/main.py` 在 import 时调用 `get_settings()`
+冻结 `lru_cache`，先 import 会让 pin 静默失效。
+
 Fixture 使用者只通过测试函数参数名请求 fixture。不得使用
 `from conftest import ...`、`from tests.conftest import ...` 或其他普通 Python
 import 复用 fixture；这会让 `conftest` 的解析取决于 pytest 收集顺序。所有

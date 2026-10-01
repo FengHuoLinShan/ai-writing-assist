@@ -17,6 +17,20 @@ os.environ.setdefault(
     "LLM_SETTINGS_ENCRYPTION_KEY",
     "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=",
 )
+# 测试一律按默认配置运行：core.config 的 load_env_file 不覆盖已存在的环境变量，
+# 先 setdefault 即可让本地 backend/.env 的功能开关不进入测试。
+os.environ.setdefault("ASSISTANT_ENABLED", "false")
+os.environ.setdefault("ASSISTANT_DEEP_REVIEW_ENABLED", "false")
+os.environ.setdefault("ASSISTANT_WORLD_STRESS_ENABLED", "false")
+os.environ.setdefault("ASSISTANT_CROSS_REVISION_ENABLED", "false")
+os.environ.setdefault("ASSISTANT_RESEARCH_ENABLED", "false")
+os.environ.setdefault("ASSISTANT_IMPORT_CONSULT_ENABLED", "false")
+os.environ.setdefault("ASSISTANT_BLIND_READER_ENABLED", "false")
+os.environ.setdefault("STORY_REHEARSAL_ENABLED", "false")
+os.environ.setdefault("INTERACTION_AGENT_ENABLED", "false")
+os.environ.setdefault("INTERACTION_TEAM_ENABLED", "false")
+os.environ.setdefault("RERANKER_ENABLED", "false")
+os.environ.setdefault("RAG_QUERY_PLANNER_ENABLED", "false")
 
 from collections.abc import AsyncGenerator
 
