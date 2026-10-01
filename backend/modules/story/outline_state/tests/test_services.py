@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.dml import Update
 from sqlalchemy.sql.selectable import Select
 

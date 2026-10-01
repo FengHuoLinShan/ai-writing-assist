@@ -736,6 +736,7 @@ async def export_book(
 
     chapter_index 指定时只导该章的已采用版本。
     """
+    await require_active_project(db, novel_id)
     result = await _service.build_book_export(
         db,
         novel_id,

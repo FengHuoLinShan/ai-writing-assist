@@ -111,7 +111,7 @@ describe("EditorialDesk 写作开关", () => {
     await writingToggleInput(wrapper).setValue(true)
     await flushPromises()
 
-    expect(wrapper.text()).toContain("已开启：这份约定将进入 AI 写作的参考资料确认。")
+    expect(wrapper.text()).toContain("已开启：这份约定将进入 AI 正文建议与续写的参考资料确认。")
     expect(wrapper.text()).not.toContain("开关已开启，但编辑约定还是空的")
   })
 
@@ -143,5 +143,15 @@ describe("EditorialDesk 写作开关", () => {
 
     expect(wrapper.text()).not.toContain("已开启：这份约定将进入")
     expect(writingToggleInput(wrapper).element.checked).toBe(false)
+    // 迟到回包仍要解除处理中，新项目的开关不能一直不可点
+    expect(writingToggleInput(wrapper).element.disabled).toBe(false)
+  })
+
+  it("说明角色视角建议不使用编辑约定", async () => {
+    const wrapper = await mountDesk()
+
+    expect(wrapper.get(".editorial-desk__writing-toggle").text()).toContain(
+      "「AI 角色视角建议」不使用它"
+    )
   })
 })

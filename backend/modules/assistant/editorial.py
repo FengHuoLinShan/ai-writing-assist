@@ -102,12 +102,43 @@ def _fingerprint(finding: dict) -> str:
     )
     key: list = [str(finding["category"]), source_ids, evidence_chapters]
     if not source_ids:
-        first_quote = next(
-            (str(item.get("quote") or "") for item in finding.get("evidence") or []),
-            "",
-        )
-        key.append(re.sub(r"\s+", "", first_quote))
+        key.append(_quote_anchor(finding))
     return hashlib.sha256(json.dumps(key, ensure_ascii=False).encode()).hexdigest()
+
+
+def _quote_anchor(finding: dict) -> str:
+    first_quote = next(
+        (str(item.get("quote") or "") for item in finding.get("evidence") or []),
+        "",
+    )
+    return re.sub(r"\s+", "", first_quote)
+
+
+def _anchored_fingerprint(key: str, finding: dict) -> str:
+    return hashlib.sha256(
+        json.dumps([key, _quote_anchor(finding)], ensure_ascii=False).encode()
+    ).hexdigest()
+
+
+def _assign_identities(findings: list[dict]) -> list[dict]:
+    """按身份去重，并为同批撞键的不同意见分配可区分的身份。
+
+    有对象引用的意见身份不含引文，同类目、同对象、同章节的两条不同
+    意见（如同章两条 scene 意见都引用同一场景计划）会算出同一身份：
+    同批内撞键且首条引文不同的，各自改用「身份 + 引文锚点」，不再按
+    身份去重吞掉其中一条；引文也相同的才视为重复。
+    """
+    groups: dict[str, dict[str, dict]] = {}
+    for finding in findings:
+        groups.setdefault(_fingerprint(finding), {})[_quote_anchor(finding)] = finding
+    assigned = []
+    for key, by_anchor in groups.items():
+        for finding in by_anchor.values():
+            finding["fingerprint"] = (
+                key if len(by_anchor) == 1 else _anchored_fingerprint(key, finding)
+            )
+            assigned.append(finding)
+    return assigned
 
 
 def _legacy_fingerprint(finding: dict) -> str:
@@ -1061,39 +1092,48 @@ async def _validated_findings(
     return validated
 
 
-async def _save_findings(db, row, findings):
-    for finding in findings:
-        key = _fingerprint(finding)
-        prior = await db.scalar(
-            select(EditorialIssue)
-            .where(
-                EditorialIssue.novel_id == row.novel_id,
-                EditorialIssue.fingerprint == key,
-            )
-            .with_for_update()
+async def _locked_issue(db, novel_id, fingerprint):
+    return await db.scalar(
+        select(EditorialIssue)
+        .where(
+            EditorialIssue.novel_id == novel_id,
+            EditorialIssue.fingerprint == fingerprint,
         )
-        matched_legacy = False
+        .with_for_update()
+    )
+
+
+async def _save_findings(db, row, findings):
+    for finding in _assign_identities(findings):
+        key = finding["fingerprint"]
+        prior = await _locked_issue(db, row.novel_id, key)
+        matched_alias = False
+        if prior is None:
+            # 撞键与否会让同一条意见在「身份」与「身份+引文锚点」两种
+            # 形态间切换：另一形态的旧行首条引文一致时是同一条意见，
+            # 沿用旧行与处置并把行指纹升级为本次 key。
+            base_key = _fingerprint(finding)
+            alias_key = (
+                _anchored_fingerprint(base_key, finding) if key == base_key else base_key
+            )
+            prior = await _locked_issue(db, row.novel_id, alias_key)
+            if prior is not None and _quote_anchor(prior.finding_json) != _quote_anchor(
+                finding
+            ):
+                prior = None
+            matched_alias = prior is not None
         if prior is None:
             # 旧身份算法的行作为别名迁移：同一条意见沿用旧行与既有处置，
             # 并把行指纹升级为新 key，保持与 report_json 的指纹一致，
             # 也避免同批多条意见共享旧 key 时互相覆盖。
             # 旧 key 不含对象集合；复审意见与旧行的对象引用不一致时
             # 不是同一条意见，不迁移旧行、不继承处置。
-            legacy_key = _legacy_fingerprint(finding)
-            prior = await db.scalar(
-                select(EditorialIssue)
-                .where(
-                    EditorialIssue.novel_id == row.novel_id,
-                    EditorialIssue.fingerprint == legacy_key,
-                )
-                .with_for_update()
-            )
-            matched_legacy = prior is not None
+            prior = await _locked_issue(db, row.novel_id, _legacy_fingerprint(finding))
             if prior is not None and _finding_source_ids(
                 prior.finding_json
             ) != _finding_source_ids(finding):
                 prior = None
-                matched_legacy = False
+            matched_alias = prior is not None
         inherited_disposition = bool(
             prior and prior.disposition and prior.disposition != "open"
         )
@@ -1115,7 +1155,7 @@ async def _save_findings(db, row, findings):
                 else None,
             }
             prior.row_version += 1
-            if matched_legacy:
+            if matched_alias:
                 prior.fingerprint = key
         else:
             db.add(
@@ -1151,14 +1191,8 @@ async def _finish(db, row, *, partial_reason=None):
         current = await _materialize_context(db, row, int(chapter))
         if current["fingerprint"] != frozen["fingerprint"]:
             raise ConflictError("编辑参考资料已变化", code="SOURCE_STALE")
-    findings = list(
-        {
-            _fingerprint(item): item for item in row.progress_json.get("findings", [])
-        }.values()
-    )
+    findings = _assign_identities(row.progress_json.get("findings", []))
     findings.sort(key=_rank, reverse=True)
-    for finding in findings:
-        finding["fingerprint"] = _fingerprint(finding)
     await _save_findings(db, row, findings)
     checked = sorted(
         {item["chapter_index"] for item in row.progress_json["chapter_results"]}

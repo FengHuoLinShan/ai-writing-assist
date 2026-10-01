@@ -105,7 +105,7 @@ reader 视角不沿用作者 section 组装：编译器只纳入公开/已揭示
 | `EventsLoader` | `world.facade.get_events_context()` |
 | `MemoryRecordsLoader` | `memory` 全景查询 |
 | `OutlineArcLoader` / `SceneLoader` / `PlotThreadsLoader` | `outline` 服务与 facade；剧情线只取未终结（current_stage 非 resolved/paused）的线，超期未收束保留入选并在渲染中标注 |
-| `EditorialBriefLoader` | `project.facade.read_editorial_brief_for_writing`；作者开启「编辑约定也用于 AI 写作」且约定非空时才注入（默认关闭），进入 chapter/scene scope。仅 `consumer_action=writing.generate` 且 `reveal_mode` 为作者视角时加载，读者/角色视角（如角色卡编译）与其他消费动作跳过并留警告——约定中的刻意留白/误导不得进入角色已知资料 |
+| `EditorialBriefLoader` | `project.facade.read_editorial_brief_for_writing`；作者开启「编辑约定也用于 AI 写作」且约定非空时才注入（默认关闭），进入 chapter/scene scope。仅 `consumer_action=writing.generate` 且 `reveal_mode` 为作者视角时加载；其他消费动作（如角色卡编译）直接跳过，`writing.generate` 的读者/角色视角在约定本会生效时跳过并留警告——约定中的刻意留白/误导不得进入角色已知资料 |
 | `RagChunksLoader` | `evidence.facade.retrieve()` |
 | `WorldBibleLoader` | `world.facade` 的作者简介与显式选中工作稿 |
 
@@ -316,7 +316,9 @@ Lifecycle v1 为快照提供显式维护入口：
 作者设定／计划：大纲与 Scene 计划／规划：剧情线与伏笔／派生：AI 派生或按视角过滤的
 摘要／候选：未定稿或未采用的草稿与建议，不是正史事实／混合：事实与候选混排，以各条目
 来源为准）。世界对象、世界书 activation/简介、已采用正文、场景世界状态等核心事实
-section，以及世界书工作页（候选）、作者添加与专项查阅资料（混合）均已标注；标注只改
+section，以及世界书工作页（候选）、作者添加与专项查阅资料（混合）均已标注；世界对象
+section 的来源含未采用状态（作者显式纳入 pending/review 对象）时改标混合，角色视角的
+历史角色上下文标派生；标注只改
 渲染不改 `section.content`，因此不影响确认指纹。存在预算裁剪时在
 渲染末尾追加裁剪记录（类目 + 原因 + 规模），从 `budget_events` / `evicted_keys` /
 `truncated_keys` 派生——这三个字段在 writing 任务源指纹内可复现；文案是数据记录，

@@ -1939,23 +1939,31 @@ class TestEditorialBriefLoader:
         assert bundle.editorial_brief is None
         assert bundle.budget_used["editorial_brief"] == 0
 
-        # writing.generate 但读者/角色视角：跳过并留警告
-        bundle = StructureContextBundle(novel_id="n", task="t", scope="scene")
-        await loader.load(
-            None,
-            CompileOptions(
-                novel_id="n",
-                task="t",
-                scope="scene",
-                consumer_action="writing.generate",
-                reveal_mode="character",
-                viewpoint_character_id="c-1",
-            ),
-            bundle,
+        # writing.generate 但角色视角：跳过并留警告
+        character_options = CompileOptions(
+            novel_id="n",
+            task="t",
+            scope="scene",
+            consumer_action="writing.generate",
+            reveal_mode="character",
+            viewpoint_character_id="c-1",
         )
+        bundle = StructureContextBundle(novel_id="n", task="t", scope="scene")
+        await loader.load(None, character_options, bundle)
         assert bundle.editorial_brief is None
         assert bundle.budget_used["editorial_brief"] == 0
-        assert any("读者/角色视角不加载作者编辑约定" in w for w in bundle.warnings)
+        assert any("角色视角写作不使用编辑约定" in w for w in bundle.warnings)
+
+        # 开关未开启（约定不会生效）时角色视角不留警告
+        async def disabled(db, novel_id):
+            return None
+
+        bundle = StructureContextBundle(novel_id="n", task="t", scope="scene")
+        await EditorialBriefLoader(get_brief_fn=disabled).load(
+            None, character_options, bundle
+        )
+        assert bundle.editorial_brief is None
+        assert bundle.warnings == []
 
         # writing.generate + 作者视角：正常加载
         bundle = StructureContextBundle(novel_id="n", task="t", scope="chapter")

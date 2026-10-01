@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from core.csrf import require_xhr_request
 from core.dependencies import DbSession
+from modules.project.ai_usage import get_project_ai_usage
 from modules.project.author_task_service import AuthorTaskService
 from modules.project.editorial_brief import EditorialBriefUpdate
 from modules.project.facade import (
@@ -82,15 +83,13 @@ async def put_editorial_brief(
 
 
 @router.get("/{project_id}/ai-usage")
-async def get_project_ai_usage(
+async def read_project_ai_usage(
     db: DbSession,
     project_id: UUID,
     days: int = Query(default=30, ge=1, le=365),
 ):
     """按能力汇总近 N 天 AI 用量（owner 次级诊断入口）。"""
-    from modules.project.ai_usage import get_project_ai_usage as _usage
-
-    return await _usage(db, str(project_id), days=days)
+    return await get_project_ai_usage(db, str(project_id), days=days)
 
 
 @router.get("/{project_id}/editorial-brief/for-writing")

@@ -128,7 +128,7 @@ published，不因 RP 历史引用改变作者编辑心智。
 - `forbidden_present` / `required_missing` 保留兼容 kind，但严重度降低并派生 `author_action=can_improve`；它们只表示“疑似字面命中”或“未逐字出现”，不证明语义冲突。
 - 检查 scope 保存正文 hash。Project Today 只读取每个章节/Scene 最新检查的 open 项；若工作稿 ID、版本或 hash 已变化，则旧项折叠为一条“重新检查”。
 
-跨章复读为确定性提示项（`cross_chapter_repetition`，severity low、needs_review）：候选开头对上一章（优先已采用版本）结尾做 NFKC 归一化的 8 字 n-gram 连续重叠检测（默认阈值连续 ≥80 字、候选前 1200 字对参照末 1000 字），续写候选则比较续写部分与冻结基稿结尾；只提示不拒存，阈值上线前需用真实长稿校准。
+跨章复读为确定性提示项（`cross_chapter_repetition`，severity low、needs_review）：候选开头对上一章（优先已采用版本）结尾做 NFKC 归一化的 8 字 n-gram 连续重叠检测（默认阈值连续 ≥80 字、候选前 1200 字对参照末 1000 字），续写候选则比较续写部分与冻结基稿结尾；基稿不可用或候选中的原稿部分已被改动时，比较失去基准，记为 `writing.repetition_check` 覆盖缺口（检查 degraded），检查详情说明原因且不把重跑当作补救。只提示不拒存，阈值上线前需用真实长稿校准。
 
 问题项的 `location_json` 保存轻量证据结构：`source` 描述来源模块、类型、标签、字段和摘录；`open_target` 描述前端可以打开的目标；`needs_review_reason` 描述候选证据复核原因。发布章节时，最近一次检查会归档到 `writing_drafts.conflict_check_snapshot_json`，快照保留 `source` / `open_target`，但不保留正文 `text_range`。
 
@@ -188,7 +188,7 @@ location、contract refs、preserve 与 not_checked；机械门不能代替文�
 （`scene:{scene_id}:must:{n}` + 文本哈希）逐条返回 `met / unmet / unknown` 三态判定；
 服务端核验每份 excerpt 在冻结正文中唯一出现（逐字与剥引号两分支都要求唯一，失败一律
 降为 unknown），`unmet` 无可定位位置时同样降为 unknown（确定未落实不得比待核实放行
-更松），只有全部条目获得有效判定时 `scene_contract` 才签署 `checked`。
+更松；审查 prompt 因此要求 unmet 附最应补写处的唯一原文作为返修锚点），只有全部条目获得有效判定时 `scene_contract` 才签署 `checked`。
 `unmet` 映射为既有 `contract_omission` major finding（阻断级：结论 needs_revision、
 采用门禁拒绝）并复用定向返修；待核实条目默认
 不进返修，作者显式纳入时返修 prompt 附边界声明（纳入不等于确认是错误，不得编造前史），

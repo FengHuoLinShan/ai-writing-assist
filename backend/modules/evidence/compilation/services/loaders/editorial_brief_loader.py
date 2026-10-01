@@ -51,19 +51,20 @@ class EditorialBriefLoader(Loader):
         options: CompileOptions,
         bundle: StructureContextBundle,
     ) -> None:
+        bundle.budget_used["editorial_brief"] = 0
         if options.consumer_action != "writing.generate":
-            bundle.budget_used["editorial_brief"] = 0
-            return
-        if options.reveal_mode not in {"author_safe", "author_full"}:
-            bundle.warnings.append("读者/角色视角不加载作者编辑约定")
-            bundle.budget_used["editorial_brief"] = 0
             return
         brief = await self._get_brief(db, options.novel_id)
-        if isinstance(brief, dict) and brief.get("brief"):
-            bundle.editorial_brief = {
-                "version": int(brief.get("version") or 0),
-                "brief": brief["brief"],
-            }
-            bundle.budget_used["editorial_brief"] = 1
-        else:
-            bundle.budget_used["editorial_brief"] = 0
+        if not (isinstance(brief, dict) and brief.get("brief")):
+            return
+        if options.reveal_mode not in {"author_safe", "author_full"}:
+            # 只在约定本会生效时提示，未开启开关的作者不受打扰
+            bundle.warnings.append(
+                "角色视角写作不使用编辑约定：其中的刻意留白与误导安排不能当作角色已知"
+            )
+            return
+        bundle.editorial_brief = {
+            "version": int(brief.get("version") or 0),
+            "brief": brief["brief"],
+        }
+        bundle.budget_used["editorial_brief"] = 1

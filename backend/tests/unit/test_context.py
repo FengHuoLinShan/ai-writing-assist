@@ -61,6 +61,10 @@ from modules.evidence.facade import (
     render_context_markdown,
 )
 
+_ALL_SCOPE_LOADER_NAMES = sorted(
+    {name for names in SCOPE_LOADERS.values() for name in names}
+)
+
 # ============================================================
 # 1. Loader 协议测试
 # ============================================================
@@ -112,6 +116,7 @@ class TestLoaderProtocol:
         loaders = ContextCompiler._default_loaders()
         assert [loader.name for loader in loaders] == [
             "project",
+            "editorial_brief",
             "world_entities",
             "world_bible",
             "characters",
@@ -159,7 +164,8 @@ class TestContextCompilerDispatch:
                 async def load(self, db, options, bundle) -> None:
                     called_names.append(self._name)
 
-            spy_loaders = [SpyLoader(n) for n in SCOPE_LOADERS["full"]]
+            # editorial_brief 只属于 chapter/scene scope，不在 full 中
+            spy_loaders = [SpyLoader(n) for n in _ALL_SCOPE_LOADER_NAMES]
             compiler = ContextCompiler(loaders=spy_loaders)
 
             options = CompileOptions(
@@ -288,11 +294,9 @@ class TestContextCompilerDispatch:
         assert results.get("memory_records") is True
 
     def test_default_loaders_created(self) -> None:
-        """默认 loaders 列表应包含所有 11 个 loader"""
+        """默认 loaders 应覆盖各 scope 声明的全部 loader"""
         compiler = ContextCompiler()
-        assert len(compiler._loaders) == 11
-        for name in SCOPE_LOADERS["full"]:
-            assert name in compiler._loaders
+        assert set(compiler._loaders) == set(_ALL_SCOPE_LOADER_NAMES)
 
 
 class TestCompileWithTiers:

@@ -995,8 +995,10 @@ class WritingSemanticWorkflowService:
                         "在 coverage.contract_items 中对每个 id 恰好返回一次，"
                         "status 只能是 met（正文中已落实）、unmet（未落实）、"
                         "unknown（无法确认）。met 必须附正文中逐字出现且唯一的"
-                        "原文 excerpt 作为落实证据；unmet 可附最接近的正文 excerpt；"
-                        "没有唯一原文证据时只能标 unknown，不得猜测或改写条目文本来"
+                        "原文 excerpt 作为落实证据；unmet 同样必须附正文中逐字出现且"
+                        "唯一的 excerpt，取最应补写该条目的位置（相关情节附近，或本章"
+                        "结尾）作为返修锚点，不附位置的 unmet 按 unknown 处理；"
+                        "met 没有唯一原文证据时只能标 unknown，不得猜测或改写条目文本来"
                         "凑证据。服务端会核验每一份 excerpt，定位失败一律降为"
                         " unknown，scene_contract 是否算 checked 由逐条判定决定。"
                     ),

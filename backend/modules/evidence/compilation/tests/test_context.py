@@ -3640,15 +3640,46 @@ def test_render_compiled_context_labels_core_fact_and_candidate_sections() -> No
     )
     rendered = render_compiled_context(ctx)
 
-    for key in keys[:7]:
+    for key in keys[:6]:
         block = rendered.split(f"{key} 内容", 1)[0].split("##")[-1]
         assert "资料性质：事实：已采用正文或作者设定" in block, key
+    memory_block = rendered.split("historical_role_context 内容", 1)[0].split("##")[-1]
+    assert "资料性质：派生：AI 派生或按视角过滤的摘要，非作者事实" in memory_block
     working_block = rendered.split("world_bible_working_pages 内容", 1)[0]
     candidate_block = working_block.split("##")[-1]
     assert "资料性质：候选：未定稿或未采用的草稿与建议，不是正史事实" in (candidate_block)
     for key in ("author_pinned_material", "focused_pins", "focused_evidence"):
         block = rendered.split(f"{key} 内容", 1)[0].split("##")[-1]
         assert "资料性质：混合：事实与候选混排，以各条目来源为准" in block, key
+
+
+def test_render_world_entities_with_pending_objects_labels_mixed() -> None:
+    """显式纳入未采用世界对象时整节标混合，只含已采用对象时仍标事实。"""
+    from modules.evidence.compilation.markdown_renderer import render_compiled_context
+    from modules.evidence.compilation.services.compiled_context import (
+        CompiledContext,
+        ContextSection,
+        Tier,
+    )
+
+    def rendered_for(statuses: list[str]) -> str:
+        section = ContextSection(
+            key="world_entities",
+            tier=Tier.P2,
+            content="世界对象内容",
+            token_count=5,
+            sources=[
+                {"type": "world_entity", "id": f"e{index}", "status": status}
+                for index, status in enumerate(statuses)
+            ],
+        )
+        ctx = CompiledContext(sections=[section], total_tokens=5, budget_tokens=100)
+        return render_compiled_context(ctx)
+
+    assert "资料性质：事实：已采用正文或作者设定" in rendered_for(["canonical", "active"])
+    mixed = rendered_for(["canonical", "draft"])
+    assert "资料性质：混合：事实与候选混排，以各条目来源为准" in mixed
+    assert "资料性质：事实" not in mixed
 
 
 def test_render_compiled_context_appends_budget_trim_notice() -> None:

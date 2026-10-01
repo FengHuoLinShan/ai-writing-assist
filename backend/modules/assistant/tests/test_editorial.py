@@ -1171,3 +1171,77 @@ async def test_save_findings_keeps_both_objectless_findings_in_same_chapter(
         "错别字之一",
         "错别字之二",
     ]
+
+
+@pytest.mark.asyncio
+async def test_save_findings_keeps_colliding_object_findings_and_keeps_disposition(
+    async_client, db_session
+):
+    """同章同对象的两条不同意见各建一行；撞键前后同一条意见都继承处置。"""
+    project = (
+        await async_client.post("/api/projects", json={"title": "对象碰撞作品"})
+    ).json()
+    novel_id = project["id"]
+
+    async def new_review():
+        review = EditorialReview(
+            novel_id=UUID(novel_id),
+            owner_id=UUID("00000000-0000-0000-0000-000000000001"),
+            operation_id=uuid4(),
+            status="done",
+        )
+        db_session.add(review)
+        await db_session.flush()
+        return review
+
+    async def rows():
+        return (
+            (
+                await db_session.execute(
+                    select(EditorialIssue).where(
+                        EditorialIssue.novel_id == UUID(novel_id)
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    scene_ref = [{"source_kind": "structure", "source_id": "scene-1", "quote": "计划"}]
+    pacing = {
+        "category": "scene",
+        "judgment": "节奏拖沓",
+        "severity": "medium",
+        "evidence": [{"chapter_index": 3, "quote": "他们在门口站了很久"}],
+        "context_evidence": scene_ref,
+    }
+    motive = {
+        "category": "scene",
+        "judgment": "动机不足",
+        "severity": "medium",
+        "evidence": [{"chapter_index": 3, "quote": "她忽然决定离开"}],
+        "context_evidence": scene_ref,
+    }
+    assert editorial._fingerprint(pacing) == editorial._fingerprint(motive)
+
+    await editorial._save_findings(db_session, await new_review(), [dict(pacing)])
+    (original,) = await rows()
+    original.disposition = "intentional"
+    await db_session.flush()
+
+    await editorial._save_findings(
+        db_session, await new_review(), [dict(pacing), dict(motive)]
+    )
+    collided = {row.finding_json["judgment"]: row for row in await rows()}
+    assert set(collided) == {"节奏拖沓", "动机不足"}
+    assert collided["节奏拖沓"].id == original.id
+    assert collided["节奏拖沓"].disposition == "intentional"
+    assert collided["节奏拖沓"].fingerprint != editorial._fingerprint(pacing)
+    assert collided["动机不足"].disposition == "open"
+
+    await editorial._save_findings(db_session, await new_review(), [dict(pacing)])
+    back = {row.finding_json["judgment"]: row for row in await rows()}
+    assert back["节奏拖沓"].id == original.id
+    assert back["节奏拖沓"].fingerprint == editorial._fingerprint(pacing)
+    assert back["节奏拖沓"].disposition == "intentional"
+    assert back["节奏拖沓"].finding_json["disposition_inherited"] is True

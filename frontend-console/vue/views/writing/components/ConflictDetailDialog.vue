@@ -26,7 +26,7 @@
           </div>
 
           <p v-if="check.status === 'degraded'" class="writing-conflict-empty" role="status" data-author-action="needs_decision">
-            <strong>需要决定</strong> · 本次检查未覆盖{{ degradedSourceLabels }}；请决定是否先重新运行当前范围的检查。
+            <strong>需要决定</strong> · 本次检查未覆盖{{ degradedSourceLabels }}；{{ degradedAdvice }}
           </p>
 
           <section class="writing-conflict-group">
@@ -331,6 +331,23 @@ const degradedSourceLabels = computed(() => {
     return "部分来源"
   })
   return Array.from(new Set(labels)).join("、") || "部分来源"
+})
+// 续写原稿被改或不可用时，复读比对缺少基准，重新运行也补不上，不能只劝作者重跑
+const repetitionGapNote = computed(() => {
+  const reasons = new Set((check.value?.summary_json?.omissions || [])
+    .filter((item) => item?.source === "writing.repetition_check")
+    .map((item) => item.reason))
+  const subject = reasons.has("base_draft_modified")
+    ? "续写前的原稿部分已被改动"
+    : reasons.has("base_draft_unavailable") ? "找不到续写所依据的原稿" : ""
+  return subject ? `${subject}，无法比对续写开头是否重复原稿结尾，重新运行也补不上，请自行留意续写开头。` : ""
+})
+const degradedAdvice = computed(() => {
+  const rerun = "请决定是否先重新运行当前范围的检查。"
+  if (!repetitionGapNote.value) return rerun
+  const otherGaps = (check.value?.summary_json?.degraded_sources || [])
+    .some((source) => !String(source).startsWith("writing.repetition_check"))
+  return otherGaps ? `${rerun}${repetitionGapNote.value}` : repetitionGapNote.value
 })
 const ruleItems = computed(() => items.value.filter((item) => !item.is_ai_judgment))
 const aiItems = computed(() => items.value.filter((item) => item.is_ai_judgment))

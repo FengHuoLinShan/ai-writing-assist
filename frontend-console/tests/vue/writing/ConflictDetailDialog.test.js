@@ -80,6 +80,36 @@ describe("ConflictDetailDialog", () => {
     expect(wrapper.text()).not.toContain("cross_chapter_repetition")
   })
 
+  it("续写原稿被改导致复读未覆盖时说明原因，不只劝作者重跑", () => {
+    const degraded = (degradedSources, reason) => mount(ConflictDetailDialog, {
+      props: {
+        model: model({
+          check: {
+            ...model().check,
+            status: "degraded",
+            items: [],
+            summary_json: {
+              degraded_sources: degradedSources,
+              omissions: [{ source: "writing.repetition_check", reason }],
+            },
+          },
+        }),
+      },
+    })
+    const notice = (wrapper) => wrapper.get('[role="status"][data-author-action="needs_decision"]').text()
+
+    const onlyRepetition = notice(degraded(["writing.repetition_check"], "base_draft_modified"))
+    expect(onlyRepetition).toContain("跨章复读检查")
+    expect(onlyRepetition).toContain("续写前的原稿部分已被改动")
+    expect(onlyRepetition).toContain("重新运行也补不上")
+    expect(onlyRepetition).not.toContain("请决定是否先重新运行")
+    expect(onlyRepetition).not.toContain("base_draft_modified")
+
+    const withOutline = notice(degraded(["outline", "writing.repetition_check"], "base_draft_unavailable"))
+    expect(withOutline).toContain("请决定是否先重新运行当前范围的检查")
+    expect(withOutline).toContain("找不到续写所依据的原稿")
+  })
+
   it("以 Vue 文本节点完整展示规则、AI 判断、证据和建议", () => {
     const wrapper = mount(ConflictDetailDialog, { props: { model: model() } })
     expect(wrapper.text()).toContain("字面预警")

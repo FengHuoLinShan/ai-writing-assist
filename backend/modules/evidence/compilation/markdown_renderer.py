@@ -23,7 +23,13 @@ from __future__ import annotations
 from dataclasses import asdict, is_dataclass
 
 from modules.evidence.compilation.contracts import StructureContextBundle
-from modules.evidence.compilation.services.compiled_context import CompiledContext
+from modules.evidence.compilation.services.compiled_context import (
+    CompiledContext,
+    ContextSection,
+)
+from modules.evidence.compilation.services.loaders.world_entities_loader import (
+    is_adopted_world_status,
+)
 
 # ============================================================
 # Section Renderers
@@ -659,7 +665,7 @@ _SECTION_FACT_LEVELS: dict[str, str] = {
     "world_bible_working_pages": "candidate",
     "reader_visible_world": "fact",
     "reader_visible_manuscript": "fact",
-    "historical_role_context": "fact",
+    "historical_role_context": "derived",
     "scene_world_state": "fact",
     "author_pinned_material": "mixed",
     "focused_pins": "mixed",
@@ -715,12 +721,22 @@ def _render_budget_trim_notice(ctx: CompiledContext) -> str:
     )
 
 
+def _section_fact_level(section: ContextSection) -> str | None:
+    # 世界对象默认只含已采用对象；作者显式纳入未采用对象时与已采用
+    # 对象混排，不得整节标成事实
+    if section.key == "world_entities" and any(
+        not is_adopted_world_status(source.get("status")) for source in section.sources
+    ):
+        return "mixed"
+    return _SECTION_FACT_LEVELS.get(section.key)
+
+
 def render_compiled_context(ctx: CompiledContext) -> str:
     """从 CompiledContext IR 渲染为 Markdown，保持 Tier 顺序"""
     parts = []
     for section in sorted(ctx.sections, key=lambda s: s.tier):
         header = _TIER_HEADERS.get(section.key, section.key)
-        fact_level = _SECTION_FACT_LEVELS.get(section.key)
+        fact_level = _section_fact_level(section)
         label = f"\n> 资料性质：{_FACT_LEVEL_LABELS[fact_level]}\n" if fact_level else ""
         parts.append(f"## {header}\n{label}\n{section.content}\n")
     trim_notice = _render_budget_trim_notice(ctx)
