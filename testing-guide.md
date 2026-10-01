@@ -327,6 +327,18 @@ async def world_map(db_session: AsyncSession, project_novel_id: str):
 并可能把形如科学计数法的合法 UUID hex 转成浮点 `inf`；生产 PostgreSQL 仍使用原生
 `UUID` DDL。
 
+根 `backend/conftest.py` 在所有项目 import 之前以 `os.environ.setdefault` 把 `Settings`
+的全部布尔开关钉回代码默认值（`LLM_HEALTH_REQUIRED` 测试中固定为 `false`）。
+`core.config` 的 `load_env_file` 只填充缺失键，因此本机 `backend/.env` 的开关不进入测试；
+`.env` 中的其他键（如 `LOG_LEVEL`、`WEB_SEARCH_URL`）仍会生效，测试不得依赖它们。
+`Settings` 新增布尔开关时同步该列表，`tests/unit/test_config.py` 的守护用例会在本机环境
+开启了未钉开关时失败并列出字段。用例需要开启某个开关时，可 `monkeypatch.setenv` 覆盖
+（消费方经 `get_settings()` 读取时前后各 `get_settings.cache_clear()`），或用
+`dataclasses.replace(get_settings(), ...)` patch 消费方模块的 `get_settings`（如
+`modules.assistant.service.get_settings`）；patch `core.config.get_settings` 只影响在
+函数体内 import 的调用方。勿将任何项目 import 移到 setdefault 块之前：`app/main.py` 在
+import 时调用 `get_settings()` 冻结 `lru_cache`，先 import 会让钉法静默失效。
+
 Fixture 使用者只通过测试函数参数名请求 fixture。不得使用
 `from conftest import ...`、`from tests.conftest import ...` 或其他普通 Python
 import 复用 fixture；这会让 `conftest` 的解析取决于 pytest 收集顺序。所有
