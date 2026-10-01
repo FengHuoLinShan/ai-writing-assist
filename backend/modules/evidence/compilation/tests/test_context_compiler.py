@@ -1832,11 +1832,18 @@ class TestEditorialBriefSection:
         assert "不启用暴力描写" in brief.content
         # excluded_targets 不进入写作上下文
         assert "excluded_targets" not in brief.content
+        # 来源有独立键与作者语言标签，不与项目资料共用 project:<UUID> 键
+        assert brief.sources == [
+            {
+                "type": "project",
+                "id": "editorial_brief:v3",
+                "label": "编辑约定 v3",
+                "status": "canonical",
+            }
+        ]
 
     def test_no_brief_no_section(self) -> None:
-        sections = ContextCompiler()._build_sections(
-            self._bundle(None), self._options()
-        )
+        sections = ContextCompiler()._build_sections(self._bundle(None), self._options())
         assert all(s.key != "editorial_brief" for s in sections)
 
     def test_brief_section_changes_confirmation_fingerprint(self) -> None:
@@ -1852,9 +1859,7 @@ class TestEditorialBriefSection:
                 CompiledContext,
             )
 
-            return CompiledContext(
-                sections=sections, total_tokens=1, budget_tokens=12000
-            )
+            return CompiledContext(sections=sections, total_tokens=1, budget_tokens=12000)
 
         v1 = compiled_with(
             {"version": 1, "brief": {"voice": "第一版文风", "preserve": []}}
@@ -1886,7 +1891,12 @@ class TestEditorialBriefLoader:
             }
 
         bundle = StructureContextBundle(novel_id="n", task="t", scope="chapter")
-        options = CompileOptions(novel_id="n", task="t", scope="chapter")
+        options = CompileOptions(
+            novel_id="n",
+            task="t",
+            scope="chapter",
+            consumer_action="writing.generate",
+        )
         await EditorialBriefLoader(get_brief_fn=disabled).load(None, options, bundle)
         assert bundle.editorial_brief is None
         assert bundle.budget_used["editorial_brief"] == 0
@@ -1897,4 +1907,68 @@ class TestEditorialBriefLoader:
             "version": 2,
             "brief": {"voice": "短句为主", "preserve": []},
         }
+        assert bundle.budget_used["editorial_brief"] == 1
+
+    async def test_loader_gates_on_consumer_action_and_reveal_mode(self) -> None:
+        """约定只进入 AI 写作的作者视角；角色卡/读者视角不加载。"""
+        from modules.evidence.compilation.services.loaders.editorial_brief_loader import (
+            EditorialBriefLoader,
+        )
+
+        async def enabled(db, novel_id):
+            return {
+                "version": 2,
+                "brief": {"voice": "短句为主", "preserve": []},
+            }
+
+        loader = EditorialBriefLoader(get_brief_fn=enabled)
+
+        # 非 writing.generate（如角色卡编译）静默跳过，不读库
+        bundle = StructureContextBundle(novel_id="n", task="t", scope="scene")
+        await loader.load(
+            None,
+            CompileOptions(
+                novel_id="n",
+                task="t",
+                scope="scene",
+                consumer_action="story.character_card",
+                reveal_mode="character",
+            ),
+            bundle,
+        )
+        assert bundle.editorial_brief is None
+        assert bundle.budget_used["editorial_brief"] == 0
+
+        # writing.generate 但读者/角色视角：跳过并留警告
+        bundle = StructureContextBundle(novel_id="n", task="t", scope="scene")
+        await loader.load(
+            None,
+            CompileOptions(
+                novel_id="n",
+                task="t",
+                scope="scene",
+                consumer_action="writing.generate",
+                reveal_mode="character",
+                viewpoint_character_id="c-1",
+            ),
+            bundle,
+        )
+        assert bundle.editorial_brief is None
+        assert bundle.budget_used["editorial_brief"] == 0
+        assert any("读者/角色视角不加载作者编辑约定" in w for w in bundle.warnings)
+
+        # writing.generate + 作者视角：正常加载
+        bundle = StructureContextBundle(novel_id="n", task="t", scope="chapter")
+        await loader.load(
+            None,
+            CompileOptions(
+                novel_id="n",
+                task="t",
+                scope="chapter",
+                consumer_action="writing.generate",
+                reveal_mode="author_full",
+            ),
+            bundle,
+        )
+        assert bundle.editorial_brief is not None
         assert bundle.budget_used["editorial_brief"] == 1

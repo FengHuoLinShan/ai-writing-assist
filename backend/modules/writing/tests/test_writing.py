@@ -342,6 +342,52 @@ class TestWritingDraftRepository:
         assert v3.version_number == 3
 
     @pytest.mark.asyncio
+    async def test_list_chapter_summaries_populate_existing_sees_row_updates(
+        self,
+        repo: WritingDraftRepository,
+        db_session: AsyncSession,
+        sample_draft_data: WritingDraftCreate,
+    ) -> None:
+        """导出复核依赖 populate_existing 看到同会话两次查询间的改版。
+
+        identity map 默认复用已加载对象：绕过 ORM 改行后，普通查询
+        仍返回旧属性；populate_existing=True 必须刷新出数据库新值。
+        """
+        from sqlalchemy import update as sa_update
+
+        from modules.writing.models import WritingDraft
+
+        draft = await repo.create(db_session, sample_draft_data)
+        draft.status = "published"
+        await db_session.flush()
+
+        first = await repo.list_chapter_summaries(
+            db_session, draft.novel_id, statuses=("published",)
+        )
+        assert [item.content_hash for item in first] == [draft.content_hash]
+
+        await db_session.execute(
+            sa_update(WritingDraft)
+            .where(WritingDraft.id == draft.id)
+            .values(content_hash="b" * 64, title="并发修改后的标题")
+        )
+        await db_session.flush()
+
+        stale = await repo.list_chapter_summaries(
+            db_session, draft.novel_id, statuses=("published",)
+        )
+        assert stale[0].content_hash == draft.content_hash
+
+        refreshed = await repo.list_chapter_summaries(
+            db_session,
+            draft.novel_id,
+            statuses=("published",),
+            populate_existing=True,
+        )
+        assert refreshed[0].content_hash == "b" * 64
+        assert refreshed[0].title == "并发修改后的标题"
+
+    @pytest.mark.asyncio
     async def test_create_different_chapters_independent_versions(
         self,
         repo: WritingDraftRepository,
@@ -1719,7 +1765,9 @@ class _ExportFakeRepo:
         self._recheck = recheck_published
         self.calls = 0
 
-    async def list_chapter_summaries(self, db, novel_id, *, statuses=None):
+    async def list_chapter_summaries(
+        self, db, novel_id, *, statuses=None, populate_existing: bool = False
+    ):
         self.calls += 1
         if statuses == ("published",):
             if self._recheck is not None and self.calls >= 3:

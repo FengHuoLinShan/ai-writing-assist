@@ -629,12 +629,15 @@ _TIER_HEADERS: dict[str, str] = {
 
 # 按 section key 确定性标注资料性质；只描述资料类别，不改变 section.content，
 # 因此不影响确认指纹（指纹只哈希内容与来源）。未列出的 key（任务、约束、
-# 编译器警告等系统类）不标注。
+# 编译器警告等系统类）不标注。世界书工作稿、外部项目的未定稿候选等
+# 尚未采用的内容必须标"候选"，不得与作者事实混同。
 _FACT_LEVEL_LABELS: dict[str, str] = {
     "fact": "事实：已采用正文或作者设定",
     "plan": "计划：大纲与 Scene 计划，尚未在正文中发生",
     "planning": "规划：剧情线与伏笔规划，不代表已发生",
     "derived": "派生：AI 派生或按视角过滤的摘要，非作者事实",
+    "candidate": "候选：未定稿或未采用的草稿与建议，不是正史事实",
+    "mixed": "混合：事实与候选混排，以各条目来源为准",
 }
 
 _SECTION_FACT_LEVELS: dict[str, str] = {
@@ -650,6 +653,17 @@ _SECTION_FACT_LEVELS: dict[str, str] = {
     "open_narrative_obligations": "planning",
     "retrieval_evidence_packs": "derived",
     "style_assets": "fact",
+    "world_entities": "fact",
+    "world_bible_activation": "fact",
+    "world_bible_synopsis": "fact",
+    "world_bible_working_pages": "candidate",
+    "reader_visible_world": "fact",
+    "reader_visible_manuscript": "fact",
+    "historical_role_context": "fact",
+    "scene_world_state": "fact",
+    "author_pinned_material": "mixed",
+    "focused_pins": "mixed",
+    "focused_evidence": "mixed",
     "role_profile": "fact",
     "role_observed_characters": "derived",
     "role_visible_knowledge": "derived",
@@ -707,11 +721,7 @@ def render_compiled_context(ctx: CompiledContext) -> str:
     for section in sorted(ctx.sections, key=lambda s: s.tier):
         header = _TIER_HEADERS.get(section.key, section.key)
         fact_level = _SECTION_FACT_LEVELS.get(section.key)
-        label = (
-            f"\n> 资料性质：{_FACT_LEVEL_LABELS[fact_level]}\n"
-            if fact_level
-            else ""
-        )
+        label = f"\n> 资料性质：{_FACT_LEVEL_LABELS[fact_level]}\n" if fact_level else ""
         parts.append(f"## {header}\n{label}\n{section.content}\n")
     trim_notice = _render_budget_trim_notice(ctx)
     if trim_notice:

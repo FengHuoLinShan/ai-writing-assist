@@ -73,6 +73,19 @@ async def save_editorial_brief(db, novel_id: str, value: EditorialBriefUpdate) -
 _WRITING_USE_KEY = "editorial_brief_for_writing_v1"
 
 
+def _brief_substantive(saved: dict) -> bool:
+    """约定是否有实质内容（决定开启开关后是否真正生效）。"""
+    brief = EditorialBrief.model_validate(saved.get("brief") or {})
+    return bool(
+        brief.voice.strip()
+        or brief.preserve
+        or brief.intentional_choices
+        or brief.target_readers.strip()
+        or brief.genre_promise.strip()
+        or brief.goals
+    )
+
+
 async def read_editorial_brief_for_writing(db, novel_id: str) -> dict | None:
     """作者开启「编辑约定也用于 AI 写作」且约定非空时返回 {version, brief}。
 
@@ -85,20 +98,11 @@ async def read_editorial_brief_for_writing(db, novel_id: str) -> dict | None:
     if not enabled:
         return None
     saved = settings.get(_KEY) or {}
-    brief = EditorialBrief.model_validate(saved.get("brief") or {})
-    substantive = (
-        brief.voice.strip()
-        or brief.preserve
-        or brief.intentional_choices
-        or brief.target_readers.strip()
-        or brief.genre_promise.strip()
-        or brief.goals
-    )
-    if not substantive:
+    if not _brief_substantive(saved):
         return None
     return {
         "version": int(saved.get("version") or 0),
-        "brief": brief.model_dump(),
+        "brief": EditorialBrief.model_validate(saved.get("brief") or {}).model_dump(),
     }
 
 
@@ -110,10 +114,12 @@ async def read_editorial_brief_writing_toggle(db, novel_id: str) -> dict:
     return {"enabled": enabled}
 
 
-async def set_editorial_brief_for_writing(
-    db, novel_id: str, *, enabled: bool
-) -> dict:
-    """切换「编辑约定也用于 AI 写作」；默认关闭，作者显式开启才生效。"""
+async def set_editorial_brief_for_writing(db, novel_id: str, *, enabled: bool) -> dict:
+    """切换「编辑约定也用于 AI 写作」；默认关闭，作者显式开启才生效。
+
+    返回的 effective 与 GET 口径一致：开关开启且约定非空。首开时
+    不能让界面拿着开启前的旧 effective 误报「约定还是空的」。
+    """
     service = ProjectService()
     service._reject_demo_write()
     await service.get_project(db, novel_id)
@@ -125,4 +131,7 @@ async def set_editorial_brief_for_writing(
         _WRITING_USE_KEY: {"enabled": bool(enabled)},
     }
     await db.flush()
-    return {"enabled": bool(enabled)}
+    return {
+        "enabled": bool(enabled),
+        "effective": bool(enabled) and _brief_substantive(row.settings.get(_KEY) or {}),
+    }

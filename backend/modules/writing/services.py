@@ -314,9 +314,7 @@ class WritingDraftService:
                 )
         working = await self._repo.list_chapter_summaries(db, nid)
         if chapter_index is not None:
-            working = [
-                item for item in working if item.chapter_index == chapter_index
-            ]
+            working = [item for item in working if item.chapter_index == chapter_index]
         published_chapters = {item.chapter_index for item in published}
         pending_chapters = sorted(
             item.chapter_index
@@ -339,12 +337,15 @@ class WritingDraftService:
         ]
 
         recheck = await self._repo.list_chapter_summaries(
-            db, nid, statuses=("published",)
+            db,
+            nid,
+            statuses=("published",),
+            # 同一会话第二次查询默认复用 identity map 里的旧对象，
+            # 必须强制刷新才能看到导出期间的并发改版
+            populate_existing=True,
         )
         if chapter_index is not None:
-            recheck = [
-                item for item in recheck if item.chapter_index == chapter_index
-            ]
+            recheck = [item for item in recheck if item.chapter_index == chapter_index]
         recheck_manifest = [
             {
                 "chapter_index": item.chapter_index,
@@ -424,9 +425,7 @@ class WritingDraftService:
         with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
             manifest_md = [f"# {book_title}", ""]
             manifest_md.extend(f"- {line}" for line in header_lines[1:])
-            archive.writestr(
-                "manifest.md", "\n".join(manifest_md) + "\n"
-            )
+            archive.writestr("manifest.md", "\n".join(manifest_md) + "\n")
             for item in chapters:
                 chapter_md = [f"# {chapter_heading(item)}", "", item.content or ""]
                 safe_title = "".join(
@@ -1502,17 +1501,19 @@ class WritingConflictCheckService:
         chapter_index: int,
         content: str | None,
         draft: object | None,
-    ) -> list[dict]:
+    ) -> tuple[list[dict], list[dict[str, str]]]:
         """跨章复读确定性检查：仅提示，不拒存。
 
         续写候选比较续写部分开头与冻结基稿结尾；其余比较候选开头与
         上一章（优先已采用版本）结尾。阈值未用真实长稿校准前保持保守。
+        返回 (问题列表, 覆盖缺口说明)；续写分支承诺的比较无法执行时
+        必须返回覆盖缺口，不得静默跳过。
         """
         candidate_text = (content or "").strip()
         if not candidate_text and draft is not None:
             candidate_text = (getattr(draft, "content", None) or "").strip()
         if not candidate_text:
-            return []
+            return [], []
         nid = _parse_uuid(novel_id, "novel_id")
         provenance = getattr(draft, "provenance_json", None) or {}
         if (
@@ -1532,9 +1533,22 @@ class WritingConflictCheckService:
                 base is None
                 or str(getattr(base, "novel_id", "")) != novel_id
                 or not base_text
-                or not candidate_lstripped.startswith(base_text)
             ):
-                return []
+                return [], [
+                    {
+                        "source": "writing.repetition_check",
+                        "reason": "base_draft_unavailable",
+                    }
+                ]
+            if not candidate_lstripped.startswith(base_text):
+                # 基稿在续写后被改过（候选不再以基稿为前缀），比较失去
+                # 基准：记录覆盖缺口而非静默跳过
+                return [], [
+                    {
+                        "source": "writing.repetition_check",
+                        "reason": "base_draft_modified",
+                    }
+                ]
             continuation = candidate_lstripped[len(base_text) :].lstrip()
             spans = detect_repetition_overlap(continuation, base_text)
             label = "续写基稿结尾"
@@ -1548,13 +1562,13 @@ class WritingConflictCheckService:
                 )
             previous_text = (getattr(previous, "content", None) or "").strip()
             if not previous_text:
-                return []
+                return [], []
             spans = detect_repetition_overlap(candidate_text, previous_text)
             label = f"上一章（第 {chapter_index - 1} 章）结尾"
         else:
-            return []
+            return [], []
         if not spans:
-            return []
+            return [], []
         longest = max(spans, key=lambda span: span["normalized_length"])
         return [
             {
@@ -1582,7 +1596,7 @@ class WritingConflictCheckService:
                     ),
                 ),
             }
-        ]
+        ], []
 
     async def create_check(
         self,
@@ -1663,15 +1677,17 @@ class WritingConflictCheckService:
         else:
             scene = None
 
-        items.extend(
-            await self._repetition_items(
-                db,
-                novel_id=data.novel_id,
-                chapter_index=data.chapter_index,
-                content=data.content,
-                draft=draft if draft_uuid is not None else None,
-            )
+        repetition_items, repetition_omissions = await self._repetition_items(
+            db,
+            novel_id=data.novel_id,
+            chapter_index=data.chapter_index,
+            content=data.content,
+            draft=draft if draft_uuid is not None else None,
         )
+        items.extend(repetition_items)
+        if repetition_omissions:
+            degraded_sources.append("writing.repetition_check")
+            omissions.extend(repetition_omissions)
 
         status = "degraded" if degraded_sources else "completed"
         summary_json = self._summary(items, degraded_sources, omissions)
@@ -4058,9 +4074,7 @@ def _normalize_for_repetition(
     normalized_chars: list[str] = []
     offsets: list[int] = []
     for pos, char in enumerate(value or ""):
-        kept = _REPETITION_STRIP_RE.sub(
-            "", unicodedata.normalize("NFKC", char).lower()
-        )
+        kept = _REPETITION_STRIP_RE.sub("", unicodedata.normalize("NFKC", char).lower())
         if not kept:
             continue
         normalized_chars.append(kept)

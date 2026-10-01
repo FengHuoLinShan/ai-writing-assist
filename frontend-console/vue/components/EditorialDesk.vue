@@ -119,17 +119,22 @@ const briefForWritingEffective = ref(false)
 const writingToggleBusy = ref(false)
 async function toggleBriefForWriting(enabled) {
   if (writingToggleBusy.value || !props.projectId) return
+  const projectId = props.projectId
   writingToggleBusy.value = true; error.value = ""
   try {
-    const saved = await getApi().projects.setEditorialBriefForWriting(props.projectId, Boolean(enabled))
+    const saved = await getApi().projects.setEditorialBriefForWriting(projectId, Boolean(enabled))
+    if (projectId !== props.projectId) return
+    // effective 由服务端按"开关开启且约定非空"返回，不继承开启前的旧值
     briefForWriting.value = Boolean(saved.enabled)
-    briefForWritingEffective.value = Boolean(enabled) && briefForWritingEffective.value
+    briefForWritingEffective.value = Boolean(saved.enabled) && Boolean(saved.effective)
     briefDraftNotice.value = saved.enabled
-      ? "已开启：这份约定将进入 AI 写作的参考资料确认。"
+      ? (saved.effective
+        ? "已开启：这份约定将进入 AI 写作的参考资料确认。"
+        : "已开启，但编辑约定还是空的；保存约定后才会进入 AI 写作。")
       : "已关闭：AI 写作不再读取这份约定。"
   } catch (cause) {
-    error.value = cause.message || "切换失败，请重试。"
-  } finally { writingToggleBusy.value = false }
+    if (projectId === props.projectId) error.value = cause.message || "切换失败，请重试。"
+  } finally { if (projectId === props.projectId) writingToggleBusy.value = false }
 }
 async function load() {
   if (!props.projectId) return
@@ -141,9 +146,9 @@ async function load() {
       getApi().assistant.editorialReviews(projectId), getApi().assistant.editorialIssues(projectId),
       getApi().projects.editorialBriefForWriting(projectId),
     ])
+    if (projectId !== props.projectId) return
     briefForWriting.value = Boolean(nextWritingUse?.enabled)
     briefForWritingEffective.value = Boolean(nextWritingUse?.effective)
-    if (projectId !== props.projectId) return
     restoreBrief(nextBrief); policy.value = nextPolicy; automaticEnabled.value = nextPolicy.enabled; automaticExclusionsText.value = (nextPolicy.excluded_chapters || []).join(", ")
     reviews.value = nextReviews; issues.value = nextIssues
     if (!nextReviews.some(item => item.id === selectedReviewId.value)) selectedReviewId.value = nextReviews[0]?.id || null

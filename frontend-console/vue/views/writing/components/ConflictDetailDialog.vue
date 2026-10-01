@@ -141,6 +141,7 @@ const kindLabels = {
   scene_commitment_missing: "场景必要承诺缺失",
   scene_forbidden_deviation: "场景出现禁止偏离内容",
   continuity_soft_risk: "软连续性风险",
+  cross_chapter_repetition: "跨章复读风险",
 }
 const continuityKinds = new Set(["space_continuity_risk", "time_continuity_risk", "logic_continuity_risk"])
 
@@ -326,6 +327,7 @@ const degradedSourceLabels = computed(() => {
     if (String(source).startsWith("outline")) return "故事结构"
     if (String(source).startsWith("world.map")) return "地图资料"
     if (String(source).startsWith("memory")) return "场景记忆"
+    if (String(source).startsWith("writing.repetition_check")) return "跨章复读检查"
     return "部分来源"
   })
   return Array.from(new Set(labels)).join("、") || "部分来源"

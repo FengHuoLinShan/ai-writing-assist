@@ -843,9 +843,7 @@ async def test_summarize_ai_usage_aggregates_by_capability(
                 status="succeeded",
                 novel_id=uuid.UUID(novel_id),
                 meta={
-                    AI_RUN_ENVELOPE_KEY: envelope(
-                        novel_id, "writing.generation", 100, 50
-                    )
+                    AI_RUN_ENVELOPE_KEY: envelope(novel_id, "writing.generate", 100, 50)
                 },
             ),
             AsyncTask(
@@ -866,7 +864,7 @@ async def test_summarize_ai_usage_aggregates_by_capability(
                 novel_id=uuid.UUID(other_novel),
                 meta={
                     AI_RUN_ENVELOPE_KEY: envelope(
-                        other_novel, "writing.generation", 999, 999
+                        other_novel, "writing.generate", 999, 999
                     )
                 },
             ),
@@ -886,8 +884,8 @@ async def test_summarize_ai_usage_aggregates_by_capability(
     )
     assert summary["tasks_with_envelope"] == 2
     capabilities = summary["capabilities"]
-    assert capabilities["writing.generation"]["prompt_tokens"] == 100
+    assert capabilities["writing.generate"]["prompt_tokens"] == 100
     assert capabilities["writing.semantic_review"]["prompt_tokens"] == 30
-    assert "requests" in capabilities["writing.generation"]
+    assert "requests" in capabilities["writing.generate"]
     # 其他项目的任务不计入
     assert all(bucket["prompt_tokens"] != 999 for bucket in capabilities.values())

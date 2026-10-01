@@ -176,10 +176,11 @@ NOWAIT 保证已持领域锁的入口不会等待项目锁升级；并发作者�
 `expected_version` 冲突保存；每次 Assistant 编辑任务冻结版本。单次意见忽略不会自动形成
 长期偏好；公开只读演示源拒绝写入。
 「编辑约定也用于 AI 写作」是独立开关（`settings.editorial_brief_for_writing_v1`，默认
-关闭）：`GET/PUT /api/projects/{id}/editorial-brief/for-writing` 读写，GET 返回原始开关
+关闭）：`GET/PUT /api/projects/{id}/editorial-brief/for-writing` 读写，两者都返回原始开关
 `enabled` 与有效态 `effective`（开关开启且约定非空）。开启后约定作为
-`editorial_brief` section 在编译期进入 chapter/scene scope 的确认预览与指纹，文风只决定
-表达方式、不新增事实或事件。
+`editorial_brief` section 在编译期进入 chapter/scene scope 的确认预览与指纹，仅对
+`writing.generate` 的作者视角（author_safe/author_full）加载，读者/角色视角与其他
+消费动作不注入；文风只决定表达方式、不新增事实或事件。
 
 `GET /api/projects/{id}/ai-usage?days=` 是 owner 次级诊断入口：扫描窗口期任务
 `_ai_run_envelope` 私有键，按能力聚合模型请求与输入/输出词元，不暴露 prompt 内容或模型

@@ -56,6 +56,30 @@ function model(overrides = {}) {
 describe("ConflictDetailDialog", () => {
   enableAutoUnmount(afterEach)
 
+  it("跨章复读风险显示中文标签，不暴露内部枚举", () => {
+    const wrapper = mount(ConflictDetailDialog, {
+      props: {
+        model: model({
+          check: {
+            ...model().check,
+            items: [
+              {
+                id: "repeat-1",
+                severity: "medium",
+                kind: "cross_chapter_repetition",
+                status: "open",
+                source_module: "writing",
+                evidence_summary: "与第 1 章段落重复",
+              },
+            ],
+          },
+        }),
+      },
+    })
+    expect(wrapper.text()).toContain("跨章复读风险")
+    expect(wrapper.text()).not.toContain("cross_chapter_repetition")
+  })
+
   it("以 Vue 文本节点完整展示规则、AI 判断、证据和建议", () => {
     const wrapper = mount(ConflictDetailDialog, { props: { model: model() } })
     expect(wrapper.text()).toContain("字面预警")

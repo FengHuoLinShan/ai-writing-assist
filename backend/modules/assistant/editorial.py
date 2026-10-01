@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import asdict
 from datetime import UTC, datetime
 from uuid import UUID
@@ -70,20 +71,28 @@ def _enabled():
         )
 
 
-def _fingerprint(finding: dict) -> str:
-    """意见的稳定身份：类目 + 涉及对象 id 集合 + 证据章节集合。
-
-    引文只作定位不作身份——正文改写措辞或模型换了首条证据 quote，
-    身份不变，作者此前的处置得以继承。涉及对象来自 context_evidence
-    的 source_id（世界/结构对象）；对象集合不同即视为不同意见。
-    """
-    source_ids = sorted(
+def _finding_source_ids(finding: dict) -> list[str]:
+    return sorted(
         {
             str(item.get("source_id") or "")
             for item in finding.get("context_evidence") or []
             if item.get("source_id")
         }
     )
+
+
+def _fingerprint(finding: dict) -> str:
+    """意见的稳定身份：类目 + 涉及对象 id 集合 + 证据章节集合。
+
+    引文只作定位不作身份——正文改写措辞或模型换了首条证据 quote，
+    身份不变，作者此前的处置得以继承。涉及对象来自 context_evidence
+    的 source_id（世界/结构对象）；对象集合不同即视为不同意见。
+    编辑类意见（copy/line/reader）通常没有对象引用，同类目同章节的
+    不同意见只剩引文可区分：此时身份额外锚定首条证据引文（去空白
+    归一），否则同一章的两条意见会算出同一身份被去重吞掉；代价是
+    无对象意见改写措辞会视为新意见，不继承旧处置。
+    """
+    source_ids = _finding_source_ids(finding)
     evidence_chapters = sorted(
         {
             int(item["chapter_index"])
@@ -91,7 +100,13 @@ def _fingerprint(finding: dict) -> str:
             if item.get("chapter_index") is not None
         }
     )
-    key = [str(finding["category"]), source_ids, evidence_chapters]
+    key: list = [str(finding["category"]), source_ids, evidence_chapters]
+    if not source_ids:
+        first_quote = next(
+            (str(item.get("quote") or "") for item in finding.get("evidence") or []),
+            "",
+        )
+        key.append(re.sub(r"\s+", "", first_quote))
     return hashlib.sha256(json.dumps(key, ensure_ascii=False).encode()).hexdigest()
 
 
@@ -1062,6 +1077,8 @@ async def _save_findings(db, row, findings):
             # 旧身份算法的行作为别名迁移：同一条意见沿用旧行与既有处置，
             # 并把行指纹升级为新 key，保持与 report_json 的指纹一致，
             # 也避免同批多条意见共享旧 key 时互相覆盖。
+            # 旧 key 不含对象集合；复审意见与旧行的对象引用不一致时
+            # 不是同一条意见，不迁移旧行、不继承处置。
             legacy_key = _legacy_fingerprint(finding)
             prior = await db.scalar(
                 select(EditorialIssue)
@@ -1072,6 +1089,11 @@ async def _save_findings(db, row, findings):
                 .with_for_update()
             )
             matched_legacy = prior is not None
+            if prior is not None and _finding_source_ids(
+                prior.finding_json
+            ) != _finding_source_ids(finding):
+                prior = None
+                matched_legacy = False
         inherited_disposition = bool(
             prior and prior.disposition and prior.disposition != "open"
         )

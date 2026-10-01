@@ -1210,7 +1210,12 @@ class ContextCompiler:
                     status="canonical",
                     activation_reason="作者显式开启用于 AI 写作的长期约定",
                     sources=self._safe_sources_from_items(
-                        [{"novel_id": options.novel_id, "brief_version": version}],
+                        [
+                            {
+                                "id": f"editorial_brief:v{version}",
+                                "name": f"编辑约定 v{version}",
+                            }
+                        ],
                         default_type="project",
                         status="canonical",
                     ),

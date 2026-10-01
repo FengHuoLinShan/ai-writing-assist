@@ -138,7 +138,7 @@
               </label>
             </li>
           </ul>
-          <p class="writing-form-hint">「待核实」表示审查没有找到唯一的原文证据，默认不进入返修；勾选纳入时，返修只会先核对是否落实，不会当作确认的错误。</p>
+          <p class="writing-form-hint">「待核实」表示审查没有找到唯一的原文证据，默认不进入返修；勾选纳入时，返修只会先核对是否落实，不会当作确认的错误。「未落实」是阻断项，需要返修或重新审查后才能采用。</p>
         </section>
         <p v-if="state.candidateActionError" class="writing-candidate-action-error" role="alert">{{ state.candidateActionError }}</p>
         <AIResultTraceDetails
@@ -150,9 +150,9 @@
         />
         <div class="writing-candidate-review-actions">
           <button v-if="canAdoptCandidate" class="btn btn-primary" :disabled="candidateBusy" @click="$emit('adopt')">{{ state.candidateAction === 'adopt' ? '采用中…' : '采用到工作稿' }}</button>
-          <button v-else-if="(reviewBlocked || hasUnresolvedReview) && !commentCandidate" class="btn btn-primary" :disabled="candidateBusy" @click="$emit('targeted-revision', [...includedContractItemIds])">{{ generationLoading ? '处理中…' : (includedContractItemIds.length ? `按问题返修（含 ${includedContractItemIds.length} 条待核实）` : '按问题定向返修') }}</button>
+          <button v-else-if="targetedRevisionReady && !commentCandidate" class="btn btn-primary" :disabled="candidateBusy" @click="$emit('targeted-revision', [...includedContractItemIds])">{{ generationLoading ? '处理中…' : (includedContractItemIds.length ? `按问题返修（含 ${includedContractItemIds.length} 条待核实）` : '按问题定向返修') }}</button>
           <button v-else class="btn btn-primary" :disabled="candidateBusy" @click="$emit('semantic-review')">{{ generationLoading ? '处理中…' : independentReview ? '重新独立审查' : '运行独立语义审查' }}</button>
-          <button v-if="canAdoptCandidate || reviewBlocked" class="btn" :disabled="candidateBusy" @click="$emit('semantic-review')">{{ independentReview ? '重新独立审查' : '运行独立语义审查' }}</button>
+          <button v-if="canAdoptCandidate || targetedRevisionReady" class="btn" :disabled="candidateBusy" @click="$emit('semantic-review')">{{ independentReview ? '重新独立审查' : '运行独立语义审查' }}</button>
           <button class="btn writing-candidate-reject" :disabled="candidateBusy" @click="$emit('reject')">{{ state.candidateAction === 'reject' ? '拒绝中…' : '拒绝建议' }}</button>
         </div>
         <details>
@@ -332,6 +332,11 @@ function locateContractItem(item) {
 const contractItemStatusLabel = (item) => ({ met: "已落实", unmet: "未落实", unknown: "待核实" }[item?.status] || "待核实")
 const contractItemBadgeClass = (item) => ({ met: "badge-done", unmet: "badge-processing", unknown: "badge-pending" }[item?.status] || "badge-pending")
 const reviewBlocked = computed(() => independentReview.value?.verdict === "needs_revision" || Number(independentReview.value?.blocking_count || 0) > 0)
+// 定向返修只在真正有可返修内容时作为主按钮：阻断问题，或作者勾选了
+// 带正文位置的待核实条目。incomplete 且无可勾选条目时主按钮退回
+// 「重新独立审查」，不再走入只弹提示的死路。
+const targetedRevisionReady = computed(() => reviewBlocked.value
+  || (hasUnresolvedReview.value && includedContractItemIds.value.length > 0))
 const commentCandidate = computed(() => props.state.provenanceJson?.source === "writing_comment_revision")
 const canAdoptCandidate = computed(() => commentCandidate.value
   ? props.state.provenanceJson?.knowledge_review?.status === "passed"

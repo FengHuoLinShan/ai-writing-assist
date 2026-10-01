@@ -164,6 +164,52 @@ describe("WritingEditor semantic review gate", () => {
     expect(wrapper.findAll("button").filter(button => button.text().includes("独立审查"))).toHaveLength(1)
   })
 
+  it("incomplete 且没有可勾选的待核实条目时，主按钮退回重新独立审查，不出现定向返修死路", () => {
+    const wrapper = mount(WritingEditor, { props: {
+      state: state({
+        review_required: true,
+        independent_review: {
+          verdict: "incomplete",
+          blocking_count: 0,
+          scene_contract_items: [
+            { id: "scene:s1:must:1", text: "发现线索", status: "met", excerpt: "发现线索" },
+            { id: "scene:s1:must:2", text: "无定位条目", status: "unknown", excerpt: null },
+          ],
+        },
+      }),
+      attach: vi.fn(), detach: vi.fn(),
+    } })
+    expect(wrapper.get(".btn-primary").text()).toBe("重新独立审查")
+    expect(wrapper.findAll("button").some(button => button.text().includes("按问题定向返修"))).toBe(false)
+    // 主按钮与次按钮不重复
+    expect(wrapper.findAll("button").filter(button => button.text().includes("独立审查"))).toHaveLength(1)
+  })
+
+  it("incomplete 且勾选待核实条目后，定向返修与重新独立审查同时可达", async () => {
+    const wrapper = mount(WritingEditor, { props: {
+      state: state({
+        review_required: true,
+        independent_review: {
+          verdict: "incomplete",
+          blocking_count: 0,
+          scene_contract_items: [
+            { id: "scene:s1:must:1", text: "拿到钥匙", status: "unknown", excerpt: "钥匙挂在墙上" },
+          ],
+        },
+      }),
+      attach: vi.fn(), detach: vi.fn(),
+    } })
+    // 未勾选前主按钮是重新独立审查，次级重复按钮不出现
+    expect(wrapper.get(".btn-primary").text()).toBe("重新独立审查")
+    expect(wrapper.findAll("button").filter(button => button.text().includes("独立审查"))).toHaveLength(1)
+    await wrapper.get('input[type="checkbox"]').setValue(true)
+    expect(wrapper.get(".btn-primary").text()).toContain("按问题返修（含 1 条待核实）")
+    const reReview = wrapper.findAll("button").filter(button => button.text() === "重新独立审查")
+    expect(reReview).toHaveLength(1)
+    await reReview[0].trigger("click")
+    expect(wrapper.emitted("semantic-review")).toHaveLength(1)
+  })
+
   it("候选操作期间禁用决策并就地显示失败", () => {
     const wrapper = mount(WritingEditor, {
       props: {

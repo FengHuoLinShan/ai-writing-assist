@@ -187,11 +187,14 @@ location、contract refs、preserve 与 not_checked；机械门不能代替文�
 2026-10 起同一审查请求对 Scene `must_happen` 冻结条目清单
 （`scene:{scene_id}:must:{n}` + 文本哈希）逐条返回 `met / unmet / unknown` 三态判定；
 服务端核验每份 excerpt 在冻结正文中唯一出现（逐字与剥引号两分支都要求唯一，失败一律
-降为 unknown），只有全部条目获得有效判定时 `scene_contract` 才签署 `checked`。
-`unmet` 映射为既有 `contract_omission` minor finding 复用定向返修；待核实条目默认
+降为 unknown），`unmet` 无可定位位置时同样降为 unknown（确定未落实不得比待核实放行
+更松），只有全部条目获得有效判定时 `scene_contract` 才签署 `checked`。
+`unmet` 映射为既有 `contract_omission` major finding（阻断级：结论 needs_revision、
+采用门禁拒绝）并复用定向返修；待核实条目默认
 不进返修，作者显式纳入时返修 prompt 附边界声明（纳入不等于确认是错误，不得编造前史），
 回执以 `independent_review.scene_contract_items` 持久化逐条判定，前端按
-“已落实 / 未落实 / 待核实”三态展示。
+“已落实 / 未落实 / 待核实”三态展示；结论 incomplete 且没有可勾选的待核实条目时，
+主按钮退回「重新独立审查」，不提供点击后只弹提示的定向返修死路。
 `writing_targeted_revision` 绑定 review findings（或显式纳入的待核实合同条目）、
 base/hash、contract/context hash、
 allowed scope、preserve/must_not_change 和 supersedes，复用同一 Context 且只创建新

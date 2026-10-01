@@ -354,6 +354,7 @@ def test_outline_analysis_confirmation_tracks_automatic_range_assets() -> None:
         ContextSection,
         Tier,
     )
+
     options = CompileOptions(
         novel_id=str(uuid.uuid4()),
         task="分析范围结构",
@@ -2431,9 +2432,10 @@ class TestContextConfirmation:
         assert confirmation is not None
         assert confirmation.compile_options["chapter_index"] == 1
         assert confirmation.compile_options["requested_chapter_index"] == 1
-        assert confirmation.compile_options["compiled_context_fingerprint"] == data[
-            "context_fingerprint"
-        ]
+        assert (
+            confirmation.compile_options["compiled_context_fingerprint"]
+            == data["context_fingerprint"]
+        )
 
     @pytest.mark.asyncio
     async def test_preview_does_not_persist_and_final_confirm_binds_same_fingerprint(
@@ -2463,17 +2465,13 @@ class TestContextConfirmation:
         preview_data = preview_response.json()
         assert len(preview_data["context_fingerprint"]) == 64
         assert preview_data["selection_state"]["counts"]["required"] >= 2
-        assert (
-            await db_session.scalars(select(ContextConfirmation))
-        ).all() == []
+        assert (await db_session.scalars(select(ContextConfirmation))).all() == []
 
         confirm_response = await async_client.post(
             "/api/evidence/compilation/confirm",
             json={
                 **payload,
-                "expected_context_fingerprint": preview_data[
-                    "context_fingerprint"
-                ],
+                "expected_context_fingerprint": preview_data["context_fingerprint"],
             },
         )
 
@@ -2507,9 +2505,7 @@ class TestContextConfirmation:
 
         assert response.status_code == 409, response.text
         assert "context_preview_changed" in response.text
-        assert (
-            await db_session.scalars(select(ContextConfirmation))
-        ).all() == []
+        assert (await db_session.scalars(select(ContextConfirmation))).all() == []
 
     @pytest.mark.asyncio
     async def test_excluding_context_section_removes_non_p0_section(
@@ -3610,6 +3606,49 @@ def test_render_compiled_context_labels_fact_levels() -> None:
     assert "资料性质" not in constraints_block.split("##")[0]
     # 无裁剪时不输出裁剪记录
     assert "上下文预算裁剪记录" not in rendered
+
+
+def test_render_compiled_context_labels_core_fact_and_candidate_sections() -> None:
+    """世界/正文/场景状态等核心事实资料标注事实；工作稿与混排资料不得标成事实。"""
+    from modules.evidence.compilation.markdown_renderer import render_compiled_context
+    from modules.evidence.compilation.services.compiled_context import (
+        CompiledContext,
+        ContextSection,
+        Tier,
+    )
+
+    keys = [
+        "world_entities",
+        "world_bible_activation",
+        "world_bible_synopsis",
+        "reader_visible_world",
+        "reader_visible_manuscript",
+        "scene_world_state",
+        "historical_role_context",
+        "world_bible_working_pages",
+        "author_pinned_material",
+        "focused_pins",
+        "focused_evidence",
+    ]
+    ctx = CompiledContext(
+        sections=[
+            ContextSection(key=key, tier=Tier.P1, content=f"{key} 内容", token_count=5)
+            for key in keys
+        ],
+        total_tokens=55,
+        budget_tokens=100,
+    )
+    rendered = render_compiled_context(ctx)
+
+    for key in keys[:7]:
+        block = rendered.split(f"{key} 内容", 1)[0].split("##")[-1]
+        assert "资料性质：事实：已采用正文或作者设定" in block, key
+    working_block = rendered.split("world_bible_working_pages 内容", 1)[0]
+    candidate_block = working_block.split("##")[-1]
+    assert "资料性质：候选：未定稿或未采用的草稿与建议，不是正史事实" in (candidate_block)
+    for key in ("author_pinned_material", "focused_pins", "focused_evidence"):
+        block = rendered.split(f"{key} 内容", 1)[0].split("##")[-1]
+        assert "资料性质：混合：事实与候选混排，以各条目来源为准" in block, key
 
 
 def test_render_compiled_context_appends_budget_trim_notice() -> None:

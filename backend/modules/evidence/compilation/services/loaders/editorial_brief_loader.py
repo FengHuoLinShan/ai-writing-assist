@@ -28,7 +28,12 @@ async def _default_get_brief(db: AsyncSession, novel_id: str) -> Any:
 
 
 class EditorialBriefLoader(Loader):
-    """加载作者编辑约定；开关关闭或约定为空时不注入任何内容。"""
+    """加载作者编辑约定；仅 AI 写作（writing.generate）的作者视角注入。
+
+    开关关闭或约定为空时不注入任何内容；读者/角色视角与其他消费
+    动作（角色卡、大纲、导入整理等）不加载，约定里的刻意留白与
+    误导安排不得进入角色已知资料。
+    """
 
     def __init__(
         self,
@@ -46,6 +51,13 @@ class EditorialBriefLoader(Loader):
         options: CompileOptions,
         bundle: StructureContextBundle,
     ) -> None:
+        if options.consumer_action != "writing.generate":
+            bundle.budget_used["editorial_brief"] = 0
+            return
+        if options.reveal_mode not in {"author_safe", "author_full"}:
+            bundle.warnings.append("读者/角色视角不加载作者编辑约定")
+            bundle.budget_used["editorial_brief"] = 0
+            return
         brief = await self._get_brief(db, options.novel_id)
         if isinstance(brief, dict) and brief.get("brief"):
             bundle.editorial_brief = {

@@ -265,7 +265,9 @@ def _normalize_contract_items(
     """归一化模型返回的合同条目判定，失败一律降为 unknown。
 
     返回 (按冻结顺序的判定列表, 越界/重复说明)。缺失、重复、越界 id、
-    excerpt 无法唯一定位、met 无 excerpt，都不得计为通过。
+    excerpt 无法唯一定位、met/unmet 无 excerpt，都不得计为已签署：
+    met 无位置无法证明落实，unmet 无位置同样无法定位问题，
+    均按待核实处理并阻断采用。
     """
     by_id: dict[str, dict[str, Any]] = {}
     notes: list[str] = []
@@ -305,6 +307,10 @@ def _normalize_contract_items(
         if status not in {"met", "unmet", "unknown"}:
             status = "unknown"
         if status == "met" and not excerpt:
+            status = "unknown"
+        if status == "unmet" and not excerpt:
+            # 判定未落实却没有可定位的原文位置：与 met 无位置对称，
+            # 归为待核实，不允许比 unknown 放行更松。
             status = "unknown"
         if status in {"met", "unmet"} and excerpt:
             located = _excerpt_uniquely_locates(excerpt, content)
@@ -1230,7 +1236,9 @@ class WritingSemanticWorkflowService:
                         excerpt = item["excerpt"].strip()
                         offset = contract_target["content"].find(excerpt)
                         finding_data = {
-                            "severity": "minor",
+                            # 未落实是内容缺口而非提示：作为阻断项强制返修，
+                            # 候选不得带着确定缺失的合同条目被采用。
+                            "severity": "major",
                             "category": "contract_omission",
                             "location": {
                                 "draft_id": coverage_draft_id,
@@ -1588,12 +1596,10 @@ class WritingSemanticWorkflowService:
         contract_item_ids = list(contract_item_ids or [])
         selected_contract_items: list[dict[str, Any]] = []
         if contract_item_ids:
-            semantic_checks = (
-                (review.result.get("coverage") or {}).get("semantic_checks") or {}
-            )
-            receipt_items = (
-                semantic_checks.get(draft_id, {}).get("contract_items") or []
-            )
+            semantic_checks = (review.result.get("coverage") or {}).get(
+                "semantic_checks"
+            ) or {}
+            receipt_items = semantic_checks.get(draft_id, {}).get("contract_items") or []
             receipt_by_id = {
                 str(item.get("id")): item
                 for item in receipt_items
