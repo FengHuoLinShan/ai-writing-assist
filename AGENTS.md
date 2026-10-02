@@ -67,6 +67,7 @@
 
 - 业务读写隔离 `novel_id`；API、LLM 输出和入库须经 Pydantic/调用方 schema 校验。唯一跨项目例外为 ADR-0018：同 owner、显式版本化的 author source revision → interaction consumer 只读引用；来源查询用 source `novel_id`，RP 写入用 consumer `novel_id`。
 - 公开浏览器路径同时校验当前 account principal 与项目 `owner_id`；不接受调用方指定 owner，不用 worker/system 绕过 owner 校验，且仍过滤 `novel_id`。
+- 表格迁移只走 `/api/imports/migrations`（ADR-0030），仅收 `.xlsx/.csv`，不扩文稿白名单、不执行公式/宏；作者确认预览后经 world/story 窄 facade 落为已采用资产并带 `spreadsheet_migration` 来源与可撤销回执，同名只补空字段，冲突不落地；AI 整理仅预览。
 - 已采用对象默认保留历史、不硬删，项目永久删除除外。文稿仅接受 `.txt .epub .html .htm .mobi .azw3`，≤50MB；锁定运行时仅验证前四种，补齐 MOBI/AZW3 依赖及真实文件验收前不得宣称支持后两种。
 - 世界对象图片仅经 owner + `novel_id` 门禁的专用接口上传真实 PNG/JPEG，<6MiB、最大 4096×4096；服务端去元数据并转 WebP，不扩展为通用上传。
 - 实体抽取仅留长期创作资产；别名附着已有对象，不重复建实体。
