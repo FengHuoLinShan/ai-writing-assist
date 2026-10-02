@@ -10,17 +10,20 @@ updated: 2026-10-02T21:32:00+09:00
 
 ## 恢复快照
 
-- 实际完成：需求已与用户确认；并行开发计划已写入
-  [`docs/superpowers/plans/2026-10-02-spreadsheet-migration.md`](../../../../docs/superpowers/plans/2026-10-02-spreadsheet-migration.md)。
-  尚未开始实现。
-- 当前里程碑：计划交接，等待 Wave 0（L0 契约冻结）开工。
-- 下一步：在本 worktree 按计划 §4 L0 执行。先 `cd backend && uv add openpyxl defusedxml`，再落 §3 契约、
-  facade stub、会话表迁移，跑 `make lint`、`make schema-check` 和公共面测试，然后提交 L0，供各车道切分支。
-- 阻塞：无。提交、推送、真实模型验收和合入 main 都需要用户另行授权。
-- 工作区：`/Users/tywww/Desktop/项目/ai-writing-assist-spreadsheet`，分支 `codex/spreadsheet-migration`，
-  基于 `origin/main@0d555c463`，未设 upstream。主仓库的 `codex/storyforge-v6-implementation` 有无关未提交改动，
-  与本任务无关，不得触碰。
-- 最后核实：2026-10-02T21:32+09:00。
+- 实际完成：L0 契约冻结已提交（`7ed082b47`）：依赖 openpyxl/defusedxml、
+  `imports/spreadsheet_migration/` 全部契约文件（constants/schemas/repository 实现、
+  parsing/classify/synonyms/ai stub、ai_schemas、planning/service 占位）、
+  `ImportMigrationSession` model + 迁移 `20261003_import_migration_sessions`、
+  world/story 迁移契约与 facade 接线、公共面回归测试更新。Wave 1 七车道已派发
+  （分支 `codex/spreadsheet-migration-l1..l7`，worktree `../ai-writing-assist-sm-*`）。
+- 当前里程碑：Wave 1 并行开发中；批次 1（L1/L2/L3）运行中，随后批次 2（L4/L5）、批次 3（L6/L7a）。
+- 下一步：收集车道交接报告并审查契约偏离 → 按序合并 → L8 集成验收。
+- 阻塞：无。推送、真实模型验收和合入 main 需用户另行授权。
+- 工作区：`/Users/tywww/Desktop/项目/ai-writing-assist-spreadsheet`，分支 `codex/spreadsheet-migration`。
+  L0 门禁：make lint 通过、make schema-check 通过（PG 开发库已升到 head）、
+  公共面测试 5 通过、迁移 SQLite 隔离 up/down/up 与 PG 全链 up/down/up 均通过
+  （全链在 SQLite 因既有 JSONB 迁移不可行，属基线事实）。
+- 最后核实：2026-10-02（L0 提交后）。
 
 ## 目标与验收
 
@@ -53,7 +56,7 @@ updated: 2026-10-02T21:32:00+09:00
 ## 里程碑与进度
 
 - [x] 需求确认与架构计划（计划文档）。
-- [ ] Wave 0：L0 契约冻结并提交。
+- [x] Wave 0：L0 契约冻结并提交（7ed082b47）。
 - [ ] Wave 1：L1–L6 与 L7a 并行完成，各自交接报告已审查。
 - [ ] Wave 2：L8 集成，跑通 SQLite 真实链路、PG 关键路径和浏览器 e2e。
 - [ ] 真实文件验收，以及经用户授权的真实模型验收。
