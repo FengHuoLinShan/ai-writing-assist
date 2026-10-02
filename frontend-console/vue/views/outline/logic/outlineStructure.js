@@ -32,6 +32,7 @@ export const P20_TARGET_BY_SUBVIEW = {
 export const STRUCTURE_FILTER_DEFAULTS = { status: "", source: "", workflow_id: "", needs_review: "", skip: 0, limit: 50 }
 export const STRUCTURE_SOURCE_OPTIONS = [
   ["deep_import", "深度导入"],
+  ["spreadsheet_migration", "表格迁移"],
   ["manual", "手动"],
   ["ai_generated", "AI 生成"],
 ]
