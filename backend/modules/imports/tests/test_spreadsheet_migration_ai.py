@@ -158,9 +158,9 @@ def test_handler_declares_envelope_limits() -> None:
 async def test_submit_ai_run_rejects_over_budget(
     db_session: AsyncSession, session_row
 ) -> None:
-    with patch.object(  # autospec-exempt: 常量覆写无 spec 可言
+    with patch.object(
         ai_module, "AI_MAX_PACKETS", 0
-    ):
+    ):  # autospec-exempt: 常量覆写无 spec 可言
         with (
             patch(
                 "modules.project.facade.require_active_project", autospec=True
