@@ -189,10 +189,11 @@ async def reverse_applied_changes(
             )
             continue
         model, state_of = _model_and_state(str(item.get("kind", "")))
+        pk = getattr(model, "id", None) or getattr(model, "entity_id")
         obj = await db.scalar(
             select(model)
             .where(
-                model.id == parse_uuid(item["id"]), model.novel_id == parse_uuid(novel_id)
+                pk == parse_uuid(item["id"]), model.novel_id == parse_uuid(novel_id)
             )
             .with_for_update()
             .execution_options(populate_existing=True)

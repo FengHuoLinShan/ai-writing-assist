@@ -839,21 +839,32 @@ class SpreadsheetMigrationService:
 
     @staticmethod
     def _ai_coverage(session: ImportMigrationSession) -> dict[str, dict[str, Any]]:
-        """row_ref → {ai_available, ai_passed, ai_accepted}。"""
+        """row_ref → {ai_available, ai_passed, ai_accepted}。
+
+        组同时携带 governance.status 与 passed（L5 产出）；接受状态按组内
+        条目的 accept_ai 决策聚合到行级展示。
+        """
         coverage: dict[str, dict[str, Any]] = {}
         result = session.ai_result_json or {}
+        decisions = session.decisions_json or {}
         for operation in ("outline", "cleanup"):
             for group in result.get(operation, []) or []:
                 if not isinstance(group, dict):
                     continue
                 passed = (group.get("governance") or {}).get("status") == "passed"
-                entry = {
+                accepted = None
+                for entry in group.get("items", []) or []:
+                    decision = decisions.get(str(entry.get("item_key") or ""))
+                    if isinstance(decision, dict) and decision.get("accept_ai") is True:
+                        accepted = True
+                        break
+                row_entry = {
                     "ai_available": True,
                     "ai_passed": passed,
-                    "ai_accepted": None,
+                    "ai_accepted": accepted,
                 }
                 for row_ref in group.get("source_rows", []) or []:
-                    coverage[str(row_ref)] = entry
+                    coverage[str(row_ref)] = row_entry
         return coverage
 
     async def apply_session(
