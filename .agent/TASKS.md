@@ -1,5 +1,6 @@
 # 开放任务
 
+- [T-20261002-spreadsheet-migration](tasks/2026/T-20261002-spreadsheet-migration/TASK.md) — 表格（xlsx/csv）迁移作者在途项目资产
 - [T-20261002-general-worldbuilding-mcp](tasks/2026/T-20261002-general-worldbuilding-mcp/TASK.md) — 理法之环能力泛化 MCP 五轮升级与发布
 
 - [T-20260924-agent-cli-adapters](tasks/2026/T-20260924-agent-cli-adapters/TASK.md) — Agent 底座接入五种本机 CLI
