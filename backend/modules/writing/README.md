@@ -442,3 +442,12 @@ candidate 不视为正文变化。失效不自动触发付费重算。
 幂等；修改正文使旧标记失效，但不改变发布状态。只有新标记才通过 Assistant facade 通知已
 明确开启的后台编辑，普通自动保存不排队。编辑意见和改后复核由 Assistant 持有，Writing 的
 `independent_review` 仍只服务 AI candidate 的正式审稿与采用门禁。
+
+
+## 作者写作示例（B3 few-shot）
+
+作者在候选卡片/正文选区「存为例子」后（`Project.settings` 存储，好例 ≤3、
+反例 ≤2 且必须写差在哪），示例作为 `author_examples` section（P3）在
+writing.generate 的作者视角进入确认预览与指纹；超预算先截反例再截好例。
+候选 provenance 记录 `author_examples_used`，项目设置提供带/不带示例的
+对照统计（观察性诊断）。

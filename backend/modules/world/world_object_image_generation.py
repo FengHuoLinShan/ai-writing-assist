@@ -394,6 +394,8 @@ class WorldObjectImageGenerationService:
             status="queued",
             prompt=data.prompt,
             executor_json={"kind": executor.kind, "device_id": executor.device_id},
+            # B9：入队时冻结幂等键；生成期间实体被编辑也不改变登记归属。
+            request_hash=request_hash,
         )
         db.add(candidate)
         await db.flush()
@@ -691,21 +693,23 @@ async def handle_world_object_image_generate(db: AsyncSession, task) -> dict:
     locked.sha256 = reviewed.sha256
     locked.status = "review_ready"
     locked.error = None
-    # B9：登记可复用资产（幂等键含对象设定状态快照）。
+    # B9：登记可复用资产（幂等键入队时冻结；此处复用，不按完成时刻
+    # 的实体状态重算——否则生成期间编辑实体会把登记挂到错误的键上）。
     context_owner = str(locked.owner_id)
+    frozen_hash = locked.request_hash or _world_object_request_hash(
+        novel_id=str(locked.novel_id),
+        owner_id=context_owner,
+        entity=await WorldObjectImageGenerationService._entity(
+            db, str(locked.novel_id), str(locked.entity_id)
+        ),
+        prompt=locked.prompt,
+        executor=executor,
+    )
     await record_reusable_asset(
         db,
         novel_id=str(locked.novel_id),
         owner_id=context_owner,
-        request_hash=_world_object_request_hash(
-            novel_id=str(locked.novel_id),
-            owner_id=context_owner,
-            entity=await WorldObjectImageGenerationService._entity(
-                db, str(locked.novel_id), str(locked.entity_id)
-            ),
-            prompt=locked.prompt,
-            executor=executor,
-        ),
+        request_hash=frozen_hash,
         source_type="world_object",
         object_key=f"world-object-candidate:{locked.id}",
         provider=str((locked.executor_json or {}).get("kind") or "local-cli"),

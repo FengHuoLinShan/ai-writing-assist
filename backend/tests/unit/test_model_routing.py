@@ -297,3 +297,40 @@ async def test_managed_step_routes_and_records_provenance() -> None:
     )
     assert sanitized["model"] == "deepseek-flash"
     assert sanitized["sources"]["model"] == "cost_routing"
+
+
+def test_snapshot_client_uses_frozen_cost_routing() -> None:
+    """恢复任务的路由按快照固化；旧快照（无键）空路由回落主模型。"""
+    from modules.project.llm_runtime import create_project_snapshot_llm_client
+
+    settings = {
+        "llm": {
+            "provider_id": "deepseek",
+            "label": "DeepSeek",
+            "base_url": "https://api.deepseek.com",
+            "model": "deepseek-v4-flash",
+            "api_key": "test-key",
+        },
+        "cost_routing": {
+            "enabled": True,
+            "cheap_model": "deepseek-flash",
+            "capability_ids": ["imports.entity_extraction"],
+        },
+    }
+    client = create_project_snapshot_llm_client(settings)
+    try:
+        assert client.cost_routing["cheap_model"] == "deepseek-flash"
+    finally:
+        import asyncio
+
+        asyncio.run(client.close())
+
+    legacy = create_project_snapshot_llm_client(
+        {k: v for k, v in settings.items() if k != "cost_routing"}
+    )
+    try:
+        assert legacy.cost_routing == {}
+    finally:
+        import asyncio
+
+        asyncio.run(legacy.close())

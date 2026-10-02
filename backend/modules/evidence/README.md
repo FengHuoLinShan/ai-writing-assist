@@ -159,3 +159,11 @@ InputManifest，后续调用和终态均回验原引用。确认的选中/排除
 作者编辑台复用 `compile_review_world_evidence` 选择并精确回读本章作者可见世界资料，调用时
 声明 `assistant.editorial` 且保留排除与截断说明。世界资料只送作者判断，不进入顺序盲读；
 找不到或未选中的资料不得写成已核实事实。编辑意见不生成 Context confirmation 或正文采用回执。
+
+
+## 逐源证据字段（B8）
+
+`KnowledgeScopeReceipt` 的来源条目带逐源 `token_count`（item 级 tiktoken）、
+`state`（included/trimmed/omitted）与 `state_reason`、`hash_basis`
+（content=正文哈希 / identity=身份哈希）。账本 `to_dict()` 输出完整证据，
+指纹只哈希稳定子集（`_fingerprint_dict`），既有确认的指纹不漂移。

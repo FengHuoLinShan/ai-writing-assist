@@ -416,3 +416,13 @@ API 与 worker 使用相同 Compose runtime 环境。回退不降级表、不撤
 `NOVELCRAFT_PI_MODEL`，不修改项目账户连接。
 项目选择默认 gateway；本机执行需每个根 task 单独确认，离线不回退。开发时用本任务
 专用测试项目与 PostgreSQL 库，不把真实作品或本机 CLI 登录态放入服务端镜像。
+
+
+## 仓库治理门（storyforge-v6）
+
+- `make repo-gates`：二进制增量体积门（B11，单文件 1MB/单变更 5MB）、
+  生产文件行数门（P8，>3000 告警、>5000 高于基线失败）、发布证据账本校验
+  （B6，`docs/evidence/`）、跨模块 import 门（B2，豁免须登记理由）。
+  CI 在 `repo-gates.yml` 执行，脚本位于仓库根 `scripts/`。
+- `make scale-gate TIER=low DATABASE_URL=...`：长篇规模分档门（B7）编译
+  探针；基线见 `backend/tools/scale_gate_baselines.json`。

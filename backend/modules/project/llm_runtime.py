@@ -136,6 +136,9 @@ async def build_project_llm_execution_snapshot(
             materialized,
             inherited_llm_max_tokens=profile.max_tokens,
         ),
+        # B5：路由配置随快照固化（项目省钱开关 × 账户 verified 附加模型 ×
+        # cheap 能力集），恢复任务按快照执行，不随账户当前配置漂移。
+        "cost_routing": await build_cost_routing(db, novel_id),
     }
     if get_settings().interaction_agent_enabled or interaction_ensemble:
         context = await _service.get_project_context(db, novel_id, project_kind=None)
@@ -261,6 +264,7 @@ async def restore_project_llm_execution_settings(
         "llm": restored_llm,
         "_agent_runtime": deepcopy(snapshot.get("agent_runtime")),
         "deep_import": deepcopy(snapshot.get("deep_import") or {}),
+        "cost_routing": deepcopy(snapshot.get("cost_routing") or {}),
         DEEP_IMPORT_FROZEN_SETTINGS_KEY: True,
         _RUNTIME_SOURCES_KEY: dict(sources),
         "_llm_execution_profile_hash": expected_hash,

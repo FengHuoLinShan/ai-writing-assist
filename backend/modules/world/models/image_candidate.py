@@ -77,3 +77,9 @@ class WorldObjectImageCandidate(Base, UUIDMixin, TimestampMixin, NovelMixin):
     adopted_image_version: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True), nullable=True
     )
+    request_hash: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        comment="入队时冻结的幂等键（B9）；完成登记复用，避免生成期间实体"
+        "被编辑导致登记键漂移",
+    )

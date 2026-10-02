@@ -3007,6 +3007,9 @@ const settingsApi = {
     contractFetch("settings.activateLLMProvider", { providerId }),
   clearLLMProvider: (providerId) =>
     deleteRequest(`/account/settings/llm-connections/${providerId}`),
+  updateSecondaryModels: (models) =>
+    put("/account/settings/llm-defaults/secondary-models", { models }),
+  listLLMDefaults: () => request("/account/settings/llm-defaults", { cache: "no-store" }),
   listLLMBalances: () => contractFetch("settings.listLLMBalances"),
 
   // 全局作者偏好

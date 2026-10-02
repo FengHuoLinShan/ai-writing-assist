@@ -164,6 +164,7 @@ async function retryConnections() {
     connectionsLoadError.value = null
     connectionError.value = ""
     await refreshBalances()
+    void loadSecondaryModels()
   } catch {
     if (!disposed) connectionsLoadError.value = "模型连接暂时无法加载。"
   } finally {
@@ -199,6 +200,15 @@ async function loadImageConnection() {
   } finally {
     imageLoading.value = false
   }
+}
+
+async function loadSecondaryModels() {
+  try {
+    const defaults = await getApi().settings.listLLMDefaults()
+    if (Array.isArray(defaults?.secondary_models) && defaults.secondary_models.length) {
+      secondaryModelsInput.value = defaults.secondary_models.join(", ")
+    }
+  } catch { /* 附加模型读取失败不阻断连接表单 */ }
 }
 
 async function refreshBalances() {
@@ -266,6 +276,34 @@ async function saveConnection() {
     }
   } finally {
     connectionButton.saving.value = false
+  }
+}
+
+/* 附加模型（B5 省钱模式候选）：连接身份入口，连接后可编辑 */
+const secondaryModelsInput = ref("")
+const secondaryModelsSaving = ref(false)
+const secondaryModelsMessage = ref("")
+const secondaryModelsState = ref("success")
+
+async function saveSecondaryModels() {
+  if (secondaryModelsSaving.value) return
+  const models = secondaryModelsInput.value
+    .split(/[,，]/)
+    .map(item => item.trim())
+    .filter(Boolean)
+  secondaryModelsSaving.value = true
+  secondaryModelsMessage.value = ""
+  try {
+    const saved = await getApi().settings.updateSecondaryModels(models)
+    secondaryModelsInput.value = (saved.secondary_models || []).join(", ")
+    secondaryModelsMessage.value = "附加模型已保存"
+    secondaryModelsState.value = "success"
+    getToast()("附加模型已保存；作品设置里打开「省钱模式」后生效。", "success")
+  } catch (err) {
+    secondaryModelsMessage.value = err.message || "保存失败，请重试"
+    secondaryModelsState.value = "error"
+  } finally {
+    secondaryModelsSaving.value = false
   }
 }
 
@@ -516,6 +554,25 @@ onBeforeUnmount(() => {
           >刷新余额</button>
           <p class="settings-save-state" :class="`is-${connectionState.kind}`" role="status">{{ connectionState.message }}</p>
         </div>
+        <details v-if="selectedProvider?.connected" class="settings-subsection secondary-models-section">
+          <summary>附加模型（省钱模式候选）</summary>
+          <p class="settings-section-hint">打开作品的「省钱模式」后，资料抽取与整理类任务会改用这里配置的低成本模型；主模型仍用于正文等重要任务。未登记或未校准的模型名会被忽略。</p>
+          <label class="settings-field">
+            <span>附加模型名（逗号分隔，最多 4 个）</span>
+            <input
+              v-model="secondaryModelsInput"
+              type="text"
+              maxlength="400"
+              placeholder="例如：deepseek-flash"
+              :disabled="secondaryModelsSaving"
+              @keydown.enter.prevent="saveSecondaryModels"
+            >
+          </label>
+          <div class="settings-actions">
+            <button type="button" class="btn btn-sm" :disabled="secondaryModelsSaving" @click="saveSecondaryModels">{{ secondaryModelsSaving ? "保存中…" : "保存附加模型" }}</button>
+            <p v-if="secondaryModelsMessage" :class="`settings-save-state is-${secondaryModelsState}`" role="status">{{ secondaryModelsMessage }}</p>
+          </div>
+        </details>
       </template>
     </section>
 

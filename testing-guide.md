@@ -550,3 +550,12 @@ feed 门禁在每个样本前执行 `gc.collect()`，只衡量 feed 自身；进
 前端变更运行受影响 Vue 用例、lint 与 build。真实五 CLI 只用合成数据单列验证，
 同时记录本机模型/登录配置、最终结构化结果、工具次数、未知用量及 DSH 原生工具计数限制；
 离线通过不等于作品内容质量验收。
+
+
+## 仓库治理门测试
+
+`backend/tests/unit/test_governance_gates.py` 集中 B11 体积门、P8 行数门、
+B6 证据校验器与 B2 import 门的负样本测试；B1 接线测试在
+`tests/prompt_contracts/test_capability_bindings.py`（真实代码树断言）。
+规模夹具确定性测试在 `tests/unit/test_scale_fixtures.py`；低档阈值回归
+（PG 专用库）在 `tests/e2e/test_scale_gate_low.py`，随每日 PG e2e 运行。

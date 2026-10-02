@@ -190,6 +190,5 @@ async def set_author_examples_for_writing(db, novel_id: str, *, enabled: bool) -
     state = AuthorExamplesState.model_validate(saved.get("state") or {})
     return {
         "enabled": bool(enabled),
-        "effective": bool(enabled)
-        and any(item.is_substantive for item in state.examples),
+        "effective": bool(enabled) and _writing_generate_substantive(state),
     }

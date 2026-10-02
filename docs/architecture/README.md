@@ -98,3 +98,11 @@ ADR-0027 的 V1 在当时九模块中加入注册蓝图的有限协作，不改�
 
 `local_agent` 是作者 Mac 上五种 CLI 的项目设备与调用边界，复用现有任务租约。
 设备协议、非沙箱权限和数据边界见 [模块设计](../modules/23_local_agent.md)。
+
+
+## 仓库治理门（2026-10）
+
+CI 新增 `repo-gates` workflow：二进制增量体积（B11）、生产文件行数（P8）、
+发布证据账本（B6，`docs/evidence/`，不进 architecture-documents.toml 清单）
+与跨模块 import 门（B2，合法形态=contracts/facade/命名 facade/包再出口/
+ORM models，豁免登记于 `scripts/check_module_imports.py`）。

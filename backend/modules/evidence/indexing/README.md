@@ -418,3 +418,9 @@ Writing 的共享仓储变更边界在原事务调用 Evolution 失效 facade，
 编辑台的全书覆盖以 Writing 当前已保存工作稿清单为准，按冻结 ID/hash 顺序读取全文；
 RAG 索引仍只作世界资料选择的辅助，不定义已审章节全集。正文变化后的旧引文由 Writing
 原稿校验与 Assistant 失效投影处理，不依赖索引重建完成才显示风险。
+
+
+## 无变化说明
+
+本轮改动（B8 逐源证据、B3 few-shot）不触及索引与检索管线；scope 构建的
+逐源字段变化见 compilation 模块说明。

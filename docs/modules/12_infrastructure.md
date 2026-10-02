@@ -650,3 +650,9 @@ Flash max 思考与至少65,536输出上限，provider 等待至少900秒。客�
 栅栏、Project secret-free snapshot 和 managed LLM budget 执行；每个审稿段最多四次请求，
 改后复核一次。分段结果在领域 review 中持久化；用量未知不重试。作者主动编辑复用 Watch
 单项目后台执行槽、稳定期和每日额度，单独的服务端开关与项目授权均默认关闭。
+
+
+### LLM 结构化输出声明与任务级路由（2026-10）
+
+能力档案 `structured_output` 三态（显式非 supported 即 fail-closed）；
+managed step 按项目省钱开关与 cheap 能力集在同 provider 内切换低成本模型。

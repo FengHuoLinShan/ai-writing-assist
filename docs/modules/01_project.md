@@ -185,3 +185,10 @@ NOWAIT 保证已持领域锁的入口不会等待项目锁升级；并发作者�
 `GET /api/projects/{id}/ai-usage?days=` 是 owner 次级诊断入口：扫描窗口期任务
 `_ai_run_envelope` 私有键，按能力聚合模型请求与输入/输出词元，不暴露 prompt 内容或模型
 密钥；单次扫描上限 500 条任务，截断时返回 `scan_truncated`。
+
+
+### 作者写作示例与省钱模式（2026-10）
+
+项目设置新增两块：作者写作示例（好例/反例 few-shot，`author-examples`
+端点族，仅影响正文生成）与省钱模式开关（`llm-cost-saving`，抽取类任务在
+同连接内改用低成本附加模型）。二者均存 `Project.settings`，默认关闭。

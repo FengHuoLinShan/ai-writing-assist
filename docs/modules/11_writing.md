@@ -292,3 +292,9 @@ AI candidate 必须复验原 confirmation、正文和 world 来源；人工稿�
 标记独立于“设为正式正文”，普通自动保存不启动编辑任务。改稿后旧标记和旧意见显示来源
 可能失效。Assistant 编辑建议只读，不写 `independent_review` provenance，也不能替代
 AI candidate 的正式审稿、知识边界或采用门禁。
+
+
+### 作者写作示例 few-shot（2026-10）
+
+好例/反例在确认预览可见并计入指纹；候选 provenance 标记是否使用示例，
+项目设置提供对照统计（观察性诊断）。

@@ -211,3 +211,10 @@ Collaboration 的工作区/采用回执与 Assistant 的前瞻属于不同所有
 数据库目录登记。子 APIRouter 的声明前缀和实际挂载入口需在模块说明中同时解释，
 例如 `/forecasts` 挂载为 `/api/assistant/forecasts`；独立旅程路由仍归 Interaction。
 验收记录保留真实的来源、主体、作用范围与执行证据，不以注册了能力名代替业务实现。
+
+
+## 治理门文档边界（2026-10）
+
+`docs/evidence/`（B6 发布证据账本）与 `scripts/check_*` 治理门脚本属仓库
+级门禁资产：证据目录刻意排除在 architecture-documents.toml 清单外（验收
+报告类不进架构清单），由 `scripts/check_release_evidence.py` 直接校验。

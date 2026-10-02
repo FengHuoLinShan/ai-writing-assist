@@ -320,3 +320,14 @@ Kimi/Pi/DSH 通过 0600 任务文件接收正文，避免把作品资料放入�
 使用 stdin。DSH headless 当前只有纯文本结果，不能从其 stdout 准确计数原生工具；
 产品工具仍由服务器限次，原生执行只受时限与输出上限约束，此限制须在验收中单列。
 产品的配对、领域工具与任务租约由 `modules/local_agent` 持有；现有 gateway 路径不变。
+
+
+## 结构化输出能力声明与任务级路由（B5）
+
+`capabilities.py` 的能力档案带 `structured_output` 三态声明（`supported` /
+显式 `unverified`/`unsupported` / 默认 `None` 未声明）。`client.generate_structured`
+对显式非 supported 的已登记模型 fail-closed（`unsupported_structured_output`）；
+未登记模型保持历史行为。`agent_step_harness` 的 managed step 按 client 注入的
+`cost_routing`（`modules/project/model_routing` 决定）在 cheap 能力上覆盖
+`request.model`，provenance 的 `profile_summary.model` 记录实际调用模型、
+`sources.model=cost_routing`。
