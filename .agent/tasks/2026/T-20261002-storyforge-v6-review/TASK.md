@@ -3,7 +3,7 @@ id: T-20261002-storyforge-v6-review
 title: StoryForge v6 实现核查与全部整改
 status: active
 created: 2026-10-02T14:20:34+09:00
-updated: 2026-10-02T22:30:00+09:00
+updated: 2026-10-02T22:50:00+09:00
 ---
 
 # StoryForge v6 实现核查与全部整改
@@ -12,12 +12,12 @@ updated: 2026-10-02T22:30:00+09:00
 
 - 实际完成：首轮 S1-S4/F1-F11、第二轮 13 项、第三轮 4 项 review 发现均已修复并提交到
   `codex/storyforge-v6-implementation`；用户 2026-10-02 授权“修好后直接提 PR”。
-- 当前里程碑：本地验证完成，推送并开 PR（见文末第三轮检查点）。
-- 下一步：跟进 PR 的 GitHub CI 与评审；合并、部署须另行授权。真实模型（`make test-real-kimi`）仍未运行。
+- 当前里程碑：已推送并开 PR #188（https://github.com/FengHuoLinShan/ai-writing-assist/pull/188），等待 CI 与评审。
+- 下一步：`gh pr checks 188` 跟进 CI（Backend quality、PostgreSQL critical、前端浏览器等），失败则在本分支修复；合并、部署须另行授权。真实模型（`make test-real-kimi`）仍未运行。
 - 阻塞：无。
 - 工作区：本仓库同分支；同一工作树另有会话的 `T-20261002-world-relational-management` 任务记录与
   `.agent/TASKS.md` 索引行未提交，属该任务，不随本 PR 提交。
-- 最后核实：2026-10-02T22:30+09:00；`origin/main` 仍为 `0d555c463`。
+- 最后核实：2026-10-02T22:50+09:00；`origin/main` 仍为 `0d555c463`；第三轮整改提交 `a55f009a9`。
 
 ## 目标与验收
 
@@ -163,4 +163,5 @@ updated: 2026-10-02T22:30:00+09:00
 - **作者提示进模型正文**：部分丢弃的“可精简示例”提示从 section 正文移到 `bundle.warnings`（确认预览可见）；模型提示词标题来自固定 `SECTION_TITLES`，section.title 仅作者可见，保留。
 - **token_groups 溢出**：overflow key 改为 `__overflow__:<source_key>`，共享组不再折叠（按 key 跨来源去重复算），overflow state 继承被折叠组（不一致为 mixed）；新增多来源溢出回归。
 - **P0 适配器级回归**：`test_workflow.py` 新增深度导入信封下 `_run_deep_import_structured_call` 路由与归属用例；已验证把参数改回 `capability_id` 时该用例以 AIRunIdentityError 失败。
-- 验证：见 PR 描述；`make lint`、`make docs-check BASE_REF=origin/main`、`git diff --check` 通过，`make test-ci` 结果记录于 PR。未运行 PG critical/e2e 与真实模型。
+- 验证：`make test-ci TEST_WORKERS=4` 退出 0（后端 6553 passed/15 skipped，覆盖率 85.93%；deploy 271；前端 2658）；`make repo-gates`、`make docs-check BASE_REF=origin/main`、`make lint`、`git diff --check` 通过。未本地运行 PG critical/e2e 与真实模型。
+- 交付：提交 `a55f009a9`，推送分支，开 PR #188；未合并、未部署。
