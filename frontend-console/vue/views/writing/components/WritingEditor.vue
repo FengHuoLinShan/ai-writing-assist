@@ -4,6 +4,7 @@
       <div id="writing-editor-buttons" class="writing-editor-buttons">
         <button v-if="state.status !== 'candidate'" id="btn-autosave" class="btn btn-primary btn-sm writing-save-action" :disabled="!chapterReady || state.readonly || state.saving" :aria-busy="state.saving" @click="$emit('autosave')">{{ state.saving ? '保存中…' : state.restoreSourceVersion ? '保存为新工作稿' : '保存工作稿' }}</button>
         <button v-if="state.status !== 'candidate'" type="button" class="btn btn-sm" :disabled="!canComment" @click="addComment">批注选中内容</button>
+        <button v-if="state.status !== 'candidate'" type="button" class="btn btn-sm" :disabled="!canExample" title="把选中的段落存为好例/反例，之后的 AI 生成会参考" @click="saveSelectionExample">选段存为例子</button>
         <button v-if="editorialAvailable && state.status === 'draft'" class="btn btn-sm" type="button" :disabled="!chapterReady || state.readonly || state.dirty || state.saving || !state.content.trim() || !state.draftId" @click="$emit('editorial-ready')">{{ state.editorialReadyHash && state.editorialReadyHash === state.contentHash ? '本版已交编辑' : '本章写完，交给编辑看' }}</button>
         <div ref="toolMenusEl" class="writing-editor-buttons__menus" @click.capture="closeToolMenuAfterAction" @keydown="onToolMenuKeydown">
           <details v-if="state.status !== 'candidate'" class="writing-tools-menu" @toggle="onToolMenuToggle('save', $event)">
@@ -154,6 +155,7 @@
           <button v-else class="btn btn-primary" :disabled="candidateBusy" @click="$emit('semantic-review')">{{ generationLoading ? '处理中…' : independentReview ? '重新独立审查' : '运行独立语义审查' }}</button>
           <button v-if="canAdoptCandidate || targetedRevisionReady" class="btn" :disabled="candidateBusy" @click="$emit('semantic-review')">{{ independentReview ? '重新独立审查' : '运行独立语义审查' }}</button>
           <button class="btn writing-candidate-reject" :disabled="candidateBusy" @click="$emit('reject')">{{ state.candidateAction === 'reject' ? '拒绝中…' : '拒绝建议' }}</button>
+          <button class="btn" :disabled="candidateBusy" title="把这份建议（或其中喜欢的语感）存为好例/反例" @click="$emit('save-example', { origin: 'candidate' })">存为写作示例</button>
         </div>
         <details>
           <summary>参考资料已变化或无法审查</summary>
@@ -225,7 +227,7 @@ const emit = defineEmits(["composition", "open-chapters", "create-chapter",
   "generate-draft", "generate-continuation", "generate-pov", "regenerate-candidate",
   "auto-extract", "open-deep-import-settings", "open-ai-tools", "adopt", "reject",
   "semantic-review", "deep-review", "editorial-ready", "editorial-open", "targeted-revision", "compare-candidate", "export",
-  "retry-load", "reload-server", "focus-context", "add-comment", "export-book",
+  "retry-load", "reload-server", "focus-context", "add-comment", "export-book", "save-example",
 ])
 
 const titleEl = ref(null)
@@ -246,6 +248,16 @@ const canComment = computed(() => Boolean(
 ))
 function addComment() {
   if (canComment.value) emit("add-comment", selectedFocus.value)
+}
+const canExample = computed(() => Boolean(
+  chapterReady.value && selectedFocus.value?.selection
+))
+function saveSelectionExample() {
+  if (!canExample.value) return
+  emit("save-example", {
+    origin: "selection",
+    content: String(selectedFocus.value.selection || "").slice(0, 2000),
+  })
 }
 const highlightedSegments = computed(() => {
   const content = props.state.content || ""

@@ -58,6 +58,10 @@ PROJECT_OWNED_ACTIVE_BOUNDARIES = {
     "GET /api/projects/{project_id}/editorial-brief/for-writing": (
         "read_editorial_brief_writing_toggle"
     ),
+    "GET /api/projects/{project_id}/author-examples": "read_author_examples",
+    "GET /api/projects/{project_id}/author-examples/for-writing": (
+        "read_author_examples_writing_toggle"
+    ),
     "GET /api/projects/{project_id}/ai-usage": "get_project_ai_usage",
     "DELETE /api/projects/{project_id}/author-preferences/field/{field_name}": (
         "reset_project_author_preferences_field"
@@ -86,6 +90,10 @@ PROJECT_OWNED_ACTIVE_BOUNDARIES = {
     "PUT /api/projects/{project_id}/editorial-brief": "save_editorial_brief",
     "PUT /api/projects/{project_id}/editorial-brief/for-writing": (
         "set_editorial_brief_for_writing"
+    ),
+    "PUT /api/projects/{project_id}/author-examples": "save_author_examples",
+    "PUT /api/projects/{project_id}/author-examples/for-writing": (
+        "set_author_examples_for_writing"
     ),
     "PUT /api/projects/{project_id}/llm-settings": "update_llm_settings",
     "PUT /api/projects/{project_id}/author-preferences": (

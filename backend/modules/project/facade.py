@@ -16,6 +16,21 @@ from sqlalchemy.sql import Select
 from core.errors import ConflictError, NotFoundError
 from core.logging_context import bind_validated_novel_id
 from modules.project.contracts import InteractionProjectContract, ProjectSummary
+from modules.project.author_examples import (
+    read_author_examples as read_author_examples,
+)
+from modules.project.author_examples import (
+    read_author_examples_for_writing as read_author_examples_for_writing,
+)
+from modules.project.author_examples import (
+    read_author_examples_writing_toggle as read_author_examples_writing_toggle,
+)
+from modules.project.author_examples import (
+    save_author_examples as save_author_examples,
+)
+from modules.project.author_examples import (
+    set_author_examples_for_writing as set_author_examples_for_writing,
+)
 from modules.project.editorial_brief import (
     read_editorial_brief as read_editorial_brief,
 )

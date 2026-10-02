@@ -142,6 +142,7 @@ class _WritingGenerationTaskPlan:
     knowledge_task_instruction: str = ""
     knowledge_generator_context: str = ""
     knowledge_authority_context: str = ""
+    author_examples_used: bool = False
 
 
 _DEFAULT_WRITING_SYSTEM_PROMPT = (
@@ -3178,6 +3179,7 @@ class WritingGenerationService:
         scene_execution_bundle: dict[str, Any] | None = None,
         scene_execution_bundle_hash: str | None = None,
         knowledge_review: dict[str, Any] | None = None,
+        author_examples_used: bool = False,
     ) -> WritingDraftCreate:
         is_pov = profile.profile == GenerationProfile.POV_CHARACTER
         pov_view = None
@@ -3231,6 +3233,7 @@ class WritingGenerationService:
             "source_confirmation_id": context_confirmation_id,
             "source_task_id": source_task_id,
             "context_action": "writing.generate",
+            "author_examples_used": author_examples_used,
             "context_result_refs": deepcopy(context_result_refs),
             "generation_profile": generation_profile,
             "generation_mode": generation_mode,
@@ -3506,6 +3509,12 @@ class WritingGenerationService:
             knowledge_task_instruction=knowledge_plan["task_instruction"],
             knowledge_generator_context=knowledge_plan["generator_context"],
             knowledge_authority_context=knowledge_plan["authority_context"],
+            author_examples_used=any(
+                section.key == "author_examples"
+                for section in getattr(
+                    getattr(confirmed_context, "compiled", None), "sections", []
+                )
+            ),
         )
 
     @staticmethod
@@ -3742,6 +3751,7 @@ class WritingGenerationService:
                     scene_execution_bundle=plan.scene_execution_bundle,
                     scene_execution_bundle_hash=plan.scene_execution_bundle_hash,
                     knowledge_review=knowledge_review,
+                    author_examples_used=plan.author_examples_used,
                 )
         except asyncio.CancelledError:
             raise

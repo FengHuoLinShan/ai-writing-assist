@@ -906,6 +906,10 @@ const api = {
     editorialBriefForWriting: (id) => request(`/projects/${encodeURIComponent(id)}/editorial-brief/for-writing`, { cache: "no-store" }),
     aiUsage: (id, days = 30) => request(withQuery(`/projects/${encodeURIComponent(id)}/ai-usage`, { days }), { cache: "no-store" }),
     setEditorialBriefForWriting: (id, enabled) => request(`/projects/${encodeURIComponent(id)}/editorial-brief/for-writing`, { method: "PUT", body: JSON.stringify({ enabled }) }),
+    authorExamples: (id) => request(`/projects/${encodeURIComponent(id)}/author-examples`, { cache: "no-store" }),
+    saveAuthorExamples: (id, body) => request(`/projects/${encodeURIComponent(id)}/author-examples`, { method: "PUT", body: JSON.stringify(body) }),
+    authorExamplesForWriting: (id) => request(`/projects/${encodeURIComponent(id)}/author-examples/for-writing`, { cache: "no-store" }),
+    setAuthorExamplesForWriting: (id, enabled) => request(`/projects/${encodeURIComponent(id)}/author-examples/for-writing`, { method: "PUT", body: JSON.stringify({ enabled }) }),
     demoCopy: () => post("/projects/demo-copy", undefined, { cache: "no-store" }),
     async smartDedupReviewState(id, taskId) { return request(`/projects/${encodeURIComponent(id)}/smart-dedup/scans/${encodeURIComponent(taskId)}/review-state`) },
     async recentSmartDedupScans(id) { return request(`/projects/${encodeURIComponent(id)}/smart-dedup/scans`) },
@@ -2346,6 +2350,7 @@ const api = {
   // ============================================================
   writing: {
     markEditorialReady: (draftId, novelId, expectedContentHash) => post(withQuery(`/writing/drafts/${encodeURIComponent(draftId)}/editorial-ready`, { novel_id: novelId }), { expected_content_hash: expectedContentHash }),
+    authorExampleStats: (novelId, days = 30) => request(withQuery(`/writing/author-example-stats/${encodeURIComponent(novelId)}`, { days }), { cache: "no-store" }),
     async publish(payload) {
       return contractJson("writing.publish", {}, {}, payload)
     },

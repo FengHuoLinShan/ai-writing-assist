@@ -430,6 +430,8 @@ class StructureContextBundle:
     """项目元信息"""
     editorial_brief: dict | None = None
     """作者编辑约定（仅当作者开启「也用于 AI 写作」时填充）"""
+    author_examples: dict | None = None
+    """作者写作示例 few-shot（仅当作者开启「示例用于 AI 写作」时填充）"""
     world_entities: list = field(default_factory=list)
     """世界对象列表"""
     world_bible_synopsis: dict | None = None
