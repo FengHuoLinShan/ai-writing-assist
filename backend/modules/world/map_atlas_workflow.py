@@ -53,6 +53,12 @@ from modules.world.map_atlas_storage import (
     require_owned_page_object_key,
     validate_png,
 )
+from modules.world.image_request_reuse import (
+    compute_request_hash,
+    find_reusable_asset,
+    invalidate_reusable_asset,
+    record_reusable_asset,
+)
 from modules.world.models import CoreEntity
 from shared.constants import TASK_MAX_HEARTBEAT_GAP
 from shared.utils import parse_uuid
@@ -1874,6 +1880,149 @@ async def _generate_page_locally(
     return SimpleNamespace(data=fitted.data, request_id=None)
 
 
+def _page_request_hash(
+    run: MapAtlasRun,
+    page: MapAtlasPage,
+    *,
+    owner_id: str,
+    provider: str,
+) -> str:
+    """B9 幂等键：租户 + 状态快照 + prompt + 模型 + 参数。"""
+    state_snapshot = hashlib.sha256(
+        json.dumps(
+            {
+                "visual_brief": page.visual_brief,
+                "source_geometry_hash": page.source_geometry_hash,
+                "reference_page_ids": list(page.reference_page_ids or []),
+                "source_manifest": list(page.source_manifest or []),
+                "has_mask": bool(page.mask_object_key),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+    prompt = (
+        f"{page.prompt}\n修改要求：{page.edit_instruction}"
+        if page.edit_instruction
+        else page.prompt
+    )
+    return compute_request_hash(
+        novel_id=str(run.novel_id),
+        owner_id=owner_id,
+        state_snapshot_hash=state_snapshot,
+        prompt=prompt,
+        model=page.model,
+        params={
+            "provider": provider,
+            "layout": run.layout,
+            "quality": run.quality,
+            "size": "2048x1152" if run.layout == "landscape" else "1024x1024",
+            "image_quality": "high" if run.quality == "fine" else "medium",
+        },
+    )
+
+
+async def _page_reuse_asset_validator(
+    storage: MapAtlasStorage, row: Any
+) -> tuple | None:
+    """读时校验：旧对象必须仍是合法 PNG 且字节数一致。"""
+    from modules.world.map_atlas_storage import (
+        require_page_object_key,
+        validate_png,
+    )
+
+    try:
+        key = require_page_object_key(row.object_key)
+    except ValueError:
+        return None
+    payload = await storage.get_png_if_exists(key)
+    if payload is None or (row.byte_size and len(payload) != row.byte_size):
+        return None
+    try:
+        metadata = validate_png(payload)
+    except Exception:
+        return None
+    return payload, metadata.sha256, metadata.width, metadata.height
+
+
+async def _try_reuse_page_image(
+    db,
+    task,
+    run: MapAtlasRun,
+    page: MapAtlasPage,
+    storage: MapAtlasStorage,
+    *,
+    owner_id: str,
+    request_hash: str,
+) -> bool:
+    """同参数命中时复用既有资产，不调 provider；复制到本页 attempt key。"""
+    context = await get_project_context(db, str(run.novel_id))
+    if context is None or context.owner_id is None:
+        return False
+    reused = await find_reusable_asset(
+        db,
+        novel_id=str(run.novel_id),
+        owner_id=owner_id,
+        request_hash=request_hash,
+        validate_asset=lambda row: _page_reuse_asset_validator(storage, row),
+    )
+    if reused is None:
+        return False
+    await db.commit()
+    await require_active_project(db, str(run.novel_id))
+    run = await _require_attempt(db, task, str(run.novel_id), str(run.id))
+    key = _attempt_object_key(run, page, task)
+    claimed = await db.execute(
+        update(MapAtlasPage)
+        .where(
+            MapAtlasPage.novel_id == run.novel_id,
+            MapAtlasPage.id == page.id,
+            MapAtlasPage.run_id == run.id,
+            MapAtlasPage.generation_status == "prepared",
+        )
+        .values(
+            generation_status="provider_in_flight",
+            object_key=key,
+            error_code=None,
+            error_message=None,
+        )
+    )
+    if claimed.rowcount != 1:
+        raise asyncio.CancelledError
+    await db.commit()
+    metadata = await storage.put_png(key, reused["asset"])
+    locked = (
+        await db.execute(
+            select(MapAtlasPage)
+            .where(
+                MapAtlasPage.novel_id == run.novel_id,
+                MapAtlasPage.id == page.id,
+                MapAtlasPage.generation_status == "provider_in_flight",
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if locked is None:
+        raise asyncio.CancelledError
+    locked.sha256 = metadata.sha256
+    locked.media_type = "image/png"
+    locked.width = metadata.width
+    locked.height = metadata.height
+    locked.byte_size = metadata.byte_size
+    locked.generation_status = "review_ready"
+    evidence = dict(locked.evidence or {})
+    evidence["image_reuse"] = {
+        "reused": True,
+        "message": "使用了相同设置的已有图片，未再次调用生成服务；可在该页选择重新生成获取新图。",
+        "request_hash": request_hash,
+        "created_from_id": reused.get("created_from_id"),
+    }
+    locked.evidence = evidence
+    run.completed_page_count += 1
+    await db.commit()
+    return True
+
+
 async def _generate_page(db, task, run: MapAtlasRun, page: MapAtlasPage) -> bool:
     page_id = page.id
     storage = MapAtlasStorage()
@@ -1901,6 +2050,28 @@ async def _generate_page(db, task, run: MapAtlasRun, page: MapAtlasPage) -> bool
                 await storage.get_png(mask_key),
                 "image/png",
             )
+
+        # B9 幂等复用：regenerate（同参数换图）绕过复用；首次生成与失败
+        # 重试命中即复用，不再调用 provider。命中事实写入 page evidence。
+        context = await get_project_context(db, str(run.novel_id))
+        reuse_owner = str(context.owner_id) if context else ""
+        provider_hint = "local-cli" if _is_local_image_run(run) else page.provider
+        request_hash = _page_request_hash(run, page, owner_id=reuse_owner, provider=provider_hint)
+        force_refresh = page.derived_from_page_id is not None and not page.edit_instruction
+        if force_refresh:
+            await invalidate_reusable_asset(
+                db, novel_id=str(run.novel_id), request_hash=request_hash
+            )
+        elif reuse_owner and await _try_reuse_page_image(
+            db,
+            task,
+            run,
+            page,
+            storage,
+            owner_id=reuse_owner,
+            request_hash=request_hash,
+        ):
+            return True
         if is_local:
             executor = _local_run_executor(run)
             await db.commit()
@@ -2114,6 +2285,23 @@ async def _generate_page(db, task, run: MapAtlasRun, page: MapAtlasPage) -> bool
         locked.provider_request_id = result.request_id
         locked.generation_status = "review_ready"
         run.completed_page_count += 1
+        # B9：登记可复用资产（幂等键含租户与状态快照，见 _page_request_hash）。
+        if reuse_owner:
+            await record_reusable_asset(
+                db,
+                novel_id=str(run.novel_id),
+                owner_id=reuse_owner,
+                request_hash=request_hash,
+                source_type="map_atlas",
+                object_key=key,
+                provider=provider_hint,
+                model=locked.model,
+                asset_sha256=metadata.sha256,
+                byte_size=metadata.byte_size,
+                width=metadata.width,
+                height=metadata.height,
+                created_from_id=locked.id,
+            )
         await db.commit()
         uploaded_durable = True
         return True

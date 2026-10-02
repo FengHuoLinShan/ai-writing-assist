@@ -573,6 +573,7 @@ class InteractionGenerationWorkflow:
         metadata_text: str | None = None,
         usage: dict[str, int] | None = None,
         progress: float | None = None,
+        metadata_invalid: bool = False,
     ) -> int:
         if not self._is_inline(task):
             require_task_checkpoint_session(db)
@@ -612,6 +613,13 @@ class InteractionGenerationWorkflow:
             held_offset = int(attempt.visible_offset or 0)
         if metadata_text is not None:
             attempt.metadata_text = metadata_text[:8192]
+        if metadata_invalid:
+            # P3：解析失败不判废正文，只把计数落在 run 账本供诊断。
+            usage_view = dict(attempt.usage or {})
+            usage_view["metadata_invalid_count"] = (
+                int(usage_view.get("metadata_invalid_count", 0)) + 1
+            )
+            attempt.usage = usage_view
         if usage:
             previous = dict(attempt.usage or {})
             continuation_keys = previous.get("continuation_keys", [])

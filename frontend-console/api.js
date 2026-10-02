@@ -1449,8 +1449,8 @@ const api = {
       return contractFetch("world.imageGeneration", { id: entityId }, { novel_id: novelId }, { cache: "no-store" })
     },
 
-    async createImageCandidate(entityId, novelId, prompt) {
-      return contractJson("world.createImageCandidate", { id: entityId }, {}, { novel_id: novelId, prompt })
+    async createImageCandidate(entityId, novelId, prompt, forceRefresh = false) {
+      return contractJson("world.createImageCandidate", { id: entityId }, {}, { novel_id: novelId, prompt, force_refresh: forceRefresh })
     },
 
     async imageCandidate(candidateId, novelId) {

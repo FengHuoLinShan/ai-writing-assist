@@ -22,6 +22,8 @@ class InteractionStreamFramer:
         self._metadata = ""
         self._metadata_complete = False
         self._metadata_too_large = False
+        self.metadata_invalid = False
+        """尾块存在但 JSON/schema 校验失败；正文不判废，只计数落 run receipt（P3）。"""
 
     def feed(self, content: str) -> str:
         if not content:
@@ -89,6 +91,7 @@ class InteractionStreamFramer:
                 )
             except (json.JSONDecodeError, TypeError, ValidationError):
                 metadata = None
+                self.metadata_invalid = True
         return trailing_visible, metadata, raw_metadata
 
 

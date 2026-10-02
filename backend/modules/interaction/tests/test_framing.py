@@ -41,6 +41,20 @@ def test_framer_invalid_metadata_preserves_completed_story_without_suggestions()
 
     assert visible + trailing == "故事正文"
     assert metadata is None
+    # P3：校验失败不静默——正文不判废，但 framer 暴露无效标记供计数落账本。
+    assert framer.metadata_invalid is True
+
+
+def test_framer_valid_metadata_and_no_metadata_are_not_flagged_invalid() -> None:
+    valid = InteractionStreamFramer()
+    valid.feed("正文" + META_START + '{"version":1,"response_kind":"story"}' + META_END)
+    valid.finish()
+    assert valid.metadata_invalid is False
+
+    none = InteractionStreamFramer()
+    none.feed("没有尾块的正文")
+    none.finish()
+    assert none.metadata_invalid is False
 
 
 def test_framer_ordinary_marker_prefix_is_not_silently_lost() -> None:

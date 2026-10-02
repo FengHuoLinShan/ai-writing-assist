@@ -1,0 +1,51 @@
+name: repo-gates
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  binary-growth:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Binary growth gate (B11)
+        run: |
+          git fetch origin main --depth=1
+          python scripts/check_binary_growth.py --base origin/main --head HEAD
+
+  file-size:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Production file size gate (P8)
+        run: |
+          git fetch origin main --depth=1
+          python scripts/check_file_sizes.py --base origin/main --head HEAD
+
+  release-evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Release evidence gate (B6)
+        run: |
+          git fetch origin main --depth=1
+          python scripts/check_release_evidence.py --base origin/main
+
+  module-imports:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Cross-module import gate (B2)
+        run: python scripts/check_module_imports.py

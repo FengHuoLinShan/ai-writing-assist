@@ -97,11 +97,12 @@ def source_key_of(source: Mapping[str, Any]) -> str:
     return ""
 
 
-def _content_hash_of(source: Mapping[str, Any]) -> str:
+def _content_hash_of(source: Mapping[str, Any]) -> tuple[str, str]:
+    """返回 (哈希, 哈希基底)：正文哈希优先，退化时为身份字段哈希。"""
     for key in ("content_hash", "hash", "source_hash"):
         value = source.get(key)
         if isinstance(value, str) and value:
-            return value
+            return value, "content"
     identity = {
         key: source[key]
         for key in (
@@ -116,7 +117,7 @@ def _content_hash_of(source: Mapping[str, Any]) -> str:
         )
         if key in source
     }
-    return knowledge_canonical_hash(identity)
+    return knowledge_canonical_hash(identity), "identity"
 
 
 @dataclass(frozen=True)
@@ -165,26 +166,86 @@ def build_scope_receipt(
     excluded_keys: set[str] = set()
     omitted_keys: set[str] = set()
 
-    def _absorb(source: Mapping[str, Any], dimension: str) -> None:
+    entry_tokens: dict[str, int | None] = {}
+    entry_state: dict[str, tuple[str, str]] = {}
+
+    def _bounded(text: str, limit: int = 200) -> str:
+        """元数据字段上界：账本条目体积必须有界（B8 验收）。"""
+        return text if len(text) <= limit else text[: limit - 1] + "…"
+
+    def _absorb(
+        source: Mapping[str, Any],
+        dimension: str,
+        *,
+        token_count: int | None = None,
+        state: str = "included",
+        state_reason: str = "",
+    ) -> None:
         key = source_key_of(source)
         if not key:
             return
+        state_reason = _bounded(state_reason)
         if key not in entries:
+            content_hash, hash_basis = _content_hash_of(source)
             entries[key] = KnowledgeSourceEntry(
                 source_key=key,
                 source_type=str(source.get("type") or "source"),
                 source_id=str(source.get("id") or key.split(":", 1)[1]),
-                content_hash=_content_hash_of(source),
+                content_hash=content_hash,
                 label=str(source.get("label") or ""),
+                hash_basis=hash_basis,
             )
             entry_dimensions[key] = set()
+            entry_tokens[key] = token_count
+        else:
+            # 同一来源跨 section 出现时保留最强证据：token 取首次可得值，
+            # 处置状态按严重度升级（omitted > trimmed > included）。
+            if entry_tokens.get(key) is None and token_count is not None:
+                entry_tokens[key] = token_count
+            previous = entry_state.get(key, ("included", ""))
+            severity = {"included": 0, "trimmed": 1, "omitted": 2}
+            if severity.get(state, 0) > severity.get(previous[0], 0):
+                entry_state[key] = (state, state_reason)
+        if state != "included":
+            previous = entry_state.get(key)
+            if previous is None or previous[0] == "included":
+                entry_state[key] = (state, state_reason)
         if dimension:
             entry_dimensions[key].add(dimension)
 
+    evicted_keys = set(compiled.evicted_keys or [])
+    truncated_keys = set(compiled.truncated_keys or [])
+
+    def _section_state(section_key: str) -> tuple[str, str]:
+        if section_key in evicted_keys:
+            return "omitted", "超过 token 预算后按低优先级移除"
+        if section_key in truncated_keys:
+            return "trimmed", "超过预算后按条目截断"
+        return "included", ""
+
     for section in compiled.sections:
         dimension = dimension_map.get(section.key, "")
+        section_state, section_reason = _section_state(section.key)
+        # 逐源证据（B8）：item 级 token 与处置状态优先于 section 级身份。
+        for item in section.materialize_items().items:
+            if item.selection_state == "omitted":
+                item_state, item_reason = "omitted", item.omission_reason or ""
+            else:
+                item_state, item_reason = section_state, section_reason
+            _absorb(
+                item.source,
+                dimension,
+                token_count=item.token_count or None,
+                state=item_state,
+                state_reason=item_reason,
+            )
         for source in section.sources:
-            _absorb(source, dimension)
+            _absorb(
+                source,
+                dimension,
+                state=section_state,
+                state_reason=section_reason,
+            )
         if section.excluded:
             for source in section.sources:
                 key = source_key_of(source)
@@ -197,7 +258,12 @@ def build_scope_receipt(
         if key:
             excluded_keys.add(key)
     for item in compiled.omitted_items:
-        _absorb(item.source, "")
+        _absorb(
+            item.source,
+            "",
+            state="omitted",
+            state_reason=item.omission_reason or "预算逐出或不可读",
+        )
         key = source_key_of(item.source)
         if key:
             omitted_keys.add(key)
@@ -221,6 +287,10 @@ def build_scope_receipt(
             content_hash=entry.content_hash,
             label=entry.label,
             dimensions=tuple(sorted(entry_dimensions.get(entry.source_key, ()))),
+            token_count=entry_tokens.get(entry.source_key),
+            state=entry_state.get(entry.source_key, ("included", ""))[0],
+            state_reason=entry_state.get(entry.source_key, ("included", ""))[1],
+            hash_basis=entry.hash_basis,
         )
         for entry in sorted(entries.values(), key=lambda e: e.source_key)
     )

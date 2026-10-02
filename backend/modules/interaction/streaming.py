@@ -342,6 +342,7 @@ async def stream_anonymous_rp_attempt(
                 metadata_text=raw_metadata,
                 usage=final_usage,
                 progress=0.95,
+                metadata_invalid=framer.metadata_invalid,
             )
             governed = await _inline_workflow.govern_held_story(
                 db,
