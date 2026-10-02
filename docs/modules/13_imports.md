@@ -183,6 +183,7 @@ Phase 0 在首次请求前把当前窗口与未知基数原因写入 `imports.ru
 
 ```
 POST /api/imports/upload                    # 上传并导入；201 表示导入记录、批量章节工作稿和发布任务已提交，可立即读取
+POST /api/imports/migrations                # 表格迁移（xlsx/csv，ADR-0030）：上传并识别，独立于正文白名单
 GET  /api/imports                           # 导入记录列表
 GET  /api/imports/{id}                     # 导入记录详情
 POST /api/imports/deep                     # 提交深度导入任务；重复导入需 force=true
@@ -286,6 +287,30 @@ Phase 3 的单次结构化请求使用项目可配置的
 `phase3.structure_max_tokens`（默认 32768），该值会进入任务冻结
 快照，不再根据 prompt 长度做 token 阶梯扩容；replacement rerun 是业务
 输出门禁，不是用更大 `max_tokens` 重放同一请求。
+
+## 表格迁移（ADR-0030）
+
+入口 `/api/imports/migrations`（挂载在 imports 路由之前），只收 `.xlsx/.csv`（独立
+`SPREADSHEET_EXTENSIONS`，不改文稿白名单）。xlsx 按有界固定部件 OOXML 处理：不落盘、
+不执行公式/宏、拒绝 OLE/宏包/不安全成员/解压炸弹；csv 走编码探测与分隔符嗅探；
+全部限额（≤5 文件、单文件 ≤10MB、≤20 表、≤5000 行、≤60 列、单元格 ≤2 万字、会话
+≤200 万字符）明确拒绝，不静默截断。
+
+- 会话 `import_migration_sessions`（imports 自有）：草稿期暂存有界单元格（rows_json），
+  采用或删除后清空；mapping/decisions 以 revision CAS；回执只存 id/hash/被改字段
+  原值与标签，不存正文。
+- 识别（classify + synonyms）：表名与中文表头同义词规则给出表类型与列映射建议，作者
+  逐表逐列可调；未识别列默认进「作者备注」（追加 hidden_truth）；大纲类表默认预选
+  AI 整理。
+- AI 整理：capability `imports.spreadsheet_migration`（CONFIRMATION_NONE），step
+  `outline`/`cleanup`，`govern_group_output` 审查（一次返修）+ 确定性校验（行引用、
+  逐字 evidence、章号、字段白名单、禁 id/status/source）；任务类型
+  `spreadsheet_migration_ai`（auto_requeue、额度 packets*6+2）；scope_hash 漂移不写回。
+  输出只进预览；作者跳过或单行失败回落规则映射，原文逐字保留。
+- 采用（apply）：同一事务「重算 preview 比对 preview_hash → 项目排他锁 →
+  world.apply → story.apply(entity_ids) → mark_applied 清 rows」；同名只补空、冲突
+  不落地。撤销先 story 后 world 按回执逆序，被改动/被引用项保留并给出原因。
+- 路由清单见「API」节；鉴权要求 novel_id+owner 双隔离，匿名 demo 不可用。
 
 ## 专项查漏补全
 

@@ -68,7 +68,7 @@ infrastructure/tasks/
 - writing：`publish_chapter`、`writing_generate`、`writing_semantic_review`、
   `writing_targeted_revision`、`writing_comment_run`、`writing_conflict_ai_review`、
   `writing_conflict_item_ai_suggestion`
-- imports：`deep_import`、`scene_auto_extraction`、`world_object_auto_extraction`、
+- imports：`deep_import`、`scene_auto_extraction`、`world_object_auto_extraction`、`spreadsheet_migration_ai`、
   `plot_structure_auto_extraction`
 - interaction：`interaction_story_generate`、`interaction_summary_refresh`
 

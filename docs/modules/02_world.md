@@ -307,6 +307,17 @@ World Bible 页面是资料组织层，不是结构化事实源。发布后的�
 `dependency_relation` 暴露依赖语义。项目页面模板只描述布局和默认段落，不能保存 Prompt、provider、
 API key、工具或可执行表达式；应用模板只修改工作稿，发布仍走既有 CAS 与不可变 revision。
 
+### 作者表格迁移窄 seam（ADR-0030）
+
+`facade.plan/apply/rollback_author_migration_world`：imports 表格迁移的专用落库通道。
+plan 只读判定动作（create/fill_empty/adopt_existing/existing_ref/conflict/
+similar_name/alias_collision/needs_review/skip）与关系处理；apply 在行锁下重算并比对
+指纹，新实体直接 canonical（created_by=spreadsheet_migration、approved_by=owner、
+content_json._meta 记录来源五元组），别名 confirmed，作者备注追加 hidden_truth；同名
+只补空、冲突不写。rollback 经 `applied_change_reversal`（与 focused 补全共用）逆序
+处理，被改动（modified_after_migration）或被引用（referenced）的项保留。回滚新实体
+走软废弃；相关 Character 行的补空回滚按 character receipt 条目恢复。
+
 ## API
 
 ```
