@@ -26,6 +26,7 @@ from infrastructure.llm.profiles import LLM_API_KEY_FIELD, resolve_llm_profile
 from infrastructure.stable_hash import stable_hash as _stable_hash
 from modules.account.facade import resolve_account_llm_runtime_profile
 from modules.project.contracts import ProjectLLMConfigurationError
+from modules.project.model_routing import build_cost_routing
 from modules.project.services import ProjectService
 from shared.deep_import_settings import (
     DEEP_IMPORT_FROZEN_SETTINGS_KEY,
@@ -387,6 +388,9 @@ async def open_project_llm_client(
     client = LLMClient.from_resolved_profile(
         profile, **({"high_quality": True} if high_quality else {})
     )
+    # B5：把生效的路由配置交给 client，由 managed step harness 按能力成本档
+    # 覆盖 request.model；未启用时为空路由（永远回落主模型）。
+    client.cost_routing = await build_cost_routing(db, novel_id)
     bind_runtime_scope = getattr(client, "bind_runtime_scope", None)
     if callable(bind_runtime_scope):
         bind_runtime_scope(

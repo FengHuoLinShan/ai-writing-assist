@@ -42,7 +42,10 @@ watch(tab, (value) => {
   projectSettingsSession.tab = value
   // 写作示例面板渲染持久化状态（列表 + 开关），进入 AI 页签时加载一次，
   // 避免把未加载的初始态当成「没有示例」展示。
-  if (value === "ai" && props.projectId) void loadAuthorExamples()
+  if (value === "ai" && props.projectId) {
+    void loadAuthorExamples()
+    void loadCostSaving()
+  }
 })
 
 const effectiveLLM = ref(props.effectiveLLM)
@@ -585,6 +588,35 @@ async function loadAiUsage() {
     aiUsageLoading.value = false
   }
 }
+/* 省钱模式（B5 模型路由）：项目级开关，未配置附加模型时回落主模型 */
+const costSaving = ref({ enabled: false, effective: false, cheap_model: null })
+const costSavingSaving = ref(false)
+const costSavingError = ref("")
+async function loadCostSaving() {
+  if (!props.projectId) return
+  costSavingError.value = ""
+  try {
+    costSaving.value = await getApi().projects.llmCostSaving(props.projectId)
+  } catch (err) {
+    costSavingError.value = err?.message || "省钱模式状态读取失败"
+  }
+}
+async function toggleCostSaving(event) {
+  if (!props.projectId || costSavingSaving.value) return
+  const enabled = Boolean(event.target.checked)
+  costSavingSaving.value = true
+  costSavingError.value = ""
+  try {
+    costSaving.value = await getApi().projects.setLLMCostSaving(props.projectId, enabled)
+    if (enabled && !costSaving.value.effective) getToast()("开关已打开，但还没有可用的附加模型；请先在账户设置的模型连接里配置。", "info")
+  } catch (err) {
+    costSavingError.value = err?.message || "切换失败，请重试"
+    event.target.checked = !enabled
+  } finally {
+    costSavingSaving.value = false
+  }
+}
+
 /* 作者写作示例（B3 few-shot）：查看、删除、开关与对照统计 */
 const authorExamples = ref([])
 const authorExamplesVersion = ref(0)
@@ -695,7 +727,10 @@ onMounted(() => {
   void loadAccountConnectionMetadata()
   void loadAiCapabilities()
   void loadLocalAgent()
-  if (tab.value === "ai" && props.projectId) void loadAuthorExamples()
+  if (tab.value === "ai" && props.projectId) {
+    void loadAuthorExamples()
+    void loadCostSaving()
+  }
 })
 onBeforeUnmount(() => {
   disposed = true
@@ -833,6 +868,14 @@ onBeforeUnmount(() => {
               <p v-if="aiUsage.scan_truncated" role="status" class="settings-section-hint">统计已达单次扫描上限（{{ aiUsage.tasks_scanned }} 条任务），以上数字为最近部分的统计；如需完整口径请缩短窗口。</p>
               <p v-if="!aiUsage.capabilities.length" class="settings-section-hint">这个窗口期内没有可统计的 AI 运行。</p>
             </template>
+          </div>
+          <div class="settings-section">
+            <h3>省钱模式</h3>
+            <p class="settings-section-hint">打开后，资料抽取与整理类的 AI 任务会在你的模型连接内改用成本更低的附加模型；正文写作等重要任务仍用主模型。未配置附加模型或附加模型未校准时保持主模型。可在账户设置的模型连接里配置附加模型。</p>
+            <p v-if="costSavingError" role="alert">{{ costSavingError }}</p>
+            <div class="settings-actions">
+              <label class="settings-inline-toggle"><input type="checkbox" :checked="costSaving.enabled" :disabled="costSavingSaving" @change="toggleCostSaving($event)" /> 启用省钱模式{{ costSaving.effective ? "（已生效）" : costSaving.enabled ? "（未生效：还没有可用的附加模型）" : "" }}</label>
+            </div>
           </div>
           <div class="settings-section">
             <h3>写作示例（好例/反例）</h3>

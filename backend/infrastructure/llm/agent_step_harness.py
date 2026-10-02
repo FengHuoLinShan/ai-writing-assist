@@ -762,6 +762,48 @@ class ManagedLLMStep:
         return _NormalizedStepOutput(status=StepExecutionStatus.succeeded, output=output)
 
 
+def _apply_cost_routing(
+    client: Any,
+    request: LLMCallRequest,
+    *,
+    capability_id: str | None,
+) -> LLMCallRequest:
+    """B5：cheap 能力在省钱模式下切到同 provider 低成本模型。
+
+    路由集合与目标模型由 modules/project 层注入 ``client.cost_routing``；
+    infrastructure 只按集合执行，不 import 业务注册表。未注入/未启用/
+    能力不在集合时原样返回（回落主模型）。
+    """
+    routing = getattr(client, "cost_routing", None)
+    if not isinstance(routing, dict) or not routing.get("enabled"):
+        return request
+    cheap_model = str(routing.get("cheap_model") or "")
+    capability_ids = routing.get("capability_ids") or []
+    if (
+        not cheap_model
+        or not capability_id
+        or capability_id not in capability_ids
+    ):
+        return request
+    return request.model_copy(update={"model": cheap_model})
+
+
+def _routed_provenance(
+    provenance: dict,
+    *,
+    routed_model: str,
+) -> dict:
+    """路由生效时把 provenance 的模型口径换成实际调用的低成本模型。"""
+    summary = dict(provenance.get("profile_summary") or {})
+    summary["model"] = routed_model
+    sources = dict(summary.get("sources") or {})
+    sources["model"] = "cost_routing"
+    summary["sources"] = sources
+    updated = dict(provenance)
+    updated["profile_summary"] = summary
+    return updated
+
+
 async def run_managed_generate(
     client: Any,
     request: LLMCallRequest,
@@ -782,11 +824,18 @@ async def run_managed_generate(
     该 step 归属到 run 的 root capability。
     """
 
+    routed_request = _apply_cost_routing(
+        client, request, capability_id=capability_id
+    )
     provenance = build_managed_llm_provenance(
         client,
         step_name=step_name,
-        request=request,
+        request=routed_request,
     )
+    if routed_request is not request:
+        provenance = _routed_provenance(
+            provenance, routed_model=str(routed_request.model or "")
+        )
     _collect_managed_llm_provenance(provenance)
     step = ManagedLLMStep(
         StepToolEnvelope(
@@ -808,7 +857,7 @@ async def run_managed_generate(
         )
     ):
         result = await step.run(
-            lambda: client.generate(request),
+            lambda: client.generate(routed_request),
             token_usage=token_usage,
             quality_stats=managed_quality_stats,
         )
@@ -843,11 +892,18 @@ async def run_managed_structured[StructuredT: BaseModel](
     does not enable the lower-level ``OutputGuard`` by default.
     """
 
+    routed_request = _apply_cost_routing(
+        client, request, capability_id=capability_id
+    )
     provenance = build_managed_llm_provenance(
         client,
         step_name=step_name,
-        request=request,
+        request=routed_request,
     )
+    if routed_request is not request:
+        provenance = _routed_provenance(
+            provenance, routed_model=str(routed_request.model or "")
+        )
     _collect_managed_llm_provenance(provenance)
     step = ManagedLLMStep(
         StepToolEnvelope(
@@ -870,7 +926,7 @@ async def run_managed_structured[StructuredT: BaseModel](
     ):
         result = await step.run(
             lambda: client.generate_structured(
-                request,
+                routed_request,
                 schema,
                 max_fix_attempts=max_fix_attempts,
                 fix_prompt=fix_prompt,

@@ -129,6 +129,34 @@ class AuthorExamplesWritingToggle(BaseModel):
     enabled: bool
 
 
+class CostSavingToggle(BaseModel):
+    enabled: bool
+
+
+@router.get("/{project_id}/llm-cost-saving")
+async def get_llm_cost_saving(db: DbSession, project_id: UUID):
+    """「省钱模式」开关（B5 模型路由；默认关闭，未配置附加模型时回落主模型）。"""
+    from modules.project.model_routing import read_cost_saving_toggle
+
+    return await read_cost_saving_toggle(db, str(project_id))
+
+
+@router.put(
+    "/{project_id}/llm-cost-saving",
+    dependencies=[Depends(require_xhr_request)],
+)
+async def put_llm_cost_saving(
+    db: DbSession,
+    project_id: UUID,
+    data: CostSavingToggle,
+):
+    from modules.project.model_routing import set_cost_saving_toggle
+
+    return await set_cost_saving_toggle(
+        db, str(project_id), enabled=data.enabled
+    )
+
+
 @router.get("/{project_id}/author-examples")
 async def get_author_examples(db: DbSession, project_id: UUID):
     """作者写作示例（好例/反例）列表。"""

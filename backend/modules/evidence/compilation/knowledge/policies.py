@@ -117,6 +117,9 @@ class CapabilityKnowledgePolicy:
     adoption_gate: str
     infrastructure: bool = False
     notes: str = ""
+    cost_tier: str = "standard"
+    """任务成本档：standard / cheap。cheap 表示抽取/整理类任务，可在
+    「省钱模式」下路由到同 provider 的低成本模型（B5）；默认 standard。"""
 
 
 def _policy(
@@ -132,6 +135,7 @@ def _policy(
     gate: str = ADOPTION_REQUIRES_PASS,
     infrastructure: bool = False,
     notes: str = "",
+    cost_tier: str = "standard",
 ) -> CapabilityKnowledgePolicy:
     return CapabilityKnowledgePolicy(
         capability_id=capability_id,
@@ -145,6 +149,7 @@ def _policy(
         adoption_gate=gate,
         infrastructure=infrastructure,
         notes=notes,
+        cost_tier=cost_tier,
     )
 
 
@@ -417,6 +422,7 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             confirmation=CONFIRMATION_REQUIRED,
             outputs=(OUTPUT_PROPOSAL,),
             notes="实体抽取仅留长期创作资产；别名附着已有对象，不重复建实体。",
+            cost_tier="cheap",
         ),
         _policy(
             "world.map_structure.generate",
@@ -617,6 +623,7 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             dimensions=("prior_prose", "imported_assets"),
             outputs=(OUTPUT_PROPOSAL,),
             notes="Phase 1 每窗口冻结一份组级 receipt，组内 LLM step 引用并逐项复核。",
+            cost_tier="cheap",
         ),
         _policy(
             "imports.deep_import",
@@ -645,6 +652,7 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             subjects=("author",),
             dimensions=("prior_prose", "imported_assets"),
             outputs=(OUTPUT_PROPOSAL,),
+            cost_tier="cheap",
         ),
         _policy(
             "imports.scene_enrichment",
@@ -653,6 +661,7 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             subjects=("author",),
             dimensions=("prior_prose", "scene_state", "imported_assets"),
             outputs=(OUTPUT_PROPOSAL,),
+            cost_tier="cheap",
         ),
         _policy(
             "imports.scene_fusion",
@@ -661,6 +670,7 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             subjects=("author",),
             dimensions=("prior_prose", "scene_state", "imported_assets"),
             outputs=(OUTPUT_PROPOSAL,),
+            cost_tier="cheap",
         ),
         _policy(
             "imports.entity_extraction",
@@ -670,6 +680,7 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             dimensions=("prior_prose", "world_entities", "imported_assets"),
             outputs=(OUTPUT_PROPOSAL,),
             notes="Phase 2 每 Scene 冻结一份组级 receipt。",
+            cost_tier="cheap",
         ),
         _policy(
             "imports.structure_analysis",
@@ -679,6 +690,7 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             dimensions=("prior_prose", "imported_assets", "outline"),
             outputs=(OUTPUT_PROPOSAL,),
             notes="Phase 3 每候选组冻结一份组级 receipt。",
+            cost_tier="cheap",
         ),
         _policy(
             "imports.review_resolution",

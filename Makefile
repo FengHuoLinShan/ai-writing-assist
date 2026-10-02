@@ -1,4 +1,4 @@
-.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-fast-coverage test-e2e test-postgresql-critical test-real-llm test-map-atlas-live-image test-real-kimi test-interaction-long-context test-manual test-deploy test-frontend test-production-images test-restore-drill-real audit-backend-deps audit-frontend-deps test-ci repo-gates binary-growth-gate file-size-gate release-evidence-gate module-import-gate eval-corpus eval-fixture-manifest eval-generate eval-judge eval-qc eval-review-export eval-review-import eval-report eval-baseline-check eval-freeze eval-rag-prepare eval-run eval-rag eval-full eval-pilot eval-fast eval-rp-long-memory eval-ask-world eval-context-planner lint lint-fix format format-fix secret-hygiene docs-check repo-gates binary-growth-gate file-size-gate prompt-contracts prompt-contracts-json generate-e2e help db migrate schema-check doctor doctor-json doctor-llm
+.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-fast-coverage test-e2e test-postgresql-critical test-real-llm test-map-atlas-live-image test-real-kimi test-interaction-long-context test-manual test-deploy test-frontend test-production-images test-restore-drill-real audit-backend-deps audit-frontend-deps test-ci repo-gates binary-growth-gate file-size-gate release-evidence-gate module-import-gate scale-gate eval-corpus eval-fixture-manifest eval-generate eval-judge eval-qc eval-review-export eval-review-import eval-report eval-baseline-check eval-freeze eval-rag-prepare eval-run eval-rag eval-full eval-pilot eval-fast eval-rp-long-memory eval-ask-world eval-context-planner lint lint-fix format format-fix secret-hygiene docs-check repo-gates binary-growth-gate file-size-gate prompt-contracts prompt-contracts-json generate-e2e help db migrate schema-check doctor doctor-json doctor-llm
 
 ROOT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 BACKEND_DIR := $(ROOT_DIR)backend
@@ -208,6 +208,9 @@ release-evidence-gate:  ## Release evidence ledger gate (B6)
 
 module-import-gate:  ## Cross-module import gate (B2)
 	python3 $(ROOT_DIR)scripts/check_module_imports.py
+
+scale-gate:  ## Long-form scale gate (B7): compile-probe a fixture tier against baselines
+	cd $(BACKEND_DIR) && python -m tools.scale_gate_harness --tier $(or $(TIER),low) --database-url $(DATABASE_URL) $(if $(CREATE_SCHEMA),--create-schema,) --baseline-check
 
 prompt-contracts:  ## Check prompt contracts
 	cd $(BACKEND_DIR) && python -m tools.prompt_contracts check

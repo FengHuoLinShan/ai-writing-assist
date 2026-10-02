@@ -293,6 +293,8 @@ class SettingsService:
             {
                 "owner_id": owner_id,
                 **template,
+                # B5：新连接重置附加模型集合（连接身份字段随 template 一起落库）。
+                "secondary_models": [],
                 "creative_mode": None,
                 "deep_import": None,
             },
@@ -422,6 +424,39 @@ class SettingsService:
         )
         return AccountLLMBalancesResponse(items=list(items))
 
+    async def update_account_secondary_models(
+        self,
+        db: AsyncSession,
+        models: list[str],
+    ) -> GlobalLLMDefaultsResponse:
+        """更新当前连接 provider 的附加模型（B5 路由候选）。
+
+        连接身份入口：须已连接；模型名去重、上限 4 个、不得与主模型同名；
+        是否真正参与路由由能力档案 verified 档在运行期过滤。
+        """
+        owner_id = _current_owner_id()
+        defaults = await self._llm_repo.get(db, owner_id)
+        if defaults is None or not defaults.provider_id:
+            raise ValueError("账户模型尚未连接，请先在账户设置中连接")
+        credential = await self._credential_repo.get(db, owner_id, defaults.provider_id)
+        if credential is None:
+            raise ValueError("账户模型尚未连接，请先在账户设置中连接")
+        cleaned: list[str] = []
+        for item in models:
+            name = str(item or "").strip()
+            if not name:
+                continue
+            if name not in cleaned:
+                cleaned.append(name)
+        if len(cleaned) > 4:
+            raise ValueError("附加模型最多 4 个")
+        await self._llm_repo.lock_owner_head(db, owner_id)
+        await self._llm_repo.upsert(
+            db,
+            {"owner_id": owner_id, "secondary_models": cleaned},
+        )
+        return await self.get_global_llm_defaults(db)
+
     # ----- global LLM defaults -----
     async def get_global_llm_defaults(
         self, db: AsyncSession
@@ -434,6 +469,7 @@ class SettingsService:
             label=row.label,
             base_url=row.base_url,
             model=row.model,
+            secondary_models=list(row.secondary_models or []),
             timeout=row.timeout,
             max_tokens=row.max_tokens,
             temperature=row.temperature,
@@ -449,7 +485,13 @@ class SettingsService:
         # D8 硬拒绝 api_key
         if "api_key" in payload or "api_key_configured" in payload:
             raise ValueError("global LLM defaults must not contain api_key")
-        connection_fields = {"provider_id", "label", "base_url", "model"}
+        connection_fields = {
+            "provider_id",
+            "label",
+            "base_url",
+            "model",
+            "secondary_models",
+        }
         if connection_fields & payload.keys():
             raise ValueError("模型连接只能在账户模型连接入口中切换")
         data = {k: v for k, v in payload.items() if k in LLM_INHERITABLE_FIELDS}
@@ -462,6 +504,7 @@ class SettingsService:
             label=row.label,
             base_url=row.base_url,
             model=row.model,
+            secondary_models=list(row.secondary_models or []),
             timeout=row.timeout,
             max_tokens=row.max_tokens,
             temperature=row.temperature,

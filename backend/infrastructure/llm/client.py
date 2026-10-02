@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from core.config import get_settings
-from infrastructure.llm.errors import LLMInvalidResponseError
+from infrastructure.llm.errors import LLMError, LLMInvalidResponseError
 from infrastructure.llm.limits import LLMLimiterScope, get_llm_limiter
 from infrastructure.llm.profiles import (
     DEEPSEEK_QUALITY_OUTPUT_TOKENS,
@@ -1108,6 +1108,21 @@ class LLMClient:
             )
         if req.response_format is None:
             req.response_format = {"type": "json_object"}
+            # B5 前置 3：json_object 只发给已校准 supported 的模型；
+            # unverified/unsupported 一律 fail-closed，防止新接入模型的
+            # 结构化调用被 provider 静默降级或报错后才暴露。
+            from infrastructure.llm.capabilities import resolve_llm_capability_profile
+
+            capability = resolve_llm_capability_profile(
+                str(self._profile_summary.get("provider_id") or ""),
+                self.model_name,
+            )
+            if capability.structured_output != "supported":
+                raise LLMError(
+                    "当前模型未校准结构化输出（json_object）；请在能力档案"
+                    "登记 supported 后再用于结构化调用",
+                    error_kind="unsupported_structured_output",
+                )
         if req.temperature is None:
             req.temperature = 0.3  # 结构化输出用较低温度
 

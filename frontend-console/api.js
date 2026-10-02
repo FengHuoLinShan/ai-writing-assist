@@ -909,6 +909,8 @@ const api = {
     authorExamples: (id) => request(`/projects/${encodeURIComponent(id)}/author-examples`, { cache: "no-store" }),
     saveAuthorExamples: (id, body) => request(`/projects/${encodeURIComponent(id)}/author-examples`, { method: "PUT", body: JSON.stringify(body) }),
     authorExamplesForWriting: (id) => request(`/projects/${encodeURIComponent(id)}/author-examples/for-writing`, { cache: "no-store" }),
+    llmCostSaving: (id) => request(`/projects/${encodeURIComponent(id)}/llm-cost-saving`, { cache: "no-store" }),
+    setLLMCostSaving: (id, enabled) => request(`/projects/${encodeURIComponent(id)}/llm-cost-saving`, { method: "PUT", body: JSON.stringify({ enabled }) }),
     setAuthorExamplesForWriting: (id, enabled) => request(`/projects/${encodeURIComponent(id)}/author-examples/for-writing`, { method: "PUT", body: JSON.stringify({ enabled }) }),
     demoCopy: () => post("/projects/demo-copy", undefined, { cache: "no-store" }),
     async smartDedupReviewState(id, taskId) { return request(`/projects/${encodeURIComponent(id)}/smart-dedup/scans/${encodeURIComponent(taskId)}/review-state`) },

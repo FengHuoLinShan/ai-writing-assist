@@ -1,0 +1,25 @@
+{
+  "schema_version": "scale-gate-baselines-v1",
+  "calibrated_at": "2026-10-02",
+  "note": "首轮定标 2026-10-02（专用 PG 库 darwin arm64）：low 以 e2e 测试环境定标（295，含 base scene 夹具），mid/high 以 harness 直跑定标。三档 compiled tokens 同量级（编译输入由预算封顶，不随章节数无界增长——growth_ratio=1.0，对报告 §12.5「单章续写输入成本随章节长度增长」推断的证伪证据）；耗时上限按实测约 3-10 倍设。token 容差 1.5 倍；定标命令见 tools/scale_gate_harness.py docstring。",
+  "tolerance": 1.5,
+  "tiers": {
+    "low": {
+      "chapters": 22,
+      "max_compiled_tokens": 295,
+      "compile_seconds_cap": 5.0,
+      "growth_ratio_expected": "flat",
+      "growth_note": "编译输入由预算封顶：无 RAG 索引时 compiled tokens 不随章节位置增长（growth_ratio=1.0，对报告 §12.5「单章续写输入成本随章节长度增长」推断的证伪证据）。"
+    },
+    "mid": {
+      "chapters": 66,
+      "max_compiled_tokens": 283,
+      "compile_seconds_cap": 3.0
+    },
+    "high": {
+      "chapters": 220,
+      "max_compiled_tokens": 280,
+      "compile_seconds_cap": 6.0
+    }
+  }
+}

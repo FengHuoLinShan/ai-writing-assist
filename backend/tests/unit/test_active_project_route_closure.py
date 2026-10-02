@@ -63,6 +63,7 @@ PROJECT_OWNED_ACTIVE_BOUNDARIES = {
         "read_author_examples_writing_toggle"
     ),
     "GET /api/projects/{project_id}/ai-usage": "get_project_ai_usage",
+    "GET /api/projects/{project_id}/llm-cost-saving": "read_cost_saving_toggle",
     "DELETE /api/projects/{project_id}/author-preferences/field/{field_name}": (
         "reset_project_author_preferences_field"
     ),
@@ -95,6 +96,7 @@ PROJECT_OWNED_ACTIVE_BOUNDARIES = {
     "PUT /api/projects/{project_id}/author-examples/for-writing": (
         "set_author_examples_for_writing"
     ),
+    "PUT /api/projects/{project_id}/llm-cost-saving": "set_cost_saving_toggle",
     "PUT /api/projects/{project_id}/llm-settings": "update_llm_settings",
     "PUT /api/projects/{project_id}/author-preferences": (
         "upsert_project_author_preferences"
