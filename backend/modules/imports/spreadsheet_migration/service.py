@@ -129,6 +129,14 @@ _FIELD_LABELS = {
     "planned_payoff_chapter": "计划兑现章",
 }
 
+_DECISION_LABELS = {
+    "auto": "按建议",
+    "different_object": "作者选了新建",
+    "use_existing": "作者选了并入已有",
+    "append_note": "作者选了追加备注",
+    "skip": "作者选了跳过",
+}
+
 _TASK_STATUS_TO_AI = {
     "pending": "queued",
     "queued": "queued",
@@ -683,6 +691,10 @@ class SpreadsheetMigrationService:
 
         world_items: list[dict[str, Any]] = []
         relations: list[dict[str, Any]] = []
+        relation_types = {
+            relation.item_key: relation.relation_type
+            for relation in requests.world_request.relations
+        }
         counts = {
             "create": 0,
             "fill": 0,
@@ -711,8 +723,9 @@ class SpreadsheetMigrationService:
                             if " → " in plan_label.label
                             else ""
                         ),
-                        "relation_type": getattr(item, "target_label", "")
-                        or plan_label.label,
+                        "relation_type": relation_types.get(
+                            item.item_key, plan_label.label
+                        ),
                         "relation_kind": item.relation_kind,
                         "kind_guessed": item.relation_kind_guessed,
                         "action": item.action,
@@ -833,9 +846,12 @@ class SpreadsheetMigrationService:
     @staticmethod
     def _decision_label(session: ImportMigrationSession, item_key: str) -> str:
         decision = session.decisions_json.get(item_key)
-        if not isinstance(decision, dict):
-            return "auto"
-        return str(decision.get("action", "auto"))
+        action = (
+            str(decision.get("action", "auto"))
+            if isinstance(decision, dict)
+            else "auto"
+        )
+        return _DECISION_LABELS.get(action, "auto")
 
     @staticmethod
     def _ai_coverage(session: ImportMigrationSession) -> dict[str, dict[str, Any]]:

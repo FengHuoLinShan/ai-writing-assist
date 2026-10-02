@@ -115,3 +115,25 @@ function save() {
     </div>
   </div>
 </template>
+
+<style scoped>
+.sm-mapping { display: flex; flex-direction: column; gap: 12px; }
+.sm-mapping__hint { margin: 0; color: var(--text-muted, #6b7280); }
+.sm-mapping__card { border: 1px solid var(--border-color, #e5e7eb); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.sm-mapping__card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.sm-mapping__muted { color: var(--text-muted, #6b7280); font-size: 13px; }
+.sm-mapping__suggested { font-size: 12px; color: var(--accent, #2563eb); }
+.sm-mapping__warning { margin: 0; color: #92400e; font-size: 13px; }
+.sm-mapping__columns { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+.sm-mapping__column { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.sm-mapping__column-header { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sm-mapping__number { width: 5rem; }
+.sm-mapping__samples summary { cursor: pointer; color: var(--text-muted, #6b7280); font-size: 13px; }
+.sm-mapping__sample-table { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 2px; margin-top: 6px; font-size: 12px; }
+.sm-mapping__sample-cell { padding: 2px 6px; border: 1px solid var(--border-color, #f3f4f6); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sm-mapping__sample-cell--head { background: var(--bg-subtle, #f9fafb); font-weight: 600; }
+.sm-mapping__actions { display: flex; gap: 8px; }
+@media (max-width: 640px) {
+  .sm-mapping__columns { grid-template-columns: 1fr; }
+}
+</style>

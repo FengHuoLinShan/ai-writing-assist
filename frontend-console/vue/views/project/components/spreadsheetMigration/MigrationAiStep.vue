@@ -154,3 +154,15 @@ const aiStatusLabel = computed(() => ({
     </div>
   </div>
 </template>
+
+<style scoped>
+.sm-ai { display: flex; flex-direction: column; gap: 12px; }
+.sm-ai__hint { margin: 0; line-height: 1.6; }
+.sm-ai__group { border: 1px solid var(--border-color, #e5e7eb); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+.sm-ai__group-title { font-weight: 600; font-size: 13px; }
+.sm-ai__option { display: flex; gap: 8px; align-items: baseline; font-size: 14px; }
+.sm-ai__status { display: flex; flex-wrap: wrap; gap: 12px; font-size: 13px; }
+.sm-ai__muted { color: var(--text-muted, #6b7280); }
+.sm-ai__actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.sm-ai__confirm { font-size: 13px; }
+</style>

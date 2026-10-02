@@ -319,3 +319,15 @@ const receiptSummary = computed(() => session.value?.receipt_summary || null)
     />
   </div>
 </template>
+
+<style scoped>
+.sm-panel { display: flex; flex-direction: column; gap: 16px; }
+.sm-panel__steps { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 13px; color: var(--text-muted, #6b7280); }
+.sm-panel__step--active { color: var(--text-strong, inherit); font-weight: 600; }
+.sm-panel__step--done { text-decoration: line-through; opacity: 0.7; }
+.sm-panel__step-sep { opacity: 0.6; }
+.sm-panel__done { display: flex; flex-direction: column; gap: 8px; }
+.sm-panel__done-title { font-size: 16px; font-weight: 600; margin: 0; }
+.sm-panel__done-summary { color: var(--text-muted, #6b7280); margin: 0; }
+.sm-panel__done-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+</style>

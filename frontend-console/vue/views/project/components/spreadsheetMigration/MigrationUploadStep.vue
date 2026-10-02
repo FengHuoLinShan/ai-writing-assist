@@ -68,3 +68,10 @@ async function submit() {
     </div>
   </div>
 </template>
+
+<style scoped>
+.sm-upload { display: flex; flex-direction: column; gap: 8px; }
+.sm-upload__hint { margin: 0; line-height: 1.6; }
+.sm-upload__hint--muted { color: var(--text-muted, #6b7280); font-size: 13px; }
+.sm-upload__form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+</style>

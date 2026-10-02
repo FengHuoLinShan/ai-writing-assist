@@ -176,3 +176,30 @@ const outlineRow = computed(() => preview.value?.outline)
     </template>
   </div>
 </template>
+
+<style scoped>
+.sm-preview { display: flex; flex-direction: column; gap: 12px; }
+.sm-preview__summary { display: flex; flex-wrap: wrap; gap: 12px; font-size: 13px; }
+.sm-preview__conflict-count { color: #b45309; font-weight: 600; }
+.sm-preview__outline { font-size: 13px; color: var(--text-muted, #6b7280); }
+.sm-preview__tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.sm-preview__tab { border: 1px solid var(--border-color, #e5e7eb); background: transparent; border-radius: 6px 6px 0 0; padding: 4px 10px; font-size: 13px; cursor: pointer; }
+.sm-preview__tab--active { background: var(--bg-subtle, #f3f4f6); font-weight: 600; }
+.sm-preview__list { display: flex; flex-direction: column; gap: 8px; }
+.sm-preview__item { border: 1px solid var(--border-color, #e5e7eb); border-radius: 8px; padding: 8px 12px; display: flex; flex-direction: column; gap: 4px; }
+.sm-preview__item-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+.sm-preview__muted { color: var(--text-muted, #6b7280); font-size: 13px; }
+.sm-preview__action { font-size: 13px; font-weight: 600; color: var(--accent, #2563eb); }
+.sm-preview__conflicts { margin: 0; padding-left: 18px; font-size: 13px; color: #92400e; }
+.sm-preview__reason { margin: 0; font-size: 13px; color: var(--text-muted, #6b7280); }
+.sm-preview__similar { font-size: 13px; color: #92400e; }
+.sm-preview__decision { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 13px; }
+.sm-preview__source { color: var(--text-muted, #6b7280); }
+.sm-preview__actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; border-top: 1px solid var(--border-color, #e5e7eb); padding-top: 10px; }
+.sm-preview__confirm { font-size: 13px; }
+.sm-preview__empty { color: var(--text-muted, #6b7280); }
+@media (max-width: 640px) {
+  .sm-preview__item { padding: 8px; }
+  .sm-preview__decision { flex-direction: column; align-items: stretch; }
+}
+</style>

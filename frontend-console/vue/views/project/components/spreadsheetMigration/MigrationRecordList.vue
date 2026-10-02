@@ -75,3 +75,13 @@ function countsText(item) {
     </div>
   </div>
 </template>
+
+<style scoped>
+.sm-records { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--border-color, #e5e7eb); padding-top: 12px; }
+.sm-records__head { display: flex; justify-content: space-between; align-items: center; font-weight: 600; }
+.sm-records__empty { color: var(--text-muted, #6b7280); }
+.sm-records__item { border: 1px solid var(--border-color, #e5e7eb); border-radius: 8px; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; }
+.sm-records__summary { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; font-size: 13px; }
+.sm-records__muted { color: var(--text-muted, #6b7280); }
+.sm-records__actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 13px; }
+</style>

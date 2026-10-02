@@ -465,3 +465,52 @@ async def test_delete_session_removes_row(
         )
         is None
     )
+
+
+@pytest.mark.asyncio
+async def test_apply_rolls_back_everything_when_story_fails(
+    db_session: AsyncSession, session_row: ImportMigrationSession
+) -> None:
+    """story.apply 失败时 world 写入必须一并回滚（同一事务）。"""
+    from core.errors import ConflictError
+
+    service = SpreadsheetMigrationService()
+    world_receipt = _world_receipt()
+
+    with (
+        _plan_facades(),
+        patch(
+            "modules.world.facade.apply_author_migration_world",
+            autospec=True,
+            return_value=world_receipt,
+        ) as world_apply,
+        patch(
+            "modules.story.outline_state.facade.apply_author_migration_structures",
+            autospec=True,
+            side_effect=ConflictError("story 采用失败"),
+        ),
+        patch(
+            "modules.project.facade.require_active_project_exclusive",
+            autospec=True,
+        ),
+    ):
+        await service.save_mapping(
+            db_session,
+            session=session_row,
+            expected_revision=1,
+            sheets=session_row.mapping_json["sheets"],
+            options=session_row.mapping_json["options"],
+        )
+        with pytest.raises(ConflictError):
+            await service.apply_session(
+                db_session,
+                session=session_row,
+                expected_preview_hash=session_row.preview_hash,
+                authorized_by=str(OWNER_ID),
+            )
+        world_apply.assert_called_once()
+
+    db_session.rollback()
+    await db_session.refresh(session_row)
+    assert session_row.status == "draft", "部分失败不得标记 applied"
+    assert session_row.rows_json, "部分失败不得清空 rows"
