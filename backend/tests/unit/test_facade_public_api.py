@@ -8,6 +8,9 @@ from modules.world import contracts as world_contracts
 from modules.world import facade as world_facade
 
 WORLD_FACADE_API = {
+    "plan_author_migration_world",
+    "apply_author_migration_world",
+    "rollback_author_migration_world",
     "list_review_resolution_candidates",
     "authorize_review_resolution",
     "prepare_review_resolution_decision",
@@ -83,6 +86,9 @@ WORLD_FACADE_API = {
 }
 
 OUTLINE_FACADE_API = {
+    "plan_author_migration_structures",
+    "apply_author_migration_structures",
+    "rollback_author_migration_structures",
     "apply_structure_dedup",
     "apply_structure_dedup_group",
     "batch_create_scenes",
@@ -125,6 +131,17 @@ OUTLINE_FACADE_API = {
 }
 
 WORLD_CONTRACT_API = {
+    "AuthorMigrationEntityInput",
+    "AuthorMigrationRelationInput",
+    "AuthorMigrationWorldRequest",
+    "AuthorNote",
+    "CharacterFieldName",
+    "FieldConflict",
+    "MigrationAppliedChange",
+    "MigrationRollbackResult",
+    "WorldMigrationItemPlan",
+    "WorldMigrationPlan",
+    "WorldMigrationReceipt",
     "FocusedWorldPackageRequest",
     "FocusedWorldPackageApplyRequest",
     "CharacterContract",
