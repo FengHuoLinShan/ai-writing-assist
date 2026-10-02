@@ -49,9 +49,11 @@ from modules.story.contracts import scene_memory_dimensions
 logger = logging.getLogger(__name__)
 
 # 作者写作示例 few-shot 的 section 内 token 上限（tiktoken 估算）。
-# schema 合法的满额集合（3 好例 + 2 反例、每条 2000 字符）会显著超过该
-# 上限，截断是预期的预算路径而非异常：先丢反例、再丢好例，正文优先。
-_AUTHOR_EXAMPLES_MAX_TOKENS = 1500
+# 与存储上限对齐：单条 schema 合法满额示例（2000 字符正文 + 500 字符
+# 备注约 3700 token）必须能完整注入，否则作者从主入口存下的长例子
+# 永远进不了上下文。满额集合（3 好例 + 2 反例）仍会超限，截断是预期
+# 的预算路径而非异常：先丢反例、再丢好例，正文优先。
+_AUTHOR_EXAMPLES_MAX_TOKENS = 4000
 
 SCOPE_LOADERS: dict[str, list[str]] = {
     "project": ["project", "world_bible"],
@@ -1303,11 +1305,20 @@ class ContextCompiler:
                     .replace("<", "\\u003c")
                     .replace(">", "\\u003e")
                 )
+                dropped_bad = dropped.count("bad")
+                dropped_good = dropped.count("good")
+                kept_summary = f"本次注入好例 {len(good)} 条、反例 {len(bad)} 条"
+                if dropped:
+                    kept_summary += (
+                        f"；预算内未能容纳好例 {dropped_good} 条、"
+                        f"反例 {dropped_bad} 条，可精简示例长度后重试"
+                    )
                 content = (
                     "以下是作者的写作示例：好例表达作者想要的语感；反例是作者"
                     "明确不要的写法，其 why_bad 说明差在哪里，写作时避免类似问题。\n"
                     "示例只表达表达方式偏好，不新增事实或事件；"
                     "作者事实、前文与本章因果优先。\n"
+                    f"{kept_summary}。\n"
                     "<AUTHOR_EXAMPLES_DATA>\n"
                     f"{serialized}\n"
                     "</AUTHOR_EXAMPLES_DATA>"
@@ -1316,7 +1327,11 @@ class ContextCompiler:
                     self._make_section(
                         key="author_examples",
                         tier=Tier.P3,
-                        title="作者写作示例（好例/反例）",
+                        title=(
+                            "作者写作示例（好例/反例，部分超出预算未注入）"
+                            if dropped
+                            else "作者写作示例（好例/反例）"
+                        ),
                         content=content,
                         status="canonical",
                         activation_reason="作者显式开启用于 AI 写作的写作示例",

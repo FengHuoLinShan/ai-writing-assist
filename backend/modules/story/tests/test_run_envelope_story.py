@@ -64,7 +64,9 @@ def _chain_client(monkeypatch: pytest.MonkeyPatch, provider: _ChainProvider):
     from infrastructure.llm.client import LLMClient
 
     reset_llm_limiter_for_tests()
-    client = LLMClient()
+    client = LLMClient.from_project_settings(
+        {"llm": {"provider_id": "deepseek", "model": "deepseek-flash"}}
+    )
     client._provider = provider  # type: ignore[attr-defined]
     monkeypatch.setattr(
         "infrastructure.llm.client.get_llm_limiter", lambda: _NullLimiter()
@@ -93,9 +95,7 @@ async def _enqueue(
     novel_id: str | None,
 ) -> uuid.UUID:
     async with sessions.begin() as db:
-        return uuid.UUID(
-            enqueue_task(db, task_type, meta=meta, novel_id=novel_id)
-        )
+        return uuid.UUID(enqueue_task(db, task_type, meta=meta, novel_id=novel_id))
 
 
 async def _cleanup(sessions: Any, task_ids: list[uuid.UUID | None]) -> None:
@@ -137,8 +137,7 @@ def test_story_tasks_declare_canonical_root_and_frozen_limit(
     registry = _production_registry_with_story()
     assert registry.get_root_capability(task_type) == capability
     assert (
-        registry.resolve_run_request_limit(task_type, SimpleNamespace(meta={}))
-        == limit
+        registry.resolve_run_request_limit(task_type, SimpleNamespace(meta={})) == limit
     )
 
 
@@ -166,6 +165,8 @@ def test_story_tasks_declare_deadline_with_code_source(
         registry.resolve_run_deadline_seconds(task_type, SimpleNamespace(meta={}))
         == deadline
     )
+
+
 # ---------------------------------------------------------------------------
 # 2. 真实链：worker → handler → 真实 LLMClient（provider 替身）
 # ---------------------------------------------------------------------------
@@ -306,9 +307,7 @@ async def test_story_character_card_chain_builds_envelope_through_worker(
             assert (result.get("preview") or {}).get("content", {}).get(
                 "personality"
             ) == "沉静、克制"
-            envelope = read_ai_run_envelope(
-                (stored.meta or {}).get("_ai_run_envelope")
-            )
+            envelope = read_ai_run_envelope((stored.meta or {}).get("_ai_run_envelope"))
             assert envelope is not None
             assert envelope.root_capability_id == "story.character_card"
             assert envelope.requests_started == 2

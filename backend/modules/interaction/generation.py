@@ -547,7 +547,7 @@ class InteractionGenerationWorkflow:
         prepared_attempt_id = str(attempt.id)
         prepared_request_kind = attempt.request_kind
         prepared_visible_text = attempt.visible_text
-        prepared_see_sea_step = is_see_sea_step
+        prepared_sea_step = is_see_sea_step
         task.update_progress(0.02)
         await db.commit()
         if db.in_transaction():
@@ -561,8 +561,23 @@ class InteractionGenerationWorkflow:
             messages=messages,
             executable_settings=executable,
             existing_visible_text=prepared_visible_text,
-            see_sea_step=prepared_see_sea_step,
+            see_sea_step=prepared_sea_step,
         )
+
+    @staticmethod
+    def _bump_metadata_invalid(attempt: Any, *, reason: str) -> None:
+        """累计尾块无效计数与原因分布；续写/重试各自计一次，不互相覆盖。"""
+        usage_view = dict(attempt.usage or {})
+        usage_view["metadata_invalid_count"] = (
+            int(usage_view.get("metadata_invalid_count", 0)) + 1
+        )
+        reason_key = {
+            "incomplete_tail": "metadata_incomplete_tail_count",
+            "parse_failed": "metadata_parse_failed_count",
+        }.get(reason)
+        if reason_key:
+            usage_view[reason_key] = int(usage_view.get(reason_key, 0)) + 1
+        attempt.usage = usage_view
 
     async def checkpoint_story_task(
         self,
@@ -574,6 +589,7 @@ class InteractionGenerationWorkflow:
         usage: dict[str, int] | None = None,
         progress: float | None = None,
         metadata_invalid: bool = False,
+        metadata_invalid_reason: str = "",
     ) -> int:
         if not self._is_inline(task):
             require_task_checkpoint_session(db)
@@ -614,12 +630,11 @@ class InteractionGenerationWorkflow:
         if metadata_text is not None:
             attempt.metadata_text = metadata_text[:8192]
         if metadata_invalid:
-            # P3：解析失败不判废正文，只把计数落在 run 账本供诊断。
-            usage_view = dict(attempt.usage or {})
-            usage_view["metadata_invalid_count"] = (
-                int(usage_view.get("metadata_invalid_count", 0)) + 1
+            # P3：尾块无效不判废正文，只把计数与原因落在 run 账本供诊断。
+            self._bump_metadata_invalid(
+                attempt,
+                reason=metadata_invalid_reason,
             )
-            attempt.usage = usage_view
         if usage:
             previous = dict(attempt.usage or {})
             continuation_keys = previous.get("continuation_keys", [])
@@ -1232,6 +1247,8 @@ class InteractionGenerationWorkflow:
         task: Any,
         error: Exception,
         visible_delta: str = "",
+        metadata_invalid: bool = False,
+        metadata_invalid_reason: str = "",
     ) -> None:
         if not self._is_inline(task):
             require_task_checkpoint_session(db)
@@ -1262,6 +1279,11 @@ class InteractionGenerationWorkflow:
                 await db.rollback()
                 return
             kind, message = self._safe_story_error(error)
+            if metadata_invalid:
+                self._bump_metadata_invalid(
+                    attempt,
+                    reason=metadata_invalid_reason,
+                )
             if (
                 visible_delta
                 and attempt.status == "running"

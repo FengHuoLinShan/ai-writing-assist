@@ -1,86 +1,63 @@
-"""长篇规模分档门（B7）：低档阈值回归，随每日 PG e2e 运行。
-
-检索/审校分片/任务编排链路的规模覆盖由 tools/evolution_scale_harness
-承接；本测试锁定编译链路在低档（10 万字）夹具上的确定性成本与
-「输入成本不随章节位置无界增长」的边界。
-"""
+"""Nightly PostgreSQL B7: all four real engineering paths at all three scales."""
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+from types import SimpleNamespace
+
 import pytest
-import pytest_asyncio
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import func, select
+
+from modules.account.models import Account
+from modules.project.models import Project
+from tests.e2e.config import require_e2e_database_url
+from tools.scale_gate_harness import release_evidence, run_gate, sample_chapter_indices
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
 
 
-@pytest_asyncio.fixture
-async def scale_fixture(db_session: AsyncSession, test_project_id: str):
-    """在专用项目下预置低档夹具的全部章节草稿，返回 (novel_id, 章数)。"""
-    from uuid import UUID
-
-    from modules.writing.models import WritingDraft
-    from tools.scale_fixtures import generate_corpus
-
-    novel_uuid = UUID(test_project_id)
-    chapters = generate_corpus("low")
-    for index, chapter in enumerate(chapters, start=1):
-        db_session.add(
-            WritingDraft(
-                novel_id=novel_uuid,
-                chapter_index=index,
-                title=chapter["title"],
-                content=chapter["content"],
-                content_hash="",
-                version_number=1,
-                status="published",
-            )
+@pytest.mark.parametrize("tier", ["low", "mid", "high"])
+async def test_scale_gate_four_paths_at_each_tier(db_session, tier):
+    before_projects = await db_session.scalar(select(func.count()).select_from(Project))
+    before_accounts = await db_session.scalar(select(func.count()).select_from(Account))
+    report = await run_gate(
+        SimpleNamespace(
+            database_url=require_e2e_database_url(),
+            create_schema=False,
+            tier=tier,
+            baseline_check=True,
         )
-    await db_session.flush()
-    return test_project_id, len(chapters)
-
-
-async def test_scale_gate_low_tier_compilation_thresholds(
-    db_session: AsyncSession, scale_fixture
-) -> None:
-    import json
-    from pathlib import Path
-
-    from tools.scale_gate_harness import (
-        ScaleGateReport,
-        check_thresholds,
-        evaluate_growth,
-        probe_compilation,
-        sample_chapter_indices,
     )
-
-    scale_novel_id, chapter_count = scale_fixture
-    indices = sample_chapter_indices(chapter_count)
-    probes = await probe_compilation(
-        db_session, novel_id=scale_novel_id, indices=indices
+    assert report.indexed_chunks > report.chapters
+    assert report.retrieval_hits > 0
+    assert report.reviewed_chapters == report.chapters
+    assert report.orchestration["scenes_run"] == 6
+    assert all(p.evidence_tokens > 100 for p in report.sampled)
+    assert (
+        await db_session.scalar(select(func.count()).select_from(Project))
+        == before_projects
     )
-
-    assert len(probes) == len(indices)
-    # 编译必须成功产出 sections（每章都有正文 objective 与基础结构）
-    assert all(probe.section_count >= 1 for probe in probes)
-
-    report = ScaleGateReport(tier="low", chapters=chapter_count, sampled=probes)
-    evaluate_growth(report)
-    # 边界（阈值化防 flaky）：无 RAG 索引时编译输入由预算封顶，不随章节
-    # 位置显著增长；带索引的完整增长定标为后续项（见 baselines note）。
-    assert report.growth_ratio is not None and report.growth_ratio <= 1.05
-
-    baselines = json.loads(
-        (
-            Path(__file__).resolve().parents[2] / "tools" / "scale_gate_baselines.json"
-        ).read_text(encoding="utf-8")
+    assert (
+        await db_session.scalar(select(func.count()).select_from(Account))
+        == before_accounts
     )
-    check_thresholds(report, baselines=baselines)
+    # B6 consumes exactly the JSON exported by CLI/nightly; no format converter.
+    import sys
+
+    repo_root = Path(__file__).resolve().parents[3]
+    sys.path.insert(0, str(repo_root / "scripts"))
+    import check_release_evidence as gate
+
+    evidence = release_evidence(report)
+    path = repo_root / "backend/.test-artifacts" / f"scale-{tier}.json"
+    assert gate.validate_payload(evidence, path) == []
+    assert gate.validate_files(evidence, path) == []
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + "\n")
 
 
-async def test_scale_gate_sample_indices_are_stable() -> None:
-    from tools.scale_gate_harness import sample_chapter_indices
-
+async def test_scale_gate_sample_indices_are_stable():
     assert sample_chapter_indices(22) == [1, 6, 11, 16, 22]
     assert sample_chapter_indices(1) == [1]
     assert sample_chapter_indices(220) == [1, 55, 110, 165, 220]

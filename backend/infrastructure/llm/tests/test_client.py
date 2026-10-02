@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from types import MethodType, SimpleNamespace
 
 import pytest
@@ -94,6 +95,23 @@ def _reset_process_limiter() -> None:
     reset_llm_limiter_for_tests()
     yield
     reset_llm_limiter_for_tests()
+
+
+@pytest.fixture(autouse=True)
+def _calibrate_fake_structured_model(monkeypatch) -> None:
+    from infrastructure.llm.capabilities import resolve_llm_capability_profile
+
+    def resolve(provider, model, **kwargs):
+        profile = resolve_llm_capability_profile(provider, model, **kwargs)
+        return (
+            replace(profile, structured_output="supported")
+            if model == "fake"
+            else profile
+        )
+
+    monkeypatch.setattr(
+        "infrastructure.llm.capabilities.resolve_llm_capability_profile", resolve
+    )
 
 
 def test_resolve_llm_profile_uses_deepseek_code_defaults_without_env(monkeypatch) -> None:
@@ -1392,11 +1410,12 @@ async def test_structured_first_call_has_schema_without_mutating_or_duplicating_
         _StructuredPayload.model_json_schema(), ensure_ascii=False, separators=(",", ":")
     )
     request = LLMCallRequest(
+        model="fake",
         messages=[
             LLMMessage(
                 role="user", content=schema_json if already_supplied else "给出一个值"
             )
-        ]
+        ],
     )
     original = request.model_dump()
 

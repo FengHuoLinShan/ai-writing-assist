@@ -177,9 +177,17 @@ async def _fail_inline_attempt(
     principal: AccountPrincipal,
     task: InlineStoryTask,
     error: Exception,
+    metadata_invalid: bool = False,
+    metadata_invalid_reason: str = "",
 ) -> InteractionGenerationAttempt | None:
     async with get_manager().session_factory() as db:
-        await _inline_workflow.fail_story_task(db, task=task, error=error)
+        await _inline_workflow.fail_story_task(
+            db,
+            task=task,
+            error=error,
+            metadata_invalid=metadata_invalid,
+            metadata_invalid_reason=metadata_invalid_reason,
+        )
         journey_id = uuid.UUID(str(task.meta["journey_id"]))
         attempt_id = uuid.UUID(str(task.meta["attempt_id"]))
         journey = await _inline_workflow._repo.get_journey(  # noqa: SLF001
@@ -213,6 +221,7 @@ async def stream_anonymous_rp_attempt(
     context_token = bind_principal(principal)
     client = None
     task = None
+    framer = InteractionStreamFramer()
     try:
         async with get_manager().session_factory() as db:
             journey = await _inline_workflow._repo.get_journey(  # noqa: SLF001
@@ -309,7 +318,6 @@ async def stream_anonymous_rp_attempt(
                 novel_id=prepared.novel_id,
             )
             yield _event("status", {"status": "running", "offset": 0})
-            framer = InteractionStreamFramer()
             finish_reason = "stop"
             final_usage: dict[str, int] | None = None
             # ADR-0025 held release：匿名演示同样不得在审查通过前输出正文；
@@ -343,6 +351,7 @@ async def stream_anonymous_rp_attempt(
                 usage=final_usage,
                 progress=0.95,
                 metadata_invalid=framer.metadata_invalid,
+                metadata_invalid_reason=framer.metadata_invalid_reason,
             )
             governed = await _inline_workflow.govern_held_story(
                 db,
@@ -419,27 +428,36 @@ async def stream_anonymous_rp_attempt(
                 event_id=settled.visible_offset,
             )
     except InteractionClientDisconnectedError:
+        framer.finish()
         if task is not None:
             await _fail_inline_attempt(
                 principal=principal,
                 task=task,
                 error=InteractionClientDisconnectedError(),
+                metadata_invalid=framer.metadata_invalid,
+                metadata_invalid_reason=framer.metadata_invalid_reason,
             )
         return
     except asyncio.CancelledError:
+        framer.finish()
         if task is not None:
             await _fail_inline_attempt(
                 principal=principal,
                 task=task,
                 error=InteractionClientDisconnectedError(),
+                metadata_invalid=framer.metadata_invalid,
+                metadata_invalid_reason=framer.metadata_invalid_reason,
             )
         raise
     except Exception as error:
+        framer.finish()
         if task is not None:
             attempt = await _fail_inline_attempt(
                 principal=principal,
                 task=task,
                 error=error,
+                metadata_invalid=framer.metadata_invalid,
+                metadata_invalid_reason=framer.metadata_invalid_reason,
             )
             if attempt is not None:
                 yield _event(

@@ -75,16 +75,12 @@ async def find_reusable_asset(
     verified = await validate_asset(row)
     if verified is None:
         # 损坏对象不被复用：删除登记，下次重新生成并重新登记。
-        await db.execute(
-            delete(ImageRequestReuse).where(ImageRequestReuse.id == row.id)
-        )
+        await db.execute(delete(ImageRequestReuse).where(ImageRequestReuse.id == row.id))
         await db.flush()
         return None
     data, sha256, width, height = verified
     if sha256 and row.asset_sha256 and sha256 != row.asset_sha256:
-        await db.execute(
-            delete(ImageRequestReuse).where(ImageRequestReuse.id == row.id)
-        )
+        await db.execute(delete(ImageRequestReuse).where(ImageRequestReuse.id == row.id))
         await db.flush()
         return None
     row.reuse_count += 1
@@ -126,6 +122,7 @@ async def record_reusable_asset(
         await db.execute(
             select(ImageRequestReuse).where(
                 ImageRequestReuse.novel_id == novel_uuid,
+                ImageRequestReuse.owner_id == owner_uuid,
                 ImageRequestReuse.request_hash == request_hash,
             )
         )
@@ -138,20 +135,23 @@ async def record_reusable_asset(
             source_type=source_type,
             object_key=object_key,
         )
-        db.add(row)
         try:
-            await db.flush()
+            async with db.begin_nested():
+                db.add(row)
+                await db.flush()
         except IntegrityError:
-            # 并发同参 run 双插入撞唯一索引：转为覆盖既有记录。
-            await db.rollback()
+            # 只撤回本次插入，保留调用方已写入的图片与完成状态。
             row = (
                 await db.execute(
                     select(ImageRequestReuse).where(
                         ImageRequestReuse.novel_id == novel_uuid,
+                        ImageRequestReuse.owner_id == owner_uuid,
                         ImageRequestReuse.request_hash == request_hash,
                     )
                 )
-            ).scalar_one()
+            ).scalar_one_or_none()
+            if row is None:
+                raise
     row.owner_id = owner_uuid
     row.source_type = source_type
     row.object_key = object_key
@@ -161,9 +161,7 @@ async def record_reusable_asset(
     row.byte_size = byte_size
     row.width = width
     row.height = height
-    row.created_from_id = (
-        UUID(str(created_from_id)) if created_from_id else None
-    )
+    row.created_from_id = UUID(str(created_from_id)) if created_from_id else None
     row.reuse_count = 0
     row.reused_at = None
     await db.flush()

@@ -32,6 +32,35 @@ async def test_cost_routing_disabled_by_default(db_session, test_project_id) -> 
 
 
 @pytest.mark.asyncio
+async def test_hidden_interaction_routing_preserves_owner_gate(db_session):
+    from uuid import uuid4
+
+    from core.errors import NotFoundError
+    from modules.account.facade import current_account_id
+    from modules.account.models import Account
+    from modules.project.model_routing import build_cost_routing
+    from modules.project.models import Project
+
+    owned = Project(
+        id=uuid4(),
+        owner_id=current_account_id(),
+        title="RP合成测试",
+        project_kind="interaction",
+    )
+    other_owner = uuid4()
+    db_session.add(Account(id=other_owner, support_code=f"routing-{other_owner.hex[:8]}"))
+    await db_session.flush()
+    foreign = Project(
+        id=uuid4(), owner_id=other_owner, title="其他账户RP", project_kind="interaction"
+    )
+    db_session.add_all([owned, foreign])
+    await db_session.flush()
+    assert (await build_cost_routing(db_session, str(owned.id)))["enabled"] is False
+    with pytest.raises(NotFoundError):
+        await build_cost_routing(db_session, str(foreign.id))
+
+
+@pytest.mark.asyncio
 async def test_cost_routing_requires_verified_secondary(
     db_session, test_project_id, account_llm_connection
 ) -> None:
@@ -92,7 +121,7 @@ def test_apply_cost_routing_switches_cheap_capability() -> None:
     request = _request(model="deepseek-v4-flash")
 
     routed = _apply_cost_routing(
-        client, request, capability_id="imports.entity_extraction"
+        client, request, routing_capability_id="imports.entity_extraction"
     )
 
     assert routed is not request
@@ -111,7 +140,9 @@ def test_apply_cost_routing_falls_back_for_standard_capability() -> None:
     )
     request = _request(model="deepseek-v4-flash")
 
-    routed = _apply_cost_routing(client, request, capability_id="writing.generate")
+    routed = _apply_cost_routing(
+        client, request, routing_capability_id="writing.generate"
+    )
 
     assert routed is request  # 原对象原样返回（回落主模型）
 
@@ -123,7 +154,9 @@ def test_apply_cost_routing_noop_without_injection() -> None:
     request = _request()
 
     assert (
-        _apply_cost_routing(client, request, capability_id="imports.scene_slicing")
+        _apply_cost_routing(
+            client, request, routing_capability_id="imports.scene_slicing"
+        )
         is request
     )
 
@@ -159,13 +192,14 @@ def test_structured_output_capability_declaration() -> None:
     unknown = resolve_llm_capability_profile("deepseek", "never-calibrated-model")
 
     assert verified.structured_output == "supported"
-    # 未登记模型默认未声明（None）：保持历史行为；fail-closed 只对显式
-    # 声明 unverified/unsupported 的已登记模型生效。
-    assert unknown.structured_output is None
+    assert unknown.structured_output == "unverified"
 
 
-async def test_structured_output_fail_closed_for_declared_unverified() -> None:
-    """显式声明 unverified 的模型不得接收 json_object（fake client 断言）。"""
+@pytest.mark.parametrize("response_format", [None, {"type": "json_object"}])
+async def test_structured_output_fail_closed_for_declared_unsupported(
+    response_format,
+) -> None:
+    """显式 unsupported 不能通过调用方预填 json_object 绕过。"""
     from unittest.mock import patch
 
     from infrastructure.llm.capabilities import LLMCapabilityProfile
@@ -173,8 +207,8 @@ async def test_structured_output_fail_closed_for_declared_unverified() -> None:
     from infrastructure.llm.errors import LLMError
     from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 
-    unverified = LLMCapabilityProfile(
-        profile_id="test-unverified-v1",
+    unsupported = LLMCapabilityProfile(
+        profile_id="test-unsupported-v1",
         provider_id="deepseek",
         model="deepseek-v4-flash",
         context_limit_tokens=128_000,
@@ -187,7 +221,7 @@ async def test_structured_output_fail_closed_for_declared_unverified() -> None:
         summary_output_tokens=8_192,
         safety_margin_tokens=2_048,
         calibration_status="verified_dev",
-        structured_output="unverified",
+        structured_output="unsupported",
     ).validate()
 
     client = LLMClient(
@@ -204,11 +238,12 @@ async def test_structured_output_fail_closed_for_declared_unverified() -> None:
     request = LLMCallRequest(
         model="deepseek-v4-flash",
         messages=[LLMMessage(role="user", content="x")],
+        response_format=response_format,
     )
 
     with patch(
         "infrastructure.llm.capabilities.resolve_llm_capability_profile",
-        return_value=unverified,
+        return_value=unsupported,
         autospec=True,
     ):
         with pytest.raises(LLMError) as exc_info:
@@ -216,13 +251,81 @@ async def test_structured_output_fail_closed_for_declared_unverified() -> None:
     assert exc_info.value.error_kind == "unsupported_structured_output"
 
 
+@pytest.mark.parametrize("declaration", ["unverified", None])
+@pytest.mark.parametrize("response_format", [None, {"type": "json_object"}])
+async def test_structured_output_unverified_runs_without_provider_json_mode(
+    declaration,
+    response_format,
+) -> None:
+    """未校准模型（如 Kimi 模板默认）不失败关闭：剥离 provider json_object，
+    走提示词内嵌 schema 与解析修复链，保证 RP 摘要/导入抽取可用。"""
+    from unittest.mock import patch
+
+    from infrastructure.llm.capabilities import LLMCapabilityProfile
+    from infrastructure.llm.client import LLMClient
+    from infrastructure.llm.schemas import LLMCallRequest, LLMCallResponse, LLMMessage
+
+    unverified = LLMCapabilityProfile(
+        profile_id="test-unverified-v1",
+        provider_id="kimi",
+        model="kimi-k3",
+        context_limit_tokens=128_000,
+        verified_input_ceiling_tokens=64_000,
+        normal_input_tokens=32_000,
+        compact_trigger_tokens=48_000,
+        summary_input_ceiling_tokens=64_000,
+        story_output_tokens=8_192,
+        see_sea_output_tokens=8_192,
+        summary_output_tokens=8_192,
+        safety_margin_tokens=2_048,
+        calibration_status="verified_dev",
+        structured_output=declaration,
+    ).validate()
+
+    client = LLMClient(
+        api_key="k",
+        base_url="https://example.invalid",
+        default_model="kimi-k3",
+    )
+    client._profile_summary = {"provider_id": "kimi"}
+    from pydantic import BaseModel
+
+    class _Probe(BaseModel):
+        ok: bool
+
+    request = LLMCallRequest(
+        model="kimi-k3",
+        messages=[LLMMessage(role="user", content="x")],
+        response_format=response_format,
+    )
+
+    with patch(
+        "infrastructure.llm.capabilities.resolve_llm_capability_profile",
+        return_value=unverified,
+        autospec=True,
+    ):
+        with patch.object(
+            LLMClient, "generate", autospec=True
+        ) as mock_generate:
+            mock_generate.return_value = LLMCallResponse(
+                content='{"ok": true}', model="kimi-k3"
+            )
+            result = await client.generate_structured(request, _Probe)
+
+    assert result.ok is True
+    req_used = mock_generate.call_args[0][1]
+    assert req_used.response_format is None
+    assert any(
+        "output schema" in str(message.content)
+        for message in req_used.messages
+    )
+
+
 def test_registry_cost_tiers_are_registered() -> None:
     from modules.evidence.contracts import CAPABILITY_REGISTRY
 
     cheap = {
-        key
-        for key, policy in CAPABILITY_REGISTRY.items()
-        if policy.cost_tier == "cheap"
+        key for key, policy in CAPABILITY_REGISTRY.items() if policy.cost_tier == "cheap"
     }
     assert "imports.entity_extraction" in cheap
     assert "imports.scene_slicing" in cheap
@@ -264,9 +367,7 @@ async def test_managed_step_routes_and_records_provenance() -> None:
 
     from infrastructure.llm.schemas import LLMCallRequest
 
-    request = LLMCallRequest(
-        model="deepseek-v4-flash", messages=[]
-    )
+    request = LLMCallRequest(model="deepseek-v4-flash", messages=[])
     result = await run_managed_structured(
         _RoutingClient(),
         request,
@@ -334,3 +435,71 @@ def test_snapshot_client_uses_frozen_cost_routing() -> None:
         import asyncio
 
         asyncio.run(legacy.close())
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("response_format", [None, {"type": "json_object"}])
+async def test_structured_format_repair_respects_unverified_json_mode(
+    response_format,
+) -> None:
+    """未校准模型走到格式修复链也不盲发 json_object（与主路径同一三态口径）。"""
+    from unittest.mock import patch
+
+    from infrastructure.llm.capabilities import LLMCapabilityProfile
+    from infrastructure.llm.client import LLMClient
+    from infrastructure.llm.schemas import LLMCallRequest, LLMCallResponse, LLMMessage
+
+    unverified = LLMCapabilityProfile(
+        profile_id="test-unverified-v1",
+        provider_id="kimi",
+        model="kimi-k3",
+        context_limit_tokens=128_000,
+        verified_input_ceiling_tokens=64_000,
+        normal_input_tokens=32_000,
+        compact_trigger_tokens=48_000,
+        summary_input_ceiling_tokens=64_000,
+        story_output_tokens=8_192,
+        see_sea_output_tokens=8_192,
+        summary_output_tokens=8_192,
+        safety_margin_tokens=2_048,
+        calibration_status="verified_dev",
+        structured_output="unverified",
+    ).validate()
+
+    client = LLMClient(
+        api_key="k",
+        base_url="https://example.invalid",
+        default_model="kimi-k3",
+    )
+    client._profile_summary = {"provider_id": "kimi"}
+    from pydantic import BaseModel
+
+    class _Probe(BaseModel):
+        ok: bool
+
+    request = LLMCallRequest(
+        model="kimi-k3",
+        messages=[LLMMessage(role="user", content="x")],
+        response_format=response_format,
+    )
+
+    with patch(
+        "infrastructure.llm.capabilities.resolve_llm_capability_profile",
+        return_value=unverified,
+        autospec=True,
+    ):
+        with patch.object(LLMClient, "generate", autospec=True) as mock_generate:
+            mock_generate.side_effect = [
+                LLMCallResponse(content="不是 JSON", model="kimi-k3"),
+                LLMCallResponse(content='{"ok": true}', model="kimi-k3"),
+            ]
+            result = await client.generate_structured(
+                request,
+                _Probe,
+                max_fix_attempts=0,
+                format_repair_attempts=1,
+            )
+
+    assert result.ok is True
+    assert mock_generate.call_count == 2  # 主尝试 + 格式修复各一次
+    for call in mock_generate.call_args_list:
+        assert call[0][1].response_format is None

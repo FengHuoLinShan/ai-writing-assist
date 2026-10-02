@@ -104,10 +104,7 @@ def test_receipt_records_per_source_tokens_and_states() -> None:
 
     # run 账本可复算逐源 token 构成
     serialized = receipt.to_dict()
-    tokens = {
-        item["source_key"]: item["token_count"]
-        for item in serialized["included"]
-    }
+    tokens = {item["source_key"]: item["token_count"] for item in serialized["included"]}
     assert tokens["world_entity:ent-a"] == 120
     assert tokens["world_entity:ent-b"] == 80
 
@@ -120,9 +117,7 @@ def test_trimmed_and_omitted_are_distinguished() -> None:
     compiled = CompiledContext(
         sections=[
             _section("characters", items=[_item("char-1", token_count=50)]),
-            _section(
-                "memory_records", items=[_item("mem-1", token_count=30)]
-            ),
+            _section("memory_records", items=[_item("mem-1", token_count=30)]),
         ],
         budget_tokens=9999,
         truncated_keys=["characters"],
@@ -174,7 +169,69 @@ def test_hash_basis_content_and_identity() -> None:
     with_hash = receipt.entry("world_entity:ent-with-hash")
     identity_only = receipt.entry("world_entity:ent-identity")
     assert with_hash is not None and with_hash.hash_basis == "content"
-    assert identity_only is not None and identity_only.hash_basis == "identity"
+    assert identity_only is not None and identity_only.hash_basis == "content"
+    unmaterialized = _build(
+        _section(
+            "world_entities",
+            items=[_item("body")],
+            sources=[{"type": "draft", "id": "metadata-only"}],
+        )
+    ).entry("draft:metadata-only")
+    assert unmaterialized.hash_basis == "identity" and unmaterialized.token_count is None
+    changed_item = _item(
+        "ent-identity", source={"type": "world_entity", "id": "ent-identity"}
+    ).model_copy(update={"content": "changed body"})
+    changed = _build(_section("world_entities", items=[changed_item])).entry(
+        "world_entity:ent-identity"
+    )
+    assert changed.content_hash != identity_only.content_hash
+
+
+def test_atomic_multisource_budget_evidence_keeps_shared_count_once() -> None:
+    section = ContextSection(
+        key="working_pages",
+        tier=Tier.P3,
+        content='[{"text":"first"},{"text":"second"}]',
+        token_count=20,
+        sources=[{"type": "draft", "id": "a"}, {"type": "draft", "id": "b"}],
+    )
+    compiled = CompiledContext(
+        sections=[section], total_tokens=20, budget_tokens=1
+    ).enforce_budget()
+    receipt = build_scope_receipt(
+        compiled, _policy(), KnowledgeSubject(subject_type="author"), novel_id="n"
+    ).receipt
+    assert {e.source_id for e in receipt.omitted} == {"a", "b"}
+    assert all(
+        e.state == "omitted" and e.hash_basis == "content" for e in receipt.omitted
+    )
+    groups = {g["key"]: g for e in receipt.omitted for g in e.token_groups}
+    assert sum(g["token_count"] for g in groups.values()) == 20
+    assert all(g["shared"] for g in groups.values())
+    assert all(e.token_count is None for e in receipt.omitted)  # 不冒充独立消耗
+    assert (
+        KnowledgeScopeReceipt.from_dict(receipt.to_dict()).to_dict() == receipt.to_dict()
+    )
+
+
+def test_omitted_item_retains_tokens_and_repeated_source_sums_distinct_items() -> None:
+    source = {"type": "draft", "id": "same"}
+    section = _section(
+        "world_entities",
+        items=[
+            _item("part-a", token_count=12, source=source),
+            _item("part-b", token_count=8, source=source),
+        ],
+        tier=Tier.P3,
+    )
+    compiled = CompiledContext(
+        sections=[section], total_tokens=20, budget_tokens=1
+    ).enforce_budget()
+    receipt = build_scope_receipt(
+        compiled, _policy(), KnowledgeSubject(subject_type="author"), novel_id="n"
+    ).receipt
+    assert receipt.omitted[0].token_count == 20
+    assert len(receipt.omitted[0].token_groups) == 2
 
 
 def test_fingerprint_stable_without_evidence_fields() -> None:
@@ -275,3 +332,27 @@ def test_source_entry_metadata_size_is_bounded() -> None:
     assert len(entry.state_reason) <= 200
     serialized = json.dumps(entry.to_dict(), ensure_ascii=False)
     assert len(serialized.encode("utf-8")) <= 2048
+
+def test_token_groups_are_capped_with_overflow_record() -> None:
+    """单源 token_groups 数量有上界：超限折叠为 __overflow__，账目仍有界。"""
+    shared_source = {"type": "world_entity", "id": "ent-many", "content_hash": "h"}
+    items = [
+        _item(f"grp-{index:03d}", token_count=100 + index, source=dict(shared_source))
+        for index in range(40)
+    ]
+    receipt = _build(_section("world_entities", items=items))
+
+    entry = receipt.entry("world_entity:ent-many")
+    assert entry is not None
+    groups = entry.token_groups
+    assert len(groups) == 33  # 32 条 + 1 条 __overflow__
+    overflow = groups[-1]
+    assert overflow["key"] == "__overflow__"
+    assert overflow["dropped_group_count"] == 8
+    # 保留下的是 token 数最大的 32 组
+    kept_tokens = sorted(g["token_count"] for g in groups[:-1])
+    assert kept_tokens == list(range(108, 140))
+    # 折叠不改变逐源 token 复算口径（全量 = 保留组 + overflow 折叠合计）
+    assert entry.token_count == sum(
+        g["token_count"] for g in groups[:-1] if not g["shared"]
+    ) + overflow["token_count"]

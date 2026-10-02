@@ -1,11 +1,11 @@
-#!/usr/bin/env python3
 """发布证据账本校验器（B6）。
 
 校验 docs/evidence/*.json 证据文件：
 - schema 合法（必填字段与类型，claims_boundary 必须同时写明证明与不证明什么）；
 - 关联 commit 在 base 分支可达；
 - 引用的数据集/文件 sha256 与实际一致；
-- 超过 --max-age-days 未更新标 stale（失败或告警，见 --stale-fails）。
+- 超过 --max-age-days 未更新标 stale（默认 WARN；传 --stale-fails 才失败，
+  供定时刷新检查或发布前显式把关，避免与改动无关的 PR 因日历变红）。
 
 付费原始数据留仓库外；仓库内证据只含去原文的结论与账本快照。
 """
@@ -15,6 +15,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
+import re
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -40,7 +42,10 @@ REQUIRED_FIELDS = (
 
 def _git(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
-        ["git", "-C", str(REPO_ROOT), *args], capture_output=True, text=True
+        ["git", "-C", str(REPO_ROOT), *args],
+        capture_output=True,
+        text=True,
+        check=False,
     )
 
 
@@ -53,31 +58,88 @@ def _file_sha256(path: Path) -> str:
 
 
 def validate_payload(payload: dict, path: Path) -> list[str]:
+    if not isinstance(payload, dict):
+        return [f"{path.name}: 证据必须是 JSON 对象"]
     problems: list[str] = []
-    if payload.get("schema_version") != SCHEMA_VERSION:
-        problems.append(f"{path.name}: schema_version 必须是 {SCHEMA_VERSION}")
     for field in REQUIRED_FIELDS:
         if field not in payload:
             problems.append(f"{path.name}: 缺少必填字段 {field}")
     if problems:
         return problems
-
-    boundary = payload.get("claims_boundary")
-    if not isinstance(boundary, dict) or not isinstance(
-        boundary.get("proves"), list
-    ) or not isinstance(boundary.get("does_not_prove"), list):
-        problems.append(
-            f"{path.name}: claims_boundary 必须含 proves / does_not_prove 列表"
-        )
-    if not isinstance(payload.get("metrics"), list):
+    if payload["schema_version"] != SCHEMA_VERSION:
+        problems.append(f"{path.name}: schema_version 必须是 {SCHEMA_VERSION}")
+    for field in ("capability", "generator_version"):
+        if not isinstance(payload[field], str) or not payload[field].strip():
+            problems.append(f"{path.name}: {field} 必须是非空字符串")
+    if not isinstance(payload["commit"], str) or not re.fullmatch(
+        r"[0-9a-f]{40}", payload["commit"]
+    ):
+        problems.append(f"{path.name}: commit 必须是完整 40 位不可变 SHA")
+    boundary = payload["claims_boundary"]
+    for field in ("proves", "does_not_prove"):
+        values = boundary.get(field) if isinstance(boundary, dict) else None
+        if (
+            not isinstance(values, list)
+            or not values
+            or any(not isinstance(v, str) or not v.strip() for v in values)
+        ):
+            problems.append(
+                f"{path.name}: claims_boundary.{field} 必须是非空字符串列表"
+            )
+    metrics = payload["metrics"]
+    if not isinstance(metrics, list):
         problems.append(f"{path.name}: metrics 必须是列表（无指标时为空列表）")
+    else:
+        for metric in metrics:
+            if (
+                not isinstance(metric, dict)
+                or not isinstance(metric.get("name"), str)
+                or not metric["name"].strip()
+                or "value" not in metric
+            ):
+                problems.append(f"{path.name}: metrics 条目必须含非空 name 和 value")
+            elif (
+                not isinstance(metric["value"], (int, float, str, bool))
+                or isinstance(metric["value"], float)
+                and not math.isfinite(metric["value"])
+            ):
+                problems.append(f"{path.name}: metrics.value 必须是有限标量")
     try:
-        datetime.fromisoformat(str(payload["generated_at"]))
-    except ValueError:
-        problems.append(f"{path.name}: generated_at 必须是 ISO-8601 时间")
-    dataset = payload.get("dataset")
-    if not isinstance(dataset, dict) or not dataset.get("name"):
-        problems.append(f"{path.name}: dataset 必须含 name")
+        if not isinstance(payload["generated_at"], str):
+            raise TypeError
+        generated = datetime.fromisoformat(payload["generated_at"])
+        if generated.tzinfo is None:
+            raise ValueError
+    except (TypeError, ValueError):
+        problems.append(f"{path.name}: generated_at 必须是带时区的 ISO-8601 时间")
+    dataset = payload["dataset"]
+    if (
+        not isinstance(dataset, dict)
+        or not isinstance(dataset.get("name"), str)
+        or not dataset["name"].strip()
+    ):
+        problems.append(f"{path.name}: dataset 必须含非空字符串 name")
+        return problems
+    files = dataset.get("files")
+    if not isinstance(files, list):
+        problems.append(f"{path.name}: dataset.files 必须是列表")
+    else:
+        for ref in files:
+            if (
+                not isinstance(ref, dict)
+                or not isinstance(ref.get("path"), str)
+                or not ref["path"].strip()
+                or not isinstance(ref.get("sha256"), str)
+                or not re.fullmatch(r"[0-9a-f]{64}", ref["sha256"])
+            ):
+                problems.append(
+                    f"{path.name}: dataset.files 条目必须含 path 和完整 sha256"
+                )
+    for field in ("cases", "scenario_groups"):
+        if field in dataset and (
+            type(dataset[field]) is not int or dataset[field] <= 0
+        ):
+            problems.append(f"{path.name}: dataset.{field} 必须为正整数")
     return problems
 
 
@@ -87,9 +149,7 @@ def validate_commit(payload: dict, path: Path, base: str) -> list[str]:
         return [f"{path.name}: commit 为空"]
     result = _git("merge-base", "--is-ancestor", commit, base)
     if result.returncode != 0:
-        return [
-            f"{path.name}: commit {commit[:12]} 不在 {base} 可达范围内"
-        ]
+        return [f"{path.name}: commit {commit[:12]} 不在 {base} 可达范围内"]
     return []
 
 
@@ -105,7 +165,10 @@ def validate_files(payload: dict, path: Path) -> list[str]:
         if not rel or not expected:
             problems.append(f"{path.name}: dataset.files 条目缺 path/sha256")
             continue
-        target = REPO_ROOT / rel
+        target = (REPO_ROOT / rel).resolve()
+        if Path(rel).is_absolute() or not target.is_relative_to(REPO_ROOT.resolve()):
+            problems.append(f"{path.name}: 数据集 path 必须是仓库内相对路径")
+            continue
         if not target.is_file():
             problems.append(f"{path.name}: 数据集文件不存在 {rel}")
             continue
@@ -128,8 +191,10 @@ def validate_staleness(payload: dict, path: Path, *, max_age_days: int) -> list[
     age_days = (datetime.now(UTC) - generated).days
     if age_days > max_age_days:
         return [
-            f"{path.name}: 证据已 {age_days} 天未更新（上限 {max_age_days}），"
-            f"请重新生成或更新证据"
+            (
+                f"{path.name}: 证据已 {age_days} 天未更新（上限 {max_age_days}），"
+                f"请重新生成或更新证据"
+            )
         ]
     return []
 
@@ -139,7 +204,7 @@ def check(
     *,
     base: str = "origin/main",
     max_age_days: int = MAX_AGE_DAYS,
-    stale_fails: bool = True,
+    stale_fails: bool = False,
 ) -> tuple[list[str], list[str]]:
     """返回 (failures, warnings)。"""
     failures: list[str] = []
@@ -154,7 +219,10 @@ def check(
         except (OSError, json.JSONDecodeError) as exc:
             failures.append(f"{path.name}: JSON 解析失败 {exc}")
             continue
-        failures.extend(validate_payload(payload, path))
+        schema_errors = validate_payload(payload, path)
+        if schema_errors:
+            failures.extend(schema_errors)
+            continue
         failures.extend(validate_commit(payload, path, base))
         failures.extend(validate_files(payload, path))
         stale = validate_staleness(payload, path, max_age_days=max_age_days)
@@ -168,16 +236,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base", default="origin/main")
     parser.add_argument("--max-age-days", type=int, default=MAX_AGE_DAYS)
     parser.add_argument(
-        "--stale-warns",
+        "--stale-fails",
         action="store_true",
-        help="stale 只告警不失败（默认失败）",
+        help="stale 视为失败（默认仅 WARN；供定时刷新检查或发布前显式把关）",
     )
     args = parser.parse_args(argv)
+    if args.max_age_days <= 0:
+        parser.error("--max-age-days 必须大于 0")
 
     failures, warnings = check(
         base=args.base,
         max_age_days=args.max_age_days,
-        stale_fails=not args.stale_warns,
+        stale_fails=args.stale_fails,
     )
     for warning in warnings:
         print(f"WARN {warning}")

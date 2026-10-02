@@ -77,6 +77,8 @@ class KnowledgeSourceEntry:
     """trimmed / omitted 的原因（预算逐出、作者排除、不可读等）。"""
     hash_basis: str = "content"
     """content=正文哈希；identity=来源身份字段哈希（正文不可得时的退化）。"""
+    token_groups: tuple[dict[str, Any], ...] = ()
+    """实际文本块计数；shared=true 的同一 key 只能计一次，不能逐源相加。"""
 
     # 账本完整序列化：含逐源证据字段（B8），供 run 回读复算。
     def to_dict(self) -> dict[str, Any]:
@@ -92,6 +94,7 @@ class KnowledgeSourceEntry:
             "state": self.state,
             "state_reason": self.state_reason,
             "hash_basis": self.hash_basis,
+            "token_groups": list(self.token_groups),
         }
 
     def _fingerprint_dict(self) -> dict[str, Any]:
@@ -131,6 +134,11 @@ class KnowledgeSourceEntry:
                 state=str(data.get("state") or "included"),
                 state_reason=str(data.get("state_reason") or ""),
                 hash_basis=str(data.get("hash_basis") or "content"),
+                token_groups=tuple(
+                    dict(item)
+                    for item in data.get("token_groups") or ()
+                    if isinstance(item, dict)
+                ),
             )
         except KeyError as exc:  # pragma: no cover - defensive
             raise KnowledgeContractError(f"source entry missing field: {exc}") from exc
@@ -234,9 +242,7 @@ class KnowledgeScopeReceipt:
         return None
 
     def has_omissions(self) -> bool:
-        return bool(self.omitted) or any(
-            item.omitted for item in self.coverage
-        )
+        return bool(self.omitted) or any(item.omitted for item in self.coverage)
 
     def _fingerprint_payload(self) -> dict[str, Any]:
         return {
@@ -290,15 +296,15 @@ class KnowledgeScopeReceipt:
             novel_id=str(data["novel_id"]),
             subject=KnowledgeSubject.from_dict(data["subject"]),
             included=tuple(
-    KnowledgeSourceEntry.from_dict(item) for item in data.get("included") or ()
+                KnowledgeSourceEntry.from_dict(item)
+                for item in data.get("included") or ()
             ),
             excluded=tuple(
                 KnowledgeSourceEntry.from_dict(item)
                 for item in data.get("excluded") or ()
             ),
             omitted=tuple(
-                KnowledgeSourceEntry.from_dict(item)
-                for item in data.get("omitted") or ()
+                KnowledgeSourceEntry.from_dict(item) for item in data.get("omitted") or ()
             ),
             coverage=tuple(
                 KnowledgeDimensionCoverage.from_dict(item)

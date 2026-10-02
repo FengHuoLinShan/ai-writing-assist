@@ -104,5 +104,6 @@ ADR-0027 的 V1 在当时九模块中加入注册蓝图的有限协作，不改�
 
 CI 新增 `repo-gates` workflow：二进制增量体积（B11）、生产文件行数（P8）、
 发布证据账本（B6，`docs/evidence/`，不进 architecture-documents.toml 清单）
-与跨模块 import 门（B2，合法形态=contracts/facade/命名 facade/包再出口/
-ORM models，豁免登记于 `scripts/check_module_imports.py`）。
+与跨模块 import 门（B2，contracts/facade/命名 facade 及这些入口的静态包成员
+再出口；相对导入同样解析，ORM/DI 等有限例外按调用位置登记于
+`scripts/check_module_imports.py`）。push 与 PR 的 B11/P8 使用事件固定 SHA。

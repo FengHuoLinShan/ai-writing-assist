@@ -382,6 +382,7 @@ class WorldObjectImageGenerationService:
                 db,
                 novel_id=str(entity.novel_id),
                 owner_id=owner_id,
+                entity_id=str(entity.id),
                 request_hash=request_hash,
             )
             if reused is not None:
@@ -523,7 +524,13 @@ def _world_object_request_hash(
 
     state_snapshot = _hashlib.sha256(
         _json.dumps(
-            entity.content_json or {},
+            {
+                "entity_id": str(entity.id),
+                "entity_type": entity.entity_type,
+                "name": entity.name,
+                "summary": entity.summary,
+                "content": entity.content_json or {},
+            },
             ensure_ascii=False,
             sort_keys=True,
             default=str,
@@ -549,6 +556,7 @@ async def _reuse_world_object_candidate(
     *,
     novel_id: str,
     owner_id: str,
+    entity_id: str,
     request_hash: str,
 ) -> WorldObjectImageCandidate | None:
     """命中复用登记且来源候选资产仍完整时，复制出一个 review_ready 候选。"""
@@ -560,7 +568,10 @@ async def _reuse_world_object_candidate(
         if (
             source is None
             or str(source.novel_id) != str(row.novel_id)
+            or str(source.owner_id) != owner_id
+            or str(source.entity_id) != entity_id
             or not source.image_data
+            or (row.byte_size is not None and len(source.image_data) != row.byte_size)
         ):
             return None
         import hashlib as _hashlib
@@ -586,7 +597,7 @@ async def _reuse_world_object_candidate(
         return None
     candidate = WorldObjectImageCandidate(
         novel_id=source.novel_id,
-        entity_id=source.entity_id,
+        entity_id=parse_uuid(entity_id, "entity_id"),
         owner_id=source.owner_id,
         status="review_ready",
         prompt=source.prompt,

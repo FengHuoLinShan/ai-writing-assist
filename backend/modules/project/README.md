@@ -371,3 +371,7 @@ writing.generate 作者视角注入，详见 writing 模块）与 `llm_cost_savi
 （省钱模式开关）。开关经 `GET/PUT /api/projects/{id}/llm-cost-saving` 读写；
 `modules/project/model_routing.py` 汇总开关 × 账户 verified 附加模型 ×
 注册表 cheap 能力集，产出 `cost_routing` 注入 LLM client 与执行快照。
+路由读取经 owner/active 门禁的 context，接受作者与隐藏 RP 两类项目；默认关闭
+也不能因项目种类错误阻断新旅程，外账户仍被拒绝。
+`save_agent_executor_settings` 由 Project 持 owner + novel_id 行锁写入非 secret
+执行器选择，支持撤销设备时条件清除；本机模块不直接读写 Project ORM。

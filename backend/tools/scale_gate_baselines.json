@@ -1,25 +1,41 @@
 {
-  "schema_version": "scale-gate-baselines-v1",
+  "schema_version": "scale-gate-baselines-v2",
   "calibrated_at": "2026-10-02",
-  "note": "首轮定标 2026-10-02（专用 PG 库 darwin arm64）：low 以 e2e 测试环境定标（295，含 base scene 夹具），mid/high 以 harness 直跑定标。token 为确定性量（1.5 倍容差）；耗时只设绝对上限防退化爆炸。",
-  "tolerance": 1.5,
+  "note": "专用 PostgreSQL：完整三档合成正文已索引；真实关键词检索/原文回读/编译、审校分片与请求、六步影子任务链。UUID身份带少量token噪声，允许15%；耗时用绝对上限。未验证向量、模型语义或真实收费。",
+  "tolerance": 1.15,
   "tiers": {
     "low": {
       "chapters": 22,
-      "max_compiled_tokens": 295,
-      "compile_seconds_cap": 5.0,
-      "growth_ratio_expected": "flat",
-      "growth_note": "测量边界：本轮基线在无 RAG 索引条件下采集，compiled tokens 只含任务/项目骨架，不含 prior prose 与检索证据；growth_ratio=1.0 表明编译器本体成本不随章节位置增长，但不能外推为「带索引的续写输入成本不增长」（报告 §12.5 的完整证实/证伪需要带 RAG 索引的定标，列为后续项）。"
+      "max_compiled_tokens": 9419,
+      "compile_seconds_cap": 5,
+      "position_growth_cap": 1.15,
+      "retrieval_seconds_cap": 5,
+      "review_seconds_cap": 5,
+      "review_max_tokens": 86814,
+      "orchestration_seconds_cap": 30,
+      "indexed_chunks": 115
     },
     "mid": {
       "chapters": 66,
-      "max_compiled_tokens": 283,
-      "compile_seconds_cap": 3.0
+      "max_compiled_tokens": 8885,
+      "compile_seconds_cap": 8,
+      "position_growth_cap": 1.15,
+      "retrieval_seconds_cap": 8,
+      "review_seconds_cap": 8,
+      "review_max_tokens": 86816,
+      "orchestration_seconds_cap": 30,
+      "indexed_chunks": 343
     },
     "high": {
-      "chapters": 220,
-      "max_compiled_tokens": 280,
-      "compile_seconds_cap": 6.0
+      "chapters": 215,
+      "max_compiled_tokens": 9526,
+      "compile_seconds_cap": 12,
+      "position_growth_cap": 1.15,
+      "retrieval_seconds_cap": 12,
+      "review_seconds_cap": 12,
+      "review_max_tokens": 87588,
+      "orchestration_seconds_cap": 30,
+      "indexed_chunks": 1157
     }
   }
 }

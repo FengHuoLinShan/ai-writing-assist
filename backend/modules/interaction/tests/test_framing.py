@@ -41,8 +41,27 @@ def test_framer_invalid_metadata_preserves_completed_story_without_suggestions()
 
     assert visible + trailing == "故事正文"
     assert metadata is None
-    # P3：校验失败不静默——正文不判废，但 framer 暴露无效标记供计数落账本。
+    # P3：校验失败不静默——正文不判废，但 framer 暴露无效计数与原因供落账本。
     assert framer.metadata_invalid is True
+    assert framer.metadata_invalid_count == 1
+    assert framer.metadata_invalid_reason == "parse_failed"
+    # 重复 finish 不重复计数（异常路径可能再调一次）
+    framer.finish()
+    assert framer.metadata_invalid_count == 1
+
+
+def test_framer_interrupted_tail_is_flagged_as_incomplete_not_parse_failure() -> None:
+    """断流截断的尾块与解析失败分账：原因不同，计数口径一致。"""
+    framer = InteractionStreamFramer()
+
+    visible = framer.feed("故事正文" + META_START + '{"version":1,')
+    trailing, metadata, _raw = framer.finish()
+
+    assert visible + trailing == "故事正文"
+    assert metadata is None
+    assert framer.metadata_invalid is True
+    assert framer.metadata_invalid_count == 1
+    assert framer.metadata_invalid_reason == "incomplete_tail"
 
 
 def test_framer_valid_metadata_and_no_metadata_are_not_flagged_invalid() -> None:
@@ -50,6 +69,8 @@ def test_framer_valid_metadata_and_no_metadata_are_not_flagged_invalid() -> None
     valid.feed("正文" + META_START + '{"version":1,"response_kind":"story"}' + META_END)
     valid.finish()
     assert valid.metadata_invalid is False
+    assert valid.metadata_invalid_count == 0
+    assert valid.metadata_invalid_reason == ""
 
     none = InteractionStreamFramer()
     none.feed("没有尾块的正文")

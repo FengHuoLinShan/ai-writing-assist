@@ -26,8 +26,9 @@ PR_TOTAL_LIMIT_BYTES = 5 * 1024 * 1024
 # 豁免登记：glob 模式 → 必填理由。新增豁免须在此登记并说明为什么该资产
 # 必须以二进制形式入库且无法压缩到 1MB 以下。
 EXEMPT_PATHS: dict[str, str] = {
-    # 目前无豁免。backend/.test-logs 已被 .gitignore 忽略，历史入库的
-    # 240 个账本文件不会再出现在变更里，无需豁免。
+    # 目前无豁免。历史入库的 backend/.test-logs 下 239 个账本文件仍被
+    # Git 跟踪（.gitignore 只挡新增，不清除跟踪），但不再变更即不出现在
+    # diff 中，无需豁免。
 }
 
 
@@ -48,10 +49,13 @@ def _git(*args: str) -> bytes:
     return result.stdout
 
 
-def changed_paths(base: str, head: str) -> list[tuple[str, str]]:
-    """返回 (status, path)，仅新增/修改；删除不产生体积。"""
+def changed_paths(base: str, head: str) -> list[tuple[str, str, str]]:
+    """返回 (status, path, old_path)，仅新增/修改/重命名；删除不产生体积。
+
+    old_path 仅 R/C（重命名/复制）非空，指向变更前路径。
+    """
     out = _git("diff", "--name-status", "-z", f"{base}...{head}")
-    entries: list[tuple[str, str]] = []
+    entries: list[tuple[str, str, str]] = []
     fields = out.decode("utf-8", "surrogateescape").split("\0")
     i = 0
     while i < len(fields):
@@ -61,17 +65,28 @@ def changed_paths(base: str, head: str) -> list[tuple[str, str]]:
             continue
         # R（重命名）形如 R100；C 形如 C75。二进制重命名/复制同样占体积。
         if status.startswith(("R", "C")) and i + 2 < len(fields):
-            entries.append((status[0], fields[i + 2]))
+            entries.append((status[0], fields[i + 2], fields[i + 1]))
             i += 3
         else:
-            entries.append((status[0], fields[i + 1]))
+            entries.append((status[0], fields[i + 1], ""))
             i += 2
     return [
-        (status, path)
-        for status, path in entries
+        (status, path, old_path)
+        for status, path, old_path in entries
         # T（类型变更，如 symlink → 大文件）按修改处理，不得逃逸。
         if status in {"A", "M", "R", "C", "T"}
     ]
+
+
+def merge_base_ref(base: str, head: str) -> str:
+    """base...head 的实际基准（merge-base）；无共同祖先时退回 base。"""
+    result = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "merge-base", base, head],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        return base
+    return result.stdout.decode().strip() or base
 
 
 def is_binary_file(path: str) -> bool:
@@ -83,6 +98,17 @@ def is_binary_file(path: str) -> bool:
     except OSError:
         return False
     return b"\x00" in head_bytes
+
+
+def blob_is_binary(ref: str, path: str) -> bool:
+    """按 Git 对象库里的 blob 判定，不依赖工作区当前内容。"""
+    result = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "cat-file", "blob", f"{ref}:{path}"],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        return False
+    return b"\x00" in result.stdout[:8192]
 
 
 def size_at(ref: str, path: str) -> int | None:
@@ -106,17 +132,32 @@ def is_exempt(path: str) -> str | None:
 
 
 def collect_binary_changes(
-    base: str, head: str, *, binary_probe=is_binary_file, sizer=size_at
+    base: str,
+    head: str,
+    *,
+    binary_probe=blob_is_binary,
+    sizer=size_at,
 ) -> list[BinaryChange]:
+    """体积口径全部取自 Git 对象库（head/merge-base），不读工作区文件。
+
+    重命名/复制的旧体积按变更前路径在 merge-base 上取，纯重命名
+    delta 为 0 而不是整份新大小。
+    """
+    ancestor = merge_base_ref(base, head)
     changes: list[BinaryChange] = []
-    for status, path in changed_paths(base, head):
+    for status, path, old_path in changed_paths(base, head):
         if is_exempt(path) is not None:
             continue
-        if not binary_probe(path):
+        if not binary_probe(head, path):
             continue
-        new_size = (REPO_ROOT / path).stat().st_size
-        old_size = sizer(base, path) if status in {"M", "R", "T"} else 0
-        delta = max(0, new_size - (old_size or 0))
+        new_size = sizer(head, path) or 0
+        if status in {"M", "T"}:
+            old_size = sizer(ancestor, path) or 0
+        elif status in {"R", "C"}:
+            old_size = sizer(ancestor, old_path) or 0
+        else:
+            old_size = 0
+        delta = max(0, new_size - old_size)
         changes.append(
             BinaryChange(
                 path=path,

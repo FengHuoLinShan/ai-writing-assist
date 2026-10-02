@@ -1,4 +1,4 @@
-.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-fast-coverage test-e2e test-postgresql-critical test-real-llm test-map-atlas-live-image test-real-kimi test-interaction-long-context test-manual test-deploy test-frontend test-production-images test-restore-drill-real audit-backend-deps audit-frontend-deps test-ci repo-gates binary-growth-gate file-size-gate release-evidence-gate module-import-gate scale-gate eval-corpus eval-fixture-manifest eval-generate eval-judge eval-qc eval-review-export eval-review-import eval-report eval-baseline-check eval-freeze eval-rag-prepare eval-run eval-rag eval-full eval-pilot eval-fast eval-rp-long-memory eval-ask-world eval-context-planner lint lint-fix format format-fix secret-hygiene docs-check repo-gates binary-growth-gate file-size-gate prompt-contracts prompt-contracts-json generate-e2e help db migrate schema-check doctor doctor-json doctor-llm
+.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-fast-coverage test-e2e test-postgresql-critical test-real-llm test-map-atlas-live-image test-real-kimi test-interaction-long-context test-manual test-deploy test-frontend test-production-images test-restore-drill-real audit-backend-deps audit-frontend-deps test-ci repo-gates binary-growth-gate file-size-gate release-evidence-gate module-import-gate scale-gate eval-corpus eval-fixture-manifest eval-generate eval-judge eval-qc eval-review-export eval-review-import eval-report eval-baseline-check eval-freeze eval-rag-prepare eval-run eval-rag eval-full eval-pilot eval-fast eval-rp-long-memory eval-ask-world eval-context-planner lint lint-fix format format-fix secret-hygiene docs-check prompt-contracts prompt-contracts-json generate-e2e help db migrate schema-check doctor doctor-json doctor-llm
 
 ROOT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 BACKEND_DIR := $(ROOT_DIR)backend
@@ -9,7 +9,7 @@ BACKEND_REAL_LLM_TESTS := modules/imports/tests/test_real_extraction.py modules/
 BACKEND_REAL_KIMI_TESTS := modules/interaction/tests/test_real_kimi.py
 BACKEND_INTERACTION_LONG_CONTEXT_TESTS := tests/e2e/test_interaction_long_context_real_kimi.py
 BACKEND_MANUAL_TESTS := $(BACKEND_REAL_LLM_TESTS) tests/e2e/test_writing_conflict_real_llm.py tests/e2e/test_extraction_real_file.py tests/e2e/test_outline_generation.py
-BACKEND_POSTGRESQL_CRITICAL_TESTS := tests/e2e/test_00_fresh_migrations.py tests/e2e/test_context_retrieval_trace_queries.py tests/e2e/test_context_terminal_concurrency.py tests/e2e/test_import_upload_commit_visibility.py tests/e2e/test_interaction_generation_concurrency.py tests/e2e/test_project_task_gate_concurrency.py tests/e2e/test_rp_source_versions.py tests/e2e/test_scene_memory_checkpoint_concurrency.py tests/e2e/test_smart_dedup_group_savepoint.py tests/e2e/test_task_coalescing_concurrency.py tests/e2e/test_task_run_envelope_postgres.py tests/e2e/test_writing_route_commit_visibility.py tests/e2e/test_writing_version_concurrency.py
+BACKEND_POSTGRESQL_CRITICAL_TESTS := tests/e2e/test_00_fresh_migrations.py tests/e2e/test_context_retrieval_trace_queries.py tests/e2e/test_context_terminal_concurrency.py tests/e2e/test_import_upload_commit_visibility.py tests/e2e/test_interaction_generation_concurrency.py tests/e2e/test_project_task_gate_concurrency.py tests/e2e/test_rp_source_versions.py tests/e2e/test_scene_memory_checkpoint_concurrency.py tests/e2e/test_smart_dedup_group_savepoint.py tests/e2e/test_task_coalescing_concurrency.py tests/e2e/test_task_run_envelope_postgres.py tests/e2e/test_writing_route_commit_visibility.py tests/e2e/test_writing_version_concurrency.py tests/e2e/test_image_reuse_concurrency.py
 FAST_TEST_TIMEOUT_SECONDS ?= 120
 TEST_WORKERS ?= auto
 BACKEND_EVAL_PYTHON ?= 3.13
@@ -195,7 +195,7 @@ secret-hygiene:  ## Reject tracked env files, private keys, and high-confidence 
 docs-check:  ## Validate current architecture docs; set BASE_REF for diff-impact checks
 	python3 $(ROOT_DIR)scripts/check_architecture_docs.py $(if $(BASE_REF),--base-ref $(BASE_REF),)
 
-repo-gates: binary-growth-gate file-size-gate release-evidence-gate module-import-gate  ## Run repo-level governance gates (B11/P8)
+repo-gates: binary-growth-gate file-size-gate release-evidence-gate module-import-gate  ## Run repo-level governance gates (B11/B6/B2/P8)
 
 binary-growth-gate:  ## Binary growth gate (B11): 1MB per file, 5MB per change
 	python3 $(ROOT_DIR)scripts/check_binary_growth.py --base $(if $(BASE_REF),$(BASE_REF),origin/main) --head HEAD

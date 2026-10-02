@@ -516,4 +516,6 @@ Assistant 编辑近读通过 `compile_review_world_evidence(..., capability="ass
 ### 逐源证据字段（2026-10）
 
 KnowledgeScopeReceipt 来源条目新增逐源 token、处置状态（included/trimmed/
-omitted）与哈希基底标记；账本序列化完整、指纹只认稳定子集（既有确认不漂移）。
+omitted）与哈希基底标记；可得正文参与 hash，预算逐出保留真实 token 与全部
+来源。不可分多源块使用 shared token_groups，复算按 group key 去重，独立数量
+才进入 token_count。账本不保存原文；增加审计字段本身不改变确认指纹。

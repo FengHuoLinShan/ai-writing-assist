@@ -7,8 +7,11 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
@@ -152,9 +155,7 @@ def test_file_size_gate_warns_between_3000_and_5000(tmp_path, monkeypatch) -> No
 
 
 def test_production_scope_excludes_tests_and_evals() -> None:
-    assert check_file_sizes._is_production(
-        "backend/modules/writing/services.py"
-    )
+    assert check_file_sizes._is_production("backend/modules/writing/services.py")
     assert check_file_sizes._is_production("frontend-console/api.js")
     assert not check_file_sizes._is_production(
         "backend/modules/interaction/tests/test_services.py"
@@ -192,7 +193,7 @@ def test_release_evidence_gate_requires_claims_boundary(tmp_path) -> None:
         "metrics": [],
         "generated_at": "2026-10-02T00:00:00+00:00",
         "generator_version": "g",
-        "commit": "0d555c463",
+        "commit": "0d555c463f2010b9206a51b3a838ce0a2e9d4fb8",
         "claims_boundary": {"proves": []},  # 缺 does_not_prove
     }
     bad = tmp_path / "bad.json"
@@ -203,9 +204,10 @@ def test_release_evidence_gate_requires_claims_boundary(tmp_path) -> None:
     assert any("claims_boundary" in failure for failure in failures)
 
 
-def test_release_evidence_gate_detects_sha_drift(tmp_path) -> None:
+def test_release_evidence_gate_detects_sha_drift(tmp_path, monkeypatch) -> None:
     import check_release_evidence as gate
 
+    monkeypatch.setattr(gate, "REPO_ROOT", tmp_path)
     dataset = tmp_path / "dataset.jsonl"
     dataset.write_text("{}\n", encoding="utf-8")
     payload = {
@@ -215,7 +217,7 @@ def test_release_evidence_gate_detects_sha_drift(tmp_path) -> None:
             "name": "d",
             "files": [
                 {
-                    "path": str(dataset),
+                    "path": dataset.name,
                     "sha256": "0" * 64,
                 }
             ],
@@ -223,7 +225,7 @@ def test_release_evidence_gate_detects_sha_drift(tmp_path) -> None:
         "metrics": [],
         "generated_at": "2026-10-02T00:00:00+00:00",
         "generator_version": "g",
-        "commit": "0d555c463",
+        "commit": "0d555c463f2010b9206a51b3a838ce0a2e9d4fb8",
         "claims_boundary": {"proves": ["p"], "does_not_prove": ["n"]},
     }
     (tmp_path / "ev.json").write_text(json.dumps(payload), encoding="utf-8")
@@ -243,26 +245,147 @@ def test_release_evidence_gate_flags_stale_evidence(tmp_path) -> None:
         "metrics": [],
         "generated_at": "2024-01-01T00:00:00+00:00",
         "generator_version": "g",
-        "commit": "0d555c463",
+        "commit": "0d555c463f2010b9206a51b3a838ce0a2e9d4fb8",
         "claims_boundary": {"proves": ["p"], "does_not_prove": ["n"]},
     }
     (tmp_path / "old.json").write_text(json.dumps(payload), encoding="utf-8")
 
+    # 默认只告警：与改动无关的 PR 不因证据过期变红（时间炸弹回归）
     failures, warnings = gate.check(
         evidence_dir=tmp_path, base="origin/main", max_age_days=30
     )
-    assert any("未更新" in failure for failure in failures)
+    assert failures == []
+    assert any("未更新" in warning for warning in warnings)
 
-    failures2, warnings2 = gate.check(
-        evidence_dir=tmp_path, base="origin/main", max_age_days=30, stale_fails=False
+    failures2, _ = gate.check(
+        evidence_dir=tmp_path, base="origin/main", max_age_days=30, stale_fails=True
     )
-    assert failures2 == []
-    assert any("未更新" in warning for warning in warnings2)
+    assert any("未更新" in failure for failure in failures2)
 
 
 # ============================================================
 # B2 跨模块 import 守护门
 # ============================================================
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("capability", []),
+        ("generator_version", {}),
+        ("dataset", {"name": True, "files": []}),
+        ("commit", "HEAD"),
+        ("claims_boundary", {"proves": [], "does_not_prove": []}),
+        ("metrics", [True]),
+        ("dataset", {"name": "d", "files": "wrong"}),
+    ],
+)
+def test_release_evidence_rejects_invalid_types(field, value):
+    import check_release_evidence as gate
+
+    payload = {
+        "schema_version": "release-evidence-v1",
+        "capability": "x",
+        "generator_version": "g",
+        "dataset": {"name": "d", "files": []},
+        "commit": "0d555c463f2010b9206a51b3a838ce0a2e9d4fb8",
+        "metrics": [],
+        "generated_at": "2026-10-02T00:00:00+00:00",
+        "claims_boundary": {"proves": ["p"], "does_not_prove": ["n"]},
+    }
+    payload[field] = value
+    assert gate.validate_payload(payload, Path("evidence.json"))
+
+
+def test_evidence_malformed_top_level_fails_without_crashing(tmp_path):
+    import check_release_evidence as gate
+
+    (tmp_path / "bad.json").write_text("[1,2]")
+    failures, _ = gate.check(evidence_dir=tmp_path)
+    assert any("JSON 对象" in f for f in failures)
+
+
+def test_push_event_fixed_range_detects_new_binary_and_source(tmp_path, monkeypatch):
+    import check_binary_growth as binary
+    import check_file_sizes as sizes
+
+    def git(*args):
+        return subprocess.check_output(
+            ["git", "-C", str(tmp_path), *args], text=True
+        ).strip()
+
+    git("init", "-b", "main")
+    git("config", "user.name", "Synthetic test")
+    git("config", "user.email", "test@example.invalid")
+    (tmp_path / "base.txt").write_text("base")
+    git("add", ".")
+    git("commit", "-m", "base")
+    before = git("rev-parse", "HEAD")
+    (tmp_path / "new.bin").write_bytes(b"\0" * (2 * 1024 * 1024))
+    source = tmp_path / "backend/modules/example/services.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("x = 1\n" * 5001)
+    git("add", ".")
+    git("commit", "-m", "push")
+    head = git("rev-parse", "HEAD")
+    monkeypatch.setattr(binary, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(sizes, "REPO_ROOT", tmp_path)
+    assert binary.check(binary.collect_binary_changes(before, head))
+    failures, _ = sizes.check_files(sorted(sizes._changed_paths(before, head)))
+    assert failures
+
+
+def test_binary_gate_uses_git_objects_and_merge_base_for_renames(
+    tmp_path, monkeypatch
+):
+    """体积读 Git 对象库而非工作区；纯重命名 delta 为 0；旧体积按 merge-base。"""
+    import check_binary_growth as binary
+
+    def git(*args):
+        return subprocess.check_output(
+            ["git", "-C", str(tmp_path), *args], text=True
+        ).strip()
+
+    git("init", "-b", "main")
+    git("config", "user.name", "Synthetic test")
+    git("config", "user.email", "test@example.invalid")
+    (tmp_path / "base.txt").write_text("base")
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "assets" / "big.bin").write_bytes(b"\0" * 900_000)
+    git("add", ".")
+    git("commit", "-m", "base")
+    merge_base = git("rev-parse", "HEAD")
+
+    # 分支侧：重命名同一个二进制（内容不变）
+    git("checkout", "-b", "topic")
+    git("mv", "assets/big.bin", "assets/renamed.bin")
+    git("commit", "-m", "rename")
+    head = git("rev-parse", "HEAD")
+    monkeypatch.setattr(binary, "REPO_ROOT", tmp_path)
+
+    changes = binary.collect_binary_changes("main", head)
+    assert [(c.status, c.path) for c in changes] == [("R", "assets/renamed.bin")]
+    # 纯重命名不产生增量：旧体积从 merge-base 的旧路径取
+    assert changes[0].delta_bytes == 0
+    assert changes[0].size_bytes == 900_000
+
+    # 工作区被改脏也不影响口径：体积只读 Git 对象库
+    (tmp_path / "assets" / "renamed.bin").write_bytes(b"\0" * 100)
+    dirty_changes = binary.collect_binary_changes("main", head)
+    assert dirty_changes[0].size_bytes == 900_000
+    assert merge_base
+    workflow = (REPO_ROOT / ".github/workflows/repo-gates.yml").read_text()
+    assert (
+        "github.event.before" in workflow
+        and "github.event.pull_request.base.sha" in workflow
+    )
+    assert (
+        'scripts/check_binary_growth.py --base "$GATE_BASE" --head "$GATE_HEAD"'
+        in workflow
+    )
+    assert (
+        'scripts/check_file_sizes.py --base "$GATE_BASE" --head "$GATE_HEAD"' in workflow
+    )
 
 
 def test_module_import_gate_blocks_reverse_dependency_sample(tmp_path) -> None:
@@ -280,9 +403,7 @@ def test_module_import_gate_blocks_reverse_dependency_sample(tmp_path) -> None:
         modules, [offender], repo_root=tmp_path, exempt={}
     )
 
-    assert any(
-        "modules.alpha.internal_helper" in item["target"] for item in violations
-    )
+    assert any("modules.alpha.internal_helper" in item["target"] for item in violations)
 
 
 def test_module_import_gate_allows_legal_forms(tmp_path) -> None:
@@ -291,6 +412,11 @@ def test_module_import_gate_allows_legal_forms(tmp_path) -> None:
     modules = {"alpha": ("modules/alpha",), "beta": ("modules/beta",)}
     legal = tmp_path / "modules" / "beta" / "legal.py"
     (tmp_path / "modules" / "beta").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "modules" / "alpha").mkdir(parents=True)
+    (tmp_path / "modules" / "alpha" / "__init__.py").write_text(
+        "from .contracts import C\n"
+    )
+    (tmp_path / "modules" / "alpha" / "contracts.py").touch()
     legal.write_text(
         "\n".join(
             [
@@ -299,8 +425,6 @@ def test_module_import_gate_allows_legal_forms(tmp_path) -> None:
                 "from modules.alpha import C",
                 "from modules.alpha.sub.facade import D",
                 "from modules.alpha.map_atlas_facade import E",
-                "from modules.alpha.models import F",
-                "from modules.alpha.session_models import G",
                 "from core.errors import H",
                 "from infrastructure.llm.client import I",
             ]
@@ -314,6 +438,35 @@ def test_module_import_gate_allows_legal_forms(tmp_path) -> None:
     )
 
     assert violations == []
+
+
+def test_module_import_gate_resolves_relative_package_and_models(tmp_path) -> None:
+    import check_module_imports as gate
+
+    modules = {"alpha": ("modules/alpha",), "beta": ("modules/beta",)}
+    package = tmp_path / "modules/alpha"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("from .services import Sneaky\n")
+    (package / "services.py").touch()
+    target = tmp_path / "modules/beta/services.py"
+    target.parent.mkdir()
+    target.write_text(
+        "from ..alpha.services import C\n"
+        "from modules.alpha import services, Sneaky\n"
+        "from modules.alpha.models import F\n"
+        "from modules.alpha.session_models import G\n"
+        "import modules.alpha\n"
+    )
+    violations = gate.iter_violations_for_paths(
+        modules, [target], repo_root=tmp_path, exempt={}
+    )
+    assert len(violations) == 6
+    assert {v["target"] for v in violations} >= {
+        "modules.alpha.services",
+        "modules.alpha.models",
+        "modules.alpha.session_models",
+        "modules.alpha",
+    }
 
 
 def test_module_import_gate_exemption_patterns_apply(tmp_path) -> None:

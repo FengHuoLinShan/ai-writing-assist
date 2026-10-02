@@ -654,5 +654,7 @@ Flash max 思考与至少65,536输出上限，provider 等待至少900秒。客�
 
 ### LLM 结构化输出声明与任务级路由（2026-10）
 
-能力档案 `structured_output` 三态（显式非 supported 即 fail-closed）；
-managed step 按项目省钱开关与 cheap 能力集在同 provider 内切换低成本模型。
+能力档案 `structured_output` 三态：`supported` 发送 provider json_object，
+`unverified` 剥离 response_format 走提示词 schema 修复链，`unsupported`
+失败关闭且预填不可绕过；managed step 按项目省钱开关与 cheap 子能力集
+（`routing_capability_id`，独立于信封归属）在同 provider 内切换低成本模型。

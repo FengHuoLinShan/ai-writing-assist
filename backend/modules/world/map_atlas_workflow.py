@@ -508,8 +508,7 @@ async def _spatial_evidence(
     loaded_locations = list(
         (
             await db.scalars(
-                select(CoreEntity)
-                .where(
+                select(CoreEntity).where(
                     CoreEntity.novel_id == run.novel_id,
                     CoreEntity.id.in_([parse_uuid(value) for value in entity_ids]),
                     CoreEntity.entity_type == "location",
@@ -520,11 +519,9 @@ async def _spatial_evidence(
     )
     by_id = {str(location.id): location for location in loaded_locations}
     location_limit = min(20, int(run.page_limit or 20))
-    locations = [
-        by_id[entity_id]
-        for entity_id in entity_ids
-        if entity_id in by_id
-    ][:location_limit]
+    locations = [by_id[entity_id] for entity_id in entity_ids if entity_id in by_id][
+        :location_limit
+    ]
     omitted_location_count = max(0, len(loaded_locations) - len(locations))
     if not locations:
         return (
@@ -1886,6 +1883,8 @@ def _page_request_hash(
     *,
     owner_id: str,
     provider: str,
+    references: list[tuple[str, bytes, str]] | None = None,
+    mask: tuple[str, bytes, str] | None = None,
 ) -> str:
     """B9 幂等键：租户 + 状态快照 + prompt + 模型 + 参数。"""
     state_snapshot = hashlib.sha256(
@@ -1895,7 +1894,13 @@ def _page_request_hash(
                 "source_geometry_hash": page.source_geometry_hash,
                 "reference_page_ids": list(page.reference_page_ids or []),
                 "source_manifest": list(page.source_manifest or []),
-                "has_mask": bool(page.mask_object_key),
+                "references": [
+                    {"sha256": hashlib.sha256(data).hexdigest(), "media_type": media_type}
+                    for _, data, media_type in references or []
+                ],
+                "mask": hashlib.sha256(mask[1]).hexdigest()
+                if mask
+                else page.mask_object_key,
             },
             ensure_ascii=False,
             sort_keys=True,
@@ -1922,9 +1927,7 @@ def _page_request_hash(
     )
 
 
-async def _page_reuse_asset_validator(
-    storage: MapAtlasStorage, row: Any
-) -> tuple | None:
+async def _page_reuse_asset_validator(storage: MapAtlasStorage, row: Any) -> tuple | None:
     """读时校验：旧对象必须仍是合法 PNG 且字节数一致。"""
     from modules.world.map_atlas_storage import (
         require_page_object_key,
@@ -2089,7 +2092,12 @@ async def _generate_page(db, task, run: MapAtlasRun, page: MapAtlasPage) -> bool
         reuse_owner = str(context.owner_id) if context else ""
         provider_hint = "local-cli" if _is_local_image_run(run) else page.provider
         request_hash = _page_request_hash(
-            run, page, owner_id=reuse_owner, provider=provider_hint
+            run,
+            page,
+            owner_id=reuse_owner,
+            provider=provider_hint,
+            references=references,
+            mask=mask,
         )
         force_refresh = (
             page.derived_from_page_id is not None and not page.edit_instruction

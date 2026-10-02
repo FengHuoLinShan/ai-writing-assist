@@ -77,7 +77,9 @@ def _chain_client(monkeypatch: pytest.MonkeyPatch, provider: _ChainProvider):
     from infrastructure.llm.client import LLMClient
 
     reset_llm_limiter_for_tests()
-    client = LLMClient()
+    client = LLMClient.from_project_settings(
+        {"llm": {"provider_id": "deepseek", "model": "deepseek-flash"}}
+    )
     client._provider = provider  # type: ignore[attr-defined]
     monkeypatch.setattr(
         "infrastructure.llm.client.get_llm_limiter", lambda: _NullLimiter()
@@ -106,9 +108,7 @@ async def _enqueue(
     novel_id=None,
 ) -> uuid.UUID:
     async with sessions.begin() as db:
-        task_id = uuid.UUID(
-            enqueue_task(db, task_type, meta=meta, novel_id=novel_id)
-        )
+        task_id = uuid.UUID(enqueue_task(db, task_type, meta=meta, novel_id=novel_id))
     return task_id
 
 
@@ -146,9 +146,7 @@ async def test_world_map_schematic_chain_records_private_envelope(
                     "relation": "connects",
                     "target": "loc-b",
                     "path_kind": "road",
-                    "evidence": [
-                        {"source_key": "doc:1", "quote": "A城有官道直通B镇。"}
-                    ],
+                    "evidence": [{"source_key": "doc:1", "quote": "A城有官道直通B镇。"}],
                 }
             ]
         },
@@ -269,9 +267,7 @@ async def test_world_map_schematic_chain_records_private_envelope(
             stored = await db.get(AsyncTask, task_id)
             assert stored is not None
             # 私有信封只写 meta 下划线键：root、冻结额度、请求数都落在私有侧。
-            envelope = read_ai_run_envelope(
-                (stored.meta or {}).get(AI_RUN_ENVELOPE_KEY)
-            )
+            envelope = read_ai_run_envelope((stored.meta or {}).get(AI_RUN_ENVELOPE_KEY))
             assert envelope is not None
             assert envelope.root_capability_id == "world.map_structure.generate"
             assert envelope.request_limit == 60
@@ -283,10 +279,7 @@ async def test_world_map_schematic_chain_records_private_envelope(
             assert [step.step_name for step in envelope.steps] == [
                 "world.map_structure.generate.relations"
             ]
-            assert (
-                envelope.steps[0].step_capability_id
-                == "world.map_structure.generate"
-            )
+            assert envelope.steps[0].step_capability_id == "world.map_structure.generate"
             assert envelope.task is not None
             assert envelope.task.task_id == str(task_id)
             # 公开 wire：meta/result 投影剥离下划线私有键。
@@ -370,9 +363,10 @@ def test_world_entity_fusion_limit_scales_with_frozen_suggestions() -> None:
         )
         == 12 * 200 + 6
     )
-    assert _registry_limit(
-        "world_entity_fusion_suggestions", SimpleNamespace(meta={})
-    ) == 12 * 50 + 6
+    assert (
+        _registry_limit("world_entity_fusion_suggestions", SimpleNamespace(meta={}))
+        == 12 * 50 + 6
+    )
     assert (
         _registry_limit(
             "world_entity_fusion_suggestions",
@@ -425,9 +419,9 @@ def test_world_alias_relation_task_uses_frozen_scene_scope() -> None:
         registry.get_root_capability("world_alias_relation_extraction")
         == "world.alias_relations.extract"
     )
-    assert registry.resolve_run_request_limit(
-        "world_alias_relation_extraction", task
-    ) == 18
+    assert (
+        registry.resolve_run_request_limit("world_alias_relation_extraction", task) == 18
+    )
 
 
 def test_static_limits_are_declared_for_remaining_world_tasks() -> None:
@@ -439,9 +433,7 @@ def test_static_limits_are_declared_for_remaining_world_tasks() -> None:
     assert _registry_deadline("world_bible_synopsis_refresh", task) is None
     assert _registry_limit("world_map_schematic_generate", task) == 60
     atlas_run_id = str(uuid.uuid4())
-    atlas_task = SimpleNamespace(
-        meta={"run_id": atlas_run_id, "run_request_limit": 111}
-    )
+    atlas_task = SimpleNamespace(meta={"run_id": atlas_run_id, "run_request_limit": 111})
     assert (
         get_registry().get_root_capability("map_atlas_generate")
         == "world.map_atlas.generate"
@@ -653,9 +645,7 @@ async def test_budget_rejection_fails_task_closed_with_zero_provider_calls(
         async with sessions() as db:
             stored = await db.get(AsyncTask, task_id)
             assert stored is not None
-            envelope = read_ai_run_envelope(
-                (stored.meta or {}).get(AI_RUN_ENVELOPE_KEY)
-            )
+            envelope = read_ai_run_envelope((stored.meta or {}).get(AI_RUN_ENVELOPE_KEY))
             assert envelope is not None
             assert envelope.status.value == "failed"
             assert envelope.requests_started == 1

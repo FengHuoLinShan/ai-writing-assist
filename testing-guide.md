@@ -557,5 +557,10 @@ feed 门禁在每个样本前执行 `gc.collect()`，只衡量 feed 自身；进
 `backend/tests/unit/test_governance_gates.py` 集中 B11 体积门、P8 行数门、
 B6 证据校验器与 B2 import 门的负样本测试；B1 接线测试在
 `tests/prompt_contracts/test_capability_bindings.py`（真实代码树断言）。
-规模夹具确定性测试在 `tests/unit/test_scale_fixtures.py`；低档阈值回归
-（PG 专用库）在 `tests/e2e/test_scale_gate_low.py`，随每日 PG e2e 运行。
+规模夹具确定性测试与专用库拒绝测试在 `tests/unit/test_scale_fixtures.py`；
+`tests/e2e/test_scale_gate_low.py` 在三档完整索引上验证编译、关键词检索、审校
+分片/请求和六步影子任务链，随每日 PG e2e 运行阈值回归。章节位置曲线固定
+正文2000字符，章节长度曲线走真实续写请求构造，不能据此声称模型内容质量。
+B9 PostgreSQL 双事务冲突回归在 `tests/e2e/test_image_reuse_concurrency.py`，
+已纳入 critical。规模 CLI 只接受专用 PostgreSQL；外层回滚验证项目与账户计数
+不变，包含内部 commit 的影子链也不残留夹具。

@@ -324,10 +324,14 @@ Kimi/Pi/DSH 通过 0600 任务文件接收正文，避免把作品资料放入�
 
 ## 结构化输出能力声明与任务级路由（B5）
 
-`capabilities.py` 的能力档案带 `structured_output` 三态声明（`supported` /
-显式 `unverified`/`unsupported` / 默认 `None` 未声明）。`client.generate_structured`
-对显式非 supported 的已登记模型 fail-closed（`unsupported_structured_output`）；
-未登记模型保持历史行为。`agent_step_harness` 的 managed step 按 client 注入的
+`capabilities.py` 的 `structured_output` 默认 `unverified`，旧快照中的 `None`
+也视为未校准。三态语义：`supported` 的 `generate_structured` 发送 provider
+`json_object`；`unverified` 剥离 `response_format`（含调用方预填），靠系统提示
+内嵌 schema 与解析修复链约束输出，不因未校准而失败关闭；`unsupported` 在外发前
+失败关闭（`unsupported_structured_output`），预填不能绕过。测试替身如需断言
+json_object 路径须显式声明 `supported`。`agent_step_harness` 的 managed step 按 client 注入的
 `cost_routing`（`modules/project/model_routing` 决定）在 cheap 能力上覆盖
 `request.model`，provenance 的 `profile_summary.model` 记录实际调用模型、
-`sources.model=cost_routing`。
+`sources.model=cost_routing`。路由能力与信封归属是两个参数：`routing_capability_id`
+只供 B5 按子能力名（如 `imports.scene_slicing`）选模型；`capability_id` 仍是
+运行信封归属，只接受 run root 或 `infrastructure.*`。

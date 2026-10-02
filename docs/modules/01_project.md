@@ -192,3 +192,6 @@ NOWAIT 保证已持领域锁的入口不会等待项目锁升级；并发作者�
 项目设置新增两块：作者写作示例（好例/反例 few-shot，`author-examples`
 端点族，仅影响正文生成）与省钱模式开关（`llm-cost-saving`，抽取类任务在
 同连接内改用低成本附加模型）。二者均存 `Project.settings`，默认关闭。
+
+任务级省钱路由从 owner/active context 读取非 secret 设置，支持作者及隐藏 RP
+项目；不以作者专用查询拒绝 RP，新旅程快照默认关闭仍可创建，跨账户依旧失败关闭。

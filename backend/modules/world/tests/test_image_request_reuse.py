@@ -350,6 +350,7 @@ def test_map_atlas_page_request_hash_reacts_to_state_snapshot() -> None:
         layout="landscape",
         quality="fine",
     )
+
     def _page(**overrides):
         fields = {
             "visual_brief": "港口鸟瞰",
@@ -375,6 +376,24 @@ def test_map_atlas_page_request_hash_reacts_to_state_snapshot() -> None:
     hash_c = _map_atlas_hash(run, page_c, owner)
 
     assert len({hash_a, hash_b, hash_c}) == 3
+
+    from modules.world.map_atlas_workflow import _page_request_hash
+
+    def with_inputs(reference=b"base", mask=b"left"):
+        return _page_request_hash(
+            run,
+            page_a,
+            owner_id=owner,
+            provider="openai",
+            references=[("reference.png", reference, "image/png")],
+            mask=("mask.png", mask, "image/png"),
+        )
+
+    assert with_inputs() == with_inputs()
+    assert (
+        len({with_inputs(), with_inputs(mask=b"right"), with_inputs(reference=b"new")})
+        == 3
+    )
 
 
 def _map_atlas_hash(run, page, owner: str) -> str:
@@ -570,3 +589,146 @@ async def test_map_atlas_page_reuses_without_provider_call(
     assert image_client.edit.await_count == 1
     assert image_client.generate.await_count == 0
     assert not (derived.evidence or {}).get("image_reuse", {}).get("reused")
+
+
+@pytest.mark.parametrize("stale_registration", [False, True])
+async def test_world_object_reuse_never_returns_another_entity(
+    db_session,
+    test_project_id,
+    test_character_id,
+    test_entity_id,
+    monkeypatch,
+    stale_registration,
+) -> None:
+    from modules.account.facade import current_account_id
+    from modules.local_agent.facade import AgentExecutor
+    from modules.world.world_object_image_generation import (
+        WorldObjectImageCandidateCreate,
+        WorldObjectImageGenerationService,
+    )
+
+    owner = str(current_account_id())
+    source_entity = await db_session.get(CoreEntity, uuid.UUID(test_character_id))
+    target = await db_session.get(CoreEntity, uuid.UUID(test_entity_id))
+    executor = AgentExecutor(kind="pi", device_id=str(uuid.uuid4()))
+    source = WorldObjectImageCandidate(
+        novel_id=source_entity.novel_id,
+        entity_id=source_entity.id,
+        owner_id=uuid.UUID(owner),
+        status="review_ready",
+        prompt="写实半身像",
+        executor_json={"kind": "pi"},
+        image_data=_PNG,
+        width=1,
+        height=1,
+        sha256=hashlib.sha256(_PNG).hexdigest(),
+    )
+    db_session.add(source)
+    await db_session.flush()
+
+    def request_hash(entity):
+        return _world_object_request_hash(
+            novel_id=test_project_id,
+            owner_id=owner,
+            entity=entity,
+            prompt=source.prompt,
+            executor=executor,
+        )
+
+    assert request_hash(source_entity) != request_hash(target)
+    await record_reusable_asset(
+        db_session,
+        novel_id=test_project_id,
+        owner_id=owner,
+        request_hash=request_hash(target if stale_registration else source_entity),
+        source_type="world_object",
+        object_key=f"world-object-candidate:{source.id}",
+        asset_sha256=source.sha256,
+        byte_size=len(_PNG),
+        created_from_id=source.id,
+    )
+
+    async def selected(*_args, **_kwargs):
+        return executor
+
+    monkeypatch.setattr(
+        "modules.world.world_object_image_generation.selected_executor", selected
+    )
+    view = await WorldObjectImageGenerationService().create_candidate(
+        db_session,
+        novel_id=test_project_id,
+        entity_id=test_entity_id,
+        owner_id=owner,
+        data=WorldObjectImageCandidateCreate(
+            novel_id=test_project_id, prompt=source.prompt
+        ),
+    )
+    assert view.entity_id == test_entity_id
+    assert view.status == "queued"
+    assert view.reused is False
+
+
+async def test_reuse_insert_conflict_keeps_caller_writes(
+    db_session,
+    test_project_id,
+    test_character_id,
+    monkeypatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from sqlalchemy import select
+
+    from modules.account.facade import current_account_id
+
+    owner = str(current_account_id())
+    candidate = WorldObjectImageCandidate(
+        novel_id=uuid.UUID(test_project_id),
+        entity_id=uuid.UUID(test_character_id),
+        owner_id=uuid.UUID(owner),
+        status="generating",
+        prompt="offline",
+        executor_json={"kind": "pi"},
+    )
+    db_session.add(candidate)
+    await record_reusable_asset(
+        db_session,
+        novel_id=test_project_id,
+        owner_id=owner,
+        request_hash="e" * 64,
+        source_type="world_object",
+        object_key="previous.png",
+    )
+    await db_session.commit()
+    candidate_id = candidate.id
+    candidate.status = "review_ready"
+    candidate.image_data = _PNG
+    execute = db_session.execute
+    stale_read = True
+
+    async def race(*args, **kwargs):
+        nonlocal stale_read
+        if stale_read:
+            stale_read = False
+            return SimpleNamespace(scalar_one_or_none=lambda: None)
+        return await execute(*args, **kwargs)
+
+    monkeypatch.setattr(db_session, "execute", race)
+    await record_reusable_asset(
+        db_session,
+        novel_id=test_project_id,
+        owner_id=owner,
+        request_hash="e" * 64,
+        source_type="world_object",
+        object_key="new.png",
+        created_from_id=candidate_id,
+    )
+    await db_session.commit()
+    status, data = (
+        await db_session.execute(
+            select(
+                WorldObjectImageCandidate.status, WorldObjectImageCandidate.image_data
+            ).where(WorldObjectImageCandidate.id == candidate_id)
+        )
+    ).one()
+    assert status == "review_ready"
+    assert data == _PNG

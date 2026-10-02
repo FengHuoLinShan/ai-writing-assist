@@ -441,6 +441,22 @@ class InteractionRepository:
             stmt = stmt.execution_options(populate_existing=True).with_for_update()
         return (await db.execute(stmt)).scalar_one_or_none()
 
+    async def mark_task_local_approved(self, db, novel_id, task_id, owner_id):
+        attempt = await db.scalar(
+            select(InteractionGenerationAttempt)
+            .where(
+                InteractionGenerationAttempt.task_id == task_id,
+                InteractionGenerationAttempt.novel_id == novel_id,
+                InteractionGenerationAttempt.owner_id == owner_id,
+            )
+            .with_for_update()
+        )
+        if attempt is not None:
+            attempt.agent_checkpoint_json = {
+                **(attempt.agent_checkpoint_json or {}),
+                "local_approved": True,
+            }
+
     async def get_attempt_for_task(
         self,
         db: AsyncSession,

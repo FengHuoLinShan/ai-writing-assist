@@ -1,9 +1,7 @@
-#!/usr/bin/env python3
 """跨模块 import 守护门（B2）。
 
-生产代码跨业务模块只能经合法形态导入：顶层 contracts/facade、包
-``__init__`` 再出口、嵌套 facade/contracts、ORM models（AGENTS 允许的
-有限例外）。其余跨模块 import 必须在 EXEMPT_IMPORTS 登记理由，否则失败。
+生产代码跨业务模块只能经合法形态导入：contracts/facade 或仅静态再出口这些稳定接口的包成员；ORM 等有限
+例外按调用位置显式登记。其余跨模块 import 必须在 EXEMPT_IMPORTS 登记理由，否则失败。
 
 模块清单事实源：docs/architecture/architecture-documents.toml 的 components
 （kind="business"）。豁免清单即本文件的 EXEMPT_IMPORTS：键为
@@ -18,21 +16,18 @@ from __future__ import annotations
 import argparse
 import ast
 import fnmatch
+import importlib.util
 import json
-import re
 import sys
-import tomllib
 from pathlib import Path
+
+import tomllib
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ARCH_DOC = REPO_ROOT / "docs/architecture/architecture-documents.toml"
 
 # 跨模块 import 的合法形态（相对 modules/ 的导入路径片段）。
-_LEGAL_SUFFIXES = (
-    ".contracts",
-    ".facade",
-    ".models",
-)
+_LEGAL_SUFFIXES = ("_contracts", "_facade")
 
 
 def load_business_modules() -> dict[str, tuple[str, ...]]:
@@ -61,89 +56,67 @@ def _import_segments(module_path: str) -> tuple[str, ...]:
 
 
 def is_legal_cross_import(target: str, modules: dict[str, tuple[str, ...]]) -> bool:
-    """判定一个 modules.* 导入目标是否为合法形态。
-
-    合法形态（AGENTS「生产业务跨模块仅依赖 contracts.py、facade.py 或已
-    注册 DI port」+ ORM metadata 有限例外的可扫描化）：
-    - 顶层/嵌套 contracts、facade，以及命名 facade（map_atlas_facade、
-      worldbuilding_facade 等，文件名以 facade 结尾即为显式门面模块）；
-    - 包 ``__init__`` 再出口；
-    - ORM models（models、*_models、models.* 子包：AGENTS 允许的有限例外）。
-    """
+    """只有明确的稳定 contracts/facade 入口可直接跨域；models 须逐点豁免。"""
     segments = _import_segments(target)
     if len(segments) < 2 or segments[0] != "modules":
-        return True  # 非跨模块目标（core/shared/infrastructure 等基建层）
-    target_module = segments[1]
-    if target_module not in modules:
-        return True  # 未登记组件（如新增模块尚未登记），由 docs-check 管
-    rest = segments[2:]
-    if not rest:
-        return True  # 包 __init__ 再出口
-    last = rest[-1]
-    if last.endswith("facade") or last.endswith("contracts"):
         return True
-    if any(
-        segment == "models" or segment.endswith("_models") for segment in rest
-    ):
-        return True  # ORM models / session_models 等
-    joined = ".".join(rest)
-    return any(joined.endswith(suffix) for suffix in _LEGAL_SUFFIXES)
+    last = segments[-1]
+    return len(segments) > 2 and (
+        last in {"facade", "contracts"} or last.endswith(_LEGAL_SUFFIXES)
+    )
+
+
+def _absolute_from(node: ast.ImportFrom, relative: str) -> str:
+    if not node.level:
+        return node.module or ""
+    package = relative.removesuffix(".py").replace("/", ".")
+    if not relative.endswith("/__init__.py"):
+        package = package.rpartition(".")[0]
+    else:
+        package = package.removesuffix(".__init__")
+    return importlib.util.resolve_name("." * node.level + (node.module or ""), package)
+
+
+def _member_target(
+    target: str, member: str, backend_root: Path, seen: frozenset[str] = frozenset()
+) -> str:
+    """解析包成员的静态再出口，绝不 import/执行业务包；未知成员失败关闭。"""
+    if target in seen:
+        return target
+    module_path = backend_root.joinpath(*target.split("."))
+    if module_path.with_suffix(".py").is_file():
+        return target
+    init = module_path / "__init__.py"
+    if not init.is_file():
+        if not module_path.is_dir() and len(target.split(".")) > 2:
+            return target
+        return f"{target}.{member}"
+    tree = ast.parse(init.read_text(encoding="utf-8"))
+    relative = init.relative_to(backend_root).as_posix()
+    for node in tree.body:
+        if isinstance(node, ast.ImportFrom):
+            origin = _absolute_from(node, relative)
+            for alias in node.names:
+                if (alias.asname or alias.name) == member:
+                    return _member_target(
+                        origin, alias.name, backend_root, seen | {target}
+                    )
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if (alias.asname or alias.name) == member:
+                    return alias.name
+    return f"{target}.{member}"
 
 
 def iter_violations(
-    modules: dict[str, tuple[str, ...]],
-    *,
-    exempt: dict[str, str],
+    modules: dict[str, tuple[str, ...]], *, exempt: dict[str, str]
 ) -> list[dict]:
-    backend_root = REPO_ROOT / "backend"
-    violations: list[dict] = []
-    for path in sorted(backend_root.glob("modules/**/*.py")):
-        relative = path.relative_to(backend_root).as_posix()
-        if "/tests/" in f"/{relative}" or relative.endswith("_test.py"):
-            continue
-        owner = owning_module(relative, modules)
-        if owner is None:
-            continue
-        try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
-        except (OSError, SyntaxError) as exc:
-            violations.append(
-                {
-                    "path": relative,
-                    "line": 0,
-                    "target": "",
-                    "reason": f"AST 解析失败: {exc}",
-                }
-            )
-            continue
-        for node in ast.walk(tree):
-            targets: list[tuple[int, str]] = []
-            if isinstance(node, ast.ImportFrom) and node.module:
-                targets.append((node.lineno, node.module))
-            elif isinstance(node, ast.Import):
-                targets.extend((alias.lineno, alias.name) for alias in node.names)
-            for line, target in targets:
-                segments = _import_segments(target)
-                if len(segments) < 2 or segments[0] != "modules":
-                    continue
-                target_module = segments[1]
-                if target_module == owner or target_module not in modules:
-                    continue
-                if is_legal_cross_import(target, modules):
-                    continue
-                if _is_exempt(relative, target, exempt):
-                    continue
-                violations.append(
-                    {
-                        "path": relative,
-                        "line": line,
-                        "target": target,
-                        "reason": (
-                            f"跨模块导入 {target} 不经 contracts/facade/__init__/ORM models"
-                        ),
-                    }
-                )
-    return violations
+    return iter_violations_for_paths(
+        modules,
+        sorted((REPO_ROOT / "backend").glob("modules/**/*.py")),
+        repo_root=REPO_ROOT,
+        exempt=exempt,
+    )
 
 
 def iter_violations_for_paths(
@@ -153,57 +126,65 @@ def iter_violations_for_paths(
     repo_root: Path,
     exempt: dict[str, str],
 ) -> list[dict]:
-    """对给定文件列表执行与 iter_violations 相同的判定（测试/增量入口）。"""
-    import ast as _ast
-
+    backend_root = (
+        repo_root / "backend" if (repo_root / "backend").is_dir() else repo_root
+    )
     violations: list[dict] = []
     for path in paths:
+        path = Path(path)
+        if not path.is_absolute():
+            path = repo_root / path
         if path.suffix != ".py":
             continue
-        # 支持绝对路径（tests）与仓库相对（backend/ 前缀可选）
-        rel = None
-        try:
-            rel = path.relative_to(repo_root).as_posix()
-        except ValueError:
-            rel = path.as_posix()
-        backend_rel = rel.removeprefix("backend/")
-        owner = owning_module(backend_rel, modules)
-        if owner is None or "/tests/" in f"/{backend_rel}":
+        relative = path.relative_to(backend_root).as_posix()
+        owner = owning_module(relative, modules)
+        if (
+            owner is None
+            or "/tests/" in f"/{relative}"
+            or relative.endswith("_test.py")
+        ):
             continue
         try:
-            tree = _ast.parse(path.read_text(encoding="utf-8"))
-        except (OSError, SyntaxError) as exc:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                targets: list[str] = []
+                if isinstance(node, ast.ImportFrom):
+                    target = _absolute_from(node, relative)
+                    targets = [
+                        _member_target(target, alias.name, backend_root)
+                        for alias in node.names
+                    ]
+                elif isinstance(node, ast.Import):
+                    targets = [alias.name for alias in node.names]
+                for target in targets:
+                    segments = _import_segments(target)
+                    if (
+                        len(segments) < 2
+                        or segments[0] != "modules"
+                        or segments[1] == owner
+                    ):
+                        continue
+                    if is_legal_cross_import(target, modules) or _is_exempt(
+                        relative, target, exempt
+                    ):
+                        continue
+                    violations.append(
+                        {
+                            "path": relative,
+                            "line": node.lineno,
+                            "target": target,
+                            "reason": f"跨模块导入 {target} 不经 contracts/facade 或已登记 DI/有限例外",
+                        }
+                    )
+        except (OSError, SyntaxError, ImportError, ValueError) as exc:
             violations.append(
-                {"path": backend_rel, "line": 0, "target": "", "reason": f"AST 解析失败: {exc}"}
+                {
+                    "path": relative,
+                    "line": 0,
+                    "target": "",
+                    "reason": f"AST/导入解析失败: {exc}",
+                }
             )
-            continue
-        for node in _ast.walk(tree):
-            targets: list[tuple[int, str]] = []
-            if isinstance(node, _ast.ImportFrom) and node.module:
-                targets.append((node.lineno, node.module))
-            elif isinstance(node, _ast.Import):
-                targets.extend((alias.lineno, alias.name) for alias in node.names)
-            for line, target in targets:
-                segments = _import_segments(target)
-                if len(segments) < 2 or segments[0] != "modules":
-                    continue
-                target_module = segments[1]
-                if target_module == owner or target_module not in modules:
-                    continue
-                if is_legal_cross_import(target, modules):
-                    continue
-                if _is_exempt(backend_rel, target, exempt):
-                    continue
-                violations.append(
-                    {
-                        "path": backend_rel,
-                        "line": line,
-                        "target": target,
-                        "reason": (
-                            f"跨模块导入 {target} 不经 contracts/facade/__init__/ORM models"
-                        ),
-                    }
-                )
     return violations
 
 
@@ -252,11 +233,11 @@ def main(argv: list[str] | None = None) -> int:
 
 
 # 豁免登记：``文件 glob:导入目标 glob`` → 理由。
-# 2026-10-02 首轮实测裁定：存量 16 条不经顶层 contracts/facade 的 import
-# 中 9 条属合法形态（命名 facade / ORM _models），其余 7 条为直接引用
-# 实现，逐条豁免如下（整改须逐项排期，新增豁免须同步更新本清单并说明
-# 为什么无法走 contracts/facade）。
+# 存量实现直引逐点登记；ORM 仅限模型注册兼容出口，不能全局放行。
 EXEMPT_IMPORTS: dict[str, str] = {
+    "modules/world/models/cocreation.py:modules.assistant.session_models": (
+        "ORM metadata 兼容再出口；仅此模型注册位置，不授权业务调用实现"
+    ),
     # collaboration 合并预览消费 assistant 的对话 projection schema；
     # 待 assistant contracts 扩展该 schema 后迁移。
     "modules/collaboration/merge.py:modules.assistant.schemas": (

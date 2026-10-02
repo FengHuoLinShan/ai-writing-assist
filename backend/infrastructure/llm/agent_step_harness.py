@@ -766,13 +766,14 @@ def _apply_cost_routing(
     client: Any,
     request: LLMCallRequest,
     *,
-    capability_id: str | None,
+    routing_capability_id: str | None,
 ) -> LLMCallRequest:
     """B5：cheap 能力在省钱模式下切到同 provider 低成本模型。
 
     路由集合与目标模型由 modules/project 层注入 ``client.cost_routing``；
     infrastructure 只按集合执行，不 import 业务注册表。未注入/未启用/
-    能力不在集合时原样返回（回落主模型）。
+    能力不在集合时原样返回（回落主模型）。路由只看子能力名（如
+    ``imports.scene_slicing``），与运行信封的 root 归属是两个口径。
     """
     routing = getattr(client, "cost_routing", None)
     if not isinstance(routing, dict) or not routing.get("enabled"):
@@ -781,8 +782,8 @@ def _apply_cost_routing(
     capability_ids = routing.get("capability_ids") or []
     if (
         not cheap_model
-        or not capability_id
-        or capability_id not in capability_ids
+        or not routing_capability_id
+        or routing_capability_id not in capability_ids
     ):
         return request
     return request.model_copy(update={"model": cheap_model})
@@ -810,6 +811,7 @@ async def run_managed_generate(
     *,
     step_name: str,
     capability_id: str | None = None,
+    routing_capability_id: str | None = None,
     permission_level: AgentPermissionLevel = AgentPermissionLevel.read,
     read_only: bool = True,
     timeout: int | float | None = None,
@@ -821,11 +823,15 @@ async def run_managed_generate(
     """Run ``LLMClient.generate`` through a managed step without changing behavior.
 
     ``capability_id`` 声明本次调用的 canonical capability；省略时活动运行信封把
-    该 step 归属到 run 的 root capability。
+    该 step 归属到 run 的 root capability。``routing_capability_id`` 只供 B5
+    成本路由按子能力名选模型，不进入运行信封归属（信封仍按 root 校验）；
+    省略时沿用 ``capability_id``。
     """
 
     routed_request = _apply_cost_routing(
-        client, request, capability_id=capability_id
+        client,
+        request,
+        routing_capability_id=routing_capability_id or capability_id,
     )
     provenance = build_managed_llm_provenance(
         client,
@@ -871,6 +877,7 @@ async def run_managed_structured[StructuredT: BaseModel](
     *,
     step_name: str,
     capability_id: str | None = None,
+    routing_capability_id: str | None = None,
     max_fix_attempts: int = 2,
     fix_prompt: str | None = None,
     transport_retries: bool = True,
@@ -890,10 +897,16 @@ async def run_managed_structured[StructuredT: BaseModel](
     Structured validation and repair remain owned by ``LLMClient``. The managed
     step records timing/error metadata and rethrows the original exception. It
     does not enable the lower-level ``OutputGuard`` by default.
+
+    ``capability_id`` / ``routing_capability_id`` 的分工与 ``run_managed_generate``
+    相同：前者是运行信封归属（root 或 infrastructure.*），后者只供 B5 成本
+    路由按子能力名选模型。
     """
 
     routed_request = _apply_cost_routing(
-        client, request, capability_id=capability_id
+        client,
+        request,
+        routing_capability_id=routing_capability_id or capability_id,
     )
     provenance = build_managed_llm_provenance(
         client,

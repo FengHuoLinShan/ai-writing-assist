@@ -423,6 +423,10 @@ API 与 worker 使用相同 Compose runtime 环境。回退不降级表、不撤
 - `make repo-gates`：二进制增量体积门（B11，单文件 1MB/单变更 5MB）、
   生产文件行数门（P8，>3000 告警、>5000 高于基线失败）、发布证据账本校验
   （B6，`docs/evidence/`）、跨模块 import 门（B2，豁免须登记理由）。
-  CI 在 `repo-gates.yml` 执行，脚本位于仓库根 `scripts/`。
-- `make scale-gate TIER=low DATABASE_URL=...`：长篇规模分档门（B7）编译
-  探针；基线见 `backend/tools/scale_gate_baselines.json`。
+  CI 在 `repo-gates.yml` 执行，push 使用事件 before/sha，PR 使用固定 base/head
+  SHA。B2 解析相对导入与包成员的静态再出口；models 不享有全局豁免，仅按
+  调用位置登记有限例外。B6 验证字段类型、非空声明、完整 commit SHA 和文件 hash。
+- `make scale-gate TIER=low DATABASE_URL=...`：B7 三档合成语料的真实索引/编译、
+  关键词检索、审校分片/请求和六步影子任务链，基线见
+  `backend/tools/scale_gate_baselines.json`。仅接受显式专用 PostgreSQL test/e2e/audit
+  库；夹具及内部 commit 全部被外层事务回滚。JSON 直接使用 B6 契约。

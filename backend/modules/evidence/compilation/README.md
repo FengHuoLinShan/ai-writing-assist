@@ -703,6 +703,9 @@ Evidence 为 Collaboration 收集授权的冻结资源集合，manifest 同时�
 ## 逐源证据与预算状态（B8）
 
 scope 构建按 ContextItem 级 token 与 section 级 evicted/truncated 状态填充
-来源条目的 `token_count/state/state_reason`；`hash_basis` 标记哈希基底。
+来源条目的 `token_count/state/state_reason`，包括 omitted_items；无原生 hash
+时按实际 item 正文计算 content hash。不可分整块的 `ContextItem.sources` 保留
+全部来源，账本 `token_groups` 明示 shared，按 key 去重复算；共享计数不摊派到
+每个来源的独立 token_count。原生 hash 不可得且正文确实未关联才退化为 identity。
 元数据字段 200 字符上界。作者写作示例（B3）作为 `author_examples` section
 （P3、转义 JSON fence、1500 token 截断先反例后好例）进入确认预览与指纹。

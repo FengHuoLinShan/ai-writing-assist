@@ -30,14 +30,14 @@ def cheap_capability_ids() -> frozenset[str]:
     )
 
 
-def verified_secondary_models(
-    provider_id: str, models: list[str] | None
-) -> list[str]:
-    """过滤出已在能力档案登记（非 fallback 档）的附加模型；未登记不参与路由。
+def verified_secondary_models(provider_id: str, models: list[str] | None) -> list[str]:
+    """过滤出已登记且声明支持结构化输出的附加模型；未登记不参与路由。
 
     档案把已登记模型标注为 verified_dev / historical_evidence_tuning 等
     实测口径，未登记模型一律落 unknown_fallback / legacy_fallback 的
-    24K 保守档——fallback 档即 fail-closed 信号。
+    24K 保守档——fallback 档即 fail-closed 信号。cheap 能力全部是结构化
+    抽取任务，路由目标还必须声明 ``structured_output="supported"``，
+    否则抽取调用会被门禁拒绝或退化为无 json mode 的提示词模式。
     """
     from infrastructure.llm.capabilities import resolve_llm_capability_profile
 
@@ -47,27 +47,26 @@ def verified_secondary_models(
         if not name:
             continue
         profile = resolve_llm_capability_profile(provider_id, name)
-        if not str(profile.calibration_status).endswith("fallback"):
-            result.append(name)
+        if str(profile.calibration_status).endswith("fallback"):
+            continue
+        if (profile.structured_output or "unverified") != "supported":
+            continue
+        result.append(name)
     return result
 
 
 async def build_cost_routing(db: AsyncSession, novel_id: str) -> dict[str, Any]:
     """解析当前生效的路由配置；未启用或无可用模型时返回空路由（回落主模型）。"""
-    from sqlalchemy import select as _select
-
-    from modules.account.facade import read_account_secondary_models
-    from modules.project.models import Project
-    from modules.project.services import ProjectService
-
-    await ProjectService().get_project(db, novel_id)  # owner/active 边界
     from uuid import UUID
 
-    project = await db.scalar(
-        _select(Project).where(Project.id == UUID(str(novel_id)))
-    )
+    from modules.account.facade import read_account_secondary_models
+    from modules.project.services import ProjectService
+
+    project = await ProjectService().get_project_context(db, novel_id, project_kind=None)
     if project is None:
-        return {"enabled": False, "cheap_model": None, "capability_ids": []}
+        from core.errors import NotFoundError
+
+        raise NotFoundError("Project not found")
     settings = project.settings or {}
     enabled = (settings.get(COST_SAVING_KEY) or {}).get("enabled") is True
     routing: dict[str, Any] = {
@@ -78,7 +77,7 @@ async def build_cost_routing(db: AsyncSession, novel_id: str) -> dict[str, Any]:
     if not enabled:
         return routing
     provider_id, secondary = await read_account_secondary_models(
-        db, owner_id=project.owner_id
+        db, owner_id=UUID(project.owner_id)
     )
     if not provider_id:
         return routing
@@ -104,9 +103,7 @@ async def read_cost_saving_toggle(db: AsyncSession, novel_id: str) -> dict:
     from modules.project.services import ProjectService
 
     await ProjectService().get_project(db, novel_id)
-    project = await db.scalar(
-        _select(Project).where(Project.id == UUID(str(novel_id)))
-    )
+    project = await db.scalar(_select(Project).where(Project.id == UUID(str(novel_id))))
     settings = (project.settings or {}) if project is not None else {}
     enabled = (settings.get(COST_SAVING_KEY) or {}).get("enabled") is True
     routing = await build_cost_routing(db, novel_id)
@@ -131,9 +128,7 @@ async def set_cost_saving_toggle(
     service._reject_demo_write()
     await service.get_project(db, novel_id)
     project = await db.scalar(
-        _select(Project)
-        .where(Project.id == UUID(str(novel_id)))
-        .with_for_update()
+        _select(Project).where(Project.id == UUID(str(novel_id))).with_for_update()
     )
     if project is None:
         from core.errors import NotFoundError

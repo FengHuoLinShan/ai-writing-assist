@@ -64,9 +64,7 @@ def _bundle(novel_id: str) -> StructureContextBundle:
 
 
 def test_author_examples_state_rejects_too_many_good_examples() -> None:
-    examples = [
-        _example(example_id=f"good-example-{i}") for i in range(4)
-    ]
+    examples = [_example(example_id=f"good-example-{i}") for i in range(4)]
     with pytest.raises(PydanticValidationError, match="好例最多"):
         AuthorExamplesState.model_validate({"examples": examples})
 
@@ -266,8 +264,8 @@ def test_section_wraps_examples_in_escaped_json_fence() -> None:
 
 
 def test_section_truncates_bad_examples_before_good() -> None:
-    good_content = "短句好例，克制的白描。"  # 好例远低于预算，必须保留
-    long_content = "很长的句子。" * 200  # 反例约 1200 字符，触顶
+    good_content = "句。" * 1000  # 好例 2000 字符（schema 满额，约 3000 token）
+    long_content = "啰。" * 1000  # 反例 2000 字符，与好例合计超预算
     section = _compile_author_examples_section(
         [
             _example(content=good_content, example_id="g1"),
@@ -278,14 +276,40 @@ def test_section_truncates_bad_examples_before_good() -> None:
     metadata = section.retrieval_metadata or {}
     assert metadata.get("truncated") is True
     assert "bad" in (metadata.get("dropped_kinds") or [])
+    # 部分丢弃对作者可见：标题与正文都说明保留情况
+    assert "部分超出预算未注入" in section.title
+    assert "未能容纳" in section.content
     import json as _json
 
-    fenced = section.content.split("<AUTHOR_EXAMPLES_DATA>")[1].split(
-        "</AUTHOR_EXAMPLES_DATA>"
-    )[0].strip()
+    fenced = (
+        section.content.split("<AUTHOR_EXAMPLES_DATA>")[1]
+        .split("</AUTHOR_EXAMPLES_DATA>")[0]
+        .strip()
+    )
     payload = _json.loads(fenced.replace("\\u003c", "<").replace("\\u003e", ">"))
     assert len(payload["good"]) == 1
     assert payload["bad"] == []
+
+
+def test_single_full_length_example_always_fits_budget() -> None:
+    """单条 schema 满额示例（2000 字符正文 + 500 字符备注）必须完整注入。
+
+    预算与存储上限对齐：否则作者从主入口存下的长例子永远进不了上下文。
+    """
+    section = _compile_author_examples_section(
+        [
+            _example(
+                content="月光。" * 500,  # 2000 字符
+                note="克制的白描。" * 50,  # 500 字符
+                example_id="g1",
+            ),
+        ]
+    )
+
+    metadata = section.retrieval_metadata or {}
+    assert metadata.get("truncated") is False
+    assert metadata.get("examples_kept") == 1
+    assert "预算" not in section.title
 
 
 def test_no_sections_when_examples_exceed_budget_entirely() -> None:
@@ -381,22 +405,22 @@ async def test_author_example_stats_buckets_adoption_and_changes(
         chapter=1,
         version=2,
         content_hash="hash-c1",
-        provenance={"adopted_from_candidate_id": "x"},
+        provenance={**_candidate_provenance(True), "adopted_from_candidate_id": "x"},
         draft_id=adopted_id,
     )
     adopted_1_edited = _draft(
-        status="draft",
+        status="canonical",
         chapter=1,
         version=3,
         content_hash="hash-c1-edited",
-        provenance={},
+        provenance={**_candidate_provenance(True), "adopted_from_candidate_id": "x"},
     )
     adopted_2 = _draft(
         status="draft",
         chapter=2,
         version=2,
         content_hash="hash-c2",
-        provenance={"adopted_from_candidate_id": "y"},
+        provenance={**_candidate_provenance(False), "adopted_from_candidate_id": "y"},
         draft_id=adopted_id2,
     )
     for draft in (
@@ -443,9 +467,7 @@ def test_author_examples_change_compiled_fingerprint() -> None:
         bundle = _bundle("novel-x")
         if examples is not None:
             bundle.author_examples = {"version": 1, "examples": examples}
-        compiled = CompiledContext(
-            sections=compiler._build_sections(bundle, options)
-        )
+        compiled = CompiledContext(sections=compiler._build_sections(bundle, options))
         return compiled_context_fingerprint(compiled)
 
     without = _fingerprint(None)
@@ -684,9 +706,7 @@ async def test_generation_request_carries_escaped_fence_and_provenance_flag(
         from modules.project import facade as project_facade
         from modules.story import facade as outline_facade
 
-        monkeypatch.setattr(
-            project_facade, "require_active_project", _mock.AsyncMock()
-        )
+        monkeypatch.setattr(project_facade, "require_active_project", _mock.AsyncMock())
         monkeypatch.setattr(
             outline_facade,
             "get_scene_execution_bundle",

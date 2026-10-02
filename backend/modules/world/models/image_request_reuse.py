@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, ForeignKey, Index
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index
 
 from .common import (
     Base,
@@ -59,5 +59,7 @@ class ImageRequestReuse(Base, UUIDMixin, TimestampMixin, NovelMixin):
     width: Mapped[int | None] = mapped_column(Integer, nullable=True)
     height: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_from_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
-    reused_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    reused_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     reuse_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

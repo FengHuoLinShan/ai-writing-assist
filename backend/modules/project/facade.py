@@ -125,12 +125,15 @@ async def get_project_context(
 async def get_any_project_context(
     db: AsyncSession,
     novel_id: str,
+    *,
+    for_update: bool = False,
 ) -> ProjectContext | None:
-    """Task composition-root lookup for either internal project kind."""
+    """Secret-free context for either project kind; lock only for DB mutations."""
     context = await _service.get_project_context(
         db,
         novel_id,
         project_kind=None,
+        **({"for_update": True} if for_update else {}),
     )
     if context is not None:
         bind_validated_novel_id(novel_id)
@@ -258,6 +261,15 @@ async def require_active_project(
     """Require an active project, hiding missing and recycled projects as 404."""
     await _service.require_active_project(db, novel_id)
     bind_validated_novel_id(novel_id)
+
+
+async def save_agent_executor_settings(
+    db, novel_id, owner_id, selection, *, only_if_device=None
+):
+    """Project-owned executor mutation inside the caller's transaction."""
+    await _service.save_agent_executor_settings(
+        db, novel_id, owner_id, selection, only_if_device=only_if_device
+    )
 
 
 async def require_interaction_project(

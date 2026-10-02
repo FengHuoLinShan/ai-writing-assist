@@ -24,7 +24,7 @@
   "token_cost": null,
   "generated_at": "2026-10-02T00:27:35.604189+00:00",
   "generator_version": "rp-long-memory-generator-v2",
-  "commit": "0d555c463",
+  "commit": "0d555c463f2010b9206a51b3a838ce0a2e9d4fb8",
   "claims_boundary": {
     "proves": [
       "v3 生产 holdout 数据集已入库、可复现（逐文件 sha256 锁定）且规模构成明确",

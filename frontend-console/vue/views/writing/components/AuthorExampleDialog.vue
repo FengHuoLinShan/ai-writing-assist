@@ -1,6 +1,14 @@
 <template>
   <div v-if="open" class="author-example-dialog-backdrop" @click.self="cancel">
-    <div class="author-example-dialog" role="dialog" aria-modal="true" aria-labelledby="author-example-dialog-title">
+    <div
+      ref="dialogEl"
+      class="author-example-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="author-example-dialog-title"
+      @keydown.esc.stop.prevent="cancel"
+      @keydown.tab.prevent="trapTab"
+    >
       <h2 id="author-example-dialog-title">存为写作示例</h2>
       <p class="author-example-dialog__hint">
         示例会作为你的偏好进入之后的正文生成：好例是「以后照这个写」，反例是「别这样写」。
@@ -31,7 +39,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from "vue"
+import { computed, nextTick, ref, watch } from "vue"
 import { getApi, getToast } from "../../../bridge/index.js"
 
 const props = defineProps({
@@ -49,6 +57,8 @@ const saving = ref(false)
 const error = ref("")
 const version = ref(0)
 const examples = ref([])
+const dialogEl = ref(null)
+let focusOrigin = null
 
 const contentLocked = computed(() => Boolean(props.draft?.contentLocked))
 const canSave = computed(() => Boolean(
@@ -63,17 +73,46 @@ const limitHint = computed(() => {
 })
 
 watch(() => props.open, async visible => {
-  if (!visible) return
+  if (!visible) {
+    if (focusOrigin?.isConnected) focusOrigin.focus()
+    focusOrigin = null
+    return
+  }
   error.value = ""
   note.value = ""
   kind.value = "good"
   content.value = String(props.draft?.content || "").slice(0, 2000)
+  focusOrigin = document.activeElement
+  void nextTick(() => {
+    const first = dialogEl.value?.querySelector("input, textarea, button")
+    if (first) first.focus()
+  })
   try {
     const state = await getApi().projects.authorExamples(props.projectId)
     version.value = Number(state.version) || 0
     examples.value = state.examples || []
   } catch { /* 首次使用时读取失败按空处理，保存仍会走乐观锁 */ }
 })
+
+function trapTab(event) {
+  const root = dialogEl.value
+  if (!root) return
+  const focusables = Array.from(
+    root.querySelectorAll("button:not([disabled]), input:not([disabled]), select, textarea:not([disabled]), [href], [tabindex]:not([tabindex='-1'])")
+  ).filter(el => el.offsetParent !== null)
+  if (!focusables.length) return
+  const first = focusables[0]
+  const last = focusables[focusables.length - 1]
+  const active = document.activeElement
+  const currentIndex = root.contains(active) ? focusables.indexOf(active) : -1
+  if (event.shiftKey) {
+    const target = currentIndex <= 0 ? last : focusables[currentIndex - 1]
+    target.focus()
+  } else {
+    const target = currentIndex === -1 || currentIndex === focusables.length - 1 ? first : focusables[currentIndex + 1]
+    target.focus()
+  }
+}
 
 function cancel() {
   if (saving.value) return

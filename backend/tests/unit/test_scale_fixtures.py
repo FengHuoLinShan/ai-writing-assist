@@ -49,3 +49,25 @@ def test_chapters_have_realistic_length() -> None:
 def test_unknown_tier_is_rejected() -> None:
     with pytest.raises(ValueError, match="unknown tier"):
         generate_corpus("gigantic")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "url",
+    [
+        "postgresql+asyncpg://localhost/main",
+        "postgresql+asyncpg://localhost/ai_novel_acceptance_guimi",
+        "sqlite+aiosqlite:///:memory:",
+    ],
+)
+async def test_scale_gate_refuses_unprotected_database_before_connect(url, monkeypatch):
+    from types import SimpleNamespace
+
+    from tools.scale_gate_harness import run_gate
+
+    def unexpected_connect(*args, **kwargs):
+        raise AssertionError("must reject before engine creation")
+
+    monkeypatch.setattr("sqlalchemy.ext.asyncio.create_async_engine", unexpected_connect)
+    with pytest.raises(RuntimeError, match="dedicated|PostgreSQL"):
+        await run_gate(SimpleNamespace(database_url=url))

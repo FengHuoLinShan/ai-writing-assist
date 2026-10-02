@@ -36,6 +36,9 @@ REFERENCE_USAGE_CREATION = "creation"
 REFERENCE_USAGE_AUDIT_ONLY = "audit_only"
 REFERENCE_USAGES = frozenset({REFERENCE_USAGE_CREATION, REFERENCE_USAGE_AUDIT_ONLY})
 
+# 单源 token_groups 的账目条数上限；超出部分折叠为 __overflow__ 一条。
+_MAX_TOKEN_GROUPS_PER_SOURCE = 32
+
 SECTION_DIMENSION_MAP: dict[str, str] = {
     "world_entities": "world_entities",
     "reader_visible_world": "reader_reveal",
@@ -132,9 +135,7 @@ class KnowledgeScopeBuild:
         """权威包 − 生成者包；供 HiddenGuard 与语义审查使用。"""
         visible = set(self.generator_keys)
         return tuple(
-            entry
-            for entry in self.receipt.included
-            if entry.source_key not in visible
+            entry for entry in self.receipt.included if entry.source_key not in visible
         )
 
 
@@ -168,10 +169,42 @@ def build_scope_receipt(
 
     entry_tokens: dict[str, int | None] = {}
     entry_state: dict[str, tuple[str, str]] = {}
+    entry_groups: dict[str, dict[str, dict]] = {}
+    entry_content: dict[str, dict[str, str]] = {}
 
     def _bounded(text: str, limit: int = 200) -> str:
         """元数据字段上界：账本条目体积必须有界（B8 验收）。"""
         return text if len(text) <= limit else text[: limit - 1] + "…"
+
+    def _bounded_token_groups(groups: dict[str, dict]) -> tuple[dict, ...]:
+        """token_groups 数量上界：病态上下文不让单源账目无限膨胀。
+
+        保留 token 数最大的前 32 组，其余折成一条 __overflow__ 记录
+        （token_count 为被折叠组的非共享合计）；不影响 entry_tokens 的
+        全量复算口径，也不进指纹。
+        """
+        if len(groups) <= _MAX_TOKEN_GROUPS_PER_SOURCE:
+            return tuple(groups.values())
+        ordered = sorted(
+            groups.values(),
+            key=lambda group: (
+                -int(group.get("token_count") or 0),
+                str(group.get("key") or ""),
+            ),
+        )
+        dropped = ordered[_MAX_TOKEN_GROUPS_PER_SOURCE:]
+        overflow = {
+            "key": "__overflow__",
+            "token_count": sum(
+                int(group.get("token_count") or 0)
+                for group in dropped
+                if not group.get("shared")
+            ),
+            "shared": any(group.get("shared") for group in dropped),
+            "state": "included",
+            "dropped_group_count": len(dropped),
+        }
+        return (*ordered[:_MAX_TOKEN_GROUPS_PER_SOURCE], overflow)
 
     def _absorb(
         source: Mapping[str, Any],
@@ -180,6 +213,9 @@ def build_scope_receipt(
         token_count: int | None = None,
         state: str = "included",
         state_reason: str = "",
+        content: str | None = None,
+        token_group: str = "",
+        shared: bool = False,
     ) -> None:
         key = source_key_of(source)
         if not key:
@@ -197,6 +233,8 @@ def build_scope_receipt(
             )
             entry_dimensions[key] = set()
             entry_tokens[key] = token_count
+            entry_groups[key] = {}
+            entry_content[key] = {}
         else:
             # 同一来源跨 section 出现时保留最强证据：token 取首次可得值，
             # 处置状态按严重度升级（omitted > trimmed > included）。
@@ -212,6 +250,26 @@ def build_scope_receipt(
                 entry_state[key] = (state, state_reason)
         if dimension:
             entry_dimensions[key].add(dimension)
+        if token_group and token_count is not None:
+            entry_groups[key][token_group] = {
+                "key": token_group,
+                "token_count": token_count,
+                "shared": shared,
+                "state": state,
+            }
+            entry_tokens[key] = sum(
+                group["token_count"]
+                for group in entry_groups[key].values()
+                if not group["shared"]
+            )
+            if shared and not any(
+                not group["shared"] for group in entry_groups[key].values()
+            ):
+                entry_tokens[key] = None
+        if content is not None and not any(
+            source.get(field) for field in ("content_hash", "hash", "source_hash")
+        ):
+            entry_content[key][token_group] = knowledge_canonical_hash(content)
 
     evicted_keys = set(compiled.evicted_keys or [])
     truncated_keys = set(compiled.truncated_keys or [])
@@ -232,13 +290,17 @@ def build_scope_receipt(
                 item_state, item_reason = "omitted", item.omission_reason or ""
             else:
                 item_state, item_reason = section_state, section_reason
-            _absorb(
-                item.source,
-                dimension,
-                token_count=item.token_count or None,
-                state=item_state,
-                state_reason=item_reason,
-            )
+            for source in item.sources or [item.source]:
+                _absorb(
+                    source,
+                    dimension,
+                    token_count=item.token_count,
+                    content=item.content,
+                    token_group=item.key,
+                    shared=len(item.sources) > 1,
+                    state=item_state,
+                    state_reason=item_reason,
+                )
         for source in section.sources:
             _absorb(
                 source,
@@ -253,20 +315,33 @@ def build_scope_receipt(
                     excluded_keys.add(key)
 
     for item in compiled.excluded_items:
-        _absorb(item.source, "")
-        key = source_key_of(item.source)
-        if key:
-            excluded_keys.add(key)
+        for source in item.sources or [item.source]:
+            _absorb(
+                source,
+                "",
+                token_count=item.token_count,
+                content=item.content,
+                token_group=item.key,
+                shared=len(item.sources) > 1,
+            )
+            key = source_key_of(source)
+            if key:
+                excluded_keys.add(key)
     for item in compiled.omitted_items:
-        _absorb(
-            item.source,
-            "",
-            state="omitted",
-            state_reason=item.omission_reason or "预算逐出或不可读",
-        )
-        key = source_key_of(item.source)
-        if key:
-            omitted_keys.add(key)
+        for source in item.sources or [item.source]:
+            _absorb(
+                source,
+                "",
+                token_count=item.token_count,
+                content=item.content,
+                token_group=item.key,
+                shared=len(item.sources) > 1,
+                state="omitted",
+                state_reason=item.omission_reason or "预算逐出或不可读",
+            )
+            key = source_key_of(source)
+            if key:
+                omitted_keys.add(key)
 
     audit_only_keys: set[str] = set()
     for section in compiled.sections:
@@ -284,13 +359,18 @@ def build_scope_receipt(
             source_key=entry.source_key,
             source_type=entry.source_type,
             source_id=entry.source_id,
-            content_hash=entry.content_hash,
+            content_hash=(
+                knowledge_canonical_hash(sorted(entry_content[entry.source_key].items()))
+                if entry_content[entry.source_key]
+                else entry.content_hash
+            ),
             label=entry.label,
             dimensions=tuple(sorted(entry_dimensions.get(entry.source_key, ()))),
             token_count=entry_tokens.get(entry.source_key),
             state=entry_state.get(entry.source_key, ("included", ""))[0],
             state_reason=entry_state.get(entry.source_key, ("included", ""))[1],
-            hash_basis=entry.hash_basis,
+            hash_basis="content" if entry_content[entry.source_key] else entry.hash_basis,
+            token_groups=_bounded_token_groups(entry_groups[entry.source_key]),
         )
         for entry in sorted(entries.values(), key=lambda e: e.source_key)
     )
@@ -408,9 +488,7 @@ def require_scope_complete(build: KnowledgeScopeBuild) -> None:
             problems.append("编译产物存在截断，范围不完整")
     for item in receipt.coverage:
         if item.omitted:
-            problems.append(
-                f"必查维度 {item.dimension} 被排除：{item.omission_reason}"
-            )
+            problems.append(f"必查维度 {item.dimension} 被排除：{item.omission_reason}")
     ensure_no_excluded_backflow(build)
     if problems:
         raise KnowledgeContractError(
@@ -433,9 +511,7 @@ def ensure_no_excluded_backflow(build: KnowledgeScopeBuild) -> None:
 
 def scope_continuation_token(receipt: KnowledgeScopeReceipt) -> str:
     """阻断后可恢复的 continuation 指针；重整资料后重新冻结。"""
-    return (
-        f"scope_continuation:{receipt.capability}:{receipt.receipt_fingerprint()[:12]}"
-    )
+    return f"scope_continuation:{receipt.capability}:{receipt.receipt_fingerprint()[:12]}"
 
 
 def shard_source_keys(
@@ -477,8 +553,7 @@ def reduce_dispositions(
         problems.append("duplicate: " + ", ".join(sorted(set(duplicates))[:5]))
     if problems:
         raise KnowledgeContractError(
-            "director shards do not cover manifest exactly once: "
-            + "; ".join(problems)
+            "director shards do not cover manifest exactly once: " + "; ".join(problems)
         )
     return tuple(merged[key] for key in sorted(merged))
 
