@@ -698,6 +698,17 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             outputs=(OUTPUT_PROPOSAL,),
             notes="targeted completion 每问题组冻结一份 receipt。",
         ),
+        _policy(
+            "imports.spreadsheet_migration",
+            DOMAIN_IMPORTS,
+            "表格迁移整理",
+            subjects=("author",),
+            dimensions=("imported_assets",),
+            confirmation=CONFIRMATION_NONE,
+            outputs=(OUTPUT_PROPOSAL,),
+            notes="作者自上传行的 outline/cleanup 整理；输出只进预览，"
+            "采用经迁移确认（ADR-0030）。",
+        ),
         # --- Evolution ---
         _policy(
             "evolution.scene_observe",
