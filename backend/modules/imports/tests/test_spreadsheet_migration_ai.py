@@ -158,7 +158,7 @@ def test_handler_declares_envelope_limits() -> None:
 async def test_submit_ai_run_rejects_over_budget(
     db_session: AsyncSession, session_row
 ) -> None:
-    with patch.object(ai_module, "AI_MAX_PACKETS", 0):
+    with patch.object(ai_module, "AI_MAX_PACKETS", 0):  # autospec-exempt: 常量覆写无 spec 可言
         with (
             patch(
                 "modules.project.facade.require_active_project", autospec=True
@@ -377,7 +377,7 @@ async def test_run_spreadsheet_migration_ai_writes_result(
         patch(
             "modules.imports.spreadsheet_migration.ai.open_project_snapshot_llm_client",
             _fake_snapshot_client(),
-        ),
+        ),  # autospec-exempt: 以 async ctx 替身注入 fake client
         patch(
             "modules.evidence.contracts.govern_group_output",
             autospec=True,

@@ -106,7 +106,7 @@ def parse_and_classify():
             "modules.imports.parsers.parse_spreadsheet_file",
             parse_double,
             create=True,
-        ),
+        ),  # autospec-exempt: L1 未合入时属性不存在，new= 显式替身
         patch(
             "modules.imports.spreadsheet_migration.classify.classify_sheet",
             autospec=True,

@@ -226,6 +226,7 @@ async def _load_session(
     novel_id: str,
     for_update: bool = False,
 ):
+    await _require_active_project(db, novel_id)
     owner_id = str(current_account_id())
     return await _service.get_session(
         db,
@@ -263,6 +264,7 @@ async def list_migrations(
     limit: int = Query(default=20, ge=1, le=50),
     offset: int = Query(default=0, ge=0),
 ) -> dict[str, Any]:
+    await _require_active_project(db, novel_id)
     owner_id = str(current_account_id())
     items, total = await _service.list_sessions(
         db, novel_id=novel_id, owner_id=owner_id, limit=limit, offset=offset
