@@ -322,6 +322,8 @@ class SettingsService:
             {
                 "owner_id": owner_id,
                 **template,
+                # B5：切换 provider 即切换连接身份，附加模型集合随之重置。
+                "secondary_models": [],
                 "creative_mode": None,
                 "deep_import": None,
             },
@@ -424,6 +426,17 @@ class SettingsService:
         )
         return AccountLLMBalancesResponse(items=list(items))
 
+    async def read_secondary_models(
+        self,
+        db: AsyncSession,
+        owner_id: uuid.UUID,
+    ) -> tuple[str | None, list[str]]:
+        """读取当前连接的 provider 与附加模型（B5 路由只读入口）。"""
+        defaults = await self._llm_repo.get(db, owner_id)
+        if defaults is None:
+            return None, []
+        return defaults.provider_id, list(defaults.secondary_models or [])
+
     async def update_account_secondary_models(
         self,
         db: AsyncSession,
@@ -450,6 +463,8 @@ class SettingsService:
                 cleaned.append(name)
         if len(cleaned) > 4:
             raise ValueError("附加模型最多 4 个")
+        if defaults.model and defaults.model in cleaned:
+            raise ValueError("附加模型不得与主模型同名")
         await self._llm_repo.lock_owner_head(db, owner_id)
         await self._llm_repo.upsert(
             db,

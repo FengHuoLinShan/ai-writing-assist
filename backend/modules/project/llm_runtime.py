@@ -310,6 +310,9 @@ def create_project_snapshot_llm_client(
     client = LLMClient.from_resolved_profile(
         profile, **({"high_quality": True} if high_quality else {})
     )
+    # B5：恢复任务按快照固化的路由配置执行；快照缺 cost_routing 键
+    # （旧任务）时空路由回落主模型。
+    client.cost_routing = dict(project_settings.get("cost_routing") or {})
     bind_runtime_scope = getattr(client, "bind_runtime_scope", None)
     if callable(bind_runtime_scope) and novel_id is not None:
         bind_runtime_scope(

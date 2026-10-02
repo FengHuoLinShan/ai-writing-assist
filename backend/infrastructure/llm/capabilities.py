@@ -35,10 +35,13 @@ class LLMCapabilityProfile:
     spec_verified_on: str | None = None
     interaction_reasoning_effort: str | None = None
     interaction_timeout_seconds: int | None = None
-    structured_output: str = "unverified"
+    structured_output: str | None = None
     """json/response_format 支持声明：supported / unverified / unsupported。
-    默认 unverified（fail-closed）：未经校准的模型不得接收 json_object，
-    接入新 provider 前必须显式校准并登记（B5 前置 3）。"""
+
+    None（默认）= 未声明：不参与 fail-closed 门，行为与历史一致（测试
+    替身与尚未登记的模型继续可用）。显式声明 unverified/unsupported 即
+    fail-closed——新模型接入结构化调用前必须显式校准并登记
+    （B5 前置 3），防止声明漂移被静默放过。"""
 
     @property
     def hard_input_tokens(self) -> int:

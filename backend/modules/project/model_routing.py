@@ -56,7 +56,7 @@ async def build_cost_routing(db: AsyncSession, novel_id: str) -> dict[str, Any]:
     """解析当前生效的路由配置；未启用或无可用模型时返回空路由（回落主模型）。"""
     from sqlalchemy import select as _select
 
-    from modules.account.settings_repositories import GlobalLLMDefaultsRepository
+    from modules.account.facade import read_account_secondary_models
     from modules.project.models import Project
     from modules.project.services import ProjectService
 
@@ -77,14 +77,12 @@ async def build_cost_routing(db: AsyncSession, novel_id: str) -> dict[str, Any]:
     }
     if not enabled:
         return routing
-    defaults = await GlobalLLMDefaultsRepository().get(
-        db, project.owner_id
+    provider_id, secondary = await read_account_secondary_models(
+        db, owner_id=project.owner_id
     )
-    if defaults is None or not defaults.provider_id:
+    if not provider_id:
         return routing
-    candidates = verified_secondary_models(
-        str(defaults.provider_id), list(defaults.secondary_models or [])
-    )
+    candidates = verified_secondary_models(provider_id, secondary)
     if not candidates:
         return routing
     routing.update(

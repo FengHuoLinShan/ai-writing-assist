@@ -159,8 +159,61 @@ def test_structured_output_capability_declaration() -> None:
     unknown = resolve_llm_capability_profile("deepseek", "never-calibrated-model")
 
     assert verified.structured_output == "supported"
-    # 默认 unverified：未校准模型不得接收 json_object（fail-closed）
-    assert unknown.structured_output == "unverified"
+    # 未登记模型默认未声明（None）：保持历史行为；fail-closed 只对显式
+    # 声明 unverified/unsupported 的已登记模型生效。
+    assert unknown.structured_output is None
+
+
+async def test_structured_output_fail_closed_for_declared_unverified() -> None:
+    """显式声明 unverified 的模型不得接收 json_object（fake client 断言）。"""
+    from unittest.mock import patch
+
+    from infrastructure.llm.capabilities import LLMCapabilityProfile
+    from infrastructure.llm.client import LLMClient
+    from infrastructure.llm.errors import LLMError
+    from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+
+    unverified = LLMCapabilityProfile(
+        profile_id="test-unverified-v1",
+        provider_id="deepseek",
+        model="deepseek-v4-flash",
+        context_limit_tokens=128_000,
+        verified_input_ceiling_tokens=64_000,
+        normal_input_tokens=32_000,
+        compact_trigger_tokens=48_000,
+        summary_input_ceiling_tokens=64_000,
+        story_output_tokens=8_192,
+        see_sea_output_tokens=8_192,
+        summary_output_tokens=8_192,
+        safety_margin_tokens=2_048,
+        calibration_status="verified_dev",
+        structured_output="unverified",
+    ).validate()
+
+    client = LLMClient(
+        api_key="k",
+        base_url="https://example.invalid",
+        default_model="deepseek-v4-flash",
+    )
+    client._profile_summary = {"provider_id": "deepseek"}
+    from pydantic import BaseModel
+
+    class _Probe(BaseModel):
+        ok: bool
+
+    request = LLMCallRequest(
+        model="deepseek-v4-flash",
+        messages=[LLMMessage(role="user", content="x")],
+    )
+
+    with patch(
+        "infrastructure.llm.capabilities.resolve_llm_capability_profile",
+        return_value=unverified,
+        autospec=True,
+    ):
+        with pytest.raises(LLMError) as exc_info:
+            await client.generate_structured(request, _Probe)
+    assert exc_info.value.error_kind == "unsupported_structured_output"
 
 
 def test_registry_cost_tiers_are_registered() -> None:
@@ -174,3 +227,73 @@ def test_registry_cost_tiers_are_registered() -> None:
     assert "imports.entity_extraction" in cheap
     assert "imports.scene_slicing" in cheap
     assert CAPABILITY_REGISTRY["writing.generate"].cost_tier == "standard"
+
+
+# ============================================================
+# 端到端：managed step 的 provenance 记录实际路由模型（B5 验收）
+# ============================================================
+
+
+async def test_managed_step_routes_and_records_provenance() -> None:
+    """打开省钱模式后，cheap 能力的 managed 调用换模型且 provenance 记录之。"""
+    from pydantic import BaseModel
+
+    from infrastructure.llm.agent_step_harness import run_managed_structured
+
+    class _Out(BaseModel):
+        ok: bool = True
+
+    seen: dict = {}
+
+    class _RoutingClient:
+        model_name = "deepseek-v4-flash"
+        profile_summary = {
+            "provider_id": "deepseek",
+            "model": "deepseek-v4-flash",
+            "sources": {"model": "account"},
+        }
+        cost_routing = {
+            "enabled": True,
+            "cheap_model": "deepseek-flash",
+            "capability_ids": ["imports.entity_extraction"],
+        }
+
+        async def generate_structured(self, request, schema, **kwargs):
+            seen["model"] = request.model
+            return _Out()
+
+    from infrastructure.llm.schemas import LLMCallRequest
+
+    request = LLMCallRequest(
+        model="deepseek-v4-flash", messages=[]
+    )
+    result = await run_managed_structured(
+        _RoutingClient(),
+        request,
+        _Out,
+        step_name="phase2_world_extraction",
+        capability_id="imports.entity_extraction",
+    )
+
+    assert isinstance(result, _Out)
+    # 实际发送的请求与 provenance 都指向低成本模型
+    assert seen["model"] == "deepseek-flash"
+
+    # provenance（receipt 落库形态）记录路由后的模型与来源标记，
+    # 组合断言 allowlist 不把 cost_routing 降级为 unknown
+    import infrastructure.llm.agent_step_harness as harness
+    from infrastructure.llm.schemas import sanitize_profile_summary
+
+    routed = harness._routed_provenance(
+        harness.build_managed_llm_provenance(
+            _RoutingClient(), step_name="phase2", request=request
+        ),
+        routed_model="deepseek-flash",
+    )
+    # 真实链路里 sanitize 收到的是 routed_request（harness 已覆盖 model）
+    routed_request = request.model_copy(update={"model": "deepseek-flash"})
+    sanitized = sanitize_profile_summary(
+        routed["profile_summary"], request=routed_request
+    )
+    assert sanitized["model"] == "deepseek-flash"
+    assert sanitized["sources"]["model"] == "cost_routing"

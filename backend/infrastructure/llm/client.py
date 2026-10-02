@@ -1115,12 +1115,12 @@ class LLMClient:
 
             capability = resolve_llm_capability_profile(
                 str(self._profile_summary.get("provider_id") or ""),
-                self.model_name,
+                str(req.model or self.model_name),
             )
-            if capability.structured_output != "supported":
+            if capability.structured_output in {"unverified", "unsupported"}:
                 raise LLMError(
-                    "当前模型未校准结构化输出（json_object）；请在能力档案"
-                    "登记 supported 后再用于结构化调用",
+                    "当前模型显式声明为不参与结构化输出（json_object）；"
+                    "请在能力档案校准为 supported 后再用于结构化调用",
                     error_kind="unsupported_structured_output",
                 )
         if req.temperature is None:

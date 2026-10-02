@@ -1,7 +1,7 @@
 {
   "schema_version": "scale-gate-baselines-v1",
   "calibrated_at": "2026-10-02",
-  "note": "首轮定标 2026-10-02（专用 PG 库 darwin arm64）：low 以 e2e 测试环境定标（295，含 base scene 夹具），mid/high 以 harness 直跑定标。三档 compiled tokens 同量级（编译输入由预算封顶，不随章节数无界增长——growth_ratio=1.0，对报告 §12.5「单章续写输入成本随章节长度增长」推断的证伪证据）；耗时上限按实测约 3-10 倍设。token 容差 1.5 倍；定标命令见 tools/scale_gate_harness.py docstring。",
+  "note": "首轮定标 2026-10-02（专用 PG 库 darwin arm64）：low 以 e2e 测试环境定标（295，含 base scene 夹具），mid/high 以 harness 直跑定标。token 为确定性量（1.5 倍容差）；耗时只设绝对上限防退化爆炸。",
   "tolerance": 1.5,
   "tiers": {
     "low": {
@@ -9,7 +9,7 @@
       "max_compiled_tokens": 295,
       "compile_seconds_cap": 5.0,
       "growth_ratio_expected": "flat",
-      "growth_note": "编译输入由预算封顶：无 RAG 索引时 compiled tokens 不随章节位置增长（growth_ratio=1.0，对报告 §12.5「单章续写输入成本随章节长度增长」推断的证伪证据）。"
+      "growth_note": "测量边界：本轮基线在无 RAG 索引条件下采集，compiled tokens 只含任务/项目骨架，不含 prior prose 与检索证据；growth_ratio=1.0 表明编译器本体成本不随章节位置增长，但不能外推为「带索引的续写输入成本不增长」（报告 §12.5 的完整证实/证伪需要带 RAG 索引的定标，列为后续项）。"
     },
     "mid": {
       "chapters": 66,
