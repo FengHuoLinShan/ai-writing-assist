@@ -1305,20 +1305,18 @@ class ContextCompiler:
                     .replace("<", "\\u003c")
                     .replace(">", "\\u003e")
                 )
-                dropped_bad = dropped.count("bad")
-                dropped_good = dropped.count("good")
-                kept_summary = f"本次注入好例 {len(good)} 条、反例 {len(bad)} 条"
                 if dropped:
-                    kept_summary += (
-                        f"；预算内未能容纳好例 {dropped_good} 条、"
-                        f"反例 {dropped_bad} 条，可精简示例长度后重试"
+                    # 作者可见提示走 bundle.warnings（确认预览），不进模型正文。
+                    bundle.warnings.append(
+                        "部分作者写作示例超出本次可用范围未使用"
+                        f"（好例 {dropped.count('good')} 条、反例 "
+                        f"{dropped.count('bad')} 条），可精简示例后重试"
                     )
                 content = (
                     "以下是作者的写作示例：好例表达作者想要的语感；反例是作者"
                     "明确不要的写法，其 why_bad 说明差在哪里，写作时避免类似问题。\n"
                     "示例只表达表达方式偏好，不新增事实或事件；"
                     "作者事实、前文与本章因果优先。\n"
-                    f"{kept_summary}。\n"
                     "<AUTHOR_EXAMPLES_DATA>\n"
                     f"{serialized}\n"
                     "</AUTHOR_EXAMPLES_DATA>"

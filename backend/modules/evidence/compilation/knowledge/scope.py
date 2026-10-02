@@ -176,35 +176,37 @@ def build_scope_receipt(
         """元数据字段上界：账本条目体积必须有界（B8 验收）。"""
         return text if len(text) <= limit else text[: limit - 1] + "…"
 
-    def _bounded_token_groups(groups: dict[str, dict]) -> tuple[dict, ...]:
+    def _bounded_token_groups(
+        source_key: str, groups: dict[str, dict]
+    ) -> tuple[dict, ...]:
         """token_groups 数量上界：病态上下文不让单源账目无限膨胀。
 
-        保留 token 数最大的前 32 组，其余折成一条 __overflow__ 记录
-        （token_count 为被折叠组的非共享合计）；不影响 entry_tokens 的
-        全量复算口径，也不进指纹。
+        共享组（shared）按 key 跨来源去重复算，必须原样保留；只折叠本源
+        独占组：保留 token 数最大的前 32 组，其余折成一条按来源区分 key 的
+        overflow 记录（token_count 为被折叠组合计）。不影响 entry_tokens
+        的全量复算口径，也不进指纹。
         """
-        if len(groups) <= _MAX_TOKEN_GROUPS_PER_SOURCE:
+        own = [group for group in groups.values() if not group.get("shared")]
+        if len(own) <= _MAX_TOKEN_GROUPS_PER_SOURCE:
             return tuple(groups.values())
+        shared = [group for group in groups.values() if group.get("shared")]
         ordered = sorted(
-            groups.values(),
+            own,
             key=lambda group: (
                 -int(group.get("token_count") or 0),
                 str(group.get("key") or ""),
             ),
         )
         dropped = ordered[_MAX_TOKEN_GROUPS_PER_SOURCE:]
+        states = {str(group.get("state") or "included") for group in dropped}
         overflow = {
-            "key": "__overflow__",
-            "token_count": sum(
-                int(group.get("token_count") or 0)
-                for group in dropped
-                if not group.get("shared")
-            ),
-            "shared": any(group.get("shared") for group in dropped),
-            "state": "included",
+            "key": f"__overflow__:{source_key}",
+            "token_count": sum(int(group.get("token_count") or 0) for group in dropped),
+            "shared": False,
+            "state": states.pop() if len(states) == 1 else "mixed",
             "dropped_group_count": len(dropped),
         }
-        return (*ordered[:_MAX_TOKEN_GROUPS_PER_SOURCE], overflow)
+        return (*shared, *ordered[:_MAX_TOKEN_GROUPS_PER_SOURCE], overflow)
 
     def _absorb(
         source: Mapping[str, Any],
@@ -370,7 +372,9 @@ def build_scope_receipt(
             state=entry_state.get(entry.source_key, ("included", ""))[0],
             state_reason=entry_state.get(entry.source_key, ("included", ""))[1],
             hash_basis="content" if entry_content[entry.source_key] else entry.hash_basis,
-            token_groups=_bounded_token_groups(entry_groups[entry.source_key]),
+            token_groups=_bounded_token_groups(
+                entry.source_key, entry_groups[entry.source_key]
+            ),
         )
         for entry in sorted(entries.values(), key=lambda e: e.source_key)
     )

@@ -28,10 +28,20 @@ class InteractionStreamFramer:
         self.metadata_invalid_reason = ""
         """无效原因：incomplete_tail（流中断/尾块未闭合或超限）
         或 parse_failed（尾块完整但 JSON/schema 校验失败）。"""
+        self._invalid_persisted = False
 
     @property
     def metadata_invalid(self) -> bool:
         return self.metadata_invalid_count > 0
+
+    @property
+    def metadata_invalid_unpersisted(self) -> bool:
+        """尚未由调用方落账的无效标记；失败路径据此避免与最终 checkpoint 重复计数。"""
+        return self.metadata_invalid and not self._invalid_persisted
+
+    def mark_metadata_invalid_persisted(self) -> None:
+        """调用方已提交携带本次无效标记的 checkpoint。"""
+        self._invalid_persisted = True
 
     def _record_invalid(self, reason: str) -> None:
         if self._invalid_recorded:

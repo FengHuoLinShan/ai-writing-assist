@@ -319,6 +319,72 @@ async def test_story_handler_checkpoints_by_size_and_flushes_tail(
     assert client.transport_retries == [False]
 
 
+@pytest.mark.parametrize(
+    "checkpoint_fails,expected_fail_flag",
+    [
+        # 最终 checkpoint 已提交无效计数，之后审查抛错：失败路径不得再计一次
+        (False, False),
+        # 最终 checkpoint 自身失败（未落账）：失败路径负责计数
+        (True, True),
+    ],
+)
+async def test_story_handler_reports_invalid_tail_once(
+    checkpoint_fails: bool, expected_fail_flag: bool
+) -> None:
+    prepared = PreparedStoryGeneration(
+        novel_id=str(uuid.uuid4()),
+        journey_id=str(uuid.uuid4()),
+        attempt_id=str(uuid.uuid4()),
+        request_kind="message",
+        messages=[LLMMessage(role="user", content="继续")],
+        executable_settings={
+            "llm": {"provider_id": "deepseek", "model": "deepseek-v4-flash"}
+        },
+        existing_visible_text="",
+    )
+    client = _StreamingClient("\n<INTERACTION_META_V1>\n{invalid\n</INTERACTION_META_V1>")
+
+    async def checkpoint(_db, **kwargs):
+        if checkpoint_fails and kwargs.get("progress") == 0.95:
+            raise RuntimeError("checkpoint failed")
+        return 0
+
+    with (
+        patch.object(
+            tasks._workflow,
+            "prepare_story_task",
+            autospec=True,
+            return_value=prepared,
+        ),
+        patch.object(
+            tasks._workflow,
+            "checkpoint_story_task",
+            autospec=True,
+            side_effect=checkpoint,
+        ) as checkpoint_mock,
+        patch.object(
+            tasks._workflow,
+            "govern_held_story",
+            autospec=True,
+            side_effect=RuntimeError("review failed"),
+        ),
+        patch.object(tasks._workflow, "fail_story_task", autospec=True) as fail,
+        patch(
+            "modules.interaction.tasks.create_project_snapshot_llm_client",
+            autospec=True,
+            return_value=client,
+        ),
+    ):
+        with pytest.raises(RuntimeError):
+            await tasks.handle_interaction_story_generate(object(), _task())
+
+    final = checkpoint_mock.await_args_list[-1].kwargs
+    assert final["metadata_invalid"] is True
+    assert final["metadata_invalid_reason"] == "parse_failed"
+    fail.assert_awaited_once()
+    assert fail.await_args.kwargs["metadata_invalid"] is expected_fail_flag
+
+
 async def test_story_handler_runs_bounded_summary_passes_before_story() -> None:
     first_summary = _summary_prepared()
     second_summary = _summary_prepared()

@@ -253,12 +253,12 @@ async def test_structured_output_fail_closed_for_declared_unsupported(
 
 @pytest.mark.parametrize("declaration", ["unverified", None])
 @pytest.mark.parametrize("response_format", [None, {"type": "json_object"}])
-async def test_structured_output_unverified_runs_without_provider_json_mode(
+async def test_structured_output_unverified_keeps_provider_json_mode(
     declaration,
     response_format,
 ) -> None:
-    """未校准模型（如 Kimi 模板默认）不失败关闭：剥离 provider json_object，
-    走提示词内嵌 schema 与解析修复链，保证 RP 摘要/导入抽取可用。"""
+    """未校准模型（如 Kimi 模板默认、deepseek-v4-pro）不失败关闭，且保持
+    既有 provider json_object：unverified 只影响 B5 路由候选资格。"""
     from unittest.mock import patch
 
     from infrastructure.llm.capabilities import LLMCapabilityProfile
@@ -314,7 +314,7 @@ async def test_structured_output_unverified_runs_without_provider_json_mode(
 
     assert result.ok is True
     req_used = mock_generate.call_args[0][1]
-    assert req_used.response_format is None
+    assert req_used.response_format == {"type": "json_object"}
     assert any(
         "output schema" in str(message.content)
         for message in req_used.messages
@@ -438,10 +438,10 @@ def test_snapshot_client_uses_frozen_cost_routing() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("response_format", [None, {"type": "json_object"}])
-async def test_structured_format_repair_respects_unverified_json_mode(
+async def test_structured_format_repair_keeps_json_mode_for_unverified(
     response_format,
 ) -> None:
-    """未校准模型走到格式修复链也不盲发 json_object（与主路径同一三态口径）。"""
+    """未校准模型的主尝试与格式修复链都保持 provider json_object。"""
     from unittest.mock import patch
 
     from infrastructure.llm.capabilities import LLMCapabilityProfile
@@ -502,4 +502,4 @@ async def test_structured_format_repair_respects_unverified_json_mode(
     assert result.ok is True
     assert mock_generate.call_count == 2  # 主尝试 + 格式修复各一次
     for call in mock_generate.call_args_list:
-        assert call[0][1].response_format is None
+        assert call[0][1].response_format == {"type": "json_object"}

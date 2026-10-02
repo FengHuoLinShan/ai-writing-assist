@@ -39,10 +39,10 @@ class LLMCapabilityProfile:
     """json/response_format 支持声明：supported / unverified / unsupported。
 
     未登记模型默认 unverified；旧快照的 None 也表示未校准。三态语义：
-    supported 的结构化调用发送 provider json_object；unverified 不发
-    response_format，靠提示词内嵌 schema 与解析修复链约束输出；unsupported
-    一律失败关闭，调用方预填 response_format 不能绕过。B5 路由候选资格的
-    fail-closed 另按 verified 档与 structured_output 判定，不在本字段内。"""
+    supported 与 unverified 的结构化调用保持既有行为（发送 provider
+    json_object，尊重调用方预填）；unsupported 一律失败关闭，调用方预填
+    response_format 不能绕过。unverified 只在 B5 路由候选资格上 fail-closed
+    （modules/project/model_routing.verified_secondary_models）。"""
 
     @property
     def hard_input_tokens(self) -> int:

@@ -353,6 +353,7 @@ async def stream_anonymous_rp_attempt(
                 metadata_invalid=framer.metadata_invalid,
                 metadata_invalid_reason=framer.metadata_invalid_reason,
             )
+            framer.mark_metadata_invalid_persisted()
             governed = await _inline_workflow.govern_held_story(
                 db,
                 task=task,
@@ -434,7 +435,7 @@ async def stream_anonymous_rp_attempt(
                 principal=principal,
                 task=task,
                 error=InteractionClientDisconnectedError(),
-                metadata_invalid=framer.metadata_invalid,
+                metadata_invalid=framer.metadata_invalid_unpersisted,
                 metadata_invalid_reason=framer.metadata_invalid_reason,
             )
         return
@@ -445,7 +446,7 @@ async def stream_anonymous_rp_attempt(
                 principal=principal,
                 task=task,
                 error=InteractionClientDisconnectedError(),
-                metadata_invalid=framer.metadata_invalid,
+                metadata_invalid=framer.metadata_invalid_unpersisted,
                 metadata_invalid_reason=framer.metadata_invalid_reason,
             )
         raise
@@ -456,7 +457,7 @@ async def stream_anonymous_rp_attempt(
                 principal=principal,
                 task=task,
                 error=error,
-                metadata_invalid=framer.metadata_invalid,
+                metadata_invalid=framer.metadata_invalid_unpersisted,
                 metadata_invalid_reason=framer.metadata_invalid_reason,
             )
             if attempt is not None:

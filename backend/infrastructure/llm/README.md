@@ -325,11 +325,10 @@ Kimi/Pi/DSH 通过 0600 任务文件接收正文，避免把作品资料放入�
 ## 结构化输出能力声明与任务级路由（B5）
 
 `capabilities.py` 的 `structured_output` 默认 `unverified`，旧快照中的 `None`
-也视为未校准。三态语义：`supported` 的 `generate_structured` 发送 provider
-`json_object`；`unverified` 剥离 `response_format`（含调用方预填），靠系统提示
-内嵌 schema 与解析修复链约束输出，不因未校准而失败关闭；`unsupported` 在外发前
-失败关闭（`unsupported_structured_output`），预填不能绕过。测试替身如需断言
-json_object 路径须显式声明 `supported`。`agent_step_harness` 的 managed step 按 client 注入的
+也视为未校准。三态语义：`supported` 与 `unverified` 的 `generate_structured`
+保持既有行为，默认发送 provider `json_object` 并尊重调用方预填，格式修复链同样
+发送；`unverified` 只让模型失去 B5 路由候选资格，不影响调用本身；`unsupported`
+在外发前失败关闭（`unsupported_structured_output`），预填不能绕过。`agent_step_harness` 的 managed step 按 client 注入的
 `cost_routing`（`modules/project/model_routing` 决定）在 cheap 能力上覆盖
 `request.model`，provenance 的 `profile_summary.model` 记录实际调用模型、
 `sources.model=cost_routing`。路由能力与信封归属是两个参数：`routing_capability_id`

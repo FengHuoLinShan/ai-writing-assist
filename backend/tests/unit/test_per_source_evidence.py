@@ -345,9 +345,9 @@ def test_token_groups_are_capped_with_overflow_record() -> None:
     entry = receipt.entry("world_entity:ent-many")
     assert entry is not None
     groups = entry.token_groups
-    assert len(groups) == 33  # 32 条 + 1 条 __overflow__
+    assert len(groups) == 33  # 32 条 + 1 条 overflow
     overflow = groups[-1]
-    assert overflow["key"] == "__overflow__"
+    assert overflow["key"] == "__overflow__:world_entity:ent-many"
     assert overflow["dropped_group_count"] == 8
     # 保留下的是 token 数最大的 32 组
     kept_tokens = sorted(g["token_count"] for g in groups[:-1])
@@ -356,3 +356,44 @@ def test_token_groups_are_capped_with_overflow_record() -> None:
     assert entry.token_count == sum(
         g["token_count"] for g in groups[:-1] if not g["shared"]
     ) + overflow["token_count"]
+
+
+def test_token_group_overflow_keeps_shared_groups_and_is_source_scoped() -> None:
+    """多来源各自溢出时 overflow 不按 key 互相合并；共享组不被折叠，
+    跨来源按 key 去重复算仍能找回它。"""
+    sources = {
+        name: {"type": "world_entity", "id": name, "content_hash": f"h-{name}"}
+        for name in ("a", "b")
+    }
+    own = _section(
+        "world_entities",
+        items=[
+            _item(f"{name}-{index:03d}", token_count=10 + index, source=dict(src))
+            for name, src in sources.items()
+            for index in range(40)
+        ],
+    )
+    shared = ContextSection(
+        key="working_pages",
+        tier=Tier.P3,
+        content="indivisible",
+        token_count=7,
+        sources=[dict(src) for src in sources.values()],
+    )
+    receipt = _build(own, shared)
+
+    groups_by_source = {
+        name: receipt.entry(f"world_entity:{name}").token_groups for name in sources
+    }
+    for name, groups in groups_by_source.items():
+        assert sum(1 for g in groups if g["shared"]) == 1
+        overflow = [g for g in groups if g["key"].startswith("__overflow__")]
+        assert [g["key"] for g in overflow] == [f"__overflow__:world_entity:{name}"]
+        assert overflow[0]["dropped_group_count"] == 8
+
+    # 跨来源按 key 去重复算：两条 overflow 各自保留，共享块只计一次
+    deduped = {
+        g["key"]: g for groups in groups_by_source.values() for g in groups
+    }
+    own_total = sum(10 + index for index in range(40)) * 2
+    assert sum(g["token_count"] for g in deduped.values()) == own_total + 7

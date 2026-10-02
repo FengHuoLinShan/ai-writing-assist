@@ -238,14 +238,19 @@ async def test_loader_filters_examples_by_capability(
 # ============================================================
 
 
-def _compile_author_examples_section(examples: list[dict]):
+def _compile_author_examples(examples: list[dict]):
     compiler = ContextCompiler()
     bundle = _bundle("novel-x")
     bundle.author_examples = {"version": 3, "examples": examples}
     sections = compiler._build_sections(
         bundle, _options("novel-x", consumer_action="writing.generate")
     )
-    return next(section for section in sections if section.key == "author_examples")
+    section = next(section for section in sections if section.key == "author_examples")
+    return section, bundle
+
+
+def _compile_author_examples_section(examples: list[dict]):
+    return _compile_author_examples(examples)[0]
 
 
 def test_section_wraps_examples_in_escaped_json_fence() -> None:
@@ -266,7 +271,7 @@ def test_section_wraps_examples_in_escaped_json_fence() -> None:
 def test_section_truncates_bad_examples_before_good() -> None:
     good_content = "句。" * 1000  # 好例 2000 字符（schema 满额，约 3000 token）
     long_content = "啰。" * 1000  # 反例 2000 字符，与好例合计超预算
-    section = _compile_author_examples_section(
+    section, bundle = _compile_author_examples(
         [
             _example(content=good_content, example_id="g1"),
             _example(kind="bad", content=long_content, note="太啰嗦", example_id="b1"),
@@ -276,9 +281,13 @@ def test_section_truncates_bad_examples_before_good() -> None:
     metadata = section.retrieval_metadata or {}
     assert metadata.get("truncated") is True
     assert "bad" in (metadata.get("dropped_kinds") or [])
-    # 部分丢弃对作者可见：标题与正文都说明保留情况
+    # 部分丢弃对作者可见（标题与确认预览警告），作者提示不进模型正文
     assert "部分超出预算未注入" in section.title
-    assert "未能容纳" in section.content
+    assert any(
+        "好例 0 条、反例 1 条" in warning and "可精简示例" in warning
+        for warning in bundle.warnings
+    )
+    assert "可精简示例" not in section.content
     import json as _json
 
     fenced = (

@@ -312,6 +312,7 @@ async def handle_interaction_story_generate(db, task):
             usage=final_usage,
             progress=0.95,
         )
+        framer.mark_metadata_invalid_persisted()
         pending_visible = ""
         # ADR-0025 held release：审查通过前正文留在私有 hold，不写 visible_text。
         governed = await _workflow.govern_held_story(
@@ -346,7 +347,7 @@ async def handle_interaction_story_generate(db, task):
             task=task,
             error=exc,
             visible_delta=pending_visible + trailing,
-            metadata_invalid=framer.metadata_invalid,
+            metadata_invalid=framer.metadata_invalid_unpersisted,
             metadata_invalid_reason=framer.metadata_invalid_reason,
         )
         raise

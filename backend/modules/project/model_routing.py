@@ -36,8 +36,8 @@ def verified_secondary_models(provider_id: str, models: list[str] | None) -> lis
     档案把已登记模型标注为 verified_dev / historical_evidence_tuning 等
     实测口径，未登记模型一律落 unknown_fallback / legacy_fallback 的
     24K 保守档——fallback 档即 fail-closed 信号。cheap 能力全部是结构化
-    抽取任务，路由目标还必须声明 ``structured_output="supported"``，
-    否则抽取调用会被门禁拒绝或退化为无 json mode 的提示词模式。
+    抽取任务，路由目标还必须声明 ``structured_output="supported"``：
+    未校准模型可以作主模型照常调用，但不被自动选为省钱路由目标。
     """
     from infrastructure.llm.capabilities import resolve_llm_capability_profile
 

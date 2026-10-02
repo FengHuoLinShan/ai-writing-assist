@@ -1057,17 +1057,6 @@ class LLMClient:
         await _settle_pending_ai_run_requests(pending, usage=result.usage)
         return result
 
-    def _structured_json_mode_supported(self, request: LLMCallRequest) -> bool:
-        """三态口径的共享判定：只有声明 supported 的模型才发 provider
-        json_object；unverified/None 不盲发。主路径与格式修复链共用。"""
-        from infrastructure.llm.capabilities import resolve_llm_capability_profile
-
-        capability = resolve_llm_capability_profile(
-            str(self._profile_summary.get("provider_id") or ""),
-            str(request.model or self.model_name),
-        )
-        return (capability.structured_output or "unverified") == "supported"
-
     async def generate_structured(
         self,
         request: LLMCallRequest,
@@ -1123,19 +1112,16 @@ class LLMClient:
             str(self._profile_summary.get("provider_id") or ""),
             str(req.model or self.model_name),
         )
-        declaration = capability.structured_output or "unverified"
-        if declaration == "unsupported":
+        if capability.structured_output == "unsupported":
             # 显式声明不支持：失败关闭，调用方预填 response_format 不能绕过。
             raise LLMError(
                 "当前模型已声明不支持结构化输出；请更换已校准的模型",
                 error_kind="unsupported_structured_output",
             )
-        if declaration == "unverified":
-            # 未校准 provider 不盲发 json_object（可能 422）：schema 已内嵌
-            # 系统提示，输出靠解析修复链约束；调用不因未校准而失败关闭。
-            # （B5 路由候选资格的 fail-closed 在 verified_secondary_models。）
-            req.response_format = None
-        elif req.response_format is None:
+        # supported 与 unverified（含旧快照 None）保持既有行为：默认发
+        # json_object，尊重调用方预填。unverified 只影响 B5 路由候选资格
+        # （见 modules/project/model_routing.verified_secondary_models）。
+        if req.response_format is None:
             req.response_format = {"type": "json_object"}
         if req.temperature is None:
             req.temperature = 0.3  # 结构化输出用较低温度
@@ -1373,13 +1359,7 @@ class LLMClient:
         for attempt in range(1, attempts + 1):
             repair_req = request.model_copy(deep=True)
             repair_req.temperature = 0
-            # 与主路径同一三态口径：只有声明 supported 的模型才发
-            # provider json_object，未校准 provider 不盲发（可能 422）。
-            repair_req.response_format = (
-                {"type": "json_object"}
-                if self._structured_json_mode_supported(repair_req)
-                else None
-            )
+            repair_req.response_format = {"type": "json_object"}
             repair_req.messages = [
                 LLMMessage(
                     role="system",
