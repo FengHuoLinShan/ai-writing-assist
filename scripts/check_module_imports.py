@@ -221,6 +221,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     modules = load_business_modules()
+    if not modules:
+        print(
+            "FAIL architecture-documents.toml 未登记任何 business 组件，"
+            "import 门无法工作（fail-closed）",
+            file=sys.stderr,
+        )
+        return 1
     violations = iter_violations(modules, exempt=EXEMPT_IMPORTS)
     if args.json:
         print(json.dumps(violations, ensure_ascii=False, indent=2))
@@ -245,9 +252,10 @@ def main(argv: list[str] | None = None) -> int:
 
 
 # 豁免登记：``文件 glob:导入目标 glob`` → 理由。
-# 2026-10-02 首轮实测裁定：存量 16 条中 8 条属合法形态（命名 facade / ORM
-# _models），其余 8 条为直接引用实现，逐条豁免如下（整改须逐项排期，
-# 新增豁免须同步更新本清单并说明为什么无法走 contracts/facade）。
+# 2026-10-02 首轮实测裁定：存量 16 条不经顶层 contracts/facade 的 import
+# 中 9 条属合法形态（命名 facade / ORM _models），其余 7 条为直接引用
+# 实现，逐条豁免如下（整改须逐项排期，新增豁免须同步更新本清单并说明
+# 为什么无法走 contracts/facade）。
 EXEMPT_IMPORTS: dict[str, str] = {
     # collaboration 合并预览消费 assistant 的对话 projection schema；
     # 待 assistant contracts 扩展该 schema 后迁移。

@@ -6,7 +6,8 @@ import pytest
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.errors import ConflictError, ValidationError as DomainValidationError
+from core.errors import ConflictError
+from core.errors import ValidationError as DomainValidationError
 from modules.evidence.compilation.contracts import CompileOptions, StructureContextBundle
 from modules.evidence.compilation.services.context_compiler import ContextCompiler
 from modules.evidence.compilation.services.loaders.author_examples_loader import (
@@ -72,7 +73,8 @@ def test_author_examples_state_rejects_too_many_good_examples() -> None:
 
 def test_author_examples_state_rejects_too_many_bad_examples() -> None:
     examples = [
-        _example(kind="bad", note="节奏拖沓", example_id=f"bad-example-{i}") for i in range(3)
+        _example(kind="bad", note="节奏拖沓", example_id=f"bad-example-{i}")
+        for i in range(3)
     ]
     with pytest.raises(PydanticValidationError, match="反例最多"):
         AuthorExamplesState.model_validate({"examples": examples})

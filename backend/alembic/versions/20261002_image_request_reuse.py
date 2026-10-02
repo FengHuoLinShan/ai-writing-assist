@@ -59,9 +59,17 @@ def upgrade() -> None:
         ["novel_id", "request_hash"],
         unique=True,
     )
+    op.create_index(
+        "ix_image_request_reuse_novel_id",
+        "image_request_reuse",
+        ["novel_id"],
+    )
 
 
 def downgrade() -> None:
+    op.drop_index(
+        "ix_image_request_reuse_novel_id", table_name="image_request_reuse"
+    )
     op.drop_index(
         "uq_image_request_reuse_novel_hash", table_name="image_request_reuse"
     )

@@ -16,6 +16,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.world.models.image_request_reuse import ImageRequestReuse
@@ -138,6 +139,19 @@ async def record_reusable_asset(
             object_key=object_key,
         )
         db.add(row)
+        try:
+            await db.flush()
+        except IntegrityError:
+            # 并发同参 run 双插入撞唯一索引：转为覆盖既有记录。
+            await db.rollback()
+            row = (
+                await db.execute(
+                    select(ImageRequestReuse).where(
+                        ImageRequestReuse.novel_id == novel_uuid,
+                        ImageRequestReuse.request_hash == request_hash,
+                    )
+                )
+            ).scalar_one()
     row.owner_id = owner_uuid
     row.source_type = source_type
     row.object_key = object_key

@@ -255,7 +255,7 @@ onBeforeUnmount(() => { reset(); resetGeneration() })
           <p v-if="activeCandidate?.status === 'failed'" role="alert">{{ activeCandidate.error || '生成失败，请重试' }}</p>
           <p v-if="activeCandidate?.status === 'cancelled'" role="status">已取消，可重新生成</p>
           <p v-if="generationError" role="alert">{{ generationError }}</p>
-          <button type="button" class="btn btn-primary" :disabled="creating || !prompt.trim()" @click="createCandidate">{{ submitLabel }}</button>
+          <button type="button" class="btn btn-primary" :disabled="creating || !prompt.trim()" @click="createCandidate()">{{ submitLabel }}</button>
         </template>
         <template v-else>
           <p v-if="reusedNotice" role="status" class="entity-image-generation__hint">

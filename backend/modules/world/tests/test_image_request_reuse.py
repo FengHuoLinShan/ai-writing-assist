@@ -7,7 +7,6 @@ import hashlib
 import uuid
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.world.image_request_reuse import (
     compute_request_hash,
@@ -17,10 +16,7 @@ from modules.world.image_request_reuse import (
 )
 from modules.world.models import CoreEntity
 from modules.world.models.image_candidate import WorldObjectImageCandidate
-from modules.world.world_object_image_generation import (
-    WorldObjectImageCandidate,
-    _world_object_request_hash,
-)
+from modules.world.world_object_image_generation import _world_object_request_hash
 
 _PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"
@@ -82,7 +78,9 @@ def _owner() -> str:
 
 
 @pytest.mark.asyncio
-async def test_reuse_hit_and_cross_project_miss(db_session, test_project_id, project_factory) -> None:
+async def test_reuse_hit_and_cross_project_miss(
+    db_session, test_project_id, project_factory
+) -> None:
     other_novel = str(await project_factory.create_project(title="另一本"))
 
     async def validator(row) -> tuple:
@@ -108,8 +106,8 @@ async def test_reuse_hit_and_cross_project_miss(db_session, test_project_id, pro
         validate_asset=validator,
     )
     assert hit is not None
-    assert hit["reuse_count_source"] if "reuse_count_source" in hit else True
     assert hit["object_key"].startswith("map-atlas/")
+    assert hit["asset"] == _PNG
 
     # 跨项目同参数不命中（租户维度在哈希与查询双保险里）
     miss = await find_reusable_asset(
@@ -249,9 +247,8 @@ async def test_force_invalidate_and_record_overwrite(db_session, test_project_id
 async def test_world_object_candidate_reuses_and_force_refreshes(
     async_client, db_session, test_project_id, test_character_id, monkeypatch
 ) -> None:
-    from modules.local_agent.facade import AgentExecutor
-
     from modules.account.facade import current_account_id
+    from modules.local_agent.facade import AgentExecutor
 
     owner = str(current_account_id())
 
@@ -384,3 +381,192 @@ def _map_atlas_hash(run, page, owner: str) -> str:
     from modules.world.map_atlas_workflow import _page_request_hash
 
     return _page_request_hash(run, page, owner_id=owner, provider="openai")
+
+
+# ============================================================
+# 地图册付费路径：命中复用零外部调用；regenerate 绕过并重新登记（P1-6）
+# ============================================================
+
+
+@pytest.mark.asyncio
+async def test_map_atlas_page_reuses_without_provider_call(
+    db_session, test_project_id, monkeypatch
+) -> None:
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from infrastructure.llm.image_client import GeneratedImage
+    from infrastructure.tasks.models import AsyncTask
+    from modules.world.map_atlas_models import MapAtlasNode, MapAtlasPage, MapAtlasRun
+    from modules.world.map_atlas_storage import MapAtlasStorage, validate_png
+    from modules.world.map_atlas_workflow import _generate_page, _page_request_hash
+    from modules.world.tests.test_map_atlas import OPAQUE_PNG
+
+    novel_uuid = uuid.UUID(test_project_id)
+    task = AsyncTask(
+        task_type="map_atlas_generate",
+        novel_id=novel_uuid,
+        status="running",
+        attempt=1,
+        lease_id=str(uuid.uuid4()),
+        recovery_policy="manual_resume",
+        meta={},
+    )
+    db_session.add(task)
+    await db_session.flush()
+    run = MapAtlasRun(
+        novel_id=novel_uuid,
+        task_id=task.id,
+        run_kind="initial",
+        status="generating",
+        layout="portrait",
+        quality="standard",
+    )
+    db_session.add(run)
+    await db_session.flush()
+    task.meta = {"novel_id": test_project_id, "run_id": str(run.id)}
+    node = MapAtlasNode(
+        novel_id=novel_uuid,
+        created_by_run_id=run.id,
+        semantic_key="world",
+        title="世界",
+        level="world",
+    )
+    db_session.add(node)
+    await db_session.flush()
+    page = MapAtlasPage(
+        novel_id=novel_uuid,
+        run_id=run.id,
+        node_id=node.id,
+        generation_status="prepared",
+        title="世界",
+        visual_brief="世界地图",
+        prompt="no text",
+        source_geometry_hash="geom-1",
+    )
+    db_session.add(page)
+    await db_session.commit()
+
+    objects: dict[str, bytes] = {}
+    storage = MagicMock(spec=MapAtlasStorage)
+
+    async def get_if_exists(key: str) -> bytes | None:
+        return objects.get(key)
+
+    async def put_png(key: str, payload: bytes):
+        objects[key] = payload
+        return validate_png(payload)
+
+    storage.get_png_if_exists = AsyncMock(side_effect=get_if_exists)
+    storage.put_png = AsyncMock(side_effect=put_png)
+    storage.delete_object = AsyncMock(side_effect=lambda key: objects.pop(key, None))
+
+    # 预置复用登记：旧对象已存在且校验信息一致。
+    from modules.account.facade import current_account_id
+
+    owner = str(current_account_id())
+    legacy_key = (
+        f"map-atlas/{novel_uuid}/pages/{uuid.uuid4()}/attempts/legacy-1/image.png"
+    )
+    objects[legacy_key] = OPAQUE_PNG
+    legacy_meta = validate_png(OPAQUE_PNG)
+    request_hash = _page_request_hash(run, page, owner_id=owner, provider="openai")
+    await record_reusable_asset(
+        db_session,
+        novel_id=test_project_id,
+        owner_id=owner,
+        request_hash=request_hash,
+        source_type="map_atlas",
+        object_key=legacy_key,
+        asset_sha256=legacy_meta.sha256,
+        byte_size=len(OPAQUE_PNG),
+        width=legacy_meta.width,
+        height=legacy_meta.height,
+    )
+    await db_session.commit()
+
+    image_client = SimpleNamespace(
+        generate=AsyncMock(return_value=GeneratedImage(OPAQUE_PNG, "request-1")),
+        edit=AsyncMock(return_value=GeneratedImage(OPAQUE_PNG, "request-1")),
+    )
+
+    @asynccontextmanager
+    async def image_client_context(*_args, **_kwargs):
+        yield image_client
+
+    with (
+        patch(
+            "modules.world.map_atlas_workflow.MapAtlasStorage",
+            autospec=True,
+            return_value=storage,
+        ),
+        patch(
+            "modules.world.map_atlas_workflow.open_project_image_client",
+            autospec=True,
+        ) as open_client,
+    ):
+        open_client.side_effect = image_client_context
+        assert await _generate_page(db_session, task, run, page)
+
+    await db_session.refresh(page)
+    assert page.generation_status == "review_ready"
+    # 付费路径验收：同参数第二次请求的外部调用计数为 0。
+    assert image_client.generate.await_count == 0
+    assert image_client.edit.await_count == 0
+    assert (page.evidence or {}).get("image_reuse", {}).get("reused") is True
+    assert page.sha256 == legacy_meta.sha256
+    assert page.object_key != legacy_key  # 复制到本页 attempt key
+    assert page.object_key in objects
+
+    # regenerate（派生页、无修改要求）绕过复用：真实调用 provider 并重新登记。
+    derived = MapAtlasPage(
+        novel_id=novel_uuid,
+        run_id=run.id,
+        node_id=node.id,
+        derived_from_page_id=page.id,
+        generation_status="prepared",
+        title="世界",
+        visual_brief="世界地图",
+        prompt="no text",
+        source_geometry_hash="geom-1",
+    )
+    db_session.add(derived)
+    run.task_id = task.id
+    await db_session.commit()
+
+    second_task = AsyncTask(
+        task_type="map_atlas_generate",
+        novel_id=novel_uuid,
+        status="running",
+        attempt=2,
+        lease_id=str(uuid.uuid4()),
+        recovery_policy="manual_resume",
+        meta={"novel_id": test_project_id, "run_id": str(run.id)},
+    )
+    db_session.add(second_task)
+    await db_session.flush()
+    derived.run_id = run.id
+    run.task_id = second_task.id
+    await db_session.commit()
+
+    with (
+        patch(
+            "modules.world.map_atlas_workflow.MapAtlasStorage",
+            autospec=True,
+            return_value=storage,
+        ),
+        patch(
+            "modules.world.map_atlas_workflow.open_project_image_client",
+            autospec=True,
+        ) as open_client2,
+    ):
+        open_client2.side_effect = image_client_context
+        assert await _generate_page(db_session, second_task, run, derived)
+
+    await db_session.refresh(derived)
+    assert derived.generation_status == "review_ready"
+    # 派生页（regenerate）有 derived_from_page_id，走 edit 调用路径。
+    assert image_client.edit.await_count == 1
+    assert image_client.generate.await_count == 0
+    assert not (derived.evidence or {}).get("image_reuse", {}).get("reused")

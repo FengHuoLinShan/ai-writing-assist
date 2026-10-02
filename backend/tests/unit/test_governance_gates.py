@@ -16,7 +16,6 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 import check_binary_growth  # noqa: E402
 import check_file_sizes  # noqa: E402
 
-
 # ============================================================
 # B11 二进制增量体积门
 # ============================================================

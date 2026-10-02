@@ -596,6 +596,11 @@ async def _reuse_world_object_candidate(
     )
     db.add(candidate)
     await db.flush()
+    # 复用副本与真实生成一样受 retention 收敛，避免 review_ready 无界累积。
+    await WorldObjectImageGenerationService()._retain_newest_review_ready(
+        db, novel_id=novel_id, entity_id=source.entity_id
+    )
+    await db.flush()
     return candidate
 
 

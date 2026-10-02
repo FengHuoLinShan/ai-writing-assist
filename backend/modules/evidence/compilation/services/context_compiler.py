@@ -1248,7 +1248,10 @@ class ContextCompiler:
                 # 与实际发射 payload 相同的投影（content/note），不含脚手架文本。
                 payload_probe = {
                     "good": [
-                        {"content": item.get("content") or "", "note": item.get("note") or ""}
+                        {
+                            "content": item.get("content") or "",
+                            "note": item.get("note") or "",
+                        }
                         for item in good
                     ],
                     "bad": [

@@ -192,7 +192,7 @@ def build_scope_receipt(
                 source_type=str(source.get("type") or "source"),
                 source_id=str(source.get("id") or key.split(":", 1)[1]),
                 content_hash=content_hash,
-                label=str(source.get("label") or ""),
+                label=_bounded(str(source.get("label") or "")),
                 hash_basis=hash_basis,
             )
             entry_dimensions[key] = set()

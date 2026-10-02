@@ -69,7 +69,8 @@ def changed_paths(base: str, head: str) -> list[tuple[str, str]]:
     return [
         (status, path)
         for status, path in entries
-        if status in {"A", "M", "R", "C"}
+        # T（类型变更，如 symlink → 大文件）按修改处理，不得逃逸。
+        if status in {"A", "M", "R", "C", "T"}
     ]
 
 
@@ -114,7 +115,7 @@ def collect_binary_changes(
         if not binary_probe(path):
             continue
         new_size = (REPO_ROOT / path).stat().st_size
-        old_size = sizer(base, path) if status in {"M", "R"} else 0
+        old_size = sizer(base, path) if status in {"M", "R", "T"} else 0
         delta = max(0, new_size - (old_size or 0))
         changes.append(
             BinaryChange(

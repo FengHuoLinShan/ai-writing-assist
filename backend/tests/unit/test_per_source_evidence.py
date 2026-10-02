@@ -9,16 +9,15 @@ from modules.evidence.compilation.knowledge.contracts import (
     KnowledgeSourceEntry,
     KnowledgeSubject,
 )
+from modules.evidence.compilation.knowledge.policies import (
+    CapabilityKnowledgePolicy,
+)
 from modules.evidence.compilation.knowledge.scope import build_scope_receipt
 from modules.evidence.compilation.services.compiled_context import (
     CompiledContext,
     ContextItem,
     ContextSection,
     Tier,
-)
-from modules.evidence.compilation.knowledge.policies import (
-    CapabilityKnowledgePolicy,
-    DOMAIN_WRITING,
 )
 
 
@@ -60,7 +59,8 @@ def _item(
         key=key,
         content=f"content-of-{key}",
         token_count=token_count,
-        source=source or {"type": "world_entity", "id": key, "content_hash": f"hash-{key}"},
+        source=source
+        or {"type": "world_entity", "id": key, "content_hash": f"hash-{key}"},
         selection_state=selection_state,
         omission_reason=omission_reason,
     )
@@ -84,7 +84,12 @@ def test_receipt_records_per_source_tokens_and_states() -> None:
             "world_entities",
             items=[
                 _item("ent-a", token_count=120),
-                _item("ent-b", token_count=80, selection_state="omitted", omission_reason="超过预算"),
+                _item(
+                    "ent-b",
+                    token_count=80,
+                    selection_state="omitted",
+                    omission_reason="超过预算",
+                ),
             ],
         )
     )
@@ -156,7 +161,11 @@ def test_hash_basis_content_and_identity() -> None:
                 _item("ent-with-hash"),  # source 带 content_hash
                 _item(
                     "ent-identity",
-                    source={"type": "world_entity", "id": "ent-identity", "label": "只有身份"},
+                    source={
+                        "type": "world_entity",
+                        "id": "ent-identity",
+                        "label": "只有身份",
+                    },
                 ),
             ],
         )
@@ -244,7 +253,11 @@ def test_source_entry_metadata_size_is_bounded() -> None:
                         "x",
                         selection_state="omitted",
                         omission_reason="超长原因" * 100,
-                        source={"type": "world_entity", "id": "x", "content_hash": "h" * 64},
+                        source={
+                            "type": "world_entity",
+                            "id": "x",
+                            "content_hash": "h" * 64,
+                        },
                     )
                 ],
             )

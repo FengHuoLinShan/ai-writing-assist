@@ -34,6 +34,12 @@ from modules.project.facade import (
     require_active_project,
     restore_project_llm_execution_settings,
 )
+from modules.world.image_request_reuse import (
+    compute_request_hash,
+    find_reusable_asset,
+    invalidate_reusable_asset,
+    record_reusable_asset,
+)
 from modules.world.map_atlas_models import (
     MapAtlasAnnotation,
     MapAtlasNode,
@@ -52,12 +58,6 @@ from modules.world.map_atlas_storage import (
     page_object_key,
     require_owned_page_object_key,
     validate_png,
-)
-from modules.world.image_request_reuse import (
-    compute_request_hash,
-    find_reusable_asset,
-    invalidate_reusable_asset,
-    record_reusable_asset,
 )
 from modules.world.models import CoreEntity
 from shared.constants import TASK_MAX_HEARTBEAT_GAP
@@ -1935,6 +1935,8 @@ async def _page_reuse_asset_validator(
         key = require_page_object_key(row.object_key)
     except ValueError:
         return None
+    if key.split("/")[1] != str(row.novel_id):
+        return None
     payload = await storage.get_png_if_exists(key)
     if payload is None or (row.byte_size and len(payload) != row.byte_size):
         return None
@@ -1954,6 +1956,7 @@ async def _try_reuse_page_image(
     *,
     owner_id: str,
     request_hash: str,
+    provider_hint: str = "",
 ) -> bool:
     """同参数命中时复用既有资产，不调 provider；复制到本页 attempt key。"""
     context = await get_project_context(db, str(run.novel_id))
@@ -1985,42 +1988,71 @@ async def _try_reuse_page_image(
             object_key=key,
             error_code=None,
             error_message=None,
+            # 复用不产生任何 provider 调用；provider/model 与正常路径同口径
+            # 写入，避免崩溃恢复把零成本复用页误判成「可能重复扣费」。
+            provider=provider_hint or page.provider,
+            model=page.model,
         )
     )
     if claimed.rowcount != 1:
         raise asyncio.CancelledError
     await db.commit()
-    metadata = await storage.put_png(key, reused["asset"])
-    locked = (
-        await db.execute(
-            select(MapAtlasPage)
-            .where(
-                MapAtlasPage.novel_id == run.novel_id,
-                MapAtlasPage.id == page.id,
-                MapAtlasPage.generation_status == "provider_in_flight",
+    uploaded_durable = False
+    try:
+        metadata = await storage.put_png(key, reused["asset"])
+        locked = (
+            await db.execute(
+                select(MapAtlasPage)
+                .where(
+                    MapAtlasPage.novel_id == run.novel_id,
+                    MapAtlasPage.id == page.id,
+                    MapAtlasPage.generation_status == "provider_in_flight",
+                )
+                .with_for_update()
             )
-            .with_for_update()
+        ).scalar_one_or_none()
+        if locked is None:
+            raise asyncio.CancelledError
+        locked.sha256 = metadata.sha256
+        locked.media_type = "image/png"
+        locked.width = metadata.width
+        locked.height = metadata.height
+        locked.byte_size = metadata.byte_size
+        locked.generation_status = "review_ready"
+        evidence = dict(locked.evidence or {})
+        evidence["image_reuse"] = {
+            "reused": True,
+            "message": (
+                "使用了相同设置的已有图片，未再次调用生成服务；"
+                "可在该页选择重新生成获取新图。"
+            ),
+            "request_hash": request_hash,
+            "created_from_id": reused.get("created_from_id"),
+        }
+        locked.evidence = evidence
+        run.completed_page_count += 1
+        await db.commit()
+        uploaded_durable = True
+        return True
+    except asyncio.CancelledError:
+        await db.rollback()
+        if not uploaded_durable:
+            await _compensate_uploaded_object(db, storage, key)
+        raise
+    except BaseException:
+        # 复用零成本失败（存储复制失败等）不能被打成可能扣费。
+        await db.rollback()
+        if not uploaded_durable:
+            await _compensate_uploaded_object(db, storage, key)
+        await _mark_page_failure(
+            db,
+            task,
+            page.id,
+            code="image_storage_failed",
+            message="复用已有图片时存储失败，请重试",
+            possible_charge=False,
         )
-    ).scalar_one_or_none()
-    if locked is None:
-        raise asyncio.CancelledError
-    locked.sha256 = metadata.sha256
-    locked.media_type = "image/png"
-    locked.width = metadata.width
-    locked.height = metadata.height
-    locked.byte_size = metadata.byte_size
-    locked.generation_status = "review_ready"
-    evidence = dict(locked.evidence or {})
-    evidence["image_reuse"] = {
-        "reused": True,
-        "message": "使用了相同设置的已有图片，未再次调用生成服务；可在该页选择重新生成获取新图。",
-        "request_hash": request_hash,
-        "created_from_id": reused.get("created_from_id"),
-    }
-    locked.evidence = evidence
-    run.completed_page_count += 1
-    await db.commit()
-    return True
+        return False
 
 
 async def _generate_page(db, task, run: MapAtlasRun, page: MapAtlasPage) -> bool:
@@ -2056,8 +2088,12 @@ async def _generate_page(db, task, run: MapAtlasRun, page: MapAtlasPage) -> bool
         context = await get_project_context(db, str(run.novel_id))
         reuse_owner = str(context.owner_id) if context else ""
         provider_hint = "local-cli" if _is_local_image_run(run) else page.provider
-        request_hash = _page_request_hash(run, page, owner_id=reuse_owner, provider=provider_hint)
-        force_refresh = page.derived_from_page_id is not None and not page.edit_instruction
+        request_hash = _page_request_hash(
+            run, page, owner_id=reuse_owner, provider=provider_hint
+        )
+        force_refresh = (
+            page.derived_from_page_id is not None and not page.edit_instruction
+        )
         if force_refresh:
             await invalidate_reusable_asset(
                 db, novel_id=str(run.novel_id), request_hash=request_hash
@@ -2070,6 +2106,7 @@ async def _generate_page(db, task, run: MapAtlasRun, page: MapAtlasPage) -> bool
             storage,
             owner_id=reuse_owner,
             request_hash=request_hash,
+            provider_hint=provider_hint,
         ):
             return True
         if is_local:

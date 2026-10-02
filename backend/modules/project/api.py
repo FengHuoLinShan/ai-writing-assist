@@ -14,8 +14,8 @@ from pydantic import BaseModel
 from core.csrf import require_xhr_request
 from core.dependencies import DbSession
 from modules.project.ai_usage import get_project_ai_usage
-from modules.project.author_task_service import AuthorTaskService
 from modules.project.author_examples import AuthorExamplesUpdate
+from modules.project.author_task_service import AuthorTaskService
 from modules.project.editorial_brief import EditorialBriefUpdate
 from modules.project.facade import (
     read_editorial_brief,
