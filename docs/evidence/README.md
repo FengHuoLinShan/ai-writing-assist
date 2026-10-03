@@ -14,7 +14,7 @@ schema 合法、关联 commit 在 main 可达、数据集 sha256 一致、超期
 ## 边界
 
 - 证据必须写明 `claims_boundary`（证明什么、不证明什么），防止证据本身变成过度宣称。
-- 付费真实模型运行的原始请求/输出留在仓库外私有目录（见 `backend/docs/testing-guide.md`）；
+- 付费真实模型运行的原始请求/输出留在仓库外私有目录（见根目录 `testing-guide.md`）；
   本目录只提交去原文的账本快照与结论。
 - 单文件受二进制/体积门约束（`make binary-growth-gate`）。
 

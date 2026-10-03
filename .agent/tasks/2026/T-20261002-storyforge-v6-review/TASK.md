@@ -27,7 +27,7 @@ updated: 2026-10-03T00:00:00+09:00
 
 ## 上下文与边界
 
-- 主要方案：`out/storyforge-改进方案.md`，v6。
+- 主要方案：`docs/plans/storyforge-v6/改进方案.md`，v6。
 - 主要规范：AGENTS.md、适用局部 AGENTS.md、development-guide.md、testing-guide.md、模块 README。
 - 用户授权：2026-10-02 前轮 review，当前明确“全部修复”；实现由主 Agent 完成，必要的独立收尾审查按 code-review 技能仅只读委派。
 - 真实数据库、用户稿件与既有任务记录受保护；验证只使用离线替身、SQLite 临时 fixture 或明确隔离环境。
@@ -96,7 +96,7 @@ updated: 2026-10-03T00:00:00+09:00
 ## 下一步与交付边界
 
 - 前轮审查完成；当前已授权全部修复，尚未提交、推送、合并或部署。
-- 完成报告校正：`out/storyforge-改进方案.md`、`out/storyforge-调研报告.md` 实际已经在 f4303b536 提交；“保持未跟踪未提交”不属实。无关 MCP 任务记录确实在差异内，本轮未改它们。
+- 完成报告校正：`docs/plans/storyforge-v6/改进方案.md`、`docs/plans/storyforge-v6/调研报告.md`（原 `out/` 路径）实际已经在 f4303b536 提交；“保持未跟踪未提交”不属实。无关 MCP 任务记录已迁移到 wrm 工作树的任务目录，不再出现在本分支差异内。
 - B1 CI 接线、示例确认/转义链和静态门等已有实现和离线证据，但“方案全部完成”不成立。
 - 两轴最严重项：规范轴 S1 边界门漏拦；方案与运行时轴 F1 错对象复用及 F3 调用方状态回滚。
 
@@ -176,3 +176,11 @@ updated: 2026-10-03T00:00:00+09:00
 - **build_cost_routing 消重复查询**：`_resolve_project_runtime_profile` 改返回 4 元组（附 context），`build_cost_routing` 增可选 `project_context` 预载参数，`open_project_llm_client` 与执行快照复用同一 context（顺带消除快照内 interaction 分支的重复 get_project_context）；省略参数时行为不变。
 - 验证：定向 66 + project 模块 152 + harness/tasks 184 passed；改动文件 `ruff check` 全过、我方新增行 ruff format 干净（两文件 HEAD 既有行本就非 format-clean，未顺手重排）；未跑全量与 PG critical。
 - 四项勿回退契约未触碰；`.agent/TASKS.md` 与 `T-20261002-world-relational-management/` 属另一任务，未 stage。
+
+## 收尾轮 2026-10-03
+
+- 改进方案/调研报告由顶层 `out/` 迁至 `docs/plans/storyforge-v6/`（修复文档放置违规）。
+- evidence README 死链改指根 `testing-guide.md`；testing-guide CI 段补 `repo-gates` 工作流（B11/P8/B6/B2）。
+- 复核 repo-gates.yml 已有 `fetch-depth: 0`，B6 CI 风险不成立；B11“52 孤儿 png”复核为误报（52 个全部被引用）。
+- `@pytest.mark.asyncio` 与基线一致保留（world 目录既有 631 处，asyncio_mode=auto 下属全仓风格，不属本分支缺陷）。
+- 无关 MCP 任务记录迁回 wrm 工作树，本分支差异不再包含。

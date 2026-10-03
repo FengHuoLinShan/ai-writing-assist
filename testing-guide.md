@@ -190,6 +190,9 @@ GitHub Actions 在 pull request 与 `main` push 上并行运行三个职责清�
 `Backend CI` 包含 `Backend quality` 与 `PostgreSQL critical`，`Frontend CI` 包含
 `Frontend unit quality` 与 `Frontend functional browser`，`Production Image CI` 包含
 `Production image contract`。
+仓库治理门由独立的 `repo-gates` 工作流始终运行：二进制增长门（B11）、生产文件
+大小门（P8）、发布证据门（B6，校验 `docs/evidence/` 账本与 main 可达性）以及
+跨模块导入门（B2，`scripts/check_module_imports.py`）。
 每个质量 job checkout 完整历史后运行 `scripts/classify_ci_changes.py`。PR 比较事件中的
 base/head 完整 SHA，删除和重命名前后路径都参与分类；读取失败直接阻断。main 始终全量。
 PR 多类变更取并集：
