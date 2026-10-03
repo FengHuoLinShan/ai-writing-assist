@@ -63,11 +63,14 @@ async def find_reusable_asset(
     """命中且资产校验通过时返回复用信息；损坏即删记录按未命中。"""
     row = (
         await db.execute(
-            select(ImageRequestReuse).where(
+            select(ImageRequestReuse)
+            .where(
                 ImageRequestReuse.novel_id == UUID(str(novel_id)),
                 ImageRequestReuse.request_hash == request_hash,
                 ImageRequestReuse.owner_id == UUID(str(owner_id)),
             )
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
     if row is None:
@@ -110,6 +113,7 @@ async def record_reusable_asset(
     provider: str = "",
     model: str = "",
     asset_sha256: str | None = None,
+    asset_data: bytes | None = None,
     byte_size: int | None = None,
     width: int | None = None,
     height: int | None = None,
@@ -120,11 +124,14 @@ async def record_reusable_asset(
     owner_uuid = UUID(str(owner_id))
     row = (
         await db.execute(
-            select(ImageRequestReuse).where(
+            select(ImageRequestReuse)
+            .where(
                 ImageRequestReuse.novel_id == novel_uuid,
                 ImageRequestReuse.owner_id == owner_uuid,
                 ImageRequestReuse.request_hash == request_hash,
             )
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
     if row is None:
@@ -143,11 +150,14 @@ async def record_reusable_asset(
             # 只撤回本次插入，保留调用方已写入的图片与完成状态。
             row = (
                 await db.execute(
-                    select(ImageRequestReuse).where(
+                    select(ImageRequestReuse)
+                    .where(
                         ImageRequestReuse.novel_id == novel_uuid,
                         ImageRequestReuse.owner_id == owner_uuid,
                         ImageRequestReuse.request_hash == request_hash,
                     )
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
                 )
             ).scalar_one_or_none()
             if row is None:
@@ -158,6 +168,7 @@ async def record_reusable_asset(
     row.provider = provider
     row.model = model
     row.asset_sha256 = asset_sha256
+    row.asset_data = asset_data
     row.byte_size = byte_size
     row.width = width
     row.height = height
