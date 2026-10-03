@@ -35,6 +35,7 @@ class GlobalLLMDefaultsResponse(BaseModel):
     label: str | None = None
     base_url: str | None = None
     model: str | None = None
+    secondary_models: list[str] | None = None
     timeout: int | None = None
     max_tokens: int | None = None
     temperature: float | None = None
@@ -42,6 +43,13 @@ class GlobalLLMDefaultsResponse(BaseModel):
     extra: dict[str, Any] | None = None
     creative_mode: str | None = None
     deep_import: dict[str, Any] | None = None  # 本期永远 None（D9）
+
+
+class SecondaryModelsUpdate(BaseModel):
+    """附加模型更新（B5 路由候选；连接身份入口）。"""
+
+    model_config = {"extra": "forbid"}
+    models: list[str] = Field(default_factory=list, max_length=4)
 
 
 class GlobalAuthorPrefsUpdate(BaseModel):

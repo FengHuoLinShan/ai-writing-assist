@@ -175,3 +175,25 @@ NOWAIT 保证已持领域锁的入口不会等待项目锁升级；并发作者�
 保留安排、刻意留白和排除资料。`GET/PUT /api/projects/{id}/editorial-brief` 提供读取和
 `expected_version` 冲突保存；每次 Assistant 编辑任务冻结版本。单次意见忽略不会自动形成
 长期偏好；公开只读演示源拒绝写入。
+「编辑约定也用于 AI 写作」是独立开关（`settings.editorial_brief_for_writing_v1`，默认
+关闭）：`GET/PUT /api/projects/{id}/editorial-brief/for-writing` 读写，两者都返回原始开关
+`enabled` 与有效态 `effective`（开关开启且约定非空）。开启后约定作为
+`editorial_brief` section 在编译期进入 chapter/scene scope 的确认预览与指纹，仅对
+`writing.generate` 的作者视角（author_safe/author_full）加载，读者/角色视角与其他
+消费动作不注入；文风只决定表达方式、不新增事实或事件。
+
+`GET /api/projects/{id}/ai-usage?days=` 是 owner 次级诊断入口：扫描窗口期任务
+`_ai_run_envelope` 私有键，按能力聚合模型请求与输入/输出词元，不暴露 prompt 内容或模型
+密钥；单次扫描上限 500 条任务，截断时返回 `scan_truncated`。
+
+
+### 作者写作示例与省钱模式（2026-10）
+
+项目设置新增两块：作者写作示例（好例/反例 few-shot，`author-examples`
+端点族，仅影响正文生成）与省钱模式开关（`llm-cost-saving`，抽取类任务在
+同连接内改用低成本附加模型）。二者均存 `Project.settings`，默认关闭。
+
+任务级省钱路由从 owner/active context 读取非 secret 设置，支持作者及隐藏 RP
+项目；不以作者专用查询拒绝 RP，新旅程快照默认关闭仍可创建，跨账户依旧失败关闭。
+路由候选的 provider 必须与实际 client/快照一致，非当前 provider 的快照不使用
+当前连接的附加模型；并发切换后不混用服务商与模型。

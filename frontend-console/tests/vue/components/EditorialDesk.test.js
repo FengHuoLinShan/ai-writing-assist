@@ -36,6 +36,8 @@ beforeEach(() => {
     projects: {
       editorialBrief: vi.fn(async () => BRIEF),
       saveEditorialBrief: vi.fn(async (_projectId, body) => ({ version: 2, brief: body.brief })),
+      editorialBriefForWriting: vi.fn(async () => ({ enabled: false, brief: null })),
+      setEditorialBriefForWriting: vi.fn(async (_projectId, enabled) => ({ enabled })),
     },
     assistant: {
       editorialPolicy: vi.fn(async () => POLICY),
@@ -91,5 +93,65 @@ describe("EditorialDesk saveBrief", () => {
 
     expect(confirmMock).not.toHaveBeenCalled()
     expect(apiMock.projects.saveEditorialBrief).toHaveBeenCalled()
+  })
+})
+
+describe("EditorialDesk 写作开关", () => {
+  function writingToggleInput(wrapper) {
+    return wrapper.get(".editorial-desk__writing-toggle input[type='checkbox']")
+  }
+
+  it("首次开启且约定有内容时，不误报约定还是空的", async () => {
+    apiMock.projects.setEditorialBriefForWriting.mockResolvedValue({
+      enabled: true,
+      effective: true,
+    })
+    const wrapper = await mountDesk()
+
+    await writingToggleInput(wrapper).setValue(true)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain("已开启：这份约定将进入 AI 正文建议与续写的参考资料确认。")
+    expect(wrapper.text()).not.toContain("开关已开启，但编辑约定还是空的")
+  })
+
+  it("开启但约定为空时明确提示需要先保存约定", async () => {
+    apiMock.projects.setEditorialBriefForWriting.mockResolvedValue({
+      enabled: true,
+      effective: false,
+    })
+    const wrapper = await mountDesk()
+
+    await writingToggleInput(wrapper).setValue(true)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain("已开启，但编辑约定还是空的")
+    expect(wrapper.text()).toContain("开关已开启，但编辑约定还是空的")
+  })
+
+  it("切换项目后迟到的开关回包不写入当前项目状态", async () => {
+    let resolveToggle
+    apiMock.projects.setEditorialBriefForWriting.mockImplementation(
+      () => new Promise((resolve) => { resolveToggle = resolve })
+    )
+    const wrapper = await mountDesk()
+
+    await writingToggleInput(wrapper).setValue(true)
+    await wrapper.setProps({ projectId: "p2" })
+    resolveToggle({ enabled: true, effective: true })
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain("已开启：这份约定将进入")
+    expect(writingToggleInput(wrapper).element.checked).toBe(false)
+    // 迟到回包仍要解除处理中，新项目的开关不能一直不可点
+    expect(writingToggleInput(wrapper).element.disabled).toBe(false)
+  })
+
+  it("说明角色视角建议不使用编辑约定", async () => {
+    const wrapper = await mountDesk()
+
+    expect(wrapper.get(".editorial-desk__writing-toggle").text()).toContain(
+      "「AI 角色视角建议」不使用它"
+    )
   })
 })

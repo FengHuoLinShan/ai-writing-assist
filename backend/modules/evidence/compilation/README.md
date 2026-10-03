@@ -57,6 +57,9 @@ async def compile_structure_context(...) -> StructureContextBundle
 async def compile_with_tiers(...) -> CompiledContext
 async def compile_interaction_story_context(...) -> InteractionStoryContextContract
 async def render_compiled_context_markdown(...) -> str
+# render_compiled_context(ctx) 在 section 标题下按资料性质标注事实等级
+# （事实/计划/规划/派生；只改渲染不改 content，不影响确认指纹），
+# 并在有预算裁剪时于末尾追加裁剪记录（budget_events/evicted/truncated 派生的数据块）
 async def compile_generation_background(...) -> dict
 async def confirm_context(...) -> ContextConfirmationContract
 async def get_context_confirmation(...) -> ContextConfirmationContract
@@ -695,3 +698,14 @@ Evidence 为 Collaboration 收集授权的冻结资源集合，manifest 同时�
 编辑台调用 `compile_review_world_evidence` 时传入 `assistant.editorial` 能力，继续经现有
 `compile_with_tiers`、逐项 inspect 与排除门禁形成有上限的作者世界资料包；产物包含实际
 引用和 omission。Assistant 另验正文/资料版本，不把这个只读包当正式审稿或采用确认。
+
+
+## 逐源证据与预算状态（B8）
+
+scope 构建按 ContextItem 级 token 与 section 级 evicted/truncated 状态填充
+来源条目的 `token_count/state/state_reason`，包括 omitted_items；无原生 hash
+时按实际 item 正文计算 content hash。不可分整块的 `ContextItem.sources` 保留
+全部来源，账本 `token_groups` 明示 shared，按 key 去重复算；共享计数不摊派到
+每个来源的独立 token_count。原生 hash 不可得且正文确实未关联才退化为 identity。
+元数据字段 200 字符上界。作者写作示例（B3）作为 `author_examples` section
+（P3、转义 JSON fence、1500 token 截断先反例后好例）进入确认预览与指纹。

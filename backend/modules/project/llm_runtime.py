@@ -26,6 +26,7 @@ from infrastructure.llm.profiles import LLM_API_KEY_FIELD, resolve_llm_profile
 from infrastructure.stable_hash import stable_hash as _stable_hash
 from modules.account.facade import resolve_account_llm_runtime_profile
 from modules.project.contracts import ProjectLLMConfigurationError
+from modules.project.model_routing import build_cost_routing
 from modules.project.services import ProjectService
 from shared.deep_import_settings import (
     DEEP_IMPORT_FROZEN_SETTINGS_KEY,
@@ -44,7 +45,13 @@ async def _resolve_project_runtime_profile(
     novel_id: str,
     *,
     provider_id: str | None = None,
-) -> tuple[dict[str, Any], Any, dict[str, str]]:
+) -> tuple[dict[str, Any], Any, dict[str, str], Any]:
+    """Resolve the account-materialized runtime profile for one project.
+
+    返回 ``(materialized, profile, sources, context)``；``context`` 是本次
+    已加载的 ProjectContext，供调用方复用（如 B5 路由解析），避免对同一
+    行重复查询。
+    """
     context = await _service.get_project_context(
         db,
         novel_id,
@@ -81,7 +88,7 @@ async def _resolve_project_runtime_profile(
             LLM_API_KEY_FIELD,
         )
     }
-    return materialized, replace(profile, sources=sources), sources
+    return materialized, replace(profile, sources=sources), sources, context
 
 
 async def build_project_llm_execution_snapshot(
@@ -100,7 +107,12 @@ async def build_project_llm_execution_snapshot(
     the current project key may rotate without exposing or persisting it here.
     """
 
-    materialized, profile, sources = await _resolve_project_runtime_profile(
+    (
+        materialized,
+        profile,
+        sources,
+        project_context,
+    ) = await _resolve_project_runtime_profile(
         db,
         novel_id,
         provider_id=provider_id,
@@ -135,9 +147,14 @@ async def build_project_llm_execution_snapshot(
             materialized,
             inherited_llm_max_tokens=profile.max_tokens,
         ),
+        # B5：路由配置随快照固化（项目省钱开关 × 账户 verified 附加模型 ×
+        # cheap 能力集），恢复任务按快照执行，不随账户当前配置漂移。
+        "cost_routing": await build_cost_routing(
+            db, novel_id, project_context=project_context, provider_id=profile.provider_id
+        ),
     }
     if get_settings().interaction_agent_enabled or interaction_ensemble:
-        context = await _service.get_project_context(db, novel_id, project_kind=None)
+        context = project_context
         if context is not None and context.project_kind == "interaction":
             from infrastructure.llm.web_search import search_snapshot
 
@@ -210,6 +227,7 @@ async def restore_project_llm_execution_settings(
         materialized,
         current_profile,
         _current_sources,
+        _current_context,
     ) = await _resolve_project_runtime_profile(
         db,
         novel_id,
@@ -260,6 +278,7 @@ async def restore_project_llm_execution_settings(
         "llm": restored_llm,
         "_agent_runtime": deepcopy(snapshot.get("agent_runtime")),
         "deep_import": deepcopy(snapshot.get("deep_import") or {}),
+        "cost_routing": deepcopy(snapshot.get("cost_routing") or {}),
         DEEP_IMPORT_FROZEN_SETTINGS_KEY: True,
         _RUNTIME_SOURCES_KEY: dict(sources),
         "_llm_execution_profile_hash": expected_hash,
@@ -309,6 +328,9 @@ def create_project_snapshot_llm_client(
     client = LLMClient.from_resolved_profile(
         profile, **({"high_quality": True} if high_quality else {})
     )
+    # B5：恢复任务按快照固化的路由配置执行；快照缺 cost_routing 键
+    # （旧任务）时空路由回落主模型。
+    client.cost_routing = dict(project_settings.get("cost_routing") or {})
     bind_runtime_scope = getattr(client, "bind_runtime_scope", None)
     if callable(bind_runtime_scope) and novel_id is not None:
         bind_runtime_scope(
@@ -364,7 +386,12 @@ async def open_project_llm_client(
             f"{MAX_LLM_TIMEOUT_OVERRIDE_SECONDS} seconds"
         )
 
-    _materialized, profile, sources = await _resolve_project_runtime_profile(
+    (
+        _materialized,
+        profile,
+        sources,
+        project_context,
+    ) = await _resolve_project_runtime_profile(
         db,
         novel_id,
     )
@@ -386,6 +413,11 @@ async def open_project_llm_client(
         profile = replace(profile, timeout=max(profile.timeout, 900))
     client = LLMClient.from_resolved_profile(
         profile, **({"high_quality": True} if high_quality else {})
+    )
+    # B5：把生效的路由配置交给 client，由 managed step harness 按能力成本档
+    # 覆盖 request.model；未启用时为空路由（永远回落主模型）。
+    client.cost_routing = await build_cost_routing(
+        db, novel_id, project_context=project_context, provider_id=profile.provider_id
     )
     bind_runtime_scope = getattr(client, "bind_runtime_scope", None)
     if callable(bind_runtime_scope):

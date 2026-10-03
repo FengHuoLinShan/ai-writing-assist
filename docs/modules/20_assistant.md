@@ -145,3 +145,6 @@ Assistant 的 `/editorial/*` 持有 `assistant_editorial_reviews`、`assistant_e
 失败以便续跑。显式保存会让审读失效的约定、设定、大纲或发布审读中的章节前，前端提示并
 请作者确认；自动保存不拦截，写作页只就地提示。原创内容评测样本及量表见
 `backend/evals/datasets/editorial/README.md`；独立人工标注前不得宣称强提醒精确率达标。
+
+本机任务批准使用 Assistant facade 的 owner/novel_id/task_id 窄入口，由
+Assistant service 持行锁更新 checkpoint，禁止外域直接写 AssistantRun。

@@ -150,6 +150,31 @@ class StoryOutlineService:
         await db.flush()
         return self._response(revision, current_revision_id=revision.id)
 
+    async def clear_head_if_revision(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        revision_id: uuid.UUID,
+    ) -> bool:
+        """Clear the head pointer only while it still references ``revision_id``.
+
+        The revision itself stays in history; ``get_current`` keeps returning an
+        empty response while the project has no current revision.
+        """
+        nid = uuid.UUID(novel_id)
+        existing = await self.repository.get_head(db, nid)
+        if existing is None or existing.current_revision_id != revision_id:
+            return False
+        head = await self.repository.lock_or_create_head(db, nid)
+        if head.current_revision_id != revision_id:
+            return False
+        head.current_revision_id = None
+        await db.flush()
+        from modules.story.outline_state.repositories import _notify_structure_change
+
+        await _notify_structure_change(db, head, "story_outline")
+        return True
+
     async def apply_revision(
         self,
         db: AsyncSession,

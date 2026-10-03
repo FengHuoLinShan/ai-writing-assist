@@ -482,6 +482,16 @@ class WritingSemanticReviewFindingDraft(BaseModel):
     preserve: list[str] = Field(default_factory=list, max_length=20)
 
 
+class WritingSemanticReviewContractItemJudgement(BaseModel):
+    """Scene must_happen 条目的逐项三态判定（模型原始输出，服务端归一化后签署）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(..., min_length=1, max_length=200)
+    status: Literal["met", "unmet", "unknown"]
+    excerpt: str | None = Field(None, max_length=500)
+
+
 class WritingSemanticReviewCoverageItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -494,6 +504,10 @@ class WritingSemanticReviewCoverageItem(BaseModel):
     identity_relation: Literal["checked", "not_applicable", "not_checked"]
     ability_world_rule: Literal["checked", "not_applicable", "not_checked"]
     knowledge_boundary: Literal["checked", "not_applicable", "not_checked"]
+    contract_items: list[WritingSemanticReviewContractItemJudgement] = Field(
+        default_factory=list,
+        max_length=200,
+    )
 
 
 class WritingSemanticReviewChunkOutput(BaseModel):
@@ -532,9 +546,27 @@ class WritingTargetedRevisionRequest(BaseModel):
     novel_id: str
     draft_id: str
     review_task_id: str
-    finding_ids: list[str] = Field(..., min_length=1, max_length=50)
+    finding_ids: list[str] = Field(
+        default_factory=list,
+        max_length=50,
+        description="要修复的审查问题 id；与 contract_item_ids 至少提供一项。",
+    )
+    contract_item_ids: list[str] = Field(
+        default_factory=list,
+        max_length=200,
+        description=(
+            "作者显式纳入定向返修的待核实合同条目 id；"
+            "纳入不等于确认是错误，返修时附带边界声明。"
+        ),
+    )
     instruction: str | None = Field(None, max_length=4000)
     operation_id: uuid.UUID | None = None
+
+    @model_validator(mode="after")
+    def require_revision_targets(self) -> WritingTargetedRevisionRequest:
+        if not self.finding_ids and not self.contract_item_ids:
+            raise ValueError("finding_ids 与 contract_item_ids 至少提供一项")
+        return self
 
     @field_validator("draft_id", "review_task_id")
     @classmethod
@@ -547,6 +579,14 @@ class WritingTargetedRevisionRequest(BaseModel):
         normalized = [value.strip() for value in values if value.strip()]
         if len(normalized) != len(values) or len(set(normalized)) != len(normalized):
             raise ValueError("finding_ids must be non-empty and unique")
+        return normalized
+
+    @field_validator("contract_item_ids")
+    @classmethod
+    def validate_contract_item_ids(cls, values: list[str]) -> list[str]:
+        normalized = [value.strip() for value in values if value.strip()]
+        if len(normalized) != len(values) or len(set(normalized)) != len(normalized):
+            raise ValueError("contract_item_ids must be non-empty and unique")
         return normalized
 
 

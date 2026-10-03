@@ -18,6 +18,9 @@ from modules.writing.schemas import (
 from modules.writing.semantic_review import (
     WritingSemanticWorkflowService,
     _apply_targeted_revision_patches,
+    _excerpt_uniquely_locates,
+    _freeze_scene_contract_items,
+    _normalize_contract_items,
     _review_set_fingerprint,
     _targeted_revision_ranges,
     validate_candidate_upstream,
@@ -959,3 +962,471 @@ async def test_targeted_revision_requires_and_reuses_review_context(
     assert provenance["pov_validation"]["status"] == "passed"
     assert provenance["independent_review"] is None
     assert materialize.await_count == 2
+
+
+# ============================================================
+# A2: Scene 合同逐项审查（must_happen 条目三态判定）
+# ============================================================
+
+
+def _bundle(scene_id: str, must_happen: str) -> dict:
+    return {"scene": {"id": scene_id, "must_happen": must_happen}}
+
+
+class TestSceneContractItemFreeze:
+    def test_splits_must_happen_into_stable_ids(self) -> None:
+        items = _freeze_scene_contract_items(
+            _bundle("s1", "发现线索；揭穿谎言，逃出仓库\n拿到钥匙")
+        )
+        assert [item["id"] for item in items] == [
+            "scene:s1:must:1",
+            "scene:s1:must:2",
+            "scene:s1:must:3",
+            "scene:s1:must:4",
+        ]
+        assert [item["text"] for item in items] == [
+            "发现线索",
+            "揭穿谎言",
+            "逃出仓库",
+            "拿到钥匙",
+        ]
+        assert all(len(item["text_hash"]) == 64 for item in items)
+
+    def test_empty_bundle_or_field_yields_no_items(self) -> None:
+        assert _freeze_scene_contract_items(None) == []
+        assert _freeze_scene_contract_items(_bundle("s1", "")) == []
+        assert _freeze_scene_contract_items({"scene": {}}) == []
+
+
+class TestExcerptUniquelyLocates:
+    def test_verbatim_unique_and_quoted_unique(self) -> None:
+        content = "他推门而入。风声很大。他推门而入过吗？"
+        assert _excerpt_uniquely_locates("他推门而入。", content)
+        assert _excerpt_uniquely_locates("“他推门而入。”", content)
+        assert not _excerpt_uniquely_locates("他推门而入", content)  # 出现两次
+        assert not _excerpt_uniquely_locates("", content)
+        assert not _excerpt_uniquely_locates("不存在的句子", content)
+
+
+class TestNormalizeContractItems:
+    @staticmethod
+    def _frozen() -> list[dict]:
+        return _freeze_scene_contract_items(_bundle("s1", "发现线索；揭穿谎言"))
+
+    def _normalize(self, model_items, content="他终于发现线索。随后揭穿了谎言。"):
+        return _normalize_contract_items(
+            frozen_items=self._frozen(),
+            model_items=model_items,
+            content=content,
+        )
+
+    def test_met_with_unique_excerpt_passes(self) -> None:
+        normalized, notes = self._normalize(
+            [
+                {
+                    "id": "scene:s1:must:1",
+                    "status": "met",
+                    "excerpt": "发现线索",
+                },
+                {
+                    "id": "scene:s1:must:2",
+                    "status": "met",
+                    "excerpt": "“揭穿了谎言。”",
+                },
+            ]
+        )
+        assert [item["status"] for item in normalized] == ["met", "met"]
+        assert notes == []
+        # 剥引号分支:excerpt 被归一为实际命中的去引号文本,可直接在正文唯一定位
+        assert normalized[1]["excerpt"] == "揭穿了谎言。"
+        assert "他终于发现线索。随后揭穿了谎言。".count(normalized[1]["excerpt"]) == 1
+
+    def test_missing_duplicate_and_bad_excerpt_downgrade_to_unknown(self) -> None:
+        # 条目 1 缺失；条目 2 重复
+        normalized, notes = self._normalize(
+            [
+                {
+                    "id": "scene:s1:must:2",
+                    "status": "met",
+                    "excerpt": "揭穿了谎言",
+                },
+                {
+                    "id": "scene:s1:must:2",
+                    "status": "met",
+                    "excerpt": "揭穿了谎言",
+                },
+            ]
+        )
+        assert normalized[0]["status"] == "unknown"
+        assert normalized[1]["status"] == "unknown"
+        assert any("重复" in note for note in notes)
+
+        # excerpt 不能唯一定位 → unknown
+        normalized, _ = self._normalize(
+            [
+                {
+                    "id": "scene:s1:must:1",
+                    "status": "met",
+                    "excerpt": "线索",
+                }
+            ],
+            content="线索出现了。线索又出现了。",
+        )
+        assert normalized[0]["status"] == "unknown"
+        assert normalized[0]["excerpt"] is None
+
+        # met 无 excerpt → unknown
+        normalized, _ = self._normalize(
+            [{"id": "scene:s1:must:1", "status": "met", "excerpt": None}]
+        )
+        assert normalized[0]["status"] == "unknown"
+
+    def test_unknown_id_discarded_and_unmet_without_excerpt_downgraded(self) -> None:
+        normalized, notes = self._normalize(
+            [
+                {"id": "scene:s1:must:9", "status": "met", "excerpt": "发现线索"},
+                {
+                    "id": "scene:s1:must:1",
+                    "status": "met",
+                    "excerpt": "发现线索",
+                },
+                {"id": "scene:s1:must:2", "status": "unmet", "excerpt": None},
+            ]
+        )
+        assert any("未知条目" in note for note in notes)
+        # unmet 无位置与 met 无位置对称：无法定位就按待核实处理，
+        # 不允许"确定未落实"比"无法核实"放行更松。
+        assert [item["status"] for item in normalized] == ["met", "unknown"]
+        assert normalized[1]["excerpt"] is None
+
+    def test_unmet_with_unique_excerpt_kept(self) -> None:
+        normalized, _ = self._normalize(
+            [{"id": "scene:s1:must:2", "status": "unmet", "excerpt": "揭穿了谎言。"}]
+        )
+        assert normalized[1]["status"] == "unmet"
+        assert normalized[1]["excerpt"] == "揭穿了谎言。"
+
+    def test_normalized_items_carry_text_and_hash(self) -> None:
+        normalized, _ = self._normalize([])
+        assert normalized[0]["text"] == "发现线索"
+        assert len(normalized[0]["text_hash"]) == 64
+
+
+def test_targeted_revision_request_accepts_contract_item_ids_only() -> None:
+    request = WritingTargetedRevisionRequest(
+        novel_id="00000000-0000-0000-0000-000000000001",
+        draft_id="00000000-0000-0000-0000-000000000002",
+        review_task_id="00000000-0000-0000-0000-000000000003",
+        finding_ids=[],
+        contract_item_ids=["scene:s1:must:1"],
+    )
+    assert request.contract_item_ids == ["scene:s1:must:1"]
+
+    with pytest.raises(ValueError, match="至少提供一项"):
+        WritingTargetedRevisionRequest(
+            novel_id="00000000-0000-0000-0000-000000000001",
+            draft_id="00000000-0000-0000-0000-000000000002",
+            review_task_id="00000000-0000-0000-0000-000000000003",
+            finding_ids=[],
+            contract_item_ids=[],
+        )
+
+
+# ============================================================
+# A2: 合同条目三态 → scene_contract 签名 → 审查结论 → 采用门禁
+# ============================================================
+
+
+class _ContractReviewClient(_RevisionClient):
+    """coverage 携带合同条目判定的审查客户端。"""
+
+    def __init__(self, contract_items_by_draft: dict[str, list[dict]]) -> None:
+        super().__init__()
+        self._contract_items_by_draft = contract_items_by_draft
+
+    async def generate_structured(self, request, schema, **_kwargs):
+        self.requests.append(request)
+        payload = json.loads(request.messages[-1].content)
+        return schema.model_validate(
+            {
+                "findings": [],
+                "not_checked": [],
+                "coverage": [
+                    {
+                        "draft_id": item["draft_id"],
+                        "scene_contract": "checked",
+                        "timeline_location": "checked",
+                        "identity_relation": "checked",
+                        "ability_world_rule": "checked",
+                        "knowledge_boundary": "not_applicable",
+                        "contract_items": self._contract_items_by_draft.get(
+                            item["draft_id"], []
+                        ),
+                    }
+                    for item in payload["targets"]
+                ],
+            }
+        )
+
+
+def _contract_target(draft_id: str, content: str, must_happen: str) -> dict:
+    bundle = _bundle("s1", must_happen)
+    return {
+        "draft_id": draft_id,
+        "chapter_index": 3,
+        "title": "第三章",
+        "content": content,
+        "content_hash": "a" * 64,
+        "status": "candidate",
+        "role": "target",
+        "source_task_id": "generation-task",
+        "scene_id": "s1",
+        "scene_execution_bundle": bundle,
+        "scene_execution_bundle_hash": None,
+        "scene_contract_items": _freeze_scene_contract_items(bundle),
+        "upstream_manifest": [],
+        "review_context": {
+            "status": "checked",
+            "review_mode": "narrative_only",
+            "context_fingerprint": "context-fingerprint",
+            "confirmed_context": "已确认资料",
+            "generation_profile": "default",
+            "viewpoint_character_id": None,
+            "pov_view": None,
+            "deterministic_pov_validation": {
+                "status": "passed",
+                "findings": [],
+                "warnings": [],
+            },
+            "knowledge_boundary_checked": False,
+        },
+    }
+
+
+async def _run_contract_review(
+    monkeypatch, target, client
+) -> tuple[dict, SimpleNamespace]:
+    from modules.project import facade as project_facade
+
+    monkeypatch.setattr(project_facade, "require_active_project", mock.AsyncMock())
+    draft = SimpleNamespace(content_hash=target["content_hash"], provenance_json={})
+    repo = SimpleNamespace(get_for_update=mock.AsyncMock(return_value=draft))
+    service = WritingSemanticWorkflowService(repo=repo, llm_client=client)
+    monkeypatch.setattr(
+        service,
+        "_freeze_review_set",
+        mock.AsyncMock(side_effect=[([target], []), ([target], [])]),
+    )
+    result = await service.review_for_task(
+        _TaskDb(),  # type: ignore[arg-type]
+        task_id="review-task",
+        novel_id="00000000-0000-0000-0000-000000000001",
+        draft_ids=[target["draft_id"]],
+        scope="selection",
+        llm_execution_snapshot={"profile": {"model": "test-model"}},
+    )
+    return result, draft
+
+
+def _gate_draft(target: dict, draft: SimpleNamespace) -> SimpleNamespace:
+    return SimpleNamespace(
+        novel_id="00000000-0000-0000-0000-000000000001",
+        chapter_index=target["chapter_index"],
+        content_hash=target["content_hash"],
+        provenance_json={
+            **draft.provenance_json,
+            "source": "writing_generate",
+            "review_required": True,
+            "knowledge_review": {"status": "passed"},
+            "context_confirmation_id": "confirmation-1",
+        },
+    )
+
+
+@pytest.mark.anyio
+async def test_unmet_contract_item_yields_major_finding_and_blocks_adoption(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """unmet 带位置 → major 阻断问题 → needs_revision → 采用门禁拒绝。"""
+    from modules.evidence import facade as evidence_facade
+
+    monkeypatch.setattr(evidence_facade, "require_fresh_confirmation", mock.AsyncMock())
+    draft_id = "00000000-0000-0000-0000-000000000002"
+    content = "他推开门走进仓库，在角落里发现了那条线索。"
+    target = _contract_target(draft_id, content, "发现线索；拿到钥匙")
+    client = _ContractReviewClient(
+        {
+            draft_id: [
+                {
+                    "id": "scene:s1:must:1",
+                    "status": "met",
+                    "excerpt": "发现了那条线索。",
+                },
+                {
+                    "id": "scene:s1:must:2",
+                    "status": "unmet",
+                    "excerpt": "他推开门走进仓库，",
+                },
+            ]
+        }
+    )
+    result, draft = await _run_contract_review(monkeypatch, target, client)
+
+    review = draft.provenance_json["independent_review"]
+    assert review["coverage"]["scene_contract"] == "checked"
+    assert [item["status"] for item in review["scene_contract_items"]] == [
+        "met",
+        "unmet",
+    ]
+    omissions = [
+        item for item in result["findings"] if item["category"] == "contract_omission"
+    ]
+    assert len(omissions) == 1
+    assert omissions[0]["severity"] == "major"
+    assert review["verdict"] == "needs_revision"
+    assert review["blocking_count"] == 1
+
+    with pytest.raises(ConflictError, match="阻断项"):
+        await validate_candidate_upstream(
+            None,  # type: ignore[arg-type]
+            _gate_draft(target, draft),
+        )
+
+
+@pytest.mark.anyio
+async def test_unmet_contract_item_without_excerpt_goes_incomplete(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """unmet 无位置 → 归一待核实 → not_checked/incomplete → 采用门禁拒绝。"""
+    from modules.evidence import facade as evidence_facade
+
+    monkeypatch.setattr(evidence_facade, "require_fresh_confirmation", mock.AsyncMock())
+    draft_id = "00000000-0000-0000-0000-000000000002"
+    content = "他推开门走进仓库，在角落里发现了那条线索。"
+    target = _contract_target(draft_id, content, "发现线索；拿到钥匙")
+    client = _ContractReviewClient(
+        {
+            draft_id: [
+                {"id": "scene:s1:must:1", "status": "met", "excerpt": "发现了那条线索。"},
+                {"id": "scene:s1:must:2", "status": "unmet", "excerpt": None},
+            ]
+        }
+    )
+    result, draft = await _run_contract_review(monkeypatch, target, client)
+
+    review = draft.provenance_json["independent_review"]
+    assert [item["status"] for item in review["scene_contract_items"]] == [
+        "met",
+        "unknown",
+    ]
+    assert review["coverage"]["scene_contract"] == "not_checked"
+    assert result["verdict"] == "incomplete"
+    assert review["verdict"] == "incomplete"
+    assert not [
+        item for item in result["findings"] if item["category"] == "contract_omission"
+    ]
+
+    with pytest.raises(ConflictError, match="独立语义审查"):
+        await validate_candidate_upstream(
+            None,  # type: ignore[arg-type]
+            _gate_draft(target, draft),
+        )
+
+
+@pytest.mark.anyio
+async def test_met_contract_items_pass_and_allow_adoption(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """全部落实 → checked/pass → 采用门禁放行。"""
+    from modules.evidence import facade as evidence_facade
+
+    monkeypatch.setattr(evidence_facade, "require_fresh_confirmation", mock.AsyncMock())
+    draft_id = "00000000-0000-0000-0000-000000000002"
+    content = "他推开门走进仓库，在角落里发现了那条线索，拿到了钥匙。"
+    target = _contract_target(draft_id, content, "发现线索；拿到钥匙")
+    client = _ContractReviewClient(
+        {
+            draft_id: [
+                {
+                    "id": "scene:s1:must:1",
+                    "status": "met",
+                    "excerpt": "发现了那条线索",
+                },
+                {"id": "scene:s1:must:2", "status": "met", "excerpt": "拿到了钥匙。"},
+            ]
+        }
+    )
+    result, draft = await _run_contract_review(monkeypatch, target, client)
+
+    review = draft.provenance_json["independent_review"]
+    assert review["coverage"]["scene_contract"] == "checked"
+    assert result["verdict"] == "pass"
+    assert review["verdict"] == "pass"
+    assert review["blocking_count"] == 0
+
+    await validate_candidate_upstream(
+        None,  # type: ignore[arg-type]
+        _gate_draft(target, draft),
+    )
+
+
+@pytest.mark.anyio
+async def test_prepare_targeted_revision_rejects_unverified_contract_items(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """只有带正文位置的待核实条目能纳入返修；已落实/未落实/无位置被拒。"""
+    from infrastructure.tasks import facade as tasks_facade
+    from modules.project import facade as project_facade
+
+    monkeypatch.setattr(project_facade, "require_active_project", mock.AsyncMock())
+    draft_id = "00000000-0000-0000-0000-000000000002"
+    review_payload = SimpleNamespace(
+        result={
+            "findings": [{"finding_id": "finding_1", "location": {"draft_id": draft_id}}],
+            "coverage": {
+                "semantic_checks": {
+                    draft_id: {
+                        "contract_items": [
+                            {"id": "scene:s1:must:1", "status": "met", "excerpt": "正文"},
+                            {
+                                "id": "scene:s1:must:2",
+                                "status": "unmet",
+                                "excerpt": "正文",
+                            },
+                            {
+                                "id": "scene:s1:must:3",
+                                "status": "unknown",
+                                "excerpt": None,
+                            },
+                            {
+                                "id": "scene:s1:must:4",
+                                "status": "unknown",
+                                "excerpt": "正文片段",
+                            },
+                        ]
+                    }
+                }
+            },
+        }
+    )
+    monkeypatch.setattr(
+        tasks_facade,
+        "get_completed_task_payload",
+        mock.AsyncMock(return_value=review_payload),
+    )
+    service = WritingSemanticWorkflowService(
+        repo=SimpleNamespace(), llm_client=_RevisionClient()
+    )
+    novel_id = "00000000-0000-0000-0000-000000000001"
+    review_task_id = "00000000-0000-0000-0000-000000000003"
+
+    for item_id in ("scene:s1:must:1", "scene:s1:must:2", "scene:s1:must:3"):
+        with pytest.raises(ConflictError, match="只有带正文位置的待核实条目"):
+            await service.prepare_targeted_revision(
+                None,  # type: ignore[arg-type]
+                novel_id=novel_id,
+                draft_id=draft_id,
+                review_task_id=review_task_id,
+                finding_ids=["finding_1"],
+                contract_item_ids=[item_id],
+            )

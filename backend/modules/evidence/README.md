@@ -1,5 +1,10 @@
 # Evidence 模块
 
+编译产物的 Markdown 渲染（`render_compiled_context`）按资料性质标注事实等级并在有预算
+裁剪时追加裁剪记录（详见 `compilation/README.md` 与 `docs/modules/08_evidence.md`）；
+剧情线 loader 只取未终结线索、超期保留并标注，编辑约定 loader 仅在作者显式开启
+「也用于 AI 写作」时注入。
+
 ## 统一 AI 运行信封
 
 `evidence_focused_search` 在领取时冻结 `infrastructure.rag_query_planner` 和 9 次请求；planner
@@ -154,3 +159,15 @@ InputManifest，后续调用和终态均回验原引用。确认的选中/排除
 作者编辑台复用 `compile_review_world_evidence` 选择并精确回读本章作者可见世界资料，调用时
 声明 `assistant.editorial` 且保留排除与截断说明。世界资料只送作者判断，不进入顺序盲读；
 找不到或未选中的资料不得写成已核实事实。编辑意见不生成 Context confirmation 或正文采用回执。
+
+
+## 逐源证据字段（B8）
+
+`KnowledgeScopeReceipt` 的来源条目带逐源 `token_count`（item 级 tiktoken）、
+`state`（included/trimmed/omitted）与 `state_reason`、`hash_basis`
+（content=正文哈希 / identity=身份哈希）。账本 `to_dict()` 输出完整证据，
+指纹只哈希稳定子集（`_fingerprint_dict`）；增加审计字段本身不改变指纹。
+无来源原生 hash 时使用实际 ContextItem 正文；正文确实未关联才标 identity。
+`token_groups` 保留实际文本块及逐出状态，多来源不可分文本块标 `shared=true`，
+按 group key 去重计数，不能把共享块 token 逐源相加；独立 item 的数量合计入
+`token_count`。预算逐出保留全部来源与原始计数，账本不保存正文。

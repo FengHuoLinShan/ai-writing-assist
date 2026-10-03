@@ -198,6 +198,9 @@ function renderSceneWorldState(section, options) {
 }
 
 function renderBudgetEvent(event, sections, options) {
+  if (!options.diagnostic && event.section_key === "author_examples" && event.event_type === "evicted") {
+    return "<li>本次未使用你的示例：超出本次可用范围。</li>"
+  }
   const label = event.event_type === "evicted" ? "已移除" : "已裁剪"
   const title = sections.find((section) => section.key === event.section_key)?.title || "一组参考资料"
   if (!options.diagnostic) return `<li>${esc(label)}${esc(authorLabel(title))}：${esc(event.reason || "超出本次可用范围")}</li>`

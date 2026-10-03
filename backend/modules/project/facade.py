@@ -15,12 +15,33 @@ from sqlalchemy.sql import Select
 
 from core.errors import ConflictError, NotFoundError
 from core.logging_context import bind_validated_novel_id
+from modules.project.author_examples import (
+    read_author_examples as read_author_examples,
+)
+from modules.project.author_examples import (
+    read_author_examples_for_writing as read_author_examples_for_writing,
+)
+from modules.project.author_examples import (
+    read_author_examples_writing_toggle as read_author_examples_writing_toggle,
+)
+from modules.project.author_examples import (
+    save_author_examples as save_author_examples,
+)
+from modules.project.author_examples import (
+    set_author_examples_for_writing as set_author_examples_for_writing,
+)
 from modules.project.contracts import InteractionProjectContract, ProjectSummary
 from modules.project.editorial_brief import (
     read_editorial_brief as read_editorial_brief,
 )
 from modules.project.editorial_brief import (
+    read_editorial_brief_for_writing as read_editorial_brief_for_writing,
+)
+from modules.project.editorial_brief import (
     save_editorial_brief as save_editorial_brief,
+)
+from modules.project.editorial_brief import (
+    set_editorial_brief_for_writing as set_editorial_brief_for_writing,
 )
 from modules.project.models import Project
 from modules.project.repositories import ProjectRepository
@@ -104,12 +125,15 @@ async def get_project_context(
 async def get_any_project_context(
     db: AsyncSession,
     novel_id: str,
+    *,
+    for_update: bool = False,
 ) -> ProjectContext | None:
-    """Task composition-root lookup for either internal project kind."""
+    """Secret-free context for either project kind; lock only for DB mutations."""
     context = await _service.get_project_context(
         db,
         novel_id,
         project_kind=None,
+        **({"for_update": True} if for_update else {}),
     )
     if context is not None:
         bind_validated_novel_id(novel_id)
@@ -237,6 +261,15 @@ async def require_active_project(
     """Require an active project, hiding missing and recycled projects as 404."""
     await _service.require_active_project(db, novel_id)
     bind_validated_novel_id(novel_id)
+
+
+async def save_agent_executor_settings(
+    db, novel_id, owner_id, selection, *, only_if_device=None
+):
+    """Project-owned executor mutation inside the caller's transaction."""
+    await _service.save_agent_executor_settings(
+        db, novel_id, owner_id, selection, only_if_device=only_if_device
+    )
 
 
 async def require_interaction_project(

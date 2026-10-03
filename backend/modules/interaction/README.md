@@ -319,3 +319,8 @@ PUT 持项目锁并比较 `expected_updated_at`，相同 payload 幂等复用。
 Agent 准备、必要摘要与正文使用同一冻结设备及原 RP Evidence、选中路径、来源版本、
 selection epoch 和完成提交门禁。连续性后台检查也先等待逐次确认。匿名公开演示 RP
 仍只使用既有前台临时 Key 流程，不能配对设备或创建后台本机任务。
+
+普通 worker 与匿名 inline 均记录无效 metadata 尾块（含未闭合/超长），同一
+attempt 只计一次；正常完成和失败收尾均持久化诊断，不改正文释放门禁。
+本机任务通过 Project context 读取 owner；逐次批准通过 Interaction facade 按
+owner + novel_id + task_id 锁定并更新本域 checkpoint，不外露 attempt ORM。

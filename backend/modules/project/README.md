@@ -17,7 +17,7 @@ project 模块负责统一项目隔离根。作者项目使用 `project_kind=aut
 - 提供 `novel_id` / `project_id`
 - 提供项目级默认策略（如 `default_reveal_policy`）
 - 管理项目作者偏好覆盖，并组合 account 默认与项目覆盖形成 effective 配置
-- 在 `projects.settings.editorial_brief_v1` 保存作者确认的版本化编辑约定；`GET/PUT /api/projects/{id}/editorial-brief` 读写，PUT 用 `expected_version` 校验并发。公开只读演示源不能写入，模型意见和单次忽略不会自动更新约定。
+- 在 `projects.settings.editorial_brief_v1` 保存作者确认的版本化编辑约定；`GET/PUT /api/projects/{id}/editorial-brief` 读写，PUT 用 `expected_version` 校验并发。公开只读演示源不能写入，模型意见和单次忽略不会自动更新约定。「也用于 AI 写作」开关（默认关闭）经 `/editorial-brief/for-writing` 读写，开启后约定进入 writing 确认上下文；`GET /ai-usage` 为 owner 次级诊断聚合窗口期 AI 用量。
 - 根据项目 owner 打开账户级文本与图片连接；项目只保留非 secret 工作流设置和可恢复 snapshot
 - 提供项目级智能去重扫描入口，聚合各业务模块自己的去重建议
 - 提供作者“今日工作”所需的只读工作台摘要，不返回正文、owner、密钥或内部任务信息
@@ -362,3 +362,18 @@ Evolution 负责持项目独占锁、排空旧 owner 后的切换编排，Projec
 门禁。evolution 的 schema floor 为 2；到达后不能回到 legacy，只能暂停或兼容前进。
 项目任务 preflight/commit guard 同时检查该归属；浏览器鉴权和 novel_id 隔离保持原边界。
 参见 [Evolution](../evolution/README.md) 与迁移 `20260922_understanding_owner`。
+
+
+## 作者写作示例与省钱模式（B3/B5）
+
+`Project.settings` 新增 `author_examples_v1`（好例/反例 few-shot，仅
+writing.generate 作者视角注入，详见 writing 模块）与 `llm_cost_saving_v1`
+（省钱模式开关）。开关经 `GET/PUT /api/projects/{id}/llm-cost-saving` 读写；
+`modules/project/model_routing.py` 汇总开关 × 账户 verified 附加模型 ×
+注册表 cheap 能力集，产出 `cost_routing` 注入 LLM client 与执行快照。
+附加模型的 provider 必须等于实际 client/快照的 provider；为其他已连接服务商
+创建快照或读取期间切换服务商时，回落该 client 的主模型。
+路由读取经 owner/active 门禁的 context，接受作者与隐藏 RP 两类项目；默认关闭
+也不能因项目种类错误阻断新旅程，外账户仍被拒绝。
+`save_agent_executor_settings` 由 Project 持 owner + novel_id 行锁写入非 secret
+执行器选择，支持撤销设备时条件清除；本机模块不直接读写 Project ORM。

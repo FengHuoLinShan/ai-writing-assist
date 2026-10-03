@@ -1084,7 +1084,7 @@ describe("WritingView", () => {
     const wrapper = mount(WritingView, { props: props({ requestedLocation: { chapter: 1, draftId: "d2" } }), attachTo: document.body })
     await flushPromises()
 
-    for (const label of ["续写建议", "AI 正文建议", "AI 角色视角建议", "理解与整理正文…", "导出本章"]) {
+    for (const label of ["续写建议", "AI 正文建议", "AI 角色视角建议", "理解与整理正文…", "导出本章（编辑器当前文字）", "导出本章（已采用版本）", "导出全书（TXT）"]) {
       expect(wrapper.findAll("button").some((button) => button.text() === label)).toBe(true)
     }
 

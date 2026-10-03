@@ -821,3 +821,427 @@ async def test_long_chapter_reports_partial_then_resumes_unread_tail(
     assert completed["report"]["coverage_complete"]
     assert calls == [0, 12000, 24000, 36000, 48000]
     assert (await db_session.get(WritingDraft, UUID(draft["id"]))).content == text
+
+
+# ============================================================
+# B2: 意见处置稳定身份（结构化键 + 跨复审继承）
+# ============================================================
+
+
+def test_editorial_fingerprint_ignores_quote_wording() -> None:
+    """同一对象同一章节的意见,改写引文措辞身份不变;换对象则身份变。"""
+    from modules.assistant.editorial import _fingerprint
+
+    base = {
+        "category": "structure",
+        "evidence": [{"chapter_index": 3, "quote": "他推门而入,看见满地灰烬"}],
+        "context_evidence": [
+            {"source_kind": "world", "source_id": "world-1", "quote": "旧港设定"}
+        ],
+    }
+    reworded = {
+        "category": "structure",
+        "evidence": [{"chapter_index": 3, "quote": "完全不同的措辞,模型换了首条证据"}],
+        "context_evidence": [
+            {"source_kind": "world", "source_id": "world-1", "quote": "别的引用"}
+        ],
+    }
+    other_object = {
+        "category": "structure",
+        "evidence": [{"chapter_index": 3, "quote": "他推门而入,看见满地灰烬"}],
+        "context_evidence": [
+            {"source_kind": "world", "source_id": "world-2", "quote": "旧港设定"}
+        ],
+    }
+    other_chapter = {
+        "category": "structure",
+        "evidence": [{"chapter_index": 4, "quote": "他推门而入,看见满地灰烬"}],
+        "context_evidence": [
+            {"source_kind": "world", "source_id": "world-1", "quote": "旧港设定"}
+        ],
+    }
+    assert _fingerprint(base) == _fingerprint(reworded)
+    assert _fingerprint(base) != _fingerprint(other_object)
+    assert _fingerprint(base) != _fingerprint(other_chapter)
+
+
+def test_editorial_legacy_fingerprint_alias_matches_old_rows() -> None:
+    from modules.assistant.editorial import _fingerprint, _legacy_fingerprint
+
+    finding = {
+        "category": "copy",
+        "evidence": [{"chapter_index": 2, "quote": "错别字片段"}],
+        "context_evidence": [],
+    }
+    legacy = _legacy_fingerprint(finding)
+    assert legacy != _fingerprint(finding)
+    # 旧算法对措辞敏感(这是缺陷),新算法不受影响
+    assert (
+        _legacy_fingerprint(
+            {**finding, "evidence": [{"chapter_index": 2, "quote": "改写后的措辞"}]}
+        )
+        != legacy
+    )
+
+
+def test_editorial_fingerprint_without_objects_anchors_on_quote() -> None:
+    """无对象引用时身份退化为引文锚点:同章同类目不同意见不碰撞。"""
+    from modules.assistant.editorial import _fingerprint
+
+    typo_a = {
+        "category": "copy",
+        "evidence": [{"chapter_index": 2, "quote": "他做在椅子上面"}],
+        "context_evidence": [],
+    }
+    typo_b = {
+        "category": "copy",
+        "evidence": [{"chapter_index": 2, "quote": "风向标指向了南边"}],
+        "context_evidence": [],
+    }
+    whitespace_reworded = {
+        "category": "copy",
+        "evidence": [{"chapter_index": 2, "quote": "他 做在\n椅子上面"}],
+        "context_evidence": [],
+    }
+    assert _fingerprint(typo_a) != _fingerprint(typo_b)
+    assert _fingerprint(typo_a) == _fingerprint(whitespace_reworded)
+
+
+@pytest.mark.asyncio
+async def test_save_findings_inherits_disposition_across_reworded_evidence(
+    async_client, db_session
+):
+    """复审中措辞改写后同键意见沿用旧行与处置,并带继承标记。"""
+    project = (
+        await async_client.post("/api/projects", json={"title": "继承处置作品"})
+    ).json()
+    novel_id = project["id"]
+    first_review = EditorialReview(
+        novel_id=UUID(novel_id),
+        owner_id=UUID("00000000-0000-0000-0000-000000000001"),
+        operation_id=uuid4(),
+        status="done",
+    )
+    db_session.add(first_review)
+    await db_session.flush()
+
+    finding_v1 = {
+        "category": "scene",
+        "judgment": "第一版判断",
+        "severity": "medium",
+        "evidence": [{"chapter_index": 2, "quote": "她沿着堤岸走了很久"}],
+        "context_evidence": [
+            {"source_kind": "world", "source_id": "obj-1", "quote": "堤岸设定"}
+        ],
+    }
+    await editorial._save_findings(db_session, first_review, [finding_v1])
+    issue = (
+        await db_session.execute(
+            select(EditorialIssue).where(EditorialIssue.novel_id == UUID(novel_id))
+        )
+    ).scalar_one()
+    issue.disposition = "intentional"
+    await db_session.flush()
+
+    second_review = EditorialReview(
+        novel_id=UUID(novel_id),
+        owner_id=UUID("00000000-0000-0000-0000-000000000001"),
+        operation_id=uuid4(),
+        status="done",
+    )
+    db_session.add(second_review)
+    await db_session.flush()
+    finding_v2 = {
+        **finding_v1,
+        "judgment": "复审后的新判断",
+        "evidence": [{"chapter_index": 2, "quote": "模型完全改写了的引文措辞"}],
+    }
+    await editorial._save_findings(db_session, second_review, [finding_v2])
+
+    refreshed = (
+        await db_session.execute(
+            select(EditorialIssue).where(EditorialIssue.novel_id == UUID(novel_id))
+        )
+    ).scalar_one()
+    assert refreshed.review_id == second_review.id
+    assert refreshed.disposition == "intentional"
+    assert refreshed.finding_json["judgment"] == "复审后的新判断"
+    assert refreshed.finding_json["disposition_inherited"] is True
+    assert refreshed.finding_json["inherited_disposition"] == "intentional"
+    assert len(refreshed.history_json) == 1
+
+
+@pytest.mark.asyncio
+async def test_legacy_alias_migrates_row_fingerprint_and_keeps_disposition(
+    async_client, db_session
+):
+    """legacy 别名命中且对象集合一致时,行指纹升级为新 key 并继承处置。"""
+    project = (
+        await async_client.post("/api/projects", json={"title": "别名迁移作品"})
+    ).json()
+    novel_id = project["id"]
+    first_review = EditorialReview(
+        novel_id=UUID(novel_id),
+        owner_id=UUID("00000000-0000-0000-0000-000000000001"),
+        operation_id=uuid4(),
+        status="done",
+    )
+    db_session.add(first_review)
+    await db_session.flush()
+    finding_v1 = {
+        "category": "copy",
+        "judgment": "第一版",
+        "severity": "low",
+        "evidence": [{"chapter_index": 2, "quote": "旧措辞引文"}],
+        "context_evidence": [],
+    }
+    # 手工构造旧版本算法写入的历史行
+    db_session.add(
+        EditorialIssue(
+            novel_id=UUID(novel_id),
+            review_id=first_review.id,
+            fingerprint=editorial._legacy_fingerprint(finding_v1),
+            finding_json=finding_v1,
+        )
+    )
+    assert editorial._fingerprint(finding_v1) != editorial._legacy_fingerprint(finding_v1)
+    await db_session.flush()
+    legacy_row = (
+        await db_session.execute(
+            select(EditorialIssue).where(EditorialIssue.novel_id == UUID(novel_id))
+        )
+    ).scalar_one()
+    legacy_fingerprint = legacy_row.fingerprint
+    assert legacy_fingerprint == editorial._legacy_fingerprint(finding_v1)
+    legacy_row.disposition = "later"
+    await db_session.flush()
+
+    second_review = EditorialReview(
+        novel_id=UUID(novel_id),
+        owner_id=UUID("00000000-0000-0000-0000-000000000001"),
+        operation_id=uuid4(),
+        status="done",
+    )
+    db_session.add(second_review)
+    await db_session.flush()
+    # 复审:对象集合与旧行一致(都为空),旧 key 相同、新 key 不同
+    finding_v2 = {
+        **finding_v1,
+        "judgment": "复审后的判断",
+    }
+    assert editorial._legacy_fingerprint(finding_v2) == legacy_fingerprint
+    assert editorial._fingerprint(finding_v2) != legacy_fingerprint
+    await editorial._save_findings(db_session, second_review, [finding_v2])
+
+    migrated = (
+        await db_session.execute(
+            select(EditorialIssue).where(EditorialIssue.novel_id == UUID(novel_id))
+        )
+    ).scalar_one()
+    assert migrated.id == legacy_row.id
+    assert migrated.fingerprint == editorial._fingerprint(finding_v2)
+    assert migrated.fingerprint != legacy_fingerprint
+    assert migrated.disposition == "later"
+    assert migrated.finding_json["disposition_inherited"] is True
+
+
+@pytest.mark.asyncio
+async def test_legacy_alias_does_not_inherit_when_object_set_differs(
+    async_client, db_session
+):
+    """复审意见新增对象引用时与旧行不是同一条意见:不迁移、不继承处置。"""
+    project = (
+        await async_client.post("/api/projects", json={"title": "别名不迁移作品"})
+    ).json()
+    novel_id = project["id"]
+    first_review = EditorialReview(
+        novel_id=UUID(novel_id),
+        owner_id=UUID("00000000-0000-0000-0000-000000000001"),
+        operation_id=uuid4(),
+        status="done",
+    )
+    db_session.add(first_review)
+    await db_session.flush()
+    finding_v1 = {
+        "category": "copy",
+        "judgment": "第一版",
+        "severity": "low",
+        "evidence": [{"chapter_index": 2, "quote": "旧措辞引文"}],
+        "context_evidence": [],
+    }
+    legacy_row = EditorialIssue(
+        novel_id=UUID(novel_id),
+        review_id=first_review.id,
+        fingerprint=editorial._legacy_fingerprint(finding_v1),
+        finding_json=finding_v1,
+    )
+    db_session.add(legacy_row)
+    await db_session.flush()
+    legacy_row.disposition = "later"
+    await db_session.flush()
+
+    second_review = EditorialReview(
+        novel_id=UUID(novel_id),
+        owner_id=UUID("00000000-0000-0000-0000-000000000001"),
+        operation_id=uuid4(),
+        status="done",
+    )
+    db_session.add(second_review)
+    await db_session.flush()
+    # 复审:旧 key 相同,但意见新增了对象引用
+    finding_v2 = {
+        **finding_v1,
+        "judgment": "复审后的判断",
+        "context_evidence": [
+            {"source_kind": "world", "source_id": "obj-9", "quote": "新对象引用"}
+        ],
+    }
+    assert editorial._legacy_fingerprint(finding_v2) == legacy_row.fingerprint
+    await editorial._save_findings(db_session, second_review, [finding_v2])
+
+    rows = (
+        (
+            await db_session.execute(
+                select(EditorialIssue).where(EditorialIssue.novel_id == UUID(novel_id))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(rows) == 2
+    by_id = {row.id: row for row in rows}
+    # 旧行原样保留:指纹未升级、处置不动
+    untouched = by_id[legacy_row.id]
+    assert untouched.fingerprint == editorial._legacy_fingerprint(finding_v1)
+    assert untouched.disposition == "later"
+    assert untouched.review_id == first_review.id
+    # 新意见按新 key 建行,不继承旧处置
+    created = next(row for row in rows if row.id != legacy_row.id)
+    assert created.fingerprint == editorial._fingerprint(finding_v2)
+    assert created.disposition == "open"
+    assert created.finding_json["disposition_inherited"] is False
+
+
+@pytest.mark.asyncio
+async def test_save_findings_keeps_both_objectless_findings_in_same_chapter(
+    async_client, db_session
+):
+    """同章同类目无对象的两条意见必须各建一行,不允许身份碰撞吞掉一条。"""
+    project = (
+        await async_client.post("/api/projects", json={"title": "碰撞回归作品"})
+    ).json()
+    novel_id = project["id"]
+    review = EditorialReview(
+        novel_id=UUID(novel_id),
+        owner_id=UUID("00000000-0000-0000-0000-000000000001"),
+        operation_id=uuid4(),
+        status="done",
+    )
+    db_session.add(review)
+    await db_session.flush()
+    findings = [
+        {
+            "category": "copy",
+            "judgment": "错别字之一",
+            "severity": "low",
+            "evidence": [{"chapter_index": 2, "quote": "他做在椅子上面"}],
+            "context_evidence": [],
+        },
+        {
+            "category": "copy",
+            "judgment": "错别字之二",
+            "severity": "low",
+            "evidence": [{"chapter_index": 2, "quote": "风向标指向了南边"}],
+            "context_evidence": [],
+        },
+    ]
+    assert editorial._fingerprint(findings[0]) != editorial._fingerprint(findings[1])
+    await editorial._save_findings(db_session, review, findings)
+
+    rows = (
+        (
+            await db_session.execute(
+                select(EditorialIssue).where(EditorialIssue.novel_id == UUID(novel_id))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert sorted(row.finding_json["judgment"] for row in rows) == [
+        "错别字之一",
+        "错别字之二",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_save_findings_keeps_colliding_object_findings_and_keeps_disposition(
+    async_client, db_session
+):
+    """同章同对象的两条不同意见各建一行；撞键前后同一条意见都继承处置。"""
+    project = (
+        await async_client.post("/api/projects", json={"title": "对象碰撞作品"})
+    ).json()
+    novel_id = project["id"]
+
+    async def new_review():
+        review = EditorialReview(
+            novel_id=UUID(novel_id),
+            owner_id=UUID("00000000-0000-0000-0000-000000000001"),
+            operation_id=uuid4(),
+            status="done",
+        )
+        db_session.add(review)
+        await db_session.flush()
+        return review
+
+    async def rows():
+        return (
+            (
+                await db_session.execute(
+                    select(EditorialIssue).where(
+                        EditorialIssue.novel_id == UUID(novel_id)
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    scene_ref = [{"source_kind": "structure", "source_id": "scene-1", "quote": "计划"}]
+    pacing = {
+        "category": "scene",
+        "judgment": "节奏拖沓",
+        "severity": "medium",
+        "evidence": [{"chapter_index": 3, "quote": "他们在门口站了很久"}],
+        "context_evidence": scene_ref,
+    }
+    motive = {
+        "category": "scene",
+        "judgment": "动机不足",
+        "severity": "medium",
+        "evidence": [{"chapter_index": 3, "quote": "她忽然决定离开"}],
+        "context_evidence": scene_ref,
+    }
+    assert editorial._fingerprint(pacing) == editorial._fingerprint(motive)
+
+    await editorial._save_findings(db_session, await new_review(), [dict(pacing)])
+    (original,) = await rows()
+    original.disposition = "intentional"
+    await db_session.flush()
+
+    await editorial._save_findings(
+        db_session, await new_review(), [dict(pacing), dict(motive)]
+    )
+    collided = {row.finding_json["judgment"]: row for row in await rows()}
+    assert set(collided) == {"节奏拖沓", "动机不足"}
+    assert collided["节奏拖沓"].id == original.id
+    assert collided["节奏拖沓"].disposition == "intentional"
+    assert collided["节奏拖沓"].fingerprint != editorial._fingerprint(pacing)
+    assert collided["动机不足"].disposition == "open"
+
+    await editorial._save_findings(db_session, await new_review(), [dict(pacing)])
+    back = {row.finding_json["judgment"]: row for row in await rows()}
+    assert back["节奏拖沓"].id == original.id
+    assert back["节奏拖沓"].fingerprint == editorial._fingerprint(pacing)
+    assert back["节奏拖沓"].disposition == "intentional"
+    assert back["节奏拖沓"].finding_json["disposition_inherited"] is True

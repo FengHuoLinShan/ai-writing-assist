@@ -211,16 +211,17 @@ async def test_summary_prepare_failure_is_latched_for_user_retry() -> None:
 
 
 class _StreamingClient:
-    def __init__(self) -> None:
+    def __init__(self, tail: str = "") -> None:
         self.closed = False
         self.transport_retries: list[bool] = []
+        self.tail = tail
 
     async def generate_stream(self, _request, *, transport_retries: bool = True):
         assert _request.max_tokens == 65_536
         assert _request.extra["reasoning_effort"] == "high"
         self.transport_retries.append(transport_retries)
         yield LLMStreamChunk(content="文" * 600)
-        yield LLMStreamChunk(content="结尾", finish_reason="stop")
+        yield LLMStreamChunk(content="结尾" + self.tail, finish_reason="stop")
 
     async def close(self) -> None:
         self.closed = True
@@ -252,7 +253,17 @@ def _governance_patches(held_text: str = "受审正文"):
     return _patches
 
 
-async def test_story_handler_checkpoints_by_size_and_flushes_tail() -> None:
+@pytest.mark.parametrize(
+    "tail,invalid",
+    [
+        ("", False),
+        ("\n<INTERACTION_META_V1>\n{invalid\n</INTERACTION_META_V1>", True),
+        ("\n<INTERACTION_META_V1>\n{", True),
+    ],
+)
+async def test_story_handler_checkpoints_by_size_and_flushes_tail(
+    tail: str, invalid: bool
+) -> None:
     prepared = PreparedStoryGeneration(
         novel_id=str(uuid.uuid4()),
         journey_id=str(uuid.uuid4()),
@@ -264,7 +275,7 @@ async def test_story_handler_checkpoints_by_size_and_flushes_tail() -> None:
         },
         existing_visible_text="",
     )
-    client = _StreamingClient()
+    client = _StreamingClient(tail)
     with (
         patch.object(
             tasks._workflow,
@@ -302,9 +313,76 @@ async def test_story_handler_checkpoints_by_size_and_flushes_tail() -> None:
     second_delta = checkpoint.await_args_list[1].kwargs["visible_delta"]
     assert len(first_delta) >= 512
     assert first_delta + second_delta == "文" * 600 + "结尾"
+    assert checkpoint.await_args_list[-1].kwargs["metadata_invalid"] is invalid
     finalize.assert_awaited_once()
     assert client.closed is True
     assert client.transport_retries == [False]
+
+
+@pytest.mark.parametrize(
+    "checkpoint_fails,expected_fail_flag",
+    [
+        # 最终 checkpoint 已提交无效计数，之后审查抛错：失败路径不得再计一次
+        (False, False),
+        # 最终 checkpoint 自身失败（未落账）：失败路径负责计数
+        (True, True),
+    ],
+)
+async def test_story_handler_reports_invalid_tail_once(
+    checkpoint_fails: bool, expected_fail_flag: bool
+) -> None:
+    prepared = PreparedStoryGeneration(
+        novel_id=str(uuid.uuid4()),
+        journey_id=str(uuid.uuid4()),
+        attempt_id=str(uuid.uuid4()),
+        request_kind="message",
+        messages=[LLMMessage(role="user", content="继续")],
+        executable_settings={
+            "llm": {"provider_id": "deepseek", "model": "deepseek-v4-flash"}
+        },
+        existing_visible_text="",
+    )
+    client = _StreamingClient("\n<INTERACTION_META_V1>\n{invalid\n</INTERACTION_META_V1>")
+
+    async def checkpoint(_db, **kwargs):
+        if checkpoint_fails and kwargs.get("progress") == 0.95:
+            raise RuntimeError("checkpoint failed")
+        return 0
+
+    with (
+        patch.object(
+            tasks._workflow,
+            "prepare_story_task",
+            autospec=True,
+            return_value=prepared,
+        ),
+        patch.object(
+            tasks._workflow,
+            "checkpoint_story_task",
+            autospec=True,
+            side_effect=checkpoint,
+        ) as checkpoint_mock,
+        patch.object(
+            tasks._workflow,
+            "govern_held_story",
+            autospec=True,
+            side_effect=RuntimeError("review failed"),
+        ),
+        patch.object(tasks._workflow, "fail_story_task", autospec=True) as fail,
+        patch(
+            "modules.interaction.tasks.create_project_snapshot_llm_client",
+            autospec=True,
+            return_value=client,
+        ),
+    ):
+        with pytest.raises(RuntimeError):
+            await tasks.handle_interaction_story_generate(object(), _task())
+
+    final = checkpoint_mock.await_args_list[-1].kwargs
+    assert final["metadata_invalid"] is True
+    assert final["metadata_invalid_reason"] == "parse_failed"
+    fail.assert_awaited_once()
+    assert fail.await_args.kwargs["metadata_invalid"] is expected_fail_flag
 
 
 async def test_story_handler_runs_bounded_summary_passes_before_story() -> None:

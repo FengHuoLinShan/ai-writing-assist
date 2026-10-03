@@ -1098,3 +1098,52 @@ describe("AI 地图册工作台", () => {
     })
   })
 })
+
+describe("地图图片复用提示", () => {
+  it("复用页展示零成本提示与重新生成入口，点击直达重生成", async () => {
+    const reusedPage = page({
+      evidence: {
+        supported: ["世界设定明确为港口"],
+        visual_fill: [],
+        conflicts: [],
+        image_reuse: {
+          reused: true,
+          message: "使用了相同设置的已有图片，未再次调用生成服务；可在该页选择重新生成获取新图。",
+          request_hash: "hash-1",
+          created_from_id: "page-old",
+        },
+      },
+    })
+    api.world.getMapAtlas.mockResolvedValue(tree([reusedPage], "atlas"))
+    api.world.getLatestMapAtlasRun.mockResolvedValue({ id: "run-1", status: "review_ready", planned_page_count: 1, completed_page_count: 1 })
+    api.world.getMapAtlasRunResults.mockResolvedValue(tree([reusedPage], "review"))
+    api.world.regenerateMapAtlasPage.mockResolvedValue({ ...reusedPage, id: "candidate-2" })
+    api.world.getMapAtlasRun.mockResolvedValue({ id: "run-1", status: "running", planned_page_count: 1, completed_page_count: 0 })
+
+    const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" } })
+    await flushPromises()
+    await wrapper.findAll(".atlas-tabs button")[0].trigger("click")
+    await flushPromises()
+
+    const note = wrapper.get(".atlas-reuse-note")
+    expect(note.text()).toContain("未再次调用生成服务")
+    expect(note.attributes("role")).toBe("status")
+    await note.get("button").trigger("click")
+    await flushPromises()
+    expect(api.world.regenerateMapAtlasPage).toHaveBeenCalledWith(
+      "novel-1",
+      "candidate-1",
+      expect.objectContaining({ instruction: null }),
+    )
+  })
+
+  it("非复用页不显示复用提示", async () => {
+    api.world.getMapAtlas.mockResolvedValue(tree([page()], "atlas"))
+    api.world.getMapAtlasRunResults.mockResolvedValue(tree([page()], "review"))
+    const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" } })
+    await flushPromises()
+    await wrapper.findAll(".atlas-tabs button")[0].trigger("click")
+    await flushPromises()
+    expect(wrapper.find(".atlas-reuse-note").exists()).toBe(false)
+  })
+})

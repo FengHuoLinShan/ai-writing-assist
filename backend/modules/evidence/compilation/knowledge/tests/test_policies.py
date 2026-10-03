@@ -65,6 +65,7 @@ EXPECTED_CAPABILITIES = (
     "imports.structure_analysis",
     "imports.review_resolution",
     "imports.targeted_completion",
+    "imports.spreadsheet_migration",
     # Evolution
     "evolution.scene_observe",
     "evolution.state_review",

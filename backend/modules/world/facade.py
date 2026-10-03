@@ -84,6 +84,11 @@ from modules.world.map_atlas_facade import (  # noqa: F401
 from modules.world.services.core.knowledge_visibility_service import (
     check_knowledge_visibility as _check_knowledge_visibility_impl,
 )
+from modules.world.services.worldbuilding.author_migration import (  # noqa: F401
+    apply_author_migration_world,
+    plan_author_migration_world,
+    rollback_author_migration_world,
+)
 from modules.world.team_stress import review_team_stress
 from modules.world.worldbuilding_facade import (  # noqa: F401
     append_demo_import_revision,
@@ -120,6 +125,9 @@ check_knowledge_visibility = _check_knowledge_visibility_impl
 __all__ = [
     "read_world_object_image",
     "review_team_stress",
+    "plan_author_migration_world",
+    "apply_author_migration_world",
+    "rollback_author_migration_world",
     "list_review_resolution_candidates",
     "authorize_review_resolution",
     "prepare_review_resolution_decision",

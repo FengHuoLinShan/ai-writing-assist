@@ -377,6 +377,56 @@ async def test_snapshot_provider_survives_active_template_hot_switch(
 
 
 @pytest.mark.asyncio
+async def test_cost_routing_uses_the_snapshot_provider(
+    db_session,
+    test_project_id,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ENABLE_ACCOUNT_KIMI_K3", "1")
+    await _seed_account_connection(db_session)
+    await GlobalLLMDefaultsRepository().upsert(
+        db_session,
+        {"owner_id": LOCAL_OWNER_ID, "secondary_models": ["deepseek-v4-flash"]},
+    )
+    await _seed_account_connection(db_session, provider_id="kimi", activate=False)
+    project = await db_session.get(Project, uuid.UUID(test_project_id))
+    project.settings = {"llm_cost_saving_v1": {"enabled": True}}
+    await db_session.flush()
+
+    primary = await build_project_llm_execution_snapshot(db_session, test_project_id)
+    assert primary["cost_routing"]["enabled"] is True
+    alternate = await build_project_llm_execution_snapshot(
+        db_session,
+        test_project_id,
+        provider_id="kimi",
+    )
+    assert alternate["profile"]["provider_id"] == "kimi"
+    assert alternate["cost_routing"]["enabled"] is False
+
+
+@pytest.mark.asyncio
+async def test_cost_routing_rejects_provider_changed_during_client_open(
+    db_session,
+    test_project_id,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ENABLE_ACCOUNT_KIMI_K3", "1")
+    await _seed_account_connection(db_session, provider_id="kimi")
+    project = await db_session.get(Project, uuid.UUID(test_project_id))
+    project.settings = {"llm_cost_saving_v1": {"enabled": True}}
+    await db_session.flush()
+
+    with patch(
+        "modules.account.facade.read_account_secondary_models",
+        autospec=True,
+        return_value=("deepseek", ["deepseek-v4-flash"]),
+    ):
+        async with open_project_llm_client(db_session, test_project_id) as client:
+            assert client.profile_summary["provider_id"] == "kimi"
+            assert client.cost_routing["enabled"] is False
+
+
+@pytest.mark.asyncio
 async def test_legacy_snapshot_restores_with_short_unfrozen_fallback(
     db_session: AsyncSession,
     test_project_id: str,

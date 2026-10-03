@@ -45,6 +45,11 @@ def _project_display_state(entity: dict[str, Any]) -> str:
     return "review"
 
 
+def is_adopted_world_status(status: str | None) -> bool:
+    """世界对象状态是否属于已采用；与入选过滤同一口径。"""
+    return _project_display_state({"status": status}) == "active"
+
+
 def _filter_world_entities(
     entities: list[dict[str, Any]],
     *,

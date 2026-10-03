@@ -420,3 +420,16 @@ async def list_recent_task_summaries(
     return await TaskLifecycleService().list_recent_summaries(
         db, novel_id=novel_id, task_type=task_type, limit=limit
     )
+
+
+async def summarize_project_ai_usage(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    days: int = 30,
+    scan_limit: int = 500,
+) -> dict:
+    """Read-only per-capability AI usage aggregation for one project."""
+    return await TaskLifecycleService().summarize_ai_usage(
+        db, novel_id=novel_id, days=days, scan_limit=scan_limit
+    )

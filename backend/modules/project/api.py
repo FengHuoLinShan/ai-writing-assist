@@ -9,12 +9,20 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 
 from core.csrf import require_xhr_request
 from core.dependencies import DbSession
+from modules.project.ai_usage import get_project_ai_usage
+from modules.project.author_examples import AuthorExamplesUpdate
 from modules.project.author_task_service import AuthorTaskService
 from modules.project.editorial_brief import EditorialBriefUpdate
-from modules.project.facade import read_editorial_brief, save_editorial_brief
+from modules.project.facade import (
+    read_editorial_brief,
+    read_editorial_brief_for_writing,
+    save_editorial_brief,
+    set_editorial_brief_for_writing,
+)
 from modules.project.schemas import (
     AuthorTaskCreateRequest,
     AuthorTaskListResponse,
@@ -47,6 +55,10 @@ from modules.project.workspace_service import ProjectWorkspaceSummaryService
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
+class EditorialBriefWritingToggle(BaseModel):
+    enabled: bool
+
+
 _service = ProjectService()
 _author_task_service = AuthorTaskService(_service)
 _smart_dedup_service = SmartDedupService()
@@ -69,6 +81,133 @@ async def put_editorial_brief(
     db: DbSession, project_id: UUID, data: EditorialBriefUpdate
 ):
     return await save_editorial_brief(db, str(project_id), data)
+
+
+@router.get("/{project_id}/ai-usage")
+async def read_project_ai_usage(
+    db: DbSession,
+    project_id: UUID,
+    days: int = Query(default=30, ge=1, le=365),
+):
+    """按能力汇总近 N 天 AI 用量（owner 次级诊断入口）。"""
+    return await get_project_ai_usage(db, str(project_id), days=days)
+
+
+@router.get("/{project_id}/editorial-brief/for-writing")
+async def get_editorial_brief_for_writing(db: DbSession, project_id: UUID):
+    """读取「编辑约定也用于 AI 写作」开关（默认关闭）。
+
+    enabled 为作者设置的原始开关；effective 表示开关开启且约定非空
+    （实际进入写作上下文的有效态）。
+    """
+    from modules.project.editorial_brief import read_editorial_brief_writing_toggle
+
+    toggle = await read_editorial_brief_writing_toggle(db, str(project_id))
+    payload = await read_editorial_brief_for_writing(db, str(project_id))
+    return {
+        "enabled": bool(toggle.get("enabled")),
+        "effective": payload is not None,
+        "brief": payload,
+    }
+
+
+@router.put(
+    "/{project_id}/editorial-brief/for-writing",
+    dependencies=[Depends(require_xhr_request)],
+)
+async def put_editorial_brief_for_writing(
+    db: DbSession,
+    project_id: UUID,
+    data: EditorialBriefWritingToggle,
+):
+    return await set_editorial_brief_for_writing(
+        db, str(project_id), enabled=data.enabled
+    )
+
+
+class AuthorExamplesWritingToggle(BaseModel):
+    enabled: bool
+
+
+class CostSavingToggle(BaseModel):
+    enabled: bool
+
+
+@router.get("/{project_id}/llm-cost-saving")
+async def get_llm_cost_saving(db: DbSession, project_id: UUID):
+    """「省钱模式」开关（B5 模型路由；默认关闭，未配置附加模型时回落主模型）。"""
+    from modules.project.model_routing import read_cost_saving_toggle
+
+    return await read_cost_saving_toggle(db, str(project_id))
+
+
+@router.put(
+    "/{project_id}/llm-cost-saving",
+    dependencies=[Depends(require_xhr_request)],
+)
+async def put_llm_cost_saving(
+    db: DbSession,
+    project_id: UUID,
+    data: CostSavingToggle,
+):
+    from modules.project.model_routing import set_cost_saving_toggle
+
+    return await set_cost_saving_toggle(
+        db, str(project_id), enabled=data.enabled
+    )
+
+
+@router.get("/{project_id}/author-examples")
+async def get_author_examples(db: DbSession, project_id: UUID):
+    """作者写作示例（好例/反例）列表。"""
+    from modules.project.author_examples import read_author_examples
+
+    return await read_author_examples(db, str(project_id))
+
+
+@router.put(
+    "/{project_id}/author-examples",
+    dependencies=[Depends(require_xhr_request)],
+)
+async def put_author_examples(
+    db: DbSession, project_id: UUID, data: AuthorExamplesUpdate
+):
+    from modules.project.author_examples import save_author_examples
+
+    return await save_author_examples(db, str(project_id), data)
+
+
+@router.get("/{project_id}/author-examples/for-writing")
+async def get_author_examples_for_writing(db: DbSession, project_id: UUID):
+    """读取「示例用于 AI 写作」开关（默认关闭）。"""
+    from modules.project.author_examples import (
+        read_author_examples_for_writing,
+        read_author_examples_writing_toggle,
+    )
+
+    toggle = await read_author_examples_writing_toggle(db, str(project_id))
+    payload = await read_author_examples_for_writing(db, str(project_id))
+    return {
+        "enabled": bool(toggle.get("enabled")),
+        "effective": payload is not None,
+        "examples": payload,
+    }
+
+
+@router.put(
+    "/{project_id}/author-examples/for-writing",
+    dependencies=[Depends(require_xhr_request)],
+)
+async def put_author_examples_for_writing(
+    db: DbSession,
+    project_id: UUID,
+    data: AuthorExamplesWritingToggle,
+):
+    from modules.project.author_examples import set_author_examples_for_writing
+
+    return await set_author_examples_for_writing(
+        db, str(project_id), enabled=data.enabled
+    )
 
 
 @router.post(

@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, NotFoundError
@@ -33,8 +33,15 @@ from modules.local_agent.facade import (
     task_awaiting_local_approval,
 )
 from modules.world.asset_state import display_state_for_status
+from modules.world.image_request_reuse import (
+    compute_request_hash,
+    find_reusable_asset,
+    invalidate_reusable_asset,
+    record_reusable_asset,
+)
 from modules.world.models import CoreEntity
 from modules.world.models.image_candidate import WorldObjectImageCandidate
+from modules.world.models.image_request_reuse import ImageRequestReuse
 from modules.world.world_object_images import WorldObjectImageService
 from shared.constants import TASK_MAX_HEARTBEAT_GAP
 from shared.utils import parse_uuid
@@ -131,6 +138,8 @@ class WorldObjectImageCandidateView(BaseModel):
     updated_at: datetime | None = None
     task_id: str | None = None
     awaiting_approval: bool = False
+    # B9：该候选为同参数复用命中（未调用生成服务）
+    reused: bool = False
 
 
 class WorldObjectImageGenerationInfo(BaseModel):
@@ -148,6 +157,8 @@ class WorldObjectImageCandidateCreate(BaseModel):
 
     novel_id: str
     prompt: str = Field(min_length=1, max_length=MAX_PROMPT_CHARS)
+    # B9：同参数默认复用已有本机生成结果（省时间）；「重新生成」传 True 绕过。
+    force_refresh: bool = False
 
     @field_validator("prompt")
     @classmethod
@@ -239,7 +250,11 @@ class WorldObjectImageGenerationService:
         return row
 
     async def _view(
-        self, db: AsyncSession, row: WorldObjectImageCandidate
+        self,
+        db: AsyncSession,
+        row: WorldObjectImageCandidate,
+        *,
+        reused: bool = False,
     ) -> WorldObjectImageCandidateView:
         awaiting_approval = (
             bool(row.task_id)
@@ -258,6 +273,7 @@ class WorldObjectImageGenerationService:
             updated_at=row.updated_at,
             task_id=str(row.task_id) if row.task_id else None,
             awaiting_approval=awaiting_approval,
+            reused=reused,
         )
 
     # -- read views ---------------------------------------------------------
@@ -349,6 +365,30 @@ class WorldObjectImageGenerationService:
                 "该对象已有正在生成的图片，请先完成或放弃当前候选",
                 code="image_generation_in_progress",
             )
+        # B9 幂等复用：同参数（对象状态 + prompt + 执行器）命中时直接复制
+        # 已有本机生成结果，跳过 CLI 调用（省时间，不省钱）。
+        request_hash = _world_object_request_hash(
+            novel_id=str(entity.novel_id),
+            owner_id=owner_id,
+            entity=entity,
+            prompt=data.prompt,
+            executor=executor,
+        )
+        if data.force_refresh:
+            await invalidate_reusable_asset(
+                db, novel_id=str(entity.novel_id), request_hash=request_hash
+            )
+        else:
+            reused = await _reuse_world_object_candidate(
+                db,
+                novel_id=str(entity.novel_id),
+                owner_id=owner_id,
+                entity_id=str(entity.id),
+                request_hash=request_hash,
+            )
+            if reused is not None:
+                candidate = reused
+                return await self._view(db, candidate, reused=True)
         candidate = WorldObjectImageCandidate(
             novel_id=entity.novel_id,
             entity_id=entity.id,
@@ -356,6 +396,8 @@ class WorldObjectImageGenerationService:
             status="queued",
             prompt=data.prompt,
             executor_json={"kind": executor.kind, "device_id": executor.device_id},
+            # B9：入队时冻结幂等键；生成期间实体被编辑也不改变登记归属。
+            request_hash=request_hash,
         )
         db.add(candidate)
         await db.flush()
@@ -469,6 +511,130 @@ async def _lock_candidate_for_task(
     return row
 
 
+def _world_object_request_hash(
+    *,
+    novel_id: str,
+    owner_id: str,
+    entity: CoreEntity,
+    prompt: str,
+    executor: AgentExecutor,
+) -> str:
+    """B9 幂等键：对象设定状态变化后不复用旧图。"""
+    import hashlib as _hashlib
+    import json as _json
+
+    state_snapshot = _hashlib.sha256(
+        _json.dumps(
+            {
+                "entity_id": str(entity.id),
+                "entity_type": entity.entity_type,
+                "name": entity.name,
+                "summary": entity.summary,
+                "content": entity.content_json or {},
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            default=str,
+        ).encode("utf-8")
+    ).hexdigest()
+    return compute_request_hash(
+        novel_id=novel_id,
+        owner_id=owner_id,
+        state_snapshot_hash=state_snapshot,
+        prompt=prompt,
+        model=executor.kind,
+        params={
+            # device_id 不进哈希：设备只是执行载体，换设备不应使已生成
+            # 资产失效；「模型」维度由 executor kind 表达。
+            "width": _GENERATION_WIDTH,
+            "height": _GENERATION_HEIGHT,
+        },
+    )
+
+
+async def _reuse_world_object_candidate(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    owner_id: str,
+    entity_id: str,
+    request_hash: str,
+) -> WorldObjectImageCandidate | None:
+    """校验独立复用资产；来源候选采用或收敛不清除复用原图。"""
+
+    async def _validate(row) -> tuple | None:
+        if row.source_type != "world_object" or not row.created_from_id:
+            return None
+        source = await db.get(
+            WorldObjectImageCandidate, row.created_from_id, populate_existing=True
+        )
+        if (
+            source is None
+            or str(source.novel_id) != str(row.novel_id)
+            or str(source.owner_id) != owner_id
+            or str(source.entity_id) != entity_id
+            or source.status not in {"review_ready", "adopted"}
+        ):
+            return None
+        data = row.asset_data if row.asset_data is not None else source.image_data
+        if not data or (row.byte_size is not None and len(data) != row.byte_size):
+            return None
+        import hashlib as _hashlib
+
+        digest = _hashlib.sha256(data).hexdigest()
+        if row.asset_sha256 and digest != row.asset_sha256:
+            return None
+        return data, digest, source.width, source.height
+
+    reused = await find_reusable_asset(
+        db,
+        novel_id=novel_id,
+        owner_id=owner_id,
+        request_hash=request_hash,
+        validate_asset=_validate,
+    )
+    if reused is None or not reused.get("created_from_id"):
+        return None
+    source = await db.get(
+        WorldObjectImageCandidate, uuid.UUID(str(reused["created_from_id"]))
+    )
+    if source is None:
+        return None
+    candidate = WorldObjectImageCandidate(
+        novel_id=source.novel_id,
+        entity_id=parse_uuid(entity_id, "entity_id"),
+        owner_id=source.owner_id,
+        status="review_ready",
+        prompt=source.prompt,
+        executor_json=dict(source.executor_json or {}),
+        image_data=reused["asset"],
+        width=source.width,
+        height=source.height,
+        sha256=reused["asset_sha256"],
+        request_hash=request_hash,
+    )
+    db.add(candidate)
+    await db.flush()
+    await db.execute(
+        update(ImageRequestReuse)
+        .where(
+            ImageRequestReuse.novel_id == candidate.novel_id,
+            ImageRequestReuse.owner_id == candidate.owner_id,
+            ImageRequestReuse.request_hash == request_hash,
+        )
+        .values(
+            created_from_id=candidate.id,
+            object_key=f"world-object-candidate:{candidate.id}",
+        )
+    )
+    # 复用副本与真实生成一样受 retention 收敛，避免 review_ready 无界累积。
+    await WorldObjectImageGenerationService()._retain_newest_review_ready(
+        db, novel_id=novel_id, entity_id=source.entity_id
+    )
+    await db.flush()
+    return candidate
+
+
 async def handle_world_object_image_generate(db: AsyncSession, task) -> dict:
     """Generate one world-object image candidate through the local CLI.
 
@@ -556,6 +722,35 @@ async def handle_world_object_image_generate(db: AsyncSession, task) -> dict:
     locked.sha256 = reviewed.sha256
     locked.status = "review_ready"
     locked.error = None
+    # B9：登记可复用资产（幂等键入队时冻结；此处复用，不按完成时刻
+    # 的实体状态重算——否则生成期间编辑实体会把登记挂到错误的键上）。
+    context_owner = str(locked.owner_id)
+    frozen_hash = locked.request_hash or _world_object_request_hash(
+        novel_id=str(locked.novel_id),
+        owner_id=context_owner,
+        entity=await WorldObjectImageGenerationService._entity(
+            db, str(locked.novel_id), str(locked.entity_id)
+        ),
+        prompt=locked.prompt,
+        executor=executor,
+    )
+    locked.request_hash = frozen_hash
+    await record_reusable_asset(
+        db,
+        novel_id=str(locked.novel_id),
+        owner_id=context_owner,
+        request_hash=frozen_hash,
+        source_type="world_object",
+        object_key=f"world-object-candidate:{locked.id}",
+        provider=str((locked.executor_json or {}).get("kind") or "local-cli"),
+        model=str((locked.executor_json or {}).get("kind") or "local-cli"),
+        asset_sha256=reviewed.sha256,
+        asset_data=reviewed.data,
+        byte_size=len(reviewed.data),
+        width=reviewed.width,
+        height=reviewed.height,
+        created_from_id=locked.id,
+    )
     await db.flush()
     await service._retain_newest_review_ready(
         db, novel_id=novel_id, entity_id=locked.entity_id

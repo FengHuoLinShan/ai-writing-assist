@@ -9,6 +9,9 @@
 - `importance`、`importance_score`、`confidence` 等字段的 `0.0` 合法，判断缺失必须使用
   `is not None`。`_fuzzy_name_matches` 仅是候选召回，不是强一致身份判定。
 - 实体抽取只保留长期创作资产；路人、代词、普通道具和一次性场景元素不得污染资料库。
+- 表格迁移（ADR-0030）只经 `facade.plan/apply/rollback_author_migration_world` 窄 seam：
+  确认即采用（canonical + `created_by="spreadsheet_migration"` + `approved_by=owner`），
+  同名只补空、冲突不落地；不得为绕过该语义直接复用 adoption package 或 CreationSuggestion。
 - 数据错误可以转换为业务错误，但 DB flush/commit 异常必须向上传播，不得捕获后忽略。
 - 旧动态地图 `map_*` 与 `/api/world/maps*` 已删除；AI 地图册以本模块 README、
   `docs/modules/15_map.md` 与 ADR-0012 为准。图片候选不会自动成为正式世界设定。

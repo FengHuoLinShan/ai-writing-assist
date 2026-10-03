@@ -2,6 +2,7 @@
   <article class="editorial-issue" :class="{ 'editorial-issue--stale': issue.source_may_be_stale }">
     <div class="editorial-issue__head"><span>{{ categoryLabel(issue.finding.category) }} · {{ severityLabel(issue.finding.severity) }}</span><span>{{ dispositionLabel(issue.disposition) }}</span></div>
     <h5>{{ issue.finding.judgment }}</h5>
+    <p v-if="issue.finding.disposition_inherited" class="editorial-issue__inherited" role="status">本轮复审仍出现这条意见，已沿用你此前的处理：{{ dispositionLabel(issue.finding.inherited_disposition) }}；如需改判可在下方重新决定。</p>
     <p><strong>读者可能的感受：</strong>{{ issue.finding.reader_impact }}</p>
     <p v-if="issue.finding.why_now"><strong>现在值得处理：</strong>{{ issue.finding.why_now }}</p>
     <p v-if="issue.source_may_be_stale" class="editorial-issue__warning">正文已变化，这条旧意见需要重新核对。</p>

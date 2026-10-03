@@ -91,7 +91,8 @@ POST   /api/writing/conflict-check-items/{id}/ai-suggestion-task # 提交单条 
 POST   /api/writing/drafts/autosave                    # 创建纯草稿版本，不发布；合并标脏 working 索引
 POST   /api/writing/generate                            # 生成正文建议预览，不自动采用或发布
 POST   /api/writing/semantic-reviews                    # 冻结正文/合同的独立语义审查
-POST   /api/writing/targeted-revisions                  # 按审查 finding 生成新返修候选
+POST   /api/writing/targeted-revisions                  # 按审查 finding（或显式纳入的待核实合同条目）生成新返修候选
+GET    /api/writing/export                              # 按章序导出每章当前已采用版本（txt/md/md-zip，可选 chapter_index 单章）
 ```
 
 公开演示的 `demo_readonly` principal 只能读取 `published` 章节列表与按章最新正文；显式白名单投影仅含章号、标题、正文和读者可见字数，不含 raw ID、内部状态、时间戳、provenance、冲突快照或作者状态。未发布章节不进列表，draft ID、版本历史与原参考范围 `regeneration-context` 均不对公开演示开放。
@@ -126,6 +127,8 @@ published，不因 RP 历史引用改变作者编辑心智。
 - 注入的 Scene contract loader 提供 `must_happen` / `must_not_happen` 和当前章 `scene_chunks`；只有全部目标范围有效且已有 `source_content_hash` 仍匹配本次正文时才检查，缺失、越界、部分无效或 hash 失效均返回 `degraded` 和 omission，不回退扫描整章。旧的无 hash 范围继续按边界校验兼容。
 - `forbidden_present` / `required_missing` 保留兼容 kind，但严重度降低并派生 `author_action=can_improve`；它们只表示“疑似字面命中”或“未逐字出现”，不证明语义冲突。
 - 检查 scope 保存正文 hash。Project Today 只读取每个章节/Scene 最新检查的 open 项；若工作稿 ID、版本或 hash 已变化，则旧项折叠为一条“重新检查”。
+
+跨章复读为确定性提示项（`cross_chapter_repetition`，severity low、needs_review）：候选开头对上一章（优先已采用版本）结尾做 NFKC 归一化的 8 字 n-gram 连续重叠检测（默认阈值连续 ≥80 字、候选前 1200 字对参照末 1000 字），续写候选则比较续写部分与冻结基稿结尾；基稿不可用或候选中的原稿部分已被改动时，比较失去基准，记为 `writing.repetition_check` 覆盖缺口（检查 degraded），检查详情说明原因且不把重跑当作补救。只提示不拒存，阈值上线前需用真实长稿校准。
 
 问题项的 `location_json` 保存轻量证据结构：`source` 描述来源模块、类型、标签、字段和摘录；`open_target` 描述前端可以打开的目标；`needs_review_reason` 描述候选证据复核原因。发布章节时，最近一次检查会归档到 `writing_drafts.conflict_check_snapshot_json`，快照保留 `source` / `open_target`，但不保留正文 `text_range`。
 
@@ -181,9 +184,27 @@ selection/volume/book。它从 AI candidate 的服务端 provenance 回取原
 角色知识边界列为已检查。缺少或失效 confirmation 的旧 AI candidate 必须重新生成，旧的
 非 context-aware 审查回执必须重新审查。回执包含 coverage、finding_id、severity、
 location、contract refs、preserve 与 not_checked；机械门不能代替文学语义通过。
-`writing_targeted_revision` 绑定 review findings、base/hash、contract/context hash、
+2026-10 起同一审查请求对 Scene `must_happen` 冻结条目清单
+（`scene:{scene_id}:must:{n}` + 文本哈希）逐条返回 `met / unmet / unknown` 三态判定；
+服务端核验每份 excerpt 在冻结正文中唯一出现（逐字与剥引号两分支都要求唯一，失败一律
+降为 unknown），`unmet` 无可定位位置时同样降为 unknown（确定未落实不得比待核实放行
+更松；审查 prompt 因此要求 unmet 附最应补写处的唯一原文作为返修锚点），只有全部条目获得有效判定时 `scene_contract` 才签署 `checked`。
+`unmet` 映射为既有 `contract_omission` major finding（阻断级：结论 needs_revision、
+采用门禁拒绝）并复用定向返修；待核实条目默认
+不进返修，作者显式纳入时返修 prompt 附边界声明（纳入不等于确认是错误，不得编造前史），
+回执以 `independent_review.scene_contract_items` 持久化逐条判定，前端按
+“已落实 / 未落实 / 待核实”三态展示；结论 incomplete 且没有可勾选的待核实条目时，
+主按钮退回「重新独立审查」，不提供点击后只弹提示的定向返修死路。
+`writing_targeted_revision` 绑定 review findings（或显式纳入的待核实合同条目）、
+base/hash、contract/context hash、
 allowed scope、preserve/must_not_change 和 supersedes，复用同一 Context 且只创建新
 candidate。返修后重新执行 hidden guard、清除不再匹配新正文的旧 POV view，并再次独立审查。
+
+全书导出走 `GET /api/writing/export`：按章序导出每章当前已采用（published）最新版本，
+支持 txt、合并 Markdown 与分章 Markdown ZIP，可选 `chapter_index` 只导单章。组装前后
+复核各章版本与内容哈希清单，变化返回冲突而不交付半新半旧的文件；未采用章节在文件头
+列出，不静默跳过。前端写作台“导出本章”区分“编辑器当前文字 / 已采用版本”两种口径，
+项目设置页与写作台均提供全书导出入口。
 
 正文批注属于 Writing：作者选区或语义审稿 finding 保存为版本绑定的评论；无唯一定位的
 AI 评论仍可查看，但不能直接执行。显式“审稿并修订”先生成批注，再合并重要问题和作者
@@ -271,3 +292,9 @@ AI candidate 必须复验原 confirmation、正文和 world 来源；人工稿�
 标记独立于“设为正式正文”，普通自动保存不启动编辑任务。改稿后旧标记和旧意见显示来源
 可能失效。Assistant 编辑建议只读，不写 `independent_review` provenance，也不能替代
 AI candidate 的正式审稿、知识边界或采用门禁。
+
+
+### 作者写作示例 few-shot（2026-10）
+
+好例/反例在确认预览可见并计入指纹；候选 provenance 标记是否使用示例，
+项目设置提供对照统计（观察性诊断）。

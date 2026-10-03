@@ -152,6 +152,7 @@
         :project-id="props.projectId"
         :deep-review-available="deepReviewAvailable"
         :editorial-available="editorialAvailable"
+        :exporting-adopted="Boolean(vm.exportingAdopted.value)"
         :narrow="vm.isNarrow.value"
         :state="vm.editorState"
         :target-chapter="vm.selectedChapter.value"
@@ -190,11 +191,13 @@
         @regenerate-candidate="vm.regenerateCandidate"
         @compare-candidate="vm.compareCandidateWithWorkingDraft"
         @export="vm.exportChapter"
+        @export-book="vm.exportWholeBook"
         @retry-load="vm.retryChapterLoad"
         @reload-server="reloadServerDraft"
         @composition="setComposition"
         @focus-context="forecastFocus = $event"
         @add-comment="openWritingComment"
+        @save-example="openExampleDialog"
       >
         <template #context-actions>
           <div v-if="versionChoices.length" id="writing-versions-container" class="writing-version-bar writing-version-bar--compact">
@@ -390,6 +393,13 @@
     :writing-context="writingAiContext"
     @close="aiDrawerOpen = false"
   />
+  <AuthorExampleDialog
+    :open="exampleDialogOpen"
+    :project-id="props.projectId"
+    :draft="exampleDraft"
+    @close="exampleDialogOpen = false"
+    @saved="onExampleSaved"
+  />
   </template>
 </template>
 
@@ -410,6 +420,7 @@ import VersionHistoryDialog from "./components/VersionHistoryDialog.vue"
 import WritingEditor from "./components/WritingEditor.vue"
 import WritingCommentsPanel from "./components/WritingCommentsPanel.vue"
 import WritingWorkflowBars from "./components/WritingWorkflowBars.vue"
+import AuthorExampleDialog from "./components/AuthorExampleDialog.vue"
 import WritingHomeView from "./home/WritingHomeView.vue"
 import { authorTaskPanelQuery } from "./home/authorTaskSource.js"
 import OwnerAiDrawer from "../../components/OwnerAiDrawer.vue"
@@ -446,6 +457,28 @@ const commentCanRun = computed(() => Boolean(
 ))
 function openWritingComment(focus) {
   if (writingComments.prepare(focus)) rightRailOpen.value = true
+}
+
+/* 作者写作示例（B3 few-shot）：candidate 卡片与正文选区就地存例 */
+const exampleDialogOpen = ref(false)
+const exampleDraft = ref(null)
+function openExampleDialog(payload) {
+  const origin = payload?.origin || "selection"
+  const chapterTitle = String(vm.editorState.title || vm.chapters?.[vm.selectedChapter.value]?.title || "")
+  exampleDraft.value = {
+    content: String(payload?.content ?? vm.editorState.content ?? "").slice(0, 2000),
+    chapterIndex: Number(vm.selectedChapter.value) || null,
+    title: chapterTitle,
+    candidateId: origin === "candidate" ? (vm.editorState.draftId || null) : null,
+    contentLocked: false,
+  }
+  exampleDialogOpen.value = true
+}
+async function onExampleSaved() {
+  try {
+    const toggle = await getApi().projects.authorExamplesForWriting(props.projectId)
+    if (!toggle.enabled) getToast()("示例已保存。到「项目设置 → 写作示例」开启后，之后的生成才会参考。", "info")
+  } catch { /* 提示失败不阻断保存结果 */ }
 }
 async function locateWritingComment(item) {
   if (vm.isNarrow.value) {

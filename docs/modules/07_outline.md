@@ -41,7 +41,9 @@ Scene stage 负责。旧 `candidate` 仅兼容读取，不再允许
 
 ## 职责
 
-- 剧情线、篇章纲、Scene、伏笔、揭示计划的 CRUD
+- 剧情线、篇章纲、Scene、伏笔、揭示计划的 CRUD。剧情线自动入选写作上下文的条件为
+  未终结（current_stage 非 resolved/paused）且 start_chapter <= 当前章；超期未收束保留
+  并在渲染中标注（详见 `docs/modules/19_story.md`），剧情线页显示超期徽章
 - Scene 顺序重排
 - 按章节查询相关 Scene
 - 根据 AI 参考资料确认记录，在当前页面发起剧情线、篇章纲或 Planned Scene 创作任务
@@ -69,6 +71,18 @@ Scene stage 负责。旧 `candidate` 仅兼容读取，不再允许
 - `parser`：只根据已采用 Scene 证据调用 Phase 3 strict schema；无 Scene 时返回空/复核
 - `persister`：把结果写入 thread / arc / scene / foreshadowing / reveal
 - `models`：生成流程专用 Pydantic 模型
+
+### 作者表格迁移窄 seam（ADR-0030）
+
+`facade.plan/apply/rollback_author_migration_structures`：arc→OutlineArc、thread→
+PlotThread（thread_type 非法回落 sub）、foreshadowing→ForeshadowingPlan、
+chapter_plan→planned Scene（形状同 P20，structure_meta.planning_state="planned" +
+planned_chapter_range；已写章节按 written_chapter_policy 取 reference_only 或
+link_scene）；总纲经 create_revision（creative_core 缺失为 conflict
+outline_core_missing，合成条目键 `__outline__`）。资产 status=canonical、
+source=spreadsheet_migration、provenance 记录 migration_id/source_refs/authorized_by。
+回滚：快照一致废弃或恢复 before，否则保留；总纲 head 仍是本次修订时回基线
+（apply_revision）或清 head（clear_head_if_revision，首个修订）。指纹不含新实体 id。
 
 ## API
 

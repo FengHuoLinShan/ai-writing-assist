@@ -141,12 +141,13 @@ map / rag / outline / settings / project-settings`，其主 DOM 全部由 Vue SF
 | `vue/views/rag/RagView.vue` / `vue/views/outline/components/OutlineHeader.vue` / `vue/views/scene/SceneWorkbenchView.vue` / `vue/views/world/WorldView.vue` / `vue/views/world/components/WorldReviewTab.vue` | 可切换子导航使用原生 button，当前项公开 `aria-current="page"`；Scene 当前项仍是 current-aware button，同路由点击不引起实际重挂载 |
 | `vue/views/writing/WritingView.vue` | 纯章节目录、工作稿编辑器、手选 Scene 副驾驶与 AI 建议采用；普通模式可返回 `writing?home=1`，导航仍经过未保存正文离开门禁；光标不切换 Scene，AI/检查/发布统一消费手选 Scene；桌面与移动端共用白名单“本场”摘要，POV 可见资料只在点击后加载并隔离晚到响应；手机编辑器在 390px 使用原生 details，并可逆进入按项目恢复的完整编辑模式；自动保存、导入和候选采用继续保持原安全语义 |
 | `vue/views/writing/components/WritingWorkflowBars.vue` | 写作台长任务完成卡；深度导入额外显示自动归并数与遗留复核组数，有遗留项时用作者语言引导到现有“人物与世界 → 智能去重”，不自动发起第二次全项目扫描 |
-| `vue/views/world/WorldView.vue` / `vue/views/world/{library,pages}/` | `world` 路由（Vue island）；可见子导航只有资料库/关系/需要决定。`world/bible` 首页展示最近使用、收藏、继续编辑、主题目录与按类型筛选 chips；结果页由服务端统一列表 `/api/world/library` 驱动（Page 合并其工作稿、独立工作稿与已采用对象，默认 50 项分页、紧凑列表默认），cards/list、搜索、形态、类型、状态、主题、排序与 `skip` 写 URL，服务端列表失败时回退客户端合并卡片。主题目录支持嵌套/改名/归档/排序与多主题引用，工作稿发布时服务端转换目录引用；桌面为粘性目录导航，760px 以下为抽屉。收藏与最近访问经工作区接口持久化，未归类资料始终可从目录找到。World 子页经通用 shell slot 把动态工具卡 Teleport 到一级侧栏；健康、页面未决项和更多类型使用 Vue 模态焦点边界，移动端改为页面内工具入口。统一创建先分具体对象与资料页；对象类型必选，人物详情按需编辑现有 Character 简单字段，名称/别名仍由 CoreEntity 管理。Entity 深链、关联资产、滚动恢复和人物/页面未保存离开门禁保持不变。旧 `objects/aliases` 查询规范化，原对象库图片/批量/回滚/人物认知从次级工具继续可达，review 旧深链仍定位统一工作台。对象搜索保留服务端别名/隐藏资料命中，局部失败可原位重试；760px 以下单栏且主要操作至少 44px。高风险保存、发布、采用和忽略不只放在侧栏；关联图独立在 `world/pages/WorldBibleKnowledgeGraph.vue` |
+| `vue/views/world/WorldView.vue` / `vue/views/world/{library,pages}/` | `world` 路由（Vue island）；可见子导航只有资料库/关系/需要决定。`world/bible` 首页展示最近使用、收藏、继续编辑、主题目录与按类型筛选 chips；结果页由服务端统一列表 `/api/world/library` 驱动（Page 合并其工作稿、独立工作稿与已采用对象，默认 50 项分页、紧凑列表默认），cards/list、搜索、形态、类型、状态、主题、排序与 `skip` 写 URL，服务端列表失败时回退客户端合并卡片。主题目录支持嵌套/改名/归档/排序与多主题引用，工作稿发布时服务端转换目录引用；桌面为粘性目录导航，760px 以下为抽屉。收藏与最近访问经工作区接口持久化，未归类资料始终可从目录找到。World 子页经通用 shell slot 把动态工具卡 Teleport 到一级侧栏；健康、页面未决项和更多类型使用 Vue 模态焦点边界，移动端改为页面内工具入口。统一创建先分具体对象与资料页；对象类型必选，人物详情按需编辑现有 Character 简单字段，名称/别名仍由 CoreEntity 管理。Entity 深链、关联资产、滚动恢复和人物/页面未保存离开门禁保持不变。旧 `objects/aliases` 查询规范化，原对象库图片/批量/回滚/人物认知从次级工具继续可达，review 旧深链仍定位统一工作台。对象搜索保留服务端别名/隐藏资料命中，局部失败可原位重试；760px 以下单栏且主要操作至少 44px。世界库另提供关系分组视角：目录与首页进入势力成员/地点关联/人物持有/事件参与四个预设或自定义视角，组列表与成员页由 `/api/world/library/relation-groups` 和带 `group_view` 参数的统一列表驱动（视角、组、搜索、分页写 URL，刷新可恢复）；组名搜索与组内成员搜索各自独立写 URL 并分别恢复；成员按对象去重并显示该组内的关系标签，多选（当前页、上限 50）后经 `/api/world/relations/membership-batch` 添加或移出——添加的目标组完整分页加载，未关联页必选、组内页默认当前组也可改选其他组（原有归属保留），移出在确认清单中按关系勾选并携带执行指纹，409 stale/candidate/校验各有作者可懂文案与后续入口；视角查询失败显示错误与重试，不回退扁平列表。高风险保存、发布、采用和忽略不只放在侧栏；关联图独立在 `world/pages/WorldBibleKnowledgeGraph.vue` |
 | `vue/views/map/MapWorkspaceView.vue` | AI 地图册一级工作台：一键生成/更新、本次候选、已采用画廊、来源分类、冲突确认、停止恢复、图片编辑与标注。 |
 | `vue/views/outline/OutlineView.vue` | `outline` 的 Vue island 主视图；顶层为“故事总览、篇章、剧情线、场景”。故事总览的 AI 生成弹窗优先显示三项作者问题并渐进展开参考资料；AI 预览与 `?edit=1` 手工页共用结构化重复项编辑器，两类未采用修改都按项目本机恢复；提交仍适配原 wire payload，版本历史不可原地改写 |
 | `vue/views/scene/SceneWorkbenchView.vue` | 由 `outline/scenes` 承载的 Scene 普通/热点双模式、管理筛选、当前剧情定位、拆分/合并/替换、复核与自动提取整理；有来源绑定配图的 Scene 详情通过 `SceneVisual` 读取固定 World 图片版本，版本更新后提示重新核对；旧 `scene` 路由仅作兼容重定向 |
 | `vue/views/rag/RagView.vue` | `rag` 路由（Vue island）；普通路径只显示查找。资料未准备好时提供“查看并修复”，修复范围、状态与任务进度直接可见；后台连接、语义匹配耗时、检索记录和失败片段重试等低频信息收在诊断详情中，异常只给作者可执行的重试或联系管理员路径 |
 | `vue/views/generate/GenerateView.vue` / `vue/components/OwnerAiDrawer.vue` | owner 页 AI 抽屉内复用生成中心：world 共创与 POV 正文都使用表单内唯一主操作，长等待显示真实阶段，失败可聚焦原位重试并保留作者输入；任务资料按作者语言展示标题、状态、加入理由和来源，技术诊断渐进展开，预览按项目在当前标签页恢复；POV 选择/指令进入既有 512 KiB 项目会话，跨世界/写作 owner 时替换到正确所属页；矮窗口解除裁切，手机操作避开固定底栏；保留 checkpoint、continuation、target 与 preset，API/schema/wire 不变；旧 `generate` hash 仅作兼容重定向 |
+| `vue/views/project/components/SpreadsheetMigrationPanel.vue` / `spreadsheetMigration/*` | 导入抽屉「导入设定表格」页签（ADR-0030）：上传（多文件 xlsx/csv、10MB 校验）→ 逐表核对类型/表头/列映射 → AI 整理（大纲类默认预选、显式授权、进度轮询）→ 五分页签预览与逐条决策（conflict 摘录、相似名提示、validation policy 警示）→ 确认采用（confirmed+preview_hash，409 自动重取）→ 完成（跳世界库/整次撤销）；迁移记录列表支持继续/撤销/二次确认删除；「表格迁移」来源徽标与空态入口见世界库与大纲 |
 | `vue/views/settings/SettingsShellView.vue` / `GlobalSettingsView.vue` / `ProjectSettingsView.vue` | `settings` 与 `project-settings` 共用单标题的账户/当前作品设置外壳；加载失败可原位重试，字段错误和保存状态持续可见，图片连接按需展开，窄屏单栏且无横向溢出；账户级连接、余额、全局偏好和项目级导入参数/作者偏好的 API、保存载荷与离开保护不变，字体和专注模式只在显示层本地化 |
 
 公开演示有已发布正文时，Today 主操作显示「阅读正式正文」并进入专用只读阅读器；阅读器只请求 `published` 章节列表与按章最新正文，不挂载编辑器、版本历史、Scene、冲突检查或恢复本地工作稿。首页只从章节列表生成简化续读投影，不请求作者 `workspace-summary`、待办或世界工作稿。
@@ -696,11 +697,27 @@ ReadingFlow 提供显式启用的逐场景理解试用，
 
 ## 编辑台与写作入口
 
+写作台“检查与导出”菜单提供双口径导出：「导出本章（编辑器当前文字）」导出本地编辑器
+内容，「导出本章（已采用版本）」与「导出全书（TXT/合并 Markdown/分章 ZIP）」走服务端
+已采用版本端点并明示口径与未采用章节；项目设置页另有全书导出与「AI 用量」次级诊断区
+（按能力聚合窗口期请求与词元，扫描截断时明示）。候选审查面板按 Scene 计划条目展示
+「已落实 / 未落实 / 待核实」三态，带正文位置的待核实条目可勾选纳入定向返修（默认不
+纳入）。剧情线列表对超过计划兑现章未收束的线显示超期徽章。
+
 Writing 保存工作稿后可显式“本章写完，交给编辑看”，点击不会发布或替换正文；“本章编辑意见”
-打开项目助手的编辑台。编辑台先显示约定、范围和当前最重要的三条意见，证据、反证、处理
+打开项目助手的编辑台。编辑约定区提供「也用于 AI 写作」开关（默认关闭，约定为空时提示
+不会生效；说明「AI 角色视角建议」不使用约定）；复审中措辞变化但对象与章节相同的意见沿用
+既有处置并显示“沿用此前的处理”，可随时改判；同批中对象与章节相同的不同意见按首条引文
+区分，各自保留。编辑台先显示约定、范围和当前最重要的三条意见，证据、反证、处理
 方向、历史按需展开；章节/区间/全书的缺章、预算中断、来源变化和继续入口始终可见。
 改后复核只显示判断，作者确认关闭。编辑约定输入保留会话内备份，版本冲突不清除输入。
 `useEditorialGuard.js` 在有排队或进行中的审读时，于显式保存编辑约定、世界对象/关系/别名/
 世界书、剧情线/篇章/伏笔/揭示/场景的编辑与删除，以及发布正在审读的章节前，说明会让审读
 失效并请作者确认；功能未开放或读取失败时放行。自动保存不拦截，写作页只就地提示本章审读中。
 公开只读演示源不显示项目助手；窄屏先保留范围、结论和主操作。
+
+
+### 写作示例与省钱模式入口（2026-10）
+
+写作页：候选卡片「存为写作示例」与选区「选段存为例子」；项目设置 AI 页：
+示例管理+对照统计、省钱模式开关；账户设置：附加模型编辑（省钱模式候选）。

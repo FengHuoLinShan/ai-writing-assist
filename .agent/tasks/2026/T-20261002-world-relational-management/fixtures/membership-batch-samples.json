@@ -1,0 +1,88 @@
+{
+  "add_success_request": {
+    "novel_id": "ddddddd0-0000-4000-8000-000000000000",
+    "action": "add",
+    "group_view": "affiliation",
+    "group_id": "11111111-1111-4111-8111-111111111111",
+    "member_ids": [
+      "aaaaaaa3-0000-4000-8000-000000000003",
+      "aaaaaaa4-0000-4000-8000-000000000004"
+    ],
+    "confirmed": true
+  },
+  "add_success_response": {
+    "added_count": 2,
+    "reused_count": 0,
+    "removed_count": 0,
+    "affected_relation_ids": [
+      "bbbbbbb4-0000-4000-8000-000000000004",
+      "bbbbbbb5-0000-4000-8000-000000000005"
+    ]
+  },
+  "add_with_explicit_relation_request": {
+    "novel_id": "ddddddd0-0000-4000-8000-000000000000",
+    "action": "add",
+    "group_view": "affiliation",
+    "group_id": "11111111-1111-4111-8111-111111111111",
+    "member_ids": ["aaaaaaa3-0000-4000-8000-000000000003"],
+    "confirmed": true,
+    "relation_type": "leader_of",
+    "relation_kind": "social",
+    "group_side": "target"
+  },
+  "custom_add_request": {
+    "novel_id": "ddddddd0-0000-4000-8000-000000000000",
+    "action": "add",
+    "group_view": "custom",
+    "group_id": "55555555-5555-4555-8555-555555555555",
+    "member_ids": ["aaaaaaa5-0000-4000-8000-000000000005"],
+    "confirmed": true,
+    "group_type": "location",
+    "member_type": "item",
+    "relation_type": "guarded_by",
+    "relation_kind": "intentional",
+    "group_side": "target"
+  },
+  "remove_request": {
+    "novel_id": "ddddddd0-0000-4000-8000-000000000000",
+    "action": "remove",
+    "group_view": "affiliation",
+    "group_id": "11111111-1111-4111-8111-111111111111",
+    "member_ids": ["aaaaaaa1-0000-4000-8000-000000000001"],
+    "confirmed": true,
+    "relation_refs": [
+      {
+        "id": "bbbbbbb1-0000-4000-8000-000000000001",
+        "expected_execution_fingerprint": "3f2a1c0d5e4b6a7f8c9d0e1f2a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d"
+      }
+    ]
+  },
+  "remove_success_response": {
+    "added_count": 0,
+    "reused_count": 0,
+    "removed_count": 1,
+    "affected_relation_ids": ["bbbbbbb1-0000-4000-8000-000000000001"]
+  },
+  "errors": {
+    "invalid_view": { "status": 422, "detail": "Unknown group_view: 'bogus'" },
+    "stale_execution": {
+      "status": 409,
+      "code": "stale_execution",
+      "detail": "关系已在别处更新，请刷新后重试"
+    },
+    "relation_exists_as_candidate": {
+      "status": 409,
+      "code": "relation_exists_as_candidate",
+      "detail": "已有待处理的同名候选关系，请先在世界关系审核中处理"
+    },
+    "required_validation": {
+      "status": 409,
+      "code": "required_validation",
+      "detail": "项目已启用世界校验策略，请先完成校验后再修改正史关系"
+    },
+    "relation_not_in_group": {
+      "status": 404,
+      "detail": "关系不存在或不属于该分组成员"
+    }
+  }
+}

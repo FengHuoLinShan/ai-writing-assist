@@ -46,6 +46,11 @@ from modules.world.authority import (
     RevertPreviewInputV1,
 )
 from modules.world.entity_fusion import WorldEntityFusionService
+from modules.world.relation_schemas import (
+    WorldRelationGroupListResponse,
+    WorldRelationMembershipBatchRequest,
+    WorldRelationMembershipBatchResponse,
+)
 from modules.world.schemas import (
     AliasKind,
     AskWorldCitationOpenRequest,
@@ -1342,6 +1347,45 @@ async def update_bible_category(
 # ============================================================
 
 
+@router.get("/library/relation-groups", response_model=WorldRelationGroupListResponse)
+async def list_world_relation_groups(
+    db: DbSession,
+    *,
+    novel_id: ActiveNovelIdQuery,
+    group_view: str = Query(
+        ..., description="关系视角：affiliation / location / possessions / event / custom"
+    ),
+    group_type: str | None = Query(None, description="custom 视角：分组对象类型"),
+    member_type: str | None = Query(
+        None, description="custom 视角：成员对象类型（可选）"
+    ),
+    relation_type: str | None = Query(None, description="custom 视角：详细关系"),
+    group_side: str | None = Query(
+        None, description="custom 视角：分组所在端 source / target"
+    ),
+    q: str | None = Query(None, description="按组名称或别名搜索"),
+    skip: int = Query(default=0, ge=0, description="跳过的分组数"),
+    limit: int = Query(
+        default=50,
+        ge=1,
+        le=MAX_PAGE_SIZE,
+        description="每页分组数",
+    ),
+) -> WorldRelationGroupListResponse:
+    return await _world_library_service.list_relation_groups(
+        db,
+        novel_id,
+        group_view=group_view,
+        group_type=group_type,
+        member_type=member_type,
+        relation_type=relation_type,
+        group_side=group_side,
+        q=q,
+        skip=skip,
+        limit=limit,
+    )
+
+
 @router.get("/library", response_model=WorldLibraryListResponse)
 async def list_world_library(
     db: DbSession,
@@ -1360,6 +1404,17 @@ async def list_world_library(
     topic_id: str | None = Query(None, description="主题过滤"),
     topic_scope: str = Query("subtree", description="主题范围：subtree / topic"),
     unclassified: bool = Query(False, description="只看未加入任何主题的资料"),
+    group_view: str | None = Query(None, description="关系视角（进入分组成员浏览）"),
+    group_id: str | None = Query(None, description="分组视角：组对象 ID"),
+    group_unlinked: bool = Query(False, description="分组视角：只看本视角尚无关联的对象"),
+    group_type: str | None = Query(None, description="custom 视角：分组对象类型"),
+    member_type: str | None = Query(
+        None, description="custom 视角：成员对象类型（可选）"
+    ),
+    relation_type: str | None = Query(None, description="custom 视角：详细关系"),
+    group_side: str | None = Query(
+        None, description="custom 视角：分组所在端 source / target"
+    ),
     sort: str = Query("updated", description="排序：updated / recent / title / created"),
     skip: int = Query(default=0, ge=0, description="跳过的记录数"),
     limit: int = Query(
@@ -1382,6 +1437,13 @@ async def list_world_library(
         topic_id=topic_id,
         topic_scope=topic_scope,
         unclassified=unclassified,
+        group_view=group_view,
+        group_id=group_id,
+        group_unlinked=group_unlinked,
+        group_type=group_type,
+        member_type=member_type,
+        relation_type=relation_type,
+        group_side=group_side,
         sort=sort,
         skip=skip,
         limit=limit,
@@ -3496,6 +3558,20 @@ async def review_relations_batch(
     novel_id: ActiveNovelIdQuery,
 ) -> ReviewBatchResponse:
     return await _relation_service.review_batch(db, novel_id, data)
+
+
+@router.post(
+    "/relations/membership-batch",
+    response_model=WorldRelationMembershipBatchResponse,
+)
+async def apply_world_relation_membership_batch(
+    db: DbSession,
+    data: WorldRelationMembershipBatchRequest,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> WorldRelationMembershipBatchResponse:
+    """世界库关系视角的单个／批量成员维护（整批一个事务）。"""
+    return await _relation_service.membership_batch(db, novel_id, data)
 
 
 @router.post("/relations", response_model=EntityRelationResponse, status_code=201)

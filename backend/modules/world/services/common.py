@@ -2,7 +2,47 @@
 
 from __future__ import annotations
 
+from datetime import UTC
+
 from shared.utils import parse_uuid  # noqa: F401
+
+
+def entity_relation_execution_snapshot(relation) -> dict[str, object]:
+    """关系执行快照 — 读取端展示与写入端重验共用同一份字段清单。
+
+    字段增删会改变指纹语义，任何调整必须同步调用方并保持两端一致。
+    """
+    updated_at = relation.updated_at
+    if updated_at is not None and updated_at.tzinfo is None:
+        updated_at = updated_at.replace(tzinfo=UTC)
+    source_chapter_id = relation.source_chapter_id
+    caused_by_event_id = relation.caused_by_event_id
+    return {
+        "id": str(relation.id),
+        "source_id": str(relation.source_id),
+        "target_id": str(relation.target_id),
+        "relation_type": relation.relation_type,
+        "relation_kind": relation.relation_kind,
+        "description": relation.description,
+        "strength": relation.strength,
+        "status": relation.status,
+        "quote": relation.quote,
+        "source_chapter_id": str(source_chapter_id) if source_chapter_id else None,
+        "caused_by_event_id": str(caused_by_event_id)
+        if caused_by_event_id
+        else None,
+        "review_meta": relation.review_meta or {},
+        "updated_at": updated_at.astimezone(UTC).isoformat()
+        if updated_at
+        else None,
+    }
+
+
+def entity_relation_execution_fingerprint(relation) -> str:
+    """单条关系的执行指纹，与批量分组指纹共用 stable_fingerprint 算法。"""
+    from modules.world.services.core.review_queue import stable_fingerprint
+
+    return stable_fingerprint(entity_relation_execution_snapshot(relation))
 
 
 def normalize_name(value: str) -> str:

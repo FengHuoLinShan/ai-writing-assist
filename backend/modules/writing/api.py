@@ -12,6 +12,7 @@ from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Path, Query
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from core.api_params import NovelIdQuery
@@ -611,6 +612,22 @@ async def adopt_candidate_to_working(
     return result
 
 
+@router.get("/author-example-stats/{novel_id}")
+async def get_author_example_stats(
+    db: DbSession,
+    novel_id: str,
+    *,
+    days: int = Query(default=30, ge=1, le=365),
+):
+    """带/不带作者示例的生成对照（次级诊断，观察性数据）。"""
+    await require_active_project(db, novel_id)
+    from modules.writing.author_example_stats import (
+        get_author_example_stats as _stats,
+    )
+
+    return await _stats(db, novel_id, days=days)
+
+
 @router.put("/drafts/{draft_id}", response_model=WritingDraftResponse)
 async def update_draft(
     db: DbSession,
@@ -721,6 +738,42 @@ async def get_latest_chapter_draft(
     if public_demo:
         return PublicWritingDraftResponse.model_validate(draft, from_attributes=True)
     return draft
+
+
+@router.get("/export")
+async def export_book(
+    db: DbSession,
+    *,
+    novel_id: NovelIdQuery,
+    format: str = Query(default="txt", pattern="^(txt|md|md-zip)$"),
+    chapter_index: int | None = Query(default=None, ge=1),
+) -> Response:
+    """按章序导出每章当前已采用（published）版本；未采用章节在文件头列出。
+
+    chapter_index 指定时只导该章的已采用版本。
+    """
+    await require_active_project(db, novel_id)
+    result = await _service.build_book_export(
+        db,
+        novel_id,
+        fmt=format,
+        chapter_index=chapter_index,
+    )
+    from urllib.parse import quote
+
+    ascii_name = quote(result["filename"])
+    return Response(
+        content=result["content"],
+        media_type=result["media_type"],
+        headers={
+            "Content-Disposition": (
+                f"attachment; filename*=UTF-8''{ascii_name}"
+            ),
+            "X-Pending-Chapters": ",".join(
+                str(index) for index in result["pending_chapters"]
+            ),
+        },
+    )
 
 
 @router.get(

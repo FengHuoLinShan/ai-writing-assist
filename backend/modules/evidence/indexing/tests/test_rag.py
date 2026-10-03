@@ -1381,7 +1381,7 @@ class TestRagFacade:
         await db_with_project.flush()
 
         result = await retrieve(db_with_project, novel_id, "测试", top_k=3)
-        assert result.total <= 3
+        assert len(result.chunks) == 3
 
     @pytest.mark.asyncio
     async def test_retrieve_visible_until_chapter_excludes_future_chunks(

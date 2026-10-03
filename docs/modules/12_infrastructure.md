@@ -145,6 +145,12 @@ deadline 前一刻发出的在途请求不会运行完整 provider timeout 越�
 清理并报告启动失败，不等满冷启动窗口。应用实际检索是否降级须以运行回执验证。
 `managed_llm_steps` 保持 v0 五字段兼容，v1 由同一信封的 step receipt 派生。
 
+`TaskLifecycleService.summarize_ai_usage()`（经 `infrastructure.tasks.facade.
+summarize_project_ai_usage` 暴露）为 owner 次级诊断入口提供只读跨任务聚合：按项目扫描
+窗口期任务 meta 中的信封，按 root capability 汇总模型请求与输入/输出词元，只输出聚合计数
+（不含 prompt 内容或模型密钥）；单条坏回执跳过计数，单次扫描上限 500 条任务并返回
+`scan_truncated`。
+
 Task 路径把同一信封落在 `async_tasks.meta` 的私有键 `_ai_run_envelope`：worker 与 inline 在 handler
 执行前注入 `task_id/attempt/lease_id` 并恢复同一 run，自动 requeue、stale 恢复与 manual resume
 不重置累计计数、冻结额度或 deadline，inline 子任务复用父 run。快照经
@@ -644,3 +650,11 @@ Flash max 思考与至少65,536输出上限，provider 等待至少900秒。客�
 栅栏、Project secret-free snapshot 和 managed LLM budget 执行；每个审稿段最多四次请求，
 改后复核一次。分段结果在领域 review 中持久化；用量未知不重试。作者主动编辑复用 Watch
 单项目后台执行槽、稳定期和每日额度，单独的服务端开关与项目授权均默认关闭。
+
+
+### LLM 结构化输出声明与任务级路由（2026-10）
+
+能力档案 `structured_output` 三态：`supported` 与 `unverified` 均保持既有
+provider json_object（`unverified` 仅不具 B5 路由候选资格），`unsupported`
+失败关闭且预填不可绕过；managed step 按项目省钱开关与 cheap 子能力集
+（`routing_capability_id`，独立于信封归属）在同 provider 内切换低成本模型。

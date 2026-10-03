@@ -520,6 +520,86 @@ async def test_cross_provider_connect_keeps_one_account_head(
         await engine.dispose()
 
 
+@pytest.mark.parametrize("change", ["activate", "clear"])
+async def test_secondary_models_validate_after_concurrent_connection_change(
+    monkeypatch,
+    change,
+) -> None:
+    from modules.account.settings_repositories import GlobalLLMDefaultsRepository
+
+    engine = create_async_engine(DATABASE_URL, pool_size=3, max_overflow=0)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    owner_id = uuid.uuid4()
+    token = None
+    pending = None
+    monkeypatch.setenv("ENABLE_ACCOUNT_KIMI_K3", "1")
+
+    async def validate(_provider_id, _api_key):
+        return None
+
+    monkeypatch.setattr(
+        "modules.account.settings_service._validate_account_llm_connection", validate
+    )
+    try:
+        async with sessions.begin() as db:
+            db.add(Account(id=owner_id, support_code=f"secondary-{owner_id.hex[:16]}"))
+        token = bind_principal(_principal(owner_id))
+        async with sessions.begin() as db:
+            await SettingsService().connect_account_llm_provider(db, "kimi", "test-kimi")
+            await SettingsService().connect_account_llm_provider(
+                db, "deepseek", "test-ds"
+            )
+
+        started = asyncio.Event()
+        original_lock = GlobalLLMDefaultsRepository.lock_owner_head
+
+        async def wait_for_head(self, db, owner):
+            started.set()
+            await original_lock(self, db, owner)
+
+        async def update_secondary():
+            async with sessions.begin() as db:
+                try:
+                    await SettingsService().update_account_secondary_models(
+                        db, ["kimi-k3"]
+                    )
+                except ValueError as exc:
+                    return str(exc)
+                return "saved"
+
+        async with sessions.begin() as changing_db:
+            if change == "activate":
+                await SettingsService().activate_account_llm_provider(changing_db, "kimi")
+            else:
+                await SettingsService().clear_account_llm_provider(
+                    changing_db, "deepseek"
+                )
+            with patch.object(
+                GlobalLLMDefaultsRepository,
+                "lock_owner_head",
+                autospec=True,
+                side_effect=wait_for_head,
+            ):
+                pending = asyncio.create_task(update_secondary())
+                await asyncio.wait_for(started.wait(), timeout=5)
+                assert not pending.done()
+                await changing_db.commit()
+                result = await asyncio.wait_for(pending, timeout=5)
+        assert ("主模型同名" if change == "activate" else "尚未连接") in result
+        async with sessions() as db:
+            head = await GlobalLLMDefaultsRepository().get(db, owner_id)
+            assert head.secondary_models == []
+    finally:
+        if pending is not None and not pending.done():
+            pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)
+        if token is not None:
+            reset_principal(token)
+        async with sessions.begin() as db:
+            await db.execute(delete(Account).where(Account.id == owner_id))
+        await engine.dispose()
+
+
 async def test_see_sea_notice_acknowledgement_is_idempotent_under_concurrency(
     monkeypatch,
 ) -> None:

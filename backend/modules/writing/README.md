@@ -183,8 +183,9 @@ POST /api/writing/conflict-check-items/{id}/ai-suggestion-task → 异步生成�
 PATCH /api/writing/conflict-check-items/{id}      → 更新问题处理状态
 POST /api/writing/conflict-check-items/{id}/confirm-continuity → 作者确认连续性事实并重建 Scene 状态
 POST /api/writing/generate                        → 从已确认 context 生成正文 candidate
-POST /api/writing/semantic-reviews               → 独立语义审查，回执 coverage/findings
-POST /api/writing/targeted-revisions             → 按冻结 finding 生成定向返修 candidate
+POST /api/writing/semantic-reviews               → 独立语义审查，回执 coverage/findings/合同条目三态判定
+POST /api/writing/targeted-revisions             → 按冻结 finding（或显式纳入的待核实合同条目）生成定向返修 candidate
+GET  /api/writing/export                         → 按章序导出每章当前已采用版本（txt/md/md-zip，可选单章）
 ```
 
 `demo_readonly` principal 只可读取 `published` 章节列表与按章最新正文；公开投影仅含章号、标题、正文和读者可见字数，不含 raw ID、内部状态、时间戳、provenance、冲突快照或作者状态。draft ID、版本历史与 `regeneration-context` 均不在公开演示读取白名单中。
@@ -252,7 +253,12 @@ POV view 和确定性 guard 结果送入审稿；原 hidden guard 词条只在�
 旧的非 context-aware 审查回执不能用于采用或返修。
 
 审稿支持 selection/volume/book 分片近读，输出 Scene 合同、时间地点、身份关系、能力规则和
-角色知识边界五项结构化 coverage。finding excerpt 必须在冻结正文中唯一定位；缺失 coverage、
+角色知识边界五项结构化 coverage。Scene `must_happen` 冻结为逐条清单后同请求逐条三态判定
+（met/unmet/unknown），服务端核验 excerpt 唯一定位后签署 `scene_contract`；unmet 映射为
+`contract_omission`，待核实条目默认不进返修、作者显式纳入时附边界声明。跨章复读是
+conflict check 的确定性提示项（`cross_chapter_repetition`，low/needs_review，只提示不拒存）。
+全书导出（`GET /api/writing/export`）按章序输出每章当前已采用版本，组装前后复核版本清单，
+未采用章节在文件头列出。finding excerpt 必须在冻结正文中唯一定位；缺失 coverage、
 模型输出的 `not_checked` 或歧义位置使回执为 `incomplete`，不能签署 PASS。Prompt 明确区分
 实际缺失检查与不适用项：缺少 Scene 合同、非角色视角或未启用的连续性版本只通过 coverage
 标记不适用，不作为模型 `not_checked` 的完成说明。服务端保留所有失败关闭检查，不自动
@@ -436,3 +442,14 @@ candidate 不视为正文变化。失效不自动触发付费重算。
 幂等；修改正文使旧标记失效，但不改变发布状态。只有新标记才通过 Assistant facade 通知已
 明确开启的后台编辑，普通自动保存不排队。编辑意见和改后复核由 Assistant 持有，Writing 的
 `independent_review` 仍只服务 AI candidate 的正式审稿与采用门禁。
+
+
+## 作者写作示例（B3 few-shot）
+
+作者在候选卡片/正文选区「存为例子」后（`Project.settings` 存储，好例 ≤3、
+反例 ≤2 且必须写差在哪），示例作为 `author_examples` section（P3）在
+writing.generate 的作者视角进入确认预览与指纹；超预算先截反例再截好例。
+候选 provenance 记录 `author_examples_used`，项目设置提供带/不带示例的
+对照统计（观察性诊断）。分母仅计原生成候选，排除从候选采用/保存的工作稿；
+采用后弃置的候选保留生命周期身份，不随工作稿版本数重复计算。示例被预算整体
+逐出时，确认预览明确提示“本次未使用你的示例”。

@@ -63,6 +63,8 @@ function deferred() {
 beforeEach(() => {
   vi.clearAllMocks()
   localStorage.clear()
+  globalThis.api.settings.listLLMDefaults = vi.fn().mockResolvedValue({ provider_id: "deepseek", secondary_models: [] })
+  globalThis.api.settings.updateSecondaryModels = vi.fn().mockResolvedValue({ secondary_models: [] })
 })
 
 afterEach(() => {
@@ -70,6 +72,46 @@ afterEach(() => {
 })
 
 describe("账户模型连接", () => {
+  it("正常进入回填附加模型，完成读取前不能保存", async () => {
+    const pending = deferred()
+    api.settings.listLLMDefaults.mockReturnValueOnce(pending.promise)
+    const wrapper = mount(GlobalSettingsView, { props: makeProps() })
+    expect(wrapper.get(".secondary-models-section button").attributes("disabled")).toBeDefined()
+    pending.resolve({ provider_id: "deepseek", secondary_models: ["deepseek-flash"] })
+    await flushPromises()
+    expect(wrapper.get(".secondary-models-section input").element.value).toBe("deepseek-flash")
+    await wrapper.get(".secondary-models-section button").trigger("click")
+    expect(api.settings.updateSecondaryModels).toHaveBeenCalledWith(["deepseek-flash"])
+    wrapper.unmount()
+  })
+
+  it("读取失败保留服务端配置，重试成功才允许清空", async () => {
+    api.settings.listLLMDefaults.mockRejectedValueOnce(new Error("读取失败"))
+    const wrapper = mount(GlobalSettingsView, { props: makeProps() })
+    await flushPromises()
+    expect(wrapper.text()).toContain("读取失败")
+    await wrapper.get(".secondary-models-section button").trigger("click")
+    expect(api.settings.updateSecondaryModels).not.toHaveBeenCalled()
+    await wrapper.findAll(".secondary-models-section button")[1].trigger("click")
+    await flushPromises()
+    expect(wrapper.get(".secondary-models-section input").element.value).toBe("")
+    await wrapper.get(".secondary-models-section button").trigger("click")
+    expect(api.settings.updateSecondaryModels).toHaveBeenCalledWith([])
+    wrapper.unmount()
+  })
+
+  it("附加模型草稿受离开保护，其他服务卡片不能编辑当前连接", async () => {
+    const wrapper = mount(GlobalSettingsView, { props: makeProps({ llmConnections: makeConnections({ providers: makeConnections().providers.map(p => ({ ...p, connected: true })) }) }) })
+    await flushPromises()
+    await wrapper.get(".secondary-models-section input").setValue("draft-model")
+    const event = new Event("beforeunload", { cancelable: true })
+    window.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(true)
+    await wrapper.findAll(".account-provider-card")[1].trigger("click")
+    expect(wrapper.find(".secondary-models-section").exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it("只呈现两种模板、Key 与只读余额", () => {
     overrideProjectId(null)
     const wrapper = mount(GlobalSettingsView, { props: makeProps() })

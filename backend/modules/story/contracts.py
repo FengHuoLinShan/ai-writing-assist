@@ -29,6 +29,7 @@ from modules.story.observations import ReadingNode as ReadingNode
 from modules.story.outline_state.contracts import (
     SCENE_SEMANTIC_FIELD_STATUSES,
     SCENE_SEMANTIC_FIELDS,
+    TERMINAL_THREAD_STAGES,
     NeighborSceneBriefContract,
     OutlineAnalysisContextContract,
     OutlineArcContract,
@@ -47,6 +48,8 @@ from modules.story.outline_state.contracts import (
     SceneSpanCoverageContract,
     SceneSummaryCheckpointContract,
     scene_semantic_field_status,
+    thread_overdue_notice,
+    thread_stage_is_terminal,
 )
 from modules.story.schemas import (
     CharacterCardResponse,
@@ -107,6 +110,9 @@ __all__ = [
     "SceneSpanCoverageContract",
     "SceneSummaryCheckpointContract",
     "scene_semantic_field_status",
+    "thread_overdue_notice",
+    "thread_stage_is_terminal",
+    "TERMINAL_THREAD_STAGES",
 ]
 
 from modules.story.outline_state.scene_resolution import (  # noqa: E402

@@ -19,6 +19,8 @@
         <label>刻意留白或误导 <small>每行一项</small><textarea v-model="briefLists.intentional_choices" rows="3" /></label>
         <label>本轮不审的资料 <small>每行一项，例如 chapter:12</small><textarea v-model="briefLists.excluded_targets" rows="2" /></label>
         <div class="editorial-desk__actions"><button type="button" class="btn btn-primary btn-sm" :disabled="busy" @click="saveBrief">保存编辑约定</button></div>
+        <label class="editorial-desk__writing-toggle"><input type="checkbox" :checked="briefForWriting" :disabled="writingToggleBusy" @change="toggleBriefForWriting($event.target.checked)" />也用于 AI 写作<small>开启后，AI 正文建议与续写会在参考资料确认中带上这份约定；「AI 角色视角建议」不使用它，以免刻意留白和误导安排被当成角色已知。文风只影响表达方式，不会新增事实或情节。默认关闭。</small></label>
+        <p v-if="briefForWriting && !briefForWritingEffective" role="status" class="editorial-desk__inherited">开关已开启，但编辑约定还是空的；保存一份有内容的约定后才会真正进入 AI 写作。</p>
       </details>
       <p v-if="briefDraftNotice" role="status">{{ briefDraftNotice }}</p>
 
@@ -112,16 +114,41 @@ function restoreBrief(value) {
   briefLists.value = Object.fromEntries(["goals", "preserve", "intentional_choices", "excluded_targets"].map(key => [key, (source[key] || []).join("\n")]))
   briefDraftNotice.value = saved?.version === value.version ? "已恢复未保存的本地约定。" : ""
 }
+const briefForWriting = ref(false)
+const briefForWritingEffective = ref(false)
+const writingToggleBusy = ref(false)
+async function toggleBriefForWriting(enabled) {
+  if (writingToggleBusy.value || !props.projectId) return
+  const projectId = props.projectId
+  writingToggleBusy.value = true; error.value = ""
+  try {
+    const saved = await getApi().projects.setEditorialBriefForWriting(projectId, Boolean(enabled))
+    if (projectId !== props.projectId) return
+    // effective 由服务端按"开关开启且约定非空"返回，不继承开启前的旧值
+    briefForWriting.value = Boolean(saved.enabled)
+    briefForWritingEffective.value = Boolean(saved.enabled) && Boolean(saved.effective)
+    briefDraftNotice.value = saved.enabled
+      ? (saved.effective
+        ? "已开启：这份约定将进入 AI 正文建议与续写的参考资料确认。"
+        : "已开启，但编辑约定还是空的；保存约定后才会进入 AI 写作。")
+      : "已关闭：AI 写作不再读取这份约定。"
+  } catch (cause) {
+    if (projectId === props.projectId) error.value = cause.message || "切换失败，请重试。"
+  } finally { writingToggleBusy.value = false }
+}
 async function load() {
   if (!props.projectId) return
   const projectId = props.projectId
   loading.value = true; error.value = ""
   try {
-    const [nextBrief, nextPolicy, nextReviews, nextIssues] = await Promise.all([
+    const [nextBrief, nextPolicy, nextReviews, nextIssues, nextWritingUse] = await Promise.all([
       getApi().projects.editorialBrief(projectId), getApi().assistant.editorialPolicy(projectId),
       getApi().assistant.editorialReviews(projectId), getApi().assistant.editorialIssues(projectId),
+      getApi().projects.editorialBriefForWriting(projectId),
     ])
     if (projectId !== props.projectId) return
+    briefForWriting.value = Boolean(nextWritingUse?.enabled)
+    briefForWritingEffective.value = Boolean(nextWritingUse?.effective)
     restoreBrief(nextBrief); policy.value = nextPolicy; automaticEnabled.value = nextPolicy.enabled; automaticExclusionsText.value = (nextPolicy.excluded_chapters || []).join(", ")
     reviews.value = nextReviews; issues.value = nextIssues
     if (!nextReviews.some(item => item.id === selectedReviewId.value)) selectedReviewId.value = nextReviews[0]?.id || null

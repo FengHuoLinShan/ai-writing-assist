@@ -107,6 +107,7 @@ CONFIRMED 数据（名称、类型、`summary` 与少量确认属性；未确认
 - `world_bible_categories` / `world_bible_page_drafts` / `world_bible_pages` / `world_bible_page_revisions` / `world_bible_page_projections` — 世界书类别、服务器工作稿、含稳定 sections 的已发布页、带 digest 的不可变修订和派生投影
 - `world_library_topics` / `world_library_topic_members` — 资料库主题目录与成员：作者组织用嵌套主题树（`parent_id` 复合外键保证同项目嵌套、service 拒绝成环），成员是对 Page / Draft / Entity 的多主题引用；独立工作稿发布时自动转换为 page 引用并去重。目录只是组织方式，不构成地理或事实依赖，也不进入生成上下文
 - `world_library_favorites` / `world_library_recents` / `world_library_workspace_profiles` — 作者工作区收藏、最近访问（服务端保留最近 50 条）与每项目视图偏好
+- 关系分组视角 — 把已采用对象按既有 EntityRelation 的方向归类为势力成员／地点关联／人物持有／事件参与四个预设视角与自定义视角：浏览只读不改写原关系；成员维护走 `/relations/membership-batch`（canonical 复用不改证据、候选冲突拒绝整批、移出保留历史行与 before/after 审计、执行指纹 CAS），聚合计数在 SQL 完成，候选/历史/归档端点不构成成员资格
 - `world_cocreation_sessions` / `world_cocreation_messages` — 持久化共创会话与终态消息（ADR-0021）：会话以 `source_kind + source_id` 绑定项目/资料页（正式页或工作稿）/世界对象/主题，保存工作区形状（preset/target/source_page）与 `current_checkpoint_id` 指针；消息只落作者消息、完成的模型回复与作者决定，生成回合绑定 `context_confirmation_id` 与 `task_id`，候选成果以 `outcome_suggestion_id` 引用 `creation_suggestion_queue`（无跨表外键，读取时 join 建议状态推导待审阅/已存工作稿/已采用/已否定）。指针推进要求 `expected_checkpoint_id`，漂移返回 `checkpoint_pointer_drift` 409 并保留提案；归档为软删除，历史消息不回写
 
 作者编辑基线：`PATCH /bible/drafts/{id}`、`PUT /entities/{id}` 与 `PUT /characters/{id}` 必须携带
@@ -307,6 +308,17 @@ World Bible 页面是资料组织层，不是结构化事实源。发布后的�
 `dependency_relation` 暴露依赖语义。项目页面模板只描述布局和默认段落，不能保存 Prompt、provider、
 API key、工具或可执行表达式；应用模板只修改工作稿，发布仍走既有 CAS 与不可变 revision。
 
+### 作者表格迁移窄 seam（ADR-0030）
+
+`facade.plan/apply/rollback_author_migration_world`：imports 表格迁移的专用落库通道。
+plan 只读判定动作（create/fill_empty/adopt_existing/existing_ref/conflict/
+similar_name/alias_collision/needs_review/skip）与关系处理；apply 在行锁下重算并比对
+指纹，新实体直接 canonical（created_by=spreadsheet_migration、approved_by=owner、
+content_json._meta 记录来源五元组），别名 confirmed，作者备注追加 hidden_truth；同名
+只补空、冲突不写。rollback 经 `applied_change_reversal`（与 focused 补全共用）逆序
+处理，被改动（modified_after_migration）或被引用（referenced）的项保留。回滚新实体
+走软废弃；相关 Character 行的补空回滚按 character receipt 条目恢复。
+
 ## API
 
 ```
@@ -365,6 +377,11 @@ GET    /api/world/characters/{character_id}/knowledge
 POST   /api/world/characters/{character_id}/knowledge
 PUT    /api/world/knowledge/{knowledge_id}
 DELETE /api/world/knowledge/{knowledge_id}
+
+# 世界库关系分组视角（浏览 + 成员维护）
+GET    /api/world/library/relation-groups   # group_view（affiliation/location/possessions/event/custom），返回 views/items/total/unlinked_total
+GET    /api/world/library                   # 附加 group_view/group_id/group_unlinked 与 custom 配置后按视角返回去重成员，item 附 relation_refs（完整关系 + 执行指纹）
+POST   /api/world/relations/membership-batch  # 单个/批量添加或移出分组成员（整批一个事务；add 缺省用视角默认关系，remove 需 relation_refs 指纹清单）
 
 # World Bible 工作稿、历史和简介
 GET    /api/world/canon/head
@@ -634,3 +651,11 @@ Evolution 世界候选的 `evolution_ref` 为不可通过普通元数据编辑�
 
 内部 `create_entity(candidate_id=...)` 只接受候选，用于理解主链预绑定身份；
 实际创建仍走原类型、项目和重复确认保护，不能用预留 UUID 创建正史。
+
+
+### 图片请求幂等复用（2026-10）
+
+地图册与对象图片同参数请求命中 `image_request_reuse` 登记即复用既有资产
+（不调 provider）；「重新生成」强制换新。对象候选入队冻结 `request_hash`。
+对象复用登记独立保存原始图片字节，采用及候选保留上限不使资产失效；最新
+来源副本被作者明确放弃后作废。地图本机请求按冻结 CLI 种类区分指纹。

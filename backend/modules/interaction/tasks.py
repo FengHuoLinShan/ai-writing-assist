@@ -36,7 +36,10 @@ from modules.interaction.runtime_policy import (
     interaction_story_run_request_limit,
 )
 from modules.interaction.schemas import InteractionSummaryOutput
-from modules.project.facade import create_project_snapshot_llm_client
+from modules.project.facade import (
+    create_project_snapshot_llm_client,
+    get_any_project_context,
+)
 
 _workflow = InteractionGenerationWorkflow()
 _CHECKPOINT_CHARS = 512
@@ -55,9 +58,8 @@ async def _story_client(
             timeout_override=timeout_override,
         )
     from modules.local_agent.client import LocalCLIClient
-    from modules.project.models import Project
 
-    project = await db.get(Project, uuid.UUID(novel_id))
+    project = await get_any_project_context(db, novel_id)
     if project is None or agent_run is None:
         raise RuntimeError("本机 RP 任务缺少项目或 Agent 运行状态")
     return LocalCLIClient(
@@ -139,8 +141,7 @@ async def checkpoint_interaction_run_envelope(session, task, envelope: dict) -> 
             and successor is not None
             and successor.run_id == str(attempt.id)
             and successor.novel_id == str(attempt.novel_id)
-            and successor.authorization_revision
-            > payload.authorization_revision
+            and successor.authorization_revision > payload.authorization_revision
         ):
             raise AIRunCheckpointError(
                 "interaction run envelope owner is stale",
@@ -151,6 +152,8 @@ async def checkpoint_interaction_run_envelope(session, task, envelope: dict) -> 
     checkpoint[AI_RUN_ENVELOPE_KEY] = dict(envelope)
     attempt.agent_checkpoint_json = checkpoint
     await session.flush()
+
+
 @task_handler(
     "interaction_continuity_review",
     recovery_policy="manual_resume",
@@ -304,9 +307,12 @@ async def handle_interaction_story_generate(db, task):
             task=task,
             visible_delta=pending_visible,
             metadata_text=raw_metadata,
+            metadata_invalid=framer.metadata_invalid,
+            metadata_invalid_reason=framer.metadata_invalid_reason,
             usage=final_usage,
             progress=0.95,
         )
+        framer.mark_metadata_invalid_persisted()
         pending_visible = ""
         # ADR-0025 held release：审查通过前正文留在私有 hold，不写 visible_text。
         governed = await _workflow.govern_held_story(
@@ -337,7 +343,12 @@ async def handle_interaction_story_generate(db, task):
     except Exception as exc:
         trailing, _, _ = framer.finish()
         await _workflow.fail_story_task(
-            db, task=task, error=exc, visible_delta=pending_visible + trailing
+            db,
+            task=task,
+            error=exc,
+            visible_delta=pending_visible + trailing,
+            metadata_invalid=framer.metadata_invalid_unpersisted,
+            metadata_invalid_reason=framer.metadata_invalid_reason,
         )
         raise
     finally:

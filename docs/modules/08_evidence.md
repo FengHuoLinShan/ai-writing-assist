@@ -104,7 +104,8 @@ reader 视角不沿用作者 section 组装：编译器只纳入公开/已揭示
 | `WorldEntitiesLoader` / `CharactersLoader` | `world.facade` |
 | `EventsLoader` | `world.facade.get_events_context()` |
 | `MemoryRecordsLoader` | `memory` 全景查询 |
-| `OutlineArcLoader` / `SceneLoader` / `PlotThreadsLoader` | `outline` 服务与 facade |
+| `OutlineArcLoader` / `SceneLoader` / `PlotThreadsLoader` | `outline` 服务与 facade；剧情线只取未终结（current_stage 非 resolved/paused）的线，超期未收束保留入选并在渲染中标注 |
+| `EditorialBriefLoader` | `project.facade.read_editorial_brief_for_writing`；作者开启「编辑约定也用于 AI 写作」且约定非空时才注入（默认关闭），进入 chapter/scene scope。仅 `consumer_action=writing.generate` 且 `reveal_mode` 为作者视角时加载；其他消费动作（如角色卡编译）直接跳过，`writing.generate` 的读者/角色视角在约定本会生效时跳过并留警告——约定中的刻意留白/误导不得进入角色已知资料 |
 | `RagChunksLoader` | `evidence.facade.retrieve()` |
 | `WorldBibleLoader` | `world.facade` 的作者简介与显式选中工作稿 |
 
@@ -311,6 +312,17 @@ Lifecycle v1 为快照提供显式维护入口：
 避免只用起始章排除同一范围内的后续证据。`reference_chapter_index` 仍只用于 RAG
 时间衰减评分，不承担防剧透硬过滤。
 
+`render_compiled_context` 按资料性质给 section 标注事实等级（事实：已采用正文或
+作者设定／计划：大纲与 Scene 计划／规划：剧情线与伏笔／派生：AI 派生或按视角过滤的
+摘要／候选：未定稿或未采用的草稿与建议，不是正史事实／混合：事实与候选混排，以各条目
+来源为准）。世界对象、世界书 activation/简介、已采用正文、场景世界状态等核心事实
+section，以及世界书工作页（候选）、作者添加与专项查阅资料（混合）均已标注；世界对象
+section 的来源含未采用状态（作者显式纳入 pending/review 对象）时改标混合，角色视角的
+历史角色上下文标派生；标注只改
+渲染不改 `section.content`，因此不影响确认指纹。存在预算裁剪时在
+渲染末尾追加裁剪记录（类目 + 原因 + 规模），从 `budget_events` / `evicted_keys` /
+`truncated_keys` 派生——这三个字段在 writing 任务源指纹内可复现；文案是数据记录，
+不是新指令。
 `CompileOptions.content_mode` 独立选择 canonical/working 正文与索引；
 `visible_until_scene_id/visible_until_offset` 表达同章可选截止点。`author_safe + scene_id`
 会把 Scene 截止强制固定为当前 Scene，不能被调用方扩宽；`author_full` 不自动设置。
@@ -499,3 +511,11 @@ Assistant 编辑近读通过 `compile_review_world_evidence(..., capability="ass
 读取当章作者可见世界资料，沿用 Evidence 的分层选择、排除、单项精确回读与截断说明。
 这些资料只进入作者编辑判断；顺序盲读仅接收截至当前片段的正文和先前读者状态。编辑卡的
 正文/世界引用须在冻结来源中逐字核对，未回读资料不被称为已检查。
+
+
+### 逐源证据字段（2026-10）
+
+KnowledgeScopeReceipt 来源条目新增逐源 token、处置状态（included/trimmed/
+omitted）与哈希基底标记；可得正文参与 hash，预算逐出保留真实 token 与全部
+来源。不可分多源块使用 shared token_groups，复算按 group key 去重，独立数量
+才进入 token_count。账本不保存原文；增加审计字段本身不改变确认指纹。

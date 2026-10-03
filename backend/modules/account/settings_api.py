@@ -16,6 +16,7 @@ from modules.account.settings_schemas import (
     GlobalAuthorPrefsUpdate,
     GlobalLLMDefaultsResponse,
     GlobalLLMDefaultsUpdate,
+    SecondaryModelsUpdate,
 )
 from modules.account.settings_service import SettingsService
 
@@ -151,6 +152,23 @@ async def api_put_global_llm_defaults(
     try:
         return await _service.upsert_global_llm_defaults(
             db, data.model_dump(exclude_unset=True)
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.put(
+    "/llm-defaults/secondary-models",
+    response_model=GlobalLLMDefaultsResponse,
+    dependencies=[Depends(require_xhr_request)],
+)
+async def api_put_secondary_models(
+    db: DbSession,
+    data: SecondaryModelsUpdate,
+) -> GlobalLLMDefaultsResponse:
+    try:
+        return await _service.update_account_secondary_models(
+            db, list(data.models)
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
