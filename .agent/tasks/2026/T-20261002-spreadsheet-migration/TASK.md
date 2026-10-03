@@ -10,17 +10,20 @@ updated: 2026-10-03T22:30:00+09:00
 
 ## 恢复快照
 
-- 实际完成：实现、集成、独立 review 整改与全部门禁均已在集成分支完成。
+- 实际完成：实现、集成、独立 review 整改、复审修复轮与全部门禁均已在集成分支完成。
   提交链（`codex/spreadsheet-migration`，基于 `origin/main@0d555c463`）：
   79ae8e04a(计划) → 7ed082b47(L0) → 625d34541(任务记录) → 七车道 merge
   (c368a6d6d/fb1f61b38/f04deee5e/8b555a4ed/ec5425c6d/38d08bf0f/8e3c3f322)
   → 07dd57f0b(L8 集成) → 5b7d35346(清单门禁) → eacd5e6e3(L7b+ADR Accepted+fixtures)
-  → bc752a4ab(review 修复) → 98885f2e2(autospec 注释位置修复，终态)。
-- 当前里程碑：全部完成，等待用户 review / 授权推送与合入。
+  → bc752a4ab(review 修复) → 98885f2e2(autospec 注释位置修复)
+  → b4c2389db(任务记录收尾)
+  → 复审修复轮：efea9297f(服务层) → 045efc77d(前端) → 8594e0ffc(e2e 实测)
+  → 3d07eb3db(defusedxml 移除) → 文档同步（本提交）。
+- 当前里程碑：复审修复轮完成，等待用户 review / 授权推送与合入。
 - 下一步：用户授权后 push 分支并走 PR；真实模型验收与真实来源文件支持宣称另行授权。
 - 阻塞：无。
 - 工作区：`/Users/tywww/Desktop/项目/ai-writing-assist-spreadsheet`，工作树干净。
-- 最后核实：2026-10-03（最终全量门禁）。
+- 最后核实：2026-10-03（复审修复轮定向验证 + 浏览器 e2e 实测）。
 
 ## 目标与验收
 
@@ -44,7 +47,8 @@ updated: 2026-10-03T22:30:00+09:00
   - 落库：确认即采用；同名只补空字段，绝不覆盖；冲突不落库，只展示给作者。
 - **硬约束**：`novel_id` 与 owner 隔离；匿名 demo 不可用；LLM 只能经项目快照获取；
   会话和回执不长期保存正文；`@patch` 必须 `autospec=True`。
-- **依赖**：新增 `openpyxl`、`defusedxml`。storyforge-v6 仍在另一分支未合入，无 rebase 冲突。
+- **依赖**：新增 `openpyxl`（`defusedxml` 曾列入后经复审确认无引用，已移除）。
+  storyforge-v6 仍在另一分支未合入，无 rebase 冲突。
 
 ## 里程碑与进度
 
@@ -57,6 +61,10 @@ updated: 2026-10-03T22:30:00+09:00
 - [x] 独立 review + 修复（bc752a4ab：组件 scoped 样式与窄屏回退、决策/关系文案、apply 原子性用例；
   98885f2e2：autospec-exempt 注释位置）。
 - [x] L7b 文档全量同步，ADR-0030 改为 Accepted，全量门禁通过。
+- [x] 复审修复轮（2026-10-03）：default_entity_type 保留三层防护（后端回填+响应暴露+前端携带）、
+  AI 成本预估接入 ai_authorization（默认范围 + submit 带 operation_id）、回执 10 个内部码文案、
+  解析并发 Semaphore(2)、预览 decision_scope + 前端决策/列目标选项按类型过滤、
+  defusedxml 移除、浏览器 e2e 换真实夹具并以 `make spreadsheet-e2e` 实测通过。
 - [ ] 真实模型验收、真实来源（Excel/WPS/飞书/腾讯/Google/Notion 实际导出）文件验收——需用户另行授权。
 - [ ] push、PR、合入 main——需用户授权。
 
@@ -71,9 +79,13 @@ updated: 2026-10-03T22:30:00+09:00
   路由挂载顺序（`/api/imports/migrations` 必须先于 `/api/imports/{record_id}` 挂载，否则被吃掉）；
   `applied_change_reversal.py` 对 Character 误用 `model.id`（主键实为 `entity_id`）致回滚 500；
   PG 锁用例改测「持锁挂起、放锁后串行完成」（facade 默认阻塞语义）。
+- **2026-10-03（复审修复轮）**：复审发现#1「STORY_COLUMN_TARGETS 缺 core_conflict」为误读——
+  修复前运行级复核确认 constants.py:128 已含该键且分类测试通过，未改动（教训：修复前逐项 grep+pytest 复核）。
+  e2e 实测陷阱：项目页导入区展开状态（session.importSectionOpen）跨路由保留，从世界库返回后
+  再点 toggle-import 会收起抽屉，测试改为仅在收起时点开。
 - **2026-10-03**：已知待决（非阻断）：L6 `use_existing` 决策缺目标选择 UI（当前仅 `different_object` 可选）；
   L2 本地关系关键词表与 L1 `synonyms.guess_relation_kind` 双份（避免反向依赖，语义一致，可后续收敛）；
-  前端窄屏/冲突/恢复人工走查未完整执行（组件测试与 e2e 骨架已覆盖主要流）。
+  前端窄屏/冲突/恢复人工走查未完整执行（组件测试与浏览器 e2e 已覆盖主要流）。
 - **2026-10-03**：基线失败（非本次引入，已在干净 L1 基线 worktree 复现）：
   `test_project_task_gate_concurrency::test_delete_rejects_later_handler_commit…` 与
   `test_task_coalescing_concurrency::test_running_owner_allows_only_one_pending_follower`（PG，UUID 断言不匹配）；
@@ -81,6 +93,13 @@ updated: 2026-10-03T22:30:00+09:00
 
 ## 验证证据
 
+- 2026-10-03（复审修复轮，定向验证）：
+  - 后端：`pytest modules/imports -q` 910 passed；`ruff check modules/imports` 通过；
+    autospec 门禁 `tests/unit/test_test_harness.py` 16 passed（无新增豁免）。
+  - 前端：`vitest run tests/vue/project/spreadsheetMigration*.test.js` 20 passed；改动文件 eslint 通过。
+  - 浏览器 e2e：`make spreadsheet-e2e`（专用库 ai_novel_e2e_spreadsheet@PG5207，全新后端/前端，
+    PW_REUSE_EXISTING_SERVER=0）1/1 passed——上传真实夹具→映射→跳过 AI→采用→
+    世界库「表格迁移」徽标→撤销全链路实测。
 - 2026-10-03（终态，提交 98885f2e2）：
   - `make test`：6677 passed / 15 skipped / 7 deselected（唯一失败为 autospec 门禁指出
     `test_spreadsheet_migration_ai.py` 的 exempt 注释位置，修复后门禁+该文件 30 passed 定点复验；此前全量其余全绿）。
@@ -96,8 +115,8 @@ updated: 2026-10-03T22:30:00+09:00
 ## 交付结果
 
 - **已交付**：完整实现（后端 11 端点 + world/story 迁移 seam + AI 整理任务 + 前端迁移面板与导入抽屉双页签 +
-  浏览器 e2e 骨架）、ADR-0030（Accepted）与全部权威文档同步、真实文件夹具。分支 `codex/spreadsheet-migration`
-  共 16 个提交，工作树干净。
+  浏览器 e2e 实测通道 `make spreadsheet-e2e`）、ADR-0030（Accepted）与全部权威文档同步、真实文件夹具。
+  分支 `codex/spreadsheet-migration`，工作树干净。
 - **未交付**：push / PR / 合入 main（待授权）；真实模型验收（消耗额度，待授权）；真实来源文件支持宣称
   （Excel/WPS/飞书/腾讯/Google 实际导出待脱敏样本；Notion zip 属白名单外，不宣称支持）。
 - **交付边界**：仅本地集成分支；无远端、CI、部署状态变化。

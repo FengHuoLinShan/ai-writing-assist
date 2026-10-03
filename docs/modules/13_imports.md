@@ -297,8 +297,11 @@ Phase 3 的单次结构化请求使用项目可配置的
 ≤200 万字符）明确拒绝，不静默截断。
 
 - 会话 `import_migration_sessions`（imports 自有）：草稿期暂存有界单元格（rows_json），
-  采用或删除后清空；mapping/decisions 以 revision CAS；回执只存 id/hash/被改字段
-  原值与标签，不存正文。
+  采用或删除后清空；mapping/decisions 以 revision CAS；整体保存映射省略
+  `default_entity_type` 时保留旧推断值（不清空）；`ai_authorization` 记录默认范围的
+  成本预估（行数/字符/请求数），AI 提交成功后附带 operation_id/authorized_at，均不提升
+  revision。回执只存 id/hash/被改字段原值与标签，不存正文。上传解析经全局并发上限
+  （`PARSE_CONCURRENCY=2`）限流后进线程池，防并发上传叠加内存。
 - 识别（classify + synonyms）：表名与中文表头同义词规则给出表类型与列映射建议，作者
   逐表逐列可调；未识别列默认进「作者备注」（追加 hidden_truth）；大纲类表默认预选
   AI 整理。
