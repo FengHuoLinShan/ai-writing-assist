@@ -147,7 +147,7 @@ const sectionGroups = computed(() => {
 const evictedKeys = computed(() => [...new Set([...(props.bundle?.evicted || []), ...budgetEvents.value.filter((event) => event.event_type === "evicted").map((event) => event.section_key)].filter(Boolean))])
 const truncatedKeys = computed(() => [...new Set([...(props.bundle?.truncated || []), ...sections.value.filter((section) => section.truncated || section.truncated_reason).map((section) => section.key), ...budgetEvents.value.filter((event) => event.event_type === "truncated").map((event) => event.section_key)].filter(Boolean))])
 const incompleteItems = computed(() => [
-  ...evictedKeys.value.map((key) => ({ key: `removed-${key}`, text: `${sectionTitle({ key })}未加入本次资料。` })),
+  ...evictedKeys.value.map((key) => ({ key: `removed-${key}`, text: key === "author_examples" ? "本次未使用你的示例：超出本次可用范围。" : `${sectionTitle({ key })}未加入本次资料。` })),
   ...truncatedKeys.value.filter((key) => !evictedKeys.value.includes(key)).map((key) => ({ key: `limited-${key}`, text: `${sectionTitle(sections.value.find((section) => section.key === key) || { key })}只保留了相关部分。` })),
 ])
 const hasAttention = computed(() => incompleteItems.value.length > 0 || warnings.value.length > 0)

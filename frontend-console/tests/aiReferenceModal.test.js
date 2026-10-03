@@ -71,6 +71,10 @@ beforeEach(() => {
 })
 
 describe("aiReferenceModal", () => {
+  it("作者示例逐出后明确说明本次未使用", () => {
+    const html = renderContextSummary(preview({ budget_events: [{ section_key: "author_examples", event_type: "evicted", reason: "超出预算" }] }))
+    expect(html).toContain("本次未使用你的示例")
+  })
   it("普通摘要使用作者语言，仅诊断视图显示内部信息", () => {
     const summary = {
       scope: "chapter",

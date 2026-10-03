@@ -77,3 +77,12 @@ DeepSeek 新连接使用 `/models` 实测的 canonical `deepseek-flash`；已有
 
 `forecast.py` 仅投影当前项目 owner 的连接是否配置及所选 provider，不读取或返回密钥、
 完整端点，不发探测请求；真实执行继续经 Project 验证连接与快照。
+
+
+## 附加模型（B5 路由候选）
+
+`global_llm_defaults.secondary_models`（JSON 列）保存同 provider 附加模型，
+是连接身份字段：连接/切换 provider 时重置，只能经
+`PUT /api/account/settings/llm-defaults/secondary-models` 更新（去重、≤4、
+不得与主模型同名）。是否参与路由由项目「省钱模式」与能力档案非 fallback
+档在运行期过滤。

@@ -1,5 +1,8 @@
 """所有可用 Loader 注册"""
 
+from modules.evidence.compilation.services.loaders.author_examples_loader import (
+    AuthorExamplesLoader,
+)
 from modules.evidence.compilation.services.loaders.characters_loader import (
     CharactersLoader,
 )
@@ -41,6 +44,7 @@ _AVAILABLE_LOADERS: dict[str, bool] = {
     "rag_chunks": True,
     "plot_threads": True,
     "editorial_brief": True,
+    "author_examples": True,
     "outline_arc": True,
     "outline_analysis": True,
     "scene": True,
@@ -56,6 +60,7 @@ __all__ = [
     "OutlineArcLoader",
     "OutlineAnalysisLoader",
     "EditorialBriefLoader",
+    "AuthorExamplesLoader",
     "ProjectLoader",
     "WorldEntitiesLoader",
     "WorldBibleLoader",

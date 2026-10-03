@@ -286,6 +286,7 @@ make test-e2e
 | 架构与模块边界 | [CONTEXT.md](CONTEXT.md)、[架构导航](docs/architecture/README.md) |
 | 演化协议与范围阅读 | [Evolution](backend/modules/evolution/README.md) |
 | 证据与上下文编译 | [Evidence](backend/modules/evidence/README.md) |
+| 能力质量证据账本 | [发布证据](docs/evidence/README.md)（CI 校验：schema/sha256/commit 可达/超期） |
 | 助手、前瞻与编辑审读 | [Assistant](backend/modules/assistant/README.md) |
 | RP 与协作 | [Interaction](backend/modules/interaction/README.md)、[Collaboration](docs/modules/21_collaboration.md) |
 | 开发、测试与发布 | [开发指南](development-guide.md)、[测试指南](testing-guide.md)、[部署](deploy/README.md) |

@@ -1261,3 +1261,14 @@ Evolution 新候选复用对象、关系、别名的待采用流程；元数据�
 RP 开局配图经 `read_world_object_image` 读取已审查的对象图片版本；调用方先校验来源项目、
 冻结版本与剧情截止点，World 仍校验项目访问、对象归属及 `expected_version`。对象响应提供
 `image_version` 供版本绑定；图片替换后旧开局返回不可用，绝不回退到可能剧透的新图片。
+
+
+## 图片请求幂等复用（B9）
+
+`image_request_reuse` 表按 `(novel_id, request_hash)` 唯一登记可复用资产；
+幂等键含租户（novel+owner）、状态快照哈希、prompt、模型与参数。地图册与
+对象图片两路同参数命中即复制资产（不调 provider），读时校验字节数+SHA-256，
+损坏删记录按未命中；regenerate/`force_refresh` 作废旧记录强制新生成。
+对象候选入队时冻结 `request_hash`，完成登记复用冻结键。对象指纹包含身份、
+类型、名称与实际设定，复用副本重验并绑定请求目标。地图册指纹哈希实际参考图
+及 mask 字节；唯一键竞争仅回滚 SAVEPOINT，保留调用方生成资产和状态。

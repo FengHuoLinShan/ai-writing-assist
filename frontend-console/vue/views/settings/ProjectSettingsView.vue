@@ -40,6 +40,12 @@ const tab = ref(initialTab)
 const tabButtons = ref([])
 watch(tab, (value) => {
   projectSettingsSession.tab = value
+  // 写作示例面板渲染持久化状态（列表 + 开关），进入 AI 页签时加载一次，
+  // 避免把未加载的初始态当成「没有示例」展示。
+  if (value === "ai" && props.projectId) {
+    void loadAuthorExamples()
+    void loadCostSaving()
+  }
 })
 
 const effectiveLLM = ref(props.effectiveLLM)
@@ -582,6 +588,117 @@ async function loadAiUsage() {
     aiUsageLoading.value = false
   }
 }
+/* 省钱模式（B5 模型路由）：项目级开关，未配置附加模型时回落主模型 */
+const costSaving = ref({ enabled: false, effective: false, cheap_model: null })
+const costSavingSaving = ref(false)
+const costSavingError = ref("")
+async function loadCostSaving() {
+  if (!props.projectId) return
+  costSavingError.value = ""
+  try {
+    costSaving.value = await getApi().projects.llmCostSaving(props.projectId)
+  } catch (err) {
+    costSavingError.value = err?.message || "省钱模式状态读取失败"
+  }
+}
+async function toggleCostSaving(event) {
+  if (!props.projectId || costSavingSaving.value) return
+  const enabled = Boolean(event.target.checked)
+  costSavingSaving.value = true
+  costSavingError.value = ""
+  try {
+    costSaving.value = await getApi().projects.setLLMCostSaving(props.projectId, enabled)
+    if (enabled && !costSaving.value.effective) getToast()("开关已打开，但还没有可用的附加模型；请先在账户设置的模型连接里配置。", "info")
+  } catch (err) {
+    costSavingError.value = err?.message || "切换失败，请重试"
+    event.target.checked = !enabled
+  } finally {
+    costSavingSaving.value = false
+  }
+}
+
+/* 作者写作示例（B3 few-shot）：查看、删除、开关与对照统计 */
+const authorExamples = ref([])
+const authorExamplesVersion = ref(0)
+const authorExamplesLoading = ref(false)
+const authorExamplesSaving = ref(false)
+const authorExamplesError = ref("")
+const authorExamplesToggle = ref({ enabled: false, effective: false })
+const authorExamplesToggleSaving = ref(false)
+const authorExamplesFirstUse = ref(false)
+const exampleStats = ref(null)
+const exampleStatsLoading = ref(false)
+const exampleStatsError = ref("")
+async function loadAuthorExamples() {
+  if (!props.projectId || authorExamplesLoading.value) return
+  authorExamplesLoading.value = true
+  authorExamplesError.value = ""
+  try {
+    const [state, toggle] = await Promise.all([
+      getApi().projects.authorExamples(props.projectId),
+      getApi().projects.authorExamplesForWriting(props.projectId),
+    ])
+    authorExamples.value = state.examples || []
+    authorExamplesVersion.value = Number(state.version) || 0
+    authorExamplesToggle.value = { enabled: Boolean(toggle.enabled), effective: Boolean(toggle.effective) }
+    authorExamplesFirstUse.value = !authorExamples.value.length && !toggle.enabled
+  } catch (err) {
+    authorExamplesError.value = err?.message || "示例读取失败，请稍后重试"
+  } finally {
+    authorExamplesLoading.value = false
+  }
+}
+async function removeAuthorExample(exampleId) {
+  if (!props.projectId || authorExamplesSaving.value) return
+  if (!getConfirm()("删除这条示例？删除后不会再影响之后的生成；已生成的内容不受影响。")) return
+  authorExamplesSaving.value = true
+  authorExamplesError.value = ""
+  try {
+    const next = authorExamples.value.filter(item => item.id !== exampleId)
+    const saved = await getApi().projects.saveAuthorExamples(props.projectId, {
+      expected_version: authorExamplesVersion.value,
+      state: { examples: next },
+    })
+    authorExamplesVersion.value = Number(saved.version) || 0
+    authorExamples.value = saved.examples || []
+  } catch (err) {
+    authorExamplesError.value = err?.message || "删除失败，请刷新后重试"
+  } finally {
+    authorExamplesSaving.value = false
+  }
+}
+async function toggleAuthorExamples(event) {
+  if (!props.projectId || authorExamplesToggleSaving.value) return
+  const enabled = Boolean(event.target.checked)
+  authorExamplesToggleSaving.value = true
+  authorExamplesError.value = ""
+  try {
+    const toggle = await getApi().projects.setAuthorExamplesForWriting(props.projectId, enabled)
+    authorExamplesToggle.value = { enabled: Boolean(toggle.enabled), effective: Boolean(toggle.effective) }
+    if (toggle.enabled && !toggle.effective) getToast()("开关已打开，但还没有示例：先在写作页存一条示例。", "info")
+  } catch (err) {
+    authorExamplesError.value = err?.message || "开关切换失败，请重试"
+    event.target.checked = !enabled
+  } finally {
+    authorExamplesToggleSaving.value = false
+  }
+}
+function formatRate(value) {
+  return value === null || value === undefined ? "—" : `${Math.round(value * 100)}%`
+}
+async function loadExampleStats() {
+  if (!props.projectId || exampleStatsLoading.value) return
+  exampleStatsLoading.value = true
+  exampleStatsError.value = ""
+  try {
+    exampleStats.value = await getApi().writing.authorExampleStats(props.projectId, aiUsageDays.value)
+  } catch (err) {
+    exampleStatsError.value = err?.message || "对照统计失败，请稍后重试"
+  } finally {
+    exampleStatsLoading.value = false
+  }
+}
+
 const exportingBook = ref(false)
 const exportBookError = ref("")
 async function exportBook(format) {
@@ -610,6 +727,10 @@ onMounted(() => {
   void loadAccountConnectionMetadata()
   void loadAiCapabilities()
   void loadLocalAgent()
+  if (tab.value === "ai" && props.projectId) {
+    void loadAuthorExamples()
+    void loadCostSaving()
+  }
 })
 onBeforeUnmount(() => {
   disposed = true
@@ -747,6 +868,63 @@ onBeforeUnmount(() => {
               <p v-if="aiUsage.scan_truncated" role="status" class="settings-section-hint">统计已达单次扫描上限（{{ aiUsage.tasks_scanned }} 条任务），以上数字为最近部分的统计；如需完整口径请缩短窗口。</p>
               <p v-if="!aiUsage.capabilities.length" class="settings-section-hint">这个窗口期内没有可统计的 AI 运行。</p>
             </template>
+          </div>
+          <div class="settings-section">
+            <h3>省钱模式</h3>
+            <p class="settings-section-hint">打开后，资料抽取与整理类的 AI 任务会在你的模型连接内改用成本更低的附加模型；正文写作等重要任务仍用主模型。未配置附加模型或附加模型未校准时保持主模型。可在账户设置的模型连接里配置附加模型。</p>
+            <p v-if="costSavingError" role="alert">{{ costSavingError }}</p>
+            <div class="settings-actions">
+              <label class="settings-inline-toggle"><input type="checkbox" :checked="costSaving.enabled" :disabled="costSavingSaving" @change="toggleCostSaving($event)" /> 启用省钱模式{{ costSaving.effective ? "（已生效）" : costSaving.enabled ? "（未生效：还没有可用的附加模型）" : "" }}</label>
+            </div>
+          </div>
+          <div class="settings-section">
+            <h3>写作示例（好例/反例）</h3>
+            <p class="settings-section-hint">在正文生成结果或选中的段落上「存为例子」后，会出现在这里。开启「用于 AI 写作」后，示例作为你的语感偏好进入之后的正文生成；示例只影响表达方式，不会新增情节或设定。</p>
+            <p v-if="authorExamplesError" role="alert">{{ authorExamplesError }}</p>
+            <div class="settings-actions">
+              <button type="button" class="btn btn-sm" :disabled="!projectId || authorExamplesLoading" @click="loadAuthorExamples">{{ authorExamplesLoading ? "读取中…" : "刷新示例" }}</button>
+              <label class="settings-inline-toggle"><input type="checkbox" :checked="authorExamplesToggle.enabled" :disabled="authorExamplesToggleSaving" @change="toggleAuthorExamples($event)" /> 用于 AI 写作{{ authorExamplesToggle.effective ? "（已生效）" : "" }}</label>
+            </div>
+            <p v-if="authorExamplesFirstUse" class="settings-section-hint" role="status">第一次使用：好例是「以后照这个写」，反例是「别这样写」（需要说明差在哪里）。可存好例 3 条、反例 2 条；预算紧张时示例会让位于正文。</p>
+            <ul v-if="authorExamples.length" class="author-examples-list">
+              <li v-for="item in authorExamples" :key="item.id" :class="`author-examples-item author-examples-item--${item.kind}`">
+                <div class="author-examples-item__meta">
+                  <span class="author-examples-item__kind">{{ item.kind === "good" ? "好例 · 以后照这个写" : "反例 · 别这样写" }}</span>
+                  <span v-if="item.source && item.source.chapter_index">来自第 {{ item.source.chapter_index }} 章</span>
+                </div>
+                <blockquote class="author-examples-item__content">{{ item.content }}</blockquote>
+                <p v-if="item.note" class="author-examples-item__note">{{ item.kind === "bad" ? "差在哪：" : "备注：" }}{{ item.note }}</p>
+                <div class="settings-actions">
+                  <button type="button" class="btn btn-sm btn-danger" :disabled="authorExamplesSaving" @click="removeAuthorExample(item.id)">删除</button>
+                </div>
+              </li>
+            </ul>
+            <p v-else class="settings-section-hint">还没有示例。在写作页选中一段文字，点「选段存为例子」；或在 AI 建议上点「存为写作示例」。</p>
+            <details class="settings-subsection">
+              <summary>示例效果对照（诊断）</summary>
+              <p class="settings-section-hint">近 {{ aiUsageDays }} 天内，带/不带示例生成的建议数量、采纳率与采纳后修改比例。这是观察性数据：愿意标注示例的作者本身更投入，只能作方向参考。</p>
+              <button type="button" class="btn btn-sm" :disabled="!projectId || exampleStatsLoading" @click="loadExampleStats">{{ exampleStatsLoading ? "统计中…" : "统计对照" }}</button>
+              <p v-if="exampleStatsError" role="alert">{{ exampleStatsError }}</p>
+              <table v-if="exampleStats" class="data-table">
+                <thead><tr><th>组别</th><th>建议数</th><th>被采纳</th><th>采纳率</th><th>采纳后修改</th></tr></thead>
+                <tbody>
+                  <tr>
+                    <td>带示例</td>
+                    <td>{{ exampleStats.buckets.with_examples.candidates }}</td>
+                    <td>{{ exampleStats.buckets.with_examples.adopted }}</td>
+                    <td>{{ formatRate(exampleStats.buckets.with_examples.adoption_rate) }}</td>
+                    <td>{{ exampleStats.buckets.with_examples.adopted_with_changes }}</td>
+                  </tr>
+                  <tr>
+                    <td>不带示例</td>
+                    <td>{{ exampleStats.buckets.without_examples.candidates }}</td>
+                    <td>{{ exampleStats.buckets.without_examples.adopted }}</td>
+                    <td>{{ formatRate(exampleStats.buckets.without_examples.adoption_rate) }}</td>
+                    <td>{{ exampleStats.buckets.without_examples.adopted_with_changes }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </details>
           </div>
           <div class="settings-section">
             <h3>本机 CLI 生图</h3>

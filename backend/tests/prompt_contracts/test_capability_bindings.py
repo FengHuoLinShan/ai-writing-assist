@@ -3,6 +3,18 @@ from __future__ import annotations
 from tools.prompt_contracts import capability_bindings
 
 
+def test_real_code_tree_capability_bindings_are_complete() -> None:
+    """对真实代码树断言绑定扫描零问题。
+
+    capability_bindings.py 此前只挂在 `make prompt-contracts` 上，backend-ci.yml
+    与 `make test` 都不会执行；本条测试让未登记的调用点在 CI（test-fast-coverage）
+    与本地 pytest 中同样失败。负样本由下面两条 tmp_path 测试覆盖，这里只证明接线。
+    """
+    issues = capability_bindings.validate_capability_bindings()
+
+    assert issues == []
+
+
 def test_unreadable_production_module_is_a_blocking_binding_issue(
     monkeypatch, tmp_path
 ) -> None:

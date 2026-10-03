@@ -511,3 +511,11 @@ Assistant 编辑近读通过 `compile_review_world_evidence(..., capability="ass
 读取当章作者可见世界资料，沿用 Evidence 的分层选择、排除、单项精确回读与截断说明。
 这些资料只进入作者编辑判断；顺序盲读仅接收截至当前片段的正文和先前读者状态。编辑卡的
 正文/世界引用须在冻结来源中逐字核对，未回读资料不被称为已检查。
+
+
+### 逐源证据字段（2026-10）
+
+KnowledgeScopeReceipt 来源条目新增逐源 token、处置状态（included/trimmed/
+omitted）与哈希基底标记；可得正文参与 hash，预算逐出保留真实 token 与全部
+来源。不可分多源块使用 shared token_groups，复算按 group key 去重，独立数量
+才进入 token_count。账本不保存原文；增加审计字段本身不改变确认指纹。
