@@ -55,14 +55,28 @@ def verified_secondary_models(provider_id: str, models: list[str] | None) -> lis
     return result
 
 
-async def build_cost_routing(db: AsyncSession, novel_id: str) -> dict[str, Any]:
-    """解析当前生效的路由配置；未启用或无可用模型时返回空路由（回落主模型）。"""
+async def build_cost_routing(
+    db: AsyncSession,
+    novel_id: str,
+    *,
+    project_context: Any = None,
+) -> dict[str, Any]:
+    """解析当前生效的路由配置；未启用或无可用模型时返回空路由（回落主模型）。
+
+    ``project_context``：调用方已加载的同项目 ProjectContext，避免与运行
+    profile 解析重复查询同一行（open_project_llm_client 每次开 client 都会
+    走到这里）；省略时在此自行加载。
+    """
     from uuid import UUID
 
     from modules.account.facade import read_account_secondary_models
     from modules.project.services import ProjectService
 
-    project = await ProjectService().get_project_context(db, novel_id, project_kind=None)
+    project = (
+        project_context
+        if project_context is not None
+        else await ProjectService().get_project_context(db, novel_id, project_kind=None)
+    )
     if project is None:
         from core.errors import NotFoundError
 

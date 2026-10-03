@@ -1,8 +1,16 @@
-"""Nightly PostgreSQL B7: all four real engineering paths at all three scales."""
+"""Nightly PostgreSQL B7: all four real engineering paths at the low tier.
+
+默认只跑 low 档阈值回归（方案 B7：nightly 只跑低档，防 hosted runner 超时）；
+mid/high 全档定标在本地或手动执行，两种入口：
+- pytest：``SCALE_GATE_ALL_TIERS=1``（仓库既有 env 开关惯例，见
+  test_interaction_long_context_real_kimi.py）；
+- CLI：``make scale-gate TIER=mid -- DATABASE_URL=...``。
+"""
 
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -17,7 +25,13 @@ from tools.scale_gate_harness import release_evidence, run_gate, sample_chapter_
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
 
 
-@pytest.mark.parametrize("tier", ["low", "mid", "high"])
+def _tier_params() -> list[str]:
+    if os.getenv("SCALE_GATE_ALL_TIERS") == "1":
+        return ["low", "mid", "high"]
+    return ["low"]
+
+
+@pytest.mark.parametrize("tier", _tier_params())
 async def test_scale_gate_four_paths_at_each_tier(db_session, tier):
     before_projects = await db_session.scalar(select(func.count()).select_from(Project))
     before_accounts = await db_session.scalar(select(func.count()).select_from(Account))

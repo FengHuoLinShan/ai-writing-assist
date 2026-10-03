@@ -397,3 +397,93 @@ def test_token_group_overflow_keeps_shared_groups_and_is_source_scoped() -> None
     }
     own_total = sum(10 + index for index in range(40)) * 2
     assert sum(g["token_count"] for g in deduped.values()) == own_total + 7
+
+
+async def test_generation_request_is_rendered_from_confirmed_sections() -> None:
+    """原 B4 回归（并入 B8）：fake LLM 断言出站请求由确认后的完整 sections 渲染。
+
+    确认之后世界资料再漂移（来源内容被改、新增 section、确认内 section 消失），
+    出站生成请求仍只能携带确认时冻结的渲染（ConfirmedAIActionContext.
+    rendered_markdown），不得混入任何按当前数据重编译的结果。
+    """
+    from types import SimpleNamespace
+
+    from infrastructure.llm.schemas import LLMCallResponse
+    from modules.evidence.compilation.markdown_renderer import (
+        render_compiled_context,
+    )
+    from modules.writing.pov_generation import (
+        GenerationProfile,
+        GenerationProfileInfo,
+    )
+    from modules.writing.services import WritingGenerationService
+
+    confirmed_compiled = CompiledContext(
+        sections=[
+            _section("writing_objective", items=[_item("objective-1")]),
+            _section(
+                "characters",
+                items=[_item("char-hero"), _item("char-mentor", token_count=25)],
+            ),
+            _section("hard_constraints", items=[_item("constraint-1")]),
+        ],
+        budget_tokens=9999,
+    )
+    # 确认时刻用与 ConfirmedAIActionService.prepare 相同的真实渲染器冻结
+    frozen = render_compiled_context(confirmed_compiled)
+    confirmed_context = SimpleNamespace(
+        compiled=confirmed_compiled,
+        rendered_markdown=frozen,
+        compile_options={},
+    )
+
+    # 确认后的世界漂移：char-mentor 内容被改、新增 memory_records、
+    # hard_constraints 消失——重编译渲染必然与冻结版不同。
+    drifted_compiled = CompiledContext(
+        sections=[
+            _section("writing_objective", items=[_item("objective-1")]),
+            _section(
+                "characters",
+                items=[_item("char-hero"), _item("char-mentor-drifted")],
+            ),
+            _section("memory_records", items=[_item("mem-post-confirmation")]),
+        ],
+        budget_tokens=9999,
+    )
+    drifted = render_compiled_context(drifted_compiled)
+    assert drifted != frozen  # 漂移确实改变了重编译结果
+
+    _, request = WritingGenerationService._build_generation_request(
+        confirmed_context=confirmed_context,
+        profile=GenerationProfileInfo(profile=GenerationProfile.DEFAULT),
+        chapter_index=3,
+        instruction="接续当前正文",
+        model="offline",
+        generation_mode="continue",
+        base_content="既有正文段落。",
+    )
+
+    class _RecordingLLM:
+        """fake LLM：记录出站请求并返回占位正文，不触网络。"""
+
+        model_name = "offline"
+
+        def __init__(self) -> None:
+            self.requests: list = []
+
+        async def generate(self, sent):  # noqa: ANN001
+            self.requests.append(sent)
+            return LLMCallResponse(content="正文候选", model=self.model_name)
+
+    fake = _RecordingLLM()
+    await fake.generate(request)
+    sent = fake.requests[0]
+
+    prompt = next(message.content for message in sent.messages if message.role == "user")
+    # 完整性：确认后的每个 section 内容都以冻结渲染进入出站请求
+    assert frozen in prompt
+    for section in confirmed_compiled.sections:
+        assert section.content in prompt
+    # 冻结性：确认之后才出现的漂移内容不得混入出站请求
+    assert "content-of-char-mentor-drifted" not in prompt
+    assert "content-of-mem-post-confirmation" not in prompt

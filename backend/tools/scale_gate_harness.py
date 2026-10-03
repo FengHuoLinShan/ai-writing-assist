@@ -553,7 +553,9 @@ def release_evidence(report: ScaleGateReport) -> dict:
                 "retrieval_hits": report.retrieval_hits,
                 "review_fragments": report.review_fragments,
                 "review_max_tokens": report.review_max_tokens,
-                "task_steps": report.orchestration["scenes_run"],
+                # 首轮定标（不带 --baseline-check）时 orchestration 异常为空
+                # 不崩 CLI：task_steps 记 0，证据门校验仍会拦下退化报告。
+                "task_steps": report.orchestration.get("scenes_run", 0),
             }.items()
         ],
         "token_cost": {"paid_calls": 0},

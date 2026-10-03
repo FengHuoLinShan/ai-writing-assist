@@ -3,7 +3,7 @@ id: T-20261002-storyforge-v6-review
 title: StoryForge v6 实现核查与全部整改
 status: active
 created: 2026-10-02T14:20:34+09:00
-updated: 2026-10-02T22:50:00+09:00
+updated: 2026-10-03T00:00:00+09:00
 ---
 
 # StoryForge v6 实现核查与全部整改
@@ -165,3 +165,14 @@ updated: 2026-10-02T22:50:00+09:00
 - **P0 适配器级回归**：`test_workflow.py` 新增深度导入信封下 `_run_deep_import_structured_call` 路由与归属用例；已验证把参数改回 `capability_id` 时该用例以 AIRunIdentityError 失败。
 - 验证：`make test-ci TEST_WORKERS=4` 退出 0（后端 6553 passed/15 skipped，覆盖率 85.93%；deploy 271；前端 2658）；`make repo-gates`、`make docs-check BASE_REF=origin/main`、`make lint`、`git diff --check` 通过。未本地运行 PG critical/e2e 与真实模型。
 - 交付：提交 `a55f009a9`，推送分支，开 PR #188；未合并、未部署。
+
+## 复审修复 2026-10-03
+
+用户授权对 PR #188 只读复审（勿回退契约四项、S/F 与 B1-B11 全部落实）后转修复模式，修 4 项（仅本地提交，未 push）：
+
+- **B8 第 4 点（原 B4 回归）补齐**：`tests/unit/test_per_source_evidence.py` 新增 `test_generation_request_is_rendered_from_confirmed_sections`——用与 `ConfirmedAIActionService.prepare` 相同的真实渲染器冻结确认渲染，确认后制造资料漂移（改内容/新增/删 section），fake LLM 断言出站请求含冻结渲染的全部 sections 且无任何漂移内容。
+- **scale_gate 首轮定标 KeyError**：`tools/scale_gate_harness.py` release_evidence 的 `orchestration["scenes_run"]` 改 `.get(..., 0)`，退化报告不再崩 CLI，证据门仍拦。
+- **nightly 规模门对齐方案（nightly 只跑低档）**：`tests/e2e/test_scale_gate_low.py` 参数默认 `["low"]`，`SCALE_GATE_ALL_TIERS=1` 显式全档（沿用 test_interaction_long_context_real_kimi 的 env 开关惯例）；workflow 无需改动。本地 PG 5207 专用一次性库 `storyforge_scale_low_test`（迁移到 head 后实跑 low 档 2 passed：22 章/115 块/增长 1.0485/基线全过，跑完已 drop）。
+- **build_cost_routing 消重复查询**：`_resolve_project_runtime_profile` 改返回 4 元组（附 context），`build_cost_routing` 增可选 `project_context` 预载参数，`open_project_llm_client` 与执行快照复用同一 context（顺带消除快照内 interaction 分支的重复 get_project_context）；省略参数时行为不变。
+- 验证：定向 66 + project 模块 152 + harness/tasks 184 passed；改动文件 `ruff check` 全过、我方新增行 ruff format 干净（两文件 HEAD 既有行本就非 format-clean，未顺手重排）；未跑全量与 PG critical。
+- 四项勿回退契约未触碰；`.agent/TASKS.md` 与 `T-20261002-world-relational-management/` 属另一任务，未 stage。
