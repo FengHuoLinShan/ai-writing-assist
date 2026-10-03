@@ -82,3 +82,9 @@ python scripts/manage_accounts.py smtp-smoke --to test@example.com
 `PUBLIC_DEMO_RP_SOURCE_REVISION_ID` 指向的 ready 且 fingerprint 完整的 revision。
 应用访问日志由部署层按 30 天滚动保留；数据库备份自身最多保留 30 天。两项都属于上线
 门禁，不能因为在线账号已清除而跳过备份到期删除。
+
+
+### 附加模型（2026-10）
+
+`global_llm_defaults.secondary_models` 保存省钱模式候选模型；连接身份
+字段，连接/切换 provider 时重置，专用端点更新（≤4、去重、不与主模型同名）。

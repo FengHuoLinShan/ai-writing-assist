@@ -164,6 +164,7 @@ async function retryConnections() {
     connectionsLoadError.value = null
     connectionError.value = ""
     await refreshBalances()
+    void loadSecondaryModels()
   } catch {
     if (!disposed) connectionsLoadError.value = "模型连接暂时无法加载。"
   } finally {
@@ -201,6 +202,30 @@ async function loadImageConnection() {
   }
 }
 
+async function loadSecondaryModels() {
+  const revision = ++secondaryModelsLoadRevision
+  const providerId = connections.value.active_provider_id
+  secondaryModelsLoaded.value = false
+  secondaryModelsLoading.value = true
+  secondaryModelsMessage.value = ""
+  try {
+    const defaults = await getApi().settings.listLLMDefaults()
+    if (disposed || revision !== secondaryModelsLoadRevision) return
+    if (defaults?.provider_id !== providerId || !Array.isArray(defaults.secondary_models)) {
+      throw new Error("附加模型连接已变化，请重新加载")
+    }
+    secondaryModelsInput.value = defaults.secondary_models.join(", ")
+    secondaryModelsBaseline.value = secondaryModelsInput.value
+    secondaryModelsLoaded.value = true
+  } catch (err) {
+    if (disposed || revision !== secondaryModelsLoadRevision) return
+    secondaryModelsMessage.value = err.message || "附加模型暂时无法加载，请重试"
+    secondaryModelsState.value = "error"
+  } finally {
+    if (revision === secondaryModelsLoadRevision) secondaryModelsLoading.value = false
+  }
+}
+
 async function refreshBalances() {
   balanceLoading.value = true
   try {
@@ -223,6 +248,8 @@ async function refreshBalances() {
 async function saveConnection() {
   const provider = selectedProvider.value
   if (!provider) return
+  if (secondaryModelsSaving.value) return
+  if (secondaryModelsDirty.value && !getConfirm()("切换或重新连接会清空尚未保存的附加模型，继续吗？")) return
   const key = apiKey.value.trim()
   if (!key && !provider.connected) {
     connectionError.value = "请填写服务密钥后再验证连接。"
@@ -251,6 +278,7 @@ async function saveConnection() {
       : await getApi().settings.activateLLMProvider(providerId)
     if (!ownsForm()) return false
     if (response?.providers) connections.value = response
+    void loadSecondaryModels()
     apiKey.value = ""
     connectionFeedback.value = { kind: "success", message: "连接已验证并设为当前使用" }
     getToast()(`已启用 ${provider.label}，之后的新生成会使用此模型`, "success")
@@ -269,9 +297,50 @@ async function saveConnection() {
   }
 }
 
+/* 附加模型（B5 省钱模式候选）：连接身份入口，连接后可编辑 */
+const secondaryModelsInput = ref("")
+const secondaryModelsBaseline = ref("")
+const secondaryModelsLoaded = ref(false)
+const secondaryModelsLoading = ref(false)
+const secondaryModelsSaving = ref(false)
+const secondaryModelsMessage = ref("")
+const secondaryModelsState = ref("success")
+const secondaryModelsDirty = computed(() => secondaryModelsLoaded.value && secondaryModelsInput.value !== secondaryModelsBaseline.value)
+let secondaryModelsLoadRevision = 0
+
+async function saveSecondaryModels() {
+  if (!secondaryModelsLoaded.value || secondaryModelsLoading.value || secondaryModelsSaving.value || connectionButton.saving.value) return
+  const submitted = secondaryModelsInput.value
+  const providerId = connections.value.active_provider_id
+  const models = secondaryModelsInput.value
+    .split(/[,，]/)
+    .map(item => item.trim())
+    .filter(Boolean)
+  secondaryModelsSaving.value = true
+  secondaryModelsMessage.value = ""
+  try {
+    const saved = await getApi().settings.updateSecondaryModels(models)
+    if (disposed || providerId !== connections.value.active_provider_id) return
+    const savedInput = (saved.secondary_models || []).join(", ")
+    secondaryModelsBaseline.value = savedInput
+    if (secondaryModelsInput.value === submitted) secondaryModelsInput.value = savedInput
+    secondaryModelsMessage.value = "附加模型已保存"
+    secondaryModelsState.value = "success"
+    getToast()("附加模型已保存；作品设置里打开「省钱模式」后生效。", "success")
+  } catch (err) {
+    if (disposed || providerId !== connections.value.active_provider_id) return
+    secondaryModelsMessage.value = err.message || "保存失败，请重试"
+    secondaryModelsState.value = "error"
+  } finally {
+    secondaryModelsSaving.value = false
+  }
+}
+
 async function clearConnection() {
   const provider = selectedProvider.value
   if (!provider?.connected) return
+  if (secondaryModelsSaving.value) return
+  if (secondaryModelsDirty.value && !getConfirm()("断开连接会清空尚未保存的附加模型，继续吗？")) return
   if (!getConfirm()(
     `清除 ${provider.label} 的 API Key？已有内容不会受影响；重新连接前，作者创作与 RP 的新生成都会暂停。`,
   )) return
@@ -286,6 +355,7 @@ async function clearConnection() {
     const response = await getApi().settings.clearLLMProvider(providerId)
     if (!ownsForm()) return false
     if (response?.providers) connections.value = response
+    if (provider.active) void loadSecondaryModels()
     apiKey.value = ""
     balances.value = balances.value.filter(
       (item) => item.provider_id !== providerId,
@@ -379,6 +449,7 @@ async function saveAuthor() {
 
 function hasUnsavedChanges() {
   return Boolean(apiKey.value || imageApiKey.value)
+    || secondaryModelsDirty.value
     || JSON.stringify(authorForm.value) !== authorBaseline.value
 }
 
@@ -400,6 +471,7 @@ function beforeUnload(event) {
 
 onMounted(async () => {
   window.addEventListener("beforeunload", beforeUnload)
+  if (!connectionsLoadError.value) void loadSecondaryModels()
   await loadImageConnection()
 })
 onBeforeUnmount(() => {
@@ -516,6 +588,26 @@ onBeforeUnmount(() => {
           >刷新余额</button>
           <p class="settings-save-state" :class="`is-${connectionState.kind}`" role="status">{{ connectionState.message }}</p>
         </div>
+        <details v-if="selectedProvider?.connected && selectedProvider?.active" class="settings-subsection secondary-models-section" :aria-busy="secondaryModelsLoading || secondaryModelsSaving">
+          <summary>附加模型（省钱模式候选）</summary>
+          <p class="settings-section-hint">打开作品的「省钱模式」后，资料抽取与整理类任务会改用这里配置的低成本模型；主模型仍用于正文等重要任务。未登记或未校准的模型名会被忽略。</p>
+          <label class="settings-field">
+            <span>附加模型名（逗号分隔，最多 4 个）</span>
+            <input
+              v-model="secondaryModelsInput"
+              type="text"
+              maxlength="400"
+              placeholder="例如：deepseek-flash"
+              :disabled="!secondaryModelsLoaded || secondaryModelsLoading || secondaryModelsSaving || connectionButton.saving.value"
+              @keydown.enter.prevent="saveSecondaryModels"
+            >
+          </label>
+          <div class="settings-actions">
+            <button type="button" class="btn btn-sm" :disabled="!secondaryModelsLoaded || secondaryModelsLoading || secondaryModelsSaving || connectionButton.saving.value" @click="saveSecondaryModels">{{ secondaryModelsLoading ? "加载中…" : secondaryModelsSaving ? "保存中…" : "保存附加模型" }}</button>
+            <button v-if="!secondaryModelsLoaded && !secondaryModelsLoading" type="button" class="btn btn-sm" @click="loadSecondaryModels">重新加载附加模型</button>
+            <p v-if="secondaryModelsMessage" :class="`settings-save-state is-${secondaryModelsState}`" role="status">{{ secondaryModelsMessage }}</p>
+          </div>
+        </details>
       </template>
     </section>
 

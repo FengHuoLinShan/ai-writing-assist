@@ -46,6 +46,11 @@ class GlobalLLMDefaults(Base, UUIDMixin, TimestampMixin):
     temperature: Mapped[float | None] = mapped_column(Float, nullable=True)
     top_p: Mapped[float | None] = mapped_column(Float, nullable=True)
     extra: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    secondary_models: Mapped[list | None] = mapped_column(
+        JSON,
+        nullable=True,
+        comment="同 provider 附加模型（B5 路由候选；须为能力档案 verified 档）",
+    )
     creative_mode: Mapped[str | None] = mapped_column(String(32), nullable=True)
     deep_import: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 

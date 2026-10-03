@@ -124,14 +124,16 @@ async function loadPreview(candidate, token) {
   } catch (err) { if (token === genGeneration) generationError.value = err.message || '候选图片读取失败' }
 }
 
-async function createCandidate() {
+const reusedNotice = ref(false)
+async function createCandidate(forceRefresh = false) {
   if (creating.value || !prompt.value.trim()) return
-  creating.value = true; generationError.value = ''
+  creating.value = true; generationError.value = ''; reusedNotice.value = false
   const token = genGeneration
   try {
-    const candidate = await getApi().world.createImageCandidate(entityId(), props.projectId, prompt.value.trim())
+    const candidate = await getApi().world.createImageCandidate(entityId(), props.projectId, prompt.value.trim(), forceRefresh)
     if (token !== genGeneration) return
     activeCandidate.value = candidate
+    if (candidate.reused) reusedNotice.value = true
     schedulePoll(token)
   } catch (err) {
     if (token === genGeneration) generationError.value = friendlyGenerationError(err)
@@ -253,9 +255,13 @@ onBeforeUnmount(() => { reset(); resetGeneration() })
           <p v-if="activeCandidate?.status === 'failed'" role="alert">{{ activeCandidate.error || '生成失败，请重试' }}</p>
           <p v-if="activeCandidate?.status === 'cancelled'" role="status">已取消，可重新生成</p>
           <p v-if="generationError" role="alert">{{ generationError }}</p>
-          <button type="button" class="btn btn-primary" :disabled="creating || !prompt.trim()" @click="createCandidate">{{ submitLabel }}</button>
+          <button type="button" class="btn btn-primary" :disabled="creating || !prompt.trim()" @click="createCandidate()">{{ submitLabel }}</button>
         </template>
         <template v-else>
+          <p v-if="reusedNotice" role="status" class="entity-image-generation__hint">
+            已使用相同设置的已有图片，未再次调用生成。想换一张时
+            <button type="button" class="btn btn-sm" :disabled="creating" @click="createCandidate(true)">重新生成</button>。
+          </p>
           <LocalRunApproval
             v-if="activeCandidate.task_id && (activeCandidate.awaiting_approval || activeCandidate.status === 'queued')"
             :project-id="projectId"

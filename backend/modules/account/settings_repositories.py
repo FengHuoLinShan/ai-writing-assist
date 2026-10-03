@@ -18,6 +18,7 @@ _GLOBAL_LLM_FIELDS: tuple[str, ...] = (
     "label",
     "base_url",
     "model",
+    "secondary_models",
     "timeout",
     "max_tokens",
     "temperature",

@@ -645,3 +645,9 @@ Evolution 世界候选的 `evolution_ref` 为不可通过普通元数据编辑�
 
 内部 `create_entity(candidate_id=...)` 只接受候选，用于理解主链预绑定身份；
 实际创建仍走原类型、项目和重复确认保护，不能用预留 UUID 创建正史。
+
+
+### 图片请求幂等复用（2026-10）
+
+地图册与对象图片同参数请求命中 `image_request_reuse` 登记即复用既有资产
+（不调 provider）；「重新生成」强制换新。对象候选入队冻结 `request_hash`。

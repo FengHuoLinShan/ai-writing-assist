@@ -95,7 +95,7 @@ describe('本机 CLI 生图', () => {
 
     await wrapper.findAll('button').find((btn) => btn.text() === '开始生成').trigger('click')
     await flushPromises()
-    expect(world.createImageCandidate).toHaveBeenCalledWith('house', 'p1', '一位身穿铠甲的骑士')
+    expect(world.createImageCandidate).toHaveBeenCalledWith('house', 'p1', '一位身穿铠甲的骑士', false)
     expect(wrapper.text()).toContain('请确认本机伴随程序正在运行')
 
     await wrapper.get('input[type="checkbox"]').setValue(true)

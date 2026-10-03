@@ -1262,3 +1262,14 @@ canonical + created_by=spreadsheet_migration + approved_by=owner、别名 confir
 作者备注追加 hidden_truth；同名只补空、冲突不落库。回滚与 focused 补全共用
 `applied_change_reversal`（Character 行按其 receipt 条目恢复），被改动/被引用项保留。
 不复用 adoption package、不走 CreationSuggestion。
+
+## 图片请求幂等复用（B9）
+
+`image_request_reuse` 表按 `(novel_id, request_hash)` 唯一登记可复用资产；
+幂等键含租户（novel+owner）、状态快照哈希、prompt、模型与参数。地图册与
+对象图片两路同参数命中即复制资产（不调 provider），读时校验字节数+SHA-256，
+损坏删记录按未命中；regenerate/`force_refresh` 作废旧记录强制新生成。
+对象候选入队时冻结 `request_hash`，完成登记复用冻结键。对象指纹包含身份、
+类型、名称与实际设定，复用副本重验并绑定请求目标。地图册指纹哈希实际参考图
+及 mask 字节；唯一键竞争仅回滚 SAVEPOINT，保留调用方生成资产和状态。
+

@@ -376,6 +376,16 @@ RAG 证据的关联顺序取 Top-K；人物上限 6，相关世界对象上限 1
 文风只决定表达方式，
 不新增事实或事件。
 
+作者开启「示例用于 AI 写作」后，好例/反例 few-shot 作为 `author_examples`
+section 同样在编译期进入确认预览与指纹（默认关闭，仅 writing.generate 的
+作者视角加载；存储沿用 editorial brief 先例，Project.settings JSON）。
+section 内容为转义 JSON fence（`<AUTHOR_EXAMPLES_DATA>`，尖括号转义），
+好例表达语感偏好，反例带作者「差在哪」（why_bad）以「避免」语义呈现；
+示例超出 section 预算（1500 token）时先截反例、再截好例，正文优先，
+截断事实写入 retrieval_metadata 与编译 warnings，不静默失效。示例只影响
+表达方式，不新增事实或事件。候选 provenance 记录 `author_examples_used`
+供项目设置里的对照统计（观察性诊断）。
+
 ### 手动大纲分析类
 
 `outline.ai_workflow.analyze.generate` 把模型定位为与作者共同判断结构的长篇小说叙事顾问，

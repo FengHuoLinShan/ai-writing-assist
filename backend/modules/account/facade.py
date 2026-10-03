@@ -122,6 +122,15 @@ async def resolve_account_llm_runtime_profile(
     )
 
 
+async def read_account_secondary_models(
+    db: AsyncSession,
+    *,
+    owner_id: uuid.UUID,
+) -> tuple[str | None, list[str]]:
+    """当前连接 provider 与附加模型（B5 路由只读入口）。"""
+    return await _settings_service.read_secondary_models(db, owner_id)
+
+
 async def get_account_llm_settings_contract(
     db: AsyncSession,
     *,

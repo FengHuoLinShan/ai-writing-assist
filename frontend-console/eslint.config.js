@@ -51,6 +51,8 @@ export default [
       "preserve-caught-error": "off",
       "vue/multi-word-component-names": "off",
       "vue/no-mutating-props": ["error", { shallowOnly: true }],
+      // P1 规避项：零 v-html 从两处局部测试断言升级为全局 lint 门。
+      "vue/no-v-html": "error",
     },
   },
   {
@@ -99,6 +101,27 @@ export default [
     ],
     rules: {
       "vue/no-dupe-keys": "off",
+    },
+  },
+  {
+    // B2 跨模块 import 守护门（前端）：vue/** 内禁用基建裸全局，基建访问
+    // 只经 vue/bridge/index.js（no-restricted-imports 限制直接 import 相对
+    // 路径逃逸 bridge；全局只读声明继续服务旧式页面脚本）。
+    files: ["vue/**/*.{js,mjs,vue}"],
+    rules: {
+      "no-restricted-globals": ["error",
+        { name: "api", message: "vue/** 内请从 ../../bridge/index.js 获取 getApi()" },
+        { name: "state", message: "vue/** 内请从 bridge 获取 state 访问" },
+        { name: "router", message: "vue/** 内请从 bridge 获取 getRouter()" },
+        { name: "toast", message: "vue/** 内请从 bridge 获取 getToast()" },
+        { name: "esc", message: "vue/** 内请从 bridge 获取转义工具" },
+      ],
+      "no-restricted-imports": ["error", {
+        patterns: [{
+          group: ["*/shared/esc.js", "**/shared/esc.js", "*/ui/toast.js", "**/ui/toast.js", "*/api.js", "**/api.js", "*/state.js", "**/state.js", "*/router.js", "**/router.js"],
+          message: "基建访问只经 vue/bridge/index.js（B2 守护门）",
+        }],
+      }],
     },
   },
   {

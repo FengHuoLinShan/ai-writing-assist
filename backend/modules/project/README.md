@@ -362,3 +362,16 @@ Evolution 负责持项目独占锁、排空旧 owner 后的切换编排，Projec
 门禁。evolution 的 schema floor 为 2；到达后不能回到 legacy，只能暂停或兼容前进。
 项目任务 preflight/commit guard 同时检查该归属；浏览器鉴权和 novel_id 隔离保持原边界。
 参见 [Evolution](../evolution/README.md) 与迁移 `20260922_understanding_owner`。
+
+
+## 作者写作示例与省钱模式（B3/B5）
+
+`Project.settings` 新增 `author_examples_v1`（好例/反例 few-shot，仅
+writing.generate 作者视角注入，详见 writing 模块）与 `llm_cost_saving_v1`
+（省钱模式开关）。开关经 `GET/PUT /api/projects/{id}/llm-cost-saving` 读写；
+`modules/project/model_routing.py` 汇总开关 × 账户 verified 附加模型 ×
+注册表 cheap 能力集，产出 `cost_routing` 注入 LLM client 与执行快照。
+路由读取经 owner/active 门禁的 context，接受作者与隐藏 RP 两类项目；默认关闭
+也不能因项目种类错误阻断新旅程，外账户仍被拒绝。
+`save_agent_executor_settings` 由 Project 持 owner + novel_id 行锁写入非 secret
+执行器选择，支持撤销设备时条件清除；本机模块不直接读写 Project ORM。

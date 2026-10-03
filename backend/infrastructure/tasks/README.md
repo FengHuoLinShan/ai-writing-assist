@@ -463,3 +463,7 @@ request_changed。当前没有把 deep_import 的生产入口重定向到此 han
 `claim_exact` 必须同时满足逐次授权和设备就绪；领取后清除 ready，原 task lease 与
 local invocation lease 双重栅栏拒绝迟到结果。伴随进程离线时 pending 不自动切换回
 gateway；执行中断保留已见回执，作者显式发起新任务，不能自动重放本机副作用。
+
+RP 普通 worker 与匿名 inline 入口均将完整、未闭合或超长的无效 metadata 尾块
+写入 attempt.usage.metadata_invalid_count；同一尾块重复 finish/失败收尾只计一次。
+正文仍先进入私有 hold，经原有领域审查后才可释放。

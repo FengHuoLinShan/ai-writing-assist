@@ -214,3 +214,7 @@ Watch 复用稳定期、每日额度和项目后台执行槽，仅在完成标�
 AssistantNotice，其余意见留在编辑台。联网不用于小说内审读。
 原创内容评测样本、固定量表和零费用预检见
 `backend/evals/datasets/editorial/README.md`；工程绿灯不代表真实模型内容质量通过。
+
+本机根任务的逐次批准通过 `mark_task_local_approved` facade 委托 Assistant
+service，按 owner + novel_id + task_id 锁定并更新 checkpoint；本机模块不能
+直接操作 AssistantRun ORM。确认授权范围和任务租约契约保持不变。
