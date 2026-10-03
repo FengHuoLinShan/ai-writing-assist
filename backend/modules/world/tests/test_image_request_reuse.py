@@ -244,8 +244,14 @@ async def test_force_invalidate_and_record_overwrite(db_session, test_project_id
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("adopt_source", [True, False])
 async def test_world_object_candidate_reuses_and_force_refreshes(
-    async_client, db_session, test_project_id, test_character_id, monkeypatch
+    async_client,
+    db_session,
+    test_project_id,
+    test_character_id,
+    monkeypatch,
+    adopt_source,
 ) -> None:
     from modules.account.facade import current_account_id
     from modules.local_agent.facade import AgentExecutor
@@ -290,6 +296,7 @@ async def test_world_object_candidate_reuses_and_force_refreshes(
         source_type="world_object",
         object_key=f"world-object-candidate:{source.id}",
         asset_sha256=hashlib.sha256(_PNG).hexdigest(),
+        asset_data=_PNG,
         byte_size=len(_PNG),
         created_from_id=source.id,
     )
@@ -321,6 +328,71 @@ async def test_world_object_candidate_reuses_and_force_refreshes(
     body = reused.json()
     assert body["status"] == "review_ready"
     assert not body.get("task_id")
+
+    from modules.world import api
+    from modules.world.tests.test_world_object_image_generation import MemoryImageStorage
+    from modules.world.world_object_image_generation import (
+        WorldObjectImageGenerationService,
+    )
+    from modules.world.world_object_images import WorldObjectImageService
+
+    monkeypatch.setattr(
+        api,
+        "_entity_image_generation_service",
+        WorldObjectImageGenerationService(
+            image_service=WorldObjectImageService(MemoryImageStorage()),
+        ),
+    )
+    # 正常采用清掉候选字节；复用原图仍独立保存，且可再次采用。
+    if adopt_source:
+        adopted = await async_client.post(
+            f"/api/world/image-candidates/{body['id']}/adopt",
+            json={"novel_id": test_project_id},
+        )
+        assert adopted.status_code == 200, adopted.text
+        adopted_copy = await db_session.get(
+            WorldObjectImageCandidate, uuid.UUID(body["id"])
+        )
+        await db_session.refresh(adopted_copy)
+        assert adopted_copy.image_data is None
+    for _ in range(5):
+        hit = await async_client.post(
+            f"/api/world/entities/{test_character_id}/image-candidates",
+            json={"novel_id": test_project_id, "prompt": "半身像，写实风格"},
+        )
+        assert hit.status_code == 200, hit.text
+        assert hit.json()["status"] == "review_ready" and hit.json()["reused"]
+    await db_session.refresh(source)
+    assert source.image_data is None
+    assert source.status == "discarded"
+    adopted_again = await async_client.post(
+        f"/api/world/image-candidates/{hit.json()['id']}/adopt",
+        json={"novel_id": test_project_id},
+    )
+    assert adopted_again.status_code == 200, adopted_again.text
+    # 明确放弃候选仍作废复用，防止再次返回作者已拒绝的图。
+    rejectable = await async_client.post(
+        f"/api/world/entities/{test_character_id}/image-candidates",
+        json={"novel_id": test_project_id, "prompt": "半身像，写实风格"},
+    )
+    assert rejectable.status_code == 200 and rejectable.json()["reused"]
+    rejected = await async_client.post(
+        f"/api/world/image-candidates/{rejectable.json()['id']}/discard",
+        json={"novel_id": test_project_id},
+    )
+    assert rejected.status_code == 200, rejected.text
+    from modules.world.world_object_image_generation import _reuse_world_object_candidate
+
+    assert (
+        await _reuse_world_object_candidate(
+            db_session,
+            novel_id=test_project_id,
+            owner_id=owner,
+            entity_id=test_character_id,
+            request_hash=request_hash,
+        )
+        is None
+    )
 
     # 「重新生成」绕过复用：重新排队。
     forced = await async_client.post(
@@ -400,6 +472,35 @@ def _map_atlas_hash(run, page, owner: str) -> str:
     from modules.world.map_atlas_workflow import _page_request_hash
 
     return _page_request_hash(run, page, owner_id=owner, provider="openai")
+
+
+def test_local_map_reuse_hash_binds_the_frozen_executor_kind():
+    from types import SimpleNamespace
+
+    from modules.world.map_atlas_workflow import _page_request_hash
+
+    run = SimpleNamespace(novel_id=uuid.uuid4(), layout="landscape", quality="standard")
+    page = SimpleNamespace(
+        model="gpt-image-2",
+        prompt="港口",
+        visual_brief="港口",
+        source_geometry_hash="geometry",
+        reference_page_ids=[],
+        source_manifest=[],
+        mask_object_key=None,
+        edit_instruction=None,
+    )
+
+    def fingerprint(kind, device_id):
+        run.image_execution_snapshot = {
+            "provider_id": "local-cli",
+            "kind": kind,
+            "device_id": device_id,
+        }
+        return _page_request_hash(run, page, owner_id="owner", provider="local-cli")
+
+    assert fingerprint("codex", "a") != fingerprint("claude", "a")
+    assert fingerprint("codex", "a") == fingerprint("codex", "b")
 
 
 # ============================================================

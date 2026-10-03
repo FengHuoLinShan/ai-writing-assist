@@ -60,12 +60,14 @@ async def build_cost_routing(
     novel_id: str,
     *,
     project_context: Any = None,
+    provider_id: str | None = None,
 ) -> dict[str, Any]:
     """解析当前生效的路由配置；未启用或无可用模型时返回空路由（回落主模型）。
 
     ``project_context``：调用方已加载的同项目 ProjectContext，避免与运行
     profile 解析重复查询同一行（open_project_llm_client 每次开 client 都会
     走到这里）；省略时在此自行加载。
+    ``provider_id`` 绑定实际 client/快照连接；当前附加模型属于其他连接时回落。
     """
     from uuid import UUID
 
@@ -90,12 +92,14 @@ async def build_cost_routing(
     }
     if not enabled:
         return routing
-    provider_id, secondary = await read_account_secondary_models(
+    account_provider_id, secondary = await read_account_secondary_models(
         db, owner_id=UUID(project.owner_id)
     )
-    if not provider_id:
+    if not account_provider_id or (
+        provider_id is not None and provider_id != account_provider_id
+    ):
         return routing
-    candidates = verified_secondary_models(provider_id, secondary)
+    candidates = verified_secondary_models(account_provider_id, secondary)
     if not candidates:
         return routing
     routing.update(
