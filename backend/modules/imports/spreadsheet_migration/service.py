@@ -78,6 +78,16 @@ _REASON_LABELS = {
     "outline_markdown_missing": "总纲内容为空",
     "arc_range_overlap": "卷的章节范围与已有卷重叠",
     "duplicate_in_migration": "本次迁移中有重名条目",
+    "chapter_range_missing": "这一行没有可识别的章节范围",
+    "missing": "对应内容已不存在",
+    "invalid_target": "对应内容无法定位",
+    "unknown_kind": "未知的条目类型",
+    "unsupported_operation": "该条目的变更类型不支持撤销",
+    "not_migration_owned": "该内容已不是本次迁移写入的版本",
+    "outline_superseded": "总纲已被后续修订更新",
+    "outline_base_missing": "总纲的基线修订已不存在",
+    "outline_kept": "总纲保持不变",
+    "invalid_outline_change": "总纲回执无法解析",
 }
 
 _KIND_LABELS = {
@@ -146,6 +156,19 @@ _TASK_STATUS_TO_AI = {
     "cancelled": "failed",
 }
 
+# xlsx/csv 解析是重 CPU/内存操作（10MB 上限夹具实测峰值约 147–284MB），
+# 限制同时在解析线程里的上传数，防止并发上传叠加内存。
+PARSE_CONCURRENCY = 2
+_parse_semaphore = asyncio.Semaphore(PARSE_CONCURRENCY)
+
+
+async def _parse_upload_file(data: bytes, name: str) -> ParsedUpload:
+    """在并发上限内把解析派发到工作线程。"""
+    from modules.imports.parsers import parse_spreadsheet_file
+
+    async with _parse_semaphore:
+        return await asyncio.to_thread(parse_spreadsheet_file, data, name)
+
 
 def _canonical_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -197,10 +220,8 @@ class SpreadsheetMigrationService:
                     f"单个表格文件不能超过 {MAX_FILE_BYTES // (1024 * 1024)}MB",
                     status_code=413,
                 )
-            from modules.imports.parsers import parse_spreadsheet_file
-
             try:
-                upload = await asyncio.to_thread(parse_spreadsheet_file, data, name)
+                upload = await _parse_upload_file(data, name)
             except ValueError as exc:
                 raise ValidationError(str(exc)) from exc
             uploads.append((name, extension, upload))
@@ -312,6 +333,63 @@ class SpreadsheetMigrationService:
             return synonyms.normalize_entity_type(sheet_name)
         return None
 
+    @staticmethod
+    def _estimate_payload(estimate: Any) -> dict[str, int]:
+        return {
+            "rows": int(estimate.rows),
+            "chars": int(estimate.chars),
+            "requests": int(estimate.requests),
+        }
+
+    @staticmethod
+    def _default_ai_scope(session: ImportMigrationSession) -> dict[str, Any]:
+        """默认 AI 整理范围，对齐前端 MigrationAiStep 的预选规则：
+        非隐藏的大纲类表 + 实体表的作者备注列。"""
+        mapping_sheets = {
+            sheet["sheet_key"]: sheet
+            for sheet in session.mapping_json.get("sheets", [])
+        }
+        outline_keys: list[str] = []
+        cleanup: list[dict[str, str]] = []
+        for file in session.file_manifest:
+            for sheet in file.get("sheets", []):
+                mapped = mapping_sheets.get(sheet["sheet_key"])
+                if not mapped or mapped.get("kind") == "skip":
+                    continue
+                kind = mapped.get("kind")
+                if kind in planning.OUTLINE_SHEET_KINDS and not sheet.get("hidden"):
+                    outline_keys.append(sheet["sheet_key"])
+                elif kind in {"characters", "world_objects"}:
+                    for column_key, target in (mapped.get("columns") or {}).items():
+                        if target == "author_note":
+                            cleanup.append(
+                                {
+                                    "sheet_key": sheet["sheet_key"],
+                                    "column_key": column_key,
+                                }
+                            )
+        return {"outline_sheet_keys": outline_keys, "cleanup": cleanup}
+
+    async def _store_default_ai_estimate(
+        self,
+        db: AsyncSession,
+        *,
+        session: ImportMigrationSession,
+    ) -> None:
+        """保存映射后写入默认 AI 范围的成本预估，供作者在确认前查看。"""
+        from modules.imports.spreadsheet_migration import ai as ai_module
+
+        estimate = ai_module.estimate_ai_run(
+            session.rows_json or {},
+            session.mapping_json or {},
+            self._default_ai_scope(session),
+        )
+        if estimate.rows <= 0:
+            return
+        await self._repo.store_ai_estimate(
+            db, session, estimate=self._estimate_payload(estimate)
+        )
+
     async def get_session(
         self,
         db: AsyncSession,
@@ -395,6 +473,10 @@ class SpreadsheetMigrationService:
             for file in session.file_manifest
             for sheet in file.get("sheets", [])
         }
+        existing_defaults = {
+            sheet.get("sheet_key"): sheet.get("default_entity_type")
+            for sheet in session.mapping_json.get("sheets", [])
+        }
         for sheet in sheets:
             key = sheet.get("sheet_key")
             if key not in manifest_keys:
@@ -402,6 +484,9 @@ class SpreadsheetMigrationService:
             self._validate_kind_targets(sheet.get("kind", ""), sheet.get("columns", {}))
             if int(sheet.get("header_row", 0)) > 32:
                 raise ValidationError("表头行超出可识别范围")
+            if not sheet.get("default_entity_type"):
+                # 省略时保留上传时推断的默认类型，避免整体覆写把它静默清掉。
+                sheet["default_entity_type"] = existing_defaults.get(key)
         mapping_json = {
             "sheets": sheets,
             "options": {
@@ -420,6 +505,7 @@ class SpreadsheetMigrationService:
             expected_revision=expected_revision,
         )
         await self._refresh_preview(db, session=session)
+        await self._store_default_ai_estimate(db, session=session)
         await db.commit()
         await db.refresh(session)
         return session
@@ -491,6 +577,16 @@ class SpreadsheetMigrationService:
             scope=scope,
             operation_id=operation_id,
         )
+        estimate = ai_module.estimate_ai_run(
+            session.rows_json or {}, session.mapping_json or {}, scope
+        )
+        if estimate.rows > 0:
+            await self._repo.store_ai_estimate(
+                db,
+                session,
+                estimate=self._estimate_payload(estimate),
+                operation_id=operation_id,
+            )
         await db.commit()
         await db.refresh(session)
         return {
@@ -714,6 +810,7 @@ class SpreadsheetMigrationService:
                 relations.append(
                     {
                         "item_key": item.item_key,
+                        "decision_scope": "relation",
                         "source_label": plan_label.label.split(" → ")[0]
                         if " → " in plan_label.label
                         else plan_label.label,
@@ -744,6 +841,7 @@ class SpreadsheetMigrationService:
             world_items.append(
                 {
                     "item_key": item.item_key,
+                    "decision_scope": "entity",
                     "label": plan_label.label,
                     "type_label": "条目",
                     "action": item.action,
@@ -791,6 +889,7 @@ class SpreadsheetMigrationService:
             structures.append(
                 {
                     "item_key": item.item_key,
+                    "decision_scope": "story",
                     "kind": "outline"
                     if is_outline
                     else self._story_kind(item.item_key, requests),

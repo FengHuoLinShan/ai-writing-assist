@@ -210,6 +210,47 @@ async def test_create_and_get_session(
 
 
 @pytest.mark.asyncio
+async def test_mapping_keeps_default_entity_type(
+    async_client: AsyncClient, project: dict, draft_session: dict, plan_facades
+) -> None:
+    novel_id = project["id"]
+    detail = await async_client.get(
+        f"/api/imports/migrations/{draft_session['id']}",
+        params={"novel_id": novel_id},
+    )
+    assert detail.json()["sheets"][0]["default_entity_type"] == "character"
+
+    # 客户端整体保存但不携带 default_entity_type 时不得被静默清掉
+    mapping = await async_client.put(
+        f"/api/imports/migrations/{draft_session['id']}/mapping",
+        json={
+            "novel_id": novel_id,
+            "expected_revision": 1,
+            "sheets": [
+                {
+                    "sheet_key": "f0s0",
+                    "kind": "characters",
+                    "header_row": 0,
+                    "columns": {"c0": "name", "c1": "summary"},
+                }
+            ],
+            "options": {
+                "written_chapter_policy": "reference_only",
+                "outline_head_policy": "create_if_missing",
+            },
+        },
+    )
+    assert mapping.status_code == 200, mapping.text
+    assert mapping.json()["sheets"][0]["default_entity_type"] == "character"
+
+    detail = await async_client.get(
+        f"/api/imports/migrations/{draft_session['id']}",
+        params={"novel_id": novel_id},
+    )
+    assert detail.json()["sheets"][0]["default_entity_type"] == "character"
+
+
+@pytest.mark.asyncio
 async def test_cross_novel_and_unknown_ids_return_404(
     async_client: AsyncClient, project: dict, draft_session: dict
 ) -> None:

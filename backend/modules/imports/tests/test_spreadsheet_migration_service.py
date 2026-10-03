@@ -514,3 +514,281 @@ async def test_apply_rolls_back_everything_when_story_fails(
     await db_session.refresh(session_row)
     assert session_row.status == "draft", "部分失败不得标记 applied"
     assert session_row.rows_json, "部分失败不得清空 rows"
+
+
+# ── default_entity_type 保留（Fix2）──────────────────────────
+
+
+def _world_objects_suggestion(sheet_key: str = "f0s0") -> SheetSuggestion:
+    return SheetSuggestion(
+        kind="world_objects",
+        header_row=0,
+        columns=[
+            ColumnSuggestion(
+                column_key="c0", header="名称", target="name", confident=True
+            ),
+            ColumnSuggestion(
+                column_key="c1", header="简介", target="summary", confident=True
+            ),
+        ],
+    )
+
+
+@pytest_asyncio.fixture
+async def world_objects_session_row(
+    db_session: AsyncSession,
+) -> ImportMigrationSession:
+    upload = _upload(name="地点")
+    with _parse_and_classify(upload, _world_objects_suggestion()):
+        service = SpreadsheetMigrationService()
+        return await service.create_session(
+            db_session,
+            novel_id=str(NOVEL_ID),
+            owner_id=str(OWNER_ID),
+            files=[("地点表.xlsx", b"fake-bytes")],
+        )
+
+
+@pytest.mark.asyncio
+async def test_save_mapping_preserves_default_entity_type(
+    db_session: AsyncSession,
+    session_row: ImportMigrationSession,
+    world_objects_session_row: ImportMigrationSession,
+) -> None:
+    from modules.imports.spreadsheet_migration.synonyms import normalize_entity_type
+
+    service = SpreadsheetMigrationService()
+    assert (
+        session_row.mapping_json["sheets"][0]["default_entity_type"] == "character"
+    )
+    assert world_objects_session_row.mapping_json["sheets"][0][
+        "default_entity_type"
+    ] == normalize_entity_type("地点")
+
+    def _sheets_without_default(session: ImportMigrationSession) -> list[dict]:
+        return [
+            {
+                key: value
+                for key, value in sheet.items()
+                if key != "default_entity_type"
+            }
+            for sheet in session.mapping_json["sheets"]
+        ]
+
+    for session in (session_row, world_objects_session_row):
+        # 显式改写生效
+        with _plan_facades():
+            await service.save_mapping(
+                db_session,
+                session=session,
+                expected_revision=session.revision,
+                sheets=[
+                    {
+                        "sheet_key": "f0s0",
+                        "kind": session.mapping_json["sheets"][0]["kind"],
+                        "header_row": 0,
+                        "default_entity_type": "item",
+                        "columns": {"c0": "name", "c1": "summary"},
+                    }
+                ],
+                options={"written_chapter_policy": "reference_only"},
+            )
+        assert session.mapping_json["sheets"][0]["default_entity_type"] == "item"
+        # 省略时保留旧值，不整体覆写清掉
+        with _plan_facades():
+            await service.save_mapping(
+                db_session,
+                session=session,
+                expected_revision=session.revision,
+                sheets=_sheets_without_default(session),
+                options={"written_chapter_policy": "reference_only"},
+            )
+        assert session.mapping_json["sheets"][0]["default_entity_type"] == "item"
+
+
+# ── AI 成本预估接线（Fix4）──────────────────────────────────
+
+
+def _outline_upload() -> ParsedUpload:
+    return ParsedUpload(
+        file_key="f0",
+        file_name="细纲表.xlsx",
+        file_type="xlsx",
+        size=128,
+        sha256="b" * 64,
+        sheets=[
+            ParsedSheet(
+                sheet_key="f0s0",
+                file_key="f0",
+                name="细纲",
+                hidden=False,
+                rows=[["章号", "内容"], ["3", "林昭查案"]],
+                warnings=[],
+            )
+        ],
+    )
+
+
+def _outline_suggestion() -> SheetSuggestion:
+    return SheetSuggestion(
+        kind="chapter_outline",
+        header_row=0,
+        columns=[
+            ColumnSuggestion(
+                column_key="c0", header="章号", target="chapter_ref", confident=True
+            ),
+            ColumnSuggestion(
+                column_key="c1", header="内容", target="content", confident=True
+            ),
+        ],
+    )
+
+
+@pytest_asyncio.fixture
+async def outline_session_row(
+    db_session: AsyncSession,
+) -> ImportMigrationSession:
+    with _parse_and_classify(_outline_upload(), _outline_suggestion()):
+        service = SpreadsheetMigrationService()
+        return await service.create_session(
+            db_session,
+            novel_id=str(NOVEL_ID),
+            owner_id=str(OWNER_ID),
+            files=[("细纲表.xlsx", b"fake-bytes")],
+        )
+
+
+@pytest.mark.asyncio
+async def test_save_mapping_stores_default_ai_estimate(
+    db_session: AsyncSession,
+    session_row: ImportMigrationSession,
+    outline_session_row: ImportMigrationSession,
+) -> None:
+    service = SpreadsheetMigrationService()
+    # 人物表无大纲、无 author_note 列：默认范围为空，不写预估
+    with _plan_facades():
+        await service.save_mapping(
+            db_session,
+            session=session_row,
+            expected_revision=1,
+            sheets=session_row.mapping_json["sheets"],
+            options=session_row.mapping_json["options"],
+        )
+    assert "estimate" not in (session_row.ai_authorization or {})
+
+    # 细纲表默认范围含 1 行大纲：写入预估
+    with _plan_facades():
+        await service.save_mapping(
+            db_session,
+            session=outline_session_row,
+            expected_revision=1,
+            sheets=outline_session_row.mapping_json["sheets"],
+            options=outline_session_row.mapping_json["options"],
+        )
+    estimate = outline_session_row.ai_authorization["estimate"]
+    assert estimate["rows"] == 1
+    assert estimate["chars"] > 0
+    assert estimate["requests"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_submit_ai_stores_estimate_and_operation_id(
+    db_session: AsyncSession, outline_session_row: ImportMigrationSession
+) -> None:
+    from modules.imports.spreadsheet_migration.ai import TaskRef
+
+    service = SpreadsheetMigrationService()
+    with _plan_facades():
+        await service.save_mapping(
+            db_session,
+            session=outline_session_row,
+            expected_revision=1,
+            sheets=outline_session_row.mapping_json["sheets"],
+            options=outline_session_row.mapping_json["options"],
+        )
+    with patch(
+        "modules.imports.spreadsheet_migration.ai.submit_ai_run",
+        autospec=True,
+    ) as submit_ai_run:
+        submit_ai_run.return_value = TaskRef(
+            task_id="task-1", status="queued", reused=False
+        )
+        result = await service.submit_ai(
+            db_session,
+            session=outline_session_row,
+            expected_revision=outline_session_row.revision,
+            scope={"outline_sheet_keys": ["f0s0"], "cleanup": []},
+            operation_id="op-1",
+        )
+    submit_ai_run.assert_awaited_once()
+    assert result["task_id"] == "task-1"
+    assert outline_session_row.ai_authorization["estimate"]["rows"] == 1
+    assert outline_session_row.ai_authorization["operation_id"] == "op-1"
+    assert outline_session_row.ai_authorization["authorized_at"]
+
+
+# ── 回执 reason 标签（Fix5a）────────────────────────────────
+
+
+def test_reason_labels_cover_story_and_rollback_codes() -> None:
+    from modules.imports.spreadsheet_migration.service import (
+        _REASON_LABELS,
+        _reason_label,
+    )
+
+    codes = [
+        "chapter_range_missing",
+        "missing",
+        "invalid_target",
+        "unknown_kind",
+        "unsupported_operation",
+        "not_migration_owned",
+        "outline_superseded",
+        "outline_base_missing",
+        "outline_kept",
+        "invalid_outline_change",
+    ]
+    for code in codes:
+        assert code in _REASON_LABELS, code
+        assert _reason_label(code) != code, code
+    # 未知码原样返回（不抛错）
+    assert _reason_label("some_future_code") == "some_future_code"
+
+
+# ── 解析并发上限（Fix5d）────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_parse_upload_bounds_concurrency() -> None:
+    import asyncio
+    import threading
+    import time
+
+    from modules.imports.spreadsheet_migration.service import (
+        PARSE_CONCURRENCY,
+        _parse_upload_file,
+    )
+
+    lock = threading.Lock()
+    state = {"current": 0, "peak": 0}
+
+    def slow_parse(data: bytes, name: str) -> ParsedUpload:
+        with lock:
+            state["current"] += 1
+            state["peak"] = max(state["peak"], state["current"])
+        time.sleep(0.05)
+        with lock:
+            state["current"] -= 1
+        return _upload()
+
+    with patch(
+        "modules.imports.parsers.parse_spreadsheet_file",
+        autospec=True,
+        side_effect=slow_parse,
+    ):
+        results = await asyncio.gather(
+            *[_parse_upload_file(b"bytes", "a.xlsx") for _ in range(4)]
+        )
+    assert all(result.file_type == "xlsx" for result in results)
+    assert state["peak"] <= PARSE_CONCURRENCY
+    assert state["peak"] >= 2, "并发请求应至少出现两个同时在解析"

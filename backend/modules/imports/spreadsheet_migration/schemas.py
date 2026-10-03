@@ -112,6 +112,7 @@ class SheetResponse(BaseModel):
     kind: SheetKind
     kind_suggested: bool
     header_row: int
+    default_entity_type: str | None = None
     row_count: int
     columns: list[SheetColumnResponse]
     sample_rows: list[list[str]]
@@ -137,6 +138,7 @@ class SimilarItemResponse(BaseModel):
 
 class WorldItemPreviewResponse(BaseModel):
     item_key: str
+    decision_scope: Literal["entity", "relation", "story"] = "entity"
     label: str
     type_label: str
     action: str
@@ -155,6 +157,7 @@ class WorldItemPreviewResponse(BaseModel):
 
 class RelationPreviewResponse(BaseModel):
     item_key: str
+    decision_scope: Literal["entity", "relation", "story"] = "relation"
     source_label: str
     target_label: str
     relation_type: str
@@ -169,6 +172,7 @@ class RelationPreviewResponse(BaseModel):
 
 class StructurePreviewResponse(BaseModel):
     item_key: str
+    decision_scope: Literal["entity", "relation", "story"] = "story"
     kind: str
     label: str
     chapter_label: str | None = None

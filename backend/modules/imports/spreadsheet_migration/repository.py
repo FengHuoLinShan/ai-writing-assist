@@ -170,6 +170,33 @@ class ImportMigrationSessionRepository:
         await db.flush()
         return True
 
+    async def store_ai_estimate(
+        self,
+        db: AsyncSession,
+        session: ImportMigrationSession,
+        *,
+        estimate: dict[str, int],
+        operation_id: str | None = None,
+    ) -> ImportMigrationSession:
+        """把 AI 成本预估（及提交时的 operation 授权信息）并入 ai_authorization。
+
+        只 flush 不 commit；不提升 revision（预估是 mapping 的派生数据，
+        随 mapping 保存/提交一起变化）。
+        """
+        authorization = dict(session.ai_authorization or {})
+        authorization["estimate"] = {
+            "rows": int(estimate["rows"]),
+            "chars": int(estimate["chars"]),
+            "requests": int(estimate["requests"]),
+        }
+        if operation_id:
+            authorization["operation_id"] = operation_id
+            authorization["authorized_at"] = _utcnow().isoformat()
+        session.ai_authorization = authorization
+        await db.flush()
+        await db.refresh(session)
+        return session
+
     async def mark_ai_status(
         self,
         db: AsyncSession,

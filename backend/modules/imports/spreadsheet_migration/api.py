@@ -106,6 +106,7 @@ def _sheet_entry(
         "kind": kind,
         "kind_suggested": kind == suggested.get("kind"),
         "header_row": int(header_row or 0),
+        "default_entity_type": (mapping_sheet or {}).get("default_entity_type"),
         "row_count": int(manifest_sheet.get("row_count", 0)),
         "columns": columns,
         "sample_rows": sample_rows,
