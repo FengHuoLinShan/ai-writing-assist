@@ -314,3 +314,10 @@ P2-2（旧请求副作用）：`submitAdd`/`submitRemove` 捕获页面身份（�
 - 验证：world pytest 1082 passed；vitest world 27 文件 514 passed（恰为 515−删除的 1 例 CSS 门禁）；ruff 全过；make docs-check 通过。
 - 提交：后端 `9466ab6a5`、前端 `3eb26e556`、任务记录（本提交）。分支 codex/world-relational-management 共 3 提交，未推送；推送/开 PR 待用户授权。
 - 任务记录曾误建于主仓库（storyforge 工作树）并污染其差异，已迁回本工作树；storyforge 分支收尾提交已剔除。
+
+## 12. 合并与性能轮 2026-10-04
+
+- 合并序：#188 → #189 → #190。#188 直接合入；#189 因 Alembic 双头（本分支 import_migration_sessions 与 #188 迁移同父分叉）加 merge revision `20261004_storyforge_spreadsheet_merge` 后 CI 全绿合入。
+- 本分支本地合并 main+#189（TASKS/Makefile/README 并集、WorldLibraryHome.vue 自动合并双侧功能共存），并把 #190 的 schemas.py 增长（5278>基线 5138）以 P8 名义拆出 `relation_schemas.py`（schemas.py 降至 5127，单向依赖，6 个调用方改 import，README 同步）。
+- 性能轮（用户指定）：新增 `tests/e2e/test_world_relation_grouping_perf_pg.py`（1027 实体+约 1200 关系合成数据；门禁=固定查询数 3/4/2 + EXPLAIN ANALYZE 库内聚合与 1s 护栏 + 千对象正确性；已登记 Makefile critical 清单）。测试暴露真实缺陷：成员页 `IN(union 子查询)` PG 逐行 SubPlan，主查询 4424.7ms/729,459 buffer；修复为对 distinct 成员子查询的半连接/反连接后 11.6ms/4,522，unlinked_total 计数同步反连接化。单元 180 passed、性能 e2e 3 passed、ruff/docs-check 过。
+- 提交链：8d5f312bf（并 main）、c6c5b1ab9（并 189）、e4b730a62（+alembic merge）、c7bf83ec8（P8 拆分）、f83fa429d（性能轮）。
