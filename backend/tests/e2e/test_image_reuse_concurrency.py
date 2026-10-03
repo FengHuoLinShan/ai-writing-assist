@@ -118,6 +118,44 @@ async def test_registry_insert_race_preserves_both_callers(monkeypatch):
             await db.commit()
             row = await db.get(ImageRequestReuse, first)
             assert row.reused_at.tzinfo is not None and row.reuse_count == 1
+            owner_id = str(candidate.owner_id)
+
+        async def reuse_once():
+            async def validate_asset(row):
+                await asyncio.sleep(0)
+                return b"synthetic-image", "", 1, 1
+
+            async with sessions.begin() as db:
+                return await find_reusable_asset(
+                    db,
+                    novel_id=str(novel_id),
+                    owner_id=owner_id,
+                    request_hash="f" * 64,
+                    validate_asset=validate_asset,
+                )
+
+        hits = await asyncio.wait_for(
+            asyncio.gather(*(reuse_once() for _ in range(8))), timeout=20
+        )
+        assert all(hit is not None for hit in hits)
+        async with sessions() as db:
+            row = await db.get(ImageRequestReuse, first)
+            assert row.reuse_count == 9
+            # 同一 session 已缓存登记时，也要回读其他事务刚提交的计数。
+            assert await reuse_once() is not None
+            assert (
+                await find_reusable_asset(
+                    db,
+                    novel_id=str(novel_id),
+                    owner_id=owner_id,
+                    request_hash="f" * 64,
+                    validate_asset=validate_asset,
+                )
+                is not None
+            )
+            await db.commit()
+            await db.refresh(row)
+            assert row.reuse_count == 11
     finally:
         async with sessions.begin() as db:
             await db.execute(delete(Project).where(Project.id == novel_id))

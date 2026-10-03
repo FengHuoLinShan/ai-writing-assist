@@ -1916,7 +1916,7 @@ def _page_request_hash(
         owner_id=owner_id,
         state_snapshot_hash=state_snapshot,
         prompt=prompt,
-        model=page.model,
+        model=_local_run_executor(run).kind if provider == "local-cli" else page.model,
         params={
             "provider": provider,
             "layout": run.layout,

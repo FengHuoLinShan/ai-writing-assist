@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, NotFoundError
@@ -41,6 +41,7 @@ from modules.world.image_request_reuse import (
 )
 from modules.world.models import CoreEntity
 from modules.world.models.image_candidate import WorldObjectImageCandidate
+from modules.world.models.image_request_reuse import ImageRequestReuse
 from modules.world.world_object_images import WorldObjectImageService
 from shared.constants import TASK_MAX_HEARTBEAT_GAP
 from shared.utils import parse_uuid
@@ -559,27 +560,31 @@ async def _reuse_world_object_candidate(
     entity_id: str,
     request_hash: str,
 ) -> WorldObjectImageCandidate | None:
-    """命中复用登记且来源候选资产仍完整时，复制出一个 review_ready 候选。"""
+    """校验独立复用资产；来源候选采用或收敛不清除复用原图。"""
 
     async def _validate(row) -> tuple | None:
         if row.source_type != "world_object" or not row.created_from_id:
             return None
-        source = await db.get(WorldObjectImageCandidate, row.created_from_id)
+        source = await db.get(
+            WorldObjectImageCandidate, row.created_from_id, populate_existing=True
+        )
         if (
             source is None
             or str(source.novel_id) != str(row.novel_id)
             or str(source.owner_id) != owner_id
             or str(source.entity_id) != entity_id
-            or not source.image_data
-            or (row.byte_size is not None and len(source.image_data) != row.byte_size)
+            or source.status not in {"review_ready", "adopted"}
         ):
+            return None
+        data = row.asset_data if row.asset_data is not None else source.image_data
+        if not data or (row.byte_size is not None and len(data) != row.byte_size):
             return None
         import hashlib as _hashlib
 
-        digest = _hashlib.sha256(source.image_data).hexdigest()
+        digest = _hashlib.sha256(data).hexdigest()
         if row.asset_sha256 and digest != row.asset_sha256:
             return None
-        return source.image_data, digest, source.width, source.height
+        return data, digest, source.width, source.height
 
     reused = await find_reusable_asset(
         db,
@@ -602,13 +607,26 @@ async def _reuse_world_object_candidate(
         status="review_ready",
         prompt=source.prompt,
         executor_json=dict(source.executor_json or {}),
-        image_data=source.image_data,
+        image_data=reused["asset"],
         width=source.width,
         height=source.height,
         sha256=reused["asset_sha256"],
+        request_hash=request_hash,
     )
     db.add(candidate)
     await db.flush()
+    await db.execute(
+        update(ImageRequestReuse)
+        .where(
+            ImageRequestReuse.novel_id == candidate.novel_id,
+            ImageRequestReuse.owner_id == candidate.owner_id,
+            ImageRequestReuse.request_hash == request_hash,
+        )
+        .values(
+            created_from_id=candidate.id,
+            object_key=f"world-object-candidate:{candidate.id}",
+        )
+    )
     # 复用副本与真实生成一样受 retention 收敛，避免 review_ready 无界累积。
     await WorldObjectImageGenerationService()._retain_newest_review_ready(
         db, novel_id=novel_id, entity_id=source.entity_id
@@ -716,6 +734,7 @@ async def handle_world_object_image_generate(db: AsyncSession, task) -> dict:
         prompt=locked.prompt,
         executor=executor,
     )
+    locked.request_hash = frozen_hash
     await record_reusable_asset(
         db,
         novel_id=str(locked.novel_id),
@@ -726,6 +745,7 @@ async def handle_world_object_image_generate(db: AsyncSession, task) -> dict:
         provider=str((locked.executor_json or {}).get("kind") or "local-cli"),
         model=str((locked.executor_json or {}).get("kind") or "local-cli"),
         asset_sha256=reviewed.sha256,
+        asset_data=reviewed.data,
         byte_size=len(reviewed.data),
         width=reviewed.width,
         height=reviewed.height,
