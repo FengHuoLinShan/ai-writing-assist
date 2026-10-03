@@ -1537,6 +1537,14 @@ const api = {
       return request(withQuery("/world/library", params))
     },
 
+    async listRelationGroups(params = {}) {
+      return request(withQuery("/world/library/relation-groups", params))
+    },
+
+    async applyRelationMembershipBatch(payload, novelId) {
+      return post(withQuery("/world/relations/membership-batch", { novel_id: novelId }), payload)
+    },
+
     async getWorldLibraryOverview(novelId) {
       return request(withQuery("/world/library/overview", { novel_id: novelId }))
     },

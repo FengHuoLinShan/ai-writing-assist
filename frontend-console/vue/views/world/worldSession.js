@@ -37,12 +37,14 @@ export const worldSession = reactive({
   // bible 会话（vanilla worldBibleView 模块单例：跨进入保留"上次页面"）。
   // activePageId 只存 id；匹配不到已加载页面时由组件回退到 pages[0]
   // （vanilla 保留陈旧对象引用，此处按 id 匹配更稳妥，见计划决策 9）。
+  // relationGroupLabels 缓存组内成员页的组名（仅展示用；URL 直达时回退推导）。
   bible: {
     activePageId: null,
     activeDraftId: null,
     editorBaseline: null,
     editorBaselineKey: null,
     libraryScrollPositions: {},
+    relationGroupLabels: {},
   },
 
   _route: { active: false, projectId: null, subView: null },
@@ -120,6 +122,7 @@ export function reconcileWorldEntry(projectId, subView) {
       editorBaseline: null,
       editorBaselineKey: null,
       libraryScrollPositions: {},
+      relationGroupLabels: {},
     }
   }
   worldSession._route = { active: true, projectId: normalizedProjectId, subView }
@@ -147,6 +150,7 @@ export function resetWorldSession() {
     editorBaseline: null,
     editorBaselineKey: null,
     libraryScrollPositions: {},
+    relationGroupLabels: {},
   }
   worldSession._route = { active: false, projectId: null, subView: null }
 }

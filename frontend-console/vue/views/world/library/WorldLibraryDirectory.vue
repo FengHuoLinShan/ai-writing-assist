@@ -11,6 +11,8 @@ const props = defineProps({
   favoriteCount: { type: Number, default: 0 },
   types: { type: Array, default: () => [] },
   projectId: { type: String, default: "" },
+  relationViewEntries: { type: Array, default: () => [] },
+  unlinkedCount: { type: Number, default: null },
 })
 const emit = defineEmits([
   "select",
@@ -36,6 +38,11 @@ const expandedTopicIds = ref(new Set())
 watch(() => props.projectId, () => { expandedTopicIds.value = new Set() }, { immediate: true })
 
 const selectedKey = computed(() => {
+  if (props.filters.groupView) {
+    if (props.filters.groupUnlinked) return "relation-unlinked"
+    if (props.filters.groupId) return "relation-group"
+    return `relation-view:${props.filters.groupView}`
+  }
   if (props.filters.favorite) return "favorite"
   if (props.filters.topicId) return `topic:${props.filters.topicId}`
   if (props.filters.state === "working") return "working"
@@ -45,12 +52,27 @@ const selectedKey = computed(() => {
 })
 
 function selectKey(key) {
-  if (key === "all") emit("select", { state: "", type: "", kind: "all", topicId: "", favorite: false, unclassified: false })
-  else if (key === "working") emit("select", { state: "working", type: "", kind: "all", topicId: "", favorite: false, unclassified: false })
-  else if (key === "favorite") emit("select", { state: "", type: "", kind: "all", topicId: "", favorite: true, unclassified: false })
-  else if (key === "unclassified") emit("select", { state: "", type: "", kind: "all", topicId: "", favorite: false, unclassified: true })
-  else if (key.startsWith("type:")) emit("select", { state: "", type: key.slice(5), kind: "all", topicId: "", favorite: false, unclassified: false })
-  else emit("select", { state: "", type: "", kind: "all", topicId: key.slice(6), favorite: false, unclassified: false })
+  // 普通目录入口（全部/工作稿/收藏/未归类/类型/主题）从关系视角进入时
+  // 必须显式退出视角：不清空 group_view 会让 URL 残留 group_view/group_id，
+  // 父组件合并后仍停留在关系视角；组名搜索 q 同时作废。
+  const exitRelationView = props.filters.groupView
+    ? { groupView: "", groupId: "", groupUnlinked: false, memberQ: "", q: "", skip: 0 }
+    : {}
+  // 退出字段在前：普通入口继承清空结果，relation-view 入口用新视角覆盖。
+  const patch = (fields) => emit("select", { ...exitRelationView, ...fields })
+  if (key === "all") patch({ state: "", type: "", kind: "all", topicId: "", favorite: false, unclassified: false })
+  else if (key === "working") patch({ state: "working", type: "", kind: "all", topicId: "", favorite: false, unclassified: false })
+  else if (key === "favorite") patch({ state: "", type: "", kind: "all", topicId: "", favorite: true, unclassified: false })
+  else if (key === "unclassified") patch({ state: "", type: "", kind: "all", topicId: "", favorite: false, unclassified: true })
+  else if (key.startsWith("type:")) patch({ state: "", type: key.slice(5), kind: "all", topicId: "", favorite: false, unclassified: false })
+  else if (key.startsWith("relation-view:")) {
+    // 切换视角回到组列表；custom 配置不完整时由组列表页展示配置表单。
+    patch({ groupView: key.slice("relation-view:".length), groupId: "", groupUnlinked: false, memberQ: "", q: "", skip: 0 })
+  } else patch({ state: "", type: "", kind: "all", topicId: key.slice(6), favorite: false, unclassified: false })
+}
+
+function selectUnlinked() {
+  emit("select", { groupId: "", groupUnlinked: true, memberQ: "", skip: 0 })
 }
 
 const creating = ref(false)
@@ -127,6 +149,28 @@ function moveTopic(topic, direction) {
         </button>
         <button type="button" :aria-current="selectedKey === 'unclassified' ? 'page' : undefined" @click="selectKey('unclassified')">
           <span>未归类</span><span v-if="unclassifiedCount">{{ unclassifiedCount }}</span>
+        </button>
+
+        <span class="world-library-directory__label">关系视角</span>
+        <button
+          v-for="entry in relationViewEntries"
+          :key="entry.key"
+          type="button"
+          :aria-current="selectedKey === `relation-view:${entry.key}` ? 'page' : undefined"
+          :data-action="entry.key === 'custom' ? 'world-directory-custom-view' : 'world-directory-select-view'"
+          :data-relation-view="entry.key"
+          @click="selectKey(`relation-view:${entry.key}`)"
+        >
+          <span>{{ entry.title }}</span>
+        </button>
+        <button
+          v-if="filters.groupView && unlinkedCount != null"
+          type="button"
+          :aria-current="selectedKey === 'relation-unlinked' ? 'page' : undefined"
+          data-action="world-directory-select-unlinked"
+          @click="selectUnlinked"
+        >
+          <span>尚无此类关联</span><span v-if="unlinkedCount">{{ unlinkedCount }}</span>
         </button>
 
         <span class="world-library-directory__label">主题目录</span>

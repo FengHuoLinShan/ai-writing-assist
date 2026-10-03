@@ -7,8 +7,9 @@ const props = defineProps({
   overview: { type: Object, default: null },
   typeOptions: { type: Array, default: () => [] },
   metaFor: { type: Function, required: true },
+  relationViewEntries: { type: Array, default: () => [] },
 })
-const emit = defineEmits(["open", "select-topic", "select-type", "select-working", "create-topic", "browse-all"])
+const emit = defineEmits(["open", "select-topic", "select-type", "select-working", "create-topic", "browse-all", "select-relation-view"])
 
 const workingCards = computed(() => cardsFromLibraryItems(props.overview?.working_items || []))
 const recentCards = computed(() => cardsFromLibraryItems(props.overview?.recent_items || []))
@@ -97,6 +98,26 @@ function formatTime(value) {
         </li>
       </ul>
       <p v-else class="world-library-home__empty">还没有主题。用主题把同一份资料按写作视角分组，一份资料可以加入多个主题。</p>
+    </section>
+
+    <section class="world-library-home__section" aria-label="按关系分组">
+      <header class="world-library-home__heading">
+        <h3>按关系分组</h3>
+      </header>
+      <div v-if="relationViewEntries.length" class="world-library-home__topics" role="group" aria-label="关系分组视角">
+        <button
+          v-for="entry in relationViewEntries"
+          :key="entry.key"
+          type="button"
+          data-action="world-home-select-relation-view"
+          :data-relation-view="entry.key"
+          @click="emit('select-relation-view', entry.key)"
+        >
+          <span>{{ entry.title }}</span>
+          <small>{{ entry.description }}</small>
+        </button>
+      </div>
+      <p v-else class="world-library-home__empty">关系分组视角暂不可用，可稍后重试。</p>
     </section>
 
     <section class="world-library-home__section" aria-label="按类型筛选">
