@@ -327,6 +327,6 @@ https://playwright.dev/docs/test-sharding 。具体收益未实测，不能承�
 - 用户授权逐步全部 PR 入 main 并清理安全分支。#191 已按059e144808779729b46f07271635aa6e48da3422通过最终远端全部检查并merge，main合并提交5f0484146093119699e9df220cf3c8d594330f99；#183之后合入main=99220678079006b20b324cda5887708848ba63f6。
 - #192按要求在本地merge最新main；原Architecture docs失败在基线收敛后消失，未通过勾选绕过。
 - 双轴复审发现计划P1缺原生blob报告，补四套件独立blob/诊断目录、每片always上传、缺报告失败。79合同/聚合/分类用例及临时真实Playwright四份ZIP探针(含故意失败)通过，后续套件不清除前序产物。
-- 完整test-ci退出0，后端6837 passed/15 skipped、覆盖85.99%、deploy271、frontend2711；生产镜像与PG关键门由#191及依赖组合本地验证和最终远端门覆盖。
+- 完整test-ci退出0，后端6866 passed/15 skipped、覆盖85.99%、deploy271、frontend2711；生产镜像与PG关键门由#191及依赖组合本地验证和最终远端门覆盖。
 - 三组对照已完成，原始汇总 /tmp/ci-opt-sharding-comparison-20261004.json：串行中位17m14s，分片10m21s，下降39.9%，runner分钟比率1.12，满足计划推广门槛。已实读串行attempt2和分片attempt3远端success验证时间。
 - P2未启动；取消形态仍仅单测覆盖，不宣称专门平台取消实测。无部署、真实模型或作者质量验收。整合主任务在T-20261004-pr-main-integration，最终交付状态以实时PR/main为准。
