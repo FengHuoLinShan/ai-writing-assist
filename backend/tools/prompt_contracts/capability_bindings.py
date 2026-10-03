@@ -114,6 +114,7 @@ CAPABILITY_BINDINGS: dict[str, tuple[str, ...]] = {
     "modules/imports/workflow_structure_phase.py": ("imports.structure_analysis",),
     "modules/imports/review_resolution.py": ("imports.review_resolution",),
     "modules/imports/targeted_completion.py": ("imports.targeted_completion",),
+    "modules/imports/spreadsheet_migration/ai.py": ("imports.spreadsheet_migration",),
     # Evolution preparation reuses Imports Phase 1a; observation has its own source gate.
     "modules/evolution/preparation.py": ("imports.scene_slicing",),
     "modules/evolution/structure.py": ("imports.structure_analysis",),

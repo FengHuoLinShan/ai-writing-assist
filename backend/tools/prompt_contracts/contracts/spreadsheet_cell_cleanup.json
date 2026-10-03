@@ -1,0 +1,26 @@
+{
+  "id": "spreadsheet_cell_cleanup",
+  "version": 1,
+  "owner": "imports",
+  "schema_model": "modules.imports.spreadsheet_migration.ai_schemas.SpreadsheetCellCleanup",
+  "declared_prompt_fields": [
+    "proposal_ref",
+    "source_rows",
+    "evidence",
+    "uncertain_fields",
+    "fields",
+    "remainder"
+  ],
+  "forbidden_fields": ["id", "novel_id", "status", "source"],
+  "strict_schema_coverage": true,
+  "required_mappings": [],
+  "observed_fields": [
+    "fields.field",
+    "fields.value",
+    "remainder"
+  ],
+  "ignored_fields": [
+    {"source": "remainder", "reason": "falls back to author notes verbatim"}
+  ],
+  "probes": []
+}

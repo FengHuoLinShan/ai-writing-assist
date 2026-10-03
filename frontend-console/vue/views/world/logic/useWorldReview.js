@@ -241,6 +241,7 @@ export function reviewKindLabel(kind, value) {
 function reviewSourceLabel(source) {
   return {
     deep_import: "深度导入",
+    spreadsheet_migration: "表格迁移",
     manual: "手动整理",
     manual_edit: "手动编辑",
     manual_rollback: "手动回滚",

@@ -9,6 +9,25 @@ import { getApi, getRouter, getToast } from "../bridge/index.js"
 export const MAX_IMPORT_FILE_BYTES = 50 * 1024 * 1024
 export const IMPORT_FILE_ACCEPT = ".txt,.epub,.html,.htm"
 export const RP_SOURCE_FILE_ACCEPT = IMPORT_FILE_ACCEPT
+export const SPREADSHEET_FILE_ACCEPT = ".xlsx,.csv"
+export const MAX_SPREADSHEET_FILE_BYTES = 10 * 1024 * 1024
+
+export function validateSpreadsheetFiles(files) {
+  const list = Array.from(files || [])
+  if (list.length === 0) return "请先选择表格文件"
+  if (list.length > 5) return "一次最多上传 5 个表格文件"
+  for (const file of list) {
+    const name = String(file.name || "").trim().toLowerCase()
+    const suffix = name.includes(".") ? name.slice(name.lastIndexOf(".")) : ""
+    if (!new Set(SPREADSHEET_FILE_ACCEPT.split(",")).has(suffix)) {
+      return "仅支持 .xlsx 和 .csv 表格文件"
+    }
+    if (file.size > MAX_SPREADSHEET_FILE_BYTES) {
+      return `「${file.name}」超过 10MB 上限`
+    }
+  }
+  return null
+}
 
 export function validateImportFile(file, accept = IMPORT_FILE_ACCEPT) {
   if (!file) return "请先选择文件"
