@@ -59,10 +59,65 @@ jobs:
         if: steps.changes.outputs.frontend == 'true'
         run: npm test
 
-  frontend-functional-browser:
-    name: Frontend functional browser
+  # Lightweight classification decides whether browser jobs (and their
+  # PostgreSQL/MinIO services) are needed at all; document-only PRs skip them.
+  browser-classify:
+    name: Browser change classification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    outputs:
+      browser: ${{ steps.changes.outputs.browser }}
+      browser_suite: ${{ steps.changes.outputs.browser_suite }}
+      shard_plan: ${{ steps.shards.outputs.shard_plan }}
+      shard_total: ${{ steps.shards.outputs.shard_total }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Classify CI changes
+        id: changes
+        working-directory: ${{ github.workspace }}
+        run: python3 scripts/classify_ci_changes.py
+
+      - name: Derive browser shard plan
+        id: shards
+        env:
+          BROWSER_SUITE: ${{ steps.changes.outputs.browser_suite }}
+        run: |
+          case "$BROWSER_SUITE" in
+            test:e2e:functional)
+              echo "shard_plan=[1,2]" >> "$GITHUB_OUTPUT"
+              echo "shard_total=2" >> "$GITHUB_OUTPUT"
+              ;;
+            test:e2e:smoke)
+              echo "shard_plan=[1]" >> "$GITHUB_OUTPUT"
+              echo "shard_total=1" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error::unsupported browser_suite '$BROWSER_SUITE'"
+              exit 1
+              ;;
+          esac
+
+  # Full functional suite runs on two independent runners with dedicated
+  # PostgreSQL/MinIO per shard; smoke stays on a single runner. Auxiliary
+  # suites (assistant/creative/editorial) run once, on shard 1 only.
+  frontend-functional-browser-shard:
+    name: Frontend functional browser shard ${{ matrix.shard }}
+    needs: browser-classify
+    if: needs.browser-classify.outputs.browser == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        shard: ${{ fromJSON(needs.browser-classify.outputs.shard_plan) }}
 
     services:
       postgres:
@@ -99,13 +154,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Classify CI changes
-        id: changes
-        working-directory: ${{ github.workspace }}
-        run: python3 scripts/classify_ci_changes.py
-
       - name: Install uv and Python
-        if: steps.changes.outputs.browser == 'true'
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: "0.12.3"
@@ -115,7 +164,6 @@ jobs:
           cache-dependency-glob: backend/uv.lock
 
       - name: Install Node.js
-        if: steps.changes.outputs.browser == 'true'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: frontend-console/.node-version
@@ -123,19 +171,15 @@ jobs:
           cache-dependency-path: frontend-console/package-lock.json
 
       - name: Install locked backend dependencies
-        if: steps.changes.outputs.browser == 'true'
         run: uv sync --project backend --locked --extra ci
 
       - name: Install locked frontend dependencies
-        if: steps.changes.outputs.browser == 'true'
         run: npm --prefix frontend-console ci
 
       - name: Install Chromium for Playwright
-        if: steps.changes.outputs.browser == 'true'
         run: npm --prefix frontend-console exec playwright -- install --with-deps chromium
 
       - name: Start local object storage
-        if: steps.changes.outputs.browser == 'true'
         run: |
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/minio" https://github.com/minio/minio/releases/download/RELEASE.2025-04-22T22-12-26Z/minio.linux-amd64.RELEASE.2025-04-22T22-12-26Z
           echo "53e2a2cb16c5366ea6fbbc479c19ddb4c6a0948273e752f740fb1fbf27bb817c  $RUNNER_TEMP/minio" | sha256sum --check
@@ -149,7 +193,6 @@ jobs:
           curl -fsS http://127.0.0.1:9000/minio/health/ready
 
       - name: Initialize private object buckets
-        if: steps.changes.outputs.browser == 'true'
         run: |
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/mc" https://github.com/minio/mc/releases/download/RELEASE.2025-03-12T17-29-24Z/mc.linux-amd64.RELEASE.2025-03-12T17-29-24Z
           echo "a92b5f1af200ca25d54d78432ef6b0c47fd4340abf9759ce5d10275cd57e3318  $RUNNER_TEMP/mc" | sha256sum --check
@@ -160,38 +203,85 @@ jobs:
             MINIO_APP_SECRET_KEY=novel_minio_dev_pass sh docker/init-minio.sh
 
       # Frontend changes run all behavior tests, including theme, reader and workspace flows.
+      # Each marker file proves the suite actually executed; the verify step fails the
+      # shard when any required suite was silently skipped.
       - name: Run frontend functional browser
-        if: steps.changes.outputs.browser == 'true'
         env:
-          BROWSER_SUITE: ${{ steps.changes.outputs.browser_suite }}
-        run: >-
-          uv run --project backend --locked --extra ci --
-          npm --prefix frontend-console run "$BROWSER_SUITE" -- --workers=1 --retries=0
+          BROWSER_SUITE: ${{ needs.browser-classify.outputs.browser_suite }}
+        run: |
+          uv run --project backend --locked --extra ci -- \
+            npm --prefix frontend-console run "$BROWSER_SUITE" -- --workers=1 --retries=0 "--shard=${{ matrix.shard }}/${{ needs.browser-classify.outputs.shard_total }}"
+          printf '%s shard %s/%s\n' "$BROWSER_SUITE" "${{ matrix.shard }}" "${{ needs.browser-classify.outputs.shard_total }}" > "$RUNNER_TEMP/browser-gate-functional.done"
 
       - name: Run assistant behavior with its isolated synthetic model harness
-        if: steps.changes.outputs.browser == 'true'
-        run: >-
-          uv run --project backend --locked --extra ci --
-          npm --prefix frontend-console run test:e2e:assistant -- --workers=1 --retries=0
+        if: matrix.shard == 1
+        run: |
+          uv run --project backend --locked --extra ci -- \
+            npm --prefix frontend-console run test:e2e:assistant -- --workers=1 --retries=0
+          printf 'assistant\n' > "$RUNNER_TEMP/browser-gate-assistant.done"
 
       - name: Run creative forecast with its isolated synthetic model harness
-        if: steps.changes.outputs.browser == 'true'
-        run: >-
-          uv run --project backend --locked --extra ci --
-          npm --prefix frontend-console run test:e2e:creative -- --workers=1 --retries=0
+        if: matrix.shard == 1
+        run: |
+          uv run --project backend --locked --extra ci -- \
+            npm --prefix frontend-console run test:e2e:creative -- --workers=1 --retries=0
+          printf 'creative\n' > "$RUNNER_TEMP/browser-gate-creative.done"
 
       - name: Run editorial flow with its isolated feature flags
-        if: steps.changes.outputs.browser == 'true'
-        run: >-
-          uv run --project backend --locked --extra ci --
-          npm --prefix frontend-console run test:e2e:editorial -- --workers=1 --retries=0
+        if: matrix.shard == 1
+        run: |
+          uv run --project backend --locked --extra ci -- \
+            npm --prefix frontend-console run test:e2e:editorial -- --workers=1 --retries=0
+          printf 'editorial\n' > "$RUNNER_TEMP/browser-gate-editorial.done"
+
+      - name: Verify required browser suites completed
+        if: ${{ always() }}
+        run: |
+          missing=0
+          required_suites="functional"
+          if [ "${{ matrix.shard }}" = "1" ]; then
+            required_suites="$required_suites assistant creative editorial"
+          fi
+          for suite in $required_suites; do
+            if [ ! -f "$RUNNER_TEMP/browser-gate-$suite.done" ]; then
+              echo "::error::required browser suite did not complete: $suite"
+              missing=1
+            fi
+          done
+          exit "$missing"
 
       - name: Upload frontend functional browser diagnostics
-        if: failure() && steps.changes.outputs.browser == 'true'
+        if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: frontend-functional-browser-diagnostics
+          name: frontend-functional-browser-diagnostics-shard-${{ matrix.shard }}
           path: frontend-console/test-results
           if-no-files-found: ignore
           include-hidden-files: true
           retention-days: 14
+
+  # Required check keeps its stable name and aggregates the classification
+  # and shard jobs; it fails closed on missing outputs, skipped shards,
+  # cancellations, or any shard/auxiliary failure.
+  frontend-functional-browser:
+    name: Frontend functional browser
+    needs: [browser-classify, frontend-functional-browser-shard]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Aggregate browser gate result
+        env:
+          CLASSIFY_RESULT: ${{ needs.browser-classify.result }}
+          BROWSER: ${{ needs.browser-classify.outputs.browser }}
+          BROWSER_SUITE: ${{ needs.browser-classify.outputs.browser_suite }}
+          SHARD_PLAN: ${{ needs.browser-classify.outputs.shard_plan }}
+          SHARD_TOTAL: ${{ needs.browser-classify.outputs.shard_total }}
+          SHARD_RESULT: ${{ needs.frontend-functional-browser-shard.result }}
+        run: python3 scripts/aggregate_browser_gate.py
