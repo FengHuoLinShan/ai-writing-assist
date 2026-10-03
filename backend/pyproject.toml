@@ -62,7 +62,6 @@ dependencies = [
     "pyyaml>=6.0.3,<7.0",
     "pydantic-ai-slim==2.50.0",
     "openpyxl>=3.1.5",
-    "defusedxml>=0.7.1",
 ]
 
 [project.optional-dependencies]
