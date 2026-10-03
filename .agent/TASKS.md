@@ -24,3 +24,5 @@
 - [T-20260920-forecast-creative-engine](tasks/2026/T-20260920-forecast-creative-engine/TASK.md) — 短期前瞻辅助与协作创作试验引擎 V2
 
 - [T-20260923-guimi-flagship](tasks/2026/T-20260923-guimi-flagship/TASK.md) — 现有 guimi 旗舰演示增量升级
+
+- [T-20261002-world-relational-management](tasks/2026/T-20261002-world-relational-management/TASK.md) — 世界对象关系分组与关联管理（实现+双轮整改完成，已提交本分支待授权推送）
