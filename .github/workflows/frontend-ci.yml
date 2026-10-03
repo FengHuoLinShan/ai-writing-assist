@@ -208,30 +208,37 @@ jobs:
       - name: Run frontend functional browser
         env:
           BROWSER_SUITE: ${{ needs.browser-classify.outputs.browser_suite }}
+          PLAYWRIGHT_BLOB_OUTPUT_DIR: blob-report/functional
         run: |
           uv run --project backend --locked --extra ci -- \
-            npm --prefix frontend-console run "$BROWSER_SUITE" -- --workers=1 --retries=0 "--shard=${{ matrix.shard }}/${{ needs.browser-classify.outputs.shard_total }}"
+            npm --prefix frontend-console run "$BROWSER_SUITE" -- --workers=1 --retries=0 "--shard=${{ matrix.shard }}/${{ needs.browser-classify.outputs.shard_total }}" --reporter=list,blob --output=test-results/functional
           printf '%s shard %s/%s\n' "$BROWSER_SUITE" "${{ matrix.shard }}" "${{ needs.browser-classify.outputs.shard_total }}" > "$RUNNER_TEMP/browser-gate-functional.done"
 
       - name: Run assistant behavior with its isolated synthetic model harness
         if: matrix.shard == 1
+        env:
+          PLAYWRIGHT_BLOB_OUTPUT_DIR: blob-report/assistant
         run: |
           uv run --project backend --locked --extra ci -- \
-            npm --prefix frontend-console run test:e2e:assistant -- --workers=1 --retries=0
+            npm --prefix frontend-console run test:e2e:assistant -- --workers=1 --retries=0 --reporter=list,blob --output=test-results/assistant
           printf 'assistant\n' > "$RUNNER_TEMP/browser-gate-assistant.done"
 
       - name: Run creative forecast with its isolated synthetic model harness
         if: matrix.shard == 1
+        env:
+          PLAYWRIGHT_BLOB_OUTPUT_DIR: blob-report/creative
         run: |
           uv run --project backend --locked --extra ci -- \
-            npm --prefix frontend-console run test:e2e:creative -- --workers=1 --retries=0
+            npm --prefix frontend-console run test:e2e:creative -- --workers=1 --retries=0 --reporter=list,blob --output=test-results/creative
           printf 'creative\n' > "$RUNNER_TEMP/browser-gate-creative.done"
 
       - name: Run editorial flow with its isolated feature flags
         if: matrix.shard == 1
+        env:
+          PLAYWRIGHT_BLOB_OUTPUT_DIR: blob-report/editorial
         run: |
           uv run --project backend --locked --extra ci -- \
-            npm --prefix frontend-console run test:e2e:editorial -- --workers=1 --retries=0
+            npm --prefix frontend-console run test:e2e:editorial -- --workers=1 --retries=0 --reporter=list,blob --output=test-results/editorial
           printf 'editorial\n' > "$RUNNER_TEMP/browser-gate-editorial.done"
 
       - name: Verify required browser suites completed
@@ -258,6 +265,15 @@ jobs:
           path: frontend-console/test-results
           if-no-files-found: ignore
           include-hidden-files: true
+          retention-days: 14
+
+      - name: Upload browser blob reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: frontend-functional-browser-blob-shard-${{ matrix.shard }}
+          path: frontend-console/blob-report
+          if-no-files-found: error
           retention-days: 14
 
   # Required check keeps its stable name and aggregates the classification

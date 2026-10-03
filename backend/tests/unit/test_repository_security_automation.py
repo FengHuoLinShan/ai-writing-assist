@@ -183,6 +183,22 @@ def test_frontend_browser_gate_keeps_its_independent_risk_contract() -> None:
             f"npm --prefix frontend-console run test:e2e:{suite} "
             "-- --workers=1 --retries=0" in steps[step_name]["run"]
         )
+    for suite, step in [("functional", functional)] + [
+        (suite, steps[name]) for suite, name in auxiliary_step_names.items()
+    ]:
+        assert "--reporter=list,blob" in step["run"]
+        assert f"--output=test-results/{suite}" in step["run"]
+        assert step["env"]["PLAYWRIGHT_BLOB_OUTPUT_DIR"] == f"blob-report/{suite}"
+    blob_upload = steps["Upload browser blob reports"]
+    assert blob_upload["if"] == "${{ always() }}"
+    assert _action_name(blob_upload) == "actions/upload-artifact"
+    assert re.fullmatch(r"actions/upload-artifact@[0-9a-f]{40}", blob_upload["uses"])
+    assert blob_upload["with"] == {
+        "name": "frontend-functional-browser-blob-shard-${{ matrix.shard }}",
+        "path": "frontend-console/blob-report",
+        "if-no-files-found": "error",
+        "retention-days": "14",
+    }
     assert steps["Upload frontend functional browser diagnostics"]["if"] == "failure()"
     assert (
         steps["Upload frontend functional browser diagnostics"]["with"]["name"]

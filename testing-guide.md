@@ -264,8 +264,10 @@ and Chromium, then runs the complete functional suite on two shards (`--shard=1/
 `--shard=2/2`) on frontend-related PRs and main, while backend-related PRs keep the
 single-runner smoke suite. Shards stay workers=1 with retries=0; the
 assistant/creative/editorial auxiliary suites run once on shard 1 with per-suite Playwright
-output directories, and each shard retains `frontend-console/test-results` failure
-diagnostics for 14 days under shard-specific artifact names. The required
+output directories. Each shard retains `frontend-console/test-results` failure
+diagnostics and always uploads native blob reports from `frontend-console/blob-report`
+for 14 days under shard-specific artifact names. Functional and auxiliary reports use
+separate directories so later suites preserve earlier results. The required
 `Frontend functional browser` check keeps its stable name and aggregates the pipeline via
 `scripts/aggregate_browser_gate.py`, failing closed on classification failure, missing
 outputs, skipped shards, or any shard/auxiliary failure. `test:e2e:map` remains a focused
