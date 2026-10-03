@@ -47,9 +47,12 @@ const profileFields = [
   ["personality", "性格", "稳定倾向与压力下的反应"],
   ["desire", "渴望／长期目标", "真正想获得或守住什么"],
   ["fear", "恐惧／软肋", "最害怕失去或面对什么"],
-  ["secret", "秘密（仅作者可见）", "暂时不应交给读者或其他人物的信息"],
+  ["weakness", "弱点", "可被利用或攻破的短板"],
+  ["current_goal", "当前目标", "眼下正在推进的具体目标"],
   ["current_state", "当前状态", "此刻的处境与变化"],
+  ["stance", "立场", "在核心冲突中站在哪一边"],
   ["voice_style", "语言风格", "说话节奏、措辞和习惯"],
+  ["relationship_summary", "人际关系", "与关键人物的当前关系"],
 ]
 const profileForm = reactive(Object.fromEntries(profileFields.map(([key]) => [key, ""])))
 const profileBaseline = ref(JSON.stringify(profileForm))

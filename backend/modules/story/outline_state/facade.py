@@ -14,6 +14,11 @@ Facade 不写复杂业务逻辑，只做稳定的对外代理。
 from modules.story.outline_state.analysis_context_facade import (  # noqa: F401
     get_outline_analysis_context,
 )
+from modules.story.outline_state.author_migration import (  # noqa: F401
+    apply_author_migration_structures,
+    plan_author_migration_structures,
+    rollback_author_migration_structures,
+)
 from modules.story.outline_state.deep_import_repair_facade import (  # noqa: F401
     deprecate_deep_import_scenes_by_workflow,
     deprecate_deep_import_structure_assets_by_workflow,
@@ -75,6 +80,9 @@ __all__ = [
     "apply_scene_understanding_enrichment",
     "apply_structure_dedup",
     "apply_structure_dedup_group",
+    "plan_author_migration_structures",
+    "apply_author_migration_structures",
+    "rollback_author_migration_structures",
     "bind_scene_spans_to_source",
     "batch_create_scenes",
     "count_scenes_by_novel",

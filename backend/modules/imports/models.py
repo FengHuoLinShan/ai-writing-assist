@@ -7,12 +7,14 @@ Import ORM 模型
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
     JSON,
     Boolean,
     CheckConstraint,
+    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -234,4 +236,128 @@ class ImportWorkflowRun(Base, UUIDMixin, TimestampMixin, NovelMixin):
             f"<ImportWorkflowRun id={self.id} task={self.task_id} "
             f"type={self.workflow_type} status={self.status} "
             f"generation={self.generation}>"
+        )
+
+
+class ImportMigrationSession(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """表格迁移会话（ADR-0030）— 草稿期暂存有界单元格，采用或删除后清空 rows。
+
+    回执只存 id、hash 和被改字段的原值，不存正文。
+    """
+
+    __tablename__ = "import_migration_sessions"
+    __table_args__ = (
+        Index("ix_import_migration_sessions_novel_created", "novel_id", "created_at"),
+        CheckConstraint(
+            "status IN ('draft', 'applied', 'rolled_back', 'partially_rolled_back')",
+            name="ck_import_migration_sessions_status",
+        ),
+        {"comment": "表格迁移（xlsx/csv）作者会话"},
+    )
+
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        nullable=False,
+        index=True,
+        comment="创建会话的账户",
+    )
+    status: Mapped[str] = mapped_column(
+        String(24),
+        nullable=False,
+        default="draft",
+        comment="draft / applied / rolled_back / partially_rolled_back",
+    )
+    revision: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        comment="mapping/decisions/AI 结果写入时 +1，作 CAS 用",
+    )
+    file_manifest: Mapped[dict[str, Any]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
+        comment="文件与表的清单（不含单元格）",
+    )
+    rows_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+        comment="{sheet_key: rows}；采用或删除后置空",
+    )
+    mapping_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+        comment="表类型、表头行与列映射",
+    )
+    decisions_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+        comment="作者逐项决策与关系种类分组",
+    )
+    plan_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+        comment="最近一次 world/story 计划及其 fingerprint",
+    )
+    preview_hash: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        comment="最近一次预览的稳定 hash",
+    )
+    ai_task_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("async_tasks.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    ai_status: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="idle",
+        comment="idle / queued / running / done / failed",
+    )
+    ai_scope_hash: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        comment="AI 任务绑定的 scope 指纹",
+    )
+    ai_authorization: Mapped[dict[str, Any]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+        comment="AI 运行授权快照",
+    )
+    ai_result_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+        comment="AI 整理结果（仅预览用）",
+    )
+    receipt_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+        comment="{world, story, counts}；不含正文",
+    )
+    error_code: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        comment="失败时的机器码（不含正文）",
+    )
+    applied_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    rolled_back_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<ImportMigrationSession id={self.id} status={self.status} "
+            f"revision={self.revision}>"
         )

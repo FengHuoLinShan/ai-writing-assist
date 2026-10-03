@@ -147,6 +147,7 @@ map / rag / outline / settings / project-settings`，其主 DOM 全部由 Vue SF
 | `vue/views/scene/SceneWorkbenchView.vue` | 由 `outline/scenes` 承载的 Scene 普通/热点双模式、管理筛选、当前剧情定位、拆分/合并/替换、复核与自动提取整理；有来源绑定配图的 Scene 详情通过 `SceneVisual` 读取固定 World 图片版本，版本更新后提示重新核对；旧 `scene` 路由仅作兼容重定向 |
 | `vue/views/rag/RagView.vue` | `rag` 路由（Vue island）；普通路径只显示查找。资料未准备好时提供“查看并修复”，修复范围、状态与任务进度直接可见；后台连接、语义匹配耗时、检索记录和失败片段重试等低频信息收在诊断详情中，异常只给作者可执行的重试或联系管理员路径 |
 | `vue/views/generate/GenerateView.vue` / `vue/components/OwnerAiDrawer.vue` | owner 页 AI 抽屉内复用生成中心：world 共创与 POV 正文都使用表单内唯一主操作，长等待显示真实阶段，失败可聚焦原位重试并保留作者输入；任务资料按作者语言展示标题、状态、加入理由和来源，技术诊断渐进展开，预览按项目在当前标签页恢复；POV 选择/指令进入既有 512 KiB 项目会话，跨世界/写作 owner 时替换到正确所属页；矮窗口解除裁切，手机操作避开固定底栏；保留 checkpoint、continuation、target 与 preset，API/schema/wire 不变；旧 `generate` hash 仅作兼容重定向 |
+| `vue/views/project/components/SpreadsheetMigrationPanel.vue` / `spreadsheetMigration/*` | 导入抽屉「导入设定表格」页签（ADR-0030）：上传（多文件 xlsx/csv、10MB 校验）→ 逐表核对类型/表头/列映射 → AI 整理（大纲类默认预选、显式授权、进度轮询）→ 五分页签预览与逐条决策（conflict 摘录、相似名提示、validation policy 警示）→ 确认采用（confirmed+preview_hash，409 自动重取）→ 完成（跳世界库/整次撤销）；迁移记录列表支持继续/撤销/二次确认删除；「表格迁移」来源徽标与空态入口见世界库与大纲 |
 | `vue/views/settings/SettingsShellView.vue` / `GlobalSettingsView.vue` / `ProjectSettingsView.vue` | `settings` 与 `project-settings` 共用单标题的账户/当前作品设置外壳；加载失败可原位重试，字段错误和保存状态持续可见，图片连接按需展开，窄屏单栏且无横向溢出；账户级连接、余额、全局偏好和项目级导入参数/作者偏好的 API、保存载荷与离开保护不变，字体和专注模式只在显示层本地化 |
 
 公开演示有已发布正文时，Today 主操作显示「阅读正式正文」并进入专用只读阅读器；阅读器只请求 `published` 章节列表与按章最新正文，不挂载编辑器、版本历史、Scene、冲突检查或恢复本地工作稿。首页只从章节列表生成简化续读投影，不请求作者 `workspace-summary`、待办或世界工作稿。

@@ -25,3 +25,4 @@
 - [T-20260923-guimi-flagship](tasks/2026/T-20260923-guimi-flagship/TASK.md) — 现有 guimi 旗舰演示增量升级
 
 - [T-20261002-storyforge-v6-review](tasks/2026/T-20261002-storyforge-v6-review/TASK.md) — StoryForge v6 实现核查与全部整改
+- [T-20261002-spreadsheet-migration](tasks/2026/T-20261002-spreadsheet-migration/TASK.md) — 表格（xlsx/csv）迁移作者在途项目资产

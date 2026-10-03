@@ -1253,6 +1253,15 @@ RP 开局配图经 `read_world_object_image` 读取已审查的对象图片版�
 冻结版本与剧情截止点，World 仍校验项目访问、对象归属及 `expected_version`。对象响应提供
 `image_version` 供版本绑定；图片替换后旧开局返回不可用，绝不回退到可能剧透的新图片。
 
+## 作者表格迁移窄 seam（ADR-0030）
+
+`services/worldbuilding/author_migration.py` 提供 `plan/apply/rollback_author_migration_world`
+（经 world facade 再导出）：名称/别名解析（本次条目 → working → exact → similar 召回）
+与动作判定；apply 行锁下重算指纹、一次性门禁（validation policy 失败关闭）、新实体
+canonical + created_by=spreadsheet_migration + approved_by=owner、别名 confirmed、
+作者备注追加 hidden_truth；同名只补空、冲突不落库。回滚与 focused 补全共用
+`applied_change_reversal`（Character 行按其 receipt 条目恢复），被改动/被引用项保留。
+不复用 adoption package、不走 CreationSuggestion。
 
 ## 图片请求幂等复用（B9）
 
@@ -1269,3 +1278,4 @@ RP 开局配图经 `read_world_object_image` 读取已审查的对象图片版�
 明确放弃当前复用来源后，下次校验作废登记。
 复用登记在读取时取得行锁，覆盖来源校验、计数及最新来源指针更新；已有登记
 的覆盖更新使用同一锁，避免并发复用丢增或读取旧来源。
+

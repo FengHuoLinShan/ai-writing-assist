@@ -34,6 +34,7 @@ const WORKFLOW_LABELS = {
   deep_import: "深度导入",
   scene_auto_extraction: "从正文整理场景",
   smart_dedup_scan: "智能去重扫描",
+  spreadsheet_migration_ai: "整理表格大纲",
   world_object_auto_extraction: "整理人物、设定与关系",
   world_entity_fusion_suggestions: "世界对象 AI 合并建议",
   plot_structure_auto_extraction: "从正文整理剧情线",
