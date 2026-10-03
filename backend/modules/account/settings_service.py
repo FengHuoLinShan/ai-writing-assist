@@ -448,6 +448,7 @@ class SettingsService:
         是否真正参与路由由能力档案 verified 档在运行期过滤。
         """
         owner_id = _current_owner_id()
+        await self._llm_repo.lock_owner_head(db, owner_id)
         defaults = await self._llm_repo.get(db, owner_id)
         if defaults is None or not defaults.provider_id:
             raise ValueError("账户模型尚未连接，请先在账户设置中连接")
@@ -465,7 +466,6 @@ class SettingsService:
             raise ValueError("附加模型最多 4 个")
         if defaults.model and defaults.model in cleaned:
             raise ValueError("附加模型不得与主模型同名")
-        await self._llm_repo.lock_owner_head(db, owner_id)
         await self._llm_repo.upsert(
             db,
             {"owner_id": owner_id, "secondary_models": cleaned},
