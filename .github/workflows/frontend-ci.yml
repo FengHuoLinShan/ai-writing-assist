@@ -83,6 +83,12 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: python3 scripts/classify_ci_changes.py
 
+      # TEMPORARY failure-injection probe; do not merge.
+      - name: Injected classification failure probe
+        run: |
+          echo "::error::injected classification failure"
+          exit 1
+
       - name: Derive browser shard plan
         id: shards
         env:
@@ -153,15 +159,6 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-
-      # TEMPORARY failure-injection probe; do not merge.
-      - name: Injected shard failure probe
-        if: matrix.shard == 2
-        run: |
-          mkdir -p frontend-console/test-results
-          echo injected-failure-probe > frontend-console/test-results/INJECTED-FAILURE.txt
-          echo "::error::injected failure for shard ${{ matrix.shard }}"
-          exit 1
 
       - name: Install uv and Python
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
