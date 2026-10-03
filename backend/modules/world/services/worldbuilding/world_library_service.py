@@ -312,13 +312,17 @@ class WorldLibraryService:
                 select(CoreEntity.id).where(*group_conditions).subquery()
             )
         )
+        unlinked_sq = select(
+            pairs_sq.c.member_id.distinct().label("member_id")
+        ).subquery()
         unlinked_total = await db.scalar(
             select(func.count()).select_from(
                 select(CoreEntity.id)
+                .outerjoin(unlinked_sq, unlinked_sq.c.member_id == CoreEntity.id)
                 .where(
                     CoreEntity.novel_id == nid,
                     CoreEntity.status == _CANONICAL_STATUS,
-                    CoreEntity.id.not_in(select(pairs_sq.c.member_id).distinct()),
+                    unlinked_sq.c.member_id.is_(None),
                     *self._member_type_scope(view),
                 )
                 .subquery()
@@ -368,17 +372,29 @@ class WorldLibraryService:
                 or group.entity_type not in view.group_types
             ):
                 raise NotFoundError("分组对象不存在")
-            member_filter = CoreEntity.id.in_(
-                select(pairs_sq.c.member_id).where(pairs_sq.c.group_id == group_uuid)
+            # 半连接（对 distinct 成员子查询 join）：IN(union 子查询) 在 PG
+            # 会退化为逐行 SubPlan 重跑 union，千对象规模实测 4s+ / 70 万
+            # buffer 命中；join 让计划器一次物化。
+            member_sq = (
+                select(pairs_sq.c.member_id.distinct().label("member_id"))
+                .where(pairs_sq.c.group_id == group_uuid)
+                .subquery()
             )
+            source_join = (member_sq, member_sq.c.member_id == CoreEntity.id)
+            anti_join = None
         else:
-            member_filter = CoreEntity.id.not_in(select(pairs_sq.c.member_id).distinct())
+            unlinked_sq = select(
+                pairs_sq.c.member_id.distinct().label("member_id")
+            ).subquery()
+            source_join = None
+            anti_join = (unlinked_sq, unlinked_sq.c.member_id == CoreEntity.id)
 
         source = self._grouped_entities_source(
             nid,
             q=q,
             member_types=member_types,
-            member_filter=member_filter,
+            source_join=source_join,
+            anti_join=anti_join,
         )
         outer, order_columns = self._library_outer_query(
             nid,
@@ -632,9 +648,14 @@ class WorldLibraryService:
         *,
         q: str | None,
         member_types: tuple[str, ...] | None,
-        member_filter: Any,
+        source_join: tuple[Any, Any] | None,
+        anti_join: tuple[Any, Any] | None,
     ) -> Any:
-        """分组模式专用的 canonical 成员实体源（复用 entity 源的 q 语义）。"""
+        """分组模式专用的 canonical 成员实体源（复用 entity 源的 q 语义）。
+
+        成员资格用半连接表达、未关联用反连接表达（见 _list_library_grouped），
+        避免 IN/NOT IN 子查询的逐行 SubPlan 退化。
+        """
         summary_expr = _trimmed(
             func.nullif(CoreEntity.summary, ""),
             func.nullif(CoreEntity.public_info, ""),
@@ -654,8 +675,13 @@ class WorldLibraryService:
         ).where(
             CoreEntity.novel_id == nid,
             CoreEntity.status == _CANONICAL_STATUS,
-            member_filter,
         )
+        if source_join is not None:
+            subq, onclause = source_join
+            stmt = stmt.join(subq, onclause)
+        elif anti_join is not None:
+            subq, onclause = anti_join
+            stmt = stmt.outerjoin(subq, onclause).where(subq.c.member_id.is_(None))
         if member_types is not None:
             if not member_types:
                 stmt = stmt.where(literal(False))
