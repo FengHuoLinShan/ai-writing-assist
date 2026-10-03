@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import uuid
 from unittest.mock import patch
 
@@ -260,7 +261,8 @@ async def test_handler_happy_path_stores_reviewed_image(
     task, candidate = await _seed_candidate_task(
         db_session, test_project_id, test_character_id
     )
-    reviewed = ReviewedImage(data=_PNG, width=1, height=1, sha256="b" * 64)
+    digest = hashlib.sha256(_PNG).hexdigest()
+    reviewed = ReviewedImage(data=_PNG, width=1, height=1, sha256=digest)
     with patch(
         "modules.world.world_object_image_generation.run_local_image",
         autospec=True,
@@ -272,7 +274,25 @@ async def test_handler_happy_path_stores_reviewed_image(
     assert candidate.status == "review_ready"
     assert candidate.image_data == _PNG
     assert len(candidate.image_data) <= 6 * 1024 * 1024
-    assert candidate.sha256 == "b" * 64
+    assert candidate.sha256 == digest
+    from modules.world.world_object_image_generation import _reuse_world_object_candidate
+    from modules.world.world_object_images import WorldObjectImageService
+
+    service = WorldObjectImageGenerationService(
+        image_service=WorldObjectImageService(MemoryImageStorage())
+    )
+    await service.adopt_candidate(
+        db_session, novel_id=test_project_id, candidate_id=str(candidate.id)
+    )
+    assert candidate.image_data is None
+    reused = await _reuse_world_object_candidate(
+        db_session,
+        novel_id=test_project_id,
+        owner_id=str(candidate.owner_id),
+        entity_id=test_character_id,
+        request_hash=candidate.request_hash,
+    )
+    assert reused is not None and reused.image_data == _PNG
 
 
 @pytest.mark.asyncio

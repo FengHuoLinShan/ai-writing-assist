@@ -45,11 +45,16 @@ function productionJsFiles() {
 function definedApiMethods() {
   const methods = new Set()
   const runtimeApi = globalThis.window?.api
+  const collect = (prefix, group) => {
+    for (const [name, value] of Object.entries(group || {})) {
+      if (typeof value === "function") methods.add(`${prefix}.${name}`)
+      // 嵌套命名空间（如 imports.migrations.*）按全路径注册
+      else if (value && typeof value === "object") collect(`${prefix}.${name}`, value)
+    }
+  }
   for (const [groupName, group] of Object.entries(runtimeApi || {})) {
     if (!group || typeof group !== "object") continue
-    for (const [methodName, method] of Object.entries(group)) {
-      if (typeof method === "function") methods.add(`${groupName}.${methodName}`)
-    }
+    collect(groupName, group)
   }
   return methods
 }

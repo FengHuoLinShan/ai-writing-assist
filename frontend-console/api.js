@@ -1543,6 +1543,14 @@ const api = {
       return request(withQuery("/world/library", params))
     },
 
+    async listRelationGroups(params = {}) {
+      return request(withQuery("/world/library/relation-groups", params))
+    },
+
+    async applyRelationMembershipBatch(payload, novelId) {
+      return post(withQuery("/world/relations/membership-batch", { novel_id: novelId }), payload)
+    },
+
     async getWorldLibraryOverview(novelId) {
       return request(withQuery("/world/library/overview", { novel_id: novelId }))
     },
@@ -2634,6 +2642,47 @@ const api = {
 
     async abandonDeepImport(taskId) {
       return contractJson("imports.abandonDeepImport", {}, {}, { task_id: taskId })
+    },
+
+    migrations: {
+      async create(novelId, files, onProgress = null, options = {}) {
+        const formData = new FormData()
+        formData.append("novel_id", novelId)
+        for (const file of Array.from(files || [])) {
+          formData.append("files", file, file.name)
+        }
+        return uploadMultipart("/imports/migrations", formData, onProgress, options)
+      },
+      async list(params = {}) {
+        return request(withQuery("/imports/migrations", params))
+      },
+      async get(sessionId, params = {}) {
+        return request(withQuery(`/imports/migrations/${sessionId}`, params))
+      },
+      async rows(sessionId, params = {}) {
+        return request(withQuery(`/imports/migrations/${sessionId}/rows`, params))
+      },
+      async saveMapping(sessionId, payload) {
+        return put(`/imports/migrations/${sessionId}/mapping`, payload)
+      },
+      async startAi(sessionId, payload) {
+        return contractJson("imports.migrations.startAi", { sessionId }, {}, payload)
+      },
+      async saveDecisions(sessionId, payload) {
+        return put(`/imports/migrations/${sessionId}/decisions`, payload)
+      },
+      async rollbackPreview(sessionId, params = {}) {
+        return request(withQuery(`/imports/migrations/${sessionId}/rollback-preview`, params))
+      },
+      async apply(sessionId, payload) {
+        return contractJson("imports.migrations.apply", { sessionId }, {}, payload)
+      },
+      async rollback(sessionId, payload) {
+        return contractJson("imports.migrations.rollback", { sessionId }, {}, payload)
+      },
+      async remove(sessionId, params = {}) {
+        return deleteRequest(withQuery(`/imports/migrations/${sessionId}`, params))
+      },
     },
   },
 

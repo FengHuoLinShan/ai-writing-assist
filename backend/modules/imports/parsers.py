@@ -13,12 +13,15 @@ import re
 import stat
 import unicodedata
 import zipfile
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from xml.etree import ElementTree
 
 import chardet
 
 from modules.imports.contracts import MAX_IMPORT_FILE_SIZE
+
+if TYPE_CHECKING:
+    from modules.imports.spreadsheet_migration.parsing import ParsedUpload
 
 CHAPTER_PATTERNS = [
     re.compile(
@@ -53,8 +56,8 @@ _EPUB_MAX_UNCOMPRESSED_SIZE = MAX_FILE_SIZE * 2
 _EPUB_MAX_MEMBER_SIZE = MAX_FILE_SIZE
 _EPUB_MAX_CONTAINER_SIZE = 1024 * 1024
 _EPUB_MAX_PACKAGE_SIZE = 4 * 1024 * 1024
-_EPUB_ALLOWED_COMPRESSION = {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}
-_EPUB_BOUNDED_READ_CHUNK = 64 * 1024
+_ZIP_ALLOWED_COMPRESSION = {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}
+_ZIP_BOUNDED_READ_CHUNK = 64 * 1024
 _EPUB_CONTAINER_PATH = "META-INF/container.xml"
 _EPUB_CONTAINER_NAMESPACE = "urn:oasis:names:tc:opendocument:xmlns:container"
 _EPUB_PACKAGE_NAMESPACE = "http://www.idpf.org/2007/opf"
@@ -145,7 +148,7 @@ def _read_member_bounded(
     output = bytearray()
     with archive.open(member, "r") as stream:
         while True:
-            chunk = stream.read(_EPUB_BOUNDED_READ_CHUNK)
+            chunk = stream.read(_ZIP_BOUNDED_READ_CHUNK)
             if not chunk:
                 break
             output.extend(chunk)
@@ -154,25 +157,69 @@ def _read_member_bounded(
     return bytes(output)
 
 
-def _audit_epub_member_sizes(
+def _audit_zip_member_sizes(
     archive: zipfile.ZipFile,
     members: list[zipfile.ZipInfo],
 ) -> None:
     """全成员解压审计：实际输出一旦超过声明 file_size 立即拒绝。
 
-    审计通过后，后续 ebooklib 的整段 read 至多解压出已通过声明的体积，
+    审计通过后，后续的整段 read 至多解压出已通过声明的体积，
     伪造头部的解压炸弹在这里被有界拦截。
     """
     for member in members:
         produced = 0
         with archive.open(member, "r") as stream:
             while True:
-                chunk = stream.read(_EPUB_BOUNDED_READ_CHUNK)
+                chunk = stream.read(_ZIP_BOUNDED_READ_CHUNK)
                 if not chunk:
                     break
                 produced += len(chunk)
                 if produced > member.file_size:
                     _raise_content_type_mismatch()
+
+
+def audit_zip_container(
+    data: bytes,
+    *,
+    max_members: int,
+    max_member_bytes: int,
+    max_total_uncompressed: int,
+) -> None:
+    """EPUB 与 XLSX 共用的 zip 容器安全审计，违规抛作者可读 ValueError。
+
+    覆盖：zip 签名、成员数上限、成员重名、加密标记、不安全成员路径、符号
+    链接、压缩方式白名单、单成员与总解压体积上限，以及按实测输出的解压
+    炸弹拦截（实际解压体积不得超过中央目录声明值）。
+    """
+    if not data.startswith((b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")):
+        _raise_content_type_mismatch()
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            members = archive.infolist()
+            names = [member.filename for member in members]
+            if not members or len(members) > max_members:
+                raise ValueError("压缩包内文件数量超出安全限制")
+            if len(names) != len(set(names)):
+                _raise_content_type_mismatch()
+
+            total_size = 0
+            for member in members:
+                if (
+                    member.flag_bits & 0x1
+                    or _archive_path_is_unsafe(member.filename)
+                    or stat.S_ISLNK(member.external_attr >> 16)
+                    or member.compress_type not in _ZIP_ALLOWED_COMPRESSION
+                ):
+                    _raise_content_type_mismatch()
+                if member.file_size > max_member_bytes:
+                    raise ValueError("压缩包内单个文件超出安全限制")
+                total_size += member.file_size
+                if total_size > max_total_uncompressed:
+                    raise ValueError("文件解压后体积超出安全限制")
+
+            _audit_zip_member_sizes(archive, members)
+    except (OSError, RuntimeError, zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
+        raise ValueError(_CONTENT_TYPE_MISMATCH_MESSAGE) from exc
 
 
 def _read_epub_xml(
@@ -198,37 +245,22 @@ def _xml_local_name(tag: str) -> str:
 
 
 def _validate_epub_content(data: bytes) -> None:
-    if not data.startswith((b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")):
+    try:
+        audit_zip_container(
+            data,
+            max_members=_EPUB_MAX_MEMBERS,
+            max_member_bytes=_EPUB_MAX_MEMBER_SIZE,
+            max_total_uncompressed=_EPUB_MAX_UNCOMPRESSED_SIZE,
+        )
+    except ValueError:
         _raise_content_type_mismatch()
 
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
             members = archive.infolist()
             names = [member.filename for member in members]
-            if (
-                not members
-                or len(members) > _EPUB_MAX_MEMBERS
-                or len(names) != len(set(names))
-                or names.count("mimetype") != 1
-                or names.count(_EPUB_CONTAINER_PATH) != 1
-            ):
+            if names.count("mimetype") != 1 or names.count(_EPUB_CONTAINER_PATH) != 1:
                 _raise_content_type_mismatch()
-
-            total_size = 0
-            for member in members:
-                if (
-                    member.flag_bits & 0x1
-                    or _archive_path_is_unsafe(member.filename)
-                    or stat.S_ISLNK(member.external_attr >> 16)
-                    or member.compress_type not in _EPUB_ALLOWED_COMPRESSION
-                    or member.file_size > _EPUB_MAX_MEMBER_SIZE
-                ):
-                    _raise_content_type_mismatch()
-                total_size += member.file_size
-                if total_size > _EPUB_MAX_UNCOMPRESSED_SIZE:
-                    _raise_content_type_mismatch()
-
-            _audit_epub_member_sizes(archive, members)
 
             mimetype_info = archive.getinfo("mimetype")
             if (
@@ -568,3 +600,26 @@ def parse_file(data: bytes, file_type: str) -> list[dict[str, str]]:
         raise ValueError(f"不支持的文件类型: {file_type}")
     _validate_file_content(data, file_type)
     return parser(data)
+
+
+def _spreadsheet_extension(file_name: str) -> str:
+    """从调用方文件名中取小写扩展名，只用于解析分派，不信任其路径部分。"""
+    base_name = file_name.replace("\\", "/").rsplit("/", 1)[-1]
+    _, separator, suffix = base_name.rpartition(".")
+    return f".{suffix.lower()}" if separator else ""
+
+
+def parse_spreadsheet_file(data: bytes, file_name: str) -> ParsedUpload:
+    """表格迁移统一入口：按扩展名（.xlsx / .csv）分派到 spreadsheet_migration 解析。
+
+    与正文导入相互独立：不经过 ALLOWED_EXTENSIONS，也不复用 parse_file。
+    解析是有界同步函数，调用方（L4 service）通过 asyncio.to_thread 调用。
+    """
+    from modules.imports.spreadsheet_migration.parsing import parse_csv, parse_xlsx
+
+    extension = _spreadsheet_extension(file_name)
+    if extension == ".xlsx":
+        return parse_xlsx(data, file_key="f0", file_name=file_name)
+    if extension == ".csv":
+        return parse_csv(data, file_key="f0", file_name=file_name)
+    raise ValueError("仅支持 .xlsx 和 .csv 格式的表格文件")

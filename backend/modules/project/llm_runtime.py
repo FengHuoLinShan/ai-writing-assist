@@ -150,7 +150,7 @@ async def build_project_llm_execution_snapshot(
         # B5：路由配置随快照固化（项目省钱开关 × 账户 verified 附加模型 ×
         # cheap 能力集），恢复任务按快照执行，不随账户当前配置漂移。
         "cost_routing": await build_cost_routing(
-            db, novel_id, project_context=project_context
+            db, novel_id, project_context=project_context, provider_id=profile.provider_id
         ),
     }
     if get_settings().interaction_agent_enabled or interaction_ensemble:
@@ -417,7 +417,7 @@ async def open_project_llm_client(
     # B5：把生效的路由配置交给 client，由 managed step harness 按能力成本档
     # 覆盖 request.model；未启用时为空路由（永远回落主模型）。
     client.cost_routing = await build_cost_routing(
-        db, novel_id, project_context=project_context
+        db, novel_id, project_context=project_context, provider_id=profile.provider_id
     )
     bind_runtime_scope = getattr(client, "bind_runtime_scope", None)
     if callable(bind_runtime_scope):

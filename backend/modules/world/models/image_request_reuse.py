@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, LargeBinary
 
 from .common import (
     Base,
@@ -55,6 +55,7 @@ class ImageRequestReuse(Base, UUIDMixin, TimestampMixin, NovelMixin):
     provider: Mapped[str] = mapped_column(String(32), nullable=False, default="")
     model: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     asset_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    asset_data: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     byte_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
     width: Mapped[int | None] = mapped_column(Integer, nullable=True)
     height: Mapped[int | None] = mapped_column(Integer, nullable=True)

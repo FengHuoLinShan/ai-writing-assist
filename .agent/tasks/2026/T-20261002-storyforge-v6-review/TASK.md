@@ -3,21 +3,24 @@ id: T-20261002-storyforge-v6-review
 title: StoryForge v6 实现核查与全部整改
 status: active
 created: 2026-10-02T14:20:34+09:00
-updated: 2026-10-03T00:00:00+09:00
+updated: 2026-10-04T00:35:06+09:00
 ---
 
 # StoryForge v6 实现核查与全部整改
 
 ## 恢复快照
 
-- 实际完成：首轮 S1-S4/F1-F11、第二轮 13 项、第三轮 4 项 review 发现均已修复并提交到
-  `codex/storyforge-v6-implementation`；用户 2026-10-02 授权“修好后直接提 PR”。
-- 当前里程碑：已推送并开 PR #188（https://github.com/FengHuoLinShan/ai-writing-assist/pull/188），等待 CI 与评审。
-- 下一步：`gh pr checks 188` 跟进 CI（Backend quality、PostgreSQL critical、前端浏览器等），失败则在本分支修复；合并、部署须另行授权。真实模型（`make test-real-kimi`）仍未运行。
+- 实际完成：用户指令执行 CI 优化计划。P0 已交付：新分支
+  `codex/storyforge-v6-review-followup`（基于 origin/main 4d7540470，WIP 无损迁移），
+  两个业务 commit 提交全部七项复审修复并开 PR；P1 浏览器分片实施中。
+- 当前里程碑：P0 PR 远端 CI 验证 + P1 分片编排与本地验收。
+- 下一步：P1 按[计划](../../../../docs/plans/2026-10-04-ci-optimization.md)验收 1-3 本地验证，
+  再推 P1 分支做失败注入与 3 组对照；推广条件未达则回退串行。
 - 阻塞：无。
-- 工作区：本仓库同分支；同一工作树另有会话的 `T-20261002-world-relational-management` 任务记录与
-  `.agent/TASKS.md` 索引行未提交，属该任务，不随本 PR 提交。
-- 最后核实：2026-10-02T22:50+09:00；`origin/main` 仍为 `0d555c463`；第三轮整改提交 `a55f009a9`。
+- 工作区：本仓库在 `codex/storyforge-v6-review-followup`；P1 分支基于其 head。
+  所有其他 worktree 保留。
+- 最后核实：2026-10-04（P0 执行轮）；origin/main=4d7540470 与 c10b6983c 树一致，
+  fetch 后无新提交。
 
 ## 目标与验收
 
@@ -184,3 +187,86 @@ updated: 2026-10-03T00:00:00+09:00
 - 复核 repo-gates.yml 已有 `fetch-depth: 0`，B6 CI 风险不成立；B11“52 孤儿 png”复核为误报（52 个全部被引用）。
 - `@pytest.mark.asyncio` 与基线一致保留（world 目录既有 631 处，asyncio_mode=auto 下属全仓风格，不属本分支缺陷）。
 - 无关 MCP 任务记录迁回 wrm 工作树，本分支差异不再包含。
+
+## PR 审查与 CI 判断 2026-10-04
+
+本轮用户授权“review pr并修复。同时判断ci是否需要优化”。审查固定 base
+`0d555c463f2010b9206a51b3a838ce0a2e9d4fb8`、head
+`c10b6983c3c35f213db641e668e73e37ec3553b8`，复用本任务，按 code-review
+规范/需求两轴只读委派并由主 Agent 复核修复。
+
+规范轴 3 项 P2，最严重项同为并发/连接身份不变量：
+
+- 附加模型更新校验后才锁账户 head：锁移到首次读取之前。PG 两事务覆盖
+  激活 Kimi 与断开 DeepSeek；更新必须使用锁后的当前连接并拒绝失效输入。
+- 地图本机复用指纹遗漏冻结 CLI 种类：`_page_request_hash` 使用冻结 executor.kind；
+  Codex/Claude 不同键，同种 CLI 换设备同键。
+- 复用登记首次读未锁导致并发计数/来源漂移：查找、已有登记更新及唯一冲突后
+  回读均使用 FOR UPDATE + populate_existing；来源候选也显式回读。PG 8 并发
+  命中计数从 1 到 9；同 session 持旧对象再穿插另一事务，最终应为 11。
+  只加 FOR UPDATE 的阶段仍实际得到 10，新增负例证实 ORM identity map 必须刷新。
+
+需求轴 2 项 P2，最严重项同为 B9/B7 交付行为缺漏：
+
+- 正常采用清理候选字节、保留上限清理旧来源会切断 B9 复用：登记独立保存
+  原始生成字节 asset_data；来源指针转到最新副本，仍保留三份 review_ready。
+  采用继续清理候选字节；作者明确放弃最新来源后下次校验作废。新增非破坏性
+  migration `20261003_image_reuse_payload` 加 nullable 列，并只按同 novel_id/owner
+  回填现存源字节；已丢失的历史原图无法恢复，只能重新生成。
+- nightly 生成 scale-low.json 却未上传：既有 postgresql-e2e-diagnostics artifact
+  增加 scale-*.json，保持 always 与 include-hidden-files。
+
+主 Agent 补充 2 项：
+
+- P1：指定其他 provider 的协作快照/运行时读取中切换账户连接，可能把当前连接
+  附加模型送到另一 provider；路由候选必须匹配实际 client/快照 provider，否则
+  回落主模型。真实 snapshot/client 回归在旧代码均失败，修复后通过。
+- P2：P8 --head 仅控制路径，计数却读 checkout：固定范围改读该 head 的 Git blob，
+  排除 head 已删路径并对 Git 读取失败关闭；工作区改小/删除目标文件都不能绕过。
+  两种负例在旧代码均误通过，修复后正确拒绝；无 base 的本地全量扫描仍读工作区。
+
+### 验证与交付
+
+- make test-ci TEST_WORKERS=2 退出 0：后端 6560 passed / 15 skipped，覆盖率 85.9%；
+  deploy 271 passed；前端 210 文件 / 2658 passed。随后收尾追加行锁刷新与测试强化，
+  最终受影响四文件 77 passed；SQL 行锁/ORM 刷新另经真实 PG 验证。
+- 专用临时容器 novelcraft-pr188-review-test，固定 CI PG17/pgvector digest，
+  127.0.0.1:53088 / storyforge_pr188_review_test，无卷。Alembic 升至新 head；
+  PG critical 41 passed（含新库迁移/ORM parity、账户交错两例），最终图片竞争与
+  low 档规模门 3 passed，合成语料无残留；仅清理本任务临时容器。
+- make repo-gates BASE_REF=origin/main、最终 docs-check BASE_REF=origin/main、
+  git diff --check 与受影响代码 ruff 通过。nightly artifact YAML 校验确认 low
+  产物匹配上传 glob；远端 nightly 上传尚未运行。
+- 双轴修复复核无新增阻断；行锁收尾追加 identity map 刷新由失败负例和最终 PG
+  回归直接验证。无真实/付费模型、真实作者或视觉质量验收，未提交/推送/合并/部署。
+
+CI 判断：现有路径分流与缓存足够；正确性漏检和证据漏上传已修。本 PR 现有
+Frontend functional browser job 约 17 分钟，其中完整浏览器 suite 约 14 分钟，
+依赖/Chromium 安装不到 1 分钟。性能优化优先评估两个独立 runner/数据库的
+Playwright 文件分片，每片仍 workers=1/retries=0，并保留聚合必需检查；本轮
+只判断，未改变 CI 并行策略或删减断言。支持方式：
+https://playwright.dev/docs/test-sharding 。具体收益未实测，不能承诺耗时减半。
+
+## CI 优化计划 2026-10-04
+
+用户后续仅要求“做ci优化计划”，已交付
+[计划](../../../../docs/plans/2026-10-04-ci-optimization.md)。本轮没有实施性能优化或提交/推送。
+
+- 实时核实 PR #188 已被合并，origin/main 更新为 4d7540470；纠正恢复快照中的旧远端状态。
+  两个 head 的 CI/分类/测试配置无差异，后续实现应使用新的主题分支与 PR，保留当前 WIP。
+- 完成态 Frontend 运行 37104703592 的 browser job 17分15秒，主套件14分05秒；安装合计35秒。
+  Backend quality 5分01秒，PG critical 1分14秒。单份样本用于排序，不宣称中位数或 P95。
+- Playwright 仅 --list 的可执行核验：43文件/298项，两片22文件155项与21文件143项；
+  多重集合并集完整且交集为空。smoke58项；assistant/creative/editorial 1/6/1项。
+  没有启动服务器或连接数据库，完整分片运行/提速尚未验证。
+- 读取 main public alpha quality gate ruleset，确认六个必需检查包含 Frontend functional browser；
+  传统 branch protection 404 不表示无规则。计划保留该检查名，以分类和分片结果聚合并失败关闭。
+- 顺序：P0 交付已有固定 head/规模报告修复与对照；P1 完整浏览器两 runner 文件分片，
+  单片仍workers=1/retries=0，辅助套件仅第一片各一次，smoke单runner；P2 按实测新瓶颈再决定。
+- 首轮推广条件：3组可比对照，browser检查中位耗时至少降25%且≤12分钟，相关runner分钟≤1.25倍，
+  完整覆盖、失败/取消/异常跳过阻断与诊断产物均验证。它们是目标，不是已经取得的收益。
+- 取样摘要 `/private/tmp/ci-opt-shard-feasibility-20261004.json`；时间参考及可复现方法见计划。
+- 收尾：fetch 后首次 docs-check 提示上轮模型/migration 修复须核对 docs/modules/15_map.md；
+  按真实调用链补齐 CLI 种类指纹和地图存储/对象原图登记职责，未修改执行规则。
+  随后 make docs-check BASE_REF=origin/main、git diff --check、计划本地链接与空白检查通过。
+  本轮仅文档与只读取样；没有实际分片运行、性能验收或新代码测试。

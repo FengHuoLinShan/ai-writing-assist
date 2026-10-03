@@ -46,7 +46,7 @@ describe("reconcileWorldEntry", () => {
     expect(reconcileWorldEntry("p2", "objects")).toBe(true)
     expect(worldSession.relationReviewDrafts).toEqual({})
     expect(worldSession.reviewReceipt).toBeNull()
-    expect(worldSession.bible).toEqual({ activePageId: null, activeDraftId: null, editorBaseline: null, editorBaselineKey: null, libraryScrollPositions: {} })
+    expect(worldSession.bible).toEqual({ activePageId: null, activeDraftId: null, editorBaseline: null, editorBaselineKey: null, libraryScrollPositions: {}, relationGroupLabels: {} })
   })
 
   it("同项目重新进入保留 bible 上次页面", () => {

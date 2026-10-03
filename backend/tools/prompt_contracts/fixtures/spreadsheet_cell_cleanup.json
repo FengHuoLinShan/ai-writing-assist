@@ -1,0 +1,12 @@
+{
+  "proposal_ref": "cleanup-1",
+  "source_rows": ["f0s0:r2"],
+  "evidence": "李慎行 二十七岁 边军斥候出身 左脸有旧疤 沉默寡言 护短",
+  "uncertain_fields": [],
+  "fields": [
+    {"field": "role", "value": "边军斥候出身"},
+    {"field": "appearance", "value": "左脸有旧疤"},
+    {"field": "personality", "value": "沉默寡言，护短"}
+  ],
+  "remainder": "二十七岁"
+}
