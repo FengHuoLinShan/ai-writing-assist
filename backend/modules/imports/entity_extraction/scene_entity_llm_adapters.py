@@ -146,6 +146,8 @@ async def call_llm_extraction(
             llm_client,
             request,
             Phase2aSceneExtractionOutput,
+            # B5：抽取类子能力只用于省钱模式路由；信封归属按 run root
+            routing_capability_id="imports.entity_extraction",
             step_name="imports.scene_entity.extraction.structured",
             max_fix_attempts=max_fix_attempts,
             transport_retries=transport_retries,
@@ -538,6 +540,8 @@ async def call_alias_relation_extraction(
             llm_client,
             request,
             AliasRelationExtractionOutput,
+            # B5：别名/关系抽取子能力只用于省钱模式路由；信封归属按 run root
+            routing_capability_id="world.alias_relations.extract",
             step_name="imports.scene_entity.alias_relation.structured",
             max_fix_attempts=max_fix_attempts,
             transport_retries=True,

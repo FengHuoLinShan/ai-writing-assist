@@ -47,3 +47,7 @@ Codex、Claude、Kimi、DSH 或 Pi CLI。**当前唯一用途是图片生成**�
 离线评测可显式使用 `evals.cli_executor.CLIStructuredExecutor`；既有严格隔离的
 `CodexStructuredExecutor` 默认与现有评测命令保持不变。新执行器仅使用合成/明确授权的
 输入，不能把旧评测结果直接与项目模型质量比较。
+
+Local Agent 不直引 Project、AssistantRun 或 InteractionAttempt 模型：项目
+选择写入由 Project facade 持 owner/novel_id 行锁，批准状态委托各领域 facade，
+与任务授权同事务提交；撤销设备使用条件清除避免覆盖另一已选择设备。

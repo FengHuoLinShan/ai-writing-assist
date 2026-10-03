@@ -4271,3 +4271,95 @@ class TestHandleDeepImportTaskResult:
         assert DeepImportStep.structure_analysis.value in task.result["completed_steps"]
         assert len(task.progress_values) >= 4
         assert 1.0 in task.progress_values
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "step_name,expected_model",
+    [
+        ("phase1a_scene_slicing", "deepseek-flash"),
+        ("phase3_structure_analysis", "deepseek-v4-flash"),
+    ],
+)
+async def test_deep_import_structured_call_routes_under_deep_import_envelope(
+    step_name: str, expected_model: str
+) -> None:
+    """B5 子能力只参与成本路由；运行信封仍按 imports.deep_import 根归属。
+
+    回归：子能力名曾作为 capability_id 传入，在 worker 的深度导入信封下
+    触发 AIRunIdentityError。
+    """
+    from datetime import UTC, datetime
+
+    from pydantic import BaseModel
+
+    from infrastructure.llm.client import LLMClient
+    from infrastructure.llm.limits import reset_llm_limiter_for_tests
+    from infrastructure.llm.schemas import (
+        AIRunEnvelopeV1,
+        LLMCallResponse,
+        LLMUsage,
+    )
+    from infrastructure.llm.workflow_budget import AIRunEnvelope, ai_run_scope
+
+    class _Output(BaseModel):
+        value: str
+
+    class _Provider:
+        name = "fake"
+
+        def __init__(self) -> None:
+            self.requests: list[LLMCallRequest] = []
+
+        async def generate(self, request: LLMCallRequest) -> LLMCallResponse:
+            self.requests.append(request)
+            return LLMCallResponse(
+                content='{"value": "ok"}',
+                model=request.model,
+                usage=LLMUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+            )
+
+    reset_llm_limiter_for_tests()
+    provider = _Provider()
+    client = LLMClient.from_project_settings(
+        {"llm": {"provider_id": "deepseek", "model": "deepseek-v4-flash"}}
+    )
+    client._provider = provider  # type: ignore[assignment]
+    client.cost_routing = {
+        "enabled": True,
+        "cheap_model": "deepseek-flash",
+        "capability_ids": ["imports.scene_slicing"],
+    }
+    envelope = AIRunEnvelope(
+        AIRunEnvelopeV1(
+            operation_id="op-deep-import",
+            run_id="run-deep-import",
+            root_capability_id="imports.deep_import",
+            novel_id="novel-1",
+            started_at=datetime(2026, 10, 2, tzinfo=UTC),
+            request_limit=5,
+        )
+    )
+    try:
+        with ai_run_scope(envelope):
+            output = await _run_deep_import_structured_call(
+                client,
+                LLMCallRequest(
+                    model="deepseek-v4-flash",
+                    messages=[LLMMessage(role="user", content="Scene 正文")],
+                    max_tokens=50,
+                ),
+                _Output,
+                step_name=step_name,
+                transport_retries=False,
+                fix_prompt="fix",
+                max_fix_attempts=0,
+            )
+    finally:
+        reset_llm_limiter_for_tests()
+
+    assert output.value == "ok"
+    assert [request.model for request in provider.requests] == [expected_model]
+    assert [step.step_capability_id for step in envelope.snapshot().steps] == [
+        "imports.deep_import"
+    ]

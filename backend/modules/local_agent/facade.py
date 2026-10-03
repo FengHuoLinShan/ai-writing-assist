@@ -16,7 +16,7 @@ from modules.local_agent.images import (
     review_generated_image,
 )
 from modules.local_agent.models import LocalAgentDevice
-from modules.project.models import Project
+from modules.project.facade import get_any_project_context, save_agent_executor_settings
 
 __all__ = [
     "AgentExecutor",
@@ -75,7 +75,7 @@ async def task_snapshot_client(db, task, settings, *, budget, checkpoint=None):
         return create_project_snapshot_llm_client(settings, novel_id=str(task.novel_id))
     from modules.local_agent.client import LocalCLIClient
 
-    project = await db.get(Project, task.novel_id)
+    project = await get_any_project_context(db, str(task.novel_id))
     if project is None:
         raise NotFoundError("作品不可访问")
     return LocalCLIClient(
@@ -130,12 +130,8 @@ async def task_awaiting_local_approval(db, task_id: str) -> bool:
 
 
 async def selected_executor(db, novel_id: str, owner_id: str) -> AgentExecutor:
-    project = await db.get(Project, uuid.UUID(novel_id))
-    if (
-        project is None
-        or project.deleted_at is not None
-        or str(project.owner_id) != owner_id
-    ):
+    project = await get_any_project_context(db, novel_id)
+    if project is None or str(project.owner_id) != owner_id:
         raise NotFoundError("作品不可访问")
     selection = (project.settings or {}).get("agent_executor") or {}
     kind = selection.get("kind", "gateway")
@@ -150,8 +146,8 @@ async def selected_executor(db, novel_id: str, owner_id: str) -> AgentExecutor:
         raise ValidationError("项目本机设备无效") from exc
     if (
         device is None
-        or device.novel_id != project.id
-        or device.owner_id != project.owner_id
+        or str(device.novel_id) != project.novel_id
+        or str(device.owner_id) != project.owner_id
         or device.revoked_at is not None
         or device.token_digest is None
     ):
@@ -162,12 +158,8 @@ async def selected_executor(db, novel_id: str, owner_id: str) -> AgentExecutor:
 async def save_executor(
     db, novel_id: str, owner_id: str, kind: CLIKind | str, device_id: str | None
 ) -> AgentExecutor:
-    project = await db.get(Project, uuid.UUID(novel_id), with_for_update=True)
-    if (
-        project is None
-        or project.deleted_at is not None
-        or str(project.owner_id) != owner_id
-    ):
+    project = await get_any_project_context(db, novel_id, for_update=True)
+    if project is None or str(project.owner_id) != owner_id:
         raise NotFoundError("作品不可访问")
     if kind == "gateway":
         selected = {"kind": "gateway"}
@@ -175,8 +167,8 @@ async def save_executor(
         device = await db.get(LocalAgentDevice, uuid.UUID(device_id))
         if (
             device is None
-            or device.novel_id != project.id
-            or device.owner_id != project.owner_id
+            or str(device.novel_id) != project.novel_id
+            or str(device.owner_id) != project.owner_id
             or device.revoked_at is not None
             or device.token_digest is None
         ):
@@ -184,6 +176,6 @@ async def save_executor(
         selected = {"kind": kind, "device_id": device_id}
     else:
         raise ValidationError("请选择已配对的本机设备和 CLI")
-    project.settings = {**(project.settings or {}), "agent_executor": selected}
+    await save_agent_executor_settings(db, novel_id, owner_id, selected)
     await db.commit()
     return AgentExecutor(**selected)

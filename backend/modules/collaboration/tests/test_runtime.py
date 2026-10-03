@@ -624,8 +624,10 @@ async def test_world_trial_retests_exact_frozen_scenario_without_publishing(
 async def test_two_verified_connections_share_one_case_budget(
     db_session, test_project_id, account_llm_connection, monkeypatch
 ):
+    from dataclasses import replace
     from datetime import UTC, datetime
 
+    from infrastructure.llm.capabilities import resolve_llm_capability_profile
     from infrastructure.llm.secret_store import encrypt_secret, fingerprint_secret
     from modules.account.settings_models import AccountLLMCredential
     from modules.collaboration.recipes import RECIPES
@@ -634,6 +636,20 @@ async def test_two_verified_connections_share_one_case_budget(
     monkeypatch.setenv(
         "ENABLE_ACCOUNT_KIMI_K3", "1"
     )  # Synthetic transport; not a real-provider release claim.
+
+    def synthetic_capability(provider_id, model, **kwargs):
+        profile = resolve_llm_capability_profile(provider_id, model, **kwargs)
+        # 此测试只验证双连接预算，假的 Kimi JSON 传输显式声明能力。
+        return (
+            replace(profile, structured_output="supported")
+            if (provider_id, model) == ("kimi", "kimi-k3")
+            else profile
+        )
+
+    monkeypatch.setattr(
+        "infrastructure.llm.capabilities.resolve_llm_capability_profile",
+        synthetic_capability,
+    )
     db, nid = db_session, test_project_id
     case, _, _, _ = await setup_trial(db, nid, monkeypatch)
     owned = await db.get(CollaborationCase, UUID(case["id"]))

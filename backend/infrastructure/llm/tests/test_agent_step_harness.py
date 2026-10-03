@@ -25,7 +25,7 @@ from infrastructure.llm.agent_step_harness import (
     run_managed_structured,
 )
 from infrastructure.llm.errors import LLMInvalidResponseError
-from infrastructure.llm.schemas import LLMCallRequest, LLMCallResponse
+from infrastructure.llm.schemas import LLMCallRequest, LLMCallResponse, LLMUsage
 
 
 class _ItemsPayload(BaseModel):
@@ -477,3 +477,95 @@ def test_context_budget_guard_autocompact_fallback_marks_overflow() -> None:
     assert result.error_kind == "context_overflow"
     assert result.content["autocompact_required"] is True
     assert result.events[0].event_type == "autocompact_fallback"
+
+
+class _CostRoutingLedgerClient:
+    """带 B5 路由注入的结构化替身：真实走信封 reserve/settle。"""
+
+    profile_summary = {
+        "provider_id": "deepseek",
+        "model": "deepseek-v4-flash",
+        "timeout": 30,
+    }
+    runtime_scope = {"novel_id": "novel-1", "profile_source": "project"}
+    cost_routing: dict = {
+        "enabled": True,
+        "cheap_model": "deepseek-flash",
+        "capability_ids": ["imports.scene_slicing"],
+    }
+
+    def __init__(self) -> None:
+        self.seen_models: list[str | None] = []
+
+    async def generate_structured(self, request, schema, **kwargs):  # noqa: ANN001, ANN003
+        from infrastructure.llm.workflow_budget import (
+            current_ai_run_envelope,
+        )
+
+        self.seen_models.append(request.model)
+        ledger = current_ai_run_envelope()
+        assert ledger is not None
+        usage = LLMUsage(prompt_tokens=4, completion_tokens=6, total_tokens=10)
+        reservation = await ledger.reserve()
+        await ledger.settle(
+            reservation, usage=usage, elapsed_ms=12.5, finish_reason="stop"
+        )
+        return schema.model_validate({"items": ["ok"]})
+
+
+@pytest.mark.asyncio
+async def test_routing_capability_routes_model_but_attributes_step_to_run_root() -> None:
+    """B5 子能力路由与运行信封归属是两个口径（P0 回归）。
+
+    根为 imports.deep_import 的运行范围内：``routing_capability_id`` 按
+    子能力完成低成本模型切换，step 仍归属 run root；子能力名若误作为
+    ``capability_id`` 传入，信封照旧拒绝。
+    """
+    from datetime import UTC, datetime
+
+    from infrastructure.llm.workflow_budget import (
+        AIRunEnvelope,
+        AIRunEnvelopeV1,
+        AIRunIdentityError,
+        ai_run_scope,
+    )
+
+    def _ledger() -> AIRunEnvelope:
+        return AIRunEnvelope(
+            AIRunEnvelopeV1(
+                operation_id="op-deep-import",
+                run_id="run-deep-import",
+                root_capability_id="imports.deep_import",
+                novel_id="novel-1",
+                started_at=datetime(2026, 10, 2, tzinfo=UTC),
+                request_limit=3,
+            )
+        )
+
+    client = _CostRoutingLedgerClient()
+    ledger = _ledger()
+    with ai_run_scope(ledger):
+        output = await run_managed_structured(
+            client,
+            LLMCallRequest(model="deepseek-v4-flash", messages=[]),
+            _ItemsPayload,
+            step_name="phase1a_slice.structured",
+            routing_capability_id="imports.scene_slicing",
+        )
+
+    assert output.items == ["ok"]
+    assert client.seen_models == ["deepseek-flash"]
+    snapshot = ledger.snapshot()
+    assert [step.step_capability_id for step in snapshot.steps] == [
+        "imports.deep_import"
+    ]
+
+    rejected = _CostRoutingLedgerClient()
+    with ai_run_scope(_ledger()), pytest.raises(AIRunIdentityError):
+        await run_managed_structured(
+            rejected,
+            LLMCallRequest(model="deepseek-v4-flash", messages=[]),
+            _ItemsPayload,
+            step_name="phase1a_slice.structured",
+            capability_id="imports.scene_slicing",
+        )

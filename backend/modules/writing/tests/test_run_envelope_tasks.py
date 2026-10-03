@@ -71,7 +71,9 @@ def _chain_client(monkeypatch: pytest.MonkeyPatch, provider: _ChainProvider):
     from infrastructure.llm.client import LLMClient
 
     reset_llm_limiter_for_tests()
-    client = LLMClient()
+    client = LLMClient.from_project_settings(
+        {"llm": {"provider_id": "deepseek", "model": "deepseek-flash"}}
+    )
     client._provider = provider  # type: ignore[attr-defined]
     monkeypatch.setattr(
         "infrastructure.llm.client.get_llm_limiter", lambda: _NullLimiter()
@@ -100,9 +102,7 @@ async def _enqueue(
     novel_id: str | None,
 ) -> uuid.UUID:
     async with sessions.begin() as db:
-        return uuid.UUID(
-            enqueue_task(db, task_type, meta=meta, novel_id=novel_id)
-        )
+        return uuid.UUID(enqueue_task(db, task_type, meta=meta, novel_id=novel_id))
 
 
 async def _cleanup(
@@ -116,9 +116,7 @@ async def _cleanup(
         if ids:
             await db.execute(delete(AsyncTask).where(AsyncTask.id.in_(ids)))
         if task_types:
-            await db.execute(
-                delete(AsyncTask).where(AsyncTask.task_type.in_(task_types))
-            )
+            await db.execute(delete(AsyncTask).where(AsyncTask.task_type.in_(task_types)))
 
 
 def _review_target(draft_id: str, content_hash: str) -> dict[str, Any]:
@@ -234,9 +232,10 @@ def test_writing_generate_resolver_reads_frozen_receipt() -> None:
     task_with_bound = SimpleNamespace(meta={"included_sources_upper_bound": 100})
     assert registry.resolve_run_request_limit("writing_generate", task_with_bound) == 20
     # 两者都缺失时才回退保守物理上界（仅历史在途任务）。
-    assert registry.resolve_run_request_limit(
-        "writing_generate", SimpleNamespace(meta={})
-    ) == 6 * 256 + 8
+    assert (
+        registry.resolve_run_request_limit("writing_generate", SimpleNamespace(meta={}))
+        == 6 * 256 + 8
+    )
 
 
 @pytest.mark.parametrize(
@@ -258,9 +257,7 @@ def test_writing_tasks_declare_deadline_with_code_source(
     task_type: str, deadline: float | None
 ) -> None:
     registry = _production_registry_with_writing()
-    resolved = registry.resolve_run_deadline_seconds(
-        task_type, SimpleNamespace(meta={})
-    )
+    resolved = registry.resolve_run_deadline_seconds(task_type, SimpleNamespace(meta={}))
     assert resolved == deadline
 
 
@@ -347,9 +344,7 @@ async def test_writing_semantic_review_chain_builds_envelope_through_worker(
             assert stored is not None
             result = stored.result or {}
             assert result.get("verdict") == "pass"
-            envelope = read_ai_run_envelope(
-                (stored.meta or {}).get("_ai_run_envelope")
-            )
+            envelope = read_ai_run_envelope((stored.meta or {}).get("_ai_run_envelope"))
             assert envelope is not None
             assert envelope.root_capability_id == "writing.semantic_review"
             assert envelope.requests_started == 1
@@ -449,9 +444,7 @@ async def test_budget_exhaustion_fails_closed_with_zero_extra_provider_calls(
         async with sessions() as db:
             stored = await db.get(AsyncTask, task_id)
             assert stored is not None
-            envelope = read_ai_run_envelope(
-                (stored.meta or {}).get("_ai_run_envelope")
-            )
+            envelope = read_ai_run_envelope((stored.meta or {}).get("_ai_run_envelope"))
             assert envelope is not None
             assert envelope.requests_started == 1
             assert envelope.requests_settled == 1
@@ -476,6 +469,7 @@ async def test_bare_client_call_under_envelope_fails_closed_with_zero_io(
         client = _chain_client(monkeypatch, provider)
         await client.generate(_probe_request())
         return {"ok": True}
+
     _register_probe(registry, task_type, handler, run_request_limit=8)
     sessions = async_sessionmaker(test_engine, expire_on_commit=False, autoflush=False)
     novel_id = str(uuid.uuid4())
@@ -491,9 +485,7 @@ async def test_bare_client_call_under_envelope_fails_closed_with_zero_io(
         async with sessions() as db:
             stored = await db.get(AsyncTask, task_id)
             assert stored is not None
-            envelope = read_ai_run_envelope(
-                (stored.meta or {}).get("_ai_run_envelope")
-            )
+            envelope = read_ai_run_envelope((stored.meta or {}).get("_ai_run_envelope"))
             assert envelope is not None
             assert envelope.requests_started == 0
             assert envelope.requests_settled == 0

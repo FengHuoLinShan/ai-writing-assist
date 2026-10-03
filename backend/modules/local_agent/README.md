@@ -69,3 +69,7 @@ python3 novelcraft-agent.pyz run <返回的设备 ID>
 Codex/Pi 可在启动伴随进程前通过 `NOVELCRAFT_CODEX_MODEL` / `NOVELCRAFT_PI_MODEL`
 覆盖本机默认模型；DSH 可通过启动时的 `DSH_HOME` 使用独立配置目录。其他 CLI 采用本机
 登录态/配置。端到端验证使用本任务专用 PostgreSQL 数据库，不使用真实作品。
+
+项目执行器配置经 Project context/facade 读取和保存，撤销设备仅在当前配置仍
+绑定该设备时清除。根任务批准通过 Assistant/Interaction facade 更新各域
+checkpoint，均过滤当前 owner + novel_id + task_id，并与队列授权同事务提交。

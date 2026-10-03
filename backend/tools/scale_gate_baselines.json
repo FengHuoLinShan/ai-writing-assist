@@ -1,0 +1,41 @@
+{
+  "schema_version": "scale-gate-baselines-v2",
+  "calibrated_at": "2026-10-02",
+  "note": "专用 PostgreSQL：完整三档合成正文已索引；真实关键词检索/原文回读/编译、审校分片与请求、六步影子任务链。UUID身份带少量token噪声，允许15%；耗时用绝对上限。未验证向量、模型语义或真实收费。",
+  "tolerance": 1.15,
+  "tiers": {
+    "low": {
+      "chapters": 22,
+      "max_compiled_tokens": 9419,
+      "compile_seconds_cap": 5,
+      "position_growth_cap": 1.15,
+      "retrieval_seconds_cap": 5,
+      "review_seconds_cap": 5,
+      "review_max_tokens": 86814,
+      "orchestration_seconds_cap": 30,
+      "indexed_chunks": 115
+    },
+    "mid": {
+      "chapters": 66,
+      "max_compiled_tokens": 8885,
+      "compile_seconds_cap": 8,
+      "position_growth_cap": 1.15,
+      "retrieval_seconds_cap": 8,
+      "review_seconds_cap": 8,
+      "review_max_tokens": 86816,
+      "orchestration_seconds_cap": 30,
+      "indexed_chunks": 343
+    },
+    "high": {
+      "chapters": 215,
+      "max_compiled_tokens": 9526,
+      "compile_seconds_cap": 12,
+      "position_growth_cap": 1.15,
+      "retrieval_seconds_cap": 12,
+      "review_seconds_cap": 12,
+      "review_max_tokens": 87588,
+      "orchestration_seconds_cap": 30,
+      "indexed_chunks": 1157
+    }
+  }
+}

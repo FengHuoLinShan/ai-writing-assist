@@ -588,19 +588,26 @@ class ProjectService:
         novel_id: str,
         *,
         project_kind: str | None = "author",
+        for_update: bool = False,
     ) -> ProjectContext | None:
         pid = _parse_uuid(novel_id, "novel_id")
         self._require_demo_project(pid)
         owner_id = self._request_owner_id()
         project = (
-            await self._repo.get(
-                db,
-                pid,
-                owner_id,
-                project_kind=project_kind,
+            await self._repo.get_active_for_update(
+                db, pid, owner_id, project_kind=project_kind
             )
-            if owner_id is not None
-            else await self._repo.get(db, pid, project_kind=project_kind)
+            if for_update
+            else (
+                await self._repo.get(
+                    db,
+                    pid,
+                    owner_id,
+                    project_kind=project_kind,
+                )
+                if owner_id is not None
+                else await self._repo.get(db, pid, project_kind=project_kind)
+            )
         )
         if project is None:
             return None
@@ -623,6 +630,28 @@ class ProjectService:
             default_reveal_policy=project.default_reveal_policy,
             settings=_secret_free_project_context_settings(project.settings),
         )
+
+    async def save_agent_executor_settings(
+        self, db, novel_id, owner_id, selection, *, only_if_device=None
+    ):
+        self._reject_demo_write()
+        project = await self._repo.get_active_for_update(
+            db,
+            _parse_uuid(novel_id, "novel_id"),
+            _parse_uuid(owner_id, "owner_id"),
+            project_kind=None,
+        )
+        if project is None:
+            raise NotFoundError("作品不可访问")
+        await require_account_active(db, project.owner_id)
+        if (
+            only_if_device is not None
+            and (project.settings or {}).get("agent_executor", {}).get("device_id")
+            != only_if_device
+        ):
+            return
+        project.settings = {**(project.settings or {}), "agent_executor": dict(selection)}
+        await db.flush()
 
     async def require_active_project(
         self,

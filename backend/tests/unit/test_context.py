@@ -117,6 +117,7 @@ class TestLoaderProtocol:
         assert [loader.name for loader in loaders] == [
             "project",
             "editorial_brief",
+            "author_examples",
             "world_entities",
             "world_bible",
             "characters",

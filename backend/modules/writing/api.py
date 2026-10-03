@@ -612,6 +612,22 @@ async def adopt_candidate_to_working(
     return result
 
 
+@router.get("/author-example-stats/{novel_id}")
+async def get_author_example_stats(
+    db: DbSession,
+    novel_id: str,
+    *,
+    days: int = Query(default=30, ge=1, le=365),
+):
+    """带/不带作者示例的生成对照（次级诊断，观察性数据）。"""
+    await require_active_project(db, novel_id)
+    from modules.writing.author_example_stats import (
+        get_author_example_stats as _stats,
+    )
+
+    return await _stats(db, novel_id, days=days)
+
+
 @router.put("/drafts/{draft_id}", response_model=WritingDraftResponse)
 async def update_draft(
     db: DbSession,

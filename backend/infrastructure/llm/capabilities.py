@@ -35,6 +35,14 @@ class LLMCapabilityProfile:
     spec_verified_on: str | None = None
     interaction_reasoning_effort: str | None = None
     interaction_timeout_seconds: int | None = None
+    structured_output: str | None = "unverified"
+    """json/response_format 支持声明：supported / unverified / unsupported。
+
+    未登记模型默认 unverified；旧快照的 None 也表示未校准。三态语义：
+    supported 与 unverified 的结构化调用保持既有行为（发送 provider
+    json_object，尊重调用方预填）；unsupported 一律失败关闭，调用方预填
+    response_format 不能绕过。unverified 只在 B5 路由候选资格上 fail-closed
+    （modules/project/model_routing.verified_secondary_models）。"""
 
     @property
     def hard_input_tokens(self) -> int:
@@ -109,6 +117,9 @@ _DEEPSEEK_V4_FLASH = LLMCapabilityProfile(
     spec_verified_on="2026-09-01",
     interaction_reasoning_effort="max",
     interaction_timeout_seconds=900,
+    # DeepSeek 官方 API 支持 response_format={"type":"json_object"}
+    # （https://api-docs.deepseek.com/guides/json_mode，2026-09 校准）。
+    structured_output="supported",
 ).validate()
 
 _DEEPSEEK_FLASH = LLMCapabilityProfile(

@@ -21,6 +21,10 @@ from core.dependencies import DbSession
 from core.errors import ConflictError, DomainError, NotFoundError, ValidationError
 from infrastructure.tasks.models import AsyncTask
 from modules.account.facade import current_account_id, require_account_active
+from modules.assistant.facade import mark_task_local_approved as approve_assistant_task
+from modules.interaction.facade import (
+    mark_task_local_approved as approve_interaction_task,
+)
 from modules.local_agent.facade import save_executor, selected_executor
 from modules.local_agent.images import review_generated_image
 from modules.local_agent.models import (
@@ -29,7 +33,11 @@ from modules.local_agent.models import (
     LocalAgentInvocation,
     LocalAgentToolCall,
 )
-from modules.project.facade import require_active_project
+from modules.project.facade import (
+    get_any_project_context,
+    require_active_project,
+    save_agent_executor_settings,
+)
 
 _MAX_OUTPUT_BYTES = 20 * 1024 * 1024
 
@@ -107,14 +115,8 @@ async def _device(db: DbSession, authorization: str | None) -> LocalAgentDevice:
     ):
         raise NotFoundError("本机设备凭据无效")
     await require_account_active(db, device.owner_id)
-    from modules.project.models import Project
-
-    project = await db.get(Project, device.novel_id)
-    if (
-        project is None
-        or project.deleted_at is not None
-        or project.owner_id != device.owner_id
-    ):
+    project = await get_any_project_context(db, str(device.novel_id))
+    if project is None or project.owner_id != str(device.owner_id):
         raise NotFoundError("本机设备所属作品不可用")
     return device
 
@@ -368,16 +370,13 @@ async def revoke_device(db: DbSession, device_id: uuid.UUID, novel_id: uuid.UUID
         raise NotFoundError("本机设备不存在")
     device.revoked_at = datetime.now(UTC)
     device.token_digest = None
-    from modules.project.models import Project
-
-    project = await db.get(Project, novel_id, with_for_update=True)
-    if project and (project.settings or {}).get("agent_executor", {}).get(
-        "device_id"
-    ) == str(device_id):
-        project.settings = {
-            **(project.settings or {}),
-            "agent_executor": {"kind": "gateway"},
-        }
+    await save_agent_executor_settings(
+        db,
+        str(novel_id),
+        str(current_account_id()),
+        {"kind": "gateway"},
+        only_if_device=str(device_id),
+    )
     affected = (
         await db.scalars(
             select(AsyncTask)
@@ -430,30 +429,8 @@ async def approve_task(db: DbSession, task_id: uuid.UUID, data: LocalApproval):
         and datetime.now(UTC) - _utc(device.last_seen_at) < timedelta(seconds=10)
     )
     task.meta = {**task.meta, "_local_approved": True, "_local_ready": ready}
-    from modules.assistant.models import AssistantRun
-
-    run = await db.scalar(
-        select(AssistantRun).where(
-            AssistantRun.task_id == task_id,
-            AssistantRun.novel_id == data.novel_id,
-            AssistantRun.owner_id == current_account_id(),
-        )
-    )
-    if run is not None:
-        run.checkpoint_json = {**(run.checkpoint_json or {}), "local_approved": True}
-    from modules.interaction.models import InteractionGenerationAttempt
-
-    attempt = await db.scalar(
-        select(InteractionGenerationAttempt).where(
-            InteractionGenerationAttempt.task_id == task_id,
-            InteractionGenerationAttempt.novel_id == data.novel_id,
-        )
-    )
-    if attempt is not None:
-        attempt.agent_checkpoint_json = {
-            **(attempt.agent_checkpoint_json or {}),
-            "local_approved": True,
-        }
+    await approve_assistant_task(db, data.novel_id, task_id, current_account_id())
+    await approve_interaction_task(db, data.novel_id, task_id, current_account_id())
     await db.commit()
     return {"approved": True, "waiting_device": not ready}
 

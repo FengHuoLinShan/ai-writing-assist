@@ -22,6 +22,33 @@ class InteractionStreamFramer:
         self._metadata = ""
         self._metadata_complete = False
         self._metadata_too_large = False
+        self._invalid_recorded = False
+        self.metadata_invalid_count = 0
+        """本次 finish 里尾块无效的次数（0/1）；重复 finish 不重复计数。"""
+        self.metadata_invalid_reason = ""
+        """无效原因：incomplete_tail（流中断/尾块未闭合或超限）
+        或 parse_failed（尾块完整但 JSON/schema 校验失败）。"""
+        self._invalid_persisted = False
+
+    @property
+    def metadata_invalid(self) -> bool:
+        return self.metadata_invalid_count > 0
+
+    @property
+    def metadata_invalid_unpersisted(self) -> bool:
+        """尚未由调用方落账的无效标记；失败路径据此避免与最终 checkpoint 重复计数。"""
+        return self.metadata_invalid and not self._invalid_persisted
+
+    def mark_metadata_invalid_persisted(self) -> None:
+        """调用方已提交携带本次无效标记的 checkpoint。"""
+        self._invalid_persisted = True
+
+    def _record_invalid(self, reason: str) -> None:
+        if self._invalid_recorded:
+            return
+        self._invalid_recorded = True
+        self.metadata_invalid_count = 1
+        self.metadata_invalid_reason = reason
 
     def feed(self, content: str) -> str:
         if not content:
@@ -81,6 +108,10 @@ class InteractionStreamFramer:
         self._pending = ""
         metadata = None
         raw_metadata = ""
+        if self._mode != "visible" and (
+            not self._metadata_complete or self._metadata_too_large
+        ):
+            self._record_invalid("incomplete_tail")
         if self._metadata_complete and not self._metadata_too_large:
             raw_metadata = self._metadata
             try:
@@ -89,6 +120,7 @@ class InteractionStreamFramer:
                 )
             except (json.JSONDecodeError, TypeError, ValidationError):
                 metadata = None
+                self._record_invalid("parse_failed")
         return trailing_visible, metadata, raw_metadata
 
 

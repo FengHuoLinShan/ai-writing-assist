@@ -2254,6 +2254,43 @@ async def test_story_usage_checkpoint_preserves_context_budget_diagnostics(
     }
 
 
+async def test_metadata_invalid_counts_accumulate_with_reason_breakdown(
+    db_session,
+) -> None:
+    """续写/重试的尾块无效逐次累计，断流与解析失败分账（不再 max(_, 1)）。"""
+    _service, journey, attempt, _response = await _create_journey(
+        db_session,
+        key="create-checkpoint-invalid",
+    )
+    attempt.status = "running"
+    attempt_id = attempt.id
+    await db_session.flush()
+    db_session.task_checkpoint_enabled = True
+    task = _task_for(journey, attempt)
+    workflow = InteractionGenerationWorkflow()
+
+    await workflow.checkpoint_story_task(
+        db_session,
+        task=task,
+        visible_delta="",
+        metadata_text='{"bad"',
+        metadata_invalid=True,
+        metadata_invalid_reason="parse_failed",
+    )
+    await workflow.checkpoint_story_task(
+        db_session,
+        task=task,
+        visible_delta="",
+        metadata_invalid=True,
+        metadata_invalid_reason="incomplete_tail",
+    )
+
+    refreshed = await db_session.get(InteractionGenerationAttempt, attempt_id)
+    assert refreshed.usage["metadata_invalid_count"] == 2
+    assert refreshed.usage["metadata_parse_failed_count"] == 1
+    assert refreshed.usage["metadata_incomplete_tail_count"] == 1
+
+
 async def test_finalize_story_adopts_valid_title_and_action_metadata(
     db_session,
 ) -> None:

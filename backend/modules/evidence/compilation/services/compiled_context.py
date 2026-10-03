@@ -82,6 +82,8 @@ class ContextItem(BaseModel):
     status: str = "unknown"
     activation_reason: str = ""
     source: dict[str, Any] = Field(default_factory=dict)
+    sources: list[dict[str, Any]] = Field(default_factory=list)
+    """不可拆分文本块的全部来源；保持整块选择/逐出，不伪造逐源拆分。"""
     selection_ref: dict[str, Any] | None = None
     selection_state: Literal[
         "required",
@@ -158,6 +160,7 @@ class ContextSection(BaseModel):
                     status=self.status,
                     activation_reason=self.activation_reason,
                     source=source,
+                    sources=list(self.sources) if len(self.sources) > 1 else [],
                     selection_ref=(selection_ref_from_source(source) if source else None),
                     selection_state="required" if required else "automatic",
                     can_exclude=not required,
@@ -210,7 +213,11 @@ class CompiledContext(BaseModel):
                     (item.preview for item in items if item.preview),
                     content[:160],
                 ),
-                "sources": [item.source for item in items if item.source],
+                "sources": [
+                    source
+                    for item in items
+                    for source in (item.sources or ([item.source] if item.source else []))
+                ],
                 "items": items,
                 "truncated_reason": truncated_reason,
             }

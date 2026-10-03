@@ -138,6 +138,12 @@ async def run_discussion_scope(db, novel_id, run_id, owner_id, *, lock=False):
     )
 
 
+async def mark_task_local_approved(db, novel_id, task_id, owner_id):
+    from modules.assistant.service import AssistantService
+
+    await AssistantService().mark_task_local_approved(db, novel_id, task_id, owner_id)
+
+
 async def forecast_feed(db, novel_id, data, *, persona="author"):
     from modules.assistant.forecast.service import feed
 

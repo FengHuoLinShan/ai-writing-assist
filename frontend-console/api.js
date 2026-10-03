@@ -906,6 +906,12 @@ const api = {
     editorialBriefForWriting: (id) => request(`/projects/${encodeURIComponent(id)}/editorial-brief/for-writing`, { cache: "no-store" }),
     aiUsage: (id, days = 30) => request(withQuery(`/projects/${encodeURIComponent(id)}/ai-usage`, { days }), { cache: "no-store" }),
     setEditorialBriefForWriting: (id, enabled) => request(`/projects/${encodeURIComponent(id)}/editorial-brief/for-writing`, { method: "PUT", body: JSON.stringify({ enabled }) }),
+    authorExamples: (id) => request(`/projects/${encodeURIComponent(id)}/author-examples`, { cache: "no-store" }),
+    saveAuthorExamples: (id, body) => request(`/projects/${encodeURIComponent(id)}/author-examples`, { method: "PUT", body: JSON.stringify(body) }),
+    authorExamplesForWriting: (id) => request(`/projects/${encodeURIComponent(id)}/author-examples/for-writing`, { cache: "no-store" }),
+    llmCostSaving: (id) => request(`/projects/${encodeURIComponent(id)}/llm-cost-saving`, { cache: "no-store" }),
+    setLLMCostSaving: (id, enabled) => request(`/projects/${encodeURIComponent(id)}/llm-cost-saving`, { method: "PUT", body: JSON.stringify({ enabled }) }),
+    setAuthorExamplesForWriting: (id, enabled) => request(`/projects/${encodeURIComponent(id)}/author-examples/for-writing`, { method: "PUT", body: JSON.stringify({ enabled }) }),
     demoCopy: () => post("/projects/demo-copy", undefined, { cache: "no-store" }),
     async smartDedupReviewState(id, taskId) { return request(`/projects/${encodeURIComponent(id)}/smart-dedup/scans/${encodeURIComponent(taskId)}/review-state`) },
     async recentSmartDedupScans(id) { return request(`/projects/${encodeURIComponent(id)}/smart-dedup/scans`) },
@@ -1445,8 +1451,8 @@ const api = {
       return contractFetch("world.imageGeneration", { id: entityId }, { novel_id: novelId }, { cache: "no-store" })
     },
 
-    async createImageCandidate(entityId, novelId, prompt) {
-      return contractJson("world.createImageCandidate", { id: entityId }, {}, { novel_id: novelId, prompt })
+    async createImageCandidate(entityId, novelId, prompt, forceRefresh = false) {
+      return contractJson("world.createImageCandidate", { id: entityId }, {}, { novel_id: novelId, prompt, force_refresh: forceRefresh })
     },
 
     async imageCandidate(candidateId, novelId) {
@@ -2346,6 +2352,7 @@ const api = {
   // ============================================================
   writing: {
     markEditorialReady: (draftId, novelId, expectedContentHash) => post(withQuery(`/writing/drafts/${encodeURIComponent(draftId)}/editorial-ready`, { novel_id: novelId }), { expected_content_hash: expectedContentHash }),
+    authorExampleStats: (novelId, days = 30) => request(withQuery(`/writing/author-example-stats/${encodeURIComponent(novelId)}`, { days }), { cache: "no-store" }),
     async publish(payload) {
       return contractJson("writing.publish", {}, {}, payload)
     },
@@ -3000,6 +3007,9 @@ const settingsApi = {
     contractFetch("settings.activateLLMProvider", { providerId }),
   clearLLMProvider: (providerId) =>
     deleteRequest(`/account/settings/llm-connections/${providerId}`),
+  updateSecondaryModels: (models) =>
+    put("/account/settings/llm-defaults/secondary-models", { models }),
+  listLLMDefaults: () => request("/account/settings/llm-defaults", { cache: "no-store" }),
   listLLMBalances: () => contractFetch("settings.listLLMBalances"),
 
   // 全局作者偏好

@@ -620,6 +620,7 @@ _TIER_HEADERS: dict[str, str] = {
     "retrieval_evidence_packs": "六、检索证据包",
     "style_assets": "七、风格素材",
     "editorial_brief": "作者编辑约定",
+    "author_examples": "作者写作示例（好例/反例）",
     "hard_constraints": "八、必须遵守的硬约束",
     "compiler_warnings": "九、编译器警告",
     "role_profile": "POV 角色档案",
@@ -680,6 +681,7 @@ _SECTION_FACT_LEVELS: dict[str, str] = {
     "scene_time_boundary": "plan",
     "current_scene_evidence": "fact",
     "editorial_brief": "fact",
+    "author_examples": "fact",
 }
 
 

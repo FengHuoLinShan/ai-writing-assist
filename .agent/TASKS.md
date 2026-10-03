@@ -1,6 +1,5 @@
 # 开放任务
 
-- [T-20261002-general-worldbuilding-mcp](tasks/2026/T-20261002-general-worldbuilding-mcp/TASK.md) — 理法之环能力泛化 MCP 五轮升级与发布
 
 - [T-20260924-agent-cli-adapters](tasks/2026/T-20260924-agent-cli-adapters/TASK.md) — Agent 底座接入五种本机 CLI
 - [T-20260924-editorial-assistant](tasks/2026/T-20260924-editorial-assistant/TASK.md) — 作者助手编辑员级审读与意见闭环
@@ -24,3 +23,5 @@
 - [T-20260920-forecast-creative-engine](tasks/2026/T-20260920-forecast-creative-engine/TASK.md) — 短期前瞻辅助与协作创作试验引擎 V2
 
 - [T-20260923-guimi-flagship](tasks/2026/T-20260923-guimi-flagship/TASK.md) — 现有 guimi 旗舰演示增量升级
+
+- [T-20261002-storyforge-v6-review](tasks/2026/T-20261002-storyforge-v6-review/TASK.md) — StoryForge v6 实现核查与全部整改
