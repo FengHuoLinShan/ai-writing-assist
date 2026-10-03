@@ -2,8 +2,8 @@
 """生产文件行数门（P8）。
 
 生产代码超过 3000 行告警；超过 5000 行且高于入库基线即失败，允许下降。
-基线固化 2026-10-02 实测（fa1ccc0 起两处超标文件），下降后基线不回退，
-再次涨超 5000 即失败。
+基线固化 2026-10-02 实测（fa1ccc0 起两处超标文件）；存量豁免不允许
+超过该固定基线。
 
 用法：
     python scripts/check_file_sizes.py [--base origin/main --head HEAD]
@@ -23,9 +23,10 @@ WARN_LINES = 3000
 FAIL_LINES = 5000
 
 # 入库基线：2026-10-02（0d555c4）实测的超 5000 行生产文件。允许下降；
-# 下降后再次超过 5000 行即失败（基线只用于存量豁免，不是永久配额）。
+# 固定基线只用于这两处存量豁免，其他文件超过 5000 行即失败。
 SIZE_BASELINE: dict[str, int] = {
-    "backend/modules/world/services/worldbuilding/world_generation_center_service.py": 5232,
+    "backend/modules/world/services/worldbuilding/"
+    "world_generation_center_service.py": 5232,
     "backend/modules/world/schemas.py": 5138,
 }
 
@@ -72,6 +73,7 @@ def _changed_paths(base: str, head: str) -> set[str] | None:
             str(REPO_ROOT),
             "diff",
             "--name-only",
+            "--diff-filter=ACMRT",
             "-z",
             f"{base}...{head}",
         ],
@@ -85,15 +87,26 @@ def _changed_paths(base: str, head: str) -> set[str] | None:
     }
 
 
-def check_files(paths: list[str]) -> tuple[list[str], list[str]]:
+def check_files(
+    paths: list[str], *, head: str | None = None
+) -> tuple[list[str], list[str]]:
     """返回 (failures, warnings)。"""
     failures: list[str] = []
     warnings: list[str] = []
     for path in sorted(paths):
-        target = REPO_ROOT / path
-        if not target.is_file():
-            continue
-        lines = sum(1 for _ in target.open("rb"))
+        if head is not None:
+            blob = subprocess.run(
+                ["git", "-C", str(REPO_ROOT), "show", f"{head}:{path}"],
+                capture_output=True,
+                check=True,
+            )
+            lines = len(blob.stdout.splitlines())
+        else:
+            target = REPO_ROOT / path
+            if not target.is_file():
+                continue
+            with target.open("rb") as handle:
+                lines = sum(1 for _ in handle)
         if lines <= WARN_LINES:
             continue
         if lines > FAIL_LINES:
@@ -138,7 +151,7 @@ def main(argv: list[str] | None = None) -> int:
             if _is_production(path)
         ]
 
-    failures, warnings = check_files(paths)
+    failures, warnings = check_files(paths, head=args.head if args.base else None)
     for warning in warnings:
         print(f"WARN {warning}")
     for failure in failures:
