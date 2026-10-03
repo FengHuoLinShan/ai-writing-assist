@@ -111,6 +111,7 @@ jobs:
           path: |
             backend/.test-artifacts/postgresql-diagnostics-post-test.json
             backend/.test-artifacts/postgresql-e2e.junit.xml
+            backend/.test-artifacts/scale-*.json
           if-no-files-found: error
           include-hidden-files: true
           retention-days: 14

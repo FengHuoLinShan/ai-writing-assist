@@ -86,3 +86,5 @@ DeepSeek 新连接使用 `/models` 实测的 canonical `deepseek-flash`；已有
 `PUT /api/account/settings/llm-defaults/secondary-models` 更新（去重、≤4、
 不得与主模型同名）。是否参与路由由项目「省钱模式」与能力档案非 fallback
 档在运行期过滤。
+更新在读取连接前取得账户 head 锁，与连接、激活、断开串行；不会将旧连接
+校验过的附加模型写入切换后的连接。

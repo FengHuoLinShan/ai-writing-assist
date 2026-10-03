@@ -388,6 +388,40 @@ def test_binary_gate_uses_git_objects_and_merge_base_for_renames(
     )
 
 
+@pytest.mark.parametrize("workspace_exists", [True, False])
+def test_file_size_gate_counts_the_requested_head(
+    tmp_path,
+    monkeypatch,
+    workspace_exists,
+):
+    def git(*args):
+        return subprocess.check_output(
+            ["git", "-C", str(tmp_path), *args],
+            text=True,
+        ).strip()
+
+    git("init", "-b", "main")
+    git("config", "user.name", "Synthetic test")
+    git("config", "user.email", "test@example.invalid")
+    (tmp_path / "base.txt").write_text("base")
+    git("add", ".")
+    git("commit", "-qm", "base")
+    base = git("rev-parse", "HEAD")
+    source = tmp_path / "backend/modules/example/services.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("x = 1\n" * 5001)
+    git("add", ".")
+    git("commit", "-qm", "large source")
+    head = git("rev-parse", "HEAD")
+    if workspace_exists:
+        source.write_text("x = 1\n")
+    else:
+        source.unlink()
+    monkeypatch.setattr(check_file_sizes, "REPO_ROOT", tmp_path)
+
+    assert check_file_sizes.main(["--base", base, "--head", head]) == 1
+
+
 def test_module_import_gate_blocks_reverse_dependency_sample(tmp_path) -> None:
     import check_module_imports as gate
 

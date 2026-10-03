@@ -567,3 +567,6 @@ B6 证据校验器与 B2 import 门的负样本测试；B1 接线测试在
 B9 PostgreSQL 双事务冲突回归在 `tests/e2e/test_image_reuse_concurrency.py`，
 已纳入 critical。规模 CLI 只接受专用 PostgreSQL；外层回滚验证项目与账户计数
 不变，包含内部 commit 的影子链也不残留夹具。
+nightly 将 `scale-*.json` 与 PostgreSQL 诊断一同上传到
+`postgresql-e2e-diagnostics`，默认仅 low 档，`SCALE_GATE_ALL_TIERS=1` 才运行全档。
+P8 固定比较范围按指定 head 的 Git blob 计数，不读取其他 checkout 或脏工作树。
