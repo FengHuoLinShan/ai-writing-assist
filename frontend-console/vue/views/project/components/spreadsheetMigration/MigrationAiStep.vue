@@ -125,7 +125,7 @@ const aiStatusLabel = computed(() => ({
     <div class="sm-ai__status" :data-ai-status="ai.status">
       <span>AI 整理：{{ aiStatusLabel }}</span>
       <span v-if="ai.estimate" class="sm-ai__muted">
-        {{ ai.estimate.rows }} 行 · {{ ai.estimate.requests }} 次模型调用
+        {{ ai.estimate.rows }} 行 · 约 {{ ai.estimate.chars }} 字 · {{ ai.estimate.requests }} 次模型调用
       </span>
       <span v-if="ai.blocked_count" class="sm-ai__muted">
         {{ ai.blocked_count }} 组未通过复核，将按原文回落规则导入

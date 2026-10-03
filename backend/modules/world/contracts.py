@@ -621,9 +621,13 @@ __all__ = [
     "WorldBibleActivationTargetContract",
     "WorldBibleSynopsisContextContract",
     "WorldAliasRelationTaskPort",
+    "normalize_author_entity_type",
 ]
 
 
 from modules.world.creative_scenarios import (  # noqa: E402
     WorldScenarioCheck as WorldScenarioCheck,
+)
+from modules.world.services.core.entity_types import (  # noqa: E402
+    normalize_author_entity_type as normalize_author_entity_type,
 )

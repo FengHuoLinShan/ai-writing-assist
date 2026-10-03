@@ -1,7 +1,7 @@
 """同义词与轻量解析工具（计划 §3.2）— 规则实现。
 
-实体类型归一复用 world 的 ``normalize_author_entity_type``（作者边界，允许
-自定义类型）；表格迁移的覆盖规则见计划 §4：设定/词条/名词/术语 → concept
+实体类型归一复用 world contracts 导出的 ``normalize_author_entity_type``
+（作者边界，允许自定义类型）；表格迁移的覆盖规则见计划 §4：设定/词条/名词/术语 → concept
 （覆盖 ENTITY_TYPE_MAP["设定"]="secret"）、法宝/装备 → item、门派/宗门 →
 faction、功法 → skill、境界/修炼体系 → power_system。
 """
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 
-from modules.world.services.core.entity_types import normalize_author_entity_type
+from modules.world.contracts import normalize_author_entity_type
 
 __all__ = [
     "guess_relation_kind",

@@ -40,21 +40,6 @@ from modules.imports.spreadsheet_migration.repository import (
 
 logger = logging.getLogger(__name__)
 
-_ACTION_LABELS = {
-    "create": "新建",
-    "fill_empty": "补全空字段",
-    "adopt_existing": "采用候选",
-    "existing_ref": "已存在",
-    "conflict": "冲突，未导入",
-    "needs_review": "需要确认",
-    "similar_name": "名称相似，需确认",
-    "alias_collision": "别名重名",
-    "skip": "跳过",
-    "planned_scene": "新建细纲",
-    "link_scene": "关联已写章节",
-    "reference_only": "仅参考",
-}
-
 _REASON_LABELS = {
     "duplicate_in_file": "同一文件里有重名条目",
     "target_not_found": "指定的已有对象不存在",
