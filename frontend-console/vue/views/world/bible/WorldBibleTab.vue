@@ -167,12 +167,14 @@
             :overview="libraryOverview"
             :type-options="cardTypeOptions"
             :meta-for="cardMeta"
+            :relation-view-entries="relationViewEntries"
             @open="openWorldCard"
             @select-topic="selectHomeTopic"
             @select-type="selectTypeCard"
             @select-working="selectTypeCard('working')"
             @create-topic="createTopicFromDirectory({ name: $event, parentId: null })"
             @browse-all="applyCardFilters({})"
+            @select-relation-view="selectRelationView"
           />
           <WorldLibraryTypeGrid v-else :cards="commonTypeCards" :working-count="workingCardCount" @select="selectTypeCard" @more="toolDialog = 'types'" />
         </template>
@@ -188,6 +190,8 @@
               :favorite-count="libraryOverview?.totals?.favorites ?? 0"
               :types="directoryTypes"
               :project-id="projectId"
+              :relation-view-entries="relationViewEntries"
+              :unlinked-count="relationUnlinkedCount"
               @select="applyCardFilters"
               @create-topic="createTopicFromDirectory"
               @rename-topic="renameTopicFromDirectory"
@@ -195,6 +199,38 @@
               @move-topic="moveTopicFromDirectory"
             />
             <div class="world-library-browse__main">
+              <WorldRelationGroupList
+                v-if="relationGroupListPage"
+                :project-id="projectId"
+                :filters="cardFilters"
+                :view-meta="currentRelationView"
+                :groups="props.bible?.relationGroups || []"
+                :total="Number(props.bible?.relationGroupsTotal || 0)"
+                :unlinked-total="relationUnlinkedCount"
+                :entity-type-options="cardTypeOptions"
+                :load-error="props.bible?.relationGroupsError || null"
+                :page-size="libraryPageSize"
+                @apply-filters="applyCardFilters"
+                @open-group-entity="openRelationGroupEntity"
+                @retry="retryCards"
+              />
+              <WorldRelationMembers
+                v-else-if="relationMembersPage"
+                :project-id="projectId"
+                :filters="cardFilters"
+                :view-meta="currentRelationView"
+                :bible="props.bible"
+                :meta-for="cardMeta"
+                :relation-kind-options="relationKindOptions"
+                :group-label="relationGroupLabel"
+                @apply-filters="applyCardFilters"
+                @open-card="openWorldCard"
+                @create-task="createTaskForWorldCard"
+                @toggle-favorite="toggleFavoriteCard"
+                @edit-relation="editRelationRef"
+                @retry="retryCards"
+              />
+              <template v-else>
               <header class="world-type-results__header">
                 <button type="button" class="btn btn-sm btn-ghost" @click="clearCardFilters">← 返回资料库首页</button>
                 <div><h2>{{ activeTopicLabel || activeTypeLabel }}</h2><p>{{ libraryTotalLabel }}</p></div>
@@ -243,6 +279,7 @@
                 @change="changeLibraryPage"
               />
               <p v-else-if="entityCardsTruncated" class="world-bible-empty-hint">已显示前 50 个人物或设定；可继续使用搜索精确定位。</p>
+              </template>
             </div>
           </div>
         </template>
@@ -721,7 +758,7 @@ import { displayStateBadgeClass, worldAssetDisplay } from "../../../../shared/as
 import { createReferencePicker } from "../../../../shared/referencePicker.js"
 import { authorTaskPanelQuery } from "../../writing/home/authorTaskSource.js"
 import { editEntity, showEntityCreateForm, syncWorldListRegistry } from "../logic/worldEntityOps.js"
-import { showAliasCreateForm, showAliasEditForm, syncRelationsAliasesRegistry } from "../logic/worldRelationsAliasesOps.js"
+import { showAliasCreateForm, showAliasEditForm, showRelationReviewEditForm, syncRelationsAliasesRegistry } from "../logic/worldRelationsAliasesOps.js"
 import { worldSession } from "../worldSession.js"
 import WorldSidebarToolCard from "../components/WorldSidebarToolCard.vue"
 import WorldToolDialog from "../components/WorldToolDialog.vue"
@@ -732,16 +769,22 @@ import WorldLibraryDirectory from "../library/WorldLibraryDirectory.vue"
 import WorldLibraryHome from "../library/WorldLibraryHome.vue"
 import WorldLibraryList from "../library/WorldLibraryList.vue"
 import WorldLibraryTypeGrid from "../library/WorldLibraryTypeGrid.vue"
+import WorldRelationGroupList from "../library/WorldRelationGroupList.vue"
+import WorldRelationMembers from "../library/WorldRelationMembers.vue"
 import WorldTopicPickerDialog from "../library/WorldTopicPickerDialog.vue"
 import WorldPageReader from "../library/WorldPageReader.vue"
 import WorldBibleKnowledgeGraph from "../pages/WorldBibleKnowledgeGraph.vue"
 import WorldbookImportPanel from "./WorldbookImportPanel.vue"
 import WorldHealthPanel from "./WorldHealthPanel.vue"
 import { useWorldBible } from "./useWorldBible.js"
+import { catalogKindItems } from "../logic/worldTypeCatalog.js"
 import {
   LIBRARY_PAGE_SIZE,
+  RELATION_VIEW_PRESETS,
   buildWorldCards,
   cardsFromLibraryItems,
+  isRelationMembersPage,
+  relationViewMeta,
   usesServerLibrary,
   worldCardQuery,
 } from "./worldCards.js"
@@ -767,6 +810,11 @@ let libraryScrollRestoreTimer = null
 watch(() => props.bibleDeepLink?.openWorldbookImport, (open) => {
   if (open) worldbookImportOpen.value = true
 })
+// open=health 深链的消费者：关系维护 required_validation 等错误入口
+// 经 worldIsland 生成 openHealth，这里实际打开世界健康（校验工具）面板。
+watch(() => props.bibleDeepLink?.openHealth, (open) => {
+  if (open) toolDialog.value = "health"
+}, { immediate: true })
 
 const legacyModeLabels = { gallery: "总览", editor: "编辑资料页", filter: "资料页筛选", graph: "关联图" }
 
@@ -911,6 +959,60 @@ const hasCardFilters = computed(() => Boolean(
   || cardFilters.value.unclassified
   || cardFilters.value.kind !== "all",
 ))
+// ---- 关系分组视角 ----
+const relationViewActive = computed(() => Boolean(cardFilters.value.groupView))
+const relationGroupListPage = computed(() => relationViewActive.value
+  && !cardFilters.value.groupId
+  && !cardFilters.value.groupUnlinked)
+const relationMembersPage = computed(() => relationViewActive.value
+  && isRelationMembersPage(cardFilters.value))
+const currentRelationView = computed(() => relationViewMeta(props.bible?.relationViews, cardFilters.value))
+const relationViewEntries = computed(() => {
+  const views = (Array.isArray(props.bible?.relationViews) && props.bible.relationViews.length)
+    ? props.bible.relationViews
+    : RELATION_VIEW_PRESETS
+  const entries = views.map((view) => ({ key: view.key, title: view.title, description: view.description }))
+  if (!entries.some((entry) => entry.key === "custom")) {
+    entries.push({ key: "custom", title: "自定义视角", description: "选择对象类型与关系自建分组。" })
+  }
+  return entries
+})
+const relationKindOptions = computed(() => catalogKindItems(props.reviewTypeCatalog, "relation"))
+const relationUnlinkedCount = computed(() => (
+  relationViewActive.value ? props.bible?.relationGroupsUnlinkedTotal ?? null : null
+))
+const relationGroupLabel = computed(() => {
+  if (!cardFilters.value.groupId) return ""
+  const cached = worldSession.bible.relationGroupLabels?.[`${props.projectId || "none"}:${cardFilters.value.groupView}:${cardFilters.value.groupId}`]
+  if (cached) return cached
+  // URL 直达时从首个成员的关系端点推导组名（仅展示用）。
+  const first = (props.bible?.libraryItems || []).find((item) => (item.relation_refs || []).length)
+  const ref = (first?.relation_refs || [])[0]
+  if (!ref) return ""
+  const side = currentRelationView.value?.default_relation?.group_side
+    || (currentRelationView.value?.match_relations || []).find((item) => item?.relation_type === ref.relation.relation_type)?.group_side
+  return side === "source" ? ref.relation.source_name : ref.relation.target_name
+})
+function rememberRelationGroupLabel(group) {
+  if (!group?.id || !props.projectId) return
+  worldSession.bible.relationGroupLabels = {
+    ...worldSession.bible.relationGroupLabels,
+    [`${props.projectId}:${cardFilters.value.groupView}:${group.id}`]: group.name,
+  }
+}
+function openRelationGroupEntity(group) {
+  rememberRelationGroupLabel(group)
+  openWorldCard({ kind: "entity", id: group.id })
+}
+function editRelationRef(ref) {
+  showRelationReviewEditForm(ref.relation.id, {
+    relation: ref.relation,
+    executionFingerprint: ref.execution_fingerprint,
+  })
+}
+function selectRelationView(key) {
+  applyCardFilters({ groupView: key, groupId: "", groupUnlinked: false, memberQ: "", q: "", skip: 0 })
+}
 const workingCardCount = computed(() => Number(libraryOverview.value?.totals?.working ?? drafts.value.length))
 const selectedEntity = computed(() => {
   const id = props.bibleDeepLink?.entityId
@@ -966,7 +1068,7 @@ const commonTypeCards = computed(() => COMMON_TYPE_KEYS.map((value) => {
   return { value, label: option?.label || COMMON_TYPE_META[value][0], symbol: COMMON_TYPE_META[value][1], count: countForType(value) }
 }))
 const extraTypeOptions = computed(() => cardTypeOptions.value.filter((item) => !COMMON_TYPE_KEYS.includes(item.value)))
-const showTypeHome = computed(() => displayMode.value === "gallery" && !selectedEntity.value && !galleryCategory.value && !hasCardFilters.value)
+const showTypeHome = computed(() => displayMode.value === "gallery" && !selectedEntity.value && !galleryCategory.value && !hasCardFilters.value && !relationViewActive.value)
 const activeTypeLabel = computed(() => {
   if (cardFilters.value.favorite) return "收藏的资料"
   if (cardFilters.value.unclassified) return "未归类资料"
@@ -1043,8 +1145,9 @@ function handleSidebarAction(key) {
 
 function selectTypeCard(value) {
   cardSearch.value = ""
-  if (value === "working") applyCardFilters({ q: "", state: "working", type: "", kind: "page" })
-  else applyCardFilters({ q: "", state: "", type: value, kind: "all" })
+  // 从关系视角切回普通类型/主题浏览时显式退出视角（group_view 清空即丢弃全部分组参数）。
+  if (value === "working") applyCardFilters({ q: "", state: "working", type: "", kind: "page", groupView: "" })
+  else applyCardFilters({ q: "", state: "", type: value, kind: "all", groupView: "" })
 }
 
 function selectMoreType(value) {
@@ -1177,7 +1280,7 @@ async function toggleTopicMembership(topic) {
 }
 
 function selectHomeTopic(topicId) {
-  applyCardFilters({ topicId, skip: 0, q: "", type: "", state: "", kind: "all", favorite: false, unclassified: false })
+  applyCardFilters({ topicId, skip: 0, q: "", type: "", state: "", kind: "all", favorite: false, unclassified: false, groupView: "" })
 }
 
 async function createTopicFromDirectory({ name, parentId }) {

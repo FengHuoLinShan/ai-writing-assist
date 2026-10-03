@@ -518,15 +518,23 @@ export function showAliasEditForm(entityId, aliasText) {
   globalThis.refreshModalFormBaseline?.()
 }
 
-/** 对应 vanilla showRelationReviewEditForm（worldView.js:2587-2647）。 */
-export function showRelationReviewEditForm(relationId) {
+/** 对应 vanilla showRelationReviewEditForm（worldView.js:2587-2647）。
+ *
+ * options.executionFingerprint：世界库关系视角传入的执行指纹；存在时提交
+ * 携带 expected_execution_fingerprint，让服务端在行锁内做过期重验。
+ * options.relation：视角列表里的完整关系数据；listRegistry 未收录该关系
+ * （例如当前只加载了分组页）时以其兜底，表单仍可打开。 */
+export function showRelationReviewEditForm(relationId, options = {}) {
   const esc = getEsc()
   const toast = getToast()
   const showModalHtml = getShowModalHtml()
   const api = getApi()
   const scope = captureWorldOperationScope()
   const projectId = scope.projectId
+  const executionFingerprint = options.executionFingerprint || null
   const relation = listRegistry.relations.find((r) => (r.id || r.relationship_id) === relationId)
+    || options.relation
+    || null
   if (!relation) {
     toast("未找到目标关系", "error")
     return
@@ -587,6 +595,9 @@ export function showRelationReviewEditForm(relationId) {
           description: document.getElementById("rel-review-description")?.value?.trim() || "",
           strength: Number(document.getElementById("rel-review-strength")?.value || 0.5),
           confirm_review: true,
+          ...(executionFingerprint
+            ? { expected_execution_fingerprint: executionFingerprint }
+            : {}),
         }, projectId)
         if (!ownsWorldOperationScope(scope) || !ownsModalOwner(modalOwner)) return true
         toast(isCanonical ? "关系已保存" : "关系已采用", "success")

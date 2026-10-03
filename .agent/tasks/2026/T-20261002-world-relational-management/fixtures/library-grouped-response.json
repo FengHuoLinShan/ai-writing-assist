@@ -1,0 +1,105 @@
+{
+  "items": [
+    {
+      "kind": "entity",
+      "id": "aaaaaaa1-0000-4000-8000-000000000001",
+      "title": "克莱恩·莫雷蒂",
+      "summary": "廷根市历史系毕业生",
+      "state": "active",
+      "working": false,
+      "draft_id": null,
+      "item_type": "character",
+      "status": "canonical",
+      "is_favorite": false,
+      "last_opened_at": null,
+      "updated_at": "2026-10-01T12:00:00+00:00",
+      "created_at": "2026-09-01T08:00:00+00:00",
+      "relation_refs": [
+        {
+          "relation": {
+            "id": "bbbbbbb1-0000-4000-8000-000000000001",
+            "novel_id": "ddddddd0-0000-4000-8000-000000000000",
+            "source_id": "aaaaaaa1-0000-4000-8000-000000000001",
+            "source_name": "克莱恩·莫雷蒂",
+            "target_id": "11111111-1111-4111-8111-111111111111",
+            "target_name": "塔罗会",
+            "relation_type": "member_of",
+            "relation_kind": "social",
+            "description": "塔罗会成员，称号「愚者」。",
+            "strength": 0.9,
+            "source_chapter_id": null,
+            "caused_by_event_id": null,
+            "quote": null,
+            "review_meta": { "reviewed_by": "manual" },
+            "status": "canonical",
+            "created_at": "2026-09-01T08:00:00+00:00",
+            "updated_at": "2026-09-01T08:00:00+00:00"
+          },
+          "execution_fingerprint": "3f2a1c0d5e4b6a7f8c9d0e1f2a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d"
+        },
+        {
+          "relation": {
+            "id": "bbbbbbb2-0000-4000-8000-000000000002",
+            "novel_id": "ddddddd0-0000-4000-8000-000000000000",
+            "source_id": "aaaaaaa1-0000-4000-8000-000000000001",
+            "source_name": "克莱恩·莫雷蒂",
+            "target_id": "11111111-1111-4111-8111-111111111111",
+            "target_name": "塔罗会",
+            "relation_type": "leader_of",
+            "relation_kind": "social",
+            "description": "以「愚者」身份主持塔罗会。",
+            "strength": 0.8,
+            "source_chapter_id": null,
+            "caused_by_event_id": null,
+            "quote": null,
+            "review_meta": { "reviewed_by": "manual" },
+            "status": "canonical",
+            "created_at": "2026-09-02T08:00:00+00:00",
+            "updated_at": "2026-09-02T08:00:00+00:00"
+          },
+          "execution_fingerprint": "9a8b7c6d5e4f3021a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3021a0b9c8d7"
+        }
+      ]
+    },
+    {
+      "kind": "entity",
+      "id": "aaaaaaa2-0000-4000-8000-000000000002",
+      "title": "奥黛丽·霍尔",
+      "summary": "霍尔家族三小姐",
+      "state": "active",
+      "working": false,
+      "draft_id": null,
+      "item_type": "character",
+      "status": "canonical",
+      "is_favorite": false,
+      "last_opened_at": null,
+      "updated_at": "2026-10-01T13:00:00+00:00",
+      "created_at": "2026-09-01T09:00:00+00:00",
+      "relation_refs": [
+        {
+          "relation": {
+            "id": "bbbbbbb3-0000-4000-8000-000000000003",
+            "novel_id": "ddddddd0-0000-4000-8000-000000000000",
+            "source_id": "aaaaaaa2-0000-4000-8000-000000000002",
+            "source_name": "奥黛丽·霍尔",
+            "target_id": "11111111-1111-4111-8111-111111111111",
+            "target_name": "塔罗会",
+            "relation_type": "member_of",
+            "relation_kind": "social",
+            "description": "塔罗会成员，称号「正义」。",
+            "strength": 0.9,
+            "source_chapter_id": null,
+            "caused_by_event_id": null,
+            "quote": null,
+            "review_meta": { "reviewed_by": "manual" },
+            "status": "canonical",
+            "created_at": "2026-09-01T09:00:00+00:00",
+            "updated_at": "2026-09-01T09:00:00+00:00"
+          },
+          "execution_fingerprint": "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f"
+        }
+      ]
+    }
+  ],
+  "total": 2
+}
