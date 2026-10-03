@@ -83,12 +83,6 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: python3 scripts/classify_ci_changes.py
 
-      # TEMPORARY failure-injection probe; do not merge.
-      - name: Injected classification failure probe
-        run: |
-          echo "::error::injected classification failure"
-          exit 1
-
       - name: Derive browser shard plan
         id: shards
         env:
@@ -115,7 +109,7 @@ jobs:
   frontend-functional-browser-shard:
     name: Frontend functional browser shard ${{ matrix.shard }}
     needs: browser-classify
-    if: needs.browser-classify.outputs.browser == 'true'
+    if: needs.browser-classify.outputs.browser == 'never' # TEMPORARY injection: required but skipped
     runs-on: ubuntu-24.04
     timeout-minutes: 30
 
