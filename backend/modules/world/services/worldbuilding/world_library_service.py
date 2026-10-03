@@ -15,6 +15,7 @@ from typing import Any
 from sqlalchemy import (
     Text,
     and_,
+    asc,
     case,
     delete,
     desc,
@@ -36,6 +37,7 @@ from modules.world.asset_state import (
 )
 from modules.world.models import (
     CoreEntity,
+    EntityRelation,
     WorldBiblePage,
     WorldBiblePageDraft,
     WorldLibraryFavorite,
@@ -44,12 +46,20 @@ from modules.world.models import (
     WorldLibraryTopicMember,
     WorldLibraryWorkspaceProfile,
 )
+from modules.world.relation_schemas import (
+    WorldRelationGroupItem,
+    WorldRelationGroupListResponse,
+    WorldRelationGroupRelationOption,
+    WorldRelationGroupViewInfo,
+)
 from modules.world.schemas import (
+    EntityRelationResponse,
     WorldLibraryFavoriteResponse,
     WorldLibraryItemResponse,
     WorldLibraryListResponse,
     WorldLibraryMemberRequest,
     WorldLibraryOverviewResponse,
+    WorldLibraryRelationRef,
     WorldLibraryTopicCreate,
     WorldLibraryTopicMoveRequest,
     WorldLibraryTopicNode,
@@ -57,7 +67,17 @@ from modules.world.schemas import (
     WorldLibraryTopicUpdate,
     WorldLibraryViewPrefsResponse,
 )
-from modules.world.services.common import parse_uuid
+from modules.world.services.common import (
+    entity_relation_execution_fingerprint,
+    parse_uuid,
+)
+from modules.world.services.worldbuilding.relation_group_views import (
+    RelationViewError,
+    ResolvedGroupView,
+    preset_view_payloads,
+    relation_option_label,
+    resolve_group_view,
+)
 from shared.constants import MAX_PAGE_SIZE
 
 DEFAULT_LIBRARY_LIMIT = 50
@@ -68,6 +88,15 @@ LIBRARY_VIEW_PREFS_MAX_BYTES = 8_000
 _LIBRARY_KINDS = ("all", "entity", "page", "draft")
 _LIBRARY_SORTS = ("updated", "recent", "title", "created")
 _SUMMARY_LENGTH = 240
+# 关系分组读模型中“已采用”的统一状态口径：关系与两端实体都必须是 canonical。
+_CANONICAL_STATUS = "canonical"
+
+
+def _inferred_relation_kind(relation_type: str) -> str:
+    """custom 视角展示用的最小语义分类推断，与预设 payload 同一口径。"""
+    from modules.world.services.core.review_queue import default_relation_kind
+
+    return default_relation_kind(relation_type) or ""
 
 
 def _state_case(status_column: Any) -> Any:
@@ -107,6 +136,13 @@ class WorldLibraryService:
         sort: str = "updated",
         skip: int = 0,
         limit: int = DEFAULT_LIBRARY_LIMIT,
+        group_view: str | None = None,
+        group_id: str | None = None,
+        group_unlinked: bool = False,
+        group_type: str | None = None,
+        member_type: str | None = None,
+        relation_type: str | None = None,
+        group_side: str | None = None,
     ) -> WorldLibraryListResponse:
         nid = parse_uuid(novel_id, "novel_id")
         if kind not in _LIBRARY_KINDS:
@@ -127,6 +163,34 @@ class WorldLibraryService:
             state = None
         limit = max(1, min(limit, MAX_PAGE_SIZE))
         skip = max(0, skip)
+
+        grouped_view: ResolvedGroupView | None = None
+        group_uuid: uuid_module.UUID | None = None
+        if group_view:
+            grouped_view = self._resolve_group_view_or_error(
+                group_view,
+                group_type=group_type,
+                member_type=member_type,
+                relation_type=relation_type,
+                group_side=group_side,
+            )
+            if group_id and group_unlinked:
+                raise ValidationError("group_id 与 group_unlinked 不能同时使用")
+            if group_id:
+                group_uuid = parse_uuid(group_id, "group_id")
+        if grouped_view is not None and (group_uuid is not None or group_unlinked):
+            return await self._list_library_grouped(
+                db,
+                nid,
+                grouped_view,
+                group_uuid=group_uuid,
+                unlinked=bool(group_unlinked),
+                q=q,
+                item_type=item_type,
+                sort=sort,
+                skip=skip,
+                limit=limit,
+            )
 
         topic_ids: set[uuid_module.UUID] | None = None
         if topic_id is not None:
@@ -149,62 +213,521 @@ class WorldLibraryService:
             )
         total = await db.scalar(select(func.count()).select_from(outer.subquery()))
         order = self._order_clause(order_columns, sort)
-        if q and q.strip():
-            query = q.strip().casefold()
-            alias_rows = await db.execute(
-                select(CoreEntity.id, CoreEntity.content_json).where(
-                    CoreEntity.novel_id == nid,
-                    self._alias_search_condition(q),
-                )
-            )
-            alias_ranks: dict[int, list] = {0: [], 1: [], 2: []}
-            for entity_id, content in alias_rows:
-                names = [
-                    (item if isinstance(item, str) else item.get("alias", "")).casefold()
-                    for item in (content or {}).get("aliases", [])
-                    if isinstance(item, str)
-                    or (
-                        isinstance(item, dict)
-                        and item.get("status", "active") == "active"
-                    )
-                ]
-                rank = (
-                    0
-                    if query in names
-                    else 1
-                    if any(name.startswith(query) for name in names)
-                    else 2
-                    if any(query in name for name in names)
-                    else None
-                )
-                if rank is not None:
-                    alias_ranks[rank].append(entity_id)
-            title = func.lower(order_columns["title"])
-            target = order_columns["target_id"]
-            order.insert(
-                0,
-                case(
-                    (or_(title == query, target.in_(alias_ranks[0])), 0),
-                    (
-                        or_(
-                            title.startswith(query, autoescape=True),
-                            target.in_(alias_ranks[1]),
-                        ),
-                        1,
-                    ),
-                    (
-                        or_(
-                            title.contains(query, autoescape=True),
-                            target.in_(alias_ranks[2]),
-                        ),
-                        2,
-                    ),
-                    else_=3,
-                ),
-            )
+        relevance = await self._title_relevance_order(db, nid, q, order_columns)
+        if relevance is not None:
+            order.insert(0, relevance)
         result = await db.execute(outer.order_by(*order).offset(skip).limit(limit))
         items = [self._row_to_item(row) for row in result.mappings()]
         return WorldLibraryListResponse(items=items, total=int(total or 0))
+
+    # ============================================================
+    # Relation groups read model
+    # ============================================================
+
+    async def list_relation_groups(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        group_view: str,
+        group_type: str | None = None,
+        member_type: str | None = None,
+        relation_type: str | None = None,
+        group_side: str | None = None,
+        q: str | None = None,
+        skip: int = 0,
+        limit: int = DEFAULT_LIBRARY_LIMIT,
+    ) -> WorldRelationGroupListResponse:
+        """按关系视角列出分组对象及去重成员数、未关联数。
+
+        组列表保留零成员组；聚合、排序（member_count 降序、name 升序、id
+        稳定序）与分页全部在 SQL 中完成。候选关系、deprecated 关系与归档
+        端点都不构成成员资格。
+        """
+        nid = parse_uuid(novel_id, "novel_id")
+        view = self._resolve_group_view_or_error(
+            group_view,
+            group_type=group_type,
+            member_type=member_type,
+            relation_type=relation_type,
+            group_side=group_side,
+        )
+        limit = max(1, min(int(limit), MAX_PAGE_SIZE))
+        skip = max(0, int(skip))
+
+        pairs_sq = self._view_pairs_subquery(nid, view)
+        count_sq = (
+            select(
+                pairs_sq.c.group_id.label("group_id"),
+                func.count(func.distinct(pairs_sq.c.member_id)).label("member_count"),
+            )
+            .group_by(pairs_sq.c.group_id)
+            .subquery()
+        )
+        group_conditions = [
+            CoreEntity.novel_id == nid,
+            CoreEntity.status == _CANONICAL_STATUS,
+            CoreEntity.entity_type.in_(tuple(view.group_types)),
+        ]
+        query = (q or "").strip()
+        if query:
+            group_conditions.append(
+                or_(
+                    CoreEntity.name.ilike(f"%{query}%"),
+                    self._alias_search_condition(q),
+                )
+            )
+        member_count_expr = func.coalesce(count_sq.c.member_count, 0)
+        rows = (
+            await db.execute(
+                select(
+                    CoreEntity.id,
+                    CoreEntity.name,
+                    CoreEntity.entity_type,
+                    member_count_expr.label("member_count"),
+                )
+                .select_from(CoreEntity)
+                .outerjoin(count_sq, count_sq.c.group_id == CoreEntity.id)
+                .where(*group_conditions)
+                .order_by(
+                    desc(member_count_expr),
+                    asc(CoreEntity.name),
+                    asc(CoreEntity.id),
+                )
+                .offset(skip)
+                .limit(limit)
+            )
+        ).all()
+        items = [
+            WorldRelationGroupItem(
+                id=row.id,
+                name=row.name,
+                entity_type=row.entity_type,
+                member_count=int(row.member_count),
+            )
+            for row in rows
+        ]
+        total = await db.scalar(
+            select(func.count()).select_from(
+                select(CoreEntity.id).where(*group_conditions).subquery()
+            )
+        )
+        unlinked_sq = select(
+            pairs_sq.c.member_id.distinct().label("member_id")
+        ).subquery()
+        unlinked_total = await db.scalar(
+            select(func.count()).select_from(
+                select(CoreEntity.id)
+                .outerjoin(unlinked_sq, unlinked_sq.c.member_id == CoreEntity.id)
+                .where(
+                    CoreEntity.novel_id == nid,
+                    CoreEntity.status == _CANONICAL_STATUS,
+                    unlinked_sq.c.member_id.is_(None),
+                    *self._member_type_scope(view),
+                )
+                .subquery()
+            )
+        )
+        return WorldRelationGroupListResponse(
+            views=self._view_info_payloads(view),
+            items=items,
+            total=int(total or 0),
+            unlinked_total=int(unlinked_total or 0),
+            skip=skip,
+            limit=limit,
+        )
+
+    async def _list_library_grouped(
+        self,
+        db: AsyncSession,
+        nid: uuid_module.UUID,
+        view: ResolvedGroupView,
+        *,
+        group_uuid: uuid_module.UUID | None,
+        unlinked: bool,
+        q: str | None,
+        item_type: str | None,
+        sort: str,
+        skip: int,
+        limit: int,
+    ) -> WorldLibraryListResponse:
+        """分组模式成员列表。
+
+        选组返回该组成员并装配 relation_refs；未关联模式返回无匹配对象。
+        """
+        pairs_sq = self._view_pairs_subquery(nid, view)
+        member_types = self._effective_member_types(view, item_type)
+        if group_uuid is not None:
+            group = (
+                await db.execute(
+                    select(CoreEntity).where(
+                        CoreEntity.novel_id == nid,
+                        CoreEntity.id == group_uuid,
+                    )
+                )
+            ).scalar_one_or_none()
+            if (
+                group is None
+                or group.status != _CANONICAL_STATUS
+                or group.entity_type not in view.group_types
+            ):
+                raise NotFoundError("分组对象不存在")
+            # 半连接（对 distinct 成员子查询 join）：IN(union 子查询) 在 PG
+            # 会退化为逐行 SubPlan 重跑 union，千对象规模实测 4s+ / 70 万
+            # buffer 命中；join 让计划器一次物化。
+            member_sq = (
+                select(pairs_sq.c.member_id.distinct().label("member_id"))
+                .where(pairs_sq.c.group_id == group_uuid)
+                .subquery()
+            )
+            source_join = (member_sq, member_sq.c.member_id == CoreEntity.id)
+            anti_join = None
+        else:
+            unlinked_sq = select(
+                pairs_sq.c.member_id.distinct().label("member_id")
+            ).subquery()
+            source_join = None
+            anti_join = (unlinked_sq, unlinked_sq.c.member_id == CoreEntity.id)
+
+        source = self._grouped_entities_source(
+            nid,
+            q=q,
+            member_types=member_types,
+            source_join=source_join,
+            anti_join=anti_join,
+        )
+        outer, order_columns = self._library_outer_query(
+            nid,
+            q=q,
+            kind="entity",
+            item_type=None,
+            state=None,
+            working=None,
+            favorite=None,
+            topic_ids=None,
+            unclassified=False,
+            sources=[source],
+        )
+        total = await db.scalar(select(func.count()).select_from(outer.subquery()))
+        order = self._order_clause(order_columns, sort)
+        relevance = await self._title_relevance_order(db, nid, q, order_columns)
+        if relevance is not None:
+            order.insert(0, relevance)
+        result = await db.execute(outer.order_by(*order).offset(skip).limit(limit))
+        items = [self._row_to_item(row) for row in result.mappings()]
+        if group_uuid is not None and items:
+            refs = await self._relation_refs_for_page(
+                db,
+                nid,
+                view,
+                group_uuid,
+                [item.id for item in items],
+            )
+            for item in items:
+                item.relation_refs = refs.get(str(item.id), [])
+        return WorldLibraryListResponse(items=items, total=int(total or 0))
+
+    async def _relation_refs_for_page(
+        self,
+        db: AsyncSession,
+        nid: uuid_module.UUID,
+        view: ResolvedGroupView,
+        group_uuid: uuid_module.UUID,
+        member_ids: list[str],
+    ) -> dict[str, list[WorldLibraryRelationRef]]:
+        """一条 IN 查询批量装配当前页成员在该组、该视角下的全部 canonical 关系。"""
+        parsed_ids = [parse_uuid(member_id, "member_id") for member_id in member_ids]
+        match_conditions = []
+        for rule in view.match_rules:
+            if rule.group_side == "target":
+                match_conditions.append(
+                    and_(
+                        EntityRelation.relation_type == rule.relation_type,
+                        EntityRelation.source_id.in_(tuple(parsed_ids)),
+                        EntityRelation.target_id == group_uuid,
+                    )
+                )
+            else:
+                match_conditions.append(
+                    and_(
+                        EntityRelation.relation_type == rule.relation_type,
+                        EntityRelation.target_id.in_(tuple(parsed_ids)),
+                        EntityRelation.source_id == group_uuid,
+                    )
+                )
+        source_entity = aliased(CoreEntity)
+        target_entity = aliased(CoreEntity)
+        rows = (
+            await db.execute(
+                select(EntityRelation, source_entity.name, target_entity.name)
+                .select_from(EntityRelation)
+                .join(
+                    source_entity,
+                    source_entity.id == EntityRelation.source_id,
+                )
+                .join(
+                    target_entity,
+                    target_entity.id == EntityRelation.target_id,
+                )
+                .where(
+                    EntityRelation.novel_id == nid,
+                    EntityRelation.status == _CANONICAL_STATUS,
+                    or_(*match_conditions),
+                )
+                .order_by(EntityRelation.created_at, EntityRelation.id)
+            )
+        ).all()
+        refs: dict[str, list[WorldLibraryRelationRef]] = {}
+        for relation, source_name, target_name in rows:
+            member_id = (
+                relation.source_id
+                if relation.target_id == group_uuid
+                else relation.target_id
+            )
+            response = EntityRelationResponse.model_validate(relation).model_copy(
+                update={
+                    "source_name": source_name,
+                    "target_name": target_name,
+                }
+            )
+            refs.setdefault(str(member_id), []).append(
+                WorldLibraryRelationRef(
+                    relation=response,
+                    execution_fingerprint=entity_relation_execution_fingerprint(relation),
+                )
+            )
+        return refs
+
+    async def _title_relevance_order(
+        self,
+        db: AsyncSession,
+        nid: uuid_module.UUID,
+        q: str | None,
+        order_columns: dict[str, Any],
+    ) -> Any | None:
+        """标题/别名相关度排序表达式；无搜索词时返回 None。"""
+        query = (q or "").strip()
+        if not query:
+            return None
+        casefold = query.casefold()
+        alias_rows = await db.execute(
+            select(CoreEntity.id, CoreEntity.content_json).where(
+                CoreEntity.novel_id == nid,
+                self._alias_search_condition(q),
+            )
+        )
+        alias_ranks: dict[int, list] = {0: [], 1: [], 2: []}
+        for entity_id, content in alias_rows:
+            names = [
+                (item if isinstance(item, str) else item.get("alias", "")).casefold()
+                for item in (content or {}).get("aliases", [])
+                if isinstance(item, str)
+                or (isinstance(item, dict) and item.get("status", "active") == "active")
+            ]
+            rank = (
+                0
+                if casefold in names
+                else 1
+                if any(name.startswith(casefold) for name in names)
+                else 2
+                if any(casefold in name for name in names)
+                else None
+            )
+            if rank is not None:
+                alias_ranks[rank].append(entity_id)
+        title = func.lower(order_columns["title"])
+        target = order_columns["target_id"]
+        return case(
+            (or_(title == casefold, target.in_(alias_ranks[0])), 0),
+            (
+                or_(
+                    title.startswith(casefold, autoescape=True),
+                    target.in_(alias_ranks[1]),
+                ),
+                1,
+            ),
+            (
+                or_(
+                    title.contains(casefold, autoescape=True),
+                    target.in_(alias_ranks[2]),
+                ),
+                2,
+            ),
+            else_=3,
+        )
+
+    # ---------- Relation view helpers ----------
+
+    @staticmethod
+    def _resolve_group_view_or_error(
+        group_view: str,
+        *,
+        group_type: str | None,
+        member_type: str | None,
+        relation_type: str | None,
+        group_side: str | None,
+    ) -> ResolvedGroupView:
+        try:
+            return resolve_group_view(
+                group_view,
+                group_type=group_type,
+                member_type=member_type,
+                relation_type=relation_type,
+                group_side=group_side,
+            )
+        except RelationViewError as exc:
+            # 视角配置无效与写侧一致映射 422（CONTRACT.md 错误表）。
+            raise ValidationError(str(exc), status_code=422) from exc
+
+    @staticmethod
+    def _view_pairs_subquery(
+        nid: uuid_module.UUID,
+        view: ResolvedGroupView,
+    ) -> Any:
+        """视角下的 (group_id, member_id) 匹配对：canonical 关系 + 两端 canonical。"""
+        source_entity = aliased(CoreEntity)
+        target_entity = aliased(CoreEntity)
+        parts: list[Any] = []
+        for rule in view.match_rules:
+            if rule.group_side == "target":
+                group_column = EntityRelation.target_id
+                member_column = EntityRelation.source_id
+                group_entity, member_entity = target_entity, source_entity
+            else:
+                group_column = EntityRelation.source_id
+                member_column = EntityRelation.target_id
+                group_entity, member_entity = source_entity, target_entity
+            conditions = [
+                EntityRelation.novel_id == nid,
+                EntityRelation.status == _CANONICAL_STATUS,
+                EntityRelation.relation_type == rule.relation_type,
+                group_entity.novel_id == nid,
+                group_entity.status == _CANONICAL_STATUS,
+                group_entity.entity_type.in_(tuple(view.group_types)),
+                member_entity.novel_id == nid,
+                member_entity.status == _CANONICAL_STATUS,
+            ]
+            if view.member_types is not None:
+                conditions.append(member_entity.entity_type.in_(tuple(view.member_types)))
+            parts.append(
+                select(
+                    group_column.label("group_id"),
+                    member_column.label("member_id"),
+                )
+                .select_from(EntityRelation)
+                .join(source_entity, source_entity.id == EntityRelation.source_id)
+                .join(target_entity, target_entity.id == EntityRelation.target_id)
+                .where(and_(*conditions))
+            )
+        return parts[0].union_all(*parts[1:]).subquery()
+
+    @staticmethod
+    def _member_type_scope(view: ResolvedGroupView) -> list[Any]:
+        """未关联统计的成员类型范围；None 表示项目内全部类型。"""
+        if view.member_types is None:
+            return []
+        return [CoreEntity.entity_type.in_(tuple(view.member_types))]
+
+    @staticmethod
+    def _effective_member_types(
+        view: ResolvedGroupView,
+        item_type: str | None,
+    ) -> tuple[str, ...] | None:
+        """分组模式下 item_type 与视角 member_types 取交集（空交集返回空元组）。"""
+        if view.member_types is None:
+            return (item_type,) if item_type else None
+        if not item_type:
+            return view.member_types
+        if item_type in view.member_types:
+            return (item_type,)
+        return ()
+
+    def _grouped_entities_source(
+        self,
+        nid: uuid_module.UUID,
+        *,
+        q: str | None,
+        member_types: tuple[str, ...] | None,
+        source_join: tuple[Any, Any] | None,
+        anti_join: tuple[Any, Any] | None,
+    ) -> Any:
+        """分组模式专用的 canonical 成员实体源（复用 entity 源的 q 语义）。
+
+        成员资格用半连接表达、未关联用反连接表达（见 _list_library_grouped），
+        避免 IN/NOT IN 子查询的逐行 SubPlan 退化。
+        """
+        summary_expr = _trimmed(
+            func.nullif(CoreEntity.summary, ""),
+            func.nullif(CoreEntity.public_info, ""),
+        )
+        stmt = select(
+            literal("entity").label("kind"),
+            CoreEntity.id.label("target_id"),
+            CoreEntity.name.label("title"),
+            summary_expr.label("summary"),
+            _state_case(CoreEntity.status).label("state"),
+            literal(False).label("working"),
+            literal(None).label("draft_id"),
+            CoreEntity.entity_type.label("item_type"),
+            CoreEntity.status.label("status"),
+            CoreEntity.created_at.label("created_at"),
+            CoreEntity.updated_at.label("updated_at"),
+        ).where(
+            CoreEntity.novel_id == nid,
+            CoreEntity.status == _CANONICAL_STATUS,
+        )
+        if source_join is not None:
+            subq, onclause = source_join
+            stmt = stmt.join(subq, onclause)
+        elif anti_join is not None:
+            subq, onclause = anti_join
+            stmt = stmt.outerjoin(subq, onclause).where(subq.c.member_id.is_(None))
+        if member_types is not None:
+            if not member_types:
+                stmt = stmt.where(literal(False))
+            else:
+                stmt = stmt.where(CoreEntity.entity_type.in_(tuple(member_types)))
+        q_condition = self._search_condition(
+            q,
+            CoreEntity.name,
+            CoreEntity.content_json["aliases"].cast(Text),
+            CoreEntity.summary,
+            CoreEntity.public_info,
+            CoreEntity.hidden_truth,
+        )
+        if q_condition is not None:
+            stmt = stmt.where(or_(q_condition, self._alias_search_condition(q)))
+        return stmt
+
+    @staticmethod
+    def _view_info_payloads(view: ResolvedGroupView) -> list[WorldRelationGroupViewInfo]:
+        """预设视角负载 + custom 视角按请求参数即时构造的 view info。"""
+        payloads = preset_view_payloads()
+        if view.custom:
+            kind = _inferred_relation_kind(view.default_relation_type)
+            option = WorldRelationGroupRelationOption(
+                relation_type=view.default_relation_type,
+                label=relation_option_label(view.default_relation_type),
+                relation_kind=kind,
+                group_side=view.default_group_side,
+            )
+            payloads.append(
+                {
+                    "key": view.key,
+                    "title": view.title,
+                    "description": view.description,
+                    "group_types": list(view.group_types),
+                    "member_types": list(view.member_types)
+                    if view.member_types is not None
+                    else None,
+                    "match_relations": [option.model_dump()],
+                    "default_relation": option.model_dump(),
+                    "custom": True,
+                }
+            )
+        return [
+            WorldRelationGroupViewInfo.model_validate(payload) for payload in payloads
+        ]
 
     # ---------- SQL assembly ----------
 
@@ -220,15 +743,17 @@ class WorldLibraryService:
         favorite: bool | None,
         topic_ids: set[uuid_module.UUID] | None,
         unclassified: bool = False,
+        sources: list[Any] | None = None,
     ):
-        sources = self._library_sources(
-            nid,
-            q=q,
-            kind=kind,
-            item_type=item_type,
-            state=state,
-            working=working,
-        )
+        if sources is None:
+            sources = self._library_sources(
+                nid,
+                q=q,
+                kind=kind,
+                item_type=item_type,
+                state=state,
+                working=working,
+            )
         if not sources:
             union_sq = self._empty_union().subquery()
         else:

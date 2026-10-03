@@ -957,28 +957,6 @@ class CoreEntityDraftSuggestionPayload(BaseModel):
         return _normalize_author_entity_type(value)
 
 
-class EntityRelationSuggestionPayload(BaseModel):
-    """待处理关系建议；确认后由 world 创建已采用关系。"""
-
-    source_id: str
-    target_id: str
-    relation_type: str = Field(..., min_length=1, max_length=64)
-    relation_kind: RelationKind | None = None
-    description: str | None = None
-    strength: float = Field(default=0.5, ge=0.0, le=1.0)
-    source_chapter_id: str | None = None
-    quote: str | None = None
-    source_refs: list[WorldBibleSourceRef] = Field(default_factory=list)
-    knowledge_review: dict[str, Any] | None = None
-
-    @field_validator("source_id", "target_id", "source_chapter_id")
-    @classmethod
-    def coerce_optional_relation_uuid(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        return str(uuid.UUID(value))
-
-
 class EntityAliasSuggestionPayload(BaseModel):
     """待处理别名建议；确认后内联写入目标 CoreEntity。"""
 
@@ -1407,6 +1385,9 @@ class EntityRelationReviewEditRequest(BaseModel):
     description: str | None = None
     strength: Annotated[float | None, Field(None, ge=0.0, le=1.0)] = None
     confirm_review: bool = True
+    expected_execution_fingerprint: Annotated[
+        str | None, Field(None, min_length=64, max_length=64)
+    ] = None
 
     @field_validator("relation_type")
     @classmethod
@@ -2732,6 +2713,14 @@ class WorldLibraryItemResponse(BaseModel):
     last_opened_at: datetime | None = None
     updated_at: datetime | None = None
     created_at: datetime | None = None
+    relation_refs: list[WorldLibraryRelationRef] = Field(default_factory=list)
+
+
+class WorldLibraryRelationRef(BaseModel):
+    """成员在当前视角下的一条匹配关系及其执行指纹。"""
+
+    relation: EntityRelationResponse
+    execution_fingerprint: str = Field(..., min_length=64, max_length=64)
 
 
 class WorldLibraryListResponse(BaseModel):
