@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from "vue"
+import { getRouter } from "../../../bridge/index.js"
 import { cardsFromLibraryItems } from "../bible/worldCards.js"
 import { displayStateBadgeClass } from "../../../../shared/assetDisplayState.js"
 
@@ -34,6 +35,10 @@ function formatTime(value) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ""
   return date.toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })
+}
+
+function navigateImports() {
+  getRouter()?.navigate("project")
 }
 </script>
 
@@ -135,7 +140,10 @@ function formatTime(value) {
           @click="emit('select-type', facet.value)"
         >{{ facet.label }} <small>{{ facet.count }}</small></button>
       </div>
-      <p v-else class="world-library-home__empty">项目里还没有资料，先新建一份资料再回来整理。</p>
+      <p v-else class="world-library-home__empty">
+        项目里还没有资料，先新建一份资料再回来整理；也可以
+        <button type="button" class="btn btn-sm" data-action="nav-import-spreadsheets" @click="navigateImports">从 Excel/表格导入人物与设定</button>。
+      </p>
     </section>
   </div>
 </template>

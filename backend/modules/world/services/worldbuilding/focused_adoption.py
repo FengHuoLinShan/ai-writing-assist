@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 from datetime import UTC, datetime
 
-from sqlalchemy import String, cast, select
+from sqlalchemy import select
 
 from core.errors import ConflictError, ValidationError
 from infrastructure.stable_hash import stable_hash
@@ -16,10 +16,19 @@ from modules.project.facade import (
     require_active_project,
     require_active_project_exclusive,
 )
-from modules.world.models import CoreEntity, CreationSuggestion, EntityRelation
+from modules.world.models import CreationSuggestion, EntityRelation
 from modules.world.schemas import (
     WorldAdoptionPackagePayload,
     WorldAdoptionPackageSaveRequest,
+)
+from modules.world.services.worldbuilding.applied_change_reversal import (
+    entity_state as _reversal_entity_state,
+)
+from modules.world.services.worldbuilding.applied_change_reversal import (
+    relation_state as _reversal_relation_state,
+)
+from modules.world.services.worldbuilding.applied_change_reversal import (
+    reverse_applied_changes,
 )
 from modules.writing.contracts import SourceRangeRefContract
 from modules.writing.facade import list_manuscript_sources, read_manuscript_range
@@ -515,35 +524,11 @@ async def apply(service, db, request):
 
 
 def entity_state(entity):
-    return {
-        key: copy.deepcopy(getattr(entity, key))
-        for key in (
-            "name",
-            "entity_type",
-            "status",
-            "summary",
-            "public_info",
-            "hidden_truth",
-            "content_json",
-            "importance",
-            "importance_level",
-            "reveal_level",
-        )
-    }
+    return _reversal_entity_state(entity)
 
 
 def relation_state(relation):
-    return {
-        key: copy.deepcopy(getattr(relation, key))
-        for key in (
-            "status",
-            "relation_type",
-            "relation_kind",
-            "description",
-            "quote",
-            "review_meta",
-        )
-    }
+    return _reversal_relation_state(relation)
 
 
 async def rollback(service, db, *, novel_id, suggestion_id):
@@ -570,92 +555,15 @@ async def rollback(service, db, *, novel_id, suggestion_id):
     ):
         raise ValidationError("No accepted focused package to roll back")
     receipt = copy.deepcopy(suggestion.result_ref_json)
-    outcomes = []
-    changed = set()
-    for item in reversed(receipt.get("applied_changes", [])):
-        if item.get("rolled_back"):
-            outcomes.append(
-                {"item_key": item["item_key"], "status": "already_rolled_back"}
-            )
-            continue
-        model = EntityRelation if item["kind"] == "entity_relation" else CoreEntity
-        obj = await db.scalar(
-            select(model)
-            .where(
-                model.id == parse_uuid(item["id"]), model.novel_id == parse_uuid(novel_id)
-            )
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-        current = (
-            relation_state(obj)
-            if obj is not None and model is EntityRelation
-            else entity_state(obj)
-            if obj is not None
-            else None
-        )
-        # Compare touched fields for fills; complete resources for new assets/aliases.
-        after = item["after"]
-        matches = current is not None and all(
-            current.get(key) == value for key, value in after.items()
-        )
-        if matches and item["operation"] == "create" and model is CoreEntity:
-            external = await db.scalar(
-                select(EntityRelation.id)
-                .where(
-                    EntityRelation.novel_id == parse_uuid(novel_id),
-                    EntityRelation.status.in_(("canonical", "candidate")),
-                    (EntityRelation.source_id == obj.id)
-                    | (EntityRelation.target_id == obj.id),
-                )
-                .limit(1)
-            )
-            matches = external is None
-            if matches:
-                from modules.world.models import WorldBiblePage, WorldBiblePageDraft
-                from modules.world.services.core.entity_type_transition_service import (
-                    EntityTypeTransitionService,
-                )
-
-                blockers = await EntityTypeTransitionService()._collect_blockers(
-                    db, obj, obj.entity_type
-                )
-                matches = not blockers
-                for page_model in (WorldBiblePage, WorldBiblePageDraft):
-                    linked = await db.scalar(
-                        select(page_model.id)
-                        .where(
-                            page_model.novel_id == obj.novel_id,
-                            cast(page_model.linked_asset_refs_json, String).contains(
-                                str(obj.id)
-                            ),
-                        )
-                        .limit(1)
-                    )
-                    if linked is not None:
-                        matches = False
-        if not matches:
-            outcomes.append({"item_key": item["item_key"], "status": "conflict"})
-            continue
-        if model is CoreEntity:
-            from modules.world.services.core.entity_revision_service import (
-                EntityRevisionService,
-            )
-
-            await EntityRevisionService().create_snapshot(
-                db, str(obj.id), novel_id, revision_reason="focused_completion_rollback"
-            )
-        if item["operation"] == "create":
-            obj.status = "deprecated"
-        else:
-            for key, value in item["before"].items():
-                setattr(obj, key, copy.deepcopy(value))
-        item["rolled_back"] = True
-        outcomes.append({"item_key": item["item_key"], "status": "rolled_back"})
-        if model is CoreEntity:
-            changed.add(str(obj.id))
-        else:
-            changed.update((str(obj.source_id), str(obj.target_id)))
+    reversal = await reverse_applied_changes(
+        db,
+        novel_id,
+        receipt.get("applied_changes", []),
+        modified_reason="conflict",
+        revision_reason="focused_completion_rollback",
+    )
+    outcomes = reversal.outcomes
+    changed = reversal.changed
     receipt["rollback"] = outcomes
     suggestion.result_ref_json = receipt
     await db.flush()

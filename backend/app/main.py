@@ -741,6 +741,9 @@ from modules.evolution import api as evolution_api  # noqa: E402
 # geo/review — 已从 minimal-core 移除
 # character API 已迁入 modules.world.api；模块已删除
 from modules.imports import api as imports_api  # noqa: E402
+from modules.imports.spreadsheet_migration import (  # noqa: E402
+    api as spreadsheet_migration_api,  # noqa: E402
+)
 from modules.interaction import api as interaction_api  # noqa: E402
 from modules.interaction.forecast_api import (  # noqa: E402
     router as interaction_forecast_router,  # noqa: E402
@@ -767,6 +770,7 @@ app.include_router(account_oidc_router)
 app.include_router(account_oidc_reauth_router)
 app.include_router(legal_router)
 app.include_router(interaction_api.demo_router)
+app.include_router(spreadsheet_migration_api.router)
 app.include_router(imports_api.router)
 app.include_router(interaction_api.router)
 

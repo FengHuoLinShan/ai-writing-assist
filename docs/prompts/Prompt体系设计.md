@@ -668,6 +668,20 @@ DeepSeek新RP执行快照启用max、65,536总输出及900秒超时，旧任务�
   精确引用及诚实的 certainty/confidence/uncertainties。低置信、推断、缺证或冲突待审，
   可靠性自评不能替代服务端 source/identity/CAS 和 World 验证门禁。
 
+## 表格迁移整理步骤（ADR-0030）
+
+- `spreadsheet_outline_convert.md`：step `imports.spreadsheet_migration.outline`，
+  把作者上传的大纲/细纲/总纲表格行忠实整理为卷、剧情线、伏笔、章节细纲与
+  creative_core；每项必须带 source_rows 与逐字 evidence，允许 unmapped_rows；
+  禁止输出 id/novel_id/status/source。
+- `spreadsheet_cell_cleanup.md`：step `imports.spreadsheet_migration.cleanup`，
+  把人物小传等长单元格忠实拆为白名单人物字段，归不进的原文放 remainder。
+
+两步 capability `imports.spreadsheet_migration`（CONFIRMATION_NONE，输入只有作者
+自上传行），经 `govern_group_output` 组级审查（最多返修一次）加确定性校验
+（行引用、逐字 evidence、章号、字段白名单）；输出只进预览，作者确认采用后
+才经 world/story 窄 facade 落库。模型仅经项目 LLM 执行快照获取。
+
 两步沿用项目模型配置、托管 structured step、预算和超时。专项补全真实调用记录
 ContextSnapshot；手动资料新增重新确认，自动流水线只使用既有授权范围内的 snapshot。
 Phase 2a/2b 的可选 mention_name 仅在对应原文逐字出现时进入 completion_hints。

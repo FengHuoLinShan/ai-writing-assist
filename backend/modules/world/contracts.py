@@ -9,7 +9,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from modules.world.schemas import RelationKind
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -379,6 +383,190 @@ class GenerationBackgroundProvider(Protocol):
     ) -> dict[str, Any]: ...
 
 
+# ============================================================
+# 表格迁移（ADR-0030）— 作者在途项目资产迁移的 world 契约
+# ============================================================
+
+
+class AuthorNote(BaseModel):
+    """未识别列转化的作者备注条目，追加到 hidden_truth。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    label: str = Field(max_length=64)
+    value: str = Field(max_length=20000)
+
+
+CharacterFieldName = Literal[
+    "role",
+    "appearance",
+    "personality",
+    "desire",
+    "fear",
+    "weakness",
+    "current_goal",
+    "current_state",
+    "stance",
+    "voice_style",
+    "relationship_summary",
+]
+
+
+class AuthorMigrationEntityInput(BaseModel):
+    """一条待迁移的世界对象/人物条目。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    item_key: str = Field(pattern=r"^[a-z0-9_-]{1,64}$")
+    source_ref: str = Field(min_length=1, max_length=64)  # "<sheet_key>:r<row>"
+    source_hash: str = Field(min_length=64, max_length=64)
+    name: str = Field(min_length=1, max_length=255)
+    entity_type: str = Field(min_length=1, max_length=64)
+    aliases: list[str] = Field(default_factory=list, max_length=64)
+    summary: str | None = Field(None, max_length=5000)
+    public_info: str | None = Field(None, max_length=20000)
+    hidden_truth: str | None = Field(None, max_length=20000)
+    author_notes: list[AuthorNote] = Field(default_factory=list, max_length=64)
+    character_fields: dict[CharacterFieldName, str] = Field(default_factory=dict)
+    decision: Literal[
+        "auto",
+        "different_object",
+        "use_existing",
+        "append_note",
+        "skip",
+    ] = "auto"
+    target_entity_id: str | None = Field(None, min_length=1, max_length=64)
+
+    @field_validator("aliases")
+    @classmethod
+    def _validate_alias_lengths(cls, value: list[str]) -> list[str]:
+        for alias in value:
+            if len(alias) > 255:
+                raise ValueError("单个别名不得超过 255 字")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_use_existing(self) -> AuthorMigrationEntityInput:
+        if self.decision == "use_existing" and not self.target_entity_id:
+            raise ValueError("decision=use_existing 时必须提供 target_entity_id")
+        return self
+
+
+class AuthorMigrationRelationInput(BaseModel):
+    """一条待迁移的人物/对象关系。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    item_key: str = Field(pattern=r"^[a-z0-9_-]{1,64}$")
+    source_ref: str = Field(min_length=1, max_length=64)
+    source_hash: str = Field(min_length=64, max_length=64)
+    source_name: str = Field(min_length=1, max_length=255)
+    target_name: str = Field(min_length=1, max_length=255)
+    source_item_key: str | None = Field(None, pattern=r"^[a-z0-9_-]{1,64}$")
+    target_item_key: str | None = Field(None, pattern=r"^[a-z0-9_-]{1,64}$")
+    relation_type: str = Field(min_length=1, max_length=64)
+    relation_kind: RelationKind | None = None
+    description: str | None = Field(None, max_length=5000)
+    symmetric: bool = False
+    decision: Literal["auto", "skip"] = "auto"
+
+
+class AuthorMigrationWorldRequest(BaseModel):
+    """一次表格迁移的 world 落库请求。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    migration_id: str = Field(min_length=1, max_length=64)
+    entities: list[AuthorMigrationEntityInput] = Field(max_length=1500)
+    relations: list[AuthorMigrationRelationInput] = Field(max_length=3000)
+
+
+class FieldConflict(BaseModel):
+    """字段级冲突摘要；摘录 ≤200 字，不含完整正文。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    field: str
+    current_excerpt: str = Field(default="", max_length=200)
+    incoming_excerpt: str = Field(default="", max_length=200)
+
+
+class WorldMigrationItemPlan(BaseModel):
+    """单条条目的计划动作。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    item_key: str
+    kind: Literal["entity", "relation"]
+    action: Literal[
+        "create",
+        "fill_empty",
+        "adopt_existing",
+        "existing_ref",
+        "conflict",
+        "needs_review",
+        "similar_name",
+        "alias_collision",
+        "skip",
+    ]
+    target_id: str | None = None
+    target_label: str | None = None
+    fills: list[str] = Field(default_factory=list)
+    conflicts: list[FieldConflict] = Field(default_factory=list)
+    similar: list[dict] = Field(default_factory=list)  # {entity_id, name, entity_type}
+    relation_kind: RelationKind | None = None
+    relation_kind_guessed: bool = False
+    reason_code: str | None = Field(None, max_length=64)
+
+
+class WorldMigrationPlan(BaseModel):
+    """一次迁移的 world 计划（只读预览）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[WorldMigrationItemPlan] = Field(default_factory=list)
+    validation_policy_active: bool = False
+    fingerprint: str
+
+
+class MigrationAppliedChange(BaseModel):
+    """回滚比对用的变更记录；before 仅存被改字段原值（必为空值或状态）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    item_key: str
+    kind: str
+    target_id: str
+    operation: Literal[
+        "create",
+        "fill_empty",
+        "promote",
+        "alias",
+        "relation_create",
+        "relation_fill",
+    ]
+    before: dict = Field(default_factory=dict)
+    after_hash: str
+
+
+class WorldMigrationReceipt(BaseModel):
+    """world apply 的回执。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    applied_changes: list[MigrationAppliedChange] = Field(default_factory=list)
+    entity_ids: dict[str, str] = Field(default_factory=dict)  # item_key → id
+
+
+class MigrationRollbackResult(BaseModel):
+    """回滚判定结果；kept 携带保留原因。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reverted: list[str] = Field(default_factory=list)
+    kept: list[dict] = Field(default_factory=list)  # {item_key, reason_code}
+
+
 class WorldAliasRelationTaskPort(Protocol):
     """Task-only DI port; provider execution intentionally has no DB argument."""
 
@@ -401,6 +589,17 @@ class WorldAliasRelationTaskPort(Protocol):
 
 
 __all__ = [
+    "AuthorMigrationEntityInput",
+    "AuthorMigrationRelationInput",
+    "AuthorMigrationWorldRequest",
+    "AuthorNote",
+    "CharacterFieldName",
+    "FieldConflict",
+    "MigrationAppliedChange",
+    "MigrationRollbackResult",
+    "WorldMigrationItemPlan",
+    "WorldMigrationPlan",
+    "WorldMigrationReceipt",
     "FocusedWorldPackageRequest",
     "FocusedWorldPackageApplyRequest",
     "CharacterContract",
@@ -422,9 +621,13 @@ __all__ = [
     "WorldBibleActivationTargetContract",
     "WorldBibleSynopsisContextContract",
     "WorldAliasRelationTaskPort",
+    "normalize_author_entity_type",
 ]
 
 
 from modules.world.creative_scenarios import (  # noqa: E402
     WorldScenarioCheck as WorldScenarioCheck,
+)
+from modules.world.services.core.entity_types import (  # noqa: E402
+    normalize_author_entity_type as normalize_author_entity_type,
 )
