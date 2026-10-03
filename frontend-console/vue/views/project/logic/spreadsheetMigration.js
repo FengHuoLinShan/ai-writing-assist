@@ -68,10 +68,12 @@ const CHARACTER_TARGETS = ["role", "appearance", "personality", "desire", "fear"
 const RELATION_TARGETS = ["source_name", "target_name", "relation_type", "relation_description", "direction", "ignore"]
 const STORY_TARGETS = ["chapter_ref", "title", "content", "core_conflict", "emotional_beat", "must_not_happen", "pov_name", "chapter_start", "chapter_end", "thread_type", "seed_chapter", "payoff_chapter", "reinforce_chapters", "surface_meaning", "hidden_meaning", "related_names", "arc_goal", "climax", "result", "next_hook", "author_note", "ignore"]
 
-/** 各表类型可用的列目标选项（对齐后端 constants 四组）。 */
+/** 各表类型可用的列目标选项（对齐后端 constants 四组）。
+ * 设定表（world_objects）不提供人物专属字段（身份/性格等），人物字段仅人物表可用；
+ * 后端对 world_objects 的这些目标静默降级为普通字段，前端不展示以免误导。 */
 export function columnTargetOptions(kind) {
   if (kind === "characters") return [...WORLD_TARGETS, ...CHARACTER_TARGETS]
-  if (kind === "world_objects") return [...WORLD_TARGETS, ...CHARACTER_TARGETS]
+  if (kind === "world_objects") return WORLD_TARGETS
   if (kind === "relations") return RELATION_TARGETS
   if (kind === "skip") return ["ignore"]
   return STORY_TARGETS
@@ -133,6 +135,31 @@ export const DECISION_OPTIONS = [
 
 export function decisionLabel(action) {
   return DECISION_OPTIONS.find((option) => option.action === action)?.label || action || ""
+}
+
+/** 各条目类型可采取的决策动作（对齐后端 planning 的三组白名单）：
+ * 实体五项；关系与大纲条目只有按建议/跳过。 */
+const SCOPE_DECISION_ACTIONS = {
+  entity: ["auto", "different_object", "use_existing", "append_note", "skip"],
+  relation: ["auto", "skip"],
+  story: ["auto", "skip"],
+}
+
+export function decisionOptionsFor(scope) {
+  const actions = SCOPE_DECISION_ACTIONS[scope] || SCOPE_DECISION_ACTIONS.entity
+  return actions.map((action) =>
+    DECISION_OPTIONS.find((option) => option.action === action)
+    || { action, label: action },
+  )
+}
+
+/** 条目所属的决策范围；旧会话条目无 decision_scope 时按形状判别：
+ * 带 kind 的是大纲结构条目，带 source_label 的是关系条目，其余按实体。 */
+export function itemDecisionScope(item) {
+  if (item?.decision_scope) return item.decision_scope
+  if (item?.kind) return "story"
+  if (item?.source_label) return "relation"
+  return "entity"
 }
 
 /** PUT /decisions 的 payload 组装。 */

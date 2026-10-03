@@ -115,6 +115,42 @@ describe("MigrationSheetMappingStep", () => {
     expect(values).toContain("role")
     expect(values).not.toContain("relation_type")
   })
+
+  it("保存映射携带默认实体类型，缺省时省略该字段", async () => {
+    const withDefault = makeSession()
+    withDefault.sheets[0].default_entity_type = "character"
+    const wrapper = mount(MigrationSheetMappingStep, { props: { session: withDefault, saving: false } })
+    await wrapper.find('[data-action="sm-save-mapping"]').trigger("click")
+    let emitted = wrapper.emitted("save")
+    expect(emitted[0][0].sheets[0].default_entity_type).toBe("character")
+
+    const withoutDefault = mount(MigrationSheetMappingStep, {
+      props: { session: makeSession(), saving: false },
+    })
+    await withoutDefault.find('[data-action="sm-save-mapping"]').trigger("click")
+    emitted = withoutDefault.emitted("save")
+    expect(emitted[0][0].sheets[0]).not.toHaveProperty("default_entity_type")
+  })
+
+  it("设定表选项不含人物字段，但旧会话已选的当前值保留显示", () => {
+    const session = makeSession()
+    session.sheets[0] = {
+      ...session.sheets[0],
+      name: "地点",
+      kind: "world_objects",
+      columns: [
+        { column_key: "c0", header: "名称", target: "name", target_suggested: true },
+        { column_key: "c1", header: "性格", target: "personality", target_suggested: true },
+      ],
+    }
+    const wrapper = mount(MigrationSheetMappingStep, { props: { session, saving: false } })
+    const values = wrapper
+      .findAll('[data-action="sm-target-f0s0-c1"] option')
+      .map((option) => option.attributes("value"))
+    expect(values).not.toContain("role")
+    expect(values).toContain("personality")
+    expect(values.indexOf("personality")).toBeGreaterThan(values.indexOf("ignore"))
+  })
 })
 
 describe("MigrationPreviewStep", () => {
@@ -180,6 +216,45 @@ describe("MigrationPreviewStep", () => {
     const select = wrapper.find('[data-action="sm-decision-w2"]')
     await select.setValue("skip")
     expect(wrapper.find('[data-action="sm-save-decisions"]').exists()).toBe(true)
+  })
+
+  it("决策选项按条目类型过滤：实体五项，关系与大纲两项", async () => {
+    const session = makeSession({
+      relations: [
+        {
+          item_key: "r1",
+          source_label: "张三",
+          target_label: "李四",
+          action: "create",
+          source_sheet_name: "关系",
+          source_row: 1,
+        },
+      ],
+    })
+    const wrapper = mount(MigrationPreviewStep, {
+      props: { session, applying: false, savingDecisions: false },
+    })
+    const entityActions = wrapper
+      .findAll('[data-action="sm-decision-w1"] option')
+      .map((option) => option.attributes("value"))
+    expect(entityActions).toEqual(["auto", "different_object", "use_existing", "append_note", "skip"])
+
+    const relationActions = await (async () => {
+      await wrapper.find('[data-action="sm-tab-relations"]').trigger("click")
+      return wrapper
+        .findAll('[data-action="sm-decision-r1"] option')
+        .map((option) => option.attributes("value"))
+    })()
+    expect(relationActions).toEqual(["auto", "skip"])
+
+    // 大纲结构条目（带 kind，无 decision_scope 的旧会话形状）同样收窄
+    const structureActions = await (async () => {
+      await wrapper.find('[data-action="sm-tab-structures"]').trigger("click")
+      return wrapper
+        .findAll('[data-action="sm-decision-s1"] option')
+        .map((option) => option.attributes("value"))
+    })()
+    expect(structureActions).toEqual(["auto", "skip"])
   })
 
   it("确认采用需要勾选确认", async () => {

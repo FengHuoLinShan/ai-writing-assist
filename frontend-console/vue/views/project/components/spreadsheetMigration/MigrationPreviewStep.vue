@@ -10,6 +10,8 @@ import {
   actionLabel,
   conflictItems,
   decisionLabel,
+  decisionOptionsFor,
+  itemDecisionScope,
   referenceOnlyItems,
 } from "../../logic/spreadsheetMigration.js"
 
@@ -141,10 +143,11 @@ const outlineRow = computed(() => preview.value?.outline)
               :data-action="`sm-decision-${item.item_key}`"
               @change="setDecision(item.item_key, $event.target.value)"
             >
-              <option value="auto">按建议处理</option>
-              <option value="different_object">是不同对象，新建</option>
-              <option value="append_note">冲突处追加到备注</option>
-              <option value="skip">跳过这条</option>
+              <option
+                v-for="option in decisionOptionsFor(itemDecisionScope(item))"
+                :key="option.action"
+                :value="option.action"
+              >{{ option.label }}</option>
             </select>
             <span class="sm-preview__muted">{{ decisionLabel(decisionOf(item.item_key)) }}</span>
             <span class="sm-preview__source">{{ item.source_sheet_name }} 第 {{ item.source_row }} 行</span>

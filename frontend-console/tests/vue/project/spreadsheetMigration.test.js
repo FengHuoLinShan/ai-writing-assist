@@ -8,9 +8,11 @@ import {
   actionLabel,
   columnTargetOptions,
   conflictItems,
+  decisionOptionsFor,
   decisionsPayload,
   isPreviewStale,
   isRevisionConflict,
+  itemDecisionScope,
   mappingPayload,
   referenceOnlyItems,
   sessionStatusLabel,
@@ -32,6 +34,13 @@ describe("spreadsheetMigration 逻辑", () => {
     expect(characterOptions).toContain("role")
     expect(characterOptions).not.toContain("source_name")
 
+    const worldOptions = columnTargetOptions("world_objects")
+    expect(worldOptions).toContain("name")
+    expect(worldOptions).toContain("hidden_truth")
+    // 人物专属字段不出现在设定表选项中
+    expect(worldOptions).not.toContain("role")
+    expect(worldOptions).not.toContain("personality")
+
     const relationOptions = columnTargetOptions("relations")
     expect(relationOptions).toContain("relation_type")
     expect(relationOptions).not.toContain("name")
@@ -41,6 +50,35 @@ describe("spreadsheetMigration 逻辑", () => {
     expect(storyOptions).not.toContain("relation_type")
 
     expect(columnTargetOptions("skip")).toEqual(["ignore"])
+  })
+
+  it("决策选项按条目类型收窄", () => {
+    expect(decisionOptionsFor("entity").map((option) => option.action)).toEqual([
+      "auto",
+      "different_object",
+      "use_existing",
+      "append_note",
+      "skip",
+    ])
+    expect(decisionOptionsFor("relation").map((option) => option.action)).toEqual([
+      "auto",
+      "skip",
+    ])
+    expect(decisionOptionsFor("story").map((option) => option.action)).toEqual([
+      "auto",
+      "skip",
+    ])
+    // 未知范围按实体处理，且文案取自统一标签表
+    expect(decisionOptionsFor(undefined)).toEqual(decisionOptionsFor("entity"))
+    expect(decisionOptionsFor("entity")[0].label).toBe("按建议")
+  })
+
+  it("条目决策范围：显式字段优先，旧会话按形状判别", () => {
+    expect(itemDecisionScope({ decision_scope: "relation" })).toBe("relation")
+    expect(itemDecisionScope({ kind: "chapter_plan" })).toBe("story")
+    expect(itemDecisionScope({ source_label: "张三" })).toBe("relation")
+    expect(itemDecisionScope({ label: "张三", fills: [] })).toBe("entity")
+    expect(itemDecisionScope(null)).toBe("entity")
   })
 
   it("大纲类表默认交给 AI 整理，人物/关系表不默认", () => {

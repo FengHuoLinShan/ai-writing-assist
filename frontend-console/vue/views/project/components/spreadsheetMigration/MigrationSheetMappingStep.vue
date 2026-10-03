@@ -29,6 +29,7 @@ const drafts = ref(
     kind: sheet.kind,
     kind_suggested: sheet.kind_suggested,
     header_row: sheet.header_row,
+    default_entity_type: sheet.default_entity_type,
     columns: Object.fromEntries((sheet.columns || []).map((column) => [column.column_key, column.target])),
     columns_meta: sheet.columns || [],
   })),
@@ -37,7 +38,12 @@ const drafts = ref(
 const kindEntries = computed(() => Object.entries(SHEET_KIND_LABELS))
 
 function targetsFor(draft) {
-  return columnTargetOptions(draft.kind)
+  const options = columnTargetOptions(draft.kind)
+  // 旧会话的设定表可能已选人物字段：当前值不在新选项中时保留显示，不强制清空。
+  const missing = Object.values(draft.columns || {}).filter(
+    (target) => target && !options.includes(target),
+  )
+  return missing.length ? [...options, ...missing] : options
 }
 
 function save() {
@@ -46,6 +52,10 @@ function save() {
       sheet_key: draft.sheet_key,
       kind: draft.kind,
       header_row: Number(draft.header_row) || 0,
+      // 携带默认实体类型，整体保存时不因省略而被清掉
+      ...(draft.default_entity_type
+        ? { default_entity_type: draft.default_entity_type }
+        : {}),
       columns: { ...draft.columns },
     })),
   })
