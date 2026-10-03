@@ -14,14 +14,17 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
+from datetime import UTC, datetime
 
 import pytest
+import pytest_asyncio
 from httpx import ASGITransport
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.main import app
 from core.database import get_manager
+from infrastructure.tasks.models import AsyncTask
 from modules.imports.tests.spreadsheet_fixtures import build_xlsx
 from modules.project.models import Project
 from modules.world.models import CoreEntity
@@ -29,6 +32,31 @@ from tests.e2e.config import DATABASE_URL
 from tests.support.http import XhrAsyncClient
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
+
+# 本文件创建的项目 novel_id：apply 走 author_migration 路径会派生
+# rag_reannotate_entities 任务（pending, auto_requeue）。e2e 无 worker 消费，
+# 滞留的 pending 行会被共享库中后续 task_gate/coalescing 测试的全局
+# claim_next（无类型/项目过滤）认领并稳定失败，须在用例结束时清零。
+_CLEANUP_NOVELS: set[str] = set()
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _cancel_apply_derived_tasks(isolated_global_database_manager: None):
+    yield
+    novels = sorted(_CLEANUP_NOVELS)
+    _CLEANUP_NOVELS.clear()
+    if not novels:
+        return
+    async with get_manager().session_factory() as db:
+        await db.execute(
+            update(AsyncTask)
+            .where(
+                AsyncTask.novel_id.in_(uuid.UUID(novel) for novel in novels),
+                AsyncTask.status.in_(("pending", "running")),
+            )
+            .values(status="cancelled", updated_at=datetime.now(UTC))
+        )
+        await db.commit()
 
 
 def _character_sheet(rows: int = 2) -> bytes:
@@ -41,7 +69,9 @@ def _character_sheet(rows: int = 2) -> bytes:
 async def _create_project(client: XhrAsyncClient, title: str) -> str:
     resp = await client.post("/api/projects", json={"title": title})
     assert resp.status_code == 201, resp.text
-    return resp.json()["id"]
+    novel_id = resp.json()["id"]
+    _CLEANUP_NOVELS.add(novel_id)
+    return novel_id
 
 
 async def _upload_and_map(client: XhrAsyncClient, novel_id: str, workbook: bytes) -> dict:
