@@ -1407,6 +1407,9 @@ class EntityRelationReviewEditRequest(BaseModel):
     description: str | None = None
     strength: Annotated[float | None, Field(None, ge=0.0, le=1.0)] = None
     confirm_review: bool = True
+    expected_execution_fingerprint: Annotated[
+        str | None, Field(None, min_length=64, max_length=64)
+    ] = None
 
     @field_validator("relation_type")
     @classmethod
@@ -2732,6 +2735,14 @@ class WorldLibraryItemResponse(BaseModel):
     last_opened_at: datetime | None = None
     updated_at: datetime | None = None
     created_at: datetime | None = None
+    relation_refs: list[WorldLibraryRelationRef] = Field(default_factory=list)
+
+
+class WorldLibraryRelationRef(BaseModel):
+    """成员在当前视角下的一条匹配关系及其执行指纹。"""
+
+    relation: EntityRelationResponse
+    execution_fingerprint: str = Field(..., min_length=64, max_length=64)
 
 
 class WorldLibraryListResponse(BaseModel):
@@ -2846,6 +2857,135 @@ class WorldLibraryOverviewResponse(BaseModel):
     recent_items: list[WorldLibraryItemResponse] = Field(default_factory=list)
     favorite_items: list[WorldLibraryItemResponse] = Field(default_factory=list)
     working_items: list[WorldLibraryItemResponse] = Field(default_factory=list)
+
+
+class WorldRelationGroupRelationOption(BaseModel):
+    """视角内一条可添加／可匹配的详细关系。"""
+
+    relation_type: str
+    label: str
+    relation_kind: str
+    group_side: Literal["source", "target"]
+
+
+class WorldRelationGroupViewInfo(BaseModel):
+    """分组查询响应中的视角描述（预设；custom 由请求参数即时表达）。"""
+
+    key: str
+    title: str
+    description: str = ""
+    group_types: list[str] = Field(default_factory=list)
+    member_types: list[str] | None = None
+    match_relations: list[WorldRelationGroupRelationOption] = Field(
+        default_factory=list
+    )
+    default_relation: WorldRelationGroupRelationOption
+    custom: bool = False
+
+
+class WorldRelationGroupItem(BaseModel):
+    """视角下的一个分组（组对象）及其去重成员数。"""
+
+    id: Annotated[str, BeforeValidator(_optional_uuid_validator)]
+    name: str
+    entity_type: str
+    member_count: int = 0
+
+
+class WorldRelationGroupListResponse(BaseModel):
+    """GET /world/library/relation-groups 响应。"""
+
+    views: list[WorldRelationGroupViewInfo] = Field(default_factory=list)
+    items: list[WorldRelationGroupItem] = Field(default_factory=list)
+    total: int = 0
+    unlinked_total: int = 0
+    skip: int = 0
+    limit: int = 50
+
+
+class WorldRelationMembershipRef(BaseModel):
+    """移出清单中的一条关系引用及其期望执行指纹。"""
+
+    id: Annotated[str, BeforeValidator(_optional_uuid_validator)]
+    expected_execution_fingerprint: str = Field(
+        ...,
+        min_length=64,
+        max_length=64,
+        description="读取该关系时返回的 execution_fingerprint",
+    )
+
+
+class WorldRelationMembershipBatchRequest(BaseModel):
+    """POST /world/relations/membership-batch 请求（单个与批量共用入口）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    novel_id: str
+    action: Literal["add", "remove"]
+    group_view: str = Field(..., min_length=1, max_length=32)
+    group_id: str = Field(..., min_length=1, max_length=64)
+    member_ids: Annotated[list[str], Field(..., min_length=1, max_length=50)]
+    confirmed: Literal[True] = Field(
+        ...,
+        description="必须显式确认为 true 才执行",
+    )
+    group_type: Annotated[str | None, Field(None, min_length=1, max_length=64)] = None
+    member_type: Annotated[str | None, Field(None, min_length=1, max_length=64)] = None
+    relation_type: Annotated[
+        str | None, Field(None, min_length=1, max_length=64)
+    ] = None
+    relation_kind: RelationKind | None = None
+    group_side: Literal["source", "target"] | None = None
+    relation_refs: list[WorldRelationMembershipRef] | None = Field(
+        None,
+        min_length=1,
+        max_length=50,
+        description="remove 时必须提供完整清单；add 时必须省略",
+    )
+
+    @field_validator("member_ids")
+    @classmethod
+    def dedupe_member_ids(cls, value: list[str]) -> list[str]:
+        seen: set[str] = set()
+        deduped: list[str] = []
+        for item in value:
+            if item not in seen:
+                seen.add(item)
+                deduped.append(item)
+        return deduped
+
+    @model_validator(mode="after")
+    def check_action_fields(self) -> WorldRelationMembershipBatchRequest:
+        if self.action == "add":
+            if self.relation_refs is not None:
+                raise ValueError("add 请求不能携带 relation_refs")
+            if self.group_view == "custom":
+                missing = [
+                    name
+                    for name, present in (
+                        ("relation_type", self.relation_type),
+                        ("relation_kind", self.relation_kind),
+                        ("group_side", self.group_side),
+                    )
+                    if present is None
+                ]
+                if missing:
+                    raise ValueError(
+                        f"custom 视角 add 必须显式指定：{', '.join(missing)}"
+                    )
+            return self
+        if self.relation_refs is None:
+            raise ValueError("remove 请求必须携带 relation_refs 完整清单")
+        return self
+
+
+class WorldRelationMembershipBatchResponse(BaseModel):
+    """POST /world/relations/membership-batch 成功响应（无部分写入）。"""
+
+    added_count: int = 0
+    reused_count: int = 0
+    removed_count: int = 0
+    affected_relation_ids: list[str] = Field(default_factory=list)
 
 
 class WorldBiblePageDraftCreate(BaseModel):

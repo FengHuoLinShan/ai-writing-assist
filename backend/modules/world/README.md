@@ -810,6 +810,8 @@ importance level；RAG 章节索引通过该稳定 facade 生成可重建 chunk 
 | GET | `/api/world/review-type-catalog` | 关系/别名推荐类型、中文标签和保守同义词；`custom_allowed=true` |
 | GET | `/api/world/relations/review-groups` | 按有向对象对分页返回待处理关系组、完整成员和执行指纹；可选 `has_reverse_candidates` / `has_canonical_relation` 在分组计数与分页前过滤 |
 | POST | `/api/world/relations/review-batch` | 显式确认的关系采用、分别采用、归并或忽略批处理 |
+| GET | `/api/world/library/relation-groups` | 关系视角组列表：`group_view` 预设或 custom 配置，返回视角 views、组条目（含去重 member_count）、total 与 unlinked_total；聚合/分页在 SQL 完成 |
+| POST | `/api/world/relations/membership-batch` | 世界库关系视角的单个/批量成员维护：add 缺省用视角默认关系、canonical 复用不改证据、候选冲突整批拒绝；remove 按带执行指纹的 relation_refs 清单结束关系并保留历史；整批一个事务，`409 stale_execution` / `409 relation_exists_as_candidate` / `409 required_validation` 分流 |
 | GET | `/api/world/aliases/review-groups` | 按所属对象分页返回待处理别名组 |
 | POST | `/api/world/aliases/review-batch` | 显式确认的别名采用、编辑或忽略批处理 |
 | POST | `/api/world/entities` | 手动创建世界对象；未传 `status` 时默认已采用 |
@@ -1110,6 +1112,13 @@ E2E_DATABASE_URL='<dedicated-postgresql-url>' make generate-e2e
 ```bash
 cd backend
 python -m pytest modules/world/tests/ -v
+
+# 关系分组读模型 / 成员维护写入（世界库关系视角）
+python -m pytest modules/world/tests/test_world_relation_grouping_read.py \
+                  modules/world/tests/test_world_relation_membership.py -v
+
+# 真实 PostgreSQL 并发（merge gate: make test-postgresql-critical 已含）
+RUN_E2E_TESTS=1 E2E_DATABASE_URL=<dedicated> pytest tests/e2e/test_world_relation_membership_concurrency.py -m "not real_llm and not external_data"
 ```
 
 ## 当前范围

@@ -1310,6 +1310,24 @@ class EntityRelationRepository:
         )
         return list(result.scalars().all())
 
+    async def get_for_update(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        relation_id: uuid.UUID,
+    ) -> EntityRelation | None:
+        """Lock and load one relation inside its project, for CAS revalidation."""
+        result = await db.execute(
+            select(EntityRelation)
+            .where(
+                EntityRelation.novel_id == novel_id,
+                EntityRelation.id == relation_id,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return result.scalar_one_or_none()
+
     async def get_candidate_pair_for_update(
         self,
         db: AsyncSession,
