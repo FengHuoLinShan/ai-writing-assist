@@ -20,6 +20,7 @@ from modules.world.models import (
     WorldBiblePage,
     WorldBiblePageDraft,
 )
+from modules.world.relation_schemas import EntityRelationSuggestionPayload
 from modules.world.schemas import (
     AskWorldSaveRequest,
     AskWorldSaveResponse,
@@ -35,7 +36,6 @@ from modules.world.schemas import (
     EntityMergeRequest,
     EntityPromoteRequest,
     EntityRelationCreate,
-    EntityRelationSuggestionPayload,
     EntityResolveAsAliasRequest,
     WorldAdoptionPackagePayload,
     WorldBiblePageDraftCreate,
