@@ -65,6 +65,22 @@
 | SSE 与 WebSocket | 当前服务端单向生成进度 | P5 恢复；未增加 WebSocket |
 | 单 Agent、多 Agent、Workflow 优势 | 同一深度审稿任务 | P3 对照配置及实际消费 |
 
+### 表格迁移（ADR-0030）
+
+- 解析与识别：`modules/imports/tests/test_spreadsheet_parsing.py` /
+  `test_spreadsheet_classify.py`（恶意包、限额、BOM/GBK、矩阵关系表、Notion 后缀、
+  中文数字章号）；夹具用 openpyxl 在测试内生成（`spreadsheet_fixtures.py`）。
+- world/story 落库：`modules/world/tests/test_author_migration.py`、
+  `modules/story/tests/test_author_migration_story.py`（动作判定、隔离、门禁、回滚三分支）。
+- 会话/API：`modules/imports/tests/test_spreadsheet_migration_{service,api}.py`（全路由、
+  401/403/404、413、CAS 409、stale 409、Literal[True]、日志不含正文）。
+- AI：`modules/imports/tests/test_spreadsheet_migration_ai.py`（校验器、审查、超预算 422、
+  scope 漂移、信封声明）+ prompt 契约 fixtures。
+- 真实链路（SQLite，无替身）：`modules/imports/tests/test_spreadsheet_migration_e2e.py`
+  （上传→映射→预览→采用→可见性→撤销）。
+- PG 关键路径：`tests/e2e/test_import_migrations_pg.py`（并发 apply 单胜者、排他锁串行、
+  预览过期、回滚竞争、CAS、1000 行计时），已加入 `make test-postgresql-critical`。
+
 ## 指标与数据约定
 
 - `p_at_5` 保持历史 v1：分母为实际返回数。`p_at_fixed_5_v2` 固定分母 5，暂不改变历史门槛。

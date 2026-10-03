@@ -10,3 +10,5 @@
   恢复当前账户 Key；不得回退环境 Key。Context 与来源审计只走 Evidence facade/snapshot seam。
 - 修改解析或上传时至少覆盖真实 happy path、空内容、非法类型/签名、大小限制和分页；任何对外
   宣称支持的文件格式都必须有未 mock 的真实文件验收。
+- 表格迁移会话（ADR-0030）只在草稿期暂存有界单元格：采用或删除后必须清空 `rows_json`，
+  回执只存 id/hash/被改字段原值与标签，不存正文；mapping/decisions 写入必须走 revision CAS。

@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from "vue"
+import SpreadsheetMigrationPanel from "./SpreadsheetMigrationPanel.vue"
 import WorkflowProgressCard from "../../../components/WorkflowProgressCard.vue"
 import { IMPORT_FILE_ACCEPT, useImportUpload } from "../../../composables/useImportUpload.js"
 import { getApi, getToast, useStateKey } from "../../../bridge/index.js"
@@ -13,12 +14,19 @@ import {
 /**
  * 导入抽屉 — 对应 vanilla _renderImportSection + _renderImportHistory + _uploadFile。
  * 文件上传经 useImportUpload（XHR 进度 → WorkflowProgressCard）。
+ * 「导入正文」「导入设定表格」两个页签：正文走原白名单，表格走 ADR-0030。
  */
 const emit = defineEmits(["import-new-project"])
 
 const currentProjectId = useStateKey("currentProjectId")
 const currentProject = useStateKey("currentProject")
 const hasProject = computed(() => Boolean(currentProjectId.value))
+
+const activeTab = ref("manuscript")
+const tabs = [
+  { key: "manuscript", label: "导入正文" },
+  { key: "spreadsheets", label: "导入设定表格" },
+]
 
 const fileInput = ref(null)
 const importRecords = ref([])
@@ -111,6 +119,23 @@ function importAsNewProject() {
 
 <template>
   <div class="project-import-panel">
+    <div class="project-import-panel__tabs" role="tablist">
+      <button
+        v-for="entry in tabs"
+        :key="entry.key"
+        type="button"
+        role="tab"
+        class="project-import-panel__tab"
+        :class="{ 'project-import-panel__tab--active': activeTab === entry.key }"
+        :aria-selected="activeTab === entry.key"
+        :data-action="`import-tab-${entry.key}`"
+        @click="activeTab = entry.key"
+      >{{ entry.label }}</button>
+    </div>
+
+    <SpreadsheetMigrationPanel v-if="activeTab === 'spreadsheets'" />
+
+    <template v-else>
     <div class="project-import-panel__hint">
       将小说文件导入到当前选中的作品。
       <template v-if="hasProject">当前作品：<strong>{{ currentProject?.title || "" }}</strong></template>
@@ -171,5 +196,6 @@ function importAsNewProject() {
         </div>
       </div>
     </div>
+    </template>
   </div>
 </template>

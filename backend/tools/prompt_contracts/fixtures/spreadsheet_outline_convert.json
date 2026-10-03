@@ -1,0 +1,68 @@
+{
+  "creative_core": {
+    "premise": "北境边城少年凭一柄旧剑卷入王朝夺嫡",
+    "tone_and_reader_promise": "冷硬权谋底色下的少年成长",
+    "story_engine": "夺嫡三方博弈推动主角升阶",
+    "ending_direction": "主角封侯但失去挚友"
+  },
+  "arcs": [
+    {
+      "proposal_ref": "arc-1",
+      "source_rows": ["f0s1:r2"],
+      "evidence": "第一卷 边城风云 第1章至第40章",
+      "uncertain_fields": [],
+      "title": "边城风云",
+      "chapter_start": 1,
+      "chapter_end": 40,
+      "arc_goal": "在边城站稳脚跟",
+      "core_conflict": "主角与守将之争",
+      "climax": "边城围守战",
+      "result": "守将倒台，主角成名",
+      "next_hook": "王朝征召令到来"
+    }
+  ],
+  "threads": [
+    {
+      "proposal_ref": "thread-1",
+      "source_rows": ["f0s1:r3"],
+      "evidence": "旧剑的来历之谜贯穿第一卷",
+      "uncertain_fields": ["summary"],
+      "name": "旧剑之谜",
+      "thread_type": "main",
+      "summary": "",
+      "visible_goal": "查清旧剑来历",
+      "hidden_truth": "旧剑是先帝遗物"
+    }
+  ],
+  "chapter_plans": [
+    {
+      "proposal_ref": "cp-1",
+      "source_rows": ["f0s2:r2"],
+      "evidence": "第1章 抵达 边城主角初到边城",
+      "uncertain_fields": [],
+      "chapter_start": 1,
+      "chapter_end": 1,
+      "title": "抵达边城",
+      "must_happen": "主角进城，遇到守将亲兵刁难",
+      "goal": "建立主角处境",
+      "core_conflict": "外乡人与地头蛇",
+      "emotional_beat": "压抑中带锋芒",
+      "pov_name": "主角"
+    }
+  ],
+  "foreshadowing": [
+    {
+      "proposal_ref": "fore-1",
+      "source_rows": ["f0s2:r3"],
+      "evidence": "酒馆老人提到先帝曾巡边",
+      "uncertain_fields": [],
+      "name": "先帝巡边传闻",
+      "surface_meaning": "酒馆闲谈",
+      "hidden_meaning": "先帝在边城藏了东西",
+      "seed_chapter": 3,
+      "payoff_chapter": 38,
+      "reinforce_chapters": [12, 25]
+    }
+  ],
+  "unmapped_rows": []
+}

@@ -13,6 +13,12 @@ from pydantic import (
     model_validator,
 )
 
+# ADR-0030 允许的窄跨模块依赖：迁移回执的共享形状由 world contracts 定义。
+from modules.world.contracts import (  # noqa: E402
+    FieldConflict,
+    MigrationAppliedChange,
+)
+
 SceneSemanticFieldStatus = Literal["present", "not_applicable", "uncertain"]
 SCENE_SEMANTIC_FIELD_STATUSES = {
     "present",
@@ -531,3 +537,122 @@ class ReaderRevealDecisionContract:
     revealed: bool = True
     reveal_chapter: int | None = None
     reveal_content: str | None = None
+
+
+# ============================================================
+# 表格迁移（ADR-0030）— 作者在途项目资产迁移的 story 契约
+# ============================================================
+
+
+_MIGRATION_STORY_FIELD_WHITELISTS: dict[str, frozenset[str]] = {
+    "arc": frozenset({"arc_goal", "core_conflict", "climax", "result", "next_hook"}),
+    "thread": frozenset({"thread_type", "summary", "visible_goal", "hidden_truth"}),
+    "foreshadowing": frozenset(
+        {
+            "surface_meaning",
+            "hidden_meaning",
+            "seed_chapter",
+            "payoff_chapter",
+            "reinforce_chapters",
+        }
+    ),
+    "chapter_plan": frozenset(
+        {"must_happen", "goal", "core_conflict", "emotional_beat", "must_not_happen"}
+    ),
+}
+
+
+class AuthorMigrationStoryItem(BaseModel):
+    """一条待迁移的故事结构条目（卷/线/伏笔/章节细纲）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    item_key: str = Field(pattern=r"^[a-z0-9_-]{1,64}$")
+    source_refs: list[str] = Field(default_factory=list, max_length=64)
+    source_hash: str = Field(min_length=64, max_length=64)
+    kind: Literal["arc", "thread", "foreshadowing", "chapter_plan"]
+    title: str = Field(min_length=1, max_length=255)
+    chapter_start: int | None = Field(None, ge=1)
+    chapter_end: int | None = Field(None, ge=1)
+    fields: dict[str, str] = Field(default_factory=dict)
+    related_entity_keys: list[str] = Field(default_factory=list, max_length=256)
+    pov_entity_key: str | None = Field(None, pattern=r"^[a-z0-9_-]{1,64}$")
+    decision: Literal["auto", "skip"] = "auto"
+
+    @model_validator(mode="after")
+    def _validate_fields_whitelist(self) -> AuthorMigrationStoryItem:
+        allowed = _MIGRATION_STORY_FIELD_WHITELISTS.get(self.kind, frozenset())
+        unknown = set(self.fields) - allowed
+        if unknown:
+            raise ValueError(f"{self.kind} 不支持字段: {sorted(unknown)}")
+        if (
+            self.chapter_start is not None
+            and self.chapter_end is not None
+            and self.chapter_end < self.chapter_start
+        ):
+            raise ValueError("chapter_end 不得小于 chapter_start")
+        return self
+
+
+class AuthorMigrationOutlineInput(BaseModel):
+    """总纲写入策略与内容。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str | None = Field(None, max_length=255)
+    outline_markdown: str = Field(max_length=200_000)
+    creative_core: dict[str, str] = Field(default_factory=dict)
+    policy: Literal["create_if_missing", "replace", "skip"]
+
+
+class AuthorMigrationStoryRequest(BaseModel):
+    """一次表格迁移的 story 落库请求。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    migration_id: str = Field(min_length=1, max_length=64)
+    items: list[AuthorMigrationStoryItem] = Field(default_factory=list, max_length=1500)
+    outline: AuthorMigrationOutlineInput | None = None
+    written_chapter_policy: Literal["reference_only", "link_scene"] = "reference_only"
+
+
+class StoryMigrationItemPlan(BaseModel):
+    """单条故事结构条目的计划动作。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    item_key: str
+    action: Literal[
+        "create",
+        "planned_scene",
+        "link_scene",
+        "existing_ref",
+        "fill_empty",
+        "conflict",
+        "reference_only",
+        "skip",
+    ]
+    target_id: str | None = None
+    target_label: str | None = None
+    fills: list[str] = Field(default_factory=list)
+    conflicts: list[FieldConflict] = Field(default_factory=list)
+    reason_code: str | None = Field(None, max_length=64)
+
+
+class StoryMigrationPlan(BaseModel):
+    """一次迁移的 story 计划；指纹不含新实体 id。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[StoryMigrationItemPlan] = Field(default_factory=list)
+    outline_action: Literal["create", "replace", "skip"] | None = None
+    fingerprint: str
+
+
+class StoryMigrationReceipt(BaseModel):
+    """story apply 的回执。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    applied_changes: list[MigrationAppliedChange] = Field(default_factory=list)
+    outline_change: dict | None = None  # {revision_id, base_revision_id}
