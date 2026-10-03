@@ -207,3 +207,15 @@ Scene 顺序、章节和区间指纹，保留 draft 与尚未整理的语义字�
 “确认边界，继续整理”后可回到正文理解恢复原运行；该操作不标记语义已审核、不提升为
 canonical。重新标记待检查撤销该边界确认；区间/顺序变化使指纹失效，正文来源仍由正常
 来源门禁重验。正式 `review` 的完整采用语义保持原契约。
+
+## 作者表格迁移窄 seam（ADR-0030）
+
+`outline_state/author_migration.py` 提供 `plan/apply/rollback_author_migration_structures`
+（经 outline facade 再导出）：arc/thread/foreshadowing/chapter_plan 四类条目与总纲的
+只读预览、指纹比对后的采用与按回执逆序回滚。planned Scene 形状与 P20 一致
+（structure_meta.planning_state="planned" + planned_chapter_range）；已写章节按
+written_chapter_policy 取 reference_only 或 link_scene；总纲经 create_revision 写入，
+creative_core 缺失为 conflict（合成条目键 `__outline__`），回滚时 head 仍是本次修订
+则回基线或用 clear_head_if_revision 清指针。资产带 spreadsheet_migration 来源与
+provenance；deep import 的 Scene 替换不会清理该来源的 Scene（scene_replacement 的
+_cleanable 边界）。

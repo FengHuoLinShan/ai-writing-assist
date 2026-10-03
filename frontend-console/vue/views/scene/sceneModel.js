@@ -18,6 +18,7 @@ export const STATUS_OPTIONS = [
 export const SOURCE_OPTIONS = [
   ["manual", "手动"],
   ["deep_import", "深度导入"],
+  ["spreadsheet_migration", "表格迁移"],
   ["evolution", "正文理解"],
   ["ai_generated", "AI 生成"],
   ["manual_fusion", "融合结果"],

@@ -236,3 +236,25 @@ async def handle_import_review_resolution(db, task):
     return await DeepImportOrchestrator().run_attempt(
         db, attempt, project=lambda payload, value: _project_task(task, payload, value)
     )
+
+
+def _spreadsheet_migration_request_limit(task) -> int:
+    packets = int((getattr(task, "meta", None) or {}).get("ai_packets") or 0)
+    if packets < 1:
+        raise ValueError("spreadsheet migration task must freeze ai_packets")
+    return packets * 6 + 2
+
+
+@task_handler(
+    "spreadsheet_migration_ai",
+    recovery_policy="auto_requeue",
+    max_attempts=2,
+    retry_transient_llm_errors=True,
+    root_capability_id="imports.spreadsheet_migration",
+    run_request_limit=_spreadsheet_migration_request_limit,
+)
+async def handle_spreadsheet_migration_ai(db, task):
+    """表格迁移 AI 整理 — 分包生成 + 组级审查 + 确定性校验后写回会话预览。"""
+    from modules.imports.spreadsheet_migration.ai import run_spreadsheet_migration_ai
+
+    return await run_spreadsheet_migration_ai(db, task=task)

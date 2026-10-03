@@ -306,6 +306,21 @@
       hasBody: true,
     }),
 
+    "imports.migrations.apply": define(
+      "POST",
+      ({ sessionId }) => `/imports/migrations/${required(sessionId, "sessionId", "imports.applyMigration")}/apply`,
+      { hasBody: true, requiredBody: ["novel_id", "expected_preview_hash", "confirmed"], timeout: AI_PREVIEW_APPLY_TIMEOUT },
+    ),
+    "imports.migrations.rollback": define(
+      "POST",
+      ({ sessionId }) => `/imports/migrations/${required(sessionId, "sessionId", "imports.rollbackMigration")}/rollback`,
+      { hasBody: true, requiredBody: ["novel_id", "confirmed"], timeout: AI_PREVIEW_APPLY_TIMEOUT },
+    ),
+    "imports.migrations.startAi": define(
+      "POST",
+      ({ sessionId }) => `/imports/migrations/${required(sessionId, "sessionId", "imports.startMigrationAi")}/ai-runs`,
+      { hasBody: true, requiredBody: ["novel_id", "expected_revision", "authorization_confirmed", "operation_id"], timeout: AI_TASK_SUBMIT_TIMEOUT },
+    ),
     "imports.deepImport": define("POST", () => "/imports/deep", {
       hasBody: true,
       requiredBody: ["adoption_policy", "authorization_confirmed"],
