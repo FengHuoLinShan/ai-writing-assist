@@ -1,4 +1,4 @@
-.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-fast-coverage test-e2e test-postgresql-critical test-real-llm test-map-atlas-live-image test-real-kimi test-interaction-long-context test-manual test-deploy test-frontend test-production-images test-restore-drill-real audit-backend-deps audit-frontend-deps test-ci eval-corpus eval-fixture-manifest eval-generate eval-judge eval-qc eval-review-export eval-review-import eval-report eval-baseline-check eval-freeze eval-rag-prepare eval-run eval-rag eval-full eval-pilot eval-fast eval-rp-long-memory eval-ask-world eval-context-planner lint lint-fix format format-fix secret-hygiene docs-check prompt-contracts prompt-contracts-json generate-e2e help db migrate schema-check doctor doctor-json doctor-llm
+.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-fast-coverage test-e2e test-postgresql-critical test-real-llm test-map-atlas-live-image test-real-kimi test-interaction-long-context test-manual test-deploy test-frontend test-production-images test-restore-drill-real audit-backend-deps audit-frontend-deps test-ci eval-corpus eval-fixture-manifest eval-generate eval-judge eval-qc eval-review-export eval-review-import eval-report eval-baseline-check eval-freeze eval-rag-prepare eval-run eval-rag eval-full eval-pilot eval-fast eval-rp-long-memory eval-ask-world eval-context-planner lint lint-fix format format-fix secret-hygiene docs-check prompt-contracts prompt-contracts-json generate-e2e spreadsheet-e2e help db migrate schema-check doctor doctor-json doctor-llm
 
 ROOT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 BACKEND_DIR := $(ROOT_DIR)backend
@@ -204,6 +204,10 @@ prompt-contracts-json:  ## Check prompt contracts with stable JSON output
 generate-e2e:  ## Run Generation Center Playwright E2E from frontend project config
 	@test -n "$$E2E_DATABASE_URL" || (echo "E2E_DATABASE_URL must target a dedicated PostgreSQL test database" >&2; exit 2)
 	cd $(FRONTEND_DIR) && DATABASE_URL="$$E2E_DATABASE_URL" PW_REUSE_EXISTING_SERVER=0 BACKEND_PORT=18000 FRONTEND_PORT=18080 npx playwright test e2e/generate.spec.js
+
+spreadsheet-e2e:  ## Run spreadsheet migration Playwright E2E from frontend project config
+	@test -n "$$E2E_DATABASE_URL" || (echo "E2E_DATABASE_URL must target a dedicated PostgreSQL test database" >&2; exit 2)
+	cd $(FRONTEND_DIR) && DATABASE_URL="$$E2E_DATABASE_URL" PW_REUSE_EXISTING_SERVER=0 BACKEND_PORT=18000 FRONTEND_PORT=18080 npx playwright test e2e/spreadsheet-migration.spec.js
 
 # ─── Utilities ──────────────────────────────────────
 
