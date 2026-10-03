@@ -13,6 +13,8 @@
 | `AGENTS.md` | Agent 硬约束 | 协作协议、安全/数据边界与终止条件。 |
 | `CLAUDE.md` | Claude Code 适配 | 通过 `@AGENTS.md` 导入共享规则，不维护第二套契约。 |
 | `CONTEXT.md` | 领域上下文 | 稳定领域术语与跨模块语义。 |
+| `DECISIONS.md` | 临时决策日志 | 保留根目录原用途；长期架构决策进入 `adr/`。 |
+| `NOTES.md` | 实现笔记 | 保留根目录原用途；恢复旧工作时按需读取。 |
 | `SECURITY.md` | 安全政策 | 支持范围与安全漏洞报告入口。 |
 | `THIRD_PARTY_LICENSES.md` | 第三方许可 | 生产直接依赖的许可清单与权威来源说明。 |
 | `development-guide.md` | 开发指南 | 本地开发、工程命令与工作流。 |
@@ -121,7 +123,7 @@
   [`deep-import-progress-backend-query-analysis.md`](references/deep-import-progress-backend-query-analysis.md)
   与 Scene 健康标记参考。
 - `archive/audit/` — 代码、性能、安全和文档审计的时间点记录；新审计直接带日期新增到该处。
-- 验收基线与历史验收记录已并入 [`archive/superpowers/`](archive/superpowers/) 的四篇分类（plans / specs / reports / acceptance），新的验收应新增带日期的记录。
+- [`acceptance/`](acceptance/) — 验收基线与历史验收记录；新的验收应新增带日期的记录。
 - [`security/content-sanitization-policy.md`](security/content-sanitization-policy.md) — 内容清理政策草案（Draft，不替代已采纳的 ADR 与安全边界）。
 - [`product/new-user-guide.md`](product/new-user-guide.md) — 新用户指南源文；[`product/NovelCraft-新用户指南.docx`](product/NovelCraft-新用户指南.docx) 为交付版，编辑时以 Markdown 源文为准重新生成。
 - [`product/word-guide-source.md`](product/word-guide-source.md) — Word 指南的可编辑源文。

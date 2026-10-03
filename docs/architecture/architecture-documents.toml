@@ -21,6 +21,7 @@ central_documents = [
   "development-guide.md",
   "testing-guide.md",
   "docs/README.md",
+  "docs/product/new-user-guide.md",
   "docs/00_整体设计.md",
   "docs/01_数据库设计.md",
   "docs/architecture/README.md",
