@@ -56,8 +56,8 @@ updated: 2026-09-16T14:41:25+08:00
 | [Agent 能力台账](../../agent-capabilities.md) | 检索、世界工作稿、剧情组织、生成候选、成组确认和恢复有实现记录；正式验收/效率/质量延期 | 能力库存不等于当前演示能跑通 |
 | [Assistant README](../../../../backend/modules/assistant/README.md) | 助手通过注册工具/领域入口执行，确认与来源重验；历史成果可回访 | 复用领域成果，禁止聊天“已完成”代替持久化回执 |
 | [Interaction README](../../../../backend/modules/interaction/README.md) | 固定作品资料版本、剧情截止、原创身份、选中历史、恢复；不写回源作品 | 每轮使用正确版本与范围，失效不得退回模型知识冒充绑定成功 |
-| [Chrome 原走查](../../../../docs/frontend/uiux/guimi-chrome-audit-2026-09-11.md) | 演示项目已有长篇资料、关系、地图与结构；报告属于特定运行副本 | 36项观察不等于当前 main 缺陷清单 |
-| [修复报告](../../../../docs/frontend/uiux/guimi-chrome-audit-fixes-2026-09-11.md) | 35项已有修复/验收记录，包括关系图、来源、章节定位、地图、问世界 | 先复验、复用；UX-036 等未覆盖项单独查证 |
+| [Chrome 原走查](../../../../docs/archive/audit/2026-09-11-guimi-chrome-audit.md) | 演示项目已有长篇资料、关系、地图与结构；报告属于特定运行副本 | 36项观察不等于当前 main 缺陷清单 |
+| [修复报告](../../../../docs/archive/audit/2026-09-11-guimi-chrome-audit-fixes.md) | 35项已有修复/验收记录，包括关系图、来源、章节定位、地图、问世界 | 先复验、复用；UX-036 等未覆盖项单独查证 |
 | [前端说明](../../../../frontend-console/README.md) | Vue SFC、bridge、现有主题和独立 RP 壳；专用 PG 测试门禁 | 延用现有视觉 token 与组件，不引入新状态/表单库 |
 
 既有演示项目据最新仓库记录名为“诡秘之主 · 廷根篇（前60章演示）”，内部 project ID 为 `937c86f1-a2c3-4db5-963d-f3181095f339`。旧运行记录位于桌面 `NovelCraft-诡秘地图演示-20260909/完整项目演示/app/`，旧专用库为 `ai_novel_acceptance_guimi`。修复记录另提及 `ai_novel_audit_guimi_ux_live_20260911` 复制库。以上仅作定位线索，执行必须核实实际连接，禁止按记忆盲目重启或覆盖。

@@ -28,8 +28,6 @@
 | `maintenance/document-update-log.md` | 已完成的文档同步记录，不反映当前状态 | `docs/` |
 | `test-plans/TDD_TEST_PLAN.md` | 已完成的测试重构计划；当前测试契约以 `testing-guide.md` 和活跃测试为准 | `backend/tests/` |
 | `frontend-refactor-interface.md` | 写作台重构临时接口设计契约（自述重构完成后可归档）；此前已移入归档但漏登，此处补登 | `docs/` |
-| `NOTES.md` | context_snapshots 设计期实现笔记；快照已实施且所有权归 evidence 模块 | 根目录 |
-| `DECISIONS.md` | 轻量决策日志，抽查决策均已落地；长期决策以 `docs/adr/` 为准 | 根目录 |
 | `AI开发规则.md` | 历史设计说明，Agent 运行时规则已被根目录 `AGENTS.md` 取代 | `docs/` |
 | `skills-structure-docs-update.md` | 指向仓库外 `~/.claude/skills` 私有 skill 的孤儿文档；当前文档维护以 `docs/architecture/documentation-maintenance.md` 与 `make docs-check` 为准 | `docs/skills/structure-docs-update.md` |
 | `world-library-completion-plan.md` | R0–R4 已实施并完成验收的世界书库完结计划（2026-09-10） | `docs/product/` |
