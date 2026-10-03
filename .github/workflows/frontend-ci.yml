@@ -154,6 +154,15 @@ jobs:
         with:
           fetch-depth: 0
 
+      # TEMPORARY failure-injection probe; do not merge.
+      - name: Injected shard failure probe
+        if: matrix.shard == 2
+        run: |
+          mkdir -p frontend-console/test-results
+          echo injected-failure-probe > frontend-console/test-results/INJECTED-FAILURE.txt
+          echo "::error::injected failure for shard ${{ matrix.shard }}"
+          exit 1
+
       - name: Install uv and Python
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
