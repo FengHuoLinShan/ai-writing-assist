@@ -694,7 +694,9 @@ snapshot 测试冻结。新增跨模块函数前必须先证明现有 deep seam 
 和 `worldbuilding_facade.py`。
 
 `contracts.py` 只定义跨模块稳定 dataclass，不重导出 HTTP Pydantic schema。
-HTTP 请求/响应类型属于 `schemas.py`；package root 不再兼容重导出 ORM、schema 或
+HTTP 请求/响应类型属于 `schemas.py`（关系建议、分组视角与成员批量操作已拆至
+`relation_schemas.py`，依赖单向：仅可引用 `schemas.py` 基元）；package root
+不再兼容重导出 ORM、schema 或
 facade 函数，跨模块调用必须显式使用 `contracts.py` / `facade.py` / 已注册 DI port。
 
 `worldbuilding_facade.py` 承载世界书上下文激活相关入口：
@@ -810,6 +812,8 @@ importance level；RAG 章节索引通过该稳定 facade 生成可重建 chunk 
 | GET | `/api/world/review-type-catalog` | 关系/别名推荐类型、中文标签和保守同义词；`custom_allowed=true` |
 | GET | `/api/world/relations/review-groups` | 按有向对象对分页返回待处理关系组、完整成员和执行指纹；可选 `has_reverse_candidates` / `has_canonical_relation` 在分组计数与分页前过滤 |
 | POST | `/api/world/relations/review-batch` | 显式确认的关系采用、分别采用、归并或忽略批处理 |
+| GET | `/api/world/library/relation-groups` | 关系视角组列表：`group_view` 预设或 custom 配置，返回视角 views、组条目（含去重 member_count）、total 与 unlinked_total；聚合/分页在 SQL 完成。成员资格用对 distinct 成员子查询的半连接/反连接表达（IN/NOT IN 子查询在 PG 会退化逐行 SubPlan），千对象读路径由 `tests/e2e/test_world_relation_grouping_perf_pg.py` 以固定查询数 + EXPLAIN ANALYZE 形状门禁回归 |
+| POST | `/api/world/relations/membership-batch` | 世界库关系视角的单个/批量成员维护：add 缺省用视角默认关系、canonical 复用不改证据、候选冲突整批拒绝；remove 按带执行指纹的 relation_refs 清单结束关系并保留历史；整批一个事务，`409 stale_execution` / `409 relation_exists_as_candidate` / `409 required_validation` 分流 |
 | GET | `/api/world/aliases/review-groups` | 按所属对象分页返回待处理别名组 |
 | POST | `/api/world/aliases/review-batch` | 显式确认的别名采用、编辑或忽略批处理 |
 | POST | `/api/world/entities` | 手动创建世界对象；未传 `status` 时默认已采用 |
@@ -1110,6 +1114,13 @@ E2E_DATABASE_URL='<dedicated-postgresql-url>' make generate-e2e
 ```bash
 cd backend
 python -m pytest modules/world/tests/ -v
+
+# 关系分组读模型 / 成员维护写入（世界库关系视角）
+python -m pytest modules/world/tests/test_world_relation_grouping_read.py \
+                  modules/world/tests/test_world_relation_membership.py -v
+
+# 真实 PostgreSQL 并发（merge gate: make test-postgresql-critical 已含）
+RUN_E2E_TESTS=1 E2E_DATABASE_URL=<dedicated> pytest tests/e2e/test_world_relation_membership_concurrency.py -m "not real_llm and not external_data"
 ```
 
 ## 当前范围
@@ -1252,3 +1263,24 @@ Evolution 新候选复用对象、关系、别名的待采用流程；元数据�
 RP 开局配图经 `read_world_object_image` 读取已审查的对象图片版本；调用方先校验来源项目、
 冻结版本与剧情截止点，World 仍校验项目访问、对象归属及 `expected_version`。对象响应提供
 `image_version` 供版本绑定；图片替换后旧开局返回不可用，绝不回退到可能剧透的新图片。
+
+## 作者表格迁移窄 seam（ADR-0030）
+
+`services/worldbuilding/author_migration.py` 提供 `plan/apply/rollback_author_migration_world`
+（经 world facade 再导出）：名称/别名解析（本次条目 → working → exact → similar 召回）
+与动作判定；apply 行锁下重算指纹、一次性门禁（validation policy 失败关闭）、新实体
+canonical + created_by=spreadsheet_migration + approved_by=owner、别名 confirmed、
+作者备注追加 hidden_truth；同名只补空、冲突不落库。回滚与 focused 补全共用
+`applied_change_reversal`（Character 行按其 receipt 条目恢复），被改动/被引用项保留。
+不复用 adoption package、不走 CreationSuggestion。
+
+## 图片请求幂等复用（B9）
+
+`image_request_reuse` 表按 `(novel_id, request_hash)` 唯一登记可复用资产；
+幂等键含租户（novel+owner）、状态快照哈希、prompt、模型与参数。地图册与
+对象图片两路同参数命中即复制资产（不调 provider），读时校验字节数+SHA-256，
+损坏删记录按未命中；regenerate/`force_refresh` 作废旧记录强制新生成。
+对象候选入队时冻结 `request_hash`，完成登记复用冻结键。对象指纹包含身份、
+类型、名称与实际设定，复用副本重验并绑定请求目标。地图册指纹哈希实际参考图
+及 mask 字节；唯一键竞争仅回滚 SAVEPOINT，保留调用方生成资产和状态。
+

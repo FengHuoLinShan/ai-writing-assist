@@ -1,0 +1,42 @@
+{
+  "schema_version": "release-evidence-v1",
+  "capability": "interaction.long_memory",
+  "title": "RP 长期记忆 v3 生产 holdout 评测资产就绪声明",
+  "dataset": {
+    "name": "rp-long-memory-v3-production-holdout",
+    "dataset_schema_version": "rp-long-memory-v2",
+    "cases": 8,
+    "scenario_groups": 8,
+    "splits": [
+      "test"
+    ],
+    "files": [
+      {
+        "path": "backend/evals/datasets/baselines/rp-long-memory-v3-production-holdout.jsonl",
+        "sha256": "ce442a74b1f3ba95552e68b164aebb5e427935e1bff58fc641feaf3b90ef11ef",
+        "bytes": 32848
+      }
+    ],
+    "nature": "合成场景数据集（确定性生成，无版权原文）"
+  },
+  "metrics": [],
+  "blind_review": null,
+  "token_cost": null,
+  "generated_at": "2026-10-02T00:27:35.604189+00:00",
+  "generator_version": "rp-long-memory-generator-v2",
+  "commit": "0d555c463f2010b9206a51b3a838ce0a2e9d4fb8",
+  "claims_boundary": {
+    "proves": [
+      "v3 生产 holdout 数据集已入库、可复现（逐文件 sha256 锁定）且规模构成明确",
+      "数据集由确定性生成器产出，同 seed 可重建",
+      "评测入口（make eval-rp-long-memory DATASET=... SPLIT=test）可消费该数据集"
+    ],
+    "does_not_prove": [
+      "不证明任何模型在该数据集上的质量指标（尚无真实模型运行结论）",
+      "不证明生产环境长期记忆的留存效果",
+      "本声明不含任何用户数据或版权原文派生内容"
+    ]
+  },
+  "notes": "首个真实运行证据（含指标、盲评结论与真实 token 成本）待授权的付费评测运行后追加；届时本文件由该运行结果替换。",
+  "next_update_trigger": "rp-long-memory 真实评测运行完成后"
+}

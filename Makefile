@@ -1,4 +1,4 @@
-.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-fast-coverage test-e2e test-postgresql-critical test-real-llm test-map-atlas-live-image test-real-kimi test-interaction-long-context test-manual test-deploy test-frontend test-production-images test-restore-drill-real audit-backend-deps audit-frontend-deps test-ci eval-corpus eval-fixture-manifest eval-generate eval-judge eval-qc eval-review-export eval-review-import eval-report eval-baseline-check eval-freeze eval-rag-prepare eval-run eval-rag eval-full eval-pilot eval-fast eval-rp-long-memory eval-ask-world eval-context-planner lint lint-fix format format-fix secret-hygiene docs-check prompt-contracts prompt-contracts-json generate-e2e help db migrate schema-check doctor doctor-json doctor-llm
+.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-fast-coverage test-e2e test-postgresql-critical test-real-llm test-map-atlas-live-image test-real-kimi test-interaction-long-context test-manual test-deploy test-frontend test-production-images test-restore-drill-real audit-backend-deps audit-frontend-deps test-ci repo-gates binary-growth-gate file-size-gate release-evidence-gate module-import-gate scale-gate eval-corpus eval-fixture-manifest eval-generate eval-judge eval-qc eval-review-export eval-review-import eval-report eval-baseline-check eval-freeze eval-rag-prepare eval-run eval-rag eval-full eval-pilot eval-fast eval-rp-long-memory eval-ask-world eval-context-planner lint lint-fix format format-fix secret-hygiene docs-check prompt-contracts prompt-contracts-json generate-e2e spreadsheet-e2e help db migrate schema-check doctor doctor-json doctor-llm
 
 ROOT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 BACKEND_DIR := $(ROOT_DIR)backend
@@ -9,7 +9,7 @@ BACKEND_REAL_LLM_TESTS := modules/imports/tests/test_real_extraction.py modules/
 BACKEND_REAL_KIMI_TESTS := modules/interaction/tests/test_real_kimi.py
 BACKEND_INTERACTION_LONG_CONTEXT_TESTS := tests/e2e/test_interaction_long_context_real_kimi.py
 BACKEND_MANUAL_TESTS := $(BACKEND_REAL_LLM_TESTS) tests/e2e/test_writing_conflict_real_llm.py tests/e2e/test_extraction_real_file.py tests/e2e/test_outline_generation.py
-BACKEND_POSTGRESQL_CRITICAL_TESTS := tests/e2e/test_00_fresh_migrations.py tests/e2e/test_context_retrieval_trace_queries.py tests/e2e/test_context_terminal_concurrency.py tests/e2e/test_import_upload_commit_visibility.py tests/e2e/test_interaction_generation_concurrency.py tests/e2e/test_project_task_gate_concurrency.py tests/e2e/test_rp_source_versions.py tests/e2e/test_scene_memory_checkpoint_concurrency.py tests/e2e/test_smart_dedup_group_savepoint.py tests/e2e/test_task_coalescing_concurrency.py tests/e2e/test_task_run_envelope_postgres.py tests/e2e/test_writing_route_commit_visibility.py tests/e2e/test_writing_version_concurrency.py
+BACKEND_POSTGRESQL_CRITICAL_TESTS := tests/e2e/test_00_fresh_migrations.py tests/e2e/test_context_retrieval_trace_queries.py tests/e2e/test_context_terminal_concurrency.py tests/e2e/test_import_migrations_pg.py tests/e2e/test_import_upload_commit_visibility.py tests/e2e/test_interaction_generation_concurrency.py tests/e2e/test_project_task_gate_concurrency.py tests/e2e/test_rp_source_versions.py tests/e2e/test_scene_memory_checkpoint_concurrency.py tests/e2e/test_smart_dedup_group_savepoint.py tests/e2e/test_task_coalescing_concurrency.py tests/e2e/test_task_run_envelope_postgres.py tests/e2e/test_writing_route_commit_visibility.py tests/e2e/test_writing_version_concurrency.py tests/e2e/test_image_reuse_concurrency.py tests/e2e/test_world_relation_membership_concurrency.py tests/e2e/test_world_relation_grouping_perf_pg.py
 FAST_TEST_TIMEOUT_SECONDS ?= 120
 TEST_WORKERS ?= auto
 BACKEND_EVAL_PYTHON ?= 3.13
@@ -195,6 +195,23 @@ secret-hygiene:  ## Reject tracked env files, private keys, and high-confidence 
 docs-check:  ## Validate current architecture docs; set BASE_REF for diff-impact checks
 	python3 $(ROOT_DIR)scripts/check_architecture_docs.py $(if $(BASE_REF),--base-ref $(BASE_REF),)
 
+repo-gates: binary-growth-gate file-size-gate release-evidence-gate module-import-gate  ## Run repo-level governance gates (B11/B6/B2/P8)
+
+binary-growth-gate:  ## Binary growth gate (B11): 1MB per file, 5MB per change
+	python3 $(ROOT_DIR)scripts/check_binary_growth.py --base $(if $(BASE_REF),$(BASE_REF),origin/main) --head HEAD
+
+file-size-gate:  ## Production file size gate (P8): warn >3000 lines, fail >5000 above baseline
+	python3 $(ROOT_DIR)scripts/check_file_sizes.py --base $(if $(BASE_REF),$(BASE_REF),origin/main) --head HEAD
+
+release-evidence-gate:  ## Release evidence ledger gate (B6)
+	python3 $(ROOT_DIR)scripts/check_release_evidence.py --base $(if $(BASE_REF),$(BASE_REF),origin/main)
+
+module-import-gate:  ## Cross-module import gate (B2)
+	python3 $(ROOT_DIR)scripts/check_module_imports.py
+
+scale-gate:  ## Long-form scale gate (B7): compile-probe a fixture tier against baselines
+	cd $(BACKEND_DIR) && python -m tools.scale_gate_harness --tier $(or $(TIER),low) --database-url $(DATABASE_URL) $(if $(CREATE_SCHEMA),--create-schema,) --baseline-check
+
 prompt-contracts:  ## Check prompt contracts
 	cd $(BACKEND_DIR) && python -m tools.prompt_contracts check
 
@@ -204,6 +221,10 @@ prompt-contracts-json:  ## Check prompt contracts with stable JSON output
 generate-e2e:  ## Run Generation Center Playwright E2E from frontend project config
 	@test -n "$$E2E_DATABASE_URL" || (echo "E2E_DATABASE_URL must target a dedicated PostgreSQL test database" >&2; exit 2)
 	cd $(FRONTEND_DIR) && DATABASE_URL="$$E2E_DATABASE_URL" PW_REUSE_EXISTING_SERVER=0 BACKEND_PORT=18000 FRONTEND_PORT=18080 npx playwright test e2e/generate.spec.js
+
+spreadsheet-e2e:  ## Run spreadsheet migration Playwright E2E from frontend project config
+	@test -n "$$E2E_DATABASE_URL" || (echo "E2E_DATABASE_URL must target a dedicated PostgreSQL test database" >&2; exit 2)
+	cd $(FRONTEND_DIR) && DATABASE_URL="$$E2E_DATABASE_URL" PW_REUSE_EXISTING_SERVER=0 BACKEND_PORT=18000 FRONTEND_PORT=18080 npx playwright test e2e/spreadsheet-migration.spec.js
 
 # ─── Utilities ──────────────────────────────────────
 

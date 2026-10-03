@@ -32,6 +32,13 @@ NovelCraft 有两个入口，对应两类完全不同的用户：
 
 ---
 
+### 已经有表格？先把设定搬进来
+
+如果你在 Excel、WPS、飞书或 Notion 里已经维护人物表、设定表、关系表和大纲，把它们
+导出为 `.xlsx` 或 `.csv`，在作品档案的「导入」抽屉切到「导入设定表格」上传。系统会
+识别表格并让你逐列确认含义，同名内容只补空字段、冲突不覆盖，确认后整次导入随时可
+撤销。建议先导表格再导入正文——深度导入会自动对上你已迁移的人物。
+
 ## 3. RP 路径：进入一段属于你的私人故事
 
 1. **创建旅程**：可直接说明世界、身份、时间地点和开场愿望；也可选择已有作品或导入 txt/epub/html/htm。
@@ -101,12 +108,12 @@ NovelCraft 当前是 **Alpha / 工程验证系统**，不是成熟商业产品�
 
 | 想了解什么 | 入口 |
 | --- | --- |
-| 项目完整说明与工程架构 | [README.md](../README.md) |
-| 目标用户与双入口边界 | [docs/product/user-personas.md](product/user-personas.md) |
-| 整体产品与技术设计 | [docs/00_整体设计.md](00_整体设计.md) |
-| 架构图与阅读约定 | [docs/architecture/README.md](architecture/README.md) |
-| RP 旅程与分支语义 | [backend/modules/interaction/README.md](../backend/modules/interaction/README.md) |
-| 开发者快速开始 | [README.md](../README.md) 的“开发者快速开始”一节 |
+| 项目完整说明与工程架构 | [README.md](../../README.md) |
+| 目标用户与双入口边界 | [docs/product/user-personas.md](user-personas.md) |
+| 整体产品与技术设计 | [docs/00_整体设计.md](../00_整体设计.md) |
+| 架构图与阅读约定 | [docs/architecture/README.md](../architecture/README.md) |
+| RP 旅程与分支语义 | [backend/modules/interaction/README.md](../../backend/modules/interaction/README.md) |
+| 开发者快速开始 | [README.md](../../README.md) 的“开发者快速开始”一节 |
 
 ---
 

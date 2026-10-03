@@ -704,9 +704,25 @@ async def test_plot_threads_loader_excludes_inactive_threads(
     await _create_plot_thread(
         db_session,
         test_project_id,
-        "Ended",
+        "Overdue",
         start_chapter=1,
         planned_payoff_chapter=2,
+    )
+    for name, stage in (("Resolved", "resolved"), ("Paused", " Paused ")):
+        await _create_plot_thread(
+            db_session,
+            test_project_id,
+            name,
+            start_chapter=1,
+            planned_payoff_chapter=10,
+            current_stage=stage,
+        )
+    await _create_plot_thread(
+        db_session,
+        test_project_id,
+        "NotStarted",
+        start_chapter=6,
+        planned_payoff_chapter=10,
     )
     loader = PlotThreadsLoader()
     options = _compile_options(test_project_id, chapter_index=5)
@@ -715,9 +731,12 @@ async def test_plot_threads_loader_excludes_inactive_threads(
     # Act
     await loader.load(db_session, options, bundle)
 
-    # Assert — only active threads (start <= 5 <= payoff)
-    assert len(bundle.plot_threads) == 1
-    assert bundle.plot_threads[0]["name"] == "Active"
+    # Assert — 已开始且未终结的线入选；超过计划兑现章仍未收束的线保留
+    # （渲染层标注超期），resolved/paused 与尚未开始的线排除
+    assert {thread["name"] for thread in bundle.plot_threads} == {
+        "Active",
+        "Overdue",
+    }
 
 
 @pytest.mark.asyncio

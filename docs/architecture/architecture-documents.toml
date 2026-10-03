@@ -95,7 +95,7 @@ kind = "business"
 source_roots = ["backend/modules/imports"]
 design_docs = ["docs/modules/13_imports.md"]
 code_docs = ["backend/modules/imports/README.md"]
-api_prefixes = ["/api/imports"]
+api_prefixes = ["/api/imports", "/api/imports/migrations"]
 
 [[components]]
 name = "world"

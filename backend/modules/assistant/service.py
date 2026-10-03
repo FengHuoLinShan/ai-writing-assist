@@ -231,6 +231,19 @@ class AssistantService:
     def __init__(self):
         self.sessions = AssistantSessionService()
 
+    async def mark_task_local_approved(self, db, novel_id, task_id, owner_id):
+        run = await db.scalar(
+            select(AssistantRun)
+            .where(
+                AssistantRun.task_id == task_id,
+                AssistantRun.novel_id == novel_id,
+                AssistantRun.owner_id == owner_id,
+            )
+            .with_for_update()
+        )
+        if run is not None:
+            run.checkpoint_json = {**(run.checkpoint_json or {}), "local_approved": True}
+
     async def discussion_scope(self, db, novel_id, run_id, owner_id, *, lock=False):
         run = await self.require_run(db, novel_id, run_id)
         if str(run.owner_id) != owner_id or not run.session_id:

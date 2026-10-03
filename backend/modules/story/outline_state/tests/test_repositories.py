@@ -291,6 +291,91 @@ class TestPlotThreadRepository:
         assert "早期线" in names
         assert "后期线" not in names
 
+    @pytest.mark.asyncio
+    async def test_get_active_keeps_overdue_unresolved_thread(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        """超过计划兑现章仍未收束的线保留入选，供渲染层标注超期。"""
+        nid = uuid.UUID(hex=sample_novel_id)
+        await self._make(
+            db_session,
+            nid,
+            name="超期未收束",
+            start_chapter=1,
+            planned_payoff_chapter=3,
+            current_stage="active",
+            status="canonical",
+        )
+        active = await PlotThreadRepository().get_active(db_session, nid, chapter_index=7)
+        assert [t.name for t in active] == ["超期未收束"]
+
+    @pytest.mark.asyncio
+    async def test_get_active_excludes_terminal_before_payoff(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        """已终结（resolved/paused）的线在计划兑现章之前不再自动入选。"""
+        nid = uuid.UUID(hex=sample_novel_id)
+        await self._make(
+            db_session,
+            nid,
+            name="已收束线",
+            start_chapter=1,
+            planned_payoff_chapter=9,
+            current_stage="resolved",
+            status="canonical",
+        )
+        await self._make(
+            db_session,
+            nid,
+            name="已搁置线",
+            start_chapter=1,
+            planned_payoff_chapter=None,
+            current_stage="Paused",
+            status="draft",
+        )
+        await self._make(
+            db_session,
+            nid,
+            name="带空格的收束线",
+            start_chapter=1,
+            planned_payoff_chapter=None,
+            current_stage=" resolved ",
+            status="draft",
+        )
+        active = await PlotThreadRepository().get_active(db_session, nid, chapter_index=5)
+        assert [t.name for t in active] == []
+
+    @pytest.mark.asyncio
+    async def test_get_active_keeps_thread_without_payoff_or_stage(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        """无计划兑现章、current_stage 为空或自由文本的线均视为未终结。"""
+        nid = uuid.UUID(hex=sample_novel_id)
+        await self._make(
+            db_session,
+            nid,
+            name="无兑现章",
+            start_chapter=1,
+            planned_payoff_chapter=None,
+            current_stage=None,
+        )
+        await self._make(
+            db_session,
+            nid,
+            name="自由文本阶段",
+            start_chapter=2,
+            planned_payoff_chapter=2,
+            current_stage="中期发展",
+        )
+        active = await PlotThreadRepository().get_active(db_session, nid, chapter_index=6)
+        assert {t.name for t in active} == {"无兑现章", "自由文本阶段"}
+
 
 class TestOutlineArcRepository:
     """T1: Repository 层 — OutlineArc"""

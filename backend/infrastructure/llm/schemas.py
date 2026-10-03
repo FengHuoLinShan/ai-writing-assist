@@ -223,6 +223,7 @@ def safe_receipt_token(value: Any, *, limit: int = _RECEIPT_TOKEN_LIMIT) -> str:
 _KNOWN_PROFILE_SOURCES = frozenset(
     {
         "account",
+        "cost_routing",
         "default",
         "global",
         "project",

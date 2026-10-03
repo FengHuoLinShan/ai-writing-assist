@@ -335,9 +335,7 @@ async def test_conflict_check_persists_deterministic_continuity_risks(
                                 "field_path": "gate.open",
                                 "scene_index": 1,
                                 "new_value": True,
-                                "meta": {
-                                    "required_preconditions": ["gate.unlocked"]
-                                },
+                                "meta": {"required_preconditions": ["gate.unlocked"]},
                             },
                             {
                                 "field_path": "promise.return",
@@ -491,9 +489,7 @@ async def test_conflict_check_uses_only_adopted_map_facts_for_route_coverage(
                     "locations",
                     {
                         "character_locations": {},
-                        "changes": [
-                            {"old_value": str(start), "new_value": str(end)}
-                        ],
+                        "changes": [{"old_value": str(start), "new_value": str(end)}],
                     },
                 ),
                 ready("timeline", {"facts": []}),
@@ -1181,14 +1177,6 @@ async def test_publish_without_scene_id_does_not_archive_scene_scoped_check(
 
     assert published.status_code == 201, published.text
     assert published.json()["draft"]["conflict_check_snapshot_json"] is None
-
-
-
-
-
-
-
-
 
 
 @pytest.mark.asyncio
@@ -1918,3 +1906,111 @@ async def test_same_draft_review_survives_a_newer_rule_only_check(
         params={**params, "content_hash": hash_text("别的正文")},
     )
     assert stale.json()["items"] == []
+
+
+@pytest.mark.asyncio
+async def test_conflict_check_reports_cross_chapter_repetition_hint(
+    db_session: AsyncSession,
+) -> None:
+    """候选开头复读上一章结尾时给出 low 级提示项，不阻断。"""
+    sample_novel_id = "0" * 32
+    service = WritingConflictCheckService(
+        draft_repo=SimpleNamespace(
+            get=AsyncMock(return_value=None),
+            get_latest_published_by_chapter=AsyncMock(
+                return_value=SimpleNamespace(
+                    novel_id=uuid.UUID(hex=sample_novel_id),
+                    content="他沿着河岸走了很久，月光落在水面上，碎成一片银白。" * 8,
+                )
+            ),
+            get_latest_by_chapter=AsyncMock(return_value=None),
+        )
+    )
+    repeated = "他沿着河岸走了很久，月光落在水面上，碎成一片银白。" * 6
+    response = await service.create_check(
+        db_session,
+        WritingConflictCheckCreate(
+            novel_id=sample_novel_id,
+            chapter_index=2,
+            content=f"{repeated}随后剧情转向了完全不同的方向。",
+        ),
+    )
+    repetition = [
+        item for item in response.items if item.kind == "cross_chapter_repetition"
+    ]
+    assert len(repetition) == 1
+    assert repetition[0].severity == "low"
+    assert repetition[0].needs_review is True
+    assert "上一章（第 1 章）结尾" in repetition[0].evidence_summary
+    # 提示不拒存：检查状态不受影响
+    assert response.status in {"completed", "degraded"}
+
+
+@pytest.mark.asyncio
+async def test_conflict_check_skips_repetition_without_previous_chapter(
+    db_session: AsyncSession,
+) -> None:
+    sample_novel_id = "0" * 32
+    service = WritingConflictCheckService(
+        draft_repo=SimpleNamespace(
+            get=AsyncMock(return_value=None),
+            get_latest_published_by_chapter=AsyncMock(return_value=None),
+            get_latest_by_chapter=AsyncMock(return_value=None),
+        )
+    )
+    response = await service.create_check(
+        db_session,
+        WritingConflictCheckCreate(
+            novel_id=sample_novel_id,
+            chapter_index=1,
+            content="第一章的正文内容。",
+        ),
+    )
+    assert all(item.kind != "cross_chapter_repetition" for item in response.items)
+
+
+@pytest.mark.asyncio
+async def test_conflict_check_reports_skipped_repetition_when_base_modified(
+    db_session: AsyncSession,
+) -> None:
+    """续写基稿被改过后复读检查失去基准：明示覆盖缺口，不静默跳过。"""
+    novel_id = str(uuid.uuid4())
+    base = SimpleNamespace(
+        id=uuid.uuid4(),
+        novel_id=uuid.UUID(novel_id),
+        content="基稿被并发修改后的新结尾，不再是候选的前缀。",
+    )
+    candidate = SimpleNamespace(
+        id=uuid.uuid4(),
+        novel_id=uuid.UUID(novel_id),
+        content="候选正文完全改写了基稿部分，随后剧情推进。",
+        provenance_json={
+            "source": "writing_generate",
+            "generation_mode": "continue",
+            "base_draft_id": str(base.id),
+        },
+    )
+    service = WritingConflictCheckService(
+        draft_repo=SimpleNamespace(
+            get=AsyncMock(side_effect=[candidate, base]),
+            get_latest_published_by_chapter=AsyncMock(return_value=None),
+            get_latest_by_chapter=AsyncMock(return_value=None),
+        )
+    )
+    response = await service.create_check(
+        db_session,
+        WritingConflictCheckCreate(
+            novel_id=novel_id,
+            chapter_index=2,
+            draft_id=str(candidate.id),
+            content=candidate.content,
+        ),
+    )
+    assert all(item.kind != "cross_chapter_repetition" for item in response.items)
+    assert response.status == "degraded"
+    summary = response.summary_json
+    assert "writing.repetition_check" in summary["degraded_sources"]
+    assert {
+        "source": "writing.repetition_check",
+        "reason": "base_draft_modified",
+    } in summary["omissions"]

@@ -194,3 +194,7 @@ project，额外拒绝匿名/demo。模型只接收已选正式发展和有效�
 已登录 RP 的本机 Agent 选择随 consumer 项目冻结到新 attempt；每个 story 根任务需作者
 单独确认 Mac 文件与命令权限，离线等待。生成中仍受选中分支、固定来源与原 task lease
 控制，失联时已见文本只作回执，不自动成为正式故事；匿名演示不开放此能力。
+
+Metadata 解析失败不静默：普通 worker/匿名 inline 在成功或失败收尾均记录
+metadata_invalid_count，同一 attempt 尾块不重复计数。本机授权更新仅经
+Interaction facade，查询同时过滤 owner、novel_id 和 task_id。

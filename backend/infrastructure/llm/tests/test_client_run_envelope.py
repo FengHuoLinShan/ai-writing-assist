@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
@@ -107,6 +108,23 @@ def _reset_process_limiter() -> None:
     reset_llm_limiter_for_tests()
 
 
+@pytest.fixture(autouse=True)
+def _calibrate_fake_structured_model(monkeypatch) -> None:
+    from infrastructure.llm.capabilities import resolve_llm_capability_profile
+
+    def resolve(provider, model, **kwargs):
+        profile = resolve_llm_capability_profile(provider, model, **kwargs)
+        return (
+            replace(profile, structured_output="supported")
+            if model == "fake"
+            else profile
+        )
+
+    monkeypatch.setattr(
+        "infrastructure.llm.capabilities.resolve_llm_capability_profile", resolve
+    )
+
+
 @pytest.fixture
 def retry_waits(monkeypatch: pytest.MonkeyPatch) -> list[float]:
     """捕获退避等待，测试不真实 sleep。"""
@@ -142,9 +160,7 @@ class _TextProvider:
         self.requests.append(request.model_copy(deep=True))
         if len(self.requests) <= self._failures:
             raise LLMTimeoutError("provider timed out", provider="fake", model="fake")
-        content = self._contents[
-            min(len(self.requests) - 1, len(self._contents) - 1)
-        ]
+        content = self._contents[min(len(self.requests) - 1, len(self._contents) - 1)]
         return LLMCallResponse(
             content=content,
             finish_reason="stop",
@@ -307,9 +323,7 @@ async def test_schema_repair_request_is_counted_as_structured_retry() -> None:
     assert len(provider.requests) == 2
     assert snapshot.requests_started == 2
     assert snapshot.requests_settled == 2
-    receipts = {
-        (step.purpose, step.call_kind): step for step in snapshot.steps
-    }
+    receipts = {(step.purpose, step.call_kind): step for step in snapshot.steps}
     primary = receipts[(AIStepPurpose.primary, AIStepCallKind.generate)]
     repair = receipts[(AIStepPurpose.schema_repair, AIStepCallKind.generate)]
     assert primary.requests_started == 1
@@ -340,9 +354,7 @@ async def test_format_repair_request_is_counted_as_format_retry() -> None:
     purposes = {step.purpose for step in snapshot.steps}
     assert purposes == {AIStepPurpose.primary, AIStepPurpose.format_repair}
     repair = next(
-        step
-        for step in snapshot.steps
-        if step.purpose is AIStepPurpose.format_repair
+        step for step in snapshot.steps if step.purpose is AIStepPurpose.format_repair
     )
     assert repair.requests_started == 1
     assert repair.format_retries == 1
@@ -365,9 +377,7 @@ async def test_stream_settles_recorded_after_final_usage() -> None:
     ledger = AIRunEnvelope(_raw_envelope())
 
     with ai_run_scope(ledger), managed_step_scope(_step()):
-        chunks = [
-            chunk.content async for chunk in client.generate_stream(_request())
-        ]
+        chunks = [chunk.content async for chunk in client.generate_stream(_request())]
 
     snapshot = ledger.snapshot()
     assert chunks == ["first", ""]

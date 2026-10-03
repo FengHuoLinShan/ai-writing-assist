@@ -17,6 +17,12 @@ async def reconcile_interaction_task_owners(db: AsyncSession) -> int:
     return await InteractionService().reconcile_task_owners(db)
 
 
+async def mark_task_local_approved(db, novel_id, task_id, owner_id):
+    await InteractionRepository().mark_task_local_approved(
+        db, novel_id, task_id, owner_id
+    )
+
+
 async def count_source_project_references(
     db: AsyncSession,
     source_novel_id: str,

@@ -18,6 +18,10 @@ from core.logging_context import (
     novel_id_for_log,
 )
 from modules.world.models import EntityRelation
+from modules.world.relation_schemas import (
+    WorldRelationMembershipBatchRequest,
+    WorldRelationMembershipBatchResponse,
+)
 from modules.world.repositories import (
     CoreEntityRepository,
     EntityRelationRepository,
@@ -34,12 +38,20 @@ from modules.world.schemas import (
     ReviewBatchResponse,
     WorldEntityContext,
 )
-from modules.world.services.common import parse_uuid
+from modules.world.services.common import (
+    entity_relation_execution_fingerprint,
+    parse_uuid,
+)
 from modules.world.services.core.review_queue import (
     RELATION_KINDS,
     default_relation_kind,
     stable_fingerprint,
     suggest_relation_type,
+)
+from modules.world.services.worldbuilding.relation_group_views import (
+    RelationViewError,
+    ResolvedGroupView,
+    resolve_group_view,
 )
 from shared.constants import MAX_PAGE_SIZE
 
@@ -163,21 +175,10 @@ class EntityRelationService(
         return data.model_copy(update={"relation_kind": resolved})
 
     def _relation_execution_snapshot(self, rel: EntityRelation) -> dict[str, object]:
-        updated_at = rel.updated_at
-        if updated_at is not None and updated_at.tzinfo is None:
-            updated_at = updated_at.replace(tzinfo=UTC)
-        return {
-            **self._relation_snapshot(rel),
-            "quote": rel.quote,
-            "source_chapter_id": str(rel.source_chapter_id)
-            if rel.source_chapter_id
-            else None,
-            "caused_by_event_id": str(rel.caused_by_event_id)
-            if rel.caused_by_event_id
-            else None,
-            "review_meta": rel.review_meta or {},
-            "updated_at": updated_at.astimezone(UTC).isoformat() if updated_at else None,
-        }
+        # 统一委托共享实现：读取端（世界库关系视角）与写入端重验共用同一指纹。
+        from modules.world.services.common import entity_relation_execution_snapshot
+
+        return entity_relation_execution_snapshot(rel)
 
     def _group_execution_fingerprint(self, relations: list[EntityRelation]) -> str:
         return stable_fingerprint(
@@ -246,6 +247,28 @@ class EntityRelationService(
             "review_action": action,
             "review_before": before,
             "review_after": after,
+        }
+
+    def _membership_review_meta(
+        self,
+        *,
+        action: str,
+        before: dict[str, object] | None,
+        after: dict[str, object],
+        view_key: str,
+        group_id,
+    ) -> dict[str, object]:
+        """作者手动确认的分组成员写入审计；不附会原文来源。"""
+        return {
+            **self._review_meta(
+                action=action,
+                before={},
+                after=after,
+                reviewed_from="world_relation_membership_batch",
+            ),
+            "review_before": before,
+            "group_view": view_key,
+            "group_id": str(group_id),
         }
 
     def _response_with_endpoint_names(
@@ -1262,6 +1285,36 @@ class EntityRelationService(
         rel = await self.repo.get(db, rid)
         if rel is None or rel.novel_id != nid:
             raise NotFoundError(f"EntityRelation {rel_id} not found")
+        early_sid = (
+            parse_uuid(data.source_id, "source_id") if data.source_id else rel.source_id
+        )
+        early_tid = (
+            parse_uuid(data.target_id, "target_id") if data.target_id else rel.target_id
+        )
+        if data.expected_execution_fingerprint is not None or (
+            (early_sid, early_tid) != (rel.source_id, rel.target_id)
+        ):
+            # 统一 entity-first 锁序：与 membership_batch 相同，先按稳定 UUID
+            # 顺序锁新旧端点实体，再锁关系行。否则编辑换端点时 flush 的外键
+            # KEY SHARE 会与并发移出持有的实体锁交叉等待，形成 PG 40P01 死锁。
+            # 锁后若关系端点已被并发改动，CAS 指纹校验会先于写入拒绝。
+            await self._entity_repo.get_many_for_update(
+                db,
+                nid,
+                [rel.source_id, rel.target_id, early_sid, early_tid],
+            )
+        if data.expected_execution_fingerprint is not None:
+            # CAS 前置：必须在行锁内比对执行指纹，避免读到并发改动前的旧值。
+            rel = await self.repo.get_for_update(db, nid, rid)
+            if rel is None or rel.novel_id != nid:
+                raise NotFoundError(f"EntityRelation {rel_id} not found")
+            if entity_relation_execution_fingerprint(rel) != (
+                data.expected_execution_fingerprint
+            ):
+                raise ConflictError(
+                    "关系已在别处更新，请刷新后重试",
+                    code="stale_execution",
+                )
         if rel.status == "deprecated":
             raise ValidationError("Deprecated relation cannot be reviewed")
         if rel.status == "canonical" or data.confirm_review:
@@ -1335,6 +1388,329 @@ class EntityRelationService(
             "review_meta": rel.review_meta or {},
         }
 
+    # ============================================================
+    # 分组成员批量维护（世界库关系视角的写入入口）
+    # ============================================================
+
+    def _resolve_membership_view(
+        self,
+        data: WorldRelationMembershipBatchRequest,
+    ) -> ResolvedGroupView:
+        try:
+            return resolve_group_view(
+                data.group_view,
+                group_type=data.group_type,
+                member_type=data.member_type,
+                relation_type=data.relation_type,
+                group_side=data.group_side,
+            )
+        except RelationViewError as exc:
+            raise ValidationError(str(exc), status_code=422) from exc
+
+    def _assert_membership_group(
+        self,
+        group: Any,
+        view: ResolvedGroupView,
+    ) -> None:
+        # 分组读模型只归类 canonical 组与成员；写入端同样要求两端已采用，
+        # 否则 candidate/draft 端点写入后会从分组读模型中"消失"。
+        if (
+            group.status != "canonical"
+            or group.entity_type not in view.group_types
+        ):
+            raise NotFoundError("Group entity not found in this novel")
+
+    def _assert_membership_member(
+        self,
+        member: Any,
+        view: ResolvedGroupView,
+    ) -> None:
+        if (
+            member.status != "canonical"
+            or (
+                view.member_types is not None
+                and member.entity_type not in view.member_types
+            )
+        ):
+            raise NotFoundError("Member entity not found in this novel")
+
+    async def membership_batch(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        data: WorldRelationMembershipBatchRequest,
+    ) -> WorldRelationMembershipBatchResponse:
+        """按关系视角批量添加/移出分组成员。
+
+        整批一个事务：先按稳定 UUID 顺序锁全部涉及 entity 行（组+成员），
+        再锁可能命中的关系行，锁定后以当前行状态重验端点与执行指纹；任何
+        校验或数据库异常向上抛出，由外层事务撤回整批，无部分写入。
+        """
+        nid = parse_uuid(novel_id, "novel_id")
+        view = self._resolve_membership_view(data)
+        # add 新建 canonical、remove 结束 canonical，都属正史写入：整批判定一次。
+        await self._require_legacy_canon_write_allowed(db, novel_id)
+
+        gid = parse_uuid(data.group_id, "group_id")
+        member_ids = [parse_uuid(value, "member_id") for value in data.member_ids]
+
+        entities = await self._entity_repo.get_many_for_update(
+            db,
+            nid,
+            [gid, *member_ids],
+        )
+        entity_by_id = {entity.id: entity for entity in entities}
+        group = entity_by_id.get(gid)
+        if group is None:
+            raise NotFoundError("Group entity not found in this novel")
+        self._assert_membership_group(group, view)
+        for member_id in member_ids:
+            if member_id == gid:
+                raise ValidationError(
+                    "member_ids cannot include the group entity",
+                    status_code=422,
+                )
+            member = entity_by_id.get(member_id)
+            if member is None:
+                raise NotFoundError("Member entity not found in this novel")
+            self._assert_membership_member(member, view)
+
+        if data.action == "add":
+            added_ids, reused_ids = await self._membership_batch_add(
+                db,
+                nid,
+                view,
+                gid,
+                member_ids,
+                data,
+            )
+            removed_ids: list[str] = []
+        else:
+            added_ids: list[str] = []
+            reused_ids: list[str] = []
+            removed_ids = await self._membership_batch_remove(
+                db,
+                nid,
+                view,
+                gid,
+                member_ids,
+                data,
+            )
+
+        canonical_changed_ids = [*added_ids, *removed_ids]
+        for relation_id in canonical_changed_ids:
+            await self._mark_synopsis_changed(db, novel_id, relation_id)
+        await self._mark_endpoint_context_changed(
+            db,
+            novel_id=novel_id,
+            entity_ids={str(gid), *(str(member_id) for member_id in member_ids)},
+            reason="relation_membership_batch",
+        )
+        return WorldRelationMembershipBatchResponse(
+            added_count=len(added_ids),
+            reused_count=len(reused_ids),
+            removed_count=len(removed_ids),
+            affected_relation_ids=[*added_ids, *reused_ids, *removed_ids],
+        )
+
+    async def _membership_batch_add(
+        self,
+        db: AsyncSession,
+        nid,
+        view: ResolvedGroupView,
+        gid,
+        member_ids,
+        data: WorldRelationMembershipBatchRequest,
+    ) -> tuple[list[str], list[str]]:
+        rule_pairs = {
+            (rule.relation_type, rule.group_side) for rule in view.match_rules
+        }
+        relation_type = data.relation_type or view.default_relation_type
+        group_side = data.group_side or view.default_group_side
+        if (relation_type, group_side) not in rule_pairs:
+            raise ValidationError(
+                f"relation {relation_type!r} with group_side {group_side!r} "
+                "is not expressible in this group view",
+                status_code=422,
+            )
+        fallback_kind = data.relation_kind
+        if fallback_kind is None and not view.custom:
+            if relation_type == view.default_relation_type:
+                # 预设默认三元组（如 participates_in/state）优先于通用映射，
+                # 保证不传显式关系时按视角注册的默认值落地。
+                fallback_kind = view.default_relation_kind
+            elif not default_relation_kind(relation_type):
+                # 视角注册的开放字符串规则（如 参与）没有通用 kind 映射时，
+                # 回退视角默认分类；否则显式选择会被 canonical 校验拒绝。
+                fallback_kind = view.default_relation_kind
+        relation_kind = self._resolve_relation_kind(
+            relation_type,
+            fallback_kind,
+            "canonical",
+        )
+
+        # group_side 决定端序：side=target 时 source=member,target=group。
+        pairs: dict[object, tuple[object, object]] = {}
+        for member_id in member_ids:
+            pairs[member_id] = (
+                (member_id, gid) if group_side == "target" else (gid, member_id)
+            )
+        duplicates: list[EntityRelation] = []
+        for source_id, target_id in pairs.values():
+            duplicate = await self.repo.find_duplicate_relation(
+                db,
+                nid,
+                source_id,
+                target_id,
+                relation_type,
+            )
+            if duplicate is not None:
+                duplicates.append(duplicate)
+        # 先查后锁再重验：锁定后以行的当前状态重新分类复用/冲突。
+        locked_rows = (
+            await self.repo.get_many_for_update(
+                db,
+                nid,
+                [row.id for row in duplicates],
+            )
+            if duplicates
+            else []
+        )
+        pair_to_member = {pair: member_id for member_id, pair in pairs.items()}
+        canonical_by_member: dict[object, EntityRelation] = {}
+        for row in locked_rows:
+            member_id = pair_to_member.get((row.source_id, row.target_id))
+            if member_id is None or row.relation_type != relation_type:
+                continue
+            if row.status == "candidate":
+                raise ConflictError(
+                    "已有待处理的同名候选关系，请先在世界关系审核中处理",
+                    code="relation_exists_as_candidate",
+                )
+            if row.status == "canonical":
+                canonical_by_member.setdefault(member_id, row)
+
+        new_by_member: dict[object, EntityRelation] = {}
+        reused_by_member: dict[object, str] = {}
+        for member_id in member_ids:
+            existing = canonical_by_member.get(member_id)
+            if existing is not None:
+                # 复用不改描述/证据/强度/review_meta。
+                reused_by_member[member_id] = str(existing.id)
+                continue
+            source_id, target_id = pairs[member_id]
+            rel = EntityRelation(
+                novel_id=nid,
+                source_id=source_id,
+                target_id=target_id,
+                relation_type=relation_type,
+                relation_kind=relation_kind,
+                strength=0.5,
+                status="canonical",
+            )
+            db.add(rel)
+            new_by_member[member_id] = rel
+        if new_by_member:
+            await db.flush()
+        for member_id, rel in new_by_member.items():
+            rel.review_meta = self._membership_review_meta(
+                action="relation_membership_added",
+                before=None,
+                after=self._relation_execution_snapshot(rel),
+                view_key=view.key,
+                group_id=gid,
+            )
+            db.add(rel)
+        if new_by_member:
+            await db.flush()
+        added_ids: list[str] = []
+        reused_ids: list[str] = []
+        for member_id in member_ids:
+            if member_id in new_by_member:
+                added_ids.append(str(new_by_member[member_id].id))
+            else:
+                reused_ids.append(reused_by_member[member_id])
+        return added_ids, reused_ids
+
+    async def _membership_batch_remove(
+        self,
+        db: AsyncSession,
+        nid,
+        view: ResolvedGroupView,
+        gid,
+        member_ids,
+        data: WorldRelationMembershipBatchRequest,
+    ) -> list[str]:
+        refs = data.relation_refs or []
+        ref_ids = [parse_uuid(ref.id, "relation_id") for ref in refs]
+        if len({str(ref_id) for ref_id in ref_ids}) != len(ref_ids):
+            raise ValidationError(
+                "relation_refs cannot repeat the same relation",
+                status_code=422,
+            )
+        rule_pairs = {
+            (rule.relation_type, rule.group_side) for rule in view.match_rules
+        }
+        member_set = set(member_ids)
+        # get_many_for_update 按 novel_id 过滤：跨项目/跨 novel 的 id 不会返回。
+        locked_rows = await self.repo.get_many_for_update(db, nid, ref_ids)
+        locked_by_id = {str(row.id): row for row in locked_rows}
+        removed: list[EntityRelation] = []
+        for ref in refs:
+            row = locked_by_id.get(ref.id)
+            if row is None:
+                raise NotFoundError("关系不存在或不属于该分组成员")
+            if row.source_id == gid:
+                row_side = "source"
+            elif row.target_id == gid:
+                row_side = "target"
+            else:
+                raise NotFoundError("关系不存在或不属于该分组成员")
+            other_endpoint = (
+                row.target_id if row_side == "source" else row.source_id
+            )
+            if (
+                other_endpoint not in member_set
+                or (row.relation_type, row_side) not in rule_pairs
+            ):
+                raise NotFoundError("关系不存在或不属于该分组成员")
+            if row.status == "deprecated":
+                # 重复移出：旧指纹必然过期，按 stale_execution 处理。
+                raise ConflictError(
+                    "关系已在别处更新，请刷新后重试",
+                    code="stale_execution",
+                )
+            if row.status != "canonical":
+                raise NotFoundError("关系不存在或不属于该分组成员")
+            if entity_relation_execution_fingerprint(row) != (
+                ref.expected_execution_fingerprint
+            ):
+                raise ConflictError(
+                    "关系已在别处更新，请刷新后重试",
+                    code="stale_execution",
+                )
+            removed.append(row)
+        removed_ids: list[str] = []
+        for row in removed:
+            before = self._relation_execution_snapshot(row)
+            row.status = "deprecated"
+            after = self._relation_execution_snapshot(row)
+            row.review_meta = {
+                **(row.review_meta or {}),
+                **self._membership_review_meta(
+                    action="relation_membership_removed",
+                    before=before,
+                    after=after,
+                    view_key=view.key,
+                    group_id=gid,
+                ),
+            }
+            db.add(row)
+            removed_ids.append(str(row.id))
+        if removed:
+            await db.flush()
+        return removed_ids
+
     @staticmethod
     async def _mark_synopsis_changed(
         db: AsyncSession,
@@ -1358,6 +1734,7 @@ class EntityRelationService(
         *,
         novel_id: str,
         entity_ids: set[str],
+        reason: str = "relation_review_batch",
     ) -> None:
         marker = self._context_marker
         if marker is None:
@@ -1371,7 +1748,7 @@ class EntityRelationService(
                     novel_id=novel_id,
                     asset_type="world_entity",
                     asset_id=entity_id,
-                    reason="relation_review_batch",
+                    reason=reason,
                 )
             except Exception as exc:
                 logger.warning(

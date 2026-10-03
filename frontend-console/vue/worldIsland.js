@@ -13,7 +13,7 @@ import { getApi, getAppState, getRouteQuery, getRouter, getToast } from "./bridg
 import { worldAssetDisplay } from "../shared/assetDisplayState.js"
 import { markWorldLeft, reconcileWorldEntry, worldSession } from "./views/world/worldSession.js"
 import { autoExtractManager, fusionManager } from "./views/world/workflowManagers.js"
-import { worldCardFiltersFromQuery, usesServerLibrary } from "./views/world/bible/worldCards.js"
+import { worldCardFiltersFromQuery, usesServerLibrary, isRelationMembersPage, isCustomViewConfigured } from "./views/world/bible/worldCards.js"
 import { LIBRARY_PAGE_SIZE } from "./views/world/bible/worldCards.js"
 import {
   REVIEW_ALIAS_KIND_FALLBACK,
@@ -113,6 +113,105 @@ function libraryListParams(projectId, filters) {
   if (filters.favorite) params.favorite = true
   if (filters.unclassified) params.unclassified = true
   return params
+}
+
+/** custom 视角附加参数（预设的类型与方向以服务端注册为准，不重复传）。 */
+function relationViewCustomParams(filters) {
+  if (filters.groupView !== "custom") return {}
+  const params = {}
+  if (filters.groupType) params.group_type = filters.groupType
+  if (filters.memberType) params.member_type = filters.memberType
+  if (filters.relationType) params.relation_type = filters.relationType
+  if (filters.groupSide) params.group_side = filters.groupSide
+  return params
+}
+
+/**
+ * 关系分组视角的加载链。
+ * - 组列表页：listRelationGroups（q 作用于组名，分页是组数维度）。
+ * - 组内/未关联页：并行拉 listWorldLibrary（成员维度）与 listRelationGroups
+ *   （只取 views 元数据与 unlinked_total，limit 1）。
+ * - 任何分组查询失败 → relationGroupsError，绝不回退扁平列表；
+ *   成员页的元数据请求失败仅降级为客户端预设回退，不阻断浏览。
+ */
+async function loadRelationGroupedBible(apiWorld, projectId, cardFilters) {
+  const bible = {
+    relationGroups: [],
+    relationGroupsTotal: 0,
+    relationGroupsUnlinkedTotal: null,
+    relationViews: [],
+    relationGroupsError: null,
+    libraryItems: [],
+    libraryTotal: 0,
+    libraryError: null,
+  }
+  if (cardFilters.groupView === "custom" && !isCustomViewConfigured(cardFilters)) {
+    // 配置不完整时不发注定 422 的请求，浏览态展示自定义配置表单。
+    return bible
+  }
+  const customParams = relationViewCustomParams(cardFilters)
+  const membersPage = isRelationMembersPage(cardFilters)
+  const groupsParams = {
+    novel_id: projectId,
+    group_view: cardFilters.groupView,
+    ...customParams,
+    ...(membersPage
+      ? { skip: 0, limit: 1 }
+      : { skip: cardFilters.skip || 0, limit: LIBRARY_PAGE_SIZE }),
+  }
+  if (!membersPage && cardFilters.q) groupsParams.q = cardFilters.q
+
+  const groupsRequest = apiWorld.listRelationGroups(groupsParams)
+  let libraryRequest = null
+  if (membersPage) {
+    const libraryParams = {
+      novel_id: projectId,
+      group_view: cardFilters.groupView,
+      ...customParams,
+      skip: cardFilters.skip || 0,
+      limit: LIBRARY_PAGE_SIZE,
+      sort: cardFilters.sort || "updated",
+    }
+    if (cardFilters.groupId) libraryParams.group_id = cardFilters.groupId
+    else libraryParams.group_unlinked = true
+    // 组内成员搜索用独立的 member_q；q 是组列表（组名/别名）搜索，
+    // 进入组内后继续沿用 q 会把组名关键词错当成员过滤条件。
+    if (cardFilters.memberQ) libraryParams.q = cardFilters.memberQ
+    libraryRequest = apiWorld.listWorldLibrary(libraryParams)
+  }
+
+  const [groupsResult, libraryResult] = await Promise.all([
+    groupsRequest.then((data) => ({ data })).catch((error) => ({ error })),
+    libraryRequest
+      ? libraryRequest.then((data) => ({ data })).catch((error) => ({ error }))
+      : Promise.resolve(null),
+  ])
+
+  if (groupsResult?.error) {
+    if (!membersPage) {
+      bible.relationGroupsError = groupsResult.error?.message || "分组列表加载失败"
+      return bible
+    }
+    // 成员页元数据失败可降级：预设视角有客户端回退，浏览不受影响。
+  } else if (groupsResult?.data) {
+    bible.relationViews = Array.isArray(groupsResult.data.views) ? groupsResult.data.views : []
+    bible.relationGroupsUnlinkedTotal = Number(groupsResult.data.unlinked_total ?? 0)
+    if (!membersPage) {
+      bible.relationGroups = Array.isArray(groupsResult.data.items) ? groupsResult.data.items : []
+      bible.relationGroupsTotal = Number(groupsResult.data.total ?? bible.relationGroups.length) || 0
+    }
+  }
+
+  if (libraryResult?.error) {
+    // 关系视角禁止回退扁平列表：直接进入错误 + 重试态。
+    bible.relationGroupsError = libraryResult.error?.message || "分组成员列表加载失败"
+    return bible
+  }
+  if (libraryResult?.data) {
+    bible.libraryItems = Array.isArray(libraryResult.data.items) ? libraryResult.data.items : []
+    bible.libraryTotal = Number(libraryResult.data.total ?? bible.libraryItems.length) || 0
+  }
+  return bible
 }
 
 async function findReviewGroup(fetchPage, params, groupId) {
@@ -236,6 +335,8 @@ export async function loadWorld() {
       entityId: query.get("entity_id") || "",
       entitySection: query.get("open") === "aliases" ? "aliases" : "",
       openObjectTools: query.get("open") === "object-tools",
+      // 关系维护 required_validation 等错误入口直达世界健康（校验工具）。
+      openHealth: query.get("open") === "health",
     },
     knowledgeCharacterId: query.get("knowledge_character_id") || "",
   }
@@ -416,9 +517,11 @@ export async function loadWorld() {
     }
   } else if (subView === "bible") {
     const cardFilters = props.worldCardFilters
+    const relationViewActive = Boolean(cardFilters.groupView)
     const typeHome = !props.bibleDeepLink.entityId
       && !props.bibleDeepLink.pageId
       && !props.bibleDeepLink.draftId
+      && !relationViewActive
       && !cardFilters.q
       && !cardFilters.type
       && !cardFilters.state
@@ -427,6 +530,9 @@ export async function loadWorld() {
       && !cardFilters.unclassified
       && cardFilters.kind === "all"
     const serverList = (usesServerLibrary(cardFilters) || cardFilters.unclassified) && api.world.listWorldLibrary
+    const relationBiblePromise = relationViewActive
+      ? loadRelationGroupedBible(api.world, projectId, cardFilters)
+      : null
     const detailPromise = (async () => {
       if (props.bibleDeepLink.draftId) {
         let draft
@@ -456,16 +562,20 @@ export async function loadWorld() {
       }
       return { pages: [], drafts: [] }
     })().catch(error => ({ pages: [], drafts: [], error: [400, 404].includes(Number(error?.status)) ? "这份资料已不可用或不属于当前作品，可返回目录重新选择。" : "当前资料读取失败，请重试；其他资料仍可使用。" }))
-    const [detail, categories, overview, library, cardEntities] = await Promise.all([
+    const [detail, categories, overview, library, cardEntities, relationBible] = await Promise.all([
       detailPromise,
       api.world.listBibleCategories(projectId, true),
       api.world.getWorldLibraryOverview ? api.world.getWorldLibraryOverview(projectId) : null,
-      serverList ? api.world.listWorldLibrary(libraryListParams(projectId, cardFilters)).catch(error => ({ items: [], total: 0, loadError: error?.message || '资料列表加载失败' })) : null,
+      // 关系视角的成员列表由 loadRelationGroupedBible 负责（失败不回退扁平列表）。
+      serverList && !relationViewActive
+        ? api.world.listWorldLibrary(libraryListParams(projectId, cardFilters)).catch(error => ({ items: [], total: 0, loadError: error?.message || '资料列表加载失败' }))
+        : null,
       props.bibleDeepLink.entityId
         ? api.world.getEntity(props.bibleDeepLink.entityId, projectId).then(item => ({ items: [item], total: 1 })).catch(error => ({ items: [], total: 0, loadError: error?.message || "人物与设定加载失败" }))
         : !serverList && !typeHome && api.world.listEntities
           ? api.world.listEntities({ novel_id: projectId, display_state: 'active', view_mode: 'normal', entity_type: cardFilters.type || undefined, skip: cardFilters.skip || 0, limit: LIBRARY_PAGE_SIZE, q: cardFilters.q || undefined }).catch(error => ({ items: [], total: 0, loadError: error?.message || '人物与设定加载失败' }))
           : { items: [], total: 0 },
+      relationBiblePromise,
     ])
     props.bible = {
       pages: detail.pages,
@@ -483,9 +593,18 @@ export async function loadWorld() {
       entityFacets: cardEntities?.facets?.by_type || [],
       entitiesLoadError: cardEntities?.loadError || null,
       libraryOverview: overview,
-      libraryItems: library?.items || [],
-      libraryTotal: Number(library?.total || 0),
-      libraryError: library?.loadError || null,
+      // 关系视角的成员列表由 relationBible 携带（library 在该路径为 null）。
+      libraryItems: (relationViewActive ? relationBible?.libraryItems : library?.items) || [],
+      libraryTotal: relationViewActive
+        ? Number(relationBible?.libraryTotal || 0)
+        : Number(library?.total || 0),
+      libraryError: (relationViewActive ? relationBible?.libraryError : library?.loadError) || null,
+      relationGroups: relationBible?.relationGroups || [],
+      relationGroupsTotal: Number(relationBible?.relationGroupsTotal || 0),
+      // null = 本视角未关联数未知（元数据请求失败或非关系视角），目录隐藏该入口计数。
+      relationGroupsUnlinkedTotal: relationBible?.relationGroupsUnlinkedTotal ?? null,
+      relationViews: relationBible?.relationViews || [],
+      relationGroupsError: relationBible?.relationGroupsError || null,
     }
 
   }

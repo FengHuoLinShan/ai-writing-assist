@@ -82,21 +82,17 @@ def test_interaction_tasks_declare_run_envelope_contracts() -> None:
     assert registry.get_root_capability("interaction_story_generate") == (
         "interaction.story_generate"
     )
-    assert registry.resolve_run_request_limit(
-        "interaction_story_generate", task
-    ) == 46
+    assert registry.resolve_run_request_limit("interaction_story_generate", task) == 46
     attempt_id = uuid.uuid4()
     task.meta = {"attempt_id": str(attempt_id)}
-    assert registry.resolve_run_id("interaction_story_generate", task) == str(
-        attempt_id
-    )
+    assert registry.resolve_run_id("interaction_story_generate", task) == str(attempt_id)
     task = SimpleNamespace(task_type=AGENT_STORY_TASK)
     assert registry.get_root_capability("interaction_agent_story_generate") == (
         "interaction.story_generate"
     )
-    assert registry.resolve_run_request_limit(
-        "interaction_agent_story_generate", task
-    ) == 29
+    assert (
+        registry.resolve_run_request_limit("interaction_agent_story_generate", task) == 29
+    )
 
 
 _SUMMARY_PAYLOAD = {
@@ -242,7 +238,9 @@ def _chain_client(monkeypatch: pytest.MonkeyPatch, provider: Any):
     from infrastructure.llm.client import LLMClient
 
     reset_llm_limiter_for_tests()
-    client = LLMClient()
+    client = LLMClient.from_project_settings(
+        {"llm": {"provider_id": "deepseek", "model": "deepseek-flash"}}
+    )
     client._provider = provider  # type: ignore[attr-defined]
     monkeypatch.setattr(
         "infrastructure.llm.client.get_llm_limiter", lambda: _NullLimiter()
@@ -257,21 +255,26 @@ class _TaskManager:
 
 
 @pytest.mark.asyncio
-async def test_terminal_mirror_skips_locked_attempt_instead_of_reversing_lock_order(
-) -> None:
+async def test_terminal_mirror_skips_locked_attempt_instead_of_reversing_lock_order() -> (
+    None
+):
     attempt_id = uuid.uuid4()
     novel_id = uuid.uuid4()
     task = SimpleNamespace(
         id=uuid.uuid4(),
         meta={"attempt_id": str(attempt_id), "novel_id": str(novel_id)},
     )
-    envelope = new_ai_run_envelope(
-        operation_id=str(attempt_id),
-        run_id=str(attempt_id),
-        root_capability_id="interaction.story_generate",
-        novel_id=str(novel_id),
-        request_limit=46,
-    ).snapshot().model_copy(update={"status": AIRunStatus.succeeded})
+    envelope = (
+        new_ai_run_envelope(
+            operation_id=str(attempt_id),
+            run_id=str(attempt_id),
+            root_capability_id="interaction.story_generate",
+            novel_id=str(novel_id),
+            request_limit=46,
+        )
+        .snapshot()
+        .model_copy(update={"status": AIRunStatus.succeeded})
+    )
     statements = []
 
     class Result:
@@ -596,9 +599,7 @@ def _stub_summary_workflow(monkeypatch: pytest.MonkeyPatch, prepared: Any) -> No
     async def stub_mark_summary_task_failed(*_args, **_kwargs):
         return None
 
-    monkeypatch.setattr(
-        interaction_tasks._workflow, "prepare_summary_task", stub_prepare
-    )
+    monkeypatch.setattr(interaction_tasks._workflow, "prepare_summary_task", stub_prepare)
     monkeypatch.setattr(
         interaction_tasks._workflow, "finalize_summary_task", stub_finalize
     )
@@ -662,9 +663,7 @@ async def test_summary_refresh_chain_builds_envelope_and_keeps_wire_clean(
             assert [step.step_name for step in envelope.steps] == [
                 "interaction.summary.generate"
             ]
-            assert (
-                envelope.steps[0].step_capability_id == "interaction.summary_refresh"
-            )
+            assert envelope.steps[0].step_capability_id == "interaction.summary_refresh"
             # 公开 wire 干净：下划线私有键被状态 API 投影剥离。
             public_meta = _public_task_meta(stored.meta)
             assert AI_RUN_ENVELOPE_KEY not in public_meta
@@ -707,9 +706,7 @@ async def test_agent_story_declares_run_root_and_single_ledger(
         del values
         budgets.append(self.budget)
 
-    monkeypatch.setattr(
-        interaction_agent_runtime.InteractionAgentRun, "load", fake_load
-    )
+    monkeypatch.setattr(interaction_agent_runtime.InteractionAgentRun, "load", fake_load)
     monkeypatch.setattr(
         interaction_agent_runtime.InteractionAgentRun, "checkpoint", fake_checkpoint
     )
@@ -827,8 +824,7 @@ async def test_agent_story_declares_run_root_and_single_ledger(
         "interaction.story.stream",
     }
     assert all(
-        step.step_capability_id == "interaction.story_generate"
-        for step in snapshot.steps
+        step.step_capability_id == "interaction.story_generate" for step in snapshot.steps
     )
     # 同一批 provider 请求在两个账本上各恰好计一次（future_requests 只参与
     # 额度校验，不计入 requests）：信封 3 == AgentRunBudget.requests 3。
@@ -882,9 +878,7 @@ async def test_exhausted_budget_rejects_provider_io_and_fails_closed(
                     call_kind=AIStepCallKind.structured,
                     requests_started=1,
                     requests_settled=1,
-                    usage=LLMUsage(
-                        prompt_tokens=5, completion_tokens=5, total_tokens=10
-                    ),
+                    usage=LLMUsage(prompt_tokens=5, completion_tokens=5, total_tokens=10),
                 )
             ],
         }

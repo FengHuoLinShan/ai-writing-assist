@@ -1346,6 +1346,27 @@ class _Phase2WorldExtractionLLM:
         )
 
 
+# 深度导入 step → canonical capability（B5 路由按能力成本档选模型）。
+# 子能力名只用于成本路由（routing_capability_id）；运行信封归属由
+# run_managed_structured 省略 capability_id 时按 run root（imports.deep_import）
+# 校验，两者不得混用同一参数。
+_DEEP_IMPORT_STEP_CAPABILITIES: tuple[tuple[str, str], ...] = (
+    ("phase1a_", "imports.scene_slicing"),
+    ("phase1b_", "imports.scene_enrichment"),
+    ("phase1c_", "imports.scene_fusion"),
+    ("phase2_", "imports.entity_extraction"),
+    ("phase3_", "imports.structure_analysis"),
+    ("scene_plan", "imports.scene_plan"),
+)
+
+
+def _capability_for_step(step_name: str) -> str | None:
+    for prefix, capability_id in _DEEP_IMPORT_STEP_CAPABILITIES:
+        if step_name.startswith(prefix):
+            return capability_id
+    return None
+
+
 async def _run_deep_import_structured_call(
     client,
     request,
@@ -1375,6 +1396,7 @@ async def _run_deep_import_structured_call(
             request,
             schema,
             step_name=step_name,
+            routing_capability_id=_capability_for_step(step_name),
             max_fix_attempts=(
                 max_fix_attempts
                 if max_fix_attempts is not None
@@ -1416,6 +1438,7 @@ async def _run_deep_import_structured_call(
                 ),
                 schema,
                 step_name=f"{step_name}.knowledge_repair",
+                routing_capability_id=_capability_for_step(step_name),
                 max_fix_attempts=0,
                 transport_retries=False,
                 partial_list_fields=_structured_list_fields(schema),

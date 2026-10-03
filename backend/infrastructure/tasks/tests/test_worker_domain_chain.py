@@ -63,7 +63,9 @@ def _chain_client(monkeypatch: pytest.MonkeyPatch, provider: _ChainProvider):
     from infrastructure.llm.client import LLMClient
 
     reset_llm_limiter_for_tests()
-    client = LLMClient()
+    client = LLMClient.from_project_settings(
+        {"llm": {"provider_id": "deepseek", "model": "deepseek-flash"}}
+    )
     client._provider = provider  # type: ignore[attr-defined]
     monkeypatch.setattr(
         "infrastructure.llm.client.get_llm_limiter", lambda: _NullLimiter()
@@ -144,9 +146,7 @@ async def test_interaction_summary_refresh_chain_runs_through_worker_and_client(
         captured["novel_id"] = novel_id
         return _chain_client(monkeypatch, provider)
 
-    monkeypatch.setattr(
-        interaction_tasks._workflow, "prepare_summary_task", stub_prepare
-    )
+    monkeypatch.setattr(interaction_tasks._workflow, "prepare_summary_task", stub_prepare)
     monkeypatch.setattr(
         interaction_tasks._workflow, "finalize_summary_task", stub_finalize
     )
@@ -157,7 +157,9 @@ async def test_interaction_summary_refresh_chain_runs_through_worker_and_client(
     )
 
     task_id = await _enqueue(
-        sessions, "interaction_summary_refresh", meta={"novel_id": novel_id},
+        sessions,
+        "interaction_summary_refresh",
+        meta={"novel_id": novel_id},
         novel_id=novel_id,
     )
     try:
@@ -172,9 +174,7 @@ async def test_interaction_summary_refresh_chain_runs_through_worker_and_client(
             assert (stored.result or {}).get("status") == "completed"
             # W3-C 起该任务声明 root=interaction.summary_refresh（L0=8）：
             # 信封写入私有 meta，公开投影不暴露。
-            envelope = read_ai_run_envelope(
-                (stored.meta or {}).get("_ai_run_envelope")
-            )
+            envelope = read_ai_run_envelope((stored.meta or {}).get("_ai_run_envelope"))
             assert envelope is not None
             assert envelope.root_capability_id == "interaction.summary_refresh"
             assert envelope.requests_started == 1
@@ -209,9 +209,7 @@ async def test_world_map_schematic_generate_chain_runs_through_worker_and_client
                     "relation": "connects",
                     "target": "loc-b",
                     "path_kind": "road",
-                    "evidence": [
-                        {"source_key": "doc:1", "quote": "A城有官道直通B镇。"}
-                    ],
+                    "evidence": [{"source_key": "doc:1", "quote": "A城有官道直通B镇。"}],
                 }
             ]
         },
@@ -291,15 +289,9 @@ async def test_world_map_schematic_generate_chain_runs_through_worker_and_client
 
     captured_settings: list[dict] = []
 
-    monkeypatch.setattr(
-        map_workflow, "MapStructureService", lambda: stub_service
-    )
-    monkeypatch.setattr(
-        map_workflow, "prepare_confirmed_ai_action", stub_prepare
-    )
-    monkeypatch.setattr(
-        map_workflow, "structure_inputs", stub_structure_inputs
-    )
+    monkeypatch.setattr(map_workflow, "MapStructureService", lambda: stub_service)
+    monkeypatch.setattr(map_workflow, "prepare_confirmed_ai_action", stub_prepare)
+    monkeypatch.setattr(map_workflow, "structure_inputs", stub_structure_inputs)
     monkeypatch.setattr(
         map_workflow, "restore_project_llm_execution_settings", stub_restore_settings
     )
@@ -347,9 +339,7 @@ async def test_world_map_schematic_generate_chain_runs_through_worker_and_client
             assert stored is not None
             # W3-B 起该任务声明 root=world.map_structure.generate（L0=60）：
             # 信封写入私有 meta，公开投影仍剥离。
-            envelope = read_ai_run_envelope(
-                (stored.meta or {}).get(AI_RUN_ENVELOPE_KEY)
-            )
+            envelope = read_ai_run_envelope((stored.meta or {}).get(AI_RUN_ENVELOPE_KEY))
             assert envelope is not None
             assert envelope.root_capability_id == "world.map_structure.generate"
             assert envelope.request_limit == 60
@@ -369,9 +359,7 @@ async def _enqueue(
     novel_id=None,
 ) -> uuid.UUID:
     async with sessions.begin() as db:
-        task_id = uuid.UUID(
-            enqueue_task(db, task_type, meta=meta, novel_id=novel_id)
-        )
+        task_id = uuid.UUID(enqueue_task(db, task_type, meta=meta, novel_id=novel_id))
     return task_id
 
 

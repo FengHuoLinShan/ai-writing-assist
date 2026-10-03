@@ -249,3 +249,12 @@ ADR-0027 的 Assistant 工作项与调查成果是有界私有 checkpoint；Worl
 Writing 某一已保存工作稿的完成标记，不改变 published/canonical 状态；“编辑意见”由
 Assistant 保留证据、范围、处置和改后复核，不授予 AI candidate 的正式审稿 PASS。
 背景阅读仅在服务端开关和项目授权均开启时运行，RP 不消费这些作者私有意见。
+
+## 表格迁移（ADR-0030）
+
+- **表格迁移**：作者把 Excel/WPS/飞书等维护的人物、设定、关系、大纲表格（.xlsx/.csv）
+  经 `/api/imports/migrations` 导入为已采用资产的流程；确认前一切只是预览。
+- **导入记录（表格）**：`import_migration_sessions` 的作者语言叫法——一次表格迁移从
+  上传到采用/撤销的完整会话；采用后原始单元格清空，可整次撤销。
+- **作者备注**：表格中未被识别的列以「【表格·列名】值」追加到对象的隐藏真相
+  （hidden_truth，仅作者视图可见），作者可逐列改投到其他字段。

@@ -29,7 +29,9 @@ from modules.evidence.compilation.services.compiled_context import (
 )
 from modules.evidence.compilation.services.constraint_engine import ConstraintEngine
 from modules.evidence.compilation.services.loaders import (
+    AuthorExamplesLoader,
     CharactersLoader,
+    EditorialBriefLoader,
     EventsLoader,
     MemoryRecordsLoader,
     OutlineAnalysisLoader,
@@ -45,6 +47,13 @@ from modules.evidence.compilation.services.protocol import Loader
 from modules.story.contracts import scene_memory_dimensions
 
 logger = logging.getLogger(__name__)
+
+# 作者写作示例 few-shot 的 section 内 token 上限（tiktoken 估算）。
+# 与存储上限对齐：单条 schema 合法满额示例（2000 字符正文 + 500 字符
+# 备注约 3700 token）必须能完整注入，否则作者从主入口存下的长例子
+# 永远进不了上下文。满额集合（3 好例 + 2 反例）仍会超限，截断是预期
+# 的预算路径而非异常：先丢反例、再丢好例，正文优先。
+_AUTHOR_EXAMPLES_MAX_TOKENS = 4000
 
 SCOPE_LOADERS: dict[str, list[str]] = {
     "project": ["project", "world_bible"],
@@ -77,6 +86,8 @@ SCOPE_LOADERS: dict[str, list[str]] = {
         "scene",
         "outline_analysis",
         "project",
+        "editorial_brief",
+        "author_examples",
         "world_entities",
         "characters",
         "memory_records",
@@ -93,6 +104,8 @@ SCOPE_LOADERS: dict[str, list[str]] = {
         "scene",
         "outline_analysis",
         "project",
+        "editorial_brief",
+        "author_examples",
         "world_entities",
         "characters",
         "memory_records",
@@ -148,6 +161,8 @@ class ContextCompiler:
         # prerequisite/dependent phase split inside compile().
         return [
             ProjectLoader(),
+            EditorialBriefLoader(),
+            AuthorExamplesLoader(),
             WorldEntitiesLoader(),
             WorldBibleLoader(),
             CharactersLoader(),
@@ -1076,7 +1091,22 @@ class ContextCompiler:
             )
 
         if bundle.plot_threads and not bundle.outline_analysis:
-            content = "\n".join(str(t) for t in bundle.plot_threads)
+            from modules.story.contracts import thread_overdue_notice
+
+            chapter_index = (
+                options.chapter_index if options and options.chapter_index else None
+            ) or bundle.chapter_index
+            rendered_threads: list[str] = []
+            for t in bundle.plot_threads:
+                overdue = thread_overdue_notice(
+                    current_stage=t.get("current_stage"),
+                    planned_payoff_chapter=t.get("planned_payoff_chapter"),
+                    chapter_index=chapter_index,
+                )
+                rendered_threads.append(
+                    str(t) if not overdue else f"{str(t)}（超期提示：{overdue}）"
+                )
+            content = "\n".join(rendered_threads)
             sections.append(
                 ContextSection(
                     key="open_narrative_obligations",
@@ -1153,6 +1183,173 @@ class ContextCompiler:
                     retrieval_metadata=dict(bundle.retrieval_trace or {}),
                 )
             )
+
+        if bundle.editorial_brief:
+            brief = bundle.editorial_brief.get("brief") or {}
+            version = int(bundle.editorial_brief.get("version") or 0)
+            lines: list[str] = [
+                f"以下为作者的长期编辑约定（编辑约定第 {version} 版）。",
+                "文风只决定表达方式，不新增事实或事件；",
+                "作者事实、前文与本章因果优先于任何表达偏好。",
+            ]
+            if brief.get("voice"):
+                lines.append(f"- 文风约定：{brief['voice']}")
+            if brief.get("preserve"):
+                lines.append(
+                    "- 必须保留：" + "；".join(str(item) for item in brief["preserve"])
+                )
+            if brief.get("intentional_choices"):
+                lines.append(
+                    "- 作者的有意安排："
+                    + "；".join(str(item) for item in brief["intentional_choices"])
+                )
+            if brief.get("target_readers"):
+                lines.append(f"- 目标读者：{brief['target_readers']}")
+            if brief.get("genre_promise"):
+                lines.append(f"- 类型承诺：{brief['genre_promise']}")
+            if brief.get("goals"):
+                lines.append(
+                    "- 创作目标：" + "；".join(str(item) for item in brief["goals"])
+                )
+            content = "\n".join(lines)
+            sections.append(
+                self._make_section(
+                    key="editorial_brief",
+                    tier=Tier.P3,
+                    title="作者编辑约定（文风与保留）",
+                    content=content,
+                    status="canonical",
+                    activation_reason="作者显式开启用于 AI 写作的长期约定",
+                    sources=self._safe_sources_from_items(
+                        [
+                            {
+                                "id": f"editorial_brief:v{version}",
+                                "name": f"编辑约定 v{version}",
+                            }
+                        ],
+                        default_type="project",
+                        status="canonical",
+                    ),
+                )
+            )
+
+        if bundle.author_examples:
+            version = int(bundle.author_examples.get("version") or 0)
+            examples = [
+                item
+                for item in (bundle.author_examples.get("examples") or [])
+                if isinstance(item, dict)
+            ]
+            good = [item for item in examples if item.get("kind") == "good"]
+            bad = [item for item in examples if item.get("kind") == "bad"]
+            # 预算截断顺序：先丢反例、再丢好例；示例让位于正文（section 为
+            # P3，token 超限时整段逐出）。截断事实写进 retrieval_metadata，
+            # 确认预览可见，不静默失效。
+            dropped: list[str] = []
+            def _probe_tokens() -> int:
+                # 与实际发射 payload 相同的投影（content/note），不含脚手架文本。
+                payload_probe = {
+                    "good": [
+                        {
+                            "content": item.get("content") or "",
+                            "note": item.get("note") or "",
+                        }
+                        for item in good
+                    ],
+                    "bad": [
+                        {
+                            "content": item.get("content") or "",
+                            "why_bad": item.get("note") or "",
+                        }
+                        for item in bad
+                    ],
+                }
+                return estimate_token_count(
+                    json.dumps(payload_probe, ensure_ascii=False, sort_keys=True)
+                )
+
+            while good or bad:
+                if _probe_tokens() <= _AUTHOR_EXAMPLES_MAX_TOKENS:
+                    break
+                if bad:
+                    bad.pop()
+                    dropped.append("bad")
+                else:
+                    good.pop()
+                    dropped.append("good")
+            if not good and not bad:
+                bundle.warnings.append("作者写作示例超出预算，本次未注入任何示例")
+            else:
+                payload = {
+                    "version": version,
+                    "good": [
+                        {
+                            "content": item.get("content") or "",
+                            "note": item.get("note") or "",
+                        }
+                        for item in good
+                    ],
+                    "bad": [
+                        {
+                            "content": item.get("content") or "",
+                            "why_bad": item.get("note") or "",
+                        }
+                        for item in bad
+                    ],
+                }
+                if dropped:
+                    payload["truncated"] = True
+                    payload["dropped_kinds"] = dropped
+                serialized = (
+                    json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+                    .replace("<", "\\u003c")
+                    .replace(">", "\\u003e")
+                )
+                if dropped:
+                    # 作者可见提示走 bundle.warnings（确认预览），不进模型正文。
+                    bundle.warnings.append(
+                        "部分作者写作示例超出本次可用范围未使用"
+                        f"（好例 {dropped.count('good')} 条、反例 "
+                        f"{dropped.count('bad')} 条），可精简示例后重试"
+                    )
+                content = (
+                    "以下是作者的写作示例：好例表达作者想要的语感；反例是作者"
+                    "明确不要的写法，其 why_bad 说明差在哪里，写作时避免类似问题。\n"
+                    "示例只表达表达方式偏好，不新增事实或事件；"
+                    "作者事实、前文与本章因果优先。\n"
+                    "<AUTHOR_EXAMPLES_DATA>\n"
+                    f"{serialized}\n"
+                    "</AUTHOR_EXAMPLES_DATA>"
+                )
+                sections.append(
+                    self._make_section(
+                        key="author_examples",
+                        tier=Tier.P3,
+                        title=(
+                            "作者写作示例（好例/反例，部分超出预算未注入）"
+                            if dropped
+                            else "作者写作示例（好例/反例）"
+                        ),
+                        content=content,
+                        status="canonical",
+                        activation_reason="作者显式开启用于 AI 写作的写作示例",
+                        sources=self._safe_sources_from_items(
+                            [
+                                {
+                                    "id": f"author_examples:v{version}",
+                                    "name": f"作者示例 v{version}",
+                                }
+                            ],
+                            default_type="project",
+                            status="canonical",
+                        ),
+                        retrieval_metadata={
+                            "examples_kept": len(good) + len(bad),
+                            "dropped_kinds": dropped,
+                            "truncated": bool(dropped),
+                        },
+                    )
+                )
 
         if bundle.project:
             content = self._format_project_context(bundle.project)

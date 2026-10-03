@@ -68,7 +68,7 @@ infrastructure/tasks/
 - writing：`publish_chapter`、`writing_generate`、`writing_semantic_review`、
   `writing_targeted_revision`、`writing_comment_run`、`writing_conflict_ai_review`、
   `writing_conflict_item_ai_suggestion`
-- imports：`deep_import`、`scene_auto_extraction`、`world_object_auto_extraction`、
+- imports：`deep_import`、`scene_auto_extraction`、`world_object_auto_extraction`、`spreadsheet_migration_ai`、
   `plot_structure_auto_extraction`
 - interaction：`interaction_story_generate`、`interaction_summary_refresh`
 
@@ -105,6 +105,10 @@ worker = TaskWorker()
 await worker.run_forever()   # 常驻循环
 await worker.run_once()      # 单次执行
 ```
+
+`facade.summarize_project_ai_usage()` 是只读聚合 seam：按项目扫描窗口期任务 meta 的
+run envelope，按能力汇总模型请求与输入/输出词元（owner 次级诊断入口消费；单次扫描
+上限 500 条，截断返回 `scan_truncated`，单条坏回执跳过计数）。
 
 其他模块的稳定写入 seam 位于 `facade.py`：
 
@@ -459,3 +463,7 @@ request_changed。当前没有把 deep_import 的生产入口重定向到此 han
 `claim_exact` 必须同时满足逐次授权和设备就绪；领取后清除 ready，原 task lease 与
 local invocation lease 双重栅栏拒绝迟到结果。伴随进程离线时 pending 不自动切换回
 gateway；执行中断保留已见回执，作者显式发起新任务，不能自动重放本机副作用。
+
+RP 普通 worker 与匿名 inline 入口均将完整、未闭合或超长的无效 metadata 尾块
+写入 attempt.usage.metadata_invalid_count；同一尾块重复 finish/失败收尾只计一次。
+正文仍先进入私有 hold，经原有领域审查后才可释放。

@@ -342,6 +342,52 @@ class TestWritingDraftRepository:
         assert v3.version_number == 3
 
     @pytest.mark.asyncio
+    async def test_list_chapter_summaries_populate_existing_sees_row_updates(
+        self,
+        repo: WritingDraftRepository,
+        db_session: AsyncSession,
+        sample_draft_data: WritingDraftCreate,
+    ) -> None:
+        """导出复核依赖 populate_existing 看到同会话两次查询间的改版。
+
+        identity map 默认复用已加载对象：绕过 ORM 改行后，普通查询
+        仍返回旧属性；populate_existing=True 必须刷新出数据库新值。
+        """
+        from sqlalchemy import update as sa_update
+
+        from modules.writing.models import WritingDraft
+
+        draft = await repo.create(db_session, sample_draft_data)
+        draft.status = "published"
+        await db_session.flush()
+
+        first = await repo.list_chapter_summaries(
+            db_session, draft.novel_id, statuses=("published",)
+        )
+        assert [item.content_hash for item in first] == [draft.content_hash]
+
+        await db_session.execute(
+            sa_update(WritingDraft)
+            .where(WritingDraft.id == draft.id)
+            .values(content_hash="b" * 64, title="并发修改后的标题")
+        )
+        await db_session.flush()
+
+        stale = await repo.list_chapter_summaries(
+            db_session, draft.novel_id, statuses=("published",)
+        )
+        assert stale[0].content_hash == draft.content_hash
+
+        refreshed = await repo.list_chapter_summaries(
+            db_session,
+            draft.novel_id,
+            statuses=("published",),
+            populate_existing=True,
+        )
+        assert refreshed[0].content_hash == "b" * 64
+        assert refreshed[0].title == "并发修改后的标题"
+
+    @pytest.mark.asyncio
     async def test_create_different_chapters_independent_versions(
         self,
         repo: WritingDraftRepository,
@@ -1705,3 +1751,220 @@ class TestWritingFacade:
         assert stats[missing_id].word_count == 0
         assert stats[other_id].chapter_count == 1
         assert stats[other_id].word_count == 2
+
+
+# ============================================================
+# A4: 全书导出（每章当前已采用版本）
+# ============================================================
+
+
+class _ExportFakeRepo:
+    def __init__(self, published, working, recheck_published=None) -> None:
+        self._published = published
+        self._working = working
+        self._recheck = recheck_published
+        self.calls = 0
+
+    async def list_chapter_summaries(
+        self, db, novel_id, *, statuses=None, populate_existing: bool = False
+    ):
+        self.calls += 1
+        if statuses == ("published",):
+            if self._recheck is not None and self.calls >= 3:
+                return self._recheck
+            return list(self._published)
+        return list(self._working)
+
+
+def _export_chapter(index, title, content, version, status="published"):
+    return SimpleNamespace(
+        chapter_index=index,
+        title=title,
+        content=content,
+        version_number=version,
+        content_hash=__import__("hashlib").sha256(content.encode()).hexdigest(),
+        status=status,
+    )
+
+
+@pytest.fixture
+def _export_project_gate(monkeypatch: pytest.MonkeyPatch):
+    import modules.project.facade as project_facade
+
+    async def fake_require(db, novel_id):
+        return None
+
+    async def fake_context(db, novel_id):
+        return SimpleNamespace(title="测试之书")
+
+    monkeypatch.setattr(project_facade, "require_active_project", fake_require)
+    monkeypatch.setattr(project_facade, "get_project_context", fake_context)
+
+
+@pytest.mark.asyncio
+async def test_book_export_txt_includes_header_and_pending_chapters(
+    _export_project_gate,
+) -> None:
+    repo = _ExportFakeRepo(
+        published=[
+            _export_chapter(2, "夜航", "夜航正文", version=3),
+            _export_chapter(1, "启程", "启程正文", version=5),
+        ],
+        working=[
+            _export_chapter(1, "启程", "启程正文", version=5),
+            _export_chapter(2, "夜航", "夜航正文", version=3),
+            _export_chapter(3, "未采用章", "工作稿", version=1, status="draft"),
+        ],
+    )
+    result = await WritingDraftService(repo=repo).build_book_export(
+        None, str(uuid.uuid4()), fmt="txt"
+    )
+    text = result["content"].decode("utf-8")
+    assert result["filename"] == "测试之书.txt"
+    assert "书名：测试之书" in text
+    assert "版本口径：每章当前已采用（published）版本" in text
+    assert "第1章 v5" in text and "第2章 v3" in text
+    assert "未采用章节" in text and "第3章" in text
+    # 章序正确且只含已采用正文
+    assert text.index("启程正文") < text.index("夜航正文")
+    assert "工作稿" not in text.split("未采用章节", 1)[1].split("第3章", 1)[1]
+
+
+@pytest.mark.asyncio
+async def test_book_export_md_and_zip_formats(_export_project_gate) -> None:
+    repo = _ExportFakeRepo(
+        published=[_export_chapter(1, "启程", "启程正文", version=2)],
+        working=[_export_chapter(1, "启程", "启程正文", version=2)],
+    )
+    service = WritingDraftService(repo=repo)
+    md = await service.build_book_export(None, str(uuid.uuid4()), fmt="md")
+    assert md["media_type"].startswith("text/markdown")
+    assert "# 测试之书" in md["content"].decode("utf-8")
+    assert "## 第 1 章 启程" in md["content"].decode("utf-8")
+
+    repo_zip = _ExportFakeRepo(
+        published=[_export_chapter(1, "启程", "启程正文", version=2)],
+        working=[_export_chapter(1, "启程", "启程正文", version=2)],
+    )
+    zipped = await WritingDraftService(repo=repo_zip).build_book_export(
+        None, str(uuid.uuid4()), fmt="md-zip"
+    )
+    assert zipped["media_type"] == "application/zip"
+    import io
+    import zipfile
+
+    archive = zipfile.ZipFile(io.BytesIO(zipped["content"]))
+    names = archive.namelist()
+    assert "manifest.md" in names
+    assert any(name.startswith("chapters/0001") for name in names)
+    manifest_text = archive.read("manifest.md").decode("utf-8")
+    assert "版本口径：每章当前已采用（published）版本" in manifest_text
+    assert "第1章 v2" in manifest_text
+    chapter_name = next(name for name in names if name.startswith("chapters/0001"))
+    assert "启程正文" in archive.read(chapter_name).decode("utf-8")
+
+
+@pytest.mark.asyncio
+async def test_book_export_requires_published_chapter(_export_project_gate) -> None:
+    repo = _ExportFakeRepo(
+        published=[],
+        working=[_export_chapter(1, "工作稿", "草稿", version=1, status="draft")],
+    )
+    with pytest.raises(ValidationError, match="已采用"):
+        await WritingDraftService(repo=repo).build_book_export(
+            None, str(uuid.uuid4()), fmt="txt"
+        )
+
+
+@pytest.mark.asyncio
+async def test_book_export_rejects_manifest_drift(_export_project_gate) -> None:
+    repo = _ExportFakeRepo(
+        published=[_export_chapter(1, "启程", "启程正文", version=2)],
+        working=[_export_chapter(1, "启程", "启程正文", version=2)],
+        recheck_published=[_export_chapter(1, "启程", "被并发修改的正文", version=3)],
+    )
+    with pytest.raises(ConflictError, match="半新半旧"):
+        await WritingDraftService(repo=repo).build_book_export(
+            None, str(uuid.uuid4()), fmt="txt"
+        )
+
+
+@pytest.mark.asyncio
+async def test_book_export_single_chapter_published_only(_export_project_gate) -> None:
+    repo = _ExportFakeRepo(
+        published=[
+            _export_chapter(1, "启程", "启程正文", version=2),
+            _export_chapter(2, "夜航", "夜航正文", version=3),
+        ],
+        working=[
+            _export_chapter(1, "启程", "启程正文", version=2),
+            _export_chapter(2, "夜航", "夜航正文", version=3),
+        ],
+    )
+    result = await WritingDraftService(repo=repo).build_book_export(
+        None, str(uuid.uuid4()), fmt="txt", chapter_index=2
+    )
+    text = result["content"].decode("utf-8")
+    assert "夜航正文" in text
+    assert "启程正文" not in text
+    assert "第2章 v3" in text
+
+    missing = _ExportFakeRepo(
+        published=[_export_chapter(1, "启程", "启程正文", version=2)],
+        working=[
+            _export_chapter(1, "启程", "启程正文", version=2),
+            _export_chapter(3, "未采用", "草稿", version=1, status="draft"),
+        ],
+    )
+    with pytest.raises(ValidationError, match="第 3 章还没有已采用"):
+        await WritingDraftService(repo=missing).build_book_export(
+            None, str(uuid.uuid4()), fmt="txt", chapter_index=3
+        )
+
+
+# ============================================================
+# B1: 跨章复读确定性检查（纯函数）
+# ============================================================
+
+
+class TestDetectRepetitionOverlap:
+    def test_detects_large_verbatim_repetition(self) -> None:
+        from modules.writing.services import detect_repetition_overlap
+
+        tail = "他沿着河岸走了很久，月光落在水面上，碎成一片银白。" * 10
+        reference = "前文正文。" + tail
+        candidate = "新的开头。" + tail[:400] + "然后剧情继续往新方向发展。"
+        spans = detect_repetition_overlap(candidate, reference)
+        assert spans
+        assert spans[0]["normalized_length"] >= 80
+        # sample 映射回原文(带标点),是候选正文的逐字子串
+        assert spans[0]["sample"] in candidate
+
+    def test_ignores_punctuation_and_case(self) -> None:
+        from modules.writing.services import detect_repetition_overlap
+
+        reference = "He said, HELLO WORLD! " * 20
+        candidate = "he said hello world " * 20
+        assert detect_repetition_overlap(candidate, reference, min_overlap_chars=40)
+
+    def test_no_repetition_below_threshold(self) -> None:
+        from modules.writing.services import detect_repetition_overlap
+
+        reference = "这一章结尾讲主角终于抵达了海边的村庄并且安顿下来休整。"
+        candidate = "下一章开头主角终于抵达了海边的村庄，稍作休整之后启程北上。"
+        assert detect_repetition_overlap(candidate, reference) == []
+
+    def test_short_inputs_return_empty(self) -> None:
+        from modules.writing.services import detect_repetition_overlap
+
+        assert detect_repetition_overlap("太短", "也太短") == []
+        assert detect_repetition_overlap("", "参照文本足够长" * 20) == []
+
+    def test_windows_limit_comparison_scope(self) -> None:
+        from modules.writing.services import detect_repetition_overlap
+
+        shared = "完全相同的一大段文字反复出现计为复读样本。" * 6
+        far_away_reference = shared + "中间隔了非常多的其他章节内容。" * 100
+        candidate = shared + "之后的正文完全不同。" * 50
+        # 候选开头命中，但参照文本结尾窗口里没有 shared（被后续内容挤出窗口）
+        assert detect_repetition_overlap(candidate, far_away_reference) == []

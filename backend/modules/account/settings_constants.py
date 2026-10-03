@@ -103,6 +103,7 @@ LLM_INHERITABLE_FIELDS: frozenset[str] = frozenset(
         "label",
         "base_url",
         "model",
+        "secondary_models",
         "timeout",
         "max_tokens",
         "temperature",
@@ -114,7 +115,7 @@ LLM_INHERITABLE_FIELDS: frozenset[str] = frozenset(
 )
 
 # 与具体 provider 连接无关、可直接叠加到运行 profile 的调优字段。
-# provider_id/label/base_url/model 属于连接身份，不能跨连接覆盖。
+# provider_id/label/base_url/model/secondary_models 属于连接身份，不能跨连接覆盖。
 LLM_RUNTIME_TUNING_FIELDS: tuple[str, ...] = (
     "timeout",
     "max_tokens",

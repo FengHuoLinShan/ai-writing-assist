@@ -56,6 +56,7 @@
         <p>暂无篇章。</p>
         <p class="outline-empty-detail">{{ emptyDetail }}</p>
         <button class="btn btn-sm btn-primary" data-action="nav-scenes" @click="navigateScenes">从已采用场景开始整理</button>
+        <button class="btn btn-sm" data-action="nav-import-spreadsheets" @click="navigateImports">从 Excel/表格导入大纲</button>
       </div>
     </template>
 
@@ -335,6 +336,10 @@ function reviewActionHtml(a) {
 
 function navigateScenes() {
   getRouter()?.navigate("outline", "scenes")
+}
+
+function navigateImports() {
+  getRouter()?.navigate("project")
 }
 
 function retryLoad() {

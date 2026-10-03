@@ -69,8 +69,40 @@ class KnowledgeSourceEntry:
     """该来源覆盖的知识维度"""
     depends_on: tuple[str, ...] = ()
     """声明依赖闭包中的其他 source_key"""
+    token_count: int | None = None
+    """该来源正文的 token 数（tiktoken）；不可得时为 None，不存原文。"""
+    state: str = "included"
+    """included / trimmed / omitted：来源在本轮冻结中的实际处置。"""
+    state_reason: str = ""
+    """trimmed / omitted 的原因（预算逐出、作者排除、不可读等）。"""
+    hash_basis: str = "content"
+    """content=正文哈希；identity=来源身份字段哈希（正文不可得时的退化）。"""
+    token_groups: tuple[dict[str, Any], ...] = ()
+    """实际文本块计数；shared=true 的同一 key 只能计一次，不能逐源相加。"""
 
+    # 账本完整序列化：含逐源证据字段（B8），供 run 回读复算。
     def to_dict(self) -> dict[str, Any]:
+        return {
+            "source_key": self.source_key,
+            "source_type": self.source_type,
+            "source_id": self.source_id,
+            "content_hash": self.content_hash,
+            "label": self.label,
+            "dimensions": list(self.dimensions),
+            "depends_on": list(self.depends_on),
+            "token_count": self.token_count,
+            "state": self.state,
+            "state_reason": self.state_reason,
+            "hash_basis": self.hash_basis,
+            "token_groups": list(self.token_groups),
+        }
+
+    def _fingerprint_dict(self) -> dict[str, Any]:
+        """指纹输入的稳定子集：不含 B8 证据字段，既有确认的指纹不漂移。
+
+        逐源 token 与处置状态由「内容 + 预算」派生，内容变化已经由
+        content_hash 覆盖；证据字段只进账本，不参与指纹比对。
+        """
         return {
             "source_key": self.source_key,
             "source_type": self.source_type,
@@ -85,6 +117,7 @@ class KnowledgeSourceEntry:
     def from_dict(cls, payload: dict[str, Any]) -> KnowledgeSourceEntry:
         data = _require_mapping(payload, "source entry")
         try:
+            token_count = data.get("token_count")
             return cls(
                 source_key=str(data["source_key"]),
                 source_type=str(data["source_type"]),
@@ -93,6 +126,19 @@ class KnowledgeSourceEntry:
                 label=str(data.get("label") or ""),
                 dimensions=tuple(str(item) for item in data.get("dimensions") or ()),
                 depends_on=tuple(str(item) for item in data.get("depends_on") or ()),
+                token_count=(
+                    int(token_count)
+                    if isinstance(token_count, int) and token_count >= 0
+                    else None
+                ),
+                state=str(data.get("state") or "included"),
+                state_reason=str(data.get("state_reason") or ""),
+                hash_basis=str(data.get("hash_basis") or "content"),
+                token_groups=tuple(
+                    dict(item)
+                    for item in data.get("token_groups") or ()
+                    if isinstance(item, dict)
+                ),
             )
         except KeyError as exc:  # pragma: no cover - defensive
             raise KnowledgeContractError(f"source entry missing field: {exc}") from exc
@@ -196,9 +242,7 @@ class KnowledgeScopeReceipt:
         return None
 
     def has_omissions(self) -> bool:
-        return bool(self.omitted) or any(
-            item.omitted for item in self.coverage
-        )
+        return bool(self.omitted) or any(item.omitted for item in self.coverage)
 
     def _fingerprint_payload(self) -> dict[str, Any]:
         return {
@@ -206,9 +250,9 @@ class KnowledgeScopeReceipt:
             "capability": self.capability,
             "novel_id": self.novel_id,
             "subject": self.subject.to_dict(),
-            "included": [entry.to_dict() for entry in self.included],
-            "excluded": [entry.to_dict() for entry in self.excluded],
-            "omitted": [entry.to_dict() for entry in self.omitted],
+            "included": [entry._fingerprint_dict() for entry in self.included],
+            "excluded": [entry._fingerprint_dict() for entry in self.excluded],
+            "omitted": [entry._fingerprint_dict() for entry in self.omitted],
             "coverage": [item.to_dict() for item in self.coverage],
             "authority_fingerprint": self.authority_fingerprint,
             "generator_fingerprint": self.generator_fingerprint,
@@ -223,9 +267,22 @@ class KnowledgeScopeReceipt:
         )
 
     def to_dict(self) -> dict[str, Any]:
+        """完整账本序列化：含逐源证据字段（B8），可回读复算。
+
+        指纹比对只认 `_fingerprint_payload()` 的稳定子集，账本完整化
+        不改变既有确认的指纹。
+        """
+        payload = self._fingerprint_payload()
+        payload.update(
+            {
+                "included": [entry.to_dict() for entry in self.included],
+                "excluded": [entry.to_dict() for entry in self.excluded],
+                "omitted": [entry.to_dict() for entry in self.omitted],
+            }
+        )
         return {
             "kind": "knowledge_scope_receipt",
-            **self._fingerprint_payload(),
+            **payload,
             "created_at": self.created_at,
         }
 
@@ -239,15 +296,15 @@ class KnowledgeScopeReceipt:
             novel_id=str(data["novel_id"]),
             subject=KnowledgeSubject.from_dict(data["subject"]),
             included=tuple(
-    KnowledgeSourceEntry.from_dict(item) for item in data.get("included") or ()
+                KnowledgeSourceEntry.from_dict(item)
+                for item in data.get("included") or ()
             ),
             excluded=tuple(
                 KnowledgeSourceEntry.from_dict(item)
                 for item in data.get("excluded") or ()
             ),
             omitted=tuple(
-                KnowledgeSourceEntry.from_dict(item)
-                for item in data.get("omitted") or ()
+                KnowledgeSourceEntry.from_dict(item) for item in data.get("omitted") or ()
             ),
             coverage=tuple(
                 KnowledgeDimensionCoverage.from_dict(item)

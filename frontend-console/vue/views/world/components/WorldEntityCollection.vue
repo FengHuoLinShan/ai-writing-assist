@@ -333,7 +333,12 @@ function displayOf(entity) {
 }
 
 function sourceText(entity) {
-  return { deep_import: "深度导入", manual: "手动", ai_generated: "AI 生成" }[entity.source] || "未记录"
+  return {
+    deep_import: "深度导入",
+    manual: "手动",
+    ai_generated: "AI 生成",
+    spreadsheet_migration: "表格迁移",
+  }[entity.source] || "未记录"
 }
 
 function importanceText(entity) {

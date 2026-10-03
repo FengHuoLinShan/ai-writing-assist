@@ -190,6 +190,9 @@ GitHub Actions 在 pull request 与 `main` push 上并行运行三个职责清�
 `Backend CI` 包含 `Backend quality` 与 `PostgreSQL critical`，`Frontend CI` 包含
 `Frontend unit quality` 与 `Frontend functional browser`，`Production Image CI` 包含
 `Production image contract`。
+仓库治理门由独立的 `repo-gates` 工作流始终运行：二进制增长门（B11）、生产文件
+大小门（P8）、发布证据门（B6，校验 `docs/evidence/` 账本与 main 可达性）以及
+跨模块导入门（B2，`scripts/check_module_imports.py`）。
 每个质量 job checkout 完整历史后运行 `scripts/classify_ci_changes.py`。PR 比较事件中的
 base/head 完整 SHA，删除和重命名前后路径都参与分类；读取失败直接阻断。main 始终全量。
 PR 多类变更取并集：
@@ -326,6 +329,18 @@ async def world_map(db_session: AsyncSession, project_novel_id: str):
 `CHAR(32)`。不要删除这一测试适配：SQLite 会给未知的 `UUID` 类型名 NUMERIC affinity，
 并可能把形如科学计数法的合法 UUID hex 转成浮点 `inf`；生产 PostgreSQL 仍使用原生
 `UUID` DDL。
+
+根 `backend/conftest.py` 在所有项目 import 之前以 `os.environ.setdefault` 把 `Settings`
+的全部布尔开关钉回代码默认值（`LLM_HEALTH_REQUIRED` 测试中固定为 `false`）。
+`core.config` 的 `load_env_file` 只填充缺失键，因此本机 `backend/.env` 的开关不进入测试；
+`.env` 中的其他键（如 `LOG_LEVEL`、`WEB_SEARCH_URL`）仍会生效，测试不得依赖它们。
+`Settings` 新增布尔开关时同步该列表，`tests/unit/test_config.py` 的守护用例会在本机环境
+开启了未钉开关时失败并列出字段。用例需要开启某个开关时，可 `monkeypatch.setenv` 覆盖
+（消费方经 `get_settings()` 读取时前后各 `get_settings.cache_clear()`），或用
+`dataclasses.replace(get_settings(), ...)` patch 消费方模块的 `get_settings`（如
+`modules.assistant.service.get_settings`）；patch `core.config.get_settings` 只影响在
+函数体内 import 的调用方。勿将任何项目 import 移到 setdefault 块之前：`app/main.py` 在
+import 时调用 `get_settings()` 冻结 `lru_cache`，先 import 会让钉法静默失效。
 
 Fixture 使用者只通过测试函数参数名请求 fixture。不得使用
 `from conftest import ...`、`from tests.conftest import ...` 或其他普通 Python
@@ -538,3 +553,17 @@ feed 门禁在每个样本前执行 `gc.collect()`，只衡量 feed 自身；进
 前端变更运行受影响 Vue 用例、lint 与 build。真实五 CLI 只用合成数据单列验证，
 同时记录本机模型/登录配置、最终结构化结果、工具次数、未知用量及 DSH 原生工具计数限制；
 离线通过不等于作品内容质量验收。
+
+
+## 仓库治理门测试
+
+`backend/tests/unit/test_governance_gates.py` 集中 B11 体积门、P8 行数门、
+B6 证据校验器与 B2 import 门的负样本测试；B1 接线测试在
+`tests/prompt_contracts/test_capability_bindings.py`（真实代码树断言）。
+规模夹具确定性测试与专用库拒绝测试在 `tests/unit/test_scale_fixtures.py`；
+`tests/e2e/test_scale_gate_low.py` 在三档完整索引上验证编译、关键词检索、审校
+分片/请求和六步影子任务链，随每日 PG e2e 运行阈值回归。章节位置曲线固定
+正文2000字符，章节长度曲线走真实续写请求构造，不能据此声称模型内容质量。
+B9 PostgreSQL 双事务冲突回归在 `tests/e2e/test_image_reuse_concurrency.py`，
+已纳入 critical。规模 CLI 只接受专用 PostgreSQL；外层回滚验证项目与账户计数
+不变，包含内部 commit 的影子链也不残留夹具。

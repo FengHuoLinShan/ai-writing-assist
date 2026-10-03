@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from "vue"
+import { getRouter } from "../../../bridge/index.js"
 import { cardsFromLibraryItems } from "../bible/worldCards.js"
 import { displayStateBadgeClass } from "../../../../shared/assetDisplayState.js"
 
@@ -7,8 +8,9 @@ const props = defineProps({
   overview: { type: Object, default: null },
   typeOptions: { type: Array, default: () => [] },
   metaFor: { type: Function, required: true },
+  relationViewEntries: { type: Array, default: () => [] },
 })
-const emit = defineEmits(["open", "select-topic", "select-type", "select-working", "create-topic", "browse-all"])
+const emit = defineEmits(["open", "select-topic", "select-type", "select-working", "create-topic", "browse-all", "select-relation-view"])
 
 const workingCards = computed(() => cardsFromLibraryItems(props.overview?.working_items || []))
 const recentCards = computed(() => cardsFromLibraryItems(props.overview?.recent_items || []))
@@ -33,6 +35,10 @@ function formatTime(value) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ""
   return date.toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })
+}
+
+function navigateImports() {
+  getRouter()?.navigate("project")
 }
 </script>
 
@@ -99,6 +105,26 @@ function formatTime(value) {
       <p v-else class="world-library-home__empty">还没有主题。用主题把同一份资料按写作视角分组，一份资料可以加入多个主题。</p>
     </section>
 
+    <section class="world-library-home__section" aria-label="按关系分组">
+      <header class="world-library-home__heading">
+        <h3>按关系分组</h3>
+      </header>
+      <div v-if="relationViewEntries.length" class="world-library-home__topics" role="group" aria-label="关系分组视角">
+        <button
+          v-for="entry in relationViewEntries"
+          :key="entry.key"
+          type="button"
+          data-action="world-home-select-relation-view"
+          :data-relation-view="entry.key"
+          @click="emit('select-relation-view', entry.key)"
+        >
+          <span>{{ entry.title }}</span>
+          <small>{{ entry.description }}</small>
+        </button>
+      </div>
+      <p v-else class="world-library-home__empty">关系分组视角暂不可用，可稍后重试。</p>
+    </section>
+
     <section class="world-library-home__section" aria-label="按类型筛选">
       <header class="world-library-home__heading">
         <h3>按类型</h3>
@@ -114,7 +140,10 @@ function formatTime(value) {
           @click="emit('select-type', facet.value)"
         >{{ facet.label }} <small>{{ facet.count }}</small></button>
       </div>
-      <p v-else class="world-library-home__empty">项目里还没有资料，先新建一份资料再回来整理。</p>
+      <p v-else class="world-library-home__empty">
+        项目里还没有资料，先新建一份资料再回来整理；也可以
+        <button type="button" class="btn btn-sm" data-action="nav-import-spreadsheets" @click="navigateImports">从 Excel/表格导入人物与设定</button>。
+      </p>
     </section>
   </div>
 </template>

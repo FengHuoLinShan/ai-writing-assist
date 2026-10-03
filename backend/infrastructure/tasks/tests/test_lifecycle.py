@@ -795,3 +795,97 @@ async def test_exact_claim_preserves_retry_coalescing_and_lease_fences(db_sessio
     assert await service.claim_next(db_session, **scope) is None
     await db_session.refresh(other)
     assert other.status == "pending" and other.attempt == 0 and other.lease_id is None
+
+
+# ============================================================
+# B5: 跨任务 AI 用量聚合（只读，扫 run envelope）
+# ============================================================
+
+
+@pytest.mark.asyncio
+async def test_summarize_ai_usage_aggregates_by_capability(
+    db_session: AsyncSession,
+) -> None:
+    novel_id = str(uuid.uuid4())
+    other_novel = str(uuid.uuid4())
+
+    def envelope(novel: str, capability: str, prompt: int, completion: int) -> dict:
+        return {
+            "version": 1,
+            "operation_id": f"op-{capability}-{prompt}",
+            "run_id": f"run-{capability}-{prompt}",
+            "root_capability_id": capability,
+            "novel_id": novel,
+            "started_at": datetime.now(UTC).isoformat(),
+            "request_limit": 10,
+            "requests_started": 2,
+            "requests_settled": 2,
+            "steps": [
+                {
+                    "step_name": f"{capability}.chunk",
+                    "step_capability_id": capability,
+                    "call_kind": "structured",
+                    "requests_started": 2,
+                    "requests_settled": 2,
+                    "usage": {
+                        "prompt_tokens": prompt,
+                        "completion_tokens": completion,
+                    },
+                }
+            ],
+        }
+
+    db_session.add_all(
+        [
+            AsyncTask(
+                id=uuid.uuid4(),
+                task_type="writing_generate",
+                status="succeeded",
+                novel_id=uuid.UUID(novel_id),
+                meta={
+                    AI_RUN_ENVELOPE_KEY: envelope(novel_id, "writing.generate", 100, 50)
+                },
+            ),
+            AsyncTask(
+                id=uuid.uuid4(),
+                task_type="writing_semantic_review",
+                status="succeeded",
+                novel_id=uuid.UUID(novel_id),
+                meta={
+                    AI_RUN_ENVELOPE_KEY: envelope(
+                        novel_id, "writing.semantic_review", 30, 20
+                    )
+                },
+            ),
+            AsyncTask(
+                id=uuid.uuid4(),
+                task_type="writing_generate",
+                status="succeeded",
+                novel_id=uuid.UUID(other_novel),
+                meta={
+                    AI_RUN_ENVELOPE_KEY: envelope(
+                        other_novel, "writing.generate", 999, 999
+                    )
+                },
+            ),
+            AsyncTask(
+                id=uuid.uuid4(),
+                task_type="writing_generate",
+                status="succeeded",
+                novel_id=uuid.UUID(novel_id),
+                meta={"novel_id": novel_id},
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    summary = await TaskLifecycleService().summarize_ai_usage(
+        db_session, novel_id=novel_id, days=30
+    )
+    assert summary["tasks_with_envelope"] == 2
+    capabilities = summary["capabilities"]
+    assert capabilities["writing.generate"]["prompt_tokens"] == 100
+    assert capabilities["writing.semantic_review"]["prompt_tokens"] == 30
+    assert "requests" in capabilities["writing.generate"]
+    # 其他项目的任务不计入
+    assert all(bucket["prompt_tokens"] != 999 for bucket in capabilities.values())

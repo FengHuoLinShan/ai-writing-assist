@@ -74,6 +74,18 @@ Scene 融合的请求 Scene 集合还必须与 confirmation 中的 pinned Scene 
 只接收重新物化的 confirmed Markdown，不再旁路加载完整 World/Outline 资料。
 
 总览手工版本可携带既有结构的来源版本标识，源结构更新只提示核对，不双向覆盖。简单结构生成使用 main/sub/background 分类及显式兼容映射，参数版本 phase3_structure_simple_v3。
+## 剧情线自动入选（2026-10 修正）
+
+写作上下文的剧情线自动入选（`PlotThreadRepository.get_active`，经
+`story.facade.get_plot_threads_for_context` 消费）条件为：`status in (draft, canonical)`、
+`start_chapter <= 当前章` 且未终结（`current_stage` trim+lower 后不是 `resolved` /
+`paused`；NULL 与自由文本视为未终结）。`planned_payoff_chapter` 不再过滤：超过计划
+兑现章仍未收束的线保留入选，并在渲染层标注“已超过计划第 N 章，仍未收束”（
+`thread_overdue_notice`，经 `story.contracts` 导出）；已终结的线不再自动入选，作者
+显式勾选 `thread_ids` 仍可带入。剧情线页对超期未收束的线显示“已超计划第 N 章未收束”
+徽章（基准为项目最大章号）。入选集合变化会使在途 confirmation 重编译内容变化并按
+既有失败关闭语义要求重新审查。
+
 ## 复核来源接口（ADR-0022）
 
 `modules.story.facade` 新增只读反查 `list_plot_threads_referencing_entities(db, novel_id, entity_ids)`，

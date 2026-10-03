@@ -130,7 +130,13 @@ async def _probe_request(db, request: dict[str, Any]) -> dict[str, Any]:
             scene_index=request["scene_index"],
             title="工程拒绝路径验证",
             chapter_ids=[request["chapter_index"]],
-            scene_chunks=[],
+            scene_chunks=[
+                {
+                    "chapter_index": request["chapter_index"],
+                    "start_pos": 0,
+                    "end_pos": len(request["scene_text"]),
+                }
+            ],
             status="draft",
         )
     )
@@ -197,19 +203,37 @@ async def _load_chapters(corpus: str, repeat: int) -> list[dict[str, str]]:
     return repeated
 
 
-async def run_harness(args: argparse.Namespace) -> HarnessReport:
+async def run_harness(
+    args: argparse.Namespace, *, connection=None, chapters=None
+) -> HarnessReport:
     from app.bootstrap import _register_orm_models
     from core.base import Base
 
     _register_orm_models()
-    engine = create_async_engine(args.database_url, pool_size=4, max_overflow=0)
-    maker = async_sessionmaker(engine, expire_on_commit=False)
+    engine = (
+        create_async_engine(args.database_url, pool_size=4, max_overflow=0)
+        if connection is None
+        else None
+    )
+    maker = async_sessionmaker(
+        connection or engine,
+        expire_on_commit=False,
+        **(
+            {"join_transaction_mode": "create_savepoint"}
+            if connection is not None
+            else {}
+        ),
+    )
     if args.create_schema:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
 
     report = HarnessReport(sampler=args.sampler)
-    chapters = await _load_chapters(args.corpus, args.repeat)
+    chapters = (
+        chapters
+        if chapters is not None
+        else await _load_chapters(args.corpus, args.repeat)
+    )
     texts = [_chapter_text(chapter) for chapter in chapters]
     report.chapters = len(chapters)
 
@@ -486,7 +510,8 @@ async def run_harness(args: argparse.Namespace) -> HarnessReport:
         return report
     finally:
         reset_principal(principal_token)
-        await engine.dispose()
+        if engine is not None:
+            await engine.dispose()
 
 
 def _assert_exit_criteria(report: HarnessReport) -> None:
