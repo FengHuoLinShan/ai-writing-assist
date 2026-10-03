@@ -46,6 +46,11 @@ from modules.world.authority import (
     RevertPreviewInputV1,
 )
 from modules.world.entity_fusion import WorldEntityFusionService
+from modules.world.relation_schemas import (
+    WorldRelationGroupListResponse,
+    WorldRelationMembershipBatchRequest,
+    WorldRelationMembershipBatchResponse,
+)
 from modules.world.schemas import (
     AliasKind,
     AskWorldCitationOpenRequest,
@@ -206,9 +211,6 @@ from modules.world.schemas import (
     WorldProfileMigrateResponse,
     WorldProfileResponse,
     WorldProfileUpsertRequest,
-    WorldRelationGroupListResponse,
-    WorldRelationMembershipBatchRequest,
-    WorldRelationMembershipBatchResponse,
     WorldValidationFindingsPage,
     WorldValidationPolicyDraftUpsert,
     WorldValidationPolicyStatus,

@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, NotFoundError, ValidationError
 from modules.world.models import CoreEntity, EntityRelation
+from modules.world.relation_schemas import WorldRelationMembershipBatchRequest
 from modules.world.repositories import (
     CoreEntityRepository,
     EntityRelationRepository,
@@ -25,7 +26,6 @@ from modules.world.repositories import (
 from modules.world.schemas import (
     EntityRelationCreate,
     EntityRelationReviewEditRequest,
-    WorldRelationMembershipBatchRequest,
 )
 from modules.world.services.common import entity_relation_execution_fingerprint
 from modules.world.services.core.entity_relation_service import EntityRelationService

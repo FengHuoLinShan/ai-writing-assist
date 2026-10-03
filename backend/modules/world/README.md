@@ -694,7 +694,9 @@ snapshot 测试冻结。新增跨模块函数前必须先证明现有 deep seam 
 和 `worldbuilding_facade.py`。
 
 `contracts.py` 只定义跨模块稳定 dataclass，不重导出 HTTP Pydantic schema。
-HTTP 请求/响应类型属于 `schemas.py`；package root 不再兼容重导出 ORM、schema 或
+HTTP 请求/响应类型属于 `schemas.py`（关系建议、分组视角与成员批量操作已拆至
+`relation_schemas.py`，依赖单向：仅可引用 `schemas.py` 基元）；package root
+不再兼容重导出 ORM、schema 或
 facade 函数，跨模块调用必须显式使用 `contracts.py` / `facade.py` / 已注册 DI port。
 
 `worldbuilding_facade.py` 承载世界书上下文激活相关入口：

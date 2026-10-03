@@ -18,6 +18,10 @@ from core.logging_context import (
     novel_id_for_log,
 )
 from modules.world.models import EntityRelation
+from modules.world.relation_schemas import (
+    WorldRelationMembershipBatchRequest,
+    WorldRelationMembershipBatchResponse,
+)
 from modules.world.repositories import (
     CoreEntityRepository,
     EntityRelationRepository,
@@ -33,8 +37,6 @@ from modules.world.schemas import (
     EntityRelationUpdate,
     ReviewBatchResponse,
     WorldEntityContext,
-    WorldRelationMembershipBatchRequest,
-    WorldRelationMembershipBatchResponse,
 )
 from modules.world.services.common import (
     entity_relation_execution_fingerprint,

@@ -46,6 +46,12 @@ from modules.world.models import (
     WorldLibraryTopicMember,
     WorldLibraryWorkspaceProfile,
 )
+from modules.world.relation_schemas import (
+    WorldRelationGroupItem,
+    WorldRelationGroupListResponse,
+    WorldRelationGroupRelationOption,
+    WorldRelationGroupViewInfo,
+)
 from modules.world.schemas import (
     EntityRelationResponse,
     WorldLibraryFavoriteResponse,
@@ -60,10 +66,6 @@ from modules.world.schemas import (
     WorldLibraryTopicReorderRequest,
     WorldLibraryTopicUpdate,
     WorldLibraryViewPrefsResponse,
-    WorldRelationGroupItem,
-    WorldRelationGroupListResponse,
-    WorldRelationGroupRelationOption,
-    WorldRelationGroupViewInfo,
 )
 from modules.world.services.common import (
     entity_relation_execution_fingerprint,
