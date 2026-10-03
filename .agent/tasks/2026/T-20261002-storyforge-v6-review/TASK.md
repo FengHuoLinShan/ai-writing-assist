@@ -270,3 +270,54 @@ https://playwright.dev/docs/test-sharding 。具体收益未实测，不能承�
   按真实调用链补齐 CLI 种类指纹和地图存储/对象原图登记职责，未修改执行规则。
   随后 make docs-check BASE_REF=origin/main、git diff --check、计划本地链接与空白检查通过。
   本轮仅文档与只读取样；没有实际分片运行、性能验收或新代码测试。
+
+## CI 优化计划执行 2026-10-04（P0 交付 + P1 实施）
+
+用户指令"执行计划"。P0/P1 均已交付，P2 未启动（按计划需新证据）。
+
+### P0：PR #191
+
+- 分支 `codex/storyforge-v6-review-followup`（自 origin/main 4d7540470，树与
+  c10b6983c 一致，WIP 无损迁移），三个 commit：业务修复 / CI 正确性 / 计划+记录。
+- 本地：定向 103 passed（governance/selection/llm_runtime/image_reuse）、
+  repo-gates、docs-check BASE_REF、git diff --check 通过；全量验证沿用上轮记录（同 WIP）。
+- 执行中发现 PR #189（表格迁移）合入 main（57e05f7ce）造成 #191 冲突且
+  pull_request workflow 因 merge ref 无法构建而完全不触发（无任何 runs）。
+  解决：merge main，world README 冲突保留复用登记描述；新增 Alembic merge
+  revision `20261004_image_reuse_spreadsheet_merge`（down=
+  20261003_image_reuse_payload + 20261004_storyforge_spreadsheet_merge），
+  88 revisions 单头验证 + 新库 ci_p0_merge_check_e2e 迁移实跑通过；合并后
+  world/imports 定向 975 passed，docs-check 通过。两次远端运行均全绿（样本见下）。
+
+### P1：PR #192（分支 codex/ci-browser-sharding，基于 P0 head）
+
+- 编排：browser-classify（分类+推导 shard_plan：functional→[1,2]、smoke→[1]）→
+  frontend-functional-browser-shard matrix（fail-fast false、max-parallel 2、
+  每片独立 PG/MinIO、--shard=i/2、workers=1/retries=0；辅助套件仅第一片）→
+  聚合 job 保留必需检查名 frontend-functional-browser，scripts/aggregate_browser_gate.py
+  失败关闭；每片 verify 步骤用 browser-gate-<suite>.done 标记防静默跳过。
+- 本地验证：合同/分类/聚合测试 118 passed；ruff（既有行不顺手重排）；
+  make docs-check；--list 清单多重集合并集校验 full 298 = 155+143、交集空、
+  smoke 58 ⊆ full、辅助 1/6/1（全量+辅助 306）；一次性合成库/MinIO 实跑两片并行
+  （18000/18080 与 19000/19080、独立库）：shard1 147 passed/8 failed、shard2
+  138 passed/3 failed/2 skipped，计数与清单一致、无端口冲突与跨文件依赖崩溃；
+  失败全部单独复现且属已知 backend/.env 本机污染模式，同代码远端（#191 第一次
+  运行 306 项）全绿佐证与分片无关；辅助套件串行 1+6+1 全绿。
+- 远端失败注入（验证 PR #193，三注入全过，已关闭删分支）：
+  1) shard2 探针失败：shard1 照常 success（10m43s）、聚合必需检查 failure、
+     artifact frontend-functional-browser-diagnostics-shard-2（179B 探针文件）可下载；
+  2) 分类探针失败：shard job skipped、聚合 failure；
+  3) 需执行却跳过（matrix if 破坏）：分类 success、shard skipped、聚合 failure。
+  取消场景：聚合对 cancelled fail-closed 有单元测试，平台取消行为另有 #190 的
+  16:04 cancelled 运行实录，未做专门注入（注入 3 形态下运行 1 分钟内结束无法中途取消）。
+- PR #192 合并冲突随 P0 一并解决（merge P0 head）；首次远端分片运行全绿。
+
+### 对照测量（同一测试源码/锁版本，事件均 pull_request）
+
+- 串行（PR #191，单 job 17 分钟档）：样本1 17m06s（run 37134433083）；
+  样本2 17m14s（run 37136799660，merge main 后）；样本3 rerun 进行中。
+- 分片（PR #192）：样本1 必需检查总等待 10m04s（分类 9s + shard1 8m53s 含辅助 +
+  shard2 7m58s + 聚合 7s，串行等待口径为 job 开始→聚合完成）；
+  runner 分钟合计 17m07s（分类+两片+聚合），与串行 17.1 分钟比率 1.00；
+  样本2/3 rerun 进行中。
+- 汇总文件 /private/tmp/ci-opt-sharding-comparison-20261004.json 持续更新。
