@@ -387,9 +387,7 @@ async def test_api_rollback_requires_body_fields(async_client, api_project_entit
     novel_id, entity = api_project_entity
     url = f"/api/world/entities/{entity['id']}/rollback-by-revision?novel_id={novel_id}"
 
-    missing_baseline = await async_client.post(
-        url, json={"revision_id": "0" * 32}
-    )
+    missing_baseline = await async_client.post(url, json={"revision_id": "0" * 32})
     assert missing_baseline.status_code == 422
 
     missing_revision = await async_client.post(

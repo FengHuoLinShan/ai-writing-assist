@@ -23,9 +23,7 @@ async def test_no_drafts_returns_zero(db_session, test_project_id: str) -> None:
 async def test_whitespace_only_drafts_do_not_count(
     db_session, test_project_id: str
 ) -> None:
-    await create_published_draft_only(
-        db_session, test_project_id, 1, "第一章", "　\n \t"
-    )
+    await create_published_draft_only(db_session, test_project_id, 1, "第一章", "　\n \t")
     await create_published_draft_only(db_session, test_project_id, 2, "第二章", "")
 
     assert await get_latest_effective_chapter_index(db_session, test_project_id) == 0
@@ -64,7 +62,9 @@ async def test_latest_working_version_decides_substantive(
 
 
 @pytest.mark.asyncio
-async def test_isolated_by_novel(db_session, test_project_id: str, project_factory) -> None:
+async def test_isolated_by_novel(
+    db_session, test_project_id: str, project_factory
+) -> None:
     other_project = str(await project_factory.create_project(title="另一本书"))
     await create_published_draft_only(
         db_session, test_project_id, 4, "第四章", "本书正文"

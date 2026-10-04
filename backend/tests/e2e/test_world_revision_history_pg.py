@@ -170,7 +170,7 @@ async def test_map_trigger_protects_new_columns(
     """地图内容保护触发器覆盖 change_summary 与 writing_chapter_index。"""
     mrid = await _insert_map_revision(db_session, seeded_novel, status="saved")
     for assignment in (
-        "change_summary = '{\"fields\": [\"x\"]}'::json",
+        'change_summary = \'{"fields": ["x"]}\'::json',
         "writing_chapter_index = 5",
     ):
         # savepoint 隔离每次失败尝试：异常只回滚 savepoint，
@@ -178,9 +178,7 @@ async def test_map_trigger_protects_new_columns(
         with pytest.raises(DBAPIError):
             async with db_session.begin_nested():
                 await db_session.execute(
-                    text(
-                        f"UPDATE map_atlas_revisions SET {assignment} WHERE id = :rid"
-                    ),
+                    text(f"UPDATE map_atlas_revisions SET {assignment} WHERE id = :rid"),
                     {"rid": mrid},
                 )
 
@@ -219,7 +217,6 @@ async def test_change_history_union_and_cursor_pagination(
     assert len(body["items"]) == 2
     assert body["next_cursor"], "还有更多记录"
 
-    kinds = [item["kind"] for item in body["items"]]
     times = [item["created_at"] for item in body["items"]]
     assert times == sorted(times, reverse=True), "按时间倒序"
 
@@ -227,8 +224,7 @@ async def test_change_history_union_and_cursor_pagination(
     cursor = body["next_cursor"]
     while cursor:
         page = await async_client.get(
-            f"/api/world/change-history?novel_id={seeded_novel}"
-            f"&cursor={cursor}&limit=2"
+            f"/api/world/change-history?novel_id={seeded_novel}&cursor={cursor}&limit=2"
         )
         assert page.status_code == 200, page.text
         collected.extend(page.json()["items"])
@@ -243,9 +239,9 @@ async def test_change_history_union_and_cursor_pagination(
     assert len(map_entries) == 1, "带确认标记的地图保存行不应进时间线"
 
     entity_entries = [item for item in collected if item["kind"] == "entity"]
-    assert any(
-        item["changed_fields"] for item in entity_entries
-    ), "实体编辑应带改动字段（本环境写作进度可能为 0，但 diff 应存在）"
+    assert any(item["changed_fields"] for item in entity_entries), (
+        "实体编辑应带改动字段（本环境写作进度可能为 0，但 diff 应存在）"
+    )
 
 
 async def test_rollback_same_baseline_second_attempt_409(
@@ -274,8 +270,7 @@ async def test_rollback_same_baseline_second_attempt_409(
     assert revisions.status_code == 200, revisions.text
     target = revisions.json()["items"][0]["revision_id"]
     url = (
-        f"/api/world/entities/{entity['id']}/rollback-by-revision"
-        f"?novel_id={seeded_novel}"
+        f"/api/world/entities/{entity['id']}/rollback-by-revision?novel_id={seeded_novel}"
     )
 
     first = await async_client.post(

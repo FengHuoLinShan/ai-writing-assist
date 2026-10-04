@@ -622,9 +622,7 @@ class WorldValidationRun(Base, UUIDMixin, TimestampMixin, NovelMixin):
         ),
         Index("ix_world_validation_runs_novel_created", "novel_id", "created_at"),
         Index("ix_world_validation_runs_novel_status", "novel_id", "status"),
-        UniqueConstraint(
-            "novel_id", "id", name="uq_world_validation_runs_novel_id"
-        ),
+        UniqueConstraint("novel_id", "id", name="uq_world_validation_runs_novel_id"),
         {"comment": "World Bible deterministic and semantic validation receipts"},
     )
 
