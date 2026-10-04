@@ -45,16 +45,20 @@ export const ENTITY_REVISION_FIELD_LABELS = {
   status: "状态",
 }
 
-/** 世界书页面改动字段的作者叫法；后端未收录的键回落到 fallback。 */
+/** 世界书页面改动字段的作者叫法；值域来自页面发布快照（去 _json 后缀），后端未收录的键回落到 fallback。 */
 export const PAGE_REVISION_FIELD_LABELS = {
+  page_type: "页面类型",
+  page_key: "页面标识",
   title: "标题",
-  summary: "页面概览",
-  overview: "页面概览",
+  status: "状态",
+  page_meta: "页面设置",
   free_text: "正文",
   sections: "分区",
-  category: "分类",
-  visible_scope: "可见范围",
-  status: "状态",
+  linked_asset_refs: "关联资料",
+  activation_defaults: "引用设置",
+  template_key: "模板",
+  template_version: "模板版本",
+  sort_order: "排序",
 }
 
 /** importance_level 内部枚举 → 作者语言。 */
