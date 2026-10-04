@@ -9,6 +9,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import NotFoundError
+from modules.world.asset_state import ARCHIVED_DISPLAY_STATUSES
 from modules.world.models import EntityRevision, TextArchive
 from modules.world.repositories import CoreEntityRepository, EntityRevisionRepository
 from modules.world.revision_history_schemas import (
@@ -259,7 +260,7 @@ class EntityRevisionService:
           一条修订推算（本页相邻行；页首额外读一条更新的修订），并标
           ``changed_fields_exact=False``；
         - ``restored_from_revision_id`` 只从 ``change_summary`` 读；
-        - ``can_restore`` 按实体当前状态（deprecated 实体不给恢复）。
+        - ``can_restore`` 按实体当前状态（作者态 archived 的实体不给恢复）。
         """
         eid = parse_uuid(entity_id, "entity_id")
         nid = parse_uuid(novel_id, "novel_id")
@@ -296,7 +297,11 @@ class EntityRevisionService:
             [str(r.id) for r in revisions],
         )
         current_state = entity_state_dict(entity)
-        can_restore = entity.status != "deprecated"
+        # 与改动记录的「已移除」同一口径：作者态投影为 archived 的实体
+        # （deprecated/ignored/merged 等）不提供按修订恢复，提示先恢复对象。
+        can_restore = (
+            str(entity.status or "").strip().lower() not in ARCHIVED_DISPLAY_STATUSES
+        )
 
         items: list[EntityRevisionItem] = []
         for index, revision in enumerate(revisions):

@@ -334,3 +334,198 @@ async def test_note_writes_settle_and_are_idempotent(
     )
     assert deleted.status_code == 200
     assert deleted.json()["note"] is None
+
+
+async def test_concurrent_first_note_writes_settle() -> None:
+    """两个连接并发首次补写同一条备注：都不报错，收敛到唯一行。
+
+    写者 A 先落备注但保持事务打开；写者 B 的插入阻塞在唯一索引上，
+    A 提交后 B 撞约束，经 savepoint 转为更新先落库的那一行。
+    """
+    import asyncio
+
+    from sqlalchemy import delete
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from modules.project.models import Project
+    from modules.world.models import WorldRevisionNote
+    from modules.world.services.revision_notes import set_revision_note
+    from tests.e2e.config import DATABASE_URL
+
+    engine = create_async_engine(DATABASE_URL, pool_size=3, max_overflow=0)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    novel_id = uuid.uuid4()
+    try:
+        eid = uuid.uuid4()
+        rid = uuid.uuid4()
+        async with sessions.begin() as db:
+            db.add(Project(id=novel_id, title="revision note concurrency"))
+            db.add(
+                CoreEntity(
+                    id=eid,
+                    novel_id=novel_id,
+                    entity_type="character",
+                    name="并发备注对象",
+                    status="canonical",
+                )
+            )
+            db.add(
+                EntityRevision(
+                    id=rid,
+                    novel_id=novel_id,
+                    entity_id=eid,
+                    snapshot={"entity_type": "character", "name": "并发备注对象"},
+                    revision_reason="manual_update",
+                )
+            )
+
+        a_flushed = asyncio.Event()
+        release_a = asyncio.Event()
+
+        async def writer_a() -> str:
+            async with sessions() as db:
+                async with db.begin():
+                    result = await set_revision_note(
+                        db, str(novel_id), "entity", str(rid), "A 的备注"
+                    )
+                    a_flushed.set()
+                    await release_a.wait()
+                    return str(result.note)
+
+        async def writer_b() -> str:
+            await a_flushed.wait()
+            async with sessions() as db:
+                async with db.begin():
+                    result = await set_revision_note(
+                        db, str(novel_id), "entity", str(rid), "B 的备注"
+                    )
+                    return str(result.note)
+
+        task_a = asyncio.create_task(writer_a())
+        task_b = asyncio.create_task(writer_b())
+        await asyncio.sleep(0.2)
+        assert not task_b.done(), "B 应阻塞在 A 的唯一索引项上，而不是先行完成"
+        release_a.set()
+        notes = await asyncio.gather(task_a, task_b)
+        assert notes == ["A 的备注", "B 的备注"]
+
+        async with sessions() as db:
+            note = (
+                await db.execute(
+                    text(
+                        "SELECT note FROM world_revision_notes "
+                        "WHERE novel_id = :nid AND revision_id = :rid"
+                    ),
+                    {"nid": novel_id, "rid": rid},
+                )
+            ).scalar_one()
+        assert note == "B 的备注", "后到方的更新胜出，且收敛到唯一行"
+    finally:
+        async with sessions.begin() as db:
+            await db.execute(
+                delete(WorldRevisionNote).where(WorldRevisionNote.novel_id == novel_id)
+            )
+            await db.execute(
+                delete(EntityRevision).where(EntityRevision.novel_id == novel_id)
+            )
+            await db.execute(delete(CoreEntity).where(CoreEntity.novel_id == novel_id))
+            await db.execute(delete(Project).where(Project.id == novel_id))
+        await engine.dispose()
+
+
+async def test_concurrent_rollback_same_baseline_exactly_one_wins() -> None:
+    """同一基线并发恢复：行锁串行化，恰好一个成功、另一个 409，结果保留。"""
+    import asyncio
+
+    from sqlalchemy import delete
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from core.errors import ConflictError
+    from modules.project.models import Project
+    from modules.world.services.core.entity_service import WorldEntityService
+    from tests.e2e.config import DATABASE_URL
+
+    engine = create_async_engine(DATABASE_URL, pool_size=3, max_overflow=0)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    novel_id = uuid.uuid4()
+    try:
+        eid = uuid.uuid4()
+        rid = uuid.uuid4()
+        async with sessions.begin() as db:
+            db.add(Project(id=novel_id, title="rollback concurrency"))
+            db.add(
+                CoreEntity(
+                    id=eid,
+                    novel_id=novel_id,
+                    entity_type="character",
+                    name="恢复后的名字",
+                    status="canonical",
+                )
+            )
+            db.add(
+                EntityRevision(
+                    id=rid,
+                    novel_id=novel_id,
+                    entity_id=eid,
+                    snapshot={"entity_type": "character", "name": "恢复前的名字"},
+                    revision_reason="manual_update",
+                )
+            )
+
+        async with sessions() as db:
+            baseline = (await db.get(CoreEntity, eid)).updated_at
+
+        service = WorldEntityService()
+        winner_flushed = asyncio.Event()
+        release_winner = asyncio.Event()
+
+        async def winner():
+            async with sessions() as db:
+                async with db.begin():
+                    result = await service.rollback_to_revision(
+                        db,
+                        str(eid),
+                        str(rid),
+                        novel_id=str(novel_id),
+                        expected_updated_at=baseline,
+                    )
+                    winner_flushed.set()
+                    await release_winner.wait()
+                    return result
+
+        async def loser() -> str:
+            await winner_flushed.wait()
+            try:
+                async with sessions() as db:
+                    async with db.begin():
+                        await service.rollback_to_revision(
+                            db,
+                            str(eid),
+                            str(rid),
+                            novel_id=str(novel_id),
+                            expected_updated_at=baseline,
+                        )
+                return "ok"
+            except ConflictError:
+                return "conflict"
+
+        winner_task = asyncio.create_task(winner())
+        loser_task = asyncio.create_task(loser())
+        await asyncio.sleep(0.2)
+        assert not loser_task.done(), "后到方应阻塞在行锁上，而不是与胜者并发通过"
+        release_winner.set()
+        winner_result, loser_result = await asyncio.gather(winner_task, loser_task)
+        assert winner_result.name == "恢复前的名字"
+        assert loser_result == "conflict"
+
+        async with sessions() as db:
+            stored = await db.get(CoreEntity, eid)
+            assert stored.name == "恢复前的名字", "胜者的恢复结果保留"
+    finally:
+        async with sessions.begin() as db:
+            await db.execute(
+                delete(EntityRevision).where(EntityRevision.novel_id == novel_id)
+            )
+            await db.execute(delete(CoreEntity).where(CoreEntity.novel_id == novel_id))
+            await db.execute(delete(Project).where(Project.id == novel_id))
+        await engine.dispose()

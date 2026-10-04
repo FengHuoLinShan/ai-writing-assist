@@ -583,7 +583,7 @@ upsert；调用方不应再实现“先查再插”的并发控制。关系复�
 
 - 原用于实体快照版本管理；阶段 0 起每条快照携带 `writing_chapter_index`（打快照时的写作进度，0=尚无正文，NULL=旧记录）与 `change_summary`（改动字段摘要，含 `restored_from_revision_id`），两列可事后 UPDATE（无触发器）。
 - `POST /api/world/entities/{entity_id}/rollback` 是按 Scene 的版本回滚路由，请求体：`{ "target_scene_index": 12 }`；由 `EntityRevisionService.rollback_to_scene_index` 实现，优先使用 `TextArchive`，无归档时回退到最近 `EntityRevision`。
-- `POST /api/world/entities/{entity_id}/rollback-by-revision` 把实体恢复到指定修订（那次改动之前）：请求体 `{ "revision_id", "expected_updated_at" }`，内部统一走 `WorldEntityService.update()`，编辑基线、Canon 写入门禁、别名规范化与失效链照常执行（基线过期 409）；不恢复 status；恢复前的快照 reason 为 `rollback` 并记录来源修订。已移除（deprecated）的实体不提供恢复。
+- `POST /api/world/entities/{entity_id}/rollback-by-revision` 把实体恢复到指定修订（那次改动之前）：请求体 `{ "revision_id", "expected_updated_at" }`，内部统一走 `WorldEntityService.update()`，编辑基线、Canon 写入门禁、别名规范化与失效链照常执行（基线过期 409）；不恢复 status；恢复前的快照 reason 为 `rollback` 并记录来源修订。作者态投影为已归档（deprecated/ignored/merged 等，见 `asset_state.py`）的实体不提供恢复，与改动记录的「已移除」同口径。
 - `GET /api/world/entities/{entity_id}/revisions` 返回强类型改动历史：时间（带时区）、原因、写作进度、改动字段（缺保存记录时由相邻修订推算并标 `changed_fields_exact=false`）、备注、改动前快照与 `can_restore`。
 - 快照失败语义：手动编辑与采用的前置快照失败即整体失败（实体保持不变）；`promote()` 快照 reason 为 `manual_promote`；删除前的快照保持尽力而为（删除只是软废弃，内容仍在原行，不因历史写失败而拦住删除）。
 - `EntityRevisionService` 同时承担快照写入、改动历史读取与 Scene 回滚实现，不应再被描述为仅 read/compat。
@@ -591,7 +591,7 @@ upsert；调用方不应再实现“先查再插”的并发控制。关系复�
 ### 世界修订备注与改动记录（阶段 0）
 
 - `world_revision_notes` 表承载实体/页面/地图修订历史的事后补写备注：`(novel_id, target_kind, revision_id)` 唯一，`target_kind ∈ entity/page/map`；`revision_id` 无外键（一列指向三张修订表），归属校验在服务层。
-- `PUT /api/world/revision-notes?novel_id=` 补写/修改/删除备注（空串删除，≤500 字，重复写幂等）。跨作品 404；地图候选版本（status≠saved）返回 **409**，只有已保存的版本支持备注。
+- `PUT /api/world/revision-notes?novel_id=` 补写/修改/删除备注（空串删除，≤500 字，重复写幂等；并发首次补写同一条备注时后到方经 savepoint 转为更新，不报错）。跨作品 404；地图候选版本（status≠saved）返回 **409**，只有已保存的版本支持备注。
 - `GET /api/world/change-history?novel_id=&kinds=&cursor=&limit=` 是世界改动记录时间线：SQL 内三段 UNION ALL（实体全量修订、页面发布、地图仅 saved 且无 confirmation_id 的保存行）+ LEFT JOIN 备注表，按 `(created_at, kind, id)` 倒序 keyset 游标翻页（坏游标 422，limit 1–50 默认 30，不返回总数）。时间线不收录模板、简介、实体新建与 Canon 回退。
 
 ### AI 地图册表

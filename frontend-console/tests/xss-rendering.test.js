@@ -244,3 +244,91 @@ describe("world bible history modal assembly", () => {
     resetBridgeOverrides()
   })
 })
+
+describe("page revision note editing", () => {
+  function productionEsc(str) {
+    if (str === null || str === undefined) return ""
+    const s = String(str)
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;")
+  }
+
+  const revision = {
+    id: "rev-page-1",
+    version_number: 2,
+    revision_reason: "manual_publish",
+    created_at: new Date().toISOString(),
+    changed_fields: ["free_text"],
+    change_note: "",
+    writing_chapter_index: 3,
+    snapshot_json: { free_text: "正文" },
+  }
+
+  function makeActions(api) {
+    const context = {
+      api,
+      projectId: ref("p1"),
+      activePage: computed(() => ({ id: "page-1" })),
+      pageTemplates: computed(() => []),
+      ownsProject: () => true,
+      ownsPage: () => true,
+      taskStatusLabel: (status) => `状态:${status}`,
+      restoreSynopsis: () => {},
+      restorePageRevision: () => {},
+      applyRestoredTemplate: () => {},
+    }
+    return createWorldBibleHistory(context)
+  }
+
+  beforeEach(() => {
+    document.body.innerHTML = `
+      <div id="modal-overlay" class="hidden">
+        <div id="modal-content">
+          <div id="modal-title"></div>
+          <div id="modal-body"></div>
+          <div id="modal-footer"></div>
+        </div>
+      </div>
+    `
+  })
+
+  it("补写备注：成功回显与提示；失败保留输入并提示；空串删除", async () => {
+    const api = {
+      world: {
+        listBiblePageRevisions: vi.fn(async () => [revision]),
+        setRevisionNote: vi.fn(async (payload) => ({ ...payload, updated_at: "2026-10-04T00:00:00Z" })),
+      },
+    }
+    const toast = vi.fn()
+    setBridgeOverrides({ api, esc: productionEsc, toast })
+    const actions = makeActions(api)
+    await actions.openPageHistory()
+    const body = document.getElementById("modal-body")
+    expect(body.textContent).toContain("写到第 3 章时")
+
+    body.querySelector("[data-note-edit='rev-page-1']").dispatchEvent(new Event("click"))
+    const input = body.querySelector("[data-note-input='rev-page-1']")
+    expect(input).not.toBeNull()
+    input.value = "初版定稿备注"
+    body.querySelector("[data-note-save='rev-page-1']").dispatchEvent(new Event("click"))
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(api.world.setRevisionNote).toHaveBeenCalledWith(
+      { target_kind: "page", revision_id: "rev-page-1", note: "初版定稿备注" },
+      "p1",
+    )
+    expect(toast).toHaveBeenCalledWith("备注已保存", "success")
+    expect(body.textContent).toContain("备注：初版定稿备注")
+
+    api.world.setRevisionNote.mockRejectedValueOnce(new Error("服务暂不可用"))
+    body.querySelector("[data-note-edit='rev-page-1']").dispatchEvent(new Event("click"))
+    const again = body.querySelector("[data-note-input='rev-page-1']")
+    again.value = "会失败的备注"
+    body.querySelector("[data-note-save='rev-page-1']").dispatchEvent(new Event("click"))
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(body.textContent).toContain("服务暂不可用")
+    expect(again.value).toBe("会失败的备注")
+    resetBridgeOverrides()
+  })
+})

@@ -7,7 +7,7 @@
 - 地图只有已保存（``status='saved'``）的版本能写备注；候选版本返回 409
   （路由语义见 README 路由表，实现取 409）。
 - 备注去掉首尾空白，最多 500 字；空串表示删除。
-- 重复写入同样内容是幂等的。
+- 重复写入同样内容是幂等的；并发首次补写同一条备注时后到方转为更新，不报错。
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ import uuid
 from datetime import UTC, datetime
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, NotFoundError, ValidationError
@@ -137,19 +138,31 @@ async def set_revision_note(
             updated_at=datetime.now(UTC),
         )
 
+    saved = None
     if existing is None:
-        existing = WorldRevisionNote(
+        new_note = WorldRevisionNote(
             novel_id=nid,
             target_kind=kind,
             revision_id=rid,
             note=cleaned,
         )
-        db.add(existing)
+        try:
+            async with db.begin_nested():
+                db.add(new_note)
+                await db.flush()
+            saved = new_note
+        except IntegrityError:
+            # 并发首次补写同一条备注：后到方撞唯一约束，改为更新先落库的那一行。
+            competing = (await db.execute(stmt)).scalar_one()
+            competing.note = cleaned
+            await db.flush()
+            saved = competing
     else:
         existing.note = cleaned
-    await db.flush()
+        await db.flush()
+        saved = existing
 
-    updated_at = existing.updated_at or datetime.now(UTC)
+    updated_at = saved.updated_at or datetime.now(UTC)
     return RevisionNoteResponse(
         target_kind=kind,
         revision_id=str(rid),

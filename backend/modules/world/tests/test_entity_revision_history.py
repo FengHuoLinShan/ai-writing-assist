@@ -419,3 +419,29 @@ async def test_estimated_boundary_reads_adjacent_newer_revision(
     assert page3.items[0].revision_id == full.items[2].revision_id
     assert page3.items[0].changed_fields == full.items[2].changed_fields
     assert page2.items[0].changed_fields_exact is False
+
+
+async def test_can_restore_false_for_archived_display_statuses(
+    db_session, project_novel_id: str
+) -> None:
+    """作者态 archived（ignored/merged 等）与改动记录「已移除」同口径，不给恢复。"""
+    from modules.world.services.core.entity_revision_service import (
+        EntityRevisionService,
+    )
+
+    for status in ("ignored", "merged", "deprecated"):
+        entity = await _make_entity(db_session, project_novel_id, status=status)
+        db_session.add(
+            EntityRevision(
+                novel_id=uuid.UUID(project_novel_id),
+                entity_id=entity.id,
+                snapshot={"entity_type": entity.entity_type, "name": entity.name},
+                revision_reason="manual_update",
+            )
+        )
+        await db_session.flush()
+        response = await EntityRevisionService().get_revisions(
+            db_session, str(entity.id), project_novel_id
+        )
+        assert response.items, status
+        assert all(item.can_restore is False for item in response.items), status

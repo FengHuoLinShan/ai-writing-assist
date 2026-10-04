@@ -31,8 +31,12 @@
   function queryString(query = {}) {
     const parts = []
     for (const [key, value] of Object.entries(query || {})) {
-      if (value !== undefined && value !== null && value !== "") {
-        parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`)
+      // 后端 list 型 query 参数只按重复键解析（逗号拼接会被 pydantic 当成单个值拒绝）。
+      const values = Array.isArray(value) ? value : [value]
+      for (const item of values) {
+        if (item !== undefined && item !== null && item !== "") {
+          parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(item))}`)
+        }
       }
     }
     return parts.length ? `?${parts.join("&")}` : ""
