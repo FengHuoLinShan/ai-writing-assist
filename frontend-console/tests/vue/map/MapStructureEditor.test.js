@@ -33,7 +33,7 @@ describe("统一地图编辑器", () => {
       previewMapReview: vi.fn(async (_project, _node, candidate, payload) => ({ candidate_revision_id: candidate, base_revision_id: payload.base_revision_id, applied_change_keys: payload.change_keys, expanded_change_keys: [] })),
       generateMapStructure: vi.fn(async () => ({ task_id: "task-1", status: "pending" })),
       reviewMapRevision: vi.fn(),
-      setRevisionNote: vi.fn(async payload => ({ target_kind: payload.targetKind, revision_id: payload.revisionId, note: payload.note, updated_at: "2026-10-04T00:00:00Z" })),
+      setRevisionNote: vi.fn(async payload => ({ ...payload, updated_at: "2026-10-04T00:00:00Z" })),
       previewReaderMap: vi.fn(),
       fetchReaderMapImage: vi.fn(async () => new Blob(["safe"])),
       fetchMapAtlasImage: vi.fn(async () => new Blob(["image"])),
@@ -948,7 +948,7 @@ describe("统一地图编辑器", () => {
     await savedRow.get('[data-map-note-edit]').trigger('click')
     await savedRow.get('[data-map-note-input]').setValue('  改了河道走向  ')
     await savedRow.get('[data-map-note-save]').trigger('click'); await flushPromises()
-    expect(api.world.setRevisionNote).toHaveBeenCalledWith({ targetKind: 'map', revisionId: '40000000-0000-0000-0000-000000000010', note: '改了河道走向' }, projectId)
+    expect(api.world.setRevisionNote).toHaveBeenCalledWith({ target_kind: 'map', revision_id: '40000000-0000-0000-0000-000000000010', note: '改了河道走向' }, projectId)
     expect(toast).toHaveBeenCalledWith('备注已保存', 'success')
     expect(savedRow.text()).toContain('备注：改了河道走向')
 

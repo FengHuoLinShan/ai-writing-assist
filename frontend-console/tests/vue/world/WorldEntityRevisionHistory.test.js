@@ -56,7 +56,7 @@ beforeEach(() => {
     world: {
       getEntityRevisions: vi.fn(async () => ({ items: [revision()], total: 1, skip: 0, limit: 20, current_updated_at: entity.updated_at })),
       rollbackEntityToRevision: vi.fn(async () => ({ ...entity, summary: "雾港的调查员", hidden_truth: "暗桩" })),
-      setRevisionNote: vi.fn(async (payload) => ({ target_kind: payload.targetKind, revision_id: payload.revisionId, note: payload.note, updated_at: "2026-10-04T03:00:00Z" })),
+      setRevisionNote: vi.fn(async (payload) => ({ ...payload, updated_at: "2026-10-04T03:00:00Z" })),
     },
   }
   setBridgeOverrides({ api, toast })
@@ -135,7 +135,7 @@ describe("WorldEntityRevisionHistory 备注", () => {
     await wrapper.get("[data-note-save='rev-1']").trigger("click")
     await flushPromises()
     expect(api.world.setRevisionNote).toHaveBeenCalledWith(
-      { targetKind: "entity", revisionId: "rev-1", note: "这章改了身份" },
+      { target_kind: "entity", revision_id: "rev-1", note: "这章改了身份" },
       "p1",
     )
     expect(toast).toHaveBeenCalledWith("备注已保存", "success")
@@ -158,7 +158,7 @@ describe("WorldEntityRevisionHistory 备注", () => {
     await wrapper.get("[data-note-save='rev-1']").trigger("click")
     await flushPromises()
     expect(api.world.setRevisionNote).toHaveBeenCalledWith(
-      { targetKind: "entity", revisionId: "rev-1", note: "" },
+      { target_kind: "entity", revision_id: "rev-1", note: "" },
       "p1",
     )
     expect(wrapper.text()).not.toContain("备注：")
@@ -181,7 +181,7 @@ describe("WorldEntityRevisionHistory 恢复", () => {
     await flushPromises()
     expect(api.world.rollbackEntityToRevision).toHaveBeenCalledWith(
       "entity-1",
-      { revisionId: "rev-1", expectedUpdatedAt: "2026-10-04T02:00:00Z" },
+      { revision_id: "rev-1", expected_updated_at: "2026-10-04T02:00:00Z" },
       "p1",
     )
     expect(toast).toHaveBeenCalledWith("已恢复，并记下了这次恢复", "success")

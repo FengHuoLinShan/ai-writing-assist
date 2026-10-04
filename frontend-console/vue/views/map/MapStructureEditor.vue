@@ -406,7 +406,7 @@ async function saveMapNote(item) {
   if (note.length > 500) { noteError.value = '备注最多 500 字'; return }
   noteSaving.value = true; noteError.value = ''
   try {
-    await api.world.setRevisionNote({ targetKind: 'map', revisionId: item.id, note }, props.projectId)
+    await api.world.setRevisionNote({ target_kind: 'map', revision_id: item.id, note }, props.projectId)
     item.change_note = note || null
     cancelMapNote()
     getToast()('备注已保存', 'success')

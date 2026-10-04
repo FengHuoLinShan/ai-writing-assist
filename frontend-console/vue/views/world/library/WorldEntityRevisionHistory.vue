@@ -203,7 +203,7 @@ async function saveNote(revision) {
   noteSaving.value = true
   delete noteErrors[revision.revision_id]
   try {
-    await getApi().world.setRevisionNote({ targetKind: "entity", revisionId: revision.revision_id, note }, props.projectId)
+    await getApi().world.setRevisionNote({ target_kind: "entity", revision_id: revision.revision_id, note }, props.projectId)
     revision.change_note = note || null
     cancelNote(revision)
     getToast()("备注已保存", "success")
@@ -330,7 +330,7 @@ async function confirmRestore(revision) {
   try {
     await getApi().world.rollbackEntityToRevision(
       entityId.value,
-      { revisionId: revision.revision_id, expectedUpdatedAt: props.entity?.updated_at || null },
+      { revision_id: revision.revision_id, expected_updated_at: props.entity?.updated_at || null },
       props.projectId,
     )
     cancelRestore()
