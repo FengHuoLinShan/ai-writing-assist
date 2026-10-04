@@ -51,6 +51,11 @@ from modules.world.relation_schemas import (
     WorldRelationMembershipBatchRequest,
     WorldRelationMembershipBatchResponse,
 )
+from modules.world.revision_history_schemas import (
+    RevisionNoteResponse,
+    RevisionNoteUpdateRequest,
+    WorldChangeHistoryResponse,
+)
 from modules.world.schemas import (
     AliasKind,
     AskWorldCitationOpenRequest,
@@ -234,6 +239,8 @@ from modules.world.services import (
 )
 from modules.world.services.core.dedup_service import EntityDedupService
 from modules.world.services.core.review_queue import review_type_catalog
+from modules.world.services.revision_history_service import WorldChangeHistoryService
+from modules.world.services.revision_notes import set_revision_note
 from modules.world.services.worldbuilding.adoption_package_service import (
     WorldAdoptionPackageService,
 )
@@ -380,6 +387,7 @@ _world_impact_service = WorldImpactService()
 _world_authority_service = WorldAuthorityService()
 _world_library_service = WorldLibraryService()
 _cocreation_session_service = WorldCocreationSessionService()
+_change_history_service = WorldChangeHistoryService()
 
 
 async def _require_active_novel_id(
@@ -3714,6 +3722,52 @@ async def seed_entity_text_archive(
         entity_id=entity_id,
         field_name=data.field_name,
         archive_id=str(archive.id),
+    )
+
+
+# ============================================================
+# 世界改动记录 / 修订备注 路由（路线图阶段 0）
+# ============================================================
+
+
+@router.get("/change-history", response_model=WorldChangeHistoryResponse)
+async def list_world_change_history(
+    db: DbSession,
+    *,
+    novel_id: ActiveNovelIdQuery,
+    kinds: list[Literal["entity", "page", "map"]] | None = Query(
+        default=None, description="按类型筛选，可重复传：entity/page/map"
+    ),
+    cursor: str | None = Query(default=None, description="翻页游标（不透明 base64）"),
+    limit: int = Query(
+        default=30,
+        ge=1,
+        le=50,
+        description="每页条数（1–50，默认 30）",
+    ),
+) -> WorldChangeHistoryResponse:
+    return await _change_history_service.list(
+        db,
+        novel_id=novel_id,
+        kinds=kinds,
+        cursor=cursor,
+        limit=limit,
+    )
+
+
+@router.put("/revision-notes", response_model=RevisionNoteResponse)
+async def put_revision_note(
+    db: DbSession,
+    data: RevisionNoteUpdateRequest,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> RevisionNoteResponse:
+    return await set_revision_note(
+        db,
+        novel_id,
+        data.target_kind,
+        data.revision_id,
+        data.note,
     )
 
 
