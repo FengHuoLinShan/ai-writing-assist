@@ -3,7 +3,7 @@ id: T-20261004-ask-world-quality
 title: 问世界观模型质量诊断收尾（旧 WIP 迁移、语义审查层、校准与入口验收）
 status: completed
 created: 2026-10-04T00:00:00+09:00
-updated: 2026-10-05T00:11:04+09:00
+updated: 2026-10-05T12:00:00+09:00
 ---
 
 # 问世界观模型质量诊断收尾
@@ -35,6 +35,11 @@ updated: 2026-10-05T00:11:04+09:00
 - 下一步：无必需剩余工作。若用户授权提交/PR，按最终本地差异交付并重跑提交态门禁；当前不自动提交。
   四类真实浏览器验收已通过，见 `artifacts/browser-acceptance-result.json`；窄屏390×844通过并已复原。
   本轮62次付费请求全部有用量结算，估算0.036511773美元，保守计价0.1045965美元；旧28条与CLI教师费用仍未知。
+- 2026-10-05 提交授权兑现：用户授权提交/PR。本地差异按三个逻辑提交落盘（d9a71c774 生产修复与回归、
+  2714e5b13 语义审查层与数据集 v2/v3、24bb4e7c1 任务记录收据），推送 `codex/ask-world-quality` 并开
+  PR #196（未合并）。提交态重跑：`make repo-gates BASE_REF=origin/main` 通过、`make eval-ask-world`
+  exit 0、`make docs-check BASE_REF=origin/main` 以 architecture-governance no-change-reason 豁免通过
+  （理由同 PR 模板：仅新增手动非阻断 Make 目标与 eval/测试代码）。合并/部署仍待另行授权。
 - 2026-10-04 最新授权：用户明确“不设预算上限，继续做完”。预算阻塞解除；新费用账本记 cap_usd=null，
   旧28条因未记录用量/费用保持 unavailable，不伪造零费用。沿用已验证owner连接与同一累计费用记录。
   真人与作者反馈随后实际收到，分别保留本批核对与四项用途范围；不由Agent结果代填。
