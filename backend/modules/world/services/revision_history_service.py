@@ -9,7 +9,8 @@
   链接仍可跳转，名称仍可解析（实体行缺失时回退快照里的 name）。
 - 世界书页面发布：``world_bible_page_revisions``。
 - 地图保存：``map_atlas_revisions`` 只取 ``status='saved'`` 且
-  ``confirmation_id IS NULL`` 的行（整份采用 AI 候选产生的确认行不重复收录）。
+  ``confirmation_id IS NULL`` 的行（整份采用 AI 候选产生的确认行不重复收录）；
+  节点行已不存在时 ``target_state="removed"``，否则按节点状态投影为 active。
 
 排序键 ``(created_at, kind, id)`` 倒序；游标是不透明 base64 JSON，
 编码最后一条返回项的排序键，坏游标返回 422；``limit`` 1–50 默认 30，
@@ -198,7 +199,7 @@ def _map_segment(nid: uuid.UUID):
             MapAtlasRevision.id.label("revision_id"),
             MapAtlasRevision.node_id.label("target_id"),
             MapAtlasNode.title.label("title_current"),
-            null().label("target_status"),
+            MapAtlasNode.status.label("target_status"),
             null().label("snapshot"),
             null().label("reason"),
             MapAtlasRevision.created_at.label("created_at"),

@@ -194,9 +194,11 @@ async def test_three_kinds_merged_in_desc_order(
     ]
     map_item, page_item, entity_item = response.items
     assert map_item.target_title == "世界地图"
+    assert map_item.target_state == "active"
     assert map_item.reason is None
     assert map_item.version_number is None
     assert page_item.target_title == "页面甲"
+    assert page_item.target_state == "active"
     assert page_item.version_number == 1
     assert page_item.reason == "manual_publish"
     assert entity_item.target_title == "实体甲"
@@ -207,6 +209,32 @@ async def test_three_kinds_merged_in_desc_order(
     assert response.next_cursor is None
     for item in response.items:
         assert item.created_at.tzinfo is not None
+
+
+async def test_map_target_state_removed_when_node_deleted(
+    db_session: AsyncSession, project_novel_id: str
+) -> None:
+    """节点已删除的地图修订标 removed；节点仍在的标 active（不因地图类型误判）。"""
+    novel_id = project_novel_id
+    kept_rev = await _seed_map_revision(
+        db_session, novel_id, created_at=_ts(1), node_title="现存地图"
+    )
+    gone_rev = await _seed_map_revision(
+        db_session, novel_id, created_at=_ts(2), node_title="已删地图"
+    )
+    node = await db_session.get(MapAtlasNode, gone_rev.node_id)
+    assert node is not None
+    await db_session.delete(node)
+    await db_session.flush()
+
+    response = await _service.list(db_session, novel_id=novel_id)
+
+    by_revision = {item.revision_id: item for item in response.items}
+    assert by_revision[str(kept_rev.id)].target_title == "现存地图"
+    assert by_revision[str(kept_rev.id)].target_state == "active"
+    # 节点已删：标题无快照可回落为空，但状态必须如实标 removed。
+    assert by_revision[str(gone_rev.id)].target_title == ""
+    assert by_revision[str(gone_rev.id)].target_state == "removed"
 
 
 async def test_same_timestamp_order_is_stable(

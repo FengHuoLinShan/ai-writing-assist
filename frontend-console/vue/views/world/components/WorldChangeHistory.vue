@@ -1,6 +1,6 @@
 <template>
-  <div v-if="open" class="world-change-history-overlay" @keydown.escape="close">
-    <div class="world-change-history" role="dialog" aria-modal="true" aria-label="改动记录" tabindex="-1">
+  <div v-if="open" ref="overlayRef" class="world-change-history-overlay" @keydown="onKeydown" @focusin="onFocusin">
+    <div ref="dialogRef" class="world-change-history" role="dialog" aria-modal="true" aria-label="改动记录" tabindex="-1">
       <header class="world-change-history__header">
         <h2>改动记录</h2>
         <button type="button" class="btn-icon" aria-label="关闭改动记录" data-action="change-history-close" @click="close">×</button>
@@ -74,6 +74,7 @@
  */
 import { nextTick, ref, watch } from "vue"
 import { getApi, getRouter } from "../../../bridge/index.js"
+import { useModalDialog } from "../../../composables/useModalDialog.js"
 import { worldSession as session } from "../worldSession.js"
 import {
   formatChangedFields,
@@ -179,6 +180,11 @@ function close() {
   state.open = false
   emit("close")
 }
+
+const { overlayRef, dialogRef, onKeydown, onFocusin } = useModalDialog({
+  isOpen: () => props.open,
+  requestClose: close,
+})
 
 watch(() => [props.open, props.projectId], async ([open]) => {
   if (!open) return
