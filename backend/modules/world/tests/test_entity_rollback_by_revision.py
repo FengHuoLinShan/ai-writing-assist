@@ -13,6 +13,7 @@ from datetime import timedelta
 from unittest.mock import patch
 
 import pytest
+import pytest_asyncio
 from sqlalchemy import select
 
 from core.errors import ConflictError, NotFoundError
@@ -328,3 +329,124 @@ async def test_rollback_type_change_invalidates_asset_context(
     await db_session.refresh(entity)
     assert entity.entity_type == "character"
     assert updated.updated_at is not None
+
+
+# ============================================================
+# P2b：路由层断言（POST rollback-by-revision 走请求体）
+# ============================================================
+
+
+@pytest_asyncio.fixture
+async def api_project_entity(async_client):
+    """API 层测试用的项目与实体；实体经一次编辑产生修订。"""
+    project = await async_client.post("/api/projects", json={"title": "回滚路由测试"})
+    assert project.status_code == 201
+    novel_id = project.json()["id"]
+
+    created = await async_client.post(
+        f"/api/world/entities?novel_id={novel_id}",
+        json={"entity_type": "character", "name": "白砚", "summary": "初版摘要"},
+    )
+    assert created.status_code == 201
+    entity = created.json()
+    return novel_id, entity
+
+
+async def test_api_rollback_by_revision_with_body(async_client, api_project_entity):
+    """请求体携带 revision_id + expected_updated_at，成功恢复并返回实体。"""
+    novel_id, entity = api_project_entity
+
+    updated = await async_client.put(
+        f"/api/world/entities/{entity['id']}?novel_id={novel_id}",
+        json={"summary": "第二版", "expected_updated_at": entity["updated_at"]},
+    )
+    assert updated.status_code == 200
+    updated_body = updated.json()
+
+    revisions = await async_client.get(
+        f"/api/world/entities/{entity['id']}/revisions?novel_id={novel_id}"
+    )
+    assert revisions.status_code == 200
+    items = revisions.json()["items"]
+    assert items, "编辑后应有修订"
+    target_revision = items[0]["revision_id"]
+
+    rollback = await async_client.post(
+        f"/api/world/entities/{entity['id']}/rollback-by-revision?novel_id={novel_id}",
+        json={
+            "revision_id": target_revision,
+            "expected_updated_at": updated_body["updated_at"],
+        },
+    )
+    assert rollback.status_code == 200, rollback.text
+    assert rollback.json()["summary"] == "初版摘要"
+
+
+async def test_api_rollback_requires_body_fields(async_client, api_project_entity):
+    """缺 revision_id 或 expected_updated_at 返回 422。"""
+    novel_id, entity = api_project_entity
+    url = f"/api/world/entities/{entity['id']}/rollback-by-revision?novel_id={novel_id}"
+
+    missing_baseline = await async_client.post(
+        url, json={"revision_id": "0" * 32}
+    )
+    assert missing_baseline.status_code == 422
+
+    missing_revision = await async_client.post(
+        url, json={"expected_updated_at": entity["updated_at"]}
+    )
+    assert missing_revision.status_code == 422
+
+
+async def test_api_rollback_stale_baseline_409(async_client, api_project_entity):
+    """基线过期返回 409，且实体未被改动。"""
+    novel_id, entity = api_project_entity
+
+    updated = await async_client.put(
+        f"/api/world/entities/{entity['id']}?novel_id={novel_id}",
+        json={"summary": "第二版", "expected_updated_at": entity["updated_at"]},
+    )
+    assert updated.status_code == 200
+
+    revisions = await async_client.get(
+        f"/api/world/entities/{entity['id']}/revisions?novel_id={novel_id}"
+    )
+    target_revision = revisions.json()["items"][0]["revision_id"]
+
+    stale = await async_client.post(
+        f"/api/world/entities/{entity['id']}/rollback-by-revision?novel_id={novel_id}",
+        json={
+            "revision_id": target_revision,
+            "expected_updated_at": entity["updated_at"],  # 旧基线
+        },
+    )
+    assert stale.status_code == 409
+
+    current = await async_client.get(
+        f"/api/world/entities/{entity['id']}?novel_id={novel_id}"
+    )
+    assert current.json()["summary"] == "第二版"
+
+
+async def test_api_revisions_response_strong_typed(async_client, api_project_entity):
+    """GET revisions 返回强类型条目：时间带时区、含 snapshot/can_restore/进度。"""
+    novel_id, entity = api_project_entity
+
+    updated = await async_client.put(
+        f"/api/world/entities/{entity['id']}?novel_id={novel_id}",
+        json={"summary": "第二版", "expected_updated_at": entity["updated_at"]},
+    )
+    assert updated.status_code == 200
+
+    revisions = await async_client.get(
+        f"/api/world/entities/{entity['id']}/revisions?novel_id={novel_id}"
+    )
+    assert revisions.status_code == 200
+    body = revisions.json()
+    assert {"items", "total", "skip", "limit", "current_updated_at"} <= set(body)
+    item = body["items"][0]
+    assert item["created_at"].endswith("+00:00") or item["created_at"].endswith("Z")
+    assert item["snapshot"]["name"] == "白砚"
+    assert item["can_restore"] is True
+    assert "writing_chapter_index" in item
+    assert "changed_fields" in item

@@ -52,6 +52,8 @@ from modules.world.relation_schemas import (
     WorldRelationMembershipBatchResponse,
 )
 from modules.world.revision_history_schemas import (
+    EntityRevisionListResponse,
+    EntityRevisionRollbackRequest,
     RevisionNoteResponse,
     RevisionNoteUpdateRequest,
     WorldChangeHistoryResponse,
@@ -102,7 +104,6 @@ from modules.world.schemas import (
     EntityRelationReviewGroupListResponse,
     EntityRelationUpdate,
     EntityResolveAsAliasRequest,
-    EntityRevisionListResponse,
     EntityRollbackRequest,
     EntityRollbackResponse,
     EntityTypeCatalogResponse,
@@ -3641,14 +3642,13 @@ async def list_revisions(
     skip: int = Query(default=0, ge=0, description="跳过的记录数"),
     limit: int = Query(default=20, ge=1, le=100, description="每页条数"),
 ) -> EntityRevisionListResponse:
-    result = await _revision_service.get_revisions(
+    return await _revision_service.get_revisions(
         db,
         entity_id,
         novel_id,
         skip=skip,
         limit=limit,
     )
-    return EntityRevisionListResponse(items=result["items"], total=result["total"])
 
 
 @router.post("/entities/{entity_id}/rollback", response_model=EntityRollbackResponse)
@@ -3680,15 +3680,17 @@ async def rollback_entity(
 async def rollback_entity_by_revision(
     db: DbSession,
     entity_id: str,
-    revision_id: str = Query(..., description="目标版本 ID"),
+    data: EntityRevisionRollbackRequest,
     *,
     novel_id: ActiveNovelIdQuery,
 ) -> CoreEntityResponse:
-    return await _revision_service.rollback_to_revision(
+    """把实体恢复到指定修订（那次改动之前）的状态；基线过期返回 409。"""
+    return await _entity_service.rollback_to_revision(
         db,
         entity_id,
-        revision_id,
-        novel_id,
+        data.revision_id,
+        novel_id=novel_id,
+        expected_updated_at=data.expected_updated_at,
     )
 
 
