@@ -487,9 +487,11 @@ class WritingDraftRepository:
     ) -> int:
         """Return the largest chapter whose latest working version has substantive text.
 
-        Candidate chapters are scanned in descending order in bounded batches so a
-        long manuscript never loads every chapter body at once. Returns 0 when no
-        chapter has substantive prose yet (whitespace-only drafts do not count).
+        Candidate chapters are scanned in descending order in growing batches
+        (1, 4, 16, then at most 50): the common case reads only the newest chapter
+        body, and a long manuscript never loads every chapter body at once. Returns
+        0 when no chapter has substantive prose yet (whitespace-only drafts do not
+        count).
         """
         index_rows = await db.execute(
             select(WritingDraft.chapter_index)
@@ -502,9 +504,12 @@ class WritingDraftRepository:
         )
         chapter_indices = [row[0] for row in index_rows.all()]
 
-        batch_size = 50
-        for start in range(0, len(chapter_indices), batch_size):
+        start = 0
+        batch_size = 1
+        while start < len(chapter_indices):
             batch = chapter_indices[start : start + batch_size]
+            start += len(batch)
+            batch_size = min(batch_size * 4, 50)
             latest = (
                 select(
                     WritingDraft.chapter_index.label("chapter_index"),

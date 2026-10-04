@@ -38,6 +38,7 @@ from modules.world.schemas import (
 )
 from modules.world.services.common import parse_uuid
 from modules.world.services.core.entity_revision_service import (
+    UNSET,
     diff_revision_snapshots,
     entity_state_dict,
 )
@@ -474,13 +475,15 @@ class WorldEntityService(
         _revision_reason: str | None = None,
         _restored_from_revision_id: str | None = None,
         _clear_fields: frozenset[str] = frozenset(),
+        _writing_chapter_index: int | None | object = UNSET,
     ) -> CoreEntityResponse:
         """更新实体前打快照；类型转换时 snapshot 属于原子迁移契约。
 
         ``_`` 前缀参数仅内部使用：``_revision_reason`` 覆盖快照原因；
         ``_restored_from_revision_id`` 记入 change_summary；``_clear_fields``
         只允许三个可空文本列（summary/public_info/hidden_truth），用于把底层
-        更新会跳过的空值显式清空（按修订恢复依赖）。
+        更新会跳过的空值显式清空（按修订恢复依赖）；``_writing_chapter_index``
+        供批量调用方传入循环前查好的写作进度，缺省时快照自行查询。
         """
         from modules.world.services.core.entity_revision_service import (
             EntityRevisionService,
@@ -612,6 +615,7 @@ class WorldEntityService(
                 _revision_reason
                 or ("focused_completion" if _automated else "manual_update")
             ),
+            writing_chapter_index=_writing_chapter_index,
         )
         before_state = dict(snapshot_result.get("snapshot") or {})
 

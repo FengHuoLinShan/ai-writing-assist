@@ -11,7 +11,7 @@ const entity = {
   summary: "雾港的调查者",
   public_info: "港务登记在册",
   hidden_truth: "",
-  content_json: { aliases: ["小林"] },
+  content_json: { aliases: [{ alias: "小林", status: "confirmed" }], _meta: { source: "manual" }, occupation: "调查员" },
   importance_level: "core",
   reveal_level: "author_only",
   status: "canonical",
@@ -36,7 +36,7 @@ function revision(overrides = {}) {
       public_info: "港务登记在册",
       hidden_truth: "暗桩",
       aliases: ["小林"],
-      content_json: { aliases: ["小林"] },
+      content_json: { occupation: "调查员" },
       importance: 0.9,
       importance_level: "core",
       reveal_level: "author_only",
@@ -123,6 +123,46 @@ describe("WorldEntityRevisionHistory 展示", () => {
     expect(panel.text()).toContain("调查员")
     expect(panel.text()).toContain("调查者")
     expect(panel.text()).toContain("作者秘密")
+    wrapper.unmount()
+  })
+})
+
+describe("WorldEntityRevisionHistory 其他资料比较", () => {
+  it("快照与当前一致时不把别名和内部标记误判为其他资料改动（键序无关）", async () => {
+    const same = revision({
+      snapshot: { ...revision().snapshot, summary: entity.summary, hidden_truth: "" },
+    })
+    api.world.getEntityRevisions.mockResolvedValueOnce({ items: [same], total: 1, skip: 0, limit: 20 })
+    const reordered = { ...entity, content_json: { occupation: "调查员", _meta: { source: "manual" }, aliases: entity.content_json.aliases } }
+    const wrapper = await openHistory({ entity: reordered })
+    await wrapper.get("[data-compare-toggle='rev-1']").trigger("click")
+    expect(wrapper.get("[data-compare-panel='rev-1']").text()).toContain("这份快照与当前内容一致")
+    await wrapper.get("[data-restore='rev-1']").trigger("click")
+    await flushPromises()
+    const confirmPanel = wrapper.get("[data-restore-confirm='rev-1']")
+    expect(confirmPanel.text()).not.toContain("其他资料")
+    expect(confirmPanel.text()).toContain("当前内容与快照一致")
+    wrapper.unmount()
+  })
+
+  it("只改了其他资料时对比面板并列展示前后内容，确认区列出其他资料", async () => {
+    const contentOnly = revision({
+      changed_fields: ["content"],
+      snapshot: { ...revision().snapshot, summary: entity.summary, hidden_truth: "", content_json: { occupation: "医生" } },
+    })
+    api.world.getEntityRevisions.mockResolvedValueOnce({ items: [contentOnly], total: 1, skip: 0, limit: 20 })
+    const wrapper = await openHistory()
+    await wrapper.get("[data-compare-toggle='rev-1']").trigger("click")
+    const panel = wrapper.get("[data-compare-panel='rev-1']")
+    expect(panel.text()).not.toContain("这份快照与当前内容一致")
+    const row = panel.get("[data-compare-json='content']")
+    expect(row.text()).toContain("医生")
+    expect(row.text()).toContain("调查员")
+    expect(row.text()).not.toContain("_meta")
+    expect(row.text()).not.toContain("小林")
+    await wrapper.get("[data-restore='rev-1']").trigger("click")
+    await flushPromises()
+    expect(wrapper.get("[data-restore-confirm='rev-1']").text()).toContain("其他资料")
     wrapper.unmount()
   })
 })

@@ -739,6 +739,7 @@ class WorldAdoptionPackageService:
                         novel_id=novel_id,
                         _validation_prechecked=True,
                         _automated=True,
+                        _writing_chapter_index=writing_chapter_index,
                     )
                     applied_changes.append(
                         {

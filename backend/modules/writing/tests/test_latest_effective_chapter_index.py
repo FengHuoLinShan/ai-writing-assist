@@ -72,3 +72,19 @@ async def test_isolated_by_novel(
 
     assert await get_latest_effective_chapter_index(db_session, other_project) == 0
     assert await get_latest_effective_chapter_index(db_session, test_project_id) == 4
+
+
+@pytest.mark.asyncio
+async def test_scans_past_blank_chapters_across_batches(
+    db_session, test_project_id: str
+) -> None:
+    """末尾连续空白章跨过多个递增批次（1、4、…）时仍找到更早的有正文章节。"""
+    await create_published_draft_only(
+        db_session, test_project_id, 1, "第一章", "第一章的正文"
+    )
+    for chapter_index in range(2, 9):
+        await create_published_draft_only(
+            db_session, test_project_id, chapter_index, f"第{chapter_index}章", " \n"
+        )
+
+    assert await get_latest_effective_chapter_index(db_session, test_project_id) == 1

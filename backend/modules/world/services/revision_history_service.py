@@ -128,7 +128,8 @@ def _entity_segment(nid: uuid.UUID):
             EntityRevision.entity_id.label("target_id"),
             CoreEntity.name.label("title_current"),
             CoreEntity.status.label("target_status"),
-            EntityRevision.snapshot.label("snapshot"),
+            # 时间线只需快照里的名称作删除后兜底，按 JSON 路径取值，不读整份快照。
+            EntityRevision.snapshot["name"].as_string().label("snapshot_title"),
             EntityRevision.revision_reason.label("reason"),
             EntityRevision.created_at.label("created_at"),
             EntityRevision.writing_chapter_index.label("writing_chapter_index"),
@@ -164,7 +165,9 @@ def _page_segment(nid: uuid.UUID):
             WorldBiblePageRevision.page_id.label("target_id"),
             WorldBiblePage.title.label("title_current"),
             WorldBiblePage.status.label("target_status"),
-            WorldBiblePageRevision.snapshot_json.label("snapshot"),
+            WorldBiblePageRevision.snapshot_json["title"]
+            .as_string()
+            .label("snapshot_title"),
             WorldBiblePageRevision.revision_reason.label("reason"),
             WorldBiblePageRevision.created_at.label("created_at"),
             WorldBiblePageRevision.writing_chapter_index.label("writing_chapter_index"),
@@ -200,7 +203,7 @@ def _map_segment(nid: uuid.UUID):
             MapAtlasRevision.node_id.label("target_id"),
             MapAtlasNode.title.label("title_current"),
             MapAtlasNode.status.label("target_status"),
-            null().label("snapshot"),
+            null().label("snapshot_title"),
             null().label("reason"),
             MapAtlasRevision.created_at.label("created_at"),
             MapAtlasRevision.writing_chapter_index.label("writing_chapter_index"),
@@ -233,13 +236,9 @@ def _map_segment(nid: uuid.UUID):
 
 
 def _to_item(row) -> WorldChangeHistoryItem:  # noqa: ANN001
-    kind = row.kind
-    snapshot = row.snapshot if isinstance(row.snapshot, dict) else {}
-    title = row.title_current
-    if not title:
-        title = snapshot.get("name" if kind == KIND_ENTITY else "title")
+    title = row.title_current or row.snapshot_title
     return WorldChangeHistoryItem(
-        kind=kind,
+        kind=row.kind,
         revision_id=str(row.revision_id),
         target_id=str(row.target_id),
         target_title=str(title or ""),

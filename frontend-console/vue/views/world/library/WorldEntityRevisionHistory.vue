@@ -57,6 +57,16 @@
               <template v-if="row.text">
                 <VersionTextDiff :diff="row.text" left-label="这次改动前" right-label="现在" />
               </template>
+              <div v-else-if="row.json" class="world-entity-revision-history__json" :data-compare-json="row.key">
+                <div>
+                  <span class="muted">这次改动前</span>
+                  <AssistantValue :value="row.before" />
+                </div>
+                <div>
+                  <span class="muted">现在</span>
+                  <AssistantValue :value="row.after" />
+                </div>
+              </div>
               <p v-else class="world-entity-revision-history__inline">{{ row.before }} <span aria-hidden="true">→</span> {{ row.after }}</p>
             </div>
           </template>
@@ -94,6 +104,7 @@
 import { computed, reactive, ref, watch } from "vue"
 import { getApi, getToast } from "../../../bridge/index.js"
 import { confirmEditorialImpact } from "../../../composables/useEditorialGuard.js"
+import AssistantValue from "../../../components/AssistantValue.vue"
 import VersionTextDiff from "../../../components/VersionTextDiff.vue"
 import { buildVersionDiff } from "../../../../shared/versionDiff.js"
 import {
@@ -261,7 +272,7 @@ const COMPARE_FIELDS = [
 
 function fieldChanged(field, revision) {
   if (field.key === "content") {
-    return JSON.stringify(normalizeJson(field.before(revision))) !== JSON.stringify(normalizeJson(field.after()))
+    return stableStringify(normalizeJson(field.before(revision))) !== stableStringify(normalizeJson(field.after()))
   }
   if (field.key === "aliases") {
     return snapshotAliases(revision).join("\u0000") !== currentAliases().join("\u0000")
@@ -270,25 +281,37 @@ function fieldChanged(field, revision) {
   return field.before(revision) !== field.after()
 }
 
+/** 与后端快照视图同口径：去掉内部来源标记，别名单独比较（快照 content_json 已不含 aliases）。 */
 function normalizeJson(value) {
   if (!value || typeof value !== "object") return value ?? null
   const copy = { ...value }
   delete copy._meta
+  delete copy.aliases
   delete copy.updated_at
   return copy
 }
 
-/** 展开对比行：文本字段带 VersionTextDiff，其余内联「前 → 后」。 */
+/** 键序无关的 JSON 序列化，避免同内容不同键序被误判为改动。 */
+function stableStringify(value) {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(",")}}`
+  }
+  return JSON.stringify(value ?? null)
+}
+
+/** 展开对比行：文本字段带 VersionTextDiff，其他资料前后并列展示，其余内联「前 → 后」。 */
 function compareRows(revision) {
   return COMPARE_FIELDS
-    .filter((field) => fieldChanged(field, revision) && !field.json)
+    .filter((field) => fieldChanged(field, revision))
     .map((field) => ({
       key: field.key,
       label: field.label,
       inline: Boolean(field.inline),
+      json: Boolean(field.json),
       text: field.text ? buildVersionDiff(String(field.before(revision) || ""), String(field.after() || "")) : null,
-      before: field.inline ? field.before(revision) : "",
-      after: field.inline ? field.after() : "",
+      before: field.json ? normalizeJson(field.before(revision)) : (field.inline ? field.before(revision) : ""),
+      after: field.json ? normalizeJson(field.after()) : (field.inline ? field.after() : ""),
     }))
 }
 
@@ -371,6 +394,8 @@ defineExpose({ load })
 .world-entity-revision-history__compare-row { display: grid; gap: 4px; }
 .world-entity-revision-history__compare-label { font-weight: 600; font-size: var(--text-sm); }
 .world-entity-revision-history__inline { margin: 0; white-space: pre-wrap; }
+.world-entity-revision-history__json { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; }
+.world-entity-revision-history__json > div { display: grid; gap: 4px; min-width: 0; }
 .world-entity-revision-history__confirm { border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-panel); padding: 10px 12px; display: grid; gap: 8px; }
 .world-entity-revision-history__confirm h4 { margin: 0; }
 .world-entity-revision-history__confirm p, .world-entity-revision-history__confirm ul { margin: 0; }

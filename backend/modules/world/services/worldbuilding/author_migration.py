@@ -36,7 +36,10 @@ from modules.world.schemas import (
     EntityRelationCreate,
     EntityRelationUpdate,
 )
-from modules.world.services.common import require_fresh_understanding_source
+from modules.world.services.common import (
+    current_writing_chapter_index,
+    require_fresh_understanding_source,
+)
 from modules.world.services.core.character_service import CharacterService
 from modules.world.services.core.dedup_service import EntityDedupService
 from modules.world.services.core.entity_alias_service import EntityAliasService
@@ -900,6 +903,8 @@ async def _execute_plan(
     applied: list[MigrationAppliedChange] = []
     entity_ids: dict[str, str] = {}
     applied_at = datetime.now(UTC).isoformat()
+    # 循环之前只查一次写作进度，逐项传给实体快照，不使用会话级缓存。
+    writing_chapter_index = await current_writing_chapter_index(db, novel_id)
 
     def _provenance(source_ref: str, source_hash: str) -> dict:
         return {
@@ -1008,6 +1013,7 @@ async def _execute_plan(
                     novel_id=novel_id,
                     _validation_prechecked=True,
                     _automated=True,
+                    _writing_chapter_index=writing_chapter_index,
                 )
                 row = await _locked_entity(db, novel_id, target_id)
                 applied.append(
