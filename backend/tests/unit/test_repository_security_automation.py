@@ -134,7 +134,7 @@ def test_split_ci_workflows_keep_triggers_permissions_and_unique_concurrency() -
 
 def test_frontend_browser_gate_keeps_its_independent_risk_contract() -> None:
     workflow = _load_yaml(REPOSITORY_ROOT / ".github/workflows/frontend-ci.yml")
-    job = workflow["jobs"]["frontend-functional-browser"]
+    job = workflow["jobs"]["frontend-functional-browser-shard"]
 
     postgres = job["services"]["postgres"]
     database_name = postgres["env"]["POSTGRES_DB"]
@@ -161,20 +161,127 @@ def test_frontend_browser_gate_keeps_its_independent_risk_contract() -> None:
     )
     assert "sha256sum --check" in storage_init
     assert "sh docker/init-minio.sh" in storage_init
-    assert steps["Run frontend functional browser"]["run"].endswith(
+    functional = steps["Run frontend functional browser"]
+    assert (
         'npm --prefix frontend-console run "$BROWSER_SUITE" -- --workers=1 --retries=0'
+        in functional["run"]
     )
-    assert steps["Run frontend functional browser"]["env"]["BROWSER_SUITE"] == (
-        "${{ steps.changes.outputs.browser_suite }}"
+    assert (
+        "--shard=${{ matrix.shard }}/"
+        "${{ needs.browser-classify.outputs.shard_total }}" in functional["run"]
     )
-    assert steps[
-        "Run assistant behavior with its isolated synthetic model harness"
-    ]["run"].endswith(
-        "npm --prefix frontend-console run test:e2e:assistant -- --workers=1 --retries=0"
+    assert functional["env"]["BROWSER_SUITE"] == (
+        "${{ needs.browser-classify.outputs.browser_suite }}"
     )
-    assert steps["Upload frontend functional browser diagnostics"]["if"] == (
-        "failure() && steps.changes.outputs.browser == 'true'"
+    auxiliary_step_names = {
+        "assistant": "Run assistant behavior with its isolated synthetic model harness",
+        "creative": "Run creative forecast with its isolated synthetic model harness",
+        "editorial": "Run editorial flow with its isolated feature flags",
+    }
+    for suite, step_name in auxiliary_step_names.items():
+        assert (
+            f"npm --prefix frontend-console run test:e2e:{suite} "
+            "-- --workers=1 --retries=0" in steps[step_name]["run"]
+        )
+    for suite, step in [("functional", functional)] + [
+        (suite, steps[name]) for suite, name in auxiliary_step_names.items()
+    ]:
+        assert "--reporter=list,blob" in step["run"]
+        assert f"--output=test-results/{suite}" in step["run"]
+        assert step["env"]["PLAYWRIGHT_BLOB_OUTPUT_DIR"] == f"blob-report/{suite}"
+    blob_upload = steps["Upload browser blob reports"]
+    assert blob_upload["if"] == "${{ always() }}"
+    assert _action_name(blob_upload) == "actions/upload-artifact"
+    assert re.fullmatch(r"actions/upload-artifact@[0-9a-f]{40}", blob_upload["uses"])
+    assert blob_upload["with"] == {
+        "name": "frontend-functional-browser-blob-shard-${{ matrix.shard }}",
+        "path": "frontend-console/blob-report",
+        "if-no-files-found": "error",
+        "retention-days": "14",
+    }
+    assert steps["Upload frontend functional browser diagnostics"]["if"] == "failure()"
+    assert (
+        steps["Upload frontend functional browser diagnostics"]["with"]["name"]
+        == "frontend-functional-browser-diagnostics-shard-${{ matrix.shard }}"
     )
+
+
+def test_browser_gate_pipeline_classification_and_shards_fail_closed() -> None:
+    workflow = _load_yaml(REPOSITORY_ROOT / ".github/workflows/frontend-ci.yml")
+    jobs = workflow["jobs"]
+
+    classify = jobs["browser-classify"]
+    assert "if" not in classify
+    assert classify["outputs"]["browser"] == "${{ steps.changes.outputs.browser }}"
+    assert (
+        classify["outputs"]["browser_suite"]
+        == "${{ steps.changes.outputs.browser_suite }}"
+    )
+    assert classify["outputs"]["shard_plan"] == "${{ steps.shards.outputs.shard_plan }}"
+    classify_steps = {step["name"]: step for step in classify["steps"]}
+    assert classify_steps["Check out repository"]["with"]["fetch-depth"] == "0"
+    assert classify_steps["Classify CI changes"]["id"] == "changes"
+    derive = classify_steps["Derive browser shard plan"]["run"]
+    assert "test:e2e:functional)" in derive
+    assert "shard_plan=[1,2]" in derive
+    assert "test:e2e:smoke)" in derive
+    assert "shard_plan=[1]" in derive
+    assert "exit 1" in derive
+
+    shard = jobs["frontend-functional-browser-shard"]
+    assert shard["needs"] == "browser-classify"
+    assert shard["if"] == "needs.browser-classify.outputs.browser == 'true'"
+    strategy = shard["strategy"]
+    assert strategy["fail-fast"] == "false"
+    assert strategy["max-parallel"] == "2"
+    assert (
+        "fromJSON(needs.browser-classify.outputs.shard_plan)"
+        in strategy["matrix"]["shard"]
+    )
+    for step in shard["steps"]:
+        assert "continue-on-error" not in step
+    shard_steps = {step["name"]: step for step in shard["steps"]}
+    auxiliary = [
+        "Run assistant behavior with its isolated synthetic model harness",
+        "Run creative forecast with its isolated synthetic model harness",
+        "Run editorial flow with its isolated feature flags",
+    ]
+    for name in auxiliary:
+        assert shard_steps[name]["if"] == "matrix.shard == 1"
+    assert (
+        "browser-gate-functional.done"
+        in shard_steps["Run frontend functional browser"]["run"]
+    )
+    for name in auxiliary:
+        assert "browser-gate-" in shard_steps[name]["run"]
+    verify = shard_steps["Verify required browser suites completed"]
+    assert verify["if"] == "${{ always() }}"
+    verify_script = verify["run"]
+    for suite in ("functional", "assistant", "creative", "editorial"):
+        assert suite in verify_script
+    assert 'exit "$missing"' in verify_script
+
+    aggregate_job = jobs["frontend-functional-browser"]
+    assert aggregate_job["needs"] == [
+        "browser-classify",
+        "frontend-functional-browser-shard",
+    ]
+    assert aggregate_job["if"] == "${{ always() }}"
+    for step in aggregate_job["steps"]:
+        assert "continue-on-error" not in step
+    gate = {step["name"]: step for step in aggregate_job["steps"]}[
+        "Aggregate browser gate result"
+    ]
+    assert gate["run"] == "python3 scripts/aggregate_browser_gate.py"
+    for name in (
+        "CLASSIFY_RESULT",
+        "BROWSER",
+        "BROWSER_SUITE",
+        "SHARD_PLAN",
+        "SHARD_TOTAL",
+        "SHARD_RESULT",
+    ):
+        assert name in gate["env"]
 
 
 def test_frontend_unit_gate_lints_before_tests_without_duplicate_build() -> None:
@@ -423,11 +530,19 @@ def test_ci_selection_keeps_required_jobs_and_fails_closed() -> None:
         "backend-quality": "backend",
         "postgresql-critical": "postgresql",
         "frontend-unit-quality": "frontend",
-        "frontend-functional-browser": "browser",
         "production-image-contract": "images",
     }
     for path in SPLIT_WORKFLOW_CONTRACTS:
-        for job_id, job in _load_yaml(path)["jobs"].items():
+        workflow_jobs = _load_yaml(path)["jobs"]
+        if path.name == "frontend-ci.yml":
+            # Browser jobs moved to a classify -> shard matrix -> aggregate
+            # pipeline; their fail-closed contract is asserted separately.
+            job_items = [
+                ("frontend-unit-quality", workflow_jobs["frontend-unit-quality"])
+            ]
+        else:
+            job_items = list(workflow_jobs.items())
+        for job_id, job in job_items:
             assert "if" not in job
             steps = job["steps"]
             assert steps[0]["with"]["fetch-depth"] == "0"
