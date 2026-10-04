@@ -28,4 +28,4 @@
 - [T-20261002-spreadsheet-migration](tasks/2026/T-20261002-spreadsheet-migration/TASK.md) — 表格（xlsx/csv）迁移作者在途项目资产
 - [T-20261002-world-relational-management](tasks/2026/T-20261002-world-relational-management/TASK.md) — 世界对象关系分组与关联管理（实现与评审整改完成，PR #190）
 - [T-20261004-pr-main-integration](tasks/2026/T-20261004-pr-main-integration/TASK.md) — 逐步审查合并全部 PR 并清理安全分支
-- [T-20261004-world-edit-history](tasks/2026/T-20261004-world-edit-history/TASK.md) — 世界编辑历史元数据（势力与世界版本路线图阶段 0）
+- [T-20261004-world-edit-history](tasks/2026/T-20261004-world-edit-history/TASK.md) — 世界编辑历史元数据（势力与世界版本路线图阶段 0，PR #195）
