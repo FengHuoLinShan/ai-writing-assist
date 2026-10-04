@@ -4,7 +4,23 @@ from __future__ import annotations
 
 from datetime import UTC
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from shared.utils import parse_uuid  # noqa: F401
+
+
+async def current_writing_chapter_index(
+    db: AsyncSession,
+    novel_id: str,
+) -> int:
+    """当前写作进度：最新有实质正文的章节号；0 表示动笔前。
+
+    按需导入 writing facade（先例 ``world_impact_service.py``）；查询出错直接
+    向上抛出，不吞异常。
+    """
+    from modules.writing.facade import get_latest_effective_chapter_index
+
+    return await get_latest_effective_chapter_index(db, novel_id)
 
 
 def entity_relation_execution_snapshot(relation) -> dict[str, object]:
@@ -28,13 +44,9 @@ def entity_relation_execution_snapshot(relation) -> dict[str, object]:
         "status": relation.status,
         "quote": relation.quote,
         "source_chapter_id": str(source_chapter_id) if source_chapter_id else None,
-        "caused_by_event_id": str(caused_by_event_id)
-        if caused_by_event_id
-        else None,
+        "caused_by_event_id": str(caused_by_event_id) if caused_by_event_id else None,
         "review_meta": relation.review_meta or {},
-        "updated_at": updated_at.astimezone(UTC).isoformat()
-        if updated_at
-        else None,
+        "updated_at": updated_at.astimezone(UTC).isoformat() if updated_at else None,
     }
 
 

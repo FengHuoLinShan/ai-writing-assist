@@ -31,6 +31,7 @@ __all__ = [
     "get_author_attention_items",
     "get_draft",
     "get_latest_draft_for_chapter",
+    "get_latest_effective_chapter_index",
     "get_project_writing_stats",
     "grep_manuscript",
     "get_manuscript_source_manifest",
@@ -183,6 +184,14 @@ async def list_effective_chapter_indices(
 ) -> list[int]:
     """列出最新工作版本含实质正文的章节索引（去重、升序）。"""
     return await _service.list_effective_chapter_indices(db, novel_id)
+
+
+async def get_latest_effective_chapter_index(
+    db: AsyncSession,
+    novel_id: str,
+) -> int:
+    """最新有实质正文的章节号；0 表示尚无正文（全空白稿件不算正文）。"""
+    return await _service.get_latest_effective_chapter_index(db, novel_id)
 
 
 async def lock_chapter_versions_for_revalidation(

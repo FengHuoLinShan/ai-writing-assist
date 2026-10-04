@@ -45,6 +45,7 @@ async def test_entity(async_client: AsyncClient, test_project: dict):
 @pytest.mark.asyncio
 async def test_manual_entity_update_creates_revision_snapshot(
     async_client: AsyncClient,
+    db_session: AsyncSession,
     test_project: dict,
     test_entity: dict,
 ) -> None:
@@ -63,12 +64,12 @@ async def test_manual_entity_update_creates_revision_snapshot(
     assert update_resp.status_code == 200
     assert update_resp.json()["summary"] == "编辑后的摘要"
 
-    # 查询版本列表应非空
-    revisions_resp = await async_client.get(
-        f"/api/world/entities/{entity_id}/revisions?novel_id={novel_id}"
-    )
-    assert revisions_resp.status_code == 200
-    revisions = revisions_resp.json()
+    # 查询版本列表应非空。GET /entities/{id}/revisions 路由由 P2 接线到新的
+    # 强类型响应（修订历史路由属 P2 写入范围），这里经 facade 验证快照确实
+    # 已生成且可读取；路由级断言由 P2 的接线测试补回。
+    from modules.world.event_facade import get_entity_revisions
+
+    revisions = await get_entity_revisions(db_session, novel_id, entity_id)
     assert revisions["total"] >= 1
     assert len(revisions["items"]) >= 1
 

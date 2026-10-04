@@ -1163,3 +1163,39 @@ async def test_calibration_history_reports_scan_truncation_without_loading_geome
     layers = await service.image_layers(db_session, test_project_id, node["id"], doc)
     assert layers[0]["calibration_revision_id"] == str(saved[0].id)
     assert layers[0]["calibration_lookup_status"] == "found"
+
+
+@pytest.mark.asyncio
+async def test_save_records_writing_chapter_index_and_history_notes(
+    db_session, test_project_id
+):
+    """保存地图时记录当时写作进度；历史列表带备注。"""
+    from modules.world.services.revision_notes import set_revision_note
+
+    service, node = await create_map(db_session, test_project_id)
+    baseline = uuid.UUID(node["current_revision_id"])
+
+    # 无正文时初始保存的写作进度为 0。
+    history = await service.history(db_session, test_project_id, node["id"])
+    initial = next(row for row in history if row.id == str(baseline))
+    assert initial.writing_chapter_index == 0
+
+    from modules.writing.facade import create_published_draft_only
+
+    await create_published_draft_only(
+        db_session, test_project_id, 4, "第四章", "第四章的正文"
+    )
+    saved = await service.save(
+        db_session,
+        test_project_id,
+        node["id"],
+        MapSaveRequest(base_revision_id=baseline, document=document()),
+    )
+    assert saved.writing_chapter_index == 4
+
+    await set_revision_note(db_session, test_project_id, "map", saved.id, "补画黑石关")
+    history = await service.history(db_session, test_project_id, node["id"])
+    saved_row = next(row for row in history if row.id == saved.id)
+    assert saved_row.writing_chapter_index == 4
+    assert saved_row.change_note == "补画黑石关"
+    assert initial.change_note is None
