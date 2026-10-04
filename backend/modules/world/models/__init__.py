@@ -14,7 +14,14 @@ from .authority import (
 )
 from .character import Character, CharacterKnowledge
 from .cocreation import WorldCocreationMessage, WorldCocreationSession
-from .core import CoreEntity, EntityRelation, EntityRevision, Event, TextArchive
+from .core import (
+    CoreEntity,
+    EntityRelation,
+    EntityRevision,
+    Event,
+    TextArchive,
+    WorldRevisionNote,
+)
 from .image_candidate import WorldObjectImageCandidate
 from .image_request_reuse import ImageRequestReuse
 from .library import (
@@ -118,6 +125,7 @@ __all__ = [
     "WorldLibraryTopic",
     "WorldLibraryTopicMember",
     "WorldLibraryWorkspaceProfile",
+    "WorldRevisionNote",
     "ImageRequestReuse",
     "WorldObjectImageCandidate",
     "_ProfileMixin",

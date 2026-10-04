@@ -176,3 +176,21 @@ for (const width of [320, 354, 360, 390, 1570]) {
 
   })
 }
+
+test("地图历史展示写作进度并支持补写备注", async ({ page, request, projectFactory }) => {
+  const project = await projectFactory({ title: "地图历史元数据" })
+  await createMap(request, project.id)
+  await openWorkbench(page, project, "map")
+  await page.getByRole("button", { name: "编辑所选地图内容", exact: true }).click()
+  const panel = page.locator(".map-history-panel")
+  await panel.locator("summary").click()
+  const entry = panel.locator(".map-history").first()
+  await expect(entry.locator("span").first()).toContainText("已保存")
+  await expect(entry.locator("span").first()).toContainText(/刚刚|\d+ 分钟前/)
+  await expect(entry).toContainText("动笔前")
+
+  await entry.locator("[data-map-note-edit]").click()
+  await entry.locator("[data-map-note-input]").fill("初版结构定稿")
+  await entry.locator("[data-map-note-save]").click()
+  await expect(entry).toContainText("备注：初版结构定稿")
+})

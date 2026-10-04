@@ -3,14 +3,146 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import NotFoundError
-from modules.world.models import TextArchive
+from modules.world.asset_state import ARCHIVED_DISPLAY_STATUSES
+from modules.world.models import EntityRevision, TextArchive
 from modules.world.repositories import CoreEntityRepository, EntityRevisionRepository
+from modules.world.revision_history_schemas import (
+    EntityRevisionItem,
+    EntityRevisionListResponse,
+    EntityRevisionSnapshotView,
+)
 from modules.world.services.common import parse_uuid
+from modules.world.services.revision_notes import load_revision_notes
+
+# ``create_snapshot(writing_chapter_index=UNSET)`` 的哨兵：不传时由服务自行查询
+# 写作进度；显式传入 int（或 None 表示"无进度"）时直接落库，供批量调用方在
+# 循环前只查一次后复用。
+UNSET: object = object()
+
+# 改动字段的稳定输出顺序（EntityRevisionField 的展示顺序）。
+_REVISION_FIELD_ORDER: tuple[str, ...] = (
+    "entity_type",
+    "name",
+    "summary",
+    "public_info",
+    "hidden_truth",
+    "aliases",
+    "content",
+    "importance",
+    "reveal_level",
+    "status",
+)
+
+
+def _alias_texts(content_json: object) -> list[str]:
+    """从 content_json.aliases 提取别名文本列表（忽略每条的复核元数据）。"""
+    if not isinstance(content_json, dict):
+        return []
+    texts: list[str] = []
+    for entry in content_json.get("aliases") or []:
+        value = entry.get("alias") if isinstance(entry, dict) else entry
+        if value is not None:
+            texts.append(str(value))
+    return texts
+
+
+def _content_without_markers(content_json: object) -> dict:
+    """去掉内部来源标记（``_meta``）与别名（单独比较）后的扩展内容。"""
+    if not isinstance(content_json, dict):
+        return {}
+    content = dict(content_json)
+    content.pop("_meta", None)
+    content.pop("aliases", None)
+    return content
+
+
+def entity_state_dict(entity: object) -> dict:
+    """实体当前状态的字段字典，与快照同构，用于改动字段比较。"""
+    return {
+        "entity_type": getattr(entity, "entity_type", None),
+        "name": getattr(entity, "name", None),
+        "summary": getattr(entity, "summary", None),
+        "public_info": getattr(entity, "public_info", None),
+        "hidden_truth": getattr(entity, "hidden_truth", None),
+        "content_json": getattr(entity, "content_json", None),
+        "importance": getattr(entity, "importance", None),
+        "importance_level": getattr(entity, "importance_level", None),
+        "reveal_level": getattr(entity, "reveal_level", None),
+        "status": getattr(entity, "status", None),
+    }
+
+
+def diff_revision_snapshots(before: dict, after: dict) -> list[str]:
+    """比较两份同构快照，返回按固定顺序排列的改动字段名。
+
+    - 别名从 ``content_json.aliases`` 单独拆为 ``aliases``；
+    - ``content`` 比较去掉内部来源标记（``_meta``）与别名后的剩余内容；
+    - ``importance`` 覆盖数值与级别两列；
+    - 没有差异时返回空列表。
+    """
+    changed: set[str] = set()
+    for simple in (
+        "entity_type",
+        "name",
+        "summary",
+        "public_info",
+        "hidden_truth",
+        "status",
+    ):
+        if before.get(simple) != after.get(simple):
+            changed.add(simple)
+    if _alias_texts(before.get("content_json")) != _alias_texts(
+        after.get("content_json")
+    ):
+        changed.add("aliases")
+    if _content_without_markers(before.get("content_json")) != _content_without_markers(
+        after.get("content_json")
+    ):
+        changed.add("content")
+    if before.get("importance") != after.get("importance") or before.get(
+        "importance_level"
+    ) != after.get("importance_level"):
+        changed.add("importance")
+    if before.get("reveal_level") != after.get("reveal_level"):
+        changed.add("reveal_level")
+    return [field for field in _REVISION_FIELD_ORDER if field in changed]
+
+
+def _snapshot_view(snapshot: dict) -> EntityRevisionSnapshotView:
+    """带类型的快照视图：去掉内部来源标记，别名单独拆出。"""
+    raw_content = snapshot.get("content_json")
+    content = dict(raw_content) if isinstance(raw_content, dict) else {}
+    aliases = _alias_texts(raw_content)
+    content.pop("_meta", None)
+    content.pop("aliases", None)
+    return EntityRevisionSnapshotView(
+        entity_type=str(snapshot.get("entity_type") or ""),
+        name=str(snapshot.get("name") or ""),
+        summary=snapshot.get("summary"),
+        public_info=snapshot.get("public_info"),
+        hidden_truth=snapshot.get("hidden_truth"),
+        aliases=aliases,
+        content_json=content,
+        importance=snapshot.get("importance"),
+        importance_level=snapshot.get("importance_level"),
+        reveal_level=snapshot.get("reveal_level"),
+        status=str(snapshot.get("status") or ""),
+    )
+
+
+def _ensure_utc(value: datetime | None) -> datetime | None:
+    """SQLite 读出的无时区值统一补 UTC；已有 timezone 的统一转 UTC。"""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 class EntityRevisionService:
@@ -35,8 +167,14 @@ class EntityRevisionService:
         novel_id: str,
         revision_reason: str = "ai_import",
         source_chapter_id: str | None = None,
+        writing_chapter_index: int | None | object = UNSET,
     ) -> dict:
-        """对实体当前状态打快照"""
+        """对实体当前状态打快照。
+
+        ``writing_chapter_index`` 缺省（UNSET）时自行查询当前写作进度并落库；
+        批量调用方可在循环前查一次后显式传入。返回 dict 含 ``revision_id``
+        与 ``snapshot``（保存前状态，供调用方计算改动字段）。
+        """
         eid = parse_uuid(entity_id, "entity_id")
         nid = parse_uuid(novel_id, "novel_id")
 
@@ -57,22 +195,54 @@ class EntityRevisionService:
             "status": entity.status,
         }
 
+        if writing_chapter_index is UNSET:
+            from modules.world.services.common import current_writing_chapter_index
+
+            writing_chapter_index = await current_writing_chapter_index(db, novel_id)
+
         chapter_id = parse_uuid(source_chapter_id) if source_chapter_id else None
-        revision = await self._repo.create(
-            db,
+        revision = EntityRevision(
             entity_id=eid,
             novel_id=nid,
             snapshot=snapshot,
             source_chapter_id=chapter_id,
             revision_reason=revision_reason,
+            writing_chapter_index=(
+                int(writing_chapter_index)  # type: ignore[arg-type]
+                if writing_chapter_index is not None
+                else None
+            ),
         )
+        db.add(revision)
+        await db.flush()
 
         return {
             "revision_id": str(revision.id),
             "entity_id": str(revision.entity_id),
             "revision_reason": revision.revision_reason,
             "created_at": str(revision.created_at),
+            "snapshot": snapshot,
         }
+
+    async def record_change_summary(
+        self,
+        db: AsyncSession,
+        revision_id: str,
+        fields: list[str],
+        restored_from_revision_id: str | None = None,
+    ) -> None:
+        """把本次改动字段写回修订行的 ``change_summary``（该表无触发器，可 UPDATE）。"""
+        rid = parse_uuid(revision_id, "revision_id")
+        summary = {
+            "fields": list(fields),
+            "restored_from_revision_id": restored_from_revision_id,
+        }
+        await db.execute(
+            update(EntityRevision)
+            .where(EntityRevision.id == rid)
+            .values(change_summary=summary)
+        )
+        await db.flush()
 
     async def get_revisions(
         self,
@@ -81,8 +251,17 @@ class EntityRevisionService:
         novel_id: str,
         skip: int = 0,
         limit: int = 20,
-    ) -> dict:
-        """获取实体的版本列表"""
+    ) -> EntityRevisionListResponse:
+        """获取实体的改动历史（强类型输出）。
+
+        - ``created_at`` 统一带时区（SQLite 无时区值补 UTC）；
+        - 批量读取备注填 ``change_note``；
+        - ``changed_fields`` 优先读 ``change_summary``；缺保存记录时读取相邻
+          一条修订推算（本页相邻行；页首额外读一条更新的修订），并标
+          ``changed_fields_exact=False``；
+        - ``restored_from_revision_id`` 只从 ``change_summary`` 读；
+        - ``can_restore`` 按实体当前状态（作者态 archived 的实体不给恢复）。
+        """
         eid = parse_uuid(entity_id, "entity_id")
         nid = parse_uuid(novel_id, "novel_id")
 
@@ -98,88 +277,78 @@ class EntityRevisionService:
             limit=limit,
         )
 
-        items = [
-            {
-                "revision_id": str(r.id),
-                "entity_id": str(r.entity_id),
-                "revision_reason": r.revision_reason,
-                "snapshot": r.snapshot,
-                "created_at": str(r.created_at),
-            }
-            for r in revisions
-        ]
+        # 修订按 (created_at, id) 倒序；每条修订记录的是"改动前"快照，其改动
+        # 结果等于相邻更新一条修订的快照。翻页首条的前一条不在本页时额外读一条。
+        newer_snapshot: dict | None = None
+        if skip > 0 and revisions:
+            newer_rows, _ = await self._repo.get_revisions(
+                db,
+                eid,
+                skip=skip - 1,
+                limit=1,
+            )
+            if newer_rows:
+                newer_snapshot = dict(newer_rows[0].snapshot or {})
 
-        return {"items": items, "total": total}
-
-    async def rollback_to_revision(
-        self,
-        db: AsyncSession,
-        entity_id: str,
-        revision_id: str,
-        novel_id: str,
-    ) -> dict:
-        """回滚实体到指定版本（回滚前自动打快照）"""
-        eid = parse_uuid(entity_id, "entity_id")
-        rid = parse_uuid(revision_id, "revision_id")
-        nid = parse_uuid(novel_id, "novel_id")
-
-        current = await self._entity_repo.get_for_update(db, eid)
-        if current is None or current.novel_id != nid:
-            raise NotFoundError(f"CoreEntity {entity_id} not found")
-
-        # 锁定当前实体后再打快照，避免并发类型修改保存过期状态。
-        await self.create_snapshot(db, entity_id, novel_id, revision_reason="rollback")
-
-        # 获取目标版本
-        revision = await self._repo.get_revision(db, rid)
-        if revision is None or revision.novel_id != nid or revision.entity_id != eid:
-            raise NotFoundError(f"Revision {revision_id} not found")
-
-        snapshot = revision.snapshot
-        from modules.world.schemas import CoreEntityUpdate
-
-        update_data = CoreEntityUpdate(
-            entity_type=snapshot.get("entity_type"),
-            name=snapshot.get("name"),
-            summary=snapshot.get("summary"),
-            public_info=snapshot.get("public_info"),
-            hidden_truth=snapshot.get("hidden_truth"),
-            content_json=snapshot.get("content_json"),
-            importance=snapshot.get("importance"),
-            importance_level=snapshot.get("importance_level"),
-            reveal_level=snapshot.get("reveal_level"),
-            status=snapshot.get("status"),
+        notes = await load_revision_notes(
+            db,
+            novel_id,
+            "entity",
+            [str(r.id) for r in revisions],
+        )
+        current_state = entity_state_dict(entity)
+        # 与改动记录的「已移除」同一口径：作者态投影为 archived 的实体
+        # （deprecated/ignored/merged 等）不提供按修订恢复，提示先恢复对象。
+        can_restore = (
+            str(entity.status or "").strip().lower() not in ARCHIVED_DISPLAY_STATUSES
         )
 
-        target_type = update_data.entity_type
-        if target_type is not None and target_type != snapshot.get("entity_type"):
-            # Defensive only; the snapshot field above is the same source of truth.
-            target_type = snapshot.get("entity_type")
-        type_changed = target_type is not None and target_type != current.entity_type
-        if type_changed:
-            from modules.world.services.core.entity_type_transition_service import (
-                EntityTypeTransitionService,
+        items: list[EntityRevisionItem] = []
+        for index, revision in enumerate(revisions):
+            before_snapshot = dict(revision.snapshot or {})
+            if index > 0:
+                after_state = dict(revisions[index - 1].snapshot or {})
+            elif newer_snapshot is not None:
+                after_state = newer_snapshot
+            else:
+                after_state = current_state
+
+            summary = (
+                revision.change_summary
+                if isinstance(revision.change_summary, dict)
+                else None
+            )
+            if summary is not None and summary.get("fields") is not None:
+                changed_fields = list(summary.get("fields") or [])
+                changed_fields_exact = True
+            else:
+                changed_fields = diff_revision_snapshots(before_snapshot, after_state)
+                changed_fields_exact = False
+            restored = summary.get("restored_from_revision_id") if summary else None
+
+            items.append(
+                EntityRevisionItem(
+                    revision_id=str(revision.id),
+                    entity_id=str(revision.entity_id),
+                    revision_reason=revision.revision_reason,
+                    created_at=_ensure_utc(revision.created_at),  # type: ignore[arg-type]
+                    writing_chapter_index=revision.writing_chapter_index,
+                    change_note=notes.get(revision.id),
+                    changed_fields=changed_fields,
+                    changed_fields_exact=changed_fields_exact,
+                    restored_from_revision_id=(str(restored) if restored else None),
+                    snapshot=_snapshot_view(before_snapshot),
+                    can_restore=can_restore,
+                )
             )
 
-            await EntityTypeTransitionService().transition(
-                db,
-                entity=current,
-                new_type=target_type,
-                changed_by="rollback",
-            )
-
-        entity = await self._entity_repo.update(db, current, update_data)
-        if entity is None:
-            raise NotFoundError(f"CoreEntity {entity_id} not found after rollback")
-
-        if type_changed:
-            await self._invalidate_type_change(db, novel_id, entity_id)
-
-        await self._request_activity_refresh(db, novel_id)
-
-        from modules.world.schemas import CoreEntityResponse
-
-        return CoreEntityResponse.model_validate(entity).model_dump()
+        return EntityRevisionListResponse(
+            items=items,
+            total=total,
+            skip=skip,
+            limit=limit,
+            current_updated_at=_ensure_utc(entity.updated_at),  # type: ignore[arg-type]
+        )
 
     async def rollback_to_scene_index(
         self,

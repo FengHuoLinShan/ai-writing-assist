@@ -156,6 +156,8 @@ map / rag / outline / settings / project-settings`，其主 DOM 全部由 Vue SF
 
 ## 路由与状态特性
 
+- 世界编辑历史（阶段 0）：实体详情"改动历史"面板（`WorldEntityRevisionHistory.vue`）显示相对时间（悬停绝对）、作者语言原因（`shared/revisionHistory.js` 词典，未知值显示"其他改动"）、写作进度与改动字段（旧记录标"大致"），支持事后备注（≤500 字、留空删除）与"恢复到这次改动前"（先影响确认、再字段级确认；409 基线过期提示重新读取；成功才提示"已恢复"）。世界页头"改动记录"浮层（`WorldChangeHistory.vue`）合并实体/世界书/地图三类（`GET /api/world/change-history` 游标翻页 + kinds 筛选），筛选/已加载条目/滚动位置按作品存 `worldSession`，切换作品清空，迟到响应按 epoch 丢弃；跳转实体用深链 `open=history&revision_id=`、返回带 `open=change-history` 还原浮层状态；页面历史经 `openPageHistory(version)`、地图经 `MapWorkspaceView` 的 `node_id`/`revision_id`。纯文本对比统一走共享组件 `VersionTextDiff.vue`（`{{ }}` 插值渲染，禁止 v-html）；`versionDiff.js` 移至 `shared/`。
+
 - `router.js` 使用 `Map` 维护视图、异步 loader、pending loader 与最后子标签注册表；动态 key
   必须通过小写路由白名单并拒绝 `__proto__`、`prototype`、`constructor`，避免把路由输入解释为
   对象原型属性。主视图切换后仍恢复最后子标签，公开 hash 与生命周期契约不变。

@@ -22,7 +22,7 @@ const generationSummary = changes => ({ outcome: 'partial', message: '部分资�
 const button = (wrapper, label) => wrapper.findAll("button").find(item => item.text() === label)
 
 describe("统一地图编辑器", () => {
-  let api, confirm, router
+  let api, confirm, router, toast
   beforeEach(() => {
     api = { world: {
       getNodeMap: vi.fn(async () => state(record())),
@@ -33,6 +33,7 @@ describe("统一地图编辑器", () => {
       previewMapReview: vi.fn(async (_project, _node, candidate, payload) => ({ candidate_revision_id: candidate, base_revision_id: payload.base_revision_id, applied_change_keys: payload.change_keys, expanded_change_keys: [] })),
       generateMapStructure: vi.fn(async () => ({ task_id: "task-1", status: "pending" })),
       reviewMapRevision: vi.fn(),
+      setRevisionNote: vi.fn(async payload => ({ ...payload, updated_at: "2026-10-04T00:00:00Z" })),
       previewReaderMap: vi.fn(),
       fetchReaderMapImage: vi.fn(async () => new Blob(["safe"])),
       fetchMapAtlasImage: vi.fn(async () => new Blob(["image"])),
@@ -43,7 +44,8 @@ describe("统一地图编辑器", () => {
     confirm = vi.fn(() => true)
     confirmDecision.current = confirm
     router = { navigate: vi.fn() }
-    setBridgeOverrides({ api, confirm, router })
+    toast = vi.fn()
+    setBridgeOverrides({ api, confirm, router, toast })
     confirmAiReference.mockReset()
     confirmAiReference.mockResolvedValue({ id: "confirmation" })
     localStorage.clear()
@@ -932,6 +934,43 @@ describe("统一地图编辑器", () => {
     expect(wrapper.text()).not.toContain('前往临江城')
     expect(button(wrapper, '打开第 12 章')).toBeUndefined()
   })
+  it('地图历史显示共享相对时间、写作进度，备注可编辑且仅限已保存版本', async () => {
+    const savedOld = { ...record(document(), '40000000-0000-0000-0000-000000000010'), created_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(), writing_chapter_index: 6, change_note: null }
+    const candidateOld = { ...record(document(), '40000000-0000-0000-0000-000000000011'), status: 'candidate' }
+    api.world.listMapRevisions.mockResolvedValue([savedOld, candidateOld])
+    const wrapper = await render()
+    await wrapper.findAll('summary').find(item => item.text() === '地图历史').trigger('click'); await flushPromises()
+    const savedRow = wrapper.get('[data-map-revision="40000000-0000-0000-0000-000000000010"]')
+    expect(savedRow.text()).toContain('5 分钟前')
+    expect(savedRow.get('[title]').attributes('title')).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/)
+    expect(savedRow.text()).toContain('写到第 6 章时')
+
+    await savedRow.get('[data-map-note-edit]').trigger('click')
+    await savedRow.get('[data-map-note-input]').setValue('  改了河道走向  ')
+    await savedRow.get('[data-map-note-save]').trigger('click'); await flushPromises()
+    expect(api.world.setRevisionNote).toHaveBeenCalledWith({ target_kind: 'map', revision_id: '40000000-0000-0000-0000-000000000010', note: '改了河道走向' }, projectId)
+    expect(toast).toHaveBeenCalledWith('备注已保存', 'success')
+    expect(savedRow.text()).toContain('备注：改了河道走向')
+
+    const candidateRow = wrapper.get('[data-map-revision="40000000-0000-0000-0000-000000000011"]')
+    expect(candidateRow.find('[data-map-note-edit]').exists()).toBe(false)
+  })
+
+  it('地图备注保存失败保留输入并提示；旧记录不显示写作进度', async () => {
+    const old = { ...record(document(), '40000000-0000-0000-0000-000000000012'), writing_chapter_index: null }
+    api.world.listMapRevisions.mockResolvedValue([old])
+    api.world.setRevisionNote.mockRejectedValueOnce(new Error('网络中断'))
+    const wrapper = await render()
+    await wrapper.findAll('summary').find(item => item.text() === '地图历史').trigger('click'); await flushPromises()
+    const row = wrapper.get('[data-map-revision="40000000-0000-0000-0000-000000000012"]')
+    expect(row.text()).not.toContain('写到第')
+    await row.get('[data-map-note-edit]').trigger('click')
+    await row.get('[data-map-note-input]').setValue('会失败的备注')
+    await row.get('[data-map-note-save]').trigger('click'); await flushPromises()
+    expect(row.text()).toContain('网络中断')
+    expect(row.get('[data-map-note-input]').element.value).toBe('会失败的备注')
+  })
+
 })
 
 it("仅关系、图片或标注变化也能被版本比较发现", () => {

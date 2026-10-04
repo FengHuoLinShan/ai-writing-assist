@@ -465,11 +465,16 @@ async def resolve_redundant_alias(db, *, request, candidate_key):
         .with_for_update()
     )
     before = {"content_json": deepcopy(entity.content_json)}
+    from modules.world.services.common import current_writing_chapter_index
+
+    # 写入前只查一次写作进度再传进快照，不使用会话级缓存。
+    writing_chapter_index = await current_writing_chapter_index(db, request.novel_id)
     await EntityRevisionService().create_snapshot(
         db,
         row["entity_id"],
         request.novel_id,
         revision_reason="redundant_alias_resolution",
+        writing_chapter_index=writing_chapter_index,
     )
     await EntityAliasService().update_alias(
         db,

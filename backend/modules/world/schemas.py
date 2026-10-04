@@ -1759,13 +1759,6 @@ class EntityRollbackResponse(BaseModel):
     warnings: list[str]
 
 
-class EntityRevisionListResponse(BaseModel):
-    """实体版本列表响应"""
-
-    items: list[dict[str, Any]]
-    total: int
-
-
 class TextArchiveSeedRequest(BaseModel):
     """E2E 测试专用：写入 TextArchive 归档请求"""
 
@@ -3612,6 +3605,9 @@ class WorldBiblePageRevisionResponse(BaseModel):
     revision_digest: str
     revision_reason: str
     created_at: datetime | None = None
+    writing_chapter_index: int | None = None
+    change_note: str | None = None
+    changed_fields: list[str] | None = None
 
 
 class WorldBiblePageTemplateCreate(BaseModel):

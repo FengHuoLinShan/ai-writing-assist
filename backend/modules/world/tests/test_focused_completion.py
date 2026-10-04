@@ -7,6 +7,7 @@ import uuid
 from dataclasses import asdict, replace
 
 import pytest
+from sqlalchemy import select
 
 from core.errors import ConflictError, ValidationError
 from infrastructure.tasks.models import AsyncTask
@@ -508,3 +509,31 @@ def test_focused_fill_contract_rejects_arbitrary_fields_and_zero_is_not_empty():
                 ],
             }
         )
+
+
+@pytest.mark.asyncio
+async def test_focused_fill_reuses_precomputed_writing_progress(
+    db_session, project_novel_id
+):
+    """采用包补齐经 update() 打快照时复用循环前查好的写作进度，不再逐项查询。"""
+    from unittest.mock import patch
+
+    from modules.world.models import EntityRevision
+    from modules.writing import facade as writing_facade
+
+    entity, _task, _draft, request = await setup_run(db_session, project_novel_id)
+    submitted = await submit_focused_world_package(db_session, request)
+    real_query = writing_facade.get_latest_effective_chapter_index
+    with patch.object(
+        writing_facade,
+        "get_latest_effective_chapter_index",
+        autospec=True,
+        side_effect=real_query,
+    ) as progress_query:
+        await apply_focused_world_package(db_session, apply_request(request, submitted))
+    assert entity.summary == "坐落在北岸。"
+    assert progress_query.await_count == 1
+    revision = await db_session.scalar(
+        select(EntityRevision).where(EntityRevision.entity_id == entity.id)
+    )
+    assert revision.writing_chapter_index == 1

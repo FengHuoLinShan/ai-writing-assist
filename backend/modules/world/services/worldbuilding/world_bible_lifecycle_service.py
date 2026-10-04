@@ -148,6 +148,16 @@ class WorldBiblePageSourceState:
         }
 
 
+def _diff_page_snapshots(before: dict, after: dict) -> list[str]:
+    """比较两版页面快照，返回改动的字段名（去掉 ``_json`` 后缀，稳定排序）。"""
+    changed = []
+    for key in sorted(set(before) | set(after)):
+        if before.get(key) != after.get(key):
+            label = key[: -len("_json")] if key.endswith("_json") else key
+            changed.append(label)
+    return changed
+
+
 class WorldBibleLifecycleService:
     _ADOPTED_STATUSES = frozenset({"canonical", "confirmed"})
 
@@ -1210,6 +1220,8 @@ class WorldBibleLifecycleService:
         novel_id: str,
         page_id: str,
     ) -> list[WorldBiblePageRevisionResponse]:
+        from modules.world.services.revision_notes import load_revision_notes
+
         page = await self._get_page_model(db, novel_id, page_id)
         result = await db.execute(
             select(WorldBiblePageRevision)
@@ -1219,10 +1231,31 @@ class WorldBibleLifecycleService:
             )
             .order_by(WorldBiblePageRevision.version_number.desc())
         )
-        return [
-            WorldBiblePageRevisionResponse.model_validate(item)
-            for item in result.scalars().all()
-        ]
+        revisions = list(result.scalars().all())
+        notes = await load_revision_notes(
+            db,
+            novel_id,
+            "page",
+            [str(item.id) for item in revisions],
+        )
+        responses: list[WorldBiblePageRevisionResponse] = []
+        for index, item in enumerate(revisions):
+            # 页面修订是发布后的内容：与上一版（更旧的相邻一条）比较得出改动。
+            changed_fields = None
+            if index + 1 < len(revisions):
+                changed_fields = _diff_page_snapshots(
+                    revisions[index + 1].snapshot_json or {},
+                    item.snapshot_json or {},
+                )
+            response = WorldBiblePageRevisionResponse.model_validate(item)
+            response = response.model_copy(
+                update={
+                    "change_note": notes.get(item.id),
+                    "changed_fields": changed_fields,
+                }
+            )
+            responses.append(response)
+        return responses
 
     async def has_active_draft(
         self,
@@ -1708,6 +1741,8 @@ class WorldBibleLifecycleService:
         *,
         revision_reason: str,
     ) -> WorldBiblePageRevision:
+        from modules.world.services.common import current_writing_chapter_index
+
         revision_id = uuid.uuid4()
         snapshot = {
             "page_type": page.page_type,
@@ -1728,6 +1763,10 @@ class WorldBibleLifecycleService:
             novel_id=page.novel_id,
             resource_id=page.id,
         )
+        # 该表带不可变触发器：writing_chapter_index 只能在插入时写入。
+        writing_chapter_index = await current_writing_chapter_index(
+            db, str(page.novel_id)
+        )
         revision = WorldBiblePageRevision(
             id=revision_id,
             novel_id=page.novel_id,
@@ -1736,6 +1775,7 @@ class WorldBibleLifecycleService:
             revision_reason=revision_reason,
             snapshot_json=snapshot,
             revision_digest=resource_revision_digest(resource, revision_id, snapshot),
+            writing_chapter_index=writing_chapter_index,
         )
         db.add(revision)
         return revision

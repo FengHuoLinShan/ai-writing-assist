@@ -30,6 +30,7 @@ import {
 import { BIBLE_CATEGORY_PRESETS, BIBLE_PAGE_TYPES } from "../pages/worldBiblePresentation.js"
 import { publishImpactHtml, publishReceiptHtml } from "../pages/worldBiblePublishing.js"
 import { captureModalOwner, ownsModalOwner } from "../logic/worldScopeGuards.js"
+import { createWorldBibleHistory } from "./worldBibleHistory.js"
 
 const PROJECTION_TYPE = "context_brief"
 const BIBLE_DISPLAY_MODES = new Set(["editor", "gallery", "filter", "graph"])
@@ -1625,29 +1626,23 @@ export function useWorldBible(props) {
     }
   }
 
-  async function openSynopsisHistory() {
-    const novelId = projectId.value
-    const modalOwner = captureModalOwner()
-    try {
-      const data = await api.world.listBibleSynopsisRevisions(novelId)
-      if (!ownsProject(novelId) || !ownsModalOwner(modalOwner)) return false
-      const items = data.items || []
-      const body = items.length ? items.map((item) => `
-        <article class="world-bible-suggestion-item">
-          <strong>第 ${esc(item.version_number)} 版</strong> · ${esc(taskStatusLabel(item.status))}
-          <pre class="generate-markdown-pre">${esc(String(item.rendered_text || "").slice(0, 1200))}</pre>
-          <button class="btn btn-sm" data-synopsis-restore="${esc(item.id)}">恢复并固定此版本</button>
-        </article>
-      `).join("") : `<div class="empty-state"><p>暂无简介版本</p></div>`
-      showModalHtml("世界观简介版本", body, [], { size: "large" })
-      document.querySelectorAll("[data-synopsis-restore]").forEach((button) => {
-        button.addEventListener("click", () => restoreSynopsis(button.getAttribute("data-synopsis-restore"), novelId, button))
-      })
-    } catch (err) {
-      if (ownsProject(novelId) && ownsModalOwner(modalOwner)) toast(err.message || "加载简介历史失败", "error")
-      return false
-    }
-  }
+  // ---- 页面/模板/简介历史弹窗（阶段 0 拆至 worldBibleHistory.js）----
+  // 恢复回调用函数声明，靠提升在此引用；弹窗拼装统一先经 esc 再交 showModalHtml。
+  const {
+    openSynopsisHistory,
+    openPageTemplateHistory,
+    openPageHistory,
+  } = createWorldBibleHistory({
+    projectId,
+    activePage,
+    pageTemplates,
+    ownsProject,
+    ownsPage,
+    taskStatusLabel,
+    restoreSynopsis,
+    restorePageRevision,
+    applyRestoredTemplate: (restored) => savedPageTemplates.set(restored.id || restored.template_key, restored),
+  })
 
   async function restoreSynopsis(revisionId, novelId = projectId.value, ownerNode = null) {
     if (!ownsProject(novelId)) return false
@@ -2715,71 +2710,7 @@ export function useWorldBible(props) {
     }}])
   }
 
-  async function openPageTemplateHistory(templateId, ownerNode = null) {
-    const template = pageTemplates.value.find((t) => t.id === templateId)
-    if (!template || template.builtin) return
-    const novelId = projectId.value
-    const modalOwner = captureModalOwner(ownerNode)
-    try {
-      const revisions = await api.world.listBiblePageTemplateRevisions(template.id, novelId)
-      if (!ownsProject(novelId) || !ownsModalOwner(modalOwner)) return false
-      const body = revisions.map((item) => `
-        <div class="world-bible-suggestion-item">
-          <strong>v${esc(item.version_number)}</strong> · ${esc(item.revision_reason)} · ${esc(item.content_hash.slice(0, 12))}
-          <button class="btn btn-sm" data-template-restore-version="${esc(item.version_number)}">恢复为新版本</button>
-        </div>
-      `).join("") || `<div class="world-bible-empty-hint">暂无历史</div>`
-      showModalHtml("模板历史", body, [], { size: "large" })
-      document.querySelectorAll("[data-template-restore-version]").forEach((button) => {
-        button.addEventListener("click", async () => {
-          if (!ownsProject(novelId)) return false
-          const restoreOwner = captureModalOwner(button)
-          try {
-            const restored = await api.world.restoreBiblePageTemplateRevision(template.id, Number(button.getAttribute("data-template-restore-version")), novelId)
-            if (!ownsProject(novelId) || !ownsModalOwner(restoreOwner)) return false
-            savedPageTemplates.set(restored.id || restored.template_key, restored)
-            closeModal()
-            toast("历史模板已恢复为新版本", "success")
-          } catch (err) {
-            if (ownsProject(novelId) && ownsModalOwner(restoreOwner)) toast(err.message || "恢复模板失败", "error")
-            return false
-          }
-        })
-      })
-    } catch (err) {
-      if (ownsProject(novelId) && ownsModalOwner(modalOwner)) toast(err.message || "加载模板历史失败", "error")
-      return false
-    }
-  }
-
   // ---- page history ----
-  async function openPageHistory(version = null) {
-    const page = activePage.value
-    if (!page?.id) return
-    const novelId = projectId.value
-    const pageId = page.id
-    const modalOwner = captureModalOwner()
-    try {
-      const revisions = await api.world.listBiblePageRevisions(pageId, novelId)
-      if (!ownsPage(novelId, pageId) || !ownsModalOwner(modalOwner)) return false
-      const selected = Array.isArray(revisions) ? revisions.filter(item => !Number.isInteger(version) || item.version_number === version) : []
-      const body = selected.length ? selected.map((item) => `
-        <article class="world-bible-suggestion-item">
-          <strong>v${esc(item.version_number)}</strong> · ${esc(({ manual_publish: "发布保存", legacy_create: "初始版本", legacy_update: "历史更新", restore: "历史恢复" })[item.revision_reason] || "历史保存")}
-          <pre class="generate-markdown-pre">${esc(String(item.snapshot_json?.free_text || "").slice(0, 1200))}</pre>
-          <button class="btn btn-sm" data-bible-page-restore="${esc(item.version_number)}">恢复为工作稿</button>
-        </article>
-      `).join("") : `<div class="empty-state"><p>${Number.isInteger(version) ? "这份历史版本已不可用" : "暂无页面版本"}</p></div>`
-      showModalHtml("世界书页面版本", body, [], { size: "large" })
-      document.querySelectorAll("[data-bible-page-restore]").forEach((button) => {
-        button.addEventListener("click", () => restorePageRevision(Number(button.getAttribute("data-bible-page-restore")), novelId, pageId, button))
-      })
-    } catch (err) {
-      if (ownsPage(novelId, pageId) && ownsModalOwner(modalOwner)) toast(err.message || "加载页面历史失败", "error")
-      return false
-    }
-  }
-
   async function restorePageRevision(version, novelId = projectId.value, pageId = activePage.value?.id, ownerNode = null) {
     if (!pageId || !version || !ownsPage(novelId, pageId)) return false
     const modalOwner = captureModalOwner(ownerNode)

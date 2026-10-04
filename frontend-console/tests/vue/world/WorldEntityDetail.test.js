@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { mount } from "@vue/test-utils"
+import { flushPromises, mount } from "@vue/test-utils"
 import WorldEntityDetail from "../../../vue/views/world/library/WorldEntityDetail.vue"
+import WorldEntityRevisionHistory from "../../../vue/views/world/library/WorldEntityRevisionHistory.vue"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 
 const character = { id: "character-1", entity_type: "character", name: "林澈", status: "canonical", content_json: {} }
@@ -8,7 +9,13 @@ const profile = { entity_id: "character-1", role: "主角", personality: "谨慎
 let api
 
 beforeEach(() => {
-  api = { world: { getCharacter: vi.fn(async () => profile), updateCharacter: vi.fn(async (_id, payload) => ({ ...profile, ...payload })) } }
+  api = {
+    world: {
+      getCharacter: vi.fn(async () => profile),
+      updateCharacter: vi.fn(async (_id, payload) => ({ ...profile, ...payload })),
+      getEntityRevisions: vi.fn(async () => ({ items: [], total: 0 })),
+    },
+  }
   setBridgeOverrides({ api, toast: vi.fn() })
 })
 
@@ -40,6 +47,19 @@ describe("WorldEntityDetail 人物档案", () => {
   it("非人物不显示人物档案", () => {
     const wrapper = mountDetail({ ...character, id: "location-1", entity_type: "location", name: "雾港" })
     expect(wrapper.find(".world-character-profile").exists()).toBe(false)
+  })
+
+  it("内联修订历史：默认收起不发请求，展开后按对象与作品读取，恢复完成转发 refresh", async () => {
+    const wrapper = mountDetail()
+    const panel = wrapper.get("details.world-entity-revision-history")
+    expect(api.world.getEntityRevisions).not.toHaveBeenCalled()
+    panel.element.open = true
+    await panel.trigger("toggle")
+    await flushPromises()
+    expect(api.world.getEntityRevisions).toHaveBeenCalledWith("character-1", "p1", { skip: 0, limit: 20 })
+    wrapper.findComponent(WorldEntityRevisionHistory).vm.$emit("restored")
+    expect(wrapper.emitted("refresh").at(-1)).toEqual(["character-1"])
+    wrapper.unmount()
   })
 
   it("只提交作者可编辑的人物字段", async () => {

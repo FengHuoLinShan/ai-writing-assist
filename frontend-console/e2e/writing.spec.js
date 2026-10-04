@@ -553,7 +553,7 @@ test.describe("写作台模块", () => {
     const compareButton = panel.getByRole("button", { name: "与当前工作稿比较" })
     await compareButton.click()
     const comparison = page.getByRole("dialog", { name: "版本历史" })
-    await expect(comparison.locator(".writing-version-diff")).toBeFocused()
+    await expect(comparison.locator(".writing-version-history-diff")).toBeFocused()
     await expect(comparison).toContainText("石门仍旧紧闭")
     await expect(comparison).toContainText("从未被记载的门")
     await page.keyboard.press("Escape")
@@ -636,9 +636,9 @@ test.describe("写作台模块", () => {
 
     // 旧版本可一步与当前打开版本比较，不必先理解 A/B 选择器。
     await initialV1Row.getByRole("button", { name: "与当前打开版本比较" }).click()
-    await expect(versionDialog.locator(".writing-version-diff")).toBeFocused()
-    await expect(versionDialog.locator(".writing-version-diff")).toContainText("版本一的正文内容")
-    await expect(versionDialog.locator(".writing-version-diff")).toContainText("版本二的正文内容")
+    await expect(versionDialog.locator(".writing-version-history-diff")).toBeFocused()
+    await expect(versionDialog.locator(".writing-version-history-diff")).toContainText("版本一的正文内容")
+    await expect(versionDialog.locator(".writing-version-history-diff")).toContainText("版本二的正文内容")
 
     // 单独预览保留在低频操作菜单中。
     await initialV1Row.getByRole("button", { name: "版本 v1 的更多操作" }).click()

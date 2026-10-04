@@ -51,6 +51,13 @@ from modules.world.relation_schemas import (
     WorldRelationMembershipBatchRequest,
     WorldRelationMembershipBatchResponse,
 )
+from modules.world.revision_history_schemas import (
+    EntityRevisionListResponse,
+    EntityRevisionRollbackRequest,
+    RevisionNoteResponse,
+    RevisionNoteUpdateRequest,
+    WorldChangeHistoryResponse,
+)
 from modules.world.schemas import (
     AliasKind,
     AskWorldCitationOpenRequest,
@@ -97,7 +104,6 @@ from modules.world.schemas import (
     EntityRelationReviewGroupListResponse,
     EntityRelationUpdate,
     EntityResolveAsAliasRequest,
-    EntityRevisionListResponse,
     EntityRollbackRequest,
     EntityRollbackResponse,
     EntityTypeCatalogResponse,
@@ -234,6 +240,8 @@ from modules.world.services import (
 )
 from modules.world.services.core.dedup_service import EntityDedupService
 from modules.world.services.core.review_queue import review_type_catalog
+from modules.world.services.revision_history_service import WorldChangeHistoryService
+from modules.world.services.revision_notes import set_revision_note
 from modules.world.services.worldbuilding.adoption_package_service import (
     WorldAdoptionPackageService,
 )
@@ -380,6 +388,7 @@ _world_impact_service = WorldImpactService()
 _world_authority_service = WorldAuthorityService()
 _world_library_service = WorldLibraryService()
 _cocreation_session_service = WorldCocreationSessionService()
+_change_history_service = WorldChangeHistoryService()
 
 
 async def _require_active_novel_id(
@@ -3633,14 +3642,13 @@ async def list_revisions(
     skip: int = Query(default=0, ge=0, description="跳过的记录数"),
     limit: int = Query(default=20, ge=1, le=100, description="每页条数"),
 ) -> EntityRevisionListResponse:
-    result = await _revision_service.get_revisions(
+    return await _revision_service.get_revisions(
         db,
         entity_id,
         novel_id,
         skip=skip,
         limit=limit,
     )
-    return EntityRevisionListResponse(items=result["items"], total=result["total"])
 
 
 @router.post("/entities/{entity_id}/rollback", response_model=EntityRollbackResponse)
@@ -3672,15 +3680,17 @@ async def rollback_entity(
 async def rollback_entity_by_revision(
     db: DbSession,
     entity_id: str,
-    revision_id: str = Query(..., description="目标版本 ID"),
+    data: EntityRevisionRollbackRequest,
     *,
     novel_id: ActiveNovelIdQuery,
 ) -> CoreEntityResponse:
-    return await _revision_service.rollback_to_revision(
+    """把实体恢复到指定修订（那次改动之前）的状态；基线过期返回 409。"""
+    return await _entity_service.rollback_to_revision(
         db,
         entity_id,
-        revision_id,
-        novel_id,
+        data.revision_id,
+        novel_id=novel_id,
+        expected_updated_at=data.expected_updated_at,
     )
 
 
@@ -3714,6 +3724,52 @@ async def seed_entity_text_archive(
         entity_id=entity_id,
         field_name=data.field_name,
         archive_id=str(archive.id),
+    )
+
+
+# ============================================================
+# 世界改动记录 / 修订备注 路由（路线图阶段 0）
+# ============================================================
+
+
+@router.get("/change-history", response_model=WorldChangeHistoryResponse)
+async def list_world_change_history(
+    db: DbSession,
+    *,
+    novel_id: ActiveNovelIdQuery,
+    kinds: list[Literal["entity", "page", "map"]] | None = Query(
+        default=None, description="按类型筛选，可重复传：entity/page/map"
+    ),
+    cursor: str | None = Query(default=None, description="翻页游标（不透明 base64）"),
+    limit: int = Query(
+        default=30,
+        ge=1,
+        le=50,
+        description="每页条数（1–50，默认 30）",
+    ),
+) -> WorldChangeHistoryResponse:
+    return await _change_history_service.list(
+        db,
+        novel_id=novel_id,
+        kinds=kinds,
+        cursor=cursor,
+        limit=limit,
+    )
+
+
+@router.put("/revision-notes", response_model=RevisionNoteResponse)
+async def put_revision_note(
+    db: DbSession,
+    data: RevisionNoteUpdateRequest,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> RevisionNoteResponse:
+    return await set_revision_note(
+        db,
+        novel_id,
+        data.target_kind,
+        data.revision_id,
+        data.note,
     )
 
 

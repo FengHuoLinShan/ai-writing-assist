@@ -456,7 +456,8 @@ Atlas task 内归属 `world.map_atlas.generate` canonical parent（generate/edit
 | `world_validation_runs` | 冻结校验输入、分片/结果哈希、coverage/budget 账本、verdict/gate 与 warning 签收回执；第四期扩展影响清单/分批计划/失效原因/续接计数 |
 | `world_validation_review_items` | 逐条 finding 的作者复核处置记录，复合外键绑定回执，快照含 target/manifest hash（ADR-0022） |
 | `world_bible_synopsis_revisions` | 作者版世界观简介的不可变 LLM 派生版本 |
-| `entity_revisions` | 实体快照版本表（旧版快照；当前活跃回滚优先使用 `TextArchive`，无归档时回退到 `EntityRevision`） |
+| `entity_revisions` | 实体改动历史（改动前快照 + 写作进度 + 改动字段摘要；Scene 回滚兜底仍优先 `TextArchive`）；`restored_from_revision_id` 记录恢复来源 |
+| `world_revision_notes` | 实体/页面/地图修订的事后补写备注（`(novel_id, target_kind, revision_id)` 唯一，无跨表外键，服务层校验归属；不进入快照/摘要/Canon receipt） |
 | `map_atlas_runs` | AI 地图册计划、上下文快照、任务进度与停止状态 |
 | `map_atlas_nodes` | 封面到街道/室内的层级节点与采用状态 |
 | `map_atlas_pages` | 独立候选/已采用/拒绝/移出图片与派生链 |
@@ -578,12 +579,20 @@ upsert；调用方不应再实现“先查再插”的并发控制。关系复�
 - 待处理别名的批量忽略不删除 JSONB 条目；它写入 `status="ignored"` / `needs_review=false` 和审计元数据。正式别名管理页的删除语义不变
 - 别名分组扫描会稳定分页读完项目对象，不使用隐式 10,000 条截断；所有内联别名写入都先锁定 owner/目标对象，避免 JSONB 整体回写覆盖并发复核
 
-### entity_revisions 表（legacy 快照兜底）
+### entity_revisions 表（编辑历史与 legacy 快照兜底）
 
-- 原用于实体快照版本管理
-- `POST /api/world/entities/{entity_id}/rollback` 是当前活跃的版本回滚路由，请求体：`{ "target_scene_index": 12 }`；由 `EntityRevisionService.rollback_to_scene_index` 实现，优先使用 `TextArchive`，无归档时回退到最近 `EntityRevision`
-- `POST /api/world/entities/{entity_id}/rollback-by-revision` 是 `entity_revisions` 的兼容路由，按显式 `revision_id` 回滚
-- `EntityRevisionService` 同时承担活跃回滚实现与 legacy 兼容，不应再被描述为仅 read/compat
+- 原用于实体快照版本管理；阶段 0 起每条快照携带 `writing_chapter_index`（打快照时的写作进度，0=尚无正文，NULL=旧记录）与 `change_summary`（改动字段摘要，含 `restored_from_revision_id`），两列可事后 UPDATE（无触发器）。
+- `POST /api/world/entities/{entity_id}/rollback` 是按 Scene 的版本回滚路由，请求体：`{ "target_scene_index": 12 }`；由 `EntityRevisionService.rollback_to_scene_index` 实现，优先使用 `TextArchive`，无归档时回退到最近 `EntityRevision`。
+- `POST /api/world/entities/{entity_id}/rollback-by-revision` 把实体恢复到指定修订（那次改动之前）：请求体 `{ "revision_id", "expected_updated_at" }`，内部统一走 `WorldEntityService.update()`，编辑基线、Canon 写入门禁、别名规范化与失效链照常执行（基线过期 409）；不恢复 status；恢复前的快照 reason 为 `rollback` 并记录来源修订。作者态投影为已归档（deprecated/ignored/merged 等，见 `asset_state.py`）的实体不提供恢复，与改动记录的「已移除」同口径。
+- `GET /api/world/entities/{entity_id}/revisions` 返回强类型改动历史：时间（带时区）、原因、写作进度、改动字段（缺保存记录时由相邻修订推算并标 `changed_fields_exact=false`）、备注、改动前快照与 `can_restore`。
+- 快照失败语义：手动编辑与采用的前置快照失败即整体失败（实体保持不变）；`promote()` 快照 reason 为 `manual_promote`；删除前的快照保持尽力而为（删除只是软废弃，内容仍在原行，不因历史写失败而拦住删除）。
+- `EntityRevisionService` 同时承担快照写入、改动历史读取与 Scene 回滚实现，不应再被描述为仅 read/compat。
+
+### 世界修订备注与改动记录（阶段 0）
+
+- `world_revision_notes` 表承载实体/页面/地图修订历史的事后补写备注：`(novel_id, target_kind, revision_id)` 唯一，`target_kind ∈ entity/page/map`；`revision_id` 无外键（一列指向三张修订表），归属校验在服务层。
+- `PUT /api/world/revision-notes?novel_id=` 补写/修改/删除备注（空串删除，≤500 字，重复写幂等；并发首次补写同一条备注时后到方经 savepoint 转为更新，不报错）。跨作品 404；地图候选版本（status≠saved）返回 **409**，只有已保存的版本支持备注。
+- `GET /api/world/change-history?novel_id=&kinds=&cursor=&limit=` 是世界改动记录时间线：SQL 内三段 UNION ALL（实体全量修订、页面发布、地图仅 saved 且无 confirmation_id 的保存行）+ LEFT JOIN 备注表，按 `(created_at, kind, id)` 倒序 keyset 游标翻页（坏游标 422，limit 1–50 默认 30，不返回总数）。时间线不收录模板、简介、实体新建与 Canon 回退。
 
 ### AI 地图册表
 
@@ -778,8 +787,8 @@ async def get_world_bible_page_source_manifest(db, novel_id, page_ids) -> list[d
 async def mark_worldbuilding_context_stale(db, novel_id, *, reason: str, asset_id="worldbuilding") -> int
 
 # ---- EntityRevision (legacy rollback by revision_id) ----
-async def get_entity_revisions(db, novel_id, entity_id, skip=0, limit=20) -> dict
-async def rollback_to_revision(db, novel_id, entity_id, revision_id) -> dict
+async def get_entity_revisions(db, novel_id, entity_id, skip=0, limit=20) -> dict  # 内部强类型，对外转 dict 兼容
+async def rollback_to_revision(db, novel_id, entity_id, revision_id, *, expected_updated_at) -> dict
 
 # ---- Character ----
 async def create_character(db, novel_id, name, world_entity_id=None) -> CharacterResponse
@@ -933,9 +942,11 @@ section，且不会进入可投影正文。页面预览保持零写入并把页�
 | GET | `/api/world/entities/{entity_id}/relations` | 实体关系列表 |
 | DELETE | `/api/world/entities/{entity_id}/aliases` | 删除别名 |
 | PATCH | `/api/world/entities/{entity_id}/aliases/edit` | 编辑/移动并确认别名 |
-| GET | `/api/world/entities/{entity_id}/revisions` | 版本历史（legacy，只读兼容） |
+| GET | `/api/world/entities/{entity_id}/revisions` | 实体改动历史（强类型：时间/原因/写作进度/改动字段/备注/快照） |
 | POST | `/api/world/entities/{entity_id}/rollback` | 回滚到指定 scene_index（优先 TextArchive，无归档时回退到 EntityRevision） |
-| POST | `/api/world/entities/{entity_id}/rollback-by-revision` | 按 revision_id 回滚（`entity_revisions` 兼容） |
+| POST | `/api/world/entities/{entity_id}/rollback-by-revision` | 恢复到指定修订之前；请求体 `revision_id` + `expected_updated_at`，基线过期 409 |
+| GET | `/api/world/change-history` | 世界改动记录时间线（实体/页面/地图合并，kinds 筛选，游标翻页） |
+| PUT | `/api/world/revision-notes` | 补写/修改/删除修订备注（entity/page/map；空串删除；地图候选 409） |
 | GET | `/api/world/aliases` | 别名列表；`q` 支持别名、所属对象和引用搜索 |
 | POST | `/api/world/aliases` | 添加别名 |
 | GET | `/api/world/entity-batches` | 实体批次分组列表 |

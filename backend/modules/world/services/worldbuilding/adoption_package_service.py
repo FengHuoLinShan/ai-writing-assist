@@ -697,11 +697,15 @@ class WorldAdoptionPackageService:
         local_refs: dict[str, str] = {}
         results: list[dict[str, str]] = []
         applied_changes = []
+        from modules.world.services.common import current_writing_chapter_index
         from modules.world.services.worldbuilding.focused_adoption import (
             entity_state,
             is_empty,
             relation_state,
         )
+
+        # 循环之前只查一次写作进度，逐项传给快照，不使用会话级缓存。
+        writing_chapter_index = await current_writing_chapter_index(db, novel_id)
 
         for item in package.items:
             if item.disposition != "include":
@@ -735,6 +739,7 @@ class WorldAdoptionPackageService:
                         novel_id=novel_id,
                         _validation_prechecked=True,
                         _automated=True,
+                        _writing_chapter_index=writing_chapter_index,
                     )
                     applied_changes.append(
                         {
@@ -1044,7 +1049,11 @@ class WorldAdoptionPackageService:
             )
 
             await EntityRevisionService().create_snapshot(
-                db, entity_id, novel_id, revision_reason="focused_completion"
+                db,
+                entity_id,
+                novel_id,
+                revision_reason="focused_completion",
+                writing_chapter_index=writing_chapter_index,
             )
             if item.review_evidence or payload.candidate_fingerprint:
                 await self._suggestions._aliases.update_alias(

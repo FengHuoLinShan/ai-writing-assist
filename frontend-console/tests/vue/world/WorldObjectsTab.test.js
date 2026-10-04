@@ -370,7 +370,7 @@ describe("页内视图控件", () => {
       },
     })
 
-    await wrapper.get(".view-header__actions > .btn-ghost").trigger("click")
+    await wrapper.get("[data-action='return-to-library']").trigger("click")
 
     expect(localStorage.getItem("worldBible:p-obj:displayMode")).toBe("gallery")
     expect(navigateMock).toHaveBeenCalledWith("world", "bible")

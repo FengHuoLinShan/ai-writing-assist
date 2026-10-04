@@ -813,3 +813,53 @@ async def test_rollback_keeps_referenced_entities(db_session, project_novel_id):
     } == {"referenced"}
     await db_session.refresh(created)
     assert created.status == "canonical"
+
+
+@pytest.mark.asyncio
+async def test_apply_queries_writing_progress_once_for_all_fills(
+    db_session, project_novel_id
+):
+    """批量补齐只在循环前查一次写作进度，逐项传给实体快照（TASK §6.3）。"""
+    from unittest.mock import patch
+
+    from modules.world.models import EntityRevision
+    from modules.writing import facade as writing_facade
+
+    names = ("林澈", "沈青", "周岚")
+    for name in names:
+        await _seed_entity(db_session, project_novel_id, "character", name)
+    request = _request(
+        [
+            _entity(f"e{index}", name, summary=f"{name}的概要")
+            for index, name in enumerate(names)
+        ]
+    )
+    plan = await plan_author_migration_world(db_session, project_novel_id, request)
+    real_query = writing_facade.get_latest_effective_chapter_index
+    with patch.object(
+        writing_facade,
+        "get_latest_effective_chapter_index",
+        autospec=True,
+        side_effect=real_query,
+    ) as progress_query:
+        await apply_author_migration_world(
+            db_session,
+            project_novel_id,
+            request,
+            expected_fingerprint=plan.fingerprint,
+            authorized_by=OWNER,
+        )
+    assert progress_query.await_count == 1
+    revisions = (
+        (
+            await db_session.execute(
+                select(EntityRevision).where(
+                    EntityRevision.novel_id == uuid.UUID(hex=project_novel_id)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(revisions) == len(names)
+    assert {revision.writing_chapter_index for revision in revisions} == {0}

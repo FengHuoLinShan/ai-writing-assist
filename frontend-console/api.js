@@ -1413,7 +1413,20 @@ const api = {
     },
 
     async getEntityRelations(id, novelId) { return request(withQuery(`/world/entities/${id}/relations`, { novel_id: novelId })) },
-    async getEntityRevisions(id, novelId, skip = 0) { return request(withQuery(`/world/entities/${id}/revisions`, { novel_id: novelId, skip, limit: 20 })) },
+    async getEntityRevisions(id, novelId, options = {}) {
+      const { skip = 0, limit = 20 } = options
+      return request(withQuery(`/world/entities/${id}/revisions`, { novel_id: novelId, skip, limit }))
+    },
+    async rollbackEntityToRevision(entityId, payload, novelId) {
+      return post(withQuery(`/world/entities/${entityId}/rollback-by-revision`, { novel_id: novelId }), payload)
+    },
+    async setRevisionNote(payload, novelId) {
+      return put(withQuery("/world/revision-notes", { novel_id: novelId }), payload)
+    },
+    async listWorldChangeHistory(novelId, options = {}) {
+      const { kinds, cursor, limit } = options
+      return request(withQuery("/world/change-history", { novel_id: novelId, kinds, cursor, limit }))
+    },
     async getEntity(id, novelId, options = {}) {
       return contractFetch("world.getEntity", { id }, { novel_id: novelId }, options)
     },

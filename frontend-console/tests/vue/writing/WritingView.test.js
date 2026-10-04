@@ -973,7 +973,7 @@ describe("WritingView", () => {
     expect(globalThis.api.writing.get).toHaveBeenCalledWith("candidate", "p1")
     expect(wrapper.get('[aria-label="版本历史"]').text()).toContain("当前工作稿")
     expect(wrapper.get('[aria-label="版本历史"]').text()).toContain("候选正文")
-    await vi.waitFor(() => expect(document.activeElement).toBe(wrapper.get(".writing-version-diff").element))
+    await vi.waitFor(() => expect(document.activeElement).toBe(wrapper.get(".writing-version-history-diff").element))
     wrapper.unmount()
   })
 

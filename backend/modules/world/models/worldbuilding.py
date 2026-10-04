@@ -165,6 +165,16 @@ class WorldBiblePageRevision(Base, UUIDMixin, TimestampMixin, NovelMixin):
             ondelete="CASCADE",
             name="fk_world_bible_page_revision_same_novel",
         ),
+        CheckConstraint(
+            "writing_chapter_index IS NULL OR writing_chapter_index >= 0",
+            name="ck_world_bible_page_revisions_writing_chapter_index_nonneg",
+        ),
+        Index(
+            "ix_world_bible_page_revisions_novel_created",
+            "novel_id",
+            "created_at",
+            "id",
+        ),
         {"comment": "World Bible 页面版本"},
     )
 
@@ -178,6 +188,16 @@ class WorldBiblePageRevision(Base, UUIDMixin, TimestampMixin, NovelMixin):
     snapshot_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     revision_digest: Mapped[str] = mapped_column(String(64), nullable=False)
     revision_reason: Mapped[str] = mapped_column(String(64), nullable=False)
+    writing_chapter_index: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="发布时的写作进度（最大已有正文的章节号；0=尚无正文，NULL=旧记录）",
+    )
+    change_summary: Mapped[dict | None] = mapped_column(
+        JSON,
+        nullable=True,
+        comment="改动字段摘要 JSON；页面差异在读取时计算，此列仅保持三表结构对齐",
+    )
 
 
 class WorldBiblePageProjection(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
@@ -602,9 +622,7 @@ class WorldValidationRun(Base, UUIDMixin, TimestampMixin, NovelMixin):
         ),
         Index("ix_world_validation_runs_novel_created", "novel_id", "created_at"),
         Index("ix_world_validation_runs_novel_status", "novel_id", "status"),
-        UniqueConstraint(
-            "novel_id", "id", name="uq_world_validation_runs_novel_id"
-        ),
+        UniqueConstraint("novel_id", "id", name="uq_world_validation_runs_novel_id"),
         {"comment": "World Bible deterministic and semantic validation receipts"},
     )
 

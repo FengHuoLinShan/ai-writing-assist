@@ -110,6 +110,7 @@ async def get_author_attention_items(db: AsyncSession, novel_id: str) -> list[Wr
 async def list_latest_drafts_for_chapters(db: AsyncSession, novel_id: str, chapter_indices: list[int], *, content_limit: int | None = None) -> list[WritingDraftContract]
 async def list_chapter_indices(db: AsyncSession, novel_id: str) -> list[int]
 async def list_effective_chapter_indices(db: AsyncSession, novel_id: str) -> list[int]
+async def get_latest_effective_chapter_index(db: AsyncSession, novel_id: str) -> int  # 0 = 尚无实质正文；按章节号倒序分批探测，不读全文
 async def lock_chapter_versions_for_revalidation(db: AsyncSession, novel_id: str, chapter_indices: list[int]) -> None
 async def list_manuscript_sources(db, novel_id, chapter_indices=None, *, content_mode="canonical") -> list[WritingDraftContract]
 async def grep_manuscript(db, novel_id, pattern, *, content_mode="canonical", ...) -> ManuscriptSearchPageContract

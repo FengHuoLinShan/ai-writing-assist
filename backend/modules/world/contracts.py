@@ -182,9 +182,11 @@ class FocusedWorldPackageApplyRequest:
 class EntityRevisionContract:
     """版本快照契约
 
-    `entity_revisions` 在回滚时作为兜底使用，并继续承担显式
-    `rollback-by-revision` 快照的存储。
-    当 `TextArchive` 可用时，优先使用 TextArchive 作为回滚数据源。
+    `entity_revisions` 是实体改动历史（改动前快照，携带写作进度
+    `writing_chapter_index` 与 `change_summary` 改动字段摘要）；
+    `rollback-by-revision` 基于它把实体恢复到某次改动之前。
+    按 Scene 的回滚在 `TextArchive` 可用时仍优先使用 TextArchive
+    作为数据源，无归档时回退到本表。
     """
 
     entity_id: str

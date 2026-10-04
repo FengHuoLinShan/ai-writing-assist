@@ -751,3 +751,70 @@ async def test_page_source_state_owns_generation_baseline_identity(
         )
         is None
     )
+
+
+@pytest.mark.asyncio
+async def test_publish_records_writing_chapter_index_and_revision_diff(
+    db_session,
+    project_novel_id: str,
+) -> None:
+    """页面发布写当前写作进度；列表读差异字段并批量带备注。"""
+    from modules.writing.facade import create_published_draft_only
+
+    lifecycle = WorldBibleLifecycleService()
+    draft = await lifecycle.create_draft(
+        db_session,
+        WorldBiblePageDraftCreate(
+            novel_id=project_novel_id,
+            title="北境货币",
+            page_type="background",
+            free_text="初版概览",
+            sections_json=[_section("currency", "货币")],
+        ),
+    )
+    published = await lifecycle._seal_draft_for_admission(
+        db_session, project_novel_id, draft.id
+    )
+    revision = await db_session.scalar(
+        select(WorldBiblePageRevision).where(
+            WorldBiblePageRevision.page_id == uuid.UUID(published.id),
+            WorldBiblePageRevision.version_number == 1,
+        )
+    )
+    assert revision is not None
+    assert revision.writing_chapter_index == 0
+
+    # 写到第六章后再次发布：新修订记录当时的写作进度。
+    await create_published_draft_only(
+        db_session, project_novel_id, 6, "第六章", "第六章的正文"
+    )
+    working = await lifecycle.get_or_create_page_draft(
+        db_session, project_novel_id, published.id
+    )
+    await lifecycle.update_draft(
+        db_session,
+        project_novel_id,
+        working.id,
+        WorldBiblePageDraftUpdate(free_text="二版概览"),
+    )
+    published_again = await lifecycle._seal_draft_for_admission(
+        db_session, project_novel_id, working.id
+    )
+    assert published_again.version_number == 2
+
+    revisions = await lifecycle.list_revisions(db_session, project_novel_id, published.id)
+    assert [item.version_number for item in revisions] == [2, 1]
+    assert revisions[0].writing_chapter_index == 6
+    assert revisions[1].writing_chapter_index == 0
+    assert revisions[0].changed_fields == ["free_text"]
+    assert revisions[1].changed_fields is None
+
+    from modules.world.services.revision_notes import set_revision_note
+
+    latest_id = revisions[0].id
+    await set_revision_note(
+        db_session, project_novel_id, "page", latest_id, "改写概览口径"
+    )
+    revisions = await lifecycle.list_revisions(db_session, project_novel_id, published.id)
+    assert revisions[0].change_note == "改写概览口径"
+    assert revisions[1].change_note is None

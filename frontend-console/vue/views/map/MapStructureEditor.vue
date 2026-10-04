@@ -229,17 +229,18 @@
       <details v-if="annotations.length || doc.annotation_bindings.length"><summary>绑定原图片标注</summary><ul><li v-for="binding in doc.annotation_bindings" :key="binding.annotation_id">已绑定到 {{ featureLabel(binding.feature_id) }} <button class="btn btn-sm" @click="unbindAnnotation(binding.annotation_id)">解除绑定</button></li></ul><form class="map-inline-form" @submit.prevent="bindAnnotation"><label>原标注<select v-model="annotationId" class="form-select"><option value="">请选择</option><option v-for="annotation in annotations" :key="annotation.id" :value="annotation.id">{{ annotation.label }}</option></select></label><label>地图地点<select v-model="annotationFeatureId" class="form-select"><option value="">请选择</option><option v-for="feature in doc.features" :key="feature.id" :value="feature.id">{{ feature.label }}</option></select></label><button class="btn btn-sm" :disabled="!annotationId || !annotationFeatureId">绑定</button></form></details>
     </details>
     <details v-if="problems.length && !reader" open class="map-warning map-problems"><summary>需要核对 {{ problems.length }} 项</summary><ul><li v-for="(problem, index) in problems" :key="index">{{ problem.message }}<button v-if="problem.feature_ids.length" class="btn btn-sm" @click="selectFeature(problem.feature_ids[0])">定位</button></li></ul></details>
-    <details v-if="!reader && !focused" class="map-history-panel"><summary @click="loadHistory">地图历史</summary><div v-for="item in history" :key="item.id" class="map-history"><span>{{ formatDate(item.created_at) }} · {{ item.status === 'saved' ? '已保存' : item.status === 'candidate' ? '候选' : '已处理候选' }}</span><button class="btn btn-sm" :disabled="busy" @click="viewCandidate(item)">查看并比较</button><button v-if="item.status === 'saved'" class="btn btn-sm" :disabled="busy || dirty || Boolean(recovery) || item.id === revision?.id" @click="review(item, 'restore')">恢复为新版本</button></div></details>
+    <details v-if="!reader && !focused" class="map-history-panel"><summary @click="loadHistory">地图历史</summary><div v-for="item in history" :key="item.id" class="map-history" :data-map-revision="item.id"><span :title="formatFullTime(item.created_at)">{{ formatRelativeTime(item.created_at) }} · {{ item.status === 'saved' ? '已保存' : item.status === 'candidate' ? '候选' : '已处理候选' }}</span><span v-if="mapWritingProgress(item)" class="muted">{{ mapWritingProgress(item) }}</span><p v-if="item.change_note && noteEditingId !== item.id" class="muted">备注：{{ item.change_note }}</p><p v-if="noteError && noteEditingId === item.id" class="field-error" role="alert">{{ noteError }}</p><div v-if="noteEditingId === item.id" class="map-history-note"><label>备注（最多 500 字，留空即删除）<textarea v-model="noteDraft" rows="2" maxlength="500" data-map-note-input :disabled="noteSaving"></textarea></label><button class="btn btn-sm btn-primary" :disabled="noteSaving" data-map-note-save @click="saveMapNote(item)">{{ noteSaving ? '保存中…' : '保存备注' }}</button><button class="btn btn-sm" :disabled="noteSaving" data-map-note-cancel @click="cancelMapNote">取消</button></div><button v-else-if="item.status === 'saved'" class="btn btn-sm" data-map-note-edit @click="startMapNote(item)">{{ item.change_note ? '编辑备注' : '补写备注' }}</button><button class="btn btn-sm" :disabled="busy" @click="viewCandidate(item)">查看并比较</button><button v-if="item.status === 'saved'" class="btn btn-sm" :disabled="busy || dirty || Boolean(recovery) || item.id === revision?.id" @click="review(item, 'restore')">恢复为新版本</button></div></details>
     <MapSourcePicker v-if="selectedFeature" :key="node.id + ':' + selectedId" :open="sourcePickerOpen" :project-id="projectId" :feature="selectedFeature" :initial-source="sourcePickerInitial" @close="sourcePickerOpen = false" @add="addSource" />
   </section>
 </template>
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
-import { getApi, getConfirmAction, getRouter } from "../../bridge/index.js"
+import { getApi, getConfirmAction, getRouter, getToast } from "../../bridge/index.js"
 import { confirmAsync } from "../../../shared/confirmAsync.js"
 import { confirmAiReference } from "../../../shared/aiReferenceModal.js"
 import { ACCOUNT_MARKER_KEY } from "../../../shared/accountStorage.js"
+import { formatFullTime, formatRelativeTime, formatWritingProgress } from "../../../shared/revisionHistory.js"
 import { copyMap, emptyMap, geometrySignature, mapBounds, mapChangeDetails, mapFeatureCenter, mapImageChanges, mapRelationLabels, mapSourceRangeKey, mapSourceSelections, pointsAttribute, rehearseMapRoute, removeMapFeature } from "./mapStructureEditor.js"
 import { focusWorkspaceTool } from "../../components/workspaceTools.js"
 import FocusedEvidencePanel from "../../components/FocusedEvidencePanel.vue"
@@ -393,7 +394,26 @@ function imageState(placement) {
   return imageLayers.value.find(layer => layer.page_id === placement.page_id)?.state || "unavailable"
 }
 function featureLabel(id) { return doc.value.features.find(f => f.id === id)?.label || "待核对地点" }
-function formatDate(value) { return value ? new Date(value).toLocaleString() : "已有图片" }
+function formatDate(value) { return value ? formatFullTime(value) : "已有图片" }
+// ---- 地图历史：写作进度与备注（阶段 0；备注仅已保存版本可写） ----
+function mapWritingProgress(item) { return formatWritingProgress(item?.writing_chapter_index) }
+const noteEditingId = ref(''), noteDraft = ref(''), noteError = ref(''), noteSaving = ref(false)
+function startMapNote(item) { noteEditingId.value = item.id; noteDraft.value = item.change_note || ''; noteError.value = '' }
+function cancelMapNote() { noteEditingId.value = ''; noteDraft.value = ''; noteError.value = '' }
+async function saveMapNote(item) {
+  if (noteSaving.value) return
+  const note = noteDraft.value.trim()
+  if (note.length > 500) { noteError.value = '备注最多 500 字'; return }
+  noteSaving.value = true; noteError.value = ''
+  try {
+    await api.world.setRevisionNote({ target_kind: 'map', revision_id: item.id, note }, props.projectId)
+    item.change_note = note || null
+    cancelMapNote()
+    getToast()('备注已保存', 'success')
+  } catch (err) {
+    noteError.value = err?.message || '备注保存失败，输入已保留'
+  } finally { noteSaving.value = false }
+}
 let backupAccount = null
 let knownBackup
 try { backupAccount = localStorage.getItem(ACCOUNT_MARKER_KEY) } catch { /* Saving remains available. */ }
@@ -1011,4 +1031,5 @@ defineExpose({ canLeave, save, dirty, revision, runToolbarAction })
 .map-locator>label{display:flex;align-items:center;gap:8px}.map-locator input{flex:1;min-width:0;width:100px}
 .map-editor .map-legend{padding:0;border:0;position:relative}.map-legend>summary{min-height:44px;display:flex;align-items:center;font-size:var(--text-sm)}.map-legend>span{position:absolute;right:0;top:100%;z-index:2;width:220px;padding:8px;background:var(--bg-base);border:1px solid var(--border)}
 @media(max-width:900px){.map-canvas-controls{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:6px}.map-canvas-controls label{display:flex;align-items:center;gap:6px;min-width:0}.map-canvas-controls input[type=range]{flex:1;min-width:0;width:0}.map-legend>summary{min-width:44px;justify-content:center}}
+.map-history>p{margin:0;flex-basis:100%}.map-history-note{display:grid;gap:6px;flex:1 1 240px}.map-history-note label{display:grid;gap:4px}.map-history-note textarea{width:100%}
 </style>

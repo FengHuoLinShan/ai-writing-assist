@@ -23,6 +23,7 @@ from .common import (
     String,
     Text,
     TimestampMixin,
+    UniqueConstraint,
     UUIDMixin,
     _vector_column,
     datetime,
@@ -344,7 +345,14 @@ class EntityRevision(Base, UUIDMixin):
     """实体快照版本表 — 每次 AI 导入或用户编辑自动打快照"""
 
     __tablename__ = "entity_revisions"
-    __table_args__ = {"comment": "实体快照版本"}
+    __table_args__ = (
+        CheckConstraint(
+            "writing_chapter_index IS NULL OR writing_chapter_index >= 0",
+            name="ck_entity_revisions_writing_chapter_index_nonneg",
+        ),
+        Index("ix_entity_revisions_novel_created", "novel_id", "created_at", "id"),
+        {"comment": "实体快照版本"},
+    )
 
     entity_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True),
@@ -372,7 +380,21 @@ class EntityRevision(Base, UUIDMixin):
         String(32),
         nullable=False,
         default="ai_import",
-        comment="快照原因：ai_import/manual_edit/rollback/batch_update",
+        comment="快照原因（实际写入路径）：manual_update/manual_delete/"
+        "manual_promote/focused_completion/rollback/redundant_alias_resolution/"
+        "focused_completion_rollback/spreadsheet_migration_rollback；"
+        "ai_import 仅为列默认值，生产代码不显式写入",
+    )
+    writing_chapter_index: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="打快照时的写作进度（最大已有正文的章节号；0=尚无正文，NULL=旧记录）",
+    )
+    change_summary: Mapped[dict | None] = mapped_column(
+        JSON,
+        nullable=True,
+        comment='改动字段摘要 JSON，形如 {"fields": [...], '
+        '"restored_from_revision_id": "..." | null}',
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -386,6 +408,46 @@ class EntityRevision(Base, UUIDMixin):
             f"entity={self.entity_id} "
             f"reason={self.revision_reason}>"
         )
+
+
+class WorldRevisionNote(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """世界修订备注 — 实体/页面/地图历史的事后补写备注。
+
+    ``revision_id`` 不设外键：同一列按 ``target_kind`` 指向三张修订表，
+    归属校验由 ``services/revision_notes.py`` 在服务层完成。
+    """
+
+    __tablename__ = "world_revision_notes"
+    __table_args__ = (
+        UniqueConstraint(
+            "novel_id",
+            "target_kind",
+            "revision_id",
+            name="uq_world_revision_notes_target",
+        ),
+        CheckConstraint(
+            "target_kind IN ('entity', 'page', 'map')",
+            name="ck_world_revision_notes_target_kind",
+        ),
+        {"comment": "世界修订备注（事后补写，不进入快照/摘要/Canon receipt）"},
+    )
+
+    target_kind: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        comment="备注目标类型：entity/page/map",
+    )
+    revision_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        nullable=False,
+        comment="目标修订行 ID（无外键，按 target_kind 指向三张修订表）",
+    )
+    note: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="",
+        comment="作者备注（≤500 字，空串等价于无备注）",
+    )
 
 
 class TextArchive(Base, UUIDMixin, NovelMixin):

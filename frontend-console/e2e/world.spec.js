@@ -512,3 +512,74 @@ test.describe("世界对象模块", () => {
     await expect(page.getByRole("button", { name: "忽略", exact: true })).toBeEnabled()
     await expect(page.locator(".world-review-decision")).toContainText("沈无咎")
   })
+
+test("实体编辑历史展示元数据、补备注、恢复并从改动记录跳转回来", async ({ page, projectFactory }) => {
+  const project = await projectFactory({ title: "世界编辑历史闭环", genre: "fantasy", language: "zh" })
+  const entity = await createEntity(project.id, {
+    name: "北境旧要塞",
+    entity_type: "location",
+    status: "canonical",
+    summary: "旧版本概要",
+  })
+
+  // 编辑 → 产生一条带元数据的手动编辑历史
+  await openWorkbench(page, project, "world", "objects")
+  await page.locator('.world-object-table [data-action="edit-entity"]').first().click()
+  await page.locator("#edit-entity-name").fill("北境新城")
+  await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
+  await expect(page.locator(SEL.toastContainer)).toContainText("已保存", { timeout: 10000 })
+
+  // 打开对象详情（资料库深链，与卡片点击同路径），展开改动历史
+  await page.evaluate(async (id) => {
+    await window.router.navigate("world", "bible", true, new URLSearchParams({ entity_id: id }))
+  }, entity.id)
+  const detail = page.locator(".world-entity-detail")
+  await expect(detail.locator("#world-entity-detail-title")).toHaveText("北境新城")
+  const historyPanel = detail.locator("details.world-entity-revision-history")
+  await historyPanel.locator("summary").click()
+  const firstRevision = historyPanel.locator("article").first()
+  await expect(firstRevision.locator(".muted").first()).toHaveText(/^刚刚$|^1? ?\d* ?分钟前$/)
+  await expect(firstRevision.locator(".pill").first()).toHaveText("手动编辑")
+  await expect(firstRevision).toContainText("改动字段：名称")
+
+  // 补写备注 → 列表里回显
+  await firstRevision.locator("[data-note-edit]").click()
+  await firstRevision.locator("[data-note-input]").fill("这次改名是错的")
+  await firstRevision.locator("[data-note-save]").click()
+  await expect(firstRevision).toContainText("备注：这次改名是错的")
+
+  // 恢复到这次改动前 → 确认 → 名称回到旧值，历史新增一条恢复记录
+  await firstRevision.locator("[data-restore]").click()
+  const confirmDialog = historyPanel.locator('[role="alertdialog"]')
+  await expect(confirmDialog).toContainText("北境旧要塞")
+  await confirmDialog.locator('[data-action="revision-restore-confirm"]').click()
+  await expect(page.locator(SEL.toastContainer)).toContainText("已恢复", { timeout: 10000 })
+  await expect(detail.locator("#world-entity-detail-title")).toHaveText("北境旧要塞")
+  await expect(historyPanel.locator("article").first()).toContainText("来自一次恢复操作")
+
+  // 打开改动记录浮层，筛选设定后跳转到具体对象
+  await detail.locator(".world-entity-detail__back").click()
+  await page.locator('[data-action="open-change-history"]').click()
+  const changeHistory = page.locator('[aria-label="改动记录"]')
+  await expect(changeHistory).toBeVisible()
+  await expect(changeHistory.locator(".world-change-history__item").first()).toContainText("恢复到旧版本")
+  await expect(changeHistory.locator(".world-change-history__item").first()).toContainText("北境旧要塞")
+  await expect(changeHistory.locator(".world-change-history__item", { hasText: "手动编辑" })).toHaveCount(1)
+  await changeHistory.locator('[data-filter="entity"]').click()
+  await expect(changeHistory.locator('[data-filter="entity"]')).toHaveAttribute("aria-pressed", "true")
+  await changeHistory.locator("[data-jump]").first().click()
+
+  // 跳转后详情自动展开历史并高亮目标版本
+  await expect(page.locator(".world-entity-detail")).toBeVisible()
+  const deepHistory = page.locator("details.world-entity-revision-history")
+  await expect(deepHistory).toHaveAttribute("open", "")
+  await expect(deepHistory.locator("article.is-highlighted")).toHaveCount(1)
+
+  // 返回资料库后改动记录浮层恢复筛选与已加载条目
+  await page.locator(".world-entity-detail__back").click()
+  await page.locator('[data-action="open-change-history"]').click()
+  const restoredDialog = page.locator('[aria-label="改动记录"]')
+  await expect(restoredDialog).toBeVisible()
+  await expect(restoredDialog.locator('[data-filter="entity"]')).toHaveAttribute("aria-pressed", "true")
+  await expect(restoredDialog.locator(".world-change-history__item").first()).toContainText("北境")
+})

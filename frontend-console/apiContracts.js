@@ -31,8 +31,12 @@
   function queryString(query = {}) {
     const parts = []
     for (const [key, value] of Object.entries(query || {})) {
-      if (value !== undefined && value !== null && value !== "") {
-        parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`)
+      // 后端 list 型 query 参数只按重复键解析（逗号拼接会被 pydantic 当成单个值拒绝）。
+      const values = Array.isArray(value) ? value : [value]
+      for (const item of values) {
+        if (item !== undefined && item !== null && item !== "") {
+          parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(item))}`)
+        }
       }
     }
     return parts.length ? `?${parts.join("&")}` : ""
@@ -465,6 +469,24 @@
     }),
     "world.getEntity": define("GET", ({ id }) => `/world/entities/${required(id, "id", "world.getEntity")}`, {
       requiredParams: ["id"],
+      requiredQuery: ["novel_id"],
+    }),
+    "world.getEntityRevisions": define("GET", ({ id }) => `/world/entities/${required(id, "id", "world.getEntityRevisions")}/revisions`, {
+      requiredParams: ["id"],
+      requiredQuery: ["novel_id"],
+    }),
+    "world.rollbackEntityToRevision": define("POST", ({ id }) => `/world/entities/${required(id, "id", "world.rollbackEntityToRevision")}/rollback-by-revision`, {
+      requiredParams: ["id"],
+      requiredQuery: ["novel_id"],
+      hasBody: true,
+      requiredBody: ["revision_id", "expected_updated_at"],
+    }),
+    "world.setRevisionNote": define("PUT", () => "/world/revision-notes", {
+      requiredQuery: ["novel_id"],
+      hasBody: true,
+      requiredBody: ["target_kind", "revision_id", "note"],
+    }),
+    "world.listWorldChangeHistory": define("GET", () => "/world/change-history", {
       requiredQuery: ["novel_id"],
     }),
     "world.getCharacter": define("GET", ({ id }) => `/world/characters/${required(id, "id", "world.getCharacter")}`, {

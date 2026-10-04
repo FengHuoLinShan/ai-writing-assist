@@ -291,7 +291,17 @@ class MapAtlasRevision(Base, UUIDMixin, TimestampMixin, NovelMixin):
         CheckConstraint(
             "status IN ('candidate', 'saved', 'rejected')", name="ck_map_revision_status"
         ),
+        CheckConstraint(
+            "writing_chapter_index IS NULL OR writing_chapter_index >= 0",
+            name="ck_map_atlas_revisions_writing_chapter_index_nonneg",
+        ),
         Index("ix_map_revision_node_created", "novel_id", "node_id", "created_at"),
+        Index(
+            "ix_map_atlas_revisions_novel_created",
+            "novel_id",
+            "created_at",
+            "id",
+        ),
         UniqueConstraint("task_id", "node_id", name="uq_map_revision_task_node"),
     )
 
@@ -304,3 +314,13 @@ class MapAtlasRevision(Base, UUIDMixin, TimestampMixin, NovelMixin):
     confirmation_id: Mapped[uuid.UUID | None] = mapped_column(UUIDType, nullable=True)
     context_fingerprint: Mapped[str | None] = mapped_column(String(128), nullable=True)
     task_id: Mapped[uuid.UUID | None] = mapped_column(UUIDType, nullable=True)
+    writing_chapter_index: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="保存时的写作进度（最大已有正文的章节号；0=尚无正文，NULL=旧记录）",
+    )
+    change_summary: Mapped[dict | None] = mapped_column(
+        JSON,
+        nullable=True,
+        comment="改动字段摘要 JSON；地图差异在读取时计算，此列仅保持三表结构对齐",
+    )

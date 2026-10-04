@@ -1385,6 +1385,15 @@ class WritingDraftService:
         nid = _parse_uuid(novel_id, "novel")
         return await self._repo.list_effective_chapter_indices(db, nid)
 
+    async def get_latest_effective_chapter_index(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+    ) -> int:
+        """最新有实质正文的章节号；0 表示尚无正文。"""
+        nid = _parse_uuid(novel_id, "novel")
+        return await self._repo.get_latest_effective_chapter_index(db, nid)
+
     async def lock_chapter_versions_for_revalidation(
         self,
         db: AsyncSession,
