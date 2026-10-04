@@ -4,8 +4,11 @@
  * 验证用户/AI 内容不通过 innerHTML 直接插入 DOM。
  */
 import { describe, it, expect, vi, beforeEach } from "vitest"
+import { computed, ref } from "vue"
 
 import "../ui/modal.js"
+import { setBridgeOverrides, resetBridgeOverrides } from "../vue/bridge/index.js"
+import { createWorldBibleHistory } from "../vue/views/world/bible/worldBibleHistory.js"
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -141,5 +144,103 @@ describe("modal body rendering", () => {
     expect(onConfirm).toHaveBeenCalledOnce()
     expect(isModalOpen()).toBe(true)
     expect(toast).toHaveBeenCalledWith("操作失败：拒绝删除", "error")
+  })
+})
+
+describe("world bible history modal assembly", () => {
+  // 与生产 shared/esc.js 相同的转义规则（该脚本经 index.html 全局加载，测试内注入 bridge）。
+  function productionEsc(str) {
+    if (str === null || str === undefined) return ""
+    const s = String(str)
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;")
+  }
+
+  function bibleHistoryContext(api) {
+    return {
+      api,
+      projectId: ref("p1"),
+      activePage: computed(() => ({ id: "page-1" })),
+      pageTemplates: computed(() => [{ id: "template-1", builtin: false }]),
+      ownsProject: () => true,
+      ownsPage: () => true,
+      taskStatusLabel: (status) => `状态:${status}`,
+      restoreSynopsis: vi.fn(),
+      restorePageRevision: vi.fn(),
+      applyRestoredTemplate: vi.fn(),
+    }
+  }
+
+  beforeEach(() => {
+    document.body.innerHTML = `
+      <div id="modal-overlay" class="hidden">
+        <div id="modal-content">
+          <div id="modal-title"></div>
+          <div id="modal-body"></div>
+          <div id="modal-footer"></div>
+        </div>
+      </div>
+    `
+  })
+
+  it("页面历史把标题、时间、备注与正文先经 esc 再交给 showModalHtml", async () => {
+    const api = {
+      world: {
+        listBiblePageRevisions: vi.fn(async () => [{
+          version_number: 2,
+          revision_reason: "manual_publish",
+          created_at: new Date().toISOString(),
+          changed_fields: ["free_text"],
+          change_note: "<img src=x onerror=alert(1)>",
+          snapshot_json: { free_text: "<script>globalThis.bibleXss()</script>" },
+        }]),
+      },
+    }
+    setBridgeOverrides({ api, esc: productionEsc, toast: vi.fn() })
+    const actions = createWorldBibleHistory(bibleHistoryContext(api))
+    await actions.openPageHistory()
+
+    const bodyEl = document.getElementById("modal-body")
+    expect(bodyEl.querySelector("script")).toBeNull()
+    expect(bodyEl.querySelector("img")).toBeNull()
+    expect(bodyEl.textContent).toContain("<script>globalThis.bibleXss()</script>")
+    expect(bodyEl.textContent).toContain("<img src=x onerror=alert(1)>")
+    expect(bodyEl.textContent).toContain("与上一版相比：正文")
+    expect(bodyEl.textContent).toContain("发布了这一版")
+    resetBridgeOverrides()
+  })
+
+  it("模板历史与简介历史的动态内容同样转义", async () => {
+    const api = {
+      world: {
+        listBiblePageTemplateRevisions: vi.fn(async () => [{
+          version_number: 3,
+          revision_reason: "update",
+          created_at: new Date().toISOString(),
+          content_hash: "hash-not-displayed",
+        }]),
+        listBibleSynopsisRevisions: vi.fn(async () => ({
+          items: [{
+            id: "syn-1",
+            version_number: 4,
+            status: "done",
+            created_at: new Date().toISOString(),
+            rendered_text: "<svg onload=alert(2)>简介正文</svg>",
+          }],
+        })),
+      },
+    }
+    setBridgeOverrides({ api, esc: productionEsc, toast: vi.fn() })
+    const actions = createWorldBibleHistory(bibleHistoryContext(api))
+    await actions.openSynopsisHistory()
+    let bodyEl = document.getElementById("modal-body")
+    expect(bodyEl.querySelector("svg")).toBeNull()
+    expect(bodyEl.textContent).toContain("<svg onload=alert(2)>简介正文</svg>")
+
+    await actions.openPageTemplateHistory("template-1", null)
+    bodyEl = document.getElementById("modal-body")
+    expect(bodyEl.textContent).toContain("修改模板")
+    expect(bodyEl.textContent).not.toContain("hash-not-displayed")
+    expect(bodyEl.querySelector("button[data-template-restore-version]").getAttribute("data-template-restore-version")).toBe("3")
+    resetBridgeOverrides()
   })
 })

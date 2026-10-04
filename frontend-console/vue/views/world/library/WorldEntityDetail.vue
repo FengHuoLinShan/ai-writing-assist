@@ -4,8 +4,8 @@ import { displayStateBadgeClass, worldAssetDisplay } from "../../../../shared/as
 import { getApi, getConfirm, getToast } from "../../../bridge/index.js"
 import { updateEntityWithBaseline } from "../logic/worldEntityOps.js"
 import { showRelationReviewEditForm, syncRelationsAliasesRegistry } from "../logic/worldRelationsAliasesOps.js"
-import AssistantValue from "../../../components/AssistantValue.vue"
 import WorldEntityImage from "../components/WorldEntityImage.vue"
+import WorldEntityRevisionHistory from "./WorldEntityRevisionHistory.vue"
 import TargetedCompletionPanel from "../../../components/TargetedCompletionPanel.vue"
 
 const props = defineProps({
@@ -13,6 +13,8 @@ const props = defineProps({
   projectId: { type: String, required: true },
   typeLabel: { type: String, default: "人物或设定" },
   aliasesOpen: { type: Boolean, default: false },
+  historyOpen: { type: Boolean, default: false },
+  highlightRevisionId: { type: String, default: "" },
 })
 const emit = defineEmits(["back", "edit", "create-alias", "edit-alias", "create-task", "profile-dirty", "refresh", "impact-preview"])
 const aliases = computed(() => (props.entity?.content_json?.aliases || []).map((item) => (
@@ -20,21 +22,20 @@ const aliases = computed(() => (props.entity?.content_json?.aliases || []).map((
 )).filter((item) => String(item?.alias || "").trim()))
 const display = computed(() => worldAssetDisplay(props.entity))
 const isCharacter = computed(() => props.entity?.entity_type === "character")
-const related = ref([]), revisions = ref([]), relatedError = ref(''), revisionTotal = ref(0), revisionSkip = ref(0), infoLoading = ref(false)
+const related = ref([]), relatedError = ref(''), infoLoading = ref(false)
 let infoEpoch = 0
-async function loadInfo(kind, skip = 0) {
+async function loadInfo() {
   const token = ++infoEpoch
   infoLoading.value = true; relatedError.value = ''
   try {
     const id = props.entity.id || props.entity.entity_id
-    const result = await (kind === 'relations' ? getApi().world.getEntityRelations(id, props.projectId) : getApi().world.getEntityRevisions(id, props.projectId, { skip }))
+    const result = await getApi().world.getEntityRelations(id, props.projectId)
     if (token !== infoEpoch) return
-    if (kind === 'relations') { related.value = result.items || []; syncRelationsAliasesRegistry({ relations: related.value }) }
-    else { revisions.value = result.items || []; revisionTotal.value = result.total; revisionSkip.value = skip }
+    related.value = result.items || []; syncRelationsAliasesRegistry({ relations: related.value })
   } catch (err) { if (token === infoEpoch) relatedError.value = err.message || '资料读取失败，请重新展开重试' }
   finally { if (token === infoEpoch) infoLoading.value = false }
 }
-watch(() => [props.projectId, props.entity.id || props.entity.entity_id], () => { infoEpoch += 1; related.value = []; revisions.value = []; relatedError.value = ''; infoLoading.value = false })
+watch(() => [props.projectId, props.entity.id || props.entity.entity_id], () => { infoEpoch += 1; related.value = []; relatedError.value = ''; infoLoading.value = false })
 onBeforeUnmount(() => { infoEpoch += 1 })
 const profileOpen = ref(false)
 const profileLoading = ref(false)
@@ -305,8 +306,14 @@ onBeforeUnmount(() => { basicGeneration += 1; profileGeneration += 1; emit("prof
     </section>
     </div>
     <p v-if="relatedError" role="alert">{{ relatedError }}</p>
-    <details @toggle="$event.target.open && loadInfo('relations')"><summary>关系</summary><p v-if="infoLoading">正在读取…</p><p v-else-if="!related.length">尚无关联关系</p><article v-for="relation in related" :key="relation.id"><strong>{{ relation.source_name }} → {{ relation.target_name }}</strong><p>{{ relation.description || '已记录关联' }}</p><button class="btn btn-sm" @click="showRelationReviewEditForm(relation.id)">编辑关系</button></article></details>
-    <details @toggle="$event.target.open && loadInfo('history')"><summary>版本历史</summary><p v-if="infoLoading">正在读取…</p><p v-else-if="!revisions.length">还没有历史版本</p><details v-for="(revision, index) in revisions" :key="revision.revision_id"><summary>{{ new Date(revision.created_at).toLocaleString() }} · 版本 {{ revisionTotal - revisionSkip - index }} · 查看快照</summary><template v-if="revision.snapshot"><h3>{{ revision.snapshot.name }}</h3><p>{{ revision.snapshot.summary || '暂无概要' }}</p><p>{{ revision.snapshot.public_info }}</p><details v-if="revision.snapshot.content_json"><summary>别名与其他资料（只读）</summary><AssistantValue :value="revision.snapshot.content_json" /></details><details v-if="revision.snapshot.hidden_truth"><summary>作者秘密</summary><p>{{ revision.snapshot.hidden_truth }}</p></details></template><p v-else>这个历史版本没有可读取的快照内容。</p></details><button v-if="revisionSkip" class="btn" :disabled="infoLoading" @click="loadInfo('history', revisionSkip - 20)">上一页</button><button v-if="revisionSkip + 20 < revisionTotal" class="btn" :disabled="infoLoading" @click="loadInfo('history', revisionSkip + 20)">下一页</button></details>
+    <details @toggle="$event.target.open && loadInfo()"><summary>关系</summary><p v-if="infoLoading">正在读取…</p><p v-else-if="!related.length">尚无关联关系</p><article v-for="relation in related" :key="relation.id"><strong>{{ relation.source_name }} → {{ relation.target_name }}</strong><p>{{ relation.description || '已记录关联' }}</p><button class="btn btn-sm" @click="showRelationReviewEditForm(relation.id)">编辑关系</button></article></details>
+    <WorldEntityRevisionHistory
+      :entity="entity"
+      :project-id="projectId"
+      :auto-open="historyOpen"
+      :highlight-revision-id="highlightRevisionId"
+      @restored="emit('refresh', entity.id || entity.entity_id)"
+    />
     <TargetedCompletionPanel :project-id="projectId" :entity-id="entity.id || entity.entity_id" :initial-name="entity.name || ''" @applied="emit('refresh', entity.id || entity.entity_id)" />
     <section v-if="isCharacter" class="world-character-profile">
       <header><div><h3>人物档案</h3><p>按需补充人物动机、状态和声音；名称与别名仍在基本资料中管理。</p></div><button type="button" class="btn btn-sm" @click="profileOpen ? (profileOpen = false) : openProfile()">{{ profileOpen ? '收起' : '完善人物档案' }}</button></header>

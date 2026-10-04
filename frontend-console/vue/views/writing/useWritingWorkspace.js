@@ -19,7 +19,7 @@ import {
 import { useLeaveGuard } from "../../composables/useLeaveGuard.js"
 import { activeEditorialReviews, confirmEditorialImpact } from "../../composables/useEditorialGuard.js"
 import { buildSceneAlerts } from "./sceneAlerts.js"
-import { buildVersionDiff } from "./versionDiff.js"
+import { buildVersionDiff } from "../../../shared/versionDiff.js"
 import { isVersionActive } from "./versionState.js"
 import { applyToolsResult } from "../../../shared/writingToolsResult.js"
 import { importAuthorizationPayload } from "../../../shared/importAuthorization.js"

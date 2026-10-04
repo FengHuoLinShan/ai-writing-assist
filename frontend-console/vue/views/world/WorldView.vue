@@ -17,7 +17,8 @@
           {{ headerTitle.text }} <span class="view-header__count">共 {{ headerTitle.count }} 个</span><span v-if="projectTitle" class="view-toolbar__project" :title="projectTitle">{{ projectTitle }}</span>
         </h1>
         <div class="view-header__actions">
-          <button v-if="objectToolsOpen" type="button" class="btn btn-sm btn-ghost" @click="returnToLibrary">← 返回资料库</button>
+          <button type="button" class="btn btn-sm btn-ghost" data-action="open-change-history" @click="openChangeHistory">改动记录</button>
+          <button v-if="objectToolsOpen" type="button" class="btn btn-sm btn-ghost" data-action="return-to-library" @click="returnToLibrary">← 返回资料库</button>
           <template v-if="subView === 'objects' || objectToolsOpen">
             <button id="btn-new-entity" class="btn btn-sm btn-primary" data-action="new" @click="showEntityCreateForm()">新建人物或设定</button>
             <button class="btn btn-sm" data-action="toggle-extract" @click="toggleExtract">整理进度与成果</button>
@@ -51,6 +52,7 @@
     </div>
     <div v-if="teamCapabilities.some(item => item.available)" class="world-stress-entry"><button v-if="teamCapabilities.some(item => item.id === 'world_stress' && item.available)" class="btn btn-sm" type="button" @click="openTeam('world_stress')">测试这条规则</button><button v-if="teamCapabilities.some(item => item.id === 'cross_revision' && item.available)" class="btn btn-sm" type="button" @click="openTeam('cross_revision')">查看设定改动影响</button></div>
     <WorldStressReport v-if="stressReportId" :project-id="props.projectId" :report-id="stressReportId" @close="closeStressReport" />
+    <WorldChangeHistory :project-id="props.projectId" :open="changeHistoryOpen" @close="closeChangeHistory" />
     <WorldSidebarToolCard v-if="sidebarToolActions.length" :actions="sidebarToolActions" :show-smart-dedup="subView === 'relations'" @select="handleSidebarTool" />
     <component
       :is="activeTab"
@@ -79,6 +81,7 @@
 import { computed, defineAsyncComponent, ref, watch } from "vue"
 import { getAppState, getRouter, getApi, getToast, getRouteQuery, getAssistantWorkContext, openProjectAssistant } from "../../bridge/index.js"
 import WorldStressReport from "./components/WorldStressReport.vue"
+import WorldChangeHistory from "./components/WorldChangeHistory.vue"
 import { worldSession as session } from "./worldSession.js"
 import { objectQueryFromState } from "./logic/worldQuery.js"
 import { clearBulkSelection } from "./logic/worldBulkSelection.js"
@@ -104,6 +107,27 @@ const OwnerAiDrawer = lazyView(() => import("../../components/OwnerAiDrawer.vue"
 const teamCapabilities = ref([])
 const stressReportId = ref(getRouteQuery().get("stress_report_id") || null)
 function closeStressReport() { stressReportId.value = null }
+
+// ---- 改动记录浮层：open=change-history 深链打开；会话内保留筛选/条目/游标/滚动 ----
+const changeHistoryOpen = ref(false)
+let changeHistoryPriorOpen = null
+function openChangeHistory() {
+  changeHistoryPriorOpen = getRouteQuery().get("open") || null
+  session.changeHistory.open = true
+  changeHistoryOpen.value = true
+  const query = getRouteQuery()
+  query.set("open", "change-history")
+  getRouter()?.commitCurrentQuery?.(query, "push")
+}
+function closeChangeHistory() {
+  session.changeHistory.open = false
+  changeHistoryOpen.value = false
+  const query = getRouteQuery()
+  if (changeHistoryPriorOpen) query.set("open", changeHistoryPriorOpen)
+  else query.delete("open")
+  changeHistoryPriorOpen = null
+  getRouter()?.commitCurrentQuery?.(query)
+}
 async function openTeam(blueprint) {
   try {
     const capability = (await getApi().assistant.capabilities(props.projectId)).collaboration?.find(item => item.id === blueprint)
@@ -167,6 +191,12 @@ function openOwnerAi() {
 watch(() => props.projectId, async projectId => {
   teamCapabilities.value = []
   try { const value = await getApi().assistant.capabilities(projectId); if (projectId === props.projectId) teamCapabilities.value = value.collaboration || [] } catch { /* unavailable capabilities keep ordinary author tools */ }
+}, { immediate: true })
+
+watch(() => props.bibleDeepLink?.openChangeHistory, (open) => {
+  if (!open) return
+  session.changeHistory.open = true
+  changeHistoryOpen.value = true
 }, { immediate: true })
 
 watch(() => props.bibleDeepLink?.ownerAiOpen, (open) => {

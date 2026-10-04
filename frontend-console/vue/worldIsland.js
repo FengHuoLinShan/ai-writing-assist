@@ -334,6 +334,11 @@ export async function loadWorld() {
       ownerAiCheckpointId: query.get("checkpoint_id") || "",
       entityId: query.get("entity_id") || "",
       entitySection: query.get("open") === "aliases" ? "aliases" : "",
+      // 实体改动历史深链（改动记录时间线跳转）：open=history&revision_id=。
+      openEntityHistory: query.get("open") === "history",
+      entityHistoryRevisionId: query.get("open") === "history" ? (query.get("revision_id") || "") : "",
+      // 世界改动记录浮层深链：open=change-history（返回时恢复筛选与位置）。
+      openChangeHistory: query.get("open") === "change-history",
       openObjectTools: query.get("open") === "object-tools",
       // 关系维护 required_validation 等错误入口直达世界健康（校验工具）。
       openHealth: query.get("open") === "health",
