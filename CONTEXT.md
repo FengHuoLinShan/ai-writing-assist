@@ -21,7 +21,7 @@ README、ORM 模型与 Alembic migration。当前文档范围由
 | 别名 | Alias | `core_entities.content_json.aliases` | 内联到已有对象；不是独立实体或数据表。 |
 | 目标引用 | TargetRef | `shared.target_ref` | 跨模块定位事实的 `target_type` / `target_id` / `target_path` 结构。 |
 | 文本归档 | TextArchive | `text_archive` | 长文本字段的回滚归档。 |
-| 实体修订 | EntityRevision | `entity_revisions` | 兼容型实体快照；活跃回滚优先查 TextArchive。 |
+| 实体修订 | EntityRevision | `entity_revisions` | 改动前快照，带写作进度和备注（`change_summary` 改动字段摘要、`world_revision_notes` 事后备注）；Scene 回滚兜底仍优先查 TextArchive。 |
 | 世界正典修订 | CanonRevision | `world_canon_revisions` / `world_canon_heads` | 每个作者项目的完整、不可变选择 manifest 及唯一当前 head；每次变更追加修订并保存准入回执，不原地改写历史。 |
 | 世界断言 | WorldAssertion | `world_assertions` | Phase 0 已建立封闭、不可变 carrier，但所有 formal family 仍为 `formal-disabled`；当前 API 不准入断言，不可将 legacy 行冒充为 Assert。 |
 

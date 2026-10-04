@@ -97,7 +97,8 @@ CONFIRMED 数据（名称、类型、`summary` 与少量确认属性；未确认
 - `core_entities` — 共享核心实体表，公共字段（name / `content_json.aliases` / summary / public_info / hidden_truth / importance / embedding / search_text / pinyin_string / image_version / image_updated_at）统一存储；别名项保存 `kind + type`，图片字节位于私有对象存储
 - `events` — 事件扩展表（entity_id PK+FK → core_entities.id）
 - `entity_relations` — 实体关系边（UUID FK → core_entities + `relation_kind` 最小分类 + `relation_type` 精确类型 + 章节追溯字段 + `review_meta` 复核审计）
-- `entity_revisions` — 实体快照版本表（旧版快照；当前活跃回滚优先使用 `TextArchive`，无归档时回退到 `EntityRevision`）
+- `entity_revisions` — 实体改动历史表（改动前快照 + `writing_chapter_index` 写作进度 + `change_summary` 改动字段摘要，含 `restored_from_revision_id`；Scene 回滚兜底仍优先 `TextArchive`，无归档时回退）
+- `world_revision_notes` — 实体/页面/地图修订的事后补写备注（`(novel_id, target_kind, revision_id)` 唯一，无跨表外键，服务层校验归属；不进入快照/摘要/Canon receipt）
 - `world_object_image_candidates` — 本机 CLI 对象图片生成候选（ADR-0029）：冻结执行器、prompt、生成字节与采用/放弃状态；采用前不影响 `core_entities.image_version`
 - `characters` — 人物档案（entity_id PK+FK → core_entities.id）
 - `character_knowledge` — 人物知识边界
@@ -525,9 +526,16 @@ task ID 后，浏览器可立即经独立连接查询任务。
 
 ## 回滚
 
-- `POST /api/world/entities/{entity_id}/rollback` 是当前活跃的版本回滚路由。请求体：`{ "target_scene_index": 12 }`。该路由由 `EntityRevisionService.rollback_to_scene_index` 实现：优先查询 `TextArchive` 中该实体在 `target_scene_index` 及之前的归档字段值并恢复；若无 `TextArchive` 记录，则回退到最近一条 `EntityRevision` 快照；回滚动作本身会作为新的 `TextArchive` 记录保存。
-- `POST /api/world/entities/{entity_id}/rollback-by-revision` 是 legacy 兼容路由，按 `revision_id` 回滚到 `entity_revisions` 中的显式快照。
-- `EntityRevisionService` 同时承担活跃回滚实现与 legacy 回滚兼容，不应再被描述为仅 read/compat。
+- `POST /api/world/entities/{entity_id}/rollback` 是按 Scene 的版本回滚路由。请求体：`{ "target_scene_index": 12 }`。该路由由 `EntityRevisionService.rollback_to_scene_index` 实现：优先查询 `TextArchive` 中该实体在 `target_scene_index` 及之前的归档字段值并恢复；若无 `TextArchive` 记录，则回退到最近一条 `EntityRevision` 快照；回滚动作本身会作为新的 `TextArchive` 记录保存。
+- `POST /api/world/entities/{entity_id}/rollback-by-revision` 把实体恢复到指定修订（那次改动之前）：请求体 `{ "revision_id", "expected_updated_at" }`，内部统一走 `WorldEntityService.update()`，编辑基线（过期 409）、Canon 写入门禁、别名规范化与缓存/简介/角色失效链照常执行；不恢复 status；`content_json` 去快照来源标记后合并当前来源标记；快照中为空的字段清空（仅三个可空文本列）；恢复前的快照 reason 为 `rollback` 并带 `restored_from_revision_id`，恢复本身可再恢复。已移除（deprecated）的实体不提供恢复。
+- `EntityRevisionService` 同时承担快照写入、改动历史读取与 Scene 回滚实现，不应再被描述为仅 read/compat。
+
+## 编辑历史与改动记录（阶段 0）
+
+- 实体/页面/地图历史统一显示：时间（相对+绝对）、原因（作者语言词典）、写作进度（"写到第 N 章时"，无正文显示"动笔前"，旧记录为 NULL 不显示）、改动字段（实体缺保存记录时由相邻修订推算并标"大致"；页面与上一版比较）与事后备注。
+- 备注走 `PUT /api/world/revision-notes`（entity/page/map；空串删除、≤500 字、幂等；地图候选 409），存于 `world_revision_notes`，不进入快照、摘要或 Canon receipt。
+- `GET /api/world/change-history` 是世界页"改动记录"时间线的后端：三类合并（地图只取 saved 且无确认标记的保存行）、`(created_at, kind, id)` 倒序游标翻页、kinds 筛选。实体新建、模板、简介与 Canon 回退不在时间线内。
+- 快照失败语义：手动编辑与采用的前置快照失败即整体失败（实体保持不变）；删除前的快照保持尽力而为（软废弃内容仍在原行）。
 
 ## 不做
 

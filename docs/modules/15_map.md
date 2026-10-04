@@ -70,6 +70,9 @@ ORM 位于 `backend/modules/world/map_atlas_models.py`。
 只有审查状态可变。手动保存、采用候选和恢复历史都创建新版本。写入比较 `base_revision_id`，
 冲突返回 409，前端保留当前编辑并提供服务器版比较。`created_by_run_id` 可空且使用 SET NULL，
 删除来源任务不能级联删除地图节点。
+保存时写入 `writing_chapter_index`（打快照时的写作进度），该列与 `change_summary` 一并纳入
+内容保护 trigger（只在插入时写入，事后不可改）；已保存（saved）版本可事后补写备注
+（`PUT /api/world/revision-notes`，≤500 字、空串删除），候选版本写备注返回 409。
 演示项目复制会给节点和空间修订分配新 ID，修订行按最终引用一次插入；节点的
 `current_revision_id` 是可变指针，在修订插入后指向目标版本，不改写历史修订。
 

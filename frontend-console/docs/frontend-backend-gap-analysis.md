@@ -72,15 +72,9 @@
 
 ### 3.1 按 revision_id 回滚实体
 
-`GET /api/world/entities/{entity_id}/revisions` 和 `POST /rollback-by-revision` 是 `entity_revisions` 的 legacy 兼容路径。
+`GET /api/world/entities/{entity_id}/revisions` 与 `POST /rollback-by-revision` 自编辑历史阶段 0 起是正式作者能力：实体详情的"改动历史"面板消费强类型 revisions（时间/原因/写作进度/改动字段/备注），并提供"恢复到这次改动前"（请求体携带 `revision_id` + `expected_updated_at`，基线过期 409）。
 
-当前正式作者入口是按 Scene 索引回滚：
-
-```http
-POST /api/world/entities/{entity_id}/rollback
-```
-
-该路径优先使用 `TextArchive`，无归档时再回退到 `EntityRevision`。前端不再另建 legacy 版本回滚面板。
+按 Scene 索引回滚 `POST /api/world/entities/{entity_id}/rollback` 保留为集合页的另一恢复入口，优先使用 `TextArchive`，无归档时再回退到 `EntityRevision`。
 
 ### 3.2 内置生成模板复制
 

@@ -114,6 +114,17 @@ Vite 开发与预览服务通过 HTTP 响应头发送 CSP，并用 `frame-ancest
 `http://localhost:8000` 或 `http://localhost:8000/api`。本地代理目标也可通过
 `BACKEND_PORT` 或完整的 `API_PROXY_TARGET` 覆盖。
 
+## 世界编辑历史（2026-10，阶段 0）
+
+实体详情"改动历史"面板与世界页头"改动记录"浮层消费阶段 0 后端：相对时间（悬停绝对）、
+作者语言原因词典与字段名（`shared/revisionHistory.js`，未知值兜底"其他改动/其他内容"）、
+写作进度（"写到第 N 章时"/"动笔前"）、改动字段与事后备注（≤500 字、留空删除）；
+"恢复到这次改动前"经影响确认 + 字段级确认后调用 `world.rollbackEntityToRevision`
+（409 提示重新读取），成功才提示"已恢复"。改动记录浮层用 `world.listWorldChangeHistory`
+游标翻页 + kinds 筛选，状态按作品存 `worldSession`，深链 `open=history&revision_id=` /
+`open=change-history` 由 `worldIsland` 解析。纯文本对比统一走 `VersionTextDiff.vue`
+共享组件（插值渲染，无 v-html）；`versionDiff.js` 已移至 `shared/`。
+
 ## 写作台导出与审查展示（2026-10）
 
 写作台“检查与导出”菜单区分「编辑器当前文字 / 已采用版本」两种单章导出口径，并提供

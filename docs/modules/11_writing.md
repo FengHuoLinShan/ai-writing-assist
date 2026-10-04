@@ -50,6 +50,7 @@ async def adopt_candidate_to_working(db, novel_id, draft_id, *, adopted_by="auth
 async def get_latest_draft_for_chapter(db, novel_id, chapter_index) -> WritingDraftContract | None
 async def list_latest_drafts_for_chapters(db, novel_id, chapter_indices, *, content_limit: int | None = None) -> list[WritingDraftContract]
 async def list_chapter_indices(db, novel_id) -> list[int]
+async def get_latest_effective_chapter_index(db, novel_id) -> int  # 0 = 尚无实质正文；按章节号倒序分批探测，不读全文（世界修订历史的写作进度来源）
 async def get_author_attention_items(db, novel_id) -> list[WritingAuthorAttentionItemContract]
 async def list_manuscript_sources(db, novel_id, chapter_indices=None, *, content_mode="canonical") -> list[WritingDraftContract]
 async def grep_manuscript(db, novel_id, pattern, *, content_mode="canonical", ...) -> ManuscriptSearchPageContract
