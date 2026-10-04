@@ -47,6 +47,20 @@ export const worldSession = reactive({
     relationGroupLabels: {},
   },
 
+  // 世界改动记录浮层：筛选、已加载条目、游标与滚动位置按作品保存在会话内；
+  // 跳转离开后经 open=change-history 返回时恢复。切换作品清掉（reconcileWorldEntry）；
+  // queryEpoch 每次新查询自增，迟到的旧响应按 epoch 丢弃。
+  changeHistory: {
+    open: false,
+    filter: "all",
+    items: [],
+    nextCursor: null,
+    exhausted: false,
+    error: null,
+    scrollTop: 0,
+    queryEpoch: 0,
+  },
+
   _route: { active: false, projectId: null, subView: null },
 })
 
@@ -87,6 +101,20 @@ export function saveFilterPanelState(projectId) {
   }
 }
 
+/** 改动记录浮层的初始会话状态；切换作品时整体替换，不携带旧作品条目。 */
+export function resetChangeHistoryState() {
+  return {
+    open: false,
+    filter: "all",
+    items: [],
+    nextCursor: null,
+    exhausted: false,
+    error: null,
+    scrollTop: 0,
+    queryEpoch: 0,
+  }
+}
+
 /** island onLeave 时调用：标记已离开 world，下次进入按完整进入重置。 */
 export function markWorldLeft() {
   worldSession._route.active = false
@@ -124,6 +152,7 @@ export function reconcileWorldEntry(projectId, subView) {
       libraryScrollPositions: {},
       relationGroupLabels: {},
     }
+    worldSession.changeHistory = resetChangeHistoryState()
   }
   worldSession._route = { active: true, projectId: normalizedProjectId, subView }
   return fullEnter
@@ -152,5 +181,6 @@ export function resetWorldSession() {
     libraryScrollPositions: {},
     relationGroupLabels: {},
   }
+  worldSession.changeHistory = resetChangeHistoryState()
   worldSession._route = { active: false, projectId: null, subView: null }
 }

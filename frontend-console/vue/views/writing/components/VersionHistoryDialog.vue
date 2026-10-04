@@ -52,33 +52,8 @@
           </div>
         </details>
         <p v-if="model.error" role="alert" class="writing-empty-hint">{{ model.error }}</p>
-        <div v-if="model.diffOpen && model.diff" ref="diffRef" class="writing-version-diff" tabindex="-1" aria-label="版本差异结果">
-          <div class="writing-version-diff__stats">
-            <span>版本 A {{ model.diff.stats.leftChars }} 字</span>
-            <span>版本 B {{ model.diff.stats.rightChars }} 字</span>
-            <span>修改 {{ model.diff.stats.changedParagraphs }} 段</span>
-            <span>移动 {{ model.diff.stats.movedParagraphs }} 段</span>
-          </div>
-          <div v-if="model.diff.identical" class="writing-version-diff__identical">两个版本正文完全一致</div>
-          <div v-if="model.diff.fallbackUsed" class="writing-version-diff__notice">章节较长，已使用安全降级对齐。</div>
-          <div class="writing-version-diff__grid" role="table" aria-label="正文版本并排差异">
-            <div class="writing-version-diff__header" role="columnheader">版本 A</div>
-            <div class="writing-version-diff__header" role="columnheader">版本 B</div>
-            <template v-for="(row, index) in model.diff.rows" :key="index">
-              <div class="writing-version-diff__cell" :class="`writing-version-diff__cell--${row.type}`" role="cell" data-side="左">
-                <template v-if="row.leftSegments?.length">
-                  <component :is="segment.type === 'delete' ? 'mark' : 'span'" v-for="(segment, i) in row.leftSegments" :key="i" :class="{ 'writing-version-diff__removed': segment.type === 'delete' }">{{ segment.text }}</component>
-                </template>
-                <span v-else class="writing-version-diff__placeholder">此侧无对应段落</span>
-              </div>
-              <div class="writing-version-diff__cell" :class="`writing-version-diff__cell--${row.type}`" role="cell" data-side="右">
-                <template v-if="row.rightSegments?.length">
-                  <component :is="segment.type === 'insert' ? 'mark' : 'span'" v-for="(segment, i) in row.rightSegments" :key="i" :class="{ 'writing-version-diff__added': segment.type === 'insert' }">{{ segment.text }}</component>
-                </template>
-                <span v-else class="writing-version-diff__placeholder">此侧无对应段落</span>
-              </div>
-            </template>
-          </div>
+        <div v-if="model.diffOpen && model.diff" ref="diffRef" class="writing-version-history-diff" tabindex="-1" aria-label="版本差异结果">
+          <VersionTextDiff :diff="model.diff" left-label="版本 A" right-label="版本 B" />
         </div>
       </div>
     </div>
@@ -88,6 +63,7 @@
 <script setup>
 import { computed, nextTick, ref, watch } from "vue"
 import ActionMenu from "../../../components/ActionMenu.vue"
+import VersionTextDiff from "../../../components/VersionTextDiff.vue"
 import { useModalDialog } from "../../../composables/useModalDialog.js"
 import { isVersionActive } from "../versionState.js"
 const props = defineProps({

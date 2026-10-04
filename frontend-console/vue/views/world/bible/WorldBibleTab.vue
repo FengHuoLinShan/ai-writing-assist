@@ -141,6 +141,8 @@
           :project-id="projectId"
           :type-label="cardMeta({ kind: 'entity', typeKey: selectedEntity.entity_type }).label"
           :aliases-open="props.bibleDeepLink?.entitySection === 'aliases'"
+          :history-open="Boolean(props.bibleDeepLink?.openEntityHistory)"
+          :highlight-revision-id="props.bibleDeepLink?.entityHistoryRevisionId || ''"
           @back="returnToLibrary"
           @edit="editSelectedEntity"
           @create-alias="createAliasForSelectedEntity"

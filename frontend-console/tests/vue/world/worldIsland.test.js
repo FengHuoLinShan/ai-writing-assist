@@ -491,3 +491,74 @@ describe("world island deep links", () => {
     await expect(loading).resolves.toMatchObject({ entities: [{ id: "entity-1" }] })
   })
 })
+
+describe("world island revision history deep links", () => {
+  beforeEach(() => {
+    resetBridgeOverrides()
+    resetWorldSession()
+  })
+
+  it("open=history&revision_id= 深链打开实体改动历史并高亮对应条目", async () => {
+    const api = {
+      world: {
+        getEntity: vi.fn().mockResolvedValue({ id: "entity-1", name: "沉钟港", status: "canonical" }),
+        listEntities: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+        listEntityTypes: vi.fn().mockResolvedValue({ items: [] }),
+        getReviewTypeCatalog: vi.fn().mockResolvedValue({}),
+        listAliases: vi.fn().mockResolvedValue({ total: 0 }),
+        listRelationships: vi.fn().mockResolvedValue({ total: 0 }),
+        listEntityBatches: vi.fn().mockResolvedValue([]),
+      },
+    }
+    const router = {
+      getCurrentQuery: () => new URLSearchParams("entity_id=entity-1&open=history&revision_id=rev-9"),
+      registerView: vi.fn(),
+    }
+    setBridgeOverrides({
+      api,
+      state: { currentProjectId: "novel-1", currentSubView: "objects" },
+      router,
+      toast: vi.fn(),
+    })
+    const { loadWorld } = await import("../../../vue/worldIsland.js")
+
+    const props = await loadWorld()
+
+    expect(props.bibleDeepLink.openEntityHistory).toBe(true)
+    expect(props.bibleDeepLink.entityHistoryRevisionId).toBe("rev-9")
+    expect(props.bibleDeepLink.entityId).toBe("entity-1")
+    expect(props.bibleDeepLink.openChangeHistory).toBe(false)
+  })
+
+  it("open=change-history 深链进入世界改动记录浮层", async () => {
+    const api = {
+      world: {
+        listEntities: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+        listEntityTypes: vi.fn().mockResolvedValue({ items: [] }),
+        getReviewTypeCatalog: vi.fn().mockResolvedValue({}),
+        listAliases: vi.fn().mockResolvedValue({ total: 0 }),
+        listRelationships: vi.fn().mockResolvedValue({ total: 0 }),
+        listBibleCategories: vi.fn().mockResolvedValue({ items: [] }),
+        getWorldLibraryOverview: vi.fn().mockResolvedValue(null),
+        listWorldLibrary: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+      },
+    }
+    const router = {
+      getCurrentQuery: () => new URLSearchParams("open=change-history"),
+      registerView: vi.fn(),
+    }
+    setBridgeOverrides({
+      api,
+      state: { currentProjectId: "novel-1", currentSubView: "bible" },
+      router,
+      toast: vi.fn(),
+    })
+    const { loadWorld } = await import("../../../vue/worldIsland.js")
+
+    const props = await loadWorld()
+
+    expect(props.bibleDeepLink.openChangeHistory).toBe(true)
+    expect(props.bibleDeepLink.openEntityHistory).toBe(false)
+    expect(props.bibleDeepLink.entityHistoryRevisionId).toBe("")
+  })
+})

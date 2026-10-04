@@ -3,6 +3,7 @@
  * 被 objects/review/relations+aliases tabs 与 worldEntityOps 共用。
  */
 import { worldAssetDisplay } from "../../../../shared/assetDisplayState.js"
+import { formatFullTime, formatRelativeTime } from "../../../../shared/revisionHistory.js"
 import { SYSTEM_ENTITY_TYPE_FALLBACK } from "./worldQuery.js"
 
 /** 对应 vanilla _entityId。 */
@@ -130,44 +131,14 @@ export function fusionSuggestionKey(item) {
   ].map((part) => encodeURIComponent(String(part))).join("::")
 }
 
-/** 对应 vanilla _formatBatchTime。 */
+/** 对应 vanilla _formatBatchTime（语义由 shared/revisionHistory.formatRelativeTime 承载）。 */
 export function formatBatchTime(isoStr) {
-  if (!isoStr) return ""
-  try {
-    const d = new Date(isoStr)
-    if (Number.isNaN(d.getTime())) return isoStr
-    const now = new Date()
-    const diffMs = now.getTime() - d.getTime()
-    const pad = (n) => String(n).padStart(2, "0")
-    const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`
-    if (diffMs >= 0 && diffMs < 60 * 1000) return "刚刚"
-    if (diffMs >= 0 && diffMs < 60 * 60 * 1000) return `${Math.max(1, Math.floor(diffMs / (60 * 1000)))} 分钟前`
-    if (diffMs >= 0 && diffMs < 24 * 60 * 60 * 1000) return `${Math.max(1, Math.floor(diffMs / (60 * 60 * 1000)))} 小时前`
-    const yesterday = new Date(now)
-    yesterday.setDate(now.getDate() - 1)
-    if (
-      d.getFullYear() === yesterday.getFullYear()
-      && d.getMonth() === yesterday.getMonth()
-      && d.getDate() === yesterday.getDate()
-    ) {
-      return `昨天 ${time}`
-    }
-    if (d.getFullYear() === now.getFullYear()) {
-      return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${time}`
-    }
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${time}`
-  } catch { return isoStr }
+  return formatRelativeTime(isoStr)
 }
 
-/** 对应 vanilla _formatBatchTimeFull。 */
+/** 对应 vanilla _formatBatchTimeFull（语义由 shared/revisionHistory.formatFullTime 承载）。 */
 export function formatBatchTimeFull(isoStr) {
-  if (!isoStr) return ""
-  try {
-    const d = new Date(isoStr)
-    if (Number.isNaN(d.getTime())) return isoStr
-    const pad = (n) => String(n).padStart(2, "0")
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-  } catch { return isoStr }
+  return formatFullTime(isoStr)
 }
 
 /** 对应 vanilla _isFreshBatch。 */
