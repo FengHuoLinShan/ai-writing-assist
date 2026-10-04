@@ -887,6 +887,18 @@ Standards + Spec 双轴审查（code-review skill，6 个并行子代理，基�
   origin/main 上同样不合格式（既有存量），新增行已符合格式；`git diff --check`、
   `make docs-check BASE_REF=origin/main` 通过。
 
+**PR #195 必需 CI 抓到的浏览器回归与修复（2026-10-04）：**
+
+- 分片 2 两个用例失败（writing.spec `:556`/`:639`），根因同一个：P3 抽出
+  `VersionTextDiff` 时把弹窗焦点容器类改名为 `writing-version-history-diff`
+  （`WritingView.test.js:976` 已同步），但 `e2e/writing.spec.js` 的两处
+  `toBeFocused` 仍指向旧类 `.writing-version-diff`——e2e 不在 P3 写入范围，
+  本地浏览器套件只定向跑了 world/map，main 同日 CI 为绿，属本分支真回归。
+  修复：writing.spec 四处选择器统一指向新容器类（断言本体不变，仅定位符
+  随重构同步）；本地一次性库 `weh_fix_e2e` 复跑两例 2 passed，库已删。
+  教训：本地浏览器验证清单要与 CI 必需套件对齐，重构共享组件时全仓 grep
+  旧类名的所有消费方（含 e2e）。
+
 ## 12. 交付结果
 
 - **已交付**：G0+P1+P2+P2b+P3+G1（含三轮审查与全部整改）完成。分支
