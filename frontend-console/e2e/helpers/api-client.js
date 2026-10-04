@@ -355,6 +355,17 @@ export async function listWorldBibleDrafts(novelId) {
   return request(`/world/bible/drafts?novel_id=${encodeURIComponent(novelId)}`)
 }
 
+export async function listWorldBiblePages(novelId) {
+  return request(`/world/bible/pages?novel_id=${encodeURIComponent(novelId)}`)
+}
+
+export async function updateWorldBibleDraft(novelId, draftId, data) {
+  return request(`/world/bible/drafts/${draftId}?novel_id=${encodeURIComponent(novelId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  })
+}
+
 /** 为实体插入 TextArchive 记录（E2E 回滚测试种子） */
 export async function seedEntityArchive(novelId, entityId, textContent, opts = {}) {
   const { fieldName = "summary", sceneIndex = 5 } = opts

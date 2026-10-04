@@ -1853,10 +1853,16 @@ const api = {
       return contractJson("world.enqueueCocreationTurn", {}, {}, payload)
     },
 
-    async previewWorldbookImport(novelId, files) {
+    // manifest v2：显式格式、资料集身份与提交语义一并进入预览指纹
+    // （m1-contract 第 1/2/3/5 条）；dataset_key 由服务端派生，不接收客户端值。
+    async previewWorldbookImport(novelId, manifest) {
       return post(withQuery("/world/bible/imports/preview", { novel_id: novelId }), {
-        schema_version: "world_worldbook_import.v1",
-        files,
+        schema_version: "world_worldbook_import.v2",
+        source_format: manifest.source_format || "auto",
+        dataset_name: manifest.dataset_name ?? null,
+        dataset_intent: manifest.dataset_intent || "continue",
+        commit_mode: manifest.commit_mode || "full_snapshot",
+        files: manifest.files,
       })
     },
 
