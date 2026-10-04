@@ -4,26 +4,34 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import unicodedata
 from collections import Counter
+from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Any
 
 import yaml
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from yaml.tokens import AliasToken, AnchorToken, TagToken
 
 from core.errors import ConflictError, ValidationError
-from modules.world.models import WorldBiblePage, WorldBiblePageDraft
+from modules.world.models import (
+    WorldBibleCategory,
+    WorldBiblePage,
+    WorldBiblePageDraft,
+)
 from modules.world.schemas import (
     CreationSuggestionCreate,
+    WorldBibleCategoryCreate,
     WorldBiblePageDraftCreate,
     WorldBiblePageDraftUpdate,
     WorldbookImportApplyRequest,
     WorldbookImportApplyResponse,
     WorldbookImportFile,
     WorldbookImportItem,
+    WorldbookImportLegacyBinding,
     WorldbookImportManifest,
     WorldbookImportPayload,
     WorldbookImportPreviewResponse,
@@ -36,6 +44,7 @@ from modules.world.services.worldbuilding.suggestion_queue_service import (
     SuggestionQueueService,
 )
 from modules.world.services.worldbuilding.world_bible_lifecycle_service import (
+    BUILTIN_WORLD_BIBLE_CATEGORIES,
     WorldBibleLifecycleService,
 )
 from shared.utils import parse_uuid
@@ -49,6 +58,24 @@ _CONTROL_PARTS = frozenset(
 )
 _MAX_FILE_BYTES = 2 * 1024 * 1024
 _MAX_TOTAL_BYTES = 25 * 1024 * 1024
+# 与 WorldBibleCategoryCreate.category_key 的 schema 约束保持一致
+# （pattern ^[a-z][a-z0-9_]*$ + min_length=2 + max_length=64）。
+_CATEGORY_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
+
+
+@dataclass(frozen=True)
+class _DatasetIdentity:
+    """作者声明资料集的稳定身份（m1-contract 第 2 条，冻结）。
+
+    ``key`` 由归一化 dataset_name 派生，不使用本机绝对路径或所选根目录名；
+    ``commit_mode`` 决定 missing 判定范围（m1-contract 第 3 条）；``intent``
+    承载作者的新建/继续/接续选择（接续 legacy 见 ``_analyze`` 的绑定索引）。
+    """
+
+    key: str
+    name: str
+    commit_mode: str
+    intent: str = "continue"
 
 
 class WorldbookImportService:
@@ -69,15 +96,38 @@ class WorldbookImportService:
         novel_id: str,
         manifest: WorldbookImportManifest,
     ) -> WorldbookImportPreviewResponse:
-        analysis = await self._analyze(db, novel_id, manifest.files)
+        dataset = self._dataset_identity(manifest)
+        analysis = await self._analyze(
+            db,
+            novel_id,
+            manifest.files,
+            source_format=(
+                manifest.source_format if manifest.source_format != "auto" else None
+            ),
+            dataset=dataset,
+            strip_roots=dataset is not None,
+        )
+        dataset_payload = dataset is not None or (
+            manifest.schema_version == "world_worldbook_import.v2"
+        )
         payload = WorldbookImportPayload(
-            schema_version="world_worldbook_import.v1",
+            schema_version=(
+                "world_worldbook_import.v2"
+                if dataset_payload
+                else "world_worldbook_import.v1"
+            ),
             source_format=analysis["source_format"],
             manifest_hash=analysis["manifest_hash"],
             preview_hash=analysis["preview_hash"],
+            dataset_name=dataset.name if dataset else None,
+            dataset_key=dataset.key if dataset else None,
+            dataset_intent=dataset.intent if dataset else "continue",
+            commit_mode=manifest.commit_mode,
+            source_paths=analysis["source_paths"],
             files=analysis["files"],
             items=analysis["items"],
             ignored_paths=analysis["ignored_paths"],
+            legacy_bindings=analysis["legacy_bindings"],
         )
         suggestion = await self._suggestions.create(
             db,
@@ -86,12 +136,30 @@ class WorldbookImportService:
                 source_module="world",
                 review_group="worldbook_import",
                 target_type="worldbook_import",
-                action_schema="world_worldbook_import.v1",
+                action_schema=payload.schema_version,
                 payload_json=payload.model_dump(mode="json"),
                 risk_level="high",
             ),
         )
         return self._preview_response(suggestion.id, payload)
+
+    @staticmethod
+    def _dataset_identity(manifest: WorldbookImportManifest) -> _DatasetIdentity | None:
+        """从 manifest 派生资料集身份；无 dataset_name 即 legacy 语义。"""
+        if manifest.dataset_name is None:
+            return None
+        name = unicodedata.normalize("NFC", manifest.dataset_name).strip()
+        if not name or len(name) > 80:
+            raise ValidationError("Dataset name must be 1-80 characters")
+        key = hashlib.sha256(
+            f"worldbook.dataset.v1\0{name.casefold()}".encode()
+        ).hexdigest()
+        return _DatasetIdentity(
+            key=key,
+            name=name,
+            commit_mode=manifest.commit_mode,
+            intent=manifest.dataset_intent,
+        )
 
     async def get_preview(
         self,
@@ -118,11 +186,28 @@ class WorldbookImportService:
         if suggestion.target_type != "worldbook_import":
             raise ValidationError("Suggestion is not a worldbook import")
         stored = WorldbookImportPayload.model_validate(suggestion.payload_json)
+        dataset = None
+        if stored.dataset_key:
+            dataset = _DatasetIdentity(
+                key=stored.dataset_key,
+                name=str(stored.dataset_name or ""),
+                commit_mode=stored.commit_mode,
+                intent=stored.dataset_intent,
+            )
+        # m1-contract 第 6 条冻结前提：先取项目+资料集 advisory lock，在锁内重放
+        # _analyze 复验来源身份与目标基线，再 claim 写入。锁键与 publish 链的
+        # world_bible_pages:{novel_id} 不同；导入链不取 universe 锁，两把锁
+        # 无交叉获取顺序。重放直接以 stored.files 的 rel_path 计算，不二次剥根。
+        await self._lock_import(db, novel_id, stored.dataset_key)
         analysis = await self._analyze(
             db,
             novel_id,
             stored.files,
             source_format=stored.source_format,
+            dataset=dataset,
+            strip_roots=False,
+            stored_ignored_paths=stored.ignored_paths,
+            source_paths=stored.source_paths or None,
         )
         if analysis["manifest_hash"] != stored.manifest_hash:
             raise ConflictError("Worldbook import manifest changed; preview again")
@@ -135,6 +220,7 @@ class WorldbookImportService:
         # ponytail: bounded 25 MiB apply stays atomic; add task checkpoints only if
         # measured request latency exceeds the HTTP budget.
         suggestion = await self._suggestions._claim_pending(db, novel_id, suggestion_id)
+        await self._ensure_declared_categories(db, novel_id, analysis["items"])
         mapped_files = {item["source_key"]: item for item in analysis["mapped_files"]}
         draft_ids: list[str] = []
         conflict_items: list[WorldbookImportItem] = []
@@ -188,22 +274,34 @@ class WorldbookImportService:
                 conflict_items.append(item)
                 continue
             if item.action == "preserve":
-                current = analysis["existing_sources"].get(item.source_key)
+                current = analysis["existing_sources"].get(item.source_key) or analysis[
+                    "bound_sources"
+                ].get(item.source_key)
                 source_meta = dict(
                     ((current.page_meta_json or {}).get("worldbook_import") or {})
                     if current is not None
                     else {}
                 )
-                if isinstance(current, WorldBiblePageDraft) and source_meta.get(
-                    "source_missing"
+                # adopt_legacy 接续：preserve 条目一次性补写 dataset 绑定字段
+                # （走 update_draft，接受既有 confirmation 失效副作用，契约第 2 条）。
+                needs_binding = (
+                    dataset is not None
+                    and current is not None
+                    and not source_meta.get("dataset_key")
+                )
+                if isinstance(current, WorldBiblePageDraft) and (
+                    source_meta.get("source_missing") or needs_binding
                 ):
                     mapped = mapped_files[item.source_key]
                     restored_meta = dict(current.page_meta_json or {})
-                    restored_meta["worldbook_import"] = self._source_meta(
+                    new_meta = self._source_meta(
                         mapped,
                         analysis["source_format"],
                         analysis["manifest_hash"],
+                        dataset,
                     )
+                    self._carry_forward_source_path(new_meta, source_meta, dataset)
+                    restored_meta["worldbook_import"] = new_meta
                     restored = await self._lifecycle.update_draft(
                         db,
                         novel_id,
@@ -220,7 +318,20 @@ class WorldbookImportService:
                 mapped,
                 analysis["source_format"],
                 analysis["manifest_hash"],
+                dataset,
             )
+            if dataset is not None and item.action in {"update", "preserve"}:
+                previous = analysis["existing_sources"].get(item.source_key) or analysis[
+                    "bound_sources"
+                ].get(item.source_key)
+                if previous is not None:
+                    self._carry_forward_source_path(
+                        meta,
+                        dict(
+                            (previous.page_meta_json or {}).get("worldbook_import") or {}
+                        ),
+                        dataset,
+                    )
             if item.action == "create":
                 created = await self._lifecycle.create_draft(
                     db,
@@ -290,6 +401,56 @@ class WorldbookImportService:
             conflict_ids=[item.id for item in conflicts],
         )
 
+    async def _ensure_declared_categories(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        items: list[WorldbookImportItem],
+    ) -> None:
+        """为导入声明的非内建 page_type 保障项目内活动分类存在。
+
+        资料正文可声明任意受限 page_type（如 concept）；不补分类时 create/update
+        会被 `_ensure_category_key` 拒绝。仅创建缺失分类，不触碰既有（含已归档）
+        分类；已归档分类仍由工作稿校验给出明确错误，不静默复活。不符合分类键
+        规则（`^[a-z][a-z0-9_]*$`、≥2 字符）的声明不在此构造分类，交由工作稿
+        校验抛出业务 ValidationError，避免 pydantic 校验异常冒泡为内部错误。
+        """
+        nid = parse_uuid(novel_id, "novel_id")
+        builtin = {item["category_key"] for item in BUILTIN_WORLD_BIBLE_CATEGORIES}
+        declared = {
+            item.page_type
+            for item in items
+            if item.action in {"create", "update"}
+            and item.page_type not in builtin
+            and _CATEGORY_KEY_RE.fullmatch(item.page_type)
+        }
+        for key in sorted(declared):
+            exists = await db.scalar(
+                select(WorldBibleCategory.id).where(
+                    WorldBibleCategory.novel_id == nid,
+                    WorldBibleCategory.category_key == key,
+                )
+            )
+            if exists is not None:
+                continue
+            try:
+                await self._lifecycle.create_category(
+                    db,
+                    WorldBibleCategoryCreate(
+                        novel_id=novel_id,
+                        category_key=key,
+                        name=key,
+                        description="由世界书导入声明的资料类型自动创建",
+                        color="#475569",
+                        icon="资料",
+                        sort_order=500,
+                    ),
+                )
+            except ConflictError as exc:
+                raise ValidationError(
+                    f"World Bible category for imported page_type is unavailable: {key}"
+                ) from exc
+
     async def _analyze(
         self,
         db: AsyncSession,
@@ -297,10 +458,19 @@ class WorldbookImportService:
         files: list[WorldbookImportFile],
         *,
         source_format: str | None = None,
+        dataset: _DatasetIdentity | None = None,
+        strip_roots: bool = False,
+        stored_ignored_paths: list[str] | None = None,
+        source_paths: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        normalized: list[WorldbookImportFile] = []
+        # identity_path：参与身份与指纹的路径（legacy=原始提交路径；
+        # dataset=资料集内 rel_path）。original_path：原始提交路径（含根名），
+        # 仅用于 page_meta.worldbook_import.source_path 语义保留。
+        declared_sources = source_paths or {}
+        entries: list[tuple[str, str, str]] = []
         ignored_paths: list[str] = []
         seen: set[str] = set()
+        seen_rel: set[str] = set()
         total_bytes = 0
         raw_paths: list[str] = []
         for file in files:
@@ -309,42 +479,130 @@ class WorldbookImportService:
             if folded in seen:
                 raise ValidationError(f"Duplicate worldbook path: {path}")
             seen.add(folded)
-            raw_paths.append(path)
+            identity_path = path
+            original_path = declared_sources.get(path) or path
+            if dataset is not None:
+                if strip_roots:
+                    # 冻结剥根规则：≥2 段去首段（所选根目录名），单段整段即 rel_path。
+                    identity_path = self._strip_root(path)
+                rel_folded = unicodedata.normalize("NFC", identity_path).casefold()
+                if rel_folded in seen_rel:
+                    raise ValidationError(
+                        f"Duplicate worldbook dataset rel_path: {identity_path}"
+                    )
+                seen_rel.add(rel_folded)
+            raw_paths.append(original_path)
             if (
                 self._is_control_path(path)
                 or PurePosixPath(path).suffix.lower() not in _ALLOWED_SUFFIXES
             ):
-                ignored_paths.append(path)
+                ignored_paths.append(identity_path)
                 continue
             size = len(file.content.encode("utf-8"))
             if "\x00" in file.content or "\ufffd" in file.content:
                 raise ValidationError(
-                    f"Worldbook file is not valid clean UTF-8 text: {path}"
+                    f"Worldbook file is not valid clean UTF-8 text: {identity_path}"
                 )
             if size > _MAX_FILE_BYTES:
-                raise ValidationError(f"Worldbook file exceeds 2 MiB: {path}")
+                raise ValidationError(f"Worldbook file exceeds 2 MiB: {identity_path}")
             total_bytes += size
             if total_bytes > _MAX_TOTAL_BYTES:
                 raise ValidationError("Worldbook import exceeds 25 MiB")
-            normalized.append(WorldbookImportFile(path=path, content=file.content))
-        if not normalized:
+            entries.append((identity_path, original_path, file.content))
+        if not entries:
             raise ValidationError("Worldbook import contains no supported text files")
 
         source_format = source_format or self._detect_format(raw_paths)
-        mapped_files = [self._map_file(file, source_format) for file in normalized]
-        manifest_hash = self._hash(
-            [
-                {"path": item["path"], "source_hash": item["source_hash"]}
-                for item in mapped_files
-            ]
-        )
+        mapped_files = [
+            self._map_file(
+                WorldbookImportFile(path=identity_path, content=content),
+                source_format,
+                dataset_key=dataset.key if dataset else None,
+                source_path=original_path,
+            )
+            for identity_path, original_path, content in entries
+        ]
+        if dataset is None:
+            manifest_hash = self._hash(
+                [
+                    {"path": item["path"], "source_hash": item["source_hash"]}
+                    for item in mapped_files
+                ]
+            )
+        else:
+            manifest_hash = self._hash(
+                {
+                    "schema_version": "world_worldbook_import.v2",
+                    "dataset_key": dataset.key,
+                    "files": sorted(
+                        (
+                            {"path": item["path"], "source_hash": item["source_hash"]}
+                            for item in mapped_files
+                        ),
+                        key=lambda entry: (entry["path"].casefold(), entry["path"]),
+                    ),
+                }
+            )
         existing = await self._existing_sources(db, novel_id)
+        if dataset is not None and dataset.intent == "new":
+            # m1-contract 第 2 条：显式声明新资料集时，派生 key 已存在即拒绝
+            # （ValidationError→HTTP 400），提示继续维护或换名；不静默改写既有集。
+            for current in existing.values():
+                meta = dict((current.page_meta_json or {}).get("worldbook_import") or {})
+                if str(meta.get("dataset_key") or "") == dataset.key:
+                    raise ValidationError(
+                        "Dataset name already exists in this project: "
+                        f"{dataset.name}; continue maintaining it or choose "
+                        "another name"
+                    )
+        # adopt_legacy：legacy 条目（meta 无 dataset_key 但有 source_key）按等效
+        # rel_path（source_path 应用同一剥根规则 + NFC + casefold）建索引；同一
+        # 等效 rel_path 出现多个 legacy 条目时置空，不按名称猜测身份。
+        legacy_index: dict[str, tuple[str, Any, str] | None] = {}
+        if dataset is not None and dataset.intent == "adopt_legacy":
+            for key, current in existing.items():
+                meta = dict((current.page_meta_json or {}).get("worldbook_import") or {})
+                if meta.get("dataset_key") or not meta.get("source_key"):
+                    continue
+                legacy_rel = self._strip_root(str(meta.get("source_path") or ""))
+                if not legacy_rel:
+                    continue
+                folded = unicodedata.normalize("NFC", legacy_rel).casefold()
+                legacy_index[folded] = (
+                    None
+                    if folded in legacy_index
+                    else (
+                        key,
+                        current,
+                        str(meta.get("source_path") or ""),
+                    )
+                )
+        bound_sources: dict[str, Any] = {}
+        legacy_bindings: list[WorldbookImportLegacyBinding] = []
         items: list[WorldbookImportItem] = []
         seen_keys: set[str] = set()
         for mapped in mapped_files:
             source_key = mapped["source_key"]
             seen_keys.add(source_key)
             current = existing.get(source_key)
+            if (
+                current is None
+                and dataset is not None
+                and dataset.intent == "adopt_legacy"
+            ):
+                hit = legacy_index.get(
+                    unicodedata.normalize("NFC", mapped["path"]).casefold()
+                )
+                if hit is not None:
+                    legacy_source_key, current, legacy_source_path = hit
+                    bound_sources[source_key] = current
+                    legacy_bindings.append(
+                        WorldbookImportLegacyBinding(
+                            source_key=legacy_source_key,
+                            legacy_source_path=legacy_source_path,
+                            rel_path=mapped["path"],
+                        )
+                    )
             if current is None:
                 action, reason = "create", "新来源"
                 target_id = target_kind = current_hash = None
@@ -377,14 +635,39 @@ class WorldbookImportService:
                     reason=reason,
                 )
             )
-        for source_key, current in existing.items():
+        # missing 判定输入按提交语义收窄（m1-contract 第 3 条）：legacy 沿用
+        # 项目级判定；dataset + full_snapshot 只看本 dataset_key 成员；append 不产生
+        # missing，未出现成员一律不触碰。
+        if dataset is None:
+            missing_scope = existing
+        elif dataset.commit_mode == "full_snapshot":
+            missing_scope = {
+                key: current
+                for key, current in existing.items()
+                if str(
+                    ((current.page_meta_json or {}).get("worldbook_import") or {}).get(
+                        "dataset_key"
+                    )
+                    or ""
+                )
+                == dataset.key
+            }
+        else:
+            missing_scope = {}
+        for source_key, current in missing_scope.items():
             if source_key in seen_keys:
                 continue
             meta = dict((current.page_meta_json or {}).get("worldbook_import") or {})
+            if dataset is None:
+                missing_path = str(meta.get("source_path") or "missing")
+            else:
+                missing_path = str(
+                    meta.get("rel_path") or meta.get("source_path") or "missing"
+                )
             items.append(
                 WorldbookImportItem(
                     source_key=source_key,
-                    path=str(meta.get("source_path") or "missing"),
+                    path=missing_path,
                     title=current.title,
                     page_type=current.page_type,
                     source_hash=str(meta.get("source_hash") or "0" * 64),
@@ -398,22 +681,53 @@ class WorldbookImportService:
                 )
             )
         items.sort(key=lambda item: (item.path.casefold(), item.source_key))
-        preview_hash = self._hash(
-            {
-                "manifest_hash": manifest_hash,
-                "source_format": source_format,
-                "items": [item.model_dump(mode="json") for item in items],
-            }
+        ignored_sorted = sorted(ignored_paths, key=str.casefold)
+        # 重放不得重算 ignored_paths（stored.files 只含纳入文件，重算恒为空集），
+        # 指纹使用 stored 值保持与预览一致（m1-contract 第 5 条）。
+        fingerprint_ignored = (
+            sorted(stored_ignored_paths, key=str.casefold)
+            if stored_ignored_paths is not None
+            else ignored_sorted
         )
+        if dataset is None:
+            preview_hash = self._hash(
+                {
+                    "manifest_hash": manifest_hash,
+                    "source_format": source_format,
+                    "items": [item.model_dump(mode="json") for item in items],
+                }
+            )
+        else:
+            preview_hash = self._hash(
+                {
+                    "manifest_hash": manifest_hash,
+                    "source_format": source_format,
+                    "dataset_key": dataset.key,
+                    "dataset_name": dataset.name,
+                    "commit_mode": dataset.commit_mode,
+                    "items": [item.model_dump(mode="json") for item in items],
+                    "ignored_paths": fingerprint_ignored,
+                }
+            )
         return {
             "source_format": source_format,
             "manifest_hash": manifest_hash,
             "preview_hash": preview_hash,
-            "files": normalized,
+            "files": [
+                WorldbookImportFile(path=identity_path, content=content)
+                for identity_path, _original, content in entries
+            ],
+            "source_paths": {
+                item["path"]: item["source_path"]
+                for item in mapped_files
+                if item["source_path"] != item["path"]
+            },
             "mapped_files": mapped_files,
             "items": items,
-            "ignored_paths": sorted(ignored_paths, key=str.casefold),
+            "ignored_paths": ignored_sorted,
             "existing_sources": existing,
+            "bound_sources": bound_sources,
+            "legacy_bindings": legacy_bindings,
         }
 
     async def _existing_sources(
@@ -451,8 +765,16 @@ class WorldbookImportService:
         return found
 
     @classmethod
-    def _map_file(cls, file: WorldbookImportFile, source_format: str) -> dict[str, Any]:
+    def _map_file(
+        cls,
+        file: WorldbookImportFile,
+        source_format: str,
+        *,
+        dataset_key: str | None = None,
+        source_path: str | None = None,
+    ) -> dict[str, Any]:
         content = file.content
+        original_path = source_path or file.path
         title = PurePosixPath(file.path).stem
         metadata: dict[str, Any] = {}
         if PurePosixPath(file.path).suffix.lower() == ".md" and content.startswith(
@@ -482,9 +804,19 @@ class WorldbookImportService:
                 raw_policy
             ).model_dump(mode="json")
         source_hash = hashlib.sha256(file.content.encode("utf-8")).hexdigest()
-        source_key = hashlib.sha256(f"{source_format}\0{file.path}".encode()).hexdigest()
+        if dataset_key is None:
+            # legacy 页级身份：格式 + 原始提交路径（v1 行为逐字节保留）。
+            source_key = hashlib.sha256(
+                f"{source_format}\0{file.path}".encode()
+            ).hexdigest()
+        else:
+            # v2 页级身份：dataset_key + 资料集内 rel_path（m1-contract 第 2 条）。
+            source_key = hashlib.sha256(
+                f"{dataset_key}\0{file.path}".encode()
+            ).hexdigest()
         return {
             "path": file.path,
+            "source_path": original_path,
             "title": title,
             "page_type": page_type,
             "content": content,
@@ -557,6 +889,14 @@ class WorldbookImportService:
         return str(PurePosixPath(*parts))
 
     @staticmethod
+    def _strip_root(path: str) -> str:
+        """剥除所选根目录名：≥2 段去首段，单段整段即 rel_path（冻结规则）。"""
+        parts = PurePosixPath(path).parts
+        if len(parts) < 2:
+            return path
+        return str(PurePosixPath(*parts[1:]))
+
+    @staticmethod
     def _is_control_path(path: str) -> bool:
         parts = [part.casefold() for part in PurePosixPath(path).parts]
         return bool(
@@ -595,7 +935,7 @@ class WorldbookImportService:
         )
         if is_raw or PurePosixPath(path).suffix.lower() != ".md":
             return "source_material"
-        if source_format not in {"obsidian", "llmwiki"}:
+        if source_format not in {"obsidian", "llmwiki", "wiki_markdown"}:
             return "source_material"
         candidate = str(metadata.get("page_type") or metadata.get("type") or "custom")
         normalized = candidate.strip().casefold().replace("-", "_")
@@ -646,7 +986,11 @@ class WorldbookImportService:
 
     @classmethod
     def _source_meta(
-        cls, mapped: dict[str, Any], source_format: str, manifest_hash: str
+        cls,
+        mapped: dict[str, Any],
+        source_format: str,
+        manifest_hash: str,
+        dataset: _DatasetIdentity | None = None,
     ) -> dict[str, Any]:
         baseline_content_hash = cls._editable_fields_hash(
             title=mapped["title"],
@@ -657,9 +1001,11 @@ class WorldbookImportService:
             template_key=None,
             template_version=1,
         )
-        return {
+        meta = {
             "source_format": source_format,
-            "source_path": mapped["path"],
+            # source_path 保留原始提交路径（含根名）；校验引擎的
+            # schema.source_prefixes 与校验清单消费该字段（m1-contract 第 8 条）。
+            "source_path": mapped["source_path"],
             "source_key": mapped["source_key"],
             "source_hash": mapped["source_hash"],
             "baseline_content_hash": baseline_content_hash,
@@ -669,6 +1015,37 @@ class WorldbookImportService:
             "activation_eligible": mapped["page_type"] != "source_material",
             "frontmatter": mapped["frontmatter"],
         }
+        if dataset is not None:
+            parts = PurePosixPath(str(mapped["source_path"])).parts
+            meta.update(
+                {
+                    "dataset_key": dataset.key,
+                    "dataset_name": dataset.name,
+                    "rel_path": mapped["path"],
+                    "commit_mode": dataset.commit_mode,
+                    # 仅诊断：本次提交的所选根目录名（单段路径为空）。
+                    "dataset_root_name": parts[0] if len(parts) >= 2 else "",
+                }
+            )
+        return meta
+
+    @staticmethod
+    def _carry_forward_source_path(
+        meta: dict[str, Any],
+        previous_meta: dict[str, Any],
+        dataset: _DatasetIdentity | None,
+    ) -> None:
+        """dataset 写路径保留既有页最初的原始提交路径（m1-contract 第 8 条）。
+
+        校验引擎的 ``schema.source_prefixes`` 与校验清单消费 ``source_path``；
+        接续绑定/来源更新重写整份 meta 时必须携带旧值，不得改写为本次提交的
+        剥根路径。legacy（v1）路径保持现状逐字节一致，不做携带。
+        """
+        if dataset is None:
+            return
+        previous_path = str(previous_meta.get("source_path") or "")
+        if previous_path:
+            meta["source_path"] = previous_path
 
     @staticmethod
     def _page_meta(mapped: dict[str, Any], source_meta: dict[str, Any]) -> dict[str, Any]:
@@ -711,6 +1088,29 @@ class WorldbookImportService:
             counts=cls._counts(payload.items),
             items=payload.items,
             ignored_paths=payload.ignored_paths,
+            dataset_name=payload.dataset_name,
+            dataset_key=payload.dataset_key,
+            dataset_intent=payload.dataset_intent if payload.dataset_key else None,
+            commit_mode=payload.commit_mode if payload.dataset_key else None,
+            legacy_bindings=payload.legacy_bindings,
+        )
+
+    @staticmethod
+    async def _lock_import(
+        db: AsyncSession, novel_id: str, dataset_key: str | None
+    ) -> None:
+        """跨 suggestion 并发 apply 的项目+资料集互斥（m1-contract 第 6 条）。
+
+        沿用 `_lock_page_universe` 的 `pg_advisory_xact_lock` 先例；键空间独立于
+        publish 链的 ``world_bible_pages:{novel_id}``，导入链不取 universe 锁，
+        无交叉加锁顺序。非 PostgreSQL 方言（模块测试）为无操作。
+        """
+        bind = db.get_bind()
+        if bind.dialect.name != "postgresql":
+            return
+        await db.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": f"worldbook_import:{novel_id}:{dataset_key or ''}"},
         )
 
 

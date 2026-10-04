@@ -2932,11 +2932,46 @@ class WorldbookImportFile(BaseModel):
     content: str = Field(..., max_length=2 * 1024 * 1024)
 
 
+class WorldbookImportLegacyBinding(BaseModel):
+    """接续旧来源的待绑定映射（m1-contract 第 2 条，逐条可核对）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_key: str = Field(..., min_length=64, max_length=64)
+    legacy_source_path: str = Field(..., min_length=1, max_length=1024)
+    rel_path: str = Field(..., min_length=1, max_length=1024)
+
+    @field_validator("source_key")
+    @classmethod
+    def validate_source_key(cls, value: str) -> str:
+        return _validate_lower_sha256(value, "source_key")
+
+
 class WorldbookImportManifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["world_worldbook_import.v1"] = "world_worldbook_import.v1"
+    schema_version: Literal["world_worldbook_import.v1", "world_worldbook_import.v2"] = (
+        "world_worldbook_import.v1"
+    )
+    # 受 schema 限定的格式选择；"auto" 沿用目录标记检测（m1-contract 第 1 条）。
+    source_format: Literal["auto", "obsidian", "llmwiki", "wiki_markdown", "generic"] = (
+        "auto"
+    )
+    # 作者声明的资料集名；dataset_key 由服务端派生，不接收客户端值
+    # （m1-contract 第 2 条）。长度上限 1–80 在服务端按归一化后名称校验。
+    dataset_name: str | None = Field(default=None, min_length=1, max_length=200)
+    # 资料集提交语义：continue 沿用既有资料集四态（v1 兼容默认）；new 显式声明
+    # 新资料集（派生 key 已存在即拒绝）；adopt_legacy 显式接续旧来源（legacy
+    # source_path 剥根得等效 rel_path 逐条匹配并补写 dataset 字段）。
+    dataset_intent: Literal["continue", "new", "adopt_legacy"] = "continue"
+    commit_mode: Literal["full_snapshot", "append"] = "full_snapshot"
     files: list[WorldbookImportFile] = Field(..., min_length=1, max_length=2000)
+
+    @model_validator(mode="after")
+    def validate_dataset_intent(self) -> WorldbookImportManifest:
+        if self.dataset_intent != "continue" and self.dataset_name is None:
+            raise ValueError("dataset_intent requires dataset_name")
+        return self
 
 
 class WorldbookImportItem(BaseModel):
@@ -2952,6 +2987,16 @@ class WorldbookImportItem(BaseModel):
     target_kind: Literal["draft", "page"] | None = None
     current_content_hash: str | None = None
     reason: str = Field(default="", max_length=1000)
+    # 四态 Wiki 引用计数（resolved/ambiguous/unresolved/unselected），
+    # 纳入 preview_hash（m1-contract 第 4 条）；M2 引用扫描落地前恒为 0。
+    link_summary: dict[str, int] = Field(
+        default_factory=lambda: {
+            "resolved": 0,
+            "ambiguous": 0,
+            "unresolved": 0,
+            "unselected": 0,
+        }
+    )
 
     @field_validator("source_key", "source_hash", "current_content_hash")
     @classmethod
@@ -2964,18 +3009,42 @@ class WorldbookImportItem(BaseModel):
 class WorldbookImportPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["world_worldbook_import.v1"]
-    source_format: Literal["obsidian", "llmwiki", "generic"]
+    # v1 存量 pending 预览必须仍可读取；写入端按资料集语义选择版本
+    # （m1-contract 第 5 条）。
+    schema_version: Literal["world_worldbook_import.v1", "world_worldbook_import.v2"]
+    source_format: Literal["obsidian", "llmwiki", "wiki_markdown", "generic"]
     manifest_hash: str = Field(..., min_length=64, max_length=64)
     preview_hash: str = Field(..., min_length=64, max_length=64)
+    # 资料集语义字段；dataset_key 为空表示 legacy 提交（v1 归一化默认值）。
+    dataset_name: str | None = Field(default=None, min_length=1, max_length=200)
+    dataset_key: str | None = Field(default=None, min_length=64, max_length=64)
+    dataset_intent: Literal["continue", "new", "adopt_legacy"] = "continue"
+    commit_mode: Literal["full_snapshot", "append"] = "full_snapshot"
+    # dataset 提交中 files[].path 统一为 rel_path；原始含根名路径仅保存在
+    # source_paths（rel_path → 原始路径），用于回放时按原语义写
+    # page_meta.worldbook_import.source_path，不参与任何指纹（m1-contract 第 2/8 条）。
+    source_paths: dict[str, str] = Field(default_factory=dict, max_length=2000)
     files: list[WorldbookImportFile] = Field(..., min_length=1, max_length=2000)
     items: list[WorldbookImportItem] = Field(default_factory=list, max_length=4000)
     ignored_paths: list[str] = Field(default_factory=list, max_length=2000)
+    # 接续旧来源的待绑定映射快照；仅展示与恢复预览用，判定要素已由 items
+    # （target/current_hash）纳入 preview_hash（m1-contract 第 2/5 条）。
+    legacy_bindings: list[WorldbookImportLegacyBinding] = Field(
+        default_factory=list, max_length=2000
+    )
 
-    @field_validator("manifest_hash", "preview_hash")
+    @field_validator("manifest_hash", "preview_hash", "dataset_key")
     @classmethod
-    def validate_hashes(cls, value: str, info) -> str:
+    def validate_hashes(cls, value: str | None, info) -> str | None:
+        if value is None:
+            return None
         return _validate_lower_sha256(value, info.field_name)
+
+    @model_validator(mode="after")
+    def validate_dataset_intent(self) -> WorldbookImportPayload:
+        if self.dataset_key is None and self.dataset_intent != "continue":
+            raise ValueError("dataset_intent requires dataset_key")
+        return self
 
     @model_validator(mode="after")
     def validate_total_size(self) -> WorldbookImportPayload:
@@ -2989,12 +3058,17 @@ class WorldbookImportPayload(BaseModel):
 
 class WorldbookImportPreviewResponse(BaseModel):
     suggestion_id: str
-    source_format: Literal["obsidian", "llmwiki", "generic"]
+    source_format: Literal["obsidian", "llmwiki", "wiki_markdown", "generic"]
     manifest_hash: str
     preview_hash: str
     counts: dict[str, int]
     items: list[WorldbookImportItem]
     ignored_paths: list[str] = Field(default_factory=list)
+    dataset_name: str | None = None
+    dataset_key: str | None = None
+    dataset_intent: str | None = None
+    commit_mode: str | None = None
+    legacy_bindings: list[WorldbookImportLegacyBinding] = Field(default_factory=list)
 
 
 class WorldbookImportApplyRequest(BaseModel):
