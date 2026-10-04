@@ -381,7 +381,7 @@ class EntityRevision(Base, UUIDMixin):
         nullable=False,
         default="ai_import",
         comment="快照原因（实际写入路径）：manual_update/manual_delete/"
-        "focused_completion/rollback/redundant_alias_resolution/"
+        "manual_promote/focused_completion/rollback/redundant_alias_resolution/"
         "focused_completion_rollback/spreadsheet_migration_rollback；"
         "ai_import 仅为列默认值，生产代码不显式写入",
     )
