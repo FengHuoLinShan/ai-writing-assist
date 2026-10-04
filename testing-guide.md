@@ -188,12 +188,14 @@ or silently fall back to the developer database.
 
 GitHub Actions 在 pull request 与 `main` push 上并行运行三个职责清晰的主工作流：
 `Backend CI` 包含 `Backend quality` 与 `PostgreSQL critical`，`Frontend CI` 包含
-`Frontend unit quality` 与 `Frontend functional browser`，`Production Image CI` 包含
-`Production image contract`。
+`Frontend unit quality` 与 `Frontend functional browser`（浏览器执行由前置
+`Browser change classification` job 与分片 matrix 完成，聚合到该必需检查名），
+`Production Image CI` 包含 `Production image contract`。
 仓库治理门由独立的 `repo-gates` 工作流始终运行：二进制增长门（B11）、生产文件
 大小门（P8）、发布证据门（B6，校验 `docs/evidence/` 账本与 main 可达性）以及
 跨模块导入门（B2，`scripts/check_module_imports.py`）。
-每个质量 job checkout 完整历史后运行 `scripts/classify_ci_changes.py`。PR 比较事件中的
+每个质量 job checkout 完整历史后运行 `scripts/classify_ci_changes.py`（浏览器
+分片 job 复用前置分类 job 的输出，不再各自重复分类）。PR 比较事件中的
 base/head 完整 SHA，删除和重命名前后路径都参与分类；读取失败直接阻断。main 始终全量。
 PR 多类变更取并集：
 
@@ -209,11 +211,16 @@ PR 多类变更取并集：
 | CI、脚本、Makefile、其他未知路径 | 全部，浏览器使用完整功能套件 |
 
 Markdown 规则优先于目录规则。文档门禁、secret hygiene 和 CodeQL 始终执行。
-所有必需 job 名称保持不变，无关安装、测试及产物步骤跳过；runner 和 service container
-仍会初始化。禁止用 workflow paths 过滤让必需检查保持 Pending。
+所有必需 job 名称保持不变；无关变更的安装、测试及产物步骤跳过，浏览器分片
+job 由前置分类门整体跳过（runner 与 service container 不初始化）。禁止用
+workflow paths 过滤让必需检查保持 Pending。
 前端及未知路径 PR 使用 `test:e2e:functional`，覆盖新版写作、作者工作区、主题与读者流程；
 后端相关 PR 保留四文件 `test:e2e:smoke`，main 始终完整。均保持专用数据库、私有 MinIO、
-workers=1、retries=0。全量结果失败时暂停发布，不能用截图更新、重试或删断言追认通过。
+workers=1、retries=0。完整功能套件在两个独立分片 runner 上执行（`--shard=1/2` 与
+`--shard=2/2`，smoke 单 runner）；assistant/creative/editorial 三个辅助套件各执行一次，
+固定在第一片，每个套件的 Playwright 输出目录独立命名。任一分片失败、取消或意外跳过都
+由聚合检查 `scripts/aggregate_browser_gate.py` 失败关闭，分类失败或输出缺失同样不通过。
+全量结果失败时暂停发布，不能用截图更新、重试或删断言追认通过。
 
 它们与独立的 `Architecture docs` 分开运行，因此前端或镜像失败不会再以
 `Backend CI` 工作流失败呈现。后端快速 job checkout 后先用系统 Python 执行零依赖的 repository
@@ -248,12 +255,23 @@ text collection metrics with an isolated local Codex evaluator. Frontend job fir
 the SHA-pinned Node setup action with `frontend-console/.node-version` (`24.21.0` LTS) and
 the committed lockfile cache, then uses `frontend-console/package-lock.json` to run `npm ci`, then
 `npm audit --package-lock-only --audit-level=high`, ESLint and complete Vitest. The production
-image job owns the production build. `Frontend functional browser` starts a fresh dedicated PostgreSQL, private MinIO from pinned official release binaries,
-and Chromium, then runs the
-complete functional suite on frontend-related PRs and main (smoke only for backend-related PRs), with workers=1 and
-retries=0, and retains
-`frontend-console/test-results` failure diagnostics for 14 days. The existing smoke command is
-reused inside the same browser job; `test:e2e:map` remains a focused local subset. Real-LLM and worker Playwright suites remain explicit/manual acceptance runs.
+image job owns the production build. The browser gate is a classify → shard → aggregate
+pipeline: `Browser change classification` runs `scripts/classify_ci_changes.py` first, and
+only browser-relevant changes start the shard jobs at all, so document-only PRs never
+initialize their PostgreSQL/MinIO services. Each `Frontend functional browser shard` job
+starts a fresh dedicated PostgreSQL, private MinIO from pinned official release binaries,
+and Chromium, then runs the complete functional suite on two shards (`--shard=1/2` and
+`--shard=2/2`) on frontend-related PRs and main, while backend-related PRs keep the
+single-runner smoke suite. Shards stay workers=1 with retries=0; the
+assistant/creative/editorial auxiliary suites run once on shard 1 with per-suite Playwright
+output directories. Each shard retains `frontend-console/test-results` failure
+diagnostics and always uploads native blob reports from `frontend-console/blob-report`
+for 14 days under shard-specific artifact names. Functional and auxiliary reports use
+separate directories so later suites preserve earlier results. The required
+`Frontend functional browser` check keeps its stable name and aggregates the pipeline via
+`scripts/aggregate_browser_gate.py`, failing closed on classification failure, missing
+outputs, skipped shards, or any shard/auxiliary failure. `test:e2e:map` remains a focused
+local subset. Real-LLM and worker Playwright suites remain explicit/manual acceptance runs.
 Visual review uses diagnostic screenshots and recordings; there is no visual comparison suite.
 The backend
 audit depends on OSV network data and the frontend audit on npm registry/advisory
