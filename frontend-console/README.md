@@ -114,6 +114,14 @@ Vite 开发与预览服务通过 HTTP 响应头发送 CSP，并用 `frame-ancest
 `http://localhost:8000` 或 `http://localhost:8000/api`。本地代理目标也可通过
 `BACKEND_PORT` 或完整的 `API_PROXY_TARGET` 覆盖。
 
+## 世界书导入 manifest v2（2026-10）
+
+`world.previewWorldbookImport` 由「仅文件数组」改为提交完整 manifest v2：`schema_version`、
+显式 `source_format`（默认 `auto`）、作者声明的 `dataset_name`、`dataset_intent`
+（新资料集/继续维护/接续旧导入）与 `commit_mode`（完整快照/增量追加）一并进入服务端预览指纹。
+资料圈定在浏览器本地完成（`vue/views/world/bible/worldbookImportScope.js` 纯函数：剥根、
+受限 frontmatter、Wiki 引用四态解析），应用范围严格等于预览范围。
+
 ## 世界编辑历史（2026-10，阶段 0）
 
 实体详情"改动历史"面板与世界页头"改动记录"浮层消费阶段 0 后端：相对时间（悬停绝对）、

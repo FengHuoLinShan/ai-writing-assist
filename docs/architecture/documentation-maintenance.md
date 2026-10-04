@@ -200,7 +200,9 @@ Claude Code 通过 `CLAUDE.md` 导入同一规则。安全、隔离、用户确�
 
 统一 AI 运行信封的维护落点：root capability 或 task 额度变化同步所属模块 README、
 `docs/modules/12_infrastructure.md` 与 capability/Prompt 门禁；跨 task run 镜像或作者续算语义
-还要同步领域恢复文档，并把 lease/终态合并用例保留在 PostgreSQL critical 集合。内部信封
+还要同步领域恢复文档，并把 lease/终态合并用例保留在 PostgreSQL critical 集合。新增依赖
+PostgreSQL 真并发/ advisory-lock 互斥的领域行为用例同样登记进该 critical 子集，并在
+testing-guide 与 development-guide 的逐用例命令表补行。内部信封
 只使用既有私有 JSON checkpoint 时不据此新增数据库表说明。
 
 自动目录各保留一个权威位置：表名在 `docs/01_数据库设计.md`，前端路由在

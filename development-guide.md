@@ -72,6 +72,7 @@ E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-e2e  # Explicit test DB 
 E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-postgresql-critical  # Serial PostgreSQL merge-gate subset; retries=0
 RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv --directory backend run pytest tests/e2e/test_rp_source_versions.py -m e2e  # RP source version/FK/concurrency lifecycle
 RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_project_task_gate_concurrency.py -m "not real_llm and not external_data"  # Project delete vs atlas upload/cleanup race
+RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_worldbook_dataset_import_concurrency.py -m e2e  # 资料集导入 apply 的 dataset advisory-lock/CAS/过期冲突并发行为
 make test-real-llm               # Explicit SQLite real-model acceptance
 RUN_INTERACTION_REAL_KIMI=1 KIMI_API_KEY='<temporary-key>' DEEPSEEK_API_KEY='<temporary-key>' make test-real-kimi  # Explicit paid Kimi K3 compatibility gate; enabled only in the test process
 RUN_INTERACTION_LONG_CONTEXT_CALIBRATION=1 KIMI_LONG_CONTEXT_COST_APPROVED=1 KIMI_API_KEY='<temporary-key>' KIMI_CONTEXT_LIMIT_TOKENS='<official-limit>' E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-interaction-long-context  # Paid usage calibration + PostgreSQL 530K journey gate

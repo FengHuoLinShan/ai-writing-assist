@@ -3,19 +3,20 @@ id: T-20261004-ring-worldbook-import
 title: 本机理法之环 Wiki 导入与增量维护
 status: active
 created: 2026-10-04T18:53:23+09:00
-updated: 2026-10-04T20:05:00+09:00
+updated: 2026-10-05T01:18:52+09:00
 ---
 
 # 本机理法之环 Wiki 导入与增量维护计划
 
 ## 恢复快照
 
-- 实际完成：计划落盘并开始实施。已建任务主题分支 `codex/ring-worldbook-import`（HEAD 仍为 229491796b9b05fb753c02b8aa2168cbb11c04e4，本任务尚无提交）；M1 契约草案 r2 落盘至同目录 `m1-contract.md`：现状事实基线（api/service/schemas/validation engine/lifecycle 逐条行号）、六项冻结决定（显式 source_format、dataset_key 身份与 rel_path 剥根、commit_mode 两种提交语义、Wiki 引用四态与 TargetRef 物化、v2 预览指纹、JSON 承载不提 migration）、7.1–7.6 失败场景可测定义与冻结字段总表。业务代码、数据库和 Vault 均未修改。
-- 当前里程碑：M1 进行中——契约文档部分完成（r2 待审查）；失败用例（7.1–7.6 现状对照）尚未落入 `backend/modules/world/tests/`。
-- 下一步：审查 `m1-contract.md`（重点核第 2 条接续补写的 confirmation 失效披露与第 5 条 v1 归一化路径）；通过后把 7.1–7.5 及 7.6 现状对照用例落入 `backend/modules/world/tests/test_worldbook_import.py`，在当前 HEAD 复现现状行为。
-- 阻塞：无硬阻塞。契约第 9 节记录三项未决（wiki_markdown 是否首版实现、link_summary 明细存放位置、接续对已发布 page 的补写路径），均不阻塞契约审查；目标作者项目、实际导入范围和付费模型预算尚未指定，真实写入或模型验收前必须确定。
-- 工作区：分支 `codex/ring-worldbook-import`，HEAD 229491796（与 main 的 merge-base 相同，无本任务提交）。writing.md、WritingView.vue、WritingEditor.vue、writing-desk.css 属其他任务 WIP，保留不动。本任务未提交改动仅 `.agent/TASKS.md` 索引行与本任务目录（TASK.md、m1-contract.md）。
-- 最后核实：2026-10-04T20:05:00+09:00；恢复时重新核对 HEAD、WIP 和资料清单。
+- 实际完成：M1–M3 已实现并通过验证（v2 manifest/payload、dataset 身份与两种提交语义、adopt_legacy 接续、跨 suggestion advisory lock 并发串行化、e2e 并发用例）；M4 可验证部分已完成：新增 `backend/modules/world/tests/test_worldbook_import_publish_context.py`（4 用例：canonical 不自动发布且 source_material 不激活、发布走 Canon Admit 带校验回执、character/reader 视角排除导入资料、Evidence confirmation 绑定工作稿版本且来源更新失效）；导入面板预览按 `target_kind` 区分工作稿/已发布页并披露"发布需另行确认"；浏览器 e2e `frontend-console/e2e/worldbook-import.spec.js` 覆盖目录选择→预览→应用→工作稿→发布→增量→冲突主链路与 390px 窄屏，已在专用库实跑通过。
+- 当前里程碑：M4 代码与测试完成并已随组提交入库；M5 本机资料验收未开始。
+- 下一步：M5——指定目标作者项目与文件清单后做本机只读扫描预览、临时副本增量/冲突验证与免费离线验收。
+- 阻塞：无硬阻塞。目标作者项目、实际导入范围和付费模型预算尚未指定，真实写入或模型验收前必须确定。
+- 工作区：分支 `codex/ring-worldbook-import`，本任务改动已由提交者按组提交（后端 v2 实现、前端面板、M4 回归、权威文档四笔，未推送）。writing.md、WritingView.vue、WritingEditor.vue、writing-desk.css 属其他任务 WIP，保留未提交。本任务验证命令与证据见"验证证据"。
+- 文档同步（2026-10-05T01:06+09:00 r2 修订运行；01:18 门禁收尾修订）：World README、02_world、01_数据库设计、14_frontend、15_map、frontend README、Makefile 与两份 guide 的导入 v2 相关改动已与实现核对一致（advisory lock 键、dataset_intent 三态、adopt_legacy legacy_bindings、target_kind 区分、面板四态与三态归属文案逐一比对 service/panel/scope 源码）。`docs/architecture/README.md` 在"自动门禁"节补 PostgreSQL critical 子集用例登记规则导航（Makefile 登记 + 两 guide 命令表补行，规则源 documentation-maintenance.md）后，`make docs-check BASE_REF=origin/main` 裸命令通过（"impact: all required documents changed"）；`git diff --check` 通过。
+- 最后核实：2026-10-05T01:38+09:00（提交轮）；恢复时重新核对 HEAD、WIP 和资料清单。
 
 ## 目标与验收
 
@@ -61,7 +62,7 @@ updated: 2026-10-04T20:05:00+09:00
 4. 当前正文和 frontmatter 保留，但 apply 未物化 Wiki 引用。引用图可循环，不能把 `related` 或双链自动当作需要无环的因果依赖；只有明确声明的有向依赖进入既有依赖校验。
 5. 理法之环原页混合作者真相、文明解释与角色认知。第一版按作者资料接入；沿 Evidence 查证工作稿、已发布页和 source_material 的实际消费条件。无法证明允许范围时保持排除，不靠导入元数据自行升级权限。
 6. 资料集、链接映射和发布都是跨请求状态，优先使用现有 suggestion 与页面 metadata。M1 必须验证并发/CAS及完整快照身份能否可靠实现；若 JSON metadata 不足，才提出最小 ORM/migration，同步数据库文档。
-7. 2026-10-04：M1 契约草案 r2 落盘（同目录 `m1-contract.md`），六项决定已冻结：manifest 显式 `source_format`（默认 `auto`，不伪造控制文件）；`dataset_key` 由作者声明名派生，页级 `source_key` 改挂 dataset 内 `rel_path` 且包内归一化唯一；`commit_mode=full_snapshot/append` 决定 missing 判定范围与资料集隔离；Wiki 引用四态解析（resolved/ambiguous/unresolved/unselected，同名不猜身份），resolved 目标沿既有 TargetRef 物化（双链只写 `informs`，未发布目标用 `local:` 约定，不产生 EntityRelation），baseline 按含 refs 口径随物化写入；预览指纹升级 `world_worldbook_import.v2`（dataset/commit_mode 入 hash，恢复预览保持冻结语义）；跨请求状态沿用 JSON 承载，本轮不提 migration。已知缺口：跨 suggestion 并发 apply 在现有 CAS 覆盖外，M3 实现前须在 target 行锁与 dataset advisory lock 间定案并核对 publish 链锁序。证据全部为 `m1-contract.md` 第 0 节的行号引用。
+7. 2026-10-04：M1 契约草案 r2 落盘（同目录 `m1-contract.md`），六项决定已冻结：manifest 显式 `source_format`（默认 `auto`，不伪造控制文件）；`dataset_key` 由作者声明名派生，页级 `source_key` 改挂 dataset 内 `rel_path` 且包内归一化唯一；`commit_mode=full_snapshot/append` 决定 missing 判定范围与资料集隔离；Wiki 引用四态解析（resolved/ambiguous/unresolved/unselected，同名不猜身份），resolved 目标沿既有 TargetRef 物化（双链只写 `informs`，未发布目标用 `local:` 约定，不产生 EntityRelation），baseline 按含 refs 口径随物化写入；预览指纹升级 `world_worldbook_import.v2`（dataset/commit_mode 入 hash，恢复预览保持冻结语义）；跨请求状态沿用 JSON 承载，本轮不提 migration。已知缺口：跨 suggestion 并发 apply 在现有 CAS 覆盖外，M3 实现前须在 target 行锁与 dataset advisory lock 间定案并核对 publish 链锁序。证据全部为 `m1-contract.md` 第 0 节的行号引用。（后续修订：该缺口已在 M3 按 m1-contract r4 的 a+b 混合方案定案并落地——apply 先取 `worldbook_import:{novel_id}:{dataset_key}` 项目级 `pg_advisory_xact_lock`，锁内重放双 hash 复验后再写入，见 `worldbook_import_service.py:197-201` 与 `:1099-1114`；契约后经第三轮评审修订至 r5，新增 `dataset_intent` 三态与 `payload.legacy_bindings` 冻结，详见 `m1-contract.md` 修订记录。）
 
 ## 里程碑与实施顺序
 
@@ -124,10 +125,10 @@ updated: 2026-10-04T20:05:00+09:00
 ## 里程碑进度
 
 - [x] 当前实现核查与计划落盘。
-- [ ] M1 来源契约与失败用例。（契约草案 r2 已落盘待审查；失败用例未落）
-- [ ] M2 资料范围与预览。
-- [ ] M3 应用、增量与引用。
-- [ ] M4 发布、上下文与端到端体验。
+- [x] M1 来源契约与失败用例。
+- [x] M2 资料范围与预览。
+- [x] M3 应用、增量与引用。
+- [x] M4 发布、上下文与端到端体验（可验证部分；真实模型消费验收不在本轮）。
 - [ ] M5 本机资料验收与交付。
 
 ## 验证证据
@@ -135,11 +136,21 @@ updated: 2026-10-04T20:05:00+09:00
 - 2026-10-04：实施前 `make docs-check` 通过。该结果仅证明当前文档完整性，不证明本计划中的功能已实现。
 - 2026-10-04T18:56:35+09:00：`make docs-check BASE_REF=origin/main` 与 `git diff --check` 通过；任务章节与开放索引链接检查通过。差异检查提示其他 writing WIP 的用户行为文档复核，本任务未改动该部分。
 - 2026-10-04T20:05:00+09:00：文档同步轮。核查命令：`git status --porcelain`（工作树仅含其他任务 writing WIP 四文件与本任务笔记）；`git log main..HEAD` 为空、`git merge-base main HEAD` == HEAD == 229491796（确认分支无本任务提交）。`make docs-check BASE_REF=origin/main` 通过（输出 "Architecture documentation checks passed"；NOTE 提示 frontend-production 用户行为文档复核，属其他任务 writing WIP，本任务未涉及）；`git diff --check` 通过。
-- 本轮未运行业务测试、前端测试、lint/format、真实导入、发布或模型请求：本任务至今零代码改动，无可测对象；上述门禁仅覆盖文档改动。
+- 2026-10-05（M4 验证轮）：
+  - `make test TESTS=modules/world/tests/test_worldbook_import_publish_context.py` → 4 passed（canonical 不自动发布、发布走 Canon Admit 带回执、角色/读者视角排除、confirmation 版本绑定与失效）。
+  - 门禁口径一条命令：`make test TESTS="modules/world/tests modules/evidence/compilation/tests"` → 1498 passed。注意 `tests/e2e/test_worldbook_dataset_import_concurrency.py` 不属于 `make test` 口径：默认 addopts deselect e2e（backend/pyproject.toml addopts `-m "not e2e ..."`），且 `tests/e2e/conftest.py` 的 `pytest_configure` 在收集到该目录文件而未设 `RUN_E2E_TESTS=1`+`E2E_DATABASE_URL` 时会 `pytest.exit` 整个会话——把它拼进 `make test TESTS` 会使命令失败或 0 用例空跑。
+  - 并发文件按其真实口径运行：`E2E_DATABASE_URL=<专用库 worldbook_import_e2e@localhost:5207> make test-e2e ARGS="tests/e2e/test_worldbook_dataset_import_concurrency.py --timeout=300"` → 整个 tests/e2e 目录 235 passed, 7 deselected（deselect 均为 real_llm/external_data），其中目标文件 3 个并发/幂等/CAS 用例全部通过；运行前核对该库 alembic 版本 == 代码 head（20261005_world_revision_metadata）。该文件已登记在 Makefile `BACKEND_POSTGRESQL_CRITICAL_TESTS`（合并门禁口径）。
+  - `make test-frontend` → 219 文件 / 2774 用例全部通过（含新增"预览区分未发布工作稿与已发布页目标"用例）。
+  - 浏览器 e2e：`DATABASE_URL=<专用库 worldbook_browser_e2e@localhost:5207> PW_REUSE_EXISTING_SERVER=0 BACKEND_PORT=18000 FRONTEND_PORT=18080 npx playwright test e2e/worldbook-import.spec.js` → 2 passed（目录选择→预览→应用→工作稿→发布→增量→冲突主链路；390px 窄屏面板可用且无横向溢出）。结果以 API/数据库断言为准：应用后 0 正式页、发布后 1 正式页带导入元数据、冲突不覆盖工作稿。
+  - `make lint` 通过；改动前端文件 eslint 通过；`git diff --check` 通过。
+  - `make docs-check`（无基线）通过；`make docs-check BASE_REF=origin/main` 首次运行报错——M1–M3 的 Makefile/schemas.py/api.js 触发 architecture-governance/frontend-wire/module-schema 规则，唯一未更新必查文档为 `docs/architecture/README.md`。经复核该 README 无架构级变化（无新模块/表/ADR/路由/任务），按检查器设计用 `--no-change-reason` 附明确理由后通过（WARNING acknowledged）；后续 r2 收尾轮已在 README 补登记规则导航，裸命令通过，提交者无需再附理由（见 01:06 轮）。
+  - 本轮真实本机 Wiki 只读，未做任何真实导入；M5 真实验收未开始。
+- 2026-10-05T01:38+09:00（提交轮）：提交者重跑全部门禁绿——`make lint`（ruff All checks passed）；`make test TESTS="modules/world/tests modules/evidence/tests"` → 1802 passed, 2 deselected（evidence 测试按当前树新路径 `modules/evidence/tests/` 全量跑，含 M4 用例）；M4 文件单跑 `pytest modules/world/tests/test_worldbook_import_publish_context.py` → 4 passed；`RUN_E2E_TESTS=1 E2E_DATABASE_URL=worldbook_import_e2e@localhost:5207 uv run --locked --extra ci pytest tests/e2e/test_worldbook_dataset_import_concurrency.py -m e2e` → 3 passed（运行前核对两专用库 alembic 版本 == 代码 head `20261005_world_revision_metadata`）；`make test-frontend` → 219 文件 / 2774 用例通过；`npx eslint .` 退出码 0；`DATABASE_URL=worldbook_browser_e2e@localhost:5207 PW_REUSE_EXISTING_SERVER=0 BACKEND_PORT=18000 FRONTEND_PORT=18080 npx playwright test e2e/worldbook-import.spec.js` → 2 passed；`make docs-check BASE_REF=origin/main` 与 `git diff --check` 通过。注意：暂存区另有一批 `backend/modules/evidence/**` 测试目录重组改名（compilation/indexing/knowledge → `evidence/tests/*`，49 文件 0 增删行），非本任务改动，未纳入本任务任何提交。
+- 2026-10-05T01:06+09:00（r2 修订运行的文档同步轮）：未改实现代码，仅同步任务笔记；本轮验证范围仅文档门禁，后端/前端/e2e 测试均未重跑（上一轮 M4 验证轮的 1498 passed / 2774 用例 / e2e 235 passed / Playwright 2 passed 证据仍对应当前工作树，本轮未重验）。实际运行：`git status --porcelain` 与 `git diff --stat` 核对改动范围（本任务 15 文件 +755/-62 行实现与文档、4 新测试文件、3 新前端文件；writing WIP 四文件未触碰）；逐一比对 World README:331-355、02_world.md:34-56、14_frontend.md:621 与 `worldbook_import_service.py`（advisory lock `:197-201`/`:1099-1114`、adopt_legacy `:285-290`/`:558-591`、missing 判定 `:639-649`）、`schemas.py:2935-3070`（manifest/payload v2 契约）、`WorldbookImportPanel.vue:35-45`/`:379-434`、`worldbookImportScope.js:167-182` 的行为一致。`make docs-check BASE_REF=origin/main` 首跑报错与上一轮同型（ERROR: impact rules architecture-governance/frontend-wire/module-schema require review of docs/architecture/README.md）；修复（01:18）：在 README"自动门禁"节补 PostgreSQL critical 子集用例登记规则导航（真实治理变化：Makefile:12 登记并发用例 + documentation-maintenance.md:200-205 新规则），复跑裸命令通过（"impact: all required documents changed for rules architecture-governance, frontend-wire, module-schema"、"Architecture documentation checks passed"），提交者无需再附 no-change 理由。`git diff --check` 通过。
 
 ## 交付结果
 
-- 已交付：主计划（本文件，含范围、已证实缺口、实施顺序、逐阶段完成条件与验收边界）；M1 契约草案 r2（同目录 `m1-contract.md`，待审查）。
-- 未交付：M1 失败用例落地与 M2–M5 全部实现、验收。
-- 交付边界：全部为本地未提交文档；分支 `codex/ring-worldbook-import` 无本任务提交，无推送、PR、合并或部署。
+- 已交付：主计划（本文件）；M1 契约（`m1-contract.md` r5）；M1–M4 实现（后端 dataset 导入/并发、前端面板与本地范围扫描、M4 发布与 Evidence 失效验证、浏览器 e2e 主链路）。
+- 未交付：M5 本机真实资料验收与交付；真实模型消费抽查（需另行授权与预算）。
+- 交付边界：M1–M4 改动已按组提交至分支 `codex/ring-worldbook-import`（后端 v2 实现、前端面板、M4 回归、权威文档四笔）；未推送、无 PR、未合并 main、未部署。
 - 后续可选：世界对象/关系结构化、经明确知识范围授权的 RP 接入；均不计入本轮完成条件。
