@@ -27,7 +27,7 @@ async function loadInfo(kind, skip = 0) {
   infoLoading.value = true; relatedError.value = ''
   try {
     const id = props.entity.id || props.entity.entity_id
-    const result = await (kind === 'relations' ? getApi().world.getEntityRelations(id, props.projectId) : getApi().world.getEntityRevisions(id, props.projectId, skip))
+    const result = await (kind === 'relations' ? getApi().world.getEntityRelations(id, props.projectId) : getApi().world.getEntityRevisions(id, props.projectId, { skip }))
     if (token !== infoEpoch) return
     if (kind === 'relations') { related.value = result.items || []; syncRelationsAliasesRegistry({ relations: related.value }) }
     else { revisions.value = result.items || []; revisionTotal.value = result.total; revisionSkip.value = skip }

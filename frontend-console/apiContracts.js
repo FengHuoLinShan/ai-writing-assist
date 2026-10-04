@@ -467,6 +467,24 @@
       requiredParams: ["id"],
       requiredQuery: ["novel_id"],
     }),
+    "world.getEntityRevisions": define("GET", ({ id }) => `/world/entities/${required(id, "id", "world.getEntityRevisions")}/revisions`, {
+      requiredParams: ["id"],
+      requiredQuery: ["novel_id"],
+    }),
+    "world.rollbackEntityToRevision": define("POST", ({ id }) => `/world/entities/${required(id, "id", "world.rollbackEntityToRevision")}/rollback-by-revision`, {
+      requiredParams: ["id"],
+      requiredQuery: ["novel_id"],
+      hasBody: true,
+      requiredBody: ["revision_id", "expected_updated_at"],
+    }),
+    "world.setRevisionNote": define("PUT", () => "/world/revision-notes", {
+      requiredQuery: ["novel_id"],
+      hasBody: true,
+      requiredBody: ["target_kind", "revision_id", "note"],
+    }),
+    "world.listWorldChangeHistory": define("GET", () => "/world/change-history", {
+      requiredQuery: ["novel_id"],
+    }),
     "world.getCharacter": define("GET", ({ id }) => `/world/characters/${required(id, "id", "world.getCharacter")}`, {
       requiredParams: ["id"],
       requiredQuery: ["novel_id"],

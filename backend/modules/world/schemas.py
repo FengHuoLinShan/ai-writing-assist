@@ -3612,6 +3612,9 @@ class WorldBiblePageRevisionResponse(BaseModel):
     revision_digest: str
     revision_reason: str
     created_at: datetime | None = None
+    writing_chapter_index: int | None = None
+    change_note: str | None = None
+    changed_fields: list[str] | None = None
 
 
 class WorldBiblePageTemplateCreate(BaseModel):

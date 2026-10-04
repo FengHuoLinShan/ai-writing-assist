@@ -311,6 +311,8 @@ class MapRevisionResponse(SpatialModel):
     applied_change_keys: list[str] = Field(default_factory=list)
     expanded_change_keys: list[str] = Field(default_factory=list)
     remaining_candidate_id: str | None = None
+    writing_chapter_index: int | None = None
+    change_note: str | None = None
 
 
 class MapLayoutResponse(SpatialModel):
