@@ -717,3 +717,38 @@ async def test_fused_reranker_failure_is_open_only_for_manual_search(
     rerank.assert_awaited_once()
     assert rerank.await_args.args[0] == "实际检索问题"
     assert rerank.await_args.kwargs["force"] is True
+
+
+@pytest.mark.asyncio
+async def test_ask_world_repeated_retrieval_keeps_confirmable_source_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "core.config.get_settings",
+        lambda: SimpleNamespace(reranker_enabled=True),
+    )
+    rerank = AsyncMock(side_effect=RuntimeError("provider unavailable"))
+    monkeypatch.setattr("modules.evidence.indexing.reranker.rerank_results", rerank)
+    options = CompileOptions(
+        novel_id=str(uuid.uuid4()),
+        task="搬家之后住在哪里，为什么搬家？",
+        scope="full",
+        consumer_action="world.ask",
+        retrieval_purpose="ask_world",
+    )
+    plan = RetrievalQueryPlanner().plan(options)
+    chunks = [SimpleNamespace(id=str(uuid.uuid4()), score=0.2) for _ in range(8)]
+    for _ in range(3):  # preview, confirmation and execution
+        outcome = await _default_fused_reranker(
+            None,  # type: ignore[arg-type]
+            options,
+            plan,
+            chunks,
+            {str(chunk.id): chunk.score for chunk in chunks},
+            top_k=8,
+            should_run=True,
+        )
+        assert outcome.chunks == chunks
+        assert outcome.invoked is False
+        assert outcome.degraded is False
+    rerank.assert_not_awaited()

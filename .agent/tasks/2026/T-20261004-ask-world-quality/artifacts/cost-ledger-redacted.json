@@ -1,0 +1,1214 @@
+{
+  "cap_usd": null,
+  "provider": "deepseek",
+  "model": "deepseek-flash",
+  "pricing_source": "https://api-docs.deepseek.com/quick_start/pricing/",
+  "pricing_verified_at": "2026-10-04",
+  "authorization_history": [
+    {
+      "at": "2026-10-04T14:34:02.973021+00:00",
+      "cap_usd": null,
+      "scope": "Ask World v3 debug, one holdout and real browser acceptance",
+      "user_instruction": "不设预算上限，继续做完"
+    }
+  ],
+  "previous_unmetered_generation": {
+    "observed_case_count": 28,
+    "output_ledger_sha256": "55af4ffc4085cd8366e22297baad0ee0d496cfb4b1204186e259b0d407a5ce6c",
+    "usage_available": false,
+    "cost_available": false,
+    "reason": "Historical case ledger did not retain transport usage or cost"
+  },
+  "teacher_cost_status": "unavailable_codex_cli_subscription",
+  "payload_redacted": true,
+  "recorded_at": "2026-10-04T15:03:47.816524+00:00",
+  "raw_ledger_sha256": "64c2b238528d171b4e3f6f59b93d2d9a7a6e7fdfeab867f7518d61736333b1c1",
+  "calls": [
+    {
+      "sequence": 1,
+      "status": "settled",
+      "started_at": "2026-10-04T14:34:04.634378+00:00",
+      "ended_at": "2026-10-04T14:34:06.610391+00:00",
+      "cost_upper_usd": 0.000336,
+      "estimated_cost_usd": 0.00011155199999999999,
+      "usage": {
+        "prompt_tokens": 620,
+        "completion_tokens": 125,
+        "total_tokens": 745
+      },
+      "cache_hit_tokens": 384,
+      "price_band": "off_peak",
+      "provider_call_id": "ecb65572-677c-4f2c-a883-76a9f234bfc6",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "c69a3f4a5ff94d1ca511a1e9a7c11025af49f8c80e30f32bacec347b9cb51763"
+    },
+    {
+      "sequence": 2,
+      "status": "settled",
+      "started_at": "2026-10-04T14:34:06.613015+00:00",
+      "ended_at": "2026-10-04T14:34:07.537336+00:00",
+      "cost_upper_usd": 0.0003192,
+      "estimated_cost_usd": 0.00010315199999999999,
+      "usage": {
+        "prompt_tokens": 612,
+        "completion_tokens": 113,
+        "total_tokens": 725
+      },
+      "cache_hit_tokens": 384,
+      "price_band": "off_peak",
+      "provider_call_id": "f058a177-8f59-4da8-810f-21dd914fb4f9",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "4b35966d678b19906c302cfe5d65a2b3397fa9712d0050da6f30fce6de9d113c"
+    },
+    {
+      "sequence": 3,
+      "status": "settled",
+      "started_at": "2026-10-04T14:34:07.539860+00:00",
+      "ended_at": "2026-10-04T14:34:08.987652+00:00",
+      "cost_upper_usd": 0.00035429999999999994,
+      "estimated_cost_usd": 0.00010188599999999999,
+      "usage": {
+        "prompt_tokens": 701,
+        "completion_tokens": 120,
+        "total_tokens": 821
+      },
+      "cache_hit_tokens": 512,
+      "price_band": "off_peak",
+      "provider_call_id": "7495da61-c3eb-4248-801e-d2be8a63c7c0",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "9e97ebfe2b1a4da83a8a0443790395a2a384056cf22ec3d6885a6a1359afba62"
+    },
+    {
+      "sequence": 4,
+      "status": "settled",
+      "started_at": "2026-10-04T14:34:08.990480+00:00",
+      "ended_at": "2026-10-04T14:34:10.555791+00:00",
+      "cost_upper_usd": 0.000366,
+      "estimated_cost_usd": 0.000107736,
+      "usage": {
+        "prompt_tokens": 692,
+        "completion_tokens": 132,
+        "total_tokens": 824
+      },
+      "cache_hit_tokens": 512,
+      "price_band": "off_peak",
+      "provider_call_id": "8a522a4b-e682-41ae-8475-3d4cbea44da6",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "33f7c88af83dcf410f943e0701c5b943e0f164560fb70732d7b54fdf5dc292d2"
+    },
+    {
+      "sequence": 5,
+      "status": "settled",
+      "started_at": "2026-10-04T14:34:10.558980+00:00",
+      "ended_at": "2026-10-04T14:34:13.030978+00:00",
+      "cost_upper_usd": 0.0007119,
+      "estimated_cost_usd": 0.000280686,
+      "usage": {
+        "prompt_tokens": 701,
+        "completion_tokens": 418,
+        "total_tokens": 1119
+      },
+      "cache_hit_tokens": 512,
+      "price_band": "off_peak",
+      "provider_call_id": "26a2d31a-4b19-482e-987e-33b478ddad57",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "9595e41b877cc7e3dffdf73fd28bcb964245204908497fa28ce17656798cbd37"
+    },
+    {
+      "sequence": 6,
+      "status": "settled",
+      "started_at": "2026-10-04T14:34:13.033717+00:00",
+      "ended_at": "2026-10-04T14:34:15.360683+00:00",
+      "cost_upper_usd": 0.0007323,
+      "estimated_cost_usd": 0.00029088599999999997,
+      "usage": {
+        "prompt_tokens": 705,
+        "completion_tokens": 434,
+        "total_tokens": 1139
+      },
+      "cache_hit_tokens": 512,
+      "price_band": "off_peak",
+      "provider_call_id": "8ec496d6-0748-4dc8-962d-36c3d4a9ca20",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "78ef95d7af61bb4dd3ab971c688dbff08796880fc3a8162230833423e0d14505"
+    },
+    {
+      "sequence": 7,
+      "status": "settled",
+      "started_at": "2026-10-04T14:34:15.363276+00:00",
+      "ended_at": "2026-10-04T14:34:17.321469+00:00",
+      "cost_upper_usd": 0.0005925,
+      "estimated_cost_usd": 0.000220986,
+      "usage": {
+        "prompt_tokens": 715,
+        "completion_tokens": 315,
+        "total_tokens": 1030
+      },
+      "cache_hit_tokens": 512,
+      "price_band": "off_peak",
+      "provider_call_id": "06d962fa-6c46-4d55-a9fb-8ac5a028e6f0",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "957d5b952a7ba4e53e9e04500df6a3ab534962b8b6f55abd19daac398a39d0d7"
+    },
+    {
+      "sequence": 8,
+      "status": "settled",
+      "started_at": "2026-10-04T14:34:17.324333+00:00",
+      "ended_at": "2026-10-04T14:34:18.335312+00:00",
+      "cost_upper_usd": 0.00034109999999999994,
+      "estimated_cost_usd": 9.528599999999998e-05,
+      "usage": {
+        "prompt_tokens": 701,
+        "completion_tokens": 109,
+        "total_tokens": 810
+      },
+      "cache_hit_tokens": 512,
+      "price_band": "off_peak",
+      "provider_call_id": "4b0a99d5-e8d7-4f62-8d7a-8240cdf84281",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "37d7bf7088eb3cdf8d7dfdb651c9804ee811309cd6f4e301e7df8cb6057d0c55"
+    },
+    {
+      "sequence": 9,
+      "status": "settled",
+      "started_at": "2026-10-04T14:34:18.337781+00:00",
+      "ended_at": "2026-10-04T14:34:19.341902+00:00",
+      "cost_upper_usd": 0.00030839999999999996,
+      "estimated_cost_usd": 7.8936e-05,
+      "usage": {
+        "prompt_tokens": 704,
+        "completion_tokens": 81,
+        "total_tokens": 785
+      },
+      "cache_hit_tokens": 512,
+      "price_band": "off_peak",
+      "provider_call_id": "f45c6ecd-5df4-45ea-89a1-1b65aea094ce",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "83cfa606b7d58f6215c3b9dde6b4741a9868a15a8754c6e81e26a792849359a4"
+    },
+    {
+      "sequence": 10,
+      "status": "settled",
+      "started_at": "2026-10-04T14:34:19.345039+00:00",
+      "ended_at": "2026-10-04T14:34:20.030104+00:00",
+      "cost_upper_usd": 0.0003207,
+      "estimated_cost_usd": 0.00016035,
+      "usage": {
+        "prompt_tokens": 697,
+        "completion_tokens": 93,
+        "total_tokens": 790
+      },
+      "cache_hit_tokens": 0,
+      "price_band": "off_peak",
+      "provider_call_id": "d27ea6e1-5897-4940-989a-7023b76a7d75",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "40175c2d626da392c1fe63d8ee49843ecd7dfeb92b7a40f2b0096f93c231a03f"
+    },
+    {
+      "sequence": 11,
+      "status": "settled",
+      "started_at": "2026-10-04T14:34:20.034188+00:00",
+      "ended_at": "2026-10-04T14:34:20.994453+00:00",
+      "cost_upper_usd": 0.0003396,
+      "estimated_cost_usd": 9.4536e-05,
+      "usage": {
+        "prompt_tokens": 700,
+        "completion_tokens": 108,
+        "total_tokens": 808
+      },
+      "cache_hit_tokens": 512,
+      "price_band": "off_peak",
+      "provider_call_id": "f0db82e3-81ac-4d08-8a9e-e12916c5f348",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "ed9730a9f04f65bf88bfdc640f2beef456f2e4152c19eba1d96858ea0feccae4"
+    },
+    {
+      "sequence": 12,
+      "status": "settled",
+      "started_at": "2026-10-04T14:34:20.996851+00:00",
+      "ended_at": "2026-10-04T14:34:21.710377+00:00",
+      "cost_upper_usd": 0.00030659999999999997,
+      "estimated_cost_usd": 0.00015329999999999999,
+      "usage": {
+        "prompt_tokens": 706,
+        "completion_tokens": 79,
+        "total_tokens": 785
+      },
+      "cache_hit_tokens": 0,
+      "price_band": "off_peak",
+      "provider_call_id": "5a219fde-87bc-47af-9d4f-08dd9732b707",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "e6712b0649566e9ba6c1378dfb043dd030f04348b30d6cb34e0a8253ccbcf5bc"
+    },
+    {
+      "sequence": 13,
+      "status": "settled",
+      "started_at": "2026-10-04T14:34:21.713128+00:00",
+      "ended_at": "2026-10-04T14:34:22.642109+00:00",
+      "cost_upper_usd": 0.00031529999999999997,
+      "estimated_cost_usd": 8.2386e-05,
+      "usage": {
+        "prompt_tokens": 699,
+        "completion_tokens": 88,
+        "total_tokens": 787
+      },
+      "cache_hit_tokens": 512,
+      "price_band": "off_peak",
+      "provider_call_id": "cadeada7-a978-457e-8b14-1886f130df07",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "81a49915ea04465b4b9b06dff97b1dd8dcef7177153ec8a4b7c6865789b007d2"
+    },
+    {
+      "sequence": 14,
+      "status": "settled",
+      "started_at": "2026-10-04T14:34:22.644776+00:00",
+      "ended_at": "2026-10-04T14:34:23.552278+00:00",
+      "cost_upper_usd": 0.0003498,
+      "estimated_cost_usd": 9.963599999999999e-05,
+      "usage": {
+        "prompt_tokens": 698,
+        "completion_tokens": 117,
+        "total_tokens": 815
+      },
+      "cache_hit_tokens": 512,
+      "price_band": "off_peak",
+      "provider_call_id": "098aa0d7-2cfd-4592-8cf0-9029744bdbc6",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "20a02d9ae30bf89318306cef0172c4da99fe2ffd1e72eb10107ec5a0a5727b5d"
+    },
+    {
+      "sequence": 15,
+      "status": "settled",
+      "started_at": "2026-10-04T14:34:23.554990+00:00",
+      "ended_at": "2026-10-04T14:34:24.576157+00:00",
+      "cost_upper_usd": 0.0003789,
+      "estimated_cost_usd": 9.536999999999999e-05,
+      "usage": {
+        "prompt_tokens": 799,
+        "completion_tokens": 116,
+        "total_tokens": 915
+      },
+      "cache_hit_tokens": 640,
+      "price_band": "off_peak",
+      "provider_call_id": "f9a9ad05-e702-4a7d-bb3d-dd305908aec7",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "535fd9b314f7029d0c80fa9755ea6c62946c8bfcdc9756dab01eab73c9ddd2ac"
+    },
+    {
+      "sequence": 16,
+      "status": "settled",
+      "started_at": "2026-10-04T14:34:24.578579+00:00",
+      "ended_at": "2026-10-04T14:34:25.884403+00:00",
+      "cost_upper_usd": 0.0003966,
+      "estimated_cost_usd": 0.0001983,
+      "usage": {
+        "prompt_tokens": 766,
+        "completion_tokens": 139,
+        "total_tokens": 905
+      },
+      "cache_hit_tokens": 0,
+      "price_band": "off_peak",
+      "provider_call_id": "0fb4183d-853a-43aa-842f-b8a0d378fffc",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "cac2c33e2fadeedb086e08b20807d2663182b10fd4de387cd99deeda64ad2957"
+    },
+    {
+      "sequence": 17,
+      "status": "settled",
+      "started_at": "2026-10-04T14:34:25.887128+00:00",
+      "ended_at": "2026-10-04T14:34:27.065378+00:00",
+      "cost_upper_usd": 0.00036869999999999996,
+      "estimated_cost_usd": 9.027000000000001e-05,
+      "usage": {
+        "prompt_tokens": 781,
+        "completion_tokens": 112,
+        "total_tokens": 893
+      },
+      "cache_hit_tokens": 640,
+      "price_band": "off_peak",
+      "provider_call_id": "5dbc5a02-4040-46e8-af83-90b29cfd68d6",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "462429963a6060a8298fb1750de0ed9a4a286ba6cdcfec856d66c8caf4ca5f92"
+    },
+    {
+      "sequence": 18,
+      "status": "settled",
+      "started_at": "2026-10-04T14:34:27.071933+00:00",
+      "ended_at": "2026-10-04T14:34:28.337669+00:00",
+      "cost_upper_usd": 0.00038579999999999995,
+      "estimated_cost_usd": 9.881999999999999e-05,
+      "usage": {
+        "prompt_tokens": 778,
+        "completion_tokens": 127,
+        "total_tokens": 905
+      },
+      "cache_hit_tokens": 640,
+      "price_band": "off_peak",
+      "provider_call_id": "367386d4-42fa-41e3-96cc-af737b6969c2",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "59381bb63c5e6e8b375e273ed524cfb0853637459eaf57d6bd6ff9285977893d"
+    },
+    {
+      "sequence": 19,
+      "status": "settled",
+      "started_at": "2026-10-04T14:34:28.340789+00:00",
+      "ended_at": "2026-10-04T14:34:29.281814+00:00",
+      "cost_upper_usd": 0.0003792,
+      "estimated_cost_usd": 9.552000000000001e-05,
+      "usage": {
+        "prompt_tokens": 776,
+        "completion_tokens": 122,
+        "total_tokens": 898
+      },
+      "cache_hit_tokens": 640,
+      "price_band": "off_peak",
+      "provider_call_id": "64efdc16-cb1a-4465-b2bf-0a1b3ce2218f",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "2b36302bd24be98633ad24b7d062d324df9254404d0240488bebc35ade6d465d"
+    },
+    {
+      "sequence": 20,
+      "status": "settled",
+      "started_at": "2026-10-04T14:34:29.285172+00:00",
+      "ended_at": "2026-10-04T14:34:30.951935+00:00",
+      "cost_upper_usd": 0.000522,
+      "estimated_cost_usd": 0.00018573599999999998,
+      "usage": {
+        "prompt_tokens": 704,
+        "completion_tokens": 259,
+        "total_tokens": 963
+      },
+      "cache_hit_tokens": 512,
+      "price_band": "off_peak",
+      "provider_call_id": "b7d34d2e-8eae-4938-843a-52f5102b9500",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "be723ee35e8e46145e503cbf90ed56f0e40105e7263f8d95f75c97d839cfaa5e"
+    },
+    {
+      "sequence": 21,
+      "status": "settled",
+      "started_at": "2026-10-04T14:34:30.956008+00:00",
+      "ended_at": "2026-10-04T14:34:33.068775+00:00",
+      "cost_upper_usd": 0.0006483,
+      "estimated_cost_usd": 0.00032415,
+      "usage": {
+        "prompt_tokens": 705,
+        "completion_tokens": 364,
+        "total_tokens": 1069
+      },
+      "cache_hit_tokens": 0,
+      "price_band": "off_peak",
+      "provider_call_id": "df4edbe5-003c-4a6d-9a4b-898755fb7835",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "550a790c3aa2d53cc47c6e3ffc9171cd2bd1fb3b2207df14f4b809f435315271"
+    },
+    {
+      "sequence": 22,
+      "status": "settled",
+      "started_at": "2026-10-04T14:34:33.072495+00:00",
+      "ended_at": "2026-10-04T14:34:35.225068+00:00",
+      "cost_upper_usd": 0.0005681999999999999,
+      "estimated_cost_usd": 0.00020883599999999998,
+      "usage": {
+        "prompt_tokens": 702,
+        "completion_tokens": 298,
+        "total_tokens": 1000
+      },
+      "cache_hit_tokens": 512,
+      "price_band": "off_peak",
+      "provider_call_id": "725cd6a4-6818-43b9-8393-e3b913629f7a",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "849de5e803edb964c89f642501d5ab3f19e061e1470987edb990c856d187e109"
+    },
+    {
+      "sequence": 23,
+      "status": "settled",
+      "started_at": "2026-10-04T14:34:35.227467+00:00",
+      "ended_at": "2026-10-04T14:34:36.098801+00:00",
+      "cost_upper_usd": 0.0002703,
+      "estimated_cost_usd": 7.870199999999999e-05,
+      "usage": {
+        "prompt_tokens": 617,
+        "completion_tokens": 71,
+        "total_tokens": 688
+      },
+      "cache_hit_tokens": 384,
+      "price_band": "off_peak",
+      "provider_call_id": "2547621d-df1f-441a-9b2b-506b4b6599a3",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "d1b94bd24b5f5450a13e1150542eaffb85a66e7cd5477fdfdc6f20ec656e2fb1"
+    },
+    {
+      "sequence": 24,
+      "status": "settled",
+      "started_at": "2026-10-04T14:34:36.103413+00:00",
+      "ended_at": "2026-10-04T14:34:36.966861+00:00",
+      "cost_upper_usd": 0.00030389999999999996,
+      "estimated_cost_usd": 7.6686e-05,
+      "usage": {
+        "prompt_tokens": 693,
+        "completion_tokens": 80,
+        "total_tokens": 773
+      },
+      "cache_hit_tokens": 512,
+      "price_band": "off_peak",
+      "provider_call_id": "6853cfde-ee7f-46da-ae4f-126ae338d5d3",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "0c0eeb8ad24040795c6fbb4c7892ac29b690405927417253a939c6eb64c8fe33"
+    },
+    {
+      "sequence": 25,
+      "status": "settled",
+      "started_at": "2026-10-04T14:34:36.969804+00:00",
+      "ended_at": "2026-10-04T14:34:38.612640+00:00",
+      "cost_upper_usd": 0.0002943,
+      "estimated_cost_usd": 0.00014715,
+      "usage": {
+        "prompt_tokens": 617,
+        "completion_tokens": 91,
+        "total_tokens": 708
+      },
+      "cache_hit_tokens": 0,
+      "price_band": "off_peak",
+      "provider_call_id": "5d01e235-1b86-4f24-890c-dfe525a5e482",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "98c1bfbf3bde3190b06beeafcf2b5737e7e8bb0525ae4fe34b28c556de3220e8"
+    },
+    {
+      "sequence": 26,
+      "status": "settled",
+      "started_at": "2026-10-04T14:34:38.615603+00:00",
+      "ended_at": "2026-10-04T14:34:39.559187+00:00",
+      "cost_upper_usd": 0.0002928,
+      "estimated_cost_usd": 8.9952e-05,
+      "usage": {
+        "prompt_tokens": 608,
+        "completion_tokens": 92,
+        "total_tokens": 700
+      },
+      "cache_hit_tokens": 384,
+      "price_band": "off_peak",
+      "provider_call_id": "384739c7-87a8-48ff-8d59-20ce7dde5bf8",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "e91e8c3efd67044da9159297ecae8c55e253f53ac8ac9d43eb261a29c3f80af8"
+    },
+    {
+      "sequence": 27,
+      "status": "settled",
+      "started_at": "2026-10-04T14:34:39.564590+00:00",
+      "ended_at": "2026-10-04T14:34:40.662091+00:00",
+      "cost_upper_usd": 0.0002676,
+      "estimated_cost_usd": 7.7352e-05,
+      "usage": {
+        "prompt_tokens": 608,
+        "completion_tokens": 71,
+        "total_tokens": 679
+      },
+      "cache_hit_tokens": 384,
+      "price_band": "off_peak",
+      "provider_call_id": "e3b8c2d3-f4cf-4f6b-bc4f-081611eb7316",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "27f9fcdeb6d9addf4dd04bf6bfab07ebdf655b532a644bb565467fe8e64185e4"
+    },
+    {
+      "sequence": 28,
+      "status": "settled",
+      "started_at": "2026-10-04T14:34:40.664730+00:00",
+      "ended_at": "2026-10-04T14:34:42.038494+00:00",
+      "cost_upper_usd": 0.00030929999999999993,
+      "estimated_cost_usd": 9.820199999999999e-05,
+      "usage": {
+        "prompt_tokens": 607,
+        "completion_tokens": 106,
+        "total_tokens": 713
+      },
+      "cache_hit_tokens": 384,
+      "price_band": "off_peak",
+      "provider_call_id": "112ff16d-9e93-4219-9b20-fa99b5acf9cc",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "2af9f2746828c688b6e41e01c248dd89afa4f2ef31bc0608b14fd0506657aa18"
+    },
+    {
+      "sequence": 29,
+      "status": "settled",
+      "started_at": "2026-10-04T14:34:42.041756+00:00",
+      "ended_at": "2026-10-04T14:34:43.025779+00:00",
+      "cost_upper_usd": 0.0002673,
+      "estimated_cost_usd": 7.7202e-05,
+      "usage": {
+        "prompt_tokens": 615,
+        "completion_tokens": 69,
+        "total_tokens": 684
+      },
+      "cache_hit_tokens": 384,
+      "price_band": "off_peak",
+      "provider_call_id": "1f2d3127-a38c-42a9-ad6a-4fb0c61cde75",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "081a19119a89c2f83b8b561fd2b5016910dae08a7c3e04dc34d391962e3b8e07"
+    },
+    {
+      "sequence": 30,
+      "status": "settled",
+      "started_at": "2026-10-04T14:34:43.028543+00:00",
+      "ended_at": "2026-10-04T14:34:45.141012+00:00",
+      "cost_upper_usd": 0.0004998,
+      "estimated_cost_usd": 0.00017463599999999999,
+      "usage": {
+        "prompt_tokens": 710,
+        "completion_tokens": 239,
+        "total_tokens": 949
+      },
+      "cache_hit_tokens": 512,
+      "price_band": "off_peak",
+      "provider_call_id": "fa231e98-0ea8-4dfc-bb6e-ba074cea4eb5",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "b6106c986395e3e9686605219bec00df6a04fa6d08f65e1ef065530b3b5bf019"
+    },
+    {
+      "sequence": 31,
+      "status": "settled",
+      "started_at": "2026-10-04T14:34:45.150927+00:00",
+      "ended_at": "2026-10-04T14:34:46.057541+00:00",
+      "cost_upper_usd": 0.0003456,
+      "estimated_cost_usd": 7.872e-05,
+      "usage": {
+        "prompt_tokens": 852,
+        "completion_tokens": 75,
+        "total_tokens": 927
+      },
+      "cache_hit_tokens": 640,
+      "price_band": "off_peak",
+      "provider_call_id": "3b5043d3-65f7-4709-8ee0-245deec30cbb",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "95483c95047f69cb9423a053678e404c28bf0ecc265186828607fe0899b78fe8"
+    },
+    {
+      "sequence": 32,
+      "status": "settled",
+      "started_at": "2026-10-04T14:34:46.059964+00:00",
+      "ended_at": "2026-10-04T14:34:46.964539+00:00",
+      "cost_upper_usd": 0.00035909999999999995,
+      "estimated_cost_usd": 8.561699999999999e-05,
+      "usage": {
+        "prompt_tokens": 773,
+        "completion_tokens": 106,
+        "total_tokens": 879
+      },
+      "cache_hit_tokens": 639,
+      "price_band": "off_peak",
+      "provider_call_id": "1210ae3f-c862-4916-ab60-f23efdbebbf4",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "3390bfb35816b4ce1199a896dde936c5cfbf1794b39495607ca3083851e94c67"
+    },
+    {
+      "sequence": 33,
+      "status": "settled",
+      "started_at": "2026-10-04T14:34:46.968636+00:00",
+      "ended_at": "2026-10-04T14:34:48.417893+00:00",
+      "cost_upper_usd": 0.0004886999999999999,
+      "estimated_cost_usd": 0.000169086,
+      "usage": {
+        "prompt_tokens": 701,
+        "completion_tokens": 232,
+        "total_tokens": 933
+      },
+      "cache_hit_tokens": 512,
+      "price_band": "off_peak",
+      "provider_call_id": "15b2a649-d403-47e9-b063-f3ea75440f50",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "22a09eaad7ffe88776cc6042c805ab1db733ac76f95fc64820d0801b0c3b7825"
+    },
+    {
+      "sequence": 34,
+      "status": "settled",
+      "started_at": "2026-10-04T14:34:48.422122+00:00",
+      "ended_at": "2026-10-04T14:34:49.727061+00:00",
+      "cost_upper_usd": 0.0002805,
+      "estimated_cost_usd": 0.00014025,
+      "usage": {
+        "prompt_tokens": 623,
+        "completion_tokens": 78,
+        "total_tokens": 701
+      },
+      "cache_hit_tokens": 0,
+      "price_band": "off_peak",
+      "provider_call_id": "d5d06fff-d52c-49e2-af0e-03770790306a",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "f84a01bd4b33b4461f0a112bd799682662c287c2e5d0b2bf561aece13d57ba59"
+    },
+    {
+      "sequence": 35,
+      "status": "settled",
+      "started_at": "2026-10-04T14:38:10.411396+00:00",
+      "ended_at": "2026-10-04T14:38:11.997465+00:00",
+      "cost_upper_usd": 0.00039539999999999996,
+      "estimated_cost_usd": 0.00019769999999999998,
+      "usage": {
+        "prompt_tokens": 782,
+        "completion_tokens": 134,
+        "total_tokens": 916
+      },
+      "cache_hit_tokens": 0,
+      "price_band": "off_peak",
+      "provider_call_id": "84279793-2b4b-4795-84f1-77d852424f96",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "30d54f26bf96b22b66e6ebdc10c4b761ca15282f193cdaf0c30d220a42b28834"
+    },
+    {
+      "sequence": 36,
+      "status": "settled",
+      "started_at": "2026-10-04T14:38:12.001386+00:00",
+      "ended_at": "2026-10-04T14:38:13.794652+00:00",
+      "cost_upper_usd": 0.0005510999999999999,
+      "estimated_cost_usd": 0.00027554999999999995,
+      "usage": {
+        "prompt_tokens": 709,
+        "completion_tokens": 282,
+        "total_tokens": 991
+      },
+      "cache_hit_tokens": 0,
+      "price_band": "off_peak",
+      "provider_call_id": "0aabf8a1-3e09-4d2c-b36c-9f65f14a4597",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "8532d21bc1517690484fcaea327452fac75ed1ee7d2b703451bc28b78134802e"
+    },
+    {
+      "sequence": 37,
+      "status": "settled",
+      "started_at": "2026-10-04T14:38:13.797381+00:00",
+      "ended_at": "2026-10-04T14:38:16.287184+00:00",
+      "cost_upper_usd": 0.00063,
+      "estimated_cost_usd": 0.000315,
+      "usage": {
+        "prompt_tokens": 612,
+        "completion_tokens": 372,
+        "total_tokens": 984
+      },
+      "cache_hit_tokens": 0,
+      "price_band": "off_peak",
+      "provider_call_id": "141f5826-a3de-4b2d-8526-b4de05fd0811",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "5a985e87f979974cc1a081c2152e7ad894061538b0165c33771cee41c5dc91cd"
+    },
+    {
+      "sequence": 38,
+      "status": "settled",
+      "started_at": "2026-10-04T14:38:16.290537+00:00",
+      "ended_at": "2026-10-04T14:38:17.441888+00:00",
+      "cost_upper_usd": 0.000285,
+      "estimated_cost_usd": 0.0001425,
+      "usage": {
+        "prompt_tokens": 610,
+        "completion_tokens": 85,
+        "total_tokens": 695
+      },
+      "cache_hit_tokens": 0,
+      "price_band": "off_peak",
+      "provider_call_id": "8312be38-043a-4e4e-8d72-e947ca5555bd",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "d9dab4d42e667c2470ae81c319aca773026d02569c1adda100c6eabcf0168cbf"
+    },
+    {
+      "sequence": 39,
+      "status": "settled",
+      "started_at": "2026-10-04T14:38:17.445385+00:00",
+      "ended_at": "2026-10-04T14:38:19.227646+00:00",
+      "cost_upper_usd": 0.0004455,
+      "estimated_cost_usd": 0.00022275,
+      "usage": {
+        "prompt_tokens": 701,
+        "completion_tokens": 196,
+        "total_tokens": 897
+      },
+      "cache_hit_tokens": 0,
+      "price_band": "off_peak",
+      "provider_call_id": "6de126f1-0ee8-4937-9cae-b0f45a066196",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "7d49e001d5d575da1e8ad84fd2817ca0b4ff204fbed172c1ae9c9bee12dcd57b"
+    },
+    {
+      "sequence": 40,
+      "status": "settled",
+      "started_at": "2026-10-04T14:38:19.231459+00:00",
+      "ended_at": "2026-10-04T14:38:20.481722+00:00",
+      "cost_upper_usd": 0.0004128,
+      "estimated_cost_usd": 0.0002064,
+      "usage": {
+        "prompt_tokens": 1040,
+        "completion_tokens": 84,
+        "total_tokens": 1124
+      },
+      "cache_hit_tokens": 0,
+      "price_band": "off_peak",
+      "provider_call_id": "6ca5e608-9cd3-4146-b4c3-88fe4462bb09",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "e5e21c83e02ef04c309db1ea6f8a4a0b5b94ddadaa75f9e9323520aa18577724"
+    },
+    {
+      "sequence": 41,
+      "status": "settled",
+      "started_at": "2026-10-04T14:38:20.484512+00:00",
+      "ended_at": "2026-10-04T14:38:21.298913+00:00",
+      "cost_upper_usd": 0.0003027,
+      "estimated_cost_usd": 0.00015135,
+      "usage": {
+        "prompt_tokens": 701,
+        "completion_tokens": 77,
+        "total_tokens": 778
+      },
+      "cache_hit_tokens": 0,
+      "price_band": "off_peak",
+      "provider_call_id": "feeb5608-c2ef-4530-8056-941966260617",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "e964c6da4a8f4875314ae5fe7b8ac0e6a5804ab741e14d1956099cc300b21811"
+    },
+    {
+      "sequence": 42,
+      "status": "settled",
+      "started_at": "2026-10-04T14:38:21.301902+00:00",
+      "ended_at": "2026-10-04T14:38:21.930795+00:00",
+      "cost_upper_usd": 0.000303,
+      "estimated_cost_usd": 0.0001515,
+      "usage": {
+        "prompt_tokens": 698,
+        "completion_tokens": 78,
+        "total_tokens": 776
+      },
+      "cache_hit_tokens": 0,
+      "price_band": "off_peak",
+      "provider_call_id": "9b01240a-c9fe-41df-b564-624eb5542632",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "7ede604c6a3e45e7b079bb36b9f2fcb3d38e1915844a6e99e9f209102008a45d"
+    },
+    {
+      "sequence": 43,
+      "status": "settled",
+      "started_at": "2026-10-04T14:38:21.935154+00:00",
+      "ended_at": "2026-10-04T14:38:23.103498+00:00",
+      "cost_upper_usd": 0.0004287,
+      "estimated_cost_usd": 0.00021435,
+      "usage": {
+        "prompt_tokens": 797,
+        "completion_tokens": 158,
+        "total_tokens": 955
+      },
+      "cache_hit_tokens": 0,
+      "price_band": "off_peak",
+      "provider_call_id": "4111cf17-0556-4f99-aa1b-99b2660d474b",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "ff688a27ca5eebeb1c19c53cf7e91cb5f84280a32e7bbebac11142ead4410243"
+    },
+    {
+      "sequence": 44,
+      "status": "settled",
+      "started_at": "2026-10-04T14:38:23.106451+00:00",
+      "ended_at": "2026-10-04T14:38:24.752064+00:00",
+      "cost_upper_usd": 0.0005436,
+      "estimated_cost_usd": 0.0002718,
+      "usage": {
+        "prompt_tokens": 696,
+        "completion_tokens": 279,
+        "total_tokens": 975
+      },
+      "cache_hit_tokens": 0,
+      "price_band": "off_peak",
+      "provider_call_id": "26d008c3-85b5-44bd-b12c-b22b049009ba",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "e7193aec3e7f6cae6a9c1c93104db5a2d757d2418c8c97bc7069da41795f8558"
+    },
+    {
+      "sequence": 45,
+      "status": "settled",
+      "started_at": "2026-10-04T14:38:24.755187+00:00",
+      "ended_at": "2026-10-04T14:38:25.823799+00:00",
+      "cost_upper_usd": 0.0003315,
+      "estimated_cost_usd": 0.00016575,
+      "usage": {
+        "prompt_tokens": 721,
+        "completion_tokens": 96,
+        "total_tokens": 817
+      },
+      "cache_hit_tokens": 0,
+      "price_band": "off_peak",
+      "provider_call_id": "3481e39d-6882-4bda-b9d9-0c217baf3990",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "01d528dc696a2252d3d87ded9fe552b5c986ec7d9c659a112c68e8107b615556"
+    },
+    {
+      "sequence": 46,
+      "status": "settled",
+      "started_at": "2026-10-04T14:38:25.827011+00:00",
+      "ended_at": "2026-10-04T14:38:26.956973+00:00",
+      "cost_upper_usd": 0.00030629999999999996,
+      "estimated_cost_usd": 0.00015314999999999998,
+      "usage": {
+        "prompt_tokens": 621,
+        "completion_tokens": 100,
+        "total_tokens": 721
+      },
+      "cache_hit_tokens": 0,
+      "price_band": "off_peak",
+      "provider_call_id": "4ba728c9-0103-44f2-b1f5-dd53228490e5",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "90426e5edfa3edb3d6a08c8b333702a6ac16cecba4cdc9fd28ae39684b2e10e1"
+    },
+    {
+      "sequence": 47,
+      "status": "settled",
+      "started_at": "2026-10-04T14:41:04.554793+00:00",
+      "ended_at": "2026-10-04T14:41:12.723314+00:00",
+      "cost_upper_usd": 0.0052388999999999995,
+      "estimated_cost_usd": 0.0026194499999999997,
+      "usage": {
+        "prompt_tokens": 11883,
+        "completion_tokens": 1395,
+        "total_tokens": 13278
+      },
+      "cache_hit_tokens": 0,
+      "price_band": "off_peak",
+      "provider_call_id": "e909e9a5-82f1-4015-849c-28b15a19c891",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "56dfb1e2dcb73b4a45ff81138f9b0f413115adc5a960535f46884b5962c457b6"
+    },
+    {
+      "sequence": 48,
+      "status": "settled",
+      "started_at": "2026-10-04T14:41:26.600734+00:00",
+      "ended_at": "2026-10-04T14:41:36.567965+00:00",
+      "cost_upper_usd": 0.0057633,
+      "estimated_cost_usd": 0.001169394,
+      "usage": {
+        "prompt_tokens": 11883,
+        "completion_tokens": 1832,
+        "total_tokens": 13715
+      },
+      "cache_hit_tokens": 11648,
+      "price_band": "off_peak",
+      "provider_call_id": "02ca7511-0188-4cca-8c57-f60ff60b9c7d",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "56dfb1e2dcb73b4a45ff81138f9b0f413115adc5a960535f46884b5962c457b6"
+    },
+    {
+      "sequence": 49,
+      "status": "settled",
+      "started_at": "2026-10-04T14:41:37.718783+00:00",
+      "ended_at": "2026-10-04T14:42:02.285652+00:00",
+      "cost_upper_usd": 0.0091041,
+      "estimated_cost_usd": 0.002839794,
+      "usage": {
+        "prompt_tokens": 11883,
+        "completion_tokens": 4616,
+        "total_tokens": 16499
+      },
+      "cache_hit_tokens": 11648,
+      "price_band": "off_peak",
+      "provider_call_id": "708225e0-602a-49df-b507-4122abf78e3e",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "56dfb1e2dcb73b4a45ff81138f9b0f413115adc5a960535f46884b5962c457b6"
+    },
+    {
+      "sequence": 50,
+      "status": "settled",
+      "started_at": "2026-10-04T14:42:18.218801+00:00",
+      "ended_at": "2026-10-04T14:42:26.416453+00:00",
+      "cost_upper_usd": 0.005477699999999999,
+      "estimated_cost_usd": 0.001026594,
+      "usage": {
+        "prompt_tokens": 11883,
+        "completion_tokens": 1594,
+        "total_tokens": 13477
+      },
+      "cache_hit_tokens": 11648,
+      "price_band": "off_peak",
+      "provider_call_id": "b73ec097-a9f7-41e9-b8a8-57b25115be8c",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "56dfb1e2dcb73b4a45ff81138f9b0f413115adc5a960535f46884b5962c457b6"
+    },
+    {
+      "sequence": 51,
+      "status": "settled",
+      "started_at": "2026-10-04T14:42:28.972649+00:00",
+      "ended_at": "2026-10-04T14:42:41.983321+00:00",
+      "cost_upper_usd": 0.0062816999999999994,
+      "estimated_cost_usd": 0.0014285939999999998,
+      "usage": {
+        "prompt_tokens": 11883,
+        "completion_tokens": 2264,
+        "total_tokens": 14147
+      },
+      "cache_hit_tokens": 11648,
+      "price_band": "off_peak",
+      "provider_call_id": "62f12662-50cc-4bb7-9744-491fda17ad3b",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "56dfb1e2dcb73b4a45ff81138f9b0f413115adc5a960535f46884b5962c457b6"
+    },
+    {
+      "sequence": 52,
+      "status": "settled",
+      "started_at": "2026-10-04T14:43:55.192601+00:00",
+      "ended_at": "2026-10-04T14:44:04.041517+00:00",
+      "cost_upper_usd": 0.005466899999999999,
+      "estimated_cost_usd": 0.001021194,
+      "usage": {
+        "prompt_tokens": 11883,
+        "completion_tokens": 1585,
+        "total_tokens": 13468
+      },
+      "cache_hit_tokens": 11648,
+      "price_band": "off_peak",
+      "provider_call_id": "9754e2b1-d70b-45c9-910d-2d7b17eca7e2",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "56dfb1e2dcb73b4a45ff81138f9b0f413115adc5a960535f46884b5962c457b6"
+    },
+    {
+      "sequence": 53,
+      "status": "settled",
+      "started_at": "2026-10-04T14:45:27.746530+00:00",
+      "ended_at": "2026-10-04T14:45:52.545305+00:00",
+      "cost_upper_usd": 0.008767200000000001,
+      "estimated_cost_usd": 0.004233072,
+      "usage": {
+        "prompt_tokens": 12564,
+        "completion_tokens": 4165,
+        "total_tokens": 16729
+      },
+      "cache_hit_tokens": 1024,
+      "price_band": "off_peak",
+      "provider_call_id": "4a5494a1-1de8-4c96-beba-23524df4df02",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "33ab587b9c3166d7c8de0c2ca3a2a70105cc0ff806bfeeb480192f2a40c1560e"
+    },
+    {
+      "sequence": 54,
+      "status": "settled",
+      "started_at": "2026-10-04T14:46:04.880737+00:00",
+      "ended_at": "2026-10-04T14:46:24.715499+00:00",
+      "cost_upper_usd": 0.008064,
+      "estimated_cost_usd": 0.002206848,
+      "usage": {
+        "prompt_tokens": 12564,
+        "completion_tokens": 3579,
+        "total_tokens": 16143
+      },
+      "cache_hit_tokens": 12416,
+      "price_band": "off_peak",
+      "provider_call_id": "cdc3d509-e5aa-4b82-b9e8-1a9e58e3f487",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "33ab587b9c3166d7c8de0c2ca3a2a70105cc0ff806bfeeb480192f2a40c1560e"
+    },
+    {
+      "sequence": 55,
+      "status": "settled",
+      "started_at": "2026-10-04T14:46:25.877877+00:00",
+      "ended_at": "2026-10-04T14:46:56.557434+00:00",
+      "cost_upper_usd": 0.0109704,
+      "estimated_cost_usd": 0.003660048,
+      "usage": {
+        "prompt_tokens": 12564,
+        "completion_tokens": 6001,
+        "total_tokens": 18565
+      },
+      "cache_hit_tokens": 12416,
+      "price_band": "off_peak",
+      "provider_call_id": "5f1872d9-9f61-41ad-8c43-8302f6cc00ff",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "33ab587b9c3166d7c8de0c2ca3a2a70105cc0ff806bfeeb480192f2a40c1560e"
+    },
+    {
+      "sequence": 56,
+      "status": "settled",
+      "started_at": "2026-10-04T14:52:14.751838+00:00",
+      "ended_at": "2026-10-04T14:52:18.159722+00:00",
+      "cost_upper_usd": 0.0028274999999999997,
+      "estimated_cost_usd": 0.0014137499999999999,
+      "usage": {
+        "prompt_tokens": 7461,
+        "completion_tokens": 491,
+        "total_tokens": 7952
+      },
+      "cache_hit_tokens": 0,
+      "price_band": "off_peak",
+      "provider_call_id": "8a5425af-3f1b-4dc8-92f1-0803ee487a08",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "ffbcbcf9acf9edd0ee5a8f7586a883a15ed312b0cf248df8c620188d7002e8c8"
+    },
+    {
+      "sequence": 57,
+      "status": "settled",
+      "started_at": "2026-10-04T14:55:41.289257+00:00",
+      "ended_at": "2026-10-04T14:55:44.724833+00:00",
+      "cost_upper_usd": 0.0030147,
+      "estimated_cost_usd": 0.00043483799999999995,
+      "usage": {
+        "prompt_tokens": 7461,
+        "completion_tokens": 647,
+        "total_tokens": 8108
+      },
+      "cache_hit_tokens": 7296,
+      "price_band": "off_peak",
+      "provider_call_id": "c484a2b4-2e29-498c-b0c1-1e887e89724c",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "ffbcbcf9acf9edd0ee5a8f7586a883a15ed312b0cf248df8c620188d7002e8c8"
+    },
+    {
+      "sequence": 58,
+      "status": "settled",
+      "started_at": "2026-10-04T14:55:44.738863+00:00",
+      "ended_at": "2026-10-04T14:55:57.548543+00:00",
+      "cost_upper_usd": 0.0055761000000000005,
+      "estimated_cost_usd": 0.002712786,
+      "usage": {
+        "prompt_tokens": 7335,
+        "completion_tokens": 2813,
+        "total_tokens": 10148
+      },
+      "cache_hit_tokens": 512,
+      "price_band": "off_peak",
+      "provider_call_id": "93b7f8aa-75e1-4848-a061-cdf1d60d8a0a",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "0a134a975925e13ff247943093372324b2af1ea253e33cb32fe073fea85d40ce"
+    },
+    {
+      "sequence": 59,
+      "status": "settled",
+      "started_at": "2026-10-04T14:57:53.911123+00:00",
+      "ended_at": "2026-10-04T14:57:58.336143+00:00",
+      "cost_upper_usd": 0.0027213000000000003,
+      "estimated_cost_usd": 0.0013606500000000001,
+      "usage": {
+        "prompt_tokens": 5427,
+        "completion_tokens": 911,
+        "total_tokens": 6338
+      },
+      "cache_hit_tokens": 0,
+      "price_band": "off_peak",
+      "provider_call_id": "5b5d6790-0531-41e8-9e3a-a0eb2e4c9f79",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "d48ef07ef7adda5b98d61db7981b6f9726c824ea779f6b32d587fd397a4d06d6"
+    },
+    {
+      "sequence": 60,
+      "status": "settled",
+      "started_at": "2026-10-04T14:57:58.341881+00:00",
+      "ended_at": "2026-10-04T14:58:05.752340+00:00",
+      "cost_upper_usd": 0.0033993,
+      "estimated_cost_usd": 0.00160557,
+      "usage": {
+        "prompt_tokens": 5511,
+        "completion_tokens": 1455,
+        "total_tokens": 6966
+      },
+      "cache_hit_tokens": 640,
+      "price_band": "off_peak",
+      "provider_call_id": "de971e22-7e85-482a-994e-8774da1b8078",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "3324f8e54e477300a4f54dab9d7423c6e816bb245433b5ef35108afe68d91e0f"
+    },
+    {
+      "sequence": 61,
+      "status": "settled",
+      "started_at": "2026-10-04T14:59:33.167301+00:00",
+      "ended_at": "2026-10-04T14:59:34.526673+00:00",
+      "cost_upper_usd": 0.0012959999999999998,
+      "estimated_cost_usd": 0.0006479999999999999,
+      "usage": {
+        "prompt_tokens": 3848,
+        "completion_tokens": 118,
+        "total_tokens": 3966
+      },
+      "cache_hit_tokens": 0,
+      "price_band": "off_peak",
+      "provider_call_id": "4e97b7f2-3ef6-4f07-9647-f1ff74a40f8d",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "47ef0b54aff0aa759217f1d50ea6ff042486e9cac15de64c6f9603841f400d3a"
+    },
+    {
+      "sequence": 62,
+      "status": "settled",
+      "started_at": "2026-10-04T14:59:34.535867+00:00",
+      "ended_at": "2026-10-04T14:59:40.219234+00:00",
+      "cost_upper_usd": 0.0023712,
+      "estimated_cost_usd": 0.00109152,
+      "usage": {
+        "prompt_tokens": 4088,
+        "completion_tokens": 954,
+        "total_tokens": 5042
+      },
+      "cache_hit_tokens": 640,
+      "price_band": "off_peak",
+      "provider_call_id": "5638c43f-1c75-4815-8527-fd51f11dc224",
+      "model": "deepseek-flash",
+      "finish_reason": "stop",
+      "request_hash": "08320c281e9754df6e69d997f6a12f279b8ebdf0b7c5d023fc48885962245834"
+    }
+  ],
+  "summary": {
+    "metered_calls": 62,
+    "settled_calls": 62,
+    "estimated_cost_usd": 0.036511773,
+    "conservative_upper_usd": 0.1045965,
+    "prior_generation_cost_available": false,
+    "teacher_subscription_cost_available": false
+  }
+}

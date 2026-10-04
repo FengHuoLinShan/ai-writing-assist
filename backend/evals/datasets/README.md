@@ -362,15 +362,104 @@ API contract tests that precede it.
 诚实边界：**no_answer_false_positive_rate 测的是确定性空集合同（词面检索后无证
 据即不答），不是 LLM 拒答质量；LLM 拒答/忠实度属 model-probes 的未来模型层。**
 
-### ask-world-model-probes-v1（模型质量层预备数据）
+### ask-world-model-probes-v1（模型质量诊断）
 
 `baselines/ask-world-model-probes-v1.jsonl` 与 ask-world-v1 同 schema，但**不接
-门禁**、不进 `test_ask_world.py`，也不被 `make eval-ask-world` 消费。它保存词面
+发布门禁**，也不被离线 `make eval-ask-world` 消费。它保存词面
 门无法裁决、必须由模型判断的场景，供未来模型质量层使用：近失拒答（源内有主体词
 但无答案要素且词面会命中，如雾湖鱼市无数量、黎明钟声无日期）、证据不足必须
 no_answer（货船记录无数量、角色知识受限不算正史）、版本冲突必须并列说明而非
 二选一（灰河桥封闭日期、白塔议会档案保管处、灰河桥渡船票价各两版）。7 行
 （3 正例 + 4 负例），自带与 ask-world-v1 相同的 blocklist 自守。
+
+显式付费诊断使用一个已配置模型的隔离作者项目：
+
+```bash
+make eval-ask-world-model NOVEL_ID=<isolated-project-id>
+```
+
+命令通过 `open_project_llm_client()` 使用该项目 owner 当前已验证的连接，并复用生产
+`AskWorldService._generate` 的 Prompt、schema、未知引用修复和 managed step；它不经过检索、
+Evidence 确认、知识审查（`_govern_answer`）、来源回开与建议保存，因此只能诊断生成层，
+不能证明完整问世界入口。报告只保存模型/profile 脱敏 hash、答或拒答、引用 key 与聚合指标，
+不保存 API Key 或模型生成正文。需要人工复核输出时加 `LEDGER=<路径>`，把每个 case 的
+模型输出逐行写入该 JSONL；探针证据是合成的，账本可随任务证据提交，非合成数据集则放仓库外私有目录。
+
+确定性指标（answerability、no-answer、citation precision/recall、冲突来源覆盖、
+`deterministic_pass_rate`）只描述“答没答、引了哪些来源”，是来源集合指标，**不是主张忠实度**：
+正确 key 配错误数量、交换引用、answer 偷加事实都能通过它。冲突覆盖只对数据集显式标注
+`source_conflict=true` 的 case 计算；多个互补来源不是冲突，不要求不确定性。语义判断只来自
+独立审查（见下），没有审查记录时报告写 `semantic_review.available=false` 与原因，
+不会用引用集合推导“忠实”。样本仅 7 条，因此结果固定 `blocking=false`，用于建立当前模型基线，
+不能宣称发布质量或替代真实小说、人审与扩大后的校准数据。
+
+报告含 `provenance`（git commit、工作树是否有未提交改动及其 hash、系统 Prompt hash）、
+数据集 hash 与脱敏模型 profile。`status` 为 `complete` 才表示本次请求的全部阶段完成；
+生成中途失败、教师阶段失败都会得到 `complete=false`、`status=incomplete` 与失败阶段，
+并保留已完成的 case 结果。命令启动时先把 `--output` 覆盖为 `status=running`，被中断则为
+`aborted`，因此旧的完整报告不会被误当作本次结果；未完成时命令以退出码 2 结束。
+
+项目所有者可以显式增加一次隔离的 GPT-6.1 Sol high 替代教师校准（2026-10-04 用户指令，替代此前的 GPT-5.6 Sol medium）：
+
+```bash
+make eval-ask-world-model NOVEL_ID=<isolated-project-id> \
+  TEACHER_MODEL=gpt-6.1-sol TEACHER_REASONING_EFFORT=high
+```
+
+教师在同一进程读取这 7 条合成证据与 DeepSeek 结构化输出，先检查参考标签，再逐条主张审查：
+`supported`（被所引来源直接支持）、`attribute_matched`（给出了所问属性而非旁支或把“未知”包装成
+已知），以及整体的 `answerability_justified`、`answer_consistent`（answer 不超出 claims）、
+`conflict_presented`（所有冲突版本并列且保留不确定性）。这些审查结果汇总为报告的
+`semantic_review`：一个 case 只有在审查全部通过、且确定性前提（答/拒答与参考一致、冲突来源
+全部被引用）也成立时才算 `pass`，审查不能覆盖确定性失败。参考被教师否决或教师无法判断的
+case 单独计数、不计为通过；审查缺失或主张覆盖不全的 case 会让 `semantic_pass_rate` 变为不可用。
+`disagreement_scenarios` 列出教师语义结论与确定性评分不一致的 case。
+
+报告固定标记 `kind=surrogate_teacher`、`human_validated=false`、`blocking=false`，不会写入
+`HumanReview`，也不改变全局语义基线对真人评审的要求。教师与确定性结果一致不证明二者都正确。
+教师通过本地登录的隔离 Codex CLI 执行；`gpt-6.1-sol` 需要该登录通道真实支持此模型（2026-10-04 实测
+ChatGPT 账户登录的 Codex CLI 0.153.4 返回 400 not supported，0.160.0 可用；通道不支持时教师阶段失败、
+报告记为 `incomplete`，不会自动换模型）。禁用插件、工具、规则和工作区读取；报告保存模型、
+reasoning effort、executor/rubric hash、判定与短理由，不保存 DeepSeek 原文。
+
+### ask-world-model-probes-v2（40 case 分层候选集）
+
+`baselines/ask-world-model-probes-v2.jsonl` 把 v1 的 7 条作为回归锚点（内容不变，全部归入
+`debug`，不能因调 Prompt 后通过就称为独立验证）并新增 33 条合成 case，共 40 条
+（24 个可回答、16 个应拒答）。每条带 `stratum`、`family`、`split` 标注，覆盖六层：
+`single_source` 7（数量/日期/身份/地点/原因各至少一条）、`multi_source` 6（互补来源，需同时引用，
+不是冲突）、`conflict` 7（`source_conflict=true`）、`near_miss` 9（主体在而属性缺失或明确未知）、
+`scope_excluded` 4（答案只在 role/reader/其他作品来源中，模型仍会看到相邻的可见证据）、
+`injection_distractor` 7（来源或问题内的指令、相似名称与长证据干扰，含 4 条要求正常回答的正例）。
+40 是启动规模，不是统计充分性声明；参考答案尚未经人工逐条核对，只能当作候选集使用。
+
+`family` 是共享来源材料的来源族，同一来源族不会同时出现在两个 split。`holdout` 共 12 条
+（六层各至少一条），其余 28 条为 `debug`。可用 `make eval-ask-world-model PROBE_SPLIT=debug` 调试；
+`PROBE_SPLIT=holdout` 只能在 rubric 与数据集 hash 固定并记录后运行，运行后不得再据结果调 Prompt、
+rubric 或参考答案后继续称其为保留集。报告按层给出 `by_stratum` 计数，语义审查的 case 结果也带层标注。
+真实模型的输入输出、教师理由与完整账本仍放在仓库外私有目录，仓库只留去原文的统计与审查结论。
+
+### ask-world-model-probes-v3（修复自测暴露后的候选集）
+
+v2 的六个 holdout 来源族被初轮教师自测使用，已不满足未接触要求。历史 v2、debug 报告与
+账本不改写；后续使用 `baselines/ask-world-model-probes-v3.jsonl`：46 条，debug 34 / holdout 12。
+六个已暴露族移入 debug，新增六个独立族作为保留集；其余六条未暴露保留样本原样保留。
+v3 还纠正 archive-stale 的标签：保管机构与存放地点可以同时成立，是互补来源而非同属性冲突。
+
+校准后的 rubric 允许有来源、帮助理解答案的同主体简短背景，不允许背景替代所问属性。
+uncertainty 可以说明真实证据缺口，但不能否认标题/正文/claims 已明确的方向、属性或版本关系；
+旧/新或修订关系不等于正典授权。严格来源集合 precision 可能因有依据的补充来源而下降，
+这与逐主张语义通过分别报告，不能互相替代。
+
+holdout 必须传 `FREEZE_CONFIG=<freeze.json>`（CLI：`--freeze-config`）。冻结配置绑定数据集、
+runner、生产 Prompt、rubric、教师/model/profile，以及完整 debug 与通过的教师自测报告 hash。
+配置缺失/失配/证据变化会在数据库或模型访问前失败；分层数据集必须显式指定 split，不能省略
+后运行全部样本。配置中的 `review_ready` 仅表示审查标准
+已固定，不表示 debug 模型全部正确或已经真人校准。启动标记固定放在 eval `.cache/ask-world-holdouts/`，
+以保留集实际问题/证据材料 hash 为身份，独占创建阻止重复运行；复制冻结配置、只改 debug 或参考标签
+不会重置同一保留集。失败后
+也只允许离线复查，不重跑后仍称同一保留集。PostgreSQL 连接读取模型配置使用 READ ONLY 事务；
+探针始终只发送数据集提供的合成证据，不检索项目正文或创建业务快照。
 
 The first local run produced a legacy 300-case raw candidate set before the
 2x oversampling and strict scenario/persona guards were added. It remains a

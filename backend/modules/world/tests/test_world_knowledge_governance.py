@@ -361,3 +361,61 @@ async def test_deterministic_boundary_failure_uses_the_single_repair_allowance(v
     assert client.repairs == client.audits == 1
     assert review["repaired"] is True
     assert review["status"] == ("passed" if verdict == "pass" else "blocked")
+
+
+@pytest.mark.asyncio
+async def test_repeated_chapter_refs_audit_every_excerpt_without_duplicate_dispositions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.world.schemas import WorldBibleSourceRef
+    from modules.world.services.worldbuilding.knowledge_governance import (
+        govern_world_output,
+        world_scope_entries,
+    )
+
+    fake = _install_fake_llm(monkeypatch)
+    refs = [
+        WorldBibleSourceRef(
+            source_type="writing_chapter",
+            source_id="30",
+            source_hash=digest,
+            title="第30章",
+            chapter_index=30,
+        )
+        for digest in ("a" * 64, "a" * 64, "b" * 64)
+    ]
+    context = "第一个片段：新址在水仙花街。\n第二个片段：门牌是2号。"
+    entries = world_scope_entries(refs, context)
+    assert len(entries) == 3  # two source revisions plus the exact rendered scope
+    assert len({entry.source_key for entry in entries}) == len(entries)
+    assert {entry.content_hash for entry in entries[:-1]} == {"a" * 64, "b" * 64}
+    result = await govern_world_output(
+        fake,
+        capability="world.ask",
+        novel_id=str(uuid.uuid4()),
+        source_refs=refs,
+        rendered_context=context,
+        output="水仙花街2号。",
+        task_instruction="根据两个正文片段回答。",
+    )
+    assert result["status"] == "passed"
+    prompt = "\n".join(message.content for message in fake.audit_requests[0].messages)
+    assert context in prompt
+
+
+def test_scope_entries_keep_distinct_pages_with_identical_content() -> None:
+    from modules.world.schemas import WorldBibleSourceRef
+    from modules.world.services.worldbuilding.knowledge_governance import (
+        world_scope_entries,
+    )
+
+    page_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
+    refs = [
+        WorldBibleSourceRef(
+            source_type="world_bible_page", page_id=page_id, source_hash="a" * 64
+        )
+        for page_id in page_ids
+    ]
+    entries = world_scope_entries(refs, "两页具有相同正文但身份不同。")
+    assert {entry.source_id for entry in entries[:-1]} == set(page_ids)
+    assert len({entry.source_key for entry in entries}) == 3

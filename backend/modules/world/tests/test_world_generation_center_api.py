@@ -3313,6 +3313,142 @@ async def test_ask_world_api_retrieves_and_reopens_canonical_world_object(
     assert await db_session.scalar(select(func.count(CreationSuggestion.id))) == 0
 
 
+async def _ask_world_answer(
+    async_client: AsyncClient,
+    novel_id: str,
+    question: str = "世界背景航路",
+) -> dict:
+    response = await async_client.post(
+        "/api/world/ask-world",
+        json={"novel_id": novel_id, "question": question},
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _ask_world_save_payload(novel_id: str, result: dict) -> dict:
+    return {
+        "novel_id": novel_id,
+        **{
+            key: result[key]
+            for key in (
+                "question",
+                "answer",
+                "claims",
+                "uncertainty",
+                "citations",
+                "response_hash",
+            )
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_ask_world_source_drift_during_provider_call_returns_409(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _install_fake_llm(monkeypatch)
+    monkeypatch.setattr(
+        "modules.evidence.facade.retrieve_planned_context_evidence",
+        _empty_ask_world_rag,
+    )
+    novel_id = await _create_llm_project(async_client, "回答期间来源漂移")
+    page = await _create_published_page(async_client, novel_id)
+
+    async def update_page_from_another_session() -> None:
+        fake.before_generate = None
+        async with AsyncSession(
+            bind=db_session.bind,
+            expire_on_commit=False,
+            join_transaction_mode="create_savepoint",
+        ) as concurrent:
+            current = await concurrent.get(WorldBiblePage, uuid.UUID(page["id"]))
+            assert current is not None
+            current.version_number += 1
+            current.free_text = "作者在模型运行期间发布的新正文。"
+            await concurrent.commit()
+
+    fake.before_generate = update_page_from_another_session
+    response = await async_client.post(
+        "/api/world/ask-world",
+        json={"novel_id": novel_id, "question": "世界背景航路"},
+    )
+
+    assert response.status_code == 409, response.text
+    assert "source changed while answering" in response.json()["detail"]
+    statuses = (await db_session.scalars(select(ContextSnapshot.status))).all()
+    assert statuses == ["failed"]
+    assert await db_session.scalar(select(func.count(CreationSuggestion.id))) == 0
+
+
+@pytest.mark.asyncio
+async def test_ask_world_citation_reopens_as_stale_after_the_page_is_edited(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_llm(monkeypatch)
+    monkeypatch.setattr(
+        "modules.evidence.facade.retrieve_planned_context_evidence",
+        _empty_ask_world_rag,
+    )
+    novel_id = await _create_llm_project(async_client, "引用回开过期")
+    page = await _create_published_page(async_client, novel_id)
+    citation = (await _ask_world_answer(async_client, novel_id))["citations"][0]
+
+    page_model = await db_session.get(WorldBiblePage, uuid.UUID(page["id"]))
+    assert page_model is not None
+    page_model.free_text = "星海帝国的航路规则已被作者改写。"
+    page_model.version_number += 1
+    await db_session.flush()
+
+    opened = await async_client.post(
+        "/api/world/ask-world/citations/open",
+        json={"novel_id": novel_id, "citation": citation},
+    )
+    assert opened.status_code == 200, opened.text
+    assert opened.json()["status"] == "stale"
+    assert opened.json()["source_hash"] != citation["source_hash"]
+    assert "已被作者改写" in opened.json()["text"]
+
+
+@pytest.mark.asyncio
+async def test_ask_world_save_rejects_a_tampered_answer_without_writing(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_llm(monkeypatch)
+    monkeypatch.setattr(
+        "modules.evidence.facade.retrieve_planned_context_evidence",
+        _empty_ask_world_rag,
+    )
+    novel_id = await _create_llm_project(async_client, "保存篡改拦截")
+    await _create_published_page(async_client, novel_id)
+    result = await _ask_world_answer(async_client, novel_id)
+    payload = _ask_world_save_payload(novel_id, result)
+    tampered_claims = [dict(claim) for claim in payload["claims"]]
+    tampered_claims[0]["text"] = "帝国从未重建过航路。"
+
+    for tampered in (
+        {**payload, "answer": "被改写的回答"},
+        {**payload, "claims": tampered_claims},
+        {**payload, "uncertainty": "被改写的不确定性"},
+        {**payload, "question": "被改写的问题"},
+    ):
+        response = await async_client.post(
+            "/api/world/ask-world/suggestions",
+            json=tampered,
+        )
+        assert response.status_code == 409, response.text
+        assert "changed before it was saved" in response.json()["detail"]
+
+    assert await db_session.scalar(select(func.count(CreationSuggestion.id))) == 0
+    assert await db_session.scalar(select(func.count(WorldBiblePage.id))) == 1
+
+
 @pytest.mark.asyncio
 async def test_ask_world_object_recall_marks_the_bounded_scan(
     monkeypatch: pytest.MonkeyPatch,

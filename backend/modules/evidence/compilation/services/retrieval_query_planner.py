@@ -62,7 +62,13 @@ _KNOWN_PURPOSES = frozenset(
     }
 )
 _LLM_DISABLED_PURPOSES = frozenset(
-    {"reader_context", "character_context", "import_scene_activation", "map_atlas"}
+    {
+        "reader_context",
+        "character_context",
+        "import_scene_activation",
+        "map_atlas",
+        "ask_world",
+    }
 )
 _LLM_COMPLEX_PURPOSES = frozenset(
     {"conflict_review", "outline_generation", "world_fusion"}
