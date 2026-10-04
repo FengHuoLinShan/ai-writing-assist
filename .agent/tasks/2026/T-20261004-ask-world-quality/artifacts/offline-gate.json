@@ -1,0 +1,200 @@
+{
+  "case_count": 23,
+  "case_results": [
+    {
+      "answered": true,
+      "retrieved_source_keys": [
+        "page:currency"
+      ],
+      "scenario_id": "ask-northern-harbor-currency"
+    },
+    {
+      "answered": true,
+      "retrieved_source_keys": [
+        "manuscript:bridge"
+      ],
+      "scenario_id": "ask-gray-river-bridge-closure"
+    },
+    {
+      "answered": true,
+      "retrieved_source_keys": [
+        "page:archive"
+      ],
+      "scenario_id": "ask-white-tower-archive"
+    },
+    {
+      "answered": true,
+      "retrieved_source_keys": [
+        "page:dawn-road"
+      ],
+      "scenario_id": "ask-dawn-road-reordering"
+    },
+    {
+      "answered": true,
+      "retrieved_source_keys": [
+        "manuscript:tax",
+        "page:forge"
+      ],
+      "scenario_id": "ask-forge-tax-relationship"
+    },
+    {
+      "answered": true,
+      "retrieved_source_keys": [
+        "object:bell"
+      ],
+      "scenario_id": "ask-canonical-world-object"
+    },
+    {
+      "answered": false,
+      "retrieved_source_keys": [],
+      "scenario_id": "ask-no-evidence"
+    },
+    {
+      "answered": false,
+      "retrieved_source_keys": [],
+      "scenario_id": "ask-cross-project-evidence-blocked"
+    },
+    {
+      "answered": false,
+      "retrieved_source_keys": [],
+      "scenario_id": "ask-role-only-evidence-blocked"
+    },
+    {
+      "answered": true,
+      "retrieved_source_keys": [
+        "object:salt-well-guard"
+      ],
+      "scenario_id": "ask-salt-well-guard-shifts"
+    },
+    {
+      "answered": true,
+      "retrieved_source_keys": [
+        "manuscript:ferry"
+      ],
+      "scenario_id": "ask-ferry-tariff"
+    },
+    {
+      "answered": true,
+      "retrieved_source_keys": [
+        "page:bridge-rules",
+        "manuscript:spring-tide"
+      ],
+      "scenario_id": "ask-spring-flood-bridge-toll"
+    },
+    {
+      "answered": true,
+      "retrieved_source_keys": [
+        "page:station-pigeon",
+        "page:forge-casting",
+        "page:tax-warehouse"
+      ],
+      "scenario_id": "ask-pigeon-order-route"
+    },
+    {
+      "answered": true,
+      "retrieved_source_keys": [
+        "object:bridge-lantern",
+        "object:wharf-buoy"
+      ],
+      "scenario_id": "ask-guild-objects"
+    },
+    {
+      "answered": true,
+      "retrieved_source_keys": [
+        "manuscript:guard-rotation",
+        "page:tower-rules",
+        "object:bell",
+        "manuscript:bell-ledger",
+        "object:guard-room-key"
+      ],
+      "scenario_id": "ask-bell-density-1"
+    },
+    {
+      "answered": true,
+      "retrieved_source_keys": [
+        "manuscript:guard-rotation",
+        "page:tower-rules",
+        "object:bell",
+        "manuscript:bell-ledger",
+        "object:guard-room-key"
+      ],
+      "scenario_id": "ask-bell-density-4"
+    },
+    {
+      "answered": true,
+      "retrieved_source_keys": [
+        "manuscript:guard-rotation",
+        "page:tower-rules",
+        "object:bell",
+        "manuscript:bell-ledger",
+        "object:guard-room-key"
+      ],
+      "scenario_id": "ask-bell-density-8"
+    },
+    {
+      "answered": true,
+      "retrieved_source_keys": [
+        "page:watermill",
+        "page:windmill"
+      ],
+      "scenario_id": "ask-mill-conflict"
+    },
+    {
+      "answered": true,
+      "retrieved_source_keys": [
+        "page:bridge-toll",
+        "page:bridge-flood-note"
+      ],
+      "scenario_id": "ask-partial-credit"
+    },
+    {
+      "answered": false,
+      "retrieved_source_keys": [],
+      "scenario_id": "ask-fog-lake-fish-count"
+    },
+    {
+      "answered": false,
+      "retrieved_source_keys": [],
+      "scenario_id": "ask-dawn-road-reorder-date"
+    },
+    {
+      "answered": false,
+      "retrieved_source_keys": [],
+      "scenario_id": "ask-reader-only-evidence-blocked"
+    },
+    {
+      "answered": false,
+      "retrieved_source_keys": [],
+      "scenario_id": "ask-same-name-cross-novel"
+    }
+  ],
+  "dataset": "ask-world-v1.jsonl",
+  "dataset_sha256": "e813fe7b0d5d015c5e30c1944ed6d64d85ca81e4a6aaa41a57b981c665e3a4c1",
+  "failures": [],
+  "metrics": {
+    "citation_open_rate": 1.0,
+    "no_answer_false_positive_rate": 0.0,
+    "p_at_5": 0.96875,
+    "source_hash_validity": 1.0
+  },
+  "quality_scope": "offline_evidence_ranking_and_dataset_integrity",
+  "ready": true,
+  "thresholds": {
+    "citation_open_rate": {
+      "operation": "eq",
+      "value": 1.0
+    },
+    "no_answer_false_positive_rate": {
+      "operation": "lte",
+      "value": 0.05
+    },
+    "p_at_5": {
+      "operation": "gte",
+      "value": 0.8
+    },
+    "source_hash_validity": {
+      "operation": "eq",
+      "value": 1.0
+    }
+  }
+}

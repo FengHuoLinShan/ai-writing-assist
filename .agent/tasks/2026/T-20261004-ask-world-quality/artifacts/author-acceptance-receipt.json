@@ -1,0 +1,29 @@
+{
+  "reviewed_at": "2026-10-05T00:11:04+09:00",
+  "kind": "author_feedback",
+  "user_response": "四项均符合预期且有帮助",
+  "scope": "four representative browser cases in the existing protected acceptance project; not population-level product proof",
+  "packet_sha256": "6acd0ddd62a122a39476105f78126c36cfc6ebb223c1bc997e3f212889fe5232",
+  "cases": [
+    {
+      "case": "direct_answer",
+      "expected_behavior_accepted": true,
+      "useful_for_author": true
+    },
+    {
+      "case": "combined_sources",
+      "expected_behavior_accepted": true,
+      "useful_for_author": true
+    },
+    {
+      "case": "missing_attribute",
+      "expected_behavior_accepted": true,
+      "useful_for_author": true
+    },
+    {
+      "case": "scope_excluded",
+      "expected_behavior_accepted": true,
+      "useful_for_author": true
+    }
+  ]
+}

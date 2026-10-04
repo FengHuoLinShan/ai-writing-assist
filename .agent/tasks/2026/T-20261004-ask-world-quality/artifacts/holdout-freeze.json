@@ -1,0 +1,25 @@
+{
+  "review_ready": true,
+  "dataset_sha256": "6a38d6c6033a4e0126c83b6dd78573df0ffbcfacf27a0fd73275b84a88beda59",
+  "holdout_material_sha256": "0ee20a68878cca7bcd8e8074582aa598a1649c066a16ed6960195b094763a330",
+  "system_prompt_sha256": "331d3d64dbcb91bcd47279be735d408385266032493cb8ac32954fbd1285b4da",
+  "rubric_sha256": "b00052098cd3d3aeda58d505ff66f9eb96675c72ae98976a326751dd51c8c3c6",
+  "runner_sha256": "1d2f09c158835d3356b27bb06e4d7d7c74bc2d838419be4300a06184cc440a51",
+  "teacher_model": "gpt-6.1-sol",
+  "teacher_reasoning_effort": "high",
+  "teacher_executor_hash": "47fa52f1c97fb4f060325bfd82d78126647c850060af3e43f1280b321465d59f",
+  "system_under_test": {
+    "model": "deepseek-flash",
+    "profile_hash": "9271f2fd1f820a4f812c2ef4d1091a3403df58cac9f4ac3f9a6deed62af76abb",
+    "provider_id": "deepseek"
+  },
+  "human_validated": false,
+  "debug_report": {
+    "path": ".agent/tasks/2026/T-20261004-ask-world-quality/artifacts/deepseek-debug-v3-result.json",
+    "sha256": "77a629a3f3839fcf5b9840732c4b85ea917e6c2d6ca4a419e96f9ebe76b12fe7"
+  },
+  "teacher_selftest": {
+    "path": ".agent/tasks/2026/T-20261004-ask-world-quality/artifacts/teacher-selftest-v3-result.json",
+    "sha256": "b3f647fca8a1d9dab325ca9dfdb4591a945fb33b12fe23fed2f43be204d60bb7"
+  }
+}
