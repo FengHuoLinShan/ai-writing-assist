@@ -182,20 +182,41 @@ async def test_get_entity_revisions_success_returns_revisions_dict(
     db_session,
     test_project_id: str,
 ):
-    """Happy path: service 返回版本列表 dict."""
+    """Happy path: 服务返回强类型响应，facade 对外仍返回 dict."""
     # Arrange
-    expected = {
-        "items": [
-            {"revision_id": "r1", "entity_id": "e1", "revision_reason": "ai_import"},
+    from datetime import UTC, datetime
+
+    from modules.world.revision_history_schemas import (
+        EntityRevisionItem,
+        EntityRevisionListResponse,
+        EntityRevisionSnapshotView,
+    )
+
+    service_response = EntityRevisionListResponse(
+        items=[
+            EntityRevisionItem(
+                revision_id="r1",
+                entity_id="e1",
+                revision_reason="manual_update",
+                created_at=datetime(2026, 10, 4, tzinfo=UTC),
+                changed_fields=["summary"],
+                changed_fields_exact=True,
+                snapshot=EntityRevisionSnapshotView(
+                    entity_type="character",
+                    name="角色",
+                    status="canonical",
+                ),
+                can_restore=True,
+            ),
         ],
-        "total": 1,
-    }
+        total=1,
+    )
 
     with patch(
         "modules.world.event_facade._revision_service.get_revisions",
         autospec=True,
     ) as mock_get:
-        mock_get.return_value = expected
+        mock_get.return_value = service_response
 
         # Act
         result = await get_entity_revisions(
@@ -206,7 +227,11 @@ async def test_get_entity_revisions_success_returns_revisions_dict(
         mock_get.assert_awaited_once_with(
             db_session, "e1", test_project_id, skip=5, limit=10
         )
-        assert result == expected
+        assert result["total"] == 1
+        assert result["items"][0]["revision_id"] == "r1"
+        assert result["items"][0]["changed_fields"] == ["summary"]
+        assert result["items"][0]["changed_fields_exact"] is True
+        assert result["items"][0]["can_restore"] is True
 
 
 async def test_get_entity_revisions_defaults_skip_and_limit(
@@ -215,21 +240,30 @@ async def test_get_entity_revisions_defaults_skip_and_limit(
 ):
     """边界: skip / limit 使用默认值 0 / 20 并正确传递."""
     # Arrange
-    expected = {"items": [], "total": 0}
+    from modules.world.revision_history_schemas import EntityRevisionListResponse
+
+    service_response = EntityRevisionListResponse(items=[], total=0)
 
     with patch(
         "modules.world.event_facade._revision_service.get_revisions",
         autospec=True,
     ) as mock_get:
-        mock_get.return_value = expected
+        mock_get.return_value = service_response
 
         # Act
-        await get_entity_revisions(db_session, test_project_id, "e1")
+        result = await get_entity_revisions(db_session, test_project_id, "e1")
 
         # Assert
         mock_get.assert_awaited_once_with(
             db_session, "e1", test_project_id, skip=0, limit=20
         )
+        assert result == {
+            "items": [],
+            "total": 0,
+            "skip": 0,
+            "limit": 20,
+            "current_updated_at": None,
+        }
 
 
 # ============================================================
@@ -241,19 +275,61 @@ async def test_rollback_to_revision_success_returns_dict(
     db_session,
     test_project_id: str,
 ):
-    """Happy path: 回滚成功并返回实体 dict."""
+    """Happy path: 回滚成功并返回实体 dict；expected_updated_at 为必填关键字参数."""
     # Arrange
-    expected = {"entity_id": "e1", "name": "旧版名称", "status": "canonical"}
+    from datetime import UTC, datetime
+
+    from modules.world.schemas import CoreEntityResponse
+
+    baseline = datetime(2026, 10, 4, tzinfo=UTC)
+    service_response = CoreEntityResponse(
+        id="e1",
+        novel_id=test_project_id,
+        entity_type="character",
+        name="旧版名称",
+        status="canonical",
+        created_at=baseline,
+        updated_at=baseline,
+    )
 
     with patch(
-        "modules.world.event_facade._revision_service.rollback_to_revision",
+        "modules.world.event_facade._entity_service.rollback_to_revision",
         autospec=True,
     ) as mock_rollback:
-        mock_rollback.return_value = expected
+        mock_rollback.return_value = service_response
 
         # Act
-        result = await rollback_to_revision(db_session, test_project_id, "e1", "rev-1")
+        result = await rollback_to_revision(
+            db_session,
+            test_project_id,
+            "e1",
+            "rev-1",
+            expected_updated_at=baseline,
+        )
 
         # Assert
-        mock_rollback.assert_awaited_once_with(db_session, "e1", "rev-1", test_project_id)
-        assert result == expected
+        mock_rollback.assert_awaited_once_with(
+            db_session,
+            "e1",
+            "rev-1",
+            novel_id=test_project_id,
+            expected_updated_at=baseline,
+        )
+        assert result["id"] == "e1"
+        assert result["name"] == "旧版名称"
+
+
+async def test_rollback_to_revision_requires_expected_updated_at_keyword(
+    db_session,
+    test_project_id: str,
+):
+    """边界: 不带 expected_updated_at 时按必填关键字参数报 TypeError."""
+    # Arrange
+    with patch(
+        "modules.world.event_facade._entity_service.rollback_to_revision",
+        autospec=True,
+    ) as mock_rollback:
+        # Act & Assert
+        with pytest.raises(TypeError):
+            await rollback_to_revision(db_session, test_project_id, "e1", "rev-1")
+        mock_rollback.assert_not_awaited()

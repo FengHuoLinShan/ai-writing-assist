@@ -71,24 +71,15 @@ _ENTITY_KINDS = frozenset({"core_entity", "entity"})
 
 
 def entity_state(entity) -> dict:
-    return {
-        key: copy.deepcopy(getattr(entity, key))
-        for key in ENTITY_STATE_KEYS
-    }
+    return {key: copy.deepcopy(getattr(entity, key)) for key in ENTITY_STATE_KEYS}
 
 
 def relation_state(relation) -> dict:
-    return {
-        key: copy.deepcopy(getattr(relation, key))
-        for key in RELATION_STATE_KEYS
-    }
+    return {key: copy.deepcopy(getattr(relation, key)) for key in RELATION_STATE_KEYS}
 
 
 def character_state(character) -> dict:
-    return {
-        key: copy.deepcopy(getattr(character, key))
-        for key in CHARACTER_STATE_KEYS
-    }
+    return {key: copy.deepcopy(getattr(character, key)) for key in CHARACTER_STATE_KEYS}
 
 
 @dataclass
@@ -138,9 +129,7 @@ async def _is_unreferenced_entity(
                 [parse_uuid(value, "relation_id") for value in reverting_relation_ids]
             )
         )
-    external = await db.scalar(
-        select(EntityRelation.id).where(*conditions).limit(1)
-    )
+    external = await db.scalar(select(EntityRelation.id).where(*conditions).limit(1))
     if external is not None:
         return False
     from modules.world.models import WorldBiblePage, WorldBiblePageDraft
@@ -181,6 +170,12 @@ async def reverse_applied_changes(
     调用方决定是否把该标记持久化回自己的回执存储。
     """
     result = ReversalOutcome()
+    writing_chapter_index: int | None = None
+    if not dry_run:
+        from modules.world.services.common import current_writing_chapter_index
+
+        # 循环之前只查一次写作进度，逐项传给快照，不使用会话级缓存。
+        writing_chapter_index = await current_writing_chapter_index(db, novel_id)
     reverting_relation_ids: set[str] = set()
     for item in reversed(list(applied_changes or [])):
         if item.get("rolled_back"):
@@ -192,9 +187,7 @@ async def reverse_applied_changes(
         pk = getattr(model, "id", None) or getattr(model, "entity_id")
         obj = await db.scalar(
             select(model)
-            .where(
-                pk == parse_uuid(item["id"]), model.novel_id == parse_uuid(novel_id)
-            )
+            .where(pk == parse_uuid(item["id"]), model.novel_id == parse_uuid(novel_id))
             .with_for_update()
             .execution_options(populate_existing=True)
         )
@@ -202,11 +195,7 @@ async def reverse_applied_changes(
         # Compare touched fields for fills; complete resources for new assets/aliases.
         matches = current is not None and _after_matches(current, item)
         referenced = False
-        if (
-            matches
-            and item.get("operation") in CREATE_OPERATIONS
-            and model is CoreEntity
-        ):
+        if matches and item.get("operation") in CREATE_OPERATIONS and model is CoreEntity:
             referenced = not await _is_unreferenced_entity(
                 db, novel_id, obj, reverting_relation_ids=reverting_relation_ids
             )
@@ -215,9 +204,7 @@ async def reverse_applied_changes(
             reason = modified_reason
             if referenced and referenced_reason is not None:
                 reason = referenced_reason
-            result.outcomes.append(
-                {"item_key": item["item_key"], "status": reason}
-            )
+            result.outcomes.append({"item_key": item["item_key"], "status": reason})
             result.kept.append({"item_key": item["item_key"], "reason_code": reason})
             continue
         if not dry_run:
@@ -227,7 +214,11 @@ async def reverse_applied_changes(
                 )
 
                 await EntityRevisionService().create_snapshot(
-                    db, str(obj.id), novel_id, revision_reason=revision_reason
+                    db,
+                    str(obj.id),
+                    novel_id,
+                    revision_reason=revision_reason,
+                    writing_chapter_index=writing_chapter_index,
                 )
             elif model is Character:
                 from modules.world.services.core.entity_revision_service import (
@@ -235,7 +226,11 @@ async def reverse_applied_changes(
                 )
 
                 await EntityRevisionService().create_snapshot(
-                    db, str(obj.entity_id), novel_id, revision_reason=revision_reason
+                    db,
+                    str(obj.entity_id),
+                    novel_id,
+                    revision_reason=revision_reason,
+                    writing_chapter_index=writing_chapter_index,
                 )
             if item.get("operation") in CREATE_OPERATIONS:
                 obj.status = "deprecated"

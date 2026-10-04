@@ -13,10 +13,12 @@ from modules.world.schemas import (
 from modules.world.services import (
     EntityRevisionService,
     EventService,
+    WorldEntityService,
 )
 
 _event_service = EventService()
 _revision_service = EntityRevisionService()
+_entity_service = WorldEntityService()
 
 
 # ============================================================
@@ -79,13 +81,15 @@ async def get_entity_revisions(
     skip: int = 0,
     limit: int = 20,
 ) -> dict:
-    return await _revision_service.get_revisions(
+    """实体改动历史；内部复用强类型服务，对外继续返回 dict。"""
+    response = await _revision_service.get_revisions(
         db,
         entity_id,
         novel_id,
         skip=skip,
         limit=limit,
     )
+    return response.model_dump(mode="json")
 
 
 async def rollback_to_revision(
@@ -93,13 +97,18 @@ async def rollback_to_revision(
     novel_id: str,
     entity_id: str,
     revision_id: str,
+    *,
+    expected_updated_at,
 ) -> dict:
-    return await _revision_service.rollback_to_revision(
+    """按修订恢复实体；``expected_updated_at`` 为必填关键字参数（并发保护）。"""
+    result = await _entity_service.rollback_to_revision(
         db,
         entity_id,
         revision_id,
-        novel_id,
+        novel_id=novel_id,
+        expected_updated_at=expected_updated_at,
     )
+    return result.model_dump(mode="json")
 
 
 # ============================================================

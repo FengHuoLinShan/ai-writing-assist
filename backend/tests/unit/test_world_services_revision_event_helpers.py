@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -105,6 +105,8 @@ def _mock_revision(**overrides):
         "snapshot": {},
         "source_chapter_id": None,
         "revision_reason": "ai_import",
+        "writing_chapter_index": None,
+        "change_summary": None,
         "created_at": datetime.now(),
     }
     defaults.update(overrides)
@@ -112,6 +114,13 @@ def _mock_revision(**overrides):
     for k, v in defaults.items():
         setattr(rev, k, v)
     return rev
+
+
+def _make_db() -> MagicMock:
+    db = MagicMock()
+    db.flush = AsyncMock()
+    db.execute = AsyncMock()
+    return db
 
 
 # ============================================================
@@ -133,36 +142,39 @@ class TestEntityRevisionService:
         assert "raise HTTPException" not in source
 
     async def test_create_snapshot_happy_path_returns_revision_dict(self):
-        """Happy path: snapshot created and returned as dict."""
+        """Happy path: snapshot created and returned as dict with revision_id."""
         # Arrange
-        svc, repo, entity_repo = _make_revision_service()
+        svc, _repo, entity_repo = _make_revision_service()
         nid = str(uuid.uuid4())
         entity = _mock_entity(novel_id=uuid.UUID(nid))
-        revision = _mock_revision(entity_id=entity.id)
         entity_repo.get = AsyncMock(return_value=entity)
-        repo.create = AsyncMock(return_value=revision)
-        db = MagicMock()
+        db = _make_db()
         eid = str(entity.id)
 
         # Act
-        result = await svc.create_snapshot(db, eid, nid)
+        with patch(
+            "modules.world.services.common.current_writing_chapter_index",
+            autospec=True,
+        ) as mock_progress:
+            mock_progress.return_value = 4
+            result = await svc.create_snapshot(db, eid, nid)
 
         # Assert
-        assert result["revision_id"] == str(revision.id)
-        assert result["entity_id"] == str(revision.entity_id)
-        assert result["revision_reason"] == revision.revision_reason
-        repo.create.assert_awaited_once()
-        call_kwargs = repo.create.call_args.kwargs
-        assert call_kwargs["entity_id"] == entity.id
-        assert call_kwargs["novel_id"] == uuid.UUID(hex=nid)
-        assert call_kwargs["snapshot"]["name"] == entity.name
+        mock_progress.assert_awaited_once_with(db, nid)
+        assert result["revision_id"] == str(db.add.call_args.args[0].id)
+        assert result["revision_reason"] == "ai_import"
+        added = db.add.call_args.args[0]
+        assert added.entity_id == entity.id
+        assert added.novel_id == uuid.UUID(hex=nid)
+        assert added.snapshot["name"] == entity.name
+        assert added.writing_chapter_index == 4
 
     async def test_create_snapshot_entity_not_found_raises_domain_not_found(self):
         """Exception path: entity missing raises domain NotFoundError."""
         # Arrange
         svc, _repo, entity_repo = _make_revision_service()
         entity_repo.get = AsyncMock(return_value=None)
-        db = MagicMock()
+        db = _make_db()
 
         # Act & Assert
         with pytest.raises(NotFoundError) as exc_info:
@@ -172,42 +184,100 @@ class TestEntityRevisionService:
     async def test_create_snapshot_with_source_chapter_id_passes_chapter_uuid(self):
         """Boundary: source_chapter_id is parsed and forwarded."""
         # Arrange
-        svc, repo, entity_repo = _make_revision_service()
+        svc, _repo, entity_repo = _make_revision_service()
         entity = _mock_entity()
-        revision = _mock_revision()
         entity_repo.get = AsyncMock(return_value=entity)
-        repo.create = AsyncMock(return_value=revision)
-        db = MagicMock()
+        db = _make_db()
         chapter_id = str(uuid.uuid4())
 
         # Act
         await svc.create_snapshot(
-            db, str(entity.id), str(entity.novel_id), source_chapter_id=chapter_id
+            db,
+            str(entity.id),
+            str(entity.novel_id),
+            source_chapter_id=chapter_id,
+            writing_chapter_index=2,
         )
 
         # Assert
-        call_kwargs = repo.create.call_args.kwargs
-        assert call_kwargs["source_chapter_id"] == uuid.UUID(hex=chapter_id)
+        added = db.add.call_args.args[0]
+        assert added.source_chapter_id == uuid.UUID(hex=chapter_id)
+        assert added.writing_chapter_index == 2
 
-    async def test_get_revisions_happy_path_returns_items_and_total(self):
-        """Happy path: revision list paginated."""
+    async def test_create_snapshot_unset_queries_writing_progress(self):
+        """UNSET 时自行查询写作进度；显式传入时不查询。"""
         # Arrange
-        svc, repo, entity_repo = _make_revision_service()
+        svc, _repo, entity_repo = _make_revision_service()
         entity = _mock_entity()
-        revision = _mock_revision()
         entity_repo.get = AsyncMock(return_value=entity)
-        repo.get_revisions = AsyncMock(return_value=([revision], 1))
-        db = MagicMock()
-        eid = str(entity.id)
-        nid = str(entity.novel_id)
+        db = _make_db()
 
-        # Act
-        result = await svc.get_revisions(db, eid, nid, skip=0, limit=10)
+        with patch(
+            "modules.world.services.common.current_writing_chapter_index",
+            autospec=True,
+        ) as mock_progress:
+            mock_progress.return_value = 7
+
+            # Act
+            await svc.create_snapshot(db, str(entity.id), str(entity.novel_id))
+            assert db.add.call_args.args[0].writing_chapter_index == 7
+
+            mock_progress.return_value = 0
+            await svc.create_snapshot(
+                db,
+                str(entity.id),
+                str(entity.novel_id),
+                writing_chapter_index=None,
+            )
+            assert db.add.call_args.args[0].writing_chapter_index is None
 
         # Assert
-        assert result["total"] == 1
-        assert len(result["items"]) == 1
-        assert result["items"][0]["revision_id"] == str(revision.id)
+        assert mock_progress.await_count == 1
+
+    async def test_record_change_summary_updates_revision_row(self):
+        """record_change_summary 直接 UPDATE change_summary 并 flush。"""
+        # Arrange
+        svc, _repo, _entity_repo = _make_revision_service()
+        db = _make_db()
+        rid = str(uuid.uuid4())
+
+        # Act
+        await svc.record_change_summary(
+            db,
+            rid,
+            ["summary", "aliases"],
+            restored_from_revision_id=str(uuid.uuid4()),
+        )
+
+        # Assert
+        db.execute.assert_awaited_once()
+        db.flush.assert_awaited_once()
+
+    async def test_get_revisions_happy_path_returns_items_and_total(self):
+        """Happy path: revision list paginated, strong-typed response."""
+        # Arrange
+        svc, repo, entity_repo = _make_revision_service()
+        entity = _mock_entity(updated_at=None)
+        revision = _mock_revision(entity_id=entity.id, snapshot={})
+        entity_repo.get = AsyncMock(return_value=entity)
+        repo.get_revisions = AsyncMock(return_value=([revision], 1))
+        db = _make_db()
+
+        # Act
+        with patch(
+            "modules.world.services.core.entity_revision_service.load_revision_notes",
+            autospec=True,
+        ) as mock_notes:
+            mock_notes.return_value = {}
+            result = await svc.get_revisions(
+                db, str(entity.id), str(entity.novel_id), skip=0, limit=10
+            )
+
+        # Assert
+        assert result.total == 1
+        assert len(result.items) == 1
+        assert result.items[0].revision_id == str(revision.id)
+        assert result.items[0].changed_fields_exact is False
         repo.get_revisions.assert_awaited_once_with(db, entity.id, skip=0, limit=10)
 
     async def test_get_revisions_entity_not_found_raises_domain_not_found(self):
@@ -215,7 +285,7 @@ class TestEntityRevisionService:
         # Arrange
         svc, _repo, entity_repo = _make_revision_service()
         entity_repo.get = AsyncMock(return_value=None)
-        db = MagicMock()
+        db = _make_db()
 
         # Act & Assert
         with pytest.raises(NotFoundError) as exc_info:
@@ -229,7 +299,7 @@ class TestEntityRevisionService:
         entity = _mock_entity(novel_id=uuid.uuid4())
         entity_repo.get = AsyncMock(return_value=entity)
         repo.get_revisions = AsyncMock(return_value=([], 0))
-        db = MagicMock()
+        db = _make_db()
 
         # Act & Assert
         with pytest.raises(NotFoundError) as exc_info:
@@ -237,120 +307,43 @@ class TestEntityRevisionService:
         assert exc_info.value.status_code == 404
         repo.get_revisions.assert_not_called()
 
-    async def test_rollback_to_revision_happy_path_returns_entity_dict(self):
-        """Happy path: rollback creates snapshot, updates entity, returns dict."""
-        # Arrange
-        svc, repo, entity_repo = _make_revision_service()
-        entity = _mock_entity(status="canonical")
-        revision = _mock_revision(
-            entity_id=entity.id,
-            novel_id=entity.novel_id,
-            snapshot={
-                "entity_type": "character",
-                "name": "Old Name",
-                "summary": "Old summary",
-                "public_info": None,
-                "hidden_truth": None,
-                "content_json": {},
-                "importance": 0.8,
-                "importance_level": "core",
-                "reveal_level": "author_only",
-                "status": "canonical",
-            },
-        )
-        entity_repo.update = AsyncMock(return_value=entity)
-        entity_repo.get_for_update = AsyncMock(return_value=entity)
-        repo.get_revision = AsyncMock(return_value=revision)
-        svc.create_snapshot = AsyncMock(return_value={})
-        db = MagicMock()
-        eid = str(entity.id)
-        rid = str(revision.id)
-        nid = str(entity.novel_id)
-
-        # Act
-        result = await svc.rollback_to_revision(db, eid, rid, nid)
-
-        # Assert
-        svc.create_snapshot.assert_awaited_once_with(
-            db, eid, nid, revision_reason="rollback"
-        )
-        repo.get_revision.assert_awaited_once_with(db, uuid.UUID(hex=rid))
-        entity_repo.update.assert_awaited_once()
-        assert result["id"] == str(entity.id)
-        assert result["name"] == entity.name
-
-    async def test_rollback_to_revision_not_found_raises_domain_not_found(self):
-        """Exception path: missing revision raises domain NotFoundError."""
-        # Arrange
-        svc, repo, entity_repo = _make_revision_service()
-        novel_id = uuid.uuid4()
-        entity_id = uuid.uuid4()
-        entity_repo.get_for_update = AsyncMock(
-            return_value=_mock_entity(id=entity_id, novel_id=novel_id)
-        )
-        repo.get_revision = AsyncMock(return_value=None)
-        svc.create_snapshot = AsyncMock(return_value={})
-        db = MagicMock()
-
-        # Act & Assert
-        with pytest.raises(NotFoundError) as exc_info:
-            await svc.rollback_to_revision(
-                db, str(entity_id), str(uuid.uuid4()), str(novel_id)
-            )
-        assert exc_info.value.status_code == 404
-        assert "Revision" in exc_info.value.detail
-
-    async def test_rollback_to_revision_cross_entity_revision_raises_domain_not_found(
+    async def test_get_revisions_prefers_change_summary_and_reads_boundary_neighbor(
         self,
     ):
-        """Boundary: rollback rejects a revision owned by another entity."""
+        """change_summary 优先；翻页首条额外读相邻一条更新修订推算。"""
         # Arrange
         svc, repo, entity_repo = _make_revision_service()
-        entity_id = uuid.uuid4()
-        novel_id = uuid.uuid4()
-        entity_repo.get_for_update = AsyncMock(
-            return_value=_mock_entity(id=entity_id, novel_id=novel_id)
+        entity = _mock_entity(updated_at=None)
+        page_item = _mock_revision(
+            entity_id=entity.id,
+            snapshot={"name": "新名", "entity_type": "character", "status": "draft"},
+            change_summary={"fields": ["name"], "restored_from_revision_id": None},
         )
-        revision = _mock_revision(entity_id=uuid.uuid4(), novel_id=novel_id)
-        repo.get_revision = AsyncMock(return_value=revision)
-        entity_repo.update = AsyncMock()
-        svc.create_snapshot = AsyncMock(return_value={})
-        db = MagicMock()
+        entity_repo.get = AsyncMock(return_value=entity)
+        repo.get_revisions = AsyncMock(
+            side_effect=[
+                ([page_item], 5),
+                ([_mock_revision(snapshot={"name": "旧名"})], 4),
+            ]
+        )
+        db = _make_db()
 
-        # Act & Assert
-        with pytest.raises(NotFoundError) as exc_info:
-            await svc.rollback_to_revision(
-                db, str(entity_id), str(revision.id), str(novel_id)
+        # Act
+        with patch(
+            "modules.world.services.core.entity_revision_service.load_revision_notes",
+            autospec=True,
+        ) as mock_notes:
+            mock_notes.return_value = {}
+            result = await svc.get_revisions(
+                db, str(entity.id), str(entity.novel_id), skip=2, limit=1
             )
-        assert exc_info.value.status_code == 404
-        entity_repo.update.assert_not_called()
 
-    async def test_rollback_to_revision_entity_update_none_raises_domain_not_found(self):
-        """Exception path: entity disappears after update raises domain NotFoundError."""
-        # Arrange
-        svc, repo, entity_repo = _make_revision_service()
-        entity_id = uuid.uuid4()
-        novel_id = uuid.uuid4()
-        revision = _mock_revision(
-            entity_id=entity_id,
-            novel_id=novel_id,
-            snapshot={"entity_type": "character", "name": "Old Name"},
-        )
-        repo.get_revision = AsyncMock(return_value=revision)
-        entity_repo.get_for_update = AsyncMock(
-            return_value=_mock_entity(id=entity_id, novel_id=novel_id)
-        )
-        entity_repo.update = AsyncMock(return_value=None)
-        svc.create_snapshot = AsyncMock(return_value={})
-        db = MagicMock()
-
-        # Act & Assert
-        with pytest.raises(NotFoundError) as exc_info:
-            await svc.rollback_to_revision(
-                db, str(entity_id), str(revision.id), str(novel_id)
-            )
-        assert exc_info.value.status_code == 404
-        assert "not found after rollback" in exc_info.value.detail
+        # Assert
+        assert repo.get_revisions.await_count == 2
+        assert repo.get_revisions.await_args_list[1].kwargs == {"skip": 1, "limit": 1}
+        item = result.items[0]
+        assert item.changed_fields == ["name"]
+        assert item.changed_fields_exact is True
 
     async def test_rollback_to_scene_index_archive_update_reuses_loaded_entity(self):
         """Performance: TextArchive rollback updates the entity already validated."""

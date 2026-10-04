@@ -355,18 +355,29 @@ class TestEntityServiceList:
         with patch.object(WorldEntityService, "repo", autospec=True) as mock_repo:
             mock_repo.get_for_update = AsyncMock(return_value=existing)
             mock_repo.update = AsyncMock(return_value=existing)
+            # 阶段 0 后快照失败即中止：mock 需符合 create_snapshot 返回契约，
+            # record_change_summary 也一并打桩以保持本测试聚焦 repo.update 入参。
             with patch(
                 "modules.world.services.core.entity_revision_service."
                 "EntityRevisionService.create_snapshot",
                 autospec=True,
-            ):
-                svc = WorldEntityService()
-                result = await svc.update(
-                    db,
-                    entity_id,
-                    CoreEntityUpdate(summary="新摘要"),
-                    novel_id=nid,
-                )
+            ) as mock_snapshot:
+                mock_snapshot.return_value = {
+                    "revision_id": str(uuid.uuid4()),
+                    "snapshot": {"summary": "旧摘要"},
+                }
+                with patch(
+                    "modules.world.services.core.entity_revision_service."
+                    "EntityRevisionService.record_change_summary",
+                    autospec=True,
+                ):
+                    svc = WorldEntityService()
+                    result = await svc.update(
+                        db,
+                        entity_id,
+                        CoreEntityUpdate(summary="新摘要"),
+                        novel_id=nid,
+                    )
 
             assert result.id == entity_id
             mock_repo.update.assert_awaited_once()

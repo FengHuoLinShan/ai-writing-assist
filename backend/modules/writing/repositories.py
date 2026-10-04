@@ -480,6 +480,67 @@ class WritingDraftRepository:
             chapter_index for chapter_index, content in rows if substantive_text(content)
         ]
 
+    async def get_latest_effective_chapter_index(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+    ) -> int:
+        """Return the largest chapter whose latest working version has substantive text.
+
+        Candidate chapters are scanned in descending order in bounded batches so a
+        long manuscript never loads every chapter body at once. Returns 0 when no
+        chapter has substantive prose yet (whitespace-only drafts do not count).
+        """
+        index_rows = await db.execute(
+            select(WritingDraft.chapter_index)
+            .where(
+                WritingDraft.novel_id == novel_id,
+                WritingDraft.status.in_(WORKING_DRAFT_STATUSES),
+            )
+            .distinct()
+            .order_by(WritingDraft.chapter_index.desc())
+        )
+        chapter_indices = [row[0] for row in index_rows.all()]
+
+        batch_size = 50
+        for start in range(0, len(chapter_indices), batch_size):
+            batch = chapter_indices[start : start + batch_size]
+            latest = (
+                select(
+                    WritingDraft.chapter_index.label("chapter_index"),
+                    func.max(WritingDraft.version_number).label("version_number"),
+                )
+                .where(
+                    WritingDraft.novel_id == novel_id,
+                    WritingDraft.status.in_(WORKING_DRAFT_STATUSES),
+                    WritingDraft.chapter_index.in_(batch),
+                )
+                .group_by(WritingDraft.chapter_index)
+                .subquery()
+            )
+            stmt = (
+                select(WritingDraft.chapter_index, WritingDraft.content)
+                .join(
+                    latest,
+                    and_(
+                        WritingDraft.chapter_index == latest.c.chapter_index,
+                        WritingDraft.version_number == latest.c.version_number,
+                    ),
+                )
+                .where(
+                    WritingDraft.novel_id == novel_id,
+                    WritingDraft.status.in_(WORKING_DRAFT_STATUSES),
+                )
+            )
+            rows = (await db.execute(stmt)).all()
+            content_by_chapter = {
+                chapter_index: content for chapter_index, content in rows
+            }
+            for chapter_index in batch:
+                if substantive_text(content_by_chapter.get(chapter_index)):
+                    return chapter_index
+        return 0
+
     async def list_chapter_summaries(
         self,
         db: AsyncSession,

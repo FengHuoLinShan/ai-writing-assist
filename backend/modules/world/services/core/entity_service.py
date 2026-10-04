@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.container import get as _container_get
 from core.crud import CrudService
-from core.errors import ConflictError, ValidationError
+from core.errors import ConflictError, NotFoundError, ValidationError
 from core.logging_context import (
     exception_summary_for_log,
     identifier_for_log,
@@ -37,9 +37,23 @@ from modules.world.schemas import (
     EntityTypeOption,
 )
 from modules.world.services.common import parse_uuid
+from modules.world.services.core.entity_revision_service import (
+    diff_revision_snapshots,
+    entity_state_dict,
+)
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 logger = logging.getLogger(__name__)
+
+# ``update(..., _clear_fields=...)`` 只允许这三个可空文本列（models/core.py）。
+_NULLABLE_CLEAR_FIELDS: frozenset[str] = frozenset(
+    {"summary", "public_info", "hidden_truth"}
+)
+
+
+def _is_empty_text(value: object) -> bool:
+    """None 或纯空白文本视为空（按修订恢复时空字段会被清空）。"""
+    return value is None or (isinstance(value, str) and not value.strip())
 
 
 class WorldEntityService(
@@ -457,11 +471,28 @@ class WorldEntityService(
         _from_suggestion_queue: bool = False,
         _validation_prechecked: bool = False,
         _automated: bool = False,
+        _revision_reason: str | None = None,
+        _restored_from_revision_id: str | None = None,
+        _clear_fields: frozenset[str] = frozenset(),
     ) -> CoreEntityResponse:
-        """更新实体前打快照；类型转换时 snapshot 属于原子迁移契约。"""
+        """更新实体前打快照；类型转换时 snapshot 属于原子迁移契约。
+
+        ``_`` 前缀参数仅内部使用：``_revision_reason`` 覆盖快照原因；
+        ``_restored_from_revision_id`` 记入 change_summary；``_clear_fields``
+        只允许三个可空文本列（summary/public_info/hidden_truth），用于把底层
+        更新会跳过的空值显式清空（按修订恢复依赖）。
+        """
         from modules.world.services.core.entity_revision_service import (
             EntityRevisionService,
         )
+
+        clear_fields = frozenset(_clear_fields or ())
+        invalid_clears = clear_fields - _NULLABLE_CLEAR_FIELDS
+        if invalid_clears:
+            raise ValidationError(
+                f"_clear_fields 仅允许 summary/public_info/hidden_truth："
+                f"{sorted(invalid_clears)}"
+            )
 
         rid = parse_uuid(id, "entity_id")
         nid = parse_uuid(novel_id, "novel_id")
@@ -572,27 +603,23 @@ class WorldEntityService(
             data = data.model_copy(update={"content_json": content_json})
 
         revision_service = EntityRevisionService()
-        if type_changed or _automated:
-            await revision_service.create_snapshot(
-                db,
-                entity_id=id,
-                novel_id=novel_id,
-                revision_reason="focused_completion" if _automated else "manual_update",
-            )
-        else:
-            try:
-                await revision_service.create_snapshot(
-                    db,
-                    entity_id=id,
-                    novel_id=novel_id,
-                    revision_reason="manual_update",
-                )
-            except Exception as exc:
-                logger.warning(
-                    "实体 %s 手动编辑前快照失败: %s",
-                    identifier_for_log(id),
-                    exception_summary_for_log(exc),
-                )
+        # 编辑/采用前快照失败即整体失败，实体保持不变（删除仍是尽力而为，见 delete）。
+        snapshot_result = await revision_service.create_snapshot(
+            db,
+            entity_id=id,
+            novel_id=novel_id,
+            revision_reason=(
+                _revision_reason
+                or ("focused_completion" if _automated else "manual_update")
+            ),
+        )
+        before_state = dict(snapshot_result.get("snapshot") or {})
+
+        if clear_fields:
+            for field in clear_fields:
+                setattr(existing, field, None)
+            db.add(existing)
+            await db.flush()
 
         if type_changed:
             from modules.world.services.core.entity_type_transition_service import (
@@ -608,6 +635,12 @@ class WorldEntityService(
 
         updated = await self.repo.update(db, existing, data)
         self._assert_found_in_novel(updated, id, nid)
+        await revision_service.record_change_summary(
+            db,
+            snapshot_result["revision_id"],
+            diff_revision_snapshots(before_state, entity_state_dict(updated)),
+            restored_from_revision_id=_restored_from_revision_id,
+        )
         if updated.status == "canonical" and updated.entity_type == "character":
             from modules.world.services.core.character_service import CharacterService
 
@@ -684,6 +717,81 @@ class WorldEntityService(
             getattr(entity, "status", None) in {"draft", "candidate"}
             and meta.get("compatibility_shadow") is True
             and bool(meta.get("suggestion_id"))
+        )
+
+    # ============================================================
+    # Rollback: 按修订恢复到某次改动之前
+    # ============================================================
+
+    async def rollback_to_revision(
+        self,
+        db: AsyncSession,
+        entity_id: str,
+        revision_id: str,
+        *,
+        novel_id: str,
+        expected_updated_at,
+    ) -> CoreEntityResponse:
+        """把实体恢复到指定修订（那次改动之前）的状态。
+
+        内部统一走 :meth:`update`，因此编辑基线、Canon 写入门禁、兼容影子
+        保护、别名规范化以及缓存/简介/角色失效链都照常执行；基线过期抛出
+        ``update`` 现有的 409。恢复字段为类型/名称/简介/公开信息/作者秘密/
+        content_json/重要程度/揭示程度，不恢复 status；快照 content_json 去掉
+        内部来源标记（``_meta``）后合并当前来源标记；快照里为空的字段通过
+        ``_clear_fields`` 清空。恢复前的快照 reason 为 ``rollback``，并记录
+        ``restored_from_revision_id``。
+        """
+        from modules.world.repositories import EntityRevisionRepository
+
+        rid = parse_uuid(revision_id, "revision_id")
+        eid = parse_uuid(entity_id, "entity_id")
+        nid = parse_uuid(novel_id, "novel_id")
+
+        revision = await EntityRevisionRepository().get_revision(db, rid)
+        if revision is None or revision.novel_id != nid or revision.entity_id != eid:
+            raise NotFoundError(f"Revision {revision_id} not found")
+
+        current = await self.repo.get_for_update(db, eid)
+        self._assert_found_in_novel(current, entity_id, nid)
+        assert current is not None
+
+        snapshot = dict(revision.snapshot or {})
+        snapshot_content = snapshot.get("content_json")
+        restored_content = (
+            dict(snapshot_content) if isinstance(snapshot_content, dict) else {}
+        )
+        current_meta = dict((current.content_json or {}).get("_meta") or {})
+        restored_content.pop("_meta", None)
+        restored_content["_meta"] = current_meta
+
+        clear_fields = frozenset(
+            field
+            for field in ("summary", "public_info", "hidden_truth")
+            if _is_empty_text(snapshot.get(field))
+        )
+
+        data = CoreEntityUpdate(
+            entity_type=snapshot.get("entity_type"),
+            name=snapshot.get("name"),
+            summary=snapshot.get("summary"),
+            public_info=snapshot.get("public_info"),
+            hidden_truth=snapshot.get("hidden_truth"),
+            content_json=restored_content,
+            importance=snapshot.get("importance"),
+            importance_level=snapshot.get("importance_level"),
+            reveal_level=snapshot.get("reveal_level"),
+        )
+        return await self.update(
+            db,
+            entity_id,
+            data,
+            novel_id=novel_id,
+            expected_updated_at=expected_updated_at,
+            require_edit_baseline=True,
+            _revision_reason="rollback",
+            _restored_from_revision_id=revision_id,
+            _clear_fields=clear_fields,
         )
 
     async def delete(
@@ -827,28 +935,13 @@ class WorldEntityService(
                 EntityRevisionService,
             )
 
-            if type_changed:
-                await EntityRevisionService().create_snapshot(
-                    db,
-                    entity_id=entity_id,
-                    novel_id=novel_id,
-                    revision_reason="manual_update",
-                )
-            else:
-                try:
-                    async with db.begin_nested():
-                        await EntityRevisionService().create_snapshot(
-                            db,
-                            entity_id=entity_id,
-                            novel_id=novel_id,
-                            revision_reason="manual_update",
-                        )
-                except Exception as exc:
-                    logger.warning(
-                        "实体 %s 编辑后采用前快照失败: %s",
-                        identifier_for_log(entity_id),
-                        exception_summary_for_log(exc),
-                    )
+            # 编辑后采用前的快照失败即整体失败（§5.5），不再尽力而为。
+            await EntityRevisionService().create_snapshot(
+                db,
+                entity_id=entity_id,
+                novel_id=novel_id,
+                revision_reason="manual_promote",
+            )
 
         approved_by = data.approved_by or "manual"
         if _from_suggestion_queue:

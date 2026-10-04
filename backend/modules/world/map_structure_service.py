@@ -129,7 +129,9 @@ class MapStructureService:
         return row
 
     @staticmethod
-    def response(row: MapAtlasRevision) -> MapRevisionResponse:
+    def response(
+        row: MapAtlasRevision, *, change_note: str | None = None
+    ) -> MapRevisionResponse:
         return MapRevisionResponse(
             id=str(row.id),
             node_id=str(row.node_id),
@@ -139,6 +141,8 @@ class MapStructureService:
             geometry_hash=row.geometry_hash,
             problems=row.problems,
             created_at=row.created_at,
+            writing_chapter_index=row.writing_chapter_index,
+            change_note=change_note,
         )
 
     async def map_links(self, db, novel_id: str, query: MapLinkQuery) -> MapLinksResponse:
@@ -468,6 +472,10 @@ class MapStructureService:
                     # An author edit owns the relation from now on.
                     item.generated_by_task_id = None
         source_problems = await self.validate_document(db, novel_id, node, document)
+        from modules.world.services.common import current_writing_chapter_index
+
+        # 内容保护触发器覆盖新列：writing_chapter_index 只能在插入时写入。
+        writing_chapter_index = await current_writing_chapter_index(db, novel_id)
         row = MapAtlasRevision(
             novel_id=node.novel_id,
             node_id=node.id,
@@ -476,6 +484,7 @@ class MapStructureService:
             document=document.model_dump(mode="json"),
             geometry_hash=geometry_hash(document),
             problems=[p.model_dump() for p in [*diagnose(document), *source_problems]],
+            writing_chapter_index=writing_chapter_index,
         )
         db.add(row)
         await db.flush()
@@ -485,6 +494,8 @@ class MapStructureService:
         return self.response(row)
 
     async def history(self, db, novel_id, node_id):
+        from modules.world.services.revision_notes import load_revision_notes
+
         await self.node(db, novel_id, node_id)
         rows = (
             await db.scalars(
@@ -497,7 +508,10 @@ class MapStructureService:
                 .limit(50)
             )
         ).all()
-        return [self.response(row) for row in rows]
+        notes = await load_revision_notes(
+            db, novel_id, "map", [str(row.id) for row in rows]
+        )
+        return [self.response(row, change_note=notes.get(row.id)) for row in rows]
 
     async def preview_revision(self, db, novel_id, node_id, revision_id):
         await self.node(db, novel_id, node_id)
@@ -638,6 +652,7 @@ class MapStructureService:
                     problems=list(row.problems),
                     confirmation_id=row.confirmation_id,
                     context_fingerprint=row.context_fingerprint,
+                    writing_chapter_index=result.writing_chapter_index,
                 )
                 # The remaining full candidate retains the same dependency-valid
                 # document and exact confirmation; only its comparison base changes.
