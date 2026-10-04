@@ -56,20 +56,26 @@ def world_scope_entries(
     author_messages 是作者指令而非资料，不进入知识来源清单。
     """
     entries: list[KnowledgeSourceEntry] = []
+    seen: set[str] = set()
     for ref in source_refs:
         if ref.source_type == "author_messages":
             continue
-        digest = ref.source_hash or hashlib.sha256(
-            str(ref.source_id or ref.page_id or "").encode("utf-8")
-        ).hexdigest()
+        digest = (
+            ref.source_hash
+            or hashlib.sha256(
+                str(ref.source_id or ref.page_id or "").encode("utf-8")
+            ).hexdigest()
+        )
+        source_id = str(ref.source_id or ref.page_id or ref.chapter_index or "")
+        source_key = f"{ref.source_type}:{source_id or 'page'}:{digest[:12]}"
+        if source_key in seen:
+            continue
+        seen.add(source_key)
         entries.append(
             KnowledgeSourceEntry(
-                source_key=(
-                    f"{ref.source_type}:{ref.source_id or ref.chapter_index or 'page'}"
-                    f":{digest[:12]}"
-                ),
+                source_key=source_key,
                 source_type=ref.source_type,
-                source_id=str(ref.source_id or ref.page_id or ref.chapter_index or ""),
+                source_id=source_id,
                 content_hash=digest,
                 label=ref.title or ref.source_type,
                 dimensions=_ref_dimensions(ref.source_type),
@@ -235,9 +241,7 @@ def structured_repair_factory(
         repair_request.messages.append(
             LLMMessage(
                 role="user",
-                content=REPAIR_INSTRUCTION_TEMPLATE.format(
-                    findings_block=findings_block
-                ),
+                content=REPAIR_INSTRUCTION_TEMPLATE.format(findings_block=findings_block),
             )
         )
         repaired = await run_structured(

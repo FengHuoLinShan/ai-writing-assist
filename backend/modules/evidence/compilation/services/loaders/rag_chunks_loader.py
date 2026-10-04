@@ -109,7 +109,12 @@ async def _default_fused_reranker(
 ) -> _FusedRerankExecution:
     from core.config import get_settings
 
-    if not should_run or not get_settings().reranker_enabled or len(chunks) <= 1:
+    if (
+        plan.purpose == "ask_world"
+        or not should_run
+        or not get_settings().reranker_enabled
+        or len(chunks) <= 1
+    ):
         return _FusedRerankExecution(chunks=chunks)
 
     from modules.evidence.indexing.reranker import (

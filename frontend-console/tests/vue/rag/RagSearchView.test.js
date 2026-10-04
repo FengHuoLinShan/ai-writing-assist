@@ -329,6 +329,42 @@ describe("问世界", () => {
     expect(globalThis.api.generate.saveAskWorldSuggestion).not.toHaveBeenCalled()
   })
 
+  it("保存期间重复点击只提交一次，失败后回答保留并可重试", async () => {
+    overrideRouterQuery("")
+    let rejectSave
+    globalThis.api.generate.saveAskWorldSuggestion = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => {
+        rejectSave = reject
+      }))
+      .mockResolvedValueOnce({ suggestion: { status: "pending" } })
+    const wrapper = mount(RagSearchView, {
+      props: { projectId: "p1", characters: [], scenes: [] },
+    })
+    await wrapper.find("#rag-search-input").setValue("旧塔铜铃来自哪里")
+    await wrapper.find('[data-action="ask-world"]').trigger("click")
+    await vi.waitFor(() => expect(wrapper.find('[data-action="save-ask-world-answer"]').exists()).toBe(true))
+
+    const save = wrapper.find('[data-action="save-ask-world-answer"]')
+    await save.trigger("click")
+    await save.trigger("click")
+    expect(globalThis.api.generate.saveAskWorldSuggestion).toHaveBeenCalledTimes(1)
+    expect(save.attributes("disabled")).toBeDefined()
+
+    rejectSave(Object.assign(new Error("boom"), { status: 500 }))
+    await vi.waitFor(() => expect(globalThis.toast).toHaveBeenCalledWith(
+      "保存失败，回答仍保留在当前页面。",
+      "error",
+    ))
+    expect(wrapper.text()).toContain("铜铃来自旧塔守卫室")
+    expect(wrapper.text()).not.toContain("已进入待处理")
+    expect(wrapper.find('[data-action="save-ask-world-answer"]').attributes("disabled")).toBeUndefined()
+
+    await wrapper.find('[data-action="save-ask-world-answer"]').trigger("click")
+    await vi.waitFor(() => expect(wrapper.text()).toContain("已进入待处理，不会直接改写正式设定"))
+    expect(globalThis.api.generate.saveAskWorldSuggestion).toHaveBeenCalledTimes(2)
+  })
+
   it("停止后保留诚实终态，切换项目不会接收迟到回答", async () => {
     overrideRouterQuery("")
     let resolveRequest
