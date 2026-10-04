@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-10-04",
+  "plan": "docs/plans/2026-10-04-ci-optimization.md",
+  "method": "Each pair has identical browser test/runtime sources and dependency locks. Cross-pair source revisions differ; compare normalized paired effects. Durations are job wall time, not rounded billing minutes.",
+  "source_comparison_pathspecs": [
+    "frontend-console",
+    "backend",
+    ":(exclude)frontend-console/Dockerfile",
+    ":(exclude)frontend-console/docs/**",
+    ":(exclude)**/*.md",
+    ":(exclude)backend/tests/**",
+    ":(exclude)backend/modules/*/tests/**"
+  ],
+  "excluded": {
+    "serial_run": 37134433083,
+    "head": "b0740cdcf7ce94bfc0e0614538ffde63f3c7f2e3",
+    "reason": "Against sharded d8e48e624, spreadsheet E2E and backend/uv.lock differ. Original raw summary preserved at /tmp/ci-opt-sharding-comparison-20261004.json."
+  },
+  "pairs": [
+    {
+      "serial": {
+        "run_id": 37136799660,
+        "attempt": 1,
+        "head": "0576e6f7ad40bf9cac7fd61b3a5ee6982b7f0cfa",
+        "browser_job_seconds": 1034
+      },
+      "sharded": {
+        "run_id": 37136854145,
+        "attempt": 1,
+        "head": "d8e48e6248d23b5024b343da998152464f1da859",
+        "classify_start_to_aggregate_end_seconds": 604,
+        "browser_pipeline_runner_seconds": 1027
+      },
+      "functional_tests": 298,
+      "auxiliary_tests": 8,
+      "runtime_and_lock_diff": [],
+      "reduction_percent": 41.586,
+      "runner_ratio": 0.99323
+    },
+    {
+      "serial": {
+        "run_id": 37136799660,
+        "attempt": 2,
+        "head": "0576e6f7ad40bf9cac7fd61b3a5ee6982b7f0cfa",
+        "browser_job_seconds": 1072
+      },
+      "sharded": {
+        "run_id": 37136854145,
+        "attempt": 2,
+        "head": "d8e48e6248d23b5024b343da998152464f1da859",
+        "classify_start_to_aggregate_end_seconds": 621,
+        "browser_pipeline_runner_seconds": 1155
+      },
+      "functional_tests": 298,
+      "auxiliary_tests": 8,
+      "runtime_and_lock_diff": [],
+      "reduction_percent": 42.071,
+      "runner_ratio": 1.077425
+    },
+    {
+      "serial": {
+        "run_id": 37161725735,
+        "attempt": 1,
+        "head": "059e144808779729b46f07271635aa6e48da3422",
+        "browser_job_seconds": 1065
+      },
+      "sharded": {
+        "run_id": 37163096452,
+        "attempt": 1,
+        "head": "c89516a731e6fe94b0a22f35c5104752e48ba504",
+        "classify_start_to_aggregate_end_seconds": 610,
+        "browser_pipeline_runner_seconds": 1148
+      },
+      "functional_tests": 302,
+      "auxiliary_tests": 8,
+      "runtime_and_lock_diff": [],
+      "reduction_percent": 42.723,
+      "runner_ratio": 1.077934
+    }
+  ],
+  "summary": {
+    "paired_reduction_median_percent": 42.071,
+    "paired_runner_ratio_median": 1.077425,
+    "all_sharded_waits_under_12_minutes": true,
+    "all_runner_ratios_under_1_25": true,
+    "decision": "Keep sharding. Supersedes old 39.9 percent overall claim and 1.12 ratio."
+  },
+  "boundaries": [
+    "Three pairs only; no long-term or P95 claim.",
+    "Functional inventory grows from 298 to 302 across pairs, with 8 auxiliary tests each.",
+    "Pair 3 production Dockerfile digest differs but the host-run browser workflow does not consume that image.",
+    "Cancellation remains unit-tested only; no dedicated platform cancellation acceptance.",
+    "P2 remains deferred pending new bottleneck evidence."
+  ]
+}

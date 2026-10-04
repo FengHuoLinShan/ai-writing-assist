@@ -3,7 +3,7 @@
 - **状态**: Accepted / Phase 0 implemented
 - **日期**: 2026-08-27
 - **关联 Spec**:
-  [`2026-08-27-world-authority-phase0-spec.md`](../superpowers/specs/2026-08-27-world-authority-phase0-spec.md)
+  [`2026-08-27-world-authority-phase0-spec.md`](../archive/superpowers/specs/2026-08-27-world-authority-phase0-spec.md)
 - **研究依据**:
   [`world-object-worldbook-unification-research.md`](../references/world-object-worldbook-unification-research.md)
 

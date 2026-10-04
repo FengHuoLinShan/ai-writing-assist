@@ -2,7 +2,7 @@
 
 - **状态**: Accepted
 - **日期**: 2026-07-15
-- **关联设计**: `docs/superpowers/specs/2026-07-14-world-bible-module-v2-design.md`
+- **关联设计**: `docs/archive/superpowers/specs/2026-07-14-world-bible-module-v2-design.md`
 - **取代范围**: 仅取代 ADR-0006 第 4 节中“现有世界书 API additive 保留”的世界书 AI
   接口共存决定；ADR-0006 的 world/context 所有权、页面非事实源和 Activation Profile
   决定继续有效。

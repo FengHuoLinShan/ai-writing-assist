@@ -21,6 +21,7 @@ central_documents = [
   "development-guide.md",
   "testing-guide.md",
   "docs/README.md",
+  "docs/product/new-user-guide.md",
   "docs/00_整体设计.md",
   "docs/01_数据库设计.md",
   "docs/architecture/README.md",
@@ -35,9 +36,11 @@ database_catalog = "docs/01_数据库设计.md"
 frontend_route_catalogs = ["docs/modules/14_frontend.md"]
 task_catalogs = ["backend/infrastructure/tasks/README.md"]
 prompt_catalog = "docs/prompts/Prompt体系设计.md"
+# Documents that must list every business module by name. docs/README.md is
+# intentionally not a module catalog: it defers module inventory to this
+# registry and the catalogs below (see docs/README.md "当前状态").
 module_catalogs = [
   "CONTEXT.md",
-  "docs/README.md",
   "docs/00_整体设计.md",
   "docs/architecture/README.md",
 ]

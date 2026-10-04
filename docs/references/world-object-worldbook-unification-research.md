@@ -1056,8 +1056,8 @@ Spec 与 fixtures 中形成唯一映射；ADR 接受和实际测试落地前，�
 
 本研究到此停止扩张。第 12 节要求的 Proposed
 [`ADR-0017`](../adr/0017-world-fact-authority-and-canon-revisions.md)、
-[`Phase 0 实施 Spec`](../superpowers/specs/2026-08-27-world-authority-phase0-spec.md) 与
-[`canonical fixtures`](world-authority-canonical-fixtures-v1.json) 已完成起草。下一步是评审并接受或修订 ADR，之后按
+[`Phase 0 实施 Spec`](../archive/superpowers/specs/2026-08-27-world-authority-phase0-spec.md) 与
+[`canonical fixtures`](../../backend/modules/world/tests/fixtures/world-authority-canonical-fixtures-v1.json) 已完成起草。下一步是评审并接受或修订 ADR，之后按
 Spec 实现；Phase 1 可独立规划，Phase 2+ 在 ADR 接受前不开工。
 
 后置研究只在相应 Phase 出现真实需求或反例时启动：A 型受控正文 owner、TargetRef 自动重锚定、自然语言合并、
@@ -2387,8 +2387,8 @@ source、目标变化与 expected head 封成内联 `AdmissionInputValue`，在�
 门禁见第 15 节。
 
 本节保留研究层面的完整交接。可执行工程合同以
-[`Phase 0 实施 Spec`](../superpowers/specs/2026-08-27-world-authority-phase0-spec.md) 和
-[`canonical fixtures`](world-authority-canonical-fixtures-v1.json) 为准；两者与 ADR-0017 一样仍是 Proposed。
+[`Phase 0 实施 Spec`](../archive/superpowers/specs/2026-08-27-world-authority-phase0-spec.md) 和
+[`canonical fixtures`](../../backend/modules/world/tests/fixtures/world-authority-canonical-fixtures-v1.json) 为准；两者与 ADR-0017 一样仍是 Proposed。
 
 ### 12.1 当前资产到逻辑职责
 

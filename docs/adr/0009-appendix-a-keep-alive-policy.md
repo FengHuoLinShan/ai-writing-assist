@@ -1,6 +1,6 @@
 # ADR-0009 附录 A — 活 DOM 缓存裁定（所有视图移出 keep-alive）
 
-- **状态**: Accepted
+- **状态**: Accepted / Implemented
 - **日期**: 2026-07-19
 - **兑现**: ADR-0009 原路线图延后的 writing/outline 缓存设计与最终 Vue shell 收口
 

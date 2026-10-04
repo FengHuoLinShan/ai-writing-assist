@@ -33,7 +33,6 @@ make docs-check BASE_REF=origin/main
 | [ADR-0016](0016-worldbook-import-and-validation-governance.md) | Accepted | world 拥有受限文本目录导入与校验领域状态；外部脚本不执行，政策须作者激活，Ruby/WorldCheck 只作本地验收 oracle。 |
 | [ADR-0017](0017-world-fact-authority-and-canon-revisions.md) | Accepted / Phase 0 implemented | 以 `novel_id` 级完整 CanonRevision、内联准入回执和单向 family cutover 收敛世界事实权威；Phase 0 已交付 C0、Page 选择与封闭回放。 |
 | [ADR-0018](0018-versioned-author-source-context-for-rp.md) | Accepted / Implemented | RP 只能以同 owner、显式版本化的 author 资料只读绑定进入 Evidence；source 读与 interaction 写严格分离。 |
-
 | [ADR-0019](0019-local-theme-resource-packages.md) | Accepted | 现代简约双模式、浏览器本地受限主题资源包、无服务端上传及手机统一编辑器。 |
 | [ADR-0020](0020-world-library-topics-and-workspace.md) | Accepted | 资料库主题目录（嵌套/多主题引用/发布转换）与作者工作区（收藏/最近访问/视图偏好）归 World 模块自有；统一 `/api/world/library` 只读合并分页，目录不构成事实依赖。 |
 | [ADR-0021](0021-world-cocreation-session-persistence.md) | Accepted | 共创终态消息和 checkpoint 指针已持久化并以 CAS 推进；完整历史阅读界面、同步聊天回执和完整 world-state 增量续写尚未完成，不自动采用。 |

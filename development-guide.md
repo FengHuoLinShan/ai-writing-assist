@@ -15,6 +15,10 @@ AI 长篇小说结构化创作引擎 (AI Novel Structural Engine) v2.0 — a str
 directory-local `AGENTS.md`, then the target module README. `CLAUDE.md` files only import the adjacent
 `AGENTS.md` for Claude Code; they are not a second architecture or command reference.
 
+当前文档按 [docs/README.md](docs/README.md) 导航，活跃计划见 `docs/plans/`，
+历史设计和审计见 `docs/archive/`。用户指南源文见
+[新用户指南](docs/product/new-user-guide.md)；目录整理不改变工程命令与运行边界。
+
 ## Commands
 
 ### One-command dev start

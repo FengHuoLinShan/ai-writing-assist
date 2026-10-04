@@ -1,6 +1,6 @@
 # 世界资料库补全执行记录
 
-依据：[补全计划](../product/world-library-completion-plan.md)与[审查报告](2026-09-09-world-library-review.md)。目标为长期作者：找到资料、安全修改、继续此前决定、审阅成果、核对变更影响。真实作者喜好与模型质量仍需单独验证。
+依据：[补全计划](../archive/world-library-completion-plan.md)与[审查报告](2026-09-09-world-library-review.md)。目标为长期作者：找到资料、安全修改、继续此前决定、审阅成果、核对变更影响。真实作者喜好与模型质量仍需单独验证。
 
 ## 已实施的能力
 

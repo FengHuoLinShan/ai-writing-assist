@@ -4,6 +4,11 @@
 目标模块内部测试可按该文件直接检查 implementation，跨模块行为仍优先从 facade、DI port 或
 HTTP 验证。
 
+World Authority 的规范字节夹具位于
+`backend/modules/world/tests/fixtures/world-authority-canonical-fixtures-v1.json`，
+由 `test_world_authority.py` 读取；历史验收记录见 `docs/acceptance/`，不作为当前门禁结果。
+文档移动后运行 `make docs-check` 验证当前索引与用户指南的链接。
+
 ## 技术覆盖离线实验
 
 `make eval-technical-coverage` 使用 Python 3.13 与锁定的 `ci/eval/experiments` extras，

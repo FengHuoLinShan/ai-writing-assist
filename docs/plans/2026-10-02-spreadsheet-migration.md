@@ -1,6 +1,6 @@
 # 表格迁移（xlsx / csv）并行开发计划
 
-- 任务记录：[`.agent/tasks/2026/T-20261002-spreadsheet-migration/TASK.md`](../../../.agent/tasks/2026/T-20261002-spreadsheet-migration/TASK.md)
+- 任务记录：[`.agent/tasks/2026/T-20261002-spreadsheet-migration/TASK.md`](../../.agent/tasks/2026/T-20261002-spreadsheet-migration/TASK.md)
 - 集成分支与 worktree：`codex/spreadsheet-migration`，路径 `../ai-writing-assist-spreadsheet`。基线为
   `origin/main@0d555c463`，Alembic head 为 `20260929_world_object_image_candidates`。
 - 新 ADR 编号：ADR-0030。如编号已被占用，顺延并同步本文。

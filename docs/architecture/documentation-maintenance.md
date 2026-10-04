@@ -43,6 +43,11 @@
 新增、移动或归档 `docs/architecture/`、`docs/modules/`、模块 README 或 ADR 时，先更新
 清单/ADR 索引，再运行门禁。清单只描述“哪些文档必须存在与何时检查”，不得复制易变实现。
 
+文档索引 `docs/README.md` 只做导航，模块清单由机器登记与架构目录维护；
+用户指南 `docs/product/new-user-guide.md` 纳入链接门禁。历史审计、设计和计划分别存于
+`docs/archive/audit/` 与 `docs/archive/superpowers/`，验收记录保留 `docs/acceptance/`。
+移动文档须同步相对链接和调用方；根目录 `NOTES.md`、`DECISIONS.md` 保留原用途。
+
 ## 3. 什么算“较大开发”
 
 满足任一条件即启动本流程：

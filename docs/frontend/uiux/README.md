@@ -12,9 +12,11 @@
 
 ## 页面验收
 
-[写作](pages/writing.md) · [人物与世界](pages/world.md) · [写作首页](pages/today.md) ·
+[写作](pages/writing.md)（today 为其兼容别名） · [人物与世界](pages/world.md) ·
 [故事结构](pages/outline-scene.md) · [查找](pages/rag.md) · [AI 工具](pages/generate.md) ·
 [设置](pages/settings.md) · [作品](pages/project.md) · [互动故事](pages/rp-experience.md) · [地图](pages/map.md)
+
+canonical 路由 demo-rp（公开演示 RP）暂无页面规范，属已知覆盖缺口。
 
 前端回归以用户任务的功能等价、数据正确和适用操作的幂等性为验收标准。
 允许改变入口、步骤、定位器、组件和 DOM 结构；定位方式是测试适配细节，不是产品合同。

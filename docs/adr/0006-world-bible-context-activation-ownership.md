@@ -2,7 +2,7 @@
 
 - **状态**: Accepted / Amended（2026-08-21 context 能力归 Evidence）
 - **日期**: 2026-07-15
-- **关联设计**: `docs/superpowers/specs/2026-07-14-world-bible-module-v2-design.md`
+- **关联设计**: `docs/archive/superpowers/specs/2026-07-14-world-bible-module-v2-design.md`
 
 ## 背景
 

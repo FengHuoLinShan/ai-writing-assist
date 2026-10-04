@@ -4,9 +4,9 @@
 
 - 状态：Accepted / Implemented（Phase 0）。
 - 日期：2026-08-27。
-- 架构决策：[`ADR-0017`](../../adr/0017-world-fact-authority-and-canon-revisions.md)。
+- 架构决策：[`ADR-0017`](../../../adr/0017-world-fact-authority-and-canon-revisions.md)。
 - canonical fixtures：
-  [`world-authority-canonical-fixtures-v1.json`](../../references/world-authority-canonical-fixtures-v1.json)。
+  [`world-authority-canonical-fixtures-v1.json`](../../../../backend/modules/world/tests/fixtures/world-authority-canonical-fixtures-v1.json)。
 - 影响模块：`world` 为 owner；`account` 提供 authorizer contract；`project` 保持 owner/active
   gate并在作者项目创建时初始化 C0。`task_attempt` wire 已封闭，但当前无可用的后台
   Canon admission 消费者，因此未增加空执行入口。
