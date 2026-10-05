@@ -351,6 +351,14 @@ PNG 后才进入地图册私有 S3。此例外不改变 imports 的文稿上传�
   重导场景，未发布目标用 `local:{dataset_key}:{rel_path}` 约定；歧义/未解析/未纳入
   保留链接原文不建引用），物化页的 `baseline_content_hash` 按含 refs 字段组在同一
   事务内写入；含悬空链接的页面发布校验会因 dangling 链接整体阻断，预览向作者披露。
+  待发布引用是工作稿的合法持久态：公共草稿 create/update 路径放行 `local:` 引用
+  （编辑器整份回传不再 422）；发布时把目标已发布的待发布引用物化为真实引用并重算
+  指纹（发布预览与 SEAL 同口径物化，凭预览 `impact_scope_hash` 发布不得误报冲突），
+  目标仍未发布的保持 `local:` 待发布态随页落地、不阻断发布（Wiki 互链否则死锁），
+  在发布影响预演与校验回执按 `pending_page_reference` 遗漏如实披露；语义缺口清单
+  与生成中心资产目录跳过待发布引用，目标发布后经物化或重导入生效。
+  同项目多个数据集并发 apply 声明同一新分类时，分类创建包 savepoint，唯一约束
+  冲突折算为「已存在」或业务错误，不再冒 500。
   重导入以
   `source_key/source_hash/baseline_content_hash` 做三方比较，
   双变和源缺失进入 `worldbook_import_conflict`，不覆盖、不删除。apply 先取

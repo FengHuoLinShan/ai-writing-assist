@@ -13,6 +13,7 @@ from typing import Any
 
 import yaml
 from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from yaml.tokens import AliasToken, AnchorToken, TagToken
 
@@ -394,7 +395,9 @@ class WorldbookImportService:
                 dataset,
                 refs=refs,
             )
-            if dataset is not None and item.action in {"update", "preserve"}:
+            # preserve 已在前面的分支整体 continue，此处只会是 update：
+            # 接续绑定/来源更新重写整份 meta 时必须携带既有 source_path。
+            if dataset is not None and item.action == "update":
                 previous = analysis["existing_sources"].get(item.source_key) or analysis[
                     "bound_sources"
                 ].get(item.source_key)
@@ -514,18 +517,34 @@ class WorldbookImportService:
             if exists is not None:
                 continue
             try:
-                await self._lifecycle.create_category(
-                    db,
-                    WorldBibleCategoryCreate(
-                        novel_id=novel_id,
-                        category_key=key,
-                        name=key,
-                        description="由世界书导入声明的资料类型自动创建",
-                        color="#475569",
-                        icon="资料",
-                        sort_order=500,
-                    ),
+                # 导入锁按 dataset_key 划分，同项目两个数据集并发 apply 可能
+                # 同时走到这里建同一分类；savepoint 包住 check-then-insert，
+                # 输给唯一约束时回滚本条并按「已存在」继续，不再冒 500。
+                async with db.begin_nested():
+                    await self._lifecycle.create_category(
+                        db,
+                        WorldBibleCategoryCreate(
+                            novel_id=novel_id,
+                            category_key=key,
+                            name=key,
+                            description="由世界书导入声明的资料类型自动创建",
+                            color="#475569",
+                            icon="资料",
+                            sort_order=500,
+                        ),
+                    )
+            except IntegrityError:
+                exists = await db.scalar(
+                    select(WorldBibleCategory.id).where(
+                        WorldBibleCategory.novel_id == nid,
+                        WorldBibleCategory.category_key == key,
+                    )
                 )
+                if exists is None:
+                    raise ValidationError(
+                        "World Bible category for imported page_type "
+                        f"is unavailable: {key}"
+                    )
             except ConflictError as exc:
                 raise ValidationError(
                     f"World Bible category for imported page_type is unavailable: {key}"

@@ -3592,6 +3592,7 @@ class WorldBibleImpactOmission(BaseModel):
     reason: Literal[
         "invalid_page_reference",
         "unavailable_page_reference",
+        "pending_page_reference",
         "response_limit",
     ]
     referring_page_id: OptionalUuidStr = None

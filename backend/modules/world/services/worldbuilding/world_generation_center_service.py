@@ -3275,6 +3275,10 @@ class WorldGenerationCenterService:
                 raise ValidationError(
                     f"Unsupported World Bible asset ref: {asset_identity[0]}"
                 )
+            if asset_identity[1].startswith("local:"):
+                # 资料集待发布引用（m1-contract 第 4 条）：目标尚未发布，
+                # 不进生成上下文资产目录；发布后经物化或重导入生效。
+                continue
             parsed_ids[asset_identity] = parse_uuid(
                 asset_identity[1],
                 "asset_ref_id",

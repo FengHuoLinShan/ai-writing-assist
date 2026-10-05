@@ -2045,7 +2045,9 @@ async def create_bible_draft(
     data: WorldBiblePageDraftCreate,
 ) -> WorldBiblePageDraftResponse:
     await require_active_project(db, data.novel_id)
-    return await _bible_lifecycle_service.create_draft(db, data)
+    # 工作稿允许携带 `local:{dataset_key}:{rel_path}` 资料集待发布引用
+    # （m1-contract 第 4 条，导入物化与采用包先例同型）；发布链负责物化。
+    return await _bible_lifecycle_service.create_draft(db, data, allow_local_refs=True)
 
 
 @router.get("/bible/drafts/{draft_id}", response_model=WorldBiblePageDraftResponse)
@@ -2083,6 +2085,8 @@ async def update_bible_draft(
         data,
         expected_updated_at=data.expected_updated_at,
         require_edit_baseline=True,
+        # 编辑器每次保存整份回传 refs；导入草稿携带的资料集待发布引用须放行。
+        allow_local_refs=True,
     )
 
 

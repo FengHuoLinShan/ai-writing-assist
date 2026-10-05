@@ -629,8 +629,21 @@ class WorldBibleLifecycleService:
         )
         if page is not None and page.version_number != draft.base_version_number:
             raise ConflictError("World Bible page changed after this draft was created")
-        await self._validate_publish_draft(db, draft)
-        return await self._build_publish_impact(db, draft, page)
+        (
+            materialized_refs,
+            materialized_sections,
+        ) = await self._materialize_local_page_refs(
+            db,
+            draft.novel_id,
+            list(draft.linked_asset_refs_json or []),
+            list(draft.sections_json or []),
+        )
+        await self._validate_publish_draft(
+            db, draft, refs=materialized_refs, sections=materialized_sections
+        )
+        return await self._build_publish_impact(
+            db, draft, page, refs=materialized_refs, sections=materialized_sections
+        )
 
     async def preview_package_page(
         self,
@@ -801,8 +814,21 @@ class WorldBibleLifecycleService:
                 draft_id,
                 for_update=True,
             )
-        await self._validate_publish_draft(db, draft)
-        current_impact = await self._build_publish_impact(db, draft, page)
+        (
+            materialized_refs,
+            materialized_sections,
+        ) = await self._materialize_local_page_refs(
+            db,
+            draft.novel_id,
+            list(draft.linked_asset_refs_json or []),
+            list(draft.sections_json or []),
+        )
+        await self._validate_publish_draft(
+            db, draft, refs=materialized_refs, sections=materialized_sections
+        )
+        current_impact = await self._build_publish_impact(
+            db, draft, page, refs=materialized_refs, sections=materialized_sections
+        )
         if expected_impact_scope_hash is not None:
             if current_impact.impact_scope_hash != expected_impact_scope_hash:
                 raise ConflictError(
@@ -822,6 +848,11 @@ class WorldBibleLifecycleService:
                 target_id=draft_id,
                 target_hash=current_impact.impact_scope_hash,
             )
+        # 校验与影响口径通过后才把物化结果写回工作稿（页面随后的落地字段取自
+        # 工作稿，工作稿本身删除）；提前写回会被 autoflush 抬升 updated_at，
+        # 破坏与发布预览的 impact_scope_hash 一致性。
+        draft.linked_asset_refs_json = materialized_refs
+        draft.sections_json = materialized_sections
         if draft.page_id is None:
             page = WorldBiblePage(
                 novel_id=draft.novel_id,
@@ -896,6 +927,7 @@ class WorldBibleLifecycleService:
         omissions = {
             "invalid_page_reference": "有页面引用格式损坏",
             "unavailable_page_reference": "有页面引用不可用或不在当前项目",
+            "pending_page_reference": "有引用目标尚未发布",
             "response_limit": "部分显式下游未在回执中展开",
         }
         receipt = WorldBibleValidationReceipt(
@@ -927,15 +959,116 @@ class WorldBibleLifecycleService:
         self,
         db: AsyncSession,
         draft: WorldBiblePageDraft,
+        *,
+        refs: list[dict[str, Any]] | None = None,
+        sections: list[dict[str, Any]] | None = None,
     ) -> None:
+        """校验随发布落地的内容；refs/sections 传发布物化后的取值。
+
+        发布链允许 `local:{dataset_key}:{rel_path}` 资料集约定引用（未发布
+        目标的待发布态，m1-contract 第 4 条）：可解析项先经
+        `_materialize_local_page_refs` 物化，其余保留原样并在影响回执按
+        待发布遗漏披露，不在此拒绝。
+        """
         await self._ensure_category_key(db, draft.novel_id, draft.page_type)
         await self._validate_page_content(
             db,
             novel_id=draft.novel_id,
             template_key=draft.template_key,
-            sections=draft.sections_json,
-            refs=draft.linked_asset_refs_json,
+            sections=draft.sections_json if sections is None else sections,
+            refs=draft.linked_asset_refs_json if refs is None else refs,
+            allow_local_refs=True,
         )
+
+    @classmethod
+    async def _materialize_local_page_refs(
+        cls,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        refs: list[dict[str, Any]],
+        sections: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """把目标已发布的资料集待发布引用物化为真实页引用。
+
+        `local:{dataset_key}:{rel_path}` 指向的页面若已是 canonical/confirmed，
+        按 m1-contract 第 4 条引用的采用包物化先例重写 target_id 并重算
+        target_hash 与分区引用指纹。只读不改库：发布 SEAL 在通过校验与影响
+        口径比对后才把返回值写回工作稿；预览与 SEAL 用同一物化结果，保证
+        impact_scope_hash 口径一致。目标仍未发布的引用保持待发布态。
+        """
+        wanted: set[tuple[str, str]] = set()
+        for ref in refs:
+            target_id = cls._raw_ref_id(ref)
+            if not target_id.startswith("local:"):
+                continue
+            dataset_key, sep, rel_path = target_id[len("local:") :].partition(":")
+            if sep and len(dataset_key) == 64 and rel_path:
+                wanted.add((dataset_key, rel_path))
+        if not wanted:
+            return refs, sections
+        rows = (
+            (
+                await db.execute(
+                    select(WorldBiblePage).where(
+                        WorldBiblePage.novel_id == novel_id,
+                        WorldBiblePage.status.in_(cls._ADOPTED_STATUSES),
+                        WorldBiblePage.page_meta_json["worldbook_import"]["dataset_key"]
+                        .as_string()
+                        .in_(sorted({key for key, _ in wanted})),
+                        WorldBiblePage.page_meta_json["worldbook_import"]["rel_path"]
+                        .as_string()
+                        .in_(sorted({path for _, path in wanted})),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        matches: dict[tuple[str, str], WorldBiblePage] = {}
+        for row in rows:
+            meta = (row.page_meta_json or {}).get("worldbook_import") or {}
+            pair = (str(meta.get("dataset_key") or ""), str(meta.get("rel_path") or ""))
+            if pair in wanted:
+                matches.setdefault(pair, row)
+        if not matches:
+            return refs, sections
+        hash_map: dict[str, str] = {}
+        materialized_refs: list[dict[str, Any]] = []
+        for ref in refs:
+            target_id = cls._raw_ref_id(ref)
+            page = None
+            if target_id.startswith("local:"):
+                dataset_key, sep, rel_path = target_id[len("local:") :].partition(":")
+                if sep and len(dataset_key) == 64 and rel_path:
+                    page = matches.get((dataset_key, rel_path))
+            if page is None:
+                materialized_refs.append(ref)
+                continue
+            rewritten = dict(ref)
+            for field in ("target_id", "id", "source_id"):
+                if str(rewritten.get(field) or "").startswith("local:"):
+                    rewritten[field] = str(page.id)
+            rewritten["target_hash"] = cls.asset_ref_hash(rewritten)
+            hash_map[cls.asset_ref_hash(ref)] = str(rewritten["target_hash"])
+            materialized_refs.append(rewritten)
+        materialized_sections = [
+            dict(section) if isinstance(section, dict) else section
+            for section in sections
+        ]
+        for section in materialized_sections:
+            if not isinstance(section, dict):
+                continue
+            ref_hashes = section.get("linked_asset_ref_hashes") or []
+            if ref_hashes:
+                section["linked_asset_ref_hashes"] = [
+                    hash_map.get(str(value).removeprefix("sha256:"), str(value))
+                    for value in ref_hashes
+                ]
+        return materialized_refs, materialized_sections
+
+    @staticmethod
+    def _raw_ref_id(ref: dict[str, Any]) -> str:
+        return str(ref.get("target_id") or ref.get("id") or ref.get("source_id") or "")
 
     @staticmethod
     async def _lock_page_universe(db: AsyncSession, novel_id: uuid.UUID) -> None:
@@ -953,6 +1086,9 @@ class WorldBibleLifecycleService:
         db: AsyncSession,
         draft: WorldBiblePageDraft,
         page: WorldBiblePage | None,
+        *,
+        refs: list[dict[str, Any]] | None = None,
+        sections: list[dict[str, Any]] | None = None,
     ) -> WorldBiblePublishImpactResponse:
         result = await db.execute(
             select(WorldBiblePage).where(
@@ -984,6 +1120,12 @@ class WorldBibleLifecycleService:
                     or ""
                 ).strip()
                 if raw_type not in {"world_bible_page", "page"}:
+                    continue
+                if self._raw_ref_id(raw_ref).startswith("local:"):
+                    # 资料集待发布引用（m1-contract 第 4 条）：目标可能是尚未
+                    # 发布的工作稿，发布后经物化或重导入生效；影响范围按遗漏
+                    # 披露，不算格式损坏。
+                    add_omission("pending_page_reference", referrer)
                     continue
                 try:
                     target = self.normalize_asset_ref(raw_ref)
@@ -1079,6 +1221,18 @@ class WorldBibleLifecycleService:
             omission_counts[("response_limit", None, None)] = len(affected) - 200
             affected = affected[:200]
 
+        base_refs = page.linked_asset_refs_json if page is not None else []
+        previous_refs = self._canonical_asset_refs(base_refs or [])
+        impact_refs = draft.linked_asset_refs_json if refs is None else refs
+        impact_sections = draft.sections_json if sections is None else sections
+        proposed_refs = self._canonical_asset_refs(impact_refs or [])
+        # 草稿自身的待发布引用不进反向边扫描（那里只看已发布页），单独按
+        # 遗漏披露；引用方发布时目标仍未发布的引用保持 local: 约定随页落地。
+        for raw_ref in impact_refs or []:
+            if isinstance(raw_ref, dict) and self._raw_ref_id(raw_ref).startswith(
+                "local:"
+            ):
+                add_omission("pending_page_reference", None)
         omissions = [
             WorldBibleImpactOmission(
                 reason=reason,
@@ -1095,15 +1249,12 @@ class WorldBibleLifecycleService:
                 ),
             )
         ]
-        base_refs = page.linked_asset_refs_json if page is not None else []
-        previous_refs = self._canonical_asset_refs(base_refs or [])
-        proposed_refs = self._canonical_asset_refs(draft.linked_asset_refs_json or [])
         content_hash = self.source_content_hash(
             title=draft.title,
             page_type=draft.page_type,
             free_text=draft.free_text,
-            sections_json=list(draft.sections_json or []),
-            linked_asset_refs_json=list(draft.linked_asset_refs_json or []),
+            sections_json=list(impact_sections or []),
+            linked_asset_refs_json=list(impact_refs or []),
             template_key=draft.template_key,
             template_version=draft.template_version,
             page_version=page.version_number if page is not None else 0,

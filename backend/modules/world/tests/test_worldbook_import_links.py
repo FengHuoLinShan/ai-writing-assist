@@ -16,12 +16,23 @@ import hashlib
 import json
 import uuid
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
+from httpx import AsyncClient
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.world.models import EntityRelation, WorldBiblePage, WorldBiblePageDraft
+from core.errors import ValidationError
+from modules.account.contracts import BOOTSTRAP_ACCOUNT_ID
+from modules.world.facade import initialize_world_canon
+from modules.world.models import (
+    EntityRelation,
+    WorldBibleCategory,
+    WorldBiblePage,
+    WorldBiblePageDraft,
+)
 from modules.world.schemas import (
     WorldBiblePageDraftUpdate,
     WorldbookImportApplyRequest,
@@ -823,3 +834,181 @@ async def test_adopt_legacy_binding_records_target_kind(
     assert imported["source_path"] == "理法之环/concepts/星锻环.md"
     # 工作稿绑定（如有）标记为 draft；本例仅已发布页命中，无 draft 绑定。
     assert all(binding.target_kind == "page" for binding in preview.legacy_bindings)
+
+
+@pytest.mark.asyncio
+async def test_draft_editor_roundtrip_keeps_local_refs(
+    async_client: AsyncClient,
+) -> None:
+    """回归：导入后编辑不再 422——公共 create/update 路径放行待发布引用。
+
+    导入把同批次 wikilink 存成 ``local:{dataset_key}:{rel_path}``，编辑器每次
+    保存整份回传 refs；update 路径默认校验曾把该引用当非法 UUID 拒绝（422），
+    导致保存与发布全部失败。公共路径按 m1-contract 第 4 条接线注记放行。
+    """
+    project = await async_client.post("/api/projects", json={"title": "环引用编辑"})
+    novel_id = project.json()["id"]
+    local_ref = {
+        "target_type": "world_bible_page",
+        "target_id": f"local:{'a' * 64}:concepts/星锻环.md",
+        "relation": "informs",
+    }
+    created = await async_client.post(
+        "/api/world/bible/drafts",
+        json={
+            "novel_id": novel_id,
+            "title": "理法之环",
+            "page_type": "background",
+            "linked_asset_refs_json": [local_ref],
+        },
+    )
+    assert created.status_code == 201
+    draft = created.json()
+    assert draft["linked_asset_refs_json"] == [local_ref]
+    updated = await async_client.patch(
+        f"/api/world/bible/drafts/{draft['id']}",
+        params={"novel_id": novel_id},
+        json={
+            "expected_updated_at": draft["updated_at"],
+            "free_text": "编辑后的正文。",
+            "linked_asset_refs_json": [local_ref],
+        },
+    )
+    assert updated.status_code == 200
+    assert updated.json()["linked_asset_refs_json"] == [local_ref]
+
+
+@pytest.mark.asyncio
+async def test_publish_materializes_pending_ref_to_published_target(
+    db_session: AsyncSession,
+    project_novel_id: str,
+) -> None:
+    """目标页已发布后，发布引用方把 local: 待发布引用物化为真实 TargetRef。
+
+    物化沿采用包先例（重写 target_id 并重算指纹）；发布预览与 SEAL 必须
+    同口径，凭预览返回的 impact_scope_hash 直接发布不得误报冲突。
+    """
+    service = WorldbookImportService()
+    preview = await service.preview(
+        db_session, project_novel_id, _dataset_manifest(files=_linked_dataset_pages())
+    )
+    applied = await service.apply(
+        db_session, project_novel_id, preview.suggestion_id, _apply_request(preview)
+    )
+    assert applied.status == "accepted"
+    drafts = {
+        draft.title: draft for draft in await _drafts_of(db_session, project_novel_id)
+    }
+    lifecycle = WorldBibleLifecycleService()
+    await initialize_world_canon(db_session, project_novel_id)
+    target_page = await lifecycle.admit_draft(
+        db_session,
+        project_novel_id,
+        str(drafts["星锻环"].id),
+        authorizer_id=BOOTSTRAP_ACCOUNT_ID,
+    )
+    source_draft_id = str(drafts["理法之环"].id)
+    impact = await lifecycle.preview_publish_impact(
+        db_session, project_novel_id, source_draft_id
+    )
+    published = await lifecycle.admit_draft(
+        db_session,
+        project_novel_id,
+        source_draft_id,
+        authorizer_id=BOOTSTRAP_ACCOUNT_ID,
+        expected_impact_scope_hash=impact.impact_scope_hash,
+    )
+    refs = published.linked_asset_refs_json
+    assert len(refs) == 1
+    ref = refs[0]
+    assert ref["target_type"] == "world_bible_page"
+    assert ref["target_id"] == str(target_page.id)
+    assert ref["relation"] == "informs"
+    assert ref["target_hash"] == WorldBibleLifecycleService.asset_ref_hash(ref)
+    # 物化后的真实引用不依赖 local 豁免即可按 TargetRef 契约独立复核。
+    await lifecycle._validate_asset_refs(db_session, uuid.UUID(project_novel_id), refs)
+
+
+@pytest.mark.asyncio
+async def test_publish_keeps_pending_local_ref_and_discloses_it(
+    db_session: AsyncSession,
+    project_novel_id: str,
+) -> None:
+    """目标仍是工作稿时发布不阻断：引用保持待发布态，回执如实披露。
+
+    Wiki 互链普遍存在，若因待发布引用阻断发布，互相引用的两页将永远无法
+    发布；按 m1-contract 第 4 条语义保留 local: 约定（不伪造正式页 id），
+    由影响回执的待发布遗漏向作者披露。
+    """
+    service = WorldbookImportService()
+    preview = await service.preview(
+        db_session, project_novel_id, _dataset_manifest(files=_linked_dataset_pages())
+    )
+    applied = await service.apply(
+        db_session, project_novel_id, preview.suggestion_id, _apply_request(preview)
+    )
+    assert applied.status == "accepted"
+    drafts = {
+        draft.title: draft for draft in await _drafts_of(db_session, project_novel_id)
+    }
+    lifecycle = WorldBibleLifecycleService()
+    await initialize_world_canon(db_session, project_novel_id)
+    impact = await lifecycle.preview_publish_impact(
+        db_session, project_novel_id, str(drafts["理法之环"].id)
+    )
+    published = await lifecycle.admit_draft(
+        db_session,
+        project_novel_id,
+        str(drafts["理法之环"].id),
+        authorizer_id=BOOTSTRAP_ACCOUNT_ID,
+        expected_impact_scope_hash=impact.impact_scope_hash,
+    )
+    dataset_key = published.page_meta_json["worldbook_import"]["dataset_key"]
+    refs = published.linked_asset_refs_json
+    assert len(refs) == 1
+    assert refs[0]["target_id"] == f"local:{dataset_key}:concepts/星锻环.md"
+    assert refs[0]["target_hash"] == WorldBibleLifecycleService.asset_ref_hash(refs[0])
+    # 校验回执按待发布遗漏披露，作者能看到引用尚未生效。
+    assert any("尚未发布" in item for item in published.validation_receipt.omissions)
+    # 引用方已发布、被引用方仍是工作稿。
+    remaining = {draft.title for draft in await _drafts_of(db_session, project_novel_id)}
+    assert remaining == {"星锻环"}
+
+
+@pytest.mark.asyncio
+async def test_declared_category_race_treated_as_business_error(
+    db_session: AsyncSession,
+    project_novel_id: str,
+) -> None:
+    """并发导入同项目建同一分类：唯一约束冲突折算为业务错误，不冒 500。
+
+    导入锁按 dataset_key 划分，两个数据集并发 apply 可能同时通过
+    check-then-insert 的存在性检查；savepoint 回滚后按「已存在」或业务
+    错误收场，IntegrityError 不得逃逸为内部错误。
+    """
+    item = WorldbookImportItem(
+        source_key="b" * 64,
+        path="理法之环/concepts/概念页.md",
+        title="概念页",
+        page_type="concept",
+        source_hash="c" * 64,
+        action="create",
+    )
+    with patch.object(
+        WorldBibleLifecycleService,
+        "create_category",
+        autospec=True,
+        side_effect=IntegrityError(
+            "INSERT INTO world_bible_categories",
+            {},
+            Exception("uq_world_bible_category_key"),
+        ),
+    ):
+        with pytest.raises(ValidationError):
+            await WorldbookImportService()._ensure_declared_categories(
+                db_session, project_novel_id, [item]
+            )
+    # savepoint 回滚不污染外层事务，会话仍可用。
+    assert (
+        await db_session.scalar(select(func.count()).select_from(WorldBibleCategory)) >= 0
+    )
