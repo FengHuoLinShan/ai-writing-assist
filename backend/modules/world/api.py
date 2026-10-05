@@ -160,10 +160,6 @@ from modules.world.schemas import (
     WorldBibleSynopsisRefreshResponse,
     WorldBibleSynopsisResponse,
     WorldBibleSynopsisRevisionListResponse,
-    WorldbookImportApplyRequest,
-    WorldbookImportApplyResponse,
-    WorldbookImportManifest,
-    WorldbookImportPreviewResponse,
     WorldCocreationChatRequest,
     WorldCocreationCheckpointAdvanceRequest,
     WorldCocreationMessageCreateRequest,
@@ -300,6 +296,12 @@ from modules.world.world_object_images import (
 )
 from modules.world.world_object_images import (
     WorldObjectImageService,
+)
+from modules.world.worldbook_import_schemas import (
+    WorldbookImportApplyRequest,
+    WorldbookImportApplyResponse,
+    WorldbookImportManifest,
+    WorldbookImportPreviewResponse,
 )
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 

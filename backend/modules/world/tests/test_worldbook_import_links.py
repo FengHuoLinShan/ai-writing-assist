@@ -35,15 +35,17 @@ from modules.world.models import (
 )
 from modules.world.schemas import (
     WorldBiblePageDraftUpdate,
-    WorldbookImportApplyRequest,
-    WorldbookImportItem,
-    WorldbookImportManifest,
 )
 from modules.world.services.worldbuilding.world_bible_lifecycle_service import (
     WorldBibleLifecycleService,
 )
 from modules.world.services.worldbuilding.worldbook_import_service import (
     WorldbookImportService,
+)
+from modules.world.worldbook_import_schemas import (
+    WorldbookImportApplyRequest,
+    WorldbookImportItem,
+    WorldbookImportManifest,
 )
 from shared.target_ref import TargetRef
 

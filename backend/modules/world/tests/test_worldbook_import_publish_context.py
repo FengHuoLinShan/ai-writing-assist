@@ -45,15 +45,15 @@ from modules.evidence.facade import (
 )
 from modules.world.facade import initialize_world_canon
 from modules.world.models import WorldBiblePage, WorldBiblePageDraft
-from modules.world.schemas import (
-    WorldbookImportApplyRequest,
-    WorldbookImportManifest,
-)
 from modules.world.services.worldbuilding.world_bible_lifecycle_service import (
     WorldBibleLifecycleService,
 )
 from modules.world.services.worldbuilding.worldbook_import_service import (
     WorldbookImportService,
+)
+from modules.world.worldbook_import_schemas import (
+    WorldbookImportApplyRequest,
+    WorldbookImportManifest,
 )
 
 

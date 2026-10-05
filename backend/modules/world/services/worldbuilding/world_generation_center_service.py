@@ -132,6 +132,7 @@ _AUTHOR_OPEN_QUESTIONS_SECTION_ID = "author-open-questions"
 WORLD_GENERATION_TIMEOUT_SECONDS = 1800
 _COCREATION_ROOT_CAPABILITY = "world.generation.cocreation"
 _WORLD_DESIGN_REVIEW_INPUT_CHARS = 120_000
+_SUPPORTED_ASSET_TYPES = {"core_entity", "entity_relation", "world_bible_page"}
 
 
 def _cocreation_step_capability(capability: str) -> str | None:
@@ -3267,17 +3268,12 @@ class WorldGenerationCenterService:
             identity = (*asset_identity, str(raw.get("target_path") or ""))
             if identity in identities:
                 continue
-            if asset_identity[0] not in {
-                "core_entity",
-                "entity_relation",
-                "world_bible_page",
-            }:
+            if asset_identity[0] not in _SUPPORTED_ASSET_TYPES:
                 raise ValidationError(
                     f"Unsupported World Bible asset ref: {asset_identity[0]}"
                 )
+            # 待发布资料集引用（local:）不进生成上下文资产目录（m1-contract 第 4 条）
             if asset_identity[1].startswith("local:"):
-                # 资料集待发布引用（m1-contract 第 4 条）：目标尚未发布，
-                # 不进生成上下文资产目录；发布后经物化或重导入生效。
                 continue
             parsed_ids[asset_identity] = parse_uuid(
                 asset_identity[1],

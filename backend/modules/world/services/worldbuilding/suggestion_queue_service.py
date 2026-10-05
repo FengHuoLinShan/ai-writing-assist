@@ -43,12 +43,14 @@ from modules.world.schemas import (
     WorldBiblePageDraftUpdate,
     WorldBiblePageProposalContent,
     WorldBibleSourceRef,
-    WorldbookImportPayload,
     WorldCoreCheckpointPayload,
     WorldDesignCheckpointPayload,
     WorldGenerationApplyPageDraftRequest,
     WorldGenerationApplyPageDraftResponse,
     WorldProfileUpsertRequest,
+)
+from modules.world.worldbook_import_schemas import (
+    WorldbookImportPayload,
 )
 from shared.utils import parse_uuid
 

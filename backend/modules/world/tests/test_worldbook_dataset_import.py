@@ -31,16 +31,18 @@ from modules.world.models import ConflictCheckQueueItem, WorldBiblePageDraft
 from modules.world.schemas import (
     CreationSuggestionCreate,
     WorldBiblePageDraftUpdate,
-    WorldbookImportApplyRequest,
-    WorldbookImportFile,
-    WorldbookImportManifest,
-    WorldbookImportPayload,
 )
 from modules.world.services.worldbuilding.world_bible_lifecycle_service import (
     WorldBibleLifecycleService,
 )
 from modules.world.services.worldbuilding.worldbook_import_service import (
     WorldbookImportService,
+)
+from modules.world.worldbook_import_schemas import (
+    WorldbookImportApplyRequest,
+    WorldbookImportFile,
+    WorldbookImportManifest,
+    WorldbookImportPayload,
 )
 
 

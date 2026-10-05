@@ -23,12 +23,15 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from core.errors import ConflictError
 from modules.project.models import Project
 from modules.world.models import CreationSuggestion, WorldBiblePageDraft
-from modules.world.schemas import WorldbookImportApplyRequest, WorldbookImportManifest
 from modules.world.services.worldbuilding.suggestion_queue_service import (
     SuggestionAlreadyProcessedError,
 )
 from modules.world.services.worldbuilding.worldbook_import_service import (
     WorldbookImportService,
+)
+from modules.world.worldbook_import_schemas import (
+    WorldbookImportApplyRequest,
+    WorldbookImportManifest,
 )
 from tests.e2e.config import DATABASE_URL
 

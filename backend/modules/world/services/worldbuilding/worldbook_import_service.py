@@ -28,16 +28,6 @@ from modules.world.schemas import (
     WorldBibleCategoryCreate,
     WorldBiblePageDraftCreate,
     WorldBiblePageDraftUpdate,
-    WorldbookImportApplyRequest,
-    WorldbookImportApplyResponse,
-    WorldbookImportFile,
-    WorldbookImportItem,
-    WorldbookImportLegacyBinding,
-    WorldbookImportLinkDetail,
-    WorldbookImportLinkDetailGroup,
-    WorldbookImportManifest,
-    WorldbookImportPayload,
-    WorldbookImportPreviewResponse,
     WorldValidationPolicy,
 )
 from modules.world.services.worldbuilding.conflict_queue_service import (
@@ -50,6 +40,18 @@ from modules.world.services.worldbuilding.world_bible_lifecycle_service import (
     BUILTIN_WORLD_BIBLE_CATEGORIES,
     MAX_ASSET_REFS,
     WorldBibleLifecycleService,
+)
+from modules.world.worldbook_import_schemas import (
+    WorldbookImportApplyRequest,
+    WorldbookImportApplyResponse,
+    WorldbookImportFile,
+    WorldbookImportItem,
+    WorldbookImportLegacyBinding,
+    WorldbookImportLinkDetail,
+    WorldbookImportLinkDetailGroup,
+    WorldbookImportManifest,
+    WorldbookImportPayload,
+    WorldbookImportPreviewResponse,
 )
 from shared.utils import parse_uuid
 
