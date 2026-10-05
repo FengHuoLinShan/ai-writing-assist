@@ -166,7 +166,9 @@ JSON wire 中为兼容保留 `world_entities/scenes/...` 等复数 key；精确�
 
 默认只保存可复现摘要和 metadata；`retain_rendered_context=True` 时才保存完整上下文并设置过期时间。清理任务只清空 `rendered_context` 和 `rendered_context_expires_at`，不删除快照行、hash、资产 ID、结果引用或 metadata。
 
-作者端“问世界”调用 `retrieve_planned_context_evidence()` 复用现有 RAG 召回和正文回读，再把
+作者端“问世界”的 `ask_world` 检索保留确定性 query plan 与 RRF 排序，不调用 AI 扩写查询或重排，
+避免资料预览、确认和执行之间因模型随机变化而反复失效；来源回读、范围排除与指纹重验不变。
+调用 `retrieve_planned_context_evidence()` 复用现有 RAG 召回和正文回读，再把
 world 已回读的正式页面候选一并交给 `compile_author_question_evidence()`。后者只做稳定排序、
 去重、SHA-256 形状校验以及最多 5 个来源／24,000 字符的预算裁剪，并返回不含正文的
 included／excluded／truncated trace；它不调用模型、不判断事实权威，也不持久化第二套索引。

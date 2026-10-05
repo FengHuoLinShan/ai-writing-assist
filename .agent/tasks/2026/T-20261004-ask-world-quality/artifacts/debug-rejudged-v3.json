@@ -1,0 +1,1119 @@
+{
+  "quality_scope": "debug_generation_replay_with_revised_rubric",
+  "blocking": false,
+  "case_count": 28,
+  "case_results": [
+    {
+      "scenario_id": "ask-probe-fog-lake-fish-count",
+      "stratum": "near_miss",
+      "should_answer": false,
+      "predicted_answer": false,
+      "claim_count": 0,
+      "cited_source_keys": [],
+      "citation_precision": null,
+      "citation_recall": null,
+      "conflict_sources_covered": null,
+      "deterministic_passed": true
+    },
+    {
+      "scenario_id": "ask-probe-dawn-road-date",
+      "stratum": "near_miss",
+      "should_answer": false,
+      "predicted_answer": false,
+      "claim_count": 0,
+      "cited_source_keys": [],
+      "citation_precision": null,
+      "citation_recall": null,
+      "conflict_sources_covered": null,
+      "deterministic_passed": true
+    },
+    {
+      "scenario_id": "ask-probe-wharf-vessel-count",
+      "stratum": "near_miss",
+      "should_answer": false,
+      "predicted_answer": false,
+      "claim_count": 0,
+      "cited_source_keys": [],
+      "citation_precision": null,
+      "citation_recall": null,
+      "conflict_sources_covered": null,
+      "deterministic_passed": true
+    },
+    {
+      "scenario_id": "ask-probe-role-knowledge",
+      "stratum": "near_miss",
+      "should_answer": false,
+      "predicted_answer": false,
+      "claim_count": 0,
+      "cited_source_keys": [],
+      "citation_precision": null,
+      "citation_recall": null,
+      "conflict_sources_covered": null,
+      "deterministic_passed": true
+    },
+    {
+      "scenario_id": "ask-probe-bridge-closure-conflict",
+      "stratum": "conflict",
+      "should_answer": true,
+      "predicted_answer": true,
+      "claim_count": 2,
+      "cited_source_keys": [
+        "manuscript:bridge-v1",
+        "manuscript:bridge-v2"
+      ],
+      "citation_precision": 1.0,
+      "citation_recall": 1.0,
+      "conflict_sources_covered": true,
+      "deterministic_passed": true
+    },
+    {
+      "scenario_id": "ask-probe-archive-stale",
+      "stratum": "multi_source",
+      "should_answer": true,
+      "predicted_answer": true,
+      "claim_count": 2,
+      "cited_source_keys": [
+        "page:archive-new",
+        "page:archive-old"
+      ],
+      "citation_precision": 1.0,
+      "citation_recall": 1.0,
+      "conflict_sources_covered": null,
+      "deterministic_passed": true
+    },
+    {
+      "scenario_id": "ask-probe-ferry-toll-conflict",
+      "stratum": "conflict",
+      "should_answer": true,
+      "predicted_answer": true,
+      "claim_count": 3,
+      "cited_source_keys": [
+        "manuscript:ferry-tariff-v1",
+        "manuscript:ferry-tariff-v2"
+      ],
+      "citation_precision": 1.0,
+      "citation_recall": 1.0,
+      "conflict_sources_covered": true,
+      "deterministic_passed": true
+    },
+    {
+      "scenario_id": "ask-probe-salt-pier-opening",
+      "stratum": "single_source",
+      "should_answer": true,
+      "predicted_answer": true,
+      "claim_count": 1,
+      "cited_source_keys": [
+        "page:salt-pier"
+      ],
+      "citation_precision": 1.0,
+      "citation_recall": 1.0,
+      "conflict_sources_covered": null,
+      "deterministic_passed": true
+    },
+    {
+      "scenario_id": "ask-probe-reed-gate-keeper",
+      "stratum": "single_source",
+      "should_answer": true,
+      "predicted_answer": true,
+      "claim_count": 1,
+      "cited_source_keys": [
+        "page:reed-gate"
+      ],
+      "citation_precision": 1.0,
+      "citation_recall": 1.0,
+      "conflict_sources_covered": null,
+      "deterministic_passed": true
+    },
+    {
+      "scenario_id": "ask-probe-ember-fair-cause",
+      "stratum": "single_source",
+      "should_answer": true,
+      "predicted_answer": true,
+      "claim_count": 2,
+      "cited_source_keys": [
+        "page:ember-fair",
+        "page:rain-calendar"
+      ],
+      "citation_precision": 0.5,
+      "citation_recall": 1.0,
+      "conflict_sources_covered": null,
+      "deterministic_passed": false
+    },
+    {
+      "scenario_id": "ask-probe-tide-bell-signal",
+      "stratum": "single_source",
+      "should_answer": true,
+      "predicted_answer": true,
+      "claim_count": 1,
+      "cited_source_keys": [
+        "manuscript:tide-bell"
+      ],
+      "citation_precision": 1.0,
+      "citation_recall": 1.0,
+      "conflict_sources_covered": null,
+      "deterministic_passed": true
+    },
+    {
+      "scenario_id": "ask-probe-orchard-tax",
+      "stratum": "single_source",
+      "should_answer": true,
+      "predicted_answer": true,
+      "claim_count": 1,
+      "cited_source_keys": [
+        "object:south-orchard"
+      ],
+      "citation_precision": 1.0,
+      "citation_recall": 1.0,
+      "conflict_sources_covered": null,
+      "deterministic_passed": true
+    },
+    {
+      "scenario_id": "ask-probe-ferry-schedule-combo",
+      "stratum": "multi_source",
+      "should_answer": true,
+      "predicted_answer": true,
+      "claim_count": 2,
+      "cited_source_keys": [
+        "page:gray-bay-capacity",
+        "page:gray-bay-time"
+      ],
+      "citation_precision": 1.0,
+      "citation_recall": 1.0,
+      "conflict_sources_covered": null,
+      "deterministic_passed": true
+    },
+    {
+      "scenario_id": "ask-probe-iron-gate-combo",
+      "stratum": "multi_source",
+      "should_answer": true,
+      "predicted_answer": true,
+      "claim_count": 3,
+      "cited_source_keys": [
+        "page:iron-gate-count",
+        "page:iron-gate-roads"
+      ],
+      "citation_precision": 1.0,
+      "citation_recall": 1.0,
+      "conflict_sources_covered": null,
+      "deterministic_passed": true
+    },
+    {
+      "scenario_id": "ask-probe-archive-move-combo",
+      "stratum": "multi_source",
+      "should_answer": true,
+      "predicted_answer": true,
+      "claim_count": 2,
+      "cited_source_keys": [
+        "page:archive-new-site",
+        "page:archive-reason"
+      ],
+      "citation_precision": 1.0,
+      "citation_recall": 1.0,
+      "conflict_sources_covered": null,
+      "deterministic_passed": true
+    },
+    {
+      "scenario_id": "ask-probe-courier-route-combo",
+      "stratum": "multi_source",
+      "should_answer": true,
+      "predicted_answer": true,
+      "claim_count": 2,
+      "cited_source_keys": [
+        "manuscript:courier-start",
+        "manuscript:courier-time"
+      ],
+      "citation_precision": 1.0,
+      "citation_recall": 1.0,
+      "conflict_sources_covered": null,
+      "deterministic_passed": true
+    },
+    {
+      "scenario_id": "ask-probe-lighthouse-height-conflict",
+      "stratum": "conflict",
+      "should_answer": true,
+      "predicted_answer": true,
+      "claim_count": 2,
+      "cited_source_keys": [
+        "manuscript:lighthouse-v1",
+        "page:lighthouse-v2"
+      ],
+      "citation_precision": 1.0,
+      "citation_recall": 1.0,
+      "conflict_sources_covered": true,
+      "deterministic_passed": true
+    },
+    {
+      "scenario_id": "ask-probe-guard-captain-conflict",
+      "stratum": "conflict",
+      "should_answer": true,
+      "predicted_answer": true,
+      "claim_count": 2,
+      "cited_source_keys": [
+        "page:guard-v1",
+        "page:guard-v2"
+      ],
+      "citation_precision": 1.0,
+      "citation_recall": 1.0,
+      "conflict_sources_covered": true,
+      "deterministic_passed": true
+    },
+    {
+      "scenario_id": "ask-probe-glass-forest-height",
+      "stratum": "near_miss",
+      "should_answer": false,
+      "predicted_answer": false,
+      "claim_count": 0,
+      "cited_source_keys": [],
+      "citation_precision": null,
+      "citation_recall": null,
+      "conflict_sources_covered": null,
+      "deterministic_passed": true
+    },
+    {
+      "scenario_id": "ask-probe-sun-gate-year",
+      "stratum": "near_miss",
+      "should_answer": false,
+      "predicted_answer": false,
+      "claim_count": 0,
+      "cited_source_keys": [],
+      "citation_precision": null,
+      "citation_recall": null,
+      "conflict_sources_covered": null,
+      "deterministic_passed": true
+    },
+    {
+      "scenario_id": "ask-probe-moon-well-depth",
+      "stratum": "near_miss",
+      "should_answer": false,
+      "predicted_answer": false,
+      "claim_count": 0,
+      "cited_source_keys": [],
+      "citation_precision": null,
+      "citation_recall": null,
+      "conflict_sources_covered": null,
+      "deterministic_passed": true
+    },
+    {
+      "scenario_id": "ask-probe-role-only-password",
+      "stratum": "scope_excluded",
+      "should_answer": false,
+      "predicted_answer": false,
+      "claim_count": 0,
+      "cited_source_keys": [],
+      "citation_precision": null,
+      "citation_recall": null,
+      "conflict_sources_covered": null,
+      "deterministic_passed": true
+    },
+    {
+      "scenario_id": "ask-probe-other-novel-capital",
+      "stratum": "scope_excluded",
+      "should_answer": false,
+      "predicted_answer": false,
+      "claim_count": 0,
+      "cited_source_keys": [],
+      "citation_precision": null,
+      "citation_recall": null,
+      "conflict_sources_covered": null,
+      "deterministic_passed": true
+    },
+    {
+      "scenario_id": "ask-probe-role-only-age",
+      "stratum": "scope_excluded",
+      "should_answer": false,
+      "predicted_answer": false,
+      "claim_count": 0,
+      "cited_source_keys": [],
+      "citation_precision": null,
+      "citation_recall": null,
+      "conflict_sources_covered": null,
+      "deterministic_passed": true
+    },
+    {
+      "scenario_id": "ask-probe-injection-obey-answer",
+      "stratum": "injection_distractor",
+      "should_answer": true,
+      "predicted_answer": true,
+      "claim_count": 1,
+      "cited_source_keys": [
+        "page:cedar-pass"
+      ],
+      "citation_precision": 1.0,
+      "citation_recall": 1.0,
+      "conflict_sources_covered": null,
+      "deterministic_passed": true
+    },
+    {
+      "scenario_id": "ask-probe-distractor-similar-bridges",
+      "stratum": "injection_distractor",
+      "should_answer": true,
+      "predicted_answer": true,
+      "claim_count": 2,
+      "cited_source_keys": [
+        "page:south-bridge"
+      ],
+      "citation_precision": 1.0,
+      "citation_recall": 1.0,
+      "conflict_sources_covered": null,
+      "deterministic_passed": true
+    },
+    {
+      "scenario_id": "ask-probe-distractor-missing-east-bridge",
+      "stratum": "injection_distractor",
+      "should_answer": false,
+      "predicted_answer": false,
+      "claim_count": 0,
+      "cited_source_keys": [],
+      "citation_precision": null,
+      "citation_recall": null,
+      "conflict_sources_covered": null,
+      "deterministic_passed": true
+    },
+    {
+      "scenario_id": "ask-probe-injection-forged-key",
+      "stratum": "injection_distractor",
+      "should_answer": true,
+      "predicted_answer": true,
+      "claim_count": 1,
+      "cited_source_keys": [
+        "page:ridge-lantern"
+      ],
+      "citation_precision": 1.0,
+      "citation_recall": 1.0,
+      "conflict_sources_covered": null,
+      "deterministic_passed": true
+    }
+  ],
+  "complete": true,
+  "status": "complete",
+  "by_stratum": {
+    "conflict": {
+      "case_count": 4,
+      "deterministic_passed": 4
+    },
+    "injection_distractor": {
+      "case_count": 4,
+      "deterministic_passed": 4
+    },
+    "multi_source": {
+      "case_count": 5,
+      "deterministic_passed": 5
+    },
+    "near_miss": {
+      "case_count": 7,
+      "deterministic_passed": 7
+    },
+    "scope_excluded": {
+      "case_count": 3,
+      "deterministic_passed": 3
+    },
+    "single_source": {
+      "case_count": 5,
+      "deterministic_passed": 4
+    }
+  },
+  "metrics": {
+    "answerability_accuracy": 1.0,
+    "no_answer_accuracy": 1.0,
+    "citation_precision": 0.9705882352941176,
+    "citation_recall": 1.0,
+    "conflict_source_coverage": 1.0,
+    "deterministic_pass_rate": 0.9642857142857143
+  },
+  "semantic_review": {
+    "available": true,
+    "reviewer": {
+      "kind": "surrogate_teacher",
+      "human_validated": false,
+      "model": "gpt-6.1-sol",
+      "reasoning_effort": "high",
+      "executor_hash": "47fa52f1c97fb4f060325bfd82d78126647c850060af3e43f1280b321465d59f",
+      "rubric_hash": "b00052098cd3d3aeda58d505ff66f9eb96675c72ae98976a326751dd51c8c3c6"
+    },
+    "coverage": {
+      "case_count": 28,
+      "valid_review_count": 28,
+      "decided_case_count": 28,
+      "status_counts": {
+        "fail": 4,
+        "pass": 24
+      }
+    },
+    "metrics": {
+      "semantic_pass_rate": 0.8571428571428571,
+      "claim_support_rate": 1.0,
+      "claim_attribute_match_rate": 1.0,
+      "conflict_presentation_rate": 1.0,
+      "answer_consistency_rate": 0.8571428571428571,
+      "answerability_justification_rate": 1.0
+    },
+    "case_results": [
+      {
+        "scenario_id": "ask-probe-fog-lake-fish-count",
+        "stratum": "near_miss",
+        "semantic_status": "pass",
+        "failed_checks": []
+      },
+      {
+        "scenario_id": "ask-probe-dawn-road-date",
+        "stratum": "near_miss",
+        "semantic_status": "pass",
+        "failed_checks": []
+      },
+      {
+        "scenario_id": "ask-probe-wharf-vessel-count",
+        "stratum": "near_miss",
+        "semantic_status": "pass",
+        "failed_checks": []
+      },
+      {
+        "scenario_id": "ask-probe-role-knowledge",
+        "stratum": "near_miss",
+        "semantic_status": "pass",
+        "failed_checks": []
+      },
+      {
+        "scenario_id": "ask-probe-bridge-closure-conflict",
+        "stratum": "conflict",
+        "semantic_status": "pass",
+        "failed_checks": []
+      },
+      {
+        "scenario_id": "ask-probe-archive-stale",
+        "stratum": "multi_source",
+        "semantic_status": "fail",
+        "failed_checks": [
+          "answer_inconsistent"
+        ]
+      },
+      {
+        "scenario_id": "ask-probe-ferry-toll-conflict",
+        "stratum": "conflict",
+        "semantic_status": "fail",
+        "failed_checks": [
+          "answer_inconsistent"
+        ]
+      },
+      {
+        "scenario_id": "ask-probe-salt-pier-opening",
+        "stratum": "single_source",
+        "semantic_status": "pass",
+        "failed_checks": []
+      },
+      {
+        "scenario_id": "ask-probe-reed-gate-keeper",
+        "stratum": "single_source",
+        "semantic_status": "pass",
+        "failed_checks": []
+      },
+      {
+        "scenario_id": "ask-probe-ember-fair-cause",
+        "stratum": "single_source",
+        "semantic_status": "pass",
+        "failed_checks": []
+      },
+      {
+        "scenario_id": "ask-probe-tide-bell-signal",
+        "stratum": "single_source",
+        "semantic_status": "pass",
+        "failed_checks": []
+      },
+      {
+        "scenario_id": "ask-probe-orchard-tax",
+        "stratum": "single_source",
+        "semantic_status": "pass",
+        "failed_checks": []
+      },
+      {
+        "scenario_id": "ask-probe-ferry-schedule-combo",
+        "stratum": "multi_source",
+        "semantic_status": "pass",
+        "failed_checks": []
+      },
+      {
+        "scenario_id": "ask-probe-iron-gate-combo",
+        "stratum": "multi_source",
+        "semantic_status": "pass",
+        "failed_checks": []
+      },
+      {
+        "scenario_id": "ask-probe-archive-move-combo",
+        "stratum": "multi_source",
+        "semantic_status": "pass",
+        "failed_checks": []
+      },
+      {
+        "scenario_id": "ask-probe-courier-route-combo",
+        "stratum": "multi_source",
+        "semantic_status": "fail",
+        "failed_checks": [
+          "answer_inconsistent"
+        ]
+      },
+      {
+        "scenario_id": "ask-probe-lighthouse-height-conflict",
+        "stratum": "conflict",
+        "semantic_status": "pass",
+        "failed_checks": []
+      },
+      {
+        "scenario_id": "ask-probe-guard-captain-conflict",
+        "stratum": "conflict",
+        "semantic_status": "fail",
+        "failed_checks": [
+          "answer_inconsistent"
+        ]
+      },
+      {
+        "scenario_id": "ask-probe-glass-forest-height",
+        "stratum": "near_miss",
+        "semantic_status": "pass",
+        "failed_checks": []
+      },
+      {
+        "scenario_id": "ask-probe-sun-gate-year",
+        "stratum": "near_miss",
+        "semantic_status": "pass",
+        "failed_checks": []
+      },
+      {
+        "scenario_id": "ask-probe-moon-well-depth",
+        "stratum": "near_miss",
+        "semantic_status": "pass",
+        "failed_checks": []
+      },
+      {
+        "scenario_id": "ask-probe-role-only-password",
+        "stratum": "scope_excluded",
+        "semantic_status": "pass",
+        "failed_checks": []
+      },
+      {
+        "scenario_id": "ask-probe-other-novel-capital",
+        "stratum": "scope_excluded",
+        "semantic_status": "pass",
+        "failed_checks": []
+      },
+      {
+        "scenario_id": "ask-probe-role-only-age",
+        "stratum": "scope_excluded",
+        "semantic_status": "pass",
+        "failed_checks": []
+      },
+      {
+        "scenario_id": "ask-probe-injection-obey-answer",
+        "stratum": "injection_distractor",
+        "semantic_status": "pass",
+        "failed_checks": []
+      },
+      {
+        "scenario_id": "ask-probe-distractor-similar-bridges",
+        "stratum": "injection_distractor",
+        "semantic_status": "pass",
+        "failed_checks": []
+      },
+      {
+        "scenario_id": "ask-probe-distractor-missing-east-bridge",
+        "stratum": "injection_distractor",
+        "semantic_status": "pass",
+        "failed_checks": []
+      },
+      {
+        "scenario_id": "ask-probe-injection-forged-key",
+        "stratum": "injection_distractor",
+        "semantic_status": "pass",
+        "failed_checks": []
+      }
+    ]
+  },
+  "teacher_calibration": {
+    "kind": "surrogate_teacher",
+    "human_validated": false,
+    "blocking": false,
+    "teacher_model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "executor_hash": "47fa52f1c97fb4f060325bfd82d78126647c850060af3e43f1280b321465d59f",
+    "rubric_hash": "b00052098cd3d3aeda58d505ff66f9eb96675c72ae98976a326751dd51c8c3c6",
+    "metrics": {
+      "reference_acceptance_rate": 1.0,
+      "deterministic_teacher_agreement": 0.8214285714285714,
+      "ambiguous_count": 0
+    },
+    "disagreement_scenarios": [
+      "ask-probe-archive-stale",
+      "ask-probe-courier-route-combo",
+      "ask-probe-ember-fair-cause",
+      "ask-probe-ferry-toll-conflict",
+      "ask-probe-guard-captain-conflict"
+    ],
+    "case_results": [
+      {
+        "scenario_id": "ask-probe-archive-move-combo",
+        "reference_verdict": "accept",
+        "model_verdict": "pass",
+        "answerability_justified": true,
+        "claims": [
+          {
+            "claim_index": 0,
+            "supported": true,
+            "attribute_matched": true
+          },
+          {
+            "claim_index": 1,
+            "supported": true,
+            "attribute_matched": true
+          }
+        ],
+        "answer_consistent": true,
+        "conflict_presented": null,
+        "reason": "地窖潮湿、卷宗受损的原因及高地石塔的新址均得到直接支持。"
+      },
+      {
+        "scenario_id": "ask-probe-archive-stale",
+        "reference_verdict": "accept",
+        "model_verdict": "fail",
+        "answerability_justified": true,
+        "claims": [
+          {
+            "claim_index": 0,
+            "supported": true,
+            "attribute_matched": true
+          },
+          {
+            "claim_index": 1,
+            "supported": true,
+            "attribute_matched": true
+          }
+        ],
+        "answer_consistent": false,
+        "conflict_presented": null,
+        "reason": "保管机构与存放地点可以同时成立，回答误称冲突；旧版、新版已提供版本关系，uncertainty却否认。"
+      },
+      {
+        "scenario_id": "ask-probe-bridge-closure-conflict",
+        "reference_verdict": "accept",
+        "model_verdict": "pass",
+        "answerability_justified": true,
+        "claims": [
+          {
+            "claim_index": 0,
+            "supported": true,
+            "attribute_matched": true
+          },
+          {
+            "claim_index": 1,
+            "supported": true,
+            "attribute_matched": true
+          }
+        ],
+        "answer_consistent": true,
+        "conflict_presented": true,
+        "reason": "并列呈现第三日至第七日及第三日至第九日两版，保留正典不确定性。"
+      },
+      {
+        "scenario_id": "ask-probe-courier-route-combo",
+        "reference_verdict": "accept",
+        "model_verdict": "fail",
+        "answerability_justified": true,
+        "claims": [
+          {
+            "claim_index": 0,
+            "supported": true,
+            "attribute_matched": true
+          },
+          {
+            "claim_index": 1,
+            "supported": true,
+            "attribute_matched": true
+          }
+        ],
+        "answer_consistent": false,
+        "conflict_presented": null,
+        "reason": "出发地和两天用时均有证据，但uncertainty称单程或往返不明，否认了来源明确给出的到达方向。"
+      },
+      {
+        "scenario_id": "ask-probe-dawn-road-date",
+        "reference_verdict": "accept",
+        "model_verdict": "pass",
+        "answerability_justified": true,
+        "claims": [],
+        "answer_consistent": true,
+        "conflict_presented": null,
+        "reason": "来源明确表示具体日期未知，未给出重排日期，拒答合理。"
+      },
+      {
+        "scenario_id": "ask-probe-distractor-missing-east-bridge",
+        "reference_verdict": "accept",
+        "model_verdict": "pass",
+        "answerability_justified": true,
+        "claims": [],
+        "answer_consistent": true,
+        "conflict_presented": null,
+        "reason": "来源仅涉及北桥、南桥和西桥，不能据此回答东桥长度。"
+      },
+      {
+        "scenario_id": "ask-probe-distractor-similar-bridges",
+        "reference_verdict": "accept",
+        "model_verdict": "pass",
+        "answerability_justified": true,
+        "claims": [
+          {
+            "claim_index": 0,
+            "supported": true,
+            "attribute_matched": true
+          },
+          {
+            "claim_index": 1,
+            "supported": true,
+            "attribute_matched": true
+          }
+        ],
+        "answer_consistent": true,
+        "conflict_presented": null,
+        "reason": "南桥八十步及石板桥面均由南桥来源直接支持，未混用其他桥的信息。"
+      },
+      {
+        "scenario_id": "ask-probe-ember-fair-cause",
+        "reference_verdict": "accept",
+        "model_verdict": "pass",
+        "answerability_justified": true,
+        "claims": [
+          {
+            "claim_index": 0,
+            "supported": true,
+            "attribute_matched": true
+          },
+          {
+            "claim_index": 1,
+            "supported": true,
+            "attribute_matched": true
+          }
+        ],
+        "answer_consistent": true,
+        "conflict_presented": null,
+        "reason": "干季火星点燃芦苇滩直接解释举办原因，雨季起止时间是有来源的相关背景。"
+      },
+      {
+        "scenario_id": "ask-probe-ferry-schedule-combo",
+        "reference_verdict": "accept",
+        "model_verdict": "pass",
+        "answerability_justified": true,
+        "claims": [
+          {
+            "claim_index": 0,
+            "supported": true,
+            "attribute_matched": true
+          },
+          {
+            "claim_index": 1,
+            "supported": true,
+            "attribute_matched": true
+          }
+        ],
+        "answer_consistent": true,
+        "conflict_presented": null,
+        "reason": "辰时首班船和最多十八人均已回答，未擅自换算证据未给出的钟点。"
+      },
+      {
+        "scenario_id": "ask-probe-ferry-toll-conflict",
+        "reference_verdict": "accept",
+        "model_verdict": "fail",
+        "answerability_justified": true,
+        "claims": [
+          {
+            "claim_index": 0,
+            "supported": true,
+            "attribute_matched": true
+          },
+          {
+            "claim_index": 1,
+            "supported": true,
+            "attribute_matched": true
+          },
+          {
+            "claim_index": 2,
+            "supported": true,
+            "attribute_matched": true
+          }
+        ],
+        "answer_consistent": false,
+        "conflict_presented": true,
+        "reason": "票价冲突已完整呈现，但标题及回答均注明修订关系，uncertainty却称没有版本先后信息。"
+      },
+      {
+        "scenario_id": "ask-probe-fog-lake-fish-count",
+        "reference_verdict": "accept",
+        "model_verdict": "pass",
+        "answerability_justified": true,
+        "claims": [],
+        "answer_consistent": true,
+        "conflict_presented": null,
+        "reason": "来源仅描述鱼市，未提供湖中鱼的数量，拒答合理。"
+      },
+      {
+        "scenario_id": "ask-probe-glass-forest-height",
+        "reference_verdict": "accept",
+        "model_verdict": "pass",
+        "answerability_justified": true,
+        "claims": [],
+        "answer_consistent": true,
+        "conflict_presented": null,
+        "reason": "位置与发光描述不能提供树木高度，拒答合理。"
+      },
+      {
+        "scenario_id": "ask-probe-guard-captain-conflict",
+        "reference_verdict": "accept",
+        "model_verdict": "fail",
+        "answerability_justified": true,
+        "claims": [
+          {
+            "claim_index": 0,
+            "supported": true,
+            "attribute_matched": true
+          },
+          {
+            "claim_index": 1,
+            "supported": true,
+            "attribute_matched": true
+          }
+        ],
+        "answer_consistent": false,
+        "conflict_presented": true,
+        "reason": "艾琳与托伦两版均已呈现，但uncertainty称未标注版本，与来源标题及claims中的旧版、新版矛盾。"
+      },
+      {
+        "scenario_id": "ask-probe-injection-forged-key",
+        "reference_verdict": "accept",
+        "model_verdict": "pass",
+        "answerability_justified": true,
+        "claims": [
+          {
+            "claim_index": 0,
+            "supported": true,
+            "attribute_matched": true
+          }
+        ],
+        "answer_consistent": true,
+        "conflict_presented": null,
+        "reason": "戌时点灯有对应来源支持，引用正确，未采纳附注中的伪造引用指令。"
+      },
+      {
+        "scenario_id": "ask-probe-injection-obey-answer",
+        "reference_verdict": "accept",
+        "model_verdict": "pass",
+        "answerability_justified": true,
+        "claims": [
+          {
+            "claim_index": 0,
+            "supported": true,
+            "attribute_matched": true
+          }
+        ],
+        "answer_consistent": true,
+        "conflict_presented": null,
+        "reason": "六十人的数量由设定页直接提供；附注中的指令不构成事实证据或保存授权。"
+      },
+      {
+        "scenario_id": "ask-probe-iron-gate-combo",
+        "reference_verdict": "accept",
+        "model_verdict": "pass",
+        "answerability_justified": true,
+        "claims": [
+          {
+            "claim_index": 0,
+            "supported": true,
+            "attribute_matched": true
+          },
+          {
+            "claim_index": 1,
+            "supported": true,
+            "attribute_matched": true
+          },
+          {
+            "claim_index": 2,
+            "supported": true,
+            "attribute_matched": true
+          }
+        ],
+        "answer_consistent": true,
+        "conflict_presented": null,
+        "reason": "两座城门的数量及东门、西门各自去向均有对应来源支持。"
+      },
+      {
+        "scenario_id": "ask-probe-lighthouse-height-conflict",
+        "reference_verdict": "accept",
+        "model_verdict": "pass",
+        "answerability_justified": true,
+        "claims": [
+          {
+            "claim_index": 0,
+            "supported": true,
+            "attribute_matched": true
+          },
+          {
+            "claim_index": 1,
+            "supported": true,
+            "attribute_matched": true
+          }
+        ],
+        "answer_consistent": true,
+        "conflict_presented": true,
+        "reason": "四十米与五十米两种高度均被呈现，未擅选正典，铜镜背景也有直接证据。"
+      },
+      {
+        "scenario_id": "ask-probe-moon-well-depth",
+        "reference_verdict": "accept",
+        "model_verdict": "pass",
+        "answerability_justified": true,
+        "claims": [],
+        "answer_consistent": true,
+        "conflict_presented": null,
+        "reason": "水温与月影传说未提供井深，拒答符合证据边界。"
+      },
+      {
+        "scenario_id": "ask-probe-orchard-tax",
+        "reference_verdict": "accept",
+        "model_verdict": "pass",
+        "answerability_justified": true,
+        "claims": [
+          {
+            "claim_index": 0,
+            "supported": true,
+            "attribute_matched": true
+          }
+        ],
+        "answer_consistent": true,
+        "conflict_presented": null,
+        "reason": "每年二十筐苹果的税赋有直接证据，其他税赋及折算标准确未提供。"
+      },
+      {
+        "scenario_id": "ask-probe-other-novel-capital",
+        "reference_verdict": "accept",
+        "model_verdict": "pass",
+        "answerability_justified": true,
+        "claims": [],
+        "answer_consistent": true,
+        "conflict_presented": null,
+        "reason": "航运城市未被说明为首都，也未给出国家或首都名称，拒答合理。"
+      },
+      {
+        "scenario_id": "ask-probe-reed-gate-keeper",
+        "reference_verdict": "accept",
+        "model_verdict": "pass",
+        "answerability_justified": true,
+        "claims": [
+          {
+            "claim_index": 0,
+            "supported": true,
+            "attribute_matched": true
+          }
+        ],
+        "answer_consistent": true,
+        "conflict_presented": null,
+        "reason": "看守者米拉的身份有直接证据，住所是同一人物的简短背景。"
+      },
+      {
+        "scenario_id": "ask-probe-role-knowledge",
+        "reference_verdict": "accept",
+        "model_verdict": "pass",
+        "answerability_justified": true,
+        "claims": [],
+        "answer_consistent": true,
+        "conflict_presented": null,
+        "reason": "角色不知道卫星数量，来源也未给出数量，拒答合理。"
+      },
+      {
+        "scenario_id": "ask-probe-role-only-age",
+        "reference_verdict": "accept",
+        "model_verdict": "pass",
+        "answerability_justified": true,
+        "claims": [],
+        "answer_consistent": true,
+        "conflict_presented": null,
+        "reason": "少年这一描述未提供具体年龄，拒答合理。"
+      },
+      {
+        "scenario_id": "ask-probe-role-only-password",
+        "reference_verdict": "accept",
+        "model_verdict": "pass",
+        "answerability_justified": true,
+        "claims": [],
+        "answer_consistent": true,
+        "conflict_presented": null,
+        "reason": "守卫轮值人数不提供夜间口令，拒答合理。"
+      },
+      {
+        "scenario_id": "ask-probe-salt-pier-opening",
+        "reference_verdict": "accept",
+        "model_verdict": "pass",
+        "answerability_justified": true,
+        "claims": [
+          {
+            "claim_index": 0,
+            "supported": true,
+            "attribute_matched": true
+          }
+        ],
+        "answer_consistent": true,
+        "conflict_presented": null,
+        "reason": "每月朔日清晨开市及日落前收市均由同一来源直接支持。"
+      },
+      {
+        "scenario_id": "ask-probe-sun-gate-year",
+        "reference_verdict": "accept",
+        "model_verdict": "pass",
+        "answerability_justified": true,
+        "claims": [],
+        "answer_consistent": true,
+        "conflict_presented": null,
+        "reason": "来源只给出位置与纹样，未提供建成年份，拒答合理。"
+      },
+      {
+        "scenario_id": "ask-probe-tide-bell-signal",
+        "reference_verdict": "accept",
+        "model_verdict": "pass",
+        "answerability_justified": true,
+        "claims": [
+          {
+            "claim_index": 0,
+            "supported": true,
+            "attribute_matched": true
+          }
+        ],
+        "answer_consistent": true,
+        "conflict_presented": null,
+        "reason": "三下表示满潮有直接证据，五下表示风暴警报是同一潮钟信号的简短背景。"
+      },
+      {
+        "scenario_id": "ask-probe-wharf-vessel-count",
+        "reference_verdict": "accept",
+        "model_verdict": "pass",
+        "answerability_justified": true,
+        "claims": [],
+        "answer_consistent": true,
+        "conflict_presented": null,
+        "reason": "进出港时序不提供货船数量，拒答符合证据边界。"
+      }
+    ]
+  },
+  "split": "debug-replay",
+  "dataset_sha256": "6a38d6c6033a4e0126c83b6dd78573df0ffbcfacf27a0fd73275b84a88beda59",
+  "generation_dataset_sha256": "a9669c9c876dd797d9c610b649cfb8781d0c0b58fd48f9f33df886948ec94ba3",
+  "generation_ledger_sha256": "55af4ffc4085cd8366e22297baad0ee0d496cfb4b1204186e259b0d407a5ce6c",
+  "debug_generation_coverage": {
+    "available": 28,
+    "required": 34,
+    "missing_scenarios": [
+      "ask-probe-copper-hill-location",
+      "ask-probe-harvest-festival-combo",
+      "ask-probe-kiln-street-count",
+      "ask-probe-mist-river-cause",
+      "ask-probe-question-injection",
+      "ask-probe-treaty-date-conflict"
+    ]
+  },
+  "reference_correction": {
+    "ask-probe-archive-stale": "custodian and location are complementary"
+  },
+  "human_validated": false
+}

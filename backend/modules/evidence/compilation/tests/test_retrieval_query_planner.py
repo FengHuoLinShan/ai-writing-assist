@@ -494,6 +494,7 @@ async def test_llm_planner_rejects_new_numeric_fact_and_falls_back(
         ("character_context", "character"),
         ("import_scene_activation", "author_safe"),
         ("map_atlas", "author_full"),
+        ("ask_world", "author_full"),
     ],
 )
 async def test_llm_planner_never_expands_disabled_safety_paths(

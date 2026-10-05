@@ -1,0 +1,64 @@
+{
+  "checked_at": "2026-10-04T15:05:01.074533+00:00",
+  "git_commit": "229491796b9b05fb753c02b8aa2168cbb11c04e4",
+  "working_tree_dirty": true,
+  "environment": "isolated local acceptance host8017/frontend8087; same existing protected fixture; process-only proxy bypass; locked dev dependencies; full local BGE cache",
+  "case_results": [
+    {
+      "case": "direct_answer",
+      "status": "passed",
+      "answered": true,
+      "screenshot_and_observation_sha256": {
+        "address-answer.jpg": "e3723a9a233140b9d20f3accd98cd63fd9653c29e1caccc5a1fcecc342f8f866",
+        "address-answer.txt": "e20f22f472930eab5ec62adc95e89c8343a48923f48fe0feab02c2c18771c2a6",
+        "address-citation.jpg": "9965bdc8b784b5c6fa52eb45d93aa2e2ae6e13bc571a4d1263decd51e7e214e8"
+      }
+    },
+    {
+      "case": "combined_sources",
+      "status": "passed",
+      "answered": true,
+      "screenshot_and_observation_sha256": {
+        "combined-answer.jpg": "1127e87afe90fb9d579c1f32f049c114c40bc451202feb2974c66a7f69583c45",
+        "combined-answer.txt": "9d06834ab219e561bb8e460ae2cfe04eb288752150608d5ab58be833552305d7",
+        "combined-citation.jpg": "32ad7e07418ea1ffb5718540dc78d533513017430909946dda04806c0f7881c1"
+      }
+    },
+    {
+      "case": "missing_attribute",
+      "status": "passed",
+      "answered": false,
+      "screenshot_and_observation_sha256": {
+        "missing-attribute.jpg": "93a9b9161d6999ab00b47586cd7f61400e90a3f3e99fe1460319f98fc6772a81",
+        "missing-attribute.txt": "b7768ec4385a5769aeaecc4ad0b3879b5f645e9749b2ab3b1b87f57308ad4a7f"
+      }
+    },
+    {
+      "case": "scope_excluded",
+      "status": "passed",
+      "answered": false,
+      "screenshot_and_observation_sha256": {
+        "scope-excluded.jpg": "a94f3a9f6d2b0710b9066ac4d77e1341cc36fabf3816db5785d9a9e277eef7ae",
+        "scope-excluded.txt": "b61a60739922b58e3a7d38fc509b6b3b7089c43503c190a611fd4151bfd66a1e",
+        "scope-confirmation.jpg": "54fd608a6909c833065e6550a64c3dba26bb39940bb0c0159a44a70f098dc357"
+      }
+    }
+  ],
+  "scope_excluded_mode": "narrowed world scope; source absent from selected allowlist; UI exclusion notice verified",
+  "manual_per_item_exclusion_verified": "deterministic confirmation API regression only",
+  "narrow_screen": {
+    "width": 390,
+    "height": 844,
+    "result": "readable answer and visible adjustment control; temporary override reset",
+    "screenshot_sha256": "1b4dd5f53d1e3107738b3faabbebc501e05c18401c320fdf8300308c0baef888"
+  },
+  "writes": "Normal confirmation, retrieval diagnostics and AI snapshots were used; no suggestion save/adoption, manuscript or world asset editing action, no reset/rebuild. This is a workflow observation, not a database audit.",
+  "browser_failure_recovery": "original proxy failure retains input; full environment then reproduced and fixed nondeterministic confirmation and duplicate source disposition",
+  "author_feedback": {
+    "status": "accepted",
+    "receipt": "author-acceptance-receipt.json",
+    "user_response": "四项均符合预期且有帮助"
+  },
+  "private_evidence_directory": "/Users/tywww/Documents/ai-writing-assist-private/ask-world-quality-20261004",
+  "no_raw_manuscript_in_repository": true
+}
