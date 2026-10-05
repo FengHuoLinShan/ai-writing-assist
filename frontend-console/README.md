@@ -120,7 +120,11 @@ Vite 开发与预览服务通过 HTTP 响应头发送 CSP，并用 `frame-ancest
 显式 `source_format`（默认 `auto`）、作者声明的 `dataset_name`、`dataset_intent`
 （新资料集/继续维护/接续旧导入）与 `commit_mode`（完整快照/增量追加）一并进入服务端预览指纹。
 资料圈定在浏览器本地完成（`vue/views/world/bible/worldbookImportScope.js` 纯函数：剥根、
-受限 frontmatter、Wiki 引用四态解析），应用范围严格等于预览范围。
+受限 frontmatter、Wiki 引用四态解析），应用范围严格等于预览范围。本地解析的双链
+词法与归一化口径经共享测试向量与后端对齐（`tests/vue/world/bible/fixtures/worldbook-link-vectors.json`
+由前后端测试消费同一文件）；预览展示服务端返回的每页引用明细 `link_details`
+（别名与段落锚原样保留）与 `legacy_bindings.target_kind` 已发布页披露。资料集名
+重复（`worldbook_dataset_exists`）按响应体机器码匹配作者文案，不依赖报错措辞。
 
 ## 世界编辑历史（2026-10，阶段 0）
 

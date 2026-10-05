@@ -5,7 +5,8 @@ import {
   detectEntry,
   extractRelated,
   extractWikilinks,
-  normalizeMatchKey,
+  normalizeLinkPath,
+  normalizeLinkTitle,
   parseFrontmatter,
   pageTitle,
   registerPageTitle,
@@ -13,6 +14,7 @@ import {
   scanPage,
   stripRoot,
 } from "../../../../vue/views/world/bible/worldbookImportScope.js"
+import vectors from "./fixtures/worldbook-link-vectors.json"
 
 function catalogOf(entries) {
   return buildCatalog(entries.map(([path, size]) => ({ path, size: size || 10, file: null })))
@@ -40,11 +42,13 @@ describe("frontmatter 与标题口径（与后端 _map_file 一致）", () => {
     expect(parseFrontmatter("---\n没有结束标记")).toBeNull()
   })
 
-  it("读取后按 frontmatter 标题补录索引，aliases 不参与（契约第 4 条）", () => {
+  it("读取后按 frontmatter 标题顶替 stem 条目，aliases 不参与（契约第 4 条）", () => {
     const catalog = catalogOf([["vault/concepts/x.md"]])
     registerPageTitle(catalog, "concepts/x.md", { title: "潮汐之城", aliases: ["潮汐城"] })
     // frontmatter 标题命中
     expect(resolveLinkTarget("潮汐之城", catalog, [])).toEqual({ state: "unselected", relPath: "concepts/x.md" })
+    // 声明标题顶替 stem：服务端有效标题只有一个（_map_file），stem 不再命中
+    expect(resolveLinkTarget("x", catalog, []).state).toBe("unresolved")
     // aliases 不是标题，不参与匹配
     expect(resolveLinkTarget("潮汐城", catalog, []).state).toBe("unresolved")
   })
@@ -60,14 +64,19 @@ describe("wikilink 与 related 提取（m1-contract 第 4 条）", () => {
     ])
   })
 
-  it("related 字符串与列表逐项拆分，可含 [[…]] 或纯名称", () => {
+  it("related 字符串与列表逐项拆分，可含 [[…]] 或纯名称；纯名称不拆 #（后端同口径）", () => {
     expect(extractRelated({ related: "[[星锻环]]" })).toEqual([
       { raw: "[[星锻环]]", target: "星锻环", alias: "", anchor: "" },
     ])
     expect(extractRelated({ related: ["[[a|别名]]", "b#c", " 纯名称 "]})).toEqual([
-      { raw: "[[a|别名]]", target: "a", alias: "", anchor: "" },
-      { raw: "b#c", target: "b", anchor: "c", alias: "" },
+      { raw: "[[a|别名]]", target: "a", alias: "别名", anchor: "" },
+      { raw: "b#c", target: "b#c", anchor: "", alias: "" },
       { raw: "纯名称", target: "纯名称", alias: "", anchor: "" },
+    ])
+    // 内联 JSON 数组按数组展开（覆盖 related: ["A", "B"] 的常见写法）
+    expect(extractRelated({ related: '["甲", "乙"]' })).toEqual([
+      { raw: "甲", target: "甲", alias: "", anchor: "" },
+      { raw: "乙", target: "乙", alias: "", anchor: "" },
     ])
     expect(extractRelated({})).toEqual([])
   })
@@ -92,7 +101,35 @@ describe("四态解析：路径优先、唯一标题次之、同名不猜身份"
     expect(resolveLinkTarget("星锻环", catalog, []).state).toBe("ambiguous")
     expect(resolveLinkTarget("双月节点阵列", catalog, [])).toEqual({ state: "unselected", relPath: "concepts/双月节点阵列.md" })
     expect(resolveLinkTarget("不存在", catalog, []).state).toBe("unresolved")
-    expect(normalizeMatchKey("  Concepts/双月节点阵列.MD ")).toBe("concepts/双月节点阵列")
+    expect(normalizeLinkPath("  Concepts/双月节点阵列.MD ")).toBe("concepts/双月节点阵列")
+    // 标题键不去 .md 后缀：[[Foo.md]] 按标题匹配不解析（服务端同口径）
+    expect(normalizeLinkTitle("Foo.md")).toBe("foo.md")
+  })
+})
+
+describe("共享测试向量（与后端 test_worldbook_import_links.py 消费同一 fixtures 文件）", () => {
+  it("双链词法与后端 _WIKILINK_RE 一致", () => {
+    for (const { text, expected } of vectors.wikilinks) {
+      const links = extractWikilinks(text).map(({ target, alias, anchor }) => ({ target, alias, anchor }))
+      expect(links).toEqual(expected)
+    }
+  })
+
+  it("related 逐项拆分与纯名称口径一致", () => {
+    for (const { value, expected } of vectors.related_plain) {
+      expect(extractRelated({ related: value })).toEqual([
+        { raw: String(value).trim(), target: expected.target, alias: expected.alias, anchor: expected.anchor },
+      ])
+    }
+  })
+
+  it("标题键不去 .md、路径键去 .md，与服务端归一化一致", () => {
+    for (const { input, expected } of vectors.title_keys) {
+      expect(normalizeLinkTitle(input)).toBe(expected)
+    }
+    for (const { input, expected } of vectors.path_keys) {
+      expect(normalizeLinkPath(input)).toBe(expected)
+    }
   })
 })
 

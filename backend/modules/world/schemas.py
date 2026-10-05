@@ -2933,13 +2933,49 @@ class WorldbookImportFile(BaseModel):
 
 
 class WorldbookImportLegacyBinding(BaseModel):
-    """接续旧来源的待绑定映射（m1-contract 第 2 条，逐条可核对）。"""
+    """接续旧来源的待绑定映射（m1-contract 第 2 条，逐条可核对）。
+
+    ``target_kind`` 区分工作稿与已发布页：已发布页的 meta 补写按契约
+    走发布链显式确认路径（M3 未落地），本轮 apply 不改写其归属，预览必须
+    如实披露，不得让作者以为绑定已生效。
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     source_key: str = Field(..., min_length=64, max_length=64)
     legacy_source_path: str = Field(..., min_length=1, max_length=1024)
     rel_path: str = Field(..., min_length=1, max_length=1024)
+    target_kind: Literal["draft", "page"] | None = None
+
+
+class WorldbookImportLinkDetail(BaseModel):
+    """单条引用的解析明细（m1-contract 第 4 条：明细进预览清单）。
+
+    ``alias``（``|显示文本``）与 ``anchor``（``#段落``）原样保留，供导航与
+    恢复；``resolved_path``/``resolved_title`` 记录命中对象（resolved 与
+    unselected 有值），供作者定位目标页。仅展示用，不参与任何指纹。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    raw: str = Field(..., min_length=1, max_length=2048)
+    target: str = Field(..., min_length=1, max_length=1024)
+    alias: str = Field(default="", max_length=1024)
+    anchor: str = Field(default="", max_length=1024)
+    origin: Literal["free_text", "frontmatter"]
+    state: Literal["resolved", "ambiguous", "unresolved", "unselected"]
+    resolved_path: str | None = Field(default=None, max_length=1024)
+    resolved_title: str | None = Field(default=None, max_length=255)
+
+
+class WorldbookImportLinkDetailGroup(BaseModel):
+    """单页引用明细组；``truncated`` 标记超出每页 200 条的截断。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_key: str = Field(..., min_length=64, max_length=64)
+    truncated: bool = False
+    details: list[WorldbookImportLinkDetail] = Field(default_factory=list, max_length=200)
 
     @field_validator("source_key")
     @classmethod
@@ -3034,6 +3070,12 @@ class WorldbookImportPayload(BaseModel):
     legacy_bindings: list[WorldbookImportLegacyBinding] = Field(
         default_factory=list, max_length=2000
     )
+    # 每页引用明细快照（m1-contract 第 4 条「明细进预览清单」；r7 定案：随
+    # payload 持久化以支撑恢复预览的冻结语义，但不入指纹，先例同
+    # legacy_bindings）。四态计数仍在 items.link_summary 并纳入 preview_hash。
+    link_details: list[WorldbookImportLinkDetailGroup] = Field(
+        default_factory=list, max_length=2000
+    )
 
     @field_validator("manifest_hash", "preview_hash", "dataset_key")
     @classmethod
@@ -3071,6 +3113,7 @@ class WorldbookImportPreviewResponse(BaseModel):
     dataset_intent: str | None = None
     commit_mode: str | None = None
     legacy_bindings: list[WorldbookImportLegacyBinding] = Field(default_factory=list)
+    link_details: list[WorldbookImportLinkDetailGroup] = Field(default_factory=list)
 
 
 class WorldbookImportApplyRequest(BaseModel):

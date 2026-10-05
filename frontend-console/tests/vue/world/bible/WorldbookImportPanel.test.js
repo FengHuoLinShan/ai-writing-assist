@@ -60,6 +60,24 @@ describe("WorldbookImportPanel", () => {
       dataset_intent: "new",
       commit_mode: "full_snapshot",
       legacy_bindings: [],
+      link_details: [
+        {
+          source_key: "b1".padEnd(64, "0"),
+          truncated: false,
+          details: [
+            {
+              raw: "[[本体定位]]",
+              target: "本体定位",
+              alias: "",
+              anchor: "",
+              origin: "free_text",
+              state: "resolved",
+              resolved_path: "concepts/真名回响/本体定位.md",
+              resolved_title: "本体定位",
+            },
+          ],
+        },
+      ],
     })
     api.world.applyWorldbookImport.mockResolvedValue({
       draft_ids: ["draft-1", "draft-2"],
@@ -202,10 +220,15 @@ describe("WorldbookImportPanel", () => {
     expect(confirmFn).toHaveBeenCalledWith(expect.stringContaining("作者 AI 上下文确认会失效"))
   })
 
-  it("新资料集重名时用作者语言提示继续维护或换名", async () => {
+  it("新资料集重名时按机器码用作者语言提示继续维护或换名", async () => {
     api.world.previewWorldbookImport.mockRejectedValue(Object.assign(
       new Error("请求参数错误：Dataset name already exists in this project: 理法之环; continue maintaining it or choose another name"),
-      { status: 400, detail: "Dataset name already exists in this project: 理法之环; continue maintaining it or choose another name" },
+      {
+        status: 400,
+        // explainError 只认 api.js 透传的机器码，不依赖报错文案措辞
+        body: { error: "worldbook_dataset_exists" },
+        detail: "Dataset name already exists in this project: 理法之环; continue maintaining it or choose another name",
+      },
     ))
     const wrapper = mount(WorldbookImportPanel, {
       props: { projectId: "p1", open: true },

@@ -46,6 +46,9 @@ from modules.world.schemas import (
 from shared.target_ref import TargetRef
 from shared.utils import parse_uuid
 
+# 每页资产引用上限（TargetRef 引用契约）；导入物化、采用包等写入方共用此常量。
+MAX_ASSET_REFS = 100
+
 BUILTIN_WORLD_BIBLE_CATEGORIES: tuple[dict[str, Any], ...] = (
     {
         "category_key": "background",
@@ -520,9 +523,7 @@ class WorldBibleLifecycleService:
         await self._ensure_category_key(db, nid, page_type)
         if template_key:
             await self._ensure_page_template_key(db, str(nid), template_key)
-        await self._validate_asset_refs(
-            db, nid, refs, allow_local_refs=allow_local_refs
-        )
+        await self._validate_asset_refs(db, nid, refs, allow_local_refs=allow_local_refs)
         self._validate_section_refs(sections, refs)
         draft = WorldBiblePageDraft(
             novel_id=nid,
@@ -985,7 +986,7 @@ class WorldBibleLifecycleService:
                 if raw_type not in {"world_bible_page", "page"}:
                     continue
                 try:
-                    target = self._normalize_asset_ref(raw_ref)
+                    target = self.normalize_asset_ref(raw_ref)
                     target_id = uuid.UUID(target.target_id)
                 except (TypeError, ValueError):
                     add_omission("invalid_page_reference", referrer)
@@ -1675,7 +1676,7 @@ class WorldBibleLifecycleService:
         *,
         allow_local_refs: bool = False,
     ) -> None:
-        if len(refs) > 100:
+        if len(refs) > MAX_ASSET_REFS:
             raise ValidationError("World Bible pages support at most 100 asset refs")
         seen: set[tuple[str, str]] = set()
         for ref in refs:
@@ -1693,7 +1694,7 @@ class WorldBibleLifecycleService:
             if relation not in {"requires", "informs", "derives", "conflicts"}:
                 raise ValidationError("Unsupported World Bible asset ref relation")
             try:
-                normalized_ref = self._normalize_asset_ref(ref)
+                normalized_ref = self.normalize_asset_ref(ref)
             except (TypeError, ValueError) as exc:
                 raise ValidationError("Invalid World Bible asset ref") from exc
             declared_hash = ref.get("target_hash")
@@ -1859,7 +1860,7 @@ class WorldBibleLifecycleService:
         sections: list[dict[str, Any]],
         refs: list[dict[str, Any]],
     ) -> None:
-        available_hashes = {cls._asset_ref_hash(ref) for ref in refs}
+        available_hashes = {cls.asset_ref_hash(ref) for ref in refs}
         for section in sections:
             for ref_hash in section.get("linked_asset_ref_hashes") or []:
                 normalized = str(ref_hash).removeprefix("sha256:")
@@ -1873,7 +1874,7 @@ class WorldBibleLifecycleService:
         normalized: set[str] = set()
         for ref in refs:
             try:
-                target = cls._normalize_asset_ref(ref)
+                target = cls.normalize_asset_ref(ref)
                 normalized.add(
                     json.dumps(
                         {
@@ -1901,7 +1902,7 @@ class WorldBibleLifecycleService:
         return normalized
 
     @staticmethod
-    def _normalize_asset_ref(ref: dict[str, Any]) -> TargetRef:
+    def normalize_asset_ref(ref: dict[str, Any]) -> TargetRef:
         target_type = str(
             ref.get("target_type") or ref.get("type") or ref.get("source_type") or ""
         )
@@ -1923,8 +1924,8 @@ class WorldBibleLifecycleService:
         )
 
     @classmethod
-    def _asset_ref_hash(cls, ref: dict[str, Any]) -> str:
-        return cls._normalize_asset_ref(ref).target_hash()
+    def asset_ref_hash(cls, ref: dict[str, Any]) -> str:
+        return cls.normalize_asset_ref(ref).target_hash()
 
 
 __all__ = [

@@ -43,11 +43,13 @@ imports 可通过 `world.facade.dedupe_deep_import_workflow_candidates` 调用�
   `full_snapshot` 下限定同一资料集、`append` 不产生缺失标记，未声明 dataset 的 v1
   请求保持项目级判定。`dataset_intent` 为作者三态选择（默认 `continue`）：`new`
   新建资料集在派生 key 已存在时返回 400；`adopt_legacy` 接续旧来源，按 legacy
-  `source_path` 剥根等效 rel_path 匹配，预览返回 `legacy_bindings` 待绑定映射，
-  应用补写 dataset 字段并保留原 `source_path`、不新建工作稿。导入预览对每页统计
+  `source_path` 剥根等效 rel_path 匹配，预览返回 `legacy_bindings` 待绑定映射
+  （逐条标注工作稿/已发布页），应用对工作稿目标补写 dataset 字段并保留原
+  `source_path`、不新建工作稿，已发布页目标本轮不改写其归属（补写须走发布链
+  显式确认路径，预览如实披露）。导入预览对每页统计
   正文 `[[…]]` 双链与 frontmatter `related` 的四态引用计数（已解析/名称歧义/未解析/
   未纳入，纳入预览指纹），应用时已解析目标按既有 TargetRef 契约物化引用：已发布页
-  写真实引用、未发布目标用 `local:` 约定指向资料集内相对路径，歧义/未解析/未纳入
+  （含同时在本批的重导场景）写真实引用、未发布目标用 `local:` 约定指向资料集内相对路径，歧义/未解析/未纳入
   保留链接原文不建引用；含悬空链接的页面在发布校验中会因 dangling 链接整体阻断，
   预览向作者披露后果与出路。重导入仅在来源变化且本地仍等于 baseline 时安全更新，双变和源
   缺失进入冲突队列；源恢复时只清除缺失标记，不覆盖作者改动。控制文件、脚本、二进制

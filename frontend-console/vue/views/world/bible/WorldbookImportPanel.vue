@@ -129,6 +129,24 @@
         </div>
         <p v-if="hasLinkIssues" class="world-bible-empty-hint">{{ linkIssuesNotice }}</p>
       </template>
+      <!-- 引用明细（m1-contract 第 4 条：明细进预览清单）：alias（|显示文本）与
+           #段落 原样保留，供定位目标与恢复；折叠展开避免数千页噪音。 -->
+      <details v-if="linkDetailTotal" class="worldbook-import-scope__group">
+        <summary>查看引用明细（{{ linkDetailTotal }} 条）——含别名与段落锚，逐条可核对</summary>
+        <ul class="worldbook-import-items worldbook-import-links">
+          <li v-for="group in linkDetailGroups" :key="group.source_key">
+            <strong>{{ group.title }}</strong>
+            <ul class="worldbook-import-links__list">
+              <li v-for="(detail, index) in group.details" :key="index">
+                <span :class="`worldbook-link-state worldbook-link-state--${detail.state}`">{{ linkStateLabel(detail.state) }}</span>
+                <code>{{ detail.target }}</code>
+                <small>{{ linkDetailSuffix(detail) }}</small>
+              </li>
+            </ul>
+            <small v-if="group.truncated">本页引用超过 200 条，明细仅保留前 200 条。</small>
+          </li>
+        </ul>
+      </details>
       <p>识别为 {{ formatLabel }}；{{ ignoredCount }} 个控制或不支持文件已忽略。</p>
       <p class="world-bible-empty-hint">应用只会创建或更新未发布工作稿；发布仍需在工作台逐页确认。<template v-if="publishedTargets">其中 {{ publishedTargets }} 项目标已是已发布页，应用后生成对应工作稿。</template></p>
       <p v-if="preview.dataset_name">资料集「{{ preview.dataset_name }}」 · {{ commitModeLabel }} · {{ intentLabel }}</p>
@@ -138,11 +156,12 @@
           <ul class="worldbook-import-items">
             <li v-for="binding in legacyBindings" :key="binding.source_key">
               <span>{{ binding.legacy_source_path }}</span>
-              <small>→ {{ binding.rel_path }}</small>
+              <small>→ {{ binding.rel_path }}<template v-if="binding.target_kind === 'page'"> · 已发布页，本轮不会改写其归属</template></small>
             </li>
           </ul>
         </details>
         <p class="world-bible-empty-hint">接续会更新这些旧导入页的资料归属；已选中它们工作稿的作者 AI 上下文确认会失效，之后可重新确认。</p>
+        <p v-if="publishedBindingCount" class="world-bible-empty-hint">其中 {{ publishedBindingCount }} 项目标是已发布页：本轮不会改写已发布页的资料归属，补写需经发布链单独确认后再处理。</p>
       </template>
       <details v-if="preview.ignored_paths?.length" class="worldbook-import-ignored worldbook-import-items">
         <summary>查看已忽略文件</summary>
@@ -260,6 +279,25 @@ const linkIssueLabel = (item) => {
   return parts.length ? `引用：${parts.join("、")}` : ""
 }
 const legacyBindings = computed(() => preview.value?.legacy_bindings || [])
+const publishedBindingCount = computed(() =>
+  legacyBindings.value.filter((binding) => binding.target_kind === "page").length)
+// 引用明细（m1-contract 第 4 条）：按页分组回显，标题取自预览 items。
+const linkDetailGroups = computed(() => (preview.value?.link_details || []).map((group) => ({
+  ...group,
+  title: (preview.value?.items || []).find((item) => item.source_key === group.source_key)?.title || group.source_key,
+})))
+const linkDetailTotal = computed(() =>
+  linkDetailGroups.value.reduce((sum, group) => sum + group.details.length, 0))
+const linkStateLabel = (state) => (
+  { resolved: "已解析", ambiguous: "名称歧义", unresolved: "未解析", unselected: "未纳入" })[state] || state
+const linkDetailSuffix = (detail) => {
+  const parts = []
+  if (detail.alias) parts.push(`显示文本「${detail.alias}」`)
+  if (detail.anchor) parts.push(`段落「${detail.anchor}」`)
+  if (detail.resolved_path) parts.push(`→ ${detail.resolved_path}`)
+  else if (detail.resolved_title && detail.resolved_title !== detail.target) parts.push(`→ ${detail.resolved_title}`)
+  return parts.join(" · ")
+}
 const isAdoptLegacy = computed(() => preview.value?.dataset_intent === "adopt_legacy")
 const ignoredCount = computed(() => preview.value?.ignored_paths?.length || 0)
 const markdownItems = computed(() => (catalog.value?.items || []).filter((item) => item.isMarkdown))
@@ -420,8 +458,8 @@ function rescanAll() {
 
 function explainError(err, fallback) {
   const status = Number(err?.status) || 0
-  const detail = String(err?.detail || "")
-  if (status === 400 && /already exists/i.test(detail)) {
+  // 机器码匹配（api.js 透传响应体的 error 字段），不依赖后端报错文案措辞。
+  if (status === 400 && err?.body?.error === "worldbook_dataset_exists") {
     return "这个资料集名在项目里已存在。可以改用「继续维护」，或换一个名字再导入。"
   }
   if (status === 409) {

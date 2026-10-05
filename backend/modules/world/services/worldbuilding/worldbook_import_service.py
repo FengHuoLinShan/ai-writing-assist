@@ -7,7 +7,7 @@ import json
 import re
 import unicodedata
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -32,6 +32,8 @@ from modules.world.schemas import (
     WorldbookImportFile,
     WorldbookImportItem,
     WorldbookImportLegacyBinding,
+    WorldbookImportLinkDetail,
+    WorldbookImportLinkDetailGroup,
     WorldbookImportManifest,
     WorldbookImportPayload,
     WorldbookImportPreviewResponse,
@@ -45,6 +47,7 @@ from modules.world.services.worldbuilding.suggestion_queue_service import (
 )
 from modules.world.services.worldbuilding.world_bible_lifecycle_service import (
     BUILTIN_WORLD_BIBLE_CATEGORIES,
+    MAX_ASSET_REFS,
     WorldBibleLifecycleService,
 )
 from shared.utils import parse_uuid
@@ -64,10 +67,10 @@ _CATEGORY_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
 # 双链扫描形态与校验引擎的 `_WIKILINK_RE`（world_validation_engine.py）保持同一
 # 词法：`[[…]]` 内不含换行。预览四态与引擎 findings 是两套独立机制
 # （m1-contract 第 4 条冻结），这里只借用词法定义，不消费引擎结论。
+# 前端本地圈定（worldbookImportScope.js）以共享测试向量对本词法做漂移防护。
 _WIKILINK_RE = re.compile(r"\[\[([^\]\n]+)\]\]")
-# 与 `_validate_asset_refs` 的每页上限（world_bible_lifecycle_service）对齐；
-# 物化超出即截断，并在对应 item.reason 明示。
-_MAX_ASSET_REFS = 100
+# 每页引用明细的截断上限（m1-contract 第 4 条「明细进预览清单」的体积护栏）。
+_MAX_LINK_DETAILS = 200
 
 
 @dataclass(frozen=True)
@@ -107,12 +110,14 @@ class _LinkCandidate:
 
 @dataclass(frozen=True)
 class _LinkPlan:
-    """每页引用计划：四态计数 + 可物化 refs（已按去重与上限截断）。"""
+    """每页引用计划：四态计数 + 可物化 refs + 明细（均按上限截断）。"""
 
     summary: dict[str, int]
     refs: list[dict[str, Any]]
     truncated: bool
     reason_suffix: str = ""
+    details: list[dict[str, Any]] = field(default_factory=list)
+    details_truncated: bool = False
 
 
 @dataclass(frozen=True)
@@ -180,6 +185,7 @@ class WorldbookImportService:
             items=analysis["items"],
             ignored_paths=analysis["ignored_paths"],
             legacy_bindings=analysis["legacy_bindings"],
+            link_details=analysis["link_details"],
         )
         suggestion = await self._suggestions.create(
             db,
@@ -631,13 +637,15 @@ class WorldbookImportService:
         if dataset is not None and dataset.intent == "new":
             # m1-contract 第 2 条：显式声明新资料集时，派生 key 已存在即拒绝
             # （ValidationError→HTTP 400），提示继续维护或换名；不静默改写既有集。
+            # 机器码供前端精确匹配（不依赖报错文案措辞）。
             for current in existing.values():
                 meta = dict((current.page_meta_json or {}).get("worldbook_import") or {})
                 if str(meta.get("dataset_key") or "") == dataset.key:
                     raise ValidationError(
                         "Dataset name already exists in this project: "
                         f"{dataset.name}; continue maintaining it or choose "
-                        "another name"
+                        "another name",
+                        code="worldbook_dataset_exists",
                     )
         # adopt_legacy：legacy 条目（meta 无 dataset_key 但有 source_key）按等效
         # rel_path（source_path 应用同一剥根规则 + NFC + casefold）建索引；同一
@@ -685,6 +693,11 @@ class WorldbookImportService:
                             source_key=legacy_source_key,
                             legacy_source_path=legacy_source_path,
                             rel_path=mapped["path"],
+                            target_kind=(
+                                "draft"
+                                if isinstance(current, WorldBiblePageDraft)
+                                else "page"
+                            ),
                         )
                     )
             if current is None:
@@ -766,6 +779,20 @@ class WorldbookImportService:
                 )
             )
         items.sort(key=lambda item: (item.path.casefold(), item.source_key))
+        # 每页引用明细（m1-contract 第 4 条「明细进预览清单」；随 payload 持久化
+        # 支撑恢复预览，不入指纹）：与 items 同序，仅含有引用的页面。
+        link_details = [
+            WorldbookImportLinkDetailGroup(
+                source_key=item.source_key,
+                truncated=link_plans[item.source_key].details_truncated,
+                details=[
+                    WorldbookImportLinkDetail(**detail)
+                    for detail in link_plans[item.source_key].details
+                ],
+            )
+            for item in items
+            if item.source_key in link_plans and link_plans[item.source_key].details
+        ]
         ignored_sorted = sorted(ignored_paths, key=str.casefold)
         # 重放不得重算 ignored_paths（stored.files 只含纳入文件，重算恒为空集），
         # 指纹使用 stored 值保持与预览一致（m1-contract 第 5 条）。
@@ -814,6 +841,7 @@ class WorldbookImportService:
             "existing_sources": existing,
             "bound_sources": bound_sources,
             "legacy_bindings": legacy_bindings,
+            "link_details": link_details,
         }
 
     async def _existing_sources(
@@ -851,9 +879,7 @@ class WorldbookImportService:
         return found
 
     @staticmethod
-    async def _published_pages(
-        db: AsyncSession, novel_id: str
-    ) -> list[Any]:
+    async def _published_pages(db: AsyncSession, novel_id: str) -> list[Any]:
         """项目内已发布 WorldBiblePage（canonical/confirmed）行。
 
         `_existing_sources` 只覆盖带导入 meta 的条目；四态扫描的「唯一标题
@@ -872,8 +898,7 @@ class WorldbookImportService:
                         WorldBiblePage.status.in_({"canonical", "confirmed"}),
                     )
                 )
-            )
-            .all()
+            ).all()
         )
 
     @classmethod
@@ -1172,9 +1197,7 @@ class WorldbookImportService:
         member_by_title: dict[str, list[_LinkCandidate]] = {}
         if dataset is not None:
             for source_key, current in existing.items():
-                meta = dict(
-                    (current.page_meta_json or {}).get("worldbook_import") or {}
-                )
+                meta = dict((current.page_meta_json or {}).get("worldbook_import") or {})
                 if str(meta.get("dataset_key") or "") != dataset.key:
                     continue
                 rel_path = str(meta.get("rel_path") or "")
@@ -1189,18 +1212,23 @@ class WorldbookImportService:
                 if candidate.rel_key is not None:
                     member_by_rel.setdefault(candidate.rel_key, []).append(candidate)
                 member_by_title.setdefault(candidate.title_key, []).append(candidate)
-        # 已发布页若有导入 meta（在 existing 中按 id 反查 source_key），身份
-        # 与 dataset 成员候选对齐，避免同一对象在两个候选列表中被算两次。
-        page_key_by_id = {
-            str(current.id): source_key
-            for source_key, current in existing.items()
-            if isinstance(current, WorldBiblePage)
-        }
+        # 已发布页的身份对齐（m1-contract 第 4 条「目标为已发布页 → 真实 id」）：
+        # 页面带导入 meta（existing 中按 id 反查 source_key），或其工作稿在
+        # existing 中（同 source_key 的 draft 会遮蔽 page 行），都视为同一对象，
+        # 避免重导场景把已发布页误判成歧义或误用 local: 约定。
+        identity_by_page_id: dict[str, tuple] = {}
+        for source_key, current in existing.items():
+            if isinstance(current, WorldBiblePage):
+                identity_by_page_id.setdefault(str(current.id), ("key", source_key))
+            elif getattr(current, "page_id", None):
+                identity_by_page_id.setdefault(str(current.page_id), ("key", source_key))
         published_by_title: dict[str, list[_LinkCandidate]] = {}
-        for row in published_pages:
-            source_key = page_key_by_id.get(str(row.id))
+        published_by_identity: dict[tuple, _LinkCandidate] = {}
+        # 排序保证同 identity 多行（数据异常）时命中结果确定性。
+        for row in sorted(published_pages, key=lambda r: (str(r.title), str(r.id))):
+            identity = identity_by_page_id.get(str(row.id)) or ("page", str(row.id))
             candidate = _LinkCandidate(
-                identity=("key", source_key) if source_key else ("page", str(row.id)),
+                identity=identity,
                 kind="published",
                 title_key=cls._normalize_link_title(str(row.title)),
                 rel_key=None,
@@ -1208,12 +1236,14 @@ class WorldbookImportService:
                 target=row,
             )
             published_by_title.setdefault(candidate.title_key, []).append(candidate)
+            published_by_identity.setdefault(identity, candidate)
         return {
             "batch_by_rel": batch_by_rel,
             "batch_by_title": batch_by_title,
             "member_by_rel": member_by_rel,
             "member_by_title": member_by_title,
             "published_by_title": published_by_title,
+            "published_by_identity": published_by_identity,
         }
 
     @classmethod
@@ -1227,37 +1257,47 @@ class WorldbookImportService:
         路径形态：命中本批 → resolved；命中同 dataset 既有成员但不在本批 →
         unselected；无命中 → unresolved。标题形态：0 命中 → unresolved，
         1 命中 → resolved（按命中对象区分 target），≥2 → ambiguous（同名
-        不猜身份）。
+        不猜身份）。同一对象的 batch/member 命中在身份去重后升级为已发布页
+        候选：契约冻结「resolved 且目标为已发布页 → 按 TargetRef 写真实 id」，
+        重导场景（页面已发布且在本批）不得回落到 ``local:`` 约定。
         """
+        winner: _LinkCandidate | None
         if occurrence.is_path:
             rel_key = cls._normalize_link_path(occurrence.target)
             batch_hits = index["batch_by_rel"].get(rel_key) or []
             if batch_hits:
-                return "resolved", batch_hits[0]
-            member_hits = index["member_by_rel"].get(rel_key) or []
-            if member_hits:
-                return "unselected", member_hits[0]
-            return "unresolved", None
-        title_key = cls._normalize_link_title(occurrence.target)
-        if not title_key:
-            return "unresolved", None
-        hits: list[_LinkCandidate] = []
-        seen: set[tuple] = set()
-        for candidates in (
-            index["batch_by_title"].get(title_key) or [],
-            index["member_by_title"].get(title_key) or [],
-            index["published_by_title"].get(title_key) or [],
-        ):
-            for candidate in candidates:
-                if candidate.identity in seen:
-                    continue
-                seen.add(candidate.identity)
-                hits.append(candidate)
-        if not hits:
-            return "unresolved", None
-        if len(hits) == 1:
-            return "resolved", hits[0]
-        return "ambiguous", None
+                state, winner = "resolved", batch_hits[0]
+            else:
+                member_hits = index["member_by_rel"].get(rel_key) or []
+                if member_hits:
+                    state, winner = "unselected", member_hits[0]
+                else:
+                    return "unresolved", None
+        else:
+            title_key = cls._normalize_link_title(occurrence.target)
+            if not title_key:
+                return "unresolved", None
+            hits: list[_LinkCandidate] = []
+            seen: set[tuple] = set()
+            for candidates in (
+                index["batch_by_title"].get(title_key) or [],
+                index["member_by_title"].get(title_key) or [],
+                index["published_by_title"].get(title_key) or [],
+            ):
+                for candidate in candidates:
+                    if candidate.identity in seen:
+                        continue
+                    seen.add(candidate.identity)
+                    hits.append(candidate)
+            if not hits:
+                return "unresolved", None
+            if len(hits) > 1:
+                return "ambiguous", None
+            state, winner = "resolved", hits[0]
+        published = index["published_by_identity"].get(winner.identity)
+        if published is not None:
+            winner = published
+        return state, winner
 
     @classmethod
     def _materialize_ref(
@@ -1293,7 +1333,7 @@ class WorldbookImportService:
             "target_id": ref_id,
             "relation": "informs",
         }
-        ref["target_hash"] = WorldBibleLifecycleService._asset_ref_hash(ref)
+        ref["target_hash"] = WorldBibleLifecycleService.asset_ref_hash(ref)
         return ref
 
     @classmethod
@@ -1303,13 +1343,20 @@ class WorldbookImportService:
         index: dict[str, dict[str, list[_LinkCandidate]]],
         dataset: _DatasetIdentity | None,
     ) -> _LinkPlan:
-        """单页引用计划：四态计数 + 去重/截断后的物化 refs。"""
+        """单页引用计划：四态计数 + 明细 + 去重/截断后的物化 refs。
+
+        明细按出现顺序保留 ``raw/target/alias/anchor``（m1-contract 第 4 条
+        「明细进预览清单」），超出 `_MAX_LINK_DETAILS` 截断并标记。
+        """
         summary = {"resolved": 0, "ambiguous": 0, "unresolved": 0, "unselected": 0}
         refs: list[dict[str, Any]] = []
+        details: list[dict[str, Any]] = []
         seen_refs: set[tuple[str, str]] = set()
         for occurrence in cls._parse_link_occurrences(mapped):
             state, hit = cls._resolve_occurrence(occurrence, index)
             summary[state] += 1
+            if len(details) < _MAX_LINK_DETAILS:
+                details.append(cls._link_detail(occurrence, state, hit))
             if state != "resolved":
                 continue
             ref = cls._materialize_ref(hit, dataset)
@@ -1317,19 +1364,49 @@ class WorldbookImportService:
                 continue
             dedup_key = (
                 str(ref["relation"]),
-                WorldBibleLifecycleService._normalize_asset_ref(ref).canonical_json(),
+                WorldBibleLifecycleService.normalize_asset_ref(ref).canonical_json(),
             )
             if dedup_key in seen_refs:
                 continue
             seen_refs.add(dedup_key)
             refs.append(ref)
-        truncated = len(refs) > _MAX_ASSET_REFS
+        truncated = len(refs) > MAX_ASSET_REFS
         return _LinkPlan(
             summary=summary,
-            refs=refs[:_MAX_ASSET_REFS],
+            refs=refs[:MAX_ASSET_REFS],
             truncated=truncated,
             reason_suffix="；引用目标超过 100，仅物化前 100 条" if truncated else "",
+            details=details,
+            details_truncated=sum(summary.values()) > _MAX_LINK_DETAILS,
         )
+
+    @staticmethod
+    def _link_detail(
+        occurrence: _LinkOccurrence,
+        state: str,
+        hit: _LinkCandidate | None,
+    ) -> dict[str, Any]:
+        """单条引用明细（仅展示用，不参与指纹；超长字段截断保底）。"""
+        resolved_path: str | None = None
+        resolved_title: str | None = None
+        if hit is not None:
+            resolved_path = hit.rel_path or None
+            target = hit.target
+            if isinstance(target, dict):
+                raw_title = target.get("title")
+            else:
+                raw_title = getattr(target, "title", None)
+            resolved_title = str(raw_title) if raw_title else None
+        return {
+            "raw": occurrence.raw[:2048],
+            "target": occurrence.target[:1024],
+            "alias": occurrence.alias[:1024],
+            "anchor": occurrence.anchor[:1024],
+            "origin": occurrence.origin,
+            "state": state,
+            "resolved_path": resolved_path,
+            "resolved_title": resolved_title,
+        }
 
     @staticmethod
     def _editable_content_hash(item: WorldBiblePageDraft | WorldBiblePage) -> str:
@@ -1471,6 +1548,8 @@ class WorldbookImportService:
     def _preview_response(
         cls, suggestion_id: str, payload: WorldbookImportPayload
     ) -> WorldbookImportPreviewResponse:
+        # dataset_intent 与 payload 同值回显（m1-contract 第 8 条冻结）；payload
+        # 模型校验已保证 dataset_key 为空时恒为 continue，无需在响应层再分流。
         return WorldbookImportPreviewResponse(
             suggestion_id=suggestion_id,
             source_format=payload.source_format,
@@ -1481,9 +1560,10 @@ class WorldbookImportService:
             ignored_paths=payload.ignored_paths,
             dataset_name=payload.dataset_name,
             dataset_key=payload.dataset_key,
-            dataset_intent=payload.dataset_intent if payload.dataset_key else None,
+            dataset_intent=payload.dataset_intent,
             commit_mode=payload.commit_mode if payload.dataset_key else None,
             legacy_bindings=payload.legacy_bindings,
+            link_details=payload.link_details,
         )
 
     @staticmethod

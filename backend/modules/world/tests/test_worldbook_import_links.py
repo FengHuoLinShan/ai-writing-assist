@@ -12,7 +12,10 @@ test_worldbook_dataset_import.py 的 service 直调风格，不触碰本机真�
 
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
+from pathlib import Path
 
 import pytest
 from sqlalchemy import func, select
@@ -33,6 +36,13 @@ from modules.world.services.worldbuilding.worldbook_import_service import (
 )
 from shared.target_ref import TargetRef
 
+# 与前端 worldbookImportScope.test.js 消费同一向量文件：双链词法与归一化口径
+# 任何一端改动导致漂移时，两端测试同时失败。
+_SHARED_VECTORS_PATH = (
+    Path(__file__).resolve().parents[4]
+    / "frontend-console/tests/vue/world/bible/fixtures/worldbook-link-vectors.json"
+)
+
 
 def _linked_dataset_pages() -> list[dict[str, str]]:
     """合成资料集两页：理法之环正文与 frontmatter 各含指向星锻环的引用。
@@ -52,8 +62,7 @@ def _linked_dataset_pages() -> list[dict[str, str]]:
         {
             "path": "理法之环/concepts/星锻环.md",
             "content": (
-                "---\ntitle: 星锻环\npage_type: concept\n---\n"
-                "环绕双月的星锻之环。"
+                "---\ntitle: 星锻环\npage_type: concept\n---\n环绕双月的星锻之环。"
             ),
         },
     ]
@@ -113,7 +122,7 @@ def test_parse_link_occurrences_keeps_alias_and_anchor() -> None:
     mapped = {
         "content": "正文 [[星锻环|星环]] 与 [[concepts/星锻环.md#潮汐节律]] 与 [[]]。",
         "frontmatter": {
-            "related": ['[[星锻环|显示文本]]', "纯名称", "[[北境商路]]", 42],
+            "related": ["[[星锻环|显示文本]]", "纯名称", "[[北境商路]]", 42],
         },
     }
     occurrences = WorldbookImportService._parse_link_occurrences(mapped)
@@ -153,8 +162,7 @@ async def test_four_state_matrix_counts(
         {
             "path": "理法之环/concepts/星锻环.md",
             "content": (
-                "---\ntitle: 星锻环\npage_type: concept\n---\n"
-                "环绕双月的星锻之环。"
+                "---\ntitle: 星锻环\npage_type: concept\n---\n环绕双月的星锻之环。"
             ),
         },
         {
@@ -241,7 +249,8 @@ async def test_path_link_to_unselected_dataset_member(
     )
     assert applied_second.status == "accepted"
     draft = next(
-        draft for draft in await _drafts_of(db_session, project_novel_id)
+        draft
+        for draft in await _drafts_of(db_session, project_novel_id)
         if draft.title == "理法之环"
     )
     await db_session.refresh(draft)
@@ -292,8 +301,7 @@ async def test_preview_hash_is_sensitive_to_link_summary(
         {
             "path": "理法之环/concepts/星锻环.md",
             "content": (
-                "---\ntitle: 星锻环\npage_type: concept\n---\n"
-                "环绕双月的星锻之环。"
+                "---\ntitle: 星锻环\npage_type: concept\n---\n环绕双月的星锻之环。"
             ),
         },
     ]
@@ -336,7 +344,8 @@ async def test_materialize_local_ref_shape_and_lifecycle_validation(
     )
     assert applied.status == "accepted"
     draft = next(
-        draft for draft in await _drafts_of(db_session, project_novel_id)
+        draft
+        for draft in await _drafts_of(db_session, project_novel_id)
         if draft.title == "理法之环"
     )
     refs = draft.linked_asset_refs_json
@@ -348,7 +357,7 @@ async def test_materialize_local_ref_shape_and_lifecycle_validation(
         "target_type": "world_bible_page",
         "target_id": f"local:{dataset_key}:concepts/星锻环.md",
         "relation": "informs",
-        "target_hash": WorldBibleLifecycleService._asset_ref_hash(ref),
+        "target_hash": WorldBibleLifecycleService.asset_ref_hash(ref),
     }
     # 未解析目标不建 ref，原文保留。
     assert "未知之环" in draft.free_text and "[[未知之环]]" in draft.free_text
@@ -398,7 +407,7 @@ async def test_materialize_published_page_target_ref(
     assert ref["target_type"] == "world_bible_page"
     assert ref["target_id"] == str(page.id)
     assert ref["relation"] == "informs"
-    assert ref["target_hash"] == WorldBibleLifecycleService._asset_ref_hash(ref)
+    assert ref["target_hash"] == WorldBibleLifecycleService.asset_ref_hash(ref)
     # 真实 id ref 不依赖 local 豁免即可通过 lifecycle 校验（物化已在 apply 内走过）。
     await WorldBibleLifecycleService()._validate_asset_refs(
         db_session, uuid.UUID(project_novel_id), refs
@@ -426,7 +435,8 @@ async def test_update_keeps_refs_without_conflict_and_bidirectional_conflicts(
         db_session, project_novel_id, first.suggestion_id, _apply_request(first)
     )
     draft = next(
-        draft for draft in await _drafts_of(db_session, project_novel_id)
+        draft
+        for draft in await _drafts_of(db_session, project_novel_id)
         if draft.title == "理法之环"
     )
     refs_after_apply = list(draft.linked_asset_refs_json)
@@ -445,8 +455,7 @@ async def test_update_keeps_refs_without_conflict_and_bidirectional_conflicts(
         {
             "path": "理法之环/concepts/星锻环.md",
             "content": (
-                "---\ntitle: 星锻环\npage_type: concept\n---\n"
-                "环绕双月的星锻之环。"
+                "---\ntitle: 星锻环\npage_type: concept\n---\n环绕双月的星锻之环。"
             ),
         },
     ]
@@ -475,8 +484,7 @@ async def test_update_keeps_refs_without_conflict_and_bidirectional_conflicts(
         {
             "path": "理法之环/concepts/星锻环.md",
             "content": (
-                "---\ntitle: 星锻环\npage_type: concept\n---\n"
-                "环绕双月的星锻之环。"
+                "---\ntitle: 星锻环\npage_type: concept\n---\n环绕双月的星锻之环。"
             ),
         },
     ]
@@ -508,8 +516,7 @@ async def test_update_keeps_refs_without_conflict_and_bidirectional_conflicts(
         {
             "path": "理法之环/concepts/星锻环.md",
             "content": (
-                "---\ntitle: 星锻环\npage_type: concept\n---\n"
-                "环绕双月的星锻之环。"
+                "---\ntitle: 星锻环\npage_type: concept\n---\n环绕双月的星锻之环。"
             ),
         },
     ]
@@ -568,7 +575,8 @@ async def test_refs_over_limit_truncated_with_reason(
     )
     assert applied.status == "accepted"
     draft = next(
-        draft for draft in await _drafts_of(db_session, project_novel_id)
+        draft
+        for draft in await _drafts_of(db_session, project_novel_id)
         if draft.title == "汇总"
     )
     refs = draft.linked_asset_refs_json
@@ -585,3 +593,233 @@ async def test_refs_over_limit_truncated_with_reason(
         refs,
         allow_local_refs=True,
     )
+
+
+def test_shared_link_vectors_with_frontend() -> None:
+    """共享向量：双链词法与归一化口径与前端 worldbookImportScope.js 不漂移。"""
+    vectors = json.loads(_SHARED_VECTORS_PATH.read_text(encoding="utf-8"))
+    for case in vectors["wikilinks"]:
+        occurrences = WorldbookImportService._parse_link_occurrences(
+            {"content": case["text"], "frontmatter": {}}
+        )
+        assert [(occ.target, occ.alias, occ.anchor) for occ in occurrences] == [
+            (item["target"], item["alias"], item["anchor"]) for item in case["expected"]
+        ], case["text"]
+    for case in vectors["related_plain"]:
+        occurrences = WorldbookImportService._parse_link_occurrences(
+            {"content": "", "frontmatter": {"related": case["value"]}}
+        )
+        assert [(occ.target, occ.alias, occ.anchor) for occ in occurrences] == [
+            (
+                case["expected"]["target"],
+                case["expected"]["alias"],
+                case["expected"]["anchor"],
+            )
+        ], case["value"]
+    for case in vectors["title_keys"]:
+        assert (
+            WorldbookImportService._normalize_link_title(case["input"])
+            == (case["expected"])
+        ), case["input"]
+    for case in vectors["path_keys"]:
+        assert (
+            WorldbookImportService._normalize_link_path(case["input"])
+            == (case["expected"])
+        ), case["input"]
+
+
+def _legacy_star_forge_content() -> str:
+    """legacy 已发布页的来源内容（与 adopt_legacy 提交包逐字节一致）。"""
+    return "---\ntitle: 星锻环\npage_type: concept\n---\n环绕双月的星锻之环。"
+
+
+def _dataset_key(name: str) -> str:
+    normalized = name.strip().casefold()
+    return hashlib.sha256(f"worldbook.dataset.v1\0{normalized}".encode()).hexdigest()
+
+
+@pytest.mark.asyncio
+async def test_published_page_in_batch_materializes_real_id(
+    db_session: AsyncSession,
+    project_novel_id: str,
+) -> None:
+    """重导场景：被引用页已发布且在本批 → 仍写真实 TargetRef id（契约第 4 条）。
+
+    identity 去重后必须升级为已发布页候选，批内命中不得回落到 ``local:`` 约定
+    ——否则已发布页目标拿不到真实 id，与冻结语义相反。
+    """
+    service = WorldbookImportService()
+    files = _linked_dataset_pages()
+    dataset_key = _dataset_key("理法之环")
+    member_source_key = hashlib.sha256(
+        f"{dataset_key}\0concepts/星锻环.md".encode()
+    ).hexdigest()
+    member_content = files[1]["content"]
+    page = WorldBiblePage(
+        novel_id=uuid.UUID(project_novel_id),
+        page_type="concept",
+        page_key="concept:star-forge-ring",
+        title="星锻环",
+        status="canonical",
+        linked_asset_refs_json=[],
+        page_meta_json={
+            "worldbook_import": {
+                "source_key": member_source_key,
+                "source_hash": hashlib.sha256(member_content.encode("utf-8")).hexdigest(),
+                "dataset_key": dataset_key,
+                "dataset_name": "理法之环",
+                "rel_path": "concepts/星锻环.md",
+                "source_path": "理法之环/concepts/星锻环.md",
+                "commit_mode": "full_snapshot",
+            }
+        },
+    )
+    db_session.add(page)
+    await db_session.flush()
+
+    preview = await service.preview(
+        db_session, project_novel_id, _dataset_manifest(files=files)
+    )
+    items = {item.title: item for item in preview.items}
+    assert items["星锻环"].action == "preserve"
+    assert items["理法之环"].link_summary["resolved"] == 2
+    applied = await service.apply(
+        db_session, project_novel_id, preview.suggestion_id, _apply_request(preview)
+    )
+    assert applied.status == "accepted"
+    draft = next(
+        draft
+        for draft in await _drafts_of(db_session, project_novel_id)
+        if draft.title == "理法之环"
+    )
+    refs = draft.linked_asset_refs_json
+    assert len(refs) == 1
+    assert refs[0]["target_id"] == str(page.id)
+    assert refs[0]["target_type"] == "world_bible_page"
+    assert refs[0]["target_hash"] == WorldBibleLifecycleService.asset_ref_hash(refs[0])
+    await WorldBibleLifecycleService()._validate_asset_refs(
+        db_session, uuid.UUID(project_novel_id), refs
+    )
+
+
+@pytest.mark.asyncio
+async def test_link_details_snapshot_in_preview_and_restore(
+    db_session: AsyncSession,
+    project_novel_id: str,
+) -> None:
+    """明细进预览清单（契约第 4 条）：alias/#anchor 原样保留，恢复预览是快照。"""
+    service = WorldbookImportService()
+    preview = await service.preview(
+        db_session, project_novel_id, _dataset_manifest(files=_linked_dataset_pages())
+    )
+    ring_item = next(item for item in preview.items if item.title == "理法之环")
+    group = next(
+        group
+        for group in preview.link_details
+        if group.source_key == ring_item.source_key
+    )
+    assert not group.truncated
+    assert len(group.details) == sum(ring_item.link_summary.values())
+    by_target = {detail.target: detail for detail in group.details}
+    resolved = by_target["星锻环"]
+    assert resolved.state == "resolved"
+    assert resolved.resolved_path == "concepts/星锻环.md"
+    assert resolved.resolved_title == "星锻环"
+    assert {
+        detail.target: detail.anchor for detail in group.details if detail.anchor
+    } == {"星锻环": "潮汐节律"}
+    assert {detail.target: detail.alias for detail in group.details if detail.alias} == {
+        "星锻环": "星环"
+    }
+    assert by_target["未知之环"].state == "unresolved"
+    assert by_target["未知之环"].resolved_path is None
+    assert group.details[0].origin == "free_text"
+    assert group.details[-1].origin == "frontmatter"
+
+    # 恢复预览（冻结语义）：明细与首次预览逐字节一致，不重算。
+    restored = await service.get_preview(
+        db_session, project_novel_id, preview.suggestion_id
+    )
+    assert restored.link_details == preview.link_details
+    assert restored.preview_hash == preview.preview_hash
+
+
+@pytest.mark.asyncio
+async def test_adopt_legacy_binding_records_target_kind(
+    db_session: AsyncSession,
+    project_novel_id: str,
+) -> None:
+    """接续绑定如实区分工作稿与已发布页：已发布页本轮不改写归属（契约第 2 条）。
+
+    已发布 page 的 meta 补写按契约走发布链显式确认路径（M3 未落地），预览
+    必须标出 ``target_kind="page"``，apply 不得静默改写其 page_meta。
+    """
+    legacy_page = WorldBiblePage(
+        novel_id=uuid.UUID(project_novel_id),
+        page_type="concept",
+        page_key="concept:legacy-star-forge",
+        title="星锻环",
+        status="canonical",
+        linked_asset_refs_json=[],
+        page_meta_json={
+            "worldbook_import": {
+                # v1 页级身份：sha256(f"{source_format}\0{原始提交路径}")
+                "source_key": hashlib.sha256(
+                    "obsidian\0理法之环/concepts/星锻环.md".encode()
+                ).hexdigest(),
+                "source_hash": hashlib.sha256(
+                    _legacy_star_forge_content().encode("utf-8")
+                ).hexdigest(),
+                "source_path": "理法之环/concepts/星锻环.md",
+            }
+        },
+    )
+    db_session.add(legacy_page)
+    await db_session.flush()
+
+    files = [
+        {
+            "path": "ring/concepts/星锻环.md",
+            "content": _legacy_star_forge_content(),
+        },
+        {
+            "path": "ring/concepts/理法之环.md",
+            "content": "---\ntitle: 理法之环\npage_type: concept\n---\n见 [[星锻环]]。",
+        },
+    ]
+    manifest = WorldbookImportManifest(
+        schema_version="world_worldbook_import.v2",
+        source_format="obsidian",
+        dataset_name="理法之环",
+        dataset_intent="adopt_legacy",
+        files=files,
+    )
+    service = WorldbookImportService()
+    preview = await service.preview(db_session, project_novel_id, manifest)
+    binding = next(
+        binding
+        for binding in preview.legacy_bindings
+        if binding.rel_path == "concepts/星锻环.md"
+    )
+    assert binding.target_kind == "page"
+    ring_binding = next(
+        (
+            binding
+            for binding in preview.legacy_bindings
+            if binding.rel_path == "concepts/理法之环.md"
+        ),
+        None,
+    )
+    assert ring_binding is None  # 理法之环无 legacy 条目，不虚报绑定
+
+    applied = await service.apply(
+        db_session, project_novel_id, preview.suggestion_id, _apply_request(preview)
+    )
+    assert applied.status == "accepted"
+    await db_session.refresh(legacy_page)
+    # 已发布页 meta 未被改写：无 dataset_key，等待后续发布链显式确认路径。
+    imported = (legacy_page.page_meta_json or {}).get("worldbook_import") or {}
+    assert not imported.get("dataset_key")
+    assert imported["source_path"] == "理法之环/concepts/星锻环.md"
+    # 工作稿绑定（如有）标记为 draft；本例仅已发布页命中，无 draft 绑定。
+    assert all(binding.target_kind == "page" for binding in preview.legacy_bindings)

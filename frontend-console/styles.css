@@ -12083,6 +12083,48 @@ details[open] > .world-bible-support-summary::after {
   cursor: pointer;
 }
 
+.worldbook-import-links__list {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.worldbook-import-links__list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: 0;
+  border: 0;
+}
+
+.worldbook-import-links__list code {
+  font-size: 0.85em;
+  overflow-wrap: anywhere;
+}
+
+.worldbook-link-state {
+  flex: none;
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg-muted);
+  color: var(--text-secondary);
+  font-size: 0.8em;
+  white-space: nowrap;
+}
+
+.worldbook-link-state--resolved {
+  color: var(--color-success, #15803d);
+}
+
+.worldbook-link-state--ambiguous,
+.worldbook-link-state--unresolved,
+.worldbook-link-state--unselected {
+  color: var(--color-warning, #b45309);
+}
+
 .world-health-panel {
   margin-block: var(--space-3);
 }
