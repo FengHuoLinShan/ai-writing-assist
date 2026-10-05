@@ -334,8 +334,46 @@ PNG 后才进入地图册私有 S3。此例外不改变 imports 的文稿上传�
 - 世界书目录导入是 world 自有的受限文本入口，只接受相对路径标识与 UTF-8
   `.md/.txt/.json/.yaml/.yml`；单文件 2 MiB、正文总量 25 MiB、最多 2,000 文件。
   服务端不打开客户端路径，不执行脚本、Prompt、工具配置或 YAML 表达式。首次导入只创建
-  `source_material` 工作稿；重导入以 `source_key/source_hash/baseline_content_hash` 做三方比较，
-  双变和源缺失进入 `worldbook_import_conflict`，不覆盖、不删除。
+  `source_material` 工作稿；声明 `obsidian/llmwiki/wiki_markdown` 格式时正文按受限
+  frontmatter 归类 page type，非内建类型会在应用时补建同名分类。manifest 可显式声明
+  `source_format`（默认 `auto`）、`dataset_name`（服务端派生 `dataset_key`）、
+  `dataset_intent` 与 `commit_mode`：dataset 提交（payload `world_worldbook_import.v2`）以
+  `dataset_key + 剥根 rel_path` 派生页级 `source_key`，根目录改名不换身份；
+  `full_snapshot` 的缺失判定只覆盖同一资料集，`append` 不产生缺失，v1 请求保持
+  项目级判定与旧 source_key 算法。`dataset_intent` 承载作者三态选择（默认
+  `continue`）：`new` 显式新建资料集，派生 key 已存在即 400（提示继续维护或换名）；
+  `adopt_legacy` 显式接续旧来源，按 legacy `source_path` 剥根等效 rel_path 唯一匹配，
+  预览返回 `legacy_bindings` 待绑定映射（逐条标注 `target_kind`），apply 对工作稿
+  目标补写 dataset 字段、保留原 `source_path`、不新建工作稿；已发布页目标本轮
+  不改写其 meta（补写须走发布链显式确认路径，后续单独实现），预览如实披露。
+  预览对每页统计正文 `[[…]]` 双链与 frontmatter
+  `related` 的四态引用计数（已解析/名称歧义/未解析/未纳入，随 items 纳入
+  `preview_hash`），并随 payload 返回逐条引用明细 `link_details`（alias 与
+  #anchor 原样保留，不入指纹，每页 200 条截断）；apply 对已解析目标按既有
+  TargetRef 契约物化引用（目标为已发布页时优先写真实引用——含该页同时在本批的
+  重导场景，未发布目标用 `local:{dataset_key}:{rel_path}` 约定；歧义/未解析/未纳入
+  保留链接原文不建引用），物化页的 `baseline_content_hash` 按含 refs 字段组在同一
+  事务内写入；含悬空链接的页面发布校验会因 dangling 链接整体阻断，预览向作者披露。
+  待发布引用是工作稿的合法持久态：公共草稿 create/update 路径放行 `local:` 引用
+  （编辑器整份回传不再 422）；发布时把目标已发布的待发布引用物化为真实引用并重算
+  指纹（发布预览与 SEAL 同口径物化，凭预览 `impact_scope_hash` 发布不得误报冲突），
+  目标仍未发布的保持 `local:` 待发布态随页落地、不阻断发布（Wiki 互链否则死锁），
+  在发布影响预演与校验回执按 `pending_page_reference` 遗漏如实披露；语义缺口清单
+  与生成中心资产目录跳过待发布引用，目标发布后经物化或重导入生效。
+  同项目多个数据集并发 apply 声明同一新分类时，分类创建包 savepoint，唯一约束
+  冲突折算为「已存在」或业务错误，不再冒 500。
+  重导入以
+  `source_key/source_hash/baseline_content_hash` 做三方比较，
+  双变和源缺失进入 `worldbook_import_conflict`，不覆盖、不删除。apply 先取
+  `worldbook_import:{novel_id}:{dataset_key}` 项目级 advisory lock，在锁内重放
+  双 hash 复验后再写入，跨 suggestion 并发 apply 串行化或返回 409。
+  导入与发布是两个阶段：apply 只产生未发布工作稿，来源 frontmatter 的
+  `canon_status` 等声明不触发发布或激活；发布必须经既有 Canon Preview/Admit
+  与校验回执。来源更新重导会经既有 `update_draft → mark_asset_context_changed`
+  失效链使显式选中该工作稿的作者 AI 上下文确认失效，可重新确认；角色/读者
+  reveal 模式不消费世界书 activation 资料、简介与工作稿。导入预览按
+  `target_kind` 逐项区分未发布工作稿与已发布页目标（已发布页的更新同样先落
+  工作稿）。
 - 已发布且 `page_key=validation-policy` 的页面可在
   `page_meta_json.validation_policy` 激活 `world_validation_policy.v1`。策略只接受
   有界命名 operator；`regex` / `forbid_regex` 禁止分组、或、反向引用与嵌套量词，

@@ -1,0 +1,19 @@
+$ RUN_E2E_TESTS=1 E2E_DATABASE_URL=<专用库 worldbook_import_e2e @ localhost:5207（dev PG 容器 ai-novel-db 内新建，alembic head 20261005_world_revision_metadata）> uv run --locked --extra ci -- pytest tests/e2e/test_worldbook_dataset_import_concurrency.py -m e2e --timeout=300 -v
+
+============================= test session starts ==============================
+platform darwin -- Python 3.14.7, pytest-9.1.1, pluggy-1.6.0 -- /Users/tywww/Desktop/项目/ai-writing-assist/backend/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/tywww/Desktop/项目/ai-writing-assist/backend
+configfile: pyproject.toml
+plugins: cov-7.1.0, xdist-3.8.0, timeout-2.4.0, asyncio-1.4.0, anyio-4.14.2
+timeout: 300.0s
+timeout method: signal
+timeout func_only: False
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+collecting ... collected 3 items
+
+tests/e2e/test_worldbook_dataset_import_concurrency.py::test_dataset_applies_serialize_on_lock_and_stale_one_conflicts PASSED [ 33%]
+tests/e2e/test_worldbook_dataset_import_concurrency.py::test_same_suggestion_double_apply_is_claimed_once PASSED [ 66%]
+tests/e2e/test_worldbook_dataset_import_concurrency.py::test_stale_preview_hash_conflicts_and_retry_succeeds PASSED [100%]
+
+============================== 3 passed in 1.97s ===============================

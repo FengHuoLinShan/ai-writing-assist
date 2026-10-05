@@ -35,6 +35,10 @@ make docs-check BASE_REF=origin/main
 `docs/architecture/` 文件或 ADR 未登记时也会失败。表、路由、任务各检查一个权威目录，
 不再要求模块设计与 README 重复枚举全部条目。
 
+PostgreSQL 串行合并门禁子集（Makefile `BACKEND_POSTGRESQL_CRITICAL_TESTS`）登记依赖
+真并发或 advisory-lock 互斥的新领域用例时，同步在 development-guide 与 testing-guide
+的逐用例命令表补行；登记规则见 `documentation-maintenance.md`。
+
 ADR-0013 记录作者长任务的 operation receipt、最多两个 attempt 和页内恢复边界；该决定
 复用现有 tasks/LLM/project seams，不新增队列、表、全局任务中心或跨设备锁。ADR-0014 规定
 世界对象图片的鉴权读取、私有双 bucket、最小权限应用凭据和单盘 32GiB MinIO 边界。

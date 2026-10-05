@@ -34,13 +34,35 @@ imports 可通过 `world.facade.dedupe_deep_import_workflow_candidates` 调用�
   6 个再生产循环、F01–F22、C01–C05、四类情境测试、T01–T12 与 fiction-core 六阶段。
   从 World Core 产生的首个 checkpoint 深度为 `seed`，未知区域明确记录为 gap/not-run。
 - 世界书目录导入与文稿 imports 物理分离：浏览器只提交受限相对路径和 UTF-8 文本清单，
-  world 以 `world_worldbook_import.v1` 保存 pending 提案。raw/非 Markdown 资料创建
+  world 以 `world_worldbook_import.v1/v2` 保存 pending 提案。raw/非 Markdown 资料创建
   `source_material` 工作稿；Obsidian/LLM Wiki 正文保留受限的 page type 和有界
-  嵌套 Frontmatter，但权威仍为 candidate，不会因导入元数据自动激活。重导入仅在
-  来源变化且本地仍等于 baseline 时安全更新，双变和源缺失进入冲突队列；
-  源恢复时只清除缺失标记，不覆盖作者改动。控制文件、脚本、二进制与 `.obsidian`
-  配置只列名忽略，浏览器不读其内容，服务端也不执行或激活。应用是单事务：
-  中断不留部分工作稿，保留 pending 预览后可重试。带有严格
+  嵌套 Frontmatter，但权威仍为 candidate，不会因导入元数据自动激活。manifest 可显式
+  声明 `source_format`（默认 `auto` 目录标记检测，另有 `wiki_markdown` 视作无 vault
+  标记的 Obsidian 正文子集）与 `dataset_name`/`dataset_intent`/`commit_mode`：声明 dataset 的 v2 提交以
+  `dataset_key + 资料集内 rel_path` 派生页级身份（根目录改名不换身份），缺失判定仅在
+  `full_snapshot` 下限定同一资料集、`append` 不产生缺失标记，未声明 dataset 的 v1
+  请求保持项目级判定。`dataset_intent` 为作者三态选择（默认 `continue`）：`new`
+  新建资料集在派生 key 已存在时返回 400；`adopt_legacy` 接续旧来源，按 legacy
+  `source_path` 剥根等效 rel_path 匹配，预览返回 `legacy_bindings` 待绑定映射
+  （逐条标注工作稿/已发布页），应用对工作稿目标补写 dataset 字段并保留原
+  `source_path`、不新建工作稿，已发布页目标本轮不改写其归属（补写须走发布链
+  显式确认路径，预览如实披露）。导入预览对每页统计
+  正文 `[[…]]` 双链与 frontmatter `related` 的四态引用计数（已解析/名称歧义/未解析/
+  未纳入，纳入预览指纹），应用时已解析目标按既有 TargetRef 契约物化引用：已发布页
+  （含同时在本批的重导场景）写真实引用、未发布目标用 `local:` 约定指向资料集内相对路径，歧义/未解析/未纳入
+  保留链接原文不建引用；含悬空链接的页面在发布校验中会因 dangling 链接整体阻断，
+  预览向作者披露后果与出路。`local:` 待发布引用是工作稿的合法持久态：编辑保存放行、
+  发布时目标已发布的物化为真实引用（预览与发布同口径），目标未发布的保持待发布态
+  随页落地并在发布影响回执披露，不阻断发布；语义缺口清单与生成中心上下文跳过待发布
+  引用。重导入仅在来源变化且本地仍等于 baseline 时安全更新，双变和源
+  缺失进入冲突队列；源恢复时只清除缺失标记，不覆盖作者改动。控制文件、脚本、二进制
+  与 `.obsidian` 配置只列名忽略，浏览器不读其内容，服务端也不执行或激活。应用是单
+  事务，先取项目+资料集 advisory lock 并在锁内重放复验来源与目标基线，跨 suggestion
+  并发 apply 因此串行化；中断不留部分工作稿，保留 pending 预览后可重试。导入与发布
+  分阶段：apply 只产生未发布工作稿，来源 `canon_status` 声明不触发发布或激活，发布走
+  既有 Canon Preview/Admit 与校验回执；来源更新重导经既有失效链使显式选中该工作稿的
+  作者 AI 上下文确认失效，可重新确认，角色/读者视角不消费世界书 activation 资料、
+  简介与工作稿，导入预览按 `target_kind` 逐项区分未发布工作稿与已发布页目标。带有严格
   `validation_policy` Frontmatter 的策略页可作为 `rule` 工作稿导入；导入本身不激活，
   只有作者显式发布后才成为项目唯一的活动策略。
 - 项目可显式启用 `world_validation_policy.v1`；未启用时旧项目行为不变。启用后，

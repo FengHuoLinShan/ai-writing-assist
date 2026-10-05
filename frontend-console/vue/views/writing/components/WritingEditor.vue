@@ -2,12 +2,12 @@
   <div class="writing-editor-shell" :aria-busy="state.reloadingServer || undefined">
     <div class="writing-editor-header">
       <div id="writing-editor-buttons" class="writing-editor-buttons">
-        <button v-if="state.status !== 'candidate'" id="btn-autosave" class="btn btn-primary btn-sm writing-save-action" :disabled="!chapterReady || state.readonly || state.saving" :aria-busy="state.saving" @click="$emit('autosave')">{{ state.saving ? '保存中…' : state.restoreSourceVersion ? '保存为新工作稿' : '保存工作稿' }}</button>
-        <button v-if="state.status !== 'candidate'" type="button" class="btn btn-sm" :disabled="!canComment" @click="addComment">批注选中内容</button>
-        <button v-if="state.status !== 'candidate'" type="button" class="btn btn-sm" :disabled="!canExample" title="把选中的段落存为好例/反例，之后的 AI 生成会参考" @click="saveSelectionExample">选段存为例子</button>
-        <button v-if="editorialAvailable && state.status === 'draft'" class="btn btn-sm" type="button" :disabled="!chapterReady || state.readonly || state.dirty || state.saving || !state.content.trim() || !state.draftId" @click="$emit('editorial-ready')">{{ state.editorialReadyHash && state.editorialReadyHash === state.contentHash ? '本版已交编辑' : '本章写完，交给编辑看' }}</button>
+        <button v-if="showChapterActions && state.status !== 'candidate'" id="btn-autosave" class="btn btn-primary btn-sm writing-save-action" :disabled="!chapterReady || state.readonly || state.saving" :aria-busy="state.saving" @click="$emit('autosave')">{{ state.saving ? '保存中…' : state.restoreSourceVersion ? '保存为新工作稿' : '保存工作稿' }}</button>
+        <button v-if="showChapterActions && state.status !== 'candidate'" type="button" class="btn btn-sm" :disabled="!canComment" @click="addComment">批注选中内容</button>
+        <button v-if="showChapterActions && state.status !== 'candidate'" type="button" class="btn btn-sm" :disabled="!canExample" title="把选中的段落存为好例/反例，之后的 AI 生成会参考" @click="saveSelectionExample">选段存为例子</button>
+        <button v-if="showChapterActions && editorialAvailable && state.status === 'draft'" class="btn btn-sm" type="button" :disabled="!chapterReady || state.readonly || state.dirty || state.saving || !state.content.trim() || !state.draftId" @click="$emit('editorial-ready')">{{ state.editorialReadyHash && state.editorialReadyHash === state.contentHash ? '本版已交编辑' : '本章写完，交给编辑看' }}</button>
         <div ref="toolMenusEl" class="writing-editor-buttons__menus" @click.capture="closeToolMenuAfterAction" @keydown="onToolMenuKeydown">
-          <details v-if="state.status !== 'candidate'" class="writing-tools-menu" @toggle="onToolMenuToggle('save', $event)">
+          <details v-if="showChapterActions && state.status !== 'candidate'" class="writing-tools-menu" @toggle="onToolMenuToggle('save', $event)">
             <summary class="btn btn-sm" aria-controls="writing-save-tools" :aria-expanded="String(openToolMenu === 'save')">版本与发布</summary>
             <div id="writing-save-tools" class="writing-tools-menu__body">
               <div class="writing-tools-menu__group">
@@ -38,7 +38,7 @@
               </div>
             </div>
           </details>
-          <details class="writing-tools-menu" @toggle="onToolMenuToggle('checks', $event)">
+          <details v-if="showChapterActions" class="writing-tools-menu" @toggle="onToolMenuToggle('checks', $event)">
             <summary class="btn btn-sm" data-action="writing-more-menu" aria-controls="writing-check-tools" :aria-expanded="String(openToolMenu === 'checks')">检查与导出</summary>
             <div id="writing-check-tools" class="writing-tools-menu__body">
               <div class="writing-tools-menu__group">
@@ -66,9 +66,17 @@
     </div>
 
     <div v-if="!hasChapter" class="writing-editor-empty">
-      <p>选择一章，继续你的故事。</p>
-      <button v-if="hasChapters" type="button" class="btn btn-primary" @click="$emit('open-chapters')">选择章节</button>
-      <button v-else-if="narrow" type="button" class="btn btn-primary" @click="$emit('create-chapter')">新建章节</button>
+      <div class="writing-editor-empty__card">
+        <span class="writing-editor-empty__mark" aria-hidden="true">稿</span>
+        <h2 class="writing-editor-empty__title">{{ hasChapters ? "继续你的故事" : "从第一章开始" }}</h2>
+        <p v-if="hasChapters" class="writing-editor-empty__lead">从左侧章节目录中选择一章，即可继续写作。</p>
+        <p v-else class="writing-editor-empty__lead">选择一章，继续你的故事。</p>
+        <p v-if="!hasChapters" class="writing-editor-empty__hint">创建第一章后，这里就是你的稿纸；章节目录在左侧，批注与场景资料在右侧。</p>
+        <div class="writing-editor-empty__actions">
+          <button v-if="hasChapters" type="button" class="btn btn-primary" @click="$emit('open-chapters')">选择章节</button>
+          <button v-else type="button" class="btn btn-primary" @click="$emit('create-chapter')">新建第一章</button>
+        </div>
+      </div>
     </div>
     <div v-else-if="state.loading" class="writing-editor-state loading-skeleton" role="status" aria-live="polite" aria-busy="true">
       <p>正在打开第 {{ chapterNumber }} 章…</p>
@@ -203,7 +211,6 @@ import { readWritingFocus } from "../../../shared/assistantContext.js"
 
 const props = defineProps({
   projectId: { type: String, default: null },
-  narrow: Boolean,
   deepReviewAvailable: Boolean,
   editorialAvailable: Boolean,
   state: { type: Object, required: true },
@@ -315,6 +322,8 @@ const toolMenusEl = ref(null)
 const openToolMenu = ref(null)
 const chapterNumber = computed(() => Number(props.targetChapter || props.state.chapter) || null)
 const hasChapter = computed(() => Number.isInteger(chapterNumber.value) && chapterNumber.value > 0)
+/* 空白作品（无章节且无选中章）时隐藏依赖正文的操作，只保留 AI 工具入口 */
+const showChapterActions = computed(() => props.hasChapters || hasChapter.value)
 const chapterReady = computed(() => hasChapter.value
   && !props.state.loading
   && !props.state.loadError

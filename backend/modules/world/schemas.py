@@ -2925,99 +2925,6 @@ class WorldBiblePageDraftListResponse(BaseModel):
     total: int
 
 
-class WorldbookImportFile(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    path: str = Field(..., min_length=1, max_length=1024)
-    content: str = Field(..., max_length=2 * 1024 * 1024)
-
-
-class WorldbookImportManifest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    schema_version: Literal["world_worldbook_import.v1"] = "world_worldbook_import.v1"
-    files: list[WorldbookImportFile] = Field(..., min_length=1, max_length=2000)
-
-
-class WorldbookImportItem(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    source_key: str = Field(..., min_length=64, max_length=64)
-    path: str = Field(..., min_length=1, max_length=1024)
-    title: str = Field(..., min_length=1, max_length=255)
-    page_type: str = Field(default="source_material", min_length=1, max_length=64)
-    source_hash: str = Field(..., min_length=64, max_length=64)
-    action: Literal["create", "update", "preserve", "conflict", "missing"]
-    target_id: str | None = None
-    target_kind: Literal["draft", "page"] | None = None
-    current_content_hash: str | None = None
-    reason: str = Field(default="", max_length=1000)
-
-    @field_validator("source_key", "source_hash", "current_content_hash")
-    @classmethod
-    def validate_hashes(cls, value: str | None, info) -> str | None:
-        if value is None:
-            return None
-        return _validate_lower_sha256(value, info.field_name)
-
-
-class WorldbookImportPayload(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    schema_version: Literal["world_worldbook_import.v1"]
-    source_format: Literal["obsidian", "llmwiki", "generic"]
-    manifest_hash: str = Field(..., min_length=64, max_length=64)
-    preview_hash: str = Field(..., min_length=64, max_length=64)
-    files: list[WorldbookImportFile] = Field(..., min_length=1, max_length=2000)
-    items: list[WorldbookImportItem] = Field(default_factory=list, max_length=4000)
-    ignored_paths: list[str] = Field(default_factory=list, max_length=2000)
-
-    @field_validator("manifest_hash", "preview_hash")
-    @classmethod
-    def validate_hashes(cls, value: str, info) -> str:
-        return _validate_lower_sha256(value, info.field_name)
-
-    @model_validator(mode="after")
-    def validate_total_size(self) -> WorldbookImportPayload:
-        if (
-            sum(len(item.content.encode("utf-8")) for item in self.files)
-            > 25 * 1024 * 1024
-        ):
-            raise ValueError("worldbook import exceeds 25 MiB")
-        return self
-
-
-class WorldbookImportPreviewResponse(BaseModel):
-    suggestion_id: str
-    source_format: Literal["obsidian", "llmwiki", "generic"]
-    manifest_hash: str
-    preview_hash: str
-    counts: dict[str, int]
-    items: list[WorldbookImportItem]
-    ignored_paths: list[str] = Field(default_factory=list)
-
-
-class WorldbookImportApplyRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    expected_preview_hash: str = Field(..., min_length=64, max_length=64)
-
-    @field_validator("expected_preview_hash")
-    @classmethod
-    def validate_preview_hash(cls, value: str) -> str:
-        return _validate_lower_sha256(value, "expected_preview_hash")
-
-
-class WorldbookImportApplyResponse(BaseModel):
-    suggestion_id: str
-    status: Literal["accepted"]
-    manifest_hash: str
-    preview_hash: str
-    counts: dict[str, int]
-    draft_ids: list[str] = Field(default_factory=list)
-    conflict_ids: list[str] = Field(default_factory=list)
-
-
 def _validate_world_policy_regex(pattern: str) -> str:
     if (
         len(pattern) > 500
@@ -3473,6 +3380,7 @@ class WorldBibleImpactOmission(BaseModel):
     reason: Literal[
         "invalid_page_reference",
         "unavailable_page_reference",
+        "pending_page_reference",
         "response_limit",
     ]
     referring_page_id: OptionalUuidStr = None

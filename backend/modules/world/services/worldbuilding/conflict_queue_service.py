@@ -13,9 +13,11 @@ from modules.world.models import (
 )
 from modules.world.schemas import (
     ConflictQueueResponse,
-    WorldbookImportItem,
     WorldGenerationSemanticInspectionFinding,
     WorldGenerationSemanticInspectionReceipt,
+)
+from modules.world.worldbook_import_schemas import (
+    WorldbookImportItem,
 )
 from shared.utils import parse_uuid
 

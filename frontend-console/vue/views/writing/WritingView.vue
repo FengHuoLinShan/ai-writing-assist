@@ -76,7 +76,7 @@
     </div>
     <div class="view-header__actions">
       <button type="button" class="btn btn-sm" :aria-expanded="leftRailOpen" @click="toggleRail('chapters')">章节</button>
-      <button type="button" class="btn btn-sm" :aria-expanded="rightRailOpen" @click="toggleRail('reference')">本章资料</button>
+      <button v-if="!isBlankWork" type="button" class="btn btn-sm" :aria-expanded="rightRailOpen" @click="toggleRail('reference')">本章资料</button>
       <button ref="chapterMapTriggerEl" type="button" class="btn btn-sm" :disabled="!hasEditableChapter" data-action="open-chapter-map" @click="openChapterMap()">本章地图</button>
       <details ref="viewMenuEl" class="writing-page-menu" @toggle="onViewMenuToggle" @keydown="onViewMenuKeydown">
         <summary
@@ -122,7 +122,7 @@
 
   <div
     class="writing-workspace-layout"
-    :class="{ 'writing-workspace-layout--candidate': vm.editorState.status === 'candidate' }"
+    :class="{ 'writing-workspace-layout--candidate': vm.editorState.status === 'candidate', 'writing-workspace-layout--blank': isBlankWork }"
   >
     <WorkspaceDrawer :mobile="vm.isNarrow.value" :open="leftRailOpen" title="章节" @close="leftRailOpen = false">
     <aside
@@ -153,7 +153,6 @@
         :deep-review-available="deepReviewAvailable"
         :editorial-available="editorialAvailable"
         :exporting-adopted="Boolean(vm.exportingAdopted.value)"
-        :narrow="vm.isNarrow.value"
         :state="vm.editorState"
         :target-chapter="vm.selectedChapter.value"
         :has-chapters="vm.chapterList.value.length > 0"
@@ -248,7 +247,7 @@
       <p v-if="vm.versionLoadError.value" class="writing-empty-hint" role="alert">{{ vm.versionLoadError.value }}</p>
     </main>
 
-    <WorkspaceDrawer :mobile="vm.isNarrow.value" :open="rightRailOpen" title="本章资料" @close="rightRailOpen = false">
+    <WorkspaceDrawer v-if="!isBlankWork" :mobile="vm.isNarrow.value" :open="rightRailOpen" title="本章资料" @close="rightRailOpen = false">
     <aside
       class="workspace-rail writing-panel-rail workspace-rail--right"
       :class="{ 'is-collapsed': !rightRailOpen }"
@@ -312,7 +311,7 @@
     </aside>
     </WorkspaceDrawer>
 
-    <footer class="writing-statusbar">
+    <footer v-if="!isBlankWork" class="writing-statusbar">
       <div id="writing-wordcount-bar" class="writing-wordcount-bar">
         <span><strong>{{ statusWordCount.toLocaleString() }}</strong> 字</span>
         <span v-if="dailyGoalNumber" class="wc-daily-goal">
@@ -446,6 +445,11 @@ const props = defineProps({
 })
 
 const vm = useWritingWorkspace(props)
+/* 空白作品：没有章节时右侧资料栏与状态栏无内容可展示，切换为单栏欢迎布局 */
+const isBlankWork = computed(() => !props.publicDemo
+  && !vm.homeMode.value
+  && vm.chapterList.value.length === 0
+  && !vm.chapterLoadError.value)
 const writingEditorRef = ref(null)
 const writingComments = useWritingComments(
   props.projectId, vm.editorState, vm.selectChapter, vm.selectRange,

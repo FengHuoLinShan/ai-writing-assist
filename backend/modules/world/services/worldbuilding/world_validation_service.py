@@ -2382,6 +2382,10 @@ class WorldValidationService:
                     continue
                 ref_type = str(ref.get("target_type") or ref.get("type") or "")
                 ref_id = str(ref.get("target_id") or ref.get("id") or "")
+                if ref_id.startswith("local:"):
+                    # 资料集待发布引用（m1-contract 第 4 条）：目标未发布，
+                    # 不进语义清单；发布后经物化或重导入生效。
+                    continue
                 if ref_type in {"world_bible_page", "page"}:
                     page = await db.scalar(
                         select(WorldBiblePage).where(

@@ -12021,6 +12021,110 @@ details[open] > .world-bible-support-summary::after {
   color: var(--text-secondary);
 }
 
+.worldbook-import-options {
+  display: grid;
+  gap: var(--space-2);
+  margin-block: var(--space-3);
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.worldbook-import-options legend {
+  padding-inline: var(--space-1);
+  color: var(--text-secondary);
+}
+
+.worldbook-import-options__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-2);
+}
+
+.worldbook-import-options__field {
+  display: grid;
+  gap: 0.25rem;
+  min-width: min(100%, 16rem);
+  flex: 1 1 12rem;
+}
+
+.worldbook-import-options__choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.worldbook-import-scope {
+  display: grid;
+  gap: var(--space-2);
+  margin-block: var(--space-3);
+}
+
+.worldbook-import-scope__entry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.worldbook-import-scope__entry label {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.worldbook-import-scope__group > summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.worldbook-import-links__list {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.worldbook-import-links__list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: 0;
+  border: 0;
+}
+
+.worldbook-import-links__list code {
+  font-size: 0.85em;
+  overflow-wrap: anywhere;
+}
+
+.worldbook-link-state {
+  flex: none;
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg-muted);
+  color: var(--text-secondary);
+  font-size: 0.8em;
+  white-space: nowrap;
+}
+
+.worldbook-link-state--resolved {
+  color: var(--color-success, #15803d);
+}
+
+.worldbook-link-state--ambiguous,
+.worldbook-link-state--unresolved,
+.worldbook-link-state--unselected {
+  color: var(--color-warning, #b45309);
+}
+
 .world-health-panel {
   margin-block: var(--space-3);
 }

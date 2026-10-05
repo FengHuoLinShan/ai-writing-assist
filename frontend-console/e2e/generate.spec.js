@@ -359,7 +359,8 @@ test.describe("生成中心模块", () => {
 
     await page.getByRole("button", { name: "去写作台创建第一章" }).click()
     await expect(page.locator("#topbar-module")).toContainText("写作")
-    await expect(page.getByRole("button", { name: "新建章节", exact: true })).toBeVisible()
+    // 窄屏空态主操作是欢迎卡的「新建第一章」；侧栏「新建章节」在抽屉内不可点
+    await expect(page.getByRole("button", { name: "新建第一章", exact: true })).toBeVisible()
   })
 
   test("角色视角正文保留表单、路由位置和项目隔离", async ({ page, projectFactory, browserErrors }) => {
