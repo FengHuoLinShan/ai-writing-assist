@@ -2987,8 +2987,10 @@ class WorldbookImportItem(BaseModel):
     target_kind: Literal["draft", "page"] | None = None
     current_content_hash: str | None = None
     reason: str = Field(default="", max_length=1000)
-    # 四态 Wiki 引用计数（resolved/ambiguous/unresolved/unselected），
-    # 纳入 preview_hash（m1-contract 第 4 条）；M2 引用扫描落地前恒为 0。
+    # 四态 Wiki 引用计数（m1-contract 第 4 条，纳入 preview_hash）：
+    # resolved/ambiguous/unresolved/unselected 按页内引用出现次数统计（正文
+    # 双链 + frontmatter related）；物化 refs 另按去重与每页 100 上限截断，
+    # 超限在对应 item.reason 明示。ambiguous/unresolved/unselected 不建引用。
     link_summary: dict[str, int] = Field(
         default_factory=lambda: {
             "resolved": 0,

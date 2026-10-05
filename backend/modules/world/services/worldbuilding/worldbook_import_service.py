@@ -61,6 +61,58 @@ _MAX_TOTAL_BYTES = 25 * 1024 * 1024
 # 与 WorldBibleCategoryCreate.category_key 的 schema 约束保持一致
 # （pattern ^[a-z][a-z0-9_]*$ + min_length=2 + max_length=64）。
 _CATEGORY_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
+# 双链扫描形态与校验引擎的 `_WIKILINK_RE`（world_validation_engine.py）保持同一
+# 词法：`[[…]]` 内不含换行。预览四态与引擎 findings 是两套独立机制
+# （m1-contract 第 4 条冻结），这里只借用词法定义，不消费引擎结论。
+_WIKILINK_RE = re.compile(r"\[\[([^\]\n]+)\]\]")
+# 与 `_validate_asset_refs` 的每页上限（world_bible_lifecycle_service）对齐；
+# 物化超出即截断，并在对应 item.reason 明示。
+_MAX_ASSET_REFS = 100
+
+
+@dataclass(frozen=True)
+class _LinkOccurrence:
+    """单条引用出现的解析结果（m1-contract 第 4 条）。
+
+    ``alias``（``|显示文本``）与 ``anchor``（``#段落``）不参与身份匹配，
+    仅保留在解析结果中供预览展示；``origin`` 区分正文双链与 frontmatter
+    ``related``。原始正文与文件绝不改写。
+    """
+
+    raw: str
+    target: str
+    alias: str
+    anchor: str
+    is_path: bool
+    origin: str
+
+
+@dataclass(frozen=True)
+class _LinkCandidate:
+    """四态判定的命中候选；``identity`` 用于跨来源去重同一页面对象。
+
+    ``identity`` 统一取 (``"key"``, source_key)（本批与既有 dataset 成员同
+    key 即同一对象，preserve/update 重导天然去重）；无导入 meta 的已发布页
+    退化为 (``"page"``, page_id)。``rel_path`` 为未归一化的资料集内相对路径，
+    供 ``local:`` 约定拼接。
+    """
+
+    identity: tuple
+    kind: str  # "batch" | "member" | "published"
+    title_key: str
+    rel_key: str | None
+    rel_path: str | None
+    target: Any
+
+
+@dataclass(frozen=True)
+class _LinkPlan:
+    """每页引用计划：四态计数 + 可物化 refs（已按去重与上限截断）。"""
+
+    summary: dict[str, int]
+    refs: list[dict[str, Any]]
+    truncated: bool
+    reason_suffix: str = ""
 
 
 @dataclass(frozen=True)
@@ -266,6 +318,9 @@ class WorldbookImportService:
                                 template_version=current.template_version,
                                 created_by="worldbook_import",
                             ),
+                            # 恢复工作稿只复制页面既有 refs；若页面历史 refs
+                            # 含 local: 约定，保持原样不升级校验口径。
+                            allow_local_refs=True,
                         )
                     draft_ids.append(marked.id)
                 conflict_items.append(item)
@@ -294,11 +349,15 @@ class WorldbookImportService:
                 ):
                     mapped = mapped_files[item.source_key]
                     restored_meta = dict(current.page_meta_json or {})
+                    # preserve 不物化 refs；基线口径保持该页现值 refs，与
+                    # preserve 判定（current_hash == baseline）同口径，
+                    # 不在物化之外改写 baseline（m1-contract 第 4 条）。
                     new_meta = self._source_meta(
                         mapped,
                         analysis["source_format"],
                         analysis["manifest_hash"],
                         dataset,
+                        refs=list(current.linked_asset_refs_json or []),
                     )
                     self._carry_forward_source_path(new_meta, source_meta, dataset)
                     restored_meta["worldbook_import"] = new_meta
@@ -314,11 +373,20 @@ class WorldbookImportService:
                     draft_ids.append(restored.id)
                 continue
             mapped = mapped_files[item.source_key]
+            # 物化（m1-contract 第 4 条）：仅 create/update 建引用；refs 按本批
+            # item 的最终引用计划取值，baseline 在 `_source_meta` 内按含 refs
+            # 字段组计算（冻结决定 a）。ambiguous/unresolved/unselected 不建。
+            plan = analysis["link_plans"].get(item.source_key)
+            refs = list(plan.refs) if plan is not None else []
+            allow_local_refs = any(
+                str(ref.get("target_id") or "").startswith("local:") for ref in refs
+            )
             meta = self._source_meta(
                 mapped,
                 analysis["source_format"],
                 analysis["manifest_hash"],
                 dataset,
+                refs=refs,
             )
             if dataset is not None and item.action in {"update", "preserve"}:
                 previous = analysis["existing_sources"].get(item.source_key) or analysis[
@@ -341,8 +409,10 @@ class WorldbookImportService:
                         page_type=mapped["page_type"],
                         page_meta_json=self._page_meta(mapped, meta),
                         free_text=mapped["content"],
+                        linked_asset_refs_json=refs,
                         created_by="worldbook_import",
                     ),
+                    allow_local_refs=allow_local_refs,
                 )
             elif item.target_kind == "draft":
                 created = await self._lifecycle.update_draft(
@@ -354,8 +424,10 @@ class WorldbookImportService:
                         page_type=mapped["page_type"],
                         page_meta_json=self._page_meta(mapped, meta),
                         free_text=mapped["content"],
+                        linked_asset_refs_json=refs,
                         updated_by="worldbook_import",
                     ),
+                    allow_local_refs=allow_local_refs,
                 )
             else:
                 created = await self._lifecycle.create_draft(
@@ -367,8 +439,10 @@ class WorldbookImportService:
                         page_type=mapped["page_type"],
                         page_meta_json=self._page_meta(mapped, meta),
                         free_text=mapped["content"],
+                        linked_asset_refs_json=refs,
                         created_by="worldbook_import",
                     ),
+                    allow_local_refs=allow_local_refs,
                 )
             draft_ids.append(created.id)
 
@@ -544,6 +618,16 @@ class WorldbookImportService:
                 }
             )
         existing = await self._existing_sources(db, novel_id)
+        # 四态扫描候选集：项目内已发布页（canonical/confirmed）标题参与
+        # 「唯一标题命中」；本批与同 dataset 既有成员索引见 `_build_link_index`。
+        published_pages = await self._published_pages(db, novel_id)
+        link_index = self._build_link_index(
+            mapped_files, existing, dataset, published_pages
+        )
+        link_plans = {
+            mapped["source_key"]: self._link_plan(mapped, link_index, dataset)
+            for mapped in mapped_files
+        }
         if dataset is not None and dataset.intent == "new":
             # m1-contract 第 2 条：显式声明新资料集时，派生 key 已存在即拒绝
             # （ValidationError→HTTP 400），提示继续维护或换名；不静默改写既有集。
@@ -632,7 +716,8 @@ class WorldbookImportService:
                     target_id=target_id,
                     target_kind=target_kind,
                     current_content_hash=current_hash,
-                    reason=reason,
+                    reason=reason + link_plans[source_key].reason_suffix,
+                    link_summary=dict(link_plans[source_key].summary),
                 )
             )
         # missing 判定输入按提交语义收窄（m1-contract 第 3 条）：legacy 沿用
@@ -724,6 +809,7 @@ class WorldbookImportService:
             },
             "mapped_files": mapped_files,
             "items": items,
+            "link_plans": link_plans,
             "ignored_paths": ignored_sorted,
             "existing_sources": existing,
             "bound_sources": bound_sources,
@@ -763,6 +849,32 @@ class WorldbookImportService:
             if key:
                 found[key] = item
         return found
+
+    @staticmethod
+    async def _published_pages(
+        db: AsyncSession, novel_id: str
+    ) -> list[Any]:
+        """项目内已发布 WorldBiblePage（canonical/confirmed）行。
+
+        `_existing_sources` 只覆盖带导入 meta 的条目；四态扫描的「唯一标题
+        命中」还须包含作者手动创建的已发布页（m1-contract 第 4 条）。
+        """
+        nid = parse_uuid(novel_id, "novel_id")
+        return list(
+            (
+                await db.execute(
+                    select(
+                        WorldBiblePage.id,
+                        WorldBiblePage.title,
+                        WorldBiblePage.status,
+                    ).where(
+                        WorldBiblePage.novel_id == nid,
+                        WorldBiblePage.status.in_({"canonical", "confirmed"}),
+                    )
+                )
+            )
+            .all()
+        )
 
     @classmethod
     def _map_file(
@@ -949,6 +1061,276 @@ class WorldbookImportService:
             return "rule"
         return "source_material" if normalized in {"source", "raw"} else normalized
 
+    # ------------------------------------------------------------------
+    # Wiki 引用四态扫描（m1-contract 第 4 条）：解析与判定均为确定性纯
+    # 函数，preview 与 apply 重放共用同一实现；候选集构建是唯一 IO 边界，
+    # 在 `_analyze` 内完成后传入，同一事务内天然一致。
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def _parse_link_occurrences(cls, mapped: dict[str, Any]) -> list[_LinkOccurrence]:
+        """解析单页引用：正文双链 + frontmatter ``related``（逐项拆分）。
+
+        ``related`` 值为字符串或列表，项可含 ``[[…]]``（逐个解析）或纯名称
+        （整项作为目标）。原始正文与文件绝不改写。
+        """
+        occurrences: list[_LinkOccurrence] = []
+        for match in _WIKILINK_RE.finditer(str(mapped.get("content") or "")):
+            occurrence = cls._parse_wikilink(match.group(1), "free_text")
+            if occurrence is not None:
+                occurrences.append(occurrence)
+        related = (mapped.get("frontmatter") or {}).get("related")
+        for value in cls._related_values(related):
+            stripped = value.strip()
+            matches = list(_WIKILINK_RE.finditer(stripped))
+            if matches:
+                for match in matches:
+                    occurrence = cls._parse_wikilink(match.group(1), "frontmatter")
+                    if occurrence is not None:
+                        occurrences.append(occurrence)
+            elif stripped:
+                occurrences.append(
+                    _LinkOccurrence(
+                        raw=stripped,
+                        target=stripped,
+                        alias="",
+                        anchor="",
+                        is_path="/" in stripped,
+                        origin="frontmatter",
+                    )
+                )
+        return occurrences
+
+    @staticmethod
+    def _related_values(related: Any) -> list[str]:
+        if related is None:
+            return []
+        if isinstance(related, str):
+            return [related]
+        if isinstance(related, list):
+            return [item for item in related if isinstance(item, str)]
+        return []
+
+    @staticmethod
+    def _parse_wikilink(inner: str, origin: str) -> _LinkOccurrence | None:
+        """拆分 ``[[…]]`` 内部：``|显示文本`` 与 ``#段落`` 不参与身份匹配。"""
+        target_part, _, alias = inner.partition("|")
+        target, _, anchor = target_part.partition("#")
+        target = target.strip()
+        if not target:
+            return None
+        return _LinkOccurrence(
+            raw=f"[[{inner}]]",
+            target=target,
+            alias=alias.strip(),
+            anchor=anchor.strip(),
+            is_path="/" in target,
+            origin=origin,
+        )
+
+    @staticmethod
+    def _normalize_link_title(value: str) -> str:
+        return unicodedata.normalize("NFC", value.strip()).casefold()
+
+    @staticmethod
+    def _normalize_link_path(value: str) -> str:
+        """路径目标归一化：去 ``.md`` 后缀 + NFC + casefold（``#anchor`` 已拆）。"""
+        stripped = value.strip()
+        if stripped.lower().endswith(".md"):
+            stripped = stripped[: -len(".md")]
+        return unicodedata.normalize("NFC", stripped).casefold()
+
+    @classmethod
+    def _build_link_index(
+        cls,
+        mapped_files: list[dict[str, Any]],
+        existing: dict[str, WorldBiblePageDraft | WorldBiblePage],
+        dataset: _DatasetIdentity | None,
+        published_pages: list[Any],
+    ) -> dict[str, dict[str, list[_LinkCandidate]]]:
+        """构建四态判定候选索引（唯一 IO 之后的确定性步骤）。
+
+        路径候选 = 本批 rel_path ∪ 同 dataset 既有成员 rel_path；标题候选 =
+        本批 title ∪ 同 dataset 既有成员 title ∪ 项目内已发布 WorldBiblePage
+        （canonical/confirmed）title。同一页面对象（本批/成员/已发布页重合）
+        经 ``identity`` 去重，避免 preserve 重导把自身判成歧义。
+        """
+        batch_by_rel: dict[str, list[_LinkCandidate]] = {}
+        batch_by_title: dict[str, list[_LinkCandidate]] = {}
+        for mapped in mapped_files:
+            candidate = _LinkCandidate(
+                identity=("key", mapped["source_key"]),
+                kind="batch",
+                title_key=cls._normalize_link_title(str(mapped["title"])),
+                rel_key=cls._normalize_link_path(str(mapped["path"])),
+                rel_path=str(mapped["path"]),
+                target=mapped,
+            )
+            batch_by_rel.setdefault(candidate.rel_key, []).append(candidate)
+            batch_by_title.setdefault(candidate.title_key, []).append(candidate)
+        member_by_rel: dict[str, list[_LinkCandidate]] = {}
+        member_by_title: dict[str, list[_LinkCandidate]] = {}
+        if dataset is not None:
+            for source_key, current in existing.items():
+                meta = dict(
+                    (current.page_meta_json or {}).get("worldbook_import") or {}
+                )
+                if str(meta.get("dataset_key") or "") != dataset.key:
+                    continue
+                rel_path = str(meta.get("rel_path") or "")
+                candidate = _LinkCandidate(
+                    identity=("key", source_key),
+                    kind="member",
+                    title_key=cls._normalize_link_title(str(current.title)),
+                    rel_key=cls._normalize_link_path(rel_path) if rel_path else None,
+                    rel_path=rel_path or None,
+                    target=current,
+                )
+                if candidate.rel_key is not None:
+                    member_by_rel.setdefault(candidate.rel_key, []).append(candidate)
+                member_by_title.setdefault(candidate.title_key, []).append(candidate)
+        # 已发布页若有导入 meta（在 existing 中按 id 反查 source_key），身份
+        # 与 dataset 成员候选对齐，避免同一对象在两个候选列表中被算两次。
+        page_key_by_id = {
+            str(current.id): source_key
+            for source_key, current in existing.items()
+            if isinstance(current, WorldBiblePage)
+        }
+        published_by_title: dict[str, list[_LinkCandidate]] = {}
+        for row in published_pages:
+            source_key = page_key_by_id.get(str(row.id))
+            candidate = _LinkCandidate(
+                identity=("key", source_key) if source_key else ("page", str(row.id)),
+                kind="published",
+                title_key=cls._normalize_link_title(str(row.title)),
+                rel_key=None,
+                rel_path=None,
+                target=row,
+            )
+            published_by_title.setdefault(candidate.title_key, []).append(candidate)
+        return {
+            "batch_by_rel": batch_by_rel,
+            "batch_by_title": batch_by_title,
+            "member_by_rel": member_by_rel,
+            "member_by_title": member_by_title,
+            "published_by_title": published_by_title,
+        }
+
+    @classmethod
+    def _resolve_occurrence(
+        cls,
+        occurrence: _LinkOccurrence,
+        index: dict[str, dict[str, list[_LinkCandidate]]],
+    ) -> tuple[str, _LinkCandidate | None]:
+        """单条引用四态判定（确定性纯函数）。
+
+        路径形态：命中本批 → resolved；命中同 dataset 既有成员但不在本批 →
+        unselected；无命中 → unresolved。标题形态：0 命中 → unresolved，
+        1 命中 → resolved（按命中对象区分 target），≥2 → ambiguous（同名
+        不猜身份）。
+        """
+        if occurrence.is_path:
+            rel_key = cls._normalize_link_path(occurrence.target)
+            batch_hits = index["batch_by_rel"].get(rel_key) or []
+            if batch_hits:
+                return "resolved", batch_hits[0]
+            member_hits = index["member_by_rel"].get(rel_key) or []
+            if member_hits:
+                return "unselected", member_hits[0]
+            return "unresolved", None
+        title_key = cls._normalize_link_title(occurrence.target)
+        if not title_key:
+            return "unresolved", None
+        hits: list[_LinkCandidate] = []
+        seen: set[tuple] = set()
+        for candidates in (
+            index["batch_by_title"].get(title_key) or [],
+            index["member_by_title"].get(title_key) or [],
+            index["published_by_title"].get(title_key) or [],
+        ):
+            for candidate in candidates:
+                if candidate.identity in seen:
+                    continue
+                seen.add(candidate.identity)
+                hits.append(candidate)
+        if not hits:
+            return "unresolved", None
+        if len(hits) == 1:
+            return "resolved", hits[0]
+        return "ambiguous", None
+
+    @classmethod
+    def _materialize_ref(
+        cls,
+        hit: _LinkCandidate,
+        dataset: _DatasetIdentity | None,
+    ) -> dict[str, Any] | None:
+        """把 resolved 命中转为可物化 ref（relation 固定 informs）。
+
+        已发布 WorldBiblePage → 真实页 id；本批工作稿或既有 draft →
+        ``local:{dataset_key}:{rel_path}`` 约定（不伪造正式页 id）。legacy
+        提交（无 dataset 身份）的工作稿目标无可物化的稳定引用，保持 resolved
+        计数不建 ref；超出 TargetRef ``target_id`` 255 上限的 local 目标同理
+        （TargetRef 契约零改动，m1-contract 第 8 条）。
+        """
+        if dataset is None:
+            return None
+        if hit.kind == "published" or (
+            hit.kind == "member" and isinstance(hit.target, WorldBiblePage)
+        ):
+            ref_id = str(hit.target.id)
+        else:
+            # local 目标指向被引用页的资料集内 rel_path（batch 命中取目标
+            # candidate 的 rel_path，不是引用页自身路径）。
+            rel_path = str(hit.rel_path or "")
+            if not rel_path:
+                return None
+            ref_id = f"local:{dataset.key}:{rel_path}"
+            if len(ref_id) > 255:
+                return None
+        ref = {
+            "target_type": "world_bible_page",
+            "target_id": ref_id,
+            "relation": "informs",
+        }
+        ref["target_hash"] = WorldBibleLifecycleService._asset_ref_hash(ref)
+        return ref
+
+    @classmethod
+    def _link_plan(
+        cls,
+        mapped: dict[str, Any],
+        index: dict[str, dict[str, list[_LinkCandidate]]],
+        dataset: _DatasetIdentity | None,
+    ) -> _LinkPlan:
+        """单页引用计划：四态计数 + 去重/截断后的物化 refs。"""
+        summary = {"resolved": 0, "ambiguous": 0, "unresolved": 0, "unselected": 0}
+        refs: list[dict[str, Any]] = []
+        seen_refs: set[tuple[str, str]] = set()
+        for occurrence in cls._parse_link_occurrences(mapped):
+            state, hit = cls._resolve_occurrence(occurrence, index)
+            summary[state] += 1
+            if state != "resolved":
+                continue
+            ref = cls._materialize_ref(hit, dataset)
+            if ref is None:
+                continue
+            dedup_key = (
+                str(ref["relation"]),
+                WorldBibleLifecycleService._normalize_asset_ref(ref).canonical_json(),
+            )
+            if dedup_key in seen_refs:
+                continue
+            seen_refs.add(dedup_key)
+            refs.append(ref)
+        truncated = len(refs) > _MAX_ASSET_REFS
+        return _LinkPlan(
+            summary=summary,
+            refs=refs[:_MAX_ASSET_REFS],
+            truncated=truncated,
+            reason_suffix="；引用目标超过 100，仅物化前 100 条" if truncated else "",
+        )
+
     @staticmethod
     def _editable_content_hash(item: WorldBiblePageDraft | WorldBiblePage) -> str:
         return WorldbookImportService._editable_fields_hash(
@@ -991,13 +1373,22 @@ class WorldbookImportService:
         source_format: str,
         manifest_hash: str,
         dataset: _DatasetIdentity | None = None,
+        *,
+        refs: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
+        """构造 page_meta.worldbook_import；``refs`` 参与基线口径。
+
+        m1-contract 第 4 条冻结决定 a：物化 refs 的页面，baseline 在同一
+        apply 事务内按「物化后含 refs」的字段组计算——调用方传入该 item
+        最终 refs；preview 与 apply 重放走同一函数同一输入。preserve 恢复/
+        绑定补写路径传该页现值 refs，保持口径一致，不在物化之外改写 baseline。
+        """
         baseline_content_hash = cls._editable_fields_hash(
             title=mapped["title"],
             page_type=mapped["page_type"],
             free_text=mapped["content"],
             sections_json=[],
-            linked_asset_refs_json=[],
+            linked_asset_refs_json=list(refs or []),
             template_key=None,
             template_version=1,
         )

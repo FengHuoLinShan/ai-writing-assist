@@ -458,6 +458,8 @@ class WorldBibleLifecycleService:
         self,
         db: AsyncSession,
         data: WorldBiblePageDraftCreate,
+        *,
+        allow_local_refs: bool = False,
     ) -> WorldBiblePageDraftResponse:
         nid = parse_uuid(data.novel_id, "novel_id")
         if data.page_id:
@@ -518,7 +520,9 @@ class WorldBibleLifecycleService:
         await self._ensure_category_key(db, nid, page_type)
         if template_key:
             await self._ensure_page_template_key(db, str(nid), template_key)
-        await self._validate_asset_refs(db, nid, refs)
+        await self._validate_asset_refs(
+            db, nid, refs, allow_local_refs=allow_local_refs
+        )
         self._validate_section_refs(sections, refs)
         draft = WorldBiblePageDraft(
             novel_id=nid,
@@ -549,6 +553,7 @@ class WorldBibleLifecycleService:
         *,
         expected_updated_at=None,
         require_edit_baseline: bool = False,
+        allow_local_refs: bool = False,
     ) -> WorldBiblePageDraftResponse:
         draft = await self._get_draft_model(
             db,
@@ -573,6 +578,7 @@ class WorldBibleLifecycleService:
                 db,
                 draft.novel_id,
                 payload["linked_asset_refs_json"] or [],
+                allow_local_refs=allow_local_refs,
             )
         if payload.get("template_key"):
             await self._ensure_page_template_key(
