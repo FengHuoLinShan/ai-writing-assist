@@ -1,6 +1,6 @@
 # 开放任务
 
-- [T-20261004-ring-worldbook-import](tasks/2026/T-20261004-ring-worldbook-import/TASK.md) — 本机理法之环 Wiki 导入与增量维护（M1–M4 实现与验证完成、契约 r7、权威文档已同步；合并准备轮基线已更新至 origin/main、全门禁复跑绿并修复 e2e 选择器回归，PR 创建中；M5 本机资料验收待目标项目与范围指定）
+- [T-20261004-ring-worldbook-import](tasks/2026/T-20261004-ring-worldbook-import/TASK.md) — 本机理法之环 Wiki 导入与增量维护（M1–M4 实现与验证完成、契约 r7、权威文档已同步；PR #197 六项必需检查全绿待合并，含 P8 拆分与 perl-base 钉版整改；M5 本机资料验收待目标项目与范围指定）
 
 - [T-20260924-agent-cli-adapters](tasks/2026/T-20260924-agent-cli-adapters/TASK.md) — Agent 底座接入五种本机 CLI
 - [T-20260924-editorial-assistant](tasks/2026/T-20260924-editorial-assistant/TASK.md) — 作者助手编辑员级审读与意见闭环
