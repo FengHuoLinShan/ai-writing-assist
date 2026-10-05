@@ -348,4 +348,130 @@ describe("WorldbookImportPanel", () => {
     await flushPromises()
     expect(api.world.applyWorldbookImport).toHaveBeenCalledWith("import-5", "p1", "f".repeat(64))
   })
+
+  it("预览展示引用缺口计数、发布阻断披露与问题页标记", async () => {
+    api.world.previewWorldbookImport.mockResolvedValue({
+      suggestion_id: "import-7",
+      source_format: "obsidian",
+      preview_hash: "7".repeat(64),
+      counts: { create: 2, update: 0, preserve: 0, conflict: 0, missing: 0 },
+      items: [
+        {
+          source_key: "d1".padEnd(64, "0"),
+          title: "理法之环",
+          path: "concepts/理法之环.md",
+          action: "create",
+          reason: "新来源",
+          link_summary: { resolved: 2, ambiguous: 1, unresolved: 2, unselected: 1 },
+        },
+        {
+          source_key: "d2".padEnd(64, "0"),
+          title: "本体定位",
+          path: "concepts/本体定位.md",
+          action: "create",
+          reason: "新来源",
+          link_summary: { resolved: 0, ambiguous: 0, unresolved: 1, unselected: 0 },
+        },
+      ],
+      ignored_paths: [],
+      dataset_name: "理法之环",
+      dataset_intent: "new",
+      commit_mode: "full_snapshot",
+      legacy_bindings: [],
+    })
+    const wrapper = mount(WorldbookImportPanel, {
+      props: { projectId: "p1", open: true },
+    })
+    await selectDirectory(wrapper, [mdFile("环/理法之环.md", "正文")])
+    await wrapper.get('[data-action="worldbook-import-dataset-name"]').setValue("理法之环")
+    await wrapper.get('[data-action="worldbook-import-preview"]').trigger("click")
+    await flushPromises()
+
+    // 聚合四态计数：两页合计；已解析只计总数，不逐条罗列
+    expect(wrapper.find('[aria-label="引用解析统计"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain("引用：已解析 2 条")
+    expect(wrapper.text()).toContain("名称歧义 1 条")
+    expect(wrapper.text()).toContain("未解析 3 条")
+    expect(wrapper.text()).toContain("未纳入 1 条")
+    // 披露后果与出路，不得弱化「会阻断发布」
+    expect(wrapper.text()).toContain("2 页存在未解析、名称歧义或未纳入的引用")
+    expect(wrapper.text()).toContain("链接会保留原文，但发布校验会因悬空链接被阻断")
+    expect(wrapper.text()).toContain("可扩大所选范围或清理链接后重新导入")
+    // 问题页在清单行内追加标记，可定位；无问题的页不加噪音
+    expect(wrapper.text()).toContain("新来源；引用：名称歧义 1 条、未解析 2 条、未纳入 1 条")
+    expect(wrapper.text()).toContain("新来源；引用：未解析 1 条")
+  })
+
+  it("引用计数全部为 0 时预览不渲染任何引用 UI", async () => {
+    api.world.previewWorldbookImport.mockResolvedValue({
+      suggestion_id: "import-8",
+      source_format: "generic",
+      preview_hash: "8".repeat(64),
+      counts: { create: 1, update: 0, preserve: 0, conflict: 0, missing: 0 },
+      items: [
+        {
+          source_key: "e1".padEnd(64, "0"),
+          title: "理法之环",
+          path: "理法之环.md",
+          action: "create",
+          reason: "新来源",
+          link_summary: { resolved: 0, ambiguous: 0, unresolved: 0, unselected: 0 },
+        },
+      ],
+      ignored_paths: [],
+      dataset_name: "理法之环",
+      dataset_intent: "new",
+      commit_mode: "full_snapshot",
+      legacy_bindings: [],
+    })
+    const wrapper = mount(WorldbookImportPanel, {
+      props: { projectId: "p1", open: true },
+    })
+    await selectDirectory(wrapper, [mdFile("理法之环.md", "正文")])
+    await wrapper.get('[data-action="worldbook-import-dataset-name"]').setValue("理法之环")
+    await wrapper.get('[data-action="worldbook-import-preview"]').trigger("click")
+    await flushPromises()
+
+    expect(wrapper.find('[aria-label="引用解析统计"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain("引用：")
+    expect(wrapper.text()).not.toContain("悬空链接")
+    // 预览本身正常，应用入口不受影响
+    expect(wrapper.get('[data-action="worldbook-import-apply"]').exists()).toBe(true)
+  })
+
+  it("引用全部解析时只显示计数，不显示阻断披露", async () => {
+    api.world.previewWorldbookImport.mockResolvedValue({
+      suggestion_id: "import-9",
+      source_format: "obsidian",
+      preview_hash: "9".repeat(64),
+      counts: { create: 1, update: 0, preserve: 0, conflict: 0, missing: 0 },
+      items: [
+        {
+          source_key: "f1".padEnd(64, "0"),
+          title: "理法之环",
+          path: "concepts/理法之环.md",
+          action: "create",
+          reason: "新来源",
+          link_summary: { resolved: 4, ambiguous: 0, unresolved: 0, unselected: 0 },
+        },
+      ],
+      ignored_paths: [],
+      dataset_name: "理法之环",
+      dataset_intent: "new",
+      commit_mode: "full_snapshot",
+      legacy_bindings: [],
+    })
+    const wrapper = mount(WorldbookImportPanel, {
+      props: { projectId: "p1", open: true },
+    })
+    await selectDirectory(wrapper, [mdFile("环/理法之环.md", "正文")])
+    await wrapper.get('[data-action="worldbook-import-dataset-name"]').setValue("理法之环")
+    await wrapper.get('[data-action="worldbook-import-preview"]').trigger("click")
+    await flushPromises()
+
+    expect(wrapper.find('[aria-label="引用解析统计"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain("引用：已解析 4 条")
+    expect(wrapper.text()).not.toContain("悬空链接")
+    expect(wrapper.text()).not.toContain("引用：名称歧义")
+  })
 })

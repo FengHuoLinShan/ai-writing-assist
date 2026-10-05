@@ -117,6 +117,18 @@
         <span>冲突 {{ count("conflict") }}</span>
         <span>源缺失 {{ count("missing") }}</span>
       </div>
+      <!-- 引用缺口（m1-contract 第 4 条）：聚合展示四态计数；全部为 0 时不渲染，
+           避免对没有引用的资料产生噪音。存在歧义/未解析/未纳入时必须披露
+           「发布校验会因悬空链接被阻断」这一后果与出路，不得弱化。 -->
+      <template v-if="hasLinkSummary">
+        <div class="worldbook-import-counts" aria-label="引用解析统计">
+          <span>引用：已解析 {{ linkTotals.resolved }} 条</span>
+          <span v-if="linkTotals.ambiguous">名称歧义 {{ linkTotals.ambiguous }} 条</span>
+          <span v-if="linkTotals.unresolved">未解析 {{ linkTotals.unresolved }} 条</span>
+          <span v-if="linkTotals.unselected">未纳入 {{ linkTotals.unselected }} 条</span>
+        </div>
+        <p v-if="hasLinkIssues" class="world-bible-empty-hint">{{ linkIssuesNotice }}</p>
+      </template>
       <p>识别为 {{ formatLabel }}；{{ ignoredCount }} 个控制或不支持文件已忽略。</p>
       <p class="world-bible-empty-hint">应用只会创建或更新未发布工作稿；发布仍需在工作台逐页确认。<template v-if="publishedTargets">其中 {{ publishedTargets }} 项目标已是已发布页，应用后生成对应工作稿。</template></p>
       <p v-if="preview.dataset_name">资料集「{{ preview.dataset_name }}」 · {{ commitModeLabel }} · {{ intentLabel }}</p>
@@ -142,7 +154,7 @@
         <li v-for="item in preview.items" :key="`${item.source_key}:${item.action}`">
           <strong>{{ item.title }}</strong>
           <span>{{ [actionLabel(item.action), targetKindLabel(item.target_kind), item.path].filter(Boolean).join(" · ") }}</span>
-          <small>{{ item.reason }}</small>
+          <small>{{ [item.reason, linkIssueLabel(item)].filter(Boolean).join("；") }}</small>
         </li>
       </ul>
       <div class="world-bible-panel__actions">
@@ -213,6 +225,40 @@ const actionLabel = (action) => ({ create: "新建工作稿", update: "安全更
 // 的更新同样先落工作稿）；导入成功不等于已发布。
 const targetKindLabel = (kind) => (kind === "page" ? "已发布页" : kind === "draft" ? "工作稿" : "")
 const publishedTargets = computed(() => (preview.value?.items || []).filter((item) => item.target_kind === "page").length)
+// ---- 引用缺口（m1-contract 第 4 条）----
+// 后端预览对每页返回四态引用计数（items[].link_summary，已纳入 preview_hash）：
+// resolved=唯一命中，ambiguous=同名多候选，unresolved=无命中，unselected=命中
+// 本次未纳入的页面。聚合展示的理由：items 清单可能长达数千页，每页铺四项
+// 计数难以扫读；作者关心的是有没有问题、是否阻断发布、怎么办。已解析不逐条
+// 罗列（正文未改写，无需占版面），只在聚合行计总数。
+const linkTotals = computed(() => {
+  const totals = { resolved: 0, ambiguous: 0, unresolved: 0, unselected: 0 }
+  for (const item of preview.value?.items || []) {
+    for (const key of Object.keys(totals)) totals[key] += Number(item.link_summary?.[key]) || 0
+  }
+  return totals
+})
+const hasLinkSummary = computed(() => Object.values(linkTotals.value).some((value) => value > 0))
+const hasLinkIssues = computed(() =>
+  linkTotals.value.ambiguous > 0 || linkTotals.value.unresolved > 0 || linkTotals.value.unselected > 0)
+const linkIssuePages = computed(() => (preview.value?.items || []).filter((item) => {
+  const summary = item.link_summary || {}
+  return Number(summary.ambiguous) > 0 || Number(summary.unresolved) > 0 || Number(summary.unselected) > 0
+}).length)
+// 契约第 4 条（r4 冻结）：悬空 wikilink 在发布校验中判 error，整批 gate=block。
+// 预览必须向作者披露这一后果与出路；链接原文按契约保留，导入本身不被阻断。
+const linkIssuesNotice = computed(() =>
+  `${linkIssuePages.value} 页存在未解析、名称歧义或未纳入的引用：链接会保留原文，但发布校验会因悬空链接被阻断。可扩大所选范围或清理链接后重新导入。`)
+// 仅问题页在清单行内追加简短标记，方便定位要清理或扩大范围的页；全部解析
+// 成功的页不加噪音。
+const linkIssueLabel = (item) => {
+  const summary = item?.link_summary || {}
+  const parts = []
+  if (Number(summary.ambiguous) > 0) parts.push(`名称歧义 ${summary.ambiguous} 条`)
+  if (Number(summary.unresolved) > 0) parts.push(`未解析 ${summary.unresolved} 条`)
+  if (Number(summary.unselected) > 0) parts.push(`未纳入 ${summary.unselected} 条`)
+  return parts.length ? `引用：${parts.join("、")}` : ""
+}
 const legacyBindings = computed(() => preview.value?.legacy_bindings || [])
 const isAdoptLegacy = computed(() => preview.value?.dataset_intent === "adopt_legacy")
 const ignoredCount = computed(() => preview.value?.ignored_paths?.length || 0)
