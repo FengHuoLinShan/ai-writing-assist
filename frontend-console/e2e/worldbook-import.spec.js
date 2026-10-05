@@ -77,9 +77,11 @@ async function previewAndApply(page, datasetName, { intent = "new", counts = {},
   }
   await page.locator("[data-action='worldbook-import-dataset-name']").fill(datasetName)
   await page.locator("[data-action='worldbook-import-preview']").click()
-  await expect(page.locator(".worldbook-import-counts")).toBeVisible({ timeout: 15000 })
+  // 面板内有两个 .worldbook-import-counts（预览统计 / 引用解析统计），按 aria-label 区分
+  const previewCounts = page.locator("[aria-label='导入预览统计']")
+  await expect(previewCounts).toBeVisible({ timeout: 15000 })
   for (const [countLabel, value] of Object.entries(counts)) {
-    await expect(page.locator(".worldbook-import-counts")).toContainText(`${countLabel} ${value}`)
+    await expect(previewCounts).toContainText(`${countLabel} ${value}`)
   }
   const dialogAccept = (dialog) => void dialog.accept()
   page.on("dialog", dialogAccept)
@@ -245,8 +247,8 @@ test.describe("世界书目录导入主链路", () => {
     await expect(panel.locator("[data-action='worldbook-import-dataset-name']")).toBeVisible()
     await panel.locator("[data-action='worldbook-import-dataset-name']").fill("窄屏资料集")
     await panel.locator("[data-action='worldbook-import-preview']").click()
-    await expect(panel.locator(".worldbook-import-counts")).toBeVisible({ timeout: 15000 })
-    await expect(panel.locator(".worldbook-import-counts")).toContainText("新建 1")
+    await expect(panel.locator("[aria-label='导入预览统计']")).toBeVisible({ timeout: 15000 })
+    await expect(panel.locator("[aria-label='导入预览统计']")).toContainText("新建 1")
     // 窄屏下无横向溢出
     const overflow = await panel.evaluate((el) => el.scrollWidth - el.clientWidth)
     expect(overflow).toBeLessThanOrEqual(1)
