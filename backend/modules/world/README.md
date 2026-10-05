@@ -341,7 +341,13 @@ PNG 后才进入地图册私有 S3。此例外不改变 imports 的文稿上传�
   `continue`）：`new` 显式新建资料集，派生 key 已存在即 400（提示继续维护或换名）；
   `adopt_legacy` 显式接续旧来源，按 legacy `source_path` 剥根等效 rel_path 唯一匹配，
   预览返回 `legacy_bindings` 待绑定映射，apply 补写 dataset 字段、保留原
-  `source_path`、不新建工作稿。重导入以
+  `source_path`、不新建工作稿。预览对每页统计正文 `[[…]]` 双链与 frontmatter
+  `related` 的四态引用计数（已解析/名称歧义/未解析/未纳入，随 items 纳入
+  `preview_hash`）；apply 对已解析目标按既有 TargetRef 契约物化引用（已发布页写
+  真实引用，未发布目标用 `local:{dataset_key}:{rel_path}` 约定；歧义/未解析/未纳入
+  保留链接原文不建引用），物化页的 `baseline_content_hash` 按含 refs 字段组在同一
+  事务内写入；含悬空链接的页面发布校验会因 dangling 链接整体阻断，预览向作者披露。
+  重导入以
   `source_key/source_hash/baseline_content_hash` 做三方比较，
   双变和源缺失进入 `worldbook_import_conflict`，不覆盖、不删除。apply 先取
   `worldbook_import:{novel_id}:{dataset_key}` 项目级 advisory lock，在锁内重放
