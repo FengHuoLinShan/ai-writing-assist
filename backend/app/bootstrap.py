@@ -110,6 +110,9 @@ from modules.writing.assistant_tools import (
     schedule_proactive_review as _writing_proactive_review,
 )
 from modules.assistant.facade import mark_changed as _assistant_mark_changed
+from modules.collaboration.facade import (
+    collect_forecast_understanding as _collab_collect_forecast_understanding,
+)
 from modules.assistant.facade import (
     run_discussion_scope as _assistant_run_discussion_scope,
 )
@@ -117,6 +120,31 @@ from modules.assistant.operation_scope import (
     require_operation_targets as _assistant_require_operation_targets,
 )
 from modules.assistant.sessions import AssistantSessionService as _AssistantSessions
+from modules.interaction.facade import (
+    mark_task_local_approved as _interaction_mark_task_local_approved,
+)
+from modules.story.scene_source_port import SceneSourcePort as _StorySceneSource
+from modules.world.services.worldbuilding.adoption_package_service import (
+    WorldAdoptionPackageService as _WorldAdoptionPackageService,
+)
+from modules.world.services.worldbuilding.focused_adoption import (
+    authorize as _world_focused_authorize,
+)
+from modules.world.services.worldbuilding.focused_adoption import (
+    check_sources as _world_focused_check_sources,
+)
+from modules.world.services.worldbuilding.focused_adoption import (
+    fence as _world_focused_fence,
+)
+from modules.world.services.worldbuilding.synopsis_invalidation import (
+    mark_synopsis_source_changed as _world_mark_synopsis_source_changed,
+)
+from modules.world.services.worldbuilding.world_validation_service import (
+    WorldValidationService as _WorldValidationService,
+)
+from modules.writing.manuscript_source_port import (
+    ManuscriptSourcePort as _WritingManuscriptSource,
+)
 from modules.interaction.proactive import (
     schedule_proactive_review as _interaction_proactive_review,
 )
@@ -148,7 +176,7 @@ def _container_services() -> Iterable[tuple[str, Any]]:
     scene_extraction = _SceneExtractSvc()
     memory = MemoryService()
     rag_indexing = _RagIndexingService()
-    from modules.writing.creative import PORT as WRITING_CREATIVE
+    from modules.writing.creative import port as _writing_creative_port
     from modules.story.creative import ports as story_creative
     from modules.world.creative import PORT as WORLD_CREATIVE
     from modules.writing import forecast as writing_forecast
@@ -205,7 +233,7 @@ def _container_services() -> Iterable[tuple[str, Any]]:
         (
             "collaboration.resources",
             {
-                "writing_draft": WRITING_CREATIVE,
+                "writing_draft": _writing_creative_port(),
                 "world_bible_draft": WORLD_CREATIVE,
                 **story_creative(),
             },
@@ -245,6 +273,48 @@ def _container_services() -> Iterable[tuple[str, Any]]:
         ),
         ("assistant.proactive.findings", {"world_validation": _world_review_findings}),
         ("assistant.session_service", _AssistantSessions()),
+        # AO-5: assistant forecast 消费 collaboration 理解包经此 DI port，
+        # assistant→collaboration 保持零顶层导入（collaboration→assistant
+        # 为该对的既有顶层方向）。
+        (
+            "collaboration.collect_forecast_understanding",
+            _collab_collect_forecast_understanding,
+        ),
+        # AO-5: local_agent 设备确认回写 interaction 经此 DI port，反向顶层导入清零。
+        (
+            "interaction.mark_task_local_approved",
+            _interaction_mark_task_local_approved,
+        ),
+        # AO-5: evidence 编译与 world 地图经此只读 port 消费 story 场景事实，
+        # world→story / evidence→story 的反向顶层导入清零。
+        ("story.scene_source", _StorySceneSource()),
+        # AO-5: evidence 编译经此只读 port 消费 writing 正文稿区间/清单，
+        # evidence→writing 的反向顶层导入清零（ADR-0004：writing 为原文事实源）。
+        ("writing.manuscript_source", _WritingManuscriptSource()),
+        # AO-5: world core 经这些 DI port 消费 worldbuilding 能力（校验门、
+        # Synopsis 失效钩子、聚焦采用授权、采用包引擎），core→worldbuilding
+        # 导入语句清零；接线只在组合根。
+        (
+            "world.worldbuilding.require_legacy_canon_write_allowed",
+            _WorldValidationService().require_legacy_canon_write_allowed,
+        ),
+        (
+            "world.worldbuilding.mark_synopsis_source_changed",
+            _world_mark_synopsis_source_changed,
+        ),
+        (
+            "world.worldbuilding.focused_adoption.authorize",
+            _world_focused_authorize,
+        ),
+        (
+            "world.worldbuilding.focused_adoption.check_sources",
+            _world_focused_check_sources,
+        ),
+        ("world.worldbuilding.focused_adoption.fence", _world_focused_fence),
+        (
+            "world.worldbuilding.adoption_package_service",
+            _WorldAdoptionPackageService,
+        ),
         ("assistant.run_discussion_scope", _assistant_run_discussion_scope),
         (
             "assistant.require_operation_targets",
@@ -309,7 +379,34 @@ def register_container_services(ignore_existing: bool = False) -> None:
             keep core.container.register's ValueError behavior.
     """
     _register_orm_models()
+    _register_collaboration_resource_spi(ignore_existing)
     for name, service in _container_services():
+        if ignore_existing:
+            try:
+                _get(name)
+            except KeyError:
+                pass
+            else:
+                continue
+        _register(name, service)
+
+
+def _register_collaboration_resource_spi(ignore_existing: bool) -> None:
+    """先注册 collaboration 资源 SPI 类型（AO-5）。
+
+    L2 provider adapter（story/writing creative.py）在组合根装配
+    ``collaboration.resources`` 时经容器解析这些类型，不再顶层 import
+    modules.collaboration.contracts；类型对象不变，行为不变。
+    """
+    from modules.collaboration.contracts import (
+        CreativeResourcePort,
+        ResourceSnapshot,
+    )
+
+    for name, service in (
+        ("collaboration.ResourceSnapshot", ResourceSnapshot),
+        ("collaboration.CreativeResourcePort", CreativeResourcePort),
+    ):
         if ignore_existing:
             try:
                 _get(name)

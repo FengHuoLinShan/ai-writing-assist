@@ -33,14 +33,21 @@ from modules.evidence.compilation.services.compiled_context import (
     ContextSection,
     Tier,
 )
-from modules.project.facade import require_active_project
-from modules.writing.contracts import ManuscriptScanCursor, SourceRangeRefContract
-from modules.writing.facade import (
-    build_manuscript_range_ref,
-    get_manuscript_source_manifest,
-    scan_manuscript_terms,
+from modules.evidence.source_ref_contracts import (
+    ManuscriptScanCursor,
+    SourceRangeRefContract,
 )
+from modules.project.facade import require_active_project
 from shared.target_ref import normalize_target_ref
+
+
+def _manuscript_port():
+    # AO-5: writing 正文稿读取经组合根注册的只读 port 解析，
+    # evidence→writing 的顶层导入清零。
+    from core.container import get
+
+    return get("writing.manuscript_source")
+
 
 _ENTITY_TYPES = {"entity", "core_entity", "world_entity", "location", "character"}
 NOMINATION_MAX_TOKENS = 32_768
@@ -239,7 +246,7 @@ class FocusedEvidenceService:
             self._active_manifest = {row["draft_id"]: row["source_hash"] for row in rows}
         cursor = None
         while True:
-            page = await scan_manuscript_terms(
+            page = await _manuscript_port().scan_terms(
                 db,
                 request.novel_id,
                 [term],
@@ -570,7 +577,7 @@ class FocusedEvidenceService:
             end = (
                 min(end, visibility.cutoff_chapter) if end else visibility.cutoff_chapter
             )
-        return await get_manuscript_source_manifest(
+        return await _manuscript_port().source_manifest(
             db,
             request.novel_id,
             content_mode=request.compile_options.content_mode,
@@ -1195,7 +1202,7 @@ class FocusedEvidenceService:
                         or chunk.end_offset is None
                     ):
                         continue
-                    source = await build_manuscript_range_ref(
+                    source = await _manuscript_port().build_range_ref(
                         db,
                         request.novel_id,
                         draft_id=chunk.source_id,
@@ -1329,7 +1336,7 @@ class FocusedEvidenceService:
                 for term in target.terms:
                     terms_to_targets.setdefault(term.casefold(), []).append(target.key)
             if remaining >= 2000 and len(output) < request.limits.evidence_per_batch:
-                scan = await scan_manuscript_terms(
+                scan = await _manuscript_port().scan_terms(
                     db,
                     request.novel_id,
                     [term for target in selected for term in target.terms],

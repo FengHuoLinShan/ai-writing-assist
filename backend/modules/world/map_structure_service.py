@@ -23,7 +23,6 @@ from modules.project.facade import (
     require_active_project,
     require_active_project_exclusive,
 )
-from modules.story.facade import get_reader_reveal_decision
 from modules.world.map_atlas_models import (
     MapAtlasAnnotation,
     MapAtlasNode,
@@ -62,6 +61,14 @@ from shared.utils import parse_uuid
 MAP_ACTION = "world.map_atlas.structure"
 MAP_TASK = "world_map_schematic_generate"
 _CALIBRATION_HISTORY_LIMIT = 100
+
+
+
+def _story_scene_port():
+    # AO-5 / ADR-0031: world 地图只读消费 story 读者揭示决策经组合根注册的 port。
+    from core.container import get
+
+    return get("story.scene_source")
 
 
 def source_payload(item) -> dict:
@@ -871,7 +878,7 @@ class MapStructureService:
             if not inspected.get("visible") or inspected.get("warnings"):
                 return False
             if ref.kind == "entity":
-                reveal = await get_reader_reveal_decision(
+                reveal = await _story_scene_port().get_reader_reveal_decision(
                     db,
                     novel_id=novel_id,
                     target_type="entity",
@@ -930,7 +937,7 @@ class MapStructureService:
                     visibility=visibility,
                 )
                 item = inspected.get("item") or {}
-                reveal = await get_reader_reveal_decision(
+                reveal = await _story_scene_port().get_reader_reveal_decision(
                     db,
                     novel_id=novel_id,
                     target_type="entity",

@@ -27,7 +27,7 @@ from modules.world.models import (
     WorldBiblePage,
     WorldBiblePageDraft,
 )
-from modules.world.services.worldbuilding.shared import PROFILE_REGISTRY
+from modules.world.services.entity_profile_registry import PROFILE_REGISTRY
 
 _MIGRATION_KEY = "_type_migration_v1"
 _ACTIVE_QUEUE_STATUSES = {"pending", "open", "draft", "active"}

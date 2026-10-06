@@ -367,7 +367,10 @@ async def materialize(
         facts.append((fact, refs[-1]))
     understanding = {}
     if include_understanding and not confirmed and understanding_boundary_known:
-        packet, omissions = await evidence.collect_forecast_understanding(
+        collect_forecast_understanding = get(
+            "collaboration.collect_forecast_understanding"
+        )
+        packet, omissions = await collect_forecast_understanding(
             db, novel_id, chapter_index=chapter_index, excluded=excluded
         )
         understanding = {"records": [], "excluded": omissions}

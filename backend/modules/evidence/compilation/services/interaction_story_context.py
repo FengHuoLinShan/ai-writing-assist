@@ -20,7 +20,7 @@ from modules.evidence.compilation.services.snapshot_service import (
     ContextSnapshotService,
 )
 from modules.evidence.indexing.facade import retrieve
-from modules.writing.contracts import SourceRangeRefContract
+from modules.evidence.source_ref_contracts import SourceRangeRefContract
 
 
 class InteractionStoryContextService:

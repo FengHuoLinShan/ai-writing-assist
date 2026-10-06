@@ -7,6 +7,9 @@
 > 2026-07-22：Writing 的按正文 offset 断章入口及其 split provider 已取消。
 > 下文关于该入口的内容仅记录原始决策，不再是当前契约；Scene contract loader 与
 > outline 只读消费 writing facade/contracts 的边界继续有效。
+>
+> 2026-10-06：本文的可注入 provider + 只读消费机制已推广为通用裁定，见
+> ADR-0031「模块依赖方向分层与逐对解环裁定」（story↔writing 先例行）。
 
 ## 背景
 

@@ -18,7 +18,7 @@ from modules.evidence.compilation.contracts import (
 )
 from modules.evidence.compilation.evidence_repository import EvidenceLinkRepository
 from modules.evidence.indexing.contracts import RagChunkContract
-from modules.writing.contracts import SourceRangeRefContract
+from modules.evidence.source_ref_contracts import SourceRangeRefContract
 from shared.target_ref import TargetRef, normalize_target_ref
 
 _PRELOADED_SOURCE_UNSET = object()

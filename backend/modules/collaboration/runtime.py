@@ -44,6 +44,11 @@ from modules.collaboration.contracts import (
     WorkspaceCreate,
     WorkspaceEdit,
 )
+from modules.collaboration.creative_manifest import (
+    creative_context_text,
+    project_creative_resources,
+    revalidate_creative_manifest,
+)
 from modules.collaboration.models import (
     CollaborationArtifact,
     CollaborationRun,
@@ -56,11 +61,6 @@ from modules.collaboration.workspaces import (
     require_revision,
 )
 from modules.evidence.contracts import GroupSource, govern_group_output
-from modules.evidence.facade import (
-    creative_context_text,
-    project_creative_resources,
-    revalidate_creative_manifest,
-)
 from modules.local_agent.facade import open_task_snapshot_client
 from modules.project.facade import require_active_project_exclusive
 
@@ -768,7 +768,7 @@ async def execute(db, task):
                                             raise ConflictError("依赖产物校验失败")
                                         dependency_outputs.append(artifact.payload_json)
                                 if proposal.search_query and recipe.id != "blind_reader":
-                                    from modules.evidence.facade import (
+                                    from modules.collaboration.creative_manifest import (
                                         collect_creative_manifest,
                                     )
 

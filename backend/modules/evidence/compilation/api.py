@@ -116,8 +116,8 @@ from modules.evidence.compilation.schemas import (
 from modules.evidence.compilation.services.review_projection import (
     build_tier_compile_response,
 )
+from modules.evidence.source_ref_contracts import SourceRangeRefContract
 from modules.project.facade import require_active_project
-from modules.writing.contracts import SourceRangeRefContract
 
 _VALID_SCOPES: frozenset[str] = frozenset(
     {

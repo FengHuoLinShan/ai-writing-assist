@@ -110,11 +110,10 @@ class WorldEntityService(
             )
 
         if data.status == "canonical" and not _validation_prechecked:
-            from modules.world.services.worldbuilding.world_validation_service import (
-                WorldValidationService,
+            require_legacy_canon_write_allowed = _container_get(
+                "world.worldbuilding.require_legacy_canon_write_allowed"
             )
-
-            await WorldValidationService().require_legacy_canon_write_allowed(
+            await require_legacy_canon_write_allowed(
                 db, novel_id, next_action="create_world_adoption_package"
             )
 
@@ -172,10 +171,9 @@ class WorldEntityService(
                 )
 
                 await CharacterService().ensure_for_core_entity(db, obj)
-            from modules.world.services.worldbuilding.synopsis_invalidation import (
-                mark_synopsis_source_changed,
+            mark_synopsis_source_changed = _container_get(
+                "world.worldbuilding.mark_synopsis_source_changed"
             )
-
             await mark_synopsis_source_changed(
                 db,
                 novel_id,
@@ -513,11 +511,10 @@ class WorldEntityService(
             )
 
         if existing.status == "canonical" and not _validation_prechecked:
-            from modules.world.services.worldbuilding.world_validation_service import (
-                WorldValidationService,
+            require_legacy_canon_write_allowed = _container_get(
+                "world.worldbuilding.require_legacy_canon_write_allowed"
             )
-
-            await WorldValidationService().require_legacy_canon_write_allowed(
+            await require_legacy_canon_write_allowed(
                 db, novel_id, next_action="create_world_adoption_package"
             )
 
@@ -686,10 +683,9 @@ class WorldEntityService(
                 reason="entity_type_changed",
             )
         if existing.status == "canonical" or updated.status == "canonical":
-            from modules.world.services.worldbuilding.synopsis_invalidation import (
-                mark_synopsis_source_changed,
+            mark_synopsis_source_changed = _container_get(
+                "world.worldbuilding.mark_synopsis_source_changed"
             )
-
             await mark_synopsis_source_changed(
                 db,
                 novel_id,
@@ -837,10 +833,9 @@ class WorldEntityService(
         existing.status = "deprecated"
         await db.flush()
 
-        from modules.world.services.worldbuilding.synopsis_invalidation import (
-            mark_synopsis_source_changed,
+        mark_synopsis_source_changed = _container_get(
+            "world.worldbuilding.mark_synopsis_source_changed"
         )
-
         await mark_synopsis_source_changed(
             db,
             novel_id,
@@ -898,11 +893,10 @@ class WorldEntityService(
         assert entity is not None
 
         if not _validation_prechecked:
-            from modules.world.services.worldbuilding.world_validation_service import (
-                WorldValidationService,
+            require_legacy_canon_write_allowed = _container_get(
+                "world.worldbuilding.require_legacy_canon_write_allowed"
             )
-
-            await WorldValidationService().require_legacy_canon_write_allowed(
+            await require_legacy_canon_write_allowed(
                 db, novel_id, next_action="create_world_adoption_package"
             )
 
@@ -1011,10 +1005,9 @@ class WorldEntityService(
                 reason="entity_type_changed",
             )
 
-        from modules.world.services.worldbuilding.synopsis_invalidation import (
-            mark_synopsis_source_changed,
+        mark_synopsis_source_changed = _container_get(
+            "world.worldbuilding.mark_synopsis_source_changed"
         )
-
         await mark_synopsis_source_changed(
             db,
             novel_id,

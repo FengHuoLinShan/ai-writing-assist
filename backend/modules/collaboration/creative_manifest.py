@@ -18,8 +18,8 @@ from modules.collaboration.contracts import (
     ResourceSnapshot,
     SubjectView,
 )
-from modules.evidence.compilation.contracts import VisibilityContextContract
-from modules.evidence.compilation.facade import (
+from modules.evidence.contracts import VisibilityContextContract
+from modules.evidence.facade import (
     inspect_novel_target,
     prepare_confirmed_ai_action,
 )

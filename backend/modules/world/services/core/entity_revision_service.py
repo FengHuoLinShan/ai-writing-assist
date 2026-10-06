@@ -500,9 +500,12 @@ class EntityRevisionService:
         novel_id: str,
         entity_id: str,
     ) -> None:
+        from core.container import get
         from modules.evidence.facade import mark_asset_context_changed
-        from modules.world.services.worldbuilding.synopsis_invalidation import (
-            mark_synopsis_source_changed,
+
+        # AO-5 / ADR-0031: Synopsis 失效钩子经组合根注册的 DI port 注入。
+        mark_synopsis_source_changed = get(
+            "world.worldbuilding.mark_synopsis_source_changed"
         )
 
         await mark_asset_context_changed(

@@ -33,7 +33,7 @@ async def test_cognition_exclusion_covers_old_drafts_and_scene_history(
     db_session, test_project_id
 ):
     from modules.collaboration.cognition import commit_changes
-    from modules.evidence.facade import collect_creative_manifest
+    from modules.collaboration.facade import collect_creative_manifest
     from modules.story.outline_state.models import Scene
 
     db, nid = db_session, test_project_id

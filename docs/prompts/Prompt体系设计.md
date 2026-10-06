@@ -707,7 +707,7 @@ GraphDelta schema 按当前配方收窄能力枚举，世界压力试验指令�
 
 ## 创作任务的持久理解输入
 
-`Evidence.creative_context_text` 在原授权资料之后附加本次实际选中的 cognition refs，保留
+`Collaboration.creative_context_text`（AO-5 起归 collaboration 模块）在原授权资料之后附加本次实际选中的 cognition refs，保留
 原修订/hash、作者修正资格与用途，不作为独立事实 evidence key。受限主体、试改 overlay、
 不完整或被排除的根来源不能借理解进入输入；全包仍受 24000 字符复核上限。规划、成员、
 独立审查与终态重验使用原引用；保留理解不额外调用模型，也不把作者修正标成原文已证事实。

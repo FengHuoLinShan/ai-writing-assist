@@ -5,9 +5,9 @@ from uuid import UUID
 
 from sqlalchemy import select
 
+from core.container import get
 from core.errors import ConflictError, NotFoundError, ValidationError
 from infrastructure.llm.collaboration import content_hash
-from modules.collaboration.contracts import CreativeResourcePort, ResourceSnapshot
 from modules.story.assistant_information_tools import KINDS, EditInformationPlan
 from modules.story.assistant_information_tools import OPERATIONS as INFORMATION
 from modules.story.assistant_tools import OPERATIONS as SCENES
@@ -17,6 +17,7 @@ from modules.story.outline_state.schemas import SceneUpdate
 
 
 def _snapshot(row, kind):
+    resource_snapshot = get("collaboration.ResourceSnapshot")
     allowed = (
         set(SceneUpdate.model_fields)
         - {
@@ -55,7 +56,7 @@ def _snapshot(row, kind):
             ).isoformat(),
         }
     )
-    return ResourceSnapshot(
+    return resource_snapshot(
         kind=kind,
         id=row.id,
         revision=revision,
@@ -136,10 +137,15 @@ async def apply(db, novel_id, prepared, *, context):
     )
 
 
-def ports():
+def port_for(kind):
+    """构造指定资源种类的 collaboration 资源端口（SPI 类型经容器解析）。"""
     from functools import partial
 
-    return {
-        kind: CreativeResourcePort(partial(inventory, kind=kind), read, validate, apply)
-        for kind in ("scene", *KINDS)
-    }
+    creative_resource_port = get("collaboration.CreativeResourcePort")
+    return creative_resource_port(
+        partial(inventory, kind=kind), read, validate, apply
+    )
+
+
+def ports():
+    return {kind: port_for(kind) for kind in ("scene", *KINDS)}

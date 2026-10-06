@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.container import get
 from core.crud import CrudService
 from core.errors import NotFoundError, ValidationError
 from modules.world.models import Event
@@ -55,10 +56,9 @@ class EventService(
             entity_type="location",
         )
         created = await super().create(db, novel_id, data)
-        from modules.world.services.worldbuilding.synopsis_invalidation import (
-            mark_synopsis_source_changed,
+        mark_synopsis_source_changed = get(
+            "world.worldbuilding.mark_synopsis_source_changed"
         )
-
         await mark_synopsis_source_changed(
             db,
             novel_id,
@@ -110,10 +110,9 @@ class EventService(
         )
         updated = await self.repo.update(db, eid, data)
         self._assert_found_in_novel(updated, id, nid)
-        from modules.world.services.worldbuilding.synopsis_invalidation import (
-            mark_synopsis_source_changed,
+        mark_synopsis_source_changed = get(
+            "world.worldbuilding.mark_synopsis_source_changed"
         )
-
         await mark_synopsis_source_changed(
             db,
             novel_id,

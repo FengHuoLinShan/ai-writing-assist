@@ -10,6 +10,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.container import get
 from core.errors import ConflictError
 from modules.evidence.compilation.contracts import (
     CompileOptions,
@@ -22,12 +23,13 @@ from modules.evidence.compilation.services.context_compiler import ContextCompil
 from modules.evidence.compilation.services.review_projection import (
     context_review_metadata,
 )
-from modules.story.contracts import (
-    CURRENT_SCENE_MEMORY_CONTRACT_VERSION,
-    SCENE_MEMORY_CONTRACT_V1,
-    scene_memory_dimensions,
-)
 from shared.utils import parse_uuid
+
+
+def _scene_memory_port():
+    # AO-5: story Scene memory 契约经组合根注册的只读 port 解析，
+    # 不再顶层 import modules.story.contracts。
+    return get("story.scene_source")
 
 _ASSET_TYPE_ALIASES = {
     "outline_scene": "scene",
@@ -126,7 +128,9 @@ class ContextConfirmationService:
             selected_world_bible_draft_ids=request.selected_world_bible_draft_ids or [],
             activation_profile_id=request.activation_profile_id,
             activation_profile_version=request.activation_profile_version,
-            scene_memory_contract_version=CURRENT_SCENE_MEMORY_CONTRACT_VERSION,
+            scene_memory_contract_version=(
+                _scene_memory_port().scene_memory_current_version()
+            ),
         )
         compiled = await self._compiler.compile_with_tiers(
             db,
@@ -249,7 +253,8 @@ class ContextConfirmationService:
         )
         compile_options = dict(confirmation.compile_options)
         compile_options.setdefault(
-            "scene_memory_contract_version", SCENE_MEMORY_CONTRACT_V1
+            "scene_memory_contract_version",
+            _scene_memory_port().scene_memory_v1_version(),
         )
         options = CompileOptions(**compile_options)
         compiled = await self._compiler.compile_with_tiers(
@@ -503,7 +508,11 @@ class ContextConfirmationService:
                 options.activation_included_target_hashes
             ),
             "compiled_context_fingerprint": options.compiled_context_fingerprint,
-            "scene_memory_contract_version": options.scene_memory_contract_version,
+            "scene_memory_contract_version": (
+                options.scene_memory_contract_version
+                if options.scene_memory_contract_version is not None
+                else _scene_memory_port().scene_memory_current_version()
+            ),
             "capability": options.capability,
             "scope_complete": options.scope_complete,
             "reference_usages": options.reference_usages,
@@ -560,11 +569,12 @@ class ContextConfirmationService:
             if isinstance(item, dict) and item.get("dimension")
         }
         metadata = section.retrieval_metadata or {}
+        _port = _scene_memory_port()
         contract_version = int(
-            metadata.get("contract_version") or SCENE_MEMORY_CONTRACT_V1
+            metadata.get("contract_version") or _port.scene_memory_v1_version()
         )
         required_dimensions = metadata.get("required_dimensions") or list(
-            scene_memory_dimensions(contract_version)
+            _port.scene_memory_dimensions(contract_version)
         )
         payload = [
             {

@@ -307,7 +307,9 @@ async def retain_run_understanding(
         manifest,
         *[InputManifest.model_validate(item.manifest_json) for item in artifacts],
     ]
-    from modules.evidence.facade import revalidate_creative_manifest
+    from modules.collaboration.creative_manifest import (
+        revalidate_creative_manifest,
+    )
 
     dependencies, cognition_refs, queries, evolution_refs = {}, {}, {}, {}
     for packet in manifests:
@@ -513,7 +515,9 @@ async def understanding_view(db, novel_id, *, record_id=None):
         )
     else:
         rows = await current_records(db, novel_id)
-    from modules.evidence.facade import inspect_cognition_freshness
+    from modules.collaboration.creative_manifest import (
+        inspect_cognition_freshness,
+    )
 
     items = []
     for row in rows[:200]:

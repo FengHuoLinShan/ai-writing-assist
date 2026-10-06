@@ -10,6 +10,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.container import get
 from core.errors import NotFoundError
 from core.errors import ValidationError as DomainValidationError
 from infrastructure.llm.redaction import redact_diagnostic
@@ -311,11 +312,10 @@ class EntityDedupService:
         if target is None:
             raise NotFoundError(f"Target entity {target_entity_id} not found")
 
-        from modules.world.services.worldbuilding.world_validation_service import (
-            WorldValidationService,
+        require_legacy_canon_write_allowed = get(
+            "world.worldbuilding.require_legacy_canon_write_allowed"
         )
-
-        await WorldValidationService().require_legacy_canon_write_allowed(
+        await require_legacy_canon_write_allowed(
             db, novel_id, next_action="create_world_adoption_package"
         )
 
@@ -512,11 +512,10 @@ class EntityDedupService:
 
         # 无匹配 → 直接提升为 canonical
         if not suggestions:
-            from modules.world.services.worldbuilding.world_validation_service import (
-                WorldValidationService,
+            require_legacy_canon_write_allowed = get(
+                "world.worldbuilding.require_legacy_canon_write_allowed"
             )
-
-            await WorldValidationService().require_legacy_canon_write_allowed(
+            await require_legacy_canon_write_allowed(
                 db, novel_id, next_action="create_world_adoption_package"
             )
             await self._entity_repo.update(

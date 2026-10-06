@@ -55,15 +55,21 @@ _WORLD_WORLDBUILDING_PKG = "modules.world.services.worldbuilding"
 # top_level_bidirectional_pairs 17→13，function_level_imports 560→559，后者
 # 因 facade SQL 下沉把 project→account 一条函数内导入转正为顶层；AO-8 把
 # assistant→project 的批注提案编排移入 comment_proposals 顶层导入：
-# 559→558）。
-# 分层目标态见 docs/architecture/README.md「模块依赖方向分层（目标态）」。
+# 559→558；AO-5 第一批按 ADR-0031 逐对解环：非 assistant 七对反方向顶层
+# 导入清零 + world core→worldbuilding 23 条语句经注入/共享根上移归零——
+# directed_edges 90→85、bidirectional_pairs 33→28、
+# top_level_bidirectional_pairs 13→6（仅剩 assistant 六对，第二批处理）、
+# function_level_imports 558→549（消除导入自然下降，无顶层降级）、
+# world_core_to_worldbuilding 23→0、world_worldbuilding_to_core 27→26）。
+# 分层目标态见 docs/architecture/README.md「模块依赖方向分层（目标态）」
+# 与 docs/adr/0031-module-dependency-directions.md。
 _DEPENDENCY_BASELINE: dict[str, int] = {
-    "directed_edges": 90,
-    "bidirectional_pairs": 33,
-    "top_level_bidirectional_pairs": 13,
-    "function_level_imports": 558,
-    "world_core_to_worldbuilding": 23,
-    "world_worldbuilding_to_core": 27,
+    "directed_edges": 85,
+    "bidirectional_pairs": 28,
+    "top_level_bidirectional_pairs": 6,
+    "function_level_imports": 549,
+    "world_core_to_worldbuilding": 0,
+    "world_worldbuilding_to_core": 26,
 }
 
 

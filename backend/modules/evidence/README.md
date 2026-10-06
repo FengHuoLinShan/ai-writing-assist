@@ -149,12 +149,11 @@ Evidence 为 Collaboration 收集授权的冻结资源集合，manifest 同时�
 
 ## 创作任务的跨轮理解
 
-`creative.py` 经 Collaboration facade 读取持久理解，再按本轮完整根来源、排除项、主体、
-查询范围及精确修订重验。附加理解是有出处的派生材料，不作为独立事实证据；实际引用写入
-InputManifest，后续调用和终态均回验原引用。确认的选中/排除边界仍由原 confirmation 持有。
-同一入口附加已提交 Evolution 观察，保留模态和完整递归根；作者回顾理解不作首次阅读证据。
-前瞻仅复用焦点章之前的完整正文根，旧稿排除扩到整章，Scene/历史截止明确不支持。
-生成和独立审查接收相同引用与来源映射，容量不足整条省略，不截断后声称完整检查。
+跨轮理解的物化入口 `creative_manifest.py` 已随 AO-5 迁入 Collaboration 模块
+（授权输入冻结、InputManifest 重验与理解附加归 collaboration 协议所有）；
+Evidence 仍经 `inspect_novel_target` / `prepare_confirmed_ai_action` 提供原
+confirmation 的选中/排除边界与目标可见性判定，理解的完整约束见
+[模块设计](../../../docs/modules/21_collaboration.md)。
 
 作者编辑台复用 `compile_review_world_evidence` 选择并精确回读本章作者可见世界资料，调用时
 声明 `assistant.editorial` 且保留排除与截断说明。世界资料只送作者判断，不进入顺序盲读；

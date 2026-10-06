@@ -14,13 +14,16 @@ from infrastructure.llm.collaboration import content_hash
 from infrastructure.tasks.facade import cancel_exact_task, enqueue_operation_task
 from modules.account.facade import current_account_id
 from modules.collaboration.contracts import Grant, Recipe
+from modules.collaboration.creative_manifest import (
+    collect_creative_manifest,
+    creative_context_text,
+)
 from modules.collaboration.models import (
     CollaborationCase,
     CollaborationRun,
     CollaborationWorkItem,
 )
 from modules.collaboration.recipes import get_recipe
-from modules.evidence.facade import collect_creative_manifest, creative_context_text
 from modules.local_agent.facade import local_task_meta
 from modules.project.facade import (
     build_project_llm_execution_snapshot,
@@ -244,7 +247,9 @@ async def update_grant(db, novel_id, case_id, data):
 async def resume_run(db, novel_id, run_id):
     from infrastructure.tasks.facade import resume_manual_task
     from modules.collaboration.contracts import InputManifest
-    from modules.evidence.facade import revalidate_creative_manifest
+    from modules.collaboration.creative_manifest import (
+        revalidate_creative_manifest,
+    )
 
     prior = await require_run(db, novel_id, run_id)
     case = await require_case(db, novel_id, prior.case_id, lock=True, execute=True)

@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.container import get
 from core.errors import ConflictError, NotFoundError
 from core.errors import ValidationError as DomainValidationError
 from core.logging_context import (
@@ -64,11 +65,10 @@ class EntityAliasService:
     async def _require_legacy_canon_write_allowed(
         db: AsyncSession, novel_id: str
     ) -> None:
-        from modules.world.services.worldbuilding.world_validation_service import (
-            WorldValidationService,
+        require_legacy_canon_write_allowed = get(
+            "world.worldbuilding.require_legacy_canon_write_allowed"
         )
-
-        await WorldValidationService().require_legacy_canon_write_allowed(
+        await require_legacy_canon_write_allowed(
             db, novel_id, next_action="create_world_adoption_package"
         )
 

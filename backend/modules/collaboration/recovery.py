@@ -17,6 +17,9 @@ from modules.collaboration.contracts import (
     WorkspaceCreate,
     WorkspaceEdit,
 )
+from modules.collaboration.creative_manifest import (
+    collect_creative_manifest,
+)
 from modules.collaboration.models import CreativeMergeReceipt, CreativeWorkspace
 from modules.collaboration.workspaces import (
     create_workspace,
@@ -25,7 +28,6 @@ from modules.collaboration.workspaces import (
     require_workspace,
     workspace_view,
 )
-from modules.evidence.facade import collect_creative_manifest
 
 
 def merge_fields(before, current, proposed):

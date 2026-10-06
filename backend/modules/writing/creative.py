@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from core.container import get
 from core.errors import ConflictError, NotFoundError, ValidationError
 from infrastructure.llm.collaboration import content_hash
-from modules.collaboration.contracts import CreativeResourcePort, ResourceSnapshot
 from modules.writing.assistant_tools import OPERATIONS, ReviseChapter
 from modules.writing.facade import (
     get_draft,
@@ -15,7 +15,7 @@ from modules.writing.facade import (
 
 def _snapshot(draft):
     content = {"title": draft.title or "", "content": draft.content or ""}
-    return ResourceSnapshot(
+    return get("collaboration.ResourceSnapshot")(
         kind="writing_draft",
         id=draft.id,
         revision=f"{draft.version_number}:{draft.content_hash}",
@@ -83,4 +83,6 @@ async def apply(db, novel_id, prepared, *, context):
     )
 
 
-PORT = CreativeResourcePort(inventory, read, validate, apply)
+def port():
+    """collaboration 资源端口（SPI 类型经容器解析，注册仍在组合根）。"""
+    return get("collaboration.CreativeResourcePort")(inventory, read, validate, apply)

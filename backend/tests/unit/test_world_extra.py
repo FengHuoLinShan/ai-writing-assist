@@ -23,6 +23,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pydantic import ValidationError as PydanticValidationError
 
+from core.container import container_scope
 from core.errors import ConflictError, NotFoundError
 from core.errors import ValidationError as DomainValidationError
 from modules.world.contracts import (
@@ -60,12 +61,14 @@ BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.fixture(autouse=True)
-def _allow_legacy_canon_writes_in_unit_tests(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "modules.world.services.worldbuilding.world_validation_service."
-        "WorldValidationService.require_legacy_canon_write_allowed",
-        AsyncMock(),
-    )
+def _allow_legacy_canon_writes_in_unit_tests():
+    # AO-5 起 core 经组合根注册的 DI port 调用该校验门；替身走 DI 注册替换。
+    with container_scope(
+        {
+            "world.worldbuilding.require_legacy_canon_write_allowed": AsyncMock(),
+        }
+    ):
+        yield
 
 
 # ============================================================

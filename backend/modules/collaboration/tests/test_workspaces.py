@@ -21,13 +21,15 @@ from modules.collaboration.contracts import (
     WorkspaceCreate,
     WorkspaceEdit,
 )
+from modules.collaboration.creative_manifest import (
+    revalidate_creative_manifest,
+)
 from modules.collaboration.merge import merge_workspace
 from modules.collaboration.models import (
     CollaborationArtifact,
     CollaborationRun,
     CreativeMergeReceipt,
 )
-from modules.evidence.facade import revalidate_creative_manifest
 from modules.writing.facade import create_draft_only, get_latest_draft_for_chapter
 
 
@@ -343,7 +345,9 @@ async def test_project_query_adds_exact_read_excerpt_but_never_edit_authority(
     db_session, test_project_id, monkeypatch
 ):
     from modules.collaboration.contracts import ResourceRef
-    from modules.evidence.facade import collect_creative_manifest
+    from modules.collaboration.creative_manifest import (
+        collect_creative_manifest,
+    )
 
     db, nid = db_session, test_project_id
     case, _, _, _ = await setup_trial(db, nid, monkeypatch, read_scope="project")

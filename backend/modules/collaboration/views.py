@@ -9,12 +9,14 @@ from infrastructure.llm.collaboration import content_hash
 from infrastructure.tasks.models import AsyncTask
 from modules.collaboration.cases import execution_status, require_case, require_run
 from modules.collaboration.contracts import Grant, InputManifest
+from modules.collaboration.creative_manifest import (
+    revalidate_creative_manifest,
+)
 from modules.collaboration.models import (
     CollaborationArtifact,
     CollaborationWorkItem,
     CreativeWorkspace,
 )
-from modules.evidence.facade import revalidate_creative_manifest
 
 
 async def resource_choices(db, novel_id, kind, offset, query):

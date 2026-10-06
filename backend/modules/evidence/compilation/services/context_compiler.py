@@ -44,9 +44,15 @@ from modules.evidence.compilation.services.loaders import (
     WorldEntitiesLoader,
 )
 from modules.evidence.compilation.services.protocol import Loader
-from modules.story.contracts import scene_memory_dimensions
 
 logger = logging.getLogger(__name__)
+
+
+def _scene_memory_port():
+    # AO-5: story Scene memory 契约经组合根注册的只读 port 解析。
+    from core.container import get
+
+    return get("story.scene_source")
 
 # 作者写作示例 few-shot 的 section 内 token 上限（tiktoken 估算）。
 # 与存储上限对齐：单条 schema 合法满额示例（2000 字符正文 + 500 字符
@@ -520,7 +526,7 @@ class ContextCompiler:
         selection_ref: dict,
     ) -> ContextItem | None:
         from modules.evidence.compilation.novel_evidence import NovelEvidenceService
-        from modules.writing.contracts import SourceRangeRefContract
+        from modules.evidence.source_ref_contracts import SourceRangeRefContract
 
         visibility = VisibilityContextContract(
             mode=(
@@ -1926,9 +1932,13 @@ class ContextCompiler:
             if checkpoint_set.get("coverage_status") == "unavailable"
             else "missing"
         )
-        required_dimensions = scene_memory_dimensions(
+        _scene_memory = _scene_memory_port()
+        contract_version = (
             options.scene_memory_contract_version
+            if options.scene_memory_contract_version is not None
+            else _scene_memory.scene_memory_current_version()
         )
+        required_dimensions = _scene_memory.scene_memory_dimensions(contract_version)
 
         for dimension in required_dimensions:
             item = items.get(dimension) or {}
@@ -2031,7 +2041,7 @@ class ContextCompiler:
                 "dimensions": dimensions,
                 "omissions": omissions,
                 "checkpoint_versions": checkpoint_versions,
-                "contract_version": options.scene_memory_contract_version,
+                "contract_version": contract_version,
                 "required_dimensions": list(required_dimensions),
                 "current_canon_note": (
                     "当前正典只作为作者修复参考，不会回填这个 Scene 的过去状态。"

@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.container import get
 from core.crud import CrudService
 from core.errors import ConflictError, NotFoundError, ValidationError
 from core.logging_context import (
@@ -48,7 +49,7 @@ from modules.world.services.core.review_queue import (
     stable_fingerprint,
     suggest_relation_type,
 )
-from modules.world.services.worldbuilding.relation_group_views import (
+from modules.world.services.relation_group_views import (
     RelationViewError,
     ResolvedGroupView,
     resolve_group_view,
@@ -1717,10 +1718,9 @@ class EntityRelationService(
         novel_id: str,
         relation_id,
     ) -> None:
-        from modules.world.services.worldbuilding.synopsis_invalidation import (
-            mark_synopsis_source_changed,
+        mark_synopsis_source_changed = get(
+            "world.worldbuilding.mark_synopsis_source_changed"
         )
-
         await mark_synopsis_source_changed(
             db,
             novel_id,
@@ -1900,10 +1900,9 @@ class EntityRelationService(
     async def _require_legacy_canon_write_allowed(
         db: AsyncSession, novel_id: str
     ) -> None:
-        from modules.world.services.worldbuilding.world_validation_service import (
-            WorldValidationService,
+        require_legacy_canon_write_allowed = get(
+            "world.worldbuilding.require_legacy_canon_write_allowed"
         )
-
-        await WorldValidationService().require_legacy_canon_write_allowed(
+        await require_legacy_canon_write_allowed(
             db, novel_id, next_action="create_world_adoption_package"
         )

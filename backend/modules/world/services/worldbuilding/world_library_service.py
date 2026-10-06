@@ -71,7 +71,7 @@ from modules.world.services.common import (
     entity_relation_execution_fingerprint,
     parse_uuid,
 )
-from modules.world.services.worldbuilding.relation_group_views import (
+from modules.world.services.relation_group_views import (
     RelationViewError,
     ResolvedGroupView,
     preset_view_payloads,

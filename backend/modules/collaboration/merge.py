@@ -14,13 +14,15 @@ from modules.assistant.contracts import AssistantOperationContext
 from modules.assistant.schemas import WorkContext
 from modules.collaboration.cases import require_case
 from modules.collaboration.contracts import Grant, InputManifest, ResourcePatch
+from modules.collaboration.creative_manifest import (
+    revalidate_creative_manifest,
+)
 from modules.collaboration.models import CreativeMergeReceipt, DomainOutbox
 from modules.collaboration.workspaces import (
     checked_revision,
     require_revision,
     require_workspace,
 )
-from modules.evidence.facade import revalidate_creative_manifest
 from modules.project.facade import require_active_project_exclusive
 
 
