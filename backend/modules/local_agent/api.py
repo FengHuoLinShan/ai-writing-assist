@@ -17,14 +17,15 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
+from core.container import get
 from core.dependencies import DbSession
 from core.errors import ConflictError, DomainError, NotFoundError, ValidationError
+from core.service_keys import (
+    ASSISTANT_MARK_TASK_LOCAL_APPROVED,
+    INTERACTION_MARK_TASK_LOCAL_APPROVED,
+)
 from infrastructure.tasks.models import AsyncTask
 from modules.account.facade import current_account_id, require_account_active
-from modules.assistant.facade import mark_task_local_approved as approve_assistant_task
-from modules.interaction.facade import (
-    mark_task_local_approved as approve_interaction_task,
-)
 from modules.local_agent.facade import save_executor, selected_executor
 from modules.local_agent.images import review_generated_image
 from modules.local_agent.models import (
@@ -429,8 +430,13 @@ async def approve_task(db: DbSession, task_id: uuid.UUID, data: LocalApproval):
         and datetime.now(UTC) - _utc(device.last_seen_at) < timedelta(seconds=10)
     )
     task.meta = {**task.meta, "_local_approved": True, "_local_ready": ready}
-    await approve_assistant_task(db, data.novel_id, task_id, current_account_id())
-    await approve_interaction_task(db, data.novel_id, task_id, current_account_id())
+    # AO-5：assistant(L4) 能力经组合根注册的 DI 键解析，不顶层 import。
+    await get(ASSISTANT_MARK_TASK_LOCAL_APPROVED)(
+        db, data.novel_id, task_id, current_account_id()
+    )
+    await get(INTERACTION_MARK_TASK_LOCAL_APPROVED)(
+        db, data.novel_id, task_id, current_account_id()
+    )
     await db.commit()
     return {"approved": True, "waiting_device": not ready}
 

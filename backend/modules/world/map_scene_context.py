@@ -4,20 +4,29 @@ from sqlalchemy import select
 
 from core.errors import NotFoundError
 from infrastructure.llm.collaboration import content_hash
-from modules.story.facade import project_scene_presence
-from modules.story.outline_state.facade import get_scene_contract
 from modules.world.map_structure_schemas import MapPresenceItem, MapSceneContext
 from modules.world.map_structure_service import MapStructureService
 from modules.world.models import CoreEntity
 from shared.utils import parse_uuid
 
 
+def _story_scene_port():
+    # AO-5 / ADR-0031: world 地图只读消费 story 场景事实经组合根注册的 port，
+    # world→story 顶层导入清零（story→world 为裁定的 owner 方向）。
+    from core.container import get
+    from core.service_keys import (
+        STORY_SCENE_SOURCE,
+    )
+
+    return get(STORY_SCENE_SOURCE)
+
+
 async def get_scene_context(db, novel_id, node_id, scene_id):
     map_view = await MapStructureService().get_map(db, novel_id, node_id)
-    scene = await get_scene_contract(db, novel_id, str(scene_id))
+    scene = await _story_scene_port().get_scene_contract(db, novel_id, str(scene_id))
     if scene is None or scene.status not in {"draft", "canonical"}:
         raise NotFoundError("场景不在当前作品的可用范围内")
-    report = await project_scene_presence(
+    report = await _story_scene_port().project_scene_presence(
         db, novel_id, through_scene_index=scene.scene_index
     )
     characters = list(

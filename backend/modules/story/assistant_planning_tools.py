@@ -4,7 +4,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from modules.assistant.contracts import AssistantOperation
+from core.container import get
+from core.service_keys import (
+    ASSISTANT_REQUIRE_OPERATION_TARGETS,
+)
 from modules.story.outline_state.schemas import (
     ForeshadowingPlanCreate,
     OutlineArcCreate,
@@ -113,8 +116,7 @@ async def _thread_apply(db, novel_id, args, preview, *, context=None):
 
 
 async def _arc_preview(db, novel_id, args, *, context=None):
-    from modules.assistant.facade import require_operation_targets
-
+    require_operation_targets = get(ASSISTANT_REQUIRE_OPERATION_TARGETS)
     await require_operation_targets(
         db, novel_id, context, [("plot_thread", key) for key in args.related_thread_ids]
     )
@@ -149,14 +151,25 @@ async def _arc_apply(db, novel_id, args, preview, *, context=None):
     return {"type": "outline_arc", "id": result.id, "label": "已保存篇章规划"}
 
 
-OPERATIONS = {
-    "story.create_information_plan": AssistantOperation(
-        "保存选定的信息安排", NewInformationPlan, _information_preview, _information_apply
-    ),
-    "story.create_thread": AssistantOperation(
-        "规划新剧情线", NewThread, _thread_preview, _thread_apply
-    ),
-    "story.create_arc": AssistantOperation(
-        "规划新篇章", NewArc, _arc_preview, _arc_apply
-    ),
+# 纯数据声明（AO-5）：不 import assistant 契约；组合根
+# app/assistant_operation_registry 按 AssistantOperation 原构造语义物化。
+OPERATIONS_SPEC = {
+    "story.create_information_plan": {
+        "label": "保存选定的信息安排",
+        "schema": NewInformationPlan,
+        "prepare": _information_preview,
+        "apply": _information_apply,
+    },
+    "story.create_thread": {
+        "label": "规划新剧情线",
+        "schema": NewThread,
+        "prepare": _thread_preview,
+        "apply": _thread_apply,
+    },
+    "story.create_arc": {
+        "label": "规划新篇章",
+        "schema": NewArc,
+        "prepare": _arc_preview,
+        "apply": _arc_apply,
+    },
 }

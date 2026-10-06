@@ -7,8 +7,11 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from core.container import get
 from core.errors import ConflictError, NotFoundError, ValidationError
-from modules.assistant.contracts import AssistantOperation
+from core.service_keys import (
+    ASSISTANT_REQUIRE_OPERATION_TARGETS,
+)
 from modules.writing.facade import (
     get_draft,
     get_latest_draft_for_chapter,
@@ -199,12 +202,12 @@ async def _world_review_apply(db, novel_id, args, preview, *, context=None):
 async def _team_review_context(db, novel_id, args, context):
     from dataclasses import replace
 
-    from modules.assistant.facade import require_operation_targets
     from modules.writing.semantic_review import (
         _candidate_confirmation_id,
         _requires_confirmed_context,
     )
 
+    require_operation_targets = get(ASSISTANT_REQUIRE_OPERATION_TARGETS)
     await require_operation_targets(
         db, novel_id, context, [("writing_draft", value) for value in args.draft_ids]
     )
@@ -360,8 +363,7 @@ async def schedule_proactive_review(db, novel_id, change, internal_meta):
 
 
 async def _prepare(db, novel_id, args: ReviseChapter, *, context=None):
-    from modules.assistant.facade import require_operation_targets
-
+    require_operation_targets = get(ASSISTANT_REQUIRE_OPERATION_TARGETS)
     await require_operation_targets(
         db, novel_id, context, [("writing_draft", args.draft_id)]
     )
@@ -460,35 +462,43 @@ async def _apply(db, novel_id, args, preview, *, context=None):
     }
 
 
-OPERATIONS = {
-    "writing.review_team": AssistantOperation(
-        "复核深度审稿调查线索",
-        ReviewTeamChapters,
-        _team_review_prepare,
-        _team_review_apply,
-        permission="suggest",
-        read_result=_review_result,
-    ),
-    "writing.review_world": AssistantOperation(
-        "核对人工正文与世界设定（不签署人物知识边界）",
-        ReviewChapters,
-        _world_review_prepare,
-        _world_review_apply,
-        permission="suggest",
-        read_result=_review_result,
-    ),
-    "writing.new_chapter": AssistantOperation(
-        "追加章节工作稿", NewChapter, _new_preview, _new_apply
-    ),
-    "writing.review": AssistantOperation(
-        "独立审查正文",
-        ReviewChapters,
-        _review_prepare,
-        _review_apply,
-        permission="suggest",
-        read_result=_review_result,
-    ),
-    "writing.revise": AssistantOperation(
-        "按精确范围修订正文", ReviseChapter, _prepare, _apply
-    ),
+# 纯数据声明（AO-5）：不 import assistant 契约；组合根
+# app/assistant_operation_registry 按 AssistantOperation 原构造语义物化。
+OPERATIONS_SPEC = {
+    "writing.review_team": {
+        "label": "复核深度审稿调查线索",
+        "schema": ReviewTeamChapters,
+        "prepare": _team_review_prepare,
+        "apply": _team_review_apply,
+        "permission": "suggest",
+        "read_result": _review_result,
+    },
+    "writing.review_world": {
+        "label": "核对人工正文与世界设定（不签署人物知识边界）",
+        "schema": ReviewChapters,
+        "prepare": _world_review_prepare,
+        "apply": _world_review_apply,
+        "permission": "suggest",
+        "read_result": _review_result,
+    },
+    "writing.new_chapter": {
+        "label": "追加章节工作稿",
+        "schema": NewChapter,
+        "prepare": _new_preview,
+        "apply": _new_apply,
+    },
+    "writing.review": {
+        "label": "独立审查正文",
+        "schema": ReviewChapters,
+        "prepare": _review_prepare,
+        "apply": _review_apply,
+        "permission": "suggest",
+        "read_result": _review_result,
+    },
+    "writing.revise": {
+        "label": "按精确范围修订正文",
+        "schema": ReviseChapter,
+        "prepare": _prepare,
+        "apply": _apply,
+    },
 }

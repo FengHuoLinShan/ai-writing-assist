@@ -204,7 +204,9 @@ regex、随机概率或任意表达式。draft 只用于编辑和 dry-run，发�
 
 手动 AI 操作在 world / outline / writing / Story 等入口发起前统一先预览再创建确认记录：
 
-- `confirm_context()`：编译并落一条 `context_confirmations`
+- `confirm_context(ContextConfirmationRequest)`：编译并落一条 `context_confirmations`；
+  30 余个编译/确认字段收敛在 `contracts.ContextConfirmationRequest` 单一请求模型，
+  world / outline / writing 等跨模块调用方与 HTTP `/confirm` 共用同一契约
 - `get_context_confirmation()`：按 `confirmation_id + novel_id` 回读已持久化摘要，不重编译历史 Context
 - `require_confirmation()`：校验 action / novel_id / confirmation_id 是否匹配
 - `prepare_confirmed_ai_action(..., for_update=True)`：任务 finalize 在重编译上下文前锁定 confirmation owner

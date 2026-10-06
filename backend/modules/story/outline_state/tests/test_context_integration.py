@@ -12,6 +12,8 @@ from modules.writing.contracts import WritingDraftContract
 
 
 def _mock_container_get(name):
+    # AO-10：生产消费方现在传 ServiceKey 常量，统一归一为键名字符串比较。
+    name = getattr(name, "name", name)
     if name == "outline.thread_service":
         return PlotThreadService()
     if name == "outline.arc_service":

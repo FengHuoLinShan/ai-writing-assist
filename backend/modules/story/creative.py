@@ -5,18 +5,25 @@ from uuid import UUID
 
 from sqlalchemy import select
 
+from core.container import get
 from core.errors import ConflictError, NotFoundError, ValidationError
+from core.service_keys import (
+    COLLABORATION_CREATIVE_RESOURCE_PORT,
+    COLLABORATION_RESOURCE_SNAPSHOT,
+)
 from infrastructure.llm.collaboration import content_hash
-from modules.collaboration.contracts import CreativeResourcePort, ResourceSnapshot
 from modules.story.assistant_information_tools import KINDS, EditInformationPlan
-from modules.story.assistant_information_tools import OPERATIONS as INFORMATION
-from modules.story.assistant_tools import OPERATIONS as SCENES
+from modules.story.assistant_information_tools import (
+    OPERATIONS_SPEC as INFORMATION,
+)
+from modules.story.assistant_tools import OPERATIONS_SPEC as SCENES
 from modules.story.assistant_tools import EditScene
 from modules.story.outline_state.models import Scene
 from modules.story.outline_state.schemas import SceneUpdate
 
 
 def _snapshot(row, kind):
+    resource_snapshot = get(COLLABORATION_RESOURCE_SNAPSHOT)
     allowed = (
         set(SceneUpdate.model_fields)
         - {
@@ -55,7 +62,7 @@ def _snapshot(row, kind):
             ).isoformat(),
         }
     )
-    return ResourceSnapshot(
+    return resource_snapshot(
         kind=kind,
         id=row.id,
         revision=revision,
@@ -117,7 +124,7 @@ async def validate(db, novel_id, baseline, patch, *, context):
         if baseline.kind == "scene"
         else EditInformationPlan(kind=baseline.kind, plan_id=baseline.id, changes=changes)
     )
-    preview = await operation.prepare(db, novel_id, args, context=context)
+    preview = await operation["prepare"](db, novel_id, args, context=context)
     return {
         "operation": name,
         "arguments": args.model_dump(mode="json"),
@@ -127,19 +134,22 @@ async def validate(db, novel_id, baseline, patch, *, context):
 
 async def apply(db, novel_id, prepared, *, context):
     operation = (SCENES | INFORMATION)[prepared["operation"]]
-    return await operation.apply(
+    return await operation["apply"](
         db,
         novel_id,
-        operation.schema.model_validate(prepared["arguments"]),
+        operation["schema"].model_validate(prepared["arguments"]),
         prepared["preview"],
         context=context,
     )
 
 
-def ports():
+def port_for(kind):
+    """构造指定资源种类的 collaboration 资源端口（SPI 类型经容器解析）。"""
     from functools import partial
 
-    return {
-        kind: CreativeResourcePort(partial(inventory, kind=kind), read, validate, apply)
-        for kind in ("scene", *KINDS)
-    }
+    creative_resource_port = get(COLLABORATION_CREATIVE_RESOURCE_PORT)
+    return creative_resource_port(partial(inventory, kind=kind), read, validate, apply)
+
+
+def ports():
+    return {kind: port_for(kind) for kind in ("scene", *KINDS)}

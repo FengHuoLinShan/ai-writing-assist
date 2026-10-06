@@ -206,10 +206,10 @@ async def _load_chapters(corpus: str, repeat: int) -> list[dict[str, str]]:
 async def run_harness(
     args: argparse.Namespace, *, connection=None, chapters=None
 ) -> HarnessReport:
-    from app.bootstrap import _register_orm_models
+    from app.bootstrap import register_container_services
     from core.base import Base
 
-    _register_orm_models()
+    register_container_services(ignore_existing=True)
     engine = (
         create_async_engine(args.database_url, pool_size=4, max_overflow=0)
         if connection is None

@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from modules.evidence.compilation.contracts import (
     CONTEXT_BUDGET,
     ContextConfirmationContract,
+    ContextConfirmationRequest,
     ContextSnapshotRequest,
     StructureContextBundle,
 )
@@ -657,13 +658,15 @@ async def test_scene_state_confirmation_freezes_versions_but_old_records_replay(
     assert before_fingerprint != after_fingerprint
     confirmation = await service.confirm_context(
         db_session,
-        novel_id=novel_id,
-        action="writing.generate",
-        task="生成角色视角正文",
-        scope="chapter",
-        scene_id=scene_id,
-        reveal_mode="character",
-        viewpoint_character_id=str(uuid.uuid4()),
+        ContextConfirmationRequest(
+            novel_id=novel_id,
+            action="writing.generate",
+            task="生成角色视角正文",
+            scope="chapter",
+            scene_id=scene_id,
+            reveal_mode="character",
+            viewpoint_character_id=str(uuid.uuid4()),
+        ),
     )
 
     assert "scene_state_fingerprint" not in confirmation.compile_options
@@ -1223,6 +1226,7 @@ class TestConfirmedAiAction:
             confirm_context,
             prepare_confirmed_ai_action,
         )
+        from modules.evidence.contracts import ContextConfirmationRequest
         from modules.project.models import Project
         from modules.world.models import Character, CharacterKnowledge, CoreEntity
 
@@ -1283,14 +1287,16 @@ class TestConfirmedAiAction:
 
         confirmation = await confirm_context(
             db_session,
-            novel_id=novel_id,
-            action="writing.generate",
-            task="基于当前 Scene 的 POV 角色有限认知，生成正文候选草稿",
-            scope="world_character",
-            character_ids=[str(char_id)],
-            reveal_mode="character",
-            viewpoint_character_id=str(char_id),
-            include_pending_objects=True,
+            ContextConfirmationRequest(
+                novel_id=novel_id,
+                action="writing.generate",
+                task="基于当前 Scene 的 POV 角色有限认知，生成正文候选草稿",
+                scope="world_character",
+                character_ids=[str(char_id)],
+                reveal_mode="character",
+                viewpoint_character_id=str(char_id),
+                include_pending_objects=True,
+            ),
         )
         prepared = await prepare_confirmed_ai_action(
             db_session,
@@ -2852,15 +2858,18 @@ class TestContextConfirmation:
             confirm_context,
             require_confirmation,
         )
+        from modules.evidence.contracts import ContextConfirmationRequest
 
         novel_id = "00000000-0000-0000-0000-000000000102"
         created = await confirm_context(
             db_session,
-            novel_id=novel_id,
-            action="outline.generate",
-            task="生成剧情结构",
-            scope="chapter",
-            chapter_index=1,
+            ContextConfirmationRequest(
+                novel_id=novel_id,
+                action="outline.generate",
+                task="生成剧情结构",
+                scope="chapter",
+                chapter_index=1,
+            ),
         )
 
         ok = await require_confirmation(
@@ -2899,16 +2908,19 @@ class TestContextConfirmation:
             mark_asset_context_changed,
             require_confirmation,
         )
+        from modules.evidence.contracts import ContextConfirmationRequest
 
         novel_id = "00000000-0000-0000-0000-000000000104"
         created = await confirm_context(
             db_session,
-            novel_id=novel_id,
-            action="world.alias_relations.extract",
-            task="补抽别名和关系",
-            scope="world",
-            context_mode="working",
-            include_pending_objects=True,
+            ContextConfirmationRequest(
+                novel_id=novel_id,
+                action="world.alias_relations.extract",
+                task="补抽别名和关系",
+                scope="world",
+                context_mode="working",
+                include_pending_objects=True,
+            ),
         )
 
         await attach_result_ref(
@@ -2989,14 +3001,17 @@ class TestContextConfirmation:
             confirm_context,
             require_confirmation,
         )
+        from modules.evidence.contracts import ContextConfirmationRequest
 
         novel_id = "00000000-0000-0000-0000-000000000114"
         created = await confirm_context(
             db_session,
-            novel_id=novel_id,
-            action="outline.generate",
-            task="生成 Scene",
-            scope="chapter",
+            ContextConfirmationRequest(
+                novel_id=novel_id,
+                action="outline.generate",
+                task="生成 Scene",
+                scope="chapter",
+            ),
         )
         await attach_result_ref(
             db_session,
@@ -3044,14 +3059,17 @@ class TestContextConfirmation:
             attach_result_refs,
             confirm_context,
         )
+        from modules.evidence.contracts import ContextConfirmationRequest
 
         novel_id = "00000000-0000-0000-0000-000000000115"
         created = await confirm_context(
             db_session,
-            novel_id=novel_id,
-            action="outline.generate",
-            task="生成 Scene",
-            scope="chapter",
+            ContextConfirmationRequest(
+                novel_id=novel_id,
+                action="outline.generate",
+                task="生成 Scene",
+                scope="chapter",
+            ),
         )
         await attach_result_ref(
             db_session,

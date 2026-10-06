@@ -4,7 +4,11 @@ import uuid
 
 import pytest
 
-from modules.evidence.compilation.contracts import CompileOptions, StructureContextBundle
+from modules.evidence.compilation.contracts import (
+    CompileOptions,
+    ContextConfirmationRequest,
+    StructureContextBundle,
+)
 from modules.evidence.compilation.services.loaders.rag_chunks_loader import (
     RagChunksLoader,
     _default_record_trace,
@@ -151,10 +155,12 @@ async def test_trace_failure_preserves_confirmation_but_source_change_still_bloc
     with patch.object(compiler, "compile", autospec=True, side_effect=compile_bundle):
         confirmation = await service.confirm_context(
             db_session,
-            novel_id=test_project_id,
-            action="world.map_atlas.structure",
-            task="整理地图空间关系",
-            scope="full",
+            ContextConfirmationRequest(
+                novel_id=test_project_id,
+                action="world.map_atlas.structure",
+                task="整理地图空间关系",
+                scope="full",
+            ),
         )
         diagnostic_failed = True
         replay = await service.compile_from_confirmation(

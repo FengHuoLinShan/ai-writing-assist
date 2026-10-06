@@ -6,8 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from core.errors import ConflictError, NotFoundError
 from infrastructure.tasks.facade import get_completed_task_payload, get_operation_task
-from modules.assistant.contracts import AssistantOperation
-from modules.evidence.contracts import CompileOptions
+from modules.evidence.contracts import CompileOptions, ContextConfirmationRequest
 from modules.evidence.facade import (
     confirm_context,
     prepare_confirmed_ai_action,
@@ -152,10 +151,12 @@ async def _submit(db, novel_id, args, preview, *, context=None):
         if not confirmation_id:
             confirmation = await confirm_context(
                 db,
-                novel_id=novel_id,
-                action="outline.generate",
-                **preview["context_parameters"],
-                expected_context_fingerprint=preview["context_fingerprint"],
+                ContextConfirmationRequest(
+                    novel_id=novel_id,
+                    action="outline.generate",
+                    **preview["context_parameters"],
+                    expected_context_fingerprint=preview["context_fingerprint"],
+                ),
             )
             confirmation_id = confirmation.id
         request = OutlineLayerGenerateRequest(
@@ -264,16 +265,21 @@ async def _adopt(db, novel_id, args, preview, *, context=None):
     }
 
 
-OPERATIONS = {
-    "story.plan_structure": AssistantOperation(
-        "规划剧情线、篇章、场景及伏笔推进",
-        PlanStructure,
-        _prepare,
-        _submit,
-        permission="suggest",
-        read_result=_read_result,
-    ),
-    "story.adopt_structure": AssistantOperation(
-        "采用原结构规划包", AdoptStructure, _adopt_preview, _adopt
-    ),
+# 纯数据声明（AO-5）：不 import assistant 契约；组合根
+# app/assistant_operation_registry 按 AssistantOperation 原构造语义物化。
+OPERATIONS_SPEC = {
+    "story.plan_structure": {
+        "label": "规划剧情线、篇章、场景及伏笔推进",
+        "schema": PlanStructure,
+        "prepare": _prepare,
+        "apply": _submit,
+        "permission": "suggest",
+        "read_result": _read_result,
+    },
+    "story.adopt_structure": {
+        "label": "采用原结构规划包",
+        "schema": AdoptStructure,
+        "prepare": _adopt_preview,
+        "apply": _adopt,
+    },
 }

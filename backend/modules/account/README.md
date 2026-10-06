@@ -15,6 +15,9 @@
   24 小时 `anonymous_rp` 账号及其私人旅程。
 - 管理员工具只显示账号元数据和支持码，不读取项目标题、ID 或内容。
 
+独立账户管理入口 `scripts/manage_accounts.py` 在进入账户业务前装配组合根 DI，封禁的任务
+取消与到期清理通过已注册 Project port 执行；与 API/worker 共享实现和 owner 范围。
+
 Authing 微信由 `AUTHING_WECHAT_ENABLED` 控制。关闭时所有微信入口返回 404；开启前
 必须完成 Authing、微信开放平台和真实扫码验证。公开模式禁止 `DEBUG=true`，SMTP 只允许
 `starttls` 或 `ssl`。Authing issuer 与 redirect URI 必须使用 HTTPS（本地环境仅允许 HTTP

@@ -1,4 +1,8 @@
-"""Fail closed when the local database is behind the Alembic head."""
+"""Fail closed when the database is behind the Alembic head.
+
+开发入口（dev server、--reload worker）等待外部迁移追平 head；
+生产 worker 常驻路径复用 `schema_is_current()` 直接拒绝启动，不等待。
+"""
 
 from __future__ import annotations
 
@@ -48,10 +52,14 @@ def _read_schema_revisions() -> tuple[frozenset[str], frozenset[str]]:
     return current_heads, expected_heads
 
 
-def _schema_is_current() -> bool:
+def schema_is_current() -> bool:
+    """Return whether the database is at the Alembic head, failing closed.
+
+    无法读取迁移脚本或连接数据库时返回 False：调用方据此拒绝启动。
+    """
     try:
         current_heads, expected_heads = _read_schema_revisions()
-    except Exception:  # noqa: BLE001 - the local guard must fail closed.
+    except Exception:  # noqa: BLE001 - the schema guard must fail closed.
         return False
     return bool(expected_heads) and current_heads == expected_heads
 
@@ -76,7 +84,7 @@ def _print_blocked_message(*, waiting: bool) -> None:
 
 def require_schema_current() -> bool:
     """Return whether the database is current, with actionable CLI output."""
-    if _schema_is_current():
+    if schema_is_current():
         print("Local database schema is at the current Alembic head.", flush=True)
         return True
     _print_blocked_message(waiting=False)
@@ -92,7 +100,7 @@ def wait_for_schema_current(
         raise ValueError("interval_seconds must be positive")
 
     waiting = False
-    while not _schema_is_current():
+    while not schema_is_current():
         if not waiting:
             _print_blocked_message(waiting=True)
             waiting = True

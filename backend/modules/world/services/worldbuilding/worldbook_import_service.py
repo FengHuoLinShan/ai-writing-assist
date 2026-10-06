@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 import unicodedata
 from collections import Counter
@@ -18,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from yaml.tokens import AliasToken, AnchorToken, TagToken
 
 from core.errors import ConflictError, ValidationError
+from infrastructure.stable_hash import stable_hash
 from modules.world.models import (
     WorldBibleCategory,
     WorldBiblePage,
@@ -1547,15 +1547,7 @@ class WorldbookImportService:
 
     @staticmethod
     def _hash(value: Any) -> str:
-        return hashlib.sha256(
-            json.dumps(
-                value,
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-                default=str,
-            ).encode("utf-8")
-        ).hexdigest()
+        return stable_hash(value)
 
     @staticmethod
     def _counts(items: list[WorldbookImportItem]) -> dict[str, int]:

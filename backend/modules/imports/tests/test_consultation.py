@@ -12,7 +12,7 @@ from core.errors import ConflictError
 from infrastructure.tasks.models import AsyncTask
 from modules.collaboration import cases
 from modules.collaboration.contracts import CaseCreate, Grant
-from modules.evidence.facade import collect_creative_manifest
+from modules.collaboration.facade import collect_creative_manifest
 from modules.imports.contracts import ImportConsultScope
 from modules.imports.facade import get_review_summary, inspect_consultation_scope
 from modules.writing.facade import create_draft_only

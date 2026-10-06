@@ -18,6 +18,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.container import get
 from core.errors import ConflictError, NotFoundError
+from core.service_keys import (
+    WORLD_ASSISTANT_CHAT,
+    WORLD_ASSISTANT_OUTCOME_STATES,
+    WORLD_ASSISTANT_REQUIRE_CHECKPOINT,
+    WORLD_ASSISTANT_REQUIRE_SOURCE,
+)
 from modules.assistant.contracts import (
     WorldCocreationCheckpointAdvanceRequest,
     WorldCocreationMessageCreateRequest,
@@ -77,7 +83,7 @@ class AssistantSessionService:
         source_kind: str,
         source_id: Any,
     ) -> None:
-        await get("world.assistant.require_source")(db, nid, source_kind, source_id)
+        await get(WORLD_ASSISTANT_REQUIRE_SOURCE)(db, nid, source_kind, source_id)
 
     async def create(
         self,
@@ -215,7 +221,7 @@ class AssistantSessionService:
         }
         if not suggestion_ids:
             return {}
-        return await get("world.assistant.outcome_states")(db, nid, suggestion_ids)
+        return await get(WORLD_ASSISTANT_OUTCOME_STATES)(db, nid, suggestion_ids)
 
     async def _message_responses(
         self,
@@ -420,7 +426,7 @@ class AssistantSessionService:
             data.checkpoint_suggestion_id,
             "checkpoint_suggestion_id",
         )
-        checkpoint = await get("world.assistant.require_checkpoint")(
+        checkpoint = await get(WORLD_ASSISTANT_REQUIRE_CHECKPOINT)(
             db, session.novel_id, suggestion_id
         )
         expected = (
@@ -470,7 +476,7 @@ class AssistantSessionService:
         if get_settings().assistant_enabled:
             return await AssistantService().submit_cocreation(db, data, session_id)
         session = await self._require_session(db, data.novel_id, session_id)
-        result = await get("world.assistant.chat")(db, data)
+        result = await get(WORLD_ASSISTANT_CHAT)(db, data)
         last_user = next(
             (message for message in reversed(data.messages) if message.role == "user"),
             None,

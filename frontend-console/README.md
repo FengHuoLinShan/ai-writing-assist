@@ -227,7 +227,8 @@ frontend-console/
 ├── editorial-theme.css     # 全站主题覆层（--nc-* 原语层；light 浅色 / dark 深色）
 ├── state.js                # Proxy 状态、持久化与订阅；不直接投影 shell DOM
 ├── stateSlices.js          # 状态副作用与 listener 通知 helper
-├── api.js                  # API 封装（auth/projects/world/evidence/writing/imports/tasks）
+├── api.js                  # API 组装层：按原键序组装各命名空间并挂 window.api
+├── api/                    # API 命名空间模块（_shared.js 为共享请求底座）
 ├── shared/accountStorage.js # 账号切换/退出时清理项目级浏览器缓存并保留主题
 ├── apiContracts.js         # 共享 API 契约注册表（高风险 wrapper 子集）
 ├── router.js               # Hash router 与 #workspace-content route-host 生命周期
@@ -482,7 +483,7 @@ frontend-console/
 ## 安全与契约
 
 - `index.html` 配置 CSP meta baseline：脚本和外部样式来源仅允许本源，连接仅允许本源及本地开发后端；`style-src` 暂保留 inline style 兼容。
-- 封闭测试服的 `APP_ACCESS_TOKEN` 只保存在 `api.js` 当前页面的 module memory，不读写 Web Storage；刷新页面后需要重新输入。普通请求、导入上传和前端错误上报共用该内存令牌，被后端以 401 拒绝后立即清除并打开应用内密码模态框，避免依赖浏览器原生 `prompt()`；取消输入不会重试原请求。
+- 封闭测试服的 `APP_ACCESS_TOKEN` 只保存在 `api/_shared.js` 当前页面的 module memory，不读写 Web Storage；刷新页面后需要重新输入。普通请求、导入上传和前端错误上报共用该内存令牌，被后端以 401 拒绝后立即清除并打开应用内密码模态框，避免依赖浏览器原生 `prompt()`；取消输入不会重试原请求。
 - Vue 模板动态内容使用插值自动转义；命令式 seam 默认使用 `textContent`，必须拼 HTML 时先走 `esc()`。
 - 世界关系审查预览使用 DOM 节点和 `textContent`，不把动态对象名称或关系类型送入 `innerHTML`。
 - 右下角错误徽标是带计数和 dialog 状态的原生按钮；它按当前项目或未关联项目范围展示经脱敏的本地错误。打开的是非模态诊断面板，关闭会回到徽标；清空在面板内明确二次确认，只影响当前范围，不影响其他项目或已上报记录。程序化 `window.errorLog.clear()` 保持直接清空当前范围的兼容语义。

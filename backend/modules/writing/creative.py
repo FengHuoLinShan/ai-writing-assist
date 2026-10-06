@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from core.container import get
 from core.errors import ConflictError, NotFoundError, ValidationError
+from core.service_keys import (
+    COLLABORATION_CREATIVE_RESOURCE_PORT,
+    COLLABORATION_RESOURCE_SNAPSHOT,
+)
 from infrastructure.llm.collaboration import content_hash
-from modules.collaboration.contracts import CreativeResourcePort, ResourceSnapshot
-from modules.writing.assistant_tools import OPERATIONS, ReviseChapter
+from modules.writing.assistant_tools import OPERATIONS_SPEC, ReviseChapter
 from modules.writing.facade import (
     get_draft,
     get_latest_draft_for_chapter,
@@ -15,7 +19,7 @@ from modules.writing.facade import (
 
 def _snapshot(draft):
     content = {"title": draft.title or "", "content": draft.content or ""}
-    return ResourceSnapshot(
+    return get(COLLABORATION_RESOURCE_SNAPSHOT)(
         kind="writing_draft",
         id=draft.id,
         revision=f"{draft.version_number}:{draft.content_hash}",
@@ -67,14 +71,14 @@ async def validate(db, novel_id, baseline, patch, *, context):
             }
         ],
     )
-    preview = await OPERATIONS["writing.revise"].prepare(
+    preview = await OPERATIONS_SPEC["writing.revise"]["prepare"](
         db, novel_id, args, context=context
     )
     return {"arguments": args.model_dump(mode="json"), "preview": preview}
 
 
 async def apply(db, novel_id, prepared, *, context):
-    return await OPERATIONS["writing.revise"].apply(
+    return await OPERATIONS_SPEC["writing.revise"]["apply"](
         db,
         novel_id,
         ReviseChapter.model_validate(prepared["arguments"]),
@@ -83,4 +87,6 @@ async def apply(db, novel_id, prepared, *, context):
     )
 
 
-PORT = CreativeResourcePort(inventory, read, validate, apply)
+def port():
+    """collaboration 资源端口（SPI 类型经容器解析，注册仍在组合根）。"""
+    return get(COLLABORATION_CREATIVE_RESOURCE_PORT)(inventory, read, validate, apply)

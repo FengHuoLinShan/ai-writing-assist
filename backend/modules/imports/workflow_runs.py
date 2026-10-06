@@ -513,9 +513,12 @@ class ImportWorkflowRunService:
         self._clear_owner(run)
         await db.flush()
         from core.container import get
+        from core.service_keys import (
+            SOURCE_CHANGED,
+        )
 
         try:
-            observer = get("source.changed")
+            observer = get(SOURCE_CHANGED)
         except KeyError:
             observer = None
         if observer is not None:

@@ -243,7 +243,8 @@ async def test_author_task_source_validation_and_lost_source_projection(
 
 @pytest.mark.asyncio
 async def test_chapter_task_sources_use_real_writing_contract(
-    async_client: AsyncClient, db_session: AsyncSession,
+    async_client: AsyncClient,
+    db_session: AsyncSession,
 ) -> None:
     from modules.writing.facade import create_draft_only
 
@@ -261,7 +262,8 @@ async def test_chapter_task_sources_use_real_writing_contract(
     assert created.json()["source"]["label"] == "最新标题"
     assert created.json()["source"]["available"] is True
     listing = await async_client.get(
-        f"/api/projects/{project_id}/author-tasks", params={"scope": "inbox"},
+        f"/api/projects/{project_id}/author-tasks",
+        params={"scope": "inbox"},
     )
     assert listing.status_code == 200
     assert listing.json()["items"][0]["source"]["label"] == "最新标题"
@@ -280,19 +282,21 @@ async def test_author_task_source_boundaries_reject_invalid_ids_and_missing_scen
     async_client: AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from modules.story import facade as story_facade
+    from core.container import container_scope
     from modules.world import facade as world_facade
-    from modules.writing import facade as writing_facade
 
     project_id = await _project(async_client, "来源边界")
     writing_calls: list[list[int]] = []
     scene_calls: list[str] = []
+    chapter_unavailable = False
 
     async def invalid_world_source(*_args, **_kwargs):
         raise ValidationError("无效世界资料来源")
 
-    async def list_chapters(_db, _novel_id, chapter_indices, **_kwargs):
+    async def chapter_source(_db, _novel_id, chapter_indices, **_kwargs):
         writing_calls.append(chapter_indices)
+        if chapter_unavailable:
+            raise ValidationError("章节来源不可用")
         return []
 
     async def missing_scene(_db, _novel_id, scene_id):
@@ -304,56 +308,49 @@ async def test_author_task_source_boundaries_reject_invalid_ids_and_missing_scen
         "get_world_bible_projection_candidates",
         invalid_world_source,
     )
-    monkeypatch.setattr(
-        writing_facade,
-        "list_latest_drafts_for_chapters",
-        list_chapters,
-    )
-    monkeypatch.setattr(story_facade, "get_scene_contract", missing_scene)
 
-    invalid_world = await async_client.post(
-        f"/api/projects/{project_id}/author-tasks",
-        json={
-            "title": "世界资料已失效",
-            "source": {"kind": "world_page", "id": str(uuid.uuid4())},
-        },
-        headers=XHR,
-    )
-    invalid_chapter = await async_client.post(
-        f"/api/projects/{project_id}/author-tasks",
-        json={
-            "title": "章节编号非法",
-            "source": {"kind": "writing_chapter", "id": "１"},
-        },
-        headers=XHR,
-    )
+    # AO-5 第三批：writing/story 来源解析经组合根 DI 键，测试替身走 container_scope。
+    with container_scope(
+        {
+            "writing.list_latest_drafts_for_chapters": chapter_source,
+            "story.get_scene_contract": missing_scene,
+        }
+    ):
+        invalid_world = await async_client.post(
+            f"/api/projects/{project_id}/author-tasks",
+            json={
+                "title": "世界资料已失效",
+                "source": {"kind": "world_page", "id": str(uuid.uuid4())},
+            },
+            headers=XHR,
+        )
+        invalid_chapter = await async_client.post(
+            f"/api/projects/{project_id}/author-tasks",
+            json={
+                "title": "章节编号非法",
+                "source": {"kind": "writing_chapter", "id": "１"},
+            },
+            headers=XHR,
+        )
 
-    async def unavailable_chapter(_db, _novel_id, chapter_indices, **_kwargs):
-        writing_calls.append(chapter_indices)
-        raise ValidationError("章节来源不可用")
-
-    monkeypatch.setattr(
-        writing_facade,
-        "list_latest_drafts_for_chapters",
-        unavailable_chapter,
-    )
-    missing_chapter = await async_client.post(
-        f"/api/projects/{project_id}/author-tasks",
-        json={
-            "title": "章节已失效",
-            "source": {"kind": "writing_chapter", "id": "2"},
-        },
-        headers=XHR,
-    )
-    scene_id = str(uuid.uuid4())
-    missing_scene_response = await async_client.post(
-        f"/api/projects/{project_id}/author-tasks",
-        json={
-            "title": "Scene 已失效",
-            "source": {"kind": "outline_scene", "id": scene_id},
-        },
-        headers=XHR,
-    )
+        chapter_unavailable = True
+        missing_chapter = await async_client.post(
+            f"/api/projects/{project_id}/author-tasks",
+            json={
+                "title": "章节已失效",
+                "source": {"kind": "writing_chapter", "id": "2"},
+            },
+            headers=XHR,
+        )
+        scene_id = str(uuid.uuid4())
+        missing_scene_response = await async_client.post(
+            f"/api/projects/{project_id}/author-tasks",
+            json={
+                "title": "Scene 已失效",
+                "source": {"kind": "outline_scene", "id": scene_id},
+            },
+            headers=XHR,
+        )
 
     assert invalid_world.status_code == 404
     assert invalid_chapter.status_code == 404

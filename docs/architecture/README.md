@@ -104,6 +104,37 @@ ADR-0027 的 V1 在当时九模块中加入注册蓝图的有限协作，不改�
 设备协议、非沙箱权限和数据边界见 [模块设计](../modules/23_local_agent.md)。
 
 
+## 模块依赖方向分层（目标态）
+
+目标态把 12 个业务模块分为五层，编号高者可依赖编号低者：
+
+- L0：`account`
+- L1：`project`、`local_agent`
+- L2：`world`、`story`、`evidence`、`writing`
+- L3：`imports`、`evolution`、`interaction`
+- L4：`assistant`、`collaboration`
+
+规则：高层经 facade/contracts 调用低层；低层需要高层能力时，只能依赖
+消费方 contracts 中的纯 SPI Protocol，并经组合根（bootstrap）注册的 DI port
+在运行期解析，不得直接 import 高层实现，也不得把顶层导入降级为函数内导入。
+L2 内部（world/story/evidence/writing 之间）、interaction↔local_agent、
+collaboration 各对与 assistant 各对的逐对 owner 裁定见 ADR-0031（三批均
+已落地：顶层双向对清零，双向对 33→9，剩余对的反方向均为批量函数内
+消费，留待后续批次）；story↔writing 沿用
+outline-writing ADR 的注入 provider + 只读 facade 先例。
+
+这是**目标态**，不是现状描述：当前模块间仍存在大量双向依赖。现状由
+`scripts/check_module_imports.py` 的 `_DEPENDENCY_BASELINE` 指标与 `_DEPENDENCY_EDGES`
+实际方向集合冻结；新增依赖边或任一方向指标超过基线即门禁失败，不能以删除旧边抵消
+新方向。基线只降不升；解环工作按
+`docs/plans/2026-10-06-architecture-optimization.md`（AO-3~AO-5）逐对推进，
+每消除一条依赖就删除集合中的对应边，并下调指标基线。
+
+`module-architecture.drawio` / `module-architecture.html` 中的“事实层/
+结构层/辅助层”是产品职责分组，与这里的依赖方向分层是两个维度；两图也不
+是生产代码 import 图。两组“层”不一致不构成图错误，但不要把产品三层当作
+依赖顺序使用。
+
 ## 仓库治理门（2026-10）
 
 CI 新增 `repo-gates` workflow：二进制增量体积（B11）、生产文件行数（P8）、

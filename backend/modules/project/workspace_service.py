@@ -8,7 +8,20 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.container import get
 from core.errors import ValidationError
+from core.service_keys import (
+    PROJECT_WORKSPACE_STORY_STATS,
+    PROJECT_WORKSPACE_WORLD_STATS,
+    PROJECT_WORKSPACE_WRITING_STATS,
+)
+from modules.project.contracts import (
+    WorkspaceAttentionItem,
+    WorkspaceChapterDraft,
+    WorkspaceSceneFocus,
+    WorkspaceWorldAttentionSummary,
+    WorkspaceWritingStats,
+)
 from modules.project.schemas import (
     ProjectResponse,
     ProjectWorkspaceSummaryResponse,
@@ -20,39 +33,34 @@ from modules.project.schemas import (
     WorkspaceContinuationResponse,
     WorkspaceWritingSummaryResponse,
 )
-from modules.story.facade import (
-    count_scenes_by_novel,
-    get_scene_contract,
-)
-from modules.story.facade import (
-    get_author_attention_items as get_outline_author_attention_items,
-)
-from modules.world.contracts import WorldAttentionSummaryContract
-from modules.world.facade import get_author_attention_summary
-from modules.writing.contracts import (
-    WritingDraftContract,
-    WritingProjectStatsContract,
-)
-from modules.writing.facade import (
-    get_author_attention_items as get_writing_author_attention_items,
-)
-from modules.writing.facade import (
-    get_project_writing_stats,
-    list_chapter_indices,
-    list_latest_drafts_for_chapters,
-)
 
 ProjectReader = Callable[[AsyncSession, str], Awaitable[ProjectResponse]]
-WritingStatsReader = Callable[[AsyncSession, str], Awaitable[WritingProjectStatsContract]]
+WritingStatsReader = Callable[[AsyncSession, str], Awaitable[WorkspaceWritingStats]]
 ChapterIndexReader = Callable[[AsyncSession, str], Awaitable[list[int]]]
-LatestDraftsReader = Callable[..., Awaitable[list[WritingDraftContract]]]
+LatestDraftsReader = Callable[..., Awaitable[list[WorkspaceChapterDraft]]]
 WorldAttentionReader = Callable[
-    [AsyncSession, str], Awaitable[WorldAttentionSummaryContract]
+    [AsyncSession, str], Awaitable[WorkspaceWorldAttentionSummary]
 ]
 OutlineAttentionReader = Callable[..., Awaitable[int]]
-AuthorAttentionReader = Callable[[AsyncSession, str], Awaitable[Sequence[object]]]
-SceneReader = Callable[..., Awaitable[object | None]]
+AuthorAttentionReader = Callable[..., Awaitable[Sequence[WorkspaceAttentionItem]]]
+SceneReader = Callable[..., Awaitable[WorkspaceSceneFocus | None]]
 AuthorTaskSummaryReader = Callable[..., Awaitable[WorkspaceAuthorTasksSummaryResponse]]
+
+# Bootstrap-registered domain providers (AO-4): project reads L2 aggregates
+# through these ports instead of importing world/story/writing directly.
+WRITING_STATS_PROVIDER_KEY = PROJECT_WORKSPACE_WRITING_STATS
+WORLD_STATS_PROVIDER_KEY = PROJECT_WORKSPACE_WORLD_STATS
+STORY_STATS_PROVIDER_KEY = PROJECT_WORKSPACE_STORY_STATS
+
+
+def _provider_method(key: str, method: str) -> Callable[..., Awaitable[Any]]:
+    """Resolve a bootstrap-registered provider lazily at call time."""
+
+    async def _read(db, *args, **kwargs):
+        return await getattr(get(key), method)(db, *args, **kwargs)
+
+    return _read
+
 
 _ATTENTION_LIMIT = 6
 _RELEVANCE_RANK = {
@@ -64,7 +72,7 @@ _ACTION_RANK = {"needs_decision": 0, "can_improve": 1}
 _SEVERITY_RANK = {"high": 0, "medium": 1, "low": 2, "info": 3}
 
 
-def _draft_sort_key(draft: WritingDraftContract) -> tuple[datetime, int]:
+def _draft_sort_key(draft: WorkspaceChapterDraft) -> tuple[datetime, int]:
     timestamp = draft.updated_at or draft.created_at or datetime.min.replace(tzinfo=UTC)
     if timestamp.tzinfo is None:
         timestamp = timestamp.replace(tzinfo=UTC)
@@ -142,16 +150,6 @@ def _attention_sort_key(item: WorkspaceAttentionItemResponse) -> tuple:
     )
 
 
-def _scene_chapter_indices(scene: object) -> set[int]:
-    values = list(_contract_value(scene, "chapter_ids", []) or [])
-    values.extend(
-        _contract_value(chunk, "chapter_index", _contract_value(chunk, "chapter_id"))
-        for chunk in (_contract_value(scene, "scene_chunks", []) or [])
-        if isinstance(chunk, dict)
-    )
-    return {int(value) for value in values if str(value).isdigit()}
-
-
 def _more_target(
     item: WorkspaceAttentionItemResponse,
 ) -> WorkspaceAttentionTargetResponse:
@@ -177,27 +175,49 @@ class ProjectWorkspaceSummaryService:
         *,
         project_reader: ProjectReader,
         author_task_summary_reader: AuthorTaskSummaryReader,
-        writing_stats_reader: WritingStatsReader = get_project_writing_stats,
-        chapter_index_reader: ChapterIndexReader = list_chapter_indices,
-        latest_drafts_reader: LatestDraftsReader = list_latest_drafts_for_chapters,
-        world_attention_reader: WorldAttentionReader = get_author_attention_summary,
-        outline_attention_reader: OutlineAttentionReader = count_scenes_by_novel,
-        outline_item_reader: AuthorAttentionReader = get_outline_author_attention_items,
-        writing_attention_reader: AuthorAttentionReader = (
-            get_writing_author_attention_items
-        ),
-        scene_reader: SceneReader = get_scene_contract,
+        writing_stats_reader: WritingStatsReader | None = None,
+        chapter_index_reader: ChapterIndexReader | None = None,
+        latest_drafts_reader: LatestDraftsReader | None = None,
+        world_attention_reader: WorldAttentionReader | None = None,
+        outline_attention_reader: OutlineAttentionReader | None = None,
+        outline_item_reader: AuthorAttentionReader | None = None,
+        writing_attention_reader: AuthorAttentionReader | None = None,
+        scene_reader: SceneReader | None = None,
     ) -> None:
         self._project_reader = project_reader
         self._author_task_summary_reader = author_task_summary_reader
-        self._writing_stats_reader = writing_stats_reader
-        self._chapter_index_reader = chapter_index_reader
-        self._latest_drafts_reader = latest_drafts_reader
-        self._world_attention_reader = world_attention_reader
-        self._outline_attention_reader = outline_attention_reader
-        self._outline_item_reader = outline_item_reader
-        self._writing_attention_reader = writing_attention_reader
-        self._scene_reader = scene_reader
+        self._writing_stats_reader = writing_stats_reader or _provider_method(
+            WRITING_STATS_PROVIDER_KEY,
+            "get_project_stats",
+        )
+        self._chapter_index_reader = chapter_index_reader or _provider_method(
+            WRITING_STATS_PROVIDER_KEY,
+            "list_chapter_indices",
+        )
+        self._latest_drafts_reader = latest_drafts_reader or _provider_method(
+            WRITING_STATS_PROVIDER_KEY,
+            "list_latest_drafts",
+        )
+        self._world_attention_reader = world_attention_reader or _provider_method(
+            WORLD_STATS_PROVIDER_KEY,
+            "get_attention_summary",
+        )
+        self._outline_attention_reader = outline_attention_reader or _provider_method(
+            STORY_STATS_PROVIDER_KEY,
+            "count_scenes",
+        )
+        self._outline_item_reader = outline_item_reader or _provider_method(
+            STORY_STATS_PROVIDER_KEY,
+            "get_attention_items",
+        )
+        self._writing_attention_reader = writing_attention_reader or _provider_method(
+            WRITING_STATS_PROVIDER_KEY,
+            "get_attention_items",
+        )
+        self._scene_reader = scene_reader or _provider_method(
+            STORY_STATS_PROVIDER_KEY,
+            "get_scene_focus",
+        )
 
     async def get_summary(
         self,
@@ -260,11 +280,11 @@ class ProjectWorkspaceSummaryService:
                 scene = await self._scene_reader(db, novel_id, focus_scene_id)
             except ValidationError:
                 scene = None
-            scene_chapters = _scene_chapter_indices(scene)
+            scene_chapters = set(scene.chapter_indices) if scene is not None else set()
             if scene is not None and (
                 effective_chapter is None or effective_chapter in scene_chapters
             ):
-                validated_scene_id = str(_contract_value(scene, "id"))
+                validated_scene_id = str(scene.id)
                 if effective_chapter is None and scene_chapters:
                     effective_chapter = min(scene_chapters)
 

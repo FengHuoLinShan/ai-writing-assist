@@ -112,7 +112,7 @@ class WorldLibraryFavorite(Base, UUIDMixin, TimestampMixin, NovelMixin):
         ),
         CheckConstraint(
             "target_kind IN ('page', 'draft', 'entity')",
-            name="ck_world_library_favorite_kind",
+            name="ck_world_library_favorites_kind",
         ),
         {"comment": "作者工作区收藏"},
     )
@@ -132,7 +132,7 @@ class WorldLibraryRecent(Base, UUIDMixin, TimestampMixin, NovelMixin):
         ),
         CheckConstraint(
             "target_kind IN ('page', 'draft', 'entity')",
-            name="ck_world_library_recent_kind",
+            name="ck_world_library_recents_kind",
         ),
         Index(
             "ix_world_library_recents_novel_opened",

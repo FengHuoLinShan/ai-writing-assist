@@ -8,6 +8,11 @@ from uuid import UUID, uuid5
 
 from core.container import get
 from core.errors import ConflictError, NotFoundError, ValidationError
+from core.service_keys import (
+    ASSISTANT_FORECAST_PERSONAS,
+    ASSISTANT_FORECAST_SOURCES,
+    COLLABORATION_COLLECT_FORECAST_UNDERSTANDING,
+)
 from infrastructure.llm.collaboration import content_hash
 from modules.account.facade import (
     is_anonymous_rp_principal,
@@ -42,7 +47,7 @@ def scope_matches(scope, frozen):
 
 async def authorize(db, novel_id, *, persona="author"):
     if persona == "rp":
-        return await get("assistant.forecast.personas")["rp"]["authorize"](db, novel_id)
+        return await get(ASSISTANT_FORECAST_PERSONAS)["rp"]["authorize"](db, novel_id)
     if is_demo_readonly_principal() or is_anonymous_rp_principal():
         raise NotFoundError("前瞻仅对当前账户自己的作品开放")
     await require_active_project(db, novel_id)
@@ -57,7 +62,7 @@ async def materialize(
     db, novel_id, focus: FocusRequest, *, persona="author", include_understanding=True
 ):
     if persona == "rp":
-        return await get("assistant.forecast.personas")["rp"]["materialize"](
+        return await get(ASSISTANT_FORECAST_PERSONAS)["rp"]["materialize"](
             db, novel_id, focus
         )
     if focus.page == "interaction":
@@ -333,7 +338,7 @@ async def materialize(
         domains.append("assistant")
     if not focus.context_confirmation_id:
         for domain in dict.fromkeys([*domains, "account"]):
-            for raw in await get("assistant.forecast.sources")[domain](
+            for raw in await get(ASSISTANT_FORECAST_SOURCES)[domain](
                 db, novel_id, focus, excluded
             ):
                 fact = ForecastDomainFact.model_validate(raw)
@@ -367,7 +372,8 @@ async def materialize(
         facts.append((fact, refs[-1]))
     understanding = {}
     if include_understanding and not confirmed and understanding_boundary_known:
-        packet, omissions = await evidence.collect_forecast_understanding(
+        collect_forecast_understanding = get(COLLABORATION_COLLECT_FORECAST_UNDERSTANDING)
+        packet, omissions = await collect_forecast_understanding(
             db, novel_id, chapter_index=chapter_index, excluded=excluded
         )
         understanding = {"records": [], "excluded": omissions}

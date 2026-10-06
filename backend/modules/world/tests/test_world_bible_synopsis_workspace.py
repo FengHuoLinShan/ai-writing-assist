@@ -15,7 +15,7 @@ from modules.evidence.compilation.services.confirmation_service import (
     ContextConfirmationService,
 )
 from modules.evidence.compilation.services.context_compiler import ContextCompiler
-from modules.evidence.contracts import CompileOptions
+from modules.evidence.contracts import CompileOptions, ContextConfirmationRequest
 from modules.world.models import (
     ConflictCheckQueueItem,
     CoreEntity,
@@ -55,9 +55,7 @@ class _FakeSynopsisClient(GovernedWorldAuditMixin):
 
     async def generate_structured(self, _request, schema, **_kwargs):
         if schema.__name__ == "AuditVerdictOutput":
-            return await self._governed_generate_structured(
-                _request, schema, **_kwargs
-            )
+            return await self._governed_generate_structured(_request, schema, **_kwargs)
         return schema(
             sections=[
                 {
@@ -1036,11 +1034,13 @@ async def test_selected_working_draft_change_marks_confirmation_stale(
     )
     confirmation = await ContextConfirmationService().confirm_context(
         db_session,
-        novel_id=project_novel_id,
-        action="world.generation.core_entity",
-        task="使用选中的世界书工作稿",
-        scope="world",
-        selected_world_bible_draft_ids=[draft.id],
+        ContextConfirmationRequest(
+            novel_id=project_novel_id,
+            action="world.generation.core_entity",
+            task="使用选中的世界书工作稿",
+            scope="world",
+            selected_world_bible_draft_ids=[draft.id],
+        ),
     )
     assert confirmation.selected_asset_ids["world_bible_draft"] == [draft.id]
 

@@ -9,8 +9,10 @@ from collections.abc import Awaitable, Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.container import get
 from core.errors import ConflictError, DomainError, NotFoundError, ValidationError
 from core.execution_context import is_system_execution
+from core.service_keys import PROJECT_WORKSPACE_WRITING_STATS
 from infrastructure.llm.egress import validate_user_llm_base_url
 from infrastructure.llm.profiles import (
     LLM_API_KEY_FIELD,
@@ -33,7 +35,10 @@ from modules.account.facade import (
     is_demo_readonly_principal,
     require_account_active,
 )
-from modules.project.contracts import InteractionProjectContract
+from modules.project.contracts import (
+    InteractionProjectContract,
+    WorkspaceWritingStats,
+)
 from modules.project.repositories import ProjectRepository
 from modules.project.schemas import (
     LLMFieldResetResponse,
@@ -46,11 +51,6 @@ from modules.project.schemas import (
     ProjectLLMSettingsUpdate,
     ProjectResponse,
     ProjectUpdate,
-)
-from modules.writing.contracts import WritingProjectStatsContract
-from modules.writing.facade import (
-    get_project_writing_stats,
-    list_project_writing_stats,
 )
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from shared.deep_import_settings import (
@@ -114,12 +114,12 @@ class ProjectService:
         repo: ProjectRepository | None = None,
         writing_stats_provider: Callable[
             [AsyncSession, str],
-            Awaitable[WritingProjectStatsContract],
+            Awaitable[WorkspaceWritingStats],
         ]
         | None = None,
         writing_stats_batch_provider: Callable[
             [AsyncSession, list[str]],
-            Awaitable[dict[str, WritingProjectStatsContract]],
+            Awaitable[dict[str, WorkspaceWritingStats]],
         ]
         | None = None,
         task_canceller: Callable[..., Awaitable[int]] = (
@@ -132,13 +132,13 @@ class ProjectService:
     ) -> None:
         self._uses_default_repo = repo is None
         self._repo = repo or ProjectRepository()
+        # None means "resolve the bootstrap-registered Writing provider lazily";
+        # an explicit repo (tests, fakes) keeps the historical empty default.
         self._writing_stats_provider = writing_stats_provider or (
-            get_project_writing_stats if repo is None else _empty_project_writing_stats
+            None if repo is None else _empty_project_writing_stats
         )
         self._writing_stats_batch_provider = writing_stats_batch_provider or (
-            list_project_writing_stats
-            if repo is None
-            else _empty_project_writing_stats_batch
+            None if repo is None else _empty_project_writing_stats_batch
         )
         self._task_canceller = task_canceller
         self._task_deleter = task_deleter
@@ -239,9 +239,8 @@ class ProjectService:
             items, total = await self._repo.list(
                 db, skip=skip, limit=limit, owner_id=owner_id
             )
-        stats_by_project_id = await self._writing_stats_batch_provider(
-            db,
-            [str(project.id) for project in items],
+        stats_by_project_id = await self._writing_stats_batch(
+            db, [str(project.id) for project in items]
         )
         return ProjectListResponse(
             items=[
@@ -540,8 +539,11 @@ class ProjectService:
             await self._map_atlas_cleanup_enqueuer(db, novel_ids)
             return
         from core.container import get
+        from core.service_keys import (
+            WORLD_ENQUEUE_MAP_ATLAS_CLEANUP,
+        )
 
-        cleanup = get("world.enqueue_map_atlas_cleanup")
+        cleanup = get(WORLD_ENQUEUE_MAP_ATLAS_CLEANUP)
         await cleanup(db, novel_ids)
 
     async def _require_no_source_references(
@@ -552,9 +554,12 @@ class ProjectService:
         counter = self._source_reference_counter
         if counter is None:
             from core.container import get
+            from core.service_keys import (
+                INTERACTION_COUNT_SOURCE_REFERENCES,
+            )
 
             try:
-                counter = get("interaction.count_source_references")
+                counter = get(INTERACTION_COUNT_SOURCE_REFERENCES)
             except KeyError:
                 return
         for project_id in project_ids:
@@ -837,24 +842,39 @@ class ProjectService:
         project: object,
     ) -> ProjectResponse:
         response = ProjectResponse.model_validate(project)
-        stats = await self._writing_stats_provider(db, response.id)
+        stats = await self._writing_stats_single(db, response.id)
         return self._apply_stats(response, stats)
+
+    def _writing_stats_single(self, db: AsyncSession, novel_id: str):
+        """Resolve per-novel stats via DI when no provider was injected."""
+        if self._writing_stats_provider is not None:
+            return self._writing_stats_provider(db, novel_id)
+        return get(PROJECT_WORKSPACE_WRITING_STATS).get_project_stats(db, novel_id)
+
+    def _writing_stats_batch(self, db: AsyncSession, novel_ids: list[str]):
+        """Resolve batch stats via DI when no provider was injected."""
+        if self._writing_stats_batch_provider is not None:
+            return self._writing_stats_batch_provider(db, novel_ids)
+        return get(PROJECT_WORKSPACE_WRITING_STATS).list_project_stats(
+            db,
+            novel_ids,
+        )
 
     def _response_with_known_stats(
         self,
         project: object,
-        stats: WritingProjectStatsContract | None,
+        stats: WorkspaceWritingStats | None,
     ) -> ProjectResponse:
         response = ProjectResponse.model_validate(project)
         return self._apply_stats(
             response,
-            stats or WritingProjectStatsContract(novel_id=response.id),
+            stats or WorkspaceWritingStats(novel_id=response.id),
         )
 
     def _apply_stats(
         self,
         response: ProjectResponse,
-        stats: WritingProjectStatsContract,
+        stats: WorkspaceWritingStats,
     ) -> ProjectResponse:
         return response.model_copy(
             update={
@@ -882,14 +902,12 @@ async def _empty_source_reference_count(
 async def _empty_project_writing_stats(
     _db: AsyncSession,
     novel_id: str,
-) -> WritingProjectStatsContract:
-    return WritingProjectStatsContract(novel_id=novel_id)
+) -> WorkspaceWritingStats:
+    return WorkspaceWritingStats(novel_id=novel_id)
 
 
 async def _empty_project_writing_stats_batch(
     _db: AsyncSession,
     novel_ids: list[str],
-) -> dict[str, WritingProjectStatsContract]:
-    return {
-        novel_id: WritingProjectStatsContract(novel_id=novel_id) for novel_id in novel_ids
-    }
+) -> dict[str, WorkspaceWritingStats]:
+    return {novel_id: WorkspaceWritingStats(novel_id=novel_id) for novel_id in novel_ids}

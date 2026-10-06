@@ -14,6 +14,7 @@ from modules.evidence.compilation.contracts import (
     CompileOptions,
     ConfirmedAIActionContext,
     ContextConfirmationContract,
+    ContextConfirmationRequest,
     ContextRetrievalTraceContract,
     ContextSnapshotContract,
     ContextSnapshotRequest,
@@ -680,73 +681,10 @@ async def preview_context_confirmation(db: AsyncSession, options: CompileOptions
 
 async def confirm_context(
     db: AsyncSession,
-    *,
-    novel_id: str,
-    action: str,
-    task: str,
-    scope: str,
-    chapter_index: int | None = None,
-    visible_until_chapter: int | None = None,
-    visible_until_scene_id: str | None = None,
-    visible_until_offset: int | None = None,
-    scene_id: str | None = None,
-    arc_id: str | None = None,
-    entity_ids: list[str] | None = None,
-    character_ids: list[str] | None = None,
-    thread_ids: list[str] | None = None,
-    location_ids: list[str] | None = None,
-    reveal_mode: str = "author_safe",
-    enable_geo_filter: bool = False,
-    viewpoint_character_id: str | None = None,
-    budget_tokens: int = 4000,
-    context_mode: str = "canonical",
-    content_mode: str = "canonical",
-    include_pending_objects: bool = False,
-    excluded_asset_ids: dict[str, list[str]] | None = None,
-    pinned_refs: list[dict] | None = None,
-    excluded_refs: list[dict] | None = None,
-    user_note: str | None = None,
-    retrieval_purpose: str = "generic_context",
-    include_world_synopsis: bool = False,
-    selected_world_bible_draft_ids: list[str] | None = None,
-    activation_profile_id: str | None = None,
-    activation_profile_version: int | None = None,
-    expected_context_fingerprint: str | None = None,
+    request: ContextConfirmationRequest,
 ) -> ContextConfirmationContract:
-    return await _confirmation_service.confirm_context(
-        db,
-        novel_id=novel_id,
-        action=action,
-        task=task,
-        scope=scope,
-        retrieval_purpose=retrieval_purpose,
-        chapter_index=chapter_index,
-        visible_until_chapter=visible_until_chapter,
-        visible_until_scene_id=visible_until_scene_id,
-        visible_until_offset=visible_until_offset,
-        scene_id=scene_id,
-        arc_id=arc_id,
-        entity_ids=entity_ids,
-        character_ids=character_ids,
-        thread_ids=thread_ids,
-        location_ids=location_ids,
-        reveal_mode=reveal_mode,
-        enable_geo_filter=enable_geo_filter,
-        viewpoint_character_id=viewpoint_character_id,
-        budget_tokens=budget_tokens,
-        context_mode=context_mode,
-        content_mode=content_mode,
-        include_pending_objects=include_pending_objects,
-        excluded_asset_ids=excluded_asset_ids,
-        pinned_refs=pinned_refs,
-        excluded_refs=excluded_refs,
-        user_note=user_note,
-        include_world_synopsis=include_world_synopsis,
-        selected_world_bible_draft_ids=selected_world_bible_draft_ids,
-        activation_profile_id=activation_profile_id,
-        activation_profile_version=activation_profile_version,
-        expected_context_fingerprint=expected_context_fingerprint,
-    )
+    """确认一次手动 AI 操作的参考资料摘要；请求字段见 ContextConfirmationRequest。"""
+    return await _confirmation_service.confirm_context(db, request)
 
 
 async def propose_context_selection(
@@ -1152,9 +1090,12 @@ async def mark_asset_context_changed(
         exclude_confirmation_id=exclude_confirmation_id,
     )
     from core.container import get
+    from core.service_keys import (
+        SOURCE_CHANGED,
+    )
 
     try:
-        observer = get("source.changed")
+        observer = get(SOURCE_CHANGED)
     except KeyError:
         observer = None
     if observer is not None:

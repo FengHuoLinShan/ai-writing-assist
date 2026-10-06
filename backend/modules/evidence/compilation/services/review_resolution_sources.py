@@ -5,15 +5,33 @@ from dataclasses import asdict, fields
 from modules.evidence.compilation.services.import_activation import (
     ImportContextActivationService,
 )
-from modules.story.facade import get_scene_contract
-from modules.writing.contracts import SourceRangeRefContract
-from modules.writing.facade import read_manuscript_range
+from modules.evidence.source_ref_contracts import SourceRangeRefContract
+
+
+def _story_scene_port():
+    # AO-5: story 场景事实经组合根注册的只读 port 解析。
+    from core.container import get
+    from core.service_keys import (
+        STORY_SCENE_SOURCE,
+    )
+
+    return get(STORY_SCENE_SOURCE)
+
+
+def _manuscript_port():
+    # AO-5: writing 正文稿读取经组合根注册的只读 port 解析。
+    from core.container import get
+    from core.service_keys import (
+        WRITING_MANUSCRIPT_SOURCE,
+    )
+
+    return get(WRITING_MANUSCRIPT_SOURCE)
 
 
 async def read_sources(
     db, *, novel_id, scene_id, source_manifest, chapter_from, chapter_to
 ):
-    scene = await get_scene_contract(db, novel_id, scene_id)
+    scene = await _story_scene_port().get_scene_contract(db, novel_id, scene_id)
     if scene is None:
         raise ValueError("来源场景不存在")
     meta = scene.structure_meta
@@ -44,7 +62,7 @@ async def read_sources(
             or not chapter_from <= ref.chapter_index <= chapter_to
         ):
             raise ValueError("来源已变化或超出授权章节")
-        read = await read_manuscript_range(db, novel_id, ref, before=0, after=0)
+        read = await _manuscript_port().read_range(db, novel_id, ref, before=0, after=0)
         evidence.append(
             {
                 "key": f"scene-{scene_id}-{index}",

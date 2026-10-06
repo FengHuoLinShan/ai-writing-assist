@@ -7,6 +7,9 @@ from sqlalchemy.exc import IntegrityError
 
 from core.container import get
 from core.errors import ConflictError, NotFoundError, ValidationError
+from core.service_keys import (
+    ASSISTANT_FORECAST_CHOICES,
+)
 from infrastructure.llm.agent_runtime import AgentRunBudget
 from infrastructure.llm.collaboration import content_hash
 from modules.assistant.contracts import AssistantOperationContext
@@ -291,7 +294,7 @@ async def prepare(db, novel_id, candidate_id, data):
         ["evidence", "prepare_direction"],
     ]:
         domain = data.action_id.split(".")[0]
-        capability, arguments = await get("assistant.forecast.choices")[domain](
+        capability, arguments = await get(ASSISTANT_FORECAST_CHOICES)[domain](
             db, novel_id, ctx, direction
         )
     elif data.action_id == "project.prepare_task":

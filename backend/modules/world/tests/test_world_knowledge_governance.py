@@ -38,7 +38,7 @@ def _skip_generation_confirmation_preflight(
         return None
 
     monkeypatch.setattr(
-        "modules.world.api._require_generation_confirmation",
+        "modules.world.api.generation_center._require_generation_confirmation",
         skip_preflight,
     )
 

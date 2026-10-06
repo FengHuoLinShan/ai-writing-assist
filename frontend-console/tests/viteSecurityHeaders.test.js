@@ -21,12 +21,20 @@ describe("frontend response security headers", () => {
 })
 
 describe("frontend development API proxy", () => {
-  it("forwards only /api routes without intercepting the frontend api.js module", () => {
-    expect(viteConfig.server.proxy["^/api(?:/|$)"]).toMatchObject({
+  it("forwards REST routes while serving the API source modules through Vite", () => {
+    const [pattern, options] = Object.entries(viteConfig.server.proxy)[0]
+    const matches = new RegExp(pattern)
+    expect(options).toMatchObject({
       target: "http://127.0.0.1:8000",
       changeOrigin: true,
     })
     expect(viteConfig.server.proxy).not.toHaveProperty("/api")
+    for (const path of ["/api", "/api/projects", "/api/health?fresh=1", "/api/world/entities/name.js"]) {
+      expect(matches.test(path), path).toBe(true)
+    }
+    for (const path of ["/api.js", "/api/_shared.js", "/api/world.js?t=1", "/api/auth.js?import"]) {
+      expect(matches.test(path), path).toBe(false)
+    }
   })
 })
 

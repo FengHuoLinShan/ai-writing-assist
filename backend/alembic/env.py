@@ -53,7 +53,7 @@ load_env_file()
 from infrastructure.schema_comparison import (  # noqa: E402
     _compare_schema_type,
     _include_schema_object,
-    _validate_migration_managed_indexes,
+    _validate_migration_managed_objects,
 )
 
 
@@ -122,7 +122,7 @@ def do_run_migrations(connection) -> None:
     schema_comparison = _is_schema_comparison()
     supports_comments = connection.dialect.supports_comments
     if schema_comparison:
-        _validate_migration_managed_indexes(connection)
+        _validate_migration_managed_objects(connection)
         # Column/table comments are documentation, not a runtime schema contract.
         # Disabling comment comparison avoids hundreds of false-positive changes
         # from the squashed demo baseline while explicit migrations still execute

@@ -816,6 +816,7 @@ async def test_writing_generation_creates_candidate_without_publish_task(
     db_session: AsyncSession,
 ) -> None:
     """AI 正文生成只创建 candidate 草稿，不自动发布/RAG。"""
+    from modules.evidence.contracts import ContextConfirmationRequest
     from modules.evidence.facade import confirm_context
     from modules.project.models import Project
     from modules.writing.services import WritingGenerationService
@@ -825,11 +826,13 @@ async def test_writing_generation_creates_candidate_without_publish_task(
     await db_session.flush()
     confirmation = await confirm_context(
         db_session,
-        novel_id=novel_id,
-        action="writing.generate",
-        task="生成第 3 章候选正文",
-        scope="chapter",
-        chapter_index=3,
+        ContextConfirmationRequest(
+            novel_id=novel_id,
+            action="writing.generate",
+            task="生成第 3 章候选正文",
+            scope="chapter",
+            chapter_index=3,
+        ),
     )
     service = WritingGenerationService(llm_client=FakeLLMClient())
 
@@ -945,6 +948,7 @@ async def test_default_writing_prompt_keeps_scene_as_chapter_context(
 async def test_continuation_generation_appends_to_frozen_base_deterministically(
     db_session: AsyncSession,
 ) -> None:
+    from modules.evidence.contracts import ContextConfirmationRequest
     from modules.evidence.facade import confirm_context
     from modules.project.models import Project
     from modules.writing.services import WritingGenerationService
@@ -964,11 +968,13 @@ async def test_continuation_generation_appends_to_frozen_base_deterministically(
     )
     confirmation = await confirm_context(
         db_session,
-        novel_id=novel_id,
-        action="writing.generate",
-        task="从第 4 章末尾续写",
-        scope="chapter",
-        chapter_index=4,
+        ContextConfirmationRequest(
+            novel_id=novel_id,
+            action="writing.generate",
+            task="从第 4 章末尾续写",
+            scope="chapter",
+            chapter_index=4,
+        ),
     )
     client = FakePovLLMClient("这是模型只返回的新增段落。")
 
@@ -1003,6 +1009,7 @@ async def test_writing_generation_saves_secret_safe_managed_llm_provenance(
     import json
 
     from infrastructure.llm.agent_step_harness import MANAGED_LLM_PROVENANCE_KEY
+    from modules.evidence.contracts import ContextConfirmationRequest
     from modules.evidence.facade import confirm_context
     from modules.project.models import Project
     from modules.writing.services import WritingGenerationService
@@ -1036,11 +1043,13 @@ async def test_writing_generation_saves_secret_safe_managed_llm_provenance(
     await db_session.flush()
     confirmation = await confirm_context(
         db_session,
-        novel_id=novel_id,
-        action="writing.generate",
-        task="验证正文候选的 LLM 来源记录",
-        scope="chapter",
-        chapter_index=11,
+        ContextConfirmationRequest(
+            novel_id=novel_id,
+            action="writing.generate",
+            task="验证正文候选的 LLM 来源记录",
+            scope="chapter",
+            chapter_index=11,
+        ),
     )
     service = WritingGenerationService(llm_client=ProvenanceLLMClient())
 
@@ -1081,6 +1090,7 @@ async def test_writing_generation_saves_secret_safe_managed_llm_provenance(
 async def test_writing_generation_sanitizes_candidate_html(
     db_session: AsyncSession,
 ) -> None:
+    from modules.evidence.contracts import ContextConfirmationRequest
     from modules.evidence.facade import confirm_context
     from modules.project.models import Project
     from modules.writing.services import WritingGenerationService
@@ -1090,11 +1100,13 @@ async def test_writing_generation_sanitizes_candidate_html(
     await db_session.flush()
     confirmation = await confirm_context(
         db_session,
-        novel_id=novel_id,
-        action="writing.generate",
-        task="生成含 HTML 的候选正文",
-        scope="chapter",
-        chapter_index=9,
+        ContextConfirmationRequest(
+            novel_id=novel_id,
+            action="writing.generate",
+            task="生成含 HTML 的候选正文",
+            scope="chapter",
+            chapter_index=9,
+        ),
     )
     service = WritingGenerationService(
         llm_client=FakePovLLMClient("<script>alert(1)</script>正文<b>加粗</b>")
@@ -1129,6 +1141,7 @@ async def test_writing_generate_task_records_task_provenance(
     account_llm_connection: dict,
 ) -> None:
     """AI 正文生成任务创建的候选稿可追踪到确认记录与任务。"""
+    from modules.evidence.contracts import ContextConfirmationRequest
     from modules.evidence.facade import bind_confirmed_action_result, confirm_context
     from modules.project import llm_runtime
     from modules.project.models import Project
@@ -1151,11 +1164,13 @@ async def test_writing_generate_task_records_task_provenance(
     await db_session.flush()
     confirmation = await confirm_context(
         db_session,
-        novel_id=novel_id,
-        action="writing.generate",
-        task="生成第 4 章候选正文",
-        scope="chapter",
-        chapter_index=4,
+        ContextConfirmationRequest(
+            novel_id=novel_id,
+            action="writing.generate",
+            task="生成第 4 章候选正文",
+            scope="chapter",
+            chapter_index=4,
+        ),
     )
     task = AsyncTask(
         task_type="writing_generate",
@@ -1204,6 +1219,7 @@ async def test_writing_generation_pov_profile_saves_structured_view_and_validati
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """POV character confirmation writes structured view and validation provenance."""
+    from modules.evidence.contracts import ContextConfirmationRequest
     from modules.evidence.facade import confirm_context
     from modules.project.models import Project
     from modules.world.models import Character, CharacterKnowledge, CoreEntity
@@ -1281,17 +1297,19 @@ async def test_writing_generation_pov_profile_saves_structured_view_and_validati
 
     confirmation = await confirm_context(
         db_session,
-        novel_id=novel_id,
-        action="writing.generate",
-        task="基于当前 Scene 的 POV 角色有限认知，生成正文候选草稿",
-        scope="chapter",
-        chapter_index=3,
-        scene_id=str(scene.id),
-        reveal_mode="character",
-        viewpoint_character_id=str(char_id),
-        visible_until_chapter=4,
-        character_ids=[str(char_id)],
-        include_pending_objects=True,
+        ContextConfirmationRequest(
+            novel_id=novel_id,
+            action="writing.generate",
+            task="基于当前 Scene 的 POV 角色有限认知，生成正文候选草稿",
+            scope="chapter",
+            chapter_index=3,
+            scene_id=str(scene.id),
+            reveal_mode="character",
+            viewpoint_character_id=str(char_id),
+            visible_until_chapter=4,
+            character_ids=[str(char_id)],
+            include_pending_objects=True,
+        ),
     )
     llm = FakePovLLMClient(
         """
@@ -1358,6 +1376,7 @@ async def test_writing_generation_pov_parse_failure_keeps_raw_candidate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Bad POV JSON still creates a raw candidate when LLM returned useful text."""
+    from modules.evidence.contracts import ContextConfirmationRequest
     from modules.evidence.facade import confirm_context
     from modules.project.models import Project
     from modules.world.models import Character, CoreEntity
@@ -1400,16 +1419,18 @@ async def test_writing_generation_pov_parse_failure_keeps_raw_candidate(
 
     confirmation = await confirm_context(
         db_session,
-        novel_id=novel_id,
-        action="writing.generate",
-        task="基于当前 Scene 的 POV 角色有限认知，生成正文候选草稿",
-        scope="chapter",
-        chapter_index=3,
-        scene_id=str(scene.id),
-        reveal_mode="character",
-        viewpoint_character_id=str(char_id),
-        visible_until_chapter=4,
-        character_ids=[str(char_id)],
+        ContextConfirmationRequest(
+            novel_id=novel_id,
+            action="writing.generate",
+            task="基于当前 Scene 的 POV 角色有限认知，生成正文候选草稿",
+            scope="chapter",
+            chapter_index=3,
+            scene_id=str(scene.id),
+            reveal_mode="character",
+            viewpoint_character_id=str(char_id),
+            visible_until_chapter=4,
+            character_ids=[str(char_id)],
+        ),
     )
     service = WritingGenerationService(
         llm_client=FakePovLLMClient("这不是 JSON，但可以作为候选正文。")

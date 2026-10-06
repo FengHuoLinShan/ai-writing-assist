@@ -110,7 +110,9 @@ DELETE /api/projects/{id}/permanent            # 永久删除（级联）
 工作台摘要固定返回 `project_id`、可空 `continuation`、`writing`、`attention` 与加性 `author_tasks`。`attention`
 保留原计数和 `total`，增加最多 6 条 `items`、`actionable_total`、`has_more`，以及按领域类型
 去重且不绑定单条 item 的隐藏领域入口 `more_targets`；除必须逐项打开的 `world_adoption` 采用包外，该入口清空 item/chapter/Scene/page/suggestion 定位字段。API 先通过
-当前账户项目读取门禁，再以同一 ID 调用 writing/world/outline 稳定 facade；调用方不能指定 owner
+当前账户项目读取门禁，再以同一 ID 经 `project.contracts` 声明的 provider 协议读取各域统计
+（组合根注册 world/story/writing 薄 adapter，键 `project.workspace.writing_stats`、
+`project.workspace.world_stats`、`project.workspace.story_stats`）；调用方不能指定 owner
 或额外 `novel_id`。可选 `focus_chapter_index` / `focus_scene_id` 只影响固定排序，Scene 必须经
 Outline seam 验证属于当前项目，并以 `chapter_ids` 或 `scene_chunks` 验证指定章节。该投影不返回正文、内部任务、密钥或 owner 信息，
 空作品返回零计数、空事项和空续写位置。
@@ -129,7 +131,9 @@ Outline seam 验证属于当前项目，并以 `chapter_ids` 或 `scene_chunks` 
 不可变修订在目标身份空间中一次写入，引用与摘要均按目标 UUID 重算；Canon 不复制来源准入历史，
 而是在目标空 C0 后追加一条带来源 head 指纹的 `demo_import` 修订。整个复制保持单事务与重试幂等。
 
-项目级智能去重以 `project.smart_dedup` 作为跨 World/Story 的运行父能力，只聚合各资产模块的建议；World 扫描复用 `3 × max_suggestions` 的有界候选前沿，`schema_version=2` 任务结果同时提供
+项目级智能去重以 `project.smart_dedup` 作为跨 World/Story 的运行父能力，只聚合各资产模块的建议
+（经组合根注册的 `project.dedup.world` / `project.dedup.story` provider port 调用，不直接
+import 两域 facade）；World 扫描复用 `3 × max_suggestions` 的有界候选前沿，`schema_version=2` 任务结果同时提供
 group 裁决和 legacy suggestions。group apply 必须引用原扫描任务，服务端以任务结果
 校验成员、动作和 execution fingerprint，并以每组 savepoint 保证组内原子、组间
 独立。实体或结构资产的判断、指纹和实际写入仍由 world / outline 拥有。

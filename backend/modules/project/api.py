@@ -8,10 +8,9 @@ from datetime import UTC, date, datetime
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from core.csrf import require_xhr_request
 from core.dependencies import DbSession
 from modules.project.ai_usage import get_project_ai_usage
 from modules.project.author_examples import AuthorExamplesUpdate
@@ -55,6 +54,8 @@ from modules.project.workspace_service import ProjectWorkspaceSummaryService
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
+
+
 class EditorialBriefWritingToggle(BaseModel):
     enabled: bool
 
@@ -75,7 +76,6 @@ async def get_editorial_brief(db: DbSession, project_id: UUID):
 
 @router.put(
     "/{project_id}/editorial-brief",
-    dependencies=[Depends(require_xhr_request)],
 )
 async def put_editorial_brief(
     db: DbSession, project_id: UUID, data: EditorialBriefUpdate
@@ -113,7 +113,6 @@ async def get_editorial_brief_for_writing(db: DbSession, project_id: UUID):
 
 @router.put(
     "/{project_id}/editorial-brief/for-writing",
-    dependencies=[Depends(require_xhr_request)],
 )
 async def put_editorial_brief_for_writing(
     db: DbSession,
@@ -143,7 +142,6 @@ async def get_llm_cost_saving(db: DbSession, project_id: UUID):
 
 @router.put(
     "/{project_id}/llm-cost-saving",
-    dependencies=[Depends(require_xhr_request)],
 )
 async def put_llm_cost_saving(
     db: DbSession,
@@ -152,9 +150,7 @@ async def put_llm_cost_saving(
 ):
     from modules.project.model_routing import set_cost_saving_toggle
 
-    return await set_cost_saving_toggle(
-        db, str(project_id), enabled=data.enabled
-    )
+    return await set_cost_saving_toggle(db, str(project_id), enabled=data.enabled)
 
 
 @router.get("/{project_id}/author-examples")
@@ -167,7 +163,6 @@ async def get_author_examples(db: DbSession, project_id: UUID):
 
 @router.put(
     "/{project_id}/author-examples",
-    dependencies=[Depends(require_xhr_request)],
 )
 async def put_author_examples(
     db: DbSession, project_id: UUID, data: AuthorExamplesUpdate
@@ -196,7 +191,6 @@ async def get_author_examples_for_writing(db: DbSession, project_id: UUID):
 
 @router.put(
     "/{project_id}/author-examples/for-writing",
-    dependencies=[Depends(require_xhr_request)],
 )
 async def put_author_examples_for_writing(
     db: DbSession,
@@ -213,7 +207,6 @@ async def put_author_examples_for_writing(
 @router.post(
     "/demo-copy",
     response_model=DemoProjectCopyResponse,
-    dependencies=[Depends(require_xhr_request)],
 )
 async def api_copy_public_demo(db: DbSession) -> DemoProjectCopyResponse:
     """Copy the configured public demo into the current account once per version."""
@@ -291,7 +284,6 @@ async def api_get_project_llm_settings(
 @router.put(
     "/{project_id}/llm-settings",
     response_model=ProjectLLMSettingsResponse,
-    dependencies=[Depends(require_xhr_request)],
 )
 async def api_update_project_llm_settings(
     db: DbSession,
@@ -333,7 +325,6 @@ async def api_get_effective_author_prefs(
 @router.delete(
     "/{project_id}/llm-settings/field/{field_name}",
     response_model=LLMFieldResetResponse,
-    dependencies=[Depends(require_xhr_request)],
 )
 async def api_reset_llm_settings_field(
     db: DbSession,
@@ -446,7 +437,6 @@ async def api_list_author_tasks(
     "/{project_id}/author-tasks",
     response_model=AuthorTaskResponse,
     status_code=201,
-    dependencies=[Depends(require_xhr_request)],
 )
 async def api_create_author_task(
     db: DbSession,
@@ -460,7 +450,6 @@ async def api_create_author_task(
 @router.patch(
     "/{project_id}/author-tasks/{task_id}",
     response_model=AuthorTaskResponse,
-    dependencies=[Depends(require_xhr_request)],
 )
 async def api_patch_author_task(
     db: DbSession,

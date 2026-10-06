@@ -6,6 +6,10 @@ import asyncio
 import logging
 
 from core.container import get as _container_get
+from core.service_keys import (
+    MEMORY_SERVICE,
+    RAG_INDEX_CHAPTER_FOR_TASK,
+)
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.tasks.registry import task_handler
 
@@ -27,6 +31,7 @@ def _publish_retry_delay(attempt: int) -> float:
         _PUBLISH_RETRY_BASE_DELAY * (2 ** (attempt - 1)),
         _PUBLISH_RETRY_MAX_DELAY,
     )
+
 
 # writing.generate 的导演分片大小（evidence knowledge workflow 冻结常量）。
 _WRITING_GENERATE_DIRECTOR_SHARD_SIZE = 64
@@ -124,7 +129,7 @@ async def handle_publish_chapter(db, task):
     rag_ok = False
     for attempt in range(1, _MAX_RETRIES + 1):
         try:
-            outcome = await _container_get("rag.index_chapter_for_task")(
+            outcome = await _container_get(RAG_INDEX_CHAPTER_FOR_TASK)(
                 db,
                 novel_id,
                 chapter_index,
@@ -178,7 +183,7 @@ async def handle_publish_chapter(db, task):
     for attempt in range(1, _MAX_RETRIES + 1):
         try:
             async with db.begin_nested():
-                _memory = _container_get("memory.service")
+                _memory = _container_get(MEMORY_SERVICE)
                 snap = await _memory.capture_snapshot(db, novel_id, chapter_index)
             results["snapshot_id"] = snap.id
             snapshot_ok = True
@@ -355,9 +360,7 @@ async def handle_writing_targeted_revision(db, task):
         finding_ids=[str(value) for value in meta.get("finding_ids") or []],
         instruction=meta.get("instruction"),
         llm_execution_snapshot=snapshot,
-        contract_item_ids=[
-            str(value) for value in meta.get("contract_item_ids") or []
-        ],
+        contract_item_ids=[str(value) for value in meta.get("contract_item_ids") or []],
     )
     task.update_progress(1.0)
     await db.flush()

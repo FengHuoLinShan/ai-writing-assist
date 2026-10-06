@@ -1,5 +1,6 @@
 import { defineConfig } from "vite"
 import vue from "@vitejs/plugin-vue"
+import { readFileSync } from "node:fs"
 import { chmod, copyFile, mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -10,17 +11,29 @@ const frontendRoot = dirname(fileURLToPath(import.meta.url))
 const isProductionBuild = process.argv.includes("build")
 const apiProxyTarget = process.env.API_PROXY_TARGET
   || `http://127.0.0.1:${Number.isNaN(backendPort) ? 8000 : backendPort}`
-const legacyRuntimeAssets = [
-  "theme-preload.js",
-  "shared/esc.js",
-  "ui/toast.js",
-  "ui/modal.js",
-  "stateSlices.js",
-  "state.js",
-  "apiContracts.js",
-  "router.js",
-  "commands.js",
-]
+
+/**
+ * AO-14 清单单一来源：classic 运行时脚本只在 index.html 声明一次，构建期
+ * 从这里解析出需要原样拷贝进 dist 的清单。type="module" 的入口
+ * （api.js/errorLogger.js/app.js）由 Vite 打包，不进入拷贝清单。
+ */
+export function parseClassicScriptAssets(indexHtml) {
+  const assets = []
+  for (const match of indexHtml.matchAll(/<script\b[^>]*>/gi)) {
+    const tag = match[0]
+    const src = /\bsrc\s*=\s*(?:"([^"]+)"|'([^']+)')/i.exec(tag)
+    if (!src || /\btype\s*=\s*(?:"module"|'module'|module(?=[\s>]))/i.test(tag)) continue
+    assets.push(src[1] || src[2])
+  }
+  return assets
+}
+
+export const legacyRuntimeAssets = parseClassicScriptAssets(
+  readFileSync(resolve(frontendRoot, "index.html"), "utf8"),
+)
+if (legacyRuntimeAssets.length === 0) {
+  throw new Error("index.html 未解析到任何 classic 运行时脚本；清单单一来源（AO-14）失效")
+}
 const thirdPartyLicenseAssets = [{ source: resolve(frontendRoot, 'node_modules/fflate/LICENSE'), destination: 'licenses/fflate.txt' }]
 const contentSecurityPolicy = [
   "default-src 'self'",
@@ -95,7 +108,8 @@ export default defineConfig({
     strictPort: true,
     headers: frontendSecurityHeaders,
     proxy: {
-      "^/api(?:/|$)": {
+      // api/<domain>.js is frontend source; nested REST paths still reach the backend.
+      "^/api(?:/(?![^/?]+\\.js(?:\\?|$))|$)": {
         target: apiProxyTarget,
         changeOrigin: true,
       },

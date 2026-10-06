@@ -1120,12 +1120,12 @@ async def test_generation_center_convergence_reduces_180_fixed_source_blocks(
     fake = _install_fake_llm(monkeypatch)
     novel_id = await _create_llm_project(async_client, "一百八十项候选收束")
     monkeypatch.setattr(
-        "modules.world.services.worldbuilding.world_generation_center_service."
+        "modules.world.services.worldbuilding.generation_center.convergence."
         "_CONVERGENCE_SOURCE_BLOCK_CHARS",
         300,
     )
     monkeypatch.setattr(
-        "modules.world.services.worldbuilding.world_generation_center_service."
+        "modules.world.services.worldbuilding.generation_center.convergence."
         "_CONVERGENCE_CALL_INPUT_CHARS",
         10000,
     )
@@ -1258,7 +1258,7 @@ async def test_generation_center_convergence_has_one_total_timeout(
         slow_workflow,
     )
     monkeypatch.setattr(
-        "modules.world.services.worldbuilding.world_generation_center_service."
+        "modules.world.services.worldbuilding.generation_center.convergence."
         "WORLD_GENERATION_TIMEOUT_SECONDS",
         1,
     )
@@ -3544,7 +3544,7 @@ def _exercise_generation_behavior_without_repeating_preflight(
         return None
 
     monkeypatch.setattr(
-        "modules.world.api._require_generation_confirmation",
+        "modules.world.api.generation_center._require_generation_confirmation",
         skip_preflight,
     )
 

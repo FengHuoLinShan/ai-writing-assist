@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import logging
 import re
@@ -18,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+from infrastructure.stable_hash import stable_hash
 from modules.story.outline_state.contracts import SceneFusionSynthesisOutputContract
 from modules.story.outline_state.models import Scene
 from modules.story.outline_state.repositories import SceneRepository
@@ -256,15 +256,9 @@ class SceneFusionEvidenceLoader:
             )
         if not excerpts:
             return "", "", ()
-        encoded = json.dumps(
-            source_refs,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
         return (
             "\n\n".join(excerpts),
-            hashlib.sha256(encoded).hexdigest(),
+            stable_hash(source_refs, stringify_unknown=False),
             tuple(sorted({int(ref["chapter_index"]) for ref in source_refs})),
         )
 
@@ -395,9 +389,7 @@ class SceneFusionDraftGenerator:
             core_conflict_status = str(values.pop("core_conflict_status"))
             return SceneFusionGenerationResult(
                 semantic_fields={
-                    key: value
-                    for key, value in values.items()
-                    if key in SEMANTIC_FIELDS
+                    key: value for key, value in values.items() if key in SEMANTIC_FIELDS
                 },
                 confidence=confidence,
                 reason=reason,
@@ -475,7 +467,7 @@ class SceneFusionDraftGenerator:
 
     @staticmethod
     def _evidence_fingerprint(evidence: SceneFusionEvidenceResult) -> str:
-        encoded = json.dumps(
+        return stable_hash(
             [
                 {
                     "scene_id": item.scene_id,
@@ -484,11 +476,8 @@ class SceneFusionDraftGenerator:
                 }
                 for item in evidence.items
             ],
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        return hashlib.sha256(encoded).hexdigest()
+            stringify_unknown=False,
+        )
 
     @staticmethod
     def _evidence_chapter_indices(
@@ -711,11 +700,7 @@ async def _load_related_context(
 
     relation_order = 0
     character_ids: list[str] = [
-        *(
-            str(scene.pov_character_id)
-            for scene in scenes
-            if scene.pov_character_id
-        ),
+        *(str(scene.pov_character_id) for scene in scenes if scene.pov_character_id),
         *(str(value) for value in outline.related_character_ids),
     ]
     entity_ids: list[str] = [
@@ -783,8 +768,7 @@ async def _load_related_context(
         if str(getattr(item, "status", "")) == "canonical"
     }
     character_by_id = {
-        str(item.character_id): item
-        for item in getattr(characters, "characters", [])
+        str(item.character_id): item for item in getattr(characters, "characters", [])
     }
     payload: dict[str, Any] = {
         "contract_version": "scene-fusion-context-v2",
@@ -842,14 +826,7 @@ async def _load_related_context(
             "limits": {"characters": 6, "world_objects": 16},
         },
     }
-    encoded = json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    )
-    payload["fingerprint"] = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    payload["fingerprint"] = stable_hash(payload)
     return payload
 
 

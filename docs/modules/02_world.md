@@ -218,11 +218,14 @@ helper 和历史兼容入口：
 - `services/worldbuilding/`：世界书、模板、投影和作者资料整理。
   `worldbuilding_service.py` 仅作为旧 import path 兼容 hub；实现按概念拆到
   `profile_service.py`、`world_bible_service.py`、`world_bible_lifecycle_service.py`、
-  `world_bible_synopsis_service.py`、`world_generation_center_service.py`、`suggestion_queue_service.py`、
+  `world_bible_synopsis_service.py`、`suggestion_queue_service.py`、
   `cocreation_session_service.py`、
   `knowledge_tag_service.py`、`reader_safety_service.py`、`conflict_queue_service.py`、
   `activation_preview_service.py`、`activation_target_service.py` 和
   `page_template_service.py`、`world_impact_service.py`（跨模块只读影响枚举：世界页反向引用、对象关系、人物档案、故事线、正文字面扫描与地图节点，逐层带未覆盖说明）。
+  `world_generation_center_service.py` 已按生成阶段拆为 `generation_center/` 包
+  （`shared` 常量/提示词 + 按阶段 mixin + `service.py` 组合类），原模块路径保留为
+  薄再导出层。
 - `services/common.py`：跨子包通用 helper，如 `parse_uuid`、`normalize_name`。
 - `map_atlas_*.py`：地图册 API、模型、service、workflow、storage、task 与 deletion cleanup seam。
 
@@ -343,6 +346,10 @@ content_json._meta 记录来源五元组），别名 confirmed，作者备注追
 走软废弃；相关 Character 行的补空回滚按 character receipt 条目恢复。
 
 ## API
+
+路由按子域拆在 `backend/modules/world/api/` 包（canon、generation_center、bible、
+library、entities、relations 等 19 个子域模块 + `_shared.py` 路由基建），
+`modules.world.api` 聚合导出与挂载入口 `router` 不变。
 
 ```
 # CoreEntity

@@ -539,15 +539,18 @@ async def test_real_task_session_checkpoints_before_provider_wait(
 ) -> None:
     from infrastructure.tasks.lifecycle import TaskLifecycleService
     from infrastructure.tasks.worker import _TaskHandlerSession
+    from modules.evidence.contracts import ContextConfirmationRequest
     from modules.evidence.facade import confirm_context
 
     confirmation = await confirm_context(
         db_session,
-        novel_id=test_project_id,
-        action="writing.conflict_check.ai_review",
-        task="review task transaction boundary",
-        scope="project",
-        chapter_index=3,
+        ContextConfirmationRequest(
+            novel_id=test_project_id,
+            action="writing.conflict_check.ai_review",
+            task="review task transaction boundary",
+            scope="project",
+            chapter_index=3,
+        ),
     )
     task_id = uuid.uuid4()
     check = WritingConflictCheck(

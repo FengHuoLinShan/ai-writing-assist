@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -13,6 +12,7 @@ from pydantic_ai import ModelRetry, RunContext, Tool
 from core.errors import ConflictError, NotFoundError
 from infrastructure.llm.agent_runtime import AgentRunBudget
 from infrastructure.llm.workflow_budget import budgeted_tool
+from infrastructure.stable_hash import stable_hash
 from modules.assistant.schemas import WorkContext
 from modules.evidence import facade as evidence
 from modules.evidence.contracts import VisibilityContextContract
@@ -23,11 +23,7 @@ from modules.writing.facade import get_draft, get_latest_draft_for_chapter
 
 
 def fingerprint(value: Any) -> str:
-    return hashlib.sha256(
-        json.dumps(
-            value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str
-        ).encode()
-    ).hexdigest()
+    return stable_hash(value)
 
 
 @dataclass
@@ -143,10 +139,13 @@ class AssistantToolContext:
             item = self.evidence_refs[key]
             if item.get("source_guard"):
                 from core.container import get
+                from core.service_keys import (
+                    ASSISTANT_OPERATIONS,
+                )
                 from modules.assistant.contracts import AssistantOperationContext
 
                 guard = item["source_guard"]
-                operation = get("assistant.operations").get(guard["capability"])
+                operation = get(ASSISTANT_OPERATIONS).get(guard["capability"])
                 if operation is None or operation.permission != "suggest":
                     raise ConflictError("复核来源协议已变化")
                 preview = await operation.prepare(

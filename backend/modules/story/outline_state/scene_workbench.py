@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.stable_hash import stable_hash
 from infrastructure.tasks.enqueuer import enqueue_task
 from modules.story.outline_state.contracts import (
     SCENE_SEMANTIC_FIELDS,
@@ -2451,13 +2452,7 @@ class SceneWorkbenchService:
                 key=lambda item: (item.content_mode, item.part_no, item.chapter_index),
             )
         ]
-        encoded = json.dumps(
-            payload,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+        return stable_hash(payload, stringify_unknown=False)
 
     async def _active_pending_suggestions(
         self,
@@ -2612,14 +2607,7 @@ class SceneWorkbenchService:
             }
             for scene in scenes
         ]
-        encoded = json.dumps(
-            payload,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-            default=str,
-        )
-        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+        return stable_hash(payload)
 
     def _chapter_range(self, chapter_ids: list[str]) -> str:
         nums = sorted(int(cid) for cid in chapter_ids if str(cid).isdigit())

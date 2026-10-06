@@ -10,12 +10,17 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.container import get
 from core.crud import CrudService
 from core.errors import ConflictError, NotFoundError, ValidationError
 from core.logging_context import (
     exception_summary_for_log,
     identifier_for_log,
     novel_id_for_log,
+)
+from core.service_keys import (
+    WORLD_WORLDBUILDING_MARK_SYNOPSIS_SOURCE_CHANGED,
+    WORLD_WORLDBUILDING_REQUIRE_LEGACY_CANON_WRITE_ALLOWED,
 )
 from modules.world.models import EntityRelation
 from modules.world.relation_schemas import (
@@ -48,7 +53,7 @@ from modules.world.services.core.review_queue import (
     stable_fingerprint,
     suggest_relation_type,
 )
-from modules.world.services.worldbuilding.relation_group_views import (
+from modules.world.services.relation_group_views import (
     RelationViewError,
     ResolvedGroupView,
     resolve_group_view,
@@ -1414,10 +1419,7 @@ class EntityRelationService(
     ) -> None:
         # 分组读模型只归类 canonical 组与成员；写入端同样要求两端已采用，
         # 否则 candidate/draft 端点写入后会从分组读模型中"消失"。
-        if (
-            group.status != "canonical"
-            or group.entity_type not in view.group_types
-        ):
+        if group.status != "canonical" or group.entity_type not in view.group_types:
             raise NotFoundError("Group entity not found in this novel")
 
     def _assert_membership_member(
@@ -1425,12 +1427,8 @@ class EntityRelationService(
         member: Any,
         view: ResolvedGroupView,
     ) -> None:
-        if (
-            member.status != "canonical"
-            or (
-                view.member_types is not None
-                and member.entity_type not in view.member_types
-            )
+        if member.status != "canonical" or (
+            view.member_types is not None and member.entity_type not in view.member_types
         ):
             raise NotFoundError("Member entity not found in this novel")
 
@@ -1522,9 +1520,7 @@ class EntityRelationService(
         member_ids,
         data: WorldRelationMembershipBatchRequest,
     ) -> tuple[list[str], list[str]]:
-        rule_pairs = {
-            (rule.relation_type, rule.group_side) for rule in view.match_rules
-        }
+        rule_pairs = {(rule.relation_type, rule.group_side) for rule in view.match_rules}
         relation_type = data.relation_type or view.default_relation_type
         group_side = data.group_side or view.default_group_side
         if (relation_type, group_side) not in rule_pairs:
@@ -1648,9 +1644,7 @@ class EntityRelationService(
                 "relation_refs cannot repeat the same relation",
                 status_code=422,
             )
-        rule_pairs = {
-            (rule.relation_type, rule.group_side) for rule in view.match_rules
-        }
+        rule_pairs = {(rule.relation_type, rule.group_side) for rule in view.match_rules}
         member_set = set(member_ids)
         # get_many_for_update 按 novel_id 过滤：跨项目/跨 novel 的 id 不会返回。
         locked_rows = await self.repo.get_many_for_update(db, nid, ref_ids)
@@ -1666,9 +1660,7 @@ class EntityRelationService(
                 row_side = "target"
             else:
                 raise NotFoundError("关系不存在或不属于该分组成员")
-            other_endpoint = (
-                row.target_id if row_side == "source" else row.source_id
-            )
+            other_endpoint = row.target_id if row_side == "source" else row.source_id
             if (
                 other_endpoint not in member_set
                 or (row.relation_type, row_side) not in rule_pairs
@@ -1717,10 +1709,9 @@ class EntityRelationService(
         novel_id: str,
         relation_id,
     ) -> None:
-        from modules.world.services.worldbuilding.synopsis_invalidation import (
-            mark_synopsis_source_changed,
+        mark_synopsis_source_changed = get(
+            WORLD_WORLDBUILDING_MARK_SYNOPSIS_SOURCE_CHANGED
         )
-
         await mark_synopsis_source_changed(
             db,
             novel_id,
@@ -1900,10 +1891,9 @@ class EntityRelationService(
     async def _require_legacy_canon_write_allowed(
         db: AsyncSession, novel_id: str
     ) -> None:
-        from modules.world.services.worldbuilding.world_validation_service import (
-            WorldValidationService,
+        require_legacy_canon_write_allowed = get(
+            WORLD_WORLDBUILDING_REQUIRE_LEGACY_CANON_WRITE_ALLOWED
         )
-
-        await WorldValidationService().require_legacy_canon_write_allowed(
+        await require_legacy_canon_write_allowed(
             db, novel_id, next_action="create_world_adoption_package"
         )

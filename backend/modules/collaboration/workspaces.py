@@ -16,13 +16,15 @@ from modules.collaboration.contracts import (
     InputManifest,
     ResourcePatch,
 )
+from modules.collaboration.creative_manifest import (
+    collect_creative_manifest,
+)
 from modules.collaboration.models import (
     CollaborationArtifact,
     CollaborationWorkItem,
     CreativeWorkspace,
     CreativeWorkspaceRevision,
 )
-from modules.evidence.facade import collect_creative_manifest
 
 
 def revision_digest(manifest, patches, goal_version):
@@ -221,7 +223,9 @@ async def workspace_view(db, novel_id, workspace_id, *, revision_id=None):
         raise NotFoundError("修订不属于此试改")
     baseline = InputManifest.model_validate(revision.manifest_json)
     case = await require_case(db, novel_id, workspace.case_id)
-    from modules.evidence.facade import revalidate_creative_manifest
+    from modules.collaboration.creative_manifest import (
+        revalidate_creative_manifest,
+    )
 
     stale = case.goal_version != revision.goal_version
     try:

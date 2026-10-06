@@ -129,7 +129,7 @@ async def test_all_writing_entry_points_fence_stale_prefix_and_replay(
         )
         assert response.status_code == 200, response.text
     elif entry == "assistant":
-        from modules.writing.assistant_tools import OPERATIONS, ReviseChapter
+        from modules.writing.assistant_tools import OPERATIONS_SPEC, ReviseChapter
 
         args = ReviseChapter(
             draft_id=drafts[0].id,
@@ -143,14 +143,15 @@ async def test_all_writing_entry_points_fence_stale_prefix_and_replay(
                 }
             ],
         )
-        operation = OPERATIONS["writing.revise"]
-        preview = await operation.prepare(db, nid, args, context=context)
-        await operation.apply(db, nid, args, preview, context=context)
+        operation = OPERATIONS_SPEC["writing.revise"]
+        preview = await operation["prepare"](db, nid, args, context=context)
+        await operation["apply"](db, nid, args, preview, context=context)
     elif entry == "collaboration":
-        from modules.writing.creative import PORT
+        from core.container import get
 
-        baseline = await PORT.read(db, nid, SimpleNamespace(id=drafts[0].id))
-        prepared = await PORT.validate(
+        port = get("collaboration.resources")["writing_draft"]
+        baseline = await port.read(db, nid, SimpleNamespace(id=drafts[0].id))
+        prepared = await port.validate(
             db,
             nid,
             baseline,
@@ -160,7 +161,7 @@ async def test_all_writing_entry_points_fence_stale_prefix_and_replay(
             ),
             context=context,
         )
-        await PORT.apply(db, nid, prepared, context=context)
+        await port.apply(db, nid, prepared, context=context)
     else:
         await create_published_drafts_only(
             db, nid, [{"chapter_index": 1, "title": "修订", "content": replacement}]

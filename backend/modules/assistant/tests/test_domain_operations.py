@@ -19,7 +19,8 @@ from modules.project.models import ProjectAuthorTask
 async def test_author_task_update_uses_existing_version_guard(
     db_session, test_project_id
 ):
-    from modules.project.assistant_tools import OPERATIONS, UpdateAuthorTask
+    from app.assistant_operation_registry import project_operations
+    from modules.project.assistant_tools import UpdateAuthorTask
     from modules.project.author_task_service import AuthorTaskService
     from modules.project.schemas import AuthorTaskCreateRequest
 
@@ -27,7 +28,7 @@ async def test_author_task_update_uses_existing_version_guard(
         db_session, test_project_id, AuthorTaskCreateRequest(title="核对人物年龄")
     )
     args = UpdateAuthorTask(task_id=task.id, changes={"status": "completed"})
-    operation = OPERATIONS["project.update_task"]
+    operation = project_operations["project.update_task"]
     preview = await operation.prepare(db_session, test_project_id, args)
     row = await db_session.get(ProjectAuthorTask, uuid.UUID(task.id))
     row.title = "另一处更新的任务"

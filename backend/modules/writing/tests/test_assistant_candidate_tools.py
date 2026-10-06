@@ -2,10 +2,11 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from app.assistant_operation_registry import writing_candidate_operations
 from core.errors import ConflictError
 from modules.account.facade import current_account_id
 from modules.assistant.contracts import AssistantOperationContext, WorkContext
-from modules.writing.assistant_candidate_tools import OPERATIONS, SelectDraft
+from modules.writing.assistant_candidate_tools import SelectDraft
 from modules.writing.facade import create_draft_only, get_draft
 from modules.writing.repositories import WritingDraftRepository
 from modules.writing.schemas import WritingDraftCreate
@@ -32,7 +33,7 @@ async def test_adoption_rechecks_working_head_and_restore_creates_a_working_copy
     context = AssistantOperationContext(
         str(uuid4()), str(current_account_id()), WorkContext(scope="project")
     )
-    operation = OPERATIONS["writing.adopt_candidate"]
+    operation = writing_candidate_operations["writing.adopt_candidate"]
     args = SelectDraft(draft_id=candidate.id)
     preview = await operation.prepare(db, nid, args, context=context)
     newer = await create_draft_only(db, nid, 1, "后来的工作稿", "稍后输入的正文")
@@ -45,7 +46,7 @@ async def test_adoption_rechecks_working_head_and_restore_creates_a_working_copy
     assert adopted.status == "draft" and adopted.content == "供作者选择的正文"
     assert UUID(adopted.id) != candidate.id
     assert (await get_draft(db, nid, str(candidate.id))).status == "deprecated"
-    restore = OPERATIONS["writing.restore_version"]
+    restore = writing_candidate_operations["writing.restore_version"]
     args = SelectDraft(draft_id=original.id)
     preview = await restore.prepare(db, nid, args, context=context)
     result = await restore.apply(db, nid, args, preview, context=context)
@@ -74,7 +75,7 @@ async def test_ai_candidate_without_original_confirmation_cannot_be_adopted(
         str(uuid4()), str(current_account_id()), WorkContext(scope="project")
     )
     with pytest.raises(ConflictError, match="参考资料"):
-        await OPERATIONS["writing.adopt_candidate"].prepare(
+        await writing_candidate_operations["writing.adopt_candidate"].prepare(
             db_session,
             test_project_id,
             SelectDraft(draft_id=candidate.id),

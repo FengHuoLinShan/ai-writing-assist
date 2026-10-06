@@ -9,6 +9,7 @@ from modules.evidence.compilation.facade import (
     require_confirmation,
     require_fresh_confirmation,
 )
+from modules.evidence.contracts import ContextConfirmationRequest
 
 
 @pytest.mark.asyncio
@@ -18,11 +19,13 @@ async def test_stale_reasons_remain_authoritative_after_status_changes(
 ) -> None:
     confirmation = await confirm_context(
         db_session,
-        novel_id=test_project_id,
-        action="writing.generate",
-        task="生成正文建议",
-        scope="chapter",
-        chapter_index=1,
+        ContextConfirmationRequest(
+            novel_id=test_project_id,
+            action="writing.generate",
+            task="生成正文建议",
+            scope="chapter",
+            chapter_index=1,
+        ),
     )
     await attach_result_ref(
         db_session,
@@ -72,17 +75,21 @@ async def test_invalidation_alias_excludes_current_confirmation_and_is_idempoten
 ) -> None:
     first = await confirm_context(
         db_session,
-        novel_id=test_project_id,
-        action="outline.generate",
-        task="修订场景",
-        scope="scene",
+        ContextConfirmationRequest(
+            novel_id=test_project_id,
+            action="outline.generate",
+            task="修订场景",
+            scope="scene",
+        ),
     )
     second = await confirm_context(
         db_session,
-        novel_id=test_project_id,
-        action="outline.generate",
-        task="检查场景",
-        scope="scene",
+        ContextConfirmationRequest(
+            novel_id=test_project_id,
+            action="outline.generate",
+            task="检查场景",
+            scope="scene",
+        ),
     )
     for confirmation in (first, second):
         await attach_result_ref(

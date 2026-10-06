@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import Callable
 from copy import deepcopy
@@ -15,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from infrastructure.llm.agent_step_harness import run_managed_generate
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+from infrastructure.stable_hash import stable_hash
 from modules.evidence import facade as context_facade
 from modules.story.outline_state.generator import PlotStructureGenerator
 from shared.utils import parse_uuid
@@ -487,14 +487,7 @@ class OutlineAIWorkflowService:
 
     @staticmethod
     def _stable_fingerprint(value: Any) -> str:
-        encoded = json.dumps(
-            value,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-            default=str,
-        ).encode("utf-8")
-        return hashlib.sha256(encoded).hexdigest()
+        return stable_hash(value)
 
     @staticmethod
     def _compiled_context_fingerprint(compiled: Any) -> dict[str, Any]:

@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 
-from modules.world.models import (
-    FactionProfile,
-    ItemProfile,
-    LocationProfile,
-    RuleProfile,
-    SecretProfile,
-    SpeciesProfile,
+# AO-5 / ADR-0031: Profile 注册表上移 world services 共享根（core 与
+# worldbuilding 平级消费），这里保留兼容再出口。
+from modules.world.services.entity_profile_registry import (
+    PROFILE_REGISTRY as PROFILE_REGISTRY,
+)
+from modules.world.services.entity_profile_registry import (
+    ProfileBinding as ProfileBinding,
 )
 
 CONFIRMED_STATUSES = {"canonical", "confirmed"}
@@ -28,81 +27,6 @@ GENERIC_PROFILE_TYPES = {
 }
 
 _PROFESSION_SLUG_RE = re.compile(r"[^a-z0-9_]+")
-
-
-@dataclass(frozen=True)
-class ProfileBinding:
-    model: type
-    fields: tuple[str, ...]
-
-
-PROFILE_REGISTRY: dict[str, ProfileBinding] = {
-    "species": ProfileBinding(
-        SpeciesProfile,
-        (
-            "origin_summary",
-            "physiology_summary",
-            "lifespan",
-            "abilities_json",
-            "weaknesses_json",
-            "culture_summary",
-            "language_summary",
-            "public_baseline",
-        ),
-    ),
-    "faction": ProfileBinding(
-        FactionProfile,
-        (
-            "ideology_summary",
-            "leader_entity_ids_json",
-            "member_rules",
-            "territory_refs_json",
-            "resources_json",
-            "public_baseline",
-        ),
-    ),
-    "location": ProfileBinding(
-        LocationProfile,
-        (
-            "map_refs_json",
-            "climate",
-            "population_summary",
-            "resources_json",
-            "hazards_json",
-            "controlling_faction_ids_json",
-        ),
-    ),
-    "rule": ProfileBinding(
-        RuleProfile,
-        (
-            "rule_domain",
-            "principle_summary",
-            "constraints_json",
-            "exceptions_json",
-            "consequences_json",
-        ),
-    ),
-    "item": ProfileBinding(
-        ItemProfile,
-        (
-            "item_class",
-            "powers_json",
-            "limitations_json",
-            "owner_entity_ids_json",
-            "origin_summary",
-        ),
-    ),
-    "secret": ProfileBinding(
-        SecretProfile,
-        (
-            "truth_summary",
-            "holder_entity_ids_json",
-            "risk_level",
-            "reveal_status",
-            "linked_target_refs_json",
-        ),
-    ),
-}
 
 
 def normalize_profession_slug(label: str) -> str:

@@ -606,7 +606,7 @@ async def test_task_client_closes_once_and_revalidates_profile_before_finalize(
             context_confirmation_id="33333333-3333-3333-3333-333333333333",
             source_task_id="task-1",
             llm_execution_snapshot=_snapshot(),
-    )
+        )
 
     assert result.status == "candidate"
     open_restore.assert_awaited_once()
@@ -768,16 +768,19 @@ async def test_real_task_session_checkpoints_before_provider_wait(
 ) -> None:
     from infrastructure.tasks.lifecycle import TaskLifecycleService
     from infrastructure.tasks.worker import _TaskHandlerSession
+    from modules.evidence.contracts import ContextConfirmationRequest
     from modules.evidence.facade import bind_confirmed_action_result, confirm_context
 
     task_id = uuid.uuid4()
     confirmation = await confirm_context(
         db_session,
-        novel_id=test_project_id,
-        action="writing.generate",
-        task="real task transaction boundary",
-        scope="project",
-        chapter_index=3,
+        ContextConfirmationRequest(
+            novel_id=test_project_id,
+            action="writing.generate",
+            task="real task transaction boundary",
+            scope="project",
+            chapter_index=3,
+        ),
     )
     await bind_confirmed_action_result(
         db_session,
@@ -859,6 +862,7 @@ async def test_real_worker_rejected_finalization_rolls_back_candidate_and_bindin
     from infrastructure.tasks.registry import TaskRegistry
     from infrastructure.tasks.worker import TaskWorker
     from modules.evidence.compilation.models import ContextConfirmation
+    from modules.evidence.contracts import ContextConfirmationRequest
     from modules.evidence.facade import bind_confirmed_action_result, confirm_context
     from modules.project.models import Project
     from modules.writing.models import WritingDraft
@@ -929,11 +933,13 @@ async def test_real_worker_rejected_finalization_rolls_back_candidate_and_bindin
             await setup_db.flush()
             confirmation = await confirm_context(
                 setup_db,
-                novel_id=novel_id,
-                action="writing.generate",
-                task="worker finalization rollback",
-                scope="project",
-                chapter_index=3,
+                ContextConfirmationRequest(
+                    novel_id=novel_id,
+                    action="writing.generate",
+                    task="worker finalization rollback",
+                    scope="project",
+                    chapter_index=3,
+                ),
             )
             confirmation_id = confirmation.id
             setup_db.add(
@@ -1028,15 +1034,18 @@ async def test_generation_confirmation_cannot_cross_novels(
     db_session,
     test_project_id: str,
 ) -> None:
+    from modules.evidence.contracts import ContextConfirmationRequest
     from modules.evidence.facade import confirm_context
     from modules.project.models import Project
 
     confirmation = await confirm_context(
         db_session,
-        novel_id=test_project_id,
-        action="writing.generate",
-        task="novel isolation",
-        scope="project",
+        ContextConfirmationRequest(
+            novel_id=test_project_id,
+            action="writing.generate",
+            task="novel isolation",
+            scope="project",
+        ),
     )
     foreign_id = str(uuid.uuid4())
     db_session.add(Project(id=uuid.UUID(foreign_id), title="foreign"))

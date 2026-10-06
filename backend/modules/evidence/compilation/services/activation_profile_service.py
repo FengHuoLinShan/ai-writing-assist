@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 import unicodedata
 from dataclasses import asdict
@@ -13,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, NotFoundError, ValidationError
+from infrastructure.stable_hash import stable_hash
 from modules.evidence.compilation.models import (
     ContextActivationProfile,
     ContextActivationProfileRevision,
@@ -148,8 +147,7 @@ class ActivationProfileService:
         existing = await db.scalar(
             select(ContextActivationProfileRevision.id).where(
                 ContextActivationProfileRevision.profile_id == profile.id,
-                ContextActivationProfileRevision.version_number
-                == profile.version_number,
+                ContextActivationProfileRevision.version_number == profile.version_number,
             )
         )
         if existing is not None:
@@ -354,8 +352,8 @@ class ActivationProfileService:
         budget_events: list[dict[str, Any]] = []
         warnings: list[str] = []
         for rule in sorted(rules, key=lambda item: item.rule_id):
-            matched, matched_clauses, blocked_clauses, excluded_reason = (
-                self._match_rule(rule, request)
+            matched, matched_clauses, blocked_clauses, excluded_reason = self._match_rule(
+                rule, request
             )
             evaluation = {
                 "rule_id": rule.rule_id,
@@ -366,9 +364,7 @@ class ActivationProfileService:
             }
             rule_evaluations.append(evaluation)
             if not matched:
-                excluded_items.extend(
-                    self._rule_target_exclusions(rule, excluded_reason)
-                )
+                excluded_items.extend(self._rule_target_exclusions(rule, excluded_reason))
                 continue
             if request.reveal_mode in {"reader", "character"}:
                 reason = (
@@ -390,10 +386,7 @@ class ActivationProfileService:
                 max_depth=rule.select.max_depth,
                 reveal_mode=request.reveal_mode,
             )
-            candidates = [
-                self._candidate_dict(item, rule)
-                for item in resolution.items
-            ]
+            candidates = [self._candidate_dict(item, rule) for item in resolution.items]
             evaluation["candidate_count"] = len(candidates)
             for excluded in resolution.excluded_items:
                 excluded_items.append(
@@ -535,9 +528,7 @@ class ActivationProfileService:
             "previous_scene_briefs": "\n".join(request.previous_scene_briefs),
             "explicit_focus": request.explicit_focus,
         }
-        haystack = "\n".join(
-            source_values[source] for source in rule.scope.match_sources
-        )
+        haystack = "\n".join(source_values[source] for source in rule.scope.match_sources)
         positive = [
             ActivationProfileService._term_matches(term, haystack, rule.match.mode)
             for term in rule.match.positive_terms
@@ -594,9 +585,7 @@ class ActivationProfileService:
     def _candidate_dict(item, rule: ActivationRule) -> dict[str, Any]:
         payload = asdict(item)
         source_weight = _SOURCE_WEIGHTS.get(item.source_kind, 0)
-        score = rule.rank.priority * 10_000 + source_weight + int(
-            item.importance * 1000
-        )
+        score = rule.rank.priority * 10_000 + source_weight + int(item.importance * 1000)
         return {
             "target": item.target,
             "target_hash": item.target_hash,
@@ -689,13 +678,7 @@ class ActivationProfileService:
 
     @staticmethod
     def _rule_hash(rules: list[dict[str, Any]]) -> str:
-        encoded = json.dumps(
-            rules,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        ).encode("utf-8")
-        return hashlib.sha256(encoded).hexdigest()
+        return stable_hash(rules, stringify_unknown=False)
 
     @staticmethod
     def _response(

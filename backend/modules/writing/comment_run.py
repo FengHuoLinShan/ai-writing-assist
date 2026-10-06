@@ -8,7 +8,11 @@ import uuid
 
 from sqlalchemy import select
 
+from core.container import get
 from core.errors import ConflictError, ValidationError
+from core.service_keys import (
+    ASSISTANT_SUBMIT_COMMENT_PROPOSALS,
+)
 from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
@@ -305,9 +309,7 @@ async def _generate_candidate(
                 "context_confirmation_id": draft_provenance.get(
                     "context_confirmation_id"
                 ),
-                "source_confirmation_id": draft_provenance.get(
-                    "source_confirmation_id"
-                ),
+                "source_confirmation_id": draft_provenance.get("source_confirmation_id"),
                 "scene_id": draft_provenance.get("scene_id"),
                 "source_task_id": task_id,
                 "base_draft_id": draft_key,
@@ -425,9 +427,8 @@ async def run_comment_task(db, task, snapshot: dict) -> dict:
         # savepoint 隔离提案写入：失败只回滚 assistant 半成品行，
         # 不影响已完成的独立审稿写入（采用门禁依赖它）。
         async with db.begin_nested():
-            from modules.assistant.facade import submit_comment_proposals
-
-            proposal = await submit_comment_proposals(
+            # AO-5：assistant facade 经组合根 DI 键解析，不 import。
+            proposal = await get(ASSISTANT_SUBMIT_COMMENT_PROPOSALS)(
                 db,
                 novel_id=novel_id,
                 **proposal_inputs,

@@ -335,9 +335,7 @@ def test_push_event_fixed_range_detects_new_binary_and_source(tmp_path, monkeypa
     assert failures
 
 
-def test_binary_gate_uses_git_objects_and_merge_base_for_renames(
-    tmp_path, monkeypatch
-):
+def test_binary_gate_uses_git_objects_and_merge_base_for_renames(tmp_path, monkeypatch):
     """体积读 Git 对象库而非工作区；纯重命名 delta 为 0；旧体积按 merge-base。"""
     import check_binary_growth as binary
 
@@ -523,3 +521,641 @@ def test_module_import_gate_exemption_patterns_apply(tmp_path) -> None:
         exempt={"modules/beta/legacy.py:modules.alpha.schemas": "历史豁免"},
     )
     assert exempted == []
+
+
+# ============================================================
+# B2 依赖方向棘轮（AO-1）
+# ============================================================
+
+
+def _write_contracts(tmp_path: Path, module: str) -> None:
+    package = tmp_path / "modules" / module
+    package.mkdir(parents=True, exist_ok=True)
+    (package / "contracts.py").touch()
+
+
+def test_direction_ratchet_current_repo_passes_and_reports_metrics(capsys) -> None:
+    import check_module_imports as gate
+
+    assert gate.main(["--directional-json"]) == 0
+    captured = capsys.readouterr()
+    # 输出风格与 --json 一致：JSON 在前，人类可读 pass 行在后
+    payload, _ = json.JSONDecoder().raw_decode(captured.out)
+    assert payload["baseline"] == gate._DEPENDENCY_BASELINE
+    assert payload["metrics"] == payload["baseline"]
+    assert len(payload["directed_edges"]) == payload["metrics"]["directed_edges"]
+    assert "依赖方向棘轮通过" in captured.out
+    assert captured.err == ""
+
+
+def test_direction_ratchet_blocks_new_directed_edge(tmp_path) -> None:
+    """负例 A：经 contracts 的合法形态，但形成基线之外的新有向边 → 失败。"""
+    import check_module_imports as gate
+
+    modules = {"alpha": ("modules/alpha",), "beta": ("modules/beta",)}
+    _write_contracts(tmp_path, "alpha")
+    _write_contracts(tmp_path, "beta")
+    forward = tmp_path / "modules/alpha/services.py"
+    forward.write_text("from modules.beta.contracts import Thing\n", encoding="utf-8")
+
+    stats, edges = gate.iter_directional_stats_for_paths(
+        modules, [forward], repo_root=tmp_path
+    )
+    assert stats["directed_edges"] == 1
+    assert edges == [{"from": "alpha", "to": "beta", "top_level": 1, "function_level": 0}]
+
+    baseline = dict(stats)
+    reverse = tmp_path / "modules/beta/planner.py"
+    reverse.write_text("from modules.alpha.contracts import Other\n", encoding="utf-8")
+    stats2, _ = gate.iter_directional_stats_for_paths(
+        modules, [forward, reverse], repo_root=tmp_path
+    )
+    assert stats2["directed_edges"] == 2
+
+    failures = gate.check_direction_ratchet(stats2, baseline)
+    assert any("directed_edges" in failure and "2" in failure for failure in failures)
+    # 全新反向边同时构成新双向对
+    assert any("bidirectional_pairs" in failure for failure in failures)
+
+
+def test_direction_ratchet_rejects_swapped_edge_with_unchanged_counts(
+    tmp_path,
+    monkeypatch,
+    capsys,
+) -> None:
+    import check_module_imports as gate
+
+    modules = {
+        name: (f"modules/{name}",) for name in ("imports", "account", "local_agent")
+    }
+    backend = tmp_path / "backend"
+    for name in modules:
+        _write_contracts(backend, name)
+    path = backend / "modules/imports/service.py"
+    path.write_text("from modules.account.contracts import Thing\n")
+    paths = list(backend.glob("modules/**/*.py"))
+    baseline, original_edges = gate.iter_directional_stats_for_paths(
+        modules,
+        paths,
+        repo_root=tmp_path,
+    )
+    assert gate.check_direction_ratchet(baseline, baseline, edges=original_edges) == []
+    path.write_text("from modules.local_agent.contracts import Thing\n")
+    violations, stats, edges = gate._analyze_paths(
+        modules,
+        paths,
+        repo_root=tmp_path,
+        exempt={},
+    )
+    assert violations == []
+    assert stats == baseline
+    monkeypatch.setattr(gate, "load_business_modules", lambda: modules)
+    monkeypatch.setattr(gate, "_DEPENDENCY_BASELINE", baseline)
+    monkeypatch.setattr(
+        gate, "analyze_repository", lambda **kwargs: (violations, stats, edges)
+    )
+    monkeypatch.setattr(gate, "analyze_facade_sql", lambda: [])
+
+    assert gate.main([]) == 1
+    assert "imports→local_agent" in capsys.readouterr().err
+    assert (
+        gate.check_direction_ratchet(
+            {name: 0 for name in baseline},
+            baseline,
+            edges=[],
+        )
+        == []
+    )
+
+
+def test_direction_ratchet_blocks_new_top_level_bidirectional_pair(tmp_path) -> None:
+    """负例 B：双向仅存在于函数内时顶层双向对为 0；反向改顶层导入即超基线。"""
+    import check_module_imports as gate
+
+    modules = {"alpha": ("modules/alpha",), "beta": ("modules/beta",)}
+    _write_contracts(tmp_path, "alpha")
+    _write_contracts(tmp_path, "beta")
+    forward = tmp_path / "modules/alpha/services.py"
+    forward.write_text("from modules.beta.contracts import Thing\n", encoding="utf-8")
+    backward = tmp_path / "modules/beta/planner.py"
+    backward.write_text(
+        "def plan():\n    from modules.alpha.contracts import Other\n    return Other\n",
+        encoding="utf-8",
+    )
+
+    stats, _ = gate.iter_directional_stats_for_paths(
+        modules, [forward, backward], repo_root=tmp_path
+    )
+    assert stats["directed_edges"] == 2
+    assert stats["bidirectional_pairs"] == 1
+    assert stats["top_level_bidirectional_pairs"] == 0
+    assert stats["function_level_imports"] == 1
+
+    baseline = dict(stats)
+    backward.write_text("from modules.alpha.contracts import Other\n", encoding="utf-8")
+    stats2, _ = gate.iter_directional_stats_for_paths(
+        modules, [forward, backward], repo_root=tmp_path
+    )
+    assert stats2["top_level_bidirectional_pairs"] == 1
+
+    failures = gate.check_direction_ratchet(stats2, baseline)
+    assert len(failures) == 1
+    assert "top_level_bidirectional_pairs" in failures[0]
+
+
+def test_direction_ratchet_allows_decrease_and_hints_lowering(tmp_path) -> None:
+    """指标降到基线之下通过，并提示基线可下调；等于基线无提示。"""
+    import check_module_imports as gate
+
+    modules = {"alpha": ("modules/alpha",), "beta": ("modules/beta",)}
+    _write_contracts(tmp_path, "beta")
+    offender = tmp_path / "modules/alpha/services.py"
+    offender.parent.mkdir(parents=True)
+    offender.write_text("from modules.beta.contracts import Thing\n", encoding="utf-8")
+
+    stats, _ = gate.iter_directional_stats_for_paths(
+        modules, [offender], repo_root=tmp_path
+    )
+    inflated = {name: value + 3 for name, value in stats.items()}
+
+    assert gate.check_direction_ratchet(stats, inflated) == []
+    lines = gate._direction_report_lines(stats, inflated)
+    assert any("基线可下调至" in line for line in lines)
+    assert any(
+        f"directed_edges={stats['directed_edges']}/{stats['directed_edges'] + 3}" in line
+        for line in lines
+    )
+
+    # 等于基线同样通过，但不再提示下调
+    assert gate.check_direction_ratchet(stats, dict(stats)) == []
+    assert not any(
+        "基线可下调至" in line
+        for line in gate._direction_report_lines(stats, dict(stats))
+    )
+
+
+def test_direction_ratchet_overrun_fails_main_with_exit_code(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """方向超标与形态违规同语义：main 返回 1 并打印超标指标。"""
+    import check_module_imports as gate
+
+    modules = {"alpha": ("modules/alpha",), "beta": ("modules/beta",)}
+    backend = tmp_path / "backend"
+    _write_contracts(backend, "alpha")
+    _write_contracts(backend, "beta")
+    (backend / "modules/alpha/services.py").write_text(
+        "from modules.beta.contracts import Thing\n", encoding="utf-8"
+    )
+    (backend / "modules/beta/planner.py").write_text(
+        "from modules.alpha.contracts import Other\n", encoding="utf-8"
+    )
+    paths = sorted(backend.glob("modules/**/*.py"))
+    stats, _ = gate.iter_directional_stats_for_paths(modules, paths, repo_root=tmp_path)
+    baseline = dict(stats)
+    baseline["bidirectional_pairs"] -= 1  # 现状含一对双向，基线不允许 → 超标
+
+    monkeypatch.setattr(gate, "_DEPENDENCY_BASELINE", baseline)
+    monkeypatch.setattr(gate, "load_business_modules", lambda: modules)
+    monkeypatch.setattr(gate, "REPO_ROOT", tmp_path)
+
+    assert gate.main([]) == 1
+    err = capsys.readouterr().err
+    assert "依赖方向棘轮" in err
+    assert "bidirectional_pairs" in err
+
+
+def test_direction_ratchet_classifies_top_level_vs_function_level(tmp_path) -> None:
+    """模块体与顶层 if/try 内算顶层；函数/方法/类体内算函数内。"""
+    import check_module_imports as gate
+
+    modules = {"alpha": ("modules/alpha",), "beta": ("modules/beta",)}
+    _write_contracts(tmp_path, "beta")
+    source = tmp_path / "modules/alpha/services.py"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        "\n".join(
+            [
+                "from modules.beta.contracts import TopLevel",
+                "",
+                "if True:",
+                "    from modules.beta.contracts import InsideIf",
+                "",
+                "try:",
+                "    from modules.beta.contracts import InsideTry",
+                "except ImportError:",
+                "    pass",
+                "",
+                "def loader():",
+                "    from modules.beta.contracts import InsideFunction",
+                "    return InsideFunction",
+                "",
+                "class Service:",
+                "    attribute = 1",
+                "",
+                "    def run(self):",
+                "        from modules.beta.contracts import InsideMethod",
+                "        return InsideMethod",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    stats, edges = gate.iter_directional_stats_for_paths(
+        modules, [source], repo_root=tmp_path
+    )
+
+    assert stats["directed_edges"] == 1
+    assert stats["function_level_imports"] == 2
+    assert edges == [{"from": "alpha", "to": "beta", "top_level": 3, "function_level": 2}]
+
+
+def test_direction_ratchet_counts_world_core_worldbuilding_traffic(tmp_path) -> None:
+    """world 内部 core↔worldbuilding 计入专用指标，不污染跨模块有向边。"""
+    import check_module_imports as gate
+
+    modules = {"world": ("modules/world",)}
+    core = tmp_path / "modules/world/services/core/entity_service.py"
+    core.parent.mkdir(parents=True)
+    core.write_text(
+        "def validate():\n"
+        "    from modules.world.services.worldbuilding.world_validation_service"
+        " import check\n"
+        "    return check\n",
+        encoding="utf-8",
+    )
+    synopsis = tmp_path / "modules/world/services/worldbuilding/synopsis.py"
+    synopsis.parent.mkdir(parents=True)
+    synopsis.write_text(
+        "from modules.world.services.core.event_service import EventService\n",
+        encoding="utf-8",
+    )
+
+    stats, edges = gate.iter_directional_stats_for_paths(
+        modules, [core, synopsis], repo_root=tmp_path
+    )
+
+    assert stats["directed_edges"] == 0
+    assert stats["function_level_imports"] == 0
+    assert stats["world_core_to_worldbuilding"] == 1
+    assert stats["world_worldbuilding_to_core"] == 1
+    assert edges == []
+
+
+# ============================================================
+# 动态导入门禁：import_module/__import__ 与静态导入同一口径
+# ============================================================
+
+
+def test_dynamic_import_constant_counts_into_direction_stats(tmp_path) -> None:
+    """正例：常量 modules.* 动态导入按该目标计入方向棘轮与形态校验。"""
+    import check_module_imports as gate
+
+    modules = {"alpha": ("modules/alpha",), "beta": ("modules/beta",)}
+    _write_contracts(tmp_path, "beta")
+    source = tmp_path / "modules/alpha/loader.py"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        "\n".join(
+            [
+                "from importlib import import_module",
+                "",
+                "",
+                "def load():",
+                '    return import_module("modules.beta.contracts")',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    stats, edges = gate.iter_directional_stats_for_paths(
+        modules, [source], repo_root=tmp_path
+    )
+
+    assert stats["directed_edges"] == 1
+    assert stats["function_level_imports"] == 1
+    assert edges == [{"from": "alpha", "to": "beta", "top_level": 0, "function_level": 1}]
+    # contracts 形态合法，无违规
+    assert (
+        gate.iter_violations_for_paths(modules, [source], repo_root=tmp_path, exempt={})
+        == []
+    )
+
+
+def test_dynamic_import_over_baseline_fails_ratchet(tmp_path) -> None:
+    """负例：常量动态导入计入指标后超基线即失败。"""
+    import check_module_imports as gate
+
+    modules = {"alpha": ("modules/alpha",), "beta": ("modules/beta",)}
+    _write_contracts(tmp_path, "beta")
+    source = tmp_path / "modules/alpha/loader.py"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        'def load():\n    return __import__("modules.beta.contracts")\n',
+        encoding="utf-8",
+    )
+
+    stats, _ = gate.iter_directional_stats_for_paths(
+        modules, [source], repo_root=tmp_path
+    )
+    assert stats["directed_edges"] == 1
+
+    failures = gate.check_direction_ratchet(stats, {**stats, "directed_edges": 0})
+    assert any("directed_edges" in failure for failure in failures)
+
+
+def test_dynamic_import_non_constant_argument_fails_closed(tmp_path) -> None:
+    """负例：变量/拼接等非常量首参无法静态判定目标，直接记违规。"""
+    import check_module_imports as gate
+
+    modules = {"alpha": ("modules/alpha",), "beta": ("modules/beta",)}
+    source = tmp_path / "modules/alpha/loader.py"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        "\n".join(
+            [
+                "from importlib import import_module",
+                "",
+                "",
+                "def load(name):",
+                "    return import_module(name)",
+                "",
+                "",
+                "def load_prefixed(suffix):",
+                '    return import_module("modules.beta." + suffix)',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    violations = gate.iter_violations_for_paths(
+        modules, [source], repo_root=tmp_path, exempt={}
+    )
+
+    assert len(violations) == 2
+    assert {item["line"] for item in violations} == {5, 9}
+    assert all("字符串常量" in item["reason"] for item in violations)
+
+
+def test_dynamic_import_same_module_target_keeps_metrics_unchanged(tmp_path) -> None:
+    """正例：同模块动态导入（workflow_structure_phase 现状）不计跨模块边。"""
+    import check_module_imports as gate
+
+    modules = {"imports": ("modules/imports",)}
+    source = tmp_path / "modules/imports/phase.py"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        "\n".join(
+            [
+                "from importlib import import_module",
+                "",
+                "",
+                "def _container_get(key):",
+                '    workflow_module = import_module("modules.imports.workflow")',
+                "    return workflow_module._container_get(key)",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    stats, edges = gate.iter_directional_stats_for_paths(
+        modules, [source], repo_root=tmp_path
+    )
+
+    assert stats["directed_edges"] == 0
+    assert stats["function_level_imports"] == 0
+    assert edges == []
+    assert (
+        gate.iter_violations_for_paths(modules, [source], repo_root=tmp_path, exempt={})
+        == []
+    )
+
+
+def test_dynamic_import_real_repo_stays_green() -> None:
+    """真实仓库动态导入存量（同模块常量）在新规则下不产生违规与指标变化。"""
+    import check_module_imports as gate
+
+    violations, stats, _edges = gate.analyze_repository(exempt=gate.EXEMPT_IMPORTS)
+    assert violations == []
+    assert stats == gate._DEPENDENCY_BASELINE
+
+
+# ============================================================
+# Facade 薄层门禁（AO-8）：facade.py 禁 SQLAlchemy 直接操作
+# ============================================================
+
+
+def _write_facade(tmp_path: Path, relative: str, body: str) -> Path:
+    facade = tmp_path / relative
+    facade.parent.mkdir(parents=True, exist_ok=True)
+    facade.write_text(body, encoding="utf-8")
+    return facade
+
+
+def test_facade_sql_gate_blocks_select_and_session_execute(tmp_path) -> None:
+    """负例：facade 里 select( 与 db.execute( 直接调用即失败。"""
+    import check_module_imports as gate
+
+    modules = {"alpha": ("modules/alpha",)}
+    facade = _write_facade(
+        tmp_path,
+        "modules/alpha/facade.py",
+        "\n".join(
+            [
+                "from sqlalchemy import select",
+                "",
+                "",
+                "async def require_thing(db):",
+                "    return (await db.execute(select(Account))).scalar_one()",
+            ]
+        )
+        + "\n",
+    )
+
+    violations = gate.iter_facade_sql_violations_for_paths(
+        modules, [facade], repo_root=tmp_path
+    )
+
+    assert {item["name"] for item in violations} == {"execute", "select"}
+    assert {item["path"] for item in violations} == {"modules/alpha/facade.py"}
+    assert all("service 层" in item["reason"] for item in violations)
+
+
+def test_facade_sql_gate_blocks_update_delete_insert_text_calls(tmp_path) -> None:
+    """负例：update/delete/insert/text 裸调用名一律拦（fail-closed）。"""
+    import check_module_imports as gate
+
+    modules = {"alpha": ("modules/alpha",)}
+    facade = _write_facade(
+        tmp_path,
+        "modules/alpha/facade.py",
+        "\n".join(
+            [
+                "from sqlalchemy import delete, insert, text, update",
+                "",
+                "",
+                "def build():",
+                "    return [update(T), delete(T), insert(T), text('1')]",
+            ]
+        )
+        + "\n",
+    )
+
+    violations = gate.iter_facade_sql_violations_for_paths(
+        modules, [facade], repo_root=tmp_path
+    )
+
+    assert {item["name"] for item in violations} == {
+        "update",
+        "delete",
+        "insert",
+        "text",
+    }
+
+
+def test_facade_sql_gate_allows_delegation_models_and_annotations(tmp_path) -> None:
+    """正例：再导出、请求模型构造、类型标注与 service 委托全部放行。"""
+    import check_module_imports as gate
+
+    modules = {"alpha": ("modules/alpha",)}
+    facade = _write_facade(
+        tmp_path,
+        "modules/alpha/facade.py",
+        "\n".join(
+            [
+                "from dataclasses import dataclass",
+                "from sqlalchemy.sql import Select",
+                "",
+                "from modules.alpha.services import Service as Service",
+                "",
+                "",
+                "@dataclass",
+                "class ThingRequest:",
+                "    novel_id: str",
+                "    ids: list[str] | None = None",
+                "",
+                "",
+                "async def confirm_thing(db, request: ThingRequest):",
+                "    return await Service().confirm(db, request)",
+                "    service.update(request)",
+                "    service.commit(request)",
+                "    seen.add(request.novel_id)",
+                "    metadata.update({})",
+                "",
+                "",
+                "def plan_ids(subquery: Select) -> Select:",
+                "    return subquery",
+            ]
+        )
+        + "\n",
+    )
+
+    violations = gate.iter_facade_sql_violations_for_paths(
+        modules, [facade], repo_root=tmp_path
+    )
+
+    assert violations == []
+
+
+@pytest.mark.parametrize("filename", ["facade.py", "entity_facade.py"])
+def test_facade_sql_gate_blocks_session_writes_and_sql_aliases(tmp_path, filename):
+    import check_module_imports as gate
+
+    modules = {"alpha": ("modules/alpha",)}
+    facade = _write_facade(
+        tmp_path,
+        f"modules/alpha/{filename}",
+        "import sqlalchemy as sa\n"
+        "from sqlalchemy import select as query\n"
+        "from sqlalchemy.ext.asyncio import AsyncSession\n"
+        "async def write(connection: AsyncSession, record):\n"
+        "    connection.add(record)\n"
+        "    connection.add_all([record])\n"
+        "    await connection.flush()\n"
+        "    await connection.commit()\n"
+        "    await connection.rollback()\n"
+        "    await connection.delete(record)\n"
+        "    await connection.merge(record)\n"
+        "    return query(record), sa.update(record)\n",
+    )
+    violations = gate.iter_facade_sql_violations_for_paths(
+        modules,
+        [facade],
+        repo_root=tmp_path,
+    )
+    assert {item["name"] for item in violations} == {
+        "add",
+        "add_all",
+        "flush",
+        "commit",
+        "rollback",
+        "delete",
+        "merge",
+        "query",
+        "update",
+    }
+
+
+def test_facade_sql_gate_scans_subpackages_only_for_business_facades(tmp_path) -> None:
+    """子包 facade 在扫描范围；services.py 与非业务模块 facade 不扫。"""
+    import check_module_imports as gate
+
+    modules = {"alpha": ("modules/alpha",)}
+    service = _write_facade(
+        tmp_path,
+        "modules/alpha/services.py",
+        "def q(db):\n    return db.execute(1)\n",
+    )
+    sub_facade = _write_facade(
+        tmp_path,
+        "modules/alpha/sub/facade.py",
+        "from sqlalchemy import select\n\n\ndef q(db):\n"
+        "    return db.execute(select(1))\n",
+    )
+    outside = _write_facade(
+        tmp_path,
+        "other/facade.py",
+        "def q(db):\n    return db.execute(1)\n",
+    )
+
+    violations = gate.iter_facade_sql_violations_for_paths(
+        modules, [service, sub_facade, outside], repo_root=tmp_path
+    )
+
+    assert {item["path"] for item in violations} == {"modules/alpha/sub/facade.py"}
+
+
+def test_facade_sql_gate_real_repo_has_no_violations() -> None:
+    """真实仓库现状为空集：门禁零基线 fail-closed，新违例直接失败。"""
+    import check_module_imports as gate
+
+    assert gate.analyze_facade_sql() == []
+
+
+def test_facade_sql_gate_fails_main_with_exit_code(tmp_path, monkeypatch, capsys) -> None:
+    """薄层违例与形态/方向同语义：main 返回 1 并打印违例。"""
+    import check_module_imports as gate
+
+    modules = {"alpha": ("modules/alpha",)}
+    _write_facade(
+        tmp_path,
+        "backend/modules/alpha/facade.py",
+        "from sqlalchemy import select\n\n\nasync def q(db):\n"
+        "    return (await db.execute(select(1))).scalar_one()\n",
+    )
+    monkeypatch.setattr(gate, "load_business_modules", lambda: modules)
+    monkeypatch.setattr(gate, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(
+        gate,
+        "analyze_repository",
+        lambda **kwargs: ([], dict(gate._DEPENDENCY_BASELINE), []),
+    )
+
+    assert gate.main([]) == 1
+    err = capsys.readouterr().err
+    assert "facade 薄层门禁" in err
+    assert "modules/alpha/facade.py" in err

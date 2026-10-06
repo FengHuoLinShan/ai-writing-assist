@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, NotFoundError
+from infrastructure.stable_hash import stable_hash
 from modules.world.models import (
     WorldBiblePageTemplate,
     WorldBiblePageTemplateRevision,
@@ -112,8 +111,7 @@ class WorldBiblePageTemplateService:
             for item in result.scalars()
         ]
         builtin = [
-            self._builtin_response(novel_id, item)
-            for item in BUILTIN_PAGE_TEMPLATES
+            self._builtin_response(novel_id, item) for item in BUILTIN_PAGE_TEMPLATES
         ]
         return [*builtin, *custom]
 
@@ -386,14 +384,7 @@ class WorldBiblePageTemplateService:
         created_by: str | None,
     ) -> None:
         snapshot = self._snapshot(template)
-        content_hash = hashlib.sha256(
-            json.dumps(
-                snapshot,
-                ensure_ascii=False,
-                separators=(",", ":"),
-                sort_keys=True,
-            ).encode("utf-8")
-        ).hexdigest()
+        content_hash = stable_hash(snapshot, stringify_unknown=False)
         db.add(
             WorldBiblePageTemplateRevision(
                 novel_id=template.novel_id,

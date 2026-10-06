@@ -6,6 +6,9 @@ from pydantic import Field
 
 from core.container import get
 from core.errors import ConflictError
+from core.service_keys import (
+    ASSISTANT_FORECAST_INSTRUCTIONS,
+)
 from infrastructure.llm.collaboration import content_hash
 from modules.assistant.forecast.contracts import CandidateProposal, StrictModel
 from modules.assistant.forecast.ranking import stable_issue_key
@@ -50,7 +53,7 @@ INSTRUCTIONS = (
 
 
 def instructions(capabilities):
-    domain = get("assistant.forecast.instructions")
+    domain = get(ASSISTANT_FORECAST_INSTRUCTIONS)
     return [
         {"capability_index": index, "instruction": domain[capability]}
         for index, capability in enumerate(capabilities)

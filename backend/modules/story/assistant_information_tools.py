@@ -7,9 +7,11 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 
+from core.container import get
 from core.errors import ConflictError, NotFoundError
-from modules.assistant.contracts import AssistantOperation
-from modules.assistant.facade import require_operation_targets
+from core.service_keys import (
+    ASSISTANT_REQUIRE_OPERATION_TARGETS,
+)
 from modules.story.outline_state.models import ForeshadowingPlan, RevealPlan
 from modules.story.outline_state.schemas import ForeshadowingPlanUpdate, RevealPlanUpdate
 from modules.story.outline_state.services import (
@@ -84,6 +86,7 @@ async def inspect_information_plan(db, novel_id, kind, plan_id):
 
 
 async def _preview(db, novel_id, args, *, context=None):
+    require_operation_targets = get(ASSISTANT_REQUIRE_OPERATION_TARGETS)
     await require_operation_targets(
         db, novel_id, context, [(args.kind, args.plan_id)], aggregate=True
     )
@@ -125,8 +128,13 @@ async def _apply(db, novel_id, args, preview, *, context=None):
     return {"type": args.kind, "id": str(result.id), "label": "信息计划已更新"}
 
 
-OPERATIONS = {
-    "story.edit_information_plan": AssistantOperation(
-        "修改伏笔与揭示安排", EditInformationPlan, _preview, _apply
-    )
+# 纯数据声明（AO-5）：不 import assistant 契约；组合根
+# app/assistant_operation_registry 按 AssistantOperation 原构造语义物化。
+OPERATIONS_SPEC = {
+    "story.edit_information_plan": {
+        "label": "修改伏笔与揭示安排",
+        "schema": EditInformationPlan,
+        "prepare": _preview,
+        "apply": _apply,
+    }
 }

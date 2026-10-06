@@ -34,6 +34,7 @@ from modules.evidence.compilation.schemas import (
 from modules.evidence.compilation.services.compiled_context import (
     compiled_context_fingerprint,
 )
+from modules.evidence.contracts import ContextConfirmationRequest
 from modules.evidence.facade import (
     compile_from_confirmation,
     confirm_context,
@@ -360,12 +361,14 @@ async def test_confirmation_binds_draft_version_and_source_update_stales_it(
 
     confirmation = await confirm_context(
         db_session,
-        novel_id=project_novel_id,
-        action="writing.generate",
-        task="以理法之环设定生成场景草稿",
-        scope="chapter",
-        chapter_index=1,
-        selected_world_bible_draft_ids=[str(draft.id)],
+        ContextConfirmationRequest(
+            novel_id=project_novel_id,
+            action="writing.generate",
+            task="以理法之环设定生成场景草稿",
+            scope="chapter",
+            chapter_index=1,
+            selected_world_bible_draft_ids=[str(draft.id)],
+        ),
     )
     # 确认记录绑定实际消费的资产与排除项，指纹可复核。
     assert confirmation.selected_asset_ids["world_bible_draft"] == [str(draft.id)]
@@ -392,13 +395,15 @@ async def test_confirmation_binds_draft_version_and_source_update_stales_it(
     # 逐项排除也记录在确认的选择状态里，可核查"作者排除了什么"。
     excluded_confirmation = await confirm_context(
         db_session,
-        novel_id=project_novel_id,
-        action="writing.generate",
-        task="排除工作稿的生成",
-        scope="chapter",
-        chapter_index=1,
-        selected_world_bible_draft_ids=[str(draft.id)],
-        excluded_refs=[dict(selection_ref)],
+        ContextConfirmationRequest(
+            novel_id=project_novel_id,
+            action="writing.generate",
+            task="排除工作稿的生成",
+            scope="chapter",
+            chapter_index=1,
+            selected_world_bible_draft_ids=[str(draft.id)],
+            excluded_refs=[dict(selection_ref)],
+        ),
     )
     assert excluded_confirmation.selection_state["counts"]["excluded"] == 1
     excluded_entries = excluded_confirmation.selection_state["excluded_items"]

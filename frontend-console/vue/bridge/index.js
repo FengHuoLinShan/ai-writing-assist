@@ -3,12 +3,16 @@
  *
  * 既有基建以 window 全局存在：
  * - window.api（api.js）、window.appState + window.onStateChange（state.js）
- * - window.router（router.js）、window.toast（ui/toast.js）
+ * - window.router（router.js）、window.commands（commands.js）、window.toast（ui/toast.js）
  * - window.tryMigrateLocalAuthorPreferences（state.js）
  *
- * Vue 组件只允许经本模块取用，禁止引用裸全局；单测通过
- * setBridgeOverrides() 注入替身（生产代码不 import/检测 Mock）。
+ * Vue 组件只允许经本模块取用，禁止引用裸全局，也禁止经 globalThis./window.
+ * 旁路读取（eslint no-restricted-globals / no-restricted-properties 守护）；
+ * 单测通过 setBridgeOverrides() 注入替身（生产代码不 import/检测 Mock）。
  */
+/* eslint-disable no-restricted-properties --
+ * AO-14：本文件是 Vue 侧唯一被授权触碰基建全局（api/appState/router/toast）
+ * 的桥接层，其他 vue/** 文件必须经由本模块导出的 getter 访问。 */
 import { getCurrentScope, onScopeDispose, readonly, ref } from "vue"
 import { captureWorkContext } from "../shared/assistantContext.js"
 
@@ -136,6 +140,11 @@ export function getApi() {
 
 export function getRouter() {
   return _overrides.router ?? globalThis.router
+}
+
+/** commands.execute/getSuggestions — 外壳命令面板（commands.js）全局。 */
+export function getCommands() {
+  return _overrides.commands ?? globalThis.commands
 }
 
 export function getAppState() {

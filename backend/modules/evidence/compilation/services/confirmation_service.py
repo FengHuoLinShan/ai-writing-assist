@@ -2,18 +2,22 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import uuid
 from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.container import get
 from core.errors import ConflictError
+from core.service_keys import (
+    STORY_SCENE_SOURCE,
+)
+from infrastructure.stable_hash import stable_hash
 from modules.evidence.compilation.contracts import (
     CompileOptions,
     ContextConfirmationContract,
+    ContextConfirmationRequest,
 )
 from modules.evidence.compilation.repositories import ContextConfirmationRepository
 from modules.evidence.compilation.services.compiled_context import CompiledContext
@@ -21,12 +25,14 @@ from modules.evidence.compilation.services.context_compiler import ContextCompil
 from modules.evidence.compilation.services.review_projection import (
     context_review_metadata,
 )
-from modules.story.contracts import (
-    CURRENT_SCENE_MEMORY_CONTRACT_VERSION,
-    SCENE_MEMORY_CONTRACT_V1,
-    scene_memory_dimensions,
-)
 from shared.utils import parse_uuid
+
+
+def _scene_memory_port():
+    # AO-5: story Scene memory 契约经组合根注册的只读 port 解析，
+    # 不再顶层 import modules.story.contracts。
+    return get(STORY_SCENE_SOURCE)
+
 
 _ASSET_TYPE_ALIASES = {
     "outline_scene": "scene",
@@ -85,82 +91,54 @@ class ContextConfirmationService:
     async def confirm_context(
         self,
         db: AsyncSession,
-        *,
-        novel_id: str,
-        action: str,
-        task: str,
-        scope: str,
-        retrieval_purpose: str = "generic_context",
-        chapter_index: int | None = None,
-        visible_until_chapter: int | None = None,
-        visible_until_scene_id: str | None = None,
-        visible_until_offset: int | None = None,
-        scene_id: str | None = None,
-        arc_id: str | None = None,
-        entity_ids: list[str] | None = None,
-        character_ids: list[str] | None = None,
-        thread_ids: list[str] | None = None,
-        location_ids: list[str] | None = None,
-        reveal_mode: str = "author_safe",
-        enable_geo_filter: bool = False,
-        viewpoint_character_id: str | None = None,
-        budget_tokens: int = 4000,
-        context_mode: str = "canonical",
-        content_mode: str = "canonical",
-        include_pending_objects: bool = False,
-        excluded_asset_ids: dict[str, list[str]] | None = None,
-        pinned_refs: list[dict] | None = None,
-        excluded_refs: list[dict] | None = None,
-        user_note: str | None = None,
-        include_world_synopsis: bool = False,
-        selected_world_bible_draft_ids: list[str] | None = None,
-        activation_profile_id: str | None = None,
-        activation_profile_version: int | None = None,
-        expected_context_fingerprint: str | None = None,
+        request: ContextConfirmationRequest,
     ) -> ContextConfirmationContract:
+        action = request.action
         retrieval_purpose = resolve_retrieval_purpose(
             action,
-            retrieval_purpose,
-            reveal_mode=reveal_mode,
+            request.retrieval_purpose,
+            reveal_mode=request.reveal_mode,
         )
         options = CompileOptions(
-            novel_id=novel_id,
-            task=task,
-            scope=scope,
+            novel_id=request.novel_id,
+            task=request.task,
+            scope=request.scope,
             consumer_action=action,
             retrieval_purpose=retrieval_purpose,
-            chapter_index=chapter_index,
-            requested_chapter_index=chapter_index,
-            visible_until_chapter=visible_until_chapter,
-            visible_until_scene_id=visible_until_scene_id,
-            visible_until_offset=visible_until_offset,
-            scene_id=scene_id,
-            arc_id=arc_id,
-            entity_ids=entity_ids,
-            character_ids=character_ids,
-            thread_ids=thread_ids,
-            location_ids=location_ids,
-            reveal_mode=reveal_mode,
-            enable_geo_filter=enable_geo_filter,
-            viewpoint_character_id=viewpoint_character_id,
-            budget_tokens=budget_tokens,
-            context_mode=context_mode,
-            content_mode=content_mode,
-            include_pending_objects=include_pending_objects,
-            excluded_asset_ids=excluded_asset_ids or {},
-            pinned_refs=pinned_refs or [],
-            excluded_refs=excluded_refs or [],
-            user_note=user_note,
-            include_world_synopsis=include_world_synopsis,
-            selected_world_bible_draft_ids=selected_world_bible_draft_ids or [],
-            activation_profile_id=activation_profile_id,
-            activation_profile_version=activation_profile_version,
-            scene_memory_contract_version=CURRENT_SCENE_MEMORY_CONTRACT_VERSION,
+            chapter_index=request.chapter_index,
+            requested_chapter_index=request.chapter_index,
+            visible_until_chapter=request.visible_until_chapter,
+            visible_until_scene_id=request.visible_until_scene_id,
+            visible_until_offset=request.visible_until_offset,
+            scene_id=request.scene_id,
+            arc_id=request.arc_id,
+            entity_ids=request.entity_ids,
+            character_ids=request.character_ids,
+            thread_ids=request.thread_ids,
+            location_ids=request.location_ids,
+            reveal_mode=request.reveal_mode,
+            enable_geo_filter=request.enable_geo_filter,
+            viewpoint_character_id=request.viewpoint_character_id,
+            budget_tokens=request.budget_tokens,
+            context_mode=request.context_mode,
+            content_mode=request.content_mode,
+            include_pending_objects=request.include_pending_objects,
+            excluded_asset_ids=request.excluded_asset_ids or {},
+            pinned_refs=request.pinned_refs or [],
+            excluded_refs=request.excluded_refs or [],
+            user_note=request.user_note,
+            include_world_synopsis=request.include_world_synopsis,
+            selected_world_bible_draft_ids=request.selected_world_bible_draft_ids or [],
+            activation_profile_id=request.activation_profile_id,
+            activation_profile_version=request.activation_profile_version,
+            scene_memory_contract_version=(
+                _scene_memory_port().scene_memory_current_version()
+            ),
         )
         compiled = await self._compiler.compile_with_tiers(
             db,
             options,
-            budget_tokens=budget_tokens,
+            budget_tokens=request.budget_tokens,
         )
         if self._requires_character_profile(options):
             self._require_character_profile(compiled)
@@ -170,8 +148,8 @@ class ContextConfirmationService:
         if compiled.blockers:
             raise ValueError("；".join(compiled.blockers))
         if (
-            expected_context_fingerprint
-            and review["context_fingerprint"] != expected_context_fingerprint
+            request.expected_context_fingerprint
+            and review["context_fingerprint"] != request.expected_context_fingerprint
         ):
             raise ConflictError(
                 "AI 参考资料已变化，请重新审查后再开始任务",
@@ -182,15 +160,15 @@ class ContextConfirmationService:
         warnings = list(compiled.warnings)
         record = await self._repo.create(
             db,
-            novel_id=parse_uuid(novel_id, "novel_id"),
+            novel_id=parse_uuid(request.novel_id, "novel_id"),
             action=action,
-            task=task,
-            scope=scope,
-            context_mode=context_mode,
-            include_pending_objects=include_pending_objects,
-            excluded_asset_ids=excluded_asset_ids or {},
+            task=request.task,
+            scope=request.scope,
+            context_mode=request.context_mode,
+            include_pending_objects=request.include_pending_objects,
+            excluded_asset_ids=request.excluded_asset_ids or {},
             selected_asset_ids=selected_asset_ids,
-            user_note=user_note,
+            user_note=request.user_note,
             compile_options=self._compile_options_json(options),
             warnings=warnings,
         )
@@ -278,7 +256,8 @@ class ContextConfirmationService:
         )
         compile_options = dict(confirmation.compile_options)
         compile_options.setdefault(
-            "scene_memory_contract_version", SCENE_MEMORY_CONTRACT_V1
+            "scene_memory_contract_version",
+            _scene_memory_port().scene_memory_v1_version(),
         )
         options = CompileOptions(**compile_options)
         compiled = await self._compiler.compile_with_tiers(
@@ -532,7 +511,11 @@ class ContextConfirmationService:
                 options.activation_included_target_hashes
             ),
             "compiled_context_fingerprint": options.compiled_context_fingerprint,
-            "scene_memory_contract_version": options.scene_memory_contract_version,
+            "scene_memory_contract_version": (
+                options.scene_memory_contract_version
+                if options.scene_memory_contract_version is not None
+                else _scene_memory_port().scene_memory_current_version()
+            ),
             "capability": options.capability,
             "scope_complete": options.scope_complete,
             "reference_usages": options.reference_usages,
@@ -550,13 +533,7 @@ class ContextConfirmationService:
             }
             for section in compiled.sections
         ]
-        encoded = json.dumps(
-            payload,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        return hashlib.sha256(encoded).hexdigest()
+        return stable_hash(payload, stringify_unknown=False)
 
     @staticmethod
     def _requires_character_profile(options: CompileOptions) -> bool:
@@ -589,11 +566,12 @@ class ContextConfirmationService:
             if isinstance(item, dict) and item.get("dimension")
         }
         metadata = section.retrieval_metadata or {}
+        _port = _scene_memory_port()
         contract_version = int(
-            metadata.get("contract_version") or SCENE_MEMORY_CONTRACT_V1
+            metadata.get("contract_version") or _port.scene_memory_v1_version()
         )
         required_dimensions = metadata.get("required_dimensions") or list(
-            scene_memory_dimensions(contract_version)
+            _port.scene_memory_dimensions(contract_version)
         )
         payload = [
             {
@@ -605,13 +583,7 @@ class ContextConfirmationService:
             }
             for dimension in required_dimensions
         ]
-        encoded = json.dumps(
-            payload,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        return hashlib.sha256(encoded).hexdigest()
+        return stable_hash(payload, stringify_unknown=False)
 
     @staticmethod
     def _require_outline_analysis_range(

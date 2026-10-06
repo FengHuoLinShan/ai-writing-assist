@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.assistant_operation_registry import project_operations
 from core.container import container_scope
 from infrastructure.llm.agent_runtime import AgentRunBudget, run_project_agent
 from infrastructure.llm.schemas import (
@@ -18,7 +19,6 @@ from modules.assistant.operations import (
     validate_agent_answer,
 )
 from modules.assistant.schemas import AssistantAnswer
-from modules.project.assistant_tools import OPERATIONS
 
 
 def test_verified_issue_must_reference_an_existing_domain_finding():
@@ -55,7 +55,7 @@ def test_frozen_operation_scope_rejects_new_tools_and_changed_revisions():
 
     from core.errors import ConflictError
 
-    with container_scope({"assistant.operations": dict(OPERATIONS)}):
+    with container_scope({"assistant.operations": dict(project_operations)}):
         manifest = operation_manifest()
         operations = resolve_operations(manifest)
         ctx = SimpleNamespace(
@@ -73,7 +73,7 @@ def test_frozen_operation_scope_rejects_new_tools_and_changed_revisions():
         )
         with pytest.raises(ModelRetry):
             validate_agent_answer(ctx, answer)
-    changed = {key: replace(op, revision="2") for key, op in OPERATIONS.items()}
+    changed = {key: replace(op, revision="2") for key, op in project_operations.items()}
     with container_scope({"assistant.operations": changed}):
         with pytest.raises(ConflictError):
             resolve_operations(manifest)
@@ -119,7 +119,7 @@ async def test_invalid_domain_arguments_are_corrected_once_inside_sdk_budget():
             )
 
     client, budget = Client(), AgentRunBudget()
-    with container_scope({"assistant.operations": OPERATIONS}):
+    with container_scope({"assistant.operations": project_operations}):
         result = await run_project_agent(
             client,
             LLMCallRequest(messages=[LLMMessage(content="明天提醒我核对年龄")]),

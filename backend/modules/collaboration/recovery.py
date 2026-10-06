@@ -7,6 +7,9 @@ from sqlalchemy import select
 
 from core.container import get
 from core.errors import ConflictError, NotFoundError, ValidationError
+from core.service_keys import (
+    COLLABORATION_RESOURCES,
+)
 from infrastructure.llm.collaboration import content_hash
 from modules.collaboration.cases import require_case
 from modules.collaboration.contracts import (
@@ -17,6 +20,9 @@ from modules.collaboration.contracts import (
     WorkspaceCreate,
     WorkspaceEdit,
 )
+from modules.collaboration.creative_manifest import (
+    collect_creative_manifest,
+)
 from modules.collaboration.models import CreativeMergeReceipt, CreativeWorkspace
 from modules.collaboration.workspaces import (
     create_workspace,
@@ -25,7 +31,6 @@ from modules.collaboration.workspaces import (
     require_workspace,
     workspace_view,
 )
-from modules.evidence.facade import collect_creative_manifest
 
 
 def merge_fields(before, current, proposed):
@@ -78,7 +83,7 @@ async def rebase(db, novel_id, workspace_id, data, *, revert=False):
     baseline = InputManifest.model_validate(revision.manifest_json)
     original_grant = Grant.model_validate(case.grant_json)
     old_sources = {source.key: source for source in baseline.resources}
-    ports = get("collaboration.resources")
+    ports = get(COLLABORATION_RESOURCES)
     inventory = {
         kind: await ports[kind].inventory(db, novel_id)
         for kind in original_grant.read_kinds

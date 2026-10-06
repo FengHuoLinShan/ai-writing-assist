@@ -47,13 +47,56 @@ class _LifespanManager:
             raise self.close_error
 
 
-def _lifespan_settings() -> SimpleNamespace:
+class _MissingVectorManager(_LifespanManager):
+    async def check_vector_extension(self) -> bool:
+        self.events.append("db.check")
+        return False
+
+
+class _FailingVectorManager(_LifespanManager):
+    async def check_vector_extension(self) -> bool:
+        self.events.append("db.check")
+        raise RuntimeError("vector probe failed")
+
+
+def _lifespan_settings(app_env: str = "development") -> SimpleNamespace:
     return SimpleNamespace(
         log_level="INFO",
         app_name="test-app",
         app_version="test-version",
         rag_prewarm_on_startup=False,
+        app_env=app_env,
     )
+
+
+async def _run_lifespan_once(
+    monkeypatch,
+    manager,
+    *,
+    app_env: str = "development",
+) -> None:
+    async def close_container() -> None:
+        manager.events.append("container.close")
+
+    async def close_embedding() -> None:
+        manager.events.append("embedding.close")
+
+    monkeypatch.setattr(app_main, "get_settings", lambda: _lifespan_settings(app_env))
+    monkeypatch.setattr(app_main, "get_manager", lambda: manager)
+    monkeypatch.setattr(app_main, "_configure_application_logging", lambda _level: None)
+    monkeypatch.setattr(
+        app_main,
+        "container",
+        SimpleNamespace(shutdown=close_container),
+    )
+    monkeypatch.setattr(
+        app_main,
+        "BgeEmbeddingClient",
+        SimpleNamespace(close_instance=close_embedding),
+    )
+
+    async with app_main.lifespan(app_main.app):
+        manager.events.append("served")
 
 
 @pytest.mark.asyncio
@@ -63,9 +106,7 @@ async def test_health_check_redacts_database_exception(caplog, monkeypatch) -> N
     class _FailingManager:
         @asynccontextmanager
         async def session(self):
-            raise RuntimeError(
-                f"Authorization: Bearer {secret} api_key={secret}"
-            )
+            raise RuntimeError(f"Authorization: Bearer {secret} api_key={secret}")
             yield
 
     monkeypatch.setattr(app_main, "get_manager", _FailingManager)
@@ -223,6 +264,78 @@ async def test_lifespan_attempts_later_closers_after_cleanup_failure(monkeypatch
     assert events == [
         "db.init",
         "db.check",
+        "container.close",
+        "embedding.close",
+        "db.close",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_lifespan_fails_closed_when_pgvector_missing_in_production(
+    monkeypatch,
+) -> None:
+    events: list[str] = []
+    manager = _MissingVectorManager(events)
+
+    with pytest.raises(RuntimeError, match="pgvector"):
+        await _run_lifespan_once(monkeypatch, manager, app_env="production")
+
+    assert events == ["db.init", "db.check"]
+
+
+@pytest.mark.asyncio
+async def test_lifespan_fails_closed_when_pgvector_probe_errors_in_production(
+    monkeypatch,
+) -> None:
+    events: list[str] = []
+    manager = _FailingVectorManager(events)
+
+    with pytest.raises(RuntimeError, match="pgvector extension check failed") as exc_info:
+        await _run_lifespan_once(monkeypatch, manager, app_env="production")
+
+    assert isinstance(exc_info.value.__cause__, RuntimeError)
+    assert str(exc_info.value.__cause__) == "vector probe failed"
+    assert events == ["db.init", "db.check"]
+
+
+@pytest.mark.asyncio
+async def test_lifespan_warns_and_starts_when_pgvector_missing_outside_production(
+    monkeypatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    events: list[str] = []
+    manager = _MissingVectorManager(events)
+
+    with caplog.at_level(logging.WARNING, logger="app.main"):
+        await _run_lifespan_once(monkeypatch, manager, app_env="development")
+
+    assert "pgvector extension NOT detected" in caplog.text
+    assert events == [
+        "db.init",
+        "db.check",
+        "served",
+        "container.close",
+        "embedding.close",
+        "db.close",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_lifespan_warns_and_starts_when_pgvector_probe_errors_outside_production(
+    monkeypatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    events: list[str] = []
+    manager = _FailingVectorManager(events)
+
+    with caplog.at_level(logging.WARNING, logger="app.main"):
+        await _run_lifespan_once(monkeypatch, manager, app_env="test")
+
+    assert "Could not check pgvector extension" in caplog.text
+    assert events == [
+        "db.init",
+        "db.check",
+        "served",
         "container.close",
         "embedding.close",
         "db.close",

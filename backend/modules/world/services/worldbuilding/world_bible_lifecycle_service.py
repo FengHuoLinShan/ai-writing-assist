@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import uuid
 from collections import deque
@@ -14,6 +13,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, NotFoundError, ValidationError
+from infrastructure.stable_hash import stable_hash
 from modules.world.authority import ResourceRef, resource_revision_digest
 from modules.world.models import (
     CoreEntity,
@@ -1281,15 +1281,7 @@ class WorldBibleLifecycleService:
             ),
             "omissions": [item.model_dump(mode="json") for item in omissions],
         }
-        impact_scope_hash = hashlib.sha256(
-            json.dumps(
-                scope_payload,
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-                default=str,
-            ).encode("utf-8")
-        ).hexdigest()
+        impact_scope_hash = stable_hash(scope_payload)
         return WorldBiblePublishImpactResponse(
             source=WorldBiblePublishImpactSource(
                 draft_id=str(draft.id),
@@ -1553,15 +1545,7 @@ class WorldBibleLifecycleService:
             "template_version": template_version,
             "page_version": page_version,
         }
-        return hashlib.sha256(
-            json.dumps(
-                value,
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-                default=str,
-            ).encode("utf-8")
-        ).hexdigest()
+        return stable_hash(value)
 
     @classmethod
     def baseline_mismatch(
@@ -1598,13 +1582,7 @@ class WorldBibleLifecycleService:
             "template_version": page.template_version,
             "version_number": page.version_number,
         }
-        encoded = json.dumps(
-            payload,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        )
-        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+        return stable_hash(payload, stringify_unknown=False)
 
     @staticmethod
     def projection_source_spans(page: WorldBiblePage) -> list[dict[str, Any]]:

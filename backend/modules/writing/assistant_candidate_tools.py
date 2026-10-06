@@ -4,10 +4,12 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from core.container import get
 from core.errors import ConflictError, NotFoundError
+from core.service_keys import (
+    ASSISTANT_REQUIRE_OPERATION_TARGETS,
+)
 from infrastructure.tasks.facade import get_completed_task_payload
-from modules.assistant.contracts import AssistantOperation
-from modules.assistant.facade import require_operation_targets
 from modules.writing.facade import (
     get_draft,
     get_latest_draft_for_chapter,
@@ -33,6 +35,7 @@ class ReviseCandidate(SelectDraft):
 
 
 async def _revision_preview(db, novel_id, args, *, context=None):
+    require_operation_targets = get(ASSISTANT_REQUIRE_OPERATION_TARGETS)
     await require_operation_targets(
         db, novel_id, context, [("writing_draft", args.draft_id)]
     )
@@ -114,6 +117,7 @@ async def _revision_result(db, novel_id, reference):
 
 
 async def _version_preview(db, novel_id, args, *, context=None, adopt=False):
+    require_operation_targets = get(ASSISTANT_REQUIRE_OPERATION_TARGETS)
     await require_operation_targets(
         db, novel_id, context, [("writing_draft", args.draft_id)]
     )
@@ -215,19 +219,27 @@ async def _restore(db, novel_id, args, preview, *, context=None):
     return await _apply_version(db, novel_id, args, preview, context=context, adopt=False)
 
 
-OPERATIONS = {
-    "writing.targeted_revision": AssistantOperation(
-        "按已选审稿问题返修",
-        ReviseCandidate,
-        _revision_preview,
-        _revise,
-        permission="suggest",
-        read_result=_revision_result,
-    ),
-    "writing.adopt_candidate": AssistantOperation(
-        "采用经过审查的正文候选", SelectDraft, _adopt_preview, _adopt
-    ),
-    "writing.restore_version": AssistantOperation(
-        "从已采用的历史版本继续写", SelectDraft, _version_preview, _restore
-    ),
+# 纯数据声明（AO-5）：不 import assistant 契约；组合根
+# app/assistant_operation_registry 按 AssistantOperation 原构造语义物化。
+OPERATIONS_SPEC = {
+    "writing.targeted_revision": {
+        "label": "按已选审稿问题返修",
+        "schema": ReviseCandidate,
+        "prepare": _revision_preview,
+        "apply": _revise,
+        "permission": "suggest",
+        "read_result": _revision_result,
+    },
+    "writing.adopt_candidate": {
+        "label": "采用经过审查的正文候选",
+        "schema": SelectDraft,
+        "prepare": _adopt_preview,
+        "apply": _adopt,
+    },
+    "writing.restore_version": {
+        "label": "从已采用的历史版本继续写",
+        "schema": SelectDraft,
+        "prepare": _version_preview,
+        "apply": _restore,
+    },
 }

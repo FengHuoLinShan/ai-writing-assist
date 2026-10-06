@@ -445,7 +445,7 @@ async def test_confirmed_issue_repairs_once_while_rejected_critique_is_ignored(
         return None
 
     monkeypatch.setattr(
-        "modules.world.services.worldbuilding.world_generation_center_service.govern_world_output",
+        "modules.world.services.worldbuilding.generation_center.design_iteration.govern_world_output",
         pass_knowledge,
     )
     review_state = {}
@@ -554,7 +554,7 @@ async def test_terminal_blocker_stops_without_a_second_repair(monkeypatch):
         return None
 
     monkeypatch.setattr(
-        "modules.world.services.worldbuilding.world_generation_center_service.govern_world_output",
+        "modules.world.services.worldbuilding.generation_center.design_iteration.govern_world_output",
         pass_knowledge,
     )
     _, _, _, summary, _ = await service._run_verified_world_design_review(
@@ -623,7 +623,7 @@ async def test_final_knowledge_correction_updates_candidate_and_resumes_without_
         return None
 
     monkeypatch.setattr(
-        "modules.world.services.worldbuilding.world_generation_center_service.govern_world_output",
+        "modules.world.services.worldbuilding.generation_center.design_iteration.govern_world_output",
         knowledge,
     )
     parent, data, prepared, candidate, request, output, brief = _review_run_inputs()

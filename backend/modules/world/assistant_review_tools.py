@@ -13,7 +13,7 @@ from modules.assistant.contracts import (
     AssistantOperationContext,
     WorkContext,
 )
-from modules.evidence.contracts import CompileOptions
+from modules.evidence.contracts import CompileOptions, ContextConfirmationRequest
 from modules.evidence.facade import (
     confirm_context,
     prepare_confirmed_ai_action,
@@ -184,10 +184,12 @@ async def _submit(db, novel_id, args, internal_meta=None, *, context=None):
     if not confirmation_id:
         confirmation = await confirm_context(
             db,
-            novel_id=novel_id,
-            action="world.validation.semantic",
-            **preview["context_parameters"],
-            expected_context_fingerprint=preview["context_fingerprint"],
+            ContextConfirmationRequest(
+                novel_id=novel_id,
+                action="world.validation.semantic",
+                **preview["context_parameters"],
+                expected_context_fingerprint=preview["context_fingerprint"],
+            ),
         )
         confirmation_id = confirmation.id
     result = await WorldValidationService().create_run(

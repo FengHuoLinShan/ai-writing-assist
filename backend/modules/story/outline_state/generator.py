@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.token_estimation import estimate_token_count
+from infrastructure.stable_hash import stable_hash
 from modules.evidence.contracts import (
     GroupSource,
     govern_group_output,
@@ -533,14 +534,7 @@ class PlotStructureGenerator:
                 "scenes": context.scenes,
             },
         }
-        encoded = json.dumps(
-            payload,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-            default=str,
-        ).encode("utf-8")
-        return hashlib.sha256(encoded).hexdigest()
+        return stable_hash(payload)
 
     @staticmethod
     def _empty_draft_structure() -> dict[str, Any]:

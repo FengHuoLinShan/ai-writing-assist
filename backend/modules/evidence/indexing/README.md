@@ -205,7 +205,7 @@ from modules.evidence.facade import retrieve, split_text_into_chunks, get_ordere
   - 从绑定 draft/hash chunks 计算版本内对象出场章及最早完整 chunk 的 end offset，不复用当前稿热点 projection
 - `get_index_status(db, novel_id) -> dict`
   - 返回索引统计、配置/实际向量维度、可重试 embedding 数、worker runtime 快照，以及该
-    `novel_id` 的检索熔断状态
+    `novel_id` 的检索熔断状态；聚合与告警编排位于 `index_status.py`，facade 仅委托
 - `prewarm_embedding_runtime() -> dict`
   - 预热本地 embedding worker 并返回维度、耗时和缓存统计
 - `get_ordered_chapter_chunks(db, novel_id, start_chapter, end_chapter=None) -> list[RagChunkContract]`

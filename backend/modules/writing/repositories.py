@@ -41,8 +41,11 @@ class WritingDraftRepository:
             and previous_status not in WORKING_DRAFT_STATUSES
         ):
             return
+        from core.container import get
+        from core.service_keys import (
+            EVOLUTION_RECORD_WRITING_SOURCE_CHANGE,
+        )
         from modules.evidence.facade import mark_asset_context_changed
-        from modules.evolution.facade import record_writing_source_change
 
         await mark_asset_context_changed(
             db,
@@ -51,7 +54,7 @@ class WritingDraftRepository:
             asset_id=str(draft.id),
             reason="source_changed",
         )
-        await record_writing_source_change(
+        await get(EVOLUTION_RECORD_WRITING_SOURCE_CHANGE)(
             db,
             str(draft.novel_id),
             chapter_index=draft.chapter_index,

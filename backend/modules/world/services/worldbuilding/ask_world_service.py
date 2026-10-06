@@ -17,6 +17,7 @@ from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+from infrastructure.stable_hash import stable_hash
 from modules.evidence.contracts import ContextSnapshotRequest, VisibilityContextContract
 from modules.world.llm_schemas import GeneratedAskWorldOutput
 from modules.world.schemas import (
@@ -159,9 +160,7 @@ class AskWorldService:
                 provider=provider,
                 snapshot_id=snapshot_id,
             )
-            response = response.model_copy(
-                update={"knowledge_review": knowledge_review}
-            )
+            response = response.model_copy(update={"knowledge_review": knowledge_review})
         except Exception as exc:
             if snapshot_id:
                 await self._fail_snapshot(db, data.novel_id, snapshot_id, exc)
@@ -487,16 +486,12 @@ class AskWorldService:
             if isinstance(citation, dict):
                 page_id = citation.get("page_id")
                 target_ref = citation.get("target_ref") or {}
-                target_id = (
-                    target_ref.get("id") if isinstance(target_ref, dict) else None
-                )
+                target_id = target_ref.get("id") if isinstance(target_ref, dict) else None
                 chapter_index = citation.get("chapter_index")
             else:
                 page_id = getattr(citation, "page_id", None)
                 target_ref = getattr(citation, "target_ref", None) or {}
-                target_id = (
-                    target_ref.get("id") if isinstance(target_ref, dict) else None
-                )
+                target_id = target_ref.get("id") if isinstance(target_ref, dict) else None
                 chapter_index = getattr(citation, "chapter_index", None)
             kind = str(item["kind"])
             refs.append(
@@ -604,8 +599,7 @@ class AskWorldService:
                     key for claim in generated.claims for key in claim.citation_keys
                 ),
                 repair_note=(
-                    "上一轮引用了不存在的 citation_key。"
-                    "只修正引用，不新增主张："
+                    "上一轮引用了不存在的 citation_key。只修正引用，不新增主张："
                 ),
                 error_message="Ask World returned unknown citation keys",
             )
@@ -866,20 +860,16 @@ class AskWorldService:
         uncertainty: str,
         citations: list[AskWorldCitation],
     ) -> str:
-        return hashlib.sha256(
-            json.dumps(
-                {
-                    "question": question,
-                    "answer": answer,
-                    "claims": [item.model_dump(mode="json") for item in claims],
-                    "uncertainty": uncertainty,
-                    "citations": [item.model_dump(mode="json") for item in citations],
-                },
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode("utf-8")
-        ).hexdigest()
+        return stable_hash(
+            {
+                "question": question,
+                "answer": answer,
+                "claims": [item.model_dump(mode="json") for item in claims],
+                "uncertainty": uncertainty,
+                "citations": [item.model_dump(mode="json") for item in citations],
+            },
+            stringify_unknown=False,
+        )
 
 
 __all__ = ["AskWorldService"]

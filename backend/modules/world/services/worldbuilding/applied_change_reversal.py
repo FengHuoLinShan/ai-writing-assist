@@ -23,63 +23,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.stable_hash import stable_hash
 from modules.world.models import Character, CoreEntity, EntityRelation
-from shared.utils import parse_uuid
 
-ENTITY_STATE_KEYS = (
-    "name",
-    "entity_type",
-    "status",
-    "summary",
-    "public_info",
-    "hidden_truth",
-    "content_json",
-    "importance",
-    "importance_level",
-    "reveal_level",
+# AO-5 / ADR-0031: 基线快照映射上移 world services 共享根，这里保留兼容再出口。
+from modules.world.services.entity_baselines import (  # noqa: F401,E402
+    CHARACTER_STATE_KEYS,
+    ENTITY_STATE_KEYS,
+    RELATION_STATE_KEYS,
+    character_state,
+    entity_state,
+    relation_state,
 )
-RELATION_STATE_KEYS = (
-    "status",
-    "relation_type",
-    "relation_kind",
-    "description",
-    "quote",
-    "review_meta",
-)
-CHARACTER_STATE_KEYS = (
-    "name",
-    "status",
-    "role",
-    "appearance",
-    "personality",
-    "desire",
-    "fear",
-    "weakness",
-    "current_goal",
-    "current_state",
-    "stance",
-    "voice_style",
-    "relationship_summary",
-    "secret",
-    "meta",
-)
+from shared.utils import parse_uuid
 
 # 这些 operation 表示对象由本次写入新建，回滚走软废弃而不是恢复字段。
 CREATE_OPERATIONS = frozenset({"create", "relation_create"})
 _RELATION_KINDS = frozenset({"entity_relation", "relation"})
 _CHARACTER_KINDS = frozenset({"character"})
 _ENTITY_KINDS = frozenset({"core_entity", "entity"})
-
-
-def entity_state(entity) -> dict:
-    return {key: copy.deepcopy(getattr(entity, key)) for key in ENTITY_STATE_KEYS}
-
-
-def relation_state(relation) -> dict:
-    return {key: copy.deepcopy(getattr(relation, key)) for key in RELATION_STATE_KEYS}
-
-
-def character_state(character) -> dict:
-    return {key: copy.deepcopy(getattr(character, key)) for key in CHARACTER_STATE_KEYS}
 
 
 @dataclass

@@ -8,7 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from modules.evidence.compilation.contracts import CompileOptions
-from modules.writing.contracts import SourceRangeRefContract
+from modules.evidence.source_ref_contracts import SourceRangeRefContract
 from shared.target_ref import normalize_target_ref
 
 
