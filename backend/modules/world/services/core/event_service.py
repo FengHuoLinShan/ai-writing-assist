@@ -132,17 +132,12 @@ class EventService(
         """覆写 base delete：向 repo.delete 传 novel_id 做纵深防御。
 
         base `CrudService.delete` 调用 `repo.delete(db, rid)` 时不带 novel_id；
-        Event 模型无 status 列，会走硬删除分支，这里保持同一语义（含 status
-        软删兼容分支）并把 novel_id 下推到 where 条件。
+        Event 模型无 status 列（只能硬删除），这里把 novel_id 下推到 where 条件。
         """
         rid = parse_uuid(id, self.id_param)
         nid = parse_uuid(novel_id, "novel_id")
         event = await self.repo.get(db, rid)
         self._assert_found_in_novel(event, id, nid)
-        if hasattr(event, "status"):
-            setattr(event, "status", "deprecated")
-            await db.flush()
-            return
         ok = await self.repo.delete(db, rid, novel_id=nid)
         if not ok:
             self._raise_404(id)

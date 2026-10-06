@@ -73,7 +73,9 @@ function safeHref(value) {
   const href = String(value || "").trim()
   if (!href || /[\u0000-\u001f\u007f]/.test(href)) return ""
   if (/^(https?:\/\/|mailto:)/i.test(href)) return href
-  // 无 scheme（首个 : 不出现在 / ? # 之前）才按当前 origin 相对解析；其余一律拒绝。
+  // 无 scheme（首个 : 不出现在 / ? # 之前）且非协议相对（// 与 \ 前缀会被
+  // URL 解析为跨源）才按当前 origin 相对解析；其余一律拒绝。
+  if (/^[\\/]{2}/.test(href)) return ""
   return /^[^:]*[/?#]/.test(href) ? href : ""
 }
 

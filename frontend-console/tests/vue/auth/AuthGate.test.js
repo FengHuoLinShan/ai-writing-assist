@@ -125,6 +125,19 @@ describe("AuthGate", () => {
     hostile.unmount(); absolute.unmount()
   })
 
+  it("rejects protocol-relative consent links that would navigate cross-origin", async () => {
+    await mountLogin()
+    for (const href of ["//evil.example.com/terms", "/\\evil.example.com/terms", "\\\\evil.example.com/terms"]) {
+      const wrapper = mount(AuthGate, {
+        props: { config: config({ terms_url: href, privacy_url: "/legal/privacy" }) },
+      })
+      const links = wrapper.findAll(".consent a")
+      expect(links.at(0).attributes("href")).toBe(undefined)
+      expect(links.at(1).attributes("href")).toBe("/legal/privacy")
+      wrapper.unmount()
+    }
+  })
+
   it("requires policy consent and completes email verification", async () => {
     const wrapper = await mountLogin()
     const inputs = wrapper.findAll("input")
