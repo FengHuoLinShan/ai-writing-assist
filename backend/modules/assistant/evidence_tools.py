@@ -143,10 +143,13 @@ class AssistantToolContext:
             item = self.evidence_refs[key]
             if item.get("source_guard"):
                 from core.container import get
+                from core.service_keys import (
+                    ASSISTANT_OPERATIONS,
+                )
                 from modules.assistant.contracts import AssistantOperationContext
 
                 guard = item["source_guard"]
-                operation = get("assistant.operations").get(guard["capability"])
+                operation = get(ASSISTANT_OPERATIONS).get(guard["capability"])
                 if operation is None or operation.permission != "suggest":
                     raise ConflictError("复核来源协议已变化")
                 preview = await operation.prepare(

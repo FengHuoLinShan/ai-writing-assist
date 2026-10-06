@@ -22,8 +22,11 @@ logger = logging.getLogger(__name__)
 def _scene_memory_port():
     # AO-5: story Scene memory 契约经组合根注册的只读 port 解析。
     from core.container import get
+    from core.service_keys import (
+        STORY_SCENE_SOURCE,
+    )
 
-    return get("story.scene_source")
+    return get(STORY_SCENE_SOURCE)
 
 
 def _scene_memory_dimensions(version: int | None) -> tuple[str, ...]:

@@ -3,11 +3,14 @@
 from uuid import UUID
 
 from core.container import get
+from core.service_keys import (
+    ACCOUNT_PROJECT_OWNER_REF,
+)
 from modules.account.facade import get_account_llm_settings_contract
 
 
 async def inspect(db, novel_id, focus, excluded):
-    project = await get("account.project_owner_ref")(db, novel_id)
+    project = await get(ACCOUNT_PROJECT_OWNER_REF)(db, novel_id)
     settings = await get_account_llm_settings_contract(
         db, owner_id=UUID(str(project.owner_id))
     )

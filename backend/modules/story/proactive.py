@@ -24,9 +24,12 @@ from modules.story.service import StoryService
 
 async def changed(db, novel_id, scene_id, *, asset_type="scene_story_assets"):
     from core.container import get
+    from core.service_keys import (
+        SOURCE_CHANGED,
+    )
 
     try:
-        observer = get("source.changed")
+        observer = get(SOURCE_CHANGED)
     except KeyError:
         return
     await observer(db, str(novel_id), asset_type, str(scene_id))

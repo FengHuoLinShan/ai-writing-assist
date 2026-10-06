@@ -57,8 +57,11 @@ class InteractionStoryContextService:
 
         if public_demo_source:
             from core.container import get
+            from core.service_keys import (
+                INTERACTION_VALIDATE_PUBLIC_DEMO_SOURCE_CONTEXT,
+            )
 
-            await get("interaction.validate_public_demo_source_context")(
+            await get(INTERACTION_VALIDATE_PUBLIC_DEMO_SOURCE_CONTEXT)(
                 db,
                 source_novel_id=source_novel_id,
                 source_revision_id=source_revision_id,

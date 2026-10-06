@@ -3,22 +3,30 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from typing import Any
 
 from sqlalchemy import select
 
+from core.container import ServiceKey
 from core.errors import ConflictError, ValidationError
+from core.service_keys import (
+    WORLD_WORLDBUILDING_ADOPTION_PACKAGE_SERVICE,
+    WORLD_WORLDBUILDING_FOCUSED_ADOPTION_AUTHORIZE,
+    WORLD_WORLDBUILDING_FOCUSED_ADOPTION_CHECK_SOURCES,
+    WORLD_WORLDBUILDING_FOCUSED_ADOPTION_FENCE,
+)
 from infrastructure.stable_hash import stable_hash
 from modules.world.models import CoreEntity, EntityRelation
 from modules.world.services.entity_baselines import entity_state, relation_state
 from shared.utils import parse_uuid
 
 
-def _worldbuilding_port(name: str):
+def _worldbuilding_port(key: ServiceKey[Any] | str):
     # AO-5 / ADR-0031: worldbuilding 的聚焦采用/采用包能力以组合根注册的
     # DI port 交给 core，core 不顶层 import worldbuilding 实现。
     from core.container import get
 
-    return get(name)
+    return get(key)
 
 RESOLUTION_POLICY = "world.review_resolution.v1"
 
@@ -176,7 +184,7 @@ async def candidates(db, novel_id, *, workflow_id=None, keys=None):
 async def authorize_resolution(
     db, *, novel_id, task_id, source_manifest, chapter_from, chapter_to, items
 ):
-    authorize = _worldbuilding_port("world.worldbuilding.focused_adoption.authorize")
+    authorize = _worldbuilding_port(WORLD_WORLDBUILDING_FOCUSED_ADOPTION_AUTHORIZE)
     roots = {
         row["entity_id"]: {
             "key": f"entity:{row['entity_id']}",
@@ -210,7 +218,7 @@ async def authorize_resolution(
 async def validate_resolution_item(service, db, novel_id, item, snapshot):
     """Only a versioned resolution grant can promote an existing candidate."""
     check_sources = _worldbuilding_port(
-        "world.worldbuilding.focused_adoption.check_sources"
+        WORLD_WORLDBUILDING_FOCUSED_ADOPTION_CHECK_SOURCES
     )
     frozen = snapshot.get("resolution_scope", {}).get(item.item_key)
     if not frozen:
@@ -305,7 +313,7 @@ async def prepare_manual_decision(db, *, novel_id, task_id, rows):
     )
 
     adoption_package_service = _worldbuilding_port(
-        "world.worldbuilding.adoption_package_service"
+        WORLD_WORLDBUILDING_ADOPTION_PACKAGE_SERVICE
     )
 
     current = {
@@ -407,7 +415,9 @@ async def prepare_manual_decision(db, *, novel_id, task_id, rows):
 async def apply_manual_decision(db, *, novel_id, package):
     from modules.world.schemas import WorldAdoptionPackageApplyRequest
 
-    service = _worldbuilding_port("world.worldbuilding.adoption_package_service")()
+    service = _worldbuilding_port(
+        WORLD_WORLDBUILDING_ADOPTION_PACKAGE_SERVICE
+    )()
     result = await service.apply(
         db,
         novel_id,
@@ -424,7 +434,7 @@ async def resolve_redundant_alias(db, *, request, candidate_key):
     from modules.world.services.core.entity_alias_service import EntityAliasService
     from modules.world.services.core.entity_revision_service import EntityRevisionService
 
-    fence = _worldbuilding_port("world.worldbuilding.focused_adoption.fence")
+    fence = _worldbuilding_port(WORLD_WORLDBUILDING_FOCUSED_ADOPTION_FENCE)
     snapshot = await fence(db, request)
     if snapshot.get("policy") != RESOLUTION_POLICY:
         raise ValidationError("原授权不包含候选整理")

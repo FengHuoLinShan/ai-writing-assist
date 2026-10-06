@@ -98,6 +98,9 @@ async def purge_projects_for_owner(
 ) -> int:
     """Permanently remove every owner project after account purge becomes due."""
     from core.container import get
+    from core.service_keys import (
+        WORLD_ENQUEUE_MAP_ATLAS_CLEANUP,
+    )
 
     project_ids = list(
         (
@@ -113,7 +116,7 @@ async def purge_projects_for_owner(
                 novel_id=str(project_id),
                 transition_reason="account_permanent_delete",
             )
-        await get("world.enqueue_map_atlas_cleanup")(
+        await get(WORLD_ENQUEUE_MAP_ATLAS_CLEANUP)(
             db,
             [str(project_id) for project_id in project_ids],
         )

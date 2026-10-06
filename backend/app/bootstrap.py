@@ -6,8 +6,97 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
-from core.container import get as _get
+from core.container import ServiceKey
+from core.container import ensure_registered, get as _get
 from core.container import register as _register
+from core.service_keys import (
+    ALL_SERVICE_KEYS,
+    CONDITIONALLY_REGISTERED,
+    ACCOUNT_PROJECT_CONTEXT,
+    ACCOUNT_PROJECT_IDS_FOR_OWNER,
+    ACCOUNT_PROJECT_OWNER_REF,
+    ACCOUNT_PROJECT_PURGE_FOR_OWNER,
+    ASSISTANT_FORECAST_CHOICES,
+    ASSISTANT_FORECAST_INSTRUCTIONS,
+    ASSISTANT_FORECAST_PERSONAS,
+    ASSISTANT_FORECAST_SOURCES,
+    ASSISTANT_INSPECT_DISCUSSION,
+    ASSISTANT_MARK_EDITORIAL_READY,
+    ASSISTANT_MARK_TASK_LOCAL_APPROVED,
+    ASSISTANT_OPERATIONS,
+    ASSISTANT_PROACTIVE_FINDINGS,
+    ASSISTANT_PROACTIVE_SUBMITTERS,
+    ASSISTANT_REQUIRE_OPERATION_TARGETS,
+    ASSISTANT_RUN_DISCUSSION_SCOPE,
+    ASSISTANT_SESSION_SERVICE,
+    ASSISTANT_SUBMIT_COMMENT_PROPOSALS,
+    COLLABORATION_CHANGED_CASES,
+    COLLABORATION_COLLECT_FORECAST_UNDERSTANDING,
+    COLLABORATION_CREATIVE_RESOURCE_PORT,
+    COLLABORATION_READ_PROJECTED_RUN,
+    COLLABORATION_RESOURCES,
+    COLLABORATION_RESOURCE_SNAPSHOT,
+    COLLABORATION_STOP_UNAVAILABLE_RUNS,
+    COLLABORATION_SUBMIT_CHANGED_CASE,
+    CONTEXT_COMPILE,
+    CONTEXT_GENERATION_BACKGROUND,
+    EVOLUTION_RECORD_WRITING_SOURCE_CHANGE,
+    EVOLUTION_REQUIRE_CURRENT_WORLD_CANDIDATE,
+    IMPORTS_GET_ACTIVE_ORGANIZATION,
+    IMPORTS_GET_REVIEW_DISPOSITIONS,
+    INTERACTION_COUNT_SOURCE_REFERENCES,
+    INTERACTION_MARK_TASK_LOCAL_APPROVED,
+    INTERACTION_READ_CONTINUITY_REVIEW,
+    INTERACTION_VALIDATE_PUBLIC_DEMO_SOURCE_CONTEXT,
+    MEMORY_SERVICE,
+    OUTLINE_ARC_SERVICE,
+    OUTLINE_FORESHADOWING_SERVICE,
+    OUTLINE_GENERATE_STRUCTURE,
+    OUTLINE_REVEAL_SERVICE,
+    OUTLINE_SCENE_SERVICE,
+    OUTLINE_THREAD_SERVICE,
+    PROJECT_DEDUP_STORY,
+    PROJECT_DEDUP_WORLD,
+    PROJECT_REQUIRE_ACTIVE,
+    PROJECT_WORKSPACE_STORY_STATS,
+    PROJECT_WORKSPACE_WORLD_STATS,
+    PROJECT_WORKSPACE_WRITING_STATS,
+    RAG_GET_ENTITY_ACTIVITY_STATS,
+    RAG_GET_ORDERED_CHAPTER_CHUNKS,
+    RAG_INDEX_CHAPTER,
+    RAG_INDEX_CHAPTER_FOR_TASK,
+    RAG_REQUEST_ENTITY_ACTIVITY_REANNOTATION,
+    SOURCE_CHANGED,
+    STORY_GET_SCENE_CONTRACT,
+    STORY_SCENE_SOURCE,
+    WORLD_ASSISTANT_CHAT,
+    WORLD_ASSISTANT_CHAT_INTENT,
+    WORLD_ASSISTANT_OUTCOME_STATES,
+    WORLD_ASSISTANT_REQUIRE_CHECKPOINT,
+    WORLD_ASSISTANT_REQUIRE_SOURCE,
+    WORLD_CREATE_CHARACTER,
+    WORLD_ENQUEUE_MAP_ATLAS_CLEANUP,
+    WORLD_GET_CHARACTER_ID_BY_WORLD_ENTITY,
+    WORLD_LIST_ADOPTED_MAP_CONTINUITY_FACTS,
+    WORLD_LIST_CHARACTERS,
+    WORLD_LIST_ENTITIES,
+    WORLD_LIST_ENTITY_TERMS,
+    WORLD_MAP_CAPABILITIES,
+    WORLD_REVIEW_TEAM_STRESS,
+    WORLD_RUN_ALIAS_RELATION_EXTRACTION,
+    WORLD_RUN_SCENE_ENTITY_EXTRACTION,
+    WORLD_WORLDBUILDING_ADOPTION_PACKAGE_SERVICE,
+    WORLD_WORLDBUILDING_FOCUSED_ADOPTION_AUTHORIZE,
+    WORLD_WORLDBUILDING_FOCUSED_ADOPTION_CHECK_SOURCES,
+    WORLD_WORLDBUILDING_FOCUSED_ADOPTION_FENCE,
+    WORLD_WORLDBUILDING_MARK_SYNOPSIS_SOURCE_CHANGED,
+    WORLD_WORLDBUILDING_REQUIRE_LEGACY_CANON_WRITE_ALLOWED,
+    WRITING_GET_LATEST_DRAFT_FOR_CHAPTER,
+    WRITING_LIST_CHAPTER_INDICES,
+    WRITING_LIST_EFFECTIVE_CHAPTER_INDICES,
+    WRITING_LIST_LATEST_DRAFTS_FOR_CHAPTERS,
+    WRITING_MANUSCRIPT_SOURCE,
+)
 from modules.evidence.facade import compile_structure_context as _ctx_compile
 from modules.evidence.facade import (
     compile_generation_background as _ctx_generation_background,
@@ -193,7 +282,7 @@ def _register_orm_models() -> None:
     import modules.world.models  # noqa: F401, I001
 
 
-def _container_services() -> Iterable[tuple[str, Any]]:
+def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
     """Build app/worker process-singleton service registrations."""
     scene_extraction = _SceneExtractSvc()
     memory = MemoryService()
@@ -213,7 +302,7 @@ def _container_services() -> Iterable[tuple[str, Any]]:
 
     return (
         (
-            "assistant.forecast.instructions",
+            ASSISTANT_FORECAST_INSTRUCTIONS,
             {
                 **writing_forecast.INSTRUCTIONS,
                 **story_forecast.INSTRUCTIONS,
@@ -224,7 +313,7 @@ def _container_services() -> Iterable[tuple[str, Any]]:
             },
         ),
         (
-            "assistant.forecast.personas",
+            ASSISTANT_FORECAST_PERSONAS,
             {
                 "rp": {
                     "authorize": interaction_forecast.authorize,
@@ -233,14 +322,14 @@ def _container_services() -> Iterable[tuple[str, Any]]:
             },
         ),
         (
-            "assistant.forecast.choices",
+            ASSISTANT_FORECAST_CHOICES,
             {
                 "world": world_forecast.prepare_direction,
                 "evidence": evidence_forecast.prepare_direction,
             },
         ),
         (
-            "assistant.forecast.sources",
+            ASSISTANT_FORECAST_SOURCES,
             {
                 "writing": writing_forecast.inspect,
                 "story": story_forecast.inspect,
@@ -253,7 +342,7 @@ def _container_services() -> Iterable[tuple[str, Any]]:
             },
         ),
         (
-            "collaboration.resources",
+            COLLABORATION_RESOURCES,
             {
                 "writing_draft": _writing_creative_port(),
                 "world_bible_draft": _world_creative_port(),
@@ -261,7 +350,7 @@ def _container_services() -> Iterable[tuple[str, Any]]:
             },
         ),
         (
-            "assistant.operations",
+            ASSISTANT_OPERATIONS,
             {
                 **_WORLD_OPERATIONS,
                 **project_dedup_operations,
@@ -282,9 +371,9 @@ def _container_services() -> Iterable[tuple[str, Any]]:
                 **_WORLD_REVIEW_OPERATIONS,
             },
         ),
-        ("source.changed", _assistant_mark_changed),
+        (SOURCE_CHANGED, _assistant_mark_changed),
         (
-            "assistant.proactive.submitters",
+            ASSISTANT_PROACTIVE_SUBMITTERS,
             {
                 "writing": _writing_proactive_review,
                 "world": _world_proactive_review,
@@ -293,154 +382,154 @@ def _container_services() -> Iterable[tuple[str, Any]]:
                 "story": _story_proactive_review,
             },
         ),
-        ("assistant.proactive.findings", {"world_validation": _world_review_findings}),
-        ("assistant.session_service", _AssistantSessions()),
+        (ASSISTANT_PROACTIVE_FINDINGS, {"world_validation": _world_review_findings}),
+        (ASSISTANT_SESSION_SERVICE, _AssistantSessions()),
         # AO-5: assistant forecast 消费 collaboration 理解包经此 DI port，
         # assistant→collaboration 保持零顶层导入（collaboration→assistant
         # 为该对的既有顶层方向）。
         (
-            "collaboration.collect_forecast_understanding",
+            COLLABORATION_COLLECT_FORECAST_UNDERSTANDING,
             _collab_collect_forecast_understanding,
         ),
         # AO-5 第三批：assistant 消费 collaboration/world/imports/interaction
         # facade 能力经这些 DI 键，四个反方向函数内导入清零
         # （collaboration→assistant / world→assistant / interaction→assistant
         # 为各对既有方向，见 ADR-0031）。
-        ("collaboration.changed_cases", _collab_changed_cases),
-        ("collaboration.submit_changed_case", _collab_submit_changed_case),
-        ("collaboration.stop_unavailable_runs", _collab_stop_unavailable_runs),
-        ("collaboration.read_projected_run", _collab_read_projected_run),
-        ("world.map_capabilities", _world_map_capabilities),
-        ("world.review_team_stress", _world_review_team_stress),
-        ("imports.get_active_organization", _imports_get_active_organization),
-        ("interaction.read_continuity_review", _interaction_read_continuity_review),
+        (COLLABORATION_CHANGED_CASES, _collab_changed_cases),
+        (COLLABORATION_SUBMIT_CHANGED_CASE, _collab_submit_changed_case),
+        (COLLABORATION_STOP_UNAVAILABLE_RUNS, _collab_stop_unavailable_runs),
+        (COLLABORATION_READ_PROJECTED_RUN, _collab_read_projected_run),
+        (WORLD_MAP_CAPABILITIES, _world_map_capabilities),
+        (WORLD_REVIEW_TEAM_STRESS, _world_review_team_stress),
+        (IMPORTS_GET_ACTIVE_ORGANIZATION, _imports_get_active_organization),
+        (INTERACTION_READ_CONTINUITY_REVIEW, _interaction_read_continuity_review),
         # AO-5 第三批：world/writing/project/evidence 消费相邻高层模块的
         # 单点 facade 能力经这些 DI 键，七个剩余函数内反方向清零
         # （evolution→world / evolution→writing / story→project /
         # interaction→evidence / world→writing / imports→world 为各对
         # 裁定方向，见 ADR-0031）。
         (
-            "evolution.require_current_world_candidate",
+            EVOLUTION_REQUIRE_CURRENT_WORLD_CANDIDATE,
             _evolution_require_current_world_candidate,
         ),
         (
-            "evolution.record_writing_source_change",
+            EVOLUTION_RECORD_WRITING_SOURCE_CHANGE,
             _evolution_record_writing_source_change,
         ),
-        ("imports.get_review_dispositions", _imports_get_review_dispositions),
+        (IMPORTS_GET_REVIEW_DISPOSITIONS, _imports_get_review_dispositions),
         (
-            "interaction.validate_public_demo_source_context",
+            INTERACTION_VALIDATE_PUBLIC_DEMO_SOURCE_CONTEXT,
             _interaction_validate_demo_context,
         ),
-        ("story.get_scene_contract", _story_get_scene_contract),
+        (STORY_GET_SCENE_CONTRACT, _story_get_scene_contract),
         (
-            "world.list_adopted_map_continuity_facts",
+            WORLD_LIST_ADOPTED_MAP_CONTINUITY_FACTS,
             _world_list_map_continuity_facts,
         ),
         # AO-5: local_agent 设备确认回写 interaction 经此 DI port，反向顶层导入清零。
         (
-            "interaction.mark_task_local_approved",
+            INTERACTION_MARK_TASK_LOCAL_APPROVED,
             _interaction_mark_task_local_approved,
         ),
         # AO-5 第二批：local_agent(L1)/evidence(L2)/writing(L2) 消费 assistant
         # facade 能力经这些 DI 键，assistant 反方向顶层/函数内导入清零。
         (
-            "assistant.mark_task_local_approved",
+            ASSISTANT_MARK_TASK_LOCAL_APPROVED,
             _assistant_mark_task_local_approved,
         ),
-        ("assistant.inspect_discussion", _assistant_inspect_discussion),
+        (ASSISTANT_INSPECT_DISCUSSION, _assistant_inspect_discussion),
         (
-            "assistant.submit_comment_proposals",
+            ASSISTANT_SUBMIT_COMMENT_PROPOSALS,
             _assistant_submit_comment_proposals,
         ),
-        ("assistant.mark_editorial_ready", _assistant_mark_editorial_ready),
+        (ASSISTANT_MARK_EDITORIAL_READY, _assistant_mark_editorial_ready),
         # AO-5: evidence 编译与 world 地图经此只读 port 消费 story 场景事实，
         # world→story / evidence→story 的反向顶层导入清零。
-        ("story.scene_source", _StorySceneSource()),
+        (STORY_SCENE_SOURCE, _StorySceneSource()),
         # AO-5: evidence 编译经此只读 port 消费 writing 正文稿区间/清单，
         # evidence→writing 的反向顶层导入清零（ADR-0004：writing 为原文事实源）。
-        ("writing.manuscript_source", _WritingManuscriptSource()),
+        (WRITING_MANUSCRIPT_SOURCE, _WritingManuscriptSource()),
         # AO-5: world core 经这些 DI port 消费 worldbuilding 能力（校验门、
         # Synopsis 失效钩子、聚焦采用授权、采用包引擎），core→worldbuilding
         # 导入语句清零；接线只在组合根。
         (
-            "world.worldbuilding.require_legacy_canon_write_allowed",
+            WORLD_WORLDBUILDING_REQUIRE_LEGACY_CANON_WRITE_ALLOWED,
             _WorldValidationService().require_legacy_canon_write_allowed,
         ),
         (
-            "world.worldbuilding.mark_synopsis_source_changed",
+            WORLD_WORLDBUILDING_MARK_SYNOPSIS_SOURCE_CHANGED,
             _world_mark_synopsis_source_changed,
         ),
         (
-            "world.worldbuilding.focused_adoption.authorize",
+            WORLD_WORLDBUILDING_FOCUSED_ADOPTION_AUTHORIZE,
             _world_focused_authorize,
         ),
         (
-            "world.worldbuilding.focused_adoption.check_sources",
+            WORLD_WORLDBUILDING_FOCUSED_ADOPTION_CHECK_SOURCES,
             _world_focused_check_sources,
         ),
-        ("world.worldbuilding.focused_adoption.fence", _world_focused_fence),
+        (WORLD_WORLDBUILDING_FOCUSED_ADOPTION_FENCE, _world_focused_fence),
         (
-            "world.worldbuilding.adoption_package_service",
+            WORLD_WORLDBUILDING_ADOPTION_PACKAGE_SERVICE,
             _WorldAdoptionPackageService,
         ),
-        ("assistant.run_discussion_scope", _assistant_run_discussion_scope),
+        (ASSISTANT_RUN_DISCUSSION_SCOPE, _assistant_run_discussion_scope),
         (
-            "assistant.require_operation_targets",
+            ASSISTANT_REQUIRE_OPERATION_TARGETS,
             _assistant_require_operation_targets,
         ),
-        ("world.assistant.require_source", _world_assistant.require_source),
-        ("world.assistant.require_checkpoint", _world_assistant.require_checkpoint),
-        ("world.assistant.outcome_states", _world_assistant.outcome_states),
-        ("world.assistant.chat", _world_assistant.chat),
-        ("world.assistant.chat_intent", _world_assistant.chat_intent),
-        ("world.list_characters", _world_list_characters),
-        ("world.list_entity_terms", _world_list_entity_terms),
-        ("world.list_entities", _world_list_entities),
-        ("world.run_scene_entity_extraction", scene_extraction.extract_by_scenes),
+        (WORLD_ASSISTANT_REQUIRE_SOURCE, _world_assistant.require_source),
+        (WORLD_ASSISTANT_REQUIRE_CHECKPOINT, _world_assistant.require_checkpoint),
+        (WORLD_ASSISTANT_OUTCOME_STATES, _world_assistant.outcome_states),
+        (WORLD_ASSISTANT_CHAT, _world_assistant.chat),
+        (WORLD_ASSISTANT_CHAT_INTENT, _world_assistant.chat_intent),
+        (WORLD_LIST_CHARACTERS, _world_list_characters),
+        (WORLD_LIST_ENTITY_TERMS, _world_list_entity_terms),
+        (WORLD_LIST_ENTITIES, _world_list_entities),
+        (WORLD_RUN_SCENE_ENTITY_EXTRACTION, scene_extraction.extract_by_scenes),
         (
-            "world.run_alias_relation_extraction",
+            WORLD_RUN_ALIAS_RELATION_EXTRACTION,
             scene_extraction,
         ),
-        ("world.create_character", _world_create_char),
-        ("world.get_character_id_by_world_entity", _world_get_char_id),
-        ("rag.index_chapter", _rag_index),
-        ("rag.index_chapter_for_task", rag_indexing.index_chapter_for_task),
-        ("rag.get_ordered_chapter_chunks", _rag_get_chunks),
-        ("rag.get_entity_activity_stats", _rag_get_entity_activity_stats),
+        (WORLD_CREATE_CHARACTER, _world_create_char),
+        (WORLD_GET_CHARACTER_ID_BY_WORLD_ENTITY, _world_get_char_id),
+        (RAG_INDEX_CHAPTER, _rag_index),
+        (RAG_INDEX_CHAPTER_FOR_TASK, rag_indexing.index_chapter_for_task),
+        (RAG_GET_ORDERED_CHAPTER_CHUNKS, _rag_get_chunks),
+        (RAG_GET_ENTITY_ACTIVITY_STATS, _rag_get_entity_activity_stats),
         (
-            "rag.request_entity_activity_reannotation",
+            RAG_REQUEST_ENTITY_ACTIVITY_REANNOTATION,
             _rag_request_entity_reannotation,
         ),
-        ("writing.list_chapter_indices", _writing_list_indices),
-        ("writing.list_effective_chapter_indices", _writing_list_effective_indices),
-        ("writing.get_latest_draft_for_chapter", _writing_get_draft),
-        ("writing.list_latest_drafts_for_chapters", _writing_list_latest_drafts),
-        ("outline.generate_structure", PlotStructureGenerator().generate),
-        ("outline.arc_service", OutlineArcService()),
-        ("outline.thread_service", PlotThreadService()),
-        ("outline.scene_service", SceneService()),
-        ("outline.foreshadowing_service", ForeshadowingPlanService()),
-        ("outline.reveal_service", RevealPlanService()),
-        ("context.compile", _ctx_compile),
-        ("context.generation_background", _ctx_generation_background),
-        ("memory.service", memory),
-        ("project.require_active", _project_require_active),
-        ("interaction.count_source_references", _interaction_source_reference_count),
-        ("world.enqueue_map_atlas_cleanup", _map_atlas_cleanup),
+        (WRITING_LIST_CHAPTER_INDICES, _writing_list_indices),
+        (WRITING_LIST_EFFECTIVE_CHAPTER_INDICES, _writing_list_effective_indices),
+        (WRITING_GET_LATEST_DRAFT_FOR_CHAPTER, _writing_get_draft),
+        (WRITING_LIST_LATEST_DRAFTS_FOR_CHAPTERS, _writing_list_latest_drafts),
+        (OUTLINE_GENERATE_STRUCTURE, PlotStructureGenerator().generate),
+        (OUTLINE_ARC_SERVICE, OutlineArcService()),
+        (OUTLINE_THREAD_SERVICE, PlotThreadService()),
+        (OUTLINE_SCENE_SERVICE, SceneService()),
+        (OUTLINE_FORESHADOWING_SERVICE, ForeshadowingPlanService()),
+        (OUTLINE_REVEAL_SERVICE, RevealPlanService()),
+        (CONTEXT_COMPILE, _ctx_compile),
+        (CONTEXT_GENERATION_BACKGROUND, _ctx_generation_background),
+        (MEMORY_SERVICE, memory),
+        (PROJECT_REQUIRE_ACTIVE, _project_require_active),
+        (INTERACTION_COUNT_SOURCE_REFERENCES, _interaction_source_reference_count),
+        (WORLD_ENQUEUE_MAP_ATLAS_CLEANUP, _map_atlas_cleanup),
         # AO-4: project reads L2 aggregates through these provider ports.
-        ("project.workspace.writing_stats", _WritingWorkspaceStatsAdapter()),
-        ("project.workspace.world_stats", _WorldWorkspaceStatsAdapter()),
-        ("project.workspace.story_stats", _StoryWorkspaceStatsAdapter()),
-        ("project.dedup.world", _WorldDedupAdapter()),
-        ("project.dedup.story", _StoryDedupAdapter()),
+        (PROJECT_WORKSPACE_WRITING_STATS, _WritingWorkspaceStatsAdapter()),
+        (PROJECT_WORKSPACE_WORLD_STATS, _WorldWorkspaceStatsAdapter()),
+        (PROJECT_WORKSPACE_STORY_STATS, _StoryWorkspaceStatsAdapter()),
+        (PROJECT_DEDUP_WORLD, _WorldDedupAdapter()),
+        (PROJECT_DEDUP_STORY, _StoryDedupAdapter()),
         # AO-4: account resolves project owners through this project-owned port.
-        ("account.project_owner_ref", _project_owner_ref),
+        (ACCOUNT_PROJECT_OWNER_REF, _project_owner_ref),
         # AO-5 第三批：account 生命周期/公共 demo 主体消费 project 能力经这些
         # project 门面 DI 键，account→project 函数内导入清零。
-        ("account.project_context", _project_context),
-        ("account.project_ids_for_owner", _project_list_ids_for_owner),
-        ("account.project_purge_for_owner", _project_purge_for_owner),
+        (ACCOUNT_PROJECT_CONTEXT, _project_context),
+        (ACCOUNT_PROJECT_IDS_FOR_OWNER, _project_list_ids_for_owner),
+        (ACCOUNT_PROJECT_PURGE_FOR_OWNER, _project_purge_for_owner),
     )
 
 
@@ -463,6 +552,11 @@ def register_container_services(ignore_existing: bool = False) -> None:
             else:
                 continue
         _register(name, service)
+    # AO-10 启动校验：登记表声明的键必须全部注册（条件注册键按
+    # core.service_keys.CONDITIONALLY_REGISTERED 豁免），防拼写/漏注册。
+    ensure_registered(
+        key for key in ALL_SERVICE_KEYS if key.name not in CONDITIONALLY_REGISTERED
+    )
 
 
 def _register_collaboration_resource_spi(ignore_existing: bool) -> None:
@@ -478,8 +572,8 @@ def _register_collaboration_resource_spi(ignore_existing: bool) -> None:
     )
 
     for name, service in (
-        ("collaboration.ResourceSnapshot", ResourceSnapshot),
-        ("collaboration.CreativeResourcePort", CreativeResourcePort),
+        (COLLABORATION_RESOURCE_SNAPSHOT, ResourceSnapshot),
+        (COLLABORATION_CREATIVE_RESOURCE_PORT, CreativeResourcePort),
     ):
         if ignore_existing:
             try:

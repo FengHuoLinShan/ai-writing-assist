@@ -280,3 +280,115 @@ async def test_shutdown_attempts_all_services_and_raises_aggregate_error():
     assert len(exc_info.value.exceptions) == 2
     with pytest.raises(KeyError):
         get("first")
+
+
+# --- AO-10: ServiceKey 类型化键 ---------------------------------------------
+
+
+def test_servicekey_typed_get_returns_registered_instance():
+    from core.container import ServiceKey
+
+    class Repo:
+        pass
+
+    key: ServiceKey[Repo] = ServiceKey("test_typed_svc")
+    instance = Repo()
+    register(key, instance)
+
+    assert get(key) is instance
+
+
+def test_string_key_get_keeps_legacy_behavior():
+    from core.container import ServiceKey
+
+    register("test_legacy_svc", "value")
+    # 字符串键为过渡期兼容路径：与 ServiceKey 命中同一键槽。
+    assert get("test_legacy_svc") == "value"
+    assert get(ServiceKey("test_legacy_svc")) == "value"
+
+
+def test_servicekey_name_is_the_storage_contract():
+    from core.container import ServiceKey
+
+    key = ServiceKey("test_contract_svc")
+    assert str(key) == "test_contract_svc"
+    assert key.name == "test_contract_svc"
+    register("test_contract_svc", 1)
+    with pytest.raises(ValueError, match="already registered"):
+        register(key, 2)
+
+
+def test_servicekey_is_frozen():
+    from dataclasses import FrozenInstanceError
+
+    from core.container import ServiceKey
+
+    key = ServiceKey("test_frozen_svc")
+    with pytest.raises(FrozenInstanceError):
+        key.name = "other"
+
+
+def test_container_scope_accepts_servicekey_overrides():
+    from core.container import ServiceKey
+
+    original = object()
+    scoped = object()
+    temporary = object()
+    key = ServiceKey("test_scope_svc")
+    register("test_scope_svc", original)
+
+    with container_scope({key: scoped, ServiceKey("test_scope_temp"): temporary}):
+        assert get(key) is scoped
+        assert get("test_scope_temp") is temporary
+
+    assert get("test_scope_svc") is original
+    with pytest.raises(KeyError):
+        get("test_scope_temp")
+
+
+def test_ensure_registered_raises_for_missing_keys_and_passes_when_registered():
+    from core.container import ServiceKey, ensure_registered
+
+    present = ServiceKey("test_ensure_present")
+    missing = ServiceKey("test_ensure_missing")
+    another_missing = ServiceKey("test_ensure_missing_2")
+    register(present, 1)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        ensure_registered([present, missing, another_missing])
+    message = str(exc_info.value)
+    assert "test_ensure_missing" in message
+    assert "test_ensure_missing_2" in message
+    assert "test_ensure_present" not in message
+
+    register(missing, 2)
+    register(another_missing, 3)
+    ensure_registered([present, missing, another_missing])
+
+
+def test_bootstrap_declared_keys_match_registered_services():
+    from app.bootstrap import register_container_services
+    from core import container
+    from core.service_keys import ALL_SERVICE_KEYS
+
+    register_container_services()
+
+    declared = {key.name for key in ALL_SERVICE_KEYS}
+    assert len(declared) == len(ALL_SERVICE_KEYS), "登记表键名不得重复"
+    for key in ALL_SERVICE_KEYS:
+        get(key)  # 缺失即 KeyError
+    assert set(container._container) == declared, (
+        "容器与登记表漂移：新增键须登记常量，废弃键须同步清理"
+    )
+
+
+def test_bootstrap_validation_accepts_declared_keys_after_reassembly():
+    from app.bootstrap import register_container_services
+    from core.service_keys import ALL_SERVICE_KEYS, CONDITIONALLY_REGISTERED
+
+    register_container_services(ignore_existing=True)
+    # 装配完成点校验通过（缺键会在 register_container_services 内 raise）。
+    required = [
+        key for key in ALL_SERVICE_KEYS if key.name not in CONDITIONALLY_REGISTERED
+    ]
+    assert required  # 登记表非空

@@ -18,6 +18,10 @@ from core.logging_context import (
     identifier_for_log,
     novel_id_for_log,
 )
+from core.service_keys import (
+    WORLD_WORLDBUILDING_MARK_SYNOPSIS_SOURCE_CHANGED,
+    WORLD_WORLDBUILDING_REQUIRE_LEGACY_CANON_WRITE_ALLOWED,
+)
 from modules.world.models import EntityRelation
 from modules.world.relation_schemas import (
     WorldRelationMembershipBatchRequest,
@@ -1719,7 +1723,7 @@ class EntityRelationService(
         relation_id,
     ) -> None:
         mark_synopsis_source_changed = get(
-            "world.worldbuilding.mark_synopsis_source_changed"
+            WORLD_WORLDBUILDING_MARK_SYNOPSIS_SOURCE_CHANGED
         )
         await mark_synopsis_source_changed(
             db,
@@ -1901,7 +1905,7 @@ class EntityRelationService(
         db: AsyncSession, novel_id: str
     ) -> None:
         require_legacy_canon_write_allowed = get(
-            "world.worldbuilding.require_legacy_canon_write_allowed"
+            WORLD_WORLDBUILDING_REQUIRE_LEGACY_CANON_WRITE_ALLOWED
         )
         await require_legacy_canon_write_allowed(
             db, novel_id, next_action="create_world_adoption_package"

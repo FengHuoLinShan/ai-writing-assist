@@ -7,6 +7,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from core.container import get
 from core.errors import ConflictError
+from core.service_keys import (
+    ASSISTANT_REQUIRE_OPERATION_TARGETS,
+)
 from modules.assistant.contracts import AssistantOperation
 from modules.world.map_structure_schemas import (
     MapDocument,
@@ -41,7 +44,7 @@ class EditFeatureLabel(BaseModel):
 
 
 async def _document(db, novel_id, node_id, context):
-    require_operation_targets = get("assistant.require_operation_targets")
+    require_operation_targets = get(ASSISTANT_REQUIRE_OPERATION_TARGETS)
     await require_operation_targets(
         db, novel_id, context, [("map_atlas_node", node_id)], aggregate=True
     )
@@ -143,7 +146,7 @@ async def _save_document(db, novel_id, args, preview, *, context=None):
 
 
 async def _node_preview(db, novel_id, args, *, context=None):
-    require_operation_targets = get("assistant.require_operation_targets")
+    require_operation_targets = get(ASSISTANT_REQUIRE_OPERATION_TARGETS)
     await require_operation_targets(
         db,
         novel_id,
@@ -179,7 +182,7 @@ async def _node_apply(db, novel_id, args, preview, *, context=None):
 
 
 async def _review_preview(db, novel_id, args, *, context=None):
-    require_operation_targets = get("assistant.require_operation_targets")
+    require_operation_targets = get(ASSISTANT_REQUIRE_OPERATION_TARGETS)
     await require_operation_targets(
         db, novel_id, context, [("map_atlas_node", args.node_id)], aggregate=True
     )

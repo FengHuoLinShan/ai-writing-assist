@@ -9,6 +9,9 @@ from uuid import UUID, uuid5
 
 from core.container import get
 from core.errors import ConflictError, DomainError, NotFoundError, ValidationError
+from core.service_keys import (
+    COLLABORATION_RESOURCES,
+)
 from infrastructure.llm.collaboration import content_hash
 from modules.collaboration.contracts import (
     CognitionSelection,
@@ -58,7 +61,7 @@ async def collect_forecast_understanding(
         else set()
     )
     rows = await read_cognition_records(db, novel_id)
-    ports, sources, omissions = get("collaboration.resources"), {}, []
+    ports, sources, omissions = get(COLLABORATION_RESOURCES), {}, []
     chosen = set()
     for row in rows[:200]:
         reason = None
@@ -185,7 +188,7 @@ async def collect_creative_manifest(
         selected -= denied
     resources = []
     declared = {ref.key for ref in grant.resources}
-    ports = get("collaboration.resources")
+    ports = get(COLLABORATION_RESOURCES)
     for kind in sorted(set(grant.read_kinds)):
         if kind not in ports:
             raise ValidationError("此资料暂不支持试改", code="RESOURCE_UNSUPPORTED")
@@ -554,7 +557,7 @@ async def inspect_cognition_freshness(db, novel_id, row):
 
     if row.author_status == "withdrawn":
         return "withdrawn"
-    ports = get("collaboration.resources")
+    ports = get(COLLABORATION_RESOURCES)
     sources = []
     try:
         await revalidate_cognition_refs(db, novel_id, [cognition_record_ref(row)])

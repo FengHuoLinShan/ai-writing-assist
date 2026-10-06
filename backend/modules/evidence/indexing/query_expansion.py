@@ -15,6 +15,9 @@ from collections.abc import Awaitable, Callable
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.container import get as _container_get
+from core.service_keys import (
+    WORLD_LIST_ENTITY_TERMS,
+)
 from infrastructure.llm.redaction import redact_diagnostic
 
 logger = logging.getLogger(__name__)
@@ -53,7 +56,7 @@ async def _load_project_terms(
     novel_id_str = str(novel_id)
 
     try:
-        _list_entity_terms = _container_get("world.list_entity_terms")
+        _list_entity_terms = _container_get(WORLD_LIST_ENTITY_TERMS)
 
         entity_terms = await _list_entity_terms(db, novel_id_str)
         for item in entity_terms:

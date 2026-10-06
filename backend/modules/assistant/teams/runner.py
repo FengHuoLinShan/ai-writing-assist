@@ -475,6 +475,9 @@ async def run_team(service, db, task, run_id, payload, deps, profile) -> Assista
         )
     elif frozen["id"] == "world_stress":
         from core.container import get
+        from core.service_keys import (
+            WORLD_REVIEW_TEAM_STRESS,
+        )
 
         source_keys = {
             key for item in items if item.output for key in item.output["source_keys"]
@@ -483,7 +486,7 @@ async def run_team(service, db, task, run_id, payload, deps, profile) -> Assista
             key: value for key, value in deps.evidence_refs.items() if key in source_keys
         }
         with workflow_budget(deps.budget, checkpoint, future_requests=6):
-            reference = await get("world.review_team_stress")(
+            reference = await get(WORLD_REVIEW_TEAM_STRESS)(
                 db,
                 novel_id=deps.novel_id,
                 run_id=run_id,

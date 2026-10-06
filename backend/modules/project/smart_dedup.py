@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.container import get
 from core.errors import ConflictError, ValidationError
+from core.service_keys import PROJECT_DEDUP_STORY, PROJECT_DEDUP_WORLD
 from infrastructure.llm.redaction import redact_diagnostic
 from modules.project.contracts import (
     StoryDedupSuggestionProvider,
@@ -30,8 +31,8 @@ OUTLINE_ASSET_TYPES = {
 # Bootstrap-registered domain dedup providers (AO-4): this project-owned
 # workbench orchestrates world/story dedup through these ports instead of
 # importing world/story facades directly.
-WORLD_DEDUP_PROVIDER_KEY = "project.dedup.world"
-STORY_DEDUP_PROVIDER_KEY = "project.dedup.story"
+WORLD_DEDUP_PROVIDER_KEY = PROJECT_DEDUP_WORLD
+STORY_DEDUP_PROVIDER_KEY = PROJECT_DEDUP_STORY
 
 logger = logging.getLogger(__name__)
 

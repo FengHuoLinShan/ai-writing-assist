@@ -10,6 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.container import get
 from core.errors import ValidationError
+from core.service_keys import (
+    PROJECT_WORKSPACE_STORY_STATS,
+    PROJECT_WORKSPACE_WORLD_STATS,
+    PROJECT_WORKSPACE_WRITING_STATS,
+)
 from modules.project.contracts import (
     WorkspaceAttentionItem,
     WorkspaceChapterDraft,
@@ -43,9 +48,9 @@ AuthorTaskSummaryReader = Callable[..., Awaitable[WorkspaceAuthorTasksSummaryRes
 
 # Bootstrap-registered domain providers (AO-4): project reads L2 aggregates
 # through these ports instead of importing world/story/writing directly.
-WRITING_STATS_PROVIDER_KEY = "project.workspace.writing_stats"
-WORLD_STATS_PROVIDER_KEY = "project.workspace.world_stats"
-STORY_STATS_PROVIDER_KEY = "project.workspace.story_stats"
+WRITING_STATS_PROVIDER_KEY = PROJECT_WORKSPACE_WRITING_STATS
+WORLD_STATS_PROVIDER_KEY = PROJECT_WORKSPACE_WORLD_STATS
+STORY_STATS_PROVIDER_KEY = PROJECT_WORKSPACE_STORY_STATS
 
 
 def _provider_method(key: str, method: str) -> Callable[..., Awaitable[Any]]:

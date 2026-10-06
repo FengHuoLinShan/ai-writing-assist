@@ -392,6 +392,9 @@ async def _existing_atlas_summary(db, novel_id: str) -> list[dict[str, Any]]:
 
 async def _compile_context(db, run: MapAtlasRun) -> dict[str, Any]:
     from core.container import get
+    from core.service_keys import (
+        CONTEXT_GENERATION_BACKGROUND,
+    )
     from modules.world.facade import list_world_bible_working_page_ids
 
     working_ids = (
@@ -399,7 +402,7 @@ async def _compile_context(db, run: MapAtlasRun) -> dict[str, Any]:
         if run.include_working_drafts
         else []
     )
-    provider = get("context.generation_background")
+    provider = get(CONTEXT_GENERATION_BACKGROUND)
     return await provider(
         db,
         novel_id=str(run.novel_id),

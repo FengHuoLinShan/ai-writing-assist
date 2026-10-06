@@ -12,6 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.container import get
 from core.errors import ConflictError
+from core.service_keys import (
+    STORY_SCENE_SOURCE,
+)
 from modules.evidence.compilation.contracts import (
     CompileOptions,
     ContextConfirmationContract,
@@ -29,7 +32,7 @@ from shared.utils import parse_uuid
 def _scene_memory_port():
     # AO-5: story Scene memory 契约经组合根注册的只读 port 解析，
     # 不再顶层 import modules.story.contracts。
-    return get("story.scene_source")
+    return get(STORY_SCENE_SOURCE)
 
 _ASSET_TYPE_ALIASES = {
     "outline_scene": "scene",

@@ -14,8 +14,11 @@ def _story_scene_port():
     # AO-5 / ADR-0031: world 地图只读消费 story 场景事实经组合根注册的 port，
     # world→story 顶层导入清零（story→world 为裁定的 owner 方向）。
     from core.container import get
+    from core.service_keys import (
+        STORY_SCENE_SOURCE,
+    )
 
-    return get("story.scene_source")
+    return get(STORY_SCENE_SOURCE)
 
 
 async def get_scene_context(db, novel_id, node_id, scene_id):

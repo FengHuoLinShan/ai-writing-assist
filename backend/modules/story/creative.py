@@ -7,6 +7,10 @@ from sqlalchemy import select
 
 from core.container import get
 from core.errors import ConflictError, NotFoundError, ValidationError
+from core.service_keys import (
+    COLLABORATION_CREATIVE_RESOURCE_PORT,
+    COLLABORATION_RESOURCE_SNAPSHOT,
+)
 from infrastructure.llm.collaboration import content_hash
 from modules.story.assistant_information_tools import KINDS, EditInformationPlan
 from modules.story.assistant_information_tools import (
@@ -19,7 +23,7 @@ from modules.story.outline_state.schemas import SceneUpdate
 
 
 def _snapshot(row, kind):
-    resource_snapshot = get("collaboration.ResourceSnapshot")
+    resource_snapshot = get(COLLABORATION_RESOURCE_SNAPSHOT)
     allowed = (
         set(SceneUpdate.model_fields)
         - {
@@ -143,7 +147,7 @@ def port_for(kind):
     """构造指定资源种类的 collaboration 资源端口（SPI 类型经容器解析）。"""
     from functools import partial
 
-    creative_resource_port = get("collaboration.CreativeResourcePort")
+    creative_resource_port = get(COLLABORATION_CREATIVE_RESOURCE_PORT)
     return creative_resource_port(
         partial(inventory, kind=kind), read, validate, apply
     )

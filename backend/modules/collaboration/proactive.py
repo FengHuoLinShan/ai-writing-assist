@@ -8,6 +8,9 @@ from sqlalchemy import select
 from core.config import get_settings
 from core.container import get
 from core.errors import ConflictError, DomainError
+from core.service_keys import (
+    COLLABORATION_RESOURCES,
+)
 from infrastructure.llm.collaboration import content_hash
 from modules.collaboration.cases import require_case
 from modules.collaboration.contracts import Grant, ResourceRef, RunCreate
@@ -32,7 +35,7 @@ async def changed_cases(db, novel_id, case_ids, kind, identity):
             )
         )
     ).all()
-    ports = get("collaboration.resources")
+    ports = get(COLLABORATION_RESOURCES)
     if kind not in ports:
         return []
     current = (

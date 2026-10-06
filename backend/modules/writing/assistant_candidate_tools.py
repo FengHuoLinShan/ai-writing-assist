@@ -6,6 +6,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from core.container import get
 from core.errors import ConflictError, NotFoundError
+from core.service_keys import (
+    ASSISTANT_REQUIRE_OPERATION_TARGETS,
+)
 from infrastructure.tasks.facade import get_completed_task_payload
 from modules.writing.facade import (
     get_draft,
@@ -32,7 +35,7 @@ class ReviseCandidate(SelectDraft):
 
 
 async def _revision_preview(db, novel_id, args, *, context=None):
-    require_operation_targets = get("assistant.require_operation_targets")
+    require_operation_targets = get(ASSISTANT_REQUIRE_OPERATION_TARGETS)
     await require_operation_targets(
         db, novel_id, context, [("writing_draft", args.draft_id)]
     )
@@ -114,7 +117,7 @@ async def _revision_result(db, novel_id, reference):
 
 
 async def _version_preview(db, novel_id, args, *, context=None, adopt=False):
-    require_operation_targets = get("assistant.require_operation_targets")
+    require_operation_targets = get(ASSISTANT_REQUIRE_OPERATION_TARGETS)
     await require_operation_targets(
         db, novel_id, context, [("writing_draft", args.draft_id)]
     )

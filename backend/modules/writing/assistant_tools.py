@@ -9,6 +9,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from core.container import get
 from core.errors import ConflictError, NotFoundError, ValidationError
+from core.service_keys import (
+    ASSISTANT_REQUIRE_OPERATION_TARGETS,
+)
 from modules.writing.facade import (
     get_draft,
     get_latest_draft_for_chapter,
@@ -204,7 +207,7 @@ async def _team_review_context(db, novel_id, args, context):
         _requires_confirmed_context,
     )
 
-    require_operation_targets = get("assistant.require_operation_targets")
+    require_operation_targets = get(ASSISTANT_REQUIRE_OPERATION_TARGETS)
     await require_operation_targets(
         db, novel_id, context, [("writing_draft", value) for value in args.draft_ids]
     )
@@ -360,7 +363,7 @@ async def schedule_proactive_review(db, novel_id, change, internal_meta):
 
 
 async def _prepare(db, novel_id, args: ReviseChapter, *, context=None):
-    require_operation_targets = get("assistant.require_operation_targets")
+    require_operation_targets = get(ASSISTANT_REQUIRE_OPERATION_TARGETS)
     await require_operation_targets(
         db, novel_id, context, [("writing_draft", args.draft_id)]
     )

@@ -141,6 +141,9 @@ async def recheck_notice(
 async def capabilities(db: DbSession, novel_id: UUID):
     await require_active_project(db, str(novel_id))
     from core.container import get
+    from core.service_keys import (
+        WORLD_MAP_CAPABILITIES,
+    )
     from infrastructure.llm.native_search import native_search_status
     from infrastructure.llm.web_search import search_availability
     from modules.project.contracts import ProjectLLMConfigurationError
@@ -218,7 +221,7 @@ async def capabilities(db: DbSession, novel_id: UUID):
             "destination": "model_settings",
         },
         "web_search": await search_availability(),
-        "map": await get("world.map_capabilities")(db, str(novel_id)),
+        "map": await get(WORLD_MAP_CAPABILITIES)(db, str(novel_id)),
         "native_search": native_search_status(
             str(llm.provider_id.value or ""), str(llm.model.value or "")
         ),

@@ -20,8 +20,11 @@ async def _default_get_arc_by_chapter(
     chapter: int,
 ) -> Any:
     from core.container import get
+    from core.service_keys import (
+        OUTLINE_ARC_SERVICE,
+    )
 
-    arc_svc = get("outline.arc_service")
+    arc_svc = get(OUTLINE_ARC_SERVICE)
     return await arc_svc.get_by_chapter(db, novel_id, chapter)
 
 

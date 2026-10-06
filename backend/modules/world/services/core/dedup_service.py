@@ -13,6 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.container import get
 from core.errors import NotFoundError
 from core.errors import ValidationError as DomainValidationError
+from core.service_keys import (
+    WORLD_WORLDBUILDING_REQUIRE_LEGACY_CANON_WRITE_ALLOWED,
+)
 from infrastructure.llm.redaction import redact_diagnostic
 from modules.world.models import CoreEntity
 from modules.world.repositories import (
@@ -313,7 +316,7 @@ class EntityDedupService:
             raise NotFoundError(f"Target entity {target_entity_id} not found")
 
         require_legacy_canon_write_allowed = get(
-            "world.worldbuilding.require_legacy_canon_write_allowed"
+            WORLD_WORLDBUILDING_REQUIRE_LEGACY_CANON_WRITE_ALLOWED
         )
         await require_legacy_canon_write_allowed(
             db, novel_id, next_action="create_world_adoption_package"
@@ -513,7 +516,7 @@ class EntityDedupService:
         # 无匹配 → 直接提升为 canonical
         if not suggestions:
             require_legacy_canon_write_allowed = get(
-                "world.worldbuilding.require_legacy_canon_write_allowed"
+                WORLD_WORLDBUILDING_REQUIRE_LEGACY_CANON_WRITE_ALLOWED
             )
             await require_legacy_canon_write_allowed(
                 db, novel_id, next_action="create_world_adoption_package"

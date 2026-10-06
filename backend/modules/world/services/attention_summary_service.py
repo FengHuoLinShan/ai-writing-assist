@@ -9,6 +9,9 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.container import get
+from core.service_keys import (
+    IMPORTS_GET_REVIEW_DISPOSITIONS,
+)
 from modules.world.contracts import (
     WorldAttentionSummaryContract,
     WorldAuthorAttentionItemContract,
@@ -366,7 +369,7 @@ class WorldAttentionSummaryService:
         from modules.world.services.core.review_resolution import _alias_key
 
         resolved = await (
-            self._resolution_reader or get("imports.get_review_dispositions")
+            self._resolution_reader or get(IMPORTS_GET_REVIEW_DISPOSITIONS)
         )(db, novel_id)
         imported = set(resolved["imported_keys"])
         dispositions = resolved["outcomes"]

@@ -11,15 +11,21 @@ from modules.evidence.source_ref_contracts import SourceRangeRefContract
 def _story_scene_port():
     # AO-5: story 场景事实经组合根注册的只读 port 解析。
     from core.container import get
+    from core.service_keys import (
+        STORY_SCENE_SOURCE,
+    )
 
-    return get("story.scene_source")
+    return get(STORY_SCENE_SOURCE)
 
 
 def _manuscript_port():
     # AO-5: writing 正文稿读取经组合根注册的只读 port 解析。
     from core.container import get
+    from core.service_keys import (
+        WRITING_MANUSCRIPT_SOURCE,
+    )
 
-    return get("writing.manuscript_source")
+    return get(WRITING_MANUSCRIPT_SOURCE)
 
 
 async def read_sources(

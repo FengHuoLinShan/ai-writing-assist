@@ -21,6 +21,11 @@ from core.logging_context import (
     identifier_for_log,
     novel_id_for_log,
 )
+from core.service_keys import (
+    RAG_GET_ENTITY_ACTIVITY_STATS,
+    WORLD_WORLDBUILDING_MARK_SYNOPSIS_SOURCE_CHANGED,
+    WORLD_WORLDBUILDING_REQUIRE_LEGACY_CANON_WRITE_ALLOWED,
+)
 from modules.world.repositories import CoreEntityRepository
 from modules.world.schemas import (
     CoreEntityCreate,
@@ -111,7 +116,7 @@ class WorldEntityService(
 
         if data.status == "canonical" and not _validation_prechecked:
             require_legacy_canon_write_allowed = _container_get(
-                "world.worldbuilding.require_legacy_canon_write_allowed"
+                WORLD_WORLDBUILDING_REQUIRE_LEGACY_CANON_WRITE_ALLOWED
             )
             await require_legacy_canon_write_allowed(
                 db, novel_id, next_action="create_world_adoption_package"
@@ -172,7 +177,7 @@ class WorldEntityService(
 
                 await CharacterService().ensure_for_core_entity(db, obj)
             mark_synopsis_source_changed = _container_get(
-                "world.worldbuilding.mark_synopsis_source_changed"
+                WORLD_WORLDBUILDING_MARK_SYNOPSIS_SOURCE_CHANGED
             )
             await mark_synopsis_source_changed(
                 db,
@@ -283,7 +288,7 @@ class WorldEntityService(
         )
         activity = None
         try:
-            activity = await _container_get("rag.get_entity_activity_stats")(
+            activity = await _container_get(RAG_GET_ENTITY_ACTIVITY_STATS)(
                 db,
                 novel_id,
             )
@@ -512,7 +517,7 @@ class WorldEntityService(
 
         if existing.status == "canonical" and not _validation_prechecked:
             require_legacy_canon_write_allowed = _container_get(
-                "world.worldbuilding.require_legacy_canon_write_allowed"
+                WORLD_WORLDBUILDING_REQUIRE_LEGACY_CANON_WRITE_ALLOWED
             )
             await require_legacy_canon_write_allowed(
                 db, novel_id, next_action="create_world_adoption_package"
@@ -684,7 +689,7 @@ class WorldEntityService(
             )
         if existing.status == "canonical" or updated.status == "canonical":
             mark_synopsis_source_changed = _container_get(
-                "world.worldbuilding.mark_synopsis_source_changed"
+                WORLD_WORLDBUILDING_MARK_SYNOPSIS_SOURCE_CHANGED
             )
             await mark_synopsis_source_changed(
                 db,
@@ -834,7 +839,7 @@ class WorldEntityService(
         await db.flush()
 
         mark_synopsis_source_changed = _container_get(
-            "world.worldbuilding.mark_synopsis_source_changed"
+            WORLD_WORLDBUILDING_MARK_SYNOPSIS_SOURCE_CHANGED
         )
         await mark_synopsis_source_changed(
             db,
@@ -894,7 +899,7 @@ class WorldEntityService(
 
         if not _validation_prechecked:
             require_legacy_canon_write_allowed = _container_get(
-                "world.worldbuilding.require_legacy_canon_write_allowed"
+                WORLD_WORLDBUILDING_REQUIRE_LEGACY_CANON_WRITE_ALLOWED
             )
             await require_legacy_canon_write_allowed(
                 db, novel_id, next_action="create_world_adoption_package"
@@ -1006,7 +1011,7 @@ class WorldEntityService(
             )
 
         mark_synopsis_source_changed = _container_get(
-            "world.worldbuilding.mark_synopsis_source_changed"
+            WORLD_WORLDBUILDING_MARK_SYNOPSIS_SOURCE_CHANGED
         )
         await mark_synopsis_source_changed(
             db,

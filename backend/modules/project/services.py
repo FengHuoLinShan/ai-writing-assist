@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.container import get
 from core.errors import ConflictError, DomainError, NotFoundError, ValidationError
 from core.execution_context import is_system_execution
+from core.service_keys import PROJECT_WORKSPACE_WRITING_STATS
 from infrastructure.llm.egress import validate_user_llm_base_url
 from infrastructure.llm.profiles import (
     LLM_API_KEY_FIELD,
@@ -538,8 +539,11 @@ class ProjectService:
             await self._map_atlas_cleanup_enqueuer(db, novel_ids)
             return
         from core.container import get
+        from core.service_keys import (
+            WORLD_ENQUEUE_MAP_ATLAS_CLEANUP,
+        )
 
-        cleanup = get("world.enqueue_map_atlas_cleanup")
+        cleanup = get(WORLD_ENQUEUE_MAP_ATLAS_CLEANUP)
         await cleanup(db, novel_ids)
 
     async def _require_no_source_references(
@@ -550,9 +554,12 @@ class ProjectService:
         counter = self._source_reference_counter
         if counter is None:
             from core.container import get
+            from core.service_keys import (
+                INTERACTION_COUNT_SOURCE_REFERENCES,
+            )
 
             try:
-                counter = get("interaction.count_source_references")
+                counter = get(INTERACTION_COUNT_SOURCE_REFERENCES)
             except KeyError:
                 return
         for project_id in project_ids:
@@ -842,13 +849,13 @@ class ProjectService:
         """Resolve per-novel stats via DI when no provider was injected."""
         if self._writing_stats_provider is not None:
             return self._writing_stats_provider(db, novel_id)
-        return get("project.workspace.writing_stats").get_project_stats(db, novel_id)
+        return get(PROJECT_WORKSPACE_WRITING_STATS).get_project_stats(db, novel_id)
 
     def _writing_stats_batch(self, db: AsyncSession, novel_ids: list[str]):
         """Resolve batch stats via DI when no provider was injected."""
         if self._writing_stats_batch_provider is not None:
             return self._writing_stats_batch_provider(db, novel_ids)
-        return get("project.workspace.writing_stats").list_project_stats(
+        return get(PROJECT_WORKSPACE_WRITING_STATS).list_project_stats(
             db,
             novel_ids,
         )

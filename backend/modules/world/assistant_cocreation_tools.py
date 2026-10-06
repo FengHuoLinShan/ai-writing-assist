@@ -6,6 +6,10 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from core.container import get
 from core.errors import ConflictError
+from core.service_keys import (
+    ASSISTANT_RUN_DISCUSSION_SCOPE,
+    ASSISTANT_SESSION_SERVICE,
+)
 from modules.assistant.contracts import (
     AssistantOperation,
     WorldCocreationCheckpointAdvanceRequest,
@@ -48,7 +52,7 @@ class SaveCheckpoint(BaseModel):
 
 
 async def _preview(db, novel_id, args, *, context=None):
-    run_discussion_scope = get("assistant.run_discussion_scope")
+    run_discussion_scope = get(ASSISTANT_RUN_DISCUSSION_SCOPE)
     scope = await run_discussion_scope(db, novel_id, context.run_id, context.owner_id)
     if scope["checkpoint_id"] in {
         value.rsplit(":", 1)[-1] for value in context.work.excluded_targets
@@ -119,7 +123,7 @@ async def _preview(db, novel_id, args, *, context=None):
 async def _save(db, novel_id, args, preview, *, context=None):
     # Lock the pointer before saving an artifact; drift cannot leave a new orphan
     # checkpoint or overwrite another window's successfully advanced discussion.
-    run_discussion_scope = get("assistant.run_discussion_scope")
+    run_discussion_scope = get(ASSISTANT_RUN_DISCUSSION_SCOPE)
     scope = await run_discussion_scope(
         db, novel_id, context.run_id, context.owner_id, lock=True
     )
@@ -146,7 +150,7 @@ async def _save(db, novel_id, args, preview, *, context=None):
                 checkpoint=WorldCoreCheckpointPayload.model_validate(payload),
             ),
         )
-    sessions = get("assistant.session_service")
+    sessions = get(ASSISTANT_SESSION_SERVICE)
     await sessions.advance_checkpoint(
         db,
         novel_id,

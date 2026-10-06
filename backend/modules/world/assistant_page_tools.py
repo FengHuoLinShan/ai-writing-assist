@@ -8,6 +8,9 @@ from sqlalchemy import select
 
 from core.container import get
 from core.errors import ConflictError, NotFoundError
+from core.service_keys import (
+    ASSISTANT_REQUIRE_OPERATION_TARGETS,
+)
 from modules.assistant.contracts import AssistantOperation
 from modules.world.models import WorldBiblePageDraft, WorldBiblePageRevision
 from modules.world.schemas import WorldBiblePageDraftUpdate, WorldBibleSection
@@ -49,7 +52,7 @@ class RestorePage(BaseModel):
 
 
 async def _edit_preview(db, novel_id, args, *, context=None):
-    require_operation_targets = get("assistant.require_operation_targets")
+    require_operation_targets = get(ASSISTANT_REQUIRE_OPERATION_TARGETS)
     service = WorldBibleLifecycleService()
     kind, target = (
         ("world_bible_page", args.page_id)
@@ -136,7 +139,7 @@ async def _edit(db, novel_id, args, preview, *, context=None):
 
 
 async def _whole_page_scope(db, novel_id, context, target):
-    require_operation_targets = get("assistant.require_operation_targets")
+    require_operation_targets = get(ASSISTANT_REQUIRE_OPERATION_TARGETS)
     await require_operation_targets(db, novel_id, context, [target], aggregate=True)
     if (
         context

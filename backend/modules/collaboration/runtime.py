@@ -12,6 +12,9 @@ from sqlalchemy import select
 
 from core.container import get
 from core.errors import ConflictError, DomainError, ValidationError
+from core.service_keys import (
+    COLLABORATION_RESOURCES,
+)
 from infrastructure.llm.agent_runtime import AgentBudgetError, AgentRunBudget
 from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.collaboration import content_hash
@@ -503,7 +506,7 @@ async def execute(db, task):
             for value in revision.patches_json:
                 patch = ResourcePatch.model_validate(value)
                 try:
-                    await get("collaboration.resources")[patch.kind].validate(
+                    await get(COLLABORATION_RESOURCES)[patch.kind].validate(
                         db, novel_id, originals[patch.key], patch, context=context
                     )
                 except DomainError as error:

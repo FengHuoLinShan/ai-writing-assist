@@ -45,8 +45,11 @@ def _manuscript_port():
     # AO-5: writing 正文稿读取经组合根注册的只读 port 解析，
     # evidence→writing 的顶层导入清零。
     from core.container import get
+    from core.service_keys import (
+        WRITING_MANUSCRIPT_SOURCE,
+    )
 
-    return get("writing.manuscript_source")
+    return get(WRITING_MANUSCRIPT_SOURCE)
 
 
 _ENTITY_TYPES = {"entity", "core_entity", "world_entity", "location", "character"}

@@ -12,6 +12,9 @@ from dataclasses import asdict
 from typing import Any, cast
 
 from core.container import get as _container_get
+from core.service_keys import (
+    WORLD_RUN_ALIAS_RELATION_EXTRACTION,
+)
 from infrastructure.tasks.registry import task_handler
 from modules.evidence import facade as context_facade
 
@@ -440,7 +443,7 @@ async def handle_world_alias_relation_extraction(db, task):
     )
     port = cast(
         WorldAliasRelationTaskPort,
-        _container_get("world.run_alias_relation_extraction"),
+        _container_get(WORLD_RUN_ALIAS_RELATION_EXTRACTION),
     )
     for method_name in (
         "prepare_alias_relation_task",

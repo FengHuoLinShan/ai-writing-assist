@@ -51,8 +51,11 @@ logger = logging.getLogger(__name__)
 def _scene_memory_port():
     # AO-5: story Scene memory 契约经组合根注册的只读 port 解析。
     from core.container import get
+    from core.service_keys import (
+        STORY_SCENE_SOURCE,
+    )
 
-    return get("story.scene_source")
+    return get(STORY_SCENE_SOURCE)
 
 # 作者写作示例 few-shot 的 section 内 token 上限（tiktoken 估算）。
 # 与存储上限对齐：单条 schema 合法满额示例（2000 字符正文 + 500 字符

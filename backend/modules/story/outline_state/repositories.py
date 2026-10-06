@@ -61,9 +61,12 @@ async def _notify_structure_change(
         )
         return
     from core.container import get
+    from core.service_keys import (
+        SOURCE_CHANGED,
+    )
 
     try:
-        observer = get("source.changed")
+        observer = get(SOURCE_CHANGED)
     except KeyError:
         return
     await observer(

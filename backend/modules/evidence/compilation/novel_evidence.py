@@ -13,6 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.container import get
 from core.errors import NotFoundError, ValidationError
+from core.service_keys import (
+    ASSISTANT_INSPECT_DISCUSSION,
+)
 from modules.evidence.compilation.contracts import (
     EvidenceHitContract,
     VisibilityContextContract,
@@ -1568,7 +1571,7 @@ class NovelEvidenceService:
             if target.target_type == "assistant_session":
                 # AO-5：assistant facade 经组合根 DI 键解析，不 import。
                 return (
-                    await get("assistant.inspect_discussion")(
+                    await get(ASSISTANT_INSPECT_DISCUSSION)(
                         db, novel_id, target.target_id
                     ),
                     [],

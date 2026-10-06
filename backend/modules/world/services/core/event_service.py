@@ -7,6 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.container import get
 from core.crud import CrudService
 from core.errors import NotFoundError, ValidationError
+from core.service_keys import (
+    WORLD_WORLDBUILDING_MARK_SYNOPSIS_SOURCE_CHANGED,
+)
 from modules.world.models import Event
 from modules.world.repositories import CoreEntityRepository, EventRepository
 from modules.world.schemas import (
@@ -57,7 +60,7 @@ class EventService(
         )
         created = await super().create(db, novel_id, data)
         mark_synopsis_source_changed = get(
-            "world.worldbuilding.mark_synopsis_source_changed"
+            WORLD_WORLDBUILDING_MARK_SYNOPSIS_SOURCE_CHANGED
         )
         await mark_synopsis_source_changed(
             db,
@@ -111,7 +114,7 @@ class EventService(
         updated = await self.repo.update(db, eid, data)
         self._assert_found_in_novel(updated, id, nid)
         mark_synopsis_source_changed = get(
-            "world.worldbuilding.mark_synopsis_source_changed"
+            WORLD_WORLDBUILDING_MARK_SYNOPSIS_SOURCE_CHANGED
         )
         await mark_synopsis_source_changed(
             db,

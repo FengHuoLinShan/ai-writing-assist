@@ -15,6 +15,9 @@ from core.config import get_settings
 from core.container import get
 from core.database import get_manager
 from core.errors import NotFoundError
+from core.service_keys import (
+    ACCOUNT_PROJECT_CONTEXT,
+)
 from modules.account.constants import (
     ANONYMOUS_RP_IDENTITY_TYPE,
     DEMO_RP_SESSION_COOKIE_NAME,
@@ -341,7 +344,7 @@ class AccountAuthMiddleware:
         manager = get_manager()
         try:
             async with manager.session() as db:
-                context = await get("account.project_context")(
+                context = await get(ACCOUNT_PROJECT_CONTEXT)(
                     db, str(config.project_id)
                 )
         except NotFoundError:

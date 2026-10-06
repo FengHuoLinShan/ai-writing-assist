@@ -21,10 +21,13 @@ from modules.collaboration.models import (
 
 async def resource_choices(db, novel_id, kind, offset, query):
     from core.container import get
+    from core.service_keys import (
+        COLLABORATION_RESOURCES,
+    )
     from modules.project.facade import require_active_project
 
     await require_active_project(db, novel_id)
-    sources = await get("collaboration.resources")[kind].inventory(db, novel_id)
+    sources = await get(COLLABORATION_RESOURCES)[kind].inventory(db, novel_id)
     sources = [
         item for item in sources if not query or query.casefold() in item.label.casefold()
     ]

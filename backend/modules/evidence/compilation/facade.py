@@ -1090,9 +1090,12 @@ async def mark_asset_context_changed(
         exclude_confirmation_id=exclude_confirmation_id,
     )
     from core.container import get
+    from core.service_keys import (
+        SOURCE_CHANGED,
+    )
 
     try:
-        observer = get("source.changed")
+        observer = get(SOURCE_CHANGED)
     except KeyError:
         observer = None
     if observer is not None:

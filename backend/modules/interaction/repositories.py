@@ -36,9 +36,12 @@ class InteractionRepository:
     @staticmethod
     async def notify_state_changed(db, journey):
         from core.container import get
+        from core.service_keys import (
+            SOURCE_CHANGED,
+        )
 
         try:
-            observer = get("source.changed")
+            observer = get(SOURCE_CHANGED)
         except KeyError:
             return
         await observer(db, str(journey.novel_id), "interaction_journey", str(journey.id))

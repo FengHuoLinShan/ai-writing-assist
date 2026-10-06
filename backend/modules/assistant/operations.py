@@ -14,6 +14,9 @@ from sqlalchemy import select
 
 from core.container import get
 from core.errors import ConflictError, DomainError, NotFoundError, ValidationError
+from core.service_keys import (
+    ASSISTANT_OPERATIONS,
+)
 from infrastructure.llm.agent_runtime import AgentRunBudget
 from infrastructure.llm.workflow_budget import budgeted_tool, workflow_budget
 from infrastructure.tasks.facade import list_task_lifecycle_contracts, run_task_inline
@@ -30,7 +33,7 @@ from modules.project.facade import require_active_project
 
 
 def catalog() -> dict[str, AssistantOperation]:
-    return get("assistant.operations")
+    return get(ASSISTANT_OPERATIONS)
 
 
 def operation_manifest() -> dict:

@@ -42,6 +42,9 @@ class WritingDraftRepository:
         ):
             return
         from core.container import get
+        from core.service_keys import (
+            EVOLUTION_RECORD_WRITING_SOURCE_CHANGE,
+        )
         from modules.evidence.facade import mark_asset_context_changed
 
         await mark_asset_context_changed(
@@ -51,7 +54,7 @@ class WritingDraftRepository:
             asset_id=str(draft.id),
             reason="source_changed",
         )
-        await get("evolution.record_writing_source_change")(
+        await get(EVOLUTION_RECORD_WRITING_SOURCE_CHANGE)(
             db,
             str(draft.novel_id),
             chapter_index=draft.chapter_index,

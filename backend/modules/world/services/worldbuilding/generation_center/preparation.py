@@ -602,8 +602,11 @@ class _PrepareStageMixin:
         if provider is None:
             try:
                 from core.container import get as get_container_service
+                from core.service_keys import (
+                    CONTEXT_GENERATION_BACKGROUND,
+                )
 
-                provider = get_container_service("context.generation_background")
+                provider = get_container_service(CONTEXT_GENERATION_BACKGROUND)
             except KeyError:
                 from modules.evidence.facade import compile_generation_background
 

@@ -6,6 +6,10 @@ import logging
 import uuid
 
 from core.container import get as _container_get
+from core.service_keys import (
+    RAG_INDEX_CHAPTER_FOR_TASK,
+    WRITING_LIST_CHAPTER_INDICES,
+)
 from infrastructure.tasks.registry import task_handler
 
 logger = logging.getLogger(__name__)
@@ -45,7 +49,7 @@ async def handle_rag_index_chapter(db, task):
     if chapter_index < 1:
         raise ValueError("chapter_index must be >= 1 for rag_index_chapter")
 
-    outcome = await _container_get("rag.index_chapter_for_task")(
+    outcome = await _container_get(RAG_INDEX_CHAPTER_FOR_TASK)(
         db,
         novel_id,
         chapter_index,
@@ -114,7 +118,7 @@ async def handle_rag_reindex_novel(db, task):
     if not novel_id:
         raise ValueError("novel_id is required for rag_reindex_novel")
 
-    _list_chapter_indices = _container_get("writing.list_chapter_indices")
+    _list_chapter_indices = _container_get(WRITING_LIST_CHAPTER_INDICES)
 
     chapter_indices = await _list_chapter_indices(db, novel_id)
     if start_chapter is not None:
@@ -124,7 +128,7 @@ async def handle_rag_reindex_novel(db, task):
 
     total = len(chapter_indices)
     _index_chapter_for_task = (
-        _container_get("rag.index_chapter_for_task") if chapter_indices else None
+        _container_get(RAG_INDEX_CHAPTER_FOR_TASK) if chapter_indices else None
     )
     chapters: list[dict] = []
     warnings: list[str] = []

@@ -21,6 +21,9 @@ from core.logging_context import (
     novel_id_for_log,
     token_for_log,
 )
+from core.service_keys import (
+    WORLD_WORLDBUILDING_REQUIRE_LEGACY_CANON_WRITE_ALLOWED,
+)
 from modules.world.repositories import CoreEntityRepository
 from modules.world.schemas import (
     CoreEntityUpdate,
@@ -66,7 +69,7 @@ class EntityAliasService:
         db: AsyncSession, novel_id: str
     ) -> None:
         require_legacy_canon_write_allowed = get(
-            "world.worldbuilding.require_legacy_canon_write_allowed"
+            WORLD_WORLDBUILDING_REQUIRE_LEGACY_CANON_WRITE_ALLOWED
         )
         await require_legacy_canon_write_allowed(
             db, novel_id, next_action="create_world_adoption_package"

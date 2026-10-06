@@ -17,6 +17,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.config import Settings, get_settings
 from core.container import get
 from core.errors import ConflictError, NotFoundError, ValidationError
+from core.service_keys import (
+    ACCOUNT_PROJECT_IDS_FOR_OWNER,
+    ACCOUNT_PROJECT_PURGE_FOR_OWNER,
+)
 from modules.account.constants import (
     ANONYMOUS_RP_IDENTITY_TYPE,
     ANONYMOUS_RP_SESSION_SECONDS,
@@ -900,7 +904,7 @@ class AccountService:
             )
         )
         await db.execute(delete(WebSession).where(WebSession.absolute_expires_at < now))
-        purge_projects = get("account.project_purge_for_owner")
+        purge_projects = get(ACCOUNT_PROJECT_PURGE_FOR_OWNER)
 
         for account in accounts:
             await self._cancel_account_tasks(db, account.id, "account_purge_due")
@@ -942,7 +946,7 @@ class AccountService:
     ) -> None:
         from infrastructure.tasks.facade import cancel_unfinished_tasks_for_novel
 
-        for novel_id in await get("account.project_ids_for_owner")(db, account_id):
+        for novel_id in await get(ACCOUNT_PROJECT_IDS_FOR_OWNER)(db, account_id):
             await cancel_unfinished_tasks_for_novel(
                 db,
                 novel_id=str(novel_id),
