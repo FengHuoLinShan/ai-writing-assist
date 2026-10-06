@@ -130,7 +130,11 @@ class EntityTypeTransitionService:
             )
         elif old_type == "event":
             await count(
-                "event_extension", Event, Event.novel_id == nid, Event.entity_id == eid
+                "event_extension",
+                Event,
+                Event.novel_id == nid,
+                Event.entity_id == eid,
+                Event.status == "canonical",
             )
             await count(
                 "event_causal_reference",
@@ -144,6 +148,7 @@ class EntityTypeTransitionService:
                 Event,
                 Event.novel_id == nid,
                 Event.location_entity_id == eid,
+                Event.status == "canonical",
             )
             await count(
                 "map_atlas_location",

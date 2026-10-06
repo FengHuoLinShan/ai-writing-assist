@@ -63,6 +63,8 @@ class EventResponse(BaseModel):
     location_entity_id: UuidStr
     timeline_order: int
     occurrence_time_label: str | None = None
+    # AO-12 软删：对齐 EntityRelation 先例暴露状态；读路径只返回 canonical 行。
+    status: str = "canonical"
 
 
 class EventListResponse(BaseModel):

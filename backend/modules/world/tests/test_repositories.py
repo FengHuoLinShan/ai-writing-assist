@@ -641,8 +641,8 @@ async def test_name_and_exact_alias_precede_prefix_and_description(
 
 
 @pytest.mark.asyncio
-async def test_event_delete_scopes_to_novel(db_session: AsyncSession) -> None:
-    """EventRepository.delete 只删 novel_id 匹配的行（纵深防御）。"""
+async def test_event_deprecate_scopes_to_novel(db_session: AsyncSession) -> None:
+    """EventRepository.deprecate 只软删 novel_id 匹配的行（纵深防御），行本身保留。"""
     novel_id = uuid.uuid4()
     other_novel_id = uuid.uuid4()
     event_id = uuid.uuid4()
@@ -662,17 +662,80 @@ async def test_event_delete_scopes_to_novel(db_session: AsyncSession) -> None:
     await db_session.flush()
 
     assert (
-        await EventRepository().delete(
+        await EventRepository().deprecate(
             db_session,
             event_id,
             novel_id=other_novel_id,
         )
         is False
     )
-    assert await db_session.get(Event, event_id) is not None
+    event = await db_session.get(Event, event_id)
+    assert event is not None
+    assert event.status == "canonical"
 
-    assert await EventRepository().delete(db_session, event_id, novel_id=novel_id) is True
-    assert await db_session.get(Event, event_id) is None
+    assert (
+        await EventRepository().deprecate(db_session, event_id, novel_id=novel_id) is True
+    )
+    await db_session.refresh(event)
+    assert event.status == "deprecated"
+
+
+@pytest.mark.asyncio
+async def test_event_list_excludes_deprecated_extension(
+    db_session: AsyncSession,
+) -> None:
+    """_active_conditions 过滤：deprecated 扩展行退出列表类查询，get 仍可取出。
+
+    镜像 relation 的 test_list_relationships_excludes_deprecated_relations。
+    """
+    novel_id = uuid.uuid4()
+    event_entity = CoreEntity(
+        id=uuid.uuid4(),
+        novel_id=novel_id,
+        entity_type="event",
+        name="旧战役",
+        status="canonical",
+    )
+    location = CoreEntity(
+        id=uuid.uuid4(),
+        novel_id=novel_id,
+        entity_type="location",
+        name="北城门",
+        status="canonical",
+    )
+    event = Event(
+        entity_id=event_entity.id,
+        novel_id=novel_id,
+        source_chapter_id=uuid.uuid4(),
+        location_entity_id=location.id,
+        timeline_order=1,
+    )
+    db_session.add_all(
+        [
+            Project(id=novel_id, title="event soft delete list"),
+            event_entity,
+            location,
+            event,
+        ]
+    )
+    await db_session.flush()
+
+    repo = EventRepository()
+    items, total = await repo.get_by_novel(db_session, novel_id)
+    assert [row.entity_id for row in items] == [event.entity_id]
+    assert total == 1
+
+    await repo.deprecate(db_session, event.entity_id, novel_id=novel_id)
+
+    items, total = await repo.get_by_novel(db_session, novel_id)
+    assert (items, total) == ([], 0)
+    assert await repo.get_events_in_order(db_session, novel_id) == []
+    assert (
+        await repo.get_events_for_chapter(db_session, novel_id, event.source_chapter_id)
+        == []
+    )
+    # 行保留在库里（历史/复活语义），只是不再出现在 active 查询中。
+    assert await repo.get(db_session, event.entity_id) is not None
 
 
 @pytest.mark.asyncio

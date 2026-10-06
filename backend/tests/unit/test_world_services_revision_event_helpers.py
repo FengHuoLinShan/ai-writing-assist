@@ -13,7 +13,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from core.errors import NotFoundError
+from core.errors import ConflictError, NotFoundError
+from modules.world.repositories import CoreEntityRepository
 from modules.world.services.common import (
     find_alias_in_entity,
     find_alias_in_list,
@@ -38,6 +39,7 @@ def _make_revision_service() -> tuple[EntityRevisionService, MagicMock, MagicMoc
 
 def _make_event_service() -> tuple[EventService, MagicMock]:
     svc = EventService()
+    svc._entity_repo = MagicMock(spec=CoreEntityRepository)
     svc.repo = MagicMock()
     return svc, svc.repo
 
@@ -81,6 +83,7 @@ def _mock_event(**overrides):
         "location_entity_id": uuid.uuid4(),
         "timeline_order": 1,
         "occurrence_time_label": "序章",
+        "status": "canonical",
     }
     defaults.update(overrides)
     ev = MagicMock()
@@ -496,7 +499,7 @@ class TestEventService:
         svc, repo = _make_event_service()
         ev = _mock_event()
         repo.get = AsyncMock(return_value=ev)
-        svc._entity_repo = MagicMock()
+        svc._entity_repo = MagicMock(spec=CoreEntityRepository)
         svc._entity_repo.get = AsyncMock(
             side_effect=[
                 _canonical_core_entity(ev.novel_id, "event"),
@@ -522,6 +525,19 @@ class TestEventService:
         # Act & Assert
         with pytest.raises(NotFoundError) as exc_info:
             await svc.get(db, str(uuid.uuid4()), novel_id=str(uuid.uuid4()))
+        assert exc_info.value.status_code == 404
+
+    async def test_get_deprecated_event_raises_404(self):
+        """已删除（deprecated）的事件对 get 表现为不存在。"""
+        # Arrange
+        svc, repo = _make_event_service()
+        ev = _mock_event(status="deprecated")
+        repo.get = AsyncMock(return_value=ev)
+        db = MagicMock()
+
+        # Act & Assert
+        with pytest.raises(NotFoundError) as exc_info:
+            await svc.get(db, str(ev.entity_id), novel_id=str(ev.novel_id))
         assert exc_info.value.status_code == 404
 
     async def test_get_novel_mismatch_raises_404(self):
@@ -559,13 +575,14 @@ class TestEventService:
         # Arrange
         svc, repo = _make_event_service()
         ev = _mock_event()
-        svc._entity_repo = MagicMock()
+        svc._entity_repo = MagicMock(spec=CoreEntityRepository)
         svc._entity_repo.get = AsyncMock(
             side_effect=[
                 _canonical_core_entity(ev.novel_id, "event"),
                 _canonical_core_entity(ev.novel_id, "location"),
             ]
         )
+        repo.get = AsyncMock(return_value=None)
         repo.create = AsyncMock(return_value=ev)
         db = MagicMock()
         nid = str(ev.novel_id)
@@ -585,12 +602,77 @@ class TestEventService:
         assert result.entity_id == str(ev.entity_id)
         repo.create.assert_awaited_once()
 
+    async def test_create_over_deprecated_event_restores_row(self):
+        """同一实体的事件被删除后再创建：复活原扩展行，不插入新行。"""
+        # Arrange
+        svc, repo = _make_event_service()
+        ev = _mock_event(status="deprecated")
+        svc._entity_repo = MagicMock(spec=CoreEntityRepository)
+        svc._entity_repo.get = AsyncMock(
+            side_effect=[
+                _canonical_core_entity(ev.novel_id, "event"),
+                _canonical_core_entity(ev.novel_id, "location"),
+            ]
+        )
+        repo.get = AsyncMock(return_value=ev)
+        repo.restore = AsyncMock(return_value=ev)
+        repo.create = AsyncMock()
+        db = MagicMock()
+        from modules.world.schemas import EventCreate
+
+        data = EventCreate(
+            entity_id=str(ev.entity_id),
+            source_chapter_id=str(ev.source_chapter_id),
+            location_entity_id=str(ev.location_entity_id),
+            timeline_order=7,
+        )
+
+        # Act
+        result = await svc.create(db, str(ev.novel_id), data)
+
+        # Assert
+        assert result.entity_id == str(ev.entity_id)
+        repo.restore.assert_awaited_once_with(db, ev, data)
+        repo.create.assert_not_called()
+
+    async def test_create_over_live_event_raises_conflict(self):
+        """实体已有未删除的事件扩展时拒绝重复创建（409，而非主键冲突 500）。"""
+        # Arrange
+        svc, repo = _make_event_service()
+        ev = _mock_event()
+        svc._entity_repo = MagicMock(spec=CoreEntityRepository)
+        svc._entity_repo.get = AsyncMock(
+            side_effect=[
+                _canonical_core_entity(ev.novel_id, "event"),
+                _canonical_core_entity(ev.novel_id, "location"),
+            ]
+        )
+        repo.get = AsyncMock(return_value=ev)
+        repo.restore = AsyncMock()
+        repo.create = AsyncMock()
+        db = MagicMock()
+        from modules.world.schemas import EventCreate
+
+        data = EventCreate(
+            entity_id=str(ev.entity_id),
+            source_chapter_id=str(ev.source_chapter_id),
+            location_entity_id=str(ev.location_entity_id),
+            timeline_order=ev.timeline_order,
+        )
+
+        # Act & Assert
+        with pytest.raises(ConflictError) as exc_info:
+            await svc.create(db, str(ev.novel_id), data)
+        assert exc_info.value.status_code == 409
+        repo.create.assert_not_called()
+        repo.restore.assert_not_called()
+
     async def test_create_missing_event_entity_raises_domain_not_found(self):
         """EventService.create: missing event entity raises domain NotFoundError."""
         # Arrange
         svc, repo = _make_event_service()
         ev = _mock_event()
-        svc._entity_repo = MagicMock()
+        svc._entity_repo = MagicMock(spec=CoreEntityRepository)
         svc._entity_repo.get = AsyncMock(return_value=None)
         repo.create = AsyncMock()
         db = MagicMock()
@@ -617,7 +699,7 @@ class TestEventService:
         ev = _mock_event()
         repo.get = AsyncMock(return_value=ev)
         repo.update = AsyncMock(return_value=ev)
-        svc._entity_repo = MagicMock()
+        svc._entity_repo = MagicMock(spec=CoreEntityRepository)
         svc._entity_repo.get = AsyncMock(
             side_effect=[
                 _canonical_core_entity(ev.novel_id, "event"),
@@ -636,39 +718,90 @@ class TestEventService:
         assert result.timeline_order == ev.timeline_order
         repo.update.assert_awaited_once_with(db, ev.entity_id, data)
 
-    async def test_delete_happy_path_succeeds(self):
-        """Event 无 status 列：delete 走硬删除并把 novel_id 下推到 repo。"""
+    async def test_update_deprecated_event_raises_404(self):
+        """已删除的事件不可编辑。"""
+        # Arrange
+        svc, repo = _make_event_service()
+        ev = _mock_event(status="deprecated")
+        repo.get = AsyncMock(return_value=ev)
+        repo.update = AsyncMock()
+        db = MagicMock()
+        from modules.world.schemas import EventUpdate
+
+        # Act & Assert
+        with pytest.raises(NotFoundError):
+            await svc.update(
+                db,
+                str(ev.entity_id),
+                EventUpdate(timeline_order=99),
+                novel_id=str(ev.novel_id),
+            )
+        repo.update.assert_not_called()
+
+    async def test_delete_happy_path_deprecates_with_novel_scope(self):
+        """delete 只置 deprecated（软删），并把 novel_id 下推到 repo。"""
         from modules.world.models import Event
 
         # Arrange
         svc, repo = _make_event_service()
-        ev = MagicMock(spec=Event, entity_id=uuid.uuid4(), novel_id=uuid.uuid4())
+        ev = MagicMock(
+            spec=Event,
+            entity_id=uuid.uuid4(),
+            novel_id=uuid.uuid4(),
+            status="canonical",
+        )
         repo.get = AsyncMock(return_value=ev)
-        repo.delete = AsyncMock(return_value=True)
+        repo.deprecate = AsyncMock(return_value=True)
         db = MagicMock()
 
         # Act
         await svc.delete(db, str(ev.entity_id), novel_id=str(ev.novel_id))
 
         # Assert
-        repo.delete.assert_awaited_once_with(db, ev.entity_id, novel_id=ev.novel_id)
-        db.flush.assert_not_called()
+        repo.deprecate.assert_awaited_once_with(db, ev.entity_id, novel_id=ev.novel_id)
 
-    async def test_delete_repo_false_raises_404(self):
-        """repo.delete 返回 False（跨 novel 或已删）时抛 404。"""
+    async def test_delete_already_deprecated_is_noop(self):
+        """重复删除已删除的事件是幂等 no-op，与 CrudService.delete 一致。"""
         from modules.world.models import Event
 
         # Arrange
         svc, repo = _make_event_service()
-        ev = MagicMock(spec=Event, entity_id=uuid.uuid4(), novel_id=uuid.uuid4())
+        ev = MagicMock(
+            spec=Event,
+            entity_id=uuid.uuid4(),
+            novel_id=uuid.uuid4(),
+            status="deprecated",
+        )
         repo.get = AsyncMock(return_value=ev)
-        repo.delete = AsyncMock(return_value=False)
+        repo.deprecate = AsyncMock()
+        db = MagicMock()
+
+        # Act
+        await svc.delete(db, str(ev.entity_id), novel_id=str(ev.novel_id))
+
+        # Assert
+        repo.deprecate.assert_not_called()
+
+    async def test_delete_repo_false_raises_404(self):
+        """repo.deprecate 返回 False（行已不在本项目）时抛 404。"""
+        from modules.world.models import Event
+
+        # Arrange
+        svc, repo = _make_event_service()
+        ev = MagicMock(
+            spec=Event,
+            entity_id=uuid.uuid4(),
+            novel_id=uuid.uuid4(),
+            status="canonical",
+        )
+        repo.get = AsyncMock(return_value=ev)
+        repo.deprecate = AsyncMock(return_value=False)
         db = MagicMock()
 
         with pytest.raises(NotFoundError):
             await svc.delete(db, str(ev.entity_id), novel_id=str(ev.novel_id))
 
-        repo.delete.assert_awaited_once_with(db, ev.entity_id, novel_id=ev.novel_id)
+        repo.deprecate.assert_awaited_once_with(db, ev.entity_id, novel_id=ev.novel_id)
 
 
 # ============================================================
