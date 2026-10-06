@@ -39,6 +39,13 @@
           @select="$emit('select', chapter)"
           @toggle-bulk="toggleBulk(chapter)"
         />
+        <button
+          v-if="hiddenChapterCount > 0"
+          type="button"
+          class="btn btn-sm btn-ghost chapter-tree-show-more"
+          aria-label="显示更多章节"
+          @click="showMoreChapters"
+        >显示更多（还有 {{ hiddenChapterCount }} 章）</button>
         <p v-if="!visibleChapters.length" class="writing-empty-hint">没有匹配的章节</p>
         </div>
       </div>
@@ -109,11 +116,22 @@ const ChapterRow = defineComponent({
   },
 })
 
+// 数百章时一次性渲染全部 ChapterRow 会拖慢挂载；先渲染 CHAPTER_RENDER_LIMIT 章，
+// 底部「显示更多」按同一步长渐进展开。上限随组件实例存在：island 重挂后回到初始
+// 窗口；同一会话内数据刷新不回收已展开的窗口，避免列表在用户眼前塌缩。
+const CHAPTER_RENDER_LIMIT = 100
 const query = ref("")
 const listEl = ref(null)
-const visibleChapters = computed(() => props.chapterList.filter(chapter => !query.value.trim() || `${chapter} ${props.chapters[chapter]?.title || ""}`.includes(query.value.trim())))
+const renderLimit = ref(CHAPTER_RENDER_LIMIT)
+const matchedChapters = computed(() => props.chapterList.filter(chapter => !query.value.trim() || `${chapter} ${props.chapters[chapter]?.title || ""}`.includes(query.value.trim())))
+const visibleChapters = computed(() => matchedChapters.value.slice(0, renderLimit.value))
+const hiddenChapterCount = computed(() => matchedChapters.value.length - visibleChapters.value.length)
+function showMoreChapters() { renderLimit.value += CHAPTER_RENDER_LIMIT }
 watch([() => props.selectedChapter, () => props.collapsed, () => props.chapterList], async () => {
   query.value = ""
+  // 外部选中（如章节地图跳转）落在当前窗口之外时扩窗，保证选中行可见、可滚动定位。
+  const selectedIndex = props.selectedChapter == null ? -1 : props.chapterList.indexOf(props.selectedChapter)
+  if (selectedIndex >= renderLimit.value) renderLimit.value = selectedIndex + 1
   await nextTick()
   listEl.value?.querySelector("[aria-current=true]")?.scrollIntoView?.({ block: "nearest" })
 }, { immediate: true })

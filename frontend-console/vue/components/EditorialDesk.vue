@@ -98,7 +98,7 @@ const reviewIssues = computed(() => {
       || Number(a.disposition === "closed") - Number(b.disposition === "closed")
       || ({ high: 3, medium: 2, low: 1 })[b.finding.severity] - ({ high: 3, medium: 2, low: 1 })[a.finding.severity])
 })
-let poller = null, pendingOperationId = null, pendingPayload = null
+let pendingOperationId = null, pendingPayload = null
 function backupKey() { return `novelcraft:editorial-brief:${props.projectId}` }
 function operationKey() { return `novelcraft:editorial-operation:${props.projectId}` }
 function parseLines(value, limit) { return String(value || "").split("\n").map(item => item.trim()).filter(Boolean).slice(0, limit) }
@@ -256,8 +256,22 @@ watch([briefDraft, briefLists], () => {
   catch { briefDraftNotice.value = "本地备份不可用；请先保存编辑约定再离开。" }
 }, { deep: true })
 watch(() => props.focusChapter, value => { if (value > 0) { scope.value = "chapter"; startChapter.value = value } }, { immediate: true })
-watch([() => props.active, () => props.projectId], ([active]) => { if (active) { load(); poller ||= setInterval(refreshResults, 8000) } else if (poller) { clearInterval(poller); poller = null } }, { immediate: true })
-onBeforeUnmount(() => { if (poller) clearInterval(poller) })
+// 轮询生命周期：active 且项目变化时重置重启；同一项目不重复 start；
+// 失活与卸载都停表并置空句柄。
+let poller = null
+let pollerProjectId = null
+function stopPoller() {
+  if (poller) { clearInterval(poller); poller = null }
+  pollerProjectId = null
+}
+function startPoller() {
+  if (poller && pollerProjectId === props.projectId) return
+  stopPoller()
+  poller = setInterval(refreshResults, 8000)
+  pollerProjectId = props.projectId
+}
+watch([() => props.active, () => props.projectId], ([active]) => { if (active) { load(); startPoller() } else stopPoller() }, { immediate: true })
+onBeforeUnmount(stopPoller)
 </script>
 
 <style scoped>

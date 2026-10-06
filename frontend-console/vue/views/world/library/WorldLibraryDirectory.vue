@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from "vue"
+import { computed, onBeforeUnmount, ref, watch } from "vue"
 import WorkspaceDrawer from "../../../components/WorkspaceDrawer.vue"
 
 const props = defineProps({
@@ -31,6 +31,11 @@ if (typeof globalThis.matchMedia === "function") {
   const onChange = () => { isMobile.value = mql.matches }
   if (typeof mql.addEventListener === "function") mql.addEventListener("change", onChange)
   else if (typeof mql.addListener === "function") mql.addListener(onChange)
+  // island 每次 query-only 导航重挂，必须退订，否则监听器与其闭包持续累积。
+  onBeforeUnmount(() => {
+    if (typeof mql.removeEventListener === "function") mql.removeEventListener("change", onChange)
+    else if (typeof mql.removeListener === "function") mql.removeListener(onChange)
+  })
 }
 
 const drawerOpen = ref(false)

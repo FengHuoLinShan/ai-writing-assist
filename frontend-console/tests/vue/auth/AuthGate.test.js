@@ -104,6 +104,27 @@ describe("AuthGate", () => {
     expect(recovery.find('input[aria-label="重新认证验证码"]').attributes("autocomplete")).toBe("one-time-code")
   })
 
+  it("keeps consent links on the safeHref whitelist and adds rel to new-tab targets", async () => {
+    const relative = await mountLogin()
+    for (const href of ["/legal/terms", "/legal/privacy"]) {
+      const link = relative.get(`a[href="${href}"]`)
+      expect(link.attributes("target")).toBe("_blank")
+      expect(link.attributes("rel")).toBe("noopener noreferrer")
+    }
+
+    const absolute = mount(AuthGate, {
+      props: { config: config({ terms_url: "HTTPS://legal.example.com/terms", privacy_url: "mailto:legal@example.com" }) },
+    })
+    expect(absolute.get('a[href="HTTPS://legal.example.com/terms"]').attributes("rel")).toBe("noopener noreferrer")
+    expect(absolute.get('a[href="mailto:legal@example.com"]').exists()).toBe(true)
+
+    const hostile = mount(AuthGate, {
+      props: { config: config({ terms_url: "javascript:alert(1)", privacy_url: "data:text/html,<b>x</b>" }) },
+    })
+    expect(hostile.findAll(".consent a").map((link) => link.attributes("href"))).toEqual([undefined, undefined])
+    hostile.unmount(); absolute.unmount()
+  })
+
   it("requires policy consent and completes email verification", async () => {
     const wrapper = await mountLogin()
     const inputs = wrapper.findAll("input")

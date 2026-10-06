@@ -154,4 +154,44 @@ describe("EditorialDesk 写作开关", () => {
       "「AI 角色视角建议」不使用它"
     )
   })
+
+  it("active 时轮询意见；切项目重启轮询且不重复起表，卸载后停表", async () => {
+    vi.useFakeTimers()
+    try {
+      const reviewsCalls = () => apiMock.assistant.editorialReviews.mock.calls.length
+      const callsWith = (projectId) => apiMock.assistant.editorialReviews.mock.calls
+        .filter(([id]) => id === projectId).length
+
+      const wrapper = mount(EditorialDesk, { props: { projectId: "p1", active: true } })
+      await flushPromises()
+      expect(reviewsCalls()).toBe(1)
+
+      vi.advanceTimersByTime(8000)
+      expect(callsWith("p1")).toBe(2)
+
+      // 仍 active 时切换项目：load() 拉新项目一次，旧 interval 被清除、起新表。
+      await wrapper.setProps({ projectId: "p2" })
+      await flushPromises()
+      expect(callsWith("p2")).toBe(1)
+
+      vi.advanceTimersByTime(8000)
+      expect(callsWith("p2")).toBe(2)
+      expect(callsWith("p1")).toBe(2)
+
+      // 同一项目失活再激活：只重起一个 interval，不叠加。
+      await wrapper.setProps({ active: false })
+      await flushPromises()
+      await wrapper.setProps({ active: true })
+      await flushPromises()
+      const before = reviewsCalls()
+      vi.advanceTimersByTime(8000)
+      expect(reviewsCalls()).toBe(before + 1)
+
+      wrapper.unmount()
+      vi.advanceTimersByTime(8000 * 10)
+      expect(reviewsCalls()).toBe(before + 1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

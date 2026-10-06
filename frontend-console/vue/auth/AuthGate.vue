@@ -30,8 +30,8 @@
           <button type="button" class="secondary" :disabled="busy || !email || !canResend" @click="requestCode('login')">{{ resendLabel }}</button>
         </div>
         <label class="consent"><input v-model="accepted" type="checkbox">我已阅读并同意
-          <a :href="config.terms_url" target="_blank">用户协议</a>和
-          <a :href="config.privacy_url" target="_blank">隐私政策</a>
+          <a :href="safeHref(config.terms_url) || null" target="_blank" rel="noopener noreferrer">用户协议</a>和
+          <a :href="safeHref(config.privacy_url) || null" target="_blank" rel="noopener noreferrer">隐私政策</a>
         </label>
         <button type="button" :disabled="busy || !accepted || !challengeId || code.length !== 6" @click="verify">邮箱登录</button>
         <a v-if="config.wechat_enabled && accepted" class="button-link" :href="api.auth.wechatStartUrl(config)">微信扫码登录</a>
@@ -62,6 +62,21 @@ const props = defineProps({
 })
 const emit = defineEmits(["authenticated", "logout"])
 const api = getApi()
+
+/**
+ * 法务链接白名单（同 RpMarkdownContent.safeHref 的安全目标：只放行安全协议，
+ * 拒绝 javascript: / data: 等任意 scheme 与控制字符）。与 RpMarkdownContent 的
+ * 差异：额外放行无 scheme 的同源相对路径——后端 AuthConfigResponse 默认
+ * terms_url="/legal/terms"，DemoRpView 合同也按相对路径断言，不能一刀切拒绝。
+ */
+function safeHref(value) {
+  const href = String(value || "").trim()
+  if (!href || /[\u0000-\u001f\u007f]/.test(href)) return ""
+  if (/^(https?:\/\/|mailto:)/i.test(href)) return href
+  // 无 scheme（首个 : 不出现在 / ? # 之前）才按当前 origin 相对解析；其余一律拒绝。
+  return /^[^:]*[/?#]/.test(href) ? href : ""
+}
+
 const account = ref(props.initialAccount)
 const entryMode = ref(readEntryMode() || "")
 const emailInput = ref(null)
