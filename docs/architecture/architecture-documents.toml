@@ -350,6 +350,7 @@ id = "frontend-wire"
 description = "Frontend API and bridge wire changes"
 source_globs = [
   "frontend-console/api.js",
+  "frontend-console/api/*.js",
   "frontend-console/apiContracts.js",
   "frontend-console/vue/bridge/*.js",
 ]

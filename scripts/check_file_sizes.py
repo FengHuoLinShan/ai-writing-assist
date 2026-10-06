@@ -40,6 +40,8 @@ INCLUDE_PREFIXES = (
     "frontend-console/vue/",
     "frontend-console/shared/",
     "frontend-console/ui/",
+    # AO-13 起 api.js 按命名空间拆分到该目录，纳入同一行数门
+    "frontend-console/api/",
 )
 ROOT_INCLUDES = {
     "frontend-console/api.js",
