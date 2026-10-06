@@ -19,6 +19,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.container import get
 from core.errors import ConflictError, NotFoundError, ValidationError
 from infrastructure.llm.agent_step_harness import (
     MANAGED_LLM_PROVENANCE_KEY,
@@ -207,9 +208,7 @@ async def _default_map_continuity_loader(
     novel_id: str,
     location_entity_ids: list[str],
 ) -> list[object]:
-    from modules.world.facade import list_adopted_map_continuity_facts
-
-    return await list_adopted_map_continuity_facts(
+    return await get("world.list_adopted_map_continuity_facts")(
         db,
         novel_id,
         location_entity_ids,
@@ -729,9 +728,8 @@ class WritingDraftService:
             draft.editorial_ready_at = datetime.now(UTC)
             draft.editorial_ready_hash = draft.content_hash
             await db.flush()
-            from modules.assistant.facade import mark_editorial_ready
-
-            await mark_editorial_ready(
+            # AO-5：assistant facade 经组合根 DI 键解析，不 import。
+            await get("assistant.mark_editorial_ready")(
                 db, novel_id, draft.chapter_index, str(draft.id), draft.content_hash
             )
         return WritingDraftResponse.model_validate(draft)

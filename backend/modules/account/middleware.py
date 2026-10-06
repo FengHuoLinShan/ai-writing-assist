@@ -12,6 +12,7 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from core.config import get_settings
+from core.container import get
 from core.database import get_manager
 from core.errors import NotFoundError
 from modules.account.constants import (
@@ -337,12 +338,12 @@ class AccountAuthMiddleware:
         """Resolve the configured source owner server-side; never trust request input."""
         if not config.enabled or config.project_id is None:
             return None
-        from modules.project.facade import get_project_context
-
         manager = get_manager()
         try:
             async with manager.session() as db:
-                context = await get_project_context(db, str(config.project_id))
+                context = await get("account.project_context")(
+                    db, str(config.project_id)
+                )
         except NotFoundError:
             return None
         if context is None or context.owner_id is None:

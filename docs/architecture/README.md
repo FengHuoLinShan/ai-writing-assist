@@ -117,9 +117,10 @@ ADR-0027 的 V1 在当时九模块中加入注册蓝图的有限协作，不改�
 规则：高层经 facade/contracts 调用低层；低层需要高层能力时，只能依赖
 消费方 contracts 中的纯 SPI Protocol，并经组合根（bootstrap）注册的 DI port
 在运行期解析，不得直接 import 高层实现，也不得把顶层导入降级为函数内导入。
-L2 内部（world/story/evidence/writing 之间）与 interaction↔local_agent、
-非 assistant collaboration 对的逐对 owner 裁定见 ADR-0031（AO-5 第一批已
-落地：顶层双向对仅剩 assistant 六对，第二批补充裁定）；story↔writing 沿用
+L2 内部（world/story/evidence/writing 之间）、interaction↔local_agent、
+collaboration 各对与 assistant 各对的逐对 owner 裁定见 ADR-0031（三批均
+已落地：顶层双向对清零，双向对 33→9，剩余对的反方向均为批量函数内
+消费，留待后续批次）；story↔writing 沿用
 outline-writing ADR 的注入 provider + 只读 facade 先例。
 
 这是**目标态**，不是现状描述：当前模块间仍存在大量双向依赖。现状由

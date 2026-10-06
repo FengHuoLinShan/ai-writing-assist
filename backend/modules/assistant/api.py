@@ -140,6 +140,7 @@ async def recheck_notice(
 @router.get("/capabilities")
 async def capabilities(db: DbSession, novel_id: UUID):
     await require_active_project(db, str(novel_id))
+    from core.container import get
     from infrastructure.llm.native_search import native_search_status
     from infrastructure.llm.web_search import search_availability
     from modules.project.contracts import ProjectLLMConfigurationError
@@ -147,7 +148,6 @@ async def capabilities(db: DbSession, novel_id: UUID):
         build_project_llm_execution_snapshot,
         get_effective_llm_settings,
     )
-    from modules.world.map_atlas_facade import map_capabilities
 
     llm = await get_effective_llm_settings(db, novel_id)
     try:
@@ -218,7 +218,7 @@ async def capabilities(db: DbSession, novel_id: UUID):
             "destination": "model_settings",
         },
         "web_search": await search_availability(),
-        "map": await map_capabilities(db, str(novel_id)),
+        "map": await get("world.map_capabilities")(db, str(novel_id)),
         "native_search": native_search_status(
             str(llm.provider_id.value or ""), str(llm.model.value or "")
         ),

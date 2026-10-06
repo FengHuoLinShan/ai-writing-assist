@@ -81,6 +81,25 @@ def test_bootstrap_registers_app_and_worker_services():
         "project.dedup.world",
         "project.dedup.story",
         "account.project_owner_ref",
+        # AO-5 第三批（ADR-0031）：account/assistant/world/writing/project/
+        # evidence 反方向导入清零对应的 facade DI 键。
+        "account.project_context",
+        "account.project_ids_for_owner",
+        "account.project_purge_for_owner",
+        "collaboration.changed_cases",
+        "collaboration.submit_changed_case",
+        "collaboration.stop_unavailable_runs",
+        "collaboration.read_projected_run",
+        "world.map_capabilities",
+        "world.review_team_stress",
+        "imports.get_active_organization",
+        "interaction.read_continuity_review",
+        "evolution.require_current_world_candidate",
+        "evolution.record_writing_source_change",
+        "imports.get_review_dispositions",
+        "interaction.validate_public_demo_source_context",
+        "story.get_scene_contract",
+        "world.list_adopted_map_continuity_facts",
     ]
     for service_name in expected_services:
         assert get(service_name) is not None
@@ -120,6 +139,26 @@ def test_bootstrap_registers_app_and_worker_services():
     ):
         assert callable(getattr(story_dedup, method))
     assert callable(get("account.project_owner_ref"))
+    for service_name in (
+        "account.project_context",
+        "account.project_ids_for_owner",
+        "account.project_purge_for_owner",
+        "collaboration.changed_cases",
+        "collaboration.submit_changed_case",
+        "collaboration.stop_unavailable_runs",
+        "collaboration.read_projected_run",
+        "world.map_capabilities",
+        "world.review_team_stress",
+        "imports.get_active_organization",
+        "interaction.read_continuity_review",
+        "evolution.require_current_world_candidate",
+        "evolution.record_writing_source_change",
+        "imports.get_review_dispositions",
+        "interaction.validate_public_demo_source_context",
+        "story.get_scene_contract",
+        "world.list_adopted_map_continuity_facts",
+    ):
+        assert callable(get(service_name))
 
 
 def test_bootstrap_duplicate_register_raises_by_default():

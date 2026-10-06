@@ -8,6 +8,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.container import get
 from modules.world.contracts import (
     WorldAttentionSummaryContract,
     WorldAuthorAttentionItemContract,
@@ -362,12 +363,11 @@ class WorldAttentionSummaryService:
             and _value(item, "status") == "pending"
             and not _has_compatibility_shadow(item)
         ]
-        from modules.imports.facade import get_review_dispositions
         from modules.world.services.core.review_resolution import _alias_key
 
-        resolved = await (self._resolution_reader or get_review_dispositions)(
-            db, novel_id
-        )
+        resolved = await (
+            self._resolution_reader or get("imports.get_review_dispositions")
+        )(db, novel_id)
         imported = set(resolved["imported_keys"])
         dispositions = resolved["outcomes"]
         items = [self._conflict_item(item) for item in conflicts]

@@ -1,4 +1,10 @@
-"""World-owned checks run the same frozen conditions against both rule versions."""
+"""World stress recipe check schema（ADR-0031 第三批自 world 侧迁入）.
+
+``world_stress`` 配方的情境重测 schema 属 collaboration V2 检查协议代码：
+仅由 ``runtime.check_workspace`` 按 recipe 选择并用于 LLM 输出物化，
+世界域语义（冻结情境、原规则/试改规则）以字段与 instruction 表达，
+基类即本模块 contracts 的检查输出信封。
+"""
 
 from typing import ClassVar, Literal
 

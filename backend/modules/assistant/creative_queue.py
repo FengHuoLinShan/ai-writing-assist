@@ -6,6 +6,7 @@ from uuid import UUID
 from sqlalchemy import select
 
 from core.config import get_settings
+from core.container import get
 from core.errors import ConflictError, DomainError, ValidationError
 from modules.assistant.models import AssistantRun
 from modules.assistant.proactive import _watch
@@ -54,9 +55,7 @@ async def register(db, novel_id, case_id, active):
 async def mark_changed(db, row, kind, identity):
     if not enabled(row):
         return
-    from modules.collaboration.facade import changed_cases
-
-    matches = await changed_cases(
+    matches = await get("collaboration.changed_cases")(
         db, str(row.novel_id), row.policy_json["creative_v2"]["case_ids"], kind, identity
     )
     changes = pending(row)
@@ -87,12 +86,12 @@ def due_targets(row, now):
 
 
 async def claim(db, row, case_id, change):
-    from modules.collaboration.facade import submit_changed_case
-
     changes = pending(row)
     try:
         async with db.begin_nested():
-            submitted = await submit_changed_case(db, str(row.novel_id), case_id)
+            submitted = await get("collaboration.submit_changed_case")(
+                db, str(row.novel_id), case_id
+            )
     except DomainError as error:
         changes[case_id] = {
             **change,

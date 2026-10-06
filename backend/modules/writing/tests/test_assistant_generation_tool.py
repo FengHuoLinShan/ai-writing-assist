@@ -4,13 +4,14 @@ from uuid import UUID, uuid4
 import pytest
 from sqlalchemy import func, select
 
+from app.assistant_operation_registry import writing_generation_operations
 from core.errors import ConflictError
 from infrastructure.tasks.models import AsyncTask
 from modules.account.facade import current_account_id
 from modules.assistant.contracts import AssistantOperationContext, WorkContext
 from modules.evidence.facade import prepare_confirmed_ai_action
 from modules.project.facade import build_project_llm_execution_snapshot
-from modules.writing.assistant_generation_tool import OPERATIONS, GenerateCandidate
+from modules.writing.assistant_generation_tool import GenerateCandidate
 from modules.writing.facade import create_draft_only, get_latest_draft_for_chapter
 
 
@@ -44,7 +45,7 @@ async def test_generation_freezes_original_context_and_reuses_parented_task(
     args = GenerateCandidate(
         chapter_index=1, generation_mode="continue", instruction="续写他观察门锁的细节"
     )
-    operation = OPERATIONS["writing.generate_candidate"]
+    operation = writing_generation_operations["writing.generate_candidate"]
     preview = await operation.prepare(db, nid, args, context=context)
     reference = await operation.apply(db, nid, args, preview, context=context)
     assert await operation.apply(db, nid, args, preview, context=context) == reference

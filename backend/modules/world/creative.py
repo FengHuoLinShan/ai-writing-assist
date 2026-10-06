@@ -5,20 +5,21 @@ from uuid import UUID
 
 from sqlalchemy import select
 
+from core.container import get
 from core.errors import ConflictError, NotFoundError, ValidationError
 from infrastructure.llm.collaboration import content_hash
-from modules.collaboration.contracts import CreativeResourcePort, ResourceSnapshot
 from modules.world.assistant_page_tools import OPERATIONS, EditPage
 from modules.world.models import WorldBiblePageDraft
 
 
 def _snapshot(row):
+    resource_snapshot = get("collaboration.ResourceSnapshot")
     content = {
         "title": row.title,
         "free_text": row.free_text or "",
         "sections_json": row.sections_json or [],
     }
-    return ResourceSnapshot(
+    return resource_snapshot(
         kind="world_bible_draft",
         id=row.id,
         revision=content_hash(
@@ -91,4 +92,6 @@ async def apply(db, novel_id, prepared, *, context):
     )
 
 
-PORT = CreativeResourcePort(inventory, read, validate, apply)
+def port():
+    """构造 world_bible_draft 的 collaboration 资源端口（SPI 类型经容器解析）。"""
+    return get("collaboration.CreativeResourcePort")(inventory, read, validate, apply)

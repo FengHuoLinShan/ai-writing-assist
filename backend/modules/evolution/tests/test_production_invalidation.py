@@ -129,7 +129,7 @@ async def test_all_writing_entry_points_fence_stale_prefix_and_replay(
         )
         assert response.status_code == 200, response.text
     elif entry == "assistant":
-        from modules.writing.assistant_tools import OPERATIONS, ReviseChapter
+        from modules.writing.assistant_tools import OPERATIONS_SPEC, ReviseChapter
 
         args = ReviseChapter(
             draft_id=drafts[0].id,
@@ -143,9 +143,9 @@ async def test_all_writing_entry_points_fence_stale_prefix_and_replay(
                 }
             ],
         )
-        operation = OPERATIONS["writing.revise"]
-        preview = await operation.prepare(db, nid, args, context=context)
-        await operation.apply(db, nid, args, preview, context=context)
+        operation = OPERATIONS_SPEC["writing.revise"]
+        preview = await operation["prepare"](db, nid, args, context=context)
+        await operation["apply"](db, nid, args, preview, context=context)
     elif entry == "collaboration":
         from core.container import get
 

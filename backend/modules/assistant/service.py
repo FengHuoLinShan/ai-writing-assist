@@ -202,11 +202,11 @@ def record_run_event(run, phase):
 
 async def expire_run_histories(db):
     """Bounded task-metadata maintenance; no project content or model analysis."""
+    from core.container import get
     from modules.assistant.forecast.maintenance import expire_assessments
-    from modules.collaboration.facade import stop_unavailable_runs
 
     await expire_assessments(db)
-    await stop_unavailable_runs(db)
+    await get("collaboration.stop_unavailable_runs")(db)
     rows = await db.scalars(
         select(AssistantRun)
         .where(
@@ -623,9 +623,9 @@ class AssistantService:
         await require_active_project(db, novel_id)
         run = await self.require_run(db, novel_id, run_id)
         if run.request_json.get("protocol") == "creative_projection_v2":
-            from modules.collaboration.facade import read_projected_run
+            from core.container import get
 
-            return await read_projected_run(db, novel_id, run_id)
+            return await get("collaboration.read_projected_run")(db, novel_id, run_id)
         if run.request_json.get("protocol") == "forecast_v1":
             return self.view(run)
         run = await self.require_run(db, novel_id, run_id, lock=True)

@@ -26,7 +26,6 @@ async def inspect(db, novel_id, focus, excluded):
 
     from sqlalchemy import select
 
-    from modules.assistant.contracts import ForecastDomainFact
     from modules.story.facade import get_scene_story_assets
     from modules.story.outline_state.models import Scene
 
@@ -39,29 +38,35 @@ async def inspect(db, novel_id, focus, excluded):
         return []
     assets = await get_scene_story_assets(db, novel_id=novel_id, scene_id=str(scene.id))
     value = assets.model_dump(mode="json") if hasattr(assets, "model_dump") else assets
+    # 纯数据事实（AO-5）：assistant 消费侧以 ForecastDomainFact.model_validate
+    # 物化并校验，字段语义与原模型构造一致。
     return [
-        ForecastDomainFact(
-            capability_id="story.structure_impact.v1",
-            subject=str(scene.id),
-            title="场景调整后，先核对原文连接",
-            summary="这些章节与场景片段是当前明确的结构连接；调整信息顺序前可逐处核对。",
-            source={
+        {
+            "capability_id": "story.structure_impact.v1",
+            "subject": str(scene.id),
+            "title": "场景调整后，先核对原文连接",
+            "summary": (
+                "这些章节与场景片段是当前明确的结构连接；调整信息顺序前可逐处核对。"
+            ),
+            "source": {
                 "scene_id": str(scene.id),
                 "chapter_ids": scene.chapter_ids or [],
                 "scene_chunks": scene.scene_chunks or [],
                 "updated_at": str(scene.updated_at),
             },
-            scope_label="当前场景的显式章节映射",
-            unknowns=["未以相邻场景或文字相似推断因果，尚未复核调整后的读者信息顺序。"],
-            target={"page": "scene", "scene_id": str(scene.id)},
-        ),
-        ForecastDomainFact(
-            capability_id="writing.recall_pack.v1",
-            subject=str(scene.id),
-            title="本场已有剧本与人物卡",
-            summary="已采用的场景资料可作为接续前的检查清单，仍需按本次写作范围确认。",
-            source={"scene_id": str(scene.id), "assets": value},
-            scope_label="当前场景采用的故事资料",
-            target={"page": "scene", "scene_id": str(scene.id)},
-        ),
+            "scope_label": "当前场景的显式章节映射",
+            "unknowns": [
+                "未以相邻场景或文字相似推断因果，尚未复核调整后的读者信息顺序。"
+            ],
+            "target": {"page": "scene", "scene_id": str(scene.id)},
+        },
+        {
+            "capability_id": "writing.recall_pack.v1",
+            "subject": str(scene.id),
+            "title": "本场已有剧本与人物卡",
+            "summary": "已采用的场景资料可作为接续前的检查清单，仍需按本次写作范围确认。",
+            "source": {"scene_id": str(scene.id), "assets": value},
+            "scope_label": "当前场景采用的故事资料",
+            "target": {"page": "scene", "scene_id": str(scene.id)},
+        },
     ]

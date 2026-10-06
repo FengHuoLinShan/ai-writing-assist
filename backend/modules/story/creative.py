@@ -9,8 +9,10 @@ from core.container import get
 from core.errors import ConflictError, NotFoundError, ValidationError
 from infrastructure.llm.collaboration import content_hash
 from modules.story.assistant_information_tools import KINDS, EditInformationPlan
-from modules.story.assistant_information_tools import OPERATIONS as INFORMATION
-from modules.story.assistant_tools import OPERATIONS as SCENES
+from modules.story.assistant_information_tools import (
+    OPERATIONS_SPEC as INFORMATION,
+)
+from modules.story.assistant_tools import OPERATIONS_SPEC as SCENES
 from modules.story.assistant_tools import EditScene
 from modules.story.outline_state.models import Scene
 from modules.story.outline_state.schemas import SceneUpdate
@@ -118,7 +120,7 @@ async def validate(db, novel_id, baseline, patch, *, context):
         if baseline.kind == "scene"
         else EditInformationPlan(kind=baseline.kind, plan_id=baseline.id, changes=changes)
     )
-    preview = await operation.prepare(db, novel_id, args, context=context)
+    preview = await operation["prepare"](db, novel_id, args, context=context)
     return {
         "operation": name,
         "arguments": args.model_dump(mode="json"),
@@ -128,10 +130,10 @@ async def validate(db, novel_id, baseline, patch, *, context):
 
 async def apply(db, novel_id, prepared, *, context):
     operation = (SCENES | INFORMATION)[prepared["operation"]]
-    return await operation.apply(
+    return await operation["apply"](
         db,
         novel_id,
-        operation.schema.model_validate(prepared["arguments"]),
+        operation["schema"].model_validate(prepared["arguments"]),
         prepared["preview"],
         context=context,
     )

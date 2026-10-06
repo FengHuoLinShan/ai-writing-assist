@@ -15,6 +15,7 @@ from modules.collaboration.contracts import (
 )
 from modules.story import creative as story_creative
 from modules.story.assistant_information_tools import KINDS
+from modules.world import creative as world_creative
 from modules.writing import creative as writing_creative
 
 
@@ -41,3 +42,12 @@ def test_writing_resource_port_keeps_shape() -> None:
     assert port.read is writing_creative.read
     assert port.validate is writing_creative.validate
     assert port.apply is writing_creative.apply
+
+
+def test_world_resource_port_keeps_shape() -> None:
+    port = world_creative.port()
+    assert isinstance(port, CreativeResourcePort)
+    assert port.inventory is world_creative.inventory
+    assert port.read is world_creative.read
+    assert port.validate is world_creative.validate
+    assert port.apply is world_creative.apply

@@ -35,7 +35,10 @@ from modules.evidence.facade import (
 )
 from modules.evidence.indexing.indexing import IndexingService as _RagIndexingService
 from modules.project.facade import (
+    get_project_context as _project_context,
     get_project_owner_ref as _project_owner_ref,
+    list_project_ids_for_owner as _project_list_ids_for_owner,
+    purge_projects_for_owner as _project_purge_for_owner,
 )
 from modules.project.facade import require_active_project as _project_require_active
 from modules.story.project_ports import (
@@ -59,6 +62,7 @@ from modules.world.facade import (
     list_characters as _world_list_characters,
     list_entities as _world_list_entities,
     list_entity_terms as _world_list_entity_terms,
+    review_team_stress as _world_review_team_stress,
 )
 from modules.world.project_ports import (
     WorldDedupAdapter as _WorldDedupAdapter,
@@ -68,32 +72,40 @@ from modules.world.project_ports import (
 )
 from modules.world.map_atlas_facade import (
     enqueue_map_atlas_project_cleanup as _map_atlas_cleanup,
+    list_adopted_map_continuity_facts as _world_list_map_continuity_facts,
+    map_capabilities as _world_map_capabilities,
 )
+from modules.imports.facade import (
+    get_active_organization as _imports_get_active_organization,
+    get_review_dispositions as _imports_get_review_dispositions,
+)
+from modules.interaction.facade import (
+    read_continuity_review as _interaction_read_continuity_review,
+)
+from modules.interaction.facade import (
+    validate_public_demo_source_context as _interaction_validate_demo_context,
+)
+from modules.evolution.facade import (
+    record_writing_source_change as _evolution_record_writing_source_change,
+    require_current_world_candidate as _evolution_require_current_world_candidate,
+)
+from modules.story.facade import get_scene_contract as _story_get_scene_contract
 from modules.world import assistant_ports as _world_assistant
 from modules.world.assistant_tools import OPERATIONS as _WORLD_OPERATIONS
-from modules.project.assistant_dedup_tool import OPERATIONS as _PROJECT_DEDUP_OPERATIONS
-from modules.story.assistant_information_tools import (
-    OPERATIONS as _STORY_INFORMATION_OPERATIONS,
-)
+from app.assistant_operation_registry import evidence_forecast_operations
+from app.assistant_operation_registry import project_dedup_operations
+from app.assistant_operation_registry import project_operations
+from app.assistant_operation_registry import story_information_operations
+from app.assistant_operation_registry import story_operations
+from app.assistant_operation_registry import story_planning_operations
+from app.assistant_operation_registry import story_structure_operations
+from app.assistant_operation_registry import writing_candidate_operations
+from app.assistant_operation_registry import writing_generation_operations
+from app.assistant_operation_registry import writing_operations
 from modules.world.assistant_page_tools import OPERATIONS as _WORLD_PAGE_OPERATIONS
 from modules.world.assistant_outcome_tools import OPERATIONS as _WORLD_OUTCOME_OPERATIONS
 from modules.world.assistant_cocreation_tools import (
     OPERATIONS as _WORLD_COCREATION_OPERATIONS,
-)
-from modules.writing.assistant_tools import OPERATIONS as _WRITING_OPERATIONS
-from modules.writing.assistant_generation_tool import (
-    OPERATIONS as _WRITING_GENERATION_OPERATIONS,
-)
-from modules.writing.assistant_candidate_tools import (
-    OPERATIONS as _WRITING_CANDIDATE_OPERATIONS,
-)
-from modules.project.assistant_tools import OPERATIONS as _PROJECT_OPERATIONS
-from modules.story.assistant_tools import OPERATIONS as _STORY_OPERATIONS
-from modules.story.assistant_structure_workflow import (
-    OPERATIONS as _STORY_STRUCTURE_OPERATIONS,
-)
-from modules.story.assistant_planning_tools import (
-    OPERATIONS as _STORY_PLANNING_OPERATIONS,
 )
 from modules.story.proactive import schedule_proactive_review as _story_proactive_review
 from modules.imports.assistant_tools import OPERATIONS as _IMPORTS_OPERATIONS
@@ -111,7 +123,17 @@ from modules.writing.assistant_tools import (
 )
 from modules.assistant.facade import mark_changed as _assistant_mark_changed
 from modules.collaboration.facade import (
+    changed_cases as _collab_changed_cases,
     collect_forecast_understanding as _collab_collect_forecast_understanding,
+    read_projected_run as _collab_read_projected_run,
+    stop_unavailable_runs as _collab_stop_unavailable_runs,
+    submit_changed_case as _collab_submit_changed_case,
+)
+from modules.assistant.facade import (
+    inspect_discussion as _assistant_inspect_discussion,
+    mark_editorial_ready as _assistant_mark_editorial_ready,
+    mark_task_local_approved as _assistant_mark_task_local_approved,
+    submit_comment_proposals as _assistant_submit_comment_proposals,
 )
 from modules.assistant.facade import (
     run_discussion_scope as _assistant_run_discussion_scope,
@@ -178,7 +200,7 @@ def _container_services() -> Iterable[tuple[str, Any]]:
     rag_indexing = _RagIndexingService()
     from modules.writing.creative import port as _writing_creative_port
     from modules.story.creative import ports as story_creative
-    from modules.world.creative import PORT as WORLD_CREATIVE
+    from modules.world.creative import port as _world_creative_port
     from modules.writing import forecast as writing_forecast
     from modules.story import forecast as story_forecast
     from modules.world import forecast as world_forecast
@@ -234,7 +256,7 @@ def _container_services() -> Iterable[tuple[str, Any]]:
             "collaboration.resources",
             {
                 "writing_draft": _writing_creative_port(),
-                "world_bible_draft": WORLD_CREATIVE,
+                "world_bible_draft": _world_creative_port(),
                 **story_creative(),
             },
         ),
@@ -242,20 +264,20 @@ def _container_services() -> Iterable[tuple[str, Any]]:
             "assistant.operations",
             {
                 **_WORLD_OPERATIONS,
-                **_PROJECT_DEDUP_OPERATIONS,
-                **_STORY_INFORMATION_OPERATIONS,
+                **project_dedup_operations,
+                **story_information_operations,
                 **_WORLD_PAGE_OPERATIONS,
                 **_WORLD_OUTCOME_OPERATIONS,
                 **_WORLD_COCREATION_OPERATIONS,
-                **_WRITING_OPERATIONS,
-                **_WRITING_GENERATION_OPERATIONS,
-                **_WRITING_CANDIDATE_OPERATIONS,
-                **_PROJECT_OPERATIONS,
-                **_STORY_OPERATIONS,
-                **_STORY_STRUCTURE_OPERATIONS,
-                **_STORY_PLANNING_OPERATIONS,
+                **writing_operations,
+                **writing_generation_operations,
+                **writing_candidate_operations,
+                **project_operations,
+                **story_operations,
+                **story_structure_operations,
+                **story_planning_operations,
                 **_IMPORTS_OPERATIONS,
-                **evidence_forecast.OPERATIONS,
+                **evidence_forecast_operations,
                 **_MAP_OPERATIONS,
                 **_WORLD_REVIEW_OPERATIONS,
             },
@@ -280,11 +302,58 @@ def _container_services() -> Iterable[tuple[str, Any]]:
             "collaboration.collect_forecast_understanding",
             _collab_collect_forecast_understanding,
         ),
+        # AO-5 第三批：assistant 消费 collaboration/world/imports/interaction
+        # facade 能力经这些 DI 键，四个反方向函数内导入清零
+        # （collaboration→assistant / world→assistant / interaction→assistant
+        # 为各对既有方向，见 ADR-0031）。
+        ("collaboration.changed_cases", _collab_changed_cases),
+        ("collaboration.submit_changed_case", _collab_submit_changed_case),
+        ("collaboration.stop_unavailable_runs", _collab_stop_unavailable_runs),
+        ("collaboration.read_projected_run", _collab_read_projected_run),
+        ("world.map_capabilities", _world_map_capabilities),
+        ("world.review_team_stress", _world_review_team_stress),
+        ("imports.get_active_organization", _imports_get_active_organization),
+        ("interaction.read_continuity_review", _interaction_read_continuity_review),
+        # AO-5 第三批：world/writing/project/evidence 消费相邻高层模块的
+        # 单点 facade 能力经这些 DI 键，七个剩余函数内反方向清零
+        # （evolution→world / evolution→writing / story→project /
+        # interaction→evidence / world→writing / imports→world 为各对
+        # 裁定方向，见 ADR-0031）。
+        (
+            "evolution.require_current_world_candidate",
+            _evolution_require_current_world_candidate,
+        ),
+        (
+            "evolution.record_writing_source_change",
+            _evolution_record_writing_source_change,
+        ),
+        ("imports.get_review_dispositions", _imports_get_review_dispositions),
+        (
+            "interaction.validate_public_demo_source_context",
+            _interaction_validate_demo_context,
+        ),
+        ("story.get_scene_contract", _story_get_scene_contract),
+        (
+            "world.list_adopted_map_continuity_facts",
+            _world_list_map_continuity_facts,
+        ),
         # AO-5: local_agent 设备确认回写 interaction 经此 DI port，反向顶层导入清零。
         (
             "interaction.mark_task_local_approved",
             _interaction_mark_task_local_approved,
         ),
+        # AO-5 第二批：local_agent(L1)/evidence(L2)/writing(L2) 消费 assistant
+        # facade 能力经这些 DI 键，assistant 反方向顶层/函数内导入清零。
+        (
+            "assistant.mark_task_local_approved",
+            _assistant_mark_task_local_approved,
+        ),
+        ("assistant.inspect_discussion", _assistant_inspect_discussion),
+        (
+            "assistant.submit_comment_proposals",
+            _assistant_submit_comment_proposals,
+        ),
+        ("assistant.mark_editorial_ready", _assistant_mark_editorial_ready),
         # AO-5: evidence 编译与 world 地图经此只读 port 消费 story 场景事实，
         # world→story / evidence→story 的反向顶层导入清零。
         ("story.scene_source", _StorySceneSource()),
@@ -367,6 +436,11 @@ def _container_services() -> Iterable[tuple[str, Any]]:
         ("project.dedup.story", _StoryDedupAdapter()),
         # AO-4: account resolves project owners through this project-owned port.
         ("account.project_owner_ref", _project_owner_ref),
+        # AO-5 第三批：account 生命周期/公共 demo 主体消费 project 能力经这些
+        # project 门面 DI 键，account→project 函数内导入清零。
+        ("account.project_context", _project_context),
+        ("account.project_ids_for_owner", _project_list_ids_for_owner),
+        ("account.project_purge_for_owner", _project_purge_for_owner),
     )
 
 

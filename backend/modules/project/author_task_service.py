@@ -443,7 +443,7 @@ class AuthorTaskService:
 
         chapter_keys = [key for key in keys if key[0] == "writing_chapter"]
         if chapter_keys:
-            from modules.writing.facade import list_latest_drafts_for_chapters
+            from core.container import get
 
             chapter_indices = sorted(
                 index
@@ -452,7 +452,7 @@ class AuthorTaskService:
             )
             try:
                 drafts = (
-                    await list_latest_drafts_for_chapters(
+                    await get("writing.list_latest_drafts_for_chapters")(
                         db,
                         novel_id,
                         chapter_indices,
@@ -478,10 +478,10 @@ class AuthorTaskService:
             for key in keys
             if key[0] == "outline_scene" and _is_uuid_source_id(key[1])
         ]:
-            from modules.story.facade import get_scene_contract
+            from core.container import get
 
             try:
-                scene = await get_scene_contract(db, novel_id, key[1])
+                scene = await get("story.get_scene_contract")(db, novel_id, key[1])
             except (NotFoundError, ValidationError):
                 scene = None
             if scene is not None:

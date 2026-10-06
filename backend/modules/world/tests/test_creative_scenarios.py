@@ -2,7 +2,7 @@
 
 import pytest
 
-from modules.world.contracts import WorldScenarioCheck
+from modules.collaboration.world_stress_checks import WorldScenarioCheck
 
 
 def test_same_scenario_is_required_on_both_versions_and_unknown_cannot_pass():

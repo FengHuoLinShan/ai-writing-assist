@@ -9,7 +9,6 @@ from sqlalchemy import select
 
 from core.container import get
 from core.errors import ConflictError, NotFoundError
-from modules.assistant.contracts import AssistantOperation
 from modules.story.outline_state.models import ForeshadowingPlan, RevealPlan
 from modules.story.outline_state.schemas import ForeshadowingPlanUpdate, RevealPlanUpdate
 from modules.story.outline_state.services import (
@@ -126,8 +125,13 @@ async def _apply(db, novel_id, args, preview, *, context=None):
     return {"type": args.kind, "id": str(result.id), "label": "信息计划已更新"}
 
 
-OPERATIONS = {
-    "story.edit_information_plan": AssistantOperation(
-        "修改伏笔与揭示安排", EditInformationPlan, _preview, _apply
-    )
+# 纯数据声明（AO-5）：不 import assistant 契约；组合根
+# app/assistant_operation_registry 按 AssistantOperation 原构造语义物化。
+OPERATIONS_SPEC = {
+    "story.edit_information_plan": {
+        "label": "修改伏笔与揭示安排",
+        "schema": EditInformationPlan,
+        "prepare": _preview,
+        "apply": _apply,
+    }
 }

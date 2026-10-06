@@ -423,7 +423,9 @@ async def execute(db, task):
             scenarios, scenario_sources = {}, []
             check_schema = CheckOutput
             if recipe.id == "world_stress":
-                from modules.world.contracts import WorldScenarioCheck
+                from modules.collaboration.world_stress_checks import (
+                    WorldScenarioCheck,
+                )
 
                 check_schema = WorldScenarioCheck
                 previous = (

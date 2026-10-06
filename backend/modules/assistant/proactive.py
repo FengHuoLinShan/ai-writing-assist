@@ -346,9 +346,7 @@ async def schedule_due(db):
             else get_settings().assistant_enabled
         ):
             continue
-        from modules.imports.facade import get_active_organization
-
-        if await get_active_organization(db, str(row.novel_id)):
+        if await get("imports.get_active_organization")(db, str(row.novel_id)):
             # Derived assets may still be changing during an authorized import.
             # Keep their markers until that workflow has a stable terminal state.
             row.due_at = now + timedelta(seconds=30)
@@ -789,9 +787,9 @@ async def list_notices(db, novel_id, *, interaction=False):
             reference.get("type") == "interaction_continuity_review"
             and task_id not in stale_reviews
         ):
-            from modules.interaction.facade import read_continuity_review
-
-            result = await read_continuity_review(db, str(novel_id), task_id)
+            result = await get("interaction.read_continuity_review")(
+                db, str(novel_id), task_id
+            )
             stale_reviews[task_id] = result["status"] != "completed"
         capability = {
             "writing_semantic_review": "writing.review",

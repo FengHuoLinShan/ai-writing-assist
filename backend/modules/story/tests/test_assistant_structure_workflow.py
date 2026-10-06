@@ -4,6 +4,7 @@ from dataclasses import replace
 import pytest
 from sqlalchemy import func, select
 
+from app.assistant_operation_registry import story_structure_operations
 from core.config import get_settings
 from core.errors import ConflictError
 from infrastructure.tasks.models import AsyncTask
@@ -14,7 +15,6 @@ from modules.assistant.proactive import save_policy
 from modules.assistant.schemas import ProactivePolicy
 from modules.project.facade import build_project_llm_execution_snapshot
 from modules.story.assistant_structure_workflow import (
-    OPERATIONS,
     AdoptStructure,
     PlanStructure,
 )
@@ -64,7 +64,7 @@ async def test_structure_task_keeps_parent_and_adopts_original_information_packa
         context=context,
     )
     args = PlanStructure(target="plot_thread", instruction="规划来信主线及其铺垫与回收")
-    operation = OPERATIONS["story.plan_structure"]
+    operation = story_structure_operations["story.plan_structure"]
     preview = await operation.prepare(db, nid, args, context=context)
     context = replace(
         context,
@@ -132,7 +132,7 @@ async def test_structure_task_keeps_parent_and_adopts_original_information_packa
     assert (await operation.read_result(db, nid, reference))["draft_structure"][
         "threads"
     ][0]["name"] == "港口来信"
-    adopt = OPERATIONS["story.adopt_structure"]
+    adopt = story_structure_operations["story.adopt_structure"]
     adoption = AdoptStructure(task_id=task.id)
     preview = await adopt.prepare(db, nid, adoption, context=context)
     result = await adopt.apply(db, nid, adoption, preview, context=context)

@@ -10,7 +10,6 @@ from sqlalchemy import func, select
 
 from core.container import get
 from core.errors import ConflictError, ValidationError
-from modules.assistant.contracts import AssistantOperation
 from modules.story.outline_state.models import Scene
 from modules.story.outline_state.schemas import SceneCreate, SceneUpdate
 from modules.story.outline_state.services import SceneService
@@ -362,18 +361,37 @@ async def _apply(db, novel_id, args, preview, *, context=None):
     return {"type": "scene", "id": str(row.id), "label": "已更新场景"}
 
 
-OPERATIONS = {
-    "story.save_outline": AssistantOperation(
-        "保存并采用总纲方案", StoryOutlineContent, _outline_preview, _outline_apply
-    ),
-    "story.create_scenes": AssistantOperation(
-        "追加场景规划", CreateScenes, _scenes_preview, _scenes_apply
-    ),
-    "story.save_card": AssistantOperation(
-        "保存场景人物卡", SaveCard, _card_preview, _card_apply
-    ),
-    "story.save_script": AssistantOperation(
-        "保存场景剧本", SaveScript, _script_preview, _script_apply
-    ),
-    "story.edit_scene": AssistantOperation("修改场景结构", EditScene, _prepare, _apply),
+# 纯数据声明（AO-5）：不 import assistant 契约；组合根
+# app/assistant_operation_registry 按 AssistantOperation 原构造语义物化。
+OPERATIONS_SPEC = {
+    "story.save_outline": {
+        "label": "保存并采用总纲方案",
+        "schema": StoryOutlineContent,
+        "prepare": _outline_preview,
+        "apply": _outline_apply,
+    },
+    "story.create_scenes": {
+        "label": "追加场景规划",
+        "schema": CreateScenes,
+        "prepare": _scenes_preview,
+        "apply": _scenes_apply,
+    },
+    "story.save_card": {
+        "label": "保存场景人物卡",
+        "schema": SaveCard,
+        "prepare": _card_preview,
+        "apply": _card_apply,
+    },
+    "story.save_script": {
+        "label": "保存场景剧本",
+        "schema": SaveScript,
+        "prepare": _script_preview,
+        "apply": _script_apply,
+    },
+    "story.edit_scene": {
+        "label": "修改场景结构",
+        "schema": EditScene,
+        "prepare": _prepare,
+        "apply": _apply,
+    },
 }

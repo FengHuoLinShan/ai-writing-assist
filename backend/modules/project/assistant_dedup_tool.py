@@ -8,7 +8,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from core.container import get
 from core.errors import ConflictError
 from infrastructure.tasks.facade import get_completed_task_payload
-from modules.assistant.contracts import AssistantOperation
 from modules.project.schemas import SmartDedupScanRequest
 from modules.project.smart_dedup import SmartDedupService
 
@@ -90,13 +89,15 @@ async def _read(db, novel_id, reference):
     }
 
 
-OPERATIONS = {
-    "project.scan_duplicates": AssistantOperation(
-        "查找相似资料",
-        ScanDuplicates,
-        _preview,
-        _submit,
-        permission="suggest",
-        read_result=_read,
-    )
+# 纯数据声明（AO-5）：不 import assistant 契约；组合根
+# app/assistant_operation_registry 按 AssistantOperation 原构造语义物化。
+OPERATIONS_SPEC = {
+    "project.scan_duplicates": {
+        "label": "查找相似资料",
+        "schema": ScanDuplicates,
+        "prepare": _preview,
+        "apply": _submit,
+        "permission": "suggest",
+        "read_result": _read,
+    }
 }

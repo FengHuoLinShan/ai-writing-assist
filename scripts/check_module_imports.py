@@ -60,14 +60,27 @@ _WORLD_WORLDBUILDING_PKG = "modules.world.services.worldbuilding"
 # directed_edges 90→85、bidirectional_pairs 33→28、
 # top_level_bidirectional_pairs 13→6（仅剩 assistant 六对，第二批处理）、
 # function_level_imports 558→549（消除导入自然下降，无顶层降级）、
-# world_core_to_worldbuilding 23→0、world_worldbuilding_to_core 27→26）。
+# world_core_to_worldbuilding 23→0、world_worldbuilding_to_core 27→26；
+# AO-5 第二批按 ADR-0031 清零 assistant 六对反方向顶层导入——领域插件文件
+# 只导出纯数据 OPERATIONS_SPEC / 纯 dict 事实，AssistantOperation/
+# ForecastDomainFact 物化收归组合根装配件 app/assistant_operation_registry.py，
+# facade 消费改 DI 键：directed_edges 85→79、bidirectional_pairs 28→22、
+# top_level_bidirectional_pairs 6→0、function_level_imports 549→544
+# （全部来自消除导入，无顶层降级）；AO-5 第三批按 ADR-0031 消灭 13 个剩余
+# 双向对——world/creative.py SPI 类型改容器解析（world_bible_draft 端口改
+# 工厂装配）、world 情境重测 schema 迁 collaboration/world_stress_checks.py
+# （连带消除 collaboration runtime 对该 schema 的反方向懒加载）、
+# account/assistant/world/writing/project/evidence 的 18 处单点 facade 消费
+# 改 DI 键：directed_edges 79→65、bidirectional_pairs 22→9、
+# top_level_bidirectional_pairs 0→0、function_level_imports 544→525
+# （全部来自消除导入，无顶层降级））。
 # 分层目标态见 docs/architecture/README.md「模块依赖方向分层（目标态）」
 # 与 docs/adr/0031-module-dependency-directions.md。
 _DEPENDENCY_BASELINE: dict[str, int] = {
-    "directed_edges": 85,
-    "bidirectional_pairs": 28,
-    "top_level_bidirectional_pairs": 6,
-    "function_level_imports": 549,
+    "directed_edges": 65,
+    "bidirectional_pairs": 9,
+    "top_level_bidirectional_pairs": 0,
+    "function_level_imports": 525,
     "world_core_to_worldbuilding": 0,
     "world_worldbuilding_to_core": 26,
 }

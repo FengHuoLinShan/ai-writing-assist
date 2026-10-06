@@ -6,6 +6,7 @@ from datetime import UTC
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.container import get
 from shared.utils import parse_uuid  # noqa: F401
 
 
@@ -154,7 +155,6 @@ async def require_fresh_understanding_source(db, novel_id, metadata):
     else:
         return
     from core.errors import ConflictError
-    from modules.evolution.facade import require_current_world_candidate
 
     if (
         not isinstance(reference, dict)
@@ -174,4 +174,4 @@ async def require_fresh_understanding_source(db, novel_id, metadata):
         if getattr(error.orig, "sqlstate", None) != "55P03":
             raise
         raise ConflictError("正文或资料正在更新，请刷新后再采用") from error
-    await require_current_world_candidate(db, novel_id, reference)
+    await get("evolution.require_current_world_candidate")(db, novel_id, reference)

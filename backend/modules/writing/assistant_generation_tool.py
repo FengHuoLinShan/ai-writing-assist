@@ -6,7 +6,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from core.errors import ConflictError
 from infrastructure.tasks.facade import get_completed_task_payload, get_operation_task
-from modules.assistant.contracts import AssistantOperation
 from modules.evidence.contracts import CompileOptions, ContextConfirmationRequest
 from modules.evidence.facade import (
     confirm_context,
@@ -181,13 +180,15 @@ async def _read_result(db, novel_id, reference):
     }
 
 
-OPERATIONS = {
-    "writing.generate_candidate": AssistantOperation(
-        "生成或续写正文候选",
-        GenerateCandidate,
-        _prepare,
-        _submit,
-        permission="suggest",
-        read_result=_read_result,
-    ),
+# 纯数据声明（AO-5）：不 import assistant 契约；组合根
+# app/assistant_operation_registry 按 AssistantOperation 原构造语义物化。
+OPERATIONS_SPEC = {
+    "writing.generate_candidate": {
+        "label": "生成或续写正文候选",
+        "schema": GenerateCandidate,
+        "prepare": _prepare,
+        "apply": _submit,
+        "permission": "suggest",
+        "read_result": _read_result,
+    },
 }

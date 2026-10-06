@@ -56,9 +56,9 @@ class InteractionStoryContextService:
         )
 
         if public_demo_source:
-            from modules.interaction.facade import validate_public_demo_source_context
+            from core.container import get
 
-            await validate_public_demo_source_context(
+            await get("interaction.validate_public_demo_source_context")(
                 db,
                 source_novel_id=source_novel_id,
                 source_revision_id=source_revision_id,
