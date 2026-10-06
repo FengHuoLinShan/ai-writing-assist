@@ -62,6 +62,9 @@ async def _run(args: argparse.Namespace) -> int:
         print("SMTP smoke message accepted by server")
         await manager.close()
         return 0
+    from app.bootstrap import register_container_services
+
+    register_container_services(ignore_existing=True)
     async with manager.session() as db:
         if args.command == "status":
             account = await _find_account(db, args.account)

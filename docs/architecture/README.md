@@ -124,10 +124,11 @@ collaboration 各对与 assistant 各对的逐对 owner 裁定见 ADR-0031（三
 outline-writing ADR 的注入 provider + 只读 facade 先例。
 
 这是**目标态**，不是现状描述：当前模块间仍存在大量双向依赖。现状由
-`scripts/check_module_imports.py` 的 `_DEPENDENCY_BASELINE` 棘轮基线冻结，
-任一方向指标超过基线即门禁失败，基线只降不升；解环工作按
+`scripts/check_module_imports.py` 的 `_DEPENDENCY_BASELINE` 指标与 `_DEPENDENCY_EDGES`
+实际方向集合冻结；新增依赖边或任一方向指标超过基线即门禁失败，不能以删除旧边抵消
+新方向。基线只降不升；解环工作按
 `docs/plans/2026-10-06-architecture-optimization.md`（AO-3~AO-5）逐对推进，
-每消除一条依赖就把对应基线值下调。
+每消除一条依赖就删除集合中的对应边，并下调指标基线。
 
 `module-architecture.drawio` / `module-architecture.html` 中的“事实层/
 结构层/辅助层”是产品职责分组，与这里的依赖方向分层是两个维度；两图也不

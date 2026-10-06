@@ -1,5 +1,9 @@
 # Module: infrastructure / 基础设施模块
 
+API 在 `APP_ENV=production` 时要求 pgvector 扩展可用；扩展缺失或探测失败会中止启动。
+其他环境仍允许告警后继续。常驻 worker 在领取任务前要求数据库位于当前全部 Alembic head，
+无法连接或 schema 落后时立即退出；迁移由部署流程执行，只有开发 `--reload` 路径等待迁移。
+
 ## 1. LLM 客户端
 
 ADR-0023 增加 `pydantic-ai-slim==2.42.0` 的有限单 Agent 循环。网关协议加性支持工具定义、

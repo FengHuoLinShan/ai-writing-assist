@@ -203,6 +203,20 @@ def test_container_scope_restores_existing_and_removes_new_service():
         get("temp")
 
 
+def test_nested_container_scope_restores_registered_none_after_error():
+    register("optional", None)
+    scoped = object()
+
+    with pytest.raises(ValueError, match="failed"):
+        with container_scope({"optional": scoped}):
+            with container_scope({"optional": None}):
+                assert get("optional") is None
+            assert get("optional") is scoped
+            raise ValueError("failed")
+
+    assert get("optional") is None
+
+
 @pytest.mark.asyncio
 async def test_shutdown_closes_created_singletons_in_reverse_order_and_clears():
     events: list[str] = []

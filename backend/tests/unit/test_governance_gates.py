@@ -578,6 +578,56 @@ def test_direction_ratchet_blocks_new_directed_edge(tmp_path) -> None:
     assert any("bidirectional_pairs" in failure for failure in failures)
 
 
+def test_direction_ratchet_rejects_swapped_edge_with_unchanged_counts(
+    tmp_path,
+    monkeypatch,
+    capsys,
+) -> None:
+    import check_module_imports as gate
+
+    modules = {
+        name: (f"modules/{name}",) for name in ("imports", "account", "local_agent")
+    }
+    backend = tmp_path / "backend"
+    for name in modules:
+        _write_contracts(backend, name)
+    path = backend / "modules/imports/service.py"
+    path.write_text("from modules.account.contracts import Thing\n")
+    paths = list(backend.glob("modules/**/*.py"))
+    baseline, original_edges = gate.iter_directional_stats_for_paths(
+        modules,
+        paths,
+        repo_root=tmp_path,
+    )
+    assert gate.check_direction_ratchet(baseline, baseline, edges=original_edges) == []
+    path.write_text("from modules.local_agent.contracts import Thing\n")
+    violations, stats, edges = gate._analyze_paths(
+        modules,
+        paths,
+        repo_root=tmp_path,
+        exempt={},
+    )
+    assert violations == []
+    assert stats == baseline
+    monkeypatch.setattr(gate, "load_business_modules", lambda: modules)
+    monkeypatch.setattr(gate, "_DEPENDENCY_BASELINE", baseline)
+    monkeypatch.setattr(
+        gate, "analyze_repository", lambda **kwargs: (violations, stats, edges)
+    )
+    monkeypatch.setattr(gate, "analyze_facade_sql", lambda: [])
+
+    assert gate.main([]) == 1
+    assert "imports→local_agent" in capsys.readouterr().err
+    assert (
+        gate.check_direction_ratchet(
+            {name: 0 for name in baseline},
+            baseline,
+            edges=[],
+        )
+        == []
+    )
+
+
 def test_direction_ratchet_blocks_new_top_level_bidirectional_pair(tmp_path) -> None:
     """负例 B：双向仅存在于函数内时顶层双向对为 0；反向改顶层导入即超基线。"""
     import check_module_imports as gate
@@ -991,6 +1041,10 @@ def test_facade_sql_gate_allows_delegation_models_and_annotations(tmp_path) -> N
                 "",
                 "async def confirm_thing(db, request: ThingRequest):",
                 "    return await Service().confirm(db, request)",
+                "    service.update(request)",
+                "    service.commit(request)",
+                "    seen.add(request.novel_id)",
+                "    metadata.update({})",
                 "",
                 "",
                 "def plan_ids(subquery: Select) -> Select:",
@@ -1005,6 +1059,45 @@ def test_facade_sql_gate_allows_delegation_models_and_annotations(tmp_path) -> N
     )
 
     assert violations == []
+
+
+@pytest.mark.parametrize("filename", ["facade.py", "entity_facade.py"])
+def test_facade_sql_gate_blocks_session_writes_and_sql_aliases(tmp_path, filename):
+    import check_module_imports as gate
+
+    modules = {"alpha": ("modules/alpha",)}
+    facade = _write_facade(
+        tmp_path,
+        f"modules/alpha/{filename}",
+        "import sqlalchemy as sa\n"
+        "from sqlalchemy import select as query\n"
+        "from sqlalchemy.ext.asyncio import AsyncSession\n"
+        "async def write(connection: AsyncSession, record):\n"
+        "    connection.add(record)\n"
+        "    connection.add_all([record])\n"
+        "    await connection.flush()\n"
+        "    await connection.commit()\n"
+        "    await connection.rollback()\n"
+        "    await connection.delete(record)\n"
+        "    await connection.merge(record)\n"
+        "    return query(record), sa.update(record)\n",
+    )
+    violations = gate.iter_facade_sql_violations_for_paths(
+        modules,
+        [facade],
+        repo_root=tmp_path,
+    )
+    assert {item["name"] for item in violations} == {
+        "add",
+        "add_all",
+        "flush",
+        "commit",
+        "rollback",
+        "delete",
+        "merge",
+        "query",
+        "update",
+    }
 
 
 def test_facade_sql_gate_scans_subpackages_only_for_business_facades(tmp_path) -> None:
