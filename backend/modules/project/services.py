@@ -9,7 +9,8 @@ from collections.abc import Awaitable, Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.errors import ConflictError, NotFoundError, ValidationError
+from core.errors import ConflictError, DomainError, NotFoundError, ValidationError
+from core.execution_context import is_system_execution
 from infrastructure.llm.egress import validate_user_llm_base_url
 from infrastructure.llm.profiles import (
     LLM_API_KEY_FIELD,
@@ -663,7 +664,7 @@ class ProjectService:
         """Hold a shared project row lock for the caller's transaction."""
         pid = _parse_uuid(novel_id, "novel_id")
         self._require_demo_project(pid)
-        owner_id = self._request_owner_id()
+        owner_id = self._require_request_owner_id()
         project = (
             await self._repo.get_active_for_share(
                 db,
@@ -694,7 +695,7 @@ class ProjectService:
         """Hold a short exclusive project lock for source-sensitive finalizers."""
         self._reject_demo_write()
         pid = _parse_uuid(novel_id, "novel_id")
-        owner_id = self._request_owner_id()
+        owner_id = self._require_request_owner_id()
         project = (
             await self._repo.get_active_for_update(
                 db,
@@ -804,6 +805,20 @@ class ProjectService:
     def _request_owner_id() -> uuid.UUID | None:
         """Return the browser owner; public worker calls alone may return None."""
         return current_owner_id_or_system_none()
+
+    @staticmethod
+    def _require_request_owner_id() -> uuid.UUID | None:
+        """Owner resolution for public project gates, failing closed.
+
+        Identical to :meth:`_request_owner_id` except that the ``None`` worker
+        identity is accepted only inside the worker/system execution scope.
+        An HTTP caller that reaches the gate without a bound principal would
+        otherwise silently skip the owner filter, so it is rejected instead.
+        """
+        owner_id = current_owner_id_or_system_none()
+        if owner_id is None and not is_system_execution():
+            raise DomainError("Authentication required", status_code=401)
+        return owner_id
 
     @staticmethod
     def _require_demo_project(project_id: uuid.UUID) -> None:
