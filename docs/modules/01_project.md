@@ -14,7 +14,9 @@ project 模块是每部小说的根聚合。所有小说业务模块通过 `nove
 
 `owner_id → accounts.id` 非空。项目 API、回收站、项目上下文和 worker 提交门禁均按当前
 owner 过滤；跨账号访问返回 404，业务响应不返回 `owner_id`。owner 门禁不替代任何
-`novel_id` 查询条件。
+`novel_id` 查询条件。公开项目 gate（`require_active_project` / `_exclusive`）对无绑定
+principal 的调用失败关闭（401）；无主查询仅允许出现在 worker/system 执行范围
+（`core.execution_context.system_execution_scope`，由 TaskWorker 统一标记）内。
 
 ### settings 字段
 

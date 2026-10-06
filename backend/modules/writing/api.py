@@ -83,6 +83,9 @@ class PublishResponse(BaseModel):
     draft: WritingDraftResponse
     task_id: str | None = None
     new_version: bool = True
+    # 冲突快照查询/归档失败时置 true：发布照常完成，但冲突基线可能缺失，
+    # 调用方应知晓后续冲突比对降级。
+    conflict_check_degraded: bool = False
 
 
 class DeleteChapterResponse(BaseModel):
@@ -493,6 +496,7 @@ async def create_draft(
 ) -> PublishResponse:
     """发布当前工作版本；无实质变化时复用已发布版本。"""
     await require_active_project(db, data.novel_id)
+    conflict_check_degraded = False
     snapshot = None
     try:
         snapshot = await _conflict_service.latest_snapshot(
@@ -502,6 +506,7 @@ async def create_draft(
             scene_id=data.scene_id,
         )
     except Exception as exc:
+        conflict_check_degraded = True
         logger.warning(
             "writing conflict snapshot lookup failed: %s",
             redact_diagnostic(exc, limit=500),
@@ -518,6 +523,7 @@ async def create_draft(
                 snapshot,
             )
         except Exception as exc:
+            conflict_check_degraded = True
             logger.warning(
                 "writing conflict snapshot archive failed: %s",
                 redact_diagnostic(exc, limit=500),
@@ -546,6 +552,7 @@ async def create_draft(
         draft=result,
         task_id=task_id,
         new_version=published_new_version,
+        conflict_check_degraded=conflict_check_degraded,
     )
 
 

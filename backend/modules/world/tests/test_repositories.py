@@ -12,11 +12,12 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.project.models import Project
-from modules.world.models import Character, CoreEntity
+from modules.world.models import Character, CoreEntity, Event
 from modules.world.repositories import (
     CharacterRepository,
     CoreEntityRepository,
     EntityRelationRepository,
+    EventRepository,
 )
 from modules.world.schemas import EntityRelationCreate
 
@@ -632,3 +633,215 @@ async def test_name_and_exact_alias_precede_prefix_and_description(
         db_session, uuid.UUID(test_project_id), q="Klein"
     )
     assert [row.id for row in result] == [exact.id, alias.id, prefix.id, mention.id]
+
+
+# ------------------------------------------------------------
+# 写操作 novel_id 纵深防御：跨 novel 的 id 不应被删/改
+# ------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_event_delete_scopes_to_novel(db_session: AsyncSession) -> None:
+    """EventRepository.delete 只删 novel_id 匹配的行（纵深防御）。"""
+    novel_id = uuid.uuid4()
+    other_novel_id = uuid.uuid4()
+    event_id = uuid.uuid4()
+    db_session.add_all(
+        [
+            Project(id=novel_id, title="event delete"),
+            Project(id=other_novel_id, title="other event delete"),
+            Event(
+                entity_id=event_id,
+                novel_id=novel_id,
+                source_chapter_id=uuid.uuid4(),
+                location_entity_id=uuid.uuid4(),
+                timeline_order=1,
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    assert (
+        await EventRepository().delete(
+            db_session,
+            event_id,
+            novel_id=other_novel_id,
+        )
+        is False
+    )
+    assert await db_session.get(Event, event_id) is not None
+
+    assert await EventRepository().delete(db_session, event_id, novel_id=novel_id) is True
+    assert await db_session.get(Event, event_id) is None
+
+
+@pytest.mark.asyncio
+async def test_relation_update_endpoint_scopes_to_novel(
+    db_session: AsyncSession,
+) -> None:
+    """EntityRelationRepository.update_endpoint 只改 novel_id 匹配的行。"""
+    novel_id = uuid.uuid4()
+    other_novel_id = uuid.uuid4()
+    source_id = uuid.uuid4()
+    target_id = uuid.uuid4()
+    new_endpoint_id = uuid.uuid4()
+    db_session.add_all(
+        [
+            Project(id=novel_id, title="endpoint scope"),
+            Project(id=other_novel_id, title="other endpoint scope"),
+            CoreEntity(
+                id=source_id,
+                novel_id=novel_id,
+                entity_type="character",
+                name="source",
+                status="canonical",
+            ),
+            CoreEntity(
+                id=target_id,
+                novel_id=novel_id,
+                entity_type="character",
+                name="target",
+                status="canonical",
+            ),
+        ]
+    )
+    await db_session.flush()
+    rel = await EntityRelationRepository().create(
+        db_session,
+        novel_id,
+        EntityRelationCreate(
+            source_id=str(source_id),
+            target_id=str(target_id),
+            relation_type="knows",
+            relation_kind="social",
+        ),
+    )
+    repo = EntityRelationRepository()
+
+    await repo.update_endpoint(
+        db_session,
+        rel.id,
+        novel_id=other_novel_id,
+        source_id=new_endpoint_id,
+    )
+    await db_session.flush()
+    untouched = await repo.get(db_session, rel.id)
+    assert untouched is not None
+    assert untouched.source_id == source_id
+    assert untouched.target_id == target_id
+
+    await repo.update_endpoint(
+        db_session,
+        rel.id,
+        novel_id=novel_id,
+        source_id=new_endpoint_id,
+    )
+    await db_session.flush()
+    redirected = await repo.get(db_session, rel.id)
+    assert redirected is not None
+    assert redirected.source_id == new_endpoint_id
+    assert redirected.target_id == target_id
+
+
+@pytest.mark.asyncio
+async def test_migrate_entity_id_scopes_to_novel(db_session: AsyncSession) -> None:
+    """CharacterRepository.migrate_entity_id 只迁移 novel_id 匹配的 Character 行。"""
+    novel_id = uuid.uuid4()
+    other_novel_id = uuid.uuid4()
+    source_character_id = uuid.uuid4()
+    target_character_id = uuid.uuid4()
+    db_session.add_all(
+        [
+            Project(id=novel_id, title="migrate scope"),
+            Project(id=other_novel_id, title="other migrate scope"),
+            Character(
+                entity_id=source_character_id,
+                novel_id=novel_id,
+                name="待迁移人物",
+                status="canonical",
+            ),
+        ]
+    )
+    await db_session.flush()
+    repo = CharacterRepository()
+
+    assert (
+        await repo.migrate_entity_id(
+            db_session,
+            source_character_id,
+            target_character_id,
+            novel_id=other_novel_id,
+        )
+        is False
+    )
+    assert await db_session.get(Character, source_character_id) is not None
+
+    assert (
+        await repo.migrate_entity_id(
+            db_session,
+            source_character_id,
+            target_character_id,
+            novel_id=novel_id,
+        )
+        is True
+    )
+    assert await db_session.get(Character, source_character_id) is None
+    migrated = await db_session.get(Character, target_character_id)
+    assert migrated is not None
+    assert migrated.novel_id == novel_id
+
+
+@pytest.mark.asyncio
+async def test_update_character_meta_location_scopes_to_novel(
+    db_session: AsyncSession,
+) -> None:
+    """CharacterRepository.update_character_meta_location 只更新 novel_id 匹配的行。"""
+    novel_id = uuid.uuid4()
+    other_novel_id = uuid.uuid4()
+    character_id = uuid.uuid4()
+    location_id = uuid.uuid4()
+    db_session.add_all(
+        [
+            Project(id=novel_id, title="meta location scope"),
+            Project(id=other_novel_id, title="other meta location scope"),
+            Character(
+                entity_id=character_id,
+                novel_id=novel_id,
+                name="定位人物",
+                status="canonical",
+                meta={},
+            ),
+        ]
+    )
+    await db_session.flush()
+    repo = CharacterRepository()
+
+    await repo.update_character_meta_location(
+        db_session,
+        character_id,
+        location_id,
+        "在人群中观察",
+        3,
+        novel_id=other_novel_id,
+    )
+    await db_session.flush()
+    untouched = await db_session.get(Character, character_id)
+    assert untouched is not None
+    assert (untouched.meta or {}) == {}
+
+    await repo.update_character_meta_location(
+        db_session,
+        character_id,
+        location_id,
+        "在人群中观察",
+        3,
+        novel_id=novel_id,
+    )
+    await db_session.flush()
+    updated = await db_session.get(Character, character_id)
+    assert updated is not None
+    assert updated.meta == {
+        "location_id": str(location_id),
+        "text_state": "在人群中观察",
+        "chapter_index": 3,
+    }

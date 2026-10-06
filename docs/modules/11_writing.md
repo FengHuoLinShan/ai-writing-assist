@@ -22,7 +22,7 @@ writing 模块拥有正文版本事实源。作者界面只区分工作稿、已
 除非作者显式强制保存新版本。旧 published 版本不可变，保留供稳定引用。
 API 提供四种写入模式：
 
-1. **发布草稿**（`POST /drafts`）→ 原位提升当前 draft + 自动入队 `publish_chapter` 任务；响应的 `new_version=false` 表示无实质变化且未入队
+1. **发布草稿**（`POST /drafts`）→ 原位提升当前 draft + 自动入队 `publish_chapter` 任务；响应的 `new_version=false` 表示无实质变化且未入队；冲突快照查询/归档失败时发布仍完成，但响应带 `conflict_check_degraded=true`（冲突基线缺失，后续比对无参照）
 2. **更新草稿**（`PUT /drafts/{id}`）→ working 可原地暂存；published 以 copy-on-write 返回新 draft ID
 3. **显式留版**（`POST /drafts/{id}/checkpoint`）→ 将 auto 版本标记为 manual，或创建新 manual 版本
 4. **放弃更改**（`POST /drafts/{id}/discard`）→ 软废弃最新 draft 并返回 `base_draft_id`

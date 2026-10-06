@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from typing import Literal
 
@@ -84,6 +85,8 @@ _service = InteractionService()
 _source_service = InteractionSourceService()
 _opening_service = InteractionOpeningService()
 _xhr = [Depends(require_xhr_request)]
+# 匿名 RP 的 BYOK Key 只允许 DeepSeek Key 的实际字符集，阻断控制字符与注入载荷。
+_BYOK_API_KEY_RE = re.compile(r"[A-Za-z0-9_.\-]+")
 
 
 def _require_non_anonymous_care() -> None:
@@ -775,7 +778,11 @@ async def stream_anonymous_attempt(
     if not is_anonymous_rp_principal():
         raise ValidationError("仅公开体验使用当前生成方式")
     api_key = request.headers.get("x-deepseek-api-key", "").strip()
-    if not api_key or len(api_key) > 512:
+    if (
+        not api_key
+        or len(api_key) > 512
+        or _BYOK_API_KEY_RE.fullmatch(api_key) is None
+    ):
         raise ValidationError("请提供可用的 DeepSeek Key")
     execution_id = await _service.claim_anonymous_attempt(
         db,

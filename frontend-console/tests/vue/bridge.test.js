@@ -100,6 +100,19 @@ describe("bridge 外壳 modal 与 esc", () => {
     setBridgeOverrides({ esc: () => "SAFE" })
     expect(getEsc()("<b>")).toBe("SAFE")
   })
+
+  it("getEsc 在无全局 esc 时使用本地转义兜底，不依赖加载顺序", () => {
+    const original = globalThis.esc
+    delete globalThis.esc
+    try {
+      expect(getEsc()(`<b a="1" c='2'>&</b>`))
+        .toBe("&lt;b a=&quot;1&quot; c=&#039;2&#039;&gt;&amp;&lt;/b&gt;")
+      expect(getEsc()(null)).toBe("")
+      expect(getEsc()(0)).toBe("0")
+    } finally {
+      globalThis.esc = original
+    }
+  })
 })
 
 describe("getRouteQuery", () => {

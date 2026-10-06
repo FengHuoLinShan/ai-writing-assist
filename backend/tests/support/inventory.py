@@ -13,15 +13,16 @@ from functools import cache
 from pathlib import Path
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = BACKEND_ROOT.parent
 MODULES_ROOT = BACKEND_ROOT / "modules"
-GENERATED_DIR_NAMES = {"build", "dist"}
+GENERATED_DIR_NAMES = {"build", "dist", "node_modules", "output"}
 
 
 @cache
-def repository_python_files() -> tuple[Path, ...]:
-    """Return the cached, non-hidden Python file inventory for the backend."""
+def repository_python_files(root: Path = BACKEND_ROOT) -> tuple[Path, ...]:
+    """Return the cached, non-hidden Python file inventory under ``root``."""
     paths: list[Path] = []
-    for directory, children, filenames in os.walk(BACKEND_ROOT, topdown=True):
+    for directory, children, filenames in os.walk(root, topdown=True):
         children[:] = sorted(
             name
             for name in children
@@ -30,8 +31,12 @@ def repository_python_files() -> tuple[Path, ...]:
             and name not in GENERATED_DIR_NAMES
             and not name.endswith(".egg-info")
         )
-        root = Path(directory)
-        paths.extend(root / name for name in filenames if name.endswith(".py"))
+        base = Path(directory)
+        paths.extend(
+            base / name
+            for name in filenames
+            if name.endswith(".py") and not name.startswith(".")
+        )
     return tuple(sorted(paths))
 
 
@@ -60,14 +65,14 @@ def production_python_files() -> tuple[Path, ...]:
 
 
 def test_python_files() -> tuple[Path, ...]:
-    """Select root conftest and all test/support Python files."""
+    """Select repository-wide test/support Python files, including deploy/tests."""
     root_conftest = BACKEND_ROOT / "conftest.py"
     return tuple(
         path
-        for path in repository_python_files()
+        for path in repository_python_files(REPO_ROOT)
         if path == root_conftest
         or path.name.startswith("test_")
-        or "tests" in path.relative_to(BACKEND_ROOT).parts
+        or "tests" in path.parts
     )
 
 

@@ -40,4 +40,42 @@ describe("ChapterTree", () => {
     expect(wrapper.get('[aria-label="展开章节目录"]').text()).toContain("展开")
     expect(wrapper.find(".chapter-tree-card").exists()).toBe(false)
   })
+
+  it("初始只渲染前 100 章，经「显示更多」渐进展开且选中行始终可见", async () => {
+    const chapterList = Array.from({ length: 250 }, (_, index) => index + 1)
+    const wrapper = mount(ChapterTree, {
+      props: {
+        chapterList,
+        chapters: Object.fromEntries(chapterList.map((chapter) => [chapter, { title: `章${chapter}`, word_count: 1 }])),
+      },
+    })
+
+    expect(wrapper.findAll(".chapter-row")).toHaveLength(100)
+    expect(wrapper.get(".chapter-tree-show-more").text()).toBe("显示更多（还有 150 章）")
+
+    await wrapper.get(".chapter-tree-show-more").trigger("click")
+    expect(wrapper.findAll(".chapter-row")).toHaveLength(200)
+    expect(wrapper.get(".chapter-tree-show-more").text()).toBe("显示更多（还有 50 章）")
+
+    await wrapper.get(".chapter-tree-show-more").trigger("click")
+    expect(wrapper.findAll(".chapter-row")).toHaveLength(250)
+    expect(wrapper.find(".chapter-tree-show-more").exists()).toBe(false)
+
+    await wrapper.setProps({ selectedChapter: 250 })
+    expect(wrapper.get('[aria-current="true"]').text()).toContain("第 250 章")
+  })
+
+  it("外部选中落在初始窗口之外时自动扩窗，保证选中行渲染", () => {
+    const chapterList = Array.from({ length: 150 }, (_, index) => index + 1)
+    const wrapper = mount(ChapterTree, {
+      props: {
+        chapterList,
+        chapters: Object.fromEntries(chapterList.map((chapter) => [chapter, { title: `章${chapter}`, word_count: 1 }])),
+        selectedChapter: 120,
+      },
+    })
+
+    expect(wrapper.findAll(".chapter-row")).toHaveLength(120)
+    expect(wrapper.get('[aria-current="true"]').text()).toContain("第 120 章")
+  })
 })

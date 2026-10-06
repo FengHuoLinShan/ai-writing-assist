@@ -258,7 +258,11 @@ async def require_active_project(
     db: AsyncSession,
     novel_id: str,
 ) -> None:
-    """Require an active project, hiding missing and recycled projects as 404."""
+    """Require an active project, hiding missing and recycled projects as 404.
+
+    Authenticated browser callers always resolve an owner filter; the unowned
+    worker/system identity is accepted only inside the worker execution scope.
+    """
     await _service.require_active_project(db, novel_id)
     bind_validated_novel_id(novel_id)
 

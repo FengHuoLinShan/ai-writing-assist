@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.config import get_settings
 from core.database import DatabaseManager, get_manager
 from core.errors import DomainError
+from core.execution_context import system_execution_scope
 from core.logging_context import (
     current_novel_id_for_log,
     novel_log_scope,
@@ -624,14 +625,25 @@ class TaskWorker:
         Returns:
             执行完成的任务对象，如果没有 pending 任务则返回 None
         """
-        async with self._db_manager.session_factory() as session:
-            task = await self._claim_task(session, task_id=task_id, novel_id=novel_id)
-            if task is None:
-                return None
-        return await self._execute_claimed_task(task)
+        # Worker/system execution owns the explicit unowned project identity:
+        # handlers, preflight, finalize and recovery all run inside this scope.
+        with system_execution_scope():
+            async with self._db_manager.session_factory() as session:
+                task = await self._claim_task(
+                    session, task_id=task_id, novel_id=novel_id
+                )
+                if task is None:
+                    return None
+            return await self._execute_claimed_task(task)
 
     async def run_forever(self) -> None:
         """常驻循环：持续领取并执行任务"""
+        # 与 run_once 相同：整个 worker 进程生命周期都属于 system 执行范围，
+        # 覆盖 handler、preflight、finalize、维护 tick 和启动 reconciler。
+        with system_execution_scope():
+            await self._run_forever_in_scope()
+
+    async def _run_forever_in_scope(self) -> None:
         self._running = True
         logger.info(
             "TaskWorker started — poll_interval=%.1fs, heartbeat_interval=%.1fs, "

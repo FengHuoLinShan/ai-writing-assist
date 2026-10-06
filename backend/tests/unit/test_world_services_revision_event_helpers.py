@@ -637,36 +637,38 @@ class TestEventService:
         repo.update.assert_awaited_once_with(db, ev.entity_id, data)
 
     async def test_delete_happy_path_succeeds(self):
-        """Inherited CrudService.delete: succeeds when repo returns True."""
+        """Event 无 status 列：delete 走硬删除并把 novel_id 下推到 repo。"""
+        from modules.world.models import Event
+
         # Arrange
         svc, repo = _make_event_service()
-        ev = _mock_event()
+        ev = MagicMock(spec=Event, entity_id=uuid.uuid4(), novel_id=uuid.uuid4())
         repo.get = AsyncMock(return_value=ev)
         repo.delete = AsyncMock(return_value=True)
         db = MagicMock()
-        db.flush = AsyncMock()
 
         # Act
         await svc.delete(db, str(ev.entity_id), novel_id=str(ev.novel_id))
 
         # Assert
-        assert ev.status == "deprecated"
-        db.flush.assert_awaited_once()
+        repo.delete.assert_awaited_once_with(db, ev.entity_id, novel_id=ev.novel_id)
+        db.flush.assert_not_called()
 
     async def test_delete_repo_false_raises_404(self):
-        """Inherited CrudService.delete: repo.delete False raises 404."""
+        """repo.delete 返回 False（跨 novel 或已删）时抛 404。"""
+        from modules.world.models import Event
+
         # Arrange
         svc, repo = _make_event_service()
-        ev = _mock_event()
+        ev = MagicMock(spec=Event, entity_id=uuid.uuid4(), novel_id=uuid.uuid4())
         repo.get = AsyncMock(return_value=ev)
         repo.delete = AsyncMock(return_value=False)
         db = MagicMock()
-        db.flush = AsyncMock()
 
-        await svc.delete(db, str(ev.entity_id), novel_id=str(ev.novel_id))
+        with pytest.raises(NotFoundError):
+            await svc.delete(db, str(ev.entity_id), novel_id=str(ev.novel_id))
 
-        assert ev.status == "deprecated"
-        repo.delete.assert_not_awaited()
+        repo.delete.assert_awaited_once_with(db, ev.entity_id, novel_id=ev.novel_id)
 
 
 # ============================================================

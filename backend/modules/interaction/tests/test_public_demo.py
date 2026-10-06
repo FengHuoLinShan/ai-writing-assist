@@ -5,12 +5,14 @@ import uuid
 from types import SimpleNamespace
 
 import pytest
+from httpx import AsyncClient
 from sqlalchemy import JSON, String, Text, select
 
 from core.base import Base
 from core.config import Settings
 from core.errors import ConflictError, NotFoundError, ValidationError
 from infrastructure.tasks.models import AsyncTask
+from modules.account.constants import ANONYMOUS_RP_IDENTITY_TYPE
 from modules.account.context import bind_principal, reset_principal
 from modules.account.contracts import AccountPrincipal
 from modules.account.models import Account
@@ -1022,3 +1024,64 @@ async def test_disconnected_request_cancels_its_claimed_anonymous_attempt(
     assert attempt is not None
     assert attempt.status == "cancelled"
     assert attempt.error_kind == "client_disconnected"
+
+
+# ── BYOK Key 头字符集白名单 ─────────────────────────────────
+
+
+def _anonymous_stream_principal() -> AccountPrincipal:
+    return AccountPrincipal(
+        account_id=uuid.uuid4(),
+        status="active",
+        identity_type=ANONYMOUS_RP_IDENTITY_TYPE,
+        support_code="RP-KEY-TEST",
+    )
+
+
+async def test_anonymous_stream_rejects_byok_keys_with_illegal_characters(
+    async_client: AsyncClient,
+) -> None:
+    """BYOK Key 头只接受 [A-Za-z0-9_.-]，空格、中文、引号等一律 400。"""
+    url = (
+        f"/api/interactions/journeys/{uuid.uuid4()}"
+        f"/attempts/{uuid.uuid4()}/stream"
+    )
+    illegal_keys = [
+        "sk-key with space",
+        "中文密钥".encode(),  # 原始字节经 latin1 解码后同样落在白名单外
+        'sk-key"with-quote',
+        "sk-key;with-semicolon",
+        "sk-key+with-plus",
+    ]
+    token = bind_principal(_anonymous_stream_principal())
+    try:
+        for api_key in illegal_keys:
+            response = await async_client.post(
+                url,
+                headers={"x-deepseek-api-key": api_key},
+            )
+            assert response.status_code == 400, api_key
+            assert response.json()["detail"] == "请提供可用的 DeepSeek Key"
+    finally:
+        reset_principal(token)
+
+
+async def test_anonymous_stream_accepts_byok_key_within_charset(
+    async_client: AsyncClient,
+) -> None:
+    """合法字符集的 Key 通过入口校验，进入 attempt 认领流程。"""
+    url = (
+        f"/api/interactions/journeys/{uuid.uuid4()}"
+        f"/attempts/{uuid.uuid4()}/stream"
+    )
+    token = bind_principal(_anonymous_stream_principal())
+    try:
+        response = await async_client.post(
+            url,
+            headers={"x-deepseek-api-key": "sk-legal.Key_01-234"},
+        )
+    finally:
+        reset_principal(token)
+
+    assert response.status_code == 404
+    assert response.json()["detail"] != "请提供可用的 DeepSeek Key"

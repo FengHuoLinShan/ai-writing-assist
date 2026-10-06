@@ -193,10 +193,23 @@ export function getCloseModal() {
   return typeof fn === "function" ? fn : () => {}
 }
 
+/**
+ * esc(value) 的本地兜底 — 与 shared/esc.js 相同的五字符最小转义。
+ * 仅当外壳未注入全局 esc 时使用，保证不依赖 index.html 的脚本加载顺序。
+ */
+function escapeHtmlValue(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;")
+}
+
 /** esc(value) — HTML 转义（仅供 modal 内容等字符串拼装场景；Vue 模板用 {{ }} 自动转义）。 */
 export function getEsc() {
   const fn = _overrides.esc ?? globalThis.esc
-  return typeof fn === "function" ? fn : (value) => String(value ?? "")
+  return typeof fn === "function" ? fn : escapeHtmlValue
 }
 
 /** window.errorLog — 前端错误日志（bible 投影 409 冲突处理读 _lastApiError）。 */

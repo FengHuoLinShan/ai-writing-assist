@@ -37,19 +37,13 @@ _transport_retries_enabled: ContextVar[bool] = ContextVar(
     default=True,
 )
 
+#: 异常链回溯的最大层数：覆盖「业务层把原始 LLM 错误包装一两次再抛出」的
+#: 真实调用链，同时限制隐式 __context__ 链意外过深。
+_CAUSE_CHAIN_MAX_DEPTH = 5
 
-def is_retryable_llm_error(error: Exception) -> bool:
-    """判断错误是否可重试
 
-    可重试：
-    - LLMTimeoutError: 超时，可能是临时网络问题
-    - LLMRateLimitError: 频率限制，退避后可重试
-
-    不可重试：
-    - LLMAuthError: 认证失败，重试也没用
-    - LLMContentFilterError: 内容审查，应调整输入
-    - LLMInvalidResponseError: 响应格式错误，模型本身的问题
-    """
+def _classify_retryable(error: BaseException) -> bool | None:
+    """对单个异常做可重试分类：True 可重试、False 明确不可重试、None 未分类。"""
     if isinstance(
         error,
         (
@@ -78,7 +72,32 @@ def is_retryable_llm_error(error: Exception) -> bool:
             "server_error",
             "temporarily_unavailable",
         }
-    return False
+    return None
+
+
+def is_retryable_llm_error(error: Exception) -> bool:
+    """判断错误是否可重试；包装异常沿 __cause__ / __context__ 链回溯判定。
+
+    业务层（如语义评审）常把原始 LLM 错误包装成 RuntimeError 再抛给 worker，
+    只看当前异常类型会把瞬时错误误判为不可重试。链上任一层命中可重试类型
+    （超时/连接/限流）→ True；链上任一层命中明确不可重试类型（认证/内容
+    审查/无效响应/配额）→ False，且不可重试优先——认证失败即使被临时错误
+    包着，重试也无意义。回溯限制 _CAUSE_CHAIN_MAX_DEPTH 层并按对象 id 去重，
+    循环引用不会死循环。
+    """
+    seen: set[int] = set()
+    current: BaseException | None = error
+    retryable = False
+    for _ in range(_CAUSE_CHAIN_MAX_DEPTH + 1):
+        if current is None or id(current) in seen:
+            break
+        seen.add(id(current))
+        verdict = _classify_retryable(current)
+        if verdict is False:
+            return False
+        retryable = retryable or verdict is True
+        current = current.__cause__ or current.__context__
+    return retryable
 
 
 def is_retryable_transport_error(error: Exception) -> bool:

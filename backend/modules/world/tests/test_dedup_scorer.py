@@ -229,12 +229,61 @@ class TestCascadeScore:
 
         return EntityDedupService()
 
-    def test_exact_name_not_handled_by_cascade(
+    @pytest.mark.asyncio
+    async def test_exact_name_not_handled_by_cascade(
         self,
         dedup_svc: EntityDedupService,
     ) -> None:
-        # 精确匹配在 find_similar_entities 中直接处理，不走 _cascade_score
-        pass
+        """精确同名候选在 find_similar_entities 中短路返回，不经 _cascade_score。"""
+        import uuid
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        from shared.enums import CandidateAction
+
+        candidate = SimpleNamespace(
+            id=uuid.uuid4(),
+            name="塔罗会",
+            entity_type="organization",
+            status="canonical",
+            content_json={},
+        )
+
+        async def fake_lexical_search(_db, _nid, _query, **_kwargs):
+            return [(candidate, 1.0)]
+
+        dedup_svc._entity_repo = SimpleNamespace(
+            find_similar_by_search_text=fake_lexical_search,
+        )
+
+        original_cascade = EntityDedupService._cascade_score
+        with patch.object(
+            EntityDedupService,
+            "_cascade_score",
+            autospec=True,
+            side_effect=original_cascade,
+        ) as cascade_spy:
+            exact_results = await dedup_svc.find_similar_entities(
+                None,  # type: ignore[arg-type]
+                str(uuid.uuid4()),
+                "塔罗会",
+            )
+            cascade_spy.assert_not_called()
+
+            # 对照组：非精确同名候选确实会进入级联评分，
+            # 证明上面的短路不是候选在更早阶段被过滤掉的假阴性。
+            await dedup_svc.find_similar_entities(
+                None,  # type: ignore[arg-type]
+                str(uuid.uuid4()),
+                "塔罗会分部",
+            )
+            cascade_spy.assert_called_once()
+
+        assert len(exact_results) == 1
+        exact = exact_results[0]
+        assert exact.match_method == "exact_name"
+        assert exact.similarity_score == 1.0
+        assert exact.action == CandidateAction.merge_with_existing
 
     def test_substring_full(self, dedup_svc: EntityDedupService) -> None:
         from shared.enums import CandidateAction

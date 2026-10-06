@@ -909,12 +909,44 @@ class TestUpsertRelationship:
         updated = await rel_repo.deprecate_many(
             db_session,
             [first.id, first.id, second.id],
+            novel_id=nid,
         )
 
         assert updated == 2
         assert (await rel_repo.get(db_session, first.id)).status == "deprecated"
         assert (await rel_repo.get(db_session, second.id)).status == "deprecated"
-        assert await rel_repo.deprecate_many(db_session, []) == 0
+        assert await rel_repo.deprecate_many(db_session, [], novel_id=nid) == 0
+
+    @pytest.mark.asyncio
+    async def test_deprecate_many_ignores_cross_novel_ids(
+        self,
+        db_session: AsyncSession,
+        rel_repo: EntityRelationRepository,
+        novel_id: str,
+    ) -> None:
+        """跨 novel 的 relation_id 不应被标记 deprecated（novel_id 纵深防御）。"""
+        nid = uuid.UUID(hex=novel_id)
+        rel = await rel_repo.create(
+            db_session,
+            nid,
+            EntityRelationCreate(
+                source_id=str(uuid.uuid4()),
+                target_id=str(uuid.uuid4()),
+                relation_type="controls",
+                relation_kind="state",
+                status="canonical",
+            ),
+        )
+        other_novel_id = uuid.uuid4()
+
+        updated = await rel_repo.deprecate_many(
+            db_session,
+            [rel.id],
+            novel_id=other_novel_id,
+        )
+
+        assert updated == 0
+        assert (await rel_repo.get(db_session, rel.id)).status == "canonical"
 
     @pytest.mark.asyncio
     async def test_relation_update_reuses_loaded_object(

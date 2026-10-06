@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from core.container import get as _container_get
@@ -12,6 +13,20 @@ logger = logging.getLogger(__name__)
 
 _MAX_RETRIES = 3
 _LEGACY_UNOWNED_AI_REVIEW_KEY = "_legacy_unowned_ai_review"
+
+#: 发布任务内部步骤（RAG 索引 / memory 快照）失败重试的指数退避参数。
+#: 这两段不是 LLM 调用，publish_chapter 也没有 AI 运行信封，不适用
+#: infrastructure.llm.retry.sleep_before_retry 的信封 deadline 语义。
+_PUBLISH_RETRY_BASE_DELAY = 0.5
+_PUBLISH_RETRY_MAX_DELAY = 5.0
+
+
+def _publish_retry_delay(attempt: int) -> float:
+    """第 attempt 次失败后的退避秒数：基数指数增长，封顶上限。"""
+    return min(
+        _PUBLISH_RETRY_BASE_DELAY * (2 ** (attempt - 1)),
+        _PUBLISH_RETRY_MAX_DELAY,
+    )
 
 # writing.generate 的导演分片大小（evidence knowledge workflow 冻结常量）。
 _WRITING_GENERATE_DIRECTOR_SHARD_SIZE = 64
@@ -142,6 +157,8 @@ async def handle_publish_chapter(db, task):
                 _MAX_RETRIES,
                 safe_error,
             )
+            if attempt < _MAX_RETRIES:
+                await asyncio.sleep(_publish_retry_delay(attempt))
 
     if not rag_ok:
         raise RuntimeError(
@@ -181,6 +198,8 @@ async def handle_publish_chapter(db, task):
                 _MAX_RETRIES,
                 safe_error,
             )
+            if attempt < _MAX_RETRIES:
+                await asyncio.sleep(_publish_retry_delay(attempt))
 
     if not snapshot_ok:
         raise RuntimeError(

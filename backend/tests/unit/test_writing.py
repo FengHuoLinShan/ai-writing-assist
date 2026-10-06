@@ -913,6 +913,19 @@ class TestWritingAPI:
 # ============================================================
 
 
+def test_publish_retry_delay_exponential_with_cap() -> None:
+    """发布重试退避：0.5s 起指数增长，5s 封顶。"""
+    from modules.writing.tasks import _publish_retry_delay
+
+    assert [_publish_retry_delay(attempt) for attempt in range(1, 6)] == [
+        0.5,
+        1.0,
+        2.0,
+        4.0,
+        5.0,
+    ]
+
+
 class TestHandlePublishChapter:
     """handle_publish_chapter 任务处理器"""
 
@@ -923,6 +936,24 @@ class TestHandlePublishChapter:
             autospec=True,
         ) as guard:
             yield guard
+
+    @pytest.fixture(autouse=True)
+    def retry_sleeps(self, monkeypatch: pytest.MonkeyPatch) -> list[float]:
+        """捕获发布重试退避并改为即时返回：单测不真实等待。
+
+        asyncio.sleep 是模块级 stdlib 函数，经 tasks 模块引用；这里用
+        monkeypatch 替换共享 asyncio 模块上的属性（与 retry 测试同一模式），
+        不是 mock.patch，因此无 autospec 诉求。
+        """
+        waits: list[float] = []
+
+        async def instant_sleep(delay: float) -> None:
+            waits.append(delay)
+
+        import modules.writing.tasks as writing_tasks
+
+        monkeypatch.setattr(writing_tasks.asyncio, "sleep", instant_sleep)
+        return waits
 
     @pytest.fixture
     def mock_db(self) -> AsyncMock:
@@ -947,6 +978,7 @@ class TestHandlePublishChapter:
         mock_db: AsyncMock,
         mock_task: MagicMock,
         mock_project_guard: AsyncMock,
+        retry_sleeps: list[float],
     ):
         from core.container import register, reset
 
@@ -989,6 +1021,7 @@ class TestHandlePublishChapter:
             assert mock_task.update_progress.call_count == 2
             mock_db.flush.assert_awaited()
             assert events == ["project", "memory"]
+            assert retry_sleeps == []
         finally:
             reset()
 
@@ -996,6 +1029,7 @@ class TestHandlePublishChapter:
         self,
         mock_db: AsyncMock,
         mock_task: MagicMock,
+        retry_sleeps: list[float],
     ):
         from core.container import register, reset
 
@@ -1027,6 +1061,8 @@ class TestHandlePublishChapter:
 
             assert results["rag_chunks"] == 5
             assert mock_rag_index.await_count == 3
+            # 两次失败各退避一次：0.5s、1.0s。
+            assert retry_sleeps == [0.5, 1.0]
         finally:
             reset()
 
@@ -1034,6 +1070,7 @@ class TestHandlePublishChapter:
         self,
         mock_db: AsyncMock,
         mock_task: MagicMock,
+        retry_sleeps: list[float],
     ):
         from core.container import register, reset
 
@@ -1048,6 +1085,8 @@ class TestHandlePublishChapter:
                 await handle_publish_chapter(mock_db, mock_task)
 
             assert mock_rag_index.await_count == 3
+            # 最后一次失败后不再退避等待。
+            assert retry_sleeps == [0.5, 1.0]
         finally:
             reset()
 
@@ -1055,6 +1094,7 @@ class TestHandlePublishChapter:
         self,
         mock_db: AsyncMock,
         mock_task: MagicMock,
+        retry_sleeps: list[float],
     ):
         from core.container import register, reset
 
@@ -1085,6 +1125,7 @@ class TestHandlePublishChapter:
             results = await handle_publish_chapter(mock_db, mock_task)
             assert results["snapshot_id"] == "snap-retry-ok"
             assert mock_memory_svc.capture_snapshot.await_count == 3
+            assert retry_sleeps == [0.5, 1.0]
         finally:
             reset()
 
@@ -1092,6 +1133,7 @@ class TestHandlePublishChapter:
         self,
         mock_db: AsyncMock,
         mock_task: MagicMock,
+        retry_sleeps: list[float],
     ):
         from core.container import register, reset
 
@@ -1116,6 +1158,7 @@ class TestHandlePublishChapter:
                 await handle_publish_chapter(mock_db, mock_task)
 
             assert mock_memory_svc.capture_snapshot.await_count == 3
+            assert retry_sleeps == [0.5, 1.0]
         finally:
             reset()
 
