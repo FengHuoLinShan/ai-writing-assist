@@ -469,7 +469,7 @@ Atlas task 内归属 `world.map_atlas.generate` canonical parent（generate/edit
 |------|------|
 | `core_entities` | 统一核心实体正史库（原 `world_entities`）；可空 `image_version` / `image_updated_at` 只标记私有图片，不保存对象 key |
 | `entity_relations` | 对象间关系边（原 `relationships`） |
-| `events` | 事件扩展表（entity_id PK+FK → core_entities） |
+| `events` | 事件扩展表（entity_id PK+FK → core_entities）；`status` 为 canonical/deprecated，删除只置 deprecated |
 | `characters` | 人物档案（entity_id PK+FK → core_entities） |
 | `character_knowledge` | 人物知识边界 |
 | `world_assertions` | 不可变受限断言 carrier；Phase 0 无准入入口 |
@@ -1003,7 +1003,7 @@ section，且不会进入可投影正文。页面预览保持零写入并把页�
 | POST | `/api/world/events` | 创建事件 |
 | GET | `/api/world/events/{entity_id}` | 事件详情 |
 | PUT | `/api/world/events/{entity_id}` | 更新事件 |
-| DELETE | `/api/world/events/{entity_id}` | 删除事件 |
+| DELETE | `/api/world/events/{entity_id}` | 删除事件（软删：置 deprecated 后对列表/详情/编辑不可见，重复删除幂等；同一对象再次创建时复活原行） |
 | GET | `/api/world/characters` | 人物列表 |
 | POST | `/api/world/characters` | 创建人物 |
 | GET | `/api/world/characters/{character_id}` | 人物详情 |

@@ -11,6 +11,7 @@ from modules.project.models import Project
 from modules.world.models import (
     Character,
     CoreEntity,
+    Event,
     GenericEntityProfile,
     LocationProfile,
     SpeciesProfile,
@@ -444,3 +445,44 @@ async def test_character_extension_blocks_type_change_without_exposing_ids(
         "blockers": [{"kind": "character_extension", "count": 1}],
     }
     assert str(entity_id) not in str(caught.value.context)
+
+
+@pytest.mark.asyncio
+async def test_only_live_event_extension_blocks_type_change(db_session) -> None:
+    novel_id = uuid.uuid4()
+    db_session.add(Project(id=novel_id, title="A"))
+    event_entity = CoreEntity(
+        novel_id=novel_id, entity_type="event", name="城门之战", status="canonical"
+    )
+    location = CoreEntity(
+        novel_id=novel_id, entity_type="location", name="北城门", status="canonical"
+    )
+    db_session.add_all([event_entity, location])
+    await db_session.flush()
+    event = Event(
+        entity_id=event_entity.id,
+        novel_id=novel_id,
+        source_chapter_id=uuid.uuid4(),
+        location_entity_id=location.id,
+        timeline_order=1,
+    )
+    db_session.add(event)
+    await db_session.flush()
+    service = EntityTypeTransitionService()
+
+    with pytest.raises(ConflictError) as event_blocked:
+        await service.transition(db_session, entity=event_entity, new_type="faction")
+    with pytest.raises(ConflictError) as location_blocked:
+        await service.transition(db_session, entity=location, new_type="faction")
+    assert event_blocked.value.context["blockers"] == [
+        {"kind": "event_extension", "count": 1}
+    ]
+    assert location_blocked.value.context["blockers"] == [
+        {"kind": "event_location", "count": 1}
+    ]
+
+    # 已删除（deprecated）的事件扩展只是历史，不再阻止改类型。
+    event.status = "deprecated"
+    await db_session.flush()
+    await service.transition(db_session, entity=event_entity, new_type="faction")
+    await service.transition(db_session, entity=location, new_type="faction")

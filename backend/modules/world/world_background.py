@@ -349,7 +349,7 @@ class WorldBackgroundAggregation:
                 (location.id == Event.location_entity_id)
                 & (location.novel_id == Event.novel_id),
             )
-            .where(Event.novel_id == novel_id)
+            .where(Event.novel_id == novel_id, Event.status == "canonical")
         )
         return {
             row.entity_id: (

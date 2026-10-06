@@ -1088,7 +1088,7 @@ class EventRepository:
 
     @staticmethod
     def _active_conditions() -> list[Any]:
-        """只返回挂在已采用事件与地点下的扩展记录。"""
+        """只返回未删除、且挂在已采用事件与地点下的扩展记录。"""
         canonical_event = exists().where(
             CoreEntity.id == Event.entity_id,
             CoreEntity.novel_id == Event.novel_id,
@@ -1101,7 +1101,7 @@ class EventRepository:
             CoreEntity.entity_type == "location",
             CoreEntity.status == "canonical",
         )
-        return [canonical_event, canonical_location]
+        return [Event.status == "canonical", canonical_event, canonical_location]
 
     async def create(
         self,
@@ -1216,16 +1216,35 @@ class EventRepository:
 
         return event
 
-    async def delete(
+    async def restore(
+        self,
+        db: AsyncSession,
+        event: Event,
+        data: EventCreate,
+    ) -> Event:
+        """用新提交的字段复活已删除的扩展行（主键即 entity_id，无法另建一行）。"""
+        event.source_chapter_id = parse_uuid(data.source_chapter_id)
+        event.location_entity_id = parse_uuid(data.location_entity_id)
+        event.timeline_order = data.timeline_order
+        event.occurrence_time_label = data.occurrence_time_label
+        event.status = "canonical"
+        await db.flush()
+        return event
+
+    async def deprecate(
         self,
         db: AsyncSession,
         entity_id: uuid.UUID,
         *,
         novel_id: uuid.UUID,
     ) -> bool:
-        stmt = delete(Event).where(
-            Event.entity_id == entity_id,
-            Event.novel_id == novel_id,
+        stmt = (
+            update(Event)
+            .where(
+                Event.entity_id == entity_id,
+                Event.novel_id == novel_id,
+            )
+            .values(status="deprecated")
         )
         result = await db.execute(stmt)
         await db.flush()

@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.container import get
 from core.crud import CrudService
-from core.errors import NotFoundError, ValidationError
+from core.errors import ConflictError, NotFoundError, ValidationError
 from core.service_keys import (
     WORLD_WORLDBUILDING_MARK_SYNOPSIS_SOURCE_CHANGED,
 )
@@ -27,6 +27,8 @@ class EventService(
 
     标准 5 verb (get / list / create / update / delete) 继承自 base,
     novel_id keyword-only 必填 (per world/CLAUDE.md §4)。
+    删除只置 ``status="deprecated"``；已删除的扩展行对 get/update 表现为 404，
+    对同一实体再次 create 时用新字段复活（主键即 entity_id）。
     """
 
     repo = EventRepository()
@@ -58,7 +60,14 @@ class EventService(
             "Event location",
             entity_type="location",
         )
-        created = await super().create(db, novel_id, data)
+        existing = await self.repo.get(db, parse_uuid(data.entity_id, "entity_id"))
+        if existing is None:
+            created = await super().create(db, novel_id, data)
+        else:
+            self._assert_found_in_novel(existing, data.entity_id, nid)
+            if existing.status != "deprecated":
+                raise ConflictError(f"Event {data.entity_id} already exists")
+            created = self._to_response(await self.repo.restore(db, existing, data))
         mark_synopsis_source_changed = get(
             WORLD_WORLDBUILDING_MARK_SYNOPSIS_SOURCE_CHANGED
         )
@@ -81,6 +90,7 @@ class EventService(
         nid = parse_uuid(novel_id, "novel_id")
         event = await self.repo.get(db, eid)
         self._assert_found_in_novel(event, id, nid)
+        self._assert_not_deprecated(event, id)
         await self._assert_active_event(db, event, nid, raw_id=id)
         return self._to_response(event)
 
@@ -96,6 +106,7 @@ class EventService(
         eid = parse_uuid(id, self.id_param)
         event = await self.repo.get(db, eid)
         self._assert_found_in_novel(event, id, nid)
+        self._assert_not_deprecated(event, id)
         await self._assert_entity_in_novel(
             db,
             id,
@@ -131,18 +142,32 @@ class EventService(
         *,
         novel_id: str,
     ) -> None:
-        """覆写 base delete：向 repo.delete 传 novel_id 做纵深防御。
+        """软删除：置 deprecated 并把 novel_id 下推到 where 条件做纵深防御。
 
-        base `CrudService.delete` 调用 `repo.delete(db, rid)` 时不带 novel_id；
-        Event 模型无 status 列（只能硬删除），这里把 novel_id 下推到 where 条件。
+        与 base `CrudService.delete` 一致，重复删除已删除的事件是幂等 no-op。
         """
         rid = parse_uuid(id, self.id_param)
         nid = parse_uuid(novel_id, "novel_id")
         event = await self.repo.get(db, rid)
         self._assert_found_in_novel(event, id, nid)
-        ok = await self.repo.delete(db, rid, novel_id=nid)
+        if event.status == "deprecated":
+            return
+        ok = await self.repo.deprecate(db, rid, novel_id=nid)
         if not ok:
             self._raise_404(id)
+        mark_synopsis_source_changed = get(
+            WORLD_WORLDBUILDING_MARK_SYNOPSIS_SOURCE_CHANGED
+        )
+        await mark_synopsis_source_changed(
+            db,
+            novel_id,
+            source_type="event",
+            source_id=id,
+        )
+
+    def _assert_not_deprecated(self, event: Event, raw_id: str) -> None:
+        if event.status == "deprecated":
+            self._raise_404(raw_id)
 
     async def _assert_entity_in_novel(
         self,

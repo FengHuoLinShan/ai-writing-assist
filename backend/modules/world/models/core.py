@@ -180,7 +180,13 @@ class Event(Base, NovelMixin):
     """事件扩展表 — entity_id 为 PK+FK 1:1 绑定 CoreEntity"""
 
     __tablename__ = "events"
-    __table_args__ = {"comment": "事件扩展表"}
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('canonical', 'deprecated')",
+            name="ck_events_status",
+        ),
+        {"comment": "事件扩展表"},
+    )
 
     entity_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True),
@@ -208,6 +214,13 @@ class Event(Base, NovelMixin):
         String(100),
         nullable=True,
         comment="发生时间标签（如'三年前'）",
+    )
+    status: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="canonical",
+        server_default="canonical",
+        comment="状态：canonical/deprecated（删除只置 deprecated，保留历史）",
     )
 
     core_entity: Mapped[CoreEntity] = relationship(

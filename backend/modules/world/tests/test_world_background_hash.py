@@ -125,3 +125,48 @@ async def test_background_keeps_events_with_missing_locations_and_relation_fallb
     summaries = "\n".join(item.summary for item in bundle.entries)
     assert f"location_entity_id={missing_location}" in summaries
     assert str(missing_location) in summaries
+
+
+@pytest.mark.asyncio
+async def test_background_omits_deprecated_event_extension(
+    db_session, project_novel_id
+) -> None:
+    novel_id = uuid.UUID(project_novel_id)
+    event_entity = CoreEntity(
+        novel_id=novel_id, entity_type="event", name="旧事件", status="canonical"
+    )
+    location = CoreEntity(
+        novel_id=novel_id, entity_type="location", name="旧址", status="canonical"
+    )
+    db_session.add_all([event_entity, location])
+    await db_session.flush()
+    record = ImportRecord(
+        novel_id=novel_id, file_name="a.txt", file_type="txt", status="done"
+    )
+    db_session.add(record)
+    await db_session.flush()
+    chapter = ImportedChapter(
+        novel_id=novel_id,
+        import_record_id=record.id,
+        chapter_index=1,
+        title="一",
+        content="x",
+    )
+    db_session.add(chapter)
+    await db_session.flush()
+    db_session.add(
+        Event(
+            entity_id=event_entity.id,
+            novel_id=novel_id,
+            source_chapter_id=chapter.id,
+            location_entity_id=location.id,
+            timeline_order=9,
+            status="deprecated",
+        )
+    )
+    await db_session.flush()
+
+    bundle = await WorldBackgroundAggregation().build(db_session, project_novel_id)
+    summaries = "\n".join(item.summary for item in bundle.entries)
+    assert "旧事件" in "\n".join(item.title for item in bundle.entries)
+    assert "timeline_order=9" not in summaries
