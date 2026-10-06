@@ -523,3 +523,254 @@ def test_module_import_gate_exemption_patterns_apply(tmp_path) -> None:
         exempt={"modules/beta/legacy.py:modules.alpha.schemas": "历史豁免"},
     )
     assert exempted == []
+
+
+# ============================================================
+# B2 依赖方向棘轮（AO-1）
+# ============================================================
+
+
+def _write_contracts(tmp_path: Path, module: str) -> None:
+    package = tmp_path / "modules" / module
+    package.mkdir(parents=True, exist_ok=True)
+    (package / "contracts.py").touch()
+
+
+def test_direction_ratchet_current_repo_passes_and_reports_metrics(capsys) -> None:
+    import check_module_imports as gate
+
+    assert gate.main(["--directional-json"]) == 0
+    captured = capsys.readouterr()
+    # 输出风格与 --json 一致：JSON 在前，人类可读 pass 行在后
+    payload, _ = json.JSONDecoder().raw_decode(captured.out)
+    assert payload["baseline"] == gate._DEPENDENCY_BASELINE
+    assert payload["metrics"] == payload["baseline"]
+    assert len(payload["directed_edges"]) == payload["metrics"]["directed_edges"]
+    assert "依赖方向棘轮通过" in captured.out
+    assert captured.err == ""
+
+
+def test_direction_ratchet_blocks_new_directed_edge(tmp_path) -> None:
+    """负例 A：经 contracts 的合法形态，但形成基线之外的新有向边 → 失败。"""
+    import check_module_imports as gate
+
+    modules = {"alpha": ("modules/alpha",), "beta": ("modules/beta",)}
+    _write_contracts(tmp_path, "alpha")
+    _write_contracts(tmp_path, "beta")
+    forward = tmp_path / "modules/alpha/services.py"
+    forward.write_text(
+        "from modules.beta.contracts import Thing\n", encoding="utf-8"
+    )
+
+    stats, edges = gate.iter_directional_stats_for_paths(
+        modules, [forward], repo_root=tmp_path
+    )
+    assert stats["directed_edges"] == 1
+    assert edges == [
+        {"from": "alpha", "to": "beta", "top_level": 1, "function_level": 0}
+    ]
+
+    baseline = dict(stats)
+    reverse = tmp_path / "modules/beta/planner.py"
+    reverse.write_text(
+        "from modules.alpha.contracts import Other\n", encoding="utf-8"
+    )
+    stats2, _ = gate.iter_directional_stats_for_paths(
+        modules, [forward, reverse], repo_root=tmp_path
+    )
+    assert stats2["directed_edges"] == 2
+
+    failures = gate.check_direction_ratchet(stats2, baseline)
+    assert any(
+        "directed_edges" in failure and "2" in failure for failure in failures
+    )
+    # 全新反向边同时构成新双向对
+    assert any("bidirectional_pairs" in failure for failure in failures)
+
+
+def test_direction_ratchet_blocks_new_top_level_bidirectional_pair(tmp_path) -> None:
+    """负例 B：双向仅存在于函数内时顶层双向对为 0；反向改顶层导入即超基线。"""
+    import check_module_imports as gate
+
+    modules = {"alpha": ("modules/alpha",), "beta": ("modules/beta",)}
+    _write_contracts(tmp_path, "alpha")
+    _write_contracts(tmp_path, "beta")
+    forward = tmp_path / "modules/alpha/services.py"
+    forward.write_text(
+        "from modules.beta.contracts import Thing\n", encoding="utf-8"
+    )
+    backward = tmp_path / "modules/beta/planner.py"
+    backward.write_text(
+        "def plan():\n"
+        "    from modules.alpha.contracts import Other\n"
+        "    return Other\n",
+        encoding="utf-8",
+    )
+
+    stats, _ = gate.iter_directional_stats_for_paths(
+        modules, [forward, backward], repo_root=tmp_path
+    )
+    assert stats["directed_edges"] == 2
+    assert stats["bidirectional_pairs"] == 1
+    assert stats["top_level_bidirectional_pairs"] == 0
+    assert stats["function_level_imports"] == 1
+
+    baseline = dict(stats)
+    backward.write_text(
+        "from modules.alpha.contracts import Other\n", encoding="utf-8"
+    )
+    stats2, _ = gate.iter_directional_stats_for_paths(
+        modules, [forward, backward], repo_root=tmp_path
+    )
+    assert stats2["top_level_bidirectional_pairs"] == 1
+
+    failures = gate.check_direction_ratchet(stats2, baseline)
+    assert len(failures) == 1
+    assert "top_level_bidirectional_pairs" in failures[0]
+
+
+def test_direction_ratchet_allows_decrease_and_hints_lowering(tmp_path) -> None:
+    """指标降到基线之下通过，并提示基线可下调；等于基线无提示。"""
+    import check_module_imports as gate
+
+    modules = {"alpha": ("modules/alpha",), "beta": ("modules/beta",)}
+    _write_contracts(tmp_path, "beta")
+    offender = tmp_path / "modules/alpha/services.py"
+    offender.parent.mkdir(parents=True)
+    offender.write_text(
+        "from modules.beta.contracts import Thing\n", encoding="utf-8"
+    )
+
+    stats, _ = gate.iter_directional_stats_for_paths(
+        modules, [offender], repo_root=tmp_path
+    )
+    inflated = {name: value + 3 for name, value in stats.items()}
+
+    assert gate.check_direction_ratchet(stats, inflated) == []
+    lines = gate._direction_report_lines(stats, inflated)
+    assert any("基线可下调至" in line for line in lines)
+    assert any(
+        f"directed_edges={stats['directed_edges']}/{stats['directed_edges'] + 3}"
+        in line
+        for line in lines
+    )
+
+    # 等于基线同样通过，但不再提示下调
+    assert gate.check_direction_ratchet(stats, dict(stats)) == []
+    assert not any(
+        "基线可下调至" in line
+        for line in gate._direction_report_lines(stats, dict(stats))
+    )
+
+
+def test_direction_ratchet_overrun_fails_main_with_exit_code(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """方向超标与形态违规同语义：main 返回 1 并打印超标指标。"""
+    import check_module_imports as gate
+
+    modules = {"alpha": ("modules/alpha",), "beta": ("modules/beta",)}
+    backend = tmp_path / "backend"
+    _write_contracts(backend, "alpha")
+    _write_contracts(backend, "beta")
+    (backend / "modules/alpha/services.py").write_text(
+        "from modules.beta.contracts import Thing\n", encoding="utf-8"
+    )
+    (backend / "modules/beta/planner.py").write_text(
+        "from modules.alpha.contracts import Other\n", encoding="utf-8"
+    )
+    paths = sorted(backend.glob("modules/**/*.py"))
+    stats, _ = gate.iter_directional_stats_for_paths(
+        modules, paths, repo_root=tmp_path
+    )
+    baseline = dict(stats)
+    baseline["bidirectional_pairs"] -= 1  # 现状含一对双向，基线不允许 → 超标
+
+    monkeypatch.setattr(gate, "_DEPENDENCY_BASELINE", baseline)
+    monkeypatch.setattr(gate, "load_business_modules", lambda: modules)
+    monkeypatch.setattr(gate, "REPO_ROOT", tmp_path)
+
+    assert gate.main([]) == 1
+    err = capsys.readouterr().err
+    assert "依赖方向棘轮" in err
+    assert "bidirectional_pairs" in err
+
+
+def test_direction_ratchet_classifies_top_level_vs_function_level(tmp_path) -> None:
+    """模块体与顶层 if/try 内算顶层；函数/方法/类体内算函数内。"""
+    import check_module_imports as gate
+
+    modules = {"alpha": ("modules/alpha",), "beta": ("modules/beta",)}
+    _write_contracts(tmp_path, "beta")
+    source = tmp_path / "modules/alpha/services.py"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        "\n".join(
+            [
+                "from modules.beta.contracts import TopLevel",
+                "",
+                "if True:",
+                "    from modules.beta.contracts import InsideIf",
+                "",
+                "try:",
+                "    from modules.beta.contracts import InsideTry",
+                "except ImportError:",
+                "    pass",
+                "",
+                "def loader():",
+                "    from modules.beta.contracts import InsideFunction",
+                "    return InsideFunction",
+                "",
+                "class Service:",
+                "    attribute = 1",
+                "",
+                "    def run(self):",
+                "        from modules.beta.contracts import InsideMethod",
+                "        return InsideMethod",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    stats, edges = gate.iter_directional_stats_for_paths(
+        modules, [source], repo_root=tmp_path
+    )
+
+    assert stats["directed_edges"] == 1
+    assert stats["function_level_imports"] == 2
+    assert edges == [
+        {"from": "alpha", "to": "beta", "top_level": 3, "function_level": 2}
+    ]
+
+
+def test_direction_ratchet_counts_world_core_worldbuilding_traffic(tmp_path) -> None:
+    """world 内部 core↔worldbuilding 计入专用指标，不污染跨模块有向边。"""
+    import check_module_imports as gate
+
+    modules = {"world": ("modules/world",)}
+    core = tmp_path / "modules/world/services/core/entity_service.py"
+    core.parent.mkdir(parents=True)
+    core.write_text(
+        "def validate():\n"
+        "    from modules.world.services.worldbuilding.world_validation_service"
+        " import check\n"
+        "    return check\n",
+        encoding="utf-8",
+    )
+    synopsis = tmp_path / "modules/world/services/worldbuilding/synopsis.py"
+    synopsis.parent.mkdir(parents=True)
+    synopsis.write_text(
+        "from modules.world.services.core.event_service import EventService\n",
+        encoding="utf-8",
+    )
+
+    stats, edges = gate.iter_directional_stats_for_paths(
+        modules, [core, synopsis], repo_root=tmp_path
+    )
+
+    assert stats["directed_edges"] == 0
+    assert stats["function_level_imports"] == 0
+    assert stats["world_core_to_worldbuilding"] == 1
+    assert stats["world_worldbuilding_to_core"] == 1
+    assert edges == []

@@ -1,14 +1,21 @@
 """跨模块 import 守护门（B2）。
 
-生产代码跨业务模块只能经合法形态导入：contracts/facade 或仅静态再出口这些稳定接口的包成员；ORM 等有限
-例外按调用位置显式登记。其余跨模块 import 必须在 EXEMPT_IMPORTS 登记理由，否则失败。
+生产代码跨业务模块只能经合法形态导入：contracts/facade 或仅静态再出口这些
+稳定接口的包成员；ORM 等有限例外按调用位置显式登记。其余跨模块 import 必须
+在 EXEMPT_IMPORTS 登记理由，否则失败。
+
+在形态校验之外，本门禁对模块间依赖**方向**做棘轮统计（AO-1）：有向边、双向对、
+顶层双向对、函数内导入与 world 内部 core↔worldbuilding 流量的基线冻结在
+``_DEPENDENCY_BASELINE``，任一指标超过基线即失败，只降不升。棘轮统计的是事实
+依赖，不论导入形态是否合法、是否豁免。分层目标态见
+docs/architecture/README.md 的「模块依赖方向分层（目标态）」。
 
 模块清单事实源：docs/architecture/architecture-documents.toml 的 components
 （kind="business"）。豁免清单即本文件的 EXEMPT_IMPORTS：键为
 ``路径:目标模块``（支持 fnmatch 通配），值为必填理由。
 
 用法：
-    python scripts/check_module_imports.py [--json]
+    python scripts/check_module_imports.py [--json] [--directional-json]
 """
 
 from __future__ import annotations
@@ -19,15 +26,33 @@ import fnmatch
 import importlib.util
 import json
 import sys
-from pathlib import Path
-
 import tomllib
+from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ARCH_DOC = REPO_ROOT / "docs/architecture/architecture-documents.toml"
 
 # 跨模块 import 的合法形态（相对 modules/ 的导入路径片段）。
 _LEGAL_SUFFIXES = ("_contracts", "_facade")
+
+# world 模块内部 core↔worldbuilding 子包边界（AO-1 棘轮统计，子包更深层级计入）。
+_WORLD_CORE_DIR = "modules/world/services/core/"
+_WORLD_WORLDBUILDING_DIR = "modules/world/services/worldbuilding/"
+_WORLD_CORE_PKG = "modules.world.services.core"
+_WORLD_WORLDBUILDING_PKG = "modules.world.services.worldbuilding"
+
+# 依赖方向棘轮基线（AO-1）。数值为 2026-10-06 在提交 e43500d2d 工作树的 AST
+# 实测事实（与本门禁同一遍历口径），冻结现状、只降不升：任一指标超过基线即
+# FAIL，低于基线时提示可下调。解除依赖后应随手调低对应值。分层目标态见
+# docs/architecture/README.md「模块依赖方向分层（目标态）」。
+_DEPENDENCY_BASELINE: dict[str, int] = {
+    "directed_edges": 90,
+    "bidirectional_pairs": 33,
+    "top_level_bidirectional_pairs": 17,
+    "function_level_imports": 572,
+    "world_core_to_worldbuilding": 23,
+    "world_worldbuilding_to_core": 27,
+}
 
 
 def load_business_modules() -> dict[str, tuple[str, ...]]:
@@ -108,15 +133,34 @@ def _member_target(
     return f"{target}.{member}"
 
 
-def iter_violations(
-    modules: dict[str, tuple[str, ...]], *, exempt: dict[str, str]
-) -> list[dict]:
-    return iter_violations_for_paths(
-        modules,
-        sorted((REPO_ROOT / "backend").glob("modules/**/*.py")),
-        repo_root=REPO_ROOT,
-        exempt=exempt,
-    )
+def _nested_def_node_ids(tree: ast.Module) -> frozenset[int]:
+    """位于 FunctionDef/AsyncFunctionDef/ClassDef 体内的节点 id 集合。
+
+    顶层判断标准：不在任何函数/类定义体内；模块级 if/try 等语句块内仍算顶层。
+    """
+    nested: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            for child in ast.walk(node):
+                if child is not node:
+                    nested.add(id(child))
+    return frozenset(nested)
+
+
+def _import_targets(node: ast.stmt, relative: str, backend_root: Path) -> list[str]:
+    """一条 import 语句解析出的全部目标模块路径（复用形态校验的解析口径）。"""
+    if isinstance(node, ast.ImportFrom):
+        target = _absolute_from(node, relative)
+        return [
+            _member_target(target, alias.name, backend_root) for alias in node.names
+        ]
+    if isinstance(node, ast.Import):
+        return [alias.name for alias in node.names]
+    return []
+
+
+def _matches_package(target: str, package: str) -> bool:
+    return target == package or target.startswith(package + ".")
 
 
 def iter_violations_for_paths(
@@ -126,10 +170,53 @@ def iter_violations_for_paths(
     repo_root: Path,
     exempt: dict[str, str],
 ) -> list[dict]:
+    violations, _stats, _edges = _analyze_paths(
+        modules, paths, repo_root=repo_root, exempt=exempt
+    )
+    return violations
+
+
+def iter_directional_stats_for_paths(
+    modules: dict[str, tuple[str, ...]],
+    paths,
+    *,
+    repo_root: Path,
+) -> tuple[dict[str, int], list[dict]]:
+    """对任意文件集合做方向棘轮统计，返回（指标, 有向边明细）。"""
+    _violations, stats, edges = _analyze_paths(
+        modules, paths, repo_root=repo_root, exempt={}
+    )
+    return stats, edges
+
+
+def analyze_repository(
+    *, exempt: dict[str, str]
+) -> tuple[list[dict], dict[str, int], list[dict]]:
+    """一遍遍历真实仓库，返回（形态违规, 方向指标, 有向边明细）。"""
+    return _analyze_paths(
+        load_business_modules(),
+        sorted((REPO_ROOT / "backend").glob("modules/**/*.py")),
+        repo_root=REPO_ROOT,
+        exempt=exempt,
+    )
+
+
+def _analyze_paths(
+    modules: dict[str, tuple[str, ...]],
+    paths,
+    *,
+    repo_root: Path,
+    exempt: dict[str, str],
+) -> tuple[list[dict], dict[str, int], list[dict]]:
     backend_root = (
         repo_root / "backend" if (repo_root / "backend").is_dir() else repo_root
     )
     violations: list[dict] = []
+    # 有向边 (owner, 目标模块) → [顶层导入语句数, 函数内导入语句数]
+    edge_counts: dict[tuple[str, str], list[int]] = {}
+    function_level_imports = 0
+    world_core_to_worldbuilding = 0
+    world_worldbuilding_to_core = 0
     for path in paths:
         path = Path(path)
         if not path.is_absolute():
@@ -146,16 +233,41 @@ def iter_violations_for_paths(
             continue
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"))
+            nested_def_ids = _nested_def_node_ids(tree)
             for node in ast.walk(tree):
-                targets: list[str] = []
-                if isinstance(node, ast.ImportFrom):
-                    target = _absolute_from(node, relative)
-                    targets = [
-                        _member_target(target, alias.name, backend_root)
-                        for alias in node.names
-                    ]
-                elif isinstance(node, ast.Import):
-                    targets = [alias.name for alias in node.names]
+                targets = _import_targets(node, relative, backend_root)
+                if not targets:
+                    continue
+                # 方向棘轮：统计事实依赖，不论形态是否合法、是否豁免。
+                cross_modules = set()
+                for target in targets:
+                    segments = _import_segments(target)
+                    if (
+                        len(segments) >= 2
+                        and segments[0] == "modules"
+                        and segments[1] != owner
+                    ):
+                        cross_modules.add(segments[1])
+                if cross_modules:
+                    top_level = id(node) not in nested_def_ids
+                    if not top_level:
+                        function_level_imports += len(cross_modules)
+                    for target_module in cross_modules:
+                        counts = edge_counts.setdefault(
+                            (owner, target_module), [0, 0]
+                        )
+                        counts[0 if top_level else 1] += 1
+                # world 内部 core↔worldbuilding 语句流量（同一业务模块，不计入跨模块边）。
+                if relative.startswith(_WORLD_CORE_DIR) and any(
+                    _matches_package(target, _WORLD_WORLDBUILDING_PKG)
+                    for target in targets
+                ):
+                    world_core_to_worldbuilding += 1
+                elif relative.startswith(_WORLD_WORLDBUILDING_DIR) and any(
+                    _matches_package(target, _WORLD_CORE_PKG) for target in targets
+                ):
+                    world_worldbuilding_to_core += 1
+                # 形态校验（原逻辑不变）。
                 for target in targets:
                     segments = _import_segments(target)
                     if (
@@ -173,7 +285,10 @@ def iter_violations_for_paths(
                             "path": relative,
                             "line": node.lineno,
                             "target": target,
-                            "reason": f"跨模块导入 {target} 不经 contracts/facade 或已登记 DI/有限例外",
+                            "reason": (
+                                f"跨模块导入 {target} 不经 contracts/facade"
+                                " 或已登记 DI/有限例外"
+                            ),
                         }
                     )
         except (OSError, SyntaxError, ImportError, ValueError) as exc:
@@ -185,7 +300,34 @@ def iter_violations_for_paths(
                     "reason": f"AST/导入解析失败: {exc}",
                 }
             )
-    return violations
+    directed = set(edge_counts)
+    bidirectional_pairs = 0
+    top_level_bidirectional_pairs = 0
+    for source, target_module in directed:
+        reverse = edge_counts.get((target_module, source))
+        if reverse is None or not source < target_module:
+            continue
+        bidirectional_pairs += 1
+        if edge_counts[(source, target_module)][0] > 0 and reverse[0] > 0:
+            top_level_bidirectional_pairs += 1
+    stats = {
+        "directed_edges": len(directed),
+        "bidirectional_pairs": bidirectional_pairs,
+        "top_level_bidirectional_pairs": top_level_bidirectional_pairs,
+        "function_level_imports": function_level_imports,
+        "world_core_to_worldbuilding": world_core_to_worldbuilding,
+        "world_worldbuilding_to_core": world_worldbuilding_to_core,
+    }
+    edges = [
+        {
+            "from": source,
+            "to": target_module,
+            "top_level": counts[0],
+            "function_level": counts[1],
+        }
+        for (source, target_module), counts in sorted(edge_counts.items())
+    ]
+    return violations, stats, edges
 
 
 def _is_exempt(path: str, target: str, exempt: dict[str, str]) -> bool:
@@ -196,9 +338,47 @@ def _is_exempt(path: str, target: str, exempt: dict[str, str]) -> bool:
     return False
 
 
+def check_direction_ratchet(
+    stats: dict[str, int], baseline: dict[str, int] | None = None
+) -> list[str]:
+    """任一指标超过基线即返回失败原因列表；等于或低于基线返回空列表。"""
+    limits = _DEPENDENCY_BASELINE if baseline is None else baseline
+    failures = []
+    for name, limit in limits.items():
+        current = stats.get(name, 0)
+        if current > limit:
+            failures.append(
+                f"依赖方向棘轮: {name} 当前 {current} 超过基线 {limit}"
+                "（模块间依赖只减不增，须先消除依赖并下调基线再合入）"
+            )
+    return failures
+
+
+def _direction_report_lines(
+    stats: dict[str, int], baseline: dict[str, int]
+) -> list[str]:
+    summary = ", ".join(
+        f"{name}={stats.get(name, 0)}/{baseline[name]}" for name in baseline
+    )
+    lines = [f"依赖方向棘轮通过（{summary}）"]
+    for name, limit in baseline.items():
+        current = stats.get(name, 0)
+        if current < limit:
+            lines.append(
+                f"提示: {name} 当前 {current} 低于基线 {limit}，"
+                f"基线可下调至 {current}"
+            )
+    return lines
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--json", action="store_true")
+    parser.add_argument(
+        "--directional-json",
+        action="store_true",
+        help="输出方向棘轮指标、基线与有向边明细 JSON",
+    )
     args = parser.parse_args(argv)
 
     modules = load_business_modules()
@@ -209,18 +389,41 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
-    violations = iter_violations(modules, exempt=EXEMPT_IMPORTS)
+    violations, stats, edges = analyze_repository(exempt=EXEMPT_IMPORTS)
     if args.json:
         print(json.dumps(violations, ensure_ascii=False, indent=2))
+    if args.directional_json:
+        print(
+            json.dumps(
+                {
+                    "metrics": stats,
+                    "baseline": _DEPENDENCY_BASELINE,
+                    "directed_edges": edges,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
     for item in violations:
         print(
             f"FAIL {item['path']}:{item['line']} {item['reason']}",
             file=sys.stderr,
         )
+    direction_failures = check_direction_ratchet(stats)
+    for reason in direction_failures:
+        print(f"FAIL {reason}", file=sys.stderr)
     if violations:
         print(
             f"{len(violations)} violation(s); 登记豁免须在 "
             f"scripts/check_module_imports.py 的 EXEMPT_IMPORTS 写明理由",
+            file=sys.stderr,
+        )
+        return 1
+    if direction_failures:
+        print(
+            f"{len(direction_failures)} direction ratchet overrun(s); "
+            "基线见 scripts/check_module_imports.py 的 _DEPENDENCY_BASELINE，"
+            "只降不升",
             file=sys.stderr,
         )
         return 1
@@ -229,6 +432,8 @@ def main(argv: list[str] | None = None) -> int:
         f"({len(modules)} business module(s), "
         f"{len(EXEMPT_IMPORTS)} exemption(s))"
     )
+    for line in _direction_report_lines(stats, _DEPENDENCY_BASELINE):
+        print(line)
     return 0
 
 
