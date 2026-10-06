@@ -92,6 +92,13 @@ from modules.writing.assistant_tools import (
     schedule_proactive_review as _writing_proactive_review,
 )
 from modules.assistant.facade import mark_changed as _assistant_mark_changed
+from modules.assistant.facade import (
+    run_discussion_scope as _assistant_run_discussion_scope,
+)
+from modules.assistant.operation_scope import (
+    require_operation_targets as _assistant_require_operation_targets,
+)
+from modules.assistant.sessions import AssistantSessionService as _AssistantSessions
 from modules.interaction.proactive import (
     schedule_proactive_review as _interaction_proactive_review,
 )
@@ -219,6 +226,12 @@ def _container_services() -> Iterable[tuple[str, Any]]:
             },
         ),
         ("assistant.proactive.findings", {"world_validation": _world_review_findings}),
+        ("assistant.session_service", _AssistantSessions()),
+        ("assistant.run_discussion_scope", _assistant_run_discussion_scope),
+        (
+            "assistant.require_operation_targets",
+            _assistant_require_operation_targets,
+        ),
         ("world.assistant.require_source", _world_assistant.require_source),
         ("world.assistant.require_checkpoint", _world_assistant.require_checkpoint),
         ("world.assistant.outcome_states", _world_assistant.outcome_states),

@@ -4,6 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from core.container import get
 from modules.assistant.contracts import AssistantOperation
 from modules.story.outline_state.schemas import (
     ForeshadowingPlanCreate,
@@ -113,8 +114,7 @@ async def _thread_apply(db, novel_id, args, preview, *, context=None):
 
 
 async def _arc_preview(db, novel_id, args, *, context=None):
-    from modules.assistant.facade import require_operation_targets
-
+    require_operation_targets = get("assistant.require_operation_targets")
     await require_operation_targets(
         db, novel_id, context, [("plot_thread", key) for key in args.related_thread_ids]
     )

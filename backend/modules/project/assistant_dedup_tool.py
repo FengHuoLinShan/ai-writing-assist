@@ -5,10 +5,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from core.container import get
 from core.errors import ConflictError
 from infrastructure.tasks.facade import get_completed_task_payload
 from modules.assistant.contracts import AssistantOperation
-from modules.assistant.facade import require_operation_targets
 from modules.project.schemas import SmartDedupScanRequest
 from modules.project.smart_dedup import SmartDedupService
 
@@ -39,6 +39,7 @@ class ScanDuplicates(BaseModel):
 
 
 async def _preview(db, novel_id, args, *, context=None):
+    require_operation_targets = get("assistant.require_operation_targets")
     await require_operation_targets(db, novel_id, context, [], aggregate=True)
     if context and context.work.scope != "project":
         raise ConflictError("查重需明确选择整个作品范围，或从原智能去重入口开始")

@@ -5,9 +5,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from core.container import get
 from core.errors import ConflictError
 from modules.assistant.contracts import AssistantOperation
-from modules.assistant.facade import require_operation_targets, run_discussion_scope
 from modules.world.schemas import (
     WorldAdoptionPackageItem,
     WorldAdoptionPackagePayload,
@@ -42,6 +42,8 @@ class ApplyPageSuggestion(BaseModel):
 
 
 async def _package_preview(db, novel_id, args, *, context=None):
+    require_operation_targets = get("assistant.require_operation_targets")
+    run_discussion_scope = get("assistant.run_discussion_scope")
     await require_operation_targets(db, novel_id, context, [], aggregate=True)
     if context.work.scope == "current" and (
         context.work.chapter_index or context.work.scene_id
@@ -101,6 +103,7 @@ async def _save_package(db, novel_id, args, preview, *, context=None):
 
 
 async def _page_preview(db, novel_id, args, *, context=None):
+    require_operation_targets = get("assistant.require_operation_targets")
     await require_operation_targets(db, novel_id, context, [], aggregate=True)
     service = SuggestionQueueService()
     suggestion = await service._get_pending(db, novel_id, str(args.suggestion_id))

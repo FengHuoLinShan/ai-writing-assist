@@ -7,6 +7,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from core.container import get
 from core.errors import ConflictError, NotFoundError, ValidationError
 from modules.assistant.contracts import AssistantOperation
 from modules.writing.facade import (
@@ -199,12 +200,12 @@ async def _world_review_apply(db, novel_id, args, preview, *, context=None):
 async def _team_review_context(db, novel_id, args, context):
     from dataclasses import replace
 
-    from modules.assistant.facade import require_operation_targets
     from modules.writing.semantic_review import (
         _candidate_confirmation_id,
         _requires_confirmed_context,
     )
 
+    require_operation_targets = get("assistant.require_operation_targets")
     await require_operation_targets(
         db, novel_id, context, [("writing_draft", value) for value in args.draft_ids]
     )
@@ -360,8 +361,7 @@ async def schedule_proactive_review(db, novel_id, change, internal_meta):
 
 
 async def _prepare(db, novel_id, args: ReviseChapter, *, context=None):
-    from modules.assistant.facade import require_operation_targets
-
+    require_operation_targets = get("assistant.require_operation_targets")
     await require_operation_targets(
         db, novel_id, context, [("writing_draft", args.draft_id)]
     )

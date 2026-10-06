@@ -43,13 +43,14 @@ _WORLD_WORLDBUILDING_PKG = "modules.world.services.worldbuilding"
 
 # 依赖方向棘轮基线（AO-1）。数值为 2026-10-06 在提交 e43500d2d 工作树的 AST
 # 实测事实（与本门禁同一遍历口径），冻结现状、只降不升：任一指标超过基线即
-# FAIL，低于基线时提示可下调。解除依赖后应随手调低对应值。分层目标态见
+# FAIL，低于基线时提示可下调。解除依赖后应随手调低对应值
+# （function_level_imports 已随 AO-3 插件 SPI 下沉 572→560）。分层目标态见
 # docs/architecture/README.md「模块依赖方向分层（目标态）」。
 _DEPENDENCY_BASELINE: dict[str, int] = {
     "directed_edges": 90,
     "bidirectional_pairs": 33,
     "top_level_bidirectional_pairs": 17,
-    "function_level_imports": 572,
+    "function_level_imports": 560,
     "world_core_to_worldbuilding": 23,
     "world_worldbuilding_to_core": 27,
 }

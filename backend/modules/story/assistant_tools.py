@@ -8,6 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 
+from core.container import get
 from core.errors import ConflictError, ValidationError
 from modules.assistant.contracts import AssistantOperation
 from modules.story.outline_state.models import Scene
@@ -65,8 +66,7 @@ class CreateScenes(BaseModel):
 
 
 async def _scenes_preview(db, novel_id, args, *, context=None):
-    from modules.assistant.facade import require_operation_targets
-
+    require_operation_targets = get("assistant.require_operation_targets")
     await require_operation_targets(
         db,
         novel_id,
@@ -133,8 +133,7 @@ async def _scenes_apply(db, novel_id, args, preview, *, context=None):
 
 
 async def _outline_preview(db, novel_id, args, *, context=None):
-    from modules.assistant.facade import require_operation_targets
-
+    require_operation_targets = get("assistant.require_operation_targets")
     await require_operation_targets(db, novel_id, context, [], aggregate=True)
     current = await StoryOutlineService().get_current(db, novel_id)
     revision = current.revision
@@ -183,8 +182,7 @@ async def _outline_apply(db, novel_id, args, preview, *, context=None):
 
 
 async def _card_preview(db, novel_id, args, *, context=None):
-    from modules.assistant.facade import require_operation_targets
-
+    require_operation_targets = get("assistant.require_operation_targets")
     await require_operation_targets(
         db,
         novel_id,
@@ -248,8 +246,7 @@ async def _card_apply(db, novel_id, args, preview, *, context=None):
 
 
 async def _script_preview(db, novel_id, args, *, context=None):
-    from modules.assistant.facade import require_operation_targets
-
+    require_operation_targets = get("assistant.require_operation_targets")
     await require_operation_targets(
         db, novel_id, context, [("outline_scene", args.scene_id)], aggregate=True
     )
@@ -318,8 +315,7 @@ async def _script_apply(db, novel_id, args, preview, *, context=None):
 
 
 async def _prepare(db, novel_id, args, *, context=None):
-    from modules.assistant.facade import require_operation_targets
-
+    require_operation_targets = get("assistant.require_operation_targets")
     await require_operation_targets(
         db, novel_id, context, [("outline_scene", args.scene_id)]
     )

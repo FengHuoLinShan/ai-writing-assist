@@ -8,9 +8,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from core.container import get
 from core.errors import ConflictError, ValidationError
 from modules.assistant.contracts import AssistantOperation
-from modules.assistant.facade import require_operation_targets
 from modules.world.schemas import (
     CoreEntityCreate,
     CoreEntityUpdate,
@@ -71,6 +71,7 @@ class AddRelation(BaseModel):
 
 
 async def _alias_preview(db, novel_id, args, *, context=None):
+    require_operation_targets = get("assistant.require_operation_targets")
     await require_operation_targets(
         db, novel_id, context, [("core_entity", args.entity_id)]
     )
@@ -103,6 +104,7 @@ async def _alias_apply(db, novel_id, args, preview, *, context=None):
 
 
 async def _relation_preview(db, novel_id, args, *, context=None):
+    require_operation_targets = get("assistant.require_operation_targets")
     await require_operation_targets(
         db,
         novel_id,
@@ -233,6 +235,7 @@ async def _create_apply(db, novel_id, args, preview, *, context=None):
 
 
 async def _edit_preview(db, novel_id, args, *, context=None):
+    require_operation_targets = get("assistant.require_operation_targets")
     await require_operation_targets(
         db, novel_id, context, [("core_entity", args.entity_id)]
     )

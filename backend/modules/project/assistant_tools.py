@@ -5,6 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 
+from core.container import get
 from core.errors import ConflictError, NotFoundError
 from modules.assistant.contracts import AssistantOperation
 from modules.project.author_task_service import AuthorTaskService
@@ -26,8 +27,7 @@ class UpdateAuthorTask(BaseModel):
 
 
 async def _update_preview(db, novel_id, args, *, context=None):
-    from modules.assistant.facade import require_operation_targets
-
+    require_operation_targets = get("assistant.require_operation_targets")
     await require_operation_targets(
         db, novel_id, context, [("author_task", args.task_id)]
     )

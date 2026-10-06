@@ -4,10 +4,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from core.container import get
 from core.errors import ConflictError, NotFoundError
 from infrastructure.tasks.facade import get_completed_task_payload
 from modules.assistant.contracts import AssistantOperation
-from modules.assistant.facade import require_operation_targets
 from modules.writing.facade import (
     get_draft,
     get_latest_draft_for_chapter,
@@ -33,6 +33,7 @@ class ReviseCandidate(SelectDraft):
 
 
 async def _revision_preview(db, novel_id, args, *, context=None):
+    require_operation_targets = get("assistant.require_operation_targets")
     await require_operation_targets(
         db, novel_id, context, [("writing_draft", args.draft_id)]
     )
@@ -114,6 +115,7 @@ async def _revision_result(db, novel_id, reference):
 
 
 async def _version_preview(db, novel_id, args, *, context=None, adopt=False):
+    require_operation_targets = get("assistant.require_operation_targets")
     await require_operation_targets(
         db, novel_id, context, [("writing_draft", args.draft_id)]
     )
