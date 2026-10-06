@@ -21,9 +21,10 @@ from core.errors import NotFoundError
 from core.errors import ValidationError as DomainValidationError
 from infrastructure.tasks.models import AsyncTask
 from modules.account.contracts import BOOTSTRAP_ACCOUNT_ID
-from modules.project.contracts import ProjectContext
+from modules.project.contracts import ProjectContext, WorkspaceWritingStats
 from modules.project.facade import (
     get_project_context,
+    get_project_owner_ref,
     list_active_project_summaries,
     require_active_project,
 )
@@ -33,7 +34,6 @@ from modules.project.schemas import (
     ProjectUpdate,
 )
 from modules.project.services import ProjectService
-from modules.writing.contracts import WritingProjectStatsContract
 from modules.writing.facade import create_draft_only
 
 _repo = ProjectRepository()
@@ -543,7 +543,7 @@ class TestProjectService:
 
         async def single_stats(_db: AsyncSession, novel_id: str):
             single_calls.append(novel_id)
-            return WritingProjectStatsContract(novel_id=novel_id)
+            return WorkspaceWritingStats(novel_id=novel_id)
 
         service = ProjectService(repo=repo, writing_stats_provider=single_stats)
         db = MagicMock()
@@ -905,6 +905,36 @@ class TestProjectFacade:
         """测试 facade 获取不存在的项目"""
         ctx = await get_project_context(db_session, str(uuid.uuid4()))
         assert ctx is None
+
+    @pytest.mark.asyncio
+    async def test_get_project_owner_ref_returns_project_owner(
+        self,
+        db_session: AsyncSession,
+        sample_create_data: ProjectCreate,
+    ) -> None:
+        """AO-4: account 域经该 port 解析项目 owner，不 import project 实现"""
+        from modules.account.contracts import ProjectOwnerRef
+        from modules.account.settings_constants import LOCAL_OWNER_ID
+
+        project = await _repo.create(
+            db_session,
+            sample_create_data,
+            owner_id=LOCAL_OWNER_ID,
+        )
+
+        ref = await get_project_owner_ref(db_session, str(project.id))
+
+        assert isinstance(ref, ProjectOwnerRef)
+        assert ref.owner_id == str(LOCAL_OWNER_ID)
+
+    @pytest.mark.asyncio
+    async def test_get_project_owner_ref_returns_none_for_missing_project(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """缺失或不可访问的项目对 account 域保持不可见"""
+        ref = await get_project_owner_ref(db_session, str(uuid.uuid4()))
+        assert ref is None
 
     @pytest.mark.asyncio
     async def test_require_active_project_accepts_active_project(

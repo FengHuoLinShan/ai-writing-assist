@@ -34,12 +34,24 @@ from modules.evidence.facade import (
     request_entity_activity_reannotation as _rag_request_entity_reannotation,
 )
 from modules.evidence.indexing.indexing import IndexingService as _RagIndexingService
+from modules.project.facade import (
+    get_project_owner_ref as _project_owner_ref,
+)
 from modules.project.facade import require_active_project as _project_require_active
+from modules.story.project_ports import (
+    StoryDedupAdapter as _StoryDedupAdapter,
+)
+from modules.story.project_ports import (
+    StoryWorkspaceStatsAdapter as _StoryWorkspaceStatsAdapter,
+)
 from modules.writing.facade import (
     get_latest_draft_for_chapter as _writing_get_draft,
     list_chapter_indices as _writing_list_indices,
     list_effective_chapter_indices as _writing_list_effective_indices,
     list_latest_drafts_for_chapters as _writing_list_latest_drafts,
+)
+from modules.writing.project_ports import (
+    WritingWorkspaceStatsAdapter as _WritingWorkspaceStatsAdapter,
 )
 from modules.world.facade import (
     create_character as _world_create_char,
@@ -47,6 +59,12 @@ from modules.world.facade import (
     list_characters as _world_list_characters,
     list_entities as _world_list_entities,
     list_entity_terms as _world_list_entity_terms,
+)
+from modules.world.project_ports import (
+    WorldDedupAdapter as _WorldDedupAdapter,
+)
+from modules.world.project_ports import (
+    WorldWorkspaceStatsAdapter as _WorldWorkspaceStatsAdapter,
 )
 from modules.world.map_atlas_facade import (
     enqueue_map_atlas_project_cleanup as _map_atlas_cleanup,
@@ -271,6 +289,14 @@ def _container_services() -> Iterable[tuple[str, Any]]:
         ("project.require_active", _project_require_active),
         ("interaction.count_source_references", _interaction_source_reference_count),
         ("world.enqueue_map_atlas_cleanup", _map_atlas_cleanup),
+        # AO-4: project reads L2 aggregates through these provider ports.
+        ("project.workspace.writing_stats", _WritingWorkspaceStatsAdapter()),
+        ("project.workspace.world_stats", _WorldWorkspaceStatsAdapter()),
+        ("project.workspace.story_stats", _StoryWorkspaceStatsAdapter()),
+        ("project.dedup.world", _WorldDedupAdapter()),
+        ("project.dedup.story", _StoryDedupAdapter()),
+        # AO-4: account resolves project owners through this project-owned port.
+        ("account.project_owner_ref", _project_owner_ref),
     )
 
 

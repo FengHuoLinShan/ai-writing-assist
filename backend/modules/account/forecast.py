@@ -2,13 +2,13 @@
 
 from uuid import UUID
 
+from core.container import get
 from modules.account.facade import get_account_llm_settings_contract
 from modules.assistant.contracts import ForecastDomainFact
-from modules.project.facade import get_any_project_context
 
 
 async def inspect(db, novel_id, focus, excluded):
-    project = await get_any_project_context(db, novel_id)
+    project = await get("account.project_owner_ref")(db, novel_id)
     settings = await get_account_llm_settings_contract(
         db, owner_id=UUID(str(project.owner_id))
     )

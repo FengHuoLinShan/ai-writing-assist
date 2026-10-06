@@ -8,14 +8,16 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from core.container import container_scope
 from core.errors import ValidationError
+from modules.project.contracts import (
+    WorkspaceChapterDraft,
+    WorkspaceSceneFocus,
+    WorkspaceWorldAttentionSummary,
+    WorkspaceWritingStats,
+)
 from modules.project.schemas import ProjectResponse, WorkspaceAuthorTasksSummaryResponse
 from modules.project.workspace_service import ProjectWorkspaceSummaryService
-from modules.world.contracts import WorldAttentionSummaryContract
-from modules.writing.contracts import (
-    WritingDraftContract,
-    WritingProjectStatsContract,
-)
 
 
 @pytest.mark.asyncio
@@ -23,7 +25,7 @@ async def test_workspace_summary_composes_safe_author_projection() -> None:
     db = SimpleNamespace()
     project_reader = AsyncMock(return_value=ProjectResponse(id="novel-1", title="长夜"))
     writing_stats_reader = AsyncMock(
-        return_value=WritingProjectStatsContract(
+        return_value=WorkspaceWritingStats(
             novel_id="novel-1",
             chapter_count=3,
             word_count=12800,
@@ -32,15 +34,13 @@ async def test_workspace_summary_composes_safe_author_projection() -> None:
     chapter_index_reader = AsyncMock(return_value=[1, 2, 3])
     latest_drafts_reader = AsyncMock(
         return_value=[
-            WritingDraftContract(
-                novel_id="novel-1",
+            WorkspaceChapterDraft(
                 chapter_index=3,
                 title="旧章节",
                 status="published",
                 updated_at=datetime(2026, 1, 1, tzinfo=UTC),
             ),
-            WritingDraftContract(
-                novel_id="novel-1",
+            WorkspaceChapterDraft(
                 chapter_index=2,
                 title="最近编辑",
                 status="draft",
@@ -49,7 +49,7 @@ async def test_workspace_summary_composes_safe_author_projection() -> None:
         ]
     )
     world_attention_reader = AsyncMock(
-        return_value=WorldAttentionSummaryContract(
+        return_value=WorkspaceWorldAttentionSummary(
             novel_id="novel-1",
             world_objects=2,
             world_aliases=3,
@@ -130,12 +130,12 @@ async def test_workspace_summary_skips_draft_load_for_empty_project() -> None:
             return_value=WorkspaceAuthorTasksSummaryResponse()
         ),
         writing_stats_reader=AsyncMock(
-            return_value=WritingProjectStatsContract(novel_id="empty-1")
+            return_value=WorkspaceWritingStats(novel_id="empty-1")
         ),
         chapter_index_reader=AsyncMock(return_value=[]),
         latest_drafts_reader=latest_drafts_reader,
         world_attention_reader=AsyncMock(
-            return_value=WorldAttentionSummaryContract(novel_id="empty-1")
+            return_value=WorkspaceWorldAttentionSummary(novel_id="empty-1")
         ),
         outline_attention_reader=AsyncMock(return_value=0),
         outline_item_reader=AsyncMock(return_value=[]),
@@ -179,11 +179,7 @@ async def test_workspace_summary_validates_focus_and_sorts_actionable_items() ->
         )
 
     scene_reader = AsyncMock(
-        return_value=SimpleNamespace(
-            id="scene-current",
-            chapter_ids=[],
-            scene_chunks=[{"chapter_index": 4}],
-        )
+        return_value=WorkspaceSceneFocus(id="scene-current", chapter_indices=(4,))
     )
     service = ProjectWorkspaceSummaryService(
         project_reader=AsyncMock(
@@ -193,12 +189,12 @@ async def test_workspace_summary_validates_focus_and_sorts_actionable_items() ->
             return_value=WorkspaceAuthorTasksSummaryResponse()
         ),
         writing_stats_reader=AsyncMock(
-            return_value=WritingProjectStatsContract(novel_id="novel-1")
+            return_value=WorkspaceWritingStats(novel_id="novel-1")
         ),
         chapter_index_reader=AsyncMock(return_value=[]),
         latest_drafts_reader=AsyncMock(return_value=[]),
         world_attention_reader=AsyncMock(
-            return_value=WorldAttentionSummaryContract(novel_id="novel-1")
+            return_value=WorkspaceWorldAttentionSummary(novel_id="novel-1")
         ),
         outline_attention_reader=AsyncMock(return_value=0),
         outline_item_reader=AsyncMock(
@@ -275,9 +271,9 @@ async def test_workspace_summary_validates_focus_and_sorts_actionable_items() ->
     assert scene_low.target.chapter_index == 4
     scene_reader.assert_awaited_once_with(db, "novel-1", "scene-current")
 
-    scene_reader.return_value = SimpleNamespace(
+    scene_reader.return_value = WorkspaceSceneFocus(
         id="foreign-scene",
-        chapter_ids=["9"],
+        chapter_indices=(9,),
     )
     invalid = await service.get_summary(
         db,
@@ -295,3 +291,62 @@ async def test_workspace_summary_validates_focus_and_sorts_actionable_items() ->
         focus_scene_id="not-a-uuid",
     )
     assert malformed.attention.items[0].relevance == "current_chapter"
+
+
+@pytest.mark.asyncio
+async def test_workspace_summary_resolves_registered_providers_lazily() -> None:
+    """未注入的读取器经组合根注册的 provider 协议在调用时解析（AO-4）。"""
+    db = SimpleNamespace()
+
+    class FakeWritingProvider:
+        def __init__(self) -> None:
+            self.stats_calls: list[str] = []
+
+        async def get_project_stats(self, _db, novel_id):
+            self.stats_calls.append(novel_id)
+            return WorkspaceWritingStats(novel_id=novel_id)
+
+        async def list_chapter_indices(self, _db, _novel_id):
+            return []
+
+        async def get_attention_items(self, _db, _novel_id):
+            return ()
+
+    class FakeWorldProvider:
+        async def get_attention_summary(self, _db, novel_id):
+            return WorkspaceWorldAttentionSummary(
+                novel_id=novel_id,
+                world_objects=1,
+            )
+
+    class FakeStoryProvider:
+        async def count_scenes(self, _db, _novel_id, *, status_filter=None):
+            assert status_filter == ["candidate", "proposal"]
+            return 0
+
+        async def get_attention_items(self, _db, _novel_id):
+            return ()
+
+    writing = FakeWritingProvider()
+    with container_scope(
+        {
+            "project.workspace.writing_stats": writing,
+            "project.workspace.world_stats": FakeWorldProvider(),
+            "project.workspace.story_stats": FakeStoryProvider(),
+        }
+    ):
+        service = ProjectWorkspaceSummaryService(
+            project_reader=AsyncMock(
+                return_value=ProjectResponse(id="novel-1", title="长夜")
+            ),
+            author_task_summary_reader=AsyncMock(
+                return_value=WorkspaceAuthorTasksSummaryResponse()
+            ),
+        )
+        result = await service.get_summary(db, "novel-1")
+
+    assert writing.stats_calls == ["novel-1"]
+    assert result.writing.model_dump() == {"chapter_count": 0, "word_count": 0}
+    assert result.attention.total == 1
+    assert result.attention.world_objects == 1
+    assert result.continuation is None

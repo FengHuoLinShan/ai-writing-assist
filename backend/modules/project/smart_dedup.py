@@ -8,11 +8,14 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.container import get
 from core.errors import ConflictError, ValidationError
 from infrastructure.llm.redaction import redact_diagnostic
+from modules.project.contracts import (
+    StoryDedupSuggestionProvider,
+    WorldDedupSuggestionProvider,
+)
 from modules.project.repositories import SmartDedupWorkbenchDecisionRepository
-from modules.story import facade as outline_facade
-from modules.world import facade as world_facade
 from shared.utils import parse_uuid
 
 WORLD_ASSET_TYPE = "world_entity"
@@ -24,7 +27,21 @@ OUTLINE_ASSET_TYPES = {
     "reveal_plan",
 }
 
+# Bootstrap-registered domain dedup providers (AO-4): this project-owned
+# workbench orchestrates world/story dedup through these ports instead of
+# importing world/story facades directly.
+WORLD_DEDUP_PROVIDER_KEY = "project.dedup.world"
+STORY_DEDUP_PROVIDER_KEY = "project.dedup.story"
+
 logger = logging.getLogger(__name__)
+
+
+def _world_dedup() -> WorldDedupSuggestionProvider:
+    return get(WORLD_DEDUP_PROVIDER_KEY)
+
+
+def _story_dedup() -> StoryDedupSuggestionProvider:
+    return get(STORY_DEDUP_PROVIDER_KEY)
 
 
 class SmartDedupService:
@@ -115,7 +132,7 @@ class SmartDedupService:
         ]
 
         if WORLD_ASSET_TYPE in selected:
-            world_result = await world_facade.suggest_entity_fusion(
+            world_result = await _world_dedup().suggest_entity_fusion(
                 db,
                 novel_id,
                 limit=min(limit_per_scope, 1000),
@@ -142,7 +159,7 @@ class SmartDedupService:
 
         outline_scopes = sorted(selected & OUTLINE_ASSET_TYPES)
         if outline_scopes:
-            outline_result = await outline_facade.suggest_structure_dedup(
+            outline_result = await _story_dedup().suggest_structure_dedup(
                 db,
                 novel_id,
                 asset_types=outline_scopes,
@@ -372,7 +389,7 @@ class SmartDedupService:
             execution_fingerprints_prevalidated: bool,
         ) -> list[dict[str, Any]]:
             if server_group["asset_type"] == WORLD_ASSET_TYPE:
-                return await world_facade.apply_entity_fusion_group(
+                return await _world_dedup().apply_entity_fusion_group(
                     db,
                     novel_id,
                     primary_entity_id=str(request_group["primary_asset_id"]),
@@ -385,7 +402,7 @@ class SmartDedupService:
                         execution_fingerprints_prevalidated
                     ),
                 )
-            return await outline_facade.apply_structure_dedup_group(
+            return await _story_dedup().apply_structure_dedup_group(
                 db,
                 novel_id,
                 asset_type=str(server_group["asset_type"]),
@@ -572,7 +589,7 @@ class SmartDedupService:
         results: dict[str, Any] = {}
         applied = 0
         if world_items:
-            world_result = await world_facade.apply_entity_fusion(
+            world_result = await _world_dedup().apply_entity_fusion(
                 db,
                 novel_id,
                 confirmed=True,
@@ -583,7 +600,7 @@ class SmartDedupService:
             skipped += int(world_result.get("skipped") or 0)
             warnings.extend(world_result.get("warnings") or [])
         if outline_items:
-            outline_result = await outline_facade.apply_structure_dedup(
+            outline_result = await _story_dedup().apply_structure_dedup(
                 db,
                 novel_id,
                 confirmed=True,

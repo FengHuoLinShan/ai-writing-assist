@@ -74,6 +74,13 @@ def test_bootstrap_registers_app_and_worker_services():
         "outline.reveal_service",
         "context.compile",
         "memory.service",
+        # AO-4 provider ports consumed by the project identity root.
+        "project.workspace.writing_stats",
+        "project.workspace.world_stats",
+        "project.workspace.story_stats",
+        "project.dedup.world",
+        "project.dedup.story",
+        "account.project_owner_ref",
     ]
     for service_name in expected_services:
         assert get(service_name) is not None
@@ -82,6 +89,37 @@ def test_bootstrap_registers_app_and_worker_services():
     assert callable(alias_relation_port.prepare_alias_relation_task)
     assert callable(alias_relation_port.execute_alias_relation_task)
     assert callable(alias_relation_port.finalize_alias_relation_task)
+
+    writing_stats = get("project.workspace.writing_stats")
+    for method in (
+        "get_project_stats",
+        "list_project_stats",
+        "list_chapter_indices",
+        "list_latest_drafts",
+        "get_attention_items",
+    ):
+        assert callable(getattr(writing_stats, method))
+    assert callable(
+        getattr(get("project.workspace.world_stats"), "get_attention_summary")
+    )
+    story_stats = get("project.workspace.story_stats")
+    for method in ("count_scenes", "get_attention_items", "get_scene_focus"):
+        assert callable(getattr(story_stats, method))
+    world_dedup = get("project.dedup.world")
+    for method in (
+        "suggest_entity_fusion",
+        "apply_entity_fusion_group",
+        "apply_entity_fusion",
+    ):
+        assert callable(getattr(world_dedup, method))
+    story_dedup = get("project.dedup.story")
+    for method in (
+        "suggest_structure_dedup",
+        "apply_structure_dedup_group",
+        "apply_structure_dedup",
+    ):
+        assert callable(getattr(story_dedup, method))
+    assert callable(get("account.project_owner_ref"))
 
 
 def test_bootstrap_duplicate_register_raises_by_default():
