@@ -33,23 +33,35 @@ _XHR_DETAIL = "Missing X-Requested-With header"
 _PATH_PARAM = re.compile(r"\{[^}]+\}")
 
 
-def _iter_route_entries(routes: list, prefix: str = "") -> Iterator[tuple[str, object]]:
-    """Yield ``(prefixed_path, route)`` for every registered route entry."""
+def _iter_route_entries(
+    routes: list, prefix: str = "", router_id: int | None = None
+) -> Iterator[tuple[int, str, object]]:
+    """Yield ``(router_id, prefixed_path, route)`` for every registered route.
+
+    ``router_id`` identifies the router whose route list the entry sits in and
+    registration order is preserved within each router, so callers can assert
+    ordering invariants (e.g. static-before-parameterized) per router.
+    """
+    group = id(routes) if router_id is None else router_id
     for route in routes:
         if isinstance(route, APIRoute):
-            yield f"{prefix}{route.path}", route
+            yield group, f"{prefix}{route.path}", route
             continue
         original_router = getattr(route, "original_router", None)
         if original_router is not None:
             include_context = getattr(route, "include_context", None)
             nested_prefix = str(getattr(include_context, "prefix", "") or "")
-            yield from _iter_route_entries(original_router.routes, prefix + nested_prefix)
+            yield from _iter_route_entries(
+                original_router.routes,
+                prefix + nested_prefix,
+                router_id=id(original_router.routes),
+            )
             continue
         path = getattr(route, "path", None)
         methods = getattr(route, "methods", None)
         if isinstance(path, str) and methods is not None:
             # Plain starlette Route (openapi/docs/static fallbacks).
-            yield f"{prefix}{path}", route
+            yield group, f"{prefix}{path}", route
             continue
         raise AssertionError(
             f"unhandled route type {type(route).__name__}; extend the enumerator "
@@ -59,7 +71,7 @@ def _iter_route_entries(routes: list, prefix: str = "") -> Iterator[tuple[str, o
 
 def _write_routes() -> list[tuple[str, str]]:
     entries: list[tuple[str, str]] = []
-    for path, route in _iter_route_entries(app.routes):
+    for _router_id, path, route in _iter_route_entries(app.routes):
         for method in sorted(getattr(route, "methods", None) or set()):
             if method in WRITE_METHODS:
                 entries.append((method, path))
@@ -91,7 +103,7 @@ def test_write_routes_carry_no_duplicate_route_level_xhr_dependency() -> None:
     """
 
     duplicates: list[str] = []
-    for path, route in _iter_route_entries(app.routes):
+    for _router_id, path, route in _iter_route_entries(app.routes):
         route_methods = getattr(route, "methods", None) or set()
         methods = {m for m in route_methods if m in WRITE_METHODS}
         if not methods or not isinstance(route, APIRoute):
@@ -106,6 +118,43 @@ def test_write_routes_carry_no_duplicate_route_level_xhr_dependency() -> None:
 
     assert not duplicates, (
         "write routes duplicating the middleware XHR gate:\n" + "\n".join(duplicates)
+    )
+
+
+def test_static_routes_registered_before_matching_parameterized_routes() -> None:
+    """路由遮蔽不变量：同一 router 内静态段先于可匹配它的参数段注册。
+
+    Starlette 按注册序匹配；``/a/{x}`` 若先于 ``/a/aliases`` 注册，静态路径
+    的请求会被参数路由吞掉。对每个 router 的注册序列，检查更早注册的静态
+    路由不会被任何更晚（先参与匹配）的同方法参数化路由的 path 正则命中。
+    """
+    grouped: dict[int, list[tuple[str, object]]] = {}
+    for router_id, path, route in _iter_route_entries(app.routes):
+        grouped.setdefault(router_id, []).append((path, route))
+
+    shadowed: list[str] = []
+    for entries in grouped.values():
+        for index, (static_path, static_route) in enumerate(entries):
+            if _PATH_PARAM.search(static_path):
+                continue
+            static_methods = getattr(static_route, "methods", None) or set()
+            for parameterized_path, parameterized_route in entries[:index]:
+                if not _PATH_PARAM.search(parameterized_path):
+                    continue
+                shared = static_methods & (
+                    getattr(parameterized_route, "methods", None) or set()
+                )
+                if not shared:
+                    continue
+                # path_regex 由 starlette 以 ^...$ 编译，match 即整路径匹配。
+                if parameterized_route.path_regex.match(static_path):
+                    shadowed.append(
+                        f"{sorted(shared)} {static_path} is shadowed by "
+                        f"{parameterized_path}"
+                    )
+    assert not shadowed, (
+        "static routes registered after matching parameterized routes "
+        "(the static path resolves to the parameterized route):\n" + "\n".join(shadowed)
     )
 
 

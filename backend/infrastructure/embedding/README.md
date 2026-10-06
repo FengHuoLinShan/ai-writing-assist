@@ -6,7 +6,7 @@
 
 | 路径 | `EMBEDDING_PROVIDER` | 适用环境 | 实现 |
 |---|---|---|---|
-| **TEI HTTP（生产唯一路径）** | `openai`（compose.production.yml 默认） | 生产部署 | `client.py` 经 `EMBEDDING_BASE_URL`（默认 `http://embedding:80/v1`）调用 text-embeddings-inference 容器，模型 `BAAI/bge-base-zh-v1.5` |
+| **TEI HTTP（生产唯一路径）** | `openai`（compose.production.yml 默认） | 生产部署 | 经 `infrastructure/llm/providers.py` 的 OpenAI SDK embedding client 路由（`infrastructure/llm/client.py` 按 provider 分派）；`EMBEDDING_BASE_URL` 代码默认为空串，空时回退 chat provider 的 base_url——因此**非 compose 部署必须显式设置**；`http://embedding:80/v1` 是 compose 生产默认，指向 text-embeddings-inference 容器，模型 `BAAI/bge-base-zh-v1.5` |
 | **BGE ONNX 子进程** | `bge_onnx`（core/config.py 本地默认） | 本地开发 / 离线环境（无容器、无外网） | `worker.py` 的 `BgeOnnxWorker` 单例子进程 + `client.py` 的 `BgeEmbeddingClient`，批处理与 ONNX 回退 |
 
 两条路径产出同维度（`EMBEDDING_DIM` 默认 768）同模型的向量；生产不启动

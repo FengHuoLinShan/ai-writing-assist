@@ -12,6 +12,11 @@ from modules.world.schemas._common import RelationKind, _normalize_system_entity
 class ExtractedEntity(BaseModel):
     """AI 提取的实体"""
 
+    # 与 modules.imports.llm_schemas.ExtractedEntity 短名冲突；按 events.py
+    # 的先例钉住定义模块路径，保持拆包前 FastAPI/pydantic 生成的 OpenAPI
+    # 组件名不变。
+    __module__ = "modules.world.schemas"
+
     entity_type: str = Field(
         ...,
         description="受支持实体类型（如 character/faction/item）",

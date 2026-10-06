@@ -2003,6 +2003,31 @@ def test_embedding_probe_reports_dimension_failure_without_dynamic_details(
     )
 
 
+def test_embedding_probe_reports_non_finite_vector_as_value_error(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    module = _load_embedding_check()
+    clock = _FakeClock()
+
+    def urlopen(_request: object, *, timeout: float) -> io.StringIO:
+        return io.StringIO('{"data": [{"embedding": [0.0, 1e999, 0.0]}]}')
+
+    result = module.check_embedding(
+        timeout_seconds=5,
+        request_timeout_seconds=5,
+        retry_delay_seconds=5,
+        environment=_embedding_environment(),
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+        urlopen=urlopen,
+    )
+
+    assert result == 1
+    assert capsys.readouterr().out == (
+        "Embedding service did not become ready: ValueError\n"
+    )
+
+
 def test_embedding_probe_reports_malformed_json_structure_as_type_error(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

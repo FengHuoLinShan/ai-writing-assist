@@ -754,6 +754,147 @@ def test_direction_ratchet_counts_world_core_worldbuilding_traffic(tmp_path) -> 
 
 
 # ============================================================
+# 动态导入门禁：import_module/__import__ 与静态导入同一口径
+# ============================================================
+
+
+def test_dynamic_import_constant_counts_into_direction_stats(tmp_path) -> None:
+    """正例：常量 modules.* 动态导入按该目标计入方向棘轮与形态校验。"""
+    import check_module_imports as gate
+
+    modules = {"alpha": ("modules/alpha",), "beta": ("modules/beta",)}
+    _write_contracts(tmp_path, "beta")
+    source = tmp_path / "modules/alpha/loader.py"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        "\n".join(
+            [
+                "from importlib import import_module",
+                "",
+                "",
+                "def load():",
+                '    return import_module("modules.beta.contracts")',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    stats, edges = gate.iter_directional_stats_for_paths(
+        modules, [source], repo_root=tmp_path
+    )
+
+    assert stats["directed_edges"] == 1
+    assert stats["function_level_imports"] == 1
+    assert edges == [{"from": "alpha", "to": "beta", "top_level": 0, "function_level": 1}]
+    # contracts 形态合法，无违规
+    assert (
+        gate.iter_violations_for_paths(modules, [source], repo_root=tmp_path, exempt={})
+        == []
+    )
+
+
+def test_dynamic_import_over_baseline_fails_ratchet(tmp_path) -> None:
+    """负例：常量动态导入计入指标后超基线即失败。"""
+    import check_module_imports as gate
+
+    modules = {"alpha": ("modules/alpha",), "beta": ("modules/beta",)}
+    _write_contracts(tmp_path, "beta")
+    source = tmp_path / "modules/alpha/loader.py"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        'def load():\n    return __import__("modules.beta.contracts")\n',
+        encoding="utf-8",
+    )
+
+    stats, _ = gate.iter_directional_stats_for_paths(
+        modules, [source], repo_root=tmp_path
+    )
+    assert stats["directed_edges"] == 1
+
+    failures = gate.check_direction_ratchet(stats, {**stats, "directed_edges": 0})
+    assert any("directed_edges" in failure for failure in failures)
+
+
+def test_dynamic_import_non_constant_argument_fails_closed(tmp_path) -> None:
+    """负例：变量/拼接等非常量首参无法静态判定目标，直接记违规。"""
+    import check_module_imports as gate
+
+    modules = {"alpha": ("modules/alpha",), "beta": ("modules/beta",)}
+    source = tmp_path / "modules/alpha/loader.py"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        "\n".join(
+            [
+                "from importlib import import_module",
+                "",
+                "",
+                "def load(name):",
+                "    return import_module(name)",
+                "",
+                "",
+                "def load_prefixed(suffix):",
+                '    return import_module("modules.beta." + suffix)',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    violations = gate.iter_violations_for_paths(
+        modules, [source], repo_root=tmp_path, exempt={}
+    )
+
+    assert len(violations) == 2
+    assert {item["line"] for item in violations} == {5, 9}
+    assert all("字符串常量" in item["reason"] for item in violations)
+
+
+def test_dynamic_import_same_module_target_keeps_metrics_unchanged(tmp_path) -> None:
+    """正例：同模块动态导入（workflow_structure_phase 现状）不计跨模块边。"""
+    import check_module_imports as gate
+
+    modules = {"imports": ("modules/imports",)}
+    source = tmp_path / "modules/imports/phase.py"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        "\n".join(
+            [
+                "from importlib import import_module",
+                "",
+                "",
+                "def _container_get(key):",
+                '    workflow_module = import_module("modules.imports.workflow")',
+                "    return workflow_module._container_get(key)",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    stats, edges = gate.iter_directional_stats_for_paths(
+        modules, [source], repo_root=tmp_path
+    )
+
+    assert stats["directed_edges"] == 0
+    assert stats["function_level_imports"] == 0
+    assert edges == []
+    assert (
+        gate.iter_violations_for_paths(modules, [source], repo_root=tmp_path, exempt={})
+        == []
+    )
+
+
+def test_dynamic_import_real_repo_stays_green() -> None:
+    """真实仓库动态导入存量（同模块常量）在新规则下不产生违规与指标变化。"""
+    import check_module_imports as gate
+
+    violations, stats, _edges = gate.analyze_repository(exempt=gate.EXEMPT_IMPORTS)
+    assert violations == []
+    assert stats == gate._DEPENDENCY_BASELINE
+
+
+# ============================================================
 # Facade 薄层门禁（AO-8）：facade.py 禁 SQLAlchemy 直接操作
 # ============================================================
 

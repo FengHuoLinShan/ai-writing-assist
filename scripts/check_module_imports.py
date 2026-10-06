@@ -4,6 +4,10 @@
 稳定接口的包成员；ORM 等有限例外按调用位置显式登记。其余跨模块 import 必须
 在 EXEMPT_IMPORTS 登记理由，否则失败。
 
+动态导入 import_module/__import__（按调用名匹配，不论导入来源）与静态导入
+同一口径：首参为 "modules." 开头的字符串常量时按该目标计入方向统计并过形态
+校验；首参为变量/拼接等非常量时无法静态判定目标，直接记违规（fail-closed）。
+
 在形态校验之外，本门禁对模块间依赖**方向**做棘轮统计（AO-1）：有向边、双向对、
 顶层双向对、函数内导入与 world 内部 core↔worldbuilding 流量的基线冻结在
 ``_DEPENDENCY_BASELINE``，任一指标超过基线即失败，只降不升。棘轮统计的是事实
@@ -190,6 +194,27 @@ def _import_targets(node: ast.stmt, relative: str, backend_root: Path) -> list[s
     return []
 
 
+# 动态导入门禁：import_module/__import__ 按调用名末段匹配，不论导入来源
+# （from-import 裸名或 importlib 属性访问）；不做 as 别名追踪，与 facade
+# 薄层门禁同口径（fail-closed 语义见 _analyze_paths 的违例分支）。
+_DYNAMIC_IMPORT_FUNC_NAMES = frozenset({"import_module", "__import__"})
+
+
+def _dynamic_import_first_arg(node: ast.AST) -> ast.expr | None:
+    """调用名为 import_module/__import__ 时返回首参表达式，否则 None。"""
+    if not isinstance(node, ast.Call):
+        return None
+    if isinstance(node.func, ast.Name):
+        name = node.func.id
+    elif isinstance(node.func, ast.Attribute):
+        name = node.func.attr
+    else:
+        return None
+    if name not in _DYNAMIC_IMPORT_FUNC_NAMES:
+        return None
+    return node.args[0] if node.args else None
+
+
 def _matches_package(target: str, package: str) -> bool:
     return target == package or target.startswith(package + ".")
 
@@ -267,6 +292,28 @@ def _analyze_paths(
             nested_def_ids = _nested_def_node_ids(tree)
             for node in ast.walk(tree):
                 targets = _import_targets(node, relative, backend_root)
+                # 动态导入与静态导入同一口径：常量目标按该目标计入下方的
+                # 方向棘轮与形态校验；非常量目标无法静态判定，fail-closed。
+                dynamic_arg = _dynamic_import_first_arg(node)
+                if dynamic_arg is not None:
+                    if isinstance(dynamic_arg, ast.Constant) and isinstance(
+                        dynamic_arg.value, str
+                    ):
+                        if dynamic_arg.value.startswith("modules."):
+                            targets = [*targets, dynamic_arg.value]
+                    else:
+                        violations.append(
+                            {
+                                "path": relative,
+                                "line": node.lineno,
+                                "target": "",
+                                "reason": (
+                                    "动态导入 import_module/__import__ 的模块名"
+                                    "必须为字符串常量（变量/拼接无法静态校验"
+                                    "跨模块方向与形态）"
+                                ),
+                            }
+                        )
                 if not targets:
                     continue
                 # 方向棘轮：统计事实依赖，不论形态是否合法、是否豁免。

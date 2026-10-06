@@ -77,7 +77,9 @@ def _redact(value: Any) -> Any:
 
 def _ensure_debug_allowed(principal: AccountPrincipal | None) -> None:
     settings = get_settings()
-    if settings.app_env.lower() == "production":
+    # 与 app/main.py 的 production 判定同口径：strip 后比较，避免带空白的环境值
+    # 被当成非生产而放行 debug 端点。
+    if settings.app_env.strip().lower() == "production":
         raise HTTPException(status_code=404, detail="Not found")
     # local 是单用户开发模式：AccountAuthMiddleware 仅在 public 模式绑定 principal，
     # local 下全应用不做 per-request 账号鉴权，debug 端点保持同一语义。

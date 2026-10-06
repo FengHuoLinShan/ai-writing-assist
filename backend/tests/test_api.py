@@ -248,6 +248,30 @@ class TestApiSystem:
         assert listed.status_code == 404
         assert deleted.status_code == 404
 
+    async def test_api_debug_frontend_errors_hidden_for_padded_production_env(
+        self,
+        async_client: AsyncClient,
+    ):
+        """app_env 带空白时与 main.py 同口径 strip 后判生产，仍保持 404。"""
+        from app import debug_api
+
+        production_settings = replace(debug_api.get_settings(), app_env=" production\n")
+        token = bind_principal(_debug_principal())
+        try:
+            with patch(
+                "app.debug_api.get_settings",
+                autospec=True,
+                return_value=production_settings,
+            ):
+                created = await async_client.post(
+                    "/api/debug/frontend-errors",
+                    json={"level": "error", "message": "boom"},
+                )
+        finally:
+            reset_principal(token)
+
+        assert created.status_code == 404
+
     async def test_api_debug_frontend_errors_rejects_warning_level(
         self,
         async_client: AsyncClient,
