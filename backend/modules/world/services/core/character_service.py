@@ -604,6 +604,7 @@ class CharacterService(
             loc_id,
             text_state,
             chapter_index,
+            novel_id=nid,
         )
 
     async def get_characters_at_location(

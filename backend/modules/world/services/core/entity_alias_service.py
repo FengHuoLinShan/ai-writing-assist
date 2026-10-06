@@ -1274,6 +1274,7 @@ class EntityAliasService:
             self_loops_cleaned = await dedup_service._relation_repo.deprecate_many(
                 db,
                 [parse_uuid(rel_id, "relation_id") for rel_id in created_self_loop_ids],
+                novel_id=nid,
             )
 
         candidate_content = dict(candidate.content_json or {})

@@ -466,31 +466,6 @@ class RagChunkRepository:
         chunk.index_warnings = [f"embedding 生成失败: {safe_error}"]
         return True
 
-    async def delete(
-        self,
-        db: AsyncSession,
-        chunk_id: uuid.UUID,
-    ) -> bool:
-        """删除片段，返回是否成功删除"""
-        stmt = delete(RagChunk).where(RagChunk.id == chunk_id)
-        result = await db.execute(stmt)
-        await db.flush()
-        return result.rowcount > 0
-
-    async def delete_many(
-        self,
-        db: AsyncSession,
-        chunk_ids: Sequence[uuid.UUID],
-    ) -> int:
-        """批量删除片段，返回删除数"""
-        unique_ids = list(dict.fromkeys(chunk_ids))
-        if not unique_ids:
-            return 0
-        stmt = delete(RagChunk).where(RagChunk.id.in_(unique_ids))
-        result = await db.execute(stmt)
-        await db.flush()
-        return result.rowcount
-
     async def delete_by_novel(
         self,
         db: AsyncSession,
@@ -1171,6 +1146,9 @@ class RagChunkRepository:
             )
 
         # PostgreSQL SET does not accept bind parameters in this position.
+        # 注入安全：ef_search 经 max(1, int(...)) 强制整数化，插值结果恒为整数字面量，
+        # 不可注入；pgvector 的会话级 GUC（SET LOCAL hnsw.ef_search）无参数化接口，
+        # 这是全仓唯一的手拼 SQL，勿在此模式上增加其他插值。
         ef_search_value = max(1, int(ef_search))
         await db.execute(text(f"SET LOCAL hnsw.ef_search = {ef_search_value}"))
         conditions = [
