@@ -162,8 +162,9 @@ with unit_mock.patch.object(object(), "attribute", autospec=True):
 
 def test_all_unittest_patch_calls_use_literal_autospec_true() -> None:
     violations: list[str] = []
+    repo_root = BACKEND_ROOT.parent
     for path in repository_test_python_files():
-        relative_path = path.relative_to(BACKEND_ROOT)
+        relative_path = path.relative_to(repo_root)
         lines = _unautospecced_patch_calls(
             python_source(path),
             filename=str(path),
@@ -171,6 +172,18 @@ def test_all_unittest_patch_calls_use_literal_autospec_true() -> None:
         violations.extend(f"{relative_path}:{line}" for line in lines)
 
     assert violations == []
+
+
+def test_patch_autospec_guard_covers_repository_test_files() -> None:
+    """The autospec guard must scan test files outside backend, e.g. deploy/tests."""
+    deploy_tests_root = BACKEND_ROOT.parent / "deploy" / "tests"
+    covered = {
+        path
+        for path in repository_test_python_files()
+        if path.is_relative_to(deploy_tests_root)
+    }
+
+    assert covered
 
 
 def test_autospec_exception_requires_a_reason_on_the_call() -> None:

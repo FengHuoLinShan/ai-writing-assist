@@ -510,7 +510,7 @@ async def test_apply_rolls_back_everything_when_story_fails(
             )
         world_apply.assert_called_once()
 
-    db_session.rollback()
+    await db_session.rollback()
     await db_session.refresh(session_row)
     assert session_row.status == "draft", "部分失败不得标记 applied"
     assert session_row.rows_json, "部分失败不得清空 rows"
