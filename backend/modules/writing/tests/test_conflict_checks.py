@@ -31,7 +31,7 @@ from modules.writing.schemas import (
     WritingDraftCreate,
     WritingDraftUpdate,
 )
-from modules.writing.services import WritingConflictCheckService
+from modules.writing.services import WritingConflictCheckService, WritingDraftService
 
 pytestmark = pytest.mark.usefixtures("account_llm_connection")
 
@@ -2014,3 +2014,53 @@ async def test_conflict_check_reports_skipped_repetition_when_base_modified(
         "source": "writing.repetition_check",
         "reason": "base_draft_modified",
     } in summary["omissions"]
+
+
+@pytest.mark.asyncio
+async def test_publish_marks_conflict_check_degraded_when_archive_fails(
+    async_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """归档失败：发布仍 201，但响应体显式标记 conflict_check_degraded。"""
+    novel_id = await _create_project(async_client)
+    scene = await _create_scene(async_client, novel_id)
+    await _create_check(async_client, novel_id, scene["id"])
+
+    async def failing_archive(self, db, draft_id, novel_id_arg, snapshot):
+        raise RuntimeError("快照归档存储不可用")
+
+    monkeypatch.setattr(
+        WritingDraftService, "set_conflict_check_snapshot", failing_archive
+    )
+    published = await async_client.post(
+        "/api/writing/drafts",
+        json={
+            "novel_id": novel_id,
+            "chapter_index": 1,
+            "scene_id": scene["id"],
+            "title": "第一章",
+            "content": "发布正文",
+        },
+    )
+
+    assert published.status_code == 201, published.text
+    assert published.json()["conflict_check_degraded"] is True
+
+
+@pytest.mark.asyncio
+async def test_publish_normal_path_is_not_conflict_check_degraded(
+    async_client: AsyncClient,
+) -> None:
+    novel_id = await _create_project(async_client)
+    published = await async_client.post(
+        "/api/writing/drafts",
+        json={
+            "novel_id": novel_id,
+            "chapter_index": 1,
+            "title": "第一章",
+            "content": "发布正文",
+        },
+    )
+
+    assert published.status_code == 201, published.text
+    assert published.json()["conflict_check_degraded"] is False

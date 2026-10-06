@@ -11,6 +11,7 @@ from dataclasses import asdict, is_dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, NotFoundError, ValidationError
@@ -22,6 +23,7 @@ from infrastructure.llm.client import LLMClient
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from infrastructure.stable_hash import stable_hash as _stable_hash
+from modules.writing.models import WritingDraft
 from modules.writing.pov_generation import CharacterRevealGuard
 from modules.writing.repositories import WritingDraftRepository
 from modules.writing.schemas import (
@@ -109,6 +111,31 @@ def _review_set_fingerprint(items: list[dict[str, Any]]) -> str:
             for item in items
         ]
     )
+
+
+async def _lock_review_drafts(
+    db: AsyncSession, novel_id: str, draft_ids: list[str]
+) -> dict[str, WritingDraft]:
+    """一次 ``FOR UPDATE`` 批量锁定审查目标草稿，返回 draft_id → draft。
+
+    落库前的哈希校验需要行锁；逐条 ``get_for_update`` 是 N+1 且锁行数随目标
+    线性增长，这里一次 ``in_`` 查询加锁后由调用方逐条校验，行为语义不变
+    （缺行或哈希不匹配仍抛 ConflictError）。SQLite 测试环境忽略 FOR UPDATE，
+    接口语义一致。
+    """
+    if not draft_ids:
+        return {}
+    stmt = (
+        select(WritingDraft)
+        .where(
+            WritingDraft.novel_id == uuid.UUID(novel_id),
+            WritingDraft.id.in_([uuid.UUID(value) for value in draft_ids]),
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    return {str(row.id): row for row in rows}
 
 
 def _targeted_revision_ranges(
@@ -1140,7 +1167,9 @@ class WritingSemanticWorkflowService:
             raise
         except Exception as exc:
             safe = redact_diagnostic(f"{type(exc).__name__}: {exc}", limit=500)
-            raise RuntimeError(safe) from None
+            # 保留原始异常：worker 的 retry_transient_llm_errors 判定要沿
+            # cause 链识别 LLM 瞬时错误，from None 会把它抹成不可重试。
+            raise RuntimeError(safe) from exc
 
         await require_active_project(db, novel_id)
         current_targets, current_adjacent = await self._freeze_review_set(
@@ -1373,8 +1402,13 @@ class WritingSemanticWorkflowService:
         )
         reviewed_at = datetime.now(UTC).isoformat()
 
+        locked = await _lock_review_drafts(
+            db,
+            novel_id,
+            [target["draft_id"] for target in current_targets],
+        )
         for target in current_targets:
-            draft = await self._repo.get_for_update(db, uuid.UUID(target["draft_id"]))
+            draft = locked.get(target["draft_id"])
             if draft is None or draft.content_hash != target["content_hash"]:
                 raise ConflictError("正文在审查落库前已变化。")
             draft_findings = [
@@ -1865,7 +1899,8 @@ class WritingSemanticWorkflowService:
             raise
         except Exception as exc:
             safe = redact_diagnostic(f"{type(exc).__name__}: {exc}", limit=500)
-            raise RuntimeError(safe) from None
+            # 同上：保留 cause 链，worker 才能识别 LLM 瞬时错误并重排任务。
+            raise RuntimeError(safe) from exc
 
         await require_active_project(db, novel_id)
         current = await self._repo.get_for_update(db, uuid.UUID(draft_id))
