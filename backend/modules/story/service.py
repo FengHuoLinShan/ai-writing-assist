@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import uuid
 from collections.abc import Iterable
 from dataclasses import asdict, is_dataclass
@@ -11,6 +9,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.stable_hash import stable_hash
 from infrastructure.tasks.facade import get_completed_task_payload
 from modules.story.generation import (
     STORY_CARD_TASK,
@@ -74,14 +73,7 @@ def _uuid(value: str | uuid.UUID, field: str) -> uuid.UUID:
 
 
 def _hash_payload(value: Any) -> str:
-    raw = json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    )
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    return stable_hash(value)
 
 
 def _as_dict(value: Any) -> dict[str, Any]:

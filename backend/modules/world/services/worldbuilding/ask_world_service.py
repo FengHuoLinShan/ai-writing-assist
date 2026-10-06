@@ -17,6 +17,7 @@ from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+from infrastructure.stable_hash import stable_hash
 from modules.evidence.contracts import ContextSnapshotRequest, VisibilityContextContract
 from modules.world.llm_schemas import GeneratedAskWorldOutput
 from modules.world.schemas import (
@@ -866,20 +867,16 @@ class AskWorldService:
         uncertainty: str,
         citations: list[AskWorldCitation],
     ) -> str:
-        return hashlib.sha256(
-            json.dumps(
-                {
-                    "question": question,
-                    "answer": answer,
-                    "claims": [item.model_dump(mode="json") for item in claims],
-                    "uncertainty": uncertainty,
-                    "citations": [item.model_dump(mode="json") for item in citations],
-                },
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode("utf-8")
-        ).hexdigest()
+        return stable_hash(
+            {
+                "question": question,
+                "answer": answer,
+                "claims": [item.model_dump(mode="json") for item in claims],
+                "uncertainty": uncertainty,
+                "citations": [item.model_dump(mode="json") for item in citations],
+            },
+            stringify_unknown=False,
+        )
 
 
 __all__ = ["AskWorldService"]

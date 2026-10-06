@@ -14,6 +14,7 @@ from core.errors import ValidationError
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.errors import LLMInvalidResponseError
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+from infrastructure.stable_hash import stable_hash
 from modules.world.llm_schemas import GeneratedWorldGenerationConvergenceOutput
 from modules.world.schemas import (
     WorldBibleSourceRef,
@@ -308,14 +309,10 @@ class _ConvergenceStageMixin:
 
     @staticmethod
     def _convergence_manifest_hash(sources: list[dict[str, Any]]) -> str:
-        return hashlib.sha256(
-            json.dumps(
-                [source["manifest"].model_dump(mode="json") for source in sources],
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode("utf-8")
-        ).hexdigest()
+        return stable_hash(
+            [source["manifest"].model_dump(mode="json") for source in sources],
+            stringify_unknown=False,
+        )
 
 
     async def _run_convergence_workflow(

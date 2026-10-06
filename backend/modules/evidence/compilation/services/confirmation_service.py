@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -15,6 +13,7 @@ from core.errors import ConflictError
 from core.service_keys import (
     STORY_SCENE_SOURCE,
 )
+from infrastructure.stable_hash import stable_hash
 from modules.evidence.compilation.contracts import (
     CompileOptions,
     ContextConfirmationContract,
@@ -533,13 +532,7 @@ class ContextConfirmationService:
             }
             for section in compiled.sections
         ]
-        encoded = json.dumps(
-            payload,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        return hashlib.sha256(encoded).hexdigest()
+        return stable_hash(payload, stringify_unknown=False)
 
     @staticmethod
     def _requires_character_profile(options: CompileOptions) -> bool:
@@ -589,13 +582,7 @@ class ContextConfirmationService:
             }
             for dimension in required_dimensions
         ]
-        encoded = json.dumps(
-            payload,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        return hashlib.sha256(encoded).hexdigest()
+        return stable_hash(payload, stringify_unknown=False)
 
     @staticmethod
     def _require_outline_analysis_range(

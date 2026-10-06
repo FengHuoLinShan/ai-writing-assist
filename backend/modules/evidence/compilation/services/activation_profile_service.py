@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 import unicodedata
 from dataclasses import asdict
@@ -13,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, NotFoundError, ValidationError
+from infrastructure.stable_hash import stable_hash
 from modules.evidence.compilation.models import (
     ContextActivationProfile,
     ContextActivationProfileRevision,
@@ -689,13 +688,7 @@ class ActivationProfileService:
 
     @staticmethod
     def _rule_hash(rules: list[dict[str, Any]]) -> str:
-        encoded = json.dumps(
-            rules,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        ).encode("utf-8")
-        return hashlib.sha256(encoded).hexdigest()
+        return stable_hash(rules, stringify_unknown=False)
 
     @staticmethod
     def _response(

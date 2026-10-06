@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import uuid
 from copy import deepcopy
 from typing import Any
@@ -11,6 +9,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, NotFoundError, ValidationError
+from infrastructure.stable_hash import stable_hash
 from modules.story.continuity.contracts import (
     CURRENT_SCENE_MEMORY_CONTRACT_VERSION,
     SCENE_MEMORY_DIMENSIONS,
@@ -677,7 +676,4 @@ class SceneMemoryProjectionService:
 
     @staticmethod
     def _hash(value: Any) -> str:
-        payload = json.dumps(
-            value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str
-        )
-        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        return stable_hash(value)

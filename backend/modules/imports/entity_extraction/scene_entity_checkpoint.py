@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from typing import Any
 
 from infrastructure.llm.errors import (
@@ -11,6 +10,7 @@ from infrastructure.llm.errors import (
     LLMRateLimitError,
     LLMTimeoutError,
 )
+from infrastructure.stable_hash import stable_hash
 from modules.imports.entity_extraction.scene_entity_config import (
     PHASE2A_PROMPT_CONTRACT_VERSION,
 )
@@ -156,14 +156,7 @@ def scene_input_fingerprint(
     }
     if context_fingerprint:
         payload["context_fingerprint"] = context_fingerprint
-    encoded = json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
+    return stable_hash(payload)
 
 
 def phase2a_input_fingerprint(

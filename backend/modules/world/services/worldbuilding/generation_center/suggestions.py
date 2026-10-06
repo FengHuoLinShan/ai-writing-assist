@@ -12,7 +12,6 @@ if TYPE_CHECKING:
 
 import asyncio
 import hashlib
-import json
 import re
 from typing import Any
 
@@ -21,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.errors import ValidationError
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.schemas import LLMCallRequest
+from infrastructure.stable_hash import stable_hash
 from modules.world.llm_schemas import (
     GeneratedObjectDraftOutput,
     GeneratedWorldBibleNewPageProposal,
@@ -464,14 +464,9 @@ class _SuggestionStageMixin:
             )
             if self._page_content_changed(revision_page, prepared):
                 snapshot: WorldGenerationSourceSnapshot = prepared["source_snapshot"]
-                candidate_hash = hashlib.sha256(
-                    json.dumps(
-                        payload.page.model_dump(mode="json"),
-                        ensure_ascii=False,
-                        sort_keys=True,
-                        separators=(",", ":"),
-                    ).encode("utf-8")
-                ).hexdigest()
+                candidate_hash = stable_hash(
+                    payload.page.model_dump(mode="json"), stringify_unknown=False
+                )
                 reverse_payload = WorldBiblePageDraftSuggestionPayload(
                     operation="replace_existing",
                     target_page_id=snapshot.page_id,

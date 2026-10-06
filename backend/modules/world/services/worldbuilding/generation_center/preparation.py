@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -14,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.errors import ConflictError, ValidationError
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.redaction import redact_diagnostic
+from infrastructure.stable_hash import stable_hash
 from modules.world.models import CoreEntity, EntityRelation, WorldBiblePage
 from modules.world.schemas import (
     GenerationContextUsage,
@@ -503,7 +503,7 @@ class _PrepareStageMixin:
                 "target_path": target_path,
                 "ref": ref,
                 "content": content,
-                "source_hash": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+                "source_hash": stable_hash(content, passthrough_str=True),
             }
             items.append({k: v for k, v in item.items() if k not in {"ref", "content"}})
             by_key[key] = item

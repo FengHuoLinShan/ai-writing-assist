@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import uuid
 from collections import defaultdict, deque
 from datetime import UTC, datetime
@@ -12,6 +10,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.stable_hash import stable_hash
 from modules.story.outline_state.models import Scene
 from modules.story.outline_state.repositories import (
     SceneFusionSuggestionRepository,
@@ -488,10 +487,4 @@ def _scene_fingerprint_payload(scene: Scene) -> dict[str, Any]:
 
 
 def _hash_payload(payload: Any) -> str:
-    encoded = json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    return stable_hash(payload, stringify_unknown=False)

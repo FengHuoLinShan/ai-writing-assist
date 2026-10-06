@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 from typing import Any
 
@@ -13,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.errors import ConflictError, ValidationError
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+from infrastructure.stable_hash import stable_hash
 from modules.world.llm_schemas import (
     GeneratedWorldGenerationDecisionState,
     GeneratedWorldGenerationExplorationOutput,
@@ -302,14 +302,7 @@ class _ExplorationStageMixin:
         for key in ("depth", "exploration_selection", "revises_suggestion_id"):
             payload.pop(key, None)
         payload["source_snapshot"] = prepared["source_snapshot"].model_dump(mode="json")
-        return hashlib.sha256(
-            json.dumps(
-                payload,
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode("utf-8")
-        ).hexdigest()
+        return stable_hash(payload, stringify_unknown=False)
 
     async def _compile_conversation_decision_state(
         self,

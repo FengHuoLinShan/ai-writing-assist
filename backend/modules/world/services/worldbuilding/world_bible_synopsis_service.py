@@ -20,6 +20,7 @@ from infrastructure.llm.client import LLMClient
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from infrastructure.llm.token_estimation import estimate_token_count
+from infrastructure.stable_hash import stable_hash
 from infrastructure.tasks.contracts import TaskLifecycleContract
 from infrastructure.tasks.enqueuer import enqueue_task
 from modules.world.models import (
@@ -1472,14 +1473,7 @@ class WorldBibleSynopsisService:
 
     @staticmethod
     def _hash_json(value: Any) -> str:
-        payload = json.dumps(
-            value,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-            default=str,
-        )
-        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        return stable_hash(value)
 
     @staticmethod
     def _serialize_untrusted_json(value: Any) -> str:

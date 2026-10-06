@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from typing import Any
 
+from infrastructure.stable_hash import stable_hash
 from shared.enums import RelationType
 
 RELATION_KINDS = (
@@ -308,14 +307,7 @@ _ALIAS_KIND_BY_TYPE = {
 
 
 def stable_fingerprint(payload: Any) -> str:
-    encoded = json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    )
-    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    return stable_hash(payload)
 
 
 def suggest_relation_type(value: str | None) -> str | None:

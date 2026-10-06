@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from infrastructure.llm.token_estimation import estimate_token_count
+from infrastructure.stable_hash import stable_hash
 from modules.world.contracts import (
     WorldBackgroundBundleContract,
     WorldBackgroundEntryContract,
@@ -276,20 +274,16 @@ class WorldBackgroundAggregation:
     ) -> WorldBackgroundEntryContract:
         full_summary = " ".join(str(summary or "").split())
         clean_summary = full_summary[:1000]
-        source_hash = hashlib.sha256(
-            json.dumps(
-                {
-                    "asset_id": asset_id,
-                    "asset_type": asset_type,
-                    "status": status,
-                    "summary": full_summary,
-                    "title": title,
-                },
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode("utf-8")
-        ).hexdigest()
+        source_hash = stable_hash(
+            {
+                "asset_id": asset_id,
+                "asset_type": asset_type,
+                "status": status,
+                "summary": full_summary,
+                "title": title,
+            },
+            stringify_unknown=False,
+        )
         return WorldBackgroundEntryContract(
             entry_id=f"{asset_type}:{asset_id}",
             novel_id=novel_id,
