@@ -226,21 +226,43 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 )
 
     # --- 检查 pgvector ---
+    # 生产判断用 APP_ENV（不是 auth_mode=="public" 的引导开关）：
+    # production 下向量扩展缺失或探测失败即拒绝启动，其余环境只告警。
+    production_runtime = settings.app_env.strip().lower() == "production"
     try:
         vector_ok = await manager.check_vector_extension()
-        if vector_ok:
-            logger.info("pgvector extension detected — vector ops enabled.")
-        else:
-            logger.warning(
-                "pgvector extension NOT detected. "
-                "Install it via: CREATE EXTENSION vector;"
-            )
     except Exception as exc:
+        if production_runtime:
+            logger.error(
+                "Could not check pgvector extension: %s. "
+                "Production requires vector operations; refusing to start.",
+                redact_diagnostic(exc, limit=500),
+            )
+            raise RuntimeError(
+                "pgvector extension check failed; production startup aborted"
+            ) from exc
         logger.warning(
             "Could not check pgvector extension: %s. "
             "Proceeding without vector verification.",
             redact_diagnostic(exc, limit=500),
         )
+    else:
+        if vector_ok:
+            logger.info("pgvector extension detected — vector ops enabled.")
+        elif production_runtime:
+            logger.error(
+                "pgvector extension NOT detected. "
+                "Production requires vector operations. "
+                "Install it via: CREATE EXTENSION vector; refusing to start."
+            )
+            raise RuntimeError(
+                "pgvector extension is required when APP_ENV=production"
+            )
+        else:
+            logger.warning(
+                "pgvector extension NOT detected. "
+                "Install it via: CREATE EXTENSION vector;"
+            )
 
     # --- 启动完成 ---
     prewarm_task: asyncio.Task[None] | None = None

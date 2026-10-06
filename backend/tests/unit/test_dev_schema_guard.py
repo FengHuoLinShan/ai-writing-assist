@@ -17,7 +17,7 @@ def test_schema_is_current_requires_exact_applied_head_set() -> None:
             frozenset({"head_revision"}),
         ),
     ) as read_revisions:
-        assert dev_schema_guard._schema_is_current() is True
+        assert dev_schema_guard.schema_is_current() is True
 
     read_revisions.assert_called_once_with()
 
@@ -40,7 +40,18 @@ def test_schema_is_current_fails_closed_for_incomplete_or_unknown_state(
         autospec=True,
         return_value=(current, expected),
     ):
-        assert dev_schema_guard._schema_is_current() is False
+        assert dev_schema_guard.schema_is_current() is False
+
+
+def test_schema_is_current_fails_closed_when_revisions_cannot_be_read() -> None:
+    """生产 worker 依赖该语义：连不上库或迁移脚本缺失时必须拒绝启动。"""
+    with patch.object(
+        dev_schema_guard,
+        "_read_schema_revisions",
+        autospec=True,
+        side_effect=RuntimeError("database unreachable"),
+    ):
+        assert dev_schema_guard.schema_is_current() is False
 
 
 def test_require_schema_current_fails_with_migration_guidance(capsys) -> None:
@@ -65,7 +76,7 @@ def test_wait_for_schema_current_resumes_after_external_migration(capsys) -> Non
     with (
         patch.object(
             dev_schema_guard,
-            "_schema_is_current",
+            "schema_is_current",
             autospec=True,
             side_effect=[False, True],
         ) as schema_is_current,
