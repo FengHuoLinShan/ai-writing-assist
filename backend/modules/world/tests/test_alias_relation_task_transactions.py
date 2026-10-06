@@ -678,6 +678,7 @@ async def test_real_task_handler_session_fences_each_checkpoint(
 ) -> None:
     from infrastructure.tasks.lifecycle import TaskLifecycleService
     from infrastructure.tasks.worker import _TaskHandlerSession
+    from modules.evidence.contracts import ContextConfirmationRequest
     from modules.evidence.facade import (
         attach_result_ref,
         confirm_context,
@@ -687,10 +688,12 @@ async def test_real_task_handler_session_fences_each_checkpoint(
 
     confirmation = await confirm_context(
         db_session,
-        novel_id=project_novel_id,
-        action="world.alias_relations.extract",
-        task="真实 task handler session 事务边界",
-        scope="project",
+        ContextConfirmationRequest(
+            novel_id=project_novel_id,
+            action="world.alias_relations.extract",
+            task="真实 task handler session 事务边界",
+            scope="project",
+        ),
     )
     lease_id = str(uuid.uuid4())
     task = AsyncTask(
@@ -787,6 +790,7 @@ async def test_real_worker_rejected_final_checkpoint_rolls_back_domain_and_bindi
     from infrastructure.tasks.registry import TaskRegistry
     from infrastructure.tasks.worker import TaskWorker
     from modules.evidence.compilation.models import ContextConfirmation
+    from modules.evidence.contracts import ContextConfirmationRequest
     from modules.evidence.facade import attach_result_ref, confirm_context
     from modules.project.models import Project
     from modules.world.models import CoreEntity
@@ -866,11 +870,13 @@ async def test_real_worker_rejected_final_checkpoint_rolls_back_domain_and_bindi
             await setup_db.flush()
             confirmation = await confirm_context(
                 setup_db,
-                novel_id=novel_id,
-                action="world.alias_relations.extract",
-                task="worker final checkpoint rollback",
-                scope="project",
-                context_mode="working",
+                ContextConfirmationRequest(
+                    novel_id=novel_id,
+                    action="world.alias_relations.extract",
+                    task="worker final checkpoint rollback",
+                    scope="project",
+                    context_mode="working",
+                ),
             )
             confirmation_id = confirmation.id
             setup_db.add(

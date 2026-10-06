@@ -12,7 +12,10 @@ from fastapi import status as http_status
 
 from core.api_params import NovelIdQuery
 from core.dependencies import DbSession
-from modules.evidence.compilation.contracts import VisibilityContextContract
+from modules.evidence.compilation.contracts import (
+    ContextConfirmationRequest,
+    VisibilityContextContract,
+)
 from modules.evidence.compilation.facade import compile_with_tiers
 from modules.evidence.compilation.facade import confirm_context as _confirm_context
 from modules.evidence.compilation.facade import (
@@ -313,37 +316,41 @@ async def confirm_context(
 
     confirmation = await _confirm_context(
         db,
-        novel_id=request.novel_id,
-        action=request.action,
-        task=request.task,
-        scope=request.scope,
-        retrieval_purpose="generic_context",
-        chapter_index=request.chapter_index,
-        visible_until_chapter=request.visible_until_chapter,
-        visible_until_scene_id=request.visible_until_scene_id,
-        visible_until_offset=request.visible_until_offset,
-        scene_id=request.scene_id,
-        arc_id=request.arc_id,
-        entity_ids=request.entity_ids,
-        character_ids=request.character_ids,
-        thread_ids=request.thread_ids,
-        location_ids=request.location_ids,
-        reveal_mode=request.reveal_mode,
-        enable_geo_filter=request.enable_geo_filter,
-        viewpoint_character_id=request.viewpoint_character_id,
-        budget_tokens=request.budget_tokens,
-        context_mode=request.context_mode,
-        content_mode=request.content_mode,
-        include_pending_objects=request.include_pending_objects,
-        excluded_asset_ids=request.excluded_asset_ids,
-        pinned_refs=[item.model_dump(mode="json") for item in request.pinned_refs],
-        excluded_refs=[item.model_dump(mode="json") for item in request.excluded_refs],
-        user_note=request.user_note,
-        include_world_synopsis=request.include_world_synopsis,
-        selected_world_bible_draft_ids=request.selected_world_bible_draft_ids,
-        activation_profile_id=request.activation_profile_id,
-        activation_profile_version=request.activation_profile_version,
-        expected_context_fingerprint=request.expected_context_fingerprint,
+        ContextConfirmationRequest(
+            novel_id=request.novel_id,
+            action=request.action,
+            task=request.task,
+            scope=request.scope,
+            retrieval_purpose="generic_context",
+            chapter_index=request.chapter_index,
+            visible_until_chapter=request.visible_until_chapter,
+            visible_until_scene_id=request.visible_until_scene_id,
+            visible_until_offset=request.visible_until_offset,
+            scene_id=request.scene_id,
+            arc_id=request.arc_id,
+            entity_ids=request.entity_ids,
+            character_ids=request.character_ids,
+            thread_ids=request.thread_ids,
+            location_ids=request.location_ids,
+            reveal_mode=request.reveal_mode,
+            enable_geo_filter=request.enable_geo_filter,
+            viewpoint_character_id=request.viewpoint_character_id,
+            budget_tokens=request.budget_tokens,
+            context_mode=request.context_mode,
+            content_mode=request.content_mode,
+            include_pending_objects=request.include_pending_objects,
+            excluded_asset_ids=request.excluded_asset_ids,
+            pinned_refs=[item.model_dump(mode="json") for item in request.pinned_refs],
+            excluded_refs=[
+                item.model_dump(mode="json") for item in request.excluded_refs
+            ],
+            user_note=request.user_note,
+            include_world_synopsis=request.include_world_synopsis,
+            selected_world_bible_draft_ids=request.selected_world_bible_draft_ids,
+            activation_profile_id=request.activation_profile_id,
+            activation_profile_version=request.activation_profile_version,
+            expected_context_fingerprint=request.expected_context_fingerprint,
+        ),
     )
     return ContextConfirmationResponse(**confirmation.__dict__)
 

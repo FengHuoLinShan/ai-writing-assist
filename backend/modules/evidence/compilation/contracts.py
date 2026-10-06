@@ -137,6 +137,43 @@ class CompileOptions:
 
 
 @dataclass
+class ContextConfirmationRequest:
+    """一次手动 AI 操作的参考资料确认请求（facade 与 service 的单一入参）。"""
+
+    novel_id: str
+    action: str
+    task: str
+    scope: str
+    retrieval_purpose: str = "generic_context"
+    chapter_index: int | None = None
+    visible_until_chapter: int | None = None
+    visible_until_scene_id: str | None = None
+    visible_until_offset: int | None = None
+    scene_id: str | None = None
+    arc_id: str | None = None
+    entity_ids: list[str] | None = None
+    character_ids: list[str] | None = None
+    thread_ids: list[str] | None = None
+    location_ids: list[str] | None = None
+    reveal_mode: str = "author_safe"
+    enable_geo_filter: bool = False
+    viewpoint_character_id: str | None = None
+    budget_tokens: int = 4000
+    context_mode: str = "canonical"
+    content_mode: str = "canonical"
+    include_pending_objects: bool = False
+    excluded_asset_ids: dict[str, list[str]] | None = None
+    pinned_refs: list[dict] | None = None
+    excluded_refs: list[dict] | None = None
+    user_note: str | None = None
+    include_world_synopsis: bool = False
+    selected_world_bible_draft_ids: list[str] | None = None
+    activation_profile_id: str | None = None
+    activation_profile_version: int | None = None
+    expected_context_fingerprint: str | None = None
+
+
+@dataclass
 class ContextConfirmationContract:
     """AI 参考资料确认记录对外契约。"""
 

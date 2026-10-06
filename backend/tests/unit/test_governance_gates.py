@@ -774,3 +774,177 @@ def test_direction_ratchet_counts_world_core_worldbuilding_traffic(tmp_path) -> 
     assert stats["world_core_to_worldbuilding"] == 1
     assert stats["world_worldbuilding_to_core"] == 1
     assert edges == []
+
+
+# ============================================================
+# Facade 薄层门禁（AO-8）：facade.py 禁 SQLAlchemy 直接操作
+# ============================================================
+
+
+def _write_facade(tmp_path: Path, relative: str, body: str) -> Path:
+    facade = tmp_path / relative
+    facade.parent.mkdir(parents=True, exist_ok=True)
+    facade.write_text(body, encoding="utf-8")
+    return facade
+
+
+def test_facade_sql_gate_blocks_select_and_session_execute(tmp_path) -> None:
+    """负例：facade 里 select( 与 db.execute( 直接调用即失败。"""
+    import check_module_imports as gate
+
+    modules = {"alpha": ("modules/alpha",)}
+    facade = _write_facade(
+        tmp_path,
+        "modules/alpha/facade.py",
+        "\n".join(
+            [
+                "from sqlalchemy import select",
+                "",
+                "",
+                "async def require_thing(db):",
+                "    return (await db.execute(select(Account))).scalar_one()",
+            ]
+        )
+        + "\n",
+    )
+
+    violations = gate.iter_facade_sql_violations_for_paths(
+        modules, [facade], repo_root=tmp_path
+    )
+
+    assert {item["name"] for item in violations} == {"execute", "select"}
+    assert {item["path"] for item in violations} == {"modules/alpha/facade.py"}
+    assert all("service 层" in item["reason"] for item in violations)
+
+
+def test_facade_sql_gate_blocks_update_delete_insert_text_calls(tmp_path) -> None:
+    """负例：update/delete/insert/text 裸调用名一律拦（fail-closed）。"""
+    import check_module_imports as gate
+
+    modules = {"alpha": ("modules/alpha",)}
+    facade = _write_facade(
+        tmp_path,
+        "modules/alpha/facade.py",
+        "\n".join(
+            [
+                "from sqlalchemy import delete, insert, text, update",
+                "",
+                "",
+                "def build():",
+                "    return [update(T), delete(T), insert(T), text('1')]",
+            ]
+        )
+        + "\n",
+    )
+
+    violations = gate.iter_facade_sql_violations_for_paths(
+        modules, [facade], repo_root=tmp_path
+    )
+
+    assert {item["name"] for item in violations} == {
+        "update",
+        "delete",
+        "insert",
+        "text",
+    }
+
+
+def test_facade_sql_gate_allows_delegation_models_and_annotations(tmp_path) -> None:
+    """正例：再导出、请求模型构造、类型标注与 service 委托全部放行。"""
+    import check_module_imports as gate
+
+    modules = {"alpha": ("modules/alpha",)}
+    facade = _write_facade(
+        tmp_path,
+        "modules/alpha/facade.py",
+        "\n".join(
+            [
+                "from dataclasses import dataclass",
+                "from sqlalchemy.sql import Select",
+                "",
+                "from modules.alpha.services import Service as Service",
+                "",
+                "",
+                "@dataclass",
+                "class ThingRequest:",
+                "    novel_id: str",
+                "    ids: list[str] | None = None",
+                "",
+                "",
+                "async def confirm_thing(db, request: ThingRequest):",
+                "    return await Service().confirm(db, request)",
+                "",
+                "",
+                "def plan_ids(subquery: Select) -> Select:",
+                "    return subquery",
+            ]
+        )
+        + "\n",
+    )
+
+    violations = gate.iter_facade_sql_violations_for_paths(
+        modules, [facade], repo_root=tmp_path
+    )
+
+    assert violations == []
+
+
+def test_facade_sql_gate_scans_subpackages_only_for_business_facades(tmp_path) -> None:
+    """子包 facade 在扫描范围；services.py 与非业务模块 facade 不扫。"""
+    import check_module_imports as gate
+
+    modules = {"alpha": ("modules/alpha",)}
+    service = _write_facade(
+        tmp_path,
+        "modules/alpha/services.py",
+        "def q(db):\n    return db.execute(1)\n",
+    )
+    sub_facade = _write_facade(
+        tmp_path,
+        "modules/alpha/sub/facade.py",
+        "from sqlalchemy import select\n\n\ndef q(db):\n"
+        "    return db.execute(select(1))\n",
+    )
+    outside = _write_facade(
+        tmp_path,
+        "other/facade.py",
+        "def q(db):\n    return db.execute(1)\n",
+    )
+
+    violations = gate.iter_facade_sql_violations_for_paths(
+        modules, [service, sub_facade, outside], repo_root=tmp_path
+    )
+
+    assert {item["path"] for item in violations} == {"modules/alpha/sub/facade.py"}
+
+
+def test_facade_sql_gate_real_repo_has_no_violations() -> None:
+    """真实仓库现状为空集：门禁零基线 fail-closed，新违例直接失败。"""
+    import check_module_imports as gate
+
+    assert gate.analyze_facade_sql() == []
+
+
+def test_facade_sql_gate_fails_main_with_exit_code(tmp_path, monkeypatch, capsys) -> None:
+    """薄层违例与形态/方向同语义：main 返回 1 并打印违例。"""
+    import check_module_imports as gate
+
+    modules = {"alpha": ("modules/alpha",)}
+    _write_facade(
+        tmp_path,
+        "backend/modules/alpha/facade.py",
+        "from sqlalchemy import select\n\n\nasync def q(db):\n"
+        "    return (await db.execute(select(1))).scalar_one()\n",
+    )
+    monkeypatch.setattr(gate, "load_business_modules", lambda: modules)
+    monkeypatch.setattr(gate, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(
+        gate,
+        "analyze_repository",
+        lambda **kwargs: ([], dict(gate._DEPENDENCY_BASELINE), []),
+    )
+
+    assert gate.main([]) == 1
+    err = capsys.readouterr().err
+    assert "facade 薄层门禁" in err
+    assert "modules/alpha/facade.py" in err

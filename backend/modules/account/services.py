@@ -97,6 +97,29 @@ def _me(account: Account, identity_type: str) -> AccountMeResponse:
 
 
 class AccountService:
+    async def require_active(
+        self,
+        db: AsyncSession,
+        account_id: uuid.UUID | None,
+        *,
+        allow_local_bootstrap: bool = True,
+    ) -> None:
+        """Require one active account; missing or recycled accounts read as 404."""
+        settings = get_settings()
+        if (
+            allow_local_bootstrap
+            and account_id == BOOTSTRAP_ACCOUNT_ID
+            and settings.auth_mode in {"local", "closed_test"}
+        ):
+            return
+        account = (
+            await db.execute(
+                select(Account).where(Account.id == account_id).with_for_update(read=True)
+            )
+        ).scalar_one_or_none()
+        if account is None or account.status != "active":
+            raise NotFoundError("Account not found")
+
     async def create_anonymous_rp_session(
         self,
         db: AsyncSession,

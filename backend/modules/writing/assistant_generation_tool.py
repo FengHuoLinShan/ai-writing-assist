@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from core.errors import ConflictError
 from infrastructure.tasks.facade import get_completed_task_payload, get_operation_task
 from modules.assistant.contracts import AssistantOperation
-from modules.evidence.contracts import CompileOptions
+from modules.evidence.contracts import CompileOptions, ContextConfirmationRequest
 from modules.evidence.facade import (
     confirm_context,
     prepare_confirmed_ai_action,
@@ -125,10 +125,12 @@ async def _submit(db, novel_id, args, preview, *, context=None):
         if not confirmation_id:
             confirmation = await confirm_context(
                 db,
-                novel_id=novel_id,
-                action="writing.generate",
-                **preview["context_parameters"],
-                expected_context_fingerprint=preview["context_fingerprint"],
+                ContextConfirmationRequest(
+                    novel_id=novel_id,
+                    action="writing.generate",
+                    **preview["context_parameters"],
+                    expected_context_fingerprint=preview["context_fingerprint"],
+                ),
             )
             confirmation_id = confirmation.id
         result = await WritingGenerationService().submit_generation(

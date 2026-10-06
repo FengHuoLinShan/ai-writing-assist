@@ -10,6 +10,12 @@
 依赖，不论导入形态是否合法、是否豁免。分层目标态见
 docs/architecture/README.md 的「模块依赖方向分层（目标态）」。
 
+第三项检查是 facade 薄层门禁（AO-8）：各业务模块（含子包）的 ``facade.py`` 只做
+参数适配、稳定返回与 service 委托，禁止出现 SQLAlchemy 直接操作——调用名
+``select``/``text``/``delete``/``update``/``insert`` 以及任何 ``.execute(...)``。
+查库、聚合与告警编排必须下沉所属模块 service 层；facade 里的再导出、类型标注
+与请求模型构造不受影响。
+
 模块清单事实源：docs/architecture/architecture-documents.toml 的 components
 （kind="business"）。豁免清单即本文件的 EXEMPT_IMPORTS：键为
 ``路径:目标模块``（支持 fnmatch 通配），值为必填理由。
@@ -47,13 +53,15 @@ _WORLD_WORLDBUILDING_PKG = "modules.world.services.worldbuilding"
 # （function_level_imports 已随 AO-3 插件 SPI 下沉 572→560；AO-4 身份根去业务
 # 聚合把 project→world/story/writing 与 account→project 顶层对清零：
 # top_level_bidirectional_pairs 17→13，function_level_imports 560→559，后者
-# 因 facade SQL 下沉把 project→account 一条函数内导入转正为顶层）。
+# 因 facade SQL 下沉把 project→account 一条函数内导入转正为顶层；AO-8 把
+# assistant→project 的批注提案编排移入 comment_proposals 顶层导入：
+# 559→558）。
 # 分层目标态见 docs/architecture/README.md「模块依赖方向分层（目标态）」。
 _DEPENDENCY_BASELINE: dict[str, int] = {
     "directed_edges": 90,
     "bidirectional_pairs": 33,
     "top_level_bidirectional_pairs": 13,
-    "function_level_imports": 559,
+    "function_level_imports": 558,
     "world_core_to_worldbuilding": 23,
     "world_worldbuilding_to_core": 27,
 }
@@ -375,6 +383,78 @@ def _direction_report_lines(
     return lines
 
 
+# facade 薄层门禁（AO-8）：facade 只适配与委托，禁止 SQLAlchemy 直接操作。
+# 裸调用名一律拦（不论 import 来源，fail-closed）；.execute( 覆盖 session 与
+# 其他连接对象的直接执行。facade 的再导出、类型标注与请求模型构造不受影响。
+_FACADE_SQL_NAMES = frozenset({"select", "text", "delete", "update", "insert"})
+
+
+def iter_facade_sql_violations_for_paths(
+    modules: dict[str, tuple[str, ...]],
+    paths,
+    *,
+    repo_root: Path,
+) -> list[dict]:
+    """扫描业务模块（含子包）facade.py 内的 SQLAlchemy 直接调用。"""
+    backend_root = (
+        repo_root / "backend" if (repo_root / "backend").is_dir() else repo_root
+    )
+    violations: list[dict] = []
+    for path in paths:
+        path = Path(path)
+        if not path.is_absolute():
+            path = repo_root / path
+        if path.name != "facade.py" or path.suffix != ".py":
+            continue
+        relative = path.relative_to(backend_root).as_posix()
+        if owning_module(relative, modules) is None:
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except (OSError, SyntaxError, ValueError) as exc:
+            violations.append(
+                {
+                    "path": relative,
+                    "line": 0,
+                    "name": "",
+                    "reason": f"facade 薄层门禁: AST 解析失败: {exc}",
+                }
+            )
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if isinstance(node.func, ast.Name):
+                name = node.func.id
+            elif isinstance(node.func, ast.Attribute):
+                name = node.func.attr
+            else:
+                continue
+            if name in _FACADE_SQL_NAMES or name == "execute":
+                violations.append(
+                    {
+                        "path": relative,
+                        "line": node.lineno,
+                        "name": name,
+                        "reason": (
+                            f"facade 薄层门禁: 直接调用 {name}(...)；"
+                            "SQLAlchemy 查询与执行须下沉所属模块 service 层，"
+                            "facade 仅适配与委托"
+                        ),
+                    }
+                )
+    return violations
+
+
+def analyze_facade_sql() -> list[dict]:
+    """对真实仓库全部业务模块 facade.py 做薄层检查。"""
+    return iter_facade_sql_violations_for_paths(
+        load_business_modules(),
+        sorted((REPO_ROOT / "backend").glob("modules/**/*.py")),
+        repo_root=REPO_ROOT,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--json", action="store_true")
@@ -416,6 +496,9 @@ def main(argv: list[str] | None = None) -> int:
     direction_failures = check_direction_ratchet(stats)
     for reason in direction_failures:
         print(f"FAIL {reason}", file=sys.stderr)
+    facade_failures = analyze_facade_sql()
+    for item in facade_failures:
+        print(f"FAIL {item['path']}:{item['line']} {item['reason']}", file=sys.stderr)
     if violations:
         print(
             f"{len(violations)} violation(s); 登记豁免须在 "
@@ -431,10 +514,18 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
+    if facade_failures:
+        print(
+            f"{len(facade_failures)} facade thin-layer violation(s); "
+            "SQLAlchemy 操作须下沉所属模块 service 层",
+            file=sys.stderr,
+        )
+        return 1
     print(
         f"module import gate passed "
         f"({len(modules)} business module(s), "
-        f"{len(EXEMPT_IMPORTS)} exemption(s))"
+        f"{len(EXEMPT_IMPORTS)} exemption(s), "
+        "facade thin-layer check passed)"
     )
     for line in _direction_report_lines(stats, _DEPENDENCY_BASELINE):
         print(line)

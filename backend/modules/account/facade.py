@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import get_settings
@@ -17,7 +16,6 @@ from modules.account.contracts import (
     AccountLLMSettingsContract,
     AccountPrincipal,
 )
-from modules.account.models import Account
 from modules.account.settings_schemas import (
     AccountImageRuntimeProfile,
     AccountLLMRuntimeProfile,
@@ -82,20 +80,11 @@ async def require_account_active(
     *,
     allow_local_bootstrap: bool = True,
 ) -> None:
-    settings = get_settings()
-    if (
-        allow_local_bootstrap
-        and account_id == BOOTSTRAP_ACCOUNT_ID
-        and settings.auth_mode in {"local", "closed_test"}
-    ):
-        return
-    account = (
-        await db.execute(
-            select(Account).where(Account.id == account_id).with_for_update(read=True)
-        )
-    ).scalar_one_or_none()
-    if account is None or account.status != "active":
-        raise NotFoundError("Account not found")
+    from modules.account.services import AccountService
+
+    await AccountService().require_active(
+        db, account_id, allow_local_bootstrap=allow_local_bootstrap
+    )
 
 
 async def resolve_account_image_runtime_profile(

@@ -61,7 +61,7 @@ async def render_compiled_context_markdown(...) -> str
 # （事实/计划/规划/派生；只改渲染不改 content，不影响确认指纹），
 # 并在有预算裁剪时于末尾追加裁剪记录（budget_events/evicted/truncated 派生的数据块）
 async def compile_generation_background(...) -> dict
-async def confirm_context(...) -> ContextConfirmationContract
+async def confirm_context(db, request: ContextConfirmationRequest) -> ContextConfirmationContract
 async def get_context_confirmation(...) -> ContextConfirmationContract
 async def require_confirmation(...) -> ContextConfirmationContract
 async def require_fresh_confirmation(...) -> ContextConfirmationContract

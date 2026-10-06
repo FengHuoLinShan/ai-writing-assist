@@ -144,16 +144,19 @@ async def test_apply_structure_preview_api_persists_explicit_adoption_once(
 ) -> None:
     from sqlalchemy import select
 
+    from modules.evidence.contracts import ContextConfirmationRequest
     from modules.evidence.facade import confirm_context
     from modules.story.outline_state.models import PlotThread
 
     confirmation = await confirm_context(
         db_session,
-        novel_id=test_project_id,
-        action="outline.generate",
-        task="生成大纲 preview",
-        scope="chapter",
-        chapter_index=1,
+        ContextConfirmationRequest(
+            novel_id=test_project_id,
+            action="outline.generate",
+            task="生成大纲 preview",
+            scope="chapter",
+            chapter_index=1,
+        ),
     )
     draft_structure = {
         "threads": [
@@ -255,17 +258,20 @@ async def test_apply_structure_preview_rolls_back_partial_failure_and_can_retry(
 ) -> None:
     from sqlalchemy import func, select
 
+    from modules.evidence.contracts import ContextConfirmationRequest
     from modules.evidence.facade import confirm_context
     from modules.story.outline_state.generation.persister import PlotStructurePersister
     from modules.story.outline_state.models import PlotThread
 
     confirmation = await confirm_context(
         db_session,
-        novel_id=test_project_id,
-        action="outline.generate",
-        task="验证结构采用原子性",
-        scope="chapter",
-        chapter_index=1,
+        ContextConfirmationRequest(
+            novel_id=test_project_id,
+            action="outline.generate",
+            task="验证结构采用原子性",
+            scope="chapter",
+            chapter_index=1,
+        ),
     )
     draft_structure = {
         "threads": [

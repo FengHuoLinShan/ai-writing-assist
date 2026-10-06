@@ -6,7 +6,10 @@ from pydantic import ValidationError as PydanticValidationError
 
 from core.errors import ConflictError, NotFoundError, ValidationError
 from modules.account.contracts import BOOTSTRAP_ACCOUNT_ID
-from modules.evidence.compilation.contracts import CompileOptions
+from modules.evidence.compilation.contracts import (
+    CompileOptions,
+    ContextConfirmationRequest,
+)
 from modules.evidence.compilation.facade import compile_generation_background
 from modules.evidence.compilation.models import ContextConfirmation, ContextSnapshot
 from modules.evidence.compilation.schemas import (
@@ -685,11 +688,13 @@ async def test_confirmation_fixes_profile_revision_and_page_change_marks_stale(
     )
     confirmation = await ContextConfirmationService().confirm_context(
         db_session,
-        novel_id=test_project_id,
-        action="writing.scene.generate",
-        task="描写北境商队",
-        scope="project",
-        activation_profile_id=profile.id,
+        ContextConfirmationRequest(
+            novel_id=test_project_id,
+            action="writing.scene.generate",
+            task="描写北境商队",
+            scope="project",
+            activation_profile_id=profile.id,
+        ),
     )
     assert confirmation.compile_options["activation_profile_version"] == 1
     assert confirmation.compile_options["activation_profile_rule_hash"]

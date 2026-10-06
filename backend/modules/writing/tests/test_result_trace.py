@@ -10,6 +10,7 @@ from modules.evidence.compilation.facade import (
     require_confirmation,
 )
 from modules.evidence.compilation.repositories import ContextConfirmationRepository
+from modules.evidence.contracts import ContextConfirmationRequest
 from modules.writing.repositories import WritingDraftRepository
 from modules.writing.schemas import WritingDraftCreate, WritingDraftUpdate
 from modules.writing.services import WritingDraftService
@@ -42,11 +43,13 @@ async def test_candidate_adoption_updates_confirmation_result_trace(
 ) -> None:
     confirmation = await confirm_context(
         db_session,
-        novel_id=test_project_id,
-        action="writing.generate",
-        task="生成正文建议",
-        scope="chapter",
-        chapter_index=1,
+        ContextConfirmationRequest(
+            novel_id=test_project_id,
+            action="writing.generate",
+            task="生成正文建议",
+            scope="chapter",
+            chapter_index=1,
+        ),
     )
     candidate = await _candidate(db_session, test_project_id, confirmation.id)
     await attach_result_ref(
@@ -91,11 +94,13 @@ async def test_candidate_rejection_updates_confirmation_without_deleting_history
 ) -> None:
     confirmation = await confirm_context(
         db_session,
-        novel_id=test_project_id,
-        action="writing.generate",
-        task="生成正文建议",
-        scope="chapter",
-        chapter_index=1,
+        ContextConfirmationRequest(
+            novel_id=test_project_id,
+            action="writing.generate",
+            task="生成正文建议",
+            scope="chapter",
+            chapter_index=1,
+        ),
     )
     candidate = await _candidate(db_session, test_project_id, confirmation.id)
     await attach_result_ref(
@@ -142,11 +147,13 @@ async def test_working_draft_edit_marks_exact_confirmation_stale(
     )
     confirmation = await confirm_context(
         db_session,
-        novel_id=test_project_id,
-        action="writing.generate",
-        task="续写",
-        scope="chapter",
-        chapter_index=1,
+        ContextConfirmationRequest(
+            novel_id=test_project_id,
+            action="writing.generate",
+            task="续写",
+            scope="chapter",
+            chapter_index=1,
+        ),
     )
     confirmation_repo = ContextConfirmationRepository()
     record = await confirmation_repo.get(
