@@ -35,16 +35,24 @@ GATED_FUNCTIONS = {
         "api_preview_scene_fusion": ("_require_scene_fusion_confirmation",),
         "api_preview_scene_fusion_task": ("_require_scene_fusion_confirmation",),
     },
-    "modules/world/api.py": {
+    "modules/world/api/generation_center.py": {
         "chat_world_generation_center": ("_require_generation_confirmation",),
         "converge_world_generation_center": ("_require_generation_confirmation",),
         "explore_world_generation_center": ("_require_generation_confirmation",),
-        "inspect_world_generation_center_page": ("_require_generation_confirmation",),
+        "inspect_world_generation_center_page": (
+            "_require_generation_confirmation",
+        ),
         "ask_world": ("_require_generation_confirmation",),
         "generate_world_suggestion": ("_require_generation_confirmation",),
         "enqueue_world_suggestion": ("_require_generation_confirmation",),
+    },
+    "modules/world/api/validation.py": {
         "create_world_validation_run": ("require_fresh_confirmation",),
+    },
+    "modules/world/api/bible.py": {
         "refresh_bible_synopsis": ("require_fresh_confirmation",),
+    },
+    "modules/world/api/entities.py": {
         "create_entity_fusion_suggestions": ("require_fresh_confirmation",),
     },
     "modules/world/map_atlas_api.py": {

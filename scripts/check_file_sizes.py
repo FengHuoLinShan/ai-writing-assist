@@ -23,12 +23,11 @@ WARN_LINES = 3000
 FAIL_LINES = 5000
 
 # 入库基线：2026-10-02（0d555c4）实测的超 5000 行生产文件。允许下降；
-# 固定基线只用于这两处存量豁免，其他文件超过 5000 行即失败。
-SIZE_BASELINE: dict[str, int] = {
-    "backend/modules/world/services/worldbuilding/"
-    "world_generation_center_service.py": 5232,
-    "backend/modules/world/schemas.py": 5138,
-}
+# 固定基线只用于存量豁免，其他文件超过 5000 行即失败。
+# AO-6（world API/schema/生成中心按子域拆分）后，原基线中的
+# world_generation_center_service.py（5232）与 schemas.py（5138）均已拆分
+# 退出超大文件清单，条目移除。
+SIZE_BASELINE: dict[str, int] = {}
 
 # 生产代码范围：后端业务/基建源码 + 前端运行时代码。排除 tests、tools、
 # alembic、evals（评测资产）、原型与构建产物。

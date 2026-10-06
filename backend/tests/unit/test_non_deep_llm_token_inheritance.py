@@ -22,7 +22,8 @@ _EXPLICIT_OUTPUT_BUDGET_ALLOWLIST = {
     # Scene extraction has a bounded typed response and needs room for the
     # observations plus their evidence-linked scene events.
     "modules/evolution/llm_sampler.py",
-    "modules/world/services/worldbuilding/world_generation_center_service.py",
+    # 世界设计迭代的多轮审查/修复绑定 JSON 输出预算（AO-6 拆分后单文件）。
+    "modules/world/services/worldbuilding/generation_center/design_iteration.py",
     "modules/world/map_atlas_workflow.py",
     # Five-location spatial extraction shares the atlas's bounded JSON output budget.
     "modules/world/map_structure_workflow.py",
