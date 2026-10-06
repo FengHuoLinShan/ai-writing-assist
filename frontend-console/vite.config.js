@@ -108,7 +108,8 @@ export default defineConfig({
     strictPort: true,
     headers: frontendSecurityHeaders,
     proxy: {
-      "^/api(?:/|$)": {
+      // api/<domain>.js is frontend source; nested REST paths still reach the backend.
+      "^/api(?:/(?![^/?]+\\.js(?:\\?|$))|$)": {
         target: apiProxyTarget,
         changeOrigin: true,
       },

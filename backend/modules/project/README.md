@@ -203,7 +203,8 @@ deep-import 快照在提交时已将项目值、环境覆盖和代码默认
 | POST | `/api/projects/recycle-bin/permanent-delete` | 批量永久删除回收站项目（最多 100 个，原子操作） |
 
 `workspace-summary` 先通过项目 API 的当前账户 owner 与活跃作者项目门禁，再由
-`ProjectWorkspaceService` 只读聚合 writing、world 和 outline 的稳定 facade。响应固定包含
+`ProjectWorkspaceService` 通过 Project contracts 声明、组合根注册的 Writing/World/Story
+统计 provider 只读聚合资料。响应固定包含
 `project_id`、可空 `continuation`、`writing`、`attention` 和加性 `author_tasks`；调用方不能传 owner 或额外
 `novel_id`。`attention` 保留原分类计数和 `total`，并增加最多 6 条的 `items`、去重后的
 `actionable_total` 与 `has_more`；截断后按领域处理范围去重的 `more_targets` 提供不绑定单条 item

@@ -254,6 +254,10 @@ handler checkpoint 和 finalize 的 project/lease fence。preflight 期间不允
 `LLM_RATE_LIMIT_PER_MINUTE=0` 表示关闭额外的进程级 RPM 限制；`--reload`
 模式会在启动 watchfiles 监督进程前先执行同一校验，并由每个重载后的子进程再次校验，
 避免配置错误时只退出子进程而留下空转的监督进程。
+
+常驻 worker 先检查数据库是否位于当前全部 Alembic head；落后或无法查证时立即退出，
+不领取任务。只有 `--reload` 开发路径等待外部迁移完成，worker 本身不执行迁移。
+
 worker 的 handler 前检查是非锁定活跃性读取，不在长时间 attempt 中持有
 project 行锁，因此软删除可立即清除 lease 并通过 heartbeat 取消 runner。
 仅最终状态写入前的短临界区使用 `FOR SHARE` 项目 fence，将成功 finalize

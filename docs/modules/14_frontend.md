@@ -75,7 +75,7 @@ Prompt 或 token；预算遗漏另行解释。作者可逐项移除/恢复、用
 - 全局状态：`state.js`
 - 状态切片 helper：`stateSlices.js`
 - 路由：`router.js`
-- API 封装：`api.js`
+- API 封装：`api.js` 组装 `api/<domain>.js`；请求、缓存与授权状态共用 `api/_shared.js`
 - API 契约注册表：`apiContracts.js`
 - 静态外壳：`vue/shell/`（topbar/sidebar/命令栏/主题/快捷键/service hosts）
 - 业务视图：`vue/views/**`（Vue SFC，经 `vue/mountIsland.js` 注册）
@@ -307,6 +307,8 @@ map / rag / outline / settings / project-settings`，其主 DOM 全部由 Vue SF
 ## 开发与验证脚本
 
 - 开发服务器使用 Vite：`npm run dev`，默认端口 8080，可通过 `FRONTEND_PORT` 覆盖。
+- Vite 在开发环境直接提供 `/api/<domain>.js` 源模块；其余 `/api` REST 路径代理到后端。
+  生产构建将模块打包到静态 assets，不依赖这一开发代理例外。
 - 静态检查使用 `npm run lint`：ESLint flat config 覆盖生产 JS、Vue SFC、Vitest、
   Playwright 和构建配置，只启用 JS correctness 与 Vue essential，不引入格式化规则。
 - 单元测试使用 Vitest：`npm run test`；监听模式为 `npm run test:watch`。

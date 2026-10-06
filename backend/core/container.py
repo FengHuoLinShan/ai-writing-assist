@@ -86,18 +86,17 @@ def container_scope(
 ) -> Iterator[None]:
     """Temporarily override registered services with singleton instances."""
     normalized = {_key_name(key): service for key, service in (overrides or {}).items()}
-    previous = {name: _container.get(name) for name in normalized}
+    previous = {name: _container[name] for name in normalized if name in _container}
     try:
         for name, service in normalized.items():
             _container[name] = service
         yield
     finally:
         for name in normalized:
-            old_service = previous[name]
-            if old_service is None:
-                _container.pop(name, None)
+            if name in previous:
+                _container[name] = previous[name]
             else:
-                _container[name] = old_service
+                _container.pop(name, None)
 
 
 async def shutdown() -> None:

@@ -648,7 +648,9 @@ async def queries(label: str) -> None:
     def get_port(name):
         port = original_get(name)
         return (
-            timed("activity", port) if name == "rag.get_entity_activity_stats" else port
+            timed("activity", port)
+            if str(name) == "rag.get_entity_activity_stats"
+            else port
         )
 
     target = OUT / "round2" / f"queries-{label}-{time.time_ns()}.json"

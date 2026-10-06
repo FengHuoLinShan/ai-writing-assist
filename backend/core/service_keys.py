@@ -17,13 +17,17 @@ from typing import TYPE_CHECKING, Any
 from core.container import ServiceKey
 
 if TYPE_CHECKING:
-    from modules.assistant.sessions import AssistantSessionService
+    from modules.assistant.contracts import AssistantSessionPort
     from modules.collaboration.contracts import (
         CreativeResourcePort,
         ResourceSnapshot,
     )
-    from modules.imports.entity_extraction.scene_entity_extraction import (
-        SceneEntityExtractionService,
+    from modules.project.contracts import (
+        StoryDedupSuggestionProvider,
+        StoryWorkspaceStatsProvider,
+        WorldDedupSuggestionProvider,
+        WorldWorkspaceStatsProvider,
+        WritingWorkspaceStatsProvider,
     )
     from modules.story.continuity.services import MemoryService
     from modules.story.outline_state.services import (
@@ -33,20 +37,12 @@ if TYPE_CHECKING:
         RevealPlanService,
         SceneService,
     )
-    from modules.story.project_ports import (
-        StoryDedupAdapter,
-        StoryWorkspaceStatsAdapter,
-    )
     from modules.story.scene_source_port import SceneSourcePort
-    from modules.world.project_ports import (
-        WorldDedupAdapter,
-        WorldWorkspaceStatsAdapter,
-    )
+    from modules.world.contracts import WorldAliasRelationTaskPort
     from modules.world.services.worldbuilding.adoption_package_service import (
         WorldAdoptionPackageService,
     )
     from modules.writing.manuscript_source_port import ManuscriptSourcePort
-    from modules.writing.project_ports import WritingWorkspaceStatsAdapter
 
 # --- assistant -----------------------------------------------------------
 
@@ -70,7 +66,7 @@ ASSISTANT_PROACTIVE_SUBMITTERS: ServiceKey[dict[str, Callable[..., Any]]] = Serv
 ASSISTANT_PROACTIVE_FINDINGS: ServiceKey[dict[str, Callable[..., Any]]] = ServiceKey(
     "assistant.proactive.findings"
 )
-ASSISTANT_SESSION_SERVICE: ServiceKey[AssistantSessionService] = ServiceKey(
+ASSISTANT_SESSION_SERVICE: ServiceKey[AssistantSessionPort] = ServiceKey(
     "assistant.session_service"
 )
 ASSISTANT_MARK_TASK_LOCAL_APPROVED: ServiceKey[Callable[..., Any]] = ServiceKey(
@@ -201,17 +197,21 @@ OUTLINE_REVEAL_SERVICE: ServiceKey[RevealPlanService] = ServiceKey(
 PROJECT_REQUIRE_ACTIVE: ServiceKey[Callable[..., Any]] = ServiceKey(
     "project.require_active"
 )
-PROJECT_WORKSPACE_WRITING_STATS: ServiceKey[WritingWorkspaceStatsAdapter] = ServiceKey(
+PROJECT_WORKSPACE_WRITING_STATS: ServiceKey[WritingWorkspaceStatsProvider] = ServiceKey(
     "project.workspace.writing_stats"
 )
-PROJECT_WORKSPACE_WORLD_STATS: ServiceKey[WorldWorkspaceStatsAdapter] = ServiceKey(
+PROJECT_WORKSPACE_WORLD_STATS: ServiceKey[WorldWorkspaceStatsProvider] = ServiceKey(
     "project.workspace.world_stats"
 )
-PROJECT_WORKSPACE_STORY_STATS: ServiceKey[StoryWorkspaceStatsAdapter] = ServiceKey(
+PROJECT_WORKSPACE_STORY_STATS: ServiceKey[StoryWorkspaceStatsProvider] = ServiceKey(
     "project.workspace.story_stats"
 )
-PROJECT_DEDUP_WORLD: ServiceKey[WorldDedupAdapter] = ServiceKey("project.dedup.world")
-PROJECT_DEDUP_STORY: ServiceKey[StoryDedupAdapter] = ServiceKey("project.dedup.story")
+PROJECT_DEDUP_WORLD: ServiceKey[WorldDedupSuggestionProvider] = ServiceKey(
+    "project.dedup.world"
+)
+PROJECT_DEDUP_STORY: ServiceKey[StoryDedupSuggestionProvider] = ServiceKey(
+    "project.dedup.story"
+)
 
 # --- rag（evidence 索引；键名前缀为历史契约，不改字符串） ----------------
 
@@ -289,8 +289,8 @@ WORLD_RUN_SCENE_ENTITY_EXTRACTION: ServiceKey[Callable[..., Any]] = ServiceKey(
     "world.run_scene_entity_extraction"
 )
 # 注册值为 SceneEntityExtractionService 实例（非单函数，历史键名不改）。
-WORLD_RUN_ALIAS_RELATION_EXTRACTION: ServiceKey[SceneEntityExtractionService] = (
-    ServiceKey("world.run_alias_relation_extraction")
+WORLD_RUN_ALIAS_RELATION_EXTRACTION: ServiceKey[WorldAliasRelationTaskPort] = ServiceKey(
+    "world.run_alias_relation_extraction"
 )
 WORLD_CREATE_CHARACTER: ServiceKey[Callable[..., Any]] = ServiceKey(
     "world.create_character"

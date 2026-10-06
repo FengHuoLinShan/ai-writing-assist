@@ -727,7 +727,7 @@ class ResolveResult:
 - `map_atlas_tasks.py`：`manual_resume` 生成任务和不依赖项目 FK 的全局前缀清理。
 - `map_atlas_facade.py`：项目永久删除唯一需要的全局 cleanup enqueue seam。
 - `map_structure_schemas.py` / `map_structure_geometry.py`：受限图元与关系、确定性布局、三点仿射校准及结构 PNG。
-- `map_structure_service.py`：节点独立创建、版本 CAS、候选与历史、图片层有效性、章首阅读投影。
+- `map_structure_service.py`：节点独立创建、版本 CAS、候选与历史、图片层有效性、章首阅读投影，以及已采用地图连续性事实和节点检查的只读编排。
 - `map_structure_workflow.py` / `map_structure_images.py`：同一 confirmation 内的关系提取和结构引导生图；不重新发现已有节点身份。
 
 生成上传持 project share lock 并复核 task lease；永久删除持 exclusive lock，先取消生成并排入
@@ -742,6 +742,9 @@ snapshot 测试冻结。新增跨模块函数前必须先证明现有 deep seam 
 调用方增加 pass-through。具体薄委托按子域落在
 `entity_facade.py`、`character_facade.py`、`event_facade.py`、`map_atlas_facade.py`
 和 `worldbuilding_facade.py`。
+
+深度导入别名元数据修复与统计归 `services/core/entity_alias_service.py`；地图连续性事实
+和节点检查归 `map_structure_service.py`。子域 facade 只委托或再导出，查询与事务留在服务层。
 
 `contracts.py` 只定义跨模块稳定 dataclass，不重导出 HTTP Pydantic schema。
 HTTP 请求/响应类型属于 `schemas/` 包（AO-6 起按子域拆分，原 `schemas.py`
@@ -1344,4 +1347,3 @@ canonical + created_by=spreadsheet_migration + approved_by=owner、别名 confir
 明确放弃当前复用来源后，下次校验作废登记。
 复用登记在读取时取得行锁，覆盖来源校验、计数及最新来源指针更新；已有登记
 的覆盖更新使用同一锁，避免并发复用丢增或读取旧来源。
-

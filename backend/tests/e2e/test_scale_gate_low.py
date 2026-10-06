@@ -17,12 +17,32 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import func, select
 
+from core.container import reset
 from modules.account.models import Account
 from modules.project.models import Project
 from tests.e2e.config import require_e2e_database_url
 from tools.scale_gate_harness import release_evidence, run_gate, sample_chapter_indices
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
+
+
+async def test_evolution_harness_runs_from_cold_container(db_session):
+    from tools.evolution_scale_harness import _assert_exit_criteria, run_harness
+
+    connection = await db_session.connection()
+    reset()  # Match the standalone CLI, which has not imported app.main.
+    report = await run_harness(
+        SimpleNamespace(create_schema=False, sampler="deterministic", limit=2, keep=True),
+        connection=connection,
+        chapters=[
+            {"title": f"第{index}章", "content": "林舟取出星盘。柳青拿着钥匙。"}
+            for index in range(1, 4)
+        ],
+    )
+
+    _assert_exit_criteria(report)
+    assert report.chapters == 3
+    assert report.scenes_run == 2
 
 
 def _tier_params() -> list[str]:
