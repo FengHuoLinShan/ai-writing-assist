@@ -61,14 +61,20 @@ CAPABILITY_BINDINGS: dict[str, tuple[str, ...]] = {
         "writing.conflict_check.ai_review",
         "writing.conflict_check.ai_suggestion",
     ),
-    # World
-    "modules/world/services/worldbuilding/world_generation_center_service.py": (
-        "world.generation.suggestion",
+    # World（生成中心按阶段拆分为 generation_center/ 包后，LLM 调用点随代码
+    # 迁移：chat/design_iteration 各自承载本阶段调用，llm_runs 承载其余四个
+    # 阶段的治理与消息装配调用）
+    "modules/world/services/worldbuilding/generation_center/chat.py": (
         "world.generation.chat",
+    ),
+    "modules/world/services/worldbuilding/generation_center/design_iteration.py": (
+        "world.generation.design_iteration",
+    ),
+    "modules/world/services/worldbuilding/generation_center/llm_runs.py": (
+        "world.generation.suggestion",
         "world.generation.convergence",
         "world.generation.exploration",
         "world.generation.semantic_inspection",
-        "world.generation.design_iteration",
     ),
     "modules/world/services/worldbuilding/ask_world_service.py": ("world.ask",),
     "modules/world/services/worldbuilding/world_bible_synopsis_service.py": (
