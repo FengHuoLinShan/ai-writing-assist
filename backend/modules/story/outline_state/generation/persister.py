@@ -45,6 +45,25 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# 非 strict 模式下未能落库的对象类型计数键；与 generator._result_refs 的
+# 结果引用类型词表保持一致，便于下游把 partial_degraded 映射到任务状态。
+_FAILED_CREATE_LABELS = {
+    "plot_thread": "剧情线",
+    "outline_arc": "篇章纲",
+    "scene": "场景卡",
+    "foreshadowing_plan": "伏笔计划",
+    "reveal_plan": "揭示计划",
+}
+
+
+def _record_failed_creates(
+    failed_creates: dict[str, int],
+    asset_type: str,
+    failed: int,
+) -> None:
+    if failed > 0:
+        failed_creates[asset_type] = failed_creates.get(asset_type, 0) + failed
+
 
 def _sanitize_ge_1(value: int | None, default: int | None = None) -> int | None:
     """确保章节索引类字段满足 Pydantic ge=1 约束。
@@ -129,6 +148,10 @@ class PersistResult:
     scenes: list[dict] = None  # type: ignore[assignment]
     extra_sections: dict = None  # type: ignore[assignment]
     warnings: list[str] = None  # type: ignore[assignment]
+    # 非 strict 模式下批量落库失败降级后，各类型未落库对象计数。
+    failed_creates: dict[str, int] = None  # type: ignore[assignment]
+    # 任一类型存在未落库对象时为 True，下游据此落 degraded/needs_review 而非纯成功。
+    partial_degraded: bool = False
 
     def __post_init__(self) -> None:
         if self.threads is None:
@@ -141,6 +164,8 @@ class PersistResult:
             self.extra_sections = {}
         if self.warnings is None:
             self.warnings = []
+        if self.failed_creates is None:
+            self.failed_creates = {}
 
     def to_dict(self) -> dict[str, Any]:
         """转换为 API 响应字典。"""
@@ -155,6 +180,8 @@ class PersistResult:
             "scenes": self.scenes,
             "extra_sections": self.extra_sections,
             "warnings": self.warnings,
+            "failed_creates": dict(self.failed_creates),
+            "partial_degraded": self.partial_degraded,
         }
 
 
@@ -190,6 +217,7 @@ class PlotStructurePersister:
     ) -> PersistResult:
         """持久化解析结果。"""
         result = PersistResult()
+        failed_creates: dict[str, int] = {}
         provenance_meta = {
             **_deep_import_provenance(workflow_id),
             **dict(provenance_meta_override or {}),
@@ -216,6 +244,7 @@ class PlotStructurePersister:
             character_name_to_id,
             entity_name_to_id,
             provenance_meta,
+            failed_creates=failed_creates,
             strict=strict,
         )
         result.threads = created_threads
@@ -233,6 +262,7 @@ class PlotStructurePersister:
             character_name_to_id,
             entity_name_to_id,
             provenance_meta,
+            failed_creates=failed_creates,
             strict=strict,
         )
         result.arcs = created_arcs
@@ -246,6 +276,7 @@ class PlotStructurePersister:
             entity_name_to_id,
             character_name_to_id,
             provenance_meta,
+            failed_creates=failed_creates,
             strict=strict,
         )
         created_foreshadowing, created_reveals, unresolved_reveals = plans_result
@@ -257,10 +288,26 @@ class PlotStructurePersister:
             end_chapter,
             parsed.scenes,
             provenance_meta,
+            failed_creates=failed_creates,
             strict=strict,
         )
         result.scenes = created_scenes
         result.total_scenes = len(created_scenes)
+
+        result.failed_creates = failed_creates
+        result.partial_degraded = any(count > 0 for count in failed_creates.values())
+        if result.partial_degraded:
+            detail = "、".join(
+                f"{_FAILED_CREATE_LABELS.get(asset_type, asset_type)} {count} 条"
+                for asset_type, count in failed_creates.items()
+                if count > 0
+            )
+            msg = (
+                f"部分结构对象未能落库，本次生成结果已降级：{detail}；"
+                "请重试或人工补录后再采用"
+            )
+            logger.warning("Partial structure persistence degraded: %s", msg)
+            result.warnings.append(msg)
 
         result.extra_sections = {
             "foreshadowing_plans": created_foreshadowing,
@@ -301,6 +348,7 @@ class PlotStructurePersister:
         entity_name_to_id: dict[str, str],
         provenance_meta: dict[str, Any],
         *,
+        failed_creates: dict[str, int],
         strict: bool = False,
     ) -> list[dict]:
         """持久化剧情线。"""
@@ -380,10 +428,21 @@ class PlotStructurePersister:
                         redact_diagnostic(thread_data.name, limit=120),
                         redact_diagnostic(item_exc, limit=300),
                     )
+            _record_failed_creates(
+                failed_creates,
+                "plot_thread",
+                len(thread_payloads) - len(created),
+            )
             return created
 
         if strict and len(created_threads) != len(thread_payloads):
             raise RuntimeError("thread batch persistence was incomplete")
+
+        _record_failed_creates(
+            failed_creates,
+            "plot_thread",
+            len(thread_payloads) - len(created_threads),
+        )
 
         return [
             {
@@ -411,6 +470,7 @@ class PlotStructurePersister:
         entity_name_to_id: dict[str, str],
         provenance_meta: dict[str, Any],
         *,
+        failed_creates: dict[str, int],
         strict: bool = False,
     ) -> list[dict]:
         """持久化篇章纲。"""
@@ -500,10 +560,21 @@ class PlotStructurePersister:
                         redact_diagnostic(arc_data.title, limit=120),
                         redact_diagnostic(item_exc, limit=300),
                     )
+            _record_failed_creates(
+                failed_creates,
+                "outline_arc",
+                len(arc_payloads) - len(created),
+            )
             return created
 
         if strict and len(created_arcs) != len(arc_payloads):
             raise RuntimeError("arc batch persistence was incomplete")
+
+        _record_failed_creates(
+            failed_creates,
+            "outline_arc",
+            len(arc_payloads) - len(created_arcs),
+        )
 
         return [
             {
@@ -529,6 +600,7 @@ class PlotStructurePersister:
         character_name_to_id: dict[str, str],
         provenance_meta: dict[str, Any],
         *,
+        failed_creates: dict[str, int],
         strict: bool = False,
     ) -> tuple[list[dict], list[dict], list[dict]]:
         """持久化伏笔计划和揭示计划。"""
@@ -559,6 +631,7 @@ class PlotStructurePersister:
                 )
                 if strict:
                     raise
+                _record_failed_creates(failed_creates, "foreshadowing_plan", 1)
         if foreshadowing_payloads:
             try:
                 async with db.begin_nested():
@@ -585,6 +658,11 @@ class PlotStructurePersister:
                     raise
             if strict and len(created_foreshadowing) != len(foreshadowing_payloads):
                 raise RuntimeError("foreshadowing batch persistence was incomplete")
+            _record_failed_creates(
+                failed_creates,
+                "foreshadowing_plan",
+                len(foreshadowing_payloads) - len(created_foreshadowing),
+            )
 
         created_reveals: list[dict] = []
         unresolved_reveals: list[dict] = []
@@ -652,6 +730,7 @@ class PlotStructurePersister:
                 )
                 if strict:
                     raise
+                _record_failed_creates(failed_creates, "reveal_plan", 1)
         if reveal_payloads:
             try:
                 async with db.begin_nested():
@@ -682,6 +761,11 @@ class PlotStructurePersister:
                     raise
             if strict and len(created_reveals) != len(reveal_payloads):
                 raise RuntimeError("reveal batch persistence was incomplete")
+            _record_failed_creates(
+                failed_creates,
+                "reveal_plan",
+                len(reveal_payloads) - len(created_reveals),
+            )
 
         return created_foreshadowing, created_reveals, unresolved_reveals
 
@@ -694,6 +778,7 @@ class PlotStructurePersister:
         scenes: list[GeneratedScene],
         provenance_meta: dict[str, Any] | None = None,
         *,
+        failed_creates: dict[str, int],
         strict: bool = False,
     ) -> list[dict]:
         """持久化 Scene 卡。"""
@@ -778,10 +863,21 @@ class PlotStructurePersister:
                         redact_diagnostic(payload.get("title"), limit=120),
                         redact_diagnostic(item_exc, limit=300),
                     )
+            _record_failed_creates(
+                failed_creates,
+                "scene",
+                len(scene_payloads) - len(created),
+            )
             return created
 
         if strict and len(created_scenes) != len(scene_payloads):
             raise RuntimeError("scene batch persistence was incomplete")
+
+        _record_failed_creates(
+            failed_creates,
+            "scene",
+            len(scene_payloads) - len(created_scenes),
+        )
 
         return [
             {

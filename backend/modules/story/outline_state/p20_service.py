@@ -814,6 +814,31 @@ class P20ApplyService:
         if request.mode == "revise" and target_ref not in selected_refs:
             raise ValueError("revise mode can only update explicitly selected assets")
 
+    @staticmethod
+    async def _load_existing_by_ids(
+        db: AsyncSession,
+        model: type[Any],
+        novel_id: str,
+        raw_ids: list[str],
+    ) -> dict[uuid.UUID, Any]:
+        """Revise 模式按 id 一次批量取回目标资产，避免循环内逐条查询。
+
+        仅返回属于该 novel 的行；缺失的 id 不在返回字典中，由调用方按
+        既有语义抛 P20ConflictError。
+        """
+        ids = [uuid.UUID(raw_id) for raw_id in dict.fromkeys(raw_ids)]
+        if not ids:
+            return {}
+        rows = (
+            await db.scalars(
+                select(model).where(
+                    model.id.in_(ids),
+                    model.novel_id == uuid.UUID(novel_id),
+                )
+            )
+        ).all()
+        return {row.id: row for row in rows}
+
     async def _apply_threads(
         self,
         db: AsyncSession,
@@ -827,15 +852,24 @@ class P20ApplyService:
         adopted_at: str,
     ) -> list[dict[str, str]]:
         result_refs: list[dict[str, str]] = []
+        revise = request.mode == "revise"
+        existing_threads = (
+            await self._load_existing_by_ids(
+                db,
+                PlotThread,
+                request.novel_id,
+                [
+                    reference_map["threads"][draft.target_thread_ref]
+                    for draft in output.threads
+                ],
+            )
+            if revise
+            else {}
+        )
         for draft in output.threads:
-            if request.mode == "revise":
+            if revise:
                 thread_id = uuid.UUID(reference_map["threads"][draft.target_thread_ref])
-                thread = await db.scalar(
-                    select(PlotThread).where(
-                        PlotThread.id == thread_id,
-                        PlotThread.novel_id == uuid.UUID(request.novel_id),
-                    )
-                )
+                thread = existing_threads.get(thread_id)
                 if thread is None:
                     raise P20ConflictError("selected PlotThread no longer exists")
                 before = self._thread_snapshot(thread)
@@ -898,15 +932,24 @@ class P20ApplyService:
         adopted_at: str,
     ) -> list[dict[str, str]]:
         refs: list[dict[str, str]] = []
+        revise = request.mode == "revise"
+        existing_arcs = (
+            await self._load_existing_by_ids(
+                db,
+                OutlineArc,
+                request.novel_id,
+                [
+                    reference_map["arcs"][draft.target_arc_ref]
+                    for draft in output.arcs
+                ],
+            )
+            if revise
+            else {}
+        )
         for draft in output.arcs:
-            if request.mode == "revise":
+            if revise:
                 arc_id = uuid.UUID(reference_map["arcs"][draft.target_arc_ref])
-                arc = await db.scalar(
-                    select(OutlineArc).where(
-                        OutlineArc.id == arc_id,
-                        OutlineArc.novel_id == uuid.UUID(request.novel_id),
-                    )
-                )
+                arc = existing_arcs.get(arc_id)
                 if arc is None:
                     raise P20ConflictError("selected OutlineArc no longer exists")
                 meta = self._revision_meta(
@@ -954,15 +997,24 @@ class P20ApplyService:
             )
         )
         next_index = int(maximum) + 1 if maximum is not None else 0
+        revise = request.mode == "revise"
+        existing_scenes = (
+            await self._load_existing_by_ids(
+                db,
+                Scene,
+                request.novel_id,
+                [
+                    reference_map["scenes"][draft.target_scene_ref]
+                    for draft in output.scenes
+                ],
+            )
+            if revise
+            else {}
+        )
         for draft in output.scenes:
-            if request.mode == "revise":
+            if revise:
                 scene_id = uuid.UUID(reference_map["scenes"][draft.target_scene_ref])
-                scene = await db.scalar(
-                    select(Scene).where(
-                        Scene.id == scene_id,
-                        Scene.novel_id == uuid.UUID(request.novel_id),
-                    )
-                )
+                scene = existing_scenes.get(scene_id)
                 if scene is None:
                     raise P20ConflictError("selected Scene no longer exists")
                 original_chunks = list(scene.scene_chunks or [])

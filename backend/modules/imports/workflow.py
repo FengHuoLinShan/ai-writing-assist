@@ -242,6 +242,8 @@ class DeepImportWorkflow:
             if total_scenes <= 0:
                 progress.quality_status = "failed"
             else:
+                if phase3_result.get("partial_degraded"):
+                    progress.degraded = True
                 progress.quality_status = "partial" if progress.degraded else "complete"
             progress.message = (
                 f"深度导入完成！"

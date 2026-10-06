@@ -1916,6 +1916,39 @@ class TestDeepImportWorkflowAutoRun:
         assert result.quality_stats["phase3"]["total_threads"] == 2
 
     @pytest.mark.asyncio
+    async def test_partial_degraded_structure_marks_quality_partial(self):
+        """结构落库部分失败（partial_degraded）时任务以 partial 收尾而非 complete。"""
+        workflow = DeepImportWorkflow()
+        progress = DeepImportProgress()
+
+        workflow._extract_entities_by_scene = AsyncMock(
+            return_value={"total_created": 1}
+        )
+        workflow._analyze_structure = AsyncMock(
+            return_value={
+                "total_threads": 1,
+                "total_arcs": 1,
+                "threads": [],
+                "arcs": [],
+                "extra_sections": {},
+                "partial_degraded": True,
+                "failed_creates": {"plot_thread": 2},
+            }
+        )
+
+        result = await workflow.run_step(
+            db=Mock(),
+            novel_id=str(uuid.uuid4()),
+            start_chapter=1,
+            end_chapter=3,
+            progress=progress,
+        )
+
+        assert result.phase == "done"
+        assert result.degraded is True
+        assert result.quality_status == "partial"
+
+    @pytest.mark.asyncio
     async def test_scene_auto_extraction_stops_after_scene_commit(self):
         workflow = DeepImportWorkflow()
         progress = DeepImportProgress(

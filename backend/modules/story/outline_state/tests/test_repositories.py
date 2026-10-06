@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.story.outline_state.models import OutlineArc, PlotThread
+from modules.story.outline_state.models import OutlineArc, PlotThread, Scene
 from modules.story.outline_state.repositories import (
     OutlineArcRepository,
     PlotThreadRepository,
@@ -620,3 +620,139 @@ class TestSceneWorkbenchHealthProjectionRepository:
         assert projection.must_happen == "看见潮水变化"
         assert projection.must_not_happen == "引入正文不存在的对抗"
         assert projection.structure_meta["core_conflict_status"] == "not_applicable"
+
+
+class TestSceneRepositoryChapterFallback:
+    """Scene 章节兜底查询（无 SceneChapterLink 时走 JSON 过滤路径）"""
+
+    async def _make_scene(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        scene_index: int,
+        *,
+        title: str = "场景",
+        scene_chunks: list[dict] | None = None,
+        chapter_ids: list | None = None,
+        status: str = "draft",
+    ):
+        scene = Scene(
+            novel_id=novel_id,
+            scene_index=scene_index,
+            title=title,
+            scene_chunks=scene_chunks or [],
+            chapter_ids=chapter_ids or [],
+            status=status,
+        )
+        db.add(scene)
+        await db.flush()
+        return scene
+
+    @pytest.mark.asyncio
+    async def test_get_by_chapter_json_fallback_keeps_int_and_string_forms(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        novel_id = uuid.UUID(hex=sample_novel_id)
+        repo = SceneRepository()
+        int_chunk = await self._make_scene(
+            db_session,
+            novel_id,
+            0,
+            title="整型 chunks",
+            scene_chunks=[{"chapter_index": 3, "start_pos": 0, "end_pos": 10}],
+        )
+        str_ids = await self._make_scene(
+            db_session,
+            novel_id,
+            1,
+            title="字符串 chapter_ids",
+            chapter_ids=["4"],
+        )
+        await self._make_scene(
+            db_session,
+            novel_id,
+            2,
+            title="其它章节",
+            scene_chunks=[{"chapter_index": 9, "start_pos": 0, "end_pos": 10}],
+        )
+
+        found_3 = await repo.get_by_chapter(db_session, novel_id, chapter_index=3)
+        assert [scene.id for scene in found_3] == [int_chunk.id]
+        found_4 = await repo.get_by_chapter(db_session, novel_id, chapter_index=4)
+        assert [scene.id for scene in found_4] == [str_ids.id]
+        found_9 = await repo.get_by_chapter(db_session, novel_id, chapter_index=9)
+        assert len(found_9) == 1
+        assert found_9[0].title == "其它章节"
+
+    @pytest.mark.asyncio
+    async def test_get_by_chapter_range_json_fallback_matches_spanning_scenes(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        novel_id = uuid.UUID(hex=sample_novel_id)
+        repo = SceneRepository()
+        spanning = await self._make_scene(
+            db_session,
+            novel_id,
+            0,
+            title="跨章 Scene",
+            scene_chunks=[
+                {"chapter_index": 5, "start_pos": 0, "end_pos": 10},
+                {"chapter_index": 6, "start_pos": 0, "end_pos": 10},
+            ],
+        )
+        outside = await self._make_scene(
+            db_session,
+            novel_id,
+            1,
+            title="区间外 Scene",
+            chapter_ids=["12"],
+        )
+
+        found = await repo.get_by_chapter_range(
+            db_session,
+            novel_id,
+            4,
+            7,
+            statuses=("draft", "canonical"),
+        )
+        assert [scene.id for scene in found] == [spanning.id]
+
+        wide = await repo.get_by_chapter_range(
+            db_session,
+            novel_id,
+            1,
+            40,
+            statuses=("draft", "canonical"),
+        )
+        assert [scene.id for scene in wide] == [spanning.id, outside.id]
+
+    @pytest.mark.asyncio
+    async def test_get_by_chapter_index_json_fallback_returns_first(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        novel_id = uuid.UUID(hex=sample_novel_id)
+        repo = SceneRepository()
+        first = await self._make_scene(
+            db_session,
+            novel_id,
+            0,
+            title="先创建",
+            scene_chunks=[{"chapter_index": 2, "start_pos": 0, "end_pos": 5}],
+        )
+        await self._make_scene(
+            db_session,
+            novel_id,
+            1,
+            title="后创建",
+            chapter_ids=["2"],
+        )
+
+        found = await repo.get_by_chapter_index(db_session, novel_id, chapter_index=2)
+        assert found is not None
+        assert found.id == first.id

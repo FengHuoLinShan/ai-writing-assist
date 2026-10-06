@@ -23,8 +23,6 @@ from modules.story.outline_state.structure_dedup import (
     _asset_fingerprints,
 )
 
-pytestmark = [pytest.mark.asyncio]
-
 
 async def test_apply_isolates_database_failure_per_suggestion(
     db_session: AsyncSession,
