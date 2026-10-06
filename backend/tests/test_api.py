@@ -9,12 +9,27 @@ API 分层测试 — 覆盖全部 10 个业务模块 + 系统端点
 
 from __future__ import annotations
 
+import uuid
+from dataclasses import replace
 from unittest.mock import patch
 
 import pytest
 from httpx import AsyncClient
 
+from modules.account.context import bind_principal, reset_principal
+from modules.account.contracts import AccountPrincipal
+
 pytestmark = [pytest.mark.asyncio, pytest.mark.api]
+
+
+def _debug_principal() -> AccountPrincipal:
+    """Return one authenticated principal for the debug endpoint gates."""
+    return AccountPrincipal(
+        account_id=uuid.uuid4(),
+        status="active",
+        identity_type="email",
+        support_code="API-TEST",
+    )
 
 
 # ============================================================
@@ -122,6 +137,14 @@ class TestApiSystem:
         async_client: AsyncClient,
     ):
         """前端错误调试端点保留最近错误并支持清空。"""
+        token = bind_principal(_debug_principal())
+        try:
+            await self._store_list_and_clear_errors(async_client)
+        finally:
+            reset_principal(token)
+
+    @staticmethod
+    async def _store_list_and_clear_errors(async_client: AsyncClient):
         await async_client.delete("/api/debug/frontend-errors")
 
         payload = {
@@ -148,15 +171,96 @@ class TestApiSystem:
         assert cleared.status_code == 200
         assert cleared.json()["cleared"] == 1
 
+    async def test_api_debug_frontend_errors_require_authenticated_principal(
+        self,
+        async_client: AsyncClient,
+    ):
+        """public/closed_test 等多账号模式下无 principal 一律 401，防匿名读取或清理。"""
+        from app import debug_api
+
+        public_settings = replace(debug_api.get_settings(), auth_mode="public")
+        with patch(
+            "app.debug_api.get_settings",
+            autospec=True,
+            return_value=public_settings,
+        ):
+            delete = await async_client.delete("/api/debug/frontend-errors")
+            assert delete.status_code == 401
+            assert delete.json()["detail"] == "Authentication required"
+
+            listed = await async_client.get("/api/debug/frontend-errors")
+            assert listed.status_code == 401
+
+            created = await async_client.post(
+                "/api/debug/frontend-errors",
+                json={"level": "error", "message": "boom"},
+            )
+            assert created.status_code == 401
+
+    async def test_api_debug_frontend_errors_allowed_in_local_dev_mode(
+        self,
+        async_client: AsyncClient,
+    ):
+        """local 单用户开发模式与全应用免鉴权语义一致，无需 principal。"""
+        from app import debug_api
+
+        local_settings = replace(debug_api.get_settings(), auth_mode="local")
+        with patch(
+            "app.debug_api.get_settings",
+            autospec=True,
+            return_value=local_settings,
+        ):
+            await async_client.delete("/api/debug/frontend-errors")
+            created = await async_client.post(
+                "/api/debug/frontend-errors",
+                json={"level": "error", "message": "boom"},
+            )
+        assert created.status_code == 202
+        assert created.json()["stored"] is True
+
+    async def test_api_debug_frontend_errors_hidden_in_production(
+        self,
+        async_client: AsyncClient,
+    ):
+        """production 环境保持 404 语义，即使携带有效 principal。"""
+        from app import debug_api
+
+        production_settings = replace(
+            debug_api.get_settings(), app_env="production"
+        )
+        token = bind_principal(_debug_principal())
+        try:
+            with patch(
+                "app.debug_api.get_settings",
+                autospec=True,
+                return_value=production_settings,
+            ):
+                created = await async_client.post(
+                    "/api/debug/frontend-errors",
+                    json={"level": "error", "message": "boom"},
+                )
+                listed = await async_client.get("/api/debug/frontend-errors")
+                deleted = await async_client.delete("/api/debug/frontend-errors")
+        finally:
+            reset_principal(token)
+
+        assert created.status_code == 404
+        assert listed.status_code == 404
+        assert deleted.status_code == 404
+
     async def test_api_debug_frontend_errors_rejects_warning_level(
         self,
         async_client: AsyncClient,
     ):
         """后端只接收真正的前端 error，warning 留给前端用户提示。"""
-        resp = await async_client.post(
-            "/api/debug/frontend-errors",
-            json={"level": "warning", "message": "当前项目暂无地图"},
-        )
+        token = bind_principal(_debug_principal())
+        try:
+            resp = await async_client.post(
+                "/api/debug/frontend-errors",
+                json={"level": "warning", "message": "当前项目暂无地图"},
+            )
+        finally:
+            reset_principal(token)
 
         assert resp.status_code == 422
 
