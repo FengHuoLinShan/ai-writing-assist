@@ -5,10 +5,9 @@ from __future__ import annotations
 import uuid
 from typing import Annotated, Literal
 
-from fastapi import Depends, File, HTTPException, Query, UploadFile
+from fastapi import File, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 
-from core.csrf import require_xhr_request
 from core.dependencies import DbSession
 from infrastructure.tasks.facade import (
     enqueue_task_with_optional_operation,
@@ -268,7 +267,6 @@ async def get_entity(
 @router.put(
     "/entities/{entity_id}/image",
     response_model=CoreEntityResponse,
-    dependencies=[Depends(require_xhr_request)],
 )
 async def upload_entity_image(
     db: DbSession,
@@ -335,7 +333,6 @@ async def get_entity_image_generation(
 @router.post(
     "/entities/{entity_id}/image-candidates",
     response_model=WorldObjectImageCandidateView,
-    dependencies=[Depends(require_xhr_request)],
 )
 async def create_entity_image_candidate(
     db: DbSession,
@@ -387,7 +384,6 @@ async def get_image_candidate_image(
 @router.post(
     "/image-candidates/{candidate_id}/adopt",
     response_model=WorldObjectImageCandidateAdoptResponse,
-    dependencies=[Depends(require_xhr_request)],
 )
 async def adopt_image_candidate(
     db: DbSession,
@@ -403,7 +399,6 @@ async def adopt_image_candidate(
 @router.post(
     "/image-candidates/{candidate_id}/discard",
     response_model=WorldObjectImageCandidateView,
-    dependencies=[Depends(require_xhr_request)],
 )
 async def discard_image_candidate(
     db: DbSession,

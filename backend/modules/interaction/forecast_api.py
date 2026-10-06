@@ -27,10 +27,12 @@ from modules.assistant.facade import (
 from modules.interaction.forecast import require_personal
 from modules.interaction.services import InteractionService
 
+# Write methods are CSRF-gated app-wide by _ApiSecurityMiddleware; the three
+# GET routes below keep their own XHR marker because reads are not covered by
+# that middleware.
 router = APIRouter(
     prefix="/api/interactions/journeys/{journey_id}/forecasts",
     tags=["interaction"],
-    dependencies=[Depends(require_xhr_request)],
 )
 
 
@@ -75,7 +77,7 @@ async def consumer(db, journey_id):
     return str(journey.novel_id)
 
 
-@router.get("/capabilities")
+@router.get("/capabilities", dependencies=[Depends(require_xhr_request)])
 async def capabilities(db: DbSession, journey_id: UUID):
     await consumer(db, journey_id)
     settings = get_settings()
@@ -113,7 +115,7 @@ async def evaluate(db: DbSession, journey_id: UUID, data: PlayerEvaluate):
     )
 
 
-@router.get("/runs/{run_id}")
+@router.get("/runs/{run_id}", dependencies=[Depends(require_xhr_request)])
 async def run(db: DbSession, journey_id: UUID, run_id: UUID):
     return await forecast_run(db, await consumer(db, journey_id), run_id, persona="rp")
 
@@ -154,7 +156,7 @@ async def prefill(
     return {"text": direction["proposal"], "input_kind": "action", "sent": False}
 
 
-@router.get("/operations/{operation_id}")
+@router.get("/operations/{operation_id}", dependencies=[Depends(require_xhr_request)])
 async def operation(db: DbSession, journey_id: UUID, operation_id: UUID):
     return await forecast_run(
         db, await consumer(db, journey_id), operation_id, persona="rp"
