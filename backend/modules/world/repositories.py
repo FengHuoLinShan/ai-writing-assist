@@ -1126,7 +1126,11 @@ class EventRepository:
         db: AsyncSession,
         entity_id: uuid.UUID,
     ) -> Event | None:
-        stmt = select(Event).where(Event.entity_id == entity_id)
+        stmt = (
+            select(Event)
+            .where(Event.entity_id == entity_id)
+            .execution_options(populate_existing=True)
+        )
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 

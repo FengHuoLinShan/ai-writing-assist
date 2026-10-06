@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from core.errors import ConflictError, NotFoundError
+from modules.world.repositories import CoreEntityRepository
 from modules.world.services.common import (
     find_alias_in_entity,
     find_alias_in_list,
@@ -38,6 +39,7 @@ def _make_revision_service() -> tuple[EntityRevisionService, MagicMock, MagicMoc
 
 def _make_event_service() -> tuple[EventService, MagicMock]:
     svc = EventService()
+    svc._entity_repo = MagicMock(spec=CoreEntityRepository)
     svc.repo = MagicMock()
     return svc, svc.repo
 
@@ -497,7 +499,7 @@ class TestEventService:
         svc, repo = _make_event_service()
         ev = _mock_event()
         repo.get = AsyncMock(return_value=ev)
-        svc._entity_repo = MagicMock()
+        svc._entity_repo = MagicMock(spec=CoreEntityRepository)
         svc._entity_repo.get = AsyncMock(
             side_effect=[
                 _canonical_core_entity(ev.novel_id, "event"),
@@ -573,7 +575,7 @@ class TestEventService:
         # Arrange
         svc, repo = _make_event_service()
         ev = _mock_event()
-        svc._entity_repo = MagicMock()
+        svc._entity_repo = MagicMock(spec=CoreEntityRepository)
         svc._entity_repo.get = AsyncMock(
             side_effect=[
                 _canonical_core_entity(ev.novel_id, "event"),
@@ -605,7 +607,7 @@ class TestEventService:
         # Arrange
         svc, repo = _make_event_service()
         ev = _mock_event(status="deprecated")
-        svc._entity_repo = MagicMock()
+        svc._entity_repo = MagicMock(spec=CoreEntityRepository)
         svc._entity_repo.get = AsyncMock(
             side_effect=[
                 _canonical_core_entity(ev.novel_id, "event"),
@@ -638,7 +640,7 @@ class TestEventService:
         # Arrange
         svc, repo = _make_event_service()
         ev = _mock_event()
-        svc._entity_repo = MagicMock()
+        svc._entity_repo = MagicMock(spec=CoreEntityRepository)
         svc._entity_repo.get = AsyncMock(
             side_effect=[
                 _canonical_core_entity(ev.novel_id, "event"),
@@ -670,7 +672,7 @@ class TestEventService:
         # Arrange
         svc, repo = _make_event_service()
         ev = _mock_event()
-        svc._entity_repo = MagicMock()
+        svc._entity_repo = MagicMock(spec=CoreEntityRepository)
         svc._entity_repo.get = AsyncMock(return_value=None)
         repo.create = AsyncMock()
         db = MagicMock()
@@ -697,7 +699,7 @@ class TestEventService:
         ev = _mock_event()
         repo.get = AsyncMock(return_value=ev)
         repo.update = AsyncMock(return_value=ev)
-        svc._entity_repo = MagicMock()
+        svc._entity_repo = MagicMock(spec=CoreEntityRepository)
         svc._entity_repo.get = AsyncMock(
             side_effect=[
                 _canonical_core_entity(ev.novel_id, "event"),

@@ -8,10 +8,12 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from uuid import uuid4
 
+import pytest
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy import MetaData, Table, create_engine, inspect, select, text
 from sqlalchemy.engine import URL, Engine, make_url
+from sqlalchemy.orm import Session
 
 from alembic import command
 from core.base import Base
@@ -204,6 +206,73 @@ def test_empty_postgresql_database_upgrades_from_base_to_head(
 
         _assert_current_schema(target_engine, expected_heads)
         # Every model is registered in alembic/env.py and head matches the ORM.
+        _alembic_check()
+
+
+def test_event_soft_delete_backfill_and_downgrade_preserve_history(monkeypatch):
+    from modules.imports.models import ImportedChapter, ImportRecord
+    from modules.project.models import Project
+    from modules.world.models import CoreEntity
+
+    with _disposable_database() as (migration_url, engine):
+        config, _ = _migration_config(monkeypatch, migration_url)
+        previous = "20261005_world_revision_metadata"
+        command.upgrade(config, previous)
+        nid, eid, lid, rid, cid = (uuid4() for _ in range(5))
+        with Session(engine) as db:
+            db.add(Project(id=nid, title="迁移测试", genre="fantasy"))
+            db.flush()
+            db.add_all(
+                [
+                    CoreEntity(id=eid, novel_id=nid, entity_type="event", name="事件"),
+                    CoreEntity(id=lid, novel_id=nid, entity_type="location", name="地点"),
+                    ImportRecord(
+                        id=rid, novel_id=nid, file_name="event.txt", file_type="txt"
+                    ),
+                ]
+            )
+            db.flush()
+            db.add(
+                ImportedChapter(
+                    id=cid,
+                    novel_id=nid,
+                    import_record_id=rid,
+                    chapter_index=1,
+                    title="测试章",
+                    content="事件证据",
+                )
+            )
+            db.flush()
+            old_events = Table("events", MetaData(), autoload_with=engine)
+            db.execute(
+                old_events.insert().values(
+                    entity_id=eid,
+                    novel_id=nid,
+                    source_chapter_id=cid,
+                    location_entity_id=lid,
+                    timeline_order=5,
+                )
+            )
+            db.commit()
+        command.upgrade(config, "head")
+        with engine.begin() as connection:
+            assert connection.scalar(text("SELECT status FROM events")) == "canonical"
+            connection.execute(text("UPDATE events SET status='deprecated'"))
+        with pytest.raises(RuntimeError, match="deprecated history"):
+            command.downgrade(config, previous)
+        with engine.begin() as connection:
+            assert connection.execute(
+                text("SELECT status, timeline_order FROM events")
+            ).one() == ("deprecated", 5)
+            assert (
+                connection.scalar(text("SELECT version_num FROM alembic_version"))
+                == "20261006_event_soft_delete"
+            )
+            connection.execute(text("UPDATE events SET status='canonical'"))
+        command.downgrade(config, previous)
+        with engine.connect() as connection:
+            assert connection.scalar(text("SELECT timeline_order FROM events")) == 5
+        command.upgrade(config, "head")
         _alembic_check()
 
 

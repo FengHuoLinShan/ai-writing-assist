@@ -46,6 +46,11 @@ class EventService(
         data: EventCreate,
     ) -> EventResponse:
         nid = parse_uuid(novel_id, "novel_id")
+        eid = parse_uuid(data.entity_id, "entity_id")
+        # 与对象类型切换共用实体锁；事件尚无扩展行时也能串行化首次创建。
+        await self._entity_repo.get_many_for_update(
+            db, nid, [eid, parse_uuid(data.location_entity_id, "entity_id")]
+        )
         await self._assert_entity_in_novel(
             db,
             data.entity_id,
@@ -60,7 +65,7 @@ class EventService(
             "Event location",
             entity_type="location",
         )
-        existing = await self.repo.get(db, parse_uuid(data.entity_id, "entity_id"))
+        existing = await self.repo.get(db, eid)
         if existing is None:
             created = await super().create(db, novel_id, data)
         else:
@@ -107,6 +112,19 @@ class EventService(
         event = await self.repo.get(db, eid)
         self._assert_found_in_novel(event, id, nid)
         self._assert_not_deprecated(event, id)
+        location_id = data.location_entity_id or str(event.location_entity_id)
+        await self._entity_repo.get_many_for_update(
+            db, nid, [eid, parse_uuid(location_id, "entity_id")]
+        )
+        # 锁前读取只定位锁集合；锁后重新读取，不能信任 Session 中的旧状态。
+        event = await self.repo.get(db, eid)
+        self._assert_found_in_novel(event, id, nid)
+        self._assert_not_deprecated(event, id)
+        if (
+            data.location_entity_id is None
+            and str(event.location_entity_id) != location_id
+        ):
+            raise ConflictError("Event location changed; retry the update")
         await self._assert_entity_in_novel(
             db,
             id,
@@ -114,7 +132,6 @@ class EventService(
             "Event entity",
             entity_type="event",
         )
-        location_id = data.location_entity_id or str(event.location_entity_id)
         await self._assert_entity_in_novel(
             db,
             location_id,
@@ -148,6 +165,7 @@ class EventService(
         """
         rid = parse_uuid(id, self.id_param)
         nid = parse_uuid(novel_id, "novel_id")
+        await self._entity_repo.get_for_update(db, rid, novel_id=nid)
         event = await self.repo.get(db, rid)
         self._assert_found_in_novel(event, id, nid)
         if event.status == "deprecated":

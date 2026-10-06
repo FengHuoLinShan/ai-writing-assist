@@ -118,6 +118,9 @@ CONFIRMED 数据（名称、类型、`summary` 与少量确认属性；未确认
 
 - `core_entities` — 共享核心实体表，公共字段（name / `content_json.aliases` / summary / public_info / hidden_truth / importance / embedding / search_text / pinyin_string / image_version / image_updated_at）统一存储；别名项保存 `kind + type`，图片字节位于私有对象存储
 - `events` — 事件扩展表（entity_id PK+FK → core_entities.id）；`status` 为 canonical/deprecated，删除只置 deprecated（保留历史），列表、详情、编辑、世界背景、融合指纹与类型转换阻断只认 canonical；同一对象再次创建时用新字段复活原行，已有未删除扩展时返回 409
+
+事件写入在所属对象锁内重验状态，创建/复活与删除/更新互斥；地点锁沿 UUID 固定顺序。
+软删保留扩展行且不废弃 CoreEntity；有 deprecated 历史时拒绝去掉 status 的 schema 降级。
 - `entity_relations` — 实体关系边（UUID FK → core_entities + `relation_kind` 最小分类 + `relation_type` 精确类型 + 章节追溯字段 + `review_meta` 复核审计）
 - `entity_revisions` — 实体改动历史表（改动前快照 + `writing_chapter_index` 写作进度 + `change_summary` 改动字段摘要，含 `restored_from_revision_id`；Scene 回滚兜底仍优先 `TextArchive`，无归档时回退）
 - `world_revision_notes` — 实体/页面/地图修订的事后补写备注（`(novel_id, target_kind, revision_id)` 唯一，无跨表外键，服务层校验归属；不进入快照/摘要/Canon receipt）

@@ -37,8 +37,14 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # 旧代码不认识 status：保留 deprecated 行会让已删除的事件重新出现，
-    # 因此按旧语义把它们真正删除后再去掉列。
-    op.execute("DELETE FROM events WHERE status = 'deprecated'")
+    # 旧代码不认识 status；去掉列会让已删除事件重新出现，硬删则丢失历史。
+    op.execute("LOCK TABLE events IN ACCESS EXCLUSIVE MODE")
+    if op.get_bind().scalar(
+        sa.text("SELECT EXISTS (SELECT 1 FROM events WHERE status = 'deprecated')")
+    ):
+        raise RuntimeError(
+            "Cannot downgrade events with deprecated history; keep the schema "
+            "and use an application rollback instead."
+        )
     op.drop_constraint("ck_events_status", "events", type_="check")
     op.drop_column("events", "status")

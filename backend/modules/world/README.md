@@ -1011,6 +1011,11 @@ section，且不会进入可投影正文。页面预览保持零写入并把页�
 | POST | `/api/world/characters` | 创建人物 |
 | GET | `/api/world/characters/{character_id}` | 人物详情 |
 
+事件创建/复活、更新和删除共用所属 CoreEntity 写锁；涉及地点时按 UUID 顺序锁定，
+锁后重新读取事件状态。并发重复创建返回 409，删除后的更新返回 404；未显式改变地点的
+更新遇到地点漂移返回 409，不覆盖并发修改。保留 deprecated 行时拒绝降级软删迁移，
+应用回退须保留 schema 与历史。
+
 ### AI 参考资料确认
 
 - entity fusion 和世界生成中心通过 project runtime seam 消费项目 owner 当前已验证的
