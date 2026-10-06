@@ -213,4 +213,11 @@ await db_session.refresh(session_row)
 
 ---
 
+## 勘误（2026-10-06 修复批实施时核实）
+
+- **P2-18 前提有误**：`WorldWorkspace.vue` 的 `rememberRailClick` 并非"未被模板引用"——模板 `<summary>` 处存在 `@click="rememberRailClick"` 绑定，且该函数写入的预测状态与 `@toggle="onRailToggle"` 的实际后状态恒相同（冗余而非死代码）。修复时已连同模板绑定一并移除，由 `onRailToggle` 单一写入。
+- **P1-5 补充**：`comment_run.py` 除吞异常外，还存在 checkpoint（`expire_all`）后读过期 ORM 属性的 `MissingGreenlet` 崩溃路径（审查未列出，此前被 no-op checkpoint 测试掩盖），修复批已连带处理。
+
+---
+
 本内容由 AI 生成，请核实后使用。

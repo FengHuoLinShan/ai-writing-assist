@@ -75,7 +75,8 @@ interaction 为 `我是 RP 用户` 路径保存私人互动故事。用户可直
 
 匿名的普通故事 mutation 只创建 `task_id=null` attempt。浏览器随后以
 `POST .../attempts/{attempt_id}/stream` 在同一 SSE 请求中提供临时 DeepSeek Key；服务端固定
-DeepSeek endpoint/model，Key 不写入 cookie、DB、attempt snapshot、AsyncTask 或日志。断开会取消
+DeepSeek endpoint/model，Key 不写入 cookie、DB、attempt snapshot、AsyncTask 或日志。请求头
+提供的 Key 仅接受 `[A-Za-z0-9_.\-]` 字符集（≤512 字符），非法字符在入口即拒绝。断开会取消
 provider stream 并将 attempt 收敛为可重试终态。长上下文回顾也留在同一请求，不进入 worker。
 匿名仍可读取和手工修改自身选中分支/回顾；看海、连续性后台任务、自动回顾任务、web search、导入
 及作者 source 管理均不可用。
