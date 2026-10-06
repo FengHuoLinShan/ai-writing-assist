@@ -5,17 +5,18 @@
  */
 
 import { forceAccountSafeReload } from "../../shared/accountStorage.js"
+import { getApi, getAppState, getCommands, getRouter, getToast } from "../bridge/index.js"
 
 function fallbackRoute(name) {
   return { title: name || "项目", subViews: [] }
 }
 
 export function createShellServices(overrides = {}) {
-  const state = overrides.state ?? globalThis.appState ?? globalThis.state ?? {}
-  const router = overrides.router ?? globalThis.router ?? {}
-  const commands = overrides.commands ?? globalThis.commands ?? {}
-  const api = overrides.api ?? globalThis.api ?? {}
-  const toast = overrides.toast ?? globalThis.toast ?? (() => {})
+  const state = overrides.state ?? getAppState() ?? {}
+  const router = overrides.router ?? getRouter() ?? {}
+  const commands = overrides.commands ?? getCommands() ?? {}
+  const api = overrides.api ?? getApi() ?? {}
+  const toast = overrides.toast ?? getToast()
   const closeModal = overrides.closeModal ?? globalThis.closeModal ?? (() => true)
   const subscribeState = overrides.subscribeState ?? globalThis.onStateChange
   const reload = overrides.reload ?? (() => globalThis.location.reload())
