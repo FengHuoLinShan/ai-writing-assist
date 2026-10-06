@@ -31,10 +31,9 @@ def _scene_memory_port():
 
 def _scene_memory_dimensions(version: int | None) -> tuple[str, ...]:
     port = _scene_memory_port()
-    resolved = (
-        version if version is not None else port.scene_memory_current_version()
-    )
+    resolved = version if version is not None else port.scene_memory_current_version()
     return port.scene_memory_dimensions(resolved)
+
 
 _GetMemoryPanoramaFn = Callable[[AsyncSession, str, int], Awaitable[Any]]
 _EnsureSceneCheckpointsFn = Callable[[AsyncSession, str, str], Awaitable[Any]]

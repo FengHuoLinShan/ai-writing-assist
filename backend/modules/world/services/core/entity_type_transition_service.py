@@ -111,9 +111,10 @@ class EntityTypeTransitionService:
                     )
                 )
             ).scalar_one_or_none()
-            if character is not None and (character.meta or {}).get(
-                "auto_materialized"
-            ) is not True:
+            if (
+                character is not None
+                and (character.meta or {}).get("auto_materialized") is not True
+            ):
                 counts["character_extension"] = 1
             await count(
                 "character_knowledge",

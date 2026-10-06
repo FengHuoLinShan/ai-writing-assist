@@ -929,9 +929,13 @@ class ImportContextActivationService:
         selected.sort(key=lambda item: item[:4])
         prompt_items: list[dict] = []
         audit_sources: list[dict] = []
-        for index, (source_ref, target_ref, relation_type, relation_id, value) in (
-            enumerate(selected, start=1)
-        ):
+        for index, (
+            source_ref,
+            target_ref,
+            relation_type,
+            relation_id,
+            value,
+        ) in enumerate(selected, start=1):
             prompt_ref = f"relation-{index:03d}"
             prompt_items.append(
                 {

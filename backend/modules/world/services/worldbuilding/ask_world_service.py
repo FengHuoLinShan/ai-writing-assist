@@ -160,9 +160,7 @@ class AskWorldService:
                 provider=provider,
                 snapshot_id=snapshot_id,
             )
-            response = response.model_copy(
-                update={"knowledge_review": knowledge_review}
-            )
+            response = response.model_copy(update={"knowledge_review": knowledge_review})
         except Exception as exc:
             if snapshot_id:
                 await self._fail_snapshot(db, data.novel_id, snapshot_id, exc)
@@ -488,16 +486,12 @@ class AskWorldService:
             if isinstance(citation, dict):
                 page_id = citation.get("page_id")
                 target_ref = citation.get("target_ref") or {}
-                target_id = (
-                    target_ref.get("id") if isinstance(target_ref, dict) else None
-                )
+                target_id = target_ref.get("id") if isinstance(target_ref, dict) else None
                 chapter_index = citation.get("chapter_index")
             else:
                 page_id = getattr(citation, "page_id", None)
                 target_ref = getattr(citation, "target_ref", None) or {}
-                target_id = (
-                    target_ref.get("id") if isinstance(target_ref, dict) else None
-                )
+                target_id = target_ref.get("id") if isinstance(target_ref, dict) else None
                 chapter_index = getattr(citation, "chapter_index", None)
             kind = str(item["kind"])
             refs.append(
@@ -605,8 +599,7 @@ class AskWorldService:
                     key for claim in generated.claims for key in claim.citation_keys
                 ),
                 repair_note=(
-                    "上一轮引用了不存在的 citation_key。"
-                    "只修正引用，不新增主张："
+                    "上一轮引用了不存在的 citation_key。只修正引用，不新增主张："
                 ),
                 error_message="Ask World returned unknown citation keys",
             )

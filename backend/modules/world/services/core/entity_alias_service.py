@@ -957,9 +957,10 @@ class EntityAliasService:
             ):
                 await self._require_legacy_canon_write_allowed(db, novel_id)
 
-            if current_status not in ACTIVE_ALIAS_STATUSES and changes.get(
-                "status", current_status
-            ) in ACTIVE_ALIAS_STATUSES:
+            if (
+                current_status not in ACTIVE_ALIAS_STATUSES
+                and changes.get("status", current_status) in ACTIVE_ALIAS_STATUSES
+            ):
                 from modules.world.services.common import (
                     require_fresh_understanding_source,
                 )

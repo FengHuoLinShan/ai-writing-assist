@@ -239,9 +239,9 @@ class ProjectService:
             items, total = await self._repo.list(
                 db, skip=skip, limit=limit, owner_id=owner_id
             )
-        stats_by_project_id = await self._writing_stats_batch(db, [
-            str(project.id) for project in items
-        ])
+        stats_by_project_id = await self._writing_stats_batch(
+            db, [str(project.id) for project in items]
+        )
         return ProjectListResponse(
             items=[
                 self._response_with_known_stats(
@@ -910,6 +910,4 @@ async def _empty_project_writing_stats_batch(
     _db: AsyncSession,
     novel_ids: list[str],
 ) -> dict[str, WorkspaceWritingStats]:
-    return {
-        novel_id: WorkspaceWritingStats(novel_id=novel_id) for novel_id in novel_ids
-    }
+    return {novel_id: WorkspaceWritingStats(novel_id=novel_id) for novel_id in novel_ids}

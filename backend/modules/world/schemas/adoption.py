@@ -358,5 +358,3 @@ class WorldAdoptionPackagePreviewResponse(BaseModel):
 class WorldAdoptionPackageApplyRequest(BaseModel):
     expected_preview_hash: str = Field(..., min_length=64, max_length=64)
     validation_run_id: uuid.UUID | None = None
-
-

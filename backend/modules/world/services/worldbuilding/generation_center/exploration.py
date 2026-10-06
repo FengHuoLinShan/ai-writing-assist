@@ -134,7 +134,6 @@ class _ExplorationStageMixin:
             knowledge_review=knowledge_review,
         )
 
-
     @staticmethod
     def _validate_revision_parent(
         data: WorldGenerationSuggestionRequest,
@@ -365,7 +364,6 @@ class _ExplorationStageMixin:
             quality_mode=data.quality_mode,
         )
 
-
     def _exploration_request(
         self,
         data: WorldGenerationExplorationRequest,
@@ -408,7 +406,6 @@ class _ExplorationStageMixin:
             ],
             temperature=0.2,
         )
-
 
     async def _run_exploration_pass(
         self,

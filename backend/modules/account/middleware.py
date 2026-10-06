@@ -344,9 +344,7 @@ class AccountAuthMiddleware:
         manager = get_manager()
         try:
             async with manager.session() as db:
-                context = await get(ACCOUNT_PROJECT_CONTEXT)(
-                    db, str(config.project_id)
-                )
+                context = await get(ACCOUNT_PROJECT_CONTEXT)(db, str(config.project_id))
         except NotFoundError:
             return None
         if context is None or context.owner_id is None:

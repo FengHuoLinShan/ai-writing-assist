@@ -83,8 +83,6 @@ class WorldGenerationCenterService(
         self.last_design_review_receipt: dict[str, Any] | None = None
 
 
-
-
 # ``_source_refs``（staticmethod）以类名调用同 mixin 的静态方法；
 # mixin 不能反向导入本模块，类创建后回填模块级名字供运行时查找，
 # 调用点文本保持拆分前原样。

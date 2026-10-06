@@ -62,9 +62,7 @@ async def read_sources(
             or not chapter_from <= ref.chapter_index <= chapter_to
         ):
             raise ValueError("来源已变化或超出授权章节")
-        read = await _manuscript_port().read_range(
-            db, novel_id, ref, before=0, after=0
-        )
+        read = await _manuscript_port().read_range(db, novel_id, ref, before=0, after=0)
         evidence.append(
             {
                 "key": f"scene-{scene_id}-{index}",

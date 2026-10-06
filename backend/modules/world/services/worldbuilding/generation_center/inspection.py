@@ -162,7 +162,6 @@ class _InspectionStageMixin:
             knowledge_review=knowledge_review,
         )
 
-
     def _semantic_inspection_request(
         self,
         data: WorldGenerationSemanticInspectionRequest,

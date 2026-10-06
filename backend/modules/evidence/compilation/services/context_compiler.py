@@ -57,6 +57,7 @@ def _scene_memory_port():
 
     return get(STORY_SCENE_SOURCE)
 
+
 # 作者写作示例 few-shot 的 section 内 token 上限（tiktoken 估算）。
 # 与存储上限对齐：单条 schema 合法满额示例（2000 字符正文 + 500 字符
 # 备注约 3700 token）必须能完整注入，否则作者从主入口存下的长例子
@@ -1255,6 +1256,7 @@ class ContextCompiler:
             # P3，token 超限时整段逐出）。截断事实写进 retrieval_metadata，
             # 确认预览可见，不静默失效。
             dropped: list[str] = []
+
             def _probe_tokens() -> int:
                 # 与实际发射 payload 相同的投影（content/note），不含脚手架文本。
                 payload_probe = {

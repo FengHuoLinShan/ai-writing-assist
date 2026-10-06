@@ -33,6 +33,7 @@ def _scene_memory_port():
     # 不再顶层 import modules.story.contracts。
     return get(STORY_SCENE_SOURCE)
 
+
 _ASSET_TYPE_ALIASES = {
     "outline_scene": "scene",
     "scene_story_assets": "scene",

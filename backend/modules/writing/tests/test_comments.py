@@ -415,9 +415,7 @@ def _comment_run_patches(
 
 
 def _comment_run_task(base, comment_id: str) -> SimpleNamespace:
-    novel_id = (
-        base.novel_id if isinstance(base.novel_id, str) else str(base.novel_id)
-    )
+    novel_id = base.novel_id if isinstance(base.novel_id, str) else str(base.novel_id)
     return SimpleNamespace(
         id=uuid.uuid4(),
         meta={

@@ -159,9 +159,7 @@ async def api_put_secondary_models(
     data: SecondaryModelsUpdate,
 ) -> GlobalLLMDefaultsResponse:
     try:
-        return await _service.update_account_secondary_models(
-            db, list(data.models)
-        )
+        return await _service.update_account_secondary_models(db, list(data.models))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 

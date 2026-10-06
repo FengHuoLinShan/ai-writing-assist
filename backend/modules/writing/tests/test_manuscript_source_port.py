@@ -46,9 +46,7 @@ async def test_manuscript_port_delegates_read_only_calls(monkeypatch) -> None:
     )
     monkeypatch.setattr("modules.writing.facade.read_manuscript_range", read)
     monkeypatch.setattr("modules.writing.facade.build_manuscript_range_ref", build)
-    monkeypatch.setattr(
-        "modules.writing.facade.get_manuscript_source_manifest", manifest
-    )
+    monkeypatch.setattr("modules.writing.facade.get_manuscript_source_manifest", manifest)
     monkeypatch.setattr("modules.writing.facade.scan_manuscript_terms", scan)
     port = ManuscriptSourcePort()
 

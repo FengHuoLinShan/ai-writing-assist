@@ -759,11 +759,7 @@ async def stream_anonymous_attempt(
     if not is_anonymous_rp_principal():
         raise ValidationError("仅公开体验使用当前生成方式")
     api_key = request.headers.get("x-deepseek-api-key", "").strip()
-    if (
-        not api_key
-        or len(api_key) > 512
-        or _BYOK_API_KEY_RE.fullmatch(api_key) is None
-    ):
+    if not api_key or len(api_key) > 512 or _BYOK_API_KEY_RE.fullmatch(api_key) is None:
         raise ValidationError("请提供可用的 DeepSeek Key")
     execution_id = await _service.claim_anonymous_attempt(
         db,

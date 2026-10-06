@@ -81,8 +81,10 @@ def _validation_run_plan(task: Any) -> tuple[int | None, int, float]:
             max_packets = int(plan.get("max_packets") or 0)
             per_packet = float(plan.get("per_packet_timeout_seconds") or 0.0)
         except (TypeError, ValueError):
-            return None, _WORLD_VALIDATION_FALLBACK_MAX_PACKETS, (
-                _WORLD_VALIDATION_FALLBACK_PACKET_TIMEOUT_SECONDS
+            return (
+                None,
+                _WORLD_VALIDATION_FALLBACK_MAX_PACKETS,
+                (_WORLD_VALIDATION_FALLBACK_PACKET_TIMEOUT_SECONDS),
             )
         if (
             planned >= 0
@@ -91,8 +93,10 @@ def _validation_run_plan(task: Any) -> tuple[int | None, int, float]:
         ):
             # planned_packets=0 是合法冻结值（语义检查关闭，无 provider 请求）。
             return planned, max_packets, per_packet
-    return None, _WORLD_VALIDATION_FALLBACK_MAX_PACKETS, (
-        _WORLD_VALIDATION_FALLBACK_PACKET_TIMEOUT_SECONDS
+    return (
+        None,
+        _WORLD_VALIDATION_FALLBACK_MAX_PACKETS,
+        (_WORLD_VALIDATION_FALLBACK_PACKET_TIMEOUT_SECONDS),
     )
 
 
@@ -106,8 +110,7 @@ def _world_validation_request_limit(task: Any) -> int:
     planned, max_packets, _ = _validation_run_plan(task)
     return max(
         1,
-        _validation_packets(planned, max_packets)
-        * _WORLD_VALIDATION_REQUESTS_PER_PACKET,
+        _validation_packets(planned, max_packets) * _WORLD_VALIDATION_REQUESTS_PER_PACKET,
     )
 
 
@@ -120,9 +123,7 @@ def _world_validation_deadline_seconds(task: Any) -> float:
         else _WORLD_VALIDATION_FALLBACK_PACKET_TIMEOUT_SECONDS
     )
     return (
-        _validation_packets(planned, max_packets)
-        * timeout
-        * 2
+        _validation_packets(planned, max_packets) * timeout * 2
         + _WORLD_RUN_REQUEUE_BACKOFF_MARGIN_SECONDS
     )
 

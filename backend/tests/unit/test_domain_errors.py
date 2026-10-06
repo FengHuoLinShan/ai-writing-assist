@@ -165,8 +165,7 @@ def test_api_routes_do_not_directly_raise_uncaught_value_error() -> None:
             for statement in node.body:
                 visitor.visit(statement)
             violations.extend(
-                f"{path.relative_to(_backend_path())}:{line}"
-                for line in visitor.lines
+                f"{path.relative_to(_backend_path())}:{line}" for line in visitor.lines
             )
 
     assert violations == []

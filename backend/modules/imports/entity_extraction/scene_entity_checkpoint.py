@@ -169,8 +169,7 @@ def phase2a_input_fingerprint(
     """Hash every semantic input that can change a P13 model decision."""
     base_fingerprint = base_fingerprint or scene_input_fingerprint(scene, scene_text)
     encoded = (
-        f"{base_fingerprint}:{context_fingerprint}:"
-        f"{PHASE2A_PROMPT_CONTRACT_VERSION}"
+        f"{base_fingerprint}:{context_fingerprint}:{PHASE2A_PROMPT_CONTRACT_VERSION}"
     ).encode()
     return hashlib.sha256(encoded).hexdigest()
 

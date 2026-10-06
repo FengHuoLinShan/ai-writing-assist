@@ -37,9 +37,7 @@ class SceneSourcePort:
         return continuity_contracts.scene_memory_dimensions(contract_version)
 
     @staticmethod
-    async def get_scene_contract(
-        db: AsyncSession, novel_id: str, scene_id: str
-    ):
+    async def get_scene_contract(db: AsyncSession, novel_id: str, scene_id: str):
         return await outline_facade.get_scene_contract(db, novel_id, scene_id)
 
     @staticmethod

@@ -140,9 +140,7 @@ def test_novel_scoped_generation_modules_use_project_runtime_seam() -> None:
             "open_project_snapshot_llm_client"
         ),
         "modules/story/outline_state/generator.py": "open_project_llm_client",
-        "modules/story/outline_state/structure_dedup.py": (
-            "open_project_llm_client"
-        ),
+        "modules/story/outline_state/structure_dedup.py": ("open_project_llm_client"),
         "modules/world/entity_fusion.py": "open_project_llm_client",
         "modules/evidence/compilation/services/selection_proposal.py": (
             "open_project_llm_client"

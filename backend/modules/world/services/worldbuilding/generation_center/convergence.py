@@ -134,7 +134,6 @@ class _ConvergenceStageMixin:
             knowledge_review=knowledge_review,
         )
 
-
     @classmethod
     def _asset_ref_hash(cls, ref: dict[str, Any]) -> str:
         source_type, source_id = cls._normalized_identity(
@@ -313,7 +312,6 @@ class _ConvergenceStageMixin:
             [source["manifest"].model_dump(mode="json") for source in sources],
             stringify_unknown=False,
         )
-
 
     async def _run_convergence_workflow(
         self,

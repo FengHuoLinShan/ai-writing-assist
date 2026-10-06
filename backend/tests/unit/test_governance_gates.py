@@ -335,9 +335,7 @@ def test_push_event_fixed_range_detects_new_binary_and_source(tmp_path, monkeypa
     assert failures
 
 
-def test_binary_gate_uses_git_objects_and_merge_base_for_renames(
-    tmp_path, monkeypatch
-):
+def test_binary_gate_uses_git_objects_and_merge_base_for_renames(tmp_path, monkeypatch):
     """体积读 Git 对象库而非工作区；纯重命名 delta 为 0；旧体积按 merge-base。"""
     import check_binary_growth as binary
 
@@ -558,32 +556,24 @@ def test_direction_ratchet_blocks_new_directed_edge(tmp_path) -> None:
     _write_contracts(tmp_path, "alpha")
     _write_contracts(tmp_path, "beta")
     forward = tmp_path / "modules/alpha/services.py"
-    forward.write_text(
-        "from modules.beta.contracts import Thing\n", encoding="utf-8"
-    )
+    forward.write_text("from modules.beta.contracts import Thing\n", encoding="utf-8")
 
     stats, edges = gate.iter_directional_stats_for_paths(
         modules, [forward], repo_root=tmp_path
     )
     assert stats["directed_edges"] == 1
-    assert edges == [
-        {"from": "alpha", "to": "beta", "top_level": 1, "function_level": 0}
-    ]
+    assert edges == [{"from": "alpha", "to": "beta", "top_level": 1, "function_level": 0}]
 
     baseline = dict(stats)
     reverse = tmp_path / "modules/beta/planner.py"
-    reverse.write_text(
-        "from modules.alpha.contracts import Other\n", encoding="utf-8"
-    )
+    reverse.write_text("from modules.alpha.contracts import Other\n", encoding="utf-8")
     stats2, _ = gate.iter_directional_stats_for_paths(
         modules, [forward, reverse], repo_root=tmp_path
     )
     assert stats2["directed_edges"] == 2
 
     failures = gate.check_direction_ratchet(stats2, baseline)
-    assert any(
-        "directed_edges" in failure and "2" in failure for failure in failures
-    )
+    assert any("directed_edges" in failure and "2" in failure for failure in failures)
     # 全新反向边同时构成新双向对
     assert any("bidirectional_pairs" in failure for failure in failures)
 
@@ -596,14 +586,10 @@ def test_direction_ratchet_blocks_new_top_level_bidirectional_pair(tmp_path) -> 
     _write_contracts(tmp_path, "alpha")
     _write_contracts(tmp_path, "beta")
     forward = tmp_path / "modules/alpha/services.py"
-    forward.write_text(
-        "from modules.beta.contracts import Thing\n", encoding="utf-8"
-    )
+    forward.write_text("from modules.beta.contracts import Thing\n", encoding="utf-8")
     backward = tmp_path / "modules/beta/planner.py"
     backward.write_text(
-        "def plan():\n"
-        "    from modules.alpha.contracts import Other\n"
-        "    return Other\n",
+        "def plan():\n    from modules.alpha.contracts import Other\n    return Other\n",
         encoding="utf-8",
     )
 
@@ -616,9 +602,7 @@ def test_direction_ratchet_blocks_new_top_level_bidirectional_pair(tmp_path) -> 
     assert stats["function_level_imports"] == 1
 
     baseline = dict(stats)
-    backward.write_text(
-        "from modules.alpha.contracts import Other\n", encoding="utf-8"
-    )
+    backward.write_text("from modules.alpha.contracts import Other\n", encoding="utf-8")
     stats2, _ = gate.iter_directional_stats_for_paths(
         modules, [forward, backward], repo_root=tmp_path
     )
@@ -637,9 +621,7 @@ def test_direction_ratchet_allows_decrease_and_hints_lowering(tmp_path) -> None:
     _write_contracts(tmp_path, "beta")
     offender = tmp_path / "modules/alpha/services.py"
     offender.parent.mkdir(parents=True)
-    offender.write_text(
-        "from modules.beta.contracts import Thing\n", encoding="utf-8"
-    )
+    offender.write_text("from modules.beta.contracts import Thing\n", encoding="utf-8")
 
     stats, _ = gate.iter_directional_stats_for_paths(
         modules, [offender], repo_root=tmp_path
@@ -650,8 +632,7 @@ def test_direction_ratchet_allows_decrease_and_hints_lowering(tmp_path) -> None:
     lines = gate._direction_report_lines(stats, inflated)
     assert any("基线可下调至" in line for line in lines)
     assert any(
-        f"directed_edges={stats['directed_edges']}/{stats['directed_edges'] + 3}"
-        in line
+        f"directed_edges={stats['directed_edges']}/{stats['directed_edges'] + 3}" in line
         for line in lines
     )
 
@@ -680,9 +661,7 @@ def test_direction_ratchet_overrun_fails_main_with_exit_code(
         "from modules.alpha.contracts import Other\n", encoding="utf-8"
     )
     paths = sorted(backend.glob("modules/**/*.py"))
-    stats, _ = gate.iter_directional_stats_for_paths(
-        modules, paths, repo_root=tmp_path
-    )
+    stats, _ = gate.iter_directional_stats_for_paths(modules, paths, repo_root=tmp_path)
     baseline = dict(stats)
     baseline["bidirectional_pairs"] -= 1  # 现状含一对双向，基线不允许 → 超标
 
@@ -739,9 +718,7 @@ def test_direction_ratchet_classifies_top_level_vs_function_level(tmp_path) -> N
 
     assert stats["directed_edges"] == 1
     assert stats["function_level_imports"] == 2
-    assert edges == [
-        {"from": "alpha", "to": "beta", "top_level": 3, "function_level": 2}
-    ]
+    assert edges == [{"from": "alpha", "to": "beta", "top_level": 3, "function_level": 2}]
 
 
 def test_direction_ratchet_counts_world_core_worldbuilding_traffic(tmp_path) -> None:

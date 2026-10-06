@@ -37,7 +37,8 @@ def test_scene_memory_port_satisfies_consumer_protocol() -> None:
 
     assert isinstance(port, SceneSourcePort)
     protocol_methods = [
-        name for name in SceneMemoryContractPort.__protocol_attrs__  # type: ignore[attr-defined]
+        name
+        for name in SceneMemoryContractPort.__protocol_attrs__  # type: ignore[attr-defined]
     ]
     for name in protocol_methods:
         assert callable(getattr(port, name, None)), name

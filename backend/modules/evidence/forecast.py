@@ -33,9 +33,7 @@ async def inspect(db, novel_id, focus, excluded):
             "source": status,
             "scope_label": "已有索引回执，不代表已索引全部正文",
             "target": {"page": "rag"},
-            "unknowns": [
-                "查询集合新增会改变答案；旧命中和缓存时间不能证明来源仍有效。"
-            ],
+            "unknowns": ["查询集合新增会改变答案；旧命中和缓存时间不能证明来源仍有效。"],
         },
         {
             "capability_id": "evidence.context_gap.v1",

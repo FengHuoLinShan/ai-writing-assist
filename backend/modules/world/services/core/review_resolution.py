@@ -28,6 +28,7 @@ def _worldbuilding_port(key: ServiceKey[Any] | str):
 
     return get(key)
 
+
 RESOLUTION_POLICY = "world.review_resolution.v1"
 
 
@@ -415,9 +416,7 @@ async def prepare_manual_decision(db, *, novel_id, task_id, rows):
 async def apply_manual_decision(db, *, novel_id, package):
     from modules.world.schemas import WorldAdoptionPackageApplyRequest
 
-    service = _worldbuilding_port(
-        WORLD_WORLDBUILDING_ADOPTION_PACKAGE_SERVICE
-    )()
+    service = _worldbuilding_port(WORLD_WORLDBUILDING_ADOPTION_PACKAGE_SERVICE)()
     result = await service.apply(
         db,
         novel_id,

@@ -309,9 +309,7 @@ async def _generate_candidate(
                 "context_confirmation_id": draft_provenance.get(
                     "context_confirmation_id"
                 ),
-                "source_confirmation_id": draft_provenance.get(
-                    "source_confirmation_id"
-                ),
+                "source_confirmation_id": draft_provenance.get("source_confirmation_id"),
                 "scene_id": draft_provenance.get("scene_id"),
                 "source_task_id": task_id,
                 "base_draft_id": draft_key,

@@ -65,14 +65,10 @@ class ManuscriptSourcePort:
     async def source_manifest(
         db: AsyncSession, novel_id: str, **kwargs: Any
     ) -> list[dict]:
-        return await writing_facade.get_manuscript_source_manifest(
-            db, novel_id, **kwargs
-        )
+        return await writing_facade.get_manuscript_source_manifest(db, novel_id, **kwargs)
 
     @staticmethod
     async def scan_terms(
         db: AsyncSession, novel_id: str, terms: list[str], **kwargs: Any
     ):
-        return await writing_facade.scan_manuscript_terms(
-            db, novel_id, terms, **kwargs
-        )
+        return await writing_facade.scan_manuscript_terms(db, novel_id, terms, **kwargs)

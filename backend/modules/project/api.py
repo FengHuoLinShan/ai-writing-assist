@@ -54,6 +54,8 @@ from modules.project.workspace_service import ProjectWorkspaceSummaryService
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
+
+
 class EditorialBriefWritingToggle(BaseModel):
     enabled: bool
 
@@ -148,9 +150,7 @@ async def put_llm_cost_saving(
 ):
     from modules.project.model_routing import set_cost_saving_toggle
 
-    return await set_cost_saving_toggle(
-        db, str(project_id), enabled=data.enabled
-    )
+    return await set_cost_saving_toggle(db, str(project_id), enabled=data.enabled)
 
 
 @router.get("/{project_id}/author-examples")

@@ -69,9 +69,7 @@ class EntityActivityService:
                 continue
             if appearance.source_content_hash != state.indexed_hash:
                 continue
-            chapters_by_entity[str(appearance.entity_id)].append(
-                appearance.chapter_index
-            )
+            chapters_by_entity[str(appearance.entity_id)].append(appearance.chapter_index)
 
         items = [
             RagEntityActivityStatContract(
@@ -171,9 +169,6 @@ class EntityActivityService:
             "chunks_scanned": total,
             "chunks_changed": changed,
             "chapter_modes_rebuilt": len(
-                {
-                    (chunk.chapter_index, chunk.content_mode)
-                    for chunk in chunks
-                }
+                {(chunk.chapter_index, chunk.content_mode) for chunk in chunks}
             ),
         }

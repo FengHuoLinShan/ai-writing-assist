@@ -111,8 +111,7 @@ class WorldBiblePageTemplateService:
             for item in result.scalars()
         ]
         builtin = [
-            self._builtin_response(novel_id, item)
-            for item in BUILTIN_PAGE_TEMPLATES
+            self._builtin_response(novel_id, item) for item in BUILTIN_PAGE_TEMPLATES
         ]
         return [*builtin, *custom]
 

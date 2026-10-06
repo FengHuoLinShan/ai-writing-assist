@@ -243,7 +243,8 @@ async def test_author_task_source_validation_and_lost_source_projection(
 
 @pytest.mark.asyncio
 async def test_chapter_task_sources_use_real_writing_contract(
-    async_client: AsyncClient, db_session: AsyncSession,
+    async_client: AsyncClient,
+    db_session: AsyncSession,
 ) -> None:
     from modules.writing.facade import create_draft_only
 
@@ -261,7 +262,8 @@ async def test_chapter_task_sources_use_real_writing_contract(
     assert created.json()["source"]["label"] == "最新标题"
     assert created.json()["source"]["available"] is True
     listing = await async_client.get(
-        f"/api/projects/{project_id}/author-tasks", params={"scope": "inbox"},
+        f"/api/projects/{project_id}/author-tasks",
+        params={"scope": "inbox"},
     )
     assert listing.status_code == 200
     assert listing.json()["items"][0]["source"]["label"] == "最新标题"

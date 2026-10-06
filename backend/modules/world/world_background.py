@@ -88,11 +88,7 @@ class WorldBackgroundAggregation:
                     entity.name,
                     summary,
                     f"{entity.entity_type}:{entity.name}",
-                    float(
-                        entity.importance
-                        if entity.importance is not None
-                        else 0.5
-                    ),
+                    float(entity.importance if entity.importance is not None else 0.5),
                     entity.status,
                     entity.reveal_level,
                     self._keywords(entity.name, entity.content_json),
@@ -108,9 +104,7 @@ class WorldBackgroundAggregation:
                         profile_summary,
                         f"profile:{entity.entity_type}",
                         float(
-                            entity.importance
-                            if entity.importance is not None
-                            else 0.5
+                            entity.importance if entity.importance is not None else 0.5
                         ),
                         entity.status,
                         entity.reveal_level,
@@ -127,9 +121,7 @@ class WorldBackgroundAggregation:
                         event_summary,
                         "event:timeline",
                         float(
-                            entity.importance
-                            if entity.importance is not None
-                            else 0.5
+                            entity.importance if entity.importance is not None else 0.5
                         ),
                         entity.status,
                         entity.reveal_level,
@@ -170,11 +162,7 @@ class WorldBackgroundAggregation:
                     title,
                     summary,
                     f"relation:{relation.relation_type}",
-                    float(
-                        relation.strength
-                        if relation.strength is not None
-                        else 0.5
-                    ),
+                    float(relation.strength if relation.strength is not None else 0.5),
                     relation.status,
                     "author_safe",
                     [relation.relation_type],
@@ -230,11 +218,7 @@ class WorldBackgroundAggregation:
                 and projection.source_hash
                 == WorldBibleLifecycleService.projection_source_hash(page)
             )
-            summary = (
-                projection.content
-                if current_projection
-                else (page.free_text or "")
-            )
+            summary = projection.content if current_projection else (page.free_text or "")
             if not summary:
                 continue
             entries.append(
@@ -297,9 +281,7 @@ class WorldBackgroundAggregation:
             status=status,
             sensitivity=sensitivity,
             keywords=[item for item in keywords if item][:12],
-            source_ids=[
-                {"type": asset_type, "id": asset_id, "source_hash": source_hash}
-            ],
+            source_ids=[{"type": asset_type, "id": asset_id, "source_hash": source_hash}],
             source_hash=source_hash,
             token_count=estimate_token_count(f"{title} {clean_summary}"),
         )

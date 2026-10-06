@@ -43,9 +43,7 @@ def _iter_route_entries(routes: list, prefix: str = "") -> Iterator[tuple[str, o
         if original_router is not None:
             include_context = getattr(route, "include_context", None)
             nested_prefix = str(getattr(include_context, "prefix", "") or "")
-            yield from _iter_route_entries(
-                original_router.routes, prefix + nested_prefix
-            )
+            yield from _iter_route_entries(original_router.routes, prefix + nested_prefix)
             continue
         path = getattr(route, "path", None)
         methods = getattr(route, "methods", None)

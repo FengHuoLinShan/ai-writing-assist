@@ -55,12 +55,8 @@ def entity_state(entity) -> dict:
 
 
 def relation_state(relation) -> dict:
-    return {
-        key: copy.deepcopy(getattr(relation, key)) for key in RELATION_STATE_KEYS
-    }
+    return {key: copy.deepcopy(getattr(relation, key)) for key in RELATION_STATE_KEYS}
 
 
 def character_state(character) -> dict:
-    return {
-        key: copy.deepcopy(getattr(character, key)) for key in CHARACTER_STATE_KEYS
-    }
+    return {key: copy.deepcopy(getattr(character, key)) for key in CHARACTER_STATE_KEYS}

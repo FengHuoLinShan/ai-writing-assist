@@ -1190,7 +1190,6 @@ class SceneRepository:
             clauses.extend(serialized.like(f"%{needle}%") for needle in needles)
         return or_(*clauses)
 
-
     async def create(
         self,
         db: AsyncSession,

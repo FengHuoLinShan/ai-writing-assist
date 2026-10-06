@@ -56,12 +56,8 @@ async def test_stats_adapter_projects_writing_contracts(monkeypatch) -> None:
             )
         ]
     )
-    monkeypatch.setattr(
-        "modules.writing.facade.get_project_writing_stats", get_stats
-    )
-    monkeypatch.setattr(
-        "modules.writing.facade.list_project_writing_stats", list_stats
-    )
+    monkeypatch.setattr("modules.writing.facade.get_project_writing_stats", get_stats)
+    monkeypatch.setattr("modules.writing.facade.list_project_writing_stats", list_stats)
     monkeypatch.setattr("modules.writing.facade.list_chapter_indices", list_indices)
     monkeypatch.setattr(
         "modules.writing.facade.list_latest_drafts_for_chapters", list_drafts

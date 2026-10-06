@@ -46,9 +46,7 @@ def _summary(novel_id: str, *, with_items: bool = False, **counts: int):
 async def test_workspace_adapter_projects_attention_summary(monkeypatch) -> None:
     db = SimpleNamespace()
     get_summary = AsyncMock(return_value=_summary("novel-1", with_items=True))
-    monkeypatch.setattr(
-        "modules.world.facade.get_author_attention_summary", get_summary
-    )
+    monkeypatch.setattr("modules.world.facade.get_author_attention_summary", get_summary)
     adapter = WorldWorkspaceStatsAdapter()
 
     summary = await adapter.get_attention_summary(db, "novel-1")

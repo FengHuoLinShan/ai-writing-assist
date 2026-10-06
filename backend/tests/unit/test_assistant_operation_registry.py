@@ -21,6 +21,7 @@ def setup_function():
 def teardown_function():
     reset()
 
+
 # name → (label, permission, revision, schema_json_schema 指纹)
 OPERATION_SNAPSHOT = {
     "world.add_alias": (

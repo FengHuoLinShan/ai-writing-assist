@@ -405,8 +405,7 @@ def _replacement_components(
                 seen_old.add(index)
                 old_component.add(index)
                 queue.extend(
-                    ("candidate", candidate)
-                    for candidate in old_to_candidates[index]
+                    ("candidate", candidate) for candidate in old_to_candidates[index]
                 )
         components.append((sorted(old_component), sorted(candidate_component)))
     return components, evidence_by_candidate
@@ -430,17 +429,21 @@ def _overlap_evidence(
     for chapter in common:
         old_parts = old_by_chapter.get(chapter, [])
         new_parts = candidate_by_chapter[chapter]
-        exact_comparison = bool(old_parts) and all(
-            part.mapping_status in EXACT_MAPPING_STATUSES
-            and part.source_content_hash
-            and part.start_offset is not None
-            and part.end_offset is not None
-            for part in old_parts
-        ) and all(
-            part.get("source_content_hash")
-            and part.get("start_offset") is not None
-            and part.get("end_offset") is not None
-            for part in new_parts
+        exact_comparison = (
+            bool(old_parts)
+            and all(
+                part.mapping_status in EXACT_MAPPING_STATUSES
+                and part.source_content_hash
+                and part.start_offset is not None
+                and part.end_offset is not None
+                for part in old_parts
+            )
+            and all(
+                part.get("source_content_hash")
+                and part.get("start_offset") is not None
+                and part.get("end_offset") is not None
+                for part in new_parts
+            )
         )
         if exact_comparison:
             matching_hash = all(

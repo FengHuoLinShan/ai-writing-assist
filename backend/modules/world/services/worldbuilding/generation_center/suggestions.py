@@ -199,7 +199,6 @@ class _SuggestionStageMixin:
             knowledge_review=result.proposal.knowledge_review,
         )
 
-
     async def _generate_core_entity(
         self,
         db: AsyncSession,
@@ -524,7 +523,6 @@ class _SuggestionStageMixin:
                 risk_level="low",
             ),
         )
-
 
     def _map_existing_page_proposal(
         self,
@@ -856,7 +854,6 @@ class _SuggestionStageMixin:
         if data.pasted_context:
             parts.append(data.pasted_context[-1500:])
         return "\n".join(parts)[:4000]
-
 
     @staticmethod
     def _source_refs(

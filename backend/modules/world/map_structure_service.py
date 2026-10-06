@@ -63,7 +63,6 @@ MAP_TASK = "world_map_schematic_generate"
 _CALIBRATION_HISTORY_LIMIT = 100
 
 
-
 def _story_scene_port():
     # AO-5 / ADR-0031: world 地图只读消费 story 读者揭示决策经组合根注册的 port。
     from core.container import get

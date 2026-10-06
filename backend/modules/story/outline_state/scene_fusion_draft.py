@@ -389,9 +389,7 @@ class SceneFusionDraftGenerator:
             core_conflict_status = str(values.pop("core_conflict_status"))
             return SceneFusionGenerationResult(
                 semantic_fields={
-                    key: value
-                    for key, value in values.items()
-                    if key in SEMANTIC_FIELDS
+                    key: value for key, value in values.items() if key in SEMANTIC_FIELDS
                 },
                 confidence=confidence,
                 reason=reason,
@@ -702,11 +700,7 @@ async def _load_related_context(
 
     relation_order = 0
     character_ids: list[str] = [
-        *(
-            str(scene.pov_character_id)
-            for scene in scenes
-            if scene.pov_character_id
-        ),
+        *(str(scene.pov_character_id) for scene in scenes if scene.pov_character_id),
         *(str(value) for value in outline.related_character_ids),
     ]
     entity_ids: list[str] = [
@@ -774,8 +768,7 @@ async def _load_related_context(
         if str(getattr(item, "status", "")) == "canonical"
     }
     character_by_id = {
-        str(item.character_id): item
-        for item in getattr(characters, "characters", [])
+        str(item.character_id): item for item in getattr(characters, "characters", [])
     }
     payload: dict[str, Any] = {
         "contract_version": "scene-fusion-context-v2",

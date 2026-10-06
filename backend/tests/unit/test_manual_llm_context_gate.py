@@ -39,9 +39,7 @@ GATED_FUNCTIONS = {
         "chat_world_generation_center": ("_require_generation_confirmation",),
         "converge_world_generation_center": ("_require_generation_confirmation",),
         "explore_world_generation_center": ("_require_generation_confirmation",),
-        "inspect_world_generation_center_page": (
-            "_require_generation_confirmation",
-        ),
+        "inspect_world_generation_center_page": ("_require_generation_confirmation",),
         "ask_world": ("_require_generation_confirmation",),
         "generate_world_suggestion": ("_require_generation_confirmation",),
         "enqueue_world_suggestion": ("_require_generation_confirmation",),

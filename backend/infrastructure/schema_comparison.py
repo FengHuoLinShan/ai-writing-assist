@@ -95,14 +95,11 @@ def _validate_migration_managed_objects(connection: Any) -> None:
     for table_name, expected in MIGRATION_MANAGED_CHECKS.items():
         if table_name not in tables:
             continue
-        actual = {
-            check["name"] for check in inspector.get_check_constraints(table_name)
-        }
+        actual = {check["name"] for check in inspector.get_check_constraints(table_name)}
         missing.extend(
             f"{table_name}.{check_name}" for check_name in sorted(expected - actual)
         )
     if missing:
         raise RuntimeError(
-            "Missing migration-managed PostgreSQL schema objects: "
-            + ", ".join(missing)
+            "Missing migration-managed PostgreSQL schema objects: " + ", ".join(missing)
         )

@@ -77,9 +77,7 @@ class OutlineArcLoader(Loader):
             "related_character_ids": list(
                 getattr(arc, "related_character_ids", None) or []
             ),
-            "related_entity_ids": list(
-                getattr(arc, "related_entity_ids", None) or []
-            ),
+            "related_entity_ids": list(getattr(arc, "related_entity_ids", None) or []),
             "status": arc.status,
         }
         bundle.budget_used["outline_arc"] = 1

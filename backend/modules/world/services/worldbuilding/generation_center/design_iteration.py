@@ -327,9 +327,7 @@ class _WorldDesignStageMixin:
                         "围绕作者本轮目标说明必要的代价、日常后果与因果。"
                         "动作名称不扩大作者明确限定的范围：只整理时不追加新机制、"
                         "压力测试或待决问题，允许只修改一个既有字段。\n"
-                        + self._output_contract_message(
-                            WorldDesignIterationOutput
-                        )
+                        + self._output_contract_message(WorldDesignIterationOutput)
                     ),
                 ),
             ],

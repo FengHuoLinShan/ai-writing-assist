@@ -171,7 +171,6 @@ class _ChatStageMixin:
                         )
                     )
 
-
     def _chat_messages(
         self,
         data: WorldGenerationChatRequest,

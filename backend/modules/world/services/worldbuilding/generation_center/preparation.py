@@ -532,7 +532,6 @@ class _PrepareStageMixin:
         }
         return aliases.get(source_type, source_type), source_id
 
-
     async def _load_selected_chapters(
         self,
         db: AsyncSession,
@@ -654,7 +653,6 @@ class _PrepareStageMixin:
             capture_snapshot=capture_snapshot,
             context_confirmation_id=data.context_confirmation_id,
         )
-
 
     @asynccontextmanager
     async def _open_client(

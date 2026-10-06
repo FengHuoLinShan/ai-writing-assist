@@ -80,9 +80,7 @@ class StoryWorkspaceStatsAdapter:
         )
         return WorkspaceSceneFocus(
             id=scene.id,
-            chapter_indices=tuple(
-                int(value) for value in values if str(value).isdigit()
-            ),
+            chapter_indices=tuple(int(value) for value in values if str(value).isdigit()),
         )
 
 

@@ -468,9 +468,7 @@ class TestProjectCrud:
             if task.task_type
             not in {"map_atlas_storage_cleanup", "world_object_image_cleanup"}
         }
-        assert remaining_ids == {
-            task_for_other_project.id
-        }
+        assert remaining_ids == {task_for_other_project.id}
         cleanup = next(
             task for task in tasks if task.task_type == "map_atlas_storage_cleanup"
         )
@@ -656,9 +654,7 @@ class TestProjectService:
         """测试服务层永久删除项目成功"""
         project_id = str(uuid.uuid4())
         repo = MagicMock()
-        repo.lock_deleted_ids_for_update = AsyncMock(
-            return_value={uuid.UUID(project_id)}
-        )
+        repo.lock_deleted_ids_for_update = AsyncMock(return_value={uuid.UUID(project_id)})
         repo.permanent_delete = AsyncMock(return_value=True)
         task_canceller = AsyncMock(return_value=1)
         task_deleter = AsyncMock(return_value=1)

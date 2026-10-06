@@ -118,8 +118,6 @@ async def edit_and_confirm_world_suggestion(
     )
 
 
-
-
 @router.post(
     "/suggestions/{suggestion_id}/merge",
     response_model=SuggestionDecisionResponse,

@@ -20,27 +20,17 @@ async def test_scene_port_delegates_read_only_calls(monkeypatch) -> None:
     db = SimpleNamespace()
     scene = SimpleNamespace(id="scene-1", scene_index=3)
     get_scene = AsyncMock(return_value=scene)
-    presence = AsyncMock(
-        return_value=SimpleNamespace(nodes=(), segments=())
-    )
-    reveal = AsyncMock(
-        return_value=SimpleNamespace(has_policy=True, revealed=False)
-    )
+    presence = AsyncMock(return_value=SimpleNamespace(nodes=(), segments=()))
+    reveal = AsyncMock(return_value=SimpleNamespace(has_policy=True, revealed=False))
     monkeypatch.setattr(
         "modules.story.outline_state.facade.get_scene_contract", get_scene
     )
-    monkeypatch.setattr(
-        "modules.story.facade.project_scene_presence", presence
-    )
-    monkeypatch.setattr(
-        "modules.story.facade.get_reader_reveal_decision", reveal
-    )
+    monkeypatch.setattr("modules.story.facade.project_scene_presence", presence)
+    monkeypatch.setattr("modules.story.facade.get_reader_reveal_decision", reveal)
     port = SceneSourcePort()
 
     contract = await port.get_scene_contract(db, "novel-1", "scene-1")
-    report = await port.project_scene_presence(
-        db, "novel-1", through_scene_index=3
-    )
+    report = await port.project_scene_presence(db, "novel-1", through_scene_index=3)
     decision = await port.get_reader_reveal_decision(
         db,
         novel_id="novel-1",

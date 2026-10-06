@@ -148,9 +148,7 @@ def port_for(kind):
     from functools import partial
 
     creative_resource_port = get(COLLABORATION_CREATIVE_RESOURCE_PORT)
-    return creative_resource_port(
-        partial(inventory, kind=kind), read, validate, apply
-    )
+    return creative_resource_port(partial(inventory, kind=kind), read, validate, apply)
 
 
 def ports():

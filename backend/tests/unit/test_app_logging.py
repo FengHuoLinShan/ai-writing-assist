@@ -106,9 +106,7 @@ async def test_health_check_redacts_database_exception(caplog, monkeypatch) -> N
     class _FailingManager:
         @asynccontextmanager
         async def session(self):
-            raise RuntimeError(
-                f"Authorization: Bearer {secret} api_key={secret}"
-            )
+            raise RuntimeError(f"Authorization: Bearer {secret} api_key={secret}")
             yield
 
     monkeypatch.setattr(app_main, "get_manager", _FailingManager)
@@ -292,9 +290,7 @@ async def test_lifespan_fails_closed_when_pgvector_probe_errors_in_production(
     events: list[str] = []
     manager = _FailingVectorManager(events)
 
-    with pytest.raises(
-        RuntimeError, match="pgvector extension check failed"
-    ) as exc_info:
+    with pytest.raises(RuntimeError, match="pgvector extension check failed") as exc_info:
         await _run_lifespan_once(monkeypatch, manager, app_env="production")
 
     assert isinstance(exc_info.value.__cause__, RuntimeError)

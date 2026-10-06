@@ -280,9 +280,7 @@ class ProjectWorkspaceSummaryService:
                 scene = await self._scene_reader(db, novel_id, focus_scene_id)
             except ValidationError:
                 scene = None
-            scene_chapters = (
-                set(scene.chapter_indices) if scene is not None else set()
-            )
+            scene_chapters = set(scene.chapter_indices) if scene is not None else set()
             if scene is not None and (
                 effective_chapter is None or effective_chapter in scene_chapters
             ):

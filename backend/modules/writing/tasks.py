@@ -32,6 +32,7 @@ def _publish_retry_delay(attempt: int) -> float:
         _PUBLISH_RETRY_MAX_DELAY,
     )
 
+
 # writing.generate 的导演分片大小（evidence knowledge workflow 冻结常量）。
 _WRITING_GENERATE_DIRECTOR_SHARD_SIZE = 64
 #: 入队 meta 未冻结来源上界时的保守 included 来源上界（仅历史在途任务）。
@@ -359,9 +360,7 @@ async def handle_writing_targeted_revision(db, task):
         finding_ids=[str(value) for value in meta.get("finding_ids") or []],
         instruction=meta.get("instruction"),
         llm_execution_snapshot=snapshot,
-        contract_item_ids=[
-            str(value) for value in meta.get("contract_item_ids") or []
-        ],
+        contract_item_ids=[str(value) for value in meta.get("contract_item_ids") or []],
     )
     task.update_progress(1.0)
     await db.flush()

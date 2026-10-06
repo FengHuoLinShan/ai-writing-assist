@@ -404,7 +404,6 @@ class _LlmRunStageMixin:
             violations.append("作者尚未允许命名，name 必须使用未命名占位符")
         return violations
 
-
     def _structured_messages(
         self,
         data: WorldGenerationSuggestionRequest,

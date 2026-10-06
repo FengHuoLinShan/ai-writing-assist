@@ -255,9 +255,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 "Production requires vector operations. "
                 "Install it via: CREATE EXTENSION vector; refusing to start."
             )
-            raise RuntimeError(
-                "pgvector extension is required when APP_ENV=production"
-            )
+            raise RuntimeError("pgvector extension is required when APP_ENV=production")
         else:
             logger.warning(
                 "pgvector extension NOT detected. "
