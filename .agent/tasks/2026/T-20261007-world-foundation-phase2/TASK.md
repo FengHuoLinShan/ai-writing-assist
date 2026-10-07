@@ -805,3 +805,242 @@ proven_shown`）；锚章带 working 稿（exact 整章区间）时 cutoff 过�
 continuity 子集 199 passed；`ruff check`/`format` 通过（含新测试文件）；
 `make module-import-gate` 通过（65/65、9/9、0/0、525/525 未推高、0/0、26/26——
 新增导入均为 story 模块内 + shared/infrastructure 既有允许边）。零 LLM、零 git commit。
+
+## C1 产出（消费登记缝设计与契约单元，2026-10-07）
+
+新契约模块 `backend/modules/evolution/consumption.py`（约 830 行，零 DB/零
+LLM/零接线）+ 契约测试 `backend/modules/evolution/tests/test_consumption_registry.py`
+（34 例全绿，文件名避开 C0 的 `p2c_` 前缀）+ `backend/core/service_keys.py`
+新增一个 DI 键常量。**选址裁定：放 evolution 模块内**——失效计算（登记集的
+消费方）在本模块；story→evolution 依赖边在 import-gate 冻结集合内（合法），
+writing→evolution **不在**（回执透传只能走 DI）；跨模块导入须经
+`modules.evolution.contracts`/`facade` 再出口（形态门禁），再出口归 C2/C3。
+
+### 与 C0 夹具的键名对齐（已按其目标形态逐键对齐）
+
+C0 落盘于本单元写作中途，已按 `test_p2c_revision_adoption.py` 头部目标形态
+同步：`ConsumerKind.story_scene_checkpoint`（非 scene_checkpoint）、
+`RecomputeScope = {reload_evidence, rebuild_derived_state, regenerate_prose}`
+（非 reread/rebuild_derived）、视图顶层 `affected`/`unknown_scope`(bool)/
+`receipt_id` 最小键集、unknown 条目 `reason="conservative_expansion_unregistered"`
++ `basis="known"|"unknown"`、recompute 选项 `{kind, covers, affected?}` 三类
+恒列（regenerate 带 `author_choice_only=True`）。
+`ImpactReason`：`anchored_chapter_edited` / `offset_window_hit` /
+`offset_window_miss` / `content_mode_mismatch` /
+`conservative_expansion_unregistered` / `unregistered_consumer`。
+
+### 契约原文（结构清单）
+
+```
+CONSUMPTION_CONTRACT_VERSION = "consumption-registry-v1"
+CONSUMPTION_REGISTRY_STATE_KEY = "_consumption_registry"   # 产物行 JSON 内嵌键
+
+ConsumerKind(StrEnum): story_scene_checkpoint | evidence_chapter_index | scene_lens
+CONSUMER_REF_REQUIRED_KEYS: kind → 必填定位键（scene_checkpoint=scene_id+dimension；
+  evidence=chapter_index+content_mode；lens=scene_id；缺锚构造即失败，不冒充覆盖）
+
+ConsumerRef(frozen): kind + scene_id?/scene_index?/dimension?/chapter_index?/content_mode?
+OffsetRange(frozen): start_offset/end_offset（码点，end 开区间，与 SourceChange 同口径）
+ChapterConsumption(frozen): chapter_index + draft_id?/version_number?/source_hash?
+  + ranges: tuple[OffsetRange]（空=整章消费，任何该章变更命中）
+SourceBinding(frozen): content_mode(working|canonical) + chapters 非空且章号不重复
+  （多章 Scene 跨章表达）+ .chapter(idx) 查询
+BasisAnchor(frozen): anchor_kind(scene_checkpoint|chapter_basis|evidence_index_state)
+  + ref_id + fingerprint?
+AssetDigest(frozen): asset_kind + asset_id + digest?（摘要引用，重算按 id 重读）
+ConsumptionRecord(frozen): novel_id（隔离锚，跨 novel 记录被评估直接忽略）
+  + consumer + binding + basis? + selected_assets/excluded_assets
+  + method_version + registered_at(datetime)
+
+read_consumption_records(payload): 旧载荷（无键）/非 dict → [] 不报错不冒充；
+  键存在内容非法 → ValidationError（写入端已校验，读回非法=数据损坏，沿 P2-A 裁定）
+
+影响计算（纯函数 assess_source_impact）：
+ConsumerImpact: affected | unaffected | unknown
+ConsumerVerdict(frozen): consumer + impact + reason + note(作者语言)
+UnknownScope(frozen): chapter_registration_missing / scenes_without_registration /
+  scene_roster_unavailable / unregistered_consumers / note + .conservative
+  （conservative 只衡量投影窗口能否收窄；unsupported 列表恒展示不参与窗口，
+  对齐现状回执 unsupported_consumers 只展示的角色）
+ImpactAssessment(frozen): nothing_to_do + verdicts + unknown_scope
+  + conservative_from_scene_index(对拍锚) + from_scene_index + refined + .affected()
+
+回执透传：
+CONSUMER_LABELS（内部键→作者标签，未知键回退原键进诊断区）
+receipt_fingerprint(receipt) -> str（稳定指纹=content_hash(关键内容)，receipt_id 的 C1 实现）
+affected_view_entries(receipt, assessment=None) -> [{consumer, scene_id, scene_index,
+  dimension, reason, basis, note}]（known=登记命中/确定性键；unknown=保守扩大场景；
+  无关 Scene 不进列表；无 assessment 退化为回执确定性键）
+derive_recompute_options(receipt, assessment=None) -> 三类恒列（nothing_to_do → []）
+receipt_public_view(receipt, assessment=None) -> dict（C0 最小键集 + 作者语言字段
+  invalidated/unsupported/coverage_note/diagnostics；JSON 可直接进响应）
+
+重算三分类：
+RECOMPUTE_SCOPE_COVERS: reload_evidence→(evidence_chapter_index,)
+  rebuild_derived_state→(story_scene_projections,) regenerate_prose→(prose_generation,)
+RECOMPUTE_SCOPE_EFFECTS: 各类 cost/write_effect（作者语言受控表）
+RecomputeTargetRef(frozen): scene_index?/chapter_index?/dimension?（至少一锚）
+RecomputeRequest(frozen): novel_id + operation_id + scope + targets(非空)
+  + mode(preview|execute，execute⇒confirmed) + confirmed + baseline_receipt_digest?
+  （validator：execute 未确认拒绝；regenerate_prose 必须锚章）
+recompute_request_hash(request)：幂等第二键（不含 mode——预览/执行同操作；
+  口径沿 collaboration merge 的 operation_id+request_hash 双幂等）
+RecomputePreview(frozen)：domain_write_performed=False 字面量（结构上零正史写入）
+  + build_recompute_preview(request, affected_consumers=...)
+RecomputeOutcome(frozen)：replayed(幂等重放标记) + domain_write_performed + results
+```
+
+### 落点决策：纯 JSON 内嵌，不加表（C2 沿此执行）
+
+- 登记记录随消费产物行内嵌（checkpoint `state_json["_consumption_registry"]`、
+  evidence 索引 state 等价 JSON 载荷），沿 P2-A `_field_provenance` 先例：与产物行
+  生命周期一致（随 supersede 软删）、JSON 边界过 Pydantic 校验、失效计算按
+  novel+chapter 拉产物行时顺带读取，无跨行独立查询需求；省 models+Alembic。
+- 契约提供 `read_consumption_records` 兼容读取，旧数据（无键）评估退化为纯保守
+  （与现状等价），不迁移。若 C2/C3 发现需要按登记集独立检索（如"谁消费了这版稿"
+  反查），再评估窄表——那属于新需求，不在本包。
+
+### 影响计算与现状保守行为的对拍结论（测试钉死）
+
+- **无登记 → 行为不变**：`from_scene_index` 恒等于传入的 earliest（=
+  回执 `earliest_affected_scene_index`）。DB 对拍
+  （test_no_registration_assessment_matches_real_invalidation_receipt）：真实
+  `apply_source_invalidation` 改第 2 章后 receipt.earliest=1、库中 Scene 1
+  checkpoint 全 superseded / Scene 0 保持 current，评估窗口与之逐位一致；
+  unknown 来源显式列出（chapter_registration_missing + scenes_without_registration
+  = (1,) + unsupported）。
+- **有登记 → 仅细化、不隐藏**（test_registration_refines_real_conservative_window）：
+  登记区间与变更窗口不相交 → verdict `offset_window_miss`、评估失效集合（∅）⊆
+  现状失效集合（{1}）；全部登记证明无关且无 unknown → from=None（零投影失效，
+  "已知依赖零无关重生成"的证明材料）。
+- 保守收窄三前提：变更章有登记、保守窗口内全部场景有登记、调用方提供场景清单
+  （`scene_indexes=None` 恒保守）。unknown 任一存在 → from=earliest 不收窄。
+- 跨章 Scene 早于保守锚：from 取 `min(命中 scene, earliest)`（登记修复保守
+  扩大漏掉的跨章前缀，只可能更早=更安全方向）。
+- `changed=False` → nothing_to_do（回执同语义）；`changed=True` 但缺偏移窗口 →
+  按整章消费保守命中。
+- 评估纯函数不查库：earliest 由调用方经 `invalidation.affected_scene_window`
+  查得、场景清单从 outline 查得（C2 接线时组装）。
+
+### DI 缝结论
+
+- `EVOLUTION_RECORD_WRITING_SOURCE_CHANGE` **签名不变**：`record_writing_source_change`
+  已返回 `InvalidationReceipt`，writing 层只是丢弃（repositories.py:57-64）——
+  C3 最小首步是接住返回值，无需改缝。
+- 新增键常量 `EVOLUTION_INVALIDATION_RECEIPT_VIEW = ServiceKey(
+  "evolution.invalidation.receipt_view")`（consumption.receipt_public_view 的注入位；
+  writing 层不能 import evolution——冻结集合无 writing→evolution 边）。常量暂
+  **不入 `ALL_SERVICE_KEYS`**：登记表与 bootstrap 注册须一一对应（AO-10 校验 +
+  tests/unit/test_container.py::test_bootstrap_declared_keys_match_registered_services
+  会对未注册键 get() 失败），组合根注册与补录归 C2/C3 接线一并完成。
+- 重算编排键暂不加：C3 编排端点定形后再评估（预览/执行或经 collaboration
+  现有 case/merge 端点承载，未必要新键）。
+
+### C2/C3 落点建议（file:line）
+
+- C2（evolution 侧）：
+  - `backend/modules/evolution/invalidation.py:98-110` `InvalidationReceipt` 增补
+    可选字段 `affected: list[dict]`、`unknown_scope: bool`、`receipt_id: str`、
+    `recompute_options: list[dict]`（默认空，旧构造兼容；extra=forbid 注意存量
+    测试构造不受影响——默认值即可）。
+  - `invalidation.py:209-232` `apply_source_invalidation` 的 story_state 失效段：
+    组装 `assess_source_impact`（earliest 已在 :209 查得；场景清单经 outline
+    facade；records 从 checkpoint state_json 读 `read_consumption_records`——
+    story 侧行的读取经函数内导入或 facade），用 `assessment.from_scene_index`
+    替换 earliest 传入 `invalidate_sources`/`invalidate_derived_state`（unknown
+    时两者相等=行为不变）；回执填 affected/unknown_scope/receipt_id/
+    recompute_options（`affected_view_entries`/`derive_recompute_options`/
+    `receipt_fingerprint`）。
+  - 登记写入端（story 侧）：`backend/modules/story/continuity/scene_projection.py`
+    `_project_dimension`（P2-A 挂链同位置 :514-558 一带）把 `ConsumptionRecord`
+    写入 `state[CONSUMPTION_REGISTRY_STATE_KEY]`（binding 的 draft/version/
+    source_hash 沿 A2 `_event_source_refs` 同源）；跨模块导入经
+    `modules/evolution/contracts.py` 再出口（story→evolution 边合法但须
+    contracts/facade 形态）。evidence 侧登记（evidence_chapter_index/scene_lens
+    kind）在索引重建/lens 摘要处同理。
+  - store 回执落库按 C2 任务卡原计划。
+- C3（writing 侧）：
+  - `backend/modules/writing/repositories.py:57-64` `_changed` 接住
+    `await get(EVOLUTION_RECORD_WRITING_SOURCE_CHANGE)(...)` 返回值（receipt 鸭子
+    类型），经 `get(EVOLUTION_INVALIDATION_RECEIPT_VIEW)(receipt, assessment=...)`
+    投影成 dict 后随 draft 事件透传（create/update 链路加返回通道或挂
+    provenance_json 旁路，按 C3 实际调用链定）。
+  - `backend/modules/writing/api.py` 响应模型加 `invalidation: dict | None`
+    （C0 xfail 用例 test_p2c_writing_revision_surfaces_invalidation_view 的目标：
+    `WritingDraftContract.invalidation` 键集 ⊇ {affected, unknown_scope, receipt_id}，
+    affected scene 集合 == {1,2}——由 receipt_public_view(assessment=) 产出）。
+  - `backend/app/bootstrap.py` `_container_services` 注册
+    `(EVOLUTION_INVALIDATION_RECEIPT_VIEW, consumption.receipt_public_view)` 并把
+    键补进 `core/service_keys.ALL_SERVICE_KEYS`。
+  - 重算编排端点：`RecomputeRequest(mode="preview")` → `build_recompute_preview`
+    （零正史写入）+ `mode="execute"` 经 collaboration 试改生命周期（幂等
+    operation_id+recompute_request_hash、三向 rebase、人工修改保留——本包 C0
+    夹具 M2–M6 已钉基线）；`baseline_receipt_digest` 执行时重验（漂移 409）。
+
+### 验证
+
+`modules/evolution/tests/test_consumption_registry.py` 34 例全绿（含 2 例真库
+对拍：无登记行为不变、有登记仅细化；结构校验/旧数据兼容/幂等键/预览零写入
+全覆盖）；`modules/evolution` 全量 274 passed + 4 xfailed（C0 夹具 xfail 保持），
+另有 3 failed **全部位于并行 C0 子代理仍在迭代中的 test_p2c_revision_adoption.py**
+（setup 层 `get_latest_draft_for_chapter` 返回 None 等，零 import 本单元文件，
+失败数随其修复持续下降 8→4→3，归 C0/汇合处理）；`tests/unit/test_container.py`
+21 passed（service_keys 改动无回归）；ruff check/format 过；
+`make module-import-gate` 过（65/65、9/9、0/0、525/525、0/0、26/26 未推高——
+新模块仅同模块+infrastructure 导入）。零 LLM、零真实数据写入、零 git commit。
+
+## C0 产出（P2-C 批1，2026-10-07）
+
+夹具文件：`backend/modules/evolution/tests/test_p2c_revision_adoption.py`
+（模块内 tests 惯例、`p2c_` 前缀，SQLite 合成库经真实公开入口执行：
+WritingDraftService / MemoryService / SceneMemoryProjectionService /
+collaboration cases·workspaces·merge·recovery / evolution 失效缝）。
+当前输出 **11 passed + 4 xfailed**；`--runxfail` 验证四个 xfail 均失败在
+目标断言（getattr 取不到结构即断言失败，非 setup 报错）。零 LLM、零真实数据。
+
+### 场景×断言矩阵
+
+| 用例 | 场景 | 断言要点 | 状态 |
+|---|---|---|---|
+| test_p2c_custody_revision_marks_failure_scope_and_adoption_conflict | §3 场景六 改稿×并发采用 | 改保管章 v2 保存即失效（s1 起软失效、s0 不牵连）；任务入队仅 rag_index_chapter（零昂贵生成）；同窗口采用被领域错误拒绝（selected 范围现状报 NotFoundError 资源不可重定位）、当前稿保留作者 v2、零回执；rebase 报同字段冲突且当前稿精确保留 | 真绿 |
+| test_p2c_custody_revision_current_semantics_stay_conservative | 现状钉板 | earliest_affected_scene_index=1；evidence_chapter_index 换源（requested_hash 与库一致）；story_scene_projections.from_scene_index=1 且 superseded_checkpoints≥1 | 真绿 |
+| test_p2c_unregistered_dependency_expands_conservatively_without_hiding | 未知消费者保守扩大 | s2（无登记）仍被扩大失效；unsupported_consumers=={world_knowledge,map_atlas} 且各带 reason；coverage_note 明言"保守扩大" | 真绿 |
+| test_p2c_unrelated_chapter_edit_keeps_custody_scenes_current | 零无关重生成（现状） | 改无关第 3 章：earliest=2，s0/s1 checkpoint 保持 current | 真绿 |
+| test_p2c_matrix_m1_source_change_preserves_versions_and_history | M1 来源变化 | 版本行 [v1,v2] 俱在；软失效 checkpoint 行保留；保管事件行保留 | 真绿 |
+| test_p2c_matrix_m2_confirmation_drift_keeps_manual_draft | M2 确认漂移 | 采用被拒、当前稿=人工版、零回执、基线版本可回开 | 真绿 |
+| test_p2c_matrix_m3_midway_failure_rolls_back_and_keeps_drafts | M3 途中失败 | 第二写注入失败 → 双章域写入全回滚、稿保持基线、零回执 | 真绿 |
+| test_p2c_matrix_m4_merge_retry_is_idempotent_and_receipt_queryable | M4 重试 | 同 operation_id 回放同回执、仅 1 行；采用后人工再改不被重试覆盖；回执/合并试改仍可查 | 真绿 |
+| test_p2c_matrix_m5_two_windows_merge_fields_and_keep_current | M5 双窗口修改 | 作者改标题+试改正文 → rebase 自动合并（回放幂等）；同字段 → conflict+当前稿保留 | 真绿 |
+| test_p2c_matrix_m6_leave_and_restore_keeps_trial_and_draft | M6 离开恢复 | 重开 workspace 覆盖层仍在、可继续叠加（sequence+1）、当前稿不动 | 真绿 |
+| test_p2c_cancel_after_preview_writes_nothing_canonical | 取消零正史副作用 | 预览后取消：当前稿零写入、零回执、零 DomainOutbox | 真绿 |
+| test_p2c_custody_revision_affect_list_is_explainable | 场景六 目标形态 | receipt.affected 列表：s1 basis=known（reason 可解释）、s2 basis=unknown（conservative_expansion_unregistered）、s0 不入列；unknown_scope=True；receipt_id 非空 | xfail |
+| test_p2c_writing_revision_surfaces_invalidation_view | 写作侧透传 目标形态 | WritingDraftContract.invalidation 视图（键集 affected/unknown_scope/receipt_id；scene_indexes=={1,2}；钩子确已执行仅回执被丢弃） | xfail |
+| test_p2c_recompute_options_classify_three_cost_tiers | 重算三分类 目标形态 | recompute_options kinds=={reload_evidence, rebuild_derived_state, regenerate_prose}；rebuild.affected=={1,2}（含保守条目）、不含 s0 | xfail |
+| test_p2c_unrelated_chapter_edit_enqueues_no_custody_scene_recompute | 零无关重生成 目标形态 | 改无关章的重算清单与 affected 均不含保管场景 s0/s1 | xfail |
+
+xfail 统一 `pytest.mark.xfail(reason="P2-C dependency registration not implemented",
+strict=False)`；失败点（--runxfail 实测）：前四者分别在 receipt.affected /
+contract.invalidation / receipt.recompute_options 的结构存在断言处。
+
+### 钉下的目标形态（键名级，C1/C3 对齐基准；详见夹具头注释）
+
+- 失效可解释视图（InvalidationReceipt 增强并经 writing 契约透传的投影）：
+  `{affected: [{consumer, scene_id, scene_index, reason, basis: known|unknown}],
+  unknown_scope: bool, receipt_id}`；reason 机器可读（anchored_chapter_edited /
+  conservative_expansion_unregistered）。现有 earliest_affected_scene_index /
+  invalidated_consumers / unsupported_consumers / coverage_note 保守语义由真绿
+  用例钉死不回归。
+- 重算三分类：`recompute_options: [{kind: reload_evidence|rebuild_derived_state|
+  regenerate_prose, covers: [...], affected: [scene 引用]}]`；编辑保存自动入队
+  仅允许证据重读类（现状真绿：task_types ⊆ {rag_index_chapter}）。
+- 重算预览/采用复用 Collaboration 试改生命周期（取消/冲突/幂等/双窗口断言即
+  验收基线），采用重验接 revalidate_creative_manifest。
+
+### 现状语义注记（C1/C2/C3 设计输入）
+
+- selected 范围下来源漂移的采用拒绝现状是 NotFoundError（旧资源不可重定位），
+  project 范围是 ConflictError(SOURCE_STALE/查询范围)——两者同为领域拒绝、
+  均零域写入；C4 前端提示与 C3 编排需兼容两种错误面。
+- request_chapter_index 在来源变化时入队 rag_index_chapter（one_pending_follower
+  模式）——它属"重读证据"档，"编辑不自动触发生成"的真绿断言以任务类型白名单
+  表达（≠ 零任务）。
