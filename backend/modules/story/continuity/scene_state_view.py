@@ -15,6 +15,22 @@ P2-A 追加逐字段来源（field_provenance.py）：受控母题字段的 fact
 status 三态 exact/unverified/conflict，无记录（含旧格式 checkpoint）不冒充——
 不带 provenance，展示层显示「来源待核实」。历史 checkpoint 摘要与列表出口
 （``summarize_field_provenance`` / ``list_scene_checkpoints``）也由本模块提供。
+
+P2-B 追加视角边界接线（knowledge_contract.py，B1 契约）：
+
+- character 视角的知识授予与逐条拒绝原因同源于契约条目——
+  ``read_knowledge_statements`` 读入 checkpoint 知识列表，
+  ``build_knowledge_grants`` 构建授予表（与原 ``_knowledge_grants`` 口径
+  对拍相等），``denial_reason`` 给每个被抑制 fact 归因三类互斥拒绝原因
+  （no_knowledge_entry / knowledge_value_mismatch / false_belief），装进
+  ``SceneStateViewDetailResponse.denied_facts``（仅 character 填充；
+  reader 拒绝维持 omissions 数量口径，不泄露对象身份）。
+- reader 揭示闸：``_reveal_cache`` 之上叠 ``evaluate_reader_reveal``（主张
+  锚 = outline 策略已达到章 ∪ 全书 timeline 揭示事件的锚章
+  ``field_path={subject}.{field}``）+ ``reveal_within_proven_shown`` 证明闸
+  （exact 稿源章构成「读者已见过原文」的证明，unverified/conflict 不算）。
+  无策略且无主张锚 → 维持结构层默认公开；有锚即须证明域（当章不揭示、
+  无 cutoff 不猜、无已展示证明不启用）。
 """
 
 from __future__ import annotations
@@ -23,6 +39,7 @@ import json
 from collections.abc import Mapping
 from typing import Any
 
+from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.container import get
@@ -37,6 +54,16 @@ from modules.story.continuity.field_provenance import (
     read_field_provenance,
     resolve_field_status,
 )
+from modules.story.continuity.knowledge_contract import (
+    KnowledgeStatement,
+    RevealDomain,
+    build_knowledge_grants,
+    denial_reason,
+    evaluate_reader_reveal,
+    read_knowledge_statements,
+    reveal_within_proven_shown,
+)
+from modules.story.continuity.repositories import EventRepository
 from modules.story.continuity.scene_projection import SceneMemoryProjectionService
 from modules.story.continuity.schemas import (
     SceneStateDimensionView,
@@ -47,6 +74,7 @@ from modules.story.outline_state.facade import (
     get_reader_reveal_decision,
     get_scene_contract,
 )
+from shared.utils import parse_uuid
 
 SCENE_STATE_VIEW_CONTRACT_VERSION = "scene-state-view-v1"
 
@@ -162,6 +190,26 @@ def summarize_field_provenance(
     return summaries
 
 
+class SceneStateViewDetailResponse(SceneStateViewResponse):
+    """P2-B：视角视图 + character 侧逐条拒绝原因（``denied_facts``）。
+
+    ``SceneStateViewResponse`` 的超集——既有字段语义不变、只增不删，序列化
+    出口兼容（FastAPI response_model 按父类校验时子类实例原样通过，
+    jsonable_encoder 按实例 dump，新字段保留）。
+
+    - ``denied_facts`` 仅 character 视角填充：每个因知识边界被抑制的 fact
+      逐条归因三类互斥原因（``knowledge_contract.denial_reason``：
+      no_knowledge_entry / knowledge_value_mismatch / false_belief），供作者
+      解释「为什么这个角色不知道」；作者视角全见不产生拒绝。
+    - reader 视角恒为空列表：读者拒绝维持 omissions 的数量口径（揭示前
+      不泄露对象身份，B0 契约第 5 条钉定）。
+    - 不参与 ``state_fingerprint``：拒绝原因是视角解释，不改变可见状态
+      本体（同一 checkpoint 重复请求结果确定）。
+    """
+
+    denied_facts: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class SceneStateViewService:
     """视角分层读取；纯读，不 ensure、不重建、不写库。"""
 
@@ -218,11 +266,17 @@ class SceneStateViewService:
             )
         )
 
-        knowledge_grants = (
-            self._knowledge_grants(items.get("knowledge"), target_id)
-            if kind == "character"
-            else {}
-        )
+        # P2-B：character 视角的知识授予与拒绝原因同源（契约条目单一事实源）。
+        knowledge_statements: list[KnowledgeStatement] = []
+        knowledge_grants: dict[str, dict[str, frozenset[str]]] = {}
+        if kind == "character":
+            knowledge_checkpoint = items.get("knowledge")
+            knowledge_statements = read_knowledge_statements(
+                knowledge_checkpoint.state_json
+                if knowledge_checkpoint is not None
+                else None
+            )
+            knowledge_grants = build_knowledge_grants(knowledge_statements, target_id)
         reveal_cache = (
             await self._reveal_cache(
                 db,
@@ -234,6 +288,8 @@ class SceneStateViewService:
                     if dim in dimensions_filter
                     for entry_subject, _layer in self._dim_subjects(items.get(dim), dim)
                 },
+                scenes=scenes,
+                proven_chapters=self._proven_shown_by_subject(items),
             )
             if kind == "reader"
             else {}
@@ -241,6 +297,7 @@ class SceneStateViewService:
 
         dimensions: list[SceneStateDimensionView] = []
         omissions: list[str] = []
+        denied_facts: list[dict[str, Any]] = []
         for dimension in dimensions_filter:
             checkpoint = items.get(dimension)
             if checkpoint is None or checkpoint.status == "missing":
@@ -268,14 +325,16 @@ class SceneStateViewService:
                 omissions.append("时间顺序：读者揭示范围尚未核对")
                 continue
             entries = self._entries_for(dimension, checkpoint)
-            visible, suppressed = self._filter_entries(
+            visible, suppressed, denied = self._filter_entries(
                 dimension,
                 entries,
                 kind=kind,
                 target_id=target_id,
                 knowledge_grants=knowledge_grants,
                 reveal_cache=reveal_cache,
+                knowledge_statements=knowledge_statements,
             )
+            denied_facts.extend(denied)
             status = "ok" if checkpoint.status == "ready" else "degraded"
             gap_reason = str(checkpoint.gap_reason) if checkpoint.gap_reason else None
             basis_reason = self._basis_gap_reason(checkpoint, current_basis_hash)
@@ -335,7 +394,7 @@ class SceneStateViewService:
                 ),
             }
         )
-        return SceneStateViewResponse(
+        return SceneStateViewDetailResponse(
             novel_id=str(novel_id),
             scene_id=str(scene_id),
             scene_index=int(checkpoint_set.scene_index),
@@ -348,6 +407,7 @@ class SceneStateViewService:
             unsupported_dependencies=list(UNSUPPORTED_DEPENDENCIES),
             unsupported_dimensions=list(UNSUPPORTED_DIMENSIONS),
             omissions=omissions,
+            denied_facts=denied_facts,
         )
 
     # ── 来源基线新鲜度（M4 契约 §3.2）──
@@ -627,40 +687,21 @@ class SceneStateViewService:
     @staticmethod
     def _knowledge_grants(
         checkpoint: Any, target_id: str
-    ) -> dict[str, dict[str, set[str]]]:
+    ) -> dict[str, dict[str, frozenset[str]]]:
         """角色的知识绑定到字段值，旧知识不能放行未目击的后来变化。
+
+        P2-B 起委托统一契约（``read_knowledge_statements`` +
+        ``build_knowledge_grants``，与原内联实现逐位对拍相等——
+        test_p2b_knowledge_contract 钉定）；授予语义不变：
 
         - 带 false/false_belief 标记的误信条目不授予（误信不是知识）。
         - 授予需要显式 ``fields`` 与 ``known_values``；缺失则仅为 belief
           （A03：丙知道 holder 不等于知道 owner）。
         """
-        grants: dict[str, dict[str, set[str]]] = {}
         if checkpoint is None:
-            return grants
-        state = checkpoint.state_json or {}
-        for payload in state.get("character_knowledge") or []:
-            if not isinstance(payload, dict):
-                continue
-            holder = payload.get("character_id") or payload.get("holder_id")
-            if str(holder or "") != target_id:
-                continue
-            if any(bool(payload.get(marker)) for marker in _FALSE_MARKERS):
-                continue
-            subject = payload.get("subject_id") or payload.get("subject")
-            fields = payload.get("fields")
-            values = payload.get("known_values")
-            if (
-                not subject
-                or not isinstance(fields, list)
-                or not isinstance(values, dict)
-            ):
-                continue
-            for field in fields:
-                if isinstance(field, str) and field in values:
-                    grants.setdefault(str(subject), {}).setdefault(field, set()).add(
-                        stable_hash(values[field])
-                    )
-        return grants
+            return {}
+        statements = read_knowledge_statements(checkpoint.state_json)
+        return build_knowledge_grants(statements, target_id)
 
     def _filter_entries(
         self,
@@ -669,11 +710,12 @@ class SceneStateViewService:
         *,
         kind: str,
         target_id: str | None,
-        knowledge_grants: dict[str, dict[str, set[str]]],
+        knowledge_grants: dict[str, dict[str, frozenset[str]]],
         reveal_cache: dict[str, bool],
-    ) -> tuple[list[SceneStateFactEntry], int]:
+        knowledge_statements: list[KnowledgeStatement] | None = None,
+    ) -> tuple[list[SceneStateFactEntry], int, list[dict[str, Any]]]:
         if kind == "author":
-            return entries, 0
+            return entries, 0, []
 
         def keep(entry: SceneStateFactEntry) -> bool:
             if kind == "character":
@@ -698,8 +740,38 @@ class SceneStateViewService:
                 return reveal_cache.get(entry.subject_id, False)
             return False
 
-        visible = [entry for entry in entries if keep(entry)]
-        return visible, len(entries) - len(visible)
+        visible: list[SceneStateFactEntry] = []
+        denied: list[dict[str, Any]] = []
+        for entry in entries:
+            if keep(entry):
+                visible.append(entry)
+                continue
+            # P2-B：character 视角对每个被抑制的 fact 逐条归因（三类互斥，
+            # denial_reason 与授予同一契约口径）；belief/observation 的
+            # 拒绝是视角层排除，不是知识原因，维持维度级 omissions 计数。
+            if kind != "character" or entry.layer != "fact":
+                continue
+            if knowledge_statements is None or target_id is None:
+                continue
+            cause = denial_reason(
+                knowledge_statements,
+                holder_id=target_id,
+                subject_id=str(entry.subject_id or ""),
+                field=entry.field,
+                value=entry.value,
+            )
+            if cause is None:
+                continue
+            denied.append(
+                {
+                    "dimension": dimension,
+                    "subject_id": entry.subject_id,
+                    "subject_label": entry.subject_label,
+                    "field": entry.field,
+                    "cause": cause.value,
+                }
+            )
+        return visible, len(entries) - len(visible), denied
 
     async def _reveal_cache(
         self,
@@ -708,10 +780,26 @@ class SceneStateViewService:
         novel_id: str,
         cutoff_chapter: int | None,
         subjects: set[str],
+        scenes: list[dict[str, Any]] | None = None,
+        proven_chapters: dict[str, frozenset[int]] | None = None,
     ) -> dict[str, bool]:
+        """reader 视角的逐对象揭示判定（P2-B 双闸）。
+
+        - cutoff 闸（``evaluate_reader_reveal``）：无策略且无揭示主张记录 →
+          结构层默认公开（既有语义，test_reader_view_gates_entities_by_reveal
+          钉定）；有主张锚（outline 策略已达到章 ∪ timeline 揭示事件锚章）即
+          移入须证明域——无 cutoff 不猜、当章不揭示（严格 ``<``）。
+        - 证明闸（``reveal_within_proven_shown``）：通过 cutoff 闸的锚还须
+          落在该对象 exact 稿源章（已展示原文）内才启用；unverified/conflict
+          不构成证明（追到事件不等于读者见过原文）。
+        """
         if cutoff_chapter is None:
             # 无章节锚点时保守：全部按未揭示处理，不猜测揭示位置。
             return {subject: False for subject in subjects}
+        claims = await self._reveal_claim_chapters(
+            db, novel_id=novel_id, subjects=subjects, scenes=scenes or []
+        )
+        proven = proven_chapters or {}
         cache: dict[str, bool] = {}
         for subject in sorted(subjects):
             decision = await get_reader_reveal_decision(
@@ -721,8 +809,89 @@ class SceneStateViewService:
                 target_id=subject,
                 cutoff_chapter=cutoff_chapter,
             )
-            cache[subject] = bool(decision and getattr(decision, "revealed", False))
+            if decision is None:
+                # 决策服务契约上恒返回决策对象；真缺失时保守隐藏。
+                cache[subject] = False
+                continue
+            has_policy = bool(getattr(decision, "has_policy", False))
+            anchors: set[int] = set(claims.get(subject, ()))
+            reveal_chapter = getattr(decision, "reveal_chapter", None)
+            if has_policy and reveal_chapter is not None:
+                anchors.add(int(reveal_chapter))
+            if not has_policy and not anchors:
+                # 无策略且无揭示主张记录：没有读者限制，默认公开。
+                cache[subject] = True
+                continue
+            shown = proven.get(subject, frozenset())
+            cache[subject] = evaluate_reader_reveal(
+                domain=RevealDomain.outline_structure,
+                has_policy=has_policy,
+                cutoff_chapter=cutoff_chapter,
+                reveal_chapters=frozenset(anchors),
+            ) and any(
+                chapter < cutoff_chapter and reveal_within_proven_shown(chapter, shown)
+                for chapter in anchors
+            )
         return cache
+
+    @staticmethod
+    async def _reveal_claim_chapters(
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        subjects: set[str],
+        scenes: list[dict[str, Any]],
+    ) -> dict[str, frozenset[int]]:
+        """全书 timeline 揭示主张事件的锚章（B1 契约 ``field_path`` 形态）。
+
+        揭示主张记录跨 Scene 生效：后文 Scene 的揭示事件把对象移入须证明
+        域，早 Scene 的读者视图不得默认公开。锚章 = 事件章节；无点号或首段
+        非本视图 subject 的 ``field_path``（如既有 ``handover`` 标签形态的
+        普通时间事实）不算揭示主张。
+        """
+        if not subjects or not scenes:
+            return {}
+        max_scene_index = max(int(scene["scene_index"]) for scene in scenes)
+        events = await EventRepository().get_through_scene(
+            db, parse_uuid(novel_id, "novel_id"), max_scene_index, dimension="timeline"
+        )
+        claims: dict[str, set[int]] = {}
+        for event in events:
+            payload = event.snapshot_after
+            if not isinstance(payload, dict):
+                continue
+            field_path = payload.get("field_path")
+            if not isinstance(field_path, str) or "." not in field_path:
+                continue
+            subject = field_path.split(".", 1)[0]
+            if subject not in subjects or event.chapter_index is None:
+                continue
+            claims.setdefault(subject, set()).add(int(event.chapter_index))
+        return {subject: frozenset(values) for subject, values in claims.items()}
+
+    @staticmethod
+    def _proven_shown_by_subject(items: dict[str, Any]) -> dict[str, frozenset[int]]:
+        """当前 Scene 各维度 checkpoint 的 exact 稿源章 → 已展示证明材料。
+
+        exact 判定复用 ``summarize_field_provenance``（resolve_field_status）：
+        只有带稿源区间的最新链（exact）构成「读者已见过原文」的证明——
+        unverified（只追到事件）与 conflict（无法归因）都不算。
+        """
+        chapters: dict[str, set[int]] = {}
+        for dimension in ("entities", "locations", "timeline"):
+            checkpoint = items.get(dimension)
+            if checkpoint is None:
+                continue
+            for (_field, subject), summary in summarize_field_provenance(
+                checkpoint.state_json or {}, dimension
+            ).items():
+                if not subject or summary.get("status") != "exact":
+                    continue
+                for ref in summary.get("source_refs") or ():
+                    chapter = ref.get("chapter_index") if isinstance(ref, dict) else None
+                    if isinstance(chapter, int):
+                        chapters.setdefault(str(subject), set()).add(chapter)
+        return {subject: frozenset(values) for subject, values in chapters.items()}
 
 
 _service = SceneStateViewService()

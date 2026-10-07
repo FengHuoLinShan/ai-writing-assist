@@ -367,8 +367,7 @@ async def test_known_relation_format_failure_keeps_observations_and_defers_world
     receipt = await store.load_receipt(run["run_key"], result["attempt_id"])
     assert frozen.payload["scene_relations"]["stage"] == "failed"
     assert (
-        frozen.payload["world_result"]["review"]["review_kind"]
-        == "extraction_deferred"
+        frozen.payload["world_result"]["review"]["review_kind"] == "extraction_deferred"
     )
     assert len(receipt.paid_call_receipts) == len(calls) == 3
     assert not receipt.world_result_refs

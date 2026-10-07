@@ -1,4 +1,4 @@
-"""P2-B B0 验收夹具 — 知识值与揭示边界六类统一验收集（预期先行）。
+"""P2-B B0 验收夹具 — 知识值与揭示边界六类统一验收集。
 
 从同一 Scene 的 Story 角色投影建立版本化知识读取，保持 ``known / unknown /
 false_belief`` 与"知道哪个值"的区别：人物曾知道旧口令 ≠ 知道改后的口令；
@@ -21,28 +21,31 @@ false_belief`` 与"知道哪个值"的区别：人物曾知道旧口令 ≠ 知�
    授予按 (subject, field, value)：fields=["identity"] 只放行 identity
    fact（belief known_fields 可证），secret_relation 无授予链 → 不可见
    （不知道 ≠ 知道没有）。
-4. 同场旁观（character，拒绝，边界真绿 + 原因结构 xfail）
+4. 同场旁观（character，拒绝，真绿）
    边界：同 Scene 有位置（在场）但无知识条目 → 他人事实不可见；本人
    位置可见（在场只证明位置），omissions 报"角色视角未获得依据"。
-   缺口（xfail）：拒绝原因必须逐条可归因且三类互斥可区分——
+   拒绝原因逐条归因（B3 已接线）：``denied_facts`` 经
+   ``knowledge_contract.denial_reason`` 装载三类互斥原因——
    no_knowledge_entry（在场无条目）/ knowledge_value_mismatch（旧值）/
-   false_belief（误信）；现状 omissions 只有维度级计数。
+   false_belief（误信）。
 5. 后文揭密（character，拒绝，真绿）
    揭示事件（实体补秘密 + 获知知识）只入 Scene N+1 的 checkpoint；
    Scene N 视角按本场截止读取，秘密与揭示知识都不回流；对照：获知后
    的 Scene N+1 视角可见（揭示知识只授权其后场景）。
-6. 后文揭密（reader，拒绝，xfail）
+6. 后文揭密（reader，拒绝，真绿）
    读者揭示只在已证明展示的原文范围内启用：Scene N 的读者视图不得因
    "无 reveal 策略默认公开"看到后文才揭示的秘密，omissions 报"读者
-   视角尚未揭示"且不泄露对象。现状 ReaderRevealDecisionContract 无
-   策略默认 revealed=True → 秘密泄露给揭示前的读者视图。
+   视角尚未揭示"且不泄露对象。B3 已接线：timeline 揭示事件
+   （``field_path={subject}.{field}``）构成揭示主张锚，把对象移入须证明
+   域——无策略也不再默认公开（``evaluate_reader_reveal`` cutoff 闸 +
+   ``reveal_within_proven_shown`` 证明闸）。
 7. uncertain 三值判决（trial，真绿）
    锁三条件全部无法证明（无保管记录、无开启条件记载、无口令知识）且
    无一条明确不满足 → verdict=uncertain + unresolved_outcomes=[actor]；
    有一条明确不满足（所需钥匙记载为另一把）→ failed。裁决已实现，
    此前零断言；本夹具补第三值。
 
-知识期望契约形态决定（B0 钉定，B1 契约单元对齐基准）
+知识期望契约形态决定（B0 钉定，B1 契约 / B3 接线对齐基准）
 ====================================================
 
 视角 × 知识条目 × 值绑定 × 揭示判定的期望结构：
@@ -58,16 +61,17 @@ false_belief`` 与"知道哪个值"的区别：人物曾知道旧口令 ≠ 知�
 3. **视角过滤**：character 视角 fact 需四元组授予（唯一例外：本人位置）；
    belief 只见本人条目；observation 不出作者视角。reader 视角 fact 需
    揭示判定通过且 layer=fact；belief/observation/timeline/causality 不出。
-4. **逐条拒绝原因（本文件 xfail 钉定的缺口）**：character 视角每个被抑制
-   的 fact 应可归因，cause 互斥可区分——``no_knowledge_entry``（在场/未目击/
-   纯 belief）、``knowledge_value_mismatch``（知道旧值）、``false_belief``
-   （误信条目）。承载形态不限（omissions 内 dict、facts 同级 denied/
-   suppressed 结构均可），语义要求是三类原因在同一视角下可区分、可被
-   断言（供作者解释"为什么这个角色不知道"），不要求精确字符串。
-5. **揭示判定**：reader 视角的默认必须保守——无"已展示原文证明"（揭示
-   计划/稿源区间）时不得默认公开秘密；有策略未到揭示章 → 隐藏（既有
-   test_reader_view_gates_entities_by_reveal 已覆盖）；到揭示章且可证明
-   展示 → 放行。揭示前的读者视图 omissions 只报数量不泄露对象身份。
+4. **逐条拒绝原因（B3 已接线）**：character 视角每个被抑制的 fact 逐条
+   归因，cause 互斥可区分——``no_knowledge_entry``（在场/未目击/纯
+   belief）、``knowledge_value_mismatch``（知道旧值）、``false_belief``
+   （误信条目）。承载于 ``SceneStateViewDetailResponse.denied_facts``
+   （``{dimension, subject_id, subject_label, field, cause}``）；reader 侧
+   拒绝维持 omissions 数量口径（不泄露对象身份）。
+5. **揭示判定（B3 已接线）**：reader 视角的默认必须保守——无策略且无
+   揭示主张记录才默认公开（结构信息）；存在主张锚（outline 策略或
+   timeline 揭示事件）即须证明：当章不揭示（严格 ``<`` cutoff）、无
+   cutoff 不猜、揭示锚须落在该对象 exact 稿源章内（unverified 不构成
+   已展示证明）。揭示前的读者视图 omissions 只报数量不泄露对象身份。
 """
 
 from __future__ import annotations
@@ -75,7 +79,6 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.story.continuity.scene_projection import SceneMemoryProjectionService
@@ -84,9 +87,6 @@ from modules.story.continuity.services import MemoryService
 from modules.story.continuity.state_trial import compare_scene_state_trial
 from modules.story.contracts import SceneStateTrialRequest
 from modules.story.outline_state.models import Scene
-
-_XFAIL = pytest.mark.xfail(reason="P2-B knowledge boundary not implemented", strict=False)
-
 
 # ============================================================
 # 合成数据构造（沿用 continuity 模块内测试惯例）
@@ -186,8 +186,9 @@ def _denial_reasons(view: Any) -> dict[tuple[str, str], Any]:
     """提取 character 视角的逐条拒绝原因结构（B0 期望契约第 4 条）。
 
     承载形态不限：omissions 内携带 (subject_id, field, cause) 的 dict 项、
-    响应 facts 同级的 denied/suppressed 结构均可；当前实现只有维度级计数
-    字符串，返回空 dict（对应 xfail 夹具在目标断言处失败）。
+    响应 facts 同级的 denied/suppressed 结构均可；B3 落在
+    ``denied_facts``（每项 ``{dimension, subject_id, subject_label, field,
+    cause}``，cause 为三类互斥之一）。
     """
 
     def _cause_of(item: Any) -> Any:
@@ -536,7 +537,6 @@ async def test_p2b_same_scene_presence_does_not_grant_knowledge(
     assert any("角色视角未获得依据" in item for item in view.omissions)
 
 
-@_XFAIL
 async def test_p2b_bystander_denial_reason_distinguishes_no_knowledge_entry(
     db_session: AsyncSession, test_project_id: str
 ) -> None:
@@ -724,7 +724,6 @@ async def test_p2b_later_scene_reveal_does_not_backflow_character_knowledge(
     ]
 
 
-@_XFAIL
 async def test_p2b_reader_before_reveal_scene_must_not_see_secret(
     db_session: AsyncSession, test_project_id: str
 ) -> None:

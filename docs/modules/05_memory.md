@@ -60,8 +60,13 @@ Story continuity 子域维护小说世界的“变化历史”，不是再存一
   视角只决定可见分层：fact（entities/relations/locations/timeline）、belief（knowledge，
   误信带标记且不授予事实访问）、observation（未锚定 changes，仅作者视角）。角色视角的
   事实访问需知识条目显式声明 `subject_id + fields + known_values`（值须匹配当前事实）；读者视角经既有 reveal 判定过滤
-  subject（默认无策略=公开）。缺口显式（missing/degraded/unsupported + omissions 只报
-  数量），不用空列表冒充「确定不存在」，不读当前 World 补过去。输出带
+  subject（默认无策略**且无揭示主张记录**才公开——存在揭示主张锚即移入须证明域：
+  仅当该 subject 相关字段已有 exact 稿源证明已展示时才揭示，unverified/conflict
+  不构成证明；当章不揭示、无 cutoff 不猜）。缺口显式（missing/degraded/unsupported +
+  omissions 只报数量，读者视角不因拒绝归因泄露对象），不用空列表冒充「确定不存在」，
+  不读当前 World 补过去。角色视角另带 `denied_facts` 逐条拒绝归因
+  （no_knowledge_entry/knowledge_value_mismatch/false_belief 三类互斥，
+  `knowledge_contract.denial_reason` 判定；不参与 state_fingerprint）。输出带
   `state_fingerprint`（checkpoint 身份/版本/实际投影 + 可见名称 + 视角 + 契约版本；不含 freshness）与 `subject_labels`；跨模块
   经 `STORY_SCENE_SOURCE.get_scene_state_view` 消费。规格见
   [M2 契约](../plans/2026-10-07-world-state-read-m2-contract.md)。
@@ -171,6 +176,6 @@ Story facade 的 `validate_machine_event_snapshot` 复用全景物化 schema，�
 
 `POST /memories/scene-state-trial` 只比较钥匙转交与三条件锁，返回原状态/有限假设的当前值、所需值、来源和失败/未知/通过。候选只用内存 ResolutionBatch 重放，不写事件或正史；状态指纹与比较 digest 绑定试改授权，采用前重新核对。
 
-`GET /memories/scene-checkpoints/{checkpoint_id}` 及 `GET /memories/events/by-id?event_ids=…` 校验 owner + novel，显式读取历史来源，父 checkpoint 链按需回开。当前视图仍只消费 current checkpoint。人物仅自己的位置可默认读；其他字段需明确知识值，误信或仅提到人物不授予事实。读者 timeline/causality 缺逐条揭示粒度，返回 unsupported；受限视角不返回整维来源或隐藏名称。
+`GET /memories/scene-checkpoints/{checkpoint_id}` 及 `GET /memories/events/by-id?event_ids=…` 校验 owner + novel，显式读取历史来源，父 checkpoint 链按需回开。当前视图仍只消费 current checkpoint。历史回开是作者诊断用途：知识维度的条目在响应中逐条补 `knowledge_class` 方言标注（known/unknown/false_belief，`knowledge_contract.read_knowledge_statement` 判定，深拷贝副本不改 ORM 载荷），历史行的分类不被事件流改写或重建洗掉；面向角色/读者的视角边界在 `get_view` 承载。人物仅自己的位置可默认读；其他字段需明确知识值，误信或仅提到人物不授予事实。读者 timeline/causality 缺逐条揭示粒度，返回 unsupported；受限视角不返回整维来源或隐藏名称。机器断言（evolution producer）在信任边界剥离值绑定键（state_gate 亦显式拒绝 `value_binding_not_machine_grounded`），读入统一方言恒为 unknown 文本知识，不冒充值绑定。
 
 缺 basis 的旧系统行经 ensure 补登记，已有漂移 basis 不因投影 hash 相同而覆盖。作者确认历史始终保留。

@@ -32,9 +32,7 @@ def _deferred_world_result(context, stage: str) -> dict:
         "review": {
             "status": "blocked",
             "review_kind": "extraction_deferred",
-            "issues": [
-                {"message": f"{stage}格式失败；结果和费用已保留，需另行核对。"}
-            ],
+            "issues": [{"message": f"{stage}格式失败；结果和费用已保留，需另行核对。"}],
         },
     }
 
@@ -187,9 +185,7 @@ async def finish_scene_world(db, store, frozen, source, call):
                     payload["relations_preparation"]["context"], "别名关系抽取"
                 )
 
-            return await freeze_value(
-                db, store, frozen, "world_result", defer_relations
-            )
+            return await freeze_value(db, store, frozen, "world_result", defer_relations)
     relations = (frozen.payload.get("scene_relations") or {}).get(
         "result", {"aliases": [], "relations": [], "uncertain_items": []}
     )

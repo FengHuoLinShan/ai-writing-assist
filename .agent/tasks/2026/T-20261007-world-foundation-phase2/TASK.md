@@ -39,7 +39,7 @@ phase1+P2 一并走 PR 合入 main。
 | P2-A 批1 | A0 夹具 ∥ A1 契约先行 | 完成（6 xfail 夹具 + 37 契约测试全绿） |
 | P2-A 批2 | A2 写入端 ∥ A3 读取端 ∥ A4 展示端 | 完成 |
 | P2-A 汇合 | 多实体 subject_ref 修复 + 夹具转绿 + 全量验证 | 完成 |
-| P2-B 批1/批2 | B0 夹具 ∥ B1 方言统一；B2/B3/B4 | 待 P2-A |
+| P2-B 批1/批2 | B0 夹具 ∥ B1 方言统一；B2 机器接线 ∥ B3 边界揭示闸（B4 并入汇合） | 完成 |
 | P2-C 批1/批2 | C0 夹具 ∥ C1 登记缝；C2/C3/C4 | 待 P2-B |
 
 ### A0 产出（P2-A 批1，2026-10-07）
@@ -132,9 +132,25 @@ module-import-gate 棘轮 65/9/0/525/0/26 未推高；前端 vitest 2822 passed�
 evidence/compilation/schemas.py（SceneLensSource.provenance，不加则 provenance
 到不了前端）。
 
+## P2-B 汇合记录（2026-10-07）
+
+主会话裁定：接受 B1 揭示调和（有主张锚→须证明域；无主张锚无策略→默认公开
+结构信息），B3 据此实现后 B0 两个 xfail 转绿。B2 调查修正：KnowledgeInPanorama
+实际定义在 continuity/schemas.py:81（非 evolution/schemas.py）。超白名单改动：
+B3 的 SceneStateViewDetailResponse 响应子类（schemas.py 禁改下的最小承载，
+pydantic v2 子类经父类 TypeAdapter 保留新字段已验证）。
+
+验收：B0 六类夹具 8/8 全绿（同场旁观/后文揭密/uncertain 证实已实现或补齐，
+两个真缺口=拒绝原因互斥与读者揭示闸已实现）；story+evidence+evolution 1573
+passed；后端全量 **7324 passed**（P2-A 后 7276 + 48）；ruff/format/import-gate
+棘轮 65/9/0/525/0/26 未推高；docs-check 过（05_memory.md 精确化无策略=公开
+表述+denied_facts+get_record 标注+机器断言剥离）。预览零正史写入：state_trial
+compare 纯读、ResolutionBatch 内存重放（既有测试钉死），P2-B 无新增写路径。
+零 LLM、零真实数据写入。
+
 ## 恢复快照
 
-（交接/暂停前更新）当前：P2-A 全部完成（批1/批2/汇合），提交后进入 P2-B 批1（B0 六类知识夹具 + B1 方言统一两子代理并行）。
+（交接/暂停前更新）当前：P2-A、P2-B 全部完成并提交，进入 P2-C 批1（C0 端到端夹具 + C1 登记缝设计两子代理并行）。
 
 ## A1 产出（契约先行单元，2026-10-07）
 
@@ -646,3 +662,146 @@ evolution/KnowledgeInPanorama 声明可选绑定字段。**
 `ruff check`/`format`（两个新文件）通过；`make module-import-gate` 通过
 （65/65、9/9、0/0、525/525、0/0、26/26 未推高；新增 story 模块内导入，无新跨模块边，
 零 evidence/world 生产导入）。零 LLM、零 git commit。
+
+## B2 产出（机器知识接线单元，2026-10-07）
+
+### 机器知识流向调查结论（真实调用链，改动前 file:line）
+
+机器断言只有一条产消链，无第二写入路径：
+
+1. 产出：`backend/modules/evolution/pipeline.py:466`（`gate_scene_events(payload["scene_events"], compiled_observations)`；world 侧 `evolution/world.py:397` `bind_scene_identities` 复用同一门）→ `backend/modules/evolution/state_gate.py` `knowledge_changed` 分支注入 `character_id`（== knowledge_subject）、uuid5 `id`、`meta`（authority_basis=derived_observation + source_receipts）、`knowledge_subject` 键，payload 即 `KnowledgeInPanorama` 方言（定义在 `backend/modules/story/continuity/schemas.py:81`，非 evolution 侧）。
+2. 入库：`backend/modules/evolution/tasks.py:332-344` applier 打 `source="evolution"` 后 `replace_scene_memory_events(producer_family="evolution")`（`backend/modules/story/continuity/facade.py:95`）→ `MemoryService.record_scene_events`（`backend/modules/story/continuity/services.py:140` 起）原样持久化。
+3. 投影：`scene_projection._apply_event` → `reducer._apply_knowledge_event`（`backend/modules/story/continuity/reducer.py:75`）把 payload dict 逐字追加进 checkpoint `state_json["character_knowledge"]`（按 id 去重）。
+4. 读取：`scene_state_view._knowledge_grants`（`backend/modules/story/continuity/scene_state_view.py:628`）读**原始 payload dict**——机器方言本身无 `subject_id/fields/known_values` 故现状零授予；但 `KnowledgeInPanorama` 未声明 extra（Pydantic 忽略额外键），`state_gate` 的 `validate_machine_event_snapshot` 校验副本不改 `after`，**偷带绑定键的机器 payload 会静默透传持久化并被 `_knowledge_grants` 当值绑定授予**——B2 要堵的洞。
+
+### 转换器落点（改动最小裁定：写侧信任边界，读侧归 B3）
+
+- 落点：`backend/modules/story/continuity/services.py:252` `MemoryService._sanitize_machine_knowledge`，在 `record_scene_events` 循环（`services.py:181-182`）对 `dimension=="knowledge" and source==MACHINE_EVENT_SOURCE("evolution", services.py:65)` 的 payload 执行：剥除 `VALUE_BINDING_KEYS`（`knowledge_contract` 契约常量，services.py:30 模块内导入）后入库——continuity 状态里的机器条目恒为 `read_machine_knowledge` 白名单方言（unknown 文本知识、无值绑定；读取端经同一转换器物化 origin=machine_observation/传闻 unchecked_note，B2 测试对真实 checkpoint 状态逐字段钉死，B3 负责视图/get_record 的读取接线）。放在 `_with_scene_event_key` 之前，事件键对规范化内容稳定。
+- 剥除不做"可归属才剥"前置判定：`_knowledge_grants` 的 holder 走 character_id/holder_id 双键，若以 `read_machine_knowledge` 返回非 None（要求 character_id）作剥除条件，holder_id 变体的旁路 payload 会带着绑定键原样入库——故范围内一律剥除（`test_holder_id_variant_bypass_also_strips_machine_bindings` 钉死该变体：剥除后状态无绑定键、转换器返回 None 不冒充、视角零授予）。
+- 不落 reducer（纯解释内核，不知 source，且改形状会破坏 panorama 读回与 uuid5 幂等语义）；不动 `_build_panorama`（B1 裁定机器路径零 schema 变更）；读侧视图/get_record 归 B3。作者确认（source=author_confirmation）与 AI 抽取（默认 ai_extraction）路径不受影响（测试反证钉死：同 payload 无机器 source 不被清洗、Story 方言绑定照常授予）。
+- 与 B1 裁定一致：产出门拒绝为主，信任边界剥除为同一不变量的防御纵深（模拟门禁旁路时 continuity 状态仍不可能携带机器值绑定）。
+
+### gate 拦截行为（采纳 B1 可选加强）
+
+`backend/modules/evolution/state_gate.py:206-207`：`knowledge_changed` 分支内，`snapshot_after` 出现任一 `_MACHINE_VALUE_BINDING_KEYS`（state_gate.py:60，`knowledge_contract.VALUE_BINDING_KEYS` 的镜像——knowledge_contract 自身镜像 scene_state_view 常量的同一裁定，避免产出门对读取端契约模块的实现向依赖；测试钉两者相等防漂移）即 `reasons.append("value_binding_not_machine_grounded")`，事件进 `gated_scene_events`/pending_decisions 待作者裁定，不静默透传。未用 `extra="forbid"`（会拦掉 meta/knowledge_subject 合法注入键）。无新增 import（镜像常量），import gate 零增量。
+
+### 测试清单（`backend/modules/story/continuity/tests/test_p2b_machine_knowledge.py`，5 例真绿）
+
+1. `test_gate_value_binding_keys_mirror_contract`——镜像常量与契约 `VALUE_BINDING_KEYS` 相等（防漂移）。
+2. `test_gate_rejects_machine_knowledge_claiming_value_bindings`——干净机器知识过门；偷带 subject_id / fields / known_values（单键与三件套）均被 `value_binding_not_machine_grounded` 拒绝。
+3. `test_machine_knowledge_lands_as_unbound_text_knowledge`——端到端（gate→source=evolution 入库→ensure_scene→视图）：状态条目无绑定键；`read_machine_knowledge` 落 unknown/无值绑定/无 subject 锚/origin=machine_observation/known_content→text_summary/传闻 unchecked_note/entry_id==gate uuid5；角色视角零事实授予（口令不可见）+ belief 文本层在场 + omissions 解释；作者视角对照可见。
+4. `test_smuggled_binding_keys_never_reach_continuity_state`——不变量"机器断言不可能宣称值绑定"：模拟门禁旁路直写，绑定键在信任边界剥除（入库行与 checkpoint 状态均无），`read_machine_knowledge` 仍 unknown；同批 Story 方言条目（默认 source）绑定键原样入库并照常授予、无机器 source 的同 payload 也不被清洗——剥除只针对机器方言。
+5. `test_holder_id_variant_bypass_also_strips_machine_bindings`——holder_id 变体（不可归属机器方言的旁路形态）同样剥除：状态无绑定键、转换器返回 None（不冒充归属）、角色视角零授予 + omissions 解释。
+
+### 验证
+
+`modules/story` 全量通过（689 passed——含本单元新文件 5 例；数字随 B3 并行合入波动，本单元基准为自身 5 例全绿且无回归）、`modules/evolution` 232 passed + 1 deselected；`ruff check`/`format` 通过；`make module-import-gate` 通过（65/65、9/9、0/0、**525/525 未推高**、0/0、26/26；services→knowledge_contract 为 story 模块内导入，state_gate 零新增 import）；`make docs-check` 通过（gate reason 字符串无文档登记义务）。注：B0 的 2 xfail 已由 B3 子代理并行转绿并移除标记（scene_state_view/scene_projection/夹具文件均 B3 所改，本单元未触碰）——B0 夹具走 story 事件方言（producer_family=p2b_knowledge_fixture、无 source=evolution），不经 gate 也不触机器边界，与本单元改动无交集。零 LLM、零 git commit。
+
+## B3 产出（视角边界与揭示闸接线单元，2026-10-07）
+
+B0 夹具 `test_p2b_knowledge_boundaries.py` 两个 xfail 摘除转真断言，8/8 全绿；
+新增接线验收 `backend/modules/story/continuity/tests/test_p2b_boundary_wiring.py`
+（5 例真绿：揭示双闸行为矩阵 ×2、三路径一致性、历史回开方言标注、API 出口编码）。
+改动文件：`scene_state_view.py`、`scene_projection.py`（仅 get_record 响应组装段）、
+B0 夹具（仅摘标记与文件头说明）、新测试、本节。`knowledge_contract.py` 契约零改动。
+
+### 接线落点（file:line）
+
+- **拒绝原因结构化**：`scene_state_view.py:193` 新增响应子类
+  `SceneStateViewDetailResponse(SceneStateViewResponse)`——schemas.py 不在本卡
+  可写范围，子类是"只增不删"的最小承载（实测 pydantic v2 下子类实例经
+  TypeAdapter(父类) 校验原样通过、jsonable_encoder 按实例 dump 保留新字段，
+  FastAPI response_model=父类 的 API 出口不丢 `denied_facts`，
+  `test_denied_facts_survive_api_jsonable_encoding` 钉死）。
+  `scene_state_view.py:706` `_filter_entries` 升级三元组返回
+  `(visible, suppressed_count, denied)`：character 视角对每个被抑制的 fact 层
+  条目经 `denial_reason`（三类互斥）归因装进 `denied_facts`；
+  `scene_state_view.py:274` get_view 以 `read_knowledge_statements` 读入
+  knowledge checkpoint、`build_knowledge_grants` 构建授予表（与原内联
+  `_knowledge_grants` 对拍相等，B1 钉测试不变绿转），`scene_state_view.py:688`
+  `_knowledge_grants` 保留为契约委托（对拍测试仍引用）。
+- **读者揭示闸**：`scene_state_view.py:776` `_reveal_cache` 叠
+  `evaluate_reader_reveal`（outline 域）+ `reveal_within_proven_shown` 双闸。
+  主张锚合并：outline 策略已达到章（decision.reveal_chapter，has_policy 时）∪
+  全书 timeline 揭示事件锚章——`scene_state_view.py:838`
+  `_reveal_claim_chapters` 用 `EventRepository.get_through_scene(dimension=
+  "timeline")` 全量拉取，payload 带 `field_path` 且首段命中本视图 subject 才算
+  （`{subject}.{field}` 形态；既有 `handover` 无点号标签形态不算，test_reader_view_gates
+  不回归）；锚章=事件 chapter_index（跨 Scene 生效：后文揭示事件把对象移入须证明域）。
+  无策略且无主张锚 → 维持默认公开；有锚 → cutoff 闸（严格 `<`，当章不揭示、
+  无 cutoff 不猜）∧ 证明闸。证明材料：`scene_state_view.py:873`
+  `_proven_shown_by_subject` 从当前 Scene 各维度 checkpoint 的
+  `summarize_field_provenance` 取 status=="exact" 的 source_refs[].chapter_index
+  （unverified/conflict 不算——追到事件≠读者见过原文；checkpoint 继承链保证
+  早章 exact 稿源在后续 Scene 仍构成证明）。
+- **历史回开**：`scene_projection.py:286` get_record 对 knowledge 维度行经
+  `_annotate_knowledge_dialect`（scene_projection.py:57）标注——逐条 payload 经
+  `read_knowledge_statement`（`read_knowledge_statements` 的单条入口，保证
+  payload↔分类一一对应不因批读跳过而错位）在深拷贝副本上追加
+  `knowledge_class`（known/unknown/false_belief），原键全保留。
+
+### 拒绝原因最终响应结构
+
+`denied_facts` 仅 character 视角填充（reader 维持 omissions 数量口径不泄露对象，
+B0 契约第 5 条；belief/observation 的视角层排除不是知识原因，不进 denied）：
+
+```json
+{"denied_facts": [
+  {"dimension": "entities", "subject_id": "<uuid>", "subject_label": "铜钥匙",
+   "field": "opening_passphrase", "cause": "knowledge_value_mismatch"}
+]}
+```
+
+cause ∈ {no_knowledge_entry, knowledge_value_mismatch, false_belief}（契约
+`KnowledgeDenialCause`）。不参与 `state_fingerprint`（视角解释不改状态本体）。
+omissions 维度级计数字符串原样保留（既有断言全部兼容）。
+
+### get_record 裁定与依据
+
+**裁定：作者诊断用途，保留 raw + 补方言分类标注。** 依据：api.py:251 端点
+`GET /scene-checkpoints/{checkpoint_id}` 无 viewpoint 参数、`_require_active_project`
+门禁、docstring"回读当前或历史依据……不重建也不采用旧状态"；facade.py:168 注释
+"版本回开（get_record）前端与 A4 历史列表消费"。它回开 checkpoint 原文供作者诊断，
+视角过滤发生在 get_view（面向前端的视角路径已过边界），故不在此做视角过滤；
+知识条目按该历史行自身 payload 分类（`test_get_record_annotates_knowledge_dialect_
+and_survives_rebuild` 钉死：事件流追加改写 + rebuild 后历史行仍固化当时的
+known/false_belief 分类；ORM 行载荷不被响应标注键污染；当前行新条目 unknown
+不冒充值绑定）。
+
+### 三路径一致性验证
+
+`test_reveal_and_denial_boundaries_consistent_across_rebuild`：缓存命中路径
+（ensure_scene 幂等命中既有 checkpoint 后读）与投影重建路径
+（`rebuild_from_scene(from None)` supersede 全部系统行重算）下的 reader
+可见事实签名（dimension, subject, field, value 全集）、omissions、character
+`denied_facts` 归因签名逐位相等，并断言主张锚对象隐藏（reader）与旁观者
+no_knowledge_entry（character）的具体判定；历史回开路径的一致性由
+get_record 标注测试承载（同上）。fingerprint 不跨重建比对（重建换行 id 属
+checkpoint 身份变化，非边界漂移）。揭示双闸行为矩阵另由两例钉死：
+无 exact 稿源时 cutoff 过了仍隐藏（`test_reader_reveal_claim_anchor_gates_until_
+proven_shown`）；锚章带 working 稿（exact 整章区间）时 cutoff 过后启用
+（`test_reader_reveal_enabled_within_exact_proven_chapters`）。
+
+### 与 B0/B1 契约的偏差与说明
+
+- 无契约偏差；两处实现裁量：① 承载形态选 `denied_facts`（B0 允许的 facts 同级
+  结构之一）；② `read_knowledge_statements` 的批读在非法条目上跳过会导致
+  payload↔statement 错位，get_record 标注改用其单条入口 `read_knowledge_statement`
+  逐条对应（同一契约、同一方言判定）。
+- B1"B3 落点建议"中 get_record"经 read_knowledge_statements 组装"按上款裁量执行。
+- 证明闸对非受控注册字段（如 secret_relation）当前无 exact 链可证——有主张锚的
+  该类字段在受控字段稿源落地前对读者保持隐藏（保守方向，符合"无证明不启用"）；
+  未注册字段的揭示证明材料是否扩展由主会话后续裁定。
+- state_trial.py 未改：口令条件的 observed（旧值）/expected（新值）双值已可解释
+  "值不匹配 ≠ 不知道"（B0 类别一断言满足），无必要新增 verdict reason。
+- 文档未同步项（docs/ 本卡禁改，留主会话）：`docs/modules/05_memory.md:62`
+  "读者视角经既有 reveal 判定过滤 subject（默认无策略=公开）"应精确为
+  "无策略且无揭示主张记录才默认公开；timeline 揭示事件构成主张锚"，
+  并补 `denied_facts` 响应字段与 get_record 知识标注说明。
+
+### 验证
+
+`modules/story` 全量 689 passed（含 B0 8/8、B3 新增 5、B2 并行 5；零失败零跳过）；
+continuity 子集 199 passed；`ruff check`/`format` 通过（含新测试文件）；
+`make module-import-gate` 通过（65/65、9/9、0/0、525/525 未推高、0/0、26/26——
+新增导入均为 story 模块内 + shared/infrastructure 既有允许边）。零 LLM、零 git commit。

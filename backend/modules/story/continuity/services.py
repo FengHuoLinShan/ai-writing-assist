@@ -27,6 +27,7 @@ from modules.story.continuity.field_provenance import (
     TIMELINE_WHEN_CONTROLLED_KEYS,
     extract_timeline_when,
 )
+from modules.story.continuity.knowledge_contract import VALUE_BINDING_KEYS
 from modules.story.continuity.models import DeltaLog
 from modules.story.continuity.repositories import (
     DeltaLogRepository,
@@ -58,6 +59,10 @@ MEMORY_EVENT_LIST_BATCH_SIZE = 500
 DELTA_ROLLBACK_BATCH_SIZE = 500
 MAX_MEMORY_EVENTS_PER_CHAPTER = 500
 MAX_MEMORY_EVENT_PAYLOAD_CHARS = 20000
+# evolution 机器路径派生事件的 source 标记（evolution/tasks.py applier 注入，
+# 配合 replace_scene_memory_events 的 producer_family="evolution"）。机器知识
+# 写入边界按此识别方言（B2）；作者确认与 AI 抽取路径不受影响。
+MACHINE_EVENT_SOURCE = "evolution"
 
 
 class MemoryService:
@@ -173,6 +178,8 @@ class MemoryService:
                 else None
             )
             payload = self._normalize_timeline_when(payload, dimension=dimension)
+            if dimension == "knowledge" and source == MACHINE_EVENT_SOURCE:
+                payload = self._sanitize_machine_knowledge(payload)
             payload = self._with_scene_event_key(
                 payload,
                 scene_id=scene_id,
@@ -240,6 +247,31 @@ class MemoryService:
             for key, value in payload.items()
             if key not in TIMELINE_WHEN_CONTROLLED_KEYS
         } | controlled
+
+    @staticmethod
+    def _sanitize_machine_knowledge(payload: Any) -> Any:
+        """机器知识写入边界（B2）：``source=evolution`` 的 knowledge 负载
+        落统一方言形态（knowledge-dialect-v1）。
+
+        统一方言裁定（P2-B）：机器断言恒为 unknown 文本知识、无值绑定、
+        origin=machine_observation——机器观察没有值级证据，方言
+        （``knowledge_contract.read_machine_knowledge`` 的白名单）表达不了
+        "知道哪个值"。透传出现的 ``VALUE_BINDING_KEYS``
+        （``KnowledgeInPanorama`` 未声明 extra，Pydantic 默认忽略额外键）
+        不采信也不持久化：本边界一律剥除后再入库——无论 payload 能否归属
+        holder，continuity 状态（``character_knowledge``）与角色视角授予
+        （读原始 payload，holder 走 character_id/holder_id 双键）都不可能
+        看到机器值绑定。产出门（evolution/state_gate）已拒绝此类 payload，
+        本边界是同一不变量的信任边界侧防御。放在 ``_with_scene_event_key``
+        之前，事件键对规范化内容稳定。
+        """
+        if not isinstance(payload, dict):
+            return payload
+        if not any(key in payload for key in VALUE_BINDING_KEYS):
+            return payload
+        return {
+            key: value for key, value in payload.items() if key not in VALUE_BINDING_KEYS
+        }
 
     @staticmethod
     def _with_scene_event_key(

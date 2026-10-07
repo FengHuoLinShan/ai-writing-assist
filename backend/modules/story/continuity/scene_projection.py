@@ -23,6 +23,7 @@ from modules.story.continuity.field_provenance import (
     motif_fields_for_dimension,
     read_field_provenance,
 )
+from modules.story.continuity.knowledge_contract import read_knowledge_statement
 from modules.story.continuity.models import MemorySceneCheckpoint
 from modules.story.continuity.repositories import (
     EventRepository,
@@ -51,6 +52,31 @@ class _CoverageGapError(Exception):
     def __init__(self, message: str, *, coverage: dict[str, int]) -> None:
         super().__init__(message)
         self.coverage = coverage
+
+
+def _annotate_knowledge_dialect(state_json: dict[str, Any] | None) -> dict[str, Any]:
+    """knowledge checkpoint ``state_json`` 副本逐条附 ``knowledge_class`` 标注。
+
+    P2-B 历史回开的方言分类（B1 契约）：每条知识条目经
+    ``read_knowledge_statement`` 容错读入后把三分类（known / unknown /
+    false_belief）追加到响应副本上——分类按**该历史行自身 payload** 判定，
+    不被当前 Canon head 或投影重建洗掉；误信历史行仍标 false_belief。
+    原条目键全保留（只增不删）；无 holder/非法形态的条目原样保留不标注。
+    深拷贝后追加，不污染 ORM 行载荷。
+    """
+    state = deepcopy(state_json or {})
+    entries = state.get("character_knowledge")
+    if not isinstance(entries, list):
+        return state
+    annotated: list[Any] = []
+    for payload in entries:
+        if isinstance(payload, dict):
+            statement = read_knowledge_statement(payload)
+            if statement is not None:
+                payload = {**payload, "knowledge_class": statement.knowledge_class.value}
+        annotated.append(payload)
+    state["character_knowledge"] = annotated
+    return state
 
 
 class SceneMemoryProjectionService:
@@ -252,6 +278,12 @@ class SceneMemoryProjectionService:
             summaries[key] | {"subject": key[1]}
             for key in sorted(summaries, key=lambda item: (item[0], item[1] or ""))
         ]
+        # P2-B 历史回开：knowledge 维度行补方言分类标注。get_record 是作者
+        # 诊断端点（无 viewpoint 参数、raw 原文回开），故保留 raw 只追加
+        # ``knowledge_class`` 派生标注；面向角色/读者的视角过滤在
+        # scene_state_view.get_view 的视角边界完成，不经本端点。
+        if row.dimension == "knowledge":
+            response.state_json = _annotate_knowledge_dialect(row.state_json)
         return response
 
     async def repair(

@@ -75,6 +75,7 @@ def test_scene_event_can_reference_all_observations_without_dropping_evidence() 
     with pytest.raises(ValidationError, match="too_long"):
         SceneSample.model_validate(payload)
 
+
 FROZEN_FABRICATED_FIELD = {
     "observations": [],
     "scene_events": [],
