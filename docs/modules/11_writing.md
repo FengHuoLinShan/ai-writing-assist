@@ -38,6 +38,17 @@ auto 工作版本在发布前撤回到手动 checkpoint 内容时，auto 版本�
 `candidate`。删除单版本或整章只标记 `deprecated`，
 版本号永不重排。
 
+保存链路的实质变更触发 Evolution 失效缝（`EVOLUTION_RECORD_WRITING_SOURCE_CHANGE`
+DI 键）时，回执经 `EVOLUTION_INVALIDATION_RECEIPT_VIEW` 投影为公共视图挂到 draft
+契约的瞬态属性 `invalidation`（非映射列，autosave/publish/update 响应自动携带）：
+受影响消费者列表（场景+机器可读原因+已知/待核实）、`unknown_scope` 显式、
+`recompute_options` 三分类（reload_evidence/rebuild_derived_state/regenerate_prose，
+regenerate 恒须作者显式确认且当前 409 明示不支持自动执行）。作者经
+`POST /api/writing/recompute` 预览（纯读零正史写入）后 `adopt` 执行：幂等键
+operation_id+request_hash，来源漂移返回 409 `recompute_source_drift` 并保留当前稿；
+取消为纯本地零副作用。回执跨会话可查经 adopt 幂等重放（无持久 operation 台账，
+见 [22_evolution](22_evolution.md) 的登记契约）。
+
 ## Facade
 
 ```python
@@ -90,6 +101,8 @@ PATCH  /api/writing/conflict-check-items/{id}          # 更新问题处理状�
 POST   /api/writing/conflict-check-items/{id}/confirm-continuity # 作者确认连续性事实
 POST   /api/writing/conflict-check-items/{id}/ai-suggestion-task # 提交单条 AI 修复建议任务
 POST   /api/writing/drafts/autosave                    # 创建纯草稿版本，不发布；合并标脏 working 索引
+POST   /api/writing/recompute                          # 重算预览（P2-C：三分类 scope，纯读零正史写入）
+POST   /api/writing/recompute/{operation_id}/adopt     # 执行重算（幂等；源漂移 409 保当前稿）
 POST   /api/writing/generate                            # 生成正文建议预览，不自动采用或发布
 POST   /api/writing/semantic-reviews                    # 冻结正文/合同的独立语义审查
 POST   /api/writing/targeted-revisions                  # 按审查 finding（或显式纳入的待核实合同条目）生成新返修候选

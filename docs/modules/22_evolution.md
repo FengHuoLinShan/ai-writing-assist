@@ -66,6 +66,19 @@ V4 长期计划（`docs/plans/novelcraft-v4/plans/01-EVOLUTION.md`）的演化�
   地图直接重读 Story 合法事件，不维护第二份事实；其余未接线消费者仍在回执
   显式列为 unsupported，不以局部完成冒充全量失效。状态视图侧的读时基线比对
   见 [M4 契约](../plans/2026-10-07-m4-dependency-invalidation-contract.md)。
+- 消费登记与影响评估（P2-C，`consumption.py`/`registration.py`/`impact.py`）：
+  `ConsumptionRecord` 契约内嵌产物行 `state_json["_consumption_registry"]`（不加表，
+  随 supersede 软删，旧数据读取退化为空）；`assess_source_impact` 纯函数按登记细化
+  受影响消费者列表（reason 机器可读 `anchored_chapter_edited`/
+  `conservative_expansion_unregistered` + basis known/unknown），无登记/登记缺失与
+  现状保守行为逐位一致、unknown 恒不收窄；无真实登记时按 outline 锚定结构合成
+  整章消费登记（`anchored-scene-implicit-v1`，真实登记优先）。`InvalidationReceipt`
+  增量字段 `affected`/`unknown_scope`/`receipt_id`/`recompute_options`（三分类
+  reload_evidence/rebuild_derived_state/regenerate_prose；regenerate 恒
+  author_choice_only），经 DI 键 `EVOLUTION_INVALIDATION_RECEIPT_VIEW`（`receipt_view`）
+  提供 scene 级公共视图，Writing 保存链路消费（见 [11_writing](11_writing.md)）。
+  物理投影失效仍保守（自起点 supersede），归因与重算清单精确——按场景集合
+  supersede 与 story 侧真实登记接线为已记录后续项。
 
 - 场景步管线（G2，`pipeline.py`）：`run_scene_step` 按 §4.1 顺序组合——
   前序屏障（T07）→ 预算原子预留（T21，先预留再采样）→ provider 采样

@@ -40,7 +40,8 @@ phase1+P2 一并走 PR 合入 main。
 | P2-A 批2 | A2 写入端 ∥ A3 读取端 ∥ A4 展示端 | 完成 |
 | P2-A 汇合 | 多实体 subject_ref 修复 + 夹具转绿 + 全量验证 | 完成 |
 | P2-B 批1/批2 | B0 夹具 ∥ B1 方言统一；B2 机器接线 ∥ B3 边界揭示闸（B4 并入汇合） | 完成 |
-| P2-C 批1/批2 | C0 夹具 ∥ C1 登记缝；C2/C3/C4 | 待 P2-B |
+| P2-C 批1/批2 | C0 夹具 ∥ C1 登记缝；C2/C3/C4 | 完成（C0 夹具 15/15 全绿），改动未提交 |
+| P2-C 汇合批 | 门禁验证 + 文档同步 + 提交 + PR | 进行中（2026-10-08，见 [P2-C 汇合记录](#p2-c-汇合记录2026-10-08) 与 [交接快照](handoff-world-foundation-p2c-20261008.md)） |
 
 ### A0 产出（P2-A 批1，2026-10-07）
 
@@ -148,9 +149,38 @@ passed；后端全量 **7324 passed**（P2-A 后 7276 + 48）；ruff/format/impo
 compare 纯读、ResolutionBatch 内存重放（既有测试钉死），P2-B 无新增写路径。
 零 LLM、零真实数据写入。
 
+## P2-C 汇合记录（2026-10-08）
+
+C2/C3/C4 三个单元产出留在工作树未提交，汇合批统一验证。可恢复快照见
+[handoff-world-foundation-p2c-20261008.md](handoff-world-foundation-p2c-20261008.md)。
+
+修掉的两个汇合缺陷：
+
+1. **模块 README 链接断链**（`docs-check` 完整性门禁 ERROR）：`evolution/README.md`
+   与 `writing/README.md` 新增段落用了 `../../docs/modules/2x_*.md`（指向不存在的
+   `backend/docs/`），已改 `../../../docs/...`（与其他模块 README 同口径）。
+2. **差异影响门禁五项必查文档**：`--base-ref origin/main` 列出 CLAUDE.md、
+   documentation-maintenance.md、module-architecture.drawio/html、07_outline.md
+   未更新。逐项核对后按 PR 模板第三项给出无影响说明（原文存交接快照 §6.2），
+   以 `--no-change-reason` 复跑降级为 WARNING、退出码 0。要点：bootstrap 只加既有
+   DI 缝注册（CLAUDE.md 是纯导入指针）；未新增/合并模块与跨模块边（棘轮未推高，
+   拓扑图不变）；Makefile 触发源是新增 `eval-rp-cost-baseline` 评估目标（非文档
+   门禁/CI 入口）；story 改动只涉 continuity 与 facade 再出口，outline_state 未改，
+   语义已落在 05_memory.md / 19_story.md / story README。
+
+验证：writing+evolution+collaboration 635 passed；story+evidence+unit 3070 passed
+（`test_dev_stack_entrypoint` 单例首次失败，独立复跑 24/24 全绿，属临时目录环境噪声）；
+真 PG `tests/e2e/test_p2c_invalidation_recompute.py` 3 passed（专用库
+`agent_e2e_world_p2c_20261008`，已 `alembic upgrade head`）；ruff check 过；
+本轮改动文件 `ruff format --check` 15/15 已格式化（全库 162 条是 ruff 0.16.9 与仓库
+既有格式的基线差异，main 工作树同为 178 条，与本轮无关，不得顺手全量重排）；
+`module-import-gate` 棘轮 65/9/0/525/0/26 未推高。零 LLM、零真实数据写入。
+
 ## 恢复快照
 
-（交接/暂停前更新）当前：P2-A、P2-B 全部完成并提交，进入 P2-C 批1（C0 端到端夹具 + C1 登记缝设计两子代理并行）。
+（交接/暂停前更新）当前：P2-A、P2-B 完成并提交，P2-C 的 C0–C4 全部完成、改动未提交，
+汇合批门禁已过，待前端真实浏览器关键流 → 固定提交 → 整理 PR；
+快照见 [handoff-world-foundation-p2c-20261008.md](handoff-world-foundation-p2c-20261008.md)。
 
 ## A1 产出（契约先行单元，2026-10-07）
 
@@ -1044,3 +1074,281 @@ contract.invalidation / receipt.recompute_options 的结构存在断言处。
 - request_chapter_index 在来源变化时入队 rag_index_chapter（one_pending_follower
   模式）——它属"重读证据"档，"编辑不自动触发生成"的真绿断言以任务类型白名单
   表达（≠ 零任务）。
+
+## C4 产出（前端失效提示与重算入口，2026-10-07）
+
+零 LLM、零 git commit；改动全部留在工作树。vitest 全量 230 文件 / 2857 用例
+通过 + eslint 0 问题（新增 4 个测试文件共 35 用例）。
+
+### 组件与文件
+
+- `frontend-console/vue/views/writing/invalidationModel.js`（新增，纯模型层）：
+  C1 `receipt_public_view` → 作者语言投影（`normalizeInvalidationNotice` 零打扰
+  口径：缺字段/非对象/`nothing_to_do`/无任何失效信号 → null）；重算三分类文案
+  （`RECOMPUTE_SCOPES`，成本/写入效果对齐 `RECOMPUTE_SCOPE_EFFECTS` 作者语言）；
+  `recomputeRequestPayload` 按 `RecomputeRequest` 组装（preview/execute 共结构、
+  `baseline_receipt_digest`=receipt_id、rebuild 以场景锚、regenerate/reload 以章锚）；
+  预览/回执/历史条目防御性投影；`recomputeOperationKey`（randomUUID 优先、无
+  Web Crypto 失败关闭）；`isRecomputeConflictError`（409 + SOURCE_STALE/
+  baseline_drift，兼容 C0 注记的双错误面）。
+- `frontend-console/vue/views/writing/components/InvalidationNotice.vue`（新增）：
+  autosave 成功后就地温和提示条（role=status 非弹窗）：范围摘要 + 待核实说明
+  + 「查看受影响与重算选项」入口；无失效时整条不渲染。
+- `frontend-console/vue/views/writing/components/RecomputePanel.vue`（新增）：
+  次级渐进面板（沿 CreativeExperiments 语言/交互）：受影响列表（场景+原因+
+  已知/待核实徽章）、缺口可见（invalidated/unsupported/coverage_note 次级折叠）、
+  三分类单选（每类成本/效果说明）、预览（独立只读+零写入说明）、采用（与预览
+  共用同一 operation_id 的幂等对；执行中禁用+离开保护 canLeave/aux guard/
+  beforeunload；编辑器 dirty 时禁止执行）、冲突（409/漂移：展示所基于的失效信息
+  vs 服务器最新影响（invalidationReceipt 回读）+「保留当前稿」零写入返回）、
+  非冲突失败可重试且复用同一幂等键、回执历史（懒加载、空态/失败/重读）、
+  「暂不重算」= 纯本地关闭零请求；notice 更换（新回执）时面板复位。
+- `frontend-console/api/evolution.js`：追加 `invalidationReceipt` /
+  `recomputePreview` / `recomputeExecute` / `recomputeCancel` / `recomputeReceipts`
+  封装（query novel_id + body 含 novel_id 双口径，按 C1 RecomputeRequest 形态）。
+- `frontend-console/vue/views/writing/controllers/editorController.js`：autosave
+  成功链最小接入——`state.invalidationNotice = normalizeInvalidationNotice(
+  result?.invalidation, { chapterIndex: chapter })`（保存失败/无字段零打扰）；
+  `applyDraft`（切章/切版本/checkpoint/载入服务器版）与 `restoreSession`
+  （会话快照不复活旧提示）清空。
+- `frontend-console/vue/views/writing/components/WritingEditor.vue`：渲染点
+  （save-recovery 卡之后、candidate 区之前挂 InvalidationNotice + RecomputePanel，
+  传 state.invalidationNotice/chapter/dirty；notice 清空时自动收起面板）。
+
+### 范围裁定（假设记录）
+
+可写清单未点名 WritingEditor.vue；失效提示「编辑器就地展示」没有渲染点则无法
+交付，故在 writing 模块内的编辑器组件做最小挂载（约 20 行模板/脚本），未触碰
+WritingView/useWritingWorkspace 及其他模块。测试替身走 bridge
+`setBridgeOverrides`（DI 缝），生产零 Mock。
+
+### 测试
+
+- `tests/vue/writing/invalidationModel.test.js`（14）：零打扰口径、条目/徽章/
+  标题投影、缺 options 默认三分类、payload 目标锚与幂等字段、预览回退、
+  回执投影、幂等键失败关闭、冲突判定。
+- `tests/vue/writing/InvalidationNotice.test.js`（3）：触发条件、待核实说明
+  条件渲染、open 事件。
+- `tests/vue/writing/RecomputePanel.test.js`（14）：受影响列表、三分类文案与
+  预览门控、场景锚目标、预览失败重试、采用幂等键、editorDirty 禁止执行、
+  冲突（比较+保留当前稿零写入）、失败重试同键、取消零请求、进行中禁止离开、
+  回执历史（失败/成功/空态）、能力缺失失败态、新回执复位。
+- `tests/vue/writing/invalidationAutosave.test.js`（4）：保存成功带视图生成
+  提示、无字段/nothing_to_do 零打扰、保存失败不产生提示且错误通道不变、切章
+  清空。
+
+### 与 C3 的契约对接点（待汇合对齐项）
+
+- 端点路径为前端先行拟定：GET `/evolution/invalidation/{receipt_id}`、POST
+  `/evolution/recompute/preview|execute|cancel`、GET `/evolution/recompute/receipts`
+  （query `novel_id` + body `novel_id` 双口径）。C3 落地路径若不同，仅需改
+  `api/evolution.js` 五个方法体。
+- 保存响应透传字段名按 C0 夹具 `WritingDraftContract.invalidation`；前端读
+  `result.invalidation`（autosave 与 autosaveDraftOnly 两链路都读）。
+- execute 的冲突响应面按 409 或 `code=SOURCE_STALE/baseline_drift` 判定；
+  若 C3 用其他错误码，扩 `isRecomputeConflictError` 即可。
+- 回执历史条目字段按 `operation_id/scope/created_at/replayed` 防御性读取，
+  未知字段不冒充翻译；`recomputeCancel` 封装已备、面板取消目前纯本地零副作用
+  （若 C3 要求显式取消未执行操作，再接调用点）。
+
+## C2 产出（evolution 侧消费登记接线与失效细化，2026-10-07）
+
+新文件 `backend/modules/evolution/registration.py`（登记写入端：构建 +
+幂等合并，零 DB/零 LLM）与 `backend/modules/evolution/impact.py`（失效
+影响组装层：登记读取 + 锚定合成 + 回执视图投影）；`invalidation.py` 扩展
+（`InvalidationReceipt` 增量字段 + `apply_source_invalidation` 接
+`assess_source_impact`）；`facade.py` 再出口 `receipt_view`；
+`core/service_keys.py` 补录 `ALL_SERVICE_KEYS`；`app/bootstrap.py` 注册
+`(EVOLUTION_INVALIDATION_RECEIPT_VIEW, evolution.facade.receipt_view)`。
+测试：`test_consumption_registry.py` 扩 8 例（42 全绿）；C0 夹具 xfail
+①③④ 摘标转绿（15 passed + 1 xfailed——②透传归 C3）。
+
+### 登记写入落点调查结论（B 类待办在此）
+
+真实写入点唯一：`story/continuity/scene_projection.py::_project_dimension`
+（投影消费 working 稿；draft/version/source_hash 与 P2-A `_working_refs`
+同源可锚）。该文件在 story 模块（B 类接线，本批不越权）；collaboration
+manifest 消费为读侧（无产物行可内嵌）；evidence 章索引是确定性消费者
+（失效引擎无条件重建，不依赖登记判定）；`scene_lens` kind 目前无生产
+写入端（evidence compilation 的 memory loader 是读 checkpoint 侧）。
+**接线方向**：story→evolution 边在 import-gate 冻结集合内，接线时在
+`_project_dimension` 组 state 处调
+`modules.evolution.contracts/facade` 再出口的
+`registration.register_consumption` + `scene_checkpoint_registration`
+（本批已实现并测试，接线零新增设计）；evidence 侧无边
+（`evidence` 冻结集合不含 evolution），若未来需要经 DI 键注入。
+
+### 无接线期的可解释性：锚定结构合成登记
+
+`impact.anchored_registrations`：对锚定变更章、且该 `(scene_id,
+dimension)` 无真实登记的投影，按 outline 结构事实（scene.chapter_ids
+锚定）合成整章消费登记（`method_version="anchored-scene-implicit-v1"`
+标识来源、无稿锚、`ranges=()`）。真实登记存在时不合成（登记是权威声明，
+优先于结构事实）。效果：无登记场景下受影响列表可解释（锚定场景
+basis=known + reason=anchored_chapter_edited、scene_id 真实；后续无事实
+场景 basis=unknown + conservative_expansion_unregistered），且评估窗口
+与现状保守扩大逐位一致（`from == earliest`，合成登记恒判整章命中不收窄
+窗口）——C0 ①③④ 因此可在无 story 接线时转绿。
+
+### InvalidationReceipt 增量字段（默认值，旧构造兼容、既有字段零改动）
+
+`affected: list[dict]`（`affected_view_entries` 形态，known/unknown 分列、
+无关 Scene 不进）、`unknown_scope: bool`（保守范围或 unsupported 存在）、
+`receipt_id: str`（`receipt_fingerprint` 稳定指纹）、`recompute_options:
+list[dict]`（三分类）、`impact_assessment: Any`（内嵌评估对象，供
+`receipt_view` 重投影；不参与指纹）。失效路径 `apply_source_invalidation`
+（含 `record_writing_source_change`）与重排/nothing_to_do 分支均填
+`receipt_id`；evolution runs 失效保持保守锚 `earliest`（不随投影窗口
+收窄），投影失效用 `assessment.from_scene_index`。
+
+### 重算三分类规则（recompute_options）
+
+恒列三类（nothing_to_do 除外）：`reload_evidence`（covers
+evidence_chapter_index——对应现有 `rag_index_chapter` 任务白名单，编辑时
+唯一自动入队档）、`rebuild_derived_state`（covers story_scene_projections
++ affected=scene 级条目，含保守 unknown、不含登记证明无关的 Scene）、
+`regenerate_prose`（covers prose_generation，`author_choice_only=True`，
+仅作者显式经 `RecomputeRequest(mode="execute", confirmed=True)` 触发）。
+编排/执行端点归 C3。
+
+### 窗口语义边界（汇合批/B 类需知）
+
+物理投影失效仍是窗口语义（story `supersede_system_from` 自起点起全失效，
+无按场景集合 supersede 的能力）："部分命中"场景下窗口内被证明无关的
+Scene 仍被物理失效（与现状一致，零行为破坏），但归因列表/重算清单不含
+它；"全部登记无关"时窗口收窄到零（`from=None`，零投影失效——
+test_all_registered_unrelated_keeps_projections_current 钉死）。按集合
+supersede 的对齐留 B 类（story 侧接线时一并评估）。
+
+### 验证
+
+`modules/evolution` 全量 288 passed + 1 xpassed（C3 透传 xfail 保持）+1
+deselected（real LLM）；`test_consumption_registry.py` 42 全绿（含 4 例
+真库端到端：部分命中归因、全无关零失效、offset_window_hit、无登记保守
+可解释）；`tests/unit/test_container.py` 21 passed（键表-注册一一对应）；
+`tests/unit/test_governance_gates.py` 中我的指标 65/65、9/9、0/0、
+525/525 未推高、26/26（移开并行 C3 未跟踪的 `writing/recompute.py` 顶层
+story import 后 gate 全绿——该双向对归 C3 汇合处理）；ruff
+check/format 过；`make docs-check` 过。零 LLM、零 git commit。
+
+## C3 产出（writing 侧回执透传与重算编排，2026-10-08）
+
+改动文件（本单元独占写入）：`backend/modules/writing/repositories.py`、
+`contracts.py`、`schemas.py`、`services.py`、`api.py`、新增 `recompute.py`
+（编排服务，独立新文件避开 services.py 热点）、新测试
+`backend/modules/writing/tests/test_p2c_recompute.py`（10 例全绿）、
+C0 夹具 `test_p2c_revision_adoption.py` 仅摘②的 xfail、本节。
+
+### 回执透传链路（file:line，改动后行号）
+
+- `repositories.py:61-75` `_changed` 接住
+  `EVOLUTION_RECORD_WRITING_SOURCE_CHANGE` 返回的 InvalidationReceipt，
+  经 C2 注册的 DI 缝 `EVOLUTION_INVALIDATION_RECEIPT_VIEW`
+  （`evolution.facade.receipt_view` → `impact.py`）投影为作者语言公共
+  视图，挂到 draft 行的**瞬态属性** `invalidation`（`INVALIDATION_VIEW_ATTR`，
+  repositories.py:28；非映射列不入库——测试钉死 WritingDraft 无同名列）。
+  瞬态属性是并发安全的最小通道：回执在 `_changed` 单点产生（重算不得
+  二次触发失效），视图随引发它的对象走，repo/service 单例无共享状态。
+- `contracts.py:53` `WritingDraftContract.invalidation: dict | None`
+  （additive 置尾，旧位置构造零破坏）；`services.py` `_to_contract` 读
+  `getattr(draft, INVALIDATION_VIEW_ATTR)`；`schemas.py:213/280-282`
+  `WritingDraftResponse.invalidation`（from_attributes 直取瞬态属性，
+  before-validator 按本模型既有惯例把非 dict 来源置 None——publish/update/
+  autosave 全部响应路径自动携带）。
+- API 零破坏增量：autosave `POST /api/writing/drafts/autosave` 响应带
+  `invalidation` 公共视图（affected/unknown_scope/receipt_id 最小键集 +
+  invalidated/unsupported/coverage_note/recompute_options）。
+
+### 重算编排端点（writing api：`/api/writing/recompute*`）
+
+- `POST /api/writing/recompute`（api.py:497-510）：预览模式。入参
+  `{novel_id, operation_id, scope, targets[{scene_index|chapter_index,
+  dimension?}], baseline_receipt_digest?}`；返回独立预览
+  `{request_hash, scope, covers, cost, write_effect, executable, actions[],
+  affected[], source_digest, source_state, domain_write_performed: false}`。
+  纯读组装，结构上零正史写入（测试钉死索引状态/任务/稿件逐位不变）。
+- `POST /api/writing/recompute/{operation_id}/adopt`（api.py:513+）：执行。
+  入参同预览 + `confirmed: true` + `expected_source_digest`（预览返回的
+  来源指纹）；path/body operation_id 不一致 400。
+  - 重验：目标章最新工作稿 (version, content_hash) 指纹漂移 → 409
+    `recompute_source_drift`，context 携带 `current` 各章版本/指纹 +
+    `keep_current_draft: true`（可比较数据，当前稿保留，零新任务）。
+  - 执行只走既有白名单：reload_evidence → `evidence.facade.
+    request_chapter_index(working)`（复用/合并 rag_index_chapter，
+    one_pending_follower/reuse_active 幂等）；rebuild_derived_state →
+    `story.facade.ensure_scene_checkpoints`（投影重建幂等、历史与作者
+    确认保留）。regenerate_prose 无既有生成任务白名单支撑 → 409
+    `recompute_scope_unsupported`（零 LLM；预览 `executable=false` 明示）。
+  - 幂等：operation_id+request_hash 双键（`recompute_request_hash`
+    与 C1 `recompute_request_hash` 对同一逻辑请求逐位相等，测试对拍）；
+    重放落在本身幂等的域动作上——reload 重放复用同一任务（任务数/索引
+    行数不变）、rebuild 重放 ensure_scene 幂等短路（checkpoint 行数不变）。
+    **已知缺口（汇合批裁定）**：无持久 operation 台账，`replayed` 标记
+    与"同 operation_id 异内容拒绝"（collaboration merge 语义）未实现，
+    C2 回执落库 store 可作后续锚点。
+  - 取消/过期零副作用：预览无服务端状态，不 adopt 即取消（测试钉死）。
+- 目标解析：scene 锚经 `get_scenes_by_novel`（status canonical/draft，
+  与失效引擎同口径）；章锚保守扩大到锚定该章的全部 Scene（受影响条目
+  basis=unknown 显式标注"登记未接入前保守口径"，不冒充登记依据）；
+  evidence 章条目 basis=known（确定性重建）。scene_index 不存在 →
+  400 `recompute_target_not_found`。
+
+### import-gate 裁定（回应 C2 产出的"该双向对归 C3 汇合处理"）
+
+`writing/recompute.py` 顶层 `modules.story.facade` import 会与
+story→writing 既有顶层反向导入（scene_projection 等）构成顶层双向对
+（基线 0）。已改：recompute 内 story 门面降为函数内导入（沿
+services.py 既有惯例）；等量补偿把 `repositories._changed` 与
+`services.py`（checkpoint 确认段）两处函数内 `evidence.facade.
+mark_asset_context_changed` 提升为顶层（evidence 无顶层反向导入 writing，
+不构成双向对）。gate 全绿：65/65、9/9、0/0、**525/525 未推高**、0/0、26/26。
+
+### C0 ②转绿
+
+`test_p2c_writing_revision_surfaces_invalidation_view` 摘 xfail 后真绿
+（C2 回执增强 + 本单元透传合流；affected scene_indexes=={1,2} 成立）。
+C0 夹具 15/15 全绿（①③④已由 C2 先行转绿）。
+
+### 验证
+
+新测试 10 例全绿（镜像对拍×2、透传 service/API、瞬态不落库、预览零写入+
+取消零副作用、确认门+unsupported、reload 幂等、rebuild 恢复+幂等、来源
+漂移冲突保留当前稿、HTTP 契约含 400/409）；`modules/writing` 304 passed、
+`modules/evolution`+`modules/collaboration`+`tests/unit/test_container.py`
+656 passed 1 deselected；`make module-import-gate` 过；ruff check/format 过；
+`make docs-check` 无基线过，`BASE_REF=origin/main` 报分支累计复核清单
+（writing/evolution README、docs/modules/11_writing.md 等——docs/ 本卡
+禁改，归 P2-C 汇合批统一同步，同 A4 先例）。零 LLM、零 git commit。
+
+### C4 汇合对齐（2026-10-07，C3 真实端点落地后）
+
+C3 落地 `backend/modules/writing/api.py` 的 `/writing/recompute`（预览）与
+`/writing/recompute/{operation_id}/adopt`（执行）后，前端从拟定契约切到真实
+契约。vitest 全量 230 文件 / 2863 用例通过 + eslint 0 问题（C4 测试 4 文件
+41 用例）。
+
+- `api/evolution.js`：只保留 `recomputePreview`（POST /writing/recompute）与
+  `recomputeExecute`（POST /writing/recompute/{operation_id}/adopt，路径带
+  operation_id）；删除 `recomputeCancel`/`invalidationReceipt`/
+  `recomputeReceipts`（无后端对应；取消=不调用 adopt，预览无服务端状态）。
+- `invalidationModel.js`：请求体对齐 WritingRecomputeRequest（extra=forbid，
+  基础体仅 novel_id/operation_id/scope/targets/baseline_receipt_digest，
+  **去掉 mode/confirmed**）；新增 `recomputeAdoptPayload`（+confirmed:true+
+  expected_source_digest=预览 source_digest）；预览投影消费真实响应
+  （executable/actions/covers/source_digest/source_state.chapters）；
+  `recomputeConflictKind` 认 409+`recompute_source_drift`/
+  `recompute_scope_unsupported`（SOURCE_STALE/baseline_drift 兼容保留）；
+  `normalizeRecomputeDriftContext`+`driftRowLabel` 把 409 context.current 与
+  预览 source_state 逐章比成「预览时第 a 版 → 当前第 b 版」；回执历史改
+  **本地会话内记录**（`rememberRecomputeReceipt`/`listRecomputeReceipts`，
+  按 novel 隔离、operation_id 去重、上限 20），口径与 limitation（刷新即失、
+  跨会话经 adopt 幂等重放重查）写在模块头注记。
+- `RecomputePanel.vue`：执行走 adopt 端点（同 operation_id 幂等对，重试复用
+  同键同指纹）；regenerate_prose 预览 executable=false → 执行按钮禁用并显示
+  「需要你的明确确认与生成额度，当前不可自动执行」；漂移冲突比较数据源改
+  409 context（逐章版本对比），动作=「基于当前稿重新预览」/「保留当前稿」；
+  回执历史读本地会话记录并明示 limitation；取消仍纯本地零请求。
+- 测试同步：`invalidationModel.test.js` 18 例（白名单字段断言用 toEqual 钉
+  死 extra=forbid 口径）、`RecomputePanel.test.js` 16 例（adopt 路径/体、
+  executable=false、漂移重预览后成功、保留当前稿、scope_unsupported、
+  本地回执隔离与空态）。
