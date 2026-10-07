@@ -1,4 +1,10 @@
-"""指定切片的只读条件比较：保管转移与三条件开锁，候选仅在内存重放。"""
+"""指定切片的只读条件比较：保管转移与三条件开锁，候选仅在内存重放。
+
+P2-A：保管/开锁/月相取值的条件附带受控字段来源三态（exact/unverified/
+conflict，来自状态视图 fact 的 ``source["provenance"]``）；判决理由只在
+exact 时精确回指稿件依据，unverified/conflict 显式降级明示——不改变
+failed/uncertain/succeeded 三值裁决本身。
+"""
 
 from __future__ import annotations
 
@@ -11,6 +17,42 @@ from infrastructure.stable_hash import stable_hash
 from modules.story.continuity.scene_state_view import SceneStateViewService
 from modules.story.contracts import SceneStateTrialRequest
 from modules.story.observations import ResolutionBatch, StateDelta, replay_batch
+
+
+def _condition_source_status(source: object) -> str | None:
+    """条件来源 fact 的受控字段三态；非受控/无记录为 None（来源待核实）。"""
+    if not isinstance(source, dict):
+        return None
+    provenance = source.get("provenance")
+    status = provenance.get("status") if isinstance(provenance, dict) else None
+    return str(status) if status else None
+
+
+def _verdict_reasons(conditions: list[dict]) -> list[str]:
+    """判决依据说明：exact 才精确回指稿件修订，其余显式降级明示。
+
+    仅覆盖带 provenance 的受控母题字段来源；无 provenance 的条件（如口令
+    知识信念）不作来源断言。不参与三值裁决——verdict 只由条件
+    met/unmet/unknown 决定。
+    """
+    reasons: list[str] = []
+    for item in conditions:
+        status = item.get("source_status")
+        label = str(item.get("label") or "")
+        if status == "exact":
+            provenance = (item.get("source") or {}).get("provenance") or {}
+            versions = [
+                str(ref.get("version_number"))
+                for ref in provenance.get("source_refs") or []
+                if isinstance(ref, dict) and ref.get("version_number") is not None
+            ]
+            scope = f"（稿件修订 v{versions[0]}）" if versions else ""
+            reasons.append(f"「{label}」已精确回指依据{scope}")
+        elif status == "unverified":
+            reasons.append(f"「{label}」字段来源未核实，结论待补充稿件依据")
+        elif status == "conflict":
+            reasons.append(f"「{label}」字段来源存在冲突，结论待人工核实")
+    return reasons
 
 
 async def compare_scene_state_trial(
@@ -121,6 +163,8 @@ async def compare_scene_state_trial(
             "label": label,
             "status": status,
             "source": source or {},
+            # P2-A：受控字段来源三态随事实来源附带（None = 来源待核实）。
+            "source_status": _condition_source_status(source),
             "assumption": assumption,
             "observed": readable(observed),
             "expected": readable(expected),
@@ -236,6 +280,9 @@ async def compare_scene_state_trial(
             if "unknown" in states
             else "succeeded"
         )
+        # P2-A 判决理由：exact 精确回指、unverified/conflict 显式降级；
+        # 三值裁决本身只看条件 met/unmet/unknown，不受来源状态影响。
+        verdict_reason = _verdict_reasons(conditions)
         patches = []
         if verdict == "succeeded" and request.action == "transfer_key":
             patches.append(
@@ -271,6 +318,7 @@ async def compare_scene_state_trial(
         return {
             "outcome": verdict,
             "conditions": conditions,
+            "verdict_reason": verdict_reason,
             "candidate_state": replayed,
             "resource_state": {
                 "holder": readable(replayed["resource_holders"].get(key_id)),

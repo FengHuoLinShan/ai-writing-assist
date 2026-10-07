@@ -9,10 +9,18 @@ M4 追加读时来源基线比对（basis.py）：系统行构建时登记的环
 degraded + gap_reason，绕过失效钩子的正文/结构变更不再静默供给；manual/confirmed
 作者行豁免。世界正典修订不自动失效本视图（观察层记录「当时所见」），
 以 unsupported_dependencies 显式列出，核对待走 World 复核。
+
+P2-A 追加逐字段来源（field_provenance.py）：受控母题字段的 fact 在
+``source["provenance"]`` 携带单条记录 ``{field, event_id, source_refs, status}``；
+status 三态 exact/unverified/conflict，无记录（含旧格式 checkpoint）不冒充——
+不带 provenance，展示层显示「来源待核实」。历史 checkpoint 摘要与列表出口
+（``summarize_field_provenance`` / ``list_scene_checkpoints``）也由本模块提供。
 """
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +31,12 @@ from core.service_keys import WORLD_GET_CHARACTER_ID_BY_WORLD_ENTITY
 from infrastructure.stable_hash import stable_hash
 from modules.story.continuity.basis import basis_hash, compute_scene_basis
 from modules.story.continuity.contracts import SCENE_MEMORY_DIMENSIONS
+from modules.story.continuity.field_provenance import (
+    FIELD_PROVENANCE_STATE_KEY,
+    FieldProvenance,
+    read_field_provenance,
+    resolve_field_status,
+)
 from modules.story.continuity.scene_projection import SceneMemoryProjectionService
 from modules.story.continuity.schemas import (
     SceneStateDimensionView,
@@ -92,6 +106,60 @@ def _occurred_at(payload: dict[str, Any]) -> dict[str, int] | None:
             continue
         occurred[key] = value
     return occurred or None
+
+
+def summarize_field_provenance(
+    state_json: Mapping[str, Any] | None,
+    dimension: str | None = None,
+) -> dict[tuple[str, str | None], dict[str, Any]]:
+    """checkpoint 内嵌逐字段来源 → ``{(field_key, subject_ref): 单记录摘要}``。
+
+    摘要形态由 A0 夹具钉定，仅四键::
+
+        {"field": str, "status": "exact"|"unverified"|"conflict",
+         "event_id": str | None, "source_refs": [SourceRangeRefContract 形态 dict]}
+
+    - 分组键 ``(field_key, subject_ref)``：同维度多实体的同名字段各走各的
+      裁决链（entities/locations 的 subject_ref 为实体 ID，timeline 等无
+      实体容器为 None），互相不污染。
+    - 判定与 ``resolve_field_status`` 同源：最新链唯一且有稿源区间 → exact；
+      只追到事件 → unverified（保留已知 event_id，source_refs 为空）；
+      同序多条不同链 → conflict，无法唯一归因时不冒充（event_id=None、
+      source_refs 空）；历史链（更早事件序）不参与展示。
+    - 旧格式（无 ``_field_provenance`` 键）或无记录 → 空 dict，调用方不得
+      据此宣称 exact；「来源待核实」的展示语义归展示层。
+    - ``dimension`` 给定时只聚合该维度的链（checkpoint 本就按维度分行，
+      过滤防止跨维度串链）。
+    """
+    grouped: dict[tuple[str, str | None], list[FieldProvenance]] = {}
+    for record in read_field_provenance(state_json):
+        if dimension is not None and record.dimension != dimension:
+            continue
+        grouped.setdefault((record.field_key, record.subject_ref), []).append(record)
+    summaries: dict[tuple[str, str | None], dict[str, Any]] = {}
+    for (field_key, subject_ref), records in grouped.items():
+        status = resolve_field_status(records)
+        if status is None:
+            continue
+        deduped = {
+            json.dumps(record.model_dump(mode="json")): record for record in records
+        }
+        top_sequence = max(record.recorded_at_sequence for record in deduped.values())
+        latest = [
+            record
+            for record in deduped.values()
+            if record.recorded_at_sequence == top_sequence
+        ]
+        chosen = latest[0] if len(latest) == 1 else None
+        summaries[(field_key, subject_ref)] = {
+            "field": field_key,
+            "status": status.value,
+            "event_id": chosen.event_id if chosen else None,
+            "source_refs": [ref.model_dump(mode="json") for ref in chosen.source_refs]
+            if chosen
+            else [],
+        }
+    return summaries
 
 
 class SceneStateViewService:
@@ -313,6 +381,9 @@ class SceneStateViewService:
             "dimension": dimension,
             "confirmed": bool(checkpoint.confirmed),
         }
+        # P2-A：受控母题字段的逐字段来源单记录；旧格式/无记录 → 空 dict，
+        # 对应 fact 不带 provenance，不冒充精确。
+        provenance_by_field = summarize_field_provenance(state, dimension)
         entries: list[SceneStateFactEntry] = []
 
         def add(
@@ -324,6 +395,7 @@ class SceneStateViewService:
             layer: str,
             payload: dict[str, Any] | None = None,
             possibly_false: bool = False,
+            provenance: dict[str, Any] | None = None,
         ) -> None:
             entries.append(
                 SceneStateFactEntry(
@@ -351,6 +423,7 @@ class SceneStateViewService:
                             if layer == "belief" and payload
                             else {}
                         ),
+                        **({"provenance": provenance} if provenance else {}),
                     },
                     confidence=confidence,
                     possibly_false=possibly_false,
@@ -370,6 +443,9 @@ class SceneStateViewService:
                         value=value,
                         layer="fact",
                         payload=payload,
+                        # 逐字段来源按受控 payload 键登记；查询键带实体锚，
+                        # 多实体同名字段各走各的链。未登记键查不到摘要。
+                        provenance=provenance_by_field.get((field, str(entity_id))),
                     )
             for payload in state.get("changes") or []:
                 if not isinstance(payload, dict):
@@ -386,6 +462,17 @@ class SceneStateViewService:
             for entity_id, payload in (state.get("character_locations") or {}).items():
                 if not isinstance(payload, dict):
                     continue
+                # 位置 fact 是整份 payload 的聚合条目；逐字段来源挂主锚字段
+                # location_id（entity_ref），仅当事件只写描述时退 text_state。
+                # 查询键带实体锚，多角色位置互不串链。
+                location_provenance = next(
+                    (
+                        provenance_by_field[(key, str(entity_id))]
+                        for key in ("location_id", "text_state")
+                        if (key, str(entity_id)) in provenance_by_field
+                    ),
+                    None,
+                )
                 add(
                     subject_id=str(entity_id),
                     subject_label=cls._entity_label(payload, str(entity_id)),
@@ -393,6 +480,7 @@ class SceneStateViewService:
                     value=_clean_payload(payload),
                     layer="fact",
                     payload=payload,
+                    provenance=location_provenance,
                 )
         elif dimension == "knowledge":
             for payload in state.get("character_knowledge") or []:
@@ -436,6 +524,14 @@ class SceneStateViewService:
             for payload in state.get("facts") or []:
                 if not isinstance(payload, dict):
                     continue
+                # moon_phase 是 timeline 维度唯一登记的受控母题字段（无实体
+                # 容器，subject_ref=None）；只有该 fact 本身携带月相值时才
+                # 挂链，普通时间事实不冒充。
+                moon_provenance = (
+                    provenance_by_field.get(("moon_phase", None))
+                    if payload.get("moon_phase") is not None
+                    else None
+                )
                 add(
                     subject_id=str(payload.get("id")) if payload.get("id") else None,
                     subject_label=str(
@@ -445,6 +541,7 @@ class SceneStateViewService:
                     value=_clean_payload(payload),
                     layer="fact",
                     payload=payload,
+                    provenance=moon_provenance,
                 )
         elif dimension == "causality":
             for payload in state.get("claims") or []:
@@ -646,3 +743,62 @@ async def get_scene_state_view(
         viewpoint=viewpoint,
         include_dimensions=include_dimensions,
     )
+
+
+async def list_scene_checkpoints(
+    db: AsyncSession,
+    novel_id: str,
+    scene_id: str,
+    *,
+    dimension: str | None = None,
+) -> list[dict[str, Any]]:
+    """该 Scene 的 checkpoint 历史摘要（P2-A 历史回开的数据来源，只读）。
+
+    - 按创建时间倒序（新版本在前），含已 supersede 的历史行——「历史版本
+      可回开」经 ``get_record(checkpoint_id)`` 逐条取回。
+    - 只读本作品（novel_id + scene_id 双过滤）；``dimension`` 可选收窄，
+      非法维度名直接 422，不静默返回空表。
+    - ``version`` 是同维度链上的时间序号（1 起，越大越新），由行序派生，
+      非存储列；``chapter_index`` 取 Scene 章节锚（chapter_ids 最大值），
+      无章节锚时为 None。
+    - ``has_field_provenance`` 标记该行 state_json 是否内嵌
+      ``_field_provenance``（旧格式行为 False，回开后 provenance 为空表）。
+    """
+    from shared.utils import parse_uuid
+
+    if dimension is not None and dimension not in SCENE_MEMORY_DIMENSIONS:
+        raise ValidationError(
+            "unknown memory checkpoint dimension",
+            code="invalid_dimension",
+            status_code=422,
+        )
+    nid = parse_uuid(novel_id, "novel_id")
+    sid = parse_uuid(scene_id, "scene_id")
+    scene = _scene_payload(await get_scene_contract(db, novel_id, scene_id))
+    chapters = _scene_chapters(scene)
+    chapter_index = max(chapters) if chapters else None
+
+    from modules.story.continuity.repositories import SceneCheckpointRepository
+
+    rows = await SceneCheckpointRepository().list_history_for_scene(
+        db, nid, sid, dimension=dimension
+    )
+    # 仓库层已按 created_at 倒序返回；取反得时间升序，为同维度链编号 version。
+    version_counter: dict[str, int] = {}
+    versions: dict[Any, int] = {}
+    for row in reversed(rows):
+        version_counter[row.dimension] = version_counter.get(row.dimension, 0) + 1
+        versions[row.id] = version_counter[row.dimension]
+    return [
+        {
+            "checkpoint_id": str(row.id),
+            "dimension": row.dimension,
+            "scene_index": int(row.scene_index),
+            "chapter_index": chapter_index,
+            "version": versions[row.id],
+            "is_current": bool(row.is_current),
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+            "has_field_provenance": FIELD_PROVENANCE_STATE_KEY in (row.state_json or {}),
+        }
+        for row in rows
+    ]

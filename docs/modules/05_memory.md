@@ -70,6 +70,21 @@ Story continuity 子域维护小说世界的“变化历史”，不是再存一
   视图读时重算比对，漂移/缺失即该维度 degraded + gap_reason（不自动重建，失效与重算分开）；
   manual/confirmed 作者行豁免；世界正典修订/地图册不自动失效本视图，以
   `unsupported_dependencies` 显式列出，核对待走 World 复核。
+- 逐字段赋值链（P2-A）：`field_provenance` 契约定义三母题受控字段注册表
+  （位置 `location_id/text_state/chapter_index`、保管 `custody_owner/custody_holder`、
+  锁 `opening_key_id/opening_moon_phase/opening_passphrase` 与 timeline `moon_phase`）
+  与 `FieldProvenance` 记录；投影写入端把每次赋值链内嵌进 checkpoint
+  `state_json["_field_provenance"]`（纯 JSON，无新列，随行 supersede 软删），
+  记录携带实体锚 `subject_ref`——同维度多实体的同名字段各走各的裁决链。
+  读取端 `summarize_field_provenance` 按 `(field_key, subject_ref)` 聚合出单记录
+  `{field, status, event_id, source_refs}`（status ∈ exact/unverified/conflict），
+  视图 fact 的 `source.provenance` 携带；追不到赋值链不冒充（unverified 保留
+  event_id 但 source_refs 空），旧格式 checkpoint 读出为空。`facade.get_scene_record()`
+  历史回开响应带 `field_provenance`（含 `subject`），保留构建当时版本不被新
+  Canon head 重算；`facade.list_scene_checkpoints()` 返回场景 checkpoint 历史摘要
+  （倒序含已 supersede 行，`is_current`/`has_field_provenance` 供前端区分当前/
+  历史/早于追踪上线）。timeline 发生时间只保留已证明的相对顺序或原文明示日期
+  （受控键经 `extract_timeline_when` 规范化，未知日历不推算绝对日期）。
 
 ## API
 
@@ -82,6 +97,7 @@ GET  /api/novels/{novel_id}/memories/snapshots
 POST /api/novels/{novel_id}/memories/rebuild
 GET  /api/novels/{novel_id}/memories/status
 GET  /api/novels/{novel_id}/memories/scene-checkpoints?scene_id=...
+GET  /api/novels/{novel_id}/memories/scene-checkpoints/history?scene_id=...
 POST /api/novels/{novel_id}/memories/scene-checkpoints/ensure
 POST /api/novels/{novel_id}/memories/scene-checkpoints/rebuild
 POST /api/novels/{novel_id}/memories/scene-checkpoints/repair

@@ -245,6 +245,9 @@ class SceneCheckpointResponse(BaseModel):
     retry_count: int = 0
     decision_summary: str | None = None
     created_at: datetime | None = None
+    # P2-A 逐字段来源聚合（按字段单记录 {field, event_id, source_refs, status}）。
+    # 只在 get_record 回开时由读取端填充；当前集合读取与旧格式行为空列表。
+    field_provenance: list[dict[str, Any]] = Field(default_factory=list)
 
     @field_validator("id", "novel_id", "scene_id", mode="before")
     @classmethod

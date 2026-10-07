@@ -39,8 +39,12 @@
               <p v-if="obj.location" class="scene-lens__object-line">所在：{{ obj.location }}</p>
               <dl v-if="obj.fields.length" class="scene-lens__object-fields">
                 <template v-for="field in obj.fields" :key="`${obj.key}:${field.label}`">
-                  <dt>{{ field.label }}<em v-if="field.confirmed">已确认</em><em v-else>推导</em></dt>
-                  <dd>{{ field.display }} <button v-if="field.source?.checkpoint_id" type="button" class="btn btn-sm" @click="openSource(field.source)">查看依据</button></dd>
+                  <dt>{{ field.label }}<em v-if="field.confirmed">已确认</em><em v-else>推导</em><em v-if="field.provenance" class="scene-lens__provenance-badge" :class="`is-${field.provenance.status}`">{{ field.provenance.statusLabel }}</em></dt>
+                  <dd>
+                    {{ field.display }} <button v-if="field.source?.checkpoint_id" type="button" class="btn btn-sm" @click="openSource(field.source)">查看依据</button>
+                    <button v-if="field.provenance" type="button" class="btn btn-sm" @click="toggleProvenance(`${obj.key}:${field.label}`)">{{ provenanceOpenKey === `${obj.key}:${field.label}` ? '收起来源' : '字段来源' }}</button>
+                    <SceneFieldProvenance v-if="field.provenance && provenanceOpenKey === `${obj.key}:${field.label}`" :project-id="projectId" :field-label="field.label" :provenance="field.provenance" />
+                  </dd>
                 </template>
               </dl>
               <p v-for="belief in obj.knowledge" :key="`${obj.key}:${belief.holder}:${belief.text}`" class="scene-lens__object-line" :class="{ 'is-misconception': belief.possiblyFalse }">
@@ -50,7 +54,9 @@
             </li>
           </ul>
           <p v-else class="writing-empty-hint">本场没有可展示的对象级状态；未记载的状态不会显示为「确定没有」。</p>
+          <p v-if="objectStates.length && !hasAnyProvenance" class="writing-empty-hint">本场状态还没有逐字段来源记录；随着正文推进和状态整理，每个字段会逐步标出具体依据。</p>
           <SceneStateTrial v-if="lens.data.state_fingerprint && projectId" :project-id="projectId" :scene-id="scene.id" :fingerprint="lens.data.state_fingerprint" :choices="lens.data.subject_choices" :objects="lens.data.object_states" @source="openSource" @start-trial="$emit('start-trial', $event)" />
+          <SceneCheckpointHistory v-if="projectId" :project-id="projectId" :scene-id="scene.id" @source="openSource" />
           <section v-if="sourceOpen" class="scene-lens__section" aria-label="状态依据">
             <h4>状态依据</h4><p v-if="sourceLoading">正在回读…</p><p v-if="sourceError" role="alert">{{ sourceError }}</p>
             <template v-if="sourceData"><p>{{ sourceData.summary }}</p><p>{{ sourceData.authority }}</p>
@@ -74,6 +80,8 @@
 
 <script setup>
 import { computed, ref, watch } from "vue"
+import SceneCheckpointHistory from "./SceneCheckpointHistory.vue"
+import SceneFieldProvenance from "./SceneFieldProvenance.vue"
 import SceneStateTrial from "./SceneStateTrial.vue"
 import { getApi } from "../../../bridge/index.js"
 import { sceneLensItems, sceneObjectStates, sceneStructureSummary } from "../sceneLensModel.js"
@@ -87,11 +95,13 @@ const props = defineProps({
 const emit = defineEmits(["load", "start-trial"])
 const sourceOpen = ref(false), sourceLoading = ref(false), sourceData = ref(null), sourceError = ref("")
 const repairLoading = ref(false), repairError = ref(""), repairNote = ref("")
+const provenanceOpenKey = ref("")
 let sourceGeneration = 0
 let repairGeneration = 0
 watch(() => [props.projectId, props.scene?.id, props.lens.data], () => {
   sourceGeneration++; sourceOpen.value = false; sourceLoading.value = false; sourceData.value = null
   sourceError.value = ""
+  provenanceOpenKey.value = ""
 })
 watch([() => props.projectId, () => props.scene?.id], () => {
   repairGeneration++; repairLoading.value = false
@@ -142,6 +152,10 @@ const staticItems = computed(() => sceneStructureSummary(props.scene))
 const knowledgeItems = computed(() => sceneLensItems(props.lens.data?.role_visible_knowledge))
 const stateItems = computed(() => sceneLensItems(props.lens.data?.scene_world_state))
 const objectStates = computed(() => sceneObjectStates(props.lens.data?.object_states))
+const hasAnyProvenance = computed(() => objectStates.value.some(obj => obj.fields.some(field => field.provenance)))
+function toggleProvenance(key) {
+  provenanceOpenKey.value = provenanceOpenKey.value === key ? "" : key
+}
 </script>
 
 <style scoped>
@@ -153,6 +167,10 @@ const objectStates = computed(() => sceneObjectStates(props.lens.data?.object_st
 .scene-lens__object-fields dt em { font-style: normal; font-weight: 400; margin-left: 4px; opacity: 0.75; }
 .scene-lens__object-line.is-misconception { opacity: 0.85; }
 .scene-lens__stale-badge { font-style: normal; margin-left: 6px; padding: 0 6px; border-radius: 8px; background: rgba(176, 132, 32, 0.16); font-size: 12px; }
+.scene-lens__provenance-badge { font-style: normal; margin-left: 6px; padding: 0 6px; border-radius: 8px; font-size: 12px; }
+.scene-lens__provenance-badge.is-exact { background: rgba(46, 125, 80, 0.16); }
+.scene-lens__provenance-badge.is-unverified { background: rgba(176, 132, 32, 0.16); }
+.scene-lens__provenance-badge.is-conflict { background: rgba(176, 64, 32, 0.16); }
 li.is-stale { opacity: 0.92; }
 .scene-lens__trial-entry { margin-top: 10px; }
 </style>

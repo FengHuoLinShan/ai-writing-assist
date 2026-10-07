@@ -1047,6 +1047,34 @@ class SceneCheckpointRepository:
         )
         return list(result.scalars().all())
 
+    async def list_history_for_scene(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        scene_id: uuid.UUID,
+        *,
+        dimension: str | None = None,
+    ) -> list[MemorySceneCheckpoint]:
+        """按创建时间倒序列出该 Scene 全部 checkpoint 行（含已 supersede）。
+
+        P2-A 历史回开的数据来源：只读本 novel，不做任何写入或 supersede。
+        """
+        conditions = [
+            MemorySceneCheckpoint.novel_id == novel_id,
+            MemorySceneCheckpoint.scene_id == scene_id,
+        ]
+        if dimension is not None:
+            conditions.append(MemorySceneCheckpoint.dimension == dimension)
+        result = await db.execute(
+            select(MemorySceneCheckpoint)
+            .where(*conditions)
+            .order_by(
+                MemorySceneCheckpoint.created_at.desc(),
+                MemorySceneCheckpoint.id.desc(),
+            )
+        )
+        return list(result.scalars().all())
+
     async def get_current(
         self,
         db: AsyncSession,

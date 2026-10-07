@@ -143,6 +143,10 @@ class FieldProvenance(BaseModel):
     field_key: str = Field(min_length=1)
     dimension: str
     event_id: str = Field(min_length=1)
+    # 实体锚：赋值落在哪个主体上（entities/locations 维度为实体 ID，
+    # timeline 等无实体容器为 None）。同维度多实体的同名字段靠它隔离
+    # 裁决链，否则互相污染（A3 汇合批裁定）。
+    subject_ref: str | None = Field(default=None, min_length=1)
     source_refs: tuple[ProvenanceSourceRef, ...] = ()
     version: int = Field(ge=0)
     recorded_at_sequence: int = Field(ge=0)

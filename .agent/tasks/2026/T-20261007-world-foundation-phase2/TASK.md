@@ -37,7 +37,8 @@ phase1+P2 一并走 PR 合入 main。
 |---|---|---|
 | 启动 | 任务记录 + 并行规划提交 | 完成 |
 | P2-A 批1 | A0 夹具 ∥ A1 契约先行 | 完成（6 xfail 夹具 + 37 契约测试全绿） |
-| P2-A 批2 | A2 写入端 ∥ A3 读取端 ∥ A4 展示端 | 待 P2-A 批1 |
+| P2-A 批2 | A2 写入端 ∥ A3 读取端 ∥ A4 展示端 | 完成 |
+| P2-A 汇合 | 多实体 subject_ref 修复 + 夹具转绿 + 全量验证 | 完成 |
 | P2-B 批1/批2 | B0 夹具 ∥ B1 方言统一；B2/B3/B4 | 待 P2-A |
 | P2-C 批1/批2 | C0 夹具 ∥ C1 登记缝；C2/C3/C4 | 待 P2-B |
 
@@ -110,9 +111,30 @@ SceneStateViewService 公开入口真实落库执行，`--runxfail` 验证均在
 每包收尾：受影响模块测试 + lint → `make docs-check`（world/story 影响）→ 真 PG migration（有 schema
 变更的包）→ 前端关键流 → 固定提交 + 脱敏验证记录回写本文件。
 
+## P2-A 汇合记录（2026-10-07）
+
+主会话裁定并修复 A3 识别的契约缺口：`FieldProvenance` 增实体锚 `subject_ref`
+（entities/locations=实体 ID，timeline=None），`summarize_field_provenance` 分组键改
+`(field_key, subject_ref)`，`_entries_for` 三处查询带实体锚，`get_record` 响应每条
+补 `subject` 键；A0 四键单记录形态不变（fact 自带 subject_id 不重复）。写入端
+`_assigned_motif_fields` 返回 `(field_key, subject_ref)` 对。新增显式多实体隔离测试
+（test_p2a_read_side.py::test_view_isolates_same_name_fields_across_entities）。
+
+验收：A0 六夹具摘除 xfail 转真断言全绿；continuity 151 passed；story+evidence
+1293 passed；后端全量 **7276 passed**（基线 7192 + 新增 84）；ruff/format 过；
+module-import-gate 棘轮 65/9/0/525/0/26 未推高；前端 vitest 2822 passed（226 文件）
++ eslint 过；docs-check 过（05_memory.md 更新逐字段赋值链契约与 history 端点，
+其余文档 no-change-reason：无模块边界/拓扑/schema 层变化，纯 state_json JSON 内嵌
+无迁移、无新跨模块边）。零 LLM 调用、零真实数据写入。
+
+超白名单但必要的子代理改动（主会话复核接受）：A3 改 continuity/schemas.py
+（SceneCheckpointResponse.field_provenance 可选字段，向后兼容）、A4 改
+evidence/compilation/schemas.py（SceneLensSource.provenance，不加则 provenance
+到不了前端）。
+
 ## 恢复快照
 
-（交接/暂停前更新）当前：P2-A 批1 已完成并提交，下一步派发 P2-A 批2（A2 写入端 + A3 读取端 + A4 展示端三子代理并行）。
+（交接/暂停前更新）当前：P2-A 全部完成（批1/批2/汇合），提交后进入 P2-B 批1（B0 六类知识夹具 + B1 方言统一两子代理并行）。
 
 ## A1 产出（契约先行单元，2026-10-07）
 
@@ -168,3 +190,229 @@ FieldProvenance(BaseModel, frozen)
 
 - A2 写入端：`scene_projection.py` `_project_dimension`（:449 事件循环内，`_apply_event` 旁为登记字段构建 FieldProvenance 写入 `state["_field_provenance"]`，继承 previous 的历史链供时序裁决；evidence 区间经 duck-typed 转换）；timeline 受控键规范化在事件 payload 构造处（services.py `_with_scene_event_key` 注入链附近，A2 先调查）。reducer.py 保持纯状态解释内核，不建议挂链。
 - A3 读取端：`scene_state_view.py` `_entries_for`（:303，entities `_flatten_fields` 与 timeline facts 生成 SceneStateFactEntry 时用 `provenance_status_for` 把 status 填进 source dict，None → "来源待核实"）；`state_trial.py`（:72-83）custody/opening/moon 取值处附带 status，exact 才显示精确回指。
+
+## A2 产出（写入端单元，2026-10-07）
+
+改动文件（本单元独占写入）：`backend/modules/story/continuity/scene_projection.py`、
+`backend/modules/story/continuity/services.py`、新增
+`backend/modules/story/continuity/tests/test_p2a_write_side.py`（7 例全绿）。
+reducer.py 零改动。
+
+### 挂链落点（file:line，改动后行号）
+
+- `scene_projection.py:514-558` `_project_dimension` 事件循环：`_apply_event` 后经
+  `_assigned_motif_fields`（:562）识别实际落入核心状态的注册字段，为每字段追加
+  `FieldProvenance`，循环结束写 `state[FIELD_PROVENANCE_STATE_KEY]`（:554）。
+  ensure_scene / rebuild_from_scene / repair 下游重建三条路径共用此单点，全部落链。
+- 继承链：previous checkpoint 的 `_field_provenance` 随 `deepcopy(previous.state_json)`
+  自然继承，写入侧先经 `read_field_provenance(state)` 校验归一再追加（内容非法显式抛错，沿 A1 裁定）。
+- `recorded_at_sequence` 组装（`_provenance_sequence` :612）：`scene_index * 512 + Scene 内序`
+  （Scene 内优先 `scene_sequence`，缺失回退章内 `sequence`）。**关键裁定**：A1 单 int 字段必须把
+  scene_index 合成进主位，否则跨场景同字段链的 scene_sequence 互相打平 → 保管交接被误判
+  conflict，违背「后者胜」；步长 512 > 单 Scene 事件上限 500。`get_through_scene` 只返回
+  scene 锚事件，主位恒可用。
+- source_refs（`_event_source_refs` :625 + `_working_refs` :645）：事件所属章最新
+  working 稿的**整章区间**（`list_manuscript_sources` content_mode="working"，basis.py 同口径；
+  经 `SourceRangeRefContract` 构造 + A1 `ProvenanceSourceRef.from_source_range_contract`
+  duck-typed 转换）。抽取侧当前不记录更细区间，整章即诚实最大锚；无稿/空稿/无 content_hash
+  → 空区间（unverified，version 0），禁止拿别章或整场事件冒充。同章并列最新版本按
+  (version, id) 确定性取一防重建漂移。按次调用内逐章惰性缓存，无注册字段赋值时零查询。
+- 赋值判定口径（`_assigned_motif_fields`）：只认 reducer 核心落点——entities 的
+  created/已知实体 updated、locations 的 entity_moved、timeline 的 facts 追加；进观察层
+  `changes` 的负载（manual_correction、未知实体 updated）不挂链。重复断言同值也算一次赋值
+  （该事件即当前值最后陈述）。
+- timeline 受控时间（`services.py`）：`_normalize_timeline_when`（:224，A1
+  `extract_timeline_when` 口径）在 `record_scene_events`（:175，`_with_scene_event_key` 之前，
+  事件键对规范化内容稳定）与 `confirm_scene_continuity_event`（:311）两处构造点规范化：
+  成对相对锚/整数 Scene 锚/非空 stated_date 保留，半个相对锚与类型不符键丢弃，未受控键透传。
+  moon_phase 为 timeline 注册字段，随 facts 追加自动挂链。
+
+### drift 缓存路径一致性验证结论
+
+`replace_system` 存 state_json 原文（repositories.py，无内部键裁剪）；`_build_dimension`
+幂等短路比较的 `source_hash` 覆盖含 `_field_provenance` 的完整 state——旧格式行（无链）重算
+后 hash 必不同 → 换行升级而非带旧 state 短路。`_capture_sparse_if_needed` 与 `_manual_state`
+keep_current 均 deepcopy 保留。测试 `test_ensure_scene_idempotent_short_circuit_keeps_provenance`
+端到端证明：幂等重跑同 checkpoint id、无 supersede churn、链内容不变。
+
+### reducer 是否动了
+
+未动（A1 裁定维持）。核实：`apply_scene_dimension_event` 只写维度容器与 `changes`，
+从不触碰 `_field_provenance` 键与受控字段值；继承测试覆盖。
+
+### 验证
+
+`modules/story` 全量 626 passed + 6 xpassed（A0 夹具——本 worktree 并行 A3 读取端已落地，
+write+read 合流后夹具真通过；strict=False 下绿）；A1 契约测试 37 例全绿；ruff check/format
+通过；`make module-import-gate` 通过（function_level_imports 525/525 未推高；新增均为
+story→writing 顶层导入，属冻结集合既有边；零 evidence 导入）。
+
+### 给 A3 的注意点
+
+- 链记录是**全字段流水**（含历史链），读侧按 field_key 过滤后用 `resolve_field_status`/
+  `provenance_status_for`；「最后赋值事件」= 过滤后 `recorded_at_sequence` 最大的那条
+  （同字段多条链按后者胜裁决）。
+- 无链 ≠ 该字段无值：旧格式 checkpoint 与 manual/confirmed 行（`source != system_generated`）
+  无 `_field_provenance`，应显示「来源待核实」，不得反推 exact。
+- timeline 的 moon_phase 链挂在 timeline 维度 checkpoint；entities 的 opening_moon_phase 是
+  另一条独立链（不同维度，`FieldProvenance.dimension` 已区分）。
+
+## A3 产出（读取端：视图/试算/facade 出口，2026-10-07）
+
+新测试 `backend/modules/story/continuity/tests/test_p2a_read_side.py`（7 例，手工构造
+含 `_field_provenance` 的 state_json，不依赖 A2 写入端）。
+
+### 接线落点
+
+- `scene_state_view.py`：新增模块级 `summarize_field_provenance(state_json, dimension)`
+  （读取端唯一聚合入口，A0 四键单记录形态）；`_entries_for` 在 entities
+  `_flatten_fields`、locations 聚合 fact、timeline moon_phase fact 三处把摘要填进
+  `source["provenance"]`。非母题字段/无记录/旧格式一律不带 provenance，绝不 exact。
+  locations 聚合 fact（field="location"）挂主锚字段 location_id 的链，事件只写描述时
+  退 text_state；timeline 仅 payload 自带 moon_phase 值的 fact 挂 moon_phase 链。
+- `scene_projection.py` `get_record`（响应组装处唯一改动）：函数内导入
+  `summarize_field_provenance`（scene_state_view 顶层导入本模块，顶层回导会成环），
+  填 `response.field_provenance`；按字段名排序保证确定性。
+- `state_trial.py`：`condition()` 从传入 fact source 派生 `source_status` 附进每条条件；
+  新增 `_verdict_reasons` 生成 `verdict_reason`——exact 才精确回指（附稿件修订
+  vN，事件+区间随条件 source 完整透出），unverified/conflict 显式降级明示；三值裁决
+  failed/uncertain/succeeded 只看条件 met/unmet/unknown，不受来源状态影响。
+- `repositories.py`：`SceneCheckpointRepository.list_history_for_scene`（只读，倒序含
+  superseded）。
+- `facade.py`：`list_scene_checkpoints` 出口（见下）。
+- `schemas.py`：`SceneCheckpointResponse` 追加可选 `field_provenance: list[dict]`（默认
+  空列表；当前集合读取与旧格式恒空，仅 get_record 回开填充）。
+
+### provenance 单记录最终序列化形态（A0 钉定，恰四键）
+
+```json
+{
+  "field": "custody_holder",
+  "status": "exact | unverified | conflict",
+  "event_id": "<最后赋值事件 id；conflict 无法唯一归因为 null>",
+  "source_refs": [{"draft_id": "...", "chapter_index": 1, "version_number": 1,
+                    "content_mode": "working", "start_offset": 0, "end_offset": 48,
+                    "source_hash": "...", "range_hash": "..."}]
+}
+```
+
+unverified 保留已知 event_id、source_refs 空且无 event_ids 列表；conflict 的
+event_id=null、source_refs=[]（不冒充任一竞争链）；历史链（更低事件序）不参与展示。
+
+### get_record 暴露方式选择
+
+选「响应属性」：`SceneCheckpointResponse.field_provenance = [按字段聚合的单记录]`
+（字段名排序）。理由：前端无需重实现三态裁决即可直接渲染；state_json 内嵌键是 A2
+的原始流水（含历史链与全字段元数据），聚合口径读侧统一在 summarize；旧格式行为空
+列表（非 None）。历史语义：直接读该行自身 state_json，不与当前 Canon head 重算
+混合——测试覆盖 supersede 后旧行仍指 v1 稿。
+
+### list_scene_checkpoints 签名与语义
+
+```python
+# facade 出口（薄层委托 scene_state_view.list_scene_checkpoints）
+async def list_scene_checkpoints(
+    db, novel_id: str, scene_id: str, *, dimension: str | None = None
+) -> list[dict[str, Any]]
+```
+
+每项 `{checkpoint_id, dimension, scene_index, chapter_index, version, is_current,
+created_at, has_field_provenance}`；按 created_at 倒序（id 决胜），含已 supersede 行，
+novel_id+scene_id 双过滤隔离（跨 novel 同 scene_id 行不混入），非法 dimension 422。
+`version` 是同维度链时间序号（1 起，越大越新，行序派生非存储列）；`chapter_index`
+取 Scene 章节锚（chapter_ids 最大值，无锚为 None）；`created_at` 为 ISO 字符串。
+偏差说明：任务卡所列 `scene_sequence` 在 checkpoint 行无此列，以 `scene_index` 表达
+场景顺序（A4 api.py 消费端已按 `row.get("scene_sequence") or row["scene_index"]`
+容忍）；任务卡参数名 `story_id` 即本仓 `novel_id`。
+
+### 已知边界（契约限制，非本批缺陷）
+
+`FieldProvenance` 无 subject 槽：同维度 checkpoint 内多实体同名受控字段（如两把钥匙
+各自的 custody_holder）共享同一 field_key 链，读取端按字段聚合会把最新链挂到该字段
+的全部 fact 上；跨实体同序赋值会裁决为 conflict。A0 六场景均为单实体主物，未钉定
+多实体口径；如需按实体分链须 A1 契约扩展（加 subject 维度键），留待汇合批裁定。
+
+### 验证
+
+新测试 7 例全绿；`modules/story` 全量 633 passed + 6 xpassed（A0 夹具在 A2+A3 合流
+后真通过，strict=False）；A1 契约测试 37 例全绿；`ruff check`/`format`（本单元七个
+文件）通过（api.py 的 format 偏差属并行 A4 文件，未触碰）；`make module-import-gate`
+通过（525/525 未推高）。零 LLM、零 git commit。
+
+## A4 产出（展示端：Lens 字段来源 + 历史 checkpoint 端点 + 前端下钻，2026-10-07）
+
+### 端点
+
+`GET /api/novels/{novel_id}/memories/scene-checkpoints/history?scene_id=...`（continuity/api.py；
+注册在 `/scene-checkpoints/{checkpoint_id}` 之前避免路径参数吞掉字面量；鉴权沿
+`_require_active_project`，novel_id 路径隔离）。端点函数内导入调用 facade
+`list_scene_checkpoints(db, novel_id, scene_id)`，不绕过 facade。响应形态：
+
+```json
+{
+  "novel_id": "...", "scene_id": "...", "total": 2,
+  "items": [{
+    "checkpoint_id": "…", "dimension": "entities", "chapter_index": 2,
+    "version": 1, "scene_sequence": 3, "is_current": true,
+    "has_field_provenance": true, "created_at": "…",
+    "label": "当前版本" | "历史版本"
+  }]
+}
+```
+
+旧版本不洗成当前：`label` 按 `is_current` 区分；技术 ID（checkpoint_id）留行内供回开，
+语义位（label/章/批次/时间）先行。响应模型定义在 api.py 本文件（A4 写权限不扩
+continuity/schemas.py）。行映射容忍 ORM 同义键（id/version_number/scene_index），
+`chapter_index` 无章节锚为 None 如实透传。对 A3 的实际依赖点：facade 符号名
+`list_scene_checkpoints` + `(db, novel_id, scene_id)` 位置参数 + 返回裸列表行或含 items
+映射均可；A3 已在本 worktree 落地 facade 出口，端点测试同时含 DI 替身（monkeypatch
+facade 属性）与真实 facade 路径（未知 Scene 404）两类验证。
+
+### scene_lens 字段级来源（evidence 模块）
+
+`scene_lens.py` `_source` 把 fact `source["provenance"]` 归一并聚进 Lens source（新增
+`_provenance`/`_valid_ref`）：status 三态之外整条丢弃；refs 保留 SourceRangeRefContract
+八字段但要求区间四整数键完整，**exact 无有效 refs 时降级 unverified（不制造精确性）**。
+`evidence/compilation/schemas.py` 的 `SceneLensSource` 最小追加 `provenance`
+（`SceneLensProvenance`/`SceneLensProvenanceRef`）——本单元超出枚举可写清单的唯一文件，
+原因：response_model 校验默认丢弃未知键，不加 provenance 到不了前端。
+
+### 前端改动清单
+
+- 新增 `vue/views/writing/components/SceneFieldProvenance.vue`：字段下钻面板（状态徽章
+  有据/来源待核实/来源冲突、事件诊断编号、稿段区间"第 N 章 · 第 V 版工作稿 · 第 a–b 字"）。
+  稿段回开复用既有 `POST /evidence/read`（`api.context.readEvidence`，WorldPageReader
+  同款作者可见 + before/after 上下文），面板内嵌 blockquote 展示回读文本，未新造阅读器；
+  refs 缺 source_hash/range_hash 时不提供回开（readEvidence 契约要求 64 位指纹）。
+- 新增 `vue/views/writing/components/SceneCheckpointHistory.vue`：历史版本次级入口
+  （`<details>` 折叠渐进展开，默认不打扰），按批次分组（章/第 N 次整理/维度标签/时间/
+  当前·历史徽章），行内"回看该版本依据"复用既有 `openSource({checkpoint_id})` 的
+  get_record"状态依据"展示路径。
+- `SceneLensSummary.vue`：字段行加状态徽章与"字段来源"开关（一次展开一个，切场景/重载
+  复位）；挂接两个新组件。`SceneStateTrial.vue` 未改动（历史入口放 SceneLensSummary 即够）。
+- `api/story.js`：新增 `sceneCheckpointHistory(novelId, sceneId)`。
+- `sceneLensModel.js`：新增 `sceneFieldProvenance`（归一 + reopenable 判定）与
+  `sceneCheckpointHistoryGroups`（按章+批次分组、当前/历史聚合）；`sceneObjectStates`
+  字段附带 `provenance`。
+
+### 三类空态最终文案
+
+1. 首次进入（无任何 provenance）："本场状态还没有逐字段来源记录；随着正文推进和状态整理，
+   每个字段会逐步标出具体依据。"（仅有对象状态但零 provenance 时出现）
+2. 来源缺失（unverified）：徽章"来源待核实"+ 面板文案"来源待核实：这条状态暂时没有追到
+   具体稿件段落，不会当作已核对的事实。"（exact 但区间不完整时后端同降级此态）
+3. 旧稿无追踪信息（历史行 has_field_provenance=false）："这个版本早于逐字段来源功能上线，
+   没有每个字段的依据记录；可回看当时的整体依据。"（历史列表自身空态另有："本场还没有
+   历史版本记录；状态整理后会产生可回看的版本。"）
+
+### 验证
+
+后端：`modules/story` + `modules/evidence` 全量 1285 passed + 6 xpassed、
+`tests/unit/test_p2a_field_provenance_contract.py` 37 passed、`tests/test_api.py` 48 passed
+（scene-lens 相关无回归）；`ruff check` + `ruff format`（A4 五个后端文件）通过；
+`make module-import-gate` 通过（function_level_imports 525/525 不变；api→continuity
+facade 为同模块函数内导入，不推高棘轮）。前端：vitest 全量 226 files / 2822 tests
+passed（新增 SceneFieldProvenance/SceneCheckpointHistory/SceneLensSummary 三套组件测试
++ sceneLensModel 适配测试）；`npm run lint` 通过。`make docs-check` 无基线通过；
+`--base-ref origin/main` 报 architecture 文档复核要求（分支累计 phase1+P2 改动的通用
+要求，非 A4 独有缺口，归 P2-A 包收尾统一处理）。零 LLM、零 git commit。

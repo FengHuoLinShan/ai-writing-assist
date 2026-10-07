@@ -25,6 +25,7 @@ _STATIC_CONSTRAINTS_ZH = [
     "伏笔未到收束阶段不得提前揭示",
 ]
 
+
 class ConstraintEngine:
     async def compile_constraints(
         self,

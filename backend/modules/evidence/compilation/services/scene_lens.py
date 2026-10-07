@@ -23,6 +23,24 @@ _STATE_LABELS = {
     "timeline": "时间顺序",
     "causality": "因果与前提",
 }
+# P2-A：读取端 fact 级 provenance 契约（status 三态 + SourceRangeRefContract 字段集）。
+_PROVENANCE_STATUSES = frozenset({"exact", "unverified", "conflict"})
+_PROVENANCE_REF_FIELDS = (
+    "draft_id",
+    "chapter_index",
+    "version_number",
+    "content_mode",
+    "start_offset",
+    "end_offset",
+    "source_hash",
+    "range_hash",
+)
+_PROVENANCE_REF_REQUIRED_INTS = (
+    "chapter_index",
+    "version_number",
+    "start_offset",
+    "end_offset",
+)
 
 
 async def _get_scene(db: AsyncSession, novel_id: str, scene_id: str) -> Any:
@@ -341,10 +359,49 @@ class SceneLensService:
 
     @staticmethod
     def _source(fact: dict, dimension: dict | None) -> dict:
-        return {
-            **dict(fact.get("source") or {}),
+        raw_source = dict(fact.get("source") or {})
+        provenance = SceneLensService._provenance(raw_source.pop("provenance", None))
+        source = {
+            **raw_source,
             "evidence_refs": list((dimension or {}).get("evidence_refs") or []),
         }
+        if provenance:
+            source["provenance"] = provenance
+        return source
+
+    @staticmethod
+    def _provenance(value: Any) -> dict[str, Any] | None:
+        """把 fact 级 provenance 归一为作者侧可消费形态；形态不符不冒充依据。"""
+        if not isinstance(value, dict):
+            return None
+        status = str(value.get("status") or "")
+        if status not in _PROVENANCE_STATUSES:
+            return None
+        refs = []
+        for ref in value.get("source_refs") or []:
+            if not isinstance(ref, dict) or not SceneLensService._valid_ref(ref):
+                continue
+            refs.append({key: ref[key] for key in _PROVENANCE_REF_FIELDS if key in ref})
+        # exact 必须有可回开的稿段；区间不完整时降级为来源待核实，不制造精确性。
+        if status == "exact" and not refs:
+            status = "unverified"
+        event_id = value.get("event_id")
+        return {
+            "field": str(value.get("field") or ""),
+            "status": status,
+            "event_id": str(event_id) if event_id else None,
+            "source_refs": refs,
+        }
+
+    @staticmethod
+    def _valid_ref(ref: dict) -> bool:
+        return (
+            isinstance(ref.get("draft_id"), str)
+            and bool(ref["draft_id"])
+            and all(
+                isinstance(ref.get(key), int) for key in _PROVENANCE_REF_REQUIRED_INTS
+            )
+        )
 
     @staticmethod
     def _display_value(value: Any, labels: dict[str, str]) -> str:

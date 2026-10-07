@@ -1,7 +1,7 @@
 """P2-A A0 验收夹具 — 逐字段来源（field provenance）期望契约先行。
 
 六固定场景中属 P2-A 的三个场景 + 两个反向断言 + 来源缺失空态。全部用例标注
-``xfail(reason="P2-A field provenance not implemented", strict=False)``：夹具数据
+（原 xfail 固定期已结束，P2-A 实现合流后为真断言）：夹具数据
 经现有公开入口（MemoryService / SceneMemoryProjectionService /
 SceneStateViewService，沿用 continuity 模块内测试惯例）真实落库执行到当前实现；
 断言针对"将要实现"的逐字段来源接口，A2/A3 实现批完成后逐条转绿。
@@ -89,7 +89,6 @@ import uuid
 from dataclasses import fields as dataclass_fields
 from typing import Any
 
-import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.evidence.source_ref_contracts import SourceRangeRefContract
@@ -99,8 +98,6 @@ from modules.story.continuity.scene_state_view import SceneStateViewService
 from modules.story.continuity.services import MemoryService
 from modules.story.outline_state.models import Scene
 from modules.writing.models import WritingDraft
-
-_PROVENANCE_REASON = "P2-A field provenance not implemented"
 
 _SOURCE_REF_KEYS = frozenset(f.name for f in dataclass_fields(SourceRangeRefContract))
 
@@ -247,7 +244,6 @@ def _assert_exact_provenance(
 # ============================================================
 
 
-@pytest.mark.xfail(reason=_PROVENANCE_REASON, strict=False)
 async def test_p2a_flashback_later_scene_facts_do_not_backflow(
     db_session: AsyncSession, test_project_id: str
 ) -> None:
@@ -353,7 +349,6 @@ async def test_p2a_flashback_later_scene_facts_do_not_backflow(
 # ============================================================
 
 
-@pytest.mark.xfail(reason=_PROVENANCE_REASON, strict=False)
 async def test_p2a_custody_handover_traces_per_scene_field_provenance(
     db_session: AsyncSession, test_project_id: str
 ) -> None:
@@ -476,7 +471,6 @@ async def test_p2a_custody_handover_traces_per_scene_field_provenance(
 # ============================================================
 
 
-@pytest.mark.xfail(reason=_PROVENANCE_REASON, strict=False)
 async def test_p2a_revision_keeps_old_checkpoint_on_its_version(
     db_session: AsyncSession, test_project_id: str
 ) -> None:
@@ -568,7 +562,6 @@ async def test_p2a_revision_keeps_old_checkpoint_on_its_version(
 # ============================================================
 
 
-@pytest.mark.xfail(reason=_PROVENANCE_REASON, strict=False)
 async def test_p2a_unrelated_manuscript_change_keeps_field_fingerprint(
     db_session: AsyncSession, test_project_id: str
 ) -> None:
@@ -651,7 +644,6 @@ async def test_p2a_unrelated_manuscript_change_keeps_field_fingerprint(
 # ============================================================
 
 
-@pytest.mark.xfail(reason=_PROVENANCE_REASON, strict=False)
 async def test_p2a_historical_read_does_not_backfill_current_world(
     db_session: AsyncSession, test_project_id: str
 ) -> None:
@@ -752,7 +744,6 @@ async def test_p2a_historical_read_does_not_backfill_current_world(
 # ============================================================
 
 
-@pytest.mark.xfail(reason=_PROVENANCE_REASON, strict=False)
 async def test_p2a_missing_manuscript_source_marks_fields_unverified(
     db_session: AsyncSession, test_project_id: str
 ) -> None:

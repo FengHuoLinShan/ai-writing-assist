@@ -279,5 +279,179 @@ async def test_scene_lens_api_applies_project_owner_gate(monkeypatch) -> None:
     }
 
 
+@pytest.mark.asyncio
+async def test_scene_lens_object_sources_carry_field_provenance() -> None:
+    """P2-A：fact 级 provenance 聚进 Lens source；三态明示，坏形态不冒充依据。"""
+
+    def fact(field: str, status: str, refs, event_id="event-1"):
+        return {
+            "subject_id": "entity-1",
+            "subject_label": "铜钥匙",
+            "field": field,
+            "value": "character-2",
+            "layer": "fact",
+            "confidence": "derived",
+            "possibly_false": False,
+            "source": {
+                "checkpoint_id": "checkpoint-1",
+                "dimension": "entities",
+                "confirmed": False,
+                "provenance": {
+                    "field": field,
+                    "event_id": event_id,
+                    "source_refs": refs,
+                    "status": status,
+                },
+            },
+        }
+
+    exact_ref = {
+        "draft_id": "draft-1",
+        "chapter_index": 2,
+        "version_number": 1,
+        "content_mode": "working",
+        "start_offset": 10,
+        "end_offset": 24,
+        "source_hash": "a" * 64,
+        "range_hash": "b" * 64,
+    }
+
+    async def state_view(db, novel_id, scene_id, *, viewpoint=None):
+        return SimpleNamespace(
+            model_dump=lambda: {
+                "subject_labels": {"entity-1": "铜钥匙"},
+                "dimensions": [
+                    {
+                        "dimension": "entities",
+                        "status": "ok",
+                        "evidence_refs": [{"type": "memory_event", "id": "event-1"}],
+                        "facts": [
+                            fact("custody_holder", "exact", [exact_ref]),
+                            fact("custody_owner", "unverified", [], event_id=None),
+                            fact("opening_passphrase", "conflict", [exact_ref]),
+                            # 区间不完整的 exact 降级为来源待核实，不制造精确性。
+                            fact(
+                                "opening_key_id",
+                                "exact",
+                                [{**exact_ref, "start_offset": "x"}],
+                            ),
+                            # 非法 status / 非 dict 的 provenance 整条丢弃。
+                            {
+                                **fact("opening_moon_phase", "exact", [exact_ref]),
+                                "source": {
+                                    "checkpoint_id": "checkpoint-1",
+                                    "provenance": {
+                                        "field": "opening_moon_phase",
+                                        "status": "maybe",
+                                        "source_refs": [exact_ref],
+                                    },
+                                },
+                            },
+                            {
+                                **fact("entity_type", "exact", [exact_ref]),
+                                "source": {
+                                    "checkpoint_id": "checkpoint-1",
+                                    "provenance": "corrupted",
+                                },
+                            },
+                        ],
+                    }
+                ],
+            }
+        )
+
+    result = await SceneLensService(
+        get_scene_fn=lambda *_args: _async_value(_scene()),
+        get_scene_checkpoints_fn=lambda *_args: _async_value({"items": []}),
+        get_state_view_fn=state_view,
+    ).load(object(), novel_id="novel-1", scene_id="scene-1", chapter_index=2)
+
+    sources = {
+        item["field"]: item["source"]
+        for obj in result["object_states"]
+        for item in obj["fields"]
+    }
+    exact = sources["custody_holder"]["provenance"]
+    assert exact == {
+        "field": "custody_holder",
+        "status": "exact",
+        "event_id": "event-1",
+        "source_refs": [exact_ref],
+    }
+    assert sources["custody_holder"]["evidence_refs"] == [
+        {"type": "memory_event", "id": "event-1"}
+    ]
+    unverified = sources["custody_owner"]["provenance"]
+    assert unverified["status"] == "unverified"
+    assert unverified["source_refs"] == []
+    assert unverified["event_id"] is None
+    assert sources["opening_passphrase"]["provenance"]["status"] == "conflict"
+    downgraded = sources["opening_key_id"]["provenance"]
+    assert downgraded["status"] == "unverified"
+    assert downgraded["source_refs"] == []
+    assert "provenance" not in sources["opening_moon_phase"]
+    assert "provenance" not in sources["entity_type"]
+
+
+@pytest.mark.asyncio
+async def test_scene_lens_provenance_survives_response_schema() -> None:
+    """provenance 必须能穿过 SceneLensResponse 的响应模型到达前端。"""
+    from modules.evidence.compilation.schemas import SceneLensResponse
+
+    exact_ref = {
+        "draft_id": "draft-1",
+        "chapter_index": 2,
+        "version_number": 1,
+        "content_mode": "working",
+        "start_offset": 10,
+        "end_offset": 24,
+    }
+
+    async def state_view(db, novel_id, scene_id, *, viewpoint=None):
+        return SimpleNamespace(
+            model_dump=lambda: {
+                "subject_labels": {"entity-1": "铜钥匙"},
+                "dimensions": [
+                    {
+                        "dimension": "entities",
+                        "status": "ok",
+                        "facts": [
+                            {
+                                "subject_id": "entity-1",
+                                "subject_label": "铜钥匙",
+                                "field": "custody_holder",
+                                "value": "character-2",
+                                "layer": "fact",
+                                "confidence": "derived",
+                                "possibly_false": False,
+                                "source": {
+                                    "checkpoint_id": "checkpoint-1",
+                                    "provenance": {
+                                        "field": "custody_holder",
+                                        "event_id": "event-1",
+                                        "source_refs": [exact_ref],
+                                        "status": "exact",
+                                    },
+                                },
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+    result = await SceneLensService(
+        get_scene_fn=lambda *_args: _async_value(_scene()),
+        get_scene_checkpoints_fn=lambda *_args: _async_value({"items": []}),
+        get_state_view_fn=state_view,
+    ).load(object(), novel_id="novel-1", scene_id="scene-1", chapter_index=2)
+
+    response = SceneLensResponse(**result)
+    field = next(obj for obj in response.object_states if obj.fields).fields[0]
+    assert field.source.provenance is not None
+    assert field.source.provenance.status == "exact"
+    assert field.source.provenance.source_refs[0].draft_id == "draft-1"
+
+
 async def _async_value(value):
     return value

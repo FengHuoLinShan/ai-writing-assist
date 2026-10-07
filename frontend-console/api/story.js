@@ -19,6 +19,7 @@ export const story = {
     compareSceneStateTrial: (novelId, payload) => post(`/novels/${novelId}/memories/scene-state-trial`, payload),
     sceneCheckpoints: (novelId, sceneId) => request(withQuery(`/novels/${novelId}/memories/scene-checkpoints`, { scene_id: sceneId }), { cache: "no-store" }),
     sceneCheckpointRecord: (novelId, checkpointId) => request(`/novels/${novelId}/memories/scene-checkpoints/${checkpointId}`, { cache: "no-store" }),
+    sceneCheckpointHistory: (novelId, sceneId) => request(withQuery(`/novels/${novelId}/memories/scene-checkpoints/history`, { scene_id: sceneId }), { cache: "no-store" }),
     ensureSceneCheckpoints: (novelId, sceneId) => post(`/novels/${novelId}/memories/scene-checkpoints/ensure`, { scene_id: sceneId }),
     memoryEventsByIds: (novelId, ids) => request(`/novels/${novelId}/memories/events/by-id?${new URLSearchParams(ids.map(id => ["event_ids", id]))}`, { cache: "no-store" }),
     startRehearsal: (sceneId, payload) => post(`/story/scenes/${sceneId}/rehearsals`, payload),

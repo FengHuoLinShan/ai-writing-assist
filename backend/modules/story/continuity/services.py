@@ -23,6 +23,10 @@ from modules.story.continuity.contracts import (
     MemoryDeltaEventIngest,
     MemoryDeltaIngestResult,
 )
+from modules.story.continuity.field_provenance import (
+    TIMELINE_WHEN_CONTROLLED_KEYS,
+    extract_timeline_when,
+)
 from modules.story.continuity.models import DeltaLog
 from modules.story.continuity.repositories import (
     DeltaLogRepository,
@@ -168,6 +172,7 @@ class MemoryService:
                 if event.get("entity_id")
                 else None
             )
+            payload = self._normalize_timeline_when(payload, dimension=dimension)
             payload = self._with_scene_event_key(
                 payload,
                 scene_id=scene_id,
@@ -214,6 +219,27 @@ class MemoryService:
             include_start=True,
         )
         return [MemoryEventResponse.model_validate(item) for item in records]
+
+    @staticmethod
+    def _normalize_timeline_when(payload: Any, *, dimension: str) -> Any:
+        """timeline 负载受控发生时间规范化（P2-A，A1 ``extract_timeline_when``）。
+
+        受控键只保留可证明形态（整数 Scene 锚、成对相对锚、非空
+        ``stated_date`` 原样保存不换算）；类型不符或半个相对锚整体丢弃；
+        未受控键原样透传。非 timeline 维度与非 dict 负载不动。放在
+        ``_with_scene_event_key`` 之前，事件键对规范化内容稳定。
+        """
+        if dimension != "timeline" or not isinstance(payload, dict):
+            return payload
+        clause = extract_timeline_when(payload)
+        controlled = {
+            key: value for key, value in clause.model_dump().items() if value is not None
+        }
+        return {
+            key: value
+            for key, value in payload.items()
+            if key not in TIMELINE_WHEN_CONTROLLED_KEYS
+        } | controlled
 
     @staticmethod
     def _with_scene_event_key(
@@ -282,6 +308,7 @@ class MemoryService:
         serialized = json.dumps(payload, ensure_ascii=False, default=str)
         if len(serialized) > MAX_MEMORY_EVENT_PAYLOAD_CHARS:
             raise ValidationError("Memory event payload exceeds limit")
+        payload = self._normalize_timeline_when(payload, dimension=event.dimension)
         record, created = await self._event_repo.append_confirmed_scene_event(
             db,
             novel_id=parse_uuid(novel_id, "novel_id"),

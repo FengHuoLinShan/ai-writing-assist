@@ -244,11 +244,34 @@ class SceneLensItem(BaseModel):
     stale: bool = False
 
 
+class SceneLensProvenanceRef(BaseModel):
+    """字段来源指向的稿件区间（evidence SourceRangeRefContract 的展示镜像）。"""
+
+    draft_id: str
+    chapter_index: int
+    version_number: int
+    content_mode: str = "working"
+    start_offset: int
+    end_offset: int
+    source_hash: str | None = None
+    range_hash: str | None = None
+
+
+class SceneLensProvenance(BaseModel):
+    """受控字段最后赋值的来源状态（exact=有据 / unverified=待核实 / conflict=冲突）。"""
+
+    field: str
+    status: str
+    event_id: str | None = None
+    source_refs: list[SceneLensProvenanceRef] = Field(default_factory=list)
+
+
 class SceneLensSource(BaseModel):
     checkpoint_id: str | None = None
     dimension: str | None = None
     confirmed: bool = False
     evidence_refs: list[dict[str, Any]] = Field(default_factory=list)
+    provenance: SceneLensProvenance | None = None
 
 
 class SceneLensField(BaseModel):

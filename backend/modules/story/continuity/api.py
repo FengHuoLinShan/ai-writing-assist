@@ -7,8 +7,10 @@ Memory API 路由
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 from fastapi import APIRouter, Query
+from pydantic import BaseModel
 
 from core.api_params import NovelIdPath
 from core.dependencies import DbSession
@@ -173,6 +175,77 @@ async def get_scene_checkpoints(
     """读取已有 Scene 分维度 checkpoint，不在 GET 中隐式写入。"""
     await _require_active_project(db, novel_id)
     return await _scene_service.get_scene(db, novel_id, scene_id)
+
+
+class SceneCheckpointHistoryItem(BaseModel):
+    """一条 checkpoint 历史行的作者侧摘要（技术 ID 次级，语义位先说清版本归属）。"""
+
+    checkpoint_id: str
+    dimension: str = ""
+    chapter_index: int | None = None
+    version: int
+    scene_sequence: int
+    is_current: bool
+    has_field_provenance: bool = False
+    created_at: datetime | None = None
+    label: str
+
+
+class SceneCheckpointHistoryResponse(BaseModel):
+    novel_id: str
+    scene_id: str
+    items: list[SceneCheckpointHistoryItem]
+    total: int
+
+
+async def _list_scene_checkpoint_history(
+    db: DbSession, novel_id: str, scene_id: str
+) -> SceneCheckpointHistoryResponse:
+    """经 continuity facade 读本场 checkpoint 历史版本；端点不绕过 facade。
+
+    facade 的 ``list_scene_checkpoints`` 由 P2-A A3 接线（当前实现在
+    scene_state_view 返回裸列表行）；函数内导入让两端独立合入，未就绪时显式
+    失败而不是静默回退。行字段容忍 ORM 侧同义键（id/version_number/
+    scene_index）；chapter_index 无章节锚时为 None，如实透传不冒充。
+    """
+    from modules.story.continuity.facade import list_scene_checkpoints
+
+    result = await list_scene_checkpoints(db, novel_id, scene_id)
+    data = result.model_dump() if hasattr(result, "model_dump") else result
+    rows = data.get("items") if isinstance(data, dict) else data
+    items = [
+        SceneCheckpointHistoryItem(
+            checkpoint_id=str(row.get("checkpoint_id") or row["id"]),
+            dimension=str(row.get("dimension") or ""),
+            chapter_index=row.get("chapter_index"),
+            version=int(row.get("version") or row["version_number"]),
+            scene_sequence=int(row.get("scene_sequence") or row["scene_index"]),
+            is_current=bool(row["is_current"]),
+            has_field_provenance=bool(row.get("has_field_provenance")),
+            created_at=row.get("created_at"),
+            # 旧版本不洗成当前：历史行明确标注为改稿前的记录。
+            label="当前版本" if bool(row["is_current"]) else "历史版本",
+        )
+        for row in (rows or [])
+        if isinstance(row, dict)
+    ]
+    return SceneCheckpointHistoryResponse(
+        novel_id=novel_id,
+        scene_id=scene_id,
+        items=items,
+        total=len(items),
+    )
+
+
+@router.get("/scene-checkpoints/history", response_model=SceneCheckpointHistoryResponse)
+async def get_scene_checkpoint_history(
+    db: DbSession,
+    novel_id: NovelIdPath,
+    scene_id: str = Query(..., description="Scene ID"),
+) -> SceneCheckpointHistoryResponse:
+    """列出本场状态记录的历史版本（含已被改稿取代的旧版本），只读不重建。"""
+    await _require_active_project(db, novel_id)
+    return await _list_scene_checkpoint_history(db, novel_id, scene_id)
 
 
 @router.get("/scene-checkpoints/{checkpoint_id}", response_model=SceneCheckpointResponse)
