@@ -2425,6 +2425,10 @@ body.focus-mode-active #workspace-content {
   #workspace-content[data-workspace-view="writing"] .writing-workspace-layout:has(.writing-tree-rail.is-collapsed) { grid-template-columns: 36px minmax(260px, 1fr) 220px; }
   #workspace-content[data-workspace-view="writing"] .writing-workspace-layout:has(.writing-panel-rail.is-collapsed) { grid-template-columns: 170px minmax(260px, 1fr) 36px; }
 }
+@media (min-width: 761px) and (max-width: 1100px) {
+  #workspace-content[data-workspace-view="writing"] .writing-workspace-layout:not(.writing-workspace-layout--blank) { grid-template-columns: 170px minmax(0, 1fr); }
+  #workspace-content[data-workspace-view="writing"] .writing-workspace-layout:not(.writing-workspace-layout--blank):has(.writing-tree-rail.is-collapsed) { grid-template-columns: 36px minmax(0, 1fr); }
+}
 body.focus-mode-active #workspace-content[data-workspace-view="writing"] .writing-workspace-layout { grid-template-columns: minmax(0, 1fr); }
 body.focus-mode-active .writing-sheet { padding-top: 32px; }
 body.focus-mode-active .writing-sheet .novel-editor { font-size: 18px; line-height: 1.95; }

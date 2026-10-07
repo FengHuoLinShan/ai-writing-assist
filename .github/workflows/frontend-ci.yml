@@ -179,6 +179,10 @@ jobs:
       - name: Install Chromium for Playwright
         run: npm --prefix frontend-console exec playwright -- install --with-deps chromium
 
+      - name: Install WebKit for core mobile flows
+        if: matrix.shard == 1 && needs.browser-classify.outputs.browser_suite == 'test:e2e:functional'
+        run: npm --prefix frontend-console exec playwright -- install --with-deps webkit
+
       - name: Start local object storage
         run: |
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/minio" https://github.com/minio/minio/releases/download/RELEASE.2025-04-22T22-12-26Z/minio.linux-amd64.RELEASE.2025-04-22T22-12-26Z
@@ -214,6 +218,15 @@ jobs:
             npm --prefix frontend-console run "$BROWSER_SUITE" -- --workers=1 --retries=0 "--shard=${{ matrix.shard }}/${{ needs.browser-classify.outputs.shard_total }}" --reporter=list,blob --output=test-results/functional
           printf '%s shard %s/%s\n' "$BROWSER_SUITE" "${{ matrix.shard }}" "${{ needs.browser-classify.outputs.shard_total }}" > "$RUNNER_TEMP/browser-gate-functional.done"
 
+      - name: Run WebKit core mobile flows
+        if: matrix.shard == 1 && needs.browser-classify.outputs.browser_suite == 'test:e2e:functional'
+        env:
+          PLAYWRIGHT_BLOB_OUTPUT_DIR: blob-report/webkit
+        run: |
+          uv run --project backend --locked --extra ci -- \
+            npm --prefix frontend-console run test:e2e:webkit -- --workers=1 --retries=0 --reporter=list,blob --output=test-results/webkit
+          printf 'webkit\n' > "$RUNNER_TEMP/browser-gate-webkit.done"
+
       - name: Run assistant behavior with its isolated synthetic model harness
         if: matrix.shard == 1
         env:
@@ -248,6 +261,9 @@ jobs:
           required_suites="functional"
           if [ "${{ matrix.shard }}" = "1" ]; then
             required_suites="$required_suites assistant creative editorial"
+            if [ "${{ needs.browser-classify.outputs.browser_suite }}" = "test:e2e:functional" ]; then
+              required_suites="$required_suites webkit"
+            fi
           fi
           for suite in $required_suites; do
             if [ ! -f "$RUNNER_TEMP/browser-gate-$suite.done" ]; then

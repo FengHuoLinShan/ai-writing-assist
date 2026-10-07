@@ -75,8 +75,8 @@
       <span class="view-header__count">共 {{ vm.chapterList.value.length }} 章</span>
     </div>
     <div class="view-header__actions">
-      <button type="button" class="btn btn-sm" :aria-expanded="leftRailOpen" @click="toggleRail('chapters')">章节</button>
-      <button v-if="!isBlankWork" type="button" class="btn btn-sm" :aria-expanded="rightRailOpen" @click="toggleRail('reference')">本章资料</button>
+      <button type="button" class="btn btn-sm" :aria-expanded="leftRailOpen" @click="toggleRail('chapters', $event)">章节</button>
+      <button v-if="!isBlankWork" type="button" class="btn btn-sm" :aria-expanded="rightRailOpen" @click="toggleRail('reference', $event)">本章资料</button>
       <button ref="chapterMapTriggerEl" type="button" class="btn btn-sm" :disabled="!hasEditableChapter" data-action="open-chapter-map" @click="openChapterMap()">本章地图</button>
       <details ref="viewMenuEl" class="writing-page-menu" @toggle="onViewMenuToggle" @keydown="onViewMenuKeydown">
         <summary
@@ -247,7 +247,7 @@
       <p v-if="vm.versionLoadError.value" class="writing-empty-hint" role="alert">{{ vm.versionLoadError.value }}</p>
     </main>
 
-    <WorkspaceDrawer v-if="!isBlankWork" :mobile="vm.isNarrow.value" :open="rightRailOpen" title="本章资料" @close="rightRailOpen = false">
+    <WorkspaceDrawer v-if="!isBlankWork" :mobile="vm.isCompact.value" :open="rightRailOpen" title="本章资料" @close="rightRailOpen = false">
     <aside
       class="workspace-rail writing-panel-rail workspace-rail--right"
       :class="{ 'is-collapsed': !rightRailOpen }"
@@ -556,7 +556,7 @@ async function openChapterMap(entityId = null) {
   if (!hasEditableChapter.value) return
   const chapter = vm.selectedChapter.value
   chapterMapEntityId.value = entityId
-  if (vm.isNarrow.value && rightRailOpen.value) {
+  if (vm.isCompact.value && rightRailOpen.value) {
     rightRailOpen.value = false
     await nextTick()
     chapterMapTriggerEl.value?.focus()
@@ -676,7 +676,8 @@ const leftRailOpen = ref(
     vm.chapterList.value.length === 0 || typeof window === "undefined" || window.innerWidth > 760,
   ),
 )
-const rightRailOpen = ref(!vm.isNarrow.value && stored("reference", props.scenes.some(scene => ["draft", "canonical"].includes(scene.status))))
+const referenceDefault = () => props.scenes.some(scene => ["draft", "canonical"].includes(scene.status))
+const rightRailOpen = ref(!vm.isCompact.value && stored("reference", referenceDefault()))
 
 async function reloadServerDraft() {
   if (!await vm.reloadServerDraft()) return
@@ -764,11 +765,14 @@ function onDocumentPointerdown(event) {
 async function selectChapterFromTree(chapter) {
   if (await vm.selectChapter(chapter) !== false && vm.isNarrow.value) leftRailOpen.value = false
 }
-watch(vm.isNarrow, (narrow) => { if (narrow) { leftRailOpen.value = false; rightRailOpen.value = false } })
+watch(vm.isNarrow, (narrow) => { leftRailOpen.value = !narrow && stored("chapters", true) })
+watch(vm.isCompact, (compact) => { rightRailOpen.value = !compact && stored("reference", referenceDefault()) })
 
-function toggleRail(rail) {
+function toggleRail(rail, event) {
   const current = rail === "chapters" ? leftRailOpen : rightRailOpen
+  if (!current.value) event?.currentTarget?.focus({ preventScroll: true })
   current.value = !current.value
+  if (rail === 'chapters' ? vm.isNarrow.value : vm.isCompact.value) return
   try { sessionStorage.setItem(`workspace-rail:${props.projectId}:writing:${rail}`, current.value ? "open" : "closed") } catch { /* noop */ }
 }
 
