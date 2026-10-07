@@ -100,5 +100,6 @@ C0 十五例夹具已全绿（C2 转绿①③④，C3 转绿②）。
 1. ✅ 前端真实浏览器关键流 3 passed。
 2. ✅ 固定提交 4 笔：`feat(evolution)` 登记与失效 → `feat(writing)` 透传与重算 →
    `feat(frontend)` 提示与面板 → `docs` 文档与任务记录同步。
-3. ⬜ 整理 phase1+P2 的 PR 合入 main（PR 正文需填入 §6.2 的无影响说明原文）。
+3. ✅ PR [#206](https://github.com/FengHuoLinShan/ai-writing-assist/pull/206)（phase1+P2 一并合入 main）
+   已开，正文含 §6.2 的无影响说明原文；待合并授权与 CI。
 3. C2 记录的 B 类待办（story `_project_dimension` 真实登记接线、按集合 supersede、持久 operation 台账）不在本包授权内，留后续。

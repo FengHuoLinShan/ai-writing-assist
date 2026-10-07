@@ -179,7 +179,9 @@ C2/C3/C4 三个单元产出留在工作树未提交，汇合批统一验证。�
 ## 恢复快照
 
 （交接/暂停前更新）当前：P2-A、P2-B 完成并提交，P2-C 的 C0–C4 全部完成、改动未提交，
-汇合批门禁已过，待前端真实浏览器关键流 → 固定提交 → 整理 PR；
+汇合门禁与真实浏览器关键流已过，改动已固定提交（4 笔）并开出
+[PR #206](https://github.com/FengHuoLinShan/ai-writing-assist/pull/206)
+（phase1+P2 一并合入 main），待合并授权与 CI；
 快照见 [handoff-world-foundation-p2c-20261008.md](handoff-world-foundation-p2c-20261008.md)。
 
 ## A1 产出（契约先行单元，2026-10-07）
