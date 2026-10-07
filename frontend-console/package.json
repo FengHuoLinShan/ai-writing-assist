@@ -11,6 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e:functional": "playwright test --config=playwright.functional.config.js",
+    "test:e2e:responsive": "playwright test --config=playwright.functional.config.js responsive-layout.spec.js responsive-core.spec.js",
+    "test:e2e:webkit": "playwright test --config=playwright.webkit.config.js",
     "test:e2e:smoke": "playwright test --config=playwright.functional.config.js e2e/home.spec.js e2e/project.spec.js e2e/import.spec.js e2e/writing.spec.js",
     "test:e2e:map": "playwright test --config=playwright.functional.config.js map-atlas.spec.js --workers=1 --retries=0",
     "test:e2e:real-llm": "ENABLE_REAL_LLM=1 playwright test --config=playwright.real-llm.config.js",

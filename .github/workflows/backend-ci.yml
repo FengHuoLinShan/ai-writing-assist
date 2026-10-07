@@ -135,6 +135,10 @@ jobs:
         if: steps.changes.outputs.postgresql == 'true'
         run: uv run --locked --extra ci -- alembic upgrade head
 
+      - name: Detect ORM drift with Alembic check
+        if: steps.changes.outputs.postgresql == 'true'
+        run: uv run --locked --extra ci -- alembic check
+
       - name: Capture pre-test PostgreSQL diagnostics
         if: steps.changes.outputs.postgresql == 'true'
         env:

@@ -255,14 +255,17 @@ async def test_real_task_handler_session_checkpoints_before_provider_wait(
     from infrastructure.tasks.lifecycle import TaskLifecycleService
     from infrastructure.tasks.models import AsyncTask
     from infrastructure.tasks.worker import _TaskHandlerSession
+    from modules.evidence.contracts import ContextConfirmationRequest
     from modules.evidence.facade import confirm_context, require_confirmation
 
     confirmation = await confirm_context(
         db_session,
-        novel_id=sample_novel_id,
-        action="outline.analyze",
-        task="验证真实 task session transaction boundary",
-        scope="project",
+        ContextConfirmationRequest(
+            novel_id=sample_novel_id,
+            action="outline.analyze",
+            task="验证真实 task session transaction boundary",
+            scope="project",
+        ),
     )
     lease_id = str(uuid.uuid4())
     task = AsyncTask(
@@ -524,6 +527,7 @@ async def test_task_confirmation_prepare_matches_legacy_compile_render(
     db_session,
     sample_novel_id: str,
 ) -> None:
+    from modules.evidence.contracts import ContextConfirmationRequest
     from modules.evidence.facade import (
         compile_from_confirmation,
         confirm_context,
@@ -532,10 +536,12 @@ async def test_task_confirmation_prepare_matches_legacy_compile_render(
 
     confirmation = await confirm_context(
         db_session,
-        novel_id=sample_novel_id,
-        action="outline.analyze",
-        task="验证 task-only context materialization",
-        scope="project",
+        ContextConfirmationRequest(
+            novel_id=sample_novel_id,
+            action="outline.analyze",
+            task="验证 task-only context materialization",
+            scope="project",
+        ),
     )
     legacy_markdown = render_compiled_context(
         await compile_from_confirmation(
@@ -856,8 +862,6 @@ async def test_scene_fusion_task_passes_materialized_confirmation_to_generator()
     assert actual == {"ok": True}
     prepare_context.assert_awaited_once()
     assert (
-        service_cls.return_value.preview_llm_fusion.await_args.kwargs[
-            "confirmed_context"
-        ]
+        service_cls.return_value.preview_llm_fusion.await_args.kwargs["confirmed_context"]
         is prepared
     )

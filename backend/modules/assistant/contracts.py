@@ -1,9 +1,11 @@
 """Stable assistant contracts."""
 
+from __future__ import annotations
+
 import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from pydantic import BaseModel, Field
 
@@ -63,6 +65,9 @@ from modules.assistant.session_contracts import (
 from modules.assistant.session_contracts import (
     WorldCocreationSourceRef as WorldCocreationSourceRef,
 )
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 @dataclass(frozen=True)
@@ -126,3 +131,64 @@ class ForecastContext:
                 sort_keys=True,
             )
         return text
+
+
+# ============================================================
+# 插件 SPI（AO-3）— 领域插件文件经组合根注册的 DI port 消费运行期服务，
+# 不再 import modules.assistant.facade。签名与实现保持一致。
+# ============================================================
+
+
+class AssistantOperationScopePort(Protocol):
+    """在领域准备可编辑预览前套用作者阅读范围；实现在 assistant/operation_scope。"""
+
+    async def __call__(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        context: AssistantOperationContext | None,
+        targets: list[tuple[str, Any]],
+        *,
+        aggregate: bool = False,
+    ) -> None: ...
+
+
+class AssistantDiscussionScopePort(Protocol):
+    """解析一次可继续讨论的会话范围与证据指纹；实现经 AssistantService。"""
+
+    async def __call__(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        run_id: str,
+        owner_id: str,
+        *,
+        lock: bool = False,
+    ) -> dict: ...
+
+
+class AssistantSessionPort(Protocol):
+    """共创会话指针推进与生成结果回写；实现是 AssistantSessionService。"""
+
+    async def advance_checkpoint(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        session_id: str,
+        data: WorldCocreationCheckpointAdvanceRequest,
+    ) -> WorldCocreationSessionResponse: ...
+
+    async def record_generation_outcome(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        session_id: str,
+        action: str | None,
+        author_content: str | None,
+        task_id: str | None,
+        context_confirmation_id: str | None,
+        outcome_suggestion_id: str,
+        outcome_label: str,
+        outcome_kind: str = "candidate",
+    ) -> None: ...

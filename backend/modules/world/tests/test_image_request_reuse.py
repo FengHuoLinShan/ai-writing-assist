@@ -337,7 +337,7 @@ async def test_world_object_candidate_reuses_and_force_refreshes(
     from modules.world.world_object_images import WorldObjectImageService
 
     monkeypatch.setattr(
-        api,
+        api.entities,
         "_entity_image_generation_service",
         WorldObjectImageGenerationService(
             image_service=WorldObjectImageService(MemoryImageStorage()),

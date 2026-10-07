@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import copy
-import hashlib
-import json
 import uuid
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.stable_hash import stable_hash
 from modules.evidence.contracts import require_knowledge_review_for_adoption
 from modules.story.outline_state.models import StoryOutlineHead, StoryOutlineRevision
 from modules.story.outline_state.story_outline_repository import StoryOutlineRepository
@@ -552,13 +551,7 @@ class StoryOutlineService:
 
     @staticmethod
     def _hash(payload: Any) -> str:
-        raw = json.dumps(
-            payload,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode()
-        return hashlib.sha256(raw).hexdigest()
+        return stable_hash(payload, stringify_unknown=False)
 
     @staticmethod
     def _response(

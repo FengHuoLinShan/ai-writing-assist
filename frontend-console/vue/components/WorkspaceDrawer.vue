@@ -7,11 +7,12 @@ const isOpen = computed(() => props.mobile && props.open)
 const { overlayRef, dialogRef, onKeydown, onFocusin } = useModalDialog({ isOpen: () => isOpen.value, requestClose: () => emit('close') })
 </script>
 <template>
-  <div v-if="mobile && open" ref="overlayRef" class="workspace-drawer-overlay" @click.self="$emit('close')">
-    <section ref="dialogRef" @keydown="onKeydown" @focusin="onFocusin" class="workspace-drawer" role="dialog" aria-modal="true" :aria-label="title" tabindex="-1">
-      <header><h2>{{ title }}</h2><button type="button" class="btn" :aria-label="`关闭${title}`" @click="$emit('close')">完成</button></header>
+  <Teleport to="body" :disabled="!mobile">
+  <div v-show="!mobile || open" ref="overlayRef" :class="mobile ? 'workspace-drawer-overlay' : 'workspace-drawer-inline'" @click.self="mobile && $emit('close')">
+    <section ref="dialogRef" @keydown="isOpen && onKeydown($event)" @focusin="isOpen && onFocusin($event)" :class="mobile ? 'workspace-drawer' : 'workspace-drawer-inline'" :role="mobile ? 'dialog' : undefined" :aria-modal="mobile ? 'true' : undefined" :aria-label="mobile ? title : undefined" :tabindex="mobile ? -1 : undefined">
+      <header v-if="mobile"><h2>{{ title }}</h2><button type="button" class="btn" :aria-label="`关闭${title}`" @click="$emit('close')">完成</button></header>
       <slot />
     </section>
   </div>
-  <slot v-else-if="!mobile" />
+  </Teleport>
 </template>

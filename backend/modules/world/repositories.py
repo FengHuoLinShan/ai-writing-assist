@@ -768,16 +768,6 @@ class CoreEntityRepository:
 
         return entity
 
-    async def delete(
-        self,
-        db: AsyncSession,
-        entity_id: uuid.UUID,
-    ) -> bool:
-        stmt = delete(CoreEntity).where(CoreEntity.id == entity_id)
-        result = await db.execute(stmt)
-        await db.flush()
-        return result.rowcount > 0
-
     async def count_entities(
         self,
         db: AsyncSession,
@@ -1098,7 +1088,7 @@ class EventRepository:
 
     @staticmethod
     def _active_conditions() -> list[Any]:
-        """只返回挂在已采用事件与地点下的扩展记录。"""
+        """只返回未删除、且挂在已采用事件与地点下的扩展记录。"""
         canonical_event = exists().where(
             CoreEntity.id == Event.entity_id,
             CoreEntity.novel_id == Event.novel_id,
@@ -1111,7 +1101,7 @@ class EventRepository:
             CoreEntity.entity_type == "location",
             CoreEntity.status == "canonical",
         )
-        return [canonical_event, canonical_location]
+        return [Event.status == "canonical", canonical_event, canonical_location]
 
     async def create(
         self,
@@ -1136,7 +1126,11 @@ class EventRepository:
         db: AsyncSession,
         entity_id: uuid.UUID,
     ) -> Event | None:
-        stmt = select(Event).where(Event.entity_id == entity_id)
+        stmt = (
+            select(Event)
+            .where(Event.entity_id == entity_id)
+            .execution_options(populate_existing=True)
+        )
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -1226,12 +1220,36 @@ class EventRepository:
 
         return event
 
-    async def delete(
+    async def restore(
+        self,
+        db: AsyncSession,
+        event: Event,
+        data: EventCreate,
+    ) -> Event:
+        """用新提交的字段复活已删除的扩展行（主键即 entity_id，无法另建一行）。"""
+        event.source_chapter_id = parse_uuid(data.source_chapter_id)
+        event.location_entity_id = parse_uuid(data.location_entity_id)
+        event.timeline_order = data.timeline_order
+        event.occurrence_time_label = data.occurrence_time_label
+        event.status = "canonical"
+        await db.flush()
+        return event
+
+    async def deprecate(
         self,
         db: AsyncSession,
         entity_id: uuid.UUID,
+        *,
+        novel_id: uuid.UUID,
     ) -> bool:
-        stmt = delete(Event).where(Event.entity_id == entity_id)
+        stmt = (
+            update(Event)
+            .where(
+                Event.entity_id == entity_id,
+                Event.novel_id == novel_id,
+            )
+            .values(status="deprecated")
+        )
         result = await db.execute(stmt)
         await db.flush()
         return result.rowcount > 0
@@ -1803,6 +1821,8 @@ class EntityRelationRepository:
         self,
         db: AsyncSession,
         relation_ids: Sequence[uuid.UUID],
+        *,
+        novel_id: uuid.UUID,
     ) -> int:
         """批量标记关系为 deprecated，返回实际更新数。"""
         unique_ids = list(dict.fromkeys(relation_ids))
@@ -1810,22 +1830,15 @@ class EntityRelationRepository:
             return 0
         stmt = (
             update(EntityRelation)
-            .where(EntityRelation.id.in_(unique_ids))
+            .where(
+                EntityRelation.id.in_(unique_ids),
+                EntityRelation.novel_id == novel_id,
+            )
             .values(status="deprecated")
         )
         result = await db.execute(stmt)
         await db.flush()
         return result.rowcount or 0
-
-    async def delete(
-        self,
-        db: AsyncSession,
-        rel_id: uuid.UUID,
-    ) -> bool:
-        stmt = delete(EntityRelation).where(EntityRelation.id == rel_id)
-        result = await db.execute(stmt)
-        await db.flush()
-        return result.rowcount > 0
 
     async def upsert(
         self,
@@ -2001,6 +2014,7 @@ class EntityRelationRepository:
         db: AsyncSession,
         rel_id: uuid.UUID,
         *,
+        novel_id: uuid.UUID,
         source_id: uuid.UUID | None = None,
         target_id: uuid.UUID | None = None,
     ) -> None:
@@ -2012,7 +2026,12 @@ class EntityRelationRepository:
             values["target_id"] = target_id
         if values:
             stmt = (
-                update(EntityRelation).where(EntityRelation.id == rel_id).values(**values)
+                update(EntityRelation)
+                .where(
+                    EntityRelation.id == rel_id,
+                    EntityRelation.novel_id == novel_id,
+                )
+                .values(**values)
             )
             await db.execute(stmt)
 
@@ -2323,23 +2342,18 @@ class CharacterRepository:
         db: AsyncSession,
         source_entity_id: uuid.UUID,
         target_entity_id: uuid.UUID,
+        *,
+        novel_id: uuid.UUID,
     ) -> bool:
         """将 Character 行从 source_entity_id 迁移到 target_entity_id（用于合并）。"""
         stmt = (
             update(Character)
-            .where(Character.entity_id == source_entity_id)
+            .where(
+                Character.entity_id == source_entity_id,
+                Character.novel_id == novel_id,
+            )
             .values(entity_id=target_entity_id)
         )
-        result = await db.execute(stmt)
-        await db.flush()
-        return result.rowcount > 0
-
-    async def delete(
-        self,
-        db: AsyncSession,
-        character_id: uuid.UUID,
-    ) -> bool:
-        stmt = delete(Character).where(Character.entity_id == character_id)
         result = await db.execute(stmt)
         await db.flush()
         return result.rowcount > 0
@@ -2371,6 +2385,8 @@ class CharacterRepository:
         location_id: uuid.UUID,
         text_state: str,
         chapter_index: int,
+        *,
+        novel_id: uuid.UUID,
     ) -> None:
         meta = {}
         meta["location_id"] = str(location_id)
@@ -2378,7 +2394,12 @@ class CharacterRepository:
         meta["chapter_index"] = chapter_index
 
         stmt = (
-            update(Character).where(Character.entity_id == character_id).values(meta=meta)
+            update(Character)
+            .where(
+                Character.entity_id == character_id,
+                Character.novel_id == novel_id,
+            )
+            .values(meta=meta)
         )
         await db.execute(stmt)
         await db.flush()
@@ -2672,16 +2693,6 @@ class CharacterKnowledgeRepository:
             await db.flush()
 
         return knowledge
-
-    async def delete(
-        self,
-        db: AsyncSession,
-        knowledge_id: uuid.UUID,
-    ) -> bool:
-        stmt = delete(CharacterKnowledge).where(CharacterKnowledge.id == knowledge_id)
-        result = await db.execute(stmt)
-        await db.flush()
-        return result.rowcount > 0
 
 
 RelationshipRepository = EntityRelationRepository

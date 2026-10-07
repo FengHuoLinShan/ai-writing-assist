@@ -41,7 +41,9 @@
 | `global_author_preferences` | 账户级作者偏好 |
 
 安全事件与协议同意随账号清除。`projects.owner_id` 是非空外键，项目、设置和任务入口都通过
-owner 门禁。
+owner 门禁。account 域的前瞻分析需要项目 owner 事实时，经组合根注册的
+`account.project_owner_ref` port（project facade 实现，`account.contracts` 声明协议）解析，
+不直接 import project。
 
 ## HTTP 入口
 

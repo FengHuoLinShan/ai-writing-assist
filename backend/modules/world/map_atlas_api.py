@@ -8,7 +8,6 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 
-from core.csrf import require_xhr_request
 from core.dependencies import DbSession
 from modules.evidence.facade import attach_result_ref, require_fresh_confirmation
 from modules.project.facade import require_active_project
@@ -51,7 +50,6 @@ from modules.world.map_structure_service import MapStructureService
 router = APIRouter(prefix="/api/world/map-atlas", tags=["world-map-atlas"])
 _service = MapAtlasService()
 _structure = MapStructureService()
-_xhr = [Depends(require_xhr_request)]
 
 
 @router.get("/capabilities")
@@ -74,7 +72,6 @@ ActiveNovelId = Annotated[str, Depends(_require_active_novel_id)]
     "/{novel_id}/nodes",
     response_model=MapAtlasNodeResponse,
     status_code=201,
-    dependencies=_xhr,
 )
 async def create_map_node(db: DbSession, novel_id: ActiveNovelId, data: MapNodeCreate):
     return await _structure.create_node(db, novel_id, data)
@@ -140,7 +137,6 @@ async def preview_map_revision(
     "/{novel_id}/nodes/{node_id}/revisions",
     response_model=MapRevisionResponse,
     status_code=201,
-    dependencies=_xhr,
 )
 async def save_map_revision(
     db: DbSession, novel_id: ActiveNovelId, node_id: str, data: MapSaveRequest
@@ -151,7 +147,6 @@ async def save_map_revision(
 @router.post(
     "/{novel_id}/nodes/{node_id}/layout",
     response_model=MapLayoutResponse,
-    dependencies=_xhr,
 )
 async def preview_map_layout(
     db: DbSession, novel_id: ActiveNovelId, node_id: str, data: MapSaveRequest
@@ -162,7 +157,6 @@ async def preview_map_layout(
 @router.post(
     "/{novel_id}/nodes/{node_id}/revisions/{revision_id}/review-preview",
     response_model=MapReviewPreview,
-    dependencies=_xhr,
 )
 async def preview_map_review(
     db: DbSession,
@@ -177,7 +171,6 @@ async def preview_map_review(
 @router.post(
     "/{novel_id}/nodes/{node_id}/revisions/{revision_id}/review",
     response_model=MapRevisionResponse,
-    dependencies=_xhr,
 )
 async def review_map_revision(
     db: DbSession,
@@ -193,7 +186,6 @@ async def review_map_revision(
     "/{novel_id}/nodes/{node_id}/generate-structure",
     response_model=MapTaskResponse,
     status_code=202,
-    dependencies=_xhr,
 )
 async def generate_map_structure(
     db: DbSession, novel_id: ActiveNovelId, node_id: str, data: MapGenerateRequest
@@ -256,7 +248,6 @@ async def _read_bounded_image(upload: UploadFile) -> bytes:
     "/{novel_id}/runs",
     response_model=MapAtlasRunResponse,
     status_code=202,
-    dependencies=_xhr,
 )
 async def create_run(
     db: DbSession,
@@ -303,7 +294,6 @@ async def get_run(db: DbSession, novel_id: ActiveNovelId, run_id: str):
 @router.post(
     "/{novel_id}/runs/{run_id}/stop",
     response_model=MapAtlasStopResponse,
-    dependencies=_xhr,
 )
 async def stop_run(db: DbSession, novel_id: ActiveNovelId, run_id: str):
     return await _service.stop_run(db, novel_id, run_id)
@@ -312,7 +302,6 @@ async def stop_run(db: DbSession, novel_id: ActiveNovelId, run_id: str):
 @router.post(
     "/{novel_id}/runs/{run_id}/resume",
     response_model=MapAtlasRunResponse,
-    dependencies=_xhr,
 )
 async def resume_run(
     db: DbSession,
@@ -339,7 +328,6 @@ async def get_run_results(db: DbSession, novel_id: ActiveNovelId, run_id: str):
 @router.post(
     "/{novel_id}/runs/{run_id}/confirm-prompts",
     response_model=MapAtlasRunResponse,
-    dependencies=_xhr,
 )
 async def confirm_prompts(
     db: DbSession,
@@ -374,7 +362,6 @@ async def get_page_prompt(db: DbSession, novel_id: ActiveNovelId, page_id: str):
 @router.patch(
     "/{novel_id}/pages/{page_id}/prompt",
     response_model=MapAtlasPromptResponse,
-    dependencies=_xhr,
 )
 async def update_page_prompt(
     db: DbSession,
@@ -389,7 +376,6 @@ async def update_page_prompt(
     "/{novel_id}/pages/upload",
     response_model=MapAtlasPageResponse,
     status_code=201,
-    dependencies=_xhr,
 )
 async def upload_page(
     db: DbSession,
@@ -424,7 +410,6 @@ async def upload_page(
 @router.patch(
     "/{novel_id}/nodes/{node_id}",
     response_model=MapAtlasNodeResponse,
-    dependencies=_xhr,
 )
 async def update_node(
     db: DbSession,
@@ -448,7 +433,6 @@ async def _review(
 @router.post(
     "/{novel_id}/pages/{page_id}/adopt",
     response_model=MapAtlasPageResponse,
-    dependencies=_xhr,
 )
 async def adopt_page(
     db: DbSession,
@@ -462,7 +446,6 @@ async def adopt_page(
 @router.post(
     "/{novel_id}/pages/{page_id}/reject",
     response_model=MapAtlasPageResponse,
-    dependencies=_xhr,
 )
 async def reject_page(
     db: DbSession,
@@ -476,7 +459,6 @@ async def reject_page(
 @router.post(
     "/{novel_id}/pages/{page_id}/archive",
     response_model=MapAtlasPageResponse,
-    dependencies=_xhr,
 )
 async def archive_page(
     db: DbSession,
@@ -490,7 +472,6 @@ async def archive_page(
 @router.post(
     "/{novel_id}/pages/{page_id}/restore",
     response_model=MapAtlasPageResponse,
-    dependencies=_xhr,
 )
 async def restore_page(
     db: DbSession,
@@ -504,7 +485,6 @@ async def restore_page(
 @router.post(
     "/{novel_id}/pages/{page_id}/retry",
     response_model=MapAtlasPageResponse,
-    dependencies=_xhr,
 )
 async def retry_page(
     db: DbSession,
@@ -524,7 +504,6 @@ async def retry_page(
     "/{novel_id}/pages/{page_id}/regenerate",
     response_model=MapAtlasPageResponse,
     status_code=202,
-    dependencies=_xhr,
 )
 async def regenerate_page(
     db: DbSession,
@@ -545,7 +524,6 @@ async def regenerate_page(
     "/{novel_id}/pages/{page_id}/edit",
     response_model=MapAtlasPageResponse,
     status_code=202,
-    dependencies=_xhr,
 )
 async def edit_page(
     db: DbSession,
@@ -577,7 +555,6 @@ async def edit_page(
 @router.patch(
     "/{novel_id}/annotations/{annotation_id}",
     response_model=MapAtlasAnnotationResponse,
-    dependencies=_xhr,
 )
 async def update_annotation(
     db: DbSession,

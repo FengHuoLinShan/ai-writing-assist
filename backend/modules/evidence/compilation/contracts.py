@@ -8,12 +8,25 @@ Context 对外契约
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
-
-from modules.story.contracts import CURRENT_SCENE_MEMORY_CONTRACT_VERSION
+from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from modules.evidence.compilation.services.compiled_context import CompiledContext
+
+
+class SceneMemoryContractPort(Protocol):
+    """story Scene memory 契约的只读 SPI（AO-5）。
+
+    evidence 编译按 story 冻结的契约版本解析 Scene memory 维度；实现是
+    story 侧 SceneSourcePort，组合根注册为 ``story.scene_source``。
+    低层不顶层 import 高层数据契约，运行期经 DI 解析。
+    """
+
+    def scene_memory_current_version(self) -> int: ...
+
+    def scene_memory_v1_version(self) -> int: ...
+
+    def scene_memory_dimensions(self, contract_version: int) -> tuple[str, ...]: ...
 
 
 INTERACTION_SOURCE_CONTEXT_MAX_TOKENS = 16_000
@@ -118,8 +131,9 @@ class CompileOptions:
     """手动大纲分析确认时固定的完整编译上下文指纹"""
     scene_state_fingerprint: str | None = None
     """Scene 时点预演确认时固定的版本化 checkpoint 指纹"""
-    scene_memory_contract_version: int = CURRENT_SCENE_MEMORY_CONTRACT_VERSION
-    """Scene 时点状态版本；旧 confirmation 缺省按 V1 回放"""
+    scene_memory_contract_version: int | None = None
+    """Scene 时点状态版本；None 表示编译时解析 story 当前契约版本，
+    旧 confirmation 缺省按 V1 回放"""
     compiled_context_fingerprint: str | None = None
     """预算执行后完整 Context 与来源身份的稳定指纹"""
     capability: str | None = None
@@ -134,6 +148,43 @@ class CompileOptions:
             self.visible_until_scene_id = self.scene_id
         if self.scope_complete and not self.capability:
             raise ValueError("scope_complete 编译必须声明 capability")
+
+
+@dataclass
+class ContextConfirmationRequest:
+    """一次手动 AI 操作的参考资料确认请求（facade 与 service 的单一入参）。"""
+
+    novel_id: str
+    action: str
+    task: str
+    scope: str
+    retrieval_purpose: str = "generic_context"
+    chapter_index: int | None = None
+    visible_until_chapter: int | None = None
+    visible_until_scene_id: str | None = None
+    visible_until_offset: int | None = None
+    scene_id: str | None = None
+    arc_id: str | None = None
+    entity_ids: list[str] | None = None
+    character_ids: list[str] | None = None
+    thread_ids: list[str] | None = None
+    location_ids: list[str] | None = None
+    reveal_mode: str = "author_safe"
+    enable_geo_filter: bool = False
+    viewpoint_character_id: str | None = None
+    budget_tokens: int = 4000
+    context_mode: str = "canonical"
+    content_mode: str = "canonical"
+    include_pending_objects: bool = False
+    excluded_asset_ids: dict[str, list[str]] | None = None
+    pinned_refs: list[dict] | None = None
+    excluded_refs: list[dict] | None = None
+    user_note: str | None = None
+    include_world_synopsis: bool = False
+    selected_world_bible_draft_ids: list[str] | None = None
+    activation_profile_id: str | None = None
+    activation_profile_version: int | None = None
+    expected_context_fingerprint: str | None = None
 
 
 @dataclass

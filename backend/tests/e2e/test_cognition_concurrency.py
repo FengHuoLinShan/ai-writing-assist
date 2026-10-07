@@ -14,11 +14,11 @@ from modules.assistant.facade import lock_background_slot
 from modules.assistant.models import AssistantWatch
 from modules.collaboration.cognition import commit_changes, read_head
 from modules.collaboration.contracts import Grant
-from modules.collaboration.models import CognitionCommit, CognitionHead, CognitionRecord
-from modules.evidence.facade import (
+from modules.collaboration.facade import (
     collect_creative_manifest,
     revalidate_creative_manifest,
 )
+from modules.collaboration.models import CognitionCommit, CognitionHead, CognitionRecord
 from modules.project.facade import (
     require_active_project,
     require_active_project_exclusive,

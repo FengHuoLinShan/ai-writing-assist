@@ -11,14 +11,18 @@ from dataclasses import asdict, dataclass, field, replace
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.container import get
 from core.errors import NotFoundError, ValidationError
+from core.service_keys import (
+    ASSISTANT_INSPECT_DISCUSSION,
+)
 from modules.evidence.compilation.contracts import (
     EvidenceHitContract,
     VisibilityContextContract,
 )
 from modules.evidence.compilation.evidence_repository import EvidenceLinkRepository
 from modules.evidence.indexing.contracts import RagChunkContract
-from modules.writing.contracts import SourceRangeRefContract
+from modules.evidence.source_ref_contracts import SourceRangeRefContract
 from shared.target_ref import TargetRef, normalize_target_ref
 
 _PRELOADED_SOURCE_UNSET = object()
@@ -1565,9 +1569,13 @@ class NovelEvidenceService:
             ):
                 return None, ["讨论与世界阶段成果只在作者未限制剧情截止的范围内读取"]
             if target.target_type == "assistant_session":
-                from modules.assistant.facade import inspect_discussion
-
-                return await inspect_discussion(db, novel_id, target.target_id), []
+                # AO-5：assistant facade 经组合根 DI 键解析，不 import。
+                return (
+                    await get(ASSISTANT_INSPECT_DISCUSSION)(
+                        db, novel_id, target.target_id
+                    ),
+                    [],
+                )
             from modules.world.worldbuilding_facade import inspect_world_checkpoint
 
             return await inspect_world_checkpoint(db, novel_id, target.target_id), [

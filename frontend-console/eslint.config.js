@@ -107,6 +107,9 @@ export default [
     // B2 跨模块 import 守护门（前端）：vue/** 内禁用基建裸全局，基建访问
     // 只经 vue/bridge/index.js（no-restricted-imports 限制直接 import 相对
     // 路径逃逸 bridge；全局只读声明继续服务旧式页面脚本）。
+    // AO-14 补充：no-restricted-globals 只拦裸标识符，拦不住 globalThis.x /
+    // window.x 的旁路读取，故追加 no-restricted-properties 封堵；
+    // vue/bridge/index.js 是唯一被授权触碰基建全局的桥接层（行内豁免）。
     files: ["vue/**/*.{js,mjs,vue}"],
     rules: {
       "no-restricted-globals": ["error",
@@ -122,6 +125,16 @@ export default [
           message: "基建访问只经 vue/bridge/index.js（B2 守护门）",
         }],
       }],
+      "no-restricted-properties": ["error",
+        { object: "globalThis", property: "api", message: "vue/** 内请从 vue/bridge/index.js 获取 getApi()" },
+        { object: "globalThis", property: "appState", message: "vue/** 内请从 vue/bridge/index.js 获取 getAppState()" },
+        { object: "globalThis", property: "router", message: "vue/** 内请从 vue/bridge/index.js 获取 getRouter()" },
+        { object: "globalThis", property: "toast", message: "vue/** 内请从 vue/bridge/index.js 获取 getToast()" },
+        { object: "window", property: "api", message: "vue/** 内请从 vue/bridge/index.js 获取 getApi()" },
+        { object: "window", property: "appState", message: "vue/** 内请从 vue/bridge/index.js 获取 getAppState()" },
+        { object: "window", property: "router", message: "vue/** 内请从 vue/bridge/index.js 获取 getRouter()" },
+        { object: "window", property: "toast", message: "vue/** 内请从 vue/bridge/index.js 获取 getToast()" },
+      ],
     },
   },
   {

@@ -52,6 +52,7 @@ async def test_persister_batch_failure_uses_savepoint_before_item_fallback(
         {},
         {},
         {},
+        failed_creates={},
     )
 
     assert result[0]["name"] == "主线"

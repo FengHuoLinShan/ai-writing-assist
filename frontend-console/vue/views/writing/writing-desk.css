@@ -2425,6 +2425,10 @@ body.focus-mode-active #workspace-content {
   #workspace-content[data-workspace-view="writing"] .writing-workspace-layout:has(.writing-tree-rail.is-collapsed) { grid-template-columns: 36px minmax(260px, 1fr) 220px; }
   #workspace-content[data-workspace-view="writing"] .writing-workspace-layout:has(.writing-panel-rail.is-collapsed) { grid-template-columns: 170px minmax(260px, 1fr) 36px; }
 }
+@media (min-width: 761px) and (max-width: 1100px) {
+  #workspace-content[data-workspace-view="writing"] .writing-workspace-layout:not(.writing-workspace-layout--blank) { grid-template-columns: 170px minmax(0, 1fr); }
+  #workspace-content[data-workspace-view="writing"] .writing-workspace-layout:not(.writing-workspace-layout--blank):has(.writing-tree-rail.is-collapsed) { grid-template-columns: 36px minmax(0, 1fr); }
+}
 body.focus-mode-active #workspace-content[data-workspace-view="writing"] .writing-workspace-layout { grid-template-columns: minmax(0, 1fr); }
 body.focus-mode-active .writing-sheet { padding-top: 32px; }
 body.focus-mode-active .writing-sheet .novel-editor { font-size: 18px; line-height: 1.95; }
@@ -2465,3 +2469,127 @@ body.focus-mode-active .writing-sheet .novel-editor { font-size: 18px; line-heig
 .writing-tools-menu__body .btn { border-color: transparent; background: transparent; border-radius: 7px; }
 .writing-tools-menu__body .btn:hover { background: var(--nc-accent-soft); color: var(--nc-accent); }
 .writing-tools-menu__body .btn-ghost { color: var(--nc-error); }
+
+/* ----------------------------------------------------------
+   10. 空白作品欢迎布局与收起栏内容约束
+   ---------------------------------------------------------- */
+
+/* 空白作品：没有章节时右侧资料栏与状态栏隐藏，工作区改为 目录 + 稿纸 两栏。
+   视口高度通过 flex 链精确撑满（与 .main-layout--immersive 同模式），
+   避免状态栏悬空或页面出现无意义滚动 */
+@media (min-width: 761px) {
+  #workspace-content[data-workspace-view="writing"]:has(.writing-workspace-layout--blank) {
+    display: flex;
+    flex-direction: column;
+  }
+
+  #workspace-content[data-workspace-view="writing"]:has(.writing-workspace-layout--blank) > .vue-island {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  #workspace-content[data-workspace-view="writing"] .writing-workspace-layout--blank {
+    grid-template-columns: 220px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+    gap: 0 24px;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  #workspace-content[data-workspace-view="writing"] .writing-workspace-layout--blank:has(.writing-tree-rail.is-collapsed) {
+    grid-template-columns: var(--workspace-rail-collapsed) minmax(0, 1fr);
+  }
+
+  .writing-workspace-layout--blank #writing-editor-container {
+    display: grid;
+    place-items: center;
+    min-height: 0;
+  }
+
+  .writing-workspace-layout--blank .writing-editor-shell {
+    width: 100%;
+    min-height: 0;
+  }
+
+  .writing-workspace-layout--blank .writing-editor-empty {
+    width: min(100%, 640px);
+    min-height: min(520px, 100%);
+  }
+}
+
+/* 右栏收起时只保留竖排标题签，批注面板与预测停靠区不再挤进窄条 */
+.writing-panel-rail.is-collapsed #writing-panel-container > *:not(.scene-cockpit) {
+  display: none;
+}
+
+/* 空稿纸欢迎卡：图标章 + 标题 + 说明 + 主操作 */
+.writing-editor-empty__card {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  max-width: 420px;
+  padding: 36px 28px;
+  text-align: center;
+}
+
+.writing-editor-empty__mark {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border: 1px solid var(--nc-hairline-strong);
+  border-radius: 12px;
+  background: var(--nc-surface);
+  color: var(--nc-accent);
+  font-family: var(--font-body);
+  font-size: 21px;
+  font-weight: 650;
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--nc-ink) 8%, transparent);
+}
+
+.writing-editor-empty__title {
+  margin: 4px 0 0;
+  color: var(--nc-ink);
+  font-family: var(--font-ui);
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.4;
+}
+
+.writing-editor-empty__lead {
+  margin: 0;
+  color: var(--nc-ink);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.writing-editor-empty__hint {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  line-height: 1.75;
+}
+
+.writing-editor-empty__actions {
+  margin-top: 12px;
+}
+
+.writing-editor-empty__actions .btn {
+  min-height: 40px;
+  padding: 8px 22px;
+  border-radius: 8px;
+}
+
+@media (max-width: 760px) {
+  .writing-editor-empty__card {
+    padding: 28px 20px;
+  }
+
+  .writing-editor-empty__actions,
+  .writing-editor-empty__actions .btn {
+    width: 100%;
+  }
+}

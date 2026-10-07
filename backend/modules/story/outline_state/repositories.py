@@ -6,8 +6,19 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, ClassVar
 
-from sqlalchemy import and_, case, delete, func, or_, select, text, update
+from sqlalchemy import (
+    String,
+    and_,
+    case,
+    delete,
+    func,
+    or_,
+    select,
+    text,
+    update,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from modules.story.outline_state.contracts import TERMINAL_THREAD_STAGES
 from modules.story.outline_state.models import (
@@ -50,9 +61,12 @@ async def _notify_structure_change(
         )
         return
     from core.container import get
+    from core.service_keys import (
+        SOURCE_CHANGED,
+    )
 
     try:
-        observer = get("source.changed")
+        observer = get(SOURCE_CHANGED)
     except KeyError:
         return
     await observer(
@@ -1112,6 +1126,9 @@ class SceneRepository:
             Scene.status.in_(["draft", "canonical"]),
         ]
         stmt = select(Scene).where(*conditions).order_by(Scene.scene_index, Scene.id)
+        prefilter = self._chapter_json_prefilter([chapter_index])
+        if prefilter is not None:
+            stmt = stmt.where(prefilter)
         result = await db.execute(stmt)
         all_scenes: Sequence[Scene] = result.scalars().all()
         matching = [
@@ -1135,6 +1152,9 @@ class SceneRepository:
             Scene.status.in_(statuses),
         ]
         stmt = select(Scene).where(*conditions).order_by(Scene.scene_index, Scene.id)
+        prefilter = self._chapter_json_prefilter(range(start_chapter, end_chapter + 1))
+        if prefilter is not None:
+            stmt = stmt.where(prefilter)
         result = await db.execute(stmt)
         all_scenes: Sequence[Scene] = result.scalars().all()
         matching = []
@@ -1143,6 +1163,32 @@ class SceneRepository:
             if any(start_chapter <= chapter <= end_chapter for chapter in chapters):
                 matching.append(scene)
         return matching
+
+    # 预过滤最多容忍的章节数；更宽的区间保持原全量扫描（仍受 novel_id + status 约束），
+    # 避免生成上百个 LIKE 子句反而拖慢查询。
+    _CHAPTER_JSON_PREFILTER_MAX_CHAPTERS = 32
+
+    @staticmethod
+    def _chapter_json_prefilter(
+        chapter_indices: range | list[int],
+    ) -> ColumnElement[bool] | None:
+        """为 scene_chunks / chapter_ids JSON 兜底查询构造保守的服务端预过滤。
+
+        章节索引嵌在普通 JSON 列里（非独立列/JSONB），且历史数据容忍 int 与
+        数字字符串两种形态，JSONB 包含查询既不可移植（单测层 SQLite）也不等价。
+        这里利用不变量：若某 Scene 经 Python 精确过滤命中，其序列化 JSON 文本
+        必然包含该章节号的十进制数字子串。以 LIKE 做超集预过滤缩小物化行数，
+        随后仍由 chapter_indices_for_scene 精确判定，结果语义不变。
+        """
+        needles = sorted({str(int(index)) for index in chapter_indices})
+        max_chapters = SceneRepository._CHAPTER_JSON_PREFILTER_MAX_CHAPTERS
+        if not needles or len(needles) > max_chapters:
+            return None
+        clauses: list[ColumnElement[bool]] = []
+        for column in (Scene.chapter_ids, Scene.scene_chunks):
+            serialized = column.cast(String)
+            clauses.extend(serialized.like(f"%{needle}%") for needle in needles)
+        return or_(*clauses)
 
     async def create(
         self,

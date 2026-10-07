@@ -4,8 +4,12 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.container import get
 from core.crud import CrudService
-from core.errors import NotFoundError, ValidationError
+from core.errors import ConflictError, NotFoundError, ValidationError
+from core.service_keys import (
+    WORLD_WORLDBUILDING_MARK_SYNOPSIS_SOURCE_CHANGED,
+)
 from modules.world.models import Event
 from modules.world.repositories import CoreEntityRepository, EventRepository
 from modules.world.schemas import (
@@ -23,6 +27,8 @@ class EventService(
 
     标准 5 verb (get / list / create / update / delete) 继承自 base,
     novel_id keyword-only 必填 (per world/CLAUDE.md §4)。
+    删除只置 ``status="deprecated"``；已删除的扩展行对 get/update 表现为 404，
+    对同一实体再次 create 时用新字段复活（主键即 entity_id）。
     """
 
     repo = EventRepository()
@@ -40,6 +46,11 @@ class EventService(
         data: EventCreate,
     ) -> EventResponse:
         nid = parse_uuid(novel_id, "novel_id")
+        eid = parse_uuid(data.entity_id, "entity_id")
+        # 与对象类型切换共用实体锁；事件尚无扩展行时也能串行化首次创建。
+        await self._entity_repo.get_many_for_update(
+            db, nid, [eid, parse_uuid(data.location_entity_id, "entity_id")]
+        )
         await self._assert_entity_in_novel(
             db,
             data.entity_id,
@@ -54,11 +65,17 @@ class EventService(
             "Event location",
             entity_type="location",
         )
-        created = await super().create(db, novel_id, data)
-        from modules.world.services.worldbuilding.synopsis_invalidation import (
-            mark_synopsis_source_changed,
+        existing = await self.repo.get(db, eid)
+        if existing is None:
+            created = await super().create(db, novel_id, data)
+        else:
+            self._assert_found_in_novel(existing, data.entity_id, nid)
+            if existing.status != "deprecated":
+                raise ConflictError(f"Event {data.entity_id} already exists")
+            created = self._to_response(await self.repo.restore(db, existing, data))
+        mark_synopsis_source_changed = get(
+            WORLD_WORLDBUILDING_MARK_SYNOPSIS_SOURCE_CHANGED
         )
-
         await mark_synopsis_source_changed(
             db,
             novel_id,
@@ -78,6 +95,7 @@ class EventService(
         nid = parse_uuid(novel_id, "novel_id")
         event = await self.repo.get(db, eid)
         self._assert_found_in_novel(event, id, nid)
+        self._assert_not_deprecated(event, id)
         await self._assert_active_event(db, event, nid, raw_id=id)
         return self._to_response(event)
 
@@ -93,6 +111,20 @@ class EventService(
         eid = parse_uuid(id, self.id_param)
         event = await self.repo.get(db, eid)
         self._assert_found_in_novel(event, id, nid)
+        self._assert_not_deprecated(event, id)
+        location_id = data.location_entity_id or str(event.location_entity_id)
+        await self._entity_repo.get_many_for_update(
+            db, nid, [eid, parse_uuid(location_id, "entity_id")]
+        )
+        # 锁前读取只定位锁集合；锁后重新读取，不能信任 Session 中的旧状态。
+        event = await self.repo.get(db, eid)
+        self._assert_found_in_novel(event, id, nid)
+        self._assert_not_deprecated(event, id)
+        if (
+            data.location_entity_id is None
+            and str(event.location_entity_id) != location_id
+        ):
+            raise ConflictError("Event location changed; retry the update")
         await self._assert_entity_in_novel(
             db,
             id,
@@ -100,7 +132,6 @@ class EventService(
             "Event entity",
             entity_type="event",
         )
-        location_id = data.location_entity_id or str(event.location_entity_id)
         await self._assert_entity_in_novel(
             db,
             location_id,
@@ -110,10 +141,9 @@ class EventService(
         )
         updated = await self.repo.update(db, eid, data)
         self._assert_found_in_novel(updated, id, nid)
-        from modules.world.services.worldbuilding.synopsis_invalidation import (
-            mark_synopsis_source_changed,
+        mark_synopsis_source_changed = get(
+            WORLD_WORLDBUILDING_MARK_SYNOPSIS_SOURCE_CHANGED
         )
-
         await mark_synopsis_source_changed(
             db,
             novel_id,
@@ -121,6 +151,41 @@ class EventService(
             source_id=id,
         )
         return self._to_response(updated)
+
+    async def delete(  # type: ignore[override]
+        self,
+        db: AsyncSession,
+        id: str,
+        *,
+        novel_id: str,
+    ) -> None:
+        """软删除：置 deprecated 并把 novel_id 下推到 where 条件做纵深防御。
+
+        与 base `CrudService.delete` 一致，重复删除已删除的事件是幂等 no-op。
+        """
+        rid = parse_uuid(id, self.id_param)
+        nid = parse_uuid(novel_id, "novel_id")
+        await self._entity_repo.get_for_update(db, rid, novel_id=nid)
+        event = await self.repo.get(db, rid)
+        self._assert_found_in_novel(event, id, nid)
+        if event.status == "deprecated":
+            return
+        ok = await self.repo.deprecate(db, rid, novel_id=nid)
+        if not ok:
+            self._raise_404(id)
+        mark_synopsis_source_changed = get(
+            WORLD_WORLDBUILDING_MARK_SYNOPSIS_SOURCE_CHANGED
+        )
+        await mark_synopsis_source_changed(
+            db,
+            novel_id,
+            source_type="event",
+            source_id=id,
+        )
+
+    def _assert_not_deprecated(self, event: Event, raw_id: str) -> None:
+        if event.status == "deprecated":
+            self._raise_404(raw_id)
 
     async def _assert_entity_in_novel(
         self,

@@ -9,12 +9,24 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
 from core.errors import ConflictError, NotFoundError
 from core.logging_context import bind_validated_novel_id
+from modules.account.contracts import ProjectOwnerRef
+from modules.project.account_lifecycle_service import (
+    list_active_project_summaries as _list_active_project_summaries,
+)
+from modules.project.account_lifecycle_service import (
+    list_project_ids_for_owner as _list_project_ids_for_owner,
+)
+from modules.project.account_lifecycle_service import (
+    lock_project_ids_for_owner as _lock_project_ids_for_owner,
+)
+from modules.project.account_lifecycle_service import (
+    purge_projects_for_owner as _purge_projects_for_owner,
+)
 from modules.project.author_examples import (
     read_author_examples as read_author_examples,
 )
@@ -43,7 +55,6 @@ from modules.project.editorial_brief import (
 from modules.project.editorial_brief import (
     set_editorial_brief_for_writing as set_editorial_brief_for_writing,
 )
-from modules.project.models import Project
 from modules.project.repositories import ProjectRepository
 from modules.project.schemas import ProjectContext, ProjectCreate
 from modules.project.services import ProjectService
@@ -258,7 +269,11 @@ async def require_active_project(
     db: AsyncSession,
     novel_id: str,
 ) -> None:
-    """Require an active project, hiding missing and recycled projects as 404."""
+    """Require an active project, hiding missing and recycled projects as 404.
+
+    Authenticated browser callers always resolve an owner filter; the unowned
+    worker/system identity is accepted only inside the worker execution scope.
+    """
     await _service.require_active_project(db, novel_id)
     bind_validated_novel_id(novel_id)
 
@@ -417,36 +432,13 @@ async def list_active_project_summaries(
     offset: int = 0,
     exclude_project_ids: Select[tuple[Any, ...]] | None = None,
 ) -> tuple[list[ProjectSummary], int]:
-    """List active project summaries with project-owned filtering and sorting.
-
-    ``exclude_project_ids`` lets caller-owned modules provide a DB-side project-id
-    subquery without importing project internals.
-    """
-    from modules.account.facade import current_owner_id_or_system_none
-
-    conditions = [
-        Project.deleted_at.is_(None),
-        Project.project_kind == "author",
-    ]
-    owner_id = current_owner_id_or_system_none()
-    if owner_id is not None:
-        conditions.append(Project.owner_id == owner_id)
-    if exclude_project_ids is not None:
-        conditions.append(Project.id.not_in(exclude_project_ids))
-
-    count_stmt = select(func.count(Project.id)).where(*conditions)
-    total = (await db.execute(count_stmt)).scalar() or 0
-
-    stmt = (
-        select(Project.id, Project.title)
-        .where(*conditions)
-        .order_by(Project.created_at.desc(), Project.id.desc())
-        .offset(offset)
-        .limit(limit)
+    """List active project summaries; SQL lives in account_lifecycle_service."""
+    return await _list_active_project_summaries(
+        db,
+        limit=limit,
+        offset=offset,
+        exclude_project_ids=exclude_project_ids,
     )
-    result = await db.execute(stmt)
-    items = [ProjectSummary(project_id=row.id, title=row.title) for row in result.all()]
-    return items, total
 
 
 async def list_project_ids_for_owner(
@@ -454,66 +446,35 @@ async def list_project_ids_for_owner(
     owner_id: uuid.UUID,
 ) -> list[uuid.UUID]:
     """Return only project IDs for account lifecycle task fencing."""
-    result = await db.execute(select(Project.id).where(Project.owner_id == owner_id))
-    return list(result.scalars().all())
+    return await _list_project_ids_for_owner(db, owner_id)
 
 
 async def lock_project_ids_for_owner(
     db: AsyncSession,
     owner_id: uuid.UUID,
 ) -> list[uuid.UUID]:
-    """Serialize account-wide asset quota checks and return every project ID.
-
-    The advisory lock avoids upgrading several project ``FOR SHARE`` locks to
-    ``FOR UPDATE`` in opposite orders when one account uploads concurrently to
-    different projects.
-    """
-    bind = db.get_bind()
-    if bind is not None and bind.dialect.name == "postgresql":
-        lock_key = int.from_bytes(owner_id.bytes[:8], byteorder="big", signed=True)
-        await db.execute(
-            text("SELECT pg_advisory_xact_lock(:lock_key)"),
-            {"lock_key": lock_key},
-        )
-    result = await db.execute(
-        select(Project.id).where(Project.owner_id == owner_id).order_by(Project.id)
-    )
-    return list(result.scalars().all())
+    """Serialize account-wide asset quota checks; see account_lifecycle_service."""
+    return await _lock_project_ids_for_owner(db, owner_id)
 
 
 async def purge_projects_for_owner(
     db: AsyncSession,
     owner_id: uuid.UUID,
 ) -> int:
-    """Permanently remove every owner project after account purge becomes due."""
-    from core.container import get
-    from infrastructure.tasks.facade import (
-        cancel_unfinished_tasks_for_novel,
-        delete_tasks_for_novels,
-    )
+    """Permanently remove every owner project; see account_lifecycle_service."""
+    return await _purge_projects_for_owner(db, owner_id)
 
-    project_ids = list(
-        (
-            await db.execute(
-                select(Project.id).where(Project.owner_id == owner_id).with_for_update()
-            )
-        ).scalars()
-    )
-    if project_ids:
-        for project_id in project_ids:
-            await cancel_unfinished_tasks_for_novel(
-                db,
-                novel_id=str(project_id),
-                transition_reason="account_permanent_delete",
-            )
-        await get("world.enqueue_map_atlas_cleanup")(
-            db,
-            [str(project_id) for project_id in project_ids],
-        )
-        await delete_tasks_for_novels(
-            db,
-            novel_ids=[str(project_id) for project_id in project_ids],
-        )
-    result = await db.execute(delete(Project).where(Project.owner_id == owner_id))
-    await db.flush()
-    return result.rowcount or 0
+
+async def get_project_owner_ref(
+    db: AsyncSession,
+    novel_id: str,
+) -> ProjectOwnerRef | None:
+    """Account-facing owner reference for either project kind (AO-4 DI port).
+
+    Routes through :func:`get_any_project_context` so the caller inherits the
+    same owner/demo gates; ``None`` means the project is absent or inaccessible.
+    """
+    context = await get_any_project_context(db, novel_id)
+    if context is None:
+        return None
+    return ProjectOwnerRef(owner_id=context.owner_id)

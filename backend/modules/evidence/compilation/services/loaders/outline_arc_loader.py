@@ -20,8 +20,11 @@ async def _default_get_arc_by_chapter(
     chapter: int,
 ) -> Any:
     from core.container import get
+    from core.service_keys import (
+        OUTLINE_ARC_SERVICE,
+    )
 
-    arc_svc = get("outline.arc_service")
+    arc_svc = get(OUTLINE_ARC_SERVICE)
     return await arc_svc.get_by_chapter(db, novel_id, chapter)
 
 
@@ -74,9 +77,7 @@ class OutlineArcLoader(Loader):
             "related_character_ids": list(
                 getattr(arc, "related_character_ids", None) or []
             ),
-            "related_entity_ids": list(
-                getattr(arc, "related_entity_ids", None) or []
-            ),
+            "related_entity_ids": list(getattr(arc, "related_entity_ids", None) or []),
             "status": arc.status,
         }
         bundle.budget_used["outline_arc"] = 1

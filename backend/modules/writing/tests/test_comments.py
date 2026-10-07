@@ -267,8 +267,8 @@ async def test_asset_proposals_use_separate_confirmation_run(
 async def test_comment_task_preserves_base_and_prepares_separate_proposal(
     db_session, test_project_id, monkeypatch
 ) -> None:
+    from core.container import container_scope
     from infrastructure.tasks import facade as task_facade
-    from modules.assistant import facade as assistant_facade
     from modules.writing import comment_run
     from modules.writing.models import WritingComment
     from modules.writing.repositories import WritingDraftRepository
@@ -340,7 +340,6 @@ async def test_comment_task_preserves_base_and_prepares_separate_proposal(
     monkeypatch.setattr(
         comment_run.WritingSemanticWorkflowService, "review_for_task", fake_review
     )
-    monkeypatch.setattr(assistant_facade, "submit_comment_proposals", fake_proposals)
     task_id = uuid.uuid4()
     task = SimpleNamespace(
         id=task_id,
@@ -353,9 +352,13 @@ async def test_comment_task_preserves_base_and_prepares_separate_proposal(
         },
         update_progress=lambda _value: None,
     )
-    result = await comment_run.run_comment_task(
-        db_session, task, {"profile": {"model": "test-model"}}
-    )
+    # AO-5：提案入口改经 DI 键解析，测试替身通过容器覆盖注入。
+    with container_scope(
+        {"assistant.submit_comment_proposals": fake_proposals},
+    ):
+        result = await comment_run.run_comment_task(
+            db_session, task, {"profile": {"model": "test-model"}}
+        )
     candidate = await WritingDraftRepository().get(
         db_session, uuid.UUID(result["candidate_draft_id"])
     )
@@ -368,3 +371,196 @@ async def test_comment_task_preserves_base_and_prepares_separate_proposal(
     assert proposals[0]["draft_id"] == base.id
     saved_comment = await db_session.get(WritingComment, uuid.UUID(comment["id"]))
     assert saved_comment.last_run_task_id == task_id
+
+
+def _comment_run_patches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[list[dict], object]:
+    """共享的生成链路 fake：LLM 客户端与治理执行器全部旁路。
+
+    返回 ``(proposals, fake_proposals)``；提案入口
+    （``assistant.submit_comment_proposals``）经 DI 键解析，调用方以
+    ``container_scope`` 注入替身。
+    """
+    from modules.writing import comment_run
+
+    proposals: list[dict] = []
+
+    @asynccontextmanager
+    async def fake_client(*_args, **_kwargs):
+        yield object()
+
+    async def fake_structured(_client, _request, _schema, **_kwargs):
+        return WritingTargetedRevisionOutput.model_validate(
+            {"patches": [{"patch_id": "patch-1", "replacement": "😀果断的乙"}]}
+        )
+
+    async def fake_governed(_client, *, hooks, **_kwargs):
+        output = await hooks.generate(None, ())
+        return SimpleNamespace(
+            passed=True, output=output, audit=object(), generator_keys=()
+        )
+
+    async def fake_proposals(_db, **kwargs):
+        proposals.append(kwargs)
+        return {"run_id": "proposal-run", "session_id": "proposal-session"}
+
+    monkeypatch.setattr(comment_run, "open_project_snapshot_llm_client", fake_client)
+    monkeypatch.setattr(comment_run, "run_managed_structured", fake_structured)
+    monkeypatch.setattr(comment_run, "run_governed_generation", fake_governed)
+    monkeypatch.setattr(
+        comment_run, "knowledge_review_payload", lambda **_kwargs: {"status": "passed"}
+    )
+    return proposals, fake_proposals
+
+
+def _comment_run_task(base, comment_id: str) -> SimpleNamespace:
+    novel_id = base.novel_id if isinstance(base.novel_id, str) else str(base.novel_id)
+    return SimpleNamespace(
+        id=uuid.uuid4(),
+        meta={
+            "novel_id": novel_id,
+            "draft_id": base.id,
+            "source_hash": base.content_hash,
+            "comment_ids": [comment_id],
+            "include_ai_review": False,
+        },
+        update_progress=lambda _value: None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_comment_task_post_review_failure_degrades_and_rolls_back(
+    db_session, test_project_id, monkeypatch, caplog
+) -> None:
+    """独立审稿失败：rollback 丢弃半成品写入，候选稿保留，任务显式 degraded。"""
+    import logging
+
+    from core.container import container_scope
+    from modules.writing import comment_run
+    from modules.writing.models import WritingComment
+    from modules.writing.repositories import WritingDraftRepository
+
+    base = await WritingDraftService().create_draft_contract(
+        db_session,
+        WritingDraftCreate(
+            novel_id=test_project_id, chapter_index=1, title="章", content="甲😀乙丙"
+        ),
+    )
+    comment = await create_comment(
+        db_session,
+        uuid.UUID(base.id),
+        WritingCommentCreate(
+            novel_id=test_project_id,
+            source_hash=base.content_hash,
+            start_offset=1,
+            end_offset=3,
+            excerpt="😀乙",
+            body="把语气写得更坚定",
+        ),
+    )
+    _comment_run_patches(monkeypatch)
+
+    async def failing_review(self, db, *, draft_ids, **_kwargs):
+        # 模拟审稿半途已 flush 的写入，随后崩溃。
+        target = await WritingDraftRepository().get(db, uuid.UUID(draft_ids[0]))
+        target.provenance_json = {
+            **target.provenance_json,
+            "independent_review": {"verdict": "half-written"},
+        }
+        await db.flush()
+        raise RuntimeError("审查超时")
+
+    monkeypatch.setattr(
+        comment_run.WritingSemanticWorkflowService, "review_for_task", failing_review
+    )
+    _proposals, fake_proposals = _comment_run_patches(monkeypatch)
+    task = _comment_run_task(base, comment["id"])
+    with caplog.at_level(logging.WARNING, logger="modules.writing.comment_run"):
+        with container_scope({"assistant.submit_comment_proposals": fake_proposals}):
+            result = await comment_run.run_comment_task(
+                db_session, task, {"profile": {"model": "test-model"}}
+            )
+
+    assert result["degraded"] is True
+    assert "审查超时" in result["post_review_error"]
+    assert "post_review" not in result
+    assert result["asset_proposal_run_id"]["run_id"] == "proposal-run"
+    assert "post-review failed" in caplog.text
+
+    # 候选稿与批注标记在检查点已提交，rollback 不丢主产物。
+    candidate = await WritingDraftRepository().get(
+        db_session, uuid.UUID(result["candidate_draft_id"])
+    )
+    assert candidate is not None
+    assert candidate.content == "甲😀果断的乙丙"
+    assert candidate.status == "candidate"
+    # 半成品审查写入已被回滚，不随任务“成功”落库。
+    assert candidate.provenance_json.get("independent_review") is None
+    saved_comment = await db_session.get(WritingComment, uuid.UUID(comment["id"]))
+    assert saved_comment.last_run_task_id == task.id
+
+
+@pytest.mark.asyncio
+async def test_comment_task_asset_proposal_failure_degrades_but_keeps_review(
+    db_session, test_project_id, monkeypatch
+) -> None:
+    """提案失败：savepoint 只回滚提案写入，已完成的独立审稿保留。"""
+    from core.container import container_scope
+    from modules.writing import comment_run
+    from modules.writing.repositories import WritingDraftRepository
+
+    base = await WritingDraftService().create_draft_contract(
+        db_session,
+        WritingDraftCreate(
+            novel_id=test_project_id, chapter_index=1, title="章", content="甲😀乙丙"
+        ),
+    )
+    comment = await create_comment(
+        db_session,
+        uuid.UUID(base.id),
+        WritingCommentCreate(
+            novel_id=test_project_id,
+            source_hash=base.content_hash,
+            start_offset=1,
+            end_offset=3,
+            excerpt="😀乙",
+            body="把语气写得更坚定",
+        ),
+    )
+    _comment_run_patches(monkeypatch)
+
+    async def passing_review(self, db, *, draft_ids, **_kwargs):
+        target = await WritingDraftRepository().get(db, uuid.UUID(draft_ids[0]))
+        target.provenance_json = {
+            **target.provenance_json,
+            "independent_review": {
+                "draft_hash": target.content_hash,
+                "verdict": "pass",
+                "blocking_count": 0,
+            },
+        }
+        await db.flush()
+        return {"verdict": "pass", "findings": []}
+
+    async def failing_proposals(_db, **_kwargs):
+        raise RuntimeError("提案服务不可用")
+
+    monkeypatch.setattr(
+        comment_run.WritingSemanticWorkflowService, "review_for_task", passing_review
+    )
+    task = _comment_run_task(base, comment["id"])
+    # AO-5：提案入口改经 DI 键解析，测试替身通过容器覆盖注入。
+    with container_scope({"assistant.submit_comment_proposals": failing_proposals}):
+        result = await comment_run.run_comment_task(
+            db_session, task, {"profile": {"model": "test-model"}}
+        )
+
+    assert result["degraded"] is True
+    assert "提案服务不可用" in result["asset_proposal_error"]
+    assert "asset_proposal_run_id" not in result
+    assert result["post_review"]["verdict"] == "pass"
+    candidate = await WritingDraftRepository().get(
+        db_session, uuid.UUID(result["candidate_draft_id"])
+    )
+    assert candidate.provenance_json["independent_review"]["verdict"] == "pass"

@@ -4,6 +4,10 @@
 精确采用回执；正文、结构、世界书工作稿仍由 Writing、Story、World 持有。
 
 `contracts.py` 冻结 Grant、InputManifest、Recipe、WorkProposal 与资源 port。
+`creative_manifest.py`（AO-5 起自 evidence 迁入）物化作者授权的冻结输入：
+按资源 port 收集与校验来源快照、构造并重验 InputManifest 指纹、附加持久
+理解与 Evolution 观察，并渲染受 24000 字符复核上限约束的上下文文本；
+evidence/story/writing 的 resource provider 由组合根装配。
 `cases.py` 校验 owner、项目、目标版本、授权截止与累计用量；续期保留历史及已消费请求。
 `runtime.py` 通过原 PostgreSQL task lease 执行有限规划和独立成员步骤，使用 Project
 冻结连接与当前账户 Key。角色历史、原始 Prompt 和密钥不进入公开 API。

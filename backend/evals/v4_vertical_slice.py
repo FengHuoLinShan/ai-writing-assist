@@ -18,13 +18,12 @@ from modules.assistant.forecast.contracts import (
 from modules.assistant.models import AssistantRun
 from modules.collaboration import cases, views
 from modules.collaboration.contracts import CaseCreate, Grant, RunCreate
-from modules.collaboration.facade import read_cognition_records
+from modules.collaboration.facade import collect_creative_manifest, read_cognition_records
 from modules.collaboration.models import CollaborationRun
 from modules.evidence.compilation.contracts import CompileOptions, StructureContextBundle
 from modules.evidence.compilation.services.loaders.memory_records_loader import (
     MemoryRecordsLoader,
 )
-from modules.evidence.facade import collect_creative_manifest
 from modules.evolution.facade import switch_project_engine
 from modules.evolution.models import EvolutionFrozenAttempt
 from modules.evolution.tasks import (

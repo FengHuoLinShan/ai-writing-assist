@@ -1,7 +1,7 @@
 """Worker 入口：启动任务队列 Worker 常驻循环
 
 用法：
-    python run_worker.py            # 常驻模式
+    python run_worker.py            # 常驻模式（schema 落后 head 时拒绝启动）
     python run_worker.py --reload   # 开发模式，文件变化时自动重启
 """
 
@@ -16,7 +16,7 @@ from pathlib import Path
 
 from app.task_runtime import register_task_handlers
 from core.config import get_settings, validate_llm_rate_limit_config
-from scripts.dev_schema_guard import wait_for_schema_current
+from scripts.dev_schema_guard import schema_is_current, wait_for_schema_current
 
 BACKEND_ROOT = Path(__file__).resolve().parent
 # 优雅排空上限：在跑任务卡在长 LLM 调用（timeout_override 上限 1800s）时，
@@ -153,10 +153,40 @@ async def main() -> None:
     await _run_task_worker(worker)
 
 
+def _require_schema_current() -> None:
+    """Fail closed before the resident worker starts on a stale schema.
+
+    生产迁移由部署流程先行执行（compose `migrate` job 的
+    `alembic upgrade head`），worker 不承担等待/重试语义：落后或无法
+    确认（连接失败、迁移脚本缺失）一律拒绝启动。等待语义只属于
+    --reload 的开发路径。
+    """
+    if schema_is_current():
+        return
+    print(
+        "Worker startup failed: database schema is not at the current "
+        "Alembic head. Run the deployment migration job "
+        "(`alembic upgrade head`) first, then restart the worker.",
+        file=sys.stderr,
+        flush=True,
+    )
+    raise SystemExit(2)
+
+
 def _run_sync() -> None:
     """同步包装器（给 watchfiles.run_process 使用）"""
     setup_logging()
     wait_for_schema_current()
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
+
+
+def _run_forever() -> None:
+    """常驻模式入口：schema 校验失败即退出，不进入任务循环。"""
+    setup_logging()
+    _require_schema_current()
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
@@ -191,8 +221,4 @@ if __name__ == "__main__":
         )
         run_process(*reload_dirs, target=_run_sync)
     else:
-        setup_logging()
-        try:
-            asyncio.run(main())
-        except KeyboardInterrupt:
-            pass
+        _run_forever()

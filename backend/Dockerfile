@@ -28,7 +28,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/.venv/bin:${PATH}"
 
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends libpcre2-8-0=10.42-1+deb12u2 \
+    && apt-get install --yes --no-install-recommends \
+        libpcre2-8-0=10.42-1+deb12u2 \
+        perl-base=5.36.0-7+deb12u4 \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system app \
     && useradd --system --gid app --home-dir /app app \

@@ -8,6 +8,8 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.container import ServiceKey
+from core.service_keys import WORLD_LIST_ENTITIES
 from modules.imports.deep_import_dedup import StructureReviewAgent
 from modules.imports.service_phase_artifacts import add_phase_artifact
 from modules.imports.workflow_phase_runner import (
@@ -648,7 +650,7 @@ async def select_fallback_reveal_target(
     return await select_deep_import_fallback_reveal_target(
         db,
         novel_id,
-        list_entities=_container_get("world.list_entities"),
+        list_entities=_container_get(WORLD_LIST_ENTITIES),
     )
 
 
@@ -668,6 +670,6 @@ def _timeout_result() -> dict[str, Any]:
     }
 
 
-def _container_get(name: str):
+def _container_get(key: ServiceKey[Any] | str):
     workflow_module = import_module("modules.imports.workflow")
-    return workflow_module._container_get(name)
+    return workflow_module._container_get(key)

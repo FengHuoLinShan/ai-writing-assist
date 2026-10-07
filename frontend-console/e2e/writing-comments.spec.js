@@ -4,7 +4,8 @@ import { waitWritingReady } from "./helpers/workbench.js"
 async function savedChapter(page, projectFactory, openProjectWorkbench) {
   const project = await projectFactory({ title: "正文批注 E2E" })
   await openProjectWorkbench(project, "writing")
-  await page.getByRole("button", { name: "新建章节", exact: true }).click()
+  // 空白作品欢迎卡的主操作（桌面与窄屏均可见；侧栏「新建章节」在窄屏抽屉内不可点）
+  await page.getByRole("button", { name: "新建第一章", exact: true }).click()
   await waitWritingReady(page, { editor: true })
   const editor = page.locator("#writing-editor")
   await editor.fill("甲😀乙丙\n".repeat(80))
@@ -67,6 +68,8 @@ test("离开页面后恢复批注任务结果，不重复轮询已完成任务",
   phase = "done"
   await page.reload()
   await waitWritingReady(page, { editor: true })
+  // 右栏收起时批注面板不再挤进窄条（仅保留标题签），展开「本章资料」应看到恢复的任务结果
+  await page.getByLabel("展开本章资料").click()
   await expect(page.getByRole("button", { name: "比较修订候选" })).toBeVisible()
   expect(await editor.inputValue()).toContain("甲😀乙丙")
   await page.waitForTimeout(300)

@@ -10,8 +10,12 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.container import get
 from core.errors import NotFoundError
 from core.errors import ValidationError as DomainValidationError
+from core.service_keys import (
+    WORLD_WORLDBUILDING_REQUIRE_LEGACY_CANON_WRITE_ALLOWED,
+)
 from infrastructure.llm.redaction import redact_diagnostic
 from modules.world.models import CoreEntity
 from modules.world.repositories import (
@@ -311,11 +315,10 @@ class EntityDedupService:
         if target is None:
             raise NotFoundError(f"Target entity {target_entity_id} not found")
 
-        from modules.world.services.worldbuilding.world_validation_service import (
-            WorldValidationService,
+        require_legacy_canon_write_allowed = get(
+            WORLD_WORLDBUILDING_REQUIRE_LEGACY_CANON_WRITE_ALLOWED
         )
-
-        await WorldValidationService().require_legacy_canon_write_allowed(
+        await require_legacy_canon_write_allowed(
             db, novel_id, next_action="create_world_adoption_package"
         )
 
@@ -397,6 +400,7 @@ class EntityDedupService:
             self_loops_cleaned = await self._relation_repo.deprecate_many(
                 db,
                 [parse_uuid(sl_id, "relation_id") for sl_id in created_self_loop_ids],
+                novel_id=nid,
             )
 
         # 5. Character 同步
@@ -511,11 +515,10 @@ class EntityDedupService:
 
         # 无匹配 → 直接提升为 canonical
         if not suggestions:
-            from modules.world.services.worldbuilding.world_validation_service import (
-                WorldValidationService,
+            require_legacy_canon_write_allowed = get(
+                WORLD_WORLDBUILDING_REQUIRE_LEGACY_CANON_WRITE_ALLOWED
             )
-
-            await WorldValidationService().require_legacy_canon_write_allowed(
+            await require_legacy_canon_write_allowed(
                 db, novel_id, next_action="create_world_adoption_package"
             )
             await self._entity_repo.update(
@@ -689,13 +692,16 @@ class EntityDedupService:
                 await self._relation_repo.update_endpoint(
                     db,
                     rel.id,
+                    novel_id=nid,
                     source_id=new_source if is_source else None,
                     target_id=new_target if is_target else None,
                 )
                 migrated += 1
 
         if candidate_self_loop_ids:
-            await self._relation_repo.deprecate_many(db, candidate_self_loop_ids)
+            await self._relation_repo.deprecate_many(
+                db, candidate_self_loop_ids, novel_id=nid
+            )
 
         return {
             "migrated": migrated,
@@ -717,6 +723,7 @@ class EntityDedupService:
 
         cid = _uuid.UUID(candidate_id)
         tid = _uuid.UUID(target_id)
+        nid = _uuid.UUID(novel_id)
 
         char_repo = CharacterRepository()
         candidate_char = await char_repo.get(db, cid)
@@ -726,7 +733,7 @@ class EntityDedupService:
         target_char = await char_repo.get(db, tid)
         if target_char is None:
             # candidate 有 Character 而 target 没有：直接迁移 Character 行
-            migrated = await char_repo.migrate_entity_id(db, cid, tid)
+            migrated = await char_repo.migrate_entity_id(db, cid, tid, novel_id=nid)
             return migrated
 
         # 合并别名

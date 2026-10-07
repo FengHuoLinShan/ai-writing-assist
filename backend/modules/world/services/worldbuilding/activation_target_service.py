@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import uuid
 from collections import deque
 from typing import Any
@@ -12,6 +10,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.token_estimation import estimate_token_count
+from infrastructure.stable_hash import stable_hash
 from modules.world.contracts import (
     WorldBibleActivationResolutionContract,
     WorldBibleActivationTargetContract,
@@ -356,25 +355,21 @@ class WorldBibleActivationTargetService:
         if reveal_mode == "author_full":
             parts.append(entity.hidden_truth or "")
         content = "\n\n".join(part.strip() for part in parts if part.strip())
-        source_hash = hashlib.sha256(
-            json.dumps(
-                {
-                    "id": str(entity.id),
-                    "status": entity.status,
-                    "name": entity.name,
-                    "summary": entity.summary,
-                    "public_info": entity.public_info,
-                    "hidden_truth": entity.hidden_truth,
-                    "content_json": entity.content_json,
-                    "updated_at": (
-                        entity.updated_at.isoformat() if entity.updated_at else None
-                    ),
-                },
-                ensure_ascii=False,
-                separators=(",", ":"),
-                sort_keys=True,
-            ).encode("utf-8")
-        ).hexdigest()
+        source_hash = stable_hash(
+            {
+                "id": str(entity.id),
+                "status": entity.status,
+                "name": entity.name,
+                "summary": entity.summary,
+                "public_info": entity.public_info,
+                "hidden_truth": entity.hidden_truth,
+                "content_json": entity.content_json,
+                "updated_at": (
+                    entity.updated_at.isoformat() if entity.updated_at else None
+                ),
+            },
+            stringify_unknown=False,
+        )
         return WorldBibleActivationTargetContract(
             novel_id=str(novel_id),
             target=target.canonical_dict(),

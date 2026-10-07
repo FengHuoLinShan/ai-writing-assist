@@ -3,12 +3,13 @@ from uuid import UUID, uuid4
 import pytest
 from pydantic import ValidationError
 
+from app.assistant_operation_registry import story_information_operations
 from core.errors import ConflictError, NotFoundError
 from modules.account.facade import current_account_id
 from modules.assistant.contracts import AssistantOperationContext, WorkContext
 from modules.evidence.contracts import VisibilityContextContract
 from modules.evidence.facade import inspect_novel_target
-from modules.story.assistant_information_tools import OPERATIONS, EditInformationPlan
+from modules.story.assistant_information_tools import EditInformationPlan
 from modules.story.outline_state.foreshadowing_repository import (
     ForeshadowingPlanRepository,
 )
@@ -27,7 +28,7 @@ async def test_information_edit_keeps_identity_rechecks_baseline_and_is_author_o
         plan_id=plan.id,
         changes={"name": "迟来的信", "planned_seed_chapter": 2},
     )
-    operation = OPERATIONS["story.edit_information_plan"]
+    operation = story_information_operations["story.edit_information_plan"]
     context = AssistantOperationContext(
         str(uuid4()), str(current_account_id()), WorkContext(scope="project")
     )

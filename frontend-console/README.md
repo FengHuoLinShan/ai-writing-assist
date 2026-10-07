@@ -114,6 +114,18 @@ Vite 开发与预览服务通过 HTTP 响应头发送 CSP，并用 `frame-ancest
 `http://localhost:8000` 或 `http://localhost:8000/api`。本地代理目标也可通过
 `BACKEND_PORT` 或完整的 `API_PROXY_TARGET` 覆盖。
 
+## 世界书导入 manifest v2（2026-10）
+
+`world.previewWorldbookImport` 由「仅文件数组」改为提交完整 manifest v2：`schema_version`、
+显式 `source_format`（默认 `auto`）、作者声明的 `dataset_name`、`dataset_intent`
+（新资料集/继续维护/接续旧导入）与 `commit_mode`（完整快照/增量追加）一并进入服务端预览指纹。
+资料圈定在浏览器本地完成（`vue/views/world/bible/worldbookImportScope.js` 纯函数：剥根、
+受限 frontmatter、Wiki 引用四态解析），应用范围严格等于预览范围。本地解析的双链
+词法与归一化口径经共享测试向量与后端对齐（`tests/vue/world/bible/fixtures/worldbook-link-vectors.json`
+由前后端测试消费同一文件）；预览展示服务端返回的每页引用明细 `link_details`
+（别名与段落锚原样保留）与 `legacy_bindings.target_kind` 已发布页披露。资料集名
+重复（`worldbook_dataset_exists`）按响应体机器码匹配作者文案，不依赖报错措辞。
+
 ## 世界编辑历史（2026-10，阶段 0）
 
 实体详情"改动历史"面板与世界页头"改动记录"浮层消费阶段 0 后端：相对时间（悬停绝对）、
@@ -215,7 +227,8 @@ frontend-console/
 ├── editorial-theme.css     # 全站主题覆层（--nc-* 原语层；light 浅色 / dark 深色）
 ├── state.js                # Proxy 状态、持久化与订阅；不直接投影 shell DOM
 ├── stateSlices.js          # 状态副作用与 listener 通知 helper
-├── api.js                  # API 封装（auth/projects/world/evidence/writing/imports/tasks）
+├── api.js                  # API 组装层：按原键序组装各命名空间并挂 window.api
+├── api/                    # API 命名空间模块（_shared.js 为共享请求底座）
 ├── shared/accountStorage.js # 账号切换/退出时清理项目级浏览器缓存并保留主题
 ├── apiContracts.js         # 共享 API 契约注册表（高风险 wrapper 子集）
 ├── router.js               # Hash router 与 #workspace-content route-host 生命周期
@@ -460,8 +473,9 @@ frontend-console/
   保留同一层级，`760px` 以下常用控件高度不低于 `44px`，表单输入不低于 `44px`。
 - 写作、Scene、世界书、地图册和生成中心采用统一的内容优先分栏；桌面端正文、主列表、编辑区或图片获得约三分之二的可用宽度。Scene 未选项时不渲染空详情栏，列表先使用完整工作区；选中后才恢复 68/32 编辑分栏。详情字段按「基本信息 / 创作要点 / 章节与来源」分组，始终提供「返回列表」；吸底操作栏以「已保存 / 保存修改 / 保存中」反映草稿状态，当前待办保持就地，合并/拆分收入向上展开的「更多」菜单。草稿未保存或正在保存时，待办与结构操作原生禁用，防止刷新覆盖草稿。窄屏详情作为模态层打开时暂时隐藏底部主导航，关闭后恢复。
 - 辅助栏使用统一的主题化折叠控件，折叠选择按项目和页面保存在当前浏览器会话中；写作专注模式仍优先隐藏两侧栏。
-- 中等宽度会重排第三栏，`760px` 及以下改为单栏、抽屉或手风琴；折叠控件完整支持浅色、暗色、键盘焦点和减少动效偏好。
-- 390px 地图册保留浏览、采用和拒绝；精确标注拖动与蒙版编辑提示在桌面完成。世界书在 ≤760px 为单栏；Scene 工作台无 `scene_id` 时保持未选中列表，桌面端同样不保留空详情占位。
+- 写作在 `761–1100px` 保留章节/正文两栏并将资料收入抽屉，`760px` 及以下再收纳章节；临时打开不改桌面偏好，回到宽屏恢复原选择。共享抽屉关闭及尺寸切换保留次级表单草稿。壳层统一绑定可视视口，工作区与浮层随键盘可见空间调整，捏合放大不改变应用布局高度。
+- 手机地图册保留浏览、采用、拒绝和蒙版文件上传；独立图片标注可按名称选择、点选或方向微调，预览后确认保存，取消不写入，失败保留调整，409 不覆盖新版本。绑定图元的位置仍从原地图对象管理。世界书在 ≤760px 为单栏；Scene 工作台无 `scene_id` 时保持未选中列表，桌面端同样不保留空详情占位。
+- `npm run test:e2e:responsive` 检查全站五档及复杂工作台十一档窗口、断点两侧、矮屏、实际命中和状态保留；`npm run test:e2e:webkit` 验证移动 WebKit 核心流程。均要求显式专用测试库与 fresh 服务；实机安全区、软键盘及真实缩放验收单列。
 - 任务进度默认显示紧凑摘要、状态和细进度条；失败、恢复或需要用户确认的状态自动展开，用户手动选择在任务重绘时保持。
 - 共享业务模态框使用带标题关联的 modal dialog 语义；打开后焦点进入内容或操作区，背景不可操作，Tab/Shift+Tab 不离开对话框，Escape 关闭后恢复到有效的原触发控件。连续替换模态内容时仍保留最初触发点；正文中的可编辑控件发生未保存变化时，关闭按钮、取消、遮罩和 Escape 都会先确认是否放弃，成功操作不重复确认。AI 参考资料可通过关闭、遮罩或 Escape 正常取消；晚到结果不会写入后续弹窗。
 - AI 参考资料窗打开即执行零持久化预览，按“必须使用 / 系统找到 / 我添加的 / 本次不用”展示逐项资料；手动搜索和自然语言提议均需重新编译，预览指纹、blocker 或待处理 patch 会确定性控制“按这份资料开始”。所有作者手动模型 wire 统一携带 `context_confirmation_id`；本轮不新增数据库表。
@@ -470,7 +484,7 @@ frontend-console/
 ## 安全与契约
 
 - `index.html` 配置 CSP meta baseline：脚本和外部样式来源仅允许本源，连接仅允许本源及本地开发后端；`style-src` 暂保留 inline style 兼容。
-- 封闭测试服的 `APP_ACCESS_TOKEN` 只保存在 `api.js` 当前页面的 module memory，不读写 Web Storage；刷新页面后需要重新输入。普通请求、导入上传和前端错误上报共用该内存令牌，被后端以 401 拒绝后立即清除并打开应用内密码模态框，避免依赖浏览器原生 `prompt()`；取消输入不会重试原请求。
+- 封闭测试服的 `APP_ACCESS_TOKEN` 只保存在 `api/_shared.js` 当前页面的 module memory，不读写 Web Storage；刷新页面后需要重新输入。普通请求、导入上传和前端错误上报共用该内存令牌，被后端以 401 拒绝后立即清除并打开应用内密码模态框，避免依赖浏览器原生 `prompt()`；取消输入不会重试原请求。
 - Vue 模板动态内容使用插值自动转义；命令式 seam 默认使用 `textContent`，必须拼 HTML 时先走 `esc()`。
 - 世界关系审查预览使用 DOM 节点和 `textContent`，不把动态对象名称或关系类型送入 `innerHTML`。
 - 右下角错误徽标是带计数和 dialog 状态的原生按钮；它按当前项目或未关联项目范围展示经脱敏的本地错误。打开的是非模态诊断面板，关闭会回到徽标；清空在面板内明确二次确认，只影响当前范围，不影响其他项目或已上报记录。程序化 `window.errorLog.clear()` 保持直接清空当前范围的兼容语义。

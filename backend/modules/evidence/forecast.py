@@ -3,7 +3,6 @@
 from pydantic import BaseModel, ConfigDict, Field
 
 from core.errors import ConflictError
-from modules.assistant.contracts import AssistantOperation, ForecastDomainFact
 
 INSTRUCTIONS = {
     "evidence.next_query.v1": (
@@ -21,35 +20,37 @@ async def inspect(db, novel_id, focus, excluded):
         return []
     status = await RagIndexStateService().summary(db, novel_id)
     working = status["by_content_mode"]["working"]
+    # 纯数据事实（AO-5）：assistant 消费侧以 ForecastDomainFact.model_validate
+    # 物化并校验，字段语义与原模型构造一致。
     return [
-        ForecastDomainFact(
-            capability_id="evidence.freshness_ready.v1",
-            subject="working_index",
-            title="先核对预备资料的新鲜性",
-            summary=f"索引回执中有 {working[('fresh')]} 项已同步、{
+        {
+            "capability_id": "evidence.freshness_ready.v1",
+            "subject": "working_index",
+            "title": "先核对预备资料的新鲜性",
+            "summary": f"索引回执中有 {working[('fresh')]} 项已同步、{
                 working[('stale')]
             } 项尚未同步。没有回执的资料仍未验证。",
-            source=status,
-            scope_label="已有索引回执，不代表已索引全部正文",
-            target={"page": "rag"},
-            unknowns=["查询集合新增会改变答案；旧命中和缓存时间不能证明来源仍有效。"],
-        ),
-        ForecastDomainFact(
-            capability_id="evidence.context_gap.v1",
-            subject="confirmation",
-            title="为本次操作确认资料范围",
-            summary="已有资料确认将按原范围重新物化。"
+            "source": status,
+            "scope_label": "已有索引回执，不代表已索引全部正文",
+            "target": {"page": "rag"},
+            "unknowns": ["查询集合新增会改变答案；旧命中和缓存时间不能证明来源仍有效。"],
+        },
+        {
+            "capability_id": "evidence.context_gap.v1",
+            "subject": "confirmation",
+            "title": "为本次操作确认资料范围",
+            "summary": "已有资料确认将按原范围重新物化。"
             if focus.context_confirmation_id
             else "尚未指定本次资料确认，先选择必需资料与排除项。",
-            source={
+            "source": {
                 "confirmation_id": str(focus.context_confirmation_id)
                 if focus.context_confirmation_id
                 else None,
                 "consumer_action": focus.context_confirmation_action,
             },
-            scope_label="本次操作的确认身份；容量与具体缺口由原确认界面核对",
-            target={"page": "rag"},
-        ),
+            "scope_label": "本次操作的确认身份；容量与具体缺口由原确认界面核对",
+            "target": {"page": "rag"},
+        },
     ]
 
 
@@ -120,8 +121,13 @@ async def _apply(db, novel_id, args, preview, *, context=None):
     }
 
 
-OPERATIONS = {
-    "evidence.focused_search": AssistantOperation(
-        "按明确问题补查当前授权作品资料", FocusedChoice, _prepare, _apply
-    )
+# 纯数据声明（AO-5）：不 import assistant 契约；组合根
+# app/assistant_operation_registry 按 AssistantOperation 原构造语义物化。
+OPERATIONS_SPEC = {
+    "evidence.focused_search": {
+        "label": "按明确问题补查当前授权作品资料",
+        "schema": FocusedChoice,
+        "prepare": _prepare,
+        "apply": _apply,
+    }
 }

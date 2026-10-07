@@ -8,8 +8,6 @@ SHA-256），不符即删记录按未命中处理。同参数「重新生成」�
 
 from __future__ import annotations
 
-import hashlib
-import json
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
@@ -19,6 +17,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.stable_hash import stable_hash
 from modules.world.models.image_request_reuse import ImageRequestReuse
 
 
@@ -32,7 +31,7 @@ def compute_request_hash(
     params: dict[str, Any] | None = None,
 ) -> str:
     """租户维度内的请求内容指纹：任何影响生成结果的输入都进哈希。"""
-    payload = json.dumps(
+    return stable_hash(
         {
             "novel_id": str(novel_id),
             "owner_id": str(owner_id),
@@ -41,11 +40,8 @@ def compute_request_hash(
             "model": str(model),
             "params": params or {},
         },
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
+        stringify_unknown=False,
     )
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 # 资产校验器：返回 (bytes, sha256, width, height) 或 None（资产缺失/损坏）。

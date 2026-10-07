@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 
-from core.csrf import require_xhr_request
 from core.dependencies import DbSession
 from modules.account.settings_schemas import (
     AccountImageConnectionResponse,
@@ -52,7 +51,6 @@ async def api_get_account_image_connection(
 @router.put(
     "/image-connection",
     response_model=AccountImageConnectionResponse,
-    dependencies=[Depends(require_xhr_request)],
 )
 async def api_connect_account_image_provider(
     db: DbSession,
@@ -67,7 +65,6 @@ async def api_connect_account_image_provider(
 @router.delete(
     "/image-connection",
     response_model=AccountImageConnectionResponse,
-    dependencies=[Depends(require_xhr_request)],
 )
 async def api_clear_account_image_provider(
     db: DbSession,
@@ -78,7 +75,6 @@ async def api_clear_account_image_provider(
 @router.put(
     "/llm-connections/{provider_id}",
     response_model=AccountLLMConnectionsResponse,
-    dependencies=[Depends(require_xhr_request)],
 )
 async def api_connect_account_llm_provider(
     db: DbSession,
@@ -98,7 +94,6 @@ async def api_connect_account_llm_provider(
 @router.post(
     "/llm-connections/{provider_id}/activate",
     response_model=AccountLLMConnectionsResponse,
-    dependencies=[Depends(require_xhr_request)],
 )
 async def api_activate_account_llm_provider(
     db: DbSession,
@@ -113,7 +108,6 @@ async def api_activate_account_llm_provider(
 @router.delete(
     "/llm-connections/{provider_id}",
     response_model=AccountLLMConnectionsResponse,
-    dependencies=[Depends(require_xhr_request)],
 )
 async def api_clear_account_llm_provider(
     db: DbSession,
@@ -143,7 +137,6 @@ async def api_get_global_llm_defaults(db: DbSession) -> GlobalLLMDefaultsRespons
 @router.put(
     "/llm-defaults",
     response_model=GlobalLLMDefaultsResponse,
-    dependencies=[Depends(require_xhr_request)],
 )
 async def api_put_global_llm_defaults(
     db: DbSession,
@@ -160,16 +153,13 @@ async def api_put_global_llm_defaults(
 @router.put(
     "/llm-defaults/secondary-models",
     response_model=GlobalLLMDefaultsResponse,
-    dependencies=[Depends(require_xhr_request)],
 )
 async def api_put_secondary_models(
     db: DbSession,
     data: SecondaryModelsUpdate,
 ) -> GlobalLLMDefaultsResponse:
     try:
-        return await _service.update_account_secondary_models(
-            db, list(data.models)
-        )
+        return await _service.update_account_secondary_models(db, list(data.models))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
@@ -182,7 +172,6 @@ async def api_get_global_author_prefs(db: DbSession) -> GlobalAuthorPrefsRespons
 @router.put(
     "/author-preferences",
     response_model=GlobalAuthorPrefsResponse,
-    dependencies=[Depends(require_xhr_request)],
 )
 async def api_put_global_author_prefs(
     db: DbSession,
@@ -193,7 +182,7 @@ async def api_put_global_author_prefs(
     )
 
 
-@router.post("/refresh", dependencies=[Depends(require_xhr_request)])
+@router.post("/refresh")
 async def api_refresh_settings() -> dict:
     """调试端点：触发客户端刷新（D16）。"""
     return {"ok": True}

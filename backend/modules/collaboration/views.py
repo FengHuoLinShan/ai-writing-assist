@@ -9,20 +9,25 @@ from infrastructure.llm.collaboration import content_hash
 from infrastructure.tasks.models import AsyncTask
 from modules.collaboration.cases import execution_status, require_case, require_run
 from modules.collaboration.contracts import Grant, InputManifest
+from modules.collaboration.creative_manifest import (
+    revalidate_creative_manifest,
+)
 from modules.collaboration.models import (
     CollaborationArtifact,
     CollaborationWorkItem,
     CreativeWorkspace,
 )
-from modules.evidence.facade import revalidate_creative_manifest
 
 
 async def resource_choices(db, novel_id, kind, offset, query):
     from core.container import get
+    from core.service_keys import (
+        COLLABORATION_RESOURCES,
+    )
     from modules.project.facade import require_active_project
 
     await require_active_project(db, novel_id)
-    sources = await get("collaboration.resources")[kind].inventory(db, novel_id)
+    sources = await get(COLLABORATION_RESOURCES)[kind].inventory(db, novel_id)
     sources = [
         item for item in sources if not query or query.casefold() in item.label.casefold()
     ]

@@ -5,8 +5,11 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 
+from core.container import get
 from core.errors import ConflictError, NotFoundError
-from modules.assistant.contracts import AssistantOperation
+from core.service_keys import (
+    ASSISTANT_REQUIRE_OPERATION_TARGETS,
+)
 from modules.project.author_task_service import AuthorTaskService
 from modules.project.models import ProjectAuthorTask
 from modules.project.schemas import AuthorTaskCreateRequest, AuthorTaskPatchRequest
@@ -26,8 +29,7 @@ class UpdateAuthorTask(BaseModel):
 
 
 async def _update_preview(db, novel_id, args, *, context=None):
-    from modules.assistant.facade import require_operation_targets
-
+    require_operation_targets = get(ASSISTANT_REQUIRE_OPERATION_TARGETS)
     await require_operation_targets(
         db, novel_id, context, [("author_task", args.task_id)]
     )
@@ -91,11 +93,19 @@ async def _apply(db, novel_id, args, preview, *, context=None):
     return {"type": "author_task", "id": str(result.id), "label": "已加入待办"}
 
 
-OPERATIONS = {
-    "project.update_task": AssistantOperation(
-        "更新或完成作者待办", UpdateAuthorTask, _update_preview, _update_apply
-    ),
-    "project.add_task": AssistantOperation(
-        "记录作者待办", AuthorTaskCreateRequest, _prepare, _apply
-    ),
+# 纯数据声明（AO-5）：不 import assistant 契约；组合根
+# app/assistant_operation_registry 按 AssistantOperation 原构造语义物化。
+OPERATIONS_SPEC = {
+    "project.update_task": {
+        "label": "更新或完成作者待办",
+        "schema": UpdateAuthorTask,
+        "prepare": _update_preview,
+        "apply": _update_apply,
+    },
+    "project.add_task": {
+        "label": "记录作者待办",
+        "schema": AuthorTaskCreateRequest,
+        "prepare": _prepare,
+        "apply": _apply,
+    },
 }

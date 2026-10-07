@@ -459,6 +459,9 @@ html, body {
   width: 100vw;
   height: 100vh;
   height: 100dvh;
+  height: var(--app-height, 100dvh);
+  position: relative;
+  top: var(--app-top, 0px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -3788,6 +3791,8 @@ label.llm-clear-key {
 #help-overlay {
   position: fixed;
   inset: 0;
+  top: var(--visible-top, 0px);
+  bottom: var(--visible-bottom, 0px);
   background: rgba(15, 23, 42, 0.3);
   backdrop-filter: blur(4px);
   display: flex;
@@ -3822,6 +3827,7 @@ label.llm-clear-key {
   max-width: 90vw;
   max-height: 80vh;
   max-height: 80dvh;
+  max-height: min(80dvh, calc(var(--visible-height, 100dvh) - 24px));
   overflow: auto;
   box-shadow: var(--shadow-xl);
   display: flex;
@@ -6947,6 +6953,7 @@ kbd {
   #sidebar {
     position: fixed;
     inset: auto 0 0;
+    bottom: var(--visible-bottom, 0px);
     width: 100%;
     min-width: 0;
     height: calc(64px + env(safe-area-inset-bottom));
@@ -12021,6 +12028,110 @@ details[open] > .world-bible-support-summary::after {
   color: var(--text-secondary);
 }
 
+.worldbook-import-options {
+  display: grid;
+  gap: var(--space-2);
+  margin-block: var(--space-3);
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.worldbook-import-options legend {
+  padding-inline: var(--space-1);
+  color: var(--text-secondary);
+}
+
+.worldbook-import-options__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-2);
+}
+
+.worldbook-import-options__field {
+  display: grid;
+  gap: 0.25rem;
+  min-width: min(100%, 16rem);
+  flex: 1 1 12rem;
+}
+
+.worldbook-import-options__choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.worldbook-import-scope {
+  display: grid;
+  gap: var(--space-2);
+  margin-block: var(--space-3);
+}
+
+.worldbook-import-scope__entry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.worldbook-import-scope__entry label {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.worldbook-import-scope__group > summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.worldbook-import-links__list {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.worldbook-import-links__list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: 0;
+  border: 0;
+}
+
+.worldbook-import-links__list code {
+  font-size: 0.85em;
+  overflow-wrap: anywhere;
+}
+
+.worldbook-link-state {
+  flex: none;
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg-muted);
+  color: var(--text-secondary);
+  font-size: 0.8em;
+  white-space: nowrap;
+}
+
+.worldbook-link-state--resolved {
+  color: var(--color-success, #15803d);
+}
+
+.worldbook-link-state--ambiguous,
+.worldbook-link-state--unresolved,
+.worldbook-link-state--unselected {
+  color: var(--color-warning, #b45309);
+}
+
 .world-health-panel {
   margin-block: var(--space-3);
 }
@@ -15854,6 +15965,9 @@ button.rp-journey-card__main:hover {
   .sidebar-mobile-sheet {
     position: fixed;
     inset: auto var(--space-3) calc(72px + env(safe-area-inset-bottom));
+    bottom: calc(72px + env(safe-area-inset-bottom) + var(--visible-bottom, 0px));
+    max-height: calc(var(--visible-height, 100dvh) - var(--topbar-height) - 96px);
+    overflow-y: auto;
     z-index: 650;
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));

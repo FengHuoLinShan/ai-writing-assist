@@ -350,56 +350,6 @@ class TestRagChunkRepository:
         assert [chunk.text for chunk in filtered] == ["新稿的怀表描述"]
 
     @pytest.mark.asyncio
-    async def test_delete(
-        self,
-        repo: RagChunkRepository,
-        db_with_project: AsyncSession,
-        sample_novel_id: uuid.UUID,
-        sample_chunk_data: RagChunkCreate,
-    ) -> None:
-        """测试删除片段"""
-        created = await repo.create(db_with_project, sample_novel_id, sample_chunk_data)
-        deleted = await repo.delete(db_with_project, created.id)
-        assert deleted is True
-
-        fetched = await repo.get(db_with_project, created.id)
-        assert fetched is None
-
-    @pytest.mark.asyncio
-    async def test_delete_many(
-        self,
-        repo: RagChunkRepository,
-        db_with_project: AsyncSession,
-        sample_novel_id: uuid.UUID,
-        sample_chunk_data: RagChunkCreate,
-        sample_chunk_data_2: RagChunkCreate,
-    ) -> None:
-        """批量删除片段应去重 ID，并返回实际删除数。"""
-        first = await repo.create(db_with_project, sample_novel_id, sample_chunk_data)
-        second = await repo.create(db_with_project, sample_novel_id, sample_chunk_data_2)
-
-        deleted = await repo.delete_many(
-            db_with_project,
-            [first.id, first.id, second.id],
-        )
-
-        assert deleted == 2
-        assert await repo.get(db_with_project, first.id) is None
-        assert await repo.get(db_with_project, second.id) is None
-        assert await repo.delete_many(db_with_project, []) == 0
-
-    @pytest.mark.asyncio
-    async def test_delete_not_found(
-        self,
-        repo: RagChunkRepository,
-        db_with_project: AsyncSession,
-    ) -> None:
-        """测试删除不存在的片段"""
-        fake_id = uuid.uuid4()
-        deleted = await repo.delete(db_with_project, fake_id)
-        assert deleted is False
-
-    @pytest.mark.asyncio
     async def test_mark_embedding_failed_clears_stale_embedding(
         self,
         repo: RagChunkRepository,

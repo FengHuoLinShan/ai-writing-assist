@@ -41,9 +41,7 @@ class _FakeLLMClient(GovernedWorldAuditMixin):
 
     async def generate_structured(self, request, schema, **_kwargs):
         if schema is AuditVerdictOutput:
-            return await self._governed_generate_structured(
-                request, schema, **_kwargs
-            )
+            return await self._governed_generate_structured(request, schema, **_kwargs)
         self.requests.append(request)
         return schema(
             name="誓约骑士",
@@ -244,16 +242,22 @@ async def test_builtin_copy_operation_reuses_one_finished_template(
     assert first.status_code == repeated.status_code == 201
     assert repeated.json()["id"] == first.json()["id"]
     template_id = uuid.UUID(first.json()["id"])
-    assert await db_session.scalar(
-        select(func.count(GenerationPromptTemplate.id)).where(
-            GenerationPromptTemplate.id == template_id
+    assert (
+        await db_session.scalar(
+            select(func.count(GenerationPromptTemplate.id)).where(
+                GenerationPromptTemplate.id == template_id
+            )
         )
-    ) == 1
-    assert await db_session.scalar(
-        select(func.count(GenerationPromptTemplateRevision.id)).where(
-            GenerationPromptTemplateRevision.template_id == template_id
+        == 1
+    )
+    assert (
+        await db_session.scalar(
+            select(func.count(GenerationPromptTemplateRevision.id)).where(
+                GenerationPromptTemplateRevision.template_id == template_id
+            )
         )
-    ) == 1
+        == 1
+    )
 
     drift = await async_client.post(
         "/api/world/generation-prompt-templates/builtin:character/copy",
@@ -611,6 +615,7 @@ async def test_generate_with_template_id_writes_template_meta(
     assert "赎罪圣骑士" in rendered_prompt
     assert "{{trope}}" not in rendered_prompt
 
+
 @pytest.fixture(autouse=True)
 def _exercise_template_behavior_without_repeating_preflight(
     monkeypatch: pytest.MonkeyPatch,
@@ -619,6 +624,6 @@ def _exercise_template_behavior_without_repeating_preflight(
         return None
 
     monkeypatch.setattr(
-        "modules.world.api._require_generation_confirmation",
+        "modules.world.api.generation_center._require_generation_confirmation",
         skip_preflight,
     )

@@ -45,6 +45,7 @@ make docs-check BASE_REF=origin/main
 | [ADR-0028](0028-shared-demo-account-login.md) | Accepted / Implemented | 演示共享账号口令登录：fail-closed 配置、常时比较 + peer 节流 + 安全审计、单配置账号的等价会话；不引入通用口令体系。 |
 | [ADR-0030](0030-spreadsheet-migration.md) | Accepted | 表格迁移只走 `/api/imports/migrations`（仅 .xlsx/.csv），确认即采用并经 world/story 窄 facade 落为带来源、可撤销的已采用资产；AI 整理仅预览。 |
 | [ADR-0029](0029-local-cli-image-only.md) | Accepted / Implementation in progress | 本机 CLI 只用于世界对象图片与地图册页面生成；文字路径断开并失败关闭；服务端拼提示词、逐任务确认主机权限、无产品工具、复核重编码输出，结果只作候选。 |
+| [ADR-0031](0031-module-dependency-directions.md) | Accepted / 第一批已实现 | 模块依赖方向分层与逐对裁定：低层调高层只能经消费方 contracts 的 SPI Protocol + 组合根 DI port；非 assistant 七对与 world core↔worldbuilding 已按裁定解环，assistant 六对留待第二批。 |
 
 2026-09-15 的运行信封实现补充：已冻结能力使用 `AIRunEnvelopeV1` 累计请求与恢复，未冻结规模的
 C3 任务仍按 ADR-0023/0025 的授权和领域边界暂停，不以通用临时额度替代产品裁决。
@@ -61,7 +62,7 @@ C3 任务仍按 ADR-0023/0025 的授权和领域边界暂停，不以通用临�
 | [LLM 限流与熔断索引](llm-concurrency-throttling-circuit-breaker.md) | Accepted / Index | 指向上游背压 ADR 的并发和熔断细化。 |
 | [imports 子包拆分](imports-module-decomposition.md) | Partially implemented | `entity_extraction/` 已落地；parsing/workflow/scene 仍保留兼容扁平入口。 |
 | [world services 子包布局](world-services-subpackage-layout.md) | Implemented | 已按 core/map/worldbuilding 分区，并保留必要兼容 import seam。 |
-| [Outline / Writing 依赖方向](outline-writing-bidirectional-dependency.md) | Partially superseded | offset 断章入口已取消；Scene contract loader 与只读 facade 边界继续有效。 |
+| [Outline / Writing 依赖方向](outline-writing-bidirectional-dependency.md) | Partially superseded | offset 断章入口已取消；Scene contract loader 与只读 facade 边界继续有效；通用机制并入 ADR-0031（story↔writing 先例）。 |
 
 ## 状态约定
 

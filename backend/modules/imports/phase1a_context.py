@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from collections.abc import Awaitable, Callable, Iterable
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.stable_hash import stable_hash
 from modules.imports.scene_planning import ScenePlanResult, SceneWindowPlan
 
 PHASE1A_CONTEXT_CONTRACT_VERSION = "phase1a-context-v2"
@@ -345,14 +344,7 @@ def apply_frozen_phase1a_context(
 
 
 def stable_context_hash(value: Any) -> str:
-    payload = json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    )
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return stable_hash(value)
 
 
 def _empty_context_manifest() -> dict[str, Any]:

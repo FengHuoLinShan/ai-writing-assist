@@ -334,8 +334,46 @@ PNG 后才进入地图册私有 S3。此例外不改变 imports 的文稿上传�
 - 世界书目录导入是 world 自有的受限文本入口，只接受相对路径标识与 UTF-8
   `.md/.txt/.json/.yaml/.yml`；单文件 2 MiB、正文总量 25 MiB、最多 2,000 文件。
   服务端不打开客户端路径，不执行脚本、Prompt、工具配置或 YAML 表达式。首次导入只创建
-  `source_material` 工作稿；重导入以 `source_key/source_hash/baseline_content_hash` 做三方比较，
-  双变和源缺失进入 `worldbook_import_conflict`，不覆盖、不删除。
+  `source_material` 工作稿；声明 `obsidian/llmwiki/wiki_markdown` 格式时正文按受限
+  frontmatter 归类 page type，非内建类型会在应用时补建同名分类。manifest 可显式声明
+  `source_format`（默认 `auto`）、`dataset_name`（服务端派生 `dataset_key`）、
+  `dataset_intent` 与 `commit_mode`：dataset 提交（payload `world_worldbook_import.v2`）以
+  `dataset_key + 剥根 rel_path` 派生页级 `source_key`，根目录改名不换身份；
+  `full_snapshot` 的缺失判定只覆盖同一资料集，`append` 不产生缺失，v1 请求保持
+  项目级判定与旧 source_key 算法。`dataset_intent` 承载作者三态选择（默认
+  `continue`）：`new` 显式新建资料集，派生 key 已存在即 400（提示继续维护或换名）；
+  `adopt_legacy` 显式接续旧来源，按 legacy `source_path` 剥根等效 rel_path 唯一匹配，
+  预览返回 `legacy_bindings` 待绑定映射（逐条标注 `target_kind`），apply 对工作稿
+  目标补写 dataset 字段、保留原 `source_path`、不新建工作稿；已发布页目标本轮
+  不改写其 meta（补写须走发布链显式确认路径，后续单独实现），预览如实披露。
+  预览对每页统计正文 `[[…]]` 双链与 frontmatter
+  `related` 的四态引用计数（已解析/名称歧义/未解析/未纳入，随 items 纳入
+  `preview_hash`），并随 payload 返回逐条引用明细 `link_details`（alias 与
+  #anchor 原样保留，不入指纹，每页 200 条截断）；apply 对已解析目标按既有
+  TargetRef 契约物化引用（目标为已发布页时优先写真实引用——含该页同时在本批的
+  重导场景，未发布目标用 `local:{dataset_key}:{rel_path}` 约定；歧义/未解析/未纳入
+  保留链接原文不建引用），物化页的 `baseline_content_hash` 按含 refs 字段组在同一
+  事务内写入；含悬空链接的页面发布校验会因 dangling 链接整体阻断，预览向作者披露。
+  待发布引用是工作稿的合法持久态：公共草稿 create/update 路径放行 `local:` 引用
+  （编辑器整份回传不再 422）；发布时把目标已发布的待发布引用物化为真实引用并重算
+  指纹（发布预览与 SEAL 同口径物化，凭预览 `impact_scope_hash` 发布不得误报冲突），
+  目标仍未发布的保持 `local:` 待发布态随页落地、不阻断发布（Wiki 互链否则死锁），
+  在发布影响预演与校验回执按 `pending_page_reference` 遗漏如实披露；语义缺口清单
+  与生成中心资产目录跳过待发布引用，目标发布后经物化或重导入生效。
+  同项目多个数据集并发 apply 声明同一新分类时，分类创建包 savepoint，唯一约束
+  冲突折算为「已存在」或业务错误，不再冒 500。
+  重导入以
+  `source_key/source_hash/baseline_content_hash` 做三方比较，
+  双变和源缺失进入 `worldbook_import_conflict`，不覆盖、不删除。apply 先取
+  `worldbook_import:{novel_id}:{dataset_key}` 项目级 advisory lock，在锁内重放
+  双 hash 复验后再写入，跨 suggestion 并发 apply 串行化或返回 409。
+  导入与发布是两个阶段：apply 只产生未发布工作稿，来源 frontmatter 的
+  `canon_status` 等声明不触发发布或激活；发布必须经既有 Canon Preview/Admit
+  与校验回执。来源更新重导会经既有 `update_draft → mark_asset_context_changed`
+  失效链使显式选中该工作稿的作者 AI 上下文确认失效，可重新确认；角色/读者
+  reveal 模式不消费世界书 activation 资料、简介与工作稿。导入预览按
+  `target_kind` 逐项区分未发布工作稿与已发布页目标（已发布页的更新同样先落
+  工作稿）。
 - 已发布且 `page_key=validation-policy` 的页面可在
   `page_meta_json.validation_policy` 激活 `world_validation_policy.v1`。策略只接受
   有界命名 operator；`regex` / `forbid_regex` 禁止分组、或、反向引用与嵌套量词，
@@ -431,7 +469,7 @@ Atlas task 内归属 `world.map_atlas.generate` canonical parent（generate/edit
 |------|------|
 | `core_entities` | 统一核心实体正史库（原 `world_entities`）；可空 `image_version` / `image_updated_at` 只标记私有图片，不保存对象 key |
 | `entity_relations` | 对象间关系边（原 `relationships`） |
-| `events` | 事件扩展表（entity_id PK+FK → core_entities） |
+| `events` | 事件扩展表（entity_id PK+FK → core_entities）；`status` 为 canonical/deprecated，删除只置 deprecated |
 | `characters` | 人物档案（entity_id PK+FK → core_entities） |
 | `character_knowledge` | 人物知识边界 |
 | `world_assertions` | 不可变受限断言 carrier；Phase 0 无准入入口 |
@@ -689,7 +727,7 @@ class ResolveResult:
 - `map_atlas_tasks.py`：`manual_resume` 生成任务和不依赖项目 FK 的全局前缀清理。
 - `map_atlas_facade.py`：项目永久删除唯一需要的全局 cleanup enqueue seam。
 - `map_structure_schemas.py` / `map_structure_geometry.py`：受限图元与关系、确定性布局、三点仿射校准及结构 PNG。
-- `map_structure_service.py`：节点独立创建、版本 CAS、候选与历史、图片层有效性、章首阅读投影。
+- `map_structure_service.py`：节点独立创建、版本 CAS、候选与历史、图片层有效性、章首阅读投影，以及已采用地图连续性事实和节点检查的只读编排。
 - `map_structure_workflow.py` / `map_structure_images.py`：同一 confirmation 内的关系提取和结构引导生图；不重新发现已有节点身份。
 
 生成上传持 project share lock 并复核 task lease；永久删除持 exclusive lock，先取消生成并排入
@@ -705,9 +743,15 @@ snapshot 测试冻结。新增跨模块函数前必须先证明现有 deep seam 
 `entity_facade.py`、`character_facade.py`、`event_facade.py`、`map_atlas_facade.py`
 和 `worldbuilding_facade.py`。
 
+深度导入别名元数据修复与统计归 `services/core/entity_alias_service.py`；地图连续性事实
+和节点检查归 `map_structure_service.py`。子域 facade 只委托或再导出，查询与事务留在服务层。
+
 `contracts.py` 只定义跨模块稳定 dataclass，不重导出 HTTP Pydantic schema。
-HTTP 请求/响应类型属于 `schemas.py`（关系建议、分组视角与成员批量操作已拆至
-`relation_schemas.py`，依赖单向：仅可引用 `schemas.py` 基元）；package root
+HTTP 请求/响应类型属于 `schemas/` 包（AO-6 起按子域拆分，原 `schemas.py`
+路径保留为显式再导出层；关系建议、分组视角与成员批量操作在
+`relation_schemas.py`，依赖单向：仅可引用 `schemas` 包基元）。HTTP 路由按子域
+拆在 `api/` 包（`_shared.py` 持有 router 与共用依赖），`modules.world.api`
+聚合导出不变；package root
 不再兼容重导出 ORM、schema 或
 facade 函数，跨模块调用必须显式使用 `contracts.py` / `facade.py` / 已注册 DI port。
 
@@ -962,10 +1006,15 @@ section，且不会进入可投影正文。页面预览保持零写入并把页�
 | POST | `/api/world/events` | 创建事件 |
 | GET | `/api/world/events/{entity_id}` | 事件详情 |
 | PUT | `/api/world/events/{entity_id}` | 更新事件 |
-| DELETE | `/api/world/events/{entity_id}` | 删除事件 |
+| DELETE | `/api/world/events/{entity_id}` | 删除事件（软删：置 deprecated 后对列表/详情/编辑不可见，重复删除幂等；同一对象再次创建时复活原行） |
 | GET | `/api/world/characters` | 人物列表 |
 | POST | `/api/world/characters` | 创建人物 |
 | GET | `/api/world/characters/{character_id}` | 人物详情 |
+
+事件创建/复活、更新和删除共用所属 CoreEntity 写锁；涉及地点时按 UUID 顺序锁定，
+锁后重新读取事件状态。并发重复创建返回 409，删除后的更新返回 404；未显式改变地点的
+更新遇到地点漂移返回 409，不覆盖并发修改。保留 deprecated 行时拒绝降级软删迁移，
+应用回退须保留 schema 与历史。
 
 ### AI 参考资料确认
 
@@ -1303,4 +1352,3 @@ canonical + created_by=spreadsheet_migration + approved_by=owner、别名 confir
 明确放弃当前复用来源后，下次校验作废登记。
 复用登记在读取时取得行锁，覆盖来源校验、计数及最新来源指针更新；已有登记
 的覆盖更新使用同一锁，避免并发复用丢增或读取旧来源。
-

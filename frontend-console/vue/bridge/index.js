@@ -3,12 +3,16 @@
  *
  * 既有基建以 window 全局存在：
  * - window.api（api.js）、window.appState + window.onStateChange（state.js）
- * - window.router（router.js）、window.toast（ui/toast.js）
+ * - window.router（router.js）、window.commands（commands.js）、window.toast（ui/toast.js）
  * - window.tryMigrateLocalAuthorPreferences（state.js）
  *
- * Vue 组件只允许经本模块取用，禁止引用裸全局；单测通过
- * setBridgeOverrides() 注入替身（生产代码不 import/检测 Mock）。
+ * Vue 组件只允许经本模块取用，禁止引用裸全局，也禁止经 globalThis./window.
+ * 旁路读取（eslint no-restricted-globals / no-restricted-properties 守护）；
+ * 单测通过 setBridgeOverrides() 注入替身（生产代码不 import/检测 Mock）。
  */
+/* eslint-disable no-restricted-properties --
+ * AO-14：本文件是 Vue 侧唯一被授权触碰基建全局（api/appState/router/toast）
+ * 的桥接层，其他 vue/** 文件必须经由本模块导出的 getter 访问。 */
 import { getCurrentScope, onScopeDispose, readonly, ref } from "vue"
 import { captureWorkContext } from "../shared/assistantContext.js"
 
@@ -138,6 +142,11 @@ export function getRouter() {
   return _overrides.router ?? globalThis.router
 }
 
+/** commands.execute/getSuggestions — 外壳命令面板（commands.js）全局。 */
+export function getCommands() {
+  return _overrides.commands ?? globalThis.commands
+}
+
 export function getAppState() {
   return _overrides.state ?? globalThis.appState
 }
@@ -193,10 +202,23 @@ export function getCloseModal() {
   return typeof fn === "function" ? fn : () => {}
 }
 
+/**
+ * esc(value) 的本地兜底 — 与 shared/esc.js 相同的五字符最小转义。
+ * 仅当外壳未注入全局 esc 时使用，保证不依赖 index.html 的脚本加载顺序。
+ */
+function escapeHtmlValue(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;")
+}
+
 /** esc(value) — HTML 转义（仅供 modal 内容等字符串拼装场景；Vue 模板用 {{ }} 自动转义）。 */
 export function getEsc() {
   const fn = _overrides.esc ?? globalThis.esc
-  return typeof fn === "function" ? fn : (value) => String(value ?? "")
+  return typeof fn === "function" ? fn : escapeHtmlValue
 }
 
 /** window.errorLog — 前端错误日志（bible 投影 409 冲突处理读 _lastApiError）。 */

@@ -82,6 +82,8 @@ def test_non_api_backend_code_has_no_fastapi_http_exception_dependency() -> None
         is_http_boundary = (
             path.name == "api.py"
             or path.stem.endswith("_api")
+            # api/ 包内的子域路由模块同样是 HTTP boundary（world api 拆分）。
+            or path.parent.name == "api"
             or relative == Path("core/csrf.py")
         )
         if relative.parts[0] not in roots or is_http_boundary:
@@ -163,8 +165,7 @@ def test_api_routes_do_not_directly_raise_uncaught_value_error() -> None:
             for statement in node.body:
                 visitor.visit(statement)
             violations.extend(
-                f"{path.relative_to(_backend_path())}:{line}"
-                for line in visitor.lines
+                f"{path.relative_to(_backend_path())}:{line}" for line in visitor.lines
             )
 
     assert violations == []

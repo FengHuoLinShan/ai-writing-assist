@@ -9,6 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.container import get as _container_get
 from core.logging_context import exception_summary_for_log, novel_id_for_log
+from core.service_keys import (
+    RAG_REQUEST_ENTITY_ACTIVITY_REANNOTATION,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +25,7 @@ async def request_entity_activity_reannotation(
         logger.debug("skip entity activity reannotation without AsyncSession")
         return
     try:
-        request = _container_get("rag.request_entity_activity_reannotation")
+        request = _container_get(RAG_REQUEST_ENTITY_ACTIVITY_REANNOTATION)
         if isawaitable(request):
             request = await request
     except KeyError:

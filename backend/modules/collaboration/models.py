@@ -120,7 +120,8 @@ class CollaborationRun(Base, UUIDMixin, TimestampMixin, NovelMixin):
         ),
         CheckConstraint(
             "status IN ('pending','running','completed','partial','failed',"
-            "'cancelled','budget_exceeded')"
+            "'cancelled','budget_exceeded')",
+            name="collaboration_runs_status_check",
         ),
     )
     case_id: Mapped[uuid.UUID] = mapped_column(UUIDType)
@@ -205,7 +206,8 @@ class CollaborationWorkItem(Base, UUIDMixin, TimestampMixin, NovelMixin):
         scoped_fk("output_id", "collaboration_artifacts", delete=None),
         CheckConstraint(
             "status IN ('pending','running','succeeded','failed','blocked',"
-            "'cancelled','superseded')"
+            "'cancelled','superseded')",
+            name="collaboration_work_items_status_check",
         ),
     )
     run_id: Mapped[uuid.UUID] = mapped_column(UUIDType)

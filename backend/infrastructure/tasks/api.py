@@ -22,6 +22,9 @@ from sqlalchemy import select
 from core.api_params import NovelIdQuery
 from core.container import get as get_container_service
 from core.dependencies import DbSession
+from core.service_keys import (
+    PROJECT_REQUIRE_ACTIVE,
+)
 from infrastructure.tasks.contracts import TaskAction, TaskOperationProjectionV1
 from infrastructure.tasks.enqueuer import enqueue_task
 from infrastructure.tasks.lifecycle import TaskLifecycleService, lifecycle_contract
@@ -59,7 +62,7 @@ def _public_task_meta(value: Any) -> dict[str, Any]:
 
 
 async def _require_active_project(db: DbSession, novel_id: str) -> None:
-    guard = get_container_service("project.require_active")
+    guard = get_container_service(PROJECT_REQUIRE_ACTIVE)
     await guard(db, novel_id)
 
 

@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from infrastructure.llm.token_estimation import estimate_token_count
+from infrastructure.stable_hash import stable_hash
 from modules.world.contracts import (
     WorldBackgroundBundleContract,
     WorldBackgroundEntryContract,
@@ -90,11 +88,7 @@ class WorldBackgroundAggregation:
                     entity.name,
                     summary,
                     f"{entity.entity_type}:{entity.name}",
-                    float(
-                        entity.importance
-                        if entity.importance is not None
-                        else 0.5
-                    ),
+                    float(entity.importance if entity.importance is not None else 0.5),
                     entity.status,
                     entity.reveal_level,
                     self._keywords(entity.name, entity.content_json),
@@ -110,9 +104,7 @@ class WorldBackgroundAggregation:
                         profile_summary,
                         f"profile:{entity.entity_type}",
                         float(
-                            entity.importance
-                            if entity.importance is not None
-                            else 0.5
+                            entity.importance if entity.importance is not None else 0.5
                         ),
                         entity.status,
                         entity.reveal_level,
@@ -129,9 +121,7 @@ class WorldBackgroundAggregation:
                         event_summary,
                         "event:timeline",
                         float(
-                            entity.importance
-                            if entity.importance is not None
-                            else 0.5
+                            entity.importance if entity.importance is not None else 0.5
                         ),
                         entity.status,
                         entity.reveal_level,
@@ -172,11 +162,7 @@ class WorldBackgroundAggregation:
                     title,
                     summary,
                     f"relation:{relation.relation_type}",
-                    float(
-                        relation.strength
-                        if relation.strength is not None
-                        else 0.5
-                    ),
+                    float(relation.strength if relation.strength is not None else 0.5),
                     relation.status,
                     "author_safe",
                     [relation.relation_type],
@@ -232,11 +218,7 @@ class WorldBackgroundAggregation:
                 and projection.source_hash
                 == WorldBibleLifecycleService.projection_source_hash(page)
             )
-            summary = (
-                projection.content
-                if current_projection
-                else (page.free_text or "")
-            )
+            summary = projection.content if current_projection else (page.free_text or "")
             if not summary:
                 continue
             entries.append(
@@ -276,20 +258,16 @@ class WorldBackgroundAggregation:
     ) -> WorldBackgroundEntryContract:
         full_summary = " ".join(str(summary or "").split())
         clean_summary = full_summary[:1000]
-        source_hash = hashlib.sha256(
-            json.dumps(
-                {
-                    "asset_id": asset_id,
-                    "asset_type": asset_type,
-                    "status": status,
-                    "summary": full_summary,
-                    "title": title,
-                },
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode("utf-8")
-        ).hexdigest()
+        source_hash = stable_hash(
+            {
+                "asset_id": asset_id,
+                "asset_type": asset_type,
+                "status": status,
+                "summary": full_summary,
+                "title": title,
+            },
+            stringify_unknown=False,
+        )
         return WorldBackgroundEntryContract(
             entry_id=f"{asset_type}:{asset_id}",
             novel_id=novel_id,
@@ -303,9 +281,7 @@ class WorldBackgroundAggregation:
             status=status,
             sensitivity=sensitivity,
             keywords=[item for item in keywords if item][:12],
-            source_ids=[
-                {"type": asset_type, "id": asset_id, "source_hash": source_hash}
-            ],
+            source_ids=[{"type": asset_type, "id": asset_id, "source_hash": source_hash}],
             source_hash=source_hash,
             token_count=estimate_token_count(f"{title} {clean_summary}"),
         )
@@ -373,7 +349,7 @@ class WorldBackgroundAggregation:
                 (location.id == Event.location_entity_id)
                 & (location.novel_id == Event.novel_id),
             )
-            .where(Event.novel_id == novel_id)
+            .where(Event.novel_id == novel_id, Event.status == "canonical")
         )
         return {
             row.entity_id: (

@@ -385,8 +385,10 @@ def test_targeted_revision_changes_only_selected_exact_range() -> None:
 class _TaskDb:
     task_checkpoint_enabled = True
 
-    def __init__(self) -> None:
+    def __init__(self, locked_drafts: list[SimpleNamespace] | None = None) -> None:
         self._in_transaction = True
+        self.locked_drafts = list(locked_drafts or [])
+        self.lock_queries = 0
 
     async def commit(self) -> None:
         self._in_transaction = False
@@ -402,6 +404,13 @@ class _TaskDb:
 
     async def flush(self) -> None:
         return None
+
+    async def execute(self, _stmt):
+        """批量 FOR UPDATE 加锁查询的假实现，返回预置草稿行。"""
+        self.lock_queries += 1
+        return SimpleNamespace(
+            scalars=lambda: SimpleNamespace(all=lambda: list(self.locked_drafts))
+        )
 
 
 class _RevisionClient:
@@ -513,15 +522,15 @@ async def test_review_discards_result_when_context_changes_during_llm(
     }
     changed = deepcopy(target)
     changed["review_context"]["context_fingerprint"] = "context-after"
-    repo = SimpleNamespace(get_for_update=mock.AsyncMock())
     client = _RevisionClient()
-    service = WritingSemanticWorkflowService(repo=repo, llm_client=client)
+    service = WritingSemanticWorkflowService(llm_client=client)
     freeze = mock.AsyncMock(side_effect=[([target], []), ([changed], [])])
     monkeypatch.setattr(service, "_freeze_review_set", freeze)
+    db = _TaskDb()
 
     with pytest.raises(ConflictError, match="审查期间正文、AI 参考资料"):
         await service.review_for_task(
-            _TaskDb(),  # type: ignore[arg-type]
+            db,  # type: ignore[arg-type]
             task_id="review-task",
             novel_id="00000000-0000-0000-0000-000000000001",
             draft_ids=[target["draft_id"]],
@@ -530,7 +539,8 @@ async def test_review_discards_result_when_context_changes_during_llm(
         )
 
     assert len(client.requests) == 1
-    repo.get_for_update.assert_not_awaited()
+    # 冲突发生在批量加锁之前，不得发出任何加锁查询。
+    assert db.lock_queries == 0
 
 
 @pytest.mark.anyio
@@ -570,17 +580,19 @@ async def test_manual_review_reports_knowledge_boundary_not_checked(
             "knowledge_boundary_checked": False,
         },
     }
-    draft = SimpleNamespace(content_hash=target["content_hash"], provenance_json={})
-    repo = SimpleNamespace(get_for_update=mock.AsyncMock(return_value=draft))
+    draft = SimpleNamespace(
+        id=uuid.UUID(draft_id),
+        content_hash=target["content_hash"],
+        provenance_json={},
+    )
     service = WritingSemanticWorkflowService(
-        repo=repo,
         llm_client=_RevisionClient(),
     )
     freeze = mock.AsyncMock(side_effect=[([target], []), ([target], [])])
     monkeypatch.setattr(service, "_freeze_review_set", freeze)
 
     result = await service.review_for_task(
-        _TaskDb(),  # type: ignore[arg-type]
+        _TaskDb(locked_drafts=[draft]),  # type: ignore[arg-type]
         task_id="review-task",
         novel_id="00000000-0000-0000-0000-000000000001",
         draft_ids=[draft_id],
@@ -635,8 +647,11 @@ async def test_review_without_structured_coverage_is_incomplete(
             "knowledge_boundary_checked": False,
         },
     }
-    draft = SimpleNamespace(content_hash=target["content_hash"], provenance_json={})
-    repo = SimpleNamespace(get_for_update=mock.AsyncMock(return_value=draft))
+    draft = SimpleNamespace(
+        id=uuid.UUID(draft_id),
+        content_hash=target["content_hash"],
+        provenance_json={},
+    )
     client = _RevisionClient()
 
     async def without_coverage(request, schema, **_kwargs):
@@ -644,7 +659,7 @@ async def test_review_without_structured_coverage_is_incomplete(
         return schema.model_validate({"findings": [], "not_checked": []})
 
     client.generate_structured = without_coverage
-    service = WritingSemanticWorkflowService(repo=repo, llm_client=client)
+    service = WritingSemanticWorkflowService(llm_client=client)
     monkeypatch.setattr(
         service,
         "_freeze_review_set",
@@ -652,7 +667,7 @@ async def test_review_without_structured_coverage_is_incomplete(
     )
 
     result = await service.review_for_task(
-        _TaskDb(),  # type: ignore[arg-type]
+        _TaskDb(locked_drafts=[draft]),  # type: ignore[arg-type]
         task_id="review-task",
         novel_id="00000000-0000-0000-0000-000000000001",
         draft_ids=[draft_id],
@@ -710,6 +725,7 @@ async def test_review_rejects_coverage_from_another_chunk(
     ]
     drafts = {
         item["draft_id"]: SimpleNamespace(
+            id=uuid.UUID(item["draft_id"]),
             content_hash=item["content_hash"],
             provenance_json={},
         )
@@ -740,13 +756,7 @@ async def test_review_rejects_coverage_from_another_chunk(
                 }
             )
 
-    async def get_for_update(_db, draft_uuid):
-        return drafts[str(draft_uuid)]
-
-    service = WritingSemanticWorkflowService(
-        repo=SimpleNamespace(get_for_update=get_for_update),
-        llm_client=CrossChunkClient(),
-    )
+    service = WritingSemanticWorkflowService(llm_client=CrossChunkClient())
     monkeypatch.setattr(
         service,
         "_freeze_review_set",
@@ -759,7 +769,7 @@ async def test_review_rejects_coverage_from_another_chunk(
     )
 
     result = await service.review_for_task(
-        _TaskDb(),  # type: ignore[arg-type]
+        _TaskDb(locked_drafts=list(drafts.values())),  # type: ignore[arg-type]
         task_id="review-task",
         novel_id="00000000-0000-0000-0000-000000000001",
         draft_ids=draft_ids,
@@ -1209,16 +1219,19 @@ async def _run_contract_review(
     from modules.project import facade as project_facade
 
     monkeypatch.setattr(project_facade, "require_active_project", mock.AsyncMock())
-    draft = SimpleNamespace(content_hash=target["content_hash"], provenance_json={})
-    repo = SimpleNamespace(get_for_update=mock.AsyncMock(return_value=draft))
-    service = WritingSemanticWorkflowService(repo=repo, llm_client=client)
+    draft = SimpleNamespace(
+        id=uuid.UUID(target["draft_id"]),
+        content_hash=target["content_hash"],
+        provenance_json={},
+    )
+    service = WritingSemanticWorkflowService(llm_client=client)
     monkeypatch.setattr(
         service,
         "_freeze_review_set",
         mock.AsyncMock(side_effect=[([target], []), ([target], [])]),
     )
     result = await service.review_for_task(
-        _TaskDb(),  # type: ignore[arg-type]
+        _TaskDb(locked_drafts=[draft]),  # type: ignore[arg-type]
         task_id="review-task",
         novel_id="00000000-0000-0000-0000-000000000001",
         draft_ids=[target["draft_id"]],
@@ -1430,3 +1443,78 @@ async def test_prepare_targeted_revision_rejects_unverified_contract_items(
                 finding_ids=["finding_1"],
                 contract_item_ids=[item_id],
             )
+
+
+@pytest.mark.anyio
+async def test_review_locks_all_targets_in_one_query_and_rejects_hash_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """落库前校验：一次批量 FOR UPDATE，逐条哈希校验语义不变。"""
+    from modules.project import facade as project_facade
+
+    monkeypatch.setattr(project_facade, "require_active_project", mock.AsyncMock())
+    draft_ids = [
+        "00000000-0000-0000-0000-000000000002",
+        "00000000-0000-0000-0000-000000000003",
+    ]
+    targets = [
+        {
+            "draft_id": draft_id,
+            "chapter_index": index,
+            "title": f"第{index}章",
+            "content": f"第{index}章冻结正文",
+            "content_hash": str(index) * 64,
+            "status": "draft",
+            "role": "target",
+            "source_task_id": None,
+            "scene_id": None,
+            "scene_execution_bundle": None,
+            "scene_execution_bundle_hash": None,
+            "upstream_manifest": [],
+            "review_context": {
+                "status": "not_available",
+                "review_mode": "prose_only",
+                "context_fingerprint": None,
+                "confirmed_context": None,
+                "generation_profile": None,
+                "viewpoint_character_id": None,
+                "pov_view": None,
+                "deterministic_pov_validation": None,
+                "knowledge_boundary_checked": False,
+            },
+        }
+        for index, draft_id in enumerate(draft_ids, start=1)
+    ]
+    locked_drafts = [
+        SimpleNamespace(
+            id=uuid.UUID(targets[0]["draft_id"]),
+            content_hash=targets[0]["content_hash"],
+            provenance_json={},
+        ),
+        # 第二个目标哈希已漂移：校验仍按目标顺序抛 ConflictError。
+        SimpleNamespace(
+            id=uuid.UUID(targets[1]["draft_id"]),
+            content_hash="f" * 64,
+            provenance_json={},
+        ),
+    ]
+    service = WritingSemanticWorkflowService(llm_client=_RevisionClient())
+    monkeypatch.setattr(
+        service,
+        "_freeze_review_set",
+        mock.AsyncMock(side_effect=[(targets, []), (targets, [])]),
+    )
+    db = _TaskDb(locked_drafts=locked_drafts)
+
+    with pytest.raises(ConflictError, match="正文在审查落库前已变化"):
+        await service.review_for_task(
+            db,  # type: ignore[arg-type]
+            task_id="review-task",
+            novel_id="00000000-0000-0000-0000-000000000001",
+            draft_ids=draft_ids,
+            scope="selection",
+            llm_execution_snapshot={"profile": {"model": "test-model"}},
+        )
+
+    # N+1 消除：无论目标数多少，只发一次批量加锁查询。
+    assert db.lock_queries == 1

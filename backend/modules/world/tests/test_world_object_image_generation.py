@@ -334,7 +334,9 @@ async def test_adopt_candidate_uploads_and_clears_bytes(
     monkeypatch_service = WorldObjectImageGenerationService(
         image_service=WorldObjectImageService(storage)  # type: ignore[arg-type]
     )
-    monkeypatch.setattr(api, "_entity_image_generation_service", monkeypatch_service)
+    monkeypatch.setattr(
+        api.entities, "_entity_image_generation_service", monkeypatch_service
+    )
     candidate = WorldObjectImageCandidate(
         novel_id=uuid.UUID(test_project_id),
         entity_id=uuid.UUID(test_character_id),

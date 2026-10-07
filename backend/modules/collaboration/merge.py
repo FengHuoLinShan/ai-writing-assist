@@ -8,19 +8,24 @@ from sqlalchemy import select
 
 from core.container import get
 from core.errors import ConflictError, ValidationError
+from core.service_keys import (
+    COLLABORATION_RESOURCES,
+)
 from infrastructure.llm.collaboration import content_hash
 from infrastructure.tasks.facade import enqueue_operation_task
 from modules.assistant.contracts import AssistantOperationContext
 from modules.assistant.schemas import WorkContext
 from modules.collaboration.cases import require_case
 from modules.collaboration.contracts import Grant, InputManifest, ResourcePatch
+from modules.collaboration.creative_manifest import (
+    revalidate_creative_manifest,
+)
 from modules.collaboration.models import CreativeMergeReceipt, DomainOutbox
 from modules.collaboration.workspaces import (
     checked_revision,
     require_revision,
     require_workspace,
 )
-from modules.evidence.facade import revalidate_creative_manifest
 from modules.project.facade import require_active_project_exclusive
 
 
@@ -122,7 +127,7 @@ async def merge_workspace(db, novel_id, workspace_id, data):
     await revalidate_creative_manifest(db, novel_id, grant, manifest)
     originals = {source.key: source for source in manifest.resources}
     context = operation_context(case, run_id=check.run_id, operation_id=data.operation_id)
-    ports = get("collaboration.resources")
+    ports = get(COLLABORATION_RESOURCES)
     prepared = []
     for patch in sorted(patches, key=lambda item: item.key):
         prepared.append(

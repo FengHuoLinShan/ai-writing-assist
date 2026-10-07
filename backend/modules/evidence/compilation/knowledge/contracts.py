@@ -8,10 +8,10 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import dataclass, field
 from typing import Any
+
+from infrastructure.stable_hash import stable_hash
 
 KNOWLEDGE_POLICY_VERSION = 1
 """知识治理契约版本；随确认冻结，旧记录按当时版本回放。"""
@@ -27,13 +27,7 @@ class KnowledgeContractVersionError(KnowledgeContractError):
 
 def knowledge_canonical_hash(payload: Any) -> str:
     """对规范化 JSON 载荷取 sha256，作为回执指纹的基础。"""
-    encoded = json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    return stable_hash(payload, stringify_unknown=False)
 
 
 def _require_mapping(value: Any, name: str) -> dict[str, Any]:

@@ -100,6 +100,8 @@ def check_embedding(
             vector = body["data"][0]["embedding"]
             if len(vector) != expected_dim:
                 raise ValueError
+            if not all(math.isfinite(x) for x in vector):
+                raise ValueError
             print(f"Embedding service ready ({expected_dim} dimensions).")
             return 0
         except (

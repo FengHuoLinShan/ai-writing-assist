@@ -1,14 +1,33 @@
 """跨模块 import 守护门（B2）。
 
-生产代码跨业务模块只能经合法形态导入：contracts/facade 或仅静态再出口这些稳定接口的包成员；ORM 等有限
-例外按调用位置显式登记。其余跨模块 import 必须在 EXEMPT_IMPORTS 登记理由，否则失败。
+生产代码跨业务模块只能经合法形态导入：contracts/facade 或仅静态再出口这些
+稳定接口的包成员；ORM 等有限例外按调用位置显式登记。其余跨模块 import 必须
+在 EXEMPT_IMPORTS 登记理由，否则失败。
+
+动态导入 import_module/__import__（按调用名匹配，不论导入来源）与静态导入
+同一口径：首参为 "modules." 开头的字符串常量时按该目标计入方向统计并过形态
+校验；首参为变量/拼接等非常量时无法静态判定目标，直接记违规（fail-closed）。
+
+在形态校验之外，本门禁对模块间依赖**方向**做棘轮统计（AO-1）：有向边、双向对、
+顶层双向对、函数内导入与 world 内部 core↔worldbuilding 流量的基线冻结在
+``_DEPENDENCY_BASELINE``，任一指标超过基线或出现冻结集合外的新边即失败，只降不升。棘轮统计的是事实
+依赖，不论导入形态是否合法、是否豁免。分层目标态见
+docs/architecture/README.md 的「模块依赖方向分层（目标态）」。
+
+第三项检查是 facade 薄层门禁（AO-8）：各业务模块（含子包）的 ``facade.py`` 与
+``*_facade.py`` 只做
+参数适配、稳定返回与 service 委托，禁止出现 SQLAlchemy 直接操作——调用名
+``select``/``text``/``delete``/``update``/``insert`` 以及任何 ``.execute(...)``，
+并禁止直接 session 写入、flush 和事务提交。服务方法与普通集合操作不受影响。
+查库、聚合与告警编排必须下沉所属模块 service 层；facade 里的再导出、类型标注
+与请求模型构造不受影响。
 
 模块清单事实源：docs/architecture/architecture-documents.toml 的 components
 （kind="business"）。豁免清单即本文件的 EXEMPT_IMPORTS：键为
 ``路径:目标模块``（支持 fnmatch 通配），值为必填理由。
 
 用法：
-    python scripts/check_module_imports.py [--json]
+    python scripts/check_module_imports.py [--json] [--directional-json]
 """
 
 from __future__ import annotations
@@ -19,15 +38,83 @@ import fnmatch
 import importlib.util
 import json
 import sys
-from pathlib import Path
-
 import tomllib
+from collections.abc import Iterable
+from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ARCH_DOC = REPO_ROOT / "docs/architecture/architecture-documents.toml"
 
 # 跨模块 import 的合法形态（相对 modules/ 的导入路径片段）。
 _LEGAL_SUFFIXES = ("_contracts", "_facade")
+
+# world 模块内部 core↔worldbuilding 子包边界（AO-1 棘轮统计，子包更深层级计入）。
+_WORLD_CORE_DIR = "modules/world/services/core/"
+_WORLD_WORLDBUILDING_DIR = "modules/world/services/worldbuilding/"
+_WORLD_CORE_PKG = "modules.world.services.core"
+_WORLD_WORLDBUILDING_PKG = "modules.world.services.worldbuilding"
+
+# 依赖方向棘轮基线（AO-1）。数值为 2026-10-06 在提交 e43500d2d 工作树的 AST
+# 实测事实（与本门禁同一遍历口径），冻结现状、只降不升：任一指标超过基线即
+# FAIL，低于基线时提示可下调。解除依赖后应随手调低对应值
+# （function_level_imports 已随 AO-3 插件 SPI 下沉 572→560；AO-4 身份根去业务
+# 聚合把 project→world/story/writing 与 account→project 顶层对清零：
+# top_level_bidirectional_pairs 17→13，function_level_imports 560→559，后者
+# 因 facade SQL 下沉把 project→account 一条函数内导入转正为顶层；AO-8 把
+# assistant→project 的批注提案编排移入 comment_proposals 顶层导入：
+# 559→558；AO-5 第一批按 ADR-0031 逐对解环：非 assistant 七对反方向顶层
+# 导入清零 + world core→worldbuilding 23 条语句经注入/共享根上移归零——
+# directed_edges 90→85、bidirectional_pairs 33→28、
+# top_level_bidirectional_pairs 13→6（仅剩 assistant 六对，第二批处理）、
+# function_level_imports 558→549（消除导入自然下降，无顶层降级）、
+# world_core_to_worldbuilding 23→0、world_worldbuilding_to_core 27→26；
+# AO-5 第二批按 ADR-0031 清零 assistant 六对反方向顶层导入——领域插件文件
+# 只导出纯数据 OPERATIONS_SPEC / 纯 dict 事实，AssistantOperation/
+# ForecastDomainFact 物化收归组合根装配件 app/assistant_operation_registry.py，
+# facade 消费改 DI 键：directed_edges 85→79、bidirectional_pairs 28→22、
+# top_level_bidirectional_pairs 6→0、function_level_imports 549→544
+# （全部来自消除导入，无顶层降级）；AO-5 第三批按 ADR-0031 消灭 13 个剩余
+# 双向对——world/creative.py SPI 类型改容器解析（world_bible_draft 端口改
+# 工厂装配）、world 情境重测 schema 迁 collaboration/world_stress_checks.py
+# （连带消除 collaboration runtime 对该 schema 的反方向懒加载）、
+# account/assistant/world/writing/project/evidence 的 18 处单点 facade 消费
+# 改 DI 键：directed_edges 79→65、bidirectional_pairs 22→9、
+# top_level_bidirectional_pairs 0→0、function_level_imports 544→525
+# （全部来自消除导入，无顶层降级））。
+# 分层目标态见 docs/architecture/README.md「模块依赖方向分层（目标态）」
+# 与 docs/adr/0031-module-dependency-directions.md。
+_DEPENDENCY_BASELINE: dict[str, int] = {
+    "directed_edges": 65,
+    "bidirectional_pairs": 9,
+    "top_level_bidirectional_pairs": 0,
+    "function_level_imports": 525,
+    "world_core_to_worldbuilding": 0,
+    "world_worldbuilding_to_core": 26,
+}
+
+# 冻结实际方向，防止删一条旧边后以相同计数换入新边。解环时同步删除相应目标。
+_DEPENDENCY_EDGES = frozenset(
+    (source, target)
+    for source, targets in {
+        "assistant": "account evidence local_agent project story writing",
+        "collaboration": (
+            "account assistant evidence evolution imports local_agent "
+            "project story writing"
+        ),
+        "evidence": "imports project story world writing",
+        "evolution": "evidence imports project story world writing",
+        "imports": "account assistant evidence project story world writing",
+        "interaction": (
+            "account assistant evidence imports local_agent project story world writing"
+        ),
+        "local_agent": "account project",
+        "project": "account evidence world",
+        "story": "account evidence evolution local_agent project world writing",
+        "world": "account assistant evidence local_agent project story writing",
+        "writing": "account evidence project story",
+    }.items()
+    for target in targets.split()
+)
 
 
 def load_business_modules() -> dict[str, tuple[str, ...]]:
@@ -108,15 +195,53 @@ def _member_target(
     return f"{target}.{member}"
 
 
-def iter_violations(
-    modules: dict[str, tuple[str, ...]], *, exempt: dict[str, str]
-) -> list[dict]:
-    return iter_violations_for_paths(
-        modules,
-        sorted((REPO_ROOT / "backend").glob("modules/**/*.py")),
-        repo_root=REPO_ROOT,
-        exempt=exempt,
-    )
+def _nested_def_node_ids(tree: ast.Module) -> frozenset[int]:
+    """位于 FunctionDef/AsyncFunctionDef/ClassDef 体内的节点 id 集合。
+
+    顶层判断标准：不在任何函数/类定义体内；模块级 if/try 等语句块内仍算顶层。
+    """
+    nested: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            for child in ast.walk(node):
+                if child is not node:
+                    nested.add(id(child))
+    return frozenset(nested)
+
+
+def _import_targets(node: ast.stmt, relative: str, backend_root: Path) -> list[str]:
+    """一条 import 语句解析出的全部目标模块路径（复用形态校验的解析口径）。"""
+    if isinstance(node, ast.ImportFrom):
+        target = _absolute_from(node, relative)
+        return [_member_target(target, alias.name, backend_root) for alias in node.names]
+    if isinstance(node, ast.Import):
+        return [alias.name for alias in node.names]
+    return []
+
+
+# 动态导入门禁：import_module/__import__ 按调用名末段匹配，不论导入来源
+# （from-import 裸名或 importlib 属性访问）；不做 as 别名追踪，与 facade
+# 薄层门禁同口径（fail-closed 语义见 _analyze_paths 的违例分支）。
+_DYNAMIC_IMPORT_FUNC_NAMES = frozenset({"import_module", "__import__"})
+
+
+def _dynamic_import_first_arg(node: ast.AST) -> ast.expr | None:
+    """调用名为 import_module/__import__ 时返回首参表达式，否则 None。"""
+    if not isinstance(node, ast.Call):
+        return None
+    if isinstance(node.func, ast.Name):
+        name = node.func.id
+    elif isinstance(node.func, ast.Attribute):
+        name = node.func.attr
+    else:
+        return None
+    if name not in _DYNAMIC_IMPORT_FUNC_NAMES:
+        return None
+    return node.args[0] if node.args else None
+
+
+def _matches_package(target: str, package: str) -> bool:
+    return target == package or target.startswith(package + ".")
 
 
 def iter_violations_for_paths(
@@ -126,10 +251,53 @@ def iter_violations_for_paths(
     repo_root: Path,
     exempt: dict[str, str],
 ) -> list[dict]:
+    violations, _stats, _edges = _analyze_paths(
+        modules, paths, repo_root=repo_root, exempt=exempt
+    )
+    return violations
+
+
+def iter_directional_stats_for_paths(
+    modules: dict[str, tuple[str, ...]],
+    paths,
+    *,
+    repo_root: Path,
+) -> tuple[dict[str, int], list[dict]]:
+    """对任意文件集合做方向棘轮统计，返回（指标, 有向边明细）。"""
+    _violations, stats, edges = _analyze_paths(
+        modules, paths, repo_root=repo_root, exempt={}
+    )
+    return stats, edges
+
+
+def analyze_repository(
+    *, exempt: dict[str, str]
+) -> tuple[list[dict], dict[str, int], list[dict]]:
+    """一遍遍历真实仓库，返回（形态违规, 方向指标, 有向边明细）。"""
+    return _analyze_paths(
+        load_business_modules(),
+        sorted((REPO_ROOT / "backend").glob("modules/**/*.py")),
+        repo_root=REPO_ROOT,
+        exempt=exempt,
+    )
+
+
+def _analyze_paths(
+    modules: dict[str, tuple[str, ...]],
+    paths,
+    *,
+    repo_root: Path,
+    exempt: dict[str, str],
+) -> tuple[list[dict], dict[str, int], list[dict]]:
     backend_root = (
         repo_root / "backend" if (repo_root / "backend").is_dir() else repo_root
     )
     violations: list[dict] = []
+    # 有向边 (owner, 目标模块) → [顶层导入语句数, 函数内导入语句数]
+    edge_counts: dict[tuple[str, str], list[int]] = {}
+    function_level_imports = 0
+    world_core_to_worldbuilding = 0
+    world_worldbuilding_to_core = 0
     for path in paths:
         path = Path(path)
         if not path.is_absolute():
@@ -138,24 +306,65 @@ def iter_violations_for_paths(
             continue
         relative = path.relative_to(backend_root).as_posix()
         owner = owning_module(relative, modules)
-        if (
-            owner is None
-            or "/tests/" in f"/{relative}"
-            or relative.endswith("_test.py")
-        ):
+        if owner is None or "/tests/" in f"/{relative}" or relative.endswith("_test.py"):
             continue
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"))
+            nested_def_ids = _nested_def_node_ids(tree)
             for node in ast.walk(tree):
-                targets: list[str] = []
-                if isinstance(node, ast.ImportFrom):
-                    target = _absolute_from(node, relative)
-                    targets = [
-                        _member_target(target, alias.name, backend_root)
-                        for alias in node.names
-                    ]
-                elif isinstance(node, ast.Import):
-                    targets = [alias.name for alias in node.names]
+                targets = _import_targets(node, relative, backend_root)
+                # 动态导入与静态导入同一口径：常量目标按该目标计入下方的
+                # 方向棘轮与形态校验；非常量目标无法静态判定，fail-closed。
+                dynamic_arg = _dynamic_import_first_arg(node)
+                if dynamic_arg is not None:
+                    if isinstance(dynamic_arg, ast.Constant) and isinstance(
+                        dynamic_arg.value, str
+                    ):
+                        if dynamic_arg.value.startswith("modules."):
+                            targets = [*targets, dynamic_arg.value]
+                    else:
+                        violations.append(
+                            {
+                                "path": relative,
+                                "line": node.lineno,
+                                "target": "",
+                                "reason": (
+                                    "动态导入 import_module/__import__ 的模块名"
+                                    "必须为字符串常量（变量/拼接无法静态校验"
+                                    "跨模块方向与形态）"
+                                ),
+                            }
+                        )
+                if not targets:
+                    continue
+                # 方向棘轮：统计事实依赖，不论形态是否合法、是否豁免。
+                cross_modules = set()
+                for target in targets:
+                    segments = _import_segments(target)
+                    if (
+                        len(segments) >= 2
+                        and segments[0] == "modules"
+                        and segments[1] != owner
+                    ):
+                        cross_modules.add(segments[1])
+                if cross_modules:
+                    top_level = id(node) not in nested_def_ids
+                    if not top_level:
+                        function_level_imports += len(cross_modules)
+                    for target_module in cross_modules:
+                        counts = edge_counts.setdefault((owner, target_module), [0, 0])
+                        counts[0 if top_level else 1] += 1
+                # world 内部 core↔worldbuilding 语句流量（同一业务模块，不计入跨模块边）。
+                if relative.startswith(_WORLD_CORE_DIR) and any(
+                    _matches_package(target, _WORLD_WORLDBUILDING_PKG)
+                    for target in targets
+                ):
+                    world_core_to_worldbuilding += 1
+                elif relative.startswith(_WORLD_WORLDBUILDING_DIR) and any(
+                    _matches_package(target, _WORLD_CORE_PKG) for target in targets
+                ):
+                    world_worldbuilding_to_core += 1
+                # 形态校验（原逻辑不变）。
                 for target in targets:
                     segments = _import_segments(target)
                     if (
@@ -173,7 +382,10 @@ def iter_violations_for_paths(
                             "path": relative,
                             "line": node.lineno,
                             "target": target,
-                            "reason": f"跨模块导入 {target} 不经 contracts/facade 或已登记 DI/有限例外",
+                            "reason": (
+                                f"跨模块导入 {target} 不经 contracts/facade"
+                                " 或已登记 DI/有限例外"
+                            ),
                         }
                     )
         except (OSError, SyntaxError, ImportError, ValueError) as exc:
@@ -185,7 +397,34 @@ def iter_violations_for_paths(
                     "reason": f"AST/导入解析失败: {exc}",
                 }
             )
-    return violations
+    directed = set(edge_counts)
+    bidirectional_pairs = 0
+    top_level_bidirectional_pairs = 0
+    for source, target_module in directed:
+        reverse = edge_counts.get((target_module, source))
+        if reverse is None or not source < target_module:
+            continue
+        bidirectional_pairs += 1
+        if edge_counts[(source, target_module)][0] > 0 and reverse[0] > 0:
+            top_level_bidirectional_pairs += 1
+    stats = {
+        "directed_edges": len(directed),
+        "bidirectional_pairs": bidirectional_pairs,
+        "top_level_bidirectional_pairs": top_level_bidirectional_pairs,
+        "function_level_imports": function_level_imports,
+        "world_core_to_worldbuilding": world_core_to_worldbuilding,
+        "world_worldbuilding_to_core": world_worldbuilding_to_core,
+    }
+    edges = [
+        {
+            "from": source,
+            "to": target_module,
+            "top_level": counts[0],
+            "function_level": counts[1],
+        }
+        for (source, target_module), counts in sorted(edge_counts.items())
+    ]
+    return violations, stats, edges
 
 
 def _is_exempt(path: str, target: str, exempt: dict[str, str]) -> bool:
@@ -196,9 +435,164 @@ def _is_exempt(path: str, target: str, exempt: dict[str, str]) -> bool:
     return False
 
 
+def check_direction_ratchet(
+    stats: dict[str, int],
+    baseline: dict[str, int] | None = None,
+    *,
+    edges: Iterable[dict] = (),
+) -> list[str]:
+    """拒绝新增依赖方向及超过基线的指标；删边不能换取新方向。"""
+    limits = _DEPENDENCY_BASELINE if baseline is None else baseline
+    failures = []
+    for name, limit in limits.items():
+        current = stats.get(name, 0)
+        if current > limit:
+            failures.append(
+                f"依赖方向棘轮: {name} 当前 {current} 超过基线 {limit}"
+                "（模块间依赖只减不增，须先消除依赖并下调基线再合入）"
+            )
+    directed = {(edge["from"], edge["to"]) for edge in edges}
+    for source, target in sorted(directed - _DEPENDENCY_EDGES):
+        failures.append(f"依赖方向棘轮: 新增依赖边 {source}→{target} 不在冻结集合内")
+    return failures
+
+
+def _direction_report_lines(stats: dict[str, int], baseline: dict[str, int]) -> list[str]:
+    summary = ", ".join(
+        f"{name}={stats.get(name, 0)}/{baseline[name]}" for name in baseline
+    )
+    lines = [f"依赖方向棘轮通过（{summary}）"]
+    for name, limit in baseline.items():
+        current = stats.get(name, 0)
+        if current < limit:
+            lines.append(
+                f"提示: {name} 当前 {current} 低于基线 {limit}，基线可下调至 {current}"
+            )
+    return lines
+
+
+# facade 薄层门禁（AO-8）：facade 只适配与委托，禁止 SQLAlchemy 直接操作。
+# 裸调用名一律拦（不论 import 来源，fail-closed）；.execute( 覆盖 session 与
+# 其他连接对象的直接执行。facade 的再导出、类型标注与请求模型构造不受影响。
+_FACADE_SQL_NAMES = frozenset({"select", "text", "delete", "update", "insert"})
+_FACADE_SESSION_WRITES = frozenset(
+    {"add", "add_all", "flush", "commit", "rollback", "delete", "merge"}
+)
+
+
+def iter_facade_sql_violations_for_paths(
+    modules: dict[str, tuple[str, ...]],
+    paths,
+    *,
+    repo_root: Path,
+) -> list[dict]:
+    """扫描业务模块（含子包）的 facade / *_facade 稳定入口。"""
+    backend_root = (
+        repo_root / "backend" if (repo_root / "backend").is_dir() else repo_root
+    )
+    violations: list[dict] = []
+    for path in paths:
+        path = Path(path)
+        if not path.is_absolute():
+            path = repo_root / path
+        if path.name != "facade.py" and not path.name.endswith("_facade.py"):
+            continue
+        relative = path.relative_to(backend_root).as_posix()
+        if owning_module(relative, modules) is None or "/tests/" in f"/{relative}":
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except (OSError, SyntaxError, ValueError) as exc:
+            violations.append(
+                {
+                    "path": relative,
+                    "line": 0,
+                    "name": "",
+                    "reason": f"facade 薄层门禁: AST 解析失败: {exc}",
+                }
+            )
+            continue
+        sql_names = set(_FACADE_SQL_NAMES)
+        sql_modules = {"sqlalchemy"}
+        session_names = {"db", "session", "db_session"}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                sql_modules.update(
+                    alias.asname or alias.name
+                    for alias in node.names
+                    if alias.name == "sqlalchemy"
+                )
+            elif isinstance(node, ast.ImportFrom) and (node.module or "").startswith(
+                "sqlalchemy"
+            ):
+                sql_names.update(
+                    alias.asname or alias.name
+                    for alias in node.names
+                    if alias.name in _FACADE_SQL_NAMES
+                )
+            elif isinstance(node, ast.arg) and isinstance(
+                node.annotation, (ast.Name, ast.Attribute)
+            ):
+                annotation = (
+                    node.annotation.id
+                    if isinstance(node.annotation, ast.Name)
+                    else node.annotation.attr
+                )
+                if annotation == "AsyncSession":
+                    session_names.add(node.arg)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if isinstance(node.func, ast.Name):
+                name = node.func.id
+                forbidden = name in sql_names
+            elif isinstance(node.func, ast.Attribute):
+                name = node.func.attr
+                receiver = node.func.value
+                forbidden = name == "execute" or (
+                    isinstance(receiver, ast.Name)
+                    and (
+                        receiver.id in sql_modules
+                        and name in _FACADE_SQL_NAMES
+                        or receiver.id in session_names
+                        and name in _FACADE_SESSION_WRITES
+                    )
+                )
+            else:
+                continue
+            if forbidden:
+                violations.append(
+                    {
+                        "path": relative,
+                        "line": node.lineno,
+                        "name": name,
+                        "reason": (
+                            f"facade 薄层门禁: 直接调用 {name}(...)；"
+                            "SQLAlchemy 查询与执行须下沉所属模块 service 层，"
+                            "facade 仅适配与委托"
+                        ),
+                    }
+                )
+    return violations
+
+
+def analyze_facade_sql() -> list[dict]:
+    """对真实仓库全部业务模块的 facade 稳定入口做薄层检查。"""
+    return iter_facade_sql_violations_for_paths(
+        load_business_modules(),
+        sorted((REPO_ROOT / "backend").glob("modules/**/*.py")),
+        repo_root=REPO_ROOT,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--json", action="store_true")
+    parser.add_argument(
+        "--directional-json",
+        action="store_true",
+        help="输出方向棘轮指标、基线与有向边明细 JSON",
+    )
     args = parser.parse_args(argv)
 
     modules = load_business_modules()
@@ -209,14 +603,32 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
-    violations = iter_violations(modules, exempt=EXEMPT_IMPORTS)
+    violations, stats, edges = analyze_repository(exempt=EXEMPT_IMPORTS)
     if args.json:
         print(json.dumps(violations, ensure_ascii=False, indent=2))
+    if args.directional_json:
+        print(
+            json.dumps(
+                {
+                    "metrics": stats,
+                    "baseline": _DEPENDENCY_BASELINE,
+                    "directed_edges": edges,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
     for item in violations:
         print(
             f"FAIL {item['path']}:{item['line']} {item['reason']}",
             file=sys.stderr,
         )
+    direction_failures = check_direction_ratchet(stats, edges=edges)
+    for reason in direction_failures:
+        print(f"FAIL {reason}", file=sys.stderr)
+    facade_failures = analyze_facade_sql()
+    for item in facade_failures:
+        print(f"FAIL {item['path']}:{item['line']} {item['reason']}", file=sys.stderr)
     if violations:
         print(
             f"{len(violations)} violation(s); 登记豁免须在 "
@@ -224,11 +636,29 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
+    if direction_failures:
+        print(
+            f"{len(direction_failures)} direction ratchet overrun(s); "
+            "基线见 scripts/check_module_imports.py 的 _DEPENDENCY_BASELINE，"
+            "只降不升",
+            file=sys.stderr,
+        )
+        return 1
+    if facade_failures:
+        print(
+            f"{len(facade_failures)} facade thin-layer violation(s); "
+            "SQLAlchemy 操作须下沉所属模块 service 层",
+            file=sys.stderr,
+        )
+        return 1
     print(
         f"module import gate passed "
         f"({len(modules)} business module(s), "
-        f"{len(EXEMPT_IMPORTS)} exemption(s))"
+        f"{len(EXEMPT_IMPORTS)} exemption(s), "
+        "facade thin-layer check passed)"
     )
+    for line in _direction_report_lines(stats, _DEPENDENCY_BASELINE):
+        print(line)
     return 0
 
 

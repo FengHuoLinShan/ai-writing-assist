@@ -8,26 +8,14 @@ from unittest import mock
 
 import pytest
 from httpx import AsyncClient
-from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.story.outline_state.foreshadowing_repository import (
     ForeshadowingPlanRepository,
 )
 from modules.story.outline_state.reveal_repository import RevealPlanRepository
-from tests.utils import _make_bundle
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.api]
-
-
-def _mock_client(generate_structured: mock.AsyncMock) -> mock.MagicMock:
-    client = mock.MagicMock(model_name="test-model")
-
-    async def bound_generate(*args, **kwargs):
-        return await generate_structured(client, *args, **kwargs)
-
-    client.generate_structured = mock.AsyncMock(side_effect=bound_generate)
-    return client
 
 
 class _FakeSession:
@@ -259,126 +247,6 @@ async def test_information_plan_filters_and_cross_novel_thread_guard(
         "潮门纹路",
         "旧资产未归类",
     }
-
-
-def _mock_llm_return_value() -> BaseModel:
-    """构造 PlotStructureGenerator 需要的 LLM 输出模型。"""
-
-    class _GT(BaseModel):
-        name: str
-        thread_type: str
-        summary: str | None = None
-        visible_goal: str | None = None
-        hidden_truth: str | None = None
-        start_chapter: int | None = None
-        planned_payoff_chapter: int | None = None
-        current_stage: str | None = None
-        related_character_names: list[str] = []
-        related_entity_names: list[str] = []
-
-    class _GA(BaseModel):
-        title: str
-        arc_index: int | None = None
-        start_chapter: int | None = None
-        end_chapter: int | None = None
-        arc_goal: str | None = None
-        core_conflict: str | None = None
-        main_opposition: str | None = None
-        entry_hook: str | None = None
-        midpoint_turn: str | None = None
-        climax: str | None = None
-        result: str | None = None
-        next_hook: str | None = None
-        related_character_names: list[str] = []
-        related_entity_names: list[str] = []
-        related_thread_names: list[str] = []
-
-    class _FP(BaseModel):
-        name: str = ""
-        summary: str | None = None
-        planned_seed_chapter: int | None = None
-        planned_payoff_chapter: int | None = None
-        status: str = "draft"
-
-    class _RP(BaseModel):
-        target_name: str = ""
-        target_type: str = "world_entity"
-        secret_summary: str | None = None
-        status: str = "draft"
-
-    class _OP(BaseModel):
-        thread_name: str = ""
-        offscreen_description: str | None = None
-        importance: str = "medium"
-
-    class _RK(BaseModel):
-        risk_type: str = "其他"
-        description: str | None = None
-        severity: str = "medium"
-
-    class _QN(BaseModel):
-        question: str = ""
-        context: str | None = None
-        suggested_options: list[str] = []
-
-    class _GS(BaseModel):
-        title: str
-        goal: str | None = None
-        core_conflict: str | None = None
-        emotional_beat: str | None = None
-        must_happen: str | None = None
-        must_not_happen: str | None = None
-        narrative_tag: str | None = None
-        chapter_start: int | None = None
-        chapter_end: int | None = None
-        scene_chunks: list[dict] = []
-
-    class _GO(BaseModel):
-        plot_threads: list[_GT] = []
-        outline_arcs: list[_GA] = []
-        scenes: list[_GS] = []
-        foreshadowing_plans: list[_FP] = []
-        reveal_plans: list[_RP] = []
-        offscreen_progress: list[_OP] = []
-        risks: list[_RK] = []
-        questions_for_user: list[_QN] = []
-
-    return _GO(
-        plot_threads=[
-            _GT(
-                name="主线：寻剑",
-                thread_type="main",
-                summary="主角寻找霜华剑",
-                start_chapter=1,
-                planned_payoff_chapter=30,
-                current_stage="初期",
-            ),
-            _GT(
-                name="暗线：魔神复苏",
-                thread_type="hidden",
-                summary="霜华剑封印松动",
-                start_chapter=5,
-                planned_payoff_chapter=40,
-            ),
-        ],
-        outline_arcs=[
-            _GA(
-                title="第一卷：启程",
-                arc_index=1,
-                start_chapter=1,
-                end_chapter=10,
-                arc_goal="建立世界观",
-                core_conflict="主角与家族的冲突",
-            ),
-            _GA(
-                title="第二卷：寻剑",
-                arc_index=2,
-                start_chapter=6,
-                end_chapter=10,
-                arc_goal="寻找霜华剑",
-            ),
-        ],
-    )
 
 
 class TestApiForeshadowingPlans:
@@ -813,305 +681,108 @@ class TestApiRevealPlans:
         assert resp.status_code == 204
 
 
-@pytest.mark.skip(reason="legacy monolithic structure generation retired by P20 v2")
-class TestPlotStructureGenerateDuplicateRange:
-    """AI 生成重复区间告警测试"""
+async def test_get_reveal_plan(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    test_project_id: str,
+    test_entity_id: str,
+) -> None:
+    repo = RevealPlanRepository()
+    plan = await repo.create(
+        db_session,
+        uuid.UUID(hex=test_project_id),
+        {
+            "target_type": "world_entity",
+            "target_id": uuid.UUID(hex=test_entity_id),
+            "secret_summary": "古剑封印着魔神",
+            "status": "draft",
+        },
+    )
+    await db_session.flush()
+    plan_id = str(plan.id)
 
-    async def test_first_generate_reports_zero_existing_counts(
-        self,
-        db_session: AsyncSession,
-        test_project_id: str,
-    ) -> None:
-        bundle = _make_bundle(test_project_id)
-        from modules.story.outline_state.generator import PlotStructureGenerator
+    resp = await async_client.get(
+        f"/api/outline/reveals/{plan_id}",
+        params={"novel_id": test_project_id},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["id"] == plan_id
+    assert data["target_type"] == "world_entity"
+    assert data["target_id"] == test_entity_id
+    assert data["novel_id"] == test_project_id
 
-        with (
-            mock.patch(
-                "modules.evidence.facade.compile_structure_context",
-                return_value=bundle,
-                autospec=True,
-            ),
-            mock.patch(
-                "infrastructure.llm.client.LLMClient.generate_structured",
-                autospec=True,
-            ) as mock_llm,
-        ):
-            mock_llm.return_value = _mock_llm_return_value()
-            data = await PlotStructureGenerator(
-                llm_client=_mock_client(mock_llm)
-            ).generate(
-                db_session,
-                novel_id=test_project_id,
-                start_chapter=1,
-                end_chapter=10,
-                persist=True,
-            )
+async def test_get_reveal_plan_wrong_novel(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    test_project_id: str,
+    other_novel_id: str,
+    test_entity_id: str,
+) -> None:
+    repo = RevealPlanRepository()
+    plan = await repo.create(
+        db_session,
+        uuid.UUID(hex=test_project_id),
+        {
+            "target_type": "world_entity",
+            "target_id": uuid.UUID(hex=test_entity_id),
+            "secret_summary": "古剑封印着魔神",
+            "status": "draft",
+        },
+    )
+    await db_session.flush()
 
-        assert data["total_threads"] == 2
-        assert data["total_arcs"] == 2
-        assert data["existing_threads_count"] == 0
-        assert data["existing_arcs_count"] == 0
+    resp = await async_client.get(
+        f"/api/outline/reveals/{plan.id}",
+        params={"novel_id": other_novel_id},
+    )
+    assert resp.status_code == 404
 
-    async def test_deep_import_generate_creates_context_snapshot(
-        self,
-        db_session: AsyncSession,
-        test_project_id: str,
-    ) -> None:
-        """深度导入结构分析应为真实 LLM 调用创建 context snapshot。"""
-        bundle = _make_bundle(test_project_id)
-        bundle.warnings = ["RAG 检索降级"]
-        from sqlalchemy import select
+async def test_delete_reveal_wrong_novel(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    test_project_id: str,
+    other_novel_id: str,
+    test_entity_id: str,
+) -> None:
+    repo = RevealPlanRepository()
+    plan = await repo.create(
+        db_session,
+        uuid.UUID(hex=test_project_id),
+        {
+            "target_type": "world_entity",
+            "target_id": uuid.UUID(hex=test_entity_id),
+            "secret_summary": "待删除秘密",
+            "status": "draft",
+        },
+    )
+    await db_session.flush()
+    plan_id = str(plan.id)
 
-        from modules.evidence.compilation.models import ContextSnapshot
-        from modules.story.outline_state.generator import PlotStructureGenerator
-        from shared.utils import parse_uuid
+    delete_resp = await async_client.delete(
+        f"/api/outline/reveals/{plan_id}",
+        params={"novel_id": other_novel_id},
+    )
+    assert delete_resp.status_code == 404
 
-        with (
-            mock.patch(
-                "modules.evidence.facade.compile_structure_context",
-                return_value=bundle,
-                autospec=True,
-            ),
-            mock.patch(
-                "infrastructure.llm.client.LLMClient.generate_structured",
-                autospec=True,
-            ) as mock_llm,
-        ):
-            mock_llm.return_value = _mock_llm_return_value()
-            data = await PlotStructureGenerator(
-                llm_client=_mock_client(mock_llm)
-            ).generate(
-                db_session,
-                novel_id=test_project_id,
-                start_chapter=1,
-                end_chapter=10,
-                context_mode="working",
-                include_pending_objects=True,
-                workflow_id="wf-structure",
-                audit_context_snapshot=True,
-                persist=True,
-            )
+    get_resp = await async_client.get(
+        f"/api/outline/reveals/{plan_id}",
+        params={"novel_id": test_project_id},
+    )
+    assert get_resp.status_code == 200
 
-        stmt = select(ContextSnapshot).where(
-            ContextSnapshot.novel_id == parse_uuid(test_project_id, "novel_id"),
-            ContextSnapshot.workflow_id == "wf-structure",
-        )
-        snapshot = (await db_session.execute(stmt)).scalar_one()
-        assert snapshot.phase == "structure_analysis"
-        assert snapshot.operation == "plot_structure_generation"
-        assert snapshot.context_mode == "working"
-        assert snapshot.include_pending_objects is True
-        assert snapshot.status == "succeeded"
-        assert snapshot.context_summary["chapter_range"] == {"start": 1, "end": 10}
-        assert snapshot.context_summary["warnings_count"] == 1
-        assert snapshot.section_metadata["warnings"] == ["RAG 检索降级"]
-        assert snapshot.result_refs
-        assert any(ref["type"] == "plot_thread" for ref in snapshot.result_refs)
-        assert data["audit_summary"]["structure_analysis"]["snapshot_count"] == 1
+    ok_delete = await async_client.delete(
+        f"/api/outline/reveals/{plan_id}",
+        params={"novel_id": test_project_id},
+    )
+    assert ok_delete.status_code == 204
 
-    async def test_deep_import_generate_marks_snapshot_failed_on_persist_error(
-        self,
-        db_session: AsyncSession,
-        test_project_id: str,
-    ) -> None:
-        """结构分析解析成功但持久化失败时，snapshot 应标记 failed。"""
-        bundle = _make_bundle(test_project_id)
-        from sqlalchemy import select
-
-        from modules.evidence.compilation.models import ContextSnapshot
-        from modules.story.outline_state.generator import PlotStructureGenerator
-        from shared.utils import parse_uuid
-
-        with (
-            mock.patch(
-                "modules.evidence.facade.compile_structure_context",
-                return_value=bundle,
-                autospec=True,
-            ),
-            mock.patch(
-                "infrastructure.llm.client.LLMClient.generate_structured",
-                autospec=True,
-            ) as mock_llm,
-            mock.patch(
-                "modules.story.outline_state.generation.persister.PlotStructurePersister.persist",
-                side_effect=RuntimeError("persist failed"),
-                autospec=True,
-            ),
-        ):
-            mock_llm.return_value = _mock_llm_return_value()
-            with pytest.raises(RuntimeError, match="persist failed"):
-                await PlotStructureGenerator(llm_client=_mock_client(mock_llm)).generate(
-                    db_session,
-                    novel_id=test_project_id,
-                    start_chapter=1,
-                    end_chapter=10,
-                    context_mode="working",
-                    include_pending_objects=True,
-                    workflow_id="wf-structure-persist-failed",
-                    audit_context_snapshot=True,
-                    persist=True,
-                )
-
-        await db_session.rollback()
-
-        stmt = select(ContextSnapshot).where(
-            ContextSnapshot.novel_id == parse_uuid(test_project_id, "novel_id"),
-            ContextSnapshot.workflow_id == "wf-structure-persist-failed",
-        )
-        snapshot = (await db_session.execute(stmt)).scalar_one()
-        assert snapshot.phase == "structure_analysis"
-        assert snapshot.status == "failed"
-        assert snapshot.error_kind == "RuntimeError"
-        assert "persist failed" in snapshot.error_message
-
-    async def test_second_generate_reports_existing_counts_and_warning(
-        self,
-        db_session: AsyncSession,
-        test_project_id: str,
-    ) -> None:
-        bundle = _make_bundle(test_project_id)
-        from modules.story.outline_state.generator import PlotStructureGenerator
-
-        with (
-            mock.patch(
-                "modules.evidence.facade.compile_structure_context",
-                return_value=bundle,
-                autospec=True,
-            ),
-            mock.patch(
-                "infrastructure.llm.client.LLMClient.generate_structured",
-                autospec=True,
-            ) as mock_llm,
-        ):
-            mock_llm.return_value = _mock_llm_return_value()
-            generator = PlotStructureGenerator(llm_client=_mock_client(mock_llm))
-            first_data = await generator.generate(
-                db_session,
-                novel_id=test_project_id,
-                start_chapter=1,
-                end_chapter=10,
-                persist=True,
-            )
-            first_threads = first_data["total_threads"]
-            first_arcs = first_data["total_arcs"]
-
-            second_data = await generator.generate(
-                db_session,
-                novel_id=test_project_id,
-                start_chapter=1,
-                end_chapter=10,
-                persist=True,
-            )
-
-        assert second_data["existing_threads_count"] == first_threads
-        assert second_data["existing_arcs_count"] == first_arcs
-        assert any("已有" in w for w in second_data.get("warnings", []))
-
-    async def test_get_reveal_plan(
-        self,
-        async_client: AsyncClient,
-        db_session: AsyncSession,
-        test_project_id: str,
-        test_entity_id: str,
-    ) -> None:
-        repo = RevealPlanRepository()
-        plan = await repo.create(
-            db_session,
-            uuid.UUID(hex=test_project_id),
-            {
-                "target_type": "world_entity",
-                "target_id": uuid.UUID(hex=test_entity_id),
-                "secret_summary": "古剑封印着魔神",
-                "status": "draft",
-            },
-        )
-        await db_session.flush()
-        plan_id = str(plan.id)
-
-        resp = await async_client.get(
-            f"/api/outline/reveals/{plan_id}",
-            params={"novel_id": test_project_id},
-        )
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["id"] == plan_id
-        assert data["target_type"] == "world_entity"
-        assert data["target_id"] == test_entity_id
-        assert data["novel_id"] == test_project_id
-
-    async def test_get_reveal_plan_wrong_novel(
-        self,
-        async_client: AsyncClient,
-        db_session: AsyncSession,
-        test_project_id: str,
-        other_novel_id: str,
-        test_entity_id: str,
-    ) -> None:
-        repo = RevealPlanRepository()
-        plan = await repo.create(
-            db_session,
-            uuid.UUID(hex=test_project_id),
-            {
-                "target_type": "world_entity",
-                "target_id": uuid.UUID(hex=test_entity_id),
-                "secret_summary": "古剑封印着魔神",
-                "status": "draft",
-            },
-        )
-        await db_session.flush()
-
-        resp = await async_client.get(
-            f"/api/outline/reveals/{plan.id}",
-            params={"novel_id": other_novel_id},
-        )
-        assert resp.status_code == 404
-
-    async def test_delete_reveal_wrong_novel(
-        self,
-        async_client: AsyncClient,
-        db_session: AsyncSession,
-        test_project_id: str,
-        other_novel_id: str,
-        test_entity_id: str,
-    ) -> None:
-        repo = RevealPlanRepository()
-        plan = await repo.create(
-            db_session,
-            uuid.UUID(hex=test_project_id),
-            {
-                "target_type": "world_entity",
-                "target_id": uuid.UUID(hex=test_entity_id),
-                "secret_summary": "待删除秘密",
-                "status": "draft",
-            },
-        )
-        await db_session.flush()
-        plan_id = str(plan.id)
-
-        delete_resp = await async_client.delete(
-            f"/api/outline/reveals/{plan_id}",
-            params={"novel_id": other_novel_id},
-        )
-        assert delete_resp.status_code == 404
-
-        get_resp = await async_client.get(
-            f"/api/outline/reveals/{plan_id}",
-            params={"novel_id": test_project_id},
-        )
-        assert get_resp.status_code == 200
-
-        ok_delete = await async_client.delete(
-            f"/api/outline/reveals/{plan_id}",
-            params={"novel_id": test_project_id},
-        )
-        assert ok_delete.status_code == 204
-
-        after_get = await async_client.get(
-            f"/api/outline/reveals/{plan_id}",
-            params={"novel_id": test_project_id},
-        )
-        assert after_get.status_code == 200
-        assert after_get.json()["status"] == "deprecated"
+    after_get = await async_client.get(
+        f"/api/outline/reveals/{plan_id}",
+        params={"novel_id": test_project_id},
+    )
+    assert after_get.status_code == 200
+    assert after_get.json()["status"] == "deprecated"
 
 
 async def test_plot_structure_persister_batches_foreshadowing_and_reveals() -> None:
@@ -1174,6 +845,7 @@ async def test_plot_structure_persister_batches_foreshadowing_and_reveals() -> N
         entity_name_to_id={"霜华剑": str(target_id)},
         character_name_to_id={},
         provenance_meta={"workflow_id": "wf-1"},
+        failed_creates={},
     )
 
     assert [item["name"] for item in created_foreshadowing] == ["古剑封印", "暗线伏笔"]
@@ -1227,6 +899,7 @@ async def test_plot_structure_persister_keeps_unresolved_reveal_as_review() -> N
         entity_name_to_id={},
         character_name_to_id={},
         provenance_meta={"source": "deep_import", "workflow_id": "wf-1"},
+        failed_creates={},
     )
 
     assert created_foreshadowing == []
@@ -1291,6 +964,7 @@ async def test_plot_structure_persister_batches_threads_and_arcs() -> None:
         character_name_to_id={"主角": str(character_id)},
         entity_name_to_id={"秘宝": str(entity_id)},
         provenance_meta={"workflow_id": "wf-1"},
+        failed_creates={},
     )
 
     created_arcs = await persister._persist_arcs(
@@ -1313,6 +987,7 @@ async def test_plot_structure_persister_batches_threads_and_arcs() -> None:
         character_name_to_id={"主角": str(character_id)},
         entity_name_to_id={"秘宝": str(entity_id)},
         provenance_meta={"workflow_id": "wf-1"},
+        failed_creates={},
     )
 
     assert [item["name"] for item in created_threads] == ["主线", "暗线"]
@@ -1365,6 +1040,7 @@ async def test_plot_structure_persister_falls_back_for_thread_arc_batches() -> N
         foreshadowing_service=SimpleNamespace(),
         reveal_service=SimpleNamespace(),
     )
+    failed_creates: dict[str, int] = {}
 
     created_threads = await persister._persist_threads(
         mock.AsyncMock(spec=AsyncSession),
@@ -1377,6 +1053,7 @@ async def test_plot_structure_persister_falls_back_for_thread_arc_batches() -> N
         character_name_to_id={},
         entity_name_to_id={},
         provenance_meta={},
+        failed_creates=failed_creates,
     )
     created_arcs = await persister._persist_arcs(
         mock.AsyncMock(spec=AsyncSession),
@@ -1391,6 +1068,7 @@ async def test_plot_structure_persister_falls_back_for_thread_arc_batches() -> N
         character_name_to_id={},
         entity_name_to_id={},
         provenance_meta={},
+        failed_creates=failed_creates,
     )
 
     assert created_threads[0]["id"] == str(created_thread.id)
@@ -1401,6 +1079,7 @@ async def test_plot_structure_persister_falls_back_for_thread_arc_batches() -> N
     assert created_arcs[0]["title"] == "卷一"
     assert created_arcs[0]["arc_index"] == 1
     assert created_arcs[0]["needs_review"] is False
+    assert failed_creates == {"plot_thread": 1, "outline_arc": 1}
     thread_service.create_batch.assert_awaited_once()
     arc_service.create_batch.assert_awaited_once()
     assert thread_service.create.await_count == 2
@@ -1448,6 +1127,7 @@ async def test_plot_structure_persister_batches_scenes() -> None:
                 scene_chunks=[{"chapter_index": 2, "start_pos": 0, "end_pos": 10}],
             ),
         ],
+        failed_creates={},
     )
 
     assert [item["title"] for item in created] == ["伏击", "追索"]
@@ -1492,6 +1172,7 @@ async def test_plot_structure_persister_falls_back_when_scene_batch_fails() -> N
         foreshadowing_service=SimpleNamespace(),
         reveal_service=SimpleNamespace(),
     )
+    failed_creates: dict[str, int] = {}
 
     created = await persister._persist_scenes(
         mock.AsyncMock(spec=AsyncSession),
@@ -1502,6 +1183,7 @@ async def test_plot_structure_persister_falls_back_when_scene_batch_fails() -> N
             GeneratedScene(title="伏击", chapter_start=1, chapter_end=1),
             GeneratedScene(title="失败 Scene", chapter_start=2, chapter_end=2),
         ],
+        failed_creates=failed_creates,
     )
 
     assert created == [
@@ -1511,10 +1193,124 @@ async def test_plot_structure_persister_falls_back_when_scene_batch_fails() -> N
             "scene_index": 0,
         }
     ]
+    assert failed_creates == {"scene": 1}
     scene_service.get_ordered.assert_not_awaited()
     scene_service.get_next_scene_index.assert_awaited_once()
     scene_service.batch_create_models_from_dicts.assert_awaited_once()
     assert scene_service.create.await_count == 2
+
+
+async def test_persister_non_strict_thread_failure_marks_partial_degraded() -> None:
+    """非 strict 模式批量+逐条均失败时，result 必须带 degraded 标记与失败计数。"""
+    from modules.story.outline_state.generation.models import GeneratedThread
+    from modules.story.outline_state.generation.parser import ParsedPlotStructure
+    from modules.story.outline_state.generation.persister import PlotStructurePersister
+
+    thread_service = SimpleNamespace(
+        count_by_novel_and_range=mock.AsyncMock(return_value=0),
+        create_batch=mock.AsyncMock(side_effect=RuntimeError("thread batch failed")),
+        create=mock.AsyncMock(side_effect=RuntimeError("single thread failed")),
+    )
+    persister = PlotStructurePersister(
+        thread_service=thread_service,
+        arc_service=SimpleNamespace(
+            count_by_novel_and_range=mock.AsyncMock(return_value=0),
+        ),
+        scene_service=SimpleNamespace(
+            get_next_scene_index=mock.AsyncMock(return_value=1),
+        ),
+        foreshadowing_service=SimpleNamespace(),
+        reveal_service=SimpleNamespace(),
+    )
+    parsed = ParsedPlotStructure(
+        threads=[GeneratedThread(name="主线", thread_type="main")],
+        arcs=[],
+        scenes=[],
+        foreshadowing_plans=[],
+        reveal_plans=[],
+        offscreen_progress=[],
+        risks=[],
+        questions_for_user=[],
+    )
+
+    result = await persister.persist(
+        mock.AsyncMock(spec=AsyncSession),
+        uuid.uuid4(),
+        1,
+        5,
+        parsed,
+        entity_name_to_id={},
+        character_name_to_id={},
+    )
+
+    assert result.partial_degraded is True
+    assert result.failed_creates == {"plot_thread": 1}
+    degraded_warnings = [
+        warning for warning in result.warnings if "已降级" in warning
+    ]
+    assert len(degraded_warnings) == 1
+    assert "剧情线 1 条" in degraded_warnings[0]
+    data = result.to_dict()
+    assert data["partial_degraded"] is True
+    assert data["failed_creates"] == {"plot_thread": 1}
+
+
+async def test_persister_non_strict_foreshadowing_batch_failure_is_counted() -> None:
+    """伏笔批量落库失败无逐条兜底，全部计入 failed_creates 并标记 degraded。"""
+    from modules.story.outline_state.generation.models import ForeshadowingPlan
+    from modules.story.outline_state.generation.parser import ParsedPlotStructure
+    from modules.story.outline_state.generation.persister import PlotStructurePersister
+
+    foreshadowing_service = SimpleNamespace(
+        create_batch=mock.AsyncMock(
+            side_effect=RuntimeError("foreshadowing batch failed"),
+        ),
+    )
+    persister = PlotStructurePersister(
+        thread_service=SimpleNamespace(
+            count_by_novel_and_range=mock.AsyncMock(return_value=0),
+        ),
+        arc_service=SimpleNamespace(
+            count_by_novel_and_range=mock.AsyncMock(return_value=0),
+        ),
+        scene_service=SimpleNamespace(
+            get_next_scene_index=mock.AsyncMock(return_value=1),
+        ),
+        foreshadowing_service=foreshadowing_service,
+        reveal_service=SimpleNamespace(),
+    )
+    parsed = ParsedPlotStructure(
+        threads=[],
+        arcs=[],
+        scenes=[],
+        foreshadowing_plans=[
+            ForeshadowingPlan(name="古剑封印", summary="秘密线索"),
+            ForeshadowingPlan(name="暗线伏笔", summary="第二线索"),
+        ],
+        reveal_plans=[],
+        offscreen_progress=[],
+        risks=[],
+        questions_for_user=[],
+    )
+
+    result = await persister.persist(
+        mock.AsyncMock(spec=AsyncSession),
+        uuid.uuid4(),
+        1,
+        5,
+        parsed,
+        entity_name_to_id={},
+        character_name_to_id={},
+    )
+
+    assert result.partial_degraded is True
+    assert result.failed_creates == {"foreshadowing_plan": 2}
+    degraded_warnings = [
+        warning for warning in result.warnings if "已降级" in warning
+    ]
+    assert len(degraded_warnings) == 1
+    assert "伏笔计划 2 条" in degraded_warnings[0]
+    assert result.extra_sections["foreshadowing_plans"] == []
 
 
 async def test_foreshadowing_service_create_batch_delegates_to_repository_batch() -> None:

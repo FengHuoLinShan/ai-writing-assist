@@ -14,6 +14,8 @@ from run_worker import (
     _existing_reload_dirs,
     _guard_active_task_project_finalize,
     _require_active_task_project,
+    _require_schema_current,
+    _run_forever,
     _run_sync,
     _run_task_worker,
     _validate_worker_config,
@@ -135,6 +137,67 @@ def test_reload_worker_waits_for_schema_before_starting() -> None:
         _run_sync()
 
     assert calls == ["schema_ready", "worker_started"]
+
+
+def test_production_worker_fails_closed_when_schema_is_stale(capsys) -> None:
+    """常驻模式不等待：schema 落后或无法确认即以非零码退出。"""
+    with (
+        patch("run_worker.setup_logging", autospec=True),
+        patch(
+            "run_worker.schema_is_current",
+            autospec=True,
+            return_value=False,
+        ),
+        patch("run_worker.asyncio.run", autospec=True) as asyncio_run,
+        pytest.raises(SystemExit) as exc_info,
+    ):
+        _run_forever()
+
+    assert exc_info.value.code == 2
+    asyncio_run.assert_not_called()
+    captured = capsys.readouterr()
+    assert "not at the current Alembic head" in captured.err
+    assert "alembic upgrade head" in captured.err
+
+
+def test_require_schema_current_passes_without_waiting_when_schema_matches() -> None:
+    with patch(
+        "run_worker.schema_is_current",
+        autospec=True,
+        return_value=True,
+    ) as schema_is_current:
+        _require_schema_current()
+
+    schema_is_current.assert_called_once_with()
+
+
+def test_production_worker_starts_when_schema_is_current() -> None:
+    calls: list[str] = []
+
+    def schema_current() -> bool:
+        calls.append("schema_current")
+        return True
+
+    def worker_started(worker_coro: object) -> None:
+        calls.append("worker_started")
+        worker_coro.close()
+
+    with (
+        patch("run_worker.setup_logging", autospec=True),
+        patch(
+            "run_worker.schema_is_current",
+            autospec=True,
+            side_effect=schema_current,
+        ),
+        patch(
+            "run_worker.asyncio.run",
+            autospec=True,
+            side_effect=worker_started,
+        ),
+    ):
+        _run_forever()
+
+    assert calls == ["schema_current", "worker_started"]
 
 
 def test_reload_worker_watches_migrations() -> None:

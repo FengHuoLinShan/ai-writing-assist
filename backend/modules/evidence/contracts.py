@@ -15,4 +15,10 @@ from modules.evidence.compilation.knowledge.llm_schemas import (
     AuditVerdictOutput as AuditVerdictOutput,
 )
 from modules.evidence.indexing.contracts import *  # noqa: F403
+from modules.evidence.source_ref_contracts import (  # noqa: F401
+    ManuscriptScanCursor as ManuscriptScanCursor,
+)
+from modules.evidence.source_ref_contracts import (  # noqa: F401
+    SourceRangeRefContract as SourceRangeRefContract,
+)
 from modules.evidence.team_projection import TeamProjection as TeamProjection

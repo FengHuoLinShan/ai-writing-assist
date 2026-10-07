@@ -15,7 +15,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import Settings, get_settings
+from core.container import get
 from core.errors import ConflictError, NotFoundError, ValidationError
+from core.service_keys import (
+    ACCOUNT_PROJECT_IDS_FOR_OWNER,
+    ACCOUNT_PROJECT_PURGE_FOR_OWNER,
+)
 from modules.account.constants import (
     ANONYMOUS_RP_IDENTITY_TYPE,
     ANONYMOUS_RP_SESSION_SECONDS,
@@ -97,6 +102,29 @@ def _me(account: Account, identity_type: str) -> AccountMeResponse:
 
 
 class AccountService:
+    async def require_active(
+        self,
+        db: AsyncSession,
+        account_id: uuid.UUID | None,
+        *,
+        allow_local_bootstrap: bool = True,
+    ) -> None:
+        """Require one active account; missing or recycled accounts read as 404."""
+        settings = get_settings()
+        if (
+            allow_local_bootstrap
+            and account_id == BOOTSTRAP_ACCOUNT_ID
+            and settings.auth_mode in {"local", "closed_test"}
+        ):
+            return
+        account = (
+            await db.execute(
+                select(Account).where(Account.id == account_id).with_for_update(read=True)
+            )
+        ).scalar_one_or_none()
+        if account is None or account.status != "active":
+            raise NotFoundError("Account not found")
+
     async def create_anonymous_rp_session(
         self,
         db: AsyncSession,
@@ -876,11 +904,11 @@ class AccountService:
             )
         )
         await db.execute(delete(WebSession).where(WebSession.absolute_expires_at < now))
-        from modules.project.facade import purge_projects_for_owner
+        purge_projects = get(ACCOUNT_PROJECT_PURGE_FOR_OWNER)
 
         for account in accounts:
             await self._cancel_account_tasks(db, account.id, "account_purge_due")
-            await purge_projects_for_owner(db, account.id)
+            await purge_projects(db, account.id)
             await db.execute(delete(Account).where(Account.id == account.id))
         await db.flush()
         return ids
@@ -917,9 +945,8 @@ class AccountService:
         reason: str,
     ) -> None:
         from infrastructure.tasks.facade import cancel_unfinished_tasks_for_novel
-        from modules.project.facade import list_project_ids_for_owner
 
-        for novel_id in await list_project_ids_for_owner(db, account_id):
+        for novel_id in await get(ACCOUNT_PROJECT_IDS_FOR_OWNER)(db, account_id):
             await cancel_unfinished_tasks_for_novel(
                 db,
                 novel_id=str(novel_id),

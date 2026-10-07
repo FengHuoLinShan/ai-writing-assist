@@ -502,17 +502,20 @@ async def test_deleting_examples_keeps_confirmation_snapshot_and_invalidates_reu
         confirm_context,
         get_context_confirmation,
     )
+    from modules.evidence.contracts import ContextConfirmationRequest
 
     await _saved_state(db_session, test_project_id, [_example()])
     await set_author_examples_for_writing(db_session, test_project_id, enabled=True)
 
     confirmation = await confirm_context(
         db_session,
-        novel_id=test_project_id,
-        action="writing.generate",
-        task="写第 1 章",
-        scope="chapter",
-        chapter_index=1,
+        ContextConfirmationRequest(
+            novel_id=test_project_id,
+            action="writing.generate",
+            task="写第 1 章",
+            scope="chapter",
+            chapter_index=1,
+        ),
     )
     fingerprint_before = dict(confirmation.compile_options).get(
         "compiled_context_fingerprint"

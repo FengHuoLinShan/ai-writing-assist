@@ -28,8 +28,14 @@ class ForecastCandidate(Base, UUIDMixin, TimestampMixin, NovelMixin):
             ["assistant_runs.novel_id", "assistant_runs.id"],
             ondelete="CASCADE",
         ),
-        CheckConstraint("ordinal >= 0 AND ordinal < 64"),
-        CheckConstraint("validation_state IN ('valid','stale','revoked','expired')"),
+        CheckConstraint(
+            "ordinal >= 0 AND ordinal < 64",
+            name="assistant_forecast_candidates_ordinal_check",
+        ),
+        CheckConstraint(
+            "validation_state IN ('valid','stale','revoked','expired')",
+            name="assistant_forecast_candidates_validation_state_check",
+        ),
         Index(
             "ix_forecast_issue_latest",
             "novel_id",

@@ -11,6 +11,8 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 
 from core.config import get_settings
+from modules.account.contracts import AccountPrincipal
+from modules.account.facade import current_account_principal
 
 router = APIRouter(prefix="/api/debug", tags=["debug"])
 
@@ -73,15 +75,24 @@ def _redact(value: Any) -> Any:
     return str(value)[:_MAX_STRING_LENGTH]
 
 
-def _ensure_debug_allowed() -> None:
-    if get_settings().app_env.lower() == "production":
+def _ensure_debug_allowed(principal: AccountPrincipal | None) -> None:
+    settings = get_settings()
+    # 与 app/main.py 的 production 判定同口径：strip 后比较，避免带空白的环境值
+    # 被当成非生产而放行 debug 端点。
+    if settings.app_env.strip().lower() == "production":
         raise HTTPException(status_code=404, detail="Not found")
+    # local 是单用户开发模式：AccountAuthMiddleware 仅在 public 模式绑定 principal，
+    # local 下全应用不做 per-request 账号鉴权，debug 端点保持同一语义。
+    if settings.auth_mode == "local":
+        return
+    if principal is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
 
 
 @router.post("/frontend-errors", status_code=202)
 async def record_frontend_error(payload: FrontendErrorRequest) -> dict[str, Any]:
     """Store one frontend error for local test/debug inspection."""
-    _ensure_debug_allowed()
+    _ensure_debug_allowed(current_account_principal())
     global _frontend_error_id
     _frontend_error_id += 1
     item = {
@@ -98,7 +109,7 @@ async def list_frontend_errors(
     limit: int = Query(default=50, ge=1, le=_MAX_FRONTEND_ERRORS),
 ) -> dict[str, Any]:
     """Return recent frontend errors for tests and local debugging."""
-    _ensure_debug_allowed()
+    _ensure_debug_allowed(current_account_principal())
     items = list(_frontend_errors)[-limit:]
     return {
         "items": list(reversed(items)),
@@ -110,7 +121,7 @@ async def list_frontend_errors(
 @router.delete("/frontend-errors")
 async def clear_frontend_errors() -> dict[str, Any]:
     """Clear collected frontend errors."""
-    _ensure_debug_allowed()
+    _ensure_debug_allowed(current_account_principal())
     count = len(_frontend_errors)
     _frontend_errors.clear()
     return {"cleared": count}

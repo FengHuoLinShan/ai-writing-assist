@@ -140,14 +140,12 @@ def test_novel_scoped_generation_modules_use_project_runtime_seam() -> None:
             "open_project_snapshot_llm_client"
         ),
         "modules/story/outline_state/generator.py": "open_project_llm_client",
-        "modules/story/outline_state/structure_dedup.py": (
-            "open_project_llm_client"
-        ),
+        "modules/story/outline_state/structure_dedup.py": ("open_project_llm_client"),
         "modules/world/entity_fusion.py": "open_project_llm_client",
         "modules/evidence/compilation/services/selection_proposal.py": (
             "open_project_llm_client"
         ),
-        "modules/world/services/worldbuilding/world_generation_center_service.py": (
+        "modules/world/services/worldbuilding/generation_center/preparation.py": (
             "create_project_snapshot_llm_client"
         ),
         "modules/evidence/indexing/retrieval.py": "open_project_llm_client",
@@ -239,7 +237,7 @@ def test_frozen_workflows_use_project_owned_snapshot_runtime_seam() -> None:
         "modules/imports/workflow_llm_adapters.py": 1,
         "modules/imports/entity_extraction/scene_entity_llm_adapters.py": 2,
         "modules/story/outline_state/scene_fusion_draft.py": 1,
-        "modules/world/services/worldbuilding/world_generation_center_service.py": 1,
+        "modules/world/services/worldbuilding/generation_center/preparation.py": 1,
     }
     actual: dict[str, int] = {}
     missing_scope: list[str] = []

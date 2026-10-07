@@ -12,8 +12,6 @@ from core.errors import ConflictError, ValidationError
 from modules.world.models import ConflictCheckQueueItem, WorldBiblePageDraft
 from modules.world.schemas import (
     WorldBiblePageDraftUpdate,
-    WorldbookImportApplyRequest,
-    WorldbookImportManifest,
 )
 from modules.world.services.worldbuilding.world_bible_lifecycle_service import (
     WorldBibleLifecycleService,
@@ -23,6 +21,10 @@ from modules.world.services.worldbuilding.world_validation_service import (
 )
 from modules.world.services.worldbuilding.worldbook_import_service import (
     WorldbookImportService,
+)
+from modules.world.worldbook_import_schemas import (
+    WorldbookImportApplyRequest,
+    WorldbookImportManifest,
 )
 
 
@@ -407,12 +409,12 @@ async def test_interrupted_import_apply_rolls_back_and_retries_atomically(
     original = WorldBibleLifecycleService.create_draft
     calls = 0
 
-    async def interrupt_after_first(lifecycle, db, data):
+    async def interrupt_after_first(lifecycle, db, data, **kwargs):
         nonlocal calls
         calls += 1
         if calls == 2:
             raise RuntimeError("interrupted")
-        return await original(lifecycle, db, data)
+        return await original(lifecycle, db, data, **kwargs)
 
     with patch.object(
         WorldBibleLifecycleService,

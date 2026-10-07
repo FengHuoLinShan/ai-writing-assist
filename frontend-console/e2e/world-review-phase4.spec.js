@@ -13,6 +13,7 @@ import {
 } from "./helpers/api-client.js"
 import { openWorkbench } from "./helpers/workbench.js"
 import { SEL } from "./helpers/selectors.js"
+import { expectActionReachable, expectResponsiveLayout, runResponsiveMatrix, WORKSPACE_VIEWPORTS } from './helpers/responsive.js'
 
 async function apiJson(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -178,6 +179,12 @@ test.describe("第四期：规则、依赖与变更复核", () => {
     await page.locator("[data-field='world-policy-rule-message-1']").fill("篇幅应控制在范围内")
     await page.setViewportSize({ width: 390, height: 844 })
     await page.locator("[data-section='world-policy-editor']").scrollIntoViewIfNeeded()
+
+    await runResponsiveMatrix(page, async () => {
+      await expect(page.getByLabel('预期数值', { exact: true })).toHaveValue('1000')
+      await expectActionReachable(page.locator("[data-action='world-policy-save']"))
+      await expectResponsiveLayout(page)
+    }, WORKSPACE_VIEWPORTS)
 
     await page.screenshot({ path: testInfo.outputPath("world-policy-390.png"), fullPage: true })
     await page.locator("[data-action='world-policy-save']").click()

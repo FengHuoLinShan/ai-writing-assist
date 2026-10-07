@@ -7,7 +7,7 @@ import uuid
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.errors import NotFoundError, ValidationError
+from core.errors import ConflictError, NotFoundError, ValidationError
 from modules.imports.models import ImportedChapter, ImportRecord
 from modules.world.models import Character, CharacterKnowledge, CoreEntity, Event
 from modules.world.schemas import (
@@ -275,6 +275,79 @@ async def test_event_shadow_and_unadopted_location_are_rejected_and_hidden(
             EventUpdate(timeline_order=3),
             novel_id=novel_id,
         )
+
+
+@pytest.mark.asyncio
+async def test_event_delete_is_soft_and_recreate_restores_the_row(
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4().hex
+    await _create_project(db_session, novel_id)
+    event_entity = _entity(novel_id, entity_type="event", name="城门之战")
+    location = _entity(novel_id, entity_type="location", name="北城门")
+    record = ImportRecord(
+        id=uuid.uuid4(),
+        novel_id=uuid.UUID(novel_id),
+        file_name="event-soft-delete.txt",
+        file_type="txt",
+        status="done",
+    )
+    chapter = ImportedChapter(
+        id=uuid.uuid4(),
+        novel_id=uuid.UUID(novel_id),
+        import_record_id=record.id,
+        chapter_index=1,
+        title="第一章",
+        content="事件证据",
+    )
+    db_session.add_all([event_entity, location, record, chapter])
+    await db_session.flush()
+    event_id = str(event_entity.id)
+
+    def payload(order: int) -> EventCreate:
+        return EventCreate(
+            entity_id=event_id,
+            source_chapter_id=str(chapter.id),
+            location_entity_id=str(location.id),
+            timeline_order=order,
+        )
+
+    service = EventService()
+    await service.create(db_session, novel_id, payload(1))
+    with pytest.raises(ConflictError):
+        await service.create(db_session, novel_id, payload(2))
+
+    await service.delete(db_session, event_id, novel_id=novel_id)
+    # 重复删除幂等。
+    await service.delete(db_session, event_id, novel_id=novel_id)
+
+    row = await db_session.get(Event, event_entity.id)
+    assert row is not None
+    assert row.status == "deprecated"
+    assert row.timeline_order == 1
+    items, total = await service.list(db_session, novel_id)
+    assert (items, total) == ([], 0)
+    assert await service.get_events_in_order(db_session, novel_id) == []
+    assert (
+        await service.get_events_for_chapter(db_session, novel_id, str(chapter.id)) == []
+    )
+    with pytest.raises(NotFoundError):
+        await service.get(db_session, event_id, novel_id=novel_id)
+    with pytest.raises(NotFoundError):
+        await service.update(
+            db_session,
+            event_id,
+            EventUpdate(timeline_order=5),
+            novel_id=novel_id,
+        )
+
+    restored = await service.create(db_session, novel_id, payload(3))
+    assert restored.timeline_order == 3
+    await db_session.refresh(row)
+    assert row.status == "canonical"
+    assert [
+        item.entity_id for item in await service.get_events_in_order(db_session, novel_id)
+    ] == [event_id]
 
 
 @pytest.mark.asyncio

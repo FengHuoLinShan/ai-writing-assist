@@ -1150,3 +1150,129 @@ async def test_revising_thread_retires_projections_for_removed_movements(
         "reason": "information_movement_removed_or_projection_no_longer_valid",
         "previous_status": "draft",
     }
+
+
+@pytest.mark.asyncio
+async def test_revising_threads_batch_loads_targets_and_conflicts_on_missing(
+    db_session: AsyncSession,
+    sample_novel_id: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Revise 多个目标时一次批量取回，缺失目标仍按既有语义抛冲突。"""
+    from modules.story.outline_state.p20_service import P20ConflictError
+
+    threads = []
+    for index in range(2):
+        thread = PlotThread(
+            novel_id=uuid.UUID(sample_novel_id),
+            name=f"旧线{index}",
+            thread_type="main",
+            status="draft",
+        )
+        db_session.add(thread)
+        threads.append(thread)
+    await db_session.flush()
+
+    request = _request(
+        sample_novel_id,
+        target="plot_thread",
+        mode="revise",
+        selected_thread_ids=[str(thread.id) for thread in threads],
+    )
+    output = P20PlotThreadOutput.model_validate(
+        {
+            "result": "proposed",
+            "threads": [
+                {
+                    "proposal_ref": "P1",
+                    "target_thread_ref": "T1",
+                    "name": "新线0",
+                    "thread_type": "main",
+                    "information_movements": [],
+                    "basis": "批量修订第一个目标。",
+                    "uncertain_fields": [],
+                    "confidence": 0.9,
+                },
+                {
+                    "proposal_ref": "P2",
+                    "target_thread_ref": "T2",
+                    "name": "新线1",
+                    "thread_type": "main",
+                    "information_movements": [],
+                    "basis": "批量修订第二个目标。",
+                    "uncertain_fields": [],
+                    "confidence": 0.9,
+                },
+            ],
+        }
+    )
+    # 守卫：revise 目标必须一次批量取回，不允许循环内单条查询
+    monkeypatch.setattr(
+        db_session,
+        "scalar",
+        mock.AsyncMock(
+            side_effect=AssertionError("revise targets must be batch-loaded"),
+        ),
+    )
+    refs = await P20ApplyService()._apply_threads(
+        db_session,
+        request=request,
+        output=output,
+        reference_map={
+            "threads": {
+                "T1": str(threads[0].id),
+                "T2": str(threads[1].id),
+            },
+            "characters": {},
+            "entities": {},
+            "scenes": {},
+        },
+        task_id="batch-revise-task",
+        context_fingerprint="fingerprint",
+        story_outline_revision_id=str(uuid.uuid4()),
+        adopted_at="2026-07-17T02:00:00+00:00",
+    )
+
+    assert [ref["id"] for ref in refs] == [str(thread.id) for thread in threads]
+    assert threads[0].name == "新线0"
+    assert threads[1].name == "新线1"
+
+    missing_request = _request(
+        sample_novel_id,
+        target="plot_thread",
+        mode="revise",
+        selected_thread_ids=[str(uuid.uuid4())],
+    )
+    missing_output = P20PlotThreadOutput.model_validate(
+        {
+            "result": "proposed",
+            "threads": [
+                {
+                    "proposal_ref": "P1",
+                    "target_thread_ref": "T1",
+                    "name": "幽灵线",
+                    "thread_type": "main",
+                    "information_movements": [],
+                    "basis": "目标已被删除。",
+                    "uncertain_fields": [],
+                    "confidence": 0.9,
+                }
+            ],
+        }
+    )
+    with pytest.raises(P20ConflictError, match="selected PlotThread no longer exists"):
+        await P20ApplyService()._apply_threads(
+            db_session,
+            request=missing_request,
+            output=missing_output,
+            reference_map={
+                "threads": {"T1": str(uuid.uuid4())},
+                "characters": {},
+                "entities": {},
+                "scenes": {},
+            },
+            task_id="batch-revise-task",
+            context_fingerprint="fingerprint",
+            story_outline_revision_id=str(uuid.uuid4()),
+            adopted_at="2026-07-17T02:00:00+00:00",
+        )

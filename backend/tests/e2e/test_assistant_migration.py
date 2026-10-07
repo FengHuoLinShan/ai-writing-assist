@@ -23,7 +23,7 @@ from core.errors import NotFoundError
 from infrastructure.schema_comparison import (
     _compare_schema_type,
     _include_schema_object,
-    _validate_migration_managed_indexes,
+    _validate_migration_managed_objects,
 )
 from modules.account.models import Account
 from modules.assistant.models import AssistantMessage, AssistantSession
@@ -39,7 +39,7 @@ TARGET_REVISION = "20260911_assistant_runtime"
 
 
 def _schema_drift(connection):
-    _validate_migration_managed_indexes(connection)
+    _validate_migration_managed_objects(connection)
     comments = connection.dialect.supports_comments
     connection.dialect.supports_comments = False
     try:

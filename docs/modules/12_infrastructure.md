@@ -1,5 +1,9 @@
 # Module: infrastructure / 基础设施模块
 
+API 在 `APP_ENV=production` 时要求 pgvector 扩展可用；扩展缺失或探测失败会中止启动。
+其他环境仍允许告警后继续。常驻 worker 在领取任务前要求数据库位于当前全部 Alembic head，
+无法连接或 schema 落后时立即退出；迁移由部署流程执行，只有开发 `--reload` 路径等待迁移。
+
 ## 1. LLM 客户端
 
 ADR-0023 增加 `pydantic-ai-slim==2.42.0` 的有限单 Agent 循环。网关协议加性支持工具定义、
@@ -7,6 +11,10 @@ ADR-0023 增加 `pydantic-ai-slim==2.42.0` 的有限单 Agent 循环。网关协
 身份、凭据、队列、事务和采用仍由应用拥有；不运行自治多 Agent 或任意代码工具。
 仅通过 Project 的账户连接/snapshot seam 创建客户端。PydanticAI 自己处理该循环的 schema
 修复，transport 不叠加重试；既有确定性审稿可通过 `workflow_budget` 计量每个实际请求。
+可重试判定（`is_retryable_llm_error`）沿异常 `__cause__`/`__context__` 链回溯（限 5 层、
+防环、明确不可重试类型优先）：业务层包装过的瞬时 LLM 错误（限流/超时）仍可按任务声明的
+`retry_transient_llm_errors` 重试。TaskWorker 的领取、handler、preflight、finalize 与
+维护 tick 均运行在 system 执行范围标记内，供项目 owner 门禁区分 worker 与未认证调用。
 
 `assistant_turn` 是跨页面讨论执行；`interaction_agent_story_generate` 复用 RP attempt、
 流式正文与失败残段规则；`interaction_continuity_review` 保存近期选中历史的独立检查结果。

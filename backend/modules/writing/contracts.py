@@ -11,6 +11,17 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal
 
+# AO-5 / ADR-0031：正文区间引用是 evidence Context 的引用词汇（所有消费方
+# 都是 evidence 编译产物里的 source_ref 锚点），契约定义归 evidence；
+# writing.facade 产出该契约，这里保持兼容再出口（writing→evidence 为
+# 裁定的合法方向）。
+from modules.evidence.source_ref_contracts import (
+    ManuscriptScanCursor as ManuscriptScanCursor,
+)
+from modules.evidence.source_ref_contracts import (
+    SourceRangeRefContract as SourceRangeRefContract,
+)
+
 
 @dataclass(frozen=True)
 class WritingDraftContract:
@@ -63,20 +74,6 @@ class WritingAuthorAttentionItemContract:
 
 
 @dataclass(frozen=True)
-class SourceRangeRefContract:
-    """Stable reference to one range in a concrete writing draft version."""
-
-    draft_id: str
-    chapter_index: int
-    version_number: int
-    content_mode: str
-    start_offset: int
-    end_offset: int
-    source_hash: str
-    range_hash: str
-
-
-@dataclass(frozen=True)
 class ManuscriptSearchHitContract:
     """One literal manuscript hit backed by a SourceRangeRef."""
 
@@ -102,12 +99,6 @@ class ManuscriptReadContract:
     highlight_end: int
     paragraph_before: int
     paragraph_after: int
-
-
-@dataclass(frozen=True)
-class ManuscriptScanCursor:
-    chapter_position: int = 0
-    start_offset: int = 0
 
 
 @dataclass(frozen=True)

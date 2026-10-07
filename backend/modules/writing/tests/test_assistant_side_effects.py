@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from modules.account.facade import current_account_id
 from modules.assistant.contracts import AssistantOperationContext, WorkContext
 from modules.evidence.indexing.models import RagIndexState
-from modules.writing.assistant_tools import OPERATIONS, ReviseChapter
+from modules.writing.assistant_tools import OPERATIONS_SPEC, ReviseChapter
 from modules.writing.facade import create_draft_only
 
 
@@ -68,10 +68,10 @@ async def test_assistant_revise_apply_requests_working_index(
         ],
     )
     context = _context()
-    operation = OPERATIONS["writing.revise"]
-    preview = await operation.prepare(db, nid, args, context=context)
+    operation = OPERATIONS_SPEC["writing.revise"]
+    preview = await operation["prepare"](db, nid, args, context=context)
 
-    result = await operation.apply(db, nid, args, preview, context=context)
+    result = await operation["apply"](db, nid, args, preview, context=context)
 
     assert result["label"] == "已保存新工作稿"
     states = await _working_index_states(db, nid)

@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from core.container import get as _container_get
+from core.service_keys import (
+    MEMORY_SERVICE,
+    RAG_INDEX_CHAPTER_FOR_TASK,
+)
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.tasks.registry import task_handler
 
@@ -12,6 +17,21 @@ logger = logging.getLogger(__name__)
 
 _MAX_RETRIES = 3
 _LEGACY_UNOWNED_AI_REVIEW_KEY = "_legacy_unowned_ai_review"
+
+#: 发布任务内部步骤（RAG 索引 / memory 快照）失败重试的指数退避参数。
+#: 这两段不是 LLM 调用，publish_chapter 也没有 AI 运行信封，不适用
+#: infrastructure.llm.retry.sleep_before_retry 的信封 deadline 语义。
+_PUBLISH_RETRY_BASE_DELAY = 0.5
+_PUBLISH_RETRY_MAX_DELAY = 5.0
+
+
+def _publish_retry_delay(attempt: int) -> float:
+    """第 attempt 次失败后的退避秒数：基数指数增长，封顶上限。"""
+    return min(
+        _PUBLISH_RETRY_BASE_DELAY * (2 ** (attempt - 1)),
+        _PUBLISH_RETRY_MAX_DELAY,
+    )
+
 
 # writing.generate 的导演分片大小（evidence knowledge workflow 冻结常量）。
 _WRITING_GENERATE_DIRECTOR_SHARD_SIZE = 64
@@ -109,7 +129,7 @@ async def handle_publish_chapter(db, task):
     rag_ok = False
     for attempt in range(1, _MAX_RETRIES + 1):
         try:
-            outcome = await _container_get("rag.index_chapter_for_task")(
+            outcome = await _container_get(RAG_INDEX_CHAPTER_FOR_TASK)(
                 db,
                 novel_id,
                 chapter_index,
@@ -142,6 +162,8 @@ async def handle_publish_chapter(db, task):
                 _MAX_RETRIES,
                 safe_error,
             )
+            if attempt < _MAX_RETRIES:
+                await asyncio.sleep(_publish_retry_delay(attempt))
 
     if not rag_ok:
         raise RuntimeError(
@@ -161,7 +183,7 @@ async def handle_publish_chapter(db, task):
     for attempt in range(1, _MAX_RETRIES + 1):
         try:
             async with db.begin_nested():
-                _memory = _container_get("memory.service")
+                _memory = _container_get(MEMORY_SERVICE)
                 snap = await _memory.capture_snapshot(db, novel_id, chapter_index)
             results["snapshot_id"] = snap.id
             snapshot_ok = True
@@ -181,6 +203,8 @@ async def handle_publish_chapter(db, task):
                 _MAX_RETRIES,
                 safe_error,
             )
+            if attempt < _MAX_RETRIES:
+                await asyncio.sleep(_publish_retry_delay(attempt))
 
     if not snapshot_ok:
         raise RuntimeError(
@@ -336,9 +360,7 @@ async def handle_writing_targeted_revision(db, task):
         finding_ids=[str(value) for value in meta.get("finding_ids") or []],
         instruction=meta.get("instruction"),
         llm_execution_snapshot=snapshot,
-        contract_item_ids=[
-            str(value) for value in meta.get("contract_item_ids") or []
-        ],
+        contract_item_ids=[str(value) for value in meta.get("contract_item_ids") or []],
     )
     task.update_progress(1.0)
     await db.flush()

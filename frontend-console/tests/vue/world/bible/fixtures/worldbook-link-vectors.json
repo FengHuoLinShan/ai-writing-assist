@@ -1,0 +1,161 @@
+{
+  "_comment": "前端 worldbookImportScope.js 与后端 worldbook_import_service.py 的共享测试向量：双端测试消费同一文件，防止双链词法与归一化口径漂移（后端 test_worldbook_import_links.py 同步断言）。已知残差：JS 无 str.casefold（如 ß→ss），向量避开该类输入；向量新增须双端语义可对齐。",
+  "wikilinks": [
+    {
+      "text": "见 [[星锻环]]。",
+      "expected": [
+        {
+          "target": "星锻环",
+          "alias": "",
+          "anchor": ""
+        }
+      ]
+    },
+    {
+      "text": "[[星锻环|星环]]",
+      "expected": [
+        {
+          "target": "星锻环",
+          "alias": "星环",
+          "anchor": ""
+        }
+      ]
+    },
+    {
+      "text": "[[concepts/星锻环.md#潮汐节律]]",
+      "expected": [
+        {
+          "target": "concepts/星锻环.md",
+          "alias": "",
+          "anchor": "潮汐节律"
+        }
+      ]
+    },
+    {
+      "text": "[[a#b|c]]",
+      "expected": [
+        {
+          "target": "a",
+          "alias": "c",
+          "anchor": "b"
+        }
+      ]
+    },
+    {
+      "text": "[[a|b|c]]",
+      "expected": [
+        {
+          "target": "a",
+          "alias": "b|c",
+          "anchor": ""
+        }
+      ]
+    },
+    {
+      "text": "[[a[b]]",
+      "expected": [
+        {
+          "target": "a[b",
+          "alias": "",
+          "anchor": ""
+        }
+      ]
+    },
+    {
+      "text": "[[外[[内]]",
+      "expected": [
+        {
+          "target": "外[[内",
+          "alias": "",
+          "anchor": ""
+        }
+      ]
+    },
+    {
+      "text": "[[a\nb]]",
+      "expected": []
+    },
+    {
+      "text": "[[a]b]]",
+      "expected": []
+    },
+    {
+      "text": "[[]]",
+      "expected": []
+    },
+    {
+      "text": "[[#段]]",
+      "expected": []
+    },
+    {
+      "text": "[[|别名]]",
+      "expected": []
+    }
+  ],
+  "related_plain": [
+    {
+      "value": " 纯名称 ",
+      "expected": {
+        "target": "纯名称",
+        "alias": "",
+        "anchor": ""
+      }
+    },
+    {
+      "value": "星锻环#潮汐",
+      "expected": {
+        "target": "星锻环#潮汐",
+        "alias": "",
+        "anchor": ""
+      }
+    },
+    {
+      "value": "[[星锻环|星环]]",
+      "expected": {
+        "target": "星锻环",
+        "alias": "星环",
+        "anchor": ""
+      }
+    }
+  ],
+  "title_keys": [
+    {
+      "input": "  星锻环  ",
+      "expected": "星锻环"
+    },
+    {
+      "input": "Foo.md",
+      "expected": "foo.md"
+    },
+    {
+      "input": "Ｆｏｏ",
+      "expected": "ｆｏｏ"
+    },
+    {
+      "input": "éx",
+      "expected": "éx"
+    }
+  ],
+  "path_keys": [
+    {
+      "input": "  Concepts/双月节点阵列.MD ",
+      "expected": "concepts/双月节点阵列"
+    },
+    {
+      "input": "a/b.md",
+      "expected": "a/b"
+    },
+    {
+      "input": "a/b.md.txt",
+      "expected": "a/b.md.txt"
+    },
+    {
+      "input": "x.mdx",
+      "expected": "x.mdx"
+    },
+    {
+      "input": "A/B.MD",
+      "expected": "a/b"
+    }
+  ]
+}

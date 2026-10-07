@@ -20,6 +20,7 @@ from infrastructure.llm.client import LLMClient
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from infrastructure.llm.token_estimation import estimate_token_count
+from infrastructure.stable_hash import stable_hash
 from infrastructure.tasks.contracts import TaskLifecycleContract
 from infrastructure.tasks.enqueuer import enqueue_task
 from modules.world.models import (
@@ -311,9 +312,7 @@ class WorldBibleSynopsisService:
             previous_importance = previous.get("importance") if previous else None
             if previous is None or float(
                 item_importance if item_importance is not None else 0
-            ) > float(
-                previous_importance if previous_importance is not None else 0
-            ):
+            ) > float(previous_importance if previous_importance is not None else 0):
                 if previous is not None:
                     omitted.append(f"duplicate_source:{key[0]}:{key[1]}")
                 deduplicated[key] = item
@@ -328,9 +327,7 @@ class WorldBibleSynopsisService:
                 if item.get("type") == "relation"
                 else 1,
                 -float(
-                    item.get("importance")
-                    if item.get("importance") is not None
-                    else 0.0
+                    item.get("importance") if item.get("importance") is not None else 0.0
                 ),
                 str(item.get("type")),
                 str(item.get("id")),
@@ -1260,8 +1257,8 @@ class WorldBibleSynopsisService:
         rendered, rendered_sections, token_omitted = self._render_sections(sections)
         if not rendered and manifest:
             fallback_sections = self._fallback_sections(manifest)
-            rendered, rendered_sections, fallback_token_omitted = (
-                self._render_sections(fallback_sections)
+            rendered, rendered_sections, fallback_token_omitted = self._render_sections(
+                fallback_sections
             )
             validation_omitted.append("all_llm_sections_unsupported:fallback_used")
             token_omitted.extend(fallback_token_omitted)
@@ -1359,14 +1356,11 @@ class WorldBibleSynopsisService:
             claims: list[dict[str, Any]] = []
             for claim_index, claim in enumerate(section.claims):
                 source_keys = [
-                    key
-                    for key in dict.fromkeys(claim.source_keys)
-                    if key in allowed
+                    key for key in dict.fromkeys(claim.source_keys) if key in allowed
                 ]
                 if not source_keys:
                     omitted.append(
-                        "claim_without_valid_source:"
-                        f"{section_index}:{claim_index}"
+                        f"claim_without_valid_source:{section_index}:{claim_index}"
                     )
                     continue
                 claims.append(
@@ -1472,14 +1466,7 @@ class WorldBibleSynopsisService:
 
     @staticmethod
     def _hash_json(value: Any) -> str:
-        payload = json.dumps(
-            value,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-            default=str,
-        )
-        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        return stable_hash(value)
 
     @staticmethod
     def _serialize_untrusted_json(value: Any) -> str:

@@ -6,7 +6,6 @@ and enforces token budgets through staged eviction.
 
 from __future__ import annotations
 
-import hashlib
 import json
 from enum import IntEnum
 from typing import Any, Literal
@@ -14,6 +13,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from infrastructure.llm.token_estimation import estimate_token_count
+from infrastructure.stable_hash import stable_hash
 
 LINE_ITEM_SOURCE_KEYS = frozenset(
     {
@@ -532,11 +532,4 @@ def compiled_context_fingerprint(compiled: CompiledContext) -> str:
             for section in compiled.sections
         ],
     }
-    encoded = json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
+    return stable_hash(payload)

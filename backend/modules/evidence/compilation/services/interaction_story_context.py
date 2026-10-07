@@ -20,7 +20,7 @@ from modules.evidence.compilation.services.snapshot_service import (
     ContextSnapshotService,
 )
 from modules.evidence.indexing.facade import retrieve
-from modules.writing.contracts import SourceRangeRefContract
+from modules.evidence.source_ref_contracts import SourceRangeRefContract
 
 
 class InteractionStoryContextService:
@@ -56,9 +56,12 @@ class InteractionStoryContextService:
         )
 
         if public_demo_source:
-            from modules.interaction.facade import validate_public_demo_source_context
+            from core.container import get
+            from core.service_keys import (
+                INTERACTION_VALIDATE_PUBLIC_DEMO_SOURCE_CONTEXT,
+            )
 
-            await validate_public_demo_source_context(
+            await get(INTERACTION_VALIDATE_PUBLIC_DEMO_SOURCE_CONTEXT)(
                 db,
                 source_novel_id=source_novel_id,
                 source_revision_id=source_revision_id,

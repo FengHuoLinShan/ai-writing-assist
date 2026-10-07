@@ -202,11 +202,14 @@ def record_run_event(run, phase):
 
 async def expire_run_histories(db):
     """Bounded task-metadata maintenance; no project content or model analysis."""
+    from core.container import get
+    from core.service_keys import (
+        COLLABORATION_STOP_UNAVAILABLE_RUNS,
+    )
     from modules.assistant.forecast.maintenance import expire_assessments
-    from modules.collaboration.facade import stop_unavailable_runs
 
     await expire_assessments(db)
-    await stop_unavailable_runs(db)
+    await get(COLLABORATION_STOP_UNAVAILABLE_RUNS)(db)
     rows = await db.scalars(
         select(AssistantRun)
         .where(
@@ -284,6 +287,9 @@ class AssistantService:
     async def submit_cocreation(self, db, data, session_id=None):
         """Compatibility entry: keep World discussion identity, enqueue one Agent turn."""
         from core.container import get
+        from core.service_keys import (
+            WORLD_ASSISTANT_CHAT_INTENT,
+        )
         from modules.account.facade import current_account_id
 
         messages = [
@@ -326,7 +332,7 @@ class AssistantService:
         quoted = quoted[-20:]
         while sum(len(message["content"]) for message in quoted) > 30000:
             quoted.pop(0)
-        intent = await get("world.assistant.chat_intent")(db, data)
+        intent = await get(WORLD_ASSISTANT_CHAT_INTENT)(db, data)
         return await self.submit(
             db,
             session_id,
@@ -623,9 +629,12 @@ class AssistantService:
         await require_active_project(db, novel_id)
         run = await self.require_run(db, novel_id, run_id)
         if run.request_json.get("protocol") == "creative_projection_v2":
-            from modules.collaboration.facade import read_projected_run
+            from core.container import get
+            from core.service_keys import (
+                COLLABORATION_READ_PROJECTED_RUN,
+            )
 
-            return await read_projected_run(db, novel_id, run_id)
+            return await get(COLLABORATION_READ_PROJECTED_RUN)(db, novel_id, run_id)
         if run.request_json.get("protocol") == "forecast_v1":
             return self.view(run)
         run = await self.require_run(db, novel_id, run_id, lock=True)

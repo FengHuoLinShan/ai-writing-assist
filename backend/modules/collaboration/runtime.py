@@ -12,6 +12,9 @@ from sqlalchemy import select
 
 from core.container import get
 from core.errors import ConflictError, DomainError, ValidationError
+from core.service_keys import (
+    COLLABORATION_RESOURCES,
+)
 from infrastructure.llm.agent_runtime import AgentBudgetError, AgentRunBudget
 from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.collaboration import content_hash
@@ -44,6 +47,11 @@ from modules.collaboration.contracts import (
     WorkspaceCreate,
     WorkspaceEdit,
 )
+from modules.collaboration.creative_manifest import (
+    creative_context_text,
+    project_creative_resources,
+    revalidate_creative_manifest,
+)
 from modules.collaboration.models import (
     CollaborationArtifact,
     CollaborationRun,
@@ -56,11 +64,6 @@ from modules.collaboration.workspaces import (
     require_revision,
 )
 from modules.evidence.contracts import GroupSource, govern_group_output
-from modules.evidence.facade import (
-    creative_context_text,
-    project_creative_resources,
-    revalidate_creative_manifest,
-)
 from modules.local_agent.facade import open_task_snapshot_client
 from modules.project.facade import require_active_project_exclusive
 
@@ -423,7 +426,9 @@ async def execute(db, task):
             scenarios, scenario_sources = {}, []
             check_schema = CheckOutput
             if recipe.id == "world_stress":
-                from modules.world.contracts import WorldScenarioCheck
+                from modules.collaboration.world_stress_checks import (
+                    WorldScenarioCheck,
+                )
 
                 check_schema = WorldScenarioCheck
                 previous = (
@@ -501,7 +506,7 @@ async def execute(db, task):
             for value in revision.patches_json:
                 patch = ResourcePatch.model_validate(value)
                 try:
-                    await get("collaboration.resources")[patch.kind].validate(
+                    await get(COLLABORATION_RESOURCES)[patch.kind].validate(
                         db, novel_id, originals[patch.key], patch, context=context
                     )
                 except DomainError as error:
@@ -768,7 +773,7 @@ async def execute(db, task):
                                             raise ConflictError("依赖产物校验失败")
                                         dependency_outputs.append(artifact.payload_json)
                                 if proposal.search_query and recipe.id != "blind_reader":
-                                    from modules.evidence.facade import (
+                                    from modules.collaboration.creative_manifest import (
                                         collect_creative_manifest,
                                     )
 

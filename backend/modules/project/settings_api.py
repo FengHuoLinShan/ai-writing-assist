@@ -1,8 +1,7 @@
 """Project-owned preference routes."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query
 
-from core.csrf import require_xhr_request
 from core.dependencies import DbSession
 from modules.project.facade import (
     get_project_author_preferences,
@@ -46,7 +45,6 @@ async def api_get_project_author_prefs(
 @router.put(
     "/{project_id}/author-preferences",
     response_model=ProjectAuthorPrefsResponse,
-    dependencies=[Depends(require_xhr_request)],
 )
 async def api_put_project_author_prefs(
     db: DbSession,
@@ -58,7 +56,6 @@ async def api_put_project_author_prefs(
 
 @router.delete(
     "/{project_id}/author-preferences/field/{field_name}",
-    dependencies=[Depends(require_xhr_request)],
 )
 async def api_reset_project_author_prefs_field(
     db: DbSession,

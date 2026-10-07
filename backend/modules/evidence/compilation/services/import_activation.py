@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.stable_hash import stable_hash
 from modules.evidence.compilation.contracts import ImportContextActivationContract
 
 _ACTIVATION_VERSION = "import-context-v3"
@@ -929,9 +929,13 @@ class ImportContextActivationService:
         selected.sort(key=lambda item: item[:4])
         prompt_items: list[dict] = []
         audit_sources: list[dict] = []
-        for index, (source_ref, target_ref, relation_type, relation_id, value) in (
-            enumerate(selected, start=1)
-        ):
+        for index, (
+            source_ref,
+            target_ref,
+            relation_type,
+            relation_id,
+            value,
+        ) in enumerate(selected, start=1):
             prompt_ref = f"relation-{index:03d}"
             prompt_items.append(
                 {
@@ -1008,14 +1012,7 @@ class ImportContextActivationService:
             "previous_evidence": previous_evidence,
             "relation_candidates": relation_candidates or [],
         }
-        serialized = json.dumps(
-            payload,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-            default=str,
-        )
-        return hashlib.sha256(serialized.encode()).hexdigest()
+        return stable_hash(payload)
 
     @staticmethod
     def _neighbor_context(briefs: list[dict], evidence: list[dict]) -> str:

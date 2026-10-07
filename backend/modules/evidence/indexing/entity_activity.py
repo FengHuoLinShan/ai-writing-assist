@@ -9,6 +9,9 @@ from collections.abc import Callable
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.container import get as _container_get
+from core.service_keys import (
+    WRITING_LIST_EFFECTIVE_CHAPTER_INDICES,
+)
 from infrastructure.tasks.facade import enqueue_coalesced_task
 from modules.evidence.indexing.contracts import (
     RagEntityActivityBundleContract,
@@ -35,7 +38,7 @@ class EntityActivityService:
         appearances, states = await self._repo.list_entity_activity_rows(db, nid)
         try:
             chapter_indices = await _container_get(
-                "writing.list_effective_chapter_indices"
+                WRITING_LIST_EFFECTIVE_CHAPTER_INDICES
             )(db, novel_id)
         except KeyError:
             chapter_indices = sorted({state.chapter_index for state in states})
@@ -66,9 +69,7 @@ class EntityActivityService:
                 continue
             if appearance.source_content_hash != state.indexed_hash:
                 continue
-            chapters_by_entity[str(appearance.entity_id)].append(
-                appearance.chapter_index
-            )
+            chapters_by_entity[str(appearance.entity_id)].append(appearance.chapter_index)
 
         items = [
             RagEntityActivityStatContract(
@@ -168,9 +169,6 @@ class EntityActivityService:
             "chunks_scanned": total,
             "chunks_changed": changed,
             "chapter_modes_rebuilt": len(
-                {
-                    (chunk.chapter_index, chunk.content_mode)
-                    for chunk in chunks
-                }
+                {(chunk.chapter_index, chunk.content_mode) for chunk in chunks}
             ),
         }

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -11,6 +10,8 @@ from typing import Any, Literal
 
 from anyio import CancelScope
 from pydantic import BaseModel, ConfigDict, Field
+
+from infrastructure.stable_hash import stable_hash
 
 
 @asynccontextmanager
@@ -45,11 +46,7 @@ class WorkItem(BaseModel):
 
 
 def content_hash(value: Any) -> str:
-    return hashlib.sha256(
-        json.dumps(
-            value, sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str
-        ).encode()
-    ).hexdigest()
+    return stable_hash(value)
 
 
 class MemberFailureError(Exception):

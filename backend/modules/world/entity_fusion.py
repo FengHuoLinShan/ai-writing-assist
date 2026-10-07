@@ -1388,12 +1388,14 @@ class WorldEntityFusionService:
                         select(Event).where(
                             Event.entity_id == entity.id,
                             Event.novel_id == novel_id,
+                            Event.status == "canonical",
                         )
                     )
                 ).scalar_one_or_none()
             )
             if event is not None:
-                extension["event"] = _mapped_payload(event)
+                # 只读未删除的扩展行，status 恒为 canonical；排除它以保持既有指纹不变。
+                extension["event"] = _mapped_payload(event, exclude={"status"})
         semantic = {
             "name": entity.name,
             "entity_type": entity.entity_type,
@@ -1490,6 +1492,7 @@ class WorldEntityFusionService:
         event_stmt = select(Event).where(
             Event.novel_id == novel_id,
             Event.entity_id.in_(event_ids),
+            Event.status == "canonical",
         )
         if lock:
             character_stmt = character_stmt.with_for_update(read=True)
@@ -2329,11 +2332,12 @@ def _hash_payload(value: Any) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _mapped_payload(row: Any) -> dict[str, Any]:
+def _mapped_payload(row: Any, *, exclude: set[str] | None = None) -> dict[str, Any]:
+    excluded = {"embedding", *(exclude or ())}
     payload = {
         column.name: getattr(row, column.name, None)
         for column in row.__table__.columns
-        if column.name not in {"embedding"}
+        if column.name not in excluded
     }
     return json.loads(json.dumps(payload, ensure_ascii=False, default=str))
 

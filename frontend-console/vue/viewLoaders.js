@@ -6,6 +6,8 @@
  * invokes the matching loader only after the authenticated workspace exists
  * and that normalized route is actually rendered.
  */
+import { getRouter } from "./bridge/index.js"
+
 const viewLoaders = {
   home: () => import("./interactionIsland.js"),
   journeys: () => import("./interactionIsland.js"),
@@ -26,7 +28,7 @@ const viewLoaders = {
  * The optional arguments make the registration behavior independently testable
  * without importing any island modules.
  */
-export function registerViewLoaders(router = globalThis.router, loaders = viewLoaders) {
+export function registerViewLoaders(router = getRouter(), loaders = viewLoaders) {
   if (typeof router?.registerViewLoader !== "function") return
   for (const [viewName, loader] of Object.entries(loaders)) {
     router.registerViewLoader(viewName, loader)

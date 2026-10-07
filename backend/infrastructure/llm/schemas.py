@@ -6,8 +6,6 @@ LLM 调用相关的 Pydantic schema
 
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 from collections.abc import Mapping
 from datetime import datetime
@@ -18,6 +16,7 @@ from urllib.parse import urlparse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from infrastructure.llm.redaction import redact_diagnostic
+from infrastructure.stable_hash import stable_hash
 
 
 class LLMToolCall(BaseModel):
@@ -333,13 +332,7 @@ def sanitize_profile_summary(
 
 def profile_summary_hash(profile_summary: Mapping[str, Any]) -> str:
     """profile 摘要的稳定哈希；v0 与 v1 记录共用同一身份函数。"""
-    canonical = json.dumps(
-        dict(profile_summary),
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return stable_hash(dict(profile_summary), stringify_unknown=False)
 
 
 class AIRunStatus(StrEnum):

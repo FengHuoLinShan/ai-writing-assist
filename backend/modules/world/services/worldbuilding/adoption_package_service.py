@@ -1348,9 +1348,9 @@ class WorldAdoptionPackageService:
                     rewritten[field] = local_refs.get(value[6:], value)
             rewritten_refs.append(rewritten)
         hash_map = {
-            WorldBibleLifecycleService._asset_ref_hash(
+            WorldBibleLifecycleService.asset_ref_hash(
                 old
-            ): WorldBibleLifecycleService._asset_ref_hash(new)
+            ): WorldBibleLifecycleService.asset_ref_hash(new)
             for old, new in zip(original_refs, rewritten_refs, strict=True)
         }
         sections = [section.model_dump(mode="json") for section in payload.sections_json]

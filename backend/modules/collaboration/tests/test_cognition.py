@@ -29,6 +29,11 @@ from modules.collaboration.contracts import (
     RunCreate,
     SubjectView,
 )
+from modules.collaboration.creative_manifest import (
+    collect_creative_manifest,
+    creative_context_text,
+    revalidate_creative_manifest,
+)
 from modules.collaboration.models import (
     CognitionCommit,
     CognitionRecord,
@@ -37,11 +42,6 @@ from modules.collaboration.models import (
 )
 from modules.collaboration.recipes import RECIPES
 from modules.collaboration.tests.test_workspaces import setup_trial
-from modules.evidence.facade import (
-    collect_creative_manifest,
-    creative_context_text,
-    revalidate_creative_manifest,
-)
 from modules.writing.facade import create_draft_only
 
 

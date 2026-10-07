@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils"
+import { DOMWrapper, enableAutoUnmount, flushPromises, mount } from "@vue/test-utils"
 import WorkspaceToolCard from "../../../vue/components/WorkspaceToolCard.vue"
 import { focusWorkspaceTool } from "../../../vue/components/workspaceTools.js"
 
@@ -19,12 +19,12 @@ describe("workspace workflow tools", () => {
   const button = (action) => document.querySelector(`[data-action="workspace-tool-${action}"]`)
 
   it("owns one responsive card, closes the mobile drawer before dispatch and cleans up the sidebar", async () => {
-    const selected = vi.fn(() => expect(document.querySelector('[role="dialog"]')).toBeNull())
+    const selected = vi.fn(() => expect(new DOMWrapper(document.querySelector('[role="dialog"]')).isVisible()).toBe(false))
     const wrapper = create({ onSelect: selected })
     expect(document.querySelector("#sidebar-context-slot .workspace-tools")).not.toBeNull()
     media.matches = true; change(); await flushPromises()
     expect(document.querySelector("#sidebar-context-slot").children).toHaveLength(0)
-    expect(document.querySelector(".workspace-tools")).toBeNull()
+    expect(new DOMWrapper(document.querySelector(".workspace-tools")).isVisible()).toBe(false)
     document.querySelector(".workspace-tools-trigger").click(); await flushPromises()
     expect(document.querySelectorAll(".workspace-tools")).toHaveLength(1)
     button("add").click(); await flushPromises()

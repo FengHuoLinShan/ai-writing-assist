@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import uuid
 from collections import defaultdict, deque
 from datetime import UTC, datetime
@@ -12,6 +10,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.stable_hash import stable_hash
 from modules.story.outline_state.models import Scene
 from modules.story.outline_state.repositories import (
     SceneFusionSuggestionRepository,
@@ -406,8 +405,7 @@ def _replacement_components(
                 seen_old.add(index)
                 old_component.add(index)
                 queue.extend(
-                    ("candidate", candidate)
-                    for candidate in old_to_candidates[index]
+                    ("candidate", candidate) for candidate in old_to_candidates[index]
                 )
         components.append((sorted(old_component), sorted(candidate_component)))
     return components, evidence_by_candidate
@@ -431,17 +429,21 @@ def _overlap_evidence(
     for chapter in common:
         old_parts = old_by_chapter.get(chapter, [])
         new_parts = candidate_by_chapter[chapter]
-        exact_comparison = bool(old_parts) and all(
-            part.mapping_status in EXACT_MAPPING_STATUSES
-            and part.source_content_hash
-            and part.start_offset is not None
-            and part.end_offset is not None
-            for part in old_parts
-        ) and all(
-            part.get("source_content_hash")
-            and part.get("start_offset") is not None
-            and part.get("end_offset") is not None
-            for part in new_parts
+        exact_comparison = (
+            bool(old_parts)
+            and all(
+                part.mapping_status in EXACT_MAPPING_STATUSES
+                and part.source_content_hash
+                and part.start_offset is not None
+                and part.end_offset is not None
+                for part in old_parts
+            )
+            and all(
+                part.get("source_content_hash")
+                and part.get("start_offset") is not None
+                and part.get("end_offset") is not None
+                for part in new_parts
+            )
         )
         if exact_comparison:
             matching_hash = all(
@@ -488,10 +490,4 @@ def _scene_fingerprint_payload(scene: Scene) -> dict[str, Any]:
 
 
 def _hash_payload(payload: Any) -> str:
-    encoded = json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    return stable_hash(payload, stringify_unknown=False)

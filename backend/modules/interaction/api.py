@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from typing import Literal
 
-from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
+from fastapi import APIRouter, File, Form, Query, Request, UploadFile
 from fastapi.responses import Response, StreamingResponse
 
-from core.csrf import require_xhr_request
 from core.dependencies import DbSession
 from core.errors import ConflictError, ValidationError
 from modules.account.facade import (
@@ -83,7 +83,8 @@ demo_router = APIRouter(prefix="/api/demo", tags=["public-demo"])
 _service = InteractionService()
 _source_service = InteractionSourceService()
 _opening_service = InteractionOpeningService()
-_xhr = [Depends(require_xhr_request)]
+# 匿名 RP 的 BYOK Key 只允许 DeepSeek Key 的实际字符集，阻断控制字符与注入载荷。
+_BYOK_API_KEY_RE = re.compile(r"[A-Za-z0-9_.\-]+")
 
 
 def _require_non_anonymous_care() -> None:
@@ -103,7 +104,7 @@ async def care_policy(db: DbSession, journey_id: str):
     return await assistant.policy(db, str(journey.novel_id), interaction=True)
 
 
-@router.put("/journeys/{journey_id}/care/policy", dependencies=_xhr)
+@router.put("/journeys/{journey_id}/care/policy")
 async def update_care_policy(db: DbSession, journey_id: str, data: ProactivePolicy):
     _require_non_anonymous_care()
     journey = await _service._owned_journey(db, journey_id)
@@ -117,7 +118,7 @@ async def care_notices(db: DbSession, journey_id: str):
     return await assistant.list_notices(db, str(journey.novel_id), interaction=True)
 
 
-@router.post("/journeys/{journey_id}/care/notices/{notice_id}/recheck", dependencies=_xhr)
+@router.post("/journeys/{journey_id}/care/notices/{notice_id}/recheck")
 async def recheck_care_notice(
     db: DbSession, journey_id: str, notice_id: uuid.UUID, data: NoticeRecheck
 ):
@@ -128,7 +129,7 @@ async def recheck_care_notice(
     )
 
 
-@router.post("/journeys/{journey_id}/care/notices/{notice_id}/decide", dependencies=_xhr)
+@router.post("/journeys/{journey_id}/care/notices/{notice_id}/decide")
 async def decide_care_notice(
     db: DbSession, journey_id: str, notice_id: uuid.UUID, data: NoticeDisposition
 ):
@@ -185,7 +186,7 @@ async def list_openings(db: DbSession, project_id: str | None = None):
     return await _opening_service.list(db, project_id)
 
 
-@router.put("/openings/{opening_id}", dependencies=_xhr)
+@router.put("/openings/{opening_id}")
 async def save_opening(
     db: DbSession, opening_id: str, project_id: str, data: OpeningSaveRequest
 ):
@@ -205,7 +206,6 @@ async def read_opening_image(db: DbSession, opening_id: str):
     "/openings/{opening_id}/start",
     response_model=InteractionMutationResponse,
     status_code=201,
-    dependencies=_xhr,
 )
 async def start_opening(db: DbSession, opening_id: str, data: OpeningStartRequest):
     return await _opening_service.start(db, opening_id, data)
@@ -214,7 +214,6 @@ async def start_opening(db: DbSession, opening_id: str, data: OpeningStartReques
 @router.post(
     "/sources/import-preview",
     response_model=InteractionSourceImportPreviewResponse,
-    dependencies=_xhr,
 )
 async def preview_source_import(
     db: DbSession,
@@ -242,7 +241,6 @@ async def preview_source_import(
     "/sources/import",
     response_model=InteractionSourceRevisionResponse,
     status_code=202,
-    dependencies=_xhr,
 )
 async def import_source(
     db: DbSession,
@@ -307,7 +305,6 @@ async def import_source(
     "/sources/from-project",
     response_model=InteractionSourceRevisionResponse,
     status_code=202,
-    dependencies=_xhr,
 )
 async def create_source_from_project(
     db: DbSession,
@@ -324,7 +321,6 @@ async def create_source_from_project(
 @router.post(
     "/sources/{revision_id}/refresh",
     response_model=InteractionSourceRevisionResponse,
-    dependencies=_xhr,
 )
 async def refresh_source_references(
     db: DbSession, revision_id: str
@@ -346,7 +342,6 @@ async def get_source(
 @router.post(
     "/sources/{revision_id}/ambiguities/{ambiguity_key}",
     response_model=InteractionSourceRevisionResponse,
-    dependencies=_xhr,
 )
 async def resolve_source_ambiguity(
     db: DbSession,
@@ -381,7 +376,6 @@ async def list_source_anchors(
 @router.post(
     "/sources/{revision_id}/anchors/match",
     response_model=InteractionSourceAnchorListResponse,
-    dependencies=_xhr,
 )
 async def match_source_anchors(
     db: DbSession,
@@ -421,7 +415,6 @@ async def list_source_objects(
 @router.patch(
     "/journeys/{journey_id}/source",
     response_model=JourneyDetailResponse,
-    dependencies=_xhr,
 )
 async def update_journey_source(
     db: DbSession,
@@ -449,7 +442,6 @@ async def get_journey_references(
 @router.patch(
     "/journeys/{journey_id}/references",
     response_model=InteractionReferenceSummaryResponse,
-    dependencies=_xhr,
 )
 async def update_journey_references(
     db: DbSession,
@@ -467,7 +459,6 @@ async def update_journey_references(
     "/journeys",
     response_model=InteractionMutationResponse,
     status_code=201,
-    dependencies=_xhr,
 )
 async def create_journey(
     db: DbSession,
@@ -480,7 +471,6 @@ async def create_journey(
     "/demo-journeys",
     response_model=InteractionMutationResponse,
     status_code=201,
-    dependencies=_xhr,
 )
 async def create_demo_journey(
     db: DbSession,
@@ -558,7 +548,6 @@ async def get_path_index(
 @router.post(
     "/journeys/{journey_id}/messages",
     response_model=InteractionMutationResponse,
-    dependencies=_xhr,
 )
 async def send_message(
     db: DbSession,
@@ -582,7 +571,6 @@ async def send_message(
 @router.post(
     "/journeys/{journey_id}/nodes/{node_id}/continue-from-here",
     response_model=InteractionMutationResponse,
-    dependencies=_xhr,
 )
 async def continue_from_node(
     db: DbSession,
@@ -608,7 +596,6 @@ async def continue_from_node(
 @router.post(
     "/journeys/{journey_id}/nodes/{node_id}/regenerate",
     response_model=InteractionMutationResponse,
-    dependencies=_xhr,
 )
 async def regenerate(
     db: DbSession,
@@ -628,7 +615,6 @@ async def regenerate(
 @router.post(
     "/journeys/{journey_id}/nodes/{node_id}/edit",
     response_model=InteractionMutationResponse,
-    dependencies=_xhr,
 )
 async def edit_user_message(
     db: DbSession,
@@ -654,7 +640,6 @@ async def edit_user_message(
 @router.post(
     "/journeys/{journey_id}/nodes/{node_id}/select",
     response_model=JourneyDetailResponse,
-    dependencies=_xhr,
 )
 async def select_branch(
     db: DbSession,
@@ -764,7 +749,6 @@ async def stream_attempt(
 
 @router.post(
     "/journeys/{journey_id}/attempts/{attempt_id}/stream",
-    dependencies=_xhr,
 )
 async def stream_anonymous_attempt(
     request: Request,
@@ -775,7 +759,7 @@ async def stream_anonymous_attempt(
     if not is_anonymous_rp_principal():
         raise ValidationError("仅公开体验使用当前生成方式")
     api_key = request.headers.get("x-deepseek-api-key", "").strip()
-    if not api_key or len(api_key) > 512:
+    if not api_key or len(api_key) > 512 or _BYOK_API_KEY_RE.fullmatch(api_key) is None:
         raise ValidationError("请提供可用的 DeepSeek Key")
     execution_id = await _service.claim_anonymous_attempt(
         db,
@@ -805,7 +789,6 @@ async def stream_anonymous_attempt(
 @router.post(
     "/journeys/{journey_id}/attempts/{attempt_id}/stop",
     response_model=InteractionStopResponse,
-    dependencies=_xhr,
 )
 async def stop_attempt(
     db: DbSession,
@@ -824,7 +807,6 @@ async def stop_attempt(
 @router.post(
     "/journeys/{journey_id}/attempts/{attempt_id}/keep",
     response_model=InteractionStopResponse,
-    dependencies=_xhr,
 )
 async def keep_partial(
     db: DbSession,
@@ -843,7 +825,6 @@ async def keep_partial(
 @router.post(
     "/journeys/{journey_id}/attempts/{attempt_id}/continue",
     response_model=InteractionMutationResponse,
-    dependencies=_xhr,
 )
 async def continue_attempt(
     db: DbSession,
@@ -863,7 +844,6 @@ async def continue_attempt(
 @router.post(
     "/journeys/{journey_id}/attempts/{attempt_id}/retry",
     response_model=InteractionMutationResponse,
-    dependencies=_xhr,
 )
 async def retry_attempt(
     db: DbSession,
@@ -883,7 +863,6 @@ async def retry_attempt(
 @router.patch(
     "/journeys/{journey_id}/modes",
     response_model=InteractionMutationResponse,
-    dependencies=_xhr,
 )
 async def update_modes(
     db: DbSession,
@@ -904,7 +883,6 @@ async def update_modes(
 @router.post(
     "/journeys/{journey_id}/heartbeat",
     response_model=InteractionHeartbeatResponse,
-    dependencies=_xhr,
 )
 async def heartbeat(
     db: DbSession,
@@ -916,7 +894,6 @@ async def heartbeat(
 @router.post(
     "/journeys/{journey_id}/leave",
     response_model=InteractionHeartbeatResponse,
-    dependencies=_xhr,
 )
 async def leave_story_page(
     db: DbSession,
@@ -933,7 +910,6 @@ async def get_preferences(db: DbSession) -> InteractionPreferencesResponse:
 @router.post(
     "/preferences/see-sea-notice",
     response_model=InteractionPreferencesResponse,
-    dependencies=_xhr,
 )
 async def acknowledge_see_sea_notice(
     db: DbSession,
@@ -944,7 +920,6 @@ async def acknowledge_see_sea_notice(
 @router.patch(
     "/journeys/{journey_id}/title",
     response_model=JourneyDetailResponse,
-    dependencies=_xhr,
 )
 async def update_title(
     db: DbSession,
@@ -972,7 +947,6 @@ async def get_overview(
 @router.put(
     "/journeys/{journey_id}/overview",
     response_model=InteractionOverviewResponse,
-    dependencies=_xhr,
 )
 async def update_overview(
     db: DbSession,
@@ -994,7 +968,6 @@ async def update_overview(
 @router.post(
     "/journeys/{journey_id}/overview/retry",
     response_model=InteractionOverviewResponse,
-    dependencies=_xhr,
 )
 async def retry_overview(
     db: DbSession,
@@ -1006,7 +979,6 @@ async def retry_overview(
 @router.post(
     "/journeys/{journey_id}/archive",
     response_model=JourneyDetailResponse,
-    dependencies=_xhr,
 )
 async def archive_journey(
     db: DbSession,
@@ -1023,7 +995,6 @@ async def archive_journey(
 @router.post(
     "/journeys/{journey_id}/restore",
     response_model=JourneyDetailResponse,
-    dependencies=_xhr,
 )
 async def restore_journey(
     db: DbSession,
@@ -1035,7 +1006,6 @@ async def restore_journey(
 @router.delete(
     "/journeys/{journey_id}",
     status_code=204,
-    dependencies=_xhr,
 )
 async def delete_journey(
     db: DbSession,

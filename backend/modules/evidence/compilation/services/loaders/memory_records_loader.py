@@ -15,9 +15,25 @@ from modules.evidence.compilation.contracts import (
     compile_uses_scene_world_state,
 )
 from modules.evidence.compilation.services.protocol import Loader
-from modules.story.contracts import scene_memory_dimensions
 
 logger = logging.getLogger(__name__)
+
+
+def _scene_memory_port():
+    # AO-5: story Scene memory 契约经组合根注册的只读 port 解析。
+    from core.container import get
+    from core.service_keys import (
+        STORY_SCENE_SOURCE,
+    )
+
+    return get(STORY_SCENE_SOURCE)
+
+
+def _scene_memory_dimensions(version: int | None) -> tuple[str, ...]:
+    port = _scene_memory_port()
+    resolved = version if version is not None else port.scene_memory_current_version()
+    return port.scene_memory_dimensions(resolved)
+
 
 _GetMemoryPanoramaFn = Callable[[AsyncSession, str, int], Awaitable[Any]]
 _EnsureSceneCheckpointsFn = Callable[[AsyncSession, str, str], Awaitable[Any]]
@@ -104,16 +120,19 @@ class MemoryRecordsLoader(Loader):
                 "Failed to load Scene memory checkpoints: %s",
                 redact_diagnostic(exc, limit=300),
             )
+            _port = _scene_memory_port()
+            contract_version = (
+                options.scene_memory_contract_version
+                if options.scene_memory_contract_version is not None
+                else _port.scene_memory_current_version()
+            )
+            resolved_dimensions = _port.scene_memory_dimensions(contract_version)
             bundle.scene_checkpoint_set = {
                 "coverage_status": "unavailable",
                 "items": [],
-                "contract_version": options.scene_memory_contract_version,
-                "required_dimensions": list(
-                    scene_memory_dimensions(options.scene_memory_contract_version)
-                ),
-                "missing_dimensions": list(
-                    scene_memory_dimensions(options.scene_memory_contract_version)
-                ),
+                "contract_version": contract_version,
+                "required_dimensions": list(resolved_dimensions),
+                "missing_dimensions": list(resolved_dimensions),
             }
             bundle.warnings.append("Scene 时点状态核对失败，本次未用当前世界状态回填过去")
 

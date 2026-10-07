@@ -18,6 +18,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import get_settings
 from core.container import get as _container_get
+from core.service_keys import (
+    OUTLINE_GENERATE_STRUCTURE,
+    WORLD_RUN_ALIAS_RELATION_EXTRACTION,
+    WORLD_RUN_SCENE_ENTITY_EXTRACTION,
+)
 from infrastructure.llm.redaction import redact_diagnostic
 from modules.imports.admission import propagate_run_envelope_error
 from modules.imports.chapter_loader import load_chapter_range
@@ -242,6 +247,8 @@ class DeepImportWorkflow:
             if total_scenes <= 0:
                 progress.quality_status = "failed"
             else:
+                if phase3_result.get("partial_degraded"):
+                    progress.degraded = True
                 progress.quality_status = "partial" if progress.degraded else "complete"
             progress.message = (
                 f"深度导入完成！"
@@ -741,7 +748,7 @@ class DeepImportWorkflow:
         scene_ids: list[str] | None = None,
         include_alias_relations: bool = True,
     ) -> dict[str, Any]:
-        handler = _container_get("world.run_scene_entity_extraction")
+        handler = _container_get(WORLD_RUN_SCENE_ENTITY_EXTRACTION)
         from modules.imports.entity_extraction.scene_entity_config import (
             phase2_project_settings_context,
         )
@@ -787,7 +794,7 @@ class DeepImportWorkflow:
         start_chapter: int | None,
         end_chapter: int | None,
     ) -> dict[str, Any]:
-        handler = _container_get("world.run_alias_relation_extraction")
+        handler = _container_get(WORLD_RUN_ALIAS_RELATION_EXTRACTION)
         from infrastructure.llm.profiles import resolve_llm_profile
         from modules.imports.entity_extraction.scene_entity_config import (
             phase2_project_settings_context,
@@ -828,7 +835,7 @@ class DeepImportWorkflow:
         context_mode: str = "working",
         include_pending_objects: bool = True,
     ) -> dict[str, Any]:
-        _generate = _container_get("outline.generate_structure")
+        _generate = _container_get(OUTLINE_GENERATE_STRUCTURE)
         high_quality = bool(getattr(self, "_deep_import_high_quality", False))
         structure_kwargs = {
             "context_mode": context_mode,

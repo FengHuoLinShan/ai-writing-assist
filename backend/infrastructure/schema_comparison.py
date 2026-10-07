@@ -36,6 +36,15 @@ MIGRATION_MANAGED_INDEXES: dict[str, set[str]] = {
     "writing_drafts": {"ix_writing_drafts_chapter"},
 }
 
+# These PostgreSQL-only check constraints are intentionally owned by explicit
+# migrations. Their expressions use PostgreSQL-only syntax (casts, functions)
+# that portable ORM metadata cannot declare without breaking SQLite-based unit
+# tests, so comparison excludes only these known names from remove-constraint
+# suggestions and validates their presence separately.
+MIGRATION_MANAGED_CHECKS: dict[str, set[str]] = {
+    "assistant_forecast_candidates": {"ck_forecast_payload_size"},
+}
+
 
 def _include_schema_object(
     obj: Any,
@@ -45,10 +54,15 @@ def _include_schema_object(
     compare_to: Any,
 ) -> bool:
     del compare_to
-    if type_ != "index" or not reflected or not name:
+    if not reflected or not name:
         return True
-    table_name = getattr(getattr(obj, "table", None), "name", None)
-    return name not in MIGRATION_MANAGED_INDEXES.get(str(table_name), set())
+    if type_ == "index":
+        table_name = getattr(getattr(obj, "table", None), "name", None)
+        return name not in MIGRATION_MANAGED_INDEXES.get(str(table_name), set())
+    if type_ == "check_constraint":
+        table_name = getattr(getattr(obj, "table", None), "name", None)
+        return name not in MIGRATION_MANAGED_CHECKS.get(str(table_name), set())
+    return True
 
 
 def _compare_schema_type(
@@ -67,7 +81,7 @@ def _compare_schema_type(
     return None
 
 
-def _validate_migration_managed_indexes(connection: Any) -> None:
+def _validate_migration_managed_objects(connection: Any) -> None:
     inspector = inspect(connection)
     tables = set(inspector.get_table_names())
     missing: list[str] = []
@@ -78,7 +92,14 @@ def _validate_migration_managed_indexes(connection: Any) -> None:
         missing.extend(
             f"{table_name}.{index_name}" for index_name in sorted(expected - actual)
         )
+    for table_name, expected in MIGRATION_MANAGED_CHECKS.items():
+        if table_name not in tables:
+            continue
+        actual = {check["name"] for check in inspector.get_check_constraints(table_name)}
+        missing.extend(
+            f"{table_name}.{check_name}" for check_name in sorted(expected - actual)
+        )
     if missing:
         raise RuntimeError(
-            "Missing migration-managed PostgreSQL indexes: " + ", ".join(missing)
+            "Missing migration-managed PostgreSQL schema objects: " + ", ".join(missing)
         )

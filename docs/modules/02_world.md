@@ -34,13 +34,35 @@ imports 可通过 `world.facade.dedupe_deep_import_workflow_candidates` 调用�
   6 个再生产循环、F01–F22、C01–C05、四类情境测试、T01–T12 与 fiction-core 六阶段。
   从 World Core 产生的首个 checkpoint 深度为 `seed`，未知区域明确记录为 gap/not-run。
 - 世界书目录导入与文稿 imports 物理分离：浏览器只提交受限相对路径和 UTF-8 文本清单，
-  world 以 `world_worldbook_import.v1` 保存 pending 提案。raw/非 Markdown 资料创建
+  world 以 `world_worldbook_import.v1/v2` 保存 pending 提案。raw/非 Markdown 资料创建
   `source_material` 工作稿；Obsidian/LLM Wiki 正文保留受限的 page type 和有界
-  嵌套 Frontmatter，但权威仍为 candidate，不会因导入元数据自动激活。重导入仅在
-  来源变化且本地仍等于 baseline 时安全更新，双变和源缺失进入冲突队列；
-  源恢复时只清除缺失标记，不覆盖作者改动。控制文件、脚本、二进制与 `.obsidian`
-  配置只列名忽略，浏览器不读其内容，服务端也不执行或激活。应用是单事务：
-  中断不留部分工作稿，保留 pending 预览后可重试。带有严格
+  嵌套 Frontmatter，但权威仍为 candidate，不会因导入元数据自动激活。manifest 可显式
+  声明 `source_format`（默认 `auto` 目录标记检测，另有 `wiki_markdown` 视作无 vault
+  标记的 Obsidian 正文子集）与 `dataset_name`/`dataset_intent`/`commit_mode`：声明 dataset 的 v2 提交以
+  `dataset_key + 资料集内 rel_path` 派生页级身份（根目录改名不换身份），缺失判定仅在
+  `full_snapshot` 下限定同一资料集、`append` 不产生缺失标记，未声明 dataset 的 v1
+  请求保持项目级判定。`dataset_intent` 为作者三态选择（默认 `continue`）：`new`
+  新建资料集在派生 key 已存在时返回 400；`adopt_legacy` 接续旧来源，按 legacy
+  `source_path` 剥根等效 rel_path 匹配，预览返回 `legacy_bindings` 待绑定映射
+  （逐条标注工作稿/已发布页），应用对工作稿目标补写 dataset 字段并保留原
+  `source_path`、不新建工作稿，已发布页目标本轮不改写其归属（补写须走发布链
+  显式确认路径，预览如实披露）。导入预览对每页统计
+  正文 `[[…]]` 双链与 frontmatter `related` 的四态引用计数（已解析/名称歧义/未解析/
+  未纳入，纳入预览指纹），应用时已解析目标按既有 TargetRef 契约物化引用：已发布页
+  （含同时在本批的重导场景）写真实引用、未发布目标用 `local:` 约定指向资料集内相对路径，歧义/未解析/未纳入
+  保留链接原文不建引用；含悬空链接的页面在发布校验中会因 dangling 链接整体阻断，
+  预览向作者披露后果与出路。`local:` 待发布引用是工作稿的合法持久态：编辑保存放行、
+  发布时目标已发布的物化为真实引用（预览与发布同口径），目标未发布的保持待发布态
+  随页落地并在发布影响回执披露，不阻断发布；语义缺口清单与生成中心上下文跳过待发布
+  引用。重导入仅在来源变化且本地仍等于 baseline 时安全更新，双变和源
+  缺失进入冲突队列；源恢复时只清除缺失标记，不覆盖作者改动。控制文件、脚本、二进制
+  与 `.obsidian` 配置只列名忽略，浏览器不读其内容，服务端也不执行或激活。应用是单
+  事务，先取项目+资料集 advisory lock 并在锁内重放复验来源与目标基线，跨 suggestion
+  并发 apply 因此串行化；中断不留部分工作稿，保留 pending 预览后可重试。导入与发布
+  分阶段：apply 只产生未发布工作稿，来源 `canon_status` 声明不触发发布或激活，发布走
+  既有 Canon Preview/Admit 与校验回执；来源更新重导经既有失效链使显式选中该工作稿的
+  作者 AI 上下文确认失效，可重新确认，角色/读者视角不消费世界书 activation 资料、
+  简介与工作稿，导入预览按 `target_kind` 逐项区分未发布工作稿与已发布页目标。带有严格
   `validation_policy` Frontmatter 的策略页可作为 `rule` 工作稿导入；导入本身不激活，
   只有作者显式发布后才成为项目唯一的活动策略。
 - 项目可显式启用 `world_validation_policy.v1`；未启用时旧项目行为不变。启用后，
@@ -95,7 +117,10 @@ CONFIRMED 数据（名称、类型、`summary` 与少量确认属性；未确认
 ## 数据表
 
 - `core_entities` — 共享核心实体表，公共字段（name / `content_json.aliases` / summary / public_info / hidden_truth / importance / embedding / search_text / pinyin_string / image_version / image_updated_at）统一存储；别名项保存 `kind + type`，图片字节位于私有对象存储
-- `events` — 事件扩展表（entity_id PK+FK → core_entities.id）
+- `events` — 事件扩展表（entity_id PK+FK → core_entities.id）；`status` 为 canonical/deprecated，删除只置 deprecated（保留历史），列表、详情、编辑、世界背景、融合指纹与类型转换阻断只认 canonical；同一对象再次创建时用新字段复活原行，已有未删除扩展时返回 409
+
+事件写入在所属对象锁内重验状态，创建/复活与删除/更新互斥；地点锁沿 UUID 固定顺序。
+软删保留扩展行且不废弃 CoreEntity；有 deprecated 历史时拒绝去掉 status 的 schema 降级。
 - `entity_relations` — 实体关系边（UUID FK → core_entities + `relation_kind` 最小分类 + `relation_type` 精确类型 + 章节追溯字段 + `review_meta` 复核审计）
 - `entity_revisions` — 实体改动历史表（改动前快照 + `writing_chapter_index` 写作进度 + `change_summary` 改动字段摘要，含 `restored_from_revision_id`；Scene 回滚兜底仍优先 `TextArchive`，无归档时回退）
 - `world_revision_notes` — 实体/页面/地图修订的事后补写备注（`(novel_id, target_kind, revision_id)` 唯一，无跨表外键，服务层校验归属；不进入快照/摘要/Canon receipt）
@@ -196,11 +221,14 @@ helper 和历史兼容入口：
 - `services/worldbuilding/`：世界书、模板、投影和作者资料整理。
   `worldbuilding_service.py` 仅作为旧 import path 兼容 hub；实现按概念拆到
   `profile_service.py`、`world_bible_service.py`、`world_bible_lifecycle_service.py`、
-  `world_bible_synopsis_service.py`、`world_generation_center_service.py`、`suggestion_queue_service.py`、
+  `world_bible_synopsis_service.py`、`suggestion_queue_service.py`、
   `cocreation_session_service.py`、
   `knowledge_tag_service.py`、`reader_safety_service.py`、`conflict_queue_service.py`、
   `activation_preview_service.py`、`activation_target_service.py` 和
   `page_template_service.py`、`world_impact_service.py`（跨模块只读影响枚举：世界页反向引用、对象关系、人物档案、故事线、正文字面扫描与地图节点，逐层带未覆盖说明）。
+  `world_generation_center_service.py` 已按生成阶段拆为 `generation_center/` 包
+  （`shared` 常量/提示词 + 按阶段 mixin + `service.py` 组合类），原模块路径保留为
+  薄再导出层。
 - `services/common.py`：跨子包通用 helper，如 `parse_uuid`、`normalize_name`。
 - `map_atlas_*.py`：地图册 API、模型、service、workflow、storage、task 与 deletion cleanup seam。
 
@@ -321,6 +349,10 @@ content_json._meta 记录来源五元组），别名 confirmed，作者备注追
 走软废弃；相关 Character 行的补空回滚按 character receipt 条目恢复。
 
 ## API
+
+路由按子域拆在 `backend/modules/world/api/` 包（canon、generation_center、bible、
+library、entities、relations 等 19 个子域模块 + `_shared.py` 路由基建），
+`modules.world.api` 聚合导出与挂载入口 `router` 不变。
 
 ```
 # CoreEntity

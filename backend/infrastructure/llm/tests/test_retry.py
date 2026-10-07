@@ -90,6 +90,90 @@ class TestIsRetryable:
         assert not is_retryable_transport_error(ValueError("something else"))
 
 
+class TestWrappedErrorChain:
+    """业务层把原始 LLM 错误包装成 RuntimeError 后，判定沿异常链回溯。"""
+
+    @staticmethod
+    def _wrapped(inner: Exception) -> Exception:
+        """模拟生产代码 `raise RuntimeError(msg) from inner` 后被捕获的形态。"""
+        try:
+            raise RuntimeError(f"{type(inner).__name__}: {inner}") from inner
+        except RuntimeError as wrapper:
+            return wrapper
+
+    @staticmethod
+    def _deep_chain(links: int, tail: Exception) -> Exception:
+        """用 links 层 RuntimeError 包装 tail，返回最外层异常。"""
+        head: Exception = tail
+        for _ in range(links):
+            wrapper: Exception = RuntimeError("wrapper")
+            wrapper.__cause__ = head
+            head = wrapper
+        return head
+
+    def test_wrapped_rate_limit_is_retryable(self) -> None:
+        inner = LLMRateLimitError(
+            "rate limited", provider="test", model="m", retry_after=5
+        )
+        assert is_retryable_llm_error(self._wrapped(inner)) is True
+
+    def test_wrapped_auth_is_not_retryable(self) -> None:
+        inner = LLMAuthError("auth", provider="test", model="m")
+        assert is_retryable_llm_error(self._wrapped(inner)) is False
+
+    def test_wrapped_timeout_is_retryable(self) -> None:
+        assert is_retryable_llm_error(self._wrapped(TimeoutError("boom"))) is True
+
+    def test_plain_runtime_error_without_cause_is_not_retryable(self) -> None:
+        assert is_retryable_llm_error(RuntimeError("plain")) is False
+
+    def test_non_retryable_wins_over_retryable_in_chain(self) -> None:
+        # 链上同时出现限流（可重试）与认证失败（不可重试）：不可重试优先。
+        head = RuntimeError("head")
+        middle = LLMRateLimitError(
+            "rate limited", provider="test", model="m", retry_after=1
+        )
+        head.__cause__ = middle
+        middle.__cause__ = LLMAuthError("auth", provider="test", model="m")
+        assert is_retryable_llm_error(head) is False
+
+    def test_transport_policy_keeps_wrapped_auth_terminal(self) -> None:
+        wrapper = self._wrapped(LLMAuthError("auth", provider="test", model="m"))
+        assert not is_retryable_transport_error(wrapper)
+
+    def test_suppressed_context_is_still_considered(self) -> None:
+        # `raise ... from None` 抹掉 cause 但隐式 __context__ 仍在：
+        # 存量 from None 调用点的原始瞬时错误也应被识别。
+        try:
+            try:
+                raise LLMTimeoutError("timeout", provider="test", model="m")
+            except Exception:
+                raise RuntimeError("suppressed") from None
+        except RuntimeError as wrapper:
+            suppressed = wrapper
+        assert is_retryable_llm_error(suppressed) is True
+
+    def test_cause_loop_terminates(self) -> None:
+        looped: Exception = RuntimeError("looped")
+        looped.__cause__ = looped
+        assert is_retryable_llm_error(looped) is False
+
+        first: Exception = RuntimeError("a")
+        second: Exception = RuntimeError("b")
+        first.__cause__ = second
+        second.__cause__ = first
+        assert is_retryable_llm_error(first) is False
+
+    def test_chain_depth_is_bounded(self) -> None:
+        tail = LLMRateLimitError(
+            "rate limited", provider="test", model="m", retry_after=1
+        )
+        # 深度内：回溯能识别底层限流错误。
+        assert is_retryable_llm_error(self._deep_chain(3, tail)) is True
+        # 超过最大回溯深度：判定为不可重试，且不因深链/循环崩溃。
+        assert is_retryable_llm_error(self._deep_chain(10, tail)) is False
+
+
 class TestRetryWithBackoff:
     @pytest.mark.asyncio
     async def test_generic_llm_error_keeps_legacy_transport_retry(

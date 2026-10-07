@@ -13,6 +13,7 @@ export function publishImpactHtml(impact, esc) {
   const omissionLabels = {
     invalid_page_reference: "页面引用格式损坏",
     unavailable_page_reference: "页面引用不可用或不在当前项目",
+    pending_page_reference: "引用目标尚未发布",
     response_limit: "显式下游未在本次列表展开",
   }
   const omissionHtml = omissions.length

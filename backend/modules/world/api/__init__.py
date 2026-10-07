@@ -1,0 +1,70 @@
+"""World API 包 — 按子域拆分的路由模块。
+
+聚合导出与原 ``modules.world.api`` 模块兼容：``router`` 为挂载入口，各子域
+共用服务单例保持原模块级名字，供应用挂载与测试访问。子模块导入即注册
+路由，顺序与原 api.py 分组顺序一致，保持路由匹配顺序不变。
+"""
+
+from modules.world.api import (  # noqa: F401
+    adoption,
+    aliases,
+    bible,
+    canon,
+    characters,
+    cocreation,
+    entities,
+    events,
+    generation_center,
+    history,
+    knowledge,
+    library,
+    prompt_templates,
+    relations,
+    revisions,
+    stress,
+    suggestions,
+    validation,
+    workspace,
+)
+from modules.world.api._shared import (  # noqa: F401
+    ActiveNovelIdQuery,
+    _adoption_package_service,
+    _alias_service,
+    _ask_world_service,
+    _attach_manual_context_result,
+    _bible_lifecycle_service,
+    _bible_page_template_service,
+    _bible_service,
+    _bible_synopsis_service,
+    _change_history_service,
+    _character_service,
+    _cocreation_session_service,
+    _conflict_queue_service,
+    _context_service,
+    _dedup_service,
+    _entity_image_generation_service,
+    _entity_image_service,
+    _entity_service,
+    _event_service,
+    _fusion_service,
+    _generation_template_service,
+    _knowledge_graph_service,
+    _knowledge_service,
+    _knowledge_tag_service,
+    _profile_service,
+    _relation_service,
+    _require_active_novel_id,
+    _require_generation_confirmation,
+    _revision_service,
+    _suggestion_service,
+    _template_version_conflict,
+    _world_authority_service,
+    _world_generation_service,
+    _world_impact_service,
+    _world_library_service,
+    _world_validation_service,
+    _worldbook_import_service,
+    router,
+)
+
+__all__ = ["ActiveNovelIdQuery", "router"]

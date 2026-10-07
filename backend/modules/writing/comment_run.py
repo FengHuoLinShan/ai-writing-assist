@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 
 from sqlalchemy import select
 
+from core.container import get
 from core.errors import ConflictError, ValidationError
+from core.service_keys import (
+    ASSISTANT_SUBMIT_COMMENT_PROPOSALS,
+)
 from infrastructure.llm.agent_step_harness import run_managed_structured
+from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from modules.evidence.contracts import (
     GovernedWorkflowHooks,
@@ -39,6 +45,8 @@ from modules.writing.semantic_review import (
     _requires_confirmed_context,
 )
 from modules.writing.source_hashing import hash_text
+
+logger = logging.getLogger(__name__)
 
 
 def _ranges(comments: list[WritingComment], content: str) -> list[dict]:
@@ -158,6 +166,15 @@ async def _generate_candidate(
     ranges = _ranges(comments, content)
     if len(ranges) > 50:
         raise ValidationError("本次批注过多，请分批执行")
+    # checkpoint 会 expire_all：之后只能用这些捕获值或重新查询，
+    # 读取过期 ORM 属性会抛 MissingGreenlet。
+    draft_key = str(draft.id)
+    draft_uuid = draft.id
+    draft_chapter_index = draft.chapter_index
+    draft_title = draft.title
+    draft_content_hash = draft.content_hash
+    draft_provenance = dict(draft.provenance_json or {})
+    comment_ids = [str(row.id) for row in comments]
     policy = require_capability_policy("writing.comment_revision")
     key = f"writing_draft:{draft.id}"
     receipt = KnowledgeScopeReceipt(
@@ -218,7 +235,7 @@ async def _generate_candidate(
                         role="user",
                         content=json.dumps(
                             {
-                                "chapter": draft.chapter_index,
+                                "chapter": draft_chapter_index,
                                 "editable_ranges": [
                                     {
                                         **item,
@@ -269,12 +286,10 @@ async def _generate_candidate(
         return None, {"status": "blocked", "audit": outcome.audit.to_dict()}
 
     await require_active_project(db, novel_id)
-    current = await _current_draft(db, novel_id, draft.id)
-    if current.content_hash != draft.content_hash:
+    current = await _current_draft(db, novel_id, draft_uuid)
+    if current.content_hash != draft_content_hash:
         raise ConflictError("修订期间正文已变化，已丢弃过时结果")
-    await _load_selected(
-        db, novel_id, draft.id, [str(row.id) for row in comments], draft.content_hash
-    )
+    await _load_selected(db, novel_id, draft_uuid, comment_ids, draft_content_hash)
     knowledge = knowledge_review_payload(
         audit=outcome.audit,
         visible_keys=outcome.generator_keys,
@@ -283,25 +298,23 @@ async def _generate_candidate(
         db,
         WritingDraftCreate(
             novel_id=novel_id,
-            chapter_index=draft.chapter_index,
-            title=draft.title,
+            chapter_index=draft_chapter_index,
+            title=draft_title,
             content=outcome.output,
             provenance_json={
                 "source": "writing_comment_revision",
-                "context_origin": (draft.provenance_json or {}).get("context_origin")
-                or (draft.provenance_json or {}).get("source")
+                "context_origin": draft_provenance.get("context_origin")
+                or draft_provenance.get("source")
                 or "manual",
-                "context_confirmation_id": (draft.provenance_json or {}).get(
+                "context_confirmation_id": draft_provenance.get(
                     "context_confirmation_id"
                 ),
-                "source_confirmation_id": (draft.provenance_json or {}).get(
-                    "source_confirmation_id"
-                ),
-                "scene_id": (draft.provenance_json or {}).get("scene_id"),
+                "source_confirmation_id": draft_provenance.get("source_confirmation_id"),
+                "scene_id": draft_provenance.get("scene_id"),
                 "source_task_id": task_id,
-                "base_draft_id": str(draft.id),
-                "base_content_hash": draft.content_hash,
-                "comment_ids": [str(row.id) for row in comments],
+                "base_draft_id": draft_key,
+                "base_content_hash": draft_content_hash,
+                "comment_ids": comment_ids,
                 "allowed_scope": "selected_ranges_only",
                 "applied_patches": applied,
                 "knowledge_review": knowledge,
@@ -369,34 +382,66 @@ async def run_comment_task(db, task, snapshot: dict) -> dict:
     for row in selected:
         row.last_run_task_id = uuid.UUID(str(task.id))
         db.add(row)
+    # 候选稿与批注标记先落为已提交检查点：下面的独立审稿失败时要 rollback
+    # 丢弃半成品审查写入，rollback 不能连带丢掉本次任务的主要产物。
+    from infrastructure.tasks.facade import checkpoint_handler_session
+
+    # checkpoint 会 expire_all：先捕获后续需要的 ORM 派生值。
+    task_id = str(task.id)
+    candidate_draft_id = str(candidate.id)
+    manual_scope = _manual_review_scope(draft)
+    proposal_inputs = {
+        "draft_id": str(draft.id),
+        "chapter_index": draft.chapter_index,
+        "source_hash": draft.content_hash,
+        "comments": [row.body for row in selected],
+    }
+    await checkpoint_handler_session(
+        db,
+        error_message="批注任务需要在独立审稿前提交候选稿检查点",
+    )
     try:
         post = await WritingSemanticWorkflowService().review_for_task(
             db,
-            task_id=str(task.id),
+            task_id=task_id,
             novel_id=novel_id,
-            draft_ids=[str(candidate.id)],
+            draft_ids=[candidate_draft_id],
             scope="selection",
             llm_execution_snapshot=snapshot,
-            manual_world_scope=_manual_review_scope(draft),
+            manual_world_scope=manual_scope,
         )
         result["post_review"] = post
     except Exception as exc:
+        # 丢弃审稿可能半途 flush 的 findings/provenance，防止任务按成功收尾时
+        # 把半成品落库；候选稿已在上面的检查点提交，rollback 不影响主产物。
+        await db.rollback()
+        logger.warning(
+            "Comment run %s post-review failed; task degraded: %s",
+            task_id,
+            redact_diagnostic(exc, limit=500),
+        )
         result["post_review_error"] = str(exc)[:300]
+        result["degraded"] = True
     task.update_progress(0.9)
     try:
-        from modules.assistant.facade import submit_comment_proposals
-
-        proposal = await submit_comment_proposals(
-            db,
-            novel_id=novel_id,
-            draft_id=str(draft.id),
-            chapter_index=draft.chapter_index,
-            source_hash=draft.content_hash,
-            comments=[row.body for row in selected],
-            operation_id=str(uuid.uuid5(uuid.UUID(str(task.id)), "asset-proposals")),
-        )
-        result["asset_proposal_run_id"] = proposal
+        # savepoint 隔离提案写入：失败只回滚 assistant 半成品行，
+        # 不影响已完成的独立审稿写入（采用门禁依赖它）。
+        async with db.begin_nested():
+            # AO-5：assistant facade 经组合根 DI 键解析，不 import。
+            proposal = await get(ASSISTANT_SUBMIT_COMMENT_PROPOSALS)(
+                db,
+                novel_id=novel_id,
+                **proposal_inputs,
+                operation_id=str(uuid.uuid5(uuid.UUID(task_id), "asset-proposals")),
+            )
+            result["asset_proposal_run_id"] = proposal
     except Exception as exc:
+        logger.warning(
+            "Comment run %s asset proposals failed; task degraded: %s",
+            task_id,
+            redact_diagnostic(exc, limit=500),
+        )
         result["asset_proposal_error"] = str(exc)[:300]
+        result["degraded"] = True
     task.update_progress(1.0)
     return result

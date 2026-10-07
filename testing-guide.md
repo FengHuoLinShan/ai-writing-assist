@@ -91,11 +91,14 @@ Evidence indexing/compilation 回归集中在 `backend/modules/evidence/`；
 | `make audit-frontend-deps` | Audit `frontend-console/package-lock.json`; fail only on high/critical dependency advisories | npm registry/advisory data |
 | `npm --prefix frontend-console run lint` | Production JS, Vue SFC, Vitest, Playwright, and build-config correctness / Vue essential rules | Locked frontend dependencies; no formatting gate |
 | `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-e2e` | PostgreSQL/pgvector behavior | Explicit dedicated test database at Alembic head; fails fast if missing, non-dedicated, unavailable, or stale |
-| `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-postgresql-critical` | Serial merge-gate subset: fresh migration with an out-of-process `alembic check` ORM parity gate, isolation, uniqueness, CAS, advisory-lock races, and task run-envelope lease/terminal merge | Explicit dedicated PostgreSQL 17 + pgvector database at Alembic head; workers=1, retries=0 |
+| `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-postgresql-critical` | Serial merge-gate subset: fresh migration with an out-of-process `alembic check` ORM parity gate, event soft-delete backfill/safe downgrade and create/restore/delete-update races, isolation, uniqueness, CAS, advisory-lock races, and task run-envelope lease/terminal merge | Explicit dedicated PostgreSQL 17 + pgvector database at Alembic head; workers=1, retries=0 |
 | `RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv --directory backend run pytest tests/e2e/test_rp_source_versions.py -m e2e` | RP source revision 并发唯一性、历史 chunk 共存、来源删除门禁与 consumer snapshot 生命周期 | Dedicated PostgreSQL at Alembic head |
 | `RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_project_task_gate_concurrency.py -m "not real_llm and not external_data"` | Project delete vs atlas upload/cleanup race | Dedicated PostgreSQL at Alembic head |
 | `RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_task_coalescing_concurrency.py -m e2e` | Keyed coalescing and concurrent operation-receipt uniqueness | Dedicated PostgreSQL at Alembic head |
+| `RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_worldbook_dataset_import_concurrency.py -m e2e` | 资料集世界书导入 apply 的 dataset advisory-lock 串行化、过期建议锁内重放冲突、同 suggestion 重复 apply CAS 与过期指纹 409 | Dedicated PostgreSQL at Alembic head |
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:functional -- --workers=1 --retries=0` | Complete functional browser regression | Fresh dedicated PostgreSQL, local private MinIO buckets, and Chromium; automated on frontend-related PRs and every main push; backend-only PRs use test:e2e:smoke |
+| `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:responsive -- --workers=1 --retries=0` | 全站五档窗口、复杂工作台扩展、断点两侧、矮屏、触控操作与未保存状态/失败恢复 | 同一专用服务和 Chromium，合成资料；检查控件实际边界和 trial 点击，局部画布滚动允许，页面裁切不允许 |
+| `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:webkit -- --workers=1 --retries=0` | 移动 WebKit 写作、地图标注、RP 流式快照/阅读与只读演示核心流程 | 同一专用服务及 Playwright WebKit；模拟触控、字体放大和可视视口单元测试不代表实机键盘、安全区或真实浏览器缩放 |
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:functional -- interaction.spec.js --workers=1 --retries=0` | RP 作品复用、导入恢复、关键歧义、剧情锚点、两种身份、资料抽屉与 390px 键盘流 | Same fresh dedicated stack; network responses use synthetic fixtures |
 | `npm --prefix frontend-console run test:e2e:functional -- themes.spec.js` | 本地主题资源、预览取消、持久化／配额失败、刷新／导出／删除、字体偏好与手机正文稳定性 | 同一专用 PostgreSQL 与全新服务门禁；不调用模型 |
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:map` | Focused local map regression, including touch/390px; already contained in the functional suite | Explicit dedicated PostgreSQL and fresh backend/frontend |
@@ -226,6 +229,7 @@ workers=1、retries=0。完整功能套件在两个独立分片 runner 上执行
 `--shard=2/2`，smoke 单 runner）；assistant/creative/editorial 三个辅助套件各执行一次，
 固定在第一片，每个套件的 Playwright 输出目录独立命名。任一分片失败、取消或意外跳过都
 由聚合检查 `scripts/aggregate_browser_gate.py` 失败关闭，分类失败或输出缺失同样不通过。
+完整功能套件第一片另外安装 WebKit 并执行 `test:e2e:webkit`，使用独立输出/blob 目录及成功完成标记；标记缺失也失败关闭。后端 smoke 和第二片不要求 WebKit，辅助套件原门禁保留。
 全量结果失败时暂停发布，不能用截图更新、重试或删断言追认通过。
 
 它们与独立的 `Architecture docs` 分开运行，因此前端或镜像失败不会再以
@@ -270,7 +274,9 @@ and Chromium, then runs the complete functional suite on two shards (`--shard=1/
 `--shard=2/2`) on frontend-related PRs and main, while backend-related PRs keep the
 single-runner smoke suite. Shards stay workers=1 with retries=0; the
 assistant/creative/editorial auxiliary suites run once on shard 1 with per-suite Playwright
-output directories. Each shard retains `frontend-console/test-results` failure
+output directories. Full-suite shard 1 additionally installs WebKit and runs the mobile core
+suite with its own output/blob directory and required success marker; smoke and shard 2 do
+not require WebKit. Each shard retains `frontend-console/test-results` failure
 diagnostics and always uploads native blob reports from `frontend-console/blob-report`
 for 14 days under shard-specific artifact names. Functional and auxiliary reports use
 separate directories so later suites preserve earlier results. The required

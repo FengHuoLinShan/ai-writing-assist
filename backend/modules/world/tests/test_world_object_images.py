@@ -366,7 +366,9 @@ async def test_authenticated_upload_and_read_api_contract(
     from modules.world import api
 
     storage = MemoryStorage()
-    monkeypatch.setattr(api, "_entity_image_service", WorldObjectImageService(storage))
+    monkeypatch.setattr(
+        api.entities, "_entity_image_service", WorldObjectImageService(storage)
+    )
     uploaded = await async_client.put(
         f"/api/world/entities/{test_entity_id}/image",
         params={"novel_id": test_project_id},
