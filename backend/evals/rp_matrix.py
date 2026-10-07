@@ -101,6 +101,10 @@ def frozen_spec():
             ]
             for family in FAMILIES
         },
+        "judge_ground_truth_hashes": {
+            family.key: hashlib.sha256(family.judge_ground_truth.encode()).hexdigest()
+            for family in FAMILIES
+        },
         "rubric_hash": hashlib.sha256(
             json.dumps(
                 [
@@ -674,7 +678,7 @@ async def run_matrix(directory: Path, keep_db: bool):
                                 LLMCallRequest(
                                     model=profile["model"],
                                     messages=_judge_messages(
-                                        recap=family.recap
+                                        recap=family.judge_ground_truth
                                         + "\n续写一之前的历史："
                                         + "\n".join(
                                             item["text"]

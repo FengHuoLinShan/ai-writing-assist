@@ -47,6 +47,20 @@ class Family:
         action = actions[(turn - 1) % len(actions)]
         return f"第{turn}步玩家选择：{action}只推进眼前这一小步。"
 
+    @property
+    def judge_ground_truth(self):
+        chapters = 12 if self.stage == "dev" else 36
+        facts = [
+            f"第{number}章：" + self.chapter(number)
+            for number in range(1, chapters + 1)
+        ]
+        return (
+            self.recap
+            + "\n以下是审核用的起点前逐章原文，不代表角色全部知情；"
+            + "原有秘密/角色知识边界仍适用。\n"
+            + "\n".join(facts)
+        )
+
     def chapter(self, number):
         a, b, c, d = self.cast
         # 关键证据分章，不将完整真相重复进每章或玩家输入。
