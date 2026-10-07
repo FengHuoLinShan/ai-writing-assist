@@ -74,6 +74,11 @@ selection epoch 仍匹配的第一个结果可成为当前路径。Prompt、回�
   被关系扩展带回。
 - source 检索 query 由本轮输入、当前局面、重要人物、未决事项和最近发展确定性组成并有界
   截断；即使用户只说“继续”，也不会丢掉当前旅程态种子。
+- RP 成本重构（契约先行，M3 实施）：初始编译与 Agent 补查共用 Evidence 缓存入口，同轮
+  同 query/scope 命中私有派生缓存（跨 worker/重启）；不同预算从完整预算前材料重新裁剪，
+  不截短旧正文；每次消费独立建 snapshot 与审查，不复用旧 attempt 成功资格。检索质量按
+  D7 门禁（关键证据召回/知识边界/最终质量不退化）。契约见
+  [M1 契约](../../../docs/plans/2026-10-07-rp-retrieval-refactor-m1-contract.md)。
 - 对象目录收录冻结 draft/hash chunk 能证明的版本内出场，以及已采用对象的名称身份 EvidenceLink
   经准确原文回读后证明的人工精修出场（provenance `curated`，同一 canonical draft/hash/章）；
   失效、待审或缺少回读的证据不纳入。保存首次出场章和最早完整 chunk／精确引文
@@ -82,10 +87,16 @@ selection epoch 仍匹配的第一个结果可成为当前路径。Prompt、回�
   资料版本；仅有旧 `review_meta` 章节号、未定位证据或旧稿证据的关系会被省略。
 - 原作角色使用截止点前的冻结 CharacterKnowledge 和精确原文；原创角色不创建 World
   对象，知识上限是截止点前的读者可见资料。
-- `interaction-story-v7` 优先级是用户最新明确修正 → 已保存长期约定 → 当前选中旅程历史/有效回顾 →
+- `interaction-story-v8` 优先级是用户最新明确修正 → 已保存长期约定 → 当前选中旅程历史/有效回顾 →
   固定版本截止点前的作品资料 → 模型训练知识。来源归档、manifest 或必需引用失效时
   fail-closed，不退回纯模型知识。服务器在统一渲染边界中转义资料里的围栏结束标记，
   身份描述、人物知识和原文都只能作为引用数据，不能闭合资料块后注入指令。
+- 普通 RP 消息顺序保持原契约；Agent 准备包保留首个 system 后 index=1 的生产位置。
+  将包移到最后一个 system 后的布局仅作历史实验，未通过完整质量门，不在生产启用。
+  原始用户输入、同源生成/审查及知识扣留规则保留。M6 完整对照见
+  [真实模型契约](../../../docs/plans/2026-10-07-m6-stable-input-rp-contract.md)。
+  编译快照 `prompt_name` 由调用方传入 `STORY_PROMPT_VERSION`（单一事实源，与
+  attempt.usage `prompt_version` 对齐；evidence 缺省只记家族名）。
 - 输入预算来自 attempt 冻结的 model capability profile，并取字符估算与 shared tokenizer 的较大值。
   DeepSeek Flash 新普通档使用 128K normal、192K compact、400K hard input；质量优先档保留
   256K/360K/400K；unknown model

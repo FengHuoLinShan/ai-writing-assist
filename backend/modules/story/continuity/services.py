@@ -745,6 +745,15 @@ class MemoryService:
         logger.info("Marked %d snapshots as stale from chapter %d", count, from_chapter)
         return {"stale_count": count, "from_chapter": from_chapter}
 
+    async def read_events_by_ids(
+        self, db: AsyncSession, novel_id: str, event_ids: list[uuid.UUID]
+    ) -> EventListResponse:
+        records = await self._event_repo.get_by_ids(db, parse_uuid(novel_id), event_ids)
+        return EventListResponse(
+            items=[MemoryEventResponse.model_validate(row) for row in records],
+            total=len(records),
+        )
+
     async def list_events(
         self,
         db: AsyncSession,

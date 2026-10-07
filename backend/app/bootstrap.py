@@ -40,6 +40,7 @@ from core.service_keys import (
     COLLABORATION_SUBMIT_CHANGED_CASE,
     CONTEXT_COMPILE,
     CONTEXT_GENERATION_BACKGROUND,
+    CONTEXT_PURGE_PROJECT_INTERACTION_CACHE,
     EVOLUTION_RECORD_WRITING_SOURCE_CHANGE,
     EVOLUTION_REQUIRE_CURRENT_WORLD_CANDIDATE,
     IMPORTS_GET_ACTIVE_ORGANIZATION,
@@ -153,6 +154,10 @@ from modules.world.facade import (
     list_entity_terms as _world_list_entity_terms,
     review_team_stress as _world_review_team_stress,
 )
+from modules.evidence.facade import (
+    purge_project_interaction_cache as _purge_project_interaction_cache,
+)
+
 from modules.world.project_ports import (
     WorldDedupAdapter as _WorldDedupAdapter,
 )
@@ -513,6 +518,7 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
         (OUTLINE_REVEAL_SERVICE, RevealPlanService()),
         (CONTEXT_COMPILE, _ctx_compile),
         (CONTEXT_GENERATION_BACKGROUND, _ctx_generation_background),
+        (CONTEXT_PURGE_PROJECT_INTERACTION_CACHE, _purge_project_interaction_cache),
         (MEMORY_SERVICE, memory),
         (PROJECT_REQUIRE_ACTIVE, _project_require_active),
         (INTERACTION_COUNT_SOURCE_REFERENCES, _interaction_source_reference_count),

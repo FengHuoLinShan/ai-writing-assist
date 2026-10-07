@@ -260,6 +260,14 @@ def resolve_batch(intents, resolution, state, *, observers, rule_revision):
         ):
             outcome = outcomes[actor] = "uncertain"
         destination = getattr(intent, "destination", None)
+        if (
+            outcome == "succeeded"
+            and intent.kind == "act"
+            and not intent.resource_key
+            and not destination
+        ):
+            # 有限裁决没有任何可核对的物理效果时，模型成功提议仍是未知。
+            outcome = outcomes[actor] = "uncertain"
         if destination:
             origin = state.get("locations", {}).get(actor)
             routes = {tuple(route) for route in state.get("routes", [])}

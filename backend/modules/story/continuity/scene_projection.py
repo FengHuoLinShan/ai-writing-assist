@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, NotFoundError, ValidationError
 from infrastructure.stable_hash import stable_hash
+from modules.story.continuity.basis import compute_scene_basis
 from modules.story.continuity.contracts import (
     CURRENT_SCENE_MEMORY_CONTRACT_VERSION,
     SCENE_MEMORY_DIMENSIONS,
@@ -75,6 +76,12 @@ class SceneMemoryProjectionService:
             if int(scene["scene_index"]) > int(target["scene_index"]):
                 break
             previous_scene = scenes[position - 1] if position > 0 else None
+            basis = await compute_scene_basis(
+                db,
+                novel_id,
+                scenes,
+                up_to_scene_index=int(scene["scene_index"]),
+            )
             for dimension in SCENE_MEMORY_DIMENSIONS:
                 checkpoint = await self._build_dimension(
                     db,
@@ -83,6 +90,7 @@ class SceneMemoryProjectionService:
                     dimension,
                     previous_scene=previous_scene,
                     allowed_scene_ids=allowed_scene_ids,
+                    basis=basis,
                 )
                 retries = 0
                 while (
@@ -95,6 +103,7 @@ class SceneMemoryProjectionService:
                         dimension,
                         previous_scene=previous_scene,
                         allowed_scene_ids=allowed_scene_ids,
+                        basis=basis,
                     )
                     retries += 1
             await self._capture_sparse_if_needed(db, nid, scenes, scene)
@@ -138,6 +147,12 @@ class SceneMemoryProjectionService:
             if int(scene["scene_index"]) < start_index:
                 continue
             previous_scene = scenes[position - 1] if position > 0 else None
+            basis = await compute_scene_basis(
+                db,
+                novel_id,
+                scenes,
+                up_to_scene_index=int(scene["scene_index"]),
+            )
             for dimension in dimensions:
                 await self._build_dimension(
                     db,
@@ -146,6 +161,7 @@ class SceneMemoryProjectionService:
                     dimension,
                     previous_scene=previous_scene,
                     allowed_scene_ids=allowed_scene_ids,
+                    basis=basis,
                 )
             await self._capture_sparse_if_needed(db, nid, scenes, scene)
             rebuilt += 1
@@ -201,6 +217,18 @@ class SceneMemoryProjectionService:
             items=[SceneCheckpointResponse.model_validate(item) for item in rows],
             missing_dimensions=missing,
         )
+
+    async def get_record(
+        self, db: AsyncSession, novel_id: str, checkpoint_id: str
+    ) -> SceneCheckpointResponse:
+        row = await self._checkpoints.get_by_id(
+            db,
+            parse_uuid(novel_id, "novel_id"),
+            parse_uuid(checkpoint_id, "checkpoint_id"),
+        )
+        if row is None:
+            raise NotFoundError("状态依据不存在", code="checkpoint_not_found")
+        return SceneCheckpointResponse.model_validate(row)
 
     async def repair(
         self,
@@ -271,6 +299,12 @@ class SceneMemoryProjectionService:
         for position, downstream in enumerate(scenes):
             if int(downstream["scene_index"]) <= int(scene["scene_index"]):
                 continue
+            basis = await compute_scene_basis(
+                db,
+                novel_id,
+                scenes,
+                up_to_scene_index=int(downstream["scene_index"]),
+            )
             await self._build_dimension(
                 db,
                 novel_id,
@@ -278,6 +312,7 @@ class SceneMemoryProjectionService:
                 request.dimension,
                 previous_scene=scenes[position - 1] if position > 0 else None,
                 allowed_scene_ids=allowed_scene_ids,
+                basis=basis,
             )
             await self._capture_sparse_if_needed(db, nid, scenes, downstream)
             rebuilt += 1
@@ -297,6 +332,7 @@ class SceneMemoryProjectionService:
         *,
         previous_scene: dict[str, Any] | None,
         allowed_scene_ids: list[uuid.UUID],
+        basis: dict[str, Any] | None = None,
     ) -> MemorySceneCheckpoint:
         nid = parse_uuid(novel_id, "novel_id")
         sid = parse_uuid(str(scene["id"]), "scene_id")
@@ -355,6 +391,10 @@ class SceneMemoryProjectionService:
                 and current.scene_index == scene_index
                 and current.source_hash == source_hash
             ):
+                # 只补旧行未登记的基线；漂移基线不能被原事件重放洗成新鲜。
+                if current.basis_json is None:
+                    current.basis_json = basis
+                    await db.flush()
                 return current
             return await self._checkpoints.replace_system(
                 db,
@@ -370,6 +410,7 @@ class SceneMemoryProjectionService:
                     "evidence_refs": refs,
                     "display_summary": self._display_summary(dimension, state),
                     "source_hash": source_hash,
+                    "basis_json": basis,
                     "retry_count": 0,
                 },
             )
@@ -421,7 +462,18 @@ class SceneMemoryProjectionService:
         state = deepcopy(
             previous.state_json if previous else self._empty_dimension(dimension)
         )
-        refs: list[dict[str, Any]] = []
+        # 保留继承链，避免每个场景重复复制全部历史事件引用。
+        refs: list[dict[str, Any]] = (
+            [
+                {
+                    "type": "scene_checkpoint",
+                    "id": str(previous.id),
+                    "label": "此前场景状态",
+                }
+            ]
+            if previous
+            else []
+        )
         max_chapter = max(self._chapter_indices(scene) or [0])
         unanchored = await self._events.count_unanchored_through_chapter(
             db, parse_uuid(novel_id, "novel_id"), max_chapter

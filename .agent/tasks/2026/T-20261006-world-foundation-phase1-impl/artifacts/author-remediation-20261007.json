@@ -1,0 +1,59 @@
+{
+  "schema": "world-foundation-author-acceptance/v1",
+  "result": "engineering_and_author_workflow_pass_rp_pending",
+  "evaluator": "codex_author_proxy",
+  "human_validated": false,
+  "base_commit": "85fb1c7be35ae687f949863d179f5fd63c53f3c0",
+  "report": "docs/reviews/2026-10-07-world-foundation-phase1-remediation.md",
+  "product_findings_closed": [
+    "S1",
+    "S2",
+    "S3",
+    "S4",
+    "S5",
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "R8"
+  ],
+  "remaining": [
+    "R7_full_real_matrix"
+  ],
+  "author_workflow": {
+    "view_state": "pass",
+    "trial_entry_narrow": "pass",
+    "comparison": "pass_finite_conditions_and_sources",
+    "preview_domain_write": false,
+    "confirm_save": "pass",
+    "after_source_edit_recheck": "pass_retired_current_unknown_then_explicit_event_rebuild_with_limits",
+    "conflict_preserves_author_edit": "pass",
+    "reload_saved_draft": "pass",
+    "source_edit_method": "real_REST_saved_manual_draft_then_browser_reload",
+    "unsaved_draft_protection_newly_verified": false
+  },
+  "verification": {
+    "backend_full_prior": "7199 passed, 3 skipped",
+    "backend_final_affected": "794 passed, 4 deselected",
+    "frontend_full_prior": "2792 passed",
+    "browser": "3 passed, final full author loop 40.8s",
+    "pg_critical": "64 passed",
+    "deploy_scripts": "272 passed",
+    "docs_inventory": "pass",
+    "docs_impact": "pass_with_explicit_unchanged_document_review",
+    "production": false
+  },
+  "real_model": {
+    "status": "running",
+    "cumulative_cap_usd": 20,
+    "same_existing_ledger": true,
+    "holdout_used": false,
+    "original_failure_preserved": true
+  },
+  "push": false,
+  "pull_request": false,
+  "merge": false,
+  "deploy": false
+}

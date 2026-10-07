@@ -55,6 +55,21 @@ Story continuity 子域维护小说世界的“变化历史”，不是再存一
   作者确认永不参与机器替换；可选 `producer_family` 限定只替换该来源家族的派生行
   （deep_import 空重跑只清自己的产物）；行内容携带稳定 `meta.event_key` 语义指纹，
   重跑按键原地更新——输出条数变化或重排不重建事实、不覆盖作者决定（V4 G0/E03b）
+- `facade.get_scene_state_view()`：指定 Scene 的视角分层只读状态视图（M2
+  scene-state-view-v1，作者/角色/读者）。同一 `is_current` checkpoint 是唯一状态源，
+  视角只决定可见分层：fact（entities/relations/locations/timeline）、belief（knowledge，
+  误信带标记且不授予事实访问）、observation（未锚定 changes，仅作者视角）。角色视角的
+  事实访问需知识条目显式声明 `subject_id + fields + known_values`（值须匹配当前事实）；读者视角经既有 reveal 判定过滤
+  subject（默认无策略=公开）。缺口显式（missing/degraded/unsupported + omissions 只报
+  数量），不用空列表冒充「确定不存在」，不读当前 World 补过去。输出带
+  `state_fingerprint`（checkpoint 身份/版本/实际投影 + 可见名称 + 视角 + 契约版本；不含 freshness）与 `subject_labels`；跨模块
+  经 `STORY_SCENE_SOURCE.get_scene_state_view` 消费。规格见
+  [M2 契约](../plans/2026-10-07-world-state-read-m2-contract.md)。
+  M4 追加读时来源基线比对（[M4 契约](../plans/2026-10-07-m4-dependency-invalidation-contract.md)）：
+  系统行构建时登记 `basis_json`（≤ cutoff working 稿指纹切片 + 重放窗口场景结构 + 契约版本），
+  视图读时重算比对，漂移/缺失即该维度 degraded + gap_reason（不自动重建，失效与重算分开）；
+  manual/confirmed 作者行豁免；世界正典修订/地图册不自动失效本视图，以
+  `unsupported_dependencies` 显式列出，核对待走 World 复核。
 
 ## API
 
@@ -70,6 +85,7 @@ GET  /api/novels/{novel_id}/memories/scene-checkpoints?scene_id=...
 POST /api/novels/{novel_id}/memories/scene-checkpoints/ensure
 POST /api/novels/{novel_id}/memories/scene-checkpoints/rebuild
 POST /api/novels/{novel_id}/memories/scene-checkpoints/repair
+POST /api/novels/{novel_id}/memories/scene-state-view
 ```
 
 查询参数要点：
@@ -134,3 +150,11 @@ Scene 起封锁 Evolution run，再使事件和 checkpoint/snapshot 失效，所
 Story facade 的 `validate_machine_event_snapshot` 复用全景物化 schema，校验外部机器
 事件负载，保留合法部分更新和删除语义。未解析地点允许 `location_id=None` 并保留
 `text_state`，章节全景、Evidence 与地图均可读取，不伪造地点 UUID。
+
+### 条件比较与历史依据
+
+`POST /memories/scene-state-trial` 只比较钥匙转交与三条件锁，返回原状态/有限假设的当前值、所需值、来源和失败/未知/通过。候选只用内存 ResolutionBatch 重放，不写事件或正史；状态指纹与比较 digest 绑定试改授权，采用前重新核对。
+
+`GET /memories/scene-checkpoints/{checkpoint_id}` 及 `GET /memories/events/by-id?event_ids=…` 校验 owner + novel，显式读取历史来源，父 checkpoint 链按需回开。当前视图仍只消费 current checkpoint。人物仅自己的位置可默认读；其他字段需明确知识值，误信或仅提到人物不授予事实。读者 timeline/causality 缺逐条揭示粒度，返回 unsupported；受限视角不返回整维来源或隐藏名称。
+
+缺 basis 的旧系统行经 ensure 补登记，已有漂移 basis 不因投影 hash 相同而覆盖。作者确认历史始终保留。

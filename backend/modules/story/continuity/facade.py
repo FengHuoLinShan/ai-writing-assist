@@ -30,6 +30,7 @@ __all__ = [
     "get_continuity_evidence_for_writing",
     "get_memory_panorama",
     "get_scene_checkpoints",
+    "get_scene_state_view",
     "ingest_delta_events",
     "replace_scene_memory_events",
     "rollback_deep_import_delta_logs_by_workflow",
@@ -150,6 +151,26 @@ async def get_scene_checkpoints(
     scene_id: str,
 ):
     return await _scene_memory.get_scene(db, novel_id, scene_id)
+
+
+async def get_scene_state_view(
+    db: AsyncSession,
+    novel_id: str,
+    scene_id: str,
+    *,
+    viewpoint: dict[str, Any],
+    include_dimensions: list[str] | None = None,
+):
+    """视角分层的只读状态视图（M2 scene-state-view-v1）。"""
+    from modules.story.continuity.scene_state_view import get_scene_state_view as _get
+
+    return await _get(
+        db,
+        novel_id,
+        scene_id,
+        viewpoint=viewpoint,
+        include_dimensions=include_dimensions,
+    )
 
 
 async def rollback_deep_import_delta_logs_by_workflow(

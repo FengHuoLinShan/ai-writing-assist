@@ -103,12 +103,18 @@
 `docs/plans/` 是新实施计划的唯一入口；计划完成后移入 `docs/archive/` 作为历史记录，不在
 `docs/plans/` 长期堆积已交付内容。
 
+- [远景第一阶段与 RP 成本优化](plans/2026-10-06-world-foundation-phase1.md) — 指定场景世界状态、
+  隔离试改与采用、依赖失效、私有持久资料缓存和质量不变的输入优化；M0 实测已完成，
+  检索重构与缓存沿 M1→M3 推进。配套设计：
+  [RP 检索与编译重构设计](plans/2026-10-07-rp-retrieval-refactor.md)（五项调整与切片顺序）、
+  [M1 实施契约](plans/2026-10-07-rp-retrieval-refactor-m1-contract.md)（分工/版本/key/表设计）。
+
 - [`plans/novelcraft-v4/`](plans/novelcraft-v4/) — NovelCraft V4 演化式小说整体引擎长期计划
   （G0–G8 里程碑、T01–T36 验收矩阵、48 画面 HiFi 与设计资产）。计划包为权威输入，
   实施进展与基线证据见 [`plans/novelcraft-v4/g0/G0-基线与保护.md`](plans/novelcraft-v4/g0/G0-基线与保护.md)；
   计划文档本身按交付原样保存，实施状态不回写计划正文。
 - [`plans/2026-10-06-architecture-optimization.md`](plans/2026-10-06-architecture-optimization.md) —
-  架构报告核验与架构优化计划（模块依赖方向棘轮、解环、按职责拆分、运行时与部署不变量），未实施
+  架构报告核验与优化范围；当前依赖裁定见 ADR-0031，实施事实以主干代码为准。
 
 ## 参考与历史资料
 

@@ -24,9 +24,11 @@ import uuid
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.evolution.store import PostgresAttemptStore
+from modules.story.outline_state.facade import get_scenes_by_novel
 
 UNSUPPORTED_CONSUMERS: tuple[dict[str, str], ...] = (
     {
@@ -137,8 +139,6 @@ async def affected_scene_window(
     保守扩大（后续 Scene 的历史依赖前缀）由调用方在回执中说明，
     supersede 本身从该起点"含起点"向后执行。
     """
-    from modules.story.outline_state.facade import get_scenes_by_novel
-
     scenes = await get_scenes_by_novel(db, novel_id, status_filter=["canonical", "draft"])
     anchored = [
         int(scene["scene_index"])
@@ -168,7 +168,10 @@ async def apply_source_invalidation(
         receipt.coverage_note = "内容指纹未变化，无失效需要传播"
         return receipt
 
-    from modules.evidence.facade import request_chapter_index
+    from modules.evidence.facade import (
+        purge_interaction_source_cache,
+        request_chapter_index,
+    )
 
     index_state = await request_chapter_index(
         db, novel_id, chapter_index, content_mode=content_mode
@@ -180,6 +183,21 @@ async def apply_source_invalidation(
         "requested_source_id": index_state.get("requested_source_id"),
         "requested_hash": requested_hash,
     }
+    # M4：来源指纹分叉后立即清理以其为来源的 RP 派生缓存行，
+    # 不等 TTL（主计划 §5.1「随后清理」）；拒绝使用仍由门禁/key/证明重放承担。
+    # 清理属辅助动作：DB 层失败降级为记录并让 TTL 兜底，不阻断失效传播；
+    # 非 DB 异常照常上抛。
+    try:
+        async with db.begin_nested():
+            purged = await purge_interaction_source_cache(db, source_novel_id=novel_id)
+        receipt.invalidated_consumers["interaction_source_cache"] = {
+            "purged_rows": purged,
+        }
+    except SQLAlchemyError:
+        receipt.invalidated_consumers["interaction_source_cache"] = {
+            "purged_rows": None,
+            "note": "清理暂时失败；行已因 key 变化不可达，TTL 兜底回收",
+        }
     # 建议有效性缝（T17）：来源指纹分叉后，声称旧来源的建议立即失效。
     receipt.invalidated_consumers["assistant_suggestion_validity"] = {
         "mode": "evidence_freshness",

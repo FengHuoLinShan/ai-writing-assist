@@ -241,11 +241,49 @@ class SceneLensItem(BaseModel):
     label: str
     summary: str
     availability: bool
+    stale: bool = False
+
+
+class SceneLensSource(BaseModel):
+    checkpoint_id: str | None = None
+    dimension: str | None = None
+    confirmed: bool = False
+    evidence_refs: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class SceneLensField(BaseModel):
+    field: str
+    display: str
+    layer: str
+    confidence: str
+    possibly_false: bool = False
+    source: SceneLensSource = Field(default_factory=SceneLensSource)
+
+
+class SceneLensKnowledge(BaseModel):
+    holder: str
+    text: str
+    possibly_false: bool = False
+    source: SceneLensSource = Field(default_factory=SceneLensSource)
+
+
+class SceneLensObject(BaseModel):
+    subject_id: str
+    label: str
+    fields: list[SceneLensField] = Field(default_factory=list)
+    location: str | None = None
+    location_source: SceneLensSource | None = None
+    knowledge: list[SceneLensKnowledge] = Field(default_factory=list)
+    unknowns: list[str] = Field(default_factory=list)
+    stale: bool = False
 
 
 class SceneLensResponse(BaseModel):
     role_visible_knowledge: list[SceneLensItem] = Field(default_factory=list)
     scene_world_state: list[SceneLensItem] = Field(default_factory=list)
+    state_fingerprint: str | None = None
+    subject_choices: dict[str, str] = Field(default_factory=dict)
+    object_states: list[SceneLensObject] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
 

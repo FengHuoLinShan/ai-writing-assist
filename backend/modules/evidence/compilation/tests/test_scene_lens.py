@@ -76,25 +76,89 @@ async def test_scene_lens_uses_requested_chapter_as_cross_chapter_cutoff() -> No
             }
         )
 
+    async def state_view(db, novel_id, scene_id, *, viewpoint=None):
+        calls.append(
+            ("state_view", novel_id, scene_id, (viewpoint or {}).get("kind", "author"))
+        )
+        return SimpleNamespace(
+            model_dump=lambda: {
+                "subject_labels": {
+                    "entity-1": "铜钥匙",
+                    "character-2": "阿乙",
+                },
+                "dimensions": [
+                    {
+                        "dimension": "entities",
+                        "status": "ok",
+                        "facts": [
+                            {
+                                "subject_id": "entity-1",
+                                "subject_label": "铜钥匙",
+                                "field": "custody_holder",
+                                "value": "character-2",
+                                "layer": "fact",
+                                "confidence": "derived",
+                                "possibly_false": False,
+                            },
+                            {
+                                "subject_id": "character-2",
+                                "subject_label": "阿乙",
+                                "field": "custody_holder",
+                                "value": "character-2",
+                                "layer": "fact",
+                                "confidence": "derived",
+                                "possibly_false": False,
+                            },
+                        ],
+                    },
+                    {
+                        "dimension": "knowledge",
+                        "status": "ok",
+                        "facts": [
+                            {
+                                "subject_id": "character-1",
+                                "subject_label": "阿乙误信钥匙已归还",
+                                "field": "knows:entity-1",
+                                "value": "阿乙误信钥匙已归还",
+                                "layer": "belief",
+                                "confidence": "derived",
+                                "possibly_false": True,
+                            }
+                        ],
+                    },
+                ],
+            }
+        )
+
     result = await SceneLensService(
         get_scene_fn=get_scene,
-        world_loader=_Loader(world),
         characters_loader=_Loader(characters),
         get_scene_checkpoints_fn=checkpoints,
+        get_state_view_fn=state_view,
     ).load(object(), novel_id="novel-1", scene_id="scene-1", chapter_index=2)
 
     assert calls == [
         ("scene", "novel-1", "scene-1"),
-        ("world", 2, 2, ["entity-1"]),
-        ("characters", "character-1"),
+        # M4：状态视图单次读取，先于 checkpoint 读（维度新鲜度共用同一份）
+        ("state_view", "novel-1", "scene-1", "author"),
+        ("state_view", "novel-1", "scene-1", "character"),
         ("checkpoints", "novel-1", "scene-1"),
     ]
-    assert set(result) == {"role_visible_knowledge", "scene_world_state", "warnings"}
-    for item in [
-        *result["role_visible_knowledge"],
-        *result["scene_world_state"],
-    ]:
-        assert set(item) == {"label", "summary", "availability"}
+    assert set(result) == {
+        "state_fingerprint",
+        "subject_choices",
+        "role_visible_knowledge",
+        "scene_world_state",
+        "object_states",
+        "warnings",
+    }
+    for item in result["role_visible_knowledge"]:
+        assert set(item) == {"label", "summary", "availability", "stale"}
+    assert "目击者" not in str(result["role_visible_knowledge"])
+    assert "可能误信" in str(result["role_visible_knowledge"])
+    for item in result["scene_world_state"]:
+        # M4：维度区新增 stale（视图基线比对 degraded 时作者侧可见待核对）
+        assert set(item) == {"label", "summary", "availability", "stale"}
     assert [item["label"] for item in result["scene_world_state"]] == [
         "人物与对象",
         "关系",
@@ -103,11 +167,18 @@ async def test_scene_lens_uses_requested_chapter_as_cross_chapter_cutoff() -> No
         "时间顺序",
         "因果与前提",
     ]
+    # 对象状态区：仅本 Scene 关联对象；UUID 渲染成名字；误信带标记。
+    objects = result["object_states"]
+    assert len(objects) == 2
+    unknown = next(item for item in objects if item["subject_id"] == "character-1")
+    assert unknown["unknowns"]
+    key_state = next(item for item in objects if item["label"] == "铜钥匙")
+    assert key_state["fields"][0]["display"] == "阿乙"
+    assert key_state["knowledge"][0]["possibly_false"] is True
     serialized = str(result)
     for internal in (
         "coverage_status",
         "missing_dimensions",
-        "dimension",
         "gap_reason",
         "entity_type",
         "knowledge_level",
@@ -143,7 +214,6 @@ async def test_scene_lens_skips_global_world_fallback_without_related_ids() -> N
         get_scene_fn=lambda *_args: _async_value(
             _scene(structure_meta={}, pov_character_id=None)
         ),
-        world_loader=_Loader(forbidden),
         characters_loader=_Loader(forbidden),
         get_scene_checkpoints_fn=lambda *_args: _async_value({"items": []}),
     ).load(object(), novel_id="novel-1", scene_id="scene-1", chapter_index=2)
@@ -198,9 +268,13 @@ async def test_scene_lens_api_applies_project_owner_gate(monkeypatch) -> None:
                 "label": "当前 POV：阿青",
                 "summary": "只知道铜铃",
                 "availability": True,
+                "stale": False,
             }
         ],
         "scene_world_state": [],
+        "object_states": [],
+        "state_fingerprint": None,
+        "subject_choices": {},
         "warnings": [],
     }
 

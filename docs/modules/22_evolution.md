@@ -55,14 +55,17 @@ V4 长期计划（`docs/plans/novelcraft-v4/plans/01-EVOLUTION.md`）的演化�
 
 - 失效传播（E05，`invalidation.py`）：`compute_source_change` 物理差异
   （同字数替换也给出非空受影响窗口，T08）；`apply_source_invalidation`
-  传播正文变更——证据索引换源重建（旧结果不再显示有效）+ Scene 派生投影
+  传播正文变更——证据索引换源重建（旧结果不再显示有效）+ 按 source 立即清理
+  RP 派生缓存行（M4：`purge_interaction_source_cache`，不等 TTL；清理失败降级
+  记回执、TTL 兜底）+ Scene 派生投影
   软 supersede（保守扩大到受影响章锚定的最早 Scene 起，范围记入回执）；
   `apply_scene_reorder_invalidation` 处理场景重排（事件序号对齐 + 从最早
   移动 Scene 起失效）。Writing 的 working/published 保存、回退、删除及 Story
   场景更新/撤销/融合/拆分/重排均接相同边界；派生事件标 source_stale，演化 run
   推进 epoch 并记录待重算范围，不自动发起付费重算。作者确认与已提交回执保留。
   地图直接重读 Story 合法事件，不维护第二份事实；其余未接线消费者仍在回执
-  显式列为 unsupported，不以局部完成冒充全量失效。
+  显式列为 unsupported，不以局部完成冒充全量失效。状态视图侧的读时基线比对
+  见 [M4 契约](../plans/2026-10-07-m4-dependency-invalidation-contract.md)。
 
 - 场景步管线（G2，`pipeline.py`）：`run_scene_step` 按 §4.1 顺序组合——
   前序屏障（T07）→ 预算原子预留（T21，先预留再采样）→ provider 采样
@@ -238,3 +241,7 @@ World v2 在同场新身份经独立复核后冻结候选 UUID，状态复核在
 World 候选、状态、关系物化快照和回执同事务提交。新身份未创建则不发布悬空状态，
 同场同名竞争保持待决定。关系历史限定真实前缀回执（含继承），不从当前 World 描述
 倒推历史，最多注入最近64个相关场景并明确范围。旧 v1/v0 运行保持原调用顺序。
+
+### 缓存清理故障隔离
+
+正文失效附带的 RP 缓存 purge 在 SAVEPOINT 内执行；真实 SQL 故障会回滚该清理并在失效回执明示，不使主事件/checkpoint 失效事务报成功却失效未落地。权限/来源重验独立于物理清理，旧缓存不能因清理失败获得使用资格。

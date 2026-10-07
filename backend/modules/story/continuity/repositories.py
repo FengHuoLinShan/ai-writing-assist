@@ -29,6 +29,16 @@ from shared.constants import DEFAULT_PAGE_SIZE
 class EventRepository:
     """记忆事件数据访问"""
 
+    async def get_by_ids(
+        self, db: AsyncSession, novel_id: uuid.UUID, event_ids: list[uuid.UUID]
+    ) -> list[MemoryEvent]:
+        result = await db.scalars(
+            select(MemoryEvent)
+            .where(MemoryEvent.novel_id == novel_id, MemoryEvent.id.in_(event_ids))
+            .order_by(MemoryEvent.chapter_index, MemoryEvent.sequence)
+        )
+        return list(result.all())
+
     async def create(
         self,
         db: AsyncSession,
@@ -1009,6 +1019,16 @@ class SnapshotRepository:
 
 class SceneCheckpointRepository:
     """Versioned current checkpoint reads and fail-closed supersede writes."""
+
+    async def get_by_id(
+        self, db: AsyncSession, novel_id: uuid.UUID, checkpoint_id: uuid.UUID
+    ) -> MemorySceneCheckpoint | None:
+        return await db.scalar(
+            select(MemorySceneCheckpoint).where(
+                MemorySceneCheckpoint.novel_id == novel_id,
+                MemorySceneCheckpoint.id == checkpoint_id,
+            )
+        )
 
     async def list_current_for_scene(
         self,

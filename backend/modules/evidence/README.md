@@ -41,6 +41,25 @@
 - `compile_interaction_story_context()` 是 Evidence 拥有的深层稳定入口；它固定
   `consumer_action=interaction.story`、读者/人物知识与章节/offset 截止。调用方可传本轮
   剩余预算，Evidence 将其限制在 0～16K；必需资料无法容纳时返回 blocker。
+- RP 检索与编译重构（M3 切片 1/2 已落地）：该入口内部按「查询规划 → 候选召回与融合 →
+  材料物化 → 预算编译 → 使用记录」五段拆分并逐段版本化。S3/S4/S5 已按 M1 契约等价
+  落地：`services/interaction_source_material.py` 承载完整预算前材料
+  （`InteractionSourceMaterial`）与纯函数按预算编译（`compile_source_material`，含
+  material/render 方法版本常量）；S1 落地 `indexing/lexical_plan.py`——语义输入完整
+  保留喂 embedding，词法词项按整条请求有界生成（冻结名称优先 + 跨句轮转，总上限 64），
+  RP 编译把激活对象名称/别名作为冻结词项传入；S2 词法通道在 PG 走 `rag_chunks.
+  lexical_terms` TEXT[] + GIN `&&` 召回（索引期生成、迁移回填，未就绪范围/SQLite 回退
+  同批词项的有界 ILIKE 并记 `lexical_method` 诊断）。冻结样本族实测：M 档 fresh 编译
+  中位 68.6ms（原 ~1905ms）、search 中位 32.3ms（原 ~1417ms）；引用激活集合、阻断与
+  warnings 与旧路径一致，身份证明片段按 D7 允许选择不同有效章节。切片 3 持久缓存
+  `context_interaction_source_cache`（ADR-0018 2026-10-07 修订例外）已接入：材料 key 覆盖
+  全部材料输入（含语义输入与词法计划、方法版本），命中跳过检索/物化但仍重过门禁、按冻结
+  source_ref 重读复验必需证明；预算变体从完整材料重裁剪并替换单版本派生正文，阻断结果
+  不落编译缓存；TTL 24h、方法版本不匹配整行不消费、DB 故障向上传播不吞为 miss；M4 起 fetch 未命中带原因码（absent/expired/version_mismatch/integrity），来源失效沿 evolution 失效缝按 source_novel_id 立即清理派生行；snapshot
+  与审查资格不缓存。PG 实测（冻结样本族 s/m）：同查询重查 3/3 命中、compile 中位
+  9.5~11ms，8K/16K 预算对 2/2 材料复用，未命中场景成本与切片 2 持平。更大合成库的
+  p95/规模/并发对照与索引体积校准（GIN ~33KB/chunk）待补。分工、key、版本与失败语义
+  见 [M1 契约](../../../docs/plans/2026-10-07-rp-retrieval-refactor-m1-contract.md)。
 - RP 冻结目录中的精修身份依据按确切 draft/hash/范围回读；原作角色还须命中人物检索已经
   准入的范围。固定对象与玩家身份的原文证明一起计入必需预算，不能只保留对象名而省略证明。
 - ADR-0024 仅为 `PUBLIC_DEMO_RP_SOURCE_REVISION_ID` 精确指向、ready、fingerprint 与 manifest

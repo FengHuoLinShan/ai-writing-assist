@@ -6,6 +6,8 @@ Memory API 路由
 
 from __future__ import annotations
 
+import uuid
+
 from fastapi import APIRouter, Query
 
 from core.api_params import NovelIdPath
@@ -19,11 +21,18 @@ from modules.story.continuity.schemas import (
     SceneCheckpointRebuildRequest,
     SceneCheckpointRepairRequest,
     SceneCheckpointRepairResponse,
+    SceneCheckpointResponse,
     SceneCheckpointSetResponse,
+    SceneStateViewRequest,
+    SceneStateViewResponse,
     SnapshotListResponse,
     SnapshotResponse,
 )
 from modules.story.continuity.services import MemoryService
+from modules.story.continuity.state_trial import (
+    SceneStateTrialRequest,
+    compare_scene_state_trial,
+)
 
 router = APIRouter(prefix="/api/novels/{novel_id}/memories", tags=["memory"])
 _service = MemoryService()
@@ -67,6 +76,16 @@ async def list_events(
     """查询事件列表"""
     await _require_active_project(db, novel_id)
     return await _service.list_events(db, novel_id, from_chapter, to_chapter)
+
+
+@router.get("/events/by-id", response_model=EventListResponse)
+async def read_events_by_ids(
+    db: DbSession,
+    novel_id: NovelIdPath,
+    event_ids: list[uuid.UUID] = Query(..., min_length=1, max_length=100),
+) -> EventListResponse:
+    await _require_active_project(db, novel_id)
+    return await _service.read_events_by_ids(db, novel_id, event_ids)
 
 
 @router.get("/events/{entity_id}/timeline", response_model=EventListResponse)
@@ -156,6 +175,37 @@ async def get_scene_checkpoints(
     return await _scene_service.get_scene(db, novel_id, scene_id)
 
 
+@router.get("/scene-checkpoints/{checkpoint_id}", response_model=SceneCheckpointResponse)
+async def get_scene_checkpoint_record(
+    db: DbSession, novel_id: NovelIdPath, checkpoint_id: str
+) -> SceneCheckpointResponse:
+    """回读当前或历史依据，始终限制为本作品；不重建也不采用旧状态。"""
+    await _require_active_project(db, novel_id)
+    return await _scene_service.get_record(db, novel_id, checkpoint_id)
+
+
+@router.post("/scene-state-view", response_model=SceneStateViewResponse)
+async def get_scene_state_view(
+    db: DbSession,
+    novel_id: NovelIdPath,
+    request: SceneStateViewRequest,
+) -> SceneStateViewResponse:
+    """视角分层的只读状态视图（author/character/reader），纯读不写。"""
+    from modules.story.continuity.scene_state_view import get_scene_state_view
+
+    await _require_active_project(db, novel_id)
+    viewpoint: dict = {"kind": request.viewpoint_kind}
+    if request.viewpoint_kind == "character":
+        viewpoint["target_id"] = request.viewpoint_target_id
+    return await get_scene_state_view(
+        db,
+        novel_id,
+        request.scene_id,
+        viewpoint=viewpoint,
+        include_dimensions=request.include_dimensions,
+    )
+
+
 @router.post("/scene-checkpoints/ensure", response_model=SceneCheckpointSetResponse)
 async def ensure_scene_checkpoints(
     db: DbSession,
@@ -194,3 +244,11 @@ async def repair_scene_checkpoint(
     """One-action manual repair; protected manual/confirmed rows fail closed."""
     await _require_active_project(db, novel_id)
     return await _scene_service.repair(db, novel_id, request)
+
+
+@router.post("/scene-state-trial")
+async def scene_state_trial(
+    db: DbSession, novel_id: NovelIdPath, request: SceneStateTrialRequest
+) -> dict:
+    await _require_active_project(db, novel_id)
+    return await compare_scene_state_trial(db, novel_id, request)

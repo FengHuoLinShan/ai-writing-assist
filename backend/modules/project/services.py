@@ -413,11 +413,19 @@ class ProjectService:
         )
         if not deleted:
             raise NotFoundError(f"Project {project_id} not found or already deleted")
+        await self._purge_interaction_cache(db, str(pid))
         await self._task_canceller(
             db,
             novel_id=str(pid),
             transition_reason="project_soft_deleted",
         )
+
+    @staticmethod
+    async def _purge_interaction_cache(db: AsyncSession, project_id: str) -> None:
+        from core.container import get
+        from core.service_keys import CONTEXT_PURGE_PROJECT_INTERACTION_CACHE
+
+        await get(CONTEXT_PURGE_PROJECT_INTERACTION_CACHE)(db, project_id)
 
     async def restore_project(self, db: AsyncSession, project_id: str) -> ProjectResponse:
         """从回收站恢复项目"""
@@ -738,6 +746,7 @@ class ProjectService:
         )
         if not deleted:
             raise NotFoundError(f"Interaction journey {novel_id} not found")
+        await self._purge_interaction_cache(db, str(pid))
         await self._task_canceller(
             db,
             novel_id=str(pid),

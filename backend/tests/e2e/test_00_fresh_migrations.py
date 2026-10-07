@@ -29,9 +29,7 @@ def _disposable_database() -> Iterator[tuple[URL, Engine]]:
     )
     admin_engine = create_engine(sync_url, isolation_level="AUTOCOMMIT")
     database_name = f"migration_regression_{uuid4().hex}"
-    quoted_database = admin_engine.dialect.identifier_preparer.quote(
-        database_name
-    )
+    quoted_database = admin_engine.dialect.identifier_preparer.quote(database_name)
     migration_url = make_url(DATABASE_URL).set(database=database_name)
     target_engine = create_engine(
         migration_url.render_as_string(hide_password=False).replace(
@@ -82,10 +80,7 @@ def _assert_current_schema(engine: Engine, expected_heads: set[str]) -> None:
         missing_columns = {
             table.name: sorted(
                 set(table.columns.keys())
-                - {
-                    column["name"]
-                    for column in inspector.get_columns(table.name)
-                }
+                - {column["name"] for column in inspector.get_columns(table.name)}
             )
             for table in Base.metadata.sorted_tables
             if table.name in tables
@@ -96,9 +91,7 @@ def _assert_current_schema(engine: Engine, expected_heads: set[str]) -> None:
             if columns
         }
         current_heads = set(
-            connection.execute(
-                text("SELECT version_num FROM alembic_version")
-            ).scalars()
+            connection.execute(text("SELECT version_num FROM alembic_version")).scalars()
         )
         interaction_journey_unique_constraints = {
             tuple(item["column_names"])
@@ -111,8 +104,7 @@ def _assert_current_schema(engine: Engine, expected_heads: set[str]) -> None:
             )
         }
         interaction_journey_indexes = {
-            item["name"]: item
-            for item in inspector.get_indexes("interaction_journeys")
+            item["name"]: item for item in inspector.get_indexes("interaction_journeys")
         }
         interaction_preference_indexes = {
             item["name"]: item
@@ -149,33 +141,34 @@ def _assert_current_schema(engine: Engine, expected_heads: set[str]) -> None:
         "map_atlas_pages",
         "map_atlas_annotations",
     } <= tables
-    assert not {
-        "map_facts",
-        "map_observations",
-        "map_visual_revisions",
-        "map_territory_tiles",
-        "map_markers",
-        "map_terrain_bindings",
-        "map_terrain_patches",
-        "map_terrain_regions",
-        "map_path_nodes",
-        "map_paths",
-        "map_layer_nodes",
-        "map_path_layers",
-        "map_terrain_layers",
-        "map_location_layouts",
-        "map_location_bindings",
-        "map_tiles",
-        "map_configs",
-    } & tables
+    assert (
+        not {
+            "map_facts",
+            "map_observations",
+            "map_visual_revisions",
+            "map_territory_tiles",
+            "map_markers",
+            "map_terrain_bindings",
+            "map_terrain_patches",
+            "map_terrain_regions",
+            "map_path_nodes",
+            "map_paths",
+            "map_layer_nodes",
+            "map_path_layers",
+            "map_terrain_layers",
+            "map_location_layouts",
+            "map_location_bindings",
+            "map_tiles",
+            "map_configs",
+        }
+        & tables
+    )
     assert ("novel_id",) not in interaction_journey_unique_constraints
     assert ("owner_id",) not in interaction_preference_unique_constraints
-    assert interaction_journey_indexes["ix_interaction_journeys_novel_id"][
+    assert interaction_journey_indexes["ix_interaction_journeys_novel_id"]["unique"]
+    assert interaction_preference_indexes["ix_interaction_account_preferences_owner_id"][
         "unique"
     ]
-    assert interaction_preference_indexes[
-        "ix_interaction_account_preferences_owner_id"
-    ]["unique"]
     assert "ix_async_tasks_novel_id" in task_indexes
     assert any(
         foreign_key.get("constrained_columns") == ["novel_id"]
@@ -188,8 +181,7 @@ def _assert_current_schema(engine: Engine, expected_heads: set[str]) -> None:
         foreign_key.get("constrained_columns") == ["novel_id", "page_id"]
         and foreign_key.get("referred_table") == "world_bible_pages"
         and foreign_key.get("referred_columns") == ["novel_id", "id"]
-        and (foreign_key.get("options") or {}).get("ondelete", "").upper()
-        == "CASCADE"
+        and (foreign_key.get("options") or {}).get("ondelete", "").upper() == "CASCADE"
         for foreign_key in world_bible_revision_foreign_keys
     )
     assert "trg_async_tasks_novel_id_identity" in task_triggers
@@ -215,7 +207,7 @@ def test_event_soft_delete_backfill_and_downgrade_preserve_history(monkeypatch):
     from modules.world.models import CoreEntity
 
     with _disposable_database() as (migration_url, engine):
-        config, _ = _migration_config(monkeypatch, migration_url)
+        config, expected_heads = _migration_config(monkeypatch, migration_url)
         previous = "20261005_world_revision_metadata"
         command.upgrade(config, previous)
         nid, eid, lid, rid, cid = (uuid4() for _ in range(5))
@@ -265,8 +257,12 @@ def test_event_soft_delete_backfill_and_downgrade_preserve_history(monkeypatch):
                 text("SELECT status, timeline_order FROM events")
             ).one() == ("deprecated", 5)
             assert (
-                connection.scalar(text("SELECT version_num FROM alembic_version"))
-                == "20261006_event_soft_delete"
+                set(
+                    connection.execute(
+                        text("SELECT version_num FROM alembic_version")
+                    ).scalars()
+                )
+                == expected_heads
             )
             connection.execute(text("UPDATE events SET status='canonical'"))
         command.downgrade(config, previous)
@@ -348,16 +344,13 @@ def test_schema_parity_repair_upgrades_drifted_database(monkeypatch) -> None:
             inspector = inspect(connection)
             revision_constraints = {
                 item["name"]
-                for item in inspector.get_unique_constraints(
-                    "story_outline_revisions"
-                )
+                for item in inspector.get_unique_constraints("story_outline_revisions")
             } | {
                 item["name"]
                 for item in inspector.get_foreign_keys("story_outline_revisions")
             }
             head_foreign_keys = {
-                item["name"]
-                for item in inspector.get_foreign_keys("story_outline_heads")
+                item["name"] for item in inspector.get_foreign_keys("story_outline_heads")
             }
             task_checks = {
                 item["name"]
@@ -589,14 +582,18 @@ def test_schema_drift_repair_cleans_orphans_and_backfills(monkeypatch) -> None:
                 )
             }
             connection.execute(
-                tables["accounts"].insert().values(
+                tables["accounts"]
+                .insert()
+                .values(
                     id=owner_id,
                     status="active",
                     support_code=f"MIG-{owner_id.hex[:12]}",
                 )
             )
             connection.execute(
-                tables["projects"].insert().values(
+                tables["projects"]
+                .insert()
+                .values(
                     id=novel_id,
                     owner_id=owner_id,
                     title="Drift repair project",
@@ -623,7 +620,9 @@ def test_schema_drift_repair_cleans_orphans_and_backfills(monkeypatch) -> None:
                 ],
             )
             connection.execute(
-                tables["story_character_cards"].insert().values(
+                tables["story_character_cards"]
+                .insert()
+                .values(
                     id=card_id,
                     novel_id=novel_id,
                     scene_id=uuid4(),
@@ -638,9 +637,7 @@ def test_schema_drift_repair_cleans_orphans_and_backfills(monkeypatch) -> None:
         _assert_current_schema(target_engine, expected_heads)
         with target_engine.connect() as connection:
             recents = set(
-                connection.execute(
-                    text("SELECT id FROM world_library_recents")
-                ).scalars()
+                connection.execute(text("SELECT id FROM world_library_recents")).scalars()
             )
             created_at = connection.execute(
                 text("SELECT created_at FROM story_character_cards WHERE id = :id"),

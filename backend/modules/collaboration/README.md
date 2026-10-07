@@ -19,7 +19,9 @@ evidence/story/writing 的 resource provider 由组合根装配。
 `merge.py` 先取原项目排他写锁，重验完整读集、授权及精确检查，按领域 prepare/apply 执行
 短事务，最后写 receipt 与 outbox。领域 apply 只 flush。确认重复仅返回已有回执。
 `recovery.py` 重建基线或准备反向试改；同字段冲突返回供作者选择，不覆盖后续人工修改。
-反向试改也需要重新检查与确认，原采用历史继续保留。
+反向试改也需要重新检查与确认，原采用历史继续保留。重定位授权与子试改血缘在写入后
+必须显式 flush：生产会话 `autoflush=False`，`require_case`/`require_workspace`
+以 `populate_existing` 重读会丢弃未 flush 的属性改写。
 
 当前 port：正文工作稿、Scene、伏笔/揭示安排、世界书工作稿。工作区删除覆盖不能直接作为
 领域废弃；仍走原领域确认。自定义配方只改变问题与检查清单，不增加能力、资料或联网权限。
@@ -38,3 +40,9 @@ evidence/story/writing 的 resource provider 由组合根装配。
 理解保留 Evolution 原回执、完整传递来源和实际作者/工作输入，限定作者回顾用途；
 Scene 与历史阅读不能借该理解引入后见资料。规划器、成员和审查均读取授权完整来源，
 字面回读的范围回执同时提供给审查；配方限定实际输出 schema，不安排越权工作。
+
+### 本场条件假设与试改
+
+`Grant.scene_state_trial` 绑定同 Scene 原状态指纹与完整条件比较 digest；所选 Scene 必须在已授权且未排除资料中。collect/检查/采用重新比较，范围、知识或新鲜度变化拒绝旧回执。InputManifest 保存假设，仅追加至作者的原资料上下文，注明不是历史、不能授予人物知识；读者/角色或 workspace 新稿检查不自动带入。资源状态影响按真实章节/scene chunks 锚定，只有 ready 且直接来源匹配才列 affected，其余保留未检查。
+
+窄屏从本场状态进入试改先交接资料抽屉；冲突就地三方选择并按当前稿重建，原稿不被静默覆盖。

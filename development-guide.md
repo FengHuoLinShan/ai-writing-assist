@@ -436,3 +436,9 @@ API 与 worker 使用相同 Compose runtime 环境。回退不降级表、不撤
   关键词检索、审校分片/请求和六步影子任务链，基线见
   `backend/tools/scale_gate_baselines.json`。仅接受显式专用 PostgreSQL test/e2e/audit
   库；夹具及内部 commit 全部被外层事务回滚。JSON 直接使用 B6 契约。
+
+### 世界状态与 RP 对照入口
+
+离线成本入口：`make eval-rp-cost-baseline`，显式指定可丢弃 baseline/e2e 数据库，基线与候选报告保留来源/样本 hash；不要连接真实作者库做清理。
+
+完整真实对照入口：`cd backend && python -m evals.rp_matrix --ledger-dir <仓库外私有账本目录>`。只在已获真实调用授权且累计预算明确时运行；既有完整账本不可重置，脚本硬顶 USD 20，开发质量/费用不过不打开一次性独立留出。旧 `rp_real_pairs` 只作短程布局 smoke。协议见 [M6 契约](docs/plans/2026-10-07-m6-stable-input-rp-contract.md)，不能用 smoke 或工程测试替代作者质量。

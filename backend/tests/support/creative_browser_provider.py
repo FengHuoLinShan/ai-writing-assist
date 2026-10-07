@@ -255,8 +255,9 @@ def structured_reply(request):
             }
         elif schema == "WorkOutput":
             value = {"summary": payload["question"], "claims": []}
+            sources, _ = json.JSONDecoder().raw_decode(payload["sources"])
             if payload["question"] == "查清有限合作的动机":
-                source = json.loads(payload["sources"].split("\n派生理解", 1)[0])[0]
+                source = sources[0]
                 value["claims"] = [
                     {
                         "kind": "interpretation",
@@ -266,9 +267,7 @@ def structured_reply(request):
                 ]
             if payload["question"] in {"保留谨慎", "交换条件"}:
                 source = next(
-                    item
-                    for item in json.loads(payload["sources"])
-                    if item["key"].startswith("writing_draft:")
+                    item for item in sources if item["key"].startswith("writing_draft:")
                 )
                 value["patches"] = [
                     {

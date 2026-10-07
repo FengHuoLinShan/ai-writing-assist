@@ -141,6 +141,10 @@ IMPORTS_GET_REVIEW_DISPOSITIONS: ServiceKey[Callable[..., Any]] = ServiceKey(
     "imports.get_review_dispositions"
 )
 
+CONTEXT_PURGE_PROJECT_INTERACTION_CACHE: ServiceKey[Callable[..., Any]] = ServiceKey(
+    "context.purge_project_interaction_cache"
+)
+
 # --- interaction -----------------------------------------------------------
 
 INTERACTION_READ_CONTINUITY_REVIEW: ServiceKey[Callable[..., Any]] = ServiceKey(
@@ -347,6 +351,7 @@ ALL_SERVICE_KEYS: tuple[ServiceKey[Any], ...] = (
     COLLABORATION_CREATIVE_RESOURCE_PORT,
     CONTEXT_COMPILE,
     CONTEXT_GENERATION_BACKGROUND,
+    CONTEXT_PURGE_PROJECT_INTERACTION_CACHE,
     EVOLUTION_REQUIRE_CURRENT_WORLD_CANDIDATE,
     EVOLUTION_RECORD_WRITING_SOURCE_CHANGE,
     IMPORTS_GET_ACTIVE_ORGANIZATION,

@@ -16,6 +16,11 @@ import {
   // 页面只消费作者可见的卡片、预览任务与剧本版本契约。
 
 export const story = {
+    compareSceneStateTrial: (novelId, payload) => post(`/novels/${novelId}/memories/scene-state-trial`, payload),
+    sceneCheckpoints: (novelId, sceneId) => request(withQuery(`/novels/${novelId}/memories/scene-checkpoints`, { scene_id: sceneId }), { cache: "no-store" }),
+    sceneCheckpointRecord: (novelId, checkpointId) => request(`/novels/${novelId}/memories/scene-checkpoints/${checkpointId}`, { cache: "no-store" }),
+    ensureSceneCheckpoints: (novelId, sceneId) => post(`/novels/${novelId}/memories/scene-checkpoints/ensure`, { scene_id: sceneId }),
+    memoryEventsByIds: (novelId, ids) => request(`/novels/${novelId}/memories/events/by-id?${new URLSearchParams(ids.map(id => ["event_ids", id]))}`, { cache: "no-store" }),
     startRehearsal: (sceneId, payload) => post(`/story/scenes/${sceneId}/rehearsals`, payload),
     replayRehearsal: (novelId, runId) => post(withQuery(`/story/rehearsals/${runId}/replay`, { novel_id: novelId })),
     rehearsal: (novelId, runId, actorId = null) => request(withQuery(`/story/rehearsals/${runId}`, { novel_id: novelId, actor_id: actorId }), { cache: "no-store" }),

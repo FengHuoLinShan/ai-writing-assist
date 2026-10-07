@@ -595,3 +595,11 @@ B9 PostgreSQL 双事务冲突回归在 `tests/e2e/test_image_reuse_concurrency.p
 nightly 将 `scale-*.json` 与 PostgreSQL 诊断一同上传到
 `postgresql-e2e-diagnostics`，默认仅 low 档，`SCALE_GATE_ALL_TIERS=1` 才运行全档。
 P8 固定比较范围按指定 head 的 Git blob 计数，不读取其他 checkout 或脏工作树。
+
+### 世界状态第一阶段的验证范围
+
+作者控制链由 `frontend-console/e2e/creative-rebase.spec.js` 使用真实 API/PG/worker 与合成 provider 覆盖：历史来源、保管/所有权、有限条件比较与冻结授权、窄屏抽屉交接、改稿冲突三方重建采用。合成结果只验证控制与隔离，文学质量另记。
+
+`evals.rp_matrix` 冻结 6 开发来源族和 3 独立留出来源族，各 30 轮，两臂独立旅程，基线 compiler/retrieval 固定 Git 来源、原准备包布局相同；记录关键原文回读、秘密/未来 canary、开场/重抽/分支/length续写和必需来源失效。质量与总费用门分开，含准备、审查与返修费用，裁判费另列；开发不过不打开留出，已用留出不可调参再当未见样本。
+
+用户授权的代理作者评阅使用 `human_validated=false`，必须看实际输出。旧 140 笔短程布局 smoke 不能核销完整矩阵。原始账本和正文留仓库外私有目录，仓库只提交脱敏哈希、计量与结论；未知用量保留上界与失败，累计 USD 20 不重置。

@@ -158,6 +158,9 @@ async def submit_changed_case(db, novel_id, case_id):
             },
         ]
         case.grant_json = renewed.model_dump(mode="json")
+        # 生产会话 autoflush=False；submit_run 经 require_case(populate_existing)
+        # 重读会丢弃未 flush 的续期授权，导致本轮仍按旧资料 id 运行。
+        await db.flush()
     return await submit_run(
         db,
         novel_id,

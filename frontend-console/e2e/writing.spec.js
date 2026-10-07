@@ -1504,6 +1504,38 @@ test.describe("写作台模块", () => {
     }
   })
 
+  test("Scene Lens 对象状态区展示空态且不把未记载显示为确定没有", async ({ page }) => {
+    await createDraft(testProjectId, 1, "对象状态章", "对象状态正文")
+    await createScene(testProjectId, {
+      scene_index: 0,
+      title: "对象状态本场",
+      narrative_tag: "draft",
+      chapter_ids: ["1"],
+      scene_chunks: [{ chapter_index: 1, start_pos: 0, end_pos: 6 }],
+      goal: "验证对象状态空态",
+    })
+
+    const browserErrors = []
+    page.on("pageerror", (error) => browserErrors.push(error.message))
+
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await reloadWorkbench(page, "writing")
+    await waitWritingReady(page)
+    await page.getByRole("button", { name: /^打开第 1 章/ }).click()
+    await expect(page.locator("#writing-editor")).toBeVisible({ timeout: 5000 })
+
+    const lens = page.locator(".scene-lens")
+    await expect(lens).toHaveCount(1)
+    await lens.locator(".scene-lens__load .btn").click()
+
+    await expect(lens.locator(".scene-lens__section", { hasText: "POV 可见知识" })).toBeVisible({ timeout: 10000 })
+    await expect(lens.locator(".scene-lens__section", { hasText: "场景时点状态" })).toBeVisible()
+    const objectSection = lens.locator(".scene-lens__section", { hasText: "对象状态" })
+    await expect(objectSection).toBeVisible()
+    await expect(objectSection.locator(".writing-empty-hint")).toContainText("本场没有可展示的对象级状态")
+    expect(browserErrors).toEqual([])
+  })
+
   test("390px 下短文本可保存为工作稿并在刷新后恢复", async ({ page }) => {
     await createDraft(testProjectId, 1, "移动速记", "原始移动正文")
     await page.setViewportSize({ width: 390, height: 844 })

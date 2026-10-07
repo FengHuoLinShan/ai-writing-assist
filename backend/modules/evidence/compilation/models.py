@@ -18,6 +18,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.engine import Dialect
 from sqlalchemy.orm import Mapped, mapped_column
@@ -424,3 +425,117 @@ class ContextActivationProfileRevision(Base, TimestampMixin):
     rule_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     revision_reason: Mapped[str] = mapped_column(String(64), nullable=False)
     created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class CacheJSON(TypeDecorator):
+    """缓存表 JSON 载荷：PG 用 JSONB，SQLite 以 JSON 窄适配（单测）。"""
+
+    impl = JSON
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect: Dialect):
+        if dialect.name == "postgresql":
+            return dialect.type_descriptor(JSONB())
+        return dialect.type_descriptor(JSON())
+
+
+class InteractionSourceCache(Base, TimestampMixin):
+    """RP 原作包派生缓存（ADR-0018 2026-10-07 修订例外；M1 契约 §4）。
+
+    一行 = 一份完整预算前材料 + 至多一个预算的编译正文。私有派生内容：
+    不进导出/备份/日志/检索索引；每次命中必须重过项目门禁与证明重验；
+    snapshot 与审查资格不缓存。UNIQUE(novel_id, material_key_hash) 支撑
+    幂等覆盖写；consumer/source 删除级联清空。
+    """
+
+    __tablename__ = "context_interaction_source_cache"
+    __table_args__ = (
+        UniqueConstraint(
+            "novel_id",
+            "material_key_hash",
+            name="uq_interaction_source_cache_key",
+        ),
+        Index("ix_interaction_source_cache_expires", "novel_id", "expires_at"),
+        Index("ix_interaction_source_cache_source", "source_novel_id"),
+        {"comment": "RP 原作包派生缓存（完整预算前材料+编译正文）"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="consumer interaction 项目 ID",
+    )
+    source_novel_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        comment="author source 项目 ID（来源失效即换 key/级联清除）",
+    )
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(),
+        nullable=False,
+        comment="命中复验用两项目共同 owner",
+    )
+    material_key_hash: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        comment="材料 key 规范化序列的 SHA-256",
+    )
+    material_key: Mapped[dict] = mapped_column(
+        CacheJSON(),
+        nullable=False,
+        default=dict,
+        comment="材料 key 字段（不含正文与输出审查结果）",
+    )
+    material_body: Mapped[dict] = mapped_column(
+        CacheJSON(),
+        nullable=False,
+        default=dict,
+        comment="完整预算前材料（S3 输出序列化）",
+    )
+    material_body_sha: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        comment="material_body 规范化序列 SHA-256（完整性复验）",
+    )
+    material_bytes: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment="材料序列化字节数（应用侧容量门禁）",
+    )
+    compiled_body: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="一个预算的编译正文（多预算写入可替换）",
+    )
+    compiled_spec: Mapped[dict | None] = mapped_column(
+        CacheJSON(),
+        nullable=True,
+        comment="编译规格与产物清单：budget/render 版本、included_refs、source_refs",
+    )
+    compiled_sha: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        comment="compiled 产物序列化 SHA-256（完整性复验）",
+    )
+    compiled_bytes: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment="编译正文+产物清单字节数",
+    )
+    method_versions: Mapped[dict] = mapped_column(
+        CacheJSON(),
+        nullable=False,
+        default=dict,
+        comment="material/render/lexical 规划方法版本（不识别即不消费）",
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        comment="TTL 过期时间；过期立即不可命中",
+    )
