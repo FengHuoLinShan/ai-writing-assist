@@ -2381,6 +2381,29 @@ describe("GenerateView Vue behavior matrix", () => {
     expect(api.world.appendCocreationMessage).toHaveBeenCalledWith("cs-1", expect.objectContaining({ novel_id: "p1", kind: "decision" }))
   })
 
+  it("keeps the author decision preview across reload when server history saving fails", async () => {
+    const key = generateSessionKey("p1", null, "core_entity", "world_core")
+    api.generate.convergeWorld.mockResolvedValue(worldCoreResponse())
+    api.world.appendCocreationMessage.mockRejectedValue(new Error("offline"))
+    const initialSession = { ...emptyGenerateSession(), serverSessionId: "cs-1", serverSessionTitle: "世界核心共创" }
+    const wrapper = mount(GenerateView, { props: baseProps({ preset: "world_core", sessionKey: key, initialSession }), attachTo: document.body })
+    await wrapper.get("#generate-chat-input").setValue("先收束这一轮")
+    await wrapper.get('[data-action="converge-world"]').trigger("click")
+    await waitFor(() => expect(wrapper.find('[data-section="convergence-preview"]').exists()).toBe(true))
+    await wrapper.get('[data-action="apply-convergence-message"]').trigger("click")
+    await flushPromises()
+    expect(wrapper.find('[data-section="convergence-preview"]').exists()).toBe(true)
+    expect(toast).toHaveBeenCalledWith("作者决定写入会话历史失败；决定预览仍保留，请重试", "warning")
+    wrapper.unmount()
+
+    const restored = readGenerateSession(cocreationSessionKey(key, "cs-1"))
+    expect(restored.convergenceDraft.authorMessage).toContain("潮门通行")
+    const reloaded = mount(GenerateView, { props: baseProps({ preset: "world_core", sessionKey: key, initialSession: restored }), attachTo: document.body })
+    await flushPromises()
+    expect(reloaded.find('[data-section="convergence-preview"]').exists()).toBe(true)
+    expect(api.world.appendCocreationMessage).toHaveBeenCalledTimes(1)
+  })
+
   it("lists and switches co-creation sessions from the history modal", async () => {
     const key = generateSessionKey("p1", null, "core_entity", "world_core")
     api.world.listCocreationSessions.mockResolvedValue({

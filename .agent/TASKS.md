@@ -1,5 +1,7 @@
 # 开放任务
 
+- [T-20261007-branch-integration](tasks/2026/T-20261007-branch-integration/TASK.md) — 快照瘦身分支合并与世界基础分支同步
+
 - [T-20261007-responsive-layout](tasks/2026/T-20261007-responsive-layout/TASK.md) — 全站屏幕自适应布局与回归测试深化
 
 - [T-20261006-event-soft-delete-merge](tasks/2026/T-20261006-event-soft-delete-merge/TASK.md) — 事件扩展软删修复并合入主干
