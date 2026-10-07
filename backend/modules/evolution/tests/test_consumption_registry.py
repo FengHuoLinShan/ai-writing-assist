@@ -1,7 +1,7 @@
 """P2-C C1 消费登记契约测试（结构校验/纯函数/影响计算对拍/旧数据兼容）。
 
 文件名刻意避开 C0 夹具的 ``p2c_`` 前缀（并行约定：C0 钉端到端形态，
-本文件钉契约与纯函数）。
+本文件钉契约与纯函数；C2 追加"登记写入 → 失效 → 精确列表"端到端）。
 
 对拍口径（与 ``invalidation.apply_source_invalidation`` 的保守行为）：
 
@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
 from datetime import UTC, datetime
@@ -51,6 +52,11 @@ from modules.evolution.consumption import (
     receipt_public_view,
     recompute_request_hash,
 )
+from modules.evolution.impact import (
+    ANCHORED_SCENE_IMPLICIT_METHOD_VERSION,
+    anchored_registrations,
+    receipt_view,
+)
 from modules.evolution.invalidation import (
     UNSUPPORTED_CONSUMERS,
     InvalidationReceipt,
@@ -58,9 +64,14 @@ from modules.evolution.invalidation import (
     apply_source_invalidation,
     compute_source_change,
 )
+from modules.evolution.registration import (
+    register_consumption,
+    scene_checkpoint_registration,
+)
 from modules.story.continuity.models import MemorySceneCheckpoint
 from modules.story.outline_state.models import Scene
 from modules.writing.facade import create_draft_only
+from modules.writing.models import WritingDraft
 
 # ---------------------------------------------------------------------------
 # 构造 helper
@@ -871,3 +882,412 @@ def test_unknown_scope_conservative_property() -> None:
         {"scene_roster_unavailable": True},
     ):
         assert UnknownScope(note="x", **field).conservative is True
+
+
+# ---------------------------------------------------------------------------
+# C2 登记写入端（构建 + 幂等合并）
+# ---------------------------------------------------------------------------
+
+
+def test_register_consumption_replaces_same_consumer_and_appends_new() -> None:
+    state: dict = {}
+    first = _record("novel-1", scene_index=1)
+    register_consumption(state, first)
+    assert read_consumption_records(state) == [first]
+    # 同 (novel, consumer) 重登记（方法升级）→ 替换，不堆积历史版本。
+    upgraded = first.model_copy(update={"method_version": "scene-projection-v2"})
+    register_consumption(state, upgraded)
+    assert read_consumption_records(state) == [upgraded]
+    # 跨场景登记 → 追加。
+    other = _record("novel-1", scene_index=2)
+    register_consumption(state, other)
+    assert read_consumption_records(state) == [upgraded, other]
+    # 写入形态即 JSON 列可存形态（roundtrip 不丢）。
+    assert read_consumption_records(json.loads(json.dumps(state))) == [
+        upgraded,
+        other,
+    ]
+
+
+def test_scene_checkpoint_registration_builds_binding_and_basis() -> None:
+    record = scene_checkpoint_registration(
+        "novel-1",
+        scene_id="scene-1",
+        scene_index=1,
+        dimension="entities",
+        chapters=[
+            {
+                "chapter_index": 1,
+                "draft_id": "draft-1",
+                "version_number": 2,
+                "source_hash": "hash-1",
+            },
+            {"chapter_index": 2, "ranges": [(0, 100)]},
+        ],
+        method_version="scene-projection-v1",
+        checkpoint_id="ckpt-1",
+    )
+    assert record.consumer.kind is ConsumerKind.story_scene_checkpoint
+    assert record.novel_id == "novel-1"
+    binding = record.binding
+    assert binding.content_mode == "working"
+    first = binding.chapter(1)
+    assert first is not None and first.draft_id == "draft-1" and first.ranges == ()
+    second = binding.chapter(2)
+    assert (
+        second is not None
+        and second.ranges == (OffsetRange(start_offset=0, end_offset=100),)
+        and second.draft_id is None
+    )
+    assert (
+        record.basis is not None
+        and record.basis.anchor_kind == "scene_checkpoint"
+        and record.basis.ref_id == "ckpt-1"
+    )
+
+
+def test_anchored_registrations_prioritize_real_records() -> None:
+    scenes = [
+        {
+            "id": "scene-1",
+            "scene_index": 1,
+            "chapter_ids": [2],
+            "scene_chunks": [{"chapter_index": 2}],
+        },
+        {
+            "id": "scene-9",
+            "scene_index": 9,
+            "chapter_ids": [3],
+            "scene_chunks": [{"chapter_index": 3}],
+        },
+    ]
+    # scene-1 的 entities 维度已有真实登记（scene_projection 接线后形态）。
+    real = [_record("novel-1", scene_index=1, chapter_index=2)]
+    synthesized = anchored_registrations(
+        "novel-1", chapter_index=2, scenes=scenes, real_records=real
+    )
+    dimensions = {item.consumer.dimension for item in synthesized}
+    # 真实登记的 (scene, dimension) 不合成；其余维度按整章消费合成。
+    assert "entities" not in dimensions
+    assert dimensions  # 其余维度补齐
+    # 非锚定场景（scene-9 锚 ch3）不合成；合成来源可识别。
+    assert all(item.consumer.scene_id == "scene-1" for item in synthesized)
+    assert all(
+        item.method_version == ANCHORED_SCENE_IMPLICIT_METHOD_VERSION
+        for item in synthesized
+    )
+    anchored = synthesized[0].binding.chapter(2)
+    assert anchored is not None and anchored.ranges == ()  # 整章消费（保守）
+
+
+# ---------------------------------------------------------------------------
+# C2 端到端：登记写入 → 失效 → 精确受影响列表（SQLite 合成库）
+# ---------------------------------------------------------------------------
+
+
+async def _working_draft_row(
+    db: AsyncSession,
+    novel_id: str,
+    chapter_index: int,
+    content: str,
+    version_number: int = 1,
+) -> None:
+    """直落 working 稿行（绕过改稿钩子；登记场景须避免钩子先 supersede
+    带登记的 current 行——失效由演化缝单次显式触发，沿 C0 夹具惯例）。"""
+    db.add(
+        WritingDraft(
+            id=uuid.uuid4(),
+            novel_id=uuid.UUID(novel_id),
+            chapter_index=chapter_index,
+            title=f"第{chapter_index}章",
+            content=content,
+            content_hash=hashlib.sha256(content.encode("utf-8")).hexdigest(),
+            version_number=version_number,
+            status="draft",
+        )
+    )
+    await db.flush()
+
+
+async def _register_on_current_checkpoints(
+    db: AsyncSession,
+    novel_id: str,
+    scene: Scene,
+    chapters: list[dict],
+) -> None:
+    """把登记写进该 Scene 全部 current checkpoint 行（B 类接线后的数据
+    形态：每维度行登记该维度的消费）。"""
+    rows = await db.execute(
+        select(MemorySceneCheckpoint).where(
+            MemorySceneCheckpoint.novel_id == uuid.UUID(novel_id),
+            MemorySceneCheckpoint.scene_id == scene.id,
+            MemorySceneCheckpoint.is_current.is_(True),
+        )
+    )
+    for row in rows.scalars():
+        state = dict(row.state_json or {})
+        register_consumption(
+            state,
+            scene_checkpoint_registration(
+                novel_id,
+                scene_id=str(scene.id),
+                scene_index=int(scene.scene_index),
+                dimension=row.dimension,
+                chapters=chapters,
+                method_version="scene-projection-v1",
+                checkpoint_id=str(row.id),
+            ),
+        )
+        row.state_json = state
+    await db.flush()
+
+
+def _scene_entries_by_index(receipt: InvalidationReceipt) -> dict[int, dict]:
+    return {
+        item["scene_index"]: item
+        for item in receipt.affected
+        if item.get("scene_index") is not None
+    }
+
+
+async def test_registered_consumption_refines_real_invalidation_end_to_end(
+    db_session: AsyncSession,
+    evolution_project_id: str,
+) -> None:
+    """登记→失效→精确归因列表（细化端到端）。
+
+    s1 登记消费 ch2 整章（命中）、s2 登记只消费 ch2 开头区间（与尾部
+    变更不相交）：s2 与变更无关——不进受影响/重算列表（零无关重算的
+    库级证明）。物理失效仍是窗口语义（story supersede 自起点起全失效、
+    按集合收窄归 B 类接线）：窗口 = 最早命中 Scene 起，与现状一致。
+    全部登记无关时窗口收窄到零（见下一个用例）。
+    """
+    db, nid = db_session, evolution_project_id
+    chapter1 = "山" * 200 + "第一章结尾。"
+    chapter2_old = "水" * 300 + "第二章：青竹取出铜钥匙，递给林舟。"
+    chapter3 = "木" * 200 + "第三章。"
+    await _working_draft_row(db, nid, 1, chapter1)
+    await _working_draft_row(db, nid, 2, chapter2_old)
+    await _working_draft_row(db, nid, 3, chapter3)
+    scene0 = await _scene(db, nid, 0, 1)
+    scene1 = await _scene(db, nid, 1, 2)
+    scene2 = await _scene(db, nid, 2, 3)
+    await _prepare_projections(db, nid, scene0)
+    await _prepare_projections(db, nid, scene1)
+    await _prepare_projections(db, nid, scene2)
+    # 登记写入（接线后由 scene_projection 落；此处按其数据形态直写）：
+    # s1 消费 ch1+ch2 整章；s2 消费 ch1/ch3 整章 + ch2 仅开头区间。
+    await _register_on_current_checkpoints(
+        db,
+        nid,
+        scene1,
+        chapters=[
+            {"chapter_index": 1},
+            {"chapter_index": 2},
+        ],
+    )
+    await _register_on_current_checkpoints(
+        db,
+        nid,
+        scene2,
+        chapters=[
+            {"chapter_index": 1},
+            {"chapter_index": 2, "ranges": [(0, 100)]},
+            {"chapter_index": 3},
+        ],
+    )
+
+    chapter2_new = chapter2_old.replace("铜钥匙", "铁哨子")
+    change = compute_source_change(chapter2_old, chapter2_new)
+    assert change.first_offset is not None and change.first_offset >= 300
+    await _working_draft_row(db, nid, 2, chapter2_new, version_number=2)
+    receipt = await apply_source_invalidation(
+        db, nid, chapter_index=2, change=change, content_mode="working"
+    )
+
+    # 现状锚定事实仍在回执上（既有语义不回归）。
+    assert receipt.earliest_affected_scene_index == 1
+    # 物理失效窗口 = 最早命中 Scene 起（窗口语义，行为与现状一致）。
+    assert await _current_scene_indexes(db, nid) == {0}
+    # 精确归因列表：s1 known（整章消费命中）；s2 登记证明与变更无关，
+    # 不进受影响/重算列表（零无关重算的重算清单证明）；s0 不进。
+    entries = _scene_entries_by_index(receipt)
+    assert set(entries) == {1}
+    assert entries[1]["basis"] == "known"
+    assert entries[1]["reason"] == ImpactReason.anchored_chapter_edited.value
+    assert entries[1]["scene_id"] == str(scene1.id)
+    # unsupported 消费者恒列（缺口可见）→ unknown_scope 保持 True。
+    assert receipt.unknown_scope is True
+    rebuild = next(
+        item
+        for item in receipt.recompute_options
+        if item["kind"] == "rebuild_derived_state"
+    )
+    assert {item["scene_index"] for item in rebuild["affected"]} == {1}
+    assert receipt.receipt_id
+    # DI 视图（C3 消费形态）：scene 级条目完整、可直接 JSON。
+    view = receipt_view(receipt)
+    assert {item["scene_index"] for item in view["affected"] if item["scene_index"]} == {
+        1
+    }
+    json.dumps(view, ensure_ascii=False)
+
+
+async def test_all_registered_unrelated_keeps_projections_current(
+    db_session: AsyncSession,
+    evolution_project_id: str,
+) -> None:
+    """登记完备且全部证明无关 → 零投影失效（"已知依赖零无关重生成"的
+    窗口收窄端到端：s1/s2 checkpoint 保持 current，重算清单不含任何场景）。"""
+    db, nid = db_session, evolution_project_id
+    chapter2_old = "水" * 300 + "第二章：青竹取出铜钥匙，递给林舟。"
+    await _working_draft_row(db, nid, 1, "山" * 200 + "第一章结尾。")
+    await _working_draft_row(db, nid, 2, chapter2_old)
+    scene0 = await _scene(db, nid, 0, 1)
+    scene1 = await _scene(db, nid, 1, 2)
+    await _prepare_projections(db, nid, scene0)
+    await _prepare_projections(db, nid, scene1)
+    # s1 只消费 ch2 开头区间（变更在尾部，不相交）。
+    await _register_on_current_checkpoints(
+        db,
+        nid,
+        scene1,
+        chapters=[
+            {"chapter_index": 1},
+            {"chapter_index": 2, "ranges": [(0, 100)]},
+        ],
+    )
+
+    change = compute_source_change(chapter2_old, chapter2_old.replace("铜钥匙", "铁哨子"))
+    await _working_draft_row(
+        db, nid, 2, chapter2_old.replace("铜钥匙", "铁哨子"), version_number=2
+    )
+    receipt = await apply_source_invalidation(
+        db, nid, chapter_index=2, change=change, content_mode="working"
+    )
+
+    # 登记覆盖完整且全部无关 → 零投影失效：s1 保持 current（现状会失效）。
+    assert receipt.earliest_affected_scene_index == 1
+    assert await _current_scene_indexes(db, nid) == {0, 1}
+    assert "story_scene_projections" not in receipt.invalidated_consumers
+    # 归因列表与重算清单为空（miss 不进列表）；证据索引重建照常触发。
+    assert _scene_entries_by_index(receipt) == {}
+    rebuild = next(
+        item
+        for item in receipt.recompute_options
+        if item["kind"] == "rebuild_derived_state"
+    )
+    assert rebuild["affected"] == []
+    assert "evidence_chapter_index" in receipt.invalidated_consumers
+    assert "已按登记收窄" in receipt.coverage_note
+
+
+async def test_registered_offset_window_hit_reason_end_to_end(
+    db_session: AsyncSession,
+    evolution_project_id: str,
+) -> None:
+    """登记区间与变更窗口相交 → ``offset_window_hit``（区别于合成的
+    ``anchored_chapter_edited`` 整章判定）。"""
+    db, nid = db_session, evolution_project_id
+    chapter2_old = "水" * 300 + "第二章：青竹取出铜钥匙，递给林舟。"
+    await _working_draft_row(db, nid, 1, "山" * 200 + "第一章结尾。")
+    await _working_draft_row(db, nid, 2, chapter2_old)
+    scene0 = await _scene(db, nid, 0, 1)
+    scene1 = await _scene(db, nid, 1, 2)
+    await _prepare_projections(db, nid, scene0)
+    await _prepare_projections(db, nid, scene1)
+    # s1 登记只消费 ch2 尾部区间（覆盖变更窗口）。
+    await _register_on_current_checkpoints(
+        db,
+        nid,
+        scene1,
+        chapters=[
+            {"chapter_index": 2, "ranges": [(280, 350)]},
+        ],
+    )
+
+    change = compute_source_change(chapter2_old, chapter2_old.replace("铜钥匙", "铁哨子"))
+    await _working_draft_row(
+        db, nid, 2, chapter2_old.replace("铜钥匙", "铁哨子"), version_number=2
+    )
+    receipt = await apply_source_invalidation(
+        db, nid, chapter_index=2, change=change, content_mode="working"
+    )
+    entries = _scene_entries_by_index(receipt)
+    assert set(entries) == {1}
+    assert entries[1]["reason"] == ImpactReason.offset_window_hit.value
+    assert entries[1]["basis"] == "known"
+    # 登记覆盖完整（s1 全维度登记）：s0 未进保守窗口、无 unknown 场景。
+    assert await _current_scene_indexes(db, nid) == {0}
+
+
+async def test_unregistered_scenes_keep_conservative_with_explainable_view(
+    db_session: AsyncSession,
+    evolution_project_id: str,
+) -> None:
+    """无登记（现状形态）：锚定场景 known、后续场景 unknown、行为不变。
+
+    锚定结构合成登记保证受影响列表可解释（s1=锚定命中 known，s2=保守
+    扩大 unknown），但评估窗口与现状保守扩大逐位一致（s1、s2 均失效）。
+    """
+    db, nid = db_session, evolution_project_id
+    chapter2_old = "水" * 300 + "第二章：青竹取出铜钥匙，递给林舟。"
+    await _working_draft_row(db, nid, 1, "山" * 200 + "第一章结尾。")
+    await _working_draft_row(db, nid, 2, chapter2_old)
+    await _working_draft_row(db, nid, 3, "木" * 200 + "第三章。")
+    scene0 = await _scene(db, nid, 0, 1)
+    scene1 = await _scene(db, nid, 1, 2)
+    scene2 = await _scene(db, nid, 2, 3)
+    await _prepare_projections(db, nid, scene0)
+    await _prepare_projections(db, nid, scene1)
+    await _prepare_projections(db, nid, scene2)
+
+    change = compute_source_change(chapter2_old, chapter2_old.replace("铜钥匙", "铁哨子"))
+    await _working_draft_row(
+        db, nid, 2, chapter2_old.replace("铜钥匙", "铁哨子"), version_number=2
+    )
+    receipt = await apply_source_invalidation(
+        db, nid, chapter_index=2, change=change, content_mode="working"
+    )
+
+    entries = _scene_entries_by_index(receipt)
+    # s1 锚定被改章：known + 真实 scene_id；s2 保守扩大：unknown 显式。
+    assert set(entries) == {1, 2}
+    assert entries[1]["basis"] == "known"
+    assert entries[1]["scene_id"] == str(scene1.id)
+    assert entries[1]["reason"] == ImpactReason.anchored_chapter_edited.value
+    assert entries[2]["basis"] == "unknown"
+    assert entries[2]["reason"] == ImpactReason.conservative_expansion_unregistered.value
+    assert 0 not in entries  # 无关 Scene 不进列表
+    assert receipt.unknown_scope is True
+    # 行为不变：保守窗口（s1 起，含 s2）全部失效、s0 保持。
+    assert await _current_scene_indexes(db, nid) == {0}
+    rebuild_scenes = {
+        item["scene_index"]
+        for option in receipt.recompute_options
+        if option["kind"] == "rebuild_derived_state"
+        for item in option.get("affected", [])
+        if item.get("scene_index") is not None
+    }
+    assert rebuild_scenes == {1, 2}
+    # 内嵌评估与回执增量字段同源（receipt_view 重投影一致）。
+    view = receipt_view(receipt)
+    assert {item["scene_index"] for item in view["affected"] if item["scene_index"]} == {
+        1,
+        2,
+    }
+
+
+# ---------------------------------------------------------------------------
+# C2 DI 键（组合根注册 + 视图退化形态）
+# ---------------------------------------------------------------------------
+
+
+def test_invalidation_receipt_view_service_registered_and_callable() -> None:
+    from core.container import get
+    from core.service_keys import EVOLUTION_INVALIDATION_RECEIPT_VIEW
+
+    view = get(EVOLUTION_INVALIDATION_RECEIPT_VIEW)(_receipt())
+    # 手写回执（无内嵌评估）退化为确定性键形态，键集仍是 C0 最小集。
+    assert {"affected", "unknown_scope", "receipt_id"} <= set(view)
+    assert view["receipt_id"] == receipt_fingerprint(_receipt())

@@ -1,5 +1,6 @@
 """Stable domain entry points for source mutations; no model work is started."""
 
+from modules.evolution.impact import receipt_view
 from modules.evolution.invalidation import (
     apply_scene_reorder_invalidation,
     record_writing_source_change,
@@ -20,6 +21,7 @@ async def require_current_structure_candidate(db, novel_id, reference, asset_id)
 __all__ = [
     "apply_scene_reorder_invalidation",
     "record_writing_source_change",
+    "receipt_view",
     "switch_project_engine",
     "read_committed_understanding",
     "require_current_world_candidate",

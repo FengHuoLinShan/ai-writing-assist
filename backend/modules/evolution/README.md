@@ -31,6 +31,13 @@ Scene 起点，若更早来源已变则向前扩大。两者预览并确认新�
 
 ## 职责边界
 
+- 消费登记与影响评估（P2-C，2026-10-07）：`consumption.py` 契约（登记内嵌产物行
+  `state_json["_consumption_registry"]`，不加表）+ `registration.py` 写入端 +
+  `impact.py` 组装层。失效回执增量携带 `affected`（场景+机器可读原因+known/unknown）、
+  `unknown_scope`、`receipt_id`、`recompute_options` 三分类；无登记时与既有保守
+  行为逐位一致，无真实登记的锚定投影按 outline 结构合成整章登记。公共视图经 DI 键
+  `EVOLUTION_INVALIDATION_RECEIPT_VIEW`（`facade.receipt_view`）供 Writing 保存链路
+  消费。权威语义见 [docs/modules/22_evolution.md](../../../docs/modules/22_evolution.md)。
 - 来源身份：`SourceRevisionRef`（章节序号不独自承担来源身份；
   range_hash 由 content_hash + 偏移确定性推导）。场景步的来源绑定
   （`pipeline.SceneSourceBinding`，A02）锚定真实 Writing 草稿并携带码点

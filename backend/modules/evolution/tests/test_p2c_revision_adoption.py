@@ -555,7 +555,6 @@ async def test_p2c_unregistered_dependency_expands_conservatively_without_hiding
     assert "保守扩大" in receipt.coverage_note
 
 
-@pytest.mark.xfail(reason=XFAIL_REASON, strict=False)
 async def test_p2c_custody_revision_affect_list_is_explainable(
     db_session: AsyncSession, test_project_id: str
 ) -> None:
@@ -592,7 +591,6 @@ async def test_p2c_custody_revision_affect_list_is_explainable(
     assert getattr(receipt, "receipt_id", None)
 
 
-@pytest.mark.xfail(reason=XFAIL_REASON, strict=False)
 async def test_p2c_writing_revision_surfaces_invalidation_view(
     db_session: AsyncSession, test_project_id: str
 ) -> None:
@@ -618,7 +616,6 @@ async def test_p2c_writing_revision_surfaces_invalidation_view(
     assert scene_indexes == {1, 2}
 
 
-@pytest.mark.xfail(reason=XFAIL_REASON, strict=False)
 async def test_p2c_recompute_options_classify_three_cost_tiers(
     db_session: AsyncSession, test_project_id: str
 ) -> None:
@@ -674,7 +671,6 @@ async def test_p2c_unrelated_chapter_edit_keeps_custody_scenes_current(
     assert not await _has_current_checkpoint(db, nid, world.scenes[2].id)
 
 
-@pytest.mark.xfail(reason=XFAIL_REASON, strict=False)
 async def test_p2c_unrelated_chapter_edit_enqueues_no_custody_scene_recompute(
     db_session: AsyncSession, test_project_id: str
 ) -> None:

@@ -43,6 +43,7 @@ from core.service_keys import (
     CONTEXT_PURGE_PROJECT_INTERACTION_CACHE,
     EVOLUTION_RECORD_WRITING_SOURCE_CHANGE,
     EVOLUTION_REQUIRE_CURRENT_WORLD_CANDIDATE,
+    EVOLUTION_INVALIDATION_RECEIPT_VIEW,
     IMPORTS_GET_ACTIVE_ORGANIZATION,
     IMPORTS_GET_REVIEW_DISPOSITIONS,
     INTERACTION_COUNT_SOURCE_REFERENCES,
@@ -182,6 +183,7 @@ from modules.interaction.facade import (
 from modules.evolution.facade import (
     record_writing_source_change as _evolution_record_writing_source_change,
     require_current_world_candidate as _evolution_require_current_world_candidate,
+    receipt_view as _evolution_receipt_view,
 )
 from modules.story.facade import get_scene_contract as _story_get_scene_contract
 from modules.world import assistant_ports as _world_assistant
@@ -421,6 +423,10 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
             EVOLUTION_RECORD_WRITING_SOURCE_CHANGE,
             _evolution_record_writing_source_change,
         ),
+        # P2-C C2：失效回执 → 作者语言完整视图（回执内嵌 impact_assessment，
+        # scene 级 affected/unknown_scope/recompute_options 一并投影）；
+        # writing 层 C3 透传经此键消费，receipt 鸭子类型传入即可。
+        (EVOLUTION_INVALIDATION_RECEIPT_VIEW, _evolution_receipt_view),
         (IMPORTS_GET_REVIEW_DISPOSITIONS, _imports_get_review_dispositions),
         (
             INTERACTION_VALIDATE_PUBLIC_DEMO_SOURCE_CONTEXT,
