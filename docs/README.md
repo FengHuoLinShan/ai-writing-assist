@@ -109,6 +109,9 @@
   [RP 检索与编译重构设计](plans/2026-10-07-rp-retrieval-refactor.md)（五项调整与切片顺序）、
   [M1 实施契约](plans/2026-10-07-rp-retrieval-refactor-m1-contract.md)（分工/版本/key/表设计）。
 
+- [世界演化第二阶段：可信历史与低成本改稿](plans/2026-10-07-world-foundation-phase2.md) — 仅计划；
+  依次补齐逐字段历史来源、知识值与揭示边界、实际依赖与局部重做。第一阶段未通过的门禁仍留原任务。
+
 - [`plans/novelcraft-v4/`](plans/novelcraft-v4/) — NovelCraft V4 演化式小说整体引擎长期计划
   （G0–G8 里程碑、T01–T36 验收矩阵、48 画面 HiFi 与设计资产）。计划包为权威输入，
   实施进展与基线证据见 [`plans/novelcraft-v4/g0/G0-基线与保护.md`](plans/novelcraft-v4/g0/G0-基线与保护.md)；

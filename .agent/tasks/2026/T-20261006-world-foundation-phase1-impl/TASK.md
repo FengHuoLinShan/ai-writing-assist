@@ -3,7 +3,7 @@ id: T-20261006-world-foundation-phase1-impl
 title: 远景第一阶段实施（M0–M7）
 status: active
 created: 2026-10-06T23:30:00+09:00
-updated: 2026-10-07T14:51:27+09:00
+updated: 2026-10-07T17:22:34+09:00
 ---
 
 # 远景第一阶段实施（M0–M7）
@@ -13,17 +13,19 @@ updated: 2026-10-07T14:51:27+09:00
 
 ## 恢复快照
 
-- 授权：修复全部审查发现、整理本地提交、第二阶段仅做计划；补跑现有 DeepSeek 账户，沿用累计 USD 20 和旧账本。无推送、PR、合入、部署授权。
-- 已修：缓存匿名禁用、全行容量与 PG 并发锁、备份排除/旧备份恢复冷启动、项目及账户权限撤销清缓存、purge 保存点；Lens REST 完整响应、角色/秘密过滤、历史来源回开、缺失来源显式；basis 仅补缺失不覆盖漂移；真实章节影响锚定；窄屏交接；只读钥匙转交/三条件锁比较及 actual/required，候选指纹/digest 绑定原试改 Grant、InputManifest 并重验。
-- 新发现已修：POV 可见知识从本场 Story 角色投影读取，禁止今天的 World 知识回流；冻结 RP 来源检索不按语义相似度合并事实不同的原文范围。基线同时固定原 compiler 和原 retrieval。
-- 验证：后端全量 7199 项（3 skipped）、前端全量 2792 项、定向后端 823 项、Lens/召回/条件 27 项、部署脚本 272 项通过；专用 PG fresh upgrade/check、容量并发/幂等、真实 SQL 保存点与软删恢复冷启动通过；真实 dump/restore 冷缓存通过。后端全量首轮 7195 passed / 3 门禁失败已修，最终复跑通过；前端 lint、module-import/secret/prompt 门禁通过。浏览器 3 流程全部通过（追加完整确认后改稿/重建闭环最终40.8s）；重建局限说明被刷新清空的新UI问题已修并先红后绿；PG critical 64 项（65.72s）、账户撤权缓存 66 项、历史来源 REST/投影 12 项通过；前端 lint/build 通过。
-- 真实评测：全量上下文矩阵 dev 6 来源族×30轮、holdout 3 独立族×30轮；生产保留原 packet index=1，新布局不宣称获准。来源事实分章，不在每轮输入重复完整真相；第30轮强制截断后续写。固定生产 Python/harness/来源/裁判哈希，开发质量或成本失败不打开留出。
-- 原矩阵 session 59628 已结束：累计1563调用，上界USD9.3664236、估计USD5.119041414（不是账单）；原dev USD9规划帽触顶导致6臂预算阻断，dev-clinic:new第30轮128 token全被推理耗尽、空正文经审查失败关闭。留出未使用。保留原freeze、report和全部失败，不将空正文阻断记为实际续写成功。专库 ai_novel_agent_e2e_rp_fullmatrix_20261007 被只读observer保留，原脚本DROP因连接占用失败；这是刻意保全付费结果，observer session2346已停止，非产品故障。
-- 原账本 paid-calls.json 不重置，旧4笔usage_unknown仍按既有授权保留上界和状态；本矩阵没有新增未知收费。已冻结恢复协议并在原累计USD20内重分配：共享普通调用上界USD18、保留USD2失败额度。一次性私有恢复协议/harness固定输入、来源、rubric、baseline和配置；只对原USD9发送前拒绝及已结算空正文截断创建领域新attempt，旧task/envelope/hold不重置、已有成功结果不重跑。continue语义不能用普通retry替代，同轮未知收费/泄漏/其他质量失败禁止自动恢复。
-- 工作区：/Users/tywww/.codex/worktrees/world-foundation-plan/ai-writing-assist，codex/world-foundation-phase1-plan@85fb1c7be35ae687f949863d179f5fd63c53f3c0；原 M0–M7 WIP 与整改均未提交，主工作区不动。
-- 最终复审：Spec 未见新阻断；Standards 缓存证明回读失败残留正文已在共享入口立即purge，794项相关回归通过。freeze后5处候选变化逐项留证：Lens、Story状态/历史响应、状态影响作者标签，以及证明失败purge；正常有效RP输入不改变。原始冻结文件不覆盖，恢复另记协议及代码哈希。
-- 下一步：私有恢复session47196（matrix-resume-run.log；matrix-resume-protocol.json）完成后整理实际质量/费用与代理作者结论，本地提交后保存第二阶段计划。未通过的第一阶段门禁不得转移第二阶段冒充完成。
-- 状态 active；原失败审查报告保留，整改另存验收收据。最后核实 2026-10-07 15:45 +09:00。
+- 本轮交付：原审查可定位工程缺陷修复、作者操作闭环验收、本地代码提交完成；第二阶段仅计划已保存。第一阶段整体验收 **fail**，R7/M6/M7仍未核销，本任务active，不把未通过门禁移到第二阶段。
+- 授权：用户授权修复、整理本地提交、代作者验收和同一DeepSeek账本累计USD20补跑。无推送、PR、合入、部署或第二阶段实施授权；human_validated=false。
+- 工作区：/Users/tywww/.codex/worktrees/world-foundation-plan/ai-writing-assist，codex/world-foundation-phase1-plan。生产实现/整改提交b40cd0c5aface3e52d065a564b7de6f47681bc58；评阅全文e2d44457a；来源错误类型eba9d7e8a；来源探针支持范围f99a8f451。当前实际HEAD与文档提交从Git查证；主工作区及其WIP不动。
+- 已修S1–S5/R1–R6/R8：匿名禁缓存、备份/恢复冷启动、全行配额与PG锁、撤权清缓存、证明失效立即purge及SAVEPOINT；Lens完整REST、同Scene知识/来源/历史、basis漂移保护、真实影响锚点、有限条件比较/Grant与manifest重验、窄屏交接及冲突/采用保护。正式断言准入仍关闭，字段来源不冒充独立最后赋值事件。
+- 工程/控制链验证：后端全量7199 passed/3 skipped、前端2792；最后共享缓存794 passed/4 deselected，PG关键64，账号缓存66，历史REST12，部署272；真实dump/restore和SQL并发/保存点通过。真实浏览器3流最终40.8s，实际REST保存人工改稿→reload→当前未知→显式事件重建局限保留通过，未单独证明未保存草稿保护。最新eval213 passed/3 skipped、ruff通过；repo/docs最终门禁及日志见整改报告，literal docs差异初始失败与支持的no-change-reason通过分别记录。
+- 真实生成：固定原消息布局、基线compiler+retrieval、6开发来源族两臂各30轮及重抽/分支完成；11实际length续写、1空length失败关闭后恢复分列。9族source/input/rubric冻结未变；生产候选变化另存恢复协议，原freeze不覆盖。
+- 评阅：旧3判缺第6/12章依据，保留标groundtruth_incomplete；新审核为起点前每章全文/角色非全知/未来37排除，全部30匿名输入另冻结628e1eddb628897ad247afc4a5deeaec4be1501445d794835f032f4d254a44b8。30点评阅已结束，28严格schema有效，2非空invalid不重试；一次settled空24K length以同messages48K恢复。有效候选20/28全通过、8失败；基线21/28通过，不按比例替代逐点门。
+- 代理作者确认港口10未执行最新行动、铁路5历史冲突；诊所1开柜/交还条件混淆但不称DB权限改变；果园10裁判依据不足，冻结fail保留/人工意见另列。其他未独立逐点评审的判据不称全部已确证；当前证据不能安全归因全部到缓存/检索，未据猜测改Prompt宣称修复。
+- 来源探针：首章可由其他原文替代身份证明，原12次非必需源探针保留（零费用拒绝）。独立v2协议fe0aa8429eb958f8d857de90b5f102ca5953dbbbe8abaca42f50d7ed1bd8c954移除ownDB全部<=cutoff支持原文、保留未来37；12臂source_context_blocked且零模型dispatch/付费/故事通过。仅证明所有必要证明失效时失败关闭，不能称任意单draft删除必阻断。
+- 费用：同一原账本最终2246调用，无pending，累计上界USD14.9654139、已知用量估计USD9.238529634（非账单）；4旧usage_unknown及授权预留/原hash仍保留，不再请求原unknown。当前矩阵调用均settled。生成臂估计old3.57394695/new4.314343758（+20.7%）；同费率事后old4.306307856/new4.757419788（+10.5%，不替代门）；裁判35笔各版本/失败费估计0.399726732单列。质量和费用门失败，3独立留出未打开，不能宣称整体RP降本或M0–M7完成。
+- 原请求/正文/账本/协议保存在仓库外 ~/.ai_writing_private/rp-real-20261007；工程日志在world-phase1-review-20261007。repo仅脱敏rp-fullmatrix-summary-20261007.json、rp-paid-ledger-redacted-20261007.jsonl和author-remediation-20261007.json。paid脚本均结束，无继续付费；专库ai_novel_agent_e2e_rp_fullmatrix_20261007保留，支持原文已按上述探针删除，勿拿它直接重跑生成或重置账本。受保护Guimi未写入/重建。
+- 第二阶段计划docs/plans/2026-10-07-world-foundation-phase2.md：历史字段精确来源→知识值/揭示→实际依赖与局部重做，当前plan-only。原失败审查保留，最终整改结论docs/reviews/2026-10-07-world-foundation-phase1-remediation.md；第一阶段剩余R7继续本任务。
+- 可执行下一步：从私有失败输出及实际请求建立少量离线行动/历史反例，核清准备计划、最新用户输入及长历史冲突的真实根因，并分开评测格式稳定与生成质量。候选修正后另冻结开发代码/证据、核实原累计余额及有效授权，开发质量/费用通过后才打开未使用留出。不得以现有失败结果调留出或缩小样本冒充通过；没有已验证修复时保持验收fail。
 
 ## 目标与验收
 
