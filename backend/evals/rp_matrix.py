@@ -178,6 +178,14 @@ def source_invalidation_result(attempt, paid_calls):
     }
 
 
+def source_invalidation_draft_ids(manifest, cutoff_chapter):
+    return [
+        uuid.UUID(ref["draft_id"])
+        for ref in manifest
+        if 0 < int(ref["chapter_index"]) <= cutoff_chapter
+    ]
+
+
 async def run_matrix(directory: Path, keep_db: bool):
     from app.bootstrap import register_container_services
     from app.task_runtime import register_task_handlers
@@ -751,8 +759,13 @@ async def run_matrix(directory: Path, keep_db: bool):
                 async with sessions.begin() as db:
                     await db.execute(
                         delete(WritingDraft).where(
-                            WritingDraft.id
-                            == uuid.UUID(fixture.source_manifest[0]["draft_id"])
+                            WritingDraft.id.in_(
+                                source_invalidation_draft_ids(
+                                    fixture.source_manifest,
+                                    int(fixture.anchor["chapter_index"]),
+                                )
+                            ),
+                            WritingDraft.novel_id == uuid.UUID(fixture.source_id),
                         )
                     )
                 for arm in ("old", "new"):

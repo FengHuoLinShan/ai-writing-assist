@@ -3,6 +3,7 @@
 from evals.rp_matrix import (
     check_source_isolation,
     frozen_spec,
+    source_invalidation_draft_ids,
     source_invalidation_result,
 )
 from evals.rp_source_families import FAMILIES
@@ -51,3 +52,14 @@ def test_source_invalidation_requires_a_source_failure_before_any_paid_call():
     for kind in ("quota", "configuration", "generation_failed", "timeout"):
         attempt.error_kind = kind
         assert not source_invalidation_result(attempt, 0)["source_blocked"]
+
+
+def test_source_invalidation_removes_all_support_without_touching_future_sources():
+    from uuid import uuid4
+
+    manifest = [
+        {"draft_id": str(uuid4()), "chapter_index": number}
+        for number in (1, 2, 12, 37)
+    ]
+    ids = source_invalidation_draft_ids(manifest, 12)
+    assert [str(value) for value in ids] == [ref["draft_id"] for ref in manifest[:3]]
