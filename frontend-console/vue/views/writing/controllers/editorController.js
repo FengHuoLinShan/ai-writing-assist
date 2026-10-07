@@ -5,6 +5,7 @@ import {
   rememberChapterSnapshot,
 } from "../writingSession.js"
 import { isVersionActive } from "../versionState.js"
+import { normalizeInvalidationNotice } from "../invalidationModel.js"
 
 const LOCAL_PERSIST_DELAY = 250
 
@@ -57,6 +58,7 @@ export function createEditorController({
     loadError: null,
     candidateAction: null,
     candidateActionError: null,
+    invalidationNotice: null,
   }
   let elements = { title: null, editor: null }
   let autosaveTimer = null
@@ -210,7 +212,7 @@ export function createEditorController({
       state.backupComplete = saved.backupComplete === true
       return true
     }
-    Object.assign(state, saved, { chapter })
+    Object.assign(state, saved, { chapter, invalidationNotice: null })
     return true
   }
 
@@ -289,6 +291,7 @@ export function createEditorController({
     state.backupComplete = true
     state.candidateAction = null
     state.candidateActionError = null
+    state.invalidationNotice = null
   }
 
   function applyAutosaveMetadata(draft = {}, savedContent, savedTitle) {
@@ -522,6 +525,11 @@ export function createEditorController({
       if (hasNewerEdits || keepsLocalFormatting) saveBackup()
       else clearBackup(sourceDraftId)
       state.saveError = null
+      // P2-C C4：保存成功且响应带 invalidation 视图时就地提示（作者语言）；
+      // 无失效信息 / nothing_to_do 归一为 null，保持零打扰。
+      state.invalidationNotice = normalizeInvalidationNotice(result?.invalidation, {
+        chapterIndex: chapter,
+      })
       emit()
       if (keepsLocalFormatting && !hasNewerEdits) {
         toast("已回到上一版；排版或标题修改仅保存在本地", "info")
