@@ -166,6 +166,18 @@ def summarize_calls(calls):
     }
 
 
+def source_invalidation_result(attempt, paid_calls):
+    return {
+        "source_blocked": attempt.status == "failed"
+        and attempt.error_kind == "source_context_blocked"
+        and paid_calls == 0,
+        "status": attempt.status,
+        "error_kind": attempt.error_kind,
+        "released_story": bool(attempt.visible_text),
+        "paid_calls_after": paid_calls,
+    }
+
+
 async def run_matrix(directory: Path, keep_db: bool):
     from app.bootstrap import register_container_services
     from app.task_runtime import register_task_handlers
@@ -765,11 +777,9 @@ async def run_matrix(directory: Path, keep_db: bool):
                         attempt = await db.get(
                             InteractionGenerationAttempt, uuid.UUID(mutation.attempt.id)
                         )
-                        arm_report["invalidation"] = {
-                            "source_blocked": attempt.status == "failed",
-                            "released_story": bool(attempt.visible_text),
-                            "paid_calls_after": len(meter.ledger["calls"]) - first,
-                        }
+                        arm_report["invalidation"] = source_invalidation_result(
+                            attempt, len(meter.ledger["calls"]) - first
+                        )
                     checkpoint()
             stage_report["quality_passed"] = all(
                 judge["new_passed"]

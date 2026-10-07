@@ -1,6 +1,10 @@
 """独立来源与旅程选择脚本冻结；矩阵默认不允许复用已见holdout。"""
 
-from evals.rp_matrix import check_source_isolation, frozen_spec
+from evals.rp_matrix import (
+    check_source_isolation,
+    frozen_spec,
+    source_invalidation_result,
+)
 from evals.rp_source_families import FAMILIES
 
 
@@ -34,3 +38,16 @@ def test_judge_uses_source_facts_beyond_the_short_recap_without_future_facts():
     assert all(family.chapter(number) in facts for number in range(1, 13))
     assert family.future_canary not in facts
     assert "第37章：" not in facts
+
+
+def test_source_invalidation_requires_a_source_failure_before_any_paid_call():
+    from types import SimpleNamespace
+
+    attempt = SimpleNamespace(
+        status="failed", error_kind="source_context_blocked", visible_text=""
+    )
+    assert source_invalidation_result(attempt, 0)["source_blocked"]
+    assert not source_invalidation_result(attempt, 1)["source_blocked"]
+    for kind in ("quota", "configuration", "generation_failed", "timeout"):
+        attempt.error_kind = kind
+        assert not source_invalidation_result(attempt, 0)["source_blocked"]
