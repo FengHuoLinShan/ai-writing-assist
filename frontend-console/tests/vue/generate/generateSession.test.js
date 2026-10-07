@@ -3,6 +3,7 @@ import {
   CREATIVE_CONTINUATION_STORAGE_PREFIX,
   GENERATE_INTERRUPTED_CHAT_MESSAGE,
   clearCreativeContinuation,
+  cocreationSessionKey,
   generateSessionKey,
   hasGenerateSession,
   normalizeConvergenceDraft,
@@ -246,6 +247,43 @@ describe("generate Vue bounded session", () => {
 
     expect(result.serialized).not.toBeNull()
     expect(JSON.parse(result.serialized).messages).toEqual([
+      { role: "assistant", content: GENERATE_INTERRUPTED_CHAT_MESSAGE, error: true, interrupted: true },
+    ])
+  })
+
+  it("persists only unfinished turns when the session is bound to a server cocreation session", () => {
+    const pending = { role: "assistant", content: "正在思考...", pending: true }
+    const result = serializeGenerateSession({
+      serverSessionId: "cs-1",
+      messages: [
+        { role: "user", content: "已同步的问题" },
+        { role: "assistant", content: "已同步的回复" },
+        { role: "user", content: "尚未得到回复的问题" },
+        pending,
+      ],
+    })
+
+    expect(JSON.parse(result.serialized).messages).toEqual([
+      { role: "user", content: "尚未得到回复的问题" },
+      { role: "assistant", content: GENERATE_INTERRUPTED_CHAT_MESSAGE, error: true, interrupted: true },
+    ])
+  })
+
+  it("saves a server-bound session whose synced history alone exceeds the byte bound", () => {
+    const key = cocreationSessionKey(generateSessionKey("p1"), "cs-1")
+    const history = Array.from({ length: 4 }, () => [
+      { role: "user", content: "界".repeat(90_000) },
+      { role: "assistant", content: "已同步的回复" },
+    ]).flat()
+    const notify = vi.fn()
+
+    expect(writeGenerateSession(key, {
+      serverSessionId: "cs-1",
+      messages: [...history, { role: "user", content: "最后的问题" }, { role: "assistant", content: "正在思考...", pending: true }],
+    }, { notify })).toBe(true)
+    expect(notify).not.toHaveBeenCalled()
+    expect(JSON.parse(localStorage.getItem(key)).messages).toEqual([
+      { role: "user", content: "最后的问题" },
       { role: "assistant", content: GENERATE_INTERRUPTED_CHAT_MESSAGE, error: true, interrupted: true },
     ])
   })
