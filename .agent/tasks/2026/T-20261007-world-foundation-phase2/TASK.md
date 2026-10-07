@@ -416,3 +416,233 @@ passed（新增 SceneFieldProvenance/SceneCheckpointHistory/SceneLensSummary 三
 + sceneLensModel 适配测试）；`npm run lint` 通过。`make docs-check` 无基线通过；
 `--base-ref origin/main` 报 architecture 文档复核要求（分支累计 phase1+P2 改动的通用
 要求，非 A4 独有缺口，归 P2-A 包收尾统一处理）。零 LLM、零 git commit。
+## B0 产出（P2-B 批1 知识边界夹具，2026-10-07）
+
+夹具文件：`backend/modules/story/continuity/tests/test_p2b_knowledge_boundaries.py`
+（8 用例：6 真绿 + 2 xfail（`reason="P2-B knowledge boundary not implemented",
+strict=False`）；输出 `6 passed, 2 xfailed`；`--runxfail` 验证两处 xfail 均在
+目标边界断言失败，非 setup 报错）。文件头含六类矩阵与知识期望契约全文（本节为摘要）。
+
+### 六类矩阵（类别×视角×允许/拒绝×现状）
+
+1. 旧值→新值（真绿）：口令改写后旧知识绑旧值——角色视角新口令 fact 不可见；
+   trial 条件 unmet 且 observed=旧值/expected=新值（拒绝原因=值不匹配）。
+   test_state_trial 既有主干覆盖，本夹具钉 belief `known_values` 与条件
+   observed/expected 的双端值绑定。
+2. 误信（真绿）：false 标记条目（含结构上可授予的 fields/known_values 形态）
+   belief 可见带 possibly_false、事实零授予；trial 口令条件 unknown（候选被
+   排除即无法证明），绝不为 met。
+3. 部分知晓（真绿）：fields=["identity"] 只放行 identity fact，
+   secret_relation 不可见（不知道≠知道没有）。注：name 是实体 meta 键
+   （_ENTITY_META_KEYS，不作为状态字段输出），身份类字段夹具用非 meta 键。
+4. 同场旁观（边界真绿）：同 Scene 有位置（在场）但无知识条目 → 他人事实
+   不可见、本人位置可见（在场只证明位置）。**边界已在现实现成立**——前期
+   调查所列缺口的实质在下行原因结构。
+5. 后文揭密-character（真绿）：Scene N+1 的揭示事件（实体补秘密+获知知识）
+   不回流 Scene N（checkpoint 截止语义）；对照获知后的 N+1 视角可见。
+6. uncertain 三值（真绿，此前零断言）：三条件全 unknown 且无 unmet →
+   verdict=uncertain + `unresolved_outcomes=[actor]`；有一条明确 unmet
+   （所需钥匙记载为另一把）→ failed。三值裁决已实现，纯补断言。
+
+### xfail 清单与失败点
+
+- `test_p2b_bystander_denial_reason_distinguishes_no_knowledge_entry`：
+  失败于"拒绝原因缺失"断言（前置三条事实确实被拒已通过）。缺口=同一
+  character 视角下三类拒绝原因（无条目/旧值/误信）须互斥可区分，现状
+  omissions 只有维度级计数（`人物与对象：角色视角未获得依据 N 项`）。
+- `test_p2b_reader_before_reveal_scene_must_not_see_secret`：失败于
+  "揭示前读者视图不得看到秘密"断言。缺口=无 reveal 策略默认公开
+  （`ReaderRevealDecisionContract.revealed` 默认 True）→ Scene 0 就有
+  记录的世界秘密泄露给揭示前读者视图；omissions 也不会报"尚未揭示"。
+  （有策略未到揭示章的隐藏已被既有 test_reader_view_gates_entities_by_reveal
+  覆盖，B1 裁定的是无策略默认方向。）
+
+### 知识期望契约形态决定（供 B1 对齐）
+
+- 知识条目 payload：`{character_id|holder_id, subject_id, fields:[str],
+  known_values:{field:value}, false?:bool, knowledge:str}`；授予 =
+  (holder, subject, field, stable_hash(value)) 四元组；fields/known_values
+  缺失即纯 belief（知道有这么回事≠知道值）；false/false_belief 永不授予。
+- 值的时间性：条目绑定记录当时的值，事实后续变更不自动更新知识；旧值
+  授权对新值 = knowledge_value_mismatch 拒绝，只有新知识条目放行且只
+  放行其后场景（后文获知不授权早场景）。
+- 视角过滤：character fact 需四元组授予（唯一例外本人位置）；belief 只见
+  本人；observation 仅作者。reader fact 需揭示判定且 layer=fact。
+- 逐条拒绝原因（xfail 钉定的缺口）：character 视角每个被抑制 fact 可归因，
+  cause 三类互斥——no_knowledge_entry / knowledge_value_mismatch /
+  false_belief；承载形态不限（omissions 内 dict 或 facts 同级 denied/
+  suppressed 结构），夹具 helper `_denial_reasons` 容忍多种承载，只钉
+  "三类可区分"语义，不钉精确字符串。
+- 揭示判定：reader 默认必须保守——无"已展示原文证明"不得默认公开秘密；
+  揭示前 omissions 只报数量不泄露对象（沿用既有读者侧口径）。
+
+**与 B1 裁定的张力（汇合/B4 须裁定）**：B1 裁定"两域不改默认值"——outline
+RevealPlan 无策略默认公开保持；而本夹具 `test_p2b_reader_before_reveal_scene_
+must_not_see_secret` 钉的是主计划验收句"读者揭示只在能够证明已展示的原文
+范围内启用"在**无策略**形态下的体现（Scene 0 记录的世界秘密不得泄露给揭示前
+读者）。两者仅在"作者未登记任何揭示/保密策略"时冲突；候选调和方向：World
+对象级保密策略（ReaderRevealPolicy）接入 scene 读者视图（B1 记 World 层为
+附加闸门但 B3 落点未含此接线）、证明闸对所有 secret 类 fact 生效、或夹具
+改为带策略形态（带策略未揭示的隐藏已被既有测试覆盖，会失去缺口钉定）。
+夹具按计划原文保留 xfail，最终口径由主会话裁定。
+
+### 验证
+
+`test_p2b_knowledge_boundaries.py` 6 passed + 2 xfailed（`--runxfail` 两处
+均失败于目标边界断言：拒绝原因缺失断言 / 揭示前读者视图含秘密断言）；
+continuity 全量 185 passed + 2 xfailed；`modules/story` 全量 675 passed +
+2 xfailed（与 B1 并行合流后无回归）；ruff check/format 过（新夹具文件）。
+零 LLM、零真实数据写入、零 git commit。
+
+
+## B1 产出（方言统一与边界裁定单元，2026-10-07）
+
+新模块 `backend/modules/story/continuity/knowledge_contract.py`（契约+纯函数，零接线）；
+契约测试 `backend/modules/story/continuity/tests/test_p2b_knowledge_contract.py`
+（30 例全绿；与 B0 夹具 `test_p2b_knowledge_boundaries.py` 不同文件，B0 的 xfail 不受影响；
+含 B0 两个 xfail 缺口的纯函数承载——`denial_reason` 三类互斥拒绝原因、
+`evaluate_reader_reveal` 无策略有揭示主张记录的保守判定）。
+
+### 统一契约最终形态（KNOWLEDGE_CONTRACT_VERSION = "knowledge-dialect-v1"）
+
+```
+KnowledgeClass(StrEnum): known | unknown | false_belief
+KnowledgeOrigin(StrEnum): scene_event | machine_observation
+SceneAnchor(frozen): scene_id? | scene_index? | scene_sequence?（extract_scene_anchor 容错提取，
+  bool/字符串数字不当 int，与 _occurred_at 同口径）
+
+KnowledgeStatement(BaseModel, frozen)
+  holder_id: str                      # 谁知道（character_id/holder_id）
+  subject_id: str | None              # 值绑定对象锚（机器路径恒 None）
+  knowledge_class: KnowledgeClass
+  value_bindings: dict[str, str]      # field → stable_hash(known_values[field])
+  known_fields: tuple[str, ...]       # 原 fields 列表保留（含绑不上的字段）
+  text_summary: str | None            # 文本知识层
+  origin: KnowledgeOrigin
+  event_id: str | None                # 知识来源事件
+  source_refs: tuple[ProvenanceSourceRef, ...]   # 稿源区间（沿 A1 结构）
+  scene_anchor: SceneAnchor | None    # 当时适用范围
+  unchecked_note: str | None          # 未检查说明（机器传闻级等）
+  entry_id: str | None                # reducer 幂等键（knowledge_changed 按 id 去重）
+  不变量（model_validator）：
+    known ⇔ value_bindings 非空且 subject_id 非空；
+    false_belief/unknown 结构上禁携绑定（误信永不授予在结构上杜绝）；
+    unknown 必须保留 text_summary（无文本兜底"未记载内容的知识条目"，不静默丢弃）
+```
+
+三分类判定 `classify_knowledge(payload, *, origin)`——分类绑定来源方言：事件方言
+误信标记先判（false/false_belief → false_belief，带三件套也不授予），三件套交集
+（subject + fields list + known_values dict 且 fields∩known_values 非空）→ known，
+其余 unknown；机器方言恒 unknown（方言本身表达不了值绑定）。
+
+纯函数：`bind_value(v)=stable_hash(v)`、`value_matches(hash, v)`（视角过滤口径）、
+`build_knowledge_grants(statements, target_id) -> {subject: {field: 值哈希集}}`
+（只取 known 且 holder 匹配的条目——测试与 `scene_state_view._knowledge_grants`
+对同一 checkpoint 逐位对拍相等）、`denial_reason(statements, *, holder_id,
+subject_id, field, value) -> KnowledgeDenialCause | None`——B0 xfail 钉定的三类
+互斥拒绝原因纯函数（no_knowledge_entry / knowledge_value_mismatch /
+false_belief；授予返回 None；known 条目的授予与归因不受同对象误信条目影响，
+unknown 文本条目不构成字段级授予等同无条目），B3 把它装进 omissions/denied
+结构即转绿。
+
+兼容读取：`read_knowledge_statement(payload, origin=...)` / `read_knowledge_statements(state_json)`
+（character_knowledge 列表批读）/ `read_machine_knowledge(payload)`。旧格式/非 dict/无 holder
+→ 跳过或 None，永不报错、不冒充；fields⊄known_values 时 known_fields 保留全集、只绑交集。
+
+### 机器路径映射裁定（B2 沿此执行，字段级）
+
+**裁定：选 (b) story 侧转换器降级为文本知识（unknown，无值绑定）；不选 (a) 扩展
+evolution/KnowledgeInPanorama 声明可选绑定字段。**
+
+- 红线（已钉死测试 `test_p2b_machine_smuggled_binding_keys_are_not_adopted`）：
+  `KnowledgeInPanorama`（continuity/schemas.py:81，无 extra 配置）Pydantic 默认
+  忽略额外键——机器 payload 偷带 subject_id/fields/known_values 会静默透传持久化、
+  在 `_build_panorama` 的 `KnowledgeInPanorama(**k)` 读回时静默消失。方言统一时
+  不得把透传键当作值绑定采信：`read_machine_knowledge` 只认白名单结构，
+  `classify_knowledge(..., origin=machine_observation)` 恒 unknown。
+- 选 (b) 理由：① 机器证据分级（state_gate GROUNDING_MODALITIES：knowledge 维度
+  接受 event_observed/character_statement/belief/hypothesis）没有值级证据，让机器
+  宣称"知道哪个值"等于制造无依据断言，违背阶段语义；② (a) 需同步动
+  state_gate 的 uuid5 identity（锚内容变化使既有幂等键漂移）、panorama 读回与
+  视图多处，超出 B2 范围且引入兼容风险；③ (b) 把统一动作收敛在 story 侧一个
+  转换器，机器路径零 schema 变更。
+- 字段映射（`read_machine_knowledge`）：`character_id`→holder_id（state_gate 已
+  强制 == knowledge_subject）；`known_content`（belief 文本键兜底）→text_summary；
+  `knowledge_level` ∈ {rumor, hearsay}→unchecked_note「传闻级证据，未直接目击」，
+  其余级别不追加；`id`→entry_id。**不映射**：`target_type`/`target_id`/`status`
+  ——target_id 无字段语义，不冒充值绑定对象锚 subject_id；透传出现的
+  VALUE_BINDING_KEYS（subject_id/fields/known_values）一律不采信。
+- B2 可选加强（不改裁定）：`backend/modules/evolution/state_gate.py:216`
+  （validate_machine_event_snapshot 调用处）对 knowledge 维度追加 gate 拦截——
+  payload 出现任一 VALUE_BINDING_KEYS 即 `reasons.append("value_binding_not_machine_grounded")`，
+  把隐式透传从"静默"变"显式拒绝"。不建议给 KnowledgeInPanorama 加
+  extra="forbid"（会拦掉 state_gate 注入的 meta/knowledge_subject 等合法键）。
+
+### 揭示边界裁定（全文要点）
+
+- **适用域调和（含 B0 张力的消解）**：两套揭示系统默认相反是各自域的既定语义，
+  但 outline 域的"无策略默认公开"有精确边界。Story `RevealPlan`（outline_state，
+  reveal_visibility.py）管 **outline 结构层**——揭示计划是作者大纲资产，
+  **无策略且无揭示主张记录** = 没有读者限制 → 默认公开
+  （test_reader_view_gates_entities_by_reveal 钉定）；一旦存在揭示主张锚
+  （策略 reveal_stages 或 timeline 揭示事件记录的揭示章，B0 夹具形态即
+  `field_path={subject}.{field}` 的揭示事件），对象即移入「须证明」域。
+  World `ReaderRevealPolicy`（world，knowledge_visibility_service.py
+  `_reader_revealed`）管 **世界知识层**——对象级保密策略，作为可见性判定的
+  附加闸门（`_decide` 仅 has_policy 时介入），public_baseline 显式公开优先，
+  无策略时对象默认可见性由 visibility_mode（public/tag/private）决定。
+  **B0 xfail 张力在此消解**：其秘密夹具带揭示主张锚（第 2 章 > 读者 cutoff
+  第 1 章），修正版 outline 判定为隐藏——无需改夹具、无需 World 接入
+  scene 视图；与 world map_structure_service.py:893（无策略时仅
+  revealed/fully_known 公开）同款保守口径。
+- **共同保守红线**（统一纯函数 `evaluate_reader_reveal(domain, has_policy,
+  cutoff_chapter, reveal_chapters, public_baseline)` 参数化承载，测试对拍
+  `_reader_revealed` 行为矩阵与 outline 现状 + B0 秘密场景）：当章不揭示
+  （严格 `<` cutoff）；无 cutoff 不猜；outline 有策略或有主张记录但无
+  `< cutoff` 的锚 → False。
+- **「读者揭示只在已证明展示的原文范围内启用」判定通路**（B3 接线）：
+  1. 策略/揭示计划给出揭示主张锚 reveal_chapter；
+  2. 证明材料：`proven_shown_chapters(FieldProvenance 记录)` 从已展示 Scene 的
+     checkpoint/事件稿源提取（A2 的 source_refs[].chapter_index；unverified 空
+     refs 链不构成证明——追到事件不等于读者见过原文）；
+  3. 判定：`reveal_within_proven_shown(reveal_chapter, proven)`——锚缺失 False
+     （不猜）、未落在证明集合 False（策略可计划未来揭示，正文证明展示前不得
+     对读者启用）。与 cutoff 分工：cutoff 判"读者读到哪里"，本判定判"揭示主张
+     有无已展示原文背书"，双闸都过才启用。
+- **第一阶段未支持保持显式 unsupported**：`UNSUPPORTED_READER_VIEW_DIMENSIONS =
+  ("timeline", "causality")` 契约常量钉死（reader timeline 揭示范围未登记、
+  causality 是作者层断言），不得以作者全知视图补齐；B3 读者视图对这两维保持
+  unsupported + omissions 现状。
+- ADR 判断：本裁定为 P2-B 包内语义调和（不改跨模块公共契约、不新增授权），
+  记 TASK.md 即可；若 B2/B3 落地后揭示双闸成为对外承诺语义，再由主会话评估
+  是否升 ADR（草案要点：双域适用域划分 + 当章不揭示/无锚不猜/已展示证明三红线
+  + 机器路径不采信透传绑定）。本单元不新建 ADR 文件。
+
+### B2/B3 落点建议（file:line，改动后行号）
+
+- B2（机器路径接线）：转换器直接复用 `knowledge_contract.read_machine_knowledge`
+  （本包已给，含白名单与红线测试）；可选 gate 加强在
+  `backend/modules/evolution/state_gate.py:216`（validate 调用后追加
+  value_binding_not_machine_grounded 拦截）；`continuity/schemas.py:81`
+  KnowledgeInPanorama 与 `services.py:1123` `_build_panorama` 读回均无需改动。
+- B3（历史回开/读者揭示接线）：`backend/modules/story/continuity/scene_projection.py:221`
+  `get_record`——knowledge 维度行经 `read_knowledge_statements(row.state_json)`
+  组装响应时过契约（旧格式无法表达值绑定的条目落 unknown，不冒充，呼应 B0 夹具
+  "历史回开知识维度不越视角边界"）；读者揭示双闸在
+  `scene_state_view.py` `_reveal_cache:704`（cutoff 判定现状）之上叠
+  `evaluate_reader_reveal`（合并 outline 策略锚与揭示主张记录锚——后者从
+  timeline checkpoint 的 facts 里 `field_path={subject}.{field}` 揭示事件
+  提取锚章，即 B0 秘密夹具形态）+ `reveal_within_proven_shown`（证明材料取
+  该 Scene 已展示 checkpoint 的 `_field_provenance`，经 `read_field_provenance`）；
+  拒绝原因结构用 `denial_reason` 三类互斥承载（B0 另一 xfail 的转绿路径）。
+- 后文得知（后 Scene 事件不回灌早 Scene 知识）、角色误信、作者试改假设互不授权：
+  已由三分类结构（false_belief 无绑定、unknown 不授予）+ checkpoint 按 Scene 截断
+  （scene_projection 既有语义）承载，B3 勿在视图层重写判定。
+
+### 验证
+
+`modules/story` 全量 677 passed + 2 xfailed（B0 夹具保持 xfail 正常；对照 P2-A 基线
+633+6xpassed→已转绿 675，本单元新增 30 契约测试后无回归）；新契约测试 30 例全绿；
+`ruff check`/`format`（两个新文件）通过；`make module-import-gate` 通过
+（65/65、9/9、0/0、525/525、0/0、26/26 未推高；新增 story 模块内导入，无新跨模块边，
+零 evidence/world 生产导入）。零 LLM、零 git commit。
