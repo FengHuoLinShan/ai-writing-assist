@@ -121,7 +121,7 @@
         <button v-if="!structureEnabled && structureLevels.includes(activeNode.level)" class="btn btn-sm" @click="editStructureNodeId = activeNode.id">补建空间示意</button>
         <MapStructureEditor v-if="structureEnabled" :key="projectId + ':' + activeNode.id" ref="structureEditor" external-tools :project-id="projectId" :node="activeNode" :known-nodes="adoptedNodes" :images="nodeImages" :has-reference="Boolean(activePage)" :initial-feature-id="initialFeatureId" :initial-revision-id="initialRevisionId" :review-image-id="tab === 'review' && activePage?.review_status === 'candidate' ? activePage.id : ''" :evidence-refs="focusedSelection.refs.value" @pin-evidence="focusedSelection.add" @clear-evidence="focusedSelection.clear" @saved="refreshAtlasOnly" @open-node="openMapNode" @select-feature="persistFeatureFocus" @reference-visible="referenceVisible = $event" @state="updateStructureState" />
         <template v-if="activePage && !structureState.reader">
-        <label v-if="tab === 'atlas' && oldPages.length && (!structureEnabled || referenceVisible)" class="atlas-compare-toggle"><input v-model="compareAdopted" type="checkbox" />对比已有图片</label>
+        <label v-if="tab === 'atlas' && oldPages.length && (!structureEnabled || referenceVisible)" class="atlas-compare-toggle"><input v-model="compareAdopted" :disabled="Boolean(annotationEdit)" type="checkbox" />对比已有图片</label>
         <div v-if="!structureEnabled || referenceVisible" :class="['atlas-images', { compare: comparingImages }]">
           <figure v-if="comparingImages">
             <figcaption>{{ tab === 'atlas' ? '左侧：已采用图片' : '地图册已有图片' }}</figcaption>
@@ -153,7 +153,7 @@
               <div v-if="activePage.generation_status === 'prompt_only'" class="atlas-prompt-only" role="status">
                 <strong>已选择外部生成</strong><p>{{ activePrompt?.prompt || '正在读取画面说明…' }}</p><div><button class="btn btn-sm" :disabled="!activePrompt" @click="copyPrompt">复制画面说明</button><button class="btn btn-sm btn-primary" @click="openUpload(true)">上传生成结果</button></div>
               </div>
-              <div v-else-if="imageUrls[activePage.id]" ref="imageCanvas" class="atlas-image-canvas" :style="imageCanvasStyle(activePage)">
+              <div v-else-if="imageUrls[activePage.id]" ref="imageCanvas" class="atlas-image-canvas" :class="{ 'is-positioning': annotationEdit }" :style="imageCanvasStyle(activePage)" @click="pickAnnotationPosition">
                 <img :src="imageUrls[activePage.id]" :alt="`${activePage.title} 地图`" />
                 <button
                   v-for="annotation in activePage.annotations"
@@ -161,7 +161,7 @@
                   class="atlas-annotation"
                   :style="annotationStyle(annotation)"
                   @pointerdown="startAnnotationDrag($event, annotation)"
-                  @click="openAnnotation(annotation)"
+                  @click.stop="annotationEdit ? pickAnnotationPosition($event) : openAnnotation(annotation)"
                 >{{ annotation.label }}</button>
               </div>
               <span v-else-if="activePage.generation_status === 'failed'" class="atlas-image-state">本页生成失败</span>
@@ -171,8 +171,30 @@
               </div>
               <span v-else class="atlas-image-state" role="status">正在加载图片…</span>
             </div>
+            <details v-if="tab === 'atlas' && !compareAdopted && activePage.annotations?.length" class="atlas-annotation-controls">
+              <summary>调整标注位置</summary>
+              <label>地图标注
+                <select class="form-select" :value="annotationEdit?.id || ''" :disabled="writeLocked || Boolean(annotationEdit) || !imageUrls[activePage.id]" @change="startAnnotationEdit($event.target.value)">
+                  <option value="">请选择要调整的标注</option>
+                  <option v-for="annotation in activePage.annotations" :key="annotation.id" :value="annotation.id" :disabled="Boolean(annotation.bound_feature_id)">{{ annotation.label }}{{ annotation.bound_feature_id ? '（跟随地图对象）' : '' }}</option>
+                </select>
+              </label>
+              <fieldset v-if="annotationEdit" :disabled="writeLocked || busy">
+                <legend>{{ annotationEdit.label }}的位置</legend>
+                <p>点击地图设置位置，或用方向按钮微调；确认保存后才会改变地图。</p>
+                <div class="atlas-annotation-nudge" role="group" aria-label="微调标注位置">
+                  <button type="button" class="btn" aria-label="标注向左移动" @click="nudgeAnnotation(-1, 0)">←</button>
+                  <button type="button" class="btn" aria-label="标注向上移动" @click="nudgeAnnotation(0, -1)">↑</button>
+                  <button type="button" class="btn" aria-label="标注向下移动" @click="nudgeAnnotation(0, 1)">↓</button>
+                  <button type="button" class="btn" aria-label="标注向右移动" @click="nudgeAnnotation(1, 0)">→</button>
+                </div>
+                <p v-if="annotationEditError" role="alert">{{ annotationEditError }}</p>
+                <button type="button" class="btn btn-primary" @click="saveAnnotationPosition">{{ busy ? '正在保存…' : '保存标注位置' }}</button>
+                <button type="button" class="btn" @click="annotationEdit = null">取消调整</button>
+              </fieldset>
+            </details>
             <p v-if="activePage.error_message" class="atlas-error">{{ activePage.error_message }}</p>
-            <select v-if="tab === 'atlas' && activeNode?.pages?.length > 1" v-model="activePageId" class="form-select" :aria-label="compareAdopted ? '选择右侧图片' : '切换同地点图片'">
+            <select v-if="tab === 'atlas' && activeNode?.pages?.length > 1" v-model="activePageId" class="form-select" :disabled="Boolean(annotationEdit)" :aria-label="compareAdopted ? '选择右侧图片' : '切换同地点图片'">
               <option v-for="page in activeNode.pages" :key="page.id" :value="page.id">{{ pageChoiceLabel(page) }}</option>
             </select>
           </figure>
@@ -199,7 +221,7 @@
               </label>
             </fieldset>
             <label class="atlas-mask">局部修改蒙版（PNG）<input type="file" accept="image/png" :disabled="writeLocked" @change="maskFile = $event.target.files?.[0] || null" /></label>
-            <p>蒙版只作为模型指导，修改边缘可能扩散；蒙版和精确标注建议在桌面完成。</p>
+            <p>蒙版只作为模型指导，修改边缘可能扩散。</p>
             <div><button class="btn btn-sm" :disabled="writeLocked || !editInstruction.trim()" @click="derivePage('edit')">按说明修改</button><button class="btn btn-sm" :disabled="writeLocked" @click="derivePage('regenerate')">重新生成候选</button></div>
           </details>
         </div>
@@ -335,6 +357,9 @@ const editInstruction = ref("")
 const maskFile = ref(null)
 const selectedReferencePageIds = ref([])
 const imageCanvas = ref(null)
+const annotationEdit = ref(null)
+const annotationEditError = ref('')
+const annotationDirty = computed(() => annotationEdit.value && (annotationEdit.value.position_x !== annotationEdit.value.original_x || annotationEdit.value.position_y !== annotationEdit.value.original_y))
 const imageUrls = reactive({})
 const imageStatus = reactive({})
 const options = reactive({ layout: "landscape", quality: "standard", style_note: "", include_working_drafts: false, include_interiors: false, review_image_prompts: false, image_backend: "account" })
@@ -448,7 +473,11 @@ const referenceChoices = computed(() => flattenNodes(atlas.value.nodes || []).fl
     .map(page => ({ id: page.id, label: `${node.title} · ${formatDate(page.created_at)}` }))
 )))
 
-async function canLeaveStructure() { return (await structureEditor.value?.canLeave?.()) !== false }
+async function canLeaveStructure() {
+  if (annotationEdit.value && busy.value) return false
+  if (annotationDirty.value && !await confirmAsync('标注位置尚未保存，放弃这次调整吗？', '确认离开', { confirmAction: getConfirmAction() })) return false
+  return (await structureEditor.value?.canLeave?.()) !== false
+}
 function startCreateMap() { creatingMap.value = true }
 async function createMap() {
   if (!await canLeaveStructure()) return
@@ -493,8 +522,47 @@ function historyStatusLabel(page) {
   if (page.generation_status === "retry_requires_confirmation") return "需确认费用后重试"
   return "等待决定"
 }
-async function selectNode(node) { if (node.id !== activeNodeId.value && !await canLeaveStructure()) return; if (node.id !== activeNodeId.value) referenceVisible.value = false; if (currentRun.value?.status === "prompt_review" && !await savePrompt()) return; activeNodeId.value = node.id; const page = node.pages?.find(item => item.review_status === "candidate") || node.pages?.[0]; activePageId.value = page?.id || null }
-function annotationStyle(item) { return { left: `${item.position_x * 100}%`, top: `${item.position_y * 100}%` } }
+async function selectNode(node) { if (node.id === activeNodeId.value) return; if (!await canLeaveStructure()) return; referenceVisible.value = false; if (currentRun.value?.status === "prompt_review" && !await savePrompt()) return; activeNodeId.value = node.id; const page = node.pages?.find(item => item.review_status === "candidate") || node.pages?.[0]; activePageId.value = page?.id || null }
+function annotationStyle(item) {
+  const position = annotationEdit.value?.id === item.id ? annotationEdit.value : item
+  return { left: `${position.position_x * 100}%`, top: `${position.position_y * 100}%` }
+}
+function startAnnotationEdit(id) {
+  const annotation = activePage.value?.annotations?.find(item => item.id === id)
+  if (writeLocked.value || compareAdopted.value || tab.value !== 'atlas' || annotation?.bound_feature_id || !annotation?.updated_at || !imageCanvas.value) return
+  annotationEditError.value = ''
+  annotationEdit.value = { ...annotation, original_x: annotation.position_x, original_y: annotation.position_y }
+}
+function nudgeAnnotation(x, y) {
+  if (!annotationEdit.value || writeLocked.value) return
+  annotationEdit.value.position_x = Math.max(0, Math.min(1, annotationEdit.value.position_x + x * .01))
+  annotationEdit.value.position_y = Math.max(0, Math.min(1, annotationEdit.value.position_y + y * .01))
+}
+function pickAnnotationPosition(event) {
+  if (event.detail === 0 || !annotationEdit.value || writeLocked.value || !imageCanvas.value) return
+  const rect = imageCanvas.value.getBoundingClientRect()
+  if (!rect.width || !rect.height) return
+  annotationEdit.value.position_x = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width))
+  annotationEdit.value.position_y = Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height))
+}
+async function saveAnnotationPosition() {
+  if (!annotationEdit.value || writeLocked.value || compareAdopted.value || tab.value !== 'atlas') return
+  const edit = annotationEdit.value
+  const annotation = activePage.value?.annotations?.find(item => item.id === edit.id)
+  if (!annotation || annotation.bound_feature_id) return
+  const projectId = props.projectId
+  busy.value = true
+  annotationEditError.value = ''
+  try {
+    const updated = await api.world.updateMapAtlasAnnotation(projectId, edit.id, { position_x: edit.position_x, position_y: edit.position_y, expected_updated_at: edit.updated_at })
+    if (!mounted || props.projectId !== projectId || annotationEdit.value !== edit) return
+    Object.assign(annotation, updated)
+    annotationEdit.value = null
+    toast('标注位置已保存', 'success')
+  } catch (err) {
+    if (mounted && annotationEdit.value === edit) annotationEditError.value = err.status === 409 ? '地图已被更新，位置调整仍保留；请取消调整并重新打开最新地图后再试。' : '保存未完成，位置调整仍保留，可以重试。'
+  } finally { if (mounted && props.projectId === projectId) busy.value = false }
+}
 function imageCanvasStyle(page) {
   const width = Number(page?.width)
   const height = Number(page?.height)
@@ -617,8 +685,9 @@ async function startRun(fullRebuild) {
   const mapRevision = structureState.value.revision?.id || activeNode.value?.current_revision_id
   const targetNodeId = activeNode.value?.id
   if (!mapRevision) { if (activePage.value) await derivePage('regenerate'); return }
+  if (!await canLeaveStructure() || writeLocked.value || runUnfinished.value) return
   dataEpoch += 1
-  busy.value = true; clearError(); tab.value = "review"
+  busy.value = true; clearError()
   try {
     const confirmation = await confirmAiReference({
       novel_id: props.projectId,
@@ -636,6 +705,7 @@ async function startRun(fullRebuild) {
       budget_tokens: 12000,
     })
     currentRun.value = await api.world.createMapAtlasRun(props.projectId, { ...options, style_note: options.style_note || null, full_rebuild: fullRebuild, target_node_id: targetNodeId, source_map_revision_id: mapRevision, context_confirmation_id: confirmation.id })
+    tab.value = "review"
     latestRunId.value = currentRun.value.id
     review.value = { mode: "review", run: currentRun.value, nodes: [], total_pages: 0 }
     schedulePoll(); toast("地图册任务已开始", "success")
@@ -711,7 +781,8 @@ function chooseUploadFile(event) {
   uploadFile.value = file; uploadPreview.value = file ? URL.createObjectURL(file) : ""
 }
 async function submitUpload() {
-  if (!canUpload.value) return
+  if (!canUpload.value || uploading.value) return
+  if (!await canLeaveStructure() || !canUpload.value || uploading.value) return
   uploading.value = true; uploadError.value = ""; uploadProgress.value = 0; uploadController = new AbortController()
   try {
     const uploaded = await api.world.uploadMapAtlasPage(props.projectId, {
@@ -725,6 +796,7 @@ async function submitUpload() {
 function cancelUpload() { uploadController?.abort() }
 async function saveNodePosition() {
   if (!activeNode.value) return
+  if (!await canLeaveStructure() || writeLocked.value || !activeNode.value) return
   busy.value = true
   try {
     await api.world.updateMapAtlasNode(props.projectId, activeNode.value.id, { ...(canEditNodeTitle.value ? { title: nodeEdit.title.trim() } : {}), parent_id: nodeEdit.parent_id, level: nodeEdit.level, ...(nodeEdit.before_node_id === "__keep__" ? {} : { before_node_id: nodeEdit.before_node_id === "__append__" ? null : nodeEdit.before_node_id }), expected_updated_at: activeNode.value.updated_at })
@@ -745,6 +817,7 @@ async function stopRun() {
 }
 async function resumeRun() {
   if (writeLocked.value || !currentRun.value) return
+  if (!await canLeaveStructure() || writeLocked.value || !currentRun.value) return
   dataEpoch += 1
   busy.value = true
   try {
@@ -769,6 +842,7 @@ async function rejectPage() {
 }
 async function reviewPage(action, extra = {}) {
   if (writeLocked.value || !activePage.value) return false
+  if (!await canLeaveStructure() || writeLocked.value || !activePage.value) return false
   const runId = currentRun.value?.id
   dataEpoch += 1
   busy.value = true
@@ -780,6 +854,7 @@ async function reviewPage(action, extra = {}) {
 }
 async function archivePage(page) {
   if (writeLocked.value || !page?.id) return
+  if (!await canLeaveStructure() || writeLocked.value) return
   if (!confirm(`确定把“${page.title}”这张图片移出地图册吗？之后仍可恢复。`)) return
   dataEpoch += 1
   busy.value = true
@@ -787,12 +862,14 @@ async function archivePage(page) {
 }
 async function restorePage(page) {
   if (writeLocked.value || page?.review_status !== "deprecated") return
+  if (!await canLeaveStructure() || writeLocked.value) return
   dataEpoch += 1
   busy.value = true
   try { await api.world.reviewMapAtlasPage(props.projectId, page.id, "restore", { expected_updated_at: page.updated_at }); await loadAll(); toast("已恢复到地图册", "success") } catch (err) { setError(err) } finally { busy.value = false }
 }
 async function retryPage() {
   if (writeLocked.value || !activePage.value) return
+  if (!await canLeaveStructure() || writeLocked.value || !activePage.value) return
   const needsConfirm = activePage.value.generation_status === "retry_requires_confirmation"
   if (needsConfirm && !confirm("上次图片请求可能已经产生费用。确定再次调用并可能重复扣费吗？")) return
   const runId = currentRun.value?.id
@@ -802,6 +879,7 @@ async function retryPage() {
 }
 async function derivePage(mode) {
   if (writeLocked.value || !activePage.value) return
+  if (!await canLeaveStructure() || writeLocked.value || !activePage.value) return
   dataEpoch += 1
   busy.value = true
   try {
@@ -838,6 +916,7 @@ function openAnnotation(annotation) {
   if (target) { if (!visibleNodes.value.some(({ node }) => node.id === target.id)) tab.value = "atlas"; nextTick(() => selectNode(target)) }
 }
 function startAnnotationDrag(event, annotation) {
+  if (annotationEdit.value) return
   if (annotation.bound_feature_id) return
   if (writeLocked.value || compareAdopted.value || tab.value !== "atlas" || globalThis.matchMedia?.("(max-width: 900px)").matches || !globalThis.matchMedia?.("(pointer: fine)").matches || !imageCanvas.value) return
   event.preventDefault(); drag = { annotation, rect: imageCanvas.value.getBoundingClientRect(), moved: false }
@@ -917,6 +996,7 @@ function returnToWriting() {
   if (fromChapter) getRouter()?.navigate('writing', null, true, new URLSearchParams({ novel_id: props.projectId, chapter_index: String(fromChapter) }))
 }
 watch([activeNodeId, tab], persistMapFocus)
+watch([() => props.projectId, activePageId, tab, compareAdopted], () => { annotationEdit.value = null; annotationEditError.value = '' })
 watch(tab, () => { compareAdopted.value = false; syncSelection(); nextTick(loadImages) })
 watch(activePageId, () => { activeNodeId.value = activePage.value?.node_id || activeNodeId.value; nextTick(loadImages) })
 watch([oldPages, compareAdopted], () => {
@@ -936,7 +1016,7 @@ useLeaveGuard(async () => {
   if (promptDirty.value && !await confirmAsync("画面说明还没有保存，确定离开吗？", "确认离开", { confirmAction: getConfirmAction() })) return false
   return !uploadDraftDirty.value || await confirmAsync("放弃未上传的地图？", "确认放弃", { confirmAction: getConfirmAction() })
 })
-function warnBeforeUnload(event) { if (!promptDirty.value && !uploadDraftDirty.value && !uploading.value) return; event.preventDefault(); event.returnValue = "" }
+function warnBeforeUnload(event) { if (!annotationDirty.value && !promptDirty.value && !uploadDraftDirty.value && !uploading.value) return; event.preventDefault(); event.returnValue = "" }
 onMounted(() => loadAll(getRouteQuery().get('run_id')))
 onMounted(() => globalThis.addEventListener("beforeunload", warnBeforeUnload))
 onBeforeUnmount(() => { mounted = false; clearTimeout(pollTimer); clearTimeout(promptTimer); uploadController?.abort(); globalThis.removeEventListener("beforeunload", warnBeforeUnload); globalThis.removeEventListener("pointermove", dragAnnotation); globalThis.removeEventListener("pointerup", endAnnotationDrag); if (uploadPreview.value) URL.revokeObjectURL(uploadPreview.value); for (const pageId of Object.keys(imageUrls)) releaseImage(pageId) })
@@ -980,7 +1060,7 @@ async function runMapTool(key) {
   if (![...mapToolActions.value, ...mapMoreTools.value].some(item => item.key === key && !item.disabled)) return
   if (key === "new-map") { startCreateMap(); return focusWorkspaceTool(toolsRoot.value, '[aria-label="新建空间地图"]') }
   if (key === "spatial") { editStructureNodeId.value = activeNode.value.id; return focusWorkspaceTool(toolsRoot.value, ".map-editor") }
-  if (key === "compare-images") { if (oldPages.value.length) compareAdopted.value = true; return focusWorkspaceTool(toolsRoot.value, ".atlas-compare-controls") }
+  if (key === "compare-images") { if (annotationEdit.value) return; if (oldPages.value.length) compareAdopted.value = true; return focusWorkspaceTool(toolsRoot.value, ".atlas-compare-controls") }
   if (key === "upload") return openUpload()
   if (key === "retry") return connectionError.value ? openImageSettings() : loadAll()
   const selectors = { images: ".atlas-image-tools", prompts: ".atlas-prompt-review", "image-progress": ".atlas-run", "image-review": ".atlas-review-actions", "image-sources": ".atlas-evidence", "image-history": ".atlas-history" }
@@ -1012,7 +1092,7 @@ watch(activeNodeId, () => { structureState.value = { dirty: false, revision: nul
 .atlas-evidence-summary{grid-column:1/-1;min-width:0;color:var(--text-secondary)}.atlas-evidence-summary p{color:inherit}
 .atlas-prompt-review{display:grid;gap:14px}.atlas-prompt-review header,.atlas-prompt-review nav,.atlas-prompt-editor>div{display:flex;align-items:center;justify-content:space-between;gap:10px}.atlas-prompt-review nav{justify-content:flex-start;flex-wrap:wrap}.atlas-prompt-review nav .active{color:var(--text-primary);box-shadow:inset 0 -2px 0 var(--accent)}.atlas-prompt-editor{display:grid;gap:12px}.atlas-prompt-editor label,.atlas-upload-modal label,.atlas-node-form label{display:grid;gap:6px;color:var(--text-secondary);font-size:var(--text-sm)}.atlas-prompt-editor textarea{width:100%;resize:vertical}.atlas-prompt-editor fieldset{display:flex;gap:18px}.atlas-upload-modal .modal-header h2{margin:0;font-size:var(--text-lg)}.atlas-upload-modal .modal-body{display:grid;gap:14px}.atlas-upload-modal img{display:block;max-width:100%;max-height:240px;margin:auto}.atlas-upload-modal progress{width:100%}.atlas-node-form{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:10px}.atlas-node-form button{align-self:end}
 /* 930px is local to the image comparison workspace: two canvases need more room than the global touch breakpoint. */
-@media(max-width:930px){.atlas-workspace{padding:12px}.atlas-header,.atlas-options,.atlas-run{align-items:stretch}.atlas-header{flex-direction:column}.atlas-primary-actions{align-self:stretch}.atlas-browser{grid-template-columns:1fr}.atlas-tree{max-height:180px}.atlas-images.compare,.atlas-evidence-grid{grid-template-columns:1fr}.atlas-run{grid-template-columns:1fr}.atlas-mask{display:none}.atlas-edit p::after{content:" 蒙版与精确标注请在桌面完成。"}.atlas-node-form{grid-template-columns:1fr}.atlas-prompt-review header{align-items:stretch;flex-direction:column}.atlas-prompt-review header button{width:100%}}
+@media(max-width:930px){.atlas-workspace{padding:12px}.atlas-header,.atlas-options,.atlas-run{align-items:stretch}.atlas-header{flex-direction:column}.atlas-primary-actions{align-self:stretch}.atlas-browser{grid-template-columns:1fr}.atlas-tree{max-height:180px}.atlas-images.compare,.atlas-evidence-grid{grid-template-columns:1fr}.atlas-run{grid-template-columns:1fr}.atlas-node-form{grid-template-columns:1fr}.atlas-prompt-review header{align-items:stretch;flex-direction:column}.atlas-prompt-review header button{width:100%}}
 @media(max-width:760px){.atlas-primary-actions,.atlas-run-actions,.atlas-review-actions,.atlas-source{flex-wrap:wrap}.atlas-alert{align-items:stretch;flex-direction:column}.atlas-tabs button{flex:1 1 0;min-width:0;min-height:42px;padding-inline:var(--space-2)}.atlas-tree button,.atlas-annotation{min-height:42px}.atlas-annotation{min-width:42px}.atlas-generation-settings>summary,.atlas-options summary,.atlas-history>summary,.atlas-evidence>details>summary{min-height:42px}.atlas-page-header{align-items:flex-start;flex-wrap:wrap}.atlas-zoom{max-width:100%}.atlas-zoom input{min-width:0;max-width:100%}.atlas-header>div,.atlas-source>div,.atlas-page-header>div{min-width:0;overflow-wrap:anywhere}.atlas-upload-modal input[type="file"]{max-width:100%}}
 .atlas-focused{padding:12px;gap:8px}.atlas-focused .atlas-page{padding:12px}
 @media(max-width:900px){.atlas-focused .atlas-tree{max-height:100px}}

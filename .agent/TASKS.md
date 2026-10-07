@@ -2,6 +2,10 @@
 
 - [T-20261006-world-foundation-phase1-impl](tasks/2026/T-20261006-world-foundation-phase1-impl/TASK.md) — 远景第一阶段实施（M0–M7）：世界状态读取、隔离试改、RP 持久缓存与输入优化
 
+- [T-20261007-branch-integration](tasks/2026/T-20261007-branch-integration/TASK.md) — 快照瘦身分支合并与世界基础分支同步
+
+- [T-20261007-responsive-layout](tasks/2026/T-20261007-responsive-layout/TASK.md) — 全站屏幕自适应布局与回归测试深化
+
 - [T-20261006-event-soft-delete-merge](tasks/2026/T-20261006-event-soft-delete-merge/TASK.md) — 事件扩展软删修复并合入主干
 
 - [T-20261006-architecture-optimization](tasks/2026/T-20261006-architecture-optimization/TASK.md) — 架构优化与独立review整改、PR合并

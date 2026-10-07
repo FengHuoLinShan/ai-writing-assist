@@ -42,7 +42,9 @@ describe("WritingView", () => {
   let confirmMock
   let confirmActionMock
   let toastMock
+  const originalWidth = window.innerWidth
   beforeEach(() => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1440 })
     vi.clearAllMocks()
     invalidateEditorialReviewCache()
     localStorage.clear()
@@ -67,6 +69,7 @@ describe("WritingView", () => {
     setBridgeOverrides({ state, api, confirm: confirmMock, confirmAction: confirmActionMock, toast: toastMock, router: globalThis.router })
   })
   afterEach(() => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
     vi.useRealTimers()
     resetBridgeOverrides()
   })
@@ -463,8 +466,9 @@ describe("WritingView", () => {
       const editor = wrapper.get("#writing-editor").element
       await wrapper.findAll('button').find(item => item.text() === '本章资料').trigger('click')
       await flushPromises()
-      const sceneButton = wrapper.findAll('.scene-cockpit-switcher__item').find(item => item.text().includes('密道'))
-      expect(wrapper.get("[role=dialog]").attributes("aria-modal")).toBe("true")
+      const drawer = new DOMWrapper(document.querySelector('.workspace-drawer[aria-label="本章资料"]'))
+      const sceneButton = drawer.findAll('.scene-cockpit-switcher__item').find(item => item.text().includes('密道'))
+      expect(drawer.attributes("aria-modal")).toBe("true")
       expect(wrapper.get("#writing-editor").element).toBe(editor)
       await sceneButton.trigger("click")
       expect(getAppState().viewStates.writing.currentSceneId).toBe("s2")

@@ -1,3 +1,5 @@
+export { readVisualViewportRect } from '../../../shared/visualViewport.js'
+
 const DEFAULT_GAP = 8
 const DEFAULT_MARGIN = 12
 const MIN_ARROW_INSET = 18
@@ -33,29 +35,6 @@ function normalizeRect(rect = {}) {
     width,
     height,
   }
-}
-
-export function readVisualViewportRect(
-  visualViewport = globalThis.visualViewport,
-  documentElement = globalThis.document?.documentElement,
-) {
-  const left = finiteNumber(visualViewport?.offsetLeft)
-  const top = finiteNumber(visualViewport?.offsetTop)
-  const width = Math.max(
-    0,
-    finiteNumber(
-      visualViewport?.width,
-      finiteNumber(documentElement?.clientWidth, globalThis.innerWidth),
-    ),
-  )
-  const height = Math.max(
-    0,
-    finiteNumber(
-      visualViewport?.height,
-      finiteNumber(documentElement?.clientHeight, globalThis.innerHeight),
-    ),
-  )
-  return { left, top, right: left + width, bottom: top + height, width, height }
 }
 
 export function calculateAdaptivePopoverPlacement({

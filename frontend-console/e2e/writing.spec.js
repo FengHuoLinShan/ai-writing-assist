@@ -1483,15 +1483,14 @@ test.describe("写作台模块", () => {
       await waitWritingReady(page)
       if (width <= 760) {
         await expect(page.locator("#writing-editor")).toBeVisible({ timeout: 5000 })
-        await page.getByRole("button", { name: "本章资料", exact: true }).click()
       } else {
         await selectWritingChapter(page, 1)
         await expect(page.locator("#writing-editor")).toBeVisible({ timeout: 5000 })
         await openWritingToolMenu(page, "#btn-conflict-check")
         await expect(page.locator("#btn-conflict-check")).toBeVisible()
-        const expandReference = page.getByLabel("展开本章资料")
-        if (await expandReference.isVisible()) await expandReference.click()
       }
+      const reference = page.getByRole('button', { name: '本章资料', exact: true })
+      if (await reference.getAttribute('aria-expanded') === 'false') await reference.click()
 
       await expect(page.locator(".scene-lens")).toHaveCount(1)
       if (width === 390) {

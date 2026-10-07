@@ -29,7 +29,8 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from "vue"
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import { bindVisualViewport } from '../../shared/visualViewport.js'
 import ProjectAssistant from "../components/ProjectAssistant.vue"
 import { getAssistantWorkContext } from "../bridge/index.js"
 import CommandPalette from "./components/CommandPalette.vue"
@@ -52,6 +53,9 @@ const props = defineProps({
   services: { type: Object, required: true },
   healthIntervalMs: { type: Number, default: 30_000 },
 })
+let unbindViewport
+onMounted(() => { unbindViewport = bindVisualViewport() })
+onBeforeUnmount(() => unbindViewport?.())
 // U01：AppShell 是唯一 overlay 根——安装一次 Escape 栈路由，Escape 只关
 // 最上层已登记 overlay（含 useModalDialog 全部模态与下述 shell 层浮层）。
 installOverlayEscapeRouter()

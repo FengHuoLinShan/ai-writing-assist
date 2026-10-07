@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import re
+import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
@@ -17,10 +20,12 @@ PRODUCTION_IMAGE_CI_WORKFLOW = (
 )
 SPLIT_WORKFLOW_CONTRACTS = {
     REPOSITORY_ROOT / ".github/workflows/backend-ci.yml": {
-        "backend-quality", "postgresql-critical",
+        "backend-quality",
+        "postgresql-critical",
     },
     REPOSITORY_ROOT / ".github/workflows/frontend-ci.yml": {
-        "frontend-unit-quality", "frontend-functional-browser",
+        "frontend-unit-quality",
+        "frontend-functional-browser",
     },
     PRODUCTION_IMAGE_CI_WORKFLOW: {"production-image-contract"},
 }
@@ -156,8 +161,7 @@ def test_frontend_browser_gate_keeps_its_independent_risk_contract() -> None:
     storage_init = steps["Initialize private object buckets"]["run"]
     assert "mc.linux-amd64.RELEASE.2025-03-12T17-29-24Z" in storage_init
     assert (
-        "a92b5f1af200ca25d54d78432ef6b0c47fd4340abf9759ce5d10275cd57e3318"
-        in storage_init
+        "a92b5f1af200ca25d54d78432ef6b0c47fd4340abf9759ce5d10275cd57e3318" in storage_init
     )
     assert "sha256sum --check" in storage_init
     assert "sh docker/init-minio.sh" in storage_init
@@ -204,6 +208,43 @@ def test_frontend_browser_gate_keeps_its_independent_risk_contract() -> None:
         steps["Upload frontend functional browser diagnostics"]["with"]["name"]
         == "frontend-functional-browser-diagnostics-shard-${{ matrix.shard }}"
     )
+
+
+@pytest.mark.parametrize(
+    ("suite", "shard", "webkit_done", "passes"),
+    [
+        ("test:e2e:functional", "1", False, False),
+        ("test:e2e:functional", "1", True, True),
+        ("test:e2e:smoke", "1", False, True),
+        ("test:e2e:functional", "2", False, True),
+    ],
+)
+def test_browser_suite_completion_requires_webkit_only_on_full_first_shard(
+    tmp_path, suite, shard, webkit_done, passes
+) -> None:
+    workflow = _load_yaml(REPOSITORY_ROOT / ".github/workflows/frontend-ci.yml")
+    step = next(
+        step
+        for step in workflow["jobs"]["frontend-functional-browser-shard"]["steps"]
+        if step["name"] == "Verify required browser suites completed"
+    )
+    script = (
+        step["run"]
+        .replace("${{ matrix.shard }}", shard)
+        .replace("${{ needs.browser-classify.outputs.browser_suite }}", suite)
+    )
+    for name in ("functional", "assistant", "creative", "editorial") + (
+        ("webkit",) if webkit_done else ()
+    ):
+        (tmp_path / f"browser-gate-{name}.done").write_text(name)
+    result = subprocess.run(
+        ["bash", "-c", script],
+        env={**os.environ, "RUNNER_TEMP": str(tmp_path)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (result.returncode == 0) is passes, result.stdout + result.stderr
 
 
 def test_browser_gate_pipeline_classification_and_shards_fail_closed() -> None:
@@ -257,6 +298,16 @@ def test_browser_gate_pipeline_classification_and_shards_fail_closed() -> None:
     verify = shard_steps["Verify required browser suites completed"]
     assert verify["if"] == "${{ always() }}"
     verify_script = verify["run"]
+    webkit = shard_steps["Run WebKit core mobile flows"]
+    assert (
+        webkit["if"] == "matrix.shard == 1 && "
+        "needs.browser-classify.outputs.browser_suite == 'test:e2e:functional'"
+    )
+    assert "test:e2e:webkit" in webkit["run"]
+    assert "browser-gate-webkit.done" in webkit["run"]
+    assert "webkit" in verify_script
+    assert "test:e2e:functional" in verify_script
+    assert webkit["env"]["PLAYWRIGHT_BLOB_OUTPUT_DIR"] == "blob-report/webkit"
     for suite in ("functional", "assistant", "creative", "editorial"):
         assert suite in verify_script
     assert 'exit "$missing"' in verify_script

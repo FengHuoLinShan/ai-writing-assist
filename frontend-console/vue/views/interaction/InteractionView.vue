@@ -1938,7 +1938,7 @@ function updateLocatorFromScroll() {
   for (const element of storyPane.value.querySelectorAll(
     ".rp-message--assistant[data-rp-message-id]",
   )) {
-    if (element.getBoundingClientRect().top <= line) {
+    if (element.getBoundingClientRect().top <= line + 1) {
       currentId = element.dataset.rpMessageId
     } else {
       break
@@ -1951,10 +1951,44 @@ function updateLocatorFromScroll() {
 function persistScrollPosition() {
   const pane = storyPane.value
   if (!pane) return
+  const anchorId = locatorItem.value?.id || null
+  const message = findMessageElement(anchorId)
+  const paneTop = pane.getBoundingClientRect().top
+  const blocks = [...(message?.querySelectorAll('.rp-message__text > *') || [])]
+  let blockIndex = -1
+  for (let index = 0; index < blocks.length; index += 1) {
+    if (blocks[index].getBoundingClientRect().top > paneTop + 73) break
+    blockIndex = index
+  }
+  const anchor = blocks[blockIndex] || message
   writeJourneyScroll(journeyId.value, {
-    anchorId: locatorItem.value?.id || null,
+    anchorId,
+    blockIndex: blockIndex >= 0 ? blockIndex : null,
+    anchorOffset: anchor ? anchor.getBoundingClientRect().top - paneTop : null,
     scrollTop: pane.scrollTop,
     atBottom: isNearBottom(),
+  })
+}
+
+function restoreReadingAnchor(saved, message = findMessageElement(saved.anchorId)) {
+  const pane = storyPane.value
+  if (!pane) return
+  if (!message) { pane.scrollTop = saved.scrollTop; return }
+  if (saved.anchorOffset == null) { scrollMessageElement(message, 'auto'); return }
+  const anchor = message.querySelectorAll('.rp-message__text > *')[saved.blockIndex] || message
+  pane.scrollTop += anchor.getBoundingClientRect().top - pane.getBoundingClientRect().top - saved.anchorOffset
+}
+
+let resizeFrame = null
+function onStoryResize() {
+  const saved = readJourneyScroll(journeyId.value)
+  if (!saved) return
+  if (resizeFrame != null) cancelAnimationFrame(resizeFrame)
+  resizeFrame = requestAnimationFrame(() => {
+    resizeFrame = null
+    if (disposed) return
+    if (saved.atBottom) void scrollToBottom()
+    else restoreReadingAnchor(saved)
   })
 }
 
@@ -2005,8 +2039,7 @@ async function restoreScrollPosition() {
       // Keep the numeric fallback below when the saved window is unavailable.
     }
   }
-  if (target) scrollMessageElement(target, "auto")
-  else if (storyPane.value) storyPane.value.scrollTop = saved.scrollTop
+  restoreReadingAnchor(saved, target)
   updateLocatorFromScroll()
 }
 
@@ -2038,6 +2071,7 @@ onMounted(() => {
   document.addEventListener("selectionchange", syncStorySelection)
   document.addEventListener("visibilitychange", onVisibilityChange)
   window.addEventListener("beforeunload", beforeUnload)
+  window.addEventListener('resize', onStoryResize)
   syncHeartbeat()
   void nextTick(resizeComposer)
   void refreshPathIndex(journey.value.selection_epoch)
@@ -2064,6 +2098,8 @@ onBeforeUnmount(() => {
   document.removeEventListener("selectionchange", syncStorySelection)
   document.removeEventListener("visibilitychange", onVisibilityChange)
   window.removeEventListener("beforeunload", beforeUnload)
+  window.removeEventListener('resize', onStoryResize)
+  if (resizeFrame != null) cancelAnimationFrame(resizeFrame)
   document.removeEventListener("pointerdown", onToolsPanelGlobalPointerdown, true)
   document.removeEventListener("keydown", onToolsPanelGlobalKeydown)
   if (scrollFrame != null) {

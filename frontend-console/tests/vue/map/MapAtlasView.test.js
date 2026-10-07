@@ -930,6 +930,61 @@ describe("AI 地图册工作台", () => {
     expect(wrapper.find(".atlas-image-canvas img").exists()).toBe(true)
   })
 
+  it.each([true, false])("有未保存标注时保护生成入口（结构地图：%s）", async (structured) => {
+    const annotation = { id: 'annotation-1', label: '北门', position_x: .25, position_y: .75, updated_at: '2026-08-12T00:00:00Z' }
+    const atlas = tree([page({ review_status: 'adopted', annotations: [annotation] })], 'atlas')
+    if (structured) atlas.nodes[0].current_revision_id = 'revision-1'
+    api.world.getMapAtlas.mockResolvedValue(atlas)
+    const confirmAction = vi.fn()
+    setBridgeOverrides({ api, toast, confirm, router, confirmAction })
+    const wrapper = mount(MapWorkspaceView, { props: { projectId: 'novel-1' }, global: { stubs: { MapStructureEditor: true } } })
+    await flushPromises()
+    if (structured) {
+      wrapper.findComponent({ name: 'MapStructureEditor' }).vm.$emit('reference-visible', true)
+      await flushPromises()
+    }
+    await wrapper.get('.atlas-annotation-controls select').setValue('annotation-1')
+    await wrapper.findAll('button').find(button => button.attributes('aria-label') === '标注向右移动').trigger('click')
+    const generate = wrapper.findAll('.atlas-primary-actions button').find(button => button.text() === '添加地图画面')
+    await generate.trigger('click')
+    await flushPromises()
+    expect(confirmAction).toHaveBeenLastCalledWith('标注位置尚未保存，放弃这次调整吗？', expect.any(Function), '确认离开')
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await flushPromises()
+    expect(confirmAiReference).not.toHaveBeenCalled()
+    expect(api.world.regenerateMapAtlasPage).not.toHaveBeenCalled()
+    expect(wrapper.get('.atlas-annotation').attributes('style')).toContain('left: 26%')
+
+    confirmAction.mockImplementation((_message, accept) => accept())
+    confirmAiReference.mockRejectedValue(new Error('已取消 AI 参考资料确认'))
+    api.world.regenerateMapAtlasPage.mockRejectedValue(new Error('测试生成失败'))
+    await generate.trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.atlas-annotation').attributes('style')).toContain('left: 26%')
+    expect(wrapper.findAll('button').some(button => button.text() === '保存标注位置')).toBe(true)
+    expect(api.world.createMapAtlasRun).not.toHaveBeenCalled()
+    if (structured) expect(confirmAiReference).toHaveBeenCalledOnce()
+    else expect(api.world.regenerateMapAtlasPage).toHaveBeenCalledOnce()
+  })
+
+  it("标注调整期间键盘激活不定位，指针点选仍使用图片坐标", async () => {
+    const annotation = { id: 'annotation-1', label: '北门', position_x: .25, position_y: .75, updated_at: '2026-08-12T00:00:00Z' }
+    api.world.getMapAtlas.mockResolvedValue(tree([page({ review_status: 'adopted', annotations: [annotation] })], 'atlas'))
+    const wrapper = mount(MapWorkspaceView, { props: { projectId: 'novel-1' } })
+    await flushPromises()
+    await wrapper.get('.atlas-annotation-controls select').setValue('annotation-1')
+    const canvas = wrapper.get('.atlas-image-canvas')
+    canvas.element.getBoundingClientRect = () => ({ left: 100, top: 100, width: 400, height: 300 })
+    const hotspot = wrapper.get('.atlas-annotation')
+    await hotspot.trigger('click', { detail: 0, clientX: 0, clientY: 0 })
+    expect(hotspot.attributes('style')).toContain('left: 25%')
+    expect(hotspot.attributes('style')).toContain('top: 75%')
+    await canvas.trigger('click', { detail: 1, clientX: 300, clientY: 250 })
+    expect(hotspot.attributes('style')).toContain('left: 50%')
+    expect(hotspot.attributes('style')).toContain('top: 50%')
+    expect(api.world.updateMapAtlasAnnotation).not.toHaveBeenCalled()
+  })
+
   it("方图标注使用实际图片矩形，热点和浏览缩放仍可交互", async () => {
     const candidate = page({
       width: 1024,

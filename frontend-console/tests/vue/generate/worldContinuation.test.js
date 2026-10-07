@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
+import { DOMWrapper, enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import WorldDesignPanel from '../../../vue/views/generate/components/WorldDesignPanel.vue'
 import CocreationHistory from '../../../vue/views/generate/components/CocreationHistory.vue'
 import { resetBridgeOverrides, setBridgeOverrides } from '../../../vue/bridge/index.js'
@@ -100,16 +100,17 @@ describe('persistent world continuation', () => {
     setBridgeOverrides({ api })
     const wrapper = mount(CocreationHistory, { props: { open: true, projectId: 'p1', sessionId: 'session-1', source: { kind: 'project' }, preset: 'world_core', targetKind: 'core_entity' }, attachTo: document.body })
     await flushPromises()
-    await wrapper.findAll('button').find(button => button.text() === '下一页').trigger('click')
+    const history = new DOMWrapper(document.querySelector('.cocreation-history'))
+    await history.findAll('button').find(button => button.text() === '下一页').trigger('click')
     expect(api.world.listCocreationSessions).toHaveBeenLastCalledWith('p1', expect.objectContaining({ skip: 30 }))
-    await wrapper.findAll('button').find(button => button.text() === '阅读历史').trigger('click')
+    await history.findAll('button').find(button => button.text() === '阅读历史').trigger('click')
     await flushPromises()
-    await wrapper.get('input[type="search"]').setValue('维护')
-    await wrapper.get('form').trigger('submit'); await flushPromises()
+    await history.get('input[type="search"]').setValue('维护')
+    await history.get('form').trigger('submit'); await flushPromises()
     expect(wrapper.emitted('update:selectedIds')).toBeUndefined()
-    await wrapper.findAll('button').find(button => button.text() === '查看前后文').trigger('click'); await flushPromises()
+    await history.findAll('button').find(button => button.text() === '查看前后文').trigger('click'); await flushPromises()
     expect(api.world.listCocreationMessages).toHaveBeenLastCalledWith('session-1', 'p1', expect.objectContaining({ around_message_id: 'message-500' }))
-    await wrapper.get('input[type="checkbox"]').setValue(true)
+    await history.get('input[type="checkbox"]').setValue(true)
     expect(wrapper.emitted('update:selectedIds').at(-1)[0]).toEqual(['message-500'])
   })
 })

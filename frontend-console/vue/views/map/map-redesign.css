@@ -34,6 +34,8 @@
 .atlas-workspace .atlas-image-viewport { background: color-mix(in srgb, var(--bg-alt) 75%, transparent); }
 .atlas-workspace .atlas-review-actions,
 .atlas-workspace .atlas-primary-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 0; border-bottom: 1px solid var(--border); }
+.atlas-workspace .atlas-edit { min-width: 0; }
+.atlas-workspace input[type="file"] { max-width: 100%; }
 .atlas-workspace .atlas-primary-actions .btn:first-child,
 .atlas-workspace .atlas-review-actions .btn-primary { border-color: var(--accent); background: var(--accent); color: #fff; }
 .atlas-workspace .atlas-evidence { margin-top: 20px; padding: 0; border: 0; background: transparent; }
@@ -57,6 +59,12 @@
 .atlas-workspace .map-rehearsal,
 .atlas-workspace .map-bind-across { border-color: var(--border); border-radius: 10px; background: var(--bg-panel); box-shadow: none; }
 .atlas-workspace :is(button, a, summary):focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.atlas-annotation-controls { min-width: 0; margin-block: 12px; }
+.atlas-annotation-controls fieldset { min-width: 0; padding: 12px; margin-top: 12px; }
+.atlas-annotation-controls label { display: grid; gap: 6px; }
+.atlas-annotation-controls .btn, .atlas-annotation-controls summary { min-height: 44px; }
+.atlas-annotation-nudge { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.atlas-image-canvas.is-positioning { cursor: crosshair; }
 @media (max-width: 860px) {
   .atlas-workspace .atlas-browser { grid-template-columns: 1fr; }
   .atlas-workspace .atlas-tree { position: static; padding: 0 0 12px; border-right: 0; border-bottom: 1px solid var(--border); }
