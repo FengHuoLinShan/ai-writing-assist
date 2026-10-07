@@ -232,6 +232,7 @@ export function useWritingWorkspace(props) {
   const exportingAdopted = ref(false)
   let pendingInitialFocus = writingSession?.focusMode ?? Boolean(props.authorPreferences?.defaultFocusMode)
   const isNarrow = ref(typeof window !== "undefined" && window.innerWidth <= 760)
+  const isCompact = ref(typeof window !== "undefined" && window.innerWidth <= 1100)
   const disposed = ref(false)
   let selectionGeneration = 0
   let sceneGeneration = 0
@@ -1626,6 +1627,7 @@ export function useWritingWorkspace(props) {
 
   function resize() {
     isNarrow.value = window.innerWidth <= 760
+    isCompact.value = window.innerWidth <= 1100
   }
 
   watch(focusMode, (active) => {
@@ -1761,6 +1763,7 @@ export function useWritingWorkspace(props) {
     versionDialog,
     focusMode,
     isNarrow,
+    isCompact,
     canEdit,
     activeVersions,
     candidateComparisonAvailable,

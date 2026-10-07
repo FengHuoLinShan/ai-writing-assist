@@ -57,6 +57,12 @@
 .atlas-workspace .map-rehearsal,
 .atlas-workspace .map-bind-across { border-color: var(--border); border-radius: 10px; background: var(--bg-panel); box-shadow: none; }
 .atlas-workspace :is(button, a, summary):focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.atlas-annotation-controls { min-width: 0; margin-block: 12px; }
+.atlas-annotation-controls fieldset { min-width: 0; padding: 12px; margin-top: 12px; }
+.atlas-annotation-controls label { display: grid; gap: 6px; }
+.atlas-annotation-controls .btn, .atlas-annotation-controls summary { min-height: 44px; }
+.atlas-annotation-nudge { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.atlas-image-canvas.is-positioning { cursor: crosshair; }
 @media (max-width: 860px) {
   .atlas-workspace .atlas-browser { grid-template-columns: 1fr; }
   .atlas-workspace .atlas-tree { position: static; padding: 0 0 12px; border-right: 0; border-bottom: 1px solid var(--border); }

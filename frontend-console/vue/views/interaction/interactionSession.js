@@ -88,6 +88,8 @@ export function readJourneyScroll(journeyId) {
       anchorId: typeof value.anchorId === "string" ? value.anchorId : null,
       scrollTop: Number.isFinite(value.scrollTop) ? value.scrollTop : 0,
       atBottom: value.atBottom === true,
+      blockIndex: Number.isInteger(value.blockIndex) && value.blockIndex >= 0 ? value.blockIndex : null,
+      anchorOffset: Number.isFinite(value.anchorOffset) ? value.anchorOffset : null,
     }
   } catch {
     return null

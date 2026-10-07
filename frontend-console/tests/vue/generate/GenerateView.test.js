@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils"
+import { DOMWrapper, enableAutoUnmount, flushPromises, mount } from "@vue/test-utils"
 
 const confirmAiReference = vi.hoisted(() => vi.fn())
 vi.mock("../../../shared/aiReferenceModal.js", () => ({ confirmAiReference }))
@@ -2395,9 +2395,10 @@ describe("GenerateView Vue behavior matrix", () => {
 
     await wrapper.get('[data-action="open-session-history"]').trigger("click")
     await waitFor(() => expect(api.world.listCocreationSessions).toHaveBeenCalledWith("p1", expect.objectContaining({ source_kind: "project" })))
-    expect(wrapper.findComponent({ name: "CocreationHistory" }).text()).toContain("北境第二轮")
+    const history = new DOMWrapper(document.querySelector('.cocreation-history'))
+    expect(history.text()).toContain("北境第二轮")
 
-    wrapper.findComponent({ name: "CocreationHistory" }).findAll("button").find(button => button.text() === "继续共创").element.click()
+    history.findAll("button").find(button => button.text() === "继续共创").element.click()
     await flushPromises()
     expect(readGenerateSession(cocreationSessionKey(key, "cs-1")).serverSessionId).toBe("cs-1")
     expect(readGenerateSession(cocreationSessionKey(key, "cs-2")).serverSessionId).toBeNull()
