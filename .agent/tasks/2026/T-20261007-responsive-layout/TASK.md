@@ -3,7 +3,7 @@ id: T-20261007-responsive-layout
 title: 全站屏幕自适应布局与回归测试深化
 status: active
 created: 2026-10-07T14:08:09+09:00
-updated: 2026-10-07T16:27:52+09:00
+updated: 2026-10-07T16:45:32+09:00
 ---
 
 # 全站屏幕自适应布局与回归测试深化
@@ -11,8 +11,8 @@ updated: 2026-10-07T16:27:52+09:00
 ## 恢复快照
 
 - 实际完成：响应式实现、三处 P2 和上传同根遗漏已修复；完整本地质量门禁通过，Standards/Spec 独立复查无剩余 findings。
-- 当前里程碑：Backend 7142 passed/3 skipped，coverage 86.31%；Vitest 2795；deployment 272；lint、build、依赖审计通过。最终浏览器与固定 head PR 合并进行中。
-- 下一步：核对最终 WebKit 与完整 Chromium 结果，提交创建 PR 并附加到当前任务；确认固定 head 全部必需检查和主干基线后合并，独立核对 merge SHA 的 main CI。
+- 当前里程碑：本地完整 Chromium 335 passed/2 个原有性能专项跳过；PR #204 首轮其他门禁通过，Linux WebKit 320px 蒙版原生上传控件造成实际裁切，已按截图补齐 CSS，等待新 head 复验。
+- 下一步：验证地图定向 Chromium 与 WebKit 核心及构建/lint，提交 CSS 修复并推送 PR #204；核对新固定 head 全部必需检查后合并，再独立核对 merge SHA 的 main CI。
 - 阻塞：无。匹配 Playwright 1.63 的 WebKit 已安装；本机浏览器启动需沙箱外执行。
 - 工作区：`/Users/tywww/.codex/worktrees/responsive-layout/ai-writing-assist`，`codex/responsive-layout`，基线 `85fb1c7be35ae687f949863d179f5fd63c53f3c0`。主工作区未跟踪文件全部保留；用户已授权修复、提交/推送 PR 及合并；没有部署或其他工作树清理授权。
 - 最后核实：2026-10-07T16:27:52+09:00
@@ -119,3 +119,8 @@ updated: 2026-10-07T16:27:52+09:00
 - 为验证最终修复版本，停止补齐上传 guard 前的中间 Chromium 全套，保留 `/private/tmp/responsive-fix-functional.log`，该中止结果不作为完整通过。
 
 - 最终移动 WebKit 12 项全部通过，33.8 秒，workers=1/retries=0；新上传/移出取消与上传失败草稿保留的原生弹窗路径通过。证据 `/private/tmp/responsive-fix-webkit-checked.log`。完整 Chromium 对最终版本运行中。
+
+- PR #204 已创建并附加，首个固定 head `4036b9aa15a97478865a306cc8137c0fe112ccb6`；本地完整 Chromium 335 passed / 2 个原有性能专项跳过，8.8 分钟，记录 `/private/tmp/responsive-fix-functional-final.log`。PR 后端、PostgreSQL、单测、镜像、文档、安全及第二浏览器分片均通过。
+- 首轮远端 Frontend CI `37587713721` 第一分片的 Linux WebKit 确认 320px 下 `.atlas-edit` 被原生 file input 的 min-content 撑出，summary/textarea/file input 实际裁切；没有重试或削弱断言。证据 `/private/tmp/responsive-pr204-failed.log`、`/private/tmp/responsive-pr204-diagnostics/webkit/responsive-core-移动核心流程-手机地图候选保留蒙版上传、修改说明和确认入口/` 的 screenshot/trace。新补 `.atlas-edit min-width:0` 和 file input max-width:100%，保留原用例。
+
+- 平台裁切补丁后，本地完整 Vitest 2795、移动 WebKit 12、lint/build 通过；两轴只读复查确认无新增 findings。证据 `/private/tmp/responsive-linux-fix-{vitest,webkit,lint,build}.log`。Chromium 地图/响应式定向回归进行中，新固定 head 的 Linux CI 仍须通过。

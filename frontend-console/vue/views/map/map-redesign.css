@@ -34,6 +34,8 @@
 .atlas-workspace .atlas-image-viewport { background: color-mix(in srgb, var(--bg-alt) 75%, transparent); }
 .atlas-workspace .atlas-review-actions,
 .atlas-workspace .atlas-primary-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 0; border-bottom: 1px solid var(--border); }
+.atlas-workspace .atlas-edit { min-width: 0; }
+.atlas-workspace input[type="file"] { max-width: 100%; }
 .atlas-workspace .atlas-primary-actions .btn:first-child,
 .atlas-workspace .atlas-review-actions .btn-primary { border-color: var(--accent); background: var(--accent); color: #fff; }
 .atlas-workspace .atlas-evidence { margin-top: 20px; padding: 0; border: 0; background: transparent; }
