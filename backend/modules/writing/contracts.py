@@ -47,6 +47,10 @@ class WritingDraftContract:
     knowledge_review: dict[str, Any] | None = None
     editorial_ready_at: datetime | None = None
     editorial_ready_hash: str | None = None
+    # 保存触发失效传播时的作者语言公共视图（P2-C C3 透传；含 affected/
+    # unknown_scope/receipt_id 最小键集，见 evolution 消费登记契约）。
+    # 读路径与未触发失效的保存为 None；additive 字段置尾保持旧位置构造。
+    invalidation: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)

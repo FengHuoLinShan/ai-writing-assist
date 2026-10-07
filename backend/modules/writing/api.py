@@ -62,6 +62,10 @@ from modules.writing.schemas import (
     WritingGenerateRequest,
     WritingGenerateResponse,
     WritingPublishRequest,
+    WritingRecomputeAdoptRequest,
+    WritingRecomputeOutcomeResponse,
+    WritingRecomputePreviewResponse,
+    WritingRecomputeRequest,
     WritingRegenerationContext,
     WritingSemanticReviewRequest,
     WritingSemanticReviewTaskResponse,
@@ -489,6 +493,46 @@ async def enqueue_targeted_revision(
     return WritingSemanticReviewTaskResponse(**result)
 
 
+@router.post(
+    "/recompute",
+    response_model=WritingRecomputePreviewResponse,
+)
+async def preview_recompute(db: DbSession, data: WritingRecomputeRequest):
+    """改稿失效后的重算预览（独立预览，零正史写入）。
+
+    作者在保存响应看到失效范围后显式选择三分类之一；预览只组装
+    动作清单/成本/受影响范围与来源指纹，不写任何域数据。
+    """
+    await require_active_project(db, data.novel_id)
+    from modules.writing.recompute import WritingRecomputeService
+
+    return await WritingRecomputeService().preview(db, data)
+
+
+@router.post(
+    "/recompute/{operation_id}/adopt",
+    response_model=WritingRecomputeOutcomeResponse,
+)
+async def adopt_recompute(
+    db: DbSession,
+    operation_id: str = Path(..., min_length=1, max_length=120),
+    data: WritingRecomputeAdoptRequest = ...,
+):
+    """执行重算：重验来源版本，冲突保留当前稿；幂等 operation_id+指纹。
+
+    取消/过期 = 不调用本端点（预览无服务端状态，零正史副作用）。
+    """
+    await require_active_project(db, data.novel_id)
+    if data.operation_id != operation_id:
+        raise HTTPException(
+            status_code=400,
+            detail="path operation_id 与请求体 operation_id 不一致",
+        )
+    from modules.writing.recompute import WritingRecomputeService
+
+    return await WritingRecomputeService().adopt(db, data)
+
+
 @router.post("/drafts", response_model=PublishResponse, status_code=201)
 async def create_draft(
     db: DbSession,
@@ -773,9 +817,7 @@ async def export_book(
         content=result["content"],
         media_type=result["media_type"],
         headers={
-            "Content-Disposition": (
-                f"attachment; filename*=UTF-8''{ascii_name}"
-            ),
+            "Content-Disposition": (f"attachment; filename*=UTF-8''{ascii_name}"),
             "X-Pending-Chapters": ",".join(
                 str(index) for index in result["pending_chapters"]
             ),

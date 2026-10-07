@@ -15,6 +15,7 @@ from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.redaction import redact_diagnostic
+from modules.evidence.facade import mark_asset_context_changed
 from modules.writing.conflict_evidence import snapshot_location
 from modules.writing.models import WritingConflictCheck, WritingConflictItem, WritingDraft
 from modules.writing.schemas import WritingDraftCreate, WritingDraftUpdate
@@ -22,6 +23,9 @@ from modules.writing.source_hashing import hash_text, substantive_text
 
 WORKING_DRAFT_STATUSES = ("draft", "published", "canonical")
 AI_REVIEW_TASK_OWNER_KEY = "_ai_review_task_id"
+#: 保存失效回执的作者语言公共视图挂在 draft 行的瞬态属性名（非映射列，
+#: 不入库）。契约/响应同名字段经 from_attributes 读取（P2-C C3）。
+INVALIDATION_VIEW_ATTR = "invalidation"
 
 
 def public_conflict_summary(summary: dict | None) -> dict:
@@ -43,9 +47,9 @@ class WritingDraftRepository:
             return
         from core.container import get
         from core.service_keys import (
+            EVOLUTION_INVALIDATION_RECEIPT_VIEW,
             EVOLUTION_RECORD_WRITING_SOURCE_CHANGE,
         )
-        from modules.evidence.facade import mark_asset_context_changed
 
         await mark_asset_context_changed(
             db,
@@ -54,13 +58,21 @@ class WritingDraftRepository:
             asset_id=str(draft.id),
             reason="source_changed",
         )
-        await get(EVOLUTION_RECORD_WRITING_SOURCE_CHANGE)(
+        receipt = await get(EVOLUTION_RECORD_WRITING_SOURCE_CHANGE)(
             db,
             str(draft.novel_id),
             chapter_index=draft.chapter_index,
             old_content=old_content,
             new_content=draft.content,
             published_changed="published" in {draft.status, previous_status},
+        )
+        # P2-C C3：回执不再丢弃。writing 层不能 import evolution（依赖冻结
+        # 集合无 writing→evolution 边），作者语言公共视图经 DI 缝注入，
+        # 挂到 draft 行的瞬态属性随保存响应透传（不入库）。
+        setattr(
+            draft,
+            INVALIDATION_VIEW_ATTR,
+            get(EVOLUTION_INVALIDATION_RECEIPT_VIEW)(receipt),
         )
 
     @staticmethod

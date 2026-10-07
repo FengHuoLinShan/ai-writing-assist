@@ -22,6 +22,10 @@ Writing 模块是章节正文的事实源，同时负责在 fresh context confir
 - 字面 grep、稳定范围引用与段落扩展读取
 - 版本历史查看
 - 正文保存时经 Evidence 投递 working/canonical 索引；发布快照沿用发布流程
+- 保存链路透传 Evolution 失效公共视图（`invalidation` 瞬态属性，P2-C）；重算
+  预览/执行端点 `POST /api/writing/recompute`、`/recompute/{operation_id}/adopt`
+  （幂等、漂移 409 保当前稿、预览零正史写入），语义见
+  [docs/modules/11_writing.md](../../../docs/modules/11_writing.md)
 - 写作页剧情设定冲突检查记录、问题状态与发布前检查快照归档
 - 从已确认 context 生成 AI 正文 candidate，并保存 confirmation/task provenance
 - 对规则冲突结果追加 AI 软复核和可编辑修复建议
