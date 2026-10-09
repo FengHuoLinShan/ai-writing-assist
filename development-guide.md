@@ -135,14 +135,8 @@ replaces, the production build and tests; a passing audit does not mean zero ris
 `make audit-backend-deps` uses OSV advisory data against every package in
 `backend/uv.lock`, including optional extras. It pins the audit to Python 3.14 on
 Linux so local and CI results agree, and uses `--no-build` so metadata-only audit
-does not build source distributions. Two eval-only advisories without published
-fixes are temporarily marked `--ignore-until-fixed`: DiskCache unsafe pickle
-deserialization (`GHSA-w8v5-vhqr-4h9v`) and Ragas multimodal Faithfulness SSRF
-(`GHSA-95ww-475f-pr4f`). The latter is not in production and this project uses the
-text-only local Codex evaluator, but the eval extra remains trusted/offline-only.
-`--ignore-until-fixed` is deliberately not a permanent ignore: a published fix
-makes the gate fail again. An audit pass does not prove zero dependency or
-supply-chain risk.
+does not build source distributions. No advisories are suppressed. An audit
+pass does not prove zero dependency or supply-chain risk.
 
 Repository security maintenance: CodeQL runs `security-extended` analysis for
 GitHub Actions, frontend JavaScript/TypeScript and backend Python on pull requests,

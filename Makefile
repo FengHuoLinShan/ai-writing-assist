@@ -102,7 +102,7 @@ test-restore-drill-real:  ## Perform a real isolated PostgreSQL restore using a 
 	bash deploy/tests/run_restore_drill_integration.sh
 
 audit-backend-deps:  ## Audit every locked backend dependency for known advisories
-	cd $(BACKEND_DIR) && uv audit --locked --no-build --preview-features audit --python-version 3.14 --python-platform x86_64-unknown-linux-gnu --ignore-until-fixed GHSA-w8v5-vhqr-4h9v --ignore-until-fixed GHSA-95ww-475f-pr4f
+	cd $(BACKEND_DIR) && uv audit --locked --no-build --preview-features audit --python-version 3.14 --python-platform x86_64-unknown-linux-gnu
 
 audit-frontend-deps:  ## Fail on high/critical frontend dependency lockfile advisories
 	cd $(FRONTEND_DIR) && npm audit --package-lock-only --audit-level=high
