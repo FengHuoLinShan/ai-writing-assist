@@ -3,6 +3,7 @@
 
 提供以下端点：
 - POST /api/tasks — 提交新任务
+- GET /api/tasks — 按作品列出于途与最近终态任务
 - GET /api/tasks/{task_id} — 查询任务状态
 - POST /api/tasks/{task_id}/cancel — 取消任务
 """
@@ -27,6 +28,7 @@ from core.service_keys import (
 )
 from infrastructure.tasks.contracts import TaskAction, TaskOperationProjectionV1
 from infrastructure.tasks.enqueuer import enqueue_task
+from infrastructure.tasks.facade import list_novel_task_overview
 from infrastructure.tasks.lifecycle import TaskLifecycleService, lifecycle_contract
 from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.registry import TaskRegistry
@@ -184,6 +186,33 @@ class TaskStatusResponse(BaseModel):
     available_actions: list[TaskAction] = Field(default_factory=list)
 
 
+class TaskListItemResponse(BaseModel):
+    """作品任务总览单条投影（在途与最近终态）。"""
+
+    task_id: str
+    task_type: str
+    status: str
+    meta: dict[str, Any]
+    error_message: str | None = None
+    created_at: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+    heartbeat_at: str | None = None
+    attempt: int = 0
+    max_attempts: int = 1
+    stale: bool = False
+    operation: TaskOperationProjectionV1
+    lifecycle: dict[str, Any] = Field(default_factory=dict)
+    available_actions: list[TaskAction] = Field(default_factory=list)
+
+
+class TaskListResponse(BaseModel):
+    """作品任务总览响应；active 项在前，recent_terminal 为最近终态。"""
+
+    items: list[TaskListItemResponse]
+    active_count: int
+
+
 class TaskCancelResponse(BaseModel):
     """取消任务响应"""
 
@@ -273,6 +302,54 @@ async def submit_task(
     return TaskSubmitResponse(
         task_id=task_id,
         status=TaskStatusEnum.pending.value,
+    )
+
+
+@router.get("", response_model=TaskListResponse)
+async def list_tasks(
+    db: DbSession,
+    *,
+    novel_id: NovelIdQuery,
+    task_type: str | None = None,
+) -> TaskListResponse:
+    """按作品列出于途（pending/running）与最近终态任务。
+
+    仅返回当前账号有权访问的项目任务；跨项目、跨账号不可见。
+    用于刷新/换设备后恢复在途创作任务，不替代任务详情查询。
+    """
+    await _require_active_project(db, novel_id)
+    items = await list_novel_task_overview(
+        db,
+        novel_id=novel_id,
+        task_type=task_type,
+    )
+    active_count = sum(1 for item in items if item.status in ("pending", "running"))
+    return TaskListResponse(
+        items=[
+            TaskListItemResponse(
+                task_id=item.task_id,
+                task_type=item.task_type,
+                status=item.status,
+                meta=_public_task_meta(item.meta),
+                error_message=item.error_message,
+                created_at=item.created_at,
+                started_at=item.started_at,
+                finished_at=item.finished_at,
+                heartbeat_at=item.heartbeat_at,
+                attempt=item.attempt,
+                max_attempts=item.max_attempts,
+                stale=item.stale,
+                operation=item.operation,
+                lifecycle={
+                    "reason": item.lifecycle_reason,
+                    "recovery_policy": item.recovery_policy,
+                    "recovery_required": item.recovery_required,
+                },
+                available_actions=item.available_actions,
+            )
+            for item in items
+        ],
+        active_count=active_count,
     )
 
 
