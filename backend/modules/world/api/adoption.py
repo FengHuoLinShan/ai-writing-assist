@@ -19,12 +19,15 @@ from modules.world.api._shared import (
 from modules.world.schemas import (
     CreationSuggestionResponse,
     WorldAdoptionPackageApplyRequest,
+    WorldAdoptionPackageItemsUpdateRequest,
     WorldAdoptionPackagePreviewResponse,
+    WorldAdoptionPackageRollbackRequest,
     WorldAdoptionPackageSaveRequest,
     WorldCoreCheckpointSaveRequest,
     WorldDesignCheckpointSaveRequest,
     WorldDesignRevisionRequest,
 )
+from modules.world.schemas.adoption import WorldAdoptionPackageItemsUpdateResponse
 
 
 @router.post(
@@ -122,3 +125,43 @@ async def apply_world_adoption_package(
         if exc.code == "required_validation":
             raise
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.patch(
+    "/adoption-packages/{suggestion_id}/items",
+    response_model=WorldAdoptionPackageItemsUpdateResponse,
+)
+async def update_world_adoption_package_items(
+    db: DbSession,
+    suggestion_id: str,
+    data: WorldAdoptionPackageItemsUpdateRequest,
+) -> WorldAdoptionPackageItemsUpdateResponse:
+    """骨架包条目级取舍：逐条勾选/排除、改名与简介，并返回逐条冲突。"""
+    from modules.world.services.worldbuilding.opening_skeleton import (
+        OpeningSkeletonService,
+    )
+
+    await require_active_project(db, data.novel_id)
+    suggestion, conflicts = await OpeningSkeletonService().update_package_items(
+        db, data.novel_id, suggestion_id, data
+    )
+    return WorldAdoptionPackageItemsUpdateResponse(
+        suggestion=suggestion, item_conflicts=conflicts
+    )
+
+
+@router.post("/adoption-packages/{suggestion_id}/rollback")
+async def rollback_world_adoption_package(
+    db: DbSession,
+    suggestion_id: str,
+    data: WorldAdoptionPackageRollbackRequest,
+) -> dict:
+    """骨架包整体撤销：回执逆序回滚，作者已改动的对象保留并说明原因。"""
+    from modules.world.services.worldbuilding.opening_skeleton import (
+        OpeningSkeletonService,
+    )
+
+    await require_active_project(db, data.novel_id)
+    return await OpeningSkeletonService().rollback_package(
+        db, data.novel_id, suggestion_id
+    )

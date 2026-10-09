@@ -478,3 +478,125 @@ class GeneratedWorldBibleNewPageProposal(BaseModel):
     design_rationale: str = Field(default="", max_length=4000)
     review_notes: list[str] = Field(default_factory=list, max_length=20)
     source_revision: GeneratedWorldBibleSourceRevisionProposal | None = None
+
+
+class GeneratedOpeningSkeletonRule(BaseModel):
+    """核心规则/力量体系条目；约束写法沿用 world_core 的规则原子。"""
+
+    name: str = Field(..., min_length=1, max_length=160)
+    entity_type: Literal["rule", "power_system"] = "rule"
+    summary: str = Field(..., min_length=1, max_length=5000)
+    can: str = Field(..., min_length=1, max_length=600)
+    cannot: str = Field(..., min_length=1, max_length=600)
+    cost: str = Field(..., min_length=1, max_length=600)
+    failure: str = Field(..., min_length=1, max_length=600)
+    maintenance: str = Field(..., min_length=1, max_length=600)
+    na_reasons: dict[str, str] = Field(default_factory=dict)
+    hidden_truth: str | None = Field(default=None, max_length=30000)
+
+    @field_validator("summary")
+    @classmethod
+    def _summary_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("rule summary must not be blank")
+        return value
+
+
+class GeneratedOpeningSkeletonEntity(BaseModel):
+    """地点/势力/历史传说/秘密等骨架条目。"""
+
+    name: str = Field(..., min_length=1, max_length=255)
+    entity_type: Literal[
+        "location",
+        "faction",
+        "organization",
+        "secret",
+        "legend",
+        "concept",
+        "item",
+        "species",
+        "event",
+    ] = "location"
+    summary: str = Field(..., min_length=1, max_length=5000)
+    public_info: str | None = Field(default=None, max_length=30000)
+    hidden_truth: str | None = Field(default=None, max_length=30000)
+
+    @field_validator("summary")
+    @classmethod
+    def _summary_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("entity summary must not be blank")
+        return value
+
+
+class GeneratedOpeningSkeletonCharacter(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    summary: str = Field(..., min_length=1, max_length=5000)
+    public_info: str | None = Field(default=None, max_length=30000)
+    hidden_truth: str | None = Field(default=None, max_length=30000)
+    is_protagonist: bool = False
+    character_card: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("summary")
+    @classmethod
+    def _summary_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("character summary must not be blank")
+        return value
+
+
+class GeneratedOpeningSkeletonRelation(BaseModel):
+    """核心关系；两端必须引用同一次输出中的条目名或已有对象名。"""
+
+    source: str = Field(..., min_length=1, max_length=255)
+    target: str = Field(..., min_length=1, max_length=255)
+    relation_type: str = Field(..., min_length=1, max_length=64)
+    relation_kind: Literal[
+        "state",
+        "social",
+        "spatial",
+        "causal",
+        "temporal",
+        "epistemic",
+        "intentional",
+    ] = "social"
+    description: str | None = Field(default=None, max_length=5000)
+
+
+class GeneratedOpeningSkeleton(BaseModel):
+    """新书开篇世界观骨架的一次结构化输出（world.draft_opening_skeleton）。"""
+
+    premise_name: str = Field(..., min_length=1, max_length=255)
+    premise: str = Field(..., min_length=1, max_length=8000)
+    tone: str = Field(..., min_length=1, max_length=4000)
+    rules: list[GeneratedOpeningSkeletonRule] = Field(..., min_length=2, max_length=6)
+    locations: list[GeneratedOpeningSkeletonEntity] = Field(
+        ..., min_length=3, max_length=8
+    )
+    factions: list[GeneratedOpeningSkeletonEntity] = Field(
+        ..., min_length=2, max_length=6
+    )
+    characters: list[GeneratedOpeningSkeletonCharacter] = Field(
+        ..., min_length=3, max_length=8
+    )
+    lore: list[GeneratedOpeningSkeletonEntity] = Field(
+        ..., min_length=1, max_length=4
+    )
+    relations: list[GeneratedOpeningSkeletonRelation] = Field(
+        default_factory=list, max_length=12
+    )
+    review_notes: list[str] = Field(default_factory=list, max_length=20)
+
+    @field_validator("premise", "tone")
+    @classmethod
+    def _text_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("premise/tone must not be blank")
+        return value
+
+    @model_validator(mode="after")
+    def _one_protagonist(self) -> GeneratedOpeningSkeleton:
+        protagonists = [item for item in self.characters if item.is_protagonist]
+        if len(protagonists) != 1:
+            raise ValueError("exactly one character must be the protagonist")
+        return self

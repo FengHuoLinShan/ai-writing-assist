@@ -18,6 +18,7 @@ from modules.world.api import (  # noqa: F401
     history,
     knowledge,
     library,
+    opening_skeleton,
     prompt_templates,
     relations,
     revisions,

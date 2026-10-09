@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -290,6 +291,23 @@ class WorldAdoptionPackageItem(BaseModel):
         return self
 
 
+class OpeningSkeletonRef(BaseModel):
+    """骨架来源回执：由哪个骨架任务、基于哪个作者方向输入组装。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: str = Field(..., min_length=1, max_length=128)
+    input_hash: str = Field(..., min_length=64, max_length=64)
+    direction_title: str | None = Field(default=None, max_length=255)
+    created_at: str = Field(..., min_length=1, max_length=64)
+    dropped_items: list[str] = Field(default_factory=list, max_length=32)
+
+    @field_validator("input_hash")
+    @classmethod
+    def validate_input_hash(cls, value: str) -> str:
+        return _validate_lower_sha256(value, "input_hash")
+
+
 class WorldAdoptionPackagePayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -307,6 +325,14 @@ class WorldAdoptionPackagePayload(BaseModel):
     )
     source_manifest_hash: str = Field(..., min_length=64, max_length=64)
     items: list[WorldAdoptionPackageItem] = Field(..., min_length=1, max_length=32)
+    # 新书开篇骨架来源；仅骨架流程写入，回滚门禁依据。
+    opening_skeleton: OpeningSkeletonRef | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    # AI 生成包的知识治理回执；存在时采用门禁要求 passed（fail closed）。
+    knowledge_review: dict[str, Any] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
     @field_validator("source_manifest_hash", "checkpoint_manifest_hash")
     @classmethod
@@ -348,11 +374,77 @@ class WorldAdoptionPackageSaveRequest(BaseModel):
     package: WorldAdoptionPackagePayload
 
 
+class WorldAdoptionPackageItemUpdate(BaseModel):
+    """作者对骨架包单条的取舍与轻量编辑。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    item_key: str = Field(..., min_length=1, max_length=64)
+    included: bool | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    summary: str | None = Field(default=None, min_length=1, max_length=10000)
+    public_info: str | None = Field(default=None, max_length=30000)
+    hidden_truth: str | None = Field(default=None, max_length=30000)
+
+
+class WorldAdoptionPackageItemsUpdateRequest(BaseModel):
+    novel_id: str
+    expected_updated_at: datetime | None = None
+    items: list[WorldAdoptionPackageItemUpdate] = Field(..., min_length=1, max_length=32)
+
+
+class WorldAdoptionPackageRollbackRequest(BaseModel):
+    novel_id: str
+
+
+class WorldOpeningSkeletonTaskRequest(BaseModel):
+    """新书开篇世界观骨架生成入队请求。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    novel_id: str
+    vision: str = Field(..., min_length=1, max_length=20000)
+    direction_title: str | None = Field(default=None, max_length=255)
+    direction: dict[str, str] | None = Field(
+        default=None,
+        description="作者选定方向卡的可选结构化字段（题材/主冲突/主角/基调等）。",
+    )
+    operation_id: uuid.UUID | None = None
+
+    @field_validator("vision")
+    @classmethod
+    def _vision_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("vision must not be blank")
+        return value
+
+    @field_validator("direction")
+    @classmethod
+    def _direction_bounded(cls, value: dict[str, str] | None):
+        if value is None:
+            return value
+        if len(value) > 12:
+            raise ValueError("direction supports at most 12 fields")
+        for key, text in value.items():
+            if not key.strip() or len(key) > 64:
+                raise ValueError("direction keys must be 1-64 characters")
+            if len(text) > 2000:
+                raise ValueError("direction values must be at most 2000 characters")
+        return value
+
+
 class WorldAdoptionPackagePreviewResponse(BaseModel):
     suggestion: CreationSuggestionResponse
     expected_preview_hash: str
     canon_diff: list[dict[str, Any]] = Field(default_factory=list)
     omissions: list[str] = Field(default_factory=list)
+
+
+class WorldAdoptionPackageItemsUpdateResponse(BaseModel):
+    """条目级取舍结果：更新后的包 + 逐条冲突标记。"""
+
+    suggestion: CreationSuggestionResponse
+    item_conflicts: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class WorldAdoptionPackageApplyRequest(BaseModel):

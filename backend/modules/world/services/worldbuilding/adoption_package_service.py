@@ -594,10 +594,27 @@ class WorldAdoptionPackageService:
         baseline = await self._authoritative_baseline(db, novel_id, package)
         page_diffs = await self._page_diffs(db, novel_id, package)
         baseline["pages"] = page_diffs
+        canon_diff = [*await self._canon_diff(db, novel_id, package), *page_diffs]
+        if package.opening_skeleton is not None:
+            # 骨架包逐条标出冲突，作者排除冲突条而不是整包失败。
+            from modules.world.services.worldbuilding.opening_skeleton import (
+                OpeningSkeletonService,
+            )
+
+            conflicts = {
+                entry["item_key"]: entry["conflicts"]
+                for entry in await OpeningSkeletonService()._item_conflicts(
+                    db, novel_id, package
+                )
+            }
+            canon_diff = [
+                {**entry, "conflicts": conflicts.get(entry.get("item_key")) or []}
+                for entry in canon_diff
+            ]
         return WorldAdoptionPackagePreviewResponse(
             suggestion=CreationSuggestionResponse.model_validate(suggestion),
             expected_preview_hash=self._preview_hash(package, baseline),
-            canon_diff=[*await self._canon_diff(db, novel_id, package), *page_diffs],
+            canon_diff=canon_diff,
             omissions=omissions,
         )
 

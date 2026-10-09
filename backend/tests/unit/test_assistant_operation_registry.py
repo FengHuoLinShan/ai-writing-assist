@@ -300,6 +300,12 @@ OPERATION_SNAPSHOT = {
         "1",
         "34140fb9d80c080108ed1dcf0467636f5fa31c3bb076e830a1f6648711683a7f",
     ),
+    "world.draft_opening_skeleton": (
+        "起草新书开篇世界观骨架",
+        "suggest",
+        "1",
+        "253869e5f597bb89fda0767550471e2fcb4514e914096bf071d8461151f0a44b",
+    ),
 }
 
 
