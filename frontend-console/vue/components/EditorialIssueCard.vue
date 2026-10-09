@@ -1,6 +1,6 @@
 <template>
   <article class="editorial-issue" :class="{ 'editorial-issue--stale': issue.source_may_be_stale }">
-    <div class="editorial-issue__head"><span>{{ categoryLabel(issue.finding.category) }} · {{ severityLabel(issue.finding.severity) }}</span><span>{{ dispositionLabel(issue.disposition) }}</span></div>
+    <div class="editorial-issue__head"><span class="editorial-issue__pick"><input type="checkbox" :checked="selected" :aria-label="`加入批注修订：${issue.finding.judgment}`" @change="$emit('toggle-select', $event.target.checked)" /><span>{{ categoryLabel(issue.finding.category) }} · {{ severityLabel(issue.finding.severity) }}</span></span><span>{{ dispositionLabel(issue.disposition) }}</span></div>
     <h5>{{ issue.finding.judgment }}</h5>
     <p v-if="issue.finding.disposition_inherited" class="editorial-issue__inherited" role="status">本轮复审仍出现这条意见，已沿用你此前的处理：{{ dispositionLabel(issue.finding.inherited_disposition) }}；如需改判可在下方重新决定。</p>
     <p><strong>读者可能的感受：</strong>{{ issue.finding.reader_impact }}</p>
@@ -35,8 +35,8 @@
 
 <script setup>
 import { ref, watch } from "vue"
-const props = defineProps({ issue: { type: Object, required: true }, busy: Boolean })
-const emit = defineEmits(["locate", "decide", "recheck", "add-intent"])
+const props = defineProps({ issue: { type: Object, required: true }, busy: Boolean, selected: Boolean })
+const emit = defineEmits(["locate", "decide", "recheck", "add-intent", "toggle-select"])
 const choice = ref("prepare"), note = ref("")
 watch(() => props.issue.disposition, value => { choice.value = value === "open" ? "prepare" : value }, { immediate: true })
 function saveDecision() { emit("decide", props.issue, choice.value, note.value); note.value = "" }
@@ -47,5 +47,5 @@ function recheckLabel(value) { return ({ queued: "等待检查", running: "检�
 </script>
 
 <style scoped>
-.editorial-issue{border:1px solid var(--border);border-radius:10px;padding:12px;background:var(--surface);overflow-wrap:anywhere}.editorial-issue--stale{border-style:dashed}.editorial-issue__head{display:flex;justify-content:space-between;gap:8px;color:var(--text-secondary);font-size:12px}.editorial-issue h5{font-size:15px;margin:8px 0}.editorial-issue p{margin:8px 0}.editorial-issue summary{cursor:pointer;margin:8px 0;font-weight:600}.editorial-issue__quote{border-left:3px solid var(--accent);padding-left:10px;margin:10px 0}.editorial-issue__quote span{color:var(--text-secondary);font-size:12px}.editorial-issue blockquote{margin:5px 0 8px;white-space:pre-wrap}.editorial-issue__warning{color:var(--danger,#b42318)}.editorial-issue__decision{border-top:1px solid var(--border);margin-top:12px;padding-top:8px}.editorial-issue__decision label{display:block;margin:8px 0}.editorial-issue__decision select,.editorial-issue__decision textarea{display:block;width:100%;min-height:36px;margin-top:3px;border:1px solid var(--border);border-radius:7px;padding:6px;background:var(--surface);color:var(--text-primary)}.editorial-issue__actions{display:flex;flex-wrap:wrap;gap:8px}
+.editorial-issue{border:1px solid var(--border);border-radius:10px;padding:12px;background:var(--surface);overflow-wrap:anywhere}.editorial-issue--stale{border-style:dashed}.editorial-issue__head{display:flex;justify-content:space-between;gap:8px;color:var(--text-secondary);font-size:12px}.editorial-issue__pick{display:flex;align-items:center;gap:6px}.editorial-issue h5{font-size:15px;margin:8px 0}.editorial-issue p{margin:8px 0}.editorial-issue summary{cursor:pointer;margin:8px 0;font-weight:600}.editorial-issue__quote{border-left:3px solid var(--accent);padding-left:10px;margin:10px 0}.editorial-issue__quote span{color:var(--text-secondary);font-size:12px}.editorial-issue blockquote{margin:5px 0 8px;white-space:pre-wrap}.editorial-issue__warning{color:var(--danger,#b42318)}.editorial-issue__decision{border-top:1px solid var(--border);margin-top:12px;padding-top:8px}.editorial-issue__decision label{display:block;margin:8px 0}.editorial-issue__decision select,.editorial-issue__decision textarea{display:block;width:100%;min-height:36px;margin-top:3px;border:1px solid var(--border);border-radius:7px;padding:6px;background:var(--surface);color:var(--text-primary)}.editorial-issue__actions{display:flex;flex-wrap:wrap;gap:8px}
 </style>

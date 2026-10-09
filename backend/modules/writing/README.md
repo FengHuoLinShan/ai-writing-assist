@@ -27,7 +27,7 @@ Writing 模块是章节正文的事实源，同时负责在 fresh context confir
 - 对规则冲突结果追加 AI 软复核和可编辑修复建议
 - 对冻结正文、总纲 profile 和 Scene 执行合同运行带结构化 coverage 的独立语义审查
 - 按审查 finding 的唯一正文范围应用 replacement patch，生成不覆盖原稿的定向返修 candidate
-- 保存正文精确范围批注；按作者显式启动的一批批注或独立审稿 finding 生成局部修订候选
+- 保存正文精确范围批注；按作者显式启动的一批批注或独立审稿 finding 生成局部修订候选；为 Assistant 桥接的审读意见选区提供同一条批注修订链路的稳定入口（BR-4）
 
 人工正文的可选世界约束审查由助手本次范围或后台持续授权提交，最多追加8份、16000字符
 内的完整世界资料，不扩张到邻章或未授权 Scene 合同。每份资料经 Evidence 精确回读与最终
@@ -116,6 +116,7 @@ async def list_manuscript_sources(db, novel_id, chapter_indices=None, *, content
 async def grep_manuscript(db, novel_id, pattern, *, content_mode="canonical", ...) -> ManuscriptSearchPageContract
 async def read_manuscript_range(db, novel_id, source_ref, *, before_paragraphs=0, after_paragraphs=0) -> ManuscriptReadContract
 async def build_manuscript_range_ref(db, novel_id, draft_id, start_offset, end_offset) -> SourceRangeRefContract
+async def submit_comment_revision(db, novel_id, *, operation_id, selections: list[CommentRevisionSelectionContract]) -> CommentRevisionReceiptContract
 ```
 
 `facade.create_published_draft_only` 只创建一个已发布正文版本，批量导入使用 `create_published_drafts_only`，按章节顺序取得既有 advisory lock、分组读取最大版本并统一 flush；两者都不入队。`facade.create_draft_only` 仅创建草稿，不会提交发布任务。facade create 系列返回跨模块 `WritingDraftContract`，API 层负责适配为 `WritingDraftResponse` 并提交 `publish_chapter` 发布任务。导入模块等内部调用方不需要直接访问 RAG 模块。
@@ -284,6 +285,17 @@ UTF-16 选区在提交前转为码点，跨版本批注只作为失效记录展�
 工作稿和世界资料指纹；AI 来源重验原 confirmation。
 相关 World/Story 修改通过 Assistant 独立任务准备待确认方案；助手关闭或失败时明确显示
 提案未运行，正文候选不冒充跨资产完成。
+
+`facade.submit_comment_revision()` 是 BR-4 流程 3 的批注修订稳定入口（供 Assistant
+桥接审读意见）：按（选区定位 + 意见文本 + 作者处置）提交，入口在当前工作稿上逐条
+唯一精确定位引文、创建 `origin=ai` 批注行后走同一条 `writing_comment_run` 任务——
+只返回选区替换、治理复审、候选另存与独立复审、采用门禁全部不变。审读冻结的正文
+hash 与当前工作稿不一致时整体失败关闭（`SOURCE_STALE`，提示重新审读）；引文无法
+唯一定位的选区逐条跳过并说明，不影响其余选区；同一请求标识按章派生子操作标识幂等，
+重放返回既有任务、不重复创建批注。任务 meta 的 `editorial_refs`（批注 ID → 来源
+意见 ID）会写进候选 provenance 的 `editorial_issue_ids`；采用带该字段的候选时经
+组合根 DI 键 `assistant.editorial.post_adoption_rechecks` 请求 Assistant 既有改后
+复核，复核无法成立只降级记录，不影响采用结果，也不改写任何采用门禁。
 
 版本历史是审计视图：按 `version_number` 倒序返回 active、review 和
 archived 全部记录，`total` 与返回集合一致。列表项的 `display_state`

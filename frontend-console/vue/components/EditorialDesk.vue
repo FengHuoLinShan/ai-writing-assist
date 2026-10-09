@@ -54,8 +54,32 @@
           </div>
           <div v-if="reviewIssues.length" class="editorial-desk__issues">
             <h4>先看最值得处理的 {{ Math.min(3, reviewIssues.length) }} 项</h4>
-            <EditorialIssueCard v-for="issue in reviewIssues.slice(0, 3)" :key="issue.id" :issue="issue" :busy="busy" @decide="decide" @recheck="recheck" @add-intent="addIntent" @locate="locate" />
-            <details v-if="reviewIssues.length > 3"><summary>展开其余 {{ reviewIssues.length - 3 }} 项</summary><EditorialIssueCard v-for="issue in reviewIssues.slice(3)" :key="issue.id" :issue="issue" :busy="busy" @decide="decide" @recheck="recheck" @add-intent="addIntent" @locate="locate" /></details>
+            <EditorialIssueCard v-for="issue in reviewIssues.slice(0, 3)" :key="issue.id" :issue="issue" :busy="busy" :selected="selectedIssueIds.includes(issue.id)" @decide="decide" @recheck="recheck" @add-intent="addIntent" @locate="locate" @toggle-select="checked => toggleIssueSelection(issue, checked)" />
+            <details v-if="reviewIssues.length > 3"><summary>展开其余 {{ reviewIssues.length - 3 }} 项</summary><EditorialIssueCard v-for="issue in reviewIssues.slice(3)" :key="issue.id" :issue="issue" :busy="busy" :selected="selectedIssueIds.includes(issue.id)" @decide="decide" @recheck="recheck" @add-intent="addIntent" @locate="locate" @toggle-select="checked => toggleIssueSelection(issue, checked)" /></details>
+            <section v-if="selectedIssueIds.length || revisionItems.length" class="editorial-desk__revision" aria-labelledby="editorial-revision-title">
+              <h4 v-if="selectedIssueIds.length" id="editorial-revision-title">按选中的 {{ selectedIssueIds.length }} 条意见发起批注修订</h4>
+              <h4 v-else id="editorial-revision-title">本轮批注修订</h4>
+              <template v-if="selectedIssueIds.length">
+                <p>每条意见按其唯一原文依据定位为选区，连同意见原文和下面的处置说明一起交给批注修订，只生成改动所选片段的替换候选；候选仍需你在写作页审阅采用。引文已不在当前稿的意见不会生成候选，会逐条说明原因。发起修订会产生一次模型调用费用。</p>
+                <label>处置说明 <small>会连同意见原文一起交给修订</small><textarea v-model="revisionInstruction" rows="2" maxlength="2000" /></label>
+                <div class="editorial-desk__actions">
+                  <button type="button" class="btn btn-primary btn-sm" :disabled="revisionBusy || !revisionInstruction.trim() || busy" @click="submitRevision">{{ revisionBusy ? '提交中…' : `发起 ${selectedIssueIds.length} 条修订` }}</button>
+                  <button type="button" class="btn btn-sm" :disabled="revisionBusy" @click="clearIssueSelection">取消选择</button>
+                </div>
+              </template>
+              <p v-if="revisionError" class="editorial-desk__error" role="alert">{{ revisionError }}</p>
+              <div v-if="revisionItems.length" class="editorial-desk__revision-results">
+                <p v-for="item in revisionItems" :key="item.issue_id">
+                  <template v-if="item.kind === 'queued'">
+                    <template v-if="!item.done">修订进行中…</template>
+                    <template v-else-if="item.candidate_draft_id">替换候选已生成：<button type="button" class="btn btn-sm" @click="openRevisionCandidate(item)">去写作页审阅并采用</button></template>
+                    <template v-else>修订未生成候选：{{ item.reason || '请查看写作页的任务提示' }}</template>
+                  </template>
+                  <template v-else-if="item.kind === 'unlocatable'">这条意见未能发起修订：{{ item.reason }}</template>
+                  <template v-else>{{ item.reason || '这条意见未能发起修订' }}</template>
+                </p>
+              </div>
+            </section>
           </div>
           <details v-else-if="selectedReview.report?.all_findings?.length"><summary>查看这份历史报告的意见</summary><article v-for="(finding, index) in selectedReview.report.all_findings" :key="index"><strong>{{ finding.judgment }}</strong><p>{{ finding.reader_impact }}</p><blockquote v-for="(evidence, n) in finding.evidence" :key="n">第 {{ evidence.chapter_index }} 章：{{ evidence.quote }}</blockquote></article></details>
           <p v-else-if="['completed', 'partial'].includes(selectedReview.status)">所查范围内暂无值得打断你的主要问题。</p>
@@ -86,6 +110,9 @@ const dimensions = [{ id: "structure", label: "结构" }, { id: "scene", label: 
 const brief = ref(null), briefDraft = ref({}), briefLists = ref({}), briefDraftNotice = ref("")
 const policy = ref(null), automaticEnabled = ref(false), automaticExclusionsText = ref("")
 const reviews = ref([]), issues = ref([]), selectedReviewId = ref(null)
+const selectedIssueIds = ref([])
+const revisionInstruction = ref(""), revisionBusy = ref(false), revisionError = ref("")
+const revisionItems = ref([])
 const scope = ref("chapter"), startChapter = ref(1), endChapter = ref(1)
 const selectedDimensions = ref(dimensions.map(item => item.id)), excludedText = ref("")
 const loading = ref(false), busy = ref(false), error = ref("")
@@ -151,6 +178,7 @@ async function load() {
     briefForWritingEffective.value = Boolean(nextWritingUse?.effective)
     restoreBrief(nextBrief); policy.value = nextPolicy; automaticEnabled.value = nextPolicy.enabled; automaticExclusionsText.value = (nextPolicy.excluded_chapters || []).join(", ")
     reviews.value = nextReviews; issues.value = nextIssues
+    pruneIssueSelection()
     if (!nextReviews.some(item => item.id === selectedReviewId.value)) selectedReviewId.value = nextReviews[0]?.id || null
     if (props.focusIssueId) selectedReviewId.value = nextIssues.find(item => item.id === props.focusIssueId)?.review_id || selectedReviewId.value
   } catch (cause) { if (projectId === props.projectId) error.value = cause.message || "编辑台暂时无法读取，请稍后重试。" }
@@ -161,6 +189,7 @@ async function refreshResults() {
   try {
     const [nextReviews, nextIssues] = await Promise.all([getApi().assistant.editorialReviews(props.projectId), getApi().assistant.editorialIssues(props.projectId)])
     reviews.value = nextReviews; issues.value = nextIssues
+    pruneIssueSelection()
     if (!nextReviews.some(item => item.id === selectedReviewId.value)) selectedReviewId.value = nextReviews[0]?.id || null
     if (props.focusIssueId) selectedReviewId.value = nextIssues.find(item => item.id === props.focusIssueId)?.review_id || selectedReviewId.value
   } catch { /* keep the last readable result; explicit refresh shows an error */ }
@@ -233,6 +262,60 @@ function addIntent(issue) {
   if (!lines.includes(value)) briefLists.value.intentional_choices = [...lines, value].join("\n")
   briefDraftNotice.value = "已放入编辑约定草稿。只有你点击“保存编辑约定”后才长期生效。"
 }
+function pruneIssueSelection() {
+  const known = new Set(issues.value.map(item => item.id))
+  selectedIssueIds.value = selectedIssueIds.value.filter(id => known.has(id))
+}
+function toggleIssueSelection(issue, checked) {
+  selectedIssueIds.value = checked
+    ? [...selectedIssueIds.value, issue.id]
+    : selectedIssueIds.value.filter(id => id !== issue.id)
+}
+function clearIssueSelection() { selectedIssueIds.value = [] }
+async function submitRevision() {
+  const instruction = revisionInstruction.value.trim()
+  const selected = reviewIssues.value.filter(issue => selectedIssueIds.value.includes(issue.id))
+  if (!instruction || !selected.length) return
+  revisionBusy.value = true; revisionError.value = ""
+  try {
+    const response = await getApi().assistant.reviseEditorialIssues({
+      novel_id: props.projectId,
+      operation_id: crypto.randomUUID(),
+      items: selected.map(issue => ({ issue_id: issue.id, expected_version: issue.version, instruction })),
+    })
+    revisionItems.value = (response.items || []).map(item => (
+      item.status === "queued"
+        ? { ...item, kind: "queued", candidate_draft_id: null, done: false }
+        : { ...item, kind: item.status === "unlocatable" ? "unlocatable" : "failed" }
+    ))
+    revisionInstruction.value = ""
+    clearIssueSelection()
+    await pollRevisionTasks()
+  }
+  catch (cause) { revisionError.value = cause.message || "修订未发起，请稍后重试。" }
+  finally { revisionBusy.value = false }
+}
+async function pollRevisionTasks() {
+  const pending = revisionItems.value.filter(item => item.kind === "queued" && !item.done && item.task_id)
+  if (!pending.length || !props.projectId || !props.active) return
+  for (const item of pending) {
+    try {
+      const task = await getApi().tasks.get(item.task_id, props.projectId)
+      if (task.status === "done") {
+        item.done = true
+        item.candidate_draft_id = task.result?.candidate_draft_id || null
+        if (!item.candidate_draft_id) item.reason = "这次没有生成替换候选（例如正文在修订期间又变化），可在写作页重试"
+      } else if (["failed", "cancelled"].includes(task.status)) {
+        item.done = true
+        item.reason = task.error_message || "修订任务未完成"
+      }
+    } catch { /* 下个轮询周期再试；不覆盖已有状态 */ }
+  }
+  revisionItems.value = [...revisionItems.value]
+}
+function openRevisionCandidate(item) {
+  locateAssistantSource({ type: "writing_draft", id: item.candidate_draft_id, chapter_index: item.chapter_index })
+}
 function locate(evidence) { locateAssistantSource({ type: "writing_draft", id: evidence.draft_id, chapter_index: evidence.chapter_index, start: evidence.start, content_hash: evidence.content_hash }) }
 async function savePolicy() {
   busy.value = true; error.value = ""
@@ -256,6 +339,13 @@ watch([briefDraft, briefLists], () => {
   catch { briefDraftNotice.value = "本地备份不可用；请先保存编辑约定再离开。" }
 }, { deep: true })
 watch(() => props.focusChapter, value => { if (value > 0) { scope.value = "chapter"; startChapter.value = value } }, { immediate: true })
+// 切换项目时清空上一项目的修订批处理状态，避免结果串项目显示
+watch(() => props.projectId, () => {
+  revisionItems.value = []
+  revisionError.value = ""
+  revisionInstruction.value = ""
+  selectedIssueIds.value = []
+})
 // 轮询生命周期：active 且项目变化时重置重启；同一项目不重复 start；
 // 失活与卸载都停表并置空句柄。
 let poller = null
@@ -267,7 +357,7 @@ function stopPoller() {
 function startPoller() {
   if (poller && pollerProjectId === props.projectId) return
   stopPoller()
-  poller = setInterval(refreshResults, 8000)
+  poller = setInterval(() => { refreshResults(); pollRevisionTasks() }, 8000)
   pollerProjectId = props.projectId
 }
 watch([() => props.active, () => props.projectId], ([active]) => { if (active) { load(); startPoller() } else stopPoller() }, { immediate: true })
@@ -275,5 +365,5 @@ onBeforeUnmount(stopPoller)
 </script>
 
 <style scoped>
-.editorial-desk{display:grid;gap:16px;padding:16px;overflow-y:auto;min-height:0;color:var(--text-primary);line-height:1.55}.editorial-desk__heading,.editorial-desk__section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.editorial-desk__heading p,.editorial-desk__section p{margin:6px 0;color:var(--text-secondary)}.editorial-desk__section{border:1px solid var(--border);border-radius:12px;padding:14px;background:var(--surface)}.editorial-desk__section summary{cursor:pointer;font-weight:700}.editorial-desk__section summary small{font-weight:400;color:var(--text-secondary)}.editorial-desk__section h3,.editorial-desk__section h4{margin:0 0 8px}.editorial-desk__section label{display:grid;gap:4px;margin:10px 0;font-size:14px}.editorial-desk__section label small{font-weight:400;color:var(--text-secondary)}.editorial-desk__section input:not([type=checkbox]),.editorial-desk__section textarea,.editorial-desk__section select{width:100%;min-height:38px;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text-primary)}.editorial-desk__section fieldset{display:flex;flex-wrap:wrap;gap:6px 12px;border:0;padding:4px 0;margin:8px 0}.editorial-desk__section fieldset label,.editorial-desk__section>label:has(input[type=checkbox]){display:flex;align-items:center;gap:6px;margin:0}.editorial-desk__scope{display:flex;gap:10px;flex-wrap:wrap}.editorial-desk__scope label{flex:1 1 110px}.editorial-desk__actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px}.editorial-desk__error{color:var(--danger,#b42318);padding:8px;background:var(--danger-soft,#fff4f2);border-radius:8px}.editorial-desk__status{font-weight:700}.editorial-desk__issues{display:grid;gap:10px;margin-top:14px}@media(max-width:600px){.editorial-desk{padding:12px}.editorial-desk__heading,.editorial-desk__section-head{display:block}.editorial-desk__section-head select{margin-top:8px}}
+.editorial-desk{display:grid;gap:16px;padding:16px;overflow-y:auto;min-height:0;color:var(--text-primary);line-height:1.55}.editorial-desk__heading,.editorial-desk__section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.editorial-desk__heading p,.editorial-desk__section p{margin:6px 0;color:var(--text-secondary)}.editorial-desk__section{border:1px solid var(--border);border-radius:12px;padding:14px;background:var(--surface)}.editorial-desk__section summary{cursor:pointer;font-weight:700}.editorial-desk__section summary small{font-weight:400;color:var(--text-secondary)}.editorial-desk__section h3,.editorial-desk__section h4{margin:0 0 8px}.editorial-desk__section label{display:grid;gap:4px;margin:10px 0;font-size:14px}.editorial-desk__section label small{font-weight:400;color:var(--text-secondary)}.editorial-desk__section input:not([type=checkbox]),.editorial-desk__section textarea,.editorial-desk__section select{width:100%;min-height:38px;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text-primary)}.editorial-desk__section fieldset{display:flex;flex-wrap:wrap;gap:6px 12px;border:0;padding:4px 0;margin:8px 0}.editorial-desk__section fieldset label,.editorial-desk__section>label:has(input[type=checkbox]){display:flex;align-items:center;gap:6px;margin:0}.editorial-desk__scope{display:flex;gap:10px;flex-wrap:wrap}.editorial-desk__scope label{flex:1 1 110px}.editorial-desk__actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px}.editorial-desk__error{color:var(--danger,#b42318);padding:8px;background:var(--danger-soft,#fff4f2);border-radius:8px}.editorial-desk__status{font-weight:700}.editorial-desk__issues{display:grid;gap:10px;margin-top:14px}.editorial-desk__revision{border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:12px;background:var(--surface)}.editorial-desk__revision h4{margin:0 0 8px}.editorial-desk__revision label{display:grid;gap:4px;margin:10px 0;font-size:14px}.editorial-desk__revision label small{font-weight:400;color:var(--text-secondary)}.editorial-desk__revision textarea{width:100%;min-height:38px;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text-primary)}.editorial-desk__revision-results{margin-top:8px;display:grid;gap:6px}.editorial-desk__revision-results p{margin:0;color:var(--text-primary)}@media(max-width:600px){.editorial-desk{padding:12px}.editorial-desk__heading,.editorial-desk__section-head{display:block}.editorial-desk__section-head select{margin-top:8px}}
 </style>
