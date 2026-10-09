@@ -6,6 +6,9 @@
  * 有停点或终态时不自动推进。开关关闭或无活动流程时宿主保持隐藏。
  */
 
+import { reactive } from "vue"
+
+import { confirmAsync } from "../../../../shared/confirmAsync.js"
 import { confirmAiReference } from "../../../../shared/aiReferenceModal.js"
 
 const POLL_INTERVAL_MS = 4000
@@ -17,17 +20,20 @@ export function createGuidedFlowController({
   getProjectId,
   getSceneId = () => null,
   onOpenCandidate = () => {},
-  confirmDialog = async (message, confirmText) => globalThis.confirm(`${message}（${confirmText}）`),
+  // 默认走外壳 modal 二次确认；结束流程不落原生 confirm（与全站确认体验一致）。
+  confirmDialog = (message, confirmText) => confirmAsync(message, confirmText),
 }) {
   let pollTimer = null
   let disposed = false
   let polling = false
-  const state = {
+  // 必须是响应式对象：宿主组件的 computed 依赖 state.view，异步 applyView
+  // 赋值后要触发重渲染（普通对象会让流程宿主永远不出现）。
+  const state = reactive({
     view: null,
     visible: false,
     busy: false,
     error: null,
-  }
+  })
 
   function stopPoll() {
     if (pollTimer) {

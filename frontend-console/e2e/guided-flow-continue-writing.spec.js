@@ -1,6 +1,6 @@
 import { test, expect } from "./fixtures.js"
 
-import { waitForBackend, createDraft } from "./helpers/api-client.js"
+import { waitForBackend, createDraft, getLatestDraft } from "./helpers/api-client.js"
 import { reloadWorkbench, waitWritingReady } from "./helpers/workbench.js"
 
 /**
@@ -49,16 +49,25 @@ async function mockFlowApi(page, state) {
   })
 
   await page.route("**/api/assistant/capabilities*", async (route) => {
-    const original = await route.fetch()
-    const payload = await original.json()
+    // e2e 后端助手开关默认关，真实 capabilities 会 404：能力投影本地定值，
+    // 不把上游状态原样回传（404 会让前端判定不可用而隐藏入口）。
+    let payload = {}
+    try {
+      const original = await route.fetch()
+      if (original.ok()) payload = await original.json()
+    } catch { /* 后端不可达时用空负载 */ }
     payload.guided_flows = { available: true, reason: null }
-    await route.fulfill({ response: original, json: payload })
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(payload) })
   })
-  await page.route("**/api/assistant/flows/active*", (route) => route.fulfill(json(state.active)))
+  // 刷新/换设备恢复：URL query 可能被改写，写作页回落探测活动流程；
+  // 服务端契约是返回当前活动流程视图（无则 null）。
+  await page.route("**/api/assistant/flows/active*", (route) => route.fulfill(json(state.active || state.current || null)))
+  // 刷新/换设备恢复：attachRun 按 run_id 拉流程视图
+  await page.route(`**/api/assistant/flows/${RUN_ID}*`, (route) => route.fulfill(json(state.current || state.active || flowView())))
   await page.route("**/api/assistant/flows", async (route) => {
     if (route.request().method() !== "POST") return route.fallback()
     state.started = route.request().postDataJSON()
-    return route.fulfill(json(flowView({
+    state.current = flowView({
       status: "waiting_approval",
       stop: {
         step_id: "confirm_reference",
@@ -72,16 +81,19 @@ async function mockFlowApi(page, state) {
         step("semantic_review", "独立语义审查", "pending"),
         step("review_candidate", "审阅候选", "pending"),
       ],
-    }), 201))
+    })
+    return route.fulfill(json(state.current), 201)
   })
   await page.route("**/api/assistant/flows/*/advance", async (route) => {
     state.advances.push(route.request().postDataJSON())
-    return route.fulfill(json(state.nextAdvance()))
+    state.current = state.nextAdvance()
+    return route.fulfill(json(state.current))
   })
   await page.route("**/api/assistant/flows/*/settings", async (route) => {
     const body = route.request().postDataJSON()
     return route.fulfill(json(flowView({ settings: { semantic_review: Boolean(body.semantic_review) } })))
   })
+  await page.route("**/api/assistant/flows/*/abandon*", (route) => route.fulfill(json({ ok: true })))
 }
 
 test.describe("引导流程：继续写下一场", () => {
@@ -135,6 +147,23 @@ test.describe("引导流程：继续写下一场", () => {
       })
     }
     await mockFlowApi(page, state)
+    // 「查看候选」按流程返回的 draft_id 拉候选草稿：以真实第 1 章草稿为底，
+    // 覆盖为候选态，避免真实后端 404。
+    const baseDraft = await getLatestDraft(testProjectId, 1)
+    await page.route(`**/api/writing/drafts/${CANDIDATE_DRAFT_ID}*`, async (route) => {
+      if (route.request().method() !== "GET") return route.continue()
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ...baseDraft,
+          id: CANDIDATE_DRAFT_ID,
+          status: "candidate",
+          display_state: "candidate",
+          provenance_json: { source: "ai_generated", review_required: false },
+        }),
+      })
+    })
     // 资料确认复用既有弹窗：替身确认接口，弹窗内容断言走真实组件。
     await page.route("**/api/evidence/compilation/preview", async (route) => route.fulfill({
       status: 200,
@@ -189,7 +218,7 @@ test.describe("引导流程：继续写下一场", () => {
 
     // 4) 作者决定二：查看候选并采用（采用走写作页既有候选面板，此处验证入口）。
     await host.getByRole("button", { name: "查看候选", exact: true }).click()
-    await expect(page.locator("#writing-editor-container")).toContainText(/待审阅|候选/)
+    await expect(page.locator("#writing-editor-container")).toContainText("这份建议还没有改动工作稿")
 
     // 5) 刷新回到同一停点（flow run id 保留在地址中）。
     await reloadWorkbench(page, "writing")

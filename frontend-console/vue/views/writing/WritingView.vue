@@ -511,7 +511,6 @@ const flowHost = createGuidedFlowController({
   getProjectId: () => props.projectId,
   getSceneId: () => vm.currentScene.value?.id || null,
   onOpenCandidate: openFlowCandidate,
-  confirmDialog: vm.confirmDialog,
 })
 async function openFlowCandidate(candidate) {
   const chapter = Number(candidate.chapter_index) || vm.selectedChapter.value
