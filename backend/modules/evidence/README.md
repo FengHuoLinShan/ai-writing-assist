@@ -120,6 +120,11 @@ World 使用确认后保留的 compiled items 作为实际语义输入，Focused
 
 `compilation/knowledge` 拥有 capability 策略、scope/director/audit 版本化契约、组级治理与采用门禁。其他模块只经 `modules.evidence.contracts`/`facade` 消费；回执是派生审计状态，不代替 Writing/World/Story 的事实与采用所有权。
 
+审查裁决的服务端收口同时看两件事：finding 强度（blocker/major 即 blocked）与必查维度覆盖。必查维度
+缺失、被重复报告或审查者自报 `checked=false` 时，无论审查者给出什么 verdict，服务端一律降为
+`unverifiable`（与组路径同一标准）；覆盖回执逐维标明遗漏原因，漏报的必查维度以「未独立检查」补录。
+`unverifiable`/`not_checked` 不触发返修、候选不得采用，让「未查」在任何入口都不显示为通过。
+
 输出权限区分创作新增与既有事实断言：获准的候选设定、正文局部行动和对话不因尚未写过而
 单独判无来源；抽取、问答、既有事实、角色知识及隐藏真相仍须有据。未知与明确待定保持开放，
 不强迫作者补全无关维度。审查中生成者与权威资料完全相同时仅渲染一次，保留完整冻结输入。

@@ -37,7 +37,23 @@ class GovernedStructuredMixin:
         if schema is AuditVerdictOutput:
             return AuditVerdictOutput(
                 findings=[],
-                dimensions=[AuditDimensionCheck(dimension="prior_prose", checked=True)],
+                dimensions=[
+                    AuditDimensionCheck(dimension=dimension, checked=True)
+                    for dimension in _required_dimensions(request.messages)
+                ],
                 verdict="pass",
             )
         raise AssertionError(f"unexpected schema: {schema}")
+
+
+def _required_dimensions(messages) -> list[str]:
+    """从审查 prompt 读取必查维度；合成审查者按全部维度已查应答。"""
+    for message in messages:
+        for line in message.content.splitlines():
+            if line.startswith("必查维度："):
+                return [
+                    item.strip()
+                    for item in line.split("：", 1)[1].split(",")
+                    if item.strip()
+                ]
+    return []
