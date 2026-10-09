@@ -52,6 +52,41 @@ _CAPABILITY_LABELS: dict[str, str] = {
     "project.smart_dedup": "智能去重",
 }
 
+# 按作品成果归因的桶：顺序即设置页展示顺序。归因只读 Evidence 确认
+# 记录的结果状态（writing.generate → 候选 → 采用/放弃 由确认记录的
+# result_status 跟踪），不改变任何配额或计费策略。
+_ATTRIBUTION_BUCKETS: tuple[tuple[str, str], ...] = (
+    ("adopted", "已写进作品的成果"),
+    ("pending", "进行中或等你处理的候选"),
+    ("not_adopted", "未采用或返修"),
+    ("failed", "失败与恢复"),
+    ("other", "资料整理等辅助消耗"),
+)
+
+_TASK_FAILURE_STATUSES = {"failed", "cancelled"}
+
+# 确认记录结果状态 → 归因桶。adopted 之外的失效状态（来源已变化、
+# 需重新处理）与已放弃的候选同样没有变成作品，都归入未采用或返修。
+_NON_OWNER_BUCKET = "not_adopted"
+_STALE_RESULT_STATUSES = {"stale_context", "needs_review"}
+
+
+def _attribution_bucket(task_status: str, outcome: dict[str, Any] | None) -> str:
+    if str(task_status or "") in _TASK_FAILURE_STATUSES:
+        return "failed"
+    if outcome is None:
+        return "other"
+    if not outcome.get("owner_task"):
+        # 同一确认被重新生成时，旧任务是被取代的尝试，成果不属于它。
+        return _NON_OWNER_BUCKET
+    result_status = str(outcome.get("result_status") or "")
+    if result_status == "adopted":
+        return "adopted"
+    if result_status == "rejected" or result_status in _STALE_RESULT_STATUSES:
+        return _NON_OWNER_BUCKET
+    # done / running / confirmed 等都表示还没有确定的采用结果。
+    return "pending"
+
 
 def _capability_label(capability_id: str) -> str:
     parts = str(capability_id or "").split(".")
@@ -73,6 +108,8 @@ async def get_project_ai_usage(
     单位为模型计费词元（token）；这是诊断视图，不在主路径展示。
     已知数字只统计取得完整回执的请求；`requests_unknown` 与
     `charge_unconfirmed` 如实保留用量未知与计费未确认的部分，不折算为 0。
+    `attribution` 把同一批任务按作品成果归因（经确认记录的结果引用，
+    task → 候选 → 采用），只读查询，不改变配额或计费策略。
     """
     from infrastructure.tasks.facade import summarize_project_ai_usage
 
@@ -121,4 +158,59 @@ async def get_project_ai_usage(
             "charge_unconfirmed": charge_unconfirmed,
         },
         "capabilities": capabilities,
+        "attribution": await _attribute_usage_by_outcome(
+            db, novel_id=novel_id, raw=raw
+        ),
     }
+
+
+async def _attribute_usage_by_outcome(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    raw: dict[str, Any],
+) -> dict[str, Any]:
+    """把窗口期任务用量按作品成果归因（只读，不做配额策略变化）。
+
+    经 Evidence 确认记录的结果引用连接任务与采用结果：确认记录跟踪
+    生成任务及其候选的采用/放弃/失效状态。没有确认引用的任务（资料
+    索引、独立审查等）单列为辅助消耗，不并入任何成果桶；用量未知与
+    计费未确认沿用 BR-0a 语义逐桶如实保留。
+    """
+    task_rows = [
+        row for row in (raw.get("tasks") or []) if isinstance(row, dict)
+    ]
+    outcomes: dict[str, dict[str, Any]] = {}
+    if task_rows:
+        from modules.evidence.facade import describe_confirmed_task_outcomes
+
+        outcomes = await describe_confirmed_task_outcomes(
+            db,
+            novel_id=novel_id,
+            task_ids=[str(row["task_id"]) for row in task_rows],
+        )
+    buckets = {
+        key: {
+            "key": key,
+            "label": label,
+            "tasks": 0,
+            "requests": 0,
+            "requests_unknown": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "charge_unconfirmed": False,
+        }
+        for key, label in _ATTRIBUTION_BUCKETS
+    }
+    for row in task_rows:
+        outcome = outcomes.get(str(row.get("task_id") or ""))
+        bucket = buckets[_attribution_bucket(str(row.get("status") or ""), outcome)]
+        bucket["tasks"] += 1
+        bucket["requests"] += int(row.get("requests") or 0)
+        bucket["requests_unknown"] += int(row.get("requests_unknown") or 0)
+        bucket["input_tokens"] += int(row.get("input_tokens") or 0)
+        bucket["output_tokens"] += int(row.get("output_tokens") or 0)
+        bucket["charge_unconfirmed"] = bucket["charge_unconfirmed"] or bool(
+            row.get("charge_unconfirmed")
+        )
+    return {"buckets": list(buckets.values())}

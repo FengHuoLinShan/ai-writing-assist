@@ -1038,3 +1038,104 @@ async def test_summarize_ai_usage_all_unknown_keeps_known_part_empty(
     assert bucket["prompt_tokens"] == 0
     assert bucket["completion_tokens"] == 0
     assert bucket["charge_unconfirmed"] is True
+
+
+@pytest.mark.asyncio
+async def test_summarize_ai_usage_returns_per_task_rows_for_attribution(
+    db_session: AsyncSession,
+) -> None:
+    """BR-7：每任务明细带状态与用量，供上层按作品成果归因。
+
+    本层不认识业务成果：没有确认引用的任务也照常返回明细，归因判断
+    由上层完成；未知与计费未确认标记逐任务如实保留。
+    """
+    novel_id = str(uuid.uuid4())
+    known = {
+        "version": 1,
+        "operation_id": "op-row-known",
+        "run_id": "run-row-known",
+        "root_capability_id": "writing.generate",
+        "novel_id": novel_id,
+        "started_at": datetime.now(UTC).isoformat(),
+        "request_limit": 10,
+        "requests_started": 2,
+        "requests_settled": 2,
+        "steps": [
+            {
+                "step_name": "writing.generate.chunk",
+                "step_capability_id": "writing.generate",
+                "call_kind": "structured",
+                "requests_started": 2,
+                "requests_settled": 2,
+                "usage": {"prompt_tokens": 100, "completion_tokens": 50},
+            }
+        ],
+    }
+    partial_unknown = {
+        "version": 1,
+        "operation_id": "op-row-unknown",
+        "run_id": "run-row-unknown",
+        "root_capability_id": "writing.semantic_review",
+        "novel_id": novel_id,
+        "started_at": datetime.now(UTC).isoformat(),
+        "request_limit": 10,
+        "requests_started": 3,
+        "requests_settled": 2,
+        "requests_unknown": 1,
+        "usage_complete": False,
+        "charge_state": "possible",
+        "steps": [
+            {
+                "step_name": "writing.semantic_review.chunk",
+                "step_capability_id": "writing.semantic_review",
+                "call_kind": "structured",
+                "requests_started": 3,
+                "requests_settled": 2,
+                "requests_unknown": 1,
+                "usage": {"prompt_tokens": 30, "completion_tokens": 20},
+                "charge_state": "possible",
+                "usage_complete": False,
+            }
+        ],
+    }
+    failed_id, review_id = uuid.uuid4(), uuid.uuid4()
+    db_session.add_all(
+        [
+            AsyncTask(
+                id=failed_id,
+                task_type="writing_generate",
+                status="failed",
+                novel_id=uuid.UUID(novel_id),
+                meta={AI_RUN_ENVELOPE_KEY: known},
+            ),
+            AsyncTask(
+                id=review_id,
+                task_type="writing_semantic_review",
+                status="succeeded",
+                novel_id=uuid.UUID(novel_id),
+                meta={AI_RUN_ENVELOPE_KEY: partial_unknown},
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    summary = await TaskLifecycleService().summarize_ai_usage(
+        db_session, novel_id=novel_id, days=30
+    )
+    rows = {row["task_id"]: row for row in summary["tasks"]}
+    assert set(rows) == {str(failed_id), str(review_id)}
+    failed_row = rows[str(failed_id)]
+    assert failed_row["status"] == "failed"
+    assert failed_row["capability"] == "writing.generate"
+    assert failed_row["requests"] == 2
+    assert failed_row["requests_unknown"] == 0
+    assert failed_row["input_tokens"] == 100
+    assert failed_row["output_tokens"] == 50
+    assert failed_row["charge_unconfirmed"] is False
+    review_row = rows[str(review_id)]
+    assert review_row["status"] == "succeeded"
+    assert review_row["requests_unknown"] == 1
+    assert review_row["charge_unconfirmed"] is True
+    # 聚合数字与每任务明细一致
+    assert summary["capabilities"]["writing.generate"]["requests"] == 2
+    assert summary["capabilities"]["writing.semantic_review"]["requests_unknown"] == 1

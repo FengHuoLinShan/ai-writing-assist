@@ -110,7 +110,8 @@ await worker.run_once()      # 单次执行
 run envelope，按能力汇总模型请求与输入/输出词元（owner 次级诊断入口消费；单次扫描
 上限 500 条，截断返回 `scan_truncated`，单条坏回执跳过计数）。聚合只累计已知用量，
 `requests_unknown` 保留用量未知的请求数、`charge_unconfirmed` 标记计费未确认的
-回执，未知部分不折算为 0 或并入已知数字（BR-0a）。
+回执，未知部分不折算为 0 或并入已知数字（BR-0a）。返回值同时带 `tasks`
+每任务明细（任务状态、能力与用量），供上层按作品成果归因（BR-7）；本层不做归因。
 
 其他模块的稳定写入 seam 位于 `facade.py`：
 

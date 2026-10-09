@@ -453,7 +453,11 @@ async def summarize_project_ai_usage(
     days: int = 30,
     scan_limit: int = 500,
 ) -> dict:
-    """Read-only per-capability AI usage aggregation for one project."""
+    """Read-only per-capability AI usage aggregation for one project.
+
+    返回 `capabilities` 聚合与 `tasks` 每任务用量明细（含任务状态），
+    供上层按作品成果归因；本入口不做归因。
+    """
     return await TaskLifecycleService().summarize_ai_usage(
         db, novel_id=novel_id, days=days, scan_limit=scan_limit
     )

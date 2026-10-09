@@ -1091,6 +1091,25 @@ async def attach_result_refs(
     )
 
 
+async def describe_confirmed_task_outcomes(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    task_ids: list[str],
+) -> dict[str, dict]:
+    """Read-only: confirmed-action outcome summary per task id.
+
+    只读缝：返回 {task_id: {confirmation_id, result_status, owner_task}}，
+    供用量按作品成果归因等跨模块只读查询使用。不加锁、不重编译；
+    没有确认引用的任务不出现在返回值里。
+    """
+    return await _confirmation_service.describe_task_outcomes(
+        db,
+        novel_id=novel_id,
+        task_ids=task_ids,
+    )
+
+
 async def mark_asset_context_changed(
     db: AsyncSession,
     *,

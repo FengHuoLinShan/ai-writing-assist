@@ -394,6 +394,15 @@ describe("AI 用量", () => {
           charge_unconfirmed: false,
         },
       ],
+      attribution: {
+        buckets: [
+          { key: "adopted", label: "已写进作品的成果", tasks: 1, requests: 2, requests_unknown: 0, input_tokens: 100, output_tokens: 50, charge_unconfirmed: false },
+          { key: "pending", label: "进行中或等你处理的候选", tasks: 0, requests: 0, requests_unknown: 0, input_tokens: 0, output_tokens: 0, charge_unconfirmed: false },
+          { key: "not_adopted", label: "未采用或返修", tasks: 1, requests: 2, requests_unknown: 0, input_tokens: 30, output_tokens: 20, charge_unconfirmed: false },
+          { key: "failed", label: "失败与恢复", tasks: 0, requests: 0, requests_unknown: 0, input_tokens: 0, output_tokens: 0, charge_unconfirmed: false },
+          { key: "other", label: "资料整理等辅助消耗", tasks: 0, requests: 0, requests_unknown: 0, input_tokens: 0, output_tokens: 0, charge_unconfirmed: false },
+        ],
+      },
       ...overrides,
     }
   }
@@ -459,6 +468,51 @@ describe("AI 用量", () => {
     // 未知请求单列展示，不折算进已知数字
     const header = wrapper.findAll(".data-table th").map((th) => th.text())
     expect(header).toContain("用量未知请求")
+  })
+
+  it("按作品成果归因展示消耗去向，作者语言不暴露内部状态", async () => {
+    const wrapper = await openUsageTab(makeUsage())
+
+    const attribution = wrapper.get(".usage-attribution")
+    expect(attribution.text()).toContain("这些用量花在了哪里")
+    expect(attribution.text()).toContain("已写进作品的成果")
+    expect(attribution.text()).toContain("进行中或等你处理的候选")
+    expect(attribution.text()).toContain("未采用或返修")
+    expect(attribution.text()).toContain("失败与恢复")
+    expect(attribution.text()).toContain("资料整理等辅助消耗")
+    const headers = attribution.findAll("th").map((th) => th.text())
+    expect(headers).toEqual(["消耗去向", "AI 运行", "模型请求", "输入词元", "输出词元"])
+    expect(wrapper.text()).not.toContain("adopted")
+    expect(wrapper.text()).not.toContain("not_adopted")
+    expect(wrapper.text()).not.toContain("writing.generate")
+  })
+
+  it("归因桶沿用未知语义：未知请求单列并标注计费未确认", async () => {
+    const usage = makeUsage({
+      totals: {
+        requests: 4,
+        requests_unknown: 2,
+        input_tokens: 130,
+        output_tokens: 70,
+        charge_unconfirmed: true,
+      },
+      attribution: {
+        buckets: [
+          { key: "adopted", label: "已写进作品的成果", tasks: 1, requests: 2, requests_unknown: 0, input_tokens: 100, output_tokens: 50, charge_unconfirmed: false },
+          { key: "pending", label: "进行中或等你处理的候选", tasks: 0, requests: 0, requests_unknown: 0, input_tokens: 0, output_tokens: 0, charge_unconfirmed: false },
+          { key: "not_adopted", label: "未采用或返修", tasks: 0, requests: 0, requests_unknown: 0, input_tokens: 0, output_tokens: 0, charge_unconfirmed: false },
+          { key: "failed", label: "失败与恢复", tasks: 0, requests: 0, requests_unknown: 0, input_tokens: 0, output_tokens: 0, charge_unconfirmed: false },
+          { key: "other", label: "资料整理等辅助消耗", tasks: 1, requests: 2, requests_unknown: 2, input_tokens: 30, output_tokens: 20, charge_unconfirmed: true },
+        ],
+      },
+    })
+    const wrapper = await openUsageTab(usage)
+
+    const attributionText = wrapper.get(".usage-attribution").text()
+    expect(attributionText).toContain("其中 2 次请求用量未知")
+    expect(attributionText).toContain("（计费未确认）")
+    // 已知数字不被未知折算污染
+    expect(wrapper.text()).toContain("部分用量未知：另有 2 次模型请求已发出但用量无法确认")
   })
 })
 

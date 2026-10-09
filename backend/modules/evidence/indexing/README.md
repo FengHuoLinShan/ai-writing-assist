@@ -5,7 +5,8 @@
 覆盖"批量 + 逐 chunk fallback"量级的宽上界，越界失败关闭并保留 manual resume。远程
 embedding 经同一信封计量（provider 不返回用量，按 unknown/possible 落账，归属
 `infrastructure.embedding` step）；本地 BGE 是登记的非计费窄例外。任务重试、索引新鲜度
-和 owner/`novel_id` 隔离边界不变。
+和 owner/`novel_id` 隔离边界不变。这些任务没有确认记录的结果引用，在项目用量按作品
+成果归因视图（BR-7）中始终单列为资料整理等辅助消耗，不并入任何成果桶。
 
 ## 定位
 

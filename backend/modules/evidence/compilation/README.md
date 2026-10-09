@@ -68,6 +68,9 @@ async def require_fresh_confirmation(...) -> ContextConfirmationContract
 async def prepare_confirmed_ai_action(..., for_update=False) -> ConfirmedAIActionContext
 async def attach_result_ref(...) -> ContextConfirmationContract
 async def mark_asset_context_changed(...) -> int
+# 只读缝：按任务引用回读确认结果状态（result_status 与归属任务标记），
+# 供用量按作品成果归因（project）；不加锁、不重编译、不改状态
+async def describe_confirmed_task_outcomes(db, *, novel_id, task_ids) -> dict[str, dict]
 async def open_context_snapshot(db, request: ContextSnapshotRequest) -> ContextSnapshotContract
 async def succeed_context_snapshot(...) -> ContextSnapshotContract
 async def fail_context_snapshot(...) -> ContextSnapshotContract

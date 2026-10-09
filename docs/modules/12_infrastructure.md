@@ -157,7 +157,9 @@ deadline 前一刻发出的在途请求不会运行完整 provider timeout 越�
 summarize_project_ai_usage` 暴露）为 owner 次级诊断入口提供只读跨任务聚合：按项目扫描
 窗口期任务 meta 中的信封，按 root capability 汇总模型请求与输入/输出词元，只输出聚合计数
 （不含 prompt 内容或模型密钥）；单条坏回执跳过计数，单次扫描上限 500 条任务并返回
-`scan_truncated`。信封自报的 `requests_unknown` 与 `charge_state=possible` 原样保留为
+`scan_truncated`。返回值同时带 `tasks` 每任务用量明细（任务状态、能力与用量标记），
+供 Project 层按作品成果归因（BR-7）；本层不做归因、不读业务成果。信封自报的
+`requests_unknown` 与 `charge_state=possible` 原样保留为
 `requests_unknown` 计数与 `charge_unconfirmed` 标记，不折算进已知数字（BR-0a）。
 
 Task 路径把同一信封落在 `async_tasks.meta` 的私有键 `_ai_run_envelope`：worker 与 inline 在 handler
