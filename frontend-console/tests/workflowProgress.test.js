@@ -1,11 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import {
   clearActiveWorkflow,
+  fetchServerTaskOverview,
   normalizeTaskProgress,
   persistActiveWorkflow,
   pollTaskProgress,
   recoverActiveWorkflows,
+  recoverActiveWorkflowsServerFirst,
   sanitizeTaskErrorMessage,
+  serverTaskMatchesScene,
+  serverTaskToActiveWorkflow,
   waitForTaskTerminal,
 } from "../shared/workflowProgress.js"
 
@@ -362,6 +366,105 @@ describe("active workflow storage", () => {
     ])
   })
 
+})
+
+describe("server-first active workflow recovery", () => {
+  it("marks the server overview unavailable when the client or request fails", async () => {
+    expect(await fetchServerTaskOverview({ novelId: "p1", apiClient: {} }))
+      .toEqual({ available: false, items: [] })
+    expect(await fetchServerTaskOverview({ novelId: "p1", apiClient: { tasks: { list: vi.fn(async () => { throw new Error("offline") }) } } }))
+      .toEqual({ available: false, items: [] })
+    expect(await fetchServerTaskOverview({ novelId: null, apiClient: { tasks: { list: vi.fn() } } }))
+      .toEqual({ available: false, items: [] })
+  })
+
+  it("returns overview items when the server responds", async () => {
+    const items = [{ task_id: "t1", task_type: "writing_generate", status: "running" }]
+    const apiClient = { tasks: { list: vi.fn(async () => ({ items, active_count: 1 })) } }
+
+    const result = await fetchServerTaskOverview({ novelId: "p1", taskType: "writing_generate", apiClient })
+
+    expect(result).toEqual({ available: true, items })
+    expect(apiClient.tasks.list).toHaveBeenCalledWith("p1", { taskType: "writing_generate" })
+  })
+
+  it("maps a server overview task onto the local receipt shape", () => {
+    const workflow = serverTaskToActiveWorkflow({
+      task_id: "task-9",
+      task_type: "writing_generate",
+      status: "running",
+      created_at: "2026-10-09T01:00:00Z",
+      heartbeat_at: "2026-10-09T01:05:00Z",
+      meta: { chapter_index: 3, scene_id: "scene-2", draft_id: "draft-9" },
+    }, "p1")
+
+    expect(workflow).toMatchObject({
+      id: "p1:writing_generate:task-9",
+      taskId: "task-9",
+      workflowType: "writing_generate",
+      projectId: "p1",
+      meta: { chapter: 3, sceneId: "scene-2", draftId: "draft-9" },
+      updatedAt: "2026-10-09T01:05:00Z",
+      serverAuthoritative: true,
+    })
+  })
+
+  it("matches scene context by chapter and scene id, tolerating legacy tasks without scene", () => {
+    const task = { meta: { chapter_index: 2, scene_id: "scene-1" } }
+    expect(serverTaskMatchesScene(task, { chapter: 2, sceneId: "scene-1" })).toBe(true)
+    expect(serverTaskMatchesScene(task, { chapter: 2, sceneId: "scene-2" })).toBe(false)
+    expect(serverTaskMatchesScene(task, { chapter: 3, sceneId: "scene-1" })).toBe(false)
+    expect(serverTaskMatchesScene({ meta: { chapter_index: 2 } }, { chapter: 2, sceneId: "scene-1" })).toBe(true)
+  })
+
+  it("prefers server active tasks and keeps local receipts the server does not report", async () => {
+    persistActiveWorkflow({ taskId: "server-task", workflowType: "writing_generate", projectId: "p1", view: "writing" })
+    persistActiveWorkflow({ taskId: "local-only", workflowType: "writing_semantic_review", projectId: "p1", view: "writing" })
+    const apiClient = {
+      tasks: {
+        list: vi.fn(async () => ({ items: [
+          { task_id: "server-task", task_type: "writing_generate", status: "running", meta: { chapter_index: 1 } },
+        ], active_count: 1 })),
+      },
+    }
+
+    const { workflows, source } = await recoverActiveWorkflowsServerFirst({
+      projectId: "p1",
+      apiClient,
+      workflowTypes: new Set(["writing_generate", "writing_semantic_review"]),
+    })
+
+    expect(source).toBe("server")
+    expect(workflows.map((item) => item.taskId)).toEqual(["server-task", "local-only"])
+    expect(workflows[0].serverAuthoritative).toBe(true)
+    expect(workflows[1].serverAuthoritative).toBeUndefined()
+  })
+
+  it("drops local receipts of other task types when a workflow type scope is given", async () => {
+    persistActiveWorkflow({ taskId: "deep-task", workflowType: "deep_import", projectId: "p1", view: "writing" })
+    const apiClient = { tasks: { list: vi.fn(async () => ({ items: [], active_count: 0 })) } }
+
+    const { workflows, source } = await recoverActiveWorkflowsServerFirst({
+      projectId: "p1",
+      apiClient,
+      workflowTypes: new Set(["writing_generate"]),
+    })
+
+    expect(source).toBe("server")
+    expect(workflows).toEqual([])
+  })
+
+  it("falls back to local receipts when the server overview is unavailable", async () => {
+    persistActiveWorkflow({ taskId: "local-task", workflowType: "writing_generate", projectId: "p1", view: "writing" })
+
+    const { workflows, source } = await recoverActiveWorkflowsServerFirst({
+      projectId: "p1",
+      apiClient: {},
+    })
+
+    expect(source).toBe("local")
+    expect(workflows.map((item) => item.taskId)).toEqual(["local-task"])
+  })
 })
 
 describe("pollTaskProgress", () => {

@@ -1,10 +1,15 @@
 import { confirmAiReference } from "../../../../shared/aiReferenceModal.js"
+import { confirmAsync } from "../../../../shared/confirmAsync.js"
 import {
   clearActiveWorkflow,
   createOperationId,
+  fetchServerTaskOverview,
   normalizeTaskProgress,
   persistActiveWorkflow,
   recoverActiveWorkflows,
+  recoverActiveWorkflowsServerFirst,
+  serverTaskMatchesScene,
+  serverTaskToActiveWorkflow,
   waitForTaskTerminal,
 } from "../../../../shared/workflowProgress.js"
 
@@ -14,6 +19,7 @@ const MANAGED_WRITING_TYPES = new Set([
   "writing_semantic_review",
   "writing_targeted_revision",
 ])
+const IN_FLIGHT_GENERATE_MESSAGE = "本章当前场景已有一份正文正在生成，再生成一份会产生额外费用。取消可返回查看其进度。"
 
 export function createWritingCommandController({
   api,
@@ -26,6 +32,7 @@ export function createWritingCommandController({
   onResult,
   onLoadingChange = () => {},
   onProgress = () => {},
+  confirmAction = globalThis.confirmAction,
 }) {
   const receiptStorage = globalThis.sessionStorage
   let generation = 0
@@ -239,6 +246,34 @@ export function createWritingCommandController({
     }
   }
 
+  async function findInFlightGeneration(projectId, chapter, scene) {
+    const localPending = recoverActiveWorkflows(projectId, receiptStorage)
+      .find((item) => item.workflowType === "writing_generate" && item.view === "writing")
+    const { available, items } = await fetchServerTaskOverview({
+      novelId: projectId,
+      taskType: "writing_generate",
+      apiClient: api,
+    })
+    if (available) {
+      const serverMatch = items.find((task) => (
+        (task?.status === "pending" || task?.status === "running")
+        && serverTaskMatchesScene(task, { chapter, sceneId: scene?.id || null })
+      ))
+      if (serverMatch) return { workflow: null, task: serverMatch }
+    }
+    return localPending ? { workflow: localPending, task: null } : null
+  }
+
+  async function followInFlightGeneration(inFlight, projectId) {
+    const workflow = inFlight.workflow
+      || (inFlight.task ? serverTaskToActiveWorkflow(inFlight.task, projectId) : null)
+    if (!workflow) return false
+    if (!recoverActiveWorkflows(projectId, receiptStorage).some((item) => item.taskId === workflow.taskId)) {
+      persistActiveWorkflow({ ...workflow, view: "writing" }, receiptStorage)
+    }
+    return recover()
+  }
+
   async function generate(mode = "draft", { confirmStaleStoryAssets = false, regenerateCandidate = false } = {}) {
     const { projectId, chapter, scene } = context()
     if (!projectId || !chapter) {
@@ -249,8 +284,11 @@ export function createWritingCommandController({
       toast("正文建议正在生成，请稍候", "warning")
       return null
     }
-    const pendingResult = recoverActiveWorkflows(projectId, receiptStorage).find((item) => item.workflowType === "writing_generate" && item.view === "writing")
-    if (pendingResult) { toast("已有正文建议待处理，请先在进度卡中查看或关闭", "info"); return null }
+    const inFlight = await findInFlightGeneration(projectId, chapter, scene)
+    if (inFlight) {
+      const proceed = await confirmAsync(IN_FLIGHT_GENERATE_MESSAGE, "仍要再生成", { confirmAction })
+      if (!proceed) return followInFlightGeneration(inFlight, projectId)
+    }
     if (regenerateCandidate && editor.getStatus?.() !== "candidate") return null
     if (editor.isReadonly() && !regenerateCandidate) {
       toast("当前内容只读；待处理建议不会作为工作稿参考", "warning")
@@ -377,8 +415,20 @@ export function createWritingCommandController({
 
   async function recover() {
     const projectId = getProjectId()
-    const workflow = recoverActiveWorkflows(projectId, receiptStorage).filter((item) => MANAGED_WRITING_TYPES.has(item.workflowType) && item.view === "writing").sort((left, right) => String(right.updatedAt || "").localeCompare(String(left.updatedAt || "")))[0]
-    if (!workflow || generating) return false
+    if (generating) return false
+    const { workflows } = await recoverActiveWorkflowsServerFirst({
+      projectId,
+      apiClient: api,
+      storage: receiptStorage,
+      workflowTypes: MANAGED_WRITING_TYPES,
+    })
+    const workflow = workflows
+      .filter((item) => item.serverAuthoritative || item.view === "writing")
+      .sort((left, right) => String(right.updatedAt || "").localeCompare(String(left.updatedAt || "")))[0]
+    if (!workflow) return false
+    if (workflow.serverAuthoritative && !recoverActiveWorkflows(projectId, receiptStorage).some((item) => item.taskId === workflow.taskId)) {
+      persistActiveWorkflow({ ...workflow, view: "writing" }, receiptStorage)
+    }
     generating = true; onLoadingChange(true); const token = ++generation; const controller = beginWaitController()
     try {
       if (workflow.workflowType === "writing_generate") {

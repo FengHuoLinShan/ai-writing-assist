@@ -3006,6 +3006,9 @@ class WritingGenerationService:
                 request_payload=identity,
                 meta={
                     **payload,
+                    # 供跨设备在途查询把生成任务归位到同一 Scene；
+                    # scene 由确认编译选项解析，客户端不可伪造替换确认范围。
+                    "scene_id": scene_id,
                     "story_asset_basis": basis,
                     "llm_execution_snapshot": snapshot,
                     # 冻结本次确认编译产物的来源数上界：任务配额公式按真实 K 计，

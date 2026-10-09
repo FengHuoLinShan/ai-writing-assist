@@ -12,6 +12,7 @@ from infrastructure.tasks.contracts import (
     CompletedTaskPayloadContract,
     TaskCoalescingMode,
     TaskLifecycleContract,
+    TaskOverviewItemContract,
     TaskOwnerContract,
 )
 from infrastructure.tasks.enqueuer import build_task_submission_fingerprint
@@ -419,6 +420,29 @@ async def list_recent_task_summaries(
     """Read scoped task identities without exposing task metadata or output."""
     return await TaskLifecycleService().list_recent_summaries(
         db, novel_id=novel_id, task_type=task_type, limit=limit
+    )
+
+
+async def list_novel_task_overview(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    task_type: str | None = None,
+    active_limit: int = 50,
+    terminal_limit: int = 10,
+) -> list[TaskOverviewItemContract]:
+    """Read-only in-flight plus recent-terminal overview for one project.
+
+    Callers on the browser path must enforce the project owner gate before
+    invoking this seam; raw meta stays internal until the API applies the same
+    public projection as the single-task status endpoint.
+    """
+    return await TaskLifecycleService().list_novel_tasks(
+        db,
+        novel_id=novel_id,
+        task_type=task_type,
+        active_limit=active_limit,
+        terminal_limit=terminal_limit,
     )
 
 

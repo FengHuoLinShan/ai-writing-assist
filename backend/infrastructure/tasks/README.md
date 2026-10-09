@@ -25,7 +25,7 @@ infrastructure/tasks/
 ├── worker.py       # TaskWorker 进程内 worker
 ├── liveness.py     # control-loop marker 与零输出健康检查 CLI
 ├── registry.py     # TaskRegistry 任务注册中心
-└── api.py          # FastAPI 路由（提交/查询/取消/重试）
+└── api.py          # FastAPI 路由（提交/列表/查询/取消/重试）
 ```
 
 ## 当前任务处理器
@@ -295,6 +295,15 @@ available_actions / operation`。`operation` 是版本化的作者安全投影�
 的键是 worker 私有 checkpoint：数据库与
 lifecycle 恢复路径保留原值，但 task status API 永不返回；非下划线公共结果保持原 wire
 shape。业务 handler 不得把前端所需字段放进私有键。
+
+`GET /api/tasks?novel_id=…&task_type=…` 是只读的作品任务总览：校验当前 account 与
+项目 owner（回收站/跨账号统一 404）后，返回该作品全部在途（pending/running）与最近
+终态（done/failed/cancelled，各设上限）任务的 `operation / lifecycle / available_actions`
+投影及公开 meta（同样剥离下划线键与 operation fingerprint），`active` 项在前、
+`active_count` 单独给出，不含 result。供前端在刷新/换设备后发现在途创作任务
+（写作页与首页“正在进行的整理”），不替代任务详情查询，不返回全局任务。
+`writing_generate` 入队 meta 记录确认编译解析出的 `scene_id`，供生成入口把在途任务
+归位到同一章节与场景；该字段由服务端从确认写入，客户端不能用它改写确认范围。
 
 私有 AI 运行信封只写 `meta["_ai_run_envelope"]`（`infrastructure.llm.schemas.AI_RUN_ENVELOPE_KEY`），
 不写 `result`，因此 `story_outline_generate` 等按 result 顶层 exact-key 校验的领域采用路径不受影响；

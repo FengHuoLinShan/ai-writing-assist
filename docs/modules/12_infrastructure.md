@@ -474,10 +474,17 @@ global handler 才允许 NULL owner，且不能携带非空 `meta.novel_id`。
 
 ```
 POST /api/tasks            # 提交任务
+GET  /api/tasks            # 按作品列出于途与最近终态任务（?novel_id=…&task_type=…）
 GET  /api/tasks/{id}       # 查询任务状态
 POST /api/tasks/{id}/cancel # 取消任务
 POST /api/tasks/{id}/retry  # 重试可恢复的失败/取消任务
 ```
+
+列表端点只读、按 `novel_id` 严格隔离并校验当前 account 与项目 owner（回收站/跨账号
+404），在途（pending/running）项在前、最近终态有上限，`active_count` 单独给出；
+每条携带与单查一致的公开 `meta / operation / lifecycle / available_actions` 投影，
+不含 result。它服务前端在刷新/换设备后发现在途创作任务（写作页与首页“正在进行的
+整理”），不替代任务详情查询。
 
 任务状态响应中的 `result` 只投影公开顶层字段。以下划线开头的顶层键属于 worker 的
 私有 checkpoint/receipt：数据库、重试和 lifecycle 恢复路径保留原值，但
