@@ -91,6 +91,17 @@ Story continuity 子域维护小说世界的“变化历史”，不是再存一
   历史/早于追踪上线）。timeline 发生时间只保留已证明的相对顺序或原文明示日期
   （受控键经 `extract_timeline_when` 规范化，未知日历不推算绝对日期）。
 
+事件摄入时在 `snapshot_after.meta._field_source_refs` 冻结经服务器回读的稿源；
+机器事件只接受其原 source receipts，旧事件缺绑定不得按记录时间猜版本。
+投影重建须重验原 draft/hash/range，原地改稿失配降为 unverified，保留作者事实本身。
+`FieldProvenance.value_hash` 绑定本次赋值；reader 逐字段重新回读原文区间，
+值或历史对象名须在区间出现，来源 hash 仍匹配该章当前 working 基线，并通过揭示策略/主张截止；整章 exact 来源本身不是秘密已展示证明；同章多场景按已读 Scene 的有效范围裁切，
+缺偏移不拿整章冒充早场景已展示内容。
+这是保守字面证明，不代替语义审稿；空值、无历史名字或无值证据不自动公开。
+位置聚合在 reader 视角逐键裁剪，timeline 月相按事件实例挂链；无实例键的旧事实不借全局链冒充 exact。
+投影消费登记覆盖 basis 的全部历史前缀，且排除继承登记元数据的内容指纹，
+同一产物重复 ensure 不因登记时间变化生成新历史行。
+
 ## API
 
 ```http

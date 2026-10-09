@@ -17,6 +17,15 @@ from modules.story.outline_state.contracts import (
 )
 
 
+async def lock_scene_roster_for_revalidation(db: AsyncSession, novel_id: str) -> bool:
+    from modules.story.outline_state.repositories import SceneRepository
+    from shared.utils import parse_uuid
+
+    return await SceneRepository().try_lock_source_roster(
+        db, parse_uuid(novel_id, "novel_id")
+    )
+
+
 async def persist_deep_import_fusion_suggestions(
     db: AsyncSession,
     *,
@@ -507,6 +516,7 @@ __all__ = [
     "create_scene",
     "get_author_attention_items",
     "get_next_scene_index",
+    "lock_scene_roster_for_revalidation",
     "get_scene",
     "get_scene_contract",
     "get_scene_context_window",

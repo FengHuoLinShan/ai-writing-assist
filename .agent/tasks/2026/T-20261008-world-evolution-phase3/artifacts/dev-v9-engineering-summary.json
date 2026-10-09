@@ -1,0 +1,24 @@
+{
+  "version": "dev-v9",
+  "scenes_committed": 3,
+  "requests": 27,
+  "responses": 26,
+  "source_ranges_exact_cumulative": 28,
+  "free_replays": 3,
+  "discovery_planned_batches": 6,
+  "unknown_stage_receipts": 1,
+  "failed_stage": "scene_world_review",
+  "error_kind": "connection_error",
+  "engineering_gate": "incomplete",
+  "quality_gate": "incomplete",
+  "holdout_run": false,
+  "human_validated": false,
+  "reissued_unknown_request": false,
+  "failed_request_recorded_at": "2026-10-09T00:18:43+09:00",
+  "failure_recorded_at": "2026-10-09T00:19:43+09:00",
+  "failed_request_input_hash": "8f38475471977890ccfbe3f78483e0810d7ede6ce950343e60c6b5852776dd30",
+  "current_method_browser": {
+    "chromium": true,
+    "webkit_320": true
+  }
+}

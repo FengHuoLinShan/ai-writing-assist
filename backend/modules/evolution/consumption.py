@@ -618,7 +618,7 @@ def receipt_fingerprint(receipt: InvalidationReceipt) -> str:
                 if receipt.source_change
                 else None
             ),
-            "invalidated_consumers": sorted(receipt.invalidated_consumers),
+            "invalidated_consumers": receipt.invalidated_consumers,
             "earliest_affected_scene_index": receipt.earliest_affected_scene_index,
             "nothing_to_do": receipt.nothing_to_do,
             "coverage_note": receipt.coverage_note,

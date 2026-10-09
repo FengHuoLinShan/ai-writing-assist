@@ -275,6 +275,7 @@ async def test_view_attaches_three_state_provenance_as_single_record(
                 field_key="moon_phase",
                 dimension="timeline",
                 event_id=ev_moon,
+                subject_ref="f-moon",
                 sequence=6,
                 refs=(_ref(draft_id=draft_id),),
             )
@@ -760,6 +761,7 @@ def _trial_states(
                 _chain(
                     field_key="moon_phase",
                     dimension="timeline",
+                    subject_ref="f-moon",
                     event_id=str(uuid.uuid4()),
                     sequence=3,
                     refs=(_ref(draft_id=draft_id),),

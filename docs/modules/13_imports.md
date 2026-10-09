@@ -387,3 +387,9 @@ lease、推进项目 epoch，PG trigger 拒绝旧 SQL 后写与终态复活。�
 
 旧流程历史列表返回 `can_continue`（由 Project 当前理解 owner 决定）；Evolution/只读项目
 只能回看旧整理与查漏结果。此展示标记不替代启动、恢复和提交时的服务端 owner 栅栏。
+
+Scene World身份入口复用World已批准的类型归一，查询、候选和冻结查询采用同一canonical类型；
+等价别名先去重。`人物/角色/character_ref`归为character，地点归为location，物品归为item，
+物体归为object；物件及自定义类型仍保留，不跨类型复用。旧冻结查询与新范围不等时仍失败关闭，
+不把旧付费结果重算为通过。事实性新增限定须由本项绑定引文支持，含时间、位置与情境，
+复核不能把全批未绑定句子的真实内容当成本项已引用的证明。

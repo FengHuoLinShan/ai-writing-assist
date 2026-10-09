@@ -10,11 +10,12 @@
  * schemas 的 WritingRecompute* 家族，extra=forbid）。本文件只做作者语言
  * 投影与请求组装，不发请求、不碰 DOM。
  *
- * 回执历史口径与 limitation：后端没有 GET 回执端点、没有持久 operation
- * 台账——执行回执（WritingRecomputeOutcomeResponse）只随 adopt 响应返回。
- * 本模块以模块级列表做**本地会话内记录**（同页会话、按 novel 隔离、按
- * operation_id 去重），页面刷新即失；跨会话重查须以同一 operation_id 重放
- * adopt（operation_id + 请求内容指纹双幂等，重放得到一致结果、不重复写入）。
+ * 回执历史口径：服务端已经留档可查（`GET /writing/recompute/receipts`），
+ * 刷新或离开再回来都能看到已完成回执；本模块的本地列表仍是**会话内即时
+ * 记录**（同页会话、按 novel 隔离、按 operation_id 去重），用于 adopt 成功
+ * 后立刻补上服务端尚未返回的那一条，两者由 mergeServerRecomputeReceipts
+ * 合并后同源展示（同一 operation_id 以服务端为准）。同一 operation_id 的重放
+ * 只回放回执、不产生新的域写入。
  */
 
 const CONSUMER_LABELS = Object.freeze({
@@ -269,9 +270,11 @@ export function normalizeRecomputeOutcome(raw) {
 }
 
 // ============================================================
-// 本地会话回执记录（口径见文件头注记：无后端 GET 端点；跨会话经 adopt
-// 幂等重放重查，不重复写入）
+// 本地会话回执记录（口径见文件头注记：服务端留档可查，本地只补 adopt 刚
+// 完成、尚未回读的那一条；同一 operation_id 以服务端为准）
 // ============================================================
+
+const RECOMPUTE_RECEIPT_LIMIT = 20
 
 const sessionRecomputeReceipts = []
 
@@ -289,7 +292,68 @@ export function rememberRecomputeReceipt(novelId, outcome, { at = null } = {}) {
     handledCount: outcome.handledCount,
     rememberedAt: at || new Date().toISOString(),
   })
-  if (sessionRecomputeReceipts.length > 20) sessionRecomputeReceipts.length = 20
+  if (sessionRecomputeReceipts.length > RECOMPUTE_RECEIPT_LIMIT) {
+    sessionRecomputeReceipts.length = RECOMPUTE_RECEIPT_LIMIT
+  }
+}
+
+/** 服务端回执（`WritingRecomputeReceiptItem`）→ 本地同形记录。 */
+function serverReceiptRecord(item) {
+  const operationId = typeof item?.operation_id === "string" ? item.operation_id : ""
+  if (!operationId) return null
+  const choice = recomputeScopeChoice(item?.scope)
+  const handledCount = Number.isInteger(item?.handled_count) ? item.handled_count : 0
+  return {
+    operationId,
+    label: choice ? choice.label : "重算",
+    scope: typeof item?.scope === "string" ? item.scope : "",
+    domainWritePerformed: true,
+    handledCount,
+    rememberedAt: typeof item?.completed_at === "string" && item.completed_at
+      ? item.completed_at
+      : null,
+    source: "server",
+  }
+}
+
+function sortReceiptsByRecency() {
+  // 无时间戳（服务端未记完成时间）排在最后：它们是更早/无时间可依的记录。
+  sessionRecomputeReceipts.sort((left, right) => {
+    const leftTime = left.rememberedAt || ""
+    const rightTime = right.rememberedAt || ""
+    if (leftTime === rightTime) return 0
+    if (!leftTime) return 1
+    if (!rightTime) return -1
+    return leftTime < rightTime ? 1 : -1
+  })
+}
+
+/**
+ * 把服务端回执并入本地列表（同一 operation_id 服务端为准）。
+ *
+ * 合并而非替换：本地可能还留着服务端尚未返回的最新一条（adopt 刚刚成功）。
+ * 不入列的脏数据直接丢弃，返回并入条数便于调用方决定是否刷新展示。
+ */
+export function mergeServerRecomputeReceipts(novelId, rawItems) {
+  if (!novelId || !Array.isArray(rawItems)) return 0
+  const incoming = rawItems
+    .map(serverReceiptRecord)
+    .filter(Boolean)
+  if (!incoming.length) return 0
+  for (const item of incoming) {
+    const existingIndex = sessionRecomputeReceipts.findIndex((record) => (
+      record.novelId === novelId && record.operationId === item.operationId
+    ))
+    const record = { novelId, ...item }
+    // 服务端为主：同一 operation_id 用它覆盖本地同名的即时记录（时间以服务端为准）
+    if (existingIndex >= 0) sessionRecomputeReceipts[existingIndex] = record
+    else sessionRecomputeReceipts.push(record)
+  }
+  sortReceiptsByRecency()
+  if (sessionRecomputeReceipts.length > RECOMPUTE_RECEIPT_LIMIT) {
+    sessionRecomputeReceipts.length = RECOMPUTE_RECEIPT_LIMIT
+  }
+  return incoming.length
 }
 
 export function listRecomputeReceipts(novelId) {

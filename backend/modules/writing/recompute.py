@@ -34,10 +34,13 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.errors import ConflictError, ValidationError
+from core.errors import ConflictError, DomainError, ValidationError
 from infrastructure.llm.collaboration import content_hash
-from modules.evidence.facade import request_chapter_index
-from modules.writing.repositories import WritingDraftRepository
+from modules.evidence.facade import read_chapter_index_fingerprint, request_chapter_index
+from modules.writing.repositories import (
+    WritingDraftRepository,
+    WritingRecomputeRepository,
+)
 from modules.writing.schemas import (
     WritingRecomputeActionItem,
     WritingRecomputeAdoptRequest,
@@ -118,19 +121,151 @@ def _scene_chapter_indices(scene: dict[str, Any]) -> set[int]:
 class WritingRecomputeService:
     """作者触发的失效重算编排（预览零写入；执行重验 + 幂等域动作）。"""
 
-    def __init__(self, draft_repo: WritingDraftRepository | None = None) -> None:
+    def __init__(
+        self,
+        draft_repo: WritingDraftRepository | None = None,
+        operation_repo: WritingRecomputeRepository | None = None,
+    ) -> None:
         self._draft_repo = draft_repo or WritingDraftRepository()
+        self._operations = operation_repo or WritingRecomputeRepository()
+
+    # ------------------------------------------------------------
+    # 跨会话恢复查询（F7：离开再回来仍查得到待重算状态与已完成回执）
+    # ------------------------------------------------------------
+
+    async def list_receipts(
+        self, db: AsyncSession, novel_id: str, *, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        """已完成重算的回执摘要（倒序；作者语言、不含内部结果细节）。"""
+        rows = await self._operations.list_operations(
+            db, parse_uuid(novel_id, "novel_id"), limit=limit
+        )
+        return [
+            {
+                "operation_id": row.operation_id,
+                "scope": row.scope,
+                "request_hash": row.request_hash,
+                "handled_count": len(row.results_json or {}),
+                "completed_at": (
+                    row.completed_at.isoformat() if row.completed_at else None
+                ),
+            }
+            for row in rows
+        ]
+
+    async def list_pending_notices(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        chapter_index: int | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """待重算的失效提示（保存落库，重算覆盖该章后消解）。"""
+        rows = await self._operations.list_open_notices(
+            db,
+            parse_uuid(novel_id, "novel_id"),
+            chapter_index=chapter_index,
+            limit=None,
+        )
+        # ponytail: metadata scan; paginate if retained history grows large.
+        pending = []
+        for row in rows:
+            notice = dict(row.notice_json or {})
+            if not await self._notice_completed(db, novel_id, notice):
+                notice.pop("_recompute_progress", None)
+                pending.append(notice)
+                if len(pending) >= limit:
+                    break
+        return pending
+
+    async def _notice_completed(
+        self, db: AsyncSession, novel_id: str, notice: dict
+    ) -> bool:
+        progress = notice.get("_recompute_progress") or {}
+        affected = notice.get("affected") or []
+        evidence_required = any(
+            item.get("consumer") == "evidence_chapter_index"
+            for item in notice.get("invalidated") or []
+        )
+        if evidence_required:
+            chapter = notice.get("chapter_index")
+            result = (progress.get("reload_evidence") or {}).get(f"chapter:{chapter}")
+            if not result or not result.get("requested_hash"):
+                return False
+            actual = await read_chapter_index_fingerprint(
+                db, novel_id, int(chapter), content_mode="working"
+            )
+            if (
+                not actual
+                or actual.get("status") != "succeeded"
+                or any(
+                    actual.get(indexed) != result.get(requested)
+                    for indexed, requested in (
+                        ("indexed_hash", "requested_hash"),
+                        ("indexed_source_id", "requested_source_id"),
+                    )
+                )
+            ):
+                return False
+        for item in notice.get("invalidated") or []:
+            if item.get("consumer") != "canonical_chapter_index":
+                continue
+            expected = item.get("detail") or {}
+            actual = await read_chapter_index_fingerprint(
+                db, novel_id, int(notice["chapter_index"]), content_mode="canonical"
+            )
+            if (
+                not expected.get("requested_hash")
+                or not actual
+                or actual.get("status") != "succeeded"
+                or any(
+                    actual.get(indexed) != expected.get(requested)
+                    for indexed, requested in (
+                        ("indexed_hash", "requested_hash"),
+                        ("indexed_source_id", "requested_source_id"),
+                    )
+                )
+            ):
+                return False
+        scenes = {
+            int(item["scene_index"])
+            for item in affected
+            if item.get("scene_index") is not None
+        }
+        rebuilt = {
+            int(item["scene_index"]): item
+            for item in (progress.get("rebuild_derived_state") or {}).values()
+        }
+        for index in scenes:
+            result = rebuilt.get(index)
+            if not result or not result.get("scene_id"):
+                return False
+            try:
+                view = await self._story().get_scene_state_view(
+                    db, novel_id, result["scene_id"], viewpoint={"kind": "author"}
+                )
+            except DomainError:
+                return False
+            if not view.dimensions or any(
+                item.status != "ok" for item in view.dimensions
+            ):
+                return False
+        return bool(evidence_required or scenes)
 
     # ------------------------------------------------------------
     # 目标解析与来源指纹
     # ------------------------------------------------------------
 
-    async def _scene_roster(self, db: AsyncSession, novel_id: str) -> list[dict]:
-        # story→writing 存在顶层反向导入（scene_projection），writing→story
-        # 保持函数内导入，避免顶层双向对（import-gate 棘轮）。
-        from modules.story.facade import get_scenes_by_novel
+    @staticmethod
+    def _story():
+        # One lazy domain seam avoids the existing Story→Writing import cycle.
+        from modules.story import facade
 
-        return await get_scenes_by_novel(
+        return facade
+
+    async def _scene_roster(self, db: AsyncSession, novel_id: str) -> list[dict]:
+        return await self._story().get_scenes_by_novel(
             db, novel_id, status_filter=["canonical", "draft"]
         )
 
@@ -179,8 +314,17 @@ class WritingRecomputeService:
             for target in request.targets
             if target.chapter_index is not None
         }
-        for scene in self._resolve_scenes(roster, request):
+        selected = self._resolve_scenes(roster, request)
+        consumed = selected
+        if request.scope == "rebuild_derived_state" and selected:
+            # ensure_scene also consumes the inherited historical prefix.
+            last = max(int(scene["scene_index"]) for scene in selected)
+            consumed = [scene for scene in roster if int(scene["scene_index"]) <= last]
+        for scene in consumed:
             chapters |= _scene_chapter_indices(scene)
+        if request.scope == "rebuild_derived_state" and chapters:
+            # basis reads the complete manuscript manifest between its endpoint chapters.
+            chapters.update(range(min(chapters), max(chapters) + 1))
         return chapters
 
     async def _source_state(
@@ -210,7 +354,26 @@ class WritingRecomputeService:
         return {"chapters": chapter_state}
 
     def _source_digest(self, state: dict[str, Any]) -> str:
-        return content_hash(state["chapters"])
+        return content_hash(state)
+
+    def _bind_scene_roster(
+        self, state: dict, roster: list[dict], request: WritingRecomputeRequest
+    ) -> None:
+        if request.scope == "rebuild_derived_state":
+            selected = self._resolve_scenes(roster, request)
+            last = max((int(scene["scene_index"]) for scene in selected), default=-1)
+            state["scenes"] = [
+                {
+                    "id": str(scene["id"]),
+                    "scene_index": int(scene["scene_index"]),
+                    "chapters": sorted(_scene_chapter_indices(scene)),
+                    "scene_chunks": scene.get("scene_chunks") or [],
+                    "chapter_ids": scene.get("chapter_ids") or [],
+                    "status": scene.get("status"),
+                }
+                for scene in sorted(roster, key=lambda row: int(row["scene_index"]))
+                if int(scene["scene_index"]) <= last
+            ]
 
     # ------------------------------------------------------------
     # 预览（零正史写入）
@@ -224,6 +387,7 @@ class WritingRecomputeService:
         roster = await self._scene_roster(db, request.novel_id)
         chapters = self._resolve_chapters(roster, request)
         state = await self._source_state(db, request.novel_id, chapters)
+        self._bind_scene_roster(state, roster, request)
         effects = RECOMPUTE_SCOPE_EFFECTS[request.scope]
 
         if request.scope == "reload_evidence":
@@ -361,6 +525,13 @@ class WritingRecomputeService:
                 "execute requires author confirmation (confirmed=true)",
                 code="recompute_confirmation_required",
             )
+        # 执行必须携带可重验的预览基线：缺省即失败关闭，不让「没预览过」
+        # 的请求直接落域写入（预览后来源漂移返回 409 才有意义）。
+        if not (request.expected_source_digest or "").strip():
+            raise ValidationError(
+                "执行重算须携带预览返回的来源指纹，请先预览这次重算",
+                code="recompute_preview_baseline_required",
+            )
         if request.scope == "regenerate_prose":
             # 不新增 LLM 调用：正文重生成不在本编排的白名单内，显式拒绝。
             raise ConflictError(
@@ -369,9 +540,61 @@ class WritingRecomputeService:
                 context={"scope": request.scope, "author_choice_only": True},
             )
 
+        # 双键幂等第一键：同一 operation_id 的已完成操作先回放原回执
+        # （来源后来变了也能查回原结果，不必再改一次正文）；同编号但请求
+        # 摘要不同 → 那是另一次重算顶替了这次预览，拒绝。
+        request_hash = recompute_request_hash(request)
+        nid = parse_uuid(request.novel_id, "novel_id")
+        await self._operations.lock_operations(db, nid)
+        completed = await self._operations.get_operation(db, nid, request.operation_id)
+        if completed is not None:
+            if (
+                completed.request_hash != request_hash
+                or completed.expected_source_digest != request.expected_source_digest
+            ):
+                raise ConflictError(
+                    "该操作编号已用于另一次重算，请重新预览后再执行",
+                    code="recompute_operation_conflict",
+                    context={
+                        "operation_id": request.operation_id,
+                        "expected_request_hash": completed.request_hash,
+                        "requested_request_hash": request_hash,
+                    },
+                )
+            return WritingRecomputeOutcomeResponse(
+                novel_id=request.novel_id,
+                operation_id=request.operation_id,
+                request_hash=completed.request_hash,
+                scope=completed.scope,
+                confirmed=True,
+                domain_write_performed=False,
+                results=dict(completed.results_json or {}),
+                replayed=True,
+            )
+
         roster = await self._scene_roster(db, request.novel_id)
         chapters = self._resolve_chapters(roster, request)
+        await self._draft_repo.lock_version_chapters_for_revalidation(
+            db, nid, sorted(chapters)
+        )
+        if not await self._story().lock_scene_roster_for_revalidation(
+            db, request.novel_id
+        ):
+            raise ConflictError(
+                "场景结构正在修改，请稍后基于当前稿重新预览",
+                code="recompute_source_drift",
+                context={"keep_current_draft": True},
+            )
+        roster = await self._scene_roster(db, request.novel_id)
+        current_chapters = self._resolve_chapters(roster, request)
+        if chapters != current_chapters:
+            raise ConflictError(
+                "重算场景的来源范围已变化，请重新预览",
+                code="recompute_source_drift",
+                context={"keep_current_draft": True},
+            )
         state = await self._source_state(db, request.novel_id, chapters)
+        self._bind_scene_roster(state, roster, request)
         current_digest = self._source_digest(state)
         if (
             request.expected_source_digest is not None
@@ -402,16 +625,17 @@ class WritingRecomputeService:
                     "action": "reload_evidence",
                     "chapter_index": chapter,
                     "requested_hash": index_state.get("requested_hash"),
+                    "requested_source_id": index_state.get("requested_source_id"),
                     "status": index_state.get("status"),
                     "task_id": index_state.get("task_id"),
                 }
         else:
             # 同上：story 门面保持函数内导入（重建经 facade，投影幂等）。
-            from modules.story.facade import ensure_scene_checkpoints
-
             for scene in self._resolve_scenes(roster, request):
                 scene_id = str(scene["id"])
-                rebuilt = await ensure_scene_checkpoints(db, request.novel_id, scene_id)
+                rebuilt = await self._story().ensure_scene_checkpoints(
+                    db, request.novel_id, scene_id
+                )
                 results[f"scene:{scene_id}"] = {
                     "action": "rebuild_derived_state",
                     "scene_index": int(scene["scene_index"]),
@@ -422,12 +646,27 @@ class WritingRecomputeService:
                     ),
                 }
 
+        # 回执落库：跨会话可查、同一编号重复执行走回放（不重复域写入）。
+        await self._operations.save_operation(
+            db,
+            novel_id=nid,
+            operation_id=request.operation_id,
+            request_hash=request_hash,
+            scope=request.scope,
+            expected_source_digest=str(request.expected_source_digest),
+            results=results,
+        )
+        await self._operations.record_notice_progress(
+            db, nid, request.baseline_receipt_digest, scope=request.scope, results=results
+        )
+
         return WritingRecomputeOutcomeResponse(
             novel_id=request.novel_id,
             operation_id=request.operation_id,
-            request_hash=recompute_request_hash(request),
+            request_hash=request_hash,
             scope=request.scope,
             confirmed=True,
             domain_write_performed=True,
             results=results,
+            replayed=False,
         )

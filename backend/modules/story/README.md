@@ -233,3 +233,8 @@ _cleanable 边界）。
 `facade.compare_scene_state_trial` 复用同 Scene 状态与角色知识，通过 `ResolutionBatch/replay_batch` 在内存比较保管转交和三条件锁。原状态/有限假设逐条件返回当前值、所需值、来源及未知；不把自然语言或缺证据行动视作成功，不授予口令知识、不改 owner，不写事件或正文。Grant 必须携比较 digest，执行与采用重验；接口和范围见 [M5 契约](../../../docs/plans/2026-10-07-m5-trial-change-comparison-contract.md)。
 
 历史来源经同项目 `scene-checkpoints/{id}` 与 `events/by-id` 显式回读，不能替代 current 投影。POV 知识来自本场 Story character 视图；受限事实需 knowledge 值匹配，不能用当前 World 状态、误信或关系提及补齐。
+
+Continuity events freeze manuscript references at ingestion. Rebuilt field provenance
+revalidates those references; legacy or stale references remain unverified. Reader
+visibility checks each field's historical value against its source range, and checkpoint
+consumption includes the inherited manuscript prefix. See [Memory contract](../../../docs/modules/05_memory.md).

@@ -16,6 +16,7 @@ from typing import Any
 from sqlalchemy import (
     JSON,
     DateTime,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
@@ -190,6 +191,59 @@ class EvolutionReceiptRecord(Base, UUIDMixin, NovelMixin):
     committed_scene_index: Mapped[int] = mapped_column(Integer, nullable=False)
     committed_source_revision: Mapped[int] = mapped_column(Integer, nullable=False)
     receipt_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        default=lambda: datetime.now(UTC),
+    )
+
+
+class EvolutionLedgerEntry(Base, UUIDMixin, NovelMixin):
+    """Stable theme identity; author decisions are independent of machine revisions."""
+
+    __tablename__ = "evolution_ledger_entries"
+    __table_args__ = (
+        UniqueConstraint("novel_id", "origin_key", name="uq_evolution_ledger_origin"),
+        UniqueConstraint("id", "novel_id", name="uq_evolution_ledger_identity"),
+    )
+
+    origin_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    category: Mapped[str] = mapped_column(String(32), nullable=False)
+    head_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    author_decision_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        default=lambda: datetime.now(UTC),
+    )
+
+
+class EvolutionLedgerRevision(Base, UUIDMixin, NovelMixin):
+    """Immutable understanding or decision receipt, with its frozen dependencies."""
+
+    __tablename__ = "evolution_ledger_revisions"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["entry_id", "novel_id"],
+            ["evolution_ledger_entries.id", "evolution_ledger_entries.novel_id"],
+            ondelete="CASCADE",
+        ),
+        UniqueConstraint("entry_id", "revision", name="uq_evolution_ledger_revision"),
+        UniqueConstraint(
+            "novel_id", "operation_key", name="uq_evolution_ledger_operation"
+        ),
+        Index("ix_evolution_ledger_scene", "novel_id", "scene_index"),
+    )
+
+    entry_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    operation_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    scene_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    body_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

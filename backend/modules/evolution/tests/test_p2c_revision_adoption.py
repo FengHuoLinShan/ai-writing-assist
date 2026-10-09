@@ -260,6 +260,27 @@ async def _custody_world(db: AsyncSession, novel_id: str) -> SimpleNamespace:
     return SimpleNamespace(scenes=scenes, key_id=key_id, jia=jia, yi=yi)
 
 
+async def _legacy_unregistered_scene(db, novel_id, scene):
+    """Persisted legacy fixture: keep unknown-dependency assertions intact."""
+    rows = (
+        (
+            await db.execute(
+                select(MemorySceneCheckpoint).where(
+                    MemorySceneCheckpoint.novel_id == UUID(novel_id),
+                    MemorySceneCheckpoint.scene_id == scene.id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for row in rows:
+        state = dict(row.state_json or {})
+        state.pop("_consumption_registry", None)
+        row.state_json = state
+    await db.flush()
+
+
 def _revise_custody(text: str) -> str:
     """改一处保管记录：交接对象由乙改写为丙（custody_holder 的稿件事实变化）。"""
     return text.replace("乙", "丙")
@@ -536,6 +557,7 @@ async def test_p2c_unregistered_dependency_expands_conservatively_without_hiding
     """未知消费者保守扩大（真绿部分）：s2 无依赖登记仍被扩大失效，未知显式可见。"""
     db, nid = db_session, test_project_id
     world = await _custody_world(db, nid)
+    await _legacy_unregistered_scene(db, nid, world.scenes[2])
     old, new = CH2_V1, _revise_custody(CH2_V1)
     await _working_draft(db, nid, 2, 2, new)
     receipt = await record_writing_source_change(
@@ -561,6 +583,7 @@ async def test_p2c_custody_revision_affect_list_is_explainable(
     """目标形态：失效回执带可解释 affected 列表，未知范围显式标注。"""
     db, nid = db_session, test_project_id
     world = await _custody_world(db, nid)
+    await _legacy_unregistered_scene(db, nid, world.scenes[2])
     old, new = CH2_V1, _revise_custody(CH2_V1)
     await _working_draft(db, nid, 2, 2, new)
     receipt = await record_writing_source_change(

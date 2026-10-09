@@ -298,6 +298,8 @@ async def test_adopt_requires_confirmation_and_regenerate_prose_unsupported(
         operation_id=f"op-{uuid.uuid4()}",
         scope="reload_evidence",
         targets=[WritingRecomputeTarget(chapter_index=1)],
+        # 预览基线必填（S1）；这里验证确认门先于一切执行门生效。
+        expected_source_digest="0" * 64,
     )
     with pytest.raises(ValidationError) as excinfo:
         await service.adopt(db, unconfirmed)
@@ -309,6 +311,7 @@ async def test_adopt_requires_confirmation_and_regenerate_prose_unsupported(
         scope="regenerate_prose",
         targets=[WritingRecomputeTarget(chapter_index=1)],
         confirmed=True,
+        expected_source_digest="0" * 64,
     )
     with pytest.raises(ConflictError) as excinfo:
         await service.adopt(db, regenerate)
@@ -437,12 +440,22 @@ async def test_adopt_rebuild_derived_state_restores_checkpoints_idempotently(
     assert stale_rows and all(not row.is_current for row in stale_rows)
 
     service = WritingRecomputeService()
+    preview = await service.preview(
+        db,
+        WritingRecomputeRequest(
+            novel_id=nid,
+            operation_id=f"op-{uuid.uuid4()}",
+            scope="rebuild_derived_state",
+            targets=[WritingRecomputeTarget(scene_index=0)],
+        ),
+    )
     request = WritingRecomputeAdoptRequest(
         novel_id=nid,
-        operation_id=f"op-{uuid.uuid4()}",
+        operation_id=preview.operation_id,
         scope="rebuild_derived_state",
         targets=[WritingRecomputeTarget(scene_index=0)],
         confirmed=True,
+        expected_source_digest=preview.source_digest,
     )
     first = await service.adopt(db, request)
     assert first.domain_write_performed is True
@@ -510,9 +523,23 @@ async def test_recompute_endpoints_http_contract(
             "scope": "reload_evidence",
             "targets": [{"chapter_index": 1}],
             "confirmed": True,
+            "expected_source_digest": preview["source_digest"],
         },
     )
     assert mismatched.status_code == 400
+
+    # 省略预览基线：执行失败关闭（422），不得直接落域写入。
+    missing_baseline = await async_client.post(
+        f"/api/writing/recompute/{operation_id}-nobaseline/adopt",
+        json={
+            "novel_id": nid,
+            "operation_id": f"{operation_id}-nobaseline",
+            "scope": "reload_evidence",
+            "targets": [{"chapter_index": 1}],
+            "confirmed": True,
+        },
+    )
+    assert missing_baseline.status_code == 422
 
     drift = await async_client.post(
         f"/api/writing/recompute/{operation_id}-drift/adopt",

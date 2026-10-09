@@ -161,18 +161,26 @@ async def test_reader_reveal_claim_anchor_gates_until_proven_shown(
     scene0 = await _scene(db_session, test_project_id, 0, 1)
     scene1 = await _scene(db_session, test_project_id, 1, 2)
     scene2 = await _scene(db_session, test_project_id, 2, 3)
-    key, plain = str(uuid.uuid4()), str(uuid.uuid4())
+    key, plain, free = (str(uuid.uuid4()) for _ in range(3))
     jia = str(uuid.uuid4())
     await _character(db_session, test_project_id, jia, "甲")
     # 章 1 有 working 稿（custody_holder 首次赋值 exact）；章 2 无稿——
     # 揭示锚章的赋值链只追到事件（unverified），不构成已展示证明。
-    await _working_draft(db_session, test_project_id, 1, "甲铸成铜钥匙。")
+    await _working_draft(
+        db_session, test_project_id, 1, "甲铸成铜钥匙，公开之物归甲所有。"
+    )
 
     await _record(
         db_session,
         test_project_id,
         scene0,
         [
+            {
+                "dimension": "entities",
+                "event_type": "entity_created",
+                "entity_id": jia,
+                "snapshot_after": {"name": "甲"},
+            },
             {
                 "dimension": "entities",
                 "event_type": "entity_created",
@@ -184,6 +192,13 @@ async def test_reader_reveal_claim_anchor_gates_until_proven_shown(
                 "event_type": "entity_created",
                 "entity_id": plain,
                 "snapshot_after": {"name": "无锚之物", "note": "普通物件"},
+            },
+            {
+                "dimension": "entities",
+                "event_type": "entity_created",
+                "entity_id": free,
+                # 无揭示主张、但受控字段自带本章稿源证明的对照对象。
+                "snapshot_after": {"name": "公开之物", "custody_owner": jia},
             },
         ],
     )
@@ -220,8 +235,11 @@ async def test_reader_reveal_claim_anchor_gates_until_proven_shown(
     )
     assert _facts(early, "entities", "custody_holder", key) == []
     assert any("读者视角尚未揭示" in item for item in early.omissions)
-    # 对照：无主张锚的对象维持默认公开（结构层既有语义不回归）。
-    assert len(_facts(early, "entities", "note", plain)) == 1
+    # 对照一：无主张锚也不豁免证明——``note`` 不是受控字段、没有稿源区间，
+    # 无已展示证明即不对读者公开（缺策略 ≠ 存在证明）。
+    assert _facts(early, "entities", "note", plain) == []
+    # 对照二：无主张锚、但该字段自身有本章 exact 稿源（读者已读到）→ 可见。
+    assert len(_facts(early, "entities", "custody_owner", free)) == 1
 
     # 当章不揭示：锚章 == cutoff（读者正读第二章）仍隐藏。
     current = await _view(
@@ -255,7 +273,7 @@ async def test_reader_reveal_enabled_within_exact_proven_chapters(
     jia = str(uuid.uuid4())
     await _character(db_session, test_project_id, jia, "甲")
     await _working_draft(db_session, test_project_id, 1, "甲铸成铜钥匙。")
-    await _working_draft(db_session, test_project_id, 2, "钥匙在灯塔下易手。")
+    await _working_draft(db_session, test_project_id, 2, "钥匙在灯塔下易手，由乙保管。")
 
     await _record(
         db_session,
@@ -279,7 +297,7 @@ async def test_reader_reveal_enabled_within_exact_proven_chapters(
                 "dimension": "entities",
                 "event_type": "entity_updated",
                 "entity_id": key,
-                "snapshot_after": {"custody_holder": None},
+                "snapshot_after": {"custody_holder": "乙"},
             },
             {
                 "dimension": "timeline",
@@ -302,7 +320,7 @@ async def test_reader_reveal_enabled_within_exact_proven_chapters(
     )
     # 锚章 2 < cutoff 3 且章 2 有 exact 稿源：双闸通过，读者可见。
     holders = _facts(later, "entities", "custody_holder", key)
-    assert len(holders) == 1 and holders[0].value is None
+    assert len(holders) == 1 and holders[0].value == "乙"
 
 
 # ============================================================

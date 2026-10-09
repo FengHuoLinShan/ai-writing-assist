@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 
 import pytest
@@ -18,8 +19,31 @@ from modules.story.continuity.scene_state_view import (
 )
 from modules.story.continuity.services import MemoryService
 from modules.story.outline_state.models import Scene
+from modules.writing.models import WritingDraft
 
 pytestmark = pytest.mark.asyncio
+
+
+async def _working_draft(
+    db: AsyncSession,
+    novel_id: str,
+    chapter_index: int,
+    version_number: int,
+    content: str,
+) -> WritingDraft:
+    """直接落 working 稿行（绕过保存失效钩子，沿用模块内夹具惯例）。"""
+    draft = WritingDraft(
+        id=uuid.uuid4(),
+        novel_id=uuid.UUID(novel_id),
+        chapter_index=chapter_index,
+        content=content,
+        content_hash=hashlib.sha256(content.encode("utf-8")).hexdigest(),
+        version_number=version_number,
+        status="draft",
+    )
+    db.add(draft)
+    await db.flush()
+    return draft
 
 
 async def _scene(
@@ -103,6 +127,11 @@ def _custody_fixture_events(key_id: str, jia: str, yi: str, bing: str) -> list[d
 
 async def _custody_scene(db: AsyncSession, test_project_id: str):
     scene = await _scene(db, test_project_id, 0, 1)
+    # 本章 working 稿：读者视角按「已展示原文证明」判定（无稿即无证明），
+    # 保管字段的精确来源就落在这份稿上。
+    await _working_draft(
+        db, test_project_id, 1, 1, "甲在雾渡港灯塔下把铜钥匙交给乙保管。"
+    )
     key_id, jia, yi, bing = (str(uuid.uuid4()) for _ in range(4))
     from modules.world.models import Character, CoreEntity
 
@@ -236,7 +265,8 @@ async def test_reader_view_gates_entities_by_reveal(
 
     scene, ids = await _custody_scene(db_session, test_project_id)
 
-    # 既有语义：无 reveal 策略的对象默认对读者公开（revealed 默认 True）。
+    # 无 reveal 策略：不豁免证明——该字段有本章 working 稿的精确来源
+    # （读者已读到这一章）才对读者可见。
     view = await SceneStateViewService().get_view(
         db_session,
         novel_id=test_project_id,

@@ -519,9 +519,12 @@ async def test_rebuild_keeps_old_checkpoint_provenance_on_old_version(
 
     new_row = await _current_checkpoint(db_session, test_project_id, scene, "entities")
     assert new_row.id != old_id
+    # 重建不刷新旧事实的证明：赋值事件是在 v1 时代抽取出来的，重建只是重放
+    # 同一批事件，新行仍须回开 v1——改稿后要形成新证明得靠重抽取产生新事件
+    # （否则旧作者确认会被后来的稿洗成「v2 的精确依据」）。
     new_ref = _latest_record(new_row.state_json, "custody_holder").source_refs[0]
-    assert str(new_ref.draft_id) == str(draft_v2.id)
-    assert new_ref.version_number == 2
+    assert str(new_ref.draft_id) == str(draft_v1.id)
+    assert new_ref.version_number == 1
 
 
 # ============================================================

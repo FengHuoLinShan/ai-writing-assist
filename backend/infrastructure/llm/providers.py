@@ -92,14 +92,13 @@ _JSON_OBJECT_OUTPUT_INSTRUCTION = (
 
 def reject_reserved_extra_keys(extra: dict[str, Any], *, source: str) -> None:
     """Fail closed when provider-specific extras try to own formal request fields."""
-    reserved = _RESERVED_EXTRA_FIELDS.intersection(
-        str(key).lower() for key in extra
-    )
+    reserved = _RESERVED_EXTRA_FIELDS.intersection(str(key).lower() for key in extra)
     if reserved:
         fields = ", ".join(sorted(reserved))
         raise ValueError(
             f"{source} extra fields cannot override formal request fields: {fields}"
         )
+
 
 _OPENAI_PROVIDER_ERRORS = (
     APITimeoutError,
@@ -109,6 +108,7 @@ _OPENAI_PROVIDER_ERRORS = (
     ContentFilterFinishReasonError,
     APIConnectionError,
     APIError,
+    httpx.TransportError,
 )
 
 _QUOTA_ERROR_MARKERS = (
@@ -251,7 +251,9 @@ class OpenAIProvider:
             kwargs["proxy"] = self._proxy_url
         return httpx.AsyncClient(**kwargs)
 
-    async def generate(self, request: LLMCallRequest) -> LLMCallResponse:
+    async def generate(
+        self, request: LLMCallRequest, *, complete_stream: bool = False
+    ) -> LLMCallResponse:
         """调用 LLM 并返回完整响应"""
         start_time = time.monotonic()
         model = request.model or self._default_model
@@ -260,9 +262,30 @@ class OpenAIProvider:
         logger.debug("LLM call — model=%s, messages=%s", model, len(request.messages))
 
         try:
-            response = await self._client.chat.completions.create(
-                **kwargs,
-            )  # type: ignore[arg-type]
+            if complete_stream:
+                kwargs["stream_options"] = {"include_usage": True}
+                async with self._client.chat.completions.stream(**kwargs) as stream:
+                    async for _ in stream:
+                        pass
+                    # Preserve paid length/filter outcomes for the caller's policy.
+                    # This snapshot is usable only after consuming the entire stream.
+                    response = stream.current_completion_snapshot
+                if (
+                    not response.usage
+                    or response.usage.total_tokens <= 0
+                    or not response.choices
+                    or not response.choices[0].finish_reason
+                ):
+                    raise LLMConnectionError(
+                        "Stream ended without final usage and finish reason",
+                        provider=self.name,
+                        model=model,
+                        error_kind="incomplete_stream",
+                    )
+            else:
+                response = await self._client.chat.completions.create(
+                    **kwargs,
+                )  # type: ignore[arg-type]
         except _OPENAI_PROVIDER_ERRORS as error:
             raise self._map_provider_error(error, model=model) from error
 
@@ -423,7 +446,7 @@ class OpenAIProvider:
 
     def _map_provider_error(self, error: Exception, *, model: str) -> LLMError:
         """Translate SDK failures at every transport phase into stable errors."""
-        if isinstance(error, APITimeoutError):
+        if isinstance(error, (APITimeoutError, httpx.TimeoutException)):
             return LLMTimeoutError(
                 f"OpenAI API timeout after {self._timeout}s",
                 provider=self.name,
@@ -467,7 +490,7 @@ class OpenAIProvider:
                 model=model,
                 filter_reason=redact_diagnostic(error, limit=300),
             )
-        if isinstance(error, APIConnectionError):
+        if isinstance(error, (APIConnectionError, httpx.TransportError)):
             kind = _classify_connection_error(error)
             return LLMConnectionError(
                 f"OpenAI connection failed ({kind}): {redact_diagnostic(error)}",

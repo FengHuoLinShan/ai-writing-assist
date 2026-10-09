@@ -552,7 +552,8 @@ class RevealDomain(StrEnum):
 # 调和要点（全文裁定见 TASK.md「B1 产出」）：
 # - 无策略时默认相反是**各自域的既定语义**：outline 结构层的 RevealPlan
 #   是作者大纲资产（伏笔/揭示计划），无计划且无揭示主张记录 = 没有读者
-#   限制，默认公开（test_reader_view_gates_entities_by_reveal 钉定）；世界
+#   **限制**；但读取端（scene_state_view）仍要求该字段有已展示原文的证明
+#   才公开——没有限制不等于已经展示（P2-B 第 37 行，F2/F3 整改口径）。世界
 #   知识层的 ReaderRevealPolicy 是附加闸门（有策略才介入），public_baseline
 #   显式公开优先，对象默认可见性由 visibility_mode 决定。
 # - **B0 钉定的缺口修正**：outline 域「无策略」只在**也无揭示主张记录**

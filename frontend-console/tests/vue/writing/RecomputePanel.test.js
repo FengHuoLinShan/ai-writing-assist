@@ -1,4 +1,4 @@
-import { mount } from "@vue/test-utils"
+import { flushPromises, mount } from "@vue/test-utils"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 import { clearRecomputeReceiptsForTests, normalizeInvalidationNotice } from "../../../vue/views/writing/invalidationModel.js"
@@ -68,6 +68,7 @@ function evolutionApi(overrides = {}) {
       domain_write_performed: true,
       results: { "chapter:3": { action: "reload_evidence" } },
     })),
+    recomputeReceipts: vi.fn(async (novelId) => ({ novel_id: novelId, items: [] })),
     ...overrides,
   }
 }
@@ -217,7 +218,7 @@ describe("RecomputePanel", () => {
       confirmed: true,
       expected_source_digest: "digest-v1",
     })
-    expect(wrapper.get(".writing-recompute-panel__outcome").text()).toContain("已完成重读证据（共 1 项）")
+    expect(wrapper.get(".writing-recompute-panel__outcome").text()).toContain("已提交重读证据（共 1 项）")
   })
 
   it("编辑器有未保存修改时禁止执行重算并给出指引", async () => {
@@ -282,7 +283,7 @@ describe("RecomputePanel", () => {
     await Promise.resolve()
 
     expect(execute).toHaveBeenCalledTimes(2)
-    expect(wrapper.get(".writing-recompute-panel__outcome").text()).toContain("已完成重读证据")
+    expect(wrapper.get(".writing-recompute-panel__outcome").text()).toContain("已提交重读证据")
   })
 
   it("来源漂移后选择保留当前稿：冲突清空、零额外写入", async () => {
@@ -358,7 +359,7 @@ describe("RecomputePanel", () => {
 
     expect(execute).toHaveBeenCalledTimes(2)
     expect(execute.mock.calls[0]).toEqual(execute.mock.calls[1])
-    expect(wrapper.get(".writing-recompute-panel__outcome").text()).toContain("已完成重读证据")
+    expect(wrapper.get(".writing-recompute-panel__outcome").text()).toContain("已提交重读证据")
   })
 
   it("暂不重算直接关闭面板，零请求零副作用（无服务端取消动作）", async () => {
@@ -400,26 +401,69 @@ describe("RecomputePanel", () => {
     expect(wrapper.vm.canLeave()).toBe(true)
   })
 
-  it("回执历史为本地会话记录：adopt 后入列、按项目隔离、说明 limitation", async () => {
-    const api = evolutionApi()
+  it("adopt 后回执即时入列、项目隔离，并随挂载回读服务端留档合并展示", async () => {
+    const api = evolutionApi({
+      recomputeReceipts: vi.fn(async (novelId) => ({ novel_id: novelId, items: [] })),
+    })
     setBridgeOverrides({ api: { evolution: api } })
     const wrapper = mount(RecomputePanel, {
       props: { projectId: "p1", chapterIndex: 3, notice: notice() },
     })
+    await flushPromises()
 
     await chooseScopeAndPreview(wrapper, "重读证据")
     await wrapper.findAll("button").find((node) => node.text() === "按预览执行重读证据").trigger("click")
     await Promise.resolve()
 
     const history = wrapper.get(".writing-recompute-panel__history")
-    expect(history.text()).toContain("重读证据 · 共 1 项")
-    expect(history.text()).toContain("回执只在本页会话内记录，刷新后不保留")
-    expect(history.text()).toContain("不会重复执行")
+    expect(history.text()).toContain("重读证据 · 已提交 1 项")
+    expect(history.text()).toContain("回执在服务端留档")
+    expect(history.text()).toContain("不会重复写入")
+    expect(api.recomputeReceipts).toHaveBeenCalledWith("p1")
 
     const other = mount(RecomputePanel, {
       props: { projectId: "p2", chapterIndex: 3, notice: notice() },
     })
     expect(other.get(".writing-recompute-panel__history").text()).toContain("本次写作会话里还没有执行过重算")
+  })
+
+  it("服务端回执在挂载后并入历史：跨会话的已完成重算看得到", async () => {
+    const api = evolutionApi({
+      recomputeReceipts: vi.fn(async () => ({
+        novel_id: "p1",
+        items: [
+          { operation_id: "op-server-1", scope: "rebuild_derived_state", request_hash: "h", handled_count: 3, completed_at: "2026-10-07T12:00:00Z" },
+          { operation_id: "op-server-2", scope: "regenerate_prose", request_hash: "h2", handled_count: 0, completed_at: null },
+        ],
+      })),
+    })
+    setBridgeOverrides({ api: { evolution: api } })
+    const wrapper = mount(RecomputePanel, {
+      props: { projectId: "p1", chapterIndex: 3, notice: notice() },
+    })
+    await flushPromises()
+
+    const history = wrapper.get(".writing-recompute-panel__history")
+    expect(history.text()).toContain("重建派生状态 · 已处理 3 项")
+    // 没有完成时间的回执不编造时刻，仍能列出这一次重算
+    expect(history.text()).toContain("重生成正文 · 已处理 0 项")
+    expect(history.text()).not.toContain("1970")
+  })
+
+  it("回执端点不可用或失败时静默降级为本地会话记录", async () => {
+    const api = evolutionApi({ recomputeReceipts: vi.fn(async () => { throw new Error("服务暂不可用") }) })
+    setBridgeOverrides({ api: { evolution: api } })
+    const wrapper = mount(RecomputePanel, {
+      props: { projectId: "p1", chapterIndex: 3, notice: notice() },
+    })
+    await flushPromises()
+
+    await chooseScopeAndPreview(wrapper, "重读证据")
+    await wrapper.findAll("button").find((node) => node.text() === "按预览执行重读证据").trigger("click")
+    await Promise.resolve()
+
+    expect(wrapper.get(".writing-recompute-panel__history").text()).toContain("重读证据 · 已提交 1 项")
+    expect(wrapper.get(".writing-recompute-panel__outcome").text()).toContain("已提交重读证据")
   })
 
   it("重算能力缺失时给出作者语言失败而非空白", async () => {
@@ -448,4 +492,123 @@ describe("RecomputePanel", () => {
     expect(wrapper.find(".writing-recompute-panel__preview").exists()).toBe(false)
     expect(wrapper.findAll("input[type=radio]").filter((node) => node.element.checked)).toHaveLength(0)
   })
+
+  it("预览在途时新回执到达：忙碌标记归位，旧回复不写预览，可再次预览", async () => {
+    const gate = deferred()
+    const api = evolutionApi({ recomputePreview: vi.fn(() => gate.promise) })
+    setBridgeOverrides({ api: { evolution: api } })
+    const wrapper = mount(RecomputePanel, {
+      props: { projectId: "p1", chapterIndex: 3, notice: notice() },
+    })
+
+    await chooseScopeAndPreview(wrapper, "重读证据")
+    expect(wrapper.findAll("button").map((node) => node.text())).toContain("正在核对…")
+
+    await wrapper.setProps({ notice: notice({ receipt_id: "receipt-next" }) })
+
+    // 复位必须顺带解除忙碌：否则按钮永久禁用、离开守卫永久阻塞
+    expect(wrapper.vm.canLeave()).toBe(true)
+    expect(wrapper.findAll("button").map((node) => node.text())).not.toContain("正在核对…")
+
+    // 旧回执的预览回复属于过去的选择，落地即等于「预览与执行内容不一致」
+    gate.resolve(previewResponse({ scope: "reload_evidence" }))
+    await flushPromises()
+    expect(wrapper.find(".writing-recompute-panel__preview").exists()).toBe(false)
+
+    const radio = wrapper.findAll("input[type=radio]").find((node) => node.element.value === "rebuild_derived_state")
+    await radio.setValue(true)
+    const previewButton = wrapper.findAll("button").find((node) => node.text() === "预览这次重算")
+    expect(previewButton.attributes("disabled")).toBeUndefined()
+  })
+
+  it("切换重算方式会作废在途预览：旧回复不进预览，也不会按旧方式执行", async () => {
+    const gate = deferred()
+    const execute = vi.fn(async () => ({
+      operation_id: "op", scope: "rebuild_derived_state", confirmed: true, domain_write_performed: true, results: {},
+    }))
+    const api = evolutionApi({ recomputePreview: vi.fn(() => gate.promise), recomputeExecute: execute })
+    setBridgeOverrides({ api: { evolution: api } })
+    const wrapper = mount(RecomputePanel, {
+      props: { projectId: "p1", chapterIndex: 3, notice: notice() },
+    })
+
+    await chooseScopeAndPreview(wrapper, "重读证据")
+    const radio = wrapper.findAll("input[type=radio]").find((node) => node.element.value === "rebuild_derived_state")
+    await radio.setValue(true)
+
+    gate.resolve(previewResponse({ scope: "reload_evidence" }))
+    await flushPromises()
+
+    expect(wrapper.find(".writing-recompute-panel__preview").exists()).toBe(false)
+    const adopt = wrapper.findAll("button").find((node) => node.text().startsWith("按预览执行"))
+    expect(adopt).toBeUndefined()
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  it("执行按预览快照发出：预览过的方式就是真正执行的方式", async () => {
+    const api = evolutionApi()
+    setBridgeOverrides({ api: { evolution: api } })
+    const wrapper = mount(RecomputePanel, {
+      props: { projectId: "p1", chapterIndex: 3, notice: notice() },
+    })
+
+    await chooseScopeAndPreview(wrapper, "重建派生状态")
+    const previewPayload = api.recomputePreview.mock.calls[0][1]
+    await wrapper.findAll("button").find((node) => node.text() === "按预览执行重建派生状态").trigger("click")
+    await Promise.resolve()
+
+    const [, operationId, adoptPayload] = api.recomputeExecute.mock.calls[0]
+    expect(operationId).toBe(previewPayload.operation_id)
+    expect(adoptPayload.scope).toBe("rebuild_derived_state")
+    expect(adoptPayload.targets).toEqual([{ scene_index: 4 }, { scene_index: 5 }])
+  })
+
+  it("执行途中新回执到达：执行完成前保持忙碌，已发出的重算仍留回执与结果", async () => {
+    const gate = deferred()
+    const api = evolutionApi({ recomputeExecute: vi.fn(() => gate.promise) })
+    setBridgeOverrides({ api: { evolution: api } })
+    const wrapper = mount(RecomputePanel, {
+      props: { projectId: "p1", chapterIndex: 3, notice: notice() },
+    })
+
+    await chooseScopeAndPreview(wrapper, "重读证据")
+    const adopting = wrapper.findAll("button").find((node) => node.text() === "按预览执行重读证据").trigger("click")
+    await Promise.resolve()
+    expect(wrapper.vm.canLeave()).toBe(false)
+
+    await wrapper.setProps({ notice: notice({ receipt_id: "receipt-next" }) })
+    expect(wrapper.vm.canLeave()).toBe(false)
+    expect(wrapper.get(".writing-recompute-panel__close").attributes("disabled")).toBeDefined()
+
+    gate.resolve({
+      operation_id: "op", scope: "reload_evidence", confirmed: true, domain_write_performed: true, results: { "chapter:3": {} },
+    })
+    await adopting
+    await flushPromises()
+
+    expect(wrapper.vm.canLeave()).toBe(true)
+    expect(wrapper.find(".writing-recompute-panel__outcome").exists()).toBe(false)
+    expect(wrapper.get(".writing-recompute-panel__history").text()).toContain("重读证据 · 已提交 1 项")
+  })
+  it("执行在途时新提示不能解锁重复执行，旧成功只记入原项目回执", async () => {
+    const gate = deferred()
+    const api = evolutionApi({ recomputeExecute: vi.fn(() => gate.promise) })
+    setBridgeOverrides({ api: { evolution: api } })
+    const wrapper = mount(RecomputePanel, {
+      props: { projectId: "p1", chapterIndex: 3, notice: notice() },
+    })
+    await chooseScopeAndPreview(wrapper, "重读证据")
+    await wrapper.findAll("button").find((node) => node.text().startsWith("按预览执行")).trigger("click")
+    expect(wrapper.vm.canLeave()).toBe(false)
+    await wrapper.setProps({ projectId: "p2", notice: notice({ receipt_id: "new" }) })
+    expect(wrapper.vm.canLeave()).toBe(false)
+    expect(wrapper.findAll("input[type=radio]").every((node) => node.element.disabled)).toBe(true)
+    gate.resolve({ operation_id: "old", scope: "reload_evidence", results: { "chapter:3": {} } })
+    await flushPromises()
+    expect(wrapper.vm.canLeave()).toBe(true)
+    expect(wrapper.find(".writing-recompute-panel__outcome").exists()).toBe(false)
+    expect(api.recomputeExecute).toHaveBeenCalledTimes(1)
+    expect(wrapper.text()).not.toContain("已提交 1 项")
+  })
+
 })

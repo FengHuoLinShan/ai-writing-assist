@@ -28,9 +28,12 @@ P2-B 追加视角边界接线（knowledge_contract.py，B1 契约）：
 - reader 揭示闸：``_reveal_cache`` 之上叠 ``evaluate_reader_reveal``（主张
   锚 = outline 策略已达到章 ∪ 全书 timeline 揭示事件的锚章
   ``field_path={subject}.{field}``）+ ``reveal_within_proven_shown`` 证明闸
-  （exact 稿源章构成「读者已见过原文」的证明，unverified/conflict 不算）。
-  无策略且无主张锚 → 维持结构层默认公开；有锚即须证明域（当章不揭示、
-  无 cutoff 不猜、无已展示证明不启用）。
+  （固定来源回读中实际出现该字段值，unverified/conflict 或无值证明不算）。
+
+  揭示的授权单位是**字段**而不是对象：主张锚按 ``{subject}.{field}`` 点名，
+  证明也按 ``(subject, field)`` 取，同对象的其他字段不连坐（知道谁保管
+  不等于知道其秘密关系）。**无策略且无主张锚也不豁免证明**——缺策略不代表
+  存在证明，字段自身没有已展示原文时不对读者公开（P2-B 第 37 行）。
 """
 
 from __future__ import annotations
@@ -43,7 +46,7 @@ from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.container import get
-from core.errors import NotFoundError, ValidationError
+from core.errors import DomainError, NotFoundError, ValidationError
 from core.service_keys import WORLD_GET_CHARACTER_ID_BY_WORLD_ENTITY
 from infrastructure.stable_hash import stable_hash
 from modules.story.continuity.basis import basis_hash, compute_scene_basis
@@ -53,6 +56,7 @@ from modules.story.continuity.field_provenance import (
     FieldProvenance,
     read_field_provenance,
     resolve_field_status,
+    timeline_fact_instance_key,
 )
 from modules.story.continuity.knowledge_contract import (
     KnowledgeStatement,
@@ -74,6 +78,8 @@ from modules.story.outline_state.facade import (
     get_reader_reveal_decision,
     get_scene_contract,
 )
+from modules.writing.contracts import SourceRangeRefContract
+from modules.writing.facade import build_manuscript_range_ref, read_manuscript_range
 from shared.utils import parse_uuid
 
 SCENE_STATE_VIEW_CONTRACT_VERSION = "scene-state-view-v1"
@@ -126,6 +132,26 @@ def _scene_chapters(scene: dict[str, Any]) -> list[int]:
     return [int(value) for value in values if str(value).isdigit()]
 
 
+def _reveal_keys(entry: Any) -> tuple[tuple[str, str], ...]:
+    """一条事实在 reader 揭示表里的候选键（``(subject, field)``）。
+
+    聚合条目（位置 fact 字段名 ``location``）的证明挂在底层受控字段
+    （``location_id``/``text_state``）上，故同时查字段名本身与证明里点名的
+    字段；嵌套负载键（``x.y``）同时查其顶层键，揭示主张按 ``{subject}.{x}``
+    点名时也能命中。查不到即未揭示，不按对象放宽。
+    """
+    subject = str(entry.subject_id)
+    keys = [(subject, entry.field)]
+    provenance = (entry.source or {}).get("provenance") or {}
+    provenance_field = provenance.get("field")
+    if isinstance(provenance_field, str) and provenance_field != entry.field:
+        keys.append((subject, provenance_field))
+    head = str(entry.field).split(".", 1)[0]
+    if head != entry.field:
+        keys.append((subject, head))
+    return tuple(dict.fromkeys(keys))
+
+
 def _occurred_at(payload: dict[str, Any]) -> dict[str, int] | None:
     occurred: dict[str, int] = {}
     for key in ("scene_index", "scene_sequence"):
@@ -139,6 +165,8 @@ def _occurred_at(payload: dict[str, Any]) -> dict[str, int] | None:
 def summarize_field_provenance(
     state_json: Mapping[str, Any] | None,
     dimension: str | None = None,
+    *,
+    include_value_hash: bool = False,
 ) -> dict[tuple[str, str | None], dict[str, Any]]:
     """checkpoint 内嵌逐字段来源 → ``{(field_key, subject_ref): 单记录摘要}``。
 
@@ -187,6 +215,10 @@ def summarize_field_provenance(
             if chosen
             else [],
         }
+        if include_value_hash:
+            summaries[(field_key, subject_ref)]["value_hash"] = (
+                chosen.value_hash if chosen else None
+            )
     return summaries
 
 
@@ -257,14 +289,10 @@ class SceneStateViewService:
         )
         items = {item.dimension: item for item in checkpoint_set.items}
         dimensions_filter = include_dimensions or list(SCENE_MEMORY_DIMENSIONS)
-        current_basis_hash = basis_hash(
-            await compute_scene_basis(
-                db,
-                novel_id,
-                scenes,
-                up_to_scene_index=int(checkpoint_set.scene_index),
-            )
+        current_basis = await compute_scene_basis(
+            db, novel_id, scenes, up_to_scene_index=int(checkpoint_set.scene_index)
         )
+        current_basis_hash = basis_hash(current_basis)
 
         # P2-B：character 视角的知识授予与拒绝原因同源（契约条目单一事实源）。
         knowledge_statements: list[KnowledgeStatement] = []
@@ -289,7 +317,14 @@ class SceneStateViewService:
                     for entry_subject, _layer in self._dim_subjects(items.get(dim), dim)
                 },
                 scenes=scenes,
-                proven_chapters=self._proven_shown_by_subject(items),
+                proven_chapters=await self._proven_shown_by_field(
+                    db,
+                    novel_id,
+                    items,
+                    scenes=scenes,
+                    up_to_scene_index=int(checkpoint_set.scene_index),
+                    source_hashes=current_basis["manuscript"],
+                ),
             )
             if kind == "reader"
             else {}
@@ -522,16 +557,12 @@ class SceneStateViewService:
             for entity_id, payload in (state.get("character_locations") or {}).items():
                 if not isinstance(payload, dict):
                     continue
-                # 位置 fact 是整份 payload 的聚合条目；逐字段来源挂主锚字段
-                # location_id（entity_ref），仅当事件只写描述时退 text_state。
-                # 查询键带实体锚，多角色位置互不串链。
-                location_provenance = next(
-                    (
-                        provenance_by_field[(key, str(entity_id))]
-                        for key in ("location_id", "text_state")
-                        if (key, str(entity_id)) in provenance_by_field
-                    ),
-                    None,
+                # 位置 fact 是整份 payload 的聚合条目；逐字段来源只挂**当前
+                # payload 仍存在**的受控字段，且取其中赋值序最新的那条链：
+                # 新位置只写描述（text_state）时不得回开旧 location_id 的
+                # 事件——聚合条目不能挑一个与当前值无关的旧字段当精确来源。
+                location_provenance = cls._location_provenance(
+                    state, str(entity_id), payload, provenance_by_field
                 )
                 add(
                     subject_id=str(entity_id),
@@ -584,14 +615,18 @@ class SceneStateViewService:
             for payload in state.get("facts") or []:
                 if not isinstance(payload, dict):
                     continue
-                # moon_phase 是 timeline 维度唯一登记的受控母题字段（无实体
-                # 容器，subject_ref=None）；只有该 fact 本身携带月相值时才
-                # 挂链，普通时间事实不冒充。
-                moon_provenance = (
-                    provenance_by_field.get(("moon_phase", None))
-                    if payload.get("moon_phase") is not None
-                    else None
-                )
+                # moon_phase 是 timeline 维度唯一登记的受控母题字段：按该
+                # fact 的**实例键**挂链（多条月相事实各挂各的赋值，不共用
+                # 最后一条链）；旧载荷无实例键时保留待核实，不冒充实例级
+                # 证明。只有该 fact 本身携带月相值时才挂链。
+                moon_provenance = None
+                if payload.get("moon_phase") is not None:
+                    fact_key = timeline_fact_instance_key(payload)
+                    moon_provenance = (
+                        provenance_by_field.get(("moon_phase", fact_key))
+                        if fact_key is not None
+                        else None
+                    )
                 add(
                     subject_id=str(payload.get("id")) if payload.get("id") else None,
                     subject_label=str(
@@ -618,6 +653,39 @@ class SceneStateViewService:
                     payload=payload,
                 )
         return entries
+
+    @staticmethod
+    def _location_provenance(
+        state: Mapping[str, Any],
+        subject_id: str,
+        payload: Mapping[str, Any],
+        provenance_by_field: Mapping[tuple[str, str | None], dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        """位置聚合条目的来源链：只在当前 payload 仍有的受控字段里挑最新赋值。
+
+        位置事件可能只改描述（``text_state``）而不再给 ``location_id``；此时
+        回开旧 ``location_id`` 的事件会把读者/作者带到与当前值无关的来源上。
+        按「字段仍在当前 payload」过滤后取赋值序最新的一条链，多字段同序时
+        ``location_id`` 优先（主锚字段）。
+        """
+        present = [key for key in ("location_id", "text_state") if key in payload]
+        if not present:
+            return None
+        records = [
+            record
+            for record in read_field_provenance(state)
+            if record.subject_ref == subject_id and record.field_key in present
+        ]
+        if not records:
+            return None
+        latest = max(
+            records,
+            key=lambda item: (
+                item.recorded_at_sequence,
+                1 if item.field_key == "location_id" else 0,
+            ),
+        )
+        return provenance_by_field.get((latest.field_key, subject_id))
 
     @staticmethod
     def _subject_labels(items: dict[str, Any]) -> dict[str, str]:
@@ -711,7 +779,7 @@ class SceneStateViewService:
         kind: str,
         target_id: str | None,
         knowledge_grants: dict[str, dict[str, frozenset[str]]],
-        reveal_cache: dict[str, bool],
+        reveal_cache: dict[tuple[str, str], bool],
         knowledge_statements: list[KnowledgeStatement] | None = None,
     ) -> tuple[list[SceneStateFactEntry], int, list[dict[str, Any]]]:
         if kind == "author":
@@ -736,13 +804,34 @@ class SceneStateViewService:
                 return False
             if dimension in {"timeline", "causality"}:
                 return False
-            if entry.subject_id:
-                return reveal_cache.get(entry.subject_id, False)
-            return False
+            if not entry.subject_id:
+                return False
+            # 逐字段揭示：键是该条事实自己的字段（或其底层受控字段），
+            # 同对象其他字段的证明不连坐。
+            return any(reveal_cache.get(key, False) for key in _reveal_keys(entry))
 
         visible: list[SceneStateFactEntry] = []
         denied: list[dict[str, Any]] = []
         for entry in entries:
+            if (
+                dimension == "locations"
+                and kind == "reader"
+                and isinstance(entry.value, dict)
+            ):
+                value = {
+                    key: value
+                    for key, value in entry.value.items()
+                    if reveal_cache.get((str(entry.subject_id), key), False)
+                }
+                if value:
+                    source = dict(entry.source)
+                    provenance = source.get("provenance") or {}
+                    if provenance.get("field") not in value:
+                        source.pop("provenance", None)
+                    visible.append(
+                        entry.model_copy(update={"value": value, "source": source})
+                    )
+                continue
             if keep(entry):
                 visible.append(entry)
                 continue
@@ -781,26 +870,30 @@ class SceneStateViewService:
         cutoff_chapter: int | None,
         subjects: set[str],
         scenes: list[dict[str, Any]] | None = None,
-        proven_chapters: dict[str, frozenset[int]] | None = None,
-    ) -> dict[str, bool]:
-        """reader 视角的逐对象揭示判定（P2-B 双闸）。
+        proven_chapters: dict[tuple[str, str], frozenset[int]] | None = None,
+    ) -> dict[tuple[str, str], bool]:
+        """reader 视角的逐**字段**揭示判定（P2-B 双闸，按字段而非整对象）。
 
-        - cutoff 闸（``evaluate_reader_reveal``）：无策略且无揭示主张记录 →
-          结构层默认公开（既有语义，test_reader_view_gates_entities_by_reveal
-          钉定）；有主张锚（outline 策略已达到章 ∪ timeline 揭示事件锚章）即
-          移入须证明域——无 cutoff 不猜、当章不揭示（严格 ``<``）。
-        - 证明闸（``reveal_within_proven_shown``）：通过 cutoff 闸的锚还须
-          落在该对象 exact 稿源章（已展示原文）内才启用；unverified/conflict
-          不构成证明（追到事件不等于读者见过原文）。
+        揭示授权的最小单位是「对象的哪个字段」，不是整个对象：知道某人保管
+        什么，不等于知道他的秘密关系。判定返回键 ``(subject, field)``。
+
+        - cutoff 闸（``evaluate_reader_reveal``）：有策略或揭示主张记录
+          （timeline 揭示事件 ``field_path={subject}.{field}``）的字段移入
+          须证明域——无 cutoff 不猜、当章不揭示（严格 ``<``）。
+        - 证明闸（``reveal_within_proven_shown``）：锚章须落在该**字段**自身
+          exact 稿源章内；unverified/conflict 不构成证明。
+        - 无策略且无揭示主张的字段**不豁免证明**：只在该字段自身有已展示原文
+          （读者已读到的章，含当章）时对读者可见。缺策略不等于存在证明——
+          否则没有登记揭示的秘密会被默认公开。
         """
         if cutoff_chapter is None:
             # 无章节锚点时保守：全部按未揭示处理，不猜测揭示位置。
-            return {subject: False for subject in subjects}
+            return {}
         claims = await self._reveal_claim_chapters(
             db, novel_id=novel_id, subjects=subjects, scenes=scenes or []
         )
         proven = proven_chapters or {}
-        cache: dict[str, bool] = {}
+        cache: dict[tuple[str, str], bool] = {}
         for subject in sorted(subjects):
             decision = await get_reader_reveal_decision(
                 db,
@@ -811,27 +904,34 @@ class SceneStateViewService:
             )
             if decision is None:
                 # 决策服务契约上恒返回决策对象；真缺失时保守隐藏。
-                cache[subject] = False
                 continue
             has_policy = bool(getattr(decision, "has_policy", False))
-            anchors: set[int] = set(claims.get(subject, ()))
             reveal_chapter = getattr(decision, "reveal_chapter", None)
-            if has_policy and reveal_chapter is not None:
-                anchors.add(int(reveal_chapter))
-            if not has_policy and not anchors:
-                # 无策略且无揭示主张记录：没有读者限制，默认公开。
-                cache[subject] = True
-                continue
-            shown = proven.get(subject, frozenset())
-            cache[subject] = evaluate_reader_reveal(
-                domain=RevealDomain.outline_structure,
-                has_policy=has_policy,
-                cutoff_chapter=cutoff_chapter,
-                reveal_chapters=frozenset(anchors),
-            ) and any(
-                chapter < cutoff_chapter and reveal_within_proven_shown(chapter, shown)
-                for chapter in anchors
+            fields = sorted(
+                {field for (owner, field) in claims if owner == subject}
+                | {field for (owner, field) in proven if owner == subject}
             )
+            for field in fields:
+                anchors: set[int] = set(claims.get((subject, field), ()))
+                if has_policy and reveal_chapter is not None:
+                    # 策略是对象级锚（无字段粒度）：作用到该对象全部字段。
+                    anchors.add(int(reveal_chapter))
+                shown = proven.get((subject, field), frozenset())
+                if not has_policy and not anchors:
+                    cache[(subject, field)] = any(
+                        chapter <= cutoff_chapter for chapter in shown
+                    )
+                    continue
+                cache[(subject, field)] = evaluate_reader_reveal(
+                    domain=RevealDomain.outline_structure,
+                    has_policy=has_policy,
+                    cutoff_chapter=cutoff_chapter,
+                    reveal_chapters=frozenset(anchors),
+                ) and any(
+                    chapter < cutoff_chapter
+                    and reveal_within_proven_shown(chapter, shown)
+                    for chapter in anchors
+                )
         return cache
 
     @staticmethod
@@ -855,7 +955,7 @@ class SceneStateViewService:
         events = await EventRepository().get_through_scene(
             db, parse_uuid(novel_id, "novel_id"), max_scene_index, dimension="timeline"
         )
-        claims: dict[str, set[int]] = {}
+        claims: dict[tuple[str, str], set[int]] = {}
         for event in events:
             payload = event.snapshot_after
             if not isinstance(payload, dict):
@@ -863,35 +963,129 @@ class SceneStateViewService:
             field_path = payload.get("field_path")
             if not isinstance(field_path, str) or "." not in field_path:
                 continue
-            subject = field_path.split(".", 1)[0]
-            if subject not in subjects or event.chapter_index is None:
+            subject, _, field = field_path.partition(".")
+            if subject not in subjects or not field or event.chapter_index is None:
                 continue
-            claims.setdefault(subject, set()).add(int(event.chapter_index))
-        return {subject: frozenset(values) for subject, values in claims.items()}
+            claims.setdefault((subject, field), set()).add(int(event.chapter_index))
+        return {key: frozenset(values) for key, values in claims.items()}
 
     @staticmethod
-    def _proven_shown_by_subject(items: dict[str, Any]) -> dict[str, frozenset[int]]:
-        """当前 Scene 各维度 checkpoint 的 exact 稿源章 → 已展示证明材料。
+    async def _shown_ranges(db, novel_id, ref, scenes, up_to_scene_index):
+        """Keep reader proof inside the already-read Scene prefix of this source."""
+        anchored = [
+            scene for scene in scenes if ref.chapter_index in _scene_chapters(scene)
+        ]
+        ranges = []
+        for scene in anchored:
+            if int(scene["scene_index"]) > up_to_scene_index:
+                continue
+            chunks = [
+                chunk
+                for chunk in scene.get("scene_chunks") or []
+                if isinstance(chunk, dict)
+                and ref.chapter_index in _scene_chapters({"scene_chunks": [chunk]})
+            ]
+            bounded = [
+                chunk
+                for chunk in chunks
+                if isinstance(chunk.get("start_offset"), int)
+                and isinstance(chunk.get("end_offset"), int)
+            ]
+            if not bounded:
+                # One Scene owns the chapter; shared chapters require real offsets.
+                if len(anchored) == 1:
+                    ranges.append((ref.start_offset, ref.end_offset))
+                continue
+            for chunk in bounded:
+                if (
+                    chunk.get("source_draft_id")
+                    and str(chunk["source_draft_id"]) != ref.draft_id
+                ):
+                    continue
+                if (
+                    chunk.get("source_content_hash")
+                    and chunk["source_content_hash"] != ref.source_hash
+                ):
+                    continue
+                try:
+                    bound = await build_manuscript_range_ref(
+                        db,
+                        novel_id,
+                        draft_id=ref.draft_id,
+                        start_offset=chunk["start_offset"],
+                        end_offset=chunk["end_offset"],
+                        content_mode="working",
+                    )
+                except DomainError:
+                    continue
+                if bound.source_hash != ref.source_hash:
+                    continue
+                start = max(ref.start_offset, chunk["start_offset"])
+                end = min(ref.end_offset, chunk["end_offset"])
+                if 0 <= start < end:
+                    ranges.append((start, end))
+        return ranges
 
-        exact 判定复用 ``summarize_field_provenance``（resolve_field_status）：
-        只有带稿源区间的最新链（exact）构成「读者已见过原文」的证明——
-        unverified（只追到事件）与 conflict（无法归因）都不算。
-        """
-        chapters: dict[str, set[int]] = {}
-        for dimension in ("entities", "locations", "timeline"):
+    @classmethod
+    async def _proven_shown_by_field(
+        cls, db, novel_id, items, *, scenes, up_to_scene_index, source_hashes
+    ):
+        """逐字段/值回读固定来源；仅可证明已出现在该范围里的值进入 reader。"""
+        labels = cls._subject_labels(items)
+        chapters = {}
+        reads = {}
+        shown_ranges = {}
+        for dimension, container in (
+            ("entities", "entities"),
+            ("locations", "character_locations"),
+        ):
             checkpoint = items.get(dimension)
             if checkpoint is None:
                 continue
-            for (_field, subject), summary in summarize_field_provenance(
-                checkpoint.state_json or {}, dimension
+            state = checkpoint.state_json or {}
+            for (field, subject), summary in summarize_field_provenance(
+                state, dimension, include_value_hash=True
             ).items():
-                if not subject or summary.get("status") != "exact":
+                payload = (state.get(container) or {}).get(subject, {})
+                value = payload.get(field)
+                if summary.get("status") != "exact" or summary.get(
+                    "value_hash"
+                ) != stable_hash(value):
                     continue
-                for ref in summary.get("source_refs") or ():
-                    chapter = ref.get("chapter_index") if isinstance(ref, dict) else None
-                    if isinstance(chapter, int):
-                        chapters.setdefault(str(subject), set()).add(chapter)
-        return {subject: frozenset(values) for subject, values in chapters.items()}
+                witness = (
+                    labels.get(str(value), str(value)) if isinstance(value, str) else None
+                )
+                if not witness:
+                    continue
+                for raw in summary.get("source_refs") or ():
+                    ref = SourceRangeRefContract(**raw)
+                    if source_hashes.get(str(ref.chapter_index)) != ref.source_hash:
+                        continue
+                    key = stable_hash(raw)
+                    if key not in reads:
+                        try:
+                            read = await read_manuscript_range(
+                                db, novel_id, ref, before=0, after=0
+                            )
+                        except DomainError:
+                            reads[key] = None
+                        else:
+                            reads[key] = read.text[
+                                read.highlight_start : read.highlight_end
+                            ]
+                    if key not in shown_ranges:
+                        shown_ranges[key] = await cls._shown_ranges(
+                            db, novel_id, ref, scenes, up_to_scene_index
+                        )
+                    text = reads[key]
+                    if text is not None and any(
+                        witness in text[start - ref.start_offset : end - ref.start_offset]
+                        for start, end in shown_ranges[key]
+                    ):
+                        chapters.setdefault((str(subject), field), set()).add(
+                            ref.chapter_index
+                        )
+        return {key: frozenset(values) for key, values in chapters.items()}
 
 
 _service = SceneStateViewService()

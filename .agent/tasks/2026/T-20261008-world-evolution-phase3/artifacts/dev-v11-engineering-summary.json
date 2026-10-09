@@ -1,0 +1,33 @@
+{
+  "version": "dev-v11",
+  "method": "1ea7c0a3eeb096cb4ecd1650eee04dfa0d93f9d526f0c3996eecb284b35fead8",
+  "current_method": false,
+  "scenes_committed": 6,
+  "scenes_expected": 8,
+  "requests": 68,
+  "responses": 67,
+  "terminal_call_errors": 1,
+  "source_ranges_exact_cumulative": 81,
+  "free_replays": 6,
+  "discovery_planned_batches": 18,
+  "failed_batches": [
+    {
+      "scene": 3,
+      "stage": "scene_discovery_3",
+      "usage_complete": true
+    },
+    {
+      "scene": 6,
+      "stage": "scene_discovery_review_2",
+      "usage_complete": false
+    }
+  ],
+  "quarantined_items": 1,
+  "unknown_stage_receipts": 1,
+  "engineering_gate": "not_passed",
+  "quality_gate": "not_passed",
+  "holdout_run": false,
+  "human_validated": false,
+  "explicit_new_run_authorized": true,
+  "v9_unknown_receipt_retained": true
+}

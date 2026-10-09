@@ -49,6 +49,7 @@ from modules.story.continuity.schemas import (
     SnapshotListResponse,
     SnapshotResponse,
 )
+from modules.writing.facade import build_manuscript_range_ref, list_manuscript_sources
 from shared.utils import parse_uuid
 
 logger = logging.getLogger(__name__)
@@ -164,6 +165,9 @@ class MemoryService:
             raise ValidationError("scene_index does not match Scene")
         if len(events) > MAX_MEMORY_EVENTS_PER_CHAPTER:
             raise ValidationError("Too many memory events for Scene")
+        sources = await list_manuscript_sources(
+            db, novel_id, [chapter_index], content_mode="working"
+        )
         rows: list[dict[str, Any]] = []
         for sequence, event in enumerate(events, start=1):
             dimension = event.get("dimension") or self._event_dimension(event)
@@ -180,6 +184,9 @@ class MemoryService:
             payload = self._normalize_timeline_when(payload, dimension=dimension)
             if dimension == "knowledge" and source == MACHINE_EVENT_SOURCE:
                 payload = self._sanitize_machine_knowledge(payload)
+            payload = await self._bind_field_sources(
+                db, novel_id, payload, sources, source=source
+            )
             payload = self._with_scene_event_key(
                 payload,
                 scene_id=scene_id,
@@ -226,6 +233,57 @@ class MemoryService:
             include_start=True,
         )
         return [MemoryEventResponse.model_validate(item) for item in records]
+
+    @staticmethod
+    async def _bind_field_sources(db, novel_id, payload, sources, *, source):
+        """只在摄入时固化已重验稿源；重提取同一事件也会刷新这份消费证明。"""
+        from dataclasses import asdict
+
+        if not isinstance(payload, dict):
+            return payload
+        meta = dict(payload.get("meta") or {})
+        receipts = meta.get("source_receipts")
+        refs = []
+        if receipts is not None:
+            if not isinstance(receipts, list):
+                raise ValidationError("Memory event source receipts must be a list")
+            for receipt in receipts:
+                if not isinstance(receipt, dict):
+                    raise ValidationError("Invalid memory event source receipt")
+                bound = receipt.get("source_ref") or {}
+                if not isinstance(bound, dict):
+                    raise ValidationError("Invalid memory event source reference")
+                if not bound.get("draft_id"):
+                    continue
+                if any(bound.get(key) is None for key in ("start_offset", "end_offset")):
+                    raise ValidationError("Memory event source range is missing")
+                ref = await build_manuscript_range_ref(
+                    db,
+                    novel_id,
+                    draft_id=bound["draft_id"],
+                    start_offset=bound["start_offset"],
+                    end_offset=bound["end_offset"],
+                    content_mode="working",
+                )
+                # source_revision versions the observation source contract, not the draft.
+                if ref.source_hash != bound.get("content_hash"):
+                    raise ValidationError("Memory event source changed")
+                refs.append(asdict(ref))
+        elif source != MACHINE_EVENT_SOURCE:
+            for manuscript in sources:
+                if not manuscript.id or not manuscript.content:
+                    continue
+                ref = await build_manuscript_range_ref(
+                    db,
+                    novel_id,
+                    draft_id=manuscript.id,
+                    start_offset=0,
+                    end_offset=len(manuscript.content),
+                    content_mode="working",
+                )
+                refs.append(asdict(ref))
+        meta["_field_source_refs"] = refs
+        return {**payload, "meta": meta}
 
     @staticmethod
     def _normalize_timeline_when(payload: Any, *, dimension: str) -> Any:

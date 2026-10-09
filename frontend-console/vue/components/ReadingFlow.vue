@@ -5,7 +5,7 @@ import { getApi, getConfirm } from "../bridge/index.js"
 const props = defineProps({ projectId: { type: String, required: true }, entry: { type: Boolean, default: false } })
 const emit = defineEmits(["state"])
 const state = ref(null), busy = ref(false), error = ref(""), preview = ref(null), pending = ref(null)
-const endChapter = ref(1), requestLimit = ref(20)
+const endChapter = ref(1), requestLimit = ref(20), discoverDetails = ref(false)
 const recomputeCompleted = ref(false), fromScene = ref(1)
 const scopeKind = ref("scene"), targetId = ref(""), targetQuery = ref("")
 const targets = ref([]), targetTotal = ref(0), targetOffset = ref(0)
@@ -97,6 +97,7 @@ async function prepare() {
       ...(scoped ? scopeKind.value === "scene"
         ? { from_scene_index: Number(fromScene.value) - 1 }
         : { [scopeKind.value === "entity" ? "entity_id" : "observation_id"]: targetId.value } : {}),
+      discover_details: discoverDetails.value,
       end_chapter: continuing || revising || scoped ? run.value.end_chapter : Number(endChapter.value), request_limit: Number(requestLimit.value),
     }
     const result = await api().preview(props.projectId, request)
@@ -136,7 +137,7 @@ async function loadProposals(offset = 0) {
     if (current() && run.value?.run_key === key) proposals.value = result
   })
 }
-watch(() => run.value?.run_key, () => { proposals.value = null })
+watch(() => run.value?.run_key, () => { proposals.value = null; discoverDetails.value = !!run.value?.discovery_enabled })
 async function loadTargets(offset = 0) {
   await perform(async current => {
     const result = await api().targets(props.projectId, run.value.run_key, { kind: scopeKind.value, query: targetQuery.value, offset })
@@ -211,6 +212,8 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer) })
           <label>{{ run?.status === 'needs_budget' ? "本次追加调用上限" : "本次最多调用模型" }}<input v-model.number="requestLimit" type="number" min="1" max="1000" required :disabled="busy || !!pending"></label>
         </div>
         <label v-if="run?.status === 'completed'" class="reading-recompute-toggle"><input v-model="recomputeCompleted" type="checkbox" :disabled="busy || !!pending">重新核对已有场景</label>
+        <label v-if="!run || recomputeCompleted || ['source_changed', 'failed'].includes(run.status)"><input v-model="discoverDetails" type="checkbox" :disabled="busy || !!pending">同时发现条件行为、线索与承诺，持续更新细节台账</label>
+        <p v-else>细节发现：{{ run.discovery_enabled ? '已启用' : '本轮未启用，可选择重新核对已有场景时开启' }}</p>
         <template v-if="run?.status === 'failed' || recomputeCompleted">
           <label>重新核对什么<select v-model="scopeKind" :disabled="busy || !!pending"><option value="scene">一段场景</option><option value="entity">人物或世界对象</option><option value="observation">一条已有观察</option></select></label>
           <label v-if="scopeKind === 'scene'">从第几场重新核对<input v-model.number="fromScene" type="number" min="1" :max="run?.total_scenes" required :disabled="busy || !!pending"></label>
@@ -231,6 +234,7 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer) })
           <p v-if="preview.scene_count === null">先准备场景边界，完成后逐场景理解。边界准备、必要修复、理解、独立复核和剧情结构整理共同使用最多 {{ preview.request_limit }} 次模型调用；额度用完会暂停，不自动追加。</p>
           <p v-else-if="Number.isInteger(preview.recompute_from_scene_index)">保留前 {{ preview.inherited_scene_count }} 场已核实的理解，从第 {{ preview.recompute_from_scene_index + 1 }} 场起重新核对后续场景；最多调用模型 {{ preview.request_limit }} 次。旧结果与费用记录保留。<template v-if="preview.expanded_scope">前面的来源或场景已变化，范围已向前扩大。</template></p>
           <p v-else>本次{{ preview.request.mode === 'continue' ? "继续读取" : "读取" }} {{ preview.scene_count }} 个场景，理解、独立复核与剧情结构整理合计最多调用模型 {{ preview.request_limit }} 次。理解结果可追溯来源，冲突留待确认；不会改写正文或覆盖作者确认。</p>
+          <p v-if="preview.discovery_enabled">细节发现及独立核对也使用本次调用额度。台账只保留有据理解，作者判断另行保存。</p>
           <p>本次使用模型：{{ preview.model }}</p>
           <button class="btn btn-primary" type="button" :disabled="busy" @click="start">{{ pending ? "确认启动结果" : "确认并开始理解" }}</button>
         </div>

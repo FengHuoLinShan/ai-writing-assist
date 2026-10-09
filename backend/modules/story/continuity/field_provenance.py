@@ -142,6 +142,7 @@ class FieldProvenance(BaseModel):
 
     field_key: str = Field(min_length=1)
     dimension: str
+    value_hash: str | None = Field(default=None, min_length=64, max_length=64)
     event_id: str = Field(min_length=1)
     # 实体锚：赋值落在哪个主体上（entities/locations 维度为实体 ID，
     # timeline 等无实体容器为 None）。同维度多实体的同名字段靠它隔离
@@ -242,6 +243,27 @@ def read_field_provenance(
     return _PROVENANCE_LIST_ADAPTER.validate_python(
         state_json[FIELD_PROVENANCE_STATE_KEY]
     )
+
+
+def timeline_fact_instance_key(payload: Mapping[str, Any] | None) -> str | None:
+    """单条 timeline 事实实例的稳定键（事实级字段按实例挂链的绑定锚）。
+
+    timeline 维度没有实体容器，同一受控字段（月相）在一条链上会出现多条
+    事实；若统一用 ``subject_ref=None``，每条事实都会挂到「最后一条赋值链」
+    上，把不同事实的来源互相替换。实例键优先取
+    ``meta.event_key``（services._with_scene_event_key 注入的语义指纹，与
+    输出位置无关），无该键时退回 payload 自带的 ``id``；两者皆无 → None
+    （旧载荷：读取端保留待核实，不借全局链冒充实例级证明）。
+    """
+    if not isinstance(payload, Mapping):
+        return None
+    meta = payload.get("meta")
+    if isinstance(meta, Mapping):
+        key = meta.get("event_key")
+        if isinstance(key, str) and key:
+            return key
+    value = payload.get("id")
+    return str(value) if value else None
 
 
 def provenance_status_for(
@@ -363,4 +385,5 @@ __all__ = [
     "provenance_status_for",
     "read_field_provenance",
     "resolve_field_status",
+    "timeline_fact_instance_key",
 ]

@@ -17,7 +17,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from infrastructure.llm.redaction import redact_diagnostic
 from modules.evidence.facade import mark_asset_context_changed
 from modules.writing.conflict_evidence import snapshot_location
-from modules.writing.models import WritingConflictCheck, WritingConflictItem, WritingDraft
+from modules.writing.models import (
+    WritingConflictCheck,
+    WritingConflictItem,
+    WritingDraft,
+    WritingInvalidationNotice,
+    WritingRecomputeOperation,
+)
 from modules.writing.schemas import WritingDraftCreate, WritingDraftUpdate
 from modules.writing.source_hashing import hash_text, substantive_text
 
@@ -69,11 +75,22 @@ class WritingDraftRepository:
         # P2-C C3：回执不再丢弃。writing 层不能 import evolution（依赖冻结
         # 集合无 writing→evolution 边），作者语言公共视图经 DI 缝注入，
         # 挂到 draft 行的瞬态属性随保存响应透传（不入库）。
-        setattr(
-            draft,
-            INVALIDATION_VIEW_ATTR,
-            get(EVOLUTION_INVALIDATION_RECEIPT_VIEW)(receipt),
-        )
+        view = get(EVOLUTION_INVALIDATION_RECEIPT_VIEW)(receipt)
+        setattr(draft, INVALIDATION_VIEW_ATTR, view)
+        # 待重算状态同时落库：作者「暂不重算」并离开后，编辑器加载时仍能
+        # 回读原影响列表与重算入口（此前只有瞬态属性，刷新即丢失）。
+        if (
+            isinstance(view, dict)
+            and view.get("receipt_id")
+            and not view.get("nothing_to_do")
+        ):
+            await WritingRecomputeRepository.save_notice(
+                db,
+                novel_id=draft.novel_id,
+                receipt_id=str(view["receipt_id"]),
+                chapter_index=int(draft.chapter_index),
+                notice=view,
+            )
 
     @staticmethod
     async def _created(db, draft):
@@ -675,7 +692,7 @@ class WritingDraftRepository:
             )
             .order_by(WritingDraft.chapter_index)
         )
-        result = await db.execute(stmt)
+        result = await db.execute(stmt.execution_options(populate_existing=True))
         return result.scalars().all()
 
     async def list_latest_by_mode(
@@ -1412,3 +1429,188 @@ class WritingConflictCheckRepository:
                 for item in items
             ],
         }
+
+
+class WritingRecomputeRepository:
+    """失效重算的操作回执与待重算提示（P2-C 跨会话恢复）。
+
+    两张表均为追加式：操作回执一行一次完成的操作（同编号唯一，重复执行先
+    回放）；失效提示在保存时落库，重算覆盖该章后标记为已消解，不删除——
+    作者离开再回来仍能查到原影响列表与重算入口。
+    """
+
+    @staticmethod
+    async def lock_operations(db: AsyncSession, novel_id: uuid.UUID) -> None:
+        # ponytail: project lock; use operation locks if throughput requires it.
+        if db.get_bind().dialect.name == "postgresql":
+            await db.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+                {"key": f"writing_recompute:{novel_id}"},
+            )
+
+    @staticmethod
+    async def get_operation(
+        db: AsyncSession, novel_id: uuid.UUID, operation_id: str
+    ) -> WritingRecomputeOperation | None:
+        return (
+            await db.execute(
+                select(WritingRecomputeOperation).where(
+                    WritingRecomputeOperation.novel_id == novel_id,
+                    WritingRecomputeOperation.operation_id == operation_id,
+                )
+            )
+        ).scalar_one_or_none()
+
+    @staticmethod
+    async def save_operation(
+        db: AsyncSession,
+        *,
+        novel_id: uuid.UUID,
+        operation_id: str,
+        request_hash: str,
+        scope: str,
+        expected_source_digest: str,
+        results: dict,
+    ) -> WritingRecomputeOperation:
+        row = await WritingRecomputeRepository.get_operation(db, novel_id, operation_id)
+        if row is None:
+            row = WritingRecomputeOperation(
+                novel_id=novel_id,
+                operation_id=operation_id,
+                request_hash=request_hash,
+                scope=scope,
+                expected_source_digest=expected_source_digest,
+                results_json=results,
+            )
+            db.add(row)
+        else:
+            raise ValueError("completed recompute receipts are immutable")
+        await db.flush()
+        return row
+
+    @staticmethod
+    async def list_operations(
+        db: AsyncSession, novel_id: uuid.UUID, *, limit: int = 20
+    ) -> list[WritingRecomputeOperation]:
+        rows = await db.execute(
+            select(WritingRecomputeOperation)
+            .where(WritingRecomputeOperation.novel_id == novel_id)
+            .order_by(WritingRecomputeOperation.created_at.desc())
+            .limit(max(1, limit))
+        )
+        return list(rows.scalars().all())
+
+    @staticmethod
+    async def list_open_notices(
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        chapter_index: int | None = None,
+        limit: int | None = 20,
+    ) -> list[WritingInvalidationNotice]:
+        conditions = [
+            WritingInvalidationNotice.novel_id == novel_id,
+            WritingInvalidationNotice.status == "open",
+        ]
+        if chapter_index is not None:
+            conditions.append(WritingInvalidationNotice.chapter_index == chapter_index)
+        stmt = (
+            select(WritingInvalidationNotice)
+            .where(*conditions)
+            .order_by(
+                WritingInvalidationNotice.created_at.desc(),
+                WritingInvalidationNotice.id.desc(),
+            )
+        )
+        if limit is not None:
+            stmt = stmt.limit(max(1, limit))
+        rows = await db.execute(stmt)
+        return list(rows.scalars().all())
+
+    @staticmethod
+    async def save_notice(
+        db: AsyncSession,
+        *,
+        novel_id: uuid.UUID,
+        receipt_id: str,
+        chapter_index: int | None,
+        notice: dict,
+    ) -> WritingInvalidationNotice | None:
+        """幂等落一条失效提示；已存在同回执的行不覆盖（保留首次状态）。"""
+        if not receipt_id:
+            return None
+        existing = (
+            await db.execute(
+                select(WritingInvalidationNotice).where(
+                    WritingInvalidationNotice.novel_id == novel_id,
+                    WritingInvalidationNotice.receipt_id == receipt_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            return existing
+        row = WritingInvalidationNotice(
+            novel_id=novel_id,
+            receipt_id=receipt_id,
+            chapter_index=chapter_index,
+            notice_json=notice,
+            status="open",
+        )
+        db.add(row)
+        await db.flush()
+        return row
+
+    @staticmethod
+    async def record_notice_progress(
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        receipt_id: str | None,
+        *,
+        scope: str,
+        results: dict,
+    ) -> None:
+        """Record confirmed notice progress; queued work stays pending."""
+        if not receipt_id:
+            return
+        row = (
+            await db.execute(
+                select(WritingInvalidationNotice)
+                .where(
+                    WritingInvalidationNotice.novel_id == novel_id,
+                    WritingInvalidationNotice.receipt_id == receipt_id,
+                    WritingInvalidationNotice.status == "open",
+                )
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            return
+        # A current-source repair also covers earlier notices for the same chapter.
+        # Later receipts and unrelated chapters are never acknowledged by this operation.
+        rows = (
+            (
+                await db.execute(
+                    select(WritingInvalidationNotice)
+                    .where(
+                        WritingInvalidationNotice.novel_id == novel_id,
+                        WritingInvalidationNotice.chapter_index == row.chapter_index,
+                        WritingInvalidationNotice.created_at <= row.created_at,
+                        WritingInvalidationNotice.status == "open",
+                    )
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for affected in rows:
+            notice = dict(affected.notice_json or {})
+            progress = dict(notice.get("_recompute_progress") or {})
+            previous = dict(progress.get(scope) or {})
+            previous.update(results)
+            progress[scope] = previous
+            notice["_recompute_progress"] = progress
+            affected.notice_json = notice
+        await db.flush()

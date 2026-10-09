@@ -1242,6 +1242,27 @@ async def test_unregistered_scenes_keep_conservative_with_explainable_view(
     await _prepare_projections(db, nid, scene1)
     await _prepare_projections(db, nid, scene2)
 
+    # Legacy fixture: new projections register inherited dependencies.
+    rows = (
+        (
+            await db.execute(
+                select(MemorySceneCheckpoint).where(
+                    MemorySceneCheckpoint.novel_id == uuid.UUID(nid),
+                    MemorySceneCheckpoint.scene_id == scene2.id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for row in rows:
+        row.state_json = {
+            key: value
+            for key, value in row.state_json.items()
+            if key != CONSUMPTION_REGISTRY_STATE_KEY
+        }
+    await db.flush()
+
     change = compute_source_change(chapter2_old, chapter2_old.replace("铜钥匙", "铁哨子"))
     await _working_draft_row(
         db, nid, 2, chapter2_old.replace("铜钥匙", "铁哨子"), version_number=2

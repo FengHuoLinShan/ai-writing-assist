@@ -121,39 +121,37 @@
         <button type="button" class="btn btn-sm" :disabled="previewing || adopting" @click="runPreview">基于当前稿重新预览</button>
         <button type="button" class="btn btn-sm" @click="keepCurrentDraft">保留当前稿，暂不重算</button>
       </div>
-      <p class="writing-recompute-panel__readonly">保留当前稿不会改动任何内容；之前的失效提示与本地回执仍保留可查。</p>
+      <p class="writing-recompute-panel__readonly">保留当前稿不会改动任何内容；失效提示与已完成的回执都留档可查，重新进入这一章仍看得到。</p>
     </section>
 
     <p v-if="outcome" class="writing-recompute-panel__outcome" role="status">
-      已完成{{ outcome.label }}（共 {{ outcome.handledCount }} 项）；旧结果与确认历史都保留。
+      {{ outcome.scope === "reload_evidence" ? "已提交" : "已处理" }}{{ outcome.label }}（共 {{ outcome.handledCount }} 项）；旧结果与确认历史都保留。
     </p>
 
     <details class="writing-recompute-panel__history">
-      <summary>本次会话的重算回执</summary>
+      <summary>重算操作回执</summary>
       <ul v-if="historyItems.length">
-        <li v-for="item in historyItems" :key="item.key">
-          {{ item.label }} · 共 {{ item.handledCount }} 项 · {{ formatTime(item.rememberedAt) }}
-        </li>
+        <li v-for="item in historyItems" :key="item.key">{{ historyLabel(item) }}</li>
       </ul>
       <p v-else>本次写作会话里还没有执行过重算。</p>
       <p class="writing-recompute-panel__meta">
-        回执只在本页会话内记录，刷新后不保留；如需核对同一操作的结果，用同一确认重试即可，不会重复执行。
+        回执在服务端留档：刷新或重新进入写作台后仍可查；同一操作的重复请求只回放结果，不会重复写入。
       </p>
     </details>
   </section>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from "vue"
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { getApi, getToast, registerAuxiliaryLeaveGuard } from "../../../bridge/index.js"
 import {
   RECOMPUTE_SCOPES,
   driftRowLabel,
   listRecomputeReceipts,
+  mergeServerRecomputeReceipts,
   normalizeRecomputeOutcome,
   normalizeRecomputePreview,
   normalizeRecomputeDriftContext,
-  recomputeAdoptPayload,
   recomputeOperationKey,
   recomputeConflictKind,
   recomputeRequestPayload,
@@ -170,6 +168,8 @@ defineEmits(["close"])
 
 const scope = ref("")
 const operationId = ref("")
+// 预览快照：执行只认这份快照（发起时的 scope/operationId/来源指纹），
+// 避免「按钮写着一种重算、点下去发出另一种」。
 const preview = ref(null)
 const previewing = ref(false)
 const previewError = ref("")
@@ -189,8 +189,37 @@ const historyItems = computed(() => {
   return listRecomputeReceipts(props.projectId)
 })
 
-function resetForNotice() {
+/**
+ * 挂载时从服务端回读已完成回执：这是次级入口，拉取失败静默降级为只有本地
+ * 会话记录，不打扰作者（本地列表里 adopt 刚成功的那一条也不会丢）。
+ */
+async function loadServerReceipts() {
+  const read = getApi()?.evolution?.recomputeReceipts
+  if (typeof read !== "function" || !props.projectId) return
+  try {
+    const projectId = props.projectId
+    const response = await read(projectId)
+    if (projectId !== props.projectId) return
+    const items = Array.isArray(response?.items) ? response.items : []
+    if (mergeServerRecomputeReceipts(projectId, items)) receiptVersion.value += 1
+  } catch {
+    // 回执历史只作核对用：不可用不影响本次预览/执行的任何入口。
+  }
+}
+
+onMounted(loadServerReceipts)
+
+/**
+ * 作废在途请求：generation 递增让旧响应落空（不得再写预览），同时把忙碌
+ * 预览标记归位；已发出的执行仍由它的 finally 解锁，防止并发重复执行。
+ */
+function invalidateInFlight() {
   generation += 1
+  previewing.value = false
+}
+
+function resetForNotice() {
+  invalidateInFlight()
   scope.value = ""
   operationId.value = ""
   preview.value = null
@@ -200,10 +229,12 @@ function resetForNotice() {
   outcome.value = null
 }
 
-watch(() => props.notice, resetForNotice)
+watch(() => [props.notice, props.projectId, props.chapterIndex], resetForNotice)
 
 function chooseScope(kind) {
   if (adopting.value) return
+  // 换方式即作废在途预览：旧方式的回复不得再进预览，预览与执行内容必须同源。
+  invalidateInFlight()
   scope.value = kind
   operationId.value = recomputeOperationKey()
   preview.value = null
@@ -224,19 +255,23 @@ function currentApi() {
 async function runPreview() {
   if (!scope.value || previewing.value || adopting.value) return
   const token = generation
+  // 冻结本次预览的范围与幂等键：之后的切换/新回执都不该改写这次请求。
+  const requestScope = scope.value
+  const requestOperationId = operationId.value
   previewing.value = true
   previewError.value = ""
   preview.value = null
   adoptError.value = ""
   conflict.value = null
   try {
-    const payload = buildBasePayload()
+    const payload = buildBasePayload(requestScope, requestOperationId)
     if (!payload) throw new Error("当前缺少章节信息，暂时无法预览这次重算。")
     const raw = await currentApi().recomputePreview(props.projectId, payload)
+    // 方式已切换或回执已更新：这次回复属于过去的选择，直接丢弃。
     if (token !== generation) return
-    const normalized = normalizeRecomputePreview(raw, { scope: scope.value })
+    const normalized = normalizeRecomputePreview(raw, { scope: requestScope })
     if (!normalized) throw new Error("预览信息暂时无法解读，请稍后再试。")
-    preview.value = normalized
+    preview.value = { ...normalized, scope: requestScope, operationId: requestOperationId, payload }
   } catch (error) {
     if (token === generation) previewError.value = error?.message || "预览暂时失败，可以稍后重试。"
   } finally {
@@ -244,46 +279,53 @@ async function runPreview() {
   }
 }
 
-function buildBasePayload() {
+function buildBasePayload(scopeKind, operationKey) {
   return recomputeRequestPayload({
     novelId: props.projectId,
-    scope: scope.value,
+    scope: scopeKind,
     notice: props.notice,
-    operationId: operationId.value,
+    operationId: operationKey,
   })
 }
 
 async function confirmAdopt() {
-  if (!scope.value || adopting.value || props.editorDirty || !preview.value || !preview.value.executable) return
+  const snapshot = preview.value
+  if (!snapshot || !snapshot.executable || adopting.value || props.editorDirty) return
   const token = generation
   adopting.value = true
   adoptError.value = ""
   conflict.value = null
   try {
-    const payload = recomputeAdoptPayload({
-      novelId: props.projectId,
-      scope: scope.value,
-      notice: props.notice,
-      operationId: operationId.value,
-      expectedSourceDigest: preview.value.sourceDigest,
-    })
+    const payload = {
+      ...snapshot.payload,
+      confirmed: true,
+      expected_source_digest: snapshot.sourceDigest,
+    }
     if (!payload) throw new Error("当前缺少章节信息，暂时无法执行重算。")
     // 同一 operation_id 贯穿预览与执行（幂等对）；失败重试也复用同一键与来源指纹。
-    const raw = await currentApi().recomputeExecute(props.projectId, operationId.value, payload)
-    if (token !== generation) return
+    const raw = await currentApi().recomputeExecute(payload.novel_id, snapshot.operationId, payload)
+    // 已发出的重算不管面板是否被新回执复位：成功要留回执、失败要给作者说法，
+    // 否则作者会误以为什么都没发生。
     const normalized = normalizeRecomputeOutcome(raw)
     if (!normalized) throw new Error("执行结果暂时无法解读；同一确认重试不会执行两次。")
-    outcome.value = normalized
-    preview.value = null
-    rememberRecomputeReceipt(props.projectId, normalized)
+    rememberRecomputeReceipt(payload.novel_id, normalized)
     receiptVersion.value += 1
-    getToast()("重算已完成，旧结果与确认历史都保留可查。", "success")
+    if (token === generation) {
+      outcome.value = normalized
+      preview.value = null
+    }
+    getToast()(snapshot.scope === "reload_evidence"
+      ? "证据重读已提交，待索引完成后恢复；原回执保留可查。"
+      : "重算请求已处理，旧结果与确认历史保留可查。", "success")
   } catch (error) {
-    if (token !== generation) return
+    if (token !== generation) {
+      getToast()(error?.message || "之前提交的重算失败，原稿与失效提示保留。", "error")
+      return
+    }
     const kind = recomputeConflictKind(error)
     if (kind === "source_drift") {
       const drift = normalizeRecomputeDriftContext(error, {
-        previewChapters: preview.value?.sourceChapters || {},
+        previewChapters: snapshot?.sourceChapters || {},
       })
       conflict.value = {
         message: error?.message || "重算目标章节在预览后已再次修改。",
@@ -298,7 +340,8 @@ async function confirmAdopt() {
       adoptError.value = error?.message || "执行暂时失败，可以重试；同一确认重复发送不会执行两次。"
     }
   } finally {
-    if (token === generation) adopting.value = false
+    // 无条件归位：这是按钮与离开守卫唯一的解锁点，不能依赖请求仍属于当前 generation。
+    adopting.value = false
   }
 }
 
@@ -318,6 +361,13 @@ function formatTime(value) {
     : date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
 }
 
+// 服务端回执可能没有完成时间（未记录）：省略时间而不是显示一个假时刻。
+function historyLabel(item) {
+  const base = `${item.label} · ${item.scope === "reload_evidence" ? "已提交" : "已处理"} ${item.handledCount} 项`
+  const time = item.rememberedAt ? formatTime(item.rememberedAt) : ""
+  return time ? `${base} · ${time}` : base
+}
+
 function canLeave() {
   return !adopting.value
 }
@@ -332,7 +382,7 @@ function beforeUnload(event) {
 }
 globalThis.addEventListener?.("beforeunload", beforeUnload)
 onBeforeUnmount(() => {
-  generation += 1
+  invalidateInFlight()
   unregisterGuard()
   globalThis.removeEventListener?.("beforeunload", beforeUnload)
 })

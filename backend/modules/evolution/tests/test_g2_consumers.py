@@ -33,7 +33,7 @@ async def test_real_handlers_connect_understanding_cases_forecast_and_map(
     report, prompts, stages = {}, {}, []
     understanding = "两次出现不能证明中间路线，封锁仍只是青竹的说法。"
 
-    async def provider(self, request):
+    async def provider(self, request, *, complete_stream=False):
         assert not db.in_transaction()
         contract = json.loads(request.messages[-1].content.split("schema: ", 1)[1])
         schema = contract["title"]

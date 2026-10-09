@@ -31,7 +31,7 @@ def test_unknown_usage_never_qualifies_for_world_format_deferral():
 
 
 def world_provider(db, calls, *, blocked=False):
-    async def provider(self, request):
+    async def provider(self, request, *, complete_stream=False):
         assert not db.in_transaction()
         assert request.model
         schema = json.loads(request.messages[-1].content.split("schema: ", 1)[1])["title"]
@@ -126,7 +126,9 @@ def world_provider(db, calls, *, blocked=False):
     return provider
 
 
-@pytest.mark.parametrize("failure", [None, "blocked", "domain_write"])
+@pytest.mark.parametrize(
+    "failure", [None, "blocked", "domain_write", "review_scope_changed"]
+)
 async def test_world_candidates_and_receipt_are_atomic_and_replay_free(
     db_session, evolution_project_id, account_llm_connection, monkeypatch, failure
 ):
@@ -146,7 +148,7 @@ async def test_world_candidates_and_receipt_are_atomic_and_replay_free(
     task_id = UUID(run["task_id"])
     task = await db.get(AsyncTask, task_id)
     store = PostgresAttemptStore(db, nid)
-    if failure == "domain_write":
+    if failure in {"domain_write", "review_scope_changed"}:
         original = imports.apply_scene_world_candidates
 
         async def broken(*args, **kwargs):
@@ -165,7 +167,51 @@ async def test_world_candidates_and_receipt_are_atomic_and_replay_free(
         assert frozen.payload["world_result"]["review"]["status"] == "passed"
         monkeypatch.setattr(imports, "apply_scene_world_candidates", original)
         task = await db.get(AsyncTask, task_id)
+        if failure == "review_scope_changed":
+            from copy import deepcopy
+
+            from core.errors import ConflictError
+            from infrastructure.llm.collaboration import content_hash
+
+            payload = deepcopy(frozen.payload)
+            payload.pop("world_result")
+            spec = payload["world_review_preparation"]
+            for message in spec["request"]["messages"]:
+                message["content"] = message["content"].replace(
+                    "initial_world_identity_context", "legacy_identity_context"
+                )
+            # Simulate an internally consistent old sampled request, not a retry.
+            payload["scene_world_review"]["input_hash"] = content_hash(
+                {
+                    "method": "imports.scene_world_review.v1",
+                    "attempt_id": frozen.attempt_id,
+                    "source_manifest_hash": frozen.source_manifest_hash,
+                    "previous_receipt": frozen.previous_receipt,
+                    **spec,
+                }
+            )
+            await store.replace_frozen_payload(
+                frozen.model_copy(update={"payload": payload})
+            )
+            await db.commit()
+            with pytest.raises(ConflictError) as error:
+                await handle_evolution_scene_step(db, task)
+            assert error.value.code == "scene_world_review_scope_changed"
+            assert len(calls) == 4
+            assert not (
+                await db.scalars(
+                    select(CoreEntity).where(CoreEntity.novel_id == UUID(nid))
+                )
+            ).all()
+            return
     result = await handle_evolution_scene_step(db, task)
+    frozen = await store.load_frozen(run["run_key"], result["attempt_id"])
+    request = frozen.payload["world_review_preparation"]["request"]
+    context = json.dumps(request, ensure_ascii=False)
+    assert "initial_world_identity_context" in context
+    # First stage had no identities; the relation stage receives new local refs.
+    assert frozen.payload["world_preparation"]["context"]["identity_candidates"] == []
+    assert frozen.payload["relations_preparation"]["context"]["identity_candidates"]
     assert len(calls) == 4
     receipt = await store.load_receipt(run["run_key"], result["attempt_id"])
     assert len(receipt.paid_call_receipts) == 4
@@ -304,7 +350,7 @@ async def test_known_world_format_failure_defers_only_world_and_keeps_receipt(
     calls = []
     base = world_provider(db, calls)
 
-    async def provider(self, request):
+    async def provider(self, request, *, complete_stream=False):
         response = await base(self, request)
         if calls[-1][0] == "Phase2aSceneExtractionOutput":
             return LLMCallResponse(
@@ -346,7 +392,7 @@ async def test_known_relation_format_failure_keeps_observations_and_defers_world
     calls = []
     base = world_provider(db, calls)
 
-    async def provider(self, request):
+    async def provider(self, request, *, complete_stream=False):
         response = await base(self, request)
         if calls[-1][0] == "AliasRelationExtractionOutput":
             return LLMCallResponse(
@@ -386,7 +432,7 @@ async def test_world_identity_change_after_model_preserves_frozen_results(
     calls = []
     base = world_provider(db, calls)
 
-    async def provider(self, request):
+    async def provider(self, request, *, complete_stream=False):
         response = await base(self, request)
         if calls[-1][0] == "AuditVerdictOutput":
             db.add(
@@ -418,6 +464,79 @@ async def test_world_identity_change_after_model_preserves_frozen_results(
         await db.scalars(select(CoreEntity).where(CoreEntity.novel_id == UUID(nid)))
     ).all()
     assert len(entities) == 1 and entities[0].summary == "作者自己的设定"
+
+
+async def test_world_identity_aliases_share_canonical_materialization_context(
+    db_session, evolution_project_id
+):
+    from copy import deepcopy
+
+    from modules.imports import facade as imports
+    from modules.imports.contracts import SceneWorldIdentityChangedError
+    from modules.imports.scene_world import require_current_identities
+
+    db, nid = db_session, evolution_project_id
+    kinds = {"林舟": "character", "渡口": "location", "铜铃": "item", "石块": "object"}
+    for name, kind in kinds.items():
+        db.add(
+            CoreEntity(
+                novel_id=UUID(nid), name=name, entity_type=kind, status="canonical"
+            )
+        )
+    await db.commit()
+    context = await imports.prepare_scene_world_context(
+        db,
+        nid,
+        [
+            ("人物", "林舟"),
+            ("角色", "林舟"),
+            ("character_ref", "林舟"),
+            ("地点", "渡口"),
+            ("物品", "铜铃"),
+            ("物体", "石块"),
+        ],
+    )
+    assert {
+        item["name"]: item["entity_type"] for item in context["identity_candidates"]
+    } == kinds
+    assert len(context["_identity_queries"]) == 4
+    text = "林舟在渡口握着铜铃，脚边有石块。"
+    world = imports.materialize_scene_world(
+        text,
+        context,
+        {
+            "entities": [
+                {
+                    "name": item["name"],
+                    "entity_type": item["entity_type"],
+                    "identity_disposition": "existing",
+                    "matched_existing_ref": item["prompt_ref"],
+                    "evidence_quotes": [text],
+                }
+                for item in context["identity_candidates"]
+            ]
+        },
+    )
+    assert len(world["entities"]) == 4
+    assert all(
+        item["suggested_action"] == "link_to_existing" for item in world["entities"]
+    )
+    await require_current_identities(db, nid, context)
+    legacy = deepcopy(context)
+    next(item for item in legacy["_identity_queries"] if item["name"] == "林舟")[
+        "entity_type"
+    ] = "人物"
+    with pytest.raises(SceneWorldIdentityChangedError):
+        await require_current_identities(db, nid, legacy)
+    custom = await imports.prepare_scene_world_context(
+        db, nid, [(kind, "铜铃") for kind in ["物件", "云图节点", "artifact"]]
+    )
+    assert not custom["identity_candidates"]
+    assert {item["entity_type"] for item in custom["_identity_queries"]} == {
+        "物件",
+        "云图节点",
+        "artifact",
+    }
 
 
 async def test_world_identity_labels_cannot_reveal_later_alias_or_merge_new_homonym(
@@ -644,7 +763,7 @@ async def test_first_scene_identity_is_reviewed_before_atomic_presence_commit(
     calls = []
     base = world_provider(db, calls, blocked=failure == "blocked")
 
-    async def provider(self, request):
+    async def provider(self, request, *, complete_stream=False):
         schema = json.loads(request.messages[-1].content.split("schema: ", 1)[1])["title"]
         if failure == "ambiguous" and schema == "AliasRelationExtractionOutput":
             calls.append((schema, request.messages[1].content))
@@ -757,7 +876,7 @@ async def test_relation_history_uses_real_prefix_and_not_mutated_world_rows(
     base = world_provider(db, calls)
     second = False
 
-    async def provider(self, request):
+    async def provider(self, request, *, complete_stream=False):
         response = await base(self, request)
         if not second:
             return response

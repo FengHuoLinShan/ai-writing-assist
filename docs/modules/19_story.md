@@ -147,3 +147,7 @@ Story continuity 的在场读取供 World MapSceneContext 聚合：保留位置 
 ### 第一阶段条件比较
 
 本场条件比较与历史来源接口归 continuity，详见 [Memory 契约](05_memory.md)。钥匙转交/三条件锁只做内存候选重放，明确当前值、所需值和未知；作者采用原稿修改不会自动采用候选排演为已发生事件。
+
+连续性投影的历史字段来源、逐字段读者证明和继承前缀消费登记以
+[Memory 契约](05_memory.md) 为准。摄入时冻结的来源不会被后来的 working 稿
+或当前 World 名称回填；缺少旧数据来源绑定时保留 unverified。

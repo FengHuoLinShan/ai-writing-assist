@@ -4,6 +4,7 @@ import {
   clearRecomputeReceiptsForTests,
   driftRowLabel,
   listRecomputeReceipts,
+  mergeServerRecomputeReceipts,
   normalizeInvalidationNotice,
   normalizeRecomputeDriftContext,
   normalizeRecomputeOutcome,
@@ -273,6 +274,63 @@ describe("执行回执与本地会话回执记录", () => {
     expect(items[0]).toMatchObject({ key: "op-1", label: "重读证据", rememberedAt: "2026-10-07T10:00:00Z" })
     expect(listRecomputeReceipts("p2")).toHaveLength(1)
     expect(listRecomputeReceipts("p3")).toHaveLength(0)
+  })
+})
+
+describe("服务端回执并入本地列表", () => {
+  beforeEach(() => clearRecomputeReceiptsForTests())
+  afterEach(() => clearRecomputeReceiptsForTests())
+
+  const serverItems = [
+    { operation_id: "op-2", scope: "rebuild_derived_state", request_hash: "h", handled_count: 3, completed_at: "2026-10-07T12:00:00Z" },
+    { operation_id: "op-1", scope: "reload_evidence", request_hash: "h", handled_count: 1, completed_at: "2026-10-07T10:00:00Z" },
+  ]
+
+  it("服务端条目按完成时间倒序入列并投影为作者语言", () => {
+    expect(mergeServerRecomputeReceipts("p1", serverItems)).toBe(2)
+
+    const items = listRecomputeReceipts("p1")
+    expect(items.map((item) => item.key)).toEqual(["op-2", "op-1"])
+    expect(items[0]).toMatchObject({
+      key: "op-2",
+      label: "重建派生状态",
+      handledCount: 3,
+      rememberedAt: "2026-10-07T12:00:00Z",
+      source: "server",
+    })
+    expect(listRecomputeReceipts("p2")).toHaveLength(0)
+  })
+
+  it("同一 operation_id 以服务端为准；会话内的新记录不被覆盖丢失", () => {
+    rememberRecomputeReceipt("p1", {
+      operationId: "op-1", label: "重读证据", scope: "reload_evidence", domainWritePerformed: true, handledCount: 1,
+    }, { at: "会话内的即时时间" })
+    rememberRecomputeReceipt("p1", {
+      operationId: "op-local", label: "重读证据", scope: "reload_evidence", domainWritePerformed: true, handledCount: 2,
+    }, { at: "2026-10-07T09:00:00Z" })
+
+    expect(mergeServerRecomputeReceipts("p1", serverItems)).toBe(2)
+
+    const items = listRecomputeReceipts("p1")
+    expect(items.map((item) => item.key)).toEqual(["op-2", "op-1", "op-local"])
+    expect(items.find((item) => item.key === "op-1")).toMatchObject({
+      rememberedAt: "2026-10-07T10:00:00Z",
+      source: "server",
+    })
+    expect(items.find((item) => item.key === "op-local").source).toBeUndefined()
+  })
+
+  it("脏数据不入列：非数组、缺 operation_id、未知 scope 容忍处理", () => {
+    expect(mergeServerRecomputeReceipts("p1", null)).toBe(0)
+    expect(mergeServerRecomputeReceipts(null, serverItems)).toBe(0)
+    expect(mergeServerRecomputeReceipts("p1", [
+      { scope: "reload_evidence" },
+      { operation_id: "op-x", scope: "未知方式", handled_count: 1, completed_at: null },
+    ])).toBe(1)
+
+    const items = listRecomputeReceipts("p1")
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({ key: "op-x", label: "重算", rememberedAt: null })
   })
 })
 

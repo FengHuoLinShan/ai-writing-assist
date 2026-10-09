@@ -68,7 +68,10 @@ def register_consumption(
     key = _consumer_key(record)
     for position, existing in enumerate(records):
         if _consumer_key(existing) == key:
-            records[position] = record
+            if existing.model_dump(exclude={"registered_at"}) != record.model_dump(
+                exclude={"registered_at"}
+            ):
+                records[position] = record
             replaced = True
             break
     if not replaced:

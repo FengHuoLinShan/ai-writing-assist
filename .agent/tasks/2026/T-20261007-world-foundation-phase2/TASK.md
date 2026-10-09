@@ -5,9 +5,27 @@ id: T-20261007-world-foundation-phase2
 title: 世界演化第二阶段实施（P2-A/B/C）：可信历史与低成本改稿
 status: active
 created: 2026-10-07T00:00:00+08:00
-updated: 2026-10-07T00:00:00+08:00
+updated: 2026-10-08T19:06:21+09:00
 parent: T-20261006-world-foundation-phase1-impl
 ---
+
+## 修复恢复快照（2026-10-08）
+
+用户在审查后授权“修复。应该已经有一批修复”。本轮承接现有未提交修复，
+原补丁及三份未跟踪修复文件已在仓库外备份；主 checkout 的 WIP 保留。
+
+- 实际完成：原审查 S1/S2/F1–F9 的工程修复，及独立复核补充的真实 v2 来源接线、
+  同章后场景边界、结构等待竞态、当前消费者状态重验。详见 [整改记录](REMEDIATION-20261008.md)。
+- 验证：后端两组 1223/644 passed（有重叠）；最后补充 230 passed；前端 writing
+  339 passed、eslint/build 通过；独立 PG 8 项 E2E、upgrade/check 通过；lint、
+  format、导入/文档门禁和 diff 检查通过。差异文档门禁使用已逐项核对的无变化理由。
+- 当前里程碑：本轮本地整改完成；原 P2 整体记录继续 active，不以离线工程检查核销父任务 R7。
+- 未交付：当前改动没有提交、推送、合并或部署；完整真实浏览器、真实模型与作者验收未运行。
+- 工作区：原主题 worktree，codex/world-foundation-phase1-plan；HEAD
+  312c68a6449fec457a85f3213a7c5c8df8090c71，补丁留在工作树。独立合成库
+  agent_e2e_world_p2repair_20261008，禁止把它与受保护的真实验收库混用。
+- 下一步：取得后续 Git 交付指令后核对当前基线/工作树，再提交此次已验证补丁并完成固定头 PR 门禁。
+  新修改或跨基线集成才重跑受影响检查；不复演已完成调查，不自动运行付费验收。
 
 ## 目标与授权
 
@@ -178,11 +196,21 @@ C2/C3/C4 三个单元产出留在工作树未提交，汇合批统一验证。�
 
 ## 恢复快照
 
-（交接/暂停前更新）当前：P2-A、P2-B 完成并提交，P2-C 的 C0–C4 全部完成、改动未提交，
-汇合门禁与真实浏览器关键流已过，改动已固定提交（4 笔）并开出
-[PR #206](https://github.com/FengHuoLinShan/ai-writing-assist/pull/206)
-（phase1+P2 一并合入 main），待合并授权与 CI；
-快照见 [handoff-world-foundation-p2c-20261008.md](handoff-world-foundation-p2c-20261008.md)。
+2026-10-08 独立 review 完成，阶段 2 尚未通过验收；详见
+[本轮审查](REVIEW-20261008.md)。固定 head `312c68a6449fec457a85f3213a7c5c8df8090c71`，
+[PR #206](https://github.com/FengHuoLinShan/ai-writing-assist/pull/206) 已含 phase1+P2。
+本轮授权仅 review：没有业务修复、提交、推送、合并或部署。
+
+- Standards 2 项 P2；Spec 9 项（5 P1 / 4 P2）。真实 service 反例证明旧确认事实重建改绑 v2 且
+  exact、无来源 reader 泄漏、单字段揭示扩为整对象；真实生产投影未写消费登记；前端异步有错方式
+  执行与永久忙碌。操作来源基线可省略，operation_id 未约束同编号请求及完成回执恢复。
+- 现有定向后端 136 passed、前端 65 passed；补充 SQLite/service 4 个、Vue 挂载 2 个安全/行为
+  断言失败，源代码保留在本任务 artifacts/review-20261008；临时业务测试目录副本已移除。
+- `make docs-check` 完整性通过；差异影响检查未附既有五项无需修改说明时失败，细节见审查。
+- 原汇合“全部完成”声明现被反例否定，实施任务保持 active；第一阶段 R7 仍留父任务。
+- 下一步：若进入整改，先修历史来源及逐字段 reader 证明边界并将反例转回归，再接真实消费登记
+  和可恢复重算流程；未获得整改/合并/付费授权。历史汇合记录见
+  [原交接快照](handoff-world-foundation-p2c-20261008.md)，不得用其覆盖本轮失败证据。
 
 ## A1 产出（契约先行单元，2026-10-07）
 

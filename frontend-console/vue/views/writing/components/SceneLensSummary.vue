@@ -74,12 +74,14 @@
         </section>
         <p v-for="warning in lens.data.warnings || []" :key="warning" class="scene-lens__warning">{{ warning }}</p>
       </template>
+      <EvolutionPanorama v-if="projectId && scene?.id" :project-id="projectId" :scene-id="scene.id" />
     </div>
   </details>
 </template>
 
 <script setup>
 import { computed, ref, watch } from "vue"
+import EvolutionPanorama from "../../../components/EvolutionPanorama.vue"
 import SceneCheckpointHistory from "./SceneCheckpointHistory.vue"
 import SceneFieldProvenance from "./SceneFieldProvenance.vue"
 import SceneStateTrial from "./SceneStateTrial.vue"

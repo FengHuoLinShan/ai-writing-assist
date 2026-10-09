@@ -909,10 +909,15 @@ class WritingRecomputeRequest(BaseModel):
 
 
 class WritingRecomputeAdoptRequest(WritingRecomputeRequest):
-    """执行请求：预览的同一操作内容 + 作者确认 + 预览返回的来源指纹。"""
+    """执行请求：预览的同一操作内容 + 作者确认 + 预览返回的来源指纹。
+
+    ``expected_source_digest`` **必填**（可重验的预览基线）：执行只能落在被
+    确认的那次预览上，省略即失败关闭——否则「预览后来源又变了」的重验无从
+    谈起，客户端传不传不能代替服务端约束。
+    """
 
     confirmed: bool = False
-    expected_source_digest: str | None = Field(default=None, min_length=1)
+    expected_source_digest: str = Field(min_length=1)
 
 
 class WritingRecomputeActionItem(BaseModel):
@@ -971,3 +976,33 @@ class WritingRecomputeOutcomeResponse(BaseModel):
     confirmed: bool
     domain_write_performed: bool
     results: dict[str, Any] = Field(default_factory=dict)
+    #: True = 该操作此前已完成，本次只回放原回执（未产生新的域写入）。
+    replayed: bool = False
+
+
+class WritingRecomputeReceiptItem(BaseModel):
+    """一次已完成重算的可查摘要（跨会话恢复用，只暴露作者语言字段）。"""
+
+    operation_id: str
+    scope: str
+    request_hash: str
+    handled_count: int
+    completed_at: str | None = None
+
+
+class WritingRecomputeReceiptListResponse(BaseModel):
+    """已完成重算回执列表（按完成时间倒序）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    novel_id: str
+    items: list[WritingRecomputeReceiptItem] = Field(default_factory=list)
+
+
+class WritingInvalidationNoticeListResponse(BaseModel):
+    """待重算的失效提示列表（编辑器加载时回读，跨会话保留）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    novel_id: str
+    items: list[dict[str, Any]] = Field(default_factory=list)

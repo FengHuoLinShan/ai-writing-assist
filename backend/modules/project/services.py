@@ -673,8 +673,11 @@ class ProjectService:
         novel_id: str,
         *,
         project_kind: str | None = "author",
+        allow_demo_readonly: bool = True,
     ) -> None:
         """Hold a shared project row lock for the caller's transaction."""
+        if not allow_demo_readonly:
+            self._reject_demo_write()
         pid = _parse_uuid(novel_id, "novel_id")
         self._require_demo_project(pid)
         owner_id = self._require_request_owner_id()
