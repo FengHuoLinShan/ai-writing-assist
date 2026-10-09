@@ -60,6 +60,7 @@ async def update_flow_settings(
         str(run_id),
         str(current_account_id()),
         semantic_review=data.semantic_review,
+        planning_window=data.planning_window,
     )
 
 
