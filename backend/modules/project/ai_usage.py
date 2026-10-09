@@ -71,6 +71,8 @@ async def get_project_ai_usage(
     """按能力汇总窗口期 AI 用量，供项目设置的次级诊断入口展示。
 
     单位为模型计费词元（token）；这是诊断视图，不在主路径展示。
+    已知数字只统计取得完整回执的请求；`requests_unknown` 与
+    `charge_unconfirmed` 如实保留用量未知与计费未确认的部分，不折算为 0。
     """
     from infrastructure.tasks.facade import summarize_project_ai_usage
 
@@ -85,18 +87,24 @@ async def get_project_ai_usage(
     total_requests = 0
     total_prompt = 0
     total_completion = 0
+    total_requests_unknown = 0
+    charge_unconfirmed = False
     for capability_id, bucket in sorted(raw["capabilities"].items()):
         total_requests += int(bucket["requests"])
+        total_requests_unknown += int(bucket["requests_unknown"])
         total_prompt += int(bucket["prompt_tokens"])
         total_completion += int(bucket["completion_tokens"])
+        charge_unconfirmed = charge_unconfirmed or bool(bucket["charge_unconfirmed"])
         capabilities.append(
             {
                 "capability": capability_id,
                 "label": _capability_label(capability_id),
                 "tasks": int(bucket["tasks"]),
                 "requests": int(bucket["requests"]),
+                "requests_unknown": int(bucket["requests_unknown"]),
                 "input_tokens": int(bucket["prompt_tokens"]),
                 "output_tokens": int(bucket["completion_tokens"]),
+                "charge_unconfirmed": bool(bucket["charge_unconfirmed"]),
             }
         )
     return {
@@ -107,8 +115,10 @@ async def get_project_ai_usage(
         "scan_truncated": bool(raw.get("scan_truncated")),
         "totals": {
             "requests": total_requests,
+            "requests_unknown": total_requests_unknown,
             "input_tokens": total_prompt,
             "output_tokens": total_completion,
+            "charge_unconfirmed": charge_unconfirmed,
         },
         "capabilities": capabilities,
     }

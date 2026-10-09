@@ -190,7 +190,10 @@ NOWAIT 保证已持领域锁的入口不会等待项目锁升级；并发作者�
 
 `GET /api/projects/{id}/ai-usage?days=` 是 owner 次级诊断入口：扫描窗口期任务
 `_ai_run_envelope` 私有键，按能力聚合模型请求与输入/输出词元，不暴露 prompt 内容或模型
-密钥；单次扫描上限 500 条任务，截断时返回 `scan_truncated`。
+密钥；单次扫描上限 500 条任务，截断时返回 `scan_truncated`。聚合只累计已知用量
+（取得完整回执的请求）：`requests_unknown` 如实返回已发出但用量未知的请求数，
+`charge_unconfirmed` 标记是否存在计费状态未确认（`charge_state=possible`）的回执，
+两者均不折算进已知数字（BR-0a）。
 
 
 ### 作者写作示例与省钱模式（2026-10）

@@ -799,7 +799,9 @@ class TaskLifecycleService:
         """Aggregate AI run envelope step receipts for one project (read-only).
 
         不建表：直接扫描窗口期任务 meta 中的 run envelope，按能力聚合
-        requests 与 usage。供 owner 次级诊断入口消费。
+        requests 与 usage。供 owner 次级诊断入口消费。已知数字只累计取得
+        完整回执的请求；`requests_unknown` 与 `charge_unconfirmed` 如实
+        保留用量未知与计费未确认的部分，不折算进已知数字。
         """
         from datetime import timedelta
 
@@ -820,7 +822,7 @@ class TaskLifecycleService:
                 .limit(max(1, min(2000, scan_limit)))
             )
         ).all()
-        capabilities: dict[str, dict[str, float]] = {}
+        capabilities: dict[str, dict[str, Any]] = {}
         tasks_with_envelope = 0
         unreadable_envelopes = 0
         for (meta,) in rows:
@@ -836,16 +838,25 @@ class TaskLifecycleService:
                 envelope.root_capability_id,
                 {
                     "requests": 0,
+                    "requests_unknown": 0,
                     "prompt_tokens": 0,
                     "completion_tokens": 0,
                     "tasks": 0,
+                    "charge_unconfirmed": False,
                 },
             )
             bucket["tasks"] += 1
+            # 计费状态未确认只看信封自报的 charge_state：step 级 possible 或
+            # 信封级 possible（旧回执可能没有 step 明细）都算未确认。
+            if envelope.charge_state is AIChargeState.possible:
+                bucket["charge_unconfirmed"] = True
             for step in envelope.steps:
                 bucket["requests"] += int(step.requests_settled)
+                bucket["requests_unknown"] += int(step.requests_unknown)
                 bucket["prompt_tokens"] += int(step.usage.prompt_tokens)
                 bucket["completion_tokens"] += int(step.usage.completion_tokens)
+                if step.charge_state is AIChargeState.possible:
+                    bucket["charge_unconfirmed"] = True
         return {
             "window_days": max(1, min(365, days)),
             "tasks_scanned": len(rows),

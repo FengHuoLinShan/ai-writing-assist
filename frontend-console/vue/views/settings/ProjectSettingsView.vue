@@ -853,13 +853,16 @@ onBeforeUnmount(() => {
             <p v-if="aiUsageError" role="alert">{{ aiUsageError }}</p>
             <template v-if="aiUsage">
               <p role="status">共 {{ aiUsage.tasks_with_envelope }} 次 AI 运行、{{ aiUsage.totals.requests }} 次模型请求；输入约 {{ aiUsage.totals.input_tokens.toLocaleString() }} 词元，输出约 {{ aiUsage.totals.output_tokens.toLocaleString() }} 词元。</p>
+              <p v-if="aiUsage.totals.requests_unknown > 0" role="status" class="settings-section-hint">部分用量未知：另有 {{ aiUsage.totals.requests_unknown }} 次模型请求已发出但用量无法确认，实际消耗可能高于以上数字。</p>
+              <p v-if="aiUsage.totals.charge_unconfirmed" role="status" class="settings-section-hint">部分请求的计费状态未确认，以上数字不代表最终费用。</p>
               <table v-if="aiUsage.capabilities.length" class="data-table">
-                <thead><tr><th>功能</th><th>运行次数</th><th>模型请求</th><th>输入词元</th><th>输出词元</th></tr></thead>
+                <thead><tr><th>功能</th><th>运行次数</th><th>模型请求</th><th>用量未知请求</th><th>输入词元</th><th>输出词元</th></tr></thead>
                 <tbody>
                   <tr v-for="item in aiUsage.capabilities" :key="item.capability">
-                    <td>{{ item.label }}</td>
+                    <td>{{ item.label }}<span v-if="item.charge_unconfirmed" class="usage-charge-unconfirmed">（计费未确认）</span></td>
                     <td>{{ item.tasks }}</td>
                     <td>{{ item.requests }}</td>
+                    <td>{{ item.requests_unknown }}</td>
                     <td>{{ item.input_tokens.toLocaleString() }}</td>
                     <td>{{ item.output_tokens.toLocaleString() }}</td>
                   </tr>
