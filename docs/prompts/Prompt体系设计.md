@@ -50,6 +50,7 @@ output_validator 校验，修复计入同一执行预算；固定审稿保留原
 | `entity_fusion.py` | 内联 step `world.entity_fusion.decision.structured`：项目级智能去重与深度导入 `phase2_dedup` 共用的结构化实体融合判定；导入路径只发送同 workflow candidate 的类型、名称、已确认别名、截断摘要和 Scene/章节来源，不加载整书 RAG | world |
 | `scene_fusion_draft.py` | 内联 step `outline.scene_fusion.draft.structured`：基于选中 Scene 卡和精确正文生成融合语义草稿 | Scene 工作台 |
 | `world_generation_center_service.py` | 内联 steps `world.generation.design_iteration`、`.counterexample.intent/causal/verify/repair/knowledge_repair/final_knowledge/final`、`world.generation.chat.generate`、`world.generation.chat.knowledge.repair`、`world.generation.convergence.map/reduce`、`world.generation.exploration.preview`、`world.generation.semantic_inspection`、`world.generation.core_entity.structured`、`world.generation.world_bible_page.structured`、`world.generation.world_bible_new_page.structured`：世界设定共创、精细设计反例审查、只读收束、一跳探索、当前页检修与结构化建议；普通加强复核在同一冻结账户模型上追加 `.quality_review` 第二遍 | world 生成中心 |
+| `opening_skeleton.py` | 内联 step `world.opening_skeleton.structured`（一次结构化调用、schema 修复至多 2 次；知识治理 step 前缀 `world.opening_skeleton`，返修复用同一 schema）：输入只有作者构想、选定方向卡字段与服务端读取的已有对象清单，一次产出待审采用包；规则条目沿用 world_core 的 can/cannot/cost/failure/maintenance 约束写法 | world 新书开篇骨架 |
 | `ask_world_service.py` | 内联 step `world.ask`（snapshot prompt name `world.ask.v1`）：只根据当前项目作者可见证据生成带引用回答或明确拒答 | world 作者问答 |
 | `selection_proposal.py` | 内联 step `evidence.context.selection.suggest`：把作者资料调整要求映射到服务端 `candidate-NNN`，只返回待应用 include/exclude patch | Context 任务前审查 |
 | `world_bible_synopsis_service.py` | 内联 step `world.world_bible.synopsis.structured`：把已采用世界事实压缩为作者版 P1 世界观简介 | world 世界书简介刷新任务 |
@@ -690,6 +691,32 @@ Phase 2a/2b 的可选 mention_name 仅在对应原文逐字出现时进入 compl
 
 简单剧情结构的参数版本为 phase3_structure_simple_v3，输出线程分类 main/sub/background，兼容旧生成词项的显式映射见 Story README。
 
+
+## 新书开篇世界观骨架（BR-5 World 侧）
+
+`world.draft_opening_skeleton` suggest 操作入队 `world_opening_skeleton` 任务
+（root capability `world.opening_skeleton`，请求额度 6 = 1 次结构化生成 + 至多 2 次
+schema 修复 + 知识审查及其至多一次返修）。生成不编译 Evidence 上下文：输入只有
+`<AUTHOR_VISION>`（构想 + 选定方向卡字段）与 `<EXISTING_WORLD_OBJECTS>`（服务端
+按 importance/name 排序的轻量目录，至多 200 条），因此空项目可直接运行，也
+不存在方向卡或未采用骨架进入生成上下文的通道。
+
+System Prompt 的硬性契约：作者语言（不出现 ID/JSON/协议字段）；世界前提与基调由一个
+`concept` 条目承载；核心规则/力量体系沿用 world_core 的 can/cannot/cost/failure/
+maintenance 约束写法（不适用项在 `na_reasons` 说明理由，不编造）；主要地点 3-5、
+势力/组织 2-4、关键人物 3-5（恰好一名 `is_protagonist=true` 主角）、历史/传说/秘密
+1-3、核心关系至多 12；隐藏层只写 `hidden_truth` 并声明默认仅作者可见；与已有对象
+同名/近名的构想必须复用已有对象（补充空缺信息或附加别名），包内近名条目合并；
+不得声称任何条目已被保存、采用或发布。
+
+输出经 `GeneratedOpeningSkeleton` schema 校验后由服务端确定性包装配
+（`GeneratedOpeningSkeleton` → `world_adoption_package.v2` 待审包）：包内近名合并与
+关系端点重定向、同名已有对象转 fill_empty/existing_ref、近名已有对象转内联别名、
+实体至多 20 与关系至多 12 的硬上限（超出按确定性顺序丢弃并记录进
+`opening_skeleton.dropped_items`）、带 `hidden_truth` 的条目固定
+`reveal_level="author_only"`。知识审查回执写入包 `knowledge_review`，存在时采用
+门禁 fail closed。来源 ref 统一为 `author_decision`（作者方向与构想的指纹），
+不伪造书稿来源。
 
 ## 短期前瞻与 V2 创作试验
 

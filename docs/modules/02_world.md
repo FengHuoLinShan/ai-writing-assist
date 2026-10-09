@@ -592,6 +592,22 @@ owner + novel_id、Context confirmation、私有图片与计费恢复边界不�
 World facade 提供 `get_focused_world_terms()` 和分页 `get_focused_world_neighbors()`，
 负责本项目身份词项、有效别名及直接关系读取；Evidence 另行执行可见性和精确来源限制。
 
+### 新书开篇世界观骨架（BR-5 World 侧）
+
+`world.draft_opening_skeleton` suggest 操作与 `POST /api/world/opening-skeleton/tasks`
+入队 `world_opening_skeleton` 自有任务（root `world.opening_skeleton`、请求额度 6），
+一次结构化生成（修复至多 2 次）+ 知识审查产出待审 `world_adoption_package.v2`。
+输入只有作者构想、选定方向（本包阶段由参数传入）与服务端读取的已有对象目录，
+不编译 Evidence 上下文，空项目可直接运行。服务端确定性去重与上限：同名已有对象改
+补充（fill_empty/existing_ref）、近名只附加别名、包内近名合并并重定向关系、实体
+至多 20 / 关系至多 12（超限丢弃并记录）。秘密/真相类条目 `hidden_truth` 固定
+`reveal_level="author_only"`，仅进入作者完整上下文，读者/角色与 author_safe 上下文
+不可见。作者经 `PATCH /api/world/adoption-packages/{id}/items` 逐条取舍与轻量编辑
+（预览逐条标出冲突，作者排除冲突条而不是整包失败），沿用整包单事务采用；整体撤销
+`POST .../rollback` 复用回执逆序回滚：未改动软废弃、作者已改动保留并说明原因。
+方向卡与未采用骨架只存在于任务请求与待审包中，不进入任何生成上下文或检索。
+Prompt 契约见 `docs/prompts/Prompt体系设计.md`。
+
 `world_adoption_package.v2` 沿用原采用包，增加 summary/public_info/hidden_truth 的
 fill_empty 与 entity_alias。`authorize_focused_world_completion()` 在既有
 creation_suggestion_queue 中保存封闭的 owner 授权 carrier；普通建议接口不能编辑或采用
