@@ -7,6 +7,9 @@ Facade 不写复杂业务逻辑，只做稳定的对外代理。
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from typing import Any
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.evidence.compilation.contracts import (
@@ -948,6 +951,23 @@ async def require_fresh_confirmation(
         action=action,
         confirmation_id=confirmation_id,
         for_update=for_update,
+    )
+
+
+async def get_confirmation_staleness(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    confirmation_ids: Sequence[str],
+) -> dict[str, dict[str, Any]]:
+    """只读确认失效信号（result_status + 是否 stale），供进度投影使用。
+
+    不重编译上下文、不做门禁判定；缺失的 ID 不在返回值中。
+    """
+    return await _confirmation_service.get_staleness_map(
+        db,
+        novel_id=novel_id,
+        confirmation_ids=confirmation_ids,
     )
 
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.project.contracts import WorkspaceCreationProgressItem
 from modules.writing.contracts import (
     ManuscriptReadContract,
     ManuscriptSearchHitContract,
@@ -37,6 +38,7 @@ __all__ = [
     "get_manuscript_source_manifest",
     "scan_manuscript_terms",
     "list_chapter_indices",
+    "list_creation_progress",
     "list_effective_chapter_indices",
     "list_latest_drafts_for_chapters",
     "list_manuscript_sources",
@@ -229,6 +231,24 @@ async def get_author_attention_items(
 ) -> list[WritingAuthorAttentionItemContract]:
     """Project read projection of current actionable Writing checks."""
     return await _conflict_service.get_author_attention_items(db, novel_id)
+
+
+async def list_creation_progress(
+    db: AsyncSession,
+    novel_id: str,
+    *,
+    limit: int = 6,
+) -> list[WorkspaceCreationProgressItem]:
+    """只读作品进度投影：最近候选与已采用成果（BR-1b）。
+
+    只读门禁结果与 provenance，不写回、不重复判断；任务类条目由
+    project workspace adapter 另行并入。
+    """
+    return await WritingDraftService().list_creation_progress(
+        db,
+        novel_id,
+        limit=limit,
+    )
 
 
 async def list_manuscript_sources(

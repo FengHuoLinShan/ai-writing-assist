@@ -35,6 +35,7 @@ from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from infrastructure.stable_hash import stable_hash as _generation_stable_fingerprint
 from infrastructure.tasks.models import AsyncTask
+from modules.project.contracts import WorkspaceCreationProgressItem
 from modules.writing.conflict_ai import (
     AI_REVIEW_ACTION,
     ConflictCheckAiReviewService,
@@ -242,6 +243,15 @@ def _mark_knowledge_review_stale(
     if changed and isinstance(knowledge, dict) and knowledge:
         provenance["knowledge_review"] = {**knowledge, "stale_after_edit": True}
     return provenance
+
+
+def _progress_confirmation_id(draft: WritingDraft) -> str:
+    provenance = draft.provenance_json or {}
+    return str(
+        provenance.get("context_confirmation_id")
+        or provenance.get("source_confirmation_id")
+        or ""
+    )
 
 
 def _mark_knowledge_review_stale_in_place(draft: object) -> None:
@@ -864,6 +874,204 @@ class WritingDraftService:
             idempotency_key=idempotency_key,
         )
         return self._to_contract(adopted)
+
+    async def list_creation_progress(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        limit: int = 6,
+    ) -> list[WorkspaceCreationProgressItem]:
+        """只读作品进度投影（BR-1b）：最近候选与已采用成果。
+
+        只读现有门禁结果与 provenance，不重复判断、不写回领域事实；
+        来源新鲜度由知识复核 stale_after_edit 与确认失效信号拼出，
+        不重编译上下文。任务类条目由组合根 adapter 另行并入。
+        """
+        from sqlalchemy import select
+
+        nid = _parse_uuid(novel_id, "novel")
+        limit = max(1, min(int(limit), 12))
+        candidate_rows = (
+            (
+                await db.execute(
+                    select(WritingDraft)
+                    .where(
+                        WritingDraft.novel_id == nid,
+                        WritingDraft.status == "candidate",
+                    )
+                    .order_by(WritingDraft.updated_at.desc(), WritingDraft.id.desc())
+                    .limit(limit)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        adopted_pool = (
+            (
+                await db.execute(
+                    select(WritingDraft)
+                    .where(
+                        WritingDraft.novel_id == nid,
+                        WritingDraft.status.in_(["draft", "published"]),
+                    )
+                    .order_by(WritingDraft.updated_at.desc(), WritingDraft.id.desc())
+                    .limit(limit * 4)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        adopted_rows = [
+            draft
+            for draft in adopted_pool
+            if (draft.provenance_json or {}).get("adopted_from_candidate_id")
+        ][:limit]
+
+        confirmation_ids: list[str] = []
+        for draft in [*candidate_rows, *adopted_rows]:
+            provenance = draft.provenance_json or {}
+            confirmation_id = str(
+                provenance.get("context_confirmation_id")
+                or provenance.get("source_confirmation_id")
+                or ""
+            )
+            if confirmation_id:
+                confirmation_ids.append(confirmation_id)
+        from modules.evidence.facade import get_confirmation_staleness
+
+        staleness = await get_confirmation_staleness(
+            db,
+            novel_id=novel_id,
+            confirmation_ids=list(dict.fromkeys(confirmation_ids)),
+        )
+
+        items: list[WorkspaceCreationProgressItem] = []
+        for draft in candidate_rows:
+            items.append(
+                self._candidate_progress_item(
+                    draft,
+                    staleness.get(_progress_confirmation_id(draft), {}),
+                )
+            )
+        for draft in adopted_rows:
+            items.append(
+                self._adopted_progress_item(
+                    draft,
+                    staleness.get(_progress_confirmation_id(draft), {}),
+                )
+            )
+        return items
+
+    @staticmethod
+    def _candidate_progress_item(
+        draft: WritingDraft,
+        confirmation_staleness: dict,
+    ) -> WorkspaceCreationProgressItem:
+        provenance = draft.provenance_json or {}
+        knowledge = provenance.get("knowledge_review") or {}
+        review = provenance.get("independent_review") or {}
+        knowledge_status = str(knowledge.get("status") or "") or None
+        verdict = str(review.get("verdict") or "") or None
+        blocking_count = int(review.get("blocking_count") or 0)
+        review_status = knowledge_status or verdict
+        knowledge_stale = bool(knowledge.get("stale_after_edit"))
+        confirmation_stale = bool(confirmation_staleness.get("stale"))
+        source_freshness = (
+            "stale" if knowledge_stale or confirmation_stale else "fresh"
+        )
+
+        if knowledge_status in {"blocked", "legacy_unchecked", "not_checked"}:
+            stop_reason = "资料复核未通过，暂不能采用"
+            applicability = "blocked"
+            actions = ("open_candidate", "reconfirm")
+        elif knowledge_status == "unverifiable":
+            stop_reason = "资料复核未完成，暂不能采用"
+            applicability = "blocked"
+            actions = ("open_candidate", "reconfirm")
+        elif knowledge_status == "checking":
+            stop_reason = "资料复核进行中"
+            applicability = "blocked"
+            actions = ("open_candidate",)
+        elif not review:
+            stop_reason = "待独立语义审查"
+            applicability = "applicable"
+            actions = ("open_candidate", "continue_review")
+        elif verdict == "needs_revision" or blocking_count > 0:
+            stop_reason = f"独立审查发现 {blocking_count} 个必须先处理的问题"
+            applicability = "blocked"
+            actions = ("open_candidate", "continue_review")
+        elif verdict == "incomplete":
+            stop_reason = "独立审查部分完成，暂不能采用"
+            applicability = "blocked"
+            actions = ("open_candidate", "continue_review")
+        else:
+            stop_reason = "可审阅，待作者采用"
+            applicability = "applicable"
+            actions = ("open_candidate",)
+
+        return WorkspaceCreationProgressItem(
+            key=f"candidate:{draft.id}",
+            kind="candidate",
+            title=(
+                f"第 {draft.chapter_index} 章 · "
+                + (draft.title or "AI 正文建议")
+            ),
+            execution_status="done",
+            coverage=f"第 {draft.chapter_index} 章",
+            source_freshness=source_freshness,
+            applicability=applicability,
+            review_status=review_status,
+            adoption_status="candidate",
+            stop_reason=stop_reason,
+            actions=actions,
+            draft_id=str(draft.id),
+            chapter_index=int(draft.chapter_index),
+            scene_id=(
+                str(provenance.get("scene_id")) if provenance.get("scene_id") else None
+            ),
+            updated_at=draft.updated_at or draft.created_at,
+        )
+
+    @staticmethod
+    def _adopted_progress_item(
+        draft: WritingDraft,
+        confirmation_staleness: dict,
+    ) -> WorkspaceCreationProgressItem:
+        provenance = draft.provenance_json or {}
+        knowledge = provenance.get("knowledge_review") or {}
+        open_issues = provenance.get("adopted_with_open_issues") or {}
+        open_count = len(open_issues.get("open_finding_ids") or [])
+        knowledge_stale = bool(knowledge.get("stale_after_edit"))
+        source_freshness = (
+            "stale"
+            if knowledge_stale or bool(confirmation_staleness.get("stale"))
+            else "fresh"
+        )
+        published = draft.status == "published"
+        coverage = f"第 {draft.chapter_index} 章"
+        if open_count:
+            coverage += f" · 带 {open_count} 条未处理建议采用"
+
+        return WorkspaceCreationProgressItem(
+            key=f"adopted:{draft.id}",
+            kind="adopted",
+            title=(
+                f"第 {draft.chapter_index} 章 · "
+                + (draft.title or ("已发布正文" if published else "工作稿"))
+            ),
+            execution_status="done",
+            coverage=coverage,
+            source_freshness=source_freshness,
+            applicability="stale" if source_freshness == "stale" else "applicable",
+            review_status=str(knowledge.get("status") or "") or None,
+            adoption_status="published" if published else "adopted",
+            stop_reason="已发布" if published else "已采用，可继续写作或发布",
+            actions=("open_candidate",),
+            draft_id=str(draft.id),
+            chapter_index=int(draft.chapter_index),
+            updated_at=draft.updated_at or draft.created_at,
+        )
 
     async def update_draft(
         self,
@@ -3931,6 +4139,12 @@ class WritingGenerationService:
                 "discarded stale result"
             )
 
+        # 来源指纹与 finalize 重算值同源落盘：此前只在任务内校验、不持久化，
+        # 进度投影与后续流程无法据此核对新鲜度。
+        candidate.provenance_json = {
+            **(candidate.provenance_json or {}),
+            "source_fingerprint": current_fingerprint,
+        }
         draft = await self._repo.create_with_status(db, candidate, status="candidate")
         await bind_confirmed_action_result(
             db,

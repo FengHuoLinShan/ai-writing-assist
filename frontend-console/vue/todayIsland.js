@@ -290,6 +290,10 @@ export async function loadTodayProps() {
   return {
     project,
     summary,
+    // BR-1b：Today「进行中的创作」由服务端投影驱动；本机指针只保留光标位置。
+    creationProgress: Array.isArray(summary?.creation_progress)
+      ? summary.creation_progress
+      : [],
     workflows,
     creativeContinuation,
     worldContinuations,

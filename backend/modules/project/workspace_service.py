@@ -18,6 +18,7 @@ from core.service_keys import (
 from modules.project.contracts import (
     WorkspaceAttentionItem,
     WorkspaceChapterDraft,
+    WorkspaceCreationProgressItem,
     WorkspaceSceneFocus,
     WorkspaceWorldAttentionSummary,
     WorkspaceWritingStats,
@@ -31,6 +32,7 @@ from modules.project.schemas import (
     WorkspaceAttentionTargetResponse,
     WorkspaceAuthorTasksSummaryResponse,
     WorkspaceContinuationResponse,
+    WorkspaceCreationProgressItemResponse,
     WorkspaceWritingSummaryResponse,
 )
 
@@ -45,6 +47,9 @@ OutlineAttentionReader = Callable[..., Awaitable[int]]
 AuthorAttentionReader = Callable[..., Awaitable[Sequence[WorkspaceAttentionItem]]]
 SceneReader = Callable[..., Awaitable[WorkspaceSceneFocus | None]]
 AuthorTaskSummaryReader = Callable[..., Awaitable[WorkspaceAuthorTasksSummaryResponse]]
+CreationProgressReader = Callable[
+    ..., Awaitable[Sequence[WorkspaceCreationProgressItem]]
+]
 
 # Bootstrap-registered domain providers (AO-4): project reads L2 aggregates
 # through these ports instead of importing world/story/writing directly.
@@ -63,6 +68,7 @@ def _provider_method(key: str, method: str) -> Callable[..., Awaitable[Any]]:
 
 
 _ATTENTION_LIMIT = 6
+_CREATION_PROGRESS_LIMIT = 6
 _RELEVANCE_RANK = {
     "exact_scene": 0,
     "current_chapter": 1,
@@ -175,6 +181,7 @@ class ProjectWorkspaceSummaryService:
         *,
         project_reader: ProjectReader,
         author_task_summary_reader: AuthorTaskSummaryReader,
+        creation_progress_reader: CreationProgressReader | None = None,
         writing_stats_reader: WritingStatsReader | None = None,
         chapter_index_reader: ChapterIndexReader | None = None,
         latest_drafts_reader: LatestDraftsReader | None = None,
@@ -186,6 +193,10 @@ class ProjectWorkspaceSummaryService:
     ) -> None:
         self._project_reader = project_reader
         self._author_task_summary_reader = author_task_summary_reader
+        self._creation_progress_reader = creation_progress_reader or _provider_method(
+            WRITING_STATS_PROVIDER_KEY,
+            "get_creation_progress",
+        )
         self._writing_stats_reader = writing_stats_reader or _provider_method(
             WRITING_STATS_PROVIDER_KEY,
             "get_project_stats",
@@ -256,6 +267,11 @@ class ProjectWorkspaceSummaryService:
             db,
             novel_id,
             on_date=on_date or datetime.now(UTC).date(),
+        )
+        creation_progress = await self._creation_progress_reader(
+            db,
+            novel_id,
+            limit=_CREATION_PROGRESS_LIMIT,
         )
 
         continuation = None
@@ -342,4 +358,10 @@ class ProjectWorkspaceSummaryService:
                 more_targets=more_targets,
             ),
             author_tasks=author_tasks,
+            creation_progress=[
+                WorkspaceCreationProgressItemResponse.model_validate(
+                    item if isinstance(item, dict) else item.__dict__
+                )
+                for item in (creation_progress or [])[:_CREATION_PROGRESS_LIMIT]
+            ],
         )
