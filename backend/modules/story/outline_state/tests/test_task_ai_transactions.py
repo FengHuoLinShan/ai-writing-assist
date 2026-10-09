@@ -728,6 +728,7 @@ async def test_p20_compiles_fresh_context_before_exclusive_finalization_lock(
     data = SimpleNamespace(
         novel_id="11111111-1111-1111-1111-111111111111",
         context_confirmation_id="22222222-2222-2222-2222-222222222222",
+        rolling_window=False,
     )
     confirmed = SimpleNamespace()
     plan = SimpleNamespace(source_fingerprint="frozen", confirmed_context=confirmed)

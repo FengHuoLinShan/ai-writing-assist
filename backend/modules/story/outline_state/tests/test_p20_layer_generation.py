@@ -91,6 +91,74 @@ async def test_p20_initial_request_contains_exact_output_schema(
     assert all('"verdict"' in prompt for prompt in audit_prompts)
 
 
+def test_p20_prompts_bind_requested_chapter_window() -> None:
+    """BR-6：窗口不再是软提示，三种层的 system Prompt 都使用确认窗口。"""
+    for name in ("p20_plot_thread", "p20_outline_arc", "p20_planned_scene"):
+        prompt = load_prompt(name)
+        assert "requested_chapter_range" in prompt, name
+        assert "滚动规划窗口" in prompt, name
+        assert "写成正文" in prompt, name
+
+
+@pytest.mark.asyncio
+async def test_p20_user_prompt_carries_window_directive_for_rolling_requests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.story.outline_state import p20_service
+    from modules.story.outline_state.p20_schemas import P20OutlineArcOutput
+
+    output = P20OutlineArcOutput(result="no_change")
+
+    async def managed_call(_client, _request, schema, **_kwargs):
+        if schema is P20SemanticAudit:
+            return P20SemanticAudit(verdict="pass")
+        return output
+
+    managed = mock.AsyncMock(side_effect=managed_call)
+    monkeypatch.setattr(p20_service, "run_managed_structured", managed)
+
+    async def run_execute(request) -> str:
+        plan = P20GenerationPlan(
+            request=request,
+            context={"requested_chapter_range": {"start": 4, "end": 6}},
+            reference_map={},
+            context_provenance={},
+            source_fingerprint="frozen",
+        )
+        await P20GenerationService().execute(
+            SimpleNamespace(model_name="test-model"),
+            plan,
+        )
+        # 候选生成的 user Prompt 以输入块开头；后续三路审计是另一个输入块。
+        candidate_calls = [
+            call
+            for call in managed.await_args_list
+            if call.args[1].messages[1].content.startswith("<P20_OUTLINE_LAYER_INPUT")
+        ]
+        return candidate_calls[-1].args[1].messages[1].content
+
+    windowed = OutlineLayerGenerateRequest.model_validate(
+        {
+            "novel_id": str(uuid.uuid4()),
+            "context_confirmation_id": str(uuid.uuid4()),
+            "target": "outline_arc",
+            "mode": "create",
+            "instruction": "推进第 4 章之后。",
+            "start_chapter": 4,
+            "end_chapter": 6,
+            "rolling_window": True,
+        }
+    )
+    user_prompt = await run_execute(windowed)
+    assert "章节窗口为第 4 至 6 章" in user_prompt
+    assert "不得覆盖已写成正文" in user_prompt
+
+    manual = windowed.model_copy(update={"rolling_window": False})
+    manual_prompt = await run_execute(manual)
+    assert "章节窗口为第 4 至 6 章" not in manual_prompt
+    assert "requested_chapter_range" in manual_prompt
+
+
 def test_p20_prompts_forbid_author_decision_escape_hatch() -> None:
     plot_prompt = load_prompt("p20_plot_thread")
     scope_prompt = load_prompt("p20_scope_rule_audit")

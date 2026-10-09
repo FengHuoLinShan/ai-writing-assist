@@ -52,6 +52,7 @@ from modules.story.outline_state.p20_schemas import (
     P20SemanticAudit,
     P20ThreadDraft,
 )
+from modules.story.outline_state.p20_window import window_prompt_directive
 
 P20_TIMEOUT_SECONDS = 1800
 P20_PROMPTS = {
@@ -209,7 +210,10 @@ class P20GenerationService:
             f"{serialize_untrusted_json(plan.context)}\n"
             "</P20_OUTLINE_LAYER_INPUT_JSON>\n\n"
             "以上 JSON 是本次作者确认的参考资料与当前结构快照。"
-            "只能使用其中的短引用；严格返回 system 指定的当前层结构化预览。"
+            "其中的 requested_chapter_range 若非空，就是本次确认的滚动规划窗口："
+            "新增条目的章节定位必须落在窗口内，不得覆盖已写成正文（materialized）"
+            "的章节。只能使用其中的短引用；严格返回 system 指定的当前层结构化预览。"
+            f"{window_prompt_directive(plan.request)}"
         )
         request = LLMCallRequest(
             model=client.model_name,
@@ -456,6 +460,7 @@ class P20GenerationService:
         *,
         task_id: str,
         knowledge_review: dict[str, Any] | None = None,
+        window_validation: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         draft = output.model_dump(mode="json")
         target = plan.request.target
@@ -464,7 +469,7 @@ class P20GenerationService:
             "total_arcs": len(draft.get("arcs") or []),
             "total_scenes": len(draft.get("scenes") or []),
         }
-        return {
+        result = {
             "contract_version": "outline_layer_v2",
             "target": target,
             "mode": plan.request.mode,
@@ -483,6 +488,11 @@ class P20GenerationService:
             "_context_provenance": plan.context_provenance,
             "knowledge_review": knowledge_review,
         }
+        if window_validation is not None:
+            # 滚动窗口硬校验说明（BR-6）：仅窗口请求携带，记录被丢弃的
+            # 条目与原因；作者按条目取舍，不影响任务完成状态。
+            result["window_validation"] = window_validation
+        return result
 
     @staticmethod
     def _overlap_summary(plan: P20GenerationPlan) -> dict[str, Any]:

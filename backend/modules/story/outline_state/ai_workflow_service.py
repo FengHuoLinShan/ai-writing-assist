@@ -17,6 +17,7 @@ from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from infrastructure.stable_hash import stable_hash
 from modules.evidence import facade as context_facade
 from modules.story.outline_state.generator import PlotStructureGenerator
+from modules.writing.facade import list_effective_chapter_indices
 from shared.utils import parse_uuid
 
 _OUTLINE_ANALYSIS_SYSTEM_PROMPT = (
@@ -279,11 +280,15 @@ class OutlineAIWorkflowService:
                 "P20 context changed while finalizing the preview; "
                 "discarded stale preview"
             )
+        output, window_validation = await self._apply_rolling_window(
+            db, data, output
+        )
         result = generation.task_result(
             plan,
             output,
             task_id=task_id,
             knowledge_review=generation.last_knowledge_review,
+            window_validation=window_validation,
         )
         await context_facade.attach_result_ref(
             db,
@@ -297,6 +302,27 @@ class OutlineAIWorkflowService:
             progress_callback(1.0)
         await db.flush()
         return result
+
+    @staticmethod
+    async def _apply_rolling_window(db: AsyncSession, data, output):
+        """BR-6 滚动窗口：生成后确定性硬校验，违规条目丢弃并在结果中说明。
+
+        只作用于作者确认过窗口的滚动规划请求（rolling_window=True）；手动
+        结构工作台的章节范围仍是软提示，不受条数上限约束。已写章节来自
+        Writing 稳定 facade（模块级导入，依赖方向 story→writing 在冻结
+        集合内），仅按 novel_id 读取。
+        """
+        from modules.story.outline_state.p20_window import apply_planning_window
+
+        if not data.rolling_window or data.start_chapter is None:
+            return output, None
+        written = await list_effective_chapter_indices(db, data.novel_id)
+        filtered, report = apply_planning_window(
+            data,
+            output,
+            written_chapters=frozenset(written),
+        )
+        return filtered, report
 
     @staticmethod
     def _require_task_session(db: AsyncSession) -> None:

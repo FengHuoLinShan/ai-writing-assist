@@ -175,6 +175,19 @@ P20 confirmation 使用 `budget_tokens=0`，完整总纲、作者确认 context�
 strict 可编辑 preview，采用时在单一 savepoint 中原子写入，并记录总纲 revision、context
 fingerprint、task、采用时间和修订前值。
 
+### 滚动规划窗口（BR-6）
+
+助手滚动推进（`story.plan_structure`）携带起止章窗口：篇章/剧情线窗口默认 3 章、上限 5 章，
+计划 Scene 层只覆盖紧邻 1-2 章。窗口经 `OutlineLayerGenerateRequest.rolling_window` 提交并
+进入 P20 来源指纹；确认记录另存 `planning_window_end`（仅随确认记录，不参与检索或编译裁剪）。
+带窗口请求在生成后执行确定性硬校验（`p20_window.py`）：新条目章节定位必须落在窗口内、
+不得覆盖已写章节（经 Writing 稳定 facade 读取有效章节），条数上限为篇章/剧情线 3 条、
+Scene 每章 2 条；违规条目丢弃并在结果 `window_validation` 中说明，不是整任务失败。
+修订模式下作者显式选中的已有资产保留既有覆盖。已有已采用篇章覆盖窗口时自动转为对该篇章
+的修订建议。同一窗口重复推进共享确定性 operation_id（键含作品、窗口、层与模式），返回原
+任务/预览；未采用的规划只存在于任务回执，不进入写作上下文与检索。手动结构工作台不用
+窗口，照常全书范围。
+
 ## 对外 facade
 
 跨模块调用走 `modules.story.facade`。`modules.story.outline_state.facade` 内部

@@ -219,6 +219,9 @@ regex、随机概率或任意表达式。draft 只用于编辑和 dry-run，发�
 - `chapter_index`：实际检索锚点；跨章 Scene 可由编译器改为 Scene 的末章
 - `requested_chapter_index`：确认记录固定的作者目标章节。创建 confirmation 时由 context
   从请求章节写入，writing 等消费者以此校验任务目标；仅旧确认记录缺失时才回退锚点
+- `planning_window_end`：结构规划（outline.generate）滚动窗口的结束章，与 `chapter_index`
+  组成起止窗口（BR-6）。仅随 confirmation 记录与展示，不参与检索过滤或编译裁剪；
+  章节定位的硬校验在 story P20 生成侧执行
 - `include_pending_objects`：是否允许待处理对象进入本次上下文，默认关闭
 - `excluded_asset_ids`：显式排除的资产
 - `user_note`：用户对本次 AI 操作的补充提醒
