@@ -1,11 +1,16 @@
 /**
- * guidedFlowController — 引导流程（ADR-0032 流程 2 v1）写作页宿主控制器。
+ * guidedFlowController — 引导流程（ADR-0032）写作页宿主控制器。
  *
  * 只编排展示与推进：资料确认复用 shared/aiReferenceModal 既有弹窗，
  * 候选打开与采用交给写作页既有能力；生成/审查在途时轮询推进自动步骤，
  * 有停点或终态时不自动推进。开关关闭或无活动流程时宿主保持隐藏。
+ *
+ * state 必须是 reactive：普通对象会让宿主组件的 computed 不响应异步
+ * applyView 赋值，流程宿主在真实运行中永不渲染。
  */
 
+import { reactive } from "vue"
+import { confirmAsync } from "../../../../shared/confirmAsync.js"
 import { confirmAiReference } from "../../../../shared/aiReferenceModal.js"
 
 const POLL_INTERVAL_MS = 4000
@@ -17,17 +22,17 @@ export function createGuidedFlowController({
   getProjectId,
   getSceneId = () => null,
   onOpenCandidate = () => {},
-  confirmDialog = async (message, confirmText) => globalThis.confirm(`${message}（${confirmText}）`),
+  confirmDialog = (message, confirmText) => confirmAsync(message, confirmText),
 }) {
   let pollTimer = null
   let disposed = false
   let polling = false
-  const state = {
+  const state = reactive({
     view: null,
     visible: false,
     busy: false,
     error: null,
-  }
+  })
 
   function stopPoll() {
     if (pollTimer) {
@@ -100,6 +105,33 @@ export function createGuidedFlowController({
     }
   }
 
+  /** 作者选择停点的推进：choice 由服务端按当前停点校验。 */
+  async function choose(stepId, payload = {}) {
+    return advance({ choice: { step_id: stepId, ...payload } })
+  }
+
+  /** 开始一个流程（服务端注册表限定 flow_id）；开始本身不产生任务或费用。 */
+  async function startFlow(flowId, { chapterIndex = null, input = null, settings = null } = {}) {
+    if (state.busy) return null
+    state.busy = true
+    try {
+      const view = await api.assistant.guidedFlowStart({
+        novel_id: getProjectId(),
+        flow_id: flowId,
+        ...(chapterIndex ? { chapter_index: chapterIndex } : {}),
+        ...(input ? { input } : {}),
+        ...(settings ? { settings } : {}),
+      })
+      return applyView(view)
+    } catch (error) {
+      state.error = error?.message || "流程暂时无法开始"
+      toast(state.error, "warning")
+      return null
+    } finally {
+      state.busy = false
+    }
+  }
+
   async function attachRun(runId) {
     try {
       return applyView(await api.assistant.guidedFlow(getProjectId(), runId))
@@ -144,13 +176,14 @@ export function createGuidedFlowController({
     }
   }
 
-  async function saveSettings(semanticReview) {
+  async function saveSettings(semanticReview, planningWindow = null) {
     if (!state.view || state.busy) return null
     state.busy = true
     try {
       const view = await api.assistant.guidedFlowSettings(state.view.run_id, {
         novel_id: getProjectId(),
         semantic_review: Boolean(semanticReview),
+        ...(planningWindow ? { planning_window: planningWindow } : {}),
       })
       return applyView(view)
     } catch (error) {
@@ -164,7 +197,7 @@ export function createGuidedFlowController({
   async function abandonFlow() {
     if (!state.view || state.busy) return null
     const confirmed = await confirmDialog(
-      "结束本续写流程？已生成的候选会保留在候选列表中，不会丢失。",
+      "结束本流程？已生成的候选与已确认资料都会保留，不会丢失。",
       "结束流程",
     )
     if (!confirmed) return null
@@ -212,6 +245,8 @@ export function createGuidedFlowController({
     probeActive,
     refresh,
     advance,
+    choose,
+    startFlow,
     confirmReference,
     saveSettings,
     abandonFlow,

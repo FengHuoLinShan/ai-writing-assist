@@ -71,6 +71,33 @@ describe("TodayView 进行中的创作（BR-1b）", () => {
     expect(wrapper.find('[data-action="start-guided-flow"]').exists()).toBe(false)
   })
 
+  it("空项目显示新书开篇引导卡：写构想即可开始，不暴露内部标识", async () => {
+    const guidedFlowStart = vi.fn(async () => ({
+      run_id: "run-open-1", flow_id: "new_book_opening", status: "running", stop: null,
+      steps: [], panel: { cards: [] }, settings: {},
+    }))
+    const { wrapper } = mountToday([], {
+      continuation: null,
+      guidedFlowStart,
+    })
+    const card = wrapper.get(".opening-flow")
+    expect(card.text()).toContain("从一句构想开始新书")
+    expect(card.text()).not.toContain("new_book_opening")
+    await card.get('[data-action="opening-vision"]').setValue("潮汐城市")
+    await card.get('[data-action="opening-start"]').trigger("click")
+    await flushPromises()
+    expect(guidedFlowStart).toHaveBeenCalledWith({
+      novel_id: "p1",
+      flow_id: "new_book_opening",
+      input: { vision: "潮汐城市" },
+    })
+  })
+
+  it("空项目但引导流程未开启时不显示新书开篇卡", () => {
+    const { wrapper } = mountToday([], { continuation: null, guidedFlowAvailable: false })
+    expect(wrapper.find(".opening-flow").exists()).toBe(false)
+  })
+
   it("任务进行中、可审阅、已采用三种状态分开显示", () => {
     const { wrapper } = mountToday([
       { key: "task:t1", kind: "task", title: "第 2 章 · 生成正文", execution_status: "running", stop_reason: "正在处理", actions: ["view_task"] },

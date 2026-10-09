@@ -64,8 +64,10 @@
                 <label>处置说明 <small>会连同意见原文一起交给修订</small><textarea v-model="revisionInstruction" rows="2" maxlength="2000" /></label>
                 <div class="editorial-desk__actions">
                   <button type="button" class="btn btn-primary btn-sm" :disabled="revisionBusy || !revisionInstruction.trim() || busy" @click="submitRevision">{{ revisionBusy ? '提交中…' : `发起 ${selectedIssueIds.length} 条修订` }}</button>
+                  <button type="button" class="btn btn-sm" :disabled="revisionBusy || !revisionInstruction.trim() || busy || !flowAvailable" data-action="start-revision-flow" @click="startRevisionFlow">走引导流程修订</button>
                   <button type="button" class="btn btn-sm" :disabled="revisionBusy" @click="clearIssueSelection">取消选择</button>
                 </div>
+                <p v-if="!flowAvailable" class="editorial-desk__note">引导流程未向当前作品开放时，可直接发起修订，效果相同。</p>
               </template>
               <p v-if="revisionError" class="editorial-desk__error" role="alert">{{ revisionError }}</p>
               <div v-if="revisionItems.length" class="editorial-desk__revision-results">
@@ -86,6 +88,42 @@
         </template>
       </section>
 
+      <!-- 引导流程（BR-4 流程 3）：选意见 → 桥接修订 → 候选审阅 → 改后复核。 -->
+      <section v-if="flowView && !flowTerminal" class="editorial-desk__flowstrip" aria-label="修订引导流程">
+        <header class="editorial-desk__section-head">
+          <div><strong>{{ flowView.title }}</strong><p>{{ flowView.description }}</p></div>
+          <span class="editorial-desk__flow-status">{{ flowStatusLabel }}</span>
+        </header>
+        <ol class="editorial-desk__flow-steps">
+          <li v-for="step in flowView.steps" :key="step.step_id" :data-state="step.state">
+            <span aria-hidden="true">{{ flowStepMark(step.state) }}</span>
+            <span>{{ step.title }}</span>
+          </li>
+        </ol>
+        <p v-if="flowView.stop" role="status">{{ flowView.stop.reason }}</p>
+        <p v-else-if="flowView.status === 'running'" role="status">修订正在按流程推进，完成后会停下来说明。</p>
+        <div v-if="flowRechecks.length" class="editorial-desk__revision-results">
+          <p v-for="entry in flowRechecks" :key="entry.issue_id">
+            <template v-if="entry.verdict_label">改后复核：{{ entry.verdict_label }}<template v-if="entry.reason"> — {{ entry.reason }}</template></template>
+            <template v-else-if="['failed', 'cancelled'].includes(entry.status)">改后复核未完成，可在意见卡上重新发起。</template>
+            <template v-else>改后复核进行中…</template>
+          </p>
+        </div>
+        <div class="editorial-desk__actions">
+          <button
+            v-for="action in flowView.stop?.actions || []"
+            :key="action.action"
+            type="button"
+            class="btn btn-sm"
+            :class="{ 'btn-primary': action === (flowView.stop?.actions || [])[0] }"
+            :disabled="flowBusy"
+            :data-action="`flow-${action.action}`"
+            @click="runFlowAction(action.action)"
+          >{{ action.label }}</button>
+        </div>
+        <p v-if="flowError" class="editorial-desk__error" role="alert">{{ flowError }}</p>
+      </section>
+
       <details class="editorial-desk__section">
         <summary>主动跟进 <small>{{ policy?.enabled ? '已开启' : '未开启' }}</small></summary>
         <p>开启后，仅在你把已保存工作稿交给编辑，或未关闭问题关联的结构发生变化时，后台才排队检查。普通输入与自动保存不会触发。</p>
@@ -102,6 +140,7 @@
 import { computed, onBeforeUnmount, ref, watch } from "vue"
 import { getApi } from "../bridge/index.js"
 import { locateAssistantSource } from "../shared/assistantNavigation.js"
+import { confirmAsync } from "../../shared/confirmAsync.js"
 import { confirmEditorialImpact } from "../composables/useEditorialGuard.js"
 import EditorialIssueCard from "./EditorialIssueCard.vue"
 
@@ -168,16 +207,18 @@ async function load() {
   const projectId = props.projectId
   loading.value = true; error.value = ""
   try {
-    const [nextBrief, nextPolicy, nextReviews, nextIssues, nextWritingUse] = await Promise.all([
+    const [nextBrief, nextPolicy, nextReviews, nextIssues, nextWritingUse, nextCapabilities] = await Promise.all([
       getApi().projects.editorialBrief(projectId), getApi().assistant.editorialPolicy(projectId),
       getApi().assistant.editorialReviews(projectId), getApi().assistant.editorialIssues(projectId),
       getApi().projects.editorialBriefForWriting(projectId),
+      getApi().assistant?.capabilities ? getApi().assistant.capabilities(projectId) : Promise.resolve(null),
     ])
     if (projectId !== props.projectId) return
     briefForWriting.value = Boolean(nextWritingUse?.enabled)
     briefForWritingEffective.value = Boolean(nextWritingUse?.effective)
     restoreBrief(nextBrief); policy.value = nextPolicy; automaticEnabled.value = nextPolicy.enabled; automaticExclusionsText.value = (nextPolicy.excluded_chapters || []).join(", ")
     reviews.value = nextReviews; issues.value = nextIssues
+    flowAvailable.value = Boolean(nextCapabilities?.guided_flows?.available)
     pruneIssueSelection()
     if (!nextReviews.some(item => item.id === selectedReviewId.value)) selectedReviewId.value = nextReviews[0]?.id || null
     if (props.focusIssueId) selectedReviewId.value = nextIssues.find(item => item.id === props.focusIssueId)?.review_id || selectedReviewId.value
@@ -316,6 +357,101 @@ async function pollRevisionTasks() {
 function openRevisionCandidate(item) {
   locateAssistantSource({ type: "writing_draft", id: item.candidate_draft_id, chapter_index: item.chapter_index })
 }
+
+// ============================================================
+// 引导流程（BR-4 流程 3）：与批量修订并排的入口；选定意见后
+// 经服务端确定性流程桥接，停点展示候选与改后复核结果。
+// ============================================================
+const flowAvailable = ref(false)
+const flowView = ref(null), flowBusy = ref(false), flowError = ref("")
+const flowTerminal = computed(() => ["completed", "failed", "cancelled"].includes(flowView.value?.status))
+const FLOW_STATUS_LABELS = { running: "进行中", waiting_approval: "等你的决定", completed: "已完成", failed: "已停下", cancelled: "已结束" }
+const flowStatusLabel = computed(() => FLOW_STATUS_LABELS[flowView.value?.status] || "")
+const flowRechecks = computed(() => flowView.value?.panel?.rechecks || [])
+
+function flowStepMark(state) {
+  if (state === "done") return "✓"
+  if (state === "active") return "●"
+  if (state === "blocked") return "!"
+  if (state === "skipped") return "—"
+  return "○"
+}
+
+async function startRevisionFlow() {
+  const instruction = revisionInstruction.value.trim()
+  const selected = reviewIssues.value.filter(issue => selectedIssueIds.value.includes(issue.id))
+  if (!instruction || !selected.length || flowBusy.value) return
+  flowBusy.value = true; flowError.value = ""
+  try {
+    flowView.value = await getApi().assistant.guidedFlowStart({ novel_id: props.projectId, flow_id: "editorial_revision" })
+    flowError.value = ""
+  }
+  catch (cause) {
+    flowError.value = cause.message || "修订引导流程暂时不可用，可直接发起修订。"
+    return
+  }
+  finally { flowBusy.value = false }
+  // 选定意见即作为流程的第一个作者选择提交；失败时保留选择与说明。
+  const advanced = await advanceRevisionFlow({
+    choice: {
+      step_id: "select_issues",
+      action: "select_issues",
+      items: selected.map(issue => ({ issue_id: issue.id, expected_version: issue.version, instruction })),
+    },
+  })
+  if (advanced) {
+    revisionInstruction.value = ""
+    clearIssueSelection()
+  }
+}
+
+async function advanceRevisionFlow(extra = {}) {
+  if (!flowView.value || flowBusy.value) return null
+  flowBusy.value = true
+  try {
+    flowView.value = await getApi().assistant.guidedFlowAdvance(flowView.value.run_id, { novel_id: props.projectId, ...extra })
+    flowError.value = ""
+    return flowView.value
+  }
+  catch (cause) { flowError.value = cause.message || "流程推进失败，请稍后重试。"; return null }
+  finally { flowBusy.value = false }
+}
+
+async function refreshRevisionFlow() {
+  if (!flowView.value || flowBusy.value || !props.active || flowTerminal.value) return
+  try {
+    if (!flowView.value.stop) await advanceRevisionFlow({})
+    else flowView.value = await getApi().assistant.guidedFlow(props.projectId, flowView.value.run_id)
+  }
+  catch { /* 下一轮轮询重试，不覆盖已有状态 */ }
+}
+
+function runFlowAction(action) {
+  if (action === "open_candidate") {
+    const item = flowRecheckCandidate()
+    if (item) locateAssistantSource({ type: "writing_draft", id: item.candidate_draft_id, chapter_index: item.chapter_index })
+    return
+  }
+  if (action === "abandon_flow") return abandonRevisionFlow()
+  advanceRevisionFlow({ choice: { step_id: flowView.value?.stop?.step_id || "", action } })
+}
+
+function flowRecheckCandidate() {
+  return (flowView.value?.panel?.items || []).find(item => item.candidate_draft_id) || null
+}
+
+async function abandonRevisionFlow() {
+  if (!flowView.value || flowBusy.value) return
+  const confirmed = await confirmAsync("结束这条修订引导流程？已生成的替换候选会保留在候选列表中。", "结束流程")
+  if (!confirmed) return
+  flowBusy.value = true
+  try {
+    flowView.value = await getApi().assistant.guidedFlowAbandon(props.projectId, flowView.value.run_id)
+    flowError.value = ""
+  }
+  catch (cause) { flowError.value = cause.message || "流程结束失败，请稍后重试。" }
+  finally { flowBusy.value = false }
+}
 function locate(evidence) { locateAssistantSource({ type: "writing_draft", id: evidence.draft_id, chapter_index: evidence.chapter_index, start: evidence.start, content_hash: evidence.content_hash }) }
 async function savePolicy() {
   busy.value = true; error.value = ""
@@ -345,6 +481,8 @@ watch(() => props.projectId, () => {
   revisionError.value = ""
   revisionInstruction.value = ""
   selectedIssueIds.value = []
+  flowView.value = null
+  flowError.value = ""
 })
 // 轮询生命周期：active 且项目变化时重置重启；同一项目不重复 start；
 // 失活与卸载都停表并置空句柄。
@@ -357,7 +495,7 @@ function stopPoller() {
 function startPoller() {
   if (poller && pollerProjectId === props.projectId) return
   stopPoller()
-  poller = setInterval(() => { refreshResults(); pollRevisionTasks() }, 8000)
+  poller = setInterval(() => { refreshResults(); pollRevisionTasks(); refreshRevisionFlow() }, 8000)
   pollerProjectId = props.projectId
 }
 watch([() => props.active, () => props.projectId], ([active]) => { if (active) { load(); startPoller() } else stopPoller() }, { immediate: true })
@@ -365,5 +503,15 @@ onBeforeUnmount(stopPoller)
 </script>
 
 <style scoped>
-.editorial-desk{display:grid;gap:16px;padding:16px;overflow-y:auto;min-height:0;color:var(--text-primary);line-height:1.55}.editorial-desk__heading,.editorial-desk__section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.editorial-desk__heading p,.editorial-desk__section p{margin:6px 0;color:var(--text-secondary)}.editorial-desk__section{border:1px solid var(--border);border-radius:12px;padding:14px;background:var(--surface)}.editorial-desk__section summary{cursor:pointer;font-weight:700}.editorial-desk__section summary small{font-weight:400;color:var(--text-secondary)}.editorial-desk__section h3,.editorial-desk__section h4{margin:0 0 8px}.editorial-desk__section label{display:grid;gap:4px;margin:10px 0;font-size:14px}.editorial-desk__section label small{font-weight:400;color:var(--text-secondary)}.editorial-desk__section input:not([type=checkbox]),.editorial-desk__section textarea,.editorial-desk__section select{width:100%;min-height:38px;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text-primary)}.editorial-desk__section fieldset{display:flex;flex-wrap:wrap;gap:6px 12px;border:0;padding:4px 0;margin:8px 0}.editorial-desk__section fieldset label,.editorial-desk__section>label:has(input[type=checkbox]){display:flex;align-items:center;gap:6px;margin:0}.editorial-desk__scope{display:flex;gap:10px;flex-wrap:wrap}.editorial-desk__scope label{flex:1 1 110px}.editorial-desk__actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px}.editorial-desk__error{color:var(--danger,#b42318);padding:8px;background:var(--danger-soft,#fff4f2);border-radius:8px}.editorial-desk__status{font-weight:700}.editorial-desk__issues{display:grid;gap:10px;margin-top:14px}.editorial-desk__revision{border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:12px;background:var(--surface)}.editorial-desk__revision h4{margin:0 0 8px}.editorial-desk__revision label{display:grid;gap:4px;margin:10px 0;font-size:14px}.editorial-desk__revision label small{font-weight:400;color:var(--text-secondary)}.editorial-desk__revision textarea{width:100%;min-height:38px;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text-primary)}.editorial-desk__revision-results{margin-top:8px;display:grid;gap:6px}.editorial-desk__revision-results p{margin:0;color:var(--text-primary)}@media(max-width:600px){.editorial-desk{padding:12px}.editorial-desk__heading,.editorial-desk__section-head{display:block}.editorial-desk__section-head select{margin-top:8px}}
+.editorial-desk{display:grid;gap:16px;padding:16px;overflow-y:auto;min-height:0;color:var(--text-primary);line-height:1.55}.editorial-desk__heading,.editorial-desk__section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.editorial-desk__heading p,.editorial-desk__section p{margin:6px 0;color:var(--text-secondary)}.editorial-desk__section{border:1px solid var(--border);border-radius:12px;padding:14px;background:var(--surface)}.editorial-desk__section summary{cursor:pointer;font-weight:700}.editorial-desk__section summary small{font-weight:400;color:var(--text-secondary)}.editorial-desk__section h3,.editorial-desk__section h4{margin:0 0 8px}.editorial-desk__section label{display:grid;gap:4px;margin:10px 0;font-size:14px}.editorial-desk__section label small{font-weight:400;color:var(--text-secondary)}.editorial-desk__section input:not([type=checkbox]),.editorial-desk__section textarea,.editorial-desk__section select{width:100%;min-height:38px;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text-primary)}.editorial-desk__section fieldset{display:flex;flex-wrap:wrap;gap:6px 12px;border:0;padding:4px 0;margin:8px 0}.editorial-desk__section fieldset label,.editorial-desk__section>label:has(input[type=checkbox]){display:flex;align-items:center;gap:6px;margin:0}.editorial-desk__scope{display:flex;gap:10px;flex-wrap:wrap}.editorial-desk__scope label{flex:1 1 110px}.editorial-desk__actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px}.editorial-desk__error{color:var(--danger,#b42318);padding:8px;background:var(--danger-soft,#fff4f2);border-radius:8px}.editorial-desk__status{font-weight:700}.editorial-desk__issues{display:grid;gap:10px;margin-top:14px}.editorial-desk__revision{border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:12px;background:var(--surface)}.editorial-desk__revision h4{margin:0 0 8px}.editorial-desk__revision label{display:grid;gap:4px;margin:10px 0;font-size:14px}.editorial-desk__revision label small{font-weight:400;color:var(--text-secondary)}.editorial-desk__revision textarea{width:100%;min-height:38px;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text-primary)}.editorial-desk__revision-results{margin-top:8px;display:grid;gap:6px}.editorial-desk__revision-results p{margin:0;color:var(--text-primary)}
+.editorial-desk__note{font-size:12px;color:var(--text-secondary)}
+.editorial-desk__flowstrip{border:1px solid var(--border);border-radius:12px;padding:14px;margin-top:12px;background:var(--surface);display:grid;gap:10px}
+.editorial-desk__flowstrip header p{margin:4px 0 0;color:var(--text-secondary);font-size:13px}
+.editorial-desk__flow-status{font-size:12px;color:var(--text-secondary);white-space:nowrap}
+.editorial-desk__flowstrip[data-status] .editorial-desk__flow-status{font-weight:700}
+.editorial-desk__flow-steps{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:var(--text-secondary)}
+.editorial-desk__flow-steps li{display:flex;align-items:center;gap:6px}
+.editorial-desk__flow-steps li[data-state="active"]{color:var(--text-primary);font-weight:700}
+.editorial-desk__flow-steps li[data-state="blocked"]{color:var(--danger,#a33a2a)}
+.editorial-desk__flowstrip>p{margin:0;font-size:13px;line-height:1.55;color:var(--text-primary)}@media(max-width:600px){.editorial-desk{padding:12px}.editorial-desk__heading,.editorial-desk__section-head{display:block}.editorial-desk__section-head select{margin-top:8px}}
 </style>
