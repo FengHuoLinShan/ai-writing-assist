@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import uuid
+from datetime import UTC, datetime
+
+import pytest
+
 from modules.evidence.compilation.knowledge.policies import CAPABILITY_REGISTRY
 from modules.project.ai_usage import _capability_label
 
@@ -42,3 +47,98 @@ def test_every_registered_capability_has_a_label() -> None:
         if _capability_label(capability_id).startswith("其他 AI 能力")
     )
     assert unlabeled == []
+
+
+@pytest.mark.asyncio
+async def test_get_project_ai_usage_keeps_unknown_and_unconfirmed_markers(
+    db_session,
+    project_factory,
+) -> None:
+    """BR-0a：未知用量与计费未确认要透传到诊断入口，已知数字不变。"""
+    from infrastructure.llm.schemas import AI_RUN_ENVELOPE_KEY
+    from infrastructure.tasks.models import AsyncTask
+    from modules.project.ai_usage import get_project_ai_usage
+
+    novel_id = str(await project_factory.create_project(title="用量未知"))
+    known = {
+        "version": 1,
+        "operation_id": "op-known",
+        "run_id": "run-known",
+        "root_capability_id": "writing.generate",
+        "novel_id": novel_id,
+        "started_at": datetime.now(UTC).isoformat(),
+        "request_limit": 10,
+        "requests_started": 2,
+        "requests_settled": 2,
+        "steps": [
+            {
+                "step_name": "writing.generate.chunk",
+                "step_capability_id": "writing.generate",
+                "call_kind": "structured",
+                "requests_started": 2,
+                "requests_settled": 2,
+                "usage": {"prompt_tokens": 100, "completion_tokens": 50},
+            }
+        ],
+    }
+    partial_unknown = {
+        "version": 1,
+        "operation_id": "op-partial-unknown",
+        "run_id": "run-partial-unknown",
+        "root_capability_id": "writing.semantic_review",
+        "novel_id": novel_id,
+        "started_at": datetime.now(UTC).isoformat(),
+        "request_limit": 10,
+        "requests_started": 3,
+        "requests_settled": 2,
+        "requests_unknown": 1,
+        "usage_complete": False,
+        "charge_state": "possible",
+        "steps": [
+            {
+                "step_name": "writing.semantic_review.chunk",
+                "step_capability_id": "writing.semantic_review",
+                "call_kind": "structured",
+                "requests_started": 3,
+                "requests_settled": 2,
+                "requests_unknown": 1,
+                "usage": {"prompt_tokens": 30, "completion_tokens": 20},
+                "charge_state": "possible",
+                "usage_complete": False,
+            }
+        ],
+    }
+    db_session.add_all(
+        [
+            AsyncTask(
+                id=uuid.uuid4(),
+                task_type="writing_generate",
+                status="succeeded",
+                novel_id=uuid.UUID(novel_id),
+                meta={AI_RUN_ENVELOPE_KEY: known},
+            ),
+            AsyncTask(
+                id=uuid.uuid4(),
+                task_type="writing_semantic_review",
+                status="succeeded",
+                novel_id=uuid.UUID(novel_id),
+                meta={AI_RUN_ENVELOPE_KEY: partial_unknown},
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    usage = await get_project_ai_usage(db_session, novel_id, days=30)
+
+    # 已知部分数字不变
+    assert usage["totals"]["requests"] == 4
+    assert usage["totals"]["input_tokens"] == 130
+    assert usage["totals"]["output_tokens"] == 70
+    # 未知与未确认如实保留
+    assert usage["totals"]["requests_unknown"] == 1
+    assert usage["totals"]["charge_unconfirmed"] is True
+    by_capability = {item["capability"]: item for item in usage["capabilities"]}
+    assert by_capability["writing.generate"]["requests_unknown"] == 0
+    assert by_capability["writing.generate"]["charge_unconfirmed"] is False
+    assert by_capability["writing.semantic_review"]["requests_unknown"] == 1
+    assert by_capability["writing.semantic_review"]["charge_unconfirmed"] is True
