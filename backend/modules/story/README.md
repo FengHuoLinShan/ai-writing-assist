@@ -143,6 +143,12 @@ Evidence 精确失效：排除本次 Confirmation，但使仍引用旧状态的�
 `modules/story/tests/test_unadopted_planning_context.py`。手动结构工作台不使用窗口，
 照常可用全书范围；`_require_scope` 未放宽。
 
+流程侧补窗检查（BR-6）经 outline_state facade 的只读缝
+`get_planned_chapter_coverage(db, novel_id, start_chapter=, end_chapter=)`
+统计窗口内已被已采用规划覆盖的章（非 deprecated 篇章、`planning_state="planned"`
+且带计划章节范围的计划 Scene、起始章在窗口内的剧情线），供引导流程在采用后
+判断"前方已规划章数、不足 2 章提议补足"；只读，不写回、不重复判断领域门禁。
+
 
 ### 助手维护与变化检查
 
