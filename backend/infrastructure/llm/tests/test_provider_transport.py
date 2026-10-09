@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import socket
 from types import SimpleNamespace
@@ -9,7 +10,13 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
-from openai import APIConnectionError, APITimeoutError, BadRequestError, RateLimitError
+from openai import (
+    APIConnectionError,
+    APITimeoutError,
+    AsyncOpenAI,
+    BadRequestError,
+    RateLimitError,
+)
 
 from core.config import Settings, get_settings
 from infrastructure.llm.egress import (
@@ -510,3 +517,111 @@ def test_structured_diagnostics_record_channel_lengths_without_reasoning_text():
     assert diagnostics["reasoning_chars"] == len("private-sentinel")
     assert "private-sentinel" not in str(diagnostics)
     assert "reasoning_chars" not in _cache_usage_diagnostic(LLMCallResponse(content="{}"))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "outcome",
+    [
+        "complete",
+        "length",
+        "content_filter",
+        "disconnect",
+        "timeout",
+        "missing_usage",
+        "missing_finish",
+    ],
+)
+async def test_native_complete_stream_requires_final_receipt_and_closes(outcome):
+    requests = []
+    closed = 0
+
+    class Body(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            for content in ['{"value":', '"ok"}']:
+                frame = {
+                    "id": "fixture-response",
+                    "created": 1,
+                    "model": "deepseek-flash",
+                    "object": "chat.completion.chunk",
+                    "choices": [
+                        {"index": 0, "delta": {"content": content}, "finish_reason": None}
+                    ],
+                }
+                yield ("data: " + json.dumps(frame) + "\n\n").encode()
+            if outcome == "disconnect":
+                raise httpx.ReadError("fixture peer reset")
+            if outcome == "timeout":
+                raise httpx.ReadTimeout("fixture read timeout")
+            final = {
+                "id": "fixture-response",
+                "created": 1,
+                "model": "deepseek-flash",
+                "object": "chat.completion.chunk",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {},
+                        "finish_reason": None
+                        if outcome == "missing_finish"
+                        else "length"
+                        if outcome == "length"
+                        else "content_filter"
+                        if outcome == "content_filter"
+                        else "stop",
+                    }
+                ],
+                "usage": None
+                if outcome == "missing_usage"
+                else {
+                    "prompt_tokens": 2,
+                    "completion_tokens": 3,
+                    "total_tokens": 5,
+                    "prompt_cache_hit_tokens": 1,
+                },
+            }
+            yield ("data: " + json.dumps(final) + "\n\ndata: [DONE]\n\n").encode()
+
+        async def aclose(self):
+            nonlocal closed
+            closed += 1
+
+    def transport(request):
+        requests.append(json.loads(request.content))
+        return httpx.Response(
+            200, headers={"content-type": "text/event-stream"}, stream=Body()
+        )
+
+    sdk = AsyncOpenAI(
+        api_key="fixture-key",
+        base_url="https://fixture.example/v1",
+        max_retries=0,
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(transport)),
+    )
+    provider = OpenAIProvider.__new__(OpenAIProvider)
+    provider._client = sdk
+    provider._default_model = "deepseek-flash"
+    provider._timeout = 900
+    request = LLMCallRequest(
+        model="deepseek-flash", response_format={"type": "json_object"}
+    )
+    try:
+        if outcome in {"complete", "length", "content_filter"}:
+            result = await provider.generate(request, complete_stream=True)
+            assert result.content == '{"value":"ok"}'
+            assert result.usage.total_tokens == 5
+            assert result.finish_reason == (
+                outcome if outcome in {"length", "content_filter"} else "stop"
+            )
+            assert result.raw["usage"]["prompt_cache_hit_tokens"] == 1
+        else:
+            with pytest.raises(
+                LLMTimeoutError if outcome == "timeout" else LLMConnectionError
+            ):
+                await provider.generate(request, complete_stream=True)
+        assert len(requests) == 1
+        assert requests[0]["stream"] is True
+        assert requests[0]["stream_options"] == {"include_usage": True}
+        assert closed == 1
+    finally:
+        await sdk.close()

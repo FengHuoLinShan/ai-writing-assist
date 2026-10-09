@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Literal
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from modules.story.continuity.contracts import (
     CURRENT_SCENE_MEMORY_CONTRACT_VERSION,
@@ -134,3 +137,17 @@ def reading_structure_schema(name):
             StructureEvidenceReviewOutput,
         )
     }[name]
+
+
+class SceneStateTrialRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    scene_id: UUID
+    state_fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
+    actor_id: UUID
+    action: Literal["transfer_key", "open_lock"]
+    key_id: UUID
+    lock_id: UUID | None = None
+    recipient_id: UUID | None = None
+    candidate_holder_id: UUID | None = None
+    candidate_moon_phase: Literal["full", "other"] | None = None
+    comparison_digest: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")

@@ -25,7 +25,11 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from core.config import get_settings
-from infrastructure.llm.errors import LLMError, LLMInvalidResponseError
+from infrastructure.llm.errors import (
+    LLMContentFilterError,
+    LLMError,
+    LLMInvalidResponseError,
+)
 from infrastructure.llm.limits import LLMLimiterScope, get_llm_limiter
 from infrastructure.llm.profiles import (
     DEEPSEEK_QUALITY_OUTPUT_TOKENS,
@@ -234,7 +238,17 @@ def _single_mismatched_closer(candidate: str) -> str | None:
         elif char in "}]":
             if not stack:
                 return None
-            expected = stack.pop()
+            expected = stack[-1]
+            if (
+                char != expected
+                and not mismatch
+                and "".join(chars[index + 1 :]).lstrip().startswith(expected)
+            ):
+                # Remove one stray closer only when the correct closer follows.
+                chars[index] = ""
+                mismatch = True
+                continue
+            stack.pop()
             if char != expected:
                 if mismatch:
                     return None
@@ -330,7 +344,11 @@ def _parse_structured_json(
                             _load_json_candidate(repaired), schema
                         )
                         schema.model_validate(data)
-                        return data, "single_mismatched_closer"
+                        return data, (
+                            "single_extraneous_closer"
+                            if len(repaired) < len(candidate.strip())
+                            else "single_mismatched_closer"
+                        )
                     except (json.JSONDecodeError, ValidationError):
                         pass
 
@@ -851,6 +869,7 @@ class LLMClient:
         request: LLMCallRequest,
         *,
         transport_retries: bool = True,
+        complete_stream: bool = False,
     ) -> LLMCallResponse:
         """执行 LLM 调用（带自动重试）
 
@@ -860,6 +879,7 @@ class LLMClient:
         Args:
             request: 调用请求参数
             transport_retries: 是否在传输错误后自动重试
+            complete_stream: 原生流完整聚合；不自动重放，复用单次计量和总超时
 
         Returns:
             LLM 调用响应
@@ -891,7 +911,9 @@ class LLMClient:
             await _record_ai_run_retry(ledger, reservation, attempt=attempts)
             try:
                 response = await asyncio.wait_for(
-                    self._provider.generate(resolved_request),
+                    self._provider.generate(resolved_request, complete_stream=True)
+                    if complete_stream
+                    else self._provider.generate(resolved_request),
                     timeout=self._provider_call_timeout(
                         ledger.remaining_seconds() if ledger is not None else None
                     ),
@@ -914,7 +936,7 @@ class LLMClient:
                 await meter.completed(response.usage)
             return response
 
-        if transport_retries and transport_retries_enabled():
+        if transport_retries and not complete_stream and transport_retries_enabled():
 
             async def call():
                 return await retry_with_backoff(
@@ -1065,6 +1087,7 @@ class LLMClient:
         max_fix_attempts: int = 2,
         fix_prompt: str | None = None,
         transport_retries: bool = True,
+        complete_stream: bool = False,
         partial_list_fields: set[str] | None = None,
         diagnostics: list[dict[str, Any]] | None = None,
         format_repair_attempts: int = 0,
@@ -1140,11 +1163,33 @@ class LLMClient:
                 with _managed_step_overrides(
                     purpose=AIStepPurpose.schema_repair if attempt else None
                 ):
-                    if effective_transport_retries:
+                    if complete_stream:
+                        response = await self.generate(
+                            req, transport_retries=False, complete_stream=True
+                        )
+                    elif effective_transport_retries:
                         response = await self.generate(req)
                     else:
                         response = await self.generate(req, transport_retries=False)
                 finish_reason = getattr(response, "finish_reason", "")
+                if finish_reason == "content_filter":
+                    _append_structured_diagnostic(
+                        diagnostics,
+                        {
+                            "kind": "structured_usage",
+                            "status": "failed",
+                            "error_kind": "content_filter",
+                            "completion_tokens": response.usage.completion_tokens,
+                            "attempt": attempt + 1,
+                            "finish_reason": finish_reason,
+                            **_cache_usage_diagnostic(response),
+                        },
+                    )
+                    raise LLMContentFilterError(
+                        "Model content filter terminated the structured response",
+                        provider=self._provider.name,
+                        model=response.model,
+                    )
                 completion_tokens = getattr(response.usage, "completion_tokens", 0)
                 max_tokens = req.max_tokens
                 truncated_like = _looks_truncated_response(

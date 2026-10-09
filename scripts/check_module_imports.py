@@ -80,14 +80,14 @@ _WORLD_WORLDBUILDING_PKG = "modules.world.services.worldbuilding"
 # account/assistant/world/writing/project/evidence 的 18 处单点 facade 消费
 # 改 DI 键：directed_edges 79→65、bidirectional_pairs 22→9、
 # top_level_bidirectional_pairs 0→0、function_level_imports 544→525
-# （全部来自消除导入，无顶层降级））。
+# （全部来自消除导入，无顶层降级）；删除未调用的 Ragas adapter 后 525→524）。
 # 分层目标态见 docs/architecture/README.md「模块依赖方向分层（目标态）」
 # 与 docs/adr/0031-module-dependency-directions.md。
 _DEPENDENCY_BASELINE: dict[str, int] = {
     "directed_edges": 65,
     "bidirectional_pairs": 9,
     "top_level_bidirectional_pairs": 0,
-    "function_level_imports": 525,
+    "function_level_imports": 524,
     "world_core_to_worldbuilding": 0,
     "world_worldbuilding_to_core": 26,
 }

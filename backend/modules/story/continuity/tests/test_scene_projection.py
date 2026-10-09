@@ -51,9 +51,7 @@ async def test_scene_checkpoint_keeps_unproven_v2_dimensions_missing(
     assert result.coverage_status == "missing"
     assert {item.dimension for item in result.items} == set(SCENE_MEMORY_DIMENSIONS)
     assert result.missing_dimensions == ["timeline", "causality"]
-    assert {
-        item.dimension: item.status for item in result.items
-    } == {
+    assert {item.dimension: item.status for item in result.items} == {
         "entities": "ready",
         "relations": "ready",
         "locations": "ready",

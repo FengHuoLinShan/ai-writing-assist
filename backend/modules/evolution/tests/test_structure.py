@@ -30,7 +30,7 @@ async def test_structure_frozen_calls_and_drafts_share_the_reading_owner(
         await seed(db, nid, index, prose)
     calls = []
 
-    async def provider(self, request):
+    async def provider(self, request, *, complete_stream=False):
         assert not db.in_transaction()
         assert request.model, "structure calls must run on the frozen model default"
         schema = json.loads(request.messages[-1].content.split("schema: ", 1)[1])["title"]

@@ -14,7 +14,7 @@ from infrastructure.tasks.facade import (
 )
 from modules.evolution.models import EvolutionRun
 from modules.evolution.pipeline import SceneSourceBinding, load_current_source
-from modules.evolution.state_review import SCENE_CALL_JOURNALS
+from modules.evolution.state_review import has_unreconciled_scene_calls
 from modules.evolution.store import PostgresAttemptStore
 from modules.project.facade import (
     build_project_llm_execution_snapshot,
@@ -47,6 +47,7 @@ class ReadingRequest(BaseModel):
     observation_id: str | None = Field(default=None, pattern="^[0-9a-f]{64}$")
     end_chapter: int = Field(ge=1)
     request_limit: int = Field(ge=1, le=1000)
+    discover_details: bool = False
 
     @model_validator(mode="after")
     def validate_scope(self):
@@ -103,6 +104,7 @@ async def _plan(db, novel_id, request):
             "enrichment_version": run.reading_plan_json.get("enrichment_version", 0),
             "world_version": run.reading_plan_json.get("world_version", 0),
             "structure_version": run.reading_plan_json.get("structure_version", 0),
+            "discovery_version": run.reading_plan_json.get("discovery_version", 0),
             "request": request.model_dump(
                 mode="json", exclude={"expected_fingerprint", "authorization_confirmed"}
             ),
@@ -141,6 +143,9 @@ async def _plan(db, novel_id, request):
         "enrichment_version": previous.get("enrichment_version", 0) if run else 1,
         "world_version": previous.get("world_version", 0) if run else 2,
         "structure_version": previous.get("structure_version", 0) if run else 1,
+        "discovery_version": previous.get("discovery_version", 0)
+        if run
+        else int(request.discover_details),
         "request": request.model_dump(
             mode="json", exclude={"expected_fingerprint", "authorization_confirmed"}
         ),
@@ -292,6 +297,7 @@ async def _plan_recompute(db, novel_id, request, run, store):
         "enrichment_version": 1,
         "world_version": 2,
         "structure_version": 1,
+        "discovery_version": int(request.discover_details),
         "request": request.model_dump(
             mode="json", exclude={"expected_fingerprint", "authorization_confirmed"}
         ),
@@ -455,6 +461,7 @@ async def preview_reading(db, novel_id, request):
     plan, _ = await _plan(db, novel_id, request)
     return {
         "fingerprint": content_hash(plan),
+        "discovery_enabled": plan.get("discovery_version", 0) == 1,
         "recompute_from_scene_index": plan.get("recompute_from_scene_index"),
         "inherited_scene_count": len(plan.get("inherited_receipts", [])),
         "expanded_scope": plan.get("expanded_scope", False),
@@ -518,6 +525,9 @@ async def start_reading(db, novel_id, request):
         llm_snapshot=snapshot,
     )
     previous = run.reading_plan_json or {}
+    structure = previous.get("structure")
+    if request.mode == "append" and structure:
+        structure = {**structure, "complete": False}
     if existing:
         # Only a new append/continuation authorization adds budget; retries add nothing.
         run.budget_total += request.request_limit
@@ -528,6 +538,7 @@ async def start_reading(db, novel_id, request):
         "enrichment_version": plan["enrichment_version"],
         "world_version": plan["world_version"],
         "structure_version": plan.get("structure_version", 0),
+        "discovery_version": plan.get("discovery_version", 0),
         "preparation_history": [
             *previous.get("preparation_history", []),
             *(
@@ -551,7 +562,7 @@ async def start_reading(db, novel_id, request):
         **({"preparation": plan["preparation"]} if plan.get("preparation") else {}),
         # The persisted structure stage survives re authorization; batches over the
         # already-committed prefix must not restart or silently drop on rebuild.
-        **({"structure": previous["structure"]} if previous.get("structure") else {}),
+        **({"structure": structure} if structure else {}),
         "segments": [
             *segments,
             {
@@ -634,6 +645,7 @@ async def advance_reading(db, novel_id, run_key):
         state_review_version=plan.get("state_review_version", 0),
         enrichment_version=plan.get("enrichment_version", 0),
         world_version=plan.get("world_version", 0),
+        discovery_version=plan.get("discovery_version", 0),
         chapter_index=parts[0].chapter_index,
         start_offset=parts[0].start_offset,
         end_offset=parts[0].end_offset,
@@ -694,11 +706,7 @@ async def reading_status(db, novel_id, run_key=None):
                 pending
                 and (
                     pending.payload.get("stage") in {"sampling", "failed"}
-                    or any(
-                        (pending.payload.get(key) or {}).get("stage")
-                        in {"sampling", "failed"}
-                        for key in SCENE_CALL_JOURNALS
-                    )
+                    or has_unreconciled_scene_calls(pending.payload)
                 )
             )
             or any(
@@ -754,6 +762,7 @@ async def reading_status(db, novel_id, run_key=None):
                 and completed == len(plan["steps"])
             ),
             "model": (run.llm_snapshot_json or {}).get("profile", {}).get("model"),
+            "discovery_enabled": plan.get("discovery_version", 0) == 1,
             "can_resume": run.status == "active"
             and not reconcile
             and status != "needs_budget"

@@ -10,7 +10,9 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError
@@ -74,6 +76,7 @@ def test_scene_event_can_reference_all_observations_without_dropping_evidence() 
     payload["scene_events"][0]["source_observation_indices"] = list(range(65))
     with pytest.raises(ValidationError, match="too_long"):
         SceneSample.model_validate(payload)
+
 
 FROZEN_FABRICATED_FIELD = {
     "observations": [],
@@ -289,6 +292,44 @@ async def test_flash_complex_calls_use_high_thinking_and_larger_json_budget() ->
         65536,
         65536,
     ]
+
+
+@pytest.mark.parametrize("provider_id", ["deepseek", "openai"])
+@pytest.mark.parametrize(
+    "model", ["deepseek-flash", "deepseek-v4-flash", "deepseek-v4-pro"]
+)
+async def test_discovery_generation_uses_complex_reasoning_without_retries(
+    provider_id,
+    model,
+) -> None:
+    class DiscoveryClient(_FrozenClient):
+        async def generate_structured(self, request, schema, **options):
+            assert options.pop("partial_list_fields") == {"changes"}
+            assert options.pop("complete_stream", False) is (provider_id == "deepseek")
+            return await super().generate_structured(request, schema, **options)
+
+    client = DiscoveryClient(
+        {"changes": [], "coverage": "inspected", "coverage_note": "已检查。"}
+    )
+    client.model_name = model
+    client.profile_summary = {"provider_id": provider_id}
+    await ProjectLLMSampler(client).discover_details(inputs={})
+    assert client.requests[0].extra == {
+        "thinking": {"type": "enabled"},
+        "reasoning_effort": "max",
+    }
+    assert client.requests[0].max_tokens == 393216
+
+
+async def test_discovery_review_uses_registered_quality_reasoning_budget() -> None:
+    client = _FrozenClient({"verdicts": []})
+    client.model_name = "deepseek-flash"
+    await ProjectLLMSampler(client).review_discovery(inputs={})
+    assert client.requests[0].extra == {
+        "thinking": {"type": "enabled"},
+        "reasoning_effort": "max",
+    }
+    assert client.requests[0].max_tokens == 393216
 
 
 async def test_relation_uncertainty_quarantine_is_in_call_receipt() -> None:
@@ -557,6 +598,36 @@ async def test_final_failure_still_records_paid_receipt() -> None:
     assert receipt["usage"]["completion_tokens"] == 123
     assert receipt["usage"]["attempts"] == 1
     assert receipt["attempts_detail"][0]["error_kind"] == "invalid_json"
+
+
+async def test_project_sampler_keeps_snapshot_and_closes_client_on_failure() -> None:
+    from modules.evolution.sampler import project_llm_sampler_factory
+
+    db, client = object(), object()
+    snapshot = {"frozen": "connection"}
+    events = []
+
+    @asynccontextmanager
+    async def owned_client(*args, **kwargs):
+        events.append("opened")
+        try:
+            yield client
+        finally:
+            events.append("closed")
+
+    with patch(
+        "modules.project.facade.open_project_snapshot_llm_client",
+        autospec=True,
+        side_effect=owned_client,
+    ) as managed:
+        with pytest.raises(RuntimeError, match="scene failed"):
+            async with project_llm_sampler_factory(
+                db, "n1", llm_snapshot=snapshot
+            ) as sampler:
+                assert sampler._client is client
+                raise RuntimeError("scene failed")
+        managed.assert_called_once_with(db, "n1", snapshot, timeout_override=900)
+    assert events == ["opened", "closed"]
 
 
 async def test_project_llm_provider_resolve_paths() -> None:

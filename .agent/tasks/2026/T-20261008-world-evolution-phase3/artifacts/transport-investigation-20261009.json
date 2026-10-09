@@ -1,0 +1,186 @@
+[
+  {
+    "group": "discovery-fresh-d364ea68-summary",
+    "calls": 3,
+    "successes": 3,
+    "known_usage": 3,
+    "elapsed_seconds": [
+      47.8121,
+      28.3413,
+      36.0334
+    ],
+    "new_tcp_tls": 3,
+    "http_statuses": [
+      200,
+      200,
+      200
+    ],
+    "diagnostic_error_count": 0
+  },
+  {
+    "group": "generation-fresh-2a857a24-summary",
+    "calls": 3,
+    "successes": 3,
+    "known_usage": 3,
+    "elapsed_seconds": [
+      4.3656,
+      1.6293,
+      3.8385
+    ],
+    "new_tcp_tls": 3,
+    "http_statuses": [
+      200,
+      200,
+      200
+    ],
+    "diagnostic_error_count": 0
+  },
+  {
+    "group": "large-close-fd0903eb-summary",
+    "calls": 4,
+    "successes": 4,
+    "known_usage": 4,
+    "elapsed_seconds": [
+      39.7469,
+      63.8794,
+      20.6916,
+      25.4382
+    ],
+    "new_tcp_tls": 4,
+    "http_statuses": [
+      200,
+      200,
+      200,
+      200
+    ],
+    "diagnostic_error_count": 0
+  },
+  {
+    "group": "large-fresh-bb804ad2-summary",
+    "calls": 4,
+    "successes": 4,
+    "known_usage": 4,
+    "elapsed_seconds": [
+      34.1199,
+      1.6495,
+      52.2409,
+      50.0854
+    ],
+    "new_tcp_tls": 4,
+    "http_statuses": [
+      200,
+      200,
+      200,
+      200
+    ],
+    "diagnostic_error_count": 0
+  },
+  {
+    "group": "large-reuse-0c3f48de-summary",
+    "calls": 4,
+    "successes": 4,
+    "known_usage": 4,
+    "elapsed_seconds": [
+      83.4364,
+      105.1657,
+      17.113,
+      79.3929
+    ],
+    "new_tcp_tls": 1,
+    "http_statuses": [
+      200,
+      200,
+      200,
+      200
+    ],
+    "diagnostic_error_count": 0
+  },
+  {
+    "group": "large-sse-fcca8a84-summary",
+    "calls": 2,
+    "successes": 2,
+    "known_usage": 2,
+    "elapsed_seconds": [
+      32.5687,
+      39.5443
+    ],
+    "new_tcp_tls": 2,
+    "http_statuses": [
+      200,
+      200
+    ],
+    "diagnostic_error_count": 0
+  },
+  {
+    "group": "small-reuse-978a80e8-summary",
+    "calls": 8,
+    "successes": 8,
+    "known_usage": 8,
+    "elapsed_seconds": [
+      0.8547,
+      0.4357,
+      0.6749,
+      0.8537,
+      0.5772,
+      0.587,
+      0.4101,
+      0.4231
+    ],
+    "new_tcp_tls": 1,
+    "http_statuses": [
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200
+    ],
+    "diagnostic_error_count": 0
+  },
+  {
+    "id": "curl-h1-cbd68de307",
+    "requested_http_version": 1,
+    "actual_http_version": "1.1",
+    "http_status": 200,
+    "exit_code": 0,
+    "seconds": 58.328,
+    "ttfb_seconds": 0.361201,
+    "tls_verify_result": 0,
+    "usage_unknown": false
+  },
+  {
+    "id": "curl-h1-f40f997f05",
+    "requested_http_version": 1,
+    "actual_http_version": "1.1",
+    "http_status": 200,
+    "exit_code": 0,
+    "seconds": 25.4476,
+    "ttfb_seconds": 0.321043,
+    "tls_verify_result": 0,
+    "usage_unknown": false
+  },
+  {
+    "id": "curl-h2-21645cf944",
+    "requested_http_version": 2,
+    "actual_http_version": "2",
+    "http_status": 200,
+    "exit_code": 0,
+    "seconds": 41.6814,
+    "ttfb_seconds": 0.339863,
+    "tls_verify_result": 0,
+    "usage_unknown": false
+  },
+  {
+    "id": "curl-h2-f8283251ae",
+    "requested_http_version": 2,
+    "actual_http_version": "2",
+    "http_status": 200,
+    "exit_code": 0,
+    "seconds": 38.3402,
+    "ttfb_seconds": 0.510303,
+    "tls_verify_result": 0,
+    "usage_unknown": false
+  }
+]

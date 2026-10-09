@@ -41,6 +41,24 @@ class SceneSourcePort:
         return await outline_facade.get_scene_contract(db, novel_id, scene_id)
 
     @staticmethod
+    async def get_scene_state_view(
+        db: AsyncSession,
+        novel_id: str,
+        scene_id: str,
+        *,
+        viewpoint: dict,
+        include_dimensions: list[str] | None = None,
+    ):
+        """视角分层的只读状态视图（M2 scene-state-view-v1）。"""
+        return await story_facade.get_scene_state_view(
+            db,
+            novel_id,
+            scene_id,
+            viewpoint=viewpoint,
+            include_dimensions=include_dimensions,
+        )
+
+    @staticmethod
     async def project_scene_presence(
         db: AsyncSession, novel_id: str, *, through_scene_index: int
     ):

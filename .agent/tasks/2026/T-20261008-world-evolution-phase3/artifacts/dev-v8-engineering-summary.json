@@ -1,0 +1,27 @@
+{
+  "version": "dev-v8",
+  "scenes_committed": 8,
+  "requests": 68,
+  "responses": 68,
+  "source_ranges_exact_cumulative": 57,
+  "free_replays": 8,
+  "discovery_planned_batches": 20,
+  "failed_batches": [
+    {
+      "scene": 7,
+      "stage": "scene_discovery_3",
+      "usage_complete": true
+    }
+  ],
+  "unknown_stage_receipts": 0,
+  "engineering_gate": "not_passed",
+  "quality_gate": "not_passed",
+  "holdout_run": false,
+  "human_validated": false,
+  "known_failures": [
+    "negative_certification_clears_qualified_anchor",
+    "context_reuse_overwrites_inherited_event",
+    "context_occurrence_identity_conflict_quarantines_legal_recall",
+    "subjective_context_update_rejected"
+  ]
+}

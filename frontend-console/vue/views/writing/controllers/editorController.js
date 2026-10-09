@@ -5,6 +5,7 @@ import {
   rememberChapterSnapshot,
 } from "../writingSession.js"
 import { isVersionActive } from "../versionState.js"
+import { normalizeInvalidationNotice } from "../invalidationModel.js"
 
 const LOCAL_PERSIST_DELAY = 250
 
@@ -57,6 +58,7 @@ export function createEditorController({
     loadError: null,
     candidateAction: null,
     candidateActionError: null,
+    invalidationNotice: null,
   }
   let elements = { title: null, editor: null }
   let autosaveTimer = null
@@ -70,6 +72,9 @@ export function createEditorController({
   let savePromise = null
   let disposed = false
   let pendingCursorRestore = false
+  // 每次本地产生/刷新过失效提示就自增：回读晚到时据此判断自己是否过期，
+  // 免得用回复里的旧提示盖掉作者刚刚保存带来的新提示。
+  let invalidationRevision = 0
 
   function captureCommandOwner() {
     return {
@@ -210,7 +215,7 @@ export function createEditorController({
       state.backupComplete = saved.backupComplete === true
       return true
     }
-    Object.assign(state, saved, { chapter })
+    Object.assign(state, saved, { chapter, invalidationNotice: null })
     return true
   }
 
@@ -289,6 +294,7 @@ export function createEditorController({
     state.backupComplete = true
     state.candidateAction = null
     state.candidateActionError = null
+    state.invalidationNotice = null
   }
 
   function applyAutosaveMetadata(draft = {}, savedContent, savedTitle) {
@@ -302,6 +308,44 @@ export function createEditorController({
     state.provenanceJson = draft.provenance_json || null
     state.lastSavedContent = savedContent
     state.lastSavedTitle = savedTitle
+  }
+
+  /**
+   * F7：载入章节后回读该章尚未消解的失效提示（服务端留档，切章/刷新/离开
+   * 再回来仍查得到）。纯读恢复，不触发重算；回读失败明确提示可重新进入章节重试，
+   * 编辑仍可继续。落在过期载入上时直接丢弃，避免盖掉作者当前稿
+   * 所在章节的状态。
+   */
+  async function restorePendingInvalidation({ projectId, chapter, lifecycle, generation }) {
+    const read = api?.evolution?.pendingInvalidations
+    if (typeof read !== "function") return
+    const issuedRevision = invalidationRevision
+    try {
+      const response = await read(projectId, { chapterIndex: chapter })
+      if (
+        disposed
+        || lifecycle !== lifecycleGeneration
+        || generation !== loadGeneration
+        || issuedRevision !== invalidationRevision
+        || projectId !== getProjectId()
+        || chapter !== state.chapter
+      ) return
+      if (!Array.isArray(response?.items)) throw new Error("失效提示响应不可解读")
+      const items = response.items
+      const restored = items.reduce(
+        (found, item) => found || normalizeInvalidationNotice(item, { chapterIndex: chapter }),
+        null,
+      )
+      if (!restored) return
+      state.invalidationNotice = restored
+      emit({ persist: false })
+    } catch {
+      if (!disposed && lifecycle === lifecycleGeneration && generation === loadGeneration
+        && issuedRevision === invalidationRevision && projectId === getProjectId()
+        && chapter === state.chapter) {
+        toast("待重算提示暂未恢复；可重新进入这一章重试，正文仍可继续编辑。", "warning")
+      }
+    }
   }
 
   async function loadChapter(chapter, options = {}) {
@@ -370,6 +414,8 @@ export function createEditorController({
       }
       syncElements()
       emit({ persist: options.publicDemo !== true })
+      // 回读不阻塞载入：先让作者拿到正文，提示随后补到保存后的同一位置。
+      void restorePendingInvalidation({ projectId, chapter: state.chapter, lifecycle, generation })
       return true
     } catch (err) {
       if (
@@ -522,6 +568,13 @@ export function createEditorController({
       if (hasNewerEdits || keepsLocalFormatting) saveBackup()
       else clearBackup(sourceDraftId)
       state.saveError = null
+      // P2-C C4：保存成功且响应带 invalidation 视图时就地提示（作者语言）；
+      // 无失效信息 / nothing_to_do 归一为 null，保持零打扰。
+      state.invalidationNotice = normalizeInvalidationNotice(result?.invalidation, {
+        chapterIndex: chapter,
+      })
+      // 保存响应是这次写入的直接答案，优先于任何在途回读。
+      invalidationRevision += 1
       emit()
       if (keepsLocalFormatting && !hasNewerEdits) {
         toast("已回到上一版；排版或标题修改仅保存在本地", "info")

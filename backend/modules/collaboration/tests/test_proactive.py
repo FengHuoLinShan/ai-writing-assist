@@ -72,3 +72,38 @@ async def test_explicit_case_grant_shares_slot_and_projection_is_not_execution(
     await cases.stop_run(db, nid, str(run.id))
     assert row.active_run_id is None and projection.status == "cancelled"
     assert run.budget_json["requests"] == 0
+
+
+async def test_renewal_flushes_relocated_grant_without_autoflush(
+    db_session, test_project_id, account_llm_connection, monkeypatch
+):
+    from modules.collaboration import proactive
+    from modules.collaboration.models import CollaborationCase
+    from modules.writing.facade import create_draft_only
+
+    # 生产会话 autoflush=False（core/database.py）；submit_changed_case 的续期授权
+    # 必须显式 flush，否则 submit_run 重读 case 时仍按旧资料 id 运行。
+    db_session.sync_session.autoflush = False
+    db, nid = db_session, test_project_id
+    case, _, drafts, _ = await setup_trial(db, nid, monkeypatch)
+    settings = replace(
+        get_settings(), assistant_enabled=True, collaboration_v2_enabled=True
+    )
+    monkeypatch.setattr(proactive, "get_settings", lambda: settings)
+    await cases.update_grant(
+        db,
+        nid,
+        case["id"],
+        GrantUpdate(
+            expected_grant_hash=case["grant_hash"],
+            grant=Grant.model_validate({**case["grant"], "follow_changes": True}),
+        ),
+    )
+    current = await create_draft_only(db, nid, 1, drafts[0].title, "她收下了信。")
+    submission = await proactive.submit_changed_case(db, nid, case["id"])
+    renewed = Grant.model_validate(
+        (await db.get(CollaborationCase, UUID(case["id"]))).grant_json
+    )
+    assert str(renewed.resources[0].id) == str(current.id)
+    run = await db.get(CollaborationRun, UUID(submission["run_id"]))
+    assert run.request_json["background"] is True

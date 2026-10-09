@@ -2264,3 +2264,24 @@ def test_quality_mode_reaches_requests_without_mutating_input(model):
     else:
         assert resolved == regular
     assert request.model_dump() == before
+
+
+def test_one_extraneous_closer_keeps_business_content_and_strict_shape():
+    from infrastructure.llm.client import _parse_structured_json, _StructuredParseError
+
+    malformed = '{"value":"原句不变"]}'
+    data, strategy = _parse_structured_json(
+        malformed, _StructuredPayload, allow_truncated_recovery=True
+    )
+    assert data == {"value": "原句不变"}
+    assert strategy == "single_extraneous_closer"
+    for value, recover in [
+        (malformed, False),
+        ('{"value":"原句"]]}', True),
+        ('{"value":"原句"]},{}', True),
+        ('{"other":"原句"]}', True),
+    ]:
+        with pytest.raises(_StructuredParseError):
+            _parse_structured_json(
+                value, _StructuredPayload, allow_truncated_recovery=recover
+            )

@@ -16,6 +16,18 @@
 显示有效）、story Scene checkpoint 与稀疏快照（软 supersede）。未接线
 消费者（world 知识、地图册、助手建议）在回执中显式列为
 ``unsupported_consumers``——缺口可见，不以"局部完成"冒充全量失效。
+
+P2-C C2 细化：``apply_source_invalidation`` 组装
+``consumption.assess_source_impact``——登记集来自 (a) Scene current
+checkpoint 行 ``state_json`` 内嵌的真实登记（``read_consumption_records``，
+写入端接线归 story 侧 B 类，见 ``registration.py``）与 (b) 锚定变更章
+场景的**结构合成登记**（scene.chapter_ids 锚定是确定性事实，该 (scene,
+dimension) 无真实登记时按整章消费合成——不冒充接线，method_version
+标识来源）。合成后无登记场景的评估窗口与现状保守扩大逐位一致
+（``from_scene_index == earliest_affected_scene_index``），仅回执新增
+可解释视图：``affected``（known=登记/锚定命中，unknown=保守扩大，按
+``affected_view_entries``）、``unknown_scope``、``receipt_id``、
+``recompute_options``（三分类，``derive_recompute_options``）。
 """
 
 from __future__ import annotations
@@ -24,9 +36,11 @@ import uuid
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.evolution.store import PostgresAttemptStore
+from modules.story.outline_state.facade import get_scenes_by_novel
 
 UNSUPPORTED_CONSUMERS: tuple[dict[str, str], ...] = (
     {
@@ -94,7 +108,22 @@ def compute_source_change(
 
 
 class InvalidationReceipt(BaseModel):
-    """一次失效传播的结果：失效了什么、扩大到哪、哪些消费者未接线。"""
+    """一次失效传播的结果：失效了什么、扩大到哪、哪些消费者未接线。
+
+    P2-C C2 增量字段（全部默认值，旧构造兼容；既有字段语义不变）：
+
+    - ``affected``：受影响条目（``consumption.affected_view_entries`` 形态，
+      ``basis=known|unknown``；无关 Scene 不进列表）。
+    - ``unknown_scope``：存在登记覆盖不到的保守扩大范围或未接线消费者。
+    - ``receipt_id``：回执稳定指纹（``consumption.receipt_fingerprint``）。
+    - ``recompute_options``：重算三分类选项
+      （``consumption.derive_recompute_options``）。
+    - ``impact_assessment``：组装上述视图所用的完整评估对象
+      （``impact.attach_impact_view`` 填充；类型即
+      ``consumption.ImpactAssessment``，此处以 ``Any`` 声明避免与契约模块
+      的顶层环。DI 键 ``EVOLUTION_INVALIDATION_RECEIPT_VIEW`` 的实现经它
+      重投影完整作者视图；不参与 ``receipt_fingerprint``）。
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -106,6 +135,11 @@ class InvalidationReceipt(BaseModel):
     unsupported_consumers: list[dict[str, str]] = Field(default_factory=list)
     nothing_to_do: bool = False
     coverage_note: str = ""
+    affected: list[dict[str, Any]] = Field(default_factory=list)
+    unknown_scope: bool = False
+    receipt_id: str = ""
+    recompute_options: list[dict[str, Any]] = Field(default_factory=list)
+    impact_assessment: Any = None
 
 
 def _scene_chapter_indices(scene: dict[str, Any]) -> set[int]:
@@ -137,8 +171,6 @@ async def affected_scene_window(
     保守扩大（后续 Scene 的历史依赖前缀）由调用方在回执中说明，
     supersede 本身从该起点"含起点"向后执行。
     """
-    from modules.story.outline_state.facade import get_scenes_by_novel
-
     scenes = await get_scenes_by_novel(db, novel_id, status_filter=["canonical", "draft"])
     anchored = [
         int(scene["scene_index"])
@@ -146,6 +178,11 @@ async def affected_scene_window(
         if chapter_index in _scene_chapter_indices(scene)
     ]
     return min(anchored) if anchored else None
+
+
+#: 锚定结构合成登记的方法版本标识（见 ``impact.ANCHORED_SCENE_IMPLICIT_
+#: METHOD_VERSION``；invalidation 侧不再顶层 import，见该模块环说明）。
+ANCHORED_SCENE_IMPLICIT_METHOD_VERSION = "anchored-scene-implicit-v1"
 
 
 async def apply_source_invalidation(
@@ -156,19 +193,40 @@ async def apply_source_invalidation(
     change: SourceChange,
     content_mode: str = "working",
 ) -> InvalidationReceipt:
-    """传播一次正文变更：证据索引重建触发 + Scene 派生投影软失效。"""
+    """传播一次正文变更：证据索引重建触发 + Scene 派生投影软失效。
+
+    P2-C C2：投影失效范围组装 ``assess_source_impact``（登记集 = checkpoint
+    行真实登记 + 锚定结构合成登记）。无登记/登记覆盖不全时评估窗口与现状
+    保守扩大逐位一致（``from == earliest``）；登记覆盖完整且证明无关时投影
+    失效收窄（evolution runs 失效保持保守锚，不受投影收窄影响）。回执附
+    ``affected``/``unknown_scope``/``receipt_id``/``recompute_options``。
+    """
     receipt = InvalidationReceipt(
         novel_id=novel_id,
         chapter_index=chapter_index,
         source_change=change,
         unsupported_consumers=[dict(item) for item in UNSUPPORTED_CONSUMERS],
     )
+    # 函数内 import：impact 组装层依赖 consumption 契约，而契约模块顶层
+    # import 本模块（C1 冻结形态）——顶层互引即环，组装层拆在
+    # modules.evolution.impact，本模块仅在使用点解析。
+    from modules.evolution.consumption import receipt_fingerprint
+    from modules.evolution.impact import (
+        anchored_registrations,
+        attach_impact_view,
+        load_scene_consumption_records,
+    )
+
     if not change.changed:
         receipt.nothing_to_do = True
         receipt.coverage_note = "内容指纹未变化，无失效需要传播"
+        receipt.receipt_id = receipt_fingerprint(receipt)
         return receipt
 
-    from modules.evidence.facade import request_chapter_index
+    from modules.evidence.facade import (
+        purge_interaction_source_cache,
+        request_chapter_index,
+    )
 
     index_state = await request_chapter_index(
         db, novel_id, chapter_index, content_mode=content_mode
@@ -180,6 +238,21 @@ async def apply_source_invalidation(
         "requested_source_id": index_state.get("requested_source_id"),
         "requested_hash": requested_hash,
     }
+    # M4：来源指纹分叉后立即清理以其为来源的 RP 派生缓存行，
+    # 不等 TTL（主计划 §5.1「随后清理」）；拒绝使用仍由门禁/key/证明重放承担。
+    # 清理属辅助动作：DB 层失败降级为记录并让 TTL 兜底，不阻断失效传播；
+    # 非 DB 异常照常上抛。
+    try:
+        async with db.begin_nested():
+            purged = await purge_interaction_source_cache(db, source_novel_id=novel_id)
+        receipt.invalidated_consumers["interaction_source_cache"] = {
+            "purged_rows": purged,
+        }
+    except SQLAlchemyError:
+        receipt.invalidated_consumers["interaction_source_cache"] = {
+            "purged_rows": None,
+            "note": "清理暂时失败；行已因 key 变化不可达，TTL 兜底回收",
+        }
     # 建议有效性缝（T17）：来源指纹分叉后，声称旧来源的建议立即失效。
     receipt.invalidated_consumers["assistant_suggestion_validity"] = {
         "mode": "evidence_freshness",
@@ -188,8 +261,39 @@ async def apply_source_invalidation(
         "validity_check": "modules.evolution.consumers.check_suggestion_validity",
     }
 
-    earliest = await affected_scene_window(db, novel_id, chapter_index=chapter_index)
+    scenes = await get_scenes_by_novel(db, novel_id, status_filter=["canonical", "draft"])
+    anchored_indexes = [
+        int(scene["scene_index"])
+        for scene in scenes
+        if chapter_index in _scene_chapter_indices(scene)
+    ]
+    earliest = min(anchored_indexes) if anchored_indexes else None
     receipt.earliest_affected_scene_index = earliest
+
+    # 登记读取（supersede 前，current 行）+ 锚定结构合成 → 影响评估。
+    real_records = await load_scene_consumption_records(db, novel_id, scenes)
+    records = [
+        *real_records,
+        *anchored_registrations(
+            novel_id,
+            chapter_index=chapter_index,
+            scenes=scenes,
+            real_records=real_records,
+        ),
+    ]
+    from modules.evolution.consumption import assess_source_impact
+
+    assessment = assess_source_impact(
+        novel_id=novel_id,
+        chapter_index=chapter_index,
+        change=change,
+        content_mode=content_mode,
+        records=records,
+        earliest_affected_scene_index=earliest,
+        scene_indexes=[int(scene["scene_index"]) for scene in scenes],
+    )
+    projection_from = assessment.from_scene_index
+
     runs = await PostgresAttemptStore(db, novel_id).invalidate_sources(
         from_scene_index=earliest, chapter_index=chapter_index, reason="source_changed"
     )
@@ -200,18 +304,29 @@ async def apply_source_invalidation(
     from modules.story.facade import invalidate_derived_state
 
     receipt.invalidated_consumers["story_state"] = await invalidate_derived_state(
-        db, novel_id, from_scene_index=earliest, from_chapter=chapter_index
+        db, novel_id, from_scene_index=projection_from, from_chapter=chapter_index
     )
-    if earliest is not None:
+    if projection_from is not None:
         receipt.invalidated_consumers["story_scene_projections"] = (
             receipt.invalidated_consumers["story_state"]
         )
+    if assessment.unknown_scope.conservative:
         receipt.coverage_note = (
             "保守扩大：从锚定受影响章的最早 Scene（含）起的全部系统派生投影"
             "已失效；细粒度依赖登记后可收窄"
         )
-    else:
+    elif earliest is not None and projection_from == earliest:
+        receipt.coverage_note = (
+            "锚定受影响章的场景（含）起派生投影已失效；消费登记覆盖完整，无未知保守范围"
+        )
+    elif earliest is None:
         receipt.coverage_note = "受影响章未锚定任何 Scene，仅触发证据索引重建"
+    else:
+        receipt.coverage_note = (
+            "消费登记覆盖完整：投影失效范围已按登记收窄"
+            f"（from_scene_index={projection_from}，保守锚={earliest}）"
+        )
+    attach_impact_view(receipt, assessment)
     return receipt
 
 
@@ -255,6 +370,7 @@ async def apply_scene_reorder_invalidation(
     重排不只重写 scene_index——依赖顺序的历史事件、检查点与角色知识
     一并软失效；原事件与作者确认保留（§6.1）。
     """
+    from modules.evolution.consumption import receipt_fingerprint
     from modules.story.facade import (
         align_scene_event_indices,
         get_scene_event_order_start,
@@ -276,6 +392,7 @@ async def apply_scene_reorder_invalidation(
     if earliest is None:
         receipt.nothing_to_do = True
         receipt.coverage_note = "事件序号与权威顺序一致，无失效需要传播"
+        receipt.receipt_id = receipt_fingerprint(receipt)
         return receipt
     runs = await PostgresAttemptStore(db, novel_id).invalidate_sources(
         from_scene_index=earliest, chapter_index=None, reason="scene_order_changed"
@@ -292,6 +409,7 @@ async def apply_scene_reorder_invalidation(
         "from_scene_index": earliest,
     }
     receipt.coverage_note = "场景重排：事件序号已对齐，最早移动 Scene（含）起派生投影失效"
+    receipt.receipt_id = receipt_fingerprint(receipt)
     return receipt
 
 

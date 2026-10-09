@@ -497,6 +497,7 @@ async def run_scene_step(
     state_reviewer: Callable[..., Awaitable[dict[str, Any]]] | None = None,
     enrichment_version: int = 0,
     world_version: int = 0,
+    discovery_version: int = 0,
     scene_card: dict[str, Any] | None = None,
     scene_method_caller: Callable[..., Awaitable[dict[str, Any]]] | None = None,
 ) -> PipelineStepResult:
@@ -589,6 +590,7 @@ async def run_scene_step(
             "state_review_version": state_review_version,
             "enrichment_version": enrichment_version,
             "world_version": world_version,
+            "discovery_version": discovery_version,
             "scene_card": scene_card,
             "input_manifest": input_manifest.model_dump(mode="json"),
         },
@@ -642,6 +644,7 @@ async def run_scene_step(
             "state_review_version": state_review_version,
             "enrichment_version": enrichment_version,
             "world_version": world_version,
+            "discovery_version": discovery_version,
             "scene_card": scene_card,
             "input_manifest": input_manifest.model_dump(mode="json"),
         }
@@ -897,6 +900,7 @@ async def _run_scene_call(
 
 
 async def _finish_scene_results(db, store, frozen, source, reviewer, caller):
+    from modules.evolution.discovery import finish_scene_discovery
     from modules.evolution.enrichment import finish_scene_enrichment
     from modules.evolution.world import finish_scene_world
 
@@ -906,7 +910,7 @@ async def _finish_scene_results(db, store, frozen, source, reviewer, caller):
     frozen = await finish_scene_world(db, store, frozen, source, caller)
     if frozen.payload.get("world_version") == 2:
         frozen = await _finish_state_review(db, store, frozen, source, reviewer)
-    return frozen
+    return await finish_scene_discovery(db, store, frozen, source, caller)
 
 
 async def _finish_state_review(db, store, frozen, source, reviewer):

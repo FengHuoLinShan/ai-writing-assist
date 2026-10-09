@@ -28,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.facade import enqueue_coalesced_task
 from infrastructure.tasks.registry import task_handler
-from modules.evolution.state_review import SCENE_CALL_JOURNALS
+from modules.evolution.state_review import has_unreconciled_scene_calls
 
 
 class EvolutionSourceRange(BaseModel):
@@ -66,6 +66,7 @@ class EvolutionSceneStepRequest(EvolutionSourceRange):
     state_review_version: Literal[0, 1] = 1
     enrichment_version: Literal[0, 1] = 0
     world_version: Literal[0, 1, 2] = 0
+    discovery_version: Literal[0, 1] = 0
 
 
 @task_handler("evolution_scene_step_v2", recovery_policy="manual_resume")
@@ -142,11 +143,7 @@ async def handle_evolution_scene_step(db: AsyncSession, task) -> dict[str, Any]:
                         pending
                         and pending.payload.get("stage")
                         in {"sampled", "compiled", "verified"}
-                        and all(
-                            (pending.payload.get(key) or {}).get("stage")
-                            not in {"sampling", "failed"}
-                            for key in SCENE_CALL_JOURNALS
-                        )
+                        and not has_unreconciled_scene_calls(pending.payload)
                     )
                     or (
                         not pending and run.budget_remaining > 0 and run.llm_snapshot_json
@@ -342,6 +339,9 @@ async def _execute_scene_step(db: AsyncSession, task) -> dict[str, Any]:
             events=events,
             producer_family="evolution",
         )
+        from modules.evolution.discovery import apply_discovery
+
+        discovery_pending = await apply_discovery(db_session, store, frozen)
         pending = (
             [
                 f"gated_scene_event:{event.get('event_type', 'unknown')}"
@@ -354,6 +354,12 @@ async def _execute_scene_step(db: AsyncSession, task) -> dict[str, Any]:
             )
             + enrichment_pending
             + world_result["pending"]
+            + [
+                "discovery_requires_decision"
+                for item in discovery_pending
+                if item.get("reason")
+                in {"author_or_theme_revision_changed", "competing_changes_same_theme"}
+            ]
         )
         if len(pending) > 64:
             pending = [*pending[:63], f"pending_decisions_remaining:{len(pending) - 63}"]
@@ -464,6 +470,7 @@ async def _execute_scene_step(db: AsyncSession, task) -> dict[str, Any]:
             state_reviewer=review_states,
             enrichment_version=1 if enrich else 0,
             world_version=request.world_version,
+            discovery_version=request.discovery_version,
             scene_card=card if enrich else None,
             scene_method_caller=call_scene_method,
         )

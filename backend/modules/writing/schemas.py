@@ -208,6 +208,9 @@ class WritingDraftResponse(BaseModel):
     attention_reasons: list[str] = Field(default_factory=list)
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    # 保存触发失效传播时的作者语言公共视图（P2-C C3；读路径/未触发失效为
+    # None）。additive 可选字段，旧客户端忽略即可。
+    invalidation: dict[str, Any] | None = None
 
     @model_validator(mode="after")
     def derive_author_state(self) -> WritingDraftResponse:
@@ -273,6 +276,12 @@ class WritingDraftResponse(BaseModel):
         if isinstance(v, list):
             return [str(item) for item in v]
         return []
+
+    @field_validator("invalidation", mode="before")
+    @classmethod
+    def coerce_invalidation(cls, v: object) -> dict | None:
+        """失效视图仅在保存链路为 dict；其余来源（读路径/占位对象）置 None。"""
+        return v if isinstance(v, dict) else None
 
 
 class PublicWritingDraftResponse(BaseModel):
@@ -850,3 +859,150 @@ class WritingConflictCheckListResponse(BaseModel):
 
     items: list[WritingConflictCheckResponse]
     total: int
+
+
+# ============================================================
+# 改稿失效重算（P2-C C3：作者显式触发的预览/执行编排）
+# ============================================================
+
+
+class WritingRecomputeTarget(BaseModel):
+    """重算目标锚（Scene 锚或章锚；与失效回执视图的 target 形态一致）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    scene_index: int | None = Field(default=None, ge=0)
+    chapter_index: int | None = Field(default=None, ge=0)
+    dimension: str | None = Field(default=None, min_length=1)
+
+    @model_validator(mode="after")
+    def _require_anchor(self) -> WritingRecomputeTarget:
+        if self.scene_index is None and self.chapter_index is None:
+            raise ValueError("recompute target requires a scene or chapter anchor")
+        return self
+
+
+class WritingRecomputeRequest(BaseModel):
+    """作者显式触发的重算请求（预览与执行共用；执行另加确认与重验锚）。
+
+    ``scope`` 三分类与 ``baseline_receipt_digest`` 语义对齐 evolution 消费
+    登记契约（C1 重算三分类）；``operation_id`` + 请求内容指纹构成双幂等键。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    novel_id: str = Field(min_length=1)
+    operation_id: str = Field(min_length=1, max_length=120)
+    scope: Literal["reload_evidence", "rebuild_derived_state", "regenerate_prose"]
+    targets: list[WritingRecomputeTarget] = Field(min_length=1)
+    baseline_receipt_digest: str | None = Field(default=None, min_length=1)
+
+    @model_validator(mode="after")
+    def _validate_scope_targets(self) -> WritingRecomputeRequest:
+        if self.scope == "regenerate_prose" and not any(
+            target.chapter_index is not None for target in self.targets
+        ):
+            raise ValueError(
+                "regenerate_prose targets must anchor chapters (prose is per chapter)"
+            )
+        return self
+
+
+class WritingRecomputeAdoptRequest(WritingRecomputeRequest):
+    """执行请求：预览的同一操作内容 + 作者确认 + 预览返回的来源指纹。
+
+    ``expected_source_digest`` **必填**（可重验的预览基线）：执行只能落在被
+    确认的那次预览上，省略即失败关闭——否则「预览后来源又变了」的重验无从
+    谈起，客户端传不传不能代替服务端约束。
+    """
+
+    confirmed: bool = False
+    expected_source_digest: str = Field(min_length=1)
+
+
+class WritingRecomputeActionItem(BaseModel):
+    """预览/执行回执中的单个动作（作者语言）。"""
+
+    action: str
+    detail: str
+    scene_index: int | None = None
+    scene_id: str | None = None
+    chapter_index: int | None = None
+
+
+class WritingRecomputeAffectedItem(BaseModel):
+    """重算将触碰的受影响条目（Scene/章锚）。"""
+
+    consumer: str
+    basis: Literal["known", "unknown"]
+    scene_index: int | None = None
+    scene_id: str | None = None
+    chapter_index: int | None = None
+    dimension: str | None = None
+    note: str
+
+
+class WritingRecomputePreviewResponse(BaseModel):
+    """重算预览响应：独立预览，结构上零正史写入。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    novel_id: str
+    operation_id: str
+    request_hash: str
+    scope: str
+    targets: list[WritingRecomputeTarget]
+    cost: str
+    write_effect: str
+    covers: list[str]
+    executable: bool
+    actions: list[WritingRecomputeActionItem]
+    affected: list[WritingRecomputeAffectedItem]
+    baseline_receipt_digest: str | None = None
+    source_digest: str
+    source_state: dict[str, Any]
+    domain_write_performed: Literal[False] = False
+
+
+class WritingRecomputeOutcomeResponse(BaseModel):
+    """重算执行回执（幂等重放同一请求得到一致结果）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    novel_id: str
+    operation_id: str
+    request_hash: str
+    scope: str
+    confirmed: bool
+    domain_write_performed: bool
+    results: dict[str, Any] = Field(default_factory=dict)
+    #: True = 该操作此前已完成，本次只回放原回执（未产生新的域写入）。
+    replayed: bool = False
+
+
+class WritingRecomputeReceiptItem(BaseModel):
+    """一次已完成重算的可查摘要（跨会话恢复用，只暴露作者语言字段）。"""
+
+    operation_id: str
+    scope: str
+    request_hash: str
+    handled_count: int
+    completed_at: str | None = None
+
+
+class WritingRecomputeReceiptListResponse(BaseModel):
+    """已完成重算回执列表（按完成时间倒序）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    novel_id: str
+    items: list[WritingRecomputeReceiptItem] = Field(default_factory=list)
+
+
+class WritingInvalidationNoticeListResponse(BaseModel):
+    """待重算的失效提示列表（编辑器加载时回读，跨会话保留）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    novel_id: str
+    items: list[dict[str, Any]] = Field(default_factory=list)

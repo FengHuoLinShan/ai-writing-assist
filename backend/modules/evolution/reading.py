@@ -175,3 +175,60 @@ async def require_current_world_candidate(db, novel_id, reference):
         )(db, current)
     except CommitConflictError as error:
         raise ConflictError("理解来源已变化，请先重新理解并核对新候选") from error
+    await require_current_prefix(db, store, frozen)
+
+
+async def require_current_prefix(db, store, target):
+    """Revalidate the original transitive receipts, including inherited runs."""
+    from modules.evolution.commit import CommitConflictError
+    from modules.evolution.pipeline import SceneSourceBinding, _source_verifier
+
+    try:
+        pairs = await store.load_committed_pairs(target.run_id)
+        through = target.payload["scene_index"]
+        prefix = [pair for pair in pairs if pair[0].committed_scene_index <= through]
+        if len(prefix) != through + 1 or (
+            prefix[-1][0].run_key,
+            prefix[-1][0].attempt_key,
+        ) != (target.run_id, target.attempt_id):
+            raise ConflictError("理解前序回执不完整，请重新理解并核对候选")
+        latest = await store.latest_scene_attempts(
+            {row.payload_json.get("scene_id") for _, row in prefix}
+        )
+        previous, observations = None, set()
+        for index, (receipt, row) in enumerate(prefix):
+            payload = row.payload_json
+            inputs = payload.get("input_manifest") or {}
+            if (
+                receipt.committed_scene_index != index
+                or inputs.get("run_key") != receipt.run_key
+                or inputs.get("scene_index") != index
+                or inputs.get("dependency_status") != "committed"
+                or inputs.get("source_manifest_hash") != row.source_manifest_hash
+                or row.previous_receipt != previous
+                or inputs.get("previous_scene_attempt_id") != previous
+                or payload.get("execution_mode") != "live"
+                or latest.get(payload.get("scene_id"))
+                != (receipt.run_key, receipt.attempt_key)
+                or any(
+                    item.get("observation_id") not in observations
+                    for item in inputs.get("previous_observations", [])
+                )
+            ):
+                raise ConflictError("理解前序依据已变化，请重新理解并核对候选")
+            frozen = await store.load_frozen(receipt.run_key, receipt.attempt_key)
+            await _source_verifier(
+                SceneSourceBinding.model_validate(payload["source_binding"])
+            )(
+                db,
+                frozen.model_copy(
+                    update={"payload": {**frozen.payload, "scene_card": None}}
+                ),
+            )
+            previous = receipt.attempt_key
+            observations.update(
+                item["observation_id"]
+                for item in payload.get("compiled_observations", [])
+            )
+    except CommitConflictError as error:
+        raise ConflictError("理解前序来源已变化，请重新理解并核对候选") from error

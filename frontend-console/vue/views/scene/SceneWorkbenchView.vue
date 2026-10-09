@@ -297,6 +297,7 @@ import { sceneAutoExtractManager } from "./sceneAutoExtractManager.js"
 import SceneRuntimeTabs from "./SceneRuntimeTabs.vue"
 import SceneScriptsPanel from "./SceneScriptsPanel.vue"
 import SceneSimulationPanel from "./SceneSimulationPanel.vue"
+import EvolutionPanorama from "../../components/EvolutionPanorama.vue"
 import SceneVisual from "./SceneVisual.vue"
 import { useSceneWorkbench } from "./useSceneWorkbench.js"
 import { useStorySceneWorkspace } from "./useStorySceneWorkspace.js"
@@ -688,6 +689,7 @@ const SceneDetailPanel = defineComponent({
           ...(item.span_summaries || []).map((summary) => h("div", { class: "scene-span-detail" }, [h("strong", "正文范围"), h("span", spanSummaryLabel(summary))])),
           ...(item.overlap_details || []).map((detail) => h("div", { class: "scene-overlap-detail" }, [h("strong", detail.range_label || `与「${overlapCounterpartLabel(detail)}」重叠`), h("button", { class: "btn btn-sm", onClick: () => emit("replacement", detail.counterpart_scene_id) }, `查看「${overlapCounterpartLabel(detail)}」`)])),
         ]),
+        h(EvolutionPanorama, { projectId: componentProps.projectId, sceneId: scene.id }),
         componentProps.saveError ? h("p", { class: "scene-detail-save-error", role: "alert" }, `保存失败：${componentProps.saveError}`) : null,
         h("div", { class: "scene-detail-actions" }, [
           h("button", { class: "btn btn-primary", disabled: componentProps.saving || !componentProps.dirty, "data-action": "save-scene-detail", onClick: () => emit("save") }, componentProps.saving ? "保存中..." : componentProps.dirty ? "保存修改" : "已保存"),

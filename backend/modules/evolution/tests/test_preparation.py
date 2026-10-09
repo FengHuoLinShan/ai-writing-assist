@@ -39,7 +39,7 @@ async def start(db, nid, limit, *, end_chapter=1, **kwargs):
 
 
 def provider_stub(db, calls):
-    async def provider(self, request):
+    async def provider(self, request, *, complete_stream=False):
         assert not db.in_transaction(), "provider call must not hold source/project locks"
         assert request.model, (
             "pure request builders must preserve the project model default"
@@ -340,7 +340,7 @@ async def test_enrichment_rejection_edit_and_domain_rollback_preserve_authorship
     calls = []
     base = provider_stub(db, calls)
 
-    async def provider(self, request):
+    async def provider(self, request, *, complete_stream=False):
         response = await base(self, request)
         schema = json.loads(request.messages[-1].content.split("schema: ", 1)[1])["title"]
         if schema == "SceneEnrichmentOutput" and failure == "low_confidence":

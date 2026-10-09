@@ -454,6 +454,7 @@ class InteractionGenerationWorkflow:
                 public_demo_source_fingerprint=(
                     source_revision.fingerprint if self._is_inline(task) else None
                 ),
+                prompt_name=STORY_PROMPT_VERSION,
             )
             if compiled_source.blockers:
                 raise InteractionContextBudgetError(

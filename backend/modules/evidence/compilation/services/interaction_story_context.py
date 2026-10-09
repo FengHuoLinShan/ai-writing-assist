@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
+import uuid
 from collections.abc import Iterable
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,10 +15,28 @@ from modules.evidence.compilation.contracts import (
     VisibilityContextContract,
 )
 from modules.evidence.compilation.novel_evidence import NovelEvidenceService
+from modules.evidence.compilation.services.interaction_source_cache import (
+    CacheFetch,
+    InteractionSourceCacheStore,
+    build_material_key,
+    current_method_versions,
+)
+from modules.evidence.compilation.services.interaction_source_material import (
+    InteractionSourceMaterial,
+    compile_source_material,
+    identity_block,
+    knowledge_block,
+    reference_block,
+    stable_hash,
+)
 from modules.evidence.compilation.services.snapshot_service import (
     ContextSnapshotService,
 )
 from modules.evidence.indexing.facade import retrieve
+from modules.evidence.indexing.lexical_plan import (
+    LEXICAL_PLANNER_VERSION,
+    build_lexical_query_plan,
+)
 from modules.evidence.source_ref_contracts import SourceRangeRefContract
 
 
@@ -27,6 +44,7 @@ class InteractionStoryContextService:
     def __init__(self) -> None:
         self._evidence = NovelEvidenceService()
         self._snapshots = ContextSnapshotService()
+        self._source_cache = InteractionSourceCacheStore()
 
     async def compile(
         self,
@@ -48,6 +66,7 @@ class InteractionStoryContextService:
         budget_tokens: int = INTERACTION_SOURCE_CONTEXT_MAX_TOKENS,
         public_demo_source: bool = False,
         public_demo_source_fingerprint: str | None = None,
+        prompt_name: str = "interaction-story",
     ) -> InteractionStoryContextContract:
         from modules.project.facade import (
             get_any_project_context,
@@ -168,6 +187,7 @@ class InteractionStoryContextService:
                 anchor=anchor,
                 task_id=task_id,
                 model=model,
+                prompt_name=prompt_name,
                 rendered="",
                 included_refs=[],
                 warnings=[],
@@ -227,6 +247,103 @@ class InteractionStoryContextService:
         retrieval_query = " ".join(
             value for value in [query.strip(), *retrieval_focus] if value
         )
+        # S1 词法规划（M3 切片 2）：语义输入仍是完整拼接查询（喂 embedding），
+        # 词法词项按整条请求有界生成；冻结且可见的激活对象名称/别名优先。
+        frozen_terms = [
+            str(term)
+            for key in ordered_keys
+            for term in [
+                references[key].get("label"),
+                *(references[key].get("aliases") or []),
+            ]
+            if str(term or "").strip()
+        ]
+        lexical_plan = build_lexical_query_plan(
+            retrieval_query or "当前剧情",
+            frozen_terms=frozen_terms,
+        )
+        visibility = VisibilityContextContract(
+            mode="character" if viewpoint_id else "reader",
+            cutoff_chapter=cutoff_chapter,
+            # The frozen exact offset remains valid even after a newer deep
+            # import replaces the source project's current Scene read model.
+            cutoff_scene_id=None,
+            cutoff_offset=cutoff_offset,
+            character_id=viewpoint_id,
+        )
+        # 精确材料缓存（M3 切片 3，ADR-0018 修订例外）：key 覆盖全部材料输入；
+        # 命中仍重过上方门禁并重验必需证明原文，snapshot/审查资格不缓存。
+        cache_versions = current_method_versions(LEXICAL_PLANNER_VERSION)
+        material_key, material_key_hash = build_material_key(
+            source_novel_id=source_novel_id,
+            consumer_novel_id=consumer_novel_id,
+            owner_id=str(source_project.owner_id),
+            source_revision_id=source_revision_id,
+            anchor=anchor,
+            exact_manifest=exact_manifest,
+            visible_references_digest=stable_hash(visible_references),
+            reference_policy=reference_policy,
+            ambiguities_digest=stable_hash(ambiguities),
+            resolutions=resolutions,
+            player_identity_digest=stable_hash(player_identity),
+            semantic_input=lexical_plan.semantic_input,
+            lexical_terms=list(lexical_plan.lexical_terms),
+            method_versions=cache_versions,
+        )
+        cache_fetch = (
+            await self._source_cache.fetch(
+                db,
+                novel_id=uuid.UUID(str(consumer_novel_id)),
+                material_key_hash=material_key_hash,
+                method_versions=cache_versions,
+            )
+            if not public_demo_source
+            else CacheFetch(hit=None, miss_reason="public_demo_disabled")
+        )
+        cache_hit = cache_fetch.hit
+        if cache_hit is not None and not await self._verify_cached_proofs(
+            db,
+            source_novel_id=source_novel_id,
+            material=cache_hit.material,
+            visibility=visibility,
+        ):
+            await self._source_cache.purge_for_source(db, uuid.UUID(source_novel_id))
+            cache_hit = None
+        if cache_hit is not None:
+            material = cache_hit.material
+            if (
+                cache_hit.compiled is not None
+                and cache_hit.compiled_budget_tokens == budget_tokens
+            ):
+                packet = cache_hit.compiled
+            else:
+                packet = compile_source_material(material, budget_tokens=budget_tokens)
+                # 阻断结果不落编译缓存：compiled 复用恒为无阻断产物，
+                # 避免把“预算不足”复用成成功包。
+                if not packet.blockers:
+                    await self._source_cache.touch_compiled(
+                        db,
+                        novel_id=uuid.UUID(str(consumer_novel_id)),
+                        material_key_hash=material_key_hash,
+                        compiled=packet,
+                        budget_tokens=budget_tokens,
+                    )
+            return await self._snapshot_result(
+                db,
+                source_novel_id=source_novel_id,
+                consumer_novel_id=consumer_novel_id,
+                source_revision_id=source_revision_id,
+                anchor=anchor,
+                task_id=task_id,
+                model=model,
+                prompt_name=prompt_name,
+                rendered=packet.rendered,
+                included_refs=list(packet.included_refs),
+                source_refs=list(packet.source_refs),
+                warnings=list(material.warnings),
+                blockers=list(packet.blockers),
+                budget_tokens=budget_tokens,
+            )
         retrieval = await retrieve(
             db,
             source_novel_id,
@@ -240,15 +357,7 @@ class InteractionStoryContextService:
             rerank=False,
             source_manifest=exact_manifest,
             character_ids=[viewpoint_id] if viewpoint_id else None,
-        )
-        visibility = VisibilityContextContract(
-            mode="character" if viewpoint_id else "reader",
-            cutoff_chapter=cutoff_chapter,
-            # The frozen exact offset remains valid even after a newer deep
-            # import replaces the source project's current Scene read model.
-            cutoff_scene_id=None,
-            cutoff_offset=cutoff_offset,
-            character_id=viewpoint_id,
+            lexical_terms=list(lexical_plan.lexical_terms) or None,
         )
         hydrated = await self._evidence.rehydrate_manuscript_candidates(
             db,
@@ -332,6 +441,7 @@ class InteractionStoryContextService:
                 anchor=anchor,
                 task_id=task_id,
                 model=model,
+                prompt_name=prompt_name,
                 rendered="",
                 included_refs=[],
                 warnings=list(dict.fromkeys([*retrieval.warnings, *hydrated.warnings])),
@@ -367,79 +477,51 @@ class InteractionStoryContextService:
         mandatory = set(pinned)
         if player_identity.get("reference_key"):
             mandatory.add(str(player_identity["reference_key"]))
-        blocks = [
-            self._identity_block(anchor, player_identity),
-            *(
-                self._reference_block(references[key], reasons[key])
-                for key in ordered_keys
-                if key in mandatory
-            ),
-        ]
-        included_keys = [key for key in ordered_keys if key in mandatory]
-        included_reads: list[dict] = []
-        for key in included_keys:
+        player_reference_key = player_identity.get("reference_key")
+        knowledge = (
+            knowledge_block(references[str(player_reference_key)], cutoff_chapter)
+            if player_reference_key in references
+            else ""
+        )
+        mandatory_reads: list[dict] = []
+        for key in ordered_keys:
+            if key not in mandatory:
+                continue
             proof = proof_by_target[str(references[key]["target_id"])]
-            if proof not in included_reads:
-                blocks.append(self._excerpt_block(proof))
-                included_reads.append(proof)
-        if player_identity.get("reference_key") in references:
-            knowledge = self._knowledge_block(
-                references[str(player_identity["reference_key"])],
-                cutoff_chapter,
-            )
-            if knowledge:
-                blocks.append(knowledge)
-        if estimate_token_count("\n\n".join(blocks)) > budget_tokens:
-            blockers = ["已固定的作品资料超出可用篇幅，请减少固定项"]
-            return await self._snapshot_result(
+            if proof not in mandatory_reads:
+                mandatory_reads.append(proof)
+        material = InteractionSourceMaterial(
+            identity_block=identity_block(anchor, player_identity),
+            reference_order=tuple(ordered_keys),
+            mandatory_keys=frozenset(mandatory),
+            reference_blocks={
+                key: reference_block(references[key], reasons[key])
+                for key in ordered_keys
+            },
+            reference_reasons={key: reasons[key] for key in ordered_keys},
+            reference_labels={
+                key: str(references[key].get("label") or "作品资料")
+                for key in ordered_keys
+            },
+            knowledge_block=knowledge,
+            mandatory_reads=tuple(mandatory_reads),
+            excerpt_reads=tuple(excerpts),
+            warnings=tuple(dict.fromkeys([*retrieval.warnings, *hydrated.warnings])),
+        )
+        packet = compile_source_material(material, budget_tokens=budget_tokens)
+        if not packet.blockers and not public_demo_source:
+            await self._source_cache.store(
                 db,
-                source_novel_id=source_novel_id,
-                consumer_novel_id=consumer_novel_id,
-                source_revision_id=source_revision_id,
-                anchor=anchor,
-                task_id=task_id,
-                model=model,
-                rendered="",
-                included_refs=[],
-                warnings=list(dict.fromkeys([*retrieval.warnings, *hydrated.warnings])),
-                blockers=blockers,
+                novel_id=uuid.UUID(str(consumer_novel_id)),
+                source_novel_id=uuid.UUID(str(source_novel_id)),
+                owner_id=uuid.UUID(str(source_project.owner_id)),
+                material_key=material_key,
+                material_key_hash=material_key_hash,
+                material=material,
+                method_versions=cache_versions,
+                compiled=packet,
                 budget_tokens=budget_tokens,
             )
-
-        for key in ordered_keys:
-            if key in mandatory:
-                continue
-            candidate = self._reference_block(references[key], reasons[key])
-            if estimate_token_count("\n\n".join([*blocks, candidate])) > budget_tokens:
-                continue
-            blocks.append(candidate)
-            included_keys.append(key)
-        for read in excerpts:
-            if read in included_reads:
-                continue
-            candidate = self._excerpt_block(read)
-            if estimate_token_count("\n\n".join([*blocks, candidate])) > budget_tokens:
-                break
-            blocks.append(candidate)
-            included_reads.append(read)
-
-        rendered = _render_source_blocks(blocks)
-        included_refs = [
-            {
-                "reference_key": key,
-                "label": str(references[key].get("label") or "作品资料"),
-                "reason": reasons[key],
-            }
-            for key in included_keys
-        ]
-        included_refs.extend(
-            {
-                "reference_key": _hash(read.get("source_ref") or {}),
-                "label": str(read.get("title") or "原文片段"),
-                "reason": "原文片段关联",
-            }
-            for read in included_reads
-        )
         return await self._snapshot_result(
             db,
             source_novel_id=source_novel_id,
@@ -448,13 +530,51 @@ class InteractionStoryContextService:
             anchor=anchor,
             task_id=task_id,
             model=model,
-            rendered=rendered,
-            included_refs=included_refs,
-            source_refs=[dict(read["source_ref"]) for read in included_reads],
-            warnings=list(dict.fromkeys([*retrieval.warnings, *hydrated.warnings])),
-            blockers=[],
+            prompt_name=prompt_name,
+            rendered=packet.rendered,
+            included_refs=list(packet.included_refs),
+            source_refs=list(packet.source_refs),
+            warnings=list(material.warnings),
+            blockers=list(packet.blockers),
             budget_tokens=budget_tokens,
         )
+
+    async def _verify_cached_proofs(
+        self,
+        db: AsyncSession,
+        *,
+        source_novel_id: str,
+        material: InteractionSourceMaterial,
+        visibility: VisibilityContextContract,
+    ) -> bool:
+        """命中后重验全部材料范围：按冻结 source_ref 重读原文并比对一致。
+
+        读取失败或正文漂移一律视为未命中（走原路径），不把缓存内容当事实。
+        """
+
+        for read in (*material.mandatory_reads, *material.excerpt_reads):
+            ref = dict(read.get("source_ref") or {})
+            # 按冻结 ref 的完整契约字段重建（version/mode/hash 均为必需），
+            # 多余键忽略；缺必需键会在下方构造时抛错并按未命中处理。
+            fields = {
+                key: value for key, value in ref.items() if key in _SOURCE_REF_FIELDS
+            }
+            if not fields.get("draft_id"):
+                return False
+            try:
+                fresh = await self._evidence.read(
+                    db,
+                    novel_id=source_novel_id,
+                    source_ref=SourceRangeRefContract(**fields),
+                    visibility=visibility,
+                    before=0,
+                    after=0,
+                )
+            except (NotFoundError, ValidationError, ValueError, TypeError):
+                return False
+            if str(fresh.get("text") or "") != str(read.get("text") or ""):
+                return False
+        return True
 
     async def _snapshot_result(
         self,
@@ -472,9 +592,10 @@ class InteractionStoryContextService:
         blockers: list[str],
         source_refs: list[dict] | None = None,
         budget_tokens: int = INTERACTION_SOURCE_CONTEXT_MAX_TOKENS,
+        prompt_name: str = "interaction-story",
     ) -> InteractionStoryContextContract:
         source_refs = source_refs or []
-        fingerprint = _hash(
+        fingerprint = stable_hash(
             {
                 "source_revision_id": source_revision_id,
                 "anchor_key": anchor.get("anchor_key"),
@@ -494,7 +615,7 @@ class InteractionStoryContextService:
             chapter_index=int(anchor.get("chapter_index") or 0),
             context_mode="canonical",
             include_pending_objects=False,
-            prompt_name="interaction-story-v7",
+            prompt_name=prompt_name,
             model=model,
             compile_options={
                 "consumer_action": "interaction.story",
@@ -550,99 +671,12 @@ class InteractionStoryContextService:
             token_count=tokens,
         )
 
-    @staticmethod
-    def _identity_block(anchor: dict, player_identity: dict) -> str:
-        player = _sanitize_source_text(
-            str(
-                player_identity.get("label")
-                or player_identity.get("name")
-                or "未命名玩家"
-            )
-        )
-        description = str(player_identity.get("description") or "").strip()
-        return "\n".join(
-            filter(
-                None,
-                [
-                    "## 不可越过的剧情边界",
-                    "- 剧情进度："
-                    f"{_sanitize_source_text(str(anchor.get('chapter_title') or ''))}"
-                    f" · {_sanitize_source_text(str(anchor.get('label') or ''))}",
-                    f"- 玩家身份：{player}",
-                    f"- 原创身份说明：{description}" if description else "",
-                    "- 只能使用该进度之前的事实和角色知识。",
-                ],
-            )
-        )
-
-    @staticmethod
-    def _reference_block(item: dict, reason: str) -> str:
-        return "\n".join(
-            [
-                f"## {_sanitize_source_text(str(item.get('label') or ''))}"
-                f" （{item.get('entity_type')}）",
-                f"- 激活原因：{reason}",
-            ]
-        )
-
-    @staticmethod
-    def _excerpt_block(read: dict) -> str:
-        source = read.get("source_ref") or {}
-        return "\n".join(
-            [
-                "## 原文证据："
-                f"{_sanitize_source_text(str(read.get('title') or '未命名章节'))}",
-                f"- 位置：第 {source.get('chapter_index')} 章",
-                _sanitize_source_text(str(read.get("text") or "")),
-            ]
-        )
-
-    @staticmethod
-    def _knowledge_block(item: dict, cutoff_chapter: int) -> str:
-        lines = ["## 玩家角色在当前进度实际知道的事"]
-        for entry in item.get("knowledge") or []:
-            learned = entry.get("source_chapter_index")
-            if not entry.get("is_public_baseline") and (
-                not isinstance(learned, int) or learned >= cutoff_chapter
-            ):
-                continue
-            target = entry.get("target_name") or entry.get("target_type") or "某对象"
-            level = entry.get("knowledge_level")
-            if level == "unknown":
-                lines.append(f"- 对「{target}」并不知情。")
-            elif level in {"false_belief", "misunderstood"}:
-                if entry.get("misconception"):
-                    lines.append(f"- 对「{target}」的误解：{entry['misconception']}")
-            elif entry.get("known_content"):
-                qualifier = "传闻或局部认知" if level in {"rumor", "partial"} else "已知"
-                lines.append(f"- {qualifier}「{target}」：{entry['known_content']}")
-        return "\n".join(lines) if len(lines) > 1 else ""
-
 
 def _normalize(value: str) -> str:
     return "".join(str(value or "").lower().split())
 
 
-_FENCE_CLOSE = "</SOURCE_REFERENCE_DATA>"
-
-
-def _sanitize_source_text(value: str) -> str:
-    """Neutralize imported text that could close the reference-data fence."""
-
-    return value.replace(_FENCE_CLOSE, "</原文引用结束>")
-
-
-def _render_source_blocks(blocks: list[str]) -> str:
-    return (
-        "<SOURCE_REFERENCE_DATA>\n"
-        + _sanitize_source_text("\n\n".join(blocks))
-        + "\n</SOURCE_REFERENCE_DATA>"
-    )
-
-
-def _hash(value) -> str:
-    payload = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+_SOURCE_REF_FIELDS = frozenset(SourceRangeRefContract.__dataclass_fields__)
 
 
 def _reason_counts(items: Iterable[dict[str, str]]) -> dict[str, int]:

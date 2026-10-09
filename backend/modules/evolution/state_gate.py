@@ -51,6 +51,14 @@ GROUNDING_MODALITIES: dict[str, frozenset[str]] = {
 # MemoryService 的维度校验拒绝，本门不重复。
 KNOWLEDGE_DIMENSION = "knowledge"
 
+# 机器知识方言不承载值绑定（``knowledge_contract.VALUE_BINDING_KEYS`` 的镜像，
+# 与其镜像 ``scene_state_view`` 常量的裁定相同：读取端契约模块不引入实现向
+# 依赖，契约测试钉两者一致）。机器观察没有值级证据（GROUNDING_MODALITIES），
+# 而 ``KnowledgeInPanorama`` 未声明 ``extra``——Pydantic 默认忽略额外键，
+# 偷带这些键的 payload 会静默透传持久化、再被读取端当作值绑定授予；产出门
+# 在此显式拒绝而不是静默透传（B2）。
+_MACHINE_VALUE_BINDING_KEYS: tuple[str, ...] = ("subject_id", "fields", "known_values")
+
 
 def _mention_resolves_to(mention: dict[str, Any], entity_id: str) -> bool:
     resolution = mention.get("resolution") or {}
@@ -192,6 +200,11 @@ def gate_scene_events(
                 after.get("target_id") and after["target_id"] not in tuple(resolved_ids)
             ):
                 reasons.append("payload_subject_mismatch")
+            # 机器断言不可能宣称值绑定（B2）：方言本身表达不了"知道哪个值"，
+            # 透传的绑定键不属于机器证据分级内的任何主张，显式拒绝进待裁定，
+            # 不静默透传到 continuity 状态（隐式透传红线，见 knowledge_contract）。
+            if any(key in after for key in _MACHINE_VALUE_BINDING_KEYS):
+                reasons.append("value_binding_not_machine_grounded")
             if (
                 not all(item.get("modality") == "event_observed" for item in referenced)
                 and after.get("knowledge_level") != "rumor"

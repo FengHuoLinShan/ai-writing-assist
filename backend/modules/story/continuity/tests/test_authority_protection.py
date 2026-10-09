@@ -350,10 +350,9 @@ async def test_manual_correction_delta_kept_as_observation_not_state_operation(
         "entities"
     ]
     assert entities_state["entities"] == {}
+
     def _without_meta(changes: list) -> list:
-        return [
-            {k: v for k, v in change.items() if k != "meta"} for change in changes
-        ]
+        return [{k: v for k, v in change.items() if k != "meta"} for change in changes]
 
     expected_change = {
         "category": "profile",

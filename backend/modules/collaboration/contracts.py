@@ -21,6 +21,7 @@ from pydantic import (
 from infrastructure.llm.collaboration import content_hash
 from modules.evolution.contracts import CommittedUnderstanding
 from modules.imports.contracts import ImportConsultScope
+from modules.story.contracts import SceneStateTrialRequest
 
 Hash = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 ResourceKind = Literal[
@@ -87,6 +88,7 @@ class Grant(StrictModel):
     run_request_limit: int = Field(default=30, ge=4, le=30)
     expires_at: AwareDatetime
     merge_policy: Literal["confirm", "whitespace_only"] = "confirm"
+    scene_state_trial: SceneStateTrialRequest | None = None
     context_confirmation_id: UUID | None = None
     context_confirmation_action: str | None = Field(default=None, max_length=100)
 
@@ -97,12 +99,16 @@ class Grant(StrictModel):
     @model_serializer(mode="wrap")
     def preserve_existing_grant_hash(self, handler):
         data = handler(self)
+        if self.scene_state_trial is None:
+            data.pop("scene_state_trial", None)
         if not self.retain_understanding:
             data.pop("retain_understanding", None)
         return data
 
     @model_validator(mode="after")
     def authority(self):
+        if self.scene_state_trial and not self.scene_state_trial.comparison_digest:
+            raise ValueError("条件试验须先比较并绑定结果，再进入试改授权")
         if self.allow_background_web and not (self.follow_changes and self.allow_web):
             raise ValueError("后台联网需要同时授权自动跟进和公开查证")
         if self.follow_changes and (self.import_scope or self.context_confirmation_id):
@@ -235,6 +241,7 @@ class InputManifest(StrictModel):
     cognition: CognitionSelection = Field(default_factory=CognitionSelection)
     evolution: list[CommittedUnderstanding] = Field(default_factory=list, max_length=3)
     evolution_omissions: list[str] = Field(default_factory=list)
+    scene_state_trial: dict[str, Any] | None = None
 
     @model_serializer(mode="wrap")
     def preserve_existing_manifest_hash(self, handler):
@@ -245,6 +252,8 @@ class InputManifest(StrictModel):
             data.pop("evolution", None)
         if not self.evolution_omissions:
             data.pop("evolution_omissions", None)
+        if self.scene_state_trial is None:
+            data.pop("scene_state_trial", None)
         return data
 
     @property

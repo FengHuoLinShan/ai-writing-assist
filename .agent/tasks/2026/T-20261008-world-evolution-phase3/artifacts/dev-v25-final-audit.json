@@ -1,0 +1,39 @@
+{
+  "version": "dev-v25",
+  "method": "98e3712a8c067340c19ba5a2bdc55044abdbbcdba9cffebd1add0e23bea6c702",
+  "current_method": true,
+  "scenes_committed": 3,
+  "scenes_expected": 8,
+  "requests": 28,
+  "responses": 27,
+  "terminal_call_errors": 1,
+  "source_ranges_exact_cumulative": 16,
+  "free_replays": 3,
+  "discovery_planned_batches": 6,
+  "failed_batches": [
+    {
+      "scene": 3,
+      "stage": "scene_discovery_review_1",
+      "usage_complete": false
+    }
+  ],
+  "validation_quarantine_records": 0,
+  "unknown_stage_receipts": 1,
+  "engineering_gate": "not_passed",
+  "quality_gate": "incomplete",
+  "holdout_run": false,
+  "human_validated": false,
+  "explicit_new_run_authorized": true,
+  "v9_unknown_receipt_retained": true,
+  "v11_unknown_receipt_retained": true,
+  "v12_unknown_receipt_retained": true,
+  "v14_unknown_receipt_retained": true,
+  "v15_unknown_receipt_retained": true,
+  "v16_unknown_receipt_retained": true,
+  "audit_before_source_change": true,
+  "holdout_opened": false,
+  "independent_partial_quality": "scenes0_to2_pass",
+  "diagnostic_limitations": [
+    "unapplied_scene3_coverage_narrator_recast_as_self_report"
+  ]
+}

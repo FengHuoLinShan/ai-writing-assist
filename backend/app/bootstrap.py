@@ -40,8 +40,10 @@ from core.service_keys import (
     COLLABORATION_SUBMIT_CHANGED_CASE,
     CONTEXT_COMPILE,
     CONTEXT_GENERATION_BACKGROUND,
+    CONTEXT_PURGE_PROJECT_INTERACTION_CACHE,
     EVOLUTION_RECORD_WRITING_SOURCE_CHANGE,
     EVOLUTION_REQUIRE_CURRENT_WORLD_CANDIDATE,
+    EVOLUTION_INVALIDATION_RECEIPT_VIEW,
     IMPORTS_GET_ACTIVE_ORGANIZATION,
     IMPORTS_GET_REVIEW_DISPOSITIONS,
     INTERACTION_COUNT_SOURCE_REFERENCES,
@@ -153,6 +155,10 @@ from modules.world.facade import (
     list_entity_terms as _world_list_entity_terms,
     review_team_stress as _world_review_team_stress,
 )
+from modules.evidence.facade import (
+    purge_project_interaction_cache as _purge_project_interaction_cache,
+)
+
 from modules.world.project_ports import (
     WorldDedupAdapter as _WorldDedupAdapter,
 )
@@ -177,6 +183,7 @@ from modules.interaction.facade import (
 from modules.evolution.facade import (
     record_writing_source_change as _evolution_record_writing_source_change,
     require_current_world_candidate as _evolution_require_current_world_candidate,
+    receipt_view as _evolution_receipt_view,
 )
 from modules.story.facade import get_scene_contract as _story_get_scene_contract
 from modules.world import assistant_ports as _world_assistant
@@ -416,6 +423,10 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
             EVOLUTION_RECORD_WRITING_SOURCE_CHANGE,
             _evolution_record_writing_source_change,
         ),
+        # P2-C C2：失效回执 → 作者语言完整视图（回执内嵌 impact_assessment，
+        # scene 级 affected/unknown_scope/recompute_options 一并投影）；
+        # writing 层 C3 透传经此键消费，receipt 鸭子类型传入即可。
+        (EVOLUTION_INVALIDATION_RECEIPT_VIEW, _evolution_receipt_view),
         (IMPORTS_GET_REVIEW_DISPOSITIONS, _imports_get_review_dispositions),
         (
             INTERACTION_VALIDATE_PUBLIC_DEMO_SOURCE_CONTEXT,
@@ -513,6 +524,7 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
         (OUTLINE_REVEAL_SERVICE, RevealPlanService()),
         (CONTEXT_COMPILE, _ctx_compile),
         (CONTEXT_GENERATION_BACKGROUND, _ctx_generation_background),
+        (CONTEXT_PURGE_PROJECT_INTERACTION_CACHE, _purge_project_interaction_cache),
         (MEMORY_SERVICE, memory),
         (PROJECT_REQUIRE_ACTIVE, _project_require_active),
         (INTERACTION_COUNT_SOURCE_REFERENCES, _interaction_source_reference_count),

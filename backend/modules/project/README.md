@@ -378,3 +378,7 @@ writing.generate 作者视角注入，详见 writing 模块）与 `llm_cost_savi
 也不能因项目种类错误阻断新旅程，外账户仍被拒绝。
 `save_agent_executor_settings` 由 Project 持 owner + novel_id 行锁写入非 secret
 执行器选择，支持撤销设备时条件清除；本机模块不直接读写 Project ORM。
+
+### 项目归档与私有 RP 缓存
+
+软删除/归档项目经 `CONTEXT_PURGE_PROJECT_INTERACTION_CACHE` 同事务清除该项目作为 source 或 consumer 的缓存；恢复项目冷编译。缓存清理不删除正文、版本、作者确认事件或领域历史，永久删除仍保留原 FK 清理语义。

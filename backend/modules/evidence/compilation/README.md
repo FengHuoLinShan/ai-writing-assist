@@ -103,14 +103,25 @@ async def propose_context_selection(...) -> dict
 `POST /api/evidence/compilation/scene-lens` 是写作台的显式按需读取入口。请求只提供
 `novel_id + scene_id + chapter_index`；服务端先校验 Scene 属于同项目且关联请求章节，
 再从 Scene 推导 POV，并把请求章节作为可见性截止点。通过
-`require_active_project()` 同时执行 owner 与活跃项目门禁。返回仅包含
-`role_visible_knowledge`、`scene_world_state` 和 `warnings`；前两项只公开
-作者语言的 `label + summary + availability`。内部按固定顺序只读 Scene、
-关联对象、POV 角色以及已存在的
-memory checkpoint；不运行 RAG、embedding 或 retrieval trace，也不调用
+`require_active_project()` 同时执行 owner 与活跃项目门禁。响应保留 `role_visible_knowledge`、`scene_world_state`、`object_states`、
+`state_fingerprint`、`subject_choices` 与 warnings；摘要项有 availability/stale，
+对象字段、位置和认知携带来源及逐项未知。POV 可见知识单独读取本 Scene 的 Story
+character 投影；对象明细读取 author 投影，World 仅提供名称身份，不补今天的知识。
+内部只读 Scene 及已有 checkpoint；不运行 RAG、embedding 或 retrieval trace，也不调用
 checkpoint `ensure` 产生隐式写入。没有显式关联对象时不回退全项目对象。
 缺失 POV 或 checkpoint 时保守返回
 空资料与作者可读 warning。
+
+Scene Lens（M2 起）同时返回 `object_states` 对象状态区：经 story
+`get_scene_state_view`（author 视角，跨模块亦可经 `STORY_SCENE_SOURCE` port 消费）读取
+同一 Scene 的 `is_current` checkpoint 投影，按本 Scene 关联对象输出字段级状态
+（`custody_holder`/`custody_owner` 等平铺字段、`subject_labels` 渲染对象名）、位置、
+各角色认知（误信带标记）与确认/推导置信标签；未记载的状态不出现——空态提示明确
+「不把未记载显示为确定没有」。视图缺口（missing/degraded/unsupported）沿
+`scene_world_state` 卡片与 warning 呈现；M4 起维度卡片带 `stale` 标记（checkpoint 行
+ready 但视图基线比对 degraded 时，前端显示「待核对」，不把绕过失效钩子的旧投影当
+确定事实）。该区只读：不触发 checkpoint ensure、不运行
+RAG/embedding。
 
 `create_context_snapshot()`、`mark_context_snapshot_succeeded()` 和
 `mark_context_snapshot_failed()` 保留为兼容 wrapper；新生产调用应使用
@@ -133,6 +144,7 @@ checkpoint；历史来源只展示当时保存的类型、数量、指纹、结�
 | `context_retrieval_traces` | 按 novel/content mode 保存查询计划哈希、clause 摘要、候选/回读/丢弃计数与 safe-empty 原因；不保存 raw task/query/正文 |
 | `context_activation_profiles` | 项目级可编辑规则 aggregate；draft/published 状态与 CAS 版本分离运行时选择 |
 | `context_activation_profile_revisions` | 每次发布的不可变规则快照与 rule hash；旧发布版可固定回放 |
+| `context_interaction_source_cache` | RP 原作包私有派生缓存（ADR-0018 修订例外）：一行 = 完整预算前材料 + 单版本编译正文及规格，`UNIQUE(novel_id, material_key_hash)` 幂等、TTL 24h、方法版本不匹配整行不消费；命中重过门禁并按冻结 source_ref 重读复验必需证明；fetch 未命中返回原因码（absent/expired/version_mismatch/integrity）进 attempt 记录；来源失效沿 evolution `apply_source_invalidation` 按 `source_novel_id` 立即清理（`purge_interaction_source_cache`，不等 TTL）；敏感派生数据不入导出/备份/日志 |
 
 `context_confirmations` 和 `context_snapshots` 是两套语义：
 
@@ -142,7 +154,10 @@ checkpoint；历史来源只展示当时保存的类型、数量、指纹、结�
 RP source snapshot 以 `novel_id` 和 `consumer_novel_id` 表示隐藏 interaction consumer 项目，
 作者资料来源只通过 source revision 和 SourceRangeRef 记录，不向来源项目写审计行。它只保存 fingerprint、SourceRangeRef/对象
 引用、自然语言原因码、数量和预算摘要；编译时的 rendered source block 只用于当次请求，
-不长期持久化。来源项目或必需固定项失效时返回 blocker，interaction 不得降级到模型知识。
+不进入 snapshot 持久化——唯一的持久化例外是 `context_interaction_source_cache`
+（ADR-0018 2026-10-07 修订）：材料与编译正文作为私有派生缓存按 key 幂等保存，命中仍重过
+门禁并复验必需证明原文，snapshot 与审查资格不缓存。来源项目或必需固定项失效时返回
+blocker，interaction 不得降级到模型知识。
 
 地图册不增加新的公开 scope。generation-background 识别 `world.map_atlas.generate`，固定
 `reveal_mode=author_full`，调用 atlas 专用 world loader 读取至多 160 个 canonical/已发布
@@ -711,3 +726,9 @@ scope 构建按 ContextItem 级 token 与 section 级 evicted/truncated 状态�
 每个来源的独立 token_count。原生 hash 不可得且正文确实未关联才退化为 identity。
 元数据字段 200 字符上界。作者写作示例（B3）作为 `author_examples` section
 （P3、转义 JSON fence、1500 token 截断先反例后好例）进入确认预览与指纹。
+
+### 缓存与来源回读的整改边界
+
+公开匿名 compile 禁用持久缓存读、写与 compiled 更新。私有缓存按材料、compiled spec 和重复正文的全行总字节核算；PG 同 consumer 事务 advisory lock 保护总额和同 key 覆盖，超额不截必需证据。source/consumer 软删、归档或账户撤权经组合根清缓存；正文失效的附属 purge 用 SAVEPOINT 隔离真实 SQL 故障，并显式报告未清理。
+
+来源按钮按同 novel 逐步回读当前/历史 checkpoint 与原 MemoryEvent；历史依据单独标记，不当作当前事实。GET 不 ensure；“重新整理已有状态记录”走显式原 ensure 接口，只补缺失 basis 或重放已登记事件，不编造来源。备份排除缓存数据，旧备份恢复后同样清空派生正文。

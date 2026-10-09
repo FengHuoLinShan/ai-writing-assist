@@ -280,6 +280,9 @@ class MemorySceneCheckpoint(Base, UUIDMixin, NovelMixin):
     evidence_refs: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     display_summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
     source_hash: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    # 系统行构建时的环境基线（正文指纹切片+场景结构+契约版本），读时确定性比对用；
+    # 不参与 source_hash 投影链语义，manual/confirmed 行不记。
+    basis_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     gap_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     decision_summary: Mapped[str | None] = mapped_column(Text, nullable=True)

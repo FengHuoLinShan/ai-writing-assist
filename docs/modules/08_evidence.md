@@ -29,7 +29,9 @@ evidence 是小说证据的唯一领域实现：indexing 子域负责 chunk、�
 context 本身不拥有业务事实，但当前**有自己的确认与审计记录表**：
 
 - `rag_chunks`：可重建的正文检索块，绑定 writing source ID/hash；同章不同 draft 可并存，
-  检索可在排序前按 exact source manifest 过滤
+  检索可在排序前按 exact source manifest 过滤；`lexical_terms` 为索引期生成的派生词法
+  词项（中文 2–4 字 n-gram + 英文词，PG TEXT[] + GIN `&&` 召回、迁移回填、SQLite JSON
+  窄适配），空值表示词法未就绪并回退有界 ILIKE，可从 `text` 重建、不重算 embedding
 - `rag_entity_appearances`：从当前正文索引派生的对象出场投影
 - `rag_index_state`：索引请求源、已完成源、freshness 与 task owner/generation 状态
 - `context_confirmations`：AI 参考资料确认记录，保存 action、scope、selected_asset_ids、warnings、result_refs、stale_reasons 等摘要
@@ -38,6 +40,11 @@ context 本身不拥有业务事实，但当前**有自己的确认与审计记�
   consumer `novel_id` 隔离写入并以 source revision/refs 记录资料来源；另保存 task/workflow、摘要/hash、token/section metadata、result refs 和错误，默认不保存完整 rendered context
 - `evidence_links`：使用 `TargetRef + claim_path` 将对象字段连到 `SourceRangeRef`；保存 precision/status/provenance，不创建独立 Claim 正史
 - `context_retrieval_traces`：只保存查询计划 hash、clause 摘要、计数和 safe-empty 原因，不保存 raw query/正文
+- `context_interaction_source_cache`：RP 原作包私有派生缓存（20261007 迁移，ADR-0018
+  修订例外）；一行 = 完整预算前材料 + 单版本编译正文及规格，`UNIQUE(novel_id,
+  material_key_hash)` 幂等，TTL 24h，方法版本不匹配整行不消费（fail-closed）；命中仍
+  重过门禁并按冻结 source_ref 重读复验必需证明，snapshot/审查资格不缓存；敏感派生数据
+  不入导出/备份/日志
 - PostgreSQL trace 旁路写入设置 2 秒事务级锁等待上限；FK 锁竞争只产生诊断 warning，
   不阻塞调用方检索或生成流程
 - `context_activation_profiles` / `context_activation_profile_revisions`：项目级 AI 参考规则 aggregate 与不可变发布历史；运行时只消费已发布 revision
@@ -521,3 +528,7 @@ KnowledgeScopeReceipt 来源条目新增逐源 token、处置状态（included/t
 omitted）与哈希基底标记；可得正文参与 hash，预算逐出保留真实 token 与全部
 来源。不可分多源块使用 shared token_groups，复算按 group key 去重，独立数量
 才进入 token_count。账本不保存原文；增加审计字段本身不改变确认指纹。
+
+### 第一阶段整改后的读取边界
+
+Scene Lens 完整返回对象字段、位置/知识来源、逐项未知、新鲜度与状态指纹；POV 知识只读本 Scene 的角色投影，World 名称不能补今天事实。来源可沿同项目父 checkpoint 和 event 回读，历史依据不是当前事实。私有 RP 缓存的全行容量、PG 并发、匿名禁用、撤权清理与备份恢复冷启动见 [compilation README](../../backend/modules/evidence/compilation/README.md)；冻结来源的检索保留不同原文范围，关键证据与知识边界独立验收。

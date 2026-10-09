@@ -301,6 +301,7 @@
           @insert-text="vm.insertText"
           @select-scene="vm.selectScene"
           @load-lens="vm.loadSceneLens"
+          @start-trial="startStateTrial"
           @pin-evidence="vm.focusedSelection.add"
           @clear-evidence="vm.focusedSelection.clear"
           @organize="vm.navigateSceneWorkbench"
@@ -444,6 +445,15 @@ const props = defineProps({
   semanticReview: { type: Object, default: null },
 })
 
+async function startStateTrial(stateTrial = null) {
+  rightRailOpen.value = false
+  await nextTick()
+  try {
+    await openProjectAssistant({ projectId: props.projectId, creative: true, stateTrial })
+  } catch (error) {
+    getToast()(error.message || "试改面板暂时无法打开", "error")
+  }
+}
 const vm = useWritingWorkspace(props)
 /* 空白作品：没有章节时右侧资料栏与状态栏无内容可展示，切换为单栏欢迎布局 */
 const isBlankWork = computed(() => !props.publicDemo

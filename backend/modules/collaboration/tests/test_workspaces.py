@@ -251,6 +251,9 @@ async def test_rebase_preserves_author_edits_requires_exact_conflict_resolution(
     from modules.collaboration.contracts import RebaseRequest
     from modules.collaboration.recovery import rebase
 
+    # 生产会话 autoflush=False（core/database.py）；rebase 的授权改写与子试改
+    # 幂等哈希依赖显式 flush 而非自动 flush。
+    db_session.sync_session.autoflush = False
     db, nid = db_session, test_project_id
     case, trial, drafts, _ = await setup_trial(db, nid, monkeypatch)
     current = await create_draft_only(
@@ -291,6 +294,8 @@ async def test_revert_creates_checked_compensation_without_erasing_merge(
     from modules.collaboration.contracts import RebaseRequest
     from modules.collaboration.recovery import rebase
 
+    # 同上：撤回补偿也走 rebase 的授权续期与子试改关联，须在无自动 flush 下成立。
+    db_session.sync_session.autoflush = False
     db, nid = db_session, test_project_id
     case, trial, drafts, _ = await setup_trial(db, nid, monkeypatch)
     await merge_workspace(db, nid, trial["id"], await approve_trial(db, nid, case, trial))

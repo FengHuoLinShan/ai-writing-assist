@@ -14,6 +14,9 @@ from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
+SCENE_CALL_TIMEOUT_SECONDS = 900
+DISCOVERY_OUTPUT_TOKENS = 393_216
+
 _SAMPLER_REGISTRY: dict[str, Callable[..., Any]] = {
     "project_llm": None,  # 占位：project_llm_sampler_factory 定义后回填
 }
@@ -51,7 +54,9 @@ async def project_llm_sampler_factory(
     from modules.evolution.llm_sampler import ProjectLLMSampler
     from modules.project.facade import open_project_snapshot_llm_client
 
-    async with open_project_snapshot_llm_client(db, novel_id, llm_snapshot) as client:
+    async with open_project_snapshot_llm_client(
+        db, novel_id, llm_snapshot, timeout_override=SCENE_CALL_TIMEOUT_SECONDS
+    ) as client:
         yield ProjectLLMSampler(client)
 
 

@@ -21,10 +21,18 @@ through its stable facade and never writes World, Memory, or Writing records.
 - `contracts.py`: read contracts for character-card and script-file responses, plus the
   plot-thread stage helpers (`TERMINAL_THREAD_STAGES`, `thread_stage_is_terminal`,
   `thread_overdue_notice`) shared by context selection and overdue rendering.
+- `continuity/basis.py`: checkpoint 来源基线（M4）——系统行构建时登记的
+  working 稿指纹切片 + 重放窗口场景结构 + 契约版本，供 `get_scene_state_view`
+  读时确定性比对；漂移即 degraded 待核对，作者行豁免。
 - `facade.py`: card CRUD/restore/archive, script save/adopt/archive/unadopt,
   Scene context and the adopted-only `get_scene_story_assets` read seam, plus
   the read-only plot-thread reverse lookup `list_plot_threads_referencing_entities`
-  consumed by the World impact preview (ADR-0022).
+  consumed by the World impact preview (ADR-0022). Continuity exposes
+  `get_scene_state_view` — the viewpoint-layered (author/character/reader)
+  read-only Scene state projection (M2 scene-state-view-v1); it reads only
+  `is_current` checkpoints, never backfills from today's World, and is also
+  exported through the `STORY_SCENE_SOURCE` port for cross-module consumers
+  (see `continuity/scene_state_view.py` and the M2 contract in docs/plans).
 - `schemas.py`: strict Pydantic request, preview and response payloads.
 - `tasks.py`: four deterministic async handlers registered through the shared
   task registry: `story_character_card_generate`, `story_reaction_propose`,
@@ -219,3 +227,14 @@ creative_core 缺失为 conflict（合成条目键 `__outline__`），回滚时 
 则回基线或用 clear_head_if_revision 清指针。资产带 spreadsheet_migration 来源与
 provenance；deep import 的 Scene 替换不会清理该来源的 Scene（scene_replacement 的
 _cleanable 边界）。
+
+## 只读条件比较与历史来源
+
+`facade.compare_scene_state_trial` 复用同 Scene 状态与角色知识，通过 `ResolutionBatch/replay_batch` 在内存比较保管转交和三条件锁。原状态/有限假设逐条件返回当前值、所需值、来源及未知；不把自然语言或缺证据行动视作成功，不授予口令知识、不改 owner，不写事件或正文。Grant 必须携比较 digest，执行与采用重验；接口和范围见 [M5 契约](../../../docs/plans/2026-10-07-m5-trial-change-comparison-contract.md)。
+
+历史来源经同项目 `scene-checkpoints/{id}` 与 `events/by-id` 显式回读，不能替代 current 投影。POV 知识来自本场 Story character 视图；受限事实需 knowledge 值匹配，不能用当前 World 状态、误信或关系提及补齐。
+
+Continuity events freeze manuscript references at ingestion. Rebuilt field provenance
+revalidates those references; legacy or stale references remain unverified. Reader
+visibility checks each field's historical value against its source range, and checkpoint
+consumption includes the inherited manuscript prefix. See [Memory contract](../../../docs/modules/05_memory.md).

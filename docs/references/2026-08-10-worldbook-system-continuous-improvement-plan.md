@@ -1675,7 +1675,7 @@ make docs-check BASE_REF=origin/main
 ### 17.6 开源评测取舍
 
 - 借 [Promptfoo test cases](https://www.promptfoo.dev/docs/configuration/test-cases/) 的逐 case 输入、metadata 与多 assertion，但继续用当前 Pydantic／JSONL 和测试框架。
-- 借 [Ragas datasets](https://docs.ragas.io/en/stable/concepts/datasets/) 的“数据集与实验结果分离”、版本与 metadata 切片；仓库已有同等骨架，不安装其新 runtime，现有 `ragas_adapter` 只保留窄 RAG 指标用途。
+- 借 [Ragas datasets](https://docs.ragas.io/en/stable/concepts/datasets/) 的“数据集与实验结果分离”、版本与 metadata 切片；仓库已有同等骨架，不安装其新 runtime。截至 2026-10-10，Ragas adapter 已移除，LLM-derived RAG metrics 在维护良好且完成校准的 adapter 接回前保持 unavailable。
 - 借 [OpenAI Evals](https://github.com/openai/evals) 的用例专属 custom eval 思路；不把 R01—R14 塞进通用榜单，也不建立第二 registry。
 - 借 [LangGraph persistence](https://docs.langchain.com/oss/python/langgraph/persistence) 对 checkpoint／replay 的严格语义：恢复与重放不同，重放后的 LLM 和副作用会再次执行；R01 因而必须断言“恢复不重跑”。不引入 LangGraph runtime。
 - 当前仓库对 provenance、人工双审、冻结和 unavailable 指标已有更严格的本地规则；最小方案是补一个任务特定回放层，而不是换框架。Pi 的能力评测只在第 9.2 节影子实验触发后使用，不参与当前产品放行。

@@ -27,6 +27,7 @@ from modules.evidence.facade import (
     prepare_confirmed_ai_action,
 )
 from modules.project.facade import require_active_project
+from modules.story.facade import compare_scene_state_trial
 
 
 def manuscript_hashes(resources):
@@ -151,6 +152,17 @@ async def collect_creative_manifest(
     db, novel_id, grant: Grant, goal_version: int, *, query=None, subject=None
 ):
     await require_active_project(db, novel_id)
+    state_trial = None
+    if grant.scene_state_trial:
+        if f"scene:{grant.scene_state_trial.scene_id}" not in {
+            ref.key for ref in grant.resources
+        } or f"scene:{grant.scene_state_trial.scene_id}" in {
+            ref.key for ref in grant.excluded
+        }:
+            raise ValidationError("条件试验须绑定本次已选择的场景，不能引用排除资料")
+        state_trial = await compare_scene_state_trial(
+            db, novel_id, grant.scene_state_trial
+        )
     excluded = {ref.key for ref in grant.excluded}
     from modules.writing.facade import list_drafts_by_ids
 
@@ -325,6 +337,7 @@ async def collect_creative_manifest(
         grant_hash=content_hash(grant.model_dump(mode="json")),
         resources=chosen,
         query_scope_hash=scope_hash,
+        scene_state_trial=state_trial,
     )
     if (
         manifest.subject.kind == "author"
@@ -519,6 +532,13 @@ def creative_context_text(manifest: InputManifest, *, resources=None):
         source_keys = {source.key: source.source_hash for source in sources}
         original_keys = {source.key: source.source_hash for source in manifest.resources}
         if source_keys == original_keys:
+            if manifest.scene_state_trial:
+                text += (
+                    "\n本次条件比较（候选假设；不是已经发生的历史，不授予人物知识）：\n"
+                    + json.dumps(
+                        manifest.scene_state_trial, ensure_ascii=False, sort_keys=True
+                    )
+                )
             if manifest.query_receipt:
                 text += "\n本轮字面回读范围（过程回执，不是作品事实）：\n" + json.dumps(
                     manifest.query_receipt, ensure_ascii=False, sort_keys=True

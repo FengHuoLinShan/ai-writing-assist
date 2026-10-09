@@ -28,6 +28,10 @@ infrastructure/llm/
 - 支持流式输出
 - 支持重试
 - 支持结构化输出修复
+  完整响应可在字符串外修复一个括号笔误：更正一个错误闭合符，或仅在正确闭合符紧随时
+  移除一个多余闭合符；修复后必须再次通过完整 schema，诊断保留具体策略。
+  不改字符串、业务字段或数值；新增的多余闭合符删除分支不补缺失括号，且拒绝多错误和
+  多文档。原有包装、单错括号替换与轻截断恢复继续遵守已有 schema/完成原因门。
 - 支持由上层 project facade 解析的账户级 OpenAI-compatible LLM Profile
 - 提供版本化 model capability budget；当前校准 canonical `deepseek-flash`，并保留
   `deepseek-v4-flash` 冻结兼容配置；未知模型使用
@@ -334,3 +338,13 @@ Kimi/Pi/DSH 通过 0600 任务文件接收正文，避免把作品资料放入�
 `sources.model=cost_routing`。路由能力与信封归属是两个参数：`routing_capability_id`
 只供 B5 按子能力名（如 `imports.scene_slicing`）选模型；`capability_id` 仍是
 运行信封归属，只接受 run root 或 `infrastructure.*`。
+
+`generate`/`generate_structured`可由业务显式选择`complete_stream=True`：仍是一次
+完整响应，SDK原生stream context聚合后复用原输出/schema链；须最终usage及结束原因，
+原单次预算/信封/限流/全调用timeout保持，SDK与client不重放断流。默认关闭；Evolution
+仅在项目账户DeepSeek连接的长结构步骤启用，方法指纹固定；短observer保持普通调用。
+这提供已实测的传输替代，不证明远端reset责任或永久消除网络中断。
+
+SDK完整消费后取公开终态snapshot，不用其自动结构解析丢弃已知length/filter用量；
+length仍交原截断/schema规则，content_filter在结构化入口明确拒绝并记录完整已知用量。
+迭代失败不得取partial snapshot；原始HTTPX迭代TransportError也经同一错误映射。

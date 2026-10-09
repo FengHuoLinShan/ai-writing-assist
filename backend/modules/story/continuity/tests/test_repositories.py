@@ -589,6 +589,7 @@ class TestDeltaLogRepository:
             explicit_false.id,
             non_boolean_rollback.id,
         ]
+
     def test_workflow_filter_sql_preserves_json_types_in_both_dialects(self) -> None:
         novel_id = uuid.uuid4()
         repository = DeltaLogRepository()

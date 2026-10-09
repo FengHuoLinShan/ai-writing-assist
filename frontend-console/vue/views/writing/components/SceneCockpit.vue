@@ -97,7 +97,7 @@
         </section>
 
         <section v-else-if="activeTab === 'lore'" class="cockpit-panel" data-panel="lore">
-          <SceneLensSummary :scene="scene" :lens="lens" @load="$emit('load-lens')" />
+          <SceneLensSummary :scene="scene" :lens="lens" :project-id="projectId" @load="$emit('load-lens')" @start-trial="$emit('start-trial', $event)" />
         </section>
 
       </div>
@@ -195,7 +195,7 @@ function openAlert(alert) {
   else if (props.conflict?.latest) emit("open-conflict")
   else emit("run-conflict")
 }
-const emit = defineEmits(["run-conflict", "open-conflict", "insert-text", "organize", "toggle-collapse", "select-scene", "load-lens", "pin-evidence", "clear-evidence", "open-map"])
+const emit = defineEmits(["run-conflict", "open-conflict", "insert-text", "organize", "toggle-collapse", "select-scene", "load-lens", "start-trial", "pin-evidence", "clear-evidence", "open-map"])
 const locationEntityId = computed(() => typeof props.location === "object"
   ? props.location?.entity_id || props.location?.id || null : null)
 
