@@ -87,7 +87,7 @@ make eval-ask-world-model NOVEL_ID='<isolated-project-id>' PROBE_SPLIT=debug DAT
 make eval-technical-coverage    # Synthetic RAG/tools/collaboration/memory + stdio MCP; no paid models or DB
 make eval-context-planner NOVEL_ID='<fixture-project-id>' OUTPUT=/tmp/context-planner.json
 make eval-context-planner NOVEL_ID='<fixture-project-id>' LLM_PLANNER=1 OUTPUT=/tmp/context-planner-llm-dev.json  # explicit model calls; dev split only
-make audit-backend-deps          # Locked backend audit; all extras, temporary no-fix exceptions re-open on fix
+make audit-backend-deps          # Locked backend audit; all extras, no advisories suppressed
 make audit-frontend-deps         # Frontend lockfile audit; high/critical findings fail
 make docs-check                  # Current architecture inventory, AST task discovery, links and diagrams
 make docs-check BASE_REF=origin/main  # Plus current-branch architecture impact review

@@ -16,7 +16,7 @@ send_message/regenerate/continue_from_node → TaskWorker 执行真实 LLM），
 复跑（先冻结 dev/holdout 场景脚本，不许在 holdout 结果上调 Prompt）：
     cd backend && \
     set -a; source <主仓>/backend/.env; set +a; \
-    uv run --python 3.13 --locked --extra eval -- \
+    uv run --python 3.13 --locked --extra dev -- \
         python -m evals.rp_real_pairs --stage adaptation \
         --ledger-dir ~/.ai_writing_private/rp-real-20261007
 """

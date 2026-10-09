@@ -16,7 +16,7 @@
 PG 库必须先 alembic upgrade head；不触碰任何真实项目库。
 
 复跑：
-    cd backend && uv run --python 3.13 --locked --extra eval -- \
+    cd backend && uv run --python 3.13 --locked --extra dev -- \
         python -m evals.rp_cost_baseline run --scales s,m \
         --output evals/artifacts/rp-cost-baseline/report.json
     # PG 代表性运行：先建专用库并迁移，再 DATABASE_URL=... 同命令。

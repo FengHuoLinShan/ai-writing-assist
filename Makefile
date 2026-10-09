@@ -14,7 +14,7 @@ FAST_TEST_TIMEOUT_SECONDS ?= 120
 TEST_WORKERS ?= auto
 BACKEND_EVAL_PYTHON ?= 3.13
 BACKEND_LOCKED_CI_RUN := uv run --locked --extra ci --
-BACKEND_LOCKED_EVAL_RUN := uv run --python $(BACKEND_EVAL_PYTHON) --locked --extra eval --
+BACKEND_LOCKED_EVAL_RUN := uv run --python $(BACKEND_EVAL_PYTHON) --locked --
 
 # ─── Full Stack ─────────────────────────────────────
 
@@ -167,11 +167,11 @@ eval-rp-cost-baseline:  ## Measure the RP compile-chain cost baseline (M0; local
 
 .PHONY: eval-technical-coverage
 eval-technical-coverage:  ## Run synthetic coverage experiments; no database or paid model I/O
-	cd $(BACKEND_DIR) && uv run --python 3.13 --locked --extra ci --extra eval --extra experiments -- python -m evals.retrieval_comparison --output evals/artifacts/technical-coverage/retrieval.json
-	cd $(BACKEND_DIR) && uv run --python 3.13 --locked --extra ci --extra eval --extra experiments -- python -m evals.tool_selection --output evals/artifacts/technical-coverage/tools.json
-	cd $(BACKEND_DIR) && uv run --python 3.13 --locked --extra ci --extra eval --extra experiments -- python -m evals.collaboration_comparison --output-dir evals/artifacts/technical-coverage
-	cd $(BACKEND_DIR) && uv run --python 3.13 --locked --extra ci --extra eval --extra experiments -- python -m evals.rp_long_memory compile evals/datasets/baselines/rp-long-memory-v2.jsonl --split dev --output evals/artifacts/technical-coverage/memory-compile.json
-	cd $(BACKEND_DIR) && uv run --python 3.13 --locked --extra ci --extra eval --extra experiments -- pytest evals/tests/test_experiment.py evals/tests/test_retrieval_comparison.py evals/tests/test_tool_selection.py evals/tests/test_mcp_reference_lab.py evals/tests/test_collaboration_comparison.py evals/tests/test_task_capacity.py -q --timeout=60
+	cd $(BACKEND_DIR) && uv run --python 3.13 --locked --extra ci --extra experiments -- python -m evals.retrieval_comparison --output evals/artifacts/technical-coverage/retrieval.json
+	cd $(BACKEND_DIR) && uv run --python 3.13 --locked --extra ci --extra experiments -- python -m evals.tool_selection --output evals/artifacts/technical-coverage/tools.json
+	cd $(BACKEND_DIR) && uv run --python 3.13 --locked --extra ci --extra experiments -- python -m evals.collaboration_comparison --output-dir evals/artifacts/technical-coverage
+	cd $(BACKEND_DIR) && uv run --python 3.13 --locked --extra ci --extra experiments -- python -m evals.rp_long_memory compile evals/datasets/baselines/rp-long-memory-v2.jsonl --split dev --output evals/artifacts/technical-coverage/memory-compile.json
+	cd $(BACKEND_DIR) && uv run --python 3.13 --locked --extra ci --extra experiments -- pytest evals/tests/test_experiment.py evals/tests/test_retrieval_comparison.py evals/tests/test_tool_selection.py evals/tests/test_mcp_reference_lab.py evals/tests/test_collaboration_comparison.py evals/tests/test_task_capacity.py -q --timeout=60
 
 eval-ask-world:  ## Run Ask World API contracts, then the offline evidence-ranking gate
 	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) pytest modules/world/tests/test_world_generation_center_api.py -k ask_world -q

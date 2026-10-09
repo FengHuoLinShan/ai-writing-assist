@@ -3,7 +3,7 @@ id: T-20261010-pr206-integration
 title: 修复并合入世界演化 PR #206
 status: active
 created: 2026-10-10T00:20:05+09:00
-updated: 2026-10-10T01:03:00+09:00
+updated: 2026-10-10T01:19:00+09:00
 external_ref: https://github.com/FengHuoLinShan/ai-writing-assist/pull/206
 ---
 
@@ -12,11 +12,11 @@ external_ref: https://github.com/FengHuoLinShan/ai-writing-assist/pull/206
 ## 恢复快照
 
 - 实际完成：恢复 PR worktree，核实远端分支干净且与 HEAD `7bf4c143a94cbe1660f8d18eb410097b18c1faba` 一致；本地将最新 `origin/main`（`b27b84ac0254d82a66c9a028e83a9c1f1f047c64`，PR #207）合入，生成 `fc7587dd4a7b51ba2e7bf359771d309e1e1ea260`，无冲突。
-- 当前里程碑：全量 `make test-ci TEST_WORKERS=2`、锁文件/依赖审计和架构文档门禁均通过；固定基点 review 与 PR 新 head 检查尚待完成。
-- 下一步：完成本地生产镜像门禁（后端镜像已成功，前端镜像在重试）、更新本任务记录并提交修复；随后运行并审查 Standards/Spec 两轴结果，推送 PR 分支，核验新固定 head 的全部检查后按 `--match-head-commit` 合入，最后单独核对合并提交 main CI。
-- 阻塞：当前没有代码问题。Docker 前端镜像首次拉取 pinned 基础镜像元数据耗时约 284 秒后被主动取消；第二次尝试中。
-- 工作区：`/Users/tywww/.codex/worktrees/world-foundation-plan/ai-writing-assist`，分支 `codex/world-foundation-phase1-plan`，本地比远端领先两项既有提交及本次 main merge；PR 修复和本任务记录仍未提交。主工作区和其他 worktree 保持不动。
-- 最后核实：2026-10-10T00:29:35+09:00。
+- 当前里程碑：全量 `make test-ci TEST_WORKERS=2`、依赖/锁文件审计、架构文档门禁及 6 个受影响的离线评测入口通过；两轴评审发现的调用点和说明现已修复，待复核。
+- 下一步：提交评审修复并重跑 final diff/docs 门禁；完成审查复核后推送固定 PR head，核验全部必需检查并按 `--match-head-commit` 合入，最后单独核对合并提交 main CI。
+- 阻塞：代码问题已修复，待两轴审查复核。Docker 前端镜像门禁在两次尝试中分别等待 pinned Node/NGINX 基础镜像元数据约 284/241 秒；后端镜像已构建并冒烟通过，完整镜像检查交由 PR 必需 CI 决定。
+- 工作区：`/Users/tywww/.codex/worktrees/world-foundation-plan/ai-writing-assist`，分支 `codex/world-foundation-phase1-plan`；main merge 与初版修复已提交为 `fc7587d`、`96b9f12`，评审修正仍未提交。主工作区和其他 worktree 保持不动。
+- 最后核实：2026-10-10T01:19:00+09:00。
 
 ## 目标与验收
 
@@ -39,7 +39,9 @@ external_ref: https://github.com/FengHuoLinShan/ai-writing-assist/pull/206
 - [x] 升级并锁定 `pydantic-ai-slim==2.53.0`；删除未调用的可选 Ragas adapter/extra，清除 `langchain-community` 和 DiskCache 的 lock closure；保留 `ragas_*` unavailable 指标槽位并同步文档。
 - [x] 本地依赖审计通过；targeted 3 tests 通过。
 - [x] 全量跨栈 `make test-ci TEST_WORKERS=2` 复跑并通过。
-- [x] 受影响回归、依赖/锁检查及本地 docs 门禁；PR CI 固定 head 与 Standards/Spec 两轴 review 待完成。
+- [x] 受影响回归、依赖/锁检查及本地 docs 门禁；PR CI 固定 head 与两轴 review 复核待完成。
+- [x] 清理已删除 `eval` extra 的 Makefile 与脚本使用说明调用点。
+- [x] `make eval-fixture-manifest` 与 `make eval-technical-coverage` 在不安装 `eval` extra 时通过（14 tests）。
 - [ ] 必需检查全绿后按固定 head 合入；查询合并提交的 main CI。
 
 ## 决策、发现与失败
@@ -47,6 +49,7 @@ external_ref: https://github.com/FengHuoLinShan/ai-writing-assist/pull/206
 - 2026-10-10：当前 `Backend quality` 仅因 locked dependency audit 失败：`pydantic-ai-slim 2.50.0` 两项漏洞（固定版 2.53.0）及 `langchain-community` 项目归档；Production image contract 仅检出前一项 HIGH。依赖修复不以 ignore 或放宽门槛替代。
 - 2026-10-10：同一 Ragas 适配器没有生产或 runner 调用方，runner 将相关 LLM 指标显式记为 unavailable；Ragas 可选包把已归档 `langchain-community` 拉入 lock。评估删除 dead optional adapter 前，保留 `ragas_*` 指标输出字段及不可用语义。
 - 2026-10-10：移除 adapter/extra 后，初次全量测试发现导入方向棘轮因实际函数内导入数从 525 降到 524，已下调 ratchet 并记录此清理；Writing 单测的 fixture 错误地 patch facade 重导出而不是被测模块调用点，已改为 patch `modules.writing.api.mark_chapter_index_dirty`。
+- 2026-10-10：固定基点 Standards/Spec 评审发现删除 optional `eval` group 后，Makefile 共享运行器、技术覆盖目标与 RP 脚本文档仍引用 `--extra eval`；已统一删除不存在的 extra 参数（RP BGE 命令改用现有 `dev` extra），并修正开发指南中的旧“temporary no-fix exceptions”说明。初次提交需在评审修复后重新固定。
 
 ## 验证证据
 
@@ -58,13 +61,13 @@ external_ref: https://github.com/FengHuoLinShan/ai-writing-assist/pull/206
 - `cd backend && uv lock --check`：Resolved 147 packages；锁与项目元数据一致。
 - `make docs-check` 与 `scripts/check_architecture_docs.py --base-ref origin/main --no-change-reason ...` 均通过；后者明确记录了本次不改变架构、任务、schema、LLM、facade 或前端契约，因此三份被通用影响规则列出的架构文档无需改动。
 - 全量 `make test-ci TEST_WORKERS=2`：backend coverage 7498 passed / 2 skipped，86.59%；deploy 272 passed；frontend 231 test files / 2888 passed；docs、secret hygiene、backend/frontend audit、Ruff 均通过。
-- `make test-production-images` 首次成功构建并冒烟后端生产镜像（新锁含 `pydantic-ai-slim==2.53.0`）。前端步骤等待 pinned Node 基础镜像元数据约 284 秒，用户端进程被主动取消后重跑中；完整目标还包含隔离合成数据恢复演练。
-- 初次 `make test-ci TEST_WORKERS=2`：272 deploy tests passed；Backend coverage run 7495 passed / 3 failed。两个失败为上述 ratchet 下降，一个为错误 mock target；更新后定向三项回归 `3 passed`。全量重跑待执行。
-- 未推送、合入、部署；修复与最新 docs/eval 状态仍在本地 PR worktree。
+- `make test-production-images` 首次成功构建并冒烟后端生产镜像（新锁含 `pydantic-ai-slim==2.53.0`）。前端步骤等待 pinned Node/NGINX 基础镜像元数据约 284 秒后主动取消；第二次仍等待镜像元数据而停止本地尝试，完整目标还包含隔离合成数据恢复演练。PR 必需 Production image contract 仍需在 GitHub 固定 head 核验。
+- 初次 `make test-ci TEST_WORKERS=2`：272 deploy tests passed；Backend coverage run 7495 passed / 3 failed。两个失败为上述 ratchet 下降，一个为错误 mock target；更新后定向三项回归 `3 passed`。第二次全量重跑结果见上一条，为 backend 7498 passed、deploy 272 passed、frontend 2888 passed。
+- 初版修复提交 `96b9f124d` 仍未推送；第二笔审查修复尚未提交。审查复核、PR 检查、合入和 main CI 待完成；未部署。
 
 ## 交付结果
 
-- 已交付：从最新 main 同步 PR 分支；本地依赖/可选工具链修复及 targeted verification；原有 phase1/2/3 记录和其他 worktree 不变。
-- 未交付：全量本地质量门、PR 新 head 检查、评审、合并及合并后 main CI。
-- 交付边界：当前只有 main merge 已提交为分支历史；本轮修复仍未提交、未推送 PR、未合入、未部署。
+- 已交付：从最新 main 同步 PR 分支；依赖/可选工具链修复、全量 CI 目标及 targeted verification；原有 phase1/2/3 记录和其他 worktree 不变。
+- 未交付：审查修复提交、最终审查复核、PR 新 head 检查、合并及合并后 main CI。
+- 交付边界：main merge `fc7587d` 与初版修复 `96b9f12` 已提交在本地 PR 分支；尚未推送 PR、未合入、未部署。
 - 正式知识与后续任务：阶段验收范围以对应主计划及 PR #206 描述为准。
