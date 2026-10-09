@@ -30,6 +30,7 @@ writing→evolution 边），镜像常量由测试与 C1 契约逐位对拍防�
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -178,6 +179,26 @@ class WritingRecomputeService:
                 if len(pending) >= limit:
                     break
         return pending
+
+    async def _resolve_covered_notices(
+        self, db: AsyncSession, novel_id: uuid.UUID, chapters: set[int]
+    ) -> None:
+        """重算落域后消解已覆盖的失效提示（与列表读取共用同一套完成判定）。
+
+        已消解的行不再进入 ``list_open_notices`` 的扫描范围：写得越久
+        的章节不会因历史提示堆积而越开越慢，已完成提示也不会被后来的
+        改稿重新判回待处理。
+        """
+        completed_receipts: list[str] = []
+        for chapter in sorted(chapters):
+            rows = await self._operations.list_open_notices(
+                db, novel_id, chapter_index=chapter, limit=None
+            )
+            for row in rows:
+                notice = dict(row.notice_json or {})
+                if await self._notice_completed(db, str(novel_id), notice):
+                    completed_receipts.append(row.receipt_id)
+        await self._operations.resolve_notices(db, novel_id, completed_receipts)
 
     async def _notice_completed(
         self, db: AsyncSession, novel_id: str, notice: dict
@@ -659,6 +680,7 @@ class WritingRecomputeService:
         await self._operations.record_notice_progress(
             db, nid, request.baseline_receipt_digest, scope=request.scope, results=results
         )
+        await self._resolve_covered_notices(db, nid, chapters)
 
         return WritingRecomputeOutcomeResponse(
             novel_id=request.novel_id,

@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.errors import ConflictError, ValidationError
 from modules.evidence.indexing.models import RagIndexState
 from modules.writing.facade import create_draft_only
+from modules.writing.models import WritingInvalidationNotice
 from modules.writing.recompute import WritingRecomputeService
 from modules.writing.schemas import (
     WritingRecomputeAdoptRequest,
@@ -225,6 +226,114 @@ async def test_invalidation_notice_survives_reload_and_resolves_after_recompute(
     receipts = await service.list_receipts(db, nid)
     assert operation_id in [item["operation_id"] for item in receipts]
     assert any(item["scope"] == "reload_evidence" for item in receipts)
+
+
+async def test_completed_notice_is_resolved_and_not_resurrected_by_later_edits(
+    db_session: AsyncSession, test_project_id: str
+) -> None:
+    """重算覆盖后提示在库中消解：status/resolved_at 落库，后续改稿不复活旧提示。
+
+    回归：消解此前只在读取时临时过滤，提示行永远停在 open——每次打开
+    章节都重扫全部历史提示，且已完成提示在新编辑改变指纹后会被误判回
+    待处理。
+    """
+    db, nid = db_session, test_project_id
+    scene = await _scene(db, nid, scene_index=0, chapter_index=1)
+    await _working_draft(db, nid, 1, 1, CH1_V1)
+    from modules.story.continuity.services import MemoryService
+
+    await MemoryService().record_scene_events(
+        db,
+        nid,
+        scene_id=str(scene.id),
+        scene_index=0,
+        chapter_index=1,
+        events=[
+            {
+                "dimension": dimension,
+                "event_type": f"{dimension}_changed",
+                "source": "author_confirmation",
+                "snapshot_after": {"new_value": "人工确认"},
+            }
+            for dimension in ("timeline", "causality")
+        ],
+    )
+    service = WritingRecomputeService()
+    await create_draft_only(db, nid, 1, "第1章", CH1_V2)
+    pending = await service.list_pending_notices(db, nid)
+    receipt_id = pending[0]["receipt_id"]
+
+    operation_id = f"op-{uuid.uuid4()}"
+    preview = await service.preview(
+        db,
+        WritingRecomputeRequest(
+            novel_id=nid,
+            operation_id=operation_id,
+            scope="reload_evidence",
+            targets=[WritingRecomputeTarget(chapter_index=1)],
+        ),
+    )
+    await service.adopt(
+        db,
+        _adopt(nid, operation_id, digest=preview.source_digest).model_copy(
+            update={"baseline_receipt_digest": receipt_id}
+        ),
+    )
+    row = (
+        await db.execute(
+            select(RagIndexState).where(
+                RagIndexState.novel_id == uuid.UUID(nid),
+                RagIndexState.content_mode == "working",
+            )
+        )
+    ).scalar_one()
+    row.status = "succeeded"
+    row.indexed_hash = row.requested_hash
+    row.indexed_source_id = row.requested_source_id
+    await db.flush()
+    rebuild = WritingRecomputeRequest(
+        novel_id=nid,
+        operation_id=f"op-{uuid.uuid4()}",
+        scope="rebuild_derived_state",
+        targets=[WritingRecomputeTarget(chapter_index=1)],
+        baseline_receipt_digest=receipt_id,
+    )
+    rebuild_preview = await service.preview(db, rebuild)
+    await service.adopt(
+        db,
+        WritingRecomputeAdoptRequest(
+            **rebuild.model_dump(),
+            confirmed=True,
+            expected_source_digest=rebuild_preview.source_digest,
+        ),
+    )
+
+    stored = (
+        await db.execute(
+            select(WritingInvalidationNotice).where(
+                WritingInvalidationNotice.novel_id == uuid.UUID(nid),
+                WritingInvalidationNotice.receipt_id == receipt_id,
+            )
+        )
+    ).scalar_one()
+    assert stored.status == "resolved", "完成判定通过后行必须消解，不再进入待办扫描"
+    assert stored.resolved_at is not None
+
+    await create_draft_only(db, nid, 1, "第1章", CH1_V3)
+    statuses = {
+        item.receipt_id: item.status
+        for item in (
+            await db.execute(
+                select(WritingInvalidationNotice).where(
+                    WritingInvalidationNotice.novel_id == uuid.UUID(nid)
+                )
+            )
+        ).scalars()
+    }
+    assert statuses[receipt_id] == "resolved", "后来的改稿不得把已消解的旧提示改回待处理"
+    pending_after = await service.list_pending_notices(db, nid)
+    assert receipt_id not in {item["receipt_id"] for item in pending_after}
+    assert len(pending_after) == 1, "新改稿产生的新提示仍然待处理"
 
 
 async def test_same_length_edits_have_distinct_pending_receipts(

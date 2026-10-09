@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from datetime import UTC, datetime
 
 from sqlalchemy import and_, func, select, text
 from sqlalchemy.engine import RowMapping
@@ -1614,3 +1615,40 @@ class WritingRecomputeRepository:
             notice["_recompute_progress"] = progress
             affected.notice_json = notice
         await db.flush()
+
+    @staticmethod
+    async def resolve_notices(
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        receipt_ids: list[str],
+    ) -> int:
+        """把已完成的失效提示标成已消解。
+
+        行与进度保留（作者仍可回查历史回执），但不再进入待办扫描——
+        否则每次打开章节都要对所有历史提示重算完成判定，且已完成的旧
+        提示会在下一次改稿改变指纹后被误判回待处理。
+        """
+        if not receipt_ids:
+            return 0
+        rows = (
+            (
+                await db.execute(
+                    select(WritingInvalidationNotice)
+                    .where(
+                        WritingInvalidationNotice.novel_id == novel_id,
+                        WritingInvalidationNotice.receipt_id.in_(receipt_ids),
+                        WritingInvalidationNotice.status == "open",
+                    )
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        now = datetime.now(UTC)
+        for row in rows:
+            row.status = "resolved"
+            row.resolved_at = now
+        await db.flush()
+        return len(rows)
