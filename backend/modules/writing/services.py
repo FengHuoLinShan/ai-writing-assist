@@ -23,6 +23,7 @@ from core.container import get
 from core.errors import ConflictError, NotFoundError, ValidationError
 from core.service_keys import (
     ASSISTANT_MARK_EDITORIAL_READY,
+    EVIDENCE_CONFIRMATION_READS,
     WORLD_LIST_ADOPTED_MAP_CONTINUITY_FACTS,
 )
 from infrastructure.llm.agent_step_harness import (
@@ -938,9 +939,7 @@ class WritingDraftService:
             )
             if confirmation_id:
                 confirmation_ids.append(confirmation_id)
-        from modules.evidence.facade import get_confirmation_staleness
-
-        staleness = await get_confirmation_staleness(
+        staleness = await get(EVIDENCE_CONFIRMATION_READS).get_staleness_map(
             db,
             novel_id=novel_id,
             confirmation_ids=list(dict.fromkeys(confirmation_ids)),
