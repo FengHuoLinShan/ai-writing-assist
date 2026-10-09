@@ -1,7 +1,9 @@
 # Module: writing / 正文版本与工作稿模块
 
 异步 AI 生成/审查/返修任务在领取时冻结运行额度，恢复沿用同一 run；该内部回执只存在任务
-私有元数据，不改变 draft、candidate、冲突检查或发布 API 的 wire。
+私有元数据，不改变 draft、candidate、冲突检查或发布 API 的 wire。`writing_generate` 另在
+finalize 前把已付费候选冻结进任务私有 meta（`_frozen_candidate` 下划线键，不进任务状态
+API），崩溃重排按来源指纹复用、免第二次付费调用；finalize 的完整重验仍是最终门禁。
 
 ## 定位
 
@@ -46,7 +48,7 @@ async def create_published_draft_only(db, novel_id, chapter_index, title: str | 
 async def create_published_drafts_only(db, novel_id, chapters: list[dict[str, object]]) -> list[WritingDraftContract]
 async def create_draft(db, novel_id, chapter_index, title: str | None = None, content: str = "") -> tuple[WritingDraftContract, str]
 async def get_draft(db, draft_id) -> WritingDraftContract | None
-async def adopt_candidate_to_working(db, novel_id, draft_id, *, adopted_by="author") -> WritingDraftContract
+async def adopt_candidate_to_working(db, novel_id, draft_id, *, adopted_by="author", idempotency_key=None) -> WritingDraftContract
 async def get_latest_draft_for_chapter(db, novel_id, chapter_index) -> WritingDraftContract | None
 async def list_latest_drafts_for_chapters(db, novel_id, chapter_indices, *, content_limit: int | None = None) -> list[WritingDraftContract]
 async def list_chapter_indices(db, novel_id) -> list[int]
@@ -73,7 +75,7 @@ writing facade/contracts 只读消费草稿与章节索引。
 ```
 POST   /api/writing/drafts                              # 发布草稿（新版本 + publish_chapter 任务）
 GET    /api/writing/drafts/{id}                         # 获取草稿
-POST   /api/writing/drafts/{id}/adopt                   # 将 AI 正文建议复制为普通工作稿
+POST   /api/writing/drafts/{id}/adopt                   # 将 AI 正文建议复制为普通工作稿；可选 idempotency_key 同键重放返回原回执
 POST   /api/writing/drafts/{id}/checkpoint              # 显式保存未发布版本
 POST   /api/writing/drafts/{id}/discard                 # 放弃未发布更改并回到基线
 PUT    /api/writing/drafts/{id}                         # 暂存；published copy-on-write，支持 expected_version

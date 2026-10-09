@@ -166,6 +166,9 @@ Task 路径把同一信封落在 `async_tasks.meta` 的私有键 `_ai_run_envelo
 终态由 `finalize(envelope=...)` 与任务终态在同一事务提交，stale 与 cancel 在同一事务内把未 settle
 的请求收敛为 unknown/possible。普通 task API、领域 result 消费者（含 Story Outline 采用路径）看不到该键；
 缺少信封的旧在途任务记 `legacy_untracked/usage_complete=false`。
+同一私有 meta 约定承载 `writing_generate` 的 `_frozen_candidate`：模型返回后、finalize 前
+经租约栅栏 checkpoint 冻结已付费候选（版本、attempt、来源指纹、候选负载），崩溃重排按
+来源指纹复用、免第二次付费调用；lease 丢失时拒绝写入，行为退回重排重调。
 Interaction story task 额外通过注册表的窄 mirror callback，把同一快照写入
 `InteractionGenerationAttempt.agent_checkpoint_json`；`length/看海` 新 task 仍沿用 attempt.id 的
 `run_id`，不得按新 task id 开第二本账。

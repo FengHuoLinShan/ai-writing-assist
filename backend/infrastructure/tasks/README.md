@@ -300,6 +300,9 @@ shape。业务 handler 不得把前端所需字段放进私有键。
 不写 `result`，因此 `story_outline_generate` 等按 result 顶层 exact-key 校验的领域采用路径不受影响；
 `GET /api/tasks/{task_id}` 的 meta/result 投影继续剥离下划线键；公共 `operation.possible_charge`
 只暴露聚合布尔值，不返回信封身份、模型、用量、Prompt 或 provider 诊断。
+`writing_generate` 已在 finalize 前把已付费候选冻结进 `meta["_frozen_candidate"]`
+（含版本、attempt、来源指纹与候选负载），重排按来源指纹复用、免第二次付费调用；
+同信封一样经 lease-fenced checkpoint 落库，lease 丢失时拒绝写入，行为退回重排重调。
 worker 与 inline 在 handler 执行前为 attempt 注入 `task_id/attempt/lease_id` 并建立或恢复同一 run：
 自动 requeue、stale 恢复与 manual resume 只更换执行载体，不重置累计计数、冻结额度或 deadline；
 inline 子任务复用父 run，不另开账本。快照通过 `TaskLifecycleService.checkpoint_run_envelope()` 的

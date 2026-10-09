@@ -231,7 +231,11 @@ finalize 按 project-first 锁序重新验证项目、锁定 base 正文和完�
 profile 与当前最新 running task owner；只有 fresh 结果才在同一最终 worker
 transaction 中创建 candidate 并绑定 confirmation。同一 confirmation 重复入队时，
 最后绑定的 task 取代旧 task，旧结果不会写入。
-上下文漂移、项目删除、取消或 lease 丢失均不会留下 candidate。正文候选只经上述
+模型返回后、finalize 前，已付费输出先经租约栅栏 checkpoint 冻结进任务私有 meta
+（`_frozen_candidate` 下划线键，不进任务状态 API）；finalize 前崩溃的重排按来源
+指纹复用冻结输出，不为同一次生成意图第二次调用付费模型。冻结只认来源指纹，
+finalize 的完整重验仍是最终门禁；指纹漂移、项目删除、取消或 lease 丢失均不会
+留下 candidate，lease 丢失时冻结提交被拒、行为退回重排重调。正文候选只经上述
 task-only seam 生成。
 
 Scene 确认存在时，生成 prompt 附带 outline-owned 执行 bundle，候选
@@ -239,7 +243,10 @@ provenance 冻结 `scene_execution_bundle_hash` 和 exact `upstream_manifest`。
 候选打开和采用前重算当前 bundle；总纲、`story_execution_profile.v1`、
 Scene 或 context confirmation 漂移时显示待复核，采用返回 409。
 采用候选会追加新 working draft 结果引用并把原 Confirmation 标为
-`adopted`；拒绝保留原候选引用与历史并标为 `rejected`。新建稿件仍只发出既有
+`adopted`；拒绝保留原候选引用与历史并标为 `rejected`。采用支持可选
+`idempotency_key`（`POST /writing/drafts/{id}/adopt?idempotency_key=...`）：
+回包丢失后同键重放返回原采用回执而不是报错，键存于候选与采用稿 provenance；
+无键或异键维持原校验错误。新建稿件仍只发出既有
 主动通知；已有稿件的真实内容更新经 Evidence 精确失效入口处理，不扫描无关
 Confirmation。没有 Confirmation 的 legacy 草稿保持原行为。
 
