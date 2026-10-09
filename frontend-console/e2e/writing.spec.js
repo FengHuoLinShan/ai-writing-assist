@@ -604,6 +604,124 @@ test.describe("写作台模块", () => {
     expect(browserErrors).toEqual([])
   })
 
+  test("资料复核未完成的候选不可采用并展示遗漏维度（BR-2）", async ({ page, browserErrors }) => {
+    const confirmationId = "confirmation-writing-unverifiable-e2e"
+    const sourceTaskId = "task-writing-unverifiable-e2e"
+    const baseCreated = await createDraft(testProjectId, 1, "第一章 雾港来信", "潮声退到石阶之外，石门仍旧紧闭。")
+    const base = baseCreated.draft || baseCreated
+    const created = await createDraft(testProjectId, 1, "第一章 雾港来信", "潮声退到石阶之外，露出一道从未被记载的门。")
+    const candidate = created.draft || created
+    const knowledgeReview = {
+      status: "unverifiable",
+      repaired: false,
+      issue_counts: {},
+      issues: [],
+      coverage: [
+        { dimension: "timeline", dimension_label: "时间线", covered_by: [], omitted: false, omission_reason: null },
+        {
+          dimension: "character_knowledge",
+          dimension_label: "角色知识边界",
+          covered_by: [],
+          omitted: true,
+          omission_reason: "未独立检查",
+        },
+      ],
+    }
+    let adoptCalls = 0
+    await page.route(`**/api/evidence/compilation/confirmations/${confirmationId}*`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: confirmationId,
+          task: "生成正文建议",
+          scope: "chapter",
+          compiled_at: "2026-09-16T05:00:00Z",
+          selected_asset_ids: { writing_drafts: [base.id] },
+          result_refs: [{ type: "task", id: sourceTaskId }, { type: "writing_candidate", id: candidate.id }],
+          result_status: "done",
+          stale_reasons: [],
+        }),
+      })
+    })
+    await page.route(`**/api/tasks/${sourceTaskId}*`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          task_id: sourceTaskId,
+          task_type: "writing_generate",
+          status: "done",
+          result: { draft_id: candidate.id, knowledge_review_status: "unverifiable", knowledge_review: knowledgeReview },
+        }),
+      })
+    })
+    await page.route(`**/api/writing/drafts/${candidate.id}/adopt*`, async (route) => {
+      adoptCalls += 1
+      await route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ detail: "不应触发" }) })
+    })
+    await page.route(`**/api/writing/drafts/${candidate.id}*`, async (route) => {
+      if (route.request().method() !== "GET") return route.continue()
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ...candidate,
+          status: "candidate",
+          provenance_json: {
+            source: "writing_generate",
+            review_required: true,
+            context_confirmation_id: confirmationId,
+            source_task_id: sourceTaskId,
+            knowledge_review: knowledgeReview,
+          },
+        }),
+      })
+    })
+    await page.route("**/api/writing/chapters/1/versions*", async (route) => {
+      const response = await route.fetch()
+      const body = await response.json()
+      await route.fulfill({
+        response,
+        json: {
+          ...body,
+          versions: (body.versions || []).map((version) => version.id === candidate.id
+            ? { ...version, status: "candidate", display_state: "candidate" }
+            : version.id === base.id ? { ...version, display_state: "active" } : version),
+        },
+      })
+    })
+
+    await reloadWorkbench(page, "writing")
+    await page.evaluate(({ draftId }) => {
+      const query = new URLSearchParams({ chapter_index: "1", draft_id: draftId })
+      return window.router.navigate("writing", null, true, query)
+    }, { draftId: candidate.id })
+    await waitWritingReady(page, { chapter: 1 })
+
+    const panel = page.locator(".writing-candidate-review-panel")
+    await expect(panel).toBeVisible()
+    // 复核未完成：警告块 + 遗漏维度，作者语言，不显示为通过
+    const warning = panel.locator(".writing-knowledge-review-warning")
+    await expect(warning).toBeVisible()
+    await expect(warning).toContainText("资料复核未完成，暂不能采用")
+    await expect(warning).toContainText("角色知识边界：未独立检查")
+    await expect(warning).not.toContainText("时间线")
+    // 采用入口不出现；主操作退回独立语义审查
+    await expect(panel.getByRole("button", { name: "采用到工作稿" })).toHaveCount(0)
+    await expect(panel.locator(".btn-primary")).toContainText("运行独立语义审查")
+
+    // 结果详情展示遗漏维度
+    const trace = panel.locator(".ai-result-trace")
+    await trace.locator("summary").focus()
+    await page.keyboard.press("Enter")
+    await expect(trace).toContainText("知识复核")
+    await expect(trace).toContainText("当时资料不足，无法完整复核")
+    await expect(trace).toContainText("未检查：角色知识边界")
+    expect(adoptCalls).toBe(0)
+    expect(browserErrors).toEqual([])
+  })
+
   // ============================================================
   // 版本历史查看与恢复
   // ============================================================

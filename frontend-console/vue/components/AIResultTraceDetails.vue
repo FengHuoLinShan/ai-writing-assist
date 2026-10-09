@@ -31,6 +31,11 @@
       <section v-if="review">
         <strong>知识复核</strong>
         <p>{{ reviewLabel }}</p>
+        <ul v-if="reviewOmissions.length">
+          <li v-for="item in reviewOmissions" :key="item.dimension">
+            未检查：{{ item.dimension_label || item.dimension }}<template v-if="item.omission_reason">（{{ item.omission_reason }}）</template>
+          </li>
+        </ul>
         <ul v-if="reviewIssues.length">
           <li v-for="(issue, index) in reviewIssues" :key="`${index}:${issue.message || ''}`">{{ issue.message }}</li>
         </ul>
@@ -147,6 +152,7 @@ const actionLabels = computed(() => (progress.value?.availableActions || [])
   .filter(Boolean))
 const reviewIssues = computed(() => (Array.isArray(review.value?.issues) ? review.value.issues : []).slice(0, 10))
 const remainingReviewIssues = computed(() => Math.max(0, (review.value?.issues?.length || 0) - reviewIssues.value.length))
+const reviewOmissions = computed(() => (Array.isArray(review.value?.coverage) ? review.value.coverage : []).filter((item) => item?.omitted))
 const reviewLabel = computed(() => REVIEW_LABELS[review.value?.status] || "已保留复核回执")
 const resultStateLabel = computed(() => RESULT_STATES[confirmation.value?.result_status] || "已保留运行记录")
 const scopeLabel = computed(() => ({ arc: "当前篇章", chapter: "当前章节", full: "全部资料", project: "当前项目", scene: "当前场景", world: "世界资料" })[confirmation.value?.scope] || "已确认范围")

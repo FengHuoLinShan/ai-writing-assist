@@ -38,6 +38,8 @@ from modules.writing.text_sanitizer import sanitize_writing_text
 SEMANTIC_REVIEW_TIMEOUT_SECONDS = 1800
 _MAX_REVIEW_CHUNKS = 24
 _CHUNK_CHARACTER_BUDGET = 80_000
+# 语义审查标准的单调版本：带问题采用钉住"当时按哪个版本检查"；标准变化时递增。
+WRITING_SEMANTIC_REVIEW_CHECK_VERSION = 1
 _CONTEXT_BOUND_CANDIDATE_SOURCES = {
     "writing_generate",
     "writing_targeted_revision",
@@ -1400,6 +1402,16 @@ class WritingSemanticWorkflowService:
             if incomplete_draft_ids
             else "pass"
         )
+        review_output_hash = "review_output_" + _stable_hash(
+            {
+                "schema": "writing_semantic_review.v2",
+                "review_task_id": task_id,
+                "verdict": verdict,
+                "blocking_count": blocking_count,
+                "findings": findings,
+                "coverage": coverage_by_id,
+            }
+        )
         reviewed_at = datetime.now(UTC).isoformat()
 
         locked = await _lock_review_drafts(
@@ -1431,6 +1443,8 @@ class WritingSemanticWorkflowService:
                 **(draft.provenance_json or {}),
                 "independent_review": {
                     "schema": "writing_semantic_review.v2",
+                    "check_version": WRITING_SEMANTIC_REVIEW_CHECK_VERSION,
+                    "output_hash": review_output_hash,
                     "review_task_id": task_id,
                     "draft_hash": draft.content_hash,
                     "scene_execution_bundle_hash": target["scene_execution_bundle_hash"],
@@ -1468,6 +1482,8 @@ class WritingSemanticWorkflowService:
         await db.flush()
         return {
             "schema": "writing_semantic_review.v2",
+            "check_version": WRITING_SEMANTIC_REVIEW_CHECK_VERSION,
+            "output_hash": review_output_hash,
             "review_task_id": task_id,
             "scope": scope,
             "verdict": verdict,

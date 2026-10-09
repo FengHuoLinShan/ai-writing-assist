@@ -157,11 +157,33 @@ describe("WritingEditor semantic review gate", () => {
       state: state({ review_required: true, independent_review: { verdict: "incomplete", blocking_count: 0 } }),
       attach: vi.fn(), detach: vi.fn(),
     } })
-    expect(wrapper.text()).toContain("尚未完成必要检查")
+    expect(wrapper.text()).toContain("部分完成")
     expect(wrapper.text()).not.toContain("审查已通过")
     expect(wrapper.findAll("button").some(button => button.text() === "采用到工作稿")).toBe(false)
     expect(wrapper.get(".btn-primary").text()).toBe("重新独立审查")
     expect(wrapper.findAll("button").filter(button => button.text().includes("独立审查"))).toHaveLength(1)
+  })
+
+  it("资料复核未完成时显示遗漏维度并隐藏采用（BR-2）", () => {
+    const wrapper = mount(WritingEditor, { props: {
+      state: state({
+        review_required: true,
+        knowledge_review: {
+          status: "unverifiable",
+          coverage: [
+            { dimension: "timeline", dimension_label: "时间线", omitted: false, omission_reason: null },
+            { dimension: "character_knowledge", dimension_label: "角色知识边界", omitted: true, omission_reason: "未独立检查" },
+          ],
+        },
+        independent_review: { verdict: "pass", blocking_count: 0, context_checked: true },
+      }),
+      attach: vi.fn(), detach: vi.fn(),
+    } })
+    const warning = wrapper.get(".writing-knowledge-review-warning")
+    expect(warning.text()).toContain("资料复核未完成")
+    expect(warning.text()).toContain("角色知识边界：未独立检查")
+    expect(wrapper.text()).not.toContain("资料复核已通过")
+    expect(wrapper.findAll("button").some(button => button.text() === "采用到工作稿")).toBe(false)
   })
 
   it("incomplete 且没有可勾选的待核实条目时，主按钮退回重新独立审查，不出现定向返修死路", () => {

@@ -320,7 +320,15 @@ async def test_unchecked_required_dimension_downgrades_pass_to_unverifiable() ->
     assert coverage["world_bible"].omission_reason == "范围内无该维度来源"
     review = knowledge_review_payload(audit=outcome.audit, visible_keys=())
     assert review["status"] == "unverifiable"
-    assert review["coverage"] == [item.to_dict() for item in outcome.audit.coverage]
+    # BR-2：投影逐维带作者语言标签，并钉住政策版本与输出 hash。
+    assert review["policy_version"] == outcome.audit.policy_version
+    assert review["output_hash"] == outcome.audit.output_hash
+    assert [item["dimension_label"] for item in review["coverage"]] == [
+        "世界对象与物品",
+        "世界规则与激活 profile",
+        "世界书页面与简介",
+        "时间线",
+    ]
 
 
 @pytest.mark.asyncio

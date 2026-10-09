@@ -271,7 +271,13 @@ async def handle_writing_generate(db, task):
     )
     task.update_progress(1.0)
     await db.flush()
-    return {"draft_id": draft.id, "chapter_index": draft.chapter_index}
+    knowledge_review = (draft.provenance_json or {}).get("knowledge_review") or {}
+    return {
+        "draft_id": draft.id,
+        "chapter_index": draft.chapter_index,
+        # 前端据此区分"生成完成"与"可以采用"：复核未通过不弹成功提示。
+        "knowledge_review_status": str(knowledge_review.get("status") or ""),
+    }
 
 
 @task_handler(

@@ -134,6 +134,14 @@
             <small v-if="finding.location?.excerpt">位置：{{ finding.location.excerpt }}</small>
           </li>
         </ul>
+        <section v-if="knowledgeGated && !knowledgePassed" class="writing-knowledge-review-warning" role="status">
+          <strong>{{ knowledgeStateText }}</strong>
+          <ul v-if="knowledgeOmissions.length">
+            <li v-for="item in knowledgeOmissions" :key="item.dimension">
+              {{ item.dimension_label || item.dimension }}<template v-if="item.omission_reason">：{{ item.omission_reason }}</template>
+            </li>
+          </ul>
+        </section>
         <section v-if="sceneContractItems.length" class="writing-contract-items" aria-label="本章计划逐项核对">
           <h3>本章计划逐项核对</h3>
           <ul>
@@ -359,11 +367,22 @@ const reviewBlocked = computed(() => independentReview.value?.verdict === "needs
 const targetedRevisionReady = computed(() => reviewBlocked.value
   || (hasUnresolvedReview.value && includedContractItemIds.value.length > 0))
 const commentCandidate = computed(() => props.state.provenanceJson?.source === "writing_comment_revision")
+const knowledgeReview = computed(() => props.state.provenanceJson?.knowledge_review || null)
+const knowledgeGated = computed(() => Boolean(props.state.provenanceJson?.review_required) && Boolean(knowledgeReview.value))
+const knowledgePassed = computed(() => !knowledgeGated.value || knowledgeReview.value?.status === "passed")
+const knowledgeOmissions = computed(() => (Array.isArray(knowledgeReview.value?.coverage) ? knowledgeReview.value.coverage : []).filter((item) => item?.omitted))
+const knowledgeStateText = computed(() => {
+  const status = knowledgeReview.value?.status
+  if (status === "checking") return "资料复核进行中，暂不能采用"
+  if (status === "unverifiable") return "资料复核未完成，暂不能采用"
+  if (status === "legacy_unchecked") return "由旧版本生成，未经统一资料复核，暂不能采用"
+  return "资料复核未通过，暂不能采用"
+})
 const canAdoptCandidate = computed(() => commentCandidate.value
   ? props.state.provenanceJson?.knowledge_review?.status === "passed"
     && independentReview.value?.verdict === "pass"
     && (!(["writing_generate", "writing_targeted_revision", "ai", "llm"].includes(props.state.provenanceJson?.context_origin)) || independentReview.value?.context_checked)
-  : !props.state.provenanceJson?.review_required || independentReview.value?.verdict === "pass")
+  : (!props.state.provenanceJson?.review_required || (knowledgePassed.value && independentReview.value?.verdict === "pass")))
 const candidateBusy = computed(() => Boolean(props.generationLoading || props.state.candidateAction))
 const candidateIdentity = computed(() => props.state.status === "candidate" ? props.state.draftId : null)
 const candidateConfirmationId = computed(() => props.state.provenanceJson?.context_confirmation_id || props.state.provenanceJson?.source_confirmation_id || null)
@@ -372,11 +391,41 @@ const candidateReady = computed(() => !props.state.loading && !props.state.loadE
 const reviewStatusText = computed(() => {
   if (!props.state.provenanceJson?.review_required) return "请先阅读建议正文；采用会创建新工作稿，拒绝只会将建议留在版本历史中。"
   if (commentCandidate.value && props.state.provenanceJson?.knowledge_review?.status !== "passed") return "知识审查未通过，当前候选只能查看。请回到工作稿重新执行批注。"
+  if (knowledgeGated.value && !knowledgePassed.value) {
+    const missing = knowledgeOmissions.value
+      .map((item) => item?.dimension_label || item?.dimension)
+      .filter(Boolean)
+      .slice(0, 4)
+    const suffix = missing.length
+      ? `未检查：${missing.join("、")}${knowledgeOmissions.value.length > missing.length ? " 等" : ""}。`
+      : ""
+    return `${knowledgeStateText.value}。${suffix}可查看问题，或补充资料后重新生成。`
+  }
   if (!independentReview.value) return "采用前需要一次独立语义审查，正文仍保持只读。"
   if (reviewBlocked.value) return `独立审查发现 ${independentReview.value.blocking_count || 0} 个必须先处理的问题。${commentCandidate.value ? '请回到工作稿重新执行批注。' : ''}`
   if (commentCandidate.value && !canAdoptCandidate.value) return "独立审查未完成必要资料核对，当前候选只能查看。"
   if (independentReview.value.verdict === "pass") return "独立语义审查已通过，可以采用。"
-  return "独立审查尚未完成必要检查，当前不能采用。请重新审查，或保留这份建议稍后处理。"
+  const skippedChecks = unfinishedReviewChecks.value
+  const checkNote = skippedChecks.length
+    ? `部分完成：${skippedChecks.join("、")}未检查。`
+    : "部分完成：未覆盖全部必要检查。"
+  return `独立审查${checkNote}当前不能采用。请重新审查，或保留这份建议稍后处理。`
+})
+const unfinishedReviewChecks = computed(() => {
+  const labels = {
+    ability_world_rule: "世界规则",
+    identity_relation: "人物身份与关系",
+    knowledge_boundary: "角色知识边界",
+    logic_continuity: "逻辑连续性",
+    scene_contract: "本章计划逐项核对",
+    space_continuity: "空间连续性",
+    timeline_location: "时间与地点",
+    time_continuity: "时间连续性",
+  }
+  const coverage = independentReview.value?.coverage || {}
+  return Object.entries(labels)
+    .filter(([field]) => coverage[field] === "not_checked")
+    .map(([, label]) => label)
 })
 const visibleFindings = computed(() => (props.reviewResult?.findings || []).filter((item) => item?.location?.draft_id === props.state.draftId).slice(0, 20))
 const severityLabel = (severity) => ({ blocker: "阻断", major: "重要", minor: "建议" }[severity] || "问题")

@@ -383,7 +383,20 @@ export function createWritingCommandController({
         && (getScene()?.id || null) === editorBaseline.sceneId
         && editor.getDraftId() === editorBaseline.draftId
         && editor.getContent() === editorBaseline.content
-      if (editorUnchanged) { await openResult(); toast("正文建议已生成，已打开待审阅版本", "success") } else toast("正文建议已生成，已保留当前编辑内容", "success")
+      if (editorUnchanged) await openResult()
+      // 生成完成 ≠ 可以采用：资料复核未通过时给警告而不是成功提示，
+      // 让"运行完成 / 可审阅 / 已采用"在入口上就不混用同一种绿色。
+      // 编辑器 provenance 只在已打开新候选（editorUnchanged）后才可信。
+      const knowledgeStatus = completed.knowledge_review_status
+        || (editorUnchanged ? editor.getProvenance?.()?.knowledge_review?.status : "")
+        || ""
+      if (knowledgeStatus && knowledgeStatus !== "passed") {
+        toast("正文建议已生成，资料复核未通过，暂不能采用；可查看问题或补充资料后重新生成", "warning")
+      } else if (editorUnchanged) {
+        toast("正文建议已生成，已打开待审阅版本", "success")
+      } else {
+        toast("正文建议已生成，已保留当前编辑内容", "success")
+      }
       return completed
     } catch (err) {
       if (err === ABORTED || disposed || token !== generation) return null

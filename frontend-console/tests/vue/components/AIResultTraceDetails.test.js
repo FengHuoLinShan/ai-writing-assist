@@ -96,6 +96,39 @@ describe("AIResultTraceDetails", () => {
     expect(wrapper.text()).toContain("打开正文成果")
   })
 
+  it("资料复核未完成时展示遗漏维度（BR-2）", async () => {
+    setBridgeOverrides({
+      api: {
+        context: { getConfirmation: vi.fn(async () => confirmation({ stale_reasons: [] })) },
+        tasks: {
+          get: vi.fn(async () => task({
+            result: {
+              knowledge_review: {
+                status: "unverifiable",
+                issues: [],
+                coverage: [
+                  { dimension: "timeline", dimension_label: "时间线", omitted: false, omission_reason: null },
+                  { dimension: "character_knowledge", dimension_label: "角色知识边界", omitted: true, omission_reason: "未独立检查" },
+                ],
+              },
+            },
+          })),
+        },
+      },
+      router: { navigate: vi.fn(() => true) },
+    })
+    const wrapper = mount(AIResultTraceDetails, {
+      props: { projectId: "novel-1", confirmationId: "confirmation-1", taskId: "task-1" },
+    })
+
+    await openTrace(wrapper)
+
+    expect(wrapper.text()).toContain("当时资料不足，无法完整复核")
+    expect(wrapper.text()).toContain("未检查：角色知识边界")
+    expect(wrapper.text()).toContain("未独立检查")
+    expect(wrapper.text()).not.toContain("未检查：时间线")
+  })
+
   it("Confirmation 读取失败可就地重试", async () => {
     const getConfirmation = vi.fn()
       .mockRejectedValueOnce(new Error("网络暂时不可用"))

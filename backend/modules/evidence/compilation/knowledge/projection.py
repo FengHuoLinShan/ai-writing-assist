@@ -92,6 +92,8 @@ def knowledge_review_payload(
     hidden_phrases: Sequence[str] = (),
 ) -> dict:
     """API 响应的加性 knowledge_review 字段。"""
+    from modules.evidence.compilation.knowledge.policies import KNOWLEDGE_DIMENSIONS
+
     projection = sanitize_audit_receipt(
         audit,
         visible_keys=visible_keys,
@@ -99,6 +101,14 @@ def knowledge_review_payload(
     )
     payload = projection.to_dict()
     payload["repaired"] = bool(repaired)
+    if audit is not None:
+        # 带问题采用与质量追溯需要钉住"当时按哪个政策版本、核的是哪份输出"。
+        payload["policy_version"] = audit.policy_version
+        payload["output_hash"] = audit.output_hash
+    for item in payload["coverage"]:
+        item["dimension_label"] = KNOWLEDGE_DIMENSIONS.get(
+            item["dimension"], item["dimension"]
+        )
     return payload
 
 

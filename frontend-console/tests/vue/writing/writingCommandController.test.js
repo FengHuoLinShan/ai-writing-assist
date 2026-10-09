@@ -172,6 +172,46 @@ describe("writingCommandController", () => {
     await first
   })
 
+  it("生成完成但资料复核未通过时警告而非成功提示（BR-2）", async () => {
+    let resolveTask
+    const { api, toast, controller } = setup()
+    api.writing.generate.mockResolvedValue({ task_id: "writing-task" })
+    api.tasks.get.mockImplementation(() => new Promise((resolve) => { resolveTask = resolve }))
+
+    const generation = controller.generateDraft()
+    await vi.waitFor(() => expect(api.tasks.get).toHaveBeenCalledWith("writing-task", "p1"))
+    resolveTask({
+      task_id: "writing-task",
+      task_type: "writing_generate",
+      status: "done",
+      result: { draft_id: "candidate-2", knowledge_review_status: "unverifiable" },
+    })
+    await generation
+
+    expect(toast).toHaveBeenCalledWith(expect.stringContaining("资料复核未通过"), "warning")
+    const successCalls = toast.mock.calls.filter(([, kind]) => kind === "success")
+    expect(successCalls).toHaveLength(0)
+  })
+
+  it("资料复核通过时仍给生成成功提示（BR-2 不改变正常流）", async () => {
+    let resolveTask
+    const { api, toast, controller } = setup()
+    api.writing.generate.mockResolvedValue({ task_id: "writing-task" })
+    api.tasks.get.mockImplementation(() => new Promise((resolve) => { resolveTask = resolve }))
+
+    const generation = controller.generateDraft()
+    await vi.waitFor(() => expect(api.tasks.get).toHaveBeenCalledWith("writing-task", "p1"))
+    resolveTask({
+      task_id: "writing-task",
+      task_type: "writing_generate",
+      status: "done",
+      result: { draft_id: "candidate-2", knowledge_review_status: "passed" },
+    })
+    await generation
+
+    expect(toast).toHaveBeenCalledWith(expect.stringContaining("正文建议已生成"), "success")
+  })
+
   it("任务期间正文变更时不覆盖编辑器，作者可手动查看结果", async () => {
     let resolveTask
     const { api, editor, onResult, controller } = setup()
