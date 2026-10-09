@@ -41,7 +41,6 @@ from modules.project.facade import (
     require_active_project,
     require_active_project_exclusive,
 )
-from modules.world.services import request_entity_activity_reannotation
 from modules.world.llm_schemas import GeneratedOpeningSkeleton
 from modules.world.models import CoreEntity
 from modules.world.schemas import (
@@ -54,6 +53,11 @@ from modules.world.schemas import (
 )
 from modules.world.services.worldbuilding.applied_change_reversal import (
     reverse_applied_changes,
+)
+
+# 世界侧实体活动重标注桥与 focused 回滚共用同一处 core 导入，不新增棘轮流量。
+from modules.world.services.worldbuilding.focused_adoption import (
+    request_entity_activity_reannotation,
 )
 from modules.world.services.worldbuilding.knowledge_governance import (
     govern_world_output,
@@ -111,7 +115,8 @@ def active_alias_terms(content_json: dict | None) -> tuple[str, ...]:
             terms.append(alias)
         elif (
             isinstance(alias, dict)
-            and alias.get("status") in {None, "active", "canonical", "confirmed", "published"}
+            and alias.get("status")
+            in {None, "active", "canonical", "confirmed", "published"}
             and not alias.get("rolled_back")
         ):
             terms.append(str(alias.get("alias") or ""))
@@ -289,7 +294,9 @@ class OpeningSkeletonService:
 
     # ---------- 已有对象目录 ----------
 
-    async def existing_catalog(self, db: AsyncSession, novel_id: str) -> list[ExistingObject]:
+    async def existing_catalog(
+        self, db: AsyncSession, novel_id: str
+    ) -> list[ExistingObject]:
         rows = (
             (
                 await db.execute(
@@ -566,7 +573,10 @@ class OpeningSkeletonService:
             hidden_truth: str | None,
             content_json: dict | None,
         ) -> None:
-            if len([key for key in entity_keys.values() if key.startswith("entity-")]) >= MAX_ENTITIES:
+            created_count = sum(
+                1 for key in entity_keys.values() if key.startswith("entity-")
+            )
+            if created_count >= MAX_ENTITIES:
                 stats.dropped_items.append(name)
                 return
             key = _entity_item_key(kind_label, index)
@@ -879,21 +889,21 @@ class OpeningSkeletonService:
             item.review_reasons = list(
                 dict.fromkeys([*item.review_reasons, "author_excluded"])
             )
+        content_fields = (
+            update.name,
+            update.summary,
+            update.public_info,
+            update.hidden_truth,
+        )
         if item.kind != "core_entity":
-            if any(
-                value is not None
-                for value in (update.name, update.summary, update.public_info, update.hidden_truth)
-            ):
+            if any(value is not None for value in content_fields):
                 raise ValidationError("只有对象条目支持改名或修改简介")
             return
         from modules.world.schemas import WorldAdoptionCoreEntityPayload
 
         payload = WorldAdoptionCoreEntityPayload.model_validate(item.payload)
         if payload.operation != "create":
-            if any(
-                value is not None
-                for value in (update.name, update.summary, update.public_info, update.hidden_truth)
-            ):
+            if any(value is not None for value in content_fields):
                 raise ValidationError("补充已有对象的条目不支持内容编辑")
             return
         entity = dict(payload.entity or {})

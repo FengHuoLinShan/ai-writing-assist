@@ -24,7 +24,7 @@ class DraftOpeningSkeleton(BaseModel):
     direction: dict[str, str] | None = Field(default=None)
 
     @classmethod
-    def task_request(cls, novel_id: str, args: "DraftOpeningSkeleton"):
+    def task_request(cls, novel_id: str, args: DraftOpeningSkeleton):
         from modules.world.schemas import WorldOpeningSkeletonTaskRequest
 
         return WorldOpeningSkeletonTaskRequest(

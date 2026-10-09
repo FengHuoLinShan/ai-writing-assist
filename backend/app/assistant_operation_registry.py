@@ -20,11 +20,11 @@ from modules.story.assistant_structure_workflow import (
     OPERATIONS_SPEC as _STORY_STRUCTURE,
 )
 from modules.story.assistant_tools import OPERATIONS_SPEC as _STORY
-from modules.writing.assistant_candidate_tools import (
-    OPERATIONS_SPEC as _WRITING_CANDIDATE,
-)
 from modules.world.assistant_opening_tools import (
     OPERATIONS_SPEC as _WORLD_OPENING,
+)
+from modules.writing.assistant_candidate_tools import (
+    OPERATIONS_SPEC as _WRITING_CANDIDATE,
 )
 from modules.writing.assistant_generation_tool import (
     OPERATIONS_SPEC as _WRITING_GENERATION,

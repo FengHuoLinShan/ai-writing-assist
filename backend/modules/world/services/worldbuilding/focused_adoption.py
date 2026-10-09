@@ -21,6 +21,9 @@ from modules.world.schemas import (
     WorldAdoptionPackagePayload,
     WorldAdoptionPackageSaveRequest,
 )
+from modules.world.services.core.entity_activity_invalidation import (
+    request_entity_activity_reannotation,
+)
 from modules.world.services.worldbuilding.applied_change_reversal import (
     entity_state as _reversal_entity_state,
 )
@@ -569,10 +572,6 @@ async def rollback(service, db, *, novel_id, suggestion_id):
     await db.flush()
     if changed:
         await service._mark_context_changed(db, novel_id, changed)
-        from modules.world.services.core.entity_activity_invalidation import (
-            request_entity_activity_reannotation,
-        )
-
         await request_entity_activity_reannotation(db, novel_id)
         from modules.world.services.worldbuilding.synopsis_invalidation import (
             mark_synopsis_source_changed,

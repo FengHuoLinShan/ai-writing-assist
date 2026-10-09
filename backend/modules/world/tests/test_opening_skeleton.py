@@ -10,13 +10,12 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.errors import ConflictError, NotFoundError, ValidationError
+from core.errors import NotFoundError, ValidationError
 from infrastructure.llm.schemas import LLMCallResponse
 from modules.account.context import bind_principal, reset_principal
 from modules.account.contracts import AccountPrincipal
@@ -43,13 +42,11 @@ from modules.world.services.worldbuilding.adoption_package_service import (
 )
 from modules.world.services.worldbuilding.opening_skeleton import (
     MAX_ENTITIES,
-    MAX_RELATIONS,
     ExistingObject,
     OpeningSkeletonService,
     _dedupe_within_package,
 )
 from modules.world.tests.governance_fakes import GovernedWorldAuditMixin
-from modules.world.tests.test_world_generation_center_api import _install_fake_llm
 from shared.utils import parse_uuid
 
 pytestmark = pytest.mark.usefixtures("account_llm_connection")
@@ -208,7 +205,6 @@ def test_same_name_existing_becomes_fill_or_ref_not_create():
     for item in package.items:
         if item.kind == "core_entity":
             payload = item.payload
-            name = (payload.get("entity") or {}).get("name")
             if payload["operation"] in {"fill_empty", "existing_ref"}:
                 by_name[payload["entity_id"]] = payload["operation"]
     assert catalog[0].entity_id in by_name
@@ -310,7 +306,8 @@ def test_in_package_near_names_merge_and_relations_redirect():
     ]
     assert "守钟会的第七次大整修" in location_names
     assert "守钟会的第七次大检修" not in location_names
-    assert stats.created_entities == 12  # 前提 + 2 规则 + 3 地点 + 3 人物 + 2 势力 + 1 传说
+    # 前提 + 2 规则 + 3 地点 + 3 人物 + 2 势力 + 1 传说
+    assert stats.created_entities == 12
     assert stats.relations == 1 and stats.dropped_relations == 0
 
 
@@ -318,7 +315,9 @@ def test_entity_and_relation_caps_drop_overflow_with_record():
     generated = _skeleton(
         locations=[
             GeneratedOpeningSkeletonEntity(
-                name=f"地点{index:02d}", entity_type="location", summary=f"第 {index} 个。"
+                name=f"地点{index:02d}",
+                entity_type="location",
+                summary=f"第 {index} 个。",
             )
             for index in range(8)
         ],
@@ -449,7 +448,9 @@ def _principal(account: Account) -> AccountPrincipal:
 
 
 async def _owner_project(db_session: AsyncSession, title: str) -> str:
-    project = await ProjectService().create_project(db_session, ProjectCreate(title=title))
+    project = await ProjectService().create_project(
+        db_session, ProjectCreate(title=title)
+    )
     return str(project.id)
 
 
@@ -474,7 +475,7 @@ async def test_generate_task_saves_pending_skeleton_package_on_empty_project(
         result = await service.generate_for_task(
             db_session,
             novel_id,
-            DraftOpeningSkeletonTaskRequest(novel_id=novel_id),
+            _skeleton_task_request(novel_id=novel_id),
             llm_execution_snapshot=snapshot,
             task_id="task-skeleton-1",
         )
@@ -499,7 +500,7 @@ async def test_generate_task_saves_pending_skeleton_package_on_empty_project(
         reset_principal(token)
 
 
-def DraftOpeningSkeletonTaskRequest(novel_id: str):
+def _skeleton_task_request(novel_id: str):
     from modules.world.schemas import WorldOpeningSkeletonTaskRequest
 
     return WorldOpeningSkeletonTaskRequest(
@@ -564,7 +565,9 @@ async def test_item_triage_excludes_conflicts_and_apply_adopts_selection(
         # 仍保留条目的主角 hidden_truth 层级如实固定。
         assert conflicts
 
-        preview = await WorldAdoptionPackageService().preview(db_session, novel_id, saved.id)
+        preview = await WorldAdoptionPackageService().preview(
+            db_session, novel_id, saved.id
+        )
         diff_by_key = {entry["item_key"]: entry for entry in preview.canon_diff}
         assert "conflicts" in diff_by_key["entity-premise-00"]
 
@@ -874,13 +877,13 @@ async def test_suggest_operation_submits_idempotently_and_reads_result(
     from dataclasses import replace as _replace
     from uuid import uuid4 as _uuid4
 
-    from infrastructure.tasks.models import AsyncTask
-    from modules.world.tasks import handle_world_opening_skeleton
-    from modules.assistant.contracts import AssistantOperationContext, WorkContext
-    from modules.account.facade import current_account_id
-    from modules.project.llm_runtime import build_project_llm_execution_snapshot
     from app.assistant_operation_registry import world_opening_operations
+    from infrastructure.tasks.models import AsyncTask
+    from modules.account.facade import current_account_id
+    from modules.assistant.contracts import AssistantOperationContext, WorkContext
+    from modules.project.llm_runtime import build_project_llm_execution_snapshot
     from modules.world.assistant_opening_tools import DraftOpeningSkeleton
+    from modules.world.tasks import handle_world_opening_skeleton
 
     token = bind_principal(None)
     try:
@@ -911,9 +914,13 @@ async def test_suggest_operation_submits_idempotently_and_reads_result(
                 "_parent_task_id": str(parent.id),
             },
         )
-        reference = await operation.apply(db_session, novel_id, args, preview, context=context)
+        reference = await operation.apply(
+            db_session, novel_id, args, preview, context=context
+        )
         await db_session.flush()
-        replay = await operation.apply(db_session, novel_id, args, preview, context=context)
+        replay = await operation.apply(
+            db_session, novel_id, args, preview, context=context
+        )
         assert replay["task_id"] == reference["task_id"]
         pending_result = await operation.read_result(db_session, novel_id, reference)
         assert pending_result["status"] == "incomplete"

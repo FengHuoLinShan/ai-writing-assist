@@ -10,9 +10,6 @@ from modules.world.services.core.character_knowledge_service import (
     CharacterKnowledgeService,
 )
 from modules.world.services.core.character_service import CharacterService
-from modules.world.services.core.entity_activity_invalidation import (
-    request_entity_activity_reannotation,
-)
 from modules.world.services.core.entity_alias_service import EntityAliasService
 from modules.world.services.core.entity_context_service import EntityContextService
 from modules.world.services.core.entity_embedding_service import EntityEmbeddingService
@@ -27,7 +24,6 @@ from modules.world.services.core.event_service import EventService
 
 __all__ = [
     "WorldEntityService",
-    "request_entity_activity_reannotation",
     "EntityAliasService",
     "EntityContextService",
     "EntityEmbeddingService",
