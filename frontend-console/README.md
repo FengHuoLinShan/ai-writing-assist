@@ -154,6 +154,14 @@ Vite 开发与预览服务通过 HTTP 响应头发送 CSP，并用 `frame-ancest
 确认绑定真实范围与调用上限。旧整理记录及查漏详情保留，切换后隐藏旧恢复/重算操作。
 世界与结构完整整理尚未接入新流程，不能将当前试用当作旧导入的等价替代。
 
+## 引导流程宿主（ADR-0032）
+
+写作页伙伴区 `vue/views/writing/components/WritingFlowHost.vue` +
+`vue/views/writing/controllers/guidedFlowController.js` 渲染服务端引导流程的停点
+与动作：确认复用 `shared/aiReferenceModal.js`，候选打开与采用复用写作页既有能力，
+生成/审查在途时轮询推进；开关关闭或无活动流程时整体隐藏。契约与验收见
+`docs/modules/14_frontend.md` 的「引导流程宿主」。
+
 ## E2E 测试
 
 Playwright 的所有 profile 都 fail-closed：必须显式提供名称含独立 `audit` / `e2e` / `test`

@@ -120,6 +120,8 @@
     @dismiss-conflict-task="vm.dismissConflictTask"
   />
 
+  <WritingFlowHost :controller="flowHost" />
+
   <div
     class="writing-workspace-layout"
     :class="{ 'writing-workspace-layout--candidate': vm.editorState.status === 'candidate', 'writing-workspace-layout--blank': isBlankWork }"
@@ -419,11 +421,13 @@ import VersionHistoryDialog from "./components/VersionHistoryDialog.vue"
 import WritingEditor from "./components/WritingEditor.vue"
 import WritingCommentsPanel from "./components/WritingCommentsPanel.vue"
 import WritingWorkflowBars from "./components/WritingWorkflowBars.vue"
+import WritingFlowHost from "./components/WritingFlowHost.vue"
+import { createGuidedFlowController } from "./controllers/guidedFlowController.js"
 import AuthorExampleDialog from "./components/AuthorExampleDialog.vue"
 import WritingHomeView from "./home/WritingHomeView.vue"
 import { authorTaskPanelQuery } from "./home/authorTaskSource.js"
 import OwnerAiDrawer from "../../components/OwnerAiDrawer.vue"
-import { getRouter, getApi, getToast, openProjectAssistant, setForecastComposing } from "../../bridge/index.js"
+import { getRouter, getApi, getToast, getRouteQuery, openProjectAssistant, setForecastComposing } from "../../bridge/index.js"
 import { useWritingWorkspace } from "./useWritingWorkspace.js"
 import { useWritingComments } from "./useWritingComments.js"
 import "./writing-desk.css"
@@ -495,17 +499,44 @@ const versionChoices = computed(() => vm.versions.value.filter(version => versio
 const router = getRouter()
 const deepReviewAvailable = ref(false)
 const editorialAvailable = ref(false)
+const guidedFlowAvailable = ref(false)
 const forecastComposing = ref(false)
 const forecastFocus = ref(null)
 function setComposition(value) { forecastComposing.value = value; setForecastComposing(props.projectId, value) }
+
+/* 引导流程宿主（ADR-0032）：只在能力可用时探测活动流程，否则整体隐藏。 */
+const flowHost = createGuidedFlowController({
+  api: getApi(),
+  toast: (message, kind) => getToast()(message, kind),
+  getProjectId: () => props.projectId,
+  getSceneId: () => vm.currentScene.value?.id || null,
+  onOpenCandidate: openFlowCandidate,
+  confirmDialog: vm.confirmDialog,
+})
+async function openFlowCandidate(candidate) {
+  const chapter = Number(candidate.chapter_index) || vm.selectedChapter.value
+  if (!chapter || !candidate.draft_id) return
+  if (vm.isNarrow.value) rightRailOpen.value = false
+  await vm.selectChapter(chapter, { draftId: candidate.draft_id, isReadonly: true })
+}
+watch(() => [props.projectId, guidedFlowAvailable.value, vm.homeMode.value], async ([projectId, available, homeMode]) => {
+  flowHost.reset()
+  if (!projectId || !available || homeMode || props.publicDemo) return
+  const flowRunId = getRouteQuery()?.get("flow")
+  if (flowRunId) await flowHost.attachRun(flowRunId)
+  else await flowHost.probeActive()
+}, { immediate: true })
+
 watch(() => props.projectId, async projectId => {
   deepReviewAvailable.value = false
   editorialAvailable.value = false
+  guidedFlowAvailable.value = false
   try {
     const value = await getApi().assistant.capabilities(projectId)
     if (projectId === props.projectId) {
       deepReviewAvailable.value = value.collaboration?.some(item => item.id === "deep_review" && item.available) === true
       editorialAvailable.value = value.editorial?.available === true
+      guidedFlowAvailable.value = value.guided_flows?.available === true
     }
   } catch { /* ordinary writing remains available */ }
 }, { immediate: true })
@@ -726,6 +757,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", onFocusKeydown)
   document.removeEventListener("pointerdown", onDocumentPointerdown)
+  flowHost.dispose()
 })
 
 watch(vm.focusMode, (active) => {

@@ -45,6 +45,7 @@ __all__ = [
     "list_project_writing_stats",
     "lock_chapter_versions_for_revalidation",
     "read_manuscript_range",
+    "submit_semantic_review",
 ]
 
 _service = WritingDraftService()
@@ -332,3 +333,26 @@ async def get_semantic_review_result(db, novel_id, task_id):
     from modules.writing.assistant_tools import _review_result
 
     return await _review_result(db, novel_id, {"task_id": task_id})
+
+
+async def submit_semantic_review(
+    db,
+    *,
+    novel_id: str,
+    draft_ids: list[str],
+    operation_id: str | None = None,
+) -> dict:
+    """Submit the domain semantic-review task for given drafts (ADR-0032).
+
+    Assistant 引导流程经此稳定入口提交既有领域任务；operation_id 提供幂等，
+    预算与快照语义由 Writing 既有提交路径决定，不新增协议。
+    """
+    from modules.writing.semantic_review import WritingSemanticWorkflowService
+
+    return await WritingSemanticWorkflowService().submit_review(
+        db,
+        novel_id=novel_id,
+        draft_ids=draft_ids,
+        scope="selection",
+        operation_id=operation_id,
+    )

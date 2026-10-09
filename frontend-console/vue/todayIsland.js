@@ -235,7 +235,7 @@ export async function loadTodayProps() {
     ? pointer.route.suggestion_id
     : null
   const pointedCheckpointId = pointer?.destination === "generate" ? pointer.route.checkpoint_id || null : null
-  const [summaryResult, draftsResult, suggestionsResult, adoptionResult] = await Promise.allSettled([
+  const [summaryResult, draftsResult, suggestionsResult, adoptionResult, assistantCapabilitiesResult] = await Promise.allSettled([
     api.projects.getWorkspaceSummary(projectId, {
       focus_chapter_index: writingPointer?.chapter,
       focus_scene_id: writingPointer?.sceneId,
@@ -248,6 +248,7 @@ export async function loadTodayProps() {
     api.world?.listSuggestions
       ? loadPendingSuggestions(api, projectId, pointedCheckpointId, "world_adoption")
       : Promise.resolve({ items: [] }),
+    api.assistant?.capabilities ? api.assistant.capabilities(projectId) : Promise.resolve(null),
   ])
   const resolvedCreativeContinuation = resolveCreativeContinuation(pointer, projectId, draftsResult, suggestionsResult, adoptionResult, warn)
   if (pointer && !resolvedCreativeContinuation) {
@@ -298,6 +299,10 @@ export async function loadTodayProps() {
     creativeContinuation,
     worldContinuations,
     continuationWarning,
+    // ADR-0032：引导流程入口只在部署与作品都可用时显示。
+    guidedFlowAvailable: assistantCapabilitiesResult.status === "fulfilled"
+      ? Boolean(assistantCapabilitiesResult.value?.guided_flows?.available)
+      : false,
     worldLoadError: draftsResult.status === "rejected" || suggestionsResult.status === "rejected" || adoptionResult.status === "rejected"
       ? "部分世界设定暂时无法加载；已保存内容不会受影响。"
       : null,

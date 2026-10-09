@@ -105,6 +105,7 @@ async def create_published_drafts_only(db: AsyncSession, novel_id: str, chapters
 async def get_draft(db: AsyncSession, novel_id: str, draft_id: str) -> WritingDraftContract | None
 async def list_drafts_by_ids(db: AsyncSession, novel_id: str, draft_ids: list[str]) -> list[WritingDraftContract]
 async def adopt_candidate_to_working(db: AsyncSession, novel_id: str, draft_id: str, *, adopted_by: str = "author") -> WritingDraftContract
+async def submit_semantic_review(db: AsyncSession, *, novel_id: str, draft_ids: list[str], operation_id: str | None = None) -> dict  # ADR-0032：Assistant 引导流程提交既有语义审查任务；幂等与预算沿用既有提交路径
 async def get_latest_draft_for_chapter(db: AsyncSession, novel_id: str, chapter_index: int) -> WritingDraftContract | None
 async def get_author_attention_items(db: AsyncSession, novel_id: str) -> list[WritingAuthorAttentionItemContract]
 async def list_latest_drafts_for_chapters(db: AsyncSession, novel_id: str, chapter_indices: list[int], *, content_limit: int | None = None) -> list[WritingDraftContract]

@@ -60,6 +60,8 @@ async def read_manuscript_range(db, novel_id, source_ref, *, before_paragraphs=0
 ```
 
 facade 的 create 系列只暴露跨模块 `WritingDraftContract`，不返回 API response schema；REST API 层继续负责把 contract 适配为 `WritingDraftResponse`，保持 HTTP response body 不变。
+`submit_semantic_review` 是 Assistant 引导流程（ADR-0032）提交既有 `writing_semantic_review` 任务的稳定 facade 入口：只做参数适配与委托，operation_id 幂等、预算与快照语义仍由 Writing 既有提交路径决定，不新增协议。
+
 
 文件导入通过批量入口一次锁定排序后的章节键、分组读取各章最大版本并统一 `add_all` / flush；版本唯一约束、事务回滚和逐章发布任务语义不变。
 
