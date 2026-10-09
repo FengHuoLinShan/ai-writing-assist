@@ -40,8 +40,11 @@ export const writing = {
       })
     },
 
-    async adoptDraftCandidate(draftId, novelId) {
-      return contractJson("writing.adoptDraftCandidate", { draftId }, { novel_id: novelId })
+    async adoptDraftCandidate(draftId, novelId, idempotencyKey = "") {
+      // 同一候选的采用键确定性生成：回包丢失后作者重试/刷新重放时，
+      // 服务端返回原采用回执而不是“只能采用候选”的错误。
+      const key = String(idempotencyKey || `writing-adopt-v1:${draftId}`)
+      return contractJson("writing.adoptDraftCandidate", { draftId }, { novel_id: novelId, idempotency_key: key })
     },
 
     async autosaveDraftOnly(payload) {
