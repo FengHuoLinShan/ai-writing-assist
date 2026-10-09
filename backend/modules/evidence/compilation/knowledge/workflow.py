@@ -4,7 +4,7 @@
 职责边界（ADR-0025）：
 - 导演/审查温度固定 0，经 managed step 记录 provenance；
 - 导演只能缩小服务端已判定的可见集合（服务端取交集，不能放大）；
-- 审查回执绑定输出 hash，最终 verdict 由服务端按 finding 强度收口；
+- 审查回执绑定输出 hash，最终 verdict 由服务端按 finding 强度与必查维度覆盖收口；
 - 最多一次语义返修；返修者只收到生成者上下文与脱敏 finding；
 - 范围不完整（预算 omission / 必查维度被排除 / 排除项回流）失败关闭。
 """
@@ -326,19 +326,67 @@ async def run_knowledge_director(
     return plan
 
 
-def _server_verdict(output: AuditVerdictOutput) -> str:
+def _server_verdict(output: AuditVerdictOutput, *, coverage_complete: bool) -> str:
     blocking = any(finding.severity in BLOCKING_SEVERITIES for finding in output.findings)
-    if output.verdict == AUDIT_VERDICT_UNVERIFIABLE and not blocking:
-        return AUDIT_VERDICT_UNVERIFIABLE
-    if output.verdict == AUDIT_VERDICT_NOT_CHECKED and not blocking:
-        return AUDIT_VERDICT_NOT_CHECKED
     if blocking:
         return AUDIT_VERDICT_BLOCKED
+    if not coverage_complete:
+        # 必查维度缺失、重复报告或 checked=false：与组路径同一标准，
+        # 审查者自报 pass 也不能签署 PASS。
+        return AUDIT_VERDICT_UNVERIFIABLE
+    if output.verdict == AUDIT_VERDICT_UNVERIFIABLE:
+        return AUDIT_VERDICT_UNVERIFIABLE
+    if output.verdict == AUDIT_VERDICT_NOT_CHECKED:
+        return AUDIT_VERDICT_NOT_CHECKED
     return (
         AUDIT_VERDICT_PASS
         if output.verdict == AUDIT_VERDICT_PASS
         else AUDIT_VERDICT_BLOCKED
     )
+
+
+def _build_audit_coverage(
+    *,
+    policy: CapabilityKnowledgePolicy,
+    scope_build: KnowledgeScopeBuild,
+    verdict_output: AuditVerdictOutput,
+) -> tuple[tuple[KnowledgeDimensionCoverage, ...], bool]:
+    """审查覆盖收口：与组路径（group.materialize_group_audit）同一标准。
+
+    必查维度缺失、重复报告或 checked=false 时返回 ``complete=False``，调用方
+    必须把服务端裁决降为 ``unverifiable``；覆盖回执逐维标明遗漏原因。
+    """
+
+    def _covered_by(dimension: str) -> tuple[str, ...]:
+        receipt_coverage = scope_build.receipt.dimension_coverage(dimension)
+        return receipt_coverage.covered_by if receipt_coverage is not None else ()
+
+    reported = [item.dimension for item in verdict_output.dimensions]
+    checked = {item.dimension for item in verdict_output.dimensions if item.checked}
+    complete = (
+        len(reported) == len(set(reported)) and set(policy.required_dimensions) <= checked
+    )
+    coverage: list[KnowledgeDimensionCoverage] = [
+        KnowledgeDimensionCoverage(
+            dimension=item.dimension,
+            covered_by=_covered_by(item.dimension),
+            omission_reason=None if item.checked else (item.note or "未检查"),
+            omitted=not item.checked,
+        )
+        for item in verdict_output.dimensions
+    ]
+    reported_dimensions = set(reported)
+    coverage.extend(
+        KnowledgeDimensionCoverage(
+            dimension=dimension,
+            covered_by=_covered_by(dimension),
+            omitted=True,
+            omission_reason="未独立检查",
+        )
+        for dimension in policy.required_dimensions
+        if dimension not in reported_dimensions
+    )
+    return tuple(coverage), complete
 
 
 def _build_audit_receipt(
@@ -359,18 +407,10 @@ def _build_audit_receipt(
         )
         for item in verdict_output.findings
     )
-    coverage = tuple(
-        KnowledgeDimensionCoverage(
-            dimension=item.dimension,
-            covered_by=(
-                scope_build.receipt.dimension_coverage(item.dimension).covered_by
-                if scope_build.receipt.dimension_coverage(item.dimension)
-                else ()
-            ),
-            omission_reason=None if item.checked else (item.note or "未检查"),
-            omitted=not item.checked,
-        )
-        for item in verdict_output.dimensions
+    coverage, coverage_complete = _build_audit_coverage(
+        policy=policy,
+        scope_build=scope_build,
+        verdict_output=verdict_output,
     )
     return KnowledgeAuditReceipt(
         policy_version=scope_build.receipt.policy_version,
@@ -378,7 +418,7 @@ def _build_audit_receipt(
         receipt_fingerprint=plan.receipt_fingerprint,
         plan_fingerprint=plan.plan_fingerprint(),
         output_hash=knowledge_canonical_hash(output),
-        verdict=_server_verdict(verdict_output),
+        verdict=_server_verdict(verdict_output, coverage_complete=coverage_complete),
         findings=findings,
         coverage=coverage,
         checked_at=_now(),

@@ -36,11 +36,27 @@ from modules.writing.services import WritingConflictCheckService, WritingDraftSe
 pytestmark = pytest.mark.usefixtures("account_llm_connection")
 
 
-def _audit_response(schema):
+def _required_dimensions(messages) -> list[str]:
+    """从审查 prompt 读取必查维度；合成审查者按全部维度已查应答。"""
+    for message in messages:
+        for line in message.content.splitlines():
+            if line.startswith("必查维度："):
+                return [
+                    item.strip()
+                    for item in line.split("：", 1)[1].split(",")
+                    if item.strip()
+                ]
+    return []
+
+
+def _audit_response(schema, messages=()):
     if schema is not AuditVerdictOutput:
         return None
     return AuditVerdictOutput(
-        dimensions=[AuditDimensionCheck(dimension="prior_prose")],
+        dimensions=[
+            AuditDimensionCheck(dimension=dimension, checked=True)
+            for dimension in _required_dimensions(messages)
+        ],
         verdict="pass",
     )
 
@@ -1196,7 +1212,7 @@ async def test_ai_review_valid_output_adds_ai_judgment_items(
     )
 
     async def fake_generate_structured(_self, _request, schema, **_kwargs):
-        if audit := _audit_response(schema):
+        if audit := _audit_response(schema, _request.messages):
             return audit
         return schema.model_validate(
             {
@@ -1271,7 +1287,7 @@ async def test_ai_review_inherits_project_budget_and_uses_concise_prompt_constra
     )
 
     async def fake_generate_structured(_self, request, schema, **_kwargs):
-        if audit := _audit_response(schema):
+        if audit := _audit_response(schema, request.messages):
             return audit
         assert request.max_tokens is None
         prompt = request.messages[-1].content
@@ -1446,7 +1462,7 @@ async def test_ai_review_partial_invalid_output_records_discard_count(
     )
 
     async def fake_generate_structured(_self, _request, schema, **_kwargs):
-        if audit := _audit_response(schema):
+        if audit := _audit_response(schema, _request.messages):
             return audit
         return schema.model_validate(
             {
@@ -1586,7 +1602,7 @@ async def test_ai_suggestion_stores_manual_suggestion_without_mutating_draft(
     )
 
     async def fake_generate_structured(_self, _request, schema, **_kwargs):
-        if audit := _audit_response(schema):
+        if audit := _audit_response(schema, _request.messages):
             return audit
         return schema.model_validate(
             {
@@ -1700,7 +1716,7 @@ async def test_ai_suggestion_uses_large_budget_and_concise_prompt_constraints(
     )
 
     async def fake_generate_structured(_self, request, schema, **_kwargs):
-        if audit := _audit_response(schema):
+        if audit := _audit_response(schema, request.messages):
             return audit
         assert request.max_tokens is None
         return schema.model_validate(

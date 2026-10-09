@@ -81,7 +81,7 @@ async def test_bootstrap_uses_committed_story_and_reuses_bound_action_receipt(
                 "verdict": "pass",
                 "dimensions": [
                     {"dimension": key, "checked": True}
-                    for key in ("prior_prose", "world_rules", "outline")
+                    for key in _required_dimensions(request.messages)
                 ],
             }
         return LLMCallResponse(
@@ -120,3 +120,16 @@ async def test_bootstrap_uses_committed_story_and_reuses_bound_action_receipt(
         with pytest.raises(ConflictError, match="原资料已经变化"):
             await prepare_player_input(run, nodes, {}, player, labels, "action")
         assert len(seen) == 2
+
+
+def _required_dimensions(messages) -> list[str]:
+    """从审查 prompt 读取必查维度；合成审查者按全部维度已查应答。"""
+    for message in messages:
+        for line in (message.content or "").splitlines():
+            if line.startswith("必查维度："):
+                return [
+                    item.strip()
+                    for item in line.split("：", 1)[1].split(",")
+                    if item.strip()
+                ]
+    return []
