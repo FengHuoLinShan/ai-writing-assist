@@ -3,7 +3,7 @@ id: T-20261010-pr206-integration
 title: 修复并合入世界演化 PR #206
 status: active
 created: 2026-10-10T00:20:05+09:00
-updated: 2026-10-10T00:56:01+09:00
+updated: 2026-10-10T00:56:50+09:00
 external_ref: https://github.com/FengHuoLinShan/ai-writing-assist/pull/206
 ---
 
@@ -15,8 +15,8 @@ external_ref: https://github.com/FengHuoLinShan/ai-writing-assist/pull/206
 - 当前里程碑：全量 `make test-ci TEST_WORKERS=2`、依赖/锁文件审计、架构文档门禁、6 个离线评测入口及 Standards/Spec 复核均通过。e26 head 的 Backend、PostgreSQL、CodeQL 全通过；Frontend unit、repo gates、Architecture docs、GitGuardian 通过；浏览器分片尚在跑，Production Image 仅前端 tiff 扫描失败。
 - 下一步：推送含 Alpine tiff 精确 pin 的新 head；核验所有必需检查全绿后按 `--match-head-commit` 合入，再单独核对合并提交 main CI。
 - 阻塞：CVE 修复 `bbf793dbc` 已加 `tiff=4.7.2-r0`，Standards/Spec 复核无遗留；待新 head CI 确认。Docker 本地前端 build 仍受 pinned Node/NGINX 元数据慢影响；GitHub e26 head 已成功构建两镜像和 SBOM，后端扫描通过。
-- 工作区：`/Users/tywww/.codex/worktrees/world-foundation-plan/ai-writing-assist`，分支 `codex/world-foundation-phase1-plan`，本地比远端 e26 head 多 1 个提交 `bbf793dbc`，任务记录更新待提交。主工作区和其他 worktree 保持不动。
-- 最后核实：2026-10-10T00:56:01+09:00。
+- 工作区：`/Users/tywww/.codex/worktrees/world-foundation-plan/ai-writing-assist`，分支 `codex/world-foundation-phase1-plan`；远端仍是 e26 head，本地已提交 tiff 修复 `bbf793dbc` 与进度记录，待一并推送。主工作区和其他 worktree 保持不动。
+- 最后核实：2026-10-10T00:56:50+09:00。
 
 ## 目标与验收
 
