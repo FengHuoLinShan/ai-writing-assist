@@ -40,5 +40,12 @@ defineEmits(["open"])
 }
 .writing-invalidation-notice__unknown { color: var(--text-secondary); }
 .writing-invalidation-notice__hint { color: var(--text-secondary); font-size: 12px; }
-.writing-invalidation-notice__open { justify-self: start; min-height: 34px; }
+.writing-invalidation-notice__open {
+  justify-self: start;
+  min-height: 34px;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
 </style>
