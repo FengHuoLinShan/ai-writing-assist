@@ -48,6 +48,12 @@ _WORLD_GENERATION_SUGGESTION_REQUEST_LIMIT = 96
 _WORLD_GENERATION_SUGGESTION_DEADLINE_SECONDS = 2 * 1800.0 + (
     _WORLD_RUN_REQUEUE_BACKOFF_MARGIN_SECONDS
 )
+# world.opening_skeleton：1 次结构化生成 + 至多 2 次修复 + 知识审查与
+# （至多 1 次）返修复审 = 6；阶段 asyncio.timeout(1800) × auto_requeue 2 + 余量。
+_WORLD_OPENING_SKELETON_REQUEST_LIMIT = 6
+_WORLD_OPENING_SKELETON_DEADLINE_SECONDS = 2 * 1800.0 + (
+    _WORLD_RUN_REQUEUE_BACKOFF_MARGIN_SECONDS
+)
 
 # world_cocreation_turn is one task/result contract with a mode-specific child
 # workflow. The canonical parent owns the run; these are the exact bounded
@@ -896,6 +902,43 @@ async def handle_world_generation_suggestion(db, task):
         )
     task.update_progress(1.0)
     return response.model_dump(mode="json")
+
+
+@task_handler(
+    "world_opening_skeleton",
+    recovery_policy="auto_requeue",
+    max_attempts=2,
+    retry_transient_llm_errors=True,
+    root_capability_id="world.opening_skeleton",
+    run_request_limit=_WORLD_OPENING_SKELETON_REQUEST_LIMIT,
+    run_deadline_seconds=_WORLD_OPENING_SKELETON_DEADLINE_SECONDS,
+)
+async def handle_world_opening_skeleton(db, task):
+    from modules.world.schemas import WorldOpeningSkeletonTaskRequest
+    from modules.world.services.worldbuilding.opening_skeleton import (
+        OpeningSkeletonService,
+    )
+
+    meta = dict(task.meta or {})
+    payload = {
+        field: meta[field]
+        for field in WorldOpeningSkeletonTaskRequest.model_fields
+        if field in meta
+    }
+    data = WorldOpeningSkeletonTaskRequest.model_validate(payload)
+    snapshot = meta.get("llm_execution_snapshot")
+    if not isinstance(snapshot, dict) or not snapshot:
+        raise ValueError("llm_execution_snapshot is required")
+    task.update_progress(0.05)
+    result = await OpeningSkeletonService().generate_for_task(
+        db,
+        data.novel_id,
+        data,
+        llm_execution_snapshot=snapshot,
+        task_id=str(task.id),
+    )
+    task.update_progress(1.0)
+    return {"_opening_skeleton_result": result, **result}
 
 
 @task_handler(

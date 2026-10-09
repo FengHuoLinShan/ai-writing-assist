@@ -191,6 +191,7 @@ from app.assistant_operation_registry import story_structure_operations
 from app.assistant_operation_registry import writing_candidate_operations
 from app.assistant_operation_registry import writing_generation_operations
 from app.assistant_operation_registry import writing_operations
+from app.assistant_operation_registry import world_opening_operations
 from modules.world.assistant_page_tools import OPERATIONS as _WORLD_PAGE_OPERATIONS
 from modules.world.assistant_outcome_tools import OPERATIONS as _WORLD_OUTCOME_OPERATIONS
 from modules.world.assistant_cocreation_tools import (
@@ -365,6 +366,7 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
                 **story_operations,
                 **story_structure_operations,
                 **story_planning_operations,
+                **world_opening_operations,
                 **_IMPORTS_OPERATIONS,
                 **evidence_forecast_operations,
                 **_MAP_OPERATIONS,

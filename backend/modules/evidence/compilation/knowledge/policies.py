@@ -363,6 +363,18 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             ),
         ),
         _policy(
+            "world.opening_skeleton",
+            DOMAIN_WORLD,
+            "新书开篇世界观骨架",
+            subjects=("author",),
+            dimensions=("world_entities", "world_rules", "world_bible"),
+            outputs=(OUTPUT_PROPOSAL,),
+            notes=(
+                "一次结构化产出待审采用包；无来源新创意只作候选，"
+                "秘密/真相默认作者可见层，不进入读者或角色上下文。"
+            ),
+        ),
+        _policy(
             "world.ask",
             DOMAIN_WORLD,
             "Ask World 世界问答",
