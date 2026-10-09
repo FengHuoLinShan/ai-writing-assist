@@ -3,7 +3,7 @@ id: T-20261010-pr206-integration
 title: 修复并合入世界演化 PR #206
 status: active
 created: 2026-10-10T00:20:05+09:00
-updated: 2026-10-10T00:54:43+09:00
+updated: 2026-10-10T00:56:01+09:00
 external_ref: https://github.com/FengHuoLinShan/ai-writing-assist/pull/206
 ---
 
@@ -12,11 +12,11 @@ external_ref: https://github.com/FengHuoLinShan/ai-writing-assist/pull/206
 ## 恢复快照
 
 - 实际完成：恢复 PR worktree，核实远端分支干净且与 HEAD `7bf4c143a94cbe1660f8d18eb410097b18c1faba` 一致；本地将最新 `origin/main`（`b27b84ac0254d82a66c9a028e83a9c1f1f047c64`，PR #207）合入，生成 `fc7587dd4a7b51ba2e7bf359771d309e1e1ea260`，无冲突。
-- 当前里程碑：全量 `make test-ci TEST_WORKERS=2`、依赖/锁文件审计、架构文档门禁、6 个离线评测入口及 Standards/Spec 复核均通过。新 head 的 Architecture docs、repo gates、Frontend unit quality、CodeQL/actions+javascript、GitGuardian 已通过。
-- 下一步：固定并复核生产镜像修复，推送新 head；等待 Backend/PostgreSQL/浏览器/CodeQL python/Production image 全部门禁通过后按 `--match-head-commit` 合入，再单独核对合并提交 main CI。
-- 阻塞：Production Image CI 新发现前端镜像 Alpine `tiff 4.7.1-r0` 有可修复 HIGH `CVE-2026-4775`，SBOM 指向 `4.7.2-r0`。已在当前工作树加入精确升级 pin，待新 head 验证。Docker 本地前端 build 仍受 pinned Node/NGINX 元数据慢影响；CI 已成功构建两镜像和 SBOM。后端镜像扫描已通过。
-- 工作区：`/Users/tywww/.codex/worktrees/world-foundation-plan/ai-writing-assist`，分支 `codex/world-foundation-phase1-plan`；当前 GitHub head `e26ca3a6f441b4a77c58a2f5989e4d7061fe2569`，新增的 tiff 修复尚未提交。主工作区和其他 worktree 保持不动。
-- 最后核实：2026-10-10T00:54:43+09:00。
+- 当前里程碑：全量 `make test-ci TEST_WORKERS=2`、依赖/锁文件审计、架构文档门禁、6 个离线评测入口及 Standards/Spec 复核均通过。e26 head 的 Backend、PostgreSQL、CodeQL 全通过；Frontend unit、repo gates、Architecture docs、GitGuardian 通过；浏览器分片尚在跑，Production Image 仅前端 tiff 扫描失败。
+- 下一步：推送含 Alpine tiff 精确 pin 的新 head；核验所有必需检查全绿后按 `--match-head-commit` 合入，再单独核对合并提交 main CI。
+- 阻塞：CVE 修复 `bbf793dbc` 已加 `tiff=4.7.2-r0`，Standards/Spec 复核无遗留；待新 head CI 确认。Docker 本地前端 build 仍受 pinned Node/NGINX 元数据慢影响；GitHub e26 head 已成功构建两镜像和 SBOM，后端扫描通过。
+- 工作区：`/Users/tywww/.codex/worktrees/world-foundation-plan/ai-writing-assist`，分支 `codex/world-foundation-phase1-plan`，本地比远端 e26 head 多 1 个提交 `bbf793dbc`，任务记录更新待提交。主工作区和其他 worktree 保持不动。
+- 最后核实：2026-10-10T00:56:01+09:00。
 
 ## 目标与验收
 
@@ -43,6 +43,7 @@ external_ref: https://github.com/FengHuoLinShan/ai-writing-assist/pull/206
 - [x] 清理已删除 `eval` extra 的 Makefile 与脚本使用说明调用点。
 - [x] `make eval-fixture-manifest` 与 `make eval-technical-coverage` 在不安装 `eval` extra 时通过（14 tests）。
 - [x] 固定基点 Standards/Spec 两轴复核完成；上一轮发现的遗漏已修复。
+- [x] Production Image CI 的 tiff finding 已按 SBOM fixed version 修复，并通过第二轮 Standards/Spec 复核。
 - [ ] 必需检查全绿后按固定 head 合入；查询合并提交的 main CI。
 
 ## 决策、发现与失败
@@ -66,11 +67,11 @@ external_ref: https://github.com/FengHuoLinShan/ai-writing-assist/pull/206
 - `make test-production-images` 本地构建并冒烟后端镜像成功；两次前端重试均等待 pinned Node/NGINX 元数据约 284/241 秒后主动取消，未完成前端或隔离恢复演练。新 head GitHub Production Image CI 完成前后端构建与扫描，具体结果见下一条。
 - PR head `e26ca3a6f441b4a77c58a2f5989e4d7061fe2569` 的 Production Image CI：backend/frontend 镜像构建、SBOM 生成/校验均成功；backend fixable HIGH/CRITICAL scan 通过；frontend scan 唯一失败为 `CVE-2026-4775`（tiff 4.7.1-r0，fix 4.7.2-r0）。可下载的 `frontend.cdx.json` 独立确认组件及修复建议。
 - 初次 `make test-ci TEST_WORKERS=2`：272 deploy tests passed；Backend coverage run 7495 passed / 3 failed。两个失败为上述 ratchet 下降，一个为错误 mock target；更新后定向三项回归 `3 passed`。第二次全量重跑结果见上一条，为 backend 7498 passed、deploy 272 passed、frontend 2888 passed。
-- 初版修复提交 `96b9f124d` 与调用点修复提交 `c53165c9c` 已推送至 PR head `e26ca3a6f441b4a77c58a2f5989e4d7061fe2569`；Standards/Spec 复核均已通过。新发现的 tiff pin 尚未提交/推送；合入和 main CI 待完成；未部署。
+- 初版修复提交 `96b9f124d` 与调用点修复提交 `c53165c9c` 已推送至 PR head `e26ca3a6f441b4a77c58a2f5989e4d7061fe2569`；Production Image CI 唯一失败命中 Alpine tiff CVE。修复 `bbf793dbc` 已提交本地并经 Standards/Spec 复核，待推送和重跑检查；合入及 main CI 待完成；未部署。
 
 ## 交付结果
 
 - 已交付：从最新 main 同步并推送 PR 分支；依赖/可选工具链修复、全量 CI 目标、本地评测与固定基点 review；原有 phase1/2/3 记录和其他 worktree 不变。
-- 未交付：tiff 镜像修复提交、固定新 head 检查全绿、合并及合并后 main CI。
-- 交付边界：main merge `fc7587d` 与修复提交 `96b9f12`、`c53165c`、`e26ca3a` 已推送；tiff 修复仍在本地未提交；未合入、未部署。
+- 未交付：新 head 固定检查全绿、合并及合并后 main CI。
+- 交付边界：main merge `fc7587d` 与修复提交 `96b9f12`、`c53165c`、`e26ca3a` 已推送；tiff 修复 `bbf793d` 在本地已提交未推送；未合入、未部署。
 - 正式知识与后续任务：阶段验收范围以对应主计划及 PR #206 描述为准。
