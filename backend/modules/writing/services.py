@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.container import get
 from core.errors import ConflictError, NotFoundError, ValidationError
 from core.service_keys import (
+    ASSISTANT_EDITORIAL_POST_ADOPTION_RECHECKS,
     ASSISTANT_MARK_EDITORIAL_READY,
     WORLD_LIST_ADOPTED_MAP_CONTINUITY_FACTS,
 )
@@ -855,6 +856,28 @@ class WritingDraftService:
                 result_id=str(adopted.id),
                 status="adopted",
             )
+        bridge_issue_ids = [
+            str(value)
+            for value in adopted_provenance.get("editorial_issue_ids") or []
+            if value
+        ]
+        if bridge_issue_ids:
+            # BR-4：审读意见桥接候选采用后，经组合根 DI 键按既有机制请求
+            # 改后复核；复核无法成立（依据变化、用量未知等）只降级记录，
+            # 不影响采用结果，也不绕过或改写任何采用门禁。
+            try:
+                await get(ASSISTANT_EDITORIAL_POST_ADOPTION_RECHECKS)(
+                    db,
+                    novel_id=str(draft.novel_id),
+                    issue_ids=bridge_issue_ids,
+                    adopted_draft_id=str(adopted.id),
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Post-adoption editorial recheck failed for adopted draft %s: %s",
+                    adopted.id,
+                    redact_diagnostic(exc, limit=300),
+                )
         return WritingDraftResponse.model_validate(adopted)
 
     async def adopt_candidate_to_working_contract(

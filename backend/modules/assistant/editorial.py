@@ -535,6 +535,40 @@ async def mark_reference_changed(db, novel_id: str, asset_type: str):
     )
 
 
+def _append_decision(
+    db,
+    row: EditorialIssue,
+    review: EditorialReview,
+    *,
+    disposition: str,
+    note: str,
+    operation_id: str | None = None,
+) -> None:
+    """Append one author decision to a locked issue row; caller owns locks and
+    version checks. Bumps ``row_version``. ``operation_id`` marks entries that
+    belong to a replayable batch request (e.g. the BR-4 revision bridge)."""
+    entry = {
+        "at": datetime.now(UTC).isoformat(),
+        "disposition": disposition,
+        "note": note,
+        "review_id": str(row.review_id),
+        "brief_version": review.brief_json["version"],
+        "evidence": [
+            {
+                "chapter_index": ref["chapter_index"],
+                "quote": ref["quote"],
+                "content_hash": ref["content_hash"],
+            }
+            for ref in row.finding_json["evidence"]
+        ],
+    }
+    if operation_id:
+        entry["bridge_operation_id"] = operation_id
+    row.decision_json = [*row.decision_json, entry]
+    row.disposition = disposition
+    row.row_version += 1
+
+
 async def decide_issue(db, issue_id: UUID, data: IssueDecision):
     novel_id = str(data.novel_id)
     await authorize(db, novel_id)
@@ -548,26 +582,7 @@ async def decide_issue(db, issue_id: UUID, data: IssueDecision):
     if row.row_version != data.expected_version:
         raise ConflictError("这条意见已经更新，请刷新后重试")
     review = await _require_review(db, novel_id, row.review_id)
-    row.decision_json = [
-        *row.decision_json,
-        {
-            "at": datetime.now(UTC).isoformat(),
-            "disposition": data.disposition,
-            "note": data.note,
-            "review_id": str(row.review_id),
-            "brief_version": review.brief_json["version"],
-            "evidence": [
-                {
-                    "chapter_index": ref["chapter_index"],
-                    "quote": ref["quote"],
-                    "content_hash": ref["content_hash"],
-                }
-                for ref in row.finding_json["evidence"]
-            ],
-        },
-    ]
-    row.disposition = data.disposition
-    row.row_version += 1
+    _append_decision(db, row, review, disposition=data.disposition, note=data.note)
     await db.flush()
     return await list_issues(db, novel_id)
 

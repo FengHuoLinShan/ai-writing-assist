@@ -36,6 +36,23 @@ async def mark_editorial_ready(db, novel_id, chapter_index, draft_id, content_ha
     await mark_ready(db, novel_id, chapter_index, draft_id, content_hash)
 
 
+async def trigger_editorial_post_adoption_rechecks(
+    db, *, novel_id: str, issue_ids: list[str], adopted_draft_id: str
+):
+    """BR-4：桥接候选采用后按既有机制为相关意见请求改后复核。
+
+    供 Writing 采用链路经组合根 DI 键调用；逐条跳过无法成立的复核，
+    不阻塞采用。"""
+    from modules.assistant.editorial_bridge import trigger_post_adoption_rechecks
+
+    return await trigger_post_adoption_rechecks(
+        db,
+        novel_id=novel_id,
+        issue_ids=issue_ids,
+        adopted_draft_id=adopted_draft_id,
+    )
+
+
 async def mark_changed(db, novel_id, asset_type, asset_id, *, related_scene_ids=None):
     from modules.assistant.editorial import mark_reference_changed
 

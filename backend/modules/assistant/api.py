@@ -13,6 +13,7 @@ from modules.account.facade import current_account_id
 from modules.assistant.editorial_contracts import (
     EditorialPolicyUpdate,
     IssueDecision,
+    IssueRevisionRequest,
     RecheckRequest,
     ReviewSubmit,
 )
@@ -125,6 +126,15 @@ async def recheck_editorial_issue(db: DbSession, issue_id: UUID, data: RecheckRe
     from modules.assistant.editorial import request_recheck
 
     return await request_recheck(db, issue_id, data)
+
+
+@router.post("/editorial/issues/revise")
+async def revise_editorial_issues(db: DbSession, data: IssueRevisionRequest):
+    """BR-4：把作者选中的审读意见桥接为 Writing 批注修订（流程 3）。"""
+    await require_active_project(db, str(data.novel_id))
+    from modules.assistant.editorial_bridge import submit_issue_revision
+
+    return await submit_issue_revision(db, data)
 
 
 @router.post("/notices/{notice_id}/recheck")

@@ -87,6 +87,9 @@ ASSISTANT_RUN_DISCUSSION_SCOPE: ServiceKey[Callable[..., Any]] = ServiceKey(
 ASSISTANT_REQUIRE_OPERATION_TARGETS: ServiceKey[Callable[..., Any]] = ServiceKey(
     "assistant.require_operation_targets"
 )
+ASSISTANT_EDITORIAL_POST_ADOPTION_RECHECKS: ServiceKey[Callable[..., Any]] = ServiceKey(
+    "assistant.editorial.post_adoption_rechecks"
+)
 
 # --- collaboration -------------------------------------------------------
 
@@ -337,6 +340,7 @@ ALL_SERVICE_KEYS: tuple[ServiceKey[Any], ...] = (
     ASSISTANT_MARK_EDITORIAL_READY,
     ASSISTANT_RUN_DISCUSSION_SCOPE,
     ASSISTANT_REQUIRE_OPERATION_TARGETS,
+    ASSISTANT_EDITORIAL_POST_ADOPTION_RECHECKS,
     COLLABORATION_RESOURCES,
     COLLABORATION_COLLECT_FORECAST_UNDERSTANDING,
     COLLABORATION_CHANGED_CASES,

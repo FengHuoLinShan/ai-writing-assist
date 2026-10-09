@@ -159,6 +159,7 @@ async def _generate_candidate(
     draft,
     comments: list[WritingComment],
     snapshot: dict,
+    editorial_refs: dict[str, str] | None = None,
 ):
     from infrastructure.tasks.facade import checkpoint_handler_session
 
@@ -294,6 +295,36 @@ async def _generate_candidate(
         audit=outcome.audit,
         visible_keys=outcome.generator_keys,
     )
+    provenance = {
+        "source": "writing_comment_revision",
+        "context_origin": draft_provenance.get("context_origin")
+        or draft_provenance.get("source")
+        or "manual",
+        "context_confirmation_id": draft_provenance.get(
+            "context_confirmation_id"
+        ),
+        "source_confirmation_id": draft_provenance.get("source_confirmation_id"),
+        "scene_id": draft_provenance.get("scene_id"),
+        "source_task_id": task_id,
+        "base_draft_id": draft_key,
+        "base_content_hash": draft_content_hash,
+        "comment_ids": comment_ids,
+        "allowed_scope": "selected_ranges_only",
+        "applied_patches": applied,
+        "knowledge_review": knowledge,
+        "review_required": True,
+        "independent_review": None,
+    }
+    # BR-4：审读意见桥接的候选记录来源意见 ID；采用后据此触发既有改后复核。
+    bridge_issue_ids = sorted(
+        {
+            editorial_refs[comment_id]
+            for comment_id in comment_ids
+            if editorial_refs and comment_id in editorial_refs
+        }
+    )
+    if bridge_issue_ids:
+        provenance["editorial_issue_ids"] = bridge_issue_ids
     candidate = await WritingDraftRepository().create_with_status(
         db,
         WritingDraftCreate(
@@ -301,26 +332,7 @@ async def _generate_candidate(
             chapter_index=draft_chapter_index,
             title=draft_title,
             content=outcome.output,
-            provenance_json={
-                "source": "writing_comment_revision",
-                "context_origin": draft_provenance.get("context_origin")
-                or draft_provenance.get("source")
-                or "manual",
-                "context_confirmation_id": draft_provenance.get(
-                    "context_confirmation_id"
-                ),
-                "source_confirmation_id": draft_provenance.get("source_confirmation_id"),
-                "scene_id": draft_provenance.get("scene_id"),
-                "source_task_id": task_id,
-                "base_draft_id": draft_key,
-                "base_content_hash": draft_content_hash,
-                "comment_ids": comment_ids,
-                "allowed_scope": "selected_ranges_only",
-                "applied_patches": applied,
-                "knowledge_review": knowledge,
-                "review_required": True,
-                "independent_review": None,
-            },
+            provenance_json=provenance,
         ),
         status="candidate",
     )
@@ -337,6 +349,10 @@ async def run_comment_task(db, task, snapshot: dict) -> dict:
     selected = await _load_selected(
         db, novel_id, draft_id, meta["comment_ids"], draft.content_hash
     )
+    editorial_refs = {
+        str(comment_id): str(ref)
+        for comment_id, ref in (meta.get("editorial_refs") or {}).items()
+    }
     task.update_progress(0.1)
     review = None
     ai_ids: list[str] = []
@@ -363,6 +379,7 @@ async def run_comment_task(db, task, snapshot: dict) -> dict:
         draft=draft,
         comments=selected,
         snapshot=snapshot,
+        editorial_refs=editorial_refs,
     )
     task.update_progress(0.7)
     if candidate is None:

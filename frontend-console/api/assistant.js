@@ -20,6 +20,7 @@ export const assistant = {
     editorialIssues: (novelId) => request(withQuery("/assistant/editorial/issues", { novel_id: novelId }), { cache: "no-store" }),
     decideEditorialIssue: (id, body) => request(`/assistant/editorial/issues/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) }),
     recheckEditorialIssue: (id, body) => post(`/assistant/editorial/issues/${encodeURIComponent(id)}/recheck`, body),
+    reviseEditorialIssues: (body) => post("/assistant/editorial/issues/revise", body),
     capabilities: (novelId) => request(withQuery("/assistant/capabilities", { novel_id: novelId }), { cache: "no-store" }),
     sessions: (novelId, params = {}) => request(withQuery("/assistant/sessions", { ...params, novel_id: novelId }), { cache: "no-store" }),
     createSession: (novelId, title = "项目助手") => post("/assistant/sessions", { novel_id: novelId, title }),

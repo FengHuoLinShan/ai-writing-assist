@@ -21,6 +21,7 @@ from core.service_keys import (
     ASSISTANT_FORECAST_PERSONAS,
     ASSISTANT_FORECAST_SOURCES,
     ASSISTANT_INSPECT_DISCUSSION,
+    ASSISTANT_EDITORIAL_POST_ADOPTION_RECHECKS,
     ASSISTANT_MARK_EDITORIAL_READY,
     ASSISTANT_MARK_TASK_LOCAL_APPROVED,
     ASSISTANT_OPERATIONS,
@@ -223,6 +224,10 @@ from modules.assistant.facade import (
     mark_editorial_ready as _assistant_mark_editorial_ready,
     mark_task_local_approved as _assistant_mark_task_local_approved,
     submit_comment_proposals as _assistant_submit_comment_proposals,
+)
+from modules.assistant.facade import (
+    trigger_editorial_post_adoption_rechecks
+    as _assistant_editorial_post_adoption_rechecks,
 )
 from modules.assistant.facade import (
     run_discussion_scope as _assistant_run_discussion_scope,
@@ -443,6 +448,10 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
             _assistant_submit_comment_proposals,
         ),
         (ASSISTANT_MARK_EDITORIAL_READY, _assistant_mark_editorial_ready),
+        (
+            ASSISTANT_EDITORIAL_POST_ADOPTION_RECHECKS,
+            _assistant_editorial_post_adoption_rechecks,
+        ),
         # AO-5: evidence 编译与 world 地图经此只读 port 消费 story 场景事实，
         # world→story / evidence→story 的反向顶层导入清零。
         (STORY_SCENE_SOURCE, _StorySceneSource()),
