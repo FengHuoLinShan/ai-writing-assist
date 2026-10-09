@@ -14,7 +14,7 @@ World 提供来源/成果/工作区校验 port；RP 历史、回顾和 attempt �
 
 公开入口 `/api/assistant` 包含会话/回合、恢复/停止、批次确认/显式重试和提醒处置。
 
-引导流程（ADR-0032）入口为 `/api/assistant/flows`：服务端注册、带版本的确定性步骤表与停点推导；流程运行复用 `assistant_runs`（`guided_flow_v1`），不建新表。
+引导流程（ADR-0032）入口为 `/api/assistant/flows`：服务端注册、带版本的确定性步骤表与停点推导；流程运行复用 `assistant_runs`（`guided_flow_v1`），不建新表。已注册三个流程（同一 `flows.py` 注册表）：`continue_writing` v2（确认资料 → 候选 → 独立审查 → 可审阅；采用后经作者确认滚动规划后续章节，BR-6 只到剧情线/篇章大纲候选，窗口默认 3 章、上限 5 章，后方已规划不足 2 章时提示补足）、`new_book_opening` v1（一句构想 → 方向卡候选 → 选定方向 → 世界观骨架包逐条取舍采用 → 停在「骨架可用」，BR-5；方向卡是 Assistant 侧定向 LLM step，卡片只存运行检查点）、`editorial_revision` v1（审读台选中意见 → 桥接批注修订 → 候选可审阅 → 采用后自动改后复核，BR-4）。开始请求按流程携带输入，推进请求支持 `choice` 作者选择输入；视图 `panel` 承载当前停点的作者面向载荷。AI 输出一律候选，采用与确认语义不变；滚动规划只在流程内经作者确认触发。
 
 Assistant 是 `world_cocreation_sessions`、`world_cocreation_messages` 的唯一通用会话实现所有者；
 `assistant_runs` 保存运行，`assistant_action_batches` 保存预览与决定，`assistant_notices`
