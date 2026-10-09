@@ -34,6 +34,35 @@ test("审读台按意见发起批注修订并跟踪候选与改后复核", async
     { id: unlocatableIssueId, review_id: "rev-1", fingerprint: unlocatableIssueId, version: 0, disposition: "open", finding: finding(unlocatableIssueId, "地址指向新港"), decisions: [], history: [], rechecks: [], source_may_be_stale: false },
   ]
 
+  // 「去写作页审阅并采用」会按 mock 的候选 ID 拉草稿：给最小候选响应避免 404
+  await page.route(`**/api/writing/drafts/${candidateDraftId}*`, async (route) => {
+    if (route.request().method() !== "GET") return route.continue()
+    await route.fulfill({
+      json: {
+        ...draft,
+        id: candidateDraftId,
+        status: "candidate",
+        display_state: "candidate",
+        provenance_json: { source: "ai_generated", review_required: false },
+      },
+    })
+  })
+
+  // 编辑台按选中的审稿记录过滤意见：reviews GET 需返回承载这两条意见的记录
+  await page.route("**/api/assistant/editorial/reviews**", async route => {
+    if (route.request().method() !== "GET") return route.continue()
+    await route.fulfill({
+      json: [{
+        id: "rev-1", status: "partial", task_id: "task-rev-1", scope: { scope: "selection" },
+        sources: [{ chapter_index: 1, draft_id: draft.id, content_hash: draft.content_hash, version_number: 1, title: "雾港来信" }],
+        checked_chapters: [1], unchecked_chapters: [], missing: [],
+        context_sources: [], context_omissions: [], brief_version: 0, brief_changed: false,
+        report: { summary: "", coverage_complete: true, top_findings: [], all_findings: [] },
+        error: null,
+      }],
+    })
+  })
+
   let reviseRequests = []
   await page.route("**/api/assistant/editorial/issues**", async route => {
     const request = route.request()
@@ -67,6 +96,11 @@ test("审读台按意见发起批注修订并跟踪候选与改后复核", async
   }))
 
   await openProjectWorkbench(project, "writing")
+  // 编辑台挂在项目助手的编辑台 tab 后面：走真实入口（选章 → 交给编辑）打开
+  await page.getByRole("button", { name: /^打开第 1 章/ }).click()
+  const ready = page.getByRole("button", { name: "本章写完，交给编辑看" })
+  await expect(ready).toBeEnabled()
+  await ready.click()
   const desk = page.getByLabel("编辑台", { exact: true })
   await expect(desk).toBeVisible()
   await expect(desk.getByText("地址线索值得再核对").first()).toBeVisible()
@@ -82,8 +116,9 @@ test("审读台按意见发起批注修订并跟踪候选与改后复核", async
   await panel.getByLabel(/处置说明/).fill("把地址线索改得更隐晦，保留悬念")
   await panel.getByRole("button", { name: "发起 2 条修订" }).click()
 
-  // 逐条受理结果：一条排队、一条因引文失效不生成候选
-  await expect(panel.getByText(/修订进行中/)).toBeVisible()
+  // 逐条受理结果：一条排队、一条因引文失效不生成候选。
+  // mock 任务立即 done，排队是瞬态：直接等最终态（下方"替换候选已生成"），
+  // 引文失效的说明在提交响应里即刻渲染。
   await expect(panel.getByText("意见引文已不在当前稿中，无法定位；这条不会生成替换候选")).toBeVisible()
   expect(reviseRequests).toHaveLength(1)
   expect(reviseRequests[0].items).toHaveLength(2)
@@ -100,8 +135,11 @@ test("审读台按意见发起批注修订并跟踪候选与改后复核", async
     verdict: "possibly_improved", reason: "地址线索已改为更隐晦的写法", new_evidence: [], unchecked: "",
   }]
   issues[0].disposition = "prepare"
-  await page.waitForTimeout(9000)
+  // 用编辑台的「刷新」确定性重载意见（不依赖 8 秒轮询的时序）
+  await desk.getByRole("button", { name: "刷新" }).click()
   const cardWithRecheck = desk.locator(".editorial-issue").filter({ hasText: "地址线索值得再核对" }).first()
+  // 复核记录折叠在「处理与复核历史」内，先展开
+  await cardWithRecheck.getByText("处理与复核历史").click()
   await expect(cardWithRecheck.getByText("改后复核：可能已改善")).toBeVisible({ timeout: 20000 })
   for (const forbidden of ["问题已解决", "已核实修复"]) {
     await expect(desk.getByText(forbidden)).toHaveCount(0)
