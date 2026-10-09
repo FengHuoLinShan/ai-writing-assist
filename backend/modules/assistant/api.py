@@ -41,6 +41,9 @@ service = AssistantService()
 from modules.assistant.forecast.api import router as forecast_router  # noqa: E402
 
 router.include_router(forecast_router)
+from modules.assistant.guided_flow.api import router as guided_flow_router  # noqa: E402
+
+router.include_router(guided_flow_router)
 
 
 @router.get("/editorial/policy")
@@ -163,6 +166,8 @@ async def capabilities(db: DbSession, novel_id: UUID):
     )
 
     llm = await get_effective_llm_settings(db, novel_id)
+    from modules.assistant.guided_flow import available_for as guided_flow_available
+
     try:
         snapshot = await build_project_llm_execution_snapshot(db, str(novel_id))
         model_ready = bool(snapshot["profile"]["api_key_configured"])
@@ -177,6 +182,12 @@ async def capabilities(db: DbSession, novel_id: UUID):
     )
     return {
         "enabled": get_settings().assistant_enabled,
+        "guided_flows": {
+            "available": guided_flow_available(str(novel_id)),
+            "reason": None
+            if guided_flow_available(str(novel_id))
+            else "引导流程尚未开启",
+        },
         "editorial": {
             "available": bool(
                 get_settings().assistant_enabled

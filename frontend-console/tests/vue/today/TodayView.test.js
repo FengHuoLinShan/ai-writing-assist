@@ -3,18 +3,28 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import TodayView from "../../../vue/views/today/TodayView.vue"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 
-function mountToday(progress) {
+function mountToday(progress, overrides = {}) {
   const navigate = vi.fn(() => true)
   setBridgeOverrides({
     router: { navigate, refresh: vi.fn(() => true) },
-    api: {},
-    toast: vi.fn(),
+    api: {
+      assistant: {
+        guidedFlowStart: overrides.guidedFlowStart || vi.fn(async () => ({ run_id: "run-1", chapter_index: 2 })),
+      },
+    },
+    toast: overrides.toast || vi.fn(),
     confirmAction: vi.fn((message, action) => action?.()),
   })
   const wrapper = mount(TodayView, {
     props: {
-      summary: { project_id: "p1" },
+      summary: {
+        project_id: "p1",
+        continuation: overrides.continuation === undefined
+          ? { chapter_index: 2, title: "第 2 章", has_unpublished_changes: false }
+          : overrides.continuation,
+      },
       creationProgress: progress,
+      guidedFlowAvailable: overrides.guidedFlowAvailable !== false,
     },
   })
   return { wrapper, navigate }
@@ -23,6 +33,44 @@ function mountToday(progress) {
 afterEach(() => resetBridgeOverrides())
 
 describe("TodayView 进行中的创作（BR-1b）", () => {
+  it("引导流程可用时显示「引导续写」入口，点击开始流程并带 run id 进入写作页", async () => {
+    const guidedFlowStart = vi.fn(async () => ({ run_id: "run-9", chapter_index: 2 }))
+    const { wrapper, navigate } = mountToday([], { guidedFlowStart })
+    const entry = wrapper.get('[data-action="start-guided-flow"]')
+    expect(entry.text()).toContain("第 2 章")
+    await entry.trigger("click")
+    await flushPromises()
+
+    expect(guidedFlowStart).toHaveBeenCalledWith({
+      novel_id: "p1",
+      flow_id: "continue_writing",
+      chapter_index: 2,
+    })
+    expect(navigate).toHaveBeenCalledTimes(1)
+    const [, , , query] = navigate.mock.calls[0]
+    expect(query.get("flow")).toBe("run-9")
+    expect(query.get("chapter_index")).toBe("2")
+  })
+
+  it("引导流程未开启时不显示入口；开始失败给出可执行提示", async () => {
+    const { wrapper, navigate } = mountToday([], { guidedFlowAvailable: false })
+    expect(wrapper.find('[data-action="start-guided-flow"]').exists()).toBe(false)
+
+    const toast = vi.fn()
+    const guidedFlowStart = vi.fn(async () => { throw new Error("引导流程尚未开启") })
+    const failed = mountToday([], { guidedFlowStart, toast })
+    await failed.wrapper.get('[data-action="start-guided-flow"]').trigger("click")
+    await flushPromises()
+
+    expect(navigate).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith("引导流程尚未开启", "warning")
+  })
+
+  it("没有可继续章节时不显示引导入口", () => {
+    const { wrapper } = mountToday([], { continuation: null })
+    expect(wrapper.find('[data-action="start-guided-flow"]').exists()).toBe(false)
+  })
+
   it("任务进行中、可审阅、已采用三种状态分开显示", () => {
     const { wrapper } = mountToday([
       { key: "task:t1", kind: "task", title: "第 2 章 · 生成正文", execution_status: "running", stop_reason: "正在处理", actions: ["view_task"] },

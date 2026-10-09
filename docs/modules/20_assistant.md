@@ -13,6 +13,9 @@ World 提供来源/成果/工作区校验 port；RP 历史、回顾和 attempt �
 新增运行、操作批次、提醒和持续授权记录均按 owner + novel_id 隔离。
 
 公开入口 `/api/assistant` 包含会话/回合、恢复/停止、批次确认/显式重试和提醒处置。
+
+引导流程（ADR-0032）入口为 `/api/assistant/flows`：服务端注册、带版本的确定性步骤表与停点推导；流程运行复用 `assistant_runs`（`guided_flow_v1`），不建新表。
+
 Assistant 是 `world_cocreation_sessions`、`world_cocreation_messages` 的唯一通用会话实现所有者；
 `assistant_runs` 保存运行，`assistant_action_batches` 保存预览与决定，`assistant_notices`
 保存提示投影，`assistant_watches` 保存持续授权和待检变化。World 保留成果与 checkpoint。

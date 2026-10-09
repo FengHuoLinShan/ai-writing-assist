@@ -170,6 +170,49 @@ prepare 为一个具体选择创建独立子 run 与唯一 batch，重新校验�
 确定性域回执可导航回原页面，缺少前置资料计入未检查。试改版本和跨域原子采用属于
 [Collaboration](../../../docs/modules/21_collaboration.md)，不改变普通批次的部分成功与恢复语义。
 
+## 引导流程（ADR-0032）
+
+`guided_flow/` 子包是薄确定性编排层，不是新 Agent、不是 DSL：流程与步骤表在
+服务端注册（`registry.py`，带版本号），模型与前端不可修改，运行期不开放任何可
+编写的流程定义。注册时构建期校验：步骤只引用已注册 suggest 类操作或既有领域
+任务、产物单一生产者、依赖只指向更早步骤（无环）；`require_flow` 在每次使用时
+按当前操作目录重验引用，操作下线即失败关闭。
+
+步骤类型仅三种：`auto`（只引用已注册 suggest 操作，复用 `operations.py` 的
+uuid5 幂等执行与批次指纹；或既有领域任务如 `writing_semantic_review`）、
+`author_confirm`（作者确认，复用既有资料确认协议与新鲜度重验，不新增确认
+协议）、`author_choice`（作者真实选择）。停点只在：真实选择、扩大授权（资料
+确认）、硬性阻断；不设“模型觉得该停”的停点。
+
+进度由领域产物推导，不存当前步骤索引：确认的新鲜度读 Evidence 失效信号，
+候选与审查回执读 Writing 任务的终态结果与候选 provenance（知识复核、独立
+审查、采用回执）。运行记录（复用 `AssistantRun`，`request_json.protocol =
+"guided_flow_v1"`，与 `forecast_v1` 同一判别模式，不建新表）只冻结流程版本、
+输入指纹、授权范围（流程设置与确认引用）和停点原因；检查点为任务私有元数据，
+公开响应只返回推导出的作者语言视图。已确认资料失效可由作者就地重新确认恢复，
+不判硬失败；生成任务失败或流程定义版本漂移则失败关闭。同一流程同时只允许一个
+活动 run：同输入重入回到同一停点（刷新/换设备恢复），不同输入冲突报错。
+
+费用与幂等：流程提交的任务一律携带由（流程运行、步骤、输入指纹）确定的
+`operation_id`，重复推进不产生第二个付费任务；每步预算沿用所引用操作自身预算
+与 unknown 语义。流程开始本身不提交任务、不产生费用。流程设置（独立语义审查
+开/关，默认开）在生成开始前可修改并重新冻结输入指纹，之后不可改。
+
+依赖方向（ADR-0031）：guided_flow 只经操作目录或 facade 触达
+Evidence/Writing/Project；不新增模块依赖边，Assistant 仍禁止直接 import World。
+新流程（BR-4/5/6）按同一注册机制在 `flows.py` 追加推导、确认输入与自动执行
+实现，不另起编排层。
+
+HTTP 入口为 `/api/assistant/flows`（start/active/view/advance/settings/abandon）；鉴权与项目隔离与 Assistant 其余入口一致，作者语言视图为唯一公开投影。
+
+首个流程为流程 2 v1（`continue_writing` v1）：首页「引导续写第 N 章」→ 定位
+工作稿 → 写作页就地核对/修改本章目标并完成资料确认（已有弹窗）→ 生成候选 →
+自动接独立语义审查 → 停在「可审阅」，作者采用或定向返修。作者在流程设置中
+关闭审查时，流程停在「可审阅（未自动审查）」，采用前仍需按 Writing 既有门禁
+完成审查。开关 `ASSISTANT_GUIDED_FLOWS_ENABLED` 默认关，项目白名单
+`ASSISTANT_GUIDED_FLOWS_PROJECT_ALLOWLIST` 沿用部署级机制；能力可用性经
+`/api/assistant/capabilities` 的 `guided_flows` 投影暴露。
+
 ## 工作上下文的意图与选区范围（R00）
 
 `WorkContext` 在既有定位字段之外携带两项经服务端复核的输入：
