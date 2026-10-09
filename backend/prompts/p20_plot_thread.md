@@ -33,6 +33,11 @@
 `author_known_state` 也不能借用项目资料之外的同名作品知识；尚未决定的长期真相应降为不确定项或
 交给作者决定。
 
+输入中的 `requested_chapter_range` 若非空，就是作者确认的滚动规划窗口（滚动规划一次只推进最近
+几章）。新线程的 `start_chapter` 必须落在窗口内，不得指向已写成正文（materialized）的章节；条目
+数量保持克制，只提出这个窗口需要的新线程。长期兑现章（`planned_payoff_chapter`）与信息节点可以
+指向窗口外的未来，这是剧情线的长期属性。窗口为空时按全书范围创作，不受此限制。
+
 `hidden_truth`、`author_known_state` 和 movement 的 `hidden_content` 都是确定性较高的断言字段，
 不是用来承载猜测的必填栏。项目资料只建立了问题、迹象或方向而没有给出答案时，保持相应字段为
 `null` 并标记 uncertain；仍可用 `information_subject`、`surface_understanding`、已证实节点和

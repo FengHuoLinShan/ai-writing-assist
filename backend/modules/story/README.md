@@ -123,6 +123,26 @@ Confirmation 标为 `adopted`，并对新建或修改的 PlotThread、OutlineArc
 Evidence 精确失效：排除本次 Confirmation，但使仍引用旧状态的其他记录失效，
 同时复用该入口中的 `source.changed` 通知，不另发一路重复通知。规则引用检查不等同语义强提醒。
 
+### 滚动规划窗口（BR-6）
+
+`story.plan_structure` 的滚动推进携带起止章窗口：篇章/剧情线窗口默认 3 章、上限 5 章，
+计划 Scene 层只覆盖紧邻 1-2 章。窗口进入 `outline.generate` 确认参数
+（`chapter_index` + `planning_window_end`，后者仅随确认记录，不参与检索或编译裁剪）
+与 P20 来源指纹；带窗口的请求以 `rolling_window=true` 提交。
+
+生成后执行确定性硬校验：新条目的章节定位必须落在窗口内、不得覆盖已写章节
+（Writing 有效章节，经 `writing.facade.list_effective_chapter_indices` 读取），并有条数上限
+（篇章/剧情线 3 条、Scene 每章 2 条）；违规条目丢弃并在结果 `window_validation` 中说明，
+不是整任务失败。修订模式下作者显式选中的已有资产保留其既有覆盖，不按窗口丢弃。
+已有已采用篇章覆盖该窗口时，请求自动转为对该篇章的修订建议，不重复新建。
+
+同一窗口重复推进的 `operation_id` 由（作品、起始章、窗口、层）经 uuid5 确定性派生
+（键含模式与修订目标，借鉴 forecast `compute_key`；指令与资料指纹不参与键），
+重复推进返回原任务/预览，不产生第二个任务。全书范围请求仍按运行回执去重。
+未采用的规划只存在于任务回执，不进入写作上下文与检索；回归见
+`modules/story/tests/test_unadopted_planning_context.py`。手动结构工作台不使用窗口，
+照常可用全书范围；`_require_scope` 未放宽。
+
 
 ### 助手维护与变化检查
 

@@ -62,6 +62,12 @@ class CompileOptions:
     chapter_index: int | None = None
     requested_chapter_index: int | None = None
     """调用方确认的目标章节；Scene 可另行覆盖 chapter_index 作为检索锚点"""
+    planning_window_end: int | None = None
+    """结构规划（outline.generate）滚动窗口的结束章，与 chapter_index 组成起止窗口。
+
+    仅随确认记录与展示（BR-6）；不参与检索过滤或编译裁剪，章节定位的
+    硬校验在 story P20 生成侧执行。
+    """
     visible_until_chapter: int | None = None
     """RAG 读者进度上界；None 表示不启用未来章节硬过滤"""
     visible_until_scene_id: str | None = None
@@ -160,6 +166,8 @@ class ContextConfirmationRequest:
     scope: str
     retrieval_purpose: str = "generic_context"
     chapter_index: int | None = None
+    planning_window_end: int | None = None
+    """结构规划滚动窗口的结束章（与 chapter_index 组成起止窗口）；仅记录，不参与过滤"""
     visible_until_chapter: int | None = None
     visible_until_scene_id: str | None = None
     visible_until_offset: int | None = None

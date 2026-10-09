@@ -207,8 +207,8 @@ OPERATION_SNAPSHOT = {
     "story.plan_structure": (
         "规划剧情线、篇章、场景及伏笔推进",
         "suggest",
-        "1",
-        "57bc974f09e872ca1843deece844435d8e2572350f2353757e67e239c2311eea",
+        "2",
+        "49f68df03e44dbf6c08f24e4f2329850152ff0d83ab41f45e026eec8e6b96642",
     ),
     "story.adopt_structure": (
         "采用原结构规划包",
