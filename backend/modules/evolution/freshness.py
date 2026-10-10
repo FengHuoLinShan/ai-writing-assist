@@ -14,6 +14,7 @@ from modules.evolution.reading import require_current_prefix
 
 _RESULTS = WeakKeyDictionary()
 MAX_CACHED_PREFIXES = 4096
+MAX_CACHED_PROOF_SCOPES = 65536
 
 
 async def require_cached_prefix(db, store, frozen):
@@ -97,7 +98,31 @@ def _row_scopes(receipt, row):
     )
 
 
+def _trim_proofs(results):
+    # Many append/revise runs can have overlapping long prefixes. Count each
+    # shared proof once, and retain only a bounded amount of detailed metadata.
+    # Epoch-only snapshots remain safe and fast until the project token changes;
+    # they then use the complete verifier instead of selective promotion.
+    kept, discarded, weight = set(), set(), 0
+    for cached in reversed(results.values()):
+        proof = cached.get("proof")
+        if proof is None or id(proof) in kept or id(proof) in discarded:
+            continue
+        size = len(proof.tokens) + sum(len(row) for row in proof.rows)
+        if weight + size <= MAX_CACHED_PROOF_SCOPES:
+            kept.add(id(proof))
+            weight += size
+        else:
+            discarded.add(id(proof))
+    for cached in results.values():
+        if id(cached.get("proof")) in discarded:
+            cached["proof"] = None
+
+
 async def dependency_current(db, store, dependency):
+    # Production sessions disable autoflush. Never read an old guard token or
+    # overwrite dirty source objects with populate_existing during validation.
+    await db.flush()
     bind = db.get_bind()
     engine = getattr(bind, "engine", bind)
     epoch = (
@@ -115,7 +140,7 @@ async def dependency_current(db, store, dependency):
         results.move_to_end(identity)
         if cached["epoch"] == epoch:
             return cached["valid"]
-        if cached["valid"]:
+        if cached["valid"] and cached.get("proof") is not None:
             proof = cached["proof"]
             scopes = proof.scopes(cached["through"])
             current = await _tokens(db, store.novel_id, scopes)
@@ -174,4 +199,5 @@ async def dependency_current(db, store, dependency):
             results.move_to_end(identity)
         while len(results) > MAX_CACHED_PREFIXES:
             results.popitem(last=False)
+        _trim_proofs(results)
     return valid

@@ -415,3 +415,5 @@ run 和 attempt 依赖 token。无关追加保留历史证明；正文换版/恢
 `identity_review_gaps` 和 `identity_inspected`；单批实际 JSON ≤50000 字符，单个不可分
 条目超限只影响对应片。方法指纹纳入分片协议与窗口参数，旧方法的冻结准备不静默升级。
 产品接口、作者决定、正史权限和 #208 Scene Projection 消费查询保持原契约。
+
+#209 缓存守卫先 flush 待写入数据，兼容生产 autoflush=False；详细证明以 scope 引用/令牌数限制总容量，超出预算仅保留当前项目 epoch 的快照，epoch 改变后完整重验。

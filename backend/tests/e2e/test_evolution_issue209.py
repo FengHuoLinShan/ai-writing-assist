@@ -528,3 +528,73 @@ async def test_large_scope_reads_bound_postgresql_parameters(history_project):
         assert max(calls) <= 4097  # One project UUID plus bounded scope keys.
     finally:
         event.remove(engine.sync_engine, "before_cursor_execute", record)
+
+
+async def test_dirty_sources_with_production_autoflush_disabled(history_project):
+    _, sessions, nid, claims = history_project
+    async with sessions() as db:
+        db.autoflush = False
+        assert await claim_freshness(db, nid, claims[-1]) == "current"
+        draft = await db.get(
+            WritingDraft, UUID(claims[0].evidence[0].source_ref.draft_id)
+        )
+        edited = "否" + draft.content[1:]
+        draft.content = edited  # Intentionally no explicit flush.
+        assert await claim_freshness(db, nid, claims[-1]) == "source_changed"
+        assert (
+            await db.scalar(
+                select(WritingDraft.content).where(WritingDraft.id == draft.id)
+            )
+            == edited
+        )
+        await db.rollback()
+        assert await claim_freshness(db, nid, claims[-1]) == "current"
+        first = claims[0].dependencies[0]
+        frozen = await db.scalar(
+            select(EvolutionFrozenAttempt).where(
+                EvolutionFrozenAttempt.novel_id == UUID(nid),
+                EvolutionFrozenAttempt.attempt_key == first.attempt_id,
+            )
+        )
+        frozen.previous_receipt = "e" * 64
+        assert await claim_freshness(db, nid, claims[-1]) == "source_changed"
+        assert (
+            await db.scalar(
+                select(EvolutionFrozenAttempt.previous_receipt).where(
+                    EvolutionFrozenAttempt.novel_id == UUID(nid),
+                    EvolutionFrozenAttempt.attempt_key == first.attempt_id,
+                )
+            )
+            == "e" * 64
+        )
+        await db.rollback()
+        assert await claim_freshness(db, nid, claims[-1]) == "current"
+
+
+async def test_proof_memory_budget_keeps_safe_epoch_snapshots(
+    history_project, monkeypatch
+):
+    engine, sessions, nid, claims = history_project
+    monkeypatch.setattr(freshness, "MAX_CACHED_PROOF_SCOPES", 2)
+    async with sessions() as db:
+        assert await claim_freshness(db, nid, claims[-1]) == "current"
+        results = freshness._RESULTS[engine.sync_engine]
+        assert results and all(value.get("proof") is None for value in results.values())
+        statements = []
+
+        def record(conn, cursor, statement, parameters, context, executemany):
+            statements.append(statement)
+
+        event.listen(engine.sync_engine, "before_cursor_execute", record)
+        try:
+            assert await claim_freshness(db, nid, claims[-1]) == "current"
+            assert len(statements) == 1 and "evolution_source_epochs" in statements[0]
+        finally:
+            event.remove(engine.sync_engine, "before_cursor_execute", record)
+        draft = await db.get(
+            WritingDraft, UUID(claims[0].evidence[0].source_ref.draft_id)
+        )
+        draft.content = "否" + draft.content[1:]
+        assert await claim_freshness(db, nid, claims[-1]) == "source_changed"
+        await db.rollback()
+        assert await claim_freshness(db, nid, claims[-1]) == "current"
