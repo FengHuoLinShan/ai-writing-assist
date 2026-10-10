@@ -466,6 +466,7 @@ async def test_native_query_growth_and_explain_report(scene_count, capsys):
     try:
         async with engine.connect() as connection:
             version = await connection.scalar(text("SELECT version()"))
+        assert "PGlite" not in version
         result = await scenario(engine, sessions, scene_count, 120, 100, 5)
         report = {
             "runtime": "native-postgresql",
@@ -507,3 +508,23 @@ async def test_native_query_growth_and_explain_report(scene_count, capsys):
         assert len(result["explain_analyze"]) == 10
     finally:
         await engine.dispose()
+
+
+async def test_large_scope_reads_bound_postgresql_parameters(history_project):
+    engine, sessions, nid, _ = history_project
+    calls = []
+
+    def record(conn, cursor, statement, parameters, context, executemany):
+        if "evolution_source_epochs" in statement:
+            calls.append(len(parameters))
+
+    event.listen(engine.sync_engine, "before_cursor_execute", record)
+    try:
+        async with sessions() as db:
+            scopes = ["project", *(f"missing-{i}" for i in range(2 * 4096 + 17))]
+            values = await freshness._tokens(db, nid, scopes)
+            assert set(values) == {"project"}
+        assert len(calls) == 3
+        assert max(calls) <= 4097  # One project UUID plus bounded scope keys.
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", record)

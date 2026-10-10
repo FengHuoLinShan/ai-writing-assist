@@ -44,19 +44,21 @@ class PrefixProof:
 
 async def _tokens(db, novel_id, scopes):
     # Column reads bypass the identity map and autoflush pending source edits.
-    return dict(
-        (
-            await db.execute(
-                select(
-                    EvolutionSourceEpoch.scope_key,
-                    EvolutionSourceEpoch.epoch,
-                ).where(
-                    EvolutionSourceEpoch.novel_id == UUID(str(novel_id)),
-                    EvolutionSourceEpoch.scope_key.in_(scopes),
-                )
+    # A large prefix must not exceed asyncpg's bind-parameter limit. The outer
+    # project guards detect a concurrent commit spanning these bounded reads.
+    values, result = sorted(set(scopes)), {}
+    for start in range(0, len(values), 4096):
+        rows = await db.execute(
+            select(
+                EvolutionSourceEpoch.scope_key,
+                EvolutionSourceEpoch.epoch,
+            ).where(
+                EvolutionSourceEpoch.novel_id == UUID(str(novel_id)),
+                EvolutionSourceEpoch.scope_key.in_(values[start : start + 4096]),
             )
-        ).all()
-    )
+        )
+        result.update(rows.all())
+    return result
 
 
 async def _epoch(db, novel_id):

@@ -3,7 +3,7 @@ id: T-20261010-evolution-209
 title: Issue 209 世界演化账本缓存与发现容量专项优化
 status: active
 created: 2026-10-10T23:18:06+09:00
-updated: 2026-10-11T00:14:11+09:00
+updated: 2026-10-11T00:37:04+09:00
 external_ref: https://github.com/FengHuoLinShan/ai-writing-assist/issues/209
 ---
 
@@ -15,7 +15,7 @@ external_ref: https://github.com/FengHuoLinShan/ai-writing-assist/issues/209
 - 实现完成：同事务 project/来源 scope UUID 令牌、有界跨调用前缀证明；确定性索引/历史/正文分片；new 通过全部索引片身份复核；精确覆盖、失败重放与幂等。
 - 验证完成：最终 Evolution 模块 378 passed、1 real_llm deselected；最后的 retained-ORM 与首个超大索引修复后定向 45 passed。迁移降级重升与 ORM parity 在 WASM 下通过；Ruff 与模块依赖门禁通过。
 - PostgreSQL WASM：迁移成功；实际查询计数及 EXPLAIN ANALYZE 完成；13 个独立顺序断言通过。报告与原生验证命令见 [VALIDATION.md](VALIDATION.md)。
-- 原生 CI：PostgreSQL 17.11 critical 78 passed，包含 #209 全部 14 项（asyncpg、并发写入、迁移/ORM parity）。PR #211；追加 1/10/100 Scene native 基准及 EXPLAIN 回归待 CI，报告随既有 diagnostics 上传。PR 保持 draft 待结果。
+- 原生 CI：PostgreSQL 17.11 critical 78 passed，包含 #209 全部 14 项（asyncpg、并发写入、迁移/ORM parity）。PR #211；随后 native 规模基准/EXPLAIN CI 共 81 passed；3 份 native JSON 证据已保存。最后 >8192 scope / 每查询 <=4097 参数回归及守卫修复待 CI；追加本地定向 24 passed。
 - 环境：原生 PG 缺失，用户命名空间不能切换非 root；PGlite/PostgreSQL WASM socket 的 asyncpg 不完成，使用同步 psycopg2 顺序适配。WASM 耗时不是原生性能结果。
 
 ## 目标与边界
@@ -36,4 +36,4 @@ external_ref: https://github.com/FengHuoLinShan/ai-writing-assist/issues/209
 
 ## 交付状态
 
-实现与可复现验证材料完成，本分支供独立草稿 PR 审查；新增原生规模基准仍待 CI；同项目写争用未测。
+实现与可复现验证材料完成，本分支供独立草稿 PR 审查；原生规模基准完成，最后来源 scope 参数上限回归待 CI；同项目写争用未测。
