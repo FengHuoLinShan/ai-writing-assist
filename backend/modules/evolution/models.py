@@ -16,6 +16,7 @@ from typing import Any
 from sqlalchemy import (
     JSON,
     DateTime,
+    ForeignKey,
     ForeignKeyConstraint,
     Index,
     Integer,
@@ -30,6 +31,20 @@ from sqlalchemy.orm import Mapped, mapped_column
 from core.base import Base, NovelMixin, UUIDMixin
 
 EVOLUTION_RUN_MODES = ("bootstrap", "append", "revise", "scoped_recompute")
+
+
+class EvolutionSourceEpoch(Base, NovelMixin):
+    """Disposable invalidation token; never a source of narrative truth."""
+
+    __tablename__ = "evolution_source_epochs"
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    scope_key: Mapped[str] = mapped_column(String(300), primary_key=True)
+    epoch: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+
 
 _SINGLE_LIVE_WRITER_PREDICATE = "execution_mode = 'live' AND status = 'active'"
 

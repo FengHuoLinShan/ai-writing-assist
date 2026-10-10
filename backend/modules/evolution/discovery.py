@@ -9,6 +9,17 @@ from pydantic import ValidationError
 from core.errors import ConflictError
 from infrastructure.llm.collaboration import content_hash
 from infrastructure.llm.schemas import LLMMessage
+from modules.evolution.discovery_capacity import (
+    PART_CHARACTERS,
+    REQUEST_CHARACTERS,
+    SCENE_CHARACTERS,
+    SCENE_OVERLAP,
+    build_batches,
+    current_text_ranges,
+    identity_review_inputs,
+    serialized_size,
+)
+from modules.evolution.freshness import require_cached_prefix
 from modules.evolution.ledger import list_ledger, persist_discovery_claim
 from modules.evolution.ledger_contracts import (
     DISCOVERY_METHOD_VERSION,
@@ -19,7 +30,6 @@ from modules.evolution.ledger_contracts import (
     LedgerDependency,
     LedgerEvidence,
 )
-from modules.evolution.reading import require_current_prefix
 from modules.evolution.sampler import (
     DISCOVERY_OUTPUT_TOKENS,
     SCENE_CALL_TIMEOUT_SECONDS,
@@ -158,7 +168,7 @@ def method_fingerprint():
             DiscoveryReview.model_json_schema(),
             LedgerClaim.model_json_schema(),
             {
-                "chunk_characters": 16000,
+                "chunk_characters": PART_CHARACTERS,
                 "request_characters": 50000,
                 "scene_call_timeout_seconds": SCENE_CALL_TIMEOUT_SECONDS,
                 "occurrence_binding": 14,
@@ -176,6 +186,11 @@ def method_fingerprint():
                 "structured_parse": "single_closer_v2",
                 "quarantine_invalid_changes": True,
                 "new_theme_primary_batch": True,
+                "partition_version": 1,
+                "partition_characters": PART_CHARACTERS,
+                "scene_window_characters": SCENE_CHARACTERS,
+                "scene_window_overlap": SCENE_OVERLAP,
+                "new_theme_identity_review": "all_index_shards_v1",
             },
         ]
     )
@@ -295,7 +310,7 @@ async def prepare_discovery(db, store, frozen):
     pairs = await store.load_committed_pairs(frozen.run_id)
     if pairs:
         parent = await store.load_frozen(pairs[-1][0].run_key, pairs[-1][0].attempt_key)
-        await require_current_prefix(db, store, parent)
+        await require_cached_prefix(db, store, parent)
     themes, offset = [], 0
     while True:
         page = await list_ledger(
@@ -421,55 +436,38 @@ async def prepare_discovery(db, store, frozen):
         }
         for theme in themes
     ]
+    descriptors.sort(key=lambda item: item["entry_id"])
+    relevant.sort(
+        key=lambda item: (item["position"]["scene_index"], item["observation_id"])
+    )
     context_units = [{"theme": theme} for theme in descriptors] + [
         {"observation": _compact(item)} for item in relevant
     ]
-    batches = []
-    for current_group in _chunks([_compact(item) for item in current]):
-        for context_index, context in enumerate(_chunks(context_units) or [[]]):
-            batches.append(
-                {
-                    "conditions_semantics": CONDITIONS_SEMANTICS,
-                    "scene_text": payload["scene_text"],
-                    "allow_new_themes": context_index == 0,
-                    "theme_index": [
-                        {
-                            key: descriptor[key]
-                            for key in (
-                                "category",
-                                "label",
-                                "subject_labels",
-                                "prior_review",
-                                "statement",
-                                "conditions",
-                                "conditions_semantics",
-                            )
-                        }
-                        for descriptor in descriptors
-                    ],
-                    "scene_index": payload["scene_index"],
-                    "current_observation_ids": [
-                        item["observation_id"] for item in current_group
-                    ],
-                    "current_observations": current_group,
-                    "historical_context": context,
-                    "recall_scope": {
-                        "matching_surfaces": sorted(surfaces),
-                        "historical_candidates": len(relevant),
-                        "total_prior_observations": all_prior,
-                    },
-                }
-            )
-    unsupported = []
-    for index, batch in enumerate(batches):
-        if len(json.dumps(batch, ensure_ascii=False)) > 50000:
-            unsupported.append(index)
+    text_ranges = current_text_ranges(payload, current)
+    batches, unsupported, scopes, index_shards = build_batches(
+        payload["scene_text"],
+        [
+            {**_compact(item), "scene_text_ranges": text_ranges[item["observation_id"]]}
+            for item in current
+        ],
+        context_units,
+        descriptors,
+        scene_index=payload["scene_index"],
+        semantics=CONDITIONS_SEMANTICS,
+        recall_scope={
+            "matching_surfaces": sorted(surfaces),
+            "historical_candidates": len(relevant),
+            "total_prior_observations": all_prior,
+        },
+        chunks=_chunks,
+    )
     return {
         "method_fingerprint": method_fingerprint(),
         "observations": by_id,
         "themes": {theme["entry_id"]: theme for theme in themes},
         "batches": batches,
         "unsupported_batches": unsupported,
+        "theme_index_shards": index_shards,
         "coverage": {
             "scene_index": payload["scene_index"],
             "current_observations": len(current),
@@ -478,6 +476,12 @@ async def prepare_discovery(db, store, frozen):
             "total_prior_observations": all_prior,
             "themes_included": len(themes),
             "planned_batches": len(batches),
+            "partition_version": 1,
+            "batch_scopes": scopes,
+            "theme_index_shards": [
+                {"shard": index, "theme_ids": [item["entry_id"] for item in shard]}
+                for index, shard in enumerate(index_shards)
+            ],
             "unsupported_batches": unsupported,
             "recall_scope": "本场观察、已存主题及同表面名历史候选；不是全部历史语义扫描",
         },
@@ -682,7 +686,7 @@ def _compile_change(prepared, raw, batch):
 def compile_discovery(frozen):
     payload, accepted, pending, inspected = frozen.payload, [], [], []
     prepared = payload["discovery_preparation"]
-    failed_batches = []
+    failed_batches, identity_gaps, identity_inspected = [], [], []
     for index, batch in enumerate(prepared["batches"]):
         if index in prepared["unsupported_batches"]:
             pending.append({"reason": "capacity_unsupported", "batch": index})
@@ -739,6 +743,51 @@ def compile_discovery(frozen):
         )
         for ordinal, raw in enumerate(output.changes):
             verdict = verdicts.get(ordinal)
+            if raw.action == "new":
+                identity_valid = True
+                for shard_index, shard in enumerate(
+                    prepared.get("theme_index_shards", [])[1:], start=1
+                ):
+                    inputs = identity_review_inputs(
+                        batch, output.changes, shard, shard_index
+                    )
+                    key = f"scene_discovery_identity_{index}_{shard_index}"
+                    journal = payload.get(key) or {}
+                    expected = _discovery_envelope(frozen, prepared, inputs)
+                    supported = False
+                    if (
+                        serialized_size(inputs) <= REQUEST_CHARACTERS
+                        and journal.get("stage") == "sampled"
+                        and journal.get("input_hash") == content_hash(expected)
+                    ):
+                        identity_review = DiscoveryReview.model_validate(
+                            journal["result"]
+                        )
+                        matches = [
+                            item
+                            for item in identity_review.verdicts
+                            if item.change_index == ordinal
+                        ]
+                        supported = (
+                            len(matches) == 1 and matches[0].verdict == "supported"
+                        )
+                        identity_inspected.append(
+                            {"batch": index, "shard": shard_index, "ordinal": ordinal}
+                        )
+                    else:
+                        identity_gaps.append(
+                            {"batch": index, "shard": shard_index, "ordinal": ordinal}
+                        )
+                    identity_valid = identity_valid and supported
+                if not identity_valid:
+                    pending.append(
+                        {
+                            "reason": "new_theme_identity_not_supported",
+                            "batch": index,
+                            "change": raw.model_dump(mode="json"),
+                        }
+                    )
+                    continue
             try:
                 item = _compile_change(prepared, raw, batch)
             except (ValueError, ValidationError) as error:
@@ -995,7 +1044,12 @@ def compile_discovery(frozen):
         "changes": accepted,
         "pending": pending,
         "inspected": inspected,
-        "coverage": {**prepared["coverage"], "failed_batches": failed_batches},
+        "coverage": {
+            **prepared["coverage"],
+            "failed_batches": failed_batches,
+            "identity_review_gaps": identity_gaps,
+            "identity_inspected": identity_inspected,
+        },
         "binding": content_hash(
             [
                 frozen.attempt_id,
@@ -1004,6 +1058,16 @@ def compile_discovery(frozen):
                 prepared,
             ]
         ),
+    }
+
+
+def _discovery_envelope(frozen, prepared, inputs):
+    return {
+        "method_fingerprint": prepared["method_fingerprint"],
+        "attempt_id": frozen.attempt_id,
+        "source_manifest_hash": frozen.source_manifest_hash,
+        "previous_receipt": frozen.previous_receipt,
+        "input": inputs,
     }
 
 
@@ -1074,13 +1138,7 @@ async def finish_scene_discovery(db, store, frozen, source, caller):
                         )
                     ],
                 }
-            envelope = {
-                "method_fingerprint": prepared["method_fingerprint"],
-                "attempt_id": frozen.attempt_id,
-                "source_manifest_hash": frozen.source_manifest_hash,
-                "previous_receipt": frozen.previous_receipt,
-                "input": inputs,
-            }
+            envelope = _discovery_envelope(frozen, prepared, inputs)
             journal = frozen.payload.get(key) or {}
             if _settled_output_failure(journal):
                 if journal.get("input_hash") != content_hash(envelope):
@@ -1105,6 +1163,44 @@ async def finish_scene_discovery(db, store, frozen, source, caller):
                     raise
                 # Keep the settled failed batch visible; no result and no new paid retry.
                 break
+
+        generated_journal = frozen.payload.get(f"scene_discovery_{index}") or {}
+        review_journal = frozen.payload.get(f"scene_discovery_review_{index}") or {}
+        if _settled_output_failure(generated_journal) or _settled_output_failure(
+            review_journal
+        ):
+            continue
+        generated = DiscoveryOutput.model_validate(generated_journal["result"])
+        if not any(change.action == "new" for change in generated.changes):
+            continue
+        for shard_index, shard in enumerate(
+            prepared.get("theme_index_shards", [])[1:], start=1
+        ):
+            inputs = identity_review_inputs(batch, generated.changes, shard, shard_index)
+            if serialized_size(inputs) > REQUEST_CHARACTERS:
+                continue  # Compiler records an explicit gap; new themes cannot pass.
+            key = f"scene_discovery_identity_{index}_{shard_index}"
+            envelope = _discovery_envelope(frozen, prepared, inputs)
+            journal = frozen.payload.get(key) or {}
+            if _settled_output_failure(journal):
+                if journal.get("input_hash") != content_hash(envelope):
+                    raise ConflictError("主题身份审查的冻结输入已变化")
+                continue
+            try:
+                frozen = await _run_scene_call(
+                    db,
+                    store,
+                    frozen,
+                    source,
+                    journal_key=key,
+                    inputs=envelope,
+                    call_inputs={"inputs": inputs},
+                    call=partial(caller, "review_discovery"),
+                )
+            except SceneCallFailedError:
+                frozen = await store.load_frozen(frozen.run_id, frozen.attempt_id)
+                if not _settled_output_failure(frozen.payload.get(key) or {}):
+                    raise
 
     return await freeze_value(
         db,
