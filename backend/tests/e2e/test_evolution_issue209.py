@@ -449,3 +449,61 @@ async def test_revalidation_refreshes_retained_prefix_rows(history_project):
         assert await claim_freshness(db, nid, claims[-1]) == "source_changed"
         await db.rollback()
         assert await claim_freshness(db, nid, claims[-1]) == "current"
+
+
+@pytest.mark.parametrize("scene_count", [1, 10, 100])
+@pytest.mark.timeout(300)
+async def test_native_query_growth_and_explain_report(scene_count, capsys):
+    import json
+    from pathlib import Path
+
+    from sqlalchemy import text
+
+    from tools.evolution_ledger_capacity_bench import scenario
+
+    engine = create_async_engine(DATABASE_URL, pool_size=1, max_overflow=0)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with engine.connect() as connection:
+            version = await connection.scalar(text("SELECT version()"))
+        result = await scenario(engine, sessions, scene_count, 120, 100, 5)
+        report = {
+            "runtime": "native-postgresql",
+            "driver": "asyncpg",
+            "database_version": version,
+            "scenarios": [result],
+        }
+        output = Path(f".test-artifacts/evolution-issue209-native-{scene_count}.json")
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
+        with capsys.disabled():
+            print(
+                json.dumps(
+                    {
+                        "issue209_native_scenes": scene_count,
+                        "baseline_queries": result["baseline"]["queries"],
+                        "warm_queries": result["warm"]["queries"],
+                        "baseline_source_checks": result["baseline"][
+                            "source_verifications"
+                        ],
+                        "warm_source_checks": result["warm"]["source_verifications"],
+                        "baseline_page_queries": result["baseline_ledger_pages"][
+                            "queries"
+                        ],
+                        "warm_page_queries": result["ledger_pages"]["queries"],
+                        "explain_shapes": len(result["explain_analyze"]),
+                    }
+                ),
+                flush=True,
+            )
+        assert result["baseline"]["queries"] == 5 * (8 * scene_count + 4)
+        assert result["baseline"]["source_verifications"] == 5 * scene_count
+        assert result["warm"]["queries"] == 5
+        assert result["warm"]["source_verifications"] == 0
+        assert result["ledger_pages"]["queries"] == 128
+        assert result["ledger_pages"]["source_verifications"] == 0
+        assert result["discovery_preparation"]["source_verifications"] == 0
+        assert result["discovery_preparation"]["unsupported_batches"] == []
+        assert len(result["explain_analyze"]) == 10
+    finally:
+        await engine.dispose()

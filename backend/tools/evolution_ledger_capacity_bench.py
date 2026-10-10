@@ -63,7 +63,11 @@ class QueryStatistics:
     def record(self, conn, cursor, statement, parameters, context, executemany):
         shape = " ".join(statement.split())
         self.shapes[shape] += 1
-        if statement.lstrip().upper().startswith("SELECT") and context.compiled:
+        if (
+            shape not in self.literals
+            and statement.lstrip().upper().startswith("SELECT")
+            and context.compiled
+        ):
             compiled = context.compiled.statement.compile(
                 dialect=conn.dialect, compile_kwargs={"literal_binds": True}
             )
