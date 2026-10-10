@@ -398,3 +398,20 @@ question即使复核确认“问题有依据”，仍另存绑定原主题/修�
 主题召回排除，初始无target uncertain仍可沿原ID在新来源中续证；详情保留原支持理解。
 路由prior_review仅带verdict，不复制旧机器自由理由自证；完整主张、条件、作者决定、
 原始观察/引用/用途与已知发生锚仍提供，未缩短历史窗口或删证据。
+
+## #209 派生账本读取与发现容量
+
+`freshness.py` 缓存经过完整来源验证的前缀证明，以 PostgreSQL 事务内维护的
+`evolution_source_epochs` project token 作快速守卫，发生写入时比较实际章节、Scene、
+run 和 attempt 依赖 token。无关追加保留历史证明；正文换版/恢复、Scene 边界/重排、
+最新成功尝试和继承范围变化不能误命中。缓存有界、按数据库 engine 与项目隔离，
+缺 token 不缓存；完整验证前后的 project token 必须相同。只用于派生账本与发现读取，
+正式 World 候选采用仍执行原完整验证。
+
+`discovery_capacity.py` 用确定性正文窗口、原文偏移、主题/候选/索引分片替代每批完整
+主题索引，保留全部召回候选。每项 new 还须经全部索引片的独立复核；冻结键
+`scene_discovery_identity_{batch}_{shard}` 沿现有预算、来源门、费用与恢复协议，
+缺失/不确定/重复/失败的资格不放行。覆盖率新增 `batch_scopes`、`theme_index_shards`、
+`identity_review_gaps` 和 `identity_inspected`；单批实际 JSON ≤50000 字符，单个不可分
+条目超限只影响对应片。方法指纹纳入分片协议与窗口参数，旧方法的冻结准备不静默升级。
+产品接口、作者决定、正史权限和 #208 Scene Projection 消费查询保持原契约。

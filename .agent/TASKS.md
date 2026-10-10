@@ -1,5 +1,7 @@
 # 开放任务
 
+- [T-20261010-evolution-209](tasks/2026/T-20261010-evolution-209/TASK.md) — Issue #209 世界演化账本缓存与发现容量专项优化
+
 - [T-20261010-pr206-integration](tasks/2026/T-20261010-pr206-integration/TASK.md) — 修复并合入世界演化 PR #206
 
 - [T-20261006-world-foundation-phase1-impl](tasks/2026/T-20261006-world-foundation-phase1-impl/TASK.md) — 远景第一阶段实施（M0–M7）：世界状态读取、隔离试改、RP 持久缓存与输入优化
