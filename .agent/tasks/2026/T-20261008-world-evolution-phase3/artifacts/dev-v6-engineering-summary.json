@@ -1,0 +1,17 @@
+{
+  "version": "dev-v6",
+  "scenes_committed": 3,
+  "requests": 27,
+  "responses": 27,
+  "source_ranges_exact": 22,
+  "free_replays": 3,
+  "failed_scene_index": 3,
+  "failed_stage": "scene_world_review",
+  "failure": "schema_validation",
+  "failed_usage_complete": true,
+  "failed_unknown_attempts": 0,
+  "quality_gate": "incomplete_full_gates_not_passed",
+  "human_validated": false,
+  "holdout_run": false,
+  "corrected_attribution": "initial_world_context_empty_relation_context_has_candidates; review_conflated_stage_visibility; no_generator_falsehood_proven"
+}

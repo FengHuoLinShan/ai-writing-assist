@@ -13,13 +13,16 @@ from modules.imports.llm_schemas import (
     AliasRelationExtractionOutput,
     SceneEntityExtractionOutput,
 )
+from modules.world.contracts import normalize_author_entity_type
 from modules.world.facade import find_exact_identity_candidates
 
 
 async def identity_context(db, novel_id, terms):
     """Only identity labels enter the prompt, never later World descriptions."""
     queries, candidates, mapping = [], [], {}
-    for entity_type, name in sorted(set(terms)):
+    for entity_type, name in sorted(
+        {(normalize_author_entity_type(entity_type), name) for entity_type, name in terms}
+    ):
         matches = await find_exact_identity_candidates(db, novel_id, name, entity_type)
         rows = sorted(
             (str(item.existing_entity_id), item.existing_entity_name) for item in matches

@@ -241,11 +241,72 @@ class SceneLensItem(BaseModel):
     label: str
     summary: str
     availability: bool
+    stale: bool = False
+
+
+class SceneLensProvenanceRef(BaseModel):
+    """字段来源指向的稿件区间（evidence SourceRangeRefContract 的展示镜像）。"""
+
+    draft_id: str
+    chapter_index: int
+    version_number: int
+    content_mode: str = "working"
+    start_offset: int
+    end_offset: int
+    source_hash: str | None = None
+    range_hash: str | None = None
+
+
+class SceneLensProvenance(BaseModel):
+    """受控字段最后赋值的来源状态（exact=有据 / unverified=待核实 / conflict=冲突）。"""
+
+    field: str
+    status: str
+    event_id: str | None = None
+    source_refs: list[SceneLensProvenanceRef] = Field(default_factory=list)
+
+
+class SceneLensSource(BaseModel):
+    checkpoint_id: str | None = None
+    dimension: str | None = None
+    confirmed: bool = False
+    evidence_refs: list[dict[str, Any]] = Field(default_factory=list)
+    provenance: SceneLensProvenance | None = None
+
+
+class SceneLensField(BaseModel):
+    field: str
+    display: str
+    layer: str
+    confidence: str
+    possibly_false: bool = False
+    source: SceneLensSource = Field(default_factory=SceneLensSource)
+
+
+class SceneLensKnowledge(BaseModel):
+    holder: str
+    text: str
+    possibly_false: bool = False
+    source: SceneLensSource = Field(default_factory=SceneLensSource)
+
+
+class SceneLensObject(BaseModel):
+    subject_id: str
+    label: str
+    fields: list[SceneLensField] = Field(default_factory=list)
+    location: str | None = None
+    location_source: SceneLensSource | None = None
+    knowledge: list[SceneLensKnowledge] = Field(default_factory=list)
+    unknowns: list[str] = Field(default_factory=list)
+    stale: bool = False
 
 
 class SceneLensResponse(BaseModel):
     role_visible_knowledge: list[SceneLensItem] = Field(default_factory=list)
     scene_world_state: list[SceneLensItem] = Field(default_factory=list)
+    state_fingerprint: str | None = None
+    subject_choices: dict[str, str] = Field(default_factory=dict)
+    object_states: list[SceneLensObject] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
 

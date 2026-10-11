@@ -268,13 +268,19 @@ async def list_projects_using_defaults(
 async def require_active_project(
     db: AsyncSession,
     novel_id: str,
+    *,
+    allow_demo_readonly: bool = True,
 ) -> None:
     """Require an active project, hiding missing and recycled projects as 404.
 
     Authenticated browser callers always resolve an owner filter; the unowned
     worker/system identity is accepted only inside the worker execution scope.
     """
-    await _service.require_active_project(db, novel_id)
+    await _service.require_active_project(
+        db,
+        novel_id,
+        **({"allow_demo_readonly": False} if not allow_demo_readonly else {}),
+    )
     bind_validated_novel_id(novel_id)
 
 

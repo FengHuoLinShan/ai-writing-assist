@@ -1,0 +1,39 @@
+{
+  "version": "dev-v12",
+  "method": "0a4af5c3bd3dc324fb8da5d7ceaf1735ef7c9c6d62476110137c7f78ae82d5da",
+  "current_method": false,
+  "scenes_committed": 6,
+  "scenes_expected": 8,
+  "requests": 64,
+  "responses": 63,
+  "terminal_call_errors": 1,
+  "source_ranges_exact_cumulative": 85,
+  "free_replays": 6,
+  "discovery_planned_batches": 19,
+  "failed_batches": [
+    {
+      "scene": 3,
+      "stage": "scene_discovery_3",
+      "usage_complete": true
+    },
+    {
+      "scene": 4,
+      "stage": "scene_discovery_3",
+      "usage_complete": true
+    },
+    {
+      "scene": 6,
+      "stage": "scene_world_review",
+      "usage_complete": false
+    }
+  ],
+  "validation_quarantine_records": 2,
+  "unknown_stage_receipts": 1,
+  "engineering_gate": "not_passed",
+  "quality_gate": "not_passed",
+  "holdout_run": false,
+  "human_validated": false,
+  "explicit_new_run_authorized": true,
+  "v9_unknown_receipt_retained": true,
+  "v11_unknown_receipt_retained": true
+}

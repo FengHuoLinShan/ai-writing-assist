@@ -164,6 +164,7 @@ jobs:
             backend/.test-artifacts/postgresql-diagnostics-pre-test.json
             backend/.test-artifacts/postgresql-diagnostics-post-test.json
             backend/.test-artifacts/postgresql-critical.junit.xml
+            backend/.test-artifacts/evolution-issue209-native-*.json
           if-no-files-found: error
           include-hidden-files: true
           retention-days: 14

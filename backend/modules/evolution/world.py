@@ -4,6 +4,7 @@ import json
 from copy import deepcopy
 from uuid import NAMESPACE_URL, uuid5
 
+from core.errors import ConflictError
 from infrastructure.llm.collaboration import content_hash
 from infrastructure.llm.profiles import DEEPSEEK_THINKING_MODELS
 from modules.evidence.contracts import GroupSource
@@ -32,9 +33,7 @@ def _deferred_world_result(context, stage: str) -> dict:
         "review": {
             "status": "blocked",
             "review_kind": "extraction_deferred",
-            "issues": [
-                {"message": f"{stage}格式失败；结果和费用已保留，需另行核对。"}
-            ],
+            "issues": [{"message": f"{stage}格式失败；结果和费用已保留，需另行核对。"}],
         },
     }
 
@@ -187,9 +186,7 @@ async def finish_scene_world(db, store, frozen, source, call):
                     payload["relations_preparation"]["context"], "别名关系抽取"
                 )
 
-            return await freeze_value(
-                db, store, frozen, "world_result", defer_relations
-            )
+            return await freeze_value(db, store, frozen, "world_result", defer_relations)
     relations = (frozen.payload.get("scene_relations") or {}).get(
         "result", {"aliases": [], "relations": [], "uncertain_items": []}
     )
@@ -198,6 +195,14 @@ async def finish_scene_world(db, store, frozen, source, call):
         ensure_ascii=False,
         sort_keys=True,
     )
+    initial = frozen.payload["world_preparation"]["context"]
+    review_context = {
+        "initial_world_identity_context": {
+            key: initial[key]
+            for key in ("identity_candidates", "_entity_ref_map", "_identity_queries")
+        },
+        "context": prepared["context"],
+    }
     scope = {
         "capability": "imports.entity_extraction",
         "novel_id": frozen.novel_id,
@@ -213,7 +218,7 @@ async def finish_scene_world(db, store, frozen, source, call):
             GroupSource(
                 source_key="scene_context",
                 source_type="imported_assets",
-                content_hash=content_hash(prepared["context"]),
+                content_hash=content_hash(review_context),
                 dimensions=("world_entities", "imported_assets"),
             ),
         ],
@@ -232,6 +237,12 @@ async def finish_scene_world(db, store, frozen, source, call):
                         "核对类型、身份、关系方向及每个描述字段的语义蕴含。传闻不得变成"
                         "客观事实；角色当前不知道的事实不可写成其知识；同名不能证明同一人。"
                         "不可靠身份、超范围否定或凭空补出的事实均以major finding阻断。"
+                        "findings.kind仅用missing_required、unsupported_fact、"
+                        "out_of_scope_knowledge、premature_reveal、irrelevant_content、"
+                        "conflict、unchecked；blocker/major/minor只填severity，不能填kind。"
+                        "核对world身份候选声明时只用initial_world_identity_context，"
+                        "relations用context；二轮新增/查到的候选不是第一轮已经提供的资料，"
+                        "不得据二轮引用映射否定第一轮的未提供声明。"
                         "这是分阶段组合提案：world.entities 中的 aliases 为未填占位，"
                         "实际别名以 relations.aliases 单独承载，两者不构成矛盾。"
                         "空关系候选只说明本次资料未提供历史记录，不能证明历史上首次建立。"
@@ -239,7 +250,7 @@ async def finish_scene_world(db, store, frozen, source, call):
                     context=json.dumps(
                         {
                             "scene_text": payload["scene_text"],
-                            "context": prepared["context"],
+                            **review_context,
                         },
                         ensure_ascii=False,
                     ),
@@ -250,6 +261,11 @@ async def finish_scene_world(db, store, frozen, source, call):
             db, store, frozen, "world_review_preparation", prepare_review
         )
         spec = frozen.payload["world_review_preparation"]
+        if spec != await prepare_review(frozen.payload):
+            raise ConflictError(
+                "世界审查冻结范围或方法已变化，旧结果保留且不能重新盖章",
+                code="scene_world_review_scope_changed",
+            )
         run = await store.load_run(frozen.run_id)
         model = ((run.llm_snapshot_json or {}).get("profile") or {}).get("model")
         input_chars = sum(

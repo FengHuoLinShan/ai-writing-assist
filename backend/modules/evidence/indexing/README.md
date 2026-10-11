@@ -101,8 +101,9 @@ project facade 的 `ProjectSummary` 窄投影读取，不再跨模块消费 `Pro
 | 检索类型 | 方法 | 说明 |
 |----------|------|------|
 | 精确检索 | `find_by_entity/character/thread/chapter` | 按关联 ID 精确过滤 |
-| 关键词检索 | `keyword_search` | SQL LIKE 文本匹配，SQLite 兼容 |
-| 混合检索 | `hybrid_search` | 合并关键词 + metadata/关系 + 向量候选后统一评分 |
+| 关键词检索 | `keyword_search` | SQL LIKE 文本匹配，SQLite 兼容；传入 `precomputed_terms` 时跳过本地 n-gram 扩展 |
+| 词法检索 | `lexical_search` | PG `rag_chunks.lexical_terms` TEXT[] + GIN `&&` 数组召回（有界词项计划）；非 PG 或词项未就绪由调用方回退 `keyword_search` 并记 `lexical_method` 诊断 |
+| 混合检索 | `hybrid_search` | 合并词法/关键词 + metadata/关系 + 向量候选后统一评分；`lexical_terms` 参数携带 S1 规划的有界词项 |
 | 向量检索 | `vector_search` | pgvector `<#>` inner-product 距离升序召回，返回相似度分数 |
 | 抽取检索 | `retrieve(mode="extraction")` | 明确关系命中即可召回，避免字段关键词缺失导致 no_chunks |
 
@@ -182,15 +183,19 @@ provider 返回后重新获取 project lock，再按同一 `novel_id + chunk IDs
 
 ```python
 from modules.evidence.contracts import RagChunkContract, RagQueryContract, RagResultBundle
-from modules.evidence.facade import retrieve, split_text_into_chunks, get_ordered_chapter_chunks
+from modules.evidence.facade import (
+    retrieve,
+    split_text_into_chunks,
+    get_ordered_chapter_chunks,
+)
 ```
 
 旧 `modules.rag` import alias 已退场。
 
 ### Facade 方法
 
-- `retrieve(db, novel_id, query, *, entity_ids, character_ids, thread_ids, chapter_index, visible_until_chapter, source_manifest=None, mode="search", top_k=12) -> RagResultBundle`
-  - 核心混合检索接口
+- `retrieve(db, novel_id, query, *, entity_ids, character_ids, thread_ids, chapter_index, visible_until_chapter, source_manifest=None, mode="search", top_k=12, lexical_terms=None) -> RagResultBundle`
+  - 核心混合检索接口；`lexical_terms` 携带 S1 有界词法计划（`indexing/lexical_plan.py`）时走数组召回/有界回退
 - `index_chapter_with_report(db, novel_id, chapter_index) -> RagIndexReport`
   - 索引章节并返回 chunk/embedding 诊断
 - `request_chapter_index(db, novel_id, chapter_index, *, content_mode) -> dict`
@@ -399,8 +404,9 @@ ADR-0023 的 Agent 通过 Evidence facade 消费已有检索与原文回读，�
 ## 离线词法对照
 
 `evals.retrieval_comparison` 复用当前切块和评分，以合成资料、确定性测试向量比较
-现有混合评分与 BM25/RRF；生产词法通道仍为 SQL LIKE。重排决策应用函数也供已录制/
-脚本输出复放，默认离线第三臂仅验证该协议，不是 LLM 重排质量证据。
+现有混合评分与 BM25/RRF；生产词法通道自 M3 切片 2 起为 `lexical_terms` 数组召回
+（PG TEXT[]+GIN，未就绪范围/SQLite 回退有界 ILIKE），不再是无界 SQL LIKE。重排决策
+应用函数也供已录制/脚本输出复放，默认离线第三臂仅验证该协议，不是 LLM 重排质量证据。
 实验依赖 `experiments` extra 不进入生产必需依赖，结果不会自动替换默认排序。
 
 ## 前瞻读取
@@ -424,3 +430,7 @@ RAG 索引仍只作世界资料选择的辅助，不定义已审章节全集。�
 
 本轮改动（B8 逐源证据、B3 few-shot）不触及索引与检索管线；scope 构建的
 逐源字段变化见 compilation 模块说明。
+
+### 冻结 RP 原文的去重
+
+带精确 `source_manifest` 的检索保留不同 chunk 的原文范围，不使用语义向量相似度合并。措辞相近的段落仍可能承载不同保管人、语气或往事；相同 chunk 身份的多通道合并仍生效。通用作者检索沿原语义去重。关键来源召回与角色/截止边界分别验证，排名或延迟改善不替代质量门。

@@ -1,0 +1,111 @@
+{
+  "version": "dev-v29",
+  "method": "f7e75b6c57845bdbaf7cdbdcdb91d1a6a0b8b4cb571a815562c5e69e9887ed7e",
+  "current_method": true,
+  "scenes_committed": 8,
+  "scenes_expected": 8,
+  "requests": 62,
+  "responses": 62,
+  "terminal_call_errors": 0,
+  "source_ranges_exact_cumulative": 75,
+  "free_replays": 8,
+  "discovery_planned_batches": 22,
+  "failed_batches": [
+    {
+      "scene": 1,
+      "stage": "scene_discovery_1",
+      "usage_complete": true
+    },
+    {
+      "scene": 7,
+      "stage": "scene_discovery_2",
+      "usage_complete": true
+    }
+  ],
+  "validation_quarantine_records": 0,
+  "unknown_stage_receipts": 0,
+  "engineering_gate": "passed",
+  "quality_gate": "failed",
+  "holdout_run": false,
+  "human_validated": false,
+  "explicit_new_run_authorized": true,
+  "v9_unknown_receipt_retained": true,
+  "v11_unknown_receipt_retained": true,
+  "v12_unknown_receipt_retained": true,
+  "v14_unknown_receipt_retained": true,
+  "v15_unknown_receipt_retained": true,
+  "v16_unknown_receipt_retained": true,
+  "independent_review": "evolution_spec: all eight scenes reviewed; engineering passed, quality failed",
+  "transport": {
+    "native_complete_stream_calls": 54,
+    "nonstream_observer_calls": 8,
+    "finish_length_failures": [
+      {
+        "scene": 1,
+        "completion_tokens": 65536
+      },
+      {
+        "scene": 7,
+        "completion_tokens": 65537
+      }
+    ],
+    "transport_retries": false
+  },
+  "quality_failures": [
+    {
+      "scene": 3,
+      "reason": "Narrator qualification misattributed in diagnostics; context update correctly quarantined for absent structured evidence certification."
+    },
+    {
+      "scene": 6,
+      "reason": "Specific old event identity certified without source-supported unique identification; propagated into scene 7."
+    },
+    {
+      "scene": 7,
+      "reason": "Required clue reinterpretation missing after known length failure in its complete-theme batch."
+    }
+  ],
+  "scene_results": [
+    "passed",
+    "core_passed_with_unchecked_batch",
+    "passed",
+    "failed",
+    "passed",
+    "passed",
+    "failed",
+    "failed"
+  ],
+  "source_checkpoint_files_exact": 7,
+  "browser": [
+    {
+      "name": "chromium",
+      "current_method": true,
+      "real_model_scene": 0,
+      "supported_behavior": true,
+      "source_quote": true,
+      "occurrences": 1,
+      "overflow": false,
+      "page_errors": []
+    },
+    {
+      "name": "mobile-webkit",
+      "current_method": true,
+      "real_model_scene": 0,
+      "supported_behavior": true,
+      "source_quote": true,
+      "occurrences": 1,
+      "overflow": false,
+      "page_errors": []
+    }
+  ],
+  "holdout": {
+    "read": false,
+    "run": false,
+    "pass_gate_created": false,
+    "hashes_unchanged": true,
+    "data_sha256": "7105e50256d706ed5260834275d2989f6416b7e74788b32eb8c26e862903ab31",
+    "expected_sha256": "9c241c66b89b6d26aad0f081912cc0a4ec2c2ebe4703b8ab38acc283af071ab4"
+  },
+  "acceptance": "original_phase3_not_complete",
+  "latest_user_constraint": "No further prompt tuning or selective reruns on development8; heldout9 only after both development gates pass."
+}
