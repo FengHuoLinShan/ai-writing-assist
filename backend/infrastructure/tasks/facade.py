@@ -263,6 +263,36 @@ async def checkpoint_handler_session(
     db.expire_all()
 
 
+async def read_private_task_checkpoint(db, *, task_id, task_type, novel_id, key):
+    """Read one scoped private payload through the fenced handler session."""
+    require_task_checkpoint_session(db)
+    if not key.startswith("_"):
+        raise ValueError("Task checkpoints must use a private metadata key")
+    return await TaskLifecycleService().read_private_checkpoint(
+        db, task_id=task_id, task_type=task_type, novel_id=novel_id, key=key
+    )
+
+
+async def write_private_task_checkpoint(
+    db, *, task_id, task_type, novel_id, key, payload
+):
+    """Persist one private payload with the worker's original lease fence."""
+    require_task_checkpoint_session(db)
+    if not key.startswith("_"):
+        raise ValueError("Task checkpoints must use a private metadata key")
+    await TaskLifecycleService().write_private_checkpoint(
+        db,
+        task_id=task_id,
+        task_type=task_type,
+        novel_id=novel_id,
+        key=key,
+        payload=payload,
+    )
+    await checkpoint_handler_session(
+        db, error_message="Task checkpoint left an open transaction"
+    )
+
+
 async def list_running_task_types_for_novel(
     db: AsyncSession,
     *,

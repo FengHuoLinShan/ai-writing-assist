@@ -17,6 +17,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.container import get
@@ -35,7 +36,6 @@ from infrastructure.llm.client import LLMClient
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from infrastructure.stable_hash import stable_hash as _generation_stable_fingerprint
-from infrastructure.tasks.models import AsyncTask
 from modules.evidence.facade import mark_asset_context_changed
 from modules.project.contracts import WorkspaceCreationProgressItem
 from modules.writing.conflict_ai import (
@@ -3906,13 +3906,12 @@ class WritingGenerationService:
         base_draft_id: str | None = None,
         confirm_stale_story_assets: bool = False,
         story_asset_basis: list[dict[str, Any]] | None = None,
-        task: AsyncTask | None = None,
+        freeze_paid_output: bool = False,
     ) -> WritingDraftResponse:
         """Generate a candidate with no transaction during provider/parse work.
 
-        ``task`` 是 worker 领取到的 ORM 任务行：传入时，模型返回后先把已付费
-        输出冻结进任务的私有 meta（下划线键，不进任务状态 API），finalize 前
-        崩溃重排可按来源指纹复用，不为同一次生成意图重复调用付费模型。
+        Worker 启用付费输出冻结，经 Tasks 窄 facade 与原租约 checkpoint 保存。
+        崩溃重排仅复用同来源的输出；已有输出漂移或损坏则失败关闭，不重付费。
         """
         from infrastructure.tasks.facade import require_task_checkpoint_session
 
@@ -3933,8 +3932,16 @@ class WritingGenerationService:
         )
 
         candidate: WritingDraftCreate | None = None
-        if task is not None:
-            frozen = await _load_frozen_generation_payload(db, task)
+        if freeze_paid_output:
+            from infrastructure.tasks.facade import read_private_task_checkpoint
+
+            frozen = await read_private_task_checkpoint(
+                db,
+                task_id=source_task_id,
+                task_type="writing_generate",
+                novel_id=novel_id,
+                key=_FROZEN_GENERATION_CANDIDATE_META_KEY,
+            )
             if frozen is not None:
                 candidate = _frozen_candidate_for_plan(frozen, plan)
 
@@ -4056,8 +4063,21 @@ class WritingGenerationService:
                     raise
                 raise RuntimeError(safe_error) from None
 
-            if task is not None:
-                await _freeze_task_candidate(db, task, plan, candidate)
+            if freeze_paid_output:
+                from infrastructure.tasks.facade import write_private_task_checkpoint
+
+                await write_private_task_checkpoint(
+                    db,
+                    task_id=source_task_id,
+                    task_type="writing_generate",
+                    novel_id=novel_id,
+                    key=_FROZEN_GENERATION_CANDIDATE_META_KEY,
+                    payload={
+                        "version": _FROZEN_GENERATION_CANDIDATE_VERSION,
+                        "source_fingerprint": str(plan.source_fingerprint),
+                        "candidate": candidate.model_dump(mode="json"),
+                    },
+                )
 
         return await self._finalize_generation_task(
             db,
@@ -4296,81 +4316,30 @@ _FROZEN_GENERATION_CANDIDATE_META_KEY = "_frozen_candidate"
 _FROZEN_GENERATION_CANDIDATE_VERSION = 1
 
 
-async def _load_frozen_generation_payload(
-    db: AsyncSession,
-    task: AsyncTask,
-) -> dict[str, Any] | None:
-    """Read the frozen paid payload through the session (async-safe reload)."""
-    row = await _fresh_task_row(db, task)
-    if row is None:
-        return None
-    meta = row.meta if isinstance(row.meta, Mapping) else {}
-    frozen = meta.get(_FROZEN_GENERATION_CANDIDATE_META_KEY)
-    return frozen if isinstance(frozen, dict) else None
-
-
-async def _fresh_task_row(db: AsyncSession, task: AsyncTask) -> AsyncTask | None:
-    """Reload one task row without lazy-loading expired ORM attributes."""
-    from sqlalchemy import inspect as sa_inspect
-
-    identity = sa_inspect(task).identity
-    if not identity:
-        return None
-    return await db.get(AsyncTask, identity[0])
-
-
 def _frozen_candidate_for_plan(
     frozen: dict[str, Any],
     plan: _WritingGenerationTaskPlan,
-) -> WritingDraftCreate | None:
-    """Return the frozen paid candidate when the source fingerprint still matches.
-
-    冻结负载只按任务行私有 meta（下划线键，不进任务状态 API）+ 来源指纹绑定；
-    指纹不一致说明确认资料已漂移，冻结输出作废，走正常重新生成路径，
-    finalize 的重验仍是最终门禁。
-    """
-    if frozen.get("version") != _FROZEN_GENERATION_CANDIDATE_VERSION:
-        return None
-    if str(frozen.get("source_fingerprint") or "") != str(plan.source_fingerprint):
-        return None
-    payload = frozen.get("candidate")
-    if not isinstance(payload, dict):
-        return None
+) -> WritingDraftCreate:
+    """Never dispatch another paid generation for an unusable frozen output."""
+    if (
+        not isinstance(frozen, dict)
+        or frozen.get("version") != _FROZEN_GENERATION_CANDIDATE_VERSION
+    ):
+        raise ConflictError(
+            "已付费输出无法恢复，请保留记录并重新确认生成",
+            code="writing_frozen_output_invalid",
+        )
+    if frozen.get("source_fingerprint") != plan.source_fingerprint:
+        raise ConflictError(
+            "已付费输出的来源已变化，请重新确认生成", code="writing_frozen_output_stale"
+        )
     try:
-        return WritingDraftCreate.model_validate(payload)
-    except Exception:
-        logger.warning("Discard malformed frozen writing candidate payload")
-        return None
-
-
-async def _freeze_task_candidate(
-    db: AsyncSession,
-    task: AsyncTask,
-    plan: _WritingGenerationTaskPlan,
-    candidate: WritingDraftCreate,
-) -> None:
-    """模型返回后、finalize 前冻结已付费输出，重排时免再次调用模型。
-
-    复用 ``_TaskHandlerSession`` 的租约栅栏 checkpoint：租约已丢时提交被拒绝并
-    抛出 ``CancelledError``，冻结负载不落盘，行为退回重排重调。
-    """
-    from infrastructure.tasks.facade import checkpoint_handler_session
-
-    row = await _fresh_task_row(db, task)
-    if row is None:
-        return
-    meta = dict(row.meta or {})
-    meta[_FROZEN_GENERATION_CANDIDATE_META_KEY] = {
-        "version": _FROZEN_GENERATION_CANDIDATE_VERSION,
-        "attempt": int(row.attempt or 0),
-        "source_fingerprint": str(plan.source_fingerprint),
-        "candidate": candidate.model_dump(mode="json"),
-    }
-    row.meta = meta
-    await checkpoint_handler_session(
-        db,
-        error_message="writing generation freeze requires a transaction-free checkpoint",
-    )
+        return WritingDraftCreate.model_validate(frozen.get("candidate"))
+    except PydanticValidationError:
+        raise ConflictError(
+            "已付费输出无法恢复，请保留记录并重新确认生成",
+            code="writing_frozen_output_invalid",
+        ) from None
 
 
 async def _adoption_replay_result(
