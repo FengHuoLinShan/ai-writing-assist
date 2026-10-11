@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import (
@@ -84,6 +85,21 @@ class ContextConfirmationRepository:
         if for_update:
             stmt = stmt.with_for_update().execution_options(populate_existing=True)
         return (await db.execute(stmt)).scalar_one_or_none()
+
+    async def list_by_ids(
+        self,
+        db: AsyncSession,
+        confirmation_ids: Sequence[uuid.UUID],
+        *,
+        novel_id: uuid.UUID,
+    ) -> list[ContextConfirmation]:
+        if not confirmation_ids:
+            return []
+        stmt = select(ContextConfirmation).where(
+            ContextConfirmation.id.in_(confirmation_ids),
+            ContextConfirmation.novel_id == novel_id,
+        )
+        return list((await db.execute(stmt)).scalars().all())
 
     async def replace_asset_refs(
         self,

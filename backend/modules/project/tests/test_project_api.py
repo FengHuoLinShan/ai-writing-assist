@@ -118,6 +118,7 @@ async def test_workspace_summary_for_empty_project_is_safe_and_additive(
             "later_count": 0,
             "preview": [],
         },
+        "creation_progress": [],
     }
 
 

@@ -117,6 +117,16 @@ DELETE /api/projects/{id}/permanent            # 永久删除（级联）
 Outline seam 验证属于当前项目，并以 `chapter_ids` 或 `scene_chunks` 验证指定章节。该投影不返回正文、内部任务、密钥或 owner 信息，
 空作品返回零计数、空事项和空续写位置。
 
+加性 `creation_progress` 是作品进度投影（BR-1b）：writing adapter 合并 BR-1a 的服务端
+任务概要（只保留 writing_generate / writing_semantic_review / writing_targeted_revision，
+done 任务由其候选/已采用条目呈现、不重复出条目，raw meta 不出 adapter）与 writing facade
+的最近候选/已采用成果。每条输出 V4 六维（执行状态、实际覆盖、来源新鲜度、适用性、
+审查状态、采用状态）加投影计算的停点原因与可执行动作词表（open_candidate /
+continue_review / reconfirm / resume / view_task）；来源新鲜度由知识复核 `stale_after_edit`
+与确认失效信号（evidence 只读缝 `get_confirmation_staleness`，不重编译）拼出；生成
+finalize 把来源指纹持久化进候选 `provenance_json.source_fingerprint`。投影只读门禁结果
+与 provenance，不建新表、不写回领域事实。
+
 `author_tasks` 摘要只返回今日/收件箱/之后计数和最多 3 条今日预览。任务本体只有
 标题、可选备注/日期、`open/completed/archived` 与一个封闭来源；请求不接受 owner/
 `novel_id` 或任意路由。来源限于 `world_page | world_entity | writing_chapter | outline_scene`，

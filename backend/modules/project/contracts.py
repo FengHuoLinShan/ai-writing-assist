@@ -95,6 +95,35 @@ class WorkspaceAttentionItem:
 
 
 @dataclass(frozen=True)
+class WorkspaceCreationProgressItem:
+    """作品进度投影条目（BR-1b）：只读拼装，不写回领域事实。
+
+    V4 六维词汇：执行状态（execution_status）、实际覆盖（coverage）、
+    来源新鲜度（source_freshness）、任务适用性（applicability）、
+    审查状态（review_status）、采用状态（adoption_status），
+    外加投影计算的停点原因与可执行动作。kind: task/candidate/adopted。
+    """
+
+    key: str
+    kind: str
+    title: str
+    execution_status: str = "done"
+    coverage: str | None = None
+    source_freshness: str = "unknown"
+    applicability: str = "applicable"
+    review_status: str | None = None
+    adoption_status: str | None = None
+    stop_reason: str | None = None
+    actions: tuple[str, ...] = ()
+    task_id: str | None = None
+    task_type: str | None = None
+    draft_id: str | None = None
+    chapter_index: int | None = None
+    scene_id: str | None = None
+    updated_at: datetime | None = None
+
+
+@dataclass(frozen=True)
 class WorkspaceWorldAttentionSummary:
     """World review counts and items for the workspace attention summary."""
 

@@ -732,3 +732,5 @@ scope 构建按 ContextItem 级 token 与 section 级 evicted/truncated 状态�
 公开匿名 compile 禁用持久缓存读、写与 compiled 更新。私有缓存按材料、compiled spec 和重复正文的全行总字节核算；PG 同 consumer 事务 advisory lock 保护总额和同 key 覆盖，超额不截必需证据。source/consumer 软删、归档或账户撤权经组合根清缓存；正文失效的附属 purge 用 SAVEPOINT 隔离真实 SQL 故障，并显式报告未清理。
 
 来源按钮按同 novel 逐步回读当前/历史 checkpoint 与原 MemoryEvent；历史依据单独标记，不当作当前事实。GET 不 ensure；“重新整理已有状态记录”走显式原 ensure 接口，只补缺失 basis 或重放已登记事件，不编造来源。备份排除缓存数据，旧备份恢复后同样清空派生正文。
+
+确认记录的只读跨模块投影经 `evidence.confirmation_reads` 注册 port 消费：Writing读取确认失效信号，Project读取任务成果归属；保留 `novel_id` 范围，不重编译上下文或修改采用事实。

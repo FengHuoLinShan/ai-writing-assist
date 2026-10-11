@@ -356,6 +356,40 @@ describe("todayIsland", () => {
     ])
   })
 
+  it("进行中的创作由服务端投影驱动（BR-1b）", async () => {
+    const state = { currentProjectId: "p1", currentProject: { id: "p1", title: "雾港" } }
+    const creationProgress = [
+      { key: "task:t1", kind: "task", title: "第 2 章 · 生成正文", execution_status: "running", stop_reason: "正在处理" },
+      { key: "candidate:c1", kind: "candidate", title: "第 2 章 · AI 正文建议", review_status: "passed", stop_reason: "可审阅，待作者采用" },
+    ]
+    setBridgeOverrides({
+      state,
+      api: {
+        projects: {
+          getWorkspaceSummary: vi.fn(async () => ({
+            project_id: "p1",
+            creation_progress: creationProgress,
+          })),
+        },
+        tasks: { list: vi.fn(async () => ({ items: [] })), get: vi.fn() },
+      },
+    })
+
+    const props = await loadTodayProps()
+
+    expect(props.creationProgress).toEqual(creationProgress)
+
+    setBridgeOverrides({
+      state,
+      api: {
+        projects: { getWorkspaceSummary: vi.fn(async () => ({ project_id: "p1" })) },
+        tasks: { list: vi.fn(async () => ({ items: [] })), get: vi.fn() },
+      },
+    })
+    const fallback = await loadTodayProps()
+    expect(fallback.creationProgress).toEqual([])
+  })
+
   it("keeps an unavailable workflow visible without exposing a technical failure", async () => {
     const state = { currentProjectId: "p1", currentProject: { id: "p1", title: "雾港" } }
     persistActiveWorkflow({ taskId: "private-task-id", workflowType: "writing_generate", projectId: "p1" })

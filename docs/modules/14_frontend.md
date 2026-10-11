@@ -313,6 +313,11 @@ map / rag / outline / settings / project-settings`，其主 DOM 全部由 Vue SF
   `writing_generate` 时先提示“已有一份正文正在生成”，取消返回并跟随原任务进度，
   作者确认“仍要再生成”才提交新任务（旧任务无 `scene_id` 时按章节保守提示）；
   换设备登录后可在首页与写作页看到同一在途任务并回到其候选，不重复提交。
+- 首页“进行中的创作”区由 workspace-summary 的 `creation_progress` 投影驱动
+  （BR-1b）：任务进行中、候选可审阅、已采用、已发布四种状态使用不同视觉且不共用
+  同一种成功色；来源过期条目显示“依据已变化，需要重新确认”；复核未通过/未完成的
+  候选显示警告态而非可审阅。条目动作深链回写作页对应章节与草稿；Today 的本机
+  指针只保留光标位置，下一步内容以服务端投影为准。
 - `shared/smartDedup.js` 对 schema v2 结果打开 `{size: "large", protectUnsaved: true}`
   双栏工作台；队列、对比、主对象和逐成员动作共享同一个 group 草稿。
   对比默认“只看差异”；勾选操作与切换合格主对象会保留工作台滚动位置，且主对象 radio

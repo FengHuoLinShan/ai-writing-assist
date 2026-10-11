@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
@@ -217,6 +218,40 @@ class ContextConfirmationService:
         if record is None:
             raise ValueError("context confirmation not found")
         return self._to_contract(record)
+
+    async def get_staleness_map(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        confirmation_ids: Sequence[str | uuid.UUID],
+    ) -> dict[str, dict[str, Any]]:
+        """批量只读确认失效信号，供跨模块进度投影使用；不重编译、不判定。
+
+        与 ``require_fresh_confirmation`` 同一口径：``stale_reasons`` 非空或
+        result_status 进入 stale_context/needs_review 即视为已失效。
+        """
+        ids: list[uuid.UUID] = []
+        for value in confirmation_ids:
+            try:
+                ids.append(self._as_uuid(value))
+            except ValueError:
+                continue
+        if not ids:
+            return {}
+        rows = await self._repo.list_by_ids(
+            db,
+            ids,
+            novel_id=parse_uuid(novel_id, "novel_id"),
+        )
+        return {
+            str(row.id): {
+                "result_status": row.result_status,
+                "stale": bool(row.stale_reasons)
+                or row.result_status in {"stale_context", "needs_review"},
+            }
+            for row in rows
+        }
 
     async def require_fresh_confirmation(
         self,
