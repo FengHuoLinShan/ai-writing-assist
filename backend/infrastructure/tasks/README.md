@@ -473,3 +473,5 @@ gateway；执行中断保留已见回执，作者显式发起新任务，不能�
 RP 普通 worker 与匿名 inline 入口均将完整、未闭合或超长的无效 metadata 尾块
 写入 attempt.usage.metadata_invalid_count；同一尾块重复 finish/失败收尾只计一次。
 正文仍先进入私有 hold，经原有领域审查后才可释放。
+
+AI 用量汇总保留 `usage_complete`；旧恢复回执 `legacy_untracked` 即使未知请求数量为零，也标记统计不完整，不猜填历史请求数。
