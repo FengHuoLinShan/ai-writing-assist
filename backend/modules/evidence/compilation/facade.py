@@ -7,9 +7,9 @@ Facade 不写复杂业务逻辑，只做稳定的对外代理。
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Sequence
 from typing import Any
-import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 

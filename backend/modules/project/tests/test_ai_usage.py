@@ -144,8 +144,9 @@ async def test_get_project_ai_usage_keeps_unknown_and_unconfirmed_markers(
     assert by_capability["writing.semantic_review"]["charge_unconfirmed"] is True
 
 
-# =====================================================# BR-7: 用量按作品成果归因（只读查询，不做配额策略变化）
-# =====================================================
+# ============================================================
+# BR-7: 用量按作品成果归因（只读查询，不做配额策略变化）
+# ============================================================
 
 
 async def _add_outcome_confirmation(
