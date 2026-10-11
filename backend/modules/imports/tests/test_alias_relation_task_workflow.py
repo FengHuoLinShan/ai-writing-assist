@@ -39,12 +39,12 @@ def _governance_client(monkeypatch: pytest.MonkeyPatch):
         close=mock.AsyncMock(),
     )
 
-    async def generate_structured(_request, schema, **_kwargs):
+    async def generate_structured(request, schema, **_kwargs):
         assert schema is AuditVerdictOutput
         return AuditVerdictOutput(
             dimensions=[
                 AuditDimensionCheck(dimension=dimension)
-                for dimension in ("prior_prose", "world_entities")
+                for dimension in _required_dimensions(request.messages)
             ],
             verdict="pass",
         )
@@ -716,3 +716,16 @@ async def test_task_strict_persistence_does_not_swallow_relation_failure() -> No
                     "_relation_ref_map": {},
                 },
             )
+
+
+def _required_dimensions(messages) -> list[str]:
+    """从审查 prompt 读取必查维度；合成审查者按全部维度已查应答。"""
+    for message in messages:
+        for line in (message.content or "").splitlines():
+            if line.startswith("必查维度："):
+                return [
+                    item.strip()
+                    for item in line.split("：", 1)[1].split(",")
+                    if item.strip()
+                ]
+    return []

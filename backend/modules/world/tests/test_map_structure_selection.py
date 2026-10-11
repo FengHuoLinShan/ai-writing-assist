@@ -593,23 +593,27 @@ async def test_manual_workflow_keeps_source_range_and_original_geometry(
         model.structure_task_id = task.id
         await db_session.flush()
         db_session.task_checkpoint_enabled = True
-        async def generate(_request, schema, **_kwargs):
+
+        async def generate(request, schema, **_kwargs):
             if schema is AuditVerdictOutput:
                 return AuditVerdictOutput(
-                    dimensions=[AuditDimensionCheck(dimension="map_spatial")],
+                    dimensions=[
+                        AuditDimensionCheck(dimension=dimension, checked=True)
+                        for dimension in _required_dimensions(request.messages)
+                    ],
                     verdict="pass",
                 )
             return MapRelationBatch(
-                    relations=[
-                        dict(
-                            subject="a",
-                            target="b",
-                            relation="north",
-                            source_keys=[f"range:{ref.id}:0:8"],
-                            quote="甲城在乙城以北",
-                        )
-                    ]
-                )
+                relations=[
+                    dict(
+                        subject="a",
+                        target="b",
+                        relation="north",
+                        source_keys=[f"range:{ref.id}:0:8"],
+                        quote="甲城在乙城以北",
+                    )
+                ]
+            )
 
         client = SimpleNamespace(
             generate_structured=AsyncMock(side_effect=generate),
@@ -1077,3 +1081,16 @@ async def test_adoption_preview_is_readonly_matches_apply_and_rechecks_confirmat
             str(candidate.id),
             MapRevisionReview(action="reject", base_revision_id=actual.id),
         )
+
+
+def _required_dimensions(messages) -> list[str]:
+    """从审查 prompt 读取必查维度；合成审查者按全部维度已查应答。"""
+    for message in messages:
+        for line in message.content.splitlines():
+            if line.startswith("必查维度："):
+                return [
+                    item.strip()
+                    for item in line.split("：", 1)[1].split(",")
+                    if item.strip()
+                ]
+    return []

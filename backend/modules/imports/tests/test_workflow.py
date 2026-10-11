@@ -788,10 +788,13 @@ async def test_deep_import_structured_call_attaches_group_review() -> None:
     class FakeClient:
         close = AsyncMock()
 
-        async def generate_structured(self, _request, schema, **_kwargs):
+        async def generate_structured(self, request, schema, **_kwargs):
             if schema is AuditVerdictOutput:
                 return AuditVerdictOutput(
-                    dimensions=[AuditDimensionCheck(dimension="prior_prose")],
+                    dimensions=[
+                        AuditDimensionCheck(dimension=dimension, checked=True)
+                        for dimension in _required_dimensions(request.messages)
+                    ],
                     verdict="pass",
                 )
             return schema()
@@ -830,11 +833,14 @@ async def test_deep_import_structured_call_repairs_once_then_blocks() -> None:
     class FakeClient:
         close = AsyncMock()
 
-        async def generate_structured(self, _request, schema, **_kwargs):
+        async def generate_structured(self, request, schema, **_kwargs):
             calls.append(schema)
             if schema is AuditVerdictOutput:
                 return AuditVerdictOutput(
-                    dimensions=[AuditDimensionCheck(dimension="prior_prose")],
+                    dimensions=[
+                        AuditDimensionCheck(dimension=dimension, checked=True)
+                        for dimension in _required_dimensions(request.messages)
+                    ],
                     verdict="blocked",
                 )
             return schema()
@@ -842,9 +848,7 @@ async def test_deep_import_structured_call_repairs_once_then_blocks() -> None:
     with pytest.raises(ValueError, match="knowledge_governance_blocked"):
         await _run_deep_import_structured_call(
             FakeClient(),
-            LLMCallRequest(
-                messages=[LLMMessage(role="user", content="Scene 正文")]
-            ),
+            LLMCallRequest(messages=[LLMMessage(role="user", content="Scene 正文")]),
             SceneSlicingOutput,
             transport_retries=False,
             fix_prompt="fix",
@@ -1921,9 +1925,7 @@ class TestDeepImportWorkflowAutoRun:
         workflow = DeepImportWorkflow()
         progress = DeepImportProgress()
 
-        workflow._extract_entities_by_scene = AsyncMock(
-            return_value={"total_created": 1}
-        )
+        workflow._extract_entities_by_scene = AsyncMock(return_value={"total_created": 1})
         workflow._analyze_structure = AsyncMock(
             return_value={
                 "total_threads": 1,
@@ -4396,3 +4398,16 @@ async def test_deep_import_structured_call_routes_under_deep_import_envelope(
     assert [step.step_capability_id for step in envelope.snapshot().steps] == [
         "imports.deep_import"
     ]
+
+
+def _required_dimensions(messages) -> list[str]:
+    """从审查 prompt 读取必查维度；合成审查者按全部维度已查应答。"""
+    for message in messages:
+        for line in (message.content or "").splitlines():
+            if line.startswith("必查维度："):
+                return [
+                    item.strip()
+                    for item in line.split("：", 1)[1].split(",")
+                    if item.strip()
+                ]
+    return []

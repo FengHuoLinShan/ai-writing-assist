@@ -28,6 +28,19 @@ from modules.world.tests.test_world_generation_center_api import (
 pytestmark = pytest.mark.usefixtures("account_llm_connection")
 
 
+def _required_dimensions(messages) -> list[str]:
+    """从审查 prompt 读取必查维度；合成审查者按全部维度已查应答。"""
+    for message in messages:
+        for line in message.content.splitlines():
+            if line.startswith("必查维度："):
+                return [
+                    item.strip()
+                    for item in line.split("：", 1)[1].split(",")
+                    if item.strip()
+                ]
+    return []
+
+
 @pytest.fixture(autouse=True)
 def _skip_generation_confirmation_preflight(
     monkeypatch: pytest.MonkeyPatch,
@@ -274,7 +287,10 @@ async def test_world_review_receives_workspace_first_turn_and_repairs_exact_draf
                 self.audits.append(request.messages[-1].content)
                 return schema(
                     findings=[],
-                    dimensions=[],
+                    dimensions=[
+                        {"dimension": dimension, "checked": True}
+                        for dimension in _required_dimensions(request.messages)
+                    ],
                     verdict="blocked" if len(self.audits) == 1 else "pass",
                 )
             self.repairs.append(request)
@@ -333,7 +349,14 @@ async def test_deterministic_boundary_failure_uses_the_single_repair_allowance(v
         async def generate_structured(self, request, schema, **_kwargs):
             if schema is AuditVerdictOutput:
                 self.audits += 1
-                return schema(findings=[], dimensions=[], verdict=verdict)
+                return schema(
+                    findings=[],
+                    dimensions=[
+                        {"dimension": dimension, "checked": True}
+                        for dimension in _required_dimensions(request.messages)
+                    ],
+                    verdict=verdict,
+                )
             self.repairs += 1
             assert "未确认的来源" in "\n".join(m.content for m in request.messages)
             return schema(summary="修复来源", changes={})
