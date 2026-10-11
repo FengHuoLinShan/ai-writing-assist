@@ -157,7 +157,8 @@ deadline 前一刻发出的在途请求不会运行完整 provider timeout 越�
 summarize_project_ai_usage` 暴露）为 owner 次级诊断入口提供只读跨任务聚合：按项目扫描
 窗口期任务 meta 中的信封，按 root capability 汇总模型请求与输入/输出词元，只输出聚合计数
 （不含 prompt 内容或模型密钥）；单条坏回执跳过计数，单次扫描上限 500 条任务并返回
-`scan_truncated`。
+`scan_truncated`。信封自报的 `requests_unknown` 与 `charge_state=possible` 原样保留为
+`requests_unknown` 计数与 `charge_unconfirmed` 标记，不折算进已知数字（BR-0a）。
 
 Task 路径把同一信封落在 `async_tasks.meta` 的私有键 `_ai_run_envelope`：worker 与 inline 在 handler
 执行前注入 `task_id/attempt/lease_id` 并恢复同一 run，自动 requeue、stale 恢复与 manual resume
@@ -166,6 +167,9 @@ Task 路径把同一信封落在 `async_tasks.meta` 的私有键 `_ai_run_envelo
 终态由 `finalize(envelope=...)` 与任务终态在同一事务提交，stale 与 cancel 在同一事务内把未 settle
 的请求收敛为 unknown/possible。普通 task API、领域 result 消费者（含 Story Outline 采用路径）看不到该键；
 缺少信封的旧在途任务记 `legacy_untracked/usage_complete=false`。
+同一私有 meta 约定承载 `writing_generate` 的 `_frozen_candidate`：模型返回后、finalize 前
+经租约栅栏 checkpoint 冻结已付费候选（版本、attempt、来源指纹、候选负载），崩溃重排按
+来源指纹复用、免第二次付费调用；lease 丢失时拒绝写入，行为退回重排重调。
 Interaction story task 额外通过注册表的窄 mirror callback，把同一快照写入
 `InteractionGenerationAttempt.agent_checkpoint_json`；`length/看海` 新 task 仍沿用 attempt.id 的
 `run_id`，不得按新 task id 开第二本账。
@@ -670,3 +674,6 @@ provider json_object（`unverified` 仅不具 B5 路由候选资格），`unsupp
 ### RP 私有派生缓存的备份边界
 
 `deploy/scripts/backup.sh` 的 pg_dump 排除 `public.context_interaction_source_cache` 表数据。`restore.sh` 在 schema 迁移后检查并清空该派生表，旧 dump 即使带缓存也恢复冷启动；权威正文、历史与作者确认继续按原备份恢复。未增加外部服务或独立缓存基础设施。
+
+`read_private_task_checkpoint` / `write_private_task_checkpoint` 仅在原 worker 租约栅栏 session 内按任务 ID、类型和 novel_id 读取/保存下划线私有负载；写入通过既有 checkpoint 提交，业务模块不读取任务 ORM。
+AI 用量汇总保留 `usage_complete`；旧恢复回执 `legacy_untracked` 即使未知请求数量为零，也标记统计不完整，不猜填历史请求数。

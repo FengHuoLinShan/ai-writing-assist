@@ -295,3 +295,68 @@ async def test_director_steps_use_governance_naming(
     )
 
     assert captured == [_Plan, _Audit]
+
+
+async def test_blocked_knowledge_review_rejects_adoption_at_service_gate(
+    monkeypatch: pytest.MonkeyPatch,
+    db_session,
+    test_project_id,
+) -> None:
+    """候选已存但知识审查未通过：服务端采用门禁失败关闭，不产生工作稿。"""
+    from modules.writing.models import WritingDraft
+    from modules.writing.repositories import WritingDraftRepository
+    from modules.writing.schemas import WritingDraftCreate
+
+    candidate = await WritingDraftRepository().create_with_status(
+        db_session,
+        WritingDraftCreate(
+            novel_id=test_project_id,
+            chapter_index=1,
+            title="阻断候选",
+            content="知识审查未通过的候选正文",
+            provenance_json={
+                "source": "writing_generate",
+                "context_confirmation_id": "33333333-3333-3333-3333-333333333333",
+                "knowledge_review": {
+                    "status": "blocked",
+                    "repaired": False,
+                    "issue_counts": {"blocker": 1},
+                },
+            },
+        ),
+        status="candidate",
+    )
+    async def accept_candidate(*_args, **_kwargs) -> None:
+        return None
+
+    monkeypatch.setattr(
+        "modules.writing.semantic_review.validate_candidate_upstream",
+        accept_candidate,
+    )
+    from modules.writing.services import WritingDraftService
+
+    with pytest.raises(ValidationError, match="未通过知识审查"):
+        await WritingDraftService().adopt_candidate_to_working(
+            db_session,
+            str(candidate.id),
+            test_project_id,
+        )
+
+    stored = await WritingDraftRepository().get(db_session, candidate.id)
+    assert stored is not None
+    assert stored.status == "candidate"
+    import uuid
+
+    from sqlalchemy import select
+
+    drafts = list(
+        (
+            await db_session.execute(
+                select(WritingDraft).where(
+                    WritingDraft.novel_id == uuid.UUID(test_project_id),
+                    WritingDraft.chapter_index == 1,
+                )
+            )
+        ).scalars()
+    )
+    assert len(drafts) == 1
