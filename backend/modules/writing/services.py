@@ -17,6 +17,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.container import get
@@ -47,6 +48,7 @@ from modules.writing.contracts import (
     WritingDraftContract,
     WritingProjectStatsContract,
 )
+from modules.writing.models import WritingDraft
 from modules.writing.pov_generation import (
     POV_PROMPT_NAME,
     POV_SYSTEM_PROMPT,
@@ -747,10 +749,16 @@ class WritingDraftService:
         novel_id: str,
         *,
         adopted_by: str = "author",
+        idempotency_key: str | None = None,
     ) -> WritingDraftResponse:
-        """Adopt one AI suggestion into the ordinary working-draft lifecycle."""
+        """Adopt one AI suggestion into the ordinary working-draft lifecycle.
+
+        可选 ``idempotency_key`` 把一次采用钉成可重放回执：候选已因本次采用废弃
+        后，携带同一键的重放返回原采用结果而不报错；无键或键不一致维持原校验错误。
+        """
         did = _parse_uuid(draft_id, "draft")
         nid = _parse_uuid(novel_id, "novel")
+        replay_key = str(idempotency_key or "").strip() or None
         draft = await self._repo.get(db, did)
         if draft is None or draft.novel_id != nid:
             raise NotFoundError(f"Draft {draft_id} not found")
@@ -763,6 +771,14 @@ class WritingDraftService:
         if draft is None or draft.novel_id != nid:
             raise NotFoundError(f"Draft {draft_id} not found")
         if draft.status != "candidate":
+            replayed = await _adoption_replay_result(
+                self._repo,
+                db,
+                draft,
+                replay_key,
+            )
+            if replayed is not None:
+                return replayed
             raise ValidationError("Only a candidate writing suggestion can be adopted")
 
         from modules.writing.semantic_review import validate_candidate_upstream
@@ -783,6 +799,15 @@ class WritingDraftService:
             "adopted_at": adopted_at,
             "adopted_by": adopted_by,
         }
+        candidate_provenance = {
+            **(draft.provenance_json or {}),
+            "deprecated_from_status": "candidate",
+            "adopted_at": adopted_at,
+            "adopted_by": adopted_by,
+        }
+        if replay_key is not None:
+            adopted_provenance["adoption_idempotency_key"] = replay_key
+            candidate_provenance["adoption_idempotency_key"] = replay_key
         adopted = await self._repo.create(
             db,
             WritingDraftCreate(
@@ -793,13 +818,8 @@ class WritingDraftService:
                 provenance_json=adopted_provenance,
             ),
         )
-        draft.provenance_json = {
-            **(draft.provenance_json or {}),
-            "deprecated_from_status": "candidate",
-            "adoption_result_draft_id": str(adopted.id),
-            "adopted_at": adopted_at,
-            "adopted_by": adopted_by,
-        }
+        candidate_provenance["adoption_result_draft_id"] = str(adopted.id)
+        draft.provenance_json = candidate_provenance
         draft.status = "deprecated"
         db.add(draft)
         await db.flush()
@@ -823,12 +843,14 @@ class WritingDraftService:
         novel_id: str,
         *,
         adopted_by: str = "author",
+        idempotency_key: str | None = None,
     ) -> WritingDraftContract:
         adopted = await self.adopt_candidate_to_working(
             db,
             draft_id,
             novel_id,
             adopted_by=adopted_by,
+            idempotency_key=idempotency_key,
         )
         return self._to_contract(adopted)
 
@@ -3644,8 +3666,13 @@ class WritingGenerationService:
         base_draft_id: str | None = None,
         confirm_stale_story_assets: bool = False,
         story_asset_basis: list[dict[str, Any]] | None = None,
+        freeze_paid_output: bool = False,
     ) -> WritingDraftResponse:
-        """Generate a candidate with no transaction during provider/parse work."""
+        """Generate a candidate with no transaction during provider/parse work.
+
+        Worker 启用付费输出冻结，经 Tasks 窄 facade 与原租约 checkpoint 保存。
+        崩溃重排仅复用同来源的输出；已有输出漂移或损坏则失败关闭，不重付费。
+        """
         from infrastructure.tasks.facade import require_task_checkpoint_session
 
         require_task_checkpoint_session(db)
@@ -3664,120 +3691,153 @@ class WritingGenerationService:
             story_asset_basis=story_asset_basis,
         )
 
-        try:
-            from modules.evidence.contracts import (
-                GovernedWorkflowHooks,
-                KnowledgeScopeBuild,
-                KnowledgeScopeReceipt,
-                knowledge_review_payload,
-                require_capability_policy,
-                run_governed_generation,
-            )
-            from modules.project.facade import open_project_snapshot_llm_client
+        candidate: WritingDraftCreate | None = None
+        if freeze_paid_output:
+            from infrastructure.tasks.facade import read_private_task_checkpoint
 
-            async with open_project_snapshot_llm_client(
+            frozen = await read_private_task_checkpoint(
                 db,
-                novel_id,
-                llm_execution_snapshot,
-                timeout_override=WRITING_GENERATION_TIMEOUT_SECONDS,
-                injected_client=self._llm,
-            ) as client:
-                await self._checkpoint_before_external_call(db)
-                response_holder: dict[str, Any] = {}
-
-                async def _governed_generate(_plan, _generator_keys) -> str:
-                    response = await run_managed_generate(
-                        client,
-                        plan.request,
-                        step_name="writing.generation.candidate.generate",
-                        timeout=WRITING_GENERATION_TIMEOUT_SECONDS,
-                    )
-                    response_holder["model"] = response.model
-                    return response.content
-
-                scope_build = KnowledgeScopeBuild(
-                    receipt=KnowledgeScopeReceipt.from_dict(plan.knowledge_scope_receipt),
-                    generator_keys=tuple(plan.knowledge_generator_keys),
-                    audit_only_keys=tuple(plan.knowledge_audit_only_keys),
-                )
-                outcome = await run_governed_generation(
-                    client,
-                    policy=require_capability_policy(plan.knowledge_policy_id),
-                    scope_build=scope_build,
-                    hooks=GovernedWorkflowHooks(
-                        generate=_governed_generate,
-                        repair=None,
-                        task_instruction=plan.knowledge_task_instruction,
-                        generator_context=plan.knowledge_generator_context,
-                        authority_context=plan.knowledge_authority_context,
-                        hidden_phrases=tuple(plan.knowledge_hidden_phrases),
-                    ),
-                    step_prefix="writing.generate",
-                    enforce_scope_complete=False,
-                )
-                managed_llm_provenance = build_managed_llm_provenance(
-                    client,
-                    step_name="writing.generation.candidate.generate",
-                    request=plan.request,
-                    novel_id=plan.novel_id,
-                )
-                model_name = response_holder.get("model") or getattr(
-                    client,
-                    "model_name",
-                    plan.request.model,
-                )
-                knowledge_review = knowledge_review_payload(
-                    audit=outcome.audit,
-                    repaired=outcome.repaired,
-                    visible_keys=outcome.generator_keys,
-                    hidden_phrases=tuple(plan.knowledge_hidden_phrases),
-                )
-                knowledge_review.update(
-                    {
-                        "scope_receipt_fingerprint": (
-                            scope_build.receipt.receipt_fingerprint()
-                        ),
-                        "director_plan_fingerprint": outcome.plan.plan_fingerprint(),
-                        "audit_fingerprint": outcome.audit.audit_fingerprint(),
-                        "stage_trace": list(outcome.stage_trace),
-                    }
-                )
-                candidate = self._build_candidate_create(
-                    novel_id=plan.novel_id,
-                    chapter_index=plan.chapter_index,
-                    title=plan.title,
-                    context_confirmation_id=plan.context_confirmation_id,
-                    source_task_id=plan.source_task_id,
-                    context_result_refs=list(plan.context_result_refs),
-                    profile=plan.profile,
-                    prompt=plan.prompt,
-                    response_content=outcome.raw_output,
-                    model_name=model_name,
-                    managed_llm_provenance=managed_llm_provenance,
-                    guard_terms=list(plan.hidden_guard_terms),
-                    generation_mode=plan.generation_mode,
-                    base_draft_id=plan.base_draft_id,
-                    base_content=plan.base_content,
-                    base_content_hash=plan.base_content_hash,
-                    scene_id=plan.scene_id,
-                    scene_execution_bundle=plan.scene_execution_bundle,
-                    scene_execution_bundle_hash=plan.scene_execution_bundle_hash,
-                    knowledge_review=knowledge_review,
-                    author_examples_used=plan.author_examples_used,
-                )
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            from infrastructure.llm.retry import is_retryable_llm_error
-
-            safe_error = redact_diagnostic(
-                f"{type(exc).__name__}: {exc}",
-                limit=500,
+                task_id=source_task_id,
+                task_type="writing_generate",
+                novel_id=novel_id,
+                key=_FROZEN_GENERATION_CANDIDATE_META_KEY,
             )
-            logger.warning("Writing generation task failed: %s", safe_error)
-            if is_retryable_llm_error(exc):
+            if frozen is not None:
+                candidate = _frozen_candidate_for_plan(frozen, plan)
+
+        if candidate is None:
+            try:
+                from modules.evidence.contracts import (
+                    GovernedWorkflowHooks,
+                    KnowledgeScopeBuild,
+                    KnowledgeScopeReceipt,
+                    knowledge_review_payload,
+                    require_capability_policy,
+                    run_governed_generation,
+                )
+                from modules.project.facade import open_project_snapshot_llm_client
+
+                async with open_project_snapshot_llm_client(
+                    db,
+                    novel_id,
+                    llm_execution_snapshot,
+                    timeout_override=WRITING_GENERATION_TIMEOUT_SECONDS,
+                    injected_client=self._llm,
+                ) as client:
+                    await self._checkpoint_before_external_call(db)
+                    response_holder: dict[str, Any] = {}
+
+                    async def _governed_generate(_plan, _generator_keys) -> str:
+                        response = await run_managed_generate(
+                            client,
+                            plan.request,
+                            step_name="writing.generation.candidate.generate",
+                            timeout=WRITING_GENERATION_TIMEOUT_SECONDS,
+                        )
+                        response_holder["model"] = response.model
+                        return response.content
+
+                    scope_build = KnowledgeScopeBuild(
+                        receipt=KnowledgeScopeReceipt.from_dict(
+                            plan.knowledge_scope_receipt
+                        ),
+                        generator_keys=tuple(plan.knowledge_generator_keys),
+                        audit_only_keys=tuple(plan.knowledge_audit_only_keys),
+                    )
+                    outcome = await run_governed_generation(
+                        client,
+                        policy=require_capability_policy(plan.knowledge_policy_id),
+                        scope_build=scope_build,
+                        hooks=GovernedWorkflowHooks(
+                            generate=_governed_generate,
+                            repair=None,
+                            task_instruction=plan.knowledge_task_instruction,
+                            generator_context=plan.knowledge_generator_context,
+                            authority_context=plan.knowledge_authority_context,
+                            hidden_phrases=tuple(plan.knowledge_hidden_phrases),
+                        ),
+                        step_prefix="writing.generate",
+                        enforce_scope_complete=False,
+                    )
+                    managed_llm_provenance = build_managed_llm_provenance(
+                        client,
+                        step_name="writing.generation.candidate.generate",
+                        request=plan.request,
+                        novel_id=plan.novel_id,
+                    )
+                    model_name = response_holder.get("model") or getattr(
+                        client,
+                        "model_name",
+                        plan.request.model,
+                    )
+                    knowledge_review = knowledge_review_payload(
+                        audit=outcome.audit,
+                        repaired=outcome.repaired,
+                        visible_keys=outcome.generator_keys,
+                        hidden_phrases=tuple(plan.knowledge_hidden_phrases),
+                    )
+                    knowledge_review.update(
+                        {
+                            "scope_receipt_fingerprint": (
+                                scope_build.receipt.receipt_fingerprint()
+                            ),
+                            "director_plan_fingerprint": outcome.plan.plan_fingerprint(),
+                            "audit_fingerprint": outcome.audit.audit_fingerprint(),
+                            "stage_trace": list(outcome.stage_trace),
+                        }
+                    )
+                    candidate = self._build_candidate_create(
+                        novel_id=plan.novel_id,
+                        chapter_index=plan.chapter_index,
+                        title=plan.title,
+                        context_confirmation_id=plan.context_confirmation_id,
+                        source_task_id=plan.source_task_id,
+                        context_result_refs=list(plan.context_result_refs),
+                        profile=plan.profile,
+                        prompt=plan.prompt,
+                        response_content=outcome.raw_output,
+                        model_name=model_name,
+                        managed_llm_provenance=managed_llm_provenance,
+                        guard_terms=list(plan.hidden_guard_terms),
+                        generation_mode=plan.generation_mode,
+                        base_draft_id=plan.base_draft_id,
+                        base_content=plan.base_content,
+                        base_content_hash=plan.base_content_hash,
+                        scene_id=plan.scene_id,
+                        scene_execution_bundle=plan.scene_execution_bundle,
+                        scene_execution_bundle_hash=plan.scene_execution_bundle_hash,
+                        knowledge_review=knowledge_review,
+                        author_examples_used=plan.author_examples_used,
+                    )
+            except asyncio.CancelledError:
                 raise
-            raise RuntimeError(safe_error) from None
+            except Exception as exc:
+                from infrastructure.llm.retry import is_retryable_llm_error
+
+                safe_error = redact_diagnostic(
+                    f"{type(exc).__name__}: {exc}",
+                    limit=500,
+                )
+                logger.warning("Writing generation task failed: %s", safe_error)
+                if is_retryable_llm_error(exc):
+                    raise
+                raise RuntimeError(safe_error) from None
+
+            if freeze_paid_output:
+                from infrastructure.tasks.facade import write_private_task_checkpoint
+
+                await write_private_task_checkpoint(
+                    db,
+                    task_id=source_task_id,
+                    task_type="writing_generate",
+                    novel_id=novel_id,
+                    key=_FROZEN_GENERATION_CANDIDATE_META_KEY,
+                    payload={
+                        "version": _FROZEN_GENERATION_CANDIDATE_VERSION,
+                        "source_fingerprint": str(plan.source_fingerprint),
+                        "candidate": candidate.model_dump(mode="json"),
+                    },
+                )
 
         return await self._finalize_generation_task(
             db,
@@ -4004,6 +4064,62 @@ def _generation_task_source_fingerprint(
             ),
         }
     )
+
+
+_FROZEN_GENERATION_CANDIDATE_META_KEY = "_frozen_candidate"
+_FROZEN_GENERATION_CANDIDATE_VERSION = 1
+
+
+def _frozen_candidate_for_plan(
+    frozen: dict[str, Any],
+    plan: _WritingGenerationTaskPlan,
+) -> WritingDraftCreate:
+    """Never dispatch another paid generation for an unusable frozen output."""
+    if (
+        not isinstance(frozen, dict)
+        or frozen.get("version") != _FROZEN_GENERATION_CANDIDATE_VERSION
+    ):
+        raise ConflictError(
+            "已付费输出无法恢复，请保留记录并重新确认生成",
+            code="writing_frozen_output_invalid",
+        )
+    if frozen.get("source_fingerprint") != plan.source_fingerprint:
+        raise ConflictError(
+            "已付费输出的来源已变化，请重新确认生成", code="writing_frozen_output_stale"
+        )
+    try:
+        return WritingDraftCreate.model_validate(frozen.get("candidate"))
+    except PydanticValidationError:
+        raise ConflictError(
+            "已付费输出无法恢复，请保留记录并重新确认生成",
+            code="writing_frozen_output_invalid",
+        ) from None
+
+
+async def _adoption_replay_result(
+    repo: WritingDraftRepository,
+    db: AsyncSession,
+    draft: WritingDraft,
+    idempotency_key: str | None,
+) -> WritingDraftResponse | None:
+    """携带同一幂等键的重放返回原采用回执；无键、键不符或结果缺失返回 None。"""
+    key = str(idempotency_key or "").strip()
+    if not key:
+        return None
+    provenance = dict(draft.provenance_json or {})
+    if str(provenance.get("adoption_idempotency_key") or "") != key:
+        return None
+    adopted_id = provenance.get("adoption_result_draft_id")
+    if not adopted_id:
+        return None
+    try:
+        adopted_uuid = uuid.UUID(str(adopted_id))
+    except (ValueError, AttributeError, TypeError):
+        return None
+    adopted = await repo.get(db, adopted_uuid)
+    if adopted is None or adopted.novel_id != draft.novel_id:
+        return None
+    return WritingDraftResponse.model_validate(adopted)
 
 
 def _build_writing_generation_prompt(

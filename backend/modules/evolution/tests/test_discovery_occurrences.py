@@ -77,6 +77,29 @@ def prepared_occurrence():
     return prepared, batch, change
 
 
+def add_review_descriptors(prepared, batch):
+    for unit in batch["historical_context"]:
+        if "theme" not in unit:
+            continue
+        theme = unit["theme"]
+        basis = prepared["themes"][theme["entry_id"]]
+        claim = basis["claim"]
+        theme.update(
+            revision=basis["revision"],
+            **{
+                key: claim[key]
+                for key in ("category", "label", "statement", "conditions", "modality")
+            },
+            subject_labels=claim["unresolved_subjects"],
+            conditions_semantics="有来源的追踪维度",
+            evidence_observation_ids=[
+                item["observation_id"] for item in claim["evidence"]
+            ],
+            evidence_uses=claim["evidence"],
+            occurrences=[],
+        )
+
+
 def test_semantic_and_contract_reextraction_does_not_count_another_occurrence():
     prepared, batch, change = prepared_occurrence()
     claim = LedgerClaim.model_validate(_compile_change(prepared, change, batch)["claim"])
@@ -164,6 +187,7 @@ def test_condition_change_needs_its_own_bound_visible_review(certification, acce
             }
         ],
     }
+    add_review_descriptors(prepared, batch)
     prepared.update(batches=[batch], unsupported_batches=[], coverage={})
     change = {
         **first,
@@ -274,6 +298,7 @@ def test_supported_new_context_requires_structured_certification():
     prepared, batch, change = prepared_occurrence()
     action_id, context_id = batch["current_observation_ids"]
     change["evidence"][1]["purpose"] = "context"
+    add_review_descriptors(prepared, batch)
     prepared.update(batches=[batch], unsupported_batches=[], coverage={})
     review = {
         "change_index": 0,
@@ -328,6 +353,7 @@ def test_supported_new_context_requires_structured_certification():
     change.update(action="enhance", target_entry_id=entry_id, expected_revision=1)
     change["evidence"][1]["role"] = "support"
     review["counterevidence_observation_ids"] = []
+    add_review_descriptors(prepared, batch)
     inherited = compile_discovery(frozen)["changes"][0]["claim"]
     assert inherited["evidence"] == claim["evidence"]
 
@@ -393,6 +419,7 @@ def test_condition_support_is_not_another_reviewed_behavior():
     assert claim.evidence[1].occurrence_kind == "context"
     # Uncertified condition witnesses cannot add an occurrence.
     change["evidence"][1]["purpose"] = "occurrence"
+    add_review_descriptors(prepared, batch)
     prepared.update(batches=[batch], unsupported_batches=[], coverage={})
     frozen = SimpleNamespace(
         attempt_id="attempt",
@@ -473,6 +500,7 @@ def test_review_can_confirm_inherited_evidence_but_cannot_invent_counterevidence
             }
         ],
     }
+    add_review_descriptors(prepared, batch)
     prepared.update(batches=[batch], unsupported_batches=[], coverage={})
     change = {
         **first,
@@ -632,6 +660,7 @@ def test_same_condition_negative_case_preserves_the_prior_positive_event(confirm
             }
         ],
     }
+    add_review_descriptors(prepared, batch)
     prepared.update(batches=[batch], unsupported_batches=[], coverage={})
     change = {
         **first,
@@ -754,6 +783,7 @@ def test_recall_link_needs_independent_two_sided_identity_review(case):
             }
         ],
     }
+    add_review_descriptors(prepared, batch)
     prepared.update(batches=[batch], unsupported_batches=[], coverage={})
     change = {
         **first,
