@@ -22,6 +22,7 @@ if TYPE_CHECKING:
         CreativeResourcePort,
         ResourceSnapshot,
     )
+    from modules.evidence.confirmation_reads_port import ConfirmationReadsPort
     from modules.project.contracts import (
         StoryDedupSuggestionProvider,
         StoryWorkspaceStatsProvider,
@@ -237,6 +238,12 @@ RAG_GET_ENTITY_ACTIVITY_STATS: ServiceKey[Callable[..., Any]] = ServiceKey(
 )
 RAG_REQUEST_ENTITY_ACTIVITY_REANNOTATION: ServiceKey[Callable[..., Any]] = ServiceKey(
     "rag.request_entity_activity_reannotation"
+)
+
+# --- evidence ---------------------------------------------------------------
+
+EVIDENCE_CONFIRMATION_READS: ServiceKey[ConfirmationReadsPort] = ServiceKey(
+    "evidence.confirmation_reads"
 )
 
 # --- story ------------------------------------------------------------------

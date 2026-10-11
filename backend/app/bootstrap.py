@@ -67,6 +67,7 @@ from core.service_keys import (
     RAG_GET_ORDERED_CHAPTER_CHUNKS,
     RAG_INDEX_CHAPTER,
     RAG_INDEX_CHAPTER_FOR_TASK,
+    EVIDENCE_CONFIRMATION_READS,
     RAG_REQUEST_ENTITY_ACTIVITY_REANNOTATION,
     SOURCE_CHANGED,
     STORY_GET_SCENE_CONTRACT,
@@ -240,6 +241,9 @@ from modules.assistant.operation_scope import (
 from modules.assistant.sessions import AssistantSessionService as _AssistantSessions
 from modules.interaction.facade import (
     mark_task_local_approved as _interaction_mark_task_local_approved,
+)
+from modules.evidence.confirmation_reads_port import (
+    ConfirmationReadsPort as _EvidenceConfirmationReads,
 )
 from modules.story.scene_source_port import SceneSourcePort as _StorySceneSource
 from modules.world.services.worldbuilding.adoption_package_service import (
@@ -457,6 +461,10 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
         # AO-5: evidence 编译与 world 地图经此只读 port 消费 story 场景事实，
         # world→story / evidence→story 的反向顶层导入清零。
         (STORY_SCENE_SOURCE, _StorySceneSource()),
+        # BR-1b/BR-7: writing 进度投影与 project 用量归因经此只读 port 消费
+        # 确认记录失效信号与任务结果归属；单点 facade 消费按 AO-5 口径改
+        # DI 键，不新增函数内 import（依赖方向棘轮只降不升）。
+        (EVIDENCE_CONFIRMATION_READS, _EvidenceConfirmationReads()),
         # AO-5: evidence 编译经此只读 port 消费 writing 正文稿区间/清单，
         # evidence→writing 的反向顶层导入清零（ADR-0004：writing 为原文事实源）。
         (WRITING_MANUSCRIPT_SOURCE, _WritingManuscriptSource()),

@@ -23,6 +23,7 @@ from core.container import get
 from core.errors import ConflictError, NotFoundError, ValidationError
 from core.service_keys import (
     ASSISTANT_MARK_EDITORIAL_READY,
+    EVIDENCE_CONFIRMATION_READS,
     WORLD_LIST_ADOPTED_MAP_CONTINUITY_FACTS,
 )
 from infrastructure.llm.agent_step_harness import (
@@ -35,8 +36,8 @@ from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from infrastructure.stable_hash import stable_hash as _generation_stable_fingerprint
 from infrastructure.tasks.models import AsyncTask
-from modules.project.contracts import WorkspaceCreationProgressItem
 from modules.evidence.facade import mark_asset_context_changed
+from modules.project.contracts import WorkspaceCreationProgressItem
 from modules.writing.conflict_ai import (
     AI_REVIEW_ACTION,
     ConflictCheckAiReviewService,
@@ -90,6 +91,7 @@ from modules.writing.schemas import (
     WritingRegenerationContext,
     project_writing_draft_state,
 )
+from modules.writing.semantic_review import _requires_confirmed_context
 from modules.writing.source_hashing import (
     compiled_context_fingerprint as _generation_compiled_context_fingerprint,
 )
@@ -940,9 +942,7 @@ class WritingDraftService:
             )
             if confirmation_id:
                 confirmation_ids.append(confirmation_id)
-        from modules.evidence.facade import get_confirmation_staleness
-
-        staleness = await get_confirmation_staleness(
+        staleness = await get(EVIDENCE_CONFIRMATION_READS).get_staleness_map(
             db,
             novel_id=novel_id,
             confirmation_ids=list(dict.fromkeys(confirmation_ids)),
@@ -979,11 +979,22 @@ class WritingDraftService:
         review_status = knowledge_status or verdict
         knowledge_stale = bool(knowledge.get("stale_after_edit"))
         confirmation_stale = bool(confirmation_staleness.get("stale"))
+        missing_confirmation = _requires_confirmed_context(provenance) and not bool(
+            confirmation_staleness
+        )
         source_freshness = (
-            "stale" if knowledge_stale or confirmation_stale else "fresh"
+            "stale"
+            if knowledge_stale or confirmation_stale
+            else "unknown"
+            if missing_confirmation
+            else "fresh"
         )
 
-        if knowledge_status in {"blocked", "legacy_unchecked", "not_checked"}:
+        if not knowledge_status:
+            stop_reason = "缺少资料复核回执，暂不能采用"
+            applicability = "blocked"
+            actions = ("open_candidate", "reconfirm")
+        elif knowledge_status in {"blocked", "legacy_unchecked", "not_checked"}:
             stop_reason = "资料复核未通过，暂不能采用"
             applicability = "blocked"
             actions = ("open_candidate", "reconfirm")
@@ -995,6 +1006,14 @@ class WritingDraftService:
             stop_reason = "资料复核进行中"
             applicability = "blocked"
             actions = ("open_candidate",)
+        elif missing_confirmation:
+            stop_reason = "缺少原参考确认，需重新确认"
+            applicability = "blocked"
+            actions = ("open_candidate", "reconfirm")
+        elif knowledge_stale or confirmation_stale:
+            stop_reason = "正文或参考资料已变化，需重新确认"
+            applicability = "stale"
+            actions = ("open_candidate", "reconfirm")
         elif not review:
             stop_reason = "待独立语义审查"
             applicability = "applicable"
@@ -1015,10 +1034,7 @@ class WritingDraftService:
         return WorkspaceCreationProgressItem(
             key=f"candidate:{draft.id}",
             kind="candidate",
-            title=(
-                f"第 {draft.chapter_index} 章 · "
-                + (draft.title or "AI 正文建议")
-            ),
+            title=(f"第 {draft.chapter_index} 章 · " + (draft.title or "AI 正文建议")),
             execution_status="done",
             coverage=f"第 {draft.chapter_index} 章",
             source_freshness=source_freshness,
