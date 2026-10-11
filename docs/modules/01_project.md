@@ -205,6 +205,17 @@ NOWAIT 保证已持领域锁的入口不会等待项目锁升级；并发作者�
 `charge_unconfirmed` 标记是否存在计费状态未确认（`charge_state=possible`）的回执，
 两者均不折算进已知数字（BR-0a）。
 
+同一响应的 `attribution` 把这批任务按作品成果归因（BR-7，只读查询，不做配额
+策略变化、不建任何缓存）：经 Evidence 确认记录的结果引用连接任务与其成果
+（task → writing_draft → adopted），按确认记录的 `result_status` 与任务状态
+分成五个去向桶——`adopted`（已写进作品的成果）、`pending`（进行中或等你处理
+的候选）、`not_adopted`（未采用或返修，含被重新生成取代的旧尝试与来源已失效
+的确认）、`failed`（失败与恢复）、`other`（无确认引用的资料索引、独立审查等
+辅助消耗）。每桶自带请求数、`requests_unknown` 与 `charge_unconfirmed`，未知
+与计费未确认沿用 BR-0a 语义逐桶单列；失败任务始终计入 `failed`，不随确认状态
+改判。归因读取只走 `modules.evidence.facade.describe_confirmed_task_outcomes`
+只读缝，每任务用量明细来自 tasks 聚合返回的 `tasks` 字段。
+
 
 ### 作者写作示例与省钱模式（2026-10）
 

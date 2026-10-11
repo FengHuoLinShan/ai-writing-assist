@@ -219,6 +219,9 @@ regex、随机概率或任意表达式。draft 只用于编辑和 dry-run，发�
 - `prepare_confirmed_ai_action(..., for_update=True)`：任务 finalize 在重编译上下文前锁定 confirmation owner
 - `attach_result_ref()`：把后续任务或产物回写到确认记录
 - `mark_asset_context_changed()`：资产变更后把相关确认记录标脏
+- `describe_confirmed_task_outcomes()`：只读缝，按任务引用回读确认结果状态
+  （`result_status` 与归属任务标记），供用量按作品成果归因（project，BR-7）；
+  不加锁、不重编译、不改状态
 
 关键参数：
 

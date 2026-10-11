@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
@@ -423,6 +423,59 @@ class ContextConfirmationService:
             refs=self._result_refs(list(refs_by_key.values())),
         )
         return self._to_contract(updated)
+
+    async def describe_task_outcomes(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        task_ids: Sequence[str],
+    ) -> dict[str, dict[str, Any]]:
+        """Read-only: map task ids to their confirmed-action outcome summary.
+
+        用量归因等跨模块只读消费使用；不加锁、不重编译、不改任何状态。
+        结果引用里的任务按追加顺序去重，最后一条任务引用是本次确认的
+        归属任务（`owner_task`），更早的同确认任务是被取代的旧尝试。
+        一个任务被多条确认引用时，先取它是归属任务的确认，再取最新一条。
+        没有任何确认引用的任务不出现在返回值里。
+        """
+        normalized_ids = [str(task_id).strip() for task_id in task_ids]
+        normalized_ids = [task_id for task_id in normalized_ids if task_id]
+        if not normalized_ids:
+            return {}
+        records = await self._repo.list_result_confirmations_for_asset_ids(
+            db,
+            novel_id=parse_uuid(novel_id, "novel_id"),
+            asset_type="task",
+            asset_ids=normalized_ids,
+        )
+        outcomes: dict[str, tuple[datetime, bool, dict[str, Any]]] = {}
+        for record in records:
+            task_refs = [
+                str(ref.get("id"))
+                for ref in (record.result_refs or [])
+                if isinstance(ref, Mapping)
+                and str(ref.get("type") or "") == "task"
+                and str(ref.get("id") or "").strip()
+            ]
+            if not task_refs:
+                continue
+            owner_task = task_refs[-1]
+            # created_at 只用于多条确认之间的稳定排序，不出现在返回值里。
+            ordered_at = record.created_at or record.compiled_at or datetime.now(UTC)
+            for task_id in dict.fromkeys(task_refs):
+                entry = {
+                    "confirmation_id": str(record.id),
+                    "result_status": str(record.result_status or ""),
+                    "owner_task": task_id == owner_task,
+                }
+                current = outcomes.get(task_id)
+                if current is None or (entry["owner_task"], ordered_at) > (
+                    current[1],
+                    current[0],
+                ):
+                    outcomes[task_id] = (ordered_at, entry["owner_task"], entry)
+        return {task_id: value[2] for task_id, value in outcomes.items()}
 
     async def mark_asset_context_changed(
         self,
