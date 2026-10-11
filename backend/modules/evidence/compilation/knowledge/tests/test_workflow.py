@@ -136,7 +136,13 @@ def _audit(
     verdict: str = "blocked",
     dimensions: list[str] | None = None,
 ) -> AuditVerdictOutput:
-    dims = dimensions or ["world_entities", "world_bible"]
+    # world.generation.suggestion 的全部必查维度；部分覆盖用例自行构造。
+    dims = dimensions or [
+        "world_entities",
+        "world_rules",
+        "world_bible",
+        "timeline",
+    ]
     return AuditVerdictOutput(
         findings=findings,
         dimensions=[AuditDimensionCheck(dimension=d, checked=True) for d in dims],
@@ -280,6 +286,147 @@ async def test_unverifiable_verdict_blocks_without_repair() -> None:
     assert outcome.status == "blocked"
     assert outcome.repaired is False, "unverifiable 不得触发返修"
     assert len(client.audit_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_unchecked_required_dimension_downgrades_pass_to_unverifiable() -> None:
+    """BR-0c：审查者自报 pass 但某必查维度 checked=false → 服务端降为 unverifiable。"""
+    policy, build = _scope_build()
+    audit_partial = AuditVerdictOutput(
+        findings=[],
+        dimensions=[
+            AuditDimensionCheck(dimension="world_entities", checked=True),
+            AuditDimensionCheck(dimension="world_rules", checked=True),
+            AuditDimensionCheck(
+                dimension="world_bible", checked=False, note="范围内无该维度来源"
+            ),
+            AuditDimensionCheck(dimension="timeline", checked=True),
+        ],
+        verdict="pass",
+    )
+    client = FakeGovernedClient(audit_outputs=[audit_partial])
+    outcome = await run_governed_generation(
+        client,
+        policy=policy,
+        scope_build=build,
+        hooks=_hooks("覆盖不全的正文", repair_output="返修也无依据"),
+    )
+    assert outcome.status == "blocked"
+    assert outcome.audit.verdict == "unverifiable"
+    assert outcome.repaired is False, "unverifiable 不得触发返修"
+    assert len(client.audit_calls) == 1
+    coverage = {item.dimension: item for item in outcome.audit.coverage}
+    assert coverage["world_bible"].omitted is True
+    assert coverage["world_bible"].omission_reason == "范围内无该维度来源"
+    review = knowledge_review_payload(audit=outcome.audit, visible_keys=())
+    assert review["status"] == "unverifiable"
+    assert review["coverage"] == [item.to_dict() for item in outcome.audit.coverage]
+
+
+@pytest.mark.asyncio
+async def test_missing_required_dimension_downgrades_pass_to_unverifiable() -> None:
+    """BR-0c：审查者漏报必查维度 → 服务端降为 unverifiable，覆盖回执标明遗漏。"""
+    policy, build = _scope_build()
+    audit_missing = _audit(
+        [],
+        verdict="pass",
+        dimensions=["world_entities", "world_rules", "world_bible"],
+    )
+    client = FakeGovernedClient(audit_outputs=[audit_missing])
+    outcome = await run_governed_generation(
+        client,
+        policy=policy,
+        scope_build=build,
+        hooks=_hooks("漏报维度的正文"),
+    )
+    assert outcome.status == "blocked"
+    assert outcome.audit.verdict == "unverifiable"
+    coverage = {item.dimension: item for item in outcome.audit.coverage}
+    assert coverage["timeline"].omitted is True
+    assert coverage["timeline"].omission_reason == "未独立检查"
+    assert coverage["timeline"].covered_by == ()
+
+
+@pytest.mark.asyncio
+async def test_duplicate_dimension_report_downgrades_pass_to_unverifiable() -> None:
+    """BR-0c：同一必查维度被重复报告 → 覆盖不可信，服务端降为 unverifiable。"""
+    policy, build = _scope_build()
+    audit_duplicate = _audit(
+        [],
+        verdict="pass",
+        dimensions=[
+            "world_entities",
+            "world_rules",
+            "world_bible",
+            "timeline",
+            "timeline",
+        ],
+    )
+    client = FakeGovernedClient(audit_outputs=[audit_duplicate])
+    outcome = await run_governed_generation(
+        client,
+        policy=policy,
+        scope_build=build,
+        hooks=_hooks("重复报告的正文"),
+    )
+    assert outcome.status == "blocked"
+    assert outcome.audit.verdict == "unverifiable"
+    timeline = [item for item in outcome.audit.coverage if item.dimension == "timeline"]
+    assert len(timeline) == 2
+    assert all(item.omitted for item in timeline)
+    assert all("重复报告" in item.omission_reason for item in timeline)
+    assert all(
+        not item.omitted
+        for item in outcome.audit.coverage
+        if item.dimension != "timeline"
+    )
+
+
+@pytest.mark.asyncio
+async def test_blocking_finding_takes_precedence_over_coverage_downgrade() -> None:
+    """有 blocker finding 时仍判 blocked（保留返修路径），覆盖降级不吞 finding。"""
+    policy, build = _scope_build()
+    audit_blocked_partial = AuditVerdictOutput(
+        findings=[
+            AuditFindingOutput(
+                kind="premature_reveal",
+                severity="blocker",
+                message="剧透",
+            )
+        ],
+        dimensions=[AuditDimensionCheck(dimension="world_entities", checked=True)],
+        verdict="blocked",
+    )
+    client = FakeGovernedClient(
+        audit_outputs=[audit_blocked_partial, _audit([], verdict="pass")]
+    )
+    outcome = await run_governed_generation(
+        client,
+        policy=policy,
+        scope_build=build,
+        hooks=_hooks("剧透正文", repair_output="修复正文"),
+    )
+    assert outcome.passed
+    assert outcome.repaired is True
+
+
+@pytest.mark.asyncio
+async def test_all_dimensions_checked_keeps_server_verdict() -> None:
+    """BR-0c：全部必查维度已查时行为不变（pass 仍为 pass，覆盖如实记录）。"""
+    policy, build = _scope_build()
+    client = FakeGovernedClient(audit_outputs=[_audit([], verdict="pass")])
+    outcome = await run_governed_generation(
+        client,
+        policy=policy,
+        scope_build=build,
+        hooks=_hooks("生成正文"),
+    )
+    assert outcome.passed
+    assert outcome.audit.verdict == "pass"
+    assert {item.dimension for item in outcome.audit.coverage} == set(
+        policy.required_dimensions
+    )
+    assert all(not item.omitted for item in outcome.audit.coverage)
 
 
 @pytest.mark.asyncio

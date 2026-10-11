@@ -22,7 +22,10 @@ async def test_card_review_sees_scene_target_and_context_tail_and_repair_sees_dr
                 self.audits.append(request.messages[-1].content)
                 return schema(
                     findings=[],
-                    dimensions=[],
+                    dimensions=[
+                        {"dimension": dimension, "checked": True}
+                        for dimension in _required_dimensions(request.messages)
+                    ],
                     verdict="blocked" if len(self.audits) == 1 else "pass",
                 )
             self.generations.append(request)
@@ -47,3 +50,16 @@ async def test_card_review_sees_scene_target_and_context_tail_and_repair_sees_dr
         message.role == "assistant" and "守住码头" in message.content
         for message in repair.messages
     )
+
+
+def _required_dimensions(messages) -> list[str]:
+    """从审查 prompt 读取必查维度；合成审查者按全部维度已查应答。"""
+    for message in messages:
+        for line in (message.content or "").splitlines():
+            if line.startswith("必查维度："):
+                return [
+                    item.strip()
+                    for item in line.split("：", 1)[1].split(",")
+                    if item.strip()
+                ]
+    return []

@@ -132,10 +132,13 @@ def test_wire_requires_explicit_authorization_and_exclusive_identity():
 
 
 async def test_completion_first_request_declares_schema_and_reasoning_budget():
-    async def audit(_request, schema, **_kwargs):
+    async def audit(request, schema, **_kwargs):
         assert schema is AuditVerdictOutput
         return AuditVerdictOutput(
-            dimensions=[AuditDimensionCheck(dimension="prior_prose")],
+            dimensions=[
+                AuditDimensionCheck(dimension=dimension, checked=True)
+                for dimension in _required_dimensions(request.messages)
+            ],
             verdict="pass",
         )
 
@@ -586,3 +589,16 @@ def test_low_confidence_alias_and_inferred_relation_stay_review_only():
     assert all(item["disposition"] == "open" for item in items)
     assert items[0]["review_reasons"] == ["missing_or_low_confidence"]
     assert items[1]["review_reasons"] == ["inferred_or_uncertain_claim"]
+
+
+def _required_dimensions(messages) -> list[str]:
+    """从审查 prompt 读取必查维度；合成审查者按全部维度已查应答。"""
+    for message in messages:
+        for line in (message.content or "").splitlines():
+            if line.startswith("必查维度："):
+                return [
+                    item.strip()
+                    for item in line.split("：", 1)[1].split(",")
+                    if item.strip()
+                ]
+    return []
