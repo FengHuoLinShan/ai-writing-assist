@@ -1,7 +1,7 @@
 """旧 worker 租约回写拒绝用例（BR-0b 交接 P0-4「旧 worker 恢复」）。
 
-语义审查与定向返修的晚到回写携带旧租约：任务已被新租约完成后，旧回写不得
-覆盖审查/返修结果。
+语义审查与定向返修均执行真实 handler：模型等待期间换租约，旧 handler
+返回后不得落审查记录、候选或任务完成结果。
 """
 
 from __future__ import annotations
@@ -13,13 +13,12 @@ from typing import Any
 from unittest import mock
 
 import pytest
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from infrastructure.llm.limits import reset_llm_limiter_for_tests
 from infrastructure.llm.schemas import LLMCallResponse
 from infrastructure.tasks.enqueuer import enqueue_task
-from infrastructure.tasks.lifecycle import TaskLifecycleService
 from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.worker import TaskWorker
 from modules.project.models import Project
@@ -37,21 +36,40 @@ class _LeaseCapturingProvider:
         task_id: uuid.UUID,
         lease_holder: dict,
         draft_id: str,
+        *,
+        revision: bool = False,
     ) -> None:
         self._sessions = sessions
         self._task_id = task_id
         self._lease_holder = lease_holder
         self._draft_id = draft_id
         self.calls = 0
+        self.revision = revision
 
     async def generate(self, request) -> LLMCallResponse:
-        del request
         self.calls += 1
         async with self._sessions() as db:
             row = await db.get(AsyncTask, self._task_id)
             assert row is not None and row.status == "running"
             self._lease_holder["lease_id"] = str(row.lease_id)
             self._lease_holder["attempt"] = int(row.attempt or 0)
+            row.lease_id = str(uuid.uuid4())
+            await db.commit()
+        if self.revision:
+            inputs = json.loads(request.messages[-1].content)
+            return LLMCallResponse(
+                content=json.dumps(
+                    {
+                        "patches": [
+                            {"patch_id": item["patch_id"], "replacement": "过时返修结果"}
+                            for item in inputs["editable_ranges"]
+                        ]
+                    }
+                ),
+                finish_reason="stop",
+                model="deepseek-flash",
+                provider="fake",
+            )
         return LLMCallResponse(
             content=json.dumps(
                 {
@@ -137,29 +155,9 @@ def _review_target(draft_id: str, content_hash: str) -> dict[str, Any]:
     }
 
 
-async def _old_lease_finalize_rejected(sessions, task_id, old_lease_id, poison) -> None:
-    """旧租约的晚到 finalize 必须被拒绝且不覆盖已落库结果。"""
-    async with sessions.begin() as stale_db:
-        accepted = await TaskLifecycleService().finalize(
-            stale_db,
-            task_id=task_id,
-            lease_id=old_lease_id,
-            status="done",
-            result_data=poison,
-        )
-    assert accepted is False
-    async with sessions() as db:
-        stored = await db.get(AsyncTask, task_id)
-        assert stored is not None
-        result = stored.result or {}
-        assert result.get("verdict") == "pass"
-        for value in result.values():
-            assert value != "poisoned-by-stale-worker"
-
-
 @pytest.mark.asyncio
 async def test_semantic_review_rejects_stale_lease_writeback(test_engine, monkeypatch):
-    """语义审查完成后，携带运行期旧租约的回写被栅栏拒绝。"""
+    """模型返回前丢失租约，旧审查 handler 不能写领域结果。"""
     import modules.project.facade as project_facade
     import modules.writing.tasks  # noqa: F401  生产 handler 注册
 
@@ -236,15 +234,17 @@ async def test_semantic_review_rejects_stale_lease_writeback(test_engine, monkey
             db_manager=_TaskManager(test_engine, sessions),
             heartbeat_interval=60.0,
         ).run_once(task_id=task_id, novel_id=novel_id)
-        assert returned is not None and returned.status == "done"
+        assert returned is not None and returned.status != "done"
         assert lease_holder.get("lease_id")
 
-        await _old_lease_finalize_rejected(
-            sessions,
-            task_id,
-            lease_holder["lease_id"],
-            {"verdict": "poisoned-by-stale-worker"},
-        )
+        assert provider.calls == 1
+        async with sessions() as db:
+            unchanged = await db.get(WritingDraft, draft_id)
+            assert unchanged.provenance_json == {}
+            stored = await db.get(AsyncTask, task_id)
+            assert stored.lease_id != lease_holder["lease_id"]
+            assert not (stored.result or {}).get("verdict")
+
     finally:
         async with sessions.begin() as cleanup:
             await cleanup.execute(delete(WritingDraft).where(WritingDraft.id == draft_id))
@@ -255,78 +255,137 @@ async def test_semantic_review_rejects_stale_lease_writeback(test_engine, monkey
 
 
 @pytest.mark.asyncio
-async def test_targeted_revision_rejects_stale_lease_writeback(test_engine):
-    """定向返修任务被新租约重领后，旧租约回写被栅栏拒绝。"""
-    sessions = async_sessionmaker(test_engine, expire_on_commit=False, autoflush=False)
-    novel_uuid = uuid.uuid4()
-    novel_id = str(novel_uuid)
-    task_id = uuid.uuid4()
+async def test_targeted_revision_rejects_stale_lease_writeback(test_engine, monkeypatch):
+    import modules.project.facade as project_facade
+    import modules.writing.semantic_review as semantic_module
+    import modules.writing.tasks  # noqa: F401
 
+    sessions = async_sessionmaker(test_engine, expire_on_commit=False, autoflush=False)
+    novel_uuid, draft_id, review_id, task_id = (uuid.uuid4() for _ in range(4))
+    nid = str(novel_uuid)
+    provenance = {
+        "source": "writing_generate",
+        "context_confirmation_id": str(uuid.uuid4()),
+        "review_required": True,
+    }
     async with sessions.begin() as db:
         db.add(
             Project(
                 id=novel_uuid,
-                title="stale lease revision",
+                title="旧租约实际返修",
                 language="zh",
                 default_reveal_policy="author_safe",
                 settings={},
             )
         )
         db.add(
+            WritingDraft(
+                id=draft_id,
+                novel_id=novel_uuid,
+                chapter_index=3,
+                title="第三章",
+                content="冻结正文",
+                content_hash="a" * 64,
+                status="candidate",
+                provenance_json=provenance,
+            )
+        )
+        db.add(
+            AsyncTask(
+                id=review_id,
+                task_type="writing_semantic_review",
+                novel_id=novel_uuid,
+                meta={"novel_id": nid},
+                status="done",
+                result={
+                    "findings": [
+                        {
+                            "finding_id": "f-1",
+                            "location": {
+                                "draft_id": str(draft_id),
+                                "chapter_index": 3,
+                                "excerpt": "冻结正文",
+                            },
+                            "preserve": [],
+                        }
+                    ],
+                    "frozen_manifest": [
+                        {
+                            "draft_id": str(draft_id),
+                            "content_hash": "a" * 64,
+                            "context_fingerprint": "context-fingerprint",
+                            "scene_execution_bundle_hash": None,
+                        }
+                    ],
+                },
+            )
+        )
+        db.add(
             AsyncTask(
                 id=task_id,
                 task_type="writing_targeted_revision",
-                status="pending",
-                recovery_policy="auto_requeue",
-                max_attempts=2,
-                meta={"novel_id": novel_id},
                 novel_id=novel_uuid,
+                status="pending",
+                meta={
+                    "novel_id": nid,
+                    "draft_id": str(draft_id),
+                    "review_task_id": str(review_id),
+                    "finding_ids": ["f-1"],
+                    "llm_execution_snapshot": {
+                        "profile": {"model": "deepseek-flash"},
+                        "llm": {"model": "deepseek-flash"},
+                    },
+                },
             )
         )
+    lease_holder = {}
+    provider = _LeaseCapturingProvider(
+        sessions, task_id, lease_holder, str(draft_id), revision=True
+    )
 
+    @asynccontextmanager
+    async def fake_client(db, novel_id_arg, snapshot, **kwargs):
+        yield _chain_client(monkeypatch, provider)
+
+    async def context(self, db, **kwargs):
+        return _review_target(str(draft_id), "a" * 64)["review_context"], []
+
+    monkeypatch.setattr(project_facade, "open_project_snapshot_llm_client", fake_client)
+    monkeypatch.setattr(project_facade, "require_active_project", _async_noop)
+    monkeypatch.setattr(
+        semantic_module.WritingSemanticWorkflowService,
+        "_materialize_review_context",
+        context,
+    )
+    monkeypatch.setattr(
+        semantic_module, "_scene_bundle", mock.AsyncMock(return_value=None)
+    )
     try:
-        lifecycle = TaskLifecycleService()
-        old_lease = str(uuid.uuid4())
-        async with sessions.begin() as db:
-            task = await db.get(AsyncTask, task_id)
-            assert task is not None
-            task.mark_running(lease_id=old_lease)
-            await db.flush()
-
-        # 旧 worker 失联：任务按崩溃路径重排，新 worker 以新租约重领并完成
-        async with sessions.begin() as db:
-            task = await db.get(AsyncTask, task_id)
-            assert task is not None
-            task.status = "pending"
-            task.lease_id = None
-            task.transition_reason = "stale_recovery"
-            await db.flush()
-        async with sessions.begin() as db:
-            task = await db.get(AsyncTask, task_id)
-            assert task is not None
-            task.mark_running(lease_id=str(uuid.uuid4()))
-            await db.flush()
-        async with sessions.begin() as db:
-            accepted = await lifecycle.finalize(
-                db,
-                task_id=task_id,
-                lease_id=str(task.lease_id),
-                status="done",
-                result_data={"verdict": "pass", "draft_id": "revision-candidate"},
+        await TaskWorker(
+            db_manager=_TaskManager(test_engine, sessions), heartbeat_interval=60.0
+        ).run_once(task_id=task_id, novel_id=nid)
+        assert provider.calls == 1
+        async with sessions() as db:
+            drafts = list(
+                (
+                    await db.execute(
+                        select(WritingDraft).where(WritingDraft.novel_id == novel_uuid)
+                    )
+                ).scalars()
             )
-        assert accepted is True
-
-        # 旧 worker 晚到回写：携带旧租约的 poison 结果被拒绝
-        await _old_lease_finalize_rejected(
-            sessions,
-            task_id,
-            old_lease,
-            {"verdict": "poisoned-by-stale-worker"},
-        )
+            assert len(drafts) == 1
+            assert drafts[0].content == "冻结正文"
+            assert drafts[0].provenance_json == provenance
+            stored = await db.get(AsyncTask, task_id)
+            assert stored.status != "done"
+            assert stored.lease_id != lease_holder["lease_id"]
     finally:
-        async with sessions.begin() as cleanup:
-            await cleanup.execute(delete(AsyncTask).where(AsyncTask.id == task_id))
-            await cleanup.execute(delete(Project).where(Project.id == novel_uuid))
+        async with sessions.begin() as db:
+            await db.execute(
+                delete(WritingDraft).where(WritingDraft.novel_id == novel_uuid)
+            )
+            await db.execute(delete(AsyncTask).where(AsyncTask.novel_id == novel_uuid))
+            await db.execute(delete(Project).where(Project.id == novel_uuid))
 
 
 async def _async_noop(_db, *_args, **_kwargs) -> None:

@@ -56,12 +56,16 @@ def test_frozen_candidate_reused_only_on_fingerprint_match() -> None:
     assert reused.content == "已付费输出"
     assert reused.provenance_json["source"] == "writing_generate"
 
-    # 来源漂移：冻结输出作废，走正常重新生成（finalize 重验仍是门禁）
-    assert _frozen_candidate_for_plan(frozen, _plan("e" * 64)) is None
+    from core.errors import ConflictError
+
+    with pytest.raises(ConflictError, match="来源已变化"):
+        _frozen_candidate_for_plan(frozen, _plan("e" * 64))
     # 版本或负载损坏：同样不得复用
-    assert _frozen_candidate_for_plan({"version": 0}, _plan("f" * 64)) is None
+    with pytest.raises(ConflictError, match="无法恢复"):
+        _frozen_candidate_for_plan({"version": 0}, _plan("f" * 64))
     broken = {**frozen, "candidate": {"chapter_index": "not-an-int"}}
-    assert _frozen_candidate_for_plan(broken, _plan("f" * 64)) is None
+    with pytest.raises(ConflictError, match="无法恢复"):
+        _frozen_candidate_for_plan(broken, _plan("f" * 64))
 
 
 class _CountingClient(_GovernedFakeClientMixin):
@@ -110,7 +114,10 @@ def _worker(sessions):
 
 
 @pytest.mark.asyncio
-async def test_requeued_generation_reuses_frozen_paid_output(test_engine, monkeypatch):
+@pytest.mark.parametrize("frozen_state", ["valid", "stale", "invalid"])
+async def test_requeued_generation_reuses_frozen_paid_output(
+    test_engine, monkeypatch, frozen_state
+):
     """finalize 前崩溃 → 重排必须复用已付费输出，不得第二次调用模型。"""
     sessions = async_sessionmaker(
         test_engine,
@@ -233,6 +240,15 @@ async def test_requeued_generation_reuses_frozen_paid_output(test_engine, monkey
                 # 跳过 handler 重试退避（_AUTO_REQUEUE_DELAYS_SECONDS 首档 1s）
                 from datetime import UTC, datetime, timedelta
 
+                if frozen_state != "valid":
+                    meta = dict(requeued.meta)
+                    payload = dict(meta["_frozen_candidate"])
+                    if frozen_state == "stale":
+                        payload["source_fingerprint"] = "changed-source"
+                    else:
+                        payload["candidate"] = {"chapter_index": "invalid"}
+                    meta["_frozen_candidate"] = payload
+                    requeued.meta = meta
                 requeued.updated_at = datetime.now(UTC) - timedelta(seconds=5)
                 await check_db.commit()
 
@@ -241,10 +257,26 @@ async def test_requeued_generation_reuses_frozen_paid_output(test_engine, monkey
 
         # 重排复用冻结输出：模型只被调用一次，恰好落一个候选
         assert client.generate_calls == 1
-        assert finalize_calls == 2
+        assert finalize_calls == (2 if frozen_state == "valid" else 1)
         async with sessions() as verify_db:
             stored = await verify_db.get(AsyncTask, task_id)
             assert stored is not None
+            if frozen_state != "valid":
+                assert stored.status == "failed"
+                assert stored.meta["_frozen_candidate"]
+                assert not list(
+                    (
+                        await verify_db.execute(
+                            select(WritingDraft).where(
+                                WritingDraft.novel_id == novel_uuid
+                            )
+                        )
+                    ).scalars()
+                )
+                assert "writing_frozen_output_" in str(
+                    (stored.result or {}).get("lifecycle", {}).get("error_code")
+                )
+                return
             assert stored.status == "done"
             drafts = list(
                 (

@@ -362,6 +362,7 @@ def _build_audit_coverage(
         return receipt_coverage.covered_by if receipt_coverage is not None else ()
 
     reported = [item.dimension for item in verdict_output.dimensions]
+    duplicates = {dimension for dimension in reported if reported.count(dimension) > 1}
     checked = {item.dimension for item in verdict_output.dimensions if item.checked}
     complete = (
         len(reported) == len(set(reported)) and set(policy.required_dimensions) <= checked
@@ -370,8 +371,14 @@ def _build_audit_coverage(
         KnowledgeDimensionCoverage(
             dimension=item.dimension,
             covered_by=_covered_by(item.dimension),
-            omission_reason=None if item.checked else (item.note or "未检查"),
-            omitted=not item.checked,
+            omission_reason=(
+                "重复报告，独立复核未完成"
+                if item.dimension in duplicates
+                else None
+                if item.checked
+                else (item.note or "未检查")
+            ),
+            omitted=not item.checked or item.dimension in duplicates,
         )
         for item in verdict_output.dimensions
     ]
