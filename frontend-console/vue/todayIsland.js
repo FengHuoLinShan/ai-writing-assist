@@ -1,4 +1,4 @@
-import { clearActiveWorkflow, normalizeTaskProgress, recoverActiveWorkflows } from "../shared/workflowProgress.js"
+import { clearActiveWorkflow, normalizeTaskProgress, recoverActiveWorkflowsServerFirst } from "../shared/workflowProgress.js"
 import { getApi, getAppState } from "./bridge/index.js"
 import {
   clearCreativeContinuation,
@@ -276,7 +276,11 @@ export async function loadTodayProps() {
   } }) : null
   const worldContinuations = [firstPackage ? adoptionContinuation(firstPackage) : null, checkpointContinuation, firstDraft, firstSuggestion]
     .filter((item) => item && !isProjectedDecision(item, projectedSuggestionIds))
-  const stored = recoverActiveWorkflows(projectId)
+  const { workflows: recoveredWorkflows } = await recoverActiveWorkflowsServerFirst({
+    projectId,
+    apiClient: api,
+  })
+  const stored = recoveredWorkflows
     .sort((left, right) => String(right.updatedAt || right.createdAt || "").localeCompare(String(left.updatedAt || left.createdAt || "")))
     .slice(0, WORKFLOW_LIMIT)
   const workflows = (await Promise.all(
@@ -286,6 +290,10 @@ export async function loadTodayProps() {
   return {
     project,
     summary,
+    // BR-1b：Today「进行中的创作」由服务端投影驱动；本机指针只保留光标位置。
+    creationProgress: Array.isArray(summary?.creation_progress)
+      ? summary.creation_progress
+      : [],
     workflows,
     creativeContinuation,
     worldContinuations,

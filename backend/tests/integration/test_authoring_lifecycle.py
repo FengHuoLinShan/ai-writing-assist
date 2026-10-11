@@ -53,7 +53,10 @@ class _DeterministicWritingClient:
             )
         if schema is AuditVerdictOutput:
             return AuditVerdictOutput(
-                dimensions=[AuditDimensionCheck(dimension="prior_prose")],
+                dimensions=[
+                    AuditDimensionCheck(dimension=dimension, checked=True)
+                    for dimension in _required_dimensions(request.messages)
+                ],
                 verdict="pass",
             )
         payload = json.loads(request.messages[-1].content)
@@ -384,3 +387,16 @@ async def test_import_generate_publish_and_retrieve_serial_flow(
     assert retrieved.chunks
     assert any("月蚀铜铃" in chunk.text for chunk in retrieved.chunks)
     assert all(chunk.novel_id == novel_id for chunk in retrieved.chunks)
+
+
+def _required_dimensions(messages) -> list[str]:
+    """从审查 prompt 读取必查维度；合成审查者按全部维度已查应答。"""
+    for message in messages:
+        for line in (message.content or "").splitlines():
+            if line.startswith("必查维度："):
+                return [
+                    item.strip()
+                    for item in line.split("：", 1)[1].split(",")
+                    if item.strip()
+                ]
+    return []

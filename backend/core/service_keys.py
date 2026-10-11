@@ -22,6 +22,7 @@ if TYPE_CHECKING:
         CreativeResourcePort,
         ResourceSnapshot,
     )
+    from modules.evidence.confirmation_reads_port import ConfirmationReadsPort
     from modules.project.contracts import (
         StoryDedupSuggestionProvider,
         StoryWorkspaceStatsProvider,
@@ -239,6 +240,12 @@ RAG_REQUEST_ENTITY_ACTIVITY_REANNOTATION: ServiceKey[Callable[..., Any]] = Servi
     "rag.request_entity_activity_reannotation"
 )
 
+# --- evidence ---------------------------------------------------------------
+
+EVIDENCE_CONFIRMATION_READS: ServiceKey[ConfirmationReadsPort] = ServiceKey(
+    "evidence.confirmation_reads"
+)
+
 # --- story ------------------------------------------------------------------
 
 STORY_GET_SCENE_CONTRACT: ServiceKey[Callable[..., Any]] = ServiceKey(
@@ -332,6 +339,7 @@ WRITING_MANUSCRIPT_SOURCE: ServiceKey[ManuscriptSourcePort] = ServiceKey(
 
 #: 组合根登记的全部键（与 ``app/bootstrap.py`` 一一对应）。
 ALL_SERVICE_KEYS: tuple[ServiceKey[Any], ...] = (
+    EVIDENCE_CONFIRMATION_READS,
     ASSISTANT_FORECAST_INSTRUCTIONS,
     ASSISTANT_FORECAST_PERSONAS,
     ASSISTANT_FORECAST_CHOICES,

@@ -117,23 +117,27 @@ async def test_text_only_task_creates_candidate_without_moving_current_head(
 ):
     node, entities, task = await setup_task(db_session, test_project_id)
     prepared = prepared_context(entities)
-    async def generate(_request, schema, **_kwargs):
+
+    async def generate(request, schema, **_kwargs):
         if schema is AuditVerdictOutput:
             return AuditVerdictOutput(
-                dimensions=[AuditDimensionCheck(dimension="map_spatial")],
+                dimensions=[
+                    AuditDimensionCheck(dimension=dimension, checked=True)
+                    for dimension in _required_dimensions(request.messages)
+                ],
                 verdict="pass",
             )
         return MapRelationBatch(
-                relations=[
-                    {
-                        "subject": f"loc:{entities[1].id}",
-                        "relation": "north",
-                        "target": f"loc:{entities[0].id}",
-                        "source_keys": [f"entity:{entities[1].id}"],
-                        "quote": "乙城在甲城以北",
-                    }
-                ]
-            )
+            relations=[
+                {
+                    "subject": f"loc:{entities[1].id}",
+                    "relation": "north",
+                    "target": f"loc:{entities[0].id}",
+                    "source_keys": [f"entity:{entities[1].id}"],
+                    "quote": "乙城在甲城以北",
+                }
+            ]
+        )
 
     client = SimpleNamespace(
         generate_structured=AsyncMock(side_effect=generate),
@@ -403,3 +407,16 @@ async def test_failed_batch_retains_schema_discard_counts(db_session, test_proje
     assert summary["discard_reasons"] == {"invalid_schema": 3}
     assert summary["structured_attempts"] == 2
     assert "must not persist" not in json.dumps(task.result)
+
+
+def _required_dimensions(messages) -> list[str]:
+    """从审查 prompt 读取必查维度；合成审查者按全部维度已查应答。"""
+    for message in messages:
+        for line in message.content.splitlines():
+            if line.startswith("必查维度："):
+                return [
+                    item.strip()
+                    for item in line.split("：", 1)[1].split(",")
+                    if item.strip()
+                ]
+    return []

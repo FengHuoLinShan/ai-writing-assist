@@ -104,7 +104,9 @@ author-only inspection 加入 World 工作稿、采用地图与 Scene 人物卡/
 也不取得业务写入权限。专门 confirmation preview 与确认使用同一参数和指纹。
 Confirmation 可经 canonical compilation API 按 owner + `novel_id` 精确回读，不重编译
 历史 Context 或暴露私有编译选项。`stale_reasons` 独立于运行/采用状态；一旦非空，
-后续结果绑定不会使记录恢复新鲜。
+后续结果绑定不会使记录恢复新鲜。确认的结果状态另有只读缝
+`describe_confirmed_task_outcomes`：按任务引用回读 `result_status` 与归属任务标记，
+供 Project 用量按作品成果归因（BR-7）；该缝不加锁、不重编译、不改状态。
 
 `list_author_task_evidence` 是作者待办的有界只读出口；调用方必须为作者视角，复用 Project
 的日期/状态/分页查询，不将工作事项当成角色知识。TargetRef.target_path 继续只表示字段
@@ -138,6 +140,11 @@ World 使用确认后保留的 compiled items 作为实际语义输入，Focused
 ## 统一知识治理
 
 `compilation/knowledge` 拥有 capability 策略、scope/director/audit 版本化契约、组级治理与采用门禁。其他模块只经 `modules.evidence.contracts`/`facade` 消费；回执是派生审计状态，不代替 Writing/World/Story 的事实与采用所有权。
+
+审查裁决的服务端收口同时看两件事：finding 强度（blocker/major 即 blocked）与必查维度覆盖。必查维度
+缺失、被重复报告或审查者自报 `checked=false` 时，无论审查者给出什么 verdict，服务端一律降为
+`unverifiable`（与组路径同一标准）；覆盖回执逐维标明遗漏原因；重复维度标记为「重复报告，独立复核未完成」，漏报的必查维度以「未独立检查」补录。
+`unverifiable`/`not_checked` 不触发返修、候选不得采用，让「未查」在任何入口都不显示为通过。
 
 输出权限区分创作新增与既有事实断言：获准的候选设定、正文局部行动和对话不因尚未写过而
 单独判无来源；抽取、问答、既有事实、角色知识及隐藏真相仍须有据。未知与明确待定保持开放，

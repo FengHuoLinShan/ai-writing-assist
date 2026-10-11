@@ -10,6 +10,7 @@ const props = defineProps({
   project: { type: Object, default: null },
   summary: { type: Object, default: null },
   workflows: { type: Array, default: () => [] },
+  creationProgress: { type: Array, default: () => [] },
   creativeContinuation: { type: Object, default: null },
   worldContinuations: { type: Array, default: () => [] },
   continuationWarning: { type: String, default: null },
@@ -24,6 +25,7 @@ const confirmAction = getConfirmAction()
 const toast = getToast()
 const dismissedWorkflowIds = ref(new Set())
 const visibleWorkflows = computed(() => props.workflows.filter((workflow) => !dismissedWorkflowIds.value.has(workflow.taskId)))
+const creationProgress = computed(() => props.creationProgress.slice(0, 6))
 const projectId = computed(() => props.summary?.project_id || props.project?.id || null)
 const projectTitle = computed(() => props.project?.title || props.project?.name || "当前作品")
 const continuation = computed(() => props.summary?.continuation || null)
@@ -370,6 +372,50 @@ function openWorkflow(workflow) {
   router.navigate(view, subView)
 }
 
+// 作品进度四态不共用同一种视觉：进行中 / 可审阅 / 已采用（含已发布）/ 失败。
+function progressStateText(item) {
+  if (item.kind === "task") return item.stop_reason || "进行中"
+  if (item.kind === "adopted") {
+    return item.adoption_status === "published" ? "已发布" : "已采用，可继续写作或发布"
+  }
+  const review = item.review_status
+  if (review === "passed") return item.stop_reason || "可审阅，待采用"
+  if (review === "unverifiable" || review === "checking" || review === "incomplete") {
+    return "检查未完成，暂不能采用"
+  }
+  if (review && review !== "passed") return "检查未通过，暂不能采用"
+  return item.stop_reason || "可审阅"
+}
+
+function progressCardClass(item) {
+  if (item.kind === "task") {
+    return ["failed", "cancelled"].includes(item.execution_status) || item.applicability === "stale"
+      ? "is-warning"
+      : "is-running"
+  }
+  if (item.source_freshness === "stale") return "is-warning"
+  if (item.kind === "adopted") {
+    return item.adoption_status === "published" ? "is-published" : "is-adopted"
+  }
+  return item.review_status && item.review_status !== "passed" ? "is-warning" : "is-review"
+}
+
+function progressActionLabel(item) {
+  if (item.kind === "task") return item.execution_status === "failed" ? "打开并处理" : "查看"
+  return item.kind === "adopted" ? "打开正文" : "打开候选"
+}
+
+function openProgressItem(item) {
+  if (item.kind === "task") {
+    router.navigate("writing")
+    return
+  }
+  const query = new URLSearchParams()
+  if (item.chapter_index) query.set("chapter_index", String(item.chapter_index))
+  if (item.draft_id) query.set("draft_id", item.draft_id)
+  router.navigate("writing", null, true, query)
+}
+
 function dismissWorkflow(workflow) {
   confirmAction(
     "从首页隐藏后，任务仍可以在对应页面找回。",
@@ -526,6 +572,22 @@ function retry() {
       </div>
     </section>
 
+    <section v-if="creationProgress.length" class="today-section" aria-labelledby="today-progress-title">
+      <div class="today-section__heading"><div><h2 id="today-progress-title">进行中的创作</h2><p>生成完成、可审阅、已采用、已发布分开显示；依据变化会提示重新确认。</p></div></div>
+      <div class="today-workflow-list">
+        <article v-for="item in creationProgress" :key="item.key" class="today-workflow-card" :class="progressCardClass(item)">
+          <div class="today-workflow-card__copy">
+            <strong>{{ item.title }}</strong>
+            <span>{{ progressStateText(item) }}</span>
+            <small v-if="item.source_freshness === 'stale'" class="today-progress-stale">依据已变化，需要重新确认</small>
+          </div>
+          <div class="today-workflow-card__actions">
+            <button class="btn btn-sm" type="button" @click="openProgressItem(item)">{{ progressActionLabel(item) }}</button>
+          </div>
+        </article>
+      </div>
+    </section>
+
     <section v-if="visibleWorkflows.length" class="today-section" aria-labelledby="today-workflows-title">
       <div class="today-section__heading"><div><h2 id="today-workflows-title">正在进行的整理</h2><p>离开页面不会中断，失败也不会覆盖原内容。</p></div></div>
       <div class="today-workflow-list">
@@ -543,6 +605,11 @@ function retry() {
 </template>
 
 <style scoped>
+.today-progress-stale { display: block; color: var(--warning); }
+.today-workflow-card.is-running { border-left: 3px solid var(--accent); }
+.today-workflow-card.is-review { border-left: 3px solid var(--nc-ai, var(--accent)); }
+.today-workflow-card.is-adopted { border-left: 3px solid var(--success, var(--accent)); }
+.today-workflow-card.is-published { border-left: 3px solid var(--success, var(--accent)); background: color-mix(in srgb, var(--success, var(--accent)) 6%, var(--bg-panel)); }
 .today-author-tasks__actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .today-author-task-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .today-author-task-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 44px; padding: 8px 10px; border: 1px solid var(--border); }

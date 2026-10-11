@@ -21,6 +21,19 @@ def _attempt() -> SimpleNamespace:
     )
 
 
+def _required_dimensions(messages) -> list[str]:
+    """从审查 prompt 读取必查维度；合成审查者按全部维度已查应答。"""
+    for message in messages:
+        for line in message.content.splitlines():
+            if line.startswith("必查维度："):
+                return [
+                    item.strip()
+                    for item in line.split("：", 1)[1].split(",")
+                    if item.strip()
+                ]
+    return []
+
+
 def test_hold_writes_stay_private() -> None:
     from modules.interaction.generation import InteractionGenerationWorkflow
 
@@ -143,7 +156,10 @@ async def test_govern_held_story_pass_and_block_paths(monkeypatch) -> None:  # n
                 return DirectorShardPlan(dispositions=[])
             return AuditVerdictOutput(
                 findings=[],
-                dimensions=[AuditDimensionCheck(dimension="source_canon", checked=True)],
+                dimensions=[
+                    AuditDimensionCheck(dimension=dimension, checked=True)
+                    for dimension in _required_dimensions(request.messages)
+                ],
                 verdict="pass",
             )
 
@@ -169,7 +185,10 @@ async def test_govern_held_story_pass_and_block_paths(monkeypatch) -> None:  # n
                         message="提前揭示",
                     )
                 ],
-                dimensions=[AuditDimensionCheck(dimension="source_canon", checked=True)],
+                dimensions=[
+                    AuditDimensionCheck(dimension=dimension, checked=True)
+                    for dimension in _required_dimensions(request.messages)
+                ],
                 verdict="blocked",
             )
 
@@ -203,7 +222,8 @@ async def test_govern_held_story_pass_and_block_paths(monkeypatch) -> None:  # n
                 return AuditVerdictOutput(
                     findings=[],
                     dimensions=[
-                        AuditDimensionCheck(dimension="source_canon", checked=True)
+                        AuditDimensionCheck(dimension=dimension, checked=True)
+                        for dimension in _required_dimensions(request.messages)
                     ],
                     verdict="pass",
                 )

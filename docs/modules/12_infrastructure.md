@@ -157,7 +157,9 @@ deadline 前一刻发出的在途请求不会运行完整 provider timeout 越�
 summarize_project_ai_usage` 暴露）为 owner 次级诊断入口提供只读跨任务聚合：按项目扫描
 窗口期任务 meta 中的信封，按 root capability 汇总模型请求与输入/输出词元，只输出聚合计数
 （不含 prompt 内容或模型密钥）；单条坏回执跳过计数，单次扫描上限 500 条任务并返回
-`scan_truncated`。信封自报的 `requests_unknown` 与 `charge_state=possible` 原样保留为
+`scan_truncated`。返回值同时带 `tasks` 每任务用量明细（任务状态、能力与用量标记），
+供 Project 层按作品成果归因（BR-7）；本层不做归因、不读业务成果。信封自报的
+`requests_unknown` 与 `charge_state=possible` 原样保留为
 `requests_unknown` 计数与 `charge_unconfirmed` 标记，不折算进已知数字（BR-0a）。
 
 Task 路径把同一信封落在 `async_tasks.meta` 的私有键 `_ai_run_envelope`：worker 与 inline 在 handler
@@ -478,10 +480,17 @@ global handler 才允许 NULL owner，且不能携带非空 `meta.novel_id`。
 
 ```
 POST /api/tasks            # 提交任务
+GET  /api/tasks            # 按作品列出于途与最近终态任务（?novel_id=…&task_type=…）
 GET  /api/tasks/{id}       # 查询任务状态
 POST /api/tasks/{id}/cancel # 取消任务
 POST /api/tasks/{id}/retry  # 重试可恢复的失败/取消任务
 ```
+
+列表端点只读、按 `novel_id` 严格隔离并校验当前 account 与项目 owner（回收站/跨账号
+404），在途（pending/running）项在前、最近终态有上限，`active_count` 单独给出；
+每条携带与单查一致的公开 `meta / operation / lifecycle / available_actions` 投影，
+不含 result。它服务前端在刷新/换设备后发现在途创作任务（写作页与首页“正在进行的
+整理”），不替代任务详情查询。
 
 任务状态响应中的 `result` 只投影公开顶层字段。以下划线开头的顶层键属于 worker 的
 私有 checkpoint/receipt：数据库、重试和 lifecycle 恢复路径保留原值，但

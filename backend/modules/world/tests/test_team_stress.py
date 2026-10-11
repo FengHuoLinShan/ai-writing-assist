@@ -76,7 +76,14 @@ async def test_stress_report_preserves_invalid_counterexample_and_author_choice(
             return schema(
                 verdict="pass",
                 findings=[],
-                dimensions=[{"dimension": "world_rules", "checked": True}],
+                dimensions=[
+                    {"dimension": dimension, "checked": True}
+                    for dimension in (
+                        "world_entities",
+                        "world_rules",
+                        "world_bible",
+                    )
+                ],
             )
 
     async def checkpoint():

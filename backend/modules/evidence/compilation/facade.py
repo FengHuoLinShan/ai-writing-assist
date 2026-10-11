@@ -8,6 +8,8 @@ Facade 不写复杂业务逻辑，只做稳定的对外代理。
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -955,6 +957,23 @@ async def require_fresh_confirmation(
     )
 
 
+async def get_confirmation_staleness(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    confirmation_ids: Sequence[str],
+) -> dict[str, dict[str, Any]]:
+    """只读确认失效信号（result_status + 是否 stale），供进度投影使用。
+
+    不重编译上下文、不做门禁判定；缺失的 ID 不在返回值中。
+    """
+    return await _confirmation_service.get_staleness_map(
+        db,
+        novel_id=novel_id,
+        confirmation_ids=confirmation_ids,
+    )
+
+
 async def prepare_confirmed_ai_action(
     db: AsyncSession,
     *,
@@ -1072,6 +1091,25 @@ async def attach_result_refs(
         confirmation_id=confirmation_id,
         result_refs=result_refs,
         status=status,
+    )
+
+
+async def describe_confirmed_task_outcomes(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    task_ids: list[str],
+) -> dict[str, dict]:
+    """Read-only: confirmed-action outcome summary per task id.
+
+    只读缝：返回 {task_id: {confirmation_id, result_status, owner_task}}，
+    供用量按作品成果归因等跨模块只读查询使用。不加锁、不重编译；
+    没有确认引用的任务不出现在返回值里。
+    """
+    return await _confirmation_service.describe_task_outcomes(
+        db,
+        novel_id=novel_id,
+        task_ids=task_ids,
     )
 
 

@@ -195,7 +195,8 @@ provider；finalize 会按 project-first 顺序重验 profile、上下文与当�
 - `pov_view`：角色视角结构化结果（仅 `pov_character`）
 - `pov_validation`：角色视角 deterministic 泄漏诊断；`passed` 只表示“未发现明显越权”，不是绝对安全保证
 - `scene_execution_bundle_hash / upstream_manifest`：冻结 Scene、StoryOutline revision 与 execution profile
-- `independent_review`：独立 reviewer task、正文/context hash、coverage、verdict、finding IDs 和阻断数
+- `independent_review`：独立 reviewer task、正文/context hash、coverage、verdict、finding IDs 和阻断数；
+  另带单调 `check_version` 与审查输出 `output_hash`，供带问题采用追溯“当时按哪个版本检查、核的是哪份输出”
 
 生成存在 Scene 的正文时，writing 通过
 `outline.facade.get_scene_execution_bundle` 消费 version-bound
@@ -242,7 +243,13 @@ AI 评论仍可查看，但不能直接执行。显式“审稿并修订”先�
 POV 角色视角建议即使诊断为 `failed` 仍保留原始建议；前端标红风险。作者调用
 `POST /drafts/{id}/adopt` 后，服务以 copy-on-adopt 创建最高版本号的普通 draft，记录
 `adopted_from_candidate_id / adopted_at / adopted_by`，并把原建议转入历史。重复采用同一建议
-会被拒绝。
+会被拒绝。阻断级问题（知识复核未通过、blocker/major finding）在门禁挡下；能通过门禁的
+非阻断 finding 属作者决定延后处理的欠账，采用记录会写入 `adopted_with_open_issues`
+（finding 标识、审查输出 hash、`check_version`），不建独立问题真相表。生成任务 result
+如实携带 `knowledge_review_status`；前端据此区分“运行完成 / 可审阅 / 已采用 / 已发布”：
+复核未通过或未完成的候选不弹成功提示、不显示采用入口，只警告并列出遗漏维度；verdict
+`incomplete` 显示“部分完成”与未检查项；发布前确认框提示部分完成的检查（发布不加服务端
+门禁，只保证提示如实）。
 
 ## 手动工作台
 

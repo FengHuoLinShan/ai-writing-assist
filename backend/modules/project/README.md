@@ -17,7 +17,7 @@ project 模块负责统一项目隔离根。作者项目使用 `project_kind=aut
 - 提供 `novel_id` / `project_id`
 - 提供项目级默认策略（如 `default_reveal_policy`）
 - 管理项目作者偏好覆盖，并组合 account 默认与项目覆盖形成 effective 配置
-- 在 `projects.settings.editorial_brief_v1` 保存作者确认的版本化编辑约定；`GET/PUT /api/projects/{id}/editorial-brief` 读写，PUT 用 `expected_version` 校验并发。公开只读演示源不能写入，模型意见和单次忽略不会自动更新约定。「也用于 AI 写作」开关（默认关闭）经 `/editorial-brief/for-writing` 读写，开启后约定进入 writing 确认上下文；`GET /ai-usage` 为 owner 次级诊断聚合窗口期 AI 用量。
+- 在 `projects.settings.editorial_brief_v1` 保存作者确认的版本化编辑约定；`GET/PUT /api/projects/{id}/editorial-brief` 读写，PUT 用 `expected_version` 校验并发。公开只读演示源不能写入，模型意见和单次忽略不会自动更新约定。「也用于 AI 写作」开关（默认关闭）经 `/editorial-brief/for-writing` 读写，开启后约定进入 writing 确认上下文；`GET /ai-usage` 为 owner 次级诊断聚合窗口期 AI 用量，并经 Evidence 只读缝按作品成果归因（已采用 / 待处理 / 未采用返修 / 失败恢复 / 辅助消耗，BR-7），未知用量逐桶单列。
 - 根据项目 owner 打开账户级文本与图片连接；项目只保留非 secret 工作流设置和可恢复 snapshot
 - 提供项目级智能去重扫描入口，聚合各业务模块自己的去重建议
 - 提供作者“今日工作”所需的只读工作台摘要，不返回正文、owner、密钥或内部任务信息
@@ -382,3 +382,5 @@ writing.generate 作者视角注入，详见 writing 模块）与 `llm_cost_savi
 ### 项目归档与私有 RP 缓存
 
 软删除/归档项目经 `CONTEXT_PURGE_PROJECT_INTERACTION_CACHE` 同事务清除该项目作为 source 或 consumer 的缓存；恢复项目冷编译。缓存清理不删除正文、版本、作者确认事件或领域历史，永久删除仍保留原 FK 清理语义。
+
+成果归因逐桶保留 usage_complete，历史不可考即使未知次数为零也不显示为零消耗。

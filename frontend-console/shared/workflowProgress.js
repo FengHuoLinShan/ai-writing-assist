@@ -479,6 +479,84 @@ export function recoverActiveWorkflows(projectId = null, storage = globalThis.lo
     : deduped
 }
 
+export async function fetchServerTaskOverview({
+  novelId,
+  taskType = null,
+  apiClient = globalThis.api,
+} = {}) {
+  if (!novelId) return { available: false, items: [] }
+  if (!apiClient?.tasks?.list) return { available: false, items: [] }
+  try {
+    const response = await apiClient.tasks.list(novelId, { taskType })
+    return { available: true, items: safeArray(response?.items) }
+  } catch {
+    return { available: false, items: [] }
+  }
+}
+
+export function serverTaskToActiveWorkflow(task, novelId) {
+  const raw = safeObject(task)
+  const progress = normalizeTaskProgress(raw, raw.task_type)
+  const meta = safeObject(raw.meta)
+  return {
+    id: workflowIdFor({
+      projectId: novelId,
+      workflowType: progress.workflowType,
+      taskId: progress.taskId,
+    }),
+    taskId: progress.taskId,
+    workflowType: progress.workflowType,
+    label: progress.label,
+    projectId: novelId,
+    view: null,
+    meta: {
+      chapter: Number.isFinite(meta.chapter_index) ? meta.chapter_index : null,
+      sceneId: meta.scene_id || null,
+      draftId: meta.draft_id
+        || (Array.isArray(meta.draft_ids) ? meta.draft_ids[0] : null)
+        || null,
+    },
+    createdAt: raw.created_at || null,
+    updatedAt: raw.heartbeat_at || raw.updated_at || raw.created_at || null,
+    serverAuthoritative: true,
+  }
+}
+
+export function serverTaskMatchesScene(task, { chapter, sceneId = null } = {}) {
+  const meta = safeObject(safeObject(task).meta)
+  if (Number(meta.chapter_index) !== Number(chapter)) return false
+  const taskSceneId = meta.scene_id || null
+  if (!taskSceneId) return true
+  return taskSceneId === (sceneId || null)
+}
+
+export async function recoverActiveWorkflowsServerFirst({
+  projectId,
+  apiClient = globalThis.api,
+  storage = globalThis.localStorage,
+  workflowTypes = null,
+} = {}) {
+  const local = recoverActiveWorkflows(projectId, storage)
+  const scopedLocal = workflowTypes
+    ? local.filter((item) => workflowTypes.has(item.workflowType))
+    : local
+  const { available, items } = await fetchServerTaskOverview({
+    novelId: projectId,
+    apiClient,
+  })
+  if (!available) return { workflows: scopedLocal, source: "local" }
+  const serverActive = items
+    .filter((task) => RUNNING_STATUSES.has(safeObject(task).status))
+    .filter((task) => !workflowTypes || workflowTypes.has(task.task_type))
+    .map((task) => serverTaskToActiveWorkflow(task, projectId))
+  const seen = new Set(serverActive.map((workflow) => workflow.taskId))
+  const workflows = [
+    ...serverActive,
+    ...scopedLocal.filter((workflow) => !seen.has(workflow.taskId)),
+  ]
+  return { workflows, source: "server" }
+}
+
 export function pollTaskProgress({
   taskId,
   workflowType,

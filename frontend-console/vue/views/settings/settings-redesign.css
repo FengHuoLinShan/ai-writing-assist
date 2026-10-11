@@ -98,3 +98,6 @@
 .author-example-dialog__error { margin: 0 0 10px; color: #b3563d; font-size: 13px; }
 .author-example-dialog__actions { display: flex; justify-content: flex-end; gap: 8px; }
 .settings-shell .usage-charge-unconfirmed { color: var(--settings-muted); font-size: 12.5px; }
+.settings-shell .usage-attribution { margin: 10px 0 14px; }
+.settings-shell .usage-attribution h4 { margin: 0 0 8px; font-size: 13.5px; }
+.settings-shell .usage-attribution-table { margin-bottom: 8px; }

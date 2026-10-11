@@ -31,6 +31,7 @@ from infrastructure.tasks.contracts import (
     TaskAction,
     TaskLifecycleContract,
     TaskOperationProjectionV1,
+    TaskOverviewItemContract,
     TaskOwnerContract,
     TaskSubmissionMode,
 )
@@ -823,6 +824,86 @@ class TaskLifecycleService:
             for row in rows
         ]
 
+    async def list_novel_tasks(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        task_type: str | None = None,
+        active_limit: int = 50,
+        terminal_limit: int = 10,
+    ) -> list[TaskOverviewItemContract]:
+        """Project-scoped read-only overview of in-flight plus recent terminal tasks.
+
+        Active (pending/running) rows always win over terminal ones; terminal
+        history is bounded so long-running projects do not grow the response.
+        Only the project-scoped rows are returned — global tasks never appear.
+        """
+        scoped = [AsyncTask.novel_id == uuid.UUID(novel_id)]
+        if task_type:
+            scoped.append(AsyncTask.task_type == task_type)
+        active_rows = (
+            (
+                await db.execute(
+                    select(AsyncTask)
+                    .where(*scoped, AsyncTask.status.in_(("pending", "running")))
+                    .order_by(AsyncTask.created_at.desc(), AsyncTask.id.desc())
+                    .limit(min(200, max(1, active_limit)))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        terminal_rows = (
+            (
+                await db.execute(
+                    select(AsyncTask)
+                    .where(
+                        *scoped,
+                        AsyncTask.status.in_(("done", "failed", "cancelled")),
+                    )
+                    .order_by(
+                        func.coalesce(
+                            AsyncTask.finished_at,
+                            AsyncTask.updated_at,
+                            AsyncTask.created_at,
+                        ).desc(),
+                        AsyncTask.id.desc(),
+                    )
+                    .limit(min(100, max(1, terminal_limit)))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        items: list[TaskOverviewItemContract] = []
+        for task in [*active_rows, *terminal_rows]:
+            lifecycle = lifecycle_contract(task, max_heartbeat_gap=TASK_MAX_HEARTBEAT_GAP)
+            items.append(
+                TaskOverviewItemContract(
+                    task_id=str(task.id),
+                    task_type=task.task_type,
+                    status=task.status or "pending",
+                    created_at=(task.created_at.isoformat() if task.created_at else None),
+                    started_at=(task.started_at.isoformat() if task.started_at else None),
+                    finished_at=(
+                        task.finished_at.isoformat() if task.finished_at else None
+                    ),
+                    heartbeat_at=lifecycle.heartbeat_at,
+                    attempt=lifecycle.attempt,
+                    max_attempts=lifecycle.max_attempts,
+                    stale=lifecycle.stale,
+                    meta=dict(task.meta or {}),
+                    operation=lifecycle.operation,
+                    lifecycle_reason=lifecycle.transition_reason,
+                    recovery_policy=lifecycle.recovery_policy,
+                    recovery_required=lifecycle.recovery_required,
+                    available_actions=list(lifecycle.available_actions),
+                    error_message=task.error_message,
+                )
+            )
+        return items
+
     async def summarize_ai_usage(
         self,
         db: AsyncSession,
@@ -837,6 +918,8 @@ class TaskLifecycleService:
         requests 与 usage。供 owner 次级诊断入口消费。已知数字只累计取得
         完整回执的请求；`requests_unknown` 与 `charge_unconfirmed` 如实
         保留用量未知与计费未确认的部分，不折算进已知数字。
+        同时返回 `tasks` 每任务明细（任务状态、能力与用量），供上层把
+        用量归因到作品成果；归因本身不在这里做，本层不认识业务成果。
         """
         from datetime import timedelta
 
@@ -848,7 +931,7 @@ class TaskLifecycleService:
         since = datetime.now(UTC) - timedelta(days=max(1, min(365, days)))
         rows = (
             await db.execute(
-                select(AsyncTask.meta)
+                select(AsyncTask.id, AsyncTask.status, AsyncTask.meta)
                 .where(
                     AsyncTask.novel_id == uuid.UUID(novel_id),
                     AsyncTask.created_at >= since,
@@ -858,9 +941,10 @@ class TaskLifecycleService:
             )
         ).all()
         capabilities: dict[str, dict[str, Any]] = {}
+        task_rows: list[dict[str, Any]] = []
         tasks_with_envelope = 0
         unreadable_envelopes = 0
-        for (meta,) in rows:
+        for task_id, task_status, meta in rows:
             try:
                 envelope = read_ai_run_envelope((meta or {}).get(AI_RUN_ENVELOPE_KEY))
             except Exception:  # noqa: BLE001 - 单条坏回执不阻断整体聚合
@@ -889,15 +973,39 @@ class TaskLifecycleService:
             )
             # 计费状态未确认只看信封自报的 charge_state：step 级 possible 或
             # 信封级 possible（旧回执可能没有 step 明细）都算未确认。
-            if envelope.charge_state is AIChargeState.possible:
+            charge_unconfirmed = envelope.charge_state is AIChargeState.possible
+            if charge_unconfirmed:
                 bucket["charge_unconfirmed"] = True
+            requests = 0
+            requests_unknown = 0
+            prompt_tokens = 0
+            completion_tokens = 0
             for step in envelope.steps:
-                bucket["requests"] += int(step.requests_settled)
-                bucket["requests_unknown"] += int(step.requests_unknown)
-                bucket["prompt_tokens"] += int(step.usage.prompt_tokens)
-                bucket["completion_tokens"] += int(step.usage.completion_tokens)
+                requests += int(step.requests_settled)
+                requests_unknown += int(step.requests_unknown)
+                prompt_tokens += int(step.usage.prompt_tokens)
+                completion_tokens += int(step.usage.completion_tokens)
                 if step.charge_state is AIChargeState.possible:
                     bucket["charge_unconfirmed"] = True
+                    charge_unconfirmed = True
+            bucket["requests"] += requests
+            bucket["requests_unknown"] += requests_unknown
+            bucket["prompt_tokens"] += prompt_tokens
+            bucket["completion_tokens"] += completion_tokens
+            task_rows.append(
+                {
+                    "task_id": str(task_id),
+                    "status": str(task_status or ""),
+                    "capability": envelope.root_capability_id,
+                    "requests": requests,
+                    "requests_unknown": requests_unknown,
+                    "input_tokens": prompt_tokens,
+                    "output_tokens": completion_tokens,
+                    "charge_unconfirmed": charge_unconfirmed,
+                    "usage_complete": envelope.usage_complete
+                    and not envelope.legacy_untracked,
+                }
+            )
         return {
             "window_days": max(1, min(365, days)),
             "tasks_scanned": len(rows),
@@ -905,6 +1013,7 @@ class TaskLifecycleService:
             "unreadable_envelopes": unreadable_envelopes,
             "scan_truncated": len(rows) >= max(1, min(2000, scan_limit)),
             "capabilities": capabilities,
+            "tasks": task_rows,
         }
 
     async def list_contracts(

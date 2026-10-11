@@ -285,6 +285,32 @@ class WorkspaceAuthorTasksSummaryResponse(BaseModel):
     preview: list[WorkspaceAuthorTaskPreviewResponse] = Field(default_factory=list)
 
 
+class WorkspaceCreationProgressItemResponse(BaseModel):
+    """作品进度投影条目（BR-1b）：V4 六维 + 停点原因与可执行动作。
+
+    只读投影，不含 raw meta、prompt 或任务输出；作者语言字段由
+    writing adapter 拼装。
+    """
+
+    key: str
+    kind: Literal["task", "candidate", "adopted"]
+    title: str
+    execution_status: str = "done"
+    coverage: str | None = None
+    source_freshness: Literal["fresh", "stale", "unknown"] = "unknown"
+    applicability: str = "applicable"
+    review_status: str | None = None
+    adoption_status: str | None = None
+    stop_reason: str | None = None
+    actions: list[str] = Field(default_factory=list)
+    task_id: str | None = None
+    task_type: str | None = None
+    draft_id: str | None = None
+    chapter_index: int | None = None
+    scene_id: str | None = None
+    updated_at: datetime | None = None
+
+
 class WorkspaceAttentionTargetResponse(BaseModel):
     kind: Literal[
         "writing_conflict",
@@ -346,7 +372,11 @@ class WorkspaceAttentionSummaryResponse(BaseModel):
 
 
 class ProjectWorkspaceSummaryResponse(BaseModel):
-    """Task-oriented project read model; contains no content, secrets, or raw tasks."""
+    """Task-oriented project read model; contains no content, secrets, or raw tasks.
+
+    ``creation_progress`` 是只读进度投影（BR-1b）：仅作者语言的状态维度、
+    停点原因与动作词表，不含原始任务 meta 或任务输出。
+    """
 
     project_id: str
     continuation: WorkspaceContinuationResponse | None = None
@@ -358,6 +388,9 @@ class ProjectWorkspaceSummaryResponse(BaseModel):
     )
     author_tasks: WorkspaceAuthorTasksSummaryResponse = Field(
         default_factory=WorkspaceAuthorTasksSummaryResponse
+    )
+    creation_progress: list[WorkspaceCreationProgressItemResponse] = Field(
+        default_factory=list
     )
 
 
