@@ -335,6 +335,27 @@ describe("todayIsland", () => {
     expect(api.tasks.get).toHaveBeenCalledWith(expect.any(String), "p1")
   })
 
+  it("换设备时经服务端任务总览展示在途生成（本机无登记）", async () => {
+    const state = { currentProjectId: "p1", currentProject: { id: "p1", title: "雾港" } }
+    const api = {
+      projects: { getWorkspaceSummary: vi.fn(async () => ({ project_id: "p1" })) },
+      tasks: {
+        list: vi.fn(async () => ({ items: [
+          { task_id: "server-writing-task", task_type: "writing_generate", status: "running", meta: { chapter_index: 2, scene_id: "scene-1" } },
+        ], active_count: 1 })),
+        get: vi.fn(async (taskId) => ({ task_id: taskId, task_type: "writing_generate", status: "running", progress: 0.5 })),
+      },
+    }
+    setBridgeOverrides({ state, api })
+
+    const props = await loadTodayProps()
+
+    expect(api.tasks.list).toHaveBeenCalledWith("p1", { taskType: null })
+    expect(props.workflows).toEqual([
+      expect.objectContaining({ taskId: "server-writing-task", workflowType: "writing_generate" }),
+    ])
+  })
+
   it("keeps an unavailable workflow visible without exposing a technical failure", async () => {
     const state = { currentProjectId: "p1", currentProject: { id: "p1", title: "雾港" } }
     persistActiveWorkflow({ taskId: "private-task-id", workflowType: "writing_generate", projectId: "p1" })

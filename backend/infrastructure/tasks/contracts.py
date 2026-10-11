@@ -111,6 +111,35 @@ class TaskOwnerContract:
 
 
 @dataclass(frozen=True)
+class TaskOverviewItemContract:
+    """Author-safe projection of one in-flight or recent-terminal project task.
+
+    Consumers on the browser path must apply the same public meta filtering as
+    the single-task status API (strip underscore-prefixed keys and the
+    operation fingerprint) before serializing; this contract keeps the raw meta
+    so the API projection stays the single wire authority.
+    """
+
+    task_id: str
+    task_type: str
+    status: str
+    created_at: str | None
+    started_at: str | None
+    finished_at: str | None
+    heartbeat_at: str | None
+    attempt: int
+    max_attempts: int
+    stale: bool
+    meta: dict[str, Any]
+    operation: TaskOperationProjectionV1
+    lifecycle_reason: str | None
+    recovery_policy: str
+    recovery_required: bool
+    available_actions: list[TaskAction]
+    error_message: str | None
+
+
+@dataclass(frozen=True)
 class CompletedTaskPayloadContract:
     """Detached source payload for a novel-scoped completed task.
 

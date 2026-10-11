@@ -27,6 +27,15 @@ export const tasks = {
       return request(`/tasks/${taskId}${query}`)
     },
 
+    async list(novelId = null, { taskType = null } = {}) {
+      const resolvedNovelId = novelId || globalThis.appState?.currentProjectId
+      const params = { _ts: Date.now() }
+      if (resolvedNovelId) params.novel_id = resolvedNovelId
+      if (taskType) params.task_type = taskType
+      const query = apiContractHelpers.queryString(params)
+      return request(`/tasks${query}`)
+    },
+
     async cancel(taskId, novelId = null) {
       const resolvedNovelId = novelId || globalThis.appState?.currentProjectId
       return contractFetch("tasks.cancel", { taskId }, { novel_id: resolvedNovelId })

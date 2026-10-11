@@ -298,6 +298,13 @@ map / rag / outline / settings / project-settings`，其主 DOM 全部由 Vue SF
   404 显示“未找到原任务，请重新开始”，不自动重放不确定提交。进度和结果只在
   发起位置显示，默认隐藏 raw task ID；Scene 融合完成后在工作台显示“查看预览”，
   不因晚到响应重开旧弹窗。任务完成不刷新整座 island，不覆盖当前输入、筛选、焦点、滚动和多选。
+- `shared/workflowProgress.js` 以服务端任务总览（`GET /api/tasks?novel_id=…`）为
+  在途任务的权威来源：写作页恢复与首页“正在进行的整理”先合并服务端 pending/running
+  任务，本机 `novel_active_workflows_v1` 仅作首屏加速与离线兜底；服务端不可用时回退
+  本机登记，恢复行为与旧版一致。写作生成入口在同一章节与场景已有在途
+  `writing_generate` 时先提示“已有一份正文正在生成”，取消返回并跟随原任务进度，
+  作者确认“仍要再生成”才提交新任务（旧任务无 `scene_id` 时按章节保守提示）；
+  换设备登录后可在首页与写作页看到同一在途任务并回到其候选，不重复提交。
   写作页生成、独立语义审查与定向返修共用该恢复路径；候选采用按
   `writing-adopt-v1:<draftId>` 确定性幂等键提交，回包丢失后重放返回原采用回执。
 - `shared/smartDedup.js` 对 schema v2 结果打开 `{size: "large", protectUnsaved: true}`

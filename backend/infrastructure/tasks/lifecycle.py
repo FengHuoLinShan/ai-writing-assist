@@ -31,6 +31,7 @@ from infrastructure.tasks.contracts import (
     TaskAction,
     TaskLifecycleContract,
     TaskOperationProjectionV1,
+    TaskOverviewItemContract,
     TaskOwnerContract,
     TaskSubmissionMode,
 )
@@ -822,6 +823,86 @@ class TaskLifecycleService:
             }
             for row in rows
         ]
+
+    async def list_novel_tasks(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        task_type: str | None = None,
+        active_limit: int = 50,
+        terminal_limit: int = 10,
+    ) -> list[TaskOverviewItemContract]:
+        """Project-scoped read-only overview of in-flight plus recent terminal tasks.
+
+        Active (pending/running) rows always win over terminal ones; terminal
+        history is bounded so long-running projects do not grow the response.
+        Only the project-scoped rows are returned — global tasks never appear.
+        """
+        scoped = [AsyncTask.novel_id == uuid.UUID(novel_id)]
+        if task_type:
+            scoped.append(AsyncTask.task_type == task_type)
+        active_rows = (
+            (
+                await db.execute(
+                    select(AsyncTask)
+                    .where(*scoped, AsyncTask.status.in_(("pending", "running")))
+                    .order_by(AsyncTask.created_at.desc(), AsyncTask.id.desc())
+                    .limit(min(200, max(1, active_limit)))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        terminal_rows = (
+            (
+                await db.execute(
+                    select(AsyncTask)
+                    .where(
+                        *scoped,
+                        AsyncTask.status.in_(("done", "failed", "cancelled")),
+                    )
+                    .order_by(
+                        func.coalesce(
+                            AsyncTask.finished_at,
+                            AsyncTask.updated_at,
+                            AsyncTask.created_at,
+                        ).desc(),
+                        AsyncTask.id.desc(),
+                    )
+                    .limit(min(100, max(1, terminal_limit)))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        items: list[TaskOverviewItemContract] = []
+        for task in [*active_rows, *terminal_rows]:
+            lifecycle = lifecycle_contract(task, max_heartbeat_gap=TASK_MAX_HEARTBEAT_GAP)
+            items.append(
+                TaskOverviewItemContract(
+                    task_id=str(task.id),
+                    task_type=task.task_type,
+                    status=task.status or "pending",
+                    created_at=(task.created_at.isoformat() if task.created_at else None),
+                    started_at=(task.started_at.isoformat() if task.started_at else None),
+                    finished_at=(
+                        task.finished_at.isoformat() if task.finished_at else None
+                    ),
+                    heartbeat_at=lifecycle.heartbeat_at,
+                    attempt=lifecycle.attempt,
+                    max_attempts=lifecycle.max_attempts,
+                    stale=lifecycle.stale,
+                    meta=dict(task.meta or {}),
+                    operation=lifecycle.operation,
+                    lifecycle_reason=lifecycle.transition_reason,
+                    recovery_policy=lifecycle.recovery_policy,
+                    recovery_required=lifecycle.recovery_required,
+                    available_actions=list(lifecycle.available_actions),
+                    error_message=task.error_message,
+                )
+            )
+        return items
 
     async def summarize_ai_usage(
         self,

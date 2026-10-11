@@ -500,3 +500,160 @@ async def test_generic_submit_keeps_explicit_custom_task_available_and_guarded(
         assert guarded.status_code == 404
     finally:
         registry.unregister("test_generic_submit")
+
+
+@pytest.mark.asyncio
+async def test_task_list_requires_novel_id(async_client: AsyncClient) -> None:
+    response = await async_client.get("/api/tasks")
+
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_task_list_returns_active_first_with_public_projections(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    owner_novel = str(uuid.uuid4())
+    other_novel = str(uuid.uuid4())
+    await _add_project(db_session, owner_novel)
+    await _add_project(db_session, other_novel)
+    done_task = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="writing_generate",
+        status="done",
+        meta={"novel_id": owner_novel, "chapter_index": 1, "scene_id": None},
+        result={"draft_id": "candidate-1"},
+    )
+    running_task = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="writing_generate",
+        status="running",
+        meta={
+            "novel_id": owner_novel,
+            "chapter_index": 2,
+            "scene_id": "scene-1",
+            "operation_fingerprint": "a" * 64,
+            "_private_checkpoint": {"secret": "must-not-leak"},
+        },
+        result={"current_phase": "drafting"},
+    )
+    other_task = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="writing_generate",
+        status="running",
+        meta={"novel_id": other_novel, "chapter_index": 3},
+    )
+    db_session.add_all([done_task, running_task, other_task])
+    await db_session.flush()
+
+    response = await async_client.get(
+        "/api/tasks",
+        params={"novel_id": owner_novel},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["active_count"] == 1
+    assert [item["task_id"] for item in payload["items"]] == [
+        str(running_task.id),
+        str(done_task.id),
+    ]
+    active_item = payload["items"][0]
+    assert active_item["status"] == "running"
+    assert active_item["meta"] == {
+        "novel_id": owner_novel,
+        "chapter_index": 2,
+        "scene_id": "scene-1",
+    }
+    assert "a" * 64 not in response.text
+    assert "must-not-leak" not in response.text
+    assert active_item["operation"]["version"] == 1
+    assert active_item["operation"]["stage"] == "drafting"
+    assert active_item["available_actions"] == ["cancel"]
+    done_item = payload["items"][1]
+    assert done_item["status"] == "done"
+    assert done_item["available_actions"] == ["dismiss"]
+    assert "result" not in done_item
+
+
+@pytest.mark.asyncio
+async def test_task_list_supports_task_type_filter(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    owner_novel = str(uuid.uuid4())
+    await _add_project(db_session, owner_novel)
+    db_session.add_all(
+        [
+            AsyncTask(
+                id=uuid.uuid4(),
+                task_type="writing_generate",
+                status="pending",
+                meta={"novel_id": owner_novel},
+            ),
+            AsyncTask(
+                id=uuid.uuid4(),
+                task_type="rag_reindex_novel",
+                status="running",
+                meta={"novel_id": owner_novel},
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    response = await async_client.get(
+        "/api/tasks",
+        params={"novel_id": owner_novel, "task_type": "writing_generate"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["task_type"] for item in payload["items"]] == ["writing_generate"]
+    assert payload["active_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_task_list_is_owner_and_project_isolated(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    owner_novel = str(uuid.uuid4())
+    foreign_novel = str(uuid.uuid4())
+    await _add_project(db_session, owner_novel)
+    db_session.add(
+        Project(
+            id=uuid.UUID(foreign_novel),
+            title="Foreign project",
+            owner_id=uuid.uuid4(),
+        )
+    )
+    db_session.add(
+        AsyncTask(
+            id=uuid.uuid4(),
+            task_type="writing_generate",
+            status="running",
+            meta={"novel_id": owner_novel},
+        )
+    )
+    await db_session.flush()
+
+    foreign = await async_client.get(
+        "/api/tasks",
+        params={"novel_id": foreign_novel},
+    )
+    assert foreign.status_code == 404
+
+    deleted_novel = str(uuid.uuid4())
+    await _add_project(db_session, deleted_novel, deleted=True)
+    recycled = await async_client.get(
+        "/api/tasks",
+        params={"novel_id": deleted_novel},
+    )
+    assert recycled.status_code == 404
+
+    missing = await async_client.get(
+        "/api/tasks",
+        params={"novel_id": str(uuid.uuid4())},
+    )
+    assert missing.status_code == 404

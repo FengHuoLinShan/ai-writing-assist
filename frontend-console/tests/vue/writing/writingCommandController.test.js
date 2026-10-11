@@ -3,9 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 vi.mock("../../../shared/aiReferenceModal.js", () => ({
   confirmAiReference: vi.fn(async () => ({ id: "confirmation-1", user_note: "保持克制" })),
 }))
+vi.mock("../../../shared/confirmAsync.js", () => ({
+  confirmAsync: vi.fn(async () => false),
+}))
 
 import { createWritingCommandController } from "../../../vue/views/writing/controllers/writingCommandController.js"
 import { confirmAiReference } from "../../../shared/aiReferenceModal.js"
+import { confirmAsync } from "../../../shared/confirmAsync.js"
 
 function setup(overrides = {}) {
   const api = {
@@ -54,6 +58,7 @@ function setup(overrides = {}) {
 describe("writingCommandController", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    confirmAsync.mockResolvedValue(false)
     localStorage.clear()
     sessionStorage.clear()
   })
@@ -150,6 +155,32 @@ describe("writingCommandController", () => {
     await controller.generateContinuation()
     expect(api.writing.generate).not.toHaveBeenCalled()
     expect(toast).toHaveBeenCalledWith(expect.stringContaining("正文为空"), "warning")
+  })
+
+  it("查询在途任务之前就阻止同轮双击", async () => {
+    let resolveList
+    const { api, controller } = setup()
+    api.tasks.list = vi.fn(() => new Promise(resolve => { resolveList = resolve }))
+    const first = controller.generateDraft()
+    await controller.generateDraft()
+    expect(api.tasks.list).toHaveBeenCalledTimes(1)
+    expect(api.writing.generate).not.toHaveBeenCalled()
+    resolveList({ items: [], active_count: 0 })
+    await first
+    expect(api.writing.generate).toHaveBeenCalledTimes(1)
+  })
+
+  it("在途查询返回前切换作品时不确认或跟随旧任务", async () => {
+    let resolveList
+    const { api, project, controller } = setup()
+    api.tasks.list = vi.fn(() => new Promise(resolve => { resolveList = resolve }))
+    const pending = controller.generateDraft()
+    project.value = "p2"
+    resolveList({ items: [{ task_id: "p1-task", task_type: "writing_generate", status: "running", meta: { chapter_index: 1, scene_id: "scene-1" } }], active_count: 1 })
+    await pending
+    expect(confirmAsync).not.toHaveBeenCalled()
+    expect(api.tasks.get).not.toHaveBeenCalled()
+    expect(api.writing.generate).not.toHaveBeenCalled()
   })
 
   it("正文生成进行中时拒绝重复提交", async () => {
@@ -253,6 +284,92 @@ describe("writingCommandController", () => {
 
     await expect(controller.recover()).resolves.toBe(false)
     expect(api.tasks.get).not.toHaveBeenCalled()
+  })
+
+  it("恢复时采用服务端在途正文生成任务（换设备场景）", async () => {
+    const onProgress = vi.fn()
+    const { api, onResult, controller } = setup({ onProgress })
+    api.tasks.list = vi.fn(async () => ({ items: [
+      { task_id: "server-gen-task", task_type: "writing_generate", status: "running", meta: { chapter_index: 1, scene_id: "scene-1" } },
+    ], active_count: 1 }))
+    api.tasks.get.mockResolvedValue({ task_id: "server-gen-task", status: "done", result: { draft_id: "candidate-server" } })
+
+    await expect(controller.recover()).resolves.toBe(true)
+
+    expect(api.tasks.list).toHaveBeenCalledWith("p1", { taskType: null })
+    expect(api.tasks.get).toHaveBeenCalledWith("server-gen-task", "p1")
+    expect(onProgress).toHaveBeenLastCalledWith(expect.objectContaining({
+      result: { chapter_index: 1, draft_id: "candidate-server" },
+    }))
+    expect(JSON.parse(sessionStorage.getItem("novel_active_workflows_v1"))).toEqual([
+      expect.objectContaining({ taskId: "server-gen-task", workflowType: "writing_generate", view: "writing" }),
+    ])
+    await controller.openResult()
+    expect(onResult).toHaveBeenCalledWith({ chapter_index: 1, draft_id: "candidate-server" })
+  })
+
+  it("服务端不可用时恢复回退本机登记", async () => {
+    sessionStorage.setItem("novel_active_workflows_v1", JSON.stringify([{
+      id: "p1:writing_generate:local-gen-task",
+      taskId: "local-gen-task",
+      workflowType: "writing_generate",
+      projectId: "p1",
+      view: "writing",
+      meta: { chapter: 1, mode: "draft" },
+    }]))
+    const { api, controller } = setup()
+    api.tasks.list = vi.fn(async () => { throw new Error("offline") })
+    api.tasks.get.mockResolvedValue({ task_id: "local-gen-task", status: "done", result: { draft_id: "candidate-local" } })
+
+    await expect(controller.recover()).resolves.toBe(true)
+
+    expect(api.tasks.get).toHaveBeenCalledWith("local-gen-task", "p1")
+  })
+
+  it("服务端报告同章同场景在途生成时先提示，取消则跟随原任务", async () => {
+    confirmAsync.mockResolvedValue(false)
+    const { api, controller } = setup()
+    api.tasks.list = vi.fn(async () => ({ items: [
+      { task_id: "server-gen-task", task_type: "writing_generate", status: "running", meta: { chapter_index: 1, scene_id: "scene-1" } },
+      { task_id: "newer-other-chapter", task_type: "writing_generate", status: "running", updated_at: "2099-01-01", meta: { chapter_index: 2, scene_id: "scene-2" } },
+    ], active_count: 1 }))
+    api.tasks.get.mockResolvedValue({ task_id: "server-gen-task", status: "done", result: { draft_id: "candidate-server" } })
+
+    await controller.generateDraft()
+
+    expect(confirmAsync).toHaveBeenCalledWith(expect.stringContaining("已有一份正文正在生成"), "仍要再生成", expect.anything())
+    expect(api.writing.generate).not.toHaveBeenCalled()
+    expect(api.tasks.get).toHaveBeenCalledWith("server-gen-task", "p1")
+    expect(api.tasks.get).not.toHaveBeenCalledWith("newer-other-chapter", "p1")
+    expect(JSON.parse(sessionStorage.getItem("novel_active_workflows_v1"))).toEqual([
+      expect.objectContaining({ taskId: "server-gen-task", view: "writing" }),
+    ])
+  })
+
+  it("作者确认后仍可明确再生成", async () => {
+    confirmAsync.mockResolvedValue(true)
+    const { api, controller } = setup()
+    api.tasks.list = vi.fn(async () => ({ items: [
+      { task_id: "server-gen-task", task_type: "writing_generate", status: "running", meta: { chapter_index: 1, scene_id: "scene-1" } },
+    ], active_count: 1 }))
+
+    await controller.generateDraft()
+
+    expect(api.writing.generate).toHaveBeenCalledWith(expect.objectContaining({
+      novel_id: "p1",
+      chapter_index: 1,
+    }))
+  })
+
+  it("服务端在途生成属于其他场景时不拦截本场景生成", async () => {
+    const { api, controller } = setup()
+    api.tasks.list = vi.fn(async () => ({ items: [
+      { task_id: "other-scene-task", task_type: "writing_generate", status: "running", meta: { chapter_index: 1, scene_id: "scene-9" } },
+    ], active_count: 1 }))
+
+    await controller.generateDraft()
+
+    expect(api.writing.generate).toHaveBeenCalledOnce()
   })
 
   it("刷新后恢复在途独立语义审查：只续轮询原任务，不重提交审查", async () => {
