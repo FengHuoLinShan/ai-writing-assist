@@ -993,7 +993,9 @@ async def test_real_worker_rejected_finalization_rolls_back_candidate_and_bindin
         assert returned.id == task_id
         assert returned.status == "cancelled"
         open_restore.assert_awaited_once()
-        finalize_restore.assert_awaited_once()
+        # 已付费输出的 freeze checkpoint 与 finalize 共用同一租约栅栏：
+        # 取消先在 freeze 提交处失败关闭（CancelledError），finalize 不再执行。
+        assert finalize_restore.await_count == 0
         assert client.close_count == 1
         async with sessions() as verify_db:
             drafts = list(
@@ -1065,3 +1067,105 @@ async def test_generation_confirmation_cannot_cross_novels(
             source_task_id="task-1",
             llm_execution_snapshot=_snapshot(),
         )
+
+
+async def test_continuation_discards_candidate_when_base_draft_edited(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """等待生成期间续写基稿被编辑：finalize 指纹重验丢弃，不覆盖新稿。"""
+    db = _CheckpointSession()
+    base_id = uuid.uuid4()
+    base_before = SimpleNamespace(
+        id=base_id,
+        novel_id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
+        chapter_index=3,
+        content="锁定基稿原文",
+        content_hash="a" * 64,
+        status="draft",
+        version_number=1,
+    )
+    base_after = SimpleNamespace(
+        id=base_id,
+        novel_id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
+        chapter_index=3,
+        content="锁定基稿原文（作者编辑过）",
+        content_hash="b" * 64,
+        status="draft",
+        version_number=2,
+    )
+    repo = _repo()
+    repo.get = mock.AsyncMock(side_effect=[base_before, base_after])
+    repo.get_for_update = mock.AsyncMock(return_value=base_after)
+    _patch_facades(monkeypatch, _confirmed("same context"), _confirmed("same context"))
+    client = _Client(db, "接续的新段落")
+
+    with pytest.raises(ValidationError, match="discarded stale result"):
+        await WritingGenerationService(
+            repo=repo,
+            llm_client=client,
+        ).generate_candidate_for_task(
+            db,
+            novel_id="11111111-1111-1111-1111-111111111111",
+            chapter_index=3,
+            title=None,
+            instruction=None,
+            context_confirmation_id="33333333-3333-3333-3333-333333333333",
+            source_task_id="task-1",
+            llm_execution_snapshot=_snapshot(),
+            generation_mode="continue",
+            base_draft_id=str(base_id),
+        )
+
+    # 模型已被调用（已付费），但漂移结果不得落库；作者编辑过的工作稿不被覆盖
+    assert len(client.requests) == 1
+    repo.create_with_status.assert_not_awaited()
+    assert base_after.content == "锁定基稿原文（作者编辑过）"
+
+
+async def test_generation_revoked_model_connection_writes_no_candidate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """等待生成期间作者撤销模型连接：finalize 失败关闭，不落候选。"""
+    db = _CheckpointSession()
+    repo = _repo()
+    _patch_facades(monkeypatch, _confirmed("same context"))
+    client = _Client(db)
+    client.close = mock.AsyncMock()  # type: ignore[attr-defined]
+    with (
+        mock.patch(
+            "modules.project.llm_runtime.restore_project_llm_execution_settings",
+            autospec=True,
+            return_value={"llm": {"model": "frozen-model"}},
+        ) as open_restore,
+        mock.patch(
+            "modules.project.facade.restore_project_llm_execution_settings",
+            autospec=True,
+            side_effect=ProjectLLMConfigurationError(
+                "Project LLM API key is not configured"
+            ),
+        ) as finalize_restore,
+        mock.patch(
+            "modules.project.llm_runtime.create_project_snapshot_llm_client",
+            autospec=True,
+            return_value=client,
+        ),
+    ):
+        with pytest.raises(
+            ProjectLLMConfigurationError,
+            match="API key is not configured",
+        ):
+            await WritingGenerationService(repo=repo).generate_candidate_for_task(
+                db,
+                novel_id="11111111-1111-1111-1111-111111111111",
+                chapter_index=3,
+                title=None,
+                instruction=None,
+                context_confirmation_id="33333333-3333-3333-3333-333333333333",
+                source_task_id="task-1",
+                llm_execution_snapshot=_snapshot(),
+            )
+
+    open_restore.assert_awaited_once()
+    finalize_restore.assert_awaited_once()
+    client.close.assert_awaited_once()
+    repo.create_with_status.assert_not_awaited()

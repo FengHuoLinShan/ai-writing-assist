@@ -217,6 +217,18 @@ async def test_task_status_hides_private_run_envelope(
                 "requests_started": 2,
                 "prompt": "must-not-leak",
             },
+            "_frozen_candidate": {
+                "version": 1,
+                "attempt": 1,
+                "source_fingerprint": "f" * 64,
+                "candidate": {
+                    "novel_id": novel_id,
+                    "chapter_index": 3,
+                    "title": "must-not-leak",
+                    "content": "已付费正文不得进入任务状态 API",
+                    "provenance_json": {"source": "writing_generate"},
+                },
+            },
         },
         result={"ok": True},
     )
@@ -234,6 +246,8 @@ async def test_task_status_hides_private_run_envelope(
     assert "_ai_run_envelope" not in response.text
     assert "run-must-not-leak" not in response.text
     assert "must-not-leak" not in response.text
+    assert "_frozen_candidate" not in response.text
+    assert "已付费正文不得进入任务状态 API" not in response.text
 
 
 @pytest.mark.asyncio

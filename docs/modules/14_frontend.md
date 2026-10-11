@@ -298,6 +298,8 @@ map / rag / outline / settings / project-settings`，其主 DOM 全部由 Vue SF
   404 显示“未找到原任务，请重新开始”，不自动重放不确定提交。进度和结果只在
   发起位置显示，默认隐藏 raw task ID；Scene 融合完成后在工作台显示“查看预览”，
   不因晚到响应重开旧弹窗。任务完成不刷新整座 island，不覆盖当前输入、筛选、焦点、滚动和多选。
+  写作页生成、独立语义审查与定向返修共用该恢复路径；候选采用按
+  `writing-adopt-v1:<draftId>` 确定性幂等键提交，回包丢失后重放返回原采用回执。
 - `shared/smartDedup.js` 对 schema v2 结果打开 `{size: "large", protectUnsaved: true}`
   双栏工作台；队列、对比、主对象和逐成员动作共享同一个 group 草稿。
   对比默认“只看差异”；勾选操作与切换合格主对象会保留工作台滚动位置，且主对象 radio
