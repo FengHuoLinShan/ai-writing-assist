@@ -491,10 +491,10 @@ class TaskLifecycleService:
                 AsyncTask.novel_id == uuid.UUID(str(novel_id)),
                 AsyncTask.status == "running",
             )
-            .with_for_update()
         )
         if row is None:
             raise asyncio.CancelledError
+        # The handler commit hook locks the project before the task, then flushes.
         row.meta = {**(row.meta or {}), key: deepcopy(payload)}
 
     async def require_running_attempt(
