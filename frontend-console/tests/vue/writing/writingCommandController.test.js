@@ -372,6 +372,64 @@ describe("writingCommandController", () => {
     expect(api.writing.generate).toHaveBeenCalledOnce()
   })
 
+  it("刷新后恢复在途独立语义审查：只续轮询原任务，不重提交审查", async () => {
+    sessionStorage.setItem("novel_active_workflows_v1", JSON.stringify([{
+      id: "p1:writing_semantic_review:review-task-1",
+      taskId: "review-task-1",
+      workflowType: "writing_semantic_review",
+      projectId: "p1",
+      view: "writing",
+      meta: { chapter: 1, draftId: "draft-1" },
+    }]))
+    const onProgress = vi.fn()
+    const { api, controller } = setup({ onProgress })
+    api.tasks.get.mockResolvedValue({
+      task_id: "review-task-1",
+      task_type: "writing_semantic_review",
+      status: "done",
+      result: { verdict: "pass", blocking_count: 0, findings: [] },
+    })
+
+    await expect(controller.recover()).resolves.toBe(true)
+
+    expect(api.writing.semanticReview).not.toHaveBeenCalled()
+    expect(api.tasks.get).toHaveBeenCalledWith("review-task-1", "p1")
+    expect(onProgress).toHaveBeenLastCalledWith(expect.objectContaining({
+      taskId: "review-task-1",
+      progress: expect.objectContaining({ status: "done", terminal: true }),
+      result: expect.objectContaining({ verdict: "pass" }),
+    }))
+  })
+
+  it("刷新后恢复在途定向返修：只续轮询原任务并保留新候选入口", async () => {
+    sessionStorage.setItem("novel_active_workflows_v1", JSON.stringify([{
+      id: "p1:writing_targeted_revision:revision-task-1",
+      taskId: "revision-task-1",
+      workflowType: "writing_targeted_revision",
+      projectId: "p1",
+      view: "writing",
+      meta: { chapter: 1, draftId: "draft-1" },
+    }]))
+    const onProgress = vi.fn()
+    const { api, controller } = setup({ onProgress })
+    api.tasks.get.mockResolvedValue({
+      task_id: "revision-task-1",
+      task_type: "writing_targeted_revision",
+      status: "done",
+      result: { draft_id: "candidate-revised" },
+    })
+
+    await expect(controller.recover()).resolves.toBe(true)
+
+    expect(api.writing.targetedRevision).not.toHaveBeenCalled()
+    expect(api.tasks.get).toHaveBeenCalledWith("revision-task-1", "p1")
+    expect(onProgress).toHaveBeenLastCalledWith(expect.objectContaining({
+      taskId: "revision-task-1",
+      progress: expect.objectContaining({ status: "done", terminal: true }),
+      result: expect.objectContaining({ draft_id: "candidate-revised" }),
+    }))
+  })
+
   it("独立语义审查冻结当前候选并重载审查回执", async () => {
     const onProgress = vi.fn()
     const { api, editor, onResult, controller } = setup({ onProgress })

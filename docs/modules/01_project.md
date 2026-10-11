@@ -190,7 +190,10 @@ NOWAIT 保证已持领域锁的入口不会等待项目锁升级；并发作者�
 
 `GET /api/projects/{id}/ai-usage?days=` 是 owner 次级诊断入口：扫描窗口期任务
 `_ai_run_envelope` 私有键，按能力聚合模型请求与输入/输出词元，不暴露 prompt 内容或模型
-密钥；单次扫描上限 500 条任务，截断时返回 `scan_truncated`。
+密钥；单次扫描上限 500 条任务，截断时返回 `scan_truncated`。聚合只累计已知用量
+（取得完整回执的请求）：`requests_unknown` 如实返回已发出但用量未知的请求数，
+`charge_unconfirmed` 标记是否存在计费状态未确认（`charge_state=possible`）的回执，
+两者均不折算进已知数字（BR-0a）。
 
 
 ### 作者写作示例与省钱模式（2026-10）
@@ -207,3 +210,5 @@ NOWAIT 保证已持领域锁的入口不会等待项目锁升级；并发作者�
 ### 项目归档与私有 RP 缓存
 
 软删除/归档项目经 `CONTEXT_PURGE_PROJECT_INTERACTION_CACHE` 同事务清除该项目作为 source 或 consumer 的缓存；恢复项目冷编译。缓存清理不删除正文、版本、作者确认事件或领域历史，永久删除仍保留原 FK 清理语义。
+
+AI 用量诊断的 totals/capabilities 均带 `usage_complete`；设置页明确展示已确认用量，历史不完整与未知请求数分别披露。

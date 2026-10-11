@@ -108,7 +108,9 @@ await worker.run_once()      # 单次执行
 
 `facade.summarize_project_ai_usage()` 是只读聚合 seam：按项目扫描窗口期任务 meta 的
 run envelope，按能力汇总模型请求与输入/输出词元（owner 次级诊断入口消费；单次扫描
-上限 500 条，截断返回 `scan_truncated`，单条坏回执跳过计数）。
+上限 500 条，截断返回 `scan_truncated`，单条坏回执跳过计数）。聚合只累计已知用量，
+`requests_unknown` 保留用量未知的请求数、`charge_unconfirmed` 标记计费未确认的
+回执，未知部分不折算为 0 或并入已知数字（BR-0a）。
 
 其他模块的稳定写入 seam 位于 `facade.py`：
 
@@ -309,6 +311,9 @@ shape。业务 handler 不得把前端所需字段放进私有键。
 不写 `result`，因此 `story_outline_generate` 等按 result 顶层 exact-key 校验的领域采用路径不受影响；
 `GET /api/tasks/{task_id}` 的 meta/result 投影继续剥离下划线键；公共 `operation.possible_charge`
 只暴露聚合布尔值，不返回信封身份、模型、用量、Prompt 或 provider 诊断。
+`writing_generate` 已在 finalize 前把已付费候选冻结进 `meta["_frozen_candidate"]`
+（含版本、attempt、来源指纹与候选负载），重排按来源指纹复用、免第二次付费调用；
+同信封一样经 lease-fenced checkpoint 落库，lease 丢失时拒绝写入，行为退回重排重调。
 worker 与 inline 在 handler 执行前为 attempt 注入 `task_id/attempt/lease_id` 并建立或恢复同一 run：
 自动 requeue、stale 恢复与 manual resume 只更换执行载体，不重置累计计数、冻结额度或 deadline；
 inline 子任务复用父 run，不另开账本。快照通过 `TaskLifecycleService.checkpoint_run_envelope()` 的
@@ -480,3 +485,6 @@ gateway；执行中断保留已见回执，作者显式发起新任务，不能�
 RP 普通 worker 与匿名 inline 入口均将完整、未闭合或超长的无效 metadata 尾块
 写入 attempt.usage.metadata_invalid_count；同一尾块重复 finish/失败收尾只计一次。
 正文仍先进入私有 hold，经原有领域审查后才可释放。
+
+`read_private_task_checkpoint` / `write_private_task_checkpoint` 仅在原 worker 租约栅栏 session 内按任务 ID、类型和 novel_id 读取/保存下划线私有负载；写入通过既有 checkpoint 提交，业务模块不读取任务 ORM。
+AI 用量汇总保留 `usage_complete`；旧恢复回执 `legacy_untracked` 即使未知请求数量为零，也标记统计不完整，不猜填历史请求数。

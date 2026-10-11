@@ -689,6 +689,11 @@ async def adopt_candidate_to_working(
     draft_id: str = Path(..., description="AI 正文建议 ID"),
     *,
     novel_id: NovelIdQuery,
+    idempotency_key: str | None = Query(
+        default=None,
+        max_length=128,
+        description="可选幂等键：同键重放返回原采用回执而非报错",
+    ),
 ) -> WritingDraftResponse:
     """将 AI 正文建议显式采用到普通工作稿。"""
     await require_active_project(db, novel_id)
@@ -698,6 +703,7 @@ async def adopt_candidate_to_working(
         draft_id,
         novel_id,
         adopted_by="author",
+        idempotency_key=idempotency_key,
     )
     return result
 

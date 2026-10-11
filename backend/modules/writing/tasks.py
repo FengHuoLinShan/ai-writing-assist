@@ -267,6 +267,7 @@ async def handle_writing_generate(db, task):
         base_draft_id=meta.get("base_draft_id"),
         confirm_stale_story_assets=bool(meta.get("confirm_stale_story_assets", False)),
         story_asset_basis=meta.get("story_asset_basis") or [],
+        freeze_paid_output=True,
     )
     task.update_progress(1.0)
     await db.flush()
