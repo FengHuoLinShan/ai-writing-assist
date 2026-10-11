@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import (
@@ -84,6 +85,21 @@ class ContextConfirmationRepository:
         if for_update:
             stmt = stmt.with_for_update().execution_options(populate_existing=True)
         return (await db.execute(stmt)).scalar_one_or_none()
+
+    async def list_by_ids(
+        self,
+        db: AsyncSession,
+        confirmation_ids: Sequence[uuid.UUID],
+        *,
+        novel_id: uuid.UUID,
+    ) -> list[ContextConfirmation]:
+        if not confirmation_ids:
+            return []
+        stmt = select(ContextConfirmation).where(
+            ContextConfirmation.id.in_(confirmation_ids),
+            ContextConfirmation.novel_id == novel_id,
+        )
+        return list((await db.execute(stmt)).scalars().all())
 
     async def replace_asset_refs(
         self,
@@ -175,6 +191,41 @@ class ContextConfirmationRepository:
             stmt = stmt.where(ContextConfirmation.id != exclude_confirmation_id)
         result = await db.execute(stmt)
         return list(result.unique().scalars().all())
+
+    async def list_result_confirmations_for_asset_ids(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: uuid.UUID,
+        asset_type: str,
+        asset_ids: Sequence[str],
+    ) -> list[ContextConfirmation]:
+        """Read confirmations whose result refs mention any of the asset ids.
+
+        只读缝：不加行锁、不重编译，供用量归因等跨模块只读查询使用。
+        一条确认命中多个 id 也只返回一次。
+        """
+        normalized_ids = [str(asset_id) for asset_id in asset_ids if str(asset_id)]
+        if not normalized_ids:
+            return []
+        stmt = (
+            select(ContextConfirmation)
+            .join(
+                ContextConfirmationAssetRef,
+                and_(
+                    ContextConfirmationAssetRef.confirmation_id == ContextConfirmation.id,
+                    ContextConfirmationAssetRef.novel_id == ContextConfirmation.novel_id,
+                ),
+            )
+            .where(
+                ContextConfirmation.novel_id == novel_id,
+                ContextConfirmationAssetRef.asset_role == "result",
+                ContextConfirmationAssetRef.asset_type == asset_type,
+                ContextConfirmationAssetRef.asset_id.in_(normalized_ids),
+            )
+            .distinct()
+        )
+        return list((await db.execute(stmt)).scalars().all())
 
 
 class ContextSnapshotRepository:

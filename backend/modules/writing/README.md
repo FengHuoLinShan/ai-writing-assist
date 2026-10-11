@@ -123,7 +123,7 @@ async def build_manuscript_range_ref(db, novel_id, draft_id, start_offset, end_o
 ```
 
 `facade.create_published_draft_only` 只创建一个已发布正文版本，批量导入使用 `create_published_drafts_only`，按章节顺序取得既有 advisory lock、分组读取最大版本并统一 flush；两者都不入队。`facade.create_draft_only` 仅创建草稿，不会提交发布任务。facade create 系列返回跨模块 `WritingDraftContract`，API 层负责适配为 `WritingDraftResponse` 并提交 `publish_chapter` 发布任务。导入模块等内部调用方不需要直接访问 RAG 模块。
-AI 生成结果会在 `provenance_json` 中记录 `source_confirmation_id` 和来源任务。兼容期内底层仍以 `candidate` 保存建议，但 API/contract 投影为 `display_state=review` 和 `source=ai_generated`，不将其当作工作稿。候选审阅区以共享内联详情合并展示该 Confirmation、确切 task operation、知识复核、结果引用与失效事实；追踪读取失败不阻断原采用、拒绝或编辑操作。
+AI 生成结果会在 `provenance_json` 中记录 `source_confirmation_id` 和来源任务。兼容期内底层仍以 `candidate` 保存建议，但 API/contract 投影为 `display_state=review` 和 `source=ai_generated`，不将其当作工作稿。候选审阅区以共享内联详情合并展示该 Confirmation、确切 task operation、知识复核、结果引用与失效事实；追踪读取失败不阻断原采用、拒绝或编辑操作。质量状态分层只投影现有门禁结果：知识回执的 `policy_version`/`output_hash` 与逐维 `dimension_label` 进入 `knowledge_review` 投影；`independent_review` 带单调 `check_version` 与输出 hash；阻断级问题仍由采用门禁唯一裁决，能通过门禁的非阻断 finding 在采用记录写 `adopted_with_open_issues`（finding 标识、输出 hash、检查版本），不建独立问题真相表。生成任务 result 携带 `knowledge_review_status`，前端据此不把“已生成”当“可采用”。
 
 `publish_chapter` 通过 Evidence indexing 的 task-only DI port 执行索引：先在 worker fence 下结束
 source-read checkpoint，再在无 PostgreSQL 事务时等待 embedding，入库前重验
@@ -471,4 +471,5 @@ writing.generate 的作者视角进入确认预览与指纹；超预算先截反
 回执的分类进度；索引入队不等于完成，失败、未覆盖的场景和缺口仍待处理。
 GET `/api/writing/recompute/receipts` 与 `/api/writing/invalidations` 支持跨会话恢复。
 
+作品进度缺少知识复核或原确认时标为待重新确认，来源未知不冒称新鲜；正文/来源失效保留待处理。任务读取先按三个Writing类型过滤再分页，不被其他领域较新任务遮蔽。
 生成恢复经 Tasks 窄 facade 保存付费候选。已有冻结结果来源漂移或损坏时失败关闭，保留旧输出，不自动重新付费；作者需重新确认新生成操作。

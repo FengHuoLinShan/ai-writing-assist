@@ -12,6 +12,7 @@ from core.container import container_scope
 from core.errors import ValidationError
 from modules.project.contracts import (
     WorkspaceChapterDraft,
+    WorkspaceCreationProgressItem,
     WorkspaceSceneFocus,
     WorkspaceWorldAttentionSummary,
     WorkspaceWritingStats,
@@ -71,6 +72,7 @@ async def test_workspace_summary_composes_safe_author_projection() -> None:
         outline_attention_reader=outline_attention_reader,
         outline_item_reader=outline_item_reader,
         writing_attention_reader=AsyncMock(return_value=[]),
+        creation_progress_reader=AsyncMock(return_value=[]),
     )
 
     author_date = date(2026, 1, 4)
@@ -140,6 +142,7 @@ async def test_workspace_summary_skips_draft_load_for_empty_project() -> None:
         outline_attention_reader=AsyncMock(return_value=0),
         outline_item_reader=AsyncMock(return_value=[]),
         writing_attention_reader=AsyncMock(return_value=[]),
+        creation_progress_reader=AsyncMock(return_value=[]),
     )
 
     result = await service.get_summary(db, "empty-1")
@@ -193,6 +196,7 @@ async def test_workspace_summary_validates_focus_and_sorts_actionable_items() ->
         ),
         chapter_index_reader=AsyncMock(return_value=[]),
         latest_drafts_reader=AsyncMock(return_value=[]),
+        creation_progress_reader=AsyncMock(return_value=[]),
         world_attention_reader=AsyncMock(
             return_value=WorkspaceWorldAttentionSummary(novel_id="novel-1")
         ),
@@ -301,10 +305,28 @@ async def test_workspace_summary_resolves_registered_providers_lazily() -> None:
     class FakeWritingProvider:
         def __init__(self) -> None:
             self.stats_calls: list[str] = []
+            self.progress_calls: list[str] = []
 
         async def get_project_stats(self, _db, novel_id):
             self.stats_calls.append(novel_id)
             return WorkspaceWritingStats(novel_id=novel_id)
+
+        async def get_creation_progress(self, _db, novel_id, *, limit=6):
+            self.progress_calls.append(novel_id)
+            assert limit == 6
+            return [
+                WorkspaceCreationProgressItem(
+                    key="candidate:c1",
+                    kind="candidate",
+                    title="第 2 章 · AI 正文建议",
+                    review_status="passed",
+                    adoption_status="candidate",
+                    stop_reason="可审阅，待作者采用",
+                    actions=("open_candidate",),
+                    draft_id="c1",
+                    chapter_index=2,
+                )
+            ]
 
         async def list_chapter_indices(self, _db, _novel_id):
             return []
@@ -346,7 +368,11 @@ async def test_workspace_summary_resolves_registered_providers_lazily() -> None:
         result = await service.get_summary(db, "novel-1")
 
     assert writing.stats_calls == ["novel-1"]
+    assert writing.progress_calls == ["novel-1"]
     assert result.writing.model_dump() == {"chapter_count": 0, "word_count": 0}
+    assert [item.kind for item in result.creation_progress] == ["candidate"]
+    assert result.creation_progress[0].stop_reason == "可审阅，待作者采用"
+    assert result.creation_progress[0].draft_id == "c1"
     assert result.attention.total == 1
     assert result.attention.world_objects == 1
     assert result.continuation is None

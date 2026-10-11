@@ -6,6 +6,7 @@ defineProps({
   project: { type: Object, default: null },
   summary: { type: Object, default: null },
   workflows: { type: Array, default: () => [] },
+  creationProgress: { type: Array, default: () => [] },
   creativeContinuation: { type: Object, default: null },
   worldContinuations: { type: Array, default: () => [] },
   continuationWarning: { type: String, default: null },

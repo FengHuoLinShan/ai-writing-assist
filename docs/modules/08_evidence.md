@@ -219,6 +219,9 @@ regex、随机概率或任意表达式。draft 只用于编辑和 dry-run，发�
 - `prepare_confirmed_ai_action(..., for_update=True)`：任务 finalize 在重编译上下文前锁定 confirmation owner
 - `attach_result_ref()`：把后续任务或产物回写到确认记录
 - `mark_asset_context_changed()`：资产变更后把相关确认记录标脏
+- `describe_confirmed_task_outcomes()`：只读缝，按任务引用回读确认结果状态
+  （`result_status` 与归属任务标记），供用量按作品成果归因（project，BR-7）；
+  不加锁、不重编译、不改状态
 
 关键参数：
 
@@ -532,3 +535,5 @@ omitted）与哈希基底标记；可得正文参与 hash，预算逐出保留�
 ### 第一阶段整改后的读取边界
 
 Scene Lens 完整返回对象字段、位置/知识来源、逐项未知、新鲜度与状态指纹；POV 知识只读本 Scene 的角色投影，World 名称不能补今天事实。来源可沿同项目父 checkpoint 和 event 回读，历史依据不是当前事实。私有 RP 缓存的全行容量、PG 并发、匿名禁用、撤权清理与备份恢复冷启动见 [compilation README](../../backend/modules/evidence/compilation/README.md)；冻结来源的检索保留不同原文范围，关键证据与知识边界独立验收。
+
+确认记录的只读跨模块投影经 `evidence.confirmation_reads` 注册 port 消费：Writing读取确认失效信号，Project读取任务成果归属；保留 `novel_id` 范围，不重编译上下文或修改采用事实。

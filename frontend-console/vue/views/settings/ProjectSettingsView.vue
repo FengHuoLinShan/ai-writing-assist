@@ -576,6 +576,8 @@ const aiUsage = ref(null)
 const aiUsageDays = ref(30)
 const aiUsageLoading = ref(false)
 const aiUsageError = ref("")
+/* 按作品成果归因：后端经确认记录把用量分成几个去向，前端只做展示 */
+const usageAttributionBuckets = computed(() => aiUsage.value?.attribution?.buckets ?? [])
 async function loadAiUsage() {
   if (!props.projectId || aiUsageLoading.value) return
   aiUsageLoading.value = true
@@ -856,6 +858,24 @@ onBeforeUnmount(() => {
               <p v-if="aiUsage.totals.requests_unknown > 0" role="status" class="settings-section-hint">部分用量未知：另有 {{ aiUsage.totals.requests_unknown }} 次模型请求已发出但用量无法确认，实际消耗可能高于以上数字。</p>
               <p v-if="aiUsage.totals.usage_complete === false" role="status" class="settings-section-hint">用量统计不完整，历史或未确认用量无法计入，不能视为零消耗。</p>
               <p v-if="aiUsage.totals.charge_unconfirmed" role="status" class="settings-section-hint">部分请求的计费状态未确认，以上数字不代表最终费用。</p>
+              <div v-if="usageAttributionBuckets.length && aiUsage.tasks_with_envelope > 0" class="usage-attribution">
+                <h4>这些用量花在了哪里</h4>
+                <table class="data-table usage-attribution-table">
+                  <thead><tr><th scope="col">消耗去向</th><th scope="col">AI 运行</th><th scope="col">已确认用量请求</th><th scope="col">输入词元</th><th scope="col">输出词元</th></tr></thead>
+                  <tbody>
+                    <tr v-for="bucket in usageAttributionBuckets" :key="bucket.key">
+                      <td>
+                        {{ bucket.label }}<span v-if="bucket.usage_complete === false" class="settings-section-hint">用量统计不完整，不能视为零消耗</span><span v-if="bucket.charge_unconfirmed" class="usage-charge-unconfirmed">（计费未确认）</span><span v-if="bucket.requests_unknown > 0" class="settings-section-hint">，其中 {{ bucket.requests_unknown }} 次请求用量未知</span>
+                      </td>
+                      <td>{{ bucket.tasks }}</td>
+                      <td>{{ bucket.requests }}</td>
+                      <td>{{ bucket.input_tokens.toLocaleString() }}</td>
+                      <td>{{ bucket.output_tokens.toLocaleString() }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <p class="settings-section-hint">「进行中或等你处理的候选」还没有变成作品；「未采用或返修」是被你放弃的候选和返修尝试；「资料整理等辅助消耗」是目前无法对应到具体成果的用量。</p>
+              </div>
               <table v-if="aiUsage.capabilities.length" class="data-table">
                 <thead><tr><th>功能</th><th>运行次数</th><th>已确认用量请求</th><th>用量未知请求</th><th>输入词元</th><th>输出词元</th></tr></thead>
                 <tbody>

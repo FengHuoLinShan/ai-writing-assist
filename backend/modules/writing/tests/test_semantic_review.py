@@ -679,6 +679,15 @@ async def test_review_without_structured_coverage_is_incomplete(
     assert result["coverage"]["incomplete_draft_ids"] == [draft_id]
     assert draft.provenance_json["independent_review"]["verdict"] == "incomplete"
 
+    # BR-2：审查回执钉住检查版本与输出 hash，供带问题采用追溯。
+    from modules.writing.semantic_review import WRITING_SEMANTIC_REVIEW_CHECK_VERSION
+
+    assert result["check_version"] == WRITING_SEMANTIC_REVIEW_CHECK_VERSION
+    assert result["output_hash"].startswith("review_output_")
+    receipt = draft.provenance_json["independent_review"]
+    assert receipt["check_version"] == WRITING_SEMANTIC_REVIEW_CHECK_VERSION
+    assert receipt["output_hash"] == result["output_hash"]
+
 
 @pytest.mark.anyio
 async def test_review_rejects_coverage_from_another_chunk(

@@ -12,6 +12,7 @@ from infrastructure.tasks.contracts import (
     CompletedTaskPayloadContract,
     TaskCoalescingMode,
     TaskLifecycleContract,
+    TaskOverviewItemContract,
     TaskOwnerContract,
 )
 from infrastructure.tasks.enqueuer import build_task_submission_fingerprint
@@ -452,6 +453,29 @@ async def list_recent_task_summaries(
     )
 
 
+async def list_novel_task_overview(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    task_type: str | None = None,
+    active_limit: int = 50,
+    terminal_limit: int = 10,
+) -> list[TaskOverviewItemContract]:
+    """Read-only in-flight plus recent-terminal overview for one project.
+
+    Callers on the browser path must enforce the project owner gate before
+    invoking this seam; raw meta stays internal until the API applies the same
+    public projection as the single-task status endpoint.
+    """
+    return await TaskLifecycleService().list_novel_tasks(
+        db,
+        novel_id=novel_id,
+        task_type=task_type,
+        active_limit=active_limit,
+        terminal_limit=terminal_limit,
+    )
+
+
 async def summarize_project_ai_usage(
     db: AsyncSession,
     *,
@@ -459,7 +483,11 @@ async def summarize_project_ai_usage(
     days: int = 30,
     scan_limit: int = 500,
 ) -> dict:
-    """Read-only per-capability AI usage aggregation for one project."""
+    """Read-only per-capability AI usage aggregation for one project.
+
+    返回 `capabilities` 聚合与 `tasks` 每任务用量明细（含任务状态），
+    供上层按作品成果归因；本入口不做归因。
+    """
     return await TaskLifecycleService().summarize_ai_usage(
         db, novel_id=novel_id, days=days, scan_limit=scan_limit
     )
