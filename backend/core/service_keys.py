@@ -339,6 +339,7 @@ WRITING_MANUSCRIPT_SOURCE: ServiceKey[ManuscriptSourcePort] = ServiceKey(
 
 #: 组合根登记的全部键（与 ``app/bootstrap.py`` 一一对应）。
 ALL_SERVICE_KEYS: tuple[ServiceKey[Any], ...] = (
+    EVIDENCE_CONFIRMATION_READS,
     ASSISTANT_FORECAST_INSTRUCTIONS,
     ASSISTANT_FORECAST_PERSONAS,
     ASSISTANT_FORECAST_CHOICES,
