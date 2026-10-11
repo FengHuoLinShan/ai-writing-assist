@@ -799,6 +799,7 @@ async def test_exact_claim_preserves_retry_coalescing_and_lease_fences(db_sessio
 
 # ============================================================
 # B5: 跨任务 AI 用量聚合（只读，扫 run envelope）
+# BR-0a: 未知用量与计费未确认必须如实保留，不折算为 0 或整数
 # ============================================================
 
 
@@ -887,5 +888,153 @@ async def test_summarize_ai_usage_aggregates_by_capability(
     assert capabilities["writing.generate"]["prompt_tokens"] == 100
     assert capabilities["writing.semantic_review"]["prompt_tokens"] == 30
     assert "requests" in capabilities["writing.generate"]
+    # 全知回执：无未知请求、计费已确认
+    for bucket in capabilities.values():
+        assert bucket["requests_unknown"] == 0
+        assert bucket["charge_unconfirmed"] is False
     # 其他项目的任务不计入
     assert all(bucket["prompt_tokens"] != 999 for bucket in capabilities.values())
+
+
+@pytest.mark.asyncio
+async def test_summarize_ai_usage_marks_partial_unknown_and_unconfirmed_charge(
+    db_session: AsyncSession,
+) -> None:
+    novel_id = str(uuid.uuid4())
+
+    def envelope(steps: list[dict], **overrides) -> dict:
+        payload = {
+            "version": 1,
+            "operation_id": f"op-{uuid.uuid4()}",
+            "run_id": f"run-{uuid.uuid4()}",
+            "root_capability_id": "writing.generate",
+            "novel_id": novel_id,
+            "started_at": datetime.now(UTC).isoformat(),
+            "request_limit": 10,
+            "requests_started": sum(int(step["requests_started"]) for step in steps),
+            "requests_settled": sum(int(step["requests_settled"]) for step in steps),
+            "requests_unknown": sum(int(step["requests_unknown"]) for step in steps),
+            "steps": steps,
+            **overrides,
+        }
+        if payload["requests_unknown"]:
+            payload["charge_state"] = "possible"
+            payload["usage_complete"] = False
+        return payload
+
+    partial = envelope(
+        [
+            {
+                "step_name": "writing.generate.chunk",
+                "step_capability_id": "writing.generate",
+                "call_kind": "structured",
+                "requests_started": 3,
+                "requests_settled": 2,
+                "requests_unknown": 1,
+                "usage": {"prompt_tokens": 100, "completion_tokens": 50},
+                "charge_state": "possible",
+                "usage_complete": False,
+            }
+        ]
+    )
+    # 信封级计费未确认但 step 明细齐全（旧回执形态），也要带未知标记
+    envelope_level = envelope(
+        [
+            {
+                "step_name": "writing.generate.chunk",
+                "step_capability_id": "writing.generate",
+                "call_kind": "structured",
+                "requests_started": 1,
+                "requests_settled": 1,
+                "requests_unknown": 0,
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+            }
+        ],
+        operation_id="op-envelope-level",
+        run_id="run-envelope-level",
+        charge_state="possible",
+    )
+    db_session.add_all(
+        [
+            AsyncTask(
+                id=uuid.uuid4(),
+                task_type="writing_generate",
+                status="succeeded",
+                novel_id=uuid.UUID(novel_id),
+                meta={AI_RUN_ENVELOPE_KEY: partial},
+            ),
+            AsyncTask(
+                id=uuid.uuid4(),
+                task_type="writing_generate",
+                status="succeeded",
+                novel_id=uuid.UUID(novel_id),
+                meta={AI_RUN_ENVELOPE_KEY: envelope_level},
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    summary = await TaskLifecycleService().summarize_ai_usage(
+        db_session, novel_id=novel_id, days=30
+    )
+    bucket = summary["capabilities"]["writing.generate"]
+    # 已知部分数字不变；未知的请求数如实保留，不折算进已知数字
+    assert bucket["requests"] == 3
+    assert bucket["requests_unknown"] == 1
+    assert bucket["prompt_tokens"] == 110
+    assert bucket["completion_tokens"] == 55
+    assert bucket["charge_unconfirmed"] is True
+
+
+@pytest.mark.asyncio
+async def test_summarize_ai_usage_all_unknown_keeps_known_part_empty(
+    db_session: AsyncSession,
+) -> None:
+    novel_id = str(uuid.uuid4())
+    meta = {
+        "version": 1,
+        "operation_id": "op-all-unknown",
+        "run_id": "run-all-unknown",
+        "root_capability_id": "infrastructure.embedding",
+        "novel_id": novel_id,
+        "started_at": datetime.now(UTC).isoformat(),
+        "request_limit": 5,
+        "requests_started": 2,
+        "requests_settled": 0,
+        "requests_unknown": 2,
+        "usage_complete": False,
+        "charge_state": "possible",
+        "steps": [
+            {
+                "step_name": "infrastructure.embedding.embed",
+                "step_capability_id": "infrastructure.embedding",
+                "call_kind": "structured",
+                "requests_started": 2,
+                "requests_settled": 0,
+                "requests_unknown": 2,
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0},
+                "charge_state": "possible",
+                "usage_complete": False,
+            }
+        ],
+    }
+    db_session.add(
+        AsyncTask(
+            id=uuid.uuid4(),
+            task_type="embedding_build",
+            status="succeeded",
+            novel_id=uuid.UUID(novel_id),
+            meta={AI_RUN_ENVELOPE_KEY: meta},
+        )
+    )
+    await db_session.flush()
+
+    summary = await TaskLifecycleService().summarize_ai_usage(
+        db_session, novel_id=novel_id, days=30
+    )
+    bucket = summary["capabilities"]["infrastructure.embedding"]
+    assert bucket["requests"] == 0
+    assert bucket["requests_unknown"] == 2
+    assert bucket["prompt_tokens"] == 0
+    assert bucket["completion_tokens"] == 0
+    assert bucket["charge_unconfirmed"] is True
