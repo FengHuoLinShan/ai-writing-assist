@@ -178,7 +178,7 @@ async def require_current_world_candidate(db, novel_id, reference):
     await require_current_prefix(db, store, frozen)
 
 
-async def require_current_prefix(db, store, target):
+async def require_current_prefix(db, store, target, *, verified=None):
     """Revalidate the original transitive receipts, including inherited runs."""
     from modules.evolution.commit import CommitConflictError
     from modules.evolution.pipeline import SceneSourceBinding, _source_verifier
@@ -230,5 +230,7 @@ async def require_current_prefix(db, store, target):
                 item["observation_id"]
                 for item in payload.get("compiled_observations", [])
             )
+        if verified is not None:
+            verified.extend(prefix)
     except CommitConflictError as error:
         raise ConflictError("理解前序来源已变化，请重新理解并核对候选") from error
