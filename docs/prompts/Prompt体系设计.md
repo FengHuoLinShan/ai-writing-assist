@@ -750,6 +750,12 @@ Evolution 细节发现 `evolution.discovery.v1` 和独立复核 `evolution.disco
 未知用量和权限/来源错误不降级。
 方法指纹涵盖 Prompt、输出/台账契约及输入容量，旧结果遇新方法仅提示核对。
 这些调用沿既有 Scene journal/根预算，独立复核漏项不放行，未知费用不重发。
+大型输入按稳定主题 ID、历史观察及正文窗口确定性分片；保留全部索引与已召回历史候选，
+正文引文窗口使用权威源偏移。只有每组当前观察的首个可发送上下文批次允许提出 new；其余批次
+继续检查旧主题。new 复用 `evolution.discovery.review.v1` 对其余全部索引片独立核身份，
+保留原 change_index、冻结输入 hash 与 Scene journal，并计入原根预算；任一片缺失、
+超容量或未获 supported 不能采用。覆盖回执保留实际正文区间、观察/主题 ID、索引片和
+身份审查缺口；不可分的超大输入仅隔离对应片，不能报告整个范围已经检查。
 复核序号由宿主显式写入每项change_index，漏项不重排。theme_index的细节/主体摘要仅
 用于路由，含义改变、兑现和初始uncertain续证应沿同一细节主题，不以同义new代替续接。
 作者instance判断只约束basis记录，不禁止后续独立实例；theme扩大仍须作者授权。

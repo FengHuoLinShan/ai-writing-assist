@@ -18,7 +18,6 @@ from modules.evolution.models import (
     EvolutionLedgerRevision,
     EvolutionRun,
 )
-from modules.evolution.reading import require_current_prefix
 from modules.evolution.store import PostgresAttemptStore
 from modules.project.facade import (
     require_active_project,
@@ -252,7 +251,10 @@ async def save_ledger_decision(db, novel_id, entry_id, data):
 
 async def claim_freshness(db, novel_id, claim, *, cache=None):
     """Qualification changes independently of the immutable author decision."""
-    cache = {} if cache is None else cache
+    from modules.evolution.freshness import dependency_current
+
+    # Legacy caller dictionaries are not authoritative: they lack a mutation
+    # epoch and can survive writes or be reused for a different project.
     store = PostgresAttemptStore(db, novel_id)
     grouped = {}
     for dependency in claim.dependencies:
@@ -260,20 +262,7 @@ async def claim_freshness(db, novel_id, claim, *, cache=None):
         if existing is None or dependency.scene_index > existing.scene_index:
             grouped[dependency.run_key] = dependency
     for dependency in grouped.values():
-        key = (dependency.run_key, dependency.attempt_id, dependency.source_manifest_hash)
-        if key not in cache:
-            frozen = await store.load_frozen(*key[:2])
-            valid = (
-                frozen is not None
-                and frozen.source_manifest_hash == dependency.source_manifest_hash
-            )
-            if valid:
-                try:
-                    await require_current_prefix(db, store, frozen)
-                except ConflictError:
-                    valid = False
-            cache[key] = valid
-        if not cache[key]:
+        if not await dependency_current(db, store, dependency):
             return "source_changed"
     return "current"
 
@@ -476,6 +465,8 @@ async def list_ledger(
 
 async def read_discovery_coverage(db, novel_id, scene_id):
     """A failed, partial or unsent batch never becomes 'checked, no findings'."""
+    from modules.evolution.freshness import require_cached_prefix
+
     row = await db.scalar(
         select(EvolutionFrozenAttempt)
         .join(
@@ -512,7 +503,7 @@ async def read_discovery_coverage(db, novel_id, scene_id):
     store = PostgresAttemptStore(db, novel_id)
     frozen = await store.load_frozen(row.run_key, row.attempt_key)
     try:
-        await require_current_prefix(db, store, frozen)
+        await require_cached_prefix(db, store, frozen)
     except ConflictError:
         return {
             "status": "source_changed",
@@ -522,6 +513,7 @@ async def read_discovery_coverage(db, novel_id, scene_id):
         result["coverage"]["unsupported_batches"]
         or result["coverage"].get("observation_gaps")
         or result["coverage"].get("failed_batches")
+        or result["coverage"].get("identity_review_gaps")
     ) or any(batch["coverage"] != "inspected" for batch in result["inspected"])
     materialized = payload.get("discovery_materialization") or {}
     return {
