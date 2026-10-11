@@ -967,6 +967,8 @@ class TaskLifecycleService:
                     "input_tokens": prompt_tokens,
                     "output_tokens": completion_tokens,
                     "charge_unconfirmed": charge_unconfirmed,
+                    "usage_complete": envelope.usage_complete
+                    and not envelope.legacy_untracked,
                 }
             )
         return {

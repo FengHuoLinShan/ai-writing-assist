@@ -147,6 +147,7 @@ async def test_get_project_ai_usage_keeps_unknown_and_unconfirmed_markers(
 # =====================================================# BR-7: 用量按作品成果归因（只读查询，不做配额策略变化）
 # =====================================================
 
+
 async def _add_outcome_confirmation(
     db_session,
     novel_id: str,
@@ -249,44 +250,28 @@ async def test_get_project_ai_usage_attributes_usage_by_outcome(
                 task_type="writing_generate",
                 status="succeeded",
                 novel_id=uuid.UUID(novel_id),
-                meta={
-                    AI_RUN_ENVELOPE_KEY: _usage_envelope(
-                        novel_id, "writing.generate"
-                    )
-                },
+                meta={AI_RUN_ENVELOPE_KEY: _usage_envelope(novel_id, "writing.generate")},
             ),
             AsyncTask(
                 id=rejected_id,
                 task_type="writing_generate",
                 status="succeeded",
                 novel_id=uuid.UUID(novel_id),
-                meta={
-                    AI_RUN_ENVELOPE_KEY: _usage_envelope(
-                        novel_id, "writing.generate"
-                    )
-                },
+                meta={AI_RUN_ENVELOPE_KEY: _usage_envelope(novel_id, "writing.generate")},
             ),
             AsyncTask(
                 id=failed_id,
                 task_type="writing_generate",
                 status="failed",
                 novel_id=uuid.UUID(novel_id),
-                meta={
-                    AI_RUN_ENVELOPE_KEY: _usage_envelope(
-                        novel_id, "writing.generate"
-                    )
-                },
+                meta={AI_RUN_ENVELOPE_KEY: _usage_envelope(novel_id, "writing.generate")},
             ),
             AsyncTask(
                 id=pending_id,
                 task_type="writing_generate",
                 status="succeeded",
                 novel_id=uuid.UUID(novel_id),
-                meta={
-                    AI_RUN_ENVELOPE_KEY: _usage_envelope(
-                        novel_id, "writing.generate"
-                    )
-                },
+                meta={AI_RUN_ENVELOPE_KEY: _usage_envelope(novel_id, "writing.generate")},
             ),
             AsyncTask(
                 id=other_id,
@@ -317,9 +302,7 @@ async def test_get_project_ai_usage_attributes_usage_by_outcome(
 
     usage = await get_project_ai_usage(db_session, novel_id, days=30)
 
-    buckets = {
-        bucket["key"]: bucket for bucket in usage["attribution"]["buckets"]
-    }
+    buckets = {bucket["key"]: bucket for bucket in usage["attribution"]["buckets"]}
     assert set(buckets) == {
         "adopted",
         "pending",
@@ -365,11 +348,7 @@ async def test_get_project_ai_usage_attribution_keeps_unknown_markers(
                 task_type="writing_generate",
                 status="succeeded",
                 novel_id=uuid.UUID(novel_id),
-                meta={
-                    AI_RUN_ENVELOPE_KEY: _usage_envelope(
-                        novel_id, "writing.generate"
-                    )
-                },
+                meta={AI_RUN_ENVELOPE_KEY: _usage_envelope(novel_id, "writing.generate")},
             ),
             AsyncTask(
                 id=other_unknown_id,
@@ -391,9 +370,7 @@ async def test_get_project_ai_usage_attribution_keeps_unknown_markers(
 
     usage = await get_project_ai_usage(db_session, novel_id, days=30)
 
-    buckets = {
-        bucket["key"]: bucket for bucket in usage["attribution"]["buckets"]
-    }
+    buckets = {bucket["key"]: bucket for bucket in usage["attribution"]["buckets"]}
     assert buckets["adopted"]["requests"] == 2
     assert buckets["adopted"]["requests_unknown"] == 0
     assert buckets["adopted"]["charge_unconfirmed"] is False
@@ -401,6 +378,8 @@ async def test_get_project_ai_usage_attribution_keeps_unknown_markers(
     assert buckets["other"]["requests_unknown"] == 2
     assert buckets["other"]["charge_unconfirmed"] is True
     assert usage["totals"]["requests_unknown"] == 2
+
+
 @pytest.mark.parametrize("charge_state", ["none", "recorded"])
 async def test_legacy_usage_is_incomplete_without_inventing_unknown_requests(
     db_session, project_factory, charge_state
@@ -439,3 +418,6 @@ async def test_legacy_usage_is_incomplete_without_inventing_unknown_requests(
     assert usage["totals"]["requests"] == 0
     assert usage["totals"]["requests_unknown"] == 0
     assert usage["totals"]["charge_unconfirmed"] is False
+    bucket = next(item for item in usage["attribution"]["buckets"] if item["tasks"])
+    assert bucket["usage_complete"] is False
+    assert bucket["requests_unknown"] == 0

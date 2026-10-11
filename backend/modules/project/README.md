@@ -382,3 +382,5 @@ writing.generate 作者视角注入，详见 writing 模块）与 `llm_cost_savi
 ### 项目归档与私有 RP 缓存
 
 软删除/归档项目经 `CONTEXT_PURGE_PROJECT_INTERACTION_CACHE` 同事务清除该项目作为 source 或 consumer 的缓存；恢复项目冷编译。缓存清理不删除正文、版本、作者确认事件或领域历史，永久删除仍保留原 FK 清理语义。
+
+成果归因逐桶保留 usage_complete，历史不可考即使未知次数为零也不显示为零消耗。

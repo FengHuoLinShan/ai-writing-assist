@@ -481,7 +481,7 @@ describe("AI 用量", () => {
     expect(attribution.text()).toContain("失败与恢复")
     expect(attribution.text()).toContain("资料整理等辅助消耗")
     const headers = attribution.findAll("th").map((th) => th.text())
-    expect(headers).toEqual(["消耗去向", "AI 运行", "模型请求", "输入词元", "输出词元"])
+    expect(headers).toEqual(["消耗去向", "AI 运行", "已确认用量请求", "输入词元", "输出词元"])
     expect(wrapper.text()).not.toContain("adopted")
     expect(wrapper.text()).not.toContain("not_adopted")
     expect(wrapper.text()).not.toContain("writing.generate")
@@ -502,7 +502,7 @@ describe("AI 用量", () => {
           { key: "pending", label: "进行中或等你处理的候选", tasks: 0, requests: 0, requests_unknown: 0, input_tokens: 0, output_tokens: 0, charge_unconfirmed: false },
           { key: "not_adopted", label: "未采用或返修", tasks: 0, requests: 0, requests_unknown: 0, input_tokens: 0, output_tokens: 0, charge_unconfirmed: false },
           { key: "failed", label: "失败与恢复", tasks: 0, requests: 0, requests_unknown: 0, input_tokens: 0, output_tokens: 0, charge_unconfirmed: false },
-          { key: "other", label: "资料整理等辅助消耗", tasks: 1, requests: 2, requests_unknown: 2, input_tokens: 30, output_tokens: 20, charge_unconfirmed: true },
+          { key: "other", label: "资料整理等辅助消耗", tasks: 1, requests: 2, requests_unknown: 2, input_tokens: 30, output_tokens: 20, charge_unconfirmed: true, usage_complete: false },
         ],
       },
     })
@@ -511,6 +511,7 @@ describe("AI 用量", () => {
     const attributionText = wrapper.get(".usage-attribution").text()
     expect(attributionText).toContain("其中 2 次请求用量未知")
     expect(attributionText).toContain("（计费未确认）")
+    expect(attributionText).toContain("用量统计不完整，不能视为零消耗")
     // 已知数字不被未知折算污染
     expect(wrapper.text()).toContain("部分用量未知：另有 2 次模型请求已发出但用量无法确认")
   })

@@ -162,9 +162,7 @@ async def get_project_ai_usage(
             "usage_complete": usage_complete,
         },
         "capabilities": capabilities,
-        "attribution": await _attribute_usage_by_outcome(
-            db, novel_id=novel_id, raw=raw
-        ),
+        "attribution": await _attribute_usage_by_outcome(db, novel_id=novel_id, raw=raw),
     }
 
 
@@ -181,9 +179,7 @@ async def _attribute_usage_by_outcome(
     索引、独立审查等）单列为辅助消耗，不并入任何成果桶；用量未知与
     计费未确认沿用 BR-0a 语义逐桶如实保留。
     """
-    task_rows = [
-        row for row in (raw.get("tasks") or []) if isinstance(row, dict)
-    ]
+    task_rows = [row for row in (raw.get("tasks") or []) if isinstance(row, dict)]
     outcomes: dict[str, dict[str, Any]] = {}
     if task_rows:
         from modules.evidence.facade import describe_confirmed_task_outcomes
@@ -203,6 +199,7 @@ async def _attribute_usage_by_outcome(
             "input_tokens": 0,
             "output_tokens": 0,
             "charge_unconfirmed": False,
+            "usage_complete": True,
         }
         for key, label in _ATTRIBUTION_BUCKETS
     }
@@ -210,6 +207,9 @@ async def _attribute_usage_by_outcome(
         outcome = outcomes.get(str(row.get("task_id") or ""))
         bucket = buckets[_attribution_bucket(str(row.get("status") or ""), outcome)]
         bucket["tasks"] += 1
+        bucket["usage_complete"] = bucket["usage_complete"] and row.get(
+            "usage_complete", True
+        )
         bucket["requests"] += int(row.get("requests") or 0)
         bucket["requests_unknown"] += int(row.get("requests_unknown") or 0)
         bucket["input_tokens"] += int(row.get("input_tokens") or 0)

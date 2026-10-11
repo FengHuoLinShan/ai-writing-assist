@@ -861,11 +861,11 @@ onBeforeUnmount(() => {
               <div v-if="usageAttributionBuckets.length && aiUsage.tasks_with_envelope > 0" class="usage-attribution">
                 <h4>这些用量花在了哪里</h4>
                 <table class="data-table usage-attribution-table">
-                  <thead><tr><th scope="col">消耗去向</th><th scope="col">AI 运行</th><th scope="col">模型请求</th><th scope="col">输入词元</th><th scope="col">输出词元</th></tr></thead>
+                  <thead><tr><th scope="col">消耗去向</th><th scope="col">AI 运行</th><th scope="col">已确认用量请求</th><th scope="col">输入词元</th><th scope="col">输出词元</th></tr></thead>
                   <tbody>
                     <tr v-for="bucket in usageAttributionBuckets" :key="bucket.key">
                       <td>
-                        {{ bucket.label }}<span v-if="bucket.charge_unconfirmed" class="usage-charge-unconfirmed">（计费未确认）</span><span v-if="bucket.requests_unknown > 0" class="settings-section-hint">，其中 {{ bucket.requests_unknown }} 次请求用量未知</span>
+                        {{ bucket.label }}<span v-if="bucket.usage_complete === false" class="settings-section-hint">用量统计不完整，不能视为零消耗</span><span v-if="bucket.charge_unconfirmed" class="usage-charge-unconfirmed">（计费未确认）</span><span v-if="bucket.requests_unknown > 0" class="settings-section-hint">，其中 {{ bucket.requests_unknown }} 次请求用量未知</span>
                       </td>
                       <td>{{ bucket.tasks }}</td>
                       <td>{{ bucket.requests }}</td>
