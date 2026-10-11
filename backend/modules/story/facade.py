@@ -93,6 +93,7 @@ from modules.story.continuity.facade import (  # noqa: E402,F401
     get_memory_panorama,
     get_scene_checkpoints,
     get_scene_event_order_start,
+    get_scene_state_view,
     ingest_delta_events,
     invalidate_derived_state,
     project_scene_presence,
@@ -424,6 +425,7 @@ __all__ = [
     "get_continuity_evidence_for_writing",
     "get_memory_panorama",
     "get_scene_checkpoints",
+    "get_scene_state_view",
     "group_import_scene_resolution",
     "ingest_delta_events",
     "apply_import_scene_resolution",
@@ -475,3 +477,9 @@ async def rehearse_round(**kwargs):
     from modules.story.simulation import rehearse_round as run
 
     return await run(**kwargs)
+
+
+async def compare_scene_state_trial(db, novel_id, request):
+    from modules.story.continuity.state_trial import compare_scene_state_trial as compare
+
+    return await compare(db, novel_id, request)

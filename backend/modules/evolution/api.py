@@ -7,7 +7,8 @@ from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from core.dependencies import DbSession
-from modules.evolution import workflow
+from modules.evolution import ledger, workflow
+from modules.evolution.ledger_contracts import LedgerDecision
 from modules.evolution.ownership import switch_project_engine
 from modules.project.facade import (
     require_active_project,
@@ -25,6 +26,68 @@ async def _guard_project(request: Request, db: DbSession, novel_id: UUID):
 router = APIRouter(
     prefix="/api/evolution", tags=["evolution"], dependencies=[Depends(_guard_project)]
 )
+
+
+@router.get("/panorama")
+async def author_panorama(db: DbSession, novel_id: UUID, scene_id: UUID):
+    return await ledger.read_author_panorama(db, str(novel_id), str(scene_id))
+
+
+@router.get("/ledger")
+async def ledger_entries(
+    db: DbSession,
+    novel_id: UUID,
+    through_scene_index: int = Query(ge=0),
+    category: Literal["conditional_behavior", "clue", "commitment"] | None = None,
+    query: str = Query(default="", max_length=200),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=30, ge=1, le=100),
+):
+    return await ledger.list_ledger(
+        db,
+        str(novel_id),
+        through_scene_index=through_scene_index,
+        category=category,
+        query=query,
+        offset=offset,
+        limit=limit,
+    )
+
+
+@router.get("/ledger/{entry_id}")
+async def ledger_entry(
+    db: DbSession,
+    novel_id: UUID,
+    entry_id: UUID,
+    revision: int | None = Query(default=None, ge=1),
+):
+    return await ledger.read_ledger_entry(
+        db, str(novel_id), str(entry_id), revision=revision
+    )
+
+
+@router.get("/ledger/{entry_id}/evidence/{evidence_index}")
+async def ledger_evidence(
+    db: DbSession,
+    novel_id: UUID,
+    entry_id: UUID,
+    evidence_index: int,
+    revision: int | None = Query(default=None, ge=1),
+):
+    if evidence_index < 0:
+        from core.errors import NotFoundError
+
+        raise NotFoundError("没有找到这段依据")
+    return await ledger.read_ledger_evidence(
+        db, str(novel_id), str(entry_id), evidence_index, revision=revision
+    )
+
+
+@router.post("/ledger/{entry_id}/decision")
+async def ledger_decision(
+    db: DbSession, novel_id: UUID, entry_id: UUID, data: LedgerDecision
+):
+    return await ledger.save_ledger_decision(db, str(novel_id), str(entry_id), data)
 
 
 class EngineSwitch(BaseModel):

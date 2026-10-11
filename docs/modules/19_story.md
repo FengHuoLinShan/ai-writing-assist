@@ -40,6 +40,14 @@ API 前缀为 `/api/story`。资源式路径提供人物卡 revision CRUD、恢�
 `story.script.generate` 和 `story.one_click.simulate`，由 `async_tasks` 承载，不新增 Story run
 表。四类 handler 都声明自动重排、最多两次尝试和可恢复的 task metadata。
 
+Scene memory（continuity）另提供只读状态视图 `facade.get_scene_state_view()`
+（REST `POST /api/novels/{id}/memories/scene-state-view`；跨模块经
+`STORY_SCENE_SOURCE` port）：按 Scene + 视角（作者/角色/读者）分层返回对象状态、
+知识信念与观察，缺口显式、来源回指 checkpoint；详见
+[05_memory](05_memory.md) 与
+[M2 契约](../plans/2026-10-07-world-state-read-m2-contract.md)。Scene Lens 的
+对象状态区消费该视图。
+
 ## 数据与采用边界
 
 迁移 `20260815_story_scene_assets` 创建四张表：
@@ -135,3 +143,11 @@ Story 为 Collaboration 提供 Scene、伏笔/揭示安排的冻结可编辑字�
 Story continuity 的在场读取供 World MapSceneContext 聚合：保留位置 identity、事件摘要和
 观察出处，限制有效 Scene 与截止点。所有正文与 Scene 生命周期变化统一软失效机器状态，
 作者确认历史继续保存；当前投影不读取已删/废弃场景。详见 Memory 与地图模块契约。
+
+### 第一阶段条件比较
+
+本场条件比较与历史来源接口归 continuity，详见 [Memory 契约](05_memory.md)。钥匙转交/三条件锁只做内存候选重放，明确当前值、所需值和未知；作者采用原稿修改不会自动采用候选排演为已发生事件。
+
+连续性投影的历史字段来源、逐字段读者证明和继承前缀消费登记以
+[Memory 契约](05_memory.md) 为准。摄入时冻结的来源不会被后来的 working 稿
+或当前 World 名称回填；缺少旧数据来源绑定时保留 unverified。

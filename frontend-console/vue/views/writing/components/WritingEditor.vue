@@ -109,6 +109,19 @@
           <button v-else id="writing-retry-save" class="btn btn-sm" type="button" :disabled="state.saving" @click="$emit('autosave')">{{ state.saving ? '重试中…' : '重试保存' }}</button>
         </div>
       </div>
+      <InvalidationNotice
+        v-if="state.invalidationNotice"
+        :notice="state.invalidationNotice"
+        @open="invalidationPanelOpen = true"
+      />
+      <RecomputePanel
+        v-if="state.invalidationNotice && invalidationPanelOpen"
+        :project-id="projectId"
+        :chapter-index="state.chapter"
+        :notice="state.invalidationNotice"
+        :editor-dirty="state.dirty"
+        @close="invalidationPanelOpen = false"
+      />
       <section
         v-if="state.status === 'candidate'"
         ref="reviewPanelEl"
@@ -207,6 +220,8 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import AIResultTraceDetails from "../../../components/AIResultTraceDetails.vue"
+import InvalidationNotice from "./InvalidationNotice.vue"
+import RecomputePanel from "./RecomputePanel.vue"
 import { readWritingFocus } from "../../../shared/assistantContext.js"
 
 const props = defineProps({
@@ -242,6 +257,11 @@ const editorEl = ref(null)
 const mirrorEl = ref(null)
 const mirrorSize = ref({})
 const selectedFocus = ref(null)
+// P2-C C4：保存后失效提示的展开入口；notice 变化时面板自行复位，这里只管开合。
+const invalidationPanelOpen = ref(false)
+watch(() => props.state.invalidationNotice, (value) => {
+  if (!value) invalidationPanelOpen.value = false
+})
 let mirrorObserver = null
 function captureFocus() {
   if (editorEl.value) {

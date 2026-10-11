@@ -167,9 +167,7 @@ async def test_service_owns_compilation_usage_and_snapshot_provenance() -> None:
 async def test_service_can_recompile_without_opening_a_second_snapshot() -> None:
     snapshots = _CapturingSnapshotWriter()
     service = GenerationBackgroundService(
-        compiler=_ProvenanceCompiler(
-            CompiledContext(sections=[], budget_tokens=4000)
-        ),
+        compiler=_ProvenanceCompiler(CompiledContext(sections=[], budget_tokens=4000)),
         renderer=lambda _compiled: "<current>",
         snapshot_writer=snapshots,
     )

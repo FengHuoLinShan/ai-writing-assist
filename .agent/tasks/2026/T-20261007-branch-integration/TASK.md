@@ -1,42 +1,45 @@
 ---
 id: T-20261007-branch-integration
 title: 快照瘦身分支合并与世界基础分支同步
-status: active
-created: 2026-10-07T19:04:06+09:00
-updated: 2026-10-07T19:04:06+09:00
+status: completed
+created: 2026-10-07T19:04:00+09:00
+updated: 2026-10-07T19:24:37+09:00
 ---
 
 # 快照瘦身分支合并与世界基础分支同步
 
 ## 恢复快照
 
-- 授权：用户确认仍合并浏览器本地快照优化分支至 main，再更新 world-foundation-phase1-plan；允许必要提交、主题分支推送与固定 head PR 合并。没有世界基础分支合入主干、付费调用或部署授权。
-- 工作区：本任务主笔记位于 thin-snap 工作树，分支 codex/generate-session-thin-snapshot。主目录 main 的任务记录 WIP 和 .workbuddy 保留；其他三个 detached 工作树保留。
-- 已完成：主目录后缀副本 141 个字节相同文件已删，2 个不同旧版副本移至 ~/.codex/branch-cleanup-backups/20261007-ai-writing-assist；已在 thin 分支本地 merge origin/main@d1f61c8d2，无冲突。
-- 发现：瘦快照需与 applyConvergenceMessage 的失败保护配套；服务器追加失败时保留决定预览，成功后才将决定加入本地对话。新增 reload 回归。
-- 下一步：运行前端全量 Vitest、lint、docs-check BASE_REF=origin/main 和 diff-check；修复失败后提交、推送、创建 PR，全部必需检查通过后固定 head 合并；再本地 merge 最新 origin/main 到世界基础分支，保留该分支未通过的质量/费用验收和原费用账本。
-- 最后核实：2026-10-07T19:04:06+09:00。
+- 完成：PR #205 固定 head f2869213e72460960b6469a51c52e60b34a4edc1 的六项必需检查与 CodeQL 全部通过，已合入 main@f35c2bb0f119b7ebf557a9a3bbcf119f23dd91a8；本地 main/两个远端跟踪 main 一致且与通过的 PR head 同树。
+- 世界基础同步：codex/world-foundation-phase1-plan 已通过本地 merge 4261fc13b 纳入同一 origin/main；唯一冲突 .agent/TASKS.md 保留两边任务索引。源代码自动合并，未改原世界基础实施/质量语义。
+- 主笔记写入权：本轮最终记录现位于 world-foundation-plan 工作树。thin-snap 与 main 中的记录是 PR 固定提交时的历史快照，不再更新。
+- 工作区：world-foundation-plan，原 head d4c3adf9c95597492754daa2ea550d09c23122db；最新本地 HEAD 从 Git 核实。本分支本次更新未推送，未合入 main。
+- 下一步：本轮无必需工作；若继续世界基础开发，恢复其原实施记录中的 R7/M6/M7 失败项。本次同步不授权付费重跑或第二阶段实施。
+- 阻塞：无。原世界基础的 RP 质量/费用验收仍 fail；本轮不宣称验收通过。
+- 最后核实：2026-10-07T19:24:37+09:00；main 合并后自动 CI 仍在运行，PR 合并前检查全绿不能代替该次 main 自动运行结果。
 
 ## 目标与验收
 
-- 快照只省略已在服务器保存的完整历史，保留未完成回合和可恢复作者决定；未绑定路径与存储边界不变。
-- PR 固定 head 合入 main；本地 main 同步；世界基础分支包含新的 main，冲突正确解决并验证受影响路径。
+- [x] 用户授权后缀副本清理：143 个副本清出主目录，141 个字节相同文件删除，2 个不同旧版本移至 ~/.codex/branch-cleanup-backups/20261007-ai-writing-assist；清单为该目录 cleanup-manifest.json。
+- [x] 用户已确认：thin-snapshot 只优化浏览器存储和序列化开销，仍合入 main，然后更新世界基础分支。
+- [x] thin 修复、验证、主题分支提交与推送、固定 head PR 合并；主目录 WIP 字节保持。
+- [x] 世界基础主干同步、索引冲突解决与受影响回归；原费用账本和验收证据 4 文件字节保持。
 
-## 上下文与边界
+## 上下文与决策
 
-- thin 原提交 24402ae6adf79e3218fb422cb4f81fffab899652 只优化浏览器存储/序列化，不降低模型费用。
-- 世界基础原 head d4c3adf9c95597492754daa2ea550d09c23122db；目前工程实现存在，但 RP 质量/费用验收失败，不能据同步主干宣称完成。
-- 主目录后缀副本清理清单位于仓库外备份目录 cleanup-manifest.json；真实库、原始付费账本不动。
+- 瘦快照复用 unfinishedCocreationMessages；服务器完整历史不再复制到 localStorage，未绑定路径、Quota/LRU、512 KiB/40 条边界保持。
+- 审查发现作者决定服务器追加失败会清掉预览且被瘦快照省略：改为服务器成功后才加入对话，失败保留决定预览；增加失败→卸载→reload 回归。
+- 权威前端文档已同步；API/schema/owner/novel_id 边界不变。真实库、Guimi、原始付费请求与账本不动，无新增模型调用或部署。
 
-## 进度与验证
+## 验证证据
 
-- [x] 后缀副本清理、分支性质核实与用户确认。
-- [x] thin 分支本地主干更新、保存失败路径审查与修复。
-- [ ] 修复后验证及固定 head PR 合并。
-- [ ] 世界基础分支更新与回归、最终 WIP 保护核查。
-- 修复前原 thin head 定向 120 tests passed；修复后失败保存→卸载→reload 定向回归 1 passed，前端全量 222 files / 2798 passed，ESLint passed；docs-check BASE_REF=origin/main 和 diff-check passed。日志位于 /tmp/thin-frontend-full-20261007.log、/tmp/thin-frontend-lint-20261007.log、/tmp/thin-decision-regression-20261007.log。
-- 合并审查：复用既有 unfinishedCocreationMessages 与刷新时服务器历史回读；未绑定保存、Quota/LRU、512 KiB、40 条边界保持。额外修复只在服务器追加失败时保留决定预览，不改 API/schema/权限。当前没有发现其余新增阻断。
+- thin 新 head：前端 222 files / 2798 passed、ESLint、docs-check BASE_REF=origin/main、文件大小门、diff-check 通过。六项必需 PR 检查见 PR #205；快照 /tmp/pr205-required-checks-20261007.json。
+- 世界基础合并后：前端 223 files / 2800 passed、ESLint、CI 配置静态回归 15 passed、文档清单与本次增量 docs-check BASE_REF=d4c3adf9c95597492754daa2ea550d09c23122db、diff-check 通过。
+- 整体世界基础与 origin/main 差异的普通文档影响检查仍要求说明 5 份未改文档；逐项核对 CLAUDE 导入、文档维护协议、Draw.io/HTML 主要模块拓扑、outline_state 不变后，用 checker 支持的 --no-change-reason 通过并保留 warning。未把普通命令初始失败记成通过；初次使用 tree 作为 checker head 被拒后改用实际 merge commit 验证。
+- 日志：/tmp/thin-frontend-full-20261007.log、/tmp/thin-frontend-lint-20261007.log、/tmp/world-sync-frontend-full-20261007.log、/tmp/world-sync-frontend-lint-20261007.log、/tmp/world-sync-ci-contract-tests-20261007.log、/tmp/world-sync-docs-incoming-20261007.log、/tmp/world-sync-docs-impact-20261007.log。
+- 主目录 WIP 校验快照 /tmp/ai-writing-assist-main-wip-before-pr205.json，2 文件字节未变；其他 detached 工作树及归档、stash 保留。
 
 ## 交付结果
 
-未完成；当前未推送、未创建 PR、未部署，未新增模型调用。
+- thin 已合入远端/本地 main；世界基础分支已在本地更新并提交，未推送。本任务关闭不关闭原世界基础实施任务。
+- main 合并后 CI 单列为运行中；未部署、未真实模型/真实作者验收。

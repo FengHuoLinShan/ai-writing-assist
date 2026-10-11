@@ -1,0 +1,59 @@
+{
+  "version": "dev-v21",
+  "method": "a552083b1ed2ac43bb26920a6102f35d130370cd44ba2155761f79f50428012d",
+  "current_method": true,
+  "scenes_committed": 8,
+  "scenes_expected": 8,
+  "requests": 70,
+  "responses": 70,
+  "terminal_call_errors": 0,
+  "source_ranges_exact_cumulative": 83,
+  "free_replays": 8,
+  "discovery_planned_batches": 26,
+  "failed_batches": [
+    {
+      "scene": 4,
+      "stage": "scene_discovery_2",
+      "usage_complete": true
+    },
+    {
+      "scene": 5,
+      "stage": "scene_discovery_3",
+      "usage_complete": true
+    },
+    {
+      "scene": 7,
+      "stage": "scene_discovery_4",
+      "usage_complete": true
+    }
+  ],
+  "validation_quarantine_records": 2,
+  "unknown_stage_receipts": 0,
+  "engineering_gate": "passed",
+  "quality_gate": "failed",
+  "holdout_run": false,
+  "human_validated": false,
+  "explicit_new_run_authorized": true,
+  "v9_unknown_receipt_retained": true,
+  "v11_unknown_receipt_retained": true,
+  "v12_unknown_receipt_retained": true,
+  "v14_unknown_receipt_retained": true,
+  "v15_unknown_receipt_retained": true,
+  "holdout_opened": false,
+  "audit_before_source_change": true,
+  "independent_quality_failures": [
+    "negative_case_blocked_by_first_single_trigger_as_required_condition",
+    "unbound_gender_pronoun_in_first_commitment"
+  ],
+  "diagnostic_limitations": [
+    "narrator_qualification_recast_as_self_report_in_unresolved_note",
+    "coreference_gap_conflicts_with_recognized_action_subject"
+  ],
+  "positive_behavior_occurrences": 2,
+  "explicit_exceptions": 0,
+  "linked_recall_increases_occurrences": false,
+  "commitment_fulfilment": 1,
+  "original_clue_physical_occurrences": 1,
+  "proxy_author_gate": "fixed_original_source_action_instance_retained_across_revisions",
+  "world_unique_identity_reuse_scene": 6
+}

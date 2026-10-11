@@ -662,7 +662,7 @@ class TestWritingAPI:
     @pytest.fixture
     def mock_mark_chapter_index_dirty(self):
         with patch(
-            "modules.evidence.facade.mark_chapter_index_dirty",
+            "modules.writing.api.mark_chapter_index_dirty",
             autospec=True,
         ) as mark_dirty:
             yield mark_dirty
