@@ -994,6 +994,21 @@ export function useWritingWorkspace(props) {
         { confirmAction },
       )
     }
+    // 发布不加服务端门禁（发布是作者对自己正文的决定），但提示必须如实：
+    // 部分完成的检查不得并入口气良好的默认确认。
+    const provenance = editorState.provenanceJson || {}
+    const review = provenance.independent_review || null
+    const knowledgeStatus = provenance.knowledge_review?.status || ""
+    const hasPartialChecks = review?.verdict === "incomplete"
+      || Boolean(provenance.adopted_with_open_issues)
+      || (Boolean(provenance.review_required) && Boolean(knowledgeStatus) && knowledgeStatus !== "passed")
+    if (hasPartialChecks) {
+      return confirmAsync(
+        "本章正文的 AI 检查未全部完成（仍有未处理的建议或未检查的项）。确认继续设为正式正文？",
+        "仍设为正式正文",
+        { confirmAction },
+      )
+    }
     return true
   }
 

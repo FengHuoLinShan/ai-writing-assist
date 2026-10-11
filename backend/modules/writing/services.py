@@ -799,6 +799,19 @@ class WritingDraftService:
             "adopted_at": adopted_at,
             "adopted_by": adopted_by,
         }
+        # 带问题采用：阻断项在上方门禁已挡下，能走到这里的非阻断 finding
+        # 属作者决定延后处理的欠账；钉住问题标识与当时的检查版本/输出，
+        # 供发布提示与质量追溯，不建独立问题真相表。
+        review = (draft.provenance_json or {}).get("independent_review")
+        open_finding_ids = [
+            str(item) for item in (review or {}).get("finding_ids") or [] if item
+        ]
+        if open_finding_ids:
+            adopted_provenance["adopted_with_open_issues"] = {
+                "check_version": review.get("check_version"),
+                "review_output_hash": review.get("output_hash"),
+                "open_finding_ids": open_finding_ids,
+            }
         candidate_provenance = {
             **(draft.provenance_json or {}),
             "deprecated_from_status": "candidate",

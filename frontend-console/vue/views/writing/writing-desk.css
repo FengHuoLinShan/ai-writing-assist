@@ -441,6 +441,25 @@
   font-size: 12px;
 }
 
+/* 资料复核未通过/未完成的候选警告：与成功态区分，不得显示为通过 */
+.writing-knowledge-review-warning {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border-left: 2px solid var(--warning);
+  background: var(--warning-soft, color-mix(in srgb, var(--warning) 12%, transparent));
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.writing-knowledge-review-warning strong {
+  color: var(--warning);
+}
+
+.writing-knowledge-review-warning ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
 .writing-candidate-findings li {
   margin: 6px 0;
 }

@@ -181,3 +181,82 @@ async def test_adopt_route_replay_with_idempotency_key(
     assert no_key.status_code == 400
     wrong_key = await async_client.post(f"{url}&idempotency_key=other-key")
     assert wrong_key.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_adopt_with_open_findings_records_traceable_receipt(
+    db_session,
+    test_project_id,
+    monkeypatch,
+) -> None:
+    """BR-2 带问题采用：阻断项已被门禁挡下，非阻断 finding 属作者延后处理
+    的欠账；采用记录钉住问题标识与当时的检查版本/输出 hash，可追溯。"""
+
+    async def accept_candidate(*_args, **_kwargs) -> None:
+        return None
+
+    monkeypatch.setattr(
+        "modules.writing.semantic_review.validate_candidate_upstream",
+        accept_candidate,
+    )
+    _confirmation, candidate = await _adoptable_candidate(db_session, test_project_id)
+    candidate.provenance_json = {
+        **candidate.provenance_json,
+        "independent_review": {
+            "schema": "writing_semantic_review.v2",
+            "check_version": 1,
+            "output_hash": "review_output_abc123",
+            "verdict": "pass",
+            "blocking_count": 0,
+            "finding_ids": ["finding_aaa", "finding_bbb"],
+        },
+    }
+    db_session.add(candidate)
+    await db_session.flush()
+
+    adopted = await WritingDraftService().adopt_candidate_to_working(
+        db_session,
+        str(candidate.id),
+        test_project_id,
+    )
+    assert adopted.provenance_json["adopted_with_open_issues"] == {
+        "check_version": 1,
+        "review_output_hash": "review_output_abc123",
+        "open_finding_ids": ["finding_aaa", "finding_bbb"],
+    }
+
+
+@pytest.mark.asyncio
+async def test_adopt_without_open_findings_has_no_open_issue_record(
+    db_session,
+    test_project_id,
+    monkeypatch,
+) -> None:
+    async def accept_candidate(*_args, **_kwargs) -> None:
+        return None
+
+    monkeypatch.setattr(
+        "modules.writing.semantic_review.validate_candidate_upstream",
+        accept_candidate,
+    )
+    _confirmation, candidate = await _adoptable_candidate(db_session, test_project_id)
+    candidate.provenance_json = {
+        **candidate.provenance_json,
+        "independent_review": {
+            "schema": "writing_semantic_review.v2",
+            "check_version": 1,
+            "output_hash": "review_output_clean",
+            "verdict": "pass",
+            "blocking_count": 0,
+            "finding_ids": [],
+        },
+    }
+    db_session.add(candidate)
+    await db_session.flush()
+
+    adopted = await WritingDraftService().adopt_candidate_to_working(
+        db_session,
+        str(candidate.id),
+        test_project_id,
+    )
+    assert "adopted_with_open_issues" not in adopted.provenance_json

@@ -44,6 +44,12 @@ Prompt 或 token；预算遗漏另行解释。作者可逐项移除/恢复、用
 已持久化 Confirmation、确切 task operation、知识复核、结果引用与失效事实。
 组件切换成果或卸载后忽略旧响应；task 已清理时仍展示来源和成果，单次读取失败只提供
 就地重试，不阻断采用、拒绝或编辑。链接复用现有成果定位器，不显示 raw ID。
+质量状态四态（运行完成 / 可审阅 / 已采用 / 已发布）不共用同一种成功视觉：生成任务
+result 携带 `knowledge_review_status`，复核未通过或未完成时生成完成提示为警告而非成功，
+候选审阅区隐藏采用入口并展示遗漏维度（`coverage[].dimension_label` + 遗漏原因），结果
+详情列出未检查维度；独立审查 `incomplete` 显示“部分完成”与未检查项；发布前确认框提示
+部分完成的检查（发布不加服务端门禁）。`not_checked`/`unverifiable` 在任何入口都不显示
+为通过或绿色。
 
 弹窗保留统一 modal seam，不引入前端依赖；错误使用 `role=alert` 并恢复焦点，状态使用单一
 `aria-live`，按钮具备 disabled 语义与至少 44px 点击区。小于 640px 使用整屏布局，正文和页脚
@@ -298,6 +304,8 @@ map / rag / outline / settings / project-settings`，其主 DOM 全部由 Vue SF
   404 显示“未找到原任务，请重新开始”，不自动重放不确定提交。进度和结果只在
   发起位置显示，默认隐藏 raw task ID；Scene 融合完成后在工作台显示“查看预览”，
   不因晚到响应重开旧弹窗。任务完成不刷新整座 island，不覆盖当前输入、筛选、焦点、滚动和多选。
+  写作页生成、独立语义审查与定向返修共用该恢复路径；候选采用按
+  `writing-adopt-v1:<draftId>` 确定性幂等键提交，回包丢失后重放返回原采用回执。
 - `shared/workflowProgress.js` 以服务端任务总览（`GET /api/tasks?novel_id=…`）为
   在途任务的权威来源：写作页恢复与首页“正在进行的整理”先合并服务端 pending/running
   任务，本机 `novel_active_workflows_v1` 仅作首屏加速与离线兜底；服务端不可用时回退
@@ -305,8 +313,6 @@ map / rag / outline / settings / project-settings`，其主 DOM 全部由 Vue SF
   `writing_generate` 时先提示“已有一份正文正在生成”，取消返回并跟随原任务进度，
   作者确认“仍要再生成”才提交新任务（旧任务无 `scene_id` 时按章节保守提示）；
   换设备登录后可在首页与写作页看到同一在途任务并回到其候选，不重复提交。
-  写作页生成、独立语义审查与定向返修共用该恢复路径；候选采用按
-  `writing-adopt-v1:<draftId>` 确定性幂等键提交，回包丢失后重放返回原采用回执。
 - `shared/smartDedup.js` 对 schema v2 结果打开 `{size: "large", protectUnsaved: true}`
   双栏工作台；队列、对比、主对象和逐成员动作共享同一个 group 草稿。
   对比默认“只看差异”；勾选操作与切换合格主对象会保留工作台滚动位置，且主对象 radio

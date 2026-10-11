@@ -198,6 +198,46 @@ describe("writingCommandController", () => {
     await first
   })
 
+  it("生成完成但资料复核未通过时警告而非成功提示（BR-2）", async () => {
+    let resolveTask
+    const { api, toast, controller } = setup()
+    api.writing.generate.mockResolvedValue({ task_id: "writing-task" })
+    api.tasks.get.mockImplementation(() => new Promise((resolve) => { resolveTask = resolve }))
+
+    const generation = controller.generateDraft()
+    await vi.waitFor(() => expect(api.tasks.get).toHaveBeenCalledWith("writing-task", "p1"))
+    resolveTask({
+      task_id: "writing-task",
+      task_type: "writing_generate",
+      status: "done",
+      result: { draft_id: "candidate-2", knowledge_review_status: "unverifiable" },
+    })
+    await generation
+
+    expect(toast).toHaveBeenCalledWith(expect.stringContaining("资料复核未通过"), "warning")
+    const successCalls = toast.mock.calls.filter(([, kind]) => kind === "success")
+    expect(successCalls).toHaveLength(0)
+  })
+
+  it("资料复核通过时仍给生成成功提示（BR-2 不改变正常流）", async () => {
+    let resolveTask
+    const { api, toast, controller } = setup()
+    api.writing.generate.mockResolvedValue({ task_id: "writing-task" })
+    api.tasks.get.mockImplementation(() => new Promise((resolve) => { resolveTask = resolve }))
+
+    const generation = controller.generateDraft()
+    await vi.waitFor(() => expect(api.tasks.get).toHaveBeenCalledWith("writing-task", "p1"))
+    resolveTask({
+      task_id: "writing-task",
+      task_type: "writing_generate",
+      status: "done",
+      result: { draft_id: "candidate-2", knowledge_review_status: "passed" },
+    })
+    await generation
+
+    expect(toast).toHaveBeenCalledWith(expect.stringContaining("正文建议已生成"), "success")
+  })
+
   it("任务期间正文变更时不覆盖编辑器，作者可手动查看结果", async () => {
     let resolveTask
     const { api, editor, onResult, controller } = setup()
@@ -286,6 +326,64 @@ describe("writingCommandController", () => {
     expect(api.tasks.get).not.toHaveBeenCalled()
   })
 
+  it("刷新后恢复在途独立语义审查：只续轮询原任务，不重提交审查", async () => {
+    sessionStorage.setItem("novel_active_workflows_v1", JSON.stringify([{
+      id: "p1:writing_semantic_review:review-task-1",
+      taskId: "review-task-1",
+      workflowType: "writing_semantic_review",
+      projectId: "p1",
+      view: "writing",
+      meta: { chapter: 1, draftId: "draft-1" },
+    }]))
+    const onProgress = vi.fn()
+    const { api, controller } = setup({ onProgress })
+    api.tasks.get.mockResolvedValue({
+      task_id: "review-task-1",
+      task_type: "writing_semantic_review",
+      status: "done",
+      result: { verdict: "pass", blocking_count: 0, findings: [] },
+    })
+
+    await expect(controller.recover()).resolves.toBe(true)
+
+    expect(api.writing.semanticReview).not.toHaveBeenCalled()
+    expect(api.tasks.get).toHaveBeenCalledWith("review-task-1", "p1")
+    expect(onProgress).toHaveBeenLastCalledWith(expect.objectContaining({
+      taskId: "review-task-1",
+      progress: expect.objectContaining({ status: "done", terminal: true }),
+      result: expect.objectContaining({ verdict: "pass" }),
+    }))
+  })
+
+  it("刷新后恢复在途定向返修：只续轮询原任务并保留新候选入口", async () => {
+    sessionStorage.setItem("novel_active_workflows_v1", JSON.stringify([{
+      id: "p1:writing_targeted_revision:revision-task-1",
+      taskId: "revision-task-1",
+      workflowType: "writing_targeted_revision",
+      projectId: "p1",
+      view: "writing",
+      meta: { chapter: 1, draftId: "draft-1" },
+    }]))
+    const onProgress = vi.fn()
+    const { api, controller } = setup({ onProgress })
+    api.tasks.get.mockResolvedValue({
+      task_id: "revision-task-1",
+      task_type: "writing_targeted_revision",
+      status: "done",
+      result: { draft_id: "candidate-revised" },
+    })
+
+    await expect(controller.recover()).resolves.toBe(true)
+
+    expect(api.writing.targetedRevision).not.toHaveBeenCalled()
+    expect(api.tasks.get).toHaveBeenCalledWith("revision-task-1", "p1")
+    expect(onProgress).toHaveBeenLastCalledWith(expect.objectContaining({
+      taskId: "revision-task-1",
+      progress: expect.objectContaining({ status: "done", terminal: true }),
+      result: expect.objectContaining({ draft_id: "candidate-revised" }),
+    }))
+  })
+
   it("恢复时采用服务端在途正文生成任务（换设备场景）", async () => {
     const onProgress = vi.fn()
     const { api, onResult, controller } = setup({ onProgress })
@@ -370,64 +468,6 @@ describe("writingCommandController", () => {
     await controller.generateDraft()
 
     expect(api.writing.generate).toHaveBeenCalledOnce()
-  })
-
-  it("刷新后恢复在途独立语义审查：只续轮询原任务，不重提交审查", async () => {
-    sessionStorage.setItem("novel_active_workflows_v1", JSON.stringify([{
-      id: "p1:writing_semantic_review:review-task-1",
-      taskId: "review-task-1",
-      workflowType: "writing_semantic_review",
-      projectId: "p1",
-      view: "writing",
-      meta: { chapter: 1, draftId: "draft-1" },
-    }]))
-    const onProgress = vi.fn()
-    const { api, controller } = setup({ onProgress })
-    api.tasks.get.mockResolvedValue({
-      task_id: "review-task-1",
-      task_type: "writing_semantic_review",
-      status: "done",
-      result: { verdict: "pass", blocking_count: 0, findings: [] },
-    })
-
-    await expect(controller.recover()).resolves.toBe(true)
-
-    expect(api.writing.semanticReview).not.toHaveBeenCalled()
-    expect(api.tasks.get).toHaveBeenCalledWith("review-task-1", "p1")
-    expect(onProgress).toHaveBeenLastCalledWith(expect.objectContaining({
-      taskId: "review-task-1",
-      progress: expect.objectContaining({ status: "done", terminal: true }),
-      result: expect.objectContaining({ verdict: "pass" }),
-    }))
-  })
-
-  it("刷新后恢复在途定向返修：只续轮询原任务并保留新候选入口", async () => {
-    sessionStorage.setItem("novel_active_workflows_v1", JSON.stringify([{
-      id: "p1:writing_targeted_revision:revision-task-1",
-      taskId: "revision-task-1",
-      workflowType: "writing_targeted_revision",
-      projectId: "p1",
-      view: "writing",
-      meta: { chapter: 1, draftId: "draft-1" },
-    }]))
-    const onProgress = vi.fn()
-    const { api, controller } = setup({ onProgress })
-    api.tasks.get.mockResolvedValue({
-      task_id: "revision-task-1",
-      task_type: "writing_targeted_revision",
-      status: "done",
-      result: { draft_id: "candidate-revised" },
-    })
-
-    await expect(controller.recover()).resolves.toBe(true)
-
-    expect(api.writing.targetedRevision).not.toHaveBeenCalled()
-    expect(api.tasks.get).toHaveBeenCalledWith("revision-task-1", "p1")
-    expect(onProgress).toHaveBeenLastCalledWith(expect.objectContaining({
-      taskId: "revision-task-1",
-      progress: expect.objectContaining({ status: "done", terminal: true }),
-      result: expect.objectContaining({ draft_id: "candidate-revised" }),
-    }))
   })
 
   it("独立语义审查冻结当前候选并重载审查回执", async () => {

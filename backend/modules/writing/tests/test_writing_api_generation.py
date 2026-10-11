@@ -1201,6 +1201,10 @@ async def test_writing_generate_task_records_task_provenance(
         uuid.UUID(result["draft_id"]),
     )
     assert draft is not None
+    # BR-2：任务 result 如实携带复核状态，前端据此不把"已生成"当"可采用"。
+    assert result["knowledge_review_status"] == (
+        (draft.provenance_json or {}).get("knowledge_review", {}).get("status")
+    )
     expected = {
         "source": "writing_generate",
         "source_confirmation_id": confirmation.id,
