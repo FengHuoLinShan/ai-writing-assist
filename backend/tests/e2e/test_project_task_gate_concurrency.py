@@ -16,6 +16,7 @@ from infrastructure.llm.image_client import GeneratedImage
 from infrastructure.tasks.enqueuer import enqueue_task
 from infrastructure.tasks.facade import (
     cancel_unfinished_tasks_for_novel,
+    write_private_task_checkpoint,
 )
 from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.registry import TaskRegistry
@@ -330,7 +331,10 @@ async def test_guarded_enqueue_is_cancelled_by_waiting_soft_delete() -> None:
         await engine.dispose()
 
 
-async def test_delete_rejects_later_handler_commit_and_preserves_checkpoint() -> None:
+@pytest.mark.parametrize("private_checkpoint", [False, True])
+async def test_delete_rejects_later_handler_commit_and_preserves_checkpoint(
+    private_checkpoint: bool,
+) -> None:
     """Only commits linearized before project deletion remain durable."""
     engine = create_async_engine(DATABASE_URL, pool_size=5, max_overflow=0)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
@@ -373,7 +377,17 @@ async def test_delete_rejects_later_handler_commit_and_preserves_checkpoint() ->
                 meta={"source_task_id": str(task.id)},
             )
         )
-        await db.commit()
+        if private_checkpoint:
+            await write_private_task_checkpoint(
+                db,
+                task_id=str(task.id),
+                task_type=task_type,
+                novel_id=str(project_id),
+                key="_paid_output",
+                payload={"candidate": "must not survive deletion"},
+            )
+        else:
+            await db.commit()
         return {"handler": "done"}
 
     async def paused_task_canceller(db, *, novel_id, transition_reason):
@@ -459,6 +473,7 @@ async def test_delete_rejects_later_handler_commit_and_preserves_checkpoint() ->
             assert original_task.transition_reason == "project_soft_deleted"
             assert original_task.progress == 0.5
             assert original_task.result == {"checkpoint": "before_project_delete"}
+            assert "_paid_output" not in (original_task.meta or {})
             assert checkpoint_write is not None
             assert rejected_write is None
     finally:

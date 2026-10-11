@@ -388,11 +388,12 @@ const targetedRevisionReady = computed(() => reviewBlocked.value
   || (hasUnresolvedReview.value && includedContractItemIds.value.length > 0))
 const commentCandidate = computed(() => props.state.provenanceJson?.source === "writing_comment_revision")
 const knowledgeReview = computed(() => props.state.provenanceJson?.knowledge_review || null)
-const knowledgeGated = computed(() => Boolean(props.state.provenanceJson?.review_required) && Boolean(knowledgeReview.value))
+const knowledgeGated = computed(() => Boolean(props.state.provenanceJson?.review_required))
 const knowledgePassed = computed(() => !knowledgeGated.value || knowledgeReview.value?.status === "passed")
 const knowledgeOmissions = computed(() => (Array.isArray(knowledgeReview.value?.coverage) ? knowledgeReview.value.coverage : []).filter((item) => item?.omitted))
 const knowledgeStateText = computed(() => {
   const status = knowledgeReview.value?.status
+  if (!knowledgeReview.value) return "缺少资料复核回执，暂不能采用"
   if (status === "checking") return "资料复核进行中，暂不能采用"
   if (status === "unverifiable") return "资料复核未完成，暂不能采用"
   if (status === "legacy_unchecked") return "由旧版本生成，未经统一资料复核，暂不能采用"
