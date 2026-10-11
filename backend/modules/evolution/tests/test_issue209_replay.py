@@ -169,3 +169,48 @@ async def test_review_capacity_deferral_never_dispatches_or_replays_paid_review(
     replay = await handle_evolution_scene_step(db, task)
     assert replay["attempt_id"] == result["attempt_id"]
     assert len(sampler.calls) == calls
+
+
+async def test_same_scene_split_proposals_have_frozen_identity_review(
+    db_session, evolution_project_id, monkeypatch
+):
+    class Sampler(DiscoverySampler):
+        async def sample(self, *, scene_text, input_manifest):
+            response = await super().sample(
+                scene_text=scene_text, input_manifest=input_manifest
+            )
+            original = response["observations"][0]
+            response["observations"] = [
+                {**original, "predicate": predicate}
+                for predicate in ["甲紧张地摸戒指。", "甲触碰了戒指。"]
+            ]
+            return response
+
+        async def review_discovery(self, *, inputs):
+            response = await super().review_discovery(inputs=inputs)
+            if any("same_scene_proposal" in item for item in inputs["theme_index"]):
+                for verdict in response["result"]["verdicts"]:
+                    verdict.update(
+                        verdict="rejected", reason="同场其他批已提同人物同动作主题。"
+                    )
+            return response
+
+    db, nid = db_session, evolution_project_id
+    sampler = Sampler()
+    provider = "issue209-scene-proposals-" + nid
+    register_scene_sampler(provider, lambda db, novel_id: sampler)
+    monkeypatch.setattr(
+        discovery, "_chunks", lambda values, budget=16000: [[value] for value in values]
+    )
+    task = await task_for(db, nid, 0, "甲紧张地摸了摸戒指。", provider=provider)
+    result = await handle_evolution_scene_step(db, task)
+    await db.commit()
+    frozen = await PostgresAttemptStore(db, nid).load_frozen(
+        "discovery-test", result["attempt_id"]
+    )
+    assert frozen.payload["scene_discovery_identity_1_1"]["stage"] == "sampled"
+    assert len(frozen.payload["discovery_materialization"]["applied"]) == 1
+    assert (await list_ledger(db, nid, through_scene_index=0))["total"] == 1
+    calls = len(sampler.calls)
+    await handle_evolution_scene_step(db, task)
+    assert len(sampler.calls) == calls
