@@ -6,6 +6,8 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.container import get
+from core.service_keys import EVIDENCE_CONFIRMATION_READS
 from modules.project.facade import get_project_context, require_active_project
 
 # 次级诊断入口的作者语言映射，键必须与真实能力编号一致
@@ -182,9 +184,7 @@ async def _attribute_usage_by_outcome(
     task_rows = [row for row in (raw.get("tasks") or []) if isinstance(row, dict)]
     outcomes: dict[str, dict[str, Any]] = {}
     if task_rows:
-        from modules.evidence.facade import describe_confirmed_task_outcomes
-
-        outcomes = await describe_confirmed_task_outcomes(
+        outcomes = await get(EVIDENCE_CONFIRMATION_READS).describe_task_outcomes(
             db,
             novel_id=novel_id,
             task_ids=[str(row["task_id"]) for row in task_rows],
