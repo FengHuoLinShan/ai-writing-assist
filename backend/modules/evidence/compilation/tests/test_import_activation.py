@@ -47,13 +47,9 @@ def test_identity_candidates_keep_all_direct_mentions_then_apply_type_top_k() ->
         outline_related_ids=set(),
     )
 
-    reason_by_ref = {
-        item["prompt_ref"]: item["selection_reason"] for item in sources
-    }
+    reason_by_ref = {item["prompt_ref"]: item["selection_reason"] for item in sources}
     direct = [
-        item
-        for item in selected
-        if reason_by_ref[item["prompt_ref"]] == "direct_mention"
+        item for item in selected if reason_by_ref[item["prompt_ref"]] == "direct_mention"
     ]
     remaining_characters = [
         item
@@ -301,9 +297,7 @@ async def test_import_activation_pages_through_all_relevant_relations(
                 "relation_kind": "state",
                 "strength": index / 100,
                 "review_meta": (
-                    {"scene_index": 0, "source_chapter_index": 1}
-                    if index < 2
-                    else None
+                    {"scene_index": 0, "source_chapter_index": 1} if index < 2 else None
                 ),
             },
         )
@@ -362,6 +356,5 @@ async def test_import_activation_pages_through_all_relevant_relations(
         item["relation_type"] for item in activation.relation_candidates
     }
     assert {
-        item["relation_type"]: item["strength"]
-        for item in activation.relation_candidates
+        item["relation_type"]: item["strength"] for item in activation.relation_candidates
     }["noise-01"] == 0.01

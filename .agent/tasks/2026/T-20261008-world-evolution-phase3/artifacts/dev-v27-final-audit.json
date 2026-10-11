@@ -1,0 +1,48 @@
+{
+  "version": "dev-v27",
+  "method": "edcc76412da0c293abd88a1e362d358c800101ecb3711350dbb0d97fd467e83a",
+  "current_method": false,
+  "scenes_committed": 3,
+  "scenes_expected": 8,
+  "requests": 26,
+  "responses": 25,
+  "terminal_call_errors": 1,
+  "source_ranges_exact_cumulative": 17,
+  "free_replays": 3,
+  "discovery_planned_batches": 6,
+  "failed_batches": [
+    {
+      "scene": 3,
+      "stage": "scene_discovery_0",
+      "usage_complete": false
+    }
+  ],
+  "validation_quarantine_records": 0,
+  "unknown_stage_receipts": 1,
+  "engineering_gate": "not_passed",
+  "quality_gate": "failed",
+  "holdout_run": false,
+  "human_validated": false,
+  "explicit_new_run_authorized": true,
+  "v9_unknown_receipt_retained": true,
+  "v11_unknown_receipt_retained": true,
+  "v12_unknown_receipt_retained": true,
+  "v14_unknown_receipt_retained": true,
+  "v15_unknown_receipt_retained": true,
+  "v16_unknown_receipt_retained": true,
+  "quality_failures": [
+    "S1 supported question replaced prior explicit commitment head",
+    "remaining five scenes not committed"
+  ],
+  "frozen_loaded_runtime_source_checkpoint_preserved": true,
+  "transport_failure": {
+    "http_status": 200,
+    "transport": "sdk_native_complete_stream",
+    "failure_seconds": 33.236,
+    "body_chunks": 2707,
+    "body_bytes": 3225039,
+    "last_chunk_before_failure_ms": 11.373,
+    "errno": 54,
+    "final_usage_received": false
+  }
+}

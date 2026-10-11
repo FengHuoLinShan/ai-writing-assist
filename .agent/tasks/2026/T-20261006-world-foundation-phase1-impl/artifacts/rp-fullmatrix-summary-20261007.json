@@ -1,0 +1,1218 @@
+{
+  "schema": "rp-fullmatrix-redacted-receipt/v1",
+  "payload_redacted": true,
+  "human_validated": false,
+  "cumulative_cap_usd": 20,
+  "same_existing_ledger": true,
+  "raw_ledger_sha256": "41194ca6e12c298afd6a31cc8c58df776ddaf300cb8a2e1ea05ce8758968f403",
+  "cost": {
+    "cumulative_calls": 2246,
+    "upper_usd": 14.9654139,
+    "estimated_usd": 9.238529633999999,
+    "legacy_usage_unknown": 4
+  },
+  "estimated_cost_is_invoice": false,
+  "legacy_unknown_sequences": [
+    1,
+    464,
+    466,
+    467
+  ],
+  "legacy_unknown_budget_resolution": "authorized_reserved_cap; original status/hash/upper retained, original requests never retried",
+  "original_spec_hash": "934e3cef7ca0ac297d01490ea2edc4c8baf9109798292a0610864d6347a2b271",
+  "judge_correction_protocol_hash": "628e1eddb628897ad247afc4a5deeaec4be1501445d794835f032f4d254a44b8",
+  "full_judge_input_hashes": {
+    "dev-port:1": "15c47ed23e4ed22b3f565d1db6ae2582c3e9c77eb291a9d80b5cbfa8a5bc487b",
+    "dev-port:5": "c5287b643acb61b686b91d96c3e56cf2b7095f368c9fecec9759adf5afa8274d",
+    "dev-port:10": "a0f307c943c9205c1a80eab35e275fb7c5269bfbf7299d9159c02ccf399c504f",
+    "dev-port:20": "a8716529395df3a8fdabf8c790f80493fcbc7130f891cc6dcb884f375148128a",
+    "dev-port:30": "43fb269413c5044dacf4fdd2801ef4324806f8fb574c38654c5b0ca5b6d4f8dd",
+    "dev-water:1": "532976a79bd709bfa0d93326e5531310b3e397df9df2a54eaa5d9061345c4443",
+    "dev-water:5": "dede9eda9642ef502c2ec1918184d00c1e39d770e583d48b4d6f4e93097c3f2d",
+    "dev-water:10": "f013406ccf1caadbadb6833566de071776a266381d469c4751053f366d30a642",
+    "dev-water:20": "1b940eb37ac0d8f25e9affe0cb09862c8c17c9f35975e6ba391dd29c5045876a",
+    "dev-water:30": "fa2804f0c50f18d725bfcc6e72dfed91585eceeb2e2fa14b2b224b112ffd7f81",
+    "dev-rail:1": "214ea51ab2bc80820af503ef5310e24c8148dd04f8c24d9b3c88df8fec3203ae",
+    "dev-rail:5": "412eae7426eeeee4ffd067dc5c6576b67f1cdbbba75064c84ab24bdaed2b290e",
+    "dev-rail:10": "70e80c0caea927d3e2c87123d7e86a7f2a536ec1307e8dd68f7921e6e68d1c62",
+    "dev-rail:20": "436fd50986c417bb421bc84598cc8bfe30fd91b7c967a0197625accec66726b1",
+    "dev-rail:30": "1a407d2152414a6a9ab2aba69391101f1c59b8dbeffb316ffcf254f1bb66e266",
+    "dev-clinic:1": "cfd4f363f9e9d2ea3a4feb1cd4730a4abf99b0df53aa781a19b9a0d6477d77dd",
+    "dev-clinic:5": "64d0207e1f6463170f168599bff3e73336b50d5495f898c134fd95e7da455b2d",
+    "dev-clinic:10": "ef199145f80c246e01e2b3a676afb6c434ea2e1ef8f1155946a1c524ee2dbf90",
+    "dev-clinic:20": "feddd539eca7b39989195999eb47b650353955fc3c237a62768a1ef6fedf3d9f",
+    "dev-clinic:30": "135ab4e37e41881562f3248ada7ab879e19ef82441876b834369a3bb6c88d5a3",
+    "dev-market:1": "4592fdee87a0d3f8fb1f8daaeb2d65b4232231acbc9db436d2d39a5e3281070d",
+    "dev-market:5": "87c67c5ce11636d22903cb718ce807f084b23053e6d9c4353d6c3b7ec5f268bd",
+    "dev-market:10": "129a59b66f0cbdb25519236a9efdb5ee110fd0ec355e74f4b94be1dfa428b63f",
+    "dev-market:20": "dd55d112a481340b9c2d6262b868f83ac21adc11b68337ffa301dad0dddbdb93",
+    "dev-market:30": "e1963320f634b9ef92bd733b54767e3ede1a1e6dde6da122660d294ae30f8244",
+    "dev-orchard:1": "5c4941976006866203376e659612ab68c6e3e2c9e4b1ffff8b5b8c543107aa76",
+    "dev-orchard:5": "8e69baa0ea916527f80fc0552ec9fe03ed500d605baf4d01ddac35dca1751ad3",
+    "dev-orchard:10": "ad74f648117b2eecece6121d6cd897ce5d4ea343b96c846045bff6718890ae10",
+    "dev-orchard:20": "373e41dd77105e202d477c14f64e462a980338395b1b0c29aa37c4dbbb5d6d44",
+    "dev-orchard:30": "e2571749c58c1a4c247ade60454eabad02b8acc970faff2c38fb829a32d71bc6"
+  },
+  "judge_ground_truth_hashes": {
+    "dev-port": "77c6923a85bcb9f1f452b10723af9e199ed80cd75f441b8eec134d36a380e439",
+    "dev-water": "ada12eb222c94aa722e70605c6d391e5376b3f2063f0761b4f3d3876e1c7d288",
+    "dev-rail": "da96b1e9ca0818462df402fe00054d6f159714a996fbb936c87ff8c1bab63cc6",
+    "dev-clinic": "659e0c344b65b74237c80745adca34022b8a5da99a862c6a9b6f946023f9acf8",
+    "dev-market": "31d71e1e55daf71c459e0fcb046813fef921876fbed810ffba2744ed74fd422b",
+    "dev-orchard": "95e8466043dfe5718c270b40f6c3839ccecf2129d3cd25b580ae01eccf29c8f7",
+    "holdout-seal": "f9c0242bab15cd78e473bcf937503f1290efec824a16562af90da99eddc6229c",
+    "holdout-tide": "c8c4fb181614edb106711d5e360db6c73aa1e06855250a320e4c167bec44df11",
+    "holdout-signal": "8cd41ef7e19ad05c76b3585bcabb225baa5c4a4ed1de7e809caf20d48480a7a6"
+  },
+  "scope": "full_context_pipeline_original_layout",
+  "production_layout": "original",
+  "development_source_families": 6,
+  "development_turns_per_arm": 30,
+  "old_and_new_arms": 12,
+  "judge_points_per_family": [
+    1,
+    5,
+    10,
+    20,
+    30
+  ],
+  "actual_continuations": 11,
+  "empty_truncation_recoveries": 1,
+  "development_quality_passed": false,
+  "valid_judge_results": 28,
+  "unscored_judges": [
+    {
+      "family": "dev-water",
+      "turn": 1,
+      "call_sequences": [
+        2221
+      ],
+      "reason": "strict_judge_schema_invalid",
+      "error_types": [
+        "extra_forbidden"
+      ],
+      "quality_status": "unscored_not_pass",
+      "retry": false
+    },
+    {
+      "family": "dev-rail",
+      "turn": 10,
+      "call_sequences": [
+        2228
+      ],
+      "reason": "strict_judge_schema_invalid",
+      "error_types": [
+        "json_invalid"
+      ],
+      "quality_status": "unscored_not_pass",
+      "retry": false
+    }
+  ],
+  "source_invalidation_passed": true,
+  "source_invalidation_protocol_hash": "fe0aa8429eb958f8d857de90b5f102ca5953dbbbe8abaca42f50d7ed1bd8c954",
+  "source_invalidation_scope": "all own frozen pre-anchor support removed; future37 retained",
+  "development_cost_passed": false,
+  "cost_by_arm": {
+    "old": {
+      "calls": 874,
+      "unknown_calls": 0,
+      "estimated_usd": 3.57394695,
+      "upper_usd": 6.022025999999999,
+      "prompt_tokens": 14309208,
+      "completion_tokens": 1441053,
+      "cache_hit_tokens": 5835776
+    },
+    "new": {
+      "calls": 870,
+      "unknown_calls": 0,
+      "estimated_usd": 4.314343758,
+      "upper_usd": 6.501324299999999,
+      "prompt_tokens": 16454873,
+      "completion_tokens": 1304052,
+      "cache_hit_tokens": 5931648
+    }
+  },
+  "judge_cost_all_versions": {
+    "calls": 35,
+    "unknown_calls": 0,
+    "estimated_usd": 0.399726732,
+    "upper_usd": 0.46460429999999997,
+    "prompt_tokens": 837257,
+    "completion_tokens": 177856,
+    "cache_hit_tokens": 220672
+  },
+  "same_tariff_posthoc_by_arm": {
+    "old": {
+      "price_bands": {
+        "off_peak": 333,
+        "peak": 541
+      },
+      "same_peak_tariff_estimated_usd": 4.306307856,
+      "unknown_calls": 0,
+      "meaning": "usage and cache tokens at one fixed tariff, excluding time discounts; not an invoice or substitute frozen acceptance gate"
+    },
+    "new": {
+      "price_bands": {
+        "off_peak": 162,
+        "peak": 708
+      },
+      "same_peak_tariff_estimated_usd": 4.757419788,
+      "unknown_calls": 0,
+      "meaning": "usage and cache tokens at one fixed tariff, excluding time discounts; not an invoice or substitute frozen acceptance gate"
+    }
+  },
+  "same_tariff_is_replacement_gate": false,
+  "holdout_used": false,
+  "holdout_not_run_reason": "development_quality_gate_failed",
+  "database_retained": true,
+  "protected_guimi_written": false,
+  "prior_judgments_retained": 3,
+  "families": {
+    "dev-port": {
+      "judges": [
+        {
+          "turn": 1,
+          "order": [
+            "old",
+            "new"
+          ],
+          "grades": {
+            "old": [
+              "fail",
+              "fail",
+              "pass",
+              "pass"
+            ],
+            "new": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ]
+          },
+          "new_passed": true,
+          "input_hash": "15c47ed23e4ed22b3f565d1db6ae2582c3e9c77eb291a9d80b5cbfa8a5bc487b",
+          "call_sequences": [
+            2216
+          ]
+        },
+        {
+          "turn": 5,
+          "order": [
+            "old",
+            "new"
+          ],
+          "grades": {
+            "old": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ],
+            "new": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ]
+          },
+          "new_passed": true,
+          "input_hash": "c5287b643acb61b686b91d96c3e56cf2b7095f368c9fecec9759adf5afa8274d",
+          "call_sequences": [
+            2217
+          ]
+        },
+        {
+          "turn": 10,
+          "order": [
+            "old",
+            "new"
+          ],
+          "grades": {
+            "old": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ],
+            "new": [
+              "fail",
+              "pass",
+              "pass",
+              "pass"
+            ]
+          },
+          "new_passed": false,
+          "input_hash": "a0f307c943c9205c1a80eab35e275fb7c5269bfbf7299d9159c02ccf399c504f",
+          "call_sequences": [
+            2218
+          ]
+        },
+        {
+          "turn": 20,
+          "order": [
+            "new",
+            "old"
+          ],
+          "grades": {
+            "new": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ],
+            "old": [
+              "fail",
+              "fail",
+              "pass",
+              "fail"
+            ]
+          },
+          "new_passed": true,
+          "input_hash": "a8716529395df3a8fdabf8c790f80493fcbc7130f891cc6dcb884f375148128a",
+          "call_sequences": [
+            2219
+          ]
+        },
+        {
+          "turn": 30,
+          "order": [
+            "old",
+            "new"
+          ],
+          "grades": {
+            "old": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ],
+            "new": [
+              "pass",
+              "fail",
+              "fail",
+              "pass"
+            ]
+          },
+          "new_passed": false,
+          "input_hash": "43fb269413c5044dacf4fdd2801ef4324806f8fb574c38654c5b0ca5b6d4f8dd",
+          "call_sequences": [
+            2220
+          ]
+        }
+      ],
+      "prior_judges": [
+        {
+          "turn": 1,
+          "order": [
+            "old",
+            "new"
+          ],
+          "grades": {
+            "old": [
+              "pass",
+              "fail",
+              "pass",
+              "pass"
+            ],
+            "new": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ]
+          },
+          "new_passed": true,
+          "review_basis_status": "groundtruth_incomplete"
+        },
+        {
+          "turn": 5,
+          "order": [
+            "old",
+            "new"
+          ],
+          "grades": {
+            "old": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ],
+            "new": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ]
+          },
+          "new_passed": true,
+          "review_basis_status": "groundtruth_incomplete"
+        },
+        {
+          "turn": 10,
+          "order": [
+            "old",
+            "new"
+          ],
+          "grades": {
+            "old": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ],
+            "new": [
+              "fail",
+              "fail",
+              "pass",
+              "pass"
+            ]
+          },
+          "new_passed": false,
+          "review_basis_status": "groundtruth_incomplete"
+        }
+      ],
+      "source_invalidation": {
+        "old": {
+          "source_blocked": true,
+          "status": "failed",
+          "error_kind": "source_context_blocked",
+          "released_story": false,
+          "paid_calls_after": 0,
+          "unexpected_model_dispatch_attempts": 0
+        },
+        "new": {
+          "source_blocked": true,
+          "status": "failed",
+          "error_kind": "source_context_blocked",
+          "released_story": false,
+          "paid_calls_after": 0,
+          "unexpected_model_dispatch_attempts": 0
+        }
+      },
+      "prior_nonrequired_source_probe": {
+        "old": {
+          "source_blocked": false,
+          "status": "failed",
+          "error_kind": "generation_failed",
+          "released_story": false,
+          "paid_calls_after": 0,
+          "unexpected_model_dispatch_attempts": 1
+        },
+        "new": {
+          "source_blocked": false,
+          "status": "failed",
+          "error_kind": "generation_failed",
+          "released_story": false,
+          "paid_calls_after": 0,
+          "unexpected_model_dispatch_attempts": 1
+        }
+      }
+    },
+    "dev-water": {
+      "judges": [
+        {
+          "turn": 5,
+          "order": [
+            "old",
+            "new"
+          ],
+          "grades": {
+            "old": [
+              "fail",
+              "pass",
+              "fail",
+              "pass"
+            ],
+            "new": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ]
+          },
+          "new_passed": true,
+          "input_hash": "dede9eda9642ef502c2ec1918184d00c1e39d770e583d48b4d6f4e93097c3f2d",
+          "call_sequences": [
+            2222
+          ]
+        },
+        {
+          "turn": 10,
+          "order": [
+            "old",
+            "new"
+          ],
+          "grades": {
+            "old": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ],
+            "new": [
+              "pass",
+              "pass",
+              "fail",
+              "pass"
+            ]
+          },
+          "new_passed": false,
+          "input_hash": "f013406ccf1caadbadb6833566de071776a266381d469c4751053f366d30a642",
+          "call_sequences": [
+            2223
+          ]
+        },
+        {
+          "turn": 20,
+          "order": [
+            "new",
+            "old"
+          ],
+          "grades": {
+            "new": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ],
+            "old": [
+              "fail",
+              "pass",
+              "fail",
+              "pass"
+            ]
+          },
+          "new_passed": true,
+          "input_hash": "1b940eb37ac0d8f25e9affe0cb09862c8c17c9f35975e6ba391dd29c5045876a",
+          "call_sequences": [
+            2224
+          ]
+        },
+        {
+          "turn": 30,
+          "order": [
+            "old",
+            "new"
+          ],
+          "grades": {
+            "old": [
+              "fail",
+              "pass",
+              "pass",
+              "pass"
+            ],
+            "new": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ]
+          },
+          "new_passed": true,
+          "input_hash": "fa2804f0c50f18d725bfcc6e72dfed91585eceeb2e2fa14b2b224b112ffd7f81",
+          "call_sequences": [
+            2225
+          ]
+        }
+      ],
+      "prior_judges": [],
+      "source_invalidation": {
+        "old": {
+          "source_blocked": true,
+          "status": "failed",
+          "error_kind": "source_context_blocked",
+          "released_story": false,
+          "paid_calls_after": 0,
+          "unexpected_model_dispatch_attempts": 0
+        },
+        "new": {
+          "source_blocked": true,
+          "status": "failed",
+          "error_kind": "source_context_blocked",
+          "released_story": false,
+          "paid_calls_after": 0,
+          "unexpected_model_dispatch_attempts": 0
+        }
+      },
+      "prior_nonrequired_source_probe": {
+        "old": {
+          "source_blocked": false,
+          "status": "failed",
+          "error_kind": "generation_failed",
+          "released_story": false,
+          "paid_calls_after": 0,
+          "unexpected_model_dispatch_attempts": 1
+        },
+        "new": {
+          "source_blocked": false,
+          "status": "failed",
+          "error_kind": "generation_failed",
+          "released_story": false,
+          "paid_calls_after": 0,
+          "unexpected_model_dispatch_attempts": 1
+        }
+      }
+    },
+    "dev-rail": {
+      "judges": [
+        {
+          "turn": 1,
+          "order": [
+            "old",
+            "new"
+          ],
+          "grades": {
+            "old": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ],
+            "new": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ]
+          },
+          "new_passed": true,
+          "input_hash": "214ea51ab2bc80820af503ef5310e24c8148dd04f8c24d9b3c88df8fec3203ae",
+          "call_sequences": [
+            2226
+          ]
+        },
+        {
+          "turn": 5,
+          "order": [
+            "old",
+            "new"
+          ],
+          "grades": {
+            "old": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ],
+            "new": [
+              "pass",
+              "pass",
+              "fail",
+              "pass"
+            ]
+          },
+          "new_passed": false,
+          "input_hash": "412eae7426eeeee4ffd067dc5c6576b67f1cdbbba75064c84ab24bdaed2b290e",
+          "call_sequences": [
+            2227
+          ]
+        },
+        {
+          "turn": 20,
+          "order": [
+            "new",
+            "old"
+          ],
+          "grades": {
+            "new": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ],
+            "old": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ]
+          },
+          "new_passed": true,
+          "input_hash": "436fd50986c417bb421bc84598cc8bfe30fd91b7c967a0197625accec66726b1",
+          "call_sequences": [
+            2229
+          ]
+        },
+        {
+          "turn": 30,
+          "order": [
+            "old",
+            "new"
+          ],
+          "grades": {
+            "old": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ],
+            "new": [
+              "pass",
+              "fail",
+              "pass",
+              "pass"
+            ]
+          },
+          "new_passed": false,
+          "input_hash": "1a407d2152414a6a9ab2aba69391101f1c59b8dbeffb316ffcf254f1bb66e266",
+          "call_sequences": [
+            2230
+          ]
+        }
+      ],
+      "prior_judges": [],
+      "source_invalidation": {
+        "old": {
+          "source_blocked": true,
+          "status": "failed",
+          "error_kind": "source_context_blocked",
+          "released_story": false,
+          "paid_calls_after": 0,
+          "unexpected_model_dispatch_attempts": 0
+        },
+        "new": {
+          "source_blocked": true,
+          "status": "failed",
+          "error_kind": "source_context_blocked",
+          "released_story": false,
+          "paid_calls_after": 0,
+          "unexpected_model_dispatch_attempts": 0
+        }
+      },
+      "prior_nonrequired_source_probe": {
+        "old": {
+          "source_blocked": false,
+          "status": "failed",
+          "error_kind": "generation_failed",
+          "released_story": false,
+          "paid_calls_after": 0,
+          "unexpected_model_dispatch_attempts": 1
+        },
+        "new": {
+          "source_blocked": false,
+          "status": "failed",
+          "error_kind": "generation_failed",
+          "released_story": false,
+          "paid_calls_after": 0,
+          "unexpected_model_dispatch_attempts": 1
+        }
+      }
+    },
+    "dev-clinic": {
+      "judges": [
+        {
+          "turn": 1,
+          "order": [
+            "old",
+            "new"
+          ],
+          "grades": {
+            "old": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ],
+            "new": [
+              "pass",
+              "fail",
+              "pass",
+              "pass"
+            ]
+          },
+          "new_passed": false,
+          "input_hash": "cfd4f363f9e9d2ea3a4feb1cd4730a4abf99b0df53aa781a19b9a0d6477d77dd",
+          "call_sequences": [
+            2231
+          ]
+        },
+        {
+          "turn": 5,
+          "order": [
+            "old",
+            "new"
+          ],
+          "grades": {
+            "old": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ],
+            "new": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ]
+          },
+          "new_passed": true,
+          "input_hash": "64d0207e1f6463170f168599bff3e73336b50d5495f898c134fd95e7da455b2d",
+          "call_sequences": [
+            2232
+          ]
+        },
+        {
+          "turn": 10,
+          "order": [
+            "old",
+            "new"
+          ],
+          "grades": {
+            "old": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ],
+            "new": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ]
+          },
+          "new_passed": true,
+          "input_hash": "ef199145f80c246e01e2b3a676afb6c434ea2e1ef8f1155946a1c524ee2dbf90",
+          "call_sequences": [
+            2233
+          ]
+        },
+        {
+          "turn": 20,
+          "order": [
+            "new",
+            "old"
+          ],
+          "grades": {
+            "new": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ],
+            "old": [
+              "fail",
+              "fail",
+              "fail",
+              "fail"
+            ]
+          },
+          "new_passed": true,
+          "input_hash": "feddd539eca7b39989195999eb47b650353955fc3c237a62768a1ef6fedf3d9f",
+          "call_sequences": [
+            2234
+          ]
+        },
+        {
+          "turn": 30,
+          "order": [
+            "old",
+            "new"
+          ],
+          "grades": {
+            "old": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ],
+            "new": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ]
+          },
+          "new_passed": true,
+          "input_hash": "135ab4e37e41881562f3248ada7ab879e19ef82441876b834369a3bb6c88d5a3",
+          "call_sequences": [
+            2235
+          ]
+        }
+      ],
+      "prior_judges": [],
+      "source_invalidation": {
+        "old": {
+          "source_blocked": true,
+          "status": "failed",
+          "error_kind": "source_context_blocked",
+          "released_story": false,
+          "paid_calls_after": 0,
+          "unexpected_model_dispatch_attempts": 0
+        },
+        "new": {
+          "source_blocked": true,
+          "status": "failed",
+          "error_kind": "source_context_blocked",
+          "released_story": false,
+          "paid_calls_after": 0,
+          "unexpected_model_dispatch_attempts": 0
+        }
+      },
+      "prior_nonrequired_source_probe": {
+        "old": {
+          "source_blocked": false,
+          "status": "failed",
+          "error_kind": "generation_failed",
+          "released_story": false,
+          "paid_calls_after": 0,
+          "unexpected_model_dispatch_attempts": 1
+        },
+        "new": {
+          "source_blocked": false,
+          "status": "failed",
+          "error_kind": "generation_failed",
+          "released_story": false,
+          "paid_calls_after": 0,
+          "unexpected_model_dispatch_attempts": 1
+        }
+      }
+    },
+    "dev-market": {
+      "judges": [
+        {
+          "turn": 1,
+          "order": [
+            "old",
+            "new"
+          ],
+          "grades": {
+            "old": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ],
+            "new": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ]
+          },
+          "new_passed": true,
+          "input_hash": "4592fdee87a0d3f8fb1f8daaeb2d65b4232231acbc9db436d2d39a5e3281070d",
+          "call_sequences": [
+            2236
+          ]
+        },
+        {
+          "turn": 5,
+          "order": [
+            "old",
+            "new"
+          ],
+          "grades": {
+            "old": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ],
+            "new": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ]
+          },
+          "new_passed": true,
+          "input_hash": "87c67c5ce11636d22903cb718ce807f084b23053e6d9c4353d6c3b7ec5f268bd",
+          "call_sequences": [
+            2237
+          ]
+        },
+        {
+          "turn": 10,
+          "order": [
+            "old",
+            "new"
+          ],
+          "grades": {
+            "old": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ],
+            "new": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ]
+          },
+          "new_passed": true,
+          "input_hash": "129a59b66f0cbdb25519236a9efdb5ee110fd0ec355e74f4b94be1dfa428b63f",
+          "call_sequences": [
+            2238
+          ]
+        },
+        {
+          "turn": 20,
+          "order": [
+            "new",
+            "old"
+          ],
+          "grades": {
+            "new": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ],
+            "old": [
+              "pass",
+              "fail",
+              "pass",
+              "pass"
+            ]
+          },
+          "new_passed": true,
+          "input_hash": "dd55d112a481340b9c2d6262b868f83ac21adc11b68337ffa301dad0dddbdb93",
+          "call_sequences": [
+            2239
+          ]
+        },
+        {
+          "turn": 30,
+          "order": [
+            "old",
+            "new"
+          ],
+          "grades": {
+            "old": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ],
+            "new": [
+              "pass",
+              "fail",
+              "pass",
+              "pass"
+            ]
+          },
+          "new_passed": false,
+          "input_hash": "e1963320f634b9ef92bd733b54767e3ede1a1e6dde6da122660d294ae30f8244",
+          "call_sequences": [
+            2240,
+            2246
+          ]
+        }
+      ],
+      "prior_judges": [],
+      "source_invalidation": {
+        "old": {
+          "source_blocked": true,
+          "status": "failed",
+          "error_kind": "source_context_blocked",
+          "released_story": false,
+          "paid_calls_after": 0,
+          "unexpected_model_dispatch_attempts": 0
+        },
+        "new": {
+          "source_blocked": true,
+          "status": "failed",
+          "error_kind": "source_context_blocked",
+          "released_story": false,
+          "paid_calls_after": 0,
+          "unexpected_model_dispatch_attempts": 0
+        }
+      },
+      "prior_nonrequired_source_probe": {
+        "old": {
+          "source_blocked": false,
+          "status": "failed",
+          "error_kind": "generation_failed",
+          "released_story": false,
+          "paid_calls_after": 0,
+          "unexpected_model_dispatch_attempts": 1
+        },
+        "new": {
+          "source_blocked": false,
+          "status": "failed",
+          "error_kind": "generation_failed",
+          "released_story": false,
+          "paid_calls_after": 0,
+          "unexpected_model_dispatch_attempts": 1
+        }
+      }
+    },
+    "dev-orchard": {
+      "judges": [
+        {
+          "turn": 1,
+          "order": [
+            "old",
+            "new"
+          ],
+          "grades": {
+            "old": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ],
+            "new": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ]
+          },
+          "new_passed": true,
+          "input_hash": "5c4941976006866203376e659612ab68c6e3e2c9e4b1ffff8b5b8c543107aa76",
+          "call_sequences": [
+            2241
+          ]
+        },
+        {
+          "turn": 5,
+          "order": [
+            "old",
+            "new"
+          ],
+          "grades": {
+            "old": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ],
+            "new": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ]
+          },
+          "new_passed": true,
+          "input_hash": "8e69baa0ea916527f80fc0552ec9fe03ed500d605baf4d01ddac35dca1751ad3",
+          "call_sequences": [
+            2242
+          ]
+        },
+        {
+          "turn": 10,
+          "order": [
+            "old",
+            "new"
+          ],
+          "grades": {
+            "old": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ],
+            "new": [
+              "pass",
+              "pass",
+              "fail",
+              "pass"
+            ]
+          },
+          "new_passed": false,
+          "input_hash": "ad74f648117b2eecece6121d6cd897ce5d4ea343b96c846045bff6718890ae10",
+          "call_sequences": [
+            2243
+          ]
+        },
+        {
+          "turn": 20,
+          "order": [
+            "new",
+            "old"
+          ],
+          "grades": {
+            "new": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ],
+            "old": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ]
+          },
+          "new_passed": true,
+          "input_hash": "373e41dd77105e202d477c14f64e462a980338395b1b0c29aa37c4dbbb5d6d44",
+          "call_sequences": [
+            2244
+          ]
+        },
+        {
+          "turn": 30,
+          "order": [
+            "old",
+            "new"
+          ],
+          "grades": {
+            "old": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ],
+            "new": [
+              "pass",
+              "pass",
+              "pass",
+              "pass"
+            ]
+          },
+          "new_passed": true,
+          "input_hash": "e2571749c58c1a4c247ade60454eabad02b8acc970faff2c38fb829a32d71bc6",
+          "call_sequences": [
+            2245
+          ]
+        }
+      ],
+      "prior_judges": [],
+      "source_invalidation": {
+        "old": {
+          "source_blocked": true,
+          "status": "failed",
+          "error_kind": "source_context_blocked",
+          "released_story": false,
+          "paid_calls_after": 0,
+          "unexpected_model_dispatch_attempts": 0
+        },
+        "new": {
+          "source_blocked": true,
+          "status": "failed",
+          "error_kind": "source_context_blocked",
+          "released_story": false,
+          "paid_calls_after": 0,
+          "unexpected_model_dispatch_attempts": 0
+        }
+      },
+      "prior_nonrequired_source_probe": {
+        "old": {
+          "source_blocked": false,
+          "status": "failed",
+          "error_kind": "generation_failed",
+          "released_story": false,
+          "paid_calls_after": 0,
+          "unexpected_model_dispatch_attempts": 1
+        },
+        "new": {
+          "source_blocked": false,
+          "status": "failed",
+          "error_kind": "generation_failed",
+          "released_story": false,
+          "paid_calls_after": 0,
+          "unexpected_model_dispatch_attempts": 1
+        }
+      }
+    }
+  },
+  "redacted_ledger_sha256": "abcb759acfcc35bf56a1f42bc83400873fca7e056dfac94fd5ebbe27918b0379"
+}

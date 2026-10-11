@@ -89,12 +89,14 @@ async def get_project_ai_usage(
     total_completion = 0
     total_requests_unknown = 0
     charge_unconfirmed = False
+    usage_complete = True
     for capability_id, bucket in sorted(raw["capabilities"].items()):
         total_requests += int(bucket["requests"])
         total_requests_unknown += int(bucket["requests_unknown"])
         total_prompt += int(bucket["prompt_tokens"])
         total_completion += int(bucket["completion_tokens"])
         charge_unconfirmed = charge_unconfirmed or bool(bucket["charge_unconfirmed"])
+        usage_complete = usage_complete and bucket["usage_complete"]
         capabilities.append(
             {
                 "capability": capability_id,
@@ -105,6 +107,7 @@ async def get_project_ai_usage(
                 "input_tokens": int(bucket["prompt_tokens"]),
                 "output_tokens": int(bucket["completion_tokens"]),
                 "charge_unconfirmed": bool(bucket["charge_unconfirmed"]),
+                "usage_complete": bucket["usage_complete"],
             }
         )
     return {
@@ -119,6 +122,7 @@ async def get_project_ai_usage(
             "input_tokens": total_prompt,
             "output_tokens": total_completion,
             "charge_unconfirmed": charge_unconfirmed,
+            "usage_complete": usage_complete,
         },
         "capabilities": capabilities,
     }

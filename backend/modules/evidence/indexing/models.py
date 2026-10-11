@@ -10,6 +10,7 @@ from __future__ import annotations
 import uuid
 
 from sqlalchemy import (
+    ARRAY,
     JSON,
     Float,
     ForeignKey,
@@ -18,6 +19,7 @@ from sqlalchemy import (
     LargeBinary,
     String,
     Text,
+    TypeDecorator,
     UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -41,11 +43,38 @@ def _embedding_column(dim: int = 768):
     return mapped_column(LargeBinary, nullable=True)
 
 
+class LexicalTerms(TypeDecorator):
+    """索引期词法词项列：PG 原生 TEXT[]（GIN array_ops `&&` 召回），
+    SQLite 以 JSON 数组窄适配（单测沿用同一规划/评分语义，性能以 PG 为准）。
+    """
+
+    impl = JSON
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            return dialect.type_descriptor(ARRAY(Text()))
+        return dialect.type_descriptor(JSON())
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        return list(value)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        return list(value)
+
+
 class RagChunk(Base, UUIDMixin, TimestampMixin):
     """RAG 文本片段 — 语义检索的基本单元"""
 
     __tablename__ = "rag_chunks"
     __table_args__ = (
+        Index(
+            "ix_rag_chunks_lexical_terms_gin", "lexical_terms", postgresql_using="gin"
+        ).ddl_if(dialect="postgresql"),
         Index(
             "ix_rag_chunks_novel_source_chapter_order",
             "novel_id",
@@ -127,6 +156,15 @@ class RagChunk(Base, UUIDMixin, TimestampMixin):
         Text,
         nullable=False,
         comment="片段文本内容",
+    )
+    lexical_terms: Mapped[list | None] = mapped_column(
+        LexicalTerms(),
+        nullable=True,
+        default=list,
+        comment=(
+            "索引期词法词项（中文 2–4 字 n-gram + 英文词；"
+            "可重建派生索引，非第二份正文事实源）"
+        ),
     )
     summary: Mapped[str | None] = mapped_column(
         Text,

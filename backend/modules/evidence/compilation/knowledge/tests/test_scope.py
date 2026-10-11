@@ -41,13 +41,8 @@ def _section(
     return ContextSection(
         key=key,
         tier=Tier.P1,
-
-
-
-
-                        content="\n".join(
-            str(source.get("label") or source.get("id") or "-")
-            for source in sources
+        content="\n".join(
+            str(source.get("label") or source.get("id") or "-") for source in sources
         ),
         sources=list(sources),
         excluded=excluded,
@@ -78,8 +73,10 @@ def _subject() -> KnowledgeSubject:
 def test_manifest_normalized_and_complete_by_default() -> None:
     compiled = CompiledContext(
         sections=[
-            _section("world_entities", [_source("world_entity", "b"),
-                _source("world_entity", "a")]),
+            _section(
+                "world_entities",
+                [_source("world_entity", "b"), _source("world_entity", "a")],
+            ),
             _section("world_bible_working_pages", [_source("world_bible_page", "p1")]),
             _section("author_task_note", [_source("task", "note")]),
         ]
@@ -217,9 +214,7 @@ def test_excluded_backflow_detected() -> None:
         compiled, _author_policy(), _subject(), novel_id="novel-1"
     )
     # 人为把排除项塞回生成者集合
-    object.__setattr__(
-        build, "generator_keys", ("world_entity:secret",)
-    )
+    object.__setattr__(build, "generator_keys", ("world_entity:secret",))
     with pytest.raises(KnowledgeContractError, match="回流"):
         ensure_no_excluded_backflow(build)
 
@@ -233,9 +228,7 @@ def test_generator_visible_intersection_and_fingerprints() -> None:
             ),
         ]
     )
-    full = build_scope_receipt(
-        compiled, _author_policy(), _subject(), novel_id="novel-1"
-    )
+    full = build_scope_receipt(compiled, _author_policy(), _subject(), novel_id="novel-1")
     restricted = build_scope_receipt(
         compiled,
         _author_policy(),
@@ -244,14 +237,8 @@ def test_generator_visible_intersection_and_fingerprints() -> None:
         generator_visible=["world_entity:a", "world_entity:ghost"],
     )
     assert restricted.generator_keys == ("world_entity:a",)
-    assert (
-        restricted.receipt.generator_fingerprint
-        != full.receipt.generator_fingerprint
-    )
-    assert (
-        restricted.receipt.authority_fingerprint
-        == full.receipt.authority_fingerprint
-    )
+    assert restricted.receipt.generator_fingerprint != full.receipt.generator_fingerprint
+    assert restricted.receipt.authority_fingerprint == full.receipt.authority_fingerprint
 
 
 def test_sharding_is_deterministic_and_complete() -> None:
@@ -315,9 +302,7 @@ def test_knowledge_subject_from_options() -> None:
 
 def test_scope_complete_options_require_capability() -> None:
     with pytest.raises(ValueError, match="capability"):
-        CompileOptions(
-            novel_id="novel-1", task="t", scope="project", scope_complete=True
-        )
+        CompileOptions(novel_id="novel-1", task="t", scope="project", scope_complete=True)
 
 
 def test_replay_whitelist_carries_governance_fields() -> None:

@@ -10,10 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import NotFoundError, ValidationError
 from infrastructure.llm.redaction import redact_diagnostic
-from modules.evidence.compilation.contracts import CompileOptions, StructureContextBundle
 from modules.evidence.compilation.services.loaders import (
     CharactersLoader,
-    WorldEntitiesLoader,
 )
 
 logger = logging.getLogger(__name__)
@@ -25,9 +23,28 @@ _STATE_LABELS = {
     "timeline": "时间顺序",
     "causality": "因果与前提",
 }
+# P2-A：读取端 fact 级 provenance 契约（status 三态 + SourceRangeRefContract 字段集）。
+_PROVENANCE_STATUSES = frozenset({"exact", "unverified", "conflict"})
+_PROVENANCE_REF_FIELDS = (
+    "draft_id",
+    "chapter_index",
+    "version_number",
+    "content_mode",
+    "start_offset",
+    "end_offset",
+    "source_hash",
+    "range_hash",
+)
+_PROVENANCE_REF_REQUIRED_INTS = (
+    "chapter_index",
+    "version_number",
+    "start_offset",
+    "end_offset",
+)
 
 
 async def _get_scene(db: AsyncSession, novel_id: str, scene_id: str) -> Any:
+    # 函数内导入保持 evidence→story 惰性：顶层会与 story→evidence 形成顶层双向对。
     from modules.story.facade import get_scene_contract
 
     return await get_scene_contract(db, novel_id, scene_id)
@@ -39,6 +56,16 @@ async def _get_checkpoints(db: AsyncSession, novel_id: str, scene_id: str) -> An
     return await get_scene_checkpoints(db, novel_id, scene_id)
 
 
+async def _get_state_view(
+    db: AsyncSession, novel_id: str, scene_id: str, *, viewpoint: dict | None = None
+) -> Any:
+    from modules.story.facade import get_scene_state_view
+
+    return await get_scene_state_view(
+        db, novel_id, scene_id, viewpoint=viewpoint or {"kind": "author"}
+    )
+
+
 class SceneLensService:
     """Load a minimal Scene view without retrieval, generation, or writes."""
 
@@ -46,14 +73,14 @@ class SceneLensService:
         self,
         *,
         get_scene_fn=_get_scene,
-        world_loader: WorldEntitiesLoader | None = None,
         characters_loader: CharactersLoader | None = None,
         get_scene_checkpoints_fn=_get_checkpoints,
+        get_state_view_fn=_get_state_view,
     ) -> None:
         self._get_scene = get_scene_fn
-        self._world_loader = world_loader or WorldEntitiesLoader()
         self._characters_loader = characters_loader or CharactersLoader()
         self._get_checkpoints = get_scene_checkpoints_fn
+        self._get_state_view = get_state_view_fn
 
     async def load(
         self,
@@ -67,9 +94,7 @@ class SceneLensService:
         if scene_contract is None:
             raise NotFoundError("Scene not found", code="scene_not_found")
         scene = (
-            scene_contract
-            if isinstance(scene_contract, dict)
-            else asdict(scene_contract)
+            scene_contract if isinstance(scene_contract, dict) else asdict(scene_contract)
         )
         if chapter_index not in self._scene_chapters(scene):
             raise ValidationError(
@@ -79,47 +104,82 @@ class SceneLensService:
             )
 
         viewpoint_id = scene.get("pov_character_id")
-        options = CompileOptions(
-            novel_id=novel_id,
-            task="查看本场",
-            scope="scene_lens",
-            consumer_action="writing.scene_lens",
-            scene_id=scene_id,
-            chapter_index=chapter_index,
-            visible_until_chapter=chapter_index,
-            viewpoint_character_id=viewpoint_id,
-            reveal_mode="character",
-            include_pending_objects=False,
-        )
-        bundle = StructureContextBundle(
-            novel_id=novel_id,
-            task=options.task,
-            scope=options.scope,
-            chapter_index=chapter_index,
-            scene=scene,
-            reveal_mode=options.reveal_mode,
-            viewpoint_character_id=viewpoint_id,
-        )
-
+        warnings = []
         if not viewpoint_id:
-            bundle.warnings.append("本场未设定 POV 人物，未加载角色可见知识")
-        else:
-            related_ids = self._related_entity_ids(scene)
-            if related_ids:
-                options.entity_ids = related_ids
-                await self._world_loader.load(db, options, bundle)
-            await self._characters_loader.load(db, options, bundle)
+            warnings.append("本场未设定 POV 人物，未加载角色可见知识")
 
+        state_view = await self._read_state_view(
+            db, novel_id=novel_id, scene_id=scene_id, warnings=warnings
+        )
+        role_view = (
+            await self._read_state_view(
+                db,
+                novel_id=novel_id,
+                scene_id=scene_id,
+                warnings=warnings,
+                viewpoint={"kind": "character", "target_id": viewpoint_id},
+            )
+            if viewpoint_id
+            else {}
+        )
+        actor_choices = {}
+        try:
+            actor_choices = await self._characters_loader.identity_choices(
+                db, novel_id, list(state_view.get("subject_labels") or {})
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to read Scene identity choices: %s",
+                redact_diagnostic(exc, limit=300),
+            )
+            warnings.append("本场人物名单暂时无法读取")
         return {
-            "role_visible_knowledge": self._knowledge_items(bundle, viewpoint_id),
+            "state_fingerprint": state_view.get("state_fingerprint"),
+            "subject_choices": actor_choices,
+            "role_visible_knowledge": self._knowledge_items(role_view, viewpoint_id),
             "scene_world_state": await self._state_items(
                 db,
                 novel_id=novel_id,
                 scene_id=scene_id,
-                warnings=bundle.warnings,
+                warnings=warnings,
+                state_view=state_view,
             ),
-            "warnings": list(dict.fromkeys(bundle.warnings)),
+            "object_states": await self._object_states(
+                db,
+                novel_id=novel_id,
+                scene_id=scene_id,
+                related_ids=set(self._related_entity_ids(scene)) | {str(viewpoint_id)}
+                if viewpoint_id
+                else set(self._related_entity_ids(scene)),
+                warnings=warnings,
+                state_view=state_view,
+            ),
+            "warnings": list(dict.fromkeys(warnings)),
         }
+
+    async def _read_state_view(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        scene_id: str,
+        warnings: list[str],
+        viewpoint: dict | None = None,
+    ) -> dict[str, Any]:
+        """作者视角状态视图（单次读取，供维度新鲜度与对象状态共用）。"""
+        try:
+            view = await self._get_state_view(
+                db, novel_id, scene_id, **({"viewpoint": viewpoint} if viewpoint else {})
+            )
+            data = view.model_dump() if hasattr(view, "model_dump") else view
+            return data if isinstance(data, dict) else {}
+        except Exception as exc:
+            logger.warning(
+                "Failed to read Scene Lens state view: %s",
+                redact_diagnostic(exc, limit=300),
+            )
+            warnings.append("对象状态暂时无法读取")
+            return {}
 
     async def _state_items(
         self,
@@ -128,6 +188,7 @@ class SceneLensService:
         novel_id: str,
         scene_id: str,
         warnings: list[str],
+        state_view: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         try:
             value = await self._get_checkpoints(db, novel_id, scene_id)
@@ -144,25 +205,39 @@ class SceneLensService:
         if isinstance(data, dict):
             raw_items = data.get("items") or []
         by_dimension = {
-            item.get("dimension"): item
-            for item in raw_items
+            item.get("dimension"): item for item in raw_items if isinstance(item, dict)
+        }
+        view_dimensions = {
+            str(item.get("dimension")): item
+            for item in ((state_view or {}).get("dimensions") or [])
             if isinstance(item, dict)
         }
         return [
-            self._state_item(dimension, by_dimension.get(dimension))
+            self._state_item(
+                dimension,
+                by_dimension.get(dimension),
+                view_status=(view_dimensions.get(dimension) or {}).get("status"),
+            )
             for dimension in _STATE_LABELS
         ]
 
     @staticmethod
-    def _state_item(dimension: str, item: dict[str, Any] | None) -> dict[str, Any]:
+    def _state_item(
+        dimension: str,
+        item: dict[str, Any] | None,
+        *,
+        view_status: str | None = None,
+    ) -> dict[str, Any]:
         available = bool(
             item
             and item.get("status") == "ready"
             and (
-                item.get("source") == "system_generated"
-                or item.get("confirmed") is True
+                item.get("source") == "system_generated" or item.get("confirmed") is True
             )
         )
+        # M4：checkpoint 行 ready 但视图基线比对 degraded 时，作者侧必须看到
+        # 待核对，而不是把绕过失效钩子的旧投影当确定事实展示。
+        stale = bool(available and view_status == "degraded")
         return {
             "label": _STATE_LABELS[dimension],
             "summary": (
@@ -171,51 +246,239 @@ class SceneLensService:
                 else "暂无可靠记录"
             ),
             "availability": available,
+            "stale": stale,
+        }
+
+    async def _object_states(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        scene_id: str,
+        related_ids: set[str],
+        warnings: list[str],
+        state_view: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """作者视角的对象级状态明细（M2：字段/认知/未知分层，来源可回开）。"""
+        data = (
+            state_view
+            if state_view is not None
+            else await self._read_state_view(
+                db, novel_id=novel_id, scene_id=scene_id, warnings=warnings
+            )
+        )
+
+        dimensions = {
+            str(item.get("dimension")): item
+            for item in (data.get("dimensions") or [])
+            if isinstance(item, dict)
+        }
+        entity_facts = [
+            fact
+            for fact in (dimensions.get("entities") or {}).get("facts") or []
+            if isinstance(fact, dict)
+        ]
+        labels = {
+            str(subject): str(label)
+            for subject, label in (data.get("subject_labels") or {}).items()
+        }
+        beliefs_by_subject: dict[str, list[dict[str, Any]]] = {}
+        for fact in (dimensions.get("knowledge") or {}).get("facts") or []:
+            if not isinstance(fact, dict) or fact.get("layer") != "belief":
+                continue
+            subject = str(fact.get("field") or "").removeprefix("knows:")
+            if subject == "unspecified":
+                continue
+            beliefs_by_subject.setdefault(subject, []).append(fact)
+
+        states: list[dict[str, Any]] = []
+        for subject in sorted(related_ids):
+            facts = [f for f in entity_facts if str(f.get("subject_id")) == subject]
+            locations = [
+                f
+                for f in (dimensions.get("locations") or {}).get("facts") or []
+                if isinstance(f, dict) and str(f.get("subject_id")) == subject
+            ]
+            beliefs = beliefs_by_subject.get(subject, [])
+            unknowns = []
+            if not facts:
+                unknowns.append("该对象的状态尚未记录；不能据此推断行动条件已满足")
+            if not locations:
+                unknowns.append("所在位置未记录")
+            if not beliefs:
+                unknowns.append("哪些人物知情尚未记录")
+            for dimension in ("entities", "locations", "knowledge"):
+                item = dimensions.get(dimension) or {}
+                if item.get("gap_reason"):
+                    unknowns.append(str(item["gap_reason"]))
+            unknowns.extend(str(item) for item in data.get("omissions") or [])
+            states.append(
+                {
+                    "subject_id": subject,
+                    "label": labels.get(subject) or "未命名对象",
+                    "fields": [
+                        {
+                            "field": str(fact.get("field")),
+                            "display": {"full": "月圆", "other": "非月圆"}.get(
+                                str(fact.get("value")), "未记载"
+                            )
+                            if fact.get("field") == "opening_moon_phase"
+                            else self._display_value(fact.get("value"), labels),
+                            "layer": str(fact.get("layer")),
+                            "confidence": str(fact.get("confidence")),
+                            "possibly_false": bool(fact.get("possibly_false")),
+                            "source": self._source(fact, dimensions.get("entities")),
+                        }
+                        for fact in facts
+                    ],
+                    "location": self._display_value(locations[0].get("value"), labels)
+                    if locations
+                    else None,
+                    "location_source": self._source(
+                        locations[0], dimensions.get("locations")
+                    )
+                    if locations
+                    else None,
+                    "unknowns": list(dict.fromkeys(unknowns)),
+                    "stale": any(
+                        (dimensions.get(key) or {}).get("status") == "degraded"
+                        for key in ("entities", "locations", "knowledge")
+                    ),
+                    "knowledge": [
+                        {
+                            "holder": labels.get(str(belief.get("subject_id")), "某角色"),
+                            "text": str(belief.get("value") or ""),
+                            "possibly_false": bool(belief.get("possibly_false")),
+                            "source": self._source(belief, dimensions.get("knowledge")),
+                        }
+                        for belief in beliefs_by_subject.get(subject, [])
+                    ],
+                }
+            )
+        return states
+
+    @staticmethod
+    def _source(fact: dict, dimension: dict | None) -> dict:
+        raw_source = dict(fact.get("source") or {})
+        provenance = SceneLensService._provenance(raw_source.pop("provenance", None))
+        source = {
+            **raw_source,
+            "evidence_refs": list((dimension or {}).get("evidence_refs") or []),
+        }
+        if provenance:
+            source["provenance"] = provenance
+        return source
+
+    @staticmethod
+    def _provenance(value: Any) -> dict[str, Any] | None:
+        """把 fact 级 provenance 归一为作者侧可消费形态；形态不符不冒充依据。"""
+        if not isinstance(value, dict):
+            return None
+        status = str(value.get("status") or "")
+        if status not in _PROVENANCE_STATUSES:
+            return None
+        refs = []
+        for ref in value.get("source_refs") or []:
+            if not isinstance(ref, dict) or not SceneLensService._valid_ref(ref):
+                continue
+            refs.append({key: ref[key] for key in _PROVENANCE_REF_FIELDS if key in ref})
+        # exact 必须有可回开的稿段；区间不完整时降级为来源待核实，不制造精确性。
+        if status == "exact" and not refs:
+            status = "unverified"
+        event_id = value.get("event_id")
+        return {
+            "field": str(value.get("field") or ""),
+            "status": status,
+            "event_id": str(event_id) if event_id else None,
+            "source_refs": refs,
         }
 
     @staticmethod
-    def _knowledge_items(
-        bundle: StructureContextBundle,
-        viewpoint_id: str | None,
-    ) -> list[dict[str, Any]]:
-        items: list[dict[str, Any]] = []
-        for character in bundle.characters:
-            if str(character.get("character_id") or "") != str(viewpoint_id or ""):
-                continue
-            summary = next(
-                (
-                    str(character.get(key))
-                    for key in (
-                        "current_state",
-                        "current_goal",
-                        "current_emotion",
-                        "stance",
-                        "role",
-                    )
-                    if character.get(key)
-                ),
-                "已设定为本场 POV",
+    def _valid_ref(ref: dict) -> bool:
+        return (
+            isinstance(ref.get("draft_id"), str)
+            and bool(ref["draft_id"])
+            and all(
+                isinstance(ref.get(key), int) for key in _PROVENANCE_REF_REQUIRED_INTS
             )
-            items.append(
+        )
+
+    @staticmethod
+    def _display_value(value: Any, labels: dict[str, str]) -> str:
+        if isinstance(value, str):
+            if value in labels:
+                return labels[value]
+            import uuid
+
+            try:
+                uuid.UUID(value)
+            except ValueError:
+                return value.strip()
+            return "未记录名称的对象"
+        if isinstance(value, list):
+            return "、".join(
+                part
+                for part in (
+                    SceneLensService._display_value(item, labels) for item in value
+                )
+                if part
+            )
+        if isinstance(value, dict):
+            if value.get("text_state"):
+                return str(value["text_state"])
+            if value.get("location_id"):
+                return SceneLensService._display_value(value["location_id"], labels)
+            return "，".join(
+                f"{key}：{SceneLensService._display_value(item, labels)}"
+                for key, item in value.items()
+                if item not in (None, "", [])
+            )
+        return "" if value is None else str(value)
+
+    @staticmethod
+    def _knowledge_items(data: dict, viewpoint_id: str | None) -> list[dict[str, Any]]:
+        if not viewpoint_id:
+            return []
+        dimension = next(
+            (
+                item
+                for item in data.get("dimensions", [])
+                if item.get("dimension") == "knowledge"
+            ),
+            {},
+        )
+        if dimension.get("status") != "ok":
+            return [
                 {
-                    "label": f"当前 POV：{character.get('name') or '未命名人物'}",
-                    "summary": summary,
-                    "availability": True,
+                    "label": "本场人物知识",
+                    "summary": dimension.get("gap_reason")
+                    or "本场知识依据不足；不能用今日人物资料补齐",
+                    "availability": False,
+                    "stale": dimension.get("status") == "degraded",
                 }
-            )
-        for entity in bundle.world_entities:
-            label = str(entity.get("name") or entity.get("title") or "未命名资料")
-            summary = str(
-                entity.get("misconception")
-                or entity.get("known_content")
-                or entity.get("public_info")
-                or entity.get("summary")
-                or "已在角色可见范围内"
-            )
-            items.append(
-                {"label": label, "summary": summary, "availability": True}
-            )
-        return items
+            ]
+        facts = [
+            item
+            for item in dimension.get("facts", [])
+            if item.get("layer") == "belief" and item.get("subject_id") == viewpoint_id
+        ]
+        return [
+            {
+                "label": "本场人物的认知",
+                "summary": str(item.get("value") or "未记载内容")
+                + ("（可能误信）" if item.get("possibly_false") else ""),
+                "availability": True,
+                "stale": False,
+            }
+            for item in facts
+        ] or [
+            {
+                "label": "本场人物知识",
+                "summary": "未记录本场已知事项；不能推断行动条件已满足",
+                "availability": False,
+                "stale": False,
+            }
+        ]
 
     @staticmethod
     def _scene_chapters(scene: dict[str, Any]) -> set[int]:

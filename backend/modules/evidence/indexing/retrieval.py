@@ -112,11 +112,15 @@ class RetrievalOrchestrator:
         weights: tuple[float, float, float, float] | None = None,
         source_manifest: dict[uuid.UUID, str] | None = None,
         expand_query: bool = True,
-        diagnostics: dict[str, bool] | None = None,
+        lexical_terms: list[str] | None = None,
+        diagnostics: dict[str, bool | str] | None = None,
     ) -> list[tuple[RagChunk, float]]:
         """混合检索：关键词 + 关系 + 重要性 + 向量。
 
         作为较薄的召回+评分原语，仍包含查询扩展以兼容现有调用方。
+        ``lexical_terms``：S1 规划的有界词项（M3 切片 2）。提供时词法通道走
+        PG 数组交集召回（未就绪范围/非 PG 方言回退到同批词项的有界 ILIKE），
+        评分也直接消费该词项，不再对整条查询重复 n-gram 展开。
         """
         vw, kw, rw, iw = weights or self._scorer.dynamic_weights(query)
 
@@ -143,22 +147,75 @@ class RetrievalOrchestrator:
             {"source_manifest": source_manifest} if source_manifest is not None else {}
         )
 
-        keyword_chunks = await self._repo.keyword_search(
-            db,
-            novel_id,
-            repo_query,
-            entity_ids=entity_ids,
-            character_ids=character_ids,
-            thread_ids=thread_ids,
-            chapter_index=chapter_index,
-            scene_id=scene_id,
-            strict_scene_filter=strict_scene_filter,
-            visibility=visibility,
-            visible_until_chapter=visible_until_chapter,
-            content_mode=content_mode,
-            limit=top_k * 2,
-            **source_filter,
-        )
+        lexical_channel_terms = [term for term in (lexical_terms or []) if term]
+        lexical_method = "legacy-ngram-v1"
+        if lexical_channel_terms:
+            bind = db.get_bind()
+            array_ready = bind is not None and bind.dialect.name == "postgresql"
+            if array_ready:
+                array_ready = not await self._repo.has_unindexed_lexical_terms(
+                    db,
+                    novel_id,
+                    content_mode=content_mode,
+                    visible_until_chapter=visible_until_chapter,
+                    **source_filter,
+                )
+            if array_ready:
+                keyword_chunks = await self._repo.lexical_search(
+                    db,
+                    novel_id,
+                    lexical_channel_terms,
+                    entity_ids=entity_ids,
+                    character_ids=character_ids,
+                    thread_ids=thread_ids,
+                    chapter_index=chapter_index,
+                    scene_id=scene_id,
+                    strict_scene_filter=strict_scene_filter,
+                    visibility=visibility,
+                    visible_until_chapter=visible_until_chapter,
+                    content_mode=content_mode,
+                    limit=top_k * 2,
+                    **source_filter,
+                )
+                lexical_method = "array-gin-v1"
+            else:
+                keyword_chunks = await self._repo.keyword_search(
+                    db,
+                    novel_id,
+                    repo_query,
+                    entity_ids=entity_ids,
+                    character_ids=character_ids,
+                    thread_ids=thread_ids,
+                    chapter_index=chapter_index,
+                    scene_id=scene_id,
+                    strict_scene_filter=strict_scene_filter,
+                    visibility=visibility,
+                    visible_until_chapter=visible_until_chapter,
+                    content_mode=content_mode,
+                    limit=top_k * 2,
+                    precomputed_terms=lexical_channel_terms,
+                    **source_filter,
+                )
+                lexical_method = "bounded-like-v1"
+        else:
+            keyword_chunks = await self._repo.keyword_search(
+                db,
+                novel_id,
+                repo_query,
+                entity_ids=entity_ids,
+                character_ids=character_ids,
+                thread_ids=thread_ids,
+                chapter_index=chapter_index,
+                scene_id=scene_id,
+                strict_scene_filter=strict_scene_filter,
+                visibility=visibility,
+                visible_until_chapter=visible_until_chapter,
+                content_mode=content_mode,
+                limit=top_k * 2,
+                **source_filter,
+            )
+        if diagnostics is not None:
+            diagnostics["lexical_method"] = lexical_method
 
         candidate_chunks = list(keyword_chunks)
 
@@ -220,15 +277,22 @@ class RetrievalOrchestrator:
                 seen_ids.add(chunk.id)
                 unique_chunks.append(chunk)
 
-        # 对中文查询不分词，直接用整个查询做子串匹配
-        query_terms = keyword_query_terms(expanded_query)
-        use_chinese_match = not query_terms or all(
-            ord(c) > 127 for c in expanded_query.replace(" ", "")
-        )
-        chinese_query_no_spaces = expanded_query.replace(" ", "").lower()
-        chinese_terms_list = keyword_query_terms(expanded_query)
-        if not chinese_terms_list:
-            chinese_terms_list = smart_tokenize_chinese(expanded_query)
+        if lexical_channel_terms:
+            # S1 有界词项：评分直接消费规划词项，不再重复 n-gram 展开
+            query_terms = lexical_channel_terms
+            chinese_terms_list = lexical_channel_terms
+            use_chinese_match = False
+            chinese_query_no_spaces = ""
+        else:
+            # 对中文查询不分词，直接用整个查询做子串匹配
+            query_terms = keyword_query_terms(expanded_query)
+            use_chinese_match = not query_terms or all(
+                ord(c) > 127 for c in expanded_query.replace(" ", "")
+            )
+            chinese_query_no_spaces = expanded_query.replace(" ", "").lower()
+            chinese_terms_list = keyword_query_terms(expanded_query)
+            if not chinese_terms_list:
+                chinese_terms_list = smart_tokenize_chinese(expanded_query)
         scored_chunks: list[tuple[RagChunk, float]] = []
 
         for chunk in unique_chunks:
@@ -421,6 +485,7 @@ class RetrievalOrchestrator:
         rerank: bool | None = None,
         source_manifest: dict[uuid.UUID, str] | None = None,
         expand_query: bool = True,
+        lexical_terms: list[str] | None = None,
     ) -> RagResultBundle:
         """混合检索编排：embedding 生成 → 混合搜索 → 去重 → 重排序 → 指标记录。"""
         import time as _time
@@ -467,7 +532,7 @@ class RetrievalOrchestrator:
 
         rerank_enabled = _is_rerank_enabled(mode) and rerank is not False
         candidate_top_k = top_k * 2 if rerank_enabled else top_k
-        search_diagnostics: dict[str, bool] = {}
+        search_diagnostics: dict[str, bool | str] = {}
         _search_t0 = _time.monotonic()
         scored_chunks = await self.hybrid_search(
             db,
@@ -488,11 +553,17 @@ class RetrievalOrchestrator:
             reference_chapter_index=reference_chapter_index,
             source_manifest=source_manifest,
             expand_query=expand_query,
+            lexical_terms=lexical_terms,
             diagnostics=search_diagnostics,
         )
         _search_ms = (_time.monotonic() - _search_t0) * 1000
 
-        deduped_chunks = self._deduplicate_by_embedding(scored_chunks, threshold=0.9)
+        # 冻结来源的相似段落仍可能记载不同事实；只做上游相同chunk去重。
+        deduped_chunks = (
+            scored_chunks
+            if source_manifest is not None
+            else self._deduplicate_by_embedding(scored_chunks, threshold=0.9)
+        )
 
         if rerank_enabled and len(deduped_chunks) > top_k:
             try:

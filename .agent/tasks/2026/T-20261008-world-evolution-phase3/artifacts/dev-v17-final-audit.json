@@ -1,0 +1,44 @@
+{
+  "version": "dev-v17",
+  "method": "7af0dbc4c8b9c00a77b0580ed959622c322141a763b4dfe976c22a81dd8130e1",
+  "current_method": true,
+  "scenes_committed": 8,
+  "scenes_expected": 8,
+  "requests": 77,
+  "responses": 77,
+  "terminal_call_errors": 0,
+  "source_ranges_exact_cumulative": 148,
+  "free_replays": 8,
+  "discovery_planned_batches": 24,
+  "failed_batches": [
+    {
+      "scene": 3,
+      "stage": "scene_discovery_2",
+      "usage_complete": true
+    }
+  ],
+  "validation_quarantine_records": 4,
+  "unknown_stage_receipts": 0,
+  "engineering_gate": "passed",
+  "quality_gate": "failed_independent_review",
+  "holdout_run": false,
+  "human_validated": false,
+  "explicit_new_run_authorized": true,
+  "v9_unknown_receipt_retained": true,
+  "v11_unknown_receipt_retained": true,
+  "v12_unknown_receipt_retained": true,
+  "v14_unknown_receipt_retained": true,
+  "v15_unknown_receipt_retained": true,
+  "quality_checks": {
+    "stable_initial_clue_upgrade": true,
+    "long_range_positive": true,
+    "commitment_fulfillment": true,
+    "author_instance_preserved": true,
+    "world_canonical_type_materialization": true,
+    "condition_transition_review": false,
+    "same_condition_exception": false,
+    "same_event_recall_binding": false
+  },
+  "v16_unknown_receipt_retained": true,
+  "full_phase3_acceptance": "not_passed"
+}

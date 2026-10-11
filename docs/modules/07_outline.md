@@ -354,3 +354,8 @@ Story 为 Collaboration 提供 Scene、伏笔/揭示安排的冻结可编辑字�
 Story 派生状态并封锁旧 Evolution owner。重排对齐事件索引采用避开唯一键冲突的两阶段更新。
 精确 Scene 范围须匹配当前 span；只有一章确实不属于其他有效 Scene 时才接受 legacy chapter-only
 绑定，不能把整章冒充重叠 Scene。原作者确认事件保留，但无效 Scene 不进入当前地图在场。
+
+重算来源重验通过 `lock_scene_roster_for_revalidation` 冻结场景结构：复用
+scene_order 事务锁保护新建场景，并以 NOWAIT 共享行锁保护已有场景的重排、
+映射与生命周期。结构正被修改时拒绝本次采用，请作者重新预览；不会持有正文锁
+等待结构写者而形成锁循环。场景创建和批量创建共用 scene_order 锁。

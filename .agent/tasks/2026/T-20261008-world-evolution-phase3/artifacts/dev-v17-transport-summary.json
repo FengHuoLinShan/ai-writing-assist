@@ -1,0 +1,713 @@
+{
+  "version": "dev-v17",
+  "method": "7af0dbc4c8b9c00a77b0580ed959622c322141a763b4dfe976c22a81dd8130e1",
+  "scenes_committed": 8,
+  "transport_calls": 77,
+  "complete_transport_calls": 77,
+  "http200": 77,
+  "transport_errors": 0,
+  "new_tls_handshakes": 77,
+  "max_response_seconds": 119.336179,
+  "min_response_seconds": 1.268817,
+  "rows": [
+    {
+      "call": "dev-v17-call-0000",
+      "complete": true,
+      "seconds": 2.780328,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0001",
+      "complete": true,
+      "seconds": 14.478444,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0002",
+      "complete": true,
+      "seconds": 15.750134,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0003",
+      "complete": true,
+      "seconds": 23.302263,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0004",
+      "complete": true,
+      "seconds": 3.037669,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0005",
+      "complete": true,
+      "seconds": 29.470331,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0006",
+      "complete": true,
+      "seconds": 2.100616,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0007",
+      "complete": true,
+      "seconds": 10.03772,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0008",
+      "complete": true,
+      "seconds": 8.719496,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0009",
+      "complete": true,
+      "seconds": 28.485456,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0010",
+      "complete": true,
+      "seconds": 2.713414,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0011",
+      "complete": true,
+      "seconds": 3.318315,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0012",
+      "complete": true,
+      "seconds": 37.110198,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0013",
+      "complete": true,
+      "seconds": 1.962546,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0014",
+      "complete": true,
+      "seconds": 1.959185,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0015",
+      "complete": true,
+      "seconds": 20.057544,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0016",
+      "complete": true,
+      "seconds": 12.983743,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0017",
+      "complete": true,
+      "seconds": 27.320644,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0018",
+      "complete": true,
+      "seconds": 3.07969,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0019",
+      "complete": true,
+      "seconds": 8.276535,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0020",
+      "complete": true,
+      "seconds": 2.562813,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0021",
+      "complete": true,
+      "seconds": 25.648926,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0022",
+      "complete": true,
+      "seconds": 2.053522,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0023",
+      "complete": true,
+      "seconds": 20.09572,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0024",
+      "complete": true,
+      "seconds": 16.819609,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0025",
+      "complete": true,
+      "seconds": 21.894814,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0026",
+      "complete": true,
+      "seconds": 3.752462,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0027",
+      "complete": true,
+      "seconds": 37.344018,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0028",
+      "complete": true,
+      "seconds": 2.798186,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0029",
+      "complete": true,
+      "seconds": 49.547826,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0030",
+      "complete": true,
+      "seconds": 2.610093,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0031",
+      "complete": true,
+      "seconds": 2.106113,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0032",
+      "complete": true,
+      "seconds": 11.8624,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0033",
+      "complete": true,
+      "seconds": 4.144888,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0034",
+      "complete": true,
+      "seconds": 14.748968,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0035",
+      "complete": true,
+      "seconds": 12.884997,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0036",
+      "complete": true,
+      "seconds": 1.294208,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0037",
+      "complete": true,
+      "seconds": 1.840509,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0038",
+      "complete": true,
+      "seconds": 1.353465,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0039",
+      "complete": true,
+      "seconds": 1.268817,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0040",
+      "complete": true,
+      "seconds": 2.893903,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0041",
+      "complete": true,
+      "seconds": 18.666616,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0042",
+      "complete": true,
+      "seconds": 6.442523,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0043",
+      "complete": true,
+      "seconds": 59.845095,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0044",
+      "complete": true,
+      "seconds": 4.174941,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0045",
+      "complete": true,
+      "seconds": 104.12057,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0046",
+      "complete": true,
+      "seconds": 3.056537,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0047",
+      "complete": true,
+      "seconds": 61.659619,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0048",
+      "complete": true,
+      "seconds": 2.749017,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0049",
+      "complete": true,
+      "seconds": 42.022589,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0050",
+      "complete": true,
+      "seconds": 3.490458,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0051",
+      "complete": true,
+      "seconds": 85.695415,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0052",
+      "complete": true,
+      "seconds": 1.85643,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0053",
+      "complete": true,
+      "seconds": 19.530073,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0054",
+      "complete": true,
+      "seconds": 9.981344,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0055",
+      "complete": true,
+      "seconds": 108.960497,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0056",
+      "complete": true,
+      "seconds": 3.191388,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0057",
+      "complete": true,
+      "seconds": 91.085929,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0058",
+      "complete": true,
+      "seconds": 2.370935,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0059",
+      "complete": true,
+      "seconds": 16.724625,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0060",
+      "complete": true,
+      "seconds": 2.836841,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0061",
+      "complete": true,
+      "seconds": 65.259913,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0062",
+      "complete": true,
+      "seconds": 3.720251,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0063",
+      "complete": true,
+      "seconds": 78.004778,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0064",
+      "complete": true,
+      "seconds": 2.530312,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0065",
+      "complete": true,
+      "seconds": 40.352782,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0066",
+      "complete": true,
+      "seconds": 14.986726,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0067",
+      "complete": true,
+      "seconds": 119.336179,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0068",
+      "complete": true,
+      "seconds": 3.094457,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0069",
+      "complete": true,
+      "seconds": 5.196682,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0070",
+      "complete": true,
+      "seconds": 53.54513,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0071",
+      "complete": true,
+      "seconds": 4.533566,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0072",
+      "complete": true,
+      "seconds": 53.616788,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0073",
+      "complete": true,
+      "seconds": 4.713334,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0074",
+      "complete": true,
+      "seconds": 65.657222,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0075",
+      "complete": true,
+      "seconds": 4.644577,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    },
+    {
+      "call": "dev-v17-call-0076",
+      "complete": true,
+      "seconds": 62.292103,
+      "http_status": 200,
+      "http_version": "HTTP/1.1",
+      "new_tls_handshakes": 1,
+      "errors": []
+    }
+  ],
+  "isolated_calls": 32,
+  "isolated_successes": 32,
+  "old_unknown_retried": false,
+  "production_transport_modified": false,
+  "holdout_run": false,
+  "human_validated": false
+}

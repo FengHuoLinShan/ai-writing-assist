@@ -131,6 +131,12 @@ EVOLUTION_REQUIRE_CURRENT_WORLD_CANDIDATE: ServiceKey[Callable[..., Any]] = Serv
 EVOLUTION_RECORD_WRITING_SOURCE_CHANGE: ServiceKey[Callable[..., Any]] = ServiceKey(
     "evolution.record_writing_source_change"
 )
+#: 失效回执 → 作者语言 dict 投影（``consumption.receipt_public_view``；
+#: writing 层不能 import evolution——依赖冻结集合无 writing→evolution 边，
+#: C3 透传经此 DI 键由组合根注入。C2 已完成 bootstrap 注册与登记表补录）。
+EVOLUTION_INVALIDATION_RECEIPT_VIEW: ServiceKey[Callable[..., Any]] = ServiceKey(
+    "evolution.invalidation.receipt_view"
+)
 
 # --- imports ---------------------------------------------------------------
 
@@ -139,6 +145,10 @@ IMPORTS_GET_ACTIVE_ORGANIZATION: ServiceKey[Callable[..., Any]] = ServiceKey(
 )
 IMPORTS_GET_REVIEW_DISPOSITIONS: ServiceKey[Callable[..., Any]] = ServiceKey(
     "imports.get_review_dispositions"
+)
+
+CONTEXT_PURGE_PROJECT_INTERACTION_CACHE: ServiceKey[Callable[..., Any]] = ServiceKey(
+    "context.purge_project_interaction_cache"
 )
 
 # --- interaction -----------------------------------------------------------
@@ -347,8 +357,10 @@ ALL_SERVICE_KEYS: tuple[ServiceKey[Any], ...] = (
     COLLABORATION_CREATIVE_RESOURCE_PORT,
     CONTEXT_COMPILE,
     CONTEXT_GENERATION_BACKGROUND,
+    CONTEXT_PURGE_PROJECT_INTERACTION_CACHE,
     EVOLUTION_REQUIRE_CURRENT_WORLD_CANDIDATE,
     EVOLUTION_RECORD_WRITING_SOURCE_CHANGE,
+    EVOLUTION_INVALIDATION_RECEIPT_VIEW,
     IMPORTS_GET_ACTIVE_ORGANIZATION,
     IMPORTS_GET_REVIEW_DISPOSITIONS,
     INTERACTION_READ_CONTINUITY_REVIEW,

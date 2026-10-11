@@ -924,9 +924,15 @@ class TaskLifecycleService:
                     "completion_tokens": 0,
                     "tasks": 0,
                     "charge_unconfirmed": False,
+                    "usage_complete": True,
                 },
             )
             bucket["tasks"] += 1
+            bucket["usage_complete"] = (
+                bucket["usage_complete"]
+                and envelope.usage_complete
+                and not envelope.legacy_untracked
+            )
             # 计费状态未确认只看信封自报的 charge_state：step 级 possible 或
             # 信封级 possible（旧回执可能没有 step 明细）都算未确认。
             if envelope.charge_state is AIChargeState.possible:

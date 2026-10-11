@@ -194,6 +194,9 @@ async def rebase(db, novel_id, workspace_id, data, *, revert=False):
             },
         ]
         case.grant_json = grant.model_dump(mode="json")
+        # 生产会话 autoflush=False；require_case 用 populate_existing 重读，
+        # 未 flush 的授权改写会被数据库行覆盖，导致子试改按旧授权校验而拒绝。
+        await db.flush()
     created = await create_workspace(
         db,
         novel_id,
@@ -207,6 +210,9 @@ async def rebase(db, novel_id, workspace_id, data, *, revert=False):
     )
     child = await require_workspace(db, novel_id, created["id"])
     child.parent_id, child.request_hash = workspace.id, request_hash
+    # 同上：edit_workspace 经 require_workspace(populate_existing) 重读子行，
+    # 未 flush 的血缘/幂等哈希会被丢弃，破坏重放识别。
+    await db.flush()
     if rebased:
         created = await edit_workspace(
             db,
