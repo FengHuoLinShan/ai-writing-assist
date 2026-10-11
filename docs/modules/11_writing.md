@@ -1,7 +1,9 @@
 # Module: writing / 正文版本与工作稿模块
 
 异步 AI 生成/审查/返修任务在领取时冻结运行额度，恢复沿用同一 run；该内部回执只存在任务
-私有元数据，不改变 draft、candidate、冲突检查或发布 API 的 wire。
+私有元数据，不改变 draft、candidate、冲突检查或发布 API 的 wire。`writing_generate` 另在
+finalize 前把已付费候选冻结进任务私有 meta（`_frozen_candidate` 下划线键，不进任务状态
+API），崩溃重排按来源指纹复用、免第二次付费调用；finalize 的完整重验仍是最终门禁。
 
 ## 定位
 
@@ -38,6 +40,25 @@ auto 工作版本在发布前撤回到手动 checkpoint 内容时，auto 版本�
 `candidate`。删除单版本或整章只标记 `deprecated`，
 版本号永不重排。
 
+保存链路的实质变更触发 Evolution 失效缝（`EVOLUTION_RECORD_WRITING_SOURCE_CHANGE`
+DI 键）时，回执经 `EVOLUTION_INVALIDATION_RECEIPT_VIEW` 投影为公共视图挂到 draft
+契约的瞬态属性 `invalidation`（非映射列，autosave/publish/update 响应自动携带）：
+受影响消费者列表（场景+机器可读原因+已知/待核实）、`unknown_scope` 显式、
+`recompute_options` 三分类（reload_evidence/rebuild_derived_state/regenerate_prose，
+regenerate 恒须作者显式确认且当前 409 明示不支持自动执行）。作者经
+`POST /api/writing/recompute` 预览（纯读零正史写入）后 `adopt` 执行：幂等键
+operation_id+request_hash，执行**必须**携带预览返回的 `expected_source_digest`
+（缺失 422 失败关闭，预览不是可选项），来源漂移返回 409 `recompute_source_drift`
+并保留当前稿；同 operation_id 换目标（请求摘要不同）返回 409
+`recompute_operation_conflict`；已完成的操作重放原回执（`replayed=true`，零新域写入）；
+取消为纯本地零副作用。
+
+回执与待重算状态均持久化（不再只靠 adopt 幂等重放）：
+`GET /api/writing/recompute/receipts?novel_id=` 列已完成回执，
+`GET /api/writing/invalidations?novel_id=&chapter_index=` 回读尚未消解的失效提示
+（保存时落 `writing_invalidation_notices`，重算覆盖该章后标记 `resolved` 保留行）。
+见 [22_evolution](22_evolution.md) 的登记契约。
+
 ## Facade
 
 ```python
@@ -46,7 +67,7 @@ async def create_published_draft_only(db, novel_id, chapter_index, title: str | 
 async def create_published_drafts_only(db, novel_id, chapters: list[dict[str, object]]) -> list[WritingDraftContract]
 async def create_draft(db, novel_id, chapter_index, title: str | None = None, content: str = "") -> tuple[WritingDraftContract, str]
 async def get_draft(db, draft_id) -> WritingDraftContract | None
-async def adopt_candidate_to_working(db, novel_id, draft_id, *, adopted_by="author") -> WritingDraftContract
+async def adopt_candidate_to_working(db, novel_id, draft_id, *, adopted_by="author", idempotency_key=None) -> WritingDraftContract
 async def get_latest_draft_for_chapter(db, novel_id, chapter_index) -> WritingDraftContract | None
 async def list_latest_drafts_for_chapters(db, novel_id, chapter_indices, *, content_limit: int | None = None) -> list[WritingDraftContract]
 async def list_chapter_indices(db, novel_id) -> list[int]
@@ -73,7 +94,7 @@ writing facade/contracts 只读消费草稿与章节索引。
 ```
 POST   /api/writing/drafts                              # 发布草稿（新版本 + publish_chapter 任务）
 GET    /api/writing/drafts/{id}                         # 获取草稿
-POST   /api/writing/drafts/{id}/adopt                   # 将 AI 正文建议复制为普通工作稿
+POST   /api/writing/drafts/{id}/adopt                   # 将 AI 正文建议复制为普通工作稿；可选 idempotency_key 同键重放返回原回执
 POST   /api/writing/drafts/{id}/checkpoint              # 显式保存未发布版本
 POST   /api/writing/drafts/{id}/discard                 # 放弃未发布更改并回到基线
 PUT    /api/writing/drafts/{id}                         # 暂存；published copy-on-write，支持 expected_version
@@ -90,6 +111,10 @@ PATCH  /api/writing/conflict-check-items/{id}          # 更新问题处理状�
 POST   /api/writing/conflict-check-items/{id}/confirm-continuity # 作者确认连续性事实
 POST   /api/writing/conflict-check-items/{id}/ai-suggestion-task # 提交单条 AI 修复建议任务
 POST   /api/writing/drafts/autosave                    # 创建纯草稿版本，不发布；合并标脏 working 索引
+GET    /api/writing/recompute/receipts                  # 重算操作回执（项目隔离）
+GET    /api/writing/invalidations                       # 尚未完成的失效提示
+POST   /api/writing/recompute                          # 重算预览（P2-C：三分类 scope，纯读零正史写入）
+POST   /api/writing/recompute/{operation_id}/adopt     # 执行重算（幂等；源漂移 409 保当前稿）
 POST   /api/writing/generate                            # 生成正文建议预览，不自动采用或发布
 POST   /api/writing/semantic-reviews                    # 冻结正文/合同的独立语义审查
 POST   /api/writing/targeted-revisions                  # 按审查 finding（或显式纳入的待核实合同条目）生成新返修候选
@@ -299,3 +324,12 @@ AI candidate 的正式审稿、知识边界或采用门禁。
 
 好例/反例在确认预览可见并计入指纹；候选 provenance 标记是否使用示例，
 项目设置提供对照统计（观察性诊断）。
+
+重算采用先取得项目级事务互斥，再检查已完成 operation 的请求摘要及原来源指纹；
+回放不覆盖原回执、不重复域动作。新执行持有排序后的正文章节写入锁，最终来源重验包括重建实际消费的历史前缀与场景结构；等待章锁后重新载入场景目录并冻结结构；已有写者则拒绝本次采用。锁内重新载入同一稿行，防止会话缓存掩盖原地改稿。
+失效提示记录本次确认及之前同章提示的分类进度，待处理查询只在索引实际 succeeded 且 indexed
+hash/source 与请求一致、受影响场景当前仍 ready 且 basis 有效后消解；发布稿变更也须正史索引成功；仅入队、失败和部分覆盖均保留。
+前端区分“已提交证据重读”与操作回执；新提示只作废旧预览，已发出的执行到最终返回才解锁，
+结果归原项目，不把旧执行响应写入新提示面板。恢复提示读取失败会告知作者重试。
+
+写作生成的私有冻结候选由 Tasks facade 租约 checkpoint 保存；已有负载无效/来源漂移失败关闭，不视为缓存未命中，不自动重付费。

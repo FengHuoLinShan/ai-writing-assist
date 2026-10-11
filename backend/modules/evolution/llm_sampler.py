@@ -24,10 +24,12 @@ from typing import Any, Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 from infrastructure.llm.profiles import (
+    DEEPSEEK_QUALITY_OUTPUT_TOKENS,
     DEEPSEEK_THINKING_MODELS,
     deepseek_reasoning_extra,
 )
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+from modules.evolution.sampler import DISCOVERY_OUTPUT_TOKENS
 from modules.story.continuity.contracts import STATE_EVENT_DIMENSIONS
 
 
@@ -45,7 +47,15 @@ class SamplerObservation(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    predicate: str = Field(min_length=1, max_length=2000)
+    predicate: str = Field(
+        min_length=1,
+        max_length=2000,
+        description=(
+            "按原句整段叙述/回忆框架还原主体与代词，回忆者不等于被回忆动作的主体；"
+            "可按清楚语法/连续叙述的唯一先行主体还原原名，不机械取最近人物；"
+            "新人物未入World不代表文字主体未知。真正歧义放unresolved_parts，叙述者说明不改成角色自述。"
+        ),
+    )
     modality: str = Field(
         default="event_observed",
         pattern=(
@@ -96,7 +106,15 @@ class SceneSample(BaseModel):
 
     observations: list[SamplerObservation] = Field(default_factory=list, max_length=64)
     scene_events: list[SamplerSceneEvent] = Field(default_factory=list, max_length=200)
-    unresolved_parts: list[str] = Field(default_factory=list, max_length=32)
+    unresolved_parts: list[str] = Field(
+        default_factory=list,
+        max_length=32,
+        description=(
+            "仅列本段实际缺失/歧义/未覆盖，不把World未入库当文本主体未知；"
+            "同一动作已依据明确共指核定主体时，不能又报同一代词未消歧；"
+            "明确期间未做的动作是已覆盖事实，不报是否做过未知。"
+        ),
+    )
 
 
 SYSTEM_PROMPT = (
@@ -109,6 +127,14 @@ SYSTEM_PROMPT = (
     "同一连续行动合并，背景摆设与修辞不逐句拆；超出容量时在 unresolved_parts"
     "说明未覆盖范围，不宣称已经理解全部细节。回忆、传闻和角色推断保留主观模态，"
     "不得直接升级为当前客观事件。"
+    "unresolved_parts只列本段确实缺失、歧义或未覆盖的内容，输出前与本轮观察逐项核对；"
+    "明确某段期间没有做某动作属于已覆盖事实，不能同时声称该段未说明是否做过。"
+    "说话人、回忆者、被回忆者与具体动作主体分开，predicate和mentions按原句整段框架核定，"
+    "不把回忆者当作回忆中被观察的动作主体，不按最近名字替换代词；真正不能消歧放unresolved_parts。"
+    "禁止机械猜最近名字，不禁止依据整段语法、连续叙述焦点及不冲突语义解析明确共指；"
+    "代词有明确先行主体时predicate可还原原文姓名，mentions引用该明确人物的原名，不把他/她等代词另造为人物。quote仍逐字保留代词。"
+    "新人物尚未入World资产库不表示原文明示的主体不明确；多个先行主体/对象真实无法消歧才待核实。"
+    "叙述者说明某人未亲见或只转述，不表示该人亲自说过免责声明；保留原来的言语/叙述资格。"
     "引用重复出现时必须提供本段正文内的 Unicode "
     "码点半开区间 start_offset/end_offset；不要按 UTF-16 或字节计数。"
     "拿不准重复引文的区间时，改选包含邻近上下文且唯一出现的连续原文；"
@@ -239,6 +265,31 @@ class ProjectLLMSampler:
             "evolution.state_review.v1",
         )
 
+    async def discover_details(self, *, inputs):
+        from modules.evolution.discovery import discovery_messages
+        from modules.evolution.ledger_contracts import DiscoveryOutput
+
+        return await self._scene_call(
+            LLMCallRequest(
+                messages=discovery_messages(inputs),
+                temperature=0,
+            ),
+            DiscoveryOutput,
+            "evolution.discovery.v1",
+        )
+
+    async def review_discovery(self, *, inputs):
+        from modules.evolution.discovery import discovery_messages
+        from modules.evolution.ledger_contracts import DiscoveryReview
+
+        return await self._scene_call(
+            LLMCallRequest(
+                messages=discovery_messages(inputs, review=True), temperature=0
+            ),
+            DiscoveryReview,
+            "evolution.discovery.review.v1",
+        )
+
     async def enrich_scene(self, *, payload):
         from modules.imports.facade import build_scene_enrichment_request
 
@@ -288,7 +339,13 @@ class ProjectLLMSampler:
         model = getattr(self._client, "model_name", None)
         if model in DEEPSEEK_THINKING_MODELS and "thinking" not in request.extra:
             output_budget = (
-                65536
+                DISCOVERY_OUTPUT_TOKENS
+                if method
+                in {
+                    "evolution.discovery.v1",
+                    "evolution.discovery.review.v1",
+                }
+                else DEEPSEEK_QUALITY_OUTPUT_TOKENS
                 if method
                 in {
                     "imports.Phase2aSceneExtractionOutput.v1",
@@ -299,7 +356,17 @@ class ProjectLLMSampler:
             )
             request = request.model_copy(
                 update={
-                    "extra": {**request.extra, **deepseek_reasoning_extra(model)},
+                    "extra": {
+                        **request.extra,
+                        **deepseek_reasoning_extra(
+                            model,
+                            high_quality=method
+                            in {
+                                "evolution.discovery.v1",
+                                "evolution.discovery.review.v1",
+                            },
+                        ),
+                    },
                     "max_tokens": max(request.max_tokens or 0, output_budget),
                 }
             )
@@ -307,8 +374,16 @@ class ProjectLLMSampler:
         options = (
             {"partial_list_fields": {"uncertain_items"}}
             if method == "imports.AliasRelationExtractionOutput.v1"
+            else {"partial_list_fields": {"changes"}}
+            if method == "evolution.discovery.v1"
             else {}
         )
+        if (
+            model in DEEPSEEK_THINKING_MODELS
+            and getattr(self._client, "profile_summary", {}).get("provider_id")
+            == "deepseek"
+        ):
+            options["complete_stream"] = True
         try:
             result = await self._client.generate_structured(
                 request,

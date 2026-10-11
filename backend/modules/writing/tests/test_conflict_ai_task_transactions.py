@@ -177,6 +177,19 @@ def _patch_facades(
     return prepared, bound, guard
 
 
+def _required_dimensions(messages) -> list[str]:
+    """从审查 prompt 读取必查维度；合成审查者按全部维度已查应答。"""
+    for message in messages:
+        for line in message.content.splitlines():
+            if line.startswith("必查维度："):
+                return [
+                    item.strip()
+                    for item in line.split("：", 1)[1].split(",")
+                    if item.strip()
+                ]
+    return []
+
+
 class _Client:
     model_name = "task-model"
 
@@ -184,11 +197,14 @@ class _Client:
         self._db = db
         self._outcome = outcome
 
-    async def generate_structured(self, _request, schema, **_kwargs):
+    async def generate_structured(self, request, schema, **_kwargs):
         assert self._db.in_transaction() is False
         if schema is AuditVerdictOutput:
             return AuditVerdictOutput(
-                dimensions=[AuditDimensionCheck(dimension="prior_prose")],
+                dimensions=[
+                    AuditDimensionCheck(dimension=dimension, checked=True)
+                    for dimension in _required_dimensions(request.messages)
+                ],
                 verdict="pass",
             )
         if isinstance(self._outcome, BaseException):
@@ -604,11 +620,14 @@ async def test_real_task_session_checkpoints_before_provider_wait(
     class _RealClient:
         model_name = "task-model"
 
-        async def generate_structured(self, _request, schema, **_kwargs):
+        async def generate_structured(self, request, schema, **_kwargs):
             transaction_states.append(task_session.in_transaction())
             if schema is AuditVerdictOutput:
                 return AuditVerdictOutput(
-                    dimensions=[AuditDimensionCheck(dimension="prior_prose")],
+                    dimensions=[
+                        AuditDimensionCheck(dimension=dimension, checked=True)
+                        for dimension in _required_dimensions(request.messages)
+                    ],
                     verdict="pass",
                 )
             return schema(issues=[])

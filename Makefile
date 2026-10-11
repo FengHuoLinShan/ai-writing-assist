@@ -1,4 +1,4 @@
-.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-fast-coverage test-e2e test-postgresql-critical test-real-llm test-map-atlas-live-image test-real-kimi test-interaction-long-context test-manual test-deploy test-frontend test-production-images test-restore-drill-real audit-backend-deps audit-frontend-deps test-ci repo-gates binary-growth-gate file-size-gate release-evidence-gate module-import-gate scale-gate eval-corpus eval-fixture-manifest eval-generate eval-judge eval-qc eval-review-export eval-review-import eval-report eval-baseline-check eval-freeze eval-rag-prepare eval-run eval-rag eval-full eval-pilot eval-fast eval-rp-long-memory eval-ask-world eval-ask-world-model eval-context-planner lint lint-fix format format-fix secret-hygiene docs-check prompt-contracts prompt-contracts-json generate-e2e spreadsheet-e2e help db migrate schema-check doctor doctor-json doctor-llm
+.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-fast-coverage test-e2e test-postgresql-critical test-real-llm test-map-atlas-live-image test-real-kimi test-interaction-long-context test-manual test-deploy test-frontend test-production-images test-restore-drill-real audit-backend-deps audit-frontend-deps test-ci repo-gates binary-growth-gate file-size-gate release-evidence-gate module-import-gate scale-gate eval-corpus eval-fixture-manifest eval-generate eval-judge eval-qc eval-review-export eval-review-import eval-report eval-baseline-check eval-freeze eval-rag-prepare eval-run eval-rag eval-full eval-pilot eval-fast eval-rp-long-memory eval-rp-cost-baseline eval-ask-world eval-ask-world-model eval-context-planner lint lint-fix format format-fix secret-hygiene docs-check prompt-contracts prompt-contracts-json generate-e2e spreadsheet-e2e help db migrate schema-check doctor doctor-json doctor-llm
 
 ROOT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 BACKEND_DIR := $(ROOT_DIR)backend
@@ -9,12 +9,12 @@ BACKEND_REAL_LLM_TESTS := modules/imports/tests/test_real_extraction.py modules/
 BACKEND_REAL_KIMI_TESTS := modules/interaction/tests/test_real_kimi.py
 BACKEND_INTERACTION_LONG_CONTEXT_TESTS := tests/e2e/test_interaction_long_context_real_kimi.py
 BACKEND_MANUAL_TESTS := $(BACKEND_REAL_LLM_TESTS) tests/e2e/test_writing_conflict_real_llm.py tests/e2e/test_extraction_real_file.py tests/e2e/test_outline_generation.py
-BACKEND_POSTGRESQL_CRITICAL_TESTS := tests/e2e/test_00_fresh_migrations.py tests/e2e/test_event_soft_delete_concurrency.py tests/e2e/test_context_retrieval_trace_queries.py tests/e2e/test_context_terminal_concurrency.py tests/e2e/test_import_migrations_pg.py tests/e2e/test_import_upload_commit_visibility.py tests/e2e/test_interaction_generation_concurrency.py tests/e2e/test_project_task_gate_concurrency.py tests/e2e/test_rp_source_versions.py tests/e2e/test_scene_memory_checkpoint_concurrency.py tests/e2e/test_smart_dedup_group_savepoint.py tests/e2e/test_task_coalescing_concurrency.py tests/e2e/test_task_run_envelope_postgres.py tests/e2e/test_writing_route_commit_visibility.py tests/e2e/test_writing_version_concurrency.py tests/e2e/test_image_reuse_concurrency.py tests/e2e/test_world_relation_membership_concurrency.py tests/e2e/test_world_relation_grouping_perf_pg.py tests/e2e/test_worldbook_dataset_import_concurrency.py
+BACKEND_POSTGRESQL_CRITICAL_TESTS := tests/e2e/test_00_fresh_migrations.py tests/e2e/test_event_soft_delete_concurrency.py tests/e2e/test_context_retrieval_trace_queries.py tests/e2e/test_context_terminal_concurrency.py tests/e2e/test_import_migrations_pg.py tests/e2e/test_import_upload_commit_visibility.py tests/e2e/test_interaction_generation_concurrency.py tests/e2e/test_project_task_gate_concurrency.py tests/e2e/test_rp_source_versions.py tests/e2e/test_scene_memory_checkpoint_concurrency.py tests/e2e/test_smart_dedup_group_savepoint.py tests/e2e/test_task_coalescing_concurrency.py tests/e2e/test_task_run_envelope_postgres.py tests/e2e/test_writing_route_commit_visibility.py tests/e2e/test_writing_version_concurrency.py tests/e2e/test_image_reuse_concurrency.py tests/e2e/test_world_relation_membership_concurrency.py tests/e2e/test_world_relation_grouping_perf_pg.py tests/e2e/test_worldbook_dataset_import_concurrency.py tests/e2e/test_evolution_issue209.py
 FAST_TEST_TIMEOUT_SECONDS ?= 120
 TEST_WORKERS ?= auto
 BACKEND_EVAL_PYTHON ?= 3.13
 BACKEND_LOCKED_CI_RUN := uv run --locked --extra ci --
-BACKEND_LOCKED_EVAL_RUN := uv run --python $(BACKEND_EVAL_PYTHON) --locked --extra eval --
+BACKEND_LOCKED_EVAL_RUN := uv run --python $(BACKEND_EVAL_PYTHON) --locked --
 
 # ─── Full Stack ─────────────────────────────────────
 
@@ -102,7 +102,7 @@ test-restore-drill-real:  ## Perform a real isolated PostgreSQL restore using a 
 	bash deploy/tests/run_restore_drill_integration.sh
 
 audit-backend-deps:  ## Audit every locked backend dependency for known advisories
-	cd $(BACKEND_DIR) && uv audit --locked --no-build --preview-features audit --python-version 3.14 --python-platform x86_64-unknown-linux-gnu --ignore-until-fixed GHSA-w8v5-vhqr-4h9v --ignore-until-fixed GHSA-95ww-475f-pr4f
+	cd $(BACKEND_DIR) && uv audit --locked --no-build --preview-features audit --python-version 3.14 --python-platform x86_64-unknown-linux-gnu
 
 audit-frontend-deps:  ## Fail on high/critical frontend dependency lockfile advisories
 	cd $(FRONTEND_DIR) && npm audit --package-lock-only --audit-level=high
@@ -162,13 +162,16 @@ eval-fast:  ## Run deterministic eval toolkit tests without remote LLM calls
 eval-rp-long-memory:  ## Compile the synthetic RP long-memory gate offline
 	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_EVAL_RUN) python -m evals.rp_long_memory compile $(or $(DATASET),evals/datasets/baselines/rp-long-memory-v2.jsonl) --split $(or $(SPLIT),dev) --output $(or $(OUTPUT),evals/artifacts/rp-long-memory/compile.json)
 
+eval-rp-cost-baseline:  ## Measure the RP compile-chain cost baseline (M0; local BGE chain, no paid calls; set DATABASE_URL for the disposable PG run)
+	cd $(BACKEND_DIR) && uv run --python 3.13 --locked --extra dev -- python -m evals.rp_cost_baseline run --scales $${SCALES:-s,m} --rounds $${ROUNDS:-6} --repeats $${REPEATS:-3} --output $(or $(OUTPUT),evals/artifacts/rp-cost-baseline/report.json)
+
 .PHONY: eval-technical-coverage
 eval-technical-coverage:  ## Run synthetic coverage experiments; no database or paid model I/O
-	cd $(BACKEND_DIR) && uv run --python 3.13 --locked --extra ci --extra eval --extra experiments -- python -m evals.retrieval_comparison --output evals/artifacts/technical-coverage/retrieval.json
-	cd $(BACKEND_DIR) && uv run --python 3.13 --locked --extra ci --extra eval --extra experiments -- python -m evals.tool_selection --output evals/artifacts/technical-coverage/tools.json
-	cd $(BACKEND_DIR) && uv run --python 3.13 --locked --extra ci --extra eval --extra experiments -- python -m evals.collaboration_comparison --output-dir evals/artifacts/technical-coverage
-	cd $(BACKEND_DIR) && uv run --python 3.13 --locked --extra ci --extra eval --extra experiments -- python -m evals.rp_long_memory compile evals/datasets/baselines/rp-long-memory-v2.jsonl --split dev --output evals/artifacts/technical-coverage/memory-compile.json
-	cd $(BACKEND_DIR) && uv run --python 3.13 --locked --extra ci --extra eval --extra experiments -- pytest evals/tests/test_experiment.py evals/tests/test_retrieval_comparison.py evals/tests/test_tool_selection.py evals/tests/test_mcp_reference_lab.py evals/tests/test_collaboration_comparison.py evals/tests/test_task_capacity.py -q --timeout=60
+	cd $(BACKEND_DIR) && uv run --python 3.13 --locked --extra ci --extra experiments -- python -m evals.retrieval_comparison --output evals/artifacts/technical-coverage/retrieval.json
+	cd $(BACKEND_DIR) && uv run --python 3.13 --locked --extra ci --extra experiments -- python -m evals.tool_selection --output evals/artifacts/technical-coverage/tools.json
+	cd $(BACKEND_DIR) && uv run --python 3.13 --locked --extra ci --extra experiments -- python -m evals.collaboration_comparison --output-dir evals/artifacts/technical-coverage
+	cd $(BACKEND_DIR) && uv run --python 3.13 --locked --extra ci --extra experiments -- python -m evals.rp_long_memory compile evals/datasets/baselines/rp-long-memory-v2.jsonl --split dev --output evals/artifacts/technical-coverage/memory-compile.json
+	cd $(BACKEND_DIR) && uv run --python 3.13 --locked --extra ci --extra experiments -- pytest evals/tests/test_experiment.py evals/tests/test_retrieval_comparison.py evals/tests/test_tool_selection.py evals/tests/test_mcp_reference_lab.py evals/tests/test_collaboration_comparison.py evals/tests/test_task_capacity.py -q --timeout=60
 
 eval-ask-world:  ## Run Ask World API contracts, then the offline evidence-ranking gate
 	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) pytest modules/world/tests/test_world_generation_center_api.py -k ask_world -q

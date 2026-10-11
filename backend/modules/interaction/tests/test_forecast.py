@@ -145,7 +145,7 @@ async def test_rp_forecast_has_no_siblings_or_automatic_story_write(
                 "verdict": "pass",
                 "dimensions": [
                     {"dimension": key, "checked": True}
-                    for key in ("prior_prose", "world_rules", "outline")
+                    for key in _required_dimensions(request.messages)
                 ],
             }
         )
@@ -204,3 +204,16 @@ async def test_rp_forecast_has_no_siblings_or_automatic_story_write(
         },
     )
     assert stale.status_code == 409
+
+
+def _required_dimensions(messages) -> list[str]:
+    """从审查 prompt 读取必查维度；合成审查者按全部维度已查应答。"""
+    for message in messages:
+        for line in (message.content or "").splitlines():
+            if line.startswith("必查维度："):
+                return [
+                    item.strip()
+                    for item in line.split("：", 1)[1].split(",")
+                    if item.strip()
+                ]
+    return []

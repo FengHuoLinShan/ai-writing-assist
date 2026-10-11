@@ -22,6 +22,10 @@ Writing 模块是章节正文的事实源，同时负责在 fresh context confir
 - 字面 grep、稳定范围引用与段落扩展读取
 - 版本历史查看
 - 正文保存时经 Evidence 投递 working/canonical 索引；发布快照沿用发布流程
+- 保存链路透传 Evolution 失效公共视图（`invalidation` 瞬态属性，P2-C）；重算
+  预览/执行端点 `POST /api/writing/recompute`、`/recompute/{operation_id}/adopt`
+  （幂等、漂移 409 保当前稿、预览零正史写入），语义见
+  [docs/modules/11_writing.md](../../../docs/modules/11_writing.md)
 - 写作页剧情设定冲突检查记录、问题状态与发布前检查快照归档
 - 从已确认 context 生成 AI 正文 candidate，并保存 confirmation/task provenance
 - 对规则冲突结果追加 AI 软复核和可编辑修复建议
@@ -231,7 +235,11 @@ finalize 按 project-first 锁序重新验证项目、锁定 base 正文和完�
 profile 与当前最新 running task owner；只有 fresh 结果才在同一最终 worker
 transaction 中创建 candidate 并绑定 confirmation。同一 confirmation 重复入队时，
 最后绑定的 task 取代旧 task，旧结果不会写入。
-上下文漂移、项目删除、取消或 lease 丢失均不会留下 candidate。正文候选只经上述
+模型返回后、finalize 前，已付费输出先经租约栅栏 checkpoint 冻结进任务私有 meta
+（`_frozen_candidate` 下划线键，不进任务状态 API）；finalize 前崩溃的重排按来源
+指纹复用冻结输出，不为同一次生成意图第二次调用付费模型。冻结只认来源指纹，
+finalize 的完整重验仍是最终门禁；指纹漂移、项目删除、取消或 lease 丢失均不会
+留下 candidate，lease 丢失时冻结提交被拒、行为退回重排重调。正文候选只经上述
 task-only seam 生成。
 
 Scene 确认存在时，生成 prompt 附带 outline-owned 执行 bundle，候选
@@ -239,7 +247,10 @@ provenance 冻结 `scene_execution_bundle_hash` 和 exact `upstream_manifest`。
 候选打开和采用前重算当前 bundle；总纲、`story_execution_profile.v1`、
 Scene 或 context confirmation 漂移时显示待复核，采用返回 409。
 采用候选会追加新 working draft 结果引用并把原 Confirmation 标为
-`adopted`；拒绝保留原候选引用与历史并标为 `rejected`。新建稿件仍只发出既有
+`adopted`；拒绝保留原候选引用与历史并标为 `rejected`。采用支持可选
+`idempotency_key`（`POST /writing/drafts/{id}/adopt?idempotency_key=...`）：
+回包丢失后同键重放返回原采用回执而不是报错，键存于候选与采用稿 provenance；
+无键或异键维持原校验错误。新建稿件仍只发出既有
 主动通知；已有稿件的真实内容更新经 Evidence 精确失效入口处理，不扫描无关
 Confirmation。没有 Confirmation 的 legacy 草稿保持原行为。
 
@@ -454,3 +465,10 @@ writing.generate 的作者视角进入确认预览与指纹；超预算先截反
 对照统计（观察性诊断）。分母仅计原生成候选，排除从候选采用/保存的工作稿；
 采用后弃置的候选保留生命周期身份，不随工作稿版本数重复计算。示例被预算整体
 逐出时，确认预览明确提示“本次未使用你的示例”。
+
+重算执行和不可变操作回执同事务，项目级互斥与正文版本写入共用章节锁；
+重建预览也绑定继承前缀来源和场景结构。失效提示持久落库，执行仅记录确认
+回执的分类进度；索引入队不等于完成，失败、未覆盖的场景和缺口仍待处理。
+GET `/api/writing/recompute/receipts` 与 `/api/writing/invalidations` 支持跨会话恢复。
+
+生成恢复经 Tasks 窄 facade 保存付费候选。已有冻结结果来源漂移或损坏时失败关闭，保留旧输出，不自动重新付费；作者需重新确认新生成操作。

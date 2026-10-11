@@ -357,6 +357,119 @@ describe("AI 能力", () => {
   })
 })
 
+describe("AI 用量", () => {
+  function makeUsage(overrides = {}) {
+    return {
+      window_days: 30,
+      tasks_scanned: 2,
+      tasks_with_envelope: 2,
+      unreadable_envelopes: 0,
+      scan_truncated: false,
+      totals: {
+        requests: 4,
+        requests_unknown: 0,
+        input_tokens: 130,
+        output_tokens: 70,
+        charge_unconfirmed: false,
+      },
+      capabilities: [
+        {
+          capability: "writing.generate",
+          label: "AI 写作",
+          tasks: 1,
+          requests: 2,
+          requests_unknown: 0,
+          input_tokens: 100,
+          output_tokens: 50,
+          charge_unconfirmed: false,
+        },
+        {
+          capability: "writing.semantic_review",
+          label: "正文独立审查",
+          tasks: 1,
+          requests: 2,
+          requests_unknown: 0,
+          input_tokens: 30,
+          output_tokens: 20,
+          charge_unconfirmed: false,
+        },
+      ],
+      ...overrides,
+    }
+  }
+
+  async function openUsageTab(usage) {
+    globalThis.api.projects.aiUsage = vi.fn(async () => usage)
+    const wrapper = mount(ProjectSettingsView, { props: makeProps() })
+    await wrapper.findAll(".settings-tab-nav .tab-btn")[2].trigger("click")
+    await wrapper.findAll("button").find((button) => button.text() === "统计当前作品用量").trigger("click")
+    await flushPromises()
+    return wrapper
+  }
+
+  it("全知回执只显示已知数字，不出现未知文案", async () => {
+    const wrapper = await openUsageTab(makeUsage())
+
+    expect(globalThis.api.projects.aiUsage).toHaveBeenCalledWith("p1", 30)
+    expect(wrapper.text()).toContain("共 2 次 AI 运行，已确认 4 次模型请求的用量")
+    expect(wrapper.text()).toContain("130")
+    expect(wrapper.text()).not.toContain("部分用量未知")
+    expect(wrapper.text()).not.toContain("计费状态未确认")
+    expect(wrapper.text()).not.toContain("计费未确认")
+  })
+
+  it("部分未知与计费未确认如实展示，已知数字不变", async () => {
+    const usage = makeUsage({
+      totals: {
+        requests: 4,
+        requests_unknown: 1,
+        input_tokens: 130,
+        output_tokens: 70,
+        charge_unconfirmed: true,
+      },
+      capabilities: [
+        {
+          capability: "writing.generate",
+          label: "AI 写作",
+          tasks: 1,
+          requests: 2,
+          requests_unknown: 0,
+          input_tokens: 100,
+          output_tokens: 50,
+          charge_unconfirmed: false,
+        },
+        {
+          capability: "writing.semantic_review",
+          label: "正文独立审查",
+          tasks: 1,
+          requests: 2,
+          requests_unknown: 1,
+          input_tokens: 30,
+          output_tokens: 20,
+          charge_unconfirmed: true,
+        },
+      ],
+    })
+    const wrapper = await openUsageTab(usage)
+
+    expect(wrapper.text()).toContain("共 2 次 AI 运行，已确认 4 次模型请求的用量")
+    expect(wrapper.text()).toContain("部分用量未知：另有 1 次模型请求已发出但用量无法确认")
+    expect(wrapper.text()).toContain("部分请求的计费状态未确认")
+    expect(wrapper.text()).toContain("计费未确认")
+    // 未知请求单列展示，不折算进已知数字
+    const header = wrapper.findAll(".data-table th").map((th) => th.text())
+    expect(header).toContain("用量未知请求")
+  })
+  it.each([0, 2])("未确认用量不会显示为总请求数（未知次数 %i）", async (unknown) => {
+    const wrapper = await openUsageTab(makeUsage({ totals: { requests: 0, requests_unknown: unknown, input_tokens: 0, output_tokens: 0, charge_unconfirmed: false, usage_complete: false } }))
+    expect(wrapper.text()).toContain("已确认 0 次模型请求的用量")
+    expect(wrapper.text()).toContain("用量统计不完整")
+    expect(wrapper.text()).toContain("不能视为零消耗")
+    expect(wrapper.text()).not.toContain("共 0 次模型请求")
+  })
+
+})
+
 describe("深度导入", () => {
   it("未保存参数触发离开确认", async () => {
     const confirm = vi.fn(() => false)

@@ -20,6 +20,7 @@ from core.errors import ConflictError, NotFoundError, ValidationError
 from core.service_keys import (
     ACCOUNT_PROJECT_IDS_FOR_OWNER,
     ACCOUNT_PROJECT_PURGE_FOR_OWNER,
+    CONTEXT_PURGE_PROJECT_INTERACTION_CACHE,
 )
 from modules.account.constants import (
     ANONYMOUS_RP_IDENTITY_TYPE,
@@ -947,6 +948,7 @@ class AccountService:
         from infrastructure.tasks.facade import cancel_unfinished_tasks_for_novel
 
         for novel_id in await get(ACCOUNT_PROJECT_IDS_FOR_OWNER)(db, account_id):
+            await get(CONTEXT_PURGE_PROJECT_INTERACTION_CACHE)(db, str(novel_id))
             await cancel_unfinished_tasks_for_novel(
                 db,
                 novel_id=str(novel_id),

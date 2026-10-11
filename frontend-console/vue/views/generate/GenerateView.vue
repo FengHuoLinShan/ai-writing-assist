@@ -978,14 +978,15 @@ async function applyConvergenceMessage() {
   const draft = session.convergenceDraft
   const message = draft?.authorMessage?.trim()
   if (!draft?.coverage?.complete || draft.stale || !message) return false
-  session.messages.push({ role: "user", content: message, kind: "decision" })
   if (session.serverSessionId) {
     try {
       await api.world.appendCocreationMessage(session.serverSessionId, { novel_id: props.projectId, content: message, kind: "decision" })
     } catch {
-      toast("作者决定已加入对话，但写入会话历史失败；可在历史会话中重试", "warning")
+      toast("作者决定写入会话历史失败；决定预览仍保留，请重试", "warning")
+      return false
     }
   }
+  session.messages.push({ role: "user", content: message, kind: "decision" })
   if (draft.externalPacketHash) {
     for (let index = session.externalPackets.length - 1; index >= 0; index -= 1) {
       const record = session.externalPackets[index]

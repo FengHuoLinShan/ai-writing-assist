@@ -1,0 +1,91 @@
+{
+  "schema": "world-foundation-author-acceptance/v1",
+  "performed_at": "2026-10-07T13:12:29+09:00",
+  "result": "fail",
+  "evaluator": "codex_author_proxy",
+  "human_validated": false,
+  "base_commit": "85fb1c7be35ae687f949863d179f5fd63c53f3c0",
+  "scope": "phase1 M0-M7 WIP and existing RP layout outputs",
+  "report": "docs/reviews/2026-10-07-world-foundation-phase1-review.md",
+  "review_axes": {
+    "Standards": {
+      "findings": 4,
+      "worst_priority": 1
+    },
+    "Spec": {
+      "findings": 8,
+      "worst_priority": 1
+    }
+  },
+  "author_workflow": {
+    "view_state": "fail_schema_drops_fields",
+    "trial_entry": "fail_narrow_inert",
+    "preview_domain_write": false,
+    "comparison": "partial_no_state_outcomes",
+    "confirm_save": "pass",
+    "after_source_edit_recheck": "fail_no_object_evidence_or_recovery",
+    "reload_saved_draft": "pass",
+    "preview_counts": {
+      "drafts": 1,
+      "adoptions": 0,
+      "memory_events": 9
+    },
+    "after_adoption_counts": {
+      "drafts": 2,
+      "adoptions": 1,
+      "memory_events": 9
+    },
+    "after_author_edit_counts": {
+      "drafts": 3,
+      "adoptions": 1,
+      "memory_events": 9
+    }
+  },
+  "rp_surrogate_review": {
+    "blind": false,
+    "existing_call_sequences": [
+      88,
+      89,
+      138,
+      139
+    ],
+    "new_model_calls": 0,
+    "result": "needs_revision",
+    "confirmed_issues": [
+      "new dev arm internal furniture continuity",
+      "all four literal character speech constraint violations"
+    ],
+    "long_run_and_holdout_gate": "not_met"
+  },
+  "verification": {
+    "backend_targeted": "47 passed",
+    "frontend_targeted": "2 passed",
+    "fresh_pg_upgrade": "pass",
+    "alembic_check": "fail_new_indexes",
+    "docs_check": "pass",
+    "docs_check_origin_main": "fail_missing_5_document_review_acknowledgements",
+    "git_diff_check": "pass",
+    "full_suite_rerun": false,
+    "cross_worker_concurrency": false,
+    "backup_restore": false,
+    "production": false
+  },
+  "private_evidence_dir": "/Users/tywww/.ai_writing_private/world-phase1-review-20261007",
+  "new_paid_calls": 0,
+  "implementation_modified": false,
+  "commit": false,
+  "push": false,
+  "pull_request": false,
+  "merge": false,
+  "deploy": false,
+  "follow_up": "Remediate findings in priority order when authorized, then rerun the saved checks.",
+  "cleanup": {
+    "temporary_servers_stopped": [
+      18007,
+      18087
+    ],
+    "disposable_database_retained_for_retest": true,
+    "existing_paid_ledger_matches_snapshot": true,
+    "existing_product_wip_unchanged": true
+  }
+}

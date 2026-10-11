@@ -295,16 +295,21 @@ export function normalizeVisualBrief(value) {
 }
 
 function persistedShape(value) {
+  // A live pending bubble remains pending in the mounted UI. Its snapshot is
+  // deliberately terminal so a reload cannot leave the author's last user
+  // message looking unanswered or cause an implicit retry.
+  const messages = (value.messages || []).map((item) => item.pending
+    ? { role: "assistant", content: GENERATE_INTERRUPTED_CHAT_MESSAGE, error: true, interrupted: true }
+    : item)
+  // A server-bound session keeps its full history server-side; on reload the
+  // loader merges back only unfinished local turns, so the local snapshot
+  // persists exactly that subset instead of mirroring the whole conversation.
+  const persistedMessages = value.serverSessionId ? unfinishedCocreationMessages(messages) : messages
   return {
     savedAt: Date.now(),
     composer: typeof value.composer === "string" ? value.composer : "",
     selectedTemplateId: value.selectedTemplateId || "builtin:none",
-    // A live pending bubble remains pending in the mounted UI. Its snapshot is
-    // deliberately terminal so a reload cannot leave the author's last user
-    // message looking unanswered or cause an implicit retry.
-    messages: (value.messages || []).map((item) => item.pending
-      ? { role: "assistant", content: GENERATE_INTERRUPTED_CHAT_MESSAGE, error: true, interrupted: true }
-      : item),
+    messages: persistedMessages,
     selectedChapters: (value.selectedChapters || []).slice(0, AI_SELECTED_CHAPTER_LIMIT),
     qualityMode: value.qualityMode || "fast",
     includeWorldSynopsis: value.includeWorldSynopsis !== false,
