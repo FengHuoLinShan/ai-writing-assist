@@ -1,0 +1,45 @@
+{
+  "version": "dev-v5",
+  "scenes_committed": 8,
+  "requests": 90,
+  "responses": 90,
+  "source_ranges_exact": 139,
+  "free_replays": 8,
+  "paid_stage_receipts": 82,
+  "unknown_receipts": 0,
+  "isolated_failed_batches": [
+    {
+      "scene": 1,
+      "stage": "scene_discovery_1",
+      "outcome": "failed_final",
+      "usage_complete": true
+    },
+    {
+      "scene": 3,
+      "stage": "scene_discovery_3",
+      "outcome": "failed_final",
+      "usage_complete": true
+    },
+    {
+      "scene": 6,
+      "stage": "scene_discovery_0",
+      "outcome": "failed_final",
+      "usage_complete": true
+    },
+    {
+      "scene": 6,
+      "stage": "scene_discovery_6",
+      "outcome": "failed_final",
+      "usage_complete": true
+    },
+    {
+      "scene": 7,
+      "stage": "scene_discovery_6",
+      "outcome": "failed_final",
+      "usage_complete": true
+    }
+  ],
+  "quality_gate": "failed_same_condition_negative_case_recall_link_stable_reinforcement_and_commitment_closure",
+  "human_validated": false,
+  "holdout_run": false
+}

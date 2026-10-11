@@ -1,0 +1,55 @@
+{
+  "version": "dev-v18",
+  "method": "02515170cbbcb75b6cf96fb22c65309a2fd1c576ef8ec728a57eadbe319e4ff0",
+  "current_method": true,
+  "scenes_committed": 8,
+  "scenes_expected": 8,
+  "requests": 74,
+  "responses": 74,
+  "terminal_call_errors": 0,
+  "source_ranges_exact_cumulative": 119,
+  "free_replays": 8,
+  "discovery_planned_batches": 27,
+  "failed_batches": [
+    {
+      "scene": 4,
+      "stage": "scene_discovery_1",
+      "usage_complete": true
+    },
+    {
+      "scene": 4,
+      "stage": "scene_discovery_3",
+      "usage_complete": true
+    },
+    {
+      "scene": 5,
+      "stage": "scene_discovery_3",
+      "usage_complete": true
+    },
+    {
+      "scene": 6,
+      "stage": "scene_discovery_4",
+      "usage_complete": true
+    }
+  ],
+  "validation_quarantine_records": 3,
+  "unknown_stage_receipts": 0,
+  "engineering_gate": "passed",
+  "quality_gate": "failed",
+  "holdout_run": false,
+  "human_validated": false,
+  "explicit_new_run_authorized": true,
+  "v9_unknown_receipt_retained": true,
+  "v11_unknown_receipt_retained": true,
+  "v12_unknown_receipt_retained": true,
+  "v14_unknown_receipt_retained": true,
+  "v15_unknown_receipt_retained": true,
+  "independent_quality_failures": [
+    "clue_reinterpretation_not_materialized_due_evidence_use_mismatch",
+    "related_delivery_counted_as_clue_occurrence"
+  ],
+  "proxy_author_gate": "different_supported_behavior_retained_across_later_revisions; planned_action_target_not_exercised",
+  "coverage_diagnostic_issue": "one_observer_gap_contradicted_explicit_negative_fact",
+  "holdout_opened": false,
+  "audit_before_source_change": true
+}

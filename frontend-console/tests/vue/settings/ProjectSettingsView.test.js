@@ -411,7 +411,7 @@ describe("AI 用量", () => {
     const wrapper = await openUsageTab(makeUsage())
 
     expect(globalThis.api.projects.aiUsage).toHaveBeenCalledWith("p1", 30)
-    expect(wrapper.text()).toContain("共 2 次 AI 运行、4 次模型请求")
+    expect(wrapper.text()).toContain("共 2 次 AI 运行，已确认 4 次模型请求的用量")
     expect(wrapper.text()).toContain("130")
     expect(wrapper.text()).not.toContain("部分用量未知")
     expect(wrapper.text()).not.toContain("计费状态未确认")
@@ -452,7 +452,7 @@ describe("AI 用量", () => {
     })
     const wrapper = await openUsageTab(usage)
 
-    expect(wrapper.text()).toContain("共 2 次 AI 运行、4 次模型请求")
+    expect(wrapper.text()).toContain("共 2 次 AI 运行，已确认 4 次模型请求的用量")
     expect(wrapper.text()).toContain("部分用量未知：另有 1 次模型请求已发出但用量无法确认")
     expect(wrapper.text()).toContain("部分请求的计费状态未确认")
     expect(wrapper.text()).toContain("计费未确认")
@@ -460,6 +460,14 @@ describe("AI 用量", () => {
     const header = wrapper.findAll(".data-table th").map((th) => th.text())
     expect(header).toContain("用量未知请求")
   })
+  it.each([0, 2])("未确认用量不会显示为总请求数（未知次数 %i）", async (unknown) => {
+    const wrapper = await openUsageTab(makeUsage({ totals: { requests: 0, requests_unknown: unknown, input_tokens: 0, output_tokens: 0, charge_unconfirmed: false, usage_complete: false } }))
+    expect(wrapper.text()).toContain("已确认 0 次模型请求的用量")
+    expect(wrapper.text()).toContain("用量统计不完整")
+    expect(wrapper.text()).toContain("不能视为零消耗")
+    expect(wrapper.text()).not.toContain("共 0 次模型请求")
+  })
+
 })
 
 describe("深度导入", () => {

@@ -219,6 +219,16 @@ exec 7<&-
 RESTORE_INPUT_DESCRIPTORS_OPEN=false
 
 compose --profile ops run --rm migrate
+# 私有派生正文不进入恢复后的应用；兼容仍含缓存的旧备份。
+compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+    -v ON_ERROR_STOP=1 <<'SQL'
+DO $$
+BEGIN
+    IF to_regclass('public.context_interaction_source_cache') IS NOT NULL THEN
+        TRUNCATE TABLE public.context_interaction_source_cache;
+    END IF;
+END $$;
+SQL
 ensure_public_bootstrap
 NEW_APP_SERVICES_MAY_HAVE_STARTED=true
 compose up -d api worker frontend

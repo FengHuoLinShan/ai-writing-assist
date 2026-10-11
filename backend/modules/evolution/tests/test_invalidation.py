@@ -189,6 +189,8 @@ async def test_t08_same_length_edit_invalidates_index_and_projections(
         "map_atlas",
     }
     assert "assistant_suggestion_validity" in receipt.invalidated_consumers
+    # M4：RP 派生缓存按来源立即清理（不等 TTL），回执登记清理行数。
+    assert "interaction_source_cache" in receipt.invalidated_consumers
     assert receipt.coverage_note
 
 

@@ -235,13 +235,19 @@ class SceneCheckpointResponse(BaseModel):
     status: str
     source: str
     confirmed: bool
+    is_current: bool = False
     state_json: dict[str, Any] = Field(default_factory=dict)
     evidence_refs: list[dict[str, Any]] = Field(default_factory=list)
     display_summary: str = ""
     gap_reason: str | None = None
+    source_hash: str | None = None
+    basis_json: dict[str, Any] | None = None
     retry_count: int = 0
     decision_summary: str | None = None
     created_at: datetime | None = None
+    # P2-A 逐字段来源聚合（按字段单记录 {field, event_id, source_refs, status}）。
+    # 只在 get_record 回开时由读取端填充；当前集合读取与旧格式行为空列表。
+    field_provenance: list[dict[str, Any]] = Field(default_factory=list)
 
     @field_validator("id", "novel_id", "scene_id", mode="before")
     @classmethod
@@ -332,3 +338,72 @@ class SceneCheckpointRepairResponse(BaseModel):
     dimension: str
     rebuilt_scene_count: int
     checkpoint: SceneCheckpointResponse
+
+
+# ============================================================
+# 指定场景状态读取（M2 scene-state-view-v1）
+# ============================================================
+
+
+class SceneStateFactEntry(BaseModel):
+    """一条状态事实：事实/信念/观察分层，来源回指 checkpoint。"""
+
+    subject_id: str | None = None
+    subject_label: str
+    field: str
+    value: Any
+    layer: str  # fact | belief | observation
+    occurred_at: dict[str, int] | None = None
+    source: dict[str, Any] = Field(default_factory=dict)
+    confidence: str  # confirmed | derived
+    possibly_false: bool = False
+
+
+class SceneStateDimensionView(BaseModel):
+    dimension: str
+    label: str
+    status: str  # ok | degraded | missing | unsupported
+    gap_reason: str | None = None
+    evidence_refs: list[dict[str, Any]] = Field(default_factory=list)
+    facts: list[SceneStateFactEntry] = Field(default_factory=list)
+
+
+class SceneStateViewRequest(BaseModel):
+    scene_id: str
+    viewpoint_kind: str = "author"  # author | character | reader
+    viewpoint_target_id: str | None = None
+    include_dimensions: list[str] | None = None
+
+    @field_validator("viewpoint_kind")
+    @classmethod
+    def validate_kind(cls, value: str) -> str:
+        if value not in {"author", "character", "reader"}:
+            raise ValueError("viewpoint_kind must be author/character/reader")
+        return value
+
+    @field_validator("include_dimensions")
+    @classmethod
+    def validate_dimensions(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        unique = list(dict.fromkeys(value))
+        if any(item not in SCENE_MEMORY_DIMENSIONS for item in unique):
+            raise ValueError("unknown memory checkpoint dimension")
+        return unique
+
+
+class SceneStateViewResponse(BaseModel):
+    novel_id: str
+    scene_id: str
+    scene_index: int
+    chapter_index: int | None = None
+    contract_version: str
+    viewpoint: dict[str, Any]
+    state_fingerprint: str
+    subject_labels: dict[str, str] = Field(default_factory=dict)
+    dimensions: list[SceneStateDimensionView] = Field(default_factory=list)
+    unsupported_dimensions: list[str] = Field(default_factory=list)
+    # 依赖来源已登记但不自动失效本视图的类别（观察层语义，核对待走 World 复核）。
+    unsupported_dependencies: list[str] = Field(default_factory=list)
+    omissions: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)

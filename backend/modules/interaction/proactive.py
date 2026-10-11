@@ -14,6 +14,7 @@ from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from infrastructure.tasks.facade import enqueue_task, require_task_checkpoint_session
 from modules.evidence.facade import compile_interaction_story_context
 from modules.interaction.generation import estimate_input_tokens
+from modules.interaction.prompts import STORY_PROMPT_VERSION
 from modules.interaction.repositories import InteractionRepository
 from modules.interaction.services import InteractionService, path_hash
 from modules.local_agent.facade import local_task_meta, task_snapshot_client
@@ -144,6 +145,7 @@ async def _materialize(db, task):
             task_id=str(task.id),
             model=task.meta["llm_execution_snapshot"]["profile"]["model"],
             budget_tokens=8000,
+            prompt_name=STORY_PROMPT_VERSION,
         )
         if packet.blockers:
             raise ConflictError("旅程资料暂时不能安全检查")

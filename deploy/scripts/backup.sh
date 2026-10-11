@@ -78,6 +78,7 @@ compose exec -T postgres pg_dump \
     -U "$POSTGRES_USER" \
     -d "$POSTGRES_DB" \
     --format=custom \
+    --exclude-table-data=public.context_interaction_source_cache \
     --no-owner \
     --no-privileges >"$STAGING_DUMP"
 

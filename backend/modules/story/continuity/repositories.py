@@ -29,6 +29,16 @@ from shared.constants import DEFAULT_PAGE_SIZE
 class EventRepository:
     """记忆事件数据访问"""
 
+    async def get_by_ids(
+        self, db: AsyncSession, novel_id: uuid.UUID, event_ids: list[uuid.UUID]
+    ) -> list[MemoryEvent]:
+        result = await db.scalars(
+            select(MemoryEvent)
+            .where(MemoryEvent.novel_id == novel_id, MemoryEvent.id.in_(event_ids))
+            .order_by(MemoryEvent.chapter_index, MemoryEvent.sequence)
+        )
+        return list(result.all())
+
     async def create(
         self,
         db: AsyncSession,
@@ -1010,6 +1020,16 @@ class SnapshotRepository:
 class SceneCheckpointRepository:
     """Versioned current checkpoint reads and fail-closed supersede writes."""
 
+    async def get_by_id(
+        self, db: AsyncSession, novel_id: uuid.UUID, checkpoint_id: uuid.UUID
+    ) -> MemorySceneCheckpoint | None:
+        return await db.scalar(
+            select(MemorySceneCheckpoint).where(
+                MemorySceneCheckpoint.novel_id == novel_id,
+                MemorySceneCheckpoint.id == checkpoint_id,
+            )
+        )
+
     async def list_current_for_scene(
         self,
         db: AsyncSession,
@@ -1024,6 +1044,34 @@ class SceneCheckpointRepository:
                 MemorySceneCheckpoint.is_current.is_(True),
             )
             .order_by(MemorySceneCheckpoint.dimension)
+        )
+        return list(result.scalars().all())
+
+    async def list_history_for_scene(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        scene_id: uuid.UUID,
+        *,
+        dimension: str | None = None,
+    ) -> list[MemorySceneCheckpoint]:
+        """按创建时间倒序列出该 Scene 全部 checkpoint 行（含已 supersede）。
+
+        P2-A 历史回开的数据来源：只读本 novel，不做任何写入或 supersede。
+        """
+        conditions = [
+            MemorySceneCheckpoint.novel_id == novel_id,
+            MemorySceneCheckpoint.scene_id == scene_id,
+        ]
+        if dimension is not None:
+            conditions.append(MemorySceneCheckpoint.dimension == dimension)
+        result = await db.execute(
+            select(MemorySceneCheckpoint)
+            .where(*conditions)
+            .order_by(
+                MemorySceneCheckpoint.created_at.desc(),
+                MemorySceneCheckpoint.id.desc(),
+            )
         )
         return list(result.scalars().all())
 

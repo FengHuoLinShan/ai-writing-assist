@@ -8,7 +8,8 @@ Writing ORM 模型
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import (
     JSON,
@@ -22,6 +23,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    func,
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -262,3 +264,81 @@ class WritingConflictItem(Base, UUIDMixin, TimestampMixin, NovelMixin):
     )
     ai_suggestion: Mapped[str | None] = mapped_column(Text, nullable=True)
     suggestion_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class WritingRecomputeOperation(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """已执行的失效重算操作回执（跨会话可查、同编号可回放）。
+
+    P2-C：``operation_id`` + 请求内容指纹构成双幂等键——同编号异摘要的请求
+    必须被拒绝（否则一次预览的结果会被另一种重算顶替），已完成的操作在来源
+    变化后仍要能回放出原回执（作者离开再回来也要查得到，而不是再改一次正文
+    才能找回入口）。追加式：一行即一次已完成的操作，不更新不删除。
+    """
+
+    __tablename__ = "writing_recompute_operations"
+    __table_args__ = (
+        UniqueConstraint(
+            "novel_id",
+            "operation_id",
+            name="uq_writing_recompute_operation_id",
+        ),
+        Index(
+            "ix_writing_recompute_operations_novel_created",
+            "novel_id",
+            "created_at",
+        ),
+        {"comment": "失效重算操作回执（跨会话重查与幂等回放）"},
+    )
+
+    operation_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    scope: Mapped[str] = mapped_column(String(32), nullable=False)
+    expected_source_digest: Mapped[str] = mapped_column(String(128), nullable=False)
+    results_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
+    completed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.timezone("utc", func.now()),
+        default=lambda: datetime.now(UTC),
+    )
+
+
+class WritingInvalidationNotice(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """保存触发的失效提示（待重算状态），跨会话可回读。
+
+    P2-C：失效范围此前只挂在草稿行的瞬态属性上，作者「暂不重算」并离开后
+    原影响列表与重算入口就消失。本表在保存时把作者语言公共视图落库，编辑
+    器加载时回读（重算成功覆盖该章后消解），人工稿件始终保留。
+    """
+
+    __tablename__ = "writing_invalidation_notices"
+    __table_args__ = (
+        UniqueConstraint(
+            "novel_id",
+            "receipt_id",
+            name="uq_writing_invalidation_notice_receipt",
+        ),
+        Index(
+            "ix_writing_invalidation_notices_novel_open",
+            "novel_id",
+            "status",
+            "chapter_index",
+        ),
+        {"comment": "改稿失效提示（待重算状态，跨会话可回读）"},
+    )
+
+    receipt_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    chapter_index: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    notice_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
+    status: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="open",
+        comment="open / resolved",
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

@@ -142,3 +142,43 @@ async def test_get_project_ai_usage_keeps_unknown_and_unconfirmed_markers(
     assert by_capability["writing.generate"]["charge_unconfirmed"] is False
     assert by_capability["writing.semantic_review"]["requests_unknown"] == 1
     assert by_capability["writing.semantic_review"]["charge_unconfirmed"] is True
+
+
+@pytest.mark.parametrize("charge_state", ["none", "recorded"])
+async def test_legacy_usage_is_incomplete_without_inventing_unknown_requests(
+    db_session, project_factory, charge_state
+):
+    from infrastructure.llm.schemas import AI_RUN_ENVELOPE_KEY
+    from infrastructure.tasks.models import AsyncTask
+    from modules.project.ai_usage import get_project_ai_usage
+
+    novel_id = str(await project_factory.create_project(title="历史用量不可考"))
+    envelope = {
+        "version": 1,
+        "operation_id": "legacy",
+        "run_id": "legacy",
+        "root_capability_id": "writing.generate",
+        "novel_id": novel_id,
+        "started_at": datetime.now(UTC).isoformat(),
+        "request_limit": 10,
+        "legacy_untracked": True,
+        "usage_complete": False,
+        "charge_state": charge_state,
+        "steps": [],
+    }
+    db_session.add(
+        AsyncTask(
+            id=uuid.uuid4(),
+            task_type="writing_generate",
+            status="succeeded",
+            novel_id=uuid.UUID(novel_id),
+            meta={AI_RUN_ENVELOPE_KEY: envelope},
+        )
+    )
+    await db_session.flush()
+    usage = await get_project_ai_usage(db_session, novel_id)
+    assert usage["totals"]["usage_complete"] is False
+    assert usage["capabilities"][0]["usage_complete"] is False
+    assert usage["totals"]["requests"] == 0
+    assert usage["totals"]["requests_unknown"] == 0
+    assert usage["totals"]["charge_unconfirmed"] is False
