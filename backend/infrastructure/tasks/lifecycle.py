@@ -462,6 +462,41 @@ class TaskLifecycleService:
         )
         return list((await db.execute(stmt)).scalars().all())
 
+    async def read_private_checkpoint(self, db, *, task_id, task_type, novel_id, key):
+        row = await db.scalar(
+            select(AsyncTask)
+            .where(
+                AsyncTask.id == uuid.UUID(str(task_id)),
+                AsyncTask.task_type == task_type,
+                AsyncTask.novel_id == uuid.UUID(str(novel_id)),
+                AsyncTask.status == "running",
+            )
+            .execution_options(populate_existing=True)
+        )
+        if row is None:
+            raise asyncio.CancelledError
+        meta = row.meta or {}
+        if key in meta and not isinstance(meta[key], dict):
+            raise ValueError("Stored private task checkpoint is invalid")
+        return deepcopy(meta.get(key))
+
+    async def write_private_checkpoint(
+        self, db, *, task_id, task_type, novel_id, key, payload
+    ):
+        row = await db.scalar(
+            select(AsyncTask)
+            .where(
+                AsyncTask.id == uuid.UUID(str(task_id)),
+                AsyncTask.task_type == task_type,
+                AsyncTask.novel_id == uuid.UUID(str(novel_id)),
+                AsyncTask.status == "running",
+            )
+            .with_for_update()
+        )
+        if row is None:
+            raise asyncio.CancelledError
+        row.meta = {**(row.meta or {}), key: deepcopy(payload)}
+
     async def require_running_attempt(
         self,
         db: AsyncSession,

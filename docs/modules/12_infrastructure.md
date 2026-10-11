@@ -673,3 +673,5 @@ provider json_object（`unverified` 仅不具 B5 路由候选资格），`unsupp
 ### RP 私有派生缓存的备份边界
 
 `deploy/scripts/backup.sh` 的 pg_dump 排除 `public.context_interaction_source_cache` 表数据。`restore.sh` 在 schema 迁移后检查并清空该派生表，旧 dump 即使带缓存也恢复冷启动；权威正文、历史与作者确认继续按原备份恢复。未增加外部服务或独立缓存基础设施。
+
+`read_private_task_checkpoint` / `write_private_task_checkpoint` 仅在原 worker 租约栅栏 session 内按任务 ID、类型和 novel_id 读取/保存下划线私有负载；写入通过既有 checkpoint 提交，业务模块不读取任务 ORM。

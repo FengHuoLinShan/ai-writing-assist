@@ -474,3 +474,5 @@ gateway；执行中断保留已见回执，作者显式发起新任务，不能�
 RP 普通 worker 与匿名 inline 入口均将完整、未闭合或超长的无效 metadata 尾块
 写入 attempt.usage.metadata_invalid_count；同一尾块重复 finish/失败收尾只计一次。
 正文仍先进入私有 hold，经原有领域审查后才可释放。
+
+`read_private_task_checkpoint` / `write_private_task_checkpoint` 仅在原 worker 租约栅栏 session 内按任务 ID、类型和 novel_id 读取/保存下划线私有负载；写入通过既有 checkpoint 提交，业务模块不读取任务 ORM。
