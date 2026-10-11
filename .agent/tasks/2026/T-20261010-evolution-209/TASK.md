@@ -37,3 +37,11 @@ external_ref: https://github.com/FengHuoLinShan/ai-writing-assist/issues/209
 ## 交付状态
 
 实现与可复现验证材料完成，本分支供独立草稿 PR 审查；原生规模基准完成，最后来源 scope 参数上限回归待 CI；同项目写争用未测。
+
+
+## 2026-10-12 集成评审修复
+
+- 主用户授权逐个 PR 合并完成分支；双轴独立评审发现普通独立复核输入追加候选后可能超限，以及同 Scene 跨批新增同义主题的资格缺口。
+- 生成和复核均验证最终 JSON 容量。复核超限保留已付费生成、记 not_checked/partial、不采用、不派发复核；重放复用冻结结果。
+- 后批 new 必须逐片核对本场早批新增候选及其绑定原句，候选只作身份对照，不是已确认事实或更新目标。缺片/失败/不确定不放行，沿原 journal/hash/根预算执行；方法指纹升级。
+- 新增两项纯编译资格反例和实际 Scene handler 超限/零复核派发/恢复回归。完整 Evolution 381 passed、1 real_llm deselected；Ruff、diff及文档影响检查通过；修复双轴复核无新增阻断。远端固定新 head CI 待完成后才合并。

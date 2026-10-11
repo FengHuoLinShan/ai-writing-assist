@@ -9,6 +9,8 @@ from infrastructure.llm.collaboration import content_hash
 from modules.evolution.discovery import (
     _chunks,
     _discovery_envelope,
+    _identity_shards,
+    _review_inputs,
     compile_discovery,
 )
 from modules.evolution.discovery_capacity import (
@@ -279,3 +281,98 @@ def test_giant_first_index_and_context_do_not_poison_all_other_batches():
     assert sum(batch["allow_new_themes"] for batch in supported) == 1
     assert all(serialized_size(batch) <= REQUEST_CHARACTERS for batch in supported)
     assert scopes[unsupported[0]]["theme_ids"] == ["theme-000000"]
+
+
+def test_same_scene_new_theme_requires_cross_batch_identity_proof():
+    prepared, batch, change = prepared_occurrence()
+    batch.update(theme_index=[], scene_text="甲紧张地摸了摸戒指。")
+    prepared.update(
+        batches=[batch, deepcopy(batch)],
+        unsupported_batches=[],
+        coverage={},
+        theme_index_shards=[[]],
+    )
+    output = DiscoveryOutput.model_validate(
+        {"changes": [change], "coverage": "inspected", "coverage_note": "分片原句。"}
+    )
+    payload = {"discovery_preparation": prepared}
+    for index in range(2):
+        payload[f"scene_discovery_{index}"] = {
+            "stage": "sampled",
+            "result": output.model_dump(mode="json"),
+        }
+        payload[f"scene_discovery_review_{index}"] = {
+            "result": {
+                "verdicts": [
+                    {
+                        "change_index": 0,
+                        "verdict": "supported",
+                        "reason": "本片原句支持。",
+                        "occurrence_observation_ids": batch["current_observation_ids"],
+                    }
+                ]
+            }
+        }
+    frozen = SimpleNamespace(
+        payload=payload,
+        attempt_id="attempt",
+        source_manifest_hash="a" * 64,
+        previous_receipt=None,
+    )
+    result = compile_discovery(frozen)
+    assert len(result["changes"]) == 1
+    assert result["coverage"]["identity_review_gaps"] == [
+        {"batch": 1, "shard": 1, "ordinal": 0}
+    ]
+    shards = _identity_shards(frozen, prepared, 1)
+    assert shards[0][0]["same_scene_proposal"]["evidence_quotes"]
+    inputs = identity_review_inputs(batch, output.changes, shards[0], 1)
+    payload["scene_discovery_identity_1_1"] = {
+        "stage": "sampled",
+        "input_hash": content_hash(_discovery_envelope(frozen, prepared, inputs)),
+        "result": {
+            "verdicts": [
+                {
+                    "change_index": 0,
+                    "verdict": "rejected",
+                    "reason": "同人物同细节不能重复新增。",
+                }
+            ]
+        },
+    }
+    result = compile_discovery(frozen)
+    assert len(result["changes"]) == 1
+    assert not result["coverage"]["identity_review_gaps"]
+    assert any(
+        item["reason"] == "new_theme_identity_not_supported" for item in result["pending"]
+    )
+
+
+def test_oversized_independent_review_is_explicitly_not_checked():
+    prepared, batch, change = prepared_occurrence()
+    batch.update(theme_index=[], scene_text="前" * 12000)
+    changes = [
+        {**change, "label": f"条目{i}", "statement": "文" * 1800} for i in range(20)
+    ]
+    output = DiscoveryOutput.model_validate(
+        {"changes": changes, "coverage": "inspected", "coverage_note": "本片检查。"}
+    )
+    assert serialized_size(batch) <= REQUEST_CHARACTERS
+    assert serialized_size(_review_inputs(batch, output)) > REQUEST_CHARACTERS
+    prepared.update(batches=[batch], unsupported_batches=[], coverage={})
+    frozen = SimpleNamespace(
+        attempt_id="attempt",
+        source_manifest_hash="a" * 64,
+        previous_receipt=None,
+        payload={
+            "discovery_preparation": prepared,
+            "scene_discovery_0": {
+                "stage": "sampled",
+                "result": output.model_dump(mode="json"),
+            },
+        },
+    )
+    result = compile_discovery(frozen)
+    assert not result["changes"]
+    assert result["pending"] == [{"reason": "review_capacity_unsupported", "batch": 0}]
+    assert result["inspected"][0]["coverage"] == "not_checked"

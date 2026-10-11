@@ -207,7 +207,9 @@ def identity_review_inputs(batch, changes, shard, shard_index):
             "shard_index": shard_index,
             "instruction": "新增主题身份分片审查：核对每项new是否与本片已有"
             "同主体同细节主题"
-            "重复；重复则rejected，不能确定则uncertain。supported必须既有原文"
+            "重复；same_scene_proposal是本场更早批次的待处理候选，仅用于身份对照，"
+            "不作为已确认事实或更新目标。与它同主体同细节也须rejected，"
+            "不能确定则uncertain。supported必须既有原文"
             "支持且与本片无重复。本片只认证本片范围，不声称检查完整主题索引。",
         },
         "changes": [

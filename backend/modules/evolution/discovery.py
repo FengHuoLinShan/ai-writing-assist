@@ -190,7 +190,8 @@ def method_fingerprint():
                 "partition_characters": PART_CHARACTERS,
                 "scene_window_characters": SCENE_CHARACTERS,
                 "scene_window_overlap": SCENE_OVERLAP,
-                "new_theme_identity_review": "all_index_shards_v1",
+                "new_theme_identity_review": "all_index_and_scene_proposals_v2",
+                "review_capacity": "final_json_v1",
             },
         ]
     )
@@ -683,6 +684,75 @@ def _compile_change(prepared, raw, batch):
     }
 
 
+def _review_inputs(batch, generated):
+    visible_themes = {
+        unit["theme"]["entry_id"]: unit["theme"]
+        for unit in batch["historical_context"]
+        if "theme" in unit
+    }
+    return {
+        **batch,
+        "changes": [
+            {
+                "change_index": ordinal,
+                **change,
+                "target_theme": {
+                    key: visible_themes[change["target_entry_id"]][key]
+                    for key in (
+                        "entry_id",
+                        "revision",
+                        "category",
+                        "label",
+                        "subject_labels",
+                        "statement",
+                        "conditions",
+                        "conditions_semantics",
+                        "modality",
+                        "evidence_observation_ids",
+                        "evidence_uses",
+                        "occurrences",
+                    )
+                }
+                if change["target_entry_id"] in visible_themes
+                else None,
+            }
+            for ordinal, change in enumerate(generated.model_dump(mode="json")["changes"])
+        ],
+    }
+
+
+def _identity_shards(frozen, prepared, index):
+    proposals = []
+    for previous in range(index):
+        journal = frozen.payload.get(f"scene_discovery_{previous}") or {}
+        if journal.get("stage") != "sampled":
+            continue
+        output = DiscoveryOutput.model_validate(journal["result"])
+        for ordinal, change in enumerate(output.changes):
+            if change.action != "new":
+                continue
+            proposals.append(
+                {
+                    "same_scene_proposal": {
+                        "batch": previous,
+                        "ordinal": ordinal,
+                        "change": change.model_dump(mode="json"),
+                        "evidence_quotes": [
+                            quote
+                            for choice in change.evidence
+                            for quote in prepared["observations"]
+                            .get(choice.observation_id, {})
+                            .get("evidence_quotes", [])
+                        ],
+                    },
+                }
+            )
+    return [
+        *prepared.get("theme_index_shards", [])[1:],
+        *_chunks(proposals, budget=PART_CHARACTERS),
+    ]
+
+
 def compile_discovery(frozen):
     payload, accepted, pending, inspected = frozen.payload, [], [], []
     prepared = payload["discovery_preparation"]
@@ -708,6 +778,19 @@ def compile_discovery(frozen):
         if generated.get("stage") != "sampled":
             raise ValueError("discovery_batch_not_frozen")
         output = DiscoveryOutput.model_validate(generated["result"])
+        if (
+            output.changes
+            and serialized_size(_review_inputs(batch, output)) > REQUEST_CHARACTERS
+        ):
+            pending.append({"reason": "review_capacity_unsupported", "batch": index})
+            inspected.append(
+                {
+                    "batch": index,
+                    "coverage": "not_checked",
+                    "note": "独立复核输入超出容量，本批候选未放行。",
+                }
+            )
+            continue
         quarantined = (generated.get("paid_call_receipt") or {}).get(
             "validation_quarantine", []
         )
@@ -746,7 +829,7 @@ def compile_discovery(frozen):
             if raw.action == "new":
                 identity_valid = True
                 for shard_index, shard in enumerate(
-                    prepared.get("theme_index_shards", [])[1:], start=1
+                    _identity_shards(frozen, prepared, index), start=1
                 ):
                     inputs = identity_review_inputs(
                         batch, output.changes, shard, shard_index
@@ -1102,42 +1185,9 @@ async def finish_scene_discovery(db, store, frozen, source, caller):
                 )
                 if not generated.changes:
                     continue
-                visible_themes = {
-                    unit["theme"]["entry_id"]: unit["theme"]
-                    for unit in batch["historical_context"]
-                    if "theme" in unit
-                }
-                inputs = {
-                    **batch,
-                    "changes": [
-                        {
-                            "change_index": ordinal,
-                            **change,
-                            "target_theme": {
-                                key: visible_themes[change["target_entry_id"]][key]
-                                for key in (
-                                    "entry_id",
-                                    "revision",
-                                    "category",
-                                    "label",
-                                    "subject_labels",
-                                    "statement",
-                                    "conditions",
-                                    "conditions_semantics",
-                                    "modality",
-                                    "evidence_observation_ids",
-                                    "evidence_uses",
-                                    "occurrences",
-                                )
-                            }
-                            if change["target_entry_id"] in visible_themes
-                            else None,
-                        }
-                        for ordinal, change in enumerate(
-                            generated.model_dump(mode="json")["changes"]
-                        )
-                    ],
-                }
+                inputs = _review_inputs(batch, generated)
+                if serialized_size(inputs) > REQUEST_CHARACTERS:
+                    break  # Frozen generation stays available; compiler exposes the gap.
             envelope = _discovery_envelope(frozen, prepared, inputs)
             journal = frozen.payload.get(key) or {}
             if _settled_output_failure(journal):
@@ -1171,10 +1221,12 @@ async def finish_scene_discovery(db, store, frozen, source, caller):
         ):
             continue
         generated = DiscoveryOutput.model_validate(generated_journal["result"])
+        if serialized_size(_review_inputs(batch, generated)) > REQUEST_CHARACTERS:
+            continue
         if not any(change.action == "new" for change in generated.changes):
             continue
         for shard_index, shard in enumerate(
-            prepared.get("theme_index_shards", [])[1:], start=1
+            _identity_shards(frozen, prepared, index), start=1
         ):
             inputs = identity_review_inputs(batch, generated.changes, shard, shard_index)
             if serialized_size(inputs) > REQUEST_CHARACTERS:

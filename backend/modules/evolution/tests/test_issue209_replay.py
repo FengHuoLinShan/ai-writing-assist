@@ -133,3 +133,39 @@ async def test_index_shard_reviews_are_frozen_and_never_repeat_adoption(
     ledger = await list_ledger(db, nid, through_scene_index=1)
     assert ledger["total"] == (2 if failed_identity else 3)
     assert all(item["revision"] == 1 for item in ledger["items"])
+
+
+async def test_review_capacity_deferral_never_dispatches_or_replays_paid_review(
+    db_session, evolution_project_id
+):
+    class Sampler(DiscoverySampler):
+        async def discover_details(self, *, inputs):
+            response = await super().discover_details(inputs=inputs)
+            original = response["result"]["changes"][0]
+            response["result"]["changes"] = [
+                {**original, "label": f"条目{i}", "statement": "文" * 1800}
+                for i in range(32)
+            ]
+            return response
+
+        async def review_discovery(self, *, inputs):
+            raise AssertionError("Oversized review must never reach a provider")
+
+    db, nid = db_session, evolution_project_id
+    sampler = Sampler()
+    provider = "issue209-review-capacity-" + nid
+    register_scene_sampler(provider, lambda db, novel_id: sampler)
+    task = await task_for(db, nid, 0, "甲紧张地摸了摸戒指。", provider=provider)
+    result = await handle_evolution_scene_step(db, task)
+    await db.commit()
+    frozen = await PostgresAttemptStore(db, nid).load_frozen(
+        "discovery-test", result["attempt_id"]
+    )
+    assert frozen.payload["discovery_result"]["pending"] == [
+        {"reason": "review_capacity_unsupported", "batch": 0}
+    ]
+    assert not frozen.payload["discovery_materialization"]["applied"]
+    calls = len(sampler.calls)
+    replay = await handle_evolution_scene_step(db, task)
+    assert replay["attempt_id"] == result["attempt_id"]
+    assert len(sampler.calls) == calls
