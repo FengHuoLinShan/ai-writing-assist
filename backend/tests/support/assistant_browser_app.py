@@ -45,7 +45,9 @@ from modules.account.settings_repositories import (
 from run_worker import _build_task_worker
 
 
-async def _generate(_self, request):
+async def _generate(_self, request, *, complete_stream=False):
+    # 与 OpenAIProvider.generate 同签名：complete_stream 只切换取流方式，
+    # 桩本就返回完整响应，无需区分。
     await asyncio.sleep(0.1)
     from tests.support.creative_browser_provider import structured_reply
 

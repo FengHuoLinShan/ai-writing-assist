@@ -365,9 +365,7 @@ async def test_get_entity_importance_map_requests_canonical_rows_for_current_nov
 
     result = await service.get_entity_importance_map(db, novel_id)  # type: ignore[arg-type]
 
-    assert result == {
-        str(entity_id): {"importance": 0.85, "importance_level": "core"}
-    }
+    assert result == {str(entity_id): {"importance": 0.85, "importance_level": "core"}}
     assert repo.calls == [(db, uuid.UUID(novel_id), "canonical")]
 
 
@@ -453,4 +451,47 @@ async def test_list_entity_batches_delegates_to_repo(
     assert result == batches
     entity_service._repo.get_entity_batches.assert_awaited_once_with(
         db, uuid.UUID(novel_id), limit=5
+    )
+
+
+@pytest.mark.parametrize(
+    "kind,expected",
+    [
+        ("人物", [0, 1]),
+        ("角色", [0, 1]),
+        ("character_ref", [0, 1]),
+        ("character", [0, 1]),
+        ("云图节点", [2]),
+        ("物件", []),
+    ],
+)
+async def test_exact_identity_normalizes_known_types_without_losing_ambiguity(
+    novel_id, entity_service, kind, expected
+):
+    ids = [str(uuid.uuid4()) for _ in range(5)]
+    rows = [
+        {
+            "id": ids[index],
+            "name": "安遥" if index < 4 else "别名所属对象",
+            "entity_type": "云图节点" if index == 2 else "character",
+            "status": "canonical",
+            "owner_meta": {},
+            "aliases": [{"alias": "安遥"}],
+        }
+        for index in range(5)
+    ]
+    rows[3].update(
+        status="candidate",
+        owner_meta={"compatibility_shadow": True, "suggestion_id": "pending"},
+    )
+    entity_service._repo.list_alias_sources = AsyncMock(return_value=rows)
+    db = AsyncMock()
+    found = await entity_service.find_exact_identity_candidates(
+        db, novel_id, "安遥", kind
+    )
+    assert [item.existing_entity_id for item in found] == [
+        ids[index] for index in expected
+    ]
+    entity_service._repo.list_alias_sources.assert_awaited_once_with(
+        db, uuid.UUID(novel_id)
     )

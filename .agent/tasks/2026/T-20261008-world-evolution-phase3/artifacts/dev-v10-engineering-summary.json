@@ -1,0 +1,23 @@
+{
+  "version": "dev-v10",
+  "scenes_committed": 8,
+  "requests": 90,
+  "responses": 90,
+  "source_ranges_exact_cumulative": 172,
+  "free_replays": 8,
+  "discovery_planned_batches": 30,
+  "failed_batches": [
+    {
+      "scene": 6,
+      "stage": "scene_discovery_5",
+      "usage_complete": true
+    }
+  ],
+  "unknown_stage_receipts": 0,
+  "engineering_gate": "not_passed",
+  "quality_gate": "not_passed",
+  "holdout_run": false,
+  "human_validated": false,
+  "explicit_new_run_authorized": true,
+  "v9_unknown_receipt_retained": true
+}

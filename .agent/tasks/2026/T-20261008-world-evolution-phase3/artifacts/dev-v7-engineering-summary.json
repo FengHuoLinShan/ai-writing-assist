@@ -1,0 +1,56 @@
+{
+  "version": "dev-v7",
+  "scenes_committed": 8,
+  "requests": 75,
+  "responses": 75,
+  "source_ranges_exact_cumulative": 139,
+  "free_replays": 8,
+  "discovery_planned_batches": 26,
+  "failed_batches": [
+    {
+      "scene": 3,
+      "stage": "scene_discovery_3",
+      "usage_complete": true
+    },
+    {
+      "scene": 5,
+      "stage": "scene_discovery_1",
+      "usage_complete": true
+    },
+    {
+      "scene": 5,
+      "stage": "scene_discovery_3",
+      "usage_complete": true
+    },
+    {
+      "scene": 6,
+      "stage": "scene_discovery_review_2",
+      "usage_complete": true
+    },
+    {
+      "scene": 6,
+      "stage": "scene_discovery_3",
+      "usage_complete": true
+    },
+    {
+      "scene": 7,
+      "stage": "scene_discovery_review_2",
+      "usage_complete": true
+    },
+    {
+      "scene": 7,
+      "stage": "scene_discovery_4",
+      "usage_complete": true
+    }
+  ],
+  "unknown_stage_receipts": 0,
+  "engineering_gate": "not_passed",
+  "quality_gate": "not_passed",
+  "holdout_run": false,
+  "human_validated": false,
+  "known_failures": [
+    "negative_theme_closure",
+    "recall_observation_vs_occurrence_id",
+    "wrong_valid_theme_uuid_contamination"
+  ]
+}

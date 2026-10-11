@@ -1,7 +1,7 @@
 import config from "./playwright.assistant.config.js"
 
-config.testMatch = "creative-forecast.spec.js"
-config.outputDir = "test-results/creative-forecast"
+config.testMatch = ["creative-forecast.spec.js", "creative-rebase.spec.js"]
+config.outputDir = "test-results/creative"
 config.timeout = 90000
 Object.assign(config.webServer[0].env, {
   COLLABORATION_V2_ENABLED: "1",

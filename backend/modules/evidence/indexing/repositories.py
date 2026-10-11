@@ -11,13 +11,28 @@ import uuid
 from collections import defaultdict
 from collections.abc import Sequence
 
-from sqlalchemy import Float, and_, case, delete, exists, func, or_, select, text, tuple_
+from sqlalchemy import (
+    ARRAY,
+    Float,
+    Text,
+    and_,
+    bindparam,
+    case,
+    delete,
+    exists,
+    func,
+    or_,
+    select,
+    text,
+    tuple_,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
 from sqlalchemy.sql.elements import ColumnElement
 
 from infrastructure.llm.redaction import redact_diagnostic
+from modules.evidence.indexing.lexical_plan import extract_index_terms
 from modules.evidence.indexing.models import RagChunk, RagEntityAppearance, RagIndexState
 from modules.evidence.indexing.schemas import RagChunkCreate
 from modules.evidence.indexing.scoring import keyword_query_terms
@@ -243,6 +258,7 @@ class RagChunkRepository:
             "end_offset": data.end_offset,
             "char_count": data.char_count,
             "text": data.text,
+            "lexical_terms": extract_index_terms(data.text),
             "summary": data.summary,
             "entity_ids": data.entity_ids or [],
             "character_ids": data.character_ids or [],
@@ -1026,11 +1042,14 @@ class RagChunkRepository:
         content_mode: str = "canonical",
         source_manifest: dict[uuid.UUID, str] | None = None,
         limit: int = 20,
+        precomputed_terms: list[str] | None = None,
     ) -> list[RagChunk]:
         """关键词检索 — 使用简单的 SQL LIKE 文本匹配
 
         不依赖 PostgreSQL full-text search，保持 SQLite 兼容。
         返回按匹配度粗略排序的结果。
+        ``precomputed_terms``：调用方已规划的词法词项（如 S1 有界词项），
+        提供时不再对 query 做 n-gram 展开（M3 切片 2）。
         """
         conditions = [
             RagChunk.novel_id == novel_id,
@@ -1039,7 +1058,11 @@ class RagChunkRepository:
         self._append_source_manifest_filter(conditions, source_manifest)
 
         # 构建关键词条件（OR 逻辑，匹配任意关键词即返回）
-        query_terms = keyword_query_terms(query)
+        query_terms: list[str] = (
+            list(precomputed_terms)
+            if precomputed_terms is not None
+            else keyword_query_terms(query)
+        )
         keyword_rank = None
         if query_terms:
             keyword_conditions = []
@@ -1094,6 +1117,117 @@ class RagChunkRepository:
         stmt = stmt.limit(limit)
         result = await db.execute(stmt)
         return list(result.scalars().all())
+
+    # ============================================================
+    # 词法召回（索引期词项 text[] + GIN，M3 切片 2）
+    # ============================================================
+
+    async def lexical_search(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        terms: list[str],
+        *,
+        entity_ids: list[str] | None = None,
+        character_ids: list[str] | None = None,
+        thread_ids: list[str] | None = None,
+        chapter_index: int | None = None,
+        scene_id: str | None = None,
+        strict_scene_filter: bool = False,
+        visibility: str | None = None,
+        visible_until_chapter: int | None = None,
+        content_mode: str = "canonical",
+        source_manifest: dict[uuid.UUID, str] | None = None,
+        limit: int = 20,
+    ) -> list[RagChunk]:
+        """词法召回 — PG ``text[] && GIN`` 数组交集；非 PG 方言返回空由调用方回退。
+
+        只负责召回候选（确定性次序、上限 ``limit``）；相关性统一评分由
+        hybrid_search 的 Python 评分完成，不在 SQL 内做词频排序。
+        """
+
+        if not terms:
+            return []
+        bind = db.get_bind()
+        if bind is None or bind.dialect.name != "postgresql":
+            return []
+        conditions = [
+            RagChunk.novel_id == novel_id,
+            RagChunk.content_mode == content_mode,
+            RagChunk.lexical_terms.op("&&")(
+                bindparam(
+                    "lexical_query_terms",
+                    value=list(dict.fromkeys(term for term in terms if term)),
+                    type_=ARRAY(Text()),
+                )
+            ),
+        ]
+        self._append_source_manifest_filter(conditions, source_manifest)
+        if entity_ids:
+            conditions.append(
+                self._json_array_contains_all(db, RagChunk.entity_ids, entity_ids)
+            )
+        if character_ids:
+            conditions.append(
+                self._json_array_contains_all(db, RagChunk.character_ids, character_ids)
+            )
+        if thread_ids:
+            conditions.append(
+                self._json_array_contains_all(db, RagChunk.thread_ids, thread_ids)
+            )
+        if chapter_index is not None:
+            conditions.append(RagChunk.chapter_index == chapter_index)
+        self._append_visible_until_filter(conditions, visible_until_chapter)
+        scene_uuid = self._parse_scene_id(scene_id)
+        if scene_uuid is not None:
+            conditions.append(RagChunk.scene_id == scene_uuid)
+        elif strict_scene_filter:
+            conditions.append(RagChunk.scene_id.is_not(None))
+        if visibility is not None:
+            conditions.append(RagChunk.visibility == visibility)
+
+        stmt = (
+            select(RagChunk)
+            .where(and_(*conditions))
+            .order_by(
+                RagChunk.importance.desc(),
+                RagChunk.chapter_index.asc(),
+                RagChunk.chunk_index.asc(),
+                RagChunk.id.asc(),
+            )
+            .limit(limit)
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def has_unindexed_lexical_terms(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        content_mode: str = "canonical",
+        source_manifest: dict[uuid.UUID, str] | None = None,
+        visible_until_chapter: int | None = None,
+    ) -> bool:
+        """该范围内是否存在词法列未就绪（NULL/空数组）的 chunk；真则回退旧词法路径。
+
+        非 PG 方言恒为 False（array_length 不可用）；调用方在非 PG 方言
+        直接走有界 ILIKE 回退，不依赖本探针。
+        """
+
+        bind = db.get_bind()
+        if bind is None or bind.dialect.name != "postgresql":
+            return False
+        conditions = [
+            RagChunk.novel_id == novel_id,
+            RagChunk.content_mode == content_mode,
+            func.array_length(RagChunk.lexical_terms, 1).is_(None),
+        ]
+        self._append_source_manifest_filter(conditions, source_manifest)
+        self._append_visible_until_filter(conditions, visible_until_chapter)
+        stmt = select(exists().where(and_(*conditions)))
+        result = await db.execute(stmt)
+        return bool(result.scalar())
 
     # ============================================================
     # 向量检索（预留接口）

@@ -666,3 +666,7 @@ Flash max 思考与至少65,536输出上限，provider 等待至少900秒。客�
 provider json_object（`unverified` 仅不具 B5 路由候选资格），`unsupported`
 失败关闭且预填不可绕过；managed step 按项目省钱开关与 cheap 子能力集
 （`routing_capability_id`，独立于信封归属）在同 provider 内切换低成本模型。
+
+### RP 私有派生缓存的备份边界
+
+`deploy/scripts/backup.sh` 的 pg_dump 排除 `public.context_interaction_source_cache` 表数据。`restore.sh` 在 schema 迁移后检查并清空该派生表，旧 dump 即使带缓存也恢复冷启动；权威正文、历史与作者确认继续按原备份恢复。未增加外部服务或独立缓存基础设施。

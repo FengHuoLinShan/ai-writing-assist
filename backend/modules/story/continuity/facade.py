@@ -30,7 +30,9 @@ __all__ = [
     "get_continuity_evidence_for_writing",
     "get_memory_panorama",
     "get_scene_checkpoints",
+    "get_scene_state_view",
     "ingest_delta_events",
+    "list_scene_checkpoints",
     "replace_scene_memory_events",
     "rollback_deep_import_delta_logs_by_workflow",
 ]
@@ -150,6 +152,46 @@ async def get_scene_checkpoints(
     scene_id: str,
 ):
     return await _scene_memory.get_scene(db, novel_id, scene_id)
+
+
+async def list_scene_checkpoints(
+    db: AsyncSession,
+    novel_id: str,
+    scene_id: str,
+    *,
+    dimension: str | None = None,
+) -> list[dict[str, Any]]:
+    """Scene checkpoint 历史摘要（含已 supersede 行，时间倒序；P2-A）。
+
+    每项含 checkpoint_id / dimension / scene_index / chapter_index / version /
+    is_current / created_at / has_field_provenance；只读本 novel，供历史
+    版本回开（get_record）前端与 A4 历史列表消费。
+    """
+    from modules.story.continuity.scene_state_view import (
+        list_scene_checkpoints as _list,
+    )
+
+    return await _list(db, novel_id, scene_id, dimension=dimension)
+
+
+async def get_scene_state_view(
+    db: AsyncSession,
+    novel_id: str,
+    scene_id: str,
+    *,
+    viewpoint: dict[str, Any],
+    include_dimensions: list[str] | None = None,
+):
+    """视角分层的只读状态视图（M2 scene-state-view-v1）。"""
+    from modules.story.continuity.scene_state_view import get_scene_state_view as _get
+
+    return await _get(
+        db,
+        novel_id,
+        scene_id,
+        viewpoint=viewpoint,
+        include_dimensions=include_dimensions,
+    )
 
 
 async def rollback_deep_import_delta_logs_by_workflow(

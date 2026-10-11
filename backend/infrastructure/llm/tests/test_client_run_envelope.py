@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.errors import (
     LLMConnectionError,
+    LLMContentFilterError,
     LLMInvalidResponseError,
     LLMTimeoutError,
 )
@@ -971,3 +972,79 @@ async def test_remote_embedding_is_metred_by_the_run_envelope(
     assert snapshot.requests_unknown == 1
     assert snapshot.charge_state is AIChargeState.possible
     assert snapshot.steps[0].step_capability_id == "infrastructure.embedding"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["complete", "disconnect", "content_filter"])
+async def test_complete_stream_structured_counts_once_and_never_replays(
+    outcome, monkeypatch
+):
+    from infrastructure.llm.agent_runtime import AgentRunBudget
+    from infrastructure.llm.workflow_budget import workflow_budget
+
+    broken = outcome == "disconnect"
+
+    class Provider:
+        name = "fake"
+        calls = 0
+
+        async def generate(self, request, *, complete_stream=False):
+            assert complete_stream is True
+            self.calls += 1
+            if broken:
+                raise LLMConnectionError("stream reset")
+            return LLMCallResponse(
+                content='{"value":"ok"}',
+                finish_reason="content_filter" if outcome == "content_filter" else "stop",
+                usage=_SUCCESS_USAGE,
+                model="fake",
+                provider="fake",
+            )
+
+    async def forbidden_retry(*args, **kwargs):
+        raise AssertionError("complete stream must not replay")
+
+    monkeypatch.setattr("infrastructure.llm.client.retry_with_backoff", forbidden_retry)
+    provider = Provider()
+    client = _client(provider)
+    ledger = AIRunEnvelope(_raw_envelope())
+    budget = AgentRunBudget(mode="author")
+    diagnostics = []
+    with (
+        ai_run_scope(ledger),
+        managed_step_scope(_step()),
+        workflow_budget(budget, lambda _snapshot: asyncio.sleep(0)),
+    ):
+        if outcome != "complete":
+            with pytest.raises(LLMConnectionError if broken else LLMContentFilterError):
+                await client.generate_structured(
+                    _request(),
+                    _Payload,
+                    max_fix_attempts=0,
+                    complete_stream=True,
+                    diagnostics=diagnostics,
+                )
+        else:
+            result = await client.generate_structured(
+                _request(), _Payload, max_fix_attempts=0, complete_stream=True
+            )
+            assert result.value == "ok"
+    assert provider.calls == 1
+    snapshot = ledger.snapshot()
+    assert snapshot.requests_started == 1
+    assert snapshot.requests_settled == int(not broken)
+    assert snapshot.requests_unknown == int(broken)
+    assert budget.requests == 1 and budget.pending_usage == 0
+    assert budget.usage_unknown is broken
+    if outcome == "content_filter":
+        assert diagnostics[0]["error_kind"] == "content_filter"
+        assert diagnostics[0]["total_tokens"] == 5
+        from modules.evolution.llm_sampler import build_call_receipt
+
+        receipt = build_call_receipt(
+            client, diagnostics, schema="_Payload", outcome="failed_final"
+        )
+        assert receipt["usage"]["usage_complete"] is True
+        assert receipt["usage"]["completion_tokens"] == 3
+        assert receipt["usage"]["total_tokens"] == 5
+        assert receipt["usage"]["unknown_attempts"] == 0

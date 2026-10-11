@@ -598,7 +598,7 @@ class TestProjectService:
         repo.soft_delete = AsyncMock(return_value=True)
         task_canceller = AsyncMock(return_value=2)
         service = ProjectService(repo=repo, task_canceller=task_canceller)
-        db = MagicMock()
+        db = MagicMock(spec=AsyncSession)
 
         result = await service.delete_project(db, project_id)
 

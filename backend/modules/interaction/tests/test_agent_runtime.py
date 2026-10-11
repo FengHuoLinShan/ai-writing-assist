@@ -256,6 +256,67 @@ async def test_planning_preserves_server_material_but_replaces_story_instruction
 
 
 @pytest.mark.asyncio
+async def test_preparation_packet_stays_after_stable_prefix_and_before_tail(
+    monkeypatch,
+):
+    """质量门未通过时保留原布局，准备包仍是引用资料且用户输入在末尾。"""
+    from infrastructure.llm.schemas import LLMMessage
+    from modules.interaction import agent_runtime
+    from modules.interaction.generation import PreparedStoryGeneration
+
+    messages = [
+        LLMMessage(role="system", content="原始故事执行指令"),
+        *[
+            LLMMessage(role="system", content=text)
+            for text in ["长期约定哨兵", "有效回顾哨兵", "固定来源哨兵"]
+        ],
+        LLMMessage(role="assistant", content="街角很暗。"),
+        LLMMessage(role="user", content="我继续往前走。"),
+    ]
+    prepared = PreparedStoryGeneration(
+        novel_id="n",
+        journey_id="j",
+        attempt_id="a",
+        request_kind="message",
+        messages=messages,
+        existing_visible_text="",
+        executable_settings={
+            "llm": {"provider_id": "deepseek", "model": "deepseek-v4-flash"}
+        },
+    )
+    captured: dict[str, list] = {}
+
+    async def checkpoint(*args):
+        pass
+
+    async def planning(client, request, **kwargs):
+        return SimpleNamespace(
+            output=agent_runtime.StoryPreparation(scene_intent="接续现场")
+        )
+
+    async def stream(request, **kwargs):
+        captured["messages"] = list(request.messages)
+        yield LLMStreamChunk(content="正文")
+
+    agent = agent_runtime.InteractionAgentRun(
+        None, None, SimpleNamespace(_task_ids=lambda _: ("n", "j", "a"))
+    )
+    agent.checkpoint = checkpoint
+    monkeypatch.setattr(agent_runtime, "run_project_agent", planning)
+    client = SimpleNamespace(model_name="deepseek-v4-flash", generate_stream=stream)
+    assert [chunk.content async for chunk in agent.stream(client, prepared)] == ["正文"]
+
+    final = captured["messages"]
+    packet_index = next(
+        index for index, message in enumerate(final) if "本轮准备资料" in message.content
+    )
+    assert packet_index == 1
+    assert final[packet_index].role == "user"
+    assert any(message.role != "system" for message in final[packet_index + 1 :])
+    assert final[-1].content == "我继续往前走。"
+
+
+@pytest.mark.asyncio
 async def test_self_hosted_research_needs_new_snapshot_and_explicit_journey_consent(
     monkeypatch,
 ):

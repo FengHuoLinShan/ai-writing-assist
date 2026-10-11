@@ -111,7 +111,7 @@ async def test_targeted_scope_uses_original_receipts_and_preserves_prefix(
         await seed(db, nid, chapter, text)
     calls = []
 
-    async def provider(self, prompt):
+    async def provider(self, prompt, *, complete_stream=False):
         if response := empty_world_response(prompt):
             return response
         calls.append(prompt)
@@ -269,7 +269,7 @@ async def test_reading_entry_sequences_replays_and_appends_without_resampling(
     await seed(db, nid, 2, "下雨了。")
     calls = []
 
-    async def provider(self, prompt):
+    async def provider(self, prompt, *, complete_stream=False):
         if response := empty_world_response(prompt):
             return response
         assert not db.in_transaction()
@@ -339,15 +339,21 @@ async def test_reading_entry_sequences_replays_and_appends_without_resampling(
     assert next_run["budget_total"] == 20
     assert (await start_reading(db, nid, append))["run"]["budget_total"] == 20
     third = await db.get(AsyncTask, UUID(next_run["task_id"]))
-    await handle_evolution_scene_step(db, third)
+    third_result = await handle_evolution_scene_step(db, third)
     assert len(calls) == 5 and "下雨了。" in calls[-1]
     run = await PostgresAttemptStore(db, nid).load_run(key)
     assert run.mode == "bootstrap" and run.budget_remaining == 12
-    # The re-authorization rebuild keeps the completed structure stage and its
-    # batches instead of silently restarting or dropping them.
+    # Appending retains old batches and opens the newly committed range.
     assert run.reading_plan_json["structure_version"] == 1
-    assert run.reading_plan_json["structure"]["complete"]
+    assert not run.reading_plan_json["structure"]["complete"]
     assert len(run.reading_plan_json["structure"]["batches"]) == 1
+    appended_structure = await db.get(AsyncTask, UUID(third_result["next_task_id"]))
+    assert (await handle_evolution_scene_step(db, appended_structure))["reading_complete"]
+    run = await PostgresAttemptStore(db, nid).load_run(key)
+    assert run.reading_plan_json["structure"]["complete"]
+    assert len(run.reading_plan_json["structure"]["batches"]) == 2
+    assert run.reading_plan_json["structure"]["through_scene_index"] == 2
+    assert len(calls) == 7
     assert len(run.reading_plan_json["segments"]) == 2
 
 
@@ -362,7 +368,7 @@ async def test_scoped_recompute_inherits_real_prefix_after_invalid_quote(
     await seed(db, nid, 2, "也没有提起封锁。")
     calls = []
 
-    async def provider(self, prompt):
+    async def provider(self, prompt, *, complete_stream=False):
         if response := empty_world_response(prompt):
             return response
         calls.append(prompt)
@@ -472,7 +478,7 @@ async def test_revise_keeps_unchanged_prefix_and_rejects_unfinished_old_task(
     await seed(db, nid, 2, "下雨了。")
     calls = []
 
-    async def provider(self, prompt):
+    async def provider(self, prompt, *, complete_stream=False):
         if response := empty_world_response(prompt):
             return response
         calls.append(prompt)
@@ -545,7 +551,7 @@ async def test_revise_rejects_prefix_superseded_by_another_run(
     await seed(db, nid, 2, "下雨了。")
     calls = []
 
-    async def provider(self, prompt):
+    async def provider(self, prompt, *, complete_stream=False):
         if response := empty_world_response(prompt):
             return response
         quote = ["天亮了。", "下雨了。", "天亮了。", "风停了。"][len(calls)]
@@ -620,7 +626,7 @@ async def test_reading_does_not_skip_unmapped_text_and_pins_queued_revision(
     await db.commit()
     calls = []
 
-    async def forbidden(self, request):
+    async def forbidden(self, request, *, complete_stream=False):
         calls.append(request)
         raise AssertionError("source changed before any paid request")
 
@@ -717,7 +723,7 @@ async def test_reading_rejects_unresolved_import_fallback_but_allows_optional_se
         await preview_reading(db, nid, request)
     calls = []
 
-    async def forbidden(self, request):
+    async def forbidden(self, request, *, complete_stream=False):
         calls.append(request)
         raise AssertionError("unreviewed source must not be sampled")
 

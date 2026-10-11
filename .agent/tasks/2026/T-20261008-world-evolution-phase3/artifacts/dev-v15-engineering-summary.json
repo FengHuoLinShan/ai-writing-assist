@@ -1,0 +1,33 @@
+{
+  "version": "dev-v15",
+  "method": "2a325ff8cd5a4555a179fab86aa9d189ccb621d1e19d965997c6711083c0ca7a",
+  "current_method": true,
+  "scenes_committed": 5,
+  "scenes_expected": 8,
+  "requests": 55,
+  "responses": 54,
+  "terminal_call_errors": 1,
+  "source_ranges_exact_cumulative": 59,
+  "free_replays": 5,
+  "discovery_planned_batches": 15,
+  "failed_batches": [
+    {
+      "scene": 5,
+      "stage": "scene_discovery_review_0",
+      "usage_complete": false
+    }
+  ],
+  "validation_quarantine_records": 0,
+  "unknown_stage_receipts": 1,
+  "engineering_gate": "not_passed",
+  "quality_gate": "not_passed",
+  "holdout_run": false,
+  "human_validated": false,
+  "explicit_new_run_authorized": true,
+  "v9_unknown_receipt_retained": true,
+  "v11_unknown_receipt_retained": true,
+  "v12_unknown_receipt_retained": true,
+  "v14_unknown_receipt_retained": true,
+  "source_and_replay_audit": "passed",
+  "author_probe_matches_planned_behavior": true
+}

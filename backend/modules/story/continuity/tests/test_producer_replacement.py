@@ -145,9 +145,7 @@ async def test_family_scoped_rerun_keeps_other_producer_families(
         ),
     )
 
-    await _record(
-        db_session, test_project_id, scene, [], family="deep_import"
-    )
+    await _record(db_session, test_project_id, scene, [], family="deep_import")
 
     events = await _events(db_session, test_project_id, scene.id)
     assert [(row.source, row.snapshot_after.get("summary")) for row in events] == [
@@ -209,6 +207,6 @@ async def test_family_none_replaces_all_derived_but_author(
     await _record(db_session, test_project_id, scene, [_delta("新观察")])
 
     events = await _events(db_session, test_project_id, scene.id)
-    assert [
-        (row.source, row.snapshot_after.get("summary")) for row in events
-    ] == [("deep_import", "新观察")]
+    assert [(row.source, row.snapshot_after.get("summary")) for row in events] == [
+        ("deep_import", "新观察")
+    ]

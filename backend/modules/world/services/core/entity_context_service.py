@@ -15,6 +15,7 @@ from modules.world.schemas import (
     WorldEntityContext,
 )
 from modules.world.services.common import parse_uuid
+from modules.world.services.core.entity_types import normalize_author_entity_type
 
 
 class EntityContextService:
@@ -301,6 +302,7 @@ class EntityContextService:
         self, db: AsyncSession, novel_id: str, name: str, entity_type: str | None = None
     ) -> list[DuplicateSuggestionResult]:
         """Return literal names only; aliases lack a proven narrative cutoff here."""
+        entity_type = normalize_author_entity_type(entity_type) if entity_type else None
         query = " ".join(name.split()).casefold()
         if not query:
             return []

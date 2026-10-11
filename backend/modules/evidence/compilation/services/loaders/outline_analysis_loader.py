@@ -48,9 +48,7 @@ class OutlineAnalysisLoader(Loader):
             bundle.budget_used["outline_analysis"] = 0
             return
         if options.reveal_mode not in {"author_safe", "author_full"}:
-            bundle.warnings.append(
-                "读者/角色视角不加载作者大纲分析范围资料"
-            )
+            bundle.warnings.append("读者/角色视角不加载作者大纲分析范围资料")
             bundle.budget_used["outline_analysis"] = 0
             return
         start_chapter = options.chapter_index

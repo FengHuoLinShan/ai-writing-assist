@@ -22,6 +22,10 @@ Writing 模块是章节正文的事实源，同时负责在 fresh context confir
 - 字面 grep、稳定范围引用与段落扩展读取
 - 版本历史查看
 - 正文保存时经 Evidence 投递 working/canonical 索引；发布快照沿用发布流程
+- 保存链路透传 Evolution 失效公共视图（`invalidation` 瞬态属性，P2-C）；重算
+  预览/执行端点 `POST /api/writing/recompute`、`/recompute/{operation_id}/adopt`
+  （幂等、漂移 409 保当前稿、预览零正史写入），语义见
+  [docs/modules/11_writing.md](../../../docs/modules/11_writing.md)
 - 写作页剧情设定冲突检查记录、问题状态与发布前检查快照归档
 - 从已确认 context 生成 AI 正文 candidate，并保存 confirmation/task provenance
 - 对规则冲突结果追加 AI 软复核和可编辑修复建议
@@ -454,3 +458,8 @@ writing.generate 的作者视角进入确认预览与指纹；超预算先截反
 对照统计（观察性诊断）。分母仅计原生成候选，排除从候选采用/保存的工作稿；
 采用后弃置的候选保留生命周期身份，不随工作稿版本数重复计算。示例被预算整体
 逐出时，确认预览明确提示“本次未使用你的示例”。
+
+重算执行和不可变操作回执同事务，项目级互斥与正文版本写入共用章节锁；
+重建预览也绑定继承前缀来源和场景结构。失效提示持久落库，执行仅记录确认
+回执的分类进度；索引入队不等于完成，失败、未覆盖的场景和缺口仍待处理。
+GET `/api/writing/recompute/receipts` 与 `/api/writing/invalidations` 支持跨会话恢复。
