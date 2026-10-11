@@ -301,6 +301,7 @@ async def test_source_context_receives_only_the_remaining_prompt_budget(
         )
 
     assert compile_context.await_args.kwargs["budget_tokens"] == 16_000
+    assert compile_context.await_args.kwargs["prompt_name"] == "interaction-story-v8"
 
 
 async def test_source_setup_rejects_character_before_first_appearance(

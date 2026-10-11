@@ -854,8 +854,9 @@ onBeforeUnmount(() => {
             </div>
             <p v-if="aiUsageError" role="alert">{{ aiUsageError }}</p>
             <template v-if="aiUsage">
-              <p role="status">共 {{ aiUsage.tasks_with_envelope }} 次 AI 运行、{{ aiUsage.totals.requests }} 次模型请求；输入约 {{ aiUsage.totals.input_tokens.toLocaleString() }} 词元，输出约 {{ aiUsage.totals.output_tokens.toLocaleString() }} 词元。</p>
+              <p role="status">共 {{ aiUsage.tasks_with_envelope }} 次 AI 运行，已确认 {{ aiUsage.totals.requests }} 次模型请求的用量；已确认输入约 {{ aiUsage.totals.input_tokens.toLocaleString() }} 词元，输出约 {{ aiUsage.totals.output_tokens.toLocaleString() }} 词元。</p>
               <p v-if="aiUsage.totals.requests_unknown > 0" role="status" class="settings-section-hint">部分用量未知：另有 {{ aiUsage.totals.requests_unknown }} 次模型请求已发出但用量无法确认，实际消耗可能高于以上数字。</p>
+              <p v-if="aiUsage.totals.usage_complete === false" role="status" class="settings-section-hint">用量统计不完整，历史或未确认用量无法计入，不能视为零消耗。</p>
               <p v-if="aiUsage.totals.charge_unconfirmed" role="status" class="settings-section-hint">部分请求的计费状态未确认，以上数字不代表最终费用。</p>
               <div v-if="usageAttributionBuckets.length && aiUsage.tasks_with_envelope > 0" class="usage-attribution">
                 <h4>这些用量花在了哪里</h4>
@@ -876,7 +877,7 @@ onBeforeUnmount(() => {
                 <p class="settings-section-hint">「进行中或等你处理的候选」还没有变成作品；「未采用或返修」是被你放弃的候选和返修尝试；「资料整理等辅助消耗」是目前无法对应到具体成果的用量。</p>
               </div>
               <table v-if="aiUsage.capabilities.length" class="data-table">
-                <thead><tr><th>功能</th><th>运行次数</th><th>模型请求</th><th>用量未知请求</th><th>输入词元</th><th>输出词元</th></tr></thead>
+                <thead><tr><th>功能</th><th>运行次数</th><th>已确认用量请求</th><th>用量未知请求</th><th>输入词元</th><th>输出词元</th></tr></thead>
                 <tbody>
                   <tr v-for="item in aiUsage.capabilities" :key="item.capability">
                     <td>{{ item.label }}<span v-if="item.charge_unconfirmed" class="usage-charge-unconfirmed">（计费未确认）</span></td>

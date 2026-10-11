@@ -142,3 +142,7 @@ CI 新增 `repo-gates` workflow：二进制增量体积（B11）、生产文件�
 与跨模块 import 门（B2，contracts/facade/命名 facade 及这些入口的静态包成员
 再出口；相对导入同样解析，ORM/DI 等有限例外按调用位置登记于
 `scripts/check_module_imports.py`）。push 与 PR 的 B11/P8 使用事件固定 SHA。
+
+### 第一阶段世界状态闭环
+
+本场只读状态/有限条件比较归 Story，作者入口归 Evidence，绑定假设的原稿试改与采用归 Collaboration；没有新增模块或改写事实所有权。ADR-0018 的 RP 私有派生缓存窄例外、角色历史边界和回读契约见 [M2](../plans/2026-10-07-world-state-read-m2-contract.md)、[M5](../plans/2026-10-07-m5-trial-change-comparison-contract.md) 与 [RP 缓存契约](../plans/2026-10-07-rp-retrieval-refactor-m1-contract.md)。

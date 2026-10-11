@@ -17,7 +17,7 @@ gitignored. Committed manifests contain hashes and logical aliases only.
 
 ## Approved models
 
-Every generation, judge, and Ragas LLM metric defaults to the locally installed
+Every generation and judge step defaults to the locally installed
 Codex CLI pinned to `gpt-5.3-codex-spark`. A user-authorized, explicit
 `EVAL_CODEX_MODEL=gpt-5.6-luna` override is accepted for usage-limit recovery;
 that model is invoked with the separate `model_reasoning_effort="medium"` config;
@@ -297,11 +297,11 @@ so a later failure does not erase prior evidence. Pass those files through
 Markdown reports.
 
 Runner reports keep the complete target metric inventory. Metrics backed by
-current output evidence are calculated; evidence-dependent metrics such as
-calibrated Ragas scores, source-hash validity, mapping attribution, endpoint
-resolution, rollback bounds, or rubric scores are emitted with
-`available=false` and an explicit reason when the workflow output cannot prove
-them. Missing evidence is never converted to zero or a passing result. The RAG
+current output evidence are calculated; metrics without a connected evaluator,
+including calibrated Ragas scores, and evidence-dependent metrics such as
+source-hash validity, mapping attribution, endpoint resolution, rollback bounds,
+or rubric scores are emitted with `available=false` and an explicit reason.
+Missing evidence is never converted to zero or a passing result. The RAG
 runner always blocks non-zero cross-novel leakage; when a case declares an
 expected source hash, a missing or malformed actual hash counts as invalid.
 

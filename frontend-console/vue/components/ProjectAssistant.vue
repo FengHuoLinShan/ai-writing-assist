@@ -151,6 +151,14 @@ const removeOpener = registerProjectAssistantOpener(async request => {
     emit("open")
     return
   }
+  if (request.creative) {
+    // M5：从状态视图就地发起试改——带当前工作上下文（含 scene）打开试改页
+    if (activeTab.value === "creative" && creativeRef.value?.canLeave?.() === false) throw new Error("试改区还有未保存的内容，请先处理。")
+    try { experimentContext.value = { ...withIntent(capture(true)), scene_state_trial: request.stateTrial || null } } catch { experimentContext.value = { page: "today" } }
+    activeTab.value = "creative"
+    emit("open")
+    return
+  }
   if (state.busy || state.loading) throw new Error("项目助手正在保存或读取讨论，请稍后打开；本页内容仍保留。")
   if (request.sessionId) await assistant.selectSession(request.sessionId)
   if (request.runId) await assistant.openRun(request.runId)

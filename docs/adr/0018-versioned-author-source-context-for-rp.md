@@ -1,6 +1,6 @@
 # ADR-0018：RP 只读引用作者作品的不可变资料版本
 
-- 状态：Accepted / Implemented
+- 状态：Accepted / Amended（2026-10-07 增补 RP 原作包派生缓存例外）
 - 日期：2026-09-01
 - 影响模块：interaction、project、imports、writing、evidence、world、story、frontend
 
@@ -14,6 +14,20 @@ RP 原有路径只使用模型训练知识、当前选中旅程历史和回顾�
 章节已经完成来源校验、深度导入、精确索引、Scene/offset 覆盖和关键指代消歧。
 
 ## 决策
+
+> 2026-10-07 补充（第 5 条的唯一例外）：允许 Evidence compilation 建设仅服务 RP 原作包的
+> 私有派生缓存（首期一张表），在原「不长期保存 rendered source context」之外保存
+> **完整预算前证据材料**与**一个编译正文**及其编译规格。例外边界：缓存是可重建派生数据，
+> 不是第二份正文事实源；入口仅限已登录、绑定来源的普通 RP 与已授权 Agent 补查，匿名公开
+> 演示沿原路径；每次命中仍重验当前 principal/owner、项目活跃、source revision 与 scope 门禁，
+> 并保留原文精确回读；snapshot、attempt 与输出审查资格不缓存。生命周期：TTL 24 小时、
+> 单条材料+正文合计 256 KiB、每 consumer 32 MiB 为待校准上限，超限跳过缓存而不截断必需
+> 证据；过期立即不可命中；项目删除级联清理；来源归档、撤权或必需引用失效立即拒绝并清理，
+> 不等待 TTL。缓存正文不进入导出、公开 API、日志、检索索引与备份（恢复后作冷缓存重建）。
+> key、方法版本、失败语义与表设计见
+> [第一阶段计划](../plans/2026-10-06-world-foundation-phase1.md) §5 与
+> [RP 检索与编译重构设计](../plans/2026-10-07-rp-retrieval-refactor.md)及其 M1 契约。
+> 该例外由 M3 实施落地，实施前本条第 5 句原文行为保持不变。
 
 1. `interaction_source_revisions` 保存同 owner 作者项目的不可变资料目录：精确 Writing
    draft/version/hash manifest、剧情锚点、证据化对象目录、关键歧义决议、workflow 和就绪状态。

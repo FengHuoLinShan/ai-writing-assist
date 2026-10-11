@@ -36,6 +36,7 @@ from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from infrastructure.stable_hash import stable_hash as _generation_stable_fingerprint
 from infrastructure.tasks.models import AsyncTask
 from modules.project.contracts import WorkspaceCreationProgressItem
+from modules.evidence.facade import mark_asset_context_changed
 from modules.writing.conflict_ai import (
     AI_REVIEW_ACTION,
     ConflictCheckAiReviewService,
@@ -61,6 +62,7 @@ from modules.writing.pov_generation import (
 )
 from modules.writing.repositories import (
     AI_REVIEW_TASK_OWNER_KEY,
+    INVALIDATION_VIEW_ATTR,
     WORKING_DRAFT_STATUSES,
     WritingConflictCheckRepository,
     WritingDraftRepository,
@@ -1583,6 +1585,7 @@ class WritingDraftService:
             editorial_ready_hash=getattr(draft, "editorial_ready_hash", None),
             created_at=draft.created_at,  # type: ignore[union-attr]
             updated_at=draft.updated_at,  # type: ignore[union-attr]
+            invalidation=getattr(draft, INVALIDATION_VIEW_ATTR, None),
         )
 
     @staticmethod
@@ -2191,8 +2194,6 @@ class WritingConflictCheckService:
             data.novel_id,
             str(check.scene_id),
         )
-        from modules.evidence.facade import mark_asset_context_changed
-
         await mark_asset_context_changed(
             db,
             novel_id=data.novel_id,

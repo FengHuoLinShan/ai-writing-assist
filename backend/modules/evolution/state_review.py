@@ -145,6 +145,43 @@ SCENE_CALL_JOURNALS = (
 )
 
 
+def scene_call_journals(payload):
+    return (
+        *SCENE_CALL_JOURNALS,
+        *(key for key in payload if key.startswith("scene_discovery_")),
+    )
+
+
+def settled_discovery_output_failure(journal):
+    receipt = journal.get("paid_call_receipt") or {}
+    usage = receipt.get("usage") or {}
+    attempts = receipt.get("attempts_detail") or []
+    return (
+        journal.get("stage") == "failed"
+        and receipt.get("outcome") == "failed_final"
+        and usage.get("usage_complete") is True
+        and usage.get("unknown_attempts") == 0
+        and bool(attempts)
+        and all(
+            item.get("status") == "failed"
+            and item.get("error_kind")
+            in {"invalid_json", "schema_validation", "truncated_json"}
+            for item in attempts
+        )
+    )
+
+
+def has_unreconciled_scene_calls(payload):
+    return any(
+        (payload.get(key) or {}).get("stage") in {"sampling", "failed"}
+        and not (
+            key.startswith("scene_discovery_")
+            and settled_discovery_output_failure(payload.get(key) or {})
+        )
+        for key in scene_call_journals(payload)
+    )
+
+
 def paid_call_receipts(payload):
     return [
         receipt
@@ -152,7 +189,7 @@ def paid_call_receipts(payload):
             payload.get("paid_call_receipt"),
             *(
                 (payload.get(key) or {}).get("paid_call_receipt")
-                for key in SCENE_CALL_JOURNALS
+                for key in scene_call_journals(payload)
             ),
         )
         if receipt

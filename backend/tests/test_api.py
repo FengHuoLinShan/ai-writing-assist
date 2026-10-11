@@ -225,9 +225,7 @@ class TestApiSystem:
         """production 环境保持 404 语义，即使携带有效 principal。"""
         from app import debug_api
 
-        production_settings = replace(
-            debug_api.get_settings(), app_env="production"
-        )
+        production_settings = replace(debug_api.get_settings(), app_env="production")
         token = bind_principal(_debug_principal())
         try:
             with patch(
@@ -618,6 +616,42 @@ class TestApiMemory:
         data = resp.json()
         assert data["total"] == 0
 
+    async def test_api_memory_scene_state_view_missing_scene_returns_404(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+    ):
+        """状态视图对不存在 Scene 返回 404（读路径 fail closed）"""
+        # Act
+        resp = await async_client.post(
+            f"/api/novels/{test_project_id}/memories/scene-state-view",
+            json={
+                "scene_id": "00000000-0000-0000-0000-000000000001",
+                "viewpoint_kind": "author",
+            },
+        )
+
+        # Assert
+        assert resp.status_code == 404
+
+    async def test_api_memory_scene_state_view_rejects_unknown_viewpoint(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+    ):
+        """非法视角被 schema 拒绝（422），不进入服务层"""
+        # Act
+        resp = await async_client.post(
+            f"/api/novels/{test_project_id}/memories/scene-state-view",
+            json={
+                "scene_id": "00000000-0000-0000-0000-000000000001",
+                "viewpoint_kind": "narrator",
+            },
+        )
+
+        # Assert
+        assert resp.status_code == 422
+
     async def test_api_memory_capture_snapshot_returns_201(
         self,
         async_client: AsyncClient,
@@ -984,3 +1018,84 @@ class TestApiTasks:
 
         # Assert
         assert resp.status_code == 404
+
+
+async def test_scene_lens_rest_preserves_object_sources_unknowns_and_stale(
+    async_client, db_session, test_project_id
+):
+    from sqlalchemy import func, select
+
+    from modules.story.continuity.models import MemorySceneCheckpoint
+    from modules.story.continuity.tests.test_scene_state_view import _custody_scene
+
+    scene, ids = await _custody_scene(db_session, test_project_id)
+    scene.pov_character_id = ids["jia"]
+    scene.chapter_ids = ["1", "2"]
+    scene.structure_meta = {"related_entity_ids": [ids["key"]]}
+    await db_session.flush()
+    before = await db_session.scalar(
+        select(func.count()).select_from(MemorySceneCheckpoint)
+    )
+    response = await async_client.post(
+        "/api/evidence/compilation/scene-lens",
+        json={"novel_id": test_project_id, "scene_id": str(scene.id), "chapter_index": 1},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    key = next(
+        item for item in payload["object_states"] if item["subject_id"] == ids["key"]
+    )
+    assert {field["field"] for field in key["fields"]} >= {
+        "custody_holder",
+        "custody_owner",
+    }
+    assert key["fields"][0]["source"]["checkpoint_id"]
+    assert key["unknowns"] and key["stale"]
+    assert payload["state_fingerprint"] and payload["subject_choices"]
+    assert any(item["stale"] for item in payload["scene_world_state"])
+    assert (
+        await db_session.scalar(select(func.count()).select_from(MemorySceneCheckpoint))
+        == before
+    )
+
+
+async def test_historical_state_sources_are_scoped_by_project(
+    async_client, db_session, test_project_id, project_factory
+):
+    from sqlalchemy import select
+
+    from modules.story.continuity.models import MemoryEvent, MemorySceneCheckpoint
+    from modules.story.continuity.tests.test_scene_state_view import _custody_scene
+
+    await _custody_scene(db_session, test_project_id)
+    foreign_id = str(await project_factory.create_project(title="其他作品"))
+    await _custody_scene(db_session, foreign_id)
+    checkpoint = await db_session.scalar(
+        select(MemorySceneCheckpoint).where(
+            MemorySceneCheckpoint.novel_id == uuid.UUID(test_project_id)
+        )
+    )
+    own_event = await db_session.scalar(
+        select(MemoryEvent).where(MemoryEvent.novel_id == uuid.UUID(test_project_id))
+    )
+    foreign_event = await db_session.scalar(
+        select(MemoryEvent).where(MemoryEvent.novel_id == uuid.UUID(foreign_id))
+    )
+    checkpoint.is_current = False  # 历史依据仍可显式回读，不作为当前状态。
+    await db_session.flush()
+    path = f"/api/novels/{test_project_id}/memories"
+    response = await async_client.get(f"{path}/scene-checkpoints/{checkpoint.id}")
+    assert response.status_code == 200
+    assert response.json()["is_current"] is False
+    response = await async_client.get(
+        f"/api/novels/{foreign_id}/memories/scene-checkpoints/{checkpoint.id}"
+    )
+    assert response.status_code == 404
+    response = await async_client.get(
+        f"{path}/events/by-id",
+        params=[("event_ids", str(own_event.id)), ("event_ids", str(foreign_event.id))],
+    )
+    assert response.status_code == 200
+    assert {item["id"] for item in response.json()["items"]} == {str(own_event.id)}
+    response = await async_client.get(f"{path}/events/by-id", params={"event_ids": "bad"})
+    assert response.status_code == 422

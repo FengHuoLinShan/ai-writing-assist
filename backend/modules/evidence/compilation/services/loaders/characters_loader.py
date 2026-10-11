@@ -69,6 +69,17 @@ class CharactersLoader(Loader):
     def name(self) -> str:
         return "characters"
 
+    async def identity_choices(
+        self, db: AsyncSession, novel_id: str, subjects: list[str]
+    ) -> dict[str, str]:
+        """作者选择人物只取名字，当前World状态不补入过去场景。"""
+        if not subjects:
+            return {}
+        context = await self._get_characters_context(
+            db, novel_id, subjects, "author_full"
+        )
+        return {str(item.character_id): str(item.name) for item in context.characters}
+
     async def load(
         self,
         db: AsyncSession,
