@@ -108,7 +108,9 @@ await worker.run_once()      # 单次执行
 
 `facade.summarize_project_ai_usage()` 是只读聚合 seam：按项目扫描窗口期任务 meta 的
 run envelope，按能力汇总模型请求与输入/输出词元（owner 次级诊断入口消费；单次扫描
-上限 500 条，截断返回 `scan_truncated`，单条坏回执跳过计数）。
+上限 500 条，截断返回 `scan_truncated`，单条坏回执跳过计数）。聚合只累计已知用量，
+`requests_unknown` 保留用量未知的请求数、`charge_unconfirmed` 标记计费未确认的
+回执，未知部分不折算为 0 或并入已知数字（BR-0a）。
 
 其他模块的稳定写入 seam 位于 `facade.py`：
 
@@ -471,3 +473,5 @@ gateway；执行中断保留已见回执，作者显式发起新任务，不能�
 RP 普通 worker 与匿名 inline 入口均将完整、未闭合或超长的无效 metadata 尾块
 写入 attempt.usage.metadata_invalid_count；同一尾块重复 finish/失败收尾只计一次。
 正文仍先进入私有 hold，经原有领域审查后才可释放。
+
+AI 用量汇总保留 `usage_complete`；旧恢复回执 `legacy_untracked` 即使未知请求数量为零，也标记统计不完整，不猜填历史请求数。
