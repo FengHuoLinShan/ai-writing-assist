@@ -67,6 +67,28 @@ def retrieval() -> RetrievalOrchestrator:
 
 
 class TestRetrievalOrchestratorDedup:
+    @pytest.mark.asyncio
+    async def test_frozen_sources_keep_similar_passages_with_different_facts(self):
+        nid = uuid.uuid4()
+        chunks = [_rerank_test_chunk(nid, i) for i in range(2)]
+        for chunk, text in zip(
+            chunks, ("钥匙归甲，乙保管", "钥匙归甲，丙保管"), strict=True
+        ):
+            chunk.embedding = [1.0, 0.0]
+            chunk.text = text
+            chunk.source_content_hash = "a" * 64
+        repo = type("Repo", (), {"has_embeddings": AsyncMock(return_value=False)})()
+        service = RetrievalOrchestrator(repo=repo)
+        service.hybrid_search = AsyncMock(
+            return_value=[(chunks[0], 0.9), (chunks[1], 0.8)]
+        )
+        generic = await service.retrieve(None, nid, "钥匙", rerank=False)
+        frozen = await service.retrieve(
+            None, nid, "钥匙", rerank=False, source_manifest={uuid.uuid4(): "a" * 64}
+        )
+        assert len(generic.chunks) == 1
+        assert [item.text for item in frozen.chunks] == [item.text for item in chunks]
+
     def test_deduplicate_by_embedding_keeps_larger_chunk(self) -> None:
         chunk_a = type(
             "Chunk",

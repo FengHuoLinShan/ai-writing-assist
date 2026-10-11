@@ -1,6 +1,11 @@
 # 开放任务
 
-- [T-20261007-branch-integration](tasks/2026/T-20261007-branch-integration/TASK.md) — 快照瘦身分支合并与世界基础分支同步
+- [T-20261010-pr206-integration](tasks/2026/T-20261010-pr206-integration/TASK.md) — 修复并合入世界演化 PR #206
+
+- [T-20261006-world-foundation-phase1-impl](tasks/2026/T-20261006-world-foundation-phase1-impl/TASK.md) — 远景第一阶段实施（M0–M7）：世界状态读取、隔离试改、RP 持久缓存与输入优化
+
+
+- [T-20261007-world-foundation-phase2](tasks/2026/T-20261007-world-foundation-phase2/TASK.md) — 世界演化第二阶段实施（P2-A/B/C）：可信历史与低成本改稿
 
 - [T-20261007-responsive-layout](tasks/2026/T-20261007-responsive-layout/TASK.md) — 全站屏幕自适应布局与回归测试深化
 

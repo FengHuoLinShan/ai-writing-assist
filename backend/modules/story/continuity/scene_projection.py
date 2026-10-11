@@ -8,13 +8,23 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.errors import ConflictError, NotFoundError, ValidationError
+from core.errors import ConflictError, DomainError, NotFoundError, ValidationError
 from infrastructure.stable_hash import stable_hash
+from modules.story.continuity.basis import compute_scene_basis
 from modules.story.continuity.contracts import (
     CURRENT_SCENE_MEMORY_CONTRACT_VERSION,
     SCENE_MEMORY_DIMENSIONS,
     SCENE_MEMORY_DIMENSIONS_V1,
 )
+from modules.story.continuity.field_provenance import (
+    FIELD_PROVENANCE_STATE_KEY,
+    FieldProvenance,
+    ProvenanceSourceRef,
+    motif_fields_for_dimension,
+    read_field_provenance,
+    timeline_fact_instance_key,
+)
+from modules.story.continuity.knowledge_contract import read_knowledge_statement
 from modules.story.continuity.models import MemorySceneCheckpoint
 from modules.story.continuity.repositories import (
     EventRepository,
@@ -27,16 +37,47 @@ from modules.story.continuity.schemas import (
     SceneCheckpointResponse,
     SceneCheckpointSetResponse,
 )
+from modules.writing.contracts import SourceRangeRefContract
+from modules.writing.facade import list_manuscript_sources, read_manuscript_range
 from shared.utils import parse_uuid
 
 _AUTO_RETRY_LIMIT = 2
 _SPARSE_SNAPSHOT_INTERVAL = 10
+# recorded_at_sequence 组装步长：单 Scene 事件量上限 500（services 上限 +
+# append_confirmed 封顶），512 保证 (scene_index, Scene 内序) 合成整数跨
+# Scene 严格单调，链裁决按叙事顺序「后者胜」而不是各 Scene 内序互相打平。
+_PROVENANCE_SEQUENCE_STRIDE = 512
 
 
 class _CoverageGapError(Exception):
     def __init__(self, message: str, *, coverage: dict[str, int]) -> None:
         super().__init__(message)
         self.coverage = coverage
+
+
+def _annotate_knowledge_dialect(state_json: dict[str, Any] | None) -> dict[str, Any]:
+    """knowledge checkpoint ``state_json`` 副本逐条附 ``knowledge_class`` 标注。
+
+    P2-B 历史回开的方言分类（B1 契约）：每条知识条目经
+    ``read_knowledge_statement`` 容错读入后把三分类（known / unknown /
+    false_belief）追加到响应副本上——分类按**该历史行自身 payload** 判定，
+    不被当前 Canon head 或投影重建洗掉；误信历史行仍标 false_belief。
+    原条目键全保留（只增不删）；无 holder/非法形态的条目原样保留不标注。
+    深拷贝后追加，不污染 ORM 行载荷。
+    """
+    state = deepcopy(state_json or {})
+    entries = state.get("character_knowledge")
+    if not isinstance(entries, list):
+        return state
+    annotated: list[Any] = []
+    for payload in entries:
+        if isinstance(payload, dict):
+            statement = read_knowledge_statement(payload)
+            if statement is not None:
+                payload = {**payload, "knowledge_class": statement.knowledge_class.value}
+        annotated.append(payload)
+    state["character_knowledge"] = annotated
+    return state
 
 
 class SceneMemoryProjectionService:
@@ -75,6 +116,12 @@ class SceneMemoryProjectionService:
             if int(scene["scene_index"]) > int(target["scene_index"]):
                 break
             previous_scene = scenes[position - 1] if position > 0 else None
+            basis = await compute_scene_basis(
+                db,
+                novel_id,
+                scenes,
+                up_to_scene_index=int(scene["scene_index"]),
+            )
             for dimension in SCENE_MEMORY_DIMENSIONS:
                 checkpoint = await self._build_dimension(
                     db,
@@ -83,6 +130,7 @@ class SceneMemoryProjectionService:
                     dimension,
                     previous_scene=previous_scene,
                     allowed_scene_ids=allowed_scene_ids,
+                    basis=basis,
                 )
                 retries = 0
                 while (
@@ -95,6 +143,7 @@ class SceneMemoryProjectionService:
                         dimension,
                         previous_scene=previous_scene,
                         allowed_scene_ids=allowed_scene_ids,
+                        basis=basis,
                     )
                     retries += 1
             await self._capture_sparse_if_needed(db, nid, scenes, scene)
@@ -138,6 +187,12 @@ class SceneMemoryProjectionService:
             if int(scene["scene_index"]) < start_index:
                 continue
             previous_scene = scenes[position - 1] if position > 0 else None
+            basis = await compute_scene_basis(
+                db,
+                novel_id,
+                scenes,
+                up_to_scene_index=int(scene["scene_index"]),
+            )
             for dimension in dimensions:
                 await self._build_dimension(
                     db,
@@ -146,6 +201,7 @@ class SceneMemoryProjectionService:
                     dimension,
                     previous_scene=previous_scene,
                     allowed_scene_ids=allowed_scene_ids,
+                    basis=basis,
                 )
             await self._capture_sparse_if_needed(db, nid, scenes, scene)
             rebuilt += 1
@@ -201,6 +257,35 @@ class SceneMemoryProjectionService:
             items=[SceneCheckpointResponse.model_validate(item) for item in rows],
             missing_dimensions=missing,
         )
+
+    async def get_record(
+        self, db: AsyncSession, novel_id: str, checkpoint_id: str
+    ) -> SceneCheckpointResponse:
+        row = await self._checkpoints.get_by_id(
+            db,
+            parse_uuid(novel_id, "novel_id"),
+            parse_uuid(checkpoint_id, "checkpoint_id"),
+        )
+        if row is None:
+            raise NotFoundError("状态依据不存在", code="checkpoint_not_found")
+        response = SceneCheckpointResponse.model_validate(row)
+        # P2-A 历史回开：暴露构建当时内嵌在该行 state_json 里的逐字段来源，
+        # 不与当前 Canon head 重算混合；旧格式行为空列表。聚合逻辑住在
+        # scene_state_view（读取端；本模块被其顶层导入，函数内导入避免顶层环）。
+        from modules.story.continuity.scene_state_view import summarize_field_provenance
+
+        summaries = summarize_field_provenance(row.state_json, row.dimension)
+        response.field_provenance = [
+            summaries[key] | {"subject": key[1]}
+            for key in sorted(summaries, key=lambda item: (item[0], item[1] or ""))
+        ]
+        # P2-B 历史回开：knowledge 维度行补方言分类标注。get_record 是作者
+        # 诊断端点（无 viewpoint 参数、raw 原文回开），故保留 raw 只追加
+        # ``knowledge_class`` 派生标注；面向角色/读者的视角过滤在
+        # scene_state_view.get_view 的视角边界完成，不经本端点。
+        if row.dimension == "knowledge":
+            response.state_json = _annotate_knowledge_dialect(row.state_json)
+        return response
 
     async def repair(
         self,
@@ -271,6 +356,12 @@ class SceneMemoryProjectionService:
         for position, downstream in enumerate(scenes):
             if int(downstream["scene_index"]) <= int(scene["scene_index"]):
                 continue
+            basis = await compute_scene_basis(
+                db,
+                novel_id,
+                scenes,
+                up_to_scene_index=int(downstream["scene_index"]),
+            )
             await self._build_dimension(
                 db,
                 novel_id,
@@ -278,6 +369,7 @@ class SceneMemoryProjectionService:
                 request.dimension,
                 previous_scene=scenes[position - 1] if position > 0 else None,
                 allowed_scene_ids=allowed_scene_ids,
+                basis=basis,
             )
             await self._capture_sparse_if_needed(db, nid, scenes, downstream)
             rebuilt += 1
@@ -297,6 +389,7 @@ class SceneMemoryProjectionService:
         *,
         previous_scene: dict[str, Any] | None,
         allowed_scene_ids: list[uuid.UUID],
+        basis: dict[str, Any] | None = None,
     ) -> MemorySceneCheckpoint:
         nid = parse_uuid(novel_id, "novel_id")
         sid = parse_uuid(str(scene["id"]), "scene_id")
@@ -355,7 +448,35 @@ class SceneMemoryProjectionService:
                 and current.scene_index == scene_index
                 and current.source_hash == source_hash
             ):
+                # 只补旧行未登记的基线；漂移基线不能被原事件重放洗成新鲜。
+                if current.basis_json is None:
+                    current.basis_json = basis
+                    await db.flush()
+                # 命中既有行也要保证登记存在（旧行早于消费登记接线建成）。
+                cached_state = dict(current.state_json or {})
+                await self._register_consumption(
+                    db,
+                    novel_id,
+                    scene,
+                    dimension,
+                    cached_state,
+                    previous=previous,
+                    basis=basis,
+                )
+                if cached_state != (current.state_json or {}):
+                    current.state_json = cached_state
+                    await db.flush()
                 return current
+            # P2-C C2：建行前把本次构建实际消费的稿件范围写进产物载荷。
+            await self._register_consumption(
+                db,
+                novel_id,
+                scene,
+                dimension,
+                state,
+                previous=previous,
+                basis=basis,
+            )
             return await self._checkpoints.replace_system(
                 db,
                 novel_id=nid,
@@ -370,6 +491,7 @@ class SceneMemoryProjectionService:
                     "evidence_refs": refs,
                     "display_summary": self._display_summary(dimension, state),
                     "source_hash": source_hash,
+                    "basis_json": basis,
                     "retry_count": 0,
                 },
             )
@@ -405,6 +527,109 @@ class SceneMemoryProjectionService:
                 },
             )
 
+    async def _register_consumption(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        scene: dict[str, Any],
+        dimension: str,
+        state: dict[str, Any],
+        *,
+        previous: MemorySceneCheckpoint | None,
+        basis: dict[str, Any] | None,
+    ) -> None:
+        """把本行实际消费的稿件范围登记进产物载荷（P2-C C2 真实写入点）。
+
+        每行只登记**本 Scene 本维度**的消费：前序 Scene 的登记留在它们自己
+        的行里（失效评估按场景逐行读），继承进来的外键登记一律丢弃——否则
+        同一登记会在后续每行重复出现，把影响面放大成假命中。
+
+        章节锚包含本 Scene 与 basis 中的继承前缀。稿版本优先取赋值链的历史
+        引用，没有字段链的章使用实际 working 稿基线；整章依赖保守登记。
+        无稿可锚的章不登记（不拿别章冒充）。
+        """
+        chapters = sorted(
+            set(self._chapter_indices(scene))
+            | {int(ch) for ch in (basis or {}).get("manuscript", {})}
+        )
+        if not chapters:
+            return
+        from modules.evolution.facade import (
+            CONSUMPTION_REGISTRY_STATE_KEY,
+            read_consumption_records,
+            register_scene_consumption,
+        )
+
+        referenced: dict[int, tuple[str, int, str]] = {}
+        for record in read_field_provenance(state):
+            for ref in record.source_refs:
+                chapter = int(ref.chapter_index)
+                best = referenced.get(chapter)
+                if best is None or int(ref.version_number) > best[1]:
+                    referenced[chapter] = (
+                        ref.draft_id,
+                        int(ref.version_number),
+                        ref.source_hash,
+                    )
+        inherited_chapters = {
+            binding.chapter_index
+            for record in read_consumption_records(
+                previous.state_json if previous else {}
+            )
+            for binding in record.binding.chapters
+        }
+        chapters = sorted(set(chapters) | set(referenced) | inherited_chapters)
+        bindings: list[dict[str, Any]] = []
+        for chapter in chapters:
+            anchor = referenced.get(chapter)
+            if anchor is None:
+                sources = await list_manuscript_sources(
+                    db, novel_id, [chapter], content_mode="working"
+                )
+                source = next(
+                    (
+                        item
+                        for item in sources
+                        if int(item.chapter_index) == chapter and item.content_hash
+                    ),
+                    None,
+                )
+                if source is None or not source.id:
+                    continue
+                anchor = (
+                    str(source.id),
+                    int(source.version_number),
+                    source.content_hash,
+                )
+            bindings.append(
+                {
+                    "chapter_index": chapter,
+                    "draft_id": anchor[0],
+                    "version_number": anchor[1],
+                    "source_hash": anchor[2],
+                }
+            )
+        if not bindings:
+            return
+        # 先丢弃继承来的外键登记，再写入本行声明（幂等：同键替换）。
+        state[CONSUMPTION_REGISTRY_STATE_KEY] = [
+            record.model_dump(mode="json")
+            for record in read_consumption_records(state)
+            if record.novel_id == novel_id
+            and record.consumer.scene_id == str(scene["id"])
+            and record.consumer.dimension == dimension
+        ]
+        register_scene_consumption(
+            state,
+            novel_id=novel_id,
+            scene_id=str(scene["id"]),
+            scene_index=int(scene["scene_index"]),
+            dimension=dimension,
+            chapters=bindings,
+            method_version=f"scene-projection:{CURRENT_SCENE_MEMORY_CONTRACT_VERSION}",
+            checkpoint_id=str(previous.id) if previous is not None else None,
+        )
+
     async def _project_dimension(
         self,
         db: AsyncSession,
@@ -421,7 +646,20 @@ class SceneMemoryProjectionService:
         state = deepcopy(
             previous.state_json if previous else self._empty_dimension(dimension)
         )
-        refs: list[dict[str, Any]] = []
+        # 消费登记为本行的附属元数据，不进入继承状态或内容指纹。
+        state.pop("_consumption_registry", None)
+        # 保留继承链，避免每个场景重复复制全部历史事件引用。
+        refs: list[dict[str, Any]] = (
+            [
+                {
+                    "type": "scene_checkpoint",
+                    "id": str(previous.id),
+                    "label": "此前场景状态",
+                }
+            ]
+            if previous
+            else []
+        )
         max_chapter = max(self._chapter_indices(scene) or [0])
         unanchored = await self._events.count_unanchored_through_chapter(
             db, parse_uuid(novel_id, "novel_id"), max_chapter
@@ -446,6 +684,11 @@ class SceneMemoryProjectionService:
             after_scene_index=after_scene_index,
             allowed_scene_ids=allowed_scene_ids,
         )
+        # 逐字段赋值链（P2-A）：previous 的 ``_field_provenance`` 已随
+        # deepcopy 继承进 state，这里校验归一并追加本场新赋值；无链字段
+        # 不写键（旧格式语义：缺键 = 来源待核实，不冒充）。
+        provenance = read_field_provenance(state)
+        chapter_sources: dict[str, tuple[ProvenanceSourceRef, ...]] = {}
         for event in events:
             self._apply_event(state, dimension, event)
             refs.append(
@@ -455,7 +698,132 @@ class SceneMemoryProjectionService:
                     "label": self._event_label(event),
                 }
             )
+            assigned = self._assigned_motif_fields(state, dimension, event)
+            if not assigned:
+                continue
+            source_refs = await self._event_source_refs(
+                db, novel_id, event, chapter_sources
+            )
+            for field_key, subject_ref in assigned:
+                provenance.append(
+                    FieldProvenance(
+                        field_key=field_key,
+                        value_hash=stable_hash(event.snapshot_after[field_key]),
+                        dimension=dimension,
+                        event_id=str(event.id),
+                        subject_ref=subject_ref,
+                        source_refs=source_refs,
+                        version=source_refs[0].version_number if source_refs else 0,
+                        recorded_at_sequence=self._provenance_sequence(event),
+                    )
+                )
+        if provenance:
+            state[FIELD_PROVENANCE_STATE_KEY] = [
+                record.model_dump(mode="json") for record in provenance
+            ]
         return state, refs
+
+    # ── 逐字段赋值链（P2-A 写入端，契约见 field_provenance）──
+
+    @staticmethod
+    def _assigned_motif_fields(
+        state: dict[str, Any], dimension: str, event: Any
+    ) -> tuple[tuple[str, str | None], ...]:
+        """本次事件实际落入核心状态的受控母题字段 ``(field_key, subject_ref)`` 对。
+
+        只认 reducer 的核心状态落点（entities / character_locations / facts）：
+        进观察层 ``changes`` 的负载（manual_correction、未知实体的
+        entity_updated 等）不算赋值，不挂链。判定 = 事件路由到达核心容器
+        且注册字段的值与负载一致（重复断言同值也算一次赋值——该事件
+        就是当前值的最后陈述）。subject_ref 为实体锚（entities/locations
+        维度为实体 ID，timeline 无实体容器、改用该 fact 的实例键）——同维度
+        多实体（或多事实）的同名字段靠它隔离裁决链。
+        """
+        registered = motif_fields_for_dimension(dimension)
+        if not registered:
+            return ()
+        payload = event.snapshot_after
+        if not isinstance(payload, dict):
+            return ()
+        event_type = str(event.event_type)
+        if dimension == "timeline":
+            # timeline 每条事件都追加为 fact；以最后一条 fact 为落点。
+            # subject_ref 取该 fact 的实例键：多条月相事实各挂各的赋值链，
+            # 不会被最后一条赋值统一替换（否则互相冒充来源）。
+            facts = state.get("facts")
+            landed = facts[-1] if isinstance(facts, list) and facts else None
+            subject_ref = timeline_fact_instance_key(landed)
+        else:
+            entity_id = str(event.entity_id) if event.entity_id else None
+            if not entity_id:
+                return ()
+            subject_ref = entity_id
+            if dimension == "entities":
+                entities = state.get("entities") or {}
+                if event_type in ("entity_created", "entity_updated"):
+                    # 未知实体的更新进观察层不算核心赋值（reducer 同口径），
+                    # get() 自然返回 None。
+                    landed = entities.get(entity_id)
+                else:
+                    return ()
+            elif dimension == "locations":
+                if event_type != "entity_moved":
+                    return ()
+                landed = (state.get("character_locations") or {}).get(entity_id)
+            else:
+                return ()
+        if not isinstance(landed, dict):
+            return ()
+        return tuple(
+            (item.field_key, subject_ref)
+            for item in registered
+            if item.field_key in payload
+            and landed.get(item.field_key) == payload[item.field_key]
+        )
+
+    @staticmethod
+    def _provenance_sequence(event: Any) -> int:
+        """赋值事件序（A1 契约单 int）：scene_index 为主位，Scene 内序为次位。
+
+        Scene 内优先事件 ``scene_sequence``；无 Scene 锚（历史章路径行）回退
+        章内 ``sequence`` 充当次位，主位仍取 ``scene_index``，保证跨 Scene
+        严格单调。
+        """
+        slot = event.scene_sequence
+        if slot is None:
+            slot = event.sequence
+        return int(event.scene_index or 0) * _PROVENANCE_SEQUENCE_STRIDE + int(slot or 0)
+
+    @staticmethod
+    async def _event_source_refs(
+        db: AsyncSession,
+        novel_id: str,
+        event: Any,
+        cache: dict[str, tuple[ProvenanceSourceRef, ...]],
+    ) -> tuple[ProvenanceSourceRef, ...]:
+        """回读摄入时固化的来源；遗留无绑定或原地改稿后均不能制造精确证明。"""
+        frozen = ((event.snapshot_after or {}).get("meta") or {}).get(
+            "_field_source_refs"
+        )
+        if not frozen:
+            return ()
+        key = stable_hash(frozen)
+        if key not in cache:
+            refs = tuple(ProvenanceSourceRef.model_validate(value) for value in frozen)
+            try:
+                for ref in refs:
+                    await read_manuscript_range(
+                        db,
+                        novel_id,
+                        SourceRangeRefContract(**ref.model_dump()),
+                        before=0,
+                        after=0,
+                    )
+            except DomainError:
+                cache[key] = ()
+            else:
+                cache[key] = refs
+        return cache[key]
 
     async def _capture_sparse_if_needed(
         self,

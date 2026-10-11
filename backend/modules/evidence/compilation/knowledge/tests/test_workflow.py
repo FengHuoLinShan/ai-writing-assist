@@ -139,15 +139,16 @@ def _audit(
     dims = dimensions or ["world_entities", "world_bible"]
     return AuditVerdictOutput(
         findings=findings,
-        dimensions=[
-            AuditDimensionCheck(dimension=d, checked=True) for d in dims
-        ],
+        dimensions=[AuditDimensionCheck(dimension=d, checked=True) for d in dims],
         verdict=verdict,
     )
 
 
-def _hooks(generate_output: str, repair_output: str | None = None,
-    stages: list[str] | None = None):
+def _hooks(
+    generate_output: str,
+    repair_output: str | None = None,
+    stages: list[str] | None = None,
+):
     async def generate(plan, generator_keys):  # noqa: ANN001
         return generate_output
 

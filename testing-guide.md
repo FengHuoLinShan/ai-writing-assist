@@ -73,9 +73,9 @@ Evidence indexing/compilation 回归集中在 `backend/modules/evidence/`；
 
 | Command | Scope | External prerequisites |
 |---|---|---|
-| `make test` | Modules, infrastructure, deterministic eval toolkit tests, unit, SQLite integration, prompt contracts; narrow with `TESTS=<path>` or `ARGS=<pytest-args>` | None; excludes E2E, real LLM, external source data, and the optional Ragas adapter when the `eval` extra is absent |
+| `make test` | Modules, infrastructure, deterministic eval toolkit tests, unit, SQLite integration, prompt contracts; narrow with `TESTS=<path>` or `ARGS=<pytest-args>` | None; excludes E2E, real LLM, external source data, and LLM-derived RAG metrics (unavailable until a maintained, calibrated adapter is connected) |
 | `make test-fast-coverage TEST_WORKERS=2` | Same fast layer with parallel production-code coverage and an 85% gate | None |
-| `make eval-fast` | The same locked deterministic eval toolkit tests without remote model calls | Python 3.13 (override with `BACKEND_EVAL_PYTHON`); the locked `scikit-network` 0.33.5 currently fails to build with the local Python 3.14 macOS toolchain |
+| `make eval-fast` | The same locked deterministic eval toolkit tests without remote model calls | Locked backend CI dependencies and Python 3.14.7; no model calls |
 | `make eval-ask-world` | Ask World project/API contracts, then retrieval, citation-fixture, refusal and integrity thresholds | None; targeted API tests plus deterministic synthetic evidence, not a semantic-answer quality claim |
 | `make eval-ask-world-model NOVEL_ID=<id> [PROBE_SPLIT=debug\|holdout] [LEDGER=<jsonl>] [DATASET=<jsonl>] [TEACHER_MODEL=gpt-6.1-sol TEACHER_REASONING_EFFORT=high]` | 生产 `AskWorldService._generate` 的模型诊断：确定性来源集合指标（答/拒答、引用 precision/recall、冲突来源覆盖，非主张忠实度），加可选替代教师的逐主张语义审查；报告带 git/dirty、Prompt/dataset/rubric hash，未完成不记 complete；不覆盖检索、确认、知识审查、回开与保存 | 显式付费：项目 owner 已验证的模型连接，教师另需本地 Codex 登录；永远 `blocking=false`、`human_validated=false`，不进 CI，真实稿件的输入输出留仓库外 |
 | `make eval-context-planner NOVEL_ID=<id> OUTPUT=<path>` | 冻结 RAG 数据上对比 task-direct 与确定性 Planner，输出 split/purpose、MRR/P@5/R@10、结果数、source hash、stale/跨项目与延迟 | 已建立同一冻结语料索引的本地项目；不调 LLM |
@@ -87,7 +87,7 @@ Evidence indexing/compilation 回归集中在 `backend/modules/evidence/`；
 | `make test-deploy` | Deployment static/CLI contract tests in `deploy/tests`, including committed Alembic graph and pre-checkout migration compatibility cases | Self-contained: `uv` resolves Python 3.14.7 from `backend/.python-version`, locked `backend/uv.lock` `ci` dependencies, and backend pytest config; no external service |
 | `make test-production-images` | Build the pinned backend/frontend production images; verify backend non-root/no-uv/no-pip/import and frontend nginx/assets | Docker daemon plus image registry access; intentionally outside `make test-ci` |
 | `make secret-hygiene` | Tracked/indexed runtime env, private-key, and high-confidence credential gate | Git working tree; no Python dependency install required |
-| `make audit-backend-deps` | Audit every package in `backend/uv.lock`, including optional extras; only two no-fix eval advisories use fix-aware exceptions | OSV advisory data and `uv`; Python 3.14/Linux target, with `--no-build` |
+| `make audit-backend-deps` | Audit every package in `backend/uv.lock`, including optional extras; no advisories are suppressed | OSV advisory data and `uv`; Python 3.14/Linux target, with `--no-build` |
 | `make audit-frontend-deps` | Audit `frontend-console/package-lock.json`; fail only on high/critical dependency advisories | npm registry/advisory data |
 | `npm --prefix frontend-console run lint` | Production JS, Vue SFC, Vitest, Playwright, and build-config correctness / Vue essential rules | Locked frontend dependencies; no formatting gate |
 | `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-e2e` | PostgreSQL/pgvector behavior | Explicit dedicated test database at Alembic head; fails fast if missing, non-dedicated, unavailable, or stale |
@@ -253,15 +253,10 @@ PostgreSQL job 使用锁定版本的 PostgreSQL 17 + pgvector 一次性 service 
 JUnit/版本/Alembic/锁等待诊断；诊断查询自身有独立短超时，不会吞掉主体测试预算。完整
 PostgreSQL E2E 由每日定时及手动发布前 workflow 执行，显式安装与服务端同主版本的
 PostgreSQL 17 客户端以覆盖备份恢复演练，不包含真实 LLM 或外部数据。
-Backend audit reads OSV advisory data for the complete lockfile, including the
-optional `eval` extra. It uses `--no-build`, so the standalone audit does not build
-source distributions just to read metadata. The only current fix-aware exceptions are the two
-eval-only advisories with no published fixes: DiskCache unsafe pickle
-deserialization (`GHSA-w8v5-vhqr-4h9v`) and Ragas multimodal Faithfulness SSRF
-(`GHSA-95ww-475f-pr4f`). They are not permanent ignores: `--ignore-until-fixed`
-causes a published fix to fail the gate again. Production does not install `eval`,
-and the extra remains trusted/offline-only even though this project's adapter uses
-text collection metrics with an isolated local Codex evaluator. Frontend job first uses
+Backend audit reads OSV advisory data for the complete lockfile, including
+optional extras. It uses `--no-build`, so the standalone audit does not build
+source distributions just to read metadata. No advisories are suppressed.
+Frontend job first uses
 the SHA-pinned Node setup action with `frontend-console/.node-version` (`24.21.0` LTS) and
 the committed lockfile cache, then uses `frontend-console/package-lock.json` to run `npm ci`, then
 `npm audit --package-lock-only --audit-level=high`, ESLint and complete Vitest. The production
@@ -600,3 +595,11 @@ B9 PostgreSQL 双事务冲突回归在 `tests/e2e/test_image_reuse_concurrency.p
 nightly 将 `scale-*.json` 与 PostgreSQL 诊断一同上传到
 `postgresql-e2e-diagnostics`，默认仅 low 档，`SCALE_GATE_ALL_TIERS=1` 才运行全档。
 P8 固定比较范围按指定 head 的 Git blob 计数，不读取其他 checkout 或脏工作树。
+
+### 世界状态第一阶段的验证范围
+
+作者控制链由 `frontend-console/e2e/creative-rebase.spec.js` 使用真实 API/PG/worker 与合成 provider 覆盖：历史来源、保管/所有权、有限条件比较与冻结授权、窄屏抽屉交接、改稿冲突三方重建采用。合成结果只验证控制与隔离，文学质量另记。
+
+`evals.rp_matrix` 冻结 6 开发来源族和 3 独立留出来源族，各 30 轮，两臂独立旅程，基线 compiler/retrieval 固定 Git 来源、原准备包布局相同；记录关键原文回读、秘密/未来 canary、开场/重抽/分支/length续写和必需来源失效。质量与总费用门分开，含准备、审查与返修费用，裁判费另列；开发不过不打开留出，已用留出不可调参再当未见样本。
+
+用户授权的代理作者评阅使用 `human_validated=false`，必须看实际输出。旧 140 笔短程布局 smoke 不能核销完整矩阵。原始账本和正文留仓库外私有目录，仓库只提交脱敏哈希、计量与结论；未知用量保留上界与失败，累计 USD 20 不重置。

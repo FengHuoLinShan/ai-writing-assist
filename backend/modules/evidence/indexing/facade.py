@@ -255,6 +255,7 @@ async def retrieve(
     rerank: bool | None = None,
     source_manifest: dict[str, str] | None = None,
     expand_query: bool = True,
+    lexical_terms: list[str] | None = None,
 ) -> RagResultBundle:
     """混合检索 RAG 片段 — 委托给 RetrievalOrchestrator
 
@@ -300,6 +301,7 @@ async def retrieve(
         rerank=rerank,
         source_manifest=parsed_manifest,
         expand_query=expand_query,
+        lexical_terms=lexical_terms,
     )
 
 
