@@ -240,7 +240,7 @@ test("世界资料提案从真实理解任务回看，改稿后标为历史", as
   await expect(flow).toContainText("所选范围理解已更新", { timeout: 60000 })
   await flow.getByRole("button", { name: "查看世界资料提案" }).click()
   const proposals = flow.getByRole("region", { name: "本次世界资料提案" })
-  await proposals.locator("summary").click()
+  await proposals.getByText("第 1 场 · 候选待采用", { exact: true }).click()
   await expect(proposals).toContainText("候选待采用")
   await expect(proposals).toContainText("林舟 · 别名 小舟")
   await expect(proposals).toContainText("林舟又名小舟。")

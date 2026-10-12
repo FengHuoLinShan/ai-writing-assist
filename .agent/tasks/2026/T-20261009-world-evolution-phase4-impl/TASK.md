@@ -17,7 +17,7 @@ updated: 2026-10-12T21:47:58+08:00
 - 实现提交be331ddb5，生产代码未再变更；最新origin/main=5a2958660f65b663555a68d445e19c3d0c8ff1c9，已是整理分支祖先。PR还包含先前BR-3/4/5/6集成与7641b7492的Issue修复；相关未提交任务报告仅复制到整理树，原树保留。
 - 交付PR：[PR #220](https://github.com/FengHuoLinShan/ai-writing-assist/pull/220)。合并前最新检查点：生产实现be331ddb5已推送，工程CI等待中；PR使用模板的架构无影响说明，检查全部通过后合并，不绕过失败或未完成门禁。最终CI/合并身份以GitHub PR与origin/main为准。
 - PR首轮CI：PostgreSQL critical的3项Issue209冷路径计数预期过时：P4继承宿主当前校验固定增加1次查询，8N斜率/暖缓存1查询/来源检查次数仍符合原门禁；已精确更新预期与基准说明，保留全部有效性能和来源断言。调整通过只读复审，完整本地make test-postgresql-critical为95 passed（67.51s），合成库18432；提交后等待新head的全部远端门禁。真实质量/作者验收未启动。其余检查以最新head为准。
-- 浏览器CI补正：Scene/剧情线/篇章3条legacy采用夹具缺新增prepare接口，fake task/context无法走真实后端准备，导致停留预览页。仅补与legacy宿主一致的空refs/null指纹响应，并增加prepare与apply请求断言；原编辑、返回、清理、恢复/项目隔离断言保留。3条真实浏览器通过（23.3s），ESLint与只读Standards复审通过；生产代码未变。审读/引导完整套件7项本地通过，助手/规划额外套件在专用agent_e2e合成库执行；最终状态查PR最新head。
+- 浏览器CI补正：Scene/剧情线/篇章3条legacy采用夹具缺新增prepare接口，fake task/context无法走真实后端准备，导致停留预览页。仅补与legacy宿主一致的空refs/null指纹响应，并增加prepare与apply请求断言；原编辑、返回、清理、恢复/项目隔离断言保留。3条真实浏览器通过（23.3s），ESLint与只读Standards复审通过；生产代码未变。审读/引导完整套件7项本地通过，助手完整套件1项、规划/试改完整套件9项（1.4m）在专用agent_e2e合成库通过；规划World回看旧summary定位器因新增分组详情匹配两个，改为唯一场景提案标题，原改稿后历史/来源与窄屏断言保留。最终状态查PR最新head。
 - 恢复下一步：先查PR #220的state、mergeCommit和最新head checks；若已合并，则本轮工程交付结束，模型暂停及未验证范围保持；若尚未合并，完成工程门禁后按已有授权合入。不得重新发起作者验收或部署。
 
 ### 2026-10-12 离线整理续接（当前，旧快照保留历史）
