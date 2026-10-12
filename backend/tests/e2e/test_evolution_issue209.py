@@ -497,7 +497,8 @@ async def test_native_query_growth_and_explain_report(scene_count, capsys):
                 ),
                 flush=True,
             )
-        assert result["baseline"]["queries"] == 5 * (8 * scene_count + 4)
+        # P4 validates the live inheritance host with one additional fixed lookup.
+        assert result["baseline"]["queries"] == 5 * (8 * scene_count + 5)
         assert result["baseline"]["source_verifications"] == 5 * scene_count
         assert result["warm"]["queries"] == 5
         assert result["warm"]["source_verifications"] == 0
