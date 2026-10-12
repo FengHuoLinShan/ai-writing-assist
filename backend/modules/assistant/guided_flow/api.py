@@ -16,7 +16,7 @@ from modules.assistant.guided_flow.contracts import (
 )
 from modules.project.facade import require_active_project
 
-router = APIRouter(prefix="/api/assistant/flows", tags=["assistant"])
+router = APIRouter(prefix="/flows", tags=["assistant"])
 
 
 @router.post("", status_code=201)

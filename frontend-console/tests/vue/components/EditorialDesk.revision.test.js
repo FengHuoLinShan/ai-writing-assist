@@ -278,6 +278,20 @@ describe("EditorialDesk 修订引导流程入口（BR-4 流程 3）", () => {
     expect(strip.text()).not.toContain("review_candidates")
   })
 
+  it("跳过复核显示未执行及原因，不冒充进行中", async () => {
+    apiMock.assistant.guidedFlowAdvance.mockResolvedValue(flowStopView({
+      panel: { items: [], rechecks: [{ issue_id: "issue-1", status: "skipped", reason: "来源已变化" }] },
+    }))
+    const wrapper = await mountDesk()
+    await selectIssue(wrapper, "issue-1")
+    await revisionPanel(wrapper).find("textarea").setValue("改")
+    await revisionPanel(wrapper).findAll("button").find((item) => item.text().includes("走引导流程修订")).trigger("click")
+    await flushPromises()
+    const results = wrapper.find(".editorial-desk__flowstrip .editorial-desk__revision-results")
+    expect(results.text()).toContain("改后复核未执行：来源已变化")
+    expect(results.text()).not.toContain("进行中")
+  })
+
   it("停点动作：打开候选走写作页定位，改后复核完成后展示结论", async () => {
     const { locateAssistantSource } = await import("../../../vue/shared/assistantNavigation.js")
     locateAssistantSource.mockClear()

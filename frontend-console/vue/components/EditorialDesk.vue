@@ -106,6 +106,7 @@
           <p v-for="entry in flowRechecks" :key="entry.issue_id">
             <template v-if="entry.verdict_label">改后复核：{{ entry.verdict_label }}<template v-if="entry.reason"> — {{ entry.reason }}</template></template>
             <template v-else-if="['failed', 'cancelled'].includes(entry.status)">改后复核未完成，可在意见卡上重新发起。</template>
+            <template v-else-if="entry.status === 'skipped'">改后复核未执行<template v-if="entry.reason">：{{ entry.reason }}</template>。</template>
             <template v-else>改后复核进行中…</template>
           </p>
         </div>

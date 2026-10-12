@@ -37,6 +37,43 @@ from modules.writing.schemas import WritingDraftCreate
 OWNER = "00000000-0000-0000-0000-000000000000"
 
 
+async def test_guided_flow_http_start_active_view_and_abandon(
+    async_client, test_project_id, project_factory, enabled
+):
+    response = await async_client.post(
+        "/api/assistant/flows",
+        json={
+            "novel_id": test_project_id,
+            "flow_id": "new_book_opening",
+            "input": {"vision": "潮汐城市里寻找失踪的名字"},
+        },
+    )
+    assert response.status_code == 201, response.text
+    run_id = response.json()["run_id"]
+    active = await async_client.get(
+        "/api/assistant/flows/active", params={"novel_id": test_project_id}
+    )
+    assert active.status_code == 200, active.text
+    assert active.json()["run_id"] == run_id
+    other_project = await project_factory.create_project(title="隔离作品")
+    hidden = await async_client.get(
+        f"/api/assistant/flows/{run_id}", params={"novel_id": str(other_project)}
+    )
+    assert hidden.status_code == 404
+    view = await async_client.get(
+        f"/api/assistant/flows/{run_id}", params={"novel_id": test_project_id}
+    )
+    assert view.status_code == 200
+    stopped = await async_client.post(
+        f"/api/assistant/flows/{run_id}/abandon", params={"novel_id": test_project_id}
+    )
+    assert stopped.status_code == 200 and stopped.json()["status"] == "cancelled"
+    active = await async_client.get(
+        "/api/assistant/flows/active", params={"novel_id": test_project_id}
+    )
+    assert active.status_code == 200 and active.json() is None
+
+
 def _settings(**overrides):
     base = {
         "assistant_enabled": True,

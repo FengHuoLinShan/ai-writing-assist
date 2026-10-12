@@ -418,9 +418,7 @@ async def advance(
                 continue
             if step.gated_on and not settings.get(step.gated_on, True):
                 continue
-            if not all(
-                states.get(name) in {"done", "skipped"} for name in step.requires
-            ):
+            if not all(states.get(name) in {"done", "skipped"} for name in step.requires):
                 continue
             fragment = await executor(
                 db,
@@ -510,7 +508,9 @@ async def abandon(db, novel_id: str, run_id: str, owner_id: str) -> dict:
         **(run.result_json or {}),
         "status": "cancelled",
         "stop": {
-            "step_id": str((run.result_json or {}).get("stop", {}).get("step_id") or ""),
+            "step_id": str(
+                ((run.result_json or {}).get("stop") or {}).get("step_id") or ""
+            ),
             "kind": "blocked",
             "reason": "流程已由作者结束；已生成候选仍在候选列表中。",
             "actions": [],

@@ -1672,8 +1672,8 @@ def _apply_editorial_stop(
         derived.stop = {
             "step_id": "review_rechecks",
             "kind": "author_choice",
-            "reason": "改后复核结果已就绪；结论只有「仍在 / 可能改善 / 无法判断」，"
-            "供你决定下一步，不会自动改稿。",
+            "reason": "改后复核已结束；请查看每条意见的结论或未完成原因，"
+            "再决定下一步，不会自动改稿。",
             "actions": _actions(
                 ("finish_flow", "完成流程"), ("abandon_flow", "结束流程")
             ),
