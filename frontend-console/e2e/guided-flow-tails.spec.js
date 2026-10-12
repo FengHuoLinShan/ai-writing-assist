@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures.js"
+import { waitWritingReady } from "./helpers/workbench.js"
 
 import { createAutosavedDraft, waitForBackend } from "./helpers/api-client.js"
 
@@ -178,6 +179,7 @@ test.describe("引导流程集成尾部：三个入口", () => {
       finding: { judgment: "这句需要修订", category: "structure", severity: "medium", suggestion: "补足动机", evidence: [{ chapter_index: 1, draft_id: draft.id, content_hash: draft.content_hash, quote: "需要修订", start: 0, end: 4 }] },
     }])))
     await openProjectWorkbench(project, "writing")
+    await waitWritingReady(page, { chapter: 1 })
     await page.getByRole("button", { name: /^打开第 1 章/ }).click()
     await page.getByRole("button", { name: "本章写完，交给编辑看" }).click()
     const desk = page.locator(".editorial-desk")

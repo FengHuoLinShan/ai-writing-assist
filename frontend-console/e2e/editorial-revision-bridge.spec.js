@@ -9,6 +9,7 @@
  * - 替换候选采用门禁不变（候选在写作页审阅采用，本用例只验证入口与回执展示）。
  */
 import { test, expect } from "./fixtures.js"
+import { waitWritingReady } from "./helpers/workbench.js"
 import { createAutosavedDraft } from "./helpers/api-client.js"
 
 test("审读台按意见发起批注修订并跟踪候选与改后复核", async ({ page, projectFactory, openProjectWorkbench, browserErrors }, testInfo) => {
@@ -97,6 +98,7 @@ test("审读台按意见发起批注修订并跟踪候选与改后复核", async
 
   await openProjectWorkbench(project, "writing")
   // 编辑台挂在项目助手的编辑台 tab 后面：走真实入口（选章 → 交给编辑）打开
+  await waitWritingReady(page, { chapter: 1 })
   await page.getByRole("button", { name: /^打开第 1 章/ }).click()
   const ready = page.getByRole("button", { name: "本章写完，交给编辑看" })
   await expect(ready).toBeEnabled()
