@@ -70,6 +70,7 @@ operation receipt 或任务 attempt 策略变更还应同步 ADR、tasks/LLM REA
 | 变更事实 | 必查文档 | 何时更新 |
 |---|---|---|
 | 模块清单、职责、依赖方向、技术拓扑 | `docs/00_整体设计.md`、`docs/architecture/module-architecture.drawio`、`docs/architecture/module-architecture.html`、`docs/architecture/README.md` | 模块或跨模块边界改变时；Draw.io 是可编辑图源，HTML 是兼容预览 |
+| 功能域、能力或用户入口映射（作者视角功能描述图） | `docs/architecture/feature-map.drawio`、`docs/architecture/feature-map.html` | 新增或调整作者可见能力、入口或导航时同步；Draw.io 是可编辑图源，HTML 是兼容预览 |
 | 稳定接口、领域职责、路由、依赖、测试入口 | 对应 `backend/modules/<name>/README.md`；必要时 `docs/modules/<nn>_<name>.md` | 对外能力或本模块契约改变时 |
 | 领域词汇、状态投影、资产归属、采用/可见性语义 | `CONTEXT.md` | 作者或跨模块消费者对概念的理解改变时 |
 | 表、外键、索引、唯一约束、派生/事实边界 | `docs/01_数据库设计.md`、对应模块 README | ORM 或 Alembic 改变时 |

@@ -10,6 +10,8 @@
 |---|---|---|
 | `module-architecture.drawio` | 当前模块总览的可编辑图源 | 模块数量、分层、归属、主要调用/资料流或共享基础设施变化时同步更新。 |
 | `module-architecture.html` | 浏览器兼容交互预览 | 与当前模块清单和关键边界保持一致；不作为可编辑图源或代码 import 图。 |
+| `feature-map.drawio` | 功能描述图（作者视角）的可编辑图源 | 功能域、能力或用户入口映射变化时同步更新；模块名拼写与机器清单逐字一致。 |
+| `feature-map.html` | 浏览器兼容交互预览 | 与 `feature-map.drawio` 图源保持一致；不作为可编辑图源或代码 import 图。 |
 | `architecture-documents.toml` | 当前架构文档机器清单 | 登记中央文档、模块/组件文档、API 前缀和代码差异影响规则；新增、移动、归档文档时先改清单。 |
 | `documentation-maintenance.md` | 架构文档维护流程 | 每轮较大开发按变更影响矩阵更新当前文档，并保留验证证据。 |
 | `../diagrams/rag-architecture.html` | RAG 视觉参考 | 仅说明历史 RAG 内部关系；具体接口和 schema 以 Evidence indexing 文档/代码为准。 |
@@ -59,8 +61,8 @@ ADR-0023/ADR-0025 的有界 Agent、canonical capability 和回执约束由统�
   理解的队列、来源冻结、提交回执与预算；Project engine/epoch 约束单一写入 owner。默认导入仍
   由 deep_import 编排，显式启用项目经 `/api/evolution` 使用受控理解入口，旧 owner
   必须排空或明确停止；全面替代与退役仍待独立验收。
-- Assistant 持有项目讨论、运行、成组确认和提醒投影；经 Evidence 只读查证，经领域操作提交
-  具体修改。有限 PydanticAI 核心复用共享 LLM/队列，RP 继续持有自己的树、回顾和 attempt。
+- Assistant 持有项目讨论、运行、成组确认和提醒投影，以及 ADR-0032 的确定性创作引导；
+  经 Evidence 只读查证，经领域操作提交具体修改。有限 PydanticAI 核心复用共享 LLM/队列，RP 继续持有自己的树、回顾和 attempt。
 - 创作三层为事实层（`project/world`）、结构与连续性层（`story/outline_state`、
   `story/continuity`）和辅助层（`imports/evidence/story/writing`）。RAG 索引和 Context 编译/确认归 `evidence`；
   账户连接与全局偏好归 `account`，项目偏好与有效配置
@@ -79,7 +81,7 @@ ADR-0023/ADR-0025 的有界 Agent、canonical capability 和回执约束由统�
 - 箭头表达主要调用或资料流，标签说明具体语义；完整生产依赖仍以
   `contracts.py`、`facade.py`、组合根 DI 注册和当前代码为准。
 
-当前图源已通过 XML、唯一 ID、edge endpoint、悬空/交叉/重叠结构检查。无运行时拓扑变化的
+图源检查覆盖 XML、唯一 ID 与 edge endpoint；预览还需检查文字裁切、连线与卡片布局。无运行时拓扑变化的
 文档流程调整不向模块图添加流程节点，避免把开发治理和产品运行架构混在一张图中。
 
 专项查证继续沿既有 imports/writing/world → Evidence → Writing/World 资料流，
@@ -103,6 +105,28 @@ ADR-0027 的 V1 在当时九模块中加入注册蓝图的有限协作，不改�
 `local_agent` 是作者 Mac 上五种 CLI 的项目设备与调用边界，复用现有任务租约。
 设备协议、非沙箱权限和数据边界见 [模块设计](../modules/23_local_agent.md)。
 
+
+## 功能图与当前交付边界
+
+`feature-map.drawio` / `feature-map.html` 按作者入口组织 11 个功能域，覆盖上述 12 个业务模块；
+这是代码已有能力的导航，不表示每种部署都已开启，也不代替真实作者或模型质量验收。
+
+- 引导流程归 Assistant，复用运行记录、领域任务、Evidence 确认与队列，不增加业务模块或
+  工作流基础设施。新书开篇、引导续写、审读修订及采用后的滚动大纲分别从写作首页、写作页
+  和编辑台进入；默认关闭，须按项目开放。后续章节只规划结构，不自动生成多章正文。
+  具体契约见 [Assistant README](../../backend/modules/assistant/README.md) 与
+  [ADR-0032](../adr/0032-guided-flow-orchestration.md)。
+- Evolution 已有作者全景、派生细节台账、持续发现、类别补扫和依输入证明选择性重做。
+  入口为「理解与整理正文」、写作资料栏「本场」及场景工作台；仍显式启用，不替代默认
+  deep_import。补扫不改原理解游标或 World/Story 正史；输入/方法证明缺失时保守重做。
+  未知付费请求须先核对，不能把恢复按钮解释成允许重复调用。真实模型、长篇质量与费用
+  尚未验收；世界知识、地图册、世界正史版本的来源依赖闭包仍未接通。
+  具体契约见 [Evolution README](../../backend/modules/evolution/README.md)。
+- 普通 AI 输出先预览，经作者确认采用；明确授权的自动流水线可写允许的派生或已采用资产，
+  保留来源及撤销回执。作品删除进入回收站，已采用资产按所属领域保留历史、撤销或废弃。
+- 服务端 API 与 worker 共享 DI 和任务注册，均可调用受控 LLM / 对象存储；PostgreSQL
+  是业务库及任务队列，不直接连接图片 bucket 或作者设备。作者 Mac 经服务端 HTTP
+  出站领取任务租约，工作目录不是沙箱。
 
 ## 模块依赖方向分层（目标态）
 

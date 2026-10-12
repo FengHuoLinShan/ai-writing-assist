@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI 长篇小说创作系统 — 功能描述图（作者视角）</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" integrity="sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" integrity="sha384-en/ztfPSRkGfME4KIm05joYXynqzUgbsG5nMrj/xEFAHXkeZfO3yMK8QQ+mP7p1/" crossorigin="anonymous"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'JetBrains Mono', 'PingFang SC', 'Microsoft YaHei', monospace;
+      background: #020617;
+      min-height: 100vh;
+      padding: 2rem;
+      color: white;
+    }
+    .container { max-width: 1200px; margin: 0 auto; }
+    .header { margin-bottom: 2rem; }
+    .header-row { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem; }
+    .pulse-dot { width: 12px; height: 12px; background: #22d3ee; border-radius: 50%; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+    h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.025em; }
+    .subtitle { color: #94a3b8; font-size: 0.875rem; margin-left: 1.75rem; }
+    .diagram-container {
+      background: rgba(15, 23, 42, 0.5);
+      border-radius: 1rem;
+      border: 1px solid #1e293b;
+      padding: 1.5rem;
+      overflow-x: auto;
+    }
+    svg { width: 100%; min-width: 980px; display: block; }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 1rem;
+      margin-top: 2rem;
+    }
+    .card {
+      background: rgba(15, 23, 42, 0.5);
+      border-radius: 0.75rem;
+      border: 1px solid #1e293b;
+      padding: 1.25rem;
+    }
+    .card-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
+    .card-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .card-dot.cyan { background: #22d3ee; }
+    .card-dot.emerald { background: #34d399; }
+    .card-dot.violet { background: #a78bfa; }
+    .card-dot.amber { background: #fbbf24; }
+    .card-dot.blue { background: #60a5fa; }
+    .card-dot.orange { background: #fb923c; }
+    .card-dot.rose { background: #fb7185; }
+    .card-dot.slate { background: #94a3b8; }
+    .card h3 { font-size: 0.875rem; font-weight: 600; }
+    .card .mod { font-size: 0.65rem; color: #64748b; }
+    .card ul { list-style: none; color: #94a3b8; font-size: 0.72rem; }
+    .card li { margin-bottom: 0.55rem; }
+    .card li:last-child { margin-bottom: 0; }
+    .card .ep { display: block; color: #67e8f9; font-size: 0.65rem; margin-top: 0.15rem; }
+    .footer { text-align: center; margin-top: 1.5rem; color: #475569; font-size: 0.75rem; }
+    .toolbar { display: flex; gap: 0.5rem; margin-left: auto; flex-shrink: 0; align-items: center; }
+    .toolbar-toggle {
+      background: transparent; border: none; color: #475569; cursor: pointer;
+      font-size: 1.25rem; line-height: 1; padding: 0.25rem 0.5rem;
+      border-radius: 0.375rem; transition: color 0.2s, background 0.2s;
+    }
+    .toolbar-toggle:hover { color: #94a3b8; background: rgba(30, 41, 59, 0.5); }
+    .toolbar-actions { display: none; gap: 0.5rem; }
+    .toolbar.expanded .toolbar-actions { display: flex; }
+    .toolbar-actions button, .toolbar-actions a {
+      background: rgba(30, 41, 59, 0.8); border: 1px solid #334155; color: #94a3b8;
+      padding: 0.375rem 0.75rem; border-radius: 0.375rem; font-family: inherit;
+      font-size: 0.75rem; cursor: pointer; transition: all 0.2s; white-space: nowrap;
+      text-decoration: none;
+    }
+    .toolbar-actions button:hover, .toolbar-actions a:hover { background: rgba(51, 65, 85, 0.8); color: white; border-color: #475569; }
+    @media print { body { background: #020617; padding: 1rem; } .toolbar { display: none !important; } }
+  </style>
+</head>
+<body>
+<div class="container" id="report-container">
+  <div class="header">
+    <div class="header-row">
+      <div class="pulse-dot"></div>
+      <h1>AI 长篇小说创作系统 — 功能描述图（作者视角）</h1>
+      <div class="toolbar">
+        <div class="toolbar-actions">
+          <a href="feature-map.drawio" download>✏️ Draw.io</a>
+          <button onclick="copyAsImage(this)">📋 Copy</button>
+          <button onclick="downloadPNG(this)">🖼️ PNG</button>
+          <button onclick="downloadPDF(this)">📄 PDF</button>
+        </div>
+        <button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" title="Export options" aria-label="Export options">⋯</button>
+      </div>
+    </div>
+    <p class="subtitle">浏览器兼容预览 · 11 个功能域 · 12 个业务模块 · 当前可编辑图源：feature-map.drawio</p>
+  </div>
+
+  <div class="diagram-container">
+    <svg viewBox="0 0 1100 1110">
+      <defs>
+        <marker id="arrow-amber" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+          <polygon points="0 0, 10 3.5, 0 7" fill="#fbbf24" />
+        </marker>
+        <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+          <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+        </pattern>
+      </defs>
+
+      <rect width="100%" height="100%" fill="url(#grid)" />
+
+      <!-- ===== ARROWS（导航关系：入口 → 功能域，先画在盒子下层）===== -->
+      <path d="M 240 115 L 240 205" fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+      <text x="246" y="178" fill="#fbbf24" font-size="8.5">注册 · 登录 · 演示项目</text>
+      <path d="M 410 115 L 410 205" fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+      <text x="404" y="178" fill="#fbbf24" font-size="8.5" text-anchor="end">档案与偏好</text>
+      <path d="M 480 115 L 480 150 L 800 150 L 800 205" fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+      <text x="808" y="198" fill="#fbbf24" font-size="8.5">导入正文 / 表格</text>
+      <path d="M 305 115 L 305 155 L 22 155 L 22 502 L 60 502" fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+      <text x="30" y="352" fill="#fbbf24" font-size="8.5">继续写作</text>
+      <path d="M 600 115 L 600 142 L 550 142 L 550 362 L 260 362 L 260 405" fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+      <path d="M 550 362 L 432 362 L 432 405" fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+      <path d="M 550 362 L 687 362 L 687 405" fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+      <path d="M 550 362 L 942 362 L 942 405" fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+      <text x="566" y="354" fill="#fbbf24" font-size="8.5">顶栏直达</text>
+      <text x="266" y="388" fill="#fbbf24" font-size="8.5">写作</text>
+      <text x="438" y="388" fill="#fbbf24" font-size="8.5">结构</text>
+      <text x="693" y="388" fill="#fbbf24" font-size="8.5">世界·地图</text>
+      <text x="948" y="388" fill="#fbbf24" font-size="8.5">查找</text>
+      <path d="M 985 115 L 985 172 L 460 172 L 460 205" fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+      <text x="466" y="199" fill="#fbbf24" font-size="8.5">账户设置</text>
+      <path d="M 1000 115 L 1000 152 L 1078 152 L 1078 855 L 300 855 L 300 915" fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+      <text x="306" y="888" fill="#fbbf24" font-size="8.5">互动 · 演示</text>
+      <path d="M 1015 115 L 1015 158 L 1086 158 L 1086 862 L 800 862 L 800 915" fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+      <text x="806" y="888" fill="#fbbf24" font-size="8.5">本机生图</text>
+
+      <!-- ===== 入口层 ===== -->
+      <rect x="40" y="20" width="1020" height="115" rx="10" fill="rgba(120, 53, 15, 0.08)" stroke="#fbbf24" stroke-width="1" stroke-dasharray="8,4"/>
+      <text x="55" y="40" fill="#fbbf24" font-size="10" font-weight="600">入口层 — 作者从哪里进</text>
+
+      <rect x="60" y="50" width="220" height="65" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="60" y="50" width="220" height="65" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+      <text x="170" y="70" fill="white" font-size="10" font-weight="600" text-anchor="middle">首页 #home</text>
+      <text x="170" y="85" fill="#94a3b8" font-size="7.5" text-anchor="middle">我是作家 / 我是 RP 用户</text>
+      <text x="170" y="99" fill="#94a3b8" font-size="7.5" text-anchor="middle">查看演示项目 · 注册登录</text>
+
+      <rect x="300" y="50" width="220" height="65" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="300" y="50" width="220" height="65" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+      <text x="410" y="70" fill="white" font-size="10" font-weight="600" text-anchor="middle">作品档案 #project</text>
+      <text x="410" y="85" fill="#94a3b8" font-size="7.5" text-anchor="middle">多作品管理 · 导入</text>
+      <text x="410" y="99" fill="#94a3b8" font-size="7.5" text-anchor="middle">继续写作</text>
+
+      <rect x="540" y="50" width="220" height="65" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="540" y="50" width="220" height="65" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+      <text x="650" y="70" fill="white" font-size="10" font-weight="600" text-anchor="middle">顶栏导航</text>
+      <text x="650" y="85" fill="#94a3b8" font-size="7.5" text-anchor="middle">写作 · 人物与世界 · 故事结构</text>
+      <text x="650" y="99" fill="#94a3b8" font-size="7.5" text-anchor="middle">地图 · 查找</text>
+
+      <rect x="780" y="50" width="240" height="65" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="780" y="50" width="240" height="65" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+      <text x="900" y="70" fill="white" font-size="10" font-weight="600" text-anchor="middle">更多菜单 ⋯</text>
+      <text x="900" y="85" fill="#94a3b8" font-size="7.5" text-anchor="middle">作品偏好 · 互动故事</text>
+      <text x="900" y="99" fill="#94a3b8" font-size="7.5" text-anchor="middle">账户设置 · 高级生成工具</text>
+
+      <!-- ===== 起步与管理 ===== -->
+      <rect x="40" y="175" width="1020" height="160" rx="10" fill="rgba(30, 58, 138, 0.10)" stroke="#60a5fa" stroke-width="1" stroke-dasharray="8,4"/>
+      <text x="55" y="193" fill="#60a5fa" font-size="10" font-weight="600">起步与管理 — 账号、作品与搬入存稿</text>
+
+      <rect x="60" y="205" width="480" height="115" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="60" y="205" width="480" height="115" rx="6" fill="rgba(30, 58, 138, 0.30)" stroke="#60a5fa" stroke-width="1.5"/>
+      <text x="300" y="227" fill="white" font-size="12" font-weight="600" text-anchor="middle">账号与项目</text>
+      <text x="300" y="243" fill="#60a5fa" font-size="8" text-anchor="middle">account · project</text>
+      <text x="300" y="260" fill="#94a3b8" font-size="8" text-anchor="middle">注册登录（邮箱 / 微信，按部署开放）· 模型连接与余额 · 全局偏好与外观</text>
+      <text x="300" y="274" fill="#94a3b8" font-size="8" text-anchor="middle">作品档案：新建 / 搜索 / 批量管理 / 回收站 · 继续写作直达写作页</text>
+      <text x="300" y="288" fill="#94a3b8" font-size="8" text-anchor="middle">作品偏好 · AI 用量诊断与省钱模式 · 演示项目一键复制</text>
+      <text x="300" y="302" fill="#67e8f9" font-size="7" text-anchor="middle">#home · #settings · #project · 作品偏好（project-settings）</text>
+      <text x="300" y="313" fill="#67e8f9" font-size="7" text-anchor="middle">/api/auth · /api/account · /api/projects</text>
+
+      <rect x="560" y="205" width="480" height="115" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="560" y="205" width="480" height="115" rx="6" fill="rgba(30, 58, 138, 0.30)" stroke="#60a5fa" stroke-width="1.5"/>
+      <text x="800" y="227" fill="white" font-size="12" font-weight="600" text-anchor="middle">内容导入（含表格迁移）</text>
+      <text x="800" y="243" fill="#60a5fa" font-size="8" text-anchor="middle">imports</text>
+      <text x="800" y="260" fill="#94a3b8" font-size="8" text-anchor="middle">导入正文：txt / epub / html / htm ≤50MB，解析章节与场景</text>
+      <text x="800" y="274" fill="#94a3b8" font-size="8" text-anchor="middle">深度导入流水线：场景骨架 → 实体提取 → 结构分析（可中断恢复）</text>
+      <text x="800" y="288" fill="#94a3b8" font-size="8" text-anchor="middle">设定表格迁移：逐列确认 · 同名补空 · 冲突不落地 · 授权自动整理 · 遗留项复核</text>
+      <text x="800" y="302" fill="#67e8f9" font-size="7" text-anchor="middle">作品档案「导入」抽屉 · 写作页长任务卡</text>
+      <text x="800" y="313" fill="#67e8f9" font-size="7" text-anchor="middle">/api/imports · /api/imports/migrations</text>
+
+      <!-- ===== 写作主线 ===== -->
+      <rect x="40" y="375" width="1020" height="250" rx="10" fill="rgba(6, 78, 59, 0.08)" stroke="#34d399" stroke-width="1" stroke-dasharray="8,4"/>
+      <text x="55" y="393" fill="#34d399" font-size="10" font-weight="600">写作主线 — 作者每天动手的地方</text>
+
+      <rect x="60" y="405" width="235" height="195" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="60" y="405" width="235" height="195" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+      <text x="177" y="427" fill="white" font-size="11" font-weight="600" text-anchor="middle">正文写作与发布</text>
+      <text x="177" y="443" fill="#34d399" font-size="8" text-anchor="middle">writing</text>
+      <text x="177" y="462" fill="#94a3b8" font-size="8" text-anchor="middle">写作首页 · 章节编辑器 · 版本恢复</text>
+      <text x="177" y="477" fill="#94a3b8" font-size="8" text-anchor="middle">AI 续写候选采用 · 角色视角正文</text>
+      <text x="177" y="492" fill="#94a3b8" font-size="8" text-anchor="middle">选区批注 · 双口径导出 · 作者任务</text>
+      <text x="177" y="507" fill="#94a3b8" font-size="8" text-anchor="middle">字数节奏 · 存为写作示例 · 发布</text>
+      <text x="177" y="545" fill="#67e8f9" font-size="7" text-anchor="middle">#workbench/:pid/writing?home=1</text>
+      <text x="177" y="560" fill="#67e8f9" font-size="7" text-anchor="middle">/api/writing · /api/writing/generate</text>
+
+      <rect x="315" y="405" width="235" height="195" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="315" y="405" width="235" height="195" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+      <text x="432" y="427" fill="white" font-size="11" font-weight="600" text-anchor="middle">剧情结构与连续性</text>
+      <text x="432" y="443" fill="#34d399" font-size="8" text-anchor="middle">story</text>
+      <text x="432" y="462" fill="#94a3b8" font-size="8" text-anchor="middle">故事总览：AI 预览 + 手工编辑</text>
+      <text x="432" y="477" fill="#94a3b8" font-size="8" text-anchor="middle">篇章 · 剧情线与信息推进</text>
+      <text x="432" y="492" fill="#94a3b8" font-size="8" text-anchor="middle">场景工作台：筛选 · 合并融合 · 建议</text>
+      <text x="432" y="507" fill="#94a3b8" font-size="8" text-anchor="middle">结构 AI 建议预览与采用</text>
+      <text x="432" y="545" fill="#67e8f9" font-size="7" text-anchor="middle">#workbench/:pid/outline 各子视图</text>
+      <text x="432" y="560" fill="#67e8f9" font-size="7" text-anchor="middle">/api/story · /api/outline</text>
+
+      <rect x="570" y="405" width="235" height="195" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="570" y="405" width="235" height="195" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+      <text x="687" y="427" fill="white" font-size="11" font-weight="600" text-anchor="middle">世界观与 AI 地图册</text>
+      <text x="687" y="443" fill="#34d399" font-size="8" text-anchor="middle">world</text>
+      <text x="687" y="462" fill="#94a3b8" font-size="8" text-anchor="middle">资料库 · 世界书编辑器 · 需要决定</text>
+      <text x="687" y="477" fill="#94a3b8" font-size="8" text-anchor="middle">共创会话 · 问世界 · 影响预演</text>
+      <text x="687" y="492" fill="#94a3b8" font-size="8" text-anchor="middle">智能去重 · 改动历史恢复</text>
+      <text x="687" y="507" fill="#94a3b8" font-size="8" text-anchor="middle">AI 地图册：生成 / 编辑 / 画廊 / 回看</text>
+      <text x="687" y="545" fill="#67e8f9" font-size="7" text-anchor="middle">#workbench/:pid/world · /map</text>
+      <text x="687" y="560" fill="#67e8f9" font-size="7" text-anchor="middle">/api/world · /api/world/map-atlas</text>
+      <text x="687" y="575" fill="#67e8f9" font-size="7" text-anchor="middle">#workbench/:pid/generate（恢复世界观生成 / 共创会话）</text>
+
+      <rect x="825" y="405" width="235" height="195" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="825" y="405" width="235" height="195" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+      <text x="942" y="427" fill="white" font-size="11" font-weight="600" text-anchor="middle">证据上下文确认</text>
+      <text x="942" y="443" fill="#34d399" font-size="8" text-anchor="middle">evidence</text>
+      <text x="942" y="462" fill="#94a3b8" font-size="8" text-anchor="middle">带来源片段检索 · 场景定位</text>
+      <text x="942" y="477" fill="#94a3b8" font-size="8" text-anchor="middle">修复查找：索引健康 · 重建</text>
+      <text x="942" y="492" fill="#94a3b8" font-size="8" text-anchor="middle">定向查读与授权补全</text>
+      <text x="942" y="507" fill="#94a3b8" font-size="8" text-anchor="middle">任务上下文审查（AI 抽屉）</text>
+      <text x="942" y="545" fill="#67e8f9" font-size="7" text-anchor="middle">#workbench/:pid/rag · rag/status</text>
+      <text x="942" y="560" fill="#67e8f9" font-size="7" text-anchor="middle">/api/evidence</text>
+
+      <!-- ===== AI 协作与自动化 ===== -->
+      <rect x="40" y="665" width="1020" height="170" rx="10" fill="rgba(76, 29, 149, 0.08)" stroke="#a78bfa" stroke-width="1" stroke-dasharray="8,4"/>
+      <text x="55" y="683" fill="#a78bfa" font-size="10" font-weight="600">AI 协作与自动化 — 有边界的助手、试验与逐场景理解</text>
+
+      <rect x="60" y="705" width="320" height="115" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="60" y="705" width="320" height="115" rx="6" fill="rgba(76, 29, 149, 0.3)" stroke="#a78bfa" stroke-width="1.5"/>
+      <text x="220" y="727" fill="white" font-size="12" font-weight="600" text-anchor="middle">项目助手与创作引导</text>
+      <text x="220" y="743" fill="#a78bfa" font-size="8" text-anchor="middle">assistant</text>
+      <text x="220" y="760" fill="#94a3b8" font-size="8" text-anchor="middle">对话 · 审读编辑台 · 前瞻 · 提醒</text>
+      <text x="220" y="774" fill="#94a3b8" font-size="8" text-anchor="middle">开篇 / 续写 / 修订引导（默认关闭，授权开放）</text>
+      <text x="220" y="794" fill="#67e8f9" font-size="7" text-anchor="middle">全局助手面板 · 写作首页 / 编辑台</text>
+      <text x="220" y="806" fill="#67e8f9" font-size="7" text-anchor="middle">/api/assistant · /api/assistant/flows</text>
+
+      <rect x="400" y="705" width="320" height="115" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="400" y="705" width="320" height="115" rx="6" fill="rgba(76, 29, 149, 0.3)" stroke="#a78bfa" stroke-width="1.5"/>
+      <text x="560" y="727" fill="white" font-size="12" font-weight="600" text-anchor="middle">创作试验</text>
+      <text x="560" y="743" fill="#a78bfa" font-size="8" text-anchor="middle">collaboration</text>
+      <text x="560" y="760" fill="#94a3b8" font-size="8" text-anchor="middle">按目标调查与试改 · 原文对照 · 精确采用回执</text>
+      <text x="560" y="774" fill="#94a3b8" font-size="8" text-anchor="middle">授权额度与续期 · 理解修正</text>
+      <text x="560" y="794" fill="#67e8f9" font-size="7" text-anchor="middle">助手「创作试验」页签</text>
+      <text x="560" y="806" fill="#67e8f9" font-size="7" text-anchor="middle">/api/collaboration</text>
+
+      <rect x="740" y="705" width="320" height="115" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="740" y="705" width="320" height="115" rx="6" fill="rgba(76, 29, 149, 0.3)" stroke="#a78bfa" stroke-width="1.5"/>
+      <text x="900" y="727" fill="white" font-size="12" font-weight="600" text-anchor="middle">演化引擎 · 逐场景理解</text>
+      <text x="900" y="743" fill="#a78bfa" font-size="8" text-anchor="middle">evolution</text>
+      <text x="900" y="760" fill="#94a3b8" font-size="8" text-anchor="middle">作者全景 · 细节台账 · 持续发现</text>
+      <text x="900" y="774" fill="#94a3b8" font-size="8" text-anchor="middle">类别补扫 · 来源变化后选择性重做</text>
+      <text x="900" y="794" fill="#67e8f9" font-size="7" text-anchor="middle">理解与整理正文 · 本场 / 场景工作台</text>
+      <text x="900" y="806" fill="#67e8f9" font-size="7" text-anchor="middle">/api/evolution（显式启用 · 恢复须核清）</text>
+
+      <!-- ===== 阅读互动与本机设备 ===== -->
+      <rect x="40" y="875" width="1020" height="170" rx="10" fill="rgba(154, 52, 18, 0.10)" stroke="#fb923c" stroke-width="1" stroke-dasharray="8,4"/>
+      <text x="55" y="893" fill="#fb923c" font-size="10" font-weight="600">阅读互动与本机设备</text>
+
+      <rect x="60" y="915" width="480" height="115" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="60" y="915" width="480" height="115" rx="6" fill="rgba(154, 52, 18, 0.3)" stroke="#fb923c" stroke-width="1.5"/>
+      <text x="300" y="937" fill="white" font-size="12" font-weight="600" text-anchor="middle">RP 互动（含匿名演示）</text>
+      <text x="300" y="953" fill="#fb923c" font-size="8" text-anchor="middle">interaction</text>
+      <text x="300" y="970" fill="#94a3b8" font-size="8" text-anchor="middle">旅程列表与四步向导（可离开恢复）· 持续互动与分支切换</text>
+      <text x="300" y="984" fill="#94a3b8" font-size="8" text-anchor="middle">自动回顾与长期约定 · 看海循环 · 故事导出 · 旅程提醒</text>
+      <text x="300" y="998" fill="#94a3b8" font-size="8" text-anchor="middle">演示 RP：匿名试玩（公开演示开启时）</text>
+      <text x="300" y="1012" fill="#67e8f9" font-size="7" text-anchor="middle">#journeys · #journeys/new · #interaction/… · #demo-rp</text>
+      <text x="300" y="1023" fill="#67e8f9" font-size="7" text-anchor="middle">/api/interactions · /api/demo</text>
+
+      <rect x="560" y="915" width="480" height="115" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="560" y="915" width="480" height="115" rx="6" fill="rgba(154, 52, 18, 0.3)" stroke="#fb923c" stroke-width="1.5"/>
+      <text x="800" y="937" fill="white" font-size="12" font-weight="600" text-anchor="middle">本机设备（Mac 本机模型出图）</text>
+      <text x="800" y="953" fill="#fb923c" font-size="8" text-anchor="middle">local_agent</text>
+      <text x="800" y="970" fill="#94a3b8" font-size="8" text-anchor="middle">设备配对与 CLI 选择 · 十分钟配对码 · 撤销连接</text>
+      <text x="800" y="984" fill="#94a3b8" font-size="8" text-anchor="middle">逐次权限确认（工作目录非沙箱） · 候选采用 / 放弃</text>
+      <text x="800" y="998" fill="#94a3b8" font-size="8" text-anchor="middle">世界对象图片 · 地图册页面</text>
+      <text x="800" y="1012" fill="#67e8f9" font-size="7" text-anchor="middle">作品偏好「本机 CLI 生图」</text>
+      <text x="800" y="1023" fill="#67e8f9" font-size="7" text-anchor="middle">/api/local-agent</text>
+
+      <!-- ===== 图例 ===== -->
+      <rect x="60" y="1068" width="14" height="10" rx="2" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1"/>
+      <text x="80" y="1076" fill="#94a3b8" font-size="8">入口层</text>
+      <rect x="140" y="1068" width="14" height="10" rx="2" fill="rgba(30, 58, 138, 0.3)" stroke="#60a5fa" stroke-width="1"/>
+      <text x="160" y="1076" fill="#94a3b8" font-size="8">起步与管理</text>
+      <rect x="240" y="1068" width="14" height="10" rx="2" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/>
+      <text x="260" y="1076" fill="#94a3b8" font-size="8">写作主线</text>
+      <rect x="330" y="1068" width="14" height="10" rx="2" fill="rgba(76, 29, 149, 0.3)" stroke="#a78bfa" stroke-width="1"/>
+      <text x="350" y="1076" fill="#94a3b8" font-size="8">AI 协作</text>
+      <rect x="415" y="1068" width="14" height="10" rx="2" fill="rgba(154, 52, 18, 0.3)" stroke="#fb923c" stroke-width="1"/>
+      <text x="435" y="1076" fill="#94a3b8" font-size="8">互动与本机</text>
+      <line x1="520" y1="1073" x2="550" y2="1073" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+      <text x="558" y="1076" fill="#94a3b8" font-size="8">入口 → 功能域（导航关系，非数据流）</text>
+    </svg>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-dot blue"></div>
+        <h3>账号与项目 <span class="mod">account · project</span></h3>
+      </div>
+      <ul>
+        <li>• 注册 / 登录（邮箱、微信回跳；微信与演示入口按部署开放）· 双入口选择：我是作家 / 我是 RP 用户
+          <span class="ep">#home 登录卡片 · /api/auth</span></li>
+        <li>• 模型连接（文本 / 图片相互独立，最小真实调用验证后加密保存）与余额查询
+          <span class="ep">#settings · /api/account</span></li>
+        <li>• 全局创作偏好与外观（日目标、编辑器字体、专注模式；light/dark/system 与主题包）
+          <span class="ep">#settings（外观分区单独入口）</span></li>
+        <li>• 作品档案：新建 / 搜索 / 筛选 / 批量管理 / 回收站
+          <span class="ep">#project 作品档案页</span></li>
+        <li>• 继续写作：作品卡主操作直达写作首页
+          <span class="ep">#project 作品卡</span></li>
+        <li>• 查看演示项目（只读浏览，登录后一键复制为自己的副本）
+          <span class="ep">#home「查看演示项目」· /api/projects/demo-copy</span></li>
+        <li>• 作品偏好：作者偏好、高级导入专家参数、AI 用量诊断、省钱模式、写作示例管理与对照统计
+          <span class="ep">作品偏好页（project-settings）· /api/projects/{id}/author-preferences</span></li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-dot blue"></div>
+        <h3>内容导入（含表格迁移）<span class="mod">imports</span></h3>
+      </div>
+      <ul>
+        <li>• 导入正文（txt / epub / html / htm ≤50MB，解析章节与场景）
+          <span class="ep">#project「导入」抽屉 · /api/imports</span></li>
+        <li>• 深度导入流水线（场景骨架 → 实体提取 → 结构分析三阶段，可中断恢复）
+          <span class="ep">导入抽屉 + 写作页长任务卡 · /api/imports/deep/*</span></li>
+        <li>• 导入设定表格（xlsx / csv 逐列确认、同名补空、冲突不落地、整次可撤销）
+          <span class="ep">「导入设定表格」· /api/imports/migrations</span></li>
+        <li>• 智能整理导入候选（显式授权后台自动归并，遗留项引导复核）
+          <span class="ep">导入完成卡 / 人物与世界「需要决定」· /api/imports</span></li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-dot emerald"></div>
+        <h3>世界观与 AI 地图册 <span class="mod">world</span></h3>
+      </div>
+      <ul>
+        <li>• 世界资料库（页面 + 对象统一列表、主题目录、收藏 / 最近、搜索筛选）
+          <span class="ep">#workbench/:pid/world · /api/world/library</span></li>
+        <li>• 世界书页面编辑器（分区结构、自动保存 + 本机备份 + 冲突对照、发布前影响核对、[[引用]]跳转）
+          <span class="ep">world/bible · /api/world</span></li>
+        <li>• 统一创建对象 / 资料页（人物字段就地编辑）· 对象图片上传（去元数据转 WebP）
+          <span class="ep">资料库「创建」/ 对象详情「上传图片」</span></li>
+        <li>• 关系管理（分组视角、成员批量加入 / 移出）与别名批量工具
+          <span class="ep">world/relations · world/aliases · /api/world/relations/*</span></li>
+        <li>• 需要决定（待审队列、右侧决策区、批量采用 / 忽略）
+          <span class="ep">world/review</span></li>
+        <li>• 智能去重（双栏对比合并裁决）· 改动历史与恢复 · 影响预演
+          <span class="ep">世界页工具卡 / 实体详情「改动历史」「影响预演」</span></li>
+        <li>• 关联图 · 世界健康（定向 / 全面校验、逐项复核、政策编辑器）· 世界书导入
+          <span class="ep">关联图页 / 世界书健康面板 / 世界书导入面板</span></li>
+        <li>• 世界观共创会话（聊天、检查点、跨设备恢复）· 收束本轮 → 建议审阅采用
+          <span class="ep">世界页「AI 工具」抽屉 · /api/world/cocreation-sessions</span></li>
+        <li>• 问世界（自然语言问答、逐条主张、可打开来源、可存为待处理世界笔记）
+          <span class="ep">查找页 · /api/world/ask-world</span></li>
+        <li>• 与外部模型交接（复制 / 下载交接快照）· 准备视觉稿 · 提示词模板
+          <span class="ep">世界页 AI 抽屉</span></li>
+        <li>• AI 地图册：一键生成 / 更新（候选对比、冲突二次确认、停止恢复）、空间结构编辑器、我的地册画廊、图片标注、场景回看、阅读预览
+          <span class="ep">#workbench/:pid/map · /api/world/map-atlas</span></li>
+        <li>• 高级生成工具页（恢复世界观生成 / 共创会话）
+          <span class="ep">#workbench/:pid/generate</span></li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-dot emerald"></div>
+        <h3>剧情结构与连续性 <span class="mod">story</span></h3>
+      </div>
+      <ul>
+        <li>• 故事总览（AI 生成预览 + 手工编辑 + 版本历史）
+          <span class="ep">#workbench/:pid/outline/story-outline · /api/story</span></li>
+        <li>• 篇章管理
+          <span class="ep">outline/arcs</span></li>
+        <li>• 剧情线与信息推进（伏笔 / 揭示按章节合成时间线、超期徽章）
+          <span class="ep">outline/threads</span></li>
+        <li>• 场景工作台（普通 / 热点模式、八类筛选、机械合并与 AI 融合、拆分 / 替换、复核、跨章建议）
+          <span class="ep">outline/scenes（旧 #scene 自动重定向）</span></li>
+        <li>• 结构 AI 建议预览与采用（剧情线信息推进 / 篇章目标 / 场景安排）
+          <span class="ep">各子视图「AI 建议」入口</span></li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-dot emerald"></div>
+        <h3>正文写作与发布 <span class="mod">writing</span></h3>
+      </div>
+      <ul>
+        <li>• 写作首页（正文续写唯一主行动、计划任务、本机 / 服务器创作位置恢复）
+          <span class="ep">#workbench/:pid/writing?home=1（旧 #today 兼容）</span></li>
+        <li>• 章节编辑器（自动保存 + 本地备份、未保存离开门禁、多标签冲突保护）· 版本历史与恢复 · 发布正式正文
+          <span class="ep">#workbench/:pid/writing · /api/writing</span></li>
+        <li>• AI 续写与候选采用（候选只读预览，未采用不改正文）· 角色视角正文生成
+          <span class="ep">写作页「AI 续写」· /api/writing/generate</span></li>
+        <li>• 正文选区批注与批量处理（离开后可回看结果）
+          <span class="ep">写作页批注卡</span></li>
+        <li>• 双口径导出（本章编辑器文字 / 已采用版本；全书 TXT / 合并 Markdown / 分章 ZIP）
+          <span class="ep">「检查与导出」· /api/writing/export</span></li>
+        <li>• 字数 / 日目标 / 专注模式 / 字体（状态栏就地显示）
+          <span class="ep">写作页底部状态栏</span></li>
+        <li>• 作者任务（今天 / 收件箱 / 之后 / 已完成 / 归档；章节、场景、世界资料就地建任务）
+          <span class="ep">writing?panel=tasks · /api/projects/{id}/author-tasks</span></li>
+        <li>• 手选场景副驾驶与「本场」摘要 · 存为写作示例（候选卡 / 选段）
+          <span class="ep">写作页右侧资料栏 · /api/projects/{id}/author-examples</span></li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-dot emerald"></div>
+        <h3>证据上下文确认 <span class="mod">evidence</span></h3>
+      </div>
+      <ul>
+        <li>• 小说检索（正文片段 + 场景定位聚合卡 + 证据抽屉 + 章节范围 / 视角筛选，状态写 URL 可恢复）
+          <span class="ep">#workbench/:pid/rag · /api/evidence</span></li>
+        <li>• 修复查找（索引健康状态、重建任务、失败片段重试）
+          <span class="ep">rag/status</span></li>
+        <li>• 定向查读与补全面板（继续查证入口、授权补全新增并安全撤销）
+          <span class="ep">地图 / 对象详情 / 导入结果面板 · /api/evidence/compilation/focused-search</span></li>
+        <li>• 任务上下文审查（必须使用 / 系统找到 / 我添加的 / 本次不用，逐项增减与 AI 调整）
+          <span class="ep">AI 抽屉「任务上下文」· /api/evidence/compilation/*</span></li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-dot orange"></div>
+        <h3>RP 互动（含匿名演示）<span class="mod">interaction</span></h3>
+      </div>
+      <ul>
+        <li>• 旅程列表（进行中 / 已归档、搜索、归档与永久删除标题门禁）
+          <span class="ep">#journeys · /api/interactions</span></li>
+        <li>• 新旅程四步向导（资料来源 → 作品 / 文件 → 整理与歧义确认 → 角色与开场，可离开恢复）
+          <span class="ep">journeys/new</span></li>
+        <li>• 持续互动（流式回复、行动输入、停止 / 继续、行动选项、断流恢复）· 重新生成与分支切换（原内容保留为兄弟节点）
+          <span class="ep">#interaction/{journey_id}</span></li>
+        <li>• 自动回顾与长期约定 · 看海循环（离开即停）· 作品资料抽屉 · 故事导出 · 旅程级提醒
+          <span class="ep">互动页回顾抽屉 / 「更多」菜单</span></li>
+        <li>• 演示 RP（匿名试玩，公开演示开启时）
+          <span class="ep">#demo-rp · /api/demo</span></li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-dot violet"></div>
+        <h3>项目助手 <span class="mod">assistant</span></h3>
+      </div>
+      <ul>
+        <li>• 项目助手对话（跨页捕获上下文、修改回执、逐组决定与恢复）
+          <span class="ep">作者界面全局助手面板 · /api/assistant</span></li>
+        <li>• 深度审稿（专项进度、覆盖、遗漏、来源过期，导向语义审稿报告）
+          <span class="ep">写作页检查菜单 → 项目助手</span></li>
+        <li>• 编辑台（「本章写完，交给编辑看」、编辑约定、意见处置与改后复核）
+          <span class="ep">写作页 · /api/assistant/editorial/*</span></li>
+        <li>• 下一步前瞻（基于已保存选区 / 光标段落的润色与修改方向建议）
+          <span class="ep">写作资料栏 + 助手页签 · /api/assistant/forecasts/*</span></li>
+        <li>• 创作引导：一句构想 → 方向卡与骨架取舍；引导续写 → 候选审查与采用；采用后逐层确认后续大纲，审读意见 → 修订与改后复核（默认关闭，按项目授权开放）
+          <span class="ep">写作首页 / 编辑台 · /api/assistant/flows；不自动生成后续多章正文</span></li>
+        <li>• 助手提醒与关照策略（复核 / 处置）
+          <span class="ep">助手面板 · /api/assistant/notices</span></li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-dot violet"></div>
+        <h3>创作试验 <span class="mod">collaboration</span></h3>
+      </div>
+      <ul>
+        <li>• 创作试验（按目标调查与试改、原文对照、精确采用回执、授权额度与续期）
+          <span class="ep">助手「创作试验」页签 · /api/collaboration/cases</span></li>
+        <li>• 理解修正（查看 / 修正 / 撤回 AI 对作品的理解，保留依据）
+          <span class="ep">试验「作品理解」面板 · /api/collaboration/understanding</span></li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-dot violet"></div>
+        <h3>演化引擎 · 逐场景理解 <span class="mod">evolution</span></h3>
+      </div>
+      <ul>
+        <li>• 逐场景理解试用（显式启用引擎、连续推进 / 追加 / 暂停恢复、来源变化预览重算范围、调用额度管理）
+          <span class="ep">写作页「理解与整理正文」· /api/evolution/reading</span></li>
+        <li>• 作者全景与细节台账：按场景回看来源、角色知识、读者揭示与持续发现
+          <span class="ep">写作资料栏「本场」/ 场景工作台 · /api/evolution/panorama</span></li>
+        <li>• 按已读区间补扫细节类别：预览调用额度后确认；已有结果保留，未知付费请求先核对
+          <span class="ep">「理解与整理正文」补扫面板 · /api/evolution/reading/{run_key}/category-rescan-preview</span></li>
+        <li>• 来源变化后选择性重做：输入与方法证明完全一致时复用结果，缺失证明时保守重做
+          <span class="ep">正文变更提醒 / 重做范围预览 · 当前正史与采用权限仍重新核对</span></li>
+        <li>• 工程实现经离线合成数据验证；真实模型、长篇质量与费用仍未验收，地图册及世界正史版本依赖闭包尚未接通</li>
+        <li>• 正文理解来源场景与语义提案复核（演化引擎产出带「正文理解」来源标记）
+          <span class="ep">场景工作台「正文理解」复核入口</span></li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-dot orange"></div>
+        <h3>本机设备 <span class="mod">local_agent</span></h3>
+      </div>
+      <ul>
+        <li>• 设备配对与 CLI 选择（下载单文件伴随程序、十分钟配对码、设备在线状态、撤销连接）
+          <span class="ep">作品偏好「本机 CLI 生图」· /api/local-agent</span></li>
+        <li>• 本机生成世界对象图片（服务端草拟提示、逐次权限确认、候选采用 / 放弃）
+          <span class="ep">世界对象图片「用本机 CLI 生成」</span></li>
+        <li>• 本机生成地图册页面（「出图方式」选站内 / 本机）
+          <span class="ep">地图册新建 / 图片任务</span></li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-dot slate"></div>
+        <h3>如何读这张图</h3>
+      </div>
+      <ul>
+        <li>• 每个功能域 → 具体能力 → 入口；入口 = 前端页面路由 + 注册表 canonical API 前缀及其下的真实子路径</li>
+        <li>• 这张图只回答「作者能做什么、从哪里进」；模块分层、依赖方向与运行时拓扑见配套的模块架构图（module-architecture）</li>
+        <li>• 普通 AI 输出先预览并由作者确认采用；明确授权的自动流水线可写允许的派生或已采用资产，保留来源与撤销回执</li>
+        <li>• 草稿、创作位置与长任务按保存回执恢复；未知付费结果先核对。作品删除进回收站，已采用资产按领域规则保留历史、撤销或废弃</li>
+      </ul>
+    </div>
+  </div>
+
+  <p class="footer">AI 长篇小说创作系统 · 功能描述图（作者视角）· 与 module-architecture 模块架构图配套 · 2026-10-12</p>
+</div>
+
+<script>
+  async function copyAsImage(btn) {
+    const orig = btn.textContent;
+    try {
+      const el = document.getElementById('report-container');
+      const r = el.getBoundingClientRect();
+      const pad = 32;
+      const canvas = await html2canvas(document.body, { backgroundColor: '#020617', scale: 2, useCORS: true, ignoreElements: (e) => e.classList && e.classList.contains('toolbar'), x: r.left + window.scrollX - pad, y: r.top + window.scrollY - pad, width: r.width + pad * 2, height: r.height + pad * 2 });
+      const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      btn.textContent = '✓ Copied!';
+    } catch (e) { btn.textContent = '✗ Failed'; }
+    setTimeout(() => btn.textContent = orig, 2000);
+  }
+  async function downloadPNG(btn) {
+    const orig = btn.textContent;
+    btn.textContent = '⏳ ...';
+    try {
+      const el = document.getElementById('report-container');
+      const r = el.getBoundingClientRect();
+      const pad = 32;
+      const canvas = await html2canvas(document.body, { backgroundColor: '#020617', scale: 2, useCORS: true, ignoreElements: (e) => e.classList && e.classList.contains('toolbar'), x: r.left + window.scrollX - pad, y: r.top + window.scrollY - pad, width: r.width + pad * 2, height: r.height + pad * 2 });
+      const link = document.createElement('a');
+      link.download = 'feature-map.png';
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+      btn.textContent = '✓ Done!';
+    } catch (e) { btn.textContent = '✗ Failed'; }
+    setTimeout(() => btn.textContent = orig, 2000);
+  }
+  async function downloadPDF(btn) {
+    const orig = btn.textContent;
+    btn.textContent = '⏳ ...';
+    try {
+      const el = document.getElementById('report-container');
+      const r = el.getBoundingClientRect();
+      const pad = 32;
+      const canvas = await html2canvas(document.body, { backgroundColor: '#020617', scale: 2, useCORS: true, ignoreElements: (e) => e.classList && e.classList.contains('toolbar'), x: r.left + window.scrollX - pad, y: r.top + window.scrollY - pad, width: r.width + pad * 2, height: r.height + pad * 2 });
+      const imgData = canvas.toDataURL('image/png');
+      const { jsPDF } = window.jspdf;
+      const orientation = canvas.width > canvas.height ? 'landscape' : 'portrait';
+      const pdf = new jsPDF({ orientation, unit: 'px', format: [canvas.width, canvas.height], hotfixes: ['px_scaling'] });
+      pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+      pdf.save('feature-map.pdf');
+      btn.textContent = '✓ Done!';
+    } catch (e) { btn.textContent = '✗ Failed'; }
+    setTimeout(() => btn.textContent = orig, 2000);
+  }
+</script>
+</body>
+</html>
