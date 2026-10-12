@@ -45,7 +45,10 @@ function invalidationView(overrides = {}) {
     unknown_scope: true,
     receipt_id: "receipt-abc",
     invalidated: [{ consumer: "evidence_chapter_index", label: "章节证据索引", detail: "requested_hash=x" }],
-    unsupported: [{ consumer: "world_knowledge", reason: "尚未接线" }],
+    unsupported: [
+      { consumer: "map_atlas", reason: "尚未接线" },
+      { consumer: "world_canon_revision", reason: "尚未接线" },
+    ],
     coverage_note: "细粒度依赖登记后可收窄",
     recompute_options: [
       { kind: "reload_evidence", covers: ["evidence_chapter_index"] },
@@ -79,7 +82,7 @@ describe("normalizeInvalidationNotice", () => {
     expect(notice.entries).toHaveLength(2)
     expect(notice.entries[0]).toMatchObject({
       consumerLabel: "场景状态存档",
-      scopeLabel: "场景 4",
+      scopeLabel: "场景 4 的人物与对象",
       reasonLabel: "依赖的这一章被修改",
       basis: "known",
     })
@@ -89,7 +92,7 @@ describe("normalizeInvalidationNotice", () => {
       basis: "unknown",
     })
     expect(notice.invalidatedLabels).toEqual(["章节证据索引"])
-    expect(notice.unsupportedLabels).toEqual(["世界书理解"])
+    expect(notice.unsupportedLabels).toEqual(["地图集", "正典修订依赖"])
     expect(notice.coverageNote).toBe("细粒度依赖登记后可收窄")
     expect(notice.receiptId).toBe("receipt-abc")
     expect(notice.chapterIndex).toBe(3)
@@ -98,10 +101,12 @@ describe("normalizeInvalidationNotice", () => {
   })
 
   it("缺章号时回退到保存章生成标题，未知消费者不冒充翻译", () => {
-    const notice = normalizeInvalidationNotice(invalidationView({ chapter_index: undefined }), { chapterIndex: 7 })
+    const notice = normalizeInvalidationNotice(
+      invalidationView({ chapter_index: undefined, affected: [], unsupported: [] }),
+      { chapterIndex: 7 },
+    )
     expect(notice.chapterIndex).toBe(7)
-    expect(notice.headline).toContain("第 7 章起的场景状态需要更新")
-    expect(notice.headline).toContain("场景 4、5")
+    expect(notice.headline).toContain("第 7 章的相关内容需要更新")
     const raw = normalizeInvalidationNotice({
       affected: [{ consumer: "mystery_consumer", reason: "weird_reason", basis: "known" }],
       receipt_id: "r2",
@@ -109,6 +114,29 @@ describe("normalizeInvalidationNotice", () => {
     })
     expect(raw.entries[0].consumerLabel).toBe("相关内容")
     expect(raw.entries[0].reasonLabel).toBe("依赖这次修改")
+  })
+
+  it("精确字段命中显示字段范围，未接入依赖单独说明", () => {
+    const notice = normalizeInvalidationNotice({
+      affected: [
+        {
+          consumer: "story_scene_checkpoint",
+          scene_index: 4,
+          dimension: "knowledge",
+          reason: "offset_window_hit",
+          basis: "known",
+        },
+      ],
+      unknown_scope: true,
+      unsupported: [{ consumer: "map_atlas" }],
+      invalidated: [],
+      chapter_index: 3,
+    })
+
+    expect(notice.headline).toContain("已定位 1 个受影响的场景字段")
+    expect(notice.entries[0].scopeLabel).toBe("场景 4 的知识边界")
+    expect(notice.unknownScopeNote).toContain("地图集")
+    expect(notice.unknownScopeNote).toContain("手动检查")
   })
 
   it("响应缺 recompute_options 时默认列三分类", () => {

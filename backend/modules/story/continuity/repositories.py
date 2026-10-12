@@ -648,13 +648,29 @@ class EventRepository:
         *,
         from_scene_index: int | None,
         from_chapter: int | None,
+        scene_dimensions: list[tuple[uuid.UUID, str]] | None = None,
     ) -> int:
         """Exclude stale machine events from every replay without erasing history."""
-        windows = []
-        if from_scene_index is not None:
-            windows.append(MemoryEvent.scene_index >= from_scene_index)
-        if from_chapter is not None:
-            windows.append(MemoryEvent.chapter_index >= from_chapter)
+        if scene_dimensions is None:
+            windows = []
+            if from_scene_index is not None:
+                windows.append(MemoryEvent.scene_index >= from_scene_index)
+            if from_chapter is not None:
+                windows.append(MemoryEvent.chapter_index >= from_chapter)
+        else:
+            if not scene_dimensions:
+                return 0
+            windows = [
+                or_(
+                    *(
+                        and_(
+                            MemoryEvent.scene_id == scene_id,
+                            MemoryEvent.dimension == dimension,
+                        )
+                        for scene_id, dimension in scene_dimensions
+                    )
+                )
+            ]
         if not windows:
             return 0
         result = await db.execute(
@@ -1139,6 +1155,84 @@ class SceneCheckpointRepository:
         )
         await db.flush()
         return int(result.rowcount or 0)
+
+    async def supersede_system_consumers(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        consumers: list[tuple[uuid.UUID, str]],
+    ) -> int:
+        if not consumers:
+            return 0
+        result = await db.execute(
+            update(MemorySceneCheckpoint)
+            .where(
+                MemorySceneCheckpoint.novel_id == novel_id,
+                or_(
+                    *(
+                        and_(
+                            MemorySceneCheckpoint.scene_id == scene_id,
+                            MemorySceneCheckpoint.dimension == dimension,
+                        )
+                        for scene_id, dimension in consumers
+                    )
+                ),
+                MemorySceneCheckpoint.is_current.is_(True),
+                MemorySceneCheckpoint.source == "system_generated",
+                MemorySceneCheckpoint.confirmed.is_(False),
+            )
+            .values(is_current=False, status="superseded")
+        )
+        await db.flush()
+        return int(result.rowcount or 0)
+
+    async def mark_pending_revalidation(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        from_scene_index: int | None = None,
+        consumers: list[tuple[uuid.UUID, str]] | None = None,
+    ) -> int:
+        if consumers is None:
+            if from_scene_index is None:
+                return 0
+            scope = MemorySceneCheckpoint.scene_index >= from_scene_index
+        else:
+            if not consumers:
+                return 0
+            scope = or_(
+                *(
+                    and_(
+                        MemorySceneCheckpoint.scene_id == scene_id,
+                        MemorySceneCheckpoint.dimension == dimension,
+                    )
+                    for scene_id, dimension in consumers
+                )
+            )
+        rows = await db.scalars(
+            select(MemorySceneCheckpoint)
+            .where(
+                MemorySceneCheckpoint.novel_id == novel_id,
+                scope,
+                MemorySceneCheckpoint.is_current.is_(True),
+                or_(
+                    MemorySceneCheckpoint.source != "system_generated",
+                    MemorySceneCheckpoint.confirmed.is_(True),
+                ),
+            )
+            .with_for_update()
+        )
+        reason = "来源已变化，作者确认状态待重验"
+        affected = list(rows)
+        for row in affected:
+            row.status = "needs_revalidation"
+            if reason not in (row.gap_reason or ""):
+                row.gap_reason = (
+                    f"{row.gap_reason}；{reason}" if row.gap_reason else reason
+                )
+        await db.flush()
+        return len(affected)
 
     async def replace_system(
         self,

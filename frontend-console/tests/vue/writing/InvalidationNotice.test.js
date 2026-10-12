@@ -22,7 +22,7 @@ describe("InvalidationNotice", () => {
     const wrapper = mount(InvalidationNotice, { props: { notice: notice() } })
 
     expect(wrapper.get(".writing-invalidation-notice__headline").text())
-      .toBe("这次修改让第 3 章起的场景状态需要更新（涉及场景 4、5）。")
+      .toBe("这次修改让第 3 章的相关内容需要更新（涉及场景 4、5）。")
     expect(wrapper.get(".writing-invalidation-notice__unknown").text()).toContain("部分影响范围待核实")
     expect(wrapper.get(".writing-invalidation-notice__hint").text()).toContain("继续写作")
     expect(wrapper.get("button").text()).toBe("查看受影响与重算选项")

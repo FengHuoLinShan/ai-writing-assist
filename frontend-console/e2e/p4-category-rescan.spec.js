@@ -1,0 +1,32 @@
+import { test, expect } from "@playwright/test"
+
+for (const width of [1280, 390]) {
+  test(`类别补扫预览、失联恢复与未核清保护 ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto("/e2e/p4-category-rescan.harness.html")
+    await page.getByText("补扫细节类别", { exact: true }).click()
+    await page.getByRole("button", { name: "预览类别补扫", exact: true }).click()
+    await expect(page.getByText(/基础发现与复核约 6 次调用/)).toBeVisible()
+    expect(await page.evaluate(() => window.p4Fixture.calls.start.length)).toBe(0)
+    await page.getByRole("button", { name: "取消补扫", exact: true }).click()
+    expect(await page.evaluate(() => window.p4Fixture.calls.start.length)).toBe(0)
+    await page.getByRole("button", { name: "预览类别补扫", exact: true }).click()
+    await page.getByRole("button", { name: "确认并开始补扫", exact: true }).click()
+    await expect(page.getByRole("alert")).toContainText("启动结果暂时失联")
+    await expect(page.getByRole("spinbutton", { name: "补扫起始场景" })).toBeDisabled()
+    await page.getByRole("button", { name: "确认补扫启动结果", exact: true }).click()
+    await expect(page.getByText(/补扫等待开始/)).toBeVisible()
+    const requests = await page.evaluate(() => window.p4Fixture.calls.start)
+    expect(requests).toHaveLength(2); expect(requests[0]).toEqual(requests[1])
+    await page.evaluate(() => window.p4Fixture.setOperation("failed", true))
+    await page.getByRole("button", { name: "刷新进度", exact: true }).click()
+    await page.getByRole("button", { name: "恢复类别补扫", exact: true }).click()
+    expect(await page.evaluate(() => window.p4Fixture.calls.resume.length)).toBe(1)
+    await page.evaluate(() => window.p4Fixture.setOperation("needs_reconciliation"))
+    await page.getByRole("button", { name: "刷新进度", exact: true }).click()
+    await expect(page.getByText(/请求结果与费用尚未核清，不能重发/)).toBeVisible()
+    await expect(page.getByRole("button", { name: "恢复类别补扫", exact: true })).toHaveCount(0)
+    await page.screenshot({ path: `/tmp/p4-consolidation-20261012/rescan-${width}.png`, fullPage: true })
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  })
+}

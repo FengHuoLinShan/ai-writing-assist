@@ -256,9 +256,14 @@ async def invalidate_derived_state(
     *,
     from_scene_index: int | None,
     from_chapter: int | None,
+    affected_scene_dimensions: list[tuple[str, str]] | None = None,
 ) -> dict[str, Any]:
     return await _memory.invalidate_derived_state(
-        db, novel_id, from_scene_index=from_scene_index, from_chapter=from_chapter
+        db,
+        novel_id,
+        from_scene_index=from_scene_index,
+        from_chapter=from_chapter,
+        affected_scene_dimensions=affected_scene_dimensions,
     )
 
 

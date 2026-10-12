@@ -265,7 +265,7 @@ async def test_prepare_replays_then_budget_continuation_reads_exact_scenes(
     )
     queued_task = await db.get(AsyncTask, UUID(recomputed["task_id"]))
     await handle_evolution_scene_step(db, queued_task)
-    assert len(calls) == 20
+    assert len(calls) == 19  # the unchanged sampled Scene is reused
     assert (await reading_status(db, nid, recomputed["run_key"]))["run"][
         "completed_scenes"
     ] == 3

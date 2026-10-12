@@ -68,7 +68,8 @@ from modules.evolution.registration import (
     register_consumption,
     scene_checkpoint_registration,
 )
-from modules.story.continuity.models import MemorySceneCheckpoint
+from modules.story.continuity.contracts import SCENE_MEMORY_DIMENSIONS
+from modules.story.continuity.models import MemoryEvent, MemorySceneCheckpoint
 from modules.story.outline_state.models import Scene
 from modules.writing.facade import create_draft_only
 from modules.writing.models import WritingDraft
@@ -469,16 +470,33 @@ def test_unsupported_consumers_are_always_listed_but_do_not_block_refinement() -
         earliest_affected_scene_index=1,
         scene_indexes=[0, 1],
     )
-    # P2-C 范围限定：world_knowledge/map_atlas 留在 UNSUPPORTED_CONSUMERS
+    # P2-C 范围限定：map_atlas/world_canon_revision 留在 UNSUPPORTED_CONSUMERS
     # 恒列出（缺口可见，对拍 invalidation.UNSUPPORTED_CONSUMERS，不扩），
     # 但它们对齐现状回执 unsupported_consumers 的角色：只展示、不参与
     # 投影窗口判定——登记覆盖完整时细化照常发生。
     assert assessment.unknown_scope.unregistered_consumers == (
-        "world_knowledge",
         "map_atlas",
+        "world_canon_revision",
     )
     assert assessment.unknown_scope.conservative is False
     assert assessment.refined is True
+
+
+def test_missing_scene_dimension_keeps_source_invalidation_conservative() -> None:
+    old, new = _changed_at_tail()
+    assessment = assess_source_impact(
+        novel_id="novel-1",
+        chapter_index=2,
+        change=compute_source_change(old, new),
+        records=[_record("novel-1", scene_index=1)],
+        earliest_affected_scene_index=1,
+        scene_indexes=[0, 1],
+        expected_scene_dimensions=("entities", "knowledge"),
+    )
+
+    assert assessment.unknown_scope.scenes_without_registration == (1,)
+    assert assessment.unknown_scope.conservative is True
+    assert assessment.from_scene_index == 1
 
 
 # ---------------------------------------------------------------------------
@@ -657,8 +675,8 @@ def test_receipt_public_view_author_language_fields() -> None:
     assert view["diagnostics"]["earliest_affected_scene_index"] == 1
     assert view["diagnostics"]["source_change"]["changed"] is True
     assert {item["consumer"] for item in view["unsupported"]} == {
-        "world_knowledge",
         "map_atlas",
+        "world_canon_revision",
     }
     assert view["coverage_note"]
     # 视图必须可直接进 JSON 响应。
@@ -1068,9 +1086,8 @@ async def test_registered_consumption_refines_real_invalidation_end_to_end(
     """登记→失效→精确归因列表（细化端到端）。
 
     s1 登记消费 ch2 整章（命中）、s2 登记只消费 ch2 开头区间（与尾部
-    变更不相交）：s2 与变更无关——不进受影响/重算列表（零无关重算的
-    库级证明）。物理失效仍是窗口语义（story supersede 自起点起全失效、
-    按集合收窄归 B 类接线）：窗口 = 最早命中 Scene 起，与现状一致。
+    变更不相交）：s2 与变更无关——不进受影响/重算列表且保持 current
+    （零无关重算的库级证明）。
     全部登记无关时窗口收窄到零（见下一个用例）。
     """
     db, nid = db_session, evolution_project_id
@@ -1118,8 +1135,8 @@ async def test_registered_consumption_refines_real_invalidation_end_to_end(
 
     # 现状锚定事实仍在回执上（既有语义不回归）。
     assert receipt.earliest_affected_scene_index == 1
-    # 物理失效窗口 = 最早命中 Scene 起（窗口语义，行为与现状一致）。
-    assert await _current_scene_indexes(db, nid) == {0}
+    # 只失效命中消费的 Scene；登记证明 s2 与变更无关，保持 current。
+    assert await _current_scene_indexes(db, nid) == {0, 2}
     # 精确归因列表：s1 known（整章消费命中）；s2 登记证明与变更无关，
     # 不进受影响/重算列表（零无关重算的重算清单证明）；s0 不进。
     entries = _scene_entries_by_index(receipt)
@@ -1190,7 +1207,164 @@ async def test_all_registered_unrelated_keeps_projections_current(
     )
     assert rebuild["affected"] == []
     assert "evidence_chapter_index" in receipt.invalidated_consumers
-    assert "已按登记收窄" in receipt.coverage_note
+    assert "未命中已登记 Story 场景字段" in receipt.coverage_note
+
+
+async def test_source_change_invalidates_only_registered_scene_dimensions(
+    db_session: AsyncSession,
+    evolution_project_id: str,
+) -> None:
+    db, nid = db_session, evolution_project_id
+    chapter1 = "山" * 100
+    chapter2_old = "水" * 300 + "林舟握住铜钥匙。"
+    chapter3 = "木" * 100
+    await _working_draft_row(db, nid, 1, chapter1)
+    await _working_draft_row(db, nid, 2, chapter2_old)
+    await _working_draft_row(db, nid, 3, chapter3)
+    scene0 = await _scene(db, nid, 0, 1)
+    scene1 = await _scene(db, nid, 1, 2)
+    scene2 = await _scene(db, nid, 2, 3)
+    for scene in (scene0, scene1, scene2):
+        await _prepare_projections(db, nid, scene)
+
+    chapter2_new = chapter2_old.replace("铜钥匙", "铁哨子")
+    change = compute_source_change(chapter2_old, chapter2_new)
+    assert change.first_offset is not None and change.last_offset is not None
+    affected = {(str(scene2.id), "entities"), (str(scene2.id), "knowledge")}
+    for scene in (scene1, scene2):
+        rows = await db.scalars(
+            select(MemorySceneCheckpoint).where(
+                MemorySceneCheckpoint.novel_id == uuid.UUID(nid),
+                MemorySceneCheckpoint.scene_id == scene.id,
+                MemorySceneCheckpoint.is_current.is_(True),
+            )
+        )
+        for row in rows:
+            hit = (str(scene.id), row.dimension) in affected
+            ranges = (
+                [(change.first_offset, change.last_offset)]
+                if hit
+                else [(0, change.first_offset)]
+            )
+            state = dict(row.state_json or {})
+            register_consumption(
+                state,
+                scene_checkpoint_registration(
+                    nid,
+                    scene_id=str(scene.id),
+                    scene_index=int(scene.scene_index),
+                    dimension=row.dimension,
+                    chapters=[{"chapter_index": 2, "ranges": ranges}],
+                    method_version="scene-projection-v1",
+                    checkpoint_id=str(row.id),
+                ),
+            )
+            row.state_json = state
+
+    manual_checkpoint = await db.scalar(
+        select(MemorySceneCheckpoint).where(
+            MemorySceneCheckpoint.novel_id == uuid.UUID(nid),
+            MemorySceneCheckpoint.scene_id == scene2.id,
+            MemorySceneCheckpoint.dimension == "entities",
+            MemorySceneCheckpoint.is_current.is_(True),
+        )
+    )
+    assert manual_checkpoint is not None
+    manual_state = dict(manual_checkpoint.state_json)
+    manual_checkpoint.source = "manual"
+    manual_checkpoint.confirmed = True
+
+    events = [
+        MemoryEvent(
+            id=uuid.uuid4(),
+            novel_id=uuid.UUID(nid),
+            chapter_index=chapter,
+            sequence=sequence,
+            scene_id=scene.id,
+            scene_index=int(scene.scene_index),
+            scene_sequence=sequence,
+            dimension=dimension,
+            event_type="entity_created",
+            snapshot_after={},
+            source="evolution",
+        )
+        for scene, chapter, sequence, dimension in (
+            (scene1, 2, 1, "entities"),
+            (scene1, 2, 2, "knowledge"),
+            (scene2, 3, 1, "knowledge"),
+        )
+    ]
+    authored = MemoryEvent(
+        id=uuid.uuid4(),
+        novel_id=uuid.UUID(nid),
+        chapter_index=3,
+        sequence=2,
+        scene_id=scene2.id,
+        scene_index=2,
+        scene_sequence=2,
+        dimension="entities",
+        event_type="entity_created",
+        snapshot_after={"meta": {"author_confirmed": True}},
+        source="author_confirmation",
+    )
+    db.add_all([*events, authored])
+    await _working_draft_row(db, nid, 2, chapter2_new, version_number=2)
+    receipt = await apply_source_invalidation(
+        db, nid, chapter_index=2, change=change, content_mode="working"
+    )
+
+    assert (
+        receipt.unknown_scope is True
+    )  # Map Atlas / canon remain explicitly unsupported.
+    assert receipt.invalidated_consumers["story_state"]["from_scene_index"] == 2
+    assert (
+        receipt.invalidated_consumers["story_state"]["pending_revalidation_checkpoints"]
+        == 1
+    )
+    assert {
+        (item["scene_id"], item["dimension"])
+        for item in receipt.affected
+        if item["consumer"] == "story_scene_checkpoint" and item["basis"] == "known"
+    } == affected
+    assert {
+        (str(row.scene_id), row.dimension)
+        for row in await db.scalars(
+            select(MemorySceneCheckpoint).where(
+                MemorySceneCheckpoint.novel_id == uuid.UUID(nid),
+                MemorySceneCheckpoint.is_current.is_(True),
+            )
+        )
+    } == {
+        (str(scene.id), dimension)
+        for scene in (scene0, scene1, scene2)
+        for dimension in SCENE_MEMORY_DIMENSIONS
+        if (str(scene.id), dimension) not in affected
+        or (scene.id == scene2.id and dimension == "entities")
+    }
+    assert manual_checkpoint.is_current is True
+    assert manual_checkpoint.status == "needs_revalidation"
+    assert manual_checkpoint.source == "manual" and manual_checkpoint.confirmed is True
+    assert manual_checkpoint.state_json == manual_state
+    assert "作者确认状态待重验" in manual_checkpoint.gap_reason
+    from modules.story.facade import get_scene_state_view
+
+    view = await get_scene_state_view(
+        db,
+        novel_id=nid,
+        scene_id=str(scene2.id),
+        viewpoint={"kind": "author"},
+    )
+    entities = next(item for item in view.dimensions if item.dimension == "entities")
+    assert entities.status == "degraded"
+    assert "作者确认状态待重验" in entities.gap_reason
+    stale_event_ids = {
+        event.id
+        for event in await db.scalars(
+            select(MemoryEvent).where(MemoryEvent.source_stale.is_(True))
+        )
+    }
+    assert stale_event_ids == {events[2].id}
+    assert authored.source_stale is False
 
 
 async def test_registered_offset_window_hit_reason_end_to_end(
@@ -1266,6 +1440,9 @@ async def test_unregistered_scenes_keep_conservative_with_explainable_view(
         .scalars()
         .all()
     )
+    manual_checkpoint = next(row for row in rows if row.dimension == "entities")
+    manual_checkpoint.source = "manual"
+    manual_checkpoint.confirmed = True
     for row in rows:
         row.state_json = {
             key: value
@@ -1292,8 +1469,14 @@ async def test_unregistered_scenes_keep_conservative_with_explainable_view(
     assert entries[2]["reason"] == ImpactReason.conservative_expansion_unregistered.value
     assert 0 not in entries  # 无关 Scene 不进列表
     assert receipt.unknown_scope is True
-    # 行为不变：保守窗口（s1 起，含 s2）全部失效、s0 保持。
-    assert await _current_scene_indexes(db, nid) == {0}
+    # 系统派生状态保守失效，作者行保留且显式标记待重验。
+    assert await _current_scene_indexes(db, nid) == {0, 2}
+    assert manual_checkpoint.is_current is True
+    assert manual_checkpoint.status == "needs_revalidation"
+    assert (
+        receipt.invalidated_consumers["story_state"]["pending_revalidation_checkpoints"]
+        == 1
+    )
     rebuild_scenes = {
         item["scene_index"]
         for option in receipt.recompute_options

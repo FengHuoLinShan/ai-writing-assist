@@ -10,6 +10,7 @@
     <details v-if="failedDrafts.length" open class="evolution-backup-warning"><summary>有输入尚未可靠备份，请保存或复制后再关闭</summary><article v-for="item in failedDrafts" :key="item.entry_id"><p>{{ item.label }}</p><button type="button" class="btn btn-sm" @click="openEntry(item, undefined)">恢复这条未保存判断</button><label>可复制的输入<textarea readonly :value="copyText(item.draft)" rows="3"></textarea></label></article></details>
     <template v-if="data">
       <p class="evolution-coverage" role="status">{{ coverageLabel }} · {{ data.coverage.note }}</p>
+      <p v-if="data.coverage.categories?.length" aria-label="按类别的发现覆盖" class="evolution-note">类别覆盖：<span v-for="item in data.coverage.categories" :key="item.key">{{ item.label }}：{{ categoryCoverageLabel(item) }}；</span></p>
       <p v-if="data.coverage.scope" class="evolution-note">本场 {{ data.coverage.scope.current_observations }} 条观察，召回 {{ data.coverage.scope.historical_candidates }} / {{ data.coverage.scope.total_prior_observations }} 条历史候选。{{ data.coverage.scope.recall_scope }}</p>
       <p v-if="data.coverage.method_status === 'method_changed'">发现方法已更新，旧结果保留，建议重新核对。</p>
       <details v-if="data.coverage.pending?.length"><summary>本轮待核实 {{ data.coverage.pending.length }} 项</summary><p v-for="(item, i) in data.coverage.pending" :key="i">{{ pendingLabel(item.reason) }}<span v-if="item.change?.statement">：{{ item.change.statement }}</span><span v-if="item.note">：{{ item.note }}</span></p></details>
@@ -38,7 +39,7 @@
       <section aria-label="细节台账">
         <h4>细节台账</h4>
         <form class="evolution-actions" @submit.prevent="search">
-          <label>类别<select v-model="category" aria-label="类别"><option value="">全部</option><option value="conditional_behavior">条件行为</option><option value="clue">线索</option><option value="commitment">承诺</option></select></label>
+          <label>类别<select v-model="category" aria-label="类别"><option value="">全部</option><option v-for="item in ledger.categories" :key="item.key" :value="item.key">{{ item.label }}</option></select></label>
           <label>查找条目<input v-model="query" type="search" maxlength="200"></label><button class="btn btn-sm" :disabled="loading" type="submit">筛选</button>
         </form>
         <p role="status">筛选后 {{ ledger.total }} 项。{{ !ledger.items.length ? '当前展示为空；扫描覆盖见上方，不据此判断正文中不存在。' : '' }}</p>
@@ -56,7 +57,7 @@
         <p v-if="entry.claim.targets.length">关联对象：{{ entry.claim.targets.map(item => item.label || '未记录名称的对象').join('、') }}（按原始观察绑定）</p>
         <p v-if="entry.claim.unresolved_subjects?.length">身份待核实：{{ entry.claim.unresolved_subjects.join('、') }}</p>
         <p v-for="text in entry.claim.competing_explanations" :key="text">其他解释：{{ text }}</p>
-        <details open><summary>支持、例外、反证与回忆</summary><article v-for="(evidence, i) in entry.claim.evidence" :key="i"><small>第 {{ evidence.position.chapter_index }} 章 · {{ evidence.role === 'counterevidence' ? '明确反证' : evidence.role === 'exception_case' ? '同条件例外' : '支持依据' }} · {{ evidence.purpose === 'context' && evidence.occurrence_kind !== 'context' ? '实例资格待按当前方法核对，未计入次数' : occurrenceLabel(evidence.occurrence_kind) }}</small><blockquote>{{ evidence.quote }}</blockquote><button class="btn btn-sm" type="button" @click="openEvidence(i)">回看这一版原文</button></article></details>
+        <details open><summary>支持、例外、反证与回忆</summary><article v-for="(evidence, i) in entry.claim.evidence" :key="i"><small>第 {{ evidence.position.chapter_index }} 章 · {{ evidence.role === 'counterevidence' ? '明确反证' : evidence.role === 'exception_case' ? '同条件例外' : '支持依据' }} · {{ evidence.purpose === 'context' && evidence.occurrence_kind !== 'context' ? '实例资格待按当前方法核对，未计入次数' : occurrenceLabel(evidence.occurrence_kind) }}</small><small v-if="evidence.speaker_label">说话人：{{ evidence.speaker_label }}</small><blockquote>{{ evidence.quote }}</blockquote><button class="btn btn-sm" type="button" @click="openEvidence(i)">回看这一版原文</button></article></details>
         <label>历史修订<select aria-label="历史修订" :value="entry.revision" :disabled="saving" @change="openRevision(Number($event.target.value))"><option v-for="version in entry.history" :key="version.revision" :value="version.revision">第 {{ version.revision }} 次 · 第 {{ version.scene_index + 1 }} 场 · {{ revisionLabel(version.kind) }}</option></select></label>
         <p v-if="entry.revision !== entry.head_revision">这是历史记录。<button class="btn btn-sm" type="button" @click="rebase">读取最新记录，保留输入</button></p>
         <form v-if="draft" @submit.prevent="saveDecision">
@@ -91,7 +92,7 @@ import SceneFieldProvenance from "../views/writing/components/SceneFieldProvenan
 import SceneCheckpointHistory from "../views/writing/components/SceneCheckpointHistory.vue"
 import { sceneFieldProvenance } from "../views/writing/sceneLensModel.js"
 const props = defineProps({ projectId: { type: String, required: true }, sceneId: { type: String, required: true } })
-const data = ref(null), ledger = ref({ items: [], total: 0 }), scenes = ref([]), cutoff = ref(props.sceneId)
+const data = ref(null), ledger = ref({ items: [], total: 0, categories: [] }), scenes = ref([]), cutoff = ref(props.sceneId)
 const loading = ref(false), saving = ref(false), opened = ref(false), error = ref("")
 const category = ref(""), query = ref(""), offset = ref(0), entry = ref(null), draft = ref(null)
 const decisionError = ref(""), message = ref(""), backupError = ref(false), conflict = ref(false)
@@ -104,8 +105,7 @@ function copyText(value) { return `判断：${decisionLabel(value.decision)}\n�
 function decisionApplies(item) { const value = item.author_decision || {}; return value.scope === "theme" || item.revision === value.basis_revision + 1 }
 function statementFor(item) { return decisionApplies(item) && item.author_decision.corrected_statement || item.claim.statement }
 function decisionFor(item) { return `${decisionApplies(item) ? '' : item.author_decision.decision ? '此前记录：' : ''}${decisionLabel(item.author_decision.decision)}` }
-const categories = { conditional_behavior: "条件行为", clue: "线索", commitment: "承诺" }
-const categoryLabel = key => categories[key] || "待分类"
+const categoryLabel = key => ledger.value.categories?.find(item => item.key === key)?.label || "待分类"
 const reviewLabel = item => item.proposal_target && item.independent_review?.verdict === "supported" ? "待核提案，问题依据已核对" : ({ supported: "独立核对支持", uncertain: "不确定候选，独立核对未充分支持", rejected: "独立核对不支持" })[item.independent_review?.verdict] || "独立核对状态未记录"
 const sourceLabel = key => key === "current" ? "来源未变化" : "来源已变化，待核对"
 const decisionLabel = key => ({ keep: "作者保留", reject: "作者不接受", corrected: "作者修正", unreviewed: "待作者核对" })[key] || "待作者核对"
@@ -116,6 +116,7 @@ const layerLabel = key => ({ fact: "事实层", belief: "信念层", observation
 const pendingLabel = key => ({ settled_output_failure: "模型输出未通过格式或契约校验，该批未检查且未写入台账", condition_change_not_independently_confirmed: "条件变化尚未通过独立核对，原条件保留", counterevidence_not_independently_confirmed: "反证尚未通过独立核对", exception_or_counterevidence_not_independently_confirmed: "例外或反证尚未通过独立核对", review_evidence_not_in_change: "复核引用未绑定本项证据", review_evidence_role_conflict: "实例的正向、例外或反证资格存在分歧，需核对", invalid_changes_quarantined: "部分变化格式或目标修订不合法，已隔离", new_theme_outside_primary_batch: "重复新增请求已隔离", capacity_unsupported: "这一批超出方法容量，尚未检查", competing_changes_same_theme: "同一主题有不同修订，需核对", author_or_theme_revision_changed: "作者判断或主题已有新版本", unresolved: "仍需核实", independent_review_not_supported: "独立核对未支持该项" })[key] || "证据或身份尚未通过核对"
 const fieldLabel = key => ({ state: "状态", location: "所在", location_id: "所在", custody_holder: "保管人", custody_owner: "所有人", opening_key_id: "所需钥匙", opening_moon_phase: "所需月相", moon_phase: "月相", knowledge: "所知", summary: "概述", text: "内容", status: "状态", relation: "关系", current_state: "当前状态" })[key] || "状态记录"
 const coverageLabel = computed(() => ({ checked: "已检查本次召回范围", partial: "部分检查", not_checked: "未检查", not_enabled: "未启用发现", incomplete: "发现尚未完成", source_changed: "来源变化，待重新核对" })[data.value?.coverage.status] || "尚未核对")
+const categoryCoverageLabel = item => item.status === "inspected" ? (item.found ? `发现或待核 ${item.found} 项` : "已检查未检出") : item.status === "partial" ? (item.found ? `部分检查，发现或待核 ${item.found} 项` : "部分检查") : item.status === "unsupported" ? "暂无法检查" : "未检查"
 const facts = computed(() => (data.value?.state.dimensions || []).flatMap(dimension => dimension.facts.map(fact => ({ ...fact, dimensionLabel: dimension.label, provenance: provenanceFor(fact) }))))
 const gaps = computed(() => (data.value?.state.dimensions || []).filter(item => item.status !== "ok"))
 const draftText = computed(() => JSON.stringify(draft.value))
@@ -139,7 +140,7 @@ function backup() {
 watch(draft, () => { pending = null; backup() }, { deep: true, flush: "sync" })
 function resetScope() {
   generation++; detailGeneration++; sourceGeneration++
-  backup(); data.value = null; ledger.value = { items: [], total: 0 }; scenes.value = []
+  backup(); data.value = null; ledger.value = { items: [], total: 0, categories: [] }; scenes.value = []
   entry.value = draft.value = source.value = null; activeKey = ""; pending = null
   loading.value = saving.value = conflict.value = backupError.value = false
   error.value = decisionError.value = message.value = sourceError.value = ""
@@ -152,7 +153,7 @@ async function toggle(event) { opened.value = event.target.open; if (opened.valu
 async function load() {
   const token = ++generation, project = props.projectId, scene = cutoff.value
   detailGeneration++; sourceGeneration++; backup(); entry.value = draft.value = source.value = null; activeKey = ""
-  data.value = null; ledger.value = { items: [], total: 0 }
+  data.value = null; ledger.value = { items: [], total: 0, categories: [] }
   loading.value = true; error.value = ""
   try {
     const result = await api().panorama(project, scene)

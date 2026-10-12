@@ -81,7 +81,7 @@ describe("autosave 失效提示接入（P2-C C4）", () => {
 
     const notice = controller.snapshot().invalidationNotice
     expect(notice).not.toBeNull()
-    expect(notice.headline).toBe("这次修改让第 1 章起的场景状态需要更新（涉及场景 1、2）。")
+    expect(notice.headline).toBe("这次修改让第 1 章的相关内容需要更新（涉及场景 1、2）。")
     expect(notice.hasUnknownScope).toBe(true)
     expect(notice.receiptId).toBe("receipt-1")
     expect(notice.recomputeOptions).toEqual(["reload_evidence", "rebuild_derived_state", "regenerate_prose"])
@@ -177,7 +177,7 @@ describe("载入章节回读未消解的失效提示（F7）", () => {
     const restored = controller.snapshot().invalidationNotice
     expect(restored).not.toBeNull()
     expect(restored.receiptId).toBe("receipt-open")
-    expect(restored.headline).toBe("这次修改让第 1 章起的场景状态需要更新（涉及场景 1、2）。")
+    expect(restored.headline).toBe("这次修改让第 1 章的相关内容需要更新（涉及场景 1、2）。")
     expect(restored.recomputeOptions).toEqual(["reload_evidence", "rebuild_derived_state", "regenerate_prose"])
     expect(api.evolution.pendingInvalidations).toHaveBeenCalledWith("p1", { chapterIndex: 1 })
 

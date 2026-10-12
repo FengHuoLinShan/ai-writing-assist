@@ -26,6 +26,8 @@ from modules.writing.facade import create_draft_only
 
 
 async def prepared(db, nid):
+    from modules.evolution.discovery import method_fingerprint
+
     text = "甲紧张时摸了戒指。"
     await seed(db, nid, 1, text)
     scene = (await get_scenes_by_novel(db, nid))[0]
@@ -61,7 +63,7 @@ async def prepared(db, nid):
         statement="甲在此次紧张时摸了戒指。",
         confidence=0.6,
         conditions=["紧张"],
-        method_fingerprint="b" * 64,
+        method_fingerprint=method_fingerprint(),
         evidence=[
             {
                 "observation_id": observation["observation_id"],
@@ -190,6 +192,34 @@ async def test_ledger_replay_decision_revision_and_source_change(
     assert stale["source_status"] == "source_changed"
     assert stale["current_author_decision"] == current["current_author_decision"]
     assert (await save_ledger_decision(db, nid, entry_id, decision))["revision"] == 2
+
+
+async def test_ledger_source_freshness_uses_exact_cited_range(
+    db_session, evolution_project_id
+):
+    db, nid = db_session, evolution_project_id
+    claim, change = await prepared(db, nid)
+    entry = await persist_discovery_claim(
+        db,
+        nid,
+        change,
+        claim,
+        operation_key="f" * 64,
+        review={"verdict": "supported"},
+    )
+    await db.commit()
+    quote = claim.evidence[0].quote
+
+    await create_draft_only(db, nid, 1, content=quote + "旁人转身离开。")
+    await db.commit()
+    current = await read_ledger_entry(db, nid, entry["entry_id"])
+    assert current["source_status"] == "current"
+
+    await create_draft_only(db, nid, 1, content="甲在悲傷時摸戒指。旁人转身离开。")
+    await db.commit()
+    assert (await read_ledger_entry(db, nid, entry["entry_id"]))[
+        "source_status"
+    ] == "source_changed"
 
 
 async def test_ledger_scope_cas_and_transactional_rollback(
@@ -357,7 +387,7 @@ async def test_panorama_compares_actual_scene_records_without_inventing_absent_s
 
 @pytest.mark.parametrize("review_verdict", ["uncertain", "supported"])
 async def test_question_proposal_preserves_supported_baseline_and_routing(
-    db_session, evolution_project_id, review_verdict
+    db_session, evolution_project_id, review_verdict, monkeypatch
 ):
     db, nid = db_session, evolution_project_id
     claim, change = await prepared(db, nid)
@@ -423,6 +453,16 @@ async def test_question_proposal_preserves_supported_baseline_and_routing(
         for unit in batch["historical_context"]
         if "theme" in unit
     )
+
+    monkeypatch.setattr(
+        "modules.evolution.discovery.method_fingerprint", lambda: "changed-method"
+    )
+    stale_inputs = await prepare_discovery(
+        db,
+        store,
+        frozen.model_copy(update={"payload": {**frozen.payload, "scene_index": 1}}),
+    )
+    assert not stale_inputs["themes"]
 
     if review_verdict == "supported":
         await save_ledger_decision(

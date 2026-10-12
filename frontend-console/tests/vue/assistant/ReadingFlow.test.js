@@ -149,6 +149,10 @@ it("按页回看世界提案，转义模型内容并丢弃跨项目迟到结果"
   const state = { engine: { engine: "evolution" }, run: { run_key: "one", status: "completed", total_scenes: 1, completed_scenes: 1, end_chapter: 1 } }
   const status = vi.fn().mockResolvedValue(state)
   const proposals = vi.fn().mockResolvedValue({ offset: 0, limit: 20, total: 21, items: [{ scene_index: 0, stale: true,
+    review_groups: [
+      { status: "passed", candidate_count: 2, issues: [] },
+      { status: "blocked", candidate_count: 1, issues: ["单个候选超过审查容量，请结合原文核对。"] },
+    ],
     entities: [{ name: "<img src=x>", summary: "候选摘要", evidence_quotes: ["正文证据"] }],
     aliases: [], relations: [], findings: ["描述超出原文"], uncertainties: [],
   }] })
@@ -158,6 +162,8 @@ it("按页回看世界提案，转义模型内容并丢弃跨项目迟到结果"
   await button(wrapper, "查看世界资料提案").trigger("click"); await flushPromises()
   expect(proposals).toHaveBeenCalledWith("a", "one", 0)
   expect(wrapper.text()).toContain("历史或尚未提交")
+  expect(wrapper.find(".reading-review-groups").text()).toContain("1 / 2 项通过")
+  expect(wrapper.find(".reading-review-groups").text()).toContain("单个候选超过审查容量")
   expect(wrapper.text()).toContain("描述超出原文")
   expect(wrapper.text()).toContain("<img src=x>")
   expect(wrapper.find("img").exists()).toBe(false)
@@ -168,6 +174,87 @@ it("按页回看世界提案，转义模型内容并丢弃跨项目迟到结果"
   resolve({ offset: 20, limit: 20, total: 21, items: [{ scene_index: 9 }] }); await flushPromises()
   expect(wrapper.text()).not.toContain("第 10 场")
   expect(wrapper.text()).not.toContain("候选摘要")
+  wrapper.unmount()
+})
+
+it("旧版整场延后先预览组数与调用额度，再经作者确认补审", async () => {
+  const state = {
+    engine: { engine: "evolution" },
+    run: { run_key: "run-old", status: "completed", total_scenes: 1, completed_scenes: 1, end_chapter: 1 },
+  }
+  const status = vi.fn().mockResolvedValue(state)
+  const deferred = {
+    scene_index: 0,
+    stale: false,
+    review_status: "blocked",
+    review_groups: [],
+    supplement: { available: true, attempt_id: "a".repeat(32) },
+    entities: [], aliases: [], relations: [], findings: [], uncertainties: [],
+  }
+  const reviewed = {
+    ...deferred,
+    review_status: "blocked",
+    supplement: { available: false, status: "pending", reviewed_groups: 0, group_count: 2, result_refs: [] },
+  }
+  const proposals = vi.fn()
+    .mockResolvedValueOnce({ offset: 0, limit: 20, total: 1, items: [deferred] })
+    .mockResolvedValueOnce({ offset: 0, limit: 20, total: 1, items: [reviewed] })
+  const supplementPreview = vi.fn().mockResolvedValue({
+    fingerprint: "f".repeat(64), group_count: 2, call_count: 2,
+    deferred_count: 1, budget_remaining: 1, additional_budget: 1,
+  })
+  const supplementStart = vi.fn().mockResolvedValue({ task_id: "task-a", status: "pending" })
+  const confirm = vi.fn().mockResolvedValue(true)
+  setBridgeOverrides({ api: { evolution: {
+    status, proposals,
+    worldAuditSupplementPreview: supplementPreview,
+    worldAuditSupplementStart: supplementStart,
+  } }, confirm })
+  const wrapper = mount(ReadingFlow, { props: { projectId: "a" } })
+  await open(wrapper)
+  await button(wrapper, "查看世界资料提案").trigger("click"); await flushPromises()
+  await button(wrapper, "预览延后场景补审").trigger("click"); await flushPromises()
+  expect(supplementPreview).toHaveBeenCalledWith("a", "run-old", "a".repeat(32))
+  expect(supplementStart).not.toHaveBeenCalled()
+  expect(wrapper.text()).toContain("预计 2 组、2 次模型调用")
+  expect(wrapper.text()).toContain("需增加 1 次")
+  await button(wrapper, "确认补审").trigger("click"); await flushPromises()
+  expect(confirm.mock.calls[0][0]).toContain("分为 2 组，调用模型 2 次")
+  expect(supplementStart).toHaveBeenCalledWith("a", "run-old", "a".repeat(32), expect.objectContaining({
+    expected_fingerprint: "f".repeat(64), authorization_confirmed: true,
+  }))
+  expect(wrapper.text()).toContain("延后场景补审等待开始")
+  wrapper.unmount()
+})
+
+it("仅对可恢复的明确失败补审显示继续入口", async () => {
+  const state = {
+    engine: { engine: "evolution" },
+    run: { run_key: "run-old", status: "completed", total_scenes: 1, completed_scenes: 1, end_chapter: 1 },
+  }
+  const status = vi.fn().mockResolvedValue(state)
+  const item = {
+    scene_index: 0, stale: false, review_status: "blocked", review_groups: [],
+    supplement: { available: false, can_resume: true, status: "failed", attempt_id: "a".repeat(32) },
+    entities: [], aliases: [], relations: [], findings: [], uncertainties: [],
+  }
+  const resumedItem = {
+    ...item,
+    supplement: { ...item.supplement, can_resume: false, status: "running" },
+  }
+  const proposals = vi.fn()
+    .mockResolvedValueOnce({ offset: 0, limit: 20, total: 1, items: [item] })
+    .mockResolvedValueOnce({ offset: 0, limit: 20, total: 1, items: [resumedItem] })
+  const resume = vi.fn().mockResolvedValue({ task_id: "task-a", status: "pending" })
+  setBridgeOverrides({ api: { evolution: { status, proposals, worldAuditSupplementResume: resume } } })
+  const wrapper = mount(ReadingFlow, { props: { projectId: "a" } })
+  await open(wrapper)
+  await button(wrapper, "查看世界资料提案").trigger("click"); await flushPromises()
+  expect(button(wrapper, "继续补审")).toBeTruthy()
+  await button(wrapper, "继续补审").trigger("click"); await flushPromises()
+  expect(resume).toHaveBeenCalledWith("a", "run-old", "a".repeat(32))
+  expect(wrapper.text()).toContain("延后场景补审进行中")
+  expect(button(wrapper, "继续补审")).toBeUndefined()
   wrapper.unmount()
 })
 
@@ -182,5 +269,33 @@ it("结构整理阶段在状态行与场景计数分开显示", async () => {
   const line = wrapper.get('[role="status"]').text()
   expect(line).toContain("整理剧情结构候选")
   expect(line).not.toContain("2 / 2 场景")
+  wrapper.unmount()
+})
+
+it("补扫按选类范围预览、取消零启动、失联保持原授权、换作品隔离", async () => {
+  const reading = { engine: { engine: "evolution", epoch: 2 }, run: {
+    run_key: "run-a", status: "completed", completed_scenes: 3, total_scenes: 3, end_chapter: 3,
+    discovery_categories: [{ key: "language_habit", label: "语言习惯" }, { key: "external_appearance", label: "外在特征" }], category_rescans: [],
+  } }
+  const status = vi.fn().mockResolvedValue(reading)
+  const categoryRescanPreview = vi.fn().mockResolvedValue({ fingerprint: "c".repeat(64), scene_count: 3, call_count: 6, maximum_calls: 20, additional_budget: 12, budget_remaining: 8 })
+  const categoryRescanStart = vi.fn().mockRejectedValueOnce(new Error("启动结果失联")).mockResolvedValue({ status: "pending" })
+  setBridgeOverrides({ api: { evolution: { status, categoryRescanPreview, categoryRescanStart } } })
+  const wrapper = mount(ReadingFlow, { props: { projectId: "a" } })
+  await open(wrapper)
+  await button(wrapper, "预览类别补扫").trigger("click"); await flushPromises()
+  expect(categoryRescanPreview).toHaveBeenCalledWith("a", "run-a", expect.objectContaining({ from_scene_index: 0, through_scene_index: 2, categories: ["language_habit", "external_appearance"] }))
+  expect(categoryRescanStart).not.toHaveBeenCalled()
+  await button(wrapper, "取消补扫").trigger("click")
+  expect(categoryRescanStart).not.toHaveBeenCalled()
+  await button(wrapper, "预览类别补扫").trigger("click"); await flushPromises()
+  await button(wrapper, "确认并开始补扫").trigger("click"); await flushPromises()
+  const frozen = JSON.parse(JSON.stringify(categoryRescanStart.mock.calls[0]))
+  expect(wrapper.get('.reading-category-rescan fieldset').element.disabled).toBe(true)
+  await button(wrapper, "确认补扫启动结果").trigger("click"); await flushPromises()
+  expect(categoryRescanStart.mock.calls[1]).toEqual(frozen)
+  await wrapper.setProps({ projectId: "b" }); await flushPromises()
+  expect(wrapper.find('.reading-category-rescan input[type="number"]').element.value).toBe("1")
+  expect(wrapper.text()).not.toContain("启动结果失联")
   wrapper.unmount()
 })

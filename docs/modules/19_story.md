@@ -155,8 +155,9 @@ Story 为 Collaboration 提供 Scene、伏笔/揭示安排的冻结可编辑字�
 ## 地图消费者与派生流生命周期
 
 Story continuity 的在场读取供 World MapSceneContext 聚合：保留位置 identity、事件摘要和
-观察出处，限制有效 Scene 与截止点。所有正文与 Scene 生命周期变化统一软失效机器状态，
-作者确认历史继续保存；当前投影不读取已删/废弃场景。详见 Memory 与地图模块契约。
+观察出处，限制有效 Scene 与截止点。正文来源登记完整时，失效只软失效命中的 Scene×维度
+机器事件与 checkpoint；登记缺失时从受影响 Scene 起保守扩大。作者确认历史与 checkpoint 内容
+保留，命中作者行时标记待重验；当前投影不读取已删/废弃场景。详见 Memory 与地图模块契约。
 
 ### 第一阶段条件比较
 

@@ -1,5 +1,6 @@
 """Persist derived themes and author decisions without writing World/Story Canon."""
 
+from collections import Counter
 from uuid import UUID, uuid4
 
 from sqlalchemy import func, select
@@ -7,6 +8,7 @@ from sqlalchemy import func, select
 from core.errors import ConflictError, NotFoundError
 from infrastructure.llm.collaboration import content_hash
 from modules.evolution.ledger_contracts import (
+    LEDGER_CATEGORY_LABELS,
     DiscoveryChange,
     LedgerClaim,
     LedgerDecision,
@@ -25,7 +27,13 @@ from modules.project.facade import (
 )
 from modules.story.facade import get_scene_state_view, get_scenes_by_novel
 from modules.story.outline_state.facade import get_active_foreshadowing
-from modules.writing.facade import get_draft, get_latest_draft_for_chapter
+from modules.writing.facade import (
+    build_manuscript_range_ref,
+    get_draft,
+    get_latest_draft_for_chapter,
+    get_manuscript_source_manifest,
+    read_manuscript_range,
+)
 
 
 async def require_author_ledger(db, novel_id):
@@ -250,19 +258,87 @@ async def save_ledger_decision(db, novel_id, entry_id, data):
 
 
 async def claim_freshness(db, novel_id, claim, *, cache=None):
-    """Qualification changes independently of the immutable author decision."""
     from modules.evolution.freshness import dependency_current
+    from modules.evolution.reading import require_current_prefix
 
-    # Legacy caller dictionaries are not authoritative: they lack a mutation
-    # epoch and can survive writes or be reused for a different project.
     store = PostgresAttemptStore(db, novel_id)
     grouped = {}
     for dependency in claim.dependencies:
         existing = grouped.get(dependency.run_key)
         if existing is None or dependency.scene_index > existing.scene_index:
             grouped[dependency.run_key] = dependency
+    fully_current = True
     for dependency in grouped.values():
-        if not await dependency_current(db, store, dependency):
+        if await dependency_current(db, store, dependency):
+            continue
+        fully_current = False
+        frozen = await store.load_frozen(dependency.run_key, dependency.attempt_id)
+        if (
+            frozen is None
+            or frozen.source_manifest_hash != dependency.source_manifest_hash
+        ):
+            return "source_changed"
+        try:
+            await require_current_prefix(db, store, frozen, cited_claim=claim)
+        except ConflictError:
+            return "source_changed"
+    if fully_current:
+        return "current"
+    return await _claim_ranges_current(db, novel_id, claim)
+
+
+async def _claim_ranges_current(db, novel_id, claim):
+    cache = {}
+    from core.errors import DomainError
+
+    for evidence in claim.evidence:
+        source = evidence.source_ref
+        mode = source.source_visibility
+        try:
+            chapter = int(source.chapter_identity.rsplit(":", 1)[-1])
+        except (AttributeError, TypeError, ValueError):
+            return "source_changed"
+        manifest_key = ("evidence_source_manifest", novel_id, mode)
+        if manifest_key not in cache:
+            try:
+                cache[manifest_key] = {
+                    int(item["chapter_index"]): item
+                    for item in await get_manuscript_source_manifest(
+                        db, novel_id, content_mode=mode
+                    )
+                }
+            except DomainError:
+                return "source_changed"
+        current = cache[manifest_key].get(chapter)
+        if current is None:
+            return "source_changed"
+        range_key = (
+            "evidence_range",
+            novel_id,
+            mode,
+            chapter,
+            current["draft_id"],
+            source.start_offset,
+            source.end_offset,
+            evidence.quote,
+        )
+        if range_key not in cache:
+            try:
+                ref = await build_manuscript_range_ref(
+                    db,
+                    novel_id,
+                    draft_id=current["draft_id"],
+                    start_offset=source.start_offset,
+                    end_offset=source.end_offset,
+                    content_mode=mode,
+                )
+                read = await read_manuscript_range(db, novel_id, ref, before=0, after=0)
+                cache[range_key] = (
+                    read.text[read.highlight_start : read.highlight_end] == evidence.quote
+                )
+            except DomainError:
+                cache[range_key] = False
+        if not cache[range_key]:
             return "source_changed"
     return "current"
 
@@ -459,13 +535,89 @@ async def list_ledger(
         "total": total,
         "offset": offset,
         "limit": limit,
+        "categories": [
+            {"key": key, "label": label} for key, label in LEDGER_CATEGORY_LABELS.items()
+        ],
         "derived_only": True,
     }
 
 
 async def read_discovery_coverage(db, novel_id, scene_id):
+    base = await _read_discovery_coverage_base(db, novel_id, scene_id)
+    rows = (
+        await db.scalars(
+            select(EvolutionFrozenAttempt)
+            .join(
+                EvolutionRun,
+                (EvolutionRun.novel_id == EvolutionFrozenAttempt.novel_id)
+                & (EvolutionRun.run_key == EvolutionFrozenAttempt.run_key),
+            )
+            .where(
+                EvolutionFrozenAttempt.novel_id == UUID(str(novel_id)),
+                EvolutionFrozenAttempt.payload_json["scene_id"].as_string()
+                == str(scene_id),
+                EvolutionFrozenAttempt.payload_json["category_rescan"]
+                .as_boolean()
+                .is_(True),
+                EvolutionFrozenAttempt.status != "abandoned",
+                EvolutionRun.execution_mode == "live",
+            )
+            .order_by(
+                EvolutionFrozenAttempt.created_at.desc(), EvolutionFrozenAttempt.id.desc()
+            )
+        )
+    ).all()
+    seen = set()
+    store = PostgresAttemptStore(db, novel_id)
+    from modules.evolution.reading import require_current_prefix
+
+    for row in rows:
+        payload = row.payload_json
+        selected = set(payload.get("discovery_categories", [])) - seen
+        if not selected:
+            continue
+        seen.update(selected)
+        result = payload.get("discovery_result") or {}
+        statuses = result.get("coverage", {}).get("category_coverage", {})
+        source_current = False
+        origin = payload.get("discovery_origin") or {}
+        try:
+            frozen = await store.load_frozen(origin["run_key"], origin["attempt_id"])
+            if frozen:
+                await require_current_prefix(db, store, frozen, run_key=row.run_key)
+                source_current = True
+        except (ConflictError, KeyError):
+            pass
+        for item in base["categories"]:
+            if item["key"] in selected:
+                item["status"] = (
+                    statuses.get(item["key"], "not_checked")
+                    if source_current
+                    and payload.get("rescan_status") == "completed"
+                    and result.get("method_fingerprint") == _current_method()
+                    else "not_checked"
+                )
+                item["found"] = (
+                    sum(
+                        (change.get("change") or {}).get("category") == item["key"]
+                        for change in result.get("changes", [])
+                    )
+                    if source_current
+                    else 0
+                )
+        base["rescan_status"] = payload.get("rescan_status", "pending")
+    if seen:
+        base["status"] = (
+            "checked"
+            if all(item["status"] == "inspected" for item in base["categories"])
+            else "partial"
+        )
+        base["note"] = "按类别显示最近一次补扫覆盖；未检查与未检出分别保留。"
+    return base
+
+
+async def _read_discovery_coverage_base(db, novel_id, scene_id):
     """A failed, partial or unsent batch never becomes 'checked, no findings'."""
-    from modules.evolution.freshness import require_cached_prefix
 
     row = await db.scalar(
         select(EvolutionFrozenAttempt)
@@ -479,19 +631,50 @@ async def read_discovery_coverage(db, novel_id, scene_id):
             EvolutionFrozenAttempt.payload_json["scene_id"].as_string() == str(scene_id),
             EvolutionRun.execution_mode == "live",
             EvolutionFrozenAttempt.status != "abandoned",
+            EvolutionFrozenAttempt.payload_json["category_rescan"]
+            .as_boolean()
+            .is_not(True),
         )
         .order_by(
             EvolutionFrozenAttempt.created_at.desc(), EvolutionFrozenAttempt.id.desc()
         )
         .limit(1)
     )
+
+    def categories_for(result=None, *, default="not_checked"):
+        statuses = (result or {}).get("coverage", {}).get("category_coverage", {})
+        found = Counter(
+            (item.get("change") or {}).get("category")
+            for item in (result or {}).get("changes", [])
+            if (item.get("change") or {}).get("category") in LEDGER_CATEGORY_LABELS
+        )
+        found.update(
+            (item.get("change") or {}).get("category")
+            for item in (result or {}).get("pending", [])
+            if (item.get("change") or {}).get("category") in LEDGER_CATEGORY_LABELS
+        )
+        return [
+            {
+                "key": key,
+                "label": label,
+                "status": statuses.get(key, default),
+                "found": found[key],
+            }
+            for key, label in LEDGER_CATEGORY_LABELS.items()
+        ]
+
     if row is None:
-        return {"status": "not_checked", "note": "本场尚未进行细节发现。"}
+        return {
+            "status": "not_checked",
+            "note": "本场尚未进行细节发现。",
+            "categories": categories_for(),
+        }
     payload = row.payload_json
     if payload.get("discovery_version", 0) != 1:
         return {
             "status": "not_enabled",
             "note": "这轮理解未启用细节发现；空台账不表示没有相关内容。",
+            "categories": categories_for(),
         }
     result = payload.get("discovery_result")
     if not result or row.status != "applied":
@@ -499,22 +682,48 @@ async def read_discovery_coverage(db, novel_id, scene_id):
             "status": "incomplete",
             "note": "本场发现尚未完成提交，已取得结果保留供恢复。",
             "scope": (payload.get("discovery_preparation") or {}).get("coverage"),
+            "categories": categories_for(),
         }
     store = PostgresAttemptStore(db, novel_id)
     frozen = await store.load_frozen(row.run_key, row.attempt_key)
-    try:
-        await require_cached_prefix(db, store, frozen)
-    except ConflictError:
+    current = False
+    if frozen is not None:
+        from modules.evolution.reading import (
+            _inheriting_live_runs,
+            require_current_prefix,
+        )
+
+        # 先试原 run，再试经传播证明继承该回执的 live run；全失败才视为来源失效。
+        for candidate in [
+            row.run_key,
+            *(
+                await _inheriting_live_runs(
+                    db,
+                    novel_id,
+                    {"run_key": row.run_key, "attempt_id": row.attempt_key},
+                )
+            ),
+        ]:
+            try:
+                await require_current_prefix(db, store, frozen, run_key=candidate)
+            except ConflictError:
+                continue
+            current = True
+            break
+    if not current:
         return {
             "status": "source_changed",
             "note": "正文或场景来源已变化，保留历史发现，当前范围待重新核对。",
+            "categories": categories_for(),
         }
+    categories = categories_for(result)
     partial = bool(
         result["coverage"]["unsupported_batches"]
         or result["coverage"].get("observation_gaps")
         or result["coverage"].get("failed_batches")
         or result["coverage"].get("identity_review_gaps")
     ) or any(batch["coverage"] != "inspected" for batch in result["inspected"])
+    partial = partial or any(item["status"] != "inspected" for item in categories)
     materialized = payload.get("discovery_materialization") or {}
     return {
         "status": "partial" if partial else "checked",
@@ -523,6 +732,7 @@ async def read_discovery_coverage(db, novel_id, scene_id):
             batch["coverage"] != "not_checked" for batch in result["inspected"]
         ),
         "found": len(result["changes"]),
+        "categories": categories,
         "applied": len(materialized.get("applied", [])),
         "pending": materialized.get("pending", []),
         "method_status": _method_status(

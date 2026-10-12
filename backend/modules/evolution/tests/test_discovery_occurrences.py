@@ -1,6 +1,6 @@
 """One physical source occurrence survives semantic re-extraction and batch splits."""
 
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -111,6 +111,62 @@ def test_semantic_and_contract_reextraction_does_not_count_another_occurrence():
         "sources": 1,
         "unknown_occurrences": 0,
     }
+
+
+def test_language_habit_requires_host_attributed_dialogue_and_binds_speaker():
+    prepared, batch, change = prepared_occurrence()
+    observation_id = batch["current_observation_ids"][0]
+    observation = prepared["observations"][observation_id]
+    speaker_id = str(uuid4())
+    quote = "林舟说：“我不会忘记。”"
+    source = observation["evidence_quotes"][0]["source_ref"]
+    source.update(start_offset=0, end_offset=len(quote))
+    source["range_hash"] = SourceRevisionRef.compute_range_hash(
+        source["content_hash"], 0, len(quote)
+    )
+    observation["evidence_quotes"][0]["quote"] = quote
+    observation["modality"] = "character_statement"
+    observation["mentions"] = [
+        {
+            "surface": "林舟",
+            "resolution": {
+                "outcome": "reuse",
+                "resolved_entity_id": speaker_id,
+            },
+        }
+    ]
+    observation["utterance_attribution"] = {
+        "kind": "direct_dialogue",
+        "speaker_surface": "林舟",
+        "speaker_resolution": {
+            "outcome": "reuse",
+            "resolved_entity_id": speaker_id,
+        },
+    }
+    change.update(
+        category="language_habit",
+        label="我不会忘记",
+        statement="林舟在台词中说“我不会忘记”。",
+        conditions=[],
+        evidence=[
+            {
+                "observation_id": observation_id,
+                "purpose": "occurrence",
+                "occurrence_kind": "event",
+            }
+        ],
+    )
+
+    claim = LedgerClaim.model_validate(_compile_change(prepared, change, batch)["claim"])
+
+    assert claim.targets[0].target_id == UUID(speaker_id)
+    assert claim.evidence[0].speaker_entity_id == UUID(speaker_id)
+    assert claim.evidence[0].speaker_label == "林舟"
+    assert evidence_counts(claim.evidence)["occurrences"] == 1
+
+    observation["utterance_attribution"]["kind"] = "narration"
+    with pytest.raises(ValueError, match="language_habit_requires_world_bound_dialogue"):
+        _compile_change(prepared, change, batch)
 
 
 @pytest.mark.parametrize(
@@ -740,13 +796,19 @@ def test_same_condition_negative_case_preserves_the_prior_positive_event(confirm
     "case",
     [
         "certified",
+        "explicitly-ambiguous",
         "missing",
         "uncertain",
         "wrong-anchor",
         "unbound-old",
+        "multiple-old",
+        "duplicate-old",
         "empty-old",
         "unbound-new",
         "duplicate",
+        "ambiguous-marker",
+        "no-occasion-marker",
+        "generic-action-quote",
         "no-link",
     ],
 )
@@ -757,18 +819,41 @@ def test_recall_link_needs_independent_two_sided_identity_review(case):
     from modules.evolution.discovery import compile_discovery
 
     prepared, batch, first = prepared_occurrence()
+    # 旧事件原句须含可指认的场合内容，公共动作短语不构成同一性指认。
+    old_quote = "甲在银铃巷口紧张地摸了摸戒指。"
+    for observation in prepared["observations"].values():
+        observation["evidence_quotes"][0]["quote"] = old_quote
+        observation["evidence_quotes"][0]["source_ref"].update(
+            end_offset=len(old_quote),
+            range_hash=SourceRevisionRef.compute_range_hash("a" * 64, 0, len(old_quote)),
+        )
     original = _compile_change(prepared, first, batch)["claim"]
     old_id = batch["current_observation_ids"][0]
+    if case == "multiple-old":
+        extra_id = "old-extra"
+        prepared["observations"][extra_id] = deepcopy(prepared["observations"][old_id])
+        prepared["observations"][extra_id]["observation_id"] = extra_id
+        extra_evidence = deepcopy(original["evidence"][0])
+        extra_evidence["observation_id"] = extra_id
+        original["evidence"].append(extra_evidence)
     anchor = original["evidence"][0]["occurrence_id"]
     current = deepcopy(prepared["observations"][old_id])
     current.update(observation_id="recall", modality="event_observed")
-    quote = "甲回忆自己当时摸了戒指。"
+    quote = "甲回忆起银铃巷口那次摸了摸戒指。"
+    if case == "explicitly-ambiguous":
+        quote = "甲记不清银铃巷口那次摸了摸戒指究竟是哪一次。"
     current["predicate"] = quote
     current["evidence_quotes"][0]["quote"] = quote
     current["position"].update(scene_id=str(uuid4()), scene_index=1, chapter_index=2)
     ref = current["evidence_quotes"][0]["source_ref"]
     ref.update(draft_id="draft-2", chapter_identity="chapter:2", end_offset=len(quote))
     ref["range_hash"] = SourceRevisionRef.compute_range_hash("a" * 64, 0, len(quote))
+    if case == "no-occasion-marker":
+        quote = "甲回忆起银铃巷口摸了摸戒指。"
+        current["predicate"] = quote
+        current["evidence_quotes"][0]["quote"] = quote
+        ref.update(end_offset=len(quote))
+        ref["range_hash"] = SourceRevisionRef.compute_range_hash("a" * 64, 0, len(quote))
     prepared["observations"]["recall"] = current
     entry_id = str(uuid4())
     prepared["themes"][entry_id] = {"revision": 1, "claim": original}
@@ -805,14 +890,45 @@ def test_recall_link_needs_independent_two_sided_identity_review(case):
         "verdict": "uncertain" if case == "uncertain" else "supported",
         "original_observation_ids": [old_id],
         "identity_observation_ids": ["recall"],
+        "identity_quote": "银铃巷口",
         "reason": "对照本项旧原动作与当前指认核定同一次实例。",
     }
+    if case == "ambiguous-marker":
+        extra_id = "old-competing-event"
+        extra = deepcopy(original["evidence"][0])
+        extra["observation_id"] = extra_id
+        extra["occurrence_id"] = "other-occurrence"
+        extra["source_ref"] = {
+            **extra["source_ref"],
+            "draft_id": "draft-old-extra",
+            "content_hash": "c" * 64,
+            "range_hash": SourceRevisionRef.compute_range_hash(
+                "c" * 64,
+                extra["source_ref"]["start_offset"],
+                extra["source_ref"]["end_offset"],
+            ),
+        }
+        original["evidence"].append(extra)
+        prepared["observations"][extra_id] = {
+            **deepcopy(prepared["observations"][old_id]),
+            "observation_id": extra_id,
+            "position": {
+                **prepared["observations"][old_id]["position"],
+                "scene_id": str(uuid4()),
+            },
+        }
     if case == "wrong-anchor":
         certificate["occurrence_id"] = "different-anchor"
+    if case == "generic-action-quote":
+        certificate["identity_quote"] = "摸了摸戒指"
     if case == "empty-old":
         certificate["original_observation_ids"] = []
     if case == "unbound-old":
         certificate["original_observation_ids"] = ["recall"]
+    if case == "duplicate-old":
+        certificate["original_observation_ids"] = [old_id, old_id]
+    if case == "multiple-old":
+        certificate["original_observation_ids"] = [old_id, extra_id]
     if case == "unbound-new":
         certificate["identity_observation_ids"].append("unbound")
     certificates = (
@@ -854,7 +970,7 @@ def test_recall_link_needs_independent_two_sided_identity_review(case):
             # original event still must not become another physical occurrence.
             prepared["themes"][entry_id]["claim"] = claim.model_dump(mode="json")
             followup = deepcopy(current)
-            identity_quote = "甲指出这段回忆指的是先前紧张时摸戒指的那一次。"
+            identity_quote = "甲指出这段回忆指的是银铃巷口那次摸了摸戒指。"
             followup.update(observation_id="followup", predicate=identity_quote)
             followup["evidence_quotes"][0]["quote"] = identity_quote
             followup_ref = followup["evidence_quotes"][0]["source_ref"]

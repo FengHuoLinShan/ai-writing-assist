@@ -1,0 +1,23 @@
+<!doctype html><html lang="zh-CN"><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>类别补扫离线夹具</title><link rel="stylesheet" href="/styles.css"><div id="app"></div>
+<script type="module">
+import { createApp, h } from "vue"
+import ReadingFlow from "/vue/components/ReadingFlow.vue"
+import { setBridgeOverrides } from "/vue/bridge/index.js"
+const calls = { preview: [], start: [], resume: [] }
+const state = { engine: { engine: "evolution", epoch: 2 }, run: { run_key: "fixture-run", status: "completed", completed_scenes: 3, total_scenes: 3, end_chapter: 3,
+  discovery_categories: [{ key: "language_habit", label: "语言习惯" }, { key: "external_appearance", label: "外在特征" }], category_rescans: [] } }
+let lost = true
+setBridgeOverrides({ api: { evolution: {
+  status: async () => structuredClone(state),
+  categoryRescanPreview: async (project, run, body) => { calls.preview.push(structuredClone(body)); return { fingerprint: "a".repeat(64), scene_count: 3, call_count: 6, maximum_calls: body.request_limit, budget_remaining: 8, additional_budget: 12 } },
+  categoryRescanStart: async (project, run, body) => {
+    const frozen = JSON.parse(JSON.stringify(body)); calls.start.push(frozen)
+    if (lost) { lost = false; throw new Error("启动结果暂时失联，保留原确认") }
+    state.run.category_rescans = [{ ...frozen, status: "pending", can_resume: false }]
+    return { task_id: "fixture-task", status: "pending" }
+  },
+  categoryRescanResume: async (project, run, operationId) => { calls.resume.push(operationId); Object.assign(state.run.category_rescans[0], { status: "pending", can_resume: false }) },
+} } })
+createApp({ render: () => h(ReadingFlow, { projectId: "fixture", entry: true }) }).mount("#app")
+window.p4Fixture = { calls, setOperation(status, canResume = false) { Object.assign(state.run.category_rescans[0], { status, can_resume: canResume }) } }
+</script></html>

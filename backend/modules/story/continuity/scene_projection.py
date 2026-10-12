@@ -562,17 +562,14 @@ class SceneMemoryProjectionService:
             register_scene_consumption,
         )
 
-        referenced: dict[int, tuple[str, int, str]] = {}
+        referenced: dict[int, dict[tuple[str, int, str], set[tuple[int, int]]]] = {}
         for record in read_field_provenance(state):
             for ref in record.source_refs:
                 chapter = int(ref.chapter_index)
-                best = referenced.get(chapter)
-                if best is None or int(ref.version_number) > best[1]:
-                    referenced[chapter] = (
-                        ref.draft_id,
-                        int(ref.version_number),
-                        ref.source_hash,
-                    )
+                anchor = (ref.draft_id, int(ref.version_number), ref.source_hash)
+                referenced.setdefault(chapter, {}).setdefault(anchor, set()).add(
+                    (int(ref.start_offset), int(ref.end_offset))
+                )
         inherited_chapters = {
             binding.chapter_index
             for record in read_consumption_records(
@@ -614,7 +611,17 @@ class SceneMemoryProjectionService:
         }
         bindings: list[dict[str, Any]] = []
         for chapter in chapters:
-            anchor = referenced.get(chapter)
+            source_versions = referenced.get(chapter, {})
+            anchor = (
+                max(source_versions, key=lambda item: item[1])
+                if source_versions
+                else None
+            )
+            ranges = (
+                sorted(source_versions[anchor])
+                if len(source_versions) == 1 and anchor
+                else []
+            )
             if anchor is None:
                 source = by_chapter.get(chapter)
                 if source is None or not source.id:
@@ -624,12 +631,34 @@ class SceneMemoryProjectionService:
                     int(source.version_number),
                     source.content_hash,
                 )
+                chunk_ranges = []
+                for chunk in scene.get("scene_chunks") or []:
+                    if not isinstance(chunk, dict):
+                        continue
+                    try:
+                        chunk_chapter = int(
+                            chunk.get("chapter_index", chunk.get("chapter_id"))
+                        )
+                    except (TypeError, ValueError):
+                        continue
+                    start, end = chunk.get("start_offset"), chunk.get("end_offset")
+                    if (
+                        chunk_chapter == chapter
+                        and str(chunk.get("source_draft_id")) == anchor[0]
+                        and chunk.get("source_content_hash") == anchor[2]
+                        and type(start) is int
+                        and type(end) is int
+                        and 0 <= start < end
+                    ):
+                        chunk_ranges.append((start, end))
+                ranges = sorted(set(chunk_ranges))
             bindings.append(
                 {
                     "chapter_index": chapter,
                     "draft_id": anchor[0],
                     "version_number": anchor[1],
                     "source_hash": anchor[2],
+                    "ranges": ranges,
                 }
             )
         if not bindings:

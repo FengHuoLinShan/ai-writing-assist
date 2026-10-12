@@ -32,6 +32,7 @@ Project owner 门禁止与 legacy deep_import 双写。
 
 from __future__ import annotations
 
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
@@ -167,6 +168,190 @@ class PipelineStepResult(BaseModel):
     identity_outcomes: dict[str, int] = {}
     gated_scene_events: list[dict[str, Any]] = []
     input_manifest: dict[str, Any]
+
+
+_SCENE_STATE_FINGERPRINT_OMIT = frozenset(
+    {
+        "attempt_id",
+        "binding",
+        "input_manifest",
+        "run_key",
+        "scene_text",
+        "source_manifest_hash",
+        "_current_scene_text",
+        # 复核证明（attempt 身份/输入哈希）随 run 变化，不是状态效果。
+        "state_review",
+    }
+)
+_SOURCE_REVISION_FIELDS = frozenset(
+    {"content_hash", "draft_id", "range_hash", "source_revision"}
+)
+_OBSERVATION_ID_FIELDS = frozenset(
+    {
+        "observation_id",
+        "observation_ids",
+        "source_observation_id",
+        "source_observation_ids",
+    }
+)
+_MENTION_ID_FIELDS = frozenset({"mention_id", "mention_ids"})
+
+
+def _observation_semantic_groups(payload: dict[str, Any]) -> dict[str, list[str]]:
+    result: dict[str, list[str]] = {}
+    for item in payload.get("compiled_observations") or []:
+        quotes = [
+            {
+                "quote": evidence.get("quote"),
+                "chapter_identity": (evidence.get("source_ref") or {}).get(
+                    "chapter_identity"
+                ),
+                "start_offset": (evidence.get("source_ref") or {}).get("start_offset"),
+                "end_offset": (evidence.get("source_ref") or {}).get("end_offset"),
+            }
+            for evidence in item.get("evidence_quotes", [])
+        ]
+        subjects = item.get("subjects") or [
+            mention.get("surface") for mention in item.get("mentions", [])
+        ]
+        key = content_hash(
+            {
+                "predicate": item.get("predicate"),
+                "modality": item.get("modality"),
+                "subjects": subjects,
+                "quotes": quotes,
+            }
+        )
+        result.setdefault(key, []).append(item["observation_id"])
+    return result
+
+
+def _canonical_observation_ids(payload: dict[str, Any]) -> dict[str, str]:
+    return {
+        observation_id: semantic_key
+        for semantic_key, observation_ids in _observation_semantic_groups(payload).items()
+        for observation_id in observation_ids
+    }
+
+
+def _canonical_mention_ids(
+    payload: dict[str, Any], observation_ids: dict[str, str]
+) -> dict[str, str]:
+    """提及身份随观察身份含整稿版本而漂移；改按观察语义键派生规范身份。"""
+    result: dict[str, str] = {}
+    for item in payload.get("compiled_observations") or []:
+        semantic = observation_ids.get(item.get("observation_id"))
+        if semantic is None:
+            continue
+        for ordinal, mention in enumerate(item.get("mentions") or []):
+            mention_id = mention.get("mention_id")
+            if mention_id:
+                result[mention_id] = derive_mention_id(
+                    observation_id=semantic,
+                    surface=mention.get("surface"),
+                    ordinal=ordinal,
+                    entity_type=mention.get("entity_type"),
+                )
+    return result
+
+
+def scene_state_fingerprint(payload: dict[str, Any]) -> str:
+    """Fingerprint semantic Scene outputs while ignoring revision-bound provenance."""
+    observation_ids = _canonical_observation_ids(payload)
+    mention_ids = _canonical_mention_ids(payload, observation_ids)
+
+    def normalize_observation_reference(value):
+        if isinstance(value, list):
+            return [normalize_observation_reference(item) for item in value]
+        if isinstance(value, str):
+            return observation_ids.get(value, value)
+        return value
+
+    def normalize_mention_reference(value):
+        if isinstance(value, list):
+            return [normalize_mention_reference(item) for item in value]
+        if isinstance(value, str):
+            return mention_ids.get(value, value)
+        return value
+
+    def project(value, *, source_ref=False):
+        if isinstance(value, dict):
+            result = {}
+            for key, item in value.items():
+                if key in _SCENE_STATE_FINGERPRINT_OMIT or (
+                    source_ref and key in _SOURCE_REVISION_FIELDS
+                ):
+                    continue
+                if (
+                    key == "snapshot_after"
+                    and value.get("event_type") == "knowledge_changed"
+                    and isinstance(item, dict)
+                ):
+                    # knowledge 事件 id 派生自原始观察身份（含整稿版本），
+                    # 其内容已由其余字段覆盖，剔除以免阻断语义等价。
+                    item = {k: v for k, v in item.items() if k != "id"}
+                if key in _OBSERVATION_ID_FIELDS:
+                    result[key] = normalize_observation_reference(item)
+                elif key in _MENTION_ID_FIELDS:
+                    result[key] = normalize_mention_reference(item)
+                else:
+                    result[key] = project(
+                        item,
+                        source_ref=source_ref or key in {"source_ref", "source_refs"},
+                    )
+            return result
+        if isinstance(value, list):
+            return [project(item, source_ref=source_ref) for item in value]
+        return value
+
+    return content_hash(
+        {
+            key: project(payload.get(key))
+            for key in (
+                "compiled_observations",
+                "scene_events",
+                "gated_scene_events",
+                "world_result",
+                "world_materialization",
+                "discovery_result",
+                "discovery_materialization",
+                "enrichment_result",
+            )
+        }
+    )
+
+
+def observation_equivalence_map(
+    baseline_payload: dict[str, Any], current_payload: dict[str, Any]
+) -> dict[str, str] | None:
+    """Map prior observation IDs only when quote, meaning and source range agree."""
+    baseline = _observation_semantic_groups(baseline_payload)
+    current = _observation_semantic_groups(current_payload)
+    if baseline.keys() != current.keys() or any(
+        len(baseline[key]) != len(current[key]) for key in baseline
+    ):
+        return None
+    return {
+        old_id: new_id
+        for key, old_ids in baseline.items()
+        for old_id, new_id in zip(old_ids, current[key], strict=True)
+    }
+
+
+def equivalent_scene_state_fingerprint(
+    baseline_payload: dict[str, Any], current_payload: dict[str, Any]
+) -> str | None:
+    """Return the verified semantic fingerprint only when both outputs agree."""
+    fingerprint = baseline_payload.get("state_fingerprint")
+    if (
+        not fingerprint
+        or current_payload.get("state_fingerprint") != fingerprint
+        or scene_state_fingerprint(baseline_payload) != fingerprint
+        or scene_state_fingerprint(current_payload) != fingerprint
+        or observation_equivalence_map(baseline_payload, current_payload) is None
+    ):
+        return None
+    return fingerprint
 
 
 async def load_current_source(
@@ -322,6 +507,117 @@ def _observation_evidence(
     return evidence
 
 
+_SPEAKER_CUE = re.compile(
+    r"(?P<speaker>[\u4e00-\u9fffA-Za-z·]{1,12})"
+    r"(?:轻声|低声|大声|笑着|冷冷地|急忙)?"
+    r"(?:说道|说|问道|问|答道|答|喊道|喊|提醒|解释|承认|告诉)"
+    r"[，,:：]?\s*$"
+)
+_REPORTED_CUE = re.compile(
+    r"(?P<speaker>[\u4e00-\u9fffA-Za-z·]{1,12})"
+    r"(?:对[^，。！？\n]{1,8})?"
+    r"(?:表示|声称|告诉|提到|解释|承认|说道|说|问道|问|答道|答)"
+    r"[，,:：]?\s*$"
+)
+_RUMOR_CUE = re.compile(r"(?:据说|听说|傳聞|传闻|坊间传言|有传言|传言)")
+_PRONOUN_SPEAKERS = {
+    "他",
+    "她",
+    "它",
+    "我",
+    "你",
+    "我们",
+    "他们",
+    "她们",
+    "有人",
+    "叙述",
+    "叙述者",
+    "旁白",
+    "作者",
+    "传言",
+    "传闻",
+}
+
+
+def _utterance_attribution(
+    scene_text: str, quote: str, start: int | None, end: int | None
+) -> dict[str, str | None]:
+    if start is None and end is None:
+        start = scene_text.find(quote)
+        if start < 0 or scene_text.find(quote, start + 1) >= 0:
+            return {"kind": "unknown", "speaker_surface": None}
+        end = start + len(quote)
+    if (
+        type(start) is not int
+        or type(end) is not int
+        or not 0 <= start < end <= len(scene_text)
+    ):
+        return {"kind": "unknown", "speaker_surface": None}
+    prefix = scene_text[max(0, start - 80) : start]
+    pairs = (("“", "”"), ("「", "」"), ("『", "』"), ('"', '"'), ("‘", "’"))
+    marks = [
+        mark
+        for mark in scene_text[start:end]
+        if mark in {m for pair in pairs for m in pair}
+    ]
+    if len(marks) > 2 or (len(marks) == 2 and tuple(marks) not in pairs):
+        return {"kind": "dialogue_unattributed", "speaker_surface": None}
+    for opening, closing in pairs:
+        open_at = scene_text.rfind(opening, max(0, start - 80), end)
+        if open_at < 0:
+            continue
+        close_at = scene_text.find(
+            closing, open_at + len(opening), min(len(scene_text), end + 80)
+        )
+        if close_at < start:
+            continue
+        if close_at + len(closing) < end:
+            return {"kind": "dialogue_unattributed", "speaker_surface": None}
+        before = scene_text[max(0, open_at - 40) : open_at]
+        after = scene_text[close_at + len(closing) : min(len(scene_text), close_at + 48)]
+        # 传闻框架优先于引号内说话人线索：转述句里的直接引语不是本人台词。
+        rumor_tail = re.split(r"[。！？\n]", before)[-1]
+        if _RUMOR_CUE.search(rumor_tail):
+            return {"kind": "rumor", "speaker_surface": None}
+        # 引用区间内出现嵌套/错序的同类引号 → 引语边界不可靠，不作归属。
+        inner = scene_text[start:end]
+        inner_marks = sorted(
+            [(i, "open") for i, mark in enumerate(inner) if mark == opening]
+            + [(i, "close") for i, mark in enumerate(inner) if mark == closing]
+        )
+        if [kind for _, kind in inner_marks] not in (
+            [],
+            ["open"],
+            ["close"],
+            ["open", "close"],
+        ):
+            return {"kind": "dialogue_unattributed", "speaker_surface": None}
+        before_match = _SPEAKER_CUE.search(before)
+        after_match = _SPEAKER_CUE.search(after)
+        before_speaker = before_match.group("speaker") if before_match else None
+        after_speaker = after_match.group("speaker") if after_match else None
+        if before_speaker in _PRONOUN_SPEAKERS:
+            before_speaker = None
+        if after_speaker in _PRONOUN_SPEAKERS:
+            after_speaker = None
+        if before_speaker and after_speaker and before_speaker != after_speaker:
+            return {"kind": "dialogue_unattributed", "speaker_surface": None}
+        speaker = before_speaker or after_speaker
+        return {
+            "kind": "direct_dialogue" if speaker else "dialogue_unattributed",
+            "speaker_surface": speaker,
+        }
+    if _RUMOR_CUE.search(prefix[-40:] + quote[:80]):
+        return {"kind": "rumor", "speaker_surface": None}
+    reported = _REPORTED_CUE.search(prefix[-40:]) or _REPORTED_CUE.match(quote)
+    if reported and reported.group("speaker") not in _PRONOUN_SPEAKERS:
+        return {
+            "kind": "reported_speech",
+            "speaker_surface": reported.group("speaker"),
+        }
+    return {"kind": "narration", "speaker_surface": None}
+
+
 async def _compile_sample_payload(
     payload: dict[str, Any],
     *,
@@ -354,9 +650,21 @@ async def _compile_sample_payload(
             content_mode=content_mode,
         )
         source_ref = SourceRevisionRef.model_validate(evidence_quotes[0]["source_ref"])
+        attribution = _utterance_attribution(
+            scene_text,
+            observation_spec["quote"],
+            observation_spec.get("start_offset"),
+            observation_spec.get("end_offset"),
+        )
+        mention_specs = list(observation_spec.get("mentions") or [])
+        speaker_surface = attribution["speaker_surface"]
+        if speaker_surface and not any(
+            item["surface"] == speaker_surface for item in mention_specs
+        ):
+            mention_specs.append({"surface": speaker_surface, "entity_type": "character"})
         mentions = []
         explicit_mention_ids: set[str] = set()
-        for ordinal, mention in enumerate(observation_spec.get("mentions") or []):
+        for ordinal, mention in enumerate(mention_specs):
             explicit_id = mention.get("mention_id")
             if explicit_id:
                 explicit_mention_ids.add(explicit_id)
@@ -410,6 +718,7 @@ async def _compile_sample_payload(
         observation_ids.append(envelope.observation_id)
 
         observation_mentions: list[dict[str, Any]] = []
+        resolution_by_surface: dict[str, dict[str, Any]] = {}
         if identity_candidates is not None:
             port = _CandidatePort(identity_candidates)
             _, resolutions = await resolve_observation_mentions(
@@ -458,6 +767,10 @@ async def _compile_sample_payload(
                 "modality": observation_spec.get("modality", "event_observed"),
                 "quote": observation_spec.get("quote", scene_text[:80]),
                 "mentions": observation_mentions,
+                "utterance_attribution": {
+                    **attribution,
+                    "speaker_resolution": resolution_by_surface.get(speaker_surface),
+                },
             }
         )
 
@@ -552,9 +865,28 @@ async def run_scene_step(
         reason = input_manifest.blocked_reason or "前序 Scene 未按顺序提交"
         raise BarrierBlockedError(reason)
 
+    from modules.evolution.consumer_reuse import find_reusable, read_set, sample_inputs
+
+    run_row = await store.load_run(run_key)
+    consumed = sample_inputs(
+        scene_text,
+        input_manifest.model_dump(mode="json"),
+        scene_id=scene_id,
+        versions={
+            "producer": producer_version,
+            "observer": observer_contract_version,
+            "state_review": state_review_version,
+            "enrichment": enrichment_version,
+            "world": world_version,
+            "discovery": discovery_version,
+        },
+    )
+    proof = read_set(run_row, "scene_sample", consumed)
+    reused = await find_reusable(store, run_row, scene_index, scene_id, proof)
     # T21：先原子预留并持久化，再允许采样；预算不足不发出请求。
     try:
-        await store.reserve_budget(run_key, 1)
+        if reused is None:
+            await store.reserve_budget(run_key, 1)
     except BudgetExhaustedError:
         raise
     run_row = await store.load_run(run_key)
@@ -580,7 +912,20 @@ async def run_scene_step(
         previous_receipt=input_manifest.previous_scene_attempt_id,
         previous_committed_prefix=input_manifest.previous_committed_prefix,
         payload={
-            "stage": "sampling",
+            "stage": "sampled" if reused else "sampling",
+            **(
+                {
+                    "scene_sample": {
+                        "stage": "sampled",
+                        "read_set": proof,
+                        "result": reused["result"],
+                        "reused_from": reused["reused_from"],
+                    },
+                    **reused["result"],
+                }
+                if reused
+                else {}
+            ),
             "scene_index": scene_index,
             "scene_id": scene_id,
             "scene_text": scene_text,
@@ -599,8 +944,12 @@ async def run_scene_step(
     await db.commit()
 
     try:
-        sampled = await sampler.sample(
-            scene_text=scene_text, input_manifest=input_manifest.model_dump()
+        sampled = (
+            reused["result"]
+            if reused
+            else await sampler.sample(
+                scene_text=scene_text, input_manifest=input_manifest.model_dump()
+            )
         )
     except Exception as exc:
         # A07：最终失败也固化回执——请求可能已发出、可能已计费；采样器
@@ -631,6 +980,14 @@ async def run_scene_step(
             "paid_call_receipt",
         )
         if key in sampled
+    }
+    payload["scene_sample"] = {
+        "stage": "sampled",
+        "read_set": proof,
+        "result": {
+            key: value for key, value in sampled.items() if key != "paid_call_receipt"
+        },
+        **({"reused_from": reused["reused_from"]} if reused else {}),
     }
     payload.update(
         {
@@ -857,7 +1214,7 @@ async def _run_scene_call(
     current = await prepare_scene_input(
         store,
         run_key=frozen.run_id,
-        scene_index=payload["scene_index"],
+        scene_index=payload.get("operation_parent_scene_index", payload["scene_index"]),
         source_manifest_hash=frozen.source_manifest_hash,
     )
     if (
@@ -866,8 +1223,57 @@ async def _run_scene_call(
         or current.previous_committed_prefix != frozen.previous_committed_prefix
     ):
         raise CommitConflictError("parent_advanced", "scene call parent changed")
+    from modules.evolution.consumer_reuse import (
+        consumer_kind,
+        find_reusable,
+        observation_tokens,
+        read_set,
+    )
+
+    run = await store.load_run(frozen.run_id)
+    tokens = observation_tokens(payload)
+    proof = read_set(
+        run,
+        consumer_kind(journal_key),
+        {
+            "method": inputs.get("method") or inputs.get("method_fingerprint"),
+            **call_inputs,
+        },
+        tokens=tokens,
+    )
+    reused = await find_reusable(
+        store, run, payload["scene_index"], payload.get("scene_id"), proof, tokens=tokens
+    )
+    if reused:
+        payload[journal_key] = {
+            "stage": "sampled",
+            "input_hash": content_hash(inputs),
+            "read_set": proof,
+            **reused,
+        }
+        frozen = frozen.model_copy(update={"payload": payload})
+        await store.replace_frozen_payload(frozen)
+        await db.commit()
+        return frozen
+    if payload.get("category_rescan_operation_id"):
+        operation_id = payload["category_rescan_operation_id"]
+        operations = list(run.reading_plan_json.get("category_rescans", []))
+        operation = next(
+            (item for item in operations if item["operation_id"] == operation_id), None
+        )
+        if operation is None or operation.get("calls_remaining", 0) <= 0:
+            raise BudgetExhaustedError("补扫确认的调用上限已用完")
+        run.reading_plan_json = {
+            **run.reading_plan_json,
+            "category_rescans": [
+                {**item, "calls_remaining": item["calls_remaining"] - 1}
+                if item["operation_id"] == operation_id
+                else item
+                for item in operations
+            ],
+        }
     await store.reserve_budget(frozen.run_id, 1)
-    journal = {"stage": "sampling", "input_hash": content_hash(inputs)}
+    journal = {"stage": "sampling", "input_hash": content_hash(inputs), "read_set": proof}
     payload[journal_key] = journal
     frozen = frozen.model_copy(update={"payload": payload})
     await store.replace_frozen_payload(frozen)

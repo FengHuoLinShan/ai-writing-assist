@@ -10,10 +10,19 @@ from sqlalchemy import select
 from infrastructure.llm.providers import OpenAIProvider
 from infrastructure.llm.schemas import LLMCallResponse, LLMUsage
 from infrastructure.tasks.models import AsyncTask
-from modules.evolution.discovery import CONDITIONS_SEMANTICS
+from modules.evolution.discovery import (
+    CONDITIONS_SEMANTICS,
+    DISCOVERY_RECALL_CANDIDATE_LIMIT,
+    _rank_historical_candidates,
+    _scene_excerpt,
+)
 from modules.evolution.ledger import list_ledger, read_ledger_entry, save_ledger_decision
+from modules.evolution.ledger_contracts import LEDGER_CATEGORY_LABELS
 from modules.evolution.models import EvolutionFrozenAttempt
-from modules.evolution.pipeline import SamplePendingReconciliationError
+from modules.evolution.pipeline import (
+    SamplePendingReconciliationError,
+    _utterance_attribution,
+)
 from modules.evolution.sampler import register_scene_sampler
 from modules.evolution.state_review import SceneCallFailedError
 from modules.evolution.store import BudgetExhaustedError, PostgresAttemptStore
@@ -29,14 +38,23 @@ from modules.story.facade import get_scenes_by_novel
 
 
 def generated(inputs, *, first_occurrence=None):
+    category_coverage = {category: "inspected" for category in LEDGER_CATEGORY_LABELS}
     text = inputs["scene_text"]
     current = inputs["current_observation_ids"][0]
     themes = [unit["theme"] for unit in inputs["historical_context"] if "theme" in unit]
+    if not themes and not inputs["allow_new_themes"]:
+        return {
+            "changes": [],
+            "coverage": "inspected",
+            "coverage_note": "本批没有可增强主题。",
+            "category_coverage": category_coverage,
+        }
     if "摸了摸" not in text and "没有摸" not in text and "第一次" not in text:
         return {
             "changes": [],
             "coverage": "inspected",
             "coverage_note": "本场观察未发现新的相关证据。",
+            "category_coverage": category_coverage,
         }
     change = {
         "category": "conditional_behavior",
@@ -72,6 +90,7 @@ def generated(inputs, *, first_occurrence=None):
         "changes": [change],
         "coverage": "inspected",
         "coverage_note": "本次给定观察已检查，未召回范围不作不存在判断。",
+        "category_coverage": category_coverage,
     }
 
 
@@ -101,7 +120,7 @@ class DiscoverySampler:
         self.calls.append(("discover", inputs))
         assert inputs["conditions_semantics"] == CONDITIONS_SEMANTICS
         assert all(
-            item["conditions_semantics"] == CONDITIONS_SEMANTICS
+            {"entry_id", "category", "label"} <= set(item)
             for item in inputs["theme_index"]
         )
         if inputs["scene_index"] == 0:
@@ -182,6 +201,7 @@ class DiscoverySampler:
                                     == item["same_occurrence_as"]
                                 ),
                                 "identity_observation_ids": [item["observation_id"]],
+                                "identity_quote": "槐树下",
                                 "reason": "本合成原句明确指认同一次原动作。",
                             }
                             for item in change["evidence"]
@@ -199,6 +219,156 @@ class DiscoverySampler:
             },
             "paid_call_receipt": {"provider": "fixture", "usage": {"total_tokens": 3}},
         }
+
+
+def test_discovery_recall_prefers_world_identity_over_surface_and_caps_history():
+    current = {
+        "observation_id": "current",
+        "mentions": [
+            {
+                "surface": "青竹",
+                "resolution": {
+                    "outcome": "reuse",
+                    "resolved_entity_id": "world-1",
+                },
+            }
+        ],
+    }
+    prior = [
+        {
+            "observation_id": f"alias-{index:02d}",
+            "position": {"scene_id": str(index), "scene_index": index},
+            "mentions": [
+                {
+                    "surface": "竹叶",
+                    "resolution": {
+                        "outcome": "reuse",
+                        "resolved_entity_id": "world-1",
+                    },
+                }
+            ],
+        }
+        for index in range(DISCOVERY_RECALL_CANDIDATE_LIMIT + 6)
+    ]
+    prior.extend(
+        [
+            {
+                "observation_id": "surface-only",
+                "position": {"scene_id": "surface", "scene_index": 0},
+                "mentions": [{"surface": "青竹", "resolution": None}],
+            },
+            {
+                "observation_id": "other-world",
+                "position": {"scene_id": "other", "scene_index": 0},
+                "mentions": [
+                    {
+                        "surface": "青竹",
+                        "resolution": {
+                            "outcome": "reuse",
+                            "resolved_entity_id": "world-2",
+                        },
+                    }
+                ],
+            },
+        ]
+    )
+
+    selected, scope = _rank_historical_candidates(
+        prior, [current], theme_evidence_ids=set(), theme_scenes=set()
+    )
+
+    assert len(selected) == DISCOVERY_RECALL_CANDIDATE_LIMIT
+    assert selected[0]["observation_id"] == "alias-00"
+    assert "surface-only" not in {item["observation_id"] for item in selected}
+    assert scope["omitted_candidates"] == 8
+    assert "未检查" in scope["omission_reason"]
+
+
+def test_long_discovery_scene_uses_exact_source_excerpt_with_adjacent_text():
+    prefix = "前置叙述。" * 2200
+    quote = "青竹把旧信收进袖中。"
+    suffix = "旁人没有看清。" * 200
+    scene_text = prefix + quote + suffix
+    start, end = len(prefix), len(prefix) + len(quote)
+    observation = {
+        "evidence_quotes": [
+            {
+                "quote": quote,
+                "source_ref": {
+                    "draft_id": "draft-1",
+                    "content_hash": "a" * 64,
+                    "chapter_identity": "chapter:1",
+                    "start_offset": start,
+                    "end_offset": end,
+                },
+            }
+        ]
+    }
+    excerpt, scope = _scene_excerpt(
+        scene_text,
+        [observation],
+        {
+            "draft_id": "draft-1",
+            "chapter_index": 1,
+            "content_hash": "a" * 64,
+            "start_offset": 0,
+            "end_offset": len(scene_text),
+            "additional_sources": [],
+        },
+    )
+
+    assert scope == "source_ranges_with_adjacent_context"
+    assert len(excerpt) < len(scene_text) / 2
+    assert "前置叙述。" in excerpt
+    assert quote in excerpt
+    assert "旁人没有看清。" in excerpt
+
+
+def test_host_speech_attribution_uses_source_cues_and_keeps_narration_separate():
+    dialogue = "林舟说：“别叫我英雄。”"
+    start = dialogue.index("别叫我英雄")
+    assert _utterance_attribution(
+        dialogue, "别叫我英雄。", start, start + len("别叫我英雄。")
+    ) == {"kind": "direct_dialogue", "speaker_surface": "林舟"}
+
+    narration = "叙述说明林舟未亲眼见过这件事。"
+    quote = "林舟未亲眼见过这件事"
+    start = narration.index(quote)
+    assert _utterance_attribution(narration, quote, start, start + len(quote)) == {
+        "kind": "narration",
+        "speaker_surface": None,
+    }
+
+    rumor = "据说林舟从未见过那封信。"
+    quote = "林舟从未见过那封信"
+    start = rumor.index(quote)
+    assert _utterance_attribution(rumor, quote, start, start + len(quote)) == {
+        "kind": "rumor",
+        "speaker_surface": None,
+    }
+
+    quoted_rumor = '据说，林舟说："我不会忘记。"'
+    quote = "我不会忘记。"
+    start = quoted_rumor.index(quote)
+    assert _utterance_attribution(quoted_rumor, quote, start, start + len(quote)) == {
+        "kind": "rumor",
+        "speaker_surface": None,
+    }
+
+    spanning = "甲说：“够了。”乙说：“我不走。”"
+    quote = "够了。”乙说：“我不走"
+    start = spanning.index(quote)
+    assert _utterance_attribution(spanning, quote, start, start + len(quote)) == {
+        "kind": "dialogue_unattributed",
+        "speaker_surface": None,
+    }
+    mixed = "甲说：“够了。”乙说：「我不走。」"
+    quote = "够了。”乙说：「我不走"
+    start = mixed.index(quote)
+    assert _utterance_attribution(mixed, quote, start, start + len(quote)) == {
+        "kind": "dialogue_unattributed",
+        "speaker_surface": None,
+    }
 
 
 async def task_for(db, nid, index, text, *, provider, budget=100, discovery=True):
@@ -227,10 +397,10 @@ async def test_continuous_discovery_keeps_long_range_sources_decisions_and_occur
     provider = "discovery-" + nid
     register_scene_sampler(provider, lambda db, novel_id: sampler)
     texts = [
-        "甲紧张地摸了摸戒指。",
+        "甲在槐树下紧张地摸了摸戒指。",
         *["甲安静地等候。"] * 4,
         "甲同样紧张，双手垂着，没有摸戒指。",
-        "乙说，甲第一次紧张时摸了摸戒指。",
+        "乙说，甲第一次在槐树下摸了摸戒指。",
     ]
     entry_id = None
     for index, text in enumerate(texts):
@@ -401,6 +571,15 @@ async def test_project_llm_reading_plan_executes_real_discovery_adapter(
             item["reason"] == "invalid_changes_quarantined"
             for item in discovery["pending"]
         )
+    else:
+        from modules.evolution.ledger import read_discovery_coverage
+
+        coverage = await read_discovery_coverage(db, nid, task.meta["scene_id"])
+        categories = {item["key"]: item for item in coverage["categories"]}
+        assert coverage["status"] == "checked"
+        assert categories["conditional_behavior"]["found"] == 1
+        assert categories["external_appearance"]["status"] == "inspected"
+        assert categories["external_appearance"]["found"] == 0
 
 
 @pytest.mark.parametrize("review_failure", [False, True])
@@ -456,6 +635,7 @@ async def test_settled_discovery_output_failure_is_partial_without_resending(
     assert (await list_ledger(db, nid, through_scene_index=0))["total"] == 0
     coverage = await read_discovery_coverage(db, nid, task.meta["scene_id"])
     assert coverage["status"] == "partial" and coverage["inspected_batches"] == 0
+    assert {item["status"] for item in coverage["categories"]} == {"partial"}
     before = len(sampler.calls)
     assert (await handle_evolution_scene_step(db, task))["recovered"]
     assert len(sampler.calls) == before

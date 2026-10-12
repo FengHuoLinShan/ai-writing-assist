@@ -23,7 +23,8 @@ through its stable facade and never writes World, Memory, or Writing records.
   `thread_overdue_notice`) shared by context selection and overdue rendering.
 - `continuity/basis.py`: checkpoint 来源基线（M4）——系统行构建时登记的
   working 稿指纹切片 + 重放窗口场景结构 + 契约版本，供 `get_scene_state_view`
-  读时确定性比对；漂移即 degraded 待核对，作者行豁免。
+  读时确定性比对；系统行漂移即 degraded 待核对。改稿命中手工/已确认行时保留原内容，
+  将状态标为 `needs_revalidation`，不自动覆盖作者决定。
 - `facade.py`: card CRUD/restore/archive, script save/adopt/archive/unadopt,
   Scene context and the adopted-only `get_scene_story_assets` read seam, plus
   the read-only plot-thread reverse lookup `list_plot_threads_referencing_entities`
@@ -32,7 +33,9 @@ through its stable facade and never writes World, Memory, or Writing records.
   read-only Scene state projection (M2 scene-state-view-v1); it reads only
   `is_current` checkpoints, never backfills from today's World, and is also
   exported through the `STORY_SCENE_SOURCE` port for cross-module consumers
-  (see `continuity/scene_state_view.py` and the M2 contract in docs/plans).
+  (see `continuity/scene_state_view.py` and the M2 contract in docs/plans). Complete source-consumption
+  registrations let Evolution supersede only affected Scene dimensions; incomplete coverage still
+  falls back to the conservative suffix.
 - `schemas.py`: strict Pydantic request, preview and response payloads.
 - `tasks.py`: four deterministic async handlers registered through the shared
   task registry: `story_character_card_generate`, `story_reaction_propose`,

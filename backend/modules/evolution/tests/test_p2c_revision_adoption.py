@@ -571,7 +571,7 @@ async def test_p2c_unregistered_dependency_expands_conservatively_without_hiding
     unsupported = {
         item["consumer"]: item["reason"] for item in receipt.unsupported_consumers
     }
-    assert set(unsupported) == {"world_knowledge", "map_atlas"}
+    assert set(unsupported) == {"map_atlas", "world_canon_revision"}
     assert all(unsupported.values())
     # 保守扩大事实写进 coverage 说明（结构化 unknown_scope 见 xfail 用例）。
     assert "保守扩大" in receipt.coverage_note

@@ -72,9 +72,10 @@ Story continuity 子域维护小说世界的“变化历史”，不是再存一
   [M2 契约](../plans/2026-10-07-world-state-read-m2-contract.md)。
   M4 追加读时来源基线比对（[M4 契约](../plans/2026-10-07-m4-dependency-invalidation-contract.md)）：
   系统行构建时登记 `basis_json`（≤ cutoff working 稿指纹切片 + 重放窗口场景结构 + 契约版本），
-  视图读时重算比对，漂移/缺失即该维度 degraded + gap_reason（不自动重建，失效与重算分开）；
-  manual/confirmed 作者行豁免；世界正典修订/地图册不自动失效本视图，以
-  `unsupported_dependencies` 显式列出，核对待走 World 复核。
+  视图读时重算比对，漂移/缺失即该维度 degraded + gap_reason（不自动重建，失效与重算分开）。
+  该基线检查不覆盖 manual/confirmed 作者行；正文来源失效若命中作者行，会保留原内容并标记
+  `needs_revalidation`，视图呈 degraded。世界正典修订/地图册未接入本视图来源登记，以
+  `unsupported_dependencies` 显式列出；World knowledge 的 ReaderRevealPolicy 则在每次读取时重判。
 - 逐字段赋值链（P2-A）：`field_provenance` 契约定义三母题受控字段注册表
   （位置 `location_id/text_state/chapter_index`、保管 `custody_owner/custody_holder`、
   锁 `opening_key_id/opening_moon_phase/opening_passphrase` 与 timeline `moon_phase`）
@@ -175,9 +176,12 @@ Story 为 Collaboration 提供 Scene、伏笔/揭示安排的冻结可编辑字�
 
 ## 软失效与有效场景投影
 
-`memory_events.source_stale` 仅标记派生机器事件；原事件与作者确认保留。正文变化从受影响最早
-Scene 起封锁 Evolution run，再使事件和 checkpoint/snapshot 失效，所有 replay/presence 查询
-排除 stale 行。Scene 重排先取 run 栅栏再改事件顺序，避免与提交路径反锁。
+`memory_events.source_stale` 仅标记派生机器事件；原事件与作者确认保留。正文变化先封锁受影响
+的在途 Evolution run。消费登记覆盖完整时，事件与 system checkpoint 仅按 Scene×维度失效；
+登记缺失或任一维度未登记时从最早受影响 Scene 起保守扩大。manual/confirmed checkpoint 不改
+内容，保持 current 并标记 `needs_revalidation`。MemorySnapshot/SceneSnapshot 是跨维度聚合，
+仍按更宽范围失效；所有 replay/presence 查询排除 stale 事件。Scene 重排先取 run 栅栏再改事件顺序，
+避免与提交路径反锁。
 地图在场额外限制当前 draft/canonical Scene ID；被废弃或删除场景的作者事件只留历史，不会因
 序号复用被说成本场出现。位置 identity 保留；没有明确行程证据的两次出现只返回 unknown 路线。
 

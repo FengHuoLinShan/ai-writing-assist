@@ -185,8 +185,8 @@ async def test_t08_same_length_edit_invalidates_index_and_projections(
 
     # 未接线消费者显式列出，不冒充全量失效；建议有效性已接线（T17）。
     assert {item["consumer"] for item in receipt.unsupported_consumers} == {
-        "world_knowledge",
         "map_atlas",
+        "world_canon_revision",
     }
     assert "assistant_suggestion_validity" in receipt.invalidated_consumers
     # M4：RP 派生缓存按来源立即清理（不等 TTL），回执登记清理行数。

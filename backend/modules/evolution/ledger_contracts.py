@@ -12,9 +12,22 @@ from modules.evolution.contracts import (
 )
 
 LEDGER_CONTRACT_VERSION = 1
-DISCOVERY_METHOD_VERSION = "evolution.discovery.v1"
+DISCOVERY_METHOD_VERSION = "evolution.discovery.v2"
 
-LedgerCategory = Literal["conditional_behavior", "clue", "commitment"]
+LedgerCategory = Literal[
+    "conditional_behavior",
+    "clue",
+    "commitment",
+    "language_habit",
+    "external_appearance",
+]
+LEDGER_CATEGORY_LABELS = {
+    "conditional_behavior": "条件行为",
+    "clue": "线索",
+    "commitment": "承诺",
+    "language_habit": "语言习惯",
+    "external_appearance": "外在特征",
+}
 
 
 class LedgerModel(BaseModel):
@@ -50,6 +63,8 @@ class LedgerEvidence(LedgerModel):
     occurrence_origin: (
         Literal["event", "recall", "claim", "unknown", "context"] | None
     ) = None
+    speaker_entity_id: UUID | None = None
+    speaker_label: str | None = Field(default=None, max_length=200)
 
     @model_validator(mode="after")
     def occurrence_is_not_a_citation(self):
@@ -57,10 +72,21 @@ class LedgerEvidence(LedgerModel):
             raise ValueError(
                 "A proven occurrence needs an identity independent of citations"
             )
-        if self.occurrence_kind == "event" and self.modality != "event_observed":
+        if self.occurrence_kind == "event" and self.modality not in {
+            "event_observed",
+            "character_statement",
+        }:
             raise ValueError("A claim cannot count as an observed occurrence")
         if self.source_ref.start_offset == self.source_ref.end_offset:
             raise ValueError("Ledger evidence cannot use an empty source range")
+        if (self.speaker_entity_id is None) != (self.speaker_label is None):
+            raise ValueError("A speaker binding needs both its World identity and label")
+        if (
+            self.occurrence_kind == "event"
+            and self.modality == "character_statement"
+            and self.speaker_entity_id is None
+        ):
+            raise ValueError("A spoken occurrence needs its resolved speaker")
         return self
 
 
@@ -182,6 +208,14 @@ class DiscoveryChange(LedgerModel):
             self.category != "conditional_behavior" or not self.conditions
         ):
             raise ValueError("A behavioral exception needs explicit conditions")
+        if self.category in {"language_habit", "external_appearance"} and (
+            self.action == "exception"
+            or any(
+                item.role in {"exception_case", "counterevidence"}
+                for item in self.evidence
+            )
+        ):
+            raise ValueError("This detail category does not use behavior exceptions")
         if len({(item.observation_id, item.role) for item in self.evidence}) != len(
             self.evidence
         ):
@@ -201,6 +235,10 @@ class DiscoveryOutput(LedgerModel):
     )
     coverage: Literal["inspected", "partial", "unsupported"]
     coverage_note: str = Field(min_length=1, max_length=2000)
+    category_coverage: dict[
+        LedgerCategory,
+        Literal["inspected", "partial", "not_checked", "unsupported"],
+    ] = Field(default_factory=dict)
 
 
 class ConditionsReview(LedgerModel):
@@ -219,6 +257,14 @@ class RecallIdentityReview(LedgerModel):
     verdict: Literal["supported", "uncertain", "rejected"]
     original_observation_ids: list[str] = Field(default_factory=list, max_length=64)
     identity_observation_ids: list[str] = Field(default_factory=list, max_length=64)
+    identity_quote: str = Field(
+        default="",
+        max_length=500,
+        description=(
+            "新原文指认中与目标旧event原句相同的连续逐字短语；宿主会检查它是否出现在本轮来源，"
+            "并且在同主题已定位旧event来源中只对应该occurrence。不可仅以唯一候选或reason代替。"
+        ),
+    )
     reason: str = Field(min_length=1, max_length=2000)
 
 
@@ -246,8 +292,9 @@ class DiscoveryVerdict(LedgerModel):
         max_length=64,
         description=(
             "本轮recall链接具体旧occurrence时，逐pair独立核身份，不能只核动作。"
-            "original_observation_ids必须选目标该occurrence的已定位原event动作；"
-            "identity_observation_ids须包含本轮recall动作及用于指认的原句，两侧均为本项已选/继承且本批可见。"
+            "original_observation_ids必须且只能选一个目标该occurrence的已定位原event动作；"
+            "identity_observation_ids须包含本轮recall动作及用于指认的原句，两侧均为本项已选/继承且本批可见；"
+            "identity_quote填写新旧原句相同的连续逐字指认短语，由宿主校验来源存在且不匹配同主题其它旧event。"
             "对照旧原动作与新指认，说明为何唯一对应、是否可能另次旧事件；无新动作、只有一条已存候选、"
             "相同主体动作或新句说同一个事件均不能单独证明具体旧锚。合法唯一间接指认亦可，不设关键词门。"
             "关键实例身份未决用uncertain/rejected，不能把它藏在整体supported的竞争解释中；"

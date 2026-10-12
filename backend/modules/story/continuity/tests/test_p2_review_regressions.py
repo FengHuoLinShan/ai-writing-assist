@@ -344,7 +344,18 @@ async def test_actual_projection_records_its_consumption(
     """真实投影建出 checkpoint 后，消费登记必须可查（不是只有定义）。"""
     db, nid = db_session, test_project_id
     scene = await _scene(db, nid, 0, 1)
-    draft = await _working_draft(db, nid, 1, 1, "甲将铜钥匙交给乙。")
+    text = "前情已毕。甲将铜钥匙交给乙。后续另起。"
+    draft = await _working_draft(db, nid, 1, 1, text)
+    start = text.index("甲将铜钥匙交给乙。")
+    scene.scene_chunks = [
+        {
+            "chapter_index": 1,
+            "source_draft_id": str(draft.id),
+            "source_content_hash": draft.content_hash,
+            "start_offset": start,
+            "end_offset": len(text) - len("后续另起。"),
+        }
+    ]
     await _record(
         db,
         nid,
@@ -354,7 +365,22 @@ async def test_actual_projection_records_its_consumption(
                 "dimension": "entities",
                 "event_type": "entity_created",
                 "entity_id": str(uuid.uuid4()),
-                "snapshot_after": {"name": "铜钥匙", "custody_holder": "乙"},
+                "snapshot_after": {
+                    "name": "铜钥匙",
+                    "custody_holder": "乙",
+                    "meta": {
+                        "source_receipts": [
+                            {
+                                "source_ref": {
+                                    "draft_id": str(draft.id),
+                                    "content_hash": draft.content_hash,
+                                    "start_offset": start,
+                                    "end_offset": len(text) - len("后续另起。"),
+                                }
+                            }
+                        ]
+                    },
+                },
             }
         ],
     )
@@ -375,6 +401,9 @@ async def test_actual_projection_records_its_consumption(
     assert binding.chapter(1) is not None
     assert binding.chapter(1).draft_id == str(draft.id)
     assert binding.chapter(1).version_number == 1
+    assert len(binding.chapter(1).ranges) == 1
+    assert binding.chapter(1).ranges[0].start_offset == start
+    assert binding.chapter(1).ranges[0].end_offset == len(text) - len("后续另起。")
     assert entities_records[0].method_version.startswith("scene-projection:")
     # 每行只登记本 Scene 本维度的消费：不把前序 Scene 的登记继承进来放大影响面。
     assert {record.consumer.scene_id for record in records} == {str(scene.id)}

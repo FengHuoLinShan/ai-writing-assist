@@ -19,16 +19,18 @@
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from infrastructure.llm.collaboration import content_hash
 from infrastructure.llm.profiles import (
     DEEPSEEK_QUALITY_OUTPUT_TOKENS,
     DEEPSEEK_THINKING_MODELS,
     deepseek_reasoning_extra,
 )
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+from modules.evolution.ledger_contracts import LedgerCategory
 from modules.evolution.sampler import DISCOVERY_OUTPUT_TOKENS
 from modules.story.continuity.contracts import STATE_EVENT_DIMENSIONS
 
@@ -117,6 +119,14 @@ class SceneSample(BaseModel):
     )
 
 
+class CategorySceneSample(SceneSample):
+    """A full-source scan explicitly scoped to the confirmed ledger categories."""
+
+    category_coverage: dict[
+        LedgerCategory, Literal["inspected", "partial", "not_checked"]
+    ] = Field(default_factory=dict)
+
+
 SYSTEM_PROMPT = (
     "你是小说理解引擎的窄任务观察者。只依据给定正文与给定前序理解，"
     "输出结构化观察：逐字引用必须来自本段正文；无法确定 modality 时用 "
@@ -178,6 +188,18 @@ def build_scene_messages(
         f"【Scene {input_manifest.get('scene_index', 0)} 正文】",
         scene_text,
     ]
+    if input_manifest.get("category_rescan_categories"):
+        context_lines.append(
+            "【作者确认的补扫类别】"
+            + ",".join(input_manifest["category_rescan_categories"])
+        )
+        context_lines.append(
+            "重新逐句读取本场完整正文，收集这些类别的逐字原文观察，不能只复用前次动作摘要。"
+            "语言习惯保留说话人的逐字直述台词；外在特征保留外貌、伤痕、装束的明确描写。"
+            "其余类别按证据收集。不要提议状态事件或改World/Story；无来源不猜。"
+            "category_coverage逐类说明inspected/partial/not_checked；遗漏、截断或歧义报告unresolved_parts，不能声称已全检。"
+        )
+
     if previous:
         context_lines.append(
             "【前序已提交理解（回执身份）】"
@@ -242,6 +264,147 @@ class _StructuredClient(Protocol):
     ): ...
 
 
+def prepare_scene_call_request(request, method, *, model, provider_id):
+    """One transport contract for actual dispatch and recomputation proofs."""
+    if model in DEEPSEEK_THINKING_MODELS and "thinking" not in request.extra:
+        output_budget = (
+            DISCOVERY_OUTPUT_TOKENS
+            if method
+            in {
+                "evolution.discovery.v1",
+                "evolution.discovery.review.v1",
+            }
+            else DEEPSEEK_QUALITY_OUTPUT_TOKENS
+            if method
+            in {
+                "imports.Phase2aSceneExtractionOutput.v1",
+                "imports.AliasRelationExtractionOutput.v1",
+                "imports.AuditVerdictOutput.v1",
+            }
+            else 32768
+        )
+        request = request.model_copy(
+            update={
+                "extra": {
+                    **request.extra,
+                    **deepseek_reasoning_extra(
+                        model,
+                        high_quality=method
+                        in {
+                            "evolution.discovery.v1",
+                            "evolution.discovery.review.v1",
+                        },
+                    ),
+                },
+                "max_tokens": max(request.max_tokens or 0, output_budget),
+            }
+        )
+    options = (
+        {"partial_list_fields": {"uncertain_items"}}
+        if method == "imports.AliasRelationExtractionOutput.v1"
+        else {"partial_list_fields": {"changes"}}
+        if method == "evolution.discovery.v1"
+        else {}
+    )
+    if model in DEEPSEEK_THINKING_MODELS and provider_id == "deepseek":
+        options["complete_stream"] = True
+    return request, options
+
+
+def registered_scene_request(consumer, consumed, *, model):
+    if consumer == "scene_sample":
+        flash = model in DEEPSEEK_THINKING_MODELS
+        request = LLMCallRequest(
+            messages=consumed["messages"],
+            temperature=0.1,
+            max_tokens=16384 if flash else None,
+            extra={"thinking": {"type": "disabled"}} if flash else {},
+        )
+        return request, SceneSample, "evolution.scene_sample.v1"
+    inputs = {key: value for key, value in consumed.items() if key != "method"}
+    required = (
+        {"inputs"}
+        if consumer.startswith("scene_discovery")
+        else {"request", "schema_name", "schema_hash"}
+        if consumer
+        in {
+            "scene_world",
+            "scene_relations",
+            "scene_world_review",
+            "scene_world_review_group",
+        }
+        else {"scene_text", "input_manifest", "observations", "events"}
+        if consumer == "state_review"
+        else {"payload"}
+        if consumer == "scene_enrichment"
+        else {"capability", "novel_id", "group_key", "output", "sources"}
+        if consumer == "scene_enrichment_review"
+        else {"scene_text", "input_manifest"}
+        if consumer == "scene_category_observations"
+        else set()
+    )
+    if not required <= inputs.keys():
+        return None
+    if consumer.startswith("scene_discovery"):
+        from modules.evolution.discovery import discovery_messages
+        from modules.evolution.ledger_contracts import DiscoveryOutput, DiscoveryReview
+
+        review = consumer != "scene_discovery"
+        request = LLMCallRequest(
+            messages=discovery_messages(inputs["inputs"], review=review), temperature=0
+        )
+        schema = DiscoveryReview if review else DiscoveryOutput
+        method = "evolution.discovery.review.v1" if review else "evolution.discovery.v1"
+    elif consumer in {
+        "scene_world",
+        "scene_relations",
+        "scene_world_review",
+        "scene_world_review_group",
+    }:
+        from modules.imports.contracts import scene_world_schema
+
+        schema = scene_world_schema(inputs["schema_name"])
+        if content_hash(schema.model_json_schema()) != inputs["schema_hash"]:
+            return None
+        request = LLMCallRequest.model_validate(inputs["request"])
+        method = f"imports.{inputs['schema_name']}.v1"
+    elif consumer == "scene_category_observations":
+        schema = CategorySceneSample
+        request = LLMCallRequest(
+            messages=build_scene_messages(**inputs),
+            temperature=0.1,
+            max_tokens=16384 if model in DEEPSEEK_THINKING_MODELS else None,
+            extra={"thinking": {"type": "disabled"}}
+            if model in DEEPSEEK_THINKING_MODELS
+            else {},
+        )
+        method = "evolution.category_observations.v1"
+    elif consumer == "state_review":
+        from modules.evolution.state_review import (
+            StateReview,
+            build_state_review_messages,
+        )
+
+        schema = StateReview
+        request = LLMCallRequest(
+            messages=build_state_review_messages(**inputs), temperature=0
+        )
+        method = "evolution.state_review.v1"
+    elif consumer == "scene_enrichment":
+        from modules.imports.facade import build_scene_enrichment_request
+
+        request, schema = build_scene_enrichment_request(inputs["payload"])
+        method = "imports.scene_enrichment.v1"
+    elif consumer == "scene_enrichment_review":
+        from modules.evidence.facade import build_group_audit_request
+
+        request, schema = build_group_audit_request(**inputs)
+        method = "imports.scene_enrichment.audit.v1"
+    else:
+        return None
+    return request, schema, method
+
+
 class ProjectLLMSampler:
     """经项目 LLM 入口的场景采样器（E09 生产路径）。
 
@@ -253,66 +416,42 @@ class ProjectLLMSampler:
         self._client = client
         self.last_call_receipt: dict[str, Any] | None = None
 
-    async def verify_state_events(self, **inputs) -> dict[str, Any]:
-        from modules.evolution.state_review import (
-            StateReview,
-            build_state_review_messages,
+    async def _registered_call(self, consumer, inputs):
+        request, schema, method = registered_scene_request(
+            consumer, inputs, model=getattr(self._client, "model_name", None)
+        )
+        return await self._scene_call(request, schema, method)
+
+    async def sample_categories(self, *, scene_text, input_manifest):
+        return await self._registered_call(
+            "scene_category_observations",
+            {"scene_text": scene_text, "input_manifest": input_manifest},
         )
 
-        return await self._scene_call(
-            LLMCallRequest(messages=build_state_review_messages(**inputs), temperature=0),
-            StateReview,
-            "evolution.state_review.v1",
-        )
+    async def verify_state_events(self, **inputs) -> dict[str, Any]:
+        return await self._registered_call("state_review", inputs)
 
     async def discover_details(self, *, inputs):
-        from modules.evolution.discovery import discovery_messages
-        from modules.evolution.ledger_contracts import DiscoveryOutput
-
-        return await self._scene_call(
-            LLMCallRequest(
-                messages=discovery_messages(inputs),
-                temperature=0,
-            ),
-            DiscoveryOutput,
-            "evolution.discovery.v1",
-        )
+        return await self._registered_call("scene_discovery", {"inputs": inputs})
 
     async def review_discovery(self, *, inputs):
-        from modules.evolution.discovery import discovery_messages
-        from modules.evolution.ledger_contracts import DiscoveryReview
-
-        return await self._scene_call(
-            LLMCallRequest(
-                messages=discovery_messages(inputs, review=True), temperature=0
-            ),
-            DiscoveryReview,
-            "evolution.discovery.review.v1",
-        )
+        return await self._registered_call("scene_discovery_review", {"inputs": inputs})
 
     async def enrich_scene(self, *, payload):
-        from modules.imports.facade import build_scene_enrichment_request
-
-        request, schema = build_scene_enrichment_request(payload)
-        return await self._scene_call(request, schema, "imports.scene_enrichment.v1")
+        return await self._registered_call("scene_enrichment", {"payload": payload})
 
     async def review_scene_enrichment(self, **inputs):
-        from modules.evidence.facade import build_group_audit_request
-
-        request, schema = build_group_audit_request(**inputs)
-        return await self._scene_call(
-            request, schema, "imports.scene_enrichment.audit.v1"
-        )
+        return await self._registered_call("scene_enrichment_review", inputs)
 
     async def execute_world_request(self, *, request, schema_name, schema_hash):
-        from modules.imports.contracts import scene_world_schema
-
-        return await self._execute_frozen_request(
-            request,
-            scene_world_schema(schema_name),
-            schema_hash,
-            f"imports.{schema_name}.v1",
+        registered = registered_scene_request(
+            "scene_world",
+            {"request": request, "schema_name": schema_name, "schema_hash": schema_hash},
+            model=getattr(self._client, "model_name", None),
         )
+        if registered is None:
+            raise ValueError("frozen response contract changed")
+        return await self._scene_call(*registered)
 
     async def execute_structure_request(self, *, request, schema_name, schema_hash):
         from modules.story.contracts import reading_structure_schema
@@ -336,54 +475,13 @@ class ProjectLLMSampler:
     async def _scene_call(self, request, schema, method):
         from modules.evolution.state_review import SceneCallFailedError
 
-        model = getattr(self._client, "model_name", None)
-        if model in DEEPSEEK_THINKING_MODELS and "thinking" not in request.extra:
-            output_budget = (
-                DISCOVERY_OUTPUT_TOKENS
-                if method
-                in {
-                    "evolution.discovery.v1",
-                    "evolution.discovery.review.v1",
-                }
-                else DEEPSEEK_QUALITY_OUTPUT_TOKENS
-                if method
-                in {
-                    "imports.Phase2aSceneExtractionOutput.v1",
-                    "imports.AliasRelationExtractionOutput.v1",
-                    "imports.AuditVerdictOutput.v1",
-                }
-                else 32768
-            )
-            request = request.model_copy(
-                update={
-                    "extra": {
-                        **request.extra,
-                        **deepseek_reasoning_extra(
-                            model,
-                            high_quality=method
-                            in {
-                                "evolution.discovery.v1",
-                                "evolution.discovery.review.v1",
-                            },
-                        ),
-                    },
-                    "max_tokens": max(request.max_tokens or 0, output_budget),
-                }
-            )
-        diagnostics: list[dict[str, Any]] = []
-        options = (
-            {"partial_list_fields": {"uncertain_items"}}
-            if method == "imports.AliasRelationExtractionOutput.v1"
-            else {"partial_list_fields": {"changes"}}
-            if method == "evolution.discovery.v1"
-            else {}
+        request, options = prepare_scene_call_request(
+            request,
+            method,
+            model=getattr(self._client, "model_name", None),
+            provider_id=getattr(self._client, "profile_summary", {}).get("provider_id"),
         )
-        if (
-            model in DEEPSEEK_THINKING_MODELS
-            and getattr(self._client, "profile_summary", {}).get("provider_id")
-            == "deepseek"
-        ):
-            options["complete_stream"] = True
+        diagnostics: list[dict[str, Any]] = []
         try:
             result = await self._client.generate_structured(
                 request,
@@ -415,14 +513,14 @@ class ProjectLLMSampler:
     async def sample(
         self, *, scene_text: str, input_manifest: dict[str, Any]
     ) -> dict[str, Any]:
-        flash = getattr(self._client, "model_name", None) in DEEPSEEK_THINKING_MODELS
-        request = LLMCallRequest(
-            messages=build_scene_messages(
-                scene_text=scene_text, input_manifest=input_manifest
-            ),
-            temperature=0.1,
-            max_tokens=16384 if flash else None,
-            extra=({"thinking": {"type": "disabled"}} if flash else {}),
+        request, _, _ = registered_scene_request(
+            "scene_sample",
+            {
+                "messages": build_scene_messages(
+                    scene_text=scene_text, input_manifest=input_manifest
+                )
+            },
+            model=getattr(self._client, "model_name", None),
         )
         diagnostics: list[dict[str, Any]] = []
         try:

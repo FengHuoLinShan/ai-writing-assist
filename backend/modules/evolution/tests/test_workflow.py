@@ -1,6 +1,7 @@
 """The author entry freezes real sources and drives the existing queue/receipts."""
 
 import json
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
@@ -203,14 +204,23 @@ async def test_targeted_scope_uses_original_receipts_and_preserves_prefix(
         task.status = "done"
         task_id = result.get("next_task_id")
         await db.commit()
-    assert len(calls) == 7
     store = PostgresAttemptStore(db, nid)
     pairs = await store.load_committed_pairs(updated["run_key"])
     assert [receipt.run_key for receipt, _ in pairs] == [
         original["run_key"],
         updated["run_key"],
-        updated["run_key"],
+        original["run_key"],
     ]
+    current_run = await store.load_run(updated["run_key"])
+    assert current_run.committed_scene_index == 2
+    assert sum(receipt.run_key == updated["run_key"] for receipt, _ in pairs) == 1
+    hashes = {
+        step["source_binding"]["draft_id"]: step["source_binding"]["content_hash"]
+        for step in current_run.reading_plan_json["steps"]
+    }
+    refs, omissions = await read_committed_understanding(db, nid, hashes)
+    assert [ref.scene_index for ref in refs] == [0, 1, 2]
+    assert "prefix_propagation_handoff_invalid" not in omissions
     # A new query still sees the inherited prefix, with its original identity.
     assert (
         await reading_targets(
@@ -543,6 +553,471 @@ async def test_revise_keeps_unchanged_prefix_and_rejects_unfinished_old_task(
     assert not omissions
 
 
+def test_scene_state_fingerprint_ignores_source_revision_but_not_meaning():
+    from copy import deepcopy
+
+    from modules.evolution.pipeline import (
+        observation_equivalence_map,
+        scene_state_fingerprint,
+    )
+
+    baseline = {
+        "compiled_observations": [
+            {
+                "observation_id": "old-id",
+                "predicate": "甲看见天亮了。",
+                "modality": "event_observed",
+                "subjects": ["甲"],
+                "evidence_quotes": [
+                    {
+                        "quote": "天亮了。",
+                        "source_ref": {
+                            "draft_id": "old-draft",
+                            "content_hash": "a" * 64,
+                            "chapter_identity": "chapter-1",
+                            "start_offset": 0,
+                            "end_offset": 4,
+                        },
+                    }
+                ],
+            }
+        ],
+        "gated_scene_events": [],
+        "world_result": {
+            "context": {
+                "_current_scene_text": "天亮了。",
+                "source_observation_ids": ["old-id"],
+            },
+            "dependencies": ["world-1"],
+        },
+        "world_materialization": {},
+        "discovery_result": {"method_fingerprint": "method-1"},
+        "discovery_materialization": {},
+        "enrichment_result": None,
+    }
+    current = deepcopy(baseline)
+    current["compiled_observations"][0]["observation_id"] = "new-id"
+    current["compiled_observations"][0]["evidence_quotes"][0]["source_ref"].update(
+        draft_id="new-draft", content_hash="b" * 64
+    )
+    current["world_result"]["context"].update(
+        _current_scene_text="天亮了。今天很暖。",
+        source_observation_ids=["new-id"],
+    )
+    assert scene_state_fingerprint(current) == scene_state_fingerprint(baseline)
+    assert observation_equivalence_map(baseline, current) == {"old-id": "new-id"}
+
+    current["compiled_observations"][0]["predicate"] = "甲看见天黑了。"
+    assert scene_state_fingerprint(current) != scene_state_fingerprint(baseline)
+    assert observation_equivalence_map(baseline, current) is None
+
+    current = deepcopy(baseline)
+    current["world_result"]["dependencies"] = ["world-2"]
+    assert scene_state_fingerprint(current) != scene_state_fingerprint(baseline)
+    current = deepcopy(baseline)
+    current["discovery_result"]["method_fingerprint"] = "method-2"
+    assert scene_state_fingerprint(current) != scene_state_fingerprint(baseline)
+
+
+def test_scene_state_fingerprint_covers_scene_events_and_ignores_review_provenance():
+    from copy import deepcopy
+
+    from modules.evolution.pipeline import scene_state_fingerprint
+
+    baseline = {
+        "compiled_observations": [],
+        "scene_events": [
+            {
+                "event_type": "knowledge_changed",
+                "dimension": "knowledge",
+                "knowledge_subject": "char-1",
+                "source_observation_ids": ["obs-1"],
+                "snapshot_after": {
+                    "id": "uuid5-run-a",
+                    "character_id": "char-1",
+                    "knowledge_level": "fact",
+                    "meta": {
+                        "state_review": {"attempt_id": "attempt-a", "input_hash": "h1"},
+                        "source_observation_ids": ["obs-1"],
+                    },
+                },
+            }
+        ],
+        "gated_scene_events": [],
+    }
+    # 复核证明与派生 knowledge id 随 run 变化 → 指纹不变。
+    current = deepcopy(baseline)
+    current["scene_events"][0]["snapshot_after"]["meta"]["state_review"] = {
+        "attempt_id": "attempt-b",
+        "input_hash": "h2",
+    }
+    current["scene_events"][0]["snapshot_after"]["id"] = "uuid5-run-b"
+    assert scene_state_fingerprint(current) == scene_state_fingerprint(baseline)
+
+    # 实际状态效果变化 → 指纹必须变化。
+    current = deepcopy(baseline)
+    current["scene_events"][0]["snapshot_after"]["knowledge_level"] = "rumor"
+    assert scene_state_fingerprint(current) != scene_state_fingerprint(baseline)
+
+    current = deepcopy(baseline)
+    current["scene_events"] = []
+    assert scene_state_fingerprint(current) != scene_state_fingerprint(baseline)
+
+
+def test_scene_state_fingerprint_normalizes_mention_identity_across_revisions():
+    from modules.evolution.pipeline import scene_state_fingerprint
+
+    def payload(observation_id, mention_id):
+        return {
+            "compiled_observations": [
+                {
+                    "observation_id": observation_id,
+                    "predicate": "甲说他会回来。",
+                    "modality": "character_statement",
+                    "mentions": [
+                        {
+                            "mention_id": mention_id,
+                            "surface": "甲",
+                            "entity_type": "character",
+                            "resolution": {
+                                "mention_id": mention_id,
+                                "surface": "甲",
+                                "outcome": "reuse",
+                                "resolved_entity_id": "char-1",
+                            },
+                        }
+                    ],
+                    "utterance_attribution": {
+                        "kind": "direct_dialogue",
+                        "speaker_surface": "甲",
+                        "speaker_resolution": {
+                            "mention_id": mention_id,
+                            "outcome": "reuse",
+                            "resolved_entity_id": "char-1",
+                        },
+                    },
+                    "evidence_quotes": [
+                        {
+                            "quote": "甲说他会回来。",
+                            "source_ref": {
+                                "draft_id": "draft",
+                                "content_hash": "a" * 64,
+                                "chapter_identity": "chapter-1",
+                                "start_offset": 0,
+                                "end_offset": 7,
+                            },
+                        }
+                    ],
+                }
+            ]
+        }
+
+    # 整稿换版只改观察/提及身份 → 指纹不变。
+    assert scene_state_fingerprint(
+        payload("obs-old", "mention-old")
+    ) == scene_state_fingerprint(payload("obs-new", "mention-new"))
+
+    changed = payload("obs-new", "mention-new")
+    changed["compiled_observations"][0]["mentions"][0]["surface"] = "乙"
+    assert scene_state_fingerprint(changed) != scene_state_fingerprint(
+        payload("obs-old", "mention-old")
+    )
+
+
+def test_recompute_handoff_requires_the_entire_recomputed_prefix_to_match():
+    from modules.evolution.pipeline import (
+        equivalent_scene_state_fingerprint,
+        scene_state_fingerprint,
+    )
+    from modules.evolution.reading import _recomputed_prefix_matches_baseline
+
+    def payload(index, scene_id, observation_id, predicate):
+        value = {
+            "scene_index": index,
+            "scene_id": scene_id,
+            "source_binding": {"draft_id": f"draft-{index}"},
+            "compiled_observations": [
+                {
+                    "observation_id": observation_id,
+                    "predicate": predicate,
+                    "modality": "event_observed",
+                    "mentions": [],
+                    "evidence_quotes": [],
+                }
+            ],
+        }
+        value["state_fingerprint"] = scene_state_fingerprint(value)
+        return value
+
+    baseline_payloads = [
+        payload(0, "scene-0", "old-0", "旧观察"),
+        payload(1, "scene-1", "old-1", "稳定观察"),
+    ]
+    current_payloads = [
+        payload(0, "scene-0", "new-0", "新增观察"),
+        payload(1, "scene-1", "new-1", "稳定观察"),
+    ]
+    assert (
+        equivalent_scene_state_fingerprint(baseline_payloads[1], current_payloads[1])
+        is not None
+    )
+
+    def pairs(run_key, payloads):
+        return [
+            (
+                SimpleNamespace(
+                    run_key=run_key,
+                    attempt_key=f"{run_key}-{index}",
+                    committed_scene_index=index,
+                ),
+                SimpleNamespace(payload_json=value),
+            )
+            for index, value in enumerate(payloads)
+        ]
+
+    plan = {
+        "recompute_from_scene_index": 0,
+        "steps": [
+            {
+                "scene_id": f"scene-{index}",
+                "source_binding": {"draft_id": f"draft-{index}"},
+            }
+            for index in range(2)
+        ],
+        "recompute_baseline": {
+            "run_key": "baseline",
+            "receipts": [
+                {
+                    "scene_index": index,
+                    "run_key": "baseline",
+                    "attempt_id": f"baseline-{index}",
+                    "source_matches": True,
+                }
+                for index in range(2)
+            ],
+        },
+    }
+    assert not _recomputed_prefix_matches_baseline(
+        "current",
+        plan,
+        1,
+        pairs("current", current_payloads),
+        pairs("baseline", baseline_payloads),
+    )
+
+    assert _recomputed_prefix_matches_baseline(
+        "current",
+        plan,
+        1,
+        pairs("current", baseline_payloads),
+        pairs("baseline", baseline_payloads),
+    )
+
+
+@pytest.mark.parametrize(
+    ("revision_text", "revision_quote", "should_stop"),
+    [
+        ("天亮了。今天很暖。", "天亮了。", True),
+        ("天黑了。", "天黑了。", False),
+    ],
+)
+async def test_revise_stops_after_recomputed_scene_state_is_unchanged(
+    db_session,
+    evolution_project_id,
+    account_llm_connection,
+    monkeypatch,
+    revision_text,
+    revision_quote,
+    should_stop,
+):
+    db, nid = db_session, evolution_project_id
+    original_texts = ["天亮了。", "下雨了。", "风停了。"]
+    for chapter, text in enumerate(original_texts, 1):
+        await seed(db, nid, chapter, text)
+    calls = []
+
+    async def provider(self, prompt, *, complete_stream=False):
+        if response := empty_world_response(prompt):
+            return response
+        if response := structure_response(prompt):
+            return response
+        calls.append(prompt)
+        quote = (
+            revision_quote
+            if len(calls) == 4
+            else original_texts[(len(calls) - 1) % len(original_texts)]
+        )
+        return LLMCallResponse(
+            content=json.dumps(
+                {
+                    "observations": [
+                        {
+                            "predicate": f"叙述者记录：{quote}",
+                            "quote": quote,
+                            "modality": "event_observed",
+                        }
+                    ],
+                    "scene_events": [],
+                }
+            ),
+            finish_reason="stop",
+            usage=LLMUsage(prompt_tokens=10, completion_tokens=8, total_tokens=18),
+        )
+
+    monkeypatch.setattr(OpenAIProvider, "generate", provider)
+    old = (await start_reading(db, nid, await request_start(db, nid, end_chapter=3)))[
+        "run"
+    ]
+    task_id = old["task_id"]
+    for _ in range(3):
+        task = await db.get(AsyncTask, UUID(task_id))
+        result = await handle_evolution_scene_step(db, task)
+        task.mark_done(result)
+        task_id = result.get("next_task_id")
+        await db.commit()
+    structure = await db.get(AsyncTask, UUID(task_id))
+    await handle_evolution_scene_step(db, structure)
+    structure.mark_done()
+    await db.commit()
+    assert len(calls) == 3
+
+    await create_draft_only(db, nid, 1, "第一章", revision_text)
+    await db.commit()
+    revise = await request_start(
+        db,
+        nid,
+        mode="revise",
+        run_key=old["run_key"],
+        end_chapter=3,
+    )
+    new = (await start_reading(db, nid, revise))["run"]
+    task = await db.get(AsyncTask, UUID(new["task_id"]))
+    result = await handle_evolution_scene_step(db, task)
+    task.mark_done(result)
+    await db.commit()
+
+    run = await PostgresAttemptStore(db, nid).load_run(new["run_key"])
+    if not should_stop:
+        assert run.committed_scene_index == 0
+        assert not run.reading_plan_json["inherited_receipts"]
+        assert not run.reading_plan_json["propagation_handoffs"]
+        assert result.get("next_task_id")
+        assert len(calls) == 4
+        return
+    assert run.committed_scene_index == 2
+    assert len(run.reading_plan_json["inherited_receipts"]) == 2
+    assert (
+        run.reading_plan_json["propagation_handoffs"][0]["reused_through_scene_index"]
+        == 2
+    )
+    assert len(calls) == 4
+
+    store = PostgresAttemptStore(db, nid)
+    pairs = await store.load_committed_pairs(new["run_key"])
+    hashes = {
+        step["source_binding"]["draft_id"]: step["source_binding"]["content_hash"]
+        for step in run.reading_plan_json["steps"]
+    }
+    refs, omissions = await read_committed_understanding(db, nid, hashes)
+    assert [receipt.committed_scene_index for receipt, _ in pairs] == [0, 1, 2]
+    assert [ref.scene_index for ref in refs] == [0, 1, 2]
+    assert not omissions
+
+    proof = run.reading_plan_json["propagation_handoffs"][0]
+    run.reading_plan_json = {
+        **run.reading_plan_json,
+        "propagation_handoffs": [{**proof, "observation_map": {"forged": "observation"}}],
+    }
+    await db.flush()
+    refs, omissions = await read_committed_understanding(db, nid, hashes)
+    assert [ref.scene_index for ref in refs] == [0]
+    assert "prefix_propagation_handoff_invalid" in omissions
+
+
+async def test_inherited_suffix_world_candidate_passes_adoption_gate(
+    db_session, evolution_project_id, account_llm_connection, monkeypatch
+):
+    """修订停止传播后，继承后缀的世界候选经新 run 的传播证明通过采用门。"""
+    from modules.evolution.reading import require_current_world_candidate
+
+    db, nid = db_session, evolution_project_id
+    original_texts = ["天亮了。", "下雨了。", "风停了。"]
+    for chapter, text in enumerate(original_texts, 1):
+        await seed(db, nid, chapter, text)
+    calls = []
+
+    async def provider(self, prompt, *, complete_stream=False):
+        if response := empty_world_response(prompt):
+            return response
+        if response := structure_response(prompt):
+            return response
+        calls.append(prompt)
+        quote = (
+            "天亮了。"
+            if len(calls) == 4
+            else original_texts[(len(calls) - 1) % len(original_texts)]
+        )
+        return LLMCallResponse(
+            content=json.dumps(
+                {
+                    "observations": [
+                        {
+                            "predicate": f"叙述者记录：{quote}",
+                            "quote": quote,
+                            "modality": "event_observed",
+                        }
+                    ],
+                    "scene_events": [],
+                }
+            ),
+            finish_reason="stop",
+            usage=LLMUsage(prompt_tokens=10, completion_tokens=8, total_tokens=18),
+        )
+
+    monkeypatch.setattr(OpenAIProvider, "generate", provider)
+    old = (await start_reading(db, nid, await request_start(db, nid, end_chapter=3)))[
+        "run"
+    ]
+    task_id = old["task_id"]
+    for _ in range(3):
+        task = await db.get(AsyncTask, UUID(task_id))
+        result = await handle_evolution_scene_step(db, task)
+        task.mark_done(result)
+        task_id = result.get("next_task_id")
+        await db.commit()
+    structure = await db.get(AsyncTask, UUID(task_id))
+    await handle_evolution_scene_step(db, structure)
+    structure.mark_done()
+    await db.commit()
+
+    await create_draft_only(db, nid, 1, "第一章", "天亮了。今天很暖。")
+    await db.commit()
+    revise = await request_start(
+        db, nid, mode="revise", run_key=old["run_key"], end_chapter=3
+    )
+    new = (await start_reading(db, nid, revise))["run"]
+    task = await db.get(AsyncTask, UUID(new["task_id"]))
+    result = await handle_evolution_scene_step(db, task)
+    task.mark_done(result)
+    await db.commit()
+
+    run = await PostgresAttemptStore(db, nid).load_run(new["run_key"])
+    assert run.committed_scene_index == 2
+    inherited = run.reading_plan_json["inherited_receipts"]
+    assert len(inherited) == 2
+    # 旧 run 已 source_stale，但新 run 的传播证明使继承候选保持可采用。
+    await require_current_world_candidate(db, nid, inherited[0])
+    # 篡改传播证明 → 采用门重新拒绝。
+    proof = run.reading_plan_json["propagation_handoffs"][0]
+    run.reading_plan_json = {
+        **run.reading_plan_json,
+        "propagation_handoffs": [{**proof, "observation_map": {"forged": "observation"}}],
+    }
+    await db.flush()
+    with pytest.raises(ConflictError, match="理解"):
+        await require_current_world_candidate(db, nid, inherited[0])
+
+
 async def test_revise_rejects_prefix_superseded_by_another_run(
     db_session, evolution_project_id, account_llm_connection, monkeypatch
 ):
@@ -554,7 +1029,15 @@ async def test_revise_rejects_prefix_superseded_by_another_run(
     async def provider(self, prompt, *, complete_stream=False):
         if response := empty_world_response(prompt):
             return response
-        quote = ["天亮了。", "下雨了。", "天亮了。", "风停了。"][len(calls)]
+        quote = (
+            next(
+                message.content
+                for message in prompt.messages
+                if "正文】\n" in message.content
+            )
+            .split("正文】\n", 1)[1]
+            .split("\n【", 1)[0]
+        )
         calls.append(quote)
         return LLMCallResponse(
             content=json.dumps(
@@ -603,7 +1086,9 @@ async def test_revise_rejects_prefix_superseded_by_another_run(
     await db.commit()
     with pytest.raises(ConflictError, match="原回执前缀"):
         await request_start(db, nid, mode="revise", run_key=a["run_key"], end_chapter=2)
-    assert len(calls) == 4
+    assert (
+        len(calls) == 3
+    )  # unchanged first Scene is reused; superseded prefix still rejected
 
 
 async def test_reading_does_not_skip_unmapped_text_and_pins_queued_revision(

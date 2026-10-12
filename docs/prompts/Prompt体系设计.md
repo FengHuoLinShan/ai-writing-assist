@@ -42,6 +42,7 @@ output_validator 校验，修复计入同一执行预算；固定审稿保留原
 | `rag_query_planner.md` | 复杂作者查询的受约束 support/counter 软查询规划 | `modules.evidence.compilation.services.retrieval_query_planner` |
 | `rag_reranker.md` | 模式感知的 RAG 证据价值排序与 abstention | `modules.evidence.indexing.reranker` |
 | `scene_entity_extraction.md` | 深度导入 Phase 2a，Scene 世界对象、Delta 与不确定项抽取 | imports |
+| `evolution/world.py` | 内联 `WORLD_AUDIT_INSTRUCTION`：按身份与逐字来源范围独立复核 Evolution World 候选；旧版整场容量延后只在作者预览并确认后补审 | Evolution 逐场理解 |
 | `map_structure_workflow.py` | 内联 `relation_prompt`：一次最多 20 地点、每批 5 个，提取有限关系、已有路线/河流名称与逐字证据；输出 `MapRelationBatch`，不生成坐标 | world 统一地图 |
 | `map_atlas_workflow.py` | 内联 step `world.map_atlas.plan.structured`：把已确认资料规划为最多 20 页的地图册层级；图片 Prompt 交给固定 Image API | world 地图册 |
 | `review_resolution.md` / `review_resolution_groups.md` | 导入候选的逐字段证据审查、定向补查返修和共同身份问题归纳；模型不持有采用权限 | imports |
@@ -761,8 +762,11 @@ Evolution `SceneSample` 可用 `subject_surface`，禁止猜测实体 ID；主�
 窄观察关闭思考并给 16,384 输出上限；身份、World 与独立复核使用 high 和分步输出预算，
 模型能力不足时保留待处理，不把格式通过当作文学质量证明。
 
-Evolution 细节发现 `evolution.discovery.v1` 和独立复核 `evolution.discovery.review.v1`
+Evolution 细节发现 `evolution.discovery.v2` 和独立复核 `evolution.discovery.review.v1`
 使用 `discovery.py` 的来源绑定生成/复核 Prompt，以及 DiscoveryOutput/DiscoveryReview。
+v2 按确切来源区间和观察/完整主题上下文分批，历史候选先按已有主题、解析后的 World 对象 ID、
+字面表面名排序且每场最多 64 条；逐类别输出条件行为、线索、承诺、语言习惯、外在特征的
+`category_coverage`。缺失类别状态由宿主解释为未检查，不会伪装成已检查未检出。
 只输出契约字段；无目标的独立待核实条目用new，question只更新本批完整既有目标。
 完整历史主题和精确复核目标携带已存证据用途/锚，默认继承旧认证；发生单位沿原具体细节，
 不随新statement扩大。线索解释、相关后续不同动作只作context，明确承诺兑现仍计对应承诺。
@@ -805,7 +809,10 @@ Evolution 细节发现 `evolution.discovery.v1` 和独立复核 `evolution.disco
 
 Evolution World组合审查显式区分首轮World身份上下文与后轮关系上下文，
 两轮实际可见资料共同绑定来源指纹，后轮新增引用映射不能倒填首轮。问题kind和severity
-分别遵循既有枚举，不用minor等严重级替代问题类别，审查失败/阻断保持原门禁。
+分别遵循既有枚举，不用minor等严重级替代问题类别，审查失败/阻断保持原门禁。DeepSeek
+thinking路径按解析身份关系和逐字引文对应的正文码点区间分组；每组独立复核，组失败不放行
+组内候选但不阻断独立组。旧版整场`capacity_deferred`须作者先看分组/调用预览再确认；费用
+未知不重发，补审使用独立冻结记录，原Scene回执不变。审查通过仍只允许建立待采用candidate。
 
 独立发现复核的 `occurrence_observation_ids` 认证实例身份，包含合法回忆与本轮明确重新认证的旧源，不表示新增次数；次数仍按发生身份去重。旧 unknown 仅在本批实际可见、复核 supported、发生模态及引文/来源引用一致时升级新修订，旧已知锚和历史不改。同观察已经定位时不再重复计为未知。`context_observation_ids` 明确复核背景用途，纠正新证据误标实例；不从 reason 自由文本推断，也不把真正身份未定的实例改成背景。相关物件保管不表示线索再次出现，为履约准备不表示兑现。全局 uncertain 不改已认证背景用途，作者决定仍独立保留。
 
@@ -857,7 +864,8 @@ conditions_review；未获资格仍整项待核，不任取共享词凑例外。
 
 
 Evolution discovery绑定12：新增specific旧事件recall用结构化`recall_identity_reviews`核
-旧原已定位动作与当前回忆/指认两侧来源，缺/未确认整项待核；target提供occurrences，
+唯一一个旧原已定位动作与当前回忆/指认两侧来源，并引用新旧原句的连续逐字`identity_quote`；
+宿主检查该短语仅匹配同主题一个旧event occurrence，缺/未确认整项待核；target提供occurrences，
 不从自由reason认证、猜锚或把无新动作等同已证指定旧event。无锚回忆合法未知，旧use继承。
 已支持DeepSeek发现与复核用既有max思考/65,536有限输出，账户model不变，不自动重放。
 原文明示关联的基础状态/约束须纳入条件，外部触发不替代它；旧条件重释仍两侧来源专审。
@@ -877,3 +885,8 @@ question即使复核确认“问题有依据”，仍另存绑定原主题/修�
 主题召回排除，初始无target uncertain仍可沿原ID在新来源中续证；详情保留原支持理解。
 路由prior_review仅带verdict，不复制旧机器自由理由自证；完整主张、条件、作者决定、
 原始观察/引用/用途与已知发生锚仍提供，未缩短历史窗口或删证据。
+
+
+P4 离线续接（2026-10-12）：Discovery 输入 `selected_categories` 限定作者确认的补扫类别；
+未选类别不能被标为已检查或持久化候选。消费 read-set 同时绑定实际 Prompt、响应 schema、
+模型快照与最终运行参数；仅完整输入相同的已取回输出可复用，仍在新来源/scope 独立重物化。
