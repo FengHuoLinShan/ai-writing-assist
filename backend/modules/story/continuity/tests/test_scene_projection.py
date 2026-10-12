@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy import select
@@ -16,6 +18,65 @@ from modules.story.continuity.repositories import EventRepository
 from modules.story.continuity.scene_projection import SceneMemoryProjectionService
 from modules.story.continuity.services import MemoryService
 from modules.story.outline_state.models import Scene
+
+
+@pytest.mark.asyncio
+async def test_consumption_batches_missing_sources_and_preserves_valid_cache_binding():
+    novel_id = str(uuid.uuid4())
+    scene = {"id": str(uuid.uuid4()), "scene_index": 2, "chapter_ids": [1, 2, 3]}
+    state = {}
+    sources = [
+        SimpleNamespace(
+            chapter_index=ch, id=uuid.uuid4(), version_number=1, content_hash=f"hash-{ch}"
+        )
+        for ch in [1, 2, 3]
+    ]
+    service = SceneMemoryProjectionService()
+    with patch(
+        "modules.story.continuity.scene_projection.list_manuscript_sources",
+        autospec=True,
+        return_value=sources,
+    ) as lookup:
+        await service._register_consumption(
+            None, novel_id, scene, "entities", state, previous=None, basis=None
+        )
+        lookup.assert_awaited_once_with(None, novel_id, [1, 2, 3], content_mode="working")
+        lookup.reset_mock()
+        await service._register_consumption(
+            None,
+            novel_id,
+            scene,
+            "entities",
+            state,
+            previous=None,
+            basis=None,
+            only_missing=True,
+        )
+        lookup.assert_not_awaited()
+        previous = SimpleNamespace(id=uuid.uuid4(), state_json={})
+        await service._register_consumption(
+            None,
+            novel_id,
+            scene,
+            "entities",
+            state,
+            previous=previous,
+            basis=None,
+            only_missing=True,
+        )
+        lookup.assert_awaited_once()
+        lookup.reset_mock()
+        await service._register_consumption(
+            None,
+            novel_id,
+            scene,
+            "entities",
+            state,
+            previous=previous,
+            basis=None,
+            only_missing=True,
+        )
+        lookup.assert_not_awaited()
 
 
 async def _scene(

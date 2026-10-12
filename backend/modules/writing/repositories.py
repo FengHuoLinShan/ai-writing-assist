@@ -12,6 +12,8 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 
 from sqlalchemy import and_, func, select, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1540,26 +1542,31 @@ class WritingRecomputeRepository:
         """幂等落一条失效提示；已存在同回执的行不覆盖（保留首次状态）。"""
         if not receipt_id:
             return None
-        existing = (
-            await db.execute(
+        insert = (
+            pg_insert if db.get_bind().dialect.name == "postgresql" else sqlite_insert
+        )
+        created = await db.scalar(
+            insert(WritingInvalidationNotice)
+            .values(
+                novel_id=novel_id,
+                receipt_id=receipt_id,
+                chapter_index=chapter_index,
+                notice_json=notice,
+                status="open",
+            )
+            .on_conflict_do_nothing(index_elements=["novel_id", "receipt_id"])
+            .returning(WritingInvalidationNotice)
+        )
+        return (
+            created
+            if created is not None
+            else await db.scalar(
                 select(WritingInvalidationNotice).where(
                     WritingInvalidationNotice.novel_id == novel_id,
                     WritingInvalidationNotice.receipt_id == receipt_id,
                 )
             )
-        ).scalar_one_or_none()
-        if existing is not None:
-            return existing
-        row = WritingInvalidationNotice(
-            novel_id=novel_id,
-            receipt_id=receipt_id,
-            chapter_index=chapter_index,
-            notice_json=notice,
-            status="open",
         )
-        db.add(row)
-        await db.flush()
-        return row
 
     @staticmethod
     async def record_notice_progress(

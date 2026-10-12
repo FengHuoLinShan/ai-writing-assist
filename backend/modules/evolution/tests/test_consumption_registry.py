@@ -673,6 +673,17 @@ def test_receipt_fingerprint_is_stable_and_content_sensitive() -> None:
     assert receipt_fingerprint(_receipt(chapter_index=3)) != first
     assert receipt_fingerprint(_receipt(coverage_note="别的说明")) != first
     assert receipt_fingerprint(_receipt(earliest_affected_scene_index=None)) != first
+    replay = _receipt()
+    replay.invalidated_consumers["story_state"] = {
+        "superseded_rows": 0,
+        "updated_at": "later",
+    }
+    replay.invalidated_consumers["interaction_source_cache"] = {"purged_rows": 0}
+    assert receipt_fingerprint(replay) == first
+    replay.invalidated_consumers["evidence_chapter_index"]["requested_hash"] = (
+        "new-source"
+    )
+    assert receipt_fingerprint(replay) != first
 
 
 def test_receipt_view_with_assessment_carries_c0_shape() -> None:

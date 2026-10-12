@@ -161,7 +161,8 @@ client。
 
 project 还通过组合根注册的 `interaction.count_source_references` DI port 在永久删除前
 检查 RP 旅程引用。任一旅程仍绑定该 author source revision 时返回冲突；无旅程引用时
-source revision 随作者项目级联删除。软删除仍允许，但 source-bound 新生成在来源恢复前失败关闭。
+source revision 随作者项目级联删除。自定义 repository 也必须使用该 port 或显式注入引用计数器；
+port 未注册时拒绝永久删除，不将检查不可用视为零引用。软删除仍允许，但 source-bound 新生成在来源恢复前失败关闭。
 
 `build_project_llm_execution_snapshot()` 用于可恢复任务的提交时冻结：
 只持久化账户 provider/model/非 secret 参数、字段来源、deep-import 设置、

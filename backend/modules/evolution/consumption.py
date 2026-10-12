@@ -618,7 +618,20 @@ def receipt_fingerprint(receipt: InvalidationReceipt) -> str:
                 if receipt.source_change
                 else None
             ),
-            "invalidated_consumers": receipt.invalidated_consumers,
+            "invalidated_consumers": sorted(receipt.invalidated_consumers),
+            "source": {
+                key: value
+                for key, value in receipt.invalidated_consumers.get(
+                    "evidence_chapter_index", {}
+                ).items()
+                if key
+                in {
+                    "chapter_index",
+                    "content_mode",
+                    "requested_source_id",
+                    "requested_hash",
+                }
+            },
             "earliest_affected_scene_index": receipt.earliest_affected_scene_index,
             "nothing_to_do": receipt.nothing_to_do,
             "coverage_note": receipt.coverage_note,

@@ -228,6 +228,9 @@ producer family 分区 + 稳定 `meta.event_key`（作者确认永不参与机�
 
 ## 演化来源失效与地图消费
 
+Scene 消费登记一次批量读取缺少字段来源锚的章节。投影缓存命中保留已有同项目、Scene、维度、
+方法版本及前序 checkpoint 的完整登记；旧行缺登记或锚不完整时补齐，不重登记已有效消费以刷新旧稿身份。
+
 continuity 保留原事件历史，通过 `source_stale` 排除已失效机器事件；作者确认事件保持独立权威。
 Scene 生命周期/来源范围/重排在同事务使受影响派生流失效，重排先封锁演化 run，再对齐事件，避免反锁。
 `facade.project_scene_presence` 只读取当前 draft/canonical Scene，在场附带事件/章节/观察出处；

@@ -76,7 +76,13 @@ from modules.interaction.streaming import (
     stream_anonymous_rp_attempt,
     stream_attempt_events,
 )
-from modules.project.facade import create_author_project, require_active_project
+from modules.project.facade import (
+    create_author_project,
+    require_active_project,
+)
+from modules.project.facade import (
+    require_active_project_exclusive as _require_active_project_exclusive,
+)
 
 router = APIRouter(prefix="/api/interactions", tags=["interactions"])
 demo_router = APIRouter(prefix="/api/demo", tags=["public-demo"])
@@ -253,7 +259,7 @@ async def import_source(
     authorization_confirmed: bool = Form(False),
 ) -> InteractionSourceRevisionResponse:
     if project_id:
-        await require_active_project(db, project_id)
+        await _require_active_project_exclusive(db, project_id)
         await _source_service.require_author_project(db, project_id)
     if authorization_confirmed is not True:
         raise ValidationError("请先确认完整整理会使用模型额度")
@@ -310,7 +316,7 @@ async def create_source_from_project(
     db: DbSession,
     data: InteractionSourceFromProjectRequest,
 ) -> InteractionSourceRevisionResponse:
-    await require_active_project(db, data.project_id)
+    await _require_active_project_exclusive(db, data.project_id)
     return await _source_service.create_from_project(
         db,
         project_id=data.project_id,

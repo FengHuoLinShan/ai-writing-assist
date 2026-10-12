@@ -462,6 +462,7 @@ class SceneMemoryProjectionService:
                     cached_state,
                     previous=previous,
                     basis=basis,
+                    only_missing=True,
                 )
                 if cached_state != (current.state_json or {}):
                     current.state_json = cached_state
@@ -537,6 +538,7 @@ class SceneMemoryProjectionService:
         *,
         previous: MemorySceneCheckpoint | None,
         basis: dict[str, Any] | None,
+        only_missing: bool = False,
     ) -> None:
         """把本行实际消费的稿件范围登记进产物载荷（P2-C C2 真实写入点）。
 
@@ -579,21 +581,42 @@ class SceneMemoryProjectionService:
             for binding in record.binding.chapters
         }
         chapters = sorted(set(chapters) | set(referenced) | inherited_chapters)
+        if only_missing and any(
+            record.novel_id == novel_id
+            and record.consumer.kind.value == "story_scene_checkpoint"
+            and record.consumer.scene_id == str(scene["id"])
+            and record.consumer.scene_index == int(scene["scene_index"])
+            and record.consumer.dimension == dimension
+            and (record.basis.ref_id if record.basis else None)
+            == (str(previous.id) if previous else None)
+            and (record.basis is None or record.basis.anchor_kind == "scene_checkpoint")
+            and record.binding.content_mode == "working"
+            and record.method_version
+            == f"scene-projection:{CURRENT_SCENE_MEMORY_CONTRACT_VERSION}"
+            and set(chapters) <= {item.chapter_index for item in record.binding.chapters}
+            and all(
+                item.draft_id and item.source_hash and item.version_number is not None
+                for item in record.binding.chapters
+            )
+            for record in read_consumption_records(state)
+        ):
+            return
+        missing = [chapter for chapter in chapters if chapter not in referenced]
+        sources = (
+            await list_manuscript_sources(db, novel_id, missing, content_mode="working")
+            if missing
+            else []
+        )
+        by_chapter = {
+            int(item.chapter_index): item
+            for item in sources
+            if item.id and item.content_hash
+        }
         bindings: list[dict[str, Any]] = []
         for chapter in chapters:
             anchor = referenced.get(chapter)
             if anchor is None:
-                sources = await list_manuscript_sources(
-                    db, novel_id, [chapter], content_mode="working"
-                )
-                source = next(
-                    (
-                        item
-                        for item in sources
-                        if int(item.chapter_index) == chapter and item.content_hash
-                    ),
-                    None,
-                )
+                source = by_chapter.get(chapter)
                 if source is None or not source.id:
                     continue
                 anchor = (

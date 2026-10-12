@@ -26,6 +26,7 @@ Writing 模块是章节正文的事实源，同时负责在 fresh context confir
   预览/执行端点 `POST /api/writing/recompute`、`/recompute/{operation_id}/adopt`
   （幂等、漂移 409 保当前稿、预览零正史写入），语义见
   [docs/modules/11_writing.md](../../../docs/modules/11_writing.md)
+- 失效提示以项目和稳定回执身份原子去重；并发重放返回首次记录，保留原提示内容与已解决状态。
 - 写作页剧情设定冲突检查记录、问题状态与发布前检查快照归档
 - 从已确认 context 生成 AI 正文 candidate，并保存 confirmation/task provenance
 - 对规则冲突结果追加 AI 软复核和可编辑修复建议

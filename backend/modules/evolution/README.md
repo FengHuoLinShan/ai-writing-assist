@@ -38,7 +38,8 @@ Scene 起点，若更早来源已变则向前扩大。两者预览并确认新�
   行为逐位一致，无真实登记的锚定投影按 outline 结构合成整章登记。公共视图经 DI 键
   `EVOLUTION_INVALIDATION_RECEIPT_VIEW`（`facade.receipt_view`）供 Writing 保存链路
   消费。Story 真实投影已逐维度登记本场与继承前缀，重复 ensure 保持登记时间；
-  回执指纹包含来源摘要，连续等长改稿仍产生独立提示。权威语义见 [docs/modules/22_evolution.md](../../../docs/modules/22_evolution.md)。
+  回执指纹包含来源摘要、消费者集合与影响范围，不包含清理数量、运行编号或时间等临时详情；
+  连续等长改稿仍产生独立提示。权威语义见 [docs/modules/22_evolution.md](../../../docs/modules/22_evolution.md)。
 - 来源身份：`SourceRevisionRef`（章节序号不独自承担来源身份；
   range_hash 由 content_hash + 偏移确定性推导）。场景步的来源绑定
   （`pipeline.SceneSourceBinding`，A02）锚定真实 Writing 草稿并携带码点

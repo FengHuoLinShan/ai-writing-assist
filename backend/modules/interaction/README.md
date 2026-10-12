@@ -28,6 +28,10 @@ attempt 与分支有效回顾。用户可继续直接使用模型知识，也可
 
 ## 稳定边界
 
+资料与旅程的 GET/list 只计算整理进度投影，不锁定资料行或写入整理状态；创建、绑定/确认等
+领域操作持久化状态。来源创建与引用刷新先持项目排他锁再读取目录，重复正文 manifest 复用
+同一版本和任务，避免共享锁升级死锁。来源 JSONB 与新增字段的数据库默认值按既有 migration 对齐 ORM。
+
 - 跨模块只调用 project/imports/writing/evidence/world/story 的 facade/contracts 和
   `infrastructure.tasks.facade`。唯一跨项目例外见 ADR-0018：同 owner 的 author source
   revision 可被 interaction consumer 只读引用。
