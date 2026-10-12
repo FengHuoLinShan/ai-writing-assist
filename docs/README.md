@@ -52,7 +52,8 @@
   不回写历史计划正文。
 - `archive/audit/`、`archive/maintenance/document-update-log.md` 和已完成验收报告是时间点记录，不作为当前状态判断依据。
 - [`architecture/README.md`](architecture/README.md) 分类架构图：当前模块图以
-  `module-architecture.drawio` 为可编辑图源、HTML 为兼容预览；`diagrams/` 下的旧图仅作
+  `module-architecture.drawio` 为可编辑图源、HTML 为兼容预览；功能描述图（作者视角）
+  以 `feature-map.drawio` 为可编辑图源、HTML 为兼容预览；`diagrams/` 下的旧图仅作
   历史视觉参考。
 - [`architecture/architecture-documents.toml`](architecture/architecture-documents.toml)
   是当前架构文档、模块/API 前缀和差异影响规则的机器清单；`make docs-check` 验证完整性，

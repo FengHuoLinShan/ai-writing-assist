@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI 小说创作系统 — 模块架构图</title>
+  <title>AI 长篇小说结构化创作引擎 — 模块架构</title>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" integrity="sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" integrity="sha384-en/ztfPSRkGfME4KIm05joYXynqzUgbsG5nMrj/xEFAHXkeZfO3yMK8QQ+mP7p1/" crossorigin="anonymous"></script>
@@ -82,7 +82,7 @@
   <div class="header">
     <div class="header-row">
       <div class="pulse-dot"></div>
-      <h1>AI 小说创作系统 — 模块架构图</h1>
+      <h1>AI 长篇小说结构化创作引擎 — 模块架构</h1>
       <div class="toolbar">
         <div class="toolbar-actions">
           <a href="module-architecture.drawio" download>✏️ Draw.io</a>
@@ -93,11 +93,11 @@
         <button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" title="Export options" aria-label="Export options">⋯</button>
       </div>
     </div>
-    <p class="subtitle">浏览器兼容预览 · 12 个业务模块 · 当前可编辑图源：module-architecture.drawio</p>
+    <p class="subtitle">浏览器兼容预览 · 12 个业务模块 + frontend / prompts 共享组件 · 含运行时拓扑 · 可编辑图源：module-architecture.drawio</p>
   </div>
 
   <div class="diagram-container">
-    <svg viewBox="0 0 1100 1000">
+    <svg viewBox="0 0 1100 1290">
       <defs>
         <marker id="arrow-amber" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
           <polygon points="0 0, 10 3.5, 0 7" fill="#fbbf24" />
@@ -115,7 +115,7 @@
           <polygon points="0 0, 10 3.5, 0 7" fill="#fb923c" />
         </marker>
         <marker id="arrow-slate" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-          <polygon points="0 0, 10 3.5, 0 7" fill="#64748b" />
+          <polygon points="0 0, 10 3.5, 0 7" fill="#94a3b8" />
         </marker>
         <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
           <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
@@ -126,211 +126,332 @@
 
       <!-- ===== ARROWS (drawn first so they render behind boxes) ===== -->
 
-      <!-- A1: world → evidence/compilation -->
-      <path d="M 180 355 L 180 530" fill="none" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
+      <!-- account → project (owner gate) -->
+      <path d="M 165 150 L 165 187 L 205 187 L 205 225" fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+      <text x="185" y="181" fill="#fbbf24" font-size="7" text-anchor="middle">owner</text>
 
-      <!-- A2: story/continuity → evidence/compilation -->
-      <path d="M 550 355 L 550 530" fill="none" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
+      <!-- project → interaction (same-owner source revision) -->
+      <path d="M 320 225 L 320 210 L 630 210 L 630 150" fill="none" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
+      <text x="475" y="204" fill="#a78bfa" font-size="7" text-anchor="middle">same-owner source revision</text>
 
-      <!-- A3: evidence/indexing → evidence/compilation -->
-      <path d="M 920 355 L 920 530" fill="none" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
+      <!-- project → tasks/llm (text / image client snapshot) -->
+      <path d="M 300 225 L 300 181 L 855 181 L 855 150" fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+      <text x="500" y="175" fill="#fbbf24" font-size="7" text-anchor="middle">text / image client snapshot</text>
 
-      <!-- A4: writing → evidence/indexing (publish → index) -->
-      <path d="M 900 530 L 900 355" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)"/>
-      <text x="880" y="420" fill="#34d399" font-size="7" text-anchor="end">publish→index</text>
+      <!-- interaction → evidence (manifest / 16K reference pack) -->
+      <path d="M 712 150 L 712 540" fill="none" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
+      <text x="704" y="520" fill="#a78bfa" font-size="7" text-anchor="end">source manifest / 16K 参考包</text>
 
-      <!-- A5: writing → story/continuity (publish → snapshot) -->
-      <path d="M 870 530 Q 870 480 710 420 L 710 355" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)"/>
-      <text x="830" y="470" fill="#34d399" font-size="7" text-anchor="end">publish→snapshot</text>
+      <!-- assistant → evidence (read-only evidence) -->
+      <path d="M 368 150 L 368 540" fill="none" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
+      <text x="360" y="528" fill="#a78bfa" font-size="7" text-anchor="end">只读证据</text>
 
-      <!-- A6: imports → writing -->
-      <path d="M 330 585 L 770 585" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)"/>
-      <text x="550" y="578" fill="#22d3ee" font-size="7" text-anchor="middle">create_draft</text>
+      <!-- assistant → tasks/llm (runtime) -->
+      <path d="M 405 150 L 405 158 L 885 158 L 885 150" fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+      <text x="645" y="174" fill="#fbbf24" font-size="7" text-anchor="middle">运行 · 任务 / LLM step</text>
 
-      <!-- A7: imports → world (deep import workflow) -->
-      <path d="M 200 530 L 200 355" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)"/>
+      <!-- world → evidence (entity terms, via corridor left of outline) -->
+      <path d="M 395 330 L 388 330 L 388 540" fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+      <text x="394" y="418" fill="#fbbf24" font-size="7">entity_terms</text>
 
-      <!-- A8: imports → story/outline_state -->
-      <path d="M 240 530 Q 240 490 435 470" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)"/>
+      <!-- evidence → world (activity stats) -->
+      <path d="M 724 540 L 724 300 L 695 300" fill="none" stroke="#fb923c" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
+      <text x="730" y="515" fill="#fb923c" font-size="7">activity_stats</text>
 
-      <!-- A9: world → evidence/indexing (entity terms) -->
-      <path d="M 330 280 Q 550 240 770 280" fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
-      <text x="550" y="253" fill="#fbbf24" font-size="7" text-anchor="middle">entity_terms</text>
+      <!-- story/continuity → evidence (checkpoint replay) -->
+      <path d="M 800 350 L 800 540" fill="none" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
+      <text x="806" y="460" fill="#a78bfa" font-size="7">checkpoint → 历史回放</text>
 
-      <!-- A11: evidence/indexing → world (activity projection) -->
-      <path d="M 770 310 L 330 310" fill="none" stroke="#fb923c" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
-      <text x="550" y="303" fill="#fb923c" font-size="7" text-anchor="middle">activity_stats</text>
+      <!-- story/outline_state → evidence (structure context) -->
+      <path d="M 640 468 L 640 540" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)"/>
+      <text x="694" y="498" fill="#22d3ee" font-size="7" text-anchor="end">structure context</text>
 
-      <!-- A12: evidence/indexing → writing (source read) -->
-      <path d="M 940 355 L 940 530" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)"/>
+      <!-- writing → story/continuity (publish → snapshot) -->
+      <path d="M 900 540 L 900 350" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)"/>
+      <text x="906" y="470" fill="#34d399" font-size="7">publish → snapshot</text>
 
-      <!-- A13: story/outline_state → evidence/compilation -->
-      <path d="M 550 470 L 550 530" fill="none" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
+      <!-- writing → evidence (publish → index) -->
+      <path d="M 800 575 L 740 575" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)"/>
+      <text x="770" y="568" fill="#34d399" font-size="6" text-anchor="middle">publish → index</text>
 
-      <!-- A14: evidence/compilation → story/outline_state -->
-      <path d="M 560 530 L 560 470" fill="none" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
+      <!-- evidence → writing (source read-back) -->
+      <path d="M 740 620 L 800 620" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)"/>
+      <text x="770" y="634" fill="#34d399" font-size="7" text-anchor="middle">原文回读</text>
 
-      <!-- A15: imports → writing (list_chapter_indices) -->
-      <path d="M 350 600 L 770 600" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)"/>
-      <text x="560" y="593" fill="#22d3ee" font-size="7" text-anchor="middle">list_chapters</text>
+      <!-- imports → evidence (enqueue index tasks) -->
+      <path d="M 315 595 L 360 595" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)"/>
+      <text x="337" y="588" fill="#34d399" font-size="7" text-anchor="middle">入队</text>
 
-      <!-- A16: account → project (owner gate) -->
-      <path d="M 230 130 L 250 130" fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
-      <text x="240" y="122" fill="#fbbf24" font-size="7" text-anchor="middle">owner</text>
+      <!-- imports → world (deep import) -->
+      <path d="M 185 540 L 185 392 L 545 392 L 545 350" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)"/>
+      <text x="365" y="399" fill="#22d3ee" font-size="7" text-anchor="middle">深度导入</text>
 
-      <!-- A17: author project → interaction source revision -->
-      <path d="M 425 145 L 435 145 L 435 185 L 630 185 L 630 145 L 640 145" fill="none" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
-      <text x="532" y="180" fill="#a78bfa" font-size="7" text-anchor="middle">same-owner source revision</text>
+      <!-- imports → story/outline_state -->
+      <path d="M 280 540 L 280 492 L 470 492 L 470 468" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)"/>
+      <text x="375" y="489" fill="#22d3ee" font-size="7" text-anchor="middle">Scene / 结构资产</text>
 
-      <!-- A18: interaction → evidence versioned context -->
-      <path d="M 727 165 Q 727 205 820 245" fill="none" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
-      <text x="752" y="205" fill="#a78bfa" font-size="7">manifest context</text>
+      <!-- imports → writing (imported prose → drafts) -->
+      <path d="M 185 650 L 185 660 L 900 660 L 900 650" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)"/>
+      <text x="465" y="658" fill="#22d3ee" font-size="7" text-anchor="middle">导入正文 → 草稿 / 章节</text>
+
+      <!-- evidence → collaboration (frozen sources / query sets) -->
+      <path d="M 550 650 L 550 730" fill="none" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
+      <text x="556" y="700" fill="#a78bfa" font-size="7">冻结来源 / 查询集合</text>
+
+      <!-- collaboration → writing (confirmed writes via original domain port) -->
+      <path d="M 700 730 L 700 682 L 940 682 L 940 650" fill="none" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
+      <text x="706" y="678" fill="#a78bfa" font-size="7">确认后经原领域 port</text>
+
+      <!-- runtime: frontend → FastAPI -->
+      <path d="M 295 947 L 330 947" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow-slate)"/>
+      <text x="312" y="941" fill="#94a3b8" font-size="6" text-anchor="middle">HTTP</text>
+
+      <!-- runtime: FastAPI → PostgreSQL / queue -->
+      <path d="M 565 947 L 605 947" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow-slate)"/>
+      <text x="585" y="941" fill="#94a3b8" font-size="6" text-anchor="middle">读写 · 入队</text>
+
+      <!-- runtime: FastAPI → outbound LLM -->
+      <path d="M 447 990 L 447 1050" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow-slate)"/>
+      <text x="440" y="1024" fill="#94a3b8" font-size="7" text-anchor="end">LLM step 出站</text>
+
+      <!-- runtime: server processes → outbound S3 -->
+      <path d="M 500 990 L 500 1032 L 727 1032 L 727 1050" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow-slate)"/>
+      <text x="610" y="1043" fill="#94a3b8" font-size="7">对象写入（API / worker）</text>
+
+      <!-- runtime: author Mac CLI → API (device-initiated lease) -->
+      <path d="M 995 1050 L 995 1008 L 548 1008 L 548 990" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow-slate)"/>
+      <text x="790" y="1002" fill="#94a3b8" font-size="7">Mac 出站领取 · 任务租约</text>
 
       <!-- ===== PLATFORM BOUNDARY ===== -->
-      <rect x="40" y="60" width="1020" height="125" rx="10" fill="rgba(120, 53, 15, 0.08)" stroke="#fbbf24" stroke-width="1" stroke-dasharray="8,4"/>
-      <text x="55" y="78" fill="#fbbf24" font-size="10" font-weight="600">平台与独立 RP 边界 — 身份 / 项目 / 配置 / 互动 / 调度</text>
+      <rect x="40" y="40" width="1020" height="125" rx="10" fill="rgba(120, 53, 15, 0.08)" stroke="#fbbf24" stroke-width="1" stroke-dasharray="8,4"/>
+      <text x="55" y="58" fill="#fbbf24" font-size="10" font-weight="600">平台与独立 RP 边界 — 身份 / 助手 / 互动 / 共享基建</text>
 
       <!-- account box -->
-      <rect x="55" y="95" width="175" height="70" rx="6" fill="#0f172a" stroke="none"/>
-      <rect x="55" y="95" width="175" height="70" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
-      <text x="142" y="118" fill="white" font-size="11" font-weight="600" text-anchor="middle">account 账号</text>
-      <text x="142" y="136" fill="#94a3b8" font-size="8" text-anchor="middle">身份 · 连接 · 全局偏好</text>
+      <rect x="55" y="75" width="220" height="75" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="55" y="75" width="220" height="75" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+      <text x="165" y="98" fill="white" font-size="11" font-weight="600" text-anchor="middle">account 账号</text>
+      <text x="165" y="118" fill="#94a3b8" font-size="8" text-anchor="middle">身份 · 连接 · 全局偏好</text>
+      <text x="165" y="134" fill="#94a3b8" font-size="8" text-anchor="middle">owner 边界</text>
 
-      <!-- project box -->
-      <rect x="250" y="95" width="175" height="70" rx="6" fill="#0f172a" stroke="none"/>
-      <rect x="250" y="95" width="175" height="70" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
-      <text x="337" y="118" fill="white" font-size="11" font-weight="600" text-anchor="middle">project 隔离根</text>
-      <text x="337" y="136" fill="#94a3b8" font-size="8" text-anchor="middle">novel · 项目偏好 · effective</text>
+      <!-- assistant box -->
+      <rect x="295" y="75" width="220" height="75" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="295" y="75" width="220" height="75" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+      <text x="405" y="93" fill="white" font-size="11" text-anchor="middle">assistant 项目助手</text>
+      <text x="405" y="111" fill="#cbd5e1" font-size="8" text-anchor="middle">讨论 · 引导流程 · 成组确认 · 提醒</text>
+      <text x="405" y="127" fill="#cbd5e1" font-size="8" text-anchor="middle">Evidence 只读</text>
+      <text x="405" y="143" fill="#94a3b8" font-size="7" text-anchor="middle">领域成果仍归原模块</text>
 
-      <!-- assistant: shared project discussion and presentation, domain-owned writes -->
-      <rect x="445" y="95" width="175" height="70" rx="6" fill="#172554" stroke="#60a5fa" stroke-width="1.5"/>
-      <text x="532" y="118" fill="white" font-size="11" text-anchor="middle">assistant 项目助手</text>
-      <text x="532" y="138" fill="#cbd5e1" font-size="8" text-anchor="middle">讨论 · 成组确认 · 提醒</text>
-      <text x="532" y="153" fill="#cbd5e1" font-size="8" text-anchor="middle">有限 Agent · Evidence 只读</text>
       <!-- interaction box -->
-      <rect x="640" y="95" width="175" height="70" rx="6" fill="#0f172a" stroke="none"/>
-      <rect x="640" y="95" width="175" height="70" rx="6" fill="rgba(76, 29, 149, 0.3)" stroke="#a78bfa" stroke-width="1.5"/>
-      <text x="727" y="118" fill="white" font-size="11" font-weight="600" text-anchor="middle">interaction RP</text>
-      <text x="727" y="136" fill="#94a3b8" font-size="8" text-anchor="middle">私人分支 · 回顾 · 固定作品版本</text>
+      <rect x="535" y="75" width="220" height="75" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="535" y="75" width="220" height="75" rx="6" fill="rgba(76, 29, 149, 0.3)" stroke="#a78bfa" stroke-width="1.5"/>
+      <text x="645" y="98" fill="white" font-size="11" font-weight="600" text-anchor="middle">interaction RP</text>
+      <text x="645" y="118" fill="#94a3b8" font-size="8" text-anchor="middle">私人分支 · 回顾 · 看海</text>
+      <text x="645" y="134" fill="#94a3b8" font-size="8" text-anchor="middle">只读固定作品版本</text>
 
       <!-- shared infrastructure box -->
-      <rect x="835" y="95" width="175" height="70" rx="6" fill="#0f172a" stroke="none"/>
-      <rect x="835" y="95" width="175" height="70" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
-      <text x="922" y="118" fill="white" font-size="11" font-weight="600" text-anchor="middle">tasks / llm</text>
-      <text x="922" y="136" fill="#94a3b8" font-size="8" text-anchor="middle">队列 · worker · 有限 Agent / LLM</text>
+      <rect x="775" y="75" width="220" height="75" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="775" y="75" width="220" height="75" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+      <text x="885" y="98" fill="white" font-size="11" font-weight="600" text-anchor="middle">tasks / llm 共享基建</text>
+      <text x="885" y="118" fill="#94a3b8" font-size="8" text-anchor="middle">PostgreSQL 队列 · worker</text>
+      <text x="885" y="134" fill="#94a3b8" font-size="8" text-anchor="middle">受控 LLM step · 累计预算</text>
 
-      <!-- ===== FACTS + DERIVED RETRIEVAL ===== -->
-      <rect x="40" y="210" width="1020" height="175" rx="10" fill="rgba(76, 29, 149, 0.08)" stroke="#a78bfa" stroke-width="1" stroke-dasharray="8,4"/>
-      <text x="55" y="228" fill="#a78bfa" font-size="10" font-weight="600">事实层 + 派生检索 Facts + Derived Retrieval</text>
+      <!-- ===== FACTS LAYER ===== -->
+      <rect x="40" y="190" width="1020" height="190" rx="10" fill="rgba(76, 29, 149, 0.08)" stroke="#a78bfa" stroke-width="1" stroke-dasharray="8,4"/>
+      <text x="55" y="208" fill="#a78bfa" font-size="10" font-weight="600">事实层 Facts — 项目根、当前正史与历史状态</text>
+
+      <!-- project box -->
+      <rect x="55" y="225" width="300" height="125" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="55" y="225" width="300" height="125" rx="6" fill="rgba(76, 29, 149, 0.3)" stroke="#a78bfa" stroke-width="1.5"/>
+      <text x="205" y="250" fill="white" font-size="12" font-weight="600" text-anchor="middle">project 隔离根</text>
+      <text x="205" y="272" fill="#94a3b8" font-size="9" text-anchor="middle">owner · novel_id · 项目偏好</text>
+      <text x="205" y="290" fill="#94a3b8" font-size="9" text-anchor="middle">effective 配置 · 删除锁</text>
+      <text x="205" y="308" fill="#94a3b8" font-size="8" text-anchor="middle">文本/图片 client · secret-free snapshot</text>
+      <text x="205" y="332" fill="#a78bfa" font-size="8" text-anchor="middle">owner 与 novel_id 门禁的根</text>
 
       <!-- world box -->
-      <rect x="60" y="245" width="260" height="110" rx="6" fill="#0f172a" stroke="none"/>
-      <rect x="60" y="245" width="260" height="110" rx="6" fill="rgba(76, 29, 149, 0.3)" stroke="#a78bfa" stroke-width="1.5"/>
-      <text x="190" y="270" fill="white" font-size="12" font-weight="600" text-anchor="middle">world 世界观引擎</text>
-      <text x="190" y="290" fill="#94a3b8" font-size="9" text-anchor="middle">实体 / 人物 / 事件 / 关系</text>
-      <text x="190" y="306" fill="#94a3b8" font-size="9" text-anchor="middle">世界书 · AI 地图册 · 私有 S3</text>
-      <text x="190" y="326" fill="#a78bfa" font-size="8" text-anchor="middle">事实持久化 · 受控采用</text>
+      <rect x="395" y="225" width="300" height="125" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="395" y="225" width="300" height="125" rx="6" fill="rgba(76, 29, 149, 0.3)" stroke="#a78bfa" stroke-width="1.5"/>
+      <text x="545" y="250" fill="white" font-size="12" font-weight="600" text-anchor="middle">world 世界事实与 AI 地图册</text>
+      <text x="545" y="272" fill="#94a3b8" font-size="8" text-anchor="middle">CoreEntity · 世界书 · atlas run/node/page</text>
+      <text x="545" y="290" fill="#94a3b8" font-size="9" text-anchor="middle">候选审查 · 私有 S3 图片</text>
+      <text x="545" y="314" fill="#a78bfa" font-size="8" text-anchor="middle">事实持久化 · 受控采用</text>
 
       <!-- story/continuity box -->
-      <rect x="420" y="245" width="260" height="110" rx="6" fill="#0f172a" stroke="none"/>
-      <rect x="420" y="245" width="260" height="110" rx="6" fill="rgba(76, 29, 149, 0.3)" stroke="#a78bfa" stroke-width="1.5"/>
-      <text x="550" y="270" fill="white" font-size="12" font-weight="600" text-anchor="middle">story/continuity 历史状态</text>
-      <text x="550" y="290" fill="#94a3b8" font-size="9" text-anchor="middle">MemoryEvent · DeltaLog</text>
-      <text x="550" y="306" fill="#94a3b8" font-size="9" text-anchor="middle">Scene checkpoint / snapshot</text>
-      <text x="550" y="326" fill="#a78bfa" font-size="8" text-anchor="middle">确定性历史重放</text>
-
-      <!-- evidence box -->
-      <rect x="780" y="245" width="260" height="110" rx="6" fill="#0f172a" stroke="none"/>
-      <rect x="780" y="245" width="260" height="110" rx="6" fill="rgba(76, 29, 149, 0.3)" stroke="#a78bfa" stroke-width="1.5"/>
-      <text x="910" y="270" fill="white" font-size="12" font-weight="600" text-anchor="middle">evidence/indexing 证据索引</text>
-      <text x="910" y="290" fill="#94a3b8" font-size="9" text-anchor="middle">分块 · 检索 · freshness</text>
-      <text x="910" y="306" fill="#94a3b8" font-size="9" text-anchor="middle">chapter / Scene · source hash · visibility</text>
-      <text x="910" y="326" fill="#a78bfa" font-size="8" text-anchor="middle">rebuild · retry · metrics</text>
+      <rect x="735" y="225" width="300" height="125" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="735" y="225" width="300" height="125" rx="6" fill="rgba(76, 29, 149, 0.3)" stroke="#a78bfa" stroke-width="1.5"/>
+      <text x="885" y="250" fill="white" font-size="12" font-weight="600" text-anchor="middle">story/continuity 历史状态</text>
+      <text x="885" y="272" fill="#94a3b8" font-size="8" text-anchor="middle">MemoryEvent · Scene checkpoint / snapshot</text>
+      <text x="885" y="290" fill="#94a3b8" font-size="9" text-anchor="middle">由已确认场景资料确定性重放</text>
+      <text x="885" y="314" fill="#a78bfa" font-size="8" text-anchor="middle">确定性历史重放</text>
 
       <!-- ===== STRUCTURE LAYER ===== -->
-      <rect x="100" y="400" width="900" height="75" rx="8" fill="rgba(8, 51, 68, 0.08)" stroke="#22d3ee" stroke-width="1" stroke-dasharray="8,4"/>
-      <text x="115" y="416" fill="#22d3ee" font-size="10" font-weight="600">结构层 Outline — 剧情规划</text>
+      <rect x="40" y="405" width="1020" height="75" rx="10" fill="rgba(8, 51, 68, 0.08)" stroke="#22d3ee" stroke-width="1" stroke-dasharray="8,4"/>
+      <text x="55" y="421" fill="#22d3ee" font-size="10" font-weight="600">结构层 Structure — 剧情计划</text>
 
-      <rect x="400" y="418" width="300" height="45" rx="6" fill="#0f172a" stroke="none"/>
-      <rect x="400" y="418" width="300" height="45" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
-      <text x="550" y="438" fill="white" font-size="12" font-weight="600" text-anchor="middle">story/outline_state 剧情结构</text>
-      <text x="550" y="453" fill="#94a3b8" font-size="8" text-anchor="middle">StoryOutline · PlotThread / Arc · Scene</text>
+      <rect x="400" y="423" width="300" height="45" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="400" y="423" width="300" height="45" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+      <text x="550" y="440" fill="white" font-size="11" font-weight="600" text-anchor="middle">story/outline_state 剧情结构</text>
+      <text x="550" y="456" fill="#94a3b8" font-size="8" text-anchor="middle">StoryOutline → PlotThread / Arc → Scene</text>
 
       <!-- ===== SUPPORTING WORKFLOWS ===== -->
-      <rect x="40" y="500" width="1020" height="165" rx="10" fill="rgba(6, 78, 59, 0.08)" stroke="#34d399" stroke-width="1" stroke-dasharray="8,4"/>
-      <text x="55" y="518" fill="#34d399" font-size="10" font-weight="600">辅助层 Supporting Workflows — 导入 / 写作</text>
+      <rect x="40" y="505" width="1020" height="165" rx="10" fill="rgba(6, 78, 59, 0.08)" stroke="#34d399" stroke-width="1" stroke-dasharray="8,4"/>
+      <text x="55" y="523" fill="#34d399" font-size="10" font-weight="600">辅助层 Supporting — 导入、证据与正文</text>
 
       <!-- imports box -->
-      <rect x="60" y="535" width="260" height="105" rx="6" fill="#0f172a" stroke="none"/>
-      <rect x="60" y="535" width="260" height="105" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
-      <text x="190" y="558" fill="white" font-size="12" font-weight="600" text-anchor="middle">imports 内容导入</text>
-      <text x="190" y="578" fill="#94a3b8" font-size="9" text-anchor="middle">两次校验 · full/append · 深度导入</text>
-      <text x="190" y="594" fill="#94a3b8" font-size="9" text-anchor="middle">→ writing / world / story</text>
-      <text x="190" y="614" fill="#34d399" font-size="8" text-anchor="middle">入队 Evidence 索引任务</text>
+      <rect x="55" y="540" width="260" height="110" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="55" y="540" width="260" height="110" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+      <text x="185" y="563" fill="white" font-size="12" font-weight="600" text-anchor="middle">imports 内容导入</text>
+      <text x="185" y="583" fill="#94a3b8" font-size="8" text-anchor="middle">两次校验 · full/append · 深度导入</text>
+      <text x="185" y="599" fill="#94a3b8" font-size="9" text-anchor="middle">checkpoint · 恢复</text>
+      <text x="185" y="623" fill="#34d399" font-size="8" text-anchor="middle">入队 Evidence 索引任务</text>
 
-      <!-- evidence box -->
-      <rect x="420" y="535" width="260" height="105" rx="6" fill="#0f172a" stroke="none"/>
-      <rect x="420" y="535" width="260" height="105" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
-      <text x="550" y="558" fill="white" font-size="12" font-weight="600" text-anchor="middle">evidence/compilation 上下文</text>
-      <text x="550" y="578" fill="#94a3b8" font-size="9" text-anchor="middle">编译 · 确认 · guard</text>
-      <text x="550" y="594" fill="#94a3b8" font-size="9" text-anchor="middle">聚合 project/world/story</text>
-      <text x="550" y="614" fill="#34d399" font-size="8" text-anchor="middle">确认 · snapshot · provenance</text>
+      <!-- evidence box (indexing + compilation unified) -->
+      <rect x="360" y="540" width="380" height="110" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="360" y="540" width="380" height="110" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+      <text x="550" y="563" fill="white" font-size="12" font-weight="600" text-anchor="middle">evidence 证据（indexing + compilation）</text>
+      <text x="550" y="583" fill="#94a3b8" font-size="8" text-anchor="middle">分块 · 检索 · freshness · manifest 过滤</text>
+      <text x="550" y="599" fill="#94a3b8" font-size="8" text-anchor="middle">编译 · 回读 · 可见性 · snapshot · guard</text>
+      <text x="550" y="623" fill="#34d399" font-size="8" text-anchor="middle">HTTP /api/evidence/* · interaction 16K 参考包</text>
 
       <!-- writing box -->
-      <rect x="780" y="535" width="260" height="105" rx="6" fill="#0f172a" stroke="none"/>
-      <rect x="780" y="535" width="260" height="105" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
-      <text x="910" y="558" fill="white" font-size="12" font-weight="600" text-anchor="middle">writing 写作核心</text>
-      <text x="910" y="578" fill="#94a3b8" font-size="9" text-anchor="middle">草稿 CRUD</text>
-      <text x="910" y="594" fill="#94a3b8" font-size="9" text-anchor="middle">publish → evidence/indexing + story/continuity</text>
-      <text x="910" y="614" fill="#34d399" font-size="8" text-anchor="middle">正文事实源</text>
+      <rect x="800" y="540" width="215" height="110" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="800" y="540" width="215" height="110" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+      <text x="907" y="563" fill="white" font-size="12" font-weight="600" text-anchor="middle">writing 写作核心</text>
+      <text x="907" y="583" fill="#94a3b8" font-size="9" text-anchor="middle">工作稿 / 已发布版本</text>
+      <text x="907" y="599" fill="#94a3b8" font-size="8" text-anchor="middle">publish → 索引 + 快照</text>
+      <text x="907" y="623" fill="#34d399" font-size="8" text-anchor="middle">正文事实源</text>
+
+      <!-- ===== DERIVED & INDEPENDENT DOMAINS ===== -->
+      <rect x="40" y="695" width="1020" height="150" rx="10" fill="rgba(37, 99, 235, 0.08)" stroke="#60a5fa" stroke-width="1" stroke-dasharray="8,4"/>
+      <text x="55" y="713" fill="#60a5fa" font-size="10" font-weight="600">独立与派生领域 — 本机设备、派生试验与演化运行</text>
+
+      <!-- local_agent box -->
+      <rect x="55" y="730" width="300" height="95" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="55" y="730" width="300" height="95" rx="6" fill="rgba(76, 29, 149, 0.3)" stroke="#a78bfa" stroke-width="1.5"/>
+      <text x="205" y="753" fill="white" font-size="12" font-weight="600" text-anchor="middle">local_agent 本机 CLI 设备</text>
+      <text x="205" y="773" fill="#94a3b8" font-size="8" text-anchor="middle">作者 Mac 出站领取 · 逐任务授权</text>
+      <text x="205" y="789" fill="#94a3b8" font-size="8" text-anchor="middle">task + invocation 双租约</text>
+      <text x="205" y="809" fill="#a78bfa" font-size="8" text-anchor="middle">Codex / Claude / Kimi / DSH / Pi · cwd 非沙箱</text>
+
+      <!-- collaboration box -->
+      <rect x="390" y="730" width="350" height="95" rx="6" fill="#172554" stroke="#60a5fa" stroke-width="1.5"/>
+      <text x="565" y="753" fill="white" font-size="12" font-weight="600" text-anchor="middle">collaboration 创作试验（派生）</text>
+      <text x="565" y="773" fill="#cbd5e1" font-size="8" text-anchor="middle">Case / Grant · 不可变 Workspace</text>
+      <text x="565" y="789" fill="#cbd5e1" font-size="9" text-anchor="middle">精确检查 · 采用回执</text>
+      <text x="565" y="809" fill="#94a3b8" font-size="8" text-anchor="middle">沿原领域 port 确认写回 · 复用队列与预算</text>
+
+      <!-- evolution box -->
+      <rect x="775" y="730" width="240" height="95" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="775" y="730" width="240" height="95" rx="6" fill="rgba(254, 249, 195, 0.08)" stroke="#ca8a04" stroke-width="1.5" stroke-dasharray="6,3"/>
+      <text x="895" y="753" fill="white" font-size="12" font-weight="600" text-anchor="middle">evolution 演化引擎</text>
+      <text x="895" y="773" fill="#94a3b8" font-size="9" text-anchor="middle">作者全景 · 细节台账 · 持续发现</text>
+      <text x="895" y="789" fill="#94a3b8" font-size="9" text-anchor="middle">类别补扫 · 选择性重做 · 冻结恢复</text>
+      <text x="895" y="809" fill="#ca8a04" font-size="8" text-anchor="middle">显式启用 · 预算回执 · Project epoch</text>
+
+      <!-- ===== RUNTIME & SHARED COMPONENTS ===== -->
+      <rect x="40" y="870" width="1020" height="280" rx="10" fill="rgba(51, 65, 85, 0.12)" stroke="#94a3b8" stroke-width="1" stroke-dasharray="8,4"/>
+      <text x="55" y="888" fill="#94a3b8" font-size="10" font-weight="600">运行时与共享组件 — frontend · FastAPI 组合根 · 业务库 / 队列 · prompts · 出站依赖</text>
+
+      <!-- frontend-console box -->
+      <rect x="70" y="905" width="225" height="85" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="70" y="905" width="225" height="85" rx="6" fill="rgba(2, 132, 199, 0.15)" stroke="#38bdf8" stroke-width="1.5"/>
+      <text x="182" y="928" fill="white" font-size="11" font-weight="600" text-anchor="middle">frontend-console 浏览器端</text>
+      <text x="182" y="948" fill="#94a3b8" font-size="8" text-anchor="middle">Vue 3 island · hash router seam</text>
+      <text x="182" y="964" fill="#94a3b8" font-size="8" text-anchor="middle">组件经 vue/bridge 访问基建</text>
+      <text x="182" y="982" fill="#38bdf8" font-size="8" text-anchor="middle">hash 路由 · 按页挂载</text>
+
+      <!-- FastAPI composition root box -->
+      <rect x="330" y="905" width="235" height="85" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="330" y="905" width="235" height="85" rx="6" fill="rgba(2, 132, 199, 0.15)" stroke="#38bdf8" stroke-width="1.5"/>
+      <text x="447" y="928" fill="white" font-size="11" font-weight="600" text-anchor="middle">服务端组合根：FastAPI / worker</text>
+      <text x="447" y="948" fill="#94a3b8" font-size="8" text-anchor="middle">app/main.py · run_worker.py · bootstrap.py</text>
+      <text x="447" y="964" fill="#94a3b8" font-size="8" text-anchor="middle">路由注册 · DI 容器 · 任务注册</text>
+
+      <!-- PostgreSQL + queue box -->
+      <rect x="605" y="905" width="245" height="85" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="605" y="905" width="245" height="85" rx="6" fill="rgba(2, 132, 199, 0.15)" stroke="#38bdf8" stroke-width="1.5"/>
+      <text x="727" y="928" fill="white" font-size="11" font-weight="600" text-anchor="middle">PostgreSQL + async_tasks</text>
+      <text x="727" y="948" fill="#94a3b8" font-size="8" text-anchor="middle">API 入队 · 常驻 worker 领取</text>
+      <text x="727" y="964" fill="#94a3b8" font-size="8" text-anchor="middle">业务读写隔离 novel_id · schema 门禁</text>
+
+      <!-- prompts box -->
+      <rect x="890" y="905" width="155" height="85" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="890" y="905" width="155" height="85" rx="6" fill="rgba(2, 132, 199, 0.15)" stroke="#38bdf8" stroke-width="1.5"/>
+      <text x="967" y="928" fill="white" font-size="11" font-weight="600" text-anchor="middle">prompts 运行时契约</text>
+      <text x="967" y="948" fill="#94a3b8" font-size="8" text-anchor="middle">backend/prompts</text>
+      <text x="967" y="964" fill="#94a3b8" font-size="8" text-anchor="middle">LLM step 模板清单</text>
+
+      <!-- outbound label -->
+      <text x="70" y="1085" fill="#94a3b8" font-size="10" font-weight="600">出站依赖</text>
+      <text x="70" y="1103" fill="#94a3b8" font-size="8">API 进程与 worker</text>
+      <text x="70" y="1119" fill="#94a3b8" font-size="8">均经服务端出站</text>
+
+      <!-- outbound LLM provider box -->
+      <rect x="330" y="1050" width="235" height="80" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="330" y="1050" width="235" height="80" rx="6" fill="rgba(2, 132, 199, 0.1)" stroke="#38bdf8" stroke-width="1" stroke-dasharray="6,3"/>
+      <text x="447" y="1073" fill="white" font-size="11" font-weight="600" text-anchor="middle">LLM Provider</text>
+      <text x="447" y="1093" fill="#94a3b8" font-size="8" text-anchor="middle">经项目 owner 已验证账户连接</text>
+      <text x="447" y="1109" fill="#94a3b8" font-size="8" text-anchor="middle">provider / model / Key</text>
+
+      <!-- outbound MinIO/S3 box -->
+      <rect x="605" y="1050" width="245" height="80" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="605" y="1050" width="245" height="80" rx="6" fill="rgba(2, 132, 199, 0.1)" stroke="#38bdf8" stroke-width="1" stroke-dasharray="6,3"/>
+      <text x="727" y="1073" fill="white" font-size="11" font-weight="600" text-anchor="middle">私有 MinIO / S3 双 bucket</text>
+      <text x="727" y="1093" fill="#94a3b8" font-size="8" text-anchor="middle">world 对象图片 + AI 地图册</text>
+      <text x="727" y="1109" fill="#94a3b8" font-size="8" text-anchor="middle">owner + novel_id 专用上传接口</text>
+
+      <!-- outbound author Mac CLI box -->
+      <rect x="890" y="1050" width="155" height="80" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="890" y="1050" width="155" height="80" rx="6" fill="rgba(2, 132, 199, 0.1)" stroke="#38bdf8" stroke-width="1" stroke-dasharray="6,3"/>
+      <text x="967" y="1073" fill="white" font-size="11" font-weight="600" text-anchor="middle">作者 Mac CLI 租约</text>
+      <text x="967" y="1093" fill="#94a3b8" font-size="8" text-anchor="middle">Codex·Claude·Kimi·DSH·Pi</text>
+      <text x="967" y="1109" fill="#94a3b8" font-size="8" text-anchor="middle">task + invocation 双租约</text>
 
       <!-- ===== LEGEND ===== -->
-      <!-- ===== EVOLUTION (scene runtime, project ownership gate) ===== -->
-      <rect x="180" y="685" width="740" height="70" rx="6" fill="#172554" stroke="#60a5fa" />
-      <text x="550" y="709" fill="white" font-size="13" text-anchor="middle">collaboration 创作试验 · 派生工作区</text>
-      <text x="550" y="731" fill="#cbd5e1" font-size="10" text-anchor="middle">Evidence 冻结来源 → 试改 / 检查 → 原领域 port 确认采用 → receipt / outbox</text>
+      <rect x="60" y="1175" width="980" height="80" rx="6" fill="rgba(15, 23, 42, 0.6)" stroke="#1e293b" stroke-width="1"/>
+      <text x="75" y="1190" fill="white" font-size="10" font-weight="600">图例 Legend</text>
 
-      <rect x="60" y="770" width="980" height="78" rx="6" fill="rgba(254, 249, 195, 0.06)" stroke="#ca8a04" stroke-width="1" stroke-dasharray="8,4"/>
-      <text x="75" y="788" fill="#ca8a04" font-size="10" font-weight="600">演化层 Evolution — Scene 运行与项目 owner 门禁（默认导入入口待替代）</text>
-      <rect x="80" y="796" width="940" height="42" rx="6" fill="rgba(254, 249, 195, 0.12)" stroke="#ca8a04" stroke-width="1.5" stroke-dasharray="6,3"/>
-      <text x="550" y="815" fill="white" font-size="12" font-weight="600" text-anchor="middle">evolution 演化引擎 · 作者台账、持续发现与冻结恢复</text>
-      <text x="550" y="831" fill="#94a3b8" font-size="9" text-anchor="middle">来源引用 · 稳定观察身份 · 身份解析 · 类型化状态操作 · 回执游标（领域提交后才推进）</text>
-      <g transform="translate(0, 205)">
-      <rect x="60" y="690" width="980" height="72" rx="6" fill="rgba(15, 23, 42, 0.6)" stroke="#1e293b" stroke-width="1"/>
-      <text x="75" y="708" fill="white" font-size="10" font-weight="600">图例 Legend</text>
+      <!-- legend row 1: bands -->
+      <rect x="75" y="1198" width="14" height="10" rx="2" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1"/>
+      <text x="94" y="1206" fill="#94a3b8" font-size="8">平台/共享</text>
 
-      <!-- Legend items in two rows -->
-      <rect x="75" y="718" width="14" height="10" rx="2" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1"/>
-      <text x="94" y="726" fill="#94a3b8" font-size="8">平台/共享</text>
+      <rect x="175" y="1198" width="14" height="10" rx="2" fill="rgba(76, 29, 149, 0.3)" stroke="#a78bfa" stroke-width="1"/>
+      <text x="194" y="1206" fill="#94a3b8" font-size="8">事实/检索</text>
 
-      <rect x="145" y="718" width="14" height="10" rx="2" fill="rgba(76, 29, 149, 0.3)" stroke="#a78bfa" stroke-width="1"/>
-      <text x="164" y="726" fill="#94a3b8" font-size="8">事实/检索</text>
+      <rect x="275" y="1198" width="14" height="10" rx="2" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/>
+      <text x="294" y="1206" fill="#94a3b8" font-size="8">结构层</text>
 
-      <rect x="215" y="718" width="14" height="10" rx="2" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/>
-      <text x="234" y="726" fill="#94a3b8" font-size="8">结构层</text>
+      <rect x="360" y="1198" width="14" height="10" rx="2" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/>
+      <text x="379" y="1206" fill="#94a3b8" font-size="8">辅助层</text>
 
-      <rect x="300" y="718" width="14" height="10" rx="2" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/>
-      <text x="319" y="726" fill="#94a3b8" font-size="8">辅助层</text>
+      <rect x="445" y="1198" width="14" height="10" rx="2" fill="rgba(37, 99, 235, 0.3)" stroke="#60a5fa" stroke-width="1"/>
+      <text x="464" y="1206" fill="#94a3b8" font-size="8">派生领域</text>
 
-      <line x1="385" y1="723" x2="410" y2="723" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
-      <text x="415" y="726" fill="#94a3b8" font-size="8">数据→上下文</text>
+      <rect x="545" y="1198" width="14" height="10" rx="2" fill="rgba(2, 132, 199, 0.15)" stroke="#94a3b8" stroke-width="1"/>
+      <text x="564" y="1206" fill="#94a3b8" font-size="8">运行时/出站</text>
 
-      <line x1="505" y1="723" x2="530" y2="723" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)"/>
-      <text x="535" y="726" fill="#94a3b8" font-size="8">发布/写入</text>
+      <!-- legend row 2: arrows -->
+      <line x1="75" y1="1230" x2="100" y2="1230" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
+      <text x="105" y="1233" fill="#94a3b8" font-size="8">数据→上下文</text>
 
-      <line x1="610" y1="723" x2="635" y2="723" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)"/>
-      <text x="640" y="726" fill="#94a3b8" font-size="8">导入触发</text>
+      <line x1="200" y1="1230" x2="225" y2="1230" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)"/>
+      <text x="230" y="1233" fill="#94a3b8" font-size="8">发布/写入</text>
 
-      <line x1="710" y1="723" x2="735" y2="723" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
-      <text x="740" y="726" fill="#94a3b8" font-size="8">层内调用</text>
+      <line x1="310" y1="1230" x2="335" y2="1230" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)"/>
+      <text x="340" y="1233" fill="#94a3b8" font-size="8">导入触发</text>
 
-      <line x1="810" y1="723" x2="835" y2="723" stroke="#fb923c" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
-      <text x="840" y="726" fill="#94a3b8" font-size="8">回读/消费</text>
+      <line x1="415" y1="1230" x2="440" y2="1230" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+      <text x="445" y="1233" fill="#94a3b8" font-size="8">调用 / 门禁</text>
 
-      <line x1="915" y1="723" x2="940" y2="723" stroke="#a78bfa" stroke-width="1.5"/>
-      <polygon points="940,719 948,723 940,727" fill="#a78bfa"/>
-      <text x="953" y="726" fill="#94a3b8" font-size="8">双向</text>
-      </g>
+      <line x1="520" y1="1230" x2="545" y2="1230" stroke="#fb923c" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
+      <text x="550" y="1233" fill="#94a3b8" font-size="8">回读/消费</text>
+
+      <line x1="630" y1="1230" x2="655" y2="1230" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow-slate)"/>
+      <text x="660" y="1233" fill="#94a3b8" font-size="8">运行时流/出站</text>
+
+      <line x1="770" y1="1230" x2="795" y2="1230" stroke="#a78bfa" stroke-width="1.5"/>
+      <polygon points="795,1226 803,1230 795,1234" fill="#a78bfa"/>
+      <text x="808" y="1233" fill="#94a3b8" font-size="8">双向</text>
     </svg>
   </div>
 
@@ -342,10 +463,10 @@
       </div>
       <ul>
         <li>• 12 个活动业务模块（indexing/compilation 归 evidence，outline_state/continuity 归 story；evolution 已有 Scene 运行与项目所有权门禁）</li>
-        <li>• local_agent：作者 Mac 上的五种 CLI，经项目设备、逐任务授权和双租约出站接入，工作目录不是沙箱</li>
+        <li>• local_agent：作者 Mac 上的五种 CLI（Codex / Claude / Kimi / DSH / Pi），task + invocation 双租约出站领取，工作目录不是沙箱</li>
         <li>• interaction 只读同 owner author source revision；私人旅程不写回原作</li>
-        <li>• Canonical API 使用 /api/evidence/* 与 account/project owner 路径；旧前缀仅薄别名</li>
-        <li>• 已移除：geo / review / character / timeline（人物和事件能力并入 world）</li>
+        <li>• frontend-console（client）与 backend/prompts（runtime-contract）纳入运行时共享带，图上均有节点</li>
+        <li>• Canonical API 使用 /api/evidence/* 与 account/project owner 路径；旧 /api/rag、/api/context、/api/settings 已退场</li>
       </ul>
     </div>
     <div class="card">
@@ -354,10 +475,11 @@
         <h3>架构原则</h3>
       </div>
       <ul>
+        <li>• 运行时拓扑：浏览器 island → FastAPI；API / worker 经 bootstrap 装配 DI 与任务；API 入队 PostgreSQL async_tasks，run_worker.py 常驻领取</li>
+        <li>• 出站统一经服务端：LLM 走项目 owner 已验证账户连接；对象走私有 MinIO/S3 双 bucket（world 图片 + AI 地图册）；本机 CLI 走出站租约</li>
+        <li>• 跨模块仅通过 contracts.py、facade.py 或已注册 DI port；API 与 facade 保持薄层</li>
         <li>• 模块内部由 API、领域服务、repository 与模型各自承担职责</li>
-        <li>• 跨模块仅通过 contracts.py、facade.py 或已注册 DI port</li>
         <li>• 组合根、迁移与测试 fixture 是受限模型导入例外</li>
-        <li>• 异步任务通过 enqueuer → worker 解耦（PostgreSQL 队列）</li>
       </ul>
     </div>
     <div class="card">
@@ -370,12 +492,14 @@
         <li>• 跨项目默认例外是同 owner、显式版本化的 author source → interaction 只读资料流；ADR-0024 仅允许配置固定且复验的 public source 进入匿名 RP</li>
         <li>• AI 地图册是 world 子系统；图片候选不会自动成为世界事实</li>
         <li>• 箭头表示主要调用或资料流，不是生产代码 import 图</li>
+        <li>• 引导流程复用 AssistantRun、领域任务与队列；默认关闭，按项目授权开放</li>
+        <li>• Evolution 的类别补扫与选择性重做已有离线工程验证；真实模型、长篇质量与费用尚未验收</li>
         <li>• 当前分层与可编辑图源以 module-architecture.drawio 为准</li>
       </ul>
     </div>
   </div>
 
-  <p class="footer">AI 小说创作系统 · 当前模块架构兼容预览 · FastAPI + SQLAlchemy + PostgreSQL · 2026-09-08</p>
+  <p class="footer">AI 长篇小说结构化创作引擎 · 当前模块架构兼容预览 · FastAPI + SQLAlchemy + PostgreSQL · 2026-10-12</p>
 </div>
 
 <script>

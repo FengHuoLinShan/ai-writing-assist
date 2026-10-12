@@ -11,6 +11,8 @@ architecture_files = [
   "docs/architecture/documentation-maintenance.md",
   "docs/architecture/module-architecture.drawio",
   "docs/architecture/module-architecture.html",
+  "docs/architecture/feature-map.drawio",
+  "docs/architecture/feature-map.html",
 ]
 
 central_documents = [
