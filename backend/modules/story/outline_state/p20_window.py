@@ -106,9 +106,7 @@ def _entry_chapters(draft: Any) -> list[int]:
 
 
 def _entry_label(draft: Any) -> str:
-    return str(
-        getattr(draft, "name", None) or getattr(draft, "title", None) or ""
-    )
+    return str(getattr(draft, "name", None) or getattr(draft, "title", None) or "")
 
 
 def _is_new_entry(draft: Any) -> bool:
@@ -161,9 +159,11 @@ def apply_planning_window(
                     }
                 )
                 continue
-            if request.mode == "create":
+            if chapters:
                 written = sorted(
-                    value for value in chapters if value in written_chapters
+                    value
+                    for value in written_chapters
+                    if min(chapters) <= value <= max(chapters)
                 )
                 if written:
                     dropped.append(

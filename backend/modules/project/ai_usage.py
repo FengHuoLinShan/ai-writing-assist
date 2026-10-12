@@ -22,6 +22,8 @@ _CAPABILITY_LABELS: dict[str, str] = {
     "writing.comment_revision": "批注改写",
     "writing.conflict_check": "设定冲突检查",
     "assistant.editorial": "编辑台审读",
+    "assistant.guided_flow.direction_cards": "新书开篇方向卡",
+    "world.opening_skeleton": "新书世界观骨架",
     "assistant.forecast": "前瞻助手",
     "assistant.turn": "作者助手对话",
     "assistant": "作者助手",

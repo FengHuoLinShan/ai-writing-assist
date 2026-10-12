@@ -713,9 +713,10 @@ def _apply_stop(
         derived.run_status = "completed"
         derived.stop = None
         return
-    if states.get("rolling_offer") == "skipped" and states.get(
-        "review_candidate"
-    ) == "done":
+    if (
+        states.get("rolling_offer") == "skipped"
+        and states.get("review_candidate") == "done"
+    ):
         derived.run_status = "completed"
         derived.stop = None
         return
@@ -749,7 +750,7 @@ def _apply_stop(
             ),
             "kind": "blocked",
             "reason": "后续章节的规划候选没有生成完成；已写正文与已有规划不受影响，"
-                "可结束本流程后从结构工作台重新规划。",
+            "可结束本流程后从结构工作台重新规划。",
             "actions": _actions(
                 ("finish_flow", "完成流程"), ("abandon_flow", "结束流程")
             ),
@@ -774,7 +775,7 @@ def _apply_stop(
             "step_id": "generate_candidate",
             "kind": "blocked",
             "reason": "正文候选没有生成完成；已生成内容不会丢失，"
-                "可结束本流程后重新开始。",
+            "可结束本流程后重新开始。",
             "actions": _actions(
                 ("open_candidate", "查看候选"), ("abandon_flow", "结束流程")
             ),
@@ -797,7 +798,7 @@ def _apply_stop(
             "step_id": "confirm_reference",
             "kind": "blocked",
             "reason": f"{chapter_label(chapter_index)}还没有可继续的工作稿；"
-                "请先在写作页保存或采用本章正文，再重新开始流程。",
+            "请先在写作页保存或采用本章正文，再重新开始流程。",
             "actions": _actions(("open_writing", "打开写作页")),
         }
         derived.run_status = "failed"
@@ -1120,10 +1121,9 @@ async def _run_rolling_plan(
         {
             "target": _ROLLING_TARGETS[step_id],
             "mode": "create",
-            "instruction": _rolling_instruction(
-                chapter_index, window_start, window_end
-            ),
+            "instruction": _rolling_instruction(chapter_index, window_start, window_end),
             "start_chapter": window_start,
+            "end_chapter": window_end,
         }
     )
     context = AssistantOperationContext(
@@ -1231,7 +1231,7 @@ def _apply_opening_stop(
             "step_id": "skeleton_ready",
             "kind": "author_choice",
             "reason": "世界观骨架已可用（已逐条取舍并采用）；"
-                "接下来可以生成故事总纲建议、继续深化世界观，或开始写第一章。",
+            "接下来可以生成故事总纲建议、继续深化世界观，或开始写第一章。",
             "actions": _actions(
                 ("open_outline_suggestion", "生成故事总纲建议"),
                 ("open_world_deepen", "继续深化世界观"),
@@ -1531,8 +1531,18 @@ async def derive_editorial_revision(
     else:
         states["review_candidates"] = "active"
 
+    recheck_entries = list((artifacts.get("recheck_results") or {}).get("results") or [])
+    rechecks = await _recheck_view(db, novel_id, recheck_entries, lifecycle)
     if artifacts.get("recheck_results"):
-        states["post_recheck"] = "done"
+        states["post_recheck"] = (
+            "active"
+            if any(
+                item["status"] in {"pending", "queued", "running"} for item in rechecks
+            )
+            else "done"
+        )
+        if states["post_recheck"] == "active":
+            details["post_recheck"] = "正在进行改后复核"
     elif states.get("review_candidates") == "done":
         states["post_recheck"] = "active"
         details["post_recheck"] = "正在请求改后复核"
@@ -1549,14 +1559,7 @@ async def derive_editorial_revision(
     derived.panel = {
         "items": tracked,
         "unlocatable_count": unlocatable_count,
-        "rechecks": await _recheck_view(
-            db,
-            novel_id,
-            list(
-                (artifacts.get("recheck_results") or {}).get("results") or []
-            ),
-            lifecycle,
-        ),
+        "rechecks": rechecks,
     }
     derived.steps = _steps_view(EDITORIAL_REVISION, states, details)
     _apply_editorial_stop(derived, states, tracked)
@@ -1670,7 +1673,7 @@ def _apply_editorial_stop(
             "step_id": "review_rechecks",
             "kind": "author_choice",
             "reason": "改后复核结果已就绪；结论只有「仍在 / 可能改善 / 无法判断」，"
-                "供你决定下一步，不会自动改稿。",
+            "供你决定下一步，不会自动改稿。",
             "actions": _actions(
                 ("finish_flow", "完成流程"), ("abandon_flow", "结束流程")
             ),
@@ -1684,9 +1687,7 @@ def _apply_editorial_stop(
     if states.get("review_candidates") == "active":
         ready = [item for item in tracked if item["kind"] == "ready"]
         adopted = [item for item in tracked if item["kind"] == "adopted"]
-        failed = [
-            item for item in tracked if item["kind"] in {"failed", "empty"}
-        ]
+        failed = [item for item in tracked if item["kind"] in {"failed", "empty"}]
         unlocatable = [item for item in tracked if item["status"] == "unlocatable"]
         reason = (
             f"已生成 {len(ready)} 个替换候选，待你在写作页审阅采用；"
@@ -1713,7 +1714,7 @@ def _apply_editorial_stop(
             "step_id": "bridge_revision",
             "kind": "blocked",
             "reason": "批注修订没有完成（正文可能在修订期间又变化）；"
-                "意见与正文都不受影响，可结束流程后重新审读、重新发起。",
+            "意见与正文都不受影响，可结束流程后重新审读、重新发起。",
             "actions": _actions(("abandon_flow", "结束流程")),
         }
         derived.run_status = "failed"

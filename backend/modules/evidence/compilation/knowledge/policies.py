@@ -83,6 +83,7 @@ OUTPUT_PERMISSION_AUDIT_CLAUSES: dict[str, str] = {
 """输出权限的审查语义；进入审查 prompt，决定 unsupported_fact 的适用范围。"""
 
 KNOWLEDGE_DIMENSIONS: dict[str, str] = {
+    "author_intent": "作者明确提供的构想与要求",
     "prior_prose": "截止点前正文与选中路径",
     "scene_state": "Scene 四维记忆时点",
     "world_entities": "世界对象与物品",
@@ -816,6 +817,16 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             ),
         ),
         # --- Assistant ---
+        _policy(
+            "assistant.guided_flow.direction_cards",
+            DOMAIN_ASSISTANT,
+            "新书开篇方向卡",
+            dimensions=("author_intent",),
+            confirmation=CONFIRMATION_NONE,
+            snapshot=SNAPSHOT_NONE,
+            gate=ADOPTION_DISPLAY_ONLY,
+            notes="只使用作者构想提出方向候选；选定前不作为资产或进入其他生成上下文。",
+        ),
         _policy(
             "assistant.turn",
             DOMAIN_ASSISTANT,

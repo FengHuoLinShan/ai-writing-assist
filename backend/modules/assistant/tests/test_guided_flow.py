@@ -263,9 +263,7 @@ def test_flow_registry_rejects_cycles_duplicates_and_unknown_kind():
                 title="t",
                 description="d",
                 steps=(
-                    StepDefinition(
-                        step_id="a", kind="auto", title="a", produces="p"
-                    ),
+                    StepDefinition(step_id="a", kind="auto", title="a", produces="p"),
                 ),
             )
         )
@@ -344,9 +342,7 @@ async def test_start_stops_at_confirm_and_reenters_same_run(
     await _create_draft(db_session, test_project_id, status="published")
     from modules.assistant.guided_flow.contracts import GuidedFlowStartRequest
 
-    request = GuidedFlowStartRequest(
-        novel_id=test_project_id, chapter_index=1
-    )
+    request = GuidedFlowStartRequest(novel_id=test_project_id, chapter_index=1)
     view = await guided_runtime.start(db_session, test_project_id, OWNER, request)
     assert view["status"] == "waiting_approval"
     assert view["stop"]["step_id"] == "confirm_reference"
@@ -357,9 +353,7 @@ async def test_start_stops_at_confirm_and_reenters_same_run(
     reentry = await guided_runtime.start(db_session, test_project_id, OWNER, request)
     assert reentry["run_id"] == view["run_id"]
 
-    await _create_draft(
-        db_session, test_project_id, status="published", chapter=2
-    )
+    await _create_draft(db_session, test_project_id, status="published", chapter=2)
     with pytest.raises(ConflictError, match="进行中的"):
         await guided_runtime.start(
             db_session,
@@ -401,9 +395,7 @@ async def test_confirm_staleness_recovers_without_hard_block(
             compile_options=dict(row.compile_options),
         )
 
-    monkeypatch.setattr(
-        guided_flows, "prepare_confirmed_ai_action", fake_prepare
-    )
+    monkeypatch.setattr(guided_flows, "prepare_confirmed_ai_action", fake_prepare)
     await _create_draft(db_session, test_project_id, status="draft")
     view = await _start_flow(db_session, test_project_id)
     confirmation = await _create_confirmation(db_session, test_project_id)
@@ -708,9 +700,7 @@ async def test_abandon_cancels_and_prevents_restart_of_same_run(
     )
     assert stopped["status"] == "cancelled"
     with pytest.raises(ConflictError, match="已结束"):
-        await guided_runtime.abandon(
-            db_session, test_project_id, view["run_id"], OWNER
-        )
+        await guided_runtime.abandon(db_session, test_project_id, view["run_id"], OWNER)
     # 结束后同一输入可以重新开始（新 run）。
     fresh = await _start_flow(db_session, test_project_id)
     assert fresh["run_id"] != view["run_id"]
@@ -804,6 +794,7 @@ def _fake_plan_operation(calls: list):
             {
                 "target": args.target,
                 "start": args.start_chapter,
+                "end": args.end_chapter,
                 "operation_id": context.operation_id,
             }
         )
@@ -828,6 +819,33 @@ async def _adopt_candidate(db, novel_id: str, candidate: WritingDraft) -> None:
         "adoption_result_draft_id": str(uuid.uuid4()),
     }
     await db.flush()
+
+
+@pytest.mark.parametrize("window", [1, 4, 5])
+async def test_rolling_plan_passes_the_confirmed_end_chapter(
+    db_session, test_project_id, window
+):
+    from dataclasses import replace
+    from types import SimpleNamespace
+
+    from modules.assistant.guided_flow.flows import _run_rolling_plan
+    from modules.story.assistant_structure_workflow import PlanStructure
+
+    calls = []
+    operation = replace(_fake_plan_operation(calls), schema=PlanStructure)
+    with container_scope({"assistant.operations": {"story.plan_structure": operation}}):
+        await _run_rolling_plan(
+            db_session,
+            test_project_id,
+            OWNER,
+            SimpleNamespace(id=uuid.uuid4()),
+            FLOWS["continue_writing"],
+            {"rolling_decision": {"at_chapter": 1, "accepted": True, "window": window}},
+            "rolling_arcs",
+            input_fingerprint="confirmed-input",
+        )
+    assert calls[0]["start"] == 2
+    assert calls[0]["end"] == 1 + window
 
 
 async def _run_to_review_stop(db, novel_id: str):
@@ -1149,13 +1167,14 @@ def _fake_skeleton_operation(calls: list):
 
     async def apply(db, novel_id, args, preview, *, context=None):
         calls.append({"vision": args.vision, "title": args.direction_title})
-        task_id = enqueue_task(
-            db, "world_opening_skeleton", novel_id=novel_id, meta={}
-        )
+        task_id = enqueue_task(db, "world_opening_skeleton", novel_id=novel_id, meta={})
         return {"task_id": task_id}
 
     return AssistantOperation(
-        label="起草骨架", schema=_SkeletonArgs, prepare=prepare, apply=apply,
+        label="起草骨架",
+        schema=_SkeletonArgs,
+        prepare=prepare,
+        apply=apply,
         permission="suggest",
     )
 
@@ -1169,7 +1188,10 @@ def _fake_adopt_operation(calls: list):
         return {"id": args.suggestion_id, "label": "已采用世界资料方案"}
 
     return AssistantOperation(
-        label="采用骨架包", schema=_AdoptArgs, prepare=prepare, apply=apply,
+        label="采用骨架包",
+        schema=_AdoptArgs,
+        prepare=prepare,
+        apply=apply,
         permission="confirm",
     )
 
@@ -1219,6 +1241,7 @@ async def test_opening_flow_happy_path_to_skeleton_ready(
     from modules.assistant.guided_flow import direction_cards
 
     card_calls: list = []
+
     async def fake_cards(db, novel_id, *, vision, genre_hint="", length_hint="", batch=1):
         card_calls.append({"vision": vision, "batch": batch})
         return _cards_payload(batch)
@@ -1319,6 +1342,7 @@ async def test_opening_flow_more_cards_until_cap(
     from modules.assistant.guided_flow import direction_cards
 
     card_calls: list = []
+
     async def fake_cards(db, novel_id, *, vision, genre_hint="", length_hint="", batch=1):
         card_calls.append({"batch": batch})
         return _cards_payload(batch)
@@ -1446,9 +1470,7 @@ async def test_editorial_flow_happy_path_to_rechecks(
         return entries
 
     monkeypatch.setattr(editorial_bridge, "submit_issue_revision", fake_submit)
-    monkeypatch.setattr(
-        editorial_bridge, "trigger_post_adoption_rechecks", fake_trigger
-    )
+    monkeypatch.setattr(editorial_bridge, "trigger_post_adoption_rechecks", fake_trigger)
     issue_id = str(uuid.uuid4())
     view = await guided_runtime.start(
         db_session,
@@ -1509,8 +1531,26 @@ async def test_editorial_flow_happy_path_to_rechecks(
     rechecked = await guided_runtime.advance(
         db_session, test_project_id, view["run_id"], OWNER, {}
     )
-    assert recheck_calls and recheck_calls[0]["draft"] and (
-        recheck_calls[0]["issues"] == [issue_id]
+    assert (
+        recheck_calls
+        and recheck_calls[0]["draft"]
+        and (recheck_calls[0]["issues"] == [issue_id])
+    )
+    assert rechecked["status"] == "running"
+    assert rechecked["stop"] is None
+    assert rechecked["panel"]["rechecks"][0]["status"] == "pending"
+    recheck_task = guided_runtime._artifacts(run)["recheck_results"]["results"][0][
+        "task_id"
+    ]
+    await _mark_task(db_session, recheck_task, status="running")
+    running = await guided_runtime.advance(
+        db_session, test_project_id, view["run_id"], OWNER, {}
+    )
+    assert running["status"] == "running" and running["stop"] is None
+    assert len(recheck_calls) == 1
+    await _mark_task(db_session, recheck_task, status="done")
+    rechecked = await guided_runtime.advance(
+        db_session, test_project_id, view["run_id"], OWNER, {}
     )
     assert rechecked["stop"]["step_id"] == "review_rechecks"
 

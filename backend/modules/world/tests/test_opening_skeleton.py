@@ -15,7 +15,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.errors import NotFoundError, ValidationError
+from core.errors import ConflictError, NotFoundError, ValidationError
 from infrastructure.llm.schemas import LLMCallResponse
 from modules.account.context import bind_principal, reset_principal
 from modules.account.contracts import AccountPrincipal
@@ -383,12 +383,10 @@ def test_protagonist_flag_survives_near_name_merge():
             for i in range(2)
         ],
         locations=[
-            GeneratedOpeningSkeletonEntity(name=f"地点{i}", summary="s")
-            for i in range(3)
+            GeneratedOpeningSkeletonEntity(name=f"地点{i}", summary="s") for i in range(3)
         ],
         factions=[
-            GeneratedOpeningSkeletonEntity(name=f"势力{i}", summary="s")
-            for i in range(2)
+            GeneratedOpeningSkeletonEntity(name=f"势力{i}", summary="s") for i in range(2)
         ],
         characters=[
             GeneratedOpeningSkeletonCharacter(
@@ -532,16 +530,37 @@ async def test_item_triage_excludes_conflicts_and_apply_adopts_selection(
         service = OpeningSkeletonService()
 
         excluded_key = "entity-character-02"  # 钟正堂
+        from datetime import datetime
+
+        for baseline, code in [
+            (None, "edit_baseline_required"),
+            (datetime(2000, 1, 1), "edit_baseline_stale"),
+        ]:
+            with pytest.raises(ConflictError) as error:
+                await service.update_package_items(
+                    db_session,
+                    novel_id,
+                    saved.id,
+                    WorldAdoptionPackageItemsUpdateRequest(
+                        novel_id=novel_id,
+                        expected_updated_at=baseline,
+                        items=[
+                            WorldAdoptionPackageItemUpdate(
+                                item_key=excluded_key, included=False
+                            )
+                        ],
+                    ),
+                )
+            assert error.value.code == code
         updated, conflicts = await service.update_package_items(
             db_session,
             novel_id,
             saved.id,
             WorldAdoptionPackageItemsUpdateRequest(
                 novel_id=novel_id,
+                expected_updated_at=saved.updated_at,
                 items=[
-                    WorldAdoptionPackageItemUpdate(
-                        item_key=excluded_key, included=False
-                    ),
+                    WorldAdoptionPackageItemUpdate(item_key=excluded_key, included=False),
                     WorldAdoptionPackageItemUpdate(
                         item_key="entity-character-00",
                         name="林潮生",
@@ -797,9 +816,7 @@ async def test_item_triage_and_rollback_require_owner_and_project_isolation(
             db_session, ProjectCreate(title="其他项目")
         )
         with pytest.raises(ValidationError):
-            await service.rollback_package(
-                db_session, str(other_project.id), saved.id
-            )
+            await service.rollback_package(db_session, str(other_project.id), saved.id)
     finally:
         reset_principal(other_token)
 
@@ -946,14 +963,14 @@ async def test_suggest_operation_submits_idempotently_and_reads_result(
         assert task.meta["_parent_task_id"] == str(parent.id)
         stored = await db_session.scalar(
             select(CreationSuggestion).where(
-                CreationSuggestion.id
-                == parse_uuid(result["package_suggestion_id"])
+                CreationSuggestion.id == parse_uuid(result["package_suggestion_id"])
             )
         )
         assert stored.payload_json["opening_skeleton"]["direction_title"] == "潮汐都市"
-        assert stored.payload_json["items"][0]["source_refs"][0][
-            "source_type"
-        ] == "author_decision"
+        assert (
+            stored.payload_json["items"][0]["source_refs"][0]["source_type"]
+            == "author_decision"
+        )
         # 任务请求冻结了方向卡参数；生成内容只进入待审包，不直接落资产。
         assert task.meta["direction_title"] == "潮汐都市"
     finally:

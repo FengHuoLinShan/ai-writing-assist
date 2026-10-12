@@ -240,6 +240,8 @@ HTTP 入口为 `/api/assistant/flows`（start/active/view/advance/settings/aband
 默认关，项目白名单 `ASSISTANT_GUIDED_FLOWS_PROJECT_ALLOWLIST` 沿用部署级机制；
 能力可用性经 `/api/assistant/capabilities` 的 `guided_flows` 投影暴露。
 
+方向卡能力归属为 `assistant.guided_flow.direction_cards`，只声明对齐作者构想 `author_intent`，输出不构成世界事实或知识审查通过回执。审读修订的改后复核任务仍在途时保持流程进行中；终态回执才进入复核结果停点。
+
 ## 工作上下文的意图与选区范围（R00）
 
 `WorkContext` 在既有定位字段之外携带两项经服务端复核的输入：

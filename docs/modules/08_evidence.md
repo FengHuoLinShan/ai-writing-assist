@@ -484,6 +484,8 @@ review_resolution 的场景/章节回读使用稳定 Evidence facade，补查使
 
 Knowledge 子包提供跨模块稳定契约：capability policy、scope receipt、director plan、audit receipt、组级执行与采用门禁。Evolution 场景观察已登记独立静态能力 `evolution.scene_observe`；边界准备复用 Imports Scene 切分能力。登记只约束能力归属，不代替实际来源与提交门禁。完整规则见 `backend/modules/evidence/compilation/README.md` 和 ADR-0025。
 
+开篇方向卡登记为 `assistant.guided_flow.direction_cards`：只对齐作者明确提供的 `author_intent`，输出为展示候选，不声称检查了既有世界事实。骨架另归 `world.opening_skeleton`，沿用 World 的知识审查和采用门禁；两者均有静态调用绑定和作者语言用量标签。
+
 ## 协作资料交接
 
 ADR-0027 的 TeamProjection 将项目、许可范围 hash 与全部来源依赖绑定到接收者。

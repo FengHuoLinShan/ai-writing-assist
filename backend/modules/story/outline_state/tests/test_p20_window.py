@@ -225,6 +225,33 @@ def test_requests_without_window_are_untouched() -> None:
     assert report == {"policy": "p20_rolling_window_v1", "applied": False}
 
 
+@pytest.mark.parametrize("target", ["outline_arc", "planned_scene"])
+@pytest.mark.parametrize("mode", ["create", "revise"])
+def test_new_entry_cannot_cover_a_written_chapter_inside_its_range(target, mode):
+    selection = (
+        {
+            "selected_arc_ids" if target == "outline_arc" else "selected_scene_ids": [
+                str(uuid.uuid4())
+            ]
+        }
+        if mode == "revise"
+        else {}
+    )
+    request = _request(target, start=6, end=8, mode=mode, **selection)
+    if target == "outline_arc":
+        output = P20OutlineArcOutput(result="proposed", arcs=[_arc("A1", start=6, end=8)])
+        field = "arcs"
+    else:
+        output = P20PlannedSceneOutput(
+            result="proposed", scenes=[_scene("S1", start=6, end=8)]
+        )
+        field = "scenes"
+    filtered, report = apply_planning_window(request, output, written_chapters={7})
+    assert not getattr(filtered, field)
+    assert report["dropped"][0]["reason"] == "chapter_points_to_written"
+    assert report["dropped"][0]["chapters"] == [7]
+
+
 @pytest.mark.asyncio
 async def test_window_validation_runs_in_task_handler_path(
     monkeypatch: pytest.MonkeyPatch,
@@ -239,8 +266,7 @@ async def test_window_validation_runs_in_task_handler_path(
         return [1, 2, 3]
 
     monkeypatch.setattr(
-        "modules.story.outline_state.ai_workflow_service."
-        "list_effective_chapter_indices",
+        "modules.story.outline_state.ai_workflow_service.list_effective_chapter_indices",
         fake_list_effective,
     )
     request = _request("outline_arc", start=4, end=6)

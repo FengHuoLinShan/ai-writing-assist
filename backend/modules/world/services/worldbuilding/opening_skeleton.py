@@ -102,9 +102,7 @@ def normalized_name(value: str) -> str:
 
 
 def name_similarity(left: str, right: str) -> float:
-    return SequenceMatcher(
-        None, normalized_name(left), normalized_name(right)
-    ).ratio()
+    return SequenceMatcher(None, normalized_name(left), normalized_name(right)).ratio()
 
 
 def active_alias_terms(content_json: dict | None) -> tuple[str, ...]:
@@ -229,12 +227,8 @@ def _dedupe_within_package(
         _kept_name, kept = _register(rule.name)
         if kept:
             rules.append(rule)
-    locations = [
-        item for item in generated.locations if _register(item.name)[1]
-    ]
-    factions = [
-        item for item in generated.factions if _register(item.name)[1]
-    ]
+    locations = [item for item in generated.locations if _register(item.name)[1]]
+    factions = [item for item in generated.factions if _register(item.name)[1]]
     protagonist_name: str | None = None
     characters = []
     for item in generated.characters:
@@ -851,7 +845,12 @@ class OpeningSkeletonService:
         package = WorldAdoptionPackagePayload.model_validate(suggestion.payload_json)
         if package.opening_skeleton is None:
             raise ValidationError("只有新书开篇骨架包支持条目级取舍")
-        if request.expected_updated_at is not None and suggestion.updated_at is not None:
+        if request.expected_updated_at is None:
+            raise ConflictError(
+                "请刷新骨架包后再编辑",
+                code="edit_baseline_required",
+            )
+        if suggestion.updated_at is not None:
             stored = suggestion.updated_at.replace(tzinfo=None)
             expected = request.expected_updated_at.replace(tzinfo=None)
             if stored != expected:

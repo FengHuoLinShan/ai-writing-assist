@@ -485,6 +485,7 @@ can/cannot/cost/failure/maintenance 约束写法）、主要地点 3-5、势力/
 作者完整（author_full）上下文，读者/角色与 author_safe 上下文不可见。
 
 条目级取舍：`PATCH /api/world/adoption-packages/{id}/items`（owner + 编辑基线）
+必须携带 `expected_updated_at`；缺失返回 `edit_baseline_required`，与行锁内当前包版本不同返回 `edit_baseline_stale`，均不覆盖原编辑。
 支持逐条勾选/排除与 create 条目的改名/简介/公开信息/隐藏真相编辑；端点被排除的
 关系与别名自动转 `open` 并记 `endpoint_excluded`；包内近名与当前项目同名冲突
 在编辑响应与 preview 的逐条 `conflicts` 中标出，作者排除冲突条而不是整包失败。

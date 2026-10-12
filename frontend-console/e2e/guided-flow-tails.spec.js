@@ -1,6 +1,6 @@
 import { test, expect } from "./fixtures.js"
 
-import { waitForBackend } from "./helpers/api-client.js"
+import { createAutosavedDraft, waitForBackend } from "./helpers/api-client.js"
 
 /**
  * 集成尾部三入口 E2E（BR-4/5/6 流程侧，ADR-0032 同一运行层）。
@@ -111,11 +111,12 @@ test.describe("引导流程集成尾部：三个入口", () => {
     // 方向卡停点：两张候选、可再要一批。
     await expect(card_).toContainText("潮汐都市")
     await expect(card_).toContainText("题材承诺")
-    await expect(card_.getByRole("button", { name: /再要一批方向卡/ })).toBeVisible()
+    await expect(card_.getByRole("button", { name: /再要一批/ })).toBeVisible()
   })
 
   test("审读台：走引导流程修订从选中意见到改后复核结果", async ({ page, projectFactory, openProjectWorkbench }) => {
     const project = await projectFactory({ title: "修订引导", genre: "fantasy", language: "zh" })
+    const draft = await createAutosavedDraft(project.id, 1, "修订章节", "需要修订的原稿。")
     const editorialView = (overrides = {}) => ({
       run_id: EDITORIAL_RUN_ID,
       flow_id: "editorial_revision",
@@ -156,6 +157,7 @@ test.describe("引导流程集成尾部：三个入口", () => {
       const original = await route.fetch()
       const payload = await original.json()
       payload.guided_flows = { available: true, reason: null }
+      payload.editorial = { available: true, reason: null }
       await route.fulfill({ response: original, json: payload })
     })
     await page.route("**/api/assistant/flows/active*", (route) => route.fulfill(json(null)))
@@ -165,9 +167,19 @@ test.describe("引导流程集成尾部：三个入口", () => {
     })
     await page.route("**/api/assistant/flows/*/advance", async (route) => route.fulfill(json(editorialView())))
 
-    await openProjectWorkbench(project, "today")
-    // 打开项目助手里的编辑台（既有入口）。
-    await page.getByRole("button", { name: /项目助手|编辑台/ }).first().click().catch(() => {})
+    await page.route("**/api/assistant/editorial/reviews*", route => route.fulfill(json([{
+      id: "rev-1", status: "partial", scope: { scope: "selection" },
+      sources: [{ chapter_index: 1, draft_id: draft.id, content_hash: draft.content_hash }],
+      checked_chapters: [1], unchecked_chapters: [], missing: [], context_sources: [], context_omissions: [],
+      report: { summary: "", coverage_complete: true, top_findings: [], all_findings: [] },
+    }])))
+    await page.route("**/api/assistant/editorial/issues*", route => route.fulfill(json([{
+      id: "issue-1", review_id: "rev-1", version: 0, disposition: "open", decisions: [], history: [], rechecks: [],
+      finding: { judgment: "这句需要修订", category: "structure", severity: "medium", suggestion: "补足动机", evidence: [{ chapter_index: 1, draft_id: draft.id, content_hash: draft.content_hash, quote: "需要修订", start: 0, end: 4 }] },
+    }])))
+    await openProjectWorkbench(project, "writing")
+    await page.getByRole("button", { name: /^打开第 1 章/ }).click()
+    await page.getByRole("button", { name: "本章写完，交给编辑看" }).click()
     const desk = page.locator(".editorial-desk")
     await expect(desk).toBeVisible()
 
@@ -224,11 +236,12 @@ test.describe("引导流程集成尾部：三个入口", () => {
       payload.guided_flows = { available: true, reason: null }
       await route.fulfill({ response: original, json: payload })
     })
-    await page.route("**/api/assistant/flows/active*", (route) => route.fulfill(json(rollingOffer)))
-    await page.route(`**/api/assistant/flows/${WRITE_RUN_ID}*`, async (route) => {
+    let currentRollingView = rollingOffer
+    await page.route("**/api/assistant/flows/active*", (route) => route.fulfill(json(currentRollingView)))
+    await page.route(`**/api/assistant/flows/${WRITE_RUN_ID}**`, async (route) => {
       const path = new URL(route.request().url()).pathname
       if (path.endsWith("/advance")) {
-        return route.fulfill(json({
+        currentRollingView = {
           ...rollingOffer,
           status: "waiting_approval",
           stop: {
@@ -247,9 +260,10 @@ test.describe("引导流程集成尾部：三个入口", () => {
               : item.step_id === "rolling_review" ? step(item.step_id, item.title, "active") : item
           )),
           panel: { rolling: { chapter_index: 1, window: { start: 2, end: 4 }, window_size: 3, accepted: true, planned_chapters: 0 } },
-        }))
+        }
+        return route.fulfill(json(currentRollingView))
       }
-      return route.fulfill(json(rollingOffer))
+      return route.fulfill(json(currentRollingView))
     })
 
     await openProjectWorkbench(project, "writing")
@@ -263,6 +277,6 @@ test.describe("引导流程集成尾部：三个入口", () => {
     // 结构候选审阅停点：去结构工作台采用或直接完成。
     await expect(host).toContainText("剧情线与篇章候选已生成")
     await host.getByRole("button", { name: "打开结构工作台" }).click()
-    await expect(page).toHaveURL(/view=outline/)
+    await expect(page).toHaveURL(/\/outline\/story-outline(?:\?|$)/)
   })
 })
