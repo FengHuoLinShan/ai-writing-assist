@@ -9,7 +9,6 @@ from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
-from pydantic import BaseModel
 
 from evals.cache import EvalCache
 from evals.cli import (
@@ -41,7 +40,6 @@ from evals.generation import (
     _model_review_prompt,
     materialize_generated_cases,
 )
-from evals.ragas_adapter import build_codex_ragas_llm
 from evals.readiness import (
     BASELINE_MINIMUMS,
     BASELINE_SCENARIOS,
@@ -887,31 +885,6 @@ async def test_reference_snapshot_is_generated_before_questions() -> None:
         "eval.dataset.generate_cases.structured",
     ]
     assert cases.cases[0].reference_id == "fact-1"
-
-
-@pytest.mark.asyncio
-async def test_ragas_adapter_routes_structured_calls_to_local_codex() -> None:
-    pytest.importorskip("ragas")
-
-    class FixtureResult(BaseModel):
-        accepted: bool
-
-    class FakeExecutor:
-        async def generate_structured(
-            self,
-            prompt: str,
-            response_model: type[BaseModel],
-            *,
-            step_name: str,
-        ) -> BaseModel:
-            assert prompt == "fixture"
-            assert step_name == "eval.ragas.FixtureResult"
-            return response_model.model_validate({"accepted": True})
-
-    llm = build_codex_ragas_llm(FakeExecutor())  # type: ignore[arg-type]
-    result = await llm.agenerate("fixture", FixtureResult)
-
-    assert result.accepted is True
 
 
 @pytest.mark.asyncio

@@ -25,6 +25,25 @@ from modules.collaboration.models import (
     CreativeWorkspace,
     CreativeWorkspaceRevision,
 )
+from modules.collaboration.state_impact import trial_state_impact
+
+
+def field_changes(before, after):  # noqa: ANN001, ANN201 —— M5 契约 §2 字段级局部比较
+    """前后均为 dict 时输出逐字段变更；标量/列表回退 None（前端走整份对照）。"""
+    if not isinstance(before, dict) or not isinstance(after, dict):
+        return None
+    fields = []
+    for key in sorted(set(before) | set(after)):
+        old, new = before.get(key), after.get(key)
+        if old == new:
+            continue
+        op = (
+            "changed"
+            if key in before and key in after
+            else ("added" if key in after else "removed")
+        )
+        fields.append({"field": key, "op": op, "before": old, "after": new})
+    return fields
 
 
 def revision_digest(manifest, patches, goal_version):
@@ -254,6 +273,18 @@ async def workspace_view(db, novel_id, workspace_id, *, revision_id=None):
                 "before": source.content,
                 "after": patch.value,
                 "operation": patch.operation,
+                "field_changes": (
+                    None
+                    if patch.operation == "delete"
+                    else field_changes(source.content, patch.value)
+                ),
+                "state_impact": await trial_state_impact(
+                    db,
+                    novel_id,
+                    kind=patch.kind,
+                    resource_id=str(patch.id),
+                    chapter_index=getattr(source, "chapter_index", None),
+                ),
                 "diff": "\n".join(
                     difflib.unified_diff(
                         before.splitlines(),

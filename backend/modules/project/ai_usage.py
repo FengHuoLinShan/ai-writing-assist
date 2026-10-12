@@ -128,12 +128,14 @@ async def get_project_ai_usage(
     total_completion = 0
     total_requests_unknown = 0
     charge_unconfirmed = False
+    usage_complete = True
     for capability_id, bucket in sorted(raw["capabilities"].items()):
         total_requests += int(bucket["requests"])
         total_requests_unknown += int(bucket["requests_unknown"])
         total_prompt += int(bucket["prompt_tokens"])
         total_completion += int(bucket["completion_tokens"])
         charge_unconfirmed = charge_unconfirmed or bool(bucket["charge_unconfirmed"])
+        usage_complete = usage_complete and bucket["usage_complete"]
         capabilities.append(
             {
                 "capability": capability_id,
@@ -144,6 +146,7 @@ async def get_project_ai_usage(
                 "input_tokens": int(bucket["prompt_tokens"]),
                 "output_tokens": int(bucket["completion_tokens"]),
                 "charge_unconfirmed": bool(bucket["charge_unconfirmed"]),
+                "usage_complete": bucket["usage_complete"],
             }
         )
     return {
@@ -158,11 +161,10 @@ async def get_project_ai_usage(
             "input_tokens": total_prompt,
             "output_tokens": total_completion,
             "charge_unconfirmed": charge_unconfirmed,
+            "usage_complete": usage_complete,
         },
         "capabilities": capabilities,
-        "attribution": await _attribute_usage_by_outcome(
-            db, novel_id=novel_id, raw=raw
-        ),
+        "attribution": await _attribute_usage_by_outcome(db, novel_id=novel_id, raw=raw),
     }
 
 
@@ -179,9 +181,7 @@ async def _attribute_usage_by_outcome(
     索引、独立审查等）单列为辅助消耗，不并入任何成果桶；用量未知与
     计费未确认沿用 BR-0a 语义逐桶如实保留。
     """
-    task_rows = [
-        row for row in (raw.get("tasks") or []) if isinstance(row, dict)
-    ]
+    task_rows = [row for row in (raw.get("tasks") or []) if isinstance(row, dict)]
     outcomes: dict[str, dict[str, Any]] = {}
     if task_rows:
         outcomes = await get(EVIDENCE_CONFIRMATION_READS).describe_task_outcomes(
@@ -199,6 +199,7 @@ async def _attribute_usage_by_outcome(
             "input_tokens": 0,
             "output_tokens": 0,
             "charge_unconfirmed": False,
+            "usage_complete": True,
         }
         for key, label in _ATTRIBUTION_BUCKETS
     }
@@ -206,6 +207,9 @@ async def _attribute_usage_by_outcome(
         outcome = outcomes.get(str(row.get("task_id") or ""))
         bucket = buckets[_attribution_bucket(str(row.get("status") or ""), outcome)]
         bucket["tasks"] += 1
+        bucket["usage_complete"] = bucket["usage_complete"] and row.get(
+            "usage_complete", True
+        )
         bucket["requests"] += int(row.get("requests") or 0)
         bucket["requests_unknown"] += int(row.get("requests_unknown") or 0)
         bucket["input_tokens"] += int(row.get("input_tokens") or 0)

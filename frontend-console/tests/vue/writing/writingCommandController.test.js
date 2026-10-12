@@ -157,6 +157,32 @@ describe("writingCommandController", () => {
     expect(toast).toHaveBeenCalledWith(expect.stringContaining("正文为空"), "warning")
   })
 
+  it("查询在途任务之前就阻止同轮双击", async () => {
+    let resolveList
+    const { api, controller } = setup()
+    api.tasks.list = vi.fn(() => new Promise(resolve => { resolveList = resolve }))
+    const first = controller.generateDraft()
+    await controller.generateDraft()
+    expect(api.tasks.list).toHaveBeenCalledTimes(1)
+    expect(api.writing.generate).not.toHaveBeenCalled()
+    resolveList({ items: [], active_count: 0 })
+    await first
+    expect(api.writing.generate).toHaveBeenCalledTimes(1)
+  })
+
+  it("在途查询返回前切换作品时不确认或跟随旧任务", async () => {
+    let resolveList
+    const { api, project, controller } = setup()
+    api.tasks.list = vi.fn(() => new Promise(resolve => { resolveList = resolve }))
+    const pending = controller.generateDraft()
+    project.value = "p2"
+    resolveList({ items: [{ task_id: "p1-task", task_type: "writing_generate", status: "running", meta: { chapter_index: 1, scene_id: "scene-1" } }], active_count: 1 })
+    await pending
+    expect(confirmAsync).not.toHaveBeenCalled()
+    expect(api.tasks.get).not.toHaveBeenCalled()
+    expect(api.writing.generate).not.toHaveBeenCalled()
+  })
+
   it("正文生成进行中时拒绝重复提交", async () => {
     let resolveGeneration
     const { api, toast, controller } = setup()
@@ -403,6 +429,7 @@ describe("writingCommandController", () => {
     const { api, controller } = setup()
     api.tasks.list = vi.fn(async () => ({ items: [
       { task_id: "server-gen-task", task_type: "writing_generate", status: "running", meta: { chapter_index: 1, scene_id: "scene-1" } },
+      { task_id: "newer-other-chapter", task_type: "writing_generate", status: "running", updated_at: "2099-01-01", meta: { chapter_index: 2, scene_id: "scene-2" } },
     ], active_count: 1 }))
     api.tasks.get.mockResolvedValue({ task_id: "server-gen-task", status: "done", result: { draft_id: "candidate-server" } })
 
@@ -411,6 +438,7 @@ describe("writingCommandController", () => {
     expect(confirmAsync).toHaveBeenCalledWith(expect.stringContaining("已有一份正文正在生成"), "仍要再生成", expect.anything())
     expect(api.writing.generate).not.toHaveBeenCalled()
     expect(api.tasks.get).toHaveBeenCalledWith("server-gen-task", "p1")
+    expect(api.tasks.get).not.toHaveBeenCalledWith("newer-other-chapter", "p1")
     expect(JSON.parse(sessionStorage.getItem("novel_active_workflows_v1"))).toEqual([
       expect.objectContaining({ taskId: "server-gen-task", view: "writing" }),
     ])

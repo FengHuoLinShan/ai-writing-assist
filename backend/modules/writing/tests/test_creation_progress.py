@@ -6,10 +6,13 @@ tasks 只读缝取回后由组合根 adapter 合并。
 
 from __future__ import annotations
 
+import uuid
 from types import SimpleNamespace
 
 import pytest
 
+from infrastructure.tasks.models import AsyncTask
+from modules.evidence.compilation.models import ContextConfirmation
 from modules.project.contracts import WorkspaceCreationProgressItem
 from modules.writing.models import WritingDraft
 from modules.writing.repositories import WritingDraftRepository
@@ -26,6 +29,22 @@ async def _create_draft(
     chapter: int = 1,
     title: str | None = "AI 建议",
 ) -> WritingDraft:
+    if (
+        provenance.get("knowledge_review")
+        and provenance.get("source") == "writing_generate"
+    ):
+        confirmation = ContextConfirmation(
+            id=uuid.uuid4(),
+            novel_id=uuid.UUID(novel_id),
+            action="writing.generate",
+            task="正文建议",
+            scope="chapter",
+            selected_asset_ids={},
+            excluded_asset_ids={},
+        )
+        db_session.add(confirmation)
+        await db_session.flush()
+        provenance = {**provenance, "context_confirmation_id": str(confirmation.id)}
     return await WritingDraftRepository().create_with_status(
         db_session,
         WritingDraftCreate(
@@ -110,7 +129,7 @@ async def test_candidate_progress_needs_revision_and_stale(
     items = await WritingDraftService().list_creation_progress(
         db_session, test_project_id
     )
-    assert items[0].stop_reason == "独立审查发现 2 个必须先处理的问题"
+    assert items[0].stop_reason == "正文或参考资料已变化，需重新确认"
     assert items[0].source_freshness == "stale"
 
 
@@ -166,7 +185,7 @@ async def test_adapter_merges_task_overview_without_raw_meta(
     async def fake_overview(
         db, *, novel_id, task_type=None, active_limit=50, terminal_limit=10
     ):
-        return [
+        rows = [
             SimpleNamespace(
                 task_id="t-running",
                 task_type="writing_generate",
@@ -201,6 +220,7 @@ async def test_adapter_merges_task_overview_without_raw_meta(
                 created_at="2026-10-09T09:58:00+00:00",
             ),
         ]
+        return [row for row in rows if row.task_type == task_type]
 
     async def fake_writing_items(db, novel_id, *, limit=6):
         return [
@@ -232,3 +252,69 @@ async def test_adapter_merges_task_overview_without_raw_meta(
     assert task.stop_reason == "正在处理"
     assert task.actions == ("view_task",)
     assert all("secret" not in str(item) for item in items)
+
+
+@pytest.mark.parametrize(
+    "knowledge,confirmation,reason,freshness",
+    [
+        (None, {}, "缺少资料复核回执", "unknown"),
+        ({"status": "passed"}, {}, "缺少原参考确认", "unknown"),
+        ({"status": "passed"}, {"stale": True}, "正文或参考资料已变化", "stale"),
+        ({"status": "passed"}, {"stale": False}, "可审阅", "fresh"),
+    ],
+)
+def test_progress_missing_and_stale_receipts_fail_closed(
+    knowledge, confirmation, reason, freshness
+):
+    draft = WritingDraft(
+        id=uuid.uuid4(),
+        novel_id=uuid.uuid4(),
+        chapter_index=1,
+        status="candidate",
+        content="正文",
+        provenance_json={
+            "source": "writing_generate",
+            "review_required": True,
+            "knowledge_review": knowledge,
+            "independent_review": {"verdict": "pass"},
+        },
+    )
+    item = WritingDraftService._candidate_progress_item(draft, confirmation)
+    assert reason in item.stop_reason
+    assert item.source_freshness == freshness
+    if freshness != "fresh":
+        assert item.applicability in {"blocked", "stale"}
+        assert "reconfirm" in item.actions
+
+
+@pytest.mark.asyncio
+async def test_newer_world_tasks_do_not_hide_writing_progress(
+    db_session, test_project_id
+):
+    writing_id = uuid.uuid4()
+    db_session.add(
+        AsyncTask(
+            id=writing_id,
+            novel_id=uuid.UUID(test_project_id),
+            task_type="writing_generate",
+            status="running",
+            meta={"novel_id": test_project_id, "chapter_index": 1},
+        )
+    )
+    for _ in range(7):
+        db_session.add(
+            AsyncTask(
+                id=uuid.uuid4(),
+                novel_id=uuid.UUID(test_project_id),
+                task_type="world_generation_suggestion",
+                status="running",
+                meta={"novel_id": test_project_id},
+            )
+        )
+    await db_session.flush()
+    from modules.writing.project_ports import WritingWorkspaceStatsAdapter
+
+    items = await WritingWorkspaceStatsAdapter().get_creation_progress(
+        db_session, test_project_id
+    )
+    assert [item.task_id for item in items if item.kind == "task"] == [str(writing_id)]

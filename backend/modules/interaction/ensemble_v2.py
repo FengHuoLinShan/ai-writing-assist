@@ -10,6 +10,7 @@ from core.errors import ConflictError, ValidationError
 from infrastructure.llm.capabilities import capability_from_execution_settings
 from infrastructure.llm.collaboration import content_hash
 from modules.evidence.facade import compile_interaction_story_context
+from modules.interaction.prompts import STORY_PROMPT_VERSION
 from modules.interaction.source_service import InteractionSourceService
 from modules.story.contracts import ActionIntentContract, InputStimulusContract
 from modules.story.facade import rehearse_round
@@ -140,6 +141,7 @@ async def prepare_ensemble_v2(run, journey, attempt, source):
             task_id=str(run.task.id),
             model=run.client.model_name,
             budget_tokens=5000,
+            prompt_name=STORY_PROMPT_VERSION,
         )
         if packet.blockers:
             continue

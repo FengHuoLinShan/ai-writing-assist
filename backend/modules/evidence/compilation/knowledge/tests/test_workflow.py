@@ -379,6 +379,15 @@ async def test_duplicate_dimension_report_downgrades_pass_to_unverifiable() -> N
     )
     assert outcome.status == "blocked"
     assert outcome.audit.verdict == "unverifiable"
+    timeline = [item for item in outcome.audit.coverage if item.dimension == "timeline"]
+    assert len(timeline) == 2
+    assert all(item.omitted for item in timeline)
+    assert all("重复报告" in item.omission_reason for item in timeline)
+    assert all(
+        not item.omitted
+        for item in outcome.audit.coverage
+        if item.dimension != "timeline"
+    )
 
 
 @pytest.mark.asyncio

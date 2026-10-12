@@ -57,7 +57,7 @@ describe("WritingEditor semantic review gate", () => {
     await wrapper.setProps({
       state: state({
         source: "writing_generate",
-        review_required: true,
+        review_required: true, knowledge_review: { status: "passed" },
         independent_review: { verdict: "pass", blocking_count: 0 },
       }),
     })
@@ -108,7 +108,7 @@ describe("WritingEditor semantic review gate", () => {
       props: {
         state: state({
           source: "writing_generate",
-          review_required: true,
+          review_required: true, knowledge_review: { status: "passed" },
           independent_review: {
             verdict: "incomplete",
             blocking_count: 0,
@@ -154,7 +154,7 @@ describe("WritingEditor semantic review gate", () => {
 
   it("审查未完成时明确阻止采用，不显示审查成功", () => {
     const wrapper = mount(WritingEditor, { props: {
-      state: state({ review_required: true, independent_review: { verdict: "incomplete", blocking_count: 0 } }),
+      state: state({ review_required: true, knowledge_review: { status: "passed" }, independent_review: { verdict: "incomplete", blocking_count: 0 } }),
       attach: vi.fn(), detach: vi.fn(),
     } })
     expect(wrapper.text()).toContain("部分完成")
@@ -162,6 +162,16 @@ describe("WritingEditor semantic review gate", () => {
     expect(wrapper.findAll("button").some(button => button.text() === "采用到工作稿")).toBe(false)
     expect(wrapper.get(".btn-primary").text()).toBe("重新独立审查")
     expect(wrapper.findAll("button").filter(button => button.text().includes("独立审查"))).toHaveLength(1)
+  })
+
+  it("缺少资料复核回执时即使语义通过也不允许采用", () => {
+    const wrapper = mount(WritingEditor, { props: {
+      state: state({ review_required: true, independent_review: { verdict: "pass", blocking_count: 0 } }),
+      attach: vi.fn(), detach: vi.fn(),
+    } })
+    expect(wrapper.get(".writing-knowledge-review-warning").text()).toContain("缺少资料复核回执")
+    expect(wrapper.text()).not.toContain("可以采用")
+    expect(wrapper.findAll("button").some(button => button.text() === "采用到工作稿")).toBe(false)
   })
 
   it("资料复核未完成时显示遗漏维度并隐藏采用（BR-2）", () => {
@@ -189,7 +199,7 @@ describe("WritingEditor semantic review gate", () => {
   it("incomplete 且没有可勾选的待核实条目时，主按钮退回重新独立审查，不出现定向返修死路", () => {
     const wrapper = mount(WritingEditor, { props: {
       state: state({
-        review_required: true,
+        review_required: true, knowledge_review: { status: "passed" },
         independent_review: {
           verdict: "incomplete",
           blocking_count: 0,
@@ -210,7 +220,7 @@ describe("WritingEditor semantic review gate", () => {
   it("incomplete 且勾选待核实条目后，定向返修与重新独立审查同时可达", async () => {
     const wrapper = mount(WritingEditor, { props: {
       state: state({
-        review_required: true,
+        review_required: true, knowledge_review: { status: "passed" },
         independent_review: {
           verdict: "incomplete",
           blocking_count: 0,

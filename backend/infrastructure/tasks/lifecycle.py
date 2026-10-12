@@ -463,6 +463,41 @@ class TaskLifecycleService:
         )
         return list((await db.execute(stmt)).scalars().all())
 
+    async def read_private_checkpoint(self, db, *, task_id, task_type, novel_id, key):
+        row = await db.scalar(
+            select(AsyncTask)
+            .where(
+                AsyncTask.id == uuid.UUID(str(task_id)),
+                AsyncTask.task_type == task_type,
+                AsyncTask.novel_id == uuid.UUID(str(novel_id)),
+                AsyncTask.status == "running",
+            )
+            .execution_options(populate_existing=True)
+        )
+        if row is None:
+            raise asyncio.CancelledError
+        meta = row.meta or {}
+        if key in meta and not isinstance(meta[key], dict):
+            raise ValueError("Stored private task checkpoint is invalid")
+        return deepcopy(meta.get(key))
+
+    async def write_private_checkpoint(
+        self, db, *, task_id, task_type, novel_id, key, payload
+    ):
+        row = await db.scalar(
+            select(AsyncTask)
+            .where(
+                AsyncTask.id == uuid.UUID(str(task_id)),
+                AsyncTask.task_type == task_type,
+                AsyncTask.novel_id == uuid.UUID(str(novel_id)),
+                AsyncTask.status == "running",
+            )
+        )
+        if row is None:
+            raise asyncio.CancelledError
+        # The handler commit hook locks the project before the task, then flushes.
+        row.meta = {**(row.meta or {}), key: deepcopy(payload)}
+
     async def require_running_attempt(
         self,
         db: AsyncSession,
@@ -927,9 +962,15 @@ class TaskLifecycleService:
                     "completion_tokens": 0,
                     "tasks": 0,
                     "charge_unconfirmed": False,
+                    "usage_complete": True,
                 },
             )
             bucket["tasks"] += 1
+            bucket["usage_complete"] = (
+                bucket["usage_complete"]
+                and envelope.usage_complete
+                and not envelope.legacy_untracked
+            )
             # 计费状态未确认只看信封自报的 charge_state：step 级 possible 或
             # 信封级 possible（旧回执可能没有 step 明细）都算未确认。
             charge_unconfirmed = envelope.charge_state is AIChargeState.possible
@@ -961,6 +1002,8 @@ class TaskLifecycleService:
                     "input_tokens": prompt_tokens,
                     "output_tokens": completion_tokens,
                     "charge_unconfirmed": charge_unconfirmed,
+                    "usage_complete": envelope.usage_complete
+                    and not envelope.legacy_untracked,
                 }
             )
         return {

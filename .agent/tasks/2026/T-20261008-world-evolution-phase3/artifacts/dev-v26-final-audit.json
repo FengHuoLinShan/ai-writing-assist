@@ -1,0 +1,46 @@
+{
+  "version": "dev-v26",
+  "method": "84822a906387b53e95e4c6288fae4251f8ed8034d07f134e121aaa8db7ae6ec2",
+  "current_method": true,
+  "scenes_committed": 8,
+  "scenes_expected": 8,
+  "requests": 76,
+  "responses": 76,
+  "terminal_call_errors": 0,
+  "source_ranges_exact_cumulative": 104,
+  "free_replays": 8,
+  "discovery_planned_batches": 32,
+  "failed_batches": [
+    {
+      "scene": 5,
+      "stage": "scene_discovery_4",
+      "usage_complete": true
+    },
+    {
+      "scene": 7,
+      "stage": "scene_discovery_2",
+      "usage_complete": true
+    }
+  ],
+  "validation_quarantine_records": 0,
+  "unknown_stage_receipts": 0,
+  "engineering_gate": "passed",
+  "quality_gate": "failed",
+  "holdout_run": false,
+  "human_validated": false,
+  "explicit_new_run_authorized": true,
+  "v9_unknown_receipt_retained": true,
+  "v11_unknown_receipt_retained": true,
+  "v12_unknown_receipt_retained": true,
+  "v14_unknown_receipt_retained": true,
+  "v15_unknown_receipt_retained": true,
+  "v16_unknown_receipt_retained": true,
+  "quality_failures": [
+    "S5 explicit behavioral exception not committed",
+    "S6 unproven specific old occurrence link accepted",
+    "S7 commitment fulfillment omitted in settled length failure"
+  ],
+  "actual_complete_stream_requests": 68,
+  "actual_nonstream_observer_requests": 8,
+  "current_method_browser": "chromium1440_and_webkit320_passed"
+}

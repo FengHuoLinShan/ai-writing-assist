@@ -140,13 +140,17 @@ class WritingWorkspaceStatsAdapter:
         from infrastructure.tasks.facade import list_novel_task_overview
 
         items: list[WorkspaceCreationProgressItem] = []
-        overview = await list_novel_task_overview(
-            db,
-            novel_id=novel_id,
-            task_type=None,
-            active_limit=limit,
-            terminal_limit=limit,
-        )
+        overview = []
+        for task_type in sorted(_WRITING_PROGRESS_TASK_TYPES):
+            overview.extend(
+                await list_novel_task_overview(
+                    db,
+                    novel_id=novel_id,
+                    task_type=task_type,
+                    active_limit=limit,
+                    terminal_limit=limit,
+                )
+            )
         for row in overview:
             if row.task_type not in _WRITING_PROGRESS_TASK_TYPES:
                 continue

@@ -17,6 +17,7 @@ from sqlalchemy import (
     text,
     update,
 )
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -671,6 +672,29 @@ class SceneRepository:
                 {"key": f"scene_order:{novel_id}"},
             )
 
+    async def try_lock_source_roster(self, db: AsyncSession, novel_id: uuid.UUID) -> bool:
+        """Freeze structure without waiting on writers that may hold draft locks."""
+        if db.get_bind().dialect.name != "postgresql":
+            return True
+        acquired = await db.scalar(
+            text("SELECT pg_try_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": f"scene_order:{novel_id}"},
+        )
+        if not acquired:
+            return False
+        try:
+            async with db.begin_nested():
+                await db.execute(
+                    select(Scene.id)
+                    .where(Scene.novel_id == novel_id)
+                    .with_for_update(read=True, nowait=True)
+                )
+        except DBAPIError as error:
+            if getattr(error.orig, "sqlstate", None) == "55P03":
+                return False
+            raise
+        return True
+
     def _build_scene(self, novel_id: uuid.UUID, data: SceneCreate) -> Scene:
         return Scene(
             novel_id=novel_id,
@@ -1196,6 +1220,7 @@ class SceneRepository:
         novel_id: uuid.UUID,
         data: SceneCreate,
     ) -> Scene:
+        await self.lock_scene_order(db, novel_id)
         scene = self._build_scene(novel_id, data)
         db.add(scene)
         await db.flush()
@@ -1212,6 +1237,7 @@ class SceneRepository:
         novel_id: uuid.UUID,
         items: list[SceneCreate],
     ) -> list[Scene]:
+        await self.lock_scene_order(db, novel_id)
         scenes = [self._build_scene(novel_id, data) for data in items]
         if not scenes:
             return []
@@ -1476,7 +1502,7 @@ class SceneRepository:
         )
         if limit is not None:
             stmt = stmt.limit(limit)
-        result = await db.execute(stmt)
+        result = await db.execute(stmt.execution_options(populate_existing=True))
         items: Sequence[Scene] = result.scalars().all()
         return list(items)
 

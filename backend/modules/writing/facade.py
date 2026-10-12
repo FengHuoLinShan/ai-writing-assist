@@ -141,6 +141,7 @@ async def adopt_candidate_to_working(
     draft_id: str,
     *,
     adopted_by: str = "author",
+    idempotency_key: str | None = None,
 ) -> WritingDraftContract:
     """Adopt an AI writing suggestion into the normal working-draft lifecycle."""
     return await _service.adopt_candidate_to_working_contract(
@@ -148,6 +149,7 @@ async def adopt_candidate_to_working(
         draft_id,
         novel_id,
         adopted_by=adopted_by,
+        idempotency_key=idempotency_key,
     )
 
 

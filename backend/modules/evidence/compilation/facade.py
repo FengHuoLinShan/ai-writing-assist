@@ -7,6 +7,7 @@ Facade 不写复杂业务逻辑，只做稳定的对外代理。
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Sequence
 from typing import Any
 
@@ -88,6 +89,7 @@ async def compile_interaction_story_context(
     budget_tokens: int = INTERACTION_SOURCE_CONTEXT_MAX_TOKENS,
     public_demo_source: bool = False,
     public_demo_source_fingerprint: str | None = None,
+    prompt_name: str = "interaction-story",
 ) -> InteractionStoryContextContract:
     """Compile one immutable source packet for an RP attempt."""
     return await _interaction_story_context_service.compile(
@@ -108,6 +110,7 @@ async def compile_interaction_story_context(
         budget_tokens=budget_tokens,
         public_demo_source=public_demo_source,
         public_demo_source_fingerprint=public_demo_source_fingerprint,
+        prompt_name=prompt_name,
     )
 
 
@@ -1499,3 +1502,29 @@ async def read_organization_evidence(db, *, novel_id, task_id, visibility):
         "visible": True,
         "item": await inspect_organization_status(db, novel_id, task_id),
     }
+
+
+async def purge_interaction_source_cache(db, *, source_novel_id: str) -> int:
+    """来源失效后立即清理 RP 派生缓存行（M4 契约 §4）。
+
+    只删以 source_novel_id 为来源的私有缓存派生行；「拒绝使用」由门禁/key/
+    证明重放承担，本入口只履行主计划 §5.1 的「随后清理，不等 TTL」。
+    """
+    from modules.evidence.compilation.services.interaction_source_cache import (
+        InteractionSourceCacheStore,
+    )
+
+    return await InteractionSourceCacheStore().purge_for_source(
+        db, uuid.UUID(str(source_novel_id))
+    )
+
+
+async def purge_project_interaction_cache(db, project_id: str) -> int:
+    """项目软删/旅程归档时清除作为来源或消费者的私有派生正文。"""
+    from modules.evidence.compilation.services.interaction_source_cache import (
+        InteractionSourceCacheStore,
+    )
+
+    return await InteractionSourceCacheStore().purge_for_project(
+        db, uuid.UUID(project_id)
+    )
