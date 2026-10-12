@@ -1,14 +1,49 @@
 ---
 id: T-20261009-guided-flow-implementation
 title: 成果导向创作流程借鉴计划实施（BR-0 至 BR-7）
-status: in_progress
+status: active
 created: 2026-10-09T13:30:00+09:00
-updated: 2026-10-09T13:30:00+09:00
+updated: 2026-10-12T14:38:39+08:00
 ---
 
 # 成果导向创作流程借鉴计划实施（BR-0 至 BR-7）
 
-## 恢复快照
+## 当前交付续接（2026-10-12 PR合并授权）
+
+- 用户明确要求跳过作者验收，通过PR合入main；本次在P4整理树提交上述工程整改与Issue修复，原集成树任务/WIP不动。
+- 主交付记录改为本整理树的P4 [TASK](../T-20261009-world-evolution-phase4-impl/TASK.md)，本记录保留BR复审与验证来源。
+- 作者验收按用户指令跳过，human_validated=false；未执行真实模型质量验收或部署，不把跳过写成通过。
+- 以下为合并前历史检查点，远端CI与最终合并身份以P4 TASK及GitHub为准。
+
+## 历史恢复快照（2026-10-12 九项整改工程完成）
+
+- 当前用户授权：当前集成分支修复旧审查7项P1/2项P2、验证/复审/更新记录，保留原WIP、不合main。无真实模型/真实数据、推送或部署授权。
+- 本地修复提交 `af731b0392e8df2012741d14d8d9d3f942f570e5`，基线 ebd3bac3732c16641e96ce4690014779acf60a98；分支 codex/guided-flow-integration，worktree `/Users/tywww/.codex/worktrees/guided-flow-integration/ai-writing-assist`。生产、测试和权威文档已提交；本TASK与新旧报告留未提交。旧REVIEW/VALIDATION完整保留。
+- 实际结果：原S1/S2/F1–F7全部关闭，Standards与Spec独立只读复审绑定最终提交通过。跨窗原资产保护、规范化数据库并发锁、付费输出checkpoint复用/未落盘失败关闭、完整输入身份、子集采用指纹、多证据/重叠确认、骨架卡内CAS取舍与撤销恢复、三层顺序确认采用、编辑台active恢复已闭合。
+- 验证：test-ci后端7675 passed/2 skipped/13 warnings、覆盖86.72%，前端2964 passed；部署272 passed；PGcritical91 passed（新增竞争6）；最终受影响617 passed；桌面与390×844各6 passed；lint/build/docs/repo门禁通过。文档impact保留逐项不变理由，import ratchet524/524。
+- 原工作树保留：57修改/未跟踪文件hash、HEAD、暂存diff及status完全相同。执行前与复核摘要在/tmp，任务独占PG18432已停止；不动5432共享集群。
+- 证据：[整改复审](REVIEW-REMEDIATION-20261012.md)、[整改验证](VALIDATION-REMEDIATION-20261012.md)；此前报告保留历史结论。费用未知且结果未落盘的任务停止自动重试，需要核对费用；不宣称能恢复未保存输出。
+- 未完成：真实模型质量/作者接受度与BR-3/4/5/6真实产品验收。总任务保持active；工程整改完成不代替这些门禁。未推送/PR/远端CI/main/部署。
+- 可执行下一步：在本worktree查看 `git show af731b0392e8df2012741d14d8d9d3f942f570e5` 与整改报告；按用户下一次授权确定真实模型评测或作者验收范围、合成/真实资料与费用上限。任何main合入另等明确授权，不自行扩大数据或付费范围。
+- 最后核实：2026-10-12T14:38:39+08:00。
+
+## 上轮恢复快照（2026-10-12 集成验证；历史）
+
+- 本轮授权：整合 borrow-tails 与当前集成分支、同步最新主干、完成 BR-3/4/5/6 验证与审查，更新记录；保留原工作树全部 WIP，暂不合入 main。本轮未运行真实模型/真实数据、未推送或发布。
+- 主记录：本隔离工作树的 TASK.md；原工作树已有未提交内容完整保留于下方历史。原工作树 57 个修改/未跟踪文件的 SHA256、HEAD、暂存 diff 与状态均和执行前一致；原 codex/guided-flow-borrowing 仍为 636d790120d66ed41010e22f9c527c3942dd5918。
+- 工作区：`/Users/tywww/.codex/worktrees/guided-flow-integration/ai-writing-assist`，分支 `codex/guided-flow-integration`；最终提交 `ebd3bac3732c16641e96ce4690014779acf60a98`。本轮记录文件留为未提交，不自动提交任务笔记。
+- 主干基线：`5a2958660f65b663555a68d445e19c3d0c8ff1c9`，结束前再次核实远端 main 未变。BR-0a/b/c、BR-1a/b、BR-2、BR-7 已经 PR #212–#218 合入主干。
+- 整合：3e679b844 合入 tails 的 5 个提交；a24af0fc4 同步 origin/main。唯一 tails 冲突为控制器注释/空行，保留 reactive/confirmAsync 修复与新的作者选择/规划能力；WritingView 未恢复无效 confirmDialog 接线。已验证 tails、原集成头与最新主干均是最终提交祖先。
+- 修复：1ffd64678 补窗口末章/覆盖已写章校验、条目更新基线、复核排队状态、知识策略/能力注册和套件接线；50aff8ddc 修复真实 HTTP 重复路由前缀、取消 stop=None 与 skipped 诚实状态；ebd3bac37 复用选章辅助函数覆盖窄屏测试入口。
+- 验证完成：[验证记录](VALIDATION-20261012.md)。全量 test-ci 后端 7661、前端 2953、部署 272，通过；覆盖率 86.69%。后续生产小修后 Assistant 132、EditorialDesk 8；PostgreSQL critical 85；最终桌面/390×844 各 6 个浏览器用例通过；lint/build、repo-gates、文档 inventory/差异影响及 diff-check 通过。版本边界、替身覆盖和文档无改动确认理由均已记录，未把浏览器替身当作真实领域验收。
+- 审查完成但未通过：[双轴审查](REVIEW-20261012.md)，生产代码头 50aff8ddc。Standards 2 项 P1；Spec 5 项 P1、2 项 P2，共 9 个未解决项。修过的窗口 K、缺失基线、排队提前完成、真实 HTTP 路由等不再列为未解决。
+- 包状态：BR-3 实现已集成，但并发唯一性/恢复仍未验收；BR-4 多证据与重叠确认、审读台刷新恢复未完成；BR-5 方向卡付费恢复及逐条编辑/冲突取舍/撤销 UI 未完成；BR-6 跨窗保护、输入身份、子集采用、近期 Scene 阶段未完成。全部保持待验收，原任务 status=active。
+- 环境：Docker daemon 不可用；使用任务专属原生 PostgreSQL 17+pgvector 集群 `/tmp/codex-guided-flow-20261012-pg`（18432）完成合成数据验证，收尾已停止，保留目录/日志。未使用真实项目库。
+- 下一步：首先修复 REVIEW 中 F1 跨窗已有资产写入保护与 S1 活动 run 并发唯一性，以跨窗采用回归和 PostgreSQL 双连接竞争测试验收；随后完成付费恢复、作者取舍/恢复及 Scene 入口。不要先运行真实模型或合入 main。
+- 交付边界：整合与小修仅本地已提交；本轮任务/审查/验证记录已落盘但未提交。无远端 CI 运行、无 PR、无 main 合入、无部署。真实模型质量和作者验收未执行，不宣称 BR-3/4/5/6 完成。
+
+## 历史实施记录（2026-10-09，过期待办由上方快照替代）
+
 
 - 目标：实施 `docs/plans/2026-10-09-guided-flow-borrowing.md` §5 全部实施包（BR-0a/0b/0c、BR-1a/1b、BR-2、
   BR-3（含 ADR-0032）、BR-4、BR-5、BR-6、BR-7），§6 五项裁定已授权。
@@ -83,9 +118,16 @@ updated: 2026-10-09T13:30:00+09:00
     confirmDialog 用原生 globalThis.confirm 且 WritingView 接线传了不存在的
     vm.confirmDialog（useWritingWorkspace return 未导出），真实用户也只看到原生弹窗。
     修法：控制器默认改走 shared/confirmAsync（外壳 modal，与全站一致），
-    删除 WritingView 假接线；单元测试 8 过。E2E 修复中：active 探测 mock 需回传
-    当前视图（服务端契约）、候选草稿需 mock（以真实第 1 章草稿为底覆盖候选态）、
-    候选面板断言对齐真实文案（"这份建议还没有改动工作稿"）。
+    删除 WritingView 假接线；单元测试 8 过。E2E 修复四处：active 探测 mock 回传
+    当前视图（服务端契约，刷新后 URL query 会丢、写作页按设计回落探测）、候选草稿
+    以真实第 1 章草稿为底覆盖候选态、候选面板断言对齐真实文案
+    （"这份建议还没有改动工作稿"）、capabilities mock 强制 200。
+    验证：guided-flow E2E 2 passed（nc_e2e_br3fix）。修复落 636d79012（pathspec
+    提交恰好 5 路径；主工作树暂存区里第三方的 architecture-documents.toml 保持
+    staged 未被扫入——期间本会话 Bash spawn ENOENT 宿主故障，由 tails 代理代跑
+    E2E 与提交，只读 git status 确认现场后精确下达命令）。
+    tails 代理已对齐契约：其新增代码一律 confirmAsync + reactive state，合并以
+    集成分支为准。
   - 主工作树杂物（勿提交勿覆盖）：docs/README.md 与 docs/architecture/*（feature-map
     功能描述图一组）是第三方并行编辑（时间戳早于代理派发），不属于任何包；合并/提交
     一律显式路径暂存，避开这些文件。
