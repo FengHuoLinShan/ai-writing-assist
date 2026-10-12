@@ -449,7 +449,7 @@ bucket。这不是分布式或全局 DDoS 防护，也不表示当前外部 Clou
 | 模块 | 当前注册处理器 |
 |------|------|
 | project | `smart_dedup_scan` |
-| world | `world_alias_relation_extraction`、`world_entity_fusion_suggestions`、`world_bible_projection_refresh`、`world_bible_synopsis_refresh`、`world_generation_suggestion`、`world_cocreation_turn`、`world_validation`、`map_atlas_generate`、`world_map_schematic_generate`、`world_object_image_generate`（ADR-0029，本机 CLI 对象图片候选，`never_retry`）、`map_atlas_storage_cleanup`、`world_object_image_cleanup` |
+| world | `world_alias_relation_extraction`、`world_entity_fusion_suggestions`、`world_bible_projection_refresh`、`world_bible_synopsis_refresh`、`world_generation_suggestion`、`world_opening_skeleton`、`world_cocreation_turn`、`world_validation`、`map_atlas_generate`、`world_map_schematic_generate`、`world_object_image_generate`（ADR-0029，本机 CLI 对象图片候选，`never_retry`）、`map_atlas_storage_cleanup`、`world_object_image_cleanup` |
 
 `world_generation_suggestion` 的 task meta 可携带 `session_id` 与 `session_action`（ADR-0021）：任务成功后由 world 域把作者回合与成果引用追加进持久化共创会话，失败或重试不落半截记录；transport 幂等仍由 operation receipt 承担，会话写入不改变任务指纹语义。
 | story | `story_outline_generate`、`outline_analyze`、`outline_generate`、`scene_fusion_preview`、`story_character_card_generate`、`story_reaction_propose`、`story_scene_script_generate`、`story_one_click`；`plot_structure_generate`、`chapter_card_extraction`、`chapter_scene_generate` 仅为存量任务的 unsupported 兼容注册 |
@@ -457,6 +457,7 @@ bucket。这不是分布式或全局 DDoS 防护，也不表示当前外部 Clou
 | writing | `publish_chapter`、`writing_generate`、`writing_semantic_review`、`writing_targeted_revision`、`writing_comment_run`、`writing_conflict_ai_review`、`writing_conflict_item_ai_suggestion` |
 | imports | `deep_import`、`scene_auto_extraction`、`world_object_auto_extraction`、`plot_structure_auto_extraction` |
 | interaction | `interaction_story_generate`、`interaction_summary_refresh` |
+| evolution | `evolution_scene_step_v2`、`evolution_world_audit_supplement_v1` |
 
 任务处理器仍由 owning 模块的 `tasks.py` 声明；`app.task_runtime` 拥有 API 与 worker 共同
 消费的显式启动 manifest，并负责在两个组合根注册这些声明。`infrastructure/tasks` 不导入或
@@ -686,3 +687,6 @@ provider json_object（`unverified` 仅不具 B5 路由候选资格），`unsupp
 
 `read_private_task_checkpoint` / `write_private_task_checkpoint` 仅在原 worker 租约栅栏 session 内按任务 ID、类型和 novel_id 读取/保存下划线私有负载；写入通过既有 checkpoint 提交，业务模块不读取任务 ORM。
 AI 用量汇总保留 `usage_complete`；旧恢复回执 `legacy_untracked` 即使未知请求数量为零，也标记统计不完整，不猜填历史请求数。
+
+`evolution_category_rescan_v1` 使用现有 operation task/manual_resume、run 根预算与独立冻结
+Scene 发现日志；本操作最高调用额度与根预算发送前扣减，unknown 不自动重试。

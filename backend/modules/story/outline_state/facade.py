@@ -32,6 +32,9 @@ from modules.story.outline_state.deep_import_repair_facade import (  # noqa: F40
 from modules.story.outline_state.foreshadowing_facade import (  # noqa: F401
     get_active_foreshadowing,
 )
+from modules.story.outline_state.planning_window_facade import (  # noqa: F401
+    get_planned_chapter_coverage,
+)
 from modules.story.outline_state.reveal_facade import (
     get_reader_reveal_decision,  # noqa: F401
 )
@@ -101,6 +104,7 @@ __all__ = [
     "get_next_scene_index",
     "lock_scene_roster_for_revalidation",
     "get_outline_analysis_context",
+    "get_planned_chapter_coverage",
     "get_plot_threads_for_context",
     "list_plot_threads_referencing_entities",
     "get_reader_reveal_decision",

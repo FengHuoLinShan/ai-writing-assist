@@ -37,6 +37,41 @@ from modules.writing.tests.test_p2c_recompute import (
 pytestmark = pytest.mark.asyncio
 
 
+async def test_notice_replay_preserves_first_payload_and_closed_status(
+    db_session, test_project_id
+):
+    from modules.writing.repositories import WritingRecomputeRepository
+
+    args = dict(
+        novel_id=uuid.UUID(test_project_id), receipt_id="stable-receipt", chapter_index=1
+    )
+    first = await WritingRecomputeRepository.save_notice(
+        db_session, **args, notice={"first": True}
+    )
+    first.status = "resolved"
+    await db_session.flush()
+    replay = await WritingRecomputeRepository.save_notice(
+        db_session, **args, notice={"first": False}
+    )
+    assert replay.id == first.id
+    assert replay.status == "resolved"
+    assert replay.notice_json == {"first": True}
+    assert (
+        len(
+            (
+                await db_session.execute(
+                    select(WritingInvalidationNotice).where(
+                        WritingInvalidationNotice.novel_id == args["novel_id"]
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        == 1
+    )
+
+
 def _adopt(
     novel_id: str,
     operation_id: str,

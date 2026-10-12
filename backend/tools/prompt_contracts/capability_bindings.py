@@ -156,6 +156,12 @@ CAPABILITY_BINDINGS: dict[str, tuple[str, ...]] = {
         "interaction.forecast",
     ),
     "modules/assistant/editorial.py": ("assistant.editorial",),
+    "modules/assistant/guided_flow/direction_cards.py": (
+        "assistant.guided_flow.direction_cards",
+    ),
+    "modules/world/services/worldbuilding/opening_skeleton.py": (
+        "world.opening_skeleton",
+    ),
     "modules/collaboration/runtime.py": (
         "collaboration.run",
         "collaboration.plan",

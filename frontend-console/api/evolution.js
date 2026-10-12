@@ -28,6 +28,18 @@ export const evolution = {
     status: (novelId) => request(withQuery("/evolution/reading", { novel_id: novelId }), { cache: "no-store" }),
     targets: (novelId, runKey, options) => request(withQuery(`/evolution/reading/${encodeURIComponent(runKey)}/targets`, { novel_id: novelId, ...options }), { cache: "no-store" }),
     proposals: (novelId, runKey, offset = 0) => request(withQuery(`/evolution/reading/${encodeURIComponent(runKey)}/proposals`, { novel_id: novelId, offset }), { cache: "no-store" }),
+    worldAuditSupplementPreview: (novelId, runKey, attemptId) => post(withQuery(
+      `/evolution/reading/${encodeURIComponent(runKey)}/proposals/${encodeURIComponent(attemptId)}/world-audit-preview`,
+      { novel_id: novelId },
+    )),
+    worldAuditSupplementStart: (novelId, runKey, attemptId, body) => post(withQuery(
+      `/evolution/reading/${encodeURIComponent(runKey)}/proposals/${encodeURIComponent(attemptId)}/world-audit`,
+      { novel_id: novelId },
+    ), body),
+    worldAuditSupplementResume: (novelId, runKey, attemptId) => post(withQuery(
+      `/evolution/reading/${encodeURIComponent(runKey)}/proposals/${encodeURIComponent(attemptId)}/world-audit-resume`,
+      { novel_id: novelId },
+    )),
     switchEngine: (novelId, body) => post(withQuery("/evolution/engine", { novel_id: novelId }), body),
     preview: (novelId, body) => post(withQuery("/evolution/reading/preview", { novel_id: novelId }), body),
     start: (novelId, body) => post(withQuery("/evolution/reading", { novel_id: novelId }), body),
@@ -60,3 +72,7 @@ export const evolution = {
       { cache: "no-store" },
     ),
 };
+
+evolution.categoryRescanPreview = (novelId, runKey, body) => post(withQuery(`/evolution/reading/${encodeURIComponent(runKey)}/category-rescan-preview`, { novel_id: novelId }), body)
+evolution.categoryRescanStart = (novelId, runKey, body) => post(withQuery(`/evolution/reading/${encodeURIComponent(runKey)}/category-rescan`, { novel_id: novelId }), body)
+evolution.categoryRescanResume = (novelId, runKey, operationId) => post(withQuery(`/evolution/reading/${encodeURIComponent(runKey)}/category-rescan/${encodeURIComponent(operationId)}/resume`, { novel_id: novelId }))

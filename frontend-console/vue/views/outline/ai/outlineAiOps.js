@@ -262,7 +262,13 @@ export async function applyOutlineGeneratePreview(editedDraft) {
   )
   try {
     outlineGenerateManager.state.applyError = null
+    const selection = await api.outline.prepareStructureAdoption({
+      novel_id: owner.projectId, context_confirmation_id: preview.contextConfirmationId,
+      source_task_id: preview.sourceTaskId, draft_structure: editedDraft,
+    })
+    if (!ownsResult()) return false
     const response = await api.outline.applyStructurePreview({
+      confirmation_fingerprint: selection.confirmation_fingerprint,
       novel_id: owner.projectId,
       context_confirmation_id: preview.contextConfirmationId,
       source_task_id: preview.sourceTaskId,

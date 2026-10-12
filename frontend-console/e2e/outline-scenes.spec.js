@@ -269,6 +269,7 @@ test.describe("Outline View — 场景工作台", () => {
       }],
     }
     let applyPayload = null
+    let preparePayload = null
     await page.route(`**/api/evidence/compilation/confirmations/${contextConfirmationId}*`, async (route) => {
       await route.fulfill({
         status: 200,
@@ -306,6 +307,12 @@ test.describe("Outline View — 场景工作台", () => {
             overlap: { scenes: [{ title: "旧潮门场景" }] },
           },
         }),
+      })
+    })
+    await page.route("**/api/outline/generate/apply/preview", async (route) => {
+      preparePayload = route.request().postDataJSON()
+      await route.fulfill({
+        json: { proposal_refs: [], excluded_proposal_refs: [], confirmation_fingerprint: null },
       })
     })
     await page.route("**/api/outline/generate/apply", async (route) => {
@@ -382,7 +389,14 @@ test.describe("Outline View — 场景工作台", () => {
 
     await page.locator('[data-action="apply-outline-generate-preview"]').click()
     await expect(page.locator('[aria-label="场景筛选"]')).toBeVisible()
+    expect(preparePayload).toEqual({
+      novel_id: testProjectId,
+      context_confirmation_id: contextConfirmationId,
+      source_task_id: taskId,
+      draft_structure: applyPayload.draft_structure,
+    })
     expect(applyPayload).toEqual({
+      confirmation_fingerprint: null,
       novel_id: testProjectId,
       context_confirmation_id: contextConfirmationId,
       source_task_id: taskId,

@@ -29,6 +29,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from infrastructure.tasks.facade import enqueue_coalesced_task
 from infrastructure.tasks.registry import task_handler
 from modules.evolution.state_review import has_unreconciled_scene_calls
+from modules.evolution.world_audit_supplement import (
+    handle_world_audit_supplement as _handle_world_audit_supplement,
+)
 
 
 class EvolutionSourceRange(BaseModel):
@@ -294,20 +297,73 @@ async def _execute_scene_step(db: AsyncSession, task) -> dict[str, Any]:
                 enrichment_pending = ["scene_enrichment_requires_review"]
         world_result = {"result_refs": [], "pending": []}
         if frozen.payload.get("world_result"):
+            from modules.evolution.world import world_group_apply_inputs
             from modules.imports.contracts import SceneWorldIdentityChangedError
             from modules.imports.facade import apply_scene_world_candidates
 
             try:
-                world_result = await apply_scene_world_candidates(
-                    db_session,
-                    request.novel_id,
-                    scene_id=request.scene_id,
-                    scene_index=request.scene_index,
-                    chapter_index=requested_sources[-1].chapter_index,
-                    workflow_id=request.run_key,
-                    attempt_id=frozen.attempt_id,
-                    **frozen.payload["world_result"],
-                )
+                frozen_world = frozen.payload["world_result"]
+                review_groups = (frozen_world.get("review") or {}).get("groups") or []
+                if review_groups:
+                    resolved_new_refs = set()
+                    world_result = {
+                        "result_refs": [],
+                        "pending": [],
+                        "diagnostics": [],
+                        "relation_snapshots": [],
+                    }
+                    for group in sorted(
+                        review_groups,
+                        key=lambda item: (
+                            not any(
+                                member["path"] == "entities" for member in item["members"]
+                            ),
+                            item["group_id"],
+                        ),
+                    ):
+                        if group.get("status") != "passed":
+                            world_result["pending"].append("scene_world_requires_review")
+                            continue
+                        inputs = world_group_apply_inputs(
+                            frozen_world, group, resolved_new_refs
+                        )
+                        if inputs is None:
+                            world_result["pending"].append(
+                                "scene_world_group_dependency_pending"
+                            )
+                            continue
+                        group_result = await apply_scene_world_candidates(
+                            db_session,
+                            request.novel_id,
+                            scene_id=request.scene_id,
+                            scene_index=request.scene_index,
+                            chapter_index=requested_sources[-1].chapter_index,
+                            workflow_id=request.run_key,
+                            attempt_id=frozen.attempt_id,
+                            **inputs,
+                        )
+                        world_result["result_refs"].extend(group_result["result_refs"])
+                        world_result["pending"].extend(group_result["pending"])
+                        world_result["diagnostics"].extend(
+                            group_result.get("diagnostics", [])
+                        )
+                        world_result["relation_snapshots"].extend(
+                            group_result.get("relation_snapshots", [])
+                        )
+                        resolved_new_refs.update(
+                            inputs["context"].get("_new_entity_refs", {})
+                        )
+                else:
+                    world_result = await apply_scene_world_candidates(
+                        db_session,
+                        request.novel_id,
+                        scene_id=request.scene_id,
+                        scene_index=request.scene_index,
+                        chapter_index=requested_sources[-1].chapter_index,
+                        workflow_id=request.run_key,
+                        attempt_id=frozen.attempt_id,
+                        **frozen_world,
+                    )
             except SceneWorldIdentityChangedError as error:
                 raise CommitConflictError("world_identity_changed", str(error)) from error
             # Domain identities and their content become history only alongside
@@ -342,6 +398,21 @@ async def _execute_scene_step(db: AsyncSession, task) -> dict[str, Any]:
         from modules.evolution.discovery import apply_discovery
 
         discovery_pending = await apply_discovery(db_session, store, frozen)
+        from modules.evolution.pipeline import scene_state_fingerprint
+
+        committed_frozen = await store.load_frozen(frozen.run_id, frozen.attempt_id)
+        await store.replace_frozen_payload(
+            committed_frozen.model_copy(
+                update={
+                    "payload": {
+                        **committed_frozen.payload,
+                        "state_fingerprint": scene_state_fingerprint(
+                            committed_frozen.payload
+                        ),
+                    }
+                }
+            )
+        )
         pending = (
             [
                 f"gated_scene_event:{event.get('event_type', 'unknown')}"
@@ -537,3 +608,15 @@ async def enqueue_evolution_scene_step(
         mode="reuse_active",
     )
     return {"task_id": str(enqueued.task_id), "status": str(enqueued.status)}
+
+
+@task_handler("evolution_world_audit_supplement_v1", recovery_policy="manual_resume")
+async def handle_world_audit_supplement(db, task):
+    return await _handle_world_audit_supplement(db, task)
+
+
+@task_handler("evolution_category_rescan_v1", recovery_policy="manual_resume")
+async def handle_category_rescan(db, task):
+    from modules.evolution.category_rescan import handle_category_rescan as execute
+
+    return await execute(db, task)

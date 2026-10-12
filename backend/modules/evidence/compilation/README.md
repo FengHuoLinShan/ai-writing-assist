@@ -1,5 +1,7 @@
 # Evidence compilation / 上下文编译与确认子域
 
+知识维度 `author_intent` 表示作者明确提供的构想与要求，供新书方向卡能力声明使用；方向卡不读取已采用世界事实、不建立新资产、不宣称完成世界知识复核。静态能力绑定与领域采用资格分别检查。
+
 专项查阅任务 `evidence_focused_search` 使用统一 AI 运行信封：一次 run 最多 9 次请求，manual
 resume 不重置累计账本；planner/nomination 的 step timeout 保持原样，整条 run 不新增总 deadline。
 回执保留在任务私有元数据，不进入编译结果。

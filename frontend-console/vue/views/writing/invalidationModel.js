@@ -32,6 +32,16 @@ const CONSUMER_LABELS = Object.freeze({
   prose_generation: "正文重生成",
   world_knowledge: "世界书理解",
   map_atlas: "地图集",
+  world_canon_revision: "正典修订依赖",
+})
+
+const STORY_DIMENSION_LABELS = Object.freeze({
+  entities: "人物与对象",
+  relations: "关系",
+  locations: "空间与位置",
+  knowledge: "知识边界",
+  timeline: "时间顺序",
+  causality: "因果与前提",
 })
 
 const REASON_LABELS = Object.freeze({
@@ -43,7 +53,7 @@ const REASON_LABELS = Object.freeze({
   unregistered_consumer: "这类内容尚未接入依赖登记",
 })
 
-const UNKNOWN_SCOPE_NOTE = "部分影响范围待核实：系统按保守方式标记了更多可能受影响的内容，重算前会再核对。"
+const UNKNOWN_SCOPE_NOTE = "部分影响范围待核实：登记不完整或存在尚未接入的依赖，重算前会再核对。"
 
 export const RECOMPUTE_SCOPES = Object.freeze([
   Object.freeze({
@@ -79,7 +89,10 @@ function consumerLabel(consumer) {
 }
 
 function scopeLabel(entry, fallbackChapterIndex) {
-  if (entry.scene_index != null) return `场景 ${entry.scene_index}`
+  if (entry.scene_index != null) {
+    const dimension = STORY_DIMENSION_LABELS[entry.dimension]
+    return dimension ? `场景 ${entry.scene_index} 的${dimension}` : `场景 ${entry.scene_index}`
+  }
   if (entry.dimension) return `${consumerLabel(entry.consumer)} · ${entry.dimension}`
   if (entry.chapter_index != null) return `第 ${entry.chapter_index} 章`
   if (fallbackChapterIndex != null) return `第 ${fallbackChapterIndex} 章`
@@ -124,6 +137,9 @@ export function normalizeInvalidationNotice(raw, { chapterIndex = null } = {}) {
       .map((entry) => (Number.isInteger(entry?.scene_index) ? entry.scene_index : null))
       .filter((value) => value != null),
   )].sort((a, b) => a - b)
+  const knownSceneFields = affected.filter(
+    (entry) => entry?.consumer === "story_scene_checkpoint" && entry?.dimension && entry?.basis !== "unknown",
+  )
   const options = (Array.isArray(raw.recompute_options) && raw.recompute_options.length
     ? raw.recompute_options
     : RECOMPUTE_SCOPES.map((scope) => ({ kind: scope.kind }))
@@ -131,7 +147,8 @@ export function normalizeInvalidationNotice(raw, { chapterIndex = null } = {}) {
     .map((option) => option?.kind)
     .filter((kind) => RECOMPUTE_SCOPE_BY_KIND[kind])
   const headlineParts = []
-  if (editedChapterIndex != null) headlineParts.push(`这次修改让第 ${editedChapterIndex} 章起的场景状态需要更新`)
+  if (knownSceneFields.length) headlineParts.push(`已定位 ${knownSceneFields.length} 个受影响的场景字段`)
+  else if (editedChapterIndex != null) headlineParts.push(`这次修改让第 ${editedChapterIndex} 章的相关内容需要更新`)
   else headlineParts.push("这次修改让部分场景状态需要更新")
   if (sceneIndexes.length) headlineParts.push(`（涉及场景 ${sceneIndexes.join("、")}）`)
   return {
@@ -139,7 +156,13 @@ export function normalizeInvalidationNotice(raw, { chapterIndex = null } = {}) {
     chapterIndex: editedChapterIndex != null ? Number(editedChapterIndex) : null,
     headline: `${headlineParts.join("")}。`,
     hasUnknownScope,
-    unknownScopeNote: hasUnknownScope ? UNKNOWN_SCOPE_NOTE : "",
+    unknownScopeNote: hasUnknownScope
+      ? entries.some((entry) => entry.basis === "unknown")
+        ? "部分影响范围待核实：系统按保守方式标记了更多可能受影响的内容，重算前会再核对。"
+        : unsupported.length
+          ? `以下来源尚未接入自动核对：${unsupported.map((item) => consumerLabel(item?.consumer)).join("、")}。请手动检查。`
+          : UNKNOWN_SCOPE_NOTE
+      : "",
     entries,
     invalidatedLabels: invalidated.map((item) => (
       typeof item?.label === "string" && item.label ? item.label : consumerLabel(item?.consumer)

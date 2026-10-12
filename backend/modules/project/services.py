@@ -144,11 +144,7 @@ class ProjectService:
         self._task_deleter = task_deleter
         self._tasks_deleter = tasks_deleter
         self._map_atlas_cleanup_enqueuer = map_atlas_cleanup_enqueuer
-        self._source_reference_counter = (
-            source_reference_counter
-            if source_reference_counter is not None
-            else (_empty_source_reference_count if repo is not None else None)
-        )
+        self._source_reference_counter = source_reference_counter
 
     def list_llm_provider_templates(self) -> LLMProviderTemplateListResponse:
         return LLMProviderTemplateListResponse(items=list_account_provider_templates())
@@ -568,8 +564,8 @@ class ProjectService:
 
             try:
                 counter = get(INTERACTION_COUNT_SOURCE_REFERENCES)
-            except KeyError:
-                return
+            except KeyError as exc:
+                raise ConflictError("RP 来源引用检查暂不可用，无法永久删除作品") from exc
         for project_id in project_ids:
             if await counter(db, str(project_id)):
                 raise ConflictError("该作品仍被 RP 旅程使用，无法永久删除")
@@ -902,13 +898,6 @@ class ProjectService:
                 },
             },
         )
-
-
-async def _empty_source_reference_count(
-    _db: AsyncSession,
-    _novel_id: str,
-) -> int:
-    return 0
 
 
 async def _empty_project_writing_stats(

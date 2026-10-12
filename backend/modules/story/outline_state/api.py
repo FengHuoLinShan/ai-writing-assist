@@ -1171,6 +1171,27 @@ async def api_generate_plot_structure(
     return await _enqueue_outline_layer_task(db, data)
 
 
+@router.post("/generate/apply/preview")
+async def api_prepare_structure_adoption(
+    data: OutlineStructurePreviewApplyRequest, db: DbSession
+):
+    await require_active_project(db, data.novel_id)
+    from modules.story.outline_state.ai_workflow_service import OutlineAIWorkflowService
+
+    try:
+        return await OutlineAIWorkflowService().prepare_structure_adoption(
+            db,
+            novel_id=data.novel_id,
+            confirmation_id=data.context_confirmation_id,
+            source_task_id=data.source_task_id,
+            draft_structure=data.draft_structure,
+        )
+    except P20ConflictError as exc:
+        raise HTTPException(status_code=409, detail=redact_diagnostic(exc)) from exc
+    except (PermissionError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=redact_diagnostic(exc)) from exc
+
+
 @router.post(
     "/generate/apply",
     response_model=OutlineStructurePreviewApplyResponse,
@@ -1191,6 +1212,11 @@ async def api_apply_structure_preview(
             source_task_id=data.source_task_id,
             draft_structure=data.draft_structure,
             confirmed=data.confirmed,
+            **(
+                {"confirmation_fingerprint": data.confirmation_fingerprint}
+                if data.confirmation_fingerprint is not None
+                else {}
+            ),
         )
     except P20ConflictError as exc:
         raise HTTPException(

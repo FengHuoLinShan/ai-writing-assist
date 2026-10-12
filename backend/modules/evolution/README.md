@@ -17,8 +17,11 @@ Imports 纯规划/切分/提交原语准备边界，不创建旧 workflow owner�
 不得追加。来源按正文位置排序，未确认的整章 fallback、开放边界、未解左承接及低置信
 结果留作待审草稿；人工确认后沿原预算继续。相邻章尾仅作边界参考，固定来源并参加失效，
 不回流为当前 Scene 的观察正文。边界结果不冒充 Phase 1b 语义补全。
-`revise` 可从正文/Scene 首个变化处保守重算后缀；`scoped_recompute` 可由作者指定
-Scene 起点，若更早来源已变则向前扩大。两者预览并确认新调用额度，新 run 仅引用
+`revise` 从正文/Scene 首个变化处重算；只有本次重读的每个 Scene 语义指纹与观察来源映射
+都和基线一致，且旧后缀回执仍是当前来源、依赖链连续，才继承该后缀并记录可重验的传播边界。
+重读前缀任一场语义变化、缺指纹、旧链缺口或前序观察无法映射时，继续保守重算；尚无足够的
+消费者 read-set 来安全跳过“边界相同但此前场景变化”的情况。`scoped_recompute` 可由作者指定 Scene 起点，
+若更早来源已变则向前扩大。两者预览并确认新调用额度，新 run 仅引用
 逐条重验的原回执前缀和真实游标，且每场必须仍是最新成功结果；不复制回执或旧费用，
 旧任务终态前拒绝启动。
 无效逐字引用的 sampled 冻结结果不能无限直接恢复，作者可显式发起新范围请求。
@@ -27,7 +30,7 @@ Scene 起点，若更早来源已变则向前扩大。两者预览并确认新�
 已解析身份，观察保留模态和原文，不把未命中说成正文不存在。宿主从最早相关 Scene 定位，
 再与来源首变位置取更早者，保守重算整个顺序依赖后缀；预览绑定实际目标、扩大范围与额度。
 新运行的分段授权记录目标和真实重算起点，原前缀回执身份不变；旧请求缺少新增可选字段时
-仍能按原 operation 重放。精细依赖图和旧入口等价替代尚未完成。
+仍能按原 operation 重放。按消费者输入证明的选择性复用见下方 P4 离线续接；旧入口等价替代仍未完成。
 
 ## 职责边界
 
@@ -37,8 +40,11 @@ Scene 起点，若更早来源已变则向前扩大。两者预览并确认新�
   `unknown_scope`、`receipt_id`、`recompute_options` 三分类；无登记时与既有保守
   行为逐位一致，无真实登记的锚定投影按 outline 结构合成整章登记。公共视图经 DI 键
   `EVOLUTION_INVALIDATION_RECEIPT_VIEW`（`facade.receipt_view`）供 Writing 保存链路
-  消费。Story 真实投影已逐维度登记本场与继承前缀，重复 ensure 保持登记时间；
-  回执指纹包含来源摘要，连续等长改稿仍产生独立提示。权威语义见 [docs/modules/22_evolution.md](../../../docs/modules/22_evolution.md)。
+  消费。Story 真实投影已逐维度登记本场与继承前缀，重复 ensure 保持登记时间；登记完整时
+  改稿只 supersede 命中的 Scene×维度 checkpoint/派生事件，缺登记仍保守扩大，作者确认行标为
+  `needs_revalidation` 而不改内容。回执指纹包含来源摘要、消费者集合与影响范围，不包含清理数量、运行编号或时间等临时详情；连续等长改稿仍产生独立提示。
+  Map Atlas 与 `world_canon_revision` 保持显式 unsupported；Story 的 ReaderRevealPolicy 每次读取重判。
+  权威语义见 [docs/modules/22_evolution.md](../../../docs/modules/22_evolution.md)。
 - 来源身份：`SourceRevisionRef`（章节序号不独自承担来源身份；
   range_hash 由 content_hash + 偏移确定性推导）。场景步的来源绑定
   （`pipeline.SceneSourceBinding`，A02）锚定真实 Writing 草稿并携带码点
@@ -202,8 +208,13 @@ Project snapshot seam，读取当前轮换 Key；改变账户默认模型不改�
 
 DeepSeek Flash 的窄观察采样显式关闭思考，输出上限 16,384；状态、场景语义和
 复核/生成步骤显式使用 high 思考，输出至少 32,768；世界对象、别名关系与独立
-审查至少 65,536。请求已冻结后的失败不原样重发；超出当前世界审查输入容量的候选
-保留为 `capacity_deferred` 待核对，不写入 World 正式对象。
+审查至少 65,536。请求已冻结后的失败不原样重发。DeepSeek thinking 模型的
+World 审查按身份关联候选和逐字来源范围独立分组、逐组冻结与预留预算；单候选超限或
+某组失败只将该组留待核对，其他通过组仍经原采用门写 candidate。其他模型保持整包审查，
+记录实际输入长度。旧版整场 `capacity_deferred` 不会自动补发；作者须在提案回看中预览
+预计组数/调用数并确认，执行使用独立冻结记录、根预算与付费回执，不改写旧回执。单候选
+仍超限则继续待核；来源失效、身份变化或费用未知仍失败关闭。明确失败且采样结果已安全冻结时，
+作者可以继续同一补审任务；采样回执未知时只显示需核对，不提供重试。
 生产采样若最多三条引文缺失或重复且无精确区间，隔离这些观察及依赖它们的状态
 提议，原输出与逐项原因保留回执，理解进度显式列为未解决；更多错误仍失败关闭。
 底层提交来源门对任何未隔离的不准确引文继续拒绝。
@@ -281,6 +292,11 @@ Scene 生成剧情线/人物弧/伏笔等候选（经 Story 纯端口复用 deep
 Scene、最新回执并以 Project NOWAIT 独占锁覆盖验源到提交；并发改稿返回可重试冲突。
 已采用的作者资产保留，不因来源修改硬删。作者入口可分页回看原提案、引文和复核问题，
 未提交/来源失效显示历史状态，采用仍进入 World 的既有确认流程。
+旧版整场容量延后通过 `/reading/{run_key}/proposals/{attempt_id}/world-audit-preview`
+先预览，再经 `/reading/{run_key}/proposals/{attempt_id}/world-audit` 作者确认后排入既有任务队列。
+补审只复用旧冻结候选、不重新抽取；付费调用回执留在补审冻结记录，旧 Scene 回执不变。
+安全检查点失败时，可经 `/reading/{run_key}/proposals/{attempt_id}/world-audit-resume`
+恢复原任务和冻结 attempt；unknown 请求、失效来源或已停止运行不允许恢复。
 
 
 ## 作者全景与细节台账（第三阶段验收中）
@@ -307,6 +323,14 @@ ReadingRequest 的 discover_details 显式开启；append/continue 沿原版本�
 本场标部分检查并保留失败回执，可继续其它已验证资产；未知用量、权限、来源和其它故障
 仍停止，禁止重发原请求。生成失败不空跑复核，复核失败不写该批，失败也占原根预算。
 窄观察复用DeepSeek禁thinking模式；细节发现和独立复核复用已支持模型的max及393,216输出上限（含推理），模型质量仍须独立实测。
+发现方法 v2 按来源观察与完整主题上下文分批；批负载只带 slim 路由索引（entry_id/类别/名称），
+完整索引由宿主保留供 new 主题校验，索引整体超容量时按剩余容量分片并标注 shard 位置，
+单条目自身超容量记 capacity_unsupported，当前观察组自身超容量记 unsupported_current_groups。
+历史候选先按既有主题、解析后的 World 对象 ID、
+字面表面名排序，最多召回 64 条并披露省略范围。逐类别覆盖由 `LedgerCategory` 契约驱动，缺失
+状态一律呈现为未检查。作为召回来源的历史主题必须同时通过正文来源与当前方法版本核验，过期方法
+结果只保留回看，不进入自动召回。语言习惯只接受宿主按原文区间归属、且绑定唯一 World 说话人身份的直述台词；
+外在特征只保留原文派生理解，不回写 World，变化不作为例外。
 复用SDK完整响应的单括号确定性恢复，仅修格式、不改语义并留诊断，不再付费调用。
 相同来源主题重抽时，变化的 dependencies/方法/review 追加资格修订并保留作者决定；
 完整主题及精确复核目标带既有证据用途/锚，默认继承已认证旧用途；线索含义解释和相关
@@ -376,7 +400,8 @@ conditions_review；未获资格仍整项待核，不任取共享词凑例外。
 同段有独立外观/符号/现象来源的额外clue仍可保留。已承诺的履行/违背沿原commitment，
 不因也是人物动作改类，各单位独立计数。
 
-回忆没有本场新动作不等于已证明指定旧event同一，仅唯一已存候选不证明全文唯一。
+回忆没有本场新动作不等于已证明指定旧event同一，仅唯一已存候选不证明全文唯一。补审资格证书
+由宿主限定为一个原始event观察；仍须在可见的两侧原文中确认具体唯一指认，否则保留未知实例。
 缺唯一原锚指认时保留recall/null并由宿主列未知实例，不增已定位发生；可能另次旧event
 属关键锚歧义，不能认证原锚后只写竞争解释。当前方法指纹还固定DeepSeek长结构步骤
 采用SDK原生SSE聚合，完整结束原因与最终usage齐全才进入原JSON/schema链，断流未知、
@@ -384,8 +409,9 @@ conditions_review；未获资格仍整项待核，不任取共享词凑例外。
 
 
 绑定12为本轮新增的specific旧锚recall引入`recall_identity_reviews`逐pair资格：匹配当前回忆
-观察与精确旧occurrence，supported证书两侧须是本项已选/继承且本批实际可见；旧侧至少
-包含该锚同用途/角色的原已定位event动作，新侧包含当前recall见证与指认context。
+观察与精确旧occurrence，supported证书两侧须是本项已选/继承且本批实际可见；旧侧必须且
+只能包含一个该锚同用途/角色的原已定位event观察，新侧包含当前recall见证与指认context，且
+`identity_quote`须逐字出现在新旧来源，并只匹配本主题一个旧event occurrence。
 缺证书、重复、未确认或错误来源整项待核，不从reason推同一性或由宿主猜锚/改为unknown
 来掩盖statement；无specific锚的recall/null仍未知且不增定位次数，继承已认证旧use不重要求。
 复核target同时提供occurrences与旧用途以独立核pair，不把新句说无新动作当具体旧锚证明。
@@ -432,3 +458,32 @@ run、attempt、Scene、章节 token 核对实际依赖。末尾追加未修改�
 验证入口：`modules/evolution/tests/test_issue209_*`、
 `tests/e2e/test_evolution_issue209.py`、`tools/evolution_ledger_capacity_bench.py`。
 它们只使用合成小说和确定性输出，不调用付费模型，不涉及 #208 的消费登记查询。
+
+### P4 离线续接：消费证明与类别补扫（2026-10-12）
+
+Scene 采样及每个实际 `_run_scene_call` 消费点冻结 `consumer_read_set.v1`：实际输入各字段、
+最终请求/响应 schema、Prompt、模型快照与真实 transport/options 的哈希。采样只对宿主
+run/source/parent 与观察身份做有界重绑定，保留全部前序事实、模态、主体、Scene 锚、覆盖
+与顺序；World 对象/关系 ID、旧 occurrence 锚、台账 ID/修订及作者决定保持原值。
+Discovery 仅对完整来源/资格/身份相同的观察做一对一引用映射，重复或未知证明保守重做。
+
+重新核对仍顺序编译当前场景并取得新的来源/parent/owner 回执，但每个实际消费者只在输入
+或方法变化时重新调用。完全相同的已取回结果链接 `reused_from`，免预算/免调用，原付费
+回执只留原调用；缺 read-set、sampling/failed、schema/Prompt/配置变化均不复用。
+World 分组 scope 使用候选、来源及身份上下文的内容身份，组输入未变可独立复用；不复制
+已物化正史或旧认证，所有独立复核输出仍在当前 scope 重物化。原整场语义相等的早停继承
+继续保留。Story 按字段和实际区间登记失效；world_knowledge/map_atlas/world_canon_revision
+缺失来源版本闭包继续明确 unsupported，不据输入缓存宣称这些缝已完成。
+
+`POST /reading/{run_key}/category-rescan-preview` 按已读 Scene 区间及类别注册表选类，
+预览不发请求；`category-rescan` 绑定操作 ID、完整来源/方法/模型/预算指纹与作者确认。
+显示基础调用估计与含身份去重的最高调用上限，根预算及本操作上限都在发送前扣减。
+原理解任务、补审或补扫活跃时拒绝并发启动；来源变化先拒绝，不增加预算。
+补扫单独冻结各场景发现/独立复核，只持久化选定类别的派生台账，不改原 Scene 回执、
+游标或 World/Story 正史。覆盖分别回读最近一次选类扫描，未选类别保留原覆盖；失败、
+未知结果、未检查与已检查未检出分开。`category-rescan/{operation_id}/resume` 仅恢复已核清
+中断，已取回的结果不再调用；未知付费结果先核对。沿用现有 ReadingFlow 面板，离开后
+回读操作状态，失联重试保留同一确认 ID，换作品隔离迟到响应。
+
+本轮只作合成数据的离线工程验证；语言习惯/外在特征是当前新增类别，重要物件/规则后果
+仍按原计划等待长篇分布裁定。P4-E 实际费用/质量、封存盲验与作者试用均未执行。

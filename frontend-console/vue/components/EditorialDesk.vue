@@ -54,12 +54,84 @@
           </div>
           <div v-if="reviewIssues.length" class="editorial-desk__issues">
             <h4>先看最值得处理的 {{ Math.min(3, reviewIssues.length) }} 项</h4>
-            <EditorialIssueCard v-for="issue in reviewIssues.slice(0, 3)" :key="issue.id" :issue="issue" :busy="busy" @decide="decide" @recheck="recheck" @add-intent="addIntent" @locate="locate" />
-            <details v-if="reviewIssues.length > 3"><summary>展开其余 {{ reviewIssues.length - 3 }} 项</summary><EditorialIssueCard v-for="issue in reviewIssues.slice(3)" :key="issue.id" :issue="issue" :busy="busy" @decide="decide" @recheck="recheck" @add-intent="addIntent" @locate="locate" /></details>
+            <EditorialIssueCard v-for="issue in reviewIssues.slice(0, 3)" :key="issue.id" :issue="issue" :busy="busy" :selected="selectedIssueIds.includes(issue.id)" @decide="decide" @recheck="recheck" @add-intent="addIntent" @locate="locate" @toggle-select="checked => toggleIssueSelection(issue, checked)" />
+            <details v-if="reviewIssues.length > 3"><summary>展开其余 {{ reviewIssues.length - 3 }} 项</summary><EditorialIssueCard v-for="issue in reviewIssues.slice(3)" :key="issue.id" :issue="issue" :busy="busy" :selected="selectedIssueIds.includes(issue.id)" @decide="decide" @recheck="recheck" @add-intent="addIntent" @locate="locate" @toggle-select="checked => toggleIssueSelection(issue, checked)" /></details>
+            <section v-if="selectedIssueIds.length || revisionItems.length" class="editorial-desk__revision" aria-labelledby="editorial-revision-title">
+              <h4 v-if="selectedIssueIds.length" id="editorial-revision-title">按选中的 {{ selectedIssueIds.length }} 条意见发起批注修订</h4>
+              <h4 v-else id="editorial-revision-title">本轮批注修订</h4>
+              <template v-if="selectedIssueIds.length">
+                <p>请勾选需要修改的原文位置，连同意见原文和下面的处置说明一起交给批注修订，只生成改动所选片段的替换候选；候选仍需你在写作页审阅采用。引文已不在当前稿的意见不会生成候选，会逐条说明原因。发起修订含生成、审查及必要返修，按实际调用计费。</p>
+                <fieldset v-for="issue in selectedRevisionIssues" :key="issue.id">
+                  <legend>{{ issue.finding?.judgment }}：选择修改位置</legend>
+                  <label v-for="(evidence, index) in issue.finding?.evidence || []" :key="index">
+                    <input v-model="evidenceChoices[issue.id]" type="checkbox" :value="index" :disabled="revisionBusy || flowBusy" />
+                    第 {{ evidence.chapter_index }} 章：{{ evidence.quote }}
+                  </label>
+                </fieldset>
+                <p v-for="range in revisionRanges" :key="range.key">联合修订范围：第 {{ range.chapter }} 章，{{ range.start + 1 }}–{{ range.end }} 字；{{ range.quotes.join(' / ') }}</p>
+                <label v-if="revisionOverlaps.length"><input v-model="overlapConfirmed" type="checkbox" />已核对上方重叠片段的合并范围，同意联合修订。</label>
+                <label>处置说明 <small>会连同意见原文一起交给修订</small><textarea v-model="revisionInstruction" rows="2" maxlength="2000" /></label>
+                <div class="editorial-desk__actions">
+                  <button type="button" class="btn btn-primary btn-sm" :disabled="revisionBusy || !revisionInstruction.trim() || !revisionSelectionReady || busy" @click="submitRevision">{{ revisionBusy ? '提交中…' : `发起 ${selectedIssueIds.length} 条修订` }}</button>
+                  <button type="button" class="btn btn-sm" :disabled="revisionBusy || !revisionInstruction.trim() || !revisionSelectionReady || busy || !flowAvailable" data-action="start-revision-flow" @click="startRevisionFlow">走引导流程修订</button>
+                  <button type="button" class="btn btn-sm" :disabled="revisionBusy" @click="clearIssueSelection">取消选择</button>
+                </div>
+                <p v-if="!flowAvailable" class="editorial-desk__note">引导流程未向当前作品开放时，可直接发起修订，效果相同。</p>
+              </template>
+              <p v-if="revisionError" class="editorial-desk__error" role="alert">{{ revisionError }}</p>
+              <div v-if="revisionItems.length" class="editorial-desk__revision-results">
+                <p v-for="item in revisionItems" :key="`${item.issue_id}:${item.chapter_index}:${item.task_id || item.reason}`">
+                  <template v-if="item.kind === 'queued'">
+                    <template v-if="!item.done">修订进行中…</template>
+                    <template v-else-if="item.candidate_draft_id">替换候选已生成：<button type="button" class="btn btn-sm" @click="openRevisionCandidate(item)">去写作页审阅并采用</button></template>
+                    <template v-else>修订未生成候选：{{ item.reason || '请查看写作页的任务提示' }}</template>
+                  </template>
+                  <template v-else-if="item.kind === 'unlocatable'">这条意见未能发起修订：{{ item.reason }}</template>
+                  <template v-else>{{ item.reason || '这条意见未能发起修订' }}</template>
+                </p>
+              </div>
+            </section>
           </div>
           <details v-else-if="selectedReview.report?.all_findings?.length"><summary>查看这份历史报告的意见</summary><article v-for="(finding, index) in selectedReview.report.all_findings" :key="index"><strong>{{ finding.judgment }}</strong><p>{{ finding.reader_impact }}</p><blockquote v-for="(evidence, n) in finding.evidence" :key="n">第 {{ evidence.chapter_index }} 章：{{ evidence.quote }}</blockquote></article></details>
           <p v-else-if="['completed', 'partial'].includes(selectedReview.status)">所查范围内暂无值得打断你的主要问题。</p>
         </template>
+      </section>
+
+      <!-- 引导流程（BR-4 流程 3）：选意见 → 桥接修订 → 候选审阅 → 改后复核。 -->
+      <section v-if="flowView && !flowTerminal" class="editorial-desk__flowstrip" aria-label="修订引导流程">
+        <header class="editorial-desk__section-head">
+          <div><strong>{{ flowView.title }}</strong><p>{{ flowView.description }}</p></div>
+          <span class="editorial-desk__flow-status">{{ flowStatusLabel }}</span>
+        </header>
+        <ol class="editorial-desk__flow-steps">
+          <li v-for="step in flowView.steps" :key="step.step_id" :data-state="step.state">
+            <span aria-hidden="true">{{ flowStepMark(step.state) }}</span>
+            <span>{{ step.title }}</span>
+          </li>
+        </ol>
+        <p v-if="flowView.stop" role="status">{{ flowView.stop.reason }}</p>
+        <p v-else-if="flowView.status === 'running'" role="status">修订正在按流程推进，完成后会停下来说明。</p>
+        <div v-if="flowRechecks.length" class="editorial-desk__revision-results">
+          <p v-for="entry in flowRechecks" :key="entry.issue_id">
+            <template v-if="entry.verdict_label">改后复核：{{ entry.verdict_label }}<template v-if="entry.reason"> — {{ entry.reason }}</template></template>
+            <template v-else-if="['failed', 'cancelled'].includes(entry.status)">改后复核未完成，可在意见卡上重新发起。</template>
+            <template v-else-if="entry.status === 'skipped'">改后复核未执行<template v-if="entry.reason">：{{ entry.reason }}</template>。</template>
+            <template v-else>改后复核进行中…</template>
+          </p>
+        </div>
+        <div class="editorial-desk__actions">
+          <button
+            v-for="action in flowView.stop?.actions || []"
+            :key="action.action"
+            type="button"
+            class="btn btn-sm"
+            :class="{ 'btn-primary': action === (flowView.stop?.actions || [])[0] }"
+            :disabled="flowBusy"
+            :data-action="`flow-${action.action}`"
+            @click="runFlowAction(action.action)"
+          >{{ action.label }}</button>
+        </div>
+        <p v-if="flowError" class="editorial-desk__error" role="alert">{{ flowError }}</p>
       </section>
 
       <details class="editorial-desk__section">
@@ -78,6 +150,7 @@
 import { computed, onBeforeUnmount, ref, watch } from "vue"
 import { getApi } from "../bridge/index.js"
 import { locateAssistantSource } from "../shared/assistantNavigation.js"
+import { confirmAsync } from "../../shared/confirmAsync.js"
 import { confirmEditorialImpact } from "../composables/useEditorialGuard.js"
 import EditorialIssueCard from "./EditorialIssueCard.vue"
 
@@ -86,6 +159,31 @@ const dimensions = [{ id: "structure", label: "结构" }, { id: "scene", label: 
 const brief = ref(null), briefDraft = ref({}), briefLists = ref({}), briefDraftNotice = ref("")
 const policy = ref(null), automaticEnabled = ref(false), automaticExclusionsText = ref("")
 const reviews = ref([]), issues = ref([]), selectedReviewId = ref(null)
+const selectedIssueIds = ref([])
+const evidenceChoices = ref({}), overlapConfirmed = ref(false)
+const selectedRevisionIssues = computed(() => reviewIssues.value.filter(issue => selectedIssueIds.value.includes(issue.id)))
+const revisionRanges = computed(() => {
+  const spans = selectedRevisionIssues.value.flatMap(issue => (evidenceChoices.value[issue.id] || []).map(index => {
+    const entry = issue.finding.evidence[index]
+    return { key: `${issue.id}:${index}`, chapter: entry.chapter_index, draft: entry.draft_id, start: entry.start, end: entry.end, quotes: [entry.quote] }
+  })).filter(entry => Number.isInteger(entry.start) && Number.isInteger(entry.end)).sort((a, b) => a.chapter - b.chapter || a.start - b.start)
+  const merged = []
+  for (const span of spans) {
+    const previous = merged.at(-1)
+    if (previous && previous.chapter === span.chapter && previous.draft === span.draft && span.start < previous.end) {
+      previous.end = Math.max(previous.end, span.end); previous.quotes.push(...span.quotes); previous.overlap = true
+    } else merged.push({ ...span })
+  }
+  return merged
+})
+const revisionOverlaps = computed(() => revisionRanges.value.filter(range => range.overlap))
+const revisionSelectionReady = computed(() => selectedRevisionIssues.value.every(issue => evidenceChoices.value[issue.id]?.length) && (!revisionOverlaps.value.length || overlapConfirmed.value))
+function revisionRequestItems(instruction) {
+  return selectedRevisionIssues.value.map(issue => ({ issue_id: issue.id, expected_version: issue.version, instruction, evidence_indices: [...(evidenceChoices.value[issue.id] || [])] }))
+}
+watch(evidenceChoices, () => { overlapConfirmed.value = false }, { deep: true })
+const revisionInstruction = ref(""), revisionBusy = ref(false), revisionError = ref("")
+const revisionItems = ref([])
 const scope = ref("chapter"), startChapter = ref(1), endChapter = ref(1)
 const selectedDimensions = ref(dimensions.map(item => item.id)), excludedText = ref("")
 const loading = ref(false), busy = ref(false), error = ref("")
@@ -141,16 +239,24 @@ async function load() {
   const projectId = props.projectId
   loading.value = true; error.value = ""
   try {
-    const [nextBrief, nextPolicy, nextReviews, nextIssues, nextWritingUse] = await Promise.all([
+    const [nextBrief, nextPolicy, nextReviews, nextIssues, nextWritingUse, nextCapabilities] = await Promise.all([
       getApi().projects.editorialBrief(projectId), getApi().assistant.editorialPolicy(projectId),
       getApi().assistant.editorialReviews(projectId), getApi().assistant.editorialIssues(projectId),
       getApi().projects.editorialBriefForWriting(projectId),
+      getApi().assistant?.capabilities ? getApi().assistant.capabilities(projectId) : Promise.resolve(null),
     ])
     if (projectId !== props.projectId) return
     briefForWriting.value = Boolean(nextWritingUse?.enabled)
     briefForWritingEffective.value = Boolean(nextWritingUse?.effective)
     restoreBrief(nextBrief); policy.value = nextPolicy; automaticEnabled.value = nextPolicy.enabled; automaticExclusionsText.value = (nextPolicy.excluded_chapters || []).join(", ")
     reviews.value = nextReviews; issues.value = nextIssues
+    flowAvailable.value = Boolean(nextCapabilities?.guided_flows?.available)
+    if (flowAvailable.value && getApi().assistant.guidedFlowActive) {
+      const active = await getApi().assistant.guidedFlowActive(projectId)
+      if (projectId !== props.projectId) return
+      flowView.value = active?.flow_id === "editorial_revision" ? active : null
+    }
+    pruneIssueSelection()
     if (!nextReviews.some(item => item.id === selectedReviewId.value)) selectedReviewId.value = nextReviews[0]?.id || null
     if (props.focusIssueId) selectedReviewId.value = nextIssues.find(item => item.id === props.focusIssueId)?.review_id || selectedReviewId.value
   } catch (cause) { if (projectId === props.projectId) error.value = cause.message || "编辑台暂时无法读取，请稍后重试。" }
@@ -161,6 +267,7 @@ async function refreshResults() {
   try {
     const [nextReviews, nextIssues] = await Promise.all([getApi().assistant.editorialReviews(props.projectId), getApi().assistant.editorialIssues(props.projectId)])
     reviews.value = nextReviews; issues.value = nextIssues
+    pruneIssueSelection()
     if (!nextReviews.some(item => item.id === selectedReviewId.value)) selectedReviewId.value = nextReviews[0]?.id || null
     if (props.focusIssueId) selectedReviewId.value = nextIssues.find(item => item.id === props.focusIssueId)?.review_id || selectedReviewId.value
   } catch { /* keep the last readable result; explicit refresh shows an error */ }
@@ -233,6 +340,159 @@ function addIntent(issue) {
   if (!lines.includes(value)) briefLists.value.intentional_choices = [...lines, value].join("\n")
   briefDraftNotice.value = "已放入编辑约定草稿。只有你点击“保存编辑约定”后才长期生效。"
 }
+function pruneIssueSelection() {
+  const known = new Set(issues.value.filter(item => !item.source_may_be_stale).map(item => item.id))
+  selectedIssueIds.value = selectedIssueIds.value.filter(id => known.has(id))
+}
+function toggleIssueSelection(issue, checked) {
+  evidenceChoices.value[issue.id] = checked && issue.finding?.evidence?.length === 1 ? [0] : []
+  overlapConfirmed.value = false
+  selectedIssueIds.value = checked
+    ? [...selectedIssueIds.value, issue.id]
+    : selectedIssueIds.value.filter(id => id !== issue.id)
+}
+function clearIssueSelection() { selectedIssueIds.value = [] }
+async function submitRevision() {
+  const instruction = revisionInstruction.value.trim()
+  const selected = reviewIssues.value.filter(issue => selectedIssueIds.value.includes(issue.id))
+  if (!instruction || !selected.length || !revisionSelectionReady.value) return
+  revisionBusy.value = true; revisionError.value = ""
+  try {
+    const response = await getApi().assistant.reviseEditorialIssues({
+      novel_id: props.projectId,
+      operation_id: crypto.randomUUID(),
+      items: revisionRequestItems(instruction),
+      overlap_confirmed: overlapConfirmed.value,
+    })
+    revisionItems.value = (response.items || []).map(item => (
+      item.status === "queued"
+        ? { ...item, kind: "queued", candidate_draft_id: null, done: false }
+        : { ...item, kind: item.status === "unlocatable" ? "unlocatable" : "failed" }
+    ))
+    revisionInstruction.value = ""
+    clearIssueSelection()
+    await pollRevisionTasks()
+  }
+  catch (cause) { revisionError.value = cause.message || "修订未发起，请稍后重试。" }
+  finally { revisionBusy.value = false }
+}
+async function pollRevisionTasks() {
+  const pending = revisionItems.value.filter(item => item.kind === "queued" && !item.done && item.task_id)
+  if (!pending.length || !props.projectId || !props.active) return
+  for (const item of pending) {
+    try {
+      const task = await getApi().tasks.get(item.task_id, props.projectId)
+      if (task.status === "done") {
+        item.done = true
+        item.candidate_draft_id = task.result?.candidate_draft_id || null
+        if (!item.candidate_draft_id) item.reason = "这次没有生成替换候选（例如正文在修订期间又变化），可在写作页重试"
+      } else if (["failed", "cancelled"].includes(task.status)) {
+        item.done = true
+        item.reason = task.error_message || "修订任务未完成"
+      }
+    } catch { /* 下个轮询周期再试；不覆盖已有状态 */ }
+  }
+  revisionItems.value = [...revisionItems.value]
+}
+function openRevisionCandidate(item) {
+  locateAssistantSource({ type: "writing_draft", id: item.candidate_draft_id, chapter_index: item.chapter_index })
+}
+
+// ============================================================
+// 引导流程（BR-4 流程 3）：与批量修订并排的入口；选定意见后
+// 经服务端确定性流程桥接，停点展示候选与改后复核结果。
+// ============================================================
+const flowAvailable = ref(false)
+const flowView = ref(null), flowBusy = ref(false), flowError = ref("")
+const flowTerminal = computed(() => ["completed", "failed", "cancelled"].includes(flowView.value?.status))
+const FLOW_STATUS_LABELS = { running: "进行中", waiting_approval: "等你的决定", completed: "已完成", failed: "已停下", cancelled: "已结束" }
+const flowStatusLabel = computed(() => FLOW_STATUS_LABELS[flowView.value?.status] || "")
+const flowRechecks = computed(() => flowView.value?.panel?.rechecks || [])
+
+function flowStepMark(state) {
+  if (state === "done") return "✓"
+  if (state === "active") return "●"
+  if (state === "blocked") return "!"
+  if (state === "skipped") return "—"
+  return "○"
+}
+
+async function startRevisionFlow() {
+  const instruction = revisionInstruction.value.trim()
+  const selected = reviewIssues.value.filter(issue => selectedIssueIds.value.includes(issue.id))
+  if (!instruction || !selected.length || !revisionSelectionReady.value || flowBusy.value) return
+  flowBusy.value = true; flowError.value = ""
+  try {
+    flowView.value = await getApi().assistant.guidedFlowStart({ novel_id: props.projectId, flow_id: "editorial_revision" })
+    flowError.value = ""
+  }
+  catch (cause) {
+    flowError.value = cause.message || "修订引导流程暂时不可用，可直接发起修订。"
+    return
+  }
+  finally { flowBusy.value = false }
+  // 选定意见即作为流程的第一个作者选择提交；失败时保留选择与说明。
+  const advanced = await advanceRevisionFlow({
+    choice: {
+      step_id: "select_issues",
+      action: "select_issues",
+      items: revisionRequestItems(instruction),
+      overlap_confirmed: overlapConfirmed.value,
+    },
+  })
+  if (advanced) {
+    revisionInstruction.value = ""
+    clearIssueSelection()
+  }
+}
+
+async function advanceRevisionFlow(extra = {}) {
+  if (!flowView.value || flowBusy.value) return null
+  flowBusy.value = true
+  try {
+    flowView.value = await getApi().assistant.guidedFlowAdvance(flowView.value.run_id, { novel_id: props.projectId, ...extra })
+    flowError.value = ""
+    return flowView.value
+  }
+  catch (cause) { flowError.value = cause.message || "流程推进失败，请稍后重试。"; return null }
+  finally { flowBusy.value = false }
+}
+
+async function refreshRevisionFlow() {
+  if (!flowView.value || flowBusy.value || !props.active || flowTerminal.value) return
+  try {
+    if (!flowView.value.stop) await advanceRevisionFlow({})
+    else flowView.value = await getApi().assistant.guidedFlow(props.projectId, flowView.value.run_id)
+  }
+  catch { /* 下一轮轮询重试，不覆盖已有状态 */ }
+}
+
+function runFlowAction(action) {
+  if (action === "open_candidate") {
+    const item = flowRecheckCandidate()
+    if (item) locateAssistantSource({ type: "writing_draft", id: item.candidate_draft_id, chapter_index: item.chapter_index })
+    return
+  }
+  if (action === "abandon_flow") return abandonRevisionFlow()
+  advanceRevisionFlow({ choice: { step_id: flowView.value?.stop?.step_id || "", action } })
+}
+
+function flowRecheckCandidate() {
+  return (flowView.value?.panel?.items || []).find(item => item.candidate_draft_id) || null
+}
+
+async function abandonRevisionFlow() {
+  if (!flowView.value || flowBusy.value) return
+  const confirmed = await confirmAsync("结束这条修订引导流程？已生成的替换候选会保留在候选列表中。", "结束流程")
+  if (!confirmed) return
+  flowBusy.value = true
+  try {
+    flowView.value = await getApi().assistant.guidedFlowAbandon(props.projectId, flowView.value.run_id)
+    flowError.value = ""
+  }
+  catch (cause) { flowError.value = cause.message || "流程结束失败，请稍后重试。" }
+  finally { flowBusy.value = false }
+}
 function locate(evidence) { locateAssistantSource({ type: "writing_draft", id: evidence.draft_id, chapter_index: evidence.chapter_index, start: evidence.start, content_hash: evidence.content_hash }) }
 async function savePolicy() {
   busy.value = true; error.value = ""
@@ -256,6 +516,15 @@ watch([briefDraft, briefLists], () => {
   catch { briefDraftNotice.value = "本地备份不可用；请先保存编辑约定再离开。" }
 }, { deep: true })
 watch(() => props.focusChapter, value => { if (value > 0) { scope.value = "chapter"; startChapter.value = value } }, { immediate: true })
+// 切换项目时清空上一项目的修订批处理状态，避免结果串项目显示
+watch(() => props.projectId, () => {
+  revisionItems.value = []
+  revisionError.value = ""
+  revisionInstruction.value = ""
+  selectedIssueIds.value = []
+  flowView.value = null
+  flowError.value = ""
+})
 // 轮询生命周期：active 且项目变化时重置重启；同一项目不重复 start；
 // 失活与卸载都停表并置空句柄。
 let poller = null
@@ -267,7 +536,7 @@ function stopPoller() {
 function startPoller() {
   if (poller && pollerProjectId === props.projectId) return
   stopPoller()
-  poller = setInterval(refreshResults, 8000)
+  poller = setInterval(() => { refreshResults(); pollRevisionTasks(); refreshRevisionFlow() }, 8000)
   pollerProjectId = props.projectId
 }
 watch([() => props.active, () => props.projectId], ([active]) => { if (active) { load(); startPoller() } else stopPoller() }, { immediate: true })
@@ -275,5 +544,15 @@ onBeforeUnmount(stopPoller)
 </script>
 
 <style scoped>
-.editorial-desk{display:grid;gap:16px;padding:16px;overflow-y:auto;min-height:0;color:var(--text-primary);line-height:1.55}.editorial-desk__heading,.editorial-desk__section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.editorial-desk__heading p,.editorial-desk__section p{margin:6px 0;color:var(--text-secondary)}.editorial-desk__section{border:1px solid var(--border);border-radius:12px;padding:14px;background:var(--surface)}.editorial-desk__section summary{cursor:pointer;font-weight:700}.editorial-desk__section summary small{font-weight:400;color:var(--text-secondary)}.editorial-desk__section h3,.editorial-desk__section h4{margin:0 0 8px}.editorial-desk__section label{display:grid;gap:4px;margin:10px 0;font-size:14px}.editorial-desk__section label small{font-weight:400;color:var(--text-secondary)}.editorial-desk__section input:not([type=checkbox]),.editorial-desk__section textarea,.editorial-desk__section select{width:100%;min-height:38px;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text-primary)}.editorial-desk__section fieldset{display:flex;flex-wrap:wrap;gap:6px 12px;border:0;padding:4px 0;margin:8px 0}.editorial-desk__section fieldset label,.editorial-desk__section>label:has(input[type=checkbox]){display:flex;align-items:center;gap:6px;margin:0}.editorial-desk__scope{display:flex;gap:10px;flex-wrap:wrap}.editorial-desk__scope label{flex:1 1 110px}.editorial-desk__actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px}.editorial-desk__error{color:var(--danger,#b42318);padding:8px;background:var(--danger-soft,#fff4f2);border-radius:8px}.editorial-desk__status{font-weight:700}.editorial-desk__issues{display:grid;gap:10px;margin-top:14px}@media(max-width:600px){.editorial-desk{padding:12px}.editorial-desk__heading,.editorial-desk__section-head{display:block}.editorial-desk__section-head select{margin-top:8px}}
+.editorial-desk{display:grid;gap:16px;padding:16px;overflow-y:auto;min-height:0;color:var(--text-primary);line-height:1.55}.editorial-desk__heading,.editorial-desk__section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.editorial-desk__heading p,.editorial-desk__section p{margin:6px 0;color:var(--text-secondary)}.editorial-desk__section{border:1px solid var(--border);border-radius:12px;padding:14px;background:var(--surface)}.editorial-desk__section summary{cursor:pointer;font-weight:700}.editorial-desk__section summary small{font-weight:400;color:var(--text-secondary)}.editorial-desk__section h3,.editorial-desk__section h4{margin:0 0 8px}.editorial-desk__section label{display:grid;gap:4px;margin:10px 0;font-size:14px}.editorial-desk__section label small{font-weight:400;color:var(--text-secondary)}.editorial-desk__section input:not([type=checkbox]),.editorial-desk__section textarea,.editorial-desk__section select{width:100%;min-height:38px;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text-primary)}.editorial-desk__section fieldset{display:flex;flex-wrap:wrap;gap:6px 12px;border:0;padding:4px 0;margin:8px 0}.editorial-desk__section fieldset label,.editorial-desk__section>label:has(input[type=checkbox]){display:flex;align-items:center;gap:6px;margin:0}.editorial-desk__scope{display:flex;gap:10px;flex-wrap:wrap}.editorial-desk__scope label{flex:1 1 110px}.editorial-desk__actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px}.editorial-desk__error{color:var(--danger,#b42318);padding:8px;background:var(--danger-soft,#fff4f2);border-radius:8px}.editorial-desk__status{font-weight:700}.editorial-desk__issues{display:grid;gap:10px;margin-top:14px}.editorial-desk__revision{border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:12px;background:var(--surface)}.editorial-desk__revision h4{margin:0 0 8px}.editorial-desk__revision label{display:grid;gap:4px;margin:10px 0;font-size:14px}.editorial-desk__revision label small{font-weight:400;color:var(--text-secondary)}.editorial-desk__revision textarea{width:100%;min-height:38px;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text-primary)}.editorial-desk__revision-results{margin-top:8px;display:grid;gap:6px}.editorial-desk__revision-results p{margin:0;color:var(--text-primary)}
+.editorial-desk__note{font-size:12px;color:var(--text-secondary)}
+.editorial-desk__flowstrip{border:1px solid var(--border);border-radius:12px;padding:14px;margin-top:12px;background:var(--surface);display:grid;gap:10px}
+.editorial-desk__flowstrip header p{margin:4px 0 0;color:var(--text-secondary);font-size:13px}
+.editorial-desk__flow-status{font-size:12px;color:var(--text-secondary);white-space:nowrap}
+.editorial-desk__flowstrip[data-status] .editorial-desk__flow-status{font-weight:700}
+.editorial-desk__flow-steps{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:var(--text-secondary)}
+.editorial-desk__flow-steps li{display:flex;align-items:center;gap:6px}
+.editorial-desk__flow-steps li[data-state="active"]{color:var(--text-primary);font-weight:700}
+.editorial-desk__flow-steps li[data-state="blocked"]{color:var(--danger,#a33a2a)}
+.editorial-desk__flowstrip>p{margin:0;font-size:13px;line-height:1.55;color:var(--text-primary)}@media(max-width:600px){.editorial-desk{padding:12px}.editorial-desk__heading,.editorial-desk__section-head{display:block}.editorial-desk__section-head select{margin-top:8px}}
 </style>

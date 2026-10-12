@@ -10,6 +10,10 @@ const recomputeCompleted = ref(false), fromScene = ref(1)
 const scopeKind = ref("scene"), targetId = ref(""), targetQuery = ref("")
 const targets = ref([]), targetTotal = ref(0), targetOffset = ref(0)
 const proposals = ref(null)
+const worldAuditSupplementPreview = ref(null)
+const rescanFrom = ref(1), rescanThrough = ref(1), rescanCategories = ref([])
+const rescanPreview = ref(null), rescanPending = ref(null)
+const rescanActive = computed(() => run.value?.category_rescans?.some(item => ["pending", "running"].includes(item.status)))
 const opened = ref(false)
 let generation = 0, timer = null
 const run = computed(() => state.value?.run)
@@ -36,7 +40,7 @@ async function perform(action) {
 }
 function schedule() {
   clearTimeout(timer)
-  if (opened.value && ["pending", "running"].includes(run.value?.status)) {
+  if (opened.value && (["pending", "running"].includes(run.value?.status) || rescanActive.value)) {
     timer = setTimeout(() => { void refresh() }, 5000)
   }
 }
@@ -134,10 +138,104 @@ async function loadProposals(offset = 0) {
   await perform(async current => {
     const key = run.value.run_key
     const result = await api().proposals(props.projectId, key, offset)
-    if (current() && run.value?.run_key === key) proposals.value = result
+    if (current() && run.value?.run_key === key) {
+      proposals.value = result
+      if (!result.items.some(item => item.supplement?.attempt_id === worldAuditSupplementPreview.value?.attempt_id)) {
+        worldAuditSupplementPreview.value = null
+      }
+    }
   })
 }
-watch(() => run.value?.run_key, () => { proposals.value = null; discoverDetails.value = !!run.value?.discovery_enabled })
+async function previewWorldAuditSupplement(item) {
+  await perform(async current => {
+    const key = run.value.run_key
+    const attemptId = item.supplement.attempt_id
+    const result = await api().worldAuditSupplementPreview(props.projectId, key, attemptId)
+    if (current() && run.value?.run_key === key) {
+      worldAuditSupplementPreview.value = {
+        ...result,
+        operation_id: crypto.randomUUID(),
+        attempt_id: attemptId,
+      }
+    }
+  })
+}
+async function startWorldAuditSupplement(item) {
+  const preview = worldAuditSupplementPreview.value
+  if (!preview || preview.attempt_id !== item.supplement.attempt_id) return
+  const calls = preview.call_count
+  const additional = preview.additional_budget
+  const message = `补审将分为 ${preview.group_count} 组，调用模型 ${calls} 次。${preview.deferred_count ? `${preview.deferred_count} 组仍超过单项容量，需要结合原文核对。` : ""}${additional ? `现有额度不足，将增加 ${additional} 次调用额度。` : ""}确认后开始？`
+  if (!await getConfirm()(message)) return
+  await perform(async current => {
+    const key = run.value.run_key
+    try {
+      await api().worldAuditSupplementStart(props.projectId, key, preview.attempt_id, {
+        operation_id: preview.operation_id,
+        expected_fingerprint: preview.fingerprint,
+        authorization_confirmed: true,
+      })
+    } catch (err) {
+      if (err.status === 409) worldAuditSupplementPreview.value = null
+      throw err
+    }
+    if (!current() || run.value?.run_key !== key) return
+    worldAuditSupplementPreview.value = null
+    const refreshed = await api().proposals(
+      props.projectId, key, proposals.value?.offset || 0,
+    )
+    if (current() && run.value?.run_key === key) proposals.value = refreshed
+  })
+}
+async function resumeWorldAuditSupplement(item) {
+  await perform(async current => {
+    const key = run.value.run_key
+    await api().worldAuditSupplementResume(props.projectId, key, item.supplement.attempt_id)
+    if (!current() || run.value?.run_key !== key) return
+    const refreshed = await api().proposals(
+      props.projectId, key, proposals.value?.offset || 0,
+    )
+    if (current() && run.value?.run_key === key) proposals.value = refreshed
+  })
+}
+async function prepareRescan() {
+  await perform(async current => {
+    const key = run.value.run_key
+    const request = { operation_id: crypto.randomUUID(), from_scene_index: Number(rescanFrom.value) - 1,
+      through_scene_index: Number(rescanThrough.value) - 1, categories: [...rescanCategories.value], request_limit: Number(requestLimit.value) }
+    const result = await api().categoryRescanPreview(props.projectId, key, request)
+    if (current() && key === run.value?.run_key) rescanPreview.value = { ...result, request }
+  })
+}
+async function startRescan() {
+  await perform(async current => {
+    const key = run.value.run_key
+    rescanPending.value ||= { ...rescanPreview.value.request, expected_fingerprint: rescanPreview.value.fingerprint, authorization_confirmed: true }
+    try { await api().categoryRescanStart(props.projectId, key, rescanPending.value) }
+    catch (err) {
+      if (current() && [400, 403, 404, 409, 422].includes(err.status)) rescanPreview.value = rescanPending.value = null
+      throw err
+    }
+    if (!current()) return
+    rescanPreview.value = rescanPending.value = null
+    await read(current)
+  })
+}
+async function resumeRescan(item) {
+  await perform(async current => {
+    await api().categoryRescanResume(props.projectId, run.value.run_key, item.operation_id)
+    if (current()) await read(current)
+  })
+}
+watch([rescanFrom, rescanThrough, rescanCategories, requestLimit], () => { if (!rescanPending.value) rescanPreview.value = null }, { deep: true })
+watch(() => run.value?.run_key, () => {
+  proposals.value = null
+  worldAuditSupplementPreview.value = null
+  discoverDetails.value = !!run.value?.discovery_enabled
+  rescanPreview.value = rescanPending.value = null
+  rescanFrom.value = 1; rescanThrough.value = Math.max(1, run.value?.completed_scenes || 1)
+  rescanCategories.value = (run.value?.discovery_categories || []).filter(item => ["language_habit", "external_appearance"].includes(item.key)).map(item => item.key)
+})
 async function loadTargets(offset = 0) {
   await perform(async current => {
     const result = await api().targets(props.projectId, run.value.run_key, { kind: scopeKind.value, query: targetQuery.value, offset })
@@ -151,6 +249,9 @@ watch([endChapter, requestLimit, recomputeCompleted, fromScene, scopeKind, targe
 watch(() => props.projectId, () => {
   generation++; clearTimeout(timer)
   state.value = preview.value = pending.value = proposals.value = null
+  worldAuditSupplementPreview.value = null
+  rescanPreview.value = rescanPending.value = null
+  rescanCategories.value = []; rescanFrom.value = rescanThrough.value = 1
   error.value = ""; busy.value = false; endChapter.value = 1
   recomputeCompleted.value = false; fromScene.value = 1
   scopeKind.value = "scene"; targetId.value = ""; targets.value = []; targetQuery.value = ""; targetTotal.value = 0; targetOffset.value = 0
@@ -175,14 +276,55 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer) })
         <button v-else class="btn btn-sm" type="button" :disabled="busy" @click="changeEngine('read_only')">暂停自动理解…</button>
         <button v-if="run?.can_resume" class="btn btn-primary" type="button" :disabled="busy" @click="resume">恢复理解</button>
       </div>
+      <details v-if="run?.completed_scenes && run.discovery_categories?.length" class="reading-category-rescan">
+        <summary>补扫细节类别</summary>
+        <p>对已读范围补查选定类别。旧场景回执保留，只新增有来源、经复核的细节记录；未选择的类别不算已检查。</p>
+        <fieldset :disabled="busy || rescanActive || !!rescanPending">
+          <legend>范围与类别</legend>
+          <label>从第几场<input v-model.number="rescanFrom" type="number" min="1" :max="run.completed_scenes" aria-label="补扫起始场景"></label>
+          <label>读到第几场<input v-model.number="rescanThrough" type="number" :min="rescanFrom" :max="run.completed_scenes" aria-label="补扫截止场景"></label>
+          <label v-for="item in run.discovery_categories" :key="item.key" class="reading-recompute-toggle"><input v-model="rescanCategories" type="checkbox" :value="item.key">{{ item.label }}</label>
+          <button type="button" class="btn btn-sm" :disabled="!rescanCategories.length || run.status !== 'completed'" @click="prepareRescan">预览类别补扫</button>
+        </fieldset>
+        <div v-if="rescanPreview" class="reading-confirmation">
+          <p>预计 {{ rescanPreview.scene_count }} 场，基础发现与复核约 {{ rescanPreview.call_count }} 次调用，含去重核对最多 {{ rescanPreview.maximum_calls }} 次；现有额度 {{ rescanPreview.budget_remaining }} 次，需增加 {{ rescanPreview.additional_budget }} 次。</p>
+          <button type="button" class="btn btn-primary" :disabled="busy" @click="startRescan">{{ rescanPending ? "确认补扫启动结果" : "确认并开始补扫" }}</button>
+          <button v-if="!rescanPending" type="button" class="btn btn-sm" :disabled="busy" @click="rescanPreview = null">取消补扫</button>
+        </div>
+        <p v-for="item in run.category_rescans || []" :key="item.operation_id" role="status">
+          第 {{ item.from_scene_index + 1 }}—{{ item.through_scene_index + 1 }} 场：{{ ({ pending: "补扫等待开始", running: "正在补扫，已完成结果保留", completed: "补扫完成，可查看类别覆盖与来源", failed: "补扫中断，结果保留", needs_reconciliation: "请求结果与费用尚未核清，不能重发" })[item.status] || "请刷新核对补扫状态" }}
+          <button v-if="item.can_resume" type="button" class="btn btn-sm" :disabled="busy || rescanActive" @click="resumeRescan(item)">恢复类别补扫</button>
+        </p>
+      </details>
       <section v-if="run" class="reading-proposals" aria-label="本次世界资料提案">
         <button class="btn btn-sm" type="button" :disabled="busy" @click="loadProposals()">查看世界资料提案</button>
         <template v-if="proposals">
           <p>这里只回看提案和原文证据。已保存的候选请到世界资料中核对后采用；剧情结构候选完成后进入故事大纲草稿，采用时会重新校验理解来源。有疑问的提案可修改正文或从对应场景重新理解。</p>
           <p v-if="!proposals.items.length">本页暂未产生世界资料提案。</p>
           <details v-for="(item, index) in proposals.items" :key="`${item.scene_index}-${index}`">
-            <summary>第 {{ item.scene_index + 1 }} 场 · {{ item.stale ? "历史或尚未提交" : item.review_status === "passed" ? "候选待采用" : "仍需核对" }}</summary>
+            <summary>第 {{ item.scene_index + 1 }} 场 · {{ item.stale ? "历史或尚未提交" : item.review_status === "passed" ? "候选待采用" : item.review_groups?.some(group => group.status === "passed") ? "部分已核对，其余待核对" : "仍需核对" }}</summary>
             <p v-if="item.stale">来源已变化或本场尚未提交，请核对后再使用。</p>
+            <details v-if="item.review_groups?.length" class="reading-review-groups">
+              <summary>分项核对：{{ item.review_groups.filter(group => group.status === "passed").length }} / {{ item.review_groups.length }} 项通过</summary>
+              <ul>
+                <li v-for="(group, groupIndex) in item.review_groups" :key="groupIndex">
+                  {{ group.candidate_count }} 条提案：{{ group.status === "passed" ? "已核对" : "仍需核对" }}
+                  <span v-for="(issue, issueIndex) in group.issues" :key="issueIndex">{{ issue }}</span>
+                </li>
+              </ul>
+            </details>
+            <section v-if="item.supplement?.available || item.supplement?.status" class="reading-world-audit-supplement">
+              <p v-if="item.supplement.status === 'pending' || item.supplement.status === 'running'" role="status">延后场景补审{{ item.supplement.status === 'pending' ? '等待开始' : '进行中' }}。重新查看提案可读取最新进度。</p>
+              <p v-else-if="item.supplement.status === 'completed'">补审已结束，已核对 {{ item.supplement.reviewed_groups }} 组；通过的候选已保存为待作者采用资料。</p>
+              <p v-else-if="item.supplement.status === 'needs_reconciliation'">有一次请求结果尚未确认，系统不会重发；请先核对请求和费用状态。</p>
+              <p v-else-if="item.supplement.status === 'failed' || item.supplement.status === 'cancelled'">补审已中断，已完成的分组结果保留；请核对原文与当前世界对象。</p>
+              <button v-if="item.supplement.can_resume" class="btn btn-sm" type="button" :disabled="busy" @click="resumeWorldAuditSupplement(item)">继续补审</button>
+              <button v-if="item.supplement.available" class="btn btn-sm" type="button" :disabled="busy" @click="previewWorldAuditSupplement(item)">预览延后场景补审</button>
+              <div v-if="worldAuditSupplementPreview && worldAuditSupplementPreview.attempt_id === item.supplement.attempt_id" class="reading-confirmation">
+                <p>预计 {{ worldAuditSupplementPreview.group_count }} 组、{{ worldAuditSupplementPreview.call_count }} 次模型调用；{{ worldAuditSupplementPreview.deferred_count }} 组仍需人工核对。现有额度 {{ worldAuditSupplementPreview.budget_remaining }} 次，需增加 {{ worldAuditSupplementPreview.additional_budget }} 次。</p>
+                <button class="btn btn-primary" type="button" :disabled="busy" @click="startWorldAuditSupplement(item)">确认补审</button>
+              </div>
+            </section>
             <article v-for="(entity, entityIndex) in item.entities" :key="entityIndex">
               <strong>{{ entity.name }}</strong>
               <p v-for="(text, field) in [entity.summary, entity.public_info, entity.hidden_truth].filter(Boolean)" :key="field">{{ text }}</p>
@@ -254,6 +396,7 @@ p { overflow-wrap: anywhere; }
 label { display: grid; gap: .35rem; flex: 1 1 12rem; min-width: 0; }
 .reading-recompute-toggle { display: flex; align-items: center; gap: .5rem; }
 input:not([type="checkbox"]), select { width: 100%; max-width: 100%; box-sizing: border-box; }
+.reading-category-rescan fieldset { display: flex; flex-wrap: wrap; gap: .75rem; min-width: 0; padding: .75rem; border: 1px solid var(--border-color, #ddd); border-radius: .5rem; }
 progress { width: 100%; }
 .reading-confirmation { padding-block-start: .75rem; }
 </style>

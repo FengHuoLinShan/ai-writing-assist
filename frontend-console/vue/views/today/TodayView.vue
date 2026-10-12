@@ -5,6 +5,7 @@ import { getApi, getConfirmAction, getRouter, getToast } from "../../bridge/inde
 import { writeCreativeContinuation } from "../generate/generateSession.js"
 import { openAuthorTaskSource } from "../writing/home/authorTaskSource.js"
 import { readWritingPointer } from "../writing/writingSession.js"
+import OpeningFlowCard from "./components/OpeningFlowCard.vue"
 
 const props = defineProps({
   project: { type: Object, default: null },
@@ -16,6 +17,7 @@ const props = defineProps({
   continuationWarning: { type: String, default: null },
   worldLoadError: { type: String, default: null },
   loadError: { type: String, default: null },
+  guidedFlowAvailable: { type: Boolean, default: false },
   onOpenAi: { type: Function, default: null },
 })
 
@@ -194,6 +196,31 @@ function openWriting() {
     }
   }
   router.navigate("writing", null, true, query)
+}
+
+/* 引导流程（ADR-0032）流程 2 v1：从「继续第 N 章」开始，停在写作页的
+   资料确认停点；服务端开始流程不产生任何任务或费用。 */
+const guidedFlowBusy = ref(false)
+async function startGuidedFlow() {
+  const chapter = Number(continuation.value?.chapter_index) || 0
+  if (!projectId.value || !chapter || guidedFlowBusy.value) return
+  guidedFlowBusy.value = true
+  try {
+    const view = await api.assistant.guidedFlowStart({
+      novel_id: projectId.value,
+      flow_id: "continue_writing",
+      chapter_index: chapter,
+    })
+    const query = new URLSearchParams({
+      flow: view.run_id,
+      chapter_index: String(view.chapter_index || chapter),
+    })
+    router.navigate("writing", null, true, query)
+  } catch (error) {
+    toast(error?.message || "引导流程暂时不可用，可直接进入正文编辑。", "warning")
+  } finally {
+    guidedFlowBusy.value = false
+  }
 }
 
 function openTasks(scope = "today", create = false) {
@@ -467,6 +494,14 @@ function retry() {
           <button v-if="!publicDemoEmpty" class="btn btn-primary today-resume__action" type="button" :data-action="primaryWorld ? 'continue-world' : 'continue-writing'" @click="runPrimaryAction">
             {{ primaryLabel }}
           </button>
+          <button
+            v-if="guidedFlowAvailable && continuation?.chapter_index && !publicDemoEmpty"
+            class="btn btn-ghost"
+            type="button"
+            data-action="start-guided-flow"
+            :disabled="guidedFlowBusy"
+            @click="startGuidedFlow"
+          >引导续写第 {{ continuation.chapter_index }} 章</button>
           <button v-if="startWorldCore" class="btn btn-ghost" type="button" data-action="start-world-core" @click="openWorldCore">先整理世界观</button>
         </div>
       </section>
@@ -483,6 +518,14 @@ function retry() {
         </button>
       </article>
     </div>
+
+    <!-- 引导流程（BR-5）：新书开篇只在空项目/几乎无内容时出现。 -->
+    <OpeningFlowCard
+      v-if="guidedFlowAvailable"
+      :allow-start="startWorldCore"
+      :project-id="projectId"
+      :available="guidedFlowAvailable"
+    />
 
     <div v-if="loadError" class="today-inline-warning error-card" role="alert">
       <div><strong>作品概览暂时没有更新</strong><p>{{ loadError }} 仍然可以直接进入写作。</p></div>

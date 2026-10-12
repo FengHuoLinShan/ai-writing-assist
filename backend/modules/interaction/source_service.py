@@ -6,6 +6,7 @@ import hashlib
 import json
 import uuid
 from collections import defaultdict
+from copy import deepcopy
 from datetime import UTC, datetime
 from typing import Any
 
@@ -406,8 +407,8 @@ class InteractionSourceService:
     ) -> InteractionSourceRevisionResponse:
         previous = await self._owned_revision(db, revision_id)
         project_id = str(previous.source_novel_id)
-        await self.require_author_project(db, project_id)
         await require_active_project_exclusive(db, project_id)
+        await self.require_author_project(db, project_id)
         # Refresh is a no-model operation over already-complete source assets.
         await self.validate_frozen_source_candidate(db, revision_id=revision_id)
         revision, _created = await self.materialize_frozen_source_candidate(
@@ -459,7 +460,7 @@ class InteractionSourceService:
         )
         if revision is None:
             raise NotFoundError("作品资料不存在")
-        await self._refresh(db, revision)
+        revision = await self._project_revision(db, revision)
         active = True
         try:
             await self.require_author_project(db, str(revision.source_novel_id))
@@ -507,7 +508,7 @@ class InteractionSourceService:
             revision = by_id.get(request["revision_id"])
             if revision is None:
                 raise NotFoundError("作品资料不存在")
-            await self._refresh(db, revision)
+            revision = await self._project_revision(db, revision)
             if revision.source_novel_id not in active_by_source:
                 try:
                     await self.require_author_project(
@@ -635,7 +636,7 @@ class InteractionSourceService:
         db: AsyncSession,
         revision_id: str,
     ) -> InteractionSourceRevisionResponse:
-        revision = await self._owned_revision(db, revision_id, for_update=True)
+        revision = await self._owned_revision(db, revision_id)
         return await self._response(db, revision)
 
     async def create_from_project(
@@ -648,8 +649,8 @@ class InteractionSourceService:
     ) -> InteractionSourceRevisionResponse:
         if authorization_confirmed is not True:
             raise ValidationError("请先确认完整整理会使用模型额度")
-        project = await self.require_author_project(db, project_id)
         await require_active_project_exclusive(db, project_id)
+        project = await self.require_author_project(db, project_id)
         owner_id = current_account_id()
         indices = await list_effective_chapter_indices(db, project_id)
         if not indices:
@@ -683,6 +684,7 @@ class InteractionSourceService:
             manifest_hash=manifest_hash,
         )
         if existing is not None:
+            await self._refresh(db, existing)
             if existing.status == "failed":
                 indices = [
                     int(item["chapter_index"]) for item in existing.source_manifest or []
@@ -801,7 +803,11 @@ class InteractionSourceService:
         ambiguity_key: str,
         choice_key: str,
     ) -> InteractionSourceRevisionResponse:
+        revision = await self._owned_revision(db, revision_id)
+        await require_active_project_exclusive(db, str(revision.source_novel_id))
         revision = await self._owned_revision(db, revision_id, for_update=True)
+        await db.refresh(revision)
+        await self._refresh(db, revision)
         if revision.status == "ready":
             raise ConflictError("已就绪的资料版本已冻结，请创建新版本后再调整")
         if revision.status != "needs_confirmation":
@@ -848,6 +854,7 @@ class InteractionSourceService:
         chapter_index: int | None = None,
     ) -> InteractionSourceAnchorListResponse:
         revision = await self._owned_revision(db, revision_id)
+        revision = await self._project_revision(db, revision)
         items = [
             self._anchor_response(item)
             for item in revision.anchor_manifest or []
@@ -894,6 +901,7 @@ class InteractionSourceService:
         end_offset: int | None = None,
     ) -> InteractionSourceObjectListResponse:
         revision = await self._owned_revision(db, revision_id)
+        revision = await self._project_revision(db, revision)
         needle = _normalize(query or "")
         items = []
         for item in revision.reference_manifest or []:
@@ -939,7 +947,7 @@ class InteractionSourceService:
         include_details: bool = True,
     ) -> InteractionSourceRevisionResponse:
         if refresh:
-            await self._refresh(db, revision)
+            revision = await self._project_revision(db, revision)
         summary = dict(revision.readiness_summary or {})
         return InteractionSourceRevisionResponse(
             id=str(revision.id),
@@ -975,17 +983,34 @@ class InteractionSourceService:
             update_available=False,
         )
 
+    async def _project_revision(
+        self, db: AsyncSession, revision: InteractionSourceRevision
+    ) -> InteractionSourceRevision:
+        if revision.status != "organizing":
+            return revision
+        projected = InteractionSourceRevision(
+            **{
+                column.key: deepcopy(getattr(revision, column.key))
+                for column in InteractionSourceRevision.__table__.columns
+            }
+        )
+        await self._refresh(db, projected, persist=False)
+        return projected
+
     async def _refresh(
         self,
         db: AsyncSession,
         revision: InteractionSourceRevision,
+        *,
+        persist: bool = True,
     ) -> None:
         if revision.status != "organizing":
             return
         if revision.task_id is None:
             revision.status = "failed"
             revision.readiness_summary = {"message": "完整整理任务已不可用，请重新开始"}
-            await db.flush()
+            if persist:
+                await db.flush()
             return
         lifecycle = await list_task_lifecycle_contracts(
             db,
@@ -997,7 +1022,8 @@ class InteractionSourceService:
         if task is None:
             revision.status = "failed"
             revision.readiness_summary = {"message": "完整整理任务已不可用"}
-            await db.flush()
+            if persist:
+                await db.flush()
             return
         if task.status in {"failed", "cancelled"}:
             revision.status = "failed"
@@ -1005,7 +1031,8 @@ class InteractionSourceService:
                 "message": "完整整理中断，可以从原任务继续恢复",
                 "recovery_required": task.recovery_required,
             }
-            await db.flush()
+            if persist:
+                await db.flush()
             return
         if task.status != "done":
             revision.readiness_summary = {
@@ -1018,7 +1045,8 @@ class InteractionSourceService:
             revision.readiness_summary = {
                 "message": "整理期间正文发生变化，请为当前正文创建新资料版本",
             }
-            await db.flush()
+            if persist:
+                await db.flush()
             return
         if not await self._indices_are_fresh(db, revision):
             revision.readiness_summary = {
@@ -1044,9 +1072,13 @@ class InteractionSourceService:
                 revision.readiness_summary = {
                     "message": "对象与原文关联核对中断，请重新开始完整整理",
                 }
-                await db.flush()
+                if persist:
+                    await db.flush()
                 return
-        await self._finalize(db, revision)
+        if persist:
+            await self._finalize(db, revision)
+        else:
+            await self._finalize(db, revision, persist=False)
 
     async def _source_manifest_is_current(
         self,
@@ -1103,6 +1135,8 @@ class InteractionSourceService:
         self,
         db: AsyncSession,
         revision: InteractionSourceRevision,
+        *,
+        persist: bool = True,
     ) -> None:
         source_id = str(revision.source_novel_id)
         coverage = await get_scene_span_coverage(
@@ -1122,7 +1156,8 @@ class InteractionSourceService:
                 "missing_scene_spans": coverage.scene_without_span_count,
                 "imprecise_scene_spans": coverage.imprecise_span_count,
             }
-            await db.flush()
+            if persist:
+                await db.flush()
             return
 
         references, ambiguities = await self._reference_manifest(db, revision)
@@ -1148,7 +1183,8 @@ class InteractionSourceService:
             "scene_count": coverage.scene_count,
             "reference_count": len(references),
         }
-        await db.flush()
+        if persist:
+            await db.flush()
 
     @staticmethod
     def _set_fingerprint(revision: InteractionSourceRevision) -> None:

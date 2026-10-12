@@ -18,9 +18,12 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.base import Base, NovelMixin, TimestampMixin, UUIDMixin, UUIDType
+
+_SOURCE_JSON = JSON().with_variant(JSONB(), "postgresql")
 
 
 class InteractionOpening(Base, NovelMixin, UUIDMixin, TimestampMixin):
@@ -113,17 +116,21 @@ class InteractionSourceRevision(Base, UUIDMixin, TimestampMixin):
         String(32), nullable=False, default="organizing", index=True
     )
     source_manifest: Mapped[list[dict]] = mapped_column(
-        JSON, nullable=False, default=list
+        _SOURCE_JSON, nullable=False, default=list
     )
     anchor_manifest: Mapped[list[dict]] = mapped_column(
-        JSON, nullable=False, default=list
+        _SOURCE_JSON, nullable=False, default=list
     )
     reference_manifest: Mapped[list[dict]] = mapped_column(
-        JSON, nullable=False, default=list
+        _SOURCE_JSON, nullable=False, default=list
     )
-    ambiguities: Mapped[list[dict]] = mapped_column(JSON, nullable=False, default=list)
-    resolutions: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    readiness_summary: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    ambiguities: Mapped[list[dict]] = mapped_column(
+        _SOURCE_JSON, nullable=False, default=list
+    )
+    resolutions: Mapped[dict] = mapped_column(_SOURCE_JSON, nullable=False, default=dict)
+    readiness_summary: Mapped[dict] = mapped_column(
+        _SOURCE_JSON, nullable=False, default=dict
+    )
     manifest_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     ready_at: Mapped[datetime | None] = mapped_column(
@@ -235,10 +242,18 @@ class InteractionJourney(Base, UUIDMixin, TimestampMixin):
         index=True,
     )
     source_anchor_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    source_anchor: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    player_identity: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    reference_policy: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    source_context_epoch: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    source_anchor: Mapped[dict] = mapped_column(
+        _SOURCE_JSON, nullable=False, default=dict, server_default="{}"
+    )
+    player_identity: Mapped[dict] = mapped_column(
+        _SOURCE_JSON, nullable=False, default=dict, server_default="{}"
+    )
+    reference_policy: Mapped[dict] = mapped_column(
+        _SOURCE_JSON, nullable=False, default=dict, server_default="{}"
+    )
+    source_context_epoch: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     latest_activity_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -450,7 +465,7 @@ class InteractionGenerationAttempt(Base, UUIDMixin, TimestampMixin, NovelMixin):
         nullable=True,
     )
     started_source_context_epoch: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0
+        Integer, nullable=False, default=0, server_default="0"
     )
     source_context_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(
         UUIDType,
@@ -461,7 +476,7 @@ class InteractionGenerationAttempt(Base, UUIDMixin, TimestampMixin, NovelMixin):
         String(64), nullable=True
     )
     reference_trace: Mapped[list[dict]] = mapped_column(
-        JSON, nullable=False, default=list
+        _SOURCE_JSON, nullable=False, default=list, server_default="[]"
     )
     continuation_count: Mapped[int] = mapped_column(
         Integer,

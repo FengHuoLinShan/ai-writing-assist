@@ -21,6 +21,7 @@ from core.service_keys import (
     ASSISTANT_FORECAST_PERSONAS,
     ASSISTANT_FORECAST_SOURCES,
     ASSISTANT_INSPECT_DISCUSSION,
+    ASSISTANT_EDITORIAL_POST_ADOPTION_RECHECKS,
     ASSISTANT_MARK_EDITORIAL_READY,
     ASSISTANT_MARK_TASK_LOCAL_APPROVED,
     ASSISTANT_OPERATIONS,
@@ -199,6 +200,7 @@ from app.assistant_operation_registry import story_structure_operations
 from app.assistant_operation_registry import writing_candidate_operations
 from app.assistant_operation_registry import writing_generation_operations
 from app.assistant_operation_registry import writing_operations
+from app.assistant_operation_registry import world_opening_operations
 from modules.world.assistant_page_tools import OPERATIONS as _WORLD_PAGE_OPERATIONS
 from modules.world.assistant_outcome_tools import OPERATIONS as _WORLD_OUTCOME_OPERATIONS
 from modules.world.assistant_cocreation_tools import (
@@ -231,6 +233,10 @@ from modules.assistant.facade import (
     mark_editorial_ready as _assistant_mark_editorial_ready,
     mark_task_local_approved as _assistant_mark_task_local_approved,
     submit_comment_proposals as _assistant_submit_comment_proposals,
+)
+from modules.assistant.facade import (
+    trigger_editorial_post_adoption_rechecks
+    as _assistant_editorial_post_adoption_rechecks,
 )
 from modules.assistant.facade import (
     run_discussion_scope as _assistant_run_discussion_scope,
@@ -376,6 +382,7 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
                 **story_operations,
                 **story_structure_operations,
                 **story_planning_operations,
+                **world_opening_operations,
                 **_IMPORTS_OPERATIONS,
                 **evidence_forecast_operations,
                 **_MAP_OPERATIONS,
@@ -458,6 +465,10 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
             _assistant_submit_comment_proposals,
         ),
         (ASSISTANT_MARK_EDITORIAL_READY, _assistant_mark_editorial_ready),
+        (
+            ASSISTANT_EDITORIAL_POST_ADOPTION_RECHECKS,
+            _assistant_editorial_post_adoption_rechecks,
+        ),
         # AO-5: evidence 编译与 world 地图经此只读 port 消费 story 场景事实，
         # world→story / evidence→story 的反向顶层导入清零。
         (STORY_SCENE_SOURCE, _StorySceneSource()),

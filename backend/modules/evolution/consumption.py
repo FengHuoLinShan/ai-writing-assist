@@ -20,7 +20,8 @@
    ``unknown_scope``，保守扩大语义保留）。登记区间与变更偏移窗口不相交
    可判 ``unaffected``——"已知依赖零无关重生成"的证明材料。章级确定性
    消费者（evidence 章索引）由失效引擎无条件重建，不依赖登记判定；
-   world_knowledge/map_atlas 留在 unsupported 列表恒展示、不参与窗口。
+   map_atlas/world_canon_revision 留在 unsupported 列表恒展示、不参与窗口；
+   ReaderRevealPolicy 在 Story 读取时按当前策略重判，不需要正文失效回执。
 
 **回执透传与重算三分类**也在本模块：``receipt_public_view`` 把
 ``InvalidationReceipt`` 投影为作者语言 dict（writing 层不能 import
@@ -64,7 +65,7 @@ CONSUMPTION_REGISTRY_STATE_KEY = "_consumption_registry"
 
 
 class ConsumerKind(StrEnum):
-    """已接入登记缝的消费者类别（受控集合；world_knowledge/map_atlas 不在此）。
+    """已接入登记缝的消费者类别（受控集合；地图册/正典依赖不在此）。
 
     键名对齐 C0 夹具钉定的目标形态（``test_p2c_revision_adoption.py``）。
     """
@@ -308,7 +309,7 @@ class UnknownScope(BaseModel):
     ``conservative`` 只衡量**投影失效窗口能否收窄**的 unknown 来源：
     变更章无登记、保守窗口内有场景无登记、或场景清单不可用——任一为
     真时评估不得收窄窗口（保守扩大语义保留）。``unregistered_consumers``
-    （world_knowledge/map_atlas）是独立的缺口可见性，对齐现状回执
+    （map_atlas/world_canon_revision）是独立的缺口可见性，对齐现状回执
     ``unsupported_consumers`` 的角色：恒列出、不参与窗口判定（现状也不
     因它们改变传播行为）。
     """
@@ -354,6 +355,7 @@ def assess_source_impact(
     records: Sequence[ConsumptionRecord] = (),
     earliest_affected_scene_index: int | None = None,
     scene_indexes: Sequence[int] | None = None,
+    expected_scene_dimensions: Sequence[str] | None = None,
 ) -> ImpactAssessment:
     """一次正文变更对登记消费集的影响评估（纯函数）。
 
@@ -440,10 +442,12 @@ def assess_source_impact(
                 )
             )
 
-    registered_scene_indexes = {
-        record.consumer.scene_index
+    registered_scene_dimensions = {
+        (record.consumer.scene_index, record.consumer.dimension)
         for record in scoped
+        if record.consumer.kind is ConsumerKind.story_scene_checkpoint
         if record.consumer.scene_index is not None
+        if record.consumer.dimension is not None
     }
     if scene_indexes is None:
         unknown_scenes: tuple[int, ...] = ()
@@ -455,7 +459,21 @@ def assess_source_impact(
             if earliest_affected_scene_index is None
             or index >= earliest_affected_scene_index
         }
-        unknown_scenes = tuple(sorted(scenes_after - registered_scene_indexes))
+        dimensions = set(expected_scene_dimensions or ())
+        if dimensions:
+            unknown_scenes = tuple(
+                sorted(
+                    index
+                    for index in scenes_after
+                    if any(
+                        (index, dimension) not in registered_scene_dimensions
+                        for dimension in dimensions
+                    )
+                )
+            )
+        else:
+            registered_scene_indexes = {index for index, _ in registered_scene_dimensions}
+            unknown_scenes = tuple(sorted(scenes_after - registered_scene_indexes))
         roster_unavailable = False
 
     unknown_notes: list[str] = []
@@ -469,7 +487,7 @@ def assess_source_impact(
         )
     unsupported = _unsupported_consumer_names()
     if unsupported:
-        unknown_notes.append("世界知识/地图册尚无登记缝（按保守扩大处理）")
+        unknown_notes.append("尚未接入登记缝的来源消费者：" + "、".join(unsupported))
     unknown_scope = UnknownScope(
         chapter_registration_missing=not chapter_registered,
         scenes_without_registration=unknown_scenes,
@@ -487,11 +505,7 @@ def assess_source_impact(
     if unknown_scope.conservative:
         from_scene_index: int | None = earliest_affected_scene_index
     elif affected_scenes:
-        from_scene_index = min(
-            value
-            for value in (min(affected_scenes), earliest_affected_scene_index)
-            if value is not None
-        )
+        from_scene_index = min(affected_scenes)
     else:
         from_scene_index = None
 
@@ -618,7 +632,20 @@ def receipt_fingerprint(receipt: InvalidationReceipt) -> str:
                 if receipt.source_change
                 else None
             ),
-            "invalidated_consumers": receipt.invalidated_consumers,
+            "invalidated_consumers": sorted(receipt.invalidated_consumers),
+            "source": {
+                key: value
+                for key, value in receipt.invalidated_consumers.get(
+                    "evidence_chapter_index", {}
+                ).items()
+                if key
+                in {
+                    "chapter_index",
+                    "content_mode",
+                    "requested_source_id",
+                    "requested_hash",
+                }
+            },
             "earliest_affected_scene_index": receipt.earliest_affected_scene_index,
             "nothing_to_do": receipt.nothing_to_do,
             "coverage_note": receipt.coverage_note,

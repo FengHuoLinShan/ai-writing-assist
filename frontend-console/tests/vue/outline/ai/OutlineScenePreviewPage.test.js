@@ -50,7 +50,7 @@ function setup({ apply } = {}) {
     getCurrentQuery: vi.fn(() => new URLSearchParams("review=ai&scene_id=s1")),
   }
   setBridgeOverrides({
-    api: { outline: { applyStructurePreview } },
+    api: { outline: { prepareStructureAdoption: vi.fn(async () => ({ confirmation_fingerprint: "selection-1" })), applyStructurePreview } },
     state: { currentProjectId: projectId, currentView: "outline", currentSubView: "scenes" },
     router,
     toast: vi.fn(),

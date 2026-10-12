@@ -281,6 +281,8 @@ separate directories so later suites preserve earlier results. The required
 outputs, skipped shards, or any shard/auxiliary failure. `test:e2e:map` remains a focused
 local subset. Real-LLM and worker Playwright suites remain explicit/manual acceptance runs.
 Visual review uses diagnostic screenshots and recordings; there is no visual comparison suite.
+
+审读修订桥接与 `guided-flow-*.spec.js` 归入 `test:e2e:editorial`，在该套件的隔离助手、审读和引导流程开关下执行；功能套件不重复运行。CI 的第一分片已有独立 editorial 门，保留三流程入口与恢复断言。
 The backend
 audit depends on OSV network data and the frontend audit on npm registry/advisory
 data; both complement rather than replace builds and tests, and a passing audit is

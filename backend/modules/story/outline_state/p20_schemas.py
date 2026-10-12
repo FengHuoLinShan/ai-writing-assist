@@ -83,6 +83,12 @@ class OutlineLayerGenerateRequest(P20StrictModel):
     selected_scene_ids: list[str] = Field(default_factory=list, max_length=100)
     start_chapter: int | None = Field(default=None, ge=1)
     end_chapter: int | None = Field(default=None, ge=1)
+    rolling_window: bool = False
+    """滚动规划窗口（BR-6）：True 表示 start/end 是作者确认的硬边界。
+
+    只有滚动窗口请求执行生成后的章号硬校验与条数上限；手动结构工作台的
+    章节范围仍是软提示，可继续使用全书范围。
+    """
     operation_id: uuid.UUID | None = None
 
     @field_validator(

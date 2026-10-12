@@ -656,6 +656,9 @@
       hasBody: true,
       timeout: AI_TASK_SUBMIT_TIMEOUT,
     }),
+    "outline.prepareStructureAdoption": define("POST", () => "/outline/generate/apply/preview", {
+      hasBody: true, requiredBody: ["novel_id", "context_confirmation_id", "source_task_id", "draft_structure"], timeout: AI_PREVIEW_APPLY_TIMEOUT,
+    }),
     "outline.applyStructurePreview": define("POST", () => "/outline/generate/apply", {
       hasBody: true,
       requiredBody: ["novel_id", "context_confirmation_id", "source_task_id", "draft_structure", "confirmed"],

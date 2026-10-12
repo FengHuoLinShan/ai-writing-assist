@@ -27,6 +27,8 @@
 
 ## 数据与不变量
 
+知识策略注册表为方向卡登记 `assistant.guided_flow.direction_cards`，仅对齐作者明确构想（`author_intent`）并展示候选；骨架生成另归 `world.opening_skeleton`。能力登记与用量标签不能替代实际资料覆盖或领域采用回执。
+
 - 表名保持 `rag_*`、`context_*` 和 `evidence_links`；RP `context_snapshots` 以 consumer
   `novel_id` 隔离审计写入，并用 source revision/SourceRangeRef 保留作者资料来源；
 - task type、recovery policy、owner scope 与 action/payload 保持不变；

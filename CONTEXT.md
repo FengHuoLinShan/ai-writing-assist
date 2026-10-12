@@ -73,7 +73,7 @@ README、ORM 模型与 Alembic migration。当前文档范围由
 
 | 概念 | 当前承载 | 含义 |
 |---|---|---|
-| 记忆事件 / 快照 | `memory_events` / `memory_scene_checkpoints` / `memory_scene_snapshots` / `memory_snapshots` | Scene 是唯一基础阶段；历史状态只由带 Scene 锚点的 MemoryEvent 确定性重放，禁止用当前 World 补历史。 |
+| 记忆事件 / 快照 | `memory_events` / `memory_scene_checkpoints` / `memory_scene_snapshots` / `memory_snapshots` | Scene 是唯一基础阶段；历史状态只由带 Scene 锚点的 MemoryEvent 确定性重放，禁止用当前 World 补历史。正文改动对 Story 场景派生事件与 checkpoint 按完整消费登记精确到 Scene×维度失效；登记缺失或不完整时保守扩大。聚合快照仍按较宽范围失效。命中的作者确认/人工 checkpoint 保留内容并标记 `needs_revalidation`；未确认系统派生 checkpoint 可 supersede，不改写作者状态。 |
 | 字段差分 | `delta_log` | memory 拥有的结构化 before/after 记录；不替代 TextArchive。 |
 | RAG 分块 | `rag_chunks` | 文字、来源、offset、Scene/Span、可见性、索引版本和 embedding 状态；chapter-text 按具体 Writing draft/hash 并存。 |
 | AI 参考资料确认 | `context_confirmations` | 手动 AI 操作前用户确认过的资料选择、结果引用与 `compile_options` 摘要。 |
@@ -173,6 +173,7 @@ ADR-0023 增加有限单 Agent 运行时，允许作者助手与 RP 在服务端
 - orchestrator 负责阶段顺序、并发、恢复、降级和写入；step 不自主选择工具或跨模块编排。
 - 运行时 Prompt、调用方和输出契约以 `docs/prompts/Prompt体系设计.md` 为准，不在本文件
   固定 Prompt 数量或旧文件清单。
+- 引导创作由 Assistant 的服务端版本化步骤表编排（ADR-0032）；方向卡只是作者构想候选，骨架、结构与正文仍分别由 World、Story、Writing 保存和采用。步骤推进、审查通过与作者采用是不同状态。
 - 账号级模型连接由 account 的 `account_llm_credentials` 承载每个 provider 的加密 Key，
   并复用 owner 唯一的 `global_llm_defaults.provider_id` 选择当前 provider。新业务调用的
   provider、model 与 Key 只来自项目 owner 的已验证账号连接及固定 provider 模板；

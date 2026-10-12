@@ -65,6 +65,46 @@ class RecheckRequest(BaseModel):
     expected_version: int = Field(ge=0)
 
 
+class IssueRevisionRange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    evidence_index: int = Field(ge=0, le=3)
+    start: int = Field(ge=0)
+    end: int = Field(ge=1)
+    quote: str = Field(min_length=1, max_length=10000)
+    range_hash: str = Field(min_length=64, max_length=64)
+
+
+class IssueRevisionItem(BaseModel):
+    """One author-selected issue to bridge into Writing comment revision.
+
+    ``instruction`` 是作者对这条意见的处置说明（作者语言），随意见文本
+    一起作为批注修订输入；不把意见转换成语义审查 finding。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    issue_id: UUID
+    expected_version: int = Field(ge=0)
+    instruction: str = Field(min_length=1, max_length=2000)
+    evidence_indices: list[int] | None = Field(default=None, min_length=1, max_length=4)
+    ranges: list[IssueRevisionRange] = Field(default_factory=list, max_length=4)
+
+
+class IssueRevisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    novel_id: UUID
+    operation_id: UUID
+    items: list[IssueRevisionItem] = Field(min_length=1, max_length=20)
+    overlap_confirmed: bool = False
+
+    @model_validator(mode="after")
+    def check_items(self):
+        if len({item.issue_id for item in self.items}) != len(self.items):
+            raise ValueError("同一条意见不能在本次修订中重复提交")
+        return self
+
+
 class EditorialPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

@@ -42,6 +42,7 @@ output_validator 校验，修复计入同一执行预算；固定审稿保留原
 | `rag_query_planner.md` | 复杂作者查询的受约束 support/counter 软查询规划 | `modules.evidence.compilation.services.retrieval_query_planner` |
 | `rag_reranker.md` | 模式感知的 RAG 证据价值排序与 abstention | `modules.evidence.indexing.reranker` |
 | `scene_entity_extraction.md` | 深度导入 Phase 2a，Scene 世界对象、Delta 与不确定项抽取 | imports |
+| `evolution/world.py` | 内联 `WORLD_AUDIT_INSTRUCTION`：按身份与逐字来源范围独立复核 Evolution World 候选；旧版整场容量延后只在作者预览并确认后补审 | Evolution 逐场理解 |
 | `map_structure_workflow.py` | 内联 `relation_prompt`：一次最多 20 地点、每批 5 个，提取有限关系、已有路线/河流名称与逐字证据；输出 `MapRelationBatch`，不生成坐标 | world 统一地图 |
 | `map_atlas_workflow.py` | 内联 step `world.map_atlas.plan.structured`：把已确认资料规划为最多 20 页的地图册层级；图片 Prompt 交给固定 Image API | world 地图册 |
 | `review_resolution.md` / `review_resolution_groups.md` | 导入候选的逐字段证据审查、定向补查返修和共同身份问题归纳；模型不持有采用权限 | imports |
@@ -50,6 +51,8 @@ output_validator 校验，修复计入同一执行预算；固定审稿保留原
 | `entity_fusion.py` | 内联 step `world.entity_fusion.decision.structured`：项目级智能去重与深度导入 `phase2_dedup` 共用的结构化实体融合判定；导入路径只发送同 workflow candidate 的类型、名称、已确认别名、截断摘要和 Scene/章节来源，不加载整书 RAG | world |
 | `scene_fusion_draft.py` | 内联 step `outline.scene_fusion.draft.structured`：基于选中 Scene 卡和精确正文生成融合语义草稿 | Scene 工作台 |
 | `world_generation_center_service.py` | 内联 steps `world.generation.design_iteration`、`.counterexample.intent/causal/verify/repair/knowledge_repair/final_knowledge/final`、`world.generation.chat.generate`、`world.generation.chat.knowledge.repair`、`world.generation.convergence.map/reduce`、`world.generation.exploration.preview`、`world.generation.semantic_inspection`、`world.generation.core_entity.structured`、`world.generation.world_bible_page.structured`、`world.generation.world_bible_new_page.structured`：世界设定共创、精细设计反例审查、只读收束、一跳探索、当前页检修与结构化建议；普通加强复核在同一冻结账户模型上追加 `.quality_review` 第二遍 | world 生成中心 |
+| `opening_skeleton.py` | 内联 step `world.opening_skeleton.structured`（一次结构化调用、schema 修复至多 2 次；知识治理 step 前缀 `world.opening_skeleton`，返修复用同一 schema）：输入只有作者构想、选定方向卡字段与服务端读取的已有对象清单，一次产出待审采用包；规则条目沿用 world_core 的 can/cannot/cost/failure/maintenance 约束写法 | world 新书开篇骨架 |
+| `assistant/guided_flow/direction_cards.py` | 内联 step `assistant.guided_flow.direction_cards`（一次结构化调用、schema 修复至多 1 次、超时有界）：输入只有作者一句构想（截断 2000 字）与可选题材/篇幅意向，一次出 2-3 张方向卡候选（题材承诺、主冲突、主角与目标、世界基调与独特设定、读者期待、主要风险，全部作者语言）；卡片只存流程运行检查点，不是资产，作者选定前不进入任何上下文 | assistant 引导流程「新书开篇」方向卡（BR-5） |
 | `ask_world_service.py` | 内联 step `world.ask`（snapshot prompt name `world.ask.v1`）：只根据当前项目作者可见证据生成带引用回答或明确拒答 | world 作者问答 |
 | `selection_proposal.py` | 内联 step `evidence.context.selection.suggest`：把作者资料调整要求映射到服务端 `candidate-NNN`，只返回待应用 include/exclude patch | Context 任务前审查 |
 | `world_bible_synopsis_service.py` | 内联 step `world.world_bible.synopsis.structured`：把已采用世界事实压缩为作者版 P1 世界观简介 | world 世界书简介刷新任务 |
@@ -141,6 +144,12 @@ P20 不一次生成整套大纲，也不进入生成中心。剧情线、篇章�
 - Planned Scene step 以“可独立规划、修订、续写和检查的因果叙事单元”定义 Scene，
   不按章节或固定节拍拆分。它可以跨章，允许无真实冲突及其他真实不适用字段；新建时不制造
   `scene_chunks`、章节 ID 或正文锚点，修订已映射 Scene 时也无权改变这些事实字段。
+- 滚动规划（BR-6）：输入 `requested_chapter_range` 非空时是作者确认的硬边界，三种层的
+  system Prompt 都要求新条目的章节定位落在窗口内、不得覆盖已物化章节，并保持条目克制
+  （篇章/剧情线窗口默认 3 章、上限 5 章，Scene 只覆盖紧邻 1-2 章；剧情线长期兑现章与
+  信息节点可指向窗口外的未来）。生成后服务端再做确定性校验：越窗或指向已写章节的新
+  条目丢弃并在结果 `window_validation` 中说明，只影响候选，不是任务失败；修订模式下
+  作者显式选中的已有资产保留既有覆盖。手动全书范围请求不携带窗口规则，行为不变。
 
 三个 strict schema 都允许 `no_change` 和 `needs_author_decision`，不规定输出数量，也不让
 LLM 输出数据库 ID、status、source、needs_review 或持久化动作。作者指令、总纲、确认上下文
@@ -691,6 +700,32 @@ Phase 2a/2b 的可选 mention_name 仅在对应原文逐字出现时进入 compl
 简单剧情结构的参数版本为 phase3_structure_simple_v3，输出线程分类 main/sub/background，兼容旧生成词项的显式映射见 Story README。
 
 
+## 新书开篇世界观骨架（BR-5 World 侧）
+
+`world.draft_opening_skeleton` suggest 操作入队 `world_opening_skeleton` 任务
+（root capability `world.opening_skeleton`，请求额度 6 = 1 次结构化生成 + 至多 2 次
+schema 修复 + 知识审查及其至多一次返修）。生成不编译 Evidence 上下文：输入只有
+`<AUTHOR_VISION>`（构想 + 选定方向卡字段）与 `<EXISTING_WORLD_OBJECTS>`（服务端
+按 importance/name 排序的轻量目录，至多 200 条），因此空项目可直接运行，也
+不存在方向卡或未采用骨架进入生成上下文的通道。
+
+System Prompt 的硬性契约：作者语言（不出现 ID/JSON/协议字段）；世界前提与基调由一个
+`concept` 条目承载；核心规则/力量体系沿用 world_core 的 can/cannot/cost/failure/
+maintenance 约束写法（不适用项在 `na_reasons` 说明理由，不编造）；主要地点 3-5、
+势力/组织 2-4、关键人物 3-5（恰好一名 `is_protagonist=true` 主角）、历史/传说/秘密
+1-3、核心关系至多 12；隐藏层只写 `hidden_truth` 并声明默认仅作者可见；与已有对象
+同名/近名的构想必须复用已有对象（补充空缺信息或附加别名），包内近名条目合并；
+不得声称任何条目已被保存、采用或发布。
+
+输出经 `GeneratedOpeningSkeleton` schema 校验后由服务端确定性包装配
+（`GeneratedOpeningSkeleton` → `world_adoption_package.v2` 待审包）：包内近名合并与
+关系端点重定向、同名已有对象转 fill_empty/existing_ref、近名已有对象转内联别名、
+实体至多 20 与关系至多 12 的硬上限（超出按确定性顺序丢弃并记录进
+`opening_skeleton.dropped_items`）、带 `hidden_truth` 的条目固定
+`reveal_level="author_only"`。知识审查回执写入包 `knowledge_review`，存在时采用
+门禁 fail closed。来源 ref 统一为 `author_decision`（作者方向与构想的指纹），
+不伪造书稿来源。
+
 ## 短期前瞻与 V2 创作试验
 
 前瞻的结构与身份约束在 Assistant，具体写作/Story/World/Evidence/RP 语义由对应领域
@@ -727,8 +762,11 @@ Evolution `SceneSample` 可用 `subject_surface`，禁止猜测实体 ID；主�
 窄观察关闭思考并给 16,384 输出上限；身份、World 与独立复核使用 high 和分步输出预算，
 模型能力不足时保留待处理，不把格式通过当作文学质量证明。
 
-Evolution 细节发现 `evolution.discovery.v1` 和独立复核 `evolution.discovery.review.v1`
+Evolution 细节发现 `evolution.discovery.v2` 和独立复核 `evolution.discovery.review.v1`
 使用 `discovery.py` 的来源绑定生成/复核 Prompt，以及 DiscoveryOutput/DiscoveryReview。
+v2 按确切来源区间和观察/完整主题上下文分批，历史候选先按已有主题、解析后的 World 对象 ID、
+字面表面名排序且每场最多 64 条；逐类别输出条件行为、线索、承诺、语言习惯、外在特征的
+`category_coverage`。缺失类别状态由宿主解释为未检查，不会伪装成已检查未检出。
 只输出契约字段；无目标的独立待核实条目用new，question只更新本批完整既有目标。
 完整历史主题和精确复核目标携带已存证据用途/锚，默认继承旧认证；发生单位沿原具体细节，
 不随新statement扩大。线索解释、相关后续不同动作只作context，明确承诺兑现仍计对应承诺。
@@ -771,7 +809,10 @@ Evolution 细节发现 `evolution.discovery.v1` 和独立复核 `evolution.disco
 
 Evolution World组合审查显式区分首轮World身份上下文与后轮关系上下文，
 两轮实际可见资料共同绑定来源指纹，后轮新增引用映射不能倒填首轮。问题kind和severity
-分别遵循既有枚举，不用minor等严重级替代问题类别，审查失败/阻断保持原门禁。
+分别遵循既有枚举，不用minor等严重级替代问题类别，审查失败/阻断保持原门禁。DeepSeek
+thinking路径按解析身份关系和逐字引文对应的正文码点区间分组；每组独立复核，组失败不放行
+组内候选但不阻断独立组。旧版整场`capacity_deferred`须作者先看分组/调用预览再确认；费用
+未知不重发，补审使用独立冻结记录，原Scene回执不变。审查通过仍只允许建立待采用candidate。
 
 独立发现复核的 `occurrence_observation_ids` 认证实例身份，包含合法回忆与本轮明确重新认证的旧源，不表示新增次数；次数仍按发生身份去重。旧 unknown 仅在本批实际可见、复核 supported、发生模态及引文/来源引用一致时升级新修订，旧已知锚和历史不改。同观察已经定位时不再重复计为未知。`context_observation_ids` 明确复核背景用途，纠正新证据误标实例；不从 reason 自由文本推断，也不把真正身份未定的实例改成背景。相关物件保管不表示线索再次出现，为履约准备不表示兑现。全局 uncertain 不改已认证背景用途，作者决定仍独立保留。
 
@@ -823,7 +864,8 @@ conditions_review；未获资格仍整项待核，不任取共享词凑例外。
 
 
 Evolution discovery绑定12：新增specific旧事件recall用结构化`recall_identity_reviews`核
-旧原已定位动作与当前回忆/指认两侧来源，缺/未确认整项待核；target提供occurrences，
+唯一一个旧原已定位动作与当前回忆/指认两侧来源，并引用新旧原句的连续逐字`identity_quote`；
+宿主检查该短语仅匹配同主题一个旧event occurrence，缺/未确认整项待核；target提供occurrences，
 不从自由reason认证、猜锚或把无新动作等同已证指定旧event。无锚回忆合法未知，旧use继承。
 已支持DeepSeek发现与复核用既有max思考/65,536有限输出，账户model不变，不自动重放。
 原文明示关联的基础状态/约束须纳入条件，外部触发不替代它；旧条件重释仍两侧来源专审。
@@ -843,3 +885,8 @@ question即使复核确认“问题有依据”，仍另存绑定原主题/修�
 主题召回排除，初始无target uncertain仍可沿原ID在新来源中续证；详情保留原支持理解。
 路由prior_review仅带verdict，不复制旧机器自由理由自证；完整主张、条件、作者决定、
 原始观察/引用/用途与已知发生锚仍提供，未缩短历史窗口或删证据。
+
+
+P4 离线续接（2026-10-12）：Discovery 输入 `selected_categories` 限定作者确认的补扫类别；
+未选类别不能被标为已检查或持久化候选。消费 read-set 同时绑定实际 Prompt、响应 schema、
+模型快照与最终运行参数；仅完整输入相同的已取回输出可复用，仍在新来源/scope 独立重物化。

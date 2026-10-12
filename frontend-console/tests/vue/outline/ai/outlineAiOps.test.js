@@ -63,6 +63,7 @@ function setupBridge(overrides = {}) {
         getStoryOutline: vi.fn(),
         generate: vi.fn(),
         analyze: vi.fn(),
+        prepareStructureAdoption: vi.fn(async () => ({ confirmation_fingerprint: "selection-1" })),
         applyStructurePreview: vi.fn(),
       },
       imports: { startStage: vi.fn() },
@@ -324,7 +325,7 @@ describe("applyOutlineGeneratePreview", () => {
   it("旧项目页的采用响应不改动新页面或新预览", async () => {
     let resolveApply
     const applyStructurePreview = vi.fn(() => new Promise((resolve) => { resolveApply = resolve }))
-    const bridge = setupBridge({ api: { outline: { applyStructurePreview } } })
+    const bridge = setupBridge({ api: { outline: { prepareStructureAdoption: vi.fn(async () => ({ confirmation_fingerprint: "selection-1" })), applyStructurePreview } } })
     const oldPreview = {
       sourceTaskId: "st-old",
       contextConfirmationId: "cc-old",
@@ -354,7 +355,7 @@ describe("applyOutlineGeneratePreview", () => {
 
   it("当前预览采用失败时保留审阅页并返回 false", async () => {
     const bridge = setupBridge({
-      api: { outline: { applyStructurePreview: vi.fn(async () => { throw new Error("版本冲突") }) } },
+      api: { outline: { prepareStructureAdoption: vi.fn(async () => ({ confirmation_fingerprint: "selection-1" })), applyStructurePreview: vi.fn(async () => { throw new Error("版本冲突") }) } },
     })
     outlineGenerateManager.state.preview = {
       sourceTaskId: "st-current",
@@ -371,7 +372,7 @@ describe("applyOutlineGeneratePreview", () => {
 
   it("结构化审阅页直接提交编辑后的 draft 且不关闭其他模态", async () => {
     const applyStructurePreview = vi.fn(async () => ({ target: "plot_thread", total_threads: 1 }))
-    const bridge = setupBridge({ api: { outline: { applyStructurePreview } } })
+    const bridge = setupBridge({ api: { outline: { prepareStructureAdoption: vi.fn(async () => ({ confirmation_fingerprint: "selection-1" })), applyStructurePreview } } })
     outlineGenerateManager.state.preview = {
       sourceTaskId: "st-page",
       contextConfirmationId: "cc-page",
@@ -382,6 +383,7 @@ describe("applyOutlineGeneratePreview", () => {
 
     await expect(applyOutlineGeneratePreview(edited)).resolves.toMatchObject({ total_threads: 1 })
     expect(applyStructurePreview).toHaveBeenCalledWith({
+      confirmation_fingerprint: "selection-1",
       novel_id: "p-test",
       context_confirmation_id: "cc-page",
       source_task_id: "st-page",

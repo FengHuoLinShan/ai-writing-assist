@@ -10,14 +10,14 @@ from __future__ import annotations
 import uuid
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.errors import NotFoundError
+from core.errors import ConflictError, NotFoundError
 from core.errors import ValidationError as DomainValidationError
 from infrastructure.tasks.models import AsyncTask
 from modules.account.contracts import BOOTSTRAP_ACCOUNT_ID
@@ -37,6 +37,26 @@ from modules.project.services import ProjectService
 from modules.writing.facade import create_draft_only
 
 _repo = ProjectRepository()
+
+
+@pytest.mark.asyncio
+async def test_custom_repository_does_not_bypass_missing_source_reference_guard():
+    project_id = uuid.uuid4()
+    service = ProjectService(repo=MagicMock())
+    with patch("core.container.get", autospec=True, side_effect=KeyError("missing")):
+        with pytest.raises(ConflictError, match="引用检查暂不可用"):
+            await service._require_no_source_references(MagicMock(), [project_id])
+
+
+@pytest.mark.asyncio
+async def test_custom_repository_uses_registered_source_reference_guard():
+    project_id = uuid.uuid4()
+    counter = AsyncMock(return_value=1)
+    service = ProjectService(repo=MagicMock())
+    with patch("core.container.get", autospec=True, return_value=counter):
+        with pytest.raises(ConflictError, match="仍被 RP 旅程使用"):
+            await service._require_no_source_references(MagicMock(), [project_id])
+    counter.assert_awaited_once()
 
 
 # ============================================================
@@ -664,6 +684,7 @@ class TestProjectService:
             task_canceller=task_canceller,
             task_deleter=task_deleter,
             map_atlas_cleanup_enqueuer=cleanup_enqueuer,
+            source_reference_counter=AsyncMock(return_value=0),
         )
         db = MagicMock()
 
@@ -702,6 +723,7 @@ class TestProjectService:
             task_canceller=task_canceller,
             tasks_deleter=tasks_deleter,
             map_atlas_cleanup_enqueuer=cleanup_enqueuer,
+            source_reference_counter=AsyncMock(return_value=0),
         )
         db = MagicMock()
 

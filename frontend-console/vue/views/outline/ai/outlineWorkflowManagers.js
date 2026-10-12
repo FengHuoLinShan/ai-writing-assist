@@ -129,6 +129,7 @@ export function captureOutlineGeneratePreview(task, progress) {
     contextConfirmationId,
     knowledgeReview: result.knowledge_review || null,
     draftStructure: JSON.parse(JSON.stringify(result.draft_structure)),
+    windowValidation: result.window_validation || null,
     warnings: Array.isArray(result.warnings) ? result.warnings : [],
     target: result.target || state.meta?.target,
     mode: result.mode || state.meta?.mode,

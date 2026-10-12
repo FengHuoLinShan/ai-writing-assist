@@ -35,7 +35,7 @@ from tests.e2e.config import require_e2e_database_url
 
 
 async def baseline(db, nid, claim, *, cache=None):
-    """PR206 algorithm, including its caller-owned intra-page dictionary."""
+    """PR206 uncached algorithm with current source/host validation guards."""
     cache = {} if cache is None else cache
     store = PostgresAttemptStore(db, nid)
     grouped = {}

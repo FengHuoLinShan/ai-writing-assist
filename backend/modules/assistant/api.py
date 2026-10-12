@@ -13,6 +13,7 @@ from modules.account.facade import current_account_id
 from modules.assistant.editorial_contracts import (
     EditorialPolicyUpdate,
     IssueDecision,
+    IssueRevisionRequest,
     RecheckRequest,
     ReviewSubmit,
 )
@@ -40,6 +41,9 @@ service = AssistantService()
 from modules.assistant.forecast.api import router as forecast_router  # noqa: E402
 
 router.include_router(forecast_router)
+from modules.assistant.guided_flow.api import router as guided_flow_router  # noqa: E402
+
+router.include_router(guided_flow_router)
 
 
 @router.get("/editorial/policy")
@@ -127,6 +131,15 @@ async def recheck_editorial_issue(db: DbSession, issue_id: UUID, data: RecheckRe
     return await request_recheck(db, issue_id, data)
 
 
+@router.post("/editorial/issues/revise")
+async def revise_editorial_issues(db: DbSession, data: IssueRevisionRequest):
+    """BR-4：把作者选中的审读意见桥接为 Writing 批注修订（流程 3）。"""
+    await require_active_project(db, str(data.novel_id))
+    from modules.assistant.editorial_bridge import submit_issue_revision
+
+    return await submit_issue_revision(db, data)
+
+
 @router.post("/notices/{notice_id}/recheck")
 async def recheck_notice(
     db: DbSession, novel_id: UUID, notice_id: UUID, data: NoticeRecheck
@@ -153,6 +166,8 @@ async def capabilities(db: DbSession, novel_id: UUID):
     )
 
     llm = await get_effective_llm_settings(db, novel_id)
+    from modules.assistant.guided_flow import available_for as guided_flow_available
+
     try:
         snapshot = await build_project_llm_execution_snapshot(db, str(novel_id))
         model_ready = bool(snapshot["profile"]["api_key_configured"])
@@ -167,6 +182,12 @@ async def capabilities(db: DbSession, novel_id: UUID):
     )
     return {
         "enabled": get_settings().assistant_enabled,
+        "guided_flows": {
+            "available": guided_flow_available(str(novel_id)),
+            "reason": None
+            if guided_flow_available(str(novel_id))
+            else "引导流程尚未开启",
+        },
         "editorial": {
             "available": bool(
                 get_settings().assistant_enabled

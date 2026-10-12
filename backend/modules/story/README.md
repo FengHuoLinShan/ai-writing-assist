@@ -23,7 +23,8 @@ through its stable facade and never writes World, Memory, or Writing records.
   `thread_overdue_notice`) shared by context selection and overdue rendering.
 - `continuity/basis.py`: checkpoint 来源基线（M4）——系统行构建时登记的
   working 稿指纹切片 + 重放窗口场景结构 + 契约版本，供 `get_scene_state_view`
-  读时确定性比对；漂移即 degraded 待核对，作者行豁免。
+  读时确定性比对；系统行漂移即 degraded 待核对。改稿命中手工/已确认行时保留原内容，
+  将状态标为 `needs_revalidation`，不自动覆盖作者决定。
 - `facade.py`: card CRUD/restore/archive, script save/adopt/archive/unadopt,
   Scene context and the adopted-only `get_scene_story_assets` read seam, plus
   the read-only plot-thread reverse lookup `list_plot_threads_referencing_entities`
@@ -32,7 +33,9 @@ through its stable facade and never writes World, Memory, or Writing records.
   read-only Scene state projection (M2 scene-state-view-v1); it reads only
   `is_current` checkpoints, never backfills from today's World, and is also
   exported through the `STORY_SCENE_SOURCE` port for cross-module consumers
-  (see `continuity/scene_state_view.py` and the M2 contract in docs/plans).
+  (see `continuity/scene_state_view.py` and the M2 contract in docs/plans). Complete source-consumption
+  registrations let Evolution supersede only affected Scene dimensions; incomplete coverage still
+  falls back to the conservative suffix.
 - `schemas.py`: strict Pydantic request, preview and response payloads.
 - `tasks.py`: four deterministic async handlers registered through the shared
   task registry: `story_character_card_generate`, `story_reaction_propose`,
@@ -131,6 +134,33 @@ Confirmation 标为 `adopted`，并对新建或修改的 PlotThread、OutlineArc
 Evidence 精确失效：排除本次 Confirmation，但使仍引用旧状态的其他记录失效，
 同时复用该入口中的 `source.changed` 通知，不另发一路重复通知。规则引用检查不等同语义强提醒。
 
+### 滚动规划窗口（BR-6）
+
+`story.plan_structure` 的滚动推进携带起止章窗口：篇章/剧情线窗口默认 3 章、上限 5 章，
+计划 Scene 层只覆盖紧邻 1-2 章。窗口进入 `outline.generate` 确认参数
+（`chapter_index` + `planning_window_end`，后者仅随确认记录，不参与检索或编译裁剪）
+与 P20 来源指纹；带窗口的请求以 `rolling_window=true` 提交。
+
+生成后执行确定性硬校验：新条目的章节定位必须落在窗口内、不得覆盖已写章节
+（Writing 有效章节，经 `writing.facade.list_effective_chapter_indices` 读取），并有条数上限
+（篇章/剧情线 3 条、Scene 每章 2 条）；违规条目丢弃并在结果 `window_validation` 中说明，
+不是整任务失败。修订按原资产冻结范围判断：跨窗或未完整定位的原对象只输出只读建议，模型缩小范围
+不得绕过；采用时再按最新原对象与已写章节重验。窗内篇章保留标题、序号与覆盖范围。
+新增重叠篇章只作提示，不重复写入。
+
+窗口回执由完整参数、来源预览（含确认）与流程操作身份经 uuid5 派生；同一意图重试
+返回原任务，新指令、资料或新运行产生新身份。采用支持非空保序子集，预检排除依赖；
+准备采用后，以任务版本、原确认、来源、选择/排除及编辑内容指纹绑定，采用锁内重验，
+选择变化不得使用旧指纹。回执保留选择、排除与采用指纹。未采用的规划只存在于任务回执，不进入写作上下文与检索；回归见
+`modules/story/tests/test_unadopted_planning_context.py`。手动结构工作台不使用窗口，
+照常可用全书范围；`_require_scope` 未放宽。
+
+流程侧补窗检查（BR-6）经 outline_state facade 的只读缝
+`get_planned_chapter_coverage(db, novel_id, start_chapter=, end_chapter=)`
+统计窗口内已被已采用规划覆盖的章（非 deprecated 篇章、`planning_state="planned"`
+且带计划章节范围的计划 Scene、起始章在窗口内的剧情线），供引导流程在采用后
+判断"前方已规划章数、不足 2 章提议补足"；只读，不写回、不重复判断领域门禁。
+
 
 ### 助手维护与变化检查
 
@@ -200,6 +230,9 @@ continuity 归约统一为单一 `reducer.py::StoryStateReducer`（章节重放�
 producer family 分区 + 稳定 `meta.event_key`（作者确认永不参与机器替换）。
 
 ## 演化来源失效与地图消费
+
+Scene 消费登记一次批量读取缺少字段来源锚的章节。投影缓存命中保留已有同项目、Scene、维度、
+方法版本及前序 checkpoint 的完整登记；旧行缺登记或锚不完整时补齐，不重登记已有效消费以刷新旧稿身份。
 
 continuity 保留原事件历史，通过 `source_stale` 排除已失效机器事件；作者确认事件保持独立权威。
 Scene 生命周期/来源范围/重排在同事务使受影响派生流失效，重排先封锁演化 run，再对齐事件，避免反锁。

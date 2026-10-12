@@ -7,8 +7,8 @@ from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from core.dependencies import DbSession
-from modules.evolution import ledger, workflow
-from modules.evolution.ledger_contracts import LedgerDecision
+from modules.evolution import category_rescan, ledger, workflow, world_audit_supplement
+from modules.evolution.ledger_contracts import LedgerCategory, LedgerDecision
 from modules.evolution.ownership import switch_project_engine
 from modules.project.facade import (
     require_active_project,
@@ -38,7 +38,7 @@ async def ledger_entries(
     db: DbSession,
     novel_id: UUID,
     through_scene_index: int = Query(ge=0),
-    category: Literal["conditional_behavior", "clue", "commitment"] | None = None,
+    category: LedgerCategory | None = None,
     query: str = Query(default="", max_length=200),
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=30, ge=1, le=100),
@@ -155,4 +155,61 @@ async def reading_proposals(
 ):
     return await workflow.reading_proposals(
         db, str(novel_id), run_key, offset=offset, limit=limit
+    )
+
+
+@router.post("/reading/{run_key}/proposals/{attempt_id}/world-audit-preview")
+async def preview_world_audit_supplement(
+    db: DbSession, novel_id: UUID, run_key: str, attempt_id: str
+):
+    return await world_audit_supplement.preview_world_audit_supplement(
+        db, str(novel_id), run_key, attempt_id
+    )
+
+
+@router.post("/reading/{run_key}/proposals/{attempt_id}/world-audit")
+async def start_world_audit_supplement(
+    db: DbSession,
+    novel_id: UUID,
+    run_key: str,
+    attempt_id: str,
+    data: world_audit_supplement.WorldAuditSupplementStart,
+):
+    return await world_audit_supplement.start_world_audit_supplement(
+        db, str(novel_id), run_key, attempt_id, data
+    )
+
+
+@router.post("/reading/{run_key}/proposals/{attempt_id}/world-audit-resume")
+async def resume_world_audit_supplement(
+    db: DbSession, novel_id: UUID, run_key: str, attempt_id: str
+):
+    return await world_audit_supplement.resume_world_audit_supplement(
+        db, str(novel_id), run_key, attempt_id
+    )
+
+
+@router.post("/reading/{run_key}/category-rescan-preview")
+async def preview_category_rescan(
+    db: DbSession,
+    novel_id: UUID,
+    run_key: str,
+    data: category_rescan.CategoryRescanRequest,
+):
+    return await category_rescan.preview_category_rescan(db, str(novel_id), run_key, data)
+
+
+@router.post("/reading/{run_key}/category-rescan", status_code=201)
+async def start_category_rescan(
+    db: DbSession, novel_id: UUID, run_key: str, data: category_rescan.CategoryRescanStart
+):
+    return await category_rescan.start_category_rescan(db, str(novel_id), run_key, data)
+
+
+@router.post("/reading/{run_key}/category-rescan/{operation_id}/resume")
+async def resume_category_rescan(
+    db: DbSession, novel_id: UUID, run_key: str, operation_id: UUID
+):
+    return await category_rescan.resume_category_rescan(
+        db, str(novel_id), run_key, operation_id
     )

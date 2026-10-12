@@ -440,6 +440,7 @@ retry 与 `auto_requeue` 重放都消耗同一额度，只有作者显式续算�
 | `world_entity_fusion_suggestions` | `world.entity_fusion` | `12M+6`（M=冻结 `max_suggestions`，schema le=200） | 无（仅 provider 180s 边界） |
 | `world_bible_synopsis_refresh` | `world.world_bible.synopsis` | 36 | 无（main/audit 只有各自 step timeout，无既有 run 总时限） |
 | `world_generation_suggestion` | `world.generation.suggestion` | 96 | 3660s（阶段 1800s × 2 attempt + 余量） |
+| `world_opening_skeleton` | `world.opening_skeleton` | 6（1 次结构化生成 + 至多 2 次修复 + 知识审查及其至多 1 次返修） | 3660s（阶段 1800s × 2 attempt + 余量） |
 | `world_cocreation_turn` | `world.generation.cocreation` | chat fast 20 / chat pro 24 / design fast 24 / design pro 78 | 无（每个 provider step 仍受现有 1800s timeout） |
 | `world_map_schematic_generate` | `world.map_structure.generate` | 60（⌈S/5⌉≤4 批 × [U(1,0)+U(2,0)]，S≤20 为 schema 校验器上界；manual_resume 的续跑是新授权动作，额度只覆盖单次 attempt） | 无（manual_resume 恢复不受 frozen deadline 死锁） |
 | `map_atlas_generate` | `world.map_atlas.generate` | 文本规划最多 51；直接生成再预留每页最多 3 次图片请求。Prompt 确认、停止后继续与单页重试只由对应作者动作追加当前图片段 | 无（保留文本/图片 provider 边界） |
@@ -462,6 +463,42 @@ Atlas task 内归属 `world.map_atlas.generate` canonical parent（generate/edit
 无活动信封时行为与接线前一致，Map 的
 `provider_in_flight → retry_requires_confirmation → confirm_possible_duplicate_charge`
 补偿语义不变。
+
+## 新书开篇世界观骨架（BR-5 World 侧）
+
+`world.draft_opening_skeleton`（Assistant suggest 操作，与 `story.plan_structure →
+story.adopt_structure` 同构）与 `POST /api/world/opening-skeleton/tasks` 入队同一个
+`world_opening_skeleton` 任务：一次结构化调用（`world.opening_skeleton.structured`，
+修复至多 2 次）+ 知识审查（`world.opening_skeleton` 能力策略）产出待审
+`world_adoption_package.v2`。本包阶段方向由参数传入（Assistant 方向卡 step 后续
+集成）；生成不编译 Evidence 上下文，输入只有作者构想、选定方向与服务端读取的
+已有对象目录（至多 200 条），空项目可直接运行，无需任何 Context 确认。
+
+覆盖面：世界前提与基调（concept 条目）、核心规则/力量体系 2-4（world_core 的
+can/cannot/cost/failure/maintenance 约束写法）、主要地点 3-5、势力/组织 2-4、
+关键人物 3-5（恰好一名主角）、历史/传说/秘密 1-3、核心关系至多 12；实体至多 20。
+包装配是确定性的：包内近名合并并重定向关系端点；与已有对象同名改
+`fill_empty`/`existing_ref`（补充已有对象），近名只附加内联别名，不新建重复实体
+（同类型相似度 0.9 的创建冲突在预览前已消解）；超限条目按确定性顺序丢弃并记入
+`opening_skeleton.dropped_items`。全部条目来源为 `author_decision`（作者方向与
+构想的指纹）。带 `hidden_truth` 的条目固定 `reveal_level="author_only"`：只进入
+作者完整（author_full）上下文，读者/角色与 author_safe 上下文不可见。
+
+条目级取舍：`PATCH /api/world/adoption-packages/{id}/items`（owner + 编辑基线）
+必须携带 `expected_updated_at`；缺失返回 `edit_baseline_required`，与行锁内当前包版本不同返回 `edit_baseline_stale`，均不覆盖原编辑。
+支持逐条勾选/排除与 create 条目的改名/简介/公开信息/隐藏真相编辑；端点被排除的
+关系与别名自动转 `open` 并记 `endpoint_excluded`；包内近名与当前项目同名冲突
+在编辑响应与 preview 的逐条 `conflicts` 中标出，作者排除冲突条而不是整包失败。
+确认后沿用现有 `world.adopt_package` 整包单事务采用所选条目，来源沿用
+`world_adoption_package` 标记与回执。
+
+整体撤销：`POST /api/world/adoption-packages/{id}/rollback`（owner + 项目排他锁）
+只接受携带 `opening_skeleton` 来源的已采用包，复用 `applied_change_reversal` 的
+"回执逆序回滚、作者已改动的对象保留并说明原因"语义：未改动对象软废弃
+（`deprecated`），作者改动过或被引用的对象保留并记
+`modified_after_adoption`/`referenced_by_author`；回执写入 `rollback` 结果，
+并按需触发上下文失效、活动重标注与简介失效。方向卡与未采用骨架不进入任何
+生成上下文或检索：它们只存在于任务请求与待审包 payload 中。
 
 ## 数据表
 
@@ -900,6 +937,9 @@ importance level；RAG 章节索引通过该稳定 facade 生成可重建 chunk 
 | POST/GET | `/api/world/adoption-packages` | 保存或读取 typed WorldAdoptionPackage 建议 |
 | GET | `/api/world/adoption-packages/{suggestion_id}/preview` | 零写入预演 package 的覆盖、diff 与 hash |
 | POST | `/api/world/adoption-packages/{suggestion_id}/apply` | 以 preview hash 原子采用 package 的 include 项；重复 apply 返回 receipt |
+| PATCH | `/api/world/adoption-packages/{suggestion_id}/items` | 骨架包条目级取舍：逐条勾选/排除、改名与简介；端点被排除的关系自动转待定并说明原因，返回逐条冲突 |
+| POST | `/api/world/adoption-packages/{suggestion_id}/rollback` | 骨架包整体撤销：回执逆序回滚，作者已改动的对象保留并说明原因 |
+| POST | `/api/world/opening-skeleton/tasks` | 入队新书开篇世界观骨架生成任务；operation_id + 请求指纹幂等 |
 
 `world_adoption_package.v1` 首版采用核心对象 create/promote/existing_ref 与实体关系 create/promote/existing_ref。
 promote 和外部关系端点以服务端指纹参与 preview hash，apply 在锁后复验；既有同一

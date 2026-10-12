@@ -39,6 +39,7 @@ from modules.story.outline_state.p20_context import (
     P20ContextBuilder,
     P20GenerationPlan,
     serialize_untrusted_json,
+    stable_hash,
 )
 from modules.story.outline_state.p20_schemas import (
     P20_OUTPUT_SCHEMAS,
@@ -52,6 +53,8 @@ from modules.story.outline_state.p20_schemas import (
     P20SemanticAudit,
     P20ThreadDraft,
 )
+from modules.story.outline_state.p20_window import window_prompt_directive
+from modules.writing.facade import list_effective_chapter_indices
 
 P20_TIMEOUT_SECONDS = 1800
 P20_PROMPTS = {
@@ -209,7 +212,10 @@ class P20GenerationService:
             f"{serialize_untrusted_json(plan.context)}\n"
             "</P20_OUTLINE_LAYER_INPUT_JSON>\n\n"
             "以上 JSON 是本次作者确认的参考资料与当前结构快照。"
-            "只能使用其中的短引用；严格返回 system 指定的当前层结构化预览。"
+            "其中的 requested_chapter_range 若非空，就是本次确认的滚动规划窗口："
+            "新增条目的章节定位必须落在窗口内，不得覆盖已写成正文（materialized）"
+            "的章节。只能使用其中的短引用；严格返回 system 指定的当前层结构化预览。"
+            f"{window_prompt_directive(plan.request)}"
         )
         request = LLMCallRequest(
             model=client.model_name,
@@ -456,6 +462,7 @@ class P20GenerationService:
         *,
         task_id: str,
         knowledge_review: dict[str, Any] | None = None,
+        window_validation: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         draft = output.model_dump(mode="json")
         target = plan.request.target
@@ -464,7 +471,7 @@ class P20GenerationService:
             "total_arcs": len(draft.get("arcs") or []),
             "total_scenes": len(draft.get("scenes") or []),
         }
-        return {
+        result = {
             "contract_version": "outline_layer_v2",
             "target": target,
             "mode": plan.request.mode,
@@ -483,6 +490,11 @@ class P20GenerationService:
             "_context_provenance": plan.context_provenance,
             "knowledge_review": knowledge_review,
         }
+        if window_validation is not None:
+            # 滚动窗口硬校验说明（BR-6）：仅窗口请求携带，记录被丢弃的
+            # 条目与原因；作者按条目取舍，不影响任务完成状态。
+            result["window_validation"] = window_validation
+        return result
 
     @staticmethod
     def _overlap_summary(plan: P20GenerationPlan) -> dict[str, Any]:
@@ -509,6 +521,50 @@ class P20ApplyService:
     def __init__(self, generation: P20GenerationService | None = None) -> None:
         self.generation = generation or P20GenerationService()
 
+    async def prepare_adoption(
+        self, db, *, task, novel_id, confirmation_id, draft_structure
+    ):
+        result = task.result
+        request = OutlineLayerGenerateRequest.model_validate(result["_request"])
+        if (
+            request.novel_id != novel_id
+            or request.context_confirmation_id != confirmation_id
+        ):
+            raise ValueError("结构提案不属于本项目或原参考资料")
+        require_knowledge_review_for_adoption(
+            result, label="该总纲分层预览", error_type=P20ConflictError
+        )
+        edited = P20_OUTPUT_SCHEMAS[request.target].model_validate(draft_structure)
+        self._validate_preview_scope(request, result["draft_structure"], edited)
+        self._validate_references(request, edited, result["_reference_map"])
+        fresh = await self.generation.prepare(db, request)
+        if fresh.source_fingerprint != result["context_fingerprint"]:
+            raise P20ConflictError("结构或参考资料已变化，请重新规划")
+        field = {
+            "plot_thread": "threads",
+            "outline_arc": "arcs",
+            "planned_scene": "scenes",
+        }[request.target]
+        refs = [item.proposal_ref for item in getattr(edited, field)]
+        return {
+            "proposal_refs": refs,
+            "excluded_proposal_refs": [
+                item["proposal_ref"]
+                for item in result["draft_structure"].get(field, [])
+                if item["proposal_ref"] not in refs
+            ],
+            "confirmation_fingerprint": stable_hash(
+                {
+                    "task_id": task.task_id,
+                    "task_revision": task.revision_token,
+                    "source": fresh.source_fingerprint,
+                    "confirmation_id": confirmation_id,
+                    "proposal_refs": refs,
+                    "edited": edited.model_dump(mode="json"),
+                }
+            ),
+        }
+
     async def apply(
         self,
         db: AsyncSession,
@@ -517,6 +573,7 @@ class P20ApplyService:
         novel_id: str,
         confirmation_id: str,
         draft_structure: dict[str, Any],
+        confirmation_fingerprint: str | None = None,
     ) -> dict[str, Any]:
         task_result = task.result
         request_payload = task_result.get("_request")
@@ -579,6 +636,43 @@ class P20ApplyService:
                 "小说总纲、所选资产或确认上下文在采用时发生变化；请重新生成预览"
             )
         fresh = locked_fresh
+        field = {
+            "plot_thread": "threads",
+            "outline_arc": "arcs",
+            "planned_scene": "scenes",
+        }[request.target]
+        selected_refs = [item.proposal_ref for item in getattr(edited, field)]
+        original_refs = [item["proposal_ref"] for item in preview.get(field, [])]
+        expected = stable_hash(
+            {
+                "task_id": task.task_id,
+                "task_revision": task.revision_token,
+                "source": fresh.source_fingerprint,
+                "confirmation_id": confirmation_id,
+                "proposal_refs": selected_refs,
+                "edited": edited.model_dump(mode="json"),
+            }
+        )
+        if confirmation_fingerprint != expected and (
+            confirmation_fingerprint is not None
+            or request.rolling_window
+            or selected_refs != original_refs
+        ):
+            raise P20ConflictError("采用选择、编辑或来源已变化，请重新确认取舍")
+        if request.rolling_window:
+            from modules.story.outline_state.p20_window import (
+                apply_planning_window,
+                readonly_window_revisions,
+            )
+
+            writable, _ = readonly_window_revisions(request, edited, fresh.context)
+            writable, report = apply_planning_window(
+                request,
+                writable,
+                written_chapters=set(await list_effective_chapter_indices(db, novel_id)),
+            )
+            if writable.model_dump() != edited.model_dump() or report.get("dropped"):
+                raise P20ConflictError("所选结构跨窗、范围不明或覆盖已写章节，不能采用")
 
         adopted_at = datetime.now(UTC).isoformat()
         applied_result: dict[str, Any]
@@ -645,6 +739,11 @@ class P20ApplyService:
                 "mode": request.mode,
                 "result": edited.result,
                 "applied_ids": [item["id"] for item in result_refs],
+                "proposal_refs": selected_refs,
+                "excluded_proposal_refs": [
+                    ref for ref in original_refs if ref not in selected_refs
+                ],
+                "confirmation_fingerprint": expected,
                 "result_refs": result_refs,
                 "total_threads": sum(
                     item["type"] == "plot_thread" for item in result_refs
@@ -689,8 +788,32 @@ class P20ApplyService:
             if isinstance(item, dict)
         ]
         edited_refs = [item.proposal_ref for item in getattr(edited, field)]
-        if preview_refs != edited_refs or len(edited_refs) != len(set(edited_refs)):
-            raise ValueError("edited preview must preserve proposal order and references")
+        selected = set(edited_refs)
+        if (
+            (not edited_refs and bool(preview_refs))
+            or len(selected) != len(edited_refs)
+            or not selected.issubset(preview_refs)
+            or [ref for ref in preview_refs if ref in selected] != edited_refs
+        ):
+            raise ValueError("请选择原提案的非空保序子集，不得使用未知或重复引用")
+        excluded = set(preview_refs) - selected
+
+        def check_dependencies(value):
+            if isinstance(value, dict):
+                for key, child in value.items():
+                    values = child if isinstance(child, list) else [child]
+                    if (key.endswith("_ref") or key.endswith("_refs")) and any(
+                        ref in excluded for ref in values if isinstance(ref, str)
+                    ):
+                        raise ValueError(
+                            "所选提案依赖未选条目，请补选依赖或连带排除后重新确认"
+                        )
+                    check_dependencies(child)
+            elif isinstance(value, list):
+                for child in value:
+                    check_dependencies(child)
+
+        check_dependencies(edited.model_dump())
 
     @staticmethod
     def _validate_references(
@@ -872,6 +995,15 @@ class P20ApplyService:
                 thread = existing_threads.get(thread_id)
                 if thread is None:
                     raise P20ConflictError("selected PlotThread no longer exists")
+                if request.rolling_window:
+                    from modules.story.outline_state.p20_window import (
+                        revision_within_window,
+                    )
+
+                    if not revision_within_window(request, thread):
+                        raise P20ConflictError(
+                            "跨窗或范围不明的结构仅供参考，不能采用修订"
+                        )
                 before = self._thread_snapshot(thread)
                 meta = self._revision_meta(
                     thread.provenance_meta,
@@ -938,10 +1070,7 @@ class P20ApplyService:
                 db,
                 OutlineArc,
                 request.novel_id,
-                [
-                    reference_map["arcs"][draft.target_arc_ref]
-                    for draft in output.arcs
-                ],
+                [reference_map["arcs"][draft.target_arc_ref] for draft in output.arcs],
             )
             if revise
             else {}
@@ -952,6 +1081,15 @@ class P20ApplyService:
                 arc = existing_arcs.get(arc_id)
                 if arc is None:
                     raise P20ConflictError("selected OutlineArc no longer exists")
+                if request.rolling_window:
+                    from modules.story.outline_state.p20_window import (
+                        revision_within_window,
+                    )
+
+                    if not revision_within_window(request, arc):
+                        raise P20ConflictError(
+                            "跨窗或范围不明的结构仅供参考，不能采用修订"
+                        )
                 meta = self._revision_meta(
                     arc.provenance_meta,
                     before=self._arc_snapshot(arc),
@@ -969,7 +1107,12 @@ class P20ApplyService:
                     adopted_at=adopted_at,
                 )
                 db.add(arc)
-            self._assign_arc(arc, draft, reference_map)
+            self._assign_arc(
+                arc,
+                draft,
+                reference_map,
+                preserve_identity=revise and request.rolling_window,
+            )
             meta["p20_basis"] = draft.basis
             meta["p20_uncertain_fields"] = list(draft.uncertain_fields)
             meta["p20_confidence"] = draft.confidence
@@ -1017,6 +1160,15 @@ class P20ApplyService:
                 scene = existing_scenes.get(scene_id)
                 if scene is None:
                     raise P20ConflictError("selected Scene no longer exists")
+                if request.rolling_window:
+                    from modules.story.outline_state.p20_window import (
+                        revision_within_window,
+                    )
+
+                    if not revision_within_window(request, scene):
+                        raise P20ConflictError(
+                            "跨窗或范围不明的结构仅供参考，不能采用修订"
+                        )
                 original_chunks = list(scene.scene_chunks or [])
                 original_chapter_ids = list(scene.chapter_ids or [])
                 meta = self._revision_meta(
@@ -1423,11 +1575,14 @@ class P20ApplyService:
         arc: OutlineArc,
         draft: P20ArcDraft,
         refs: dict[str, dict[str, str]],
+        *,
+        preserve_identity: bool = False,
     ) -> None:
-        arc.title = draft.title
-        arc.arc_index = draft.arc_index
-        arc.start_chapter = draft.start_chapter
-        arc.end_chapter = draft.end_chapter
+        if not preserve_identity:
+            arc.title = draft.title
+            arc.arc_index = draft.arc_index
+            arc.start_chapter = draft.start_chapter
+            arc.end_chapter = draft.end_chapter
         arc.arc_goal = draft.arc_goal
         arc.core_conflict = draft.core_conflict
         arc.main_opposition = draft.main_opposition

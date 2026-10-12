@@ -41,6 +41,13 @@
         <h3 id="outline-arc-warning-title">采用前请留意</h3>
         <ul><li v-for="warning in warnings" :key="warning">{{ warning }}</li></ul>
       </section>
+      <section v-if="preview.windowValidation?.readonly_hints?.length" class="outline-thread-review__notice" aria-label="跨窗结构只读提示">
+        <h3>仅供参考，不改写原结构</h3>
+        <article v-for="hint in preview.windowValidation.readonly_hints" :key="hint.proposal_ref">
+          <strong>{{ hint.name }}</strong><p>{{ hint.detail }}</p>
+          <p>{{ hint.suggestion?.arc_goal || hint.suggestion?.visible_goal || hint.suggestion?.goal || hint.suggestion?.summary }}</p>
+        </article>
+      </section>
 
       <details v-if="overlaps.length" class="outline-thread-review__support">
         <summary>查看可能重叠的现有篇章</summary>
@@ -174,7 +181,7 @@ const preview = computed(() => (
   && manager.state.preview?.target === "outline_arc"
 ) ? manager.state.preview : null)
 const progress = computed(() => manager.state.ownerProjectId === props.projectId ? manager.state.progress : null)
-const warnings = computed(() => preview.value?.warnings || [])
+const warnings = computed(() => [...(preview.value?.warnings || []), ...(preview.value?.windowValidation?.dropped || []).map(item => item.detail)])
 const overlaps = computed(() => preview.value?.overlap?.outline_arcs || [])
 const storyConflict = computed(() => draft.value?.story_outline_conflict || null)
 const authorDecisions = computed(() => draft.value?.author_decisions || [])

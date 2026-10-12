@@ -36,6 +36,7 @@ EXPECTED_CAPABILITIES = (
     "world.team_stress",
     "world.generation.suggestion",
     "world.ask",
+    "world.opening_skeleton",
     "world.world_bible.synopsis",
     "world.validation",
     "world.entity_fusion",
@@ -76,6 +77,7 @@ EXPECTED_CAPABILITIES = (
     "interaction.anonymous_story",
     # Assistant
     "assistant.turn",
+    "assistant.guided_flow.direction_cards",
     "assistant.forecast",
     "assistant.editorial",
     "interaction.forecast",

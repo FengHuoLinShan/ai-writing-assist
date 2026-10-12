@@ -40,16 +40,20 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.evolution.store import PostgresAttemptStore
+from modules.story.continuity.contracts import SCENE_MEMORY_DIMENSIONS
 from modules.story.outline_state.facade import get_scenes_by_novel
 
 UNSUPPORTED_CONSUMERS: tuple[dict[str, str], ...] = (
     {
-        "consumer": "world_knowledge",
-        "reason": "世界知识对象尚无来源依赖注册缝；按读取时新鲜度判断，待 G2/MI 接线",
+        "consumer": "map_atlas",
+        "reason": (
+            "Evolution 未消费地图册 revision；Map Atlas 有独立来源清单，"
+            "但历史页尚未接入本失效回执"
+        ),
     },
     {
-        "consumer": "map_atlas",
-        "reason": "地图册 revision 无失效缝；表现资产在生成时绑定来源版本，待 V 系列接线",
+        "consumer": "world_canon_revision",
+        "reason": "正典 revision 尚未登记为 Story 状态或台账依赖；采用后只能显式待重验",
     },
 )
 
@@ -281,7 +285,11 @@ async def apply_source_invalidation(
             real_records=real_records,
         ),
     ]
-    from modules.evolution.consumption import assess_source_impact
+    from modules.evolution.consumption import (
+        ConsumerImpact,
+        ConsumerKind,
+        assess_source_impact,
+    )
 
     assessment = assess_source_impact(
         novel_id=novel_id,
@@ -291,8 +299,23 @@ async def apply_source_invalidation(
         records=records,
         earliest_affected_scene_index=earliest,
         scene_indexes=[int(scene["scene_index"]) for scene in scenes],
+        expected_scene_dimensions=SCENE_MEMORY_DIMENSIONS,
     )
     projection_from = assessment.from_scene_index
+    affected_scene_dimensions = (
+        None
+        if assessment.unknown_scope.conservative
+        else sorted(
+            {
+                (str(verdict.consumer.scene_id), str(verdict.consumer.dimension))
+                for verdict in assessment.verdicts
+                if verdict.impact is ConsumerImpact.affected
+                and verdict.consumer.kind is ConsumerKind.story_scene_checkpoint
+                and verdict.consumer.scene_id
+                and verdict.consumer.dimension
+            }
+        )
+    )
 
     runs = await PostgresAttemptStore(db, novel_id).invalidate_sources(
         from_scene_index=earliest, chapter_index=chapter_index, reason="source_changed"
@@ -304,7 +327,11 @@ async def apply_source_invalidation(
     from modules.story.facade import invalidate_derived_state
 
     receipt.invalidated_consumers["story_state"] = await invalidate_derived_state(
-        db, novel_id, from_scene_index=projection_from, from_chapter=chapter_index
+        db,
+        novel_id,
+        from_scene_index=projection_from,
+        from_chapter=chapter_index,
+        affected_scene_dimensions=affected_scene_dimensions,
     )
     if projection_from is not None:
         receipt.invalidated_consumers["story_scene_projections"] = (
@@ -315,16 +342,17 @@ async def apply_source_invalidation(
             "保守扩大：从锚定受影响章的最早 Scene（含）起的全部系统派生投影"
             "已失效；细粒度依赖登记后可收窄"
         )
-    elif earliest is not None and projection_from == earliest:
-        receipt.coverage_note = (
-            "锚定受影响章的场景（含）起派生投影已失效；消费登记覆盖完整，无未知保守范围"
-        )
     elif earliest is None:
         receipt.coverage_note = "受影响章未锚定任何 Scene，仅触发证据索引重建"
+    elif affected_scene_dimensions:
+        receipt.coverage_note = (
+            "登记覆盖完整：仅失效命中的 "
+            f"{len(affected_scene_dimensions)} 个 Story 场景字段"
+            f"（最早 Scene={projection_from}）；未命中的字段与后续场景保持当前"
+        )
     else:
         receipt.coverage_note = (
-            "消费登记覆盖完整：投影失效范围已按登记收窄"
-            f"（from_scene_index={projection_from}，保守锚={earliest}）"
+            "登记覆盖完整：变更区间未命中已登记 Story 场景字段，投影保持当前"
         )
     attach_impact_view(receipt, assessment)
     return receipt

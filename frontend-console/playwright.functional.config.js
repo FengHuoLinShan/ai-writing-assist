@@ -7,6 +7,8 @@ export default createE2EConfig({
     "creative-forecast.spec.js",
     "creative-rebase.spec.js",
     "editorial.spec.js",
+    "editorial-revision-bridge.spec.js",
+    "guided-flow-*.spec.js",
     "outline-real-llm.spec.js",
     "writing-conflict-real-llm.spec.js",
     "deep-import-worker.spec.js",

@@ -675,29 +675,63 @@ class MemoryService:
         *,
         from_scene_index: int | None,
         from_chapter: int | None,
+        affected_scene_dimensions: list[tuple[str, str]] | None = None,
     ) -> dict[str, Any]:
         nid = parse_uuid(novel_id, "novel_id")
-        snapshot_chapter = from_chapter
-        if snapshot_chapter is None and from_scene_index is not None:
-            snapshot_chapter = await self._event_repo.earliest_chapter_from_scene(
-                db, nid, from_scene_index
-            )
+        selective = affected_scene_dimensions is not None
+        consumers = [
+            (parse_uuid(scene_id, "scene_id"), dimension)
+            for scene_id, dimension in (affected_scene_dimensions or [])
+        ]
         result = {
             "stale_events": await self._event_repo.invalidate_derived_sources(
-                db, nid, from_scene_index=from_scene_index, from_chapter=from_chapter
+                db,
+                nid,
+                from_scene_index=from_scene_index,
+                from_chapter=from_chapter,
+                scene_dimensions=consumers if selective else None,
             )
         }
-        if snapshot_chapter is not None:
-            result["stale_chapter_snapshots"] = await self._snapshot_repo.mark_stale_from(
-                db, nid, snapshot_chapter
+        if not selective or consumers:
+            snapshot_chapter = from_chapter
+            if snapshot_chapter is None and from_scene_index is not None:
+                snapshot_chapter = await self._event_repo.earliest_chapter_from_scene(
+                    db, nid, from_scene_index
+                )
+            if snapshot_chapter is not None:
+                result[
+                    "stale_chapter_snapshots"
+                ] = await self._snapshot_repo.mark_stale_from(db, nid, snapshot_chapter)
+        if selective and consumers:
+            checkpoints = await self._scene_checkpoint_repo.supersede_system_consumers(
+                db, nid, consumers
             )
-        if from_scene_index is not None:
+            pending = await self._scene_checkpoint_repo.mark_pending_revalidation(
+                db, nid, consumers=consumers
+            )
+            snapshots = await self._scene_snapshot_repo.supersede_from(
+                db, nid, from_scene_index, include_start=True
+            )
+            result.update(
+                {
+                    "from_scene_index": from_scene_index,
+                    "dimensions": sorted({dimension for _, dimension in consumers}),
+                    "affected_scene_dimension_count": len(consumers),
+                    "superseded_checkpoints": checkpoints,
+                    "pending_revalidation_checkpoints": pending,
+                    "superseded_snapshots": snapshots,
+                }
+            )
+        elif not selective and from_scene_index is not None:
             checkpoints = await self._scene_checkpoint_repo.supersede_system_from(
                 db,
                 nid,
                 from_scene_index,
                 list(SCENE_MEMORY_DIMENSIONS),
                 include_start=True,
+            )
+            pending = await self._scene_checkpoint_repo.mark_pending_revalidation(
+                db, nid, from_scene_index=from_scene_index
             )
             snapshots = await self._scene_snapshot_repo.supersede_from(
                 db, nid, from_scene_index, include_start=True
@@ -707,6 +741,7 @@ class MemoryService:
                     "from_scene_index": from_scene_index,
                     "dimensions": list(SCENE_MEMORY_DIMENSIONS),
                     "superseded_checkpoints": checkpoints,
+                    "pending_revalidation_checkpoints": pending,
                     "superseded_snapshots": snapshots,
                 }
             )

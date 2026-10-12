@@ -5,11 +5,19 @@ import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/in
 const claim = { label: "紧张时摸戒指", category: "conditional_behavior", statement: "甲在这次紧张时摸了戒指。", modality: "hypothesis", conditions: ["紧张"], targets: [], unresolved_subjects: ["甲"], competing_explanations: [], evidence: [{ quote: "甲紧张地摸了摸戒指。", position: { chapter_index: 1 }, role: "support", occurrence_kind: "event" }] }
 const row = { entry_id: "entry", revision: 1, claim, counts: { occurrences: 1, observations: 1, sources: 1, unknown_occurrences: 0 }, source_status: "current", method_status: "current", author_decision: {} }
 const detail = { ...row, head_revision: 1, current_author_decision: {}, history: [{ revision: 1, scene_index: 0, kind: "new" }] }
-const panorama = { state: { scene_index: 0, dimensions: [], warnings: [] }, coverage: { status: "checked", note: "本次范围已检查。", found: 1, pending: [] }, plans: { items: [], note: "当前作者计划；不是已发生历史。" }, ledger: { items: [row], total: 1 } }
+const categories = [
+  { key: "conditional_behavior", label: "条件行为" }, { key: "clue", label: "线索" },
+  { key: "commitment", label: "承诺" }, { key: "language_habit", label: "语言习惯" },
+  { key: "external_appearance", label: "外在特征" },
+]
+const panorama = { state: { scene_index: 0, dimensions: [], warnings: [] }, coverage: { status: "checked", note: "本次范围已检查。", found: 1, pending: [], categories: [
+  { key: "language_habit", label: "语言习惯", status: "not_checked", found: 0 },
+  { key: "external_appearance", label: "外在特征", status: "inspected", found: 0 },
+] }, plans: { items: [], note: "当前作者计划；不是已发生历史。" }, ledger: { items: [row], total: 1 } }
 let api, wrappers, leaveGuard
 beforeEach(() => {
   localStorage.clear(); wrappers = []
-  api = { panorama: vi.fn().mockResolvedValue(panorama), ledger: vi.fn().mockResolvedValue({ items: [row], total: 1 }), ledgerEntry: vi.fn().mockResolvedValue(detail), ledgerEvidence: vi.fn().mockResolvedValue({ context: "甲紧张地摸了摸戒指。", historical: true }), ledgerDecision: vi.fn().mockResolvedValue({ saved: true }) }
+  api = { panorama: vi.fn().mockResolvedValue(panorama), ledger: vi.fn().mockResolvedValue({ items: [row], total: 1, categories }), ledgerEntry: vi.fn().mockResolvedValue(detail), ledgerEvidence: vi.fn().mockResolvedValue({ context: "甲紧张地摸了摸戒指。", historical: true }), ledgerDecision: vi.fn().mockResolvedValue({ saved: true }) }
   setBridgeOverrides({ api: { evolution: api, outline: { listScenesOrdered: vi.fn().mockResolvedValue([{ id: "scene", title: "灯塔" }, { id: "scene-b", title: "下一场" }]) } }, router: { registerLeaveGuard: guard => { leaveGuard = guard; return () => {} } } })
 })
 afterEach(() => { wrappers.forEach(wrapper => wrapper.unmount()); resetBridgeOverrides(); vi.restoreAllMocks() })
@@ -22,6 +30,10 @@ describe("author Evolution panorama", () => {
   it("separates coverage, filters, historical quotes and author decisions", async () => {
     const wrapper = make(); await open(wrapper)
     expect(wrapper.text()).toContain("已检查本次召回范围")
+    expect(wrapper.get('[aria-label="按类别的发现覆盖"]').text()).toContain("语言习惯：未检查")
+    expect(wrapper.get('[aria-label="按类别的发现覆盖"]').text()).toContain("外在特征：已检查未检出")
+    expect(wrapper.find('[aria-label="类别"]').text()).toContain("语言习惯")
+    expect(wrapper.find('[aria-label="类别"]').text()).toContain("外在特征")
     expect(wrapper.text()).toContain("待核实理解")
     expect(wrapper.text()).toContain("1 次已定位发生")
     await click(wrapper, "回看这一版原文")

@@ -311,6 +311,17 @@ class Settings:
     assistant_forecast_automatic_enabled: bool = field(
         default_factory=lambda: _env_bool("ASSISTANT_FORECAST_AUTOMATIC_ENABLED", False)
     )
+    # ADR-0032：引导流程默认关闭；项目白名单沿用部署级开关与白名单机制。
+    assistant_guided_flows_enabled: bool = field(
+        default_factory=lambda: _env_bool("ASSISTANT_GUIDED_FLOWS_ENABLED", False)
+    )
+    guided_flow_project_allowlist: tuple[str, ...] = field(
+        default_factory=lambda: tuple(
+            filter(
+                None, _env("ASSISTANT_GUIDED_FLOWS_PROJECT_ALLOWLIST").split(",")
+            )
+        )
+    )
     interaction_forecast_enabled: bool = field(
         default_factory=lambda: _env_bool("INTERACTION_FORECAST_ENABLED", False)
     )

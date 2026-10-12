@@ -20,6 +20,7 @@ export const assistant = {
     editorialIssues: (novelId) => request(withQuery("/assistant/editorial/issues", { novel_id: novelId }), { cache: "no-store" }),
     decideEditorialIssue: (id, body) => request(`/assistant/editorial/issues/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) }),
     recheckEditorialIssue: (id, body) => post(`/assistant/editorial/issues/${encodeURIComponent(id)}/recheck`, body),
+    reviseEditorialIssues: (body) => post("/assistant/editorial/issues/revise", body),
     capabilities: (novelId) => request(withQuery("/assistant/capabilities", { novel_id: novelId }), { cache: "no-store" }),
     sessions: (novelId, params = {}) => request(withQuery("/assistant/sessions", { ...params, novel_id: novelId }), { cache: "no-store" }),
     createSession: (novelId, title = "项目助手") => post("/assistant/sessions", { novel_id: novelId, title }),
@@ -39,4 +40,14 @@ export const assistant = {
     careNotices: (novelId) => request(withQuery("/assistant/notices", { novel_id: novelId }), { cache: "no-store" }),
     recheckCareNotice: (novelId, noticeId, operationId) => post(withQuery(`/assistant/notices/${encodeURIComponent(noticeId)}/recheck`, { novel_id: novelId }), { operation_id: operationId }),
     decideCareNotice: (novelId, noticeId, disposition) => post(`/assistant/notices/${encodeURIComponent(noticeId)}/decide`, { novel_id: novelId, ...disposition }),
+    // ============================================================
+    // 引导流程（ADR-0032）：服务端确定性编排；前端只渲染停点与推进。
+    // ============================================================
+    guidedFlowStart: (body) => post("/assistant/flows", body),
+    guidedFlowLatest: (novelId, flowId) => request(withQuery("/assistant/flows/latest", { novel_id: novelId, flow_id: flowId }), { cache: "no-store" }),
+    guidedFlowActive: (novelId) => request(withQuery("/assistant/flows/active", { novel_id: novelId }), { cache: "no-store" }),
+    guidedFlow: (novelId, runId) => request(withQuery(`/assistant/flows/${encodeURIComponent(runId)}`, { novel_id: novelId }), { cache: "no-store" }),
+    guidedFlowAdvance: (runId, body) => post(`/assistant/flows/${encodeURIComponent(runId)}/advance`, body),
+    guidedFlowSettings: (runId, body) => post(`/assistant/flows/${encodeURIComponent(runId)}/settings`, body),
+    guidedFlowAbandon: (novelId, runId) => post(withQuery(`/assistant/flows/${encodeURIComponent(runId)}/abandon`, { novel_id: novelId })),
 };

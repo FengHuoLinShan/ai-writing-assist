@@ -119,3 +119,53 @@ class ManuscriptTermScan:
     cursor: ManuscriptScanCursor | None
     scanned_chapters: list[int]
     total_chapters: int
+
+
+@dataclass(frozen=True)
+class CommentRevisionSelectionContract:
+    """One externally located selection feeding the existing comment revision.
+
+    BR-4 流程 3：Assistant 把审读意见的唯一准确引文定位为选区后，
+    连同意见文本与作者处置一起作为批注修订输入。``ref`` 是调用方的
+    不透明回执标识（当前为审读意见 ID），原样出现在受理回执里。
+    """
+
+    chapter_index: int
+    quote: str
+    frozen_content_hash: str
+    body: str
+    instruction: str
+    ref: str
+    draft_id: str | None = None
+    start: int | None = None
+    end: int | None = None
+    range_hash: str | None = None
+    overlap_confirmed: bool = False
+
+
+@dataclass(frozen=True)
+class CommentRevisionTaskReceiptContract:
+    """One queued (or replayed) comment-revision task for one chapter."""
+
+    chapter_index: int
+    task_id: str
+    status: str
+    replayed: bool
+    refs: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class CommentRevisionUnlocatedContract:
+    """One selection that could not be located in the current working draft."""
+
+    ref: str
+    chapter_index: int
+    reason: str
+
+
+@dataclass(frozen=True)
+class CommentRevisionReceiptContract:
+    """Author-facing receipt of one bridge submission."""
+
+    tasks: list[CommentRevisionTaskReceiptContract] = field(default_factory=list)
+    unlocated: list[CommentRevisionUnlocatedContract] = field(default_factory=list)

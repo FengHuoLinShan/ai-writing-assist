@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.project.contracts import WorkspaceCreationProgressItem
 from modules.writing.contracts import (
+    CommentRevisionReceiptContract,
+    CommentRevisionSelectionContract,
     ManuscriptReadContract,
     ManuscriptSearchHitContract,
     SourceRangeRefContract,
@@ -45,6 +47,8 @@ __all__ = [
     "list_project_writing_stats",
     "lock_chapter_versions_for_revalidation",
     "read_manuscript_range",
+    "submit_comment_revision",
+    "submit_semantic_review",
 ]
 
 _service = WritingDraftService()
@@ -334,3 +338,50 @@ async def get_semantic_review_result(db, novel_id, task_id):
     from modules.writing.assistant_tools import _review_result
 
     return await _review_result(db, novel_id, {"task_id": task_id})
+
+
+async def submit_comment_revision(
+    db: AsyncSession,
+    novel_id: str,
+    *,
+    operation_id: str,
+    selections: list[CommentRevisionSelectionContract],
+) -> CommentRevisionReceiptContract:
+    """按外部定位选区启动既有批注修订（BR-4 流程 3 的稳定入口）。
+
+    Assistant 桥接审读意见时调用：每条选区按其唯一准确引文在当前工作稿
+    定位，与意见文本、作者处置一起交给既有批注修订（只返回选区替换、
+    治理复审，候选采用门禁不变）。冻结正文 hash 与当前工作稿不一致时
+    整体失败关闭；引文无法唯一定位的选区逐条跳过并说明，不影响其余
+    选区。同一请求标识重放返回既有任务。"""
+    from modules.writing.comments import submit_comment_revision as submit
+
+    return await submit(
+        db,
+        novel_id,
+        operation_id=operation_id,
+        selections=selections,
+    )
+
+
+async def submit_semantic_review(
+    db,
+    *,
+    novel_id: str,
+    draft_ids: list[str],
+    operation_id: str | None = None,
+) -> dict:
+    """Submit the domain semantic-review task for given drafts (ADR-0032).
+
+    Assistant 引导流程经此稳定入口提交既有领域任务；operation_id 提供幂等，
+    预算与快照语义由 Writing 既有提交路径决定，不新增协议。
+    """
+    from modules.writing.semantic_review import WritingSemanticWorkflowService
+
+    return await WritingSemanticWorkflowService().submit_review(
+        db,
+        novel_id=novel_id,
+        draft_ids=draft_ids,
+        scope="selection",
+        operation_id=operation_id,
+    )

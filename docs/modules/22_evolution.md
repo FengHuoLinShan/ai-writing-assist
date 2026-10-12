@@ -66,12 +66,15 @@ V4 长期计划（`docs/plans/novelcraft-v4/plans/01-EVOLUTION.md`）的演化�
   传播正文变更——证据索引换源重建（旧结果不再显示有效）+ 按 source 立即清理
   RP 派生缓存行（M4：`purge_interaction_source_cache`，不等 TTL；清理失败降级
   记回执、TTL 兜底）+ Scene 派生投影
-  软 supersede（保守扩大到受影响章锚定的最早 Scene 起，范围记入回执）；
+  软 supersede：登记覆盖完整时只失效受影响的 Scene×维度 checkpoint 与对应派生事件；
+  缺少任一维度登记时，从受影响章锚定的最早 Scene 起保守失效。聚合快照仍从影响范围
+  失效；作者确认/人工 checkpoint 不改内容，保留为 `needs_revalidation` 并在状态视图显示待重验；
   `apply_scene_reorder_invalidation` 处理场景重排（事件序号对齐 + 从最早
   移动 Scene 起失效）。Writing 的 working/published 保存、回退、删除及 Story
   场景更新/撤销/融合/拆分/重排均接相同边界；派生事件标 source_stale，演化 run
   推进 epoch 并记录待重算范围，不自动发起付费重算。作者确认与已提交回执保留。
-  地图直接重读 Story 合法事件，不维护第二份事实；其余未接线消费者仍在回执
+  地图直接重读 Story 合法事件，不维护第二份事实；`world_knowledge` 在每次 Story 读取时按当前
+  ReaderRevealPolicy 重判。Map Atlas 与 `world_canon_revision` 尚无 Evolution 消费登记，仍在回执
   显式列为 unsupported，不以局部完成冒充全量失效。状态视图侧的读时基线比对
   见 [M4 契约](../plans/2026-10-07-m4-dependency-invalidation-contract.md)。
 - 消费登记与影响评估（P2-C，`consumption.py`/`registration.py`/`impact.py`）：
@@ -85,8 +88,9 @@ V4 长期计划（`docs/plans/novelcraft-v4/plans/01-EVOLUTION.md`）的演化�
   reload_evidence/rebuild_derived_state/regenerate_prose；regenerate 恒
   author_choice_only），经 DI 键 `EVOLUTION_INVALIDATION_RECEIPT_VIEW`（`receipt_view`）
   提供 scene 级公共视图，Writing 保存链路消费（见 [11_writing](11_writing.md)）。
-  物理投影失效仍保守（自起点 supersede），归因与重算清单精确——按场景集合
-  supersede 仍待细化；story 投影已经 facade 写入逐维度实际登记，范围包含继承前缀。
+  Story 投影逐维度登记本场与继承前缀。登记覆盖完整时按变更偏移命中字段与下游 Scene，
+  只 supersede 命中的 checkpoint/派生事件；缺维度、缺场景或旧格式仍保守扩大。聚合快照
+  保留较宽失效范围以避免把混合维度快照当新鲜。
   回执指纹包含失效消费者的来源摘要，连续相同长度但不同正文的改稿不会共用提示编号。
 
 - 场景步管线（G2，`pipeline.py`）：`run_scene_step` 按 §4.1 顺序组合——
@@ -198,7 +202,10 @@ SDK/结构化隐式重试关闭。已冻结结果重放不扣费，预算不足�
 及低于 0.90 的边界置信留为待审草稿，人工确认后恢复；可选语义缺项不阻塞读取。
 前一章尾部仅用于边界判断，固定 draft/hash 并参加失效，不作为本 Scene 新事实来源。
 结果保存遵循 Project → run 锁序，改稿与 provider 返回并发时仍保留已付费结果、禁止应用。
-`revise` 已按正文/Scene 首个变化处重算后缀；`scoped_recompute` 接作者指定
+`revise` 从正文/Scene 首个变化处重算；只有本次重读前缀中每个 Scene 的语义状态指纹与观察来源映射
+都和基线一致，且来源仍当前、回执依赖链连续，才继承旧后缀并记录读取时重验的传播边界。
+任一重读场语义变化、缺少指纹、旧链缺口或观察无法映射时继续保守重算；尚无完整消费 read-set
+来安全跳过“边界相同但此前场景有变化”的情况。旧运行不回填指纹。`scoped_recompute` 接作者指定
 Scene 起点，若前序变化则保守扩大。继承场景还须是当前最新成功结果；新 run 保存逐条
 核实的原回执 run/attempt 身份、
 游标和前序观察，旧冻结失败、历史与费用保留；旧任务未终结时不启动新 run。
@@ -206,7 +213,10 @@ Scene 起点，若前序变化则保守扩大。继承场景还须是当前最�
 已提交的冻结观察（包括继承的原回执）。`GET /reading/{run_key}/targets` 提供有界分页和
 名称/观察文字检索，保持项目所有权与模态，未命中不证明不存在。预览以最早相关 Scene
 及来源首变位置确定保守后缀，实际目标、起点和扩大说明一起进入确认指纹与分段授权。
-这已覆盖目标选择与顺序后缀重算；细粒度依赖闭包和旧入口等价替代仍未完成。
+这已覆盖目标选择、顺序编译和整场状态相等时的传播停止；P4 消费输入证明进一步在实际
+Scene/Discovery/World 组执行点复用输入未变的调用结果，未知依赖继续保守重做。
+World 正典修订、地图册与世界知识的来源版本失效闭包继续明确列为 unsupported，
+不以读时可见性判断或调用复用冒充这些接线。
 
 ### 剧情结构阶段（Phase 3 迁移）
 
@@ -259,6 +269,13 @@ E05 已接实际正文与场景变更入口；已提交观察经 Evidence 进入
 所绑定的真实回执和最新来源，正文变更后拒绝直接采用。作者可从理解入口分页查看
 候选及原文证据；这尚不等于 Phase3/高质量融合和完整旧链迁移完成。
 
+DeepSeek thinking 模型现按身份关联候选分组，每组只附带必要身份上下文和精确原文区间，
+独立冻结请求、根预算预留和付费回执。组失败或单候选超限只阻断该组；通过组仍走原 World
+候选写入门。其他模型继续整包审查。旧版整场 `capacity_deferred` 保持原冻结回执；作者可
+先预览预计组数/调用数，再确认调用，补审记录保存在独立冻结记录中，不重新抽取或改写旧回执。
+明确失败且没有未知调用时可继续原冻结 attempt；unknown 请求需人工核对，不允许重试。
+来源变化、身份漂移或 unknown 请求仍阻断，未通过的候选继续待核。
+
 World v2 在同场新身份经独立复核后冻结候选 UUID，状态复核在该绑定上进行；
 World 候选、状态、关系物化快照和回执同事务提交。新身份未创建则不发布悬空状态，
 同场同名竞争保持待决定。关系历史限定真实前缀回执（含继承），不从当前 World 描述
@@ -275,11 +292,15 @@ World 候选、状态、关系物化快照和回执同事务提交。新身份�
 `ProjectLLMSampler.discover_details/review_discovery` 通过项目冻结账户连接执行严格输出，
 每批调用在 `scene_discovery_*` journal 冻结并计量，未知计费不直接重发。
 
-发现输入回读本场观察、所有来源合法的历史主题及同表面名历史候选，并披露实际召回范围。
-主题与其原始证据共同分批，不靠最近三场窗口遗忘；超出单批容量明确 unsupported，
+发现输入回读本场观察、来源合法的主题摘要和完整证据，以及按既有主题、World 已解析对象 ID、
+最后字面名优先级排序且最多 64 条的历史候选，并披露被省略数量与实际召回范围。
+作为召回来源的历史主题还须通过当前方法版本核验；方法过期的旧结果保留回看，不进入自动召回。
+正文摘录按观察来源区间加邻接上下文裁切；整场较短时保留全文。主题与原始证据共同分批，不靠
+最近三场窗口遗忘；超出单批容量明确 unsupported，
 观察抽取本身的未覆盖也传递为 partial。只允许引用本批实际提供的观察与目标修订。
-观察缺口须与已抽取的明确事实一致，不把明确未做误报为没有描写。发现输出仅保留契约根
-字段，无目标的独立疑问用new；question只更新本批完整既有主题，缺完整目标仅记待解。
+观察缺口须与已抽取的明确事实一致，不把明确未做误报为没有描写。发现输出按契约给出
+逐类别覆盖；缺字段按未检查展示，失败、未检查、部分检查和“已检查未检出”分开。
+无目标的独立疑问用new；question只更新本批完整既有主题，缺完整目标仅记待解。
 完整历史主题及精确复核目标提供原证据用途/发生锚，默认继承已认证旧用途，不重新把旧物理
 出现改选为背景。发生单位沿原具体细节：线索的解释和相关后续不同动作只作背景，不因新
 声明扩大主题就再计一次；明确兑现仍可计入它对应的承诺。用途认证分歧整项保留待核实。
@@ -373,8 +394,8 @@ conditions_review；未获资格仍整项待核，不任取共享词凑例外。
 
 
 绑定12为本轮新增的specific旧锚recall引入`recall_identity_reviews`逐pair资格：匹配当前回忆
-观察与精确旧occurrence，supported证书两侧须是本项已选/继承且本批实际可见；旧侧至少
-包含该锚同用途/角色的原已定位event动作，新侧包含当前recall见证与指认context。
+观察与精确旧occurrence，supported证书两侧须是本项已选/继承且本批实际可见；旧侧必须且
+只能包含一个该锚同用途/角色的原已定位event观察，新侧包含当前recall见证与指认context。
 缺证书、重复、未确认或错误来源整项待核，不从reason推同一性或由宿主猜锚/改为unknown
 来掩盖statement；无specific锚的recall/null仍未知且不增定位次数，继承已认证旧use不重要求。
 复核target同时提供occurrences与旧用途以独立核pair，不把新句说无新动作当具体旧锚证明。
@@ -417,3 +438,32 @@ run 和 attempt 依赖 token。无关追加保留历史证明；正文换版/恢
 产品接口、作者决定、正史权限和 #208 Scene Projection 消费查询保持原契约。
 
 #209 缓存守卫先 flush 待写入数据，兼容生产 autoflush=False；详细证明以 scope 引用/令牌数限制总容量，超出预算仅保留当前项目 epoch 的快照，epoch 改变后完整重验。
+
+### P4 离线续接：消费证明与类别补扫（2026-10-12）
+
+Scene 采样及每个实际 `_run_scene_call` 消费点冻结 `consumer_read_set.v1`：实际输入各字段、
+最终请求/响应 schema、Prompt、模型快照与真实 transport/options 的哈希。采样只对宿主
+run/source/parent 与观察身份做有界重绑定，保留全部前序事实、模态、主体、Scene 锚、覆盖
+与顺序；World 对象/关系 ID、旧 occurrence 锚、台账 ID/修订及作者决定保持原值。
+Discovery 仅对完整来源/资格/身份相同的观察做一对一引用映射，重复或未知证明保守重做。
+
+重新核对仍顺序编译当前场景并取得新的来源/parent/owner 回执，但每个实际消费者只在输入
+或方法变化时重新调用。完全相同的已取回结果链接 `reused_from`，免预算/免调用，原付费
+回执只留原调用；缺 read-set、sampling/failed、schema/Prompt/配置变化均不复用。
+World 分组 scope 使用候选、来源及身份上下文的内容身份，组输入未变可独立复用；不复制
+已物化正史或旧认证，所有独立复核输出仍在当前 scope 重物化。原整场语义相等的早停继承
+继续保留。Story 按字段和实际区间登记失效；world_knowledge/map_atlas/world_canon_revision
+缺失来源版本闭包继续明确 unsupported，不据输入缓存宣称这些缝已完成。
+
+`POST /reading/{run_key}/category-rescan-preview` 按已读 Scene 区间及类别注册表选类，
+预览不发请求；`category-rescan` 绑定操作 ID、完整来源/方法/模型/预算指纹与作者确认。
+显示基础调用估计与含身份去重的最高调用上限，根预算及本操作上限都在发送前扣减。
+原理解任务、补审或补扫活跃时拒绝并发启动；来源变化先拒绝，不增加预算。
+补扫单独冻结各场景发现/独立复核，只持久化选定类别的派生台账，不改原 Scene 回执、
+游标或 World/Story 正史。覆盖分别回读最近一次选类扫描，未选类别保留原覆盖；失败、
+未知结果、未检查与已检查未检出分开。`category-rescan/{operation_id}/resume` 仅恢复已核清
+中断，已取回的结果不再调用；未知付费结果先核对。沿用现有 ReadingFlow 面板，离开后
+回读操作状态，失联重试保留同一确认 ID，换作品隔离迟到响应。
+
+本轮只作合成数据的离线工程验证；语言习惯/外在特征是当前新增类别，重要物件/规则后果
+仍按原计划等待长篇分布裁定。P4-E 实际费用/质量、封存盲验与作者试用均未执行。

@@ -207,14 +207,14 @@ OPERATION_SNAPSHOT = {
     "story.plan_structure": (
         "规划剧情线、篇章、场景及伏笔推进",
         "suggest",
-        "1",
-        "57bc974f09e872ca1843deece844435d8e2572350f2353757e67e239c2311eea",
+        "3",
+        "49f68df03e44dbf6c08f24e4f2329850152ff0d83ab41f45e026eec8e6b96642",
     ),
     "story.adopt_structure": (
         "采用原结构规划包",
         "confirm",
-        "1",
-        "609805de188b4a2182cb52f761e6917d89d2a5d0ffcfd4f9745820cd9f2160f0",
+        "2",
+        "bab8d7f08d12fe4169d3d7888e26b5e78a66e5b5730ba2fe5a032da2f2c6a230",
     ),
     "story.create_information_plan": (
         "保存选定的信息安排",
@@ -299,6 +299,12 @@ OPERATION_SNAPSHOT = {
         "suggest",
         "1",
         "34140fb9d80c080108ed1dcf0467636f5fa31c3bb076e830a1f6648711683a7f",
+    ),
+    "world.draft_opening_skeleton": (
+        "起草新书开篇世界观骨架",
+        "suggest",
+        "1",
+        "253869e5f597bb89fda0767550471e2fcb4514e914096bf071d8461151f0a44b",
     ),
 }
 

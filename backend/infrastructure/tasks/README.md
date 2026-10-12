@@ -54,7 +54,7 @@ infrastructure/tasks/
 - project：`smart_dedup_scan`
 - world：`world_alias_relation_extraction`、
   `world_entity_fusion_suggestions`、`world_bible_projection_refresh`、
-  `world_bible_synopsis_refresh`、`world_generation_suggestion`、`world_cocreation_turn`、`world_validation`、`map_atlas_generate`、`world_map_schematic_generate`、
+  `world_bible_synopsis_refresh`、`world_generation_suggestion`、`world_opening_skeleton`、`world_cocreation_turn`、`world_validation`、`map_atlas_generate`、`world_map_schematic_generate`、
   `world_object_image_generate`（ADR-0029，本机 CLI 对象图片候选，`recovery_policy="never_retry"`）、
   `map_atlas_storage_cleanup`、`world_object_image_cleanup`
   （`world_generation_suggestion` 的 meta 可携带 `session_id`/`session_action`：任务成功后由
@@ -452,6 +452,7 @@ AnyIO 重复取消直到连接归还，仍执行原 lease fence；模型与网�
 | task handler | 恢复策略 | 预算与持久化 |
 |---|---|---|
 | `assistant_forecast` | manual_resume | 四次总请求，复用 AssistantRun 与 forecast_v1 检查点 |
+| `assistant_direction_cards` | auto_requeue | 两次尝试共享最多两次请求、360 秒预算；schema 卡片输出经租约私有检查点保存，中断后复用，绑定运行/输入/批次；生成前已发起标记落库，无安全结果则费用待核对并停止重复调用，不扩大用量或重算已保存结果。 |
 | `assistant_editorial_review` | manual_resume | 每个队列任务最多四次请求、30 分钟；领域 review 保存已核实段、来源/遗漏和用量，续跑仅处理剩余段，用量未知阻断重试。 |
 | `assistant_editorial_recheck` | manual_resume | 一次请求、30 分钟；只读原问题关联的当前正文，结果不自动关闭意见。 |
 | `collaboration_run` | manual_resume | 30 次 / 1800 秒的运行上限，Case 累计消费不因恢复重置 |
@@ -464,6 +465,7 @@ AnyIO 重复取消直到连接归还，仍执行原 lease fence；模型与网�
 | task handler | 恢复策略 | 预算与持久化 |
 |---|---|---|
 | `evolution_scene_step_v2` | manual_resume | 单 Scene 窄批次：run 根预算原子预留（T21），freeze/apply 窄提交（T10/T11），回执幂等重放；项目账户采样器与冻结 owner token；入口重定向待 canary（E07.e） |
+| `evolution_world_audit_supplement_v1` | manual_resume | 复用旧冻结候选，按分组冻结结果；仅明确失败且无 unknown 调用时恢复同一 attempt，来源变化或结果未核清不开放继续 |
 
 ## Evolution 场景步恢复
 
@@ -472,6 +474,9 @@ AnyIO 重复取消直到连接归还，仍执行原 lease fence；模型与网�
 live/shadow 模式及来源指纹；已提交结果重放原回执，sampled/compiled 复用冻结结果，
 sampling/failed 保留计量待核对，不能由通用重试静默再次付费。恢复请求变化返回
 request_changed。当前没有把 deep_import 的生产入口重定向到此 handler。
+
+旧版 World 整场容量延后由作者预览、确认后进入独立补审任务。已冻结的分组结果可从原任务检查点继续，
+不重发已采样请求；unknown 费用或请求结果只允许人工核对，不能使用 manual resume。
 
 理解任务在 project preflight/commit guard 校验冻结的 engine/epoch/schema token。项目切换
 通过 task_types 限定取消理解任务，保留其他任务与历史计量。PG guard 拒绝旧 v1
@@ -489,3 +494,6 @@ RP 普通 worker 与匿名 inline 入口均将完整、未闭合或超长的无�
 
 `read_private_task_checkpoint` / `write_private_task_checkpoint` 仅在原 worker 租约栅栏 session 内按任务 ID、类型和 novel_id 读取/保存下划线私有负载；写入通过既有 checkpoint 提交，业务模块不读取任务 ORM。
 AI 用量汇总保留 `usage_complete`；旧恢复回执 `legacy_untracked` 即使未知请求数量为零，也标记统计不完整，不猜填历史请求数。
+
+`evolution_category_rescan_v1` 是已确认类别补扫的 manual_resume 任务，冻结结果恢复不重发；
+请求未知先核对，沿用原理解 run 的根预算，并限制本操作调用上限。

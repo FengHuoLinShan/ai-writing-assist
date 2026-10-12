@@ -754,6 +754,8 @@ class PostgresAttemptStore:
         )
         for row in rows:
             payload = row.payload_json or {}
+            if payload.get("world_audit_supplement") or payload.get("category_rescan"):
+                continue
             if payload.get("scene_index") == scene_index:
                 return await self.load_frozen(run_id, row.attempt_key)
         return None

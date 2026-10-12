@@ -674,6 +674,7 @@ class OutlineStructurePreviewApplyRequest(BaseModel):
     context_confirmation_id: str
     source_task_id: str
     draft_structure: dict[str, Any]
+    confirmation_fingerprint: str | None = None
     confirmed: bool = False
 
 
@@ -684,6 +685,9 @@ class OutlineStructurePreviewApplyResponse(PlotStructureGenerateResponse):
     mode: Literal["create", "revise"] | None = None
     result: Literal["proposed", "no_change", "needs_author_decision"] | None = None
     applied_ids: list[str] = []
+    proposal_refs: list[str] = []
+    excluded_proposal_refs: list[str] = []
+    confirmation_fingerprint: str | None = None
 
 
 # ============================================================

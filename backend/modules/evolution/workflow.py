@@ -12,6 +12,7 @@ from infrastructure.tasks.facade import (
     list_task_lifecycle_contracts,
     resume_manual_task,
 )
+from modules.evolution.ledger_contracts import LEDGER_CATEGORY_LABELS
 from modules.evolution.models import EvolutionRun
 from modules.evolution.pipeline import SceneSourceBinding, load_current_source
 from modules.evolution.state_review import has_unreconciled_scene_calls
@@ -260,14 +261,43 @@ async def _plan_recompute(db, novel_id, request, run, store):
     if len(pairs) < start_index:
         raise ConflictError("原理解尚未提交到可继承的前缀")
     latest = await store.latest_scene_attempts(
-        {frozen.payload_json.get("scene_id") for _, frozen in pairs[:start_index]}
+        {frozen.payload_json.get("scene_id") for _, frozen in pairs}
     )
+    from modules.evolution.reading import _validate_propagation_handoff
+
     inherited, previous, observation_ids = [], None, set()
+    observation_aliases = {}
     for index, (receipt, frozen) in enumerate(pairs[:start_index]):
         payload = frozen.payload_json
         inputs = payload.get("input_manifest") or {}
+        chain_gap = bool(
+            index
+            and (
+                frozen.previous_receipt != previous
+                or inputs.get("previous_scene_attempt_id") != previous
+            )
+        )
+        if chain_gap:
+            aliases = await _validate_propagation_handoff(
+                db,
+                store,
+                run.reading_plan_json or {},
+                pairs[index - 1],
+                (receipt, frozen),
+                index - 1,
+            )
+            if aliases is None:
+                raise ConflictError("原理解的传播边界已变化，不能继承该前缀")
+            observation_aliases.update(aliases)
         if (
             receipt.committed_scene_index != index
+            or (
+                not index
+                and (
+                    frozen.previous_receipt is not None
+                    or inputs.get("previous_scene_attempt_id") is not None
+                )
+            )
             or payload.get("scene_id") != steps[index]["scene_id"]
             or payload.get("source_binding") != steps[index]["source_binding"]
             or latest.get(payload.get("scene_id"))
@@ -277,10 +307,11 @@ async def _plan_recompute(db, novel_id, request, run, store):
             or inputs.get("scene_index") != index
             or inputs.get("dependency_status") != "committed"
             or inputs.get("source_manifest_hash") != frozen.source_manifest_hash
-            or frozen.previous_receipt != previous
-            or inputs.get("previous_scene_attempt_id") != previous
             or any(
-                item.get("observation_id") not in observation_ids
+                observation_aliases.get(
+                    item.get("observation_id"), item.get("observation_id")
+                )
+                not in observation_ids
                 for item in inputs.get("previous_observations", [])
             )
         ):
@@ -290,6 +321,22 @@ async def _plan_recompute(db, novel_id, request, run, store):
             item["observation_id"] for item in payload.get("compiled_observations", [])
         )
         inherited.append({"run_key": receipt.run_key, "attempt_id": receipt.attempt_key})
+    baseline_receipts = [
+        {
+            "scene_index": index,
+            "run_key": receipt.run_key,
+            "attempt_id": receipt.attempt_key,
+            "source_matches": bool(
+                index < len(steps)
+                and frozen.payload_json.get("source_binding")
+                == steps[index]["source_binding"]
+            ),
+        }
+        for index, (receipt, frozen) in enumerate(pairs)
+        if receipt.committed_scene_index == index
+        and latest.get(frozen.payload_json.get("scene_id"))
+        == (receipt.run_key, receipt.attempt_key)
+    ]
     missing = expected_chapters[len(chapter_indices) :]
     plan = {
         "version": "evolution_reading.v1",
@@ -303,6 +350,15 @@ async def _plan_recompute(db, novel_id, request, run, store):
         ),
         "steps": steps,
         "inherited_receipts": inherited,
+        "recompute_baseline": {
+            "run_key": run.run_key,
+            "receipts": baseline_receipts,
+        },
+        "propagation_handoffs": [
+            item
+            for item in (run.reading_plan_json or {}).get("propagation_handoffs", [])
+            if item.get("scene_index", -1) < start_index
+        ],
         "recompute_from_scene_index": start_index,
         "expanded_scope": requested_start is not None and start_index < requested_start,
         "recompute_target": target,
@@ -458,6 +514,14 @@ async def _read_step(db, novel_id, step):
 
 async def preview_reading(db, novel_id, request):
     await require_active_project(db, novel_id)
+    if request.run_key:
+        source_run = await PostgresAttemptStore(db, novel_id).load_run(request.run_key)
+        if source_run:
+            from modules.evolution.world_audit_supplement import (
+                require_no_active_world_audit_supplement,
+            )
+
+            await require_no_active_world_audit_supplement(db, novel_id, source_run)
     plan, _ = await _plan(db, novel_id, request)
     return {
         "fingerprint": content_hash(plan),
@@ -484,6 +548,14 @@ async def preview_reading(db, novel_id, request):
 async def start_reading(db, novel_id, request):
     await require_active_project_exclusive(db, novel_id)
     store = PostgresAttemptStore(db, novel_id)
+    if request.run_key:
+        source_run = await store.load_run(request.run_key)
+        if source_run:
+            from modules.evolution.world_audit_supplement import (
+                require_no_active_world_audit_supplement,
+            )
+
+            await require_no_active_world_audit_supplement(db, novel_id, source_run)
     recompute = request.mode in {"revise", "scoped_recompute"}
     key = (
         f"reading-{request.operation_id}"
@@ -559,6 +631,14 @@ async def start_reading(db, novel_id, request):
             if previous.get("inherited_receipts")
             else {}
         ),
+        **(
+            {
+                "recompute_baseline": plan["recompute_baseline"],
+                "propagation_handoffs": plan["propagation_handoffs"],
+            }
+            if recompute
+            else {}
+        ),
         **({"preparation": plan["preparation"]} if plan.get("preparation") else {}),
         # The persisted structure stage survives re authorization; batches over the
         # already-committed prefix must not restart or silently drop on rebuild.
@@ -605,6 +685,9 @@ async def advance_reading(db, novel_id, run_key):
     if run.status != "active":
         raise ConflictError("理解已停止或来源变化，请重新准备")
     plan = run.reading_plan_json
+    if plan.get("recompute_baseline"):
+        await _inherit_recompute_suffix_if_stable(db, novel_id, store, run)
+        plan = run.reading_plan_json
     if plan.get("preparation", {}).get("stage") not in {None, "complete"}:
         from modules.evolution.preparation import enqueue_preparation
 
@@ -666,6 +749,180 @@ async def advance_reading(db, novel_id, run_key):
     run.reading_plan_json = {**plan, "task_id": queued["task_id"]}
     await db.flush()
     return {"next_task_id": queued["task_id"], "reading_complete": False}
+
+
+async def _inherit_recompute_suffix_if_stable(db, novel_id, store, run):
+    """Reuse old suffixes only after the whole recomputed prefix matches."""
+    from modules.evolution.pipeline import (
+        equivalent_scene_state_fingerprint,
+        observation_equivalence_map,
+    )
+    from modules.evolution.reading import _recomputed_prefix_matches_baseline
+
+    plan = run.reading_plan_json or {}
+    boundary = run.committed_scene_index
+    first_recompute = plan.get("recompute_from_scene_index", 0)
+    if boundary < first_recompute or boundary + 1 >= len(plan.get("steps", [])):
+        return False
+    baseline = plan.get("recompute_baseline") or {}
+    refs = {int(item["scene_index"]): item for item in baseline.get("receipts", [])}
+    current_ref = refs.get(boundary)
+    if not current_ref:
+        return False
+    current_pairs = await store.load_committed_pairs(run.run_key)
+    current_pair = next(
+        (
+            pair
+            for pair in current_pairs
+            if pair[0].run_key == run.run_key
+            and pair[0].committed_scene_index == boundary
+        ),
+        None,
+    )
+    if not current_pair:
+        return False
+    baseline_pairs = await store.load_committed_pairs(baseline["run_key"])
+    baseline_by_key = {
+        (receipt.run_key, receipt.attempt_key): (receipt, frozen)
+        for receipt, frozen in baseline_pairs
+    }
+    if not _recomputed_prefix_matches_baseline(
+        run.run_key, plan, boundary, current_pairs, baseline_pairs
+    ):
+        return False
+    old_boundary = baseline_by_key.get(
+        (current_ref["run_key"], current_ref["attempt_id"])
+    )
+    if not old_boundary:
+        return False
+    current_frozen = await store.load_frozen(run.run_key, current_pair[0].attempt_key)
+    old_frozen = await store.load_frozen(
+        current_ref["run_key"], current_ref["attempt_id"]
+    )
+    if not current_frozen or not old_frozen:
+        return False
+    boundary_step = plan["steps"][boundary]
+    current_binding, _ = await _read_step(db, novel_id, boundary_step)
+    if (
+        old_boundary[0].committed_scene_index != boundary
+        or current_frozen.payload.get("scene_index") != boundary
+        or old_frozen.payload.get("scene_index") != boundary
+        or current_frozen.payload.get("scene_id") != boundary_step["scene_id"]
+        or old_frozen.payload.get("scene_id") != boundary_step["scene_id"]
+        or current_frozen.payload.get("source_binding") != boundary_step["source_binding"]
+        or current_binding.model_dump(mode="json") != boundary_step["source_binding"]
+    ):
+        return False
+    fingerprint = equivalent_scene_state_fingerprint(
+        old_frozen.payload, current_frozen.payload
+    )
+    if not fingerprint:
+        return False
+    observation_map = observation_equivalence_map(
+        old_frozen.payload, current_frozen.payload
+    )
+    if observation_map is None:
+        return False
+
+    latest = await store.latest_scene_attempts(
+        {
+            frozen.payload_json.get("scene_id")
+            for _, frozen in baseline_pairs
+            if frozen.payload_json.get("scene_index", -1) > boundary
+        }
+    )
+    inherited = list(plan.get("inherited_receipts", []))
+    inherited_keys = {(item["run_key"], item["attempt_id"]) for item in inherited}
+    current_observation_ids = {
+        item["observation_id"]
+        for receipt, frozen in current_pairs
+        if receipt.committed_scene_index <= boundary
+        for item in frozen.payload_json.get("compiled_observations", [])
+    }
+    reused, first_receipt = [], None
+    last_receipt = None
+    previous_receipt = old_boundary[0]
+    # shortcut: stop reuse at a prior handoff or unmapped observation; compose
+    # older mappings when repeated revisions need savings across that boundary.
+    for scene_index in range(boundary + 1, len(plan["steps"])):
+        reference = refs.get(scene_index)
+        if not reference or not reference.get("source_matches"):
+            break
+        candidate = baseline_by_key.get((reference["run_key"], reference["attempt_id"]))
+        if not candidate:
+            break
+        receipt, frozen = candidate
+        step = plan["steps"][scene_index]
+        inputs = frozen.payload_json.get("input_manifest") or {}
+        current_binding, _ = await _read_step(db, novel_id, step)
+        if (
+            receipt.committed_scene_index != scene_index
+            or frozen.payload_json.get("scene_index") != scene_index
+            or frozen.payload_json.get("scene_id") != step["scene_id"]
+            or frozen.payload_json.get("source_binding") != step["source_binding"]
+            or current_binding.model_dump(mode="json") != step["source_binding"]
+            or latest.get(frozen.payload_json.get("scene_id"))
+            != (receipt.run_key, receipt.attempt_key)
+            or inputs.get("run_key") != receipt.run_key
+            or inputs.get("scene_index") != scene_index
+            or inputs.get("dependency_status") != "committed"
+            or inputs.get("source_manifest_hash") != frozen.source_manifest_hash
+            or frozen.previous_receipt != previous_receipt.attempt_key
+            or inputs.get("previous_scene_attempt_id") != previous_receipt.attempt_key
+            or any(
+                not isinstance(item, dict)
+                or observation_map.get(
+                    item.get("observation_id"), item.get("observation_id")
+                )
+                not in current_observation_ids
+                for item in inputs.get("previous_observations", [])
+            )
+        ):
+            break
+        key = (receipt.run_key, receipt.attempt_key)
+        if key not in inherited_keys:
+            reused.append({"run_key": receipt.run_key, "attempt_id": receipt.attempt_key})
+            inherited_keys.add(key)
+            if first_receipt is None:
+                first_receipt = receipt
+        last_receipt = receipt
+        previous_receipt = receipt
+        current_observation_ids.update(
+            item["observation_id"]
+            for item in frozen.payload_json.get("compiled_observations", [])
+        )
+    if not reused:
+        return False
+
+    handoffs = [
+        item
+        for item in plan.get("propagation_handoffs", [])
+        if item.get("scene_index") != boundary
+    ]
+    handoffs.append(
+        {
+            "scene_index": boundary,
+            "current_run_key": run.run_key,
+            "current_attempt_id": current_pair[0].attempt_key,
+            "baseline_run_key": current_ref["run_key"],
+            "baseline_attempt_id": current_ref["attempt_id"],
+            "next_baseline_run_key": first_receipt.run_key,
+            "next_baseline_attempt_id": first_receipt.attempt_key,
+            "state_fingerprint": fingerprint,
+            "observation_map": observation_map,
+            "reused_through_scene_index": last_receipt.committed_scene_index,
+        }
+    )
+    run.reading_plan_json = {
+        **plan,
+        "inherited_receipts": [*inherited, *reused],
+        "propagation_handoffs": handoffs,
+    }
+    run.committed_scene_index = last_receipt.committed_scene_index
+    run.committed_source_revision = last_receipt.committed_source_revision
+    run.head_attempt_id = last_receipt.id
+    await db.flush()
+    return True
 
 
 async def reading_status(db, novel_id, run_key=None):
@@ -740,6 +997,8 @@ async def reading_status(db, novel_id, run_key=None):
         status = "completed"
     else:
         status = lifecycle.status if lifecycle else "interrupted"
+    from modules.evolution.category_rescan import category_rescan_states
+
     return {
         "engine": engine,
         "run": {
@@ -762,7 +1021,12 @@ async def reading_status(db, novel_id, run_key=None):
                 and completed == len(plan["steps"])
             ),
             "model": (run.llm_snapshot_json or {}).get("profile", {}).get("model"),
+            "discovery_categories": [
+                {"key": key, "label": label}
+                for key, label in LEDGER_CATEGORY_LABELS.items()
+            ],
             "discovery_enabled": plan.get("discovery_version", 0) == 1,
+            "category_rescans": await category_rescan_states(db, novel_id, run),
             "can_resume": run.status == "active"
             and not reconcile
             and status != "needs_budget"
@@ -776,6 +1040,13 @@ async def reading_status(db, novel_id, run_key=None):
 
 async def resume_reading(db, novel_id, run_key):
     await require_active_project_exclusive(db, novel_id)
+    source_run = await PostgresAttemptStore(db, novel_id).load_run(run_key)
+    if source_run:
+        from modules.evolution.world_audit_supplement import (
+            require_no_active_world_audit_supplement,
+        )
+
+        await require_no_active_world_audit_supplement(db, novel_id, source_run)
     state = await reading_status(db, novel_id, run_key)
     if not state["run"]["can_resume"]:
         raise ConflictError("当前理解不能直接重试；已发生的请求和成果会保留")
@@ -814,6 +1085,7 @@ async def reading_proposals(db, novel_id, run_key, *, offset=0, limit=20):
     filters = (
         EvolutionFrozenAttempt.novel_id == UUID(novel_id),
         EvolutionFrozenAttempt.run_key == run_key,
+        EvolutionFrozenAttempt.payload_json["category_rescan"].as_boolean().is_not(True),
     )
     total = await db.scalar(
         select(func.count()).select_from(EvolutionFrozenAttempt).where(*filters)
@@ -842,6 +1114,67 @@ async def reading_proposals(db, novel_id, run_key, *, offset=0, limit=20):
             except ConflictError:
                 stale = True
         context = result["context"]
+        review = result.get("review") or {}
+        supplement_entry = next(
+            (
+                item
+                for item in reversed(
+                    run.reading_plan_json.get("world_audit_supplements", [])
+                )
+                if item.get("origin_attempt_id") == row.attempt_key
+            ),
+            None,
+        )
+        supplement_frozen = (
+            await store.load_frozen(run_key, supplement_entry["supplement_attempt_id"])
+            if supplement_entry
+            else None
+        )
+        supplement_status = (
+            supplement_frozen.payload.get("world_audit_status")
+            if supplement_frozen
+            else supplement_entry.get("status")
+            if supplement_entry
+            else None
+        )
+        supplement_lifecycle = None
+        if supplement_entry and supplement_entry.get("task_id"):
+            supplement_lifecycle = (
+                await list_task_lifecycle_contracts(
+                    db,
+                    task_ids=[supplement_entry["task_id"]],
+                    novel_id=novel_id,
+                    max_heartbeat_gap=120,
+                )
+            ).get(supplement_entry["task_id"])
+            if supplement_lifecycle and supplement_lifecycle.status in {
+                "pending",
+                "running",
+            }:
+                supplement_status = supplement_lifecycle.status
+            elif (
+                supplement_lifecycle
+                and supplement_lifecycle.status in {"failed", "cancelled"}
+                and supplement_status in {"pending", "running"}
+            ):
+                supplement_status = (
+                    "needs_reconciliation"
+                    if supplement_frozen
+                    and has_unreconciled_scene_calls(supplement_frozen.payload)
+                    else "failed"
+                )
+        supplement_groups = (
+            list((supplement_frozen.payload.get("world_audit_reviews") or {}).values())
+            if supplement_frozen
+            else []
+        )
+        review_groups = supplement_groups or review.get("groups", [])
+        review_status = (
+            "passed"
+            if supplement_groups
+            and all(item.get("status") == "passed" for item in supplement_groups)
+            else review.get("status", "not_required")
+        )
         labels = {
             item["prompt_ref"]: item["name"] for item in context["identity_candidates"]
         }
@@ -851,9 +1184,53 @@ async def reading_proposals(db, novel_id, run_key, *, offset=0, limit=20):
             {
                 "scene_index": payload["scene_index"],
                 "stale": stale,
-                "review_status": (result.get("review") or {}).get(
-                    "status", "not_required"
-                ),
+                "review_status": review_status,
+                "review_groups": [
+                    {
+                        "status": group.get("status"),
+                        "candidate_count": group.get("candidate_count", 0),
+                        "issues": [
+                            issue.get("message", "")
+                            for issue in group.get("issues", [])
+                            if issue.get("message")
+                        ],
+                    }
+                    for group in review_groups
+                ],
+                "supplement": {
+                    "available": bool(
+                        review.get("review_kind") == "capacity_deferred"
+                        and not supplement_entry
+                        and not stale
+                    ),
+                    "can_resume": bool(
+                        not stale
+                        and supplement_frozen
+                        and supplement_status == "failed"
+                        and supplement_lifecycle
+                        and supplement_lifecycle.status == "failed"
+                        and supplement_lifecycle.recovery_required
+                        and not has_unreconciled_scene_calls(supplement_frozen.payload)
+                    ),
+                    "attempt_id": row.attempt_key,
+                    "status": supplement_status,
+                    "reviewed_groups": len(supplement_groups),
+                    "group_count": len(
+                        (
+                            supplement_frozen.payload.get("world_review_preparation")
+                            or {}
+                        ).get("groups", [])
+                    )
+                    if supplement_frozen
+                    else supplement_entry.get("call_count", 0)
+                    if supplement_entry
+                    else 0,
+                    "result_refs": supplement_frozen.payload.get(
+                        "world_audit_result_refs", []
+                    )
+                    if supplement_frozen
+                    else [],
+                },
                 "entities": [
                     {
                         key: item.get(key)
@@ -886,7 +1263,15 @@ async def reading_proposals(db, novel_id, run_key, *, offset=0, limit=20):
                 ],
                 "findings": [
                     item["message"]
-                    for item in (result.get("review") or {}).get("issues", [])
+                    for item in (
+                        [
+                            issue
+                            for group in review_groups
+                            for issue in group.get("issues", [])
+                        ]
+                        if review_groups
+                        else review.get("issues", [])
+                    )
                 ],
                 "uncertainties": [
                     item["reason"] for item in world.get("uncertain_items", [])

@@ -1,6 +1,7 @@
 """Source-bound, independently reviewed discovery on the existing Scene journal."""
 
 import json
+import re
 from copy import deepcopy
 from functools import partial
 
@@ -23,6 +24,7 @@ from modules.evolution.freshness import require_cached_prefix
 from modules.evolution.ledger import list_ledger, persist_discovery_claim
 from modules.evolution.ledger_contracts import (
     DISCOVERY_METHOD_VERSION,
+    LEDGER_CATEGORY_LABELS,
     DiscoveryChange,
     DiscoveryOutput,
     DiscoveryReview,
@@ -30,6 +32,7 @@ from modules.evolution.ledger_contracts import (
     LedgerDependency,
     LedgerEvidence,
 )
+from modules.evolution.reading import require_current_prefix
 from modules.evolution.sampler import (
     DISCOVERY_OUTPUT_TOKENS,
     SCENE_CALL_TIMEOUT_SECONDS,
@@ -38,7 +41,7 @@ from modules.evolution.state_review import (
     SceneCallFailedError,
 )
 from modules.evolution.state_review import (
-    settled_discovery_output_failure as _settled_output_failure,
+    settled_output_failure as _settled_output_failure,
 )
 from modules.evolution.world import freeze_value
 
@@ -49,10 +52,18 @@ CONDITIONS_SEMANTICS = (
     "保留在原事实/context及竞争解释，不宣告其无关，不将整个情境逐词拼为必要门槛。"
 )
 
+DISCOVERY_REQUEST_CHARACTERS = 50000
+DISCOVERY_RECALL_CANDIDATE_LIMIT = 64
+DISCOVERY_CONTEXT_CHUNK_CHARACTERS = 12000
+DISCOVERY_OBSERVATION_CHUNK_CHARACTERS = 8000
+
 DISCOVERY_PROMPT = (
     "你为小说作者维护非文学细节台账，只提出有证据的派生理解，不决定正史。"
     "statement写最小充分主张，不顺带添加未绑定的地名、触发、持有或人物关系；需要额外事实时先选它的原文观察。背景增强保留原观察资格，不以本轮传闻替换整个历史行为主张。"
-    "只保留有后续追踪价值的条件行为、线索和明确承诺，不为每条普通持有/位置状态新增台账。"
+    "selected_categories是本次作者确认的扫描范围；只输出这些类别的changes与category_coverage，未选类别不作已检声明。"
+    "只保留有后续追踪价值的条件行为、线索、明确承诺、语言习惯与外在特征，不为普通持有/位置状态新增台账。"
+    "language_habit只记逐字直述台词；utterance_attribution由宿主按精确来源区间解析，只有direct_dialogue且speaker_resolution为World精确身份时才可作发生来源，不凭角色姓名或叙述推断说话人，不评价文风。"
+    "external_appearance只记正文直接描写的外貌、伤痕、装束等；只是派生台账，不回写World人物资料。新描述是特征变化，不是反例。"
     "分类：conditional_behavior是人物在明确条件下的动作，即使只有一次也属此类，不能因未证明习惯就改成clue；"
     "首次明确情境动作写这一次的事实，conditions是有据追踪维度，不声称必要/充分条件或习惯。首个单例优先使用原句明示可对照的基础状态/约束，不把具体触发、程度及伴随体征拼为合取门槛；这些事实仍保留在原事实/context和竞争解释，不宣告无关，原文或作者明示的适用限制仍须保留。无明示基础状态不自行推定。一次不足以证明规律不等于该次条件中的动作不受支持，不要求先积累多次才记录。"
     "原句明确将主体状态或约束与该动作相连时，conditions必须包含这一可对照基础条件；外部触发可另作情境，不以外部触发替代原明示基础状态。后续原文有相同基础状态但选择不同动作时，保留不同触发说明并审查例外；旧字段若漏了基础状态，以旧/新原句显式修订并交conditions_review，不默改。未明示状态或限制仍不猜。"
@@ -98,14 +109,15 @@ DISCOVERY_PROMPT = (
     "prior_review=uncertain的初始主题仅供再次查证身份与原文；新证据足够时沿原entry_id修订，"
     "不足则保留待核实资格，不能把旧候选当已知事实。作者决定独立保留：scope=instance只约束basis_revision/scene_index的那次记录，不禁止后来真实独立实例加入主题或增加发生数，也不自动修正后续实例；scope=theme才有作者明确扩大授权。作者拒绝/修正不被覆盖，"
     "新证据若与其冲突，保留中性提示。范围仅限给定正文与已提交来源，后文不能补前史。"
-    "theme_index的label/subject_labels用于定位同一主体同一具体细节，摘要/prior_review仅用于路由与避免重复，不作为原文证据或更新目标。已有对应细节但本批无完整theme时留待该theme所在批，不new。"
+    "theme_index的label用于定位同一主体同一具体细节，索引只含名称与ID，摘要/prior_review仅用于路由与避免重复，不作为原文证据或更新目标。已有对应细节但本批无完整theme时留待该theme所在批，不new。"
     "更新只能引用historical_context中提供完整证据的theme；不在本批则留待后续批。"
     "target_entry_id/expected_revision逐字复制本批完整theme的entry_id/revision。prior_review理由、作者basis_revision和theme_index只是历史或路由，不能拿其中旧修订号更新。本批无完整目标则不输出其change。"
     "仅有theme_index/prior_review而无本批完整theme时，不得输出该主题的任何change；"
     "无获授权的变化时changes=[]，仍须返回coverage和coverage_note说明本批实际覆盖；不复制历史revision或填写null占位来更新。"
     "输出前逐项自查：每个新增限定有已选/继承原句，模态表达本项实际主张而不是照抄旧主题最后一条传闻；明确当前行为可用event_observed，混合主张须保留各句资格。回忆动作选recall并链接旧occurrences表中已证同一事件的锚；回忆者与旧动作主体不是同一个角色位。"
     "allow_new_themes为false时不能新增，只更新本批主题；缺描写不产生更新。"
-    "只输出一个JSON对象，根字段仅changes/unresolved/coverage/coverage_note，不复制Schema的type/properties或添加包装，不带编号或Markdown。changes允许为空；"
+    "只输出一个JSON对象，根字段为changes/unresolved/coverage/coverage_note/category_coverage，不复制Schema的type/properties或添加包装，不带编号或Markdown。changes允许为空；"
+    "category_coverage须包含契约列出的每个类别：inspected表示本批确实检查该类，partial表示相关范围只检查一部分，unsupported表示本批无法检查，not_checked表示未检查；已检查但没有发现时必须填inspected，不能填not_checked。"
     "coverage_note用一句简短中文说明范围，不复述观察ID和协议；unresolved只列具体待解问题。"
     "new也用于没有既有目标的独立待核实新条目，不带target_entry_id/expected_revision；question仅用于本批完整既有主题，和其它更新一样必须带准确UUID及修订。已有对应主题但本批缺完整目标时只记unresolved，不用占位符或另new，"
     "exception必须引用明确exception_case或counterevidence。明确负向实例应修订原主题，保留历史动作，不另建一个无关联的没做主题。coverage只报告此次输入，不把召回未检范围说成不存在。"
@@ -115,7 +127,7 @@ REVIEW_PROMPT = (
     "输入conditions_semantics定义字段含义，不替原文判定任何具体条件无关。首个单例核明示基础状态及真实限制，不能把全情境字符串自动当必要合取门槛；触发、程度与体征保留原事实/context和竞争解释。先核该次事实与主张范围，再核是否有规律：明确人物在有据情境中的一次动作可supported为单次条件行为，不能仅因一次不足证明习惯/因果就否定这次事实。若statement超范围概括则uncertain/rejected。"
     "四份认证名单只能引用本项change.evidence已选择的observation_id，以及身份/修订匹配的target_theme.evidence_observation_ids；new没有继承集合。全批其它观察可用于独立对照或说明reason，不能填进认证名单、增补来源或改写证据绑定。"
     "转述中的性别代词须本项已选/继承原句支持；原姓名或第一人称原话不证明性别，旧摘要/后文不补签历史。"
-    "独立核类别：主题所追踪的是人物在原文明示可对照条件下的具体动作时，属于conditional_behavior；明示同主体且连续情境的条件与动作可来自相邻观察，须均被本项绑定并区分context/occurrence。物件clue不能替代或漏掉该有源行为，有独立外观/符号/现象证据的额外clue仍可保留，按各自单位分类和计数；已承诺的履行/违背沿原commitment，不因也是人物动作就改类。未绑定条件不能默补，返回uncertain/rejected，不从邻接/共场臆造条件。"
+    "独立核类别：主题所追踪的是人物在原文明示可对照条件下的具体动作时属于conditional_behavior；逐字台词按宿主utterance_attribution归属到说话人后才属于language_habit，叙述/转述/传闻不得伪装为角色口头禅；原文直接外在描述属于external_appearance，变化不是反例且不回写World。明示同主体且连续情境的条件与动作可来自相邻观察，须均被本项绑定并区分context/occurrence。物件clue不能替代该有源行为，有独立外观/符号/现象证据的额外clue仍可保留；承诺履行/违背沿原commitment。未绑定条件不能默补，返回uncertain/rejected，不从邻接/共场臆造。"
     "先分别核主题身份与每条证据的相关性，再核全部断言、模态和实例资格。已确定同主体同细节的转述不能因模态/事件共指/习惯机理未确定就new；核对theme_index，缺完整旧主题不证明新主题。"
     "context须有原文关联依据，不能因共场、背景真实、不增次数、未提及目标或未说明关联就附入旧主题。有来源的代词/间接链可支持关联，不要求同UUID；主题不匹配或证据不相关的更新rejected，uncertain仅保留相关但未证实的理解。"
     "conditions核实质追踪条件而非要求每个单次触发、症状措辞和姿势逐字重现；保留原实质条件及当前情境差别，拒绝无来源说明的缩条件或任意交集。明确同实质条件的负向/不同选择不要求旧主题先有普遍规律，作者instance不禁止后续独立例外；它不证明机制或证伪旧动作。"
@@ -152,7 +164,16 @@ REVIEW_PROMPT = (
     "supported的所有新context都须列入context名单，counter/context可由counter名单独立认证。任一新增证据不相关应reject整项，不用整体supported加reason排除它；宿主不会仅凭reason剥源后保留statement。继承已认证用途不用每轮重列。"
     "new须核对theme_index，不能把同主体同细节的新含义/兑现或初始uncertain续证另建同义条目；本批缺完整theme不证明新主题。作者scope=instance只约束basis_revision/scene_index那次记录，不能禁止后续独立实例或有来源的主观背景/竞争解释加入原主题，不是全主题次数上限；增强可以仅补新context而不增加动作次数，传闻仍按主观原句而非事实核对；scope=theme才是扩大授权。旧机器主题不是证据，作者决定不能被改写。每项change的引用必须属于给定观察，且至少有本场新证据；合法空changes不要求引文，不要求为满足引用而造变化。"
     "历史未知回忆不得因复核名单重列动作就升级为新的物理event。后续有新来源唯一指认时，可显式选择该历史recall链接旧原event，逐pair两侧专审并绑定本轮指认context，不回算旧head或加物理发生。"
-    "本轮recall绑定具体旧锚时，必须填写recall_identity_reviews逐pair核定：原source至少包含目标该occurrence原已定位event动作，新source包含本轮recall动作与指认context；仅本项已选/继承且本批可见。先独立对照旧事件原句与新指认是否唯一对应，再认证动作，不从无新动作或唯一已存候选倒推旧锚。不够则身份uncertain/rejected并整项待核。"
+    "本轮recall绑定具体旧锚时，必须填写recall_identity_reviews逐pair核定："
+    "原source必须且只能引用目标该occurrence的一个原已定位event观察，"
+    "new source包含本轮recall动作与指认context；仅本项已选/继承且本批可见。"
+    "identity_quote必须复制新旧原句共同的连续逐字短语；宿主验证该短语确在本轮来源，"
+    "并只匹配同主题一个旧event occurrence。先独立对照旧事件原句与新指认是否唯一对应，"
+    "再认证动作，不从无新动作或唯一已存候选倒推旧锚。"
+    "identity_quote须含区别于主题动作的场合内容（地点、时机、次序等），"
+    "仅重复主题动作短语不构成指认；本轮指认原句须含明确场合指代（那次/那天/第一次等），"
+    "否则身份uncertain。"
+    "不够则身份uncertain/rejected并整项待核。"
     "低置信、竞争解释、关键身份歧义可合法保留，但不足以支持的概括返回uncertain。"
     "支持必须覆盖整项主张，不能用逐字命中代替语义蕴含。每项直接使用changes内宿主提供的change_index（从0开始），不按自然语言编号或省略项后重新排序；每项序号只返回一次，漏项不放行。"
 )
@@ -169,9 +190,13 @@ def method_fingerprint():
             LedgerClaim.model_json_schema(),
             {
                 "chunk_characters": PART_CHARACTERS,
-                "request_characters": 50000,
+                "request_characters": DISCOVERY_REQUEST_CHARACTERS,
+                "recall_candidate_limit": DISCOVERY_RECALL_CANDIDATE_LIMIT,
+                "context_chunk_characters": DISCOVERY_CONTEXT_CHUNK_CHARACTERS,
+                "observation_chunk_characters": DISCOVERY_OBSERVATION_CHUNK_CHARACTERS,
+                "source_excerpt": "exact_ranges_with_adjacent_context_v1",
                 "scene_call_timeout_seconds": SCENE_CALL_TIMEOUT_SECONDS,
-                "occurrence_binding": 14,
+                "occurrence_binding": 15,
                 "world_identity_context": "normalized_type_stage_scoped_v2",
                 "known_output_failure_isolation": True,
                 "generation_thinking": "discovery_max_other_high",
@@ -192,6 +217,7 @@ def method_fingerprint():
                 "scene_window_overlap": SCENE_OVERLAP,
                 "new_theme_identity_review": "all_index_and_scene_proposals_v2",
                 "review_capacity": "final_json_v1",
+                "theme_index_payload": "slim_sharded_v1",
             },
         ]
     )
@@ -207,12 +233,15 @@ def discovery_messages(inputs, *, review=False):
 
 
 def _dependency(frozen, payload):
+    origin = payload.get("discovery_origin") or {}
     return LedgerDependency(
-        run_key=frozen.run_id,
-        attempt_id=frozen.attempt_id,
+        run_key=origin.get("run_key", frozen.run_id),
+        attempt_id=origin.get("attempt_id", frozen.attempt_id),
         scene_id=payload["scene_id"],
         scene_index=payload["scene_index"],
-        source_manifest_hash=frozen.source_manifest_hash,
+        source_manifest_hash=origin.get(
+            "source_manifest_hash", frozen.source_manifest_hash
+        ),
     ).model_dump(mode="json")
 
 
@@ -279,7 +308,7 @@ def _records(payload, dependency):
 
 
 def _compact(item):
-    return {
+    compact = {
         key: item[key]
         for key in (
             "observation_id",
@@ -290,6 +319,9 @@ def _compact(item):
             "event_occurrence_id",
         )
     } | {"quotes": [evidence["quote"] for evidence in item["evidence_quotes"]]}
+    if item.get("utterance_attribution"):
+        compact["utterance_attribution"] = item["utterance_attribution"]
+    return compact
 
 
 def _chunks(values, budget=16000):
@@ -305,19 +337,150 @@ def _chunks(values, budget=16000):
     return [*chunks, current] if current else chunks
 
 
+def _world_entity_ids(observation):
+    return {
+        resolution["resolved_entity_id"]
+        for mention in observation.get("mentions", [])
+        if (resolution := mention.get("resolution") or {}).get("outcome") == "reuse"
+        and resolution.get("resolved_entity_id")
+    }
+
+
+def _mention_surfaces(observation):
+    return {mention["surface"] for mention in observation.get("mentions", [])}
+
+
+def _rank_historical_candidates(prior, current, *, theme_evidence_ids, theme_scenes):
+    current_surfaces = set().union(*(_mention_surfaces(item) for item in current))
+    current_world_ids = set().union(*(_world_entity_ids(item) for item in current))
+    ranked, counts = [], {"theme": 0, "world_id": 0, "surface": 0}
+    for item in prior:
+        if (
+            item["observation_id"] in theme_evidence_ids
+            or item["position"]["scene_id"] in theme_scenes
+        ):
+            rank, kind = 0, "theme"
+        elif current_world_ids & _world_entity_ids(item):
+            rank, kind = 1, "world_id"
+        elif current_surfaces & _mention_surfaces(item):
+            rank, kind = 2, "surface"
+        else:
+            continue
+        counts[kind] += 1
+        ranked.append(
+            (rank, item["position"]["scene_index"], item["observation_id"], item)
+        )
+    ranked.sort(key=lambda value: value[:3])
+    selected = [item for *_, item in ranked[:DISCOVERY_RECALL_CANDIDATE_LIMIT]]
+    omitted = max(0, len(ranked) - len(selected))
+    return selected, {
+        "historical_candidates": len(ranked),
+        "selected_candidates": len(selected),
+        "omitted_candidates": omitted,
+        "omission_reason": (
+            f"候选超过每场上限 {DISCOVERY_RECALL_CANDIDATE_LIMIT}；"
+            "优先保留已有主题来源、World 同对象与字面命中，未选观察未检查。"
+            if omitted
+            else None
+        ),
+        "candidate_kinds": counts,
+    }
+
+
+def _scene_excerpt(scene_text, observations, source_binding):
+    if len(scene_text) <= DISCOVERY_OBSERVATION_CHUNK_CHARACTERS:
+        return scene_text, "full_scene"
+    ranges = [source_binding]
+    ranges.extend(source_binding.get("additional_sources") or [])
+    local_ranges, cursor = [], 0
+    for source in ranges:
+        end = source.get("end_offset")
+        if end is None:
+            continue
+        start = source["start_offset"]
+        local_ranges.append((source, cursor, cursor + end - start))
+        cursor += end - start
+    spans = []
+    for item in observations:
+        for evidence in item.get("evidence_quotes", []):
+            ref = evidence["source_ref"]
+            for source, local_start, local_end in local_ranges:
+                if (
+                    ref["draft_id"] != source["draft_id"]
+                    or ref["content_hash"] != source["content_hash"]
+                    or ref["chapter_identity"] != f"chapter:{source['chapter_index']}"
+                ):
+                    continue
+                left = max(ref["start_offset"], source["start_offset"])
+                right = min(ref["end_offset"], source["end_offset"])
+                if left < right:
+                    spans.append(
+                        (
+                            local_start + left - source["start_offset"],
+                            local_start + right - source["start_offset"],
+                        )
+                    )
+    if not spans:
+        for item in observations:
+            for evidence in item.get("evidence_quotes", []):
+                quote = evidence["quote"]
+                start = scene_text.find(quote)
+                if start >= 0 and scene_text.find(quote, start + 1) < 0:
+                    spans.append((start, start + len(quote)))
+    if not spans:
+        return "", "source_range_unmapped"
+
+    excerpts = []
+    for start, end in sorted(spans):
+        left, right = max(0, start - 240), min(len(scene_text), end + 240)
+        left_boundary = max(
+            (scene_text.rfind(mark, left, start) for mark in "。！？\n"),
+            default=-1,
+        )
+        previous_boundaries = [
+            found
+            for mark in "。！？\n"
+            if left_boundary > 0
+            and (found := scene_text.rfind(mark, left, left_boundary)) >= 0
+        ]
+        right_boundaries = [
+            found
+            for mark in "。！？\n"
+            if (found := scene_text.find(mark, end, right)) >= 0
+        ]
+        left = (
+            min(previous_boundaries) + 1
+            if previous_boundaries
+            else left_boundary + 1
+            if left_boundary >= 0
+            else left
+        )
+        right = min(right_boundaries) + 1 if right_boundaries else right
+        if excerpts and left <= excerpts[-1][1]:
+            excerpts[-1] = (excerpts[-1][0], max(excerpts[-1][1], right))
+        else:
+            excerpts.append((left, right))
+    text = "\n…\n".join(scene_text[left:right] for left, right in excerpts)
+    return text, "source_ranges_with_adjacent_context"
+
+
 async def prepare_discovery(db, store, frozen):
     payload = frozen.payload
     current = _records(payload, _dependency(frozen, payload))
     pairs = await store.load_committed_pairs(frozen.run_id)
     if pairs:
         parent = await store.load_frozen(pairs[-1][0].run_key, pairs[-1][0].attempt_key)
-        await require_cached_prefix(db, store, parent)
+        if parent.run_id == frozen.run_id:
+            await require_cached_prefix(db, store, parent)
+        else:
+            await require_current_prefix(db, store, parent, run_key=frozen.run_id)
     themes, offset = [], 0
     while True:
         page = await list_ledger(
             db,
             frozen.novel_id,
-            through_scene_index=payload["scene_index"] - 1,
+            through_scene_index=payload["scene_index"]
+            - (0 if payload.get("category_rescan") else 1),
             offset=offset,
             limit=100,
         )
@@ -325,6 +488,7 @@ async def prepare_discovery(db, store, frozen):
             item
             for item in page["items"]
             if item["source_status"] == "current"
+            and item["method_status"] == "current"
             and item["claim"]["realm"] == "history"
             and not item.get("proposal_target")
             and item["independent_review"].get("verdict") in {"supported", "uncertain"}
@@ -332,10 +496,8 @@ async def prepare_discovery(db, store, frozen):
         offset += len(page["items"])
         if offset >= page["total"]:
             break
-    surfaces = {
-        mention["surface"] for item in current for mention in item.get("mentions", [])
-    }
-    relevant, all_prior, by_id = [], 0, {item["observation_id"]: item for item in current}
+    all_prior, prior = 0, []
+    by_id = {item["observation_id"]: item for item in current}
     theme_scenes = {
         dependency["scene_id"]
         for theme in themes
@@ -350,15 +512,14 @@ async def prepare_discovery(db, store, frozen):
         previous = await store.load_frozen(receipt.run_key, receipt.attempt_key)
         for item in _records(previous.payload, _dependency(previous, previous.payload)):
             all_prior += 1
-            if (
-                item["position"]["scene_id"] in theme_scenes
-                or item["observation_id"] in theme_evidence
-                or any(
-                    mention["surface"] in surfaces for mention in item.get("mentions", [])
-                )
-            ):
-                by_id[item["observation_id"]] = item
-                relevant.append(item)
+            prior.append(item)
+    relevant, recall_scope = _rank_historical_candidates(
+        prior,
+        current,
+        theme_evidence_ids=theme_evidence,
+        theme_scenes=theme_scenes,
+    )
+    by_id.update({item["observation_id"]: item for item in relevant})
     for theme in themes:
         theme["claim"]["evidence"] = _normalized_evidence(theme["claim"]["evidence"])
     descriptors = [
@@ -437,6 +598,19 @@ async def prepare_discovery(db, store, frozen):
         }
         for theme in themes
     ]
+    unsupported_contexts = []
+    unsupported_current_groups = []
+    theme_index = [
+        {key: item[key] for key in ("entry_id", "category", "label", "subject_labels")}
+        | {
+            "target_ids": sorted(
+                target["target_id"]
+                for target in theme["claim"]["targets"]
+                if target["domain"] == "world" and target["kind"] == "entity"
+            )
+        }
+        for item, theme in zip(descriptors, themes, strict=True)
+    ]
     descriptors.sort(key=lambda item: item["entry_id"])
     relevant.sort(
         key=lambda item: (item["position"]["scene_index"], item["observation_id"])
@@ -456,13 +630,19 @@ async def prepare_discovery(db, store, frozen):
         scene_index=payload["scene_index"],
         semantics=CONDITIONS_SEMANTICS,
         recall_scope={
-            "matching_surfaces": sorted(surfaces),
+            "matching_surfaces": sorted(
+                set().union(*(_mention_surfaces(item) for item in current))
+            ),
             "historical_candidates": len(relevant),
             "total_prior_observations": all_prior,
         },
         chunks=_chunks,
     )
+    selected = payload.get("discovery_categories", list(LEDGER_CATEGORY_LABELS))
+    for batch in batches:
+        batch["selected_categories"] = selected
     return {
+        "selected_categories": selected,
         "method_fingerprint": method_fingerprint(),
         "observations": by_id,
         "themes": {theme["entry_id"]: theme for theme in themes},
@@ -484,8 +664,18 @@ async def prepare_discovery(db, store, frozen):
                 for index, shard in enumerate(index_shards)
             ],
             "unsupported_batches": unsupported,
-            "recall_scope": "本场观察、已存主题及同表面名历史候选；不是全部历史语义扫描",
+            "unsupported_contexts": unsupported_contexts,
+            "recall_scope": {
+                **recall_scope,
+                "description": (
+                    "本场观察、已存主题、同一World对象与同表面名候选；"
+                    "不是全部历史语义扫描"
+                ),
+            },
         },
+        "theme_index": theme_index,
+        "unsupported_contexts": unsupported_contexts,
+        "unsupported_current_groups": unsupported_current_groups,
     }
 
 
@@ -515,6 +705,84 @@ def _visible_observation_ids(batch):
     return visible_observations
 
 
+_OCCASION_MARKERS = (
+    "那次",
+    "那回",
+    "那天",
+    "那晚",
+    "那夜",
+    "那年",
+    "那月",
+    "上次",
+    "上一回",
+    "上一次",
+    "首次",
+    "第一次",
+    "首度",
+)
+_ASPECT_PARTICLES = str.maketrans("", "", "了着过")
+
+
+def _reduce_action(text):
+    # 动词重叠式（看了看/摸了摸）先折叠，再去除动态助词。
+    return re.sub(r"([\u4e00-\u9fff])[了着过]\1", r"\1", text).translate(
+        _ASPECT_PARTICLES
+    )
+
+
+def _has_unique_recall_identity_quote(
+    prepared, claim, certificate, occurrence_id, current_ids
+):
+    quote = certificate.identity_quote.strip()
+    if not quote:
+        return False
+    observations = prepared.get("observations", {})
+    identity_quotes = [
+        source.get("quote", "")
+        for observation_id in set(certificate.identity_observation_ids) & current_ids
+        for source in observations.get(observation_id, {}).get("evidence_quotes", [])
+        if quote in source.get("quote", "")
+    ]
+    if not identity_quotes:
+        return False
+    if any(
+        re.search(
+            r"记不清|想不起|不确定|无法确定|究竟.{0,8}哪|哪(?:一|几)(?:次|回|件)", source
+        )
+        for source in identity_quotes
+    ):
+        return False
+    # 场合指认：本轮指认原句必须含明确场合指代，仅复述动作不构成指认。
+    if not any(
+        marker in source for source in identity_quotes for marker in _OCCASION_MARKERS
+    ):
+        return False
+    # identity_quote 不可约减为主题动作本身（折叠重叠式、去动态助词后仍被
+    # label 包含），否则“公共动作短语 + 唯一已存候选”不能证明回忆指向该事件。
+    reduced_quote = _reduce_action(quote)
+    reduced_label = _reduce_action(str(claim.get("label") or ""))
+    if reduced_quote and reduced_label and reduced_quote in reduced_label:
+        return False
+    old_events = [
+        item
+        for item in claim.get("evidence", [])
+        if item["purpose"] == "occurrence"
+        and item["occurrence_kind"] == "event"
+        and item["occurrence_id"]
+    ]
+    if not any(
+        item["occurrence_id"] == occurrence_id
+        and item["observation_id"] in certificate.original_observation_ids
+        and quote in item["quote"]
+        for item in old_events
+    ):
+        return False
+    matching_occurrences = {
+        item["occurrence_id"] for item in old_events if quote in item["quote"]
+    }
+    return matching_occurrences == {occurrence_id}
+
+
 def _compile_change(prepared, raw, batch):
     current_ids = set(batch["current_observation_ids"])
     visible_themes = {
@@ -534,6 +802,49 @@ def _compile_change(prepared, raw, batch):
         if change.target_entry_id
         else None
     )
+    if change.category == "language_habit":
+        speakers = set()
+        for choice in choices:
+            if choice.purpose != "occurrence":
+                continue
+            observation = prepared["observations"].get(choice.observation_id) or {}
+            attribution = observation.get("utterance_attribution") or {}
+            speaker = attribution.get("speaker_resolution") or {}
+            if (
+                attribution.get("kind") != "direct_dialogue"
+                or speaker.get("outcome") != "reuse"
+                or not speaker.get("resolved_entity_id")
+            ):
+                raise ValueError("language_habit_requires_world_bound_dialogue")
+            speakers.add(str(speaker["resolved_entity_id"]))
+        if not speakers:
+            raise ValueError("language_habit_requires_dialogue_occurrence")
+        if len(speakers) != 1:
+            raise ValueError("language_habit_must_bind_one_speaker")
+    if change.action == "new":
+        selected_observations = [
+            prepared["observations"][choice.observation_id]
+            for choice in change.evidence
+            if choice.observation_id in prepared["observations"]
+        ]
+        subjects = set().union(
+            *(_mention_surfaces(item) for item in selected_observations)
+        )
+        target_ids = set().union(
+            *(_world_entity_ids(item) for item in selected_observations)
+        )
+        if any(
+            item["category"] == change.category
+            and item["label"].strip().casefold() == change.label.strip().casefold()
+            and (
+                set(item.get("target_ids", [])) & target_ids
+                or not item["subject_labels"]
+                or not subjects
+                or subjects.intersection(item["subject_labels"])
+            )
+            for item in prepared.get("theme_index", [])
+        ):
+            raise ValueError("new_theme_matches_existing_index")
     if change.target_entry_id and (
         str(change.target_entry_id) not in visible_themes
         or old is None
@@ -640,6 +951,14 @@ def _compile_change(prepared, raw, batch):
             # The original occurrence is unknown, so it cannot increase a count.
             kind = "unknown"
         for quote in observation["evidence_quotes"]:
+            attribution = observation.get("utterance_attribution") or {}
+            speaker = attribution.get("speaker_resolution") or {}
+            speaker_id = (
+                speaker.get("resolved_entity_id")
+                if attribution.get("kind") == "direct_dialogue"
+                and speaker.get("outcome") == "reuse"
+                else None
+            )
             evidence.append(
                 LedgerEvidence(
                     observation_id=observation["observation_id"],
@@ -657,6 +976,10 @@ def _compile_change(prepared, raw, batch):
                     occurrence_id=occurrence,
                     occurrence_kind=kind,
                     occurrence_origin=choice.occurrence_kind,
+                    speaker_entity_id=speaker_id,
+                    speaker_label=(
+                        attribution.get("speaker_surface") if speaker_id else None
+                    ),
                 ).model_dump(mode="json")
             )
         dependencies.append(observation["dependency"])
@@ -757,9 +1080,27 @@ def compile_discovery(frozen):
     payload, accepted, pending, inspected = frozen.payload, [], [], []
     prepared = payload["discovery_preparation"]
     failed_batches, identity_gaps, identity_inspected = [], [], []
+    category_attempts = {category: [] for category in LEDGER_CATEGORY_LABELS}
+
+    def record_category_coverage(values):
+        for category in category_attempts:
+            category_attempts[category].append(
+                (values or {}).get(category, "not_checked")
+                if category in prepared.get("selected_categories", LEDGER_CATEGORY_LABELS)
+                else "not_checked"
+            )
+
+    pending.extend(
+        {"reason": item["reason"], "observation_ids": item["observation_ids"]}
+        for item in prepared.get("unsupported_current_groups", [])
+    )
+    pending.extend(prepared.get("unsupported_contexts", []))
     for index, batch in enumerate(prepared["batches"]):
         if index in prepared["unsupported_batches"]:
             pending.append({"reason": "capacity_unsupported", "batch": index})
+            record_category_coverage(
+                {category: "partial" for category in category_attempts}
+            )
             continue
         visible_observations = _visible_observation_ids(batch)
         generated = payload.get(f"scene_discovery_{index}") or {}
@@ -767,10 +1108,15 @@ def compile_discovery(frozen):
         if _settled_output_failure(generated) or _settled_output_failure(review_journal):
             failed_batches.append(index)
             pending.append({"reason": "settled_output_failure", "batch": index})
+            batch_category_coverage = {
+                category: "partial" for category in category_attempts
+            }
+            record_category_coverage(batch_category_coverage)
             inspected.append(
                 {
                     "batch": index,
                     "coverage": "not_checked",
+                    "category_coverage": batch_category_coverage,
                     "note": "模型输出未通过格式或契约校验；本批派生结果未放行。",
                 }
             )
@@ -791,10 +1137,19 @@ def compile_discovery(frozen):
                 }
             )
             continue
+        batch_category_coverage = {
+            category: output.category_coverage.get(category, "not_checked")
+            if category in prepared.get("selected_categories", LEDGER_CATEGORY_LABELS)
+            else "not_checked"
+            for category in category_attempts
+        }
         quarantined = (generated.get("paid_call_receipt") or {}).get(
             "validation_quarantine", []
         )
         if quarantined:
+            batch_category_coverage = {
+                category: "partial" for category in category_attempts
+            }
             pending.append(
                 {
                     "reason": "invalid_changes_quarantined",
@@ -802,6 +1157,7 @@ def compile_discovery(frozen):
                     "count": len(quarantined),
                 }
             )
+        record_category_coverage(batch_category_coverage)
         review = DiscoveryReview.model_validate(
             (payload.get(f"scene_discovery_review_{index}") or {}).get(
                 "result", {"verdicts": []}
@@ -817,6 +1173,7 @@ def compile_discovery(frozen):
             {
                 "batch": index,
                 "coverage": "partial" if quarantined else output.coverage,
+                "category_coverage": batch_category_coverage,
                 "note": output.coverage_note,
             }
         )
@@ -871,6 +1228,13 @@ def compile_discovery(frozen):
                         }
                     )
                     continue
+            if raw.category not in prepared.get(
+                "selected_categories", LEDGER_CATEGORY_LABELS
+            ):
+                pending.append(
+                    {"reason": "category_outside_confirmed_scope", "batch": index}
+                )
+                continue
             try:
                 item = _compile_change(prepared, raw, batch)
             except (ValueError, ValidationError) as error:
@@ -991,7 +1355,7 @@ def compile_discovery(frozen):
                 certificate = certificates[0]
                 if (
                     certificate.verdict != "supported"
-                    or not certificate.original_observation_ids
+                    or len(certificate.original_observation_ids) != 1
                     or not set(certificate.identity_observation_ids)
                     & set(batch["current_observation_ids"])
                     or choice.observation_id not in certificate.identity_observation_ids
@@ -999,6 +1363,13 @@ def compile_discovery(frozen):
                     <= (originals & bound_ids & visible_observations)
                     or not set(certificate.identity_observation_ids)
                     <= (bound_ids & visible_observations)
+                    or not _has_unique_recall_identity_quote(
+                        prepared,
+                        basis.get("claim", {}),
+                        certificate,
+                        choice.same_occurrence_as,
+                        set(batch["current_observation_ids"]),
+                    )
                 ):
                     recall_links_confirmed = False
                     break
@@ -1108,6 +1479,19 @@ def compile_discovery(frozen):
                     "ordinal": ordinal,
                 }
             )
+    if prepared.get("unsupported_current_groups"):
+        record_category_coverage({category: "partial" for category in category_attempts})
+    unsupported_categories = {
+        item.get("category")
+        for item in prepared.get("unsupported_contexts", [])
+        if item.get("category") in category_attempts
+    }
+    if prepared.get("recall_scope", {}).get("omitted_candidates"):
+        unsupported_categories.update(category_attempts)
+    if unsupported_categories:
+        record_category_coverage(
+            {category: "partial" for category in unsupported_categories}
+        )
     unique = {content_hash([item["change"], item["claim"]]): item for item in accepted}
     target_counts = {}
     for item in unique.values():
@@ -1122,6 +1506,27 @@ def compile_discovery(frozen):
             )
         else:
             accepted.append(item)
+    category_coverage = {}
+    for category, statuses in category_attempts.items():
+        if payload.get("category_rescan") and category in prepared.get(
+            "selected_categories", []
+        ):
+            statuses.append(
+                payload.get("category_observation_coverage", {}).get(
+                    category, "not_checked"
+                )
+            )
+            if payload.get("category_observation_gaps"):
+                statuses.append("partial")
+        if not statuses or all(status == "not_checked" for status in statuses):
+            status = "not_checked"
+        elif all(status == "inspected" for status in statuses):
+            status = "inspected"
+        elif all(status == "unsupported" for status in statuses):
+            status = "unsupported"
+        else:
+            status = "partial"
+        category_coverage[category] = status
     return {
         "method_fingerprint": prepared["method_fingerprint"],
         "changes": accepted,
@@ -1132,6 +1537,7 @@ def compile_discovery(frozen):
             "failed_batches": failed_batches,
             "identity_review_gaps": identity_gaps,
             "identity_inspected": identity_inspected,
+            "category_coverage": category_coverage,
         },
         "binding": content_hash(
             [
@@ -1295,7 +1701,19 @@ async def apply_discovery(db, store, frozen):
                             item["ordinal"],
                         ]
                     ),
-                    review=item["review"],
+                    review={
+                        **item["review"],
+                        **(
+                            {
+                                "rescan_producer": {
+                                    "run_key": frozen.run_id,
+                                    "attempt_id": frozen.attempt_id,
+                                }
+                            }
+                            if frozen.payload.get("category_rescan")
+                            else {}
+                        ),
+                    },
                 )
             )
         except ConflictError as error:

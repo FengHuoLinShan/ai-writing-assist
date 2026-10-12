@@ -2,7 +2,7 @@
   <section class="writing-invalidation-notice" aria-label="本次保存的影响范围" role="status">
     <p class="writing-invalidation-notice__headline">{{ notice.headline }}</p>
     <p v-if="notice.hasUnknownScope" class="writing-invalidation-notice__unknown">
-      部分影响范围待核实：系统按保守方式标记了更多可能受影响的内容，重算前会再核对。
+      {{ notice.unknownScopeNote }}
     </p>
     <p class="writing-invalidation-notice__hint">
       现在可以继续写作；需要时再从这里查看受影响的内容并选择重算。

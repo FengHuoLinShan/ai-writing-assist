@@ -142,17 +142,26 @@ SCENE_CALL_JOURNALS = (
     "scene_world",
     "scene_relations",
     "scene_world_review",
+    "scene_category_observations",
 )
 
 
 def scene_call_journals(payload):
     return (
         *SCENE_CALL_JOURNALS,
+        *(key for key in payload if key.startswith("scene_world_review_group_")),
         *(key for key in payload if key.startswith("scene_discovery_")),
     )
 
 
-def settled_discovery_output_failure(journal):
+def settled_output_failure(journal):
+    """最终失败但费用已核清：可安全按失败定案，不产生未知账单。
+
+    要求回执固化 failed_final、usage 完整（usage_complete 且 unknown_attempts
+    为 0）、每次尝试都是确定性的输出失败（invalid_json/schema_validation/
+    truncated_json）。网络超时等费用未知的失败不算已核清，恢复必须进入
+    待核清门禁而不是放行。
+    """
     receipt = journal.get("paid_call_receipt") or {}
     usage = receipt.get("usage") or {}
     attempts = receipt.get("attempts_detail") or []
@@ -175,8 +184,8 @@ def has_unreconciled_scene_calls(payload):
     return any(
         (payload.get(key) or {}).get("stage") in {"sampling", "failed"}
         and not (
-            key.startswith("scene_discovery_")
-            and settled_discovery_output_failure(payload.get(key) or {})
+            key.startswith(("scene_world_review_group_", "scene_discovery_"))
+            and settled_output_failure(payload.get(key) or {})
         )
         for key in scene_call_journals(payload)
     )

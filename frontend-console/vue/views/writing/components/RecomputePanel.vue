@@ -6,7 +6,7 @@
         <h4>受影响的内容</h4>
         <p>{{ notice.headline }}</p>
         <p v-if="notice.hasUnknownScope" class="writing-recompute-panel__unknown">
-          部分影响范围待核实：下面标为「待核实」的条目没有登记依据，系统按保守方式把它们一并标记，重算前会再核对。
+          {{ notice.unknownScopeNote }}
         </p>
       </div>
       <button type="button" class="btn btn-sm writing-recompute-panel__close" :disabled="adopting" @click="$emit('close')">

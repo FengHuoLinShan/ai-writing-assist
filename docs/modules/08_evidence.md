@@ -229,6 +229,9 @@ regex、随机概率或任意表达式。draft 只用于编辑和 dry-run，发�
 - `chapter_index`：实际检索锚点；跨章 Scene 可由编译器改为 Scene 的末章
 - `requested_chapter_index`：确认记录固定的作者目标章节。创建 confirmation 时由 context
   从请求章节写入，writing 等消费者以此校验任务目标；仅旧确认记录缺失时才回退锚点
+- `planning_window_end`：结构规划（outline.generate）滚动窗口的结束章，与 `chapter_index`
+  组成起止窗口（BR-6）。仅随 confirmation 记录与展示，不参与检索过滤或编译裁剪；
+  章节定位的硬校验在 story P20 生成侧执行
 - `include_pending_objects`：是否允许待处理对象进入本次上下文，默认关闭
 - `excluded_asset_ids`：显式排除的资产
 - `user_note`：用户对本次 AI 操作的补充提醒
@@ -480,6 +483,8 @@ World 复核使用原确认编译后实际保留的内容；Focused Evidence 只
 review_resolution 的场景/章节回读使用稳定 Evidence facade，补查使用既有 focused retrieval；每次模型步骤保存来源与上下文回执。输出只能引用冻结候选与实际证据，后序支持需先明确时序/可见性，不能回流为原场景已有事实。索引和角色/读者编译边界不因减少确认而放宽。
 
 Knowledge 子包提供跨模块稳定契约：capability policy、scope receipt、director plan、audit receipt、组级执行与采用门禁。Evolution 场景观察已登记独立静态能力 `evolution.scene_observe`；边界准备复用 Imports Scene 切分能力。登记只约束能力归属，不代替实际来源与提交门禁。完整规则见 `backend/modules/evidence/compilation/README.md` 和 ADR-0025。
+
+开篇方向卡登记为 `assistant.guided_flow.direction_cards`：只对齐作者明确提供的 `author_intent`，输出为展示候选，不声称检查了既有世界事实。骨架另归 `world.opening_skeleton`，沿用 World 的知识审查和采用门禁；两者均有静态调用绑定和作者语言用量标签。
 
 ## 协作资料交接
 

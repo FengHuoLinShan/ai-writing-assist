@@ -109,7 +109,7 @@ async def test_batched_journey_sources_preserve_order_and_probe_project_once() -
     assert [item.update_available for item in responses] == [True, False]
     assert [item.player_label for item in responses] == ["甲", "乙"]
     list_revisions.assert_awaited_once()
-    assert refresh.await_count == 2
+    refresh.assert_not_awaited()
     require_project.assert_awaited_once()
 
 
@@ -390,6 +390,92 @@ async def test_ambiguity_resolution_rejects_unfinished_revision(
         )
 
 
+async def test_read_projection_and_followup_confirmation_share_completed_results(
+    db_session, project_factory
+):
+    _project, revision, first, _later, character_key = await _ready_source(
+        db_session, project_factory
+    )
+    references = list(revision.reference_manifest)
+    ambiguity = {
+        "ambiguity_key": "same-name",
+        "label": "林默",
+        "reason": "同名",
+        "choices": [
+            {"choice_key": character_key, "label": "林默", "entity_type": "character"}
+        ],
+    }
+    task = AsyncTask(
+        novel_id=revision.source_novel_id, task_type="import_deep_import", status="done"
+    )
+    db_session.add(task)
+    await db_session.flush()
+    revision.status = "organizing"
+    revision.task_id = task.id
+    revision.anchor_manifest = []
+    revision.reference_manifest = []
+    revision.ambiguities = []
+    await db_session.flush()
+    service = InteractionSourceService()
+    with (
+        patch(
+            "modules.interaction.source_service.list_task_lifecycle_contracts",
+            autospec=True,
+            return_value={
+                str(task.id): SimpleNamespace(status="done", recovery_required=False)
+            },
+        ),
+        patch.object(
+            service, "_source_manifest_is_current", autospec=True, return_value=True
+        ),
+        patch.object(service, "_indices_are_fresh", autospec=True, return_value=True),
+        patch(
+            "modules.interaction.source_service.get_latest_coalesced_task",
+            autospec=True,
+            return_value=None,
+        ),
+        patch(
+            "modules.interaction.source_service.get_scene_span_coverage",
+            autospec=True,
+            return_value=SimpleNamespace(
+                scene_count=1, scene_without_span_count=0, imprecise_span_count=0
+            ),
+        ),
+        patch.object(
+            service,
+            "_reference_manifest",
+            autospec=True,
+            return_value=(references, [ambiguity]),
+        ),
+        patch.object(service, "_anchor_manifest", autospec=True, return_value=[first]),
+    ):
+        response = await service.get_source(db_session, str(revision.id))
+        listing = await service.list_sources(db_session)
+        matched = await service.match_anchors(
+            db_session,
+            revision_id=str(revision.id),
+            chapter_index=1,
+            description=first["label"],
+        )
+        objects = await service.list_objects(db_session, revision_id=str(revision.id))
+        assert response.status == "needs_confirmation"
+        assert listing.items[0].status == "needs_confirmation"
+        assert matched.items[0].anchor_key == response.anchors[0].anchor_key
+        assert objects.items[0].reference_key == response.objects[0].reference_key
+        assert revision.status == "organizing"
+        assert not revision.anchor_manifest
+        assert not db_session.dirty
+        resolved = await service.resolve_ambiguity(
+            db_session,
+            revision_id=str(revision.id),
+            ambiguity_key="same-name",
+            choice_key=character_key,
+        )
+    assert resolved.status == revision.status == "ready"
+    assert revision.resolutions == {"same-name": character_key}
+    assert revision.anchor_manifest == [first]
+
+
 async def test_unfinished_serial_becomes_ready_when_current_import_is_fully_organized(
     db_session,
     project_factory,
@@ -463,6 +549,67 @@ async def test_organizing_revision_fails_if_author_changes_frozen_manuscript(
 
     assert revision.status == "failed"
     assert "正文发生变化" in revision.readiness_summary["message"]
+
+
+async def test_get_source_projects_failure_without_lock_or_write(
+    db_session, project_factory
+):
+    _project, revision, *_rest = await _ready_source(db_session, project_factory)
+    revision.status = "organizing"
+    revision.task_id = None
+    await db_session.flush()
+    original_summary = dict(revision.readiness_summary)
+    service = InteractionSourceService()
+    with (
+        patch.object(
+            service._repo, "get_source_revision", autospec=True, return_value=revision
+        ) as get,
+        patch.object(db_session, "flush", autospec=True) as flush,
+    ):
+        response = await service.get_source(db_session, str(revision.id))
+    assert response.status == "failed"
+    assert get.call_args.kwargs["for_update"] is False
+    flush.assert_not_awaited()
+    assert not db_session.dirty
+    assert revision.status == "organizing"
+    assert revision.readiness_summary == original_summary
+    await service._refresh(db_session, revision)
+    assert revision.status == "failed"
+
+
+async def test_source_projection_finalizes_ready_without_persisting(
+    db_session, project_factory
+):
+    _project, revision, *_rest = await _ready_source(db_session, project_factory)
+    revision.status = "organizing"
+    await db_session.flush()
+    service = InteractionSourceService()
+    with (
+        patch(
+            "modules.interaction.source_service.get_scene_span_coverage",
+            autospec=True,
+            return_value=SimpleNamespace(
+                scene_count=1, scene_without_span_count=0, imprecise_span_count=0
+            ),
+        ),
+        patch.object(
+            service, "_reference_manifest", autospec=True, return_value=([], [])
+        ),
+        patch.object(service, "_anchor_manifest", autospec=True, return_value=[]),
+        patch.object(db_session, "flush", autospec=True) as flush,
+    ):
+        projected = InteractionSourceRevision(
+            **{
+                column.key: getattr(revision, column.key)
+                for column in InteractionSourceRevision.__table__.columns
+            }
+        )
+        await service._finalize(db_session, projected, persist=False)
+    assert projected.status == "ready"
+    assert projected.fingerprint
+    assert revision.status == "organizing"
+    assert not db_session.dirty
+    flush.assert_not_awaited()
 
 
 async def test_organizing_revision_fails_when_primary_task_is_cancelled(
