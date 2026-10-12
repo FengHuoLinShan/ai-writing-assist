@@ -36,26 +36,41 @@
       >{{ action.label }}</button>
     </div>
 
-    <label v-if="settingsEditable" class="writing-flow-host__settings">
-      <input
-        type="checkbox"
-        :checked="Boolean(view.settings?.semantic_review)"
-        :disabled="controller.state.busy"
-        data-action="flow-toggle-semantic-review"
-        @change="controller.saveSettings($event.currentTarget.checked)"
-      />
-      生成后自动接独立语义审查（每章多一次审查调用）
-    </label>
+    <div v-if="settingsEditable" class="writing-flow-host__settings">
+      <label>
+        <input
+          type="checkbox"
+          :checked="Boolean(view.settings?.semantic_review)"
+          :disabled="controller.state.busy"
+          data-action="flow-toggle-semantic-review"
+          @change="onSemanticToggle"
+        />
+        生成后自动接独立语义审查（每章多一次审查调用）
+      </label>
+      <label v-if="rollingAvailable" class="writing-flow-host__window">
+        采用后规划接下来
+        <select
+          :value="windowSize"
+          :disabled="controller.state.busy"
+          data-action="flow-planning-window"
+          aria-label="接下来几章的规划窗口"
+          @change="onWindowChange"
+        ><option v-for="size in [1, 2, 3, 4, 5]" :key="size" :value="size">{{ size }}</option></select>
+        章的走向（只生成大纲候选，不生成正文）
+      </label>
+    </div>
   </section>
 </template>
 
 <script setup>
 import { computed } from "vue"
+import { getRouter } from "../../../bridge/index.js"
 
 const props = defineProps({
   controller: { type: Object, required: true },
 })
 
+const router = getRouter()
 const view = computed(() => props.controller.state.view)
 const isTerminal = computed(() => ["completed", "failed", "cancelled"].includes(view.value?.status))
 const STATUS_LABELS = {
@@ -69,6 +84,19 @@ const statusLabel = computed(() => STATUS_LABELS[view.value?.status] || "")
 const visibleActions = computed(() => (view.value?.stop?.actions || []).filter((action) => action.action !== "open_writing"))
 const primary = computed(() => visibleActions.value[0] || null)
 const settingsEditable = computed(() => view.value?.stop?.step_id === "confirm_reference")
+const rollingAvailable = computed(() => view.value?.flow_id === "continue_writing")
+const windowSize = computed(() => Number(view.value?.settings?.planning_window) || 3)
+
+function onSemanticToggle(event) {
+  props.controller.saveSettings(event.currentTarget.checked, windowSize.value)
+}
+
+function onWindowChange(event) {
+  props.controller.saveSettings(
+    Boolean(view.value?.settings?.semantic_review),
+    Number(event.currentTarget.value),
+  )
+}
 
 function stepMark(state) {
   if (state === "done") return "✓"
@@ -82,6 +110,13 @@ function runAction(action) {
   if (action.action === "confirm_reference") props.controller.confirmReference()
   else if (action.action === "open_candidate") props.controller.openCandidate()
   else if (action.action === "abandon_flow") props.controller.abandonFlow()
+  else if (action.action === "finish_flow") {
+    props.controller.choose(view.value?.stop?.step_id, { action: "finish_flow" })
+  } else if (action.action === "open_outline") {
+    router.navigate("outline", "story-outline", true)
+  } else if (action.action === "plan_ahead" || action.action === "decline") {
+    props.controller.choose("rolling_offer", { action: action.action })
+  }
 }
 </script>
 
@@ -183,10 +218,22 @@ function runAction(action) {
 
 .writing-flow-host__settings {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 8px 16px;
   font-size: 13px;
   color: var(--text-muted, #7c7668);
+}
+
+.writing-flow-host__settings label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.writing-flow-host__window select {
+  min-height: 30px;
+  padding: 2px 6px;
 }
 
 @media (max-width: 640px) {

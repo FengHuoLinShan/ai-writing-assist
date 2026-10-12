@@ -196,22 +196,49 @@ uuid5 幂等执行与批次指纹；或既有领域任务如 `writing_semantic_r
 费用与幂等：流程提交的任务一律携带由（流程运行、步骤、输入指纹）确定的
 `operation_id`，重复推进不产生第二个付费任务；每步预算沿用所引用操作自身预算
 与 unknown 语义。流程开始本身不提交任务、不产生费用。流程设置（独立语义审查
-开/关，默认开）在生成开始前可修改并重新冻结输入指纹，之后不可改。
+开/关，默认开；滚动规划开/关与窗口章数，默认开、3 章）在生成开始前可修改并
+重新冻结输入指纹，之后不可改。
 
 依赖方向（ADR-0031）：guided_flow 只经操作目录或 facade 触达
-Evidence/Writing/Project；不新增模块依赖边，Assistant 仍禁止直接 import World。
-新流程（BR-4/5/6）按同一注册机制在 `flows.py` 追加推导、确认输入与自动执行
-实现，不另起编排层。
+Evidence/Writing/Project/Story；不新增模块依赖边，Assistant 仍禁止直接 import
+World（骨架与采用经操作目录调用 `world.draft_opening_skeleton` /
+`world.adopt_package`）。三个流程共用一张注册表与派发表（`flows.py`），按同一
+机制追加推导、确认/选择输入与自动执行实现，不另起编排层。
 
-HTTP 入口为 `/api/assistant/flows`（start/active/view/advance/settings/abandon）；鉴权与项目隔离与 Assistant 其余入口一致，作者语言视图为唯一公开投影。
+HTTP 入口为 `/api/assistant/flows`（start/active/view/advance/settings/abandon）；鉴权与项目隔离与 Assistant 其余入口一致，作者语言视图为唯一公开投影。开始请求按流程携带输入（`continue_writing` 需 `chapter_index`；`new_book_opening` 需 `input.vision` 与可选题材/篇幅意向；`editorial_revision` 无开始输入），推进请求除资料确认外支持 `choice`（作者选择停点的输入，由各流程在服务端校验）；视图的 `panel` 承载当前停点的作者面向载荷（方向卡、骨架包引用、修订条目、滚动窗口进度）。
 
-首个流程为流程 2 v1（`continue_writing` v1）：首页「引导续写第 N 章」→ 定位
-工作稿 → 写作页就地核对/修改本章目标并完成资料确认（已有弹窗）→ 生成候选 →
-自动接独立语义审查 → 停在「可审阅」，作者采用或定向返修。作者在流程设置中
-关闭审查时，流程停在「可审阅（未自动审查）」，采用前仍需按 Writing 既有门禁
-完成审查。开关 `ASSISTANT_GUIDED_FLOWS_ENABLED` 默认关，项目白名单
-`ASSISTANT_GUIDED_FLOWS_PROJECT_ALLOWLIST` 沿用部署级机制；能力可用性经
-`/api/assistant/capabilities` 的 `guided_flows` 投影暴露。
+已注册流程（`flows.py`，集成尾部 BR-3/4/5/6）：
+
+- **`continue_writing` v2（流程 2）**：首页「引导续写第 N 章」→ 定位工作稿 →
+  写作页就地核对/修改本章目标并完成资料确认（已有弹窗）→ 生成候选 → 自动接
+  独立语义审查 → 停在「可审阅」，作者采用或定向返修。采用后停在「规划接下来
+  几章」（BR-6 滚动规划）：作者确认后对第 N+1 至 N+K 章（K 为流程设置，默认
+  3、上限 5）经 `story.plan_structure` 的 rolling_window 生成剧情线与篇章两层
+  候选（确定性回执由（作品、窗口、层）决定），停在「候选可审阅」；作者经既有
+  `story.adopt_structure` 在结构工作台逐条取舍，窗口被已采用规划覆盖满时流程
+  自动完成。提窗时读 Story 只读缝 `get_planned_chapter_coverage`：后方已规划
+  不足 2 章时提示补足到 K 章。滚动规划只在流程内经作者确认触发；作者手动采用
+  不自动触发，可在设置中整体关闭（关闭后采用即完成，v1 行为）。
+- **`new_book_opening` v1（流程 1）**：一句构想（+可选题材/篇幅意向）→
+  方向卡 LLM step（`direction_cards.py`，一次结构化调用出 2-3 张候选，卡片只
+  存运行检查点不是资产；每流程至多 3 批，再要一批是新调用并提示费用）→ 作者
+  选定并可修改字段 → `world.draft_opening_skeleton` 一次生成待审骨架包 →
+  停点「骨架待确认」：作者在世界书页逐条取舍（排除/改名/简介，冲突逐条标出）
+  后流程经 `world.adopt_package` 采用所选条目（作者确认触发，prepare/apply
+  复验）→ 终点为「骨架可用」：生成故事总纲建议 / 继续深化世界观 / 开始写
+  第一章（走流程 2），不自动写首章。知识审查未通过的包失败关闭，可查看不可
+  采用；方向卡与未采用的骨架不进入任何生成上下文或检索。
+- **`editorial_revision` v1（流程 3）**：审读台选中意见并填写处置（作者选择）
+  → 桥接批注修订（复用 `editorial/issues/revise`，见下节；引文失效/hash 漂移
+  沿用其失败关闭语义）→ 停点「候选可审阅」，作者在写作页采用 → 全部就绪后
+  自动按（意见、采用稿）请求改后复核 → 停点展示「仍在 / 可能改善 / 无法判断」
+  结论后完成。不做多意见自动融合。
+
+方向卡 step 的 LLM 调用只经 `open_project_llm_client()`（provider/model/Key
+来自项目 owner 已验证账户连接），一次结构化调用 + 至多 1 次格式修复、输入
+长度有界、超时有界；配置缺失时失败关闭。开关 `ASSISTANT_GUIDED_FLOWS_ENABLED`
+默认关，项目白名单 `ASSISTANT_GUIDED_FLOWS_PROJECT_ALLOWLIST` 沿用部署级机制；
+能力可用性经 `/api/assistant/capabilities` 的 `guided_flows` 投影暴露。
 
 ## 工作上下文的意图与选区范围（R00）
 
@@ -269,8 +296,9 @@ worker 的每个异常出口都落到终态：仍由本任务持有且处于排�
 成功进入修订的意见记录一条「准备处理」处置并附处置说明。桥接候选 provenance 记录
 `editorial_issue_ids`，作者采用候选后经组合根 DI 键按既有机制为每条相关意见请求
 改后复核；复核无法成立（依据失效、上一轮用量未确认等）逐条跳过并说明，不阻塞采用。
-修订选区只取首条原文依据；跨章意见的其余依据不进入本批次。不做多意见自动融合；
-引导流程挂接属后续集成。
+修订选区只取首条原文依据；跨章意见的其余依据不进入本批次。不做多意见自动融合。
+本桥接已有引导流程挂接：`editorial_revision` v1（见「引导流程」）从审读台选中
+意见开始，经同一桥接生成候选，并在采用后自动触发这里的改后复核。
 
 手动审稿由 `ASSISTANT_ENABLED` 与默认关闭的 `ASSISTANT_EDITORIAL_ENABLED` 控制；后台还需
 默认关闭的 `ASSISTANT_EDITORIAL_AUTOMATIC_ENABLED` 与单项目 `editorial_v1` 明确授权。

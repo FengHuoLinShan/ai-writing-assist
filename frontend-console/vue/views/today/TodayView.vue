@@ -5,6 +5,7 @@ import { getApi, getConfirmAction, getRouter, getToast } from "../../bridge/inde
 import { writeCreativeContinuation } from "../generate/generateSession.js"
 import { openAuthorTaskSource } from "../writing/home/authorTaskSource.js"
 import { readWritingPointer } from "../writing/writingSession.js"
+import OpeningFlowCard from "./components/OpeningFlowCard.vue"
 
 const props = defineProps({
   project: { type: Object, default: null },
@@ -517,6 +518,13 @@ function retry() {
         </button>
       </article>
     </div>
+
+    <!-- 引导流程（BR-5）：新书开篇只在空项目/几乎无内容时出现。 -->
+    <OpeningFlowCard
+      v-if="guidedFlowAvailable && startWorldCore"
+      :project-id="projectId"
+      :available="guidedFlowAvailable"
+    />
 
     <div v-if="loadError" class="today-inline-warning error-card" role="alert">
       <div><strong>作品概览暂时没有更新</strong><p>{{ loadError }} 仍然可以直接进入写作。</p></div>

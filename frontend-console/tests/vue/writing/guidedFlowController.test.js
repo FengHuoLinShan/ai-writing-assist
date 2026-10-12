@@ -35,6 +35,7 @@ function makeController(overrides = {}) {
       guidedFlowAdvance: vi.fn(async (_runId, body) => overrides.advance?.(body) || stopView()),
       guidedFlowSettings: vi.fn(async (_runId, body) => stopView({ settings: { semantic_review: Boolean(body?.semantic_review) } })),
       guidedFlowAbandon: vi.fn(async () => ({ status: "cancelled", stop: null })),
+      guidedFlowStart: vi.fn(async () => stopView()),
     },
   }
   const toast = vi.fn()
@@ -172,5 +173,53 @@ describe("guidedFlowController", () => {
     })
     expect(controller.state.view.settings.semantic_review).toBe(false)
     controller.dispose()
+  })
+
+  it("startFlow 支持三个流程的开始输入；choose 打包作者选择推进", async () => {
+    const { controller, api } = makeController()
+    await controller.startFlow("new_book_opening", {
+      input: { vision: "潮汐城市", genre_hint: "奇幻" },
+    })
+    expect(api.assistant.guidedFlowStart).toHaveBeenCalledWith({
+      novel_id: "p1",
+      flow_id: "new_book_opening",
+      input: { vision: "潮汐城市", genre_hint: "奇幻" },
+    })
+    expect(controller.state.view.run_id).toBe("run-1")
+
+    await controller.choose("rolling_offer", { action: "plan_ahead" })
+    expect(api.assistant.guidedFlowAdvance).toHaveBeenLastCalledWith("run-1", {
+      novel_id: "p1",
+      choice: { step_id: "rolling_offer", action: "plan_ahead" },
+    })
+    controller.dispose()
+
+    const withChapter = makeController()
+    await withChapter.controller.startFlow("continue_writing", { chapterIndex: 3 })
+    expect(withChapter.api.assistant.guidedFlowStart).toHaveBeenLastCalledWith({
+      novel_id: "p1",
+      flow_id: "continue_writing",
+      chapter_index: 3,
+    })
+    withChapter.controller.dispose()
+  })
+
+  it("开始失败时提示且不崩；编辑设置可带规划窗口", async () => {
+    const { controller, api, toast } = makeController()
+    api.assistant.guidedFlowStart.mockRejectedValue(new Error("引导流程尚未开启"))
+    await controller.startFlow("editorial_revision")
+    expect(toast).toHaveBeenCalledWith("引导流程尚未开启", "warning")
+    expect(controller.state.visible).toBe(false)
+    controller.dispose()
+
+    const editable = makeController()
+    await editable.controller.attachRun("run-1")
+    await editable.controller.saveSettings(true, 5)
+    expect(editable.api.assistant.guidedFlowSettings).toHaveBeenCalledWith("run-1", {
+      novel_id: "p1",
+      semantic_review: true,
+      planning_window: 5,
+    })
+    editable.controller.dispose()
   })
 })

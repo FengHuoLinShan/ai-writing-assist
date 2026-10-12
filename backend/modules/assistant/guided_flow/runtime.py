@@ -26,7 +26,6 @@ from modules.assistant.guided_flow.contracts import (
 )
 from modules.assistant.guided_flow.registry import FLOWS, require_flow
 from modules.assistant.models import AssistantRun
-from modules.writing.facade import get_latest_draft_for_chapter
 
 PROTOCOL = "guided_flow_v1"
 ACTIVE_STATUSES = ("running", "waiting_approval")
@@ -56,12 +55,17 @@ def enabled(novel_id: str | None = None) -> None:
         )
 
 
-def _request_hash(flow, chapter_index: int, settings: dict) -> str:
+def _flow_input(payload: dict) -> dict:
+    """运行冻结的流程输入：chapter_index 之外的输入由各流程自行校验。"""
+    return dict(payload.get("input") or {})
+
+
+def _request_hash(flow, flow_input: dict, settings: dict) -> str:
     payload = json.dumps(
         {
             "flow": flow.flow_id,
             "version": flow.version,
-            "chapter_index": chapter_index,
+            "input": flow_input,
             "settings": settings,
         },
         sort_keys=True,
@@ -145,16 +149,22 @@ def _settings(run: AssistantRun) -> dict:
 
 
 async def _lifecycle(db, novel_id: str, artifacts: dict) -> dict:
-    """任务状态与已完成任务的领域结果引用（任务 id → {status, result}）。"""
+    """任务状态与已完成任务的领域结果引用（任务 id → {status, result}）。
+
+    产物既可携带单个 ``task_id``，也可携带 ``task_ids`` 列表（流程 3 的
+    批注修订按章拆成多个任务）。
+    """
     from modules.assistant.guided_flow.flows import ARTIFACT_TASK_TYPES
 
     targets: dict[str, tuple[str, str]] = {}
     for key, artifact in artifacts.items():
-        if isinstance(artifact, dict) and artifact.get("task_id"):
-            targets[str(artifact["task_id"])] = (
-                str(key),
-                ARTIFACT_TASK_TYPES.get(str(key), ""),
-            )
+        if not isinstance(artifact, dict):
+            continue
+        single = artifact.get("task_id")
+        if single:
+            targets[str(single)] = (str(key), ARTIFACT_TASK_TYPES.get(str(key), ""))
+        for nested in artifact.get("task_ids") or []:
+            targets[str(nested)] = (str(key), ARTIFACT_TASK_TYPES.get(str(key), ""))
     if not targets:
         return {}
     from infrastructure.tasks.facade import (
@@ -191,11 +201,10 @@ async def _derive(db, novel_id: str, run: AssistantRun, flow):
     deriver = DERIVERS.get(flow.flow_id)
     if deriver is None:
         raise ConflictError("流程缺少推导实现", code="guided_flow_version_changed")
-    payload = run.request_json or {}
     return await deriver(
         db,
         novel_id,
-        chapter_index=int((payload.get("input") or {}).get("chapter_index") or 0),
+        flow_input=_flow_input(run.request_json or {}),
         artifacts=_artifacts(run),
         settings=_settings(run),
         lifecycle=await _lifecycle(db, novel_id, _artifacts(run)),
@@ -214,8 +223,9 @@ def _render(run: AssistantRun, flow, derived) -> dict:
         status=status,
         stop=derived.stop,
         steps=derived.steps,
-        chapter_index=int((run.request_json or {}).get("input", {}).get("chapter_index")),
+        chapter_index=_flow_input(run.request_json or {}).get("chapter_index"),
         candidate=derived.candidate,
+        panel=derived.panel,
         settings=_settings(run),
     )
     return view.model_dump(mode="json")
@@ -242,11 +252,25 @@ def _persist(run: AssistantRun, flow, derived) -> None:
 
 
 async def start(db, novel_id: str, owner_id: str, data: GuidedFlowStartRequest) -> dict:
-    """开始或重入一个流程；开始本身不提交任何任务、不产生费用。"""
+    """开始或重入一个流程；开始本身不提交任何任务、不产生费用。
+
+    每流程一个活动 run：同输入重入回到同一停点；不同输入的活动 run 冲突。
+    流程专属的开始校验（continue_writing 的工作稿、new_book_opening 的
+    构想输入）由 flows 模块提供，失败在落地前拒绝。
+    """
     enabled(novel_id)
     flow = require_flow(data.flow_id)
+    from modules.assistant.guided_flow.flows import START_CHECKS
+
+    check = START_CHECKS.get(flow.flow_id)
+    if check is not None:
+        await check(db, novel_id, data)
     settings = {**flow.settings_defaults, **data.settings.model_dump()}
-    request_hash = _request_hash(flow, data.chapter_index, settings)
+    flow_input = {
+        **data.input,
+        **({"chapter_index": data.chapter_index} if data.chapter_index else {}),
+    }
+    request_hash = _request_hash(flow, flow_input, settings)
     active = await _flow_runs(
         db, novel_id, flow_id=flow.flow_id, statuses=ACTIVE_STATUSES, owner_id=owner_id
     )
@@ -256,16 +280,8 @@ async def start(db, novel_id: str, owner_id: str, data: GuidedFlowStartRequest) 
             return await view(db, novel_id, str(run.id), owner_id)
     if active:
         raise ConflictError(
-            f"已有进行中的「{flow.title}」流程；请先在写作页完成或结束它",
+            f"已有进行中的「{flow.title}」流程；请先完成或结束它",
             code="guided_flow_active_exists",
-        )
-    # 定位工作稿：输入期就验证可继续，不让必败流程落地。
-    working = await get_latest_draft_for_chapter(db, novel_id, data.chapter_index)
-    if working is None or working.status not in {"draft", "published"}:
-        raise ValidationError(
-            f"第 {data.chapter_index} 章还没有可继续的工作稿；"
-            "请先在写作页保存或采用本章正文。",
-            code="guided_flow_no_working_draft",
         )
     run = AssistantRun(
         owner_id=UUID(str(owner_id)),
@@ -277,7 +293,7 @@ async def start(db, novel_id: str, owner_id: str, data: GuidedFlowStartRequest) 
             "protocol": PROTOCOL,
             "flow_id": flow.flow_id,
             "flow_version": flow.version,
-            "input": {"chapter_index": data.chapter_index},
+            "input": flow_input,
             "settings": settings,
         },
         budget_json={},
@@ -317,23 +333,30 @@ async def advance(
     """确定性推进：先应用停点输入（若有），再执行就绪的自动步骤，推导停点。
 
     全程幂等：自动步骤的 operation_id 由（运行、步骤、输入指纹）确定，
-    重复推进不会产生第二个付费任务。
+    重复推进不会产生第二个付费任务；作者选择输入由各流程在服务端校验，
+    只有当前停点接受对应输入。
     """
     enabled(novel_id)
     run = await _require_run(db, novel_id, run_id, owner_id, lock=True)
     flow = _flow_of(run)
     if run.status not in ACTIVE_STATUSES:
         raise ConflictError("流程已结束，不能继续推进", code="guided_flow_finished")
-    from modules.assistant.guided_flow.flows import AUTO_STEPS, CONFIRM_INPUT
+    from modules.assistant.guided_flow.flows import (
+        AUTO_STEPS,
+        CHOICE_INPUT,
+        CONFIRM_INPUT,
+    )
 
     artifacts = _artifacts(run)
     settings = _settings(run)
     input_fingerprint = str(run.request_hash)
 
-    stop_step = str(((await _derive(db, novel_id, run, flow)).stop or {}).get("step_id"))
+    current_stop = str(
+        ((await _derive(db, novel_id, run, flow)).stop or {}).get("step_id")
+    )
     confirmation_id = str(step_input.get("context_confirmation_id") or "")
     if confirmation_id:
-        if stop_step != "confirm_reference":
+        if current_stop != "confirm_reference":
             raise ConflictError(
                 "当前流程不在资料确认停点", code="guided_flow_stop_mismatch"
             )
@@ -343,6 +366,21 @@ async def advance(
                 "流程缺少确认输入实现", code="guided_flow_version_changed"
             )
         if await applier(db, novel_id, run, flow, artifacts, step_input):
+            _freeze_checkpoint(run, artifacts, settings)
+            await db.flush()
+
+    choice = step_input.get("choice")
+    if isinstance(choice, dict) and choice:
+        if current_stop != str(choice.get("step_id") or ""):
+            raise ConflictError(
+                "当前流程不在这个选择停点", code="guided_flow_stop_mismatch"
+            )
+        applier = CHOICE_INPUT.get(flow.flow_id)
+        if applier is None:
+            raise ConflictError(
+                "流程缺少选择输入实现", code="guided_flow_version_changed"
+            )
+        if await applier(db, novel_id, run, flow, artifacts, settings, choice):
             _freeze_checkpoint(run, artifacts, settings)
             await db.flush()
 
@@ -409,27 +447,49 @@ async def advance(
 
 
 async def save_settings(
-    db, novel_id: str, run_id: str, owner_id: str, *, semantic_review: bool
+    db,
+    novel_id: str,
+    run_id: str,
+    owner_id: str,
+    *,
+    semantic_review: bool | None = None,
+    rolling_planning: bool | None = None,
+    planning_window: int | None = None,
 ) -> dict:
-    """流程设置：生成开始前可修改并重新冻结输入指纹；之后不可改。"""
+    """流程设置：生成开始前可修改并重新冻结输入指纹；之后不可改。
+
+    任一自动步骤产物已存在即视为生成已开始；各流程未声明的设置键拒绝。
+    """
     enabled(novel_id)
     run = await _require_run(db, novel_id, run_id, owner_id, lock=True)
     flow = _flow_of(run)
     if run.status not in ACTIVE_STATUSES:
         raise ConflictError("流程已结束，不能修改设置", code="guided_flow_finished")
-    if _artifacts(run).get("candidate"):
+    auto_produces = {step.produces for step in flow.steps if step.kind == "auto"}
+    if auto_produces & set(_artifacts(run)):
         raise ConflictError(
             "生成已开始，流程设置不能再修改", code="guided_flow_settings_locked"
         )
     settings = _settings(run)
-    settings["semantic_review"] = bool(semantic_review)
+    known = set(flow.settings_defaults)
+    updates = {
+        "semantic_review": semantic_review,
+        "rolling_planning": rolling_planning,
+        "planning_window": planning_window,
+    }
+    for key, value in updates.items():
+        if value is None:
+            continue
+        if key not in known:
+            raise ValidationError(
+                f"当前流程没有设置项 {key}", code="guided_flow_settings_locked"
+            )
+        settings[key] = bool(value) if isinstance(value, bool) else int(value)
     payload = dict(run.request_json or {})
     payload["settings"] = settings
     run.request_json = payload
     flag_modified(run, "request_json")
-    run.request_hash = _request_hash(
-        flow, int((payload.get("input") or {}).get("chapter_index") or 0), settings
-    )
+    run.request_hash = _request_hash(flow, _flow_input(payload), settings)
     _freeze_checkpoint(run, _artifacts(run), settings)
     await db.flush()
     return await view(db, novel_id, run_id, owner_id)
