@@ -155,15 +155,19 @@ export function createGuidedFlowController({
 
   async function confirmReference() {
     const view = state.view
-    if (!view || view.stop?.step_id !== "confirm_reference" || state.busy) return null
+    if (!view || (view.stop?.step_id !== "confirm_reference" && !view.stop?.step_id?.startsWith("confirm_rolling_")) || state.busy) return null
     try {
+      const rolling = view.stop?.step_id?.startsWith("confirm_rolling_")
+      const window = view.panel?.rolling?.window || {}
       const confirmation = await confirmAiReference({
         novel_id: getProjectId(),
-        action: "writing.generate",
-        task: "继续写下一场：按本章资料生成正文候选",
-        scope: "chapter",
-        chapter_index: view.chapter_index,
-        scene_id: getSceneId() || undefined,
+        action: rolling ? "outline.generate" : "writing.generate",
+        budget_tokens: rolling ? 0 : undefined,
+        planning_window_end: rolling ? Math.min(window.end, view.stop.step_id.endsWith("scenes") ? window.start + 1 : window.end) : undefined,
+        task: rolling ? "滚动规划：核对本层完整结构资料" : "继续写下一场：按本章资料生成正文候选",
+        scope: rolling ? "full" : "chapter",
+        chapter_index: rolling ? window.start : view.chapter_index,
+        scene_id: rolling ? undefined : getSceneId() || undefined,
         include_pending_objects: false,
       })
       if (!confirmation?.id) return null

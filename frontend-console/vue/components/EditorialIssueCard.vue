@@ -1,6 +1,6 @@
 <template>
   <article class="editorial-issue" :class="{ 'editorial-issue--stale': issue.source_may_be_stale }">
-    <div class="editorial-issue__head"><span class="editorial-issue__pick"><input type="checkbox" :checked="selected" :aria-label="`加入批注修订：${issue.finding.judgment}`" @change="$emit('toggle-select', $event.target.checked)" /><span>{{ categoryLabel(issue.finding.category) }} · {{ severityLabel(issue.finding.severity) }}</span></span><span>{{ dispositionLabel(issue.disposition) }}</span></div>
+    <div class="editorial-issue__head"><span class="editorial-issue__pick"><input type="checkbox" :checked="selected" :disabled="busy || issue.source_may_be_stale" :aria-label="`加入批注修订：${issue.finding.judgment}`" @change="$emit('toggle-select', $event.target.checked)" /><span>{{ categoryLabel(issue.finding.category) }} · {{ severityLabel(issue.finding.severity) }}</span></span><span>{{ dispositionLabel(issue.disposition) }}</span></div>
     <h5>{{ issue.finding.judgment }}</h5>
     <p v-if="issue.finding.disposition_inherited" class="editorial-issue__inherited" role="status">本轮复审仍出现这条意见，已沿用你此前的处理：{{ dispositionLabel(issue.finding.inherited_disposition) }}；如需改判可在下方重新决定。</p>
     <p><strong>读者可能的感受：</strong>{{ issue.finding.reader_impact }}</p>

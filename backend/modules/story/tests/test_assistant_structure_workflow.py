@@ -29,8 +29,9 @@ from modules.story.outline_state.story_outline_schemas import StoryOutlineConten
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("subset", [False, True])
 async def test_structure_task_keeps_parent_and_adopts_original_information_package(
-    db_session, test_project_id, account_llm_connection, monkeypatch
+    db_session, test_project_id, account_llm_connection, monkeypatch, subset
 ):
     db, nid = db_session, test_project_id
     settings = replace(get_settings(), assistant_enabled=True)
@@ -116,6 +117,16 @@ async def test_structure_task_keeps_parent_and_adopts_original_information_packa
             }
         ],
     )
+    if subset:
+        output.threads.append(
+            output.threads[0].model_copy(
+                update={
+                    "proposal_ref": "P2",
+                    "name": "排除的提案",
+                    "information_movements": [],
+                }
+            )
+        )
     task.status = "done"
     task.result = P20GenerationService.task_result(
         plan,
@@ -133,10 +144,32 @@ async def test_structure_task_keeps_parent_and_adopts_original_information_packa
         "threads"
     ][0]["name"] == "港口来信"
     adopt = story_structure_operations["story.adopt_structure"]
-    adoption = AdoptStructure(task_id=task.id)
+    adoption = AdoptStructure(
+        task_id=task.id, proposal_refs=[output.threads[0].proposal_ref]
+    )
     preview = await adopt.prepare(db, nid, adoption, context=context)
+    from modules.story.outline_state.ai_workflow_service import OutlineAIWorkflowService
+    from modules.story.outline_state.p20_service import P20ConflictError
+
+    edited = {
+        **preview["after"],
+        "threads": [{**preview["after"]["threads"][0], "name": "确认后改动"}],
+    }
+    with pytest.raises(P20ConflictError, match="重新确认"):
+        await OutlineAIWorkflowService().apply_structure_preview(
+            db,
+            novel_id=nid,
+            confirmation_id=preview["context_confirmation_id"],
+            source_task_id=str(task.id),
+            draft_structure=edited,
+            confirmed=True,
+            confirmation_fingerprint=preview["confirmation_fingerprint"],
+        )
+    assert await db.scalar(select(func.count()).select_from(PlotThread)) == 0
     result = await adopt.apply(db, nid, adoption, preview, context=context)
     assert result["result"]["total_threads"] == 1
+    assert await db.scalar(select(func.count()).select_from(PlotThread)) == 1
+    assert result["result"]["excluded_proposal_refs"] == (["P2"] if subset else [])
     assert await db.scalar(select(func.count()).select_from(ForeshadowingPlan)) == 1
     thread = await db.scalar(select(PlotThread))
     assert thread.provenance_meta["adopted_from_preview_task_id"] == str(task.id)

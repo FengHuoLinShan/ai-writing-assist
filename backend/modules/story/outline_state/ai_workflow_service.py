@@ -281,7 +281,10 @@ class OutlineAIWorkflowService:
                 "discarded stale preview"
             )
         output, window_validation = await self._apply_rolling_window(
-            db, data, output
+            db,
+            data,
+            output,
+            context=locked_fresh.context if data.rolling_window else None,
         )
         result = generation.task_result(
             plan,
@@ -304,7 +307,7 @@ class OutlineAIWorkflowService:
         return result
 
     @staticmethod
-    async def _apply_rolling_window(db: AsyncSession, data, output):
+    async def _apply_rolling_window(db: AsyncSession, data, output, *, context=None):
         """BR-6 滚动窗口：生成后确定性硬校验，违规条目丢弃并在结果中说明。
 
         只作用于作者确认过窗口的滚动规划请求（rolling_window=True）；手动
@@ -312,16 +315,21 @@ class OutlineAIWorkflowService:
         Writing 稳定 facade（模块级导入，依赖方向 story→writing 在冻结
         集合内），仅按 novel_id 读取。
         """
-        from modules.story.outline_state.p20_window import apply_planning_window
+        from modules.story.outline_state.p20_window import (
+            apply_planning_window,
+            readonly_window_revisions,
+        )
 
         if not data.rolling_window or data.start_chapter is None:
             return output, None
+        output, hints = readonly_window_revisions(data, output, context or {})
         written = await list_effective_chapter_indices(db, data.novel_id)
         filtered, report = apply_planning_window(
             data,
             output,
             written_chapters=frozenset(written),
         )
+        report["readonly_hints"] = hints
         return filtered, report
 
     @staticmethod
@@ -600,6 +608,38 @@ class OutlineAIWorkflowService:
             step_name="outline.ai_workflow.analyze.generate",
         )
 
+    async def prepare_structure_adoption(
+        self, db, *, novel_id, confirmation_id, source_task_id, draft_structure
+    ):
+        from infrastructure.tasks.facade import get_completed_task_payload
+        from modules.story.outline_state.p20_service import P20ApplyService
+
+        task = await get_completed_task_payload(
+            db, task_id=source_task_id, task_type="outline_generate", novel_id=novel_id
+        )
+        if (
+            task is None
+            or task.context_confirmation_id != confirmation_id
+            or not task.result.get("requires_apply")
+        ):
+            raise ValueError("没有可采用的原结构提案")
+        if task.result.get("contract_version") == "outline_layer_v2":
+            return await P20ApplyService().prepare_adoption(
+                db,
+                task=task,
+                novel_id=novel_id,
+                confirmation_id=confirmation_id,
+                draft_structure=draft_structure,
+            )
+        self._validate_structure_preview_shape(
+            task.result["draft_structure"], draft_structure
+        )
+        return {
+            "proposal_refs": [],
+            "excluded_proposal_refs": [],
+            "confirmation_fingerprint": None,
+        }
+
     async def apply_structure_preview(
         self,
         db: AsyncSession,
@@ -609,6 +649,7 @@ class OutlineAIWorkflowService:
         source_task_id: str,
         draft_structure: dict,
         confirmed: bool,
+        confirmation_fingerprint: str | None = None,
     ) -> dict:
         """显式采用手动大纲 AI preview，并保持幂等与来源追溯。"""
         if not confirmed:
@@ -656,6 +697,11 @@ class OutlineAIWorkflowService:
                 novel_id=novel_id,
                 confirmation_id=confirmation_id,
                 draft_structure=draft_structure,
+                **(
+                    {"confirmation_fingerprint": confirmation_fingerprint}
+                    if confirmation_fingerprint is not None
+                    else {}
+                ),
             )
         self._validate_structure_preview_shape(
             preview_structure,

@@ -452,6 +452,7 @@ AnyIO 重复取消直到连接归还，仍执行原 lease fence；模型与网�
 | task handler | 恢复策略 | 预算与持久化 |
 |---|---|---|
 | `assistant_forecast` | manual_resume | 四次总请求，复用 AssistantRun 与 forecast_v1 检查点 |
+| `assistant_direction_cards` | auto_requeue | 两次尝试共享最多两次请求、360 秒预算；schema 卡片输出经租约私有检查点保存，中断后复用，绑定运行/输入/批次；生成前已发起标记落库，无安全结果则费用待核对并停止重复调用，不扩大用量或重算已保存结果。 |
 | `assistant_editorial_review` | manual_resume | 每个队列任务最多四次请求、30 分钟；领域 review 保存已核实段、来源/遗漏和用量，续跑仅处理剩余段，用量未知阻断重试。 |
 | `assistant_editorial_recheck` | manual_resume | 一次请求、30 分钟；只读原问题关联的当前正文，结果不自动关闭意见。 |
 | `collaboration_run` | manual_resume | 30 次 / 1800 秒的运行上限，Case 累计消费不因恢复重置 |

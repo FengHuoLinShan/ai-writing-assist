@@ -444,7 +444,7 @@ function buildPayload(options, excludedSectionKeys, pinnedRefs, excludedRefs, ro
     excluded_refs: Array.from(excludedRefs.values()),
   }
   if (chapter) payload.chapter_index = chapter
-  for (const key of ["visible_until_chapter", "visible_until_scene_id", "visible_until_offset", "budget_tokens", "scene_id", "arc_id", "entity_ids", "character_ids", "thread_ids", "viewpoint_character_id", "location_ids", "selected_world_bible_draft_ids"]) {
+  for (const key of ["visible_until_chapter", "visible_until_scene_id", "visible_until_offset", "budget_tokens", "planning_window_end", "scene_id", "arc_id", "entity_ids", "character_ids", "thread_ids", "viewpoint_character_id", "location_ids", "selected_world_bible_draft_ids"]) {
     if (options[key] != null) payload[key] = options[key]
   }
   if (options.include_world_synopsis) payload.include_world_synopsis = true

@@ -205,27 +205,27 @@ World（骨架与采用经操作目录调用 `world.draft_opening_skeleton` /
 `world.adopt_package`）。三个流程共用一张注册表与派发表（`flows.py`），按同一
 机制追加推导、确认/选择输入与自动执行实现，不另起编排层。
 
-HTTP 入口为 `/api/assistant/flows`（start/active/view/advance/settings/abandon）；鉴权与项目隔离与 Assistant 其余入口一致，作者语言视图为唯一公开投影。开始请求按流程携带输入（`continue_writing` 需 `chapter_index`；`new_book_opening` 需 `input.vision` 与可选题材/篇幅意向；`editorial_revision` 无开始输入），推进请求除资料确认外支持 `choice`（作者选择停点的输入，由各流程在服务端校验）；视图的 `panel` 承载当前停点的作者面向载荷（方向卡、骨架包引用、修订条目、滚动窗口进度）。
+HTTP 入口为 `/api/assistant/flows`（start/active/latest/view/advance/settings/abandon）；鉴权与项目隔离与 Assistant 其余入口一致，作者语言视图为唯一公开投影。开始请求按流程携带输入（`continue_writing` 需 `chapter_index`；`new_book_opening` 需 `input.vision` 与可选题材/篇幅意向；`editorial_revision` 无开始输入），推进请求除资料确认外支持 `choice`（作者选择停点的输入，由各流程在服务端校验）；视图的 `panel` 承载当前停点的作者面向载荷（方向卡、骨架包引用、修订条目、滚动窗口进度）。
 
 已注册流程（`flows.py`，集成尾部 BR-3/4/5/6）：
 
-- **`continue_writing` v2（流程 2）**：首页「引导续写第 N 章」→ 定位工作稿 →
+- **`continue_writing` v3（流程 2）**：首页「引导续写第 N 章」→ 定位工作稿 →
   写作页就地核对/修改本章目标并完成资料确认（已有弹窗）→ 生成候选 → 自动接
   独立语义审查 → 停在「可审阅」，作者采用或定向返修。采用后停在「规划接下来
   几章」（BR-6 滚动规划）：作者确认后对第 N+1 至 N+K 章（K 为流程设置，默认
-  3、上限 5）经 `story.plan_structure` 的 rolling_window 生成剧情线与篇章两层
-  候选（确定性回执由（作品、窗口、层）决定），停在「候选可审阅」；作者经既有
-  `story.adopt_structure` 在结构工作台逐条取舍，窗口被已采用规划覆盖满时流程
-  自动完成。提窗时读 Story 只读缝 `get_planned_chapter_coverage`：后方已规划
-  不足 2 章时提示补足到 K 章。滚动规划只在流程内经作者确认触发；作者手动采用
-  不自动触发，可在设置中整体关闭（关闭后采用即完成，v1 行为）。
+  3、上限 5）逐层规划剧情线、篇章与近期 Scene（最近最多两章）。每层另行确认
+  完整结构资料，再生成候选；作者采用或明确略过后，才确认并生成下一层。
+  原正文确认的排除项冻结保留，有排除时不得自动扩权；旧 v2 运行失败关闭，作者
+  可结束后重开。所有非空层已采用且窗口有规划覆盖时完成，也可主动结束。
+  回执身份绑定完整参数、来源与当前运行步骤；重复推进重用，来源或意图变化不
+  复用旧任务。后方不足两章提示补窗；关闭滚动规划后采用正文即完成。
 - **`new_book_opening` v1（流程 1）**：一句构想（+可选题材/篇幅意向）→
   方向卡 LLM step（`direction_cards.py`，一次结构化调用出 2-3 张候选，卡片只
-  存运行检查点不是资产；每流程至多 3 批，再要一批是新调用并提示费用）→ 作者
+  存任务与运行检查点不是资产；每流程至多 3 批，再要一批是新调用并提示费用）→ 作者
   选定并可修改字段 → `world.draft_opening_skeleton` 一次生成待审骨架包 →
-  停点「骨架待确认」：作者在世界书页逐条取舍（排除/改名/简介，冲突逐条标出）
+  停点「骨架待确认」：作者在卡内逐条取舍并保存（排除/改名/简介、关系与规则正文、依赖与冲突原因）
   后流程经 `world.adopt_package` 采用所选条目（作者确认触发，prepare/apply
-  复验）→ 终点为「骨架可用」：生成故事总纲建议 / 继续深化世界观 / 开始写
+  复验、采用绑定当次预览指纹）→ 终点为「骨架可用」：生成故事总纲建议 / 继续深化世界观 / 开始写
   第一章（走流程 2），不自动写首章。知识审查未通过的包失败关闭，可查看不可
   采用；方向卡与未采用的骨架不进入任何生成上下文或检索。
 - **`editorial_revision` v1（流程 3）**：审读台选中意见并填写处置（作者选择）
@@ -234,12 +234,16 @@ HTTP 入口为 `/api/assistant/flows`（start/active/view/advance/settings/aband
   自动按（意见、采用稿）请求改后复核 → 停点展示「仍在 / 可能改善 / 无法判断」
   结论后完成。不做多意见自动融合。
 
-方向卡 step 的 LLM 调用只经 `open_project_llm_client()`（provider/model/Key
-来自项目 owner 已验证账户连接），一次结构化调用 + 至多 1 次格式修复、输入
-长度有界、超时有界；配置缺失时失败关闭。开关 `ASSISTANT_GUIDED_FLOWS_ENABLED`
-默认关，项目白名单 `ASSISTANT_GUIDED_FLOWS_PROJECT_ALLOWLIST` 沿用部署级机制；
-能力可用性经 `/api/assistant/capabilities` 的 `guided_flows` 投影暴露。
+方向卡通过 `assistant_direction_cards` durable task 使用 secret-free 项目执行快照与当前
+账户 Key；生成结果通过租约保护的任务私有检查点保存，工作进程中断恢复复用已有
+结果，不重付已完成调用。每批最多生成与格式修复两次请求，最长 360 秒；来源
+或检查点指纹不一致失败关闭。生成前先落已发起标记；响应后结果未安全落盘
+时停止自动恢复，费用待核对，不再次调用模型。流程开始并发用项目/流程 advisory transaction lock
+序列化；SQL 在截断前筛项目、owner、协议与流程。开关与项目白名单保持默认关闭。
 
+首页通过 latest 查询恢复已完成骨架采用，刷新或项目已有内容后仍能撤销；已编辑
+或被引用资产按领域回执保留。取舍保存 CAS 冲突保留编辑，重读前本地备份可恢复；
+备份失败保留当前编辑并阻止无保护离页。审读台重新挂载读取活动流程恢复停点。
 方向卡能力归属为 `assistant.guided_flow.direction_cards`，只声明对齐作者构想 `author_intent`，输出不构成世界事实或知识审查通过回执。审读修订的改后复核任务仍在途时保持流程进行中；终态回执才进入复核结果停点。
 
 ## 工作上下文的意图与选区范围（R00）

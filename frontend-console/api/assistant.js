@@ -44,6 +44,7 @@ export const assistant = {
     // 引导流程（ADR-0032）：服务端确定性编排；前端只渲染停点与推进。
     // ============================================================
     guidedFlowStart: (body) => post("/assistant/flows", body),
+    guidedFlowLatest: (novelId, flowId) => request(withQuery("/assistant/flows/latest", { novel_id: novelId, flow_id: flowId }), { cache: "no-store" }),
     guidedFlowActive: (novelId) => request(withQuery("/assistant/flows/active", { novel_id: novelId }), { cache: "no-store" }),
     guidedFlow: (novelId, runId) => request(withQuery(`/assistant/flows/${encodeURIComponent(runId)}`, { novel_id: novelId }), { cache: "no-store" }),
     guidedFlowAdvance: (runId, body) => post(`/assistant/flows/${encodeURIComponent(runId)}/advance`, body),

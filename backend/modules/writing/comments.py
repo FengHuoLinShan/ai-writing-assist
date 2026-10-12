@@ -267,15 +267,36 @@ async def submit_comment_revision(
             raise ConflictError(f"第 {chapter_index} 章还没有可修订的工作稿")
         if any(
             selection.frozen_content_hash != latest.content_hash
+            or (selection.draft_id is not None and selection.draft_id != str(latest.id))
             for selection in items
         ):
-            raise ConflictError(
-                "审读依据的正文已变化，请重新审读", code="SOURCE_STALE"
-            )
+            raise ConflictError("审读依据的正文已变化，请重新审读", code="SOURCE_STALE")
         content = latest.content or ""
         located: list[tuple[CommentRevisionSelectionContract, int, int]] = []
         for selection in items:
-            if content.count(selection.quote) == 1:
+            if content.count(selection.quote) == 0:
+                unlocated.append(
+                    CommentRevisionUnlocatedContract(
+                        ref=selection.ref,
+                        chapter_index=chapter_index,
+                        reason="意见引文已不在当前稿中，无法定位；这条不会生成替换候选",
+                    )
+                )
+                continue
+            if selection.start is not None:
+                if (
+                    selection.end is None
+                    or selection.start < 0
+                    or selection.end <= selection.start
+                    or selection.end > len(content)
+                    or content[selection.start : selection.end] != selection.quote
+                    or selection.range_hash != hash_text(selection.quote)
+                ):
+                    raise ConflictError(
+                        "选区与冻结原文不一致，请重新选择", code="SOURCE_STALE"
+                    )
+                located.append((selection, selection.start, selection.end))
+            elif content.count(selection.quote) == 1:
                 start = content.find(selection.quote)
                 located.append((selection, start, start + len(selection.quote)))
             else:
@@ -288,9 +309,19 @@ async def submit_comment_revision(
                 )
         if not located:
             continue
-        chapter_operation = str(
-            uuid.uuid5(request_operation, f"chapter:{chapter_index}")
+        ordered = sorted(located, key=lambda entry: (entry[1], entry[2]))
+        overlaps = any(
+            right[1] < max(entry[2] for entry in ordered[:index])
+            for index, right in enumerate(ordered[1:], 1)
         )
+        if overlaps and not all(
+            selection.overlap_confirmed for selection, _, _ in located
+        ):
+            raise ConflictError(
+                "所选片段重叠，请查看合并范围并确认后再生成",
+                code="OVERLAP_CONFIRMATION_REQUIRED",
+            )
+        chapter_operation = str(uuid.uuid5(request_operation, f"chapter:{chapter_index}"))
         refs = [selection.ref for selection, _start, _end in located]
         request_payload = {
             "novel_id": novel_id,
@@ -301,8 +332,14 @@ async def submit_comment_revision(
                     "chapter_index": selection.chapter_index,
                     "quote": selection.quote,
                     "ref": selection.ref,
+                    "instruction": selection.instruction,
+                    "body": selection.body,
+                    "source_hash": selection.frozen_content_hash,
+                    "start": start,
+                    "end": end,
+                    "overlap_confirmed": selection.overlap_confirmed,
                 }
-                for selection, _start, _end in located
+                for selection, start, end in located
             ],
         }
         existing = await get_operation_task(

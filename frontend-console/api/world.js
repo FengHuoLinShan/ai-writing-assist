@@ -600,6 +600,12 @@ export const world = {
       return request(withQuery(`/world/adoption-packages/${suggestionId}`, { novel_id: novelId }))
     },
 
+    async updateAdoptionPackageItems(suggestionId, payload) {
+      return patch(`/world/adoption-packages/${encodeURIComponent(suggestionId)}/items`, payload)
+    },
+    async rollbackAdoptionPackage(suggestionId, novelId) {
+      return post(`/world/adoption-packages/${encodeURIComponent(suggestionId)}/rollback`, { novel_id: novelId })
+    },
     async previewAdoptionPackage(suggestionId, novelId) {
       return request(withQuery(`/world/adoption-packages/${suggestionId}/preview`, { novel_id: novelId }))
     },

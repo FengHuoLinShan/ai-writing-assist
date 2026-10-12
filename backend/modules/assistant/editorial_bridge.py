@@ -10,6 +10,7 @@ Writing 既有批注修订（只返回选区替换、治理复审、候选采用
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 
 from sqlalchemy import select
@@ -88,21 +89,44 @@ async def submit_issue_revision(db, data: IssueRevisionRequest) -> dict:
     for item in data.items:
         row = rows[item.issue_id]
         evidence = list(row.finding_json.get("evidence") or [])
-        primary = evidence[0] if evidence else None
-        quote = str((primary or {}).get("quote") or "")
-        if primary is None or not quote:
-            unsupported[str(row.id)] = "这条意见没有可定位的原文引文，无法发起修订"
-            continue
-        selections.append(
-            CommentRevisionSelectionContract(
-                chapter_index=int(primary["chapter_index"]),
-                quote=quote,
-                frozen_content_hash=str(primary.get("content_hash") or ""),
-                body=_issue_text(row),
-                instruction=item.instruction,
-                ref=str(row.id),
+        indices = item.evidence_indices
+        if indices is None:
+            if len(evidence) > 1:
+                raise ValidationError("这条意见有多处依据，请明确选择需要修改的位置")
+            indices = [0] if evidence else []
+        if len(indices) != len(set(indices)) or any(
+            index < 0 or index >= len(evidence) for index in indices
+        ):
+            raise ValidationError("证据选择包含未知或重复位置")
+        overrides = {entry.evidence_index: entry for entry in item.ranges}
+        if len(overrides) != len(item.ranges) or not set(overrides).issubset(indices):
+            raise ValidationError("手动选区必须属于本次选定的证据基稿")
+        for index in indices:
+            primary = evidence[index]
+            manual = overrides.get(index)
+            quote = manual.quote if manual else str(primary.get("quote") or "")
+            if not quote:
+                unsupported[str(row.id)] = "这条意见没有可定位的原文引文，无法发起修订"
+                continue
+            selections.append(
+                CommentRevisionSelectionContract(
+                    chapter_index=int(primary["chapter_index"]),
+                    quote=quote,
+                    frozen_content_hash=str(primary.get("content_hash") or ""),
+                    body=_issue_text(row),
+                    instruction=item.instruction,
+                    ref=str(row.id),
+                    draft_id=str(primary["draft_id"])
+                    if primary.get("draft_id")
+                    else None,
+                    start=manual.start if manual else primary.get("start"),
+                    end=manual.end if manual else primary.get("end"),
+                    range_hash=manual.range_hash
+                    if manual
+                    else hashlib.sha256(quote.encode("utf-8")).hexdigest(),
+                    overlap_confirmed=data.overlap_confirmed,
+                )
             )
-        )
     receipt = await submit_comment_revision(
         db,
         novel_id,
@@ -119,37 +143,36 @@ async def submit_issue_revision(db, data: IssueRevisionRequest) -> dict:
     items = []
     for item in data.items:
         issue_id = str(item.issue_id)
-        task = queued.get(issue_id)
-        if task is not None:
-            items.append(
+        accepted = [task for task in receipt.tasks if issue_id in task.refs]
+        if accepted:
+            items.extend(
                 {
                     "issue_id": issue_id,
                     "status": "queued",
                     "task_id": task.task_id,
                     "chapter_index": task.chapter_index,
                 }
+                for task in accepted
             )
-            continue
-        reason = next(
-            (entry.reason for entry in receipt.unlocated if entry.ref == issue_id),
-            None,
-        ) or unsupported.get(issue_id) or "这条意见未能发起修订"
-        chapter_index = next(
-            (
-                entry.chapter_index
-                for entry in receipt.unlocated
-                if entry.ref == issue_id
-            ),
-            None,
-        )
-        items.append(
-            {
-                "issue_id": issue_id,
-                "status": "unlocatable",
-                "chapter_index": chapter_index,
-                "reason": reason,
-            }
-        )
+        for entry in receipt.unlocated:
+            if entry.ref == issue_id:
+                items.append(
+                    {
+                        "issue_id": issue_id,
+                        "status": "unlocatable",
+                        "chapter_index": entry.chapter_index,
+                        "reason": entry.reason,
+                    }
+                )
+        if not accepted and not any(entry.ref == issue_id for entry in receipt.unlocated):
+            items.append(
+                {
+                    "issue_id": issue_id,
+                    "status": "unlocatable",
+                    "chapter_index": None,
+                    "reason": unsupported.get(issue_id) or "这条意见未能发起修订",
+                }
+            )
     reviews: dict[uuid.UUID, object] = {}
     for item in data.items:
         issue_id = str(item.issue_id)

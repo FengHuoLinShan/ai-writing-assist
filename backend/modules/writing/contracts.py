@@ -136,6 +136,11 @@ class CommentRevisionSelectionContract:
     body: str
     instruction: str
     ref: str
+    draft_id: str | None = None
+    start: int | None = None
+    end: int | None = None
+    range_hash: str | None = None
+    overlap_confirmed: bool = False
 
 
 @dataclass(frozen=True)

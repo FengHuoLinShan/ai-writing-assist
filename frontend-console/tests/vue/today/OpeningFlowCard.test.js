@@ -71,6 +71,7 @@ let navigate
 beforeEach(() => {
   navigate = vi.fn()
   apiMock = {
+    world: { getAdoptionArtifact: vi.fn(async () => ({ updated_at: "2026-10-12T00:00:00Z", payload_json: { items: [{item_key:"a", kind:"core_entity", disposition:"include", payload:{operation:"create", entity:{name:"潮城", summary:"雾城"}}}] } })), previewAdoptionPackage: vi.fn(async () => ({ expected_preview_hash: "h".repeat(64), canon_diff: [] })) },
     assistant: {
       guidedFlowStart: vi.fn(async () => cardView()),
       guidedFlowActive: vi.fn(async () => null),
@@ -199,19 +200,13 @@ describe("OpeningFlowCard（新书开篇引导卡）", () => {
     apiMock.assistant.guidedFlowAdvance.mockResolvedValue(completedView)
 
     const wrapper = await mountCard()
-    expect(wrapper.text()).toContain("骨架包含：新对象 12 · 关系 2")
-    await wrapper.get('[data-action="opening-open-package"]').trigger("click")
-    expect(navigate).toHaveBeenCalledWith(
-      "world",
-      "bible",
-      true,
-      expect.objectContaining({ has: expect.any(Function) }),
-    )
+    expect(wrapper.text()).toContain("潮城")
+    expect(navigate).not.toHaveBeenCalled()
     await wrapper.get('[data-action="opening-adopt"]').trigger("click")
     await flushPromises()
     expect(apiMock.assistant.guidedFlowAdvance).toHaveBeenLastCalledWith("run-1", {
       novel_id: "p1",
-      choice: { step_id: "adopt_skeleton", action: "adopt_skeleton" },
+      choice: { step_id: "adopt_skeleton", action: "adopt_skeleton", expected_preview_hash: "h".repeat(64) },
     })
     expect(wrapper.text()).toContain("生成故事总纲建议")
     await wrapper.get('[data-action="opening-first-chapter"]').trigger("click")
@@ -221,4 +216,15 @@ describe("OpeningFlowCard（新书开篇引导卡）", () => {
     await wrapper.get('[data-action="opening-write-first"]').trigger("click")
     expect(navigate).toHaveBeenLastCalledWith("writing")
   })
+})
+
+it("非空项目从最新已完成采用恢复撤销入口", async () => {
+  const result = cardView({ status: "completed", stop: { step_id: "skeleton_ready", kind: "author_choice", actions: [] }, panel: { package: { package_suggestion_id: "package-1" }, adopted: { package_suggestion_id: "package-1" }, cards: [] } })
+  apiMock.assistant.guidedFlowLatest = vi.fn(async () => result)
+  apiMock.views["run-1"] = result
+  const wrapper = mount(OpeningFlowCard, { props: { projectId: "p1", available: true, allowStart: false } })
+  await flushPromises()
+  expect(apiMock.assistant.guidedFlowLatest).toHaveBeenCalledWith("p1", "new_book_opening")
+  expect(wrapper.text()).toContain("撤销这次骨架采用")
+  expect(wrapper.find('[data-action="opening-start"]').exists()).toBe(false)
 })

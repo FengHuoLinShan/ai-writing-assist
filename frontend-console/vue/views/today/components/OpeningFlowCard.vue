@@ -2,7 +2,7 @@
      从一句构想到方向卡选择、世界观骨架逐条取舍与采用；全程只在做真实
      选择时停下，其余自动衔接。所有 AI 输出都是候选，采用由作者决定。 -->
 <template>
-  <section v-if="available" class="opening-flow" aria-labelledby="opening-flow-title">
+  <section v-if="available && (allowStart || controller.state.view)" class="opening-flow" aria-labelledby="opening-flow-title">
     <template v-if="!controller.state.view">
       <header class="opening-flow__head">
         <h3 id="opening-flow-title">从一句构想开始新书</h3>
@@ -28,7 +28,7 @@
           data-action="opening-start"
           @click="start"
         >开始新书开篇</button>
-        <span class="opening-flow__note">开始后会先生成方向卡（一次模型调用）；随时可以结束，已确认的内容保留。</span>
+        <span class="opening-flow__note">开始后会先生成方向卡（一轮生成，必要时修复格式）；随时可以结束，已确认的内容保留。</span>
       </div>
       <p v-if="controller.state.error" class="opening-flow__error" role="alert">{{ controller.state.error }}</p>
     </template>
@@ -99,28 +99,15 @@
           :disabled="controller.state.busy"
           data-action="opening-more-cards"
           @click="controller.choose('choose_direction', { action: 'more_cards' })"
-        >都不满意，再要一批（一次模型调用）</button>
+        >都不满意，再要一批（一轮生成，必要时修复格式）</button>
         <button type="button" class="btn btn-ghost" :disabled="controller.state.busy" @click="controller.abandonFlow()">结束流程</button>
       </div>
 
-      <!-- 骨架确认 -->
-      <div v-if="atAdoptStop" class="opening-flow__skeleton">
-        <p v-if="packageCounts">
-          骨架包含：{{ packageCounts }}
-        </p>
-        <p class="opening-flow__note">先逐条取舍再采用；只有采用的条目会成为正式设定，之后还可以整体撤销。</p>
-        <div class="opening-flow__actions">
-          <button type="button" class="btn" data-action="opening-open-package" @click="openPackage">去逐条查看与取舍</button>
-          <button
-            type="button"
-            class="btn btn-primary"
-            :disabled="controller.state.busy"
-            data-action="opening-adopt"
-            @click="controller.choose('adopt_skeleton', { action: 'adopt_skeleton' })"
-          >采用所选条目</button>
-          <button type="button" class="btn btn-ghost" :disabled="controller.state.busy" @click="controller.abandonFlow()">结束流程</button>
-        </div>
-      </div>
+      <OpeningSkeletonReview ref="skeletonReview" v-if="panel?.package?.package_suggestion_id && (atAdoptStop || panel?.adopted)"
+        :project-id="projectId" :package-id="panel.package.package_suggestion_id" :adopted="Boolean(panel.adopted)"
+        @adopt="hash => controller.choose('adopt_skeleton', { action: 'adopt_skeleton', expected_preview_hash: hash })"
+        @rolled-back="skeletonReversed = true" />
+      <p v-if="skeletonReversed" role="status">本次骨架采用已撤销；保留内容请在撤销回执中核对。</p>
 
       <!-- 骨架可用：下一步由作者选 -->
       <div v-if="atReadyStop" class="opening-flow__actions">
@@ -147,10 +134,12 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { getApi, getRouter, getToast } from "../../../bridge/index.js"
+import OpeningSkeletonReview from "./OpeningSkeletonReview.vue"
 import { createGuidedFlowController } from "../../writing/controllers/guidedFlowController.js"
 
 const props = defineProps({
   projectId: { type: String, required: true },
+  allowStart: { type: Boolean, default: true },
   available: { type: Boolean, default: false },
 })
 
@@ -172,6 +161,8 @@ const controller = createGuidedFlowController({
   toast,
   getProjectId: () => props.projectId,
 })
+const skeletonReview = ref(null)
+const skeletonReversed = ref(false)
 const vision = ref("")
 const genreHint = ref("")
 const lengthHint = ref("")
@@ -185,7 +176,7 @@ const stopStep = computed(() => view.value?.stop?.step_id || "")
 const atDirectionStop = computed(() => stopStep.value === "choose_direction" && cards.value.length > 0)
 const atAdoptStop = computed(() => stopStep.value === "adopt_skeleton")
 const atReadyStop = computed(
-  () => view.value?.status === "completed" && stopStep.value === "skeleton_ready",
+  () => !skeletonReversed.value && view.value?.status === "completed" && stopStep.value === "skeleton_ready",
 )
 const STATUS_LABELS = {
   running: "进行中",
@@ -196,22 +187,7 @@ const STATUS_LABELS = {
 }
 const statusLabel = computed(() => STATUS_LABELS[view.value?.status] || "")
 
-const COUNT_LABELS = {
-  created_entities: "新对象",
-  fill_existing: "补充已有",
-  reference_existing: "引用已有",
-  attached_aliases: "新增别名",
-  relations: "关系",
-}
-const packageCounts = computed(() => {
-  const counts = panel.value?.package?.counts || {}
-  const parts = Object.entries(COUNT_LABELS)
-    .filter(([key]) => Number(counts[key]) > 0)
-    .map(([key, label]) => `${label} ${counts[key]}`)
-  return parts.length ? parts.join(" · ") : ""
-})
-
-const HANDLED_ACTIONS = new Set(["more_cards"])
+const HANDLED_ACTIONS = new Set(["more_cards", "open_package", "adopt_skeleton"])
 const genericActions = computed(() =>
   (view.value?.stop?.actions || []).filter((action) => !HANDLED_ACTIONS.has(action.action)),
 )
@@ -258,9 +234,7 @@ async function chooseDirection() {
 }
 
 function openPackage() {
-  const packageId = panel.value?.package?.package_suggestion_id
-  if (!packageId) return
-  router.navigate("world", "bible", true, new URLSearchParams({ adoption_package_id: packageId }))
+  skeletonReview.value?.$el?.scrollIntoView?.({ block: "nearest" })
 }
 
 function goOutlineSuggestion() {
@@ -289,9 +263,7 @@ function runAction(action) {
 onMounted(async () => {
   if (!props.available || !props.projectId) return
   if (!api.assistant?.guidedFlowActive) return
-  const active = await api.assistant
-    .guidedFlowActive(props.projectId)
-    .catch(() => null)
+  const active = await (api.assistant.guidedFlowLatest ? api.assistant.guidedFlowLatest(props.projectId, "new_book_opening") : api.assistant.guidedFlowActive(props.projectId)).catch(() => null)
   if (active?.run_id && active.flow_id === "new_book_opening") {
     await controller.attachRun(active.run_id)
   }

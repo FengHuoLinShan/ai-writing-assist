@@ -52,8 +52,7 @@ class PlanStructure(BaseModel):
         ge=1,
         le=2147483647,
         description=(
-            "滚动规划窗口的结束章；篇章/剧情线最多覆盖 5 章，"
-            "Scene 只覆盖紧邻的 1-2 章"
+            "滚动规划窗口的结束章；篇章/剧情线最多覆盖 5 章，Scene 只覆盖紧邻的 1-2 章"
         ),
     )
 
@@ -90,6 +89,9 @@ class PlanStructure(BaseModel):
 class AdoptStructure(BaseModel):
     model_config = ConfigDict(extra="forbid")
     task_id: UUID
+    proposal_refs: list[str] = Field(min_length=1, max_length=100)
+    draft_structure: dict | None = None
+    confirmation_fingerprint: str | None = None
 
 
 def _require_scope(context):
@@ -166,10 +168,19 @@ async def _resolve_window_args(
     return resolved, note
 
 
-def _window_identity(novel_id: str, args: PlanStructure) -> dict:
+def _window_identity(
+    novel_id: str,
+    args: PlanStructure,
+    *,
+    preview: dict | None = None,
+    operation_id: str | None = None,
+) -> dict:
     """滚动推进的确定性请求身份：同一（作品、窗口、层）共享一份回执。"""
     return {
         "capability": "story.plan_structure",
+        "arguments": args.model_dump(mode="json"),
+        "baseline_hash": fingerprint(preview or {}),
+        "flow_operation_id": operation_id,
         "novel_id": str(UUID(novel_id)),
         "target": args.target,
         "mode": args.mode,
@@ -184,8 +195,8 @@ def _window_identity(novel_id: str, args: PlanStructure) -> dict:
 def _window_operation_id(identity: dict) -> str:
     """由身份派生确定性 operation_id（借鉴 forecast compute_key；键含窗口）。
 
-    同一窗口重复推进返回原任务/预览，不产生第二个任务；指令或资料指纹
-    不参与键，避免同窗口因上下文微变而生成分身任务。
+    同一运行步骤与同一输入/来源重试返回原任务；新指令、来源或新运行
+    派生新身份，不复用旧窗口任务。
     """
     return str(
         uuid.uuid5(
@@ -275,7 +286,9 @@ async def _submit(db, novel_id, args, preview, *, context=None):
     resolved, _note = await _resolve_window_args(db, novel_id, args)
     if resolved.start_chapter is not None:
         # 滚动推进：回执由（作品、窗口、层、模式与目标）确定，与运行解耦。
-        identity = _window_identity(novel_id, resolved)
+        identity = _window_identity(
+            novel_id, resolved, preview=preview, operation_id=context.operation_id
+        )
         operation_id = _window_operation_id(identity)
     else:
         identity = {
@@ -385,12 +398,38 @@ async def _adopt_preview(db, novel_id, args, *, context=None):
     result = await _read_result(db, novel_id, {"task_id": str(args.task_id)})
     if result["status"] != "completed" or not result.get("requires_apply"):
         raise ConflictError("这份提案不可直接采用，请从原结构工作台查看结果")
+    field = {"plot_thread": "threads", "outline_arc": "arcs", "planned_scene": "scenes"}[
+        task.result["target"]
+    ]
+    edited = args.draft_structure or {
+        **result["draft_structure"],
+        field: [
+            item
+            for item in result["draft_structure"].get(field, [])
+            if item["proposal_ref"] in args.proposal_refs
+        ],
+    }
+    if [item["proposal_ref"] for item in edited.get(field, [])] != args.proposal_refs:
+        raise ConflictError("采用内容与选择不一致")
+    selection = await OutlineAIWorkflowService().prepare_structure_adoption(
+        db,
+        novel_id=novel_id,
+        confirmation_id=task.context_confirmation_id,
+        source_task_id=str(args.task_id),
+        draft_structure=edited,
+    )
+    if (
+        args.confirmation_fingerprint
+        and args.confirmation_fingerprint != selection["confirmation_fingerprint"]
+    ):
+        raise ConflictError("采用选择或来源已变化，请重新确认")
     return {
+        **selection,
         "target_key": "story:structure_package",
         "title": "采用结构规划",
         "source_fingerprint": task.result["context_fingerprint"],
         "context_confirmation_id": task.context_confirmation_id,
-        "after": result["draft_structure"],
+        "after": edited,
         "effect": "按原结构采用包保存所列内容，保留原版本与正文映射；不改写正文",
     }
 
@@ -405,6 +444,7 @@ async def _adopt(db, novel_id, args, preview, *, context=None):
         source_task_id=str(args.task_id),
         draft_structure=preview["after"],
         confirmed=True,
+        confirmation_fingerprint=preview["confirmation_fingerprint"],
     )
     return {
         "type": "outline_generate",
@@ -426,13 +466,14 @@ OPERATIONS_SPEC = {
         "apply": _submit,
         "permission": "suggest",
         "read_result": _read_result,
-        # rev2（BR-6）：窗口字段语义入 schema 描述并默认补足；同窗口推进
-        # 共享确定性回执。旧冻结运行按 resolve_operations 失败关闭重提。
-        "revision": "2",
+        # rev3（BR-6）：窗口字段语义入 schema 描述并默认补足；同窗口推进
+        # 绑定运行步骤与输入/来源。旧冻结运行按 resolve_operations 失败关闭重提。
+        "revision": "3",
     },
     "story.adopt_structure": {
         "label": "采用原结构规划包",
         "schema": AdoptStructure,
+        "revision": "2",
         "prepare": _adopt_preview,
         "apply": _adopt,
     },

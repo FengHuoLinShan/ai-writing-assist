@@ -60,18 +60,27 @@
               <h4 v-if="selectedIssueIds.length" id="editorial-revision-title">按选中的 {{ selectedIssueIds.length }} 条意见发起批注修订</h4>
               <h4 v-else id="editorial-revision-title">本轮批注修订</h4>
               <template v-if="selectedIssueIds.length">
-                <p>每条意见按其唯一原文依据定位为选区，连同意见原文和下面的处置说明一起交给批注修订，只生成改动所选片段的替换候选；候选仍需你在写作页审阅采用。引文已不在当前稿的意见不会生成候选，会逐条说明原因。发起修订会产生一次模型调用费用。</p>
+                <p>请勾选需要修改的原文位置，连同意见原文和下面的处置说明一起交给批注修订，只生成改动所选片段的替换候选；候选仍需你在写作页审阅采用。引文已不在当前稿的意见不会生成候选，会逐条说明原因。发起修订含生成、审查及必要返修，按实际调用计费。</p>
+                <fieldset v-for="issue in selectedRevisionIssues" :key="issue.id">
+                  <legend>{{ issue.finding?.judgment }}：选择修改位置</legend>
+                  <label v-for="(evidence, index) in issue.finding?.evidence || []" :key="index">
+                    <input v-model="evidenceChoices[issue.id]" type="checkbox" :value="index" :disabled="revisionBusy || flowBusy" />
+                    第 {{ evidence.chapter_index }} 章：{{ evidence.quote }}
+                  </label>
+                </fieldset>
+                <p v-for="range in revisionRanges" :key="range.key">联合修订范围：第 {{ range.chapter }} 章，{{ range.start + 1 }}–{{ range.end }} 字；{{ range.quotes.join(' / ') }}</p>
+                <label v-if="revisionOverlaps.length"><input v-model="overlapConfirmed" type="checkbox" />已核对上方重叠片段的合并范围，同意联合修订。</label>
                 <label>处置说明 <small>会连同意见原文一起交给修订</small><textarea v-model="revisionInstruction" rows="2" maxlength="2000" /></label>
                 <div class="editorial-desk__actions">
-                  <button type="button" class="btn btn-primary btn-sm" :disabled="revisionBusy || !revisionInstruction.trim() || busy" @click="submitRevision">{{ revisionBusy ? '提交中…' : `发起 ${selectedIssueIds.length} 条修订` }}</button>
-                  <button type="button" class="btn btn-sm" :disabled="revisionBusy || !revisionInstruction.trim() || busy || !flowAvailable" data-action="start-revision-flow" @click="startRevisionFlow">走引导流程修订</button>
+                  <button type="button" class="btn btn-primary btn-sm" :disabled="revisionBusy || !revisionInstruction.trim() || !revisionSelectionReady || busy" @click="submitRevision">{{ revisionBusy ? '提交中…' : `发起 ${selectedIssueIds.length} 条修订` }}</button>
+                  <button type="button" class="btn btn-sm" :disabled="revisionBusy || !revisionInstruction.trim() || !revisionSelectionReady || busy || !flowAvailable" data-action="start-revision-flow" @click="startRevisionFlow">走引导流程修订</button>
                   <button type="button" class="btn btn-sm" :disabled="revisionBusy" @click="clearIssueSelection">取消选择</button>
                 </div>
                 <p v-if="!flowAvailable" class="editorial-desk__note">引导流程未向当前作品开放时，可直接发起修订，效果相同。</p>
               </template>
               <p v-if="revisionError" class="editorial-desk__error" role="alert">{{ revisionError }}</p>
               <div v-if="revisionItems.length" class="editorial-desk__revision-results">
-                <p v-for="item in revisionItems" :key="item.issue_id">
+                <p v-for="item in revisionItems" :key="`${item.issue_id}:${item.chapter_index}:${item.task_id || item.reason}`">
                   <template v-if="item.kind === 'queued'">
                     <template v-if="!item.done">修订进行中…</template>
                     <template v-else-if="item.candidate_draft_id">替换候选已生成：<button type="button" class="btn btn-sm" @click="openRevisionCandidate(item)">去写作页审阅并采用</button></template>
@@ -151,6 +160,28 @@ const brief = ref(null), briefDraft = ref({}), briefLists = ref({}), briefDraftN
 const policy = ref(null), automaticEnabled = ref(false), automaticExclusionsText = ref("")
 const reviews = ref([]), issues = ref([]), selectedReviewId = ref(null)
 const selectedIssueIds = ref([])
+const evidenceChoices = ref({}), overlapConfirmed = ref(false)
+const selectedRevisionIssues = computed(() => reviewIssues.value.filter(issue => selectedIssueIds.value.includes(issue.id)))
+const revisionRanges = computed(() => {
+  const spans = selectedRevisionIssues.value.flatMap(issue => (evidenceChoices.value[issue.id] || []).map(index => {
+    const entry = issue.finding.evidence[index]
+    return { key: `${issue.id}:${index}`, chapter: entry.chapter_index, draft: entry.draft_id, start: entry.start, end: entry.end, quotes: [entry.quote] }
+  })).filter(entry => Number.isInteger(entry.start) && Number.isInteger(entry.end)).sort((a, b) => a.chapter - b.chapter || a.start - b.start)
+  const merged = []
+  for (const span of spans) {
+    const previous = merged.at(-1)
+    if (previous && previous.chapter === span.chapter && previous.draft === span.draft && span.start < previous.end) {
+      previous.end = Math.max(previous.end, span.end); previous.quotes.push(...span.quotes); previous.overlap = true
+    } else merged.push({ ...span })
+  }
+  return merged
+})
+const revisionOverlaps = computed(() => revisionRanges.value.filter(range => range.overlap))
+const revisionSelectionReady = computed(() => selectedRevisionIssues.value.every(issue => evidenceChoices.value[issue.id]?.length) && (!revisionOverlaps.value.length || overlapConfirmed.value))
+function revisionRequestItems(instruction) {
+  return selectedRevisionIssues.value.map(issue => ({ issue_id: issue.id, expected_version: issue.version, instruction, evidence_indices: [...(evidenceChoices.value[issue.id] || [])] }))
+}
+watch(evidenceChoices, () => { overlapConfirmed.value = false }, { deep: true })
 const revisionInstruction = ref(""), revisionBusy = ref(false), revisionError = ref("")
 const revisionItems = ref([])
 const scope = ref("chapter"), startChapter = ref(1), endChapter = ref(1)
@@ -220,6 +251,11 @@ async function load() {
     restoreBrief(nextBrief); policy.value = nextPolicy; automaticEnabled.value = nextPolicy.enabled; automaticExclusionsText.value = (nextPolicy.excluded_chapters || []).join(", ")
     reviews.value = nextReviews; issues.value = nextIssues
     flowAvailable.value = Boolean(nextCapabilities?.guided_flows?.available)
+    if (flowAvailable.value && getApi().assistant.guidedFlowActive) {
+      const active = await getApi().assistant.guidedFlowActive(projectId)
+      if (projectId !== props.projectId) return
+      flowView.value = active?.flow_id === "editorial_revision" ? active : null
+    }
     pruneIssueSelection()
     if (!nextReviews.some(item => item.id === selectedReviewId.value)) selectedReviewId.value = nextReviews[0]?.id || null
     if (props.focusIssueId) selectedReviewId.value = nextIssues.find(item => item.id === props.focusIssueId)?.review_id || selectedReviewId.value
@@ -305,10 +341,12 @@ function addIntent(issue) {
   briefDraftNotice.value = "已放入编辑约定草稿。只有你点击“保存编辑约定”后才长期生效。"
 }
 function pruneIssueSelection() {
-  const known = new Set(issues.value.map(item => item.id))
+  const known = new Set(issues.value.filter(item => !item.source_may_be_stale).map(item => item.id))
   selectedIssueIds.value = selectedIssueIds.value.filter(id => known.has(id))
 }
 function toggleIssueSelection(issue, checked) {
+  evidenceChoices.value[issue.id] = checked && issue.finding?.evidence?.length === 1 ? [0] : []
+  overlapConfirmed.value = false
   selectedIssueIds.value = checked
     ? [...selectedIssueIds.value, issue.id]
     : selectedIssueIds.value.filter(id => id !== issue.id)
@@ -317,13 +355,14 @@ function clearIssueSelection() { selectedIssueIds.value = [] }
 async function submitRevision() {
   const instruction = revisionInstruction.value.trim()
   const selected = reviewIssues.value.filter(issue => selectedIssueIds.value.includes(issue.id))
-  if (!instruction || !selected.length) return
+  if (!instruction || !selected.length || !revisionSelectionReady.value) return
   revisionBusy.value = true; revisionError.value = ""
   try {
     const response = await getApi().assistant.reviseEditorialIssues({
       novel_id: props.projectId,
       operation_id: crypto.randomUUID(),
-      items: selected.map(issue => ({ issue_id: issue.id, expected_version: issue.version, instruction })),
+      items: revisionRequestItems(instruction),
+      overlap_confirmed: overlapConfirmed.value,
     })
     revisionItems.value = (response.items || []).map(item => (
       item.status === "queued"
@@ -381,7 +420,7 @@ function flowStepMark(state) {
 async function startRevisionFlow() {
   const instruction = revisionInstruction.value.trim()
   const selected = reviewIssues.value.filter(issue => selectedIssueIds.value.includes(issue.id))
-  if (!instruction || !selected.length || flowBusy.value) return
+  if (!instruction || !selected.length || !revisionSelectionReady.value || flowBusy.value) return
   flowBusy.value = true; flowError.value = ""
   try {
     flowView.value = await getApi().assistant.guidedFlowStart({ novel_id: props.projectId, flow_id: "editorial_revision" })
@@ -397,7 +436,8 @@ async function startRevisionFlow() {
     choice: {
       step_id: "select_issues",
       action: "select_issues",
-      items: selected.map(issue => ({ issue_id: issue.id, expected_version: issue.version, instruction })),
+      items: revisionRequestItems(instruction),
+      overlap_confirmed: overlapConfirmed.value,
     },
   })
   if (advanced) {

@@ -15,7 +15,7 @@ import hashlib
 import json
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm.attributes import flag_modified
 
 from core.config import get_settings
@@ -83,28 +83,20 @@ async def _flow_runs(
     owner_id: str | None = None,
     limit: int = 50,
 ) -> list[AssistantRun]:
-    rows = (
-        (
-            await db.execute(
-                select(AssistantRun)
-                .where(
-                    AssistantRun.novel_id == UUID(str(novel_id)),
-                    AssistantRun.status.in_(statuses),
-                )
-                .order_by(AssistantRun.created_at.desc())
-                .limit(limit)
-            )
-        )
-        .scalars()
-        .all()
+    query = select(AssistantRun).where(
+        AssistantRun.novel_id == UUID(str(novel_id)),
+        AssistantRun.status.in_(statuses),
+        AssistantRun.request_json["protocol"].as_string() == PROTOCOL,
     )
-    return [
-        row
-        for row in rows
-        if (row.request_json or {}).get("protocol") == PROTOCOL
-        and (flow_id is None or (row.request_json or {}).get("flow_id") == flow_id)
-        and (owner_id is None or str(row.owner_id) == owner_id)
-    ]
+    if flow_id is not None:
+        query = query.where(AssistantRun.request_json["flow_id"].as_string() == flow_id)
+    if owner_id is not None:
+        query = query.where(AssistantRun.owner_id == UUID(str(owner_id)))
+    return list(
+        (
+            await db.scalars(query.order_by(AssistantRun.created_at.desc()).limit(limit))
+        ).all()
+    )
 
 
 def _flow_of(run: AssistantRun):
@@ -271,6 +263,12 @@ async def start(db, novel_id: str, owner_id: str, data: GuidedFlowStartRequest) 
         **({"chapter_index": data.chapter_index} if data.chapter_index else {}),
     }
     request_hash = _request_hash(flow, flow_input, settings)
+    # 串行化空集合的查询/插入；不会升级公开入口已持有的项目 SHARE 锁。
+    if db.get_bind().dialect.name == "postgresql":
+        await db.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": f"guided_flow:{UUID(str(novel_id))}:{flow.flow_id}"},
+        )
     active = await _flow_runs(
         db, novel_id, flow_id=flow.flow_id, statuses=ACTIVE_STATUSES, owner_id=owner_id
     )
@@ -319,10 +317,46 @@ async def active_run(db, novel_id: str, owner_id: str) -> dict | None:
     return await view(db, novel_id, str(runs[0].id), owner_id)
 
 
+async def latest_run(db, novel_id: str, owner_id: str, flow_id: str) -> dict | None:
+    enabled(novel_id)
+    require_flow(flow_id)
+    runs = await _flow_runs(
+        db,
+        novel_id,
+        flow_id=flow_id,
+        statuses=(*ACTIVE_STATUSES, "completed"),
+        owner_id=owner_id,
+        limit=1,
+    )
+    return await view(db, novel_id, str(runs[0].id), owner_id) if runs else None
+
+
 async def view(db, novel_id: str, run_id: str, owner_id: str) -> dict:
     enabled(novel_id)
     run = await _require_run(db, novel_id, run_id, owner_id)
-    flow = _flow_of(run)
+    try:
+        flow = _flow_of(run)
+    except ConflictError as error:
+        if error.code != "guided_flow_version_changed":
+            raise
+        payload = run.request_json or {}
+        flow_id = str(payload.get("flow_id") or "")
+        current = FLOWS.get(flow_id)
+        return GuidedFlowView(
+            run_id=str(run.id),
+            flow_id=flow_id,
+            flow_version=int(payload.get("flow_version") or 1),
+            title=current.title if current else "已更新的流程",
+            status="waiting_approval",
+            stop={
+                "step_id": "version_changed",
+                "kind": "blocked",
+                "reason": "流程定义已更新；请结束旧流程再重新开始，已有成果保留。",
+                "actions": [{"action": "abandon_flow", "label": "结束旧流程"}],
+            },
+            settings=_settings(run),
+        ).model_dump(mode="json")
+
     derived = await _derive(db, novel_id, run, flow)
     return _render(run, flow, derived)
 
@@ -356,7 +390,9 @@ async def advance(
     )
     confirmation_id = str(step_input.get("context_confirmation_id") or "")
     if confirmation_id:
-        if current_stop != "confirm_reference":
+        if current_stop != "confirm_reference" and not current_stop.startswith(
+            "confirm_rolling_"
+        ):
             raise ConflictError(
                 "当前流程不在资料确认停点", code="guided_flow_stop_mismatch"
             )
@@ -365,7 +401,9 @@ async def advance(
             raise ConflictError(
                 "流程缺少确认输入实现", code="guided_flow_version_changed"
             )
-        if await applier(db, novel_id, run, flow, artifacts, step_input):
+        if await applier(
+            db, novel_id, run, flow, artifacts, {**step_input, "step_id": current_stop}
+        ):
             _freeze_checkpoint(run, artifacts, settings)
             await db.flush()
 

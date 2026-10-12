@@ -60,3 +60,17 @@ async def handle_assistant_editorial_recheck(db, task):
     from modules.assistant.editorial import execute_recheck
 
     return await execute_recheck(db, task)
+
+
+@task_handler(
+    "assistant_direction_cards",
+    recovery_policy="auto_requeue",
+    max_attempts=2,
+    root_capability_id="assistant.guided_flow.direction_cards",
+    run_request_limit=2,
+    run_deadline_seconds=360.0,
+)
+async def handle_direction_cards(db, task):
+    from modules.assistant.guided_flow.direction_cards import execute_direction_cards
+
+    return await execute_direction_cards(db, task)

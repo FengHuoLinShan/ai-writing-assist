@@ -45,7 +45,7 @@
           data-action="flow-toggle-semantic-review"
           @change="onSemanticToggle"
         />
-        生成后自动接独立语义审查（每章多一次审查调用）
+        生成后自动接独立语义审查（含分段检查与必要修复，按实际调用计费）
       </label>
       <label v-if="rollingAvailable" class="writing-flow-host__window">
         采用后规划接下来
@@ -107,9 +107,10 @@ function stepMark(state) {
 }
 
 function runAction(action) {
-  if (action.action === "confirm_reference") props.controller.confirmReference()
+  if (["confirm_reference", "confirm_rolling"].includes(action.action)) props.controller.confirmReference()
   else if (action.action === "open_candidate") props.controller.openCandidate()
   else if (action.action === "abandon_flow") props.controller.abandonFlow()
+  else if (action.action === "skip_layer") props.controller.choose(view.value?.stop?.step_id, { action: "skip_layer" })
   else if (action.action === "finish_flow") {
     props.controller.choose(view.value?.stop?.step_id, { action: "finish_flow" })
   } else if (action.action === "open_outline") {

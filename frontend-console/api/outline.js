@@ -110,6 +110,9 @@ export const outline = {
       return contractJson("outline.generate", {}, {}, payload)
     },
 
+    async prepareStructureAdoption(payload) {
+      return contractJson("outline.prepareStructureAdoption", {}, {}, payload)
+    },
     async applyStructurePreview(payload) {
       return contractJson("outline.applyStructurePreview", {}, {}, payload)
     },

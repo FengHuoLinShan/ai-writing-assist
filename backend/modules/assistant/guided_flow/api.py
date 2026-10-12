@@ -31,6 +31,12 @@ async def active_flow(db: DbSession, novel_id: UUID):
     return await runtime.active_run(db, str(novel_id), str(current_account_id()))
 
 
+@router.get("/latest")
+async def latest_flow(db: DbSession, novel_id: UUID, flow_id: str):
+    await require_active_project(db, str(novel_id))
+    return await runtime.latest_run(db, str(novel_id), str(current_account_id()), flow_id)
+
+
 @router.get("/{run_id}")
 async def get_flow(db: DbSession, run_id: UUID, novel_id: UUID):
     await require_active_project(db, str(novel_id))

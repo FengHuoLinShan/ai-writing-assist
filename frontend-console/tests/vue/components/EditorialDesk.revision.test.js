@@ -111,6 +111,31 @@ function revisionPanel(wrapper) {
 }
 
 describe("EditorialDesk 批注修订桥接", () => {
+  it("多证据不自动选择首条，明确勾选后只提交该位置", async () => {
+    const multi = issue("multi")
+    multi.finding.evidence.push({ ...multi.finding.evidence[0], chapter_index: 2, draft_id: "d2", quote: "第二处依据" })
+    apiMock.assistant.editorialIssues.mockResolvedValue([multi])
+    const wrapper = await mountDesk()
+    await selectIssue(wrapper, "multi")
+    await revisionPanel(wrapper).find("textarea").setValue("只改第二处")
+    const submit = revisionPanel(wrapper).findAll("button").find(button => button.text().includes("发起 1 条修订"))
+    expect(submit.attributes("disabled")).toBeDefined()
+    await revisionPanel(wrapper).findAll("input[type=checkbox]")[1].setValue(true)
+    await submit.trigger("click")
+    await flushPromises()
+    expect(apiMock.assistant.reviseEditorialIssues).toHaveBeenCalledWith(expect.objectContaining({ items: [expect.objectContaining({ issue_id: "multi", evidence_indices: [1] })] }))
+  })
+
+  it("重新进入审读台从服务端恢复同一停点，不重新生成", async () => {
+    apiMock.assistant.capabilities = vi.fn(async () => ({ guided_flows: { available: true } }))
+    apiMock.assistant.guidedFlowActive = vi.fn(async () => ({ run_id: "restored", flow_id: "editorial_revision", title: "恢复的修订流程", status: "waiting_approval", steps: [], stop: { step_id: "review_revisions", reason: "候选可审阅，等待采用", actions: [] }, panel: { items: [], rechecks: [] } }))
+    apiMock.assistant.guidedFlowAdvance = vi.fn()
+    const wrapper = await mountDesk()
+    expect(wrapper.text()).toContain("恢复的修订流程")
+    expect(wrapper.text()).toContain("候选可审阅，等待采用")
+    expect(apiMock.assistant.guidedFlowActive).toHaveBeenCalledWith("p1")
+    expect(apiMock.assistant.guidedFlowAdvance).not.toHaveBeenCalled()
+  })
   it("未选意见时不显示修订面板；未填处置说明时不能提交", async () => {
     const wrapper = await mountDesk()
     expect(revisionPanel(wrapper).exists()).toBe(false)
@@ -127,6 +152,7 @@ describe("EditorialDesk 批注修订桥接", () => {
     const wrapper = await mountDesk()
     await selectIssue(wrapper, "issue-1")
     await selectIssue(wrapper, "issue-2")
+    await revisionPanel(wrapper).findAll("input[type=checkbox]").at(-1).setValue(true)
     await revisionPanel(wrapper).find("textarea").setValue("把线索改得更隐晦")
     await revisionPanel(wrapper).findAll("button").find((item) => item.text().includes("发起 2 条修订")).trigger("click")
     await flushPromises()
@@ -134,9 +160,10 @@ describe("EditorialDesk 批注修订桥接", () => {
     expect(apiMock.assistant.reviseEditorialIssues).toHaveBeenCalledWith({
       novel_id: "p1",
       operation_id: expect.any(String),
+      overlap_confirmed: true,
       items: [
-        { issue_id: "issue-1", expected_version: 0, instruction: "把线索改得更隐晦" },
-        { issue_id: "issue-2", expected_version: 0, instruction: "把线索改得更隐晦" },
+        { issue_id: "issue-1", expected_version: 0, instruction: "把线索改得更隐晦", evidence_indices: [0] },
+        { issue_id: "issue-2", expected_version: 0, instruction: "把线索改得更隐晦", evidence_indices: [0] },
       ],
     })
     const results = revisionPanel(wrapper).find(".editorial-desk__revision-results").text()
@@ -268,7 +295,8 @@ describe("EditorialDesk 修订引导流程入口（BR-4 流程 3）", () => {
       choice: {
         step_id: "select_issues",
         action: "select_issues",
-        items: [{ issue_id: "issue-1", expected_version: 0, instruction: "按上下文改写" }],
+        overlap_confirmed: false,
+        items: [{ issue_id: "issue-1", expected_version: 0, instruction: "按上下文改写", evidence_indices: [0] }],
       },
     })
     const strip = wrapper.find(".editorial-desk__flowstrip")

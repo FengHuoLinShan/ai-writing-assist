@@ -1,4 +1,4 @@
-"""服务端注册的引导流程：流程 2「继续写下一场」v2（含滚动规划）、
+"""服务端注册的引导流程：流程 2「继续写下一场」v3（含逐层确认的滚动规划）、
 流程 1「新书开篇」v1、流程 3「按审读意见定向修订」v1（ADR-0032 / BR-3/4/5/6）。
 
 三个流程的步骤表、产物推导、确认/选择输入与自动执行都在本文件注册。
@@ -38,6 +38,7 @@ from modules.evidence.facade import (
     get_confirmation_staleness,
     prepare_confirmed_ai_action,
 )
+from modules.project.facade import build_project_llm_execution_snapshot
 from modules.story.facade import get_planned_chapter_coverage
 from modules.writing.facade import (
     get_draft,
@@ -46,11 +47,11 @@ from modules.writing.facade import (
 )
 
 # ---------------------------------------------------------------------------
-# 流程 2 v2「继续写下一场」：…… → 可审阅 →（作者确认）滚动规划后续章节
+# 流程 2 v3「继续写下一场」：…… → 可审阅 →（作者确认）滚动规划后续章节
 # ---------------------------------------------------------------------------
 
 FLOW_ID = "continue_writing"
-FLOW_VERSION = 2
+FLOW_VERSION = 3
 
 WORKING_DRAFT_STATUSES = {"draft", "published"}
 _REVIEW_TASK_TYPE = "writing_semantic_review"
@@ -59,6 +60,8 @@ _GENERATE_TASK_TYPE = "writing_generate"
 # 产物 → 既有领域任务类型：终态查询与已完成任务的结果引用解析使用。
 ARTIFACT_TASK_TYPES = {
     "candidate": _GENERATE_TASK_TYPE,
+    "direction_cards": "assistant_direction_cards",
+    "scene_proposals": "outline_generate",
     "semantic_review": _REVIEW_TASK_TYPE,
     "skeleton": "world_opening_skeleton",
     "thread_proposals": "outline_generate",
@@ -74,7 +77,7 @@ CONTINUE_WRITING = FlowDefinition(
     description=(
         "从本章工作稿继续：确认本章资料后生成正文候选，自动接独立语义审查，"
         "停在可审阅；采用后可按你的确认滚动规划接下来几章的走向"
-        "（只到剧情线与篇章候选，不生成后续正文）。"
+        "（剧情线、篇章与近期场景候选，不生成后续正文）。"
     ),
     settings_defaults={
         "semantic_review": True,
@@ -127,12 +130,33 @@ CONTINUE_WRITING = FlowDefinition(
             requires=("review_candidate",),
         ),
         StepDefinition(
+            step_id="confirm_rolling_threads",
+            kind="author_confirm",
+            title="确认本层完整结构资料",
+            produces="rolling_threads_confirmation",
+            requires=("rolling_offer",),
+        ),
+        StepDefinition(
             step_id="rolling_threads",
             kind="auto",
             operation="story.plan_structure",
             title="提出后续剧情线候选",
             produces="thread_proposals",
-            requires=("rolling_offer",),
+            requires=("confirm_rolling_threads",),
+        ),
+        StepDefinition(
+            step_id="review_rolling_threads",
+            kind="author_choice",
+            title="取舍本层候选",
+            produces="rolling_threads_decision",
+            requires=("rolling_threads",),
+        ),
+        StepDefinition(
+            step_id="confirm_rolling_arcs",
+            kind="author_confirm",
+            title="确认本层完整结构资料",
+            produces="rolling_arcs_confirmation",
+            requires=("review_rolling_threads",),
         ),
         StepDefinition(
             step_id="rolling_arcs",
@@ -140,7 +164,36 @@ CONTINUE_WRITING = FlowDefinition(
             operation="story.plan_structure",
             title="提出后续篇章候选",
             produces="arc_proposals",
-            requires=("rolling_offer",),
+            requires=("confirm_rolling_arcs",),
+        ),
+        StepDefinition(
+            step_id="review_rolling_arcs",
+            kind="author_choice",
+            title="取舍本层候选",
+            produces="rolling_arcs_decision",
+            requires=("rolling_arcs",),
+        ),
+        StepDefinition(
+            step_id="confirm_rolling_scenes",
+            kind="author_confirm",
+            title="确认本层完整结构资料",
+            produces="rolling_scenes_confirmation",
+            requires=("review_rolling_arcs",),
+        ),
+        StepDefinition(
+            step_id="rolling_scenes",
+            kind="auto",
+            operation="story.plan_structure",
+            title="细化近期场景候选",
+            produces="scene_proposals",
+            requires=("confirm_rolling_scenes",),
+        ),
+        StepDefinition(
+            step_id="review_rolling_scenes",
+            kind="author_choice",
+            title="取舍本层候选",
+            produces="rolling_scenes_decision",
+            requires=("rolling_scenes",),
         ),
         StepDefinition(
             step_id="rolling_review",
@@ -148,7 +201,11 @@ CONTINUE_WRITING = FlowDefinition(
             title="审阅后续章节候选",
             stop_reason="后续章节候选可审阅，待作者在结构工作台逐条取舍并采用",
             produces="rolling_completion",
-            requires=("rolling_threads", "rolling_arcs"),
+            requires=(
+                "review_rolling_threads",
+                "review_rolling_arcs",
+                "review_rolling_scenes",
+            ),
         ),
     ),
 )
@@ -398,8 +455,22 @@ async def _skeleton_package(db, novel_id: str, skeleton_artifact: dict) -> dict:
     receipt = result.get("_opening_skeleton_result")
     if not isinstance(receipt, dict):
         receipt = result
+    package_id = str(receipt.get("package_suggestion_id") or "")
+    rollback = None
+    package_status = None
+    if package_id:
+        from core.container import get
+        from core.service_keys import WORLD_WORLDBUILDING_ADOPTION_PACKAGE_SERVICE
+
+        package = await get(WORLD_WORLDBUILDING_ADOPTION_PACKAGE_SERVICE).get(
+            db, novel_id, package_id
+        )
+        rollback = package.result_ref_json.get("rollback")
+        package_status = package.status
     return {
-        "package_suggestion_id": str(receipt.get("package_suggestion_id") or ""),
+        "rollback": rollback,
+        "status": package_status,
+        "package_suggestion_id": package_id,
         "knowledge_review_status": receipt.get("knowledge_review_status"),
         "counts": {
             key: receipt.get(key)
@@ -616,7 +687,7 @@ async def _rolling_panel(
             "covered_chapters": covered,
             "proposals": {
                 key: str((artifacts.get(key) or {}).get("task_id") or "")
-                for key in ("thread_proposals", "arc_proposals")
+                for key in ("thread_proposals", "arc_proposals", "scene_proposals")
             },
         }
     }
@@ -649,42 +720,81 @@ def _derive_rolling(
     else:
         states["rolling_offer"] = "pending"
 
-    if states.get("rolling_offer") != "done":
-        for step_id in ("rolling_threads", "rolling_arcs", "rolling_review"):
-            states[step_id] = (
-                "skipped" if states.get("rolling_offer") == "skipped" else "pending"
-            )
-        return
-
-    for step_id, key in (
-        ("rolling_threads", "thread_proposals"),
-        ("rolling_arcs", "arc_proposals"),
+    ready = states.get("rolling_offer") == "done"
+    for layer, key in (
+        ("threads", "thread_proposals"),
+        ("arcs", "arc_proposals"),
+        ("scenes", "scene_proposals"),
     ):
+        confirm_step, auto_step, review_step = (
+            f"confirm_rolling_{layer}",
+            f"rolling_{layer}",
+            f"review_rolling_{layer}",
+        )
         artifact = artifacts.get(key) or {}
         task_id = str(artifact.get("task_id") or "")
-        status = str((lifecycle.get(task_id) or {}).get("status") or "")
-        if not task_id:
-            states[step_id] = "pending"
-        elif status in {"pending", "running"}:
-            states[step_id] = "active"
-            details[step_id] = "正在生成候选"
-        elif status in {"failed", "cancelled"}:
-            states[step_id] = "blocked"
-        else:
-            states[step_id] = "done"
-
-    if "blocked" in (states.get("rolling_threads"), states.get("rolling_arcs")):
-        states["rolling_review"] = "blocked"
-        return
-    if not _satisfied(states, ("rolling_threads", "rolling_arcs")):
-        states["rolling_review"] = "pending"
+        life = lifecycle.get(task_id) or {}
+        result = life.get("result") or {}
+        states[confirm_step] = (
+            "done"
+            if artifacts.get(f"rolling_{layer}_confirmation")
+            else ("active" if ready else "pending")
+        )
+        states[auto_step] = (
+            (
+                "blocked"
+                if life.get("status") in {"failed", "cancelled"}
+                else "done"
+                if life.get("status") == "done"
+                else "active"
+            )
+            if task_id
+            else "pending"
+        )
+        accepted = result.get("apply_status") == "applied"
+        empty = bool(result) and not any(
+            (result.get("draft_structure") or {}).get(field)
+            for field in ("threads", "arcs", "scenes")
+        )
+        skipped = bool(artifacts.get(f"rolling_{layer}_decision"))
+        states[review_step] = (
+            "skipped"
+            if skipped
+            else "done"
+            if accepted or empty
+            else "active"
+            if states[auto_step] == "done"
+            else "pending"
+        )
+        ready = ready and states[review_step] in {"done", "skipped"}
+    states["rolling_review"] = "active" if ready else "pending"
+    if not ready:
         return
     if flow_completed:
         states["rolling_review"] = "skipped"
         return
+
     covered = set(_window_coverage(derived.panel))
     window_start, window_end = _rolling_window(chapter_index, settings)
-    if set(range(window_start, window_end + 1)) <= covered:
+    results = [
+        (lifecycle.get(str((artifacts.get(key) or {}).get("task_id") or "")) or {}).get(
+            "result"
+        )
+        or {}
+        for key in ("thread_proposals", "arc_proposals", "scene_proposals")
+    ]
+    adopted = all(
+        result.get("apply_status") == "applied"
+        or (
+            result
+            and not any(
+                (result.get("draft_structure") or {}).get(field)
+                for field in ("threads", "arcs", "scenes")
+            )
+        )
+        for result in results
+    )
+    if adopted and set(range(window_start, window_end + 1)) <= covered:
         states["rolling_review"] = "done"
     else:
         states["rolling_review"] = "active"
@@ -720,6 +830,34 @@ def _apply_stop(
         derived.run_status = "completed"
         derived.stop = None
         return
+    for layer in ("threads", "arcs", "scenes"):
+        for prefix in ("confirm_rolling_", "review_rolling_"):
+            step_id = prefix + layer
+            if states.get(step_id) != "active":
+                continue
+            confirming = prefix == "confirm_rolling_"
+            derived.stop = {
+                "step_id": step_id,
+                "kind": "author_confirm" if confirming else "author_choice",
+                "reason": (
+                    "本层需要完整结构资料，请另行确认；原正文资料的排除项不会自动解除。"
+                )
+                if confirming
+                else "请在结构工作台取舍并采用本层候选；采用或明确略过后才会生成下一层。",
+                "actions": _actions(
+                    *(
+                        (("confirm_rolling", "核对本层完整资料"),)
+                        if confirming
+                        else (
+                            ("open_outline", "打开结构工作台"),
+                            ("skip_layer", "略过本层候选"),
+                        )
+                    ),
+                    ("finish_flow", "结束规划"),
+                ),
+            }
+            derived.run_status = "waiting_approval"
+            return
     if states.get("rolling_review") == "active":
         window = rolling.get("window") or {}
         derived.stop = {
@@ -727,7 +865,7 @@ def _apply_stop(
             "kind": "author_choice",
             "reason": (
                 f"第 {window.get('start')} 至 {window.get('end')} 章的剧情线与"
-                "篇章候选已生成；请在结构工作台逐条取舍并采用，"
+                "篇章与近期场景候选已生成；请在结构工作台逐条取舍并采用，"
                 "采用齐全后本流程完成，也可以直接结束。"
             ),
             "actions": _actions(
@@ -741,6 +879,7 @@ def _apply_stop(
     if (
         states.get("rolling_threads") == "blocked"
         or states.get("rolling_arcs") == "blocked"
+        or states.get("rolling_scenes") == "blocked"
     ):
         derived.stop = {
             "step_id": (
@@ -834,7 +973,8 @@ def _rolling_offer_reason(rolling: dict[str, Any], chapter_index: int) -> str:
     base = (
         f"第 {chapter_index} 章已采用。"
         f"接下来的第 {window.get('start')} 至 {window.get('end')} 章，"
-        "可以生成剧情线与篇章候选（每层一次模型调用，只到大纲级，不生成正文）。"
+        "可以逐层生成剧情线、篇章与近期场景候选；"
+        "每层含生成、审查及必要返修，按实际调用计费，不生成后续正文。"
     )
     if planned < 2:
         return base + f"后方已规划 {planned} 章，不足 2 章；建议现在补足到 {size} 章。"
@@ -883,6 +1023,12 @@ async def apply_continue_choice(
             "window": _planning_window(settings),
         }
         return True
+    if action == "skip_layer":
+        layer = str(choice.get("step_id") or "").removeprefix("review_rolling_")
+        if layer not in {"threads", "arcs", "scenes"}:
+            raise ValidationError("当前停点不能略过本层")
+        artifacts[f"rolling_{layer}_decision"] = {"skipped": True}
+        return True
     if action == "finish_flow":
         artifacts["flow_completion"] = {"step_id": str(choice.get("step_id") or "")}
         return True
@@ -907,6 +1053,40 @@ async def apply_confirm_input(
     confirmation_id = str(step_input.get("context_confirmation_id") or "")
     if not confirmation_id:
         return False
+    step_id = str(step_input.get("step_id") or "confirm_reference")
+    if step_id.startswith("confirm_rolling_"):
+        layer = step_id.removeprefix("confirm_rolling_")
+        original = artifacts.get("context_confirmation") or {}
+        if any((original.get("excluded_asset_ids") or {}).values()):
+            raise ConflictError(
+                "原正文资料有排除项，请先在原资料范围核对；本流程不会自动扩大授权"
+            )
+        fixed = await prepare_confirmed_ai_action(
+            db,
+            novel_id=novel_id,
+            action="outline.generate",
+            confirmation_id=confirmation_id,
+        )
+        decision = artifacts.get("rolling_decision") or {}
+        start = int(decision.get("at_chapter") or 0) + 1
+        width = int(decision.get("window") or 3)
+        end = start + (min(width, 2) if layer == "scenes" else width) - 1
+        options = fixed.compile_options
+        if (
+            options.get("scope") != "full"
+            or options.get("budget_tokens") != 0
+            or any(fixed.confirmation.excluded_asset_ids.values())
+            or options.get("chapter_index") != start
+            or options.get("planning_window_end") != end
+        ):
+            raise ConflictError(
+                "本层需要另行确认完整结构范围与章节窗口；不得使用裁剪或排除后的资料"
+            )
+        artifacts[f"rolling_{layer}_confirmation"] = {
+            "confirmation_id": confirmation_id,
+            "context_fingerprint": fixed.confirmation.context_fingerprint,
+        }
+        return True
     frozen = artifacts.get("context_confirmation") or {}
     frozen_id = str(frozen.get("confirmation_id") or "")
     if frozen_id == confirmation_id:
@@ -941,6 +1121,7 @@ async def apply_confirm_input(
     artifacts["context_confirmation"] = {
         "confirmation_id": confirmation_id,
         "context_fingerprint": confirmed.confirmation.context_fingerprint,
+        "excluded_asset_ids": confirmed.confirmation.excluded_asset_ids,
     }
     return True
 
@@ -965,7 +1146,7 @@ async def run_auto_step(
         return await _run_semantic_review(
             db, novel_id, owner_id, run, flow, artifacts, input_fingerprint
         )
-    if step_id in {"rolling_threads", "rolling_arcs"}:
+    if step_id in {"rolling_threads", "rolling_arcs", "rolling_scenes"}:
         return await _run_rolling_plan(
             db,
             novel_id,
@@ -1072,6 +1253,7 @@ async def _run_semantic_review(
 _ROLLING_TARGETS = {
     "rolling_threads": "plot_thread",
     "rolling_arcs": "outline_arc",
+    "rolling_scenes": "planned_scene",
 }
 
 
@@ -1106,7 +1288,11 @@ async def _run_rolling_plan(
     from modules.assistant.contracts import AssistantOperationContext
     from modules.assistant.schemas import WorkContext
 
-    produces = "thread_proposals" if step_id == "rolling_threads" else "arc_proposals"
+    produces = {
+        "rolling_threads": "thread_proposals",
+        "rolling_arcs": "arc_proposals",
+        "rolling_scenes": "scene_proposals",
+    }[step_id]
     if artifacts.get(produces):
         return None
     decision = artifacts.get("rolling_decision") or {}
@@ -1115,7 +1301,10 @@ async def _run_rolling_plan(
         # 作者拒绝或尚未确认：这一步整体不执行，也不提交任何任务。
         return None
     window_start = chapter_index + 1
-    window_end = window_start + int(decision.get("window") or 3) - 1
+    width = int(decision.get("window") or 3)
+    window_end = (
+        window_start + (min(width, 2) if step_id == "rolling_scenes" else width) - 1
+    )
     operation = get(ASSISTANT_OPERATIONS)["story.plan_structure"]
     args = operation.schema.model_validate(
         {
@@ -1129,7 +1318,16 @@ async def _run_rolling_plan(
     context = AssistantOperationContext(
         str(run.id),
         owner_id,
-        WorkContext(page="outline", scope="project"),
+        WorkContext(
+            page="outline",
+            scope="project",
+            context_confirmation_id=UUID(
+                artifacts[f"rolling_{step_id.removeprefix('rolling_')}_confirmation"][
+                    "confirmation_id"
+                ]
+            ),
+            context_confirmation_action="outline.generate",
+        ),
         operation_id=_flow_operation_id(
             run, flow, step_id, f"{input_fingerprint}:{window_start}:{window_end}"
         ),
@@ -1158,8 +1356,13 @@ async def derive_new_book_opening(
     details: dict[str, str] = {}
 
     cards = artifacts.get("direction_cards") or {}
-    if cards:
+    card_life = lifecycle.get(str(cards.get("task_id") or "")) or {}
+    if card_life.get("status") == "done":
+        cards = {**cards, **(card_life.get("result") or {})}
+    if cards.get("cards"):
         states["direction_cards"] = "done"
+    elif card_life.get("status") in {"failed", "cancelled"}:
+        states["direction_cards"] = "blocked"
     else:
         states["direction_cards"] = "active"
         details["direction_cards"] = "正在生成方向卡"
@@ -1167,7 +1370,7 @@ async def derive_new_book_opening(
     chosen = artifacts.get("chosen_direction") or {}
     if chosen:
         states["choose_direction"] = "done"
-    elif cards:
+    elif cards.get("cards"):
         states["choose_direction"] = "active"
     else:
         states["choose_direction"] = "pending"
@@ -1191,7 +1394,7 @@ async def derive_new_book_opening(
     if skeleton_status == "done" or artifacts.get("adopted_skeleton"):
         package = await _skeleton_package(db, novel_id, skeleton)
 
-    if artifacts.get("adopted_skeleton"):
+    if artifacts.get("adopted_skeleton") or package.get("status") == "accepted":
         states["adopt_skeleton"] = "done"
         states["skeleton_ready"] = "done"
     elif states.get("draft_skeleton") == "done":
@@ -1215,7 +1418,12 @@ async def derive_new_book_opening(
         "more_allowed": int(cards.get("batch") or 1) < MAX_BATCHES,
         "chosen": chosen or None,
         "package": package or None,
-        "adopted": artifacts.get("adopted_skeleton") or None,
+        "adopted": artifacts.get("adopted_skeleton")
+        or (
+            {"package_id": package.get("package_suggestion_id")}
+            if package.get("status") == "accepted"
+            else None
+        ),
     }
     derived.steps = _steps_view(NEW_BOOK_OPENING, states, details)
     _apply_opening_stop(derived, states, package)
@@ -1225,6 +1433,24 @@ async def derive_new_book_opening(
 def _apply_opening_stop(
     derived: FlowDerived, states: dict[str, str], package: dict[str, Any]
 ) -> None:
+    if package.get("rollback") is not None:
+        derived.run_status = "completed"
+        derived.stop = {
+            "step_id": "skeleton_reversed",
+            "kind": "author_choice",
+            "reason": "本次骨架采用已撤销；已修改或被引用的内容按回执保留。",
+            "actions": [],
+        }
+        return
+    if states.get("direction_cards") == "blocked":
+        derived.stop = {
+            "step_id": "direction_cards",
+            "kind": "blocked",
+            "reason": "方向卡任务中断；请先查看任务记录并恢复原任务，已完成输出会复用。",
+            "actions": _actions(("abandon_flow", "结束流程")),
+        }
+        derived.run_status = "waiting_approval"
+        return
     if states.get("skeleton_ready") == "done":
         derived.run_status = "completed"
         derived.stop = {
@@ -1287,7 +1513,7 @@ def _apply_opening_stop(
             "step_id": "choose_direction",
             "kind": "author_choice",
             "reason": NEW_BOOK_OPENING.steps[1].stop_reason
-            + "（再要一批会产生一次模型调用）。",
+            + "（再要一批会产生新费用，必要时修复格式）。",
             "actions": _actions(
                 ("more_cards", "再要一批方向卡"), ("abandon_flow", "结束流程")
             ),
@@ -1310,6 +1536,19 @@ async def apply_opening_choice(
     """新书开篇的作者选择：选方向卡、再要一批、采用骨架、完成流程。"""
     from core.errors import ConflictError
 
+    cards = artifacts.get("direction_cards") or {}
+    if cards.get("task_id") and not cards.get("cards"):
+        from infrastructure.tasks.facade import get_completed_task_payload
+
+        completed = await get_completed_task_payload(
+            db,
+            novel_id=novel_id,
+            task_id=cards["task_id"],
+            task_type="assistant_direction_cards",
+        )
+        if completed is None:
+            raise ConflictError("方向卡还未生成完成")
+        artifacts["direction_cards"] = {**cards, **completed.result}
     action = str(choice.get("action") or "")
     if action == "more_cards":
         cards = artifacts.get("direction_cards") or {}
@@ -1334,7 +1573,7 @@ async def apply_opening_choice(
         artifacts["chosen_direction"] = card.model_dump(mode="json")
         return True
     if action == "adopt_skeleton":
-        return await _apply_adopt_skeleton(db, novel_id, run, flow, artifacts)
+        return await _apply_adopt_skeleton(db, novel_id, run, flow, artifacts, choice)
     if action == "finish_flow":
         artifacts["flow_completion"] = {"step_id": str(choice.get("step_id") or "")}
         return True
@@ -1342,7 +1581,7 @@ async def apply_opening_choice(
 
 
 async def _apply_adopt_skeleton(
-    db, novel_id: str, run, flow: FlowDefinition, artifacts: dict[str, Any]
+    db, novel_id: str, run, flow: FlowDefinition, artifacts: dict[str, Any], choice: dict
 ) -> bool:
     """作者确认采用骨架：经既有 confirm 操作 world.adopt_package，
     prepare/apply 复验采用范围与知识门禁；同一包重复确认是幂等空操作。"""
@@ -1368,6 +1607,8 @@ async def _apply_adopt_skeleton(
         ),
     )
     preview = await operation.prepare(db, novel_id, args, context=context)
+    if choice.get("expected_preview_hash") != preview.get("expected_preview_hash"):
+        raise ValidationError("骨架取舍或来源已变化，请重新查看后确认")
     reference = await operation.apply(db, novel_id, args, preview, context=context)
     artifacts["adopted_skeleton"] = {
         "package_id": str(reference.get("id") or suggestion_id),
@@ -1399,25 +1640,37 @@ async def _run_direction_cards(
     db, novel_id, run, artifacts: dict[str, Any]
 ) -> dict[str, Any] | None:
     """方向卡 step：一次结构化调用；卡片只存运行检查点，不是资产。"""
-    from modules.assistant.guided_flow import direction_cards
+    from infrastructure.tasks.facade import enqueue_operation_task
 
     if artifacts.get("direction_cards"):
         return None
     flow_input = _run_input(run)
-    request = artifacts.get("direction_request") or {}
-    batch = int(request.get("batch") or 1)
-    cards = await direction_cards.draft_direction_cards(
-        db,
-        novel_id,
-        vision=str(flow_input.get("vision") or ""),
-        genre_hint=str(flow_input.get("genre_hint") or ""),
-        length_hint=str(flow_input.get("length_hint") or ""),
-        batch=batch,
+    batch = int((artifacts.get("direction_request") or {}).get("batch") or 1)
+    operation_id = _flow_operation_id(
+        run, NEW_BOOK_OPENING, "direction_cards", f"{run.request_hash}:{batch}"
     )
-    return {
-        "batch": batch,
-        "cards": [card.model_dump(mode="json") for card in cards],
-    }
+    receipt = await enqueue_operation_task(
+        db,
+        operation_id=operation_id,
+        task_type="assistant_direction_cards",
+        novel_id=novel_id,
+        request_payload={
+            "run_id": str(run.id),
+            "input_fingerprint": run.request_hash,
+            "batch": batch,
+        },
+        meta={
+            "run_id": str(run.id),
+            "owner_id": str(run.owner_id),
+            "input_fingerprint": run.request_hash,
+            "input": flow_input,
+            "batch": batch,
+            "llm_execution_snapshot": await build_project_llm_execution_snapshot(
+                db, novel_id
+            ),
+        },
+    )
+    return {"batch": batch, "task_id": receipt.task_id}
 
 
 async def _run_draft_skeleton(
@@ -1755,6 +2008,7 @@ async def apply_editorial_choice(
         parsed = [IssueRevisionItem.model_validate(item) for item in raw_items[:20]]
         artifacts["selected_issues"] = {
             "items": [item.model_dump(mode="json") for item in parsed],
+            "overlap_confirmed": choice.get("overlap_confirmed") is True,
         }
         return True
     if action == "proceed":
@@ -1808,6 +2062,7 @@ async def _run_bridge_revision(
                 run, flow, "bridge_revision", input_fingerprint
             ),
             items=[IssueRevisionItem.model_validate(item) for item in raw_items],
+            overlap_confirmed=selected.get("overlap_confirmed") is True,
         ),
     )
     items = [

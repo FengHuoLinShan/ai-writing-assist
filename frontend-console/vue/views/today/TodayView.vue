@@ -521,7 +521,8 @@ function retry() {
 
     <!-- 引导流程（BR-5）：新书开篇只在空项目/几乎无内容时出现。 -->
     <OpeningFlowCard
-      v-if="guidedFlowAvailable && startWorldCore"
+      v-if="guidedFlowAvailable"
+      :allow-start="startWorldCore"
       :project-id="projectId"
       :available="guidedFlowAvailable"
     />

@@ -118,6 +118,97 @@ def _is_new_entry(draft: Any) -> bool:
     )
 
 
+def revision_within_window(request, asset) -> bool:
+    if request.target == "plot_thread":
+        start, end = asset.start_chapter, asset.planned_payoff_chapter
+    elif request.target == "outline_arc":
+        start, end = asset.start_chapter, asset.end_chapter
+    else:
+        meta = asset.structure_meta or {}
+        span = meta.get("planned_chapter_range") or {}
+        start, end = span.get("start"), span.get("end")
+    return (
+        start is not None
+        and end is not None
+        and request.start_chapter <= start <= end <= request.end_chapter
+    )
+
+
+def readonly_window_revisions(request, output, context):
+    """按冻结原对象范围分类；模型修改章范围不能使跨窗对象变为可采用。"""
+    if not request.rolling_window:
+        return output, []
+    field, source, target, end_field = {
+        "plot_thread": (
+            "threads",
+            "plot_threads",
+            "target_thread_ref",
+            "planned_payoff_chapter",
+        ),
+        "outline_arc": ("arcs", "outline_arcs", "target_arc_ref", "end_chapter"),
+        "planned_scene": ("scenes", "scenes", "target_scene_ref", "planned_end_chapter"),
+    }[request.target]
+    originals = {item["ref"]: item for item in context.get(source) or []}
+    kept, hints = [], []
+    for draft in getattr(output, field):
+        ref = getattr(draft, target)
+        if ref is None:
+            overlap = (
+                request.target == "outline_arc"
+                and draft.start_chapter is not None
+                and draft.end_chapter is not None
+                and any(
+                    item.get("start_chapter") is not None
+                    and item.get("end_chapter") is not None
+                    and item["start_chapter"] <= draft.end_chapter
+                    and item["end_chapter"] >= draft.start_chapter
+                    for item in originals.values()
+                )
+            )
+            if overlap:
+                hints.append(
+                    {
+                        "proposal_ref": draft.proposal_ref,
+                        "name": _entry_label(draft),
+                        "detail": "与已有篇章重叠，仅供参考；不会新建重叠篇章。",
+                        "suggestion": draft.model_dump(mode="json"),
+                    }
+                )
+            else:
+                kept.append(draft)
+            continue
+        original = originals.get(ref) or {}
+        start_field = (
+            "planned_start_chapter"
+            if request.target == "planned_scene"
+            else "start_chapter"
+        )
+        if request.target == "planned_scene":
+            span = original.get("planned_chapter_range") or {}
+            start, end = span.get("start"), span.get("end")
+        else:
+            start, end = original.get(start_field), original.get(end_field)
+        if (
+            start is not None
+            and end is not None
+            and request.start_chapter <= start <= end <= request.end_chapter
+        ):
+            kept.append(draft)
+        else:
+            hints.append(
+                {
+                    "proposal_ref": draft.proposal_ref,
+                    "name": _entry_label(draft),
+                    "detail": (
+                        "原对象跨出窗口或范围不明，仅供参考；"
+                        "请在近期场景中细化，不改写原对象。"
+                    ),
+                    "suggestion": draft.model_dump(mode="json"),
+                }
+            )
+    return output.model_copy(update={field: kept}), hints
+
+
 def apply_planning_window(
     request: OutlineLayerGenerateRequest,
     output: BaseModel,
@@ -144,6 +235,19 @@ def apply_planning_window(
         # 修订模式更新的是作者显式选中的已有资产；其既有章节覆盖可以超出
         # 窗口（篇章本来就横跨窗口与已写章节），章号硬校验只针对新条目。
         if _is_new_entry(draft):
+            if not chapters or (request.target != "plot_thread" and len(chapters) != 2):
+                dropped.append(
+                    {
+                        "index": index,
+                        "proposal_ref": draft.proposal_ref,
+                        "name": _entry_label(draft),
+                        "reason": "chapter_range_missing",
+                        "chapters": chapters,
+                        "detail": "章节范围不完整，无法证明属于确认窗口；"
+                        "请补齐后重新生成。",
+                    }
+                )
+                continue
             outside = [value for value in chapters if not (start <= value <= end)]
             if outside:
                 dropped.append(

@@ -293,11 +293,11 @@ UTF-16 选区在提交前转为码点，跨版本批注只作为失效记录展�
 
 `facade.submit_comment_revision()` 是 BR-4 流程 3 的批注修订稳定入口（供 Assistant
 桥接审读意见）：按（选区定位 + 意见文本 + 作者处置）提交，入口在当前工作稿上逐条
-唯一精确定位引文、创建 `origin=ai` 批注行后走同一条 `writing_comment_run` 任务——
+校验冻结 draft/content hash、显式 offsets/quote/range hash 后创建 `origin=ai` 批注行后走同一条 `writing_comment_run` 任务——
 只返回选区替换、治理复审、候选另存与独立复审、采用门禁全部不变。审读冻结的正文
 hash 与当前工作稿不一致时整体失败关闭（`SOURCE_STALE`，提示重新审读）；引文无法
 唯一定位的选区逐条跳过并说明，不影响其余选区；同一请求标识按章派生子操作标识幂等，
-重放返回既有任务、不重复创建批注。任务 meta 的 `editorial_refs`（批注 ID → 来源
+多条依据由作者显式选择；重叠选区须作者确认，缺失确认在创建批注前拒绝。跨章返回各章回执；重放返回既有任务、不重复创建批注。任务 meta 的 `editorial_refs`（批注 ID → 来源
 意见 ID）会写进候选 provenance 的 `editorial_issue_ids`；采用带该字段的候选时经
 组合根 DI 键 `assistant.editorial.post_adoption_rechecks` 请求 Assistant 既有改后
 复核，复核无法成立只降级记录，不影响采用结果，也不改写任何采用门禁。

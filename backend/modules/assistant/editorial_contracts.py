@@ -65,6 +65,15 @@ class RecheckRequest(BaseModel):
     expected_version: int = Field(ge=0)
 
 
+class IssueRevisionRange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    evidence_index: int = Field(ge=0, le=3)
+    start: int = Field(ge=0)
+    end: int = Field(ge=1)
+    quote: str = Field(min_length=1, max_length=10000)
+    range_hash: str = Field(min_length=64, max_length=64)
+
+
 class IssueRevisionItem(BaseModel):
     """One author-selected issue to bridge into Writing comment revision.
 
@@ -77,6 +86,8 @@ class IssueRevisionItem(BaseModel):
     issue_id: UUID
     expected_version: int = Field(ge=0)
     instruction: str = Field(min_length=1, max_length=2000)
+    evidence_indices: list[int] | None = Field(default=None, min_length=1, max_length=4)
+    ranges: list[IssueRevisionRange] = Field(default_factory=list, max_length=4)
 
 
 class IssueRevisionRequest(BaseModel):
@@ -85,6 +96,7 @@ class IssueRevisionRequest(BaseModel):
     novel_id: UUID
     operation_id: UUID
     items: list[IssueRevisionItem] = Field(min_length=1, max_length=20)
+    overlap_confirmed: bool = False
 
     @model_validator(mode="after")
     def check_items(self):

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -88,8 +89,14 @@ async def test_bridge_locates_quotes_and_enqueues_comment_run(
         test_project_id,
         operation_id=str(uuid.uuid4()),
         selections=[
-            _selection(text, ref=first_ref, quote="地址指向旧港"),
-            _selection(text, ref=second_ref, quote="信上的地址"),
+            replace(
+                _selection(text, ref=first_ref, quote="地址指向旧港"),
+                overlap_confirmed=True,
+            ),
+            replace(
+                _selection(text, ref=second_ref, quote="信上的地址"),
+                overlap_confirmed=True,
+            ),
         ],
     )
     assert receipt.unlocated == []
@@ -357,9 +364,7 @@ async def test_adoption_of_bridge_candidate_triggers_editorial_recheck(
         calls.append(kwargs)
         return [{"issue_id": issue_id, "status": "queued"}]
 
-    with container_scope(
-        {"assistant.editorial.post_adoption_rechecks": fake_rechecks}
-    ):
+    with container_scope({"assistant.editorial.post_adoption_rechecks": fake_rechecks}):
         adopted = await WritingDraftService().adopt_candidate_to_working(
             db_session, str(candidate.id), test_project_id
         )

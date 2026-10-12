@@ -13,7 +13,11 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from modules.project.facade import open_project_llm_client
+from modules.project.facade import (
+    open_project_llm_client,
+    open_project_snapshot_llm_client,
+    require_active_project,
+)
 
 # 单批预算：一次结构化调用 + 至多 1 次格式修复；重试不计新调用。
 _MAX_FIX_ATTEMPTS = 1
@@ -61,9 +65,7 @@ class DirectionCardBatch(BaseModel):
     cards: list[DirectionCard] = Field(min_length=2, max_length=3)
 
 
-def _user_content(
-    vision: str, genre_hint: str, length_hint: str, batch: int
-) -> str:
+def _user_content(vision: str, genre_hint: str, length_hint: str, batch: int) -> str:
     parts = [f"作者的一句构想：{vision[:_VISION_MAX_CHARS]}"]
     if genre_hint:
         parts.append(f"题材意向：{genre_hint[:_HINT_MAX_CHARS]}")
@@ -85,12 +87,18 @@ async def draft_direction_cards(
     genre_hint: str = "",
     length_hint: str = "",
     batch: int = 1,
+    llm_snapshot: dict | None = None,
 ) -> list[DirectionCard]:
     """一次结构化调用产出一批方向卡；只返回候选，不做任何持久化。"""
     from infrastructure.llm.agent_step_harness import run_managed_structured
     from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 
-    async with open_project_llm_client(db, novel_id) as client:
+    factory = (
+        open_project_snapshot_llm_client(db, novel_id, llm_snapshot)
+        if llm_snapshot
+        else open_project_llm_client(db, novel_id)
+    )
+    async with factory as client:
         request = LLMCallRequest(
             model=client.model_name,
             messages=[
@@ -113,3 +121,83 @@ async def draft_direction_cards(
             read_only=True,
         )
     return list(generated.cards)
+
+
+async def execute_direction_cards(db, task):
+    """冻结已付费输出后再结束任务；重排只读原输出，不重复付费。"""
+    from core.errors import ConflictError
+    from infrastructure.tasks.facade import (
+        read_private_task_checkpoint,
+        write_private_task_checkpoint,
+    )
+    from modules.assistant.guided_flow.runtime import _require_run, enabled
+
+    novel_id, task_id = str(task.novel_id), str(task.id)
+    meta = dict(task.meta)
+    key = "_guided_direction_cards_v1"
+    enabled(novel_id)
+    await require_active_project(db, novel_id)
+    run = await _require_run(db, novel_id, meta["run_id"], meta["owner_id"])
+    if run.status == "cancelled" or run.request_hash != meta["input_fingerprint"]:
+        raise ConflictError("方向生成的授权已变化")
+    frozen = await read_private_task_checkpoint(
+        db,
+        task_id=task_id,
+        task_type="assistant_direction_cards",
+        novel_id=novel_id,
+        key=key,
+    )
+    if frozen is not None:
+        if (
+            frozen.get("input_fingerprint") != meta["input_fingerprint"]
+            or frozen.get("batch") != meta["batch"]
+        ):
+            raise ConflictError("已付费方向卡无法安全恢复")
+        DirectionCardBatch.model_validate({"cards": frozen["cards"]})
+        return {"batch": frozen["batch"], "cards": frozen["cards"]}
+    started_key = "_guided_direction_cards_started_v1"
+    if (
+        await read_private_task_checkpoint(
+            db,
+            task_id=task_id,
+            task_type="assistant_direction_cards",
+            novel_id=novel_id,
+            key=started_key,
+        )
+        is not None
+    ):
+        raise ConflictError(
+            "方向生成已发起但结果未安全保存；费用待核对，已停止自动重复调用"
+        )
+    await write_private_task_checkpoint(
+        db,
+        task_id=task_id,
+        task_type="assistant_direction_cards",
+        novel_id=novel_id,
+        key=started_key,
+        payload={"input_fingerprint": meta["input_fingerprint"], "batch": meta["batch"]},
+    )
+    await db.rollback()
+    cards = await draft_direction_cards(
+        db,
+        novel_id,
+        **{
+            name: str(meta["input"].get(name) or "")
+            for name in ("vision", "genre_hint", "length_hint")
+        },
+        batch=meta["batch"],
+        llm_snapshot=meta["llm_execution_snapshot"],
+    )
+    result = {
+        "batch": meta["batch"],
+        "cards": [card.model_dump(mode="json") for card in cards],
+    }
+    await write_private_task_checkpoint(
+        db,
+        task_id=task_id,
+        task_type="assistant_direction_cards",
+        novel_id=novel_id,
+        key=key,
+        payload={**result, "input_fingerprint": meta["input_fingerprint"]},
+    )
+    return result

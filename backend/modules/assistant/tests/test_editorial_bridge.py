@@ -13,6 +13,7 @@ import pytest
 from sqlalchemy import select
 
 from core.config import get_settings
+from infrastructure.tasks.models import AsyncTask
 from modules.account.settings_constants import LOCAL_OWNER_ID
 from modules.assistant import editorial, editorial_bridge
 from modules.assistant.editorial_models import EditorialIssue, EditorialReview
@@ -101,6 +102,128 @@ def _evidence(draft, text: str, quote: str) -> dict:
         "start": start,
         "end": start + len(quote),
     }
+
+
+async def test_bridge_requires_explicit_evidence_and_overlap_confirmation(
+    async_client, db_session, account_llm_connection, monkeypatch
+):
+    _enable_editorial(monkeypatch)
+    nid = (
+        await async_client.post("/api/projects", json={"title": "多证据取舍合成作品"})
+    ).json()["id"]
+    text = "信上的地址指向旧港。"
+    draft = await _create_draft(db_session, nid, text)
+    review = await _seed_review(db_session, nid)
+    issue = await _seed_issue(
+        db_session,
+        review,
+        evidence=[
+            _evidence(draft, text, "地址指向旧港"),
+            _evidence(draft, text, "指向旧港"),
+        ],
+    )
+    body = {
+        "novel_id": nid,
+        "operation_id": str(uuid.uuid4()),
+        "items": [
+            {
+                "issue_id": str(issue.id),
+                "expected_version": 0,
+                "instruction": "改写选定位置",
+            }
+        ],
+    }
+    response = await async_client.post(
+        "/api/assistant/editorial/issues/revise", json=body
+    )
+    assert response.status_code == 400 and "明确选择" in response.text
+    body["items"][0]["evidence_indices"] = [0, 1]
+    response = await async_client.post(
+        "/api/assistant/editorial/issues/revise", json=body
+    )
+    assert (
+        response.status_code == 409 and "OVERLAP_CONFIRMATION_REQUIRED" in response.text
+    )
+    assert await _comment_rows(db_session, nid) == []
+    body["overlap_confirmed"] = True
+    response = await async_client.post(
+        "/api/assistant/editorial/issues/revise", json=body
+    )
+    assert response.status_code == 200, response.text
+    assert len(response.json()["items"]) == 1
+    assert len(await _comment_rows(db_session, nid)) == 2
+    task = await db_session.get(
+        AsyncTask, uuid.UUID(response.json()["items"][0]["task_id"])
+    )
+    assert len(task.meta["comment_ids"]) == 2
+
+
+@pytest.mark.parametrize("selected_indices", [[1], [0, 1]])
+async def test_bridge_selected_chapters_are_split_and_manual_ranges_keep_frozen_hash(
+    async_client, db_session, account_llm_connection, monkeypatch, selected_indices
+):
+    import hashlib
+
+    from modules.writing.schemas import WritingDraftCreate
+    from modules.writing.services import WritingDraftService
+
+    _enable_editorial(monkeypatch)
+    nid = (
+        await async_client.post("/api/projects", json={"title": "跨章选择合成作品"})
+    ).json()["id"]
+    first = await _create_draft(db_session, nid, "第一章信件")
+    second = await WritingDraftService().create_draft_contract(
+        db_session,
+        WritingDraftCreate(
+            novel_id=nid, chapter_index=2, title="二", content="第二章信件"
+        ),
+    )
+    review = await _seed_review(db_session, nid)
+    other = {**_evidence(second, "第二章信件", "信件"), "chapter_index": 2}
+    issue = await _seed_issue(
+        db_session, review, evidence=[_evidence(first, "第一章信件", "信件"), other]
+    )
+    body = {
+        "novel_id": nid,
+        "operation_id": str(uuid.uuid4()),
+        "items": [
+            {
+                "issue_id": str(issue.id),
+                "expected_version": 0,
+                "instruction": "只改第二章",
+                "evidence_indices": selected_indices,
+                "ranges": [
+                    {
+                        "evidence_index": 1,
+                        "start": 3,
+                        "end": 5,
+                        "quote": "信件",
+                        "range_hash": "0" * 64,
+                    }
+                ],
+            }
+        ],
+    }
+    response = await async_client.post(
+        "/api/assistant/editorial/issues/revise", json=body
+    )
+    assert response.status_code == 409
+    body["items"][0]["ranges"][0]["range_hash"] = hashlib.sha256(
+        "信件".encode()
+    ).hexdigest()
+    response = await async_client.post(
+        "/api/assistant/editorial/issues/revise", json=body
+    )
+    assert response.status_code == 200, response.text
+    expected_chapters = [index + 1 for index in selected_indices]
+    assert [
+        item["chapter_index"] for item in response.json()["items"]
+    ] == expected_chapters
+    assert len({item["task_id"] for item in response.json()["items"]}) == len(
+        expected_chapters
+    )
+    comments = await _comment_rows(db_session, nid)
+    assert sorted(comment.chapter_index for comment in comments) == expected_chapters
 
 
 async def _issue_rows(db_session, novel_id: str) -> list[EditorialIssue]:
@@ -272,9 +395,7 @@ async def test_bridge_fails_closed_on_frozen_hash_drift(
         evidence=[_evidence(draft, frozen_text, "信上的地址")],
         fingerprint="drift-b",
     )
-    base = await WritingDraftService().get_draft_contract(
-        db_session, novel_id, draft.id
-    )
+    base = await WritingDraftService().get_draft_contract(db_session, novel_id, draft.id)
     await WritingDraftService().update_draft(
         db_session,
         base.id,
@@ -342,9 +463,7 @@ async def test_bridge_rejects_stale_issue_version(
 
 
 @pytest.mark.asyncio
-async def test_bridge_requires_editorial_enabled(
-    async_client, db_session
-) -> None:
+async def test_bridge_requires_editorial_enabled(async_client, db_session) -> None:
     project = (
         await async_client.post("/api/projects", json={"title": "桥接未开启"})
     ).json()

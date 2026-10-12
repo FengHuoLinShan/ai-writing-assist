@@ -35,6 +35,11 @@ test.describe("引导流程集成尾部：三个入口", () => {
   test("空项目首页：新书开篇卡从一句构想到方向卡选择", async ({ page, projectFactory, openProjectWorkbench }) => {
     const project = await projectFactory({ title: "空项目开篇", genre: "fantasy", language: "zh" })
     let phase = "cards"
+    let started = false
+    let packageVersion = 1
+    const packageId = "00000000-0000-0000-0000-0000000000b1"
+    let packageItems = [{ item_key: "city", kind: "core_entity", disposition: "include", payload: { operation: "create", entity: { name: "潮城", summary: "旧简介" } } }, { item_key: "risk", kind: "core_entity", disposition: "include", payload: { operation: "create", entity: { name: "待舍弃规则", summary: "无用支线" } } }]
+    let lastEdits = []
     const card = {
       title: "潮汐都市",
       genre_promise: "城市奇幻",
@@ -78,25 +83,35 @@ test.describe("引导流程集成尾部：三个入口", () => {
       payload.guided_flows = { available: true, reason: null }
       await route.fulfill({ response: original, json: payload })
     })
-    await page.route("**/api/assistant/flows/active*", (route) => route.fulfill(json(null)))
-    await page.route("**/api/assistant/flows", async (route) => {
+    const skeletonView = () => openingView({
+      status: phase === "adopted" || phase === "rolledback" ? "completed" : "waiting_approval",
+      stop: { step_id: phase === "adopted" ? "skeleton_ready" : phase === "rolledback" ? "skeleton_reversed" : phase === "skeleton" ? "adopt_skeleton" : "choose_direction", kind: "author_choice", reason: phase === "cards" ? "选择一个方向" : "骨架逐条取舍", actions: [] },
+      panel: { ...(openingView().panel), package: phase === "cards" ? null : { package_suggestion_id: packageId }, adopted: phase === "adopted" || phase === "rolledback" ? { package_suggestion_id: packageId } : null },
+    })
+    await page.route("**/api/assistant/flows/latest*", route => route.fulfill(json(started ? skeletonView() : null)))
+    await page.route("**/api/assistant/flows/active*", route => route.fulfill(json(started && phase !== "adopted" ? skeletonView() : null)))
+    await page.route(`**/api/assistant/flows/${OPENING_RUN_ID}?*`, route => route.fulfill(json(skeletonView())))
+    await page.route("**/api/assistant/flows", async route => {
       if (route.request().method() !== "POST") return route.fallback()
+      started = true
       return route.fulfill(json(openingView({ status: "running" }), 201))
     })
-    await page.route("**/api/assistant/flows/*/advance", async (route) => route.fulfill(json(
-      openingView({
-        status: "waiting_approval",
-        stop: {
-          step_id: "choose_direction",
-          kind: "author_choice",
-          reason: "从方向卡里选一张，可直接修改字段；都不满意可以再要一批（再要一批会产生一次模型调用）。",
-          actions: [
-            { action: "more_cards", label: "再要一批方向卡" },
-            { action: "abandon_flow", label: "结束流程" },
-          ],
-        },
-      }),
-    )))
+    await page.route("**/api/assistant/flows/*/advance", async route => {
+      const choice = route.request().postDataJSON()?.choice
+      if (choice?.action === "choose") phase = "skeleton"
+      if (choice?.action === "adopt_skeleton") { expect(choice.expected_preview_hash).toBe("p".repeat(64)); phase = "adopted" }
+      return route.fulfill(json(skeletonView()))
+    })
+    const artifact = () => ({ updated_at: `2026-10-12T00:00:0${packageVersion}Z`, payload_json: { items: packageItems } })
+    await page.route(`**/api/world/adoption-packages/${packageId}?*`, route => route.fulfill(json(artifact())))
+    await page.route(`**/api/world/adoption-packages/${packageId}/preview*`, route => route.fulfill(json({ expected_preview_hash: "p".repeat(64), canon_diff: [] })))
+    await page.route(`**/api/world/adoption-packages/${packageId}/items`, route => {
+      lastEdits = route.request().postDataJSON().items
+      packageItems = packageItems.map(item => { const edit = lastEdits.find(edit => edit.item_key === item.item_key); return edit ? { ...item, disposition: edit.included ? "include" : "open", payload: { ...item.payload, entity: { ...item.payload.entity, ...(edit.name ? { name: edit.name } : {}), ...(edit.summary ? { summary: edit.summary } : {}) } } } : item })
+      packageVersion += 1
+      return route.fulfill(json({ suggestion: artifact(), item_conflicts: [] }))
+    })
+    await page.route(`**/api/world/adoption-packages/${packageId}/rollback`, route => { phase = "rolledback"; return route.fulfill(json({ results: [{ item_key: "city", status: "modified_after_adoption" }] })) })
 
     await openProjectWorkbench(project, "today")
 
@@ -113,6 +128,24 @@ test.describe("引导流程集成尾部：三个入口", () => {
     await expect(card_).toContainText("潮汐都市")
     await expect(card_).toContainText("题材承诺")
     await expect(card_.getByRole("button", { name: /再要一批/ })).toBeVisible()
+    await card_.getByRole("radio").first().check()
+    await card_.getByRole("button", { name: "用这个方向继续" }).click()
+    const review = card_.getByRole("region", { name: "骨架逐条取舍" })
+    await expect(review.getByLabel("简介").first()).toHaveValue("旧简介")
+    await review.getByLabel("简介").first().fill("作者保留的城市规则")
+    await review.locator('input[type="checkbox"]').nth(1).uncheck()
+    await expect(review.getByRole("button", { name: "采用所选条目" })).toBeDisabled()
+    await review.getByRole("button", { name: "保存取舍" }).click()
+    await expect(review).toContainText("取舍已保存")
+    expect(lastEdits).toEqual([{ item_key: "city", included: true, summary: "作者保留的城市规则" }, { item_key: "risk", included: false }])
+    await review.getByRole("button", { name: "采用所选条目" }).click()
+    await expect(card_.getByRole("button", { name: "撤销这次骨架采用" })).toBeVisible()
+    await page.reload()
+    await expect(page.locator(".opening-flow").getByRole("button", { name: "撤销这次骨架采用" })).toBeVisible()
+    await page.locator(".opening-flow").getByRole("button", { name: "撤销这次骨架采用" }).click()
+    await page.locator("#modal-footer").getByRole("button", { name: /确认|撤销/ }).click()
+    await expect(page.locator(".opening-flow")).toContainText("采用后已编辑，保留")
+
   })
 
   test("审读台：走引导流程修订从选中意见到改后复核结果", async ({ page, projectFactory, openProjectWorkbench }) => {
@@ -202,7 +235,7 @@ test.describe("引导流程集成尾部：三个入口", () => {
     const rollingOffer = {
       run_id: WRITE_RUN_ID,
       flow_id: "continue_writing",
-      flow_version: 2,
+      flow_version: 3,
       title: "继续写下一场",
       status: "waiting_approval",
       chapter_index: 1,
@@ -210,7 +243,7 @@ test.describe("引导流程集成尾部：三个入口", () => {
       stop: {
         step_id: "rolling_offer",
         kind: "author_choice",
-        reason: "第 1 章已采用。接下来的第 2 至 4 章，可以生成剧情线与篇章候选（每层一次模型调用，只到大纲级，不生成正文）。后方已规划 0 章，不足 2 章；建议现在补足到 3 章。",
+        reason: "第 1 章已采用。接下来的第 2 至 4 章，可以生成剧情线与篇章候选（含审查与必要返修，按实际调用计费，不生成正文）。后方已规划 0 章，不足 2 章；建议现在补足到 3 章。",
         actions: [
           { action: "plan_ahead", label: "规划接下来几章" },
           { action: "decline", label: "先不用" },
@@ -243,31 +276,24 @@ test.describe("引导流程集成尾部：三个入口", () => {
     await page.route(`**/api/assistant/flows/${WRITE_RUN_ID}**`, async (route) => {
       const path = new URL(route.request().url()).pathname
       if (path.endsWith("/advance")) {
-        currentRollingView = {
-          ...rollingOffer,
-          status: "waiting_approval",
-          stop: {
-            step_id: "rolling_review",
-            kind: "author_choice",
-            reason: "第 2 至 4 章的剧情线与篇章候选已生成；请在结构工作台逐条取舍并采用，采用齐全后本流程完成，也可以直接结束。",
-            actions: [
-              { action: "open_outline", label: "打开结构工作台" },
-              { action: "finish_flow", label: "完成流程" },
-              { action: "abandon_flow", label: "结束流程" },
-            ],
-          },
-          steps: rollingOffer.steps.map((item) => (
-            ["rolling_threads", "rolling_arcs"].includes(item.step_id)
-              ? step(item.step_id, item.title, "done")
-              : item.step_id === "rolling_review" ? step(item.step_id, item.title, "active") : item
-          )),
-          panel: { rolling: { chapter_index: 1, window: { start: 2, end: 4 }, window_size: 3, accepted: true, planned_chapters: 0 } },
-        }
+        const input = route.request().postDataJSON()
+        const reviewing = Boolean(input.context_confirmation_id)
+        currentRollingView = { ...rollingOffer, stop: { step_id: reviewing ? "review_rolling_threads" : "confirm_rolling_threads", kind: reviewing ? "author_choice" : "author_confirm", reason: reviewing ? "请取舍本层候选，采用后再确认下一层" : "请另行确认本层完整结构资料", actions: reviewing ? [{ action: "open_outline", label: "打开结构工作台" }] : [{ action: "confirm_rolling", label: "核对本层完整资料" }] }, panel: { rolling: { chapter_index: 1, window: { start: 2, end: 4 }, accepted: true } } }
         return route.fulfill(json(currentRollingView))
       }
       return route.fulfill(json(currentRollingView))
     })
 
+    await page.route("**/api/evidence/compilation/preview", route => route.fulfill(json({ context_fingerprint: "f".repeat(64), warnings: [], blockers: [], sections: [], items: { required: [], found: [], pinned: [], excluded: [] }, budget: { total_tokens: 0, used_tokens: 0 } })))
+    await page.route("**/api/evidence/compilation/confirm", route => {
+      const data = route.request().postDataJSON()
+      expect(data.action).toBe("outline.generate")
+      expect(data.scope).toBe("full")
+      expect(data.chapter_index).toBe(2)
+      expect(data.planning_window_end).toBe(4)
+      expect(data.budget_tokens).toBe(0)
+      return route.fulfill(json({ id: "00000000-0000-0000-0000-0000000000c1", novel_id: project.id, action: data.action, context_fingerprint: "f".repeat(64), result_status: "confirmed" }, 201))
+    })
     await openProjectWorkbench(project, "writing")
 
     const host = page.locator(".writing-flow-host")
@@ -277,7 +303,10 @@ test.describe("引导流程集成尾部：三个入口", () => {
     await host.getByRole("button", { name: "规划接下来几章" }).click()
 
     // 结构候选审阅停点：去结构工作台采用或直接完成。
-    await expect(host).toContainText("剧情线与篇章候选已生成")
+    await expect(host).toContainText("请另行确认本层完整结构资料")
+    await host.getByRole("button", { name: "核对本层完整资料" }).click()
+    await page.locator("#modal-footer").getByRole("button", { name: /按这份资料开始|确认/ }).click()
+    await expect(host).toContainText("请取舍本层候选")
     await host.getByRole("button", { name: "打开结构工作台" }).click()
     await expect(page).toHaveURL(/\/outline\/story-outline(?:\?|$)/)
   })

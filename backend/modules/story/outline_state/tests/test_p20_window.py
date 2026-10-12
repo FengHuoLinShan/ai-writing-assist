@@ -74,6 +74,119 @@ def _thread(ref: str, *, start: int | None, payoff: int | None = None) -> dict:
     }
 
 
+def test_cross_window_revisions_are_readonly_even_when_model_shrinks_range():
+    from modules.story.outline_state.p20_window import readonly_window_revisions
+
+    request = _request("outline_arc", start=4, end=6)
+    output = P20OutlineArcOutput(
+        result="proposed",
+        arcs=[{**_arc("A1", start=4, end=6), "target_arc_ref": "arc-1"}],
+    )
+    filtered, hints = readonly_window_revisions(
+        request,
+        output,
+        {"outline_arcs": [{"ref": "arc-1", "start_chapter": 1, "end_chapter": 10}]},
+    )
+    assert filtered.arcs == []
+    assert hints[0]["suggestion"]["target_arc_ref"] == "arc-1"
+    allowed, hints = readonly_window_revisions(
+        request,
+        output,
+        {"outline_arcs": [{"ref": "arc-1", "start_chapter": 4, "end_chapter": 6}]},
+    )
+    assert allowed.arcs and hints == []
+
+
+async def test_apply_rejects_cross_window_asset_and_preserves_in_window_identity(
+    db_session, test_project_id
+):
+    from modules.story.outline_state.models import OutlineArc
+    from modules.story.outline_state.p20_service import P20ApplyService, P20ConflictError
+
+    arc = OutlineArc(
+        novel_id=uuid.UUID(test_project_id),
+        title="原篇章",
+        arc_index=1,
+        start_chapter=1,
+        end_chapter=10,
+        arc_goal="原目标",
+        status="draft",
+    )
+    db_session.add(arc)
+    await db_session.flush()
+    request = _request(
+        "outline_arc",
+        start=4,
+        end=6,
+        novel_id=test_project_id,
+        mode="revise",
+        selected_arc_ids=[str(arc.id)],
+    )
+    output = P20OutlineArcOutput(
+        result="proposed",
+        arcs=[
+            {
+                **_arc("A1", start=4, end=6),
+                "target_arc_ref": "arc-1",
+                "arc_index": 99,
+                "arc_goal": "新目标",
+            }
+        ],
+    )
+
+    async def apply():
+        return await P20ApplyService()._apply_arcs(
+            db_session,
+            request=request,
+            output=output,
+            reference_map={"arcs": {"arc-1": str(arc.id)}},
+            task_id=str(uuid.uuid4()),
+            context_fingerprint="f",
+            story_outline_revision_id=str(uuid.uuid4()),
+            adopted_at="2026-10-12T00:00:00Z",
+        )
+
+    with pytest.raises(P20ConflictError, match="跨窗"):
+        await apply()
+    assert arc.arc_goal == "原目标" and arc.end_chapter == 10
+    arc.start_chapter, arc.end_chapter = 4, 6
+    await apply()
+    assert (arc.title, arc.arc_index, arc.start_chapter, arc.end_chapter) == (
+        "原篇章",
+        1,
+        4,
+        6,
+    )
+    assert arc.arc_goal == "新目标"
+
+
+def test_selection_is_ordered_subset_and_dependencies_require_reconfirmation():
+    from modules.story.outline_state.p20_service import P20ApplyService
+
+    request = _request("outline_arc", start=4, end=6)
+    preview = {"arcs": [_arc("A1", start=4, end=4), _arc("A2", start=5, end=6)]}
+    selected = P20OutlineArcOutput(result="proposed", arcs=[preview["arcs"][1]])
+    P20ApplyService._validate_preview_scope(request, preview, selected)
+    for refs in ([], ["A2", "A1"], ["A1", "A1"], ["A3"]):
+        edited = P20OutlineArcOutput(
+            result="proposed", arcs=[_arc(ref, start=4, end=6) for ref in refs]
+        )
+        with pytest.raises(ValueError):
+            P20ApplyService._validate_preview_scope(request, preview, edited)
+    scene_request = _request("planned_scene", start=4, end=5)
+    scene_preview = {
+        "scenes": [_scene("S1", start=4, end=4), _scene("S2", start=5, end=5)]
+    }
+    selected_scene = P20PlannedSceneOutput(
+        result="proposed",
+        scenes=[{**scene_preview["scenes"][1], "related_thread_refs": ["S1"]}],
+    )
+    with pytest.raises(ValueError, match="依赖未选"):
+        P20ApplyService._validate_preview_scope(
+            scene_request, scene_preview, selected_scene
+        )
+
+
 def test_window_bounds_use_per_layer_defaults() -> None:
     assert window_bounds("outline_arc", 4) == (4, 6)
     assert window_bounds("plot_thread", 4) == (4, 6)

@@ -198,7 +198,7 @@ def _states(view: dict) -> dict:
 
 def test_flow_registry_shape_and_version():
     flow = FLOWS["continue_writing"]
-    assert flow.version == 2
+    assert flow.version == 3
     kinds = {step.kind for step in flow.steps}
     assert kinds <= {"auto", "author_confirm", "author_choice"}
     assert kinds == {"auto", "author_confirm", "author_choice"}
@@ -216,6 +216,7 @@ def test_flow_registry_shape_and_version():
         "rolling_offer",
         "rolling_threads",
         "rolling_arcs",
+        "rolling_scenes",
         "rolling_review",
     ]
 
@@ -428,7 +429,7 @@ async def test_confirm_staleness_recovers_without_hard_block(
         row = await db.get(ContextConfirmation, UUID(confirmation_id))
         assert row is not None and row.action == action
         return SimpleNamespace(
-            confirmation=SimpleNamespace(context_fingerprint="fp"),
+            confirmation=SimpleNamespace(excluded_asset_ids={}, context_fingerprint="fp"),
             compile_options=dict(row.compile_options),
         )
 
@@ -753,8 +754,13 @@ async def test_version_drift_fails_closed(
         "continue_writing",
         replace(FLOWS["continue_writing"], version=FLOWS["continue_writing"].version + 1),
     )
+    restored = await guided_runtime.active_run(db_session, test_project_id, OWNER)
+    assert restored["stop"]["step_id"] == "version_changed"
+    assert restored["stop"]["actions"][0]["action"] == "abandon_flow"
     with pytest.raises(ConflictError, match="流程定义已更新"):
-        await guided_runtime.view(db_session, test_project_id, view["run_id"], OWNER)
+        await guided_runtime.advance(
+            db_session, test_project_id, view["run_id"], OWNER, {}
+        )
     # 结束流程不依赖版本表，始终可行。
     stopped = await guided_runtime.abandon(
         db_session, test_project_id, view["run_id"], OWNER
@@ -877,7 +883,10 @@ async def test_rolling_plan_passes_the_confirmed_end_chapter(
             OWNER,
             SimpleNamespace(id=uuid.uuid4()),
             FLOWS["continue_writing"],
-            {"rolling_decision": {"at_chapter": 1, "accepted": True, "window": window}},
+            {
+                "rolling_decision": {"at_chapter": 1, "accepted": True, "window": window},
+                "rolling_arcs_confirmation": {"confirmation_id": str(uuid.uuid4())},
+            },
             "rolling_arcs",
             input_fingerprint="confirmed-input",
         )
@@ -953,6 +962,32 @@ async def test_rolling_offer_backfill_reason_and_decline_completes(
     assert len(calls) == before, "拒绝规划不产生任何结构任务"
 
 
+async def _confirm_rolling(db, novel_id, run_id, layer):
+    run = await guided_runtime._require_run(db, novel_id, run_id, OWNER)
+    decision = guided_runtime._artifacts(run)["rolling_decision"]
+    start = decision["at_chapter"] + 1
+    width = min(decision["window"], 2) if layer == "scenes" else decision["window"]
+    row = ContextConfirmation(
+        novel_id=UUID(novel_id),
+        action="outline.generate",
+        task="结构规划",
+        scope="full",
+        compile_options={
+            "novel_id": novel_id,
+            "task": "结构规划",
+            "scope": "full",
+            "budget_tokens": 0,
+            "chapter_index": start,
+            "planning_window_end": start + width - 1,
+        },
+    )
+    db.add(row)
+    await db.flush()
+    return await guided_runtime.advance(
+        db, novel_id, run_id, OWNER, {"context_confirmation_id": str(row.id)}
+    )
+
+
 async def test_rolling_plan_runs_once_and_stops_for_structure_review(
     db_session, test_project_id, enabled, fake_semantic_review
 ):
@@ -1003,9 +1038,27 @@ async def test_rolling_plan_runs_once_and_stops_for_structure_review(
             OWNER,
             {"choice": {"step_id": "rolling_offer", "action": "plan_ahead"}},
         )
+        run = await guided_runtime._require_run(
+            db_session, test_project_id, view["run_id"], OWNER
+        )
+        assert "arc_proposals" not in guided_runtime._artifacts(run)
+        for layer, key in (("threads", "thread_proposals"), ("arcs", "arc_proposals")):
+            await _confirm_rolling(db_session, test_project_id, view["run_id"], layer)
+            task_id = guided_runtime._artifacts(run)[key]["task_id"]
+            await _mark_task(
+                db_session,
+                task_id,
+                status="done",
+                result={"draft_structure": {"result": "proposed"}},
+            )
+            await guided_runtime.advance(
+                db_session, test_project_id, view["run_id"], OWNER, {}
+            )
+        await _confirm_rolling(db_session, test_project_id, view["run_id"], "scenes")
         plan_calls = [call for call in calls if "target" in call]
         assert sorted(call["target"] for call in plan_calls) == [
             "outline_arc",
+            "planned_scene",
             "plot_thread",
         ]
         assert all(call["start"] == 2 for call in plan_calls)
@@ -1015,6 +1068,7 @@ async def test_rolling_plan_runs_once_and_stops_for_structure_review(
         artifacts = guided_runtime._artifacts(run)
         thread_task = artifacts["thread_proposals"]["task_id"]
         arc_task = artifacts["arc_proposals"]["task_id"]
+        scene_task = artifacts["scene_proposals"]["task_id"]
 
         # 在途重复推进：不产生第二个任务。
         await guided_runtime.advance(
@@ -1023,13 +1077,18 @@ async def test_rolling_plan_runs_once_and_stops_for_structure_review(
         plan_calls_after = [call for call in calls if "target" in call]
         assert len(plan_calls_after) == len(plan_calls)
 
-        await _mark_task(db_session, thread_task, status="done", result={})
-        await _mark_task(db_session, arc_task, status="done", result={})
+        await _mark_task(
+            db_session, thread_task, status="done", result={"apply_status": "applied"}
+        )
+        await _mark_task(
+            db_session, arc_task, status="done", result={"apply_status": "applied"}
+        )
+        await _mark_task(db_session, scene_task, status="done", result={})
         review = await guided_runtime.advance(
             db_session, test_project_id, view["run_id"], OWNER, {}
         )
         assert review["status"] == "waiting_approval"
-        assert review["stop"]["step_id"] == "rolling_review"
+        assert review["stop"]["step_id"] == "review_rolling_scenes"
         assert review["stop"]["kind"] == "author_choice"
 
         finished = await guided_runtime.advance(
@@ -1037,7 +1096,7 @@ async def test_rolling_plan_runs_once_and_stops_for_structure_review(
             test_project_id,
             view["run_id"],
             OWNER,
-            {"choice": {"step_id": "rolling_review", "action": "finish_flow"}},
+            {"choice": {"step_id": "review_rolling_scenes", "action": "finish_flow"}},
         )
     assert finished["status"] == "completed"
     assert finished["stop"] is None
@@ -1098,13 +1157,22 @@ async def test_rolling_review_completes_when_window_covered(
         run = await guided_runtime._require_run(
             db_session, test_project_id, view["run_id"], OWNER
         )
-        artifacts = guided_runtime._artifacts(run)
-        await _mark_task(
-            db_session, artifacts["thread_proposals"]["task_id"], status="done", result={}
-        )
-        await _mark_task(
-            db_session, artifacts["arc_proposals"]["task_id"], status="done", result={}
-        )
+        for layer, key in (
+            ("threads", "thread_proposals"),
+            ("arcs", "arc_proposals"),
+            ("scenes", "scene_proposals"),
+        ):
+            await _confirm_rolling(db_session, test_project_id, view["run_id"], layer)
+            artifacts = guided_runtime._artifacts(run)
+            await _mark_task(
+                db_session,
+                artifacts[key]["task_id"],
+                status="done",
+                result={"apply_status": "applied"},
+            )
+            await guided_runtime.advance(
+                db_session, test_project_id, view["run_id"], OWNER, {}
+            )
         # 作者采用覆盖第 2-4 章的篇章（结构工作台既有路径，不经流程）。
         db_session.add(
             OutlineArc(
@@ -1218,7 +1286,7 @@ def _fake_skeleton_operation(calls: list):
 
 def _fake_adopt_operation(calls: list):
     async def prepare(db, novel_id, args, *, context=None):
-        return {"suggestion_id": args.suggestion_id}
+        return {"suggestion_id": args.suggestion_id, "expected_preview_hash": "h" * 64}
 
     async def apply(db, novel_id, args, preview, *, context=None):
         calls.append({"suggestion_id": args.suggestion_id})
@@ -1272,7 +1340,7 @@ async def _start_opening(db, novel_id: str):
 
 
 async def test_opening_flow_happy_path_to_skeleton_ready(
-    db_session, test_project_id, enabled, monkeypatch
+    db_session, test_project_id, enabled, monkeypatch, fake_card_tasks
 ):
     """构想 → 方向卡 → 选定 → 骨架任务 → 采用 → 停在「骨架可用」。"""
     from modules.assistant.guided_flow import direction_cards
@@ -1352,7 +1420,13 @@ async def test_opening_flow_happy_path_to_skeleton_ready(
             test_project_id,
             view["run_id"],
             OWNER,
-            {"choice": {"step_id": "adopt_skeleton", "action": "adopt_skeleton"}},
+            {
+                "choice": {
+                    "step_id": "adopt_skeleton",
+                    "action": "adopt_skeleton",
+                    "expected_preview_hash": "h" * 64,
+                }
+            },
         )
     assert done["status"] == "completed"
     assert done["stop"]["step_id"] == "skeleton_ready"
@@ -1367,12 +1441,18 @@ async def test_opening_flow_happy_path_to_skeleton_ready(
             test_project_id,
             view["run_id"],
             OWNER,
-            {"choice": {"step_id": "adopt_skeleton", "action": "adopt_skeleton"}},
+            {
+                "choice": {
+                    "step_id": "adopt_skeleton",
+                    "action": "adopt_skeleton",
+                    "expected_preview_hash": "h" * 64,
+                }
+            },
         )
 
 
 async def test_opening_flow_more_cards_until_cap(
-    db_session, test_project_id, enabled, monkeypatch
+    db_session, test_project_id, enabled, monkeypatch, fake_card_tasks
 ):
     """都不满意可再要一批（新调用）；超过批数上限失败关闭。"""
     from core.errors import ConflictError
@@ -1657,3 +1737,123 @@ async def test_editorial_flow_unlocatable_items_skip_to_completion(
         {"choice": {"step_id": "review_rechecks", "action": "finish_flow"}},
     )
     assert finished["status"] == "completed"
+
+
+@pytest.fixture
+def fake_card_tasks(monkeypatch):
+    from infrastructure.tasks import facade as task_facade
+    from modules.assistant.guided_flow import direction_cards
+
+    original = task_facade.enqueue_operation_task
+
+    async def snapshot(db, novel_id):
+        return {"version": 1, "provider": "fake"}
+
+    async def submit(db, **kwargs):
+        result = await original(db, **kwargs)
+        if kwargs["task_type"] == "assistant_direction_cards" and not result.reused:
+            meta = kwargs["meta"]
+            cards = await direction_cards.draft_direction_cards(
+                db,
+                kwargs["novel_id"],
+                **{
+                    name: meta["input"].get(name, "")
+                    for name in ("vision", "genre_hint", "length_hint")
+                },
+                batch=meta["batch"],
+            )
+            await _mark_task(
+                db,
+                result.task_id,
+                status="done",
+                result={
+                    "batch": meta["batch"],
+                    "cards": [card.model_dump(mode="json") for card in cards],
+                },
+            )
+        return result
+
+    async def package(db, novel_id, artifact):
+        task = (
+            await db.get(AsyncTask, UUID(artifact["task_id"]))
+            if artifact.get("task_id")
+            else None
+        )
+        return (
+            dict((task.result or {}).get("_opening_skeleton_result") or task.result or {})
+            if task and task.status == "done"
+            else {}
+        )
+
+    monkeypatch.setattr(guided_flows, "build_project_llm_execution_snapshot", snapshot)
+    monkeypatch.setattr(task_facade, "enqueue_operation_task", submit)
+    monkeypatch.setattr(guided_flows, "_skeleton_package", package)
+
+
+async def test_active_lookup_filters_before_limit(db_session, test_project_id, enabled):
+    from modules.assistant.models import AssistantRun
+
+    await _create_draft(db_session, test_project_id, status="published")
+    original = await _start_flow(db_session, test_project_id)
+    for index in range(51):
+        db_session.add(
+            AssistantRun(
+                owner_id=UUID(OWNER),
+                novel_id=UUID(test_project_id),
+                status="running",
+                request_hash=str(index),
+                request_json={"protocol": "forecast_v1"},
+            )
+        )
+    await db_session.flush()
+    assert (await _start_flow(db_session, test_project_id))["run_id"] == original[
+        "run_id"
+    ]
+    assert (await guided_runtime.active_run(db_session, test_project_id, OWNER))[
+        "run_id"
+    ] == original["run_id"]
+
+
+async def test_latest_opening_recovers_completed_result_and_excludes_other_owner(
+    db_session, test_project_id, enabled
+):
+    from modules.assistant.models import AssistantRun
+
+    original = await _start_opening(db_session, test_project_id)
+    run = await db_session.get(AssistantRun, UUID(original["run_id"]))
+    run.status = "completed"
+    await db_session.flush()
+    assert (
+        await guided_runtime.latest_run(
+            db_session, test_project_id, OWNER, "new_book_opening"
+        )
+    )["run_id"] == original["run_id"]
+    assert (
+        await guided_runtime.latest_run(
+            db_session, test_project_id, str(uuid.uuid4()), "new_book_opening"
+        )
+        is None
+    )
+
+
+async def test_rolling_confirmation_preserves_original_exclusions(
+    db_session, test_project_id, enabled
+):
+    from modules.assistant.guided_flow.flows import apply_confirm_input
+
+    with pytest.raises(ConflictError, match="排除项"):
+        await apply_confirm_input(
+            db_session,
+            test_project_id,
+            SimpleNamespace(),
+            FLOWS["continue_writing"],
+            {
+                "context_confirmation": {
+                    "excluded_asset_ids": {"entities": [str(uuid.uuid4())]}
+                }
+            },
+            {
+                "step_id": "confirm_rolling_threads",
+                "context_confirmation_id": str(uuid.uuid4()),
+            },
+        )

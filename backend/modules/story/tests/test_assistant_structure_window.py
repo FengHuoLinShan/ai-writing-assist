@@ -174,7 +174,9 @@ async def test_window_operation_id_is_deterministic_per_window_layer(
     )
     first = await _submit(db, nid, args, context)
 
-    # 同一窗口重复推进：换一次运行、换一条指令，仍返回原任务，不产生第二个任务。
+    same = await _submit(db, nid, args, context)
+    assert same["task_id"] == first["task_id"]
+    # 新运行或指令是新意图，不复用旧结果。
     other_run = replace(
         context,
         operation_id=str(uuid.uuid4()),
@@ -184,7 +186,7 @@ async def test_window_operation_id_is_deterministic_per_window_layer(
         target="outline_arc", instruction="换个说法再推一次", start_chapter=4
     )
     replay = await _submit(db, nid, replay_args, other_run)
-    assert replay["task_id"] == first["task_id"]
+    assert replay["task_id"] != first["task_id"]
 
     tasks = (
         (
@@ -198,7 +200,7 @@ async def test_window_operation_id_is_deterministic_per_window_layer(
         .scalars()
         .all()
     )
-    assert sorted(str(value) for value in tasks) == [first["task_id"]]
+    assert set(str(value) for value in tasks) == {first["task_id"], replay["task_id"]}
 
     # 其他层不受同窗口键影响：Scene 层窗口默认 1 章，各自独立回执。
     scene_args = PlanStructure(
@@ -241,3 +243,129 @@ async def test_full_book_requests_keep_run_scoped_receipts(
     request = await _task_request(db, first["task_id"])
     assert request.rolling_window is False
     assert request.start_chapter is None
+
+
+@pytest.mark.asyncio
+async def test_rolling_layers_adopt_with_fresh_confirmations_and_actual_domain_writes(
+    db_session, test_project_id, account_llm_connection
+):
+    """生成与审查使用合成结果，其余确认、来源冻结和三层采用走真实领域。"""
+    from types import SimpleNamespace
+
+    from core.container import container_scope
+    from modules.assistant.guided_flow.flows import _run_rolling_plan
+    from modules.assistant.guided_flow.registry import FLOWS
+    from modules.evidence.contracts import ContextConfirmationRequest
+    from modules.evidence.facade import confirm_context
+    from modules.story.assistant_structure_workflow import AdoptStructure
+    from modules.story.outline_state.models import PlotThread, Scene
+    from modules.story.outline_state.p20_schemas import P20_OUTPUT_SCHEMAS
+    from modules.story.outline_state.p20_service import P20GenerationService
+
+    db, nid = db_session, test_project_id
+    context, _ = await _prepared_context(db, nid)
+    artifacts = {"rolling_decision": {"accepted": True, "at_chapter": 1, "window": 3}}
+    run = SimpleNamespace(id=uuid.uuid4())
+    plan_operation = story_structure_operations["story.plan_structure"]
+    adopt_operation = story_structure_operations["story.adopt_structure"]
+    contexts = []
+    with container_scope({"assistant.operations": story_structure_operations}):
+        for layer, target, field, entry in (
+            (
+                "threads",
+                "plot_thread",
+                "threads",
+                {
+                    "name": "来信主线",
+                    "thread_type": "main",
+                    "start_chapter": 2,
+                    "planned_payoff_chapter": 4,
+                },
+            ),
+            (
+                "arcs",
+                "outline_arc",
+                "arcs",
+                {"title": "港口追查", "start_chapter": 2, "end_chapter": 4},
+            ),
+            (
+                "scenes",
+                "planned_scene",
+                "scenes",
+                {
+                    "title": "打开来信",
+                    "planned_start_chapter": 2,
+                    "planned_end_chapter": 2,
+                    "core_conflict_status": "not_applicable",
+                },
+            ),
+        ):
+            end = 3 if layer == "scenes" else 4
+            args = PlanStructure(
+                target=target,
+                instruction="作者确认窗口内的原创规划",
+                start_chapter=2,
+                end_chapter=end,
+            )
+            preview = await plan_operation.prepare(db, nid, args, context=context)
+            confirmation = await confirm_context(
+                db,
+                ContextConfirmationRequest(
+                    novel_id=nid,
+                    action="outline.generate",
+                    **preview["context_parameters"],
+                    expected_context_fingerprint=preview["context_fingerprint"],
+                ),
+            )
+            artifacts[f"rolling_{layer}_confirmation"] = {
+                "confirmation_id": str(confirmation.id)
+            }
+            receipt = await _run_rolling_plan(
+                db,
+                nid,
+                context.owner_id,
+                run,
+                FLOWS["continue_writing"],
+                artifacts,
+                f"rolling_{layer}",
+                input_fingerprint="synthetic-flow",
+            )
+            task = await db.get(AsyncTask, uuid.UUID(receipt["task_id"]))
+            request = await _task_request(db, str(task.id))
+            plan = await P20GenerationService().prepare(db, request)
+            contexts.append(plan.source_fingerprint)
+            output = P20_OUTPUT_SCHEMAS[target].model_validate(
+                {
+                    "result": "proposed",
+                    field: [
+                        {
+                            "proposal_ref": "P1",
+                            "basis": "作者确认窗口内的原创规划",
+                            "confidence": 0.8,
+                            **entry,
+                        }
+                    ],
+                }
+            )
+            task.status = "done"
+            task.result = P20GenerationService.task_result(
+                plan,
+                output,
+                task_id=str(task.id),
+                knowledge_review={
+                    "policy_version": 1,
+                    "capability": "story.outline.p20",
+                    "status": "passed",
+                },
+            )
+            await db.flush()
+            adoption = AdoptStructure(task_id=task.id, proposal_refs=["P1"])
+            prepared = await adopt_operation.prepare(db, nid, adoption, context=context)
+            await adopt_operation.apply(db, nid, adoption, prepared, context=context)
+            assert task.result["apply_status"] == "applied"
+    assert len(set(contexts)) == 3
+    assert (await db.scalar(select(PlotThread))).name == "来信主线"
+    assert (await db.scalar(select(OutlineArc))).start_chapter == 2
+    scene = await db.scalar(select(Scene))
+    assert scene.title == "打开来信"
+    assert scene.structure_meta["planned_chapter_range"] == {"start": 2, "end": 2}

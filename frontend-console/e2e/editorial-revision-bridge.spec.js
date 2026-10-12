@@ -116,6 +116,8 @@ test("审读台按意见发起批注修订并跟踪候选与改后复核", async
   const panel = desk.locator(".editorial-desk__revision")
   await expect(panel.getByText(/按选中的 2 条意见发起批注修订/)).toBeVisible()
   await panel.getByLabel(/处置说明/).fill("把地址线索改得更隐晦，保留悬念")
+  await expect(panel.getByRole("button", { name: "发起 2 条修订" })).toBeDisabled()
+  await panel.getByLabel("已核对上方重叠片段的合并范围，同意联合修订。").check()
   await panel.getByRole("button", { name: "发起 2 条修订" }).click()
 
   // 逐条受理结果：一条排队、一条因引文失效不生成候选。
@@ -123,6 +125,8 @@ test("审读台按意见发起批注修订并跟踪候选与改后复核", async
   // 引文失效的说明在提交响应里即刻渲染。
   await expect(panel.getByText("意见引文已不在当前稿中，无法定位；这条不会生成替换候选")).toBeVisible()
   expect(reviseRequests).toHaveLength(1)
+  expect(reviseRequests[0].overlap_confirmed).toBe(true)
+  expect(reviseRequests[0].items.every(item => JSON.stringify(item.evidence_indices) === "[0]")).toBe(true)
   expect(reviseRequests[0].items).toHaveLength(2)
   expect(reviseRequests[0].items.every(item => item.instruction === "把地址线索改得更隐晦，保留悬念")).toBe(true)
 
