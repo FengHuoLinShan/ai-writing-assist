@@ -8,7 +8,7 @@ from pathlib import Path
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
 GATED_FUNCTIONS = {
-    "modules/writing/services.py": {
+    "modules/writing/generation_service.py": {
         "submit_generation": ("prepare_confirmed_ai_action", "context_confirmation_id")
     },
     "modules/story/outline_state/ai_workflow_service.py": {

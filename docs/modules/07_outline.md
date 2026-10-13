@@ -374,3 +374,5 @@ Story 派生状态并封锁旧 Evolution owner。重排对齐事件索引采用�
 scene_order 事务锁保护新建场景，并以 NOWAIT 共享行锁保护已有场景的重排、
 映射与生命周期。结构正被修改时拒绝本次采用，请作者重新预览；不会持有正文锁
 等待结构写者而形成锁循环。场景创建和批量创建共用 scene_order 锁。
+
+SceneWorkbenchService 按职责拆为 scene_workbench（主编排）、scene_workbench_fusion（融合预览/建议）和 scene_workbench_health（健康/关联投影）；共享常量和冲突类型位于 scene_workbench_support。稳定入口仍为原 class，复用同一 repo、锁和状态，不增加领域写入路径。

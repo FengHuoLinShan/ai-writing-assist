@@ -13,8 +13,8 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 DEPRECATION_NOTICE = (
-    "deep_import 独立编排已进入退役流程：请求将改由演化引擎（evolution）"
-    "执行并返回新回执；本接口保留兼容参数，不再拥有独立运行所有权。"
+    "这是尚未接入旧入口的演化请求映射预览。deep_import 当前仍由原编排"
+    "执行；完成项目级验证和恢复兼容后才会切换入口。"
 )
 
 

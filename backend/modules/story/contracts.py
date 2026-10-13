@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -151,3 +151,21 @@ class SceneStateTrialRequest(BaseModel):
     candidate_holder_id: UUID | None = None
     candidate_moon_phase: Literal["full", "other"] | None = None
     comparison_digest: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+
+
+def scene_chapter_indices(scene: dict[str, Any]) -> set[int]:
+    values: set[int] = set()
+    for raw in scene.get("chapter_ids") or []:
+        try:
+            values.add(int(raw))
+        except (TypeError, ValueError):
+            continue
+    for chunk in scene.get("scene_chunks") or []:
+        if not isinstance(chunk, dict):
+            continue
+        raw = chunk.get("chapter_index") or chunk.get("chapter_id")
+        try:
+            values.add(int(raw))
+        except (TypeError, ValueError):
+            continue
+    return values

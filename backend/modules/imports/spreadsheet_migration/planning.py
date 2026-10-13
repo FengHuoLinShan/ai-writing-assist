@@ -235,9 +235,7 @@ def _header_lookup(sheet: SheetContext) -> dict[str, str]:
     header_row = (
         sheet.rows[sheet.header_row] if sheet.header_row < len(sheet.rows) else []
     )
-    return {
-        f"c{index}": (cell or "").strip() for index, cell in enumerate(header_row)
-    }
+    return {f"c{index}": (cell or "").strip() for index, cell in enumerate(header_row)}
 
 
 def _merge_first(
@@ -293,22 +291,6 @@ def _decision_action(
             code="migration_decision_invalid",
         )
     return action
-
-
-def _accepted_ai_coverage(
-    ai_input: AiPlanningInput | None,
-) -> dict[str, set[int]]:
-    coverage: dict[str, set[int]] = {}
-    if ai_input is None:
-        return coverage
-    for item in ai_input.items:
-        for ref in item.row_refs:
-            parsed = _parse_row_ref(ref)
-            if parsed is None:
-                continue
-            sheet_key, row = parsed
-            coverage.setdefault(sheet_key, set()).add(row)
-    return coverage
 
 
 def _accumulate_entity_row(
@@ -455,9 +437,7 @@ def _materialize_entities(
 ) -> list[AuthorMigrationEntityInput]:
     items: list[AuthorMigrationEntityInput] = []
     for accumulator in entities.values():
-        action = _decision_action(
-            item_decisions, accumulator.item_key, _ENTITY_DECISIONS
-        )
+        action = _decision_action(item_decisions, accumulator.item_key, _ENTITY_DECISIONS)
         target_entity_id: str | None = None
         if action == "use_existing":
             # 目标对象来自最近一次预览计划中的 target_id（决策 payload 不携带 id）。
@@ -503,9 +483,7 @@ def _build_entities(
         if sheet.kind not in {"characters", "world_objects"}:
             continue
         targets = [
-            (key, target)
-            for key, target in sheet.columns.items()
-            if target != "ignore"
+            (key, target) for key, target in sheet.columns.items() if target != "ignore"
         ]
         for row_index in range(sheet.header_row + 1, len(sheet.rows)):
             row = sheet.rows[row_index]
@@ -536,9 +514,7 @@ def _build_relations(
         if sheet.kind != "relations":
             continue
         targets = [
-            (key, target)
-            for key, target in sheet.columns.items()
-            if target != "ignore"
+            (key, target) for key, target in sheet.columns.items() if target != "ignore"
         ]
         for row_index in range(sheet.header_row + 1, len(sheet.rows)):
             row = sheet.rows[row_index]
@@ -681,9 +657,7 @@ def _story_item_from_row(
         else:
             title = f"{sheet.name} 第{row_index + 1}行"
     item_key = _item_key(sheet.sheet_key, row_index, title)
-    related_keys = [
-        name_index[name] for name in related_names if name in name_index
-    ][:64]
+    related_keys = [name_index[name] for name in related_names if name in name_index][:64]
     return AuthorMigrationStoryItem(
         item_key=item_key,
         source_refs=[_row_ref(sheet.sheet_key, row_index)],
@@ -834,9 +808,7 @@ def build_migration_requests(
 
     for sheet in sheets:
         targets = [
-            (key, target)
-            for key, target in sheet.columns.items()
-            if target != "ignore"
+            (key, target) for key, target in sheet.columns.items() if target != "ignore"
         ]
         if sheet.kind in _SHEET_KIND_TO_STORY_KIND:
             for row_index in range(sheet.header_row + 1, len(sheet.rows)):
@@ -908,9 +880,7 @@ def build_migration_requests(
     )
 
 
-def _find_sheet(
-    sheets: list[SheetContext], sheet_key: str
-) -> SheetContext | None:
+def _find_sheet(sheets: list[SheetContext], sheet_key: str) -> SheetContext | None:
     for sheet in sheets:
         if sheet.sheet_key == sheet_key:
             return sheet

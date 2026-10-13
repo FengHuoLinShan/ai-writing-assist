@@ -64,3 +64,6 @@ click-*.json
 
 # Video agent kit workspace
 .video_agent/
+
+# Isolated Python environment for offline evaluation targets
+backend/.venv-eval/

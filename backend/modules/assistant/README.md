@@ -318,3 +318,7 @@ AssistantNotice，其余意见留在编辑台。联网不用于小说内审读�
 本机根任务的逐次批准通过 `mark_task_local_approved` facade 委托 Assistant
 service，按 owner + novel_id + task_id 锁定并更新 checkpoint；本机模块不能
 直接操作 AssistantRun ORM。确认授权范围和任务租约契约保持不变。
+
+编辑台的约定通过章节名称选择本轮不审范围，保存仍使用原版本化 excluded_targets
+合同；历史非章节排除项和已选但不在当前列表的章节不会被清空。章节列表失败可以重试，
+不阻断编辑约定读取或丢失未保存选择。

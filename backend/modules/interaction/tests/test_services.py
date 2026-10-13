@@ -3407,7 +3407,7 @@ async def test_failed_overview_latches_branch_until_explicit_retry(
     )
 
     with patch(
-        "modules.interaction.services.build_project_llm_execution_snapshot",
+        "modules.interaction.journey_overview.build_project_llm_execution_snapshot",
         autospec=True,
         return_value=_snapshot_for(journey.novel_id),
     ):
@@ -3473,7 +3473,7 @@ async def test_summary_preparation_failure_can_retry_after_reconnect(
     assert failed.status == "failed"
 
     with patch(
-        "modules.interaction.services.build_project_llm_execution_snapshot",
+        "modules.interaction.journey_overview.build_project_llm_execution_snapshot",
         autospec=True,
         return_value=_snapshot_for(uuid.UUID(task.meta["novel_id"])),
     ):

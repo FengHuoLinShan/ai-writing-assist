@@ -9667,84 +9667,9 @@ kbd {
   }
 }
 
-.world-table--no-top-border {
-  border-top: none;
-}
-
 /* 列表头部操作区 */
-.world-list-actions {
-  text-align: center;
-  margin-bottom: var(--space-3);
-}
-
-.world-list-actions__secondary {
-  margin-bottom: var(--space-2);
-  text-align: center;
-}
 
 /* 自动提取面板 */
-.world-extract-panel {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: var(--space-3);
-  margin-bottom: var(--space-3);
-  text-align: center;
-}
-
-.world-extract-panel__label {
-  font-size: var(--text-sm);
-  color: var(--text-dim);
-  margin-bottom: var(--space-2);
-}
-
-.world-extract-panel__controls {
-  display: flex;
-  gap: var(--space-2);
-  justify-content: center;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.world-extract-panel__input {
-  width: 6em;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  color: var(--text);
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-}
-
-.world-extract-panel__status {
-  margin-top: var(--space-2);
-  font-size: var(--text-xs);
-  color: var(--text-dim);
-}
-
-.world-extract-panel__progress {
-  margin-top: var(--space-2);
-}
-
-.world-extract-panel__suggestion {
-  margin-top: var(--space-2);
-  display: flex;
-  gap: var(--space-2);
-  justify-content: center;
-  align-items: center;
-}
-
-.world-extract-drawer {
-  margin-bottom: var(--space-3);
-}
-
-.world-extract-drawer .world-extract-panel {
-  margin-bottom: 0;
-}
-
-.world-list-description {
-  margin-bottom: var(--space-3);
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
-}
 
 /* Tab 面板 */
 .llm-main-tab,
@@ -11594,58 +11519,11 @@ kbd {
 }
 
 /* 自动入库折叠区 */
-.world-batch-group {
-  margin-bottom: var(--space-3);
-}
-
-.world-hot-overview {
-  display: grid;
-  gap: var(--space-2);
-  margin-bottom: var(--space-3);
-  padding: var(--space-3);
-  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
-  border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--accent-soft) 36%, var(--bg-panel));
-}
-
-.world-hot-overview__facets {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-2);
-}
-
-.world-hot-overview__types {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-
-.world-hot-type {
-  padding: 3px 8px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--bg-panel);
-  color: var(--text-secondary);
-  cursor: pointer;
-  font-size: var(--text-xs);
-}
-
-.world-hot-type:hover,
-.world-hot-type.active {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  color: var(--text-primary);
-}
 
 .world-hot-overview__status {
   margin: 0;
   color: var(--text-secondary);
   font-size: var(--text-sm);
-}
-
-.world-hot-overview__status[data-status="partial"],
-.world-hot-overview__status[data-status="unavailable"] {
-  color: var(--warning);
 }
 
 .world-ranking-badges {
@@ -11660,113 +11538,12 @@ kbd {
   .world-hot-overview__facets {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-
-  .scene-progress-panel__heading {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-}
-
-.world-batch-group__details {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-}
-
-.world-batch-group__summary {
-  padding: var(--space-2) var(--space-3);
-  background: var(--bg-alt);
-  cursor: pointer;
-  font-size: var(--text-sm);
-  font-weight: 600;
-}
-
-.world-batch-group__star {
-  color: var(--accent);
-}
-
-.world-batch-time {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-}
-
-.world-batch-fresh-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: var(--success);
-  box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 35%, transparent);
-  animation: world-batch-fresh-pulse 1.8s ease-out infinite;
 }
 
 @keyframes world-batch-fresh-pulse {
-  0% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 35%, transparent);
-  }
-  70% {
-    box-shadow: 0 0 0 7px transparent;
-  }
-  100% {
-    box-shadow: 0 0 0 0 transparent;
-  }
-}
-
-.world-fusion-suggestion-card {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: var(--space-2);
-  margin-bottom: var(--space-3);
-}
-
-.world-bulk-resolution-list {
-  display: grid;
-  gap: var(--space-2);
-  margin-top: var(--space-3);
-}
-
-.world-bulk-resolution-option {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-}
-
-.world-bulk-resolution-option:has(input:checked) {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-}
-
-.world-bulk-resolution-option span {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  justify-content: space-between;
-  gap: var(--space-3);
-}
-
-.world-bulk-resolution-option small {
-  color: var(--text-tertiary);
 }
 
 /* 世界书 */
-.world-bible-layout {
-  display: grid;
-  grid-template-columns: minmax(176px, 240px) minmax(0, 1fr);
-  gap: var(--space-4);
-}
-
-.world-bible-layout:has(.world-bible-nav-rail:not([open])) {
-  grid-template-columns: var(--workspace-rail-collapsed) minmax(0, 1fr);
-}
-
-.world-bible-content-column,
-.world-bible-editor-panel,
-.world-bible-inspector {
-  min-width: 0;
-}
 
 .world-bible-content-column {
   display: grid;
@@ -11840,33 +11617,6 @@ details[open] > .world-bible-support-summary::after {
   margin-bottom: var(--space-3);
 }
 
-.world-bible-source-notice {
-  margin-bottom: var(--space-3);
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid color-mix(in srgb, var(--warning) 45%, var(--border));
-  border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--warning) 9%, var(--bg-panel));
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
-}
-
-.world-bible-template-actions,
-.world-bible-sections__header,
-.world-bible-section-editor__toolbar,
-.world-bible-inspector__header,
-.world-bible-inspector__actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-}
-
-.world-bible-template-actions {
-  justify-content: flex-start;
-  margin: var(--space-2) 0 var(--space-3);
-}
-
 .world-bible-page-settings {
   margin: var(--space-3) 0;
   padding: var(--space-2) var(--space-3);
@@ -11885,36 +11635,6 @@ details[open] > .world-bible-support-summary::after {
 
 .world-bible-page-settings[open] > summary {
   margin-bottom: var(--space-3);
-}
-
-.world-bible-sections {
-  display: grid;
-  gap: var(--space-3);
-  margin: var(--space-4) 0;
-}
-
-.world-bible-section-list,
-.world-bible-inspector,
-.world-bible-activation-trace,
-.world-bible-trace-group {
-  display: grid;
-  gap: var(--space-3);
-}
-
-.world-bible-section-editor,
-.world-bible-profile-summary,
-.world-bible-trace-rule,
-.world-bible-trace-item {
-  min-width: 0;
-  padding: var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-panel);
-}
-
-.world-bible-section-editor__actions {
-  display: inline-flex;
-  gap: var(--space-1);
 }
 
 .world-bible-section-advanced {
@@ -11936,34 +11656,6 @@ details[open] > .world-bible-support-summary::after {
   margin-top: var(--space-2);
 }
 
-.world-bible-trace-rule.is-matched {
-  border-color: color-mix(in srgb, var(--success) 50%, var(--border));
-}
-
-.world-bible-trace-item div,
-.world-bible-trace-rule div {
-  overflow-wrap: anywhere;
-  color: var(--text-dim);
-  font-size: var(--text-xs);
-}
-
-.generate-quality-toggle--stacked {
-  align-items: stretch;
-  flex-direction: column;
-}
-
-.world-bible-nav-rail .world-bible-page-nav {
-  width: 100%;
-}
-
-.world-bible-panel {
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: var(--space-3);
-  min-width: 0;
-}
-
 .world-bible-panel__header {
   display: flex;
   flex-wrap: wrap;
@@ -11971,12 +11663,6 @@ details[open] > .world-bible-support-summary::after {
   align-items: center;
   gap: var(--space-2);
   margin-bottom: var(--space-3);
-}
-
-.world-bible-panel__header h3 {
-  margin: 0;
-  font-size: var(--text-md);
-  color: var(--text-primary);
 }
 
 .world-bible-panel__header h2 {
@@ -12311,15 +11997,6 @@ details[open] > .world-bible-support-summary::after {
   list-style-position: inside;
 }
 
-.world-bible-suggestion-selector {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin-bottom: var(--space-2);
-  font-size: var(--text-xs);
-  color: var(--text-dim);
-}
-
 .world-hot-overview__status[data-status="partial"],
 .world-hot-overview__status[data-status="unavailable"] {
   color: var(--warning);
@@ -12381,24 +12058,9 @@ details[open] > .world-bible-support-summary::after {
   text-decoration: none;
 }
 
-.world-bible-conflict-item {
-  margin: var(--space-2) 0;
-  color: var(--text-body);
-}
-
 @media (max-width: 760px) {
   .world-bible-author-decisions dl {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .world-bible-layout,
-  .world-bible-layout:has(.world-bible-nav-rail:not([open])) {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .world-bible-panel__header {
-    align-items: stretch;
-    flex-direction: column;
   }
 
   .world-bible-panel__actions {

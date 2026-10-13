@@ -1837,31 +1837,9 @@ async def _open_model_review_evaluator(
     if not novel_id:
         raise ValueError("deepseek-v4-flash reviewer requires --novel-id")
 
-    from core.database import DatabaseManager
-    from evals.project_executor import ProjectStructuredExecutor
-    from infrastructure.llm.profiles import resolve_llm_profile
-    from modules.project.facade import get_project_context
+    from evals.codex_executor import require_live_eval_calibration
 
-    manager = DatabaseManager()
-    manager.init()
-    try:
-        async with manager.session_factory() as db:
-            context = await get_project_context(db, novel_id)
-            if context is None:
-                raise ValueError(f"project not found: {novel_id}")
-            profile = resolve_llm_profile(context.settings)
-            if profile.model != model:
-                raise ValueError(
-                    "project reviewer model mismatch: "
-                    f"expected={model} actual={profile.model}"
-                )
-            yield HighQualityEvalLLM(
-                ProjectStructuredExecutor(db, novel_id, profile),
-                cache=EvalCache(cache_dir),
-                allow_primary_cache_fallback=False,
-            )
-    finally:
-        await manager.close()
+    require_live_eval_calibration()
 
 
 async def _execute_model_review(

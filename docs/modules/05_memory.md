@@ -196,3 +196,5 @@ Story facade 的 `validate_machine_event_snapshot` 复用全景物化 schema，�
 `GET /memories/scene-checkpoints/{checkpoint_id}` 及 `GET /memories/events/by-id?event_ids=…` 校验 owner + novel，显式读取历史来源，父 checkpoint 链按需回开。当前视图仍只消费 current checkpoint。历史回开是作者诊断用途：知识维度的条目在响应中逐条补 `knowledge_class` 方言标注（known/unknown/false_belief，`knowledge_contract.read_knowledge_statement` 判定，深拷贝副本不改 ORM 载荷），历史行的分类不被事件流改写或重建洗掉；面向角色/读者的视角边界在 `get_view` 承载。人物仅自己的位置可默认读；其他字段需明确知识值，误信或仅提到人物不授予事实。读者 timeline/causality 缺逐条揭示粒度，返回 unsupported；受限视角不返回整维来源或隐藏名称。机器断言（evolution producer）在信任边界剥离值绑定键（state_gate 亦显式拒绝 `value_binding_not_machine_grounded`），读入统一方言恒为 unknown 文本知识，不冒充值绑定。
 
 缺 basis 的旧系统行经 ensure 补登记，已有漂移 basis 不因投影 hash 相同而覆盖。作者确认历史始终保留。
+
+演化重跑的 World/relations 输入复用 sampler 已有的语义 manifest：排除宿主 run/manifest ID，保留来源内容与前缀观察读集。不变消费者可复用冻结结果，新 attempt 重新物化并在采用前重验来源；这不扩大 continuity 正史写入或正文修改后的失效范围。

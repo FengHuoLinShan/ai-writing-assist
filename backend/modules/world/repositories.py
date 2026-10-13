@@ -435,6 +435,25 @@ class CoreEntityRepository:
         result = await db.execute(stmt)
         return [dict(row) for row in result.mappings()]
 
+    async def list_term_candidates(
+        self, db: AsyncSession, novel_id: uuid.UUID, *, limit: int
+    ) -> list[dict[str, Any]]:
+        """Preserve list_by_novel bounds and ordering with an alias-only projection."""
+        stmt = (
+            select(
+                CoreEntity.id,
+                CoreEntity.name,
+                CoreEntity.entity_type,
+                CoreEntity.status,
+                CoreEntity.content_json["aliases"].label("aliases"),
+            )
+            .where(*self._entity_conditions(novel_id))
+            .order_by(CoreEntity.importance.desc(), CoreEntity.name, CoreEntity.id)
+            .limit(limit)
+        )
+        result = await db.execute(stmt)
+        return [dict(row) for row in result.mappings()]
+
     async def list_by_novel(
         self,
         db: AsyncSession,

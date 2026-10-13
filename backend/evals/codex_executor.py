@@ -6,12 +6,11 @@ import asyncio
 import hashlib
 import json
 import os
-import shutil
 import signal
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TypeVar
+from typing import NoReturn, TypeVar
 
 from pydantic import BaseModel
 
@@ -25,6 +24,15 @@ StructuredResultT = TypeVar("StructuredResultT", bound=BaseModel)
 
 class CodexExecutionError(RuntimeError):
     """Raised when the pinned local Codex execution cannot produce valid output."""
+
+
+def require_live_eval_calibration() -> NoReturn:
+    """Reject frozen legacy model execution before any irreversible side effects."""
+    raise CodexExecutionError(
+        "Standalone evaluation is paused: migrate through the verified "
+        "owner/Project runtime and recalibrate Luna/max before new model calls. "
+        "Frozen metadata and cache-only replay remain available."
+    )
 
 
 @dataclass(frozen=True)
@@ -106,23 +114,7 @@ class CodexStructuredExecutor:
         *,
         step_name: str,
     ) -> StructuredResultT:
-        executable = shutil.which(self.command)
-        if executable is None:
-            raise CodexExecutionError(f"Codex CLI is unavailable: {self.command}")
-
-        failures: list[str] = []
-        for attempt in range(1, self.attempts + 1):
-            try:
-                payload = await self._invoke(
-                    executable,
-                    prompt,
-                    _strict_json_schema(response_model.model_json_schema()),
-                    step_name=step_name,
-                )
-                return response_model.model_validate_json(payload)
-            except (CodexExecutionError, ValueError) as exc:
-                failures.append(f"attempt {attempt}: {exc}")
-        raise CodexExecutionError("; ".join(failures))
+        require_live_eval_calibration()
 
     async def _invoke(
         self,

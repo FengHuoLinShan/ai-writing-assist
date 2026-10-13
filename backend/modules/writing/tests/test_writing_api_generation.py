@@ -1331,7 +1331,7 @@ async def test_writing_generation_pov_profile_saves_structured_view_and_validati
     )
     service = WritingGenerationService(llm_client=llm)
     monkeypatch.setattr(
-        "modules.writing.services._generation_task_source_fingerprint",
+        "modules.writing.generation_service._generation_task_source_fingerprint",
         lambda *_args, **_kwargs: "stable-pov-test",
     )
 
@@ -1440,7 +1440,7 @@ async def test_writing_generation_pov_parse_failure_keeps_raw_candidate(
         llm_client=FakePovLLMClient("这不是 JSON，但可以作为候选正文。")
     )
     monkeypatch.setattr(
-        "modules.writing.services._generation_task_source_fingerprint",
+        "modules.writing.generation_service._generation_task_source_fingerprint",
         lambda *_args, **_kwargs: "stable-pov-test",
     )
 

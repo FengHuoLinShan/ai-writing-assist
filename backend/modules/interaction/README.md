@@ -328,14 +328,21 @@ PUT 持项目锁并比较 `expected_updated_at`，相同 payload 幂等复用。
 对象版本，版本变化不换图；开局可归档，不硬删。当前此目录为普通登录/本地账户路径，匿名路径
 仍经已有公开来源入口，尚未接入同一目录。
 
-## 已登录 RP 的本机 Agent
+## 本机图片与历史运行
 
-已登录互动作品可选配对 CLI，并在每次 story attempt/续写根任务确认本机权限。
-Agent 准备、必要摘要与正文使用同一冻结设备及原 RP Evidence、选中路径、来源版本、
-selection epoch 和完成提交门禁。连续性后台检查也先等待逐次确认。匿名公开演示 RP
-仍只使用既有前台临时 Key 流程，不能配对设备或创建后台本机任务。
+本机设备仅用于图片能力。RP 准备、摘要和正文通过 Project facade/snapshot
+使用 owner 已验证的账户文字连接，不再接受本机文字任务快照。
+已存在的本机任务回执和授权记录仍可回看；图片配对与逐次授权保持原合同。
+匿名公开演示不能配对设备或创建后台本机图片任务。
 
 普通 worker 与匿名 inline 均记录无效 metadata 尾块（含未闭合/超长），同一
 attempt 只计一次；正常完成和失败收尾均持久化诊断，不改正文释放门禁。
-本机任务通过 Project context 读取 owner；逐次批准通过 Interaction facade 按
+本机历史任务通过 Project context 读取 owner；逐次批准通过 Interaction facade 按
 owner + novel_id + task_id 锁定并更新本域 checkpoint，不外露 attempt ORM。
+
+### 服务职责
+
+`services.py` 保留 InteractionService 与核心旅程/attempt写入；只读列表、路径及响应投影
+在 `journey_views.py`，回顾维护与历史覆盖选择在 `journey_overview.py`。
+共用的确定性路径/token helpers 在 `service_support.py`。各职责由同一个服务实例使用，
+保持项目范围、selection epoch、锁顺序和原导入合同，不新增独立状态或写入入口。

@@ -1396,3 +1396,8 @@ canonical + created_by=spreadsheet_migration + approved_by=owner、别名 confir
 字面名称精确身份查询复用既有类型归一：人物/角色/character_ref等已支持别名映射character，
 自定义类型原样保留；不扩展物件等新同义词，不取消类型、novel隔离或多候选歧义。
 仅别名命中仍不能在缺历史截止证明时成为精确身份；待处理兼容影子继续排除。
+
+别名词典 list_entity_terms 使用有界字段投影（id/name/type/status/aliases），
+不加载全文、隐藏设定或 ORM 实例；排序、limit 在状态过滤之前及别名退役规则与
+旧接口保持一致。Phase 2a 仍需枚举候选名称以识别全部直接提及并记录未入选来源，
+不能用任意 top-k 或跨 Scene 缓存替代当次来源回读。

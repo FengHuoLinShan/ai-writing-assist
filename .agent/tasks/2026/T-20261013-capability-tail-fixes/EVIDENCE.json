@@ -1,0 +1,175 @@
+{
+  "recorded_at": "2026-10-13T23:22:20+08:00",
+  "branch": "codex/capability-tail-fixes",
+  "baseline": "974f0f5080d43472bc599d1d74782913c725057b",
+  "source_sha256": {
+    ".gitignore": "c3e552c0edd37d5764931c8dc0221712cef77f291e1880e8132afba274c47cf2",
+    "Makefile": "f0f01db745d0808ba97ace483aa9f0e41596e5e4a02ebc93cd0a416c5a815a0a",
+    "README.md": "f04052e481a575f77f1de9d863aec5d4c61c2c0129f93257312f6358284f2dce",
+    "backend/evals/ask_world.py": "782a5e74dadea39afdfd682e6b8c11cfeedcdc599be893999d469af2367820c6",
+    "backend/evals/cli.py": "9527a96c4431a30b1218d35500cec6252bac7ff7a8a6f32550b8089218855e90",
+    "backend/evals/codex_executor.py": "014853d0f2bab9814b2d20e2e00a5b329e742ae7ea89c1d36e02a1356c7299c6",
+    "backend/evals/tests/test_ask_world.py": "2680296bc31c597e0d74c2d2fbda435862bedf66e041af43cad120b5cc1f20d0",
+    "backend/evals/tests/test_codex_executor_effort.py": "40fc9afb1ca70eaf1442c2c9180780f71668d260394118d3b0eac6e1f1990b5f",
+    "backend/evals/tests/test_generation_runners.py": "4f09f567c653ab7a2f8ba9ead07dc2a6a337d4fb73db13b42cf26391d6e7f482",
+    "backend/modules/assistant/README.md": "4d0a1a326e462c9fd584feb6f85f312a280176c0d0553e7fbdc14688f81b7f3e",
+    "backend/modules/evidence/README.md": "7020973f1f03f93b386d7d0ee2f80d71f97c941b3b34200755b062c77f874c8b",
+    "backend/modules/evidence/indexing/index_state.py": "708a39314102defe2038efc6c653547e16aa6d5143f5a15eea258c82019e105a",
+    "backend/modules/evidence/indexing/tests/test_index_state_metrics.py": "b89862b155b6bf0c93a3dc86282f5301b7671c1042426e8d2906ddcd4fa937fa",
+    "backend/modules/evolution/README.md": "307cbbc0a0b24db5daa2f1857b15d1705b2d564636f8f6b207c7562d250f2625",
+    "backend/modules/evolution/consumer_reuse.py": "3168ce1848c447ad75d115602729e4003c5ef176dbfb60381578bf67717dd9e9",
+    "backend/modules/evolution/invalidation.py": "d66a79cea7133951a91b9f1c73f219985899a29ed9c303699cfe09a570b6bcc3",
+    "backend/modules/evolution/legacy_adapter.py": "bbf00643c840d8373bece92a7e91b29e368f7400c41fbc03dae8bda6cbb24fc2",
+    "backend/modules/evolution/tests/test_g2_consumers.py": "ee1844108fd9ad3ec3ca65d5f388803e4109a75ec155279a020fd1d49050466b",
+    "backend/modules/evolution/tests/test_preparation.py": "69bd0f770d504d33d20aa7571334da034ac1b0ae216d6d4abe993c04afe260b1",
+    "backend/modules/evolution/tests/test_world.py": "84e469ccbb9a846b8d87b002429cea2021f66fecd6700b2db77893e0cf3cb213",
+    "backend/modules/evolution/world.py": "8f8ea09fdc0998cb7fb12b8ae219e3e1b1d92eefeaa43578941e16a7ba5101f7",
+    "backend/modules/imports/README.md": "8fa4ae2853659ede0ad0abdf19ed00a75289c3bc0d214edeb4fdd589dd853a6c",
+    "backend/modules/imports/phase2_world_extraction.py": "36858f4304a827f69f0f955f68075dea4b3dee6b26178d75116a08d65ddad4a6",
+    "backend/modules/imports/spreadsheet_migration/planning.py": "199b74a7e537d6a73fb59f6927ae5632d35489a5f6a6d8e97c9eaeb36b100024",
+    "backend/modules/imports/tests/test_scene_phase_refactor.py": "a563d469ab2863ecb32a85011bb6d00e219ebb7f865daee9543e526628a6040f",
+    "backend/modules/imports/workflow_llm_adapters.py": "55486e1057fbba87206eb77d395206505ac20a495eeb02215ec07dc1c75aef87",
+    "backend/modules/interaction/README.md": "92f88f2c2a9890a29d08749512a0b75b508dcf24df8d21cb0acbb64259668a8e",
+    "backend/modules/interaction/agent_runtime.py": "c737c1b7ebdec3f6199860eba08e10e703a50ad6caebd5d95f0e254d0c9633bd",
+    "backend/modules/interaction/journey_overview.py": "9ab4893701ba470c7be198d759eea7ffbfcd1c572ba00e1162e6302cb2172917",
+    "backend/modules/interaction/journey_views.py": "21c4a42af6d566570f4dd9791010a2b98a3c0cacf8195f9e92b45132eb4a0dee",
+    "backend/modules/interaction/service_support.py": "a8e494f2a48e4a5ca6020ade676e3bc92a6754824a5f7b30202d289b5247bd17",
+    "backend/modules/interaction/services.py": "c065eb3482fb91beec87af03de94e51d1b86063496094eb3cdd949853d23926c",
+    "backend/modules/interaction/source_service.py": "d85334699696f30f1b2523f8abedaaa69e2da212345f1ac6baa148d26ebb1826",
+    "backend/modules/interaction/tests/test_fingerprint_compatibility.py": "a6b678a5a40ea7a0b321f449e3291a891ae56b9f76ae79018e8bab9c025dcaa6",
+    "backend/modules/interaction/tests/test_services.py": "11369b9695ff3228561f9eb26a8748200525f31334f65d1fdfedd3bdc2fd1446",
+    "backend/modules/local_agent/README.md": "d8be0967522efd55676b7b256c72a18060045901760fc2582c6336f75a8a203e",
+    "backend/modules/local_agent/executor_service.py": "0cf6e7d64848441360b2424cea054a11bc190f51506dc1cb75f4f0049648ebf2",
+    "backend/modules/local_agent/tests/test_text_retirement.py": "d9253a5a2f13e3865522cd51a7dd40a83f4fef2380bef89aafa8584ca3f29ac0",
+    "backend/modules/story/README.md": "e47846a3d0b83fda8cbe035abbd96d3a88767317e37e1ba86f22421f3350a212",
+    "backend/modules/story/contracts.py": "9c07640451fbf68b969f3ae0a8d5890f852a8322579347fbb6ec6bc9eafa5553",
+    "backend/modules/story/facade.py": "b05db8b5ae840dc849f3ca95ab67da8146dcce4f8042b4f7213005f7da52dde5",
+    "backend/modules/story/outline_state/scene_workbench.py": "39a37a01b003000350905bac10c10134cec6df6ce81624ad64a3c6337e815a38",
+    "backend/modules/story/outline_state/scene_workbench_fusion.py": "f90c43f7360e023aee1d9366d8e3777d3cd725ad0c0ca1bf006949c34c888c19",
+    "backend/modules/story/outline_state/scene_workbench_health.py": "4d4f8093253d0de15627742772e629c56c39bc3254cd17f40a2980ddeed33ba6",
+    "backend/modules/story/outline_state/scene_workbench_support.py": "3fc6f68e7e317729f879db00aef05fe9e342849381d91e8f205176095c0d9eaa",
+    "backend/modules/story/outline_state/tests/test_scene_anchor_contract.py": "5923d693ce847cba33dede3dd4018193eed16083a9ca4c3ff781fa90819d16a5",
+    "backend/modules/world/README.md": "3c3cdc682db5f2c21d51d5593fb04bc982870aa56820a20c7825500270f76b21",
+    "backend/modules/world/repositories.py": "d2fa6f426772200fd42c7c3a6a9d1ff9dc57e77c7b4f2cd0a6f5f6d906cfbbc2",
+    "backend/modules/world/services/core/entity_context_service.py": "a5eb2705f06a3ab432c872a401dd18b29b828ab8a23d26ef203d77bd5890253a",
+    "backend/modules/world/tests/test_entity_context_service.py": "c4a0fc0d03d8d6313ae952fedabdcf05c3a96a4b5d91a586a45d123c99754cf2",
+    "backend/modules/world/tests/test_term_projection.py": "fa24753c9eb773095565769e535a596c698112b35c6183f726271a4782dd7790",
+    "backend/modules/writing/README.md": "8f41dc8709747ccfbab1da8ef06753b6ac728f364074725d317b4433538dedff",
+    "backend/modules/writing/conflict_check_service.py": "aa4bb8a0518baee6ba64e85d38c48cfd2fb15eefe83e22c0fe3d5e2e0129d652",
+    "backend/modules/writing/draft_service.py": "c3e145ab96cc73dc12decfc684f80d8b20506a74648d26f105efa7eb1ddc965a",
+    "backend/modules/writing/generation_service.py": "116416c5869906029d77c74c2cb276f195f777da756700bcc96662c0ccb2abd8",
+    "backend/modules/writing/recompute.py": "74f527fd067db3b0c0ef87212b2c22981c216181d64c766f35ce0c1ae91827d9",
+    "backend/modules/writing/service_support.py": "99f6b000012dbfde2b4be8c2148ccabee649685a7aec15f735e2868258c48b49",
+    "backend/modules/writing/services.py": "b7a89df7899c504b2821aa79b5aeb37eaf58fbff52135467142e976d33f494a7",
+    "backend/modules/writing/tests/test_writing_api_generation.py": "b565b805810174cfde3d201d273963cc15707946b9cd9f5f57435dc688469774",
+    "backend/tests/e2e/test_index_state_metrics_pg.py": "11590d8a3bd4ea4e7eeebff823329521e32a8c4db0b649822032cace726fa682",
+    "backend/tests/e2e/test_p2c_invalidation_recompute.py": "82948a34a0cd735e11688785a9b529f7b588a78302d587547509d5cb1c5ca06b",
+    "backend/tests/unit/test_manual_llm_context_gate.py": "f38cea05c79500e0f925d0eec6767aab18480614cb42ff08d149fadb2279155f",
+    "backend/tests/unit/test_novel_scoped_llm_usage.py": "66cd5f2f8b7fdaaa23f53003e025db77fc04380e95399c13d8255caa42dd9029",
+    "backend/tests/unit/test_world_extra.py": "37b3da79e030ad1969105757a47a34bf210188407d169c1629443fb3d49947a4",
+    "backend/tools/prompt_contracts/capability_bindings.py": "7e9449317a473441d5ac8ce49698c531debb1317802e55869746977561ab95c5",
+    "development-guide.md": "8970259b04786504425e8599ebcf3d12681850508d3b6bb0422999e8ebcdc196",
+    "docs/architecture/README.md": "e7195aa85e65afe90cd40776deab70f28e0b1a91e1a780a59b94624331d4927f",
+    "docs/architecture/documentation-maintenance.md": "7613d2cf2e2329db62cb6cb96e6e6a706538c04f84a5f0d4931bdeade37c6b8b",
+    "docs/modules/05_memory.md": "c2b86a8e6cb6c7a3f3a720721d240768522be7a1de17110946109637cb9c1c1a",
+    "docs/modules/07_outline.md": "c943c53c3033b4bb8d3d9e82136f1849404d0c8c8958c6a5843a5c2653e0ca76",
+    "docs/modules/19_story.md": "259f1b477f02da3b5170b6713d215403e5310d6885094f8685bf39faca35ec99",
+    "frontend-console/e2e/editorial.spec.js": "08873d1e0b6a0ef5f56ff16339b7b1895bed744ec02bbdb5c6eaf85f48676b17",
+    "frontend-console/styles.css": "a692a7717bf591ac01cbd5e83e25d25238c6795842f7de99ba2e0039fa96431a",
+    "frontend-console/tests/vue/components/EditorialDesk.test.js": "c4d94c8a925cffa6c42ce9fb3546f282c87222c96e2cee964d03aa066713a08a",
+    "frontend-console/tests/vue/writing/InvalidationNotice.test.js": "75218e4142eb91f482290edf49006786b2d57285a2c80fc0a08a9525ca837d0c",
+    "frontend-console/vue/components/EditorialDesk.vue": "66f5843464b17ea722ef0e399ce9c55be6f01430973db4ac7690872f24be7041",
+    "frontend-console/vue/views/writing/components/InvalidationNotice.vue": "e51b93db7673b36d6f002a0b7946b0c407bcc572b7038ebd5384da2551daa7e0",
+    "frontend-console/vue/views/writing/invalidationModel.js": "9480fe09b96f7c788ac45bb152dae46bd73213c81669456e9e835abd5b0ab533",
+    "testing-guide.md": "30e3131f5a928e8d64a604c1577fd51e945b50027add38d068e0959b90bf0a20"
+  },
+  "validation": {
+    "backend_fast": {
+      "passed": 7746,
+      "skipped": 2,
+      "coverage_percent": 86.8
+    },
+    "postgres_e2e": {
+      "passed": 287,
+      "deselected_real_or_external": 7
+    },
+    "frontend": {
+      "files": 237,
+      "passed": 2977
+    },
+    "browser_editorial": 3,
+    "eval_review_regression": 61,
+    "editorial_component_regression": 14,
+    "prompt_contracts": 26,
+    "modified_python_format_files": 53,
+    "full_ci_final": {
+      "exit_code": 0,
+      "backend_passed": 7746,
+      "backend_coverage_percent": 86.8,
+      "frontend_passed": 2977,
+      "log": "/tmp/novelcraft-tail-fixes/review-test-ci.log"
+    },
+    "postgres_log": "/tmp/novelcraft-tail-fixes/review-pg.log",
+    "browser_log": "/tmp/novelcraft-tail-fixes/review-browser-editorial.log",
+    "docs_import_prompt_log": "/tmp/novelcraft-tail-fixes/review-docs-gates.log",
+    "build_log": "/tmp/novelcraft-tail-fixes/review-build.log"
+  },
+  "boundaries": [
+    "No real model calls",
+    "No protected or production database",
+    "Commit/push/PR authorized; no merge/deploy",
+    "Initial image store UI uses existing test DI; production S3/MinIO not validated"
+  ],
+  "private_logs": "/tmp/novelcraft-tail-fixes",
+  "service_signature_compatibility": {
+    "WritingDraftService": {
+      "unchanged_method_signatures": 44
+    },
+    "WritingConflictCheckService": {
+      "unchanged_method_signatures": 34
+    },
+    "WritingGenerationService": {
+      "unchanged_method_signatures": 14
+    },
+    "InteractionService": {
+      "unchanged_method_signatures": 78
+    },
+    "SceneWorkbenchService": {
+      "unchanged_method_signatures": 94
+    }
+  },
+  "owned_services": "Temporary PostgreSQL stopped after review; browser-created API/Vite exited; private logs retained",
+  "initial_validation": {
+    "backend_fast": {
+      "passed": 7743,
+      "skipped": 2,
+      "coverage_percent": 86.8
+    },
+    "postgres_e2e": {
+      "passed": 287,
+      "deselected_real_or_external": 7
+    },
+    "frontend": {
+      "files": 237,
+      "passed": 2974
+    },
+    "browser_editorial": 2,
+    "browser_world_and_responsive": 31,
+    "browser_image_with_memory_store": 1,
+    "prompt_contracts": 26,
+    "modified_python_format_files": 50,
+    "full_ci_final": {
+      "exit_code": 0,
+      "backend_passed": 7743,
+      "backend_coverage_percent": 86.8,
+      "frontend_passed": 2974,
+      "log": "/tmp/novelcraft-tail-fixes/test-ci-final.log"
+    }
+  },
+  "review": {
+    "standards": "no unresolved blocking findings",
+    "spec": "C10/C27 findings fixed and independently re-reviewed",
+    "item_count": 32,
+    "report": "REVIEW.md"
+  }
+}

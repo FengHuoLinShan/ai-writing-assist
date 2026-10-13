@@ -264,8 +264,13 @@ async def test_prepare_replays_then_budget_continuation_reads_exact_scenes(
         from_scene_index=2,
     )
     queued_task = await db.get(AsyncTask, UUID(recomputed["task_id"]))
-    await handle_evolution_scene_step(db, queued_task)
-    assert len(calls) == 19  # the unchanged sampled Scene is reused
+    replayed_result = await handle_evolution_scene_step(db, queued_task)
+    replayed = await PostgresAttemptStore(db, nid).load_frozen(
+        recomputed["run_key"], replayed_result["attempt_id"]
+    )
+    assert replayed.payload["scene_sample"]["reused_from"]
+    assert replayed.payload["scene_world"]["reused_from"]
+    assert len(calls) == 18  # unchanged sampled Scene and World extraction are reused
     assert (await reading_status(db, nid, recomputed["run_key"]))["run"][
         "completed_scenes"
     ] == 3

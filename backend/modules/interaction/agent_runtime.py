@@ -40,6 +40,7 @@ from modules.interaction.generation import (
     story_stream_step_scope,
 )
 from modules.interaction.prompts import STORY_PROMPT_VERSION
+from modules.interaction.service_support import persisted_fingerprint as _hash
 from modules.project.facade import get_any_project_context, require_interaction_project
 
 
@@ -49,12 +50,6 @@ class StoryPreparation(BaseModel):
     continuity_notes: list[str] = Field(default_factory=list, max_length=8)
     evidence_ids: list[str] = Field(default_factory=list, max_length=20)
     warnings: list[str] = Field(default_factory=list, max_length=8)
-
-
-def _hash(value):
-    return hashlib.sha256(
-        json.dumps(value, sort_keys=True, ensure_ascii=False, default=str).encode()
-    ).hexdigest()
 
 
 def preparation_packet_index(messages) -> int:

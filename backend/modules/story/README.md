@@ -271,3 +271,10 @@ Continuity events freeze manuscript references at ingestion. Rebuilt field prove
 revalidates those references; legacy or stale references remain unverified. Reader
 visibility checks each field's historical value against its source range, and checkpoint
 consumption includes the inherited manuscript prefix. See [Memory contract](../../../docs/modules/05_memory.md).
+
+### Scene 工作台实现职责
+
+`outline_state/scene_workbench.py` 保留 SceneWorkbenchService 与基础编辑、映射、
+人工复核、合并/拆分。`scene_workbench_health.py` 提供健康诊断/区间重叠投影，
+`scene_workbench_fusion.py` 负责融合预览、来源重验和持久建议生命周期；
+共用定义在 `scene_workbench_support.py`。同一服务实例、repository和锁维持公开API与来源/CAS合同。

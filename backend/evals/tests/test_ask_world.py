@@ -380,6 +380,10 @@ def test_holdout_cannot_start_twice_even_when_first_attempt_fails_before_model_a
         raise RuntimeError("deliberately unavailable test database")
 
     monkeypatch.setattr("core.database.DatabaseManager.init", init)
+    # Simulate a future calibrated adapter to retain the once-started invariant.
+    monkeypatch.setattr(
+        "evals.codex_executor.require_live_eval_calibration", lambda: None
+    )
     args = {
         "split": "holdout",
         "teacher_model": ASK_WORLD_TEACHER_MODEL,
@@ -1204,3 +1208,31 @@ def test_generation_ledger_keeps_each_output_for_review(tmp_path: Path) -> None:
     assert rows[1]["generated"]["no_answer"] is True
     assert {row["model"] for row in rows} == {"deepseek-v4-flash"}
     assert not list(ledger.parent.glob("*.tmp"))
+
+
+@pytest.mark.parametrize("split", ["debug", "holdout"])
+def test_paused_teacher_rejects_before_project_or_holdout_side_effects(
+    tmp_path, monkeypatch, split
+):
+    from evals.codex_executor import CodexExecutionError
+
+    marker_dir = tmp_path / "holdout-runs"
+    monkeypatch.setattr("evals.ask_world._HOLDOUT_RUNS", marker_dir)
+
+    def unexpected_init(self):
+        raise AssertionError("paused teacher must fail before project access")
+
+    monkeypatch.setattr("core.database.DatabaseManager.init", unexpected_init)
+    freeze, _ = _freeze_fixture(tmp_path)
+    with pytest.raises(CodexExecutionError, match="evaluation is paused"):
+        asyncio.run(
+            run_ask_world_model_probe_eval(
+                "synthetic-project",
+                PROBE_V3,
+                split=split,
+                teacher_model=ASK_WORLD_TEACHER_MODEL,
+                teacher_reasoning_effort="high",
+                freeze_config=freeze if split == "holdout" else None,
+            )
+        )
+    assert not marker_dir.exists()

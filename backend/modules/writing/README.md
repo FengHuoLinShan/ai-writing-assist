@@ -487,3 +487,11 @@ GET `/api/writing/recompute/receipts` 与 `/api/writing/invalidations` 支持跨
 
 作品进度缺少知识复核或原确认时标为待重新确认，来源未知不冒称新鲜；正文/来源失效保留待处理。任务读取先按三个Writing类型过滤再分页，不被其他领域较新任务遮蔽。
 生成恢复经 Tasks 窄 facade 保存付费候选。已有冻结结果来源漂移或损坏时失败关闭，保留旧输出，不自动重新付费；作者需重新确认新生成操作。
+
+### 按职责划分的实现
+
+`services.py` 保留稳定导入名；正文保存、版本和采用在 `draft_service.py`，
+连续性/冲突检查和确认在 `conflict_check_service.py`，确认后的生成任务生命周期在
+`generation_service.py`。来源/指纹与确定性文字检查共用 `service_support.py`。
+拆分保持类方法、事务顺序、任务冻结与对外返回合同。只有索引更新/未知覆盖时，
+保存提示收在资料核对详情；实际受影响的资产仍显著提示，未知覆盖不被删去。

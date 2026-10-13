@@ -226,3 +226,10 @@ Collaboration 的工作区/采用回执与 Assistant 的前瞻属于不同所有
 `docs/evidence/`（B6 发布证据账本）与 `scripts/check_*` 治理门脚本属仓库
 级门禁资产：证据目录刻意排除在 architecture-documents.toml 清单外（验收
 报告类不进架构清单），由 `scripts/check_release_evidence.py` 直接校验。
+
+### 服务文件拆分与评测环境变更
+
+只拆实现文件时保持稳定 facade/services 导入合同；模块README记录实际职责文件，
+有LLM调用的文件同时维护Prompt capability绑定并验证来源/快照门禁。
+评测Python与开发/CI不一致时使用独立环境，在开发和测试指南中明确环境路径与验证边界。
+不得把旧模型合同自动重命名成新的质量证据。

@@ -1,0 +1,33 @@
+id,state,action,evidence_or_boundary
+C01,completed,删除无消费者私有函数,完整后端7743/PG287通过；当前定义/调用均消失
+C02,completed,删除表格迁移测试覆盖下无消费者 helper,表格迁移模块与PG并发/回执门禁保留通过
+C03,completed,删除旧Phase0 token getter,当前Scene/Phase1路径配置与模型合同不改
+C04,completed,删除旧Phase0 timeout getter及两常量/import,Imports全量与Prompt合同26通过
+C05,completed_private_cleanup_retained_trial,删除私有window LLM adapter及专属配置读取,window class/schema/转换面按冻结试验保留；整簇退役仍需兼容处置决定
+C06,completed_gate_retained_history,纠正文档并堵task_snapshot_client直接旧文字分支,Project已有拒绝+新增直接拒绝测试；图片/历史job和receipts不删除
+C07,retained_contract,旧renderer为公开导出,保持外部兼容；删除公开surface需决定，不在自主收尾范围
+C08,retained_contract,GET公开API,当前POST在用；旧GET兼容不得擅自破坏
+C09,completed,纠正adapter弃用宣称,mapper尚未接旧入口，deep_import仍为活跃合同
+C10,completed_gate_requires_calibration,统一旧评测暂停门，教师在DB/SUT/holdout前预检，移除DeepSeek绕行分支,3条反例修复前失败/后通过；61评测回归，旧meta/hash/显式cache-only不改；校准与Project迁移未完成
+C11,completed,失效docstring按实际登记更新,地图/正典未知覆盖仍可见
+C12,verified_retained,MOBI/AZW3说明受限,无新增支持授权，当前frontend/README正确保留边界
+C13,completed,统一章绑定解析到Story合同与facade,Writing既有延迟seam避免循环；golden与完整依赖基线/PG通过
+C14,completed,删除55条更早同作用域重复CSS,保留最后规则；全量前端2974与世界/移动31条+图片替身1条通过
+C15,completed,索引状态SQL聚合,600行null/status/range计数一致，基线660 ORM hydration降到0；SQLite/PG通过
+C16,completed_projection_retained_source_scan,别名词典改有界字段投影,排序/limit前过滤顺序和别名状态不变，无整对象hydrate；候选全范围保留用于所有直接提及/遗漏来源账本
+C17,completed,三个巨文件按职责拆分,稳定类/状态与Writing类AST保留；完整后端7743/PG287；静态门禁已迁到真实文件
+C18,completed_same_domain_retained_contracts,RP两份同字节指纹收敛到同域helper,Unicode/UUID/空值/JSON空格 golden通过；compact JSON/纯文本/其它域读集不混用
+C19,completed,技术评测固定独立.venv-eval,eval3.13.5执行通过，CI3.14.7保留；不重复覆盖CI环境
+C20,verified_retained,API/bridge/hash router旧scripts,构建有消费者，不能按旧栈或Vitewarning删
+C21,requires_product_scope,formal-disabled族,新领域闭环与accepted spec是产品取舍
+C22,requires_product_scope,地图/正典失效消费者,当前明确未接线；跨域新增能力需独立产品来源合同
+C23,requires_product_scope,实验蓝图开放,新功能开放与真实作者质量不在自主收尾
+C24,requires_production_authorization,MinIO外部备份,涉及存储/费用/生产，不能只靠本地代码声称完成
+C25,requires_production_evidence,代理信任,缺真实peer/拓扑，旧任务明确暂缓
+C26,completed,修两夜间真实PG失败根因/合同,完整非真实模型PG287通过；offset保守范围和history消费者复用/重物化保留
+C27,completed,章名勾选与低打扰范围详情,review修复前导零撤销/200项静默截断/迟到加载；14组件回归，正计数/缺失/未知仍显著；最终浏览器结果见REVIEW/DELIVERY
+C28,verified_retained,旧rm命令未执行,历史审计非授权；本次仅内部确认无用代码
+C29,verified_retained,付费/原生证据,原任务持有，保护，不清理
+C30,verified_retained,设计档案/配置,保留唯一性与非代码用途
+C31,verified_other_task,在途worktree,A2由真实Codex比较原任务推进，禁止覆盖
+C32,verified_retained,历史审计规模,不把旧数值当今天问题数；按现况分类

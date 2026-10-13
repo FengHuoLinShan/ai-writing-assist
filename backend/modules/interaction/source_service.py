@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import uuid
 from collections import defaultdict
 from copy import deepcopy
 from datetime import UTC, datetime
-from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,6 +40,7 @@ from modules.interaction.schemas import (
     JourneySourceSetup,
     PublicDemoRpSourceResponse,
 )
+from modules.interaction.service_support import persisted_fingerprint as _fingerprint
 from modules.project.facade import (
     get_project_context,
     list_active_project_summaries,
@@ -1595,11 +1593,6 @@ class InteractionSourceService:
             first_chapter_index=item.get("first_chapter_index"),
             first_end_offset=item.get("first_end_offset"),
         )
-
-
-def _fingerprint(value: Any) -> str:
-    raw = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def _normalize(value: str) -> str:

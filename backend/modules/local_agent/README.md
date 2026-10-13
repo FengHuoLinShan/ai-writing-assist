@@ -76,3 +76,7 @@ Codex/Pi 可在启动伴随进程前通过 `NOVELCRAFT_CODEX_MODEL` / `NOVELCRAF
 项目执行器配置经 Project context/facade 读取和保存，撤销设备仅在当前配置仍
 绑定该设备时清除。根任务批准通过 Assistant/Interaction facade 更新各域
 checkpoint，均过滤当前 owner + novel_id + task_id，并与队列授权同事务提交。
+
+旧文字快照除 Project 恢复门外，直接调用 task_snapshot_client 也会拒绝，
+不访问项目、设备或主机文字 runner。图片执行与历史回执读取仍保留；
+删除既有文字 job/receipt/schema 前需先确定历史任务的处置范围。

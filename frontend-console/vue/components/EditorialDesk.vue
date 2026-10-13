@@ -17,7 +17,22 @@
         <label>希望保留的叙述声音<textarea v-model="briefDraft.voice" rows="2" maxlength="2000" /></label>
         <label>明确不能改动的安排 <small>每行一项</small><textarea v-model="briefLists.preserve" rows="3" /></label>
         <label>刻意留白或误导 <small>每行一项</small><textarea v-model="briefLists.intentional_choices" rows="3" /></label>
-        <label>本轮不审的资料 <small>每行一项，例如 chapter:12</small><textarea v-model="briefLists.excluded_targets" rows="2" /></label>
+        <fieldset>
+          <legend>本轮不审的章节</legend>
+          <p v-if="chapterExclusionError" role="alert">{{ chapterExclusionError }}</p>
+          <p v-if="chapterChoicesLoading" role="status">正在读取章节…</p>
+          <p v-if="chapterChoicesError" role="status">章节列表暂时无法读取；已选范围仍会保留。<button type="button" class="btn btn-sm" @click="loadChapters">重新读取章节</button></p>
+          <label v-for="chapter in excludedChapterChoices" :key="chapter.chapter_index">
+            <input type="checkbox" :checked="isChapterExcluded(chapter.chapter_index)" @change="$event.target.checked = setChapterExcluded(chapter.chapter_index, $event.target.checked)" />
+            第 {{ chapter.chapter_index }} 章<template v-if="chapter.title"> · {{ chapter.title }}</template>
+          </label>
+          <p v-if="!excludedChapterChoices.length && !chapterChoicesError && !chapterChoicesLoading">还没有可选择的章节。</p>
+        </fieldset>
+        <details v-if="otherExcludedTargets.length">
+          <summary>此前排除的其他资料（{{ otherExcludedTargets.length }} 项）</summary>
+          <p>这些范围仍会随编辑约定保存。需要重新纳入本轮审读时，可以逐项移除。</p>
+          <p v-for="(target, index) in otherExcludedTargets" :key="target">已排除资料 {{ index + 1 }}<button type="button" class="btn btn-sm" @click="removeExcludedTarget(target)">重新纳入资料 {{ index + 1 }}</button></p>
+        </details>
         <div class="editorial-desk__actions"><button type="button" class="btn btn-primary btn-sm" :disabled="busy" @click="saveBrief">保存编辑约定</button></div>
         <label class="editorial-desk__writing-toggle"><input type="checkbox" :checked="briefForWriting" :disabled="writingToggleBusy" @change="toggleBriefForWriting($event.target.checked)" />也用于 AI 写作<small>开启后，AI 正文建议与续写会在参考资料确认中带上这份约定；「AI 角色视角建议」不使用它，以免刻意留白和误导安排被当成角色已知。文风只影响表达方式，不会新增事实或情节。默认关闭。</small></label>
         <p v-if="briefForWriting && !briefForWritingEffective" role="status" class="editorial-desk__inherited">开关已开启，但编辑约定还是空的；保存一份有内容的约定后才会真正进入 AI 写作。</p>
@@ -157,6 +172,46 @@ import EditorialIssueCard from "./EditorialIssueCard.vue"
 const props = defineProps({ projectId: { type: String, required: true }, active: Boolean, focusChapter: { type: Number, default: null }, focusIssueId: { type: String, default: null } })
 const dimensions = [{ id: "structure", label: "结构" }, { id: "scene", label: "场景" }, { id: "reader", label: "读者体验" }, { id: "line", label: "行文" }, { id: "copy", label: "文字准确性" }]
 const brief = ref(null), briefDraft = ref({}), briefLists = ref({}), briefDraftNotice = ref("")
+const chapterChoices = ref([]), chapterChoicesError = ref(false), chapterChoicesLoading = ref(false), chapterExclusionError = ref("")
+let chapterChoicesRequest = 0
+function chapterTargetIndex(target) { const match = /^chapter:(\d+)$/.exec(target); return match ? Number(match[1]) : null }
+const excludedChapterChoices = computed(() => {
+  const chapters = new Map(chapterChoices.value.map(item => [Number(item.chapter_index), item]))
+  for (const target of parseLines(briefLists.value.excluded_targets, 200)) {
+    const match = /^chapter:(\d+)$/.exec(target)
+    if (match && !chapters.has(Number(match[1]))) chapters.set(Number(match[1]), { chapter_index: Number(match[1]), title: "已选范围" })
+  }
+  return [...chapters.values()].sort((a, b) => a.chapter_index - b.chapter_index)
+})
+const otherExcludedTargets = computed(() => parseLines(briefLists.value.excluded_targets, 200).filter(target => !/^chapter:\d+$/.test(target)))
+function removeExcludedTarget(target) { briefLists.value.excluded_targets = parseLines(briefLists.value.excluded_targets, 200).filter(item => item !== target).join("\n") }
+function isChapterExcluded(chapter) { return parseLines(briefLists.value.excluded_targets, 200).some(target => chapterTargetIndex(target) === chapter) }
+function setChapterExcluded(chapter, selected) {
+  const targets = parseLines(briefLists.value.excluded_targets, 200).filter(item => chapterTargetIndex(item) !== chapter)
+  if (selected && targets.length >= 200) {
+    chapterExclusionError.value = "最多排除 200 项资料，请先取消一项再选择新章节。"
+    return false
+  }
+  if (selected) targets.push(`chapter:${chapter}`)
+  chapterExclusionError.value = ""
+  briefLists.value.excluded_targets = targets.join("\n")
+  return selected
+}
+async function loadChapters() {
+  const projectId = props.projectId
+  const request = ++chapterChoicesRequest
+  chapterChoicesError.value = false
+  chapterChoicesLoading.value = true
+  try {
+    const data = await getApi().writing.listChapters(projectId)
+    if (projectId !== props.projectId || request !== chapterChoicesRequest) return
+    chapterChoices.value = Array.isArray(data) ? data : data?.chapters || []
+  } catch {
+    if (projectId === props.projectId && request === chapterChoicesRequest) chapterChoicesError.value = true
+  } finally {
+    if (request === chapterChoicesRequest) chapterChoicesLoading.value = false
+  }
+}
 const policy = ref(null), automaticEnabled = ref(false), automaticExclusionsText = ref("")
 const reviews = ref([]), issues = ref([]), selectedReviewId = ref(null)
 const selectedIssueIds = ref([])
@@ -238,6 +293,8 @@ async function load() {
   if (!props.projectId) return
   const projectId = props.projectId
   loading.value = true; error.value = ""
+  chapterChoices.value = []
+  void loadChapters()
   try {
     const [nextBrief, nextPolicy, nextReviews, nextIssues, nextWritingUse, nextCapabilities] = await Promise.all([
       getApi().projects.editorialBrief(projectId), getApi().assistant.editorialPolicy(projectId),
@@ -518,6 +575,7 @@ watch([briefDraft, briefLists], () => {
 watch(() => props.focusChapter, value => { if (value > 0) { scope.value = "chapter"; startChapter.value = value } }, { immediate: true })
 // 切换项目时清空上一项目的修订批处理状态，避免结果串项目显示
 watch(() => props.projectId, () => {
+  chapterExclusionError.value = ""
   revisionItems.value = []
   revisionError.value = ""
   revisionInstruction.value = ""
@@ -540,7 +598,7 @@ function startPoller() {
   pollerProjectId = props.projectId
 }
 watch([() => props.active, () => props.projectId], ([active]) => { if (active) { load(); startPoller() } else stopPoller() }, { immediate: true })
-onBeforeUnmount(stopPoller)
+onBeforeUnmount(() => { chapterChoicesRequest++; stopPoller() })
 </script>
 
 <style scoped>

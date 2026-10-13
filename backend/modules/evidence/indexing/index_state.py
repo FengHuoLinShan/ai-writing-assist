@@ -6,7 +6,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Literal
 
-from sqlalchemy import select
+from sqlalchemy import and_, case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.facade import (
@@ -16,6 +16,17 @@ from infrastructure.tasks.facade import (
 from modules.evidence.indexing.contracts import RagIndexReport
 from modules.evidence.indexing.models import RagIndexState
 from shared.constants import TASK_MAX_HEARTBEAT_GAP
+
+
+def _fresh_state_predicate():
+    return and_(
+        RagIndexState.status == "succeeded",
+        RagIndexState.indexed_hash.is_not_distinct_from(RagIndexState.requested_hash),
+        RagIndexState.indexed_source_id.is_not_distinct_from(
+            RagIndexState.requested_source_id
+        ),
+    )
+
 
 PreparedIndexClaim = Literal["claimed", "source_changed", "fresh", "superseded"]
 PreparedIndexPreflight = Literal["ready", "source_changed", "fresh"]
@@ -721,36 +732,25 @@ class RagIndexStateService:
         return str(contract.status) if contract is not None else None
 
     async def summary(self, db: AsyncSession, novel_id: str) -> dict:
-        stmt = select(RagIndexState).where(
-            RagIndexState.novel_id == uuid.UUID(str(novel_id))
-        )
-        states = list((await db.execute(stmt)).scalars().all())
-        return {
-            "by_content_mode": {
-                mode: {
-                    "total": sum(1 for item in states if item.content_mode == mode),
-                    "fresh": sum(
-                        1
-                        for item in states
-                        if item.content_mode == mode
-                        and item.status == "succeeded"
-                        and item.indexed_hash == item.requested_hash
-                        and item.indexed_source_id == item.requested_source_id
-                    ),
-                    "stale": sum(
-                        1
-                        for item in states
-                        if item.content_mode == mode
-                        and (
-                            item.status != "succeeded"
-                            or item.indexed_hash != item.requested_hash
-                            or item.indexed_source_id != item.requested_source_id
-                        )
-                    ),
-                }
-                for mode in ("canonical", "working")
-            }
+        counts = {
+            mode: {"total": 0, "fresh": 0, "stale": 0}
+            for mode in ("canonical", "working")
         }
+        rows = (
+            await db.execute(
+                select(
+                    RagIndexState.content_mode,
+                    func.count(),
+                    func.sum(case((_fresh_state_predicate(), 1), else_=0)),
+                )
+                .where(RagIndexState.novel_id == uuid.UUID(str(novel_id)))
+                .group_by(RagIndexState.content_mode)
+            )
+        ).all()
+        for mode, total, fresh in rows:
+            if mode in counts:
+                counts[mode] = {"total": total, "fresh": fresh, "stale": total - fresh}
+        return {"by_content_mode": counts}
 
     async def freshness(
         self,
@@ -769,22 +769,25 @@ class RagIndexStateService:
             conditions.append(RagIndexState.chapter_index >= chapter_from)
         if chapter_to is not None:
             conditions.append(RagIndexState.chapter_index <= chapter_to)
-        states = list(
-            (await db.execute(select(RagIndexState).where(*conditions))).scalars().all()
-        )
-        fresh = [
-            item
-            for item in states
-            if item.status == "succeeded"
-            and item.indexed_hash == item.requested_hash
-            and item.indexed_source_id == item.requested_source_id
-        ]
+        rows = (
+            await db.execute(
+                select(
+                    RagIndexState.status,
+                    func.count(),
+                    func.sum(case((_fresh_state_predicate(), 1), else_=0)),
+                )
+                .where(*conditions)
+                .group_by(RagIndexState.status)
+            )
+        ).all()
+        total = sum(row[1] for row in rows)
+        fresh = sum(row[2] for row in rows)
         return {
             "content_mode": content_mode,
-            "total": len(states),
-            "fresh": len(fresh),
-            "stale": len(states) - len(fresh),
-            "statuses": sorted({item.status for item in states}),
+            "total": total,
+            "fresh": fresh,
+            "stale": total - fresh,
+            "statuses": sorted(row[0] for row in rows),
         }
 
     async def chapter_fingerprint(

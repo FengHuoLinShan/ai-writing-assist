@@ -134,7 +134,7 @@ def test_business_modules_have_no_unclassified_direct_llm_clients() -> None:
 
 def test_novel_scoped_generation_modules_use_project_runtime_seam() -> None:
     managed_modules = {
-        "modules/writing/services.py": "open_project_snapshot_llm_client",
+        "modules/writing/generation_service.py": "open_project_snapshot_llm_client",
         "modules/writing/conflict_ai.py": "open_project_snapshot_llm_client",
         "modules/story/outline_state/ai_workflow_service.py": (
             "open_project_snapshot_llm_client"
@@ -201,7 +201,7 @@ def test_every_db_backed_workflow_passes_its_novel_id_to_runtime_seam() -> None:
 
 def test_resumable_workflows_use_managed_snapshot_context() -> None:
     expected_call_counts = {
-        "modules/writing/services.py": 1,
+        "modules/writing/generation_service.py": 1,
         "modules/writing/conflict_ai.py": 1,
         "modules/writing/semantic_review.py": 2,
         "modules/story/outline_state/ai_workflow_service.py": 2,

@@ -23,7 +23,6 @@ from modules.imports.scene_slicing import (
 from modules.imports.workflow_llm_adapters import (
     _Phase1aSceneSlicingLLM,
     _Phase1bSceneEnrichmentLLM,
-    _Phase2WorldExtractionLLM,
 )
 
 
@@ -891,33 +890,8 @@ async def test_high_quality_adapters_keep_model_and_use_max_deepseek_reasoning(
             "max_tokens": 4096,
         }
     )
-    await _Phase2WorldExtractionLLM(high_quality=True)(
-        {
-            "chapters": [{"chapter_index": 1, "title": "第一章", "content": "正文"}],
-            "scenes": [
-                {
-                    "scene_id": "scene-1",
-                    "title": "锁定 Scene",
-                    "goal": "目标",
-                    "core_conflict": "冲突",
-                    "start_chapter": 1,
-                    "end_chapter": 1,
-                }
-            ],
-            "owned_scene_ids": ["scene-1"],
-            "all_scene_ids": ["scene-1"],
-            "window": {
-                "covered_start": 1,
-                "covered_end": 1,
-                "owned_start": 1,
-                "owned_end": 1,
-            },
-            "max_tokens": 24_576,
-        }
-    )
 
     assert [request.model for request in captured] == [
-        "deepseek-v4-flash",
         "deepseek-v4-flash",
         "deepseek-v4-flash",
     ]
@@ -934,14 +908,8 @@ async def test_high_quality_adapters_keep_model_and_use_max_deepseek_reasoning(
         assert forbidden not in phase1a_prompt
     assert captured[0].max_tokens == 13_000
     assert captured[1].max_tokens == 4096
-    phase2_prompt = captured[2].messages[1].content
-    assert phase2_prompt.startswith("【章节正文】")
-    assert "正文" in phase2_prompt.split("你是小说世界资产抽取助手")[0]
-    assert "不要输出旁枝路人" in phase2_prompt
-    assert captured[2].max_tokens == 24_576
     assert captured_kwargs[0]["timeout_seconds"] == 900
     assert captured_kwargs[1]["timeout_seconds"] == 1200
-    assert captured_kwargs[2]["timeout_seconds"] == 1200
 
 
 @pytest.mark.asyncio

@@ -1662,8 +1662,29 @@ async def test_relation_history_uses_real_prefix_and_not_mutated_world_rows(
             ),
         )
     )["run"]
-    await handle_evolution_scene_step(
+    replayed_result = await handle_evolution_scene_step(
         db, await db.get(AsyncTask, UUID(updated["task_id"]))
     )
-    assert len(history) == 2 and history[1] == history[0]
-    assert len(calls) == 10  # unchanged sampler and World extraction reused
+    replayed = await store.load_frozen(updated["run_key"], replayed_result["attempt_id"])
+    # Reused relations still bind the original prefix, not the manually changed row.
+    assert len(history) == 1
+    assert (
+        replayed.payload["relations_preparation"]["context"]["relation_candidates"]
+        == history
+    )
+    for stage in ("scene_sample", "scene_world", "scene_relations"):
+        assert (
+            replayed.payload[stage]["reused_from"]["attempt_id"] == result["attempt_id"]
+        )
+    # All unchanged consumed inputs are proven equal, including the audit request.
+    assert len(calls) == 8
+    audit_journals = [
+        value
+        for key, value in replayed.payload.items()
+        if key.startswith("scene_world_review_group_")
+    ]
+    assert audit_journals
+    assert all(
+        item["reused_from"]["attempt_id"] == result["attempt_id"]
+        for item in audit_journals
+    )

@@ -198,3 +198,7 @@ confirmation 的选中/排除边界与目标可见性判定，理解的完整约
 `token_groups` 保留实际文本块及逐出状态，多来源不可分文本块标 `shared=true`，
 按 group key 去重计数，不能把共享块 token 逐源相加；独立 item 的数量合计入
 `token_count`。预算逐出保留全部来源与原始计数，账本不保存正文。
+
+索引状态 summary/freshness 在 SQL 中聚合，不加载每章 ORM。新实现保持成功状态、
+可空请求/已索引 hash 与 source_id 的相等语义，范围及 novel 隔离不变；
+SQLite 与 PostgreSQL 使用相同合成计数场景验证。
