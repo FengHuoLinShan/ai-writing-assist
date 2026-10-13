@@ -112,7 +112,11 @@
     "postgres_log": "/tmp/novelcraft-tail-fixes/review-pg.log",
     "browser_log": "/tmp/novelcraft-tail-fixes/review-browser-editorial.log",
     "docs_import_prompt_log": "/tmp/novelcraft-tail-fixes/review-docs-gates.log",
-    "build_log": "/tmp/novelcraft-tail-fixes/review-build.log"
+    "build_log": "/tmp/novelcraft-tail-fixes/review-build.log",
+    "committed_repo_gates": {
+      "exit_code": 0,
+      "log": "/tmp/novelcraft-tail-fixes/review-committed-gates.log"
+    }
   },
   "boundaries": [
     "No real model calls",
@@ -171,5 +175,14 @@
     "spec": "C10/C27 findings fixed and independently re-reviewed",
     "item_count": 32,
     "report": "REVIEW.md"
+  },
+  "completed_at": "2026-10-13T23:25:06+08:00",
+  "publication": {
+    "code_commit": "66da6b36d0408687d0eab376c143f4d6250bce18",
+    "pr": "https://github.com/FengHuoLinShan/ai-writing-assist/pull/222",
+    "state": "OPEN",
+    "base": "main",
+    "remote_ci_at_recording": "in progress; not represented as passed",
+    "merge_or_deploy": false
   }
 }

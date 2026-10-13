@@ -1,9 +1,9 @@
 ---
 id: T-20261013-capability-tail-fixes
 title: 能力审计报告的自主收尾修复
-status: active
+status: completed
 created: 2026-10-13T22:07:41+08:00
-updated: 2026-10-13T23:22:20+08:00
+updated: 2026-10-13T23:25:06+08:00
 ---
 
 # 能力审计报告的自主收尾修复
@@ -34,13 +34,15 @@ updated: 2026-10-13T23:22:20+08:00
 
 ## 恢复快照
 
-初轮结束：自主项实现、完整test-ci/PG/浏览器已完成，Git仍本地WIP；初轮任务曾completed，当前因明确review/PR授权恢复active。未写原根与其它工作树。
-后续：用户选择提交/PR或明确兼容/产品/生产范围后，核对本工作树与实时origin/main及EVIDENCE指纹再继续。此记录不新增授权；32类处置均已说明，自主项无pending。PG已关闭且保留数据。
-PG目录/tmp/novelcraft-tail-fixes/pgdata，仅本任务库novelcraft_capability_tail_test/novelcraft_capability_tail_browser_test；不要触碰其它PG端口或guimi。无阻塞，外部授权范围不执行。
+当前：32项逐项review、C10/C27补修、两路独立复审和本地最终门禁完成；实现已提交/推送为66da6b36d0408687d0eab376c143f4d6250bce18。已创建并附加[PR #222](https://github.com/FengHuoLinShan/ai-writing-assist/pull/222)，OPEN、非draft、base main。任务关闭，索引移除。远端CI已启动，记录时仍在运行，不宣称远端全绿或main验收；未合并/部署。
+
+所有代码内容与EVIDENCE.json验证指纹一致，后续收尾仅更新本任务记录与索引。原根/其它worktree的WIP不写。隔离PG18482已停止并保留/tmp/novelcraft-tail-fixes/pgdata，API18484/Vite18485已退出；guimi未访问。日志/tmp/novelcraft-tail-fixes，不提交原文/Key。
+
+下一步：本请求无待实现项；如获明确合并授权，先实时复核PR固定head/远端检查与main基线，再遵守合并门禁；C10校准、产品/生产/兼容/档案取舍仍按ITEMS边界单独处理。记录不新增授权。
 
 ## 2026-10-13 Review 与 PR 续办
 
 用户明确恢复这次改动，要求全面review修复与32项处置，有问题直接修复，验证后提交并创建PR。origin/main fetch核实仍为974f0f5080d43472bc599d1d74782913c725057b，无现成主题PR；所有78个本任务改动仍未提交，根WIP保持。两路Skill只读审查规范与Spec，主Agent复现/修复/集成，不新增业务范围。已发现章节排除前导零不能撤销及200项上限静默截断，正在用回归测试固定。
 当前：C10/C27遗漏已修复，两路独立复审无阻断项；61 eval/14组件、PG287及浏览器3条通过，文档/依赖/Prompt/lint/build/53个Python格式通过。32项完整复核见REVIEW.md。
 完整test-ci已退出0：7746后端/2跳过、86.8%、2977前端；本任务PG已再次停止，浏览器API/Vite退出。
-下一步：提交/推送并创建、附加PR；发布后关闭本任务索引。不要合并/部署。
+交付：提交/推送及PR创建完成，地址https://github.com/FengHuoLinShan/ai-writing-assist/pull/222。不要合并/部署。
