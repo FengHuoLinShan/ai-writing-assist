@@ -4531,3 +4531,77 @@ async def test_unknown_model_request_uses_short_fallback_output_budget() -> None
     )
 
     assert story_request(prepared).max_tokens == 4_096
+
+
+@pytest.mark.parametrize("local", [{}, {"device_id": "old-device"}])
+async def test_story_task_meta_rejects_legacy_local_text_snapshot(local):
+    from core.errors import ValidationError
+
+    journey = SimpleNamespace(novel_id=uuid.uuid4(), id=uuid.uuid4())
+    attempt = SimpleNamespace(
+        id=uuid.uuid4(),
+        llm_execution_snapshot={"local_agent": local},
+        agent_checkpoint_json={},
+    )
+    with pytest.raises(ValidationError, match="当前账户模型重新发起"):
+        InteractionService._story_task_meta(journey, attempt)
+
+
+async def test_legacy_local_failed_attempt_retry_uses_new_account_snapshot(db_session):
+    service, journey, previous, _ = await _create_journey(
+        db_session, key="legacy-local-retry"
+    )
+    previous.status = "failed"
+    previous.llm_execution_snapshot = {
+        **previous.llm_execution_snapshot,
+        "local_agent": {"device_id": "old-device"},
+    }
+    await db_session.flush()
+    with patch(
+        "modules.interaction.services.build_project_llm_execution_snapshot",
+        autospec=True,
+        return_value=_snapshot_for(journey.novel_id),
+    ):
+        response = await service.retry_attempt(
+            db_session,
+            journey_id=str(journey.id),
+            attempt_id=str(previous.id),
+            expected_selection_epoch=journey.selection_epoch,
+            idempotency_key="fresh-account-retry",
+        )
+    retried = await db_session.get(
+        InteractionGenerationAttempt, uuid.UUID(response.attempt.id)
+    )
+    task = await db_session.get(AsyncTask, retried.task_id)
+    assert "local_agent" not in retried.llm_execution_snapshot
+    assert "_local_agent" not in task.meta
+    assert "local_agent" in previous.llm_execution_snapshot
+
+
+async def test_legacy_local_snapshot_cannot_continue_same_attempt(db_session):
+    from core.errors import ValidationError
+
+    service, journey, previous, _ = await _create_journey(
+        db_session, key="legacy-local-continue"
+    )
+    previous.status = "awaiting_continue"
+    previous.llm_execution_snapshot = {
+        **previous.llm_execution_snapshot,
+        "local_agent": {"device_id": "old-device"},
+    }
+    await db_session.flush()
+    task_count = await db_session.scalar(select(func.count()).select_from(AsyncTask))
+    with pytest.raises(ValidationError, match="当前账户模型重新发起"):
+        async with db_session.begin_nested():
+            await service.continue_attempt(
+                db_session,
+                journey_id=str(journey.id),
+                attempt_id=str(previous.id),
+                expected_selection_epoch=journey.selection_epoch,
+                idempotency_key="old-local-continue",
+            )
+    await db_session.refresh(previous)
+    assert previous.status == "awaiting_continue"
+    assert (
+        await db_session.scalar(select(func.count()).select_from(AsyncTask)) == task_count
+    )

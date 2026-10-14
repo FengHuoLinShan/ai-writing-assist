@@ -26,6 +26,11 @@ attempt 与分支有效回顾。用户可继续直接使用模型知识，也可
 每个旅程独占一个 `project_kind=interaction` 的隐藏项目，以 `novel_id + owner_id` 作为硬隔离
 根。作者项目 API 和工作台默认只接受 `project_kind=author`，interaction API 只接受隐藏项目。
 
+RP 文字可用性只取账户文字模型连接；已配对的本机图片 CLI 不构成文字连接。
+旧 attempt 若含 `local_agent` 快照，复用该快照的续写在 `_story_task_meta` 失败关闭，
+提示用当前账户模型重新发起；失败 attempt 的重新发起仍建立新的账户模型快照，
+不回退或重放旧本机任务。历史正文与回执保留。
+
 ## 稳定边界
 
 资料与旅程的 GET/list 只计算整理进度投影，不锁定资料行或写入整理状态；创建、绑定/确认等

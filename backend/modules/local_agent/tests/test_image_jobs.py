@@ -133,9 +133,11 @@ class TestOutputEndpoint:
             db_session, test_project_id, device, task, mode="text"
         )
         job = await _claim(async_client, token)
+        assert job is None
+        assert invocation.status == "failed"
         response = await async_client.put(
             f"/api/local-agent/companion/jobs/{invocation.id}/output"
-            f"?lease_id={job['lease_id']}",
+            f"?lease_id={uuid.uuid4()}",
             content=_png_bytes(),
             headers={
                 "Authorization": f"Bearer {token}",
@@ -492,3 +494,65 @@ class TestRunLocalImage:
                 height=64,
             )
         assert excinfo.value.code == "local_image_failed"
+
+
+@pytest.mark.parametrize("mode", [None, "text", "unknown"])
+async def test_claim_fails_legacy_text_invocation_without_disclosing_request(
+    db_session, async_client, test_project_id, mode
+):
+    device, token = await _paired_device(async_client, db_session, test_project_id)
+    task = await _running_task(db_session, test_project_id, device)
+    invocation = await _image_invocation(
+        db_session, test_project_id, device, task, mode=mode
+    )
+    assert await _claim(async_client, token) is None
+    await db_session.refresh(invocation)
+    assert invocation.status == "failed"
+    assert invocation.lease_id is None
+    assert "本机设备只运行图片任务" in invocation.error
+    receipt = await async_client.get(
+        f"/api/local-agent/tasks/{task.id}/receipts", params={"novel_id": test_project_id}
+    )
+    assert receipt.json()["items"][0]["status"] == "failed"
+    assert "synthetic image prompt" not in receipt.text
+
+
+async def test_image_claim_finish_and_receipts_stay_project_device_scoped(
+    db_session, async_client, test_project_id, project_factory
+):
+    device, token = await _paired_device(async_client, db_session, test_project_id)
+    task = await _running_task(db_session, test_project_id, device)
+    invocation = await _image_invocation(db_session, test_project_id, device, task)
+    other_novel = str(await project_factory.create_project())
+    _other_device, other_token = await _paired_device(
+        async_client, db_session, other_novel
+    )
+    assert await _claim(async_client, other_token) is None
+    job = await _claim(async_client, token)
+    route = f"/api/local-agent/companion/jobs/{invocation.id}"
+    wrong_device = await async_client.post(
+        route + "/finish",
+        headers={"Authorization": f"Bearer {other_token}"},
+        json={"lease_id": job["lease_id"], "status": "completed"},
+    )
+    assert wrong_device.status_code == 409
+    uploaded = await async_client.put(
+        route + f"/output?lease_id={job['lease_id']}",
+        content=_png_bytes(),
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "image/png"},
+    )
+    assert uploaded.status_code == 200
+    finished = await async_client.post(
+        route + "/finish",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"lease_id": job["lease_id"], "status": "completed"},
+    )
+    assert finished.status_code == 200
+    receipt = await async_client.get(
+        f"/api/local-agent/tasks/{task.id}/receipts", params={"novel_id": test_project_id}
+    )
+    assert receipt.json()["items"][0]["status"] == "completed"
+    foreign = await async_client.get(
+        f"/api/local-agent/tasks/{task.id}/receipts", params={"novel_id": other_novel}
+    )
+    assert foreign.status_code == 404

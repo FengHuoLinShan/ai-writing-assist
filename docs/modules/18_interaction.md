@@ -196,9 +196,9 @@ project，额外拒绝匿名/demo。模型只接收已选正式发展和有效�
 失败关闭。路径、selection/source/overview epoch 变化会拒绝旧建议。预填只返回文字，
 不发送消息、不建立后继、不更新回顾或原作品。
 
-已登录 RP 的本机 Agent 选择随 consumer 项目冻结到新 attempt；每个 story 根任务需作者
-单独确认 Mac 文件与命令权限，离线等待。生成中仍受选中分支、固定来源与原 task lease
-控制，失联时已见文本只作回执，不自动成为正式故事；匿名演示不开放此能力。
+已登录 RP 的文字生成仅使用账户文字模型连接；本机图片 CLI 配对不能使文字连接
+显示可用。含旧 `local_agent` 快照的 attempt 不能复用快照续写，需使用当前账户连接
+重新发起；重新发起建立新 attempt 与新账户快照，历史正文与回执保留。
 
 Metadata 解析失败不静默：普通 worker/匿名 inline 在成功或失败收尾均记录
 metadata_invalid_count，同一 attempt 尾块不重复计数。本机授权更新仅经
