@@ -34,10 +34,14 @@ Scene stage 负责。旧 `candidate` 仅兼容读取，不再允许
 ## 架构现状
 
 - HTTP 入口在 `api.py`
-- 业务逻辑在 `services.py`
+- 通用 service 编排在 `services.py`。Scene Workbench 由
+  `outline_state/scene_workbench.py` 中的 `SceneWorkbenchService` 组合基础编辑、映射、人工复核与合并/拆分；
+  健康诊断在 `scene_workbench_health.py`，融合预览、来源复验和建议生命周期在
+  `scene_workbench_fusion.py`，共用定义在 `scene_workbench_support.py`。
+  拆分继续共用同一服务实例、repository 与锁，公开 API 和来源/CAS 合同不变。
 - P20 当前层创作由 `p20_context.py` / `p20_service.py` 编排；`generation/` 只保留深度导入
   Scene 证据结构化与 v1 完成预览兼容
-- 当前**已有** `facade.py`，主要对外提供 Scene 相关稳定接口，供 rag、world、writing 等模块跨 seam 调用
+- 当前**已有** `facade.py`，主要对外提供 Scene 相关稳定接口，供 evidence、world、writing 等模块跨 seam 调用
 
 ## 职责
 

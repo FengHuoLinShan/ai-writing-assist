@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from evals.cli import _validate_review_model_assignment
 from evals.project_executor import ProjectStructuredExecutor
+from evals.schemas import EVAL_TEACHER_MODEL
 from infrastructure.llm.profiles import ResolvedLLMProfile
 
 
@@ -73,20 +74,20 @@ async def test_project_executor_uses_novel_scoped_project_client() -> None:
 
 
 @pytest.mark.parametrize(
-    ("role", "model"),
-    [
-        ("reviewer-a", "deepseek-v4-flash"),
-        ("scene-reviewer-b", "gpt-5.6-luna"),
-        ("scene-adjudicator", "gpt-5.6-terra"),
-    ],
+    "role",
+    ["reviewer-a", "scene-reviewer-b", "scene-adjudicator", "adjudicator"],
 )
-def test_review_model_assignment_accepts_current_policy(role: str, model: str) -> None:
-    _validate_review_model_assignment(role, model)
+def test_review_model_assignment_accepts_current_policy(role: str) -> None:
+    _validate_review_model_assignment(role, EVAL_TEACHER_MODEL)
 
 
-def test_review_model_assignment_rejects_legacy_policy() -> None:
-    with pytest.raises(ValueError, match="requires model deepseek-v4-flash"):
-        _validate_review_model_assignment("reviewer-a", "gpt-5.6-terra")
+@pytest.mark.parametrize(
+    "model",
+    ["deepseek-v4-flash", "gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.3-codex-spark"],
+)
+def test_review_model_assignment_rejects_frozen_legacy_models(model: str) -> None:
+    with pytest.raises(ValueError, match=f"requires model {EVAL_TEACHER_MODEL}"):
+        _validate_review_model_assignment("reviewer-a", model)
 
 
 def test_review_model_assignment_rejects_unknown_role() -> None:

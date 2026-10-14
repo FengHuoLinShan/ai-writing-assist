@@ -16,6 +16,11 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from evals.metrics import precision_at_k
+from evals.schemas import (
+    ALLOWED_EVAL_TEACHER_MODELS,
+    EVAL_TEACHER_MODEL,
+    EVAL_TEACHER_REASONING_EFFORT,
+)
 from modules.evidence.compilation.services.author_question_evidence import (
     compile_author_question_evidence,
 )
@@ -34,8 +39,10 @@ DEFAULT_DATASET = (
     Path(__file__).resolve().parent / "datasets" / "baselines" / "ask-world-v1.jsonl"
 )
 MODEL_PROBE_DATASET = DEFAULT_DATASET.parent / "ask-world-model-probes-v1.jsonl"
-ASK_WORLD_TEACHER_MODEL = "gpt-6.1-sol"
-ASK_WORLD_TEACHER_REASONING_EFFORT = "high"
+# 教师合同（G6a，2026-10-14 用户裁定）：固定 Sol/xhigh，与 schemas.py 的评测
+# 模型常量同源；被测端经 Project facade 走产品侧 Luna/max。
+ASK_WORLD_TEACHER_MODEL = EVAL_TEACHER_MODEL
+ASK_WORLD_TEACHER_REASONING_EFFORT = EVAL_TEACHER_REASONING_EFFORT
 _HOLDOUT_RUNS = Path(__file__).resolve().parent / ".cache" / "ask-world-holdouts"
 _ASK_WORLD_TEACHER_RUBRIC = """\
 你是 Ask World 模型质量的替代教师，不是真人评审。只能依据每个 case 提供的问题、来源证据、
@@ -755,7 +762,7 @@ def _validate_holdout_freeze(path: Path, freeze_config: Path | None) -> dict[str
     executor_hash = CodexStructuredExecutor(
         model=ASK_WORLD_TEACHER_MODEL,
         reasoning_effort=ASK_WORLD_TEACHER_REASONING_EFFORT,
-        allowed_models=frozenset({ASK_WORLD_TEACHER_MODEL}),
+        allowed_models=ALLOWED_EVAL_TEACHER_MODELS,
     ).meta.executor_hash
     expected = {
         "dataset_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
@@ -873,6 +880,7 @@ async def run_ask_world_model_probe_eval(
     if teacher_model is not None:
         from evals.codex_executor import require_live_eval_calibration
 
+        # G6a：教师合同已固定 Sol/xhigh，但新教师调用在 G6b 重新校准前仍被拒绝。
         require_live_eval_calibration()
     if split == "holdout":
         assert frozen is not None
@@ -978,7 +986,7 @@ async def run_ask_world_model_probe_eval(
                 CodexStructuredExecutor(
                     model=teacher_model,
                     reasoning_effort=teacher_reasoning_effort,
-                    allowed_models=frozenset({ASK_WORLD_TEACHER_MODEL}),
+                    allowed_models=ALLOWED_EVAL_TEACHER_MODELS,
                     attempts=1 if split == "holdout" else 2,
                 ),
             )

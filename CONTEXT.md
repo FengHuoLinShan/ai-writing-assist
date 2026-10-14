@@ -242,13 +242,19 @@ ADR-0027 的 Assistant 工作项与调查成果是有界私有 checkpoint；Worl
 模块职责与采用/恢复边界见 `docs/modules/21_collaboration.md`、
 `backend/modules/collaboration/README.md`，前瞻见 `docs/modules/20_assistant.md`。
 
-## 本机 Agent 执行器
+## 本机图片执行器与历史回执
 
-`local_agent` 持有作品绑定的设备、逐次图片运行授权和调用回执；它不是世界事实或
-作品模型连接的 owner。Project 只为生图选择本机执行器，文字任务使用当前账户连接；
-旧本机文字 task/invocation 与快照失败关闭，历史回执仍可读。Assistant/Interaction/协作等
-领域保留各自的任务与正式写入权。Mac CLI 本地文件变化只属于作者主机；进入产品的
-资料和修改仍经过 Evidence、owner/`novel_id`、确认、来源与事务门禁。
+`local_agent` 持有作品绑定的设备、逐次图片运行授权和调用回执；不是世界事实或账户文本
+连接的 owner。当前正文、Assistant、Interaction 与协作文字步骤经 Project facade 使用
+owner 的已验证账户连接，不为文字任务选择本机 CLI。旧本机文字 Project snapshot 与
+task_snapshot_client 入口失败关闭；待确认列表、批准与设备领取入口只接受图片任务，
+旧文字 pending task/invocation 直接置为 failed，历史回执仍可读。源码保留的历史
+invocation 与 companion 文字兼容分支不构成正常文字入口开放的证明。
+
+图片仍由 World 拥有候选与正式采用，进入产品的图片须经设备/owner/`novel_id`/双租约、
+重解码和领域采用。Assistant/Interaction/协作等领域保留各自的任务与正式写入权。Mac CLI
+文件变化只属于作者主机，进入产品的资料和修改仍经过 Evidence、owner/`novel_id`、确认、
+来源与事务门禁；工作目录不是操作系统沙箱，文件访问范围以当前主机用户权限为准。
 
 作者“编辑约定”是 Project 内作者确认的版本化意图，不是 World 正史；“交给编辑看”是
 Writing 某一已保存工作稿的完成标记，不改变 published/canonical 状态；“编辑意见”由

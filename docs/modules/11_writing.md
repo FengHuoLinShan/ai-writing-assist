@@ -72,6 +72,8 @@ async def get_latest_draft_for_chapter(db, novel_id, chapter_index) -> WritingDr
 async def list_latest_drafts_for_chapters(db, novel_id, chapter_indices, *, content_limit: int | None = None) -> list[WritingDraftContract]
 async def list_chapter_indices(db, novel_id) -> list[int]
 async def get_latest_effective_chapter_index(db, novel_id) -> int  # 0 = 尚无实质正文；按章节号倒序分批探测，不读全文（世界修订历史的写作进度来源）
+# 跨模块最终复验前锁住指定章节的版本/正文写入
+async def lock_chapter_versions_for_revalidation(db, novel_id, chapter_indices: list[int]) -> None
 async def get_author_attention_items(db, novel_id) -> list[WritingAuthorAttentionItemContract]
 async def list_manuscript_sources(db, novel_id, chapter_indices=None, *, content_mode="canonical") -> list[WritingDraftContract]
 async def get_historical_source_identities(db, novel_id, draft_ids) -> list[dict]  # owner/novel内只投影历史身份，不读正文或完整provenance
@@ -202,7 +204,7 @@ provider；finalize 会按 project-first 顺序重验 profile、上下文与当�
   另带单调 `check_version` 与审查输出 `output_hash`，供带问题采用追溯“当时按哪个版本检查、核的是哪份输出”
 
 生成存在 Scene 的正文时，writing 通过
-`outline.facade.get_scene_execution_bundle` 消费 version-bound
+`modules.story.facade.get_scene_execution_bundle` 消费 version-bound
 `story_execution_profile.v1` 与 Scene 执行字段。候选打开时投影
 upstream stale，采用时重算并在任一 source hash 漂移时 409。
 
@@ -245,8 +247,9 @@ AI 评论仍可查看，但不能直接执行。显式“审稿并修订”先�
 
 POV 角色视角建议即使诊断为 `failed` 仍保留原始建议；前端标红风险。作者调用
 `POST /drafts/{id}/adopt` 后，服务以 copy-on-adopt 创建最高版本号的普通 draft，记录
-`adopted_from_candidate_id / adopted_at / adopted_by`，并把原建议转入历史。重复采用同一建议
-会被拒绝。阻断级问题（知识复核未通过、blocker/major finding）在门禁挡下；能通过门禁的
+`adopted_from_candidate_id / adopted_at / adopted_by`，并把原建议转入历史。候选已采用后，
+携带与首次采用相同的 `idempotency_key` 重放会返回原采用 draft；无键或异键仍会被拒绝。
+阻断级问题（知识复核未通过、blocker/major finding）在门禁挡下；能通过门禁的
 非阻断 finding 属作者决定延后处理的欠账，采用记录会写入 `adopted_with_open_issues`
 （finding 标识、审查输出 hash、`check_version`），不建独立问题真相表。生成任务 result
 如实携带 `knowledge_review_status`；前端据此区分“运行完成 / 可审阅 / 已采用 / 已发布”：
