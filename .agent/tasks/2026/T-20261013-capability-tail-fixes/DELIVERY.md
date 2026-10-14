@@ -57,3 +57,7 @@ make test-ci首轮因静态旧路径/顶层依赖/测试替身lookup失效；已
 最终评测回归61、编辑台组件14、隔离PG全量287/7未选、实际编辑台浏览器3条通过（桌面/390px、保存/恢复/撤销、历史前导零）。前端lint/build、53个本次Python格式、diff、docs BASE_REF、模块依赖及26 Prompt契约通过。完整test-ci最终退出0：后端7746通过/2跳过、覆盖率86.8%；前端237文件2977通过；依赖审计、lint、272部署脚本测试通过。此前世界/移动31和内存图片UI1为初轮共享CSS证据；review未修改CSS。无真实LLM、生产库或受保护guimi访问。
 
 实现已提交/推送为`66da6b36d0408687d0eab376c143f4d6250bce18`，创建并附加[PR #222](https://github.com/FengHuoLinShan/ai-writing-assist/pull/222)。提交后repo gates、docs BASE_REF及内容指纹复核通过；收尾文档提交不修改已验代码。远端CI已启动，记录时尚未完成。合并/部署不在授权内，以上初轮未提交描述不是本轮终态。
+
+## 2026-10-14 CI失败处置
+
+远端05da9a08e的其余检查成功，但WebKit移动核心步骤在窗口切换后条件读取早于resize状态更新，未点击“本章资料”却等待dialog。trace证明aria-expanded读取true且没有点击；仅将该测试改为仓库现有runResponsiveMatrix，等待布局帧同步，不增加timeout/retry、不删任何有效断言、不改生产逻辑。WebKit、Chromium移动核心各11条通过；ESLint、文档/diff门禁通过。最终远端检查与合并以TASK最后恢复快照及PR实时状态为准；本轮用户已授权检查全部通过后合并，仍未授权部署。

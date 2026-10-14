@@ -81,7 +81,8 @@
     "frontend-console/vue/components/EditorialDesk.vue": "66f5843464b17ea722ef0e399ce9c55be6f01430973db4ac7690872f24be7041",
     "frontend-console/vue/views/writing/components/InvalidationNotice.vue": "e51b93db7673b36d6f002a0b7946b0c407bcc572b7038ebd5384da2551daa7e0",
     "frontend-console/vue/views/writing/invalidationModel.js": "9480fe09b96f7c788ac45bb152dae46bd73213c81669456e9e835abd5b0ab533",
-    "testing-guide.md": "30e3131f5a928e8d64a604c1577fd51e945b50027add38d068e0959b90bf0a20"
+    "testing-guide.md": "30e3131f5a928e8d64a604c1577fd51e945b50027add38d068e0959b90bf0a20",
+    "frontend-console/e2e/responsive-core.spec.js": "731eebb3e3f945fcef7528ac6354c15d72117ffa8a0da7b45232465a03ec023c"
   },
   "validation": {
     "backend_fast": {
@@ -121,7 +122,7 @@
   "boundaries": [
     "No real model calls",
     "No protected or production database",
-    "Commit/push/PR authorized; no merge/deploy",
+    "Commit/push/PR and merge after all checks authorized; no deployment",
     "Initial image store UI uses existing test DI; production S3/MinIO not validated"
   ],
   "private_logs": "/tmp/novelcraft-tail-fixes",
@@ -184,5 +185,23 @@
     "base": "main",
     "remote_ci_at_recording": "in progress; not represented as passed",
     "merge_or_deploy": false
+  },
+  "ci_followup": {
+    "user_authorization": "fix failing CI and merge PR 222 after all checks pass",
+    "failed_head": "05da9a08e1bf68ecd1487432ba10bbce9b7a8f65",
+    "failed_run": 38421939466,
+    "failed_job": 115381834846,
+    "cause": "viewport state sampled before resize and layout settled; no click was issued",
+    "fix": "use existing runResponsiveMatrix; preserve all assertions",
+    "local_webkit_mobile": {
+      "passed": 11,
+      "log": "/tmp/novelcraft-tail-fixes/pr222-webkit.log"
+    },
+    "remote_status": "awaiting repaired head checks",
+    "merged": false,
+    "local_chromium_mobile": {
+      "passed": 11,
+      "log": "/tmp/novelcraft-tail-fixes/pr222-chromium.log"
+    }
   }
 }

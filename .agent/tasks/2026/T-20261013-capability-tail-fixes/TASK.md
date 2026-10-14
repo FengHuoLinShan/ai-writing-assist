@@ -1,9 +1,9 @@
 ---
 id: T-20261013-capability-tail-fixes
 title: 能力审计报告的自主收尾修复
-status: completed
+status: active
 created: 2026-10-13T22:07:41+08:00
-updated: 2026-10-13T23:25:06+08:00
+updated: 2026-10-14T09:21:08+08:00
 ---
 
 # 能力审计报告的自主收尾修复
@@ -46,3 +46,11 @@ updated: 2026-10-13T23:25:06+08:00
 当前：C10/C27遗漏已修复，两路独立复审无阻断项；61 eval/14组件、PG287及浏览器3条通过，文档/依赖/Prompt/lint/build/53个Python格式通过。32项完整复核见REVIEW.md。
 完整test-ci已退出0：7746后端/2跳过、86.8%、2977前端；本任务PG已再次停止，浏览器API/Vite退出。
 交付：提交/推送及PR创建完成，地址https://github.com/FengHuoLinShan/ai-writing-assist/pull/222。不要合并/部署。
+
+## 2026-10-14 CI修复与合并续办
+
+用户明确授权继续跟进PR #222，失败直接修复，全部检查通过后合并main。旧“不合并”仅是初轮边界，已由本轮授权更新；仍不部署、不调用真实模型、不触碰guimi或其它WIP。恢复时主题工作树干净，head 05da9a08e1bf68ecd1487432ba10bbce9b7a8f65；PR OPEN，frontend functional shard 1失败及聚合失败，其它16项成功。正在取失败日志并刷新main基线。
+
+下一步：定位浏览器失败根因、必要修复/本地回归后提交推送；等待固定head全部远端检查成功，再用match-head-commit合并。保留原32项分类，不扩大功能范围。
+
+CI根因：WebKit trace在setViewportSize(1024×768)后读到aria-expanded=true，无click，随后resize watcher进入compact关闭资料栏；测试因此等一个从未打开的dialog。响应式通用helper已有双requestAnimationFrame等待，失败用例未使用。改为runResponsiveMatrix复用既有切换同步，所有正文/选区/资料草稿/焦点/偏好/持久化断言原样保留，无提高timeout或retry，无生产代码修改。WebKit 11、Chromium 11移动核心用例全部通过；ESLint、docs BASE_REF和diff检查通过。准备提交推送，等待最终固定head远端检查，再合并。原main仍为974f0f5080d43472bc599d1d74782913c725057b。
