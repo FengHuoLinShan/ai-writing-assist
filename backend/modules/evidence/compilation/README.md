@@ -580,7 +580,7 @@ POST /api/evidence/compilation/snapshots/maintenance
 - `timeline_events`
 - `geo_locations`
 
-这些名字主要是兼容现有渲染器和测试，不表示系统仍存在同名业务模块或数据表。
+这些字段继续由结构化 bundle 的 loader/compiler 和测试使用，不表示系统仍存在同名业务模块或数据表。旧 `render_context_markdown(StructureContextBundle)` 及其公开导出已退役；Markdown 输出统一使用 `render_compiled_context(CompiledContext)`，按 tier 渲染编译后的 IR。
 
 ## 测试
 
