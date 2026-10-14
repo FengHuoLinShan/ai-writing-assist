@@ -6,7 +6,7 @@
 
 - G3①：两阶段退役旧 bundle Markdown renderer；保留活跃编译器/IR与渲染，固定输出/hash和隐藏真相断言迁移有证据。
 - G3③a：pending/approve/claim仅图片，旧文字task/invocation/snapshot失败关闭；图片正常、拒绝、取消、防重和owner隔离保留。
-- G4a：同机独立目录、最小只读备份用户、同份dump取对象清单、增量校验、缺图/中断报告不完整、30天老化；目录或作者ZIP运维恢复，ADR-0034。临时PG匿名数据卷仅清理本次资源，标准make演练使用既有locked runner。
+- G4a：同机独立目录、最小只读备份用户、同份dump取对象清单、增量校验、缺图/中断报告不完整、30天老化；目录或作者ZIP运维恢复，ADR-0034。临时PG匿名数据卷仅清理本次资源，标准make演练使用既有locked runner；开发Compose/CI初始化均提供独立合成备份身份，动态核对全部实际YAML调用方。
 - G8a：同owner/novel真实历史来源ID/章/version/hash重验，只扫有限saved current head；SQL身份投影不读正文/大JSON，SAVEPOINT降级。旧测试只补真实Project/作者principal，保留原隔离/404/幂等断言。
 
 - 影响模块：Evidence compilation、LocalAgent、Interaction、Evolution、World、Writing、部署运维与相关作者UI。
@@ -15,10 +15,10 @@
   - 父集成默认locked后端：7748 passed /2 skipped，coverage86.81%，RuntimeWarning门禁通过。
   - 父集成PG critical95、P2-C/地图SAVEPOINT/图片CLI专用9通过。
   - 前端2980通过、ESLint/build通过；标准functional浏览器G3六例+G8两例，含390px、恢复和失败路径。
-  - 部署301通过；真实无网络合成恢复7对象/2桶，缺图和中断反例、解码/hash/size/权限/元数据通过。RPO2.894s/RTO4.803s只代表小合成集。
+  - 部署302通过；真实无网络合成恢复7对象/2桶，缺图和中断反例、解码/hash/size/权限/元数据通过。RPO2.894s/RTO4.803s只代表小合成集。
   - 固定IR967bytes/hash不变、活跃6定义AST全等；26prompt合同、Ruff、secret、repo-gates/diff通过；实际导入预算522。
   - 已授权本机ai_novel_engine READ ONLY盘点三类旧待处理数量均0；未查询Guimi或正文。
-  - 首次test-ci的36失败已按2项棘轮与34项fixture根因修复；总命令未冒称全绿，最终各受影响门禁独立复验通过。
+  - 首次test-ci的36失败已按2项棘轮与34项fixture根因修复；总命令未冒称全绿，最终各受影响本地门禁独立复验通过。首次远端浏览器因初始化调用方缺备份参数而尚未执行；本次已补齐，须待远端实际浏览器验收，不将跳过视为通过。
 
 完整恢复快照和父树日志：[首批TASK](.agent/tasks/2026/T-20261014-audit-first-batch/TASK.md)。
 

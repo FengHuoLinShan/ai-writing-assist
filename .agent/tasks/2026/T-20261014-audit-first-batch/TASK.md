@@ -1,9 +1,9 @@
 ---
 id: T-20261014-audit-first-batch
 title: 能力审计首批实施与集成验收
-status: completed
+status: active
 created: 2026-10-14T11:30:04+08:00
-updated: 2026-10-14T13:02:02+08:00
+updated: 2026-10-14T13:20:37+08:00
 parent: T-20261014-audit-followup-batch
 ---
 
@@ -86,3 +86,15 @@ parent: T-20261014-audit-followup-batch
 - 已完成本地实现/验收，代码HEAD b532c3f92，工作树在推送前干净；PR正文已存PR_BODY.md供审查。
 - 自动审批拒绝 git push origin codex/audit-first-batch：认为私有仓库代码和验收资料将外发到origin，缺少这次具体推送/可信目的地的明确授权。没有通过其他工具或间接方式绕过。已向用户聚焦请求授权推送到本仓库origin并创建draft PR，不合并/部署；回答前仅继续本地工作。用户随后明确回答“授权推送并创建 draft PR”，本仓库origin已获该次外发授权，继续交付；此前“全部授权”只针对开发库只读计数。
 - 所有验证已结束，标签codex.task=audit-followup-20261014的本次合成PG容器已停止；保留数据卷和全部工作树，既有Guimi/MinIO不停止或清理。复验可docker start该容器，再用明确18647合成库参数运行。
+
+## 远端CI发现后的验收纠正
+
+- 用户明确授权后已推送15d4dae64，draft PR #227已创建并附当前聊天。base e02137f79，未合并/部署。
+- 本地实现及定向验收通过，但首次远端Frontend functional两个shard失败，聚合门禁失败；文档、PG critical、前端unit、镜像、repo-gates、CodeQL均通过，Backend quality当时仍运行。不能把本地8例当全量浏览器验收。
+- 因新远端失败证据，按协议纠正已关闭工程记录为active，恢复开放索引；下一步读取38514515133失败日志，分类新回归/基线/环境，定向修复，不删除断言或削弱门禁。
+
+## 初始化调用方修复
+
+- 精确错误：38514515133两个shard都在初始化步骤报Separate MinIO backup credentials are required，所有浏览器suite skipped。分类为本批新增必需参数未同步调用方的新回归，不是随机环境或页面失败。
+- G4原Sol/medium子代理仅补frontend-ci.yml与根docker-compose.yml的独立合成备份身份，新增test_minio_initializer_callers.py动态核对全部tracked YAML的实际初始化环境、必需字段和root/app/backup分离。生产门禁/policy未改，没有真实.env/MinIO操作；157相关+7既有CI/dev回归与语法/Compose通过。
+- 父集成已审查应用仅3文件小补丁；完整test-deploy302passed/118.62s，新调用方检查实际执行。既有7,748后端/2,980前端/PG95的生产代码未变，不为配置修复机械重跑，远端browser必须实际执行后再关闭。
