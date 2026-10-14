@@ -37,6 +37,7 @@
 
 ## 运行时 LLM
 
+- AI 小说程序在开发阶段的大量业务 LLM 调用统一使用 Codex `gpt-6-luna/max`，覆盖深度导入、世界演化、生成/抽取/补全及批量业务复核与实测；调用前经 owner 已验证的 Codex 连接和 Project facade/snapshot 核验。配置不符时停止对应业务调用，不自动回退 DeepSeek 或其他付费 API，供应商专项调用须用户另行明确授权。代码开发、代码审查和已获授权的工程子代理继续使用 Sol 或其他高级模型，不受业务 Luna 约定限制。启动、续跑和后台任务核验见 [开发阶段模型约定](development-guide.md#开发阶段模型约定)；本规则不新增子代理、周期任务、数据外发或生产发布授权，不改变真实账户连接和冻结任务。
 - 普通 LLM step 用确定性工作流；ADR-0023 授权项目助手/RP 的有界单 Agent，ADR-0027 授权已注册业务蓝图的有限协作：单宿主、最多三名并发成员、独立资料与历史、共享根预算和租约。仅在服务端注册、授权及可见范围内选择查证/提案工具；不开放任意自治团队或成员互发自由文本。各路径须有 schema、预算、超时、日志和权限；业务写入须领域确认、来源重验和事务，禁任意工具、跨项目访问及绕过确认。
 - 新增带 `novel_id` 的业务 LLM 服务仅经 `modules.project.facade.open_project_llm_client()` 获取配置；provider/model/Key 来自项目 owner 当前已验证的账户连接，项目仅提供非 secret 工作流设置。可恢复任务用 secret-free project snapshot seam 固定 provider，读取当前轮换后的账户 Key。业务模块禁绕过上述入口创建 LLM 客户端或自行拼装 provider/profile；独立 embedding 仅保留静态门禁已有窄例外，新增例外须说明配置边界和迁移决定。
 - Prompt 清单/契约见 `docs/prompts/Prompt体系设计.md`，此处不复制。
