@@ -1,0 +1,9 @@
+python3 /Users/tywww/Desktop/项目/ai-writing-assist/.worktrees/audit-first-batch/scripts/check_binary_growth.py --base origin/main --head HEAD
+binary growth gate passed (0 binary change(s))
+python3 /Users/tywww/Desktop/项目/ai-writing-assist/.worktrees/audit-first-batch/scripts/check_file_sizes.py --base origin/main --head HEAD
+file size gate passed (18 production file(s) checked, 0 warning(s))
+python3 /Users/tywww/Desktop/项目/ai-writing-assist/.worktrees/audit-first-batch/scripts/check_release_evidence.py --base origin/main
+release evidence gate passed
+python3 /Users/tywww/Desktop/项目/ai-writing-assist/.worktrees/audit-first-batch/scripts/check_module_imports.py
+module import gate passed (12 business module(s), 8 exemption(s), facade thin-layer check passed)
+依赖方向棘轮通过（directed_edges=65/65, bidirectional_pairs=9/9, top_level_bidirectional_pairs=0/0, function_level_imports=522/522, world_core_to_worldbuilding=0/0, world_worldbuilding_to_core=26/26）

@@ -1,0 +1,16 @@
+
+> frontend-console@1.0.0 test
+> vitest run
+
+
+ RUN  v5.0.3 /Users/tywww/Desktop/项目/ai-writing-assist/.worktrees/audit-first-batch/frontend-console
+
+
+ Test Files  237 passed (237)
+      Tests  2980 passed (2980)
+   Start at  12:22:36
+   Duration  31.12s (environment 42%, tests 35%, transform 11%, import 9%, setup 2%)
+
+Environment  happy-dom was created 237 times · 85.64s total, 42% of tracked time
+             create it once per worker with pool: 'vmThreads' (keeps per-file isolation) or isolate: false (shares it across files)
+             learn more: https://vitest.dev/guide/improving-performance#test-environments

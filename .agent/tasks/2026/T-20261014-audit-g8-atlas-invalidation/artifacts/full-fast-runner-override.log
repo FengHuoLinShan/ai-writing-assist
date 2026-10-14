@@ -140,7 +140,7 @@ _______ test_automated_backend_quality_targets_use_the_locked_ci_runner ________
             "format": "ruff",
             "format-fix": "ruff",
         }
-    
+
         for target, tool in target_tools.items():
             command = _make_dry_run(target)
 >           assert command.count(runner) == 1, target
