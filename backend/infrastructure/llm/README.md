@@ -247,20 +247,29 @@ task status 或诊断响应前必须先做 secret redaction 和控制字符规�
 适配，返回 provider 原币种总可用额。它不持久化余额、不轮询、不换算、不拆分，也不构成
 账务系统；失败必须映射为不含响应正文或 Key 的安全不可用状态。
 
-所有 `LLMClient` 实例共享进程级并发 semaphore 与 RPM token bucket。所有环境均可将
-`LLM_RATE_LIMIT_PER_MINUTE` 设为 `0` 关闭额外 RPM 限制，也可按 provider
-配额显式配置正值。该配额按进程执行，部署多个 API/worker 实例时必须按实例数核算
-总吞吐；代码不替 provider 选择固定生产 RPM。关闭 RPM 时仍应保留并发上限以保护
-服务器资源。
+`LLM_MODEL_LIMITS_JSON` 按来源/provider/具体模型配置独立模型池，默认每池并发 8、RPM 0，
+不再有跨模型总 semaphore 或全局 LLM RPM。键 `default` → `api/deepseek/*` 等 provider 默认
+→ `subscription/codex/gpt-6-luna` 等精确型号依次覆盖；并发/输入预算为正整数，RPM 为非负整数。
+普通、流式、修复与远程 embedding 按最终模型和实际 endpoint 归池。同宿主 API/worker 共享 OS 文件锁槽，
+订阅池另绑定 ChatGPT 登录账户；配置改变等待本池已接纳请求结束，其他模型继续运行。
+生产 API/worker 挂载同一私有 `llm-model-admission` 卷；本地使用系统用户私有目录。
+RPM 是每模型的进程内 token bucket，默认关闭；正 RPM 部署仍按 worker 数核算 provider 总吞吐。
+取消/进程死亡释放槽，排队受已有 run deadline 约束，provider timeout 不被删除。
 
-原生 Codex 文本调用另受本机同账户跨进程上限 `CODEX_TEXT_MAX_CONCURRENT_REQUESTS` 约束，
-默认2，仅允许整数1—8；非法设置在接纳前拒绝。Imports工作链及Evolution同场发现/
-身份分片使用同一设置，API提供方保持原调优行为。所有路径仍受
-`LLM_MAX_CONCURRENT_REQUESTS` 进程总上限；同账户API/worker共享OS槽，不能通过增加worker绕过。
-提高值须依据实际原生稳定性校准，不改变模型、来源、超时、预算或未知结果防重发。
+新 Codex `gpt-6-luna` 能力配置声明总窗口 1,050,000、完整输入默认 500,000、输出预留 128,000、
+额外安全余量 32,000。CLI 显式覆盖 `model_context_window=1050000`、
+`model_auto_compact_token_limit=800000`，继续 `--ignore-user-config`，不修改桌面全局 catalog。
+完整执行输入计量包括指令、历史/身份/证据、JSON 包封和 schema；为不可观测 CLI 宿主包封另在输入内预留 32,000。
+未确认 tokenizer 映射时使用 UTF-8 字节上界，并在能力快照标明估算方法；这不是已实测输入能力。
+500k 是输入上限；超过时拆包或明确延期，复核超限保留生成及必要证据为待核对，禁止静默截断。
+其他 Luna 型号仍须单独登记。官方规格和配置定义见
+[模型规格](https://developers.openai.com/api/docs/models/gpt-6-luna) 与
+[配置参考](https://learn.chatgpt.com/docs/config-file/config-reference)。
+能力快照/方法/consumer read-set 固定策略；旧快照、字符规则、请求和原回执不扩大或重新盖章。
+订阅 500k 可用性、语义质量和持续高并发未实测。
 
 availability circuit breaker 不跨项目共享：它按
-`project/system + chat/embedding + normalized endpoint` 建立进程内桶。endpoint identity
+`project/system + chat/embedding + provider + model + normalized endpoint` 建立进程内桶。endpoint identity
 只包含 scheme、host、有效端口和 base path，不包含 userinfo、query、fragment、API Key
 或 model。已打开的桶在消耗 RPM token 或等待 semaphore 前失败；cooldown 后只允许一个
 half-open probe。同一项目切换 endpoint 会使用新桶，不同项目即使使用同一 endpoint
@@ -362,7 +371,7 @@ Codex 普通文本连接见 ADR-0033：本机单用户默认 gpt-6-luna/max；Co
 文本模式的原生 `item.completed/error` 与终端失败均只保留安全原因分类（如 `stream_disconnected`、`output_schema`）；任何未完成结果仍失败关闭且禁止自动重发，不返回原始错误正文。原生工具及未知事件守卫不变。
 
 
-旧大段正文及长合成请求的未知失败缺少原退出码与回合事件，且存在宿主执行环境差异；原因未定，不能归因为高并发。原未知请求保留且不重发。当前原生文本默认两路，CODEX_TEXT_MAX_CONCURRENT_REQUESTS 仅接受整数1—8；同一系统用户、同一ChatGPT登录账户在本机API/worker之间共享OS文件锁槽，配置不一致且有在途时失败关闭，容量改变只在全槽空闲时生效。等候在provider预算预留和请求超时前，并受run deadline约束；取消或进程死亡由OS释放槽。进程内LLM_MAX_CONCURRENT_REQUESTS总上限仍有效。它不跨主机共享，也不代表Luna的供应商并发能力；真实长篇高并发稳定性仍待验收。
+旧大段正文及长合成请求的未知失败原因未定；原未知请求保留且不重发。独立模型池仅为工程行为，不证明供应商并发或文学质量。
 
 
 最终文本模式使用固定 model_instructions_file 替换默认编码指令、project_doc_max_bytes=0
@@ -381,3 +390,12 @@ Codex 普通文本连接见 ADR-0033：本机单用户默认 gpt-6-luna/max；Co
 并经 Project 请求授权回读当前作品 owner 的连接。它返回
 `scope=project_configuration`、`remote_check=false`，不发送模型探针，也不证明远端可用。
 真实模型连接验证仅由账户设置中的显式验证入口执行；未知验证结果不被导入恢复重发。
+
+新 author-confirmed Luna 确定性流水线用 `confirmed_scope`，完成本次确认范围，
+不因固定请求数、累计 tokens 或金额暂停。AIRun envelope v2 显式记录模式、可空请求上限及范围指纹；
+未声明额度或授权策略不能把空值当放行。范围模式限已验证的冻结 Luna 模型，新队列仍经 owner、来源、
+active run 和 lease 检查；其他模型/有界 Agent 仍用有限预算，循环、工具和单次超时不变。
+Evolution `budget_total`/`budget_remaining` 允许成对为空；旧有限行原子扣减、旧信封保持原版本。
+存在范围数据时迁移拒绝降级。旧未跟踪队列明确保留领域预算 seam，不能冒充已完整跟踪。
+
+新范围信封在预留前同时核验步骤上下文与实际执行 provider/最终 model，步骤标签不能授权其他来源。新 B5 路由把附加型号能力快照保存在 `cost_routing.llm_capability_profile` 并纳入项目签名；发送按最终型号选冻结输入预算，旧路由缺此字段时保留旧策略。冻结 tokenizer 方法与当前工具不一致在装包/最终发送前失败关闭，不重试或默默放宽输入。

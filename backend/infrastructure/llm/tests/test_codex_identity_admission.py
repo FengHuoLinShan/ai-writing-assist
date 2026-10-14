@@ -10,9 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from infrastructure.llm import codex_admission
+from infrastructure.llm import model_admission
 from infrastructure.llm.codex_identity import codex_login_identity
-from infrastructure.llm.errors import LLMError
 
 
 def write_identity(directory, *, account="synthetic-a", mode="chatgpt", token="token-a"):
@@ -69,22 +68,27 @@ def test_platform_read_only_identity_mode_is_compatible(monkeypatch, tmp_path):
     assert codex_login_identity()
 
 
-def _worker(directory, active, peak, ready, hold, cap, crash=False):
+def _worker(directory, active, peak, ready, hold, cap, crash=False, provider="codex"):
     # Spawned workers run the production limiter with separate project scopes.
     from core.config import get_settings
     from infrastructure.llm.limits import LLMLimiterScope, LLMProcessLimiter
 
     os.environ["CODEX_HOME"] = directory
-    os.environ["CODEX_TEXT_MAX_CONCURRENT_REQUESTS"] = str(cap)
+    os.environ["LLM_MODEL_LIMITS_JSON"] = json.dumps(
+        {"subscription/codex/gpt-6-luna": {"concurrency": cap}}
+    )
     get_settings.cache_clear()
-    codex_admission._admission_directory = lambda: Path(directory)
+    model_admission._admission_directory = lambda: Path(directory)
 
     async def run():
         scope = LLMLimiterScope.for_call(
             novel_id=str(os.getpid()),
             operation_kind="chat",
-            base_url="codex://local",
-            provider_id="codex",
+            base_url="codex://local"
+            if provider == "codex"
+            else "https://unit.invalid/v1",
+            provider_id=provider,
+            model="gpt-6-luna" if provider == "codex" else "deepseek-flash",
         )
         async with LLMProcessLimiter().scope(limiter_scope=scope):
             with active.get_lock():
@@ -137,7 +141,7 @@ def test_account_cap_is_shared_by_spawned_workers(tmp_path, cap):
 async def test_cancel_waiter_crash_release_and_capacity_mismatch(monkeypatch, tmp_path):
     write_identity(tmp_path)
     monkeypatch.setenv("CODEX_HOME", str(tmp_path))
-    monkeypatch.setattr(codex_admission, "_admission_directory", lambda: tmp_path)
+    monkeypatch.setattr(model_admission, "_admission_directory", lambda: tmp_path)
     ctx = multiprocessing.get_context("spawn")
     active, peak = ctx.Value("i", 0), ctx.Value("i", 0)
     ready, hold = ctx.Event(), ctx.Event()
@@ -147,12 +151,38 @@ async def test_cancel_waiter_crash_release_and_capacity_mismatch(monkeypatch, tm
     worker.start()
     try:
         assert await asyncio.to_thread(ready.wait, 20)
-        with pytest.raises(LLMError, match="配置不一致"):
-            async with codex_admission.codex_account_admission(2):
-                pytest.fail("mismatched workers must fail before IO")
+
+        async def change_capacity():
+            async with model_admission.model_admission(
+                (
+                    "subscription",
+                    "codex",
+                    "codex://local",
+                    "gpt-6-luna",
+                    codex_login_identity(),
+                ),
+                2,
+            ):
+                pytest.fail("capacity changes must wait for in-flight requests")
+
+        changed = asyncio.create_task(change_capacity())
+        await asyncio.sleep(0.03)
+        assert not changed.done()
+        changed.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await changed
 
         async def wait():
-            async with codex_admission.codex_account_admission(1):
+            async with model_admission.model_admission(
+                (
+                    "subscription",
+                    "codex",
+                    "codex://local",
+                    "gpt-6-luna",
+                    codex_login_identity(),
+                ),
+                1,
+            ):
                 pytest.fail("held account slot must block waiter")
 
         waiter = asyncio.create_task(wait())
@@ -164,7 +194,16 @@ async def test_cancel_waiter_crash_release_and_capacity_mismatch(monkeypatch, tm
         await asyncio.to_thread(worker.join, 5)
         # OS process termination releases the slot; no cleanup or forged settlement.
         async with asyncio.timeout(2):
-            async with codex_admission.codex_account_admission(2):
+            async with model_admission.model_admission(
+                (
+                    "subscription",
+                    "codex",
+                    "codex://local",
+                    "gpt-6-luna",
+                    codex_login_identity(),
+                ),
+                2,
+            ):
                 pass
     finally:
         if worker.is_alive():
@@ -179,9 +218,56 @@ async def test_admission_wait_obeys_run_deadline(monkeypatch, tmp_path):
 
     write_identity(tmp_path)
     monkeypatch.setenv("CODEX_HOME", str(tmp_path))
-    monkeypatch.setattr(codex_admission, "_admission_directory", lambda: tmp_path)
-    async with codex_admission.codex_account_admission(1):
+    monkeypatch.setattr(model_admission, "_admission_directory", lambda: tmp_path)
+    async with model_admission.model_admission(
+        ("subscription", "codex", "codex://local", "gpt-6-luna", codex_login_identity()),
+        1,
+    ):
         monkeypatch.setattr(limits, "_ai_run_remaining_seconds", lambda: 0)
         with pytest.raises(AIRunDeadlineExceededError):
-            async with codex_admission.codex_account_admission(1):
+            async with model_admission.model_admission(
+                (
+                    "subscription",
+                    "codex",
+                    "codex://local",
+                    "gpt-6-luna",
+                    codex_login_identity(),
+                ),
+                1,
+            ):
                 pytest.fail("deadline must prevent IO")
+
+
+def test_subscription_and_api_spawned_workers_fill_independent_pools(tmp_path):
+    write_identity(tmp_path)
+    ctx = multiprocessing.get_context("spawn")
+    active, peak = ctx.Value("i", 0), ctx.Value("i", 0)
+    ready, hold = ctx.Event(), ctx.Event()
+    workers = [
+        ctx.Process(
+            target=_worker,
+            args=(str(tmp_path), active, peak, ready, hold, 8, False, provider),
+        )
+        for provider in ("codex", "deepseek")
+        for _ in range(9)
+    ]
+    try:
+        for worker in workers:
+            worker.start()
+        import time
+
+        deadline = time.monotonic() + 25
+        while peak.value < 16 and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert peak.value == 16
+        hold.set()
+        for worker in workers:
+            worker.join(timeout=20)
+            assert worker.exitcode == 0
+        assert active.value == 0
+    finally:
+        hold.set()
+        for worker in workers:
+            if worker.is_alive():
+                worker.terminate()
+                worker.join(timeout=5)

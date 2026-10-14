@@ -10,9 +10,12 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator, Callable
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from typing import Any
+
+from infrastructure.llm.model_limits import get_model_limits
 
 SCENE_CALL_TIMEOUT_SECONDS = 900
 DISCOVERY_OUTPUT_TOKENS = 393_216
@@ -95,3 +98,34 @@ async def resolve_scene_sampler(
 
 
 _SAMPLER_REGISTRY["project_llm"] = project_llm_sampler_factory
+
+
+class SceneMethodCaller:
+    """Serialize connection reads with journals; provider I/O may overlap."""
+
+    def __init__(self, db, request, snapshot):
+        self.db = db
+        self.request = request
+        self.snapshot = snapshot
+        self.session_gate = asyncio.Lock()
+        self.discovery_parallelism = (
+            get_model_limits(
+                snapshot["profile"]["provider_id"], snapshot["profile"]["model"]
+            ).concurrency
+            if snapshot
+            else 1
+        )
+
+    async def __call__(self, method, **inputs):
+        async with AsyncExitStack() as stack:
+            async with self.session_gate:
+                sampler = await stack.enter_async_context(
+                    resolve_scene_sampler(
+                        provider=self.request.sampler_provider,
+                        novel_id=self.request.novel_id,
+                        db=self.db,
+                        llm_snapshot=self.snapshot,
+                    )
+                )
+                await self.db.commit()
+            return await getattr(sampler, method)(**inputs)

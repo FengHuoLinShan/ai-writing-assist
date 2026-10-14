@@ -36,6 +36,8 @@ RUN apt-get update \
     && useradd --system --gid app --home-dir /app app \
     && python -m pip uninstall --yes pip
 
+RUN mkdir -m 0700 /app/model-admission && chown app:app /app/model-admission
+
 WORKDIR /app
 
 COPY --from=build --chown=app:app /app /app

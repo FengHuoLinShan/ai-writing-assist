@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from core.config import get_settings
 from infrastructure.embedding.client import (
     BgeEmbeddingClient,
     EmbeddingBatchQueueClosedError,
@@ -159,7 +160,7 @@ async def test_llm_client_generate_embedding_delegates_to_provider():
     provider.generate_embedding.assert_called_once()
     assert provider.generate_embedding.call_args.kwargs == {
         "text": "测试文本",
-        "model": None,
+        "model": get_settings().embedding_model,
     }
 
 

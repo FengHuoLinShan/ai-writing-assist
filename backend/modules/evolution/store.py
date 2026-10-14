@@ -61,7 +61,7 @@ class PostgresAttemptStore:
         run_key: str,
         *,
         mode: str,
-        budget_total: int = 0,
+        budget_total: int | None = 0,
         owner_epoch: int = 1,
         execution_mode: str = "live",
         llm_snapshot: dict[str, Any] | None = None,
@@ -96,6 +96,11 @@ class PostgresAttemptStore:
                     "stale_owner", "project engine generation changed"
                 )
             return existing
+        if budget_total is None:
+            from infrastructure.llm.model_limits import confirmed_scope_eligible
+
+            if not confirmed_scope_eligible(llm_snapshot):
+                raise ValueError("scope budget requires a verified frozen Luna profile")
         if execution_mode == "live":
             # E07.c 单写者门禁：同项目同时只有一个 live 写入 run；
             # shadow run 只读来源、产物隔离，不占写入位。预检后仍以
@@ -295,7 +300,7 @@ class PostgresAttemptStore:
         await self._db.flush()
         return run
 
-    async def reserve_budget(self, run_key: str, units: int) -> int:
+    async def reserve_budget(self, run_key: str, units: int) -> int | None:
         """原子预留根预算（T21）：剩余不足即失败，绝不透支。
 
         仅 active run 可预留（返修 R5）：排空/停止的 run 不再消耗预算。
@@ -303,6 +308,30 @@ class PostgresAttemptStore:
         if units <= 0:
             raise ValueError("budget reservation must be positive")
         await self.require_project_owner(run_key)
+        run = await self.load_run(run_key)
+        if run is not None and run.budget_remaining is None:
+            from infrastructure.llm.model_limits import confirmed_scope_eligible
+
+            if not (run.reading_plan_json or {}).get(
+                "budget_mode"
+            ) == "confirmed_scope" or not confirmed_scope_eligible(run.llm_snapshot_json):
+                raise ValueError("scope budget authorization is missing")
+            result = await self._db.execute(
+                update(EvolutionRun)
+                .where(
+                    EvolutionRun.novel_id == self._novel_id,
+                    EvolutionRun.run_key == run_key,
+                    EvolutionRun.status == "active",
+                    EvolutionRun.budget_remaining.is_(None),
+                )
+                .values(budget_remaining=None)
+            )
+            if result.rowcount != 1:
+                raise CommitConflictError(
+                    "run_not_active", "scope run is no longer active"
+                )
+            await self._db.flush()
+            return None
         result = await self._db.execute(
             update(EvolutionRun)
             .where(

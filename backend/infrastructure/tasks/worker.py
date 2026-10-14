@@ -371,7 +371,16 @@ class TaskRunEnvelopeKeeper:
                 if self._registry is not None
                 else None
             )
-            if request_limit is None:
+            policy = (
+                self._registry.resolve_run_budget_policy(self._task.task_type, self._task)
+                if self._registry
+                else {"budget_mode": "bounded"}
+            )
+            if policy is None:
+                return None
+            if policy["budget_mode"] == "confirmed_scope":
+                request_limit = token_limit = None
+            if request_limit is None and policy["budget_mode"] != "confirmed_scope":
                 raise AIRunIdentityError(
                     "declared task must freeze run_request_limit before opening "
                     "an AI run envelope",
@@ -391,6 +400,7 @@ class TaskRunEnvelopeKeeper:
                 # 领域按 L0 = min(A, H) 冻结真实额度；已声明任务不得使用
                 # 通用临时额度。
                 request_limit=request_limit,
+                **policy,
                 token_limit=token_limit,
                 deadline_at=(
                     datetime.now(UTC) + timedelta(seconds=deadline_seconds)
@@ -629,9 +639,7 @@ class TaskWorker:
         # handlers, preflight, finalize and recovery all run inside this scope.
         with system_execution_scope():
             async with self._db_manager.session_factory() as session:
-                task = await self._claim_task(
-                    session, task_id=task_id, novel_id=novel_id
-                )
+                task = await self._claim_task(session, task_id=task_id, novel_id=novel_id)
                 if task is None:
                     return None
             return await self._execute_claimed_task(task)

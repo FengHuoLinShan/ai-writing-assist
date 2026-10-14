@@ -288,7 +288,8 @@ def test_world_group_adoption_scopes_cross_group_identity_dependencies():
     ]
 
 
-def test_large_world_audit_splits_candidates_and_keeps_exact_source_ranges():
+@pytest.mark.parametrize("native", [False, True])
+def test_large_world_audit_splits_candidates_and_keeps_exact_source_ranges(native):
     names = ["角色甲", "角色乙", "角色丙"]
     quotes = [f"{name}留下独立线索。" for name in names]
     scene_text = (
@@ -299,7 +300,7 @@ def test_large_world_audit_splits_candidates_and_keeps_exact_source_ranges():
             "name": name,
             "entity_type": "character",
             "suggested_action": "create_new",
-            "summary": "概" * 16_000,
+            "summary": "概" * (60000 if native else 16000),
             "public_info": "",
             "hidden_truth": "",
             "quote": quote,
@@ -353,19 +354,56 @@ def test_large_world_audit_splits_candidates_and_keeps_exact_source_ranges():
         start_offset=0,
         end_offset=len(scene_text),
     )
+    if native:
+        from infrastructure.llm.tests.test_luna_context_scope import luna_snapshot
+
+        payload["world_version"] = 3
     prepared = prepare_world_audit_groups(
         payload=payload,
         source=source,
         run=SimpleNamespace(
-            llm_snapshot_json={"profile": {"model": "deepseek-v4-flash"}}
+            llm_snapshot_json=luna_snapshot()
+            if native
+            else {"profile": {"model": "deepseek-v4-flash"}}
         ),
         novel_id="novel",
         attempt_id="attempt",
     )
     groups = prepared["groups"]
+    if native:
+        from dataclasses import replace
+
+        from infrastructure.llm.capabilities import capability_from_execution_snapshot
+
+        snapshot = luna_snapshot()
+        assert prepared["context_snapshot"] == snapshot
+        capability = capability_from_execution_snapshot(snapshot)
+        snapshot["llm_capability_profile"] = replace(
+            capability,
+            native_auto_compact_tokens=capability.native_auto_compact_tokens - 1,
+        ).to_snapshot()
+        changed = prepare_world_audit_groups(
+            payload=payload,
+            source=source,
+            run=SimpleNamespace(llm_snapshot_json=snapshot),
+            novel_id="novel",
+            attempt_id="attempt",
+        )
+        assert changed["groups"] == groups
+        assert changed != prepared
+    else:
+        assert "context_snapshot" not in prepared
     assert len(json.dumps(entities, ensure_ascii=False)) > 45_000
     assert len(groups) == 3
-    assert all(group["spec"] and group["audit_input_chars"] < 45_000 for group in groups)
+    assert all(group["spec"] for group in groups)
+    assert all(
+        (
+            group["audit_input_chars"] > 45000
+            if native
+            else group["audit_input_chars"] < 45000
+        )
+        for group in groups
+    )
     for group in groups:
         interval = json.loads(group["scope"]["context"])["source_intervals"][0]
         quote_range = interval["occurrences"][0]["quote_ranges"][0]

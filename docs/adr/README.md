@@ -80,3 +80,5 @@ C3 任务仍按 ADR-0023/0025 的授权和领域边界暂停，不以通用临�
 完整性由 `docs/architecture/architecture-documents.toml` 和
 `scripts/check_architecture_docs.py` 自动校验；`docs/README.md` 只链接本索引，不再手工维护
 一份容易漏项的 ADR 子集。
+
+ADR-0033 的 2026-10-14 已授权修订登记独立模型池、Luna 500k 完整输入与确定性 confirmed_scope；旧恢复限制保留。

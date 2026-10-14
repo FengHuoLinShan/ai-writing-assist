@@ -27,7 +27,7 @@
         <mxCell id="6" value="infrastructure/tasks&#10;PostgreSQL async_tasks · enqueuer → worker&#10;项目任务 + 地图册全局清理" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontColor=#713f12;fontSize=13;fontStyle=1;spacing=8;" vertex="1" parent="4">
           <mxGeometry x="920" y="55" width="280" height="75" as="geometry" />
         </mxCell>
-        <mxCell id="7" value="infrastructure/llm&#10;受控 step + 有限 PydanticAI 核心&#10;项目连接 · 工具协议 · 累计预算" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontColor=#713f12;fontSize=13;fontStyle=1;spacing=8;" vertex="1" parent="4">
+        <mxCell id="7" value="infrastructure/llm&#10;受控 step + 有限 PydanticAI 核心&#10;项目连接 · 模型池 · 有限/范围预算" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontColor=#713f12;fontSize=13;fontStyle=1;spacing=8;" vertex="1" parent="4">
           <mxGeometry x="1220" y="55" width="280" height="75" as="geometry" />
         </mxCell>
 

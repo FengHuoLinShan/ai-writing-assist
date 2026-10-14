@@ -17,6 +17,7 @@ from infrastructure.llm.capabilities import (
     LLM_CAPABILITY_EXECUTION_KEY,
     LLM_CAPABILITY_SNAPSHOT_KEY,
     LLMCapabilityError,
+    capability_from_execution_settings,
     capability_from_execution_snapshot,
     legacy_capability_snapshot,
     resolve_llm_capability_profile,
@@ -389,7 +390,9 @@ def create_project_snapshot_llm_client(
         # Keep provider identity/credentials; only extend this explicit quality run.
         profile = replace(profile, timeout=max(profile.timeout, 900))
     client = LLMClient.from_resolved_profile(
-        profile, **({"high_quality": True} if high_quality else {})
+        profile,
+        execution_capability=capability_from_execution_settings(project_settings),
+        **({"high_quality": True} if high_quality else {}),
     )
     _bind_codex_authorization(client, profile, novel_id)
     # B5：恢复任务按快照固化的路由配置执行；快照缺 cost_routing 键

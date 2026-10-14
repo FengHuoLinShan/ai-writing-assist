@@ -102,11 +102,16 @@ async def build_cost_routing(
     candidates = verified_secondary_models(account_provider_id, secondary)
     if not candidates:
         return routing
+    from infrastructure.llm.capabilities import resolve_llm_capability_profile
+
     routing.update(
         {
             "enabled": True,
             "cheap_model": candidates[0],
             "capability_ids": sorted(cheap_capability_ids()),
+            "llm_capability_profile": resolve_llm_capability_profile(
+                account_provider_id, candidates[0]
+            ).to_snapshot(),
         }
     )
     return routing

@@ -21,15 +21,19 @@ handler 走真实路径（返修 R2/R4/R6 + 2026-09-22 审查 A02/A08）：
 from __future__ import annotations
 
 import asyncio
-from contextlib import AsyncExitStack
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.config import get_codex_text_concurrency
 from infrastructure.tasks.facade import enqueue_coalesced_task
 from infrastructure.tasks.registry import task_handler
+from modules.evolution.budget import (
+    run_budget_meta,
+    task_budget_policy,
+    task_request_limit,
+)
+from modules.evolution.sampler import SceneMethodCaller
 from modules.evolution.state_review import has_unreconciled_scene_calls
 from modules.evolution.world_audit_supplement import (
     handle_world_audit_supplement as _handle_world_audit_supplement,
@@ -64,17 +68,23 @@ class EvolutionSceneStepRequest(EvolutionSourceRange):
     additional_sources: list[EvolutionSourceRange] = Field(
         default_factory=list, max_length=15
     )
-    budget_total: int = Field(default=10, ge=0)
+    budget_total: int | None = Field(default=10, ge=0)
     execution_mode: str = Field(default="live", pattern="^(live|shadow)$")
     sampler_provider: str = Field(default="project_llm")
     source_revisions: list[dict[str, str]] = Field(default_factory=list, max_length=16)
     state_review_version: Literal[0, 1] = 1
     enrichment_version: Literal[0, 1] = 0
-    world_version: Literal[0, 1, 2] = 0
-    discovery_version: Literal[0, 1] = 0
+    world_version: Literal[0, 1, 2, 3] = 0
+    discovery_version: Literal[0, 1, 2] = 0
 
 
-@task_handler("evolution_scene_step_v2", recovery_policy="manual_resume")
+@task_handler(
+    "evolution_scene_step_v2",
+    recovery_policy="manual_resume",
+    root_capability_id="evolution.scene_observe",
+    run_budget_policy=task_budget_policy,
+    run_request_limit=task_request_limit,
+)
 async def handle_evolution_scene_step(db: AsyncSession, task) -> dict[str, Any]:
     meta = dict(task.meta or {})
     novel_id = str(meta.get("novel_id") or task.novel_id)
@@ -153,7 +163,9 @@ async def handle_evolution_scene_step(db: AsyncSession, task) -> dict[str, Any]:
                         )
                     )
                     or (
-                        not pending and run.budget_remaining > 0 and run.llm_snapshot_json
+                        not pending
+                        and (run.budget_remaining is None or run.budget_remaining > 0)
+                        and run.llm_snapshot_json
                     )
                 )
             )
@@ -186,37 +198,6 @@ async def handle_evolution_scene_step(db: AsyncSession, task) -> dict[str, Any]:
                 # revokes its lease and fails the checkpoint above instead.
                 raise RuntimeError("理解任务中断，已保存结果可恢复") from error
         raise
-
-
-class _SceneMethodCaller:
-    """Serialize connection reads with journals; provider I/O may overlap."""
-
-    def __init__(self, db, request, snapshot):
-        self.db = db
-        self.request = request
-        self.snapshot = snapshot
-        self.session_gate = asyncio.Lock()
-        self.discovery_parallelism = (
-            get_codex_text_concurrency()
-            if (snapshot or {}).get("profile", {}).get("provider_id") == "codex"
-            else 1
-        )
-
-    async def __call__(self, method, **inputs):
-        from modules.evolution.sampler import resolve_scene_sampler
-
-        async with AsyncExitStack() as stack:
-            async with self.session_gate:
-                sampler = await stack.enter_async_context(
-                    resolve_scene_sampler(
-                        provider=self.request.sampler_provider,
-                        novel_id=self.request.novel_id,
-                        db=self.db,
-                        llm_snapshot=self.snapshot,
-                    )
-                )
-                await self.db.commit()
-            return await getattr(sampler, method)(**inputs)
 
 
 async def _execute_scene_step(db: AsyncSession, task) -> dict[str, Any]:
@@ -519,7 +500,7 @@ async def _execute_scene_step(db: AsyncSession, task) -> dict[str, Any]:
             await db.commit()  # resolving the frozen project connection reads the DB
             return await reviewer.verify_state_events(**inputs)
 
-    call_scene_method = _SceneMethodCaller(db, request, run.llm_snapshot_json)
+    call_scene_method = SceneMethodCaller(db, request, run.llm_snapshot_json)
 
     replayed = await recover_scene_step(
         db,
@@ -621,6 +602,7 @@ async def enqueue_evolution_scene_step(
         llm_snapshot=snapshot,
     )
 
+    meta.update(run_budget_meta(await store.load_run(request.run_key)))
     enqueued = await enqueue_coalesced_task(
         db,
         task_type="evolution_scene_step_v2",
@@ -637,12 +619,24 @@ async def enqueue_evolution_scene_step(
     return {"task_id": str(enqueued.task_id), "status": str(enqueued.status)}
 
 
-@task_handler("evolution_world_audit_supplement_v1", recovery_policy="manual_resume")
+@task_handler(
+    "evolution_world_audit_supplement_v1",
+    recovery_policy="manual_resume",
+    root_capability_id="evolution.state_review",
+    run_budget_policy=task_budget_policy,
+    run_request_limit=task_request_limit,
+)
 async def handle_world_audit_supplement(db, task):
     return await _handle_world_audit_supplement(db, task)
 
 
-@task_handler("evolution_category_rescan_v1", recovery_policy="manual_resume")
+@task_handler(
+    "evolution_category_rescan_v1",
+    recovery_policy="manual_resume",
+    root_capability_id="evolution.scene_observe",
+    run_budget_policy=task_budget_policy,
+    run_request_limit=task_request_limit,
+)
 async def handle_category_rescan(db, task):
     from modules.evolution.category_rescan import handle_category_rescan as execute
 

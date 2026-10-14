@@ -958,7 +958,9 @@ async def test_remote_embedding_is_metred_by_the_run_envelope(
     client = _client(provider, max_attempts=1)
     monkeypatch.setattr(
         "infrastructure.llm.client.get_settings",
-        lambda: SimpleNamespace(embedding_provider="openai"),
+        lambda: SimpleNamespace(
+            embedding_provider="openai", embedding_model="embedding-model"
+        ),
     )
     ledger = AIRunEnvelope(_raw_envelope(request_limit=6))
 
@@ -1048,3 +1050,45 @@ async def test_complete_stream_structured_counts_once_and_never_replays(
         assert receipt["usage"]["completion_tokens"] == 3
         assert receipt["usage"]["total_tokens"] == 5
         assert receipt["usage"]["unknown_attempts"] == 0
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("provider_id", ["deepseek", "codex"])
+async def test_scope_checks_actual_provider_before_any_request(
+    streaming, provider_id, monkeypatch
+):
+    from infrastructure.llm.workflow_budget import AIRunIdentityError, new_ai_run_envelope
+
+    provider = _StreamProvider([]) if streaming else _TextProvider()
+    client = _client(provider)
+    client._limiter_provider_id = provider_id
+    monkeypatch.setattr(
+        "infrastructure.llm.codex_identity.codex_login_identity",
+        lambda: "synthetic-scope",
+    )
+    ledger = new_ai_run_envelope(
+        operation_id="scope",
+        run_id="scope",
+        root_capability_id="evolution.reading",
+        novel_id="n",
+        request_limit=None,
+        budget_mode="confirmed_scope",
+        scope_fingerprint="a" * 64,
+    )
+    with (
+        ai_run_scope(ledger),
+        managed_step_scope(
+            _step(profile_summary={"provider_id": "codex", "model": "gpt-6-luna"})
+        ),
+    ):
+        with pytest.raises(AIRunIdentityError):
+            if streaming:
+                async for _ in client.generate_stream(
+                    _request(), transport_retries=False
+                ):
+                    pass
+            else:
+                await client.generate(_request(), transport_retries=False)
+    assert ledger.snapshot().requests_started == 0
+    assert (provider.opens if streaming else len(provider.requests)) == 0
+    await client.close()

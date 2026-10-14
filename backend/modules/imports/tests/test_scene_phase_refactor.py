@@ -797,8 +797,8 @@ def test_phase1a_and_phase1b_default_concurrency(
     async def llm(_payload):
         return {}
 
-    assert Phase1aSceneSlicer(llm).concurrency == 50
-    assert Phase1bSceneEnricher(llm).concurrency == 200
+    assert Phase1aSceneSlicer(llm).concurrency == 8
+    assert Phase1bSceneEnricher(llm).concurrency == 8
     monkeypatch.setenv("PHASE1B_ENRICH_MAX_TOKENS", "4096")
     assert Phase1bSceneEnricher(llm, max_tokens=32_768).max_tokens == 32_768
 
@@ -1140,7 +1140,7 @@ async def test_codex_enrichment_admits_before_work_starts_and_keeps_every_scene(
         for index in range(12)
     ]
     result = await enricher.run(scenes=scenes, chapters=[])
-    assert peak == 2
+    assert peak == 8
     assert [item.candidate_id for item in result.candidates] == [
         item.candidate_id for item in scenes
     ]

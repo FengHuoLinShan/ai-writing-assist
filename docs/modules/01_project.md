@@ -240,3 +240,5 @@ ADR-0033 的 Codex 文本连接只在本机单用户 bootstrap owner 下开放�
 Codex执行快照对未设置的导入Phase 2超时采用本机Luna/max默认值：provider 900秒、Phase 2a整场1800秒、Phase 2b单场900秒。显式参数、环境优先级和冻结恢复保留；API默认值不变。
 
 Codex v3冻结快照显式保存包装版本和固定指令SHA256；旧/缺失包装stamp不恢复。每次原生请求在预留前回读当前Project owner已验证连接，断开或登录账户/CLI漂移后即使已打开客户端也停止。Token刷新可继续，旧local_agent文本快照仍关闭，读取历史回执不要求重启模型。
+
+新项目快照的 `cost_routing.llm_capability_profile` 固化同连接附加型号的输入能力，恢复与最终发送不借主型号预算。旧快照缺字段保留既有无额外输入额度规则，不读取当前设置重新盖章。

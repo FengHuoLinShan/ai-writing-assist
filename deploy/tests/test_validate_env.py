@@ -42,8 +42,7 @@ def _valid_values() -> dict[str, str]:
         "HTTP_RATE_LIMIT_PER_MINUTE": "120",
         "HTTP_RATE_LIMIT_BURST": "30",
         "HTTP_RATE_LIMIT_MAX_CLIENTS": "10000",
-        "LLM_RATE_LIMIT_PER_MINUTE": "0",
-        "LLM_MAX_CONCURRENT_REQUESTS": "4",
+        "LLM_MODEL_LIMITS_JSON": "{}",
         "TASK_WORKER_MAX_CONCURRENT_TASKS": "1",
         "BACKUP_RETENTION_DAYS": "30",
         "LLM_SETTINGS_ENCRYPTION_KEY": base64.urlsafe_b64encode(b"k" * 32).decode(),
@@ -145,9 +144,9 @@ def test_public_example_keeps_operator_bound_mail_settings_as_placeholders() -> 
     )
 
 
-def test_production_can_disable_global_llm_rpm() -> None:
+def test_production_defaults_to_independent_model_pools() -> None:
     values = _valid_values()
-    values["LLM_RATE_LIMIT_PER_MINUTE"] = "0"
+    values["LLM_MODEL_LIMITS_JSON"] = "{}"
 
     assert validator.validate(values) == []
 
@@ -271,13 +270,13 @@ def test_minio_root_credentials_must_differ_from_runtime_credentials() -> None:
     )
 
 
-def test_negative_global_llm_rpm_is_rejected() -> None:
+def test_negative_model_rpm_is_rejected() -> None:
     values = _valid_values()
-    values["LLM_RATE_LIMIT_PER_MINUTE"] = "-1"
+    values["LLM_MODEL_LIMITS_JSON"] = '{"api/deepseek/model":{"rpm":-1}}'
 
     errors = validator.validate(values)
 
-    assert any("LLM_RATE_LIMIT_PER_MINUTE" in error for error in errors)
+    assert any("LLM_MODEL_LIMITS_JSON" in error for error in errors)
 
 
 @pytest.mark.parametrize(
@@ -576,3 +575,12 @@ def test_get_preserves_output_for_safe_file(tmp_path: Path) -> None:
     )
 
     assert result.stdout == "fixture-value\n"
+
+
+@pytest.mark.parametrize("selector", ["typo", "api/codex/gpt-6-luna", "subscription/deepseek/m", "api//m", "api/ds/", "api/ds/m*"])
+def test_model_limit_selectors_reject_ignored_configuration(selector):
+    import json
+
+    values = _valid_values()
+    values["LLM_MODEL_LIMITS_JSON"] = json.dumps({selector: {"concurrency": 1}})
+    assert any("LLM_MODEL_LIMITS_JSON" in error for error in validator.validate(values))

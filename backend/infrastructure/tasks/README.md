@@ -254,7 +254,7 @@ handler checkpoint 和 finalize 的 project/lease fence。preflight 期间不允
 `new / dirty / deleted`，因此不能仅凭 ORM 状态标记 attempt 失败；正常返回时
 边界 rollback 仍会丢弃这类 DML。preflight 实现不得使用 Core/driver 写入。
 `run_worker.py` 还会在注册 handler 前校验 LLM 运行配置；
-`LLM_RATE_LIMIT_PER_MINUTE=0` 表示关闭额外的进程级 RPM 限制；`--reload`
+`LLM_MODEL_LIMITS_JSON` 校验各独立模型池并发/RPM/输入额度（RPM默认0）；`--reload`
 模式会在启动 watchfiles 监督进程前先执行同一校验，并由每个重载后的子进程再次校验，
 避免配置错误时只退出子进程而留下空转的监督进程。
 
@@ -499,3 +499,15 @@ AI 用量汇总保留 `usage_complete`；旧恢复回执 `legacy_untracked` 即�
 请求未知先核对，沿用原理解 run 的根预算，并限制本操作调用上限。
 
 兼容投影 `update_task_projection` 默认只写 pending/running；领域在显式恢复已证实的失败时可传 `allow_failed=True` 修正失败投影，仍校验同 task_id/type/novel_id 并加锁，不覆盖 done/cancelled，也不绕过 manual_resume 策略或重置 AI 账本。
+
+## 新运行预算策略
+
+新 author-confirmed Luna 确定性流水线用 `confirmed_scope`，完成本次确认范围，
+不因固定请求数、累计 tokens 或金额暂停。AIRun envelope v2 显式记录模式、可空请求上限及范围指纹；
+未声明额度或授权策略不能把空值当放行。范围模式限已验证的冻结 Luna 模型，新队列仍经 owner、来源、
+active run 和 lease 检查；其他模型/有界 Agent 仍用有限预算，循环、工具和单次超时不变。
+Evolution `budget_total`/`budget_remaining` 允许成对为空；旧有限行原子扣减、旧信封保持原版本。
+存在范围数据时迁移拒绝降级。旧未跟踪队列明确保留领域预算 seam，不能冒充已完整跟踪。
+
+注册的 `run_budget_policy` 显式给出模式及范围绑定；普通注册仍必须冻结有限额度。
+Evolution 新队列绑定 `evolution_budget`，旧队列的注册迁移 seam 可保留未跟踪领域预算。

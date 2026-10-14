@@ -83,8 +83,22 @@ def _limit_settings(
     reset_seconds: float = 60.0,
 ) -> SimpleNamespace:
     return SimpleNamespace(
-        llm_max_concurrent_requests=max_concurrent_requests,
-        llm_rate_limit_per_minute=rate_limit_per_minute,
+        llm_model_limits_json=json.dumps(
+            {
+                f"api/{provider}/{model}": {
+                    "concurrency": max_concurrent_requests,
+                    "rpm": rate_limit_per_minute,
+                }
+                for provider in ("legacy", "custom", "openai", "deepseek")
+                for model in (
+                    "legacy",
+                    "fake",
+                    "deepseek-flash",
+                    "env-model",
+                    "embedding-model",
+                )
+            }
+        ),
         llm_circuit_breaker_failure_threshold=failure_threshold,
         llm_circuit_breaker_reset_seconds=reset_seconds,
     )
@@ -413,7 +427,9 @@ async def test_remote_embedding_uses_embedding_limiter_scope(monkeypatch) -> Non
     client._provider = RemoteProvider()  # type: ignore[assignment]
     monkeypatch.setattr(
         "infrastructure.llm.client.get_settings",
-        lambda: SimpleNamespace(embedding_provider="openai"),
+        lambda: SimpleNamespace(
+            embedding_provider="openai", embedding_model="embedding-model"
+        ),
     )
     monkeypatch.setattr(
         "infrastructure.llm.client.get_llm_limiter",
@@ -435,6 +451,7 @@ async def test_project_remote_embedding_routes_once_with_project_scope(
 ) -> None:
     settings = SimpleNamespace(
         embedding_provider="openai",
+        embedding_model="embedding-model",
         llm_retry_max_attempts=1,
         llm_retry_base_delay=0.0,
         llm_retry_max_delay=0.0,
@@ -491,6 +508,7 @@ async def test_project_remote_embedding_routes_once_with_project_scope(
             operation_kind="embedding",
             base_url="https://embedding.example/v1",
             provider_id="openai",
+            model="embedding-model",
         )
     ]
 
@@ -498,6 +516,7 @@ async def test_project_remote_embedding_routes_once_with_project_scope(
 @pytest.mark.asyncio
 async def test_usage_stats_omit_complete_endpoint_and_credentials() -> None:
     client = LLMClient.__new__(LLMClient)
+    client._execution_capability = None
     client._high_quality = False
     client.authorize_request = None
     client._provider = SimpleNamespace(
@@ -569,7 +588,9 @@ async def test_project_chat_profile_cannot_override_remote_embedding_client(
     independent = IndependentEmbeddingClient()
     monkeypatch.setattr(
         "infrastructure.llm.client.get_settings",
-        lambda: SimpleNamespace(embedding_provider="openai"),
+        lambda: SimpleNamespace(
+            embedding_provider="openai", embedding_model="embedding-model"
+        ),
     )
     monkeypatch.setattr(
         "infrastructure.llm.client.LLMClient",
@@ -593,7 +614,7 @@ async def test_project_chat_profile_cannot_override_remote_embedding_client(
 async def test_generate_uses_process_concurrency_limiter(monkeypatch) -> None:
     monkeypatch.setattr(
         "infrastructure.llm.limits.get_settings",
-        lambda: _limit_settings(max_concurrent_requests=1, rate_limit_per_minute=1),
+        lambda: _limit_settings(max_concurrent_requests=1),
     )
     first_client = LLMClient()
     second_client = LLMClient()
@@ -796,7 +817,8 @@ def test_limiter_scope_normalizes_endpoint_without_secrets() -> None:
         provider_id="other-model",
     )
 
-    assert first == second
+    assert first.endpoint == second.endpoint
+    assert first != second
     assert first.endpoint == "https://example.com/v1"
     assert "private" not in repr(first)
     assert "api_key" not in repr(first)
@@ -970,14 +992,14 @@ async def test_open_breaker_does_not_consume_global_admission_capacity(
     )
     await limiter.run(_async_noop, limiter_scope=scope)
     await limiter.record_failure(scope)
-    limiter._tokens = 1.0
-    semaphore = limiter._semaphore
+    next(iter(limiter._pools.values())).tokens = 1.0
+    semaphore = next(iter(limiter._pools.values())).semaphore
     assert semaphore is not None
 
     with pytest.raises(LLMCircuitBreakerOpenError):
         await limiter.run(_async_noop, limiter_scope=scope)
 
-    assert limiter._tokens == 1.0
+    assert next(iter(limiter._pools.values())).tokens == 1.0
     assert semaphore._value == 1
 
 
@@ -1062,7 +1084,7 @@ async def test_breaker_registry_fails_open_when_all_buckets_are_active_probes(
 
 
 @pytest.mark.asyncio
-async def test_different_scopes_share_global_rpm_bucket(monkeypatch) -> None:
+async def test_different_endpoints_have_independent_rpm_buckets(monkeypatch) -> None:
     now = 100.0
     monkeypatch.setattr("infrastructure.llm.limits.monotonic", lambda: now)
     monkeypatch.setattr(
@@ -1084,9 +1106,9 @@ async def test_different_scopes_share_global_rpm_bucket(monkeypatch) -> None:
     )
 
     await limiter.run(_async_noop, limiter_scope=first_scope)
-    assert limiter._tokens == 1.0
+    assert next(iter(limiter._pools.values())).tokens == 1.0
     await limiter.run(_async_noop, limiter_scope=second_scope)
-    assert limiter._tokens == 0.0
+    assert [pool.tokens for pool in limiter._pools.values()] == [1.0, 1.0]
 
 
 @pytest.mark.asyncio
@@ -1099,7 +1121,7 @@ async def test_ai_run_deadline_stops_rate_limit_wait(monkeypatch) -> None:
     )
     limiter = LLMProcessLimiter()
     await limiter._ensure_ready()
-    limiter._tokens = 0.0
+    await limiter.run(_async_noop)
     envelope = SimpleNamespace(remaining_seconds=lambda: 0.01, run_id="run-rate")
     monkeypatch.setattr(
         "infrastructure.llm.workflow_budget.current_ai_run_envelope",
@@ -1134,7 +1156,7 @@ async def test_ai_run_deadline_bounds_semaphore_wait(monkeypatch) -> None:
 
     first = asyncio.create_task(limiter.run(holder))
     await entered.wait()
-    limiter._tokens = 1.0
+    next(iter(limiter._pools.values())).tokens = 1.0
     envelope = SimpleNamespace(remaining_seconds=lambda: 0.01, run_id="run-slot")
     monkeypatch.setattr(
         "infrastructure.llm.workflow_budget.current_ai_run_envelope",
@@ -1149,7 +1171,7 @@ async def test_ai_run_deadline_bounds_semaphore_wait(monkeypatch) -> None:
     with pytest.raises(AIRunDeadlineExceededError):
         await limiter.run(provider)
     assert called is False
-    assert limiter._tokens == 1.0
+    assert next(iter(limiter._pools.values())).tokens == 1.0
     release.set()
     await first
 
@@ -1306,6 +1328,7 @@ async def test_client_accepts_real_provider_stream_coroutine_shape(monkeypatch) 
     provider._timeout = 15
 
     client = LLMClient.__new__(LLMClient)
+    client._execution_capability = None
     client._high_quality = False
     client.authorize_request = None
     client._provider = provider
@@ -1685,7 +1708,7 @@ async def test_generate_structured_direct_provider_path_uses_limiter(monkeypatch
 
     client._provider = FakeProvider()  # type: ignore[assignment]
     limiter = get_llm_limiter()
-    limiter_scope = client._limiter_scope("chat")
+    limiter_scope = client._limiter_scope("chat", "fake")
     await limiter.run(lambda: _async_noop(), limiter_scope=limiter_scope)
     await limiter.record_failure(limiter_scope)
 

@@ -523,7 +523,9 @@ class AIRunEnvelopeV1(BaseModel):
 
     def request_budget_exhausted(self) -> bool:
         """请求额度闸门的唯一权威谓词；reserve 与恢复判定共用。"""
-        return self.requests_started >= self.request_limit
+        return (
+            self.request_limit is not None and self.requests_started >= self.request_limit
+        )
 
     def token_budget_exhausted(self) -> bool:
         """累计 token 闸门：按已结算用量判定；未声明 token_limit 时恒 False。"""
@@ -535,7 +537,7 @@ class AIRunEnvelopeV1(BaseModel):
     def validate_ledger(self) -> AIRunEnvelopeV1:
         if self.requests_settled + self.requests_unknown > self.requests_started:
             raise ValueError("settled and unknown requests cannot exceed started")
-        if self.requests_started > self.request_limit:
+        if self.request_limit is not None and self.requests_started > self.request_limit:
             raise ValueError("requests_started exceeds the frozen request_limit")
         if len(self.recent_attempts) > AI_RUN_RECENT_ATTEMPT_LIMIT:
             raise ValueError("recent attempt summary must stay bounded")
@@ -560,6 +562,32 @@ class AIRunEnvelopeV1(BaseModel):
         return self
 
 
+class AIRunEnvelopeV2(AIRunEnvelopeV1):
+    """Explicit scope authorization; null is never an undeclared budget."""
+
+    version: Literal[2] = 2
+    budget_mode: Literal["bounded", "confirmed_scope"]
+    request_limit: int | None = Field(default=None, ge=0)
+    scope_fingerprint: str | None = Field(default=None, pattern="^[a-f0-9]{64}$")
+    budget_provider_id: str | None = None
+    budget_model: str | None = None
+
+    @model_validator(mode="after")
+    def validate_budget_policy(self):
+        if self.budget_mode == "bounded":
+            if self.request_limit is None:
+                raise ValueError("bounded budget requires request_limit")
+        elif (
+            self.request_limit is not None
+            or self.token_limit is not None
+            or not self.scope_fingerprint
+            or (self.budget_provider_id, self.budget_model) != ("codex", "gpt-6-luna")
+            or not self.root_capability_id.startswith(("imports.", "evolution."))
+        ):
+            raise ValueError("confirmed_scope requires a frozen deterministic Luna scope")
+        return self
+
+
 class AIRunEnvelopeVersionError(ValueError):
     """信封版本无法识别；调用方必须失败关闭而不是猜测。"""
 
@@ -576,6 +604,8 @@ def read_ai_run_envelope(payload: Any) -> AIRunEnvelopeV1 | None:
         version = payload.get("version")
         if version is None:
             return None
+        if version == 2:
+            return AIRunEnvelopeV2.model_validate(payload)
         if version != AI_RUN_ENVELOPE_VERSION:
             raise AIRunEnvelopeVersionError(
                 f"unsupported AI run envelope version {version!r}"

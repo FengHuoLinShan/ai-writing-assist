@@ -311,3 +311,37 @@ it("后续完成仍显示作者确认的未检查缺口", async () => {
   expect(status).toHaveBeenCalledTimes(1)
   wrapper.unmount()
 })
+
+it("uses the confirmed range instead of a request quota for new Luna", async () => {
+  const status = vi.fn().mockResolvedValue({ engine: { engine: "evolution" }, run: null, default_budget_mode: "confirmed_scope" })
+  const preview = vi.fn().mockResolvedValue({ fingerprint: "f".repeat(64), scene_count: 2, budget_mode: "confirmed_scope", request_limit: null, model: "gpt-6-luna" })
+  setBridgeOverrides({ api: { evolution: { status, preview } } })
+  const wrapper = mount(ReadingFlow, { props: { projectId: "p", entry: true } })
+  await flushPromises()
+  expect(wrapper.text()).toContain("完成本次确认范围")
+  expect(wrapper.text()).not.toContain("本次最多调用模型")
+  await wrapper.find("form").trigger("submit")
+  await flushPromises()
+  expect(preview.mock.calls[0][1].request_limit).toBeNull()
+  expect(wrapper.text()).not.toContain("合计最多调用模型")
+  wrapper.unmount()
+})
+
+
+it.each([
+  ["bounded", "confirmed_scope", 20],
+  ["confirmed_scope", "bounded", null],
+])("category rescan inherits %s even when recomputation uses %s", async (budgetMode, defaultMode, expectedLimit) => {
+  const status = vi.fn().mockResolvedValue({ engine: { engine: "evolution", epoch: 1 }, default_budget_mode: defaultMode, run: {
+    run_key: "old", status: "completed", completed_scenes: 1, total_scenes: 1, end_chapter: 1, budget_mode: budgetMode,
+    discovery_categories: [{ key: "language_habit", label: "语言习惯" }], category_rescans: [],
+  } })
+  const categoryRescanPreview = vi.fn().mockResolvedValue({ fingerprint: "a".repeat(64), budget_mode: budgetMode })
+  setBridgeOverrides({ api: { evolution: { status, categoryRescanPreview } } })
+  const wrapper = mount(ReadingFlow, { props: { projectId: "p" } })
+  await open(wrapper)
+  await wrapper.get('form .reading-recompute-toggle input').setValue(true)
+  await button(wrapper, "预览类别补扫").trigger("click"); await flushPromises()
+  expect(categoryRescanPreview.mock.calls[0][2].request_limit).toBe(expectedLimit)
+  wrapper.unmount()
+})

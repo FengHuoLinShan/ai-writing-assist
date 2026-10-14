@@ -14,18 +14,20 @@ def serialized_size(value):
     return len(json.dumps(value, ensure_ascii=False, sort_keys=True))
 
 
-def scene_windows(text, observations):
+def scene_windows(text, observations, *, characters=SCENE_CHARACTERS):
     """Keep short Scenes whole; long Scenes retain every character and observation.
 
     An observation is assigned once to a window containing all its verbatim
     quotes. If quotes span windows, retain their enclosing original text as an
     indivisible unit, with an explicit capacity deferral if it cannot fit.
     """
-    if len(text) <= SCENE_CHARACTERS:
+    if len(text) <= characters:
         return [(0, len(text), observations)]
     windows = []
-    for start in range(0, len(text), SCENE_CHARACTERS - SCENE_OVERLAP):
-        windows.append([start, min(len(text), start + SCENE_CHARACTERS), []])
+    for start in range(
+        0, len(text), max(1, characters - min(SCENE_OVERLAP, characters // 4))
+    ):
+        windows.append([start, min(len(text), start + characters), []])
         if windows[-1][1] == len(text):
             break
     for item in observations:
@@ -108,6 +110,12 @@ def build_batches(
     semantics,
     recall_scope,
     chunks,
+    part_budget=PART_CHARACTERS,
+    request_budget=REQUEST_CHARACTERS,
+    scene_characters=SCENE_CHARACTERS,
+    measure=serialized_size,
+    fits=None,
+    review_headroom=12000,
 ):
     index_fields = (
         "entry_id",
@@ -125,13 +133,9 @@ def build_batches(
         {key: descriptor[key] for key in index_fields}
         for descriptor in sorted(descriptors, key=lambda item: item["entry_id"])
     ]
-    index_shards = chunks(index, budget=PART_CHARACTERS) or [[]]
+    index_shards = chunks(index, budget=part_budget) or [[]]
     primary = next(
-        (
-            i
-            for i, shard in enumerate(index_shards)
-            if serialized_size(shard) <= PART_CHARACTERS
-        ),
+        (i for i, shard in enumerate(index_shards) if measure(shard) <= part_budget),
         None,
     )
     # One indivisible giant descriptor must not poison every context batch.
@@ -143,8 +147,10 @@ def build_batches(
         else [[], *index_shards]
     )
     batches, unsupported, scopes = [], [], []
-    for start, end, observations in scene_windows(text, current):
-        for group in chunks(observations, budget=PART_CHARACTERS) or [[]]:
+    for start, end, observations in scene_windows(
+        text, current, characters=scene_characters
+    ):
+        for group in chunks(observations, budget=part_budget) or [[]]:
             new_assigned = False
             # Theme updates see each context once. Routing shards are checked
             # exhaustively in separate new-theme identity reviews, not multiplied
@@ -161,12 +167,10 @@ def build_batches(
             }
             # Reserve review headroom; the final review payload is still checked.
             context_budget = max(
-                PART_CHARACTERS,
-                REQUEST_CHARACTERS
-                - serialized_size(
-                    {**base, "allow_new_themes": True, "partition_id": "0" * 64}
-                )
-                - 12000,
+                part_budget,
+                request_budget
+                - measure({**base, "allow_new_themes": True, "partition_id": "0" * 64})
+                - review_headroom,
             )
             contexts = chunks(context_units, budget=context_budget) or [[]]
             for context in contexts:
@@ -177,10 +181,10 @@ def build_batches(
                 }
                 if (
                     not new_assigned
-                    and serialized_size(
+                    and measure(
                         {**batch, "allow_new_themes": True, "partition_id": "0" * 64}
                     )
-                    <= REQUEST_CHARACTERS
+                    <= request_budget
                 ):
                     batch["allow_new_themes"] = True
                     new_assigned = True
@@ -205,7 +209,11 @@ def build_batches(
                         **scope,
                     }
                 )
-                if serialized_size(batch) > REQUEST_CHARACTERS:
+                if (
+                    not fits(batch)
+                    if fits is not None
+                    else serialized_size(batch) > REQUEST_CHARACTERS
+                ):
                     unsupported.append(len(batches))
                 batches.append(batch)
     return batches, unsupported, scopes, index_shards

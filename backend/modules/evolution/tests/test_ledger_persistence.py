@@ -455,7 +455,8 @@ async def test_question_proposal_preserves_supported_baseline_and_routing(
     )
 
     monkeypatch.setattr(
-        "modules.evolution.discovery.method_fingerprint", lambda: "changed-method"
+        "modules.evolution.discovery.method_fingerprint",
+        lambda version=1: "changed-method",
     )
     stale_inputs = await prepare_discovery(
         db,

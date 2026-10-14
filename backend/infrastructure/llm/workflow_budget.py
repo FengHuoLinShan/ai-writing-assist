@@ -26,6 +26,7 @@ from infrastructure.llm.schemas import (
     AIRunAuthorizationReason,
     AIRunAuthorizationV1,
     AIRunEnvelopeV1,
+    AIRunEnvelopeV2,
     AIRunStatus,
     AIStepAttemptV1,
     AIStepCallKind,
@@ -236,7 +237,9 @@ def new_ai_run_envelope(
     run_id: str,
     root_capability_id: str,
     novel_id: str,
-    request_limit: int,
+    request_limit: int | None,
+    budget_mode: str | None = None,
+    scope_fingerprint: str | None = None,
     token_limit: int | None = None,
     deadline_at: datetime | None = None,
     previous_run_id: str | None = None,
@@ -245,8 +248,24 @@ def new_ai_run_envelope(
     started_at: datetime | None = None,
 ) -> AIRunEnvelope:
     """按领域冻结的额度与 deadline 建立 v1 运行账本。"""
+    if budget_mode not in {None, "bounded", "confirmed_scope"}:
+        raise ValueError("run budget policy must be declared")
     return AIRunEnvelope(
-        AIRunEnvelopeV1(
+        (AIRunEnvelopeV2 if budget_mode is not None else AIRunEnvelopeV1)(
+            **(
+                {
+                    "budget_mode": budget_mode,
+                    "scope_fingerprint": scope_fingerprint,
+                    "budget_provider_id": "codex"
+                    if budget_mode == "confirmed_scope"
+                    else None,
+                    "budget_model": "gpt-6-luna"
+                    if budget_mode == "confirmed_scope"
+                    else None,
+                }
+                if budget_mode is not None
+                else {}
+            ),
             operation_id=operation_id,
             run_id=run_id,
             previous_run_id=previous_run_id,
@@ -333,7 +352,7 @@ class AIRunEnvelope:
         return self._envelope.root_capability_id
 
     @property
-    def request_limit(self) -> int:
+    def request_limit(self) -> int | None:
         return self._envelope.request_limit
 
     def remaining_seconds(self) -> float | None:
@@ -352,7 +371,11 @@ class AIRunEnvelope:
 
     @_serialized
     async def reserve(
-        self, *, purpose: AIStepPurpose | None = None
+        self,
+        *,
+        purpose: AIStepPurpose | None = None,
+        provider_id: str | None = None,
+        model: str | None = None,
     ) -> AIRunRequestReservation:
         """预留一次 provider 请求；被预算/deadline 拒绝时不产生任何计数。
 
@@ -383,6 +406,22 @@ class AIRunEnvelope:
             raise AIRunDeadlineExceededError(
                 "run deadline passed before the request started", run_id=self.run_id
             )
+        if (
+            isinstance(self._envelope, AIRunEnvelopeV2)
+            and self._envelope.budget_mode == "confirmed_scope"
+        ):
+            profile = context.profile_summary
+            if (profile.get("provider_id"), profile.get("model")) != (
+                "codex",
+                "gpt-6-luna",
+            ) or (
+                provider_id is not None
+                and (provider_id, model) != ("codex", "gpt-6-luna")
+            ):
+                raise AIRunIdentityError(
+                    "confirmed_scope cannot authorize a different model",
+                    run_id=self.run_id,
+                )
         if self._envelope.request_budget_exhausted():
             raise AIRunBudgetExceededError(
                 "run request limit reached; only an explicit author authorization "
@@ -527,6 +566,10 @@ class AIRunEnvelope:
             raise ValueError("additional requests must be positive")
         if additional_tokens < 0:
             raise ValueError("additional tokens must be nonnegative")
+        if self._envelope.request_limit is None:
+            raise ValueError(
+                "confirmed_scope does not accept additional request allowances"
+            )
         revision = self._envelope.authorization_revision + 1
         self._envelope.authorization_revision = revision
         self._envelope.request_limit += additional
@@ -602,9 +645,7 @@ class AIRunEnvelope:
             profile_summary=profile_summary,
             input_fingerprint=safe_receipt_token(context.input_fingerprint, limit=128)
             or None,
-            prompt_contract_id=safe_receipt_token(
-                context.prompt_contract_id, limit=160
-            )
+            prompt_contract_id=safe_receipt_token(context.prompt_contract_id, limit=160)
             or None,
             prompt_contract_version=safe_receipt_token(
                 context.prompt_contract_version, limit=64
@@ -729,9 +770,10 @@ class AIRunEnvelope:
         if self._envelope.legacy_untracked:
             self._envelope.usage_complete = False
         else:
-            self._envelope.usage_complete = all(
-                step.usage_complete for step in self._envelope.steps
-            ) and self._envelope.requests_unknown == 0
+            self._envelope.usage_complete = (
+                all(step.usage_complete for step in self._envelope.steps)
+                and self._envelope.requests_unknown == 0
+            )
         if any(
             step.charge_state is AIChargeState.possible for step in self._envelope.steps
         ):
@@ -800,22 +842,18 @@ class AIRunEnvelope:
             return
         active = self._active_reservations
         active_recent = sum(
-            attempt.request_index in active
-            for attempt in self._envelope.recent_attempts
+            attempt.request_index in active for attempt in self._envelope.recent_attempts
         )
         settled = [
             attempt
             for attempt in self._evicted_attempts
             if attempt.request_index not in active
         ]
-        keep_settled = {
-            attempt.request_index for attempt in settled[-active_recent:]
-        }
+        keep_settled = {attempt.request_index for attempt in settled[-active_recent:]}
         self._evicted_attempts = [
             attempt
             for attempt in self._evicted_attempts
-            if attempt.request_index in active
-            or attempt.request_index in keep_settled
+            if attempt.request_index in active or attempt.request_index in keep_settled
         ]
 
     def _drop_step_if_empty(self, step: AIStepReceiptV1) -> None:

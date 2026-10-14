@@ -17,6 +17,7 @@ const rescanActive = computed(() => run.value?.category_rescans?.some(item => ["
 const opened = ref(false)
 let generation = 0, timer = null
 const run = computed(() => state.value?.run)
+const scopeBudget = computed(() => (recomputeCompleted.value || ["failed", "source_changed"].includes(run.value?.status) ? state.value?.default_budget_mode : run.value?.budget_mode || state.value?.default_budget_mode) === "confirmed_scope")
 const enabled = computed(() => state.value?.engine?.engine === "evolution")
 const canStart = computed(() => enabled.value && (!run.value || ["completed", "stopped", "source_changed", "needs_budget"].includes(run.value.status) || (run.value.status === "failed" && run.value.total_scenes > 0 && !run.value.preparing_scenes)))
 const statusText = computed(() => ({
@@ -102,7 +103,7 @@ async function prepare() {
         ? { from_scene_index: Number(fromScene.value) - 1 }
         : { [scopeKind.value === "entity" ? "entity_id" : "observation_id"]: targetId.value } : {}),
       discover_details: discoverDetails.value,
-      end_chapter: continuing || revising || scoped ? run.value.end_chapter : Number(endChapter.value), request_limit: Number(requestLimit.value),
+      end_chapter: continuing || revising || scoped ? run.value.end_chapter : Number(endChapter.value), request_limit: scopeBudget.value ? null : Number(requestLimit.value),
     }
     const result = await api().preview(props.projectId, request)
     if (current()) preview.value = { ...result, request }
@@ -202,7 +203,7 @@ async function prepareRescan() {
   await perform(async current => {
     const key = run.value.run_key
     const request = { operation_id: crypto.randomUUID(), from_scene_index: Number(rescanFrom.value) - 1,
-      through_scene_index: Number(rescanThrough.value) - 1, categories: [...rescanCategories.value], request_limit: Number(requestLimit.value) }
+      through_scene_index: Number(rescanThrough.value) - 1, categories: [...rescanCategories.value], request_limit: run.value.budget_mode === "confirmed_scope" ? null : Number(requestLimit.value) }
     const result = await api().categoryRescanPreview(props.projectId, key, request)
     if (current() && key === run.value?.run_key) rescanPreview.value = { ...result, request }
   })
@@ -288,7 +289,8 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer) })
           <button type="button" class="btn btn-sm" :disabled="!rescanCategories.length || run.status !== 'completed'" @click="prepareRescan">预览类别补扫</button>
         </fieldset>
         <div v-if="rescanPreview" class="reading-confirmation">
-          <p>预计 {{ rescanPreview.scene_count }} 场，基础发现与复核约 {{ rescanPreview.call_count }} 次调用，含去重核对最多 {{ rescanPreview.maximum_calls }} 次；现有额度 {{ rescanPreview.budget_remaining }} 次，需增加 {{ rescanPreview.additional_budget }} 次。</p>
+          <p v-if="rescanPreview.budget_mode === 'confirmed_scope'">完成本次确认范围：补扫 {{ rescanPreview.scene_count }} 场的所选类别，并核对发现结果。</p>
+          <p v-else>预计 {{ rescanPreview.scene_count }} 场，基础发现与复核约 {{ rescanPreview.call_count }} 次调用，含去重核对最多 {{ rescanPreview.maximum_calls }} 次；现有额度 {{ rescanPreview.budget_remaining }} 次，需增加 {{ rescanPreview.additional_budget }} 次。</p>
           <button type="button" class="btn btn-primary" :disabled="busy" @click="startRescan">{{ rescanPending ? "确认补扫启动结果" : "确认并开始补扫" }}</button>
           <button v-if="!rescanPending" type="button" class="btn btn-sm" :disabled="busy" @click="rescanPreview = null">取消补扫</button>
         </div>
@@ -322,7 +324,8 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer) })
               <button v-if="item.supplement.can_resume" class="btn btn-sm" type="button" :disabled="busy" @click="resumeWorldAuditSupplement(item)">继续补审</button>
               <button v-if="item.supplement.available" class="btn btn-sm" type="button" :disabled="busy" @click="previewWorldAuditSupplement(item)">预览延后场景补审</button>
               <div v-if="worldAuditSupplementPreview && worldAuditSupplementPreview.attempt_id === item.supplement.attempt_id" class="reading-confirmation">
-                <p>预计 {{ worldAuditSupplementPreview.group_count }} 组、{{ worldAuditSupplementPreview.call_count }} 次模型调用；{{ worldAuditSupplementPreview.deferred_count }} 组仍需人工核对。现有额度 {{ worldAuditSupplementPreview.budget_remaining }} 次，需增加 {{ worldAuditSupplementPreview.additional_budget }} 次。</p>
+                <p v-if="run.budget_mode === 'confirmed_scope'">完成本次确认范围：补审 {{ worldAuditSupplementPreview.group_count }} 组，超出输入容量的资料保留待核对。</p>
+                <p v-else>预计 {{ worldAuditSupplementPreview.group_count }} 组、{{ worldAuditSupplementPreview.call_count }} 次模型调用；{{ worldAuditSupplementPreview.deferred_count }} 组仍需人工核对。现有额度 {{ worldAuditSupplementPreview.budget_remaining }} 次，需增加 {{ worldAuditSupplementPreview.additional_budget }} 次。</p>
                 <button class="btn btn-primary" type="button" :disabled="busy" @click="startWorldAuditSupplement(item)">确认补审</button>
               </div>
             </section>
@@ -352,7 +355,8 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer) })
         <div class="reading-fields">
           <p v-if="['needs_budget', 'source_changed', 'failed'].includes(run?.status) || recomputeCompleted">沿已确认范围读到第 {{ run.end_chapter }} 章。</p>
           <label v-else>读到第几章<input v-model.number="endChapter" type="number" min="1" required :disabled="busy || !!pending"></label>
-          <label>{{ run?.status === 'needs_budget' ? "本次追加调用上限" : "本次最多调用模型" }}<input v-model.number="requestLimit" type="number" min="1" max="1000" required :disabled="busy || !!pending"></label>
+          <p v-if="scopeBudget">完成本次确认范围</p>
+          <label v-else>{{ run?.status === 'needs_budget' ? "本次追加调用上限" : "本次最多调用模型" }}<input v-model.number="requestLimit" type="number" min="1" max="1000" required :disabled="busy || !!pending"></label>
         </div>
         <label v-if="run?.status === 'completed'" class="reading-recompute-toggle"><input v-model="recomputeCompleted" type="checkbox" :disabled="busy || !!pending">重新核对已有场景</label>
         <label v-if="!run || recomputeCompleted || ['source_changed', 'failed'].includes(run.status)"><input v-model="discoverDetails" type="checkbox" :disabled="busy || !!pending">同时发现条件行为、线索与承诺，持续更新细节台账</label>
@@ -374,10 +378,11 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer) })
         <button class="btn" type="submit" :disabled="busy || !!pending || ((run?.status === 'failed' || recomputeCompleted) && scopeKind !== 'scene' && !targetId)">查看理解范围</button>
         <div v-if="preview" class="reading-confirmation">
           <p v-if="preview.recompute_target">核对目标：{{ preview.recompute_target.label }}。以它最早出现的场景定位，重新读取该场及依赖它的后续场景。</p>
-          <p v-if="preview.scene_count === null">先准备场景边界，完成后逐场景理解。边界准备、必要修复、理解、独立复核和剧情结构整理共同使用最多 {{ preview.request_limit }} 次模型调用；额度用完会暂停，不自动追加。</p>
+          <p v-if="preview.budget_mode === 'confirmed_scope'">完成本次确认范围：准备边界、逐场理解、独立复核和整理。已完成结果保留，有疑问时留待核对。</p>
+          <p v-else-if="preview.scene_count === null">先准备场景边界，完成后逐场景理解。边界准备、必要修复、理解、独立复核和剧情结构整理共同使用最多 {{ preview.request_limit }} 次模型调用；额度用完会暂停，不自动追加。</p>
           <p v-else-if="Number.isInteger(preview.recompute_from_scene_index)">保留前 {{ preview.inherited_scene_count }} 场已核实的理解，从第 {{ preview.recompute_from_scene_index + 1 }} 场起重新核对后续场景；最多调用模型 {{ preview.request_limit }} 次。旧结果与费用记录保留。<template v-if="preview.expanded_scope">前面的来源或场景已变化，范围已向前扩大。</template></p>
           <p v-else>本次{{ preview.request.mode === 'continue' ? "继续读取" : "读取" }} {{ preview.scene_count }} 个场景，理解、独立复核与剧情结构整理合计最多调用模型 {{ preview.request_limit }} 次。理解结果可追溯来源，冲突留待确认；不会改写正文或覆盖作者确认。</p>
-          <p v-if="preview.discovery_enabled">细节发现及独立核对也使用本次调用额度。台账只保留有据理解，作者判断另行保存。</p>
+          <p v-if="preview.discovery_enabled">细节发现及独立核对{{ preview.budget_mode === 'confirmed_scope' ? '包含在本次确认范围内' : '也使用本次调用额度' }}。台账只保留有据理解，作者判断另行保存。</p>
           <p>本次使用模型：{{ preview.model }}</p>
           <button class="btn btn-primary" type="button" :disabled="busy" @click="start">{{ pending ? "确认启动结果" : "确认并开始理解" }}</button>
         </div>

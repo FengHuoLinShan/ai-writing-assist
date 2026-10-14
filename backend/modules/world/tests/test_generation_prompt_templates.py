@@ -280,7 +280,7 @@ async def test_archived_template_is_hidden_and_not_usable_for_generation(
     fake = _FakeLLMClient()
     monkeypatch.setattr(
         "modules.project.llm_runtime.LLMClient.from_resolved_profile",
-        lambda _profile: fake,
+        lambda _profile, *, execution_capability=None: fake,
     )
     novel_id = await _create_project(async_client)
     template = await _create_template(async_client, novel_id)
@@ -495,7 +495,7 @@ async def test_p2_template_warning_does_not_block_generation(
     fake = _FakeLLMClient()
     monkeypatch.setattr(
         "modules.project.llm_runtime.LLMClient.from_resolved_profile",
-        lambda _profile: fake,
+        lambda _profile, *, execution_capability=None: fake,
     )
     novel_id = await _create_project(async_client)
 
@@ -543,7 +543,7 @@ async def test_generate_rejects_stale_template_version_before_llm(
     fake = _FakeLLMClient()
     monkeypatch.setattr(
         "modules.project.llm_runtime.LLMClient.from_resolved_profile",
-        lambda _profile: fake,
+        lambda _profile, *, execution_capability=None: fake,
     )
     novel_id = await _create_project(async_client)
     template = await _create_template(async_client, novel_id)
@@ -581,7 +581,7 @@ async def test_generate_with_template_id_writes_template_meta(
     fake = _FakeLLMClient()
     monkeypatch.setattr(
         "modules.project.llm_runtime.LLMClient.from_resolved_profile",
-        lambda _profile: fake,
+        lambda _profile, *, execution_capability=None: fake,
     )
     novel_id = await _create_project(async_client)
     template = await _create_template(async_client, novel_id)

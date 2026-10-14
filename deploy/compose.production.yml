@@ -23,8 +23,8 @@ x-runtime-environment: &runtime-environment
   LLM_TRUST_ENV: "false"
   LLM_PROXY_URL: ${LLM_PROXY_URL:-}
   LLM_HEALTH_REQUIRED: ${LLM_HEALTH_REQUIRED:-true}
-  LLM_RATE_LIMIT_PER_MINUTE: ${LLM_RATE_LIMIT_PER_MINUTE:?Set LLM_RATE_LIMIT_PER_MINUTE}
-  LLM_MAX_CONCURRENT_REQUESTS: ${LLM_MAX_CONCURRENT_REQUESTS:-4}
+  LLM_MODEL_LIMITS_JSON: ${LLM_MODEL_LIMITS_JSON:?Set LLM_MODEL_LIMITS_JSON}
+  LLM_MODEL_ADMISSION_DIRECTORY: /app/model-admission
   LLM_RETRY_MAX_ATTEMPTS: ${LLM_RETRY_MAX_ATTEMPTS:-3}
   LLM_RETRY_BASE_DELAY: ${LLM_RETRY_BASE_DELAY:-1.0}
   LLM_RETRY_MAX_DELAY: ${LLM_RETRY_MAX_DELAY:-60.0}
@@ -239,6 +239,8 @@ services:
       start_period: 20s
       retries: 8
     stop_grace_period: 30s
+    volumes:
+      - llm-model-admission:/app/model-admission
     tmpfs:
       - /tmp:mode=1777
     ports:
@@ -278,6 +280,8 @@ services:
       start_period: 20s
       retries: 8
     stop_grace_period: 2m
+    volumes:
+      - llm-model-admission:/app/model-admission
     tmpfs:
       - /tmp:mode=1777
     networks:
@@ -340,6 +344,7 @@ services:
       - egress
 
 volumes:
+  llm-model-admission:
   postgres-data:
     name: ai-writing-assist-postgres-data
   embedding-model-cache:

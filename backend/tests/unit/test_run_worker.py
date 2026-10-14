@@ -77,15 +77,15 @@ def test_configure_worker_orders_config_di_and_task_registration() -> None:
     register_handlers_mock.assert_called_once_with()
 
 
-def test_configure_worker_validates_llm_rate_limit_before_registration() -> None:
-    settings = MagicMock(app_env="production", llm_rate_limit_per_minute=0)
+def test_configure_worker_validates_model_limits_before_registration() -> None:
+    settings = MagicMock(app_env="production", llm_model_limits_json="{}")
 
     with (
         patch("run_worker.get_settings", autospec=True, return_value=settings),
         patch(
-            "run_worker.validate_llm_rate_limit_config",
+            "run_worker.get_model_limits",
             autospec=True,
-            side_effect=RuntimeError("invalid LLM rate limit"),
+            side_effect=RuntimeError("invalid model limits"),
         ) as validate,
         patch(
             "app.bootstrap.register_container_services",
@@ -95,17 +95,17 @@ def test_configure_worker_validates_llm_rate_limit_before_registration() -> None
             "run_worker.register_task_handlers",
             autospec=True,
         ) as register_handlers,
-        pytest.raises(RuntimeError, match="invalid LLM rate limit"),
+        pytest.raises(RuntimeError, match="invalid model limits"),
     ):
         _configure_worker_process()
 
-    validate.assert_called_once_with("production", 0)
+    validate.assert_called_once_with("legacy", "legacy", settings=settings)
     register_services.assert_not_called()
     register_handlers.assert_not_called()
 
 
 def test_non_local_worker_config_allows_disabled_llm_limiter() -> None:
-    settings = MagicMock(app_env="production", llm_rate_limit_per_minute=0)
+    settings = MagicMock(app_env="production", llm_model_limits_json="{}")
 
     with patch("run_worker.get_settings", autospec=True, return_value=settings):
         _validate_worker_config()

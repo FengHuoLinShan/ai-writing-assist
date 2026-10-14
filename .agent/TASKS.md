@@ -49,3 +49,5 @@
 - [T-20261004-world-edit-history](tasks/2026/T-20261004-world-edit-history/TASK.md) — 世界编辑历史元数据（势力与世界版本路线图阶段 0，PR #195）
 
 - [T-20261013-capability-tail-fixes](tasks/2026/T-20261013-capability-tail-fixes/TASK.md) — 能力收尾PR #222的CI修复与合并
+
+- [T-20261014-evolution-model-pools](tasks/2026/T-20261014-evolution-model-pools/TASK.md) — 独立模型池、Luna范围授权与500k输入预算审查修复和合并

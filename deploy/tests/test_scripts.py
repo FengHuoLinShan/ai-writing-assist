@@ -2128,3 +2128,19 @@ def test_embedding_probe_keeps_release_defaults_and_runtime_budget_contract() ->
         "    --retry-delay-seconds 5"
     )
     assert runtime_embedding_probe in runtime_script
+
+
+def test_api_and_worker_share_the_model_admission_volume():
+    import yaml
+
+    compose = yaml.safe_load((DEPLOY_ROOT / "compose.production.yml").read_text())
+    runtime = compose["x-runtime-environment"]
+    assert "LLM_MODEL_LIMITS_JSON" in runtime
+    assert "LLM_MAX_CONCURRENT_REQUESTS" not in runtime
+    assert "LLM_RATE_LIMIT_PER_MINUTE" not in runtime
+    for name in ("api", "worker"):
+        assert (
+            "llm-model-admission:/app/model-admission"
+            in compose["services"][name]["volumes"]
+        )
+    assert runtime["LLM_MODEL_ADMISSION_DIRECTORY"] == "/app/model-admission"

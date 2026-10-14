@@ -47,12 +47,13 @@ def gap_scope(frozen, key):
     receipt = journal.get("paid_call_receipt") or {}
     read_set = journal.get("read_set") or {}
     if (
-        payload.get("discovery_version") != 1
+        payload.get("discovery_version") not in {1, 2}
         or payload.get("category_rescan")
         or payload.get("world_audit_supplement")
         or index >= len(batches)
         or index in prepared.get("unsupported_batches", [])
-        or prepared.get("method_fingerprint") != method_fingerprint()
+        or prepared.get("method_fingerprint")
+        != method_fingerprint(payload.get("discovery_version", 1))
         or journal.get("stage") != "failed"
         or "result" in journal
         or receipt.get("outcome") != "failed_final"

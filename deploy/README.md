@@ -32,7 +32,7 @@ frontend 只绑定宿主机 loopback，不对公网开放；PostgreSQL、worker 
 | 已确认 | `OPENRESTY_TUNNEL_PORT=3259` | Tunnel 的 loopback HTTP 源站端口 |
 | 已确认 | `AUTH_MODE=public` | 首发即启用邮箱账号体系 |
 | 已确认 | `DATABASE_MODE=fresh` | 首次发布若发现已有 public 表会拒绝继续 |
-| 已确认 | `LLM_RATE_LIMIT_PER_MINUTE=0` | 用户使用项目 LLM 配置；仍保留并发上限 |
+| 已确认 | `LLM_MODEL_LIMITS_JSON` | 每模型默认8路/RPM 0，API/worker共享私有模型槽卷 |
 | 已确认 | `EMBEDDING_*` | zy 本机 CPU TEI + `BAAI/bge-base-zh-v1.5`，768 维 |
 | 待填写 | `AUTH_SECRET_KEY` | 新生成至少 32 字符 |
 | 待填写 | `MINIO_ROOT_*`、`MAP_ATLAS_S3_*`、`WORLD_OBJECT_S3_BUCKET` | 单机 MinIO 的独立 root 凭据、受限应用凭据，以及两个不同的私有 bucket；root 凭据不得复用给应用 |
@@ -443,3 +443,6 @@ ping 告警。operation lock 持有时 runtime 的无 ping skip 是预期行为�
 匿名 RP 仅在前台请求中由体验者临时提交 Key。
 
 本目录不自动申请域名/证书、不创建 SMTP/Authing/LLM 账户，也不保存任何真实凭据。
+
+模型池升级时将旧 LLM 全局限流变量替换为 `.env.production.example` 中的 `LLM_MODEL_LIMITS_JSON`。
+API/worker 使用同一镜像 UID、同一 `llm-model-admission` 卷；此卷只有锁和非 secret 配置，不是业务数据。

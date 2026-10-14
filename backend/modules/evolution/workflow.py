@@ -8,6 +8,7 @@ from sqlalchemy import select
 
 from core.errors import ConflictError, NotFoundError
 from infrastructure.llm.collaboration import content_hash
+from infrastructure.llm.model_limits import confirmed_scope_eligible
 from infrastructure.tasks.facade import (
     list_task_lifecycle_contracts,
     resume_manual_task,
@@ -19,6 +20,7 @@ from modules.evolution.state_review import has_unreconciled_scene_calls
 from modules.evolution.store import PostgresAttemptStore
 from modules.project.facade import (
     build_project_llm_execution_snapshot,
+    get_effective_llm_settings,
     get_understanding_engine,
     require_active_project,
     require_active_project_exclusive,
@@ -47,7 +49,8 @@ class ReadingRequest(BaseModel):
     entity_id: UUID | None = None
     observation_id: str | None = Field(default=None, pattern="^[0-9a-f]{64}$")
     end_chapter: int = Field(ge=1)
-    request_limit: int = Field(ge=1, le=1000)
+    request_limit: int | None = Field(default=None, ge=1, le=1000)
+    budget_mode: Literal["auto", "bounded", "confirmed_scope"] = "auto"
     discover_details: bool = False
 
     @model_validator(mode="after")
@@ -78,6 +81,27 @@ def _last_chapter(steps):
     )
 
 
+def _budget_mode(request, snapshot, previous=None):
+    inherited = (previous or {}).get("budget_mode", "bounded") if previous else None
+    mode = inherited or (
+        request.budget_mode
+        if request.budget_mode != "auto"
+        else (
+            "confirmed_scope"
+            if request.request_limit is None and confirmed_scope_eligible(snapshot)
+            else "bounded"
+        )
+    )
+    if inherited and request.budget_mode not in {"auto", inherited}:
+        raise ConflictError("原运行的额度授权不能静默变更")
+    if mode == "confirmed_scope":
+        if request.request_limit is not None or not confirmed_scope_eligible(snapshot):
+            raise ConflictError("按确认范围执行需要当前已验证的 Luna 连接与空调用上限")
+    elif request.request_limit is None:
+        raise ConflictError("当前运行需要明确的调用上限")
+    return mode
+
+
 async def _plan(db, novel_id, request):
     await require_understanding_writer(db, novel_id, engine="evolution")
     store = PostgresAttemptStore(db, novel_id)
@@ -99,6 +123,7 @@ async def _plan(db, novel_id, request):
             await read_preparation_sources(
                 db, novel_id, run.reading_plan_json["preparation"]
             )
+        _budget_mode(request, run.llm_snapshot_json, run.reading_plan_json)
         return {
             **run.reading_plan_json,
             "state_review_version": run.reading_plan_json.get("state_review_version", 0),
@@ -138,15 +163,20 @@ async def _plan(db, novel_id, request):
             raise ConflictError("首次理解不能复用另一运行的身份")
         start_index = 0
         snapshot = await build_project_llm_execution_snapshot(db, novel_id)
+    budget_mode = _budget_mode(request, snapshot, previous if run else None)
+    native = confirmed_scope_eligible(snapshot)
     plan = {
+        "budget_mode": budget_mode,
         "version": "evolution_reading.v1",
         "state_review_version": previous.get("state_review_version", 0) if run else 1,
         "enrichment_version": previous.get("enrichment_version", 0) if run else 1,
-        "world_version": previous.get("world_version", 0) if run else 2,
+        "world_version": previous.get("world_version", 0)
+        if run
+        else (3 if native else 2),
         "structure_version": previous.get("structure_version", 0) if run else 1,
         "discovery_version": previous.get("discovery_version", 0)
         if run
-        else int(request.discover_details),
+        else ((2 if native else 1) if request.discover_details else 0),
         "request": request.model_dump(
             mode="json", exclude={"expected_fingerprint", "authorization_confirmed"}
         ),
@@ -189,9 +219,12 @@ async def _plan(db, novel_id, request):
         from modules.evolution.preparation import plan_preparation
 
         plan["preparation"] = await plan_preparation(db, novel_id, missing, next_index)
-        if len(plan["preparation"]["plan"]["windows"]) > request.request_limit:
+        if (
+            request.request_limit is not None
+            and len(plan["preparation"]["plan"]["windows"]) > request.request_limit
+        ):
             raise ConflictError("仅准备场景已超过本次调用上限，请缩小章节范围或调整上限")
-    elif len(selected) > request.request_limit:
+    elif request.request_limit is not None and len(selected) > request.request_limit:
         raise ConflictError("所选场景超过本次调用上限，请缩小章节范围或调整上限")
     return plan, snapshot
 
@@ -338,13 +371,18 @@ async def _plan_recompute(db, novel_id, request, run, store):
         == (receipt.run_key, receipt.attempt_key)
     ]
     missing = expected_chapters[len(chapter_indices) :]
+    snapshot = run.llm_snapshot_json
+    if (snapshot.get("profile") or {}).get("provider_id") == "codex":
+        snapshot = await build_project_llm_execution_snapshot(db, novel_id)
+    native = confirmed_scope_eligible(snapshot)
     plan = {
+        "budget_mode": _budget_mode(request, snapshot),
         "version": "evolution_reading.v1",
         "state_review_version": 1,
         "enrichment_version": 1,
-        "world_version": 2,
+        "world_version": 3 if native else 2,
         "structure_version": 1,
-        "discovery_version": int(request.discover_details),
+        "discovery_version": (2 if native else 1) if request.discover_details else 0,
         "request": request.model_dump(
             mode="json", exclude={"expected_fingerprint", "authorization_confirmed"}
         ),
@@ -362,7 +400,7 @@ async def _plan_recompute(db, novel_id, request, run, store):
         "recompute_from_scene_index": start_index,
         "expanded_scope": requested_start is not None and start_index < requested_start,
         "recompute_target": target,
-        "model_profile": run.llm_snapshot_json["profile"],
+        "model_profile": snapshot["profile"],
         "project_owner": await require_understanding_writer(
             db, novel_id, engine="evolution"
         ),
@@ -376,9 +414,9 @@ async def _plan_recompute(db, novel_id, request, run, store):
         - start_index
         + len(plan.get("preparation", {}).get("plan", {}).get("windows", []))
     )
-    if planned_calls > request.request_limit:
+    if request.request_limit is not None and planned_calls > request.request_limit:
         raise ConflictError("依赖后续场景也需重新核对，请增大调用上限或缩小原范围")
-    return plan, run.llm_snapshot_json
+    return plan, snapshot
 
 
 def _recompute_targets(pairs, kind):
@@ -525,7 +563,7 @@ async def preview_reading(db, novel_id, request):
     plan, _ = await _plan(db, novel_id, request)
     return {
         "fingerprint": content_hash(plan),
-        "discovery_enabled": plan.get("discovery_version", 0) == 1,
+        "discovery_enabled": plan.get("discovery_version", 0) in {1, 2},
         "recompute_from_scene_index": plan.get("recompute_from_scene_index"),
         "inherited_scene_count": len(plan.get("inherited_receipts", [])),
         "expanded_scope": plan.get("expanded_scope", False),
@@ -540,6 +578,7 @@ async def preview_reading(db, novel_id, request):
         "end_chapter": plan["preparation"]["sources"][-1]["chapter_index"]
         if plan.get("preparation")
         else _last_chapter(plan["steps"]),
+        "budget_mode": plan.get("budget_mode", "bounded"),
         "request_limit": request.request_limit,
         "model": plan["model_profile"]["model"],
     }
@@ -600,11 +639,12 @@ async def start_reading(db, novel_id, request):
     structure = previous.get("structure")
     if request.mode == "append" and structure:
         structure = {**structure, "complete": False}
-    if existing:
+    if existing and run.budget_remaining is not None:
         # Only a new append/continuation authorization adds budget; retries add nothing.
         run.budget_total += request.request_limit
         run.budget_remaining += request.request_limit
     run.reading_plan_json = {
+        "budget_mode": plan.get("budget_mode", "bounded"),
         "version": plan["version"],
         "state_review_version": plan["state_review_version"],
         "enrichment_version": plan["enrichment_version"],
@@ -706,7 +746,7 @@ async def advance_reading(db, novel_id, run_key):
 
             return await enqueue_structure(db, novel_id, run)
         return {"reading_complete": True}
-    if run.budget_remaining <= 0:
+    if run.budget_remaining is not None and run.budget_remaining <= 0:
         run.reading_plan_json = {**plan, "pause_reason": "budget"}
         await db.flush()
         return {"reading_complete": False}
@@ -928,6 +968,13 @@ async def _inherit_recompute_suffix_if_stable(db, novel_id, store, run):
 async def reading_status(db, novel_id, run_key=None):
     await require_active_project(db, novel_id)
     engine = await get_understanding_engine(db, novel_id)
+
+    effective = await get_effective_llm_settings(db, novel_id)
+    default_budget_mode = (
+        "confirmed_scope"
+        if (effective.provider_id.value, effective.model.value) == ("codex", "gpt-6-luna")
+        else "bounded"
+    )
     query = select(EvolutionRun).where(
         EvolutionRun.novel_id == UUID(novel_id),
         EvolutionRun.reading_plan_json.is_not(None),
@@ -938,7 +985,7 @@ async def reading_status(db, novel_id, run_key=None):
     if not run:
         if run_key:
             raise NotFoundError("未找到理解记录")
-        return {"engine": engine, "run": None}
+        return {"engine": engine, "default_budget_mode": default_budget_mode, "run": None}
     plan = run.reading_plan_json
     preparation = plan.get("preparation", {})
     structure = plan.get("structure", {})
@@ -1001,12 +1048,14 @@ async def reading_status(db, novel_id, run_key=None):
 
     return {
         "engine": engine,
+        "default_budget_mode": default_budget_mode,
         "run": {
             "run_key": run.run_key,
             "task_id": task_id,
             "status": status,
             "completed_scenes": completed,
             "total_scenes": len(plan["steps"]),
+            "budget_mode": plan.get("budget_mode", "bounded"),
             "budget_total": run.budget_total,
             "budget_remaining": run.budget_remaining,
             "end_chapter": preparation["sources"][-1]["chapter_index"]
@@ -1025,7 +1074,7 @@ async def reading_status(db, novel_id, run_key=None):
                 {"key": key, "label": label}
                 for key, label in LEDGER_CATEGORY_LABELS.items()
             ],
-            "discovery_enabled": plan.get("discovery_version", 0) == 1,
+            "discovery_enabled": plan.get("discovery_version", 0) in {1, 2},
             "unchecked_discovery_gaps": plan.get("author_confirmed_discovery_gaps", []),
             "category_rescans": await category_rescan_states(db, novel_id, run),
             "can_resume": run.status == "active"

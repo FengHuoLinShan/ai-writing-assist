@@ -328,8 +328,9 @@ async def _create_llm_project(async_client: AsyncClient, title: str) -> str:
 def _install_fake_llm(monkeypatch: pytest.MonkeyPatch) -> _FakeWorldGenerationClient:
     fake = _FakeWorldGenerationClient()
 
-    def create_fake(profile, *, high_quality=False):
+    def create_fake(profile, *, high_quality=False, execution_capability=None):
         fake.high_quality = high_quality
+        fake.execution_capability = execution_capability
         fake.profile = profile
         fake.model_name = profile.model
         return fake

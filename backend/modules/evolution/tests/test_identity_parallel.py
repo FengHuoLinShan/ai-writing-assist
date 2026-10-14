@@ -16,10 +16,9 @@ from modules.evolution.pipeline import (
     compute_scene_manifest_hash,
     prepare_scene_input,
 )
-from modules.evolution.sampler import register_scene_sampler
+from modules.evolution.sampler import SceneMethodCaller, register_scene_sampler
 from modules.evolution.state_review import SceneCallFailedError
 from modules.evolution.store import BudgetExhaustedError, PostgresAttemptStore
-from modules.evolution.tasks import _SceneMethodCaller
 from modules.writing.facade import create_draft_only
 
 
@@ -246,12 +245,12 @@ async def test_serial_mode_retains_single_provider_path(db_session, evolution_pr
     "snapshot, expected",
     [
         (None, 1),
-        ({"profile": {"provider_id": "deepseek"}}, 1),
-        ({"profile": {"provider_id": "codex"}}, 2),
+        ({"profile": {"provider_id": "deepseek", "model": "deepseek-flash"}}, 8),
+        ({"profile": {"provider_id": "codex", "model": "gpt-6-luna"}}, 8),
     ],
 )
-def test_only_native_codex_enables_bounded_identity_parallelism(snapshot, expected):
-    assert _SceneMethodCaller(None, None, snapshot).discovery_parallelism == expected
+def test_each_model_enables_its_own_identity_parallelism(snapshot, expected):
+    assert SceneMethodCaller(None, None, snapshot).discovery_parallelism == expected
 
 
 async def test_connection_setup_serialized_and_contexts_closed(
@@ -285,7 +284,7 @@ async def test_connection_setup_serialized_and_contexts_closed(
             closed += 1
 
     register_scene_sampler(provider, factory)
-    caller = _SceneMethodCaller(
+    caller = SceneMethodCaller(
         db_session,
         SimpleNamespace(sampler_provider=provider, novel_id=evolution_project_id),
         None,
@@ -300,23 +299,28 @@ async def test_connection_setup_serialized_and_contexts_closed(
 
 
 @pytest.mark.parametrize("cap", [3, 4, 6, 8])
-def test_native_caller_uses_configured_cap_without_parallelizing_api(monkeypatch, cap):
+def test_native_caller_cap_leaves_api_default_independent(monkeypatch, cap):
     from core.config import get_settings
 
-    monkeypatch.setenv("CODEX_TEXT_MAX_CONCURRENT_REQUESTS", str(cap))
+    monkeypatch.setenv(
+        "LLM_MODEL_LIMITS_JSON",
+        '{"subscription/codex/gpt-6-luna":{"concurrency":' + str(cap) + "}}",
+    )
     get_settings.cache_clear()
     try:
         assert (
-            _SceneMethodCaller(
-                None, None, {"profile": {"provider_id": "codex"}}
+            SceneMethodCaller(
+                None, None, {"profile": {"provider_id": "codex", "model": "gpt-6-luna"}}
             ).discovery_parallelism
             == cap
         )
         assert (
-            _SceneMethodCaller(
-                None, None, {"profile": {"provider_id": "deepseek"}}
+            SceneMethodCaller(
+                None,
+                None,
+                {"profile": {"provider_id": "deepseek", "model": "deepseek-flash"}},
             ).discovery_parallelism
-            == 1
+            == 8
         )
     finally:
         get_settings.cache_clear()

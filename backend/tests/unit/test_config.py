@@ -23,7 +23,6 @@ from core.config import (
     validate_auth_config,
     validate_cors_origins,
     validate_http_rate_limit_config,
-    validate_llm_rate_limit_config,
     validate_map_atlas_s3_endpoint_url,
 )
 
@@ -524,21 +523,7 @@ class TestHttpRateLimitValidation:
             )
 
 
-class TestLlmRateLimitValidation:
-    @pytest.mark.parametrize(
-        "app_env",
-        ["development", "test", "local", " TEST ", "production", "prod", "staging"],
-    )
-    def test_all_envs_allow_disabled_limiter(self, app_env):
-        validate_llm_rate_limit_config(app_env, 0)
-
-    def test_non_local_env_accepts_positive_rate(self):
-        validate_llm_rate_limit_config("production", 60)
-
-    def test_negative_rate_is_rejected_in_local_env(self):
-        with pytest.raises(RuntimeError, match="LLM_RATE_LIMIT_PER_MINUTE"):
-            validate_llm_rate_limit_config("development", -1)
-
+class TestModelPoolStartup:
     def test_non_local_api_process_allows_disabled_limiter(self):
         backend_root = Path(__file__).resolve().parents[2]
         env = os.environ.copy()
@@ -549,7 +534,7 @@ class TestLlmRateLimitValidation:
                 "APP_ACCESS_TOKEN": "test-access-token",
                 "HTTP_RATE_LIMIT_PER_MINUTE": "60",
                 "HTTP_RATE_LIMIT_BURST": "10",
-                "LLM_RATE_LIMIT_PER_MINUTE": "0",
+                "LLM_MODEL_LIMITS_JSON": "{}",
             }
         )
 
@@ -638,28 +623,21 @@ class TestLoadEnvFile:
         assert os.environ["CUSTOM_EXISTING_KEY"] == "existing"
 
 
-@pytest.mark.parametrize("cap", [1, 2, 3, 4, 6, 8])
-def test_native_text_concurrency_is_bounded_integer(monkeypatch, cap):
-    from core.config import get_codex_text_concurrency
+@pytest.mark.parametrize("cap", [1, 2, 6, 8, 16])
+def test_model_concurrency_is_a_positive_integer(monkeypatch, cap):
+    import json
 
-    monkeypatch.setenv("CODEX_TEXT_MAX_CONCURRENT_REQUESTS", str(cap))
-    assert get_codex_text_concurrency(Settings()) == cap
+    from infrastructure.llm.model_limits import get_model_limits
 
-
-@pytest.mark.parametrize("cap", [0, 9, -1, True, 2.5, "6"])
-def test_native_text_concurrency_rejects_unsafe_settings(cap):
-    from types import SimpleNamespace
-
-    from core.config import get_codex_text_concurrency
-
-    with pytest.raises(ValueError, match="integer from 1 to 8"):
-        get_codex_text_concurrency(
-            SimpleNamespace(codex_text_max_concurrent_requests=cap)
-        )
+    monkeypatch.setenv(
+        "LLM_MODEL_LIMITS_JSON",
+        json.dumps({"subscription/codex/gpt-6-luna": {"concurrency": cap}}),
+    )
+    assert get_model_limits("codex", "gpt-6-luna", settings=Settings()).concurrency == cap
 
 
-def test_native_text_concurrency_defaults_to_two(monkeypatch):
-    from core.config import get_codex_text_concurrency
+def test_model_concurrency_defaults_to_eight(monkeypatch):
+    from infrastructure.llm.model_limits import get_model_limits
 
-    monkeypatch.delenv("CODEX_TEXT_MAX_CONCURRENT_REQUESTS", raising=False)
-    assert get_codex_text_concurrency(Settings()) == 2
+    monkeypatch.delenv("LLM_MODEL_LIMITS_JSON", raising=False)
+    assert get_model_limits("codex", "gpt-6-luna", settings=Settings()).concurrency == 8

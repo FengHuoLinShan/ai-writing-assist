@@ -82,6 +82,82 @@ def native_schema(schema: dict) -> dict | None:
     return result if visit(result) else None
 
 
+def prepare_codex_input(request):
+    format_schema = (request.response_format or {}).get("json_schema", {})
+    if not isinstance(format_schema, dict):
+        raise ValueError("json_schema must be an object")
+    schema = format_schema.get("schema")
+    if schema is not None and not isinstance(schema, dict):
+        raise ValueError("schema must be an object")
+    constrained = native_schema(schema) if schema and not request.tools else None
+    props = {"content": {"type": "string"}}
+    definitions = {}
+    if constrained is not None:
+        definitions = constrained.pop("$defs", {})
+        props = {"data": constrained}
+    if request.tools:
+        props["tool_calls"] = {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "enum": [t.name for t in request.tools],
+                    },
+                    "arguments": {"type": "string"},
+                },
+                "required": ["name", "arguments"],
+                "additionalProperties": False,
+            },
+        }
+        if request.tool_choice == "none":
+            props["tool_calls"]["maxItems"] = 0
+        if request.tool_choice == "required":
+            props["tool_calls"]["minItems"] = 1
+    output_schema = {
+        "type": "object",
+        "properties": props,
+        "required": list(props),
+        "additionalProperties": False,
+        **({"$defs": definitions} if definitions else {}),
+    }
+    payload = {
+        "messages": [m.model_dump() for m in request.messages],
+        "response_format": request.response_format,
+        "tools": [t.model_dump() for t in request.tools],
+        "tool_choice": request.tool_choice,
+        "target_output_tokens": request.max_tokens,
+    }
+    return payload, output_schema
+
+
+def codex_input_tokens(request, *, capability=None):
+    from infrastructure.llm.cli_agent import CODEX_TEXT_INSTRUCTIONS
+    from infrastructure.llm.token_estimation import (
+        estimate_token_count,
+        token_estimation_method,
+    )
+
+    if (
+        capability is not None
+        and capability.default_input_budget_tokens is not None
+        and capability.token_estimation_method != token_estimation_method(CODEX_MODEL)
+    ):
+        raise LLMError(
+            "冻结的输入计量策略已变化，请重新确认范围",
+            provider="codex",
+            error_kind="context_policy_changed",
+        )
+    payload, output_schema = prepare_codex_input(request)
+    rendered = (
+        json.dumps(payload, ensure_ascii=False)
+        + CODEX_TEXT_INSTRUCTIONS
+        + json.dumps(output_schema)
+    )
+    return estimate_token_count(rendered, model="gpt-6-luna") + 32000
+
+
 class CodexProvider:
     name = "codex"
 
@@ -93,6 +169,7 @@ class CodexProvider:
         base_url=CODEX_BASE_URL,
         api_key="",
         connection_fingerprint=None,
+        execution_capability=None,
     ):
         current = codex_connection_fingerprint()
         if default_model != CODEX_MODEL or api_key or base_url != CODEX_BASE_URL:
@@ -104,6 +181,7 @@ class CodexProvider:
         self._base_url = base_url
         self._api_key = ""
         self._connection_fingerprint = current
+        self._execution_capability = execution_capability
 
     def validate_connection(self) -> None:
         if codex_connection_fingerprint() != self._connection_fingerprint:
@@ -123,55 +201,31 @@ class CodexProvider:
                 error_kind="codex_configuration",
             )
 
+        capability = self._execution_capability
+        if capability and capability.default_input_budget_tokens is not None:
+            request = request.model_copy(
+                update={"max_tokens": min(request.max_tokens or 128_000, 128_000)}
+            )
+            if (
+                codex_input_tokens(request, capability=capability)
+                > capability.default_input_budget_tokens
+            ):
+                raise LLMError(
+                    "完整请求超过冻结输入预算，请拆分资料",
+                    provider=self.name,
+                    error_kind="input_budget_exceeded",
+                )
+
     async def generate(self, request, *, complete_stream=False):
         self.validate_request(request)
         started = time.monotonic()
-        format_schema = (request.response_format or {}).get("json_schema", {})
-        if not isinstance(format_schema, dict):
-            raise ValueError("json_schema must be an object")
-        schema = format_schema.get("schema")
-        if schema is not None and not isinstance(schema, dict):
-            raise ValueError("schema must be an object")
-        constrained = native_schema(schema) if schema and not request.tools else None
-        props = {"content": {"type": "string"}}
-        definitions = {}
-        if constrained is not None:
-            definitions = constrained.pop("$defs", {})
-            props = {"data": constrained}
-        if request.tools:
-            props["tool_calls"] = {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "name": {
-                            "type": "string",
-                            "enum": [t.name for t in request.tools],
-                        },
-                        "arguments": {"type": "string"},
-                    },
-                    "required": ["name", "arguments"],
-                    "additionalProperties": False,
-                },
-            }
-            if request.tool_choice == "none":
-                props["tool_calls"]["maxItems"] = 0
-            if request.tool_choice == "required":
-                props["tool_calls"]["minItems"] = 1
-        output_schema = {
-            "type": "object",
-            "properties": props,
-            "required": list(props),
-            "additionalProperties": False,
-            **({"$defs": definitions} if definitions else {}),
-        }
-        payload = {
-            "messages": [m.model_dump() for m in request.messages],
-            "response_format": request.response_format,
-            "tools": [t.model_dump() for t in request.tools],
-            "tool_choice": request.tool_choice,
-            "target_output_tokens": request.max_tokens,
-        }
+        capability = self._execution_capability
+        if capability and capability.default_input_budget_tokens is not None:
+            request = request.model_copy(
+                update={"max_tokens": min(request.max_tokens or 128000, 128000)}
+            )
+        payload, output_schema = prepare_codex_input(request)
+        constrained = output_schema["properties"].get("data")
         with tempfile.TemporaryDirectory(prefix="novelcraft-codex-text-") as directory:
             try:
                 result = await run_cli_agent(
@@ -185,6 +239,13 @@ class CodexProvider:
                         max_tool_attempts=0,
                         text_only=True,
                         output_schema=output_schema,
+                        context_window_tokens=capability.context_limit_tokens
+                        if capability
+                        and capability.default_input_budget_tokens is not None
+                        else None,
+                        auto_compact_token_limit=capability.native_auto_compact_tokens
+                        if capability
+                        else None,
                     )
                 )
             except CLIAgentError as exc:
@@ -207,7 +268,7 @@ class CodexProvider:
             output = json.loads(result.answer)
             content = (
                 json.dumps(output["data"], ensure_ascii=False)
-                if constrained is not None
+                if "data" in output_schema["properties"]
                 else output["content"]
             )
             if not isinstance(content, str):

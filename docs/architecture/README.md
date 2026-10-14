@@ -181,3 +181,5 @@ Writing 的稳定服务导入按保存/冲突/生成分域实现；Interaction �
 Scene 工作台的诊断与融合职责从主文件拆出，同一服务实例保持原锁与事务。
 离线评测使用独立 `backend/.venv-eval`，避免切换开发/CI服务环境的Python或依赖。
 详见对应模块README与 development-guide.md 的评测环境说明。
+
+LLM 的模型池与有限/已确认范围预算由基础设施和 ADR-0033 说明；图中服务节点及业务所有权保持原边界。

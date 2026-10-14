@@ -15,7 +15,7 @@
 - DEBUG: 应用调试模式（默认 false）
 - LOG_LEVEL: 日志级别（默认 INFO）
 - HTTP_RATE_LIMIT_*: 进程级 HTTP direct-peer 限流配置
-- LLM_RATE_LIMIT_PER_MINUTE: 进程级 LLM provider 限流配置
+- LLM_MODEL_LIMITS_JSON: 按来源/provider/model 的独立限流配置
 """
 
 from __future__ import annotations
@@ -263,12 +263,6 @@ def validate_http_rate_limit_config(
         )
 
 
-def validate_llm_rate_limit_config(app_env: str, requests_per_minute: int) -> None:
-    """Validate the optional process-local LLM request limiter."""
-    if requests_per_minute < 0:
-        raise RuntimeError("LLM_RATE_LIMIT_PER_MINUTE must be non-negative")
-
-
 @dataclass(frozen=True)
 class Settings:
     """应用全局配置，不可变对象，通过 get_settings() 获取"""
@@ -386,14 +380,8 @@ class Settings:
     llm_retry_max_delay: float = field(
         default_factory=lambda: _env_float("LLM_RETRY_MAX_DELAY", 60.0)
     )
-    llm_max_concurrent_requests: int = field(
-        default_factory=lambda: _env_int("LLM_MAX_CONCURRENT_REQUESTS", 8)
-    )
-    codex_text_max_concurrent_requests: int = field(
-        default_factory=lambda: _env_int("CODEX_TEXT_MAX_CONCURRENT_REQUESTS", 2)
-    )
-    llm_rate_limit_per_minute: int = field(
-        default_factory=lambda: _env_int("LLM_RATE_LIMIT_PER_MINUTE", 0)
+    llm_model_limits_json: str = field(
+        default_factory=lambda: _env("LLM_MODEL_LIMITS_JSON", "{}")
     )
     llm_circuit_breaker_failure_threshold: int = field(
         default_factory=lambda: _env_int("LLM_CIRCUIT_BREAKER_FAILURE_THRESHOLD", 5)
@@ -630,13 +618,3 @@ def get_settings() -> Settings:
 # 模块级常量在 import 时立即求值，绕过 lru_cache，导致测试重置 Settings 时仍使用旧值。
 # 调用方应使用 get_settings().database_url / get_settings().embedding_dim 获取。
 # （Bug L2: 移除 import 时求值的模块级常量）
-
-
-def get_codex_text_concurrency(settings: Settings | None = None) -> int:
-    """Bound native text admission; never alter provider/model selection."""
-    value = getattr(settings or get_settings(), "codex_text_max_concurrent_requests", 2)
-    if type(value) is not int or not 1 <= value <= 8:
-        raise ValueError(
-            "CODEX_TEXT_MAX_CONCURRENT_REQUESTS must be an integer from 1 to 8"
-        )
-    return value

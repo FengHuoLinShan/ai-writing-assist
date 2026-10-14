@@ -348,7 +348,7 @@ def _method_status(claim):
 
     return (
         "current"
-        if claim.method_fingerprint == method_fingerprint()
+        if claim.method_fingerprint in {method_fingerprint(), method_fingerprint(2)}
         else "method_changed"
     )
 
@@ -594,7 +594,7 @@ async def read_discovery_coverage(db, novel_id, scene_id):
                     statuses.get(item["key"], "not_checked")
                     if source_current
                     and payload.get("rescan_status") == "completed"
-                    and result.get("method_fingerprint") == _current_method()
+                    and result.get("method_fingerprint") in _current_methods()
                     else "not_checked"
                 )
                 item["found"] = (
@@ -670,7 +670,7 @@ async def _read_discovery_coverage_base(db, novel_id, scene_id):
             "categories": categories_for(),
         }
     payload = row.payload_json
-    if payload.get("discovery_version", 0) != 1:
+    if payload.get("discovery_version", 0) not in {1, 2}:
         return {
             "status": "not_enabled",
             "note": "这轮理解未启用细节发现；空台账不表示没有相关内容。",
@@ -741,7 +741,7 @@ async def _read_discovery_coverage_base(db, novel_id, scene_id):
         if result["changes"]
         else (
             "current"
-            if result["method_fingerprint"] == _current_method()
+            if result["method_fingerprint"] in _current_methods()
             else "method_changed"
         ),
         "note": "本次召回范围已检查。未检出不代表正文中不存在。"
@@ -886,3 +886,9 @@ async def read_ledger_evidence(db, novel_id, entry_id, evidence_index, *, revisi
         "historical": current is None or str(current.id) != source.draft_id,
         "source_ref": source.model_dump(mode="json"),
     }
+
+
+def _current_methods():
+    from modules.evolution.discovery import method_fingerprint
+
+    return {method_fingerprint(), method_fingerprint(2)}

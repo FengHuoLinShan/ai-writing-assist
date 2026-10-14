@@ -15,6 +15,7 @@ from typing import Any
 
 from sqlalchemy import (
     JSON,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
@@ -54,6 +55,10 @@ class EvolutionRun(Base, UUIDMixin, NovelMixin):
 
     __tablename__ = "evolution_runs"
     __table_args__ = (
+        CheckConstraint(
+            "(budget_total IS NULL) = (budget_remaining IS NULL)",
+            name="ck_evolution_scope_budget_pair",
+        ),
         UniqueConstraint(
             "novel_id",
             "run_key",
@@ -123,16 +128,14 @@ class EvolutionRun(Base, UUIDMixin, NovelMixin):
         nullable=True,
         comment="最新已提交回执对应的冻结尝试 ID",
     )
-    budget_total: Mapped[int] = mapped_column(
+    budget_total: Mapped[int | None] = mapped_column(
         Integer,
-        nullable=False,
-        default=0,
+        nullable=True,
         comment="根预算总额（模型调用计次）；跨重试累计",
     )
-    budget_remaining: Mapped[int] = mapped_column(
+    budget_remaining: Mapped[int | None] = mapped_column(
         Integer,
-        nullable=False,
-        default=0,
+        nullable=True,
         comment="剩余预算；原子预留（T21）后递减",
     )
     created_at: Mapped[datetime] = mapped_column(
