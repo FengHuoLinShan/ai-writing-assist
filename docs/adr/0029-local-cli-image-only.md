@@ -46,3 +46,13 @@ G3③a 将待确认列表和批准限制为世界对象图片/地图册任务，
 终止为 failed；companion claim 仅下发 mode=image，其他 pending invocation 失败关闭。
 旧文本快照的 RP 续写拒绝，新的账户模型重新发起与历史回执读取保留。RP 界面不再
 把图片 CLI 当作文字连接。文字 UI、工具中继与历史表的后续清理不属于本切片。
+
+## 2026-10-14 工具中继端点下线（G3③d）
+
+G3③d 删除服务端工具中继端点（`POST/GET /api/local-agent/companion/jobs/{id}/tools`
+与 `ToolRequest`）和本机文字客户端 `local_agent/client.py`；伴随进程不再写
+`novelcraft-tool` shim、不开产品工具 unix socket，非图片 job 直接失败。图片
+invocation 的 `request_json` 携带空 `tools`，中继对图片本就不可达。历史工具调用表
+`local_agent_tool_calls`（模型 `LocalAgentToolCall`）与迁移保留，历史回执读取保留。
+`run_local_agent`（`runtime.py`，服务端中继的 worker 一半）保留在代码中但已无生产
+入口；重新开放文字路径仍须另立 ADR，并届时一并恢复中继端点与客户端。

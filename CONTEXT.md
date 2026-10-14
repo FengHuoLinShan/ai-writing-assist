@@ -249,8 +249,8 @@ ADR-0027 的 Assistant 工作项与调查成果是有界私有 checkpoint；Worl
 owner 的已验证账户连接，不为文字任务选择本机 CLI。旧本机文字 Project snapshot 失败关闭；
 Story 在执行入口拒绝旧本机任务标记及副快照，不改用合法账户主快照继续执行。
 task_snapshot_client 已删除；待确认列表、批准与设备领取入口只接受图片任务，
-旧文字 pending task/invocation 直接置为 failed，历史回执仍可读。源码保留的历史
-invocation 与 companion 文字兼容分支不构成正常文字入口开放的证明。
+旧文字 pending task/invocation 直接置为 failed，历史回执仍可读。runtime 保留的历史
+invocation 无生产入口，文字客户端与 companion 文字分支已删除，历史表及回执保留。
 
 图片仍由 World 拥有候选与正式采用，进入产品的图片须经设备/owner/`novel_id`/双租约、
 重解码和领域采用。Assistant/Interaction/协作等领域保留各自的任务与正式写入权。Mac CLI
