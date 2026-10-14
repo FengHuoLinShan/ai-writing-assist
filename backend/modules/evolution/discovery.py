@@ -1988,9 +1988,12 @@ async def _finish_ready_batches(db, store, frozen, source, caller, prepared, pla
                 if isinstance(result, BaseException):
                     raise result
 
-    peers = asyncio.gather(
-        *(finish(index, batch) for index, batch in plans), return_exceptions=True
-    )
+    from infrastructure.llm.limits import request_admission_scope
+
+    with request_admission_scope(stop):
+        peers = asyncio.gather(
+            *(finish(index, batch) for index, batch in plans), return_exceptions=True
+        )
     try:
         results = await asyncio.shield(peers)
     except asyncio.CancelledError:
@@ -2064,7 +2067,10 @@ async def _finish_primary_batches(db, store, frozen, source, caller, prepared, p
         async with slots:
             return await finish(plan)
 
-    wave = asyncio.gather(*(admitted(plan) for plan in plans), return_exceptions=True)
+    from infrastructure.llm.limits import request_admission_scope
+
+    with request_admission_scope(stop):
+        wave = asyncio.gather(*(admitted(plan) for plan in plans), return_exceptions=True)
     try:
         outcomes = await asyncio.shield(wave)
     except asyncio.CancelledError:
@@ -2093,6 +2099,7 @@ async def _finish_identity_reviews(
     )
 
     session_gate = getattr(caller, "session_gate", None)
+    stop = asyncio.Event()
     parallelism = getattr(caller, "discovery_parallelism", 1)
     if (
         type(parallelism) is not int
@@ -2138,21 +2145,32 @@ async def _finish_identity_reviews(
                 call=partial(caller, "review_discovery"),
                 session_gate=session_gate,
             )
-        except SceneCallFailedError:
+        except SceneCallFailedError as error:
             # _run_scene_call persisted the failure under the same shared gate.
             # Read only after this wave drains, avoiding concurrent session I/O.
+            if not _settled_output_failure(
+                {"stage": "failed", "paid_call_receipt": error.receipt}
+            ):
+                stop.set()
             return key
+        except BaseException:
+            stop.set()
+            raise
 
     for start in range(0, len(plans), parallelism):
-        wave = asyncio.gather(
-            *(review(plan) for plan in plans[start : start + parallelism]),
-            return_exceptions=True,
-        )
+        from infrastructure.llm.limits import request_admission_scope
+
+        with request_admission_scope(stop):
+            wave = asyncio.gather(
+                *(review(plan) for plan in plans[start : start + parallelism]),
+                return_exceptions=True,
+            )
         try:
             outcomes = await asyncio.shield(wave)
         except asyncio.CancelledError:
             # Keep already-sent peers alive until their real results settle;
             # caller shutdown must not manufacture unknown requests.
+            stop.set()
             await wave
             raise
         frozen = await store.load_frozen(frozen.run_id, frozen.attempt_id)

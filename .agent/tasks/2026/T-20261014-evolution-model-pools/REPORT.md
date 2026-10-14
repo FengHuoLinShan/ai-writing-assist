@@ -1,7 +1,7 @@
 # 独立模型池、范围授权与 Luna 输入预算交付
 
 本地实现于 `codex/evolution-model-pools`，基线 `fdd3ec59886e29cc5c9189a1c0fefa225cdc997f`。
-根工作区既有 WIP 与《诡秘》暂停任务保持原状。本轮用户追加授权审查修复、提交、PR与合并；本地验收已完成，准备提交集成。无生产部署。
+根工作区既有 WIP 与《诡秘》暂停任务保持原状。本轮用户追加授权审查修复、提交、PR与合并；PR #230已创建，最终队列整改及本地验收完成，等待推送与新head CI后合并。无生产部署。
 
 ## 已实现
 
@@ -16,11 +16,11 @@
 
 | 验证 | 结果 |
 |---|---|
-| 后端受影响集中回归（LLM/tasks/Evolution/Project/Imports/config/worker/deploy） | 最终 `make test-ci TEST_WORKERS=2`：7985 passed，2 skipped；覆盖率86.80%（门槛85%） |
-| 前端全量 Vitest | 237文件，2985 passed |
+| 后端受影响集中回归（LLM/tasks/Evolution/Project/Imports/config/worker/deploy） | 最终 `make test-ci TEST_WORKERS=2`：8000 passed，2 skipped；覆盖率86.83%（门槛85%） |
+| 前端全量 Vitest | 237文件，2990 passed |
 | 前端 ESLint / production build | 通过，生产资源验证通过 |
 | 真实 spawn 子进程模型槽 | 13 passed，Luna8 + DS8总峰16；跨worker同模型、取消、死亡释放及配置等待 |
-| PostgreSQL定向 | 最终完整critical：98 passed，包括空库迁移/ORM校验、并发/租约/恢复、有限与范围预算及安全降级 |
+| PostgreSQL定向 | 最终完整critical：100 passed，包括空库迁移/ORM校验、并发/租约/恢复、有限与范围预算及安全降级 |
 | 新Luna范围 | 专用PG中12场合成输入，调用超过旧20额度仍完成，预算为空；无真实模型 |
 | 500k完整输入边界/完整schema/CLI参数/未知tokenizer/161次范围账本/DS与Agent拒绝范围 | 通过 |
 | 就绪事件屏障 | 慢请求空槽接续、严格前序、乱序/恢复、取消与未知收尾通过 |
@@ -40,4 +40,10 @@
 
 ## 审查修复
 
-两轴审查与整改见[REVIEW.md](REVIEW.md)，六个独立问题全部修复并复核，无剩余具体阻断。新增selector验证与V2显式模式校验；测试替身同步冻结能力参数。部署279项通过，前端lint/build与依赖审计通过。完整跨栈门禁已通过，最终新增诊断配置更名后的3项定向测试通过。无新增依赖或真实模型请求。
+两轴审查与整改见[REVIEW.md](REVIEW.md)，七个独立问题（含最终发送边界）全部修复并复核，无剩余具体阻断。新增selector验证与V2显式模式校验；测试替身同步冻结能力参数。部署323项通过，前端lint/build与依赖审计通过。完整跨栈门禁已通过，最终新增诊断配置更名后的3项定向测试通过。无新增依赖或真实模型请求。
+
+## 最终发送边界及集成验收
+
+未知/取消/来源错误传播到共享槽等待与最终provider任务；异步账本/兼容预算checkpoint后重验，未发送请求退回自身预留和日志，已发同伴继续落账。新旧身份波次均覆盖。25项事件/领域集中回归、PG critical 100项、完整test-ci 8000后端/2990前端/323部署通过；两轴独立复核无剩余阻断。repo-gates、文档差异核对及diff-check通过。
+
+基线已正常集成主干0e572c75f，保留#227备份及地图来源规则。生产镜像父目录问题已修复并在c3c48c595完整远端镜像合同通过；新最终head仍须全部CI通过。新一轮固定PG17专用容器已删除，不改共享或真实资料。

@@ -101,9 +101,11 @@ async def model_admission(pool_key: tuple[str, ...], limit: int, *, rpm: int = 0
     from infrastructure.llm.limits import (
         _ai_run_remaining_seconds,
         _raise_ai_run_deadline,
+        require_request_admission,
     )
 
     while True:
+        require_request_admission()
         remaining = _ai_run_remaining_seconds()
         if remaining is not None and remaining <= 0:
             _raise_ai_run_deadline()

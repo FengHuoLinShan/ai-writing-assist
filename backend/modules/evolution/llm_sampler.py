@@ -514,6 +514,10 @@ class ProjectLLMSampler:
                     **options,
                 )
         except Exception as error:
+            from infrastructure.llm.errors import LLMAdmissionStoppedError
+
+            if isinstance(error, LLMAdmissionStoppedError):
+                raise
             raise SceneCallFailedError(
                 build_call_receipt(
                     self._client,

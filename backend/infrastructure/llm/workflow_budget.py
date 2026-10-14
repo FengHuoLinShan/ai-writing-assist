@@ -74,6 +74,11 @@ class WorkflowBudget:
             self.budget.add_usage(usage)
             await self.checkpoint(self.budget.model_dump(mode="json"))
 
+    async def discard(self):
+        async with self.lock:
+            self.budget.release_pending_request()
+            await self.checkpoint(self.budget.model_dump(mode="json"))
+
 
 _CURRENT: ContextVar[WorkflowBudget | None] = ContextVar(
     "review_workflow_budget", default=None

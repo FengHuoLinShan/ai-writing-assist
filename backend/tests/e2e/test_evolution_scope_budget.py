@@ -31,6 +31,32 @@ def project(nid):
     )
 
 
+@pytest.mark.parametrize("budget", [8, None])
+async def test_unissued_request_returns_only_its_claim(budget):
+    from modules.evolution.facade import switch_project_engine
+    from modules.evolution.tests.test_unissued_calls import (
+        assert_unissued_claims_returned,
+    )
+
+    engine = create_async_engine(DATABASE_URL, pool_size=2, max_overflow=0)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    nid = uuid4()
+    try:
+        async with sessions() as db:
+            db.add(project(nid))
+            await db.flush()
+            await switch_project_engine(
+                db, str(nid), to_engine="evolution", expected_epoch=1
+            )
+            await db.commit()
+            await assert_unissued_claims_returned(db, str(nid), budget)
+    finally:
+        async with sessions() as db:
+            await db.execute(delete(Project).where(Project.id == nid))
+            await db.commit()
+        await engine.dispose()
+
+
 async def test_concurrent_finite_and_scope_reservations():
     engine = create_async_engine(DATABASE_URL, pool_size=8, max_overflow=0)
     sessions = async_sessionmaker(engine, expire_on_commit=False)

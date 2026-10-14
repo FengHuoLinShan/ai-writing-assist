@@ -3,16 +3,16 @@ id: T-20261014-evolution-model-pools
 title: 独立模型池、Luna 范围授权与 500k 输入预算
 status: active
 created: 2026-10-14T18:00:00+08:00
-updated: 2026-10-14T21:32:58+08:00
+updated: 2026-10-14T22:29:34+08:00
 ---
 
 # 世界演化模型池与范围授权
 
 ## 恢复快照
 
-- 本地实现完成；用户追加授权：review并修复，完成后提交、开PR并合并。正在对固定基线审查与补充验证，尚未提交/推送/合并。
+- 用户授权review、修复、提交、开PR并合并；PR #230已开。c3c48c595全部CI通过后终审发现队列发送边界P1，已本地整改，正在重验；尚未合并。
 - 工作区：/Users/tywww/.codex/worktrees/evolution-model-pools/ai-writing-assist；codex/evolution-model-pools。根 WIP 保持原状。
-- 下一步：提交已复核改动、开PR，等待固定head全部适用检查通过后按授权合并；不自动续跑《诡秘》。
+- 下一步：完成队列整改独立终审和全量门禁，提交推送，待新固定head全部CI通过后合并PR #230；不自动续跑《诡秘》。
 - 外部验证未完成：真实订阅500k输入、语义质量与持续高并发。
 
 ## 目标与验收
@@ -85,3 +85,13 @@ updated: 2026-10-14T21:32:58+08:00
 
 - c6b87f584 的生产镜像构建在创建/app/model-admission时失败，父目录尚未由WORKDIR创建。已用mkdir -p修复，保留最终0700/app用户所有权；待实际镜像验证与新head全部CI。
 - 主干集成部署163项、PG预算/租约/地图7项与lint/build已通过；合成共享开发PG库/角色已删除。独立PG容器仍保留至收尾。
+
+## 队列最终发送门禁整改
+
+- c3c48c595 全部CI已通过但最后实际client/limiter事件屏障复现P1：其它root占7槽，8个peer仅1个已发，未知/取消后其余7个排队peer仍发送。停止信号未到达最终admission，domain预算/日志已先预留。暂不合并。
+- 修复中：共享request_admission_scope向最终计量入口传stop，等待槽/RPM/OS接纳可停；明确LLMAdmissionStoppedError证明零I/O，退回自身domain及补扫预留并清除自身尚未发送日志。保留已发请求真实收尾。
+- 当前未提交整改；下一步补事件屏障与PG退款/恢复回归，独立复核、完整门禁、新head CI后合并。合成PG容器已清理，PG验证需重新新建专用容器。
+
+- 最新验证：实际共享池unknown/cancel只发1，异步checkpoint五种入口/兼容预算拒绝不计数；SQLite与PG退款两种模式通过。新旧identity作用域、来源错误传播及结算前stop已修复。完整test-ci与PG critical运行中（专用容器52325）；无真实模型。
+
+- 终审与门禁检查点：规范轴与计划轴独立重演新旧队列及异步checkpoint反例，均无剩余阻断。PG critical 100 passed（含2个新退款模式）；repo-gates、文档差异影响核对及diff-check通过。主干仍0e572c75f；队列整改本地完成，完整test-ci通过（8000后端/2990前端/323部署，86.83%）；待提交推送并核验新head CI。专用PG容器已清理。

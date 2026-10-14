@@ -2,6 +2,8 @@
 
 import asyncio
 
+from infrastructure.llm.limits import request_admission_scope
+
 
 async def drain_ready(jobs, parallelism):
     if type(parallelism) is not int or parallelism < 1:
@@ -20,9 +22,10 @@ async def drain_ready(jobs, parallelism):
                 stop.set()
                 raise
 
-    peers = asyncio.gather(
-        *(worker() for _ in range(parallelism)), return_exceptions=True
-    )
+    with request_admission_scope(stop):
+        peers = asyncio.gather(
+            *(worker() for _ in range(parallelism)), return_exceptions=True
+        )
     try:
         results = await asyncio.shield(peers)
     except asyncio.CancelledError:

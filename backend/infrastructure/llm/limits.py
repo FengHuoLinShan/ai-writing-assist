@@ -6,7 +6,8 @@ import asyncio
 import logging
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
-from contextlib import AsyncExitStack, asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from time import monotonic
 from typing import TypeVar
@@ -14,6 +15,7 @@ from urllib.parse import urlsplit
 
 from core.config import get_settings
 from infrastructure.llm.errors import (
+    LLMAdmissionStoppedError,
     LLMAuthError,
     LLMConnectionError,
     LLMContentFilterError,
@@ -30,6 +32,32 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 _MAX_BREAKER_BUCKETS = 256
 _HALF_OPEN_RETRY_SECONDS = 1.0
+
+
+_request_stops: ContextVar[tuple[asyncio.Event, ...]] = ContextVar(
+    "llm_request_stops", default=()
+)
+
+
+@contextmanager
+def request_admission_scope(stop: asyncio.Event):
+    token = _request_stops.set((*_request_stops.get(), stop))
+    try:
+        yield
+    finally:
+        _request_stops.reset(token)
+
+
+def require_request_admission():
+    if any(stop.is_set() for stop in _request_stops.get()):
+        raise LLMAdmissionStoppedError()
+
+
+def stop_request_admission(error=None):
+    if isinstance(error, LLMInvalidResponseError) and error.usage is not None:
+        return
+    for stop in _request_stops.get():
+        stop.set()
 
 
 class LLMCircuitBreakerOpenError(LLMError):
@@ -132,6 +160,7 @@ class LLMProcessLimiter:
         limiter_scope: LLMLimiterScope | None = None,
     ):
         """Hold one model pool admission for a provider operation."""
+        require_request_admission()
         await self._ensure_ready()
         bucket = limiter_scope or _LEGACY_SCOPE
         half_open_probe = await self._begin_breaker_request(bucket)
@@ -152,15 +181,18 @@ class LLMProcessLimiter:
             pool = await self._pool(key, bucket)
             await self._acquire_semaphore(pool.semaphore)
             admitted = True
+            require_request_admission()
             from infrastructure.llm.model_admission import model_admission
 
             await account_admission.enter_async_context(
                 model_admission(key, pool.concurrency, rpm=pool.rpm)
             )
             await self._wait_for_rate_token(pool)
+            require_request_admission()
             try:
                 yield
             except Exception as exc:
+                stop_request_admission(exc)
                 if _counts_toward_circuit_breaker(exc):
                     await self.record_failure(bucket)
                 elif _proves_provider_available(exc):
@@ -172,7 +204,8 @@ class LLMProcessLimiter:
                 raise
             else:
                 await self.record_success(bucket)
-        except BaseException:
+        except BaseException as exc:
+            stop_request_admission(exc)
             await self._release_half_open_probe(bucket, half_open_probe=half_open_probe)
             raise
         finally:
@@ -230,6 +263,7 @@ class LLMProcessLimiter:
             bucket.provider_id, bucket.model, settings=get_settings()
         )
         while True:
+            require_request_admission()
             async with self._lock:
                 pool = self._pools.get(key)
                 if pool and (pool.concurrency, pool.rpm) != (
@@ -274,6 +308,7 @@ class LLMProcessLimiter:
 
     async def _wait_for_rate_token(self, pool) -> None:
         while pool.rpm > 0:
+            require_request_admission()
             async with self._lock:
                 now = monotonic()
                 elapsed = now - pool.last_refill_at
@@ -286,21 +321,27 @@ class LLMProcessLimiter:
             remaining = _ai_run_remaining_seconds()
             if remaining is not None and wait_seconds >= remaining:
                 _raise_ai_run_deadline()
-            await asyncio.sleep(wait_seconds)
+            await asyncio.sleep(
+                min(wait_seconds, 0.025) if _request_stops.get() else wait_seconds
+            )
 
     @staticmethod
     async def _acquire_semaphore(semaphore: asyncio.Semaphore) -> None:
-        remaining = _ai_run_remaining_seconds()
-        if remaining is None:
-            await semaphore.acquire()
-            return
-        if remaining <= 0:
-            _raise_ai_run_deadline()
-        try:
-            async with asyncio.timeout(remaining):
-                await semaphore.acquire()
-        except TimeoutError as exc:
-            _raise_ai_run_deadline(cause=exc)
+        while True:
+            require_request_admission()
+            remaining = _ai_run_remaining_seconds()
+            if remaining is not None and remaining <= 0:
+                _raise_ai_run_deadline()
+            wait = min(0.025, remaining) if remaining is not None else 0.025
+            if not _request_stops.get():
+                wait = remaining
+            try:
+                async with asyncio.timeout(wait):
+                    await semaphore.acquire()
+                return
+            except TimeoutError as exc:
+                if not _request_stops.get():
+                    _raise_ai_run_deadline(cause=exc)
 
     async def _begin_breaker_request(self, bucket: LLMLimiterScope) -> bool:
         async with self._lock:
@@ -413,6 +454,7 @@ def _counts_toward_circuit_breaker(exc: Exception) -> bool:
         "codex_configuration",
         "input_budget_exceeded",
         "context_policy_changed",
+        "request_admission_stopped",
         "model_admission_configuration",
     }:
         return False

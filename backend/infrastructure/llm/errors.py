@@ -31,6 +31,15 @@ class LLMError(Exception):
         super().__init__(message)
 
 
+class LLMAdmissionStoppedError(LLMError):
+    """The request did not reach provider I/O; its domain claim may be returned."""
+
+    def __init__(self):
+        super().__init__(
+            "本批请求已停止接纳，本请求尚未发送", error_kind="request_admission_stopped"
+        )
+
+
 class LLMTimeoutError(LLMError):
     """LLM 调用超时 — 可重试"""
 

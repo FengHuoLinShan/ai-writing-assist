@@ -123,6 +123,7 @@ class ControlledReviews:
         self.started[index].set()
         try:
             if self.failure == index:
+                await self.started[2 if index == 1 else 1].wait()
                 raise SceneCallFailedError(None)
             await self.release.wait()
             if self.reverse and index == 1:
@@ -215,6 +216,45 @@ async def test_shutdown_drains_results_without_cancelling_providers(
         for i in (1, 2)
     )
     assert caller.cancelled == 0
+
+
+async def test_identity_source_failure_stops_waiter_and_returns_unissued_claim(
+    db_session, evolution_project_id, monkeypatch
+):
+    from infrastructure.llm.errors import LLMAdmissionStoppedError
+    from infrastructure.llm.limits import require_request_admission
+    from modules.evolution.commit import CommitConflictError
+
+    scope = await identity_scope(db_session, evolution_project_id)
+    source_failed = asyncio.Event()
+    checks, sent = 0, []
+
+    async def verify(db, frozen):
+        nonlocal checks
+        checks += 1
+        if checks == 2:
+            source_failed.set()
+            raise CommitConflictError("source_changed", "synthetic source changed")
+
+    monkeypatch.setattr(
+        "modules.evolution.pipeline._source_verifier", lambda source: verify
+    )
+
+    class QueuedCaller:
+        session_gate = asyncio.Lock()
+        discovery_parallelism = 2
+
+        async def __call__(self, method, *, inputs):
+            await source_failed.wait()
+            require_request_admission()
+            sent.append(inputs)
+
+    with pytest.raises(LLMAdmissionStoppedError):
+        await asyncio.wait_for(finish(db_session, scope, QueuedCaller()), 2)
+    frozen = await scope[0].load_frozen("parallel", "scope")
+    assert sent == []
+    assert all(f"scene_discovery_identity_0_{i}" not in frozen.payload for i in (1, 2))
+    assert (await scope[0].load_run("parallel")).budget_remaining == 8
 
 
 @pytest.mark.parametrize("budget, expected_calls", [(0, []), (1, [1])])

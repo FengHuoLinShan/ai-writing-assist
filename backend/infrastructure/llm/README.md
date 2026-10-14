@@ -255,6 +255,8 @@ task status 或诊断响应前必须先做 secret redaction 和控制字符规�
 生产 API/worker 挂载同一私有 `llm-model-admission` 卷；本地使用系统用户私有目录。
 RPM 是每模型的进程内 token bucket，默认关闭；正 RPM 部署仍按 worker 数核算 provider 总吞吐。
 取消/进程死亡释放槽，排队受已有 run deadline 约束，provider timeout 不被删除。
+演化并发批次通过共享停止信号约束等待槽、RPM 和最终 provider 任务；未知失败先停止接纳，再保存回执。
+账本/兼容额度 checkpoint 后重新检查停止信号，证明未发送的请求撤销预留，不记 unknown；已发请求继续结算。
 
 新 Codex `gpt-6-luna` 能力配置声明总窗口 1,050,000、完整输入默认 500,000、输出预留 128,000、
 额外安全余量 32,000。CLI 显式覆盖 `model_context_window=1050000`、

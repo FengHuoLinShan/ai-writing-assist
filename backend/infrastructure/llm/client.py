@@ -26,6 +26,7 @@ from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from core.config import get_settings
 from infrastructure.llm.errors import (
+    LLMAdmissionStoppedError,
     LLMContentFilterError,
     LLMError,
     LLMInvalidResponseError,
@@ -527,12 +528,29 @@ async def _reserve_ai_run_request(
     reserve 发生在真正 provider I/O 之前；账本因预算或 deadline 拒绝时不产生任何计数。
     没有活动信封时返回 (None, None)，调用链行为与改造前一致。
     """
+    from infrastructure.llm.limits import require_request_admission
     from infrastructure.llm.workflow_budget import current_ai_run_envelope
 
+    require_request_admission()
     ledger = current_ai_run_envelope()
     if ledger is None:
         return None, None
     return ledger, await ledger.reserve(provider_id=provider_id, model=model)
+
+
+async def _send_admitted_request(call, ledger, reservation, *, meter=None):
+    # Run inside the provider task, after all asynchronous budget checkpoints.
+    from infrastructure.llm.limits import require_request_admission
+
+    try:
+        require_request_admission()
+    except LLMAdmissionStoppedError:
+        if ledger is not None and reservation is not None:
+            await ledger.discard(reservation)
+        if meter is not None:
+            await meter.discard()
+        raise
+    return await call()
 
 
 @contextmanager
@@ -572,6 +590,10 @@ async def _settle_ai_run_request(
     error: BaseException | None = None,
 ) -> None:
     """落定已预留请求；响应和完整失败都无原生 usage 才记 unknown，不补零。"""
+    if error is not None:
+        from infrastructure.llm.limits import stop_request_admission
+
+        stop_request_admission(error)
     if ledger is None or reservation is None:
         return
     if usage is None and isinstance(error, LLMInvalidResponseError):
@@ -995,13 +1017,24 @@ class LLMClient:
             await _record_ai_run_retry(ledger, reservation, attempt=attempts)
             try:
                 response = await asyncio.wait_for(
-                    self._provider.generate(resolved_request, complete_stream=True)
-                    if complete_stream
-                    else self._provider.generate(resolved_request),
+                    _send_admitted_request(
+                        lambda: (
+                            self._provider.generate(
+                                resolved_request, complete_stream=True
+                            )
+                            if complete_stream
+                            else self._provider.generate(resolved_request)
+                        ),
+                        ledger,
+                        reservation,
+                        meter=meter,
+                    ),
                     timeout=self._provider_call_timeout(
                         ledger.remaining_seconds() if ledger is not None else None
                     ),
                 )
+            except LLMAdmissionStoppedError:
+                raise
             except Exception as exc:
                 await _settle_ai_run_request(ledger, reservation, usage=None, error=exc)
                 if meter is not None:
@@ -1089,11 +1122,19 @@ class LLMClient:
                     await _record_ai_run_retry(ledger, reservation, attempt=open_attempts)
                 try:
                     stream = await asyncio.wait_for(
-                        self._provider.generate_stream(request=resolved_request),
+                        _send_admitted_request(
+                            lambda: self._provider.generate_stream(
+                                request=resolved_request
+                            ),
+                            ledger,
+                            reservation,
+                        ),
                         timeout=self._provider_call_timeout(
                             ledger.remaining_seconds() if ledger is not None else None
                         ),
                     )
+                except LLMAdmissionStoppedError:
+                    raise
                 except BaseException as exc:
                     await _settle_ai_run_request(
                         ledger, reservation, usage=None, error=exc
@@ -1159,11 +1200,14 @@ class LLMClient:
         pending: list[tuple[AIRunEnvelope, AIRunRequestReservation]] = []
 
         async def metered_before_request() -> None:
+            from infrastructure.llm.limits import require_request_admission
+
             ledger, reservation = await _reserve_ai_run_request(
                 provider_id=provider_id, model=self.model_name
             )
             try:
                 await before_request()
+                require_request_admission()
             except BaseException:
                 if ledger is not None and reservation is not None:
                     await ledger.discard(reservation)
@@ -1753,11 +1797,17 @@ class LLMClient:
             )
             try:
                 result = await asyncio.wait_for(
-                    self._provider.generate_embedding(text=text, model=model),
+                    _send_admitted_request(
+                        lambda: self._provider.generate_embedding(text=text, model=model),
+                        ledger,
+                        reservation,
+                    ),
                     timeout=self._provider_call_timeout(
                         ledger.remaining_seconds() if ledger is not None else None
                     ),
                 )
+            except LLMAdmissionStoppedError:
+                raise
             except BaseException as exc:
                 await _settle_ai_run_request(ledger, reservation, usage=None, error=exc)
                 raise
