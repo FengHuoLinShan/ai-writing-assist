@@ -1,6 +1,6 @@
 # Codex Luna运行时G2收敛验收
 
-2026-10-14，本地工程门禁已完成，运行时 [PR226](https://github.com/FengHuoLinShan/ai-writing-assist/pull/226) 待同一最终head的远端门禁后合入。本次不会恢复《诡秘》全量，不重建已删除自动任务60。
+2026-10-14，G2在同一最终HEAD 8c234ac09351080ce457840b834af5d6ac3d57a1全部PR门禁及两路复核通过后，运行时 [PR226](https://github.com/FengHuoLinShan/ai-writing-assist/pull/226) 已合入main **d904eb8d15b66a59653a978d517608f7c7fcaded**（14:05:33+08:00）。squash树与受验HEAD逐文件相同；未部署。《诡秘》全量仍暂停，自动任务60保持删除。
 
 W8的118份改动已迁入PR222之后的主干。七个旧树逐路径比较：54处内容变化、6处新增文件存在性变化；全部版本保留，裁定记录见 [差异表](../../.agent/tasks/2026/T-20261014-codex-luna-convergence/OLD-TREE-REVIEW.json)。保留PR222的服务拆分、消费者输入证明和教师/holdout暂停守卫；移除已退休、无调用且引用失效名称的旧私有helper。模型规则独立 [PR225](https://github.com/FengHuoLinShan/ai-writing-assist/pull/225) 已在全部CI通过后合入main（e02137f79fc4e8f5ba4f79f541b66b5dbaa47a05）。
 
@@ -53,6 +53,16 @@ flowchart LR
 
 Code Review两路固定904530e发现Standards两项P2和Spec一项P1，记录见[复核](../../.agent/tasks/2026/T-20261014-codex-luna-convergence/REVIEW.md)：独立图片Key被文本选择隐藏、导入预检丢原生未知证据并可重复验证探针。已恢复图片表单独立性，并将原生预检改为零模型请求的配置/当前授权检查；7种正常/漂移配置各重复两次均不派发，撤销授权关闭客户端。账户CI8个失败另暴露旧列表顺序/默认假设及断开后active选择状态变化，已按provider身份断言并恢复原选择契约，未放宽连接、owner或Kimi门禁。
 
-最终受影响LLM/Imports/Project/账户偏好1619项通过、2真实模型deselected、1既有OpenAPIwarning；最后精简预检失败回传后121项专用复验通过。最终前端40项通过。地图浏览器两份失败现场分别恢复专注/编辑两种合法状态；原用例固定入口不可靠，现等待当前展开或编辑入口，仅在需要时展开，原位移持久化、创建城市图等断言保留，地图生产代码未改。全部新增修复待最终head远端CI及修后复核，不以此前失败版本或本地测试替代。
+最终受影响LLM/Imports/Project/账户偏好1619项通过、2真实模型deselected、1既有OpenAPIwarning；最后精简预检失败回传后121项专用复验通过。最终前端40项通过。地图浏览器两份失败现场分别恢复专注/编辑两种合法状态；原用例固定入口不可靠，现等待当前展开或编辑入口，仅在需要时展开，原位移持久化、创建城市图等断言保留，地图生产代码未改。全部新增修复已通过最终8c234ac同HEAD远端CI及两路修后复核；此前失败版本保留，不以其它门禁掩盖失败。
 
-修复版abb5b968远端后端7962 passed/2 skipped、覆盖率86.84%，部署合同272项和PG均通过；这些记录属于该固定版本。浏览器shard1的地图入口适配尚待新HEAD全部CI，不以其它门禁通过覆盖浏览器失败。
+修复版abb5b968远端后端7962 passed/2 skipped、覆盖率86.84%，部署合同272项和PG均通过；这些记录属于该固定版本。该版本的浏览器shard1仍失败，作为历史证据保留；最终8c234ac同HEAD全部CI已通过。
+
+## 最终签收
+
+同HEAD 8c234ac09351080ce457840b834af5d6ac3d57a1远端CI：后端7962 passed/2 skipped/12 warnings、覆盖率86.84%；部署合同272、PG critical95；前端237文件2982测试；功能浏览器189+151、WebKit12、助手1、前瞻9、审稿9全部通过。CodeQL、镜像合同、文档和仓库门禁均通过。不同范围及重叠集合不累计；合成模型浏览器套件不是真实模型文学验收。固定检查汇总在/tmp/codex-luna-g2/ci-checks-8c234ac-final.json，运行时合并证明为pr226-merge-proof.json。
+
+两路复核最终分别零剩余发现，见[完整复核](../../.agent/tasks/2026/T-20261014-codex-luna-convergence/REVIEW.md)。main d904eb8d15b66a59653a978d517608f7c7fcaded的六个push工作流均已成功，[main前端CI](https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38520202070)完成全部单元、功能浏览器两分片及聚合检查。八旧树789份已记录文件版本合并后重验零漂移，均保留；原请求、unknown、账本与原验收库没有修改。
+
+最终交接见[HANDOFF](../../.agent/tasks/2026/T-20261014-codex-luna-convergence/HANDOFF.md)。用户明确要求把最终签收文档推送合入；本次五份文档及关闭索引经独立文档PR交付，运行时/权威文档已随PR226合入，未另建运行时PR。Guimi v2不能静默续跑到v3，长篇全量/准确度/高并发稳定性仍未验，旧约1.91秒未知原因未定。
+
+最终主干核验：2026-10-14T14:28:08+08:00。main前端237文件/2982测试、功能浏览器189+151、WebKit12、助手1、前瞻9、审稿9均通过，聚合工作流结论success。证据为main-frontend-final-proof.json、main-runtime-ci-final-proof.json与main-*-final.log（私有/tmp/codex-luna-g2）。这是既有CI结果核验，没有重新触发旧小说请求。
