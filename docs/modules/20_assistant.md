@@ -151,3 +151,6 @@ Assistant 的 `/editorial/*` 持有 `assistant_editorial_reviews`、`assistant_e
 
 本机任务批准使用 Assistant facade 的 owner/novel_id/task_id 窄入口，由
 Assistant service 持行锁更新 checkpoint，禁止外域直接写 AssistantRun。
+
+
+ADR-0033：助手模型就绪判定接受项目快照中的已验证 Codex 连接，不以是否保存 API Key 代替可用性；工具循环仍走同一有界网关，模板重建保持未设置字段，以继承 Luna/max 而不固化历史默认模型。

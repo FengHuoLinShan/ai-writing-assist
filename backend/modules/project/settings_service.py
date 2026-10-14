@@ -129,7 +129,7 @@ class ProjectSettingsService:
         owner_id: uuid.UUID | None = None,
     ) -> EffectiveLLMSettingsResponse:
         account = await get_account_llm_settings_contract(db, owner_id=owner_id)
-        configured = list(account.configured_provider_ids)
+        configured = [p for p in account.configured_provider_ids if p != "codex"]
 
         def global_value(name: str) -> FieldValueSource:
             return FieldValueSource(value=account.values.get(name), source="global")

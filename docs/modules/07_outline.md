@@ -376,3 +376,7 @@ scene_order 事务锁保护新建场景，并以 NOWAIT 共享行锁保护已有
 等待结构写者而形成锁循环。场景创建和批量创建共用 scene_order 锁。
 
 SceneWorkbenchService 按职责拆为 scene_workbench（主编排）、scene_workbench_fusion（融合预览/建议）和 scene_workbench_health（健康/关联投影）；共享常量和冲突类型位于 scene_workbench_support。稳定入口仍为原 class，复用同一 repo、锁和状态，不增加领域写入路径。
+
+### 2026-10-13 Codex导入接纳与完整复核
+
+Codex Scene切分、补全、融合的调度遵守进程内既有两路CLI接纳，等待不提前吞掉大量逐场超时时间；API provider原并发参数保持。组级独立知识复核传入完整冻结正文，取消24K前缀截断；场景边界、来源区间、待核与作者确认契约不变，完整输入本身不代表语义审查通过。

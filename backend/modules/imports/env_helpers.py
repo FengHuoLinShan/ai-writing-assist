@@ -32,3 +32,13 @@ def bool_env(name: str, default: bool) -> bool:
     if raw is None or raw.strip() == "":
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def bound_llm_concurrency(project_settings: dict | None, requested: int) -> int:
+    """Admit CLI work before step timers; preserve API provider tuning."""
+    from core.config import get_codex_text_concurrency
+    from infrastructure.llm.profiles import resolve_llm_profile
+
+    if resolve_llm_profile(project_settings).provider_id == "codex":
+        return min(requested, get_codex_text_concurrency())
+    return requested

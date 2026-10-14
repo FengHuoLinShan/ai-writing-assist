@@ -90,10 +90,11 @@ def _looks_truncated_response(
     finish_reason: str,
     completion_tokens: int,
     max_tokens: int | None,
+    output_token_limit_enforced: bool = True,
 ) -> bool:
     if finish_reason == "length":
         return True
-    if max_tokens is None or max_tokens <= 0:
+    if not output_token_limit_enforced or max_tokens is None or max_tokens <= 0:
         return False
     return completion_tokens >= int(max_tokens * _TOKEN_LIMIT_PROXIMITY)
 
@@ -576,9 +577,11 @@ async def _settle_ai_run_request(
     finish_reason: str = "",
     error: BaseException | None = None,
 ) -> None:
-    """落定一次已预留请求；缺 usage 记 unknown/possible，绝不写成零用量。"""
+    """落定已预留请求；响应和完整失败都无原生 usage 才记 unknown，不补零。"""
     if ledger is None or reservation is None:
         return
+    if usage is None and isinstance(error, LLMInvalidResponseError):
+        usage = error.usage
     await ledger.settle(
         reservation,
         usage=usage,
@@ -689,6 +692,7 @@ class LLMClient:
         self._profile_extra_defaults = dict(runtime_profile.extra)
         self._uses_system_embedding_profile = False
         self._runtime_scope: dict[str, Any] = {"profile_source": "system"}
+        self.authorize_request = None
 
     @classmethod
     def from_project_settings(
@@ -717,7 +721,10 @@ class LLMClient:
             "default_max_tokens": profile.max_tokens,
             **provider_kwargs,
         }
-        client = cls(provider_name="openai", **merged_kwargs)
+        client = cls(
+            provider_name="codex" if profile.provider_id == "codex" else "openai",
+            **merged_kwargs,
+        )
         client._profile_summary = profile.sanitized_summary()
         client._limiter_provider_id = profile.provider_id
         client._limiter_base_url = profile.base_url
@@ -897,6 +904,10 @@ class LLMClient:
         async def provider_request():
             nonlocal attempts
             attempts += 1
+            if self.authorize_request is not None:
+                await self.authorize_request()
+            if self.provider == "codex":
+                self._provider.validate_connection()
             meter = current_workflow_budget()
             # 活动信封是权威请求闸门：先在信封预留；兼容预算随后预留，若它拒绝，
             # 立即撤销信封预留。任一预算在 provider I/O 前拒绝时，两个账本都不计数。
@@ -921,7 +932,16 @@ class LLMClient:
             except Exception as exc:
                 await _settle_ai_run_request(ledger, reservation, usage=None, error=exc)
                 if meter is not None:
-                    await meter.completed(None)
+                    await meter.completed(
+                        exc.usage if isinstance(exc, LLMInvalidResponseError) else None
+                    )
+                if self.provider == "codex" and isinstance(exc, TimeoutError):
+                    raise LLMError(
+                        "Codex 结果未知，禁止自动重发",
+                        provider="codex",
+                        error_kind="codex_result_unknown",
+                        diagnostic=getattr(exc.__cause__, "diagnostic", None),
+                    ) from exc
                 raise
             except BaseException as exc:
                 await _settle_ai_run_request(ledger, reservation, usage=None, error=exc)
@@ -979,6 +999,10 @@ class LLMClient:
             async def open_stream():
                 nonlocal open_attempts
                 open_attempts += 1
+                if self.authorize_request is not None:
+                    await self.authorize_request()
+                if self.provider == "codex":
+                    self._provider.validate_connection()
                 # 只在 reserve/settle 附近声明 call_kind，避免在 yield 期间把
                 # step 覆盖留在消费者同一 task 的上下文里。
                 with _managed_step_overrides(call_kind=AIStepCallKind.stream):
@@ -995,6 +1019,13 @@ class LLMClient:
                     await _settle_ai_run_request(
                         ledger, reservation, usage=None, error=exc
                     )
+                    if self.provider == "codex" and isinstance(exc, TimeoutError):
+                        raise LLMError(
+                            "Codex 结果未知，禁止自动重发",
+                            provider="codex",
+                            error_kind="codex_result_unknown",
+                            diagnostic=getattr(exc.__cause__, "diagnostic", None),
+                        ) from exc
                     raise
                 return stream, ledger, reservation
 
@@ -1144,7 +1175,16 @@ class LLMClient:
         # supported 与 unverified（含旧快照 None）保持既有行为：默认发
         # json_object，尊重调用方预填。unverified 只影响 B5 路由候选资格
         # （见 modules/project/model_routing.verified_secondary_models）。
-        if req.response_format is None:
+        if self.provider == "codex":
+            req.response_format = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": schema.__name__,
+                    "schema": schema.model_json_schema(),
+                    "strict": True,
+                },
+            }
+        elif req.response_format is None:
             req.response_format = {"type": "json_object"}
         if req.temperature is None:
             req.temperature = 0.3  # 结构化输出用较低温度
@@ -1196,6 +1236,10 @@ class LLMClient:
                     finish_reason=finish_reason,
                     completion_tokens=completion_tokens,
                     max_tokens=max_tokens,
+                    output_token_limit_enforced=response.raw.get(
+                        "output_token_limit_enforced"
+                    )
+                    is not False,
                 )
                 data, parse_strategy = _parse_structured_json(
                     response.content,
@@ -1232,6 +1276,17 @@ class LLMClient:
                     },
                 )
                 return validated
+            except LLMError as exc:
+                if exc.diagnostic:
+                    _append_structured_diagnostic(
+                        diagnostics,
+                        {
+                            "kind": "native_cli_failure",
+                            "attempt": attempt + 1,
+                            **exc.diagnostic,
+                        },
+                    )
+                raise
             except _StructuredParseError as e:
                 raw_content = response.content if response is not None else ""
                 redacted_raw_content = redact_diagnostic(raw_content)
@@ -1248,6 +1303,11 @@ class LLMClient:
                         finish_reason=finish_reason,
                         completion_tokens=completion_tokens,
                         max_tokens=max_tokens,
+                        output_token_limit_enforced=(
+                            response is None
+                            or response.raw.get("output_token_limit_enforced")
+                            is not False
+                        ),
                     )
                     else "invalid_json"
                 )
@@ -1404,7 +1464,18 @@ class LLMClient:
         for attempt in range(1, attempts + 1):
             repair_req = request.model_copy(deep=True)
             repair_req.temperature = 0
-            repair_req.response_format = {"type": "json_object"}
+            repair_req.response_format = (
+                {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": schema.__name__,
+                        "schema": schema.model_json_schema(),
+                        "strict": True,
+                    },
+                }
+                if self.provider == "codex"
+                else {"type": "json_object"}
+            )
             repair_req.messages = [
                 LLMMessage(
                     role="system",
@@ -1439,6 +1510,10 @@ class LLMClient:
                     finish_reason=getattr(response, "finish_reason", ""),
                     completion_tokens=getattr(response.usage, "completion_tokens", 0),
                     max_tokens=repair_req.max_tokens,
+                    output_token_limit_enforced=response.raw.get(
+                        "output_token_limit_enforced"
+                    )
+                    is not False,
                 )
                 data, parse_strategy = _parse_structured_json(
                     response.content,

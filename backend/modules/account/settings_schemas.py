@@ -70,11 +70,13 @@ class AccountLLMConnectionUpdate(BaseModel):
     """Write-only account provider connection input."""
 
     model_config = {"extra": "forbid"}
-    api_key: str = Field(min_length=1, max_length=4096)
+    api_key: str | None = Field(default=None, min_length=1, max_length=4096)
 
     @field_validator("api_key")
     @classmethod
-    def strip_api_key(cls, value: str) -> str:
+    def strip_api_key(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         stripped = value.strip()
         if not stripped:
             raise ValueError("API Key 不能为空")

@@ -90,6 +90,56 @@ class ScenePhaseRunner:
         replace_existing = request.replace_existing
         workflow = self.workflow
 
+        if (
+            not replace_existing
+            and DeepImportStep.scene_segmentation.value in progress.completed_steps
+        ):
+            from modules.imports.scene_commit import (
+                SceneCommitPrefixError,
+                validate_scene_commit_prefix,
+            )
+
+            artifact = progress.phase_artifacts.get("scene_commit") or {}
+            if artifact.get("status") != "completed" or artifact.get("chapter_range") != {
+                "start_chapter": start_chapter,
+                "end_chapter": end_chapter,
+            }:
+                raise SceneCommitPrefixError("scene_commit_prefix_receipt_missing")
+            checkpoint = progress.checkpoints.get("scene_commit")
+            receipt = progress.quality_stats.get("scene_commit") or {}
+            scene_ids = (
+                checkpoint.get("scene_ids")
+                if checkpoint
+                else list((receipt.get("scene_ids_by_candidate_id") or {}).values())
+                or receipt.get("created_scene_ids")
+                or []
+            )
+            proof = await validate_scene_commit_prefix(
+                db,
+                novel_id=novel_id,
+                workflow_id=workflow_id or progress.workflow_id or "manual",
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
+                scene_ids=scene_ids,
+                checkpoint=checkpoint,
+            )
+            progress.checkpoints["scene_commit"] = proof
+            total_scenes = len(proof["scene_ids"])
+            progress.current_phase = "scene_commit_reuse"
+            progress.current_operation = "scene_commit_reuse"
+            progress.message = (
+                f"已核验并复用 {total_scenes} 个已提交 Scene，继续后续整理。"
+            )
+            stopped = stop_after == DeepImportStep.scene_segmentation
+            if stopped:
+                progress.phase = "done"
+                progress.current_step = None
+                progress.quality_status = "partial" if progress.degraded else "complete"
+            await DeepImportProgressTracker.emit_progress(
+                progress, 1.0 if stopped else 0.35, on_progress
+            )
+            return ScenePhaseOutcome(total_scenes=total_scenes, stopped=stopped)
+
         def _assert_provider_window(phase: str) -> None:
             if request.require_provider_no_transaction and db.in_transaction():
                 raise RuntimeError(
@@ -700,6 +750,28 @@ class ScenePhaseRunner:
             if rag_task_id is not None:
                 progress.quality_stats["scene_commit"]["rag_reindex_task_id"] = (
                     rag_task_id
+                )
+            if not replace_existing and all(
+                candidate.scene_chunks
+                and all(
+                    chunk.source_draft_id
+                    and chunk.source_content_hash
+                    and chunk.start_offset is not None
+                    and chunk.end_offset is not None
+                    for chunk in candidate.scene_chunks
+                )
+                for candidate in final_candidates
+            ):
+                from modules.imports.scene_commit import validate_scene_commit_prefix
+
+                progress.checkpoints["scene_commit"] = await validate_scene_commit_prefix(
+                    db,
+                    novel_id=novel_id,
+                    workflow_id=workflow_id or progress.workflow_id or "manual",
+                    start_chapter=start_chapter,
+                    end_chapter=end_chapter,
+                    scene_ids=list(commit_result.scene_ids_by_candidate_id.values())
+                    or commit_result.created_scene_ids,
                 )
             DeepImportProgressTracker.mark_step_completed(
                 progress, DeepImportStep.scene_segmentation

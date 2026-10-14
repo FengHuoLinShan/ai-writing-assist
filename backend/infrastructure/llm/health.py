@@ -94,9 +94,7 @@ class LLMHealthChecker:
                 )
 
         dns_fake_ip = any(_is_fake_ip(ip) for ip in ips)
-        if settings.auth_mode == "public" and any(
-            not _is_public_ip(ip) for ip in ips
-        ):
+        if settings.auth_mode == "public" and any(not _is_public_ip(ip) for ip in ips):
             return self._result(
                 ok=False,
                 host=host,
@@ -263,6 +261,23 @@ async def check_llm_health_for_project(
         env_settings=settings,
         test_overrides=test_overrides,
     )
+    if profile.provider_id == "codex":
+        from infrastructure.llm.codex_provider import verify_codex_connection
+
+        try:
+            await verify_codex_connection()
+            return LLMHealthResult(
+                ok=True,
+                message="Codex Luna/max 连接可用",
+                profile_sources=dict(profile.sources),
+                profile_summary=profile.sanitized_summary(),
+            )
+        except Exception:
+            return LLMHealthResult(
+                ok=False,
+                error_kind="codex_unavailable",
+                message="请在本机检查 Codex 登录后重新验证",
+            )
     checker = LLMHealthChecker(
         api_key=profile.api_key,
         base_url=profile.base_url,
@@ -322,9 +337,7 @@ async def check_llm_environment_health(
     settings = get_settings()
     api_key = str(values["LLM_API_KEY"]) if "LLM_API_KEY" in values else ""
     base_url = (
-        str(values["LLM_BASE_URL"])
-        if "LLM_BASE_URL" in values
-        else settings.llm_base_url
+        str(values["LLM_BASE_URL"]) if "LLM_BASE_URL" in values else settings.llm_base_url
     )
     model = str(values["LLM_MODEL"]) if "LLM_MODEL" in values else settings.llm_model
     proxy_url = (
@@ -400,6 +413,10 @@ def _validate_account_provider_templates(*, settings: Any) -> None:
         if not provider_id or provider_id in provider_ids or not base_url or not model:
             raise ValueError("invalid account LLM provider template")
         provider_ids.add(provider_id)
+        if provider_id == "codex":
+            if base_url != "codex://local" or model != "gpt-6-luna":
+                raise ValueError("invalid local Codex template")
+            continue
         parsed = urlsplit(base_url)
         if (
             parsed.scheme.lower() != "https"

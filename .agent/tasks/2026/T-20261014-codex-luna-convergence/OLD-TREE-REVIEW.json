@@ -1,0 +1,1092 @@
+{
+  "base": "974f0f5080d43472bc599d1d74782913c725057b",
+  "migration_base": "22bb499789cba89fea92e918fd853ab768688e07",
+  "files_migrated": 118,
+  "differences": 60,
+  "content_differences": 54,
+  "presence_differences": 6,
+  "all_original_versions_preserved": true,
+  "old_trees_modified": false,
+  "review": [
+    {
+      "path": "backend/.env.example",
+      "hashes": {
+        "codex-luna-runtime": "29c7fadbbcc7397a325279a57c3c8726b60c2c3b54a6ddf1326cbdd29a7317cd",
+        "guimi60-bottleneck-final": "29c7fadbbcc7397a325279a57c3c8726b60c2c3b54a6ddf1326cbdd29a7317cd",
+        "codex-luna-timeouts": "29c7fadbbcc7397a325279a57c3c8726b60c2c3b54a6ddf1326cbdd29a7317cd",
+        "guimi60-resume-checkpoints": "29c7fadbbcc7397a325279a57c3c8726b60c2c3b54a6ddf1326cbdd29a7317cd",
+        "guimi60-discovery-parallel": "29c7fadbbcc7397a325279a57c3c8726b60c2c3b54a6ddf1326cbdd29a7317cd",
+        "guimi60-batch-parallel": "29c7fadbbcc7397a325279a57c3c8726b60c2c3b54a6ddf1326cbdd29a7317cd",
+        "guimi60-discovery-window": "29c7fadbbcc7397a325279a57c3c8726b60c2c3b54a6ddf1326cbdd29a7317cd",
+        "guimi60-eligible-window": "cea7879d73d8bf0a274fe4cc482eafeb75c224385bbb26750f6cf7698efa7f82"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留W8增量配置/调用方适配及来源保护，沿实际调用链纳入当前回归；未删除旧树。"
+    },
+    {
+      "path": "backend/core/config.py",
+      "hashes": {
+        "codex-luna-runtime": "5fad34f1e4bea7ef41f2622036c5c0cd63e69a400d9b9612f4dd197bfd42762d",
+        "guimi60-bottleneck-final": "5fad34f1e4bea7ef41f2622036c5c0cd63e69a400d9b9612f4dd197bfd42762d",
+        "codex-luna-timeouts": "5fad34f1e4bea7ef41f2622036c5c0cd63e69a400d9b9612f4dd197bfd42762d",
+        "guimi60-resume-checkpoints": "5fad34f1e4bea7ef41f2622036c5c0cd63e69a400d9b9612f4dd197bfd42762d",
+        "guimi60-discovery-parallel": "5fad34f1e4bea7ef41f2622036c5c0cd63e69a400d9b9612f4dd197bfd42762d",
+        "guimi60-batch-parallel": "5fad34f1e4bea7ef41f2622036c5c0cd63e69a400d9b9612f4dd197bfd42762d",
+        "guimi60-discovery-window": "5fad34f1e4bea7ef41f2622036c5c0cd63e69a400d9b9612f4dd197bfd42762d",
+        "guimi60-eligible-window": "38ff2b1de0b735c8b5e93c09caee2084c588ed2d14809c5426f567a5e6ae9d41"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留W8增量配置/调用方适配及来源保护，沿实际调用链纳入当前回归；未删除旧树。"
+    },
+    {
+      "path": "backend/infrastructure/llm/README.md",
+      "hashes": {
+        "codex-luna-runtime": "04053fb03188629076ace7171a8e0132b1728c47acdff53212f27307a6f5bd0e",
+        "guimi60-bottleneck-final": "04053fb03188629076ace7171a8e0132b1728c47acdff53212f27307a6f5bd0e",
+        "codex-luna-timeouts": "aa838a91313c2f99a6745bc29f9c5e456212bb53ee672bc3ea009f594c27bc89",
+        "guimi60-resume-checkpoints": "aa838a91313c2f99a6745bc29f9c5e456212bb53ee672bc3ea009f594c27bc89",
+        "guimi60-discovery-parallel": "aa838a91313c2f99a6745bc29f9c5e456212bb53ee672bc3ea009f594c27bc89",
+        "guimi60-batch-parallel": "aa838a91313c2f99a6745bc29f9c5e456212bb53ee672bc3ea009f594c27bc89",
+        "guimi60-discovery-window": "aa838a91313c2f99a6745bc29f9c5e456212bb53ee672bc3ea009f594c27bc89",
+        "guimi60-eligible-window": "1409ea263c1eb5f780d5da295d4de6b05c2e3623175b2efa67457c19ff875f78"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留当前契约和未知缺口提示；历史进程内并发/v2描述由G2更新，旧原稿版本仍留私有快照。"
+    },
+    {
+      "path": "backend/infrastructure/llm/cli_agent.py",
+      "hashes": {
+        "codex-luna-runtime": "885510cfa1d7333027cf66750ba7a925f5209123d6e58caed360aa6fb39bda51",
+        "guimi60-bottleneck-final": "885510cfa1d7333027cf66750ba7a925f5209123d6e58caed360aa6fb39bda51",
+        "codex-luna-timeouts": "2cd8d3c7b3677a46713f0e4c7eff6b64a84c35c7f106a29a5de1e7136558b5c1",
+        "guimi60-resume-checkpoints": "2cd8d3c7b3677a46713f0e4c7eff6b64a84c35c7f106a29a5de1e7136558b5c1",
+        "guimi60-discovery-parallel": "2cd8d3c7b3677a46713f0e4c7eff6b64a84c35c7f106a29a5de1e7136558b5c1",
+        "guimi60-batch-parallel": "2cd8d3c7b3677a46713f0e4c7eff6b64a84c35c7f106a29a5de1e7136558b5c1",
+        "guimi60-discovery-window": "2cd8d3c7b3677a46713f0e4c7eff6b64a84c35c7f106a29a5de1e7136558b5c1",
+        "guimi60-eligible-window": "383be192dafc237fcac5cc5a42a9e322619a401a8c6dbfcc049d65f3482cb4a7"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "W8固定错误标签/有界stderr分类保留；G2补退出码/turn状态，并升级明确v3包装。"
+    },
+    {
+      "path": "backend/infrastructure/llm/limits.py",
+      "hashes": {
+        "codex-luna-runtime": "dcacc5751b8e4da16c30b362f9c0945974a66a913fc72ff4ab64871327dcf4de",
+        "guimi60-bottleneck-final": "dcacc5751b8e4da16c30b362f9c0945974a66a913fc72ff4ab64871327dcf4de",
+        "codex-luna-timeouts": "dcacc5751b8e4da16c30b362f9c0945974a66a913fc72ff4ab64871327dcf4de",
+        "guimi60-resume-checkpoints": "dcacc5751b8e4da16c30b362f9c0945974a66a913fc72ff4ab64871327dcf4de",
+        "guimi60-discovery-parallel": "dcacc5751b8e4da16c30b362f9c0945974a66a913fc72ff4ab64871327dcf4de",
+        "guimi60-batch-parallel": "dcacc5751b8e4da16c30b362f9c0945974a66a913fc72ff4ab64871327dcf4de",
+        "guimi60-discovery-window": "dcacc5751b8e4da16c30b362f9c0945974a66a913fc72ff4ab64871327dcf4de",
+        "guimi60-eligible-window": "7ce4d84cbee62d95f65dd30147e6b422379899d309f37d5bd26fa17375a2fead"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "W8整数1..8默认2保留；G2补同登录账户跨worker全局OS槽，未采用默认6。"
+    },
+    {
+      "path": "backend/infrastructure/llm/tests/test_codex_provider.py",
+      "hashes": {
+        "codex-luna-runtime": "7debe6eb3f35f9126ca296265dc7fc56cb3402dd408d516e3c16588ea4625176",
+        "guimi60-bottleneck-final": "7debe6eb3f35f9126ca296265dc7fc56cb3402dd408d516e3c16588ea4625176",
+        "codex-luna-timeouts": "a6b1a36c037552b3bb8cb664c459f51440767960c5c42ceb778baf5278fbfe01",
+        "guimi60-resume-checkpoints": "a6b1a36c037552b3bb8cb664c459f51440767960c5c42ceb778baf5278fbfe01",
+        "guimi60-discovery-parallel": "a6b1a36c037552b3bb8cb664c459f51440767960c5c42ceb778baf5278fbfe01",
+        "guimi60-batch-parallel": "a6b1a36c037552b3bb8cb664c459f51440767960c5c42ceb778baf5278fbfe01",
+        "guimi60-discovery-window": "a6b1a36c037552b3bb8cb664c459f51440767960c5c42ceb778baf5278fbfe01",
+        "guimi60-eligible-window": "d055ded8c8e1dfa894fe5c74586e432cf0f4fac94c7b6149969d9eec55e1940c"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留新增/扩展的失败路径和恢复断言；旧版本未删除有效断言。G2扩大回归独立验证，历史通过数不累计为当前结果。"
+    },
+    {
+      "path": "backend/infrastructure/tasks/README.md",
+      "hashes": {
+        "codex-luna-runtime": "efa5208a482478f269b40f3ea337582943c9b49ca7b5ce2e60ed81848ef16c9a",
+        "guimi60-bottleneck-final": "efa5208a482478f269b40f3ea337582943c9b49ca7b5ce2e60ed81848ef16c9a",
+        "codex-luna-timeouts": "1f71c4c7f2b97c318a705cf176007e8a132c9dfeb6160bae1d612304312f36df",
+        "guimi60-resume-checkpoints": "1f71c4c7f2b97c318a705cf176007e8a132c9dfeb6160bae1d612304312f36df",
+        "guimi60-discovery-parallel": "1f71c4c7f2b97c318a705cf176007e8a132c9dfeb6160bae1d612304312f36df",
+        "guimi60-batch-parallel": "1f71c4c7f2b97c318a705cf176007e8a132c9dfeb6160bae1d612304312f36df",
+        "guimi60-discovery-window": "1f71c4c7f2b97c318a705cf176007e8a132c9dfeb6160bae1d612304312f36df",
+        "guimi60-eligible-window": "1f71c4c7f2b97c318a705cf176007e8a132c9dfeb6160bae1d612304312f36df"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留当前契约和未知缺口提示；历史进程内并发/v2描述由G2更新，旧原稿版本仍留私有快照。"
+    },
+    {
+      "path": "backend/infrastructure/tasks/facade.py",
+      "hashes": {
+        "codex-luna-runtime": "f78b4ef91df60cb20ca4ed2d8276a15a9877dd77dc44763171fd59e9369ddcf5",
+        "guimi60-bottleneck-final": "f78b4ef91df60cb20ca4ed2d8276a15a9877dd77dc44763171fd59e9369ddcf5",
+        "codex-luna-timeouts": "462b01217a3685b3cae9a1dc53673e75165367f328393de2f260be45d8bd4a8c",
+        "guimi60-resume-checkpoints": "462b01217a3685b3cae9a1dc53673e75165367f328393de2f260be45d8bd4a8c",
+        "guimi60-discovery-parallel": "462b01217a3685b3cae9a1dc53673e75165367f328393de2f260be45d8bd4a8c",
+        "guimi60-batch-parallel": "462b01217a3685b3cae9a1dc53673e75165367f328393de2f260be45d8bd4a8c",
+        "guimi60-discovery-window": "462b01217a3685b3cae9a1dc53673e75165367f328393de2f260be45d8bd4a8c",
+        "guimi60-eligible-window": "2ae13bb208348da47f2ce8b25377a9593aa683f3173a2441ce4043a6f0be42ad"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留scoped result_patch/allow_failed窄契约，不开放通用终态覆盖。"
+    },
+    {
+      "path": "backend/infrastructure/tasks/lifecycle.py",
+      "hashes": {
+        "codex-luna-runtime": "9638ed9e38aff91a75d743e20e31cf4c80478170a6cf5a62d8a99902d1aa1d13",
+        "guimi60-bottleneck-final": "9638ed9e38aff91a75d743e20e31cf4c80478170a6cf5a62d8a99902d1aa1d13",
+        "codex-luna-timeouts": "bf396aeecab4fa69f8c033959657962c93b3a6a6a1ad56da0b73f64f93a3e319",
+        "guimi60-resume-checkpoints": "bf396aeecab4fa69f8c033959657962c93b3a6a6a1ad56da0b73f64f93a3e319",
+        "guimi60-discovery-parallel": "bf396aeecab4fa69f8c033959657962c93b3a6a6a1ad56da0b73f64f93a3e319",
+        "guimi60-batch-parallel": "bf396aeecab4fa69f8c033959657962c93b3a6a6a1ad56da0b73f64f93a3e319",
+        "guimi60-discovery-window": "bf396aeecab4fa69f8c033959657962c93b3a6a6a1ad56da0b73f64f93a3e319",
+        "guimi60-eligible-window": "160e0e9f6476048a46f9817fbfaeeac2431c34637313861045cac1b48b2ba427"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "failed修复仅显式allow_failed且仍受task/novel/type门禁；result_patch不覆盖原失败。"
+    },
+    {
+      "path": "backend/infrastructure/tasks/tests/test_lifecycle.py",
+      "hashes": {
+        "codex-luna-runtime": "46f5722a0bd989e8aa9d18c15042c0749130e587aaf45238760e5b0ddf45b260",
+        "guimi60-bottleneck-final": "46f5722a0bd989e8aa9d18c15042c0749130e587aaf45238760e5b0ddf45b260",
+        "codex-luna-timeouts": "56a4bd9ea8c0bc3e2be71c091137a4883f0d8506ef7e08286959dba40c124e07",
+        "guimi60-resume-checkpoints": "56a4bd9ea8c0bc3e2be71c091137a4883f0d8506ef7e08286959dba40c124e07",
+        "guimi60-discovery-parallel": "56a4bd9ea8c0bc3e2be71c091137a4883f0d8506ef7e08286959dba40c124e07",
+        "guimi60-batch-parallel": "56a4bd9ea8c0bc3e2be71c091137a4883f0d8506ef7e08286959dba40c124e07",
+        "guimi60-discovery-window": "56a4bd9ea8c0bc3e2be71c091137a4883f0d8506ef7e08286959dba40c124e07",
+        "guimi60-eligible-window": "56a4bd9ea8c0bc3e2be71c091137a4883f0d8506ef7e08286959dba40c124e07"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留新增/扩展的失败路径和恢复断言；旧版本未删除有效断言。G2扩大回归独立验证，历史通过数不累计为当前结果。"
+    },
+    {
+      "path": "backend/modules/evolution/README.md",
+      "hashes": {
+        "codex-luna-runtime": "e7187e05720e0348d412a0d91ea8949ecb638f55c130a7756167f3a1f27d8a6b",
+        "guimi60-bottleneck-final": "e7187e05720e0348d412a0d91ea8949ecb638f55c130a7756167f3a1f27d8a6b",
+        "codex-luna-timeouts": "e7187e05720e0348d412a0d91ea8949ecb638f55c130a7756167f3a1f27d8a6b",
+        "guimi60-resume-checkpoints": "3f93bfdea3d28f2dadaa30e8598f697033dfd39155f88c6c9b93ba1e59fb41f3",
+        "guimi60-discovery-parallel": "9c2fbefb4876013734d177f27221a298c66bbf1201add45084ec56f9672ade59",
+        "guimi60-batch-parallel": "4ba660a63af56358749a5544ef298a80fa1f0b5ca384994349b1fda3c9c3c10d",
+        "guimi60-discovery-window": "da49117e173ea1c9ccb460b6bd7f1acacee142402c7226381586b27b93c9542e",
+        "guimi60-eligible-window": "980df00cea288f7ffce5ee036ff3ad0ed06fa03e803743cd56241382f6cefc00"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留当前契约和未知缺口提示；历史进程内并发/v2描述由G2更新，旧原稿版本仍留私有快照。"
+    },
+    {
+      "path": "backend/modules/evolution/commit.py",
+      "hashes": {
+        "codex-luna-runtime": "5d9e80d3563db814b76e1ccc6bc37861cf31b446518be96fb44ba507dc485ec1",
+        "guimi60-bottleneck-final": "5d9e80d3563db814b76e1ccc6bc37861cf31b446518be96fb44ba507dc485ec1",
+        "codex-luna-timeouts": "5d9e80d3563db814b76e1ccc6bc37861cf31b446518be96fb44ba507dc485ec1",
+        "guimi60-resume-checkpoints": "5d9e80d3563db814b76e1ccc6bc37861cf31b446518be96fb44ba507dc485ec1",
+        "guimi60-discovery-parallel": "5d9e80d3563db814b76e1ccc6bc37861cf31b446518be96fb44ba507dc485ec1",
+        "guimi60-batch-parallel": "5d9e80d3563db814b76e1ccc6bc37861cf31b446518be96fb44ba507dc485ec1",
+        "guimi60-discovery-window": "5d9e80d3563db814b76e1ccc6bc37861cf31b446518be96fb44ba507dc485ec1",
+        "guimi60-eligible-window": "8713536ee42ee6c5f4b071273cd7588823e3bd421b0d2a377c1b32c030ff29cf"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留W8增量配置/调用方适配及来源保护，沿实际调用链纳入当前回归；未删除旧树。"
+    },
+    {
+      "path": "backend/modules/evolution/discovery.py",
+      "hashes": {
+        "codex-luna-runtime": "d2c7b30343c36ed9cac6637d85becb4ac3402e1ceaa66da1c999da869c2b8afd",
+        "guimi60-bottleneck-final": "d2c7b30343c36ed9cac6637d85becb4ac3402e1ceaa66da1c999da869c2b8afd",
+        "codex-luna-timeouts": "d2c7b30343c36ed9cac6637d85becb4ac3402e1ceaa66da1c999da869c2b8afd",
+        "guimi60-resume-checkpoints": "e23a7188a29a265fe9d31f7a9db4f19077d361bc59d8f49d03c55d56bc0cf267",
+        "guimi60-discovery-parallel": "7b5f6b9ee25722a01acb578779cd102b2998a318ff33d125e36a2f6e5bd9ffc4",
+        "guimi60-batch-parallel": "983e2a13d93989910eab9af21ba96bac38bdcfedc6655068066eba620e9ce416",
+        "guimi60-discovery-window": "f3fa02abc5cc71e69b9d899ef2c200164caf203b1b35c657ec5d0046e8e9ef16",
+        "guimi60-eligible-window": "62dfe5171da224ea173aada865b3a7b35edd8399f62d54dda7a732e8840c7820"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留无合法动作证明、2p可执行窗口、严格前序身份上下文和unknown排空；串行API/Scene提交不变。"
+    },
+    {
+      "path": "backend/modules/evolution/discovery_gap.py",
+      "hashes": {
+        "codex-luna-runtime": null,
+        "guimi60-bottleneck-final": null,
+        "codex-luna-timeouts": null,
+        "guimi60-resume-checkpoints": null,
+        "guimi60-discovery-parallel": null,
+        "guimi60-batch-parallel": null,
+        "guimi60-discovery-window": null,
+        "guimi60-eligible-window": "78b6c7fb4e516b65a4589109efd671b24242a395e5e2791553208b3787a1a17b"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "presence",
+      "rationale": "新增presence差异；只通过作者显式确认缩小可选发现范围，保留原unknown/账本并永久标未检查；Guimi仍未执行。"
+    },
+    {
+      "path": "backend/modules/evolution/facade.py",
+      "hashes": {
+        "codex-luna-runtime": "024bb10e628267b54f22ca4fd7374bd3f8cff1be06248860967d1c6c690f8ba6",
+        "guimi60-bottleneck-final": "024bb10e628267b54f22ca4fd7374bd3f8cff1be06248860967d1c6c690f8ba6",
+        "codex-luna-timeouts": "024bb10e628267b54f22ca4fd7374bd3f8cff1be06248860967d1c6c690f8ba6",
+        "guimi60-resume-checkpoints": "024bb10e628267b54f22ca4fd7374bd3f8cff1be06248860967d1c6c690f8ba6",
+        "guimi60-discovery-parallel": "024bb10e628267b54f22ca4fd7374bd3f8cff1be06248860967d1c6c690f8ba6",
+        "guimi60-batch-parallel": "024bb10e628267b54f22ca4fd7374bd3f8cff1be06248860967d1c6c690f8ba6",
+        "guimi60-discovery-window": "024bb10e628267b54f22ca4fd7374bd3f8cff1be06248860967d1c6c690f8ba6",
+        "guimi60-eligible-window": "576a8bb79f50d0692d141401c0c1b5cb3e24901c88e87146bfee87d963cc5b81"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留W8增量配置/调用方适配及来源保护，沿实际调用链纳入当前回归；未删除旧树。"
+    },
+    {
+      "path": "backend/modules/evolution/ledger.py",
+      "hashes": {
+        "codex-luna-runtime": "93766b4a3a623f591113439b5a39a048c5560a7520b5ad3e2eafe3ea648bf9ed",
+        "guimi60-bottleneck-final": "93766b4a3a623f591113439b5a39a048c5560a7520b5ad3e2eafe3ea648bf9ed",
+        "codex-luna-timeouts": "93766b4a3a623f591113439b5a39a048c5560a7520b5ad3e2eafe3ea648bf9ed",
+        "guimi60-resume-checkpoints": "93766b4a3a623f591113439b5a39a048c5560a7520b5ad3e2eafe3ea648bf9ed",
+        "guimi60-discovery-parallel": "93766b4a3a623f591113439b5a39a048c5560a7520b5ad3e2eafe3ea648bf9ed",
+        "guimi60-batch-parallel": "93766b4a3a623f591113439b5a39a048c5560a7520b5ad3e2eafe3ea648bf9ed",
+        "guimi60-discovery-window": "93766b4a3a623f591113439b5a39a048c5560a7520b5ad3e2eafe3ea648bf9ed",
+        "guimi60-eligible-window": "6e5d56233767f5cf16ef47287f9c2e6e9feca32ef00c8fbed7f3a3a20824981b"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留W8增量配置/调用方适配及来源保护，沿实际调用链纳入当前回归；未删除旧树。"
+    },
+    {
+      "path": "backend/modules/evolution/pipeline.py",
+      "hashes": {
+        "codex-luna-runtime": "0dfa2328313bb598a61fb934d6bfb5caa944c85f89ff2d001745171a0f41794a",
+        "guimi60-bottleneck-final": "0dfa2328313bb598a61fb934d6bfb5caa944c85f89ff2d001745171a0f41794a",
+        "codex-luna-timeouts": "0dfa2328313bb598a61fb934d6bfb5caa944c85f89ff2d001745171a0f41794a",
+        "guimi60-resume-checkpoints": "0dfa2328313bb598a61fb934d6bfb5caa944c85f89ff2d001745171a0f41794a",
+        "guimi60-discovery-parallel": "ef43fa4df0f5d0613c019952978ea583e78ee2c360dd879eff54a5336953ba18",
+        "guimi60-batch-parallel": "ef43fa4df0f5d0613c019952978ea583e78ee2c360dd879eff54a5336953ba18",
+        "guimi60-discovery-window": "ef43fa4df0f5d0613c019952978ea583e78ee2c360dd879eff54a5336953ba18",
+        "guimi60-eligible-window": "ef43fa4df0f5d0613c019952978ea583e78ee2c360dd879eff54a5336953ba18"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留Project→Run锁顺序、原journal预留及重读合并，保留PR222消费read-set，不用旧整包覆盖同伴。"
+    },
+    {
+      "path": "backend/modules/evolution/state_review.py",
+      "hashes": {
+        "codex-luna-runtime": "eacc25de7d73fa0d8e4e180c315832c9215b736bd5de7618f2e1de08334726c5",
+        "guimi60-bottleneck-final": "eacc25de7d73fa0d8e4e180c315832c9215b736bd5de7618f2e1de08334726c5",
+        "codex-luna-timeouts": "eacc25de7d73fa0d8e4e180c315832c9215b736bd5de7618f2e1de08334726c5",
+        "guimi60-resume-checkpoints": "eacc25de7d73fa0d8e4e180c315832c9215b736bd5de7618f2e1de08334726c5",
+        "guimi60-discovery-parallel": "eacc25de7d73fa0d8e4e180c315832c9215b736bd5de7618f2e1de08334726c5",
+        "guimi60-batch-parallel": "eacc25de7d73fa0d8e4e180c315832c9215b736bd5de7618f2e1de08334726c5",
+        "guimi60-discovery-window": "eacc25de7d73fa0d8e4e180c315832c9215b736bd5de7618f2e1de08334726c5",
+        "guimi60-eligible-window": "04f11bb3868e4ec72ae3059a2171aaed00eaf539e503ad6e57cb593c2b1be58d"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留W8增量配置/调用方适配及来源保护，沿实际调用链纳入当前回归；未删除旧树。"
+    },
+    {
+      "path": "backend/modules/evolution/tasks.py",
+      "hashes": {
+        "codex-luna-runtime": "7089b08d411844b32e23e2a4c2ef81f2b8d3d98a81f7bea2633748dc6f0786c8",
+        "guimi60-bottleneck-final": "7089b08d411844b32e23e2a4c2ef81f2b8d3d98a81f7bea2633748dc6f0786c8",
+        "codex-luna-timeouts": "7089b08d411844b32e23e2a4c2ef81f2b8d3d98a81f7bea2633748dc6f0786c8",
+        "guimi60-resume-checkpoints": "7089b08d411844b32e23e2a4c2ef81f2b8d3d98a81f7bea2633748dc6f0786c8",
+        "guimi60-discovery-parallel": "a03e3748becf1934c3ab625d7bac7c33633b4a9aa298634fa0feba7f9050590a",
+        "guimi60-batch-parallel": "a03e3748becf1934c3ab625d7bac7c33633b4a9aa298634fa0feba7f9050590a",
+        "guimi60-discovery-window": "a03e3748becf1934c3ab625d7bac7c33633b4a9aa298634fa0feba7f9050590a",
+        "guimi60-eligible-window": "3fa2c6122fcfa36c68f87eb6c7468dfa1d10c339246de92330edb6a0a8b391ff"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留W8增量配置/调用方适配及来源保护，沿实际调用链纳入当前回归；未删除旧树。"
+    },
+    {
+      "path": "backend/modules/evolution/tests/test_discovery_batch_parallel.py",
+      "hashes": {
+        "codex-luna-runtime": null,
+        "guimi60-bottleneck-final": null,
+        "codex-luna-timeouts": null,
+        "guimi60-resume-checkpoints": null,
+        "guimi60-discovery-parallel": null,
+        "guimi60-batch-parallel": "43976bd9a2769e0426263d37ce1ce7386d3c0e132a4d9c87676762c3f57e3c7a",
+        "guimi60-discovery-window": "43976bd9a2769e0426263d37ce1ce7386d3c0e132a4d9c87676762c3f57e3c7a",
+        "guimi60-eligible-window": "43976bd9a2769e0426263d37ce1ce7386d3c0e132a4d9c87676762c3f57e3c7a"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "presence",
+      "rationale": "保留新增/扩展的失败路径和恢复断言；旧版本未删除有效断言。G2扩大回归独立验证，历史通过数不累计为当前结果。"
+    },
+    {
+      "path": "backend/modules/evolution/tests/test_discovery_no_action.py",
+      "hashes": {
+        "codex-luna-runtime": null,
+        "guimi60-bottleneck-final": null,
+        "codex-luna-timeouts": null,
+        "guimi60-resume-checkpoints": "b0d543838041612ebd9128376844c48793eeedee8c68d1b8b5236c696aae2535",
+        "guimi60-discovery-parallel": "b0d543838041612ebd9128376844c48793eeedee8c68d1b8b5236c696aae2535",
+        "guimi60-batch-parallel": "b0d543838041612ebd9128376844c48793eeedee8c68d1b8b5236c696aae2535",
+        "guimi60-discovery-window": "b0d543838041612ebd9128376844c48793eeedee8c68d1b8b5236c696aae2535",
+        "guimi60-eligible-window": "b0d543838041612ebd9128376844c48793eeedee8c68d1b8b5236c696aae2535"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "presence",
+      "rationale": "保留新增/扩展的失败路径和恢复断言；旧版本未删除有效断言。G2扩大回归独立验证，历史通过数不累计为当前结果。"
+    },
+    {
+      "path": "backend/modules/evolution/tests/test_discovery_unknown_gap.py",
+      "hashes": {
+        "codex-luna-runtime": null,
+        "guimi60-bottleneck-final": null,
+        "codex-luna-timeouts": null,
+        "guimi60-resume-checkpoints": null,
+        "guimi60-discovery-parallel": null,
+        "guimi60-batch-parallel": null,
+        "guimi60-discovery-window": null,
+        "guimi60-eligible-window": "bfde09581c262b41ff404e9f643235fe291e2a8acc65ea039ab2405c85bf3f9d"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "presence",
+      "rationale": "保留新增/扩展的失败路径和恢复断言；旧版本未删除有效断言。G2扩大回归独立验证，历史通过数不累计为当前结果。"
+    },
+    {
+      "path": "backend/modules/evolution/tests/test_discovery_window.py",
+      "hashes": {
+        "codex-luna-runtime": null,
+        "guimi60-bottleneck-final": null,
+        "codex-luna-timeouts": null,
+        "guimi60-resume-checkpoints": null,
+        "guimi60-discovery-parallel": null,
+        "guimi60-batch-parallel": null,
+        "guimi60-discovery-window": "4511e5a4492f456f6cc49100ce43bdd2ddf9e1c5c9c298dc93c104d3e8af585e",
+        "guimi60-eligible-window": "10eb87f04555c76a2659532b86fc99930f492d8bb63856b50e6a0dc9da62eee9"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留新增/扩展的失败路径和恢复断言；旧版本未删除有效断言。G2扩大回归独立验证，历史通过数不累计为当前结果。"
+    },
+    {
+      "path": "backend/modules/evolution/tests/test_identity_parallel.py",
+      "hashes": {
+        "codex-luna-runtime": null,
+        "guimi60-bottleneck-final": null,
+        "codex-luna-timeouts": null,
+        "guimi60-resume-checkpoints": null,
+        "guimi60-discovery-parallel": "e77a938d1e3c89c197b4b87e8f27338aab9f2350c157606e545b20ca4e669df9",
+        "guimi60-batch-parallel": "e77a938d1e3c89c197b4b87e8f27338aab9f2350c157606e545b20ca4e669df9",
+        "guimi60-discovery-window": "e77a938d1e3c89c197b4b87e8f27338aab9f2350c157606e545b20ca4e669df9",
+        "guimi60-eligible-window": "8cd09a0fcc1afd4bdc588a3726940f35cffa9e2832df694416a244fe64a7176d"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留新增/扩展的失败路径和恢复断言；旧版本未删除有效断言。G2扩大回归独立验证，历史通过数不累计为当前结果。"
+    },
+    {
+      "path": "backend/modules/evolution/workflow.py",
+      "hashes": {
+        "codex-luna-runtime": "1456ac866da79f774c08d049eb62dd529511433bf3ec777bb275e5e789fd0769",
+        "guimi60-bottleneck-final": "1456ac866da79f774c08d049eb62dd529511433bf3ec777bb275e5e789fd0769",
+        "codex-luna-timeouts": "1456ac866da79f774c08d049eb62dd529511433bf3ec777bb275e5e789fd0769",
+        "guimi60-resume-checkpoints": "1456ac866da79f774c08d049eb62dd529511433bf3ec777bb275e5e789fd0769",
+        "guimi60-discovery-parallel": "1456ac866da79f774c08d049eb62dd529511433bf3ec777bb275e5e789fd0769",
+        "guimi60-batch-parallel": "1456ac866da79f774c08d049eb62dd529511433bf3ec777bb275e5e789fd0769",
+        "guimi60-discovery-window": "1456ac866da79f774c08d049eb62dd529511433bf3ec777bb275e5e789fd0769",
+        "guimi60-eligible-window": "76b3da589bbddc17af113d8afc7a44e982bf1e0968f616ee1e1486285c001d95"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留W8增量配置/调用方适配及来源保护，沿实际调用链纳入当前回归；未删除旧树。"
+    },
+    {
+      "path": "backend/modules/imports/README.md",
+      "hashes": {
+        "codex-luna-runtime": "fb88e74badf2e44e1348e64cc2a0ab6fb6f3605c882b77a3845e51dea43bd47f",
+        "guimi60-bottleneck-final": "fb88e74badf2e44e1348e64cc2a0ab6fb6f3605c882b77a3845e51dea43bd47f",
+        "codex-luna-timeouts": "0f0966ea0f84b34f296ddfbbfe3852a16e61b08a91eec1f681543fefb68b5a42",
+        "guimi60-resume-checkpoints": "a56087780ab20d108c2fbd93c7c92a1e0cdeb70d0a76d70b41c6faecbd56c703",
+        "guimi60-discovery-parallel": "a56087780ab20d108c2fbd93c7c92a1e0cdeb70d0a76d70b41c6faecbd56c703",
+        "guimi60-batch-parallel": "a56087780ab20d108c2fbd93c7c92a1e0cdeb70d0a76d70b41c6faecbd56c703",
+        "guimi60-discovery-window": "a56087780ab20d108c2fbd93c7c92a1e0cdeb70d0a76d70b41c6faecbd56c703",
+        "guimi60-eligible-window": "76280e816a5737b56b32806e1e6dd54f22bbe0b697acab7c9a8ca99f92d70f1c"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留当前契约和未知缺口提示；历史进程内并发/v2描述由G2更新，旧原稿版本仍留私有快照。"
+    },
+    {
+      "path": "backend/modules/imports/entity_extraction/scene_entity_config.py",
+      "hashes": {
+        "codex-luna-runtime": "23eda13a083aedcc69f57dbb0d1b3464567c05715a5be9a8f81c00444361c44e",
+        "guimi60-bottleneck-final": "24f1dab3735081f01f0b803b72cf01e8cd5d126890cead0003069fd194e1d849",
+        "codex-luna-timeouts": "24f1dab3735081f01f0b803b72cf01e8cd5d126890cead0003069fd194e1d849",
+        "guimi60-resume-checkpoints": "24f1dab3735081f01f0b803b72cf01e8cd5d126890cead0003069fd194e1d849",
+        "guimi60-discovery-parallel": "24f1dab3735081f01f0b803b72cf01e8cd5d126890cead0003069fd194e1d849",
+        "guimi60-batch-parallel": "24f1dab3735081f01f0b803b72cf01e8cd5d126890cead0003069fd194e1d849",
+        "guimi60-discovery-window": "24f1dab3735081f01f0b803b72cf01e8cd5d126890cead0003069fd194e1d849",
+        "guimi60-eligible-window": "24f1dab3735081f01f0b803b72cf01e8cd5d126890cead0003069fd194e1d849"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留W8增量配置/调用方适配及来源保护，沿实际调用链纳入当前回归；未删除旧树。"
+    },
+    {
+      "path": "backend/modules/imports/entity_extraction/scene_entity_parallel.py",
+      "hashes": {
+        "codex-luna-runtime": "9279f0f536cf32c7d223a4ba16c1fe7d582481fe092d6f200c682d368025b1e2",
+        "guimi60-bottleneck-final": "9279f0f536cf32c7d223a4ba16c1fe7d582481fe092d6f200c682d368025b1e2",
+        "codex-luna-timeouts": "afa834690f20b0bd1f9f814a970a337327c47965c18051147b4fc7e242f233be",
+        "guimi60-resume-checkpoints": "afa834690f20b0bd1f9f814a970a337327c47965c18051147b4fc7e242f233be",
+        "guimi60-discovery-parallel": "afa834690f20b0bd1f9f814a970a337327c47965c18051147b4fc7e242f233be",
+        "guimi60-batch-parallel": "afa834690f20b0bd1f9f814a970a337327c47965c18051147b4fc7e242f233be",
+        "guimi60-discovery-window": "afa834690f20b0bd1f9f814a970a337327c47965c18051147b4fc7e242f233be",
+        "guimi60-eligible-window": "afa834690f20b0bd1f9f814a970a337327c47965c18051147b4fc7e242f233be"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留W8增量配置/调用方适配及来源保护，沿实际调用链纳入当前回归；未删除旧树。"
+    },
+    {
+      "path": "backend/modules/imports/env_helpers.py",
+      "hashes": {
+        "codex-luna-runtime": "d4f7dacc241f01cfac9b7823681172059c47b9d1dff3f58be04359dec68598db",
+        "guimi60-bottleneck-final": "d4f7dacc241f01cfac9b7823681172059c47b9d1dff3f58be04359dec68598db",
+        "codex-luna-timeouts": "d4f7dacc241f01cfac9b7823681172059c47b9d1dff3f58be04359dec68598db",
+        "guimi60-resume-checkpoints": "d4f7dacc241f01cfac9b7823681172059c47b9d1dff3f58be04359dec68598db",
+        "guimi60-discovery-parallel": "d4f7dacc241f01cfac9b7823681172059c47b9d1dff3f58be04359dec68598db",
+        "guimi60-batch-parallel": "d4f7dacc241f01cfac9b7823681172059c47b9d1dff3f58be04359dec68598db",
+        "guimi60-discovery-window": "d4f7dacc241f01cfac9b7823681172059c47b9d1dff3f58be04359dec68598db",
+        "guimi60-eligible-window": "d24a9efee181ed4118452d1d7ce2a5b05d9e26ad2857e25a3f2c0648abb270e7"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留W8增量配置/调用方适配及来源保护，沿实际调用链纳入当前回归；未删除旧树。"
+    },
+    {
+      "path": "backend/modules/imports/orchestrator.py",
+      "hashes": {
+        "codex-luna-runtime": "7184755327ed4f54f0ab31aa5834f2850e90368e0dde4a3c23c5bd99a11f7e9c",
+        "guimi60-bottleneck-final": "7184755327ed4f54f0ab31aa5834f2850e90368e0dde4a3c23c5bd99a11f7e9c",
+        "codex-luna-timeouts": "2f3715fc4a7a4c1bda30ad1c99605100965dddef3e7cba4fd78013ff3d89b785",
+        "guimi60-resume-checkpoints": "2f3715fc4a7a4c1bda30ad1c99605100965dddef3e7cba4fd78013ff3d89b785",
+        "guimi60-discovery-parallel": "2f3715fc4a7a4c1bda30ad1c99605100965dddef3e7cba4fd78013ff3d89b785",
+        "guimi60-batch-parallel": "2f3715fc4a7a4c1bda30ad1c99605100965dddef3e7cba4fd78013ff3d89b785",
+        "guimi60-discovery-window": "2f3715fc4a7a4c1bda30ad1c99605100965dddef3e7cba4fd78013ff3d89b785",
+        "guimi60-eligible-window": "2f3715fc4a7a4c1bda30ad1c99605100965dddef3e7cba4fd78013ff3d89b785"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留仅真实preflight连接失败的手动恢复；不把未知模型调用归为preflight。"
+    },
+    {
+      "path": "backend/modules/imports/scene_commit.py",
+      "hashes": {
+        "codex-luna-runtime": "675f66b63d338417d2596f7236da64140659fbf48999cf123a2cc3812f178ebf",
+        "guimi60-bottleneck-final": "675f66b63d338417d2596f7236da64140659fbf48999cf123a2cc3812f178ebf",
+        "codex-luna-timeouts": "675f66b63d338417d2596f7236da64140659fbf48999cf123a2cc3812f178ebf",
+        "guimi60-resume-checkpoints": "a811082bad2a833831fb990c1afccc5300162184ce231a47fdf586ec7522c4eb",
+        "guimi60-discovery-parallel": "a811082bad2a833831fb990c1afccc5300162184ce231a47fdf586ec7522c4eb",
+        "guimi60-batch-parallel": "a811082bad2a833831fb990c1afccc5300162184ce231a47fdf586ec7522c4eb",
+        "guimi60-discovery-window": "a811082bad2a833831fb990c1afccc5300162184ce231a47fdf586ec7522c4eb",
+        "guimi60-eligible-window": "a811082bad2a833831fb990c1afccc5300162184ce231a47fdf586ec7522c4eb"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留完成前缀的来源/偏移/版本/覆盖/重叠证明，普通resume禁止重复切分。"
+    },
+    {
+      "path": "backend/modules/imports/tests/test_alias_relation_task_workflow.py",
+      "hashes": {
+        "codex-luna-runtime": "71333ade9e6631125c3e49766d80ed7c8a21098118160d288733eb8ab42d2753",
+        "guimi60-bottleneck-final": "8d7cc4f434dc6535a5dd6fd9309b878ac281e3e5ebe916c1493df11a8352df92",
+        "codex-luna-timeouts": "8d7cc4f434dc6535a5dd6fd9309b878ac281e3e5ebe916c1493df11a8352df92",
+        "guimi60-resume-checkpoints": "8d7cc4f434dc6535a5dd6fd9309b878ac281e3e5ebe916c1493df11a8352df92",
+        "guimi60-discovery-parallel": "8d7cc4f434dc6535a5dd6fd9309b878ac281e3e5ebe916c1493df11a8352df92",
+        "guimi60-batch-parallel": "8d7cc4f434dc6535a5dd6fd9309b878ac281e3e5ebe916c1493df11a8352df92",
+        "guimi60-discovery-window": "8d7cc4f434dc6535a5dd6fd9309b878ac281e3e5ebe916c1493df11a8352df92",
+        "guimi60-eligible-window": "8d7cc4f434dc6535a5dd6fd9309b878ac281e3e5ebe916c1493df11a8352df92"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留新增/扩展的失败路径和恢复断言；旧版本未删除有效断言。G2扩大回归独立验证，历史通过数不累计为当前结果。"
+    },
+    {
+      "path": "backend/modules/imports/tests/test_env_helpers.py",
+      "hashes": {
+        "codex-luna-runtime": null,
+        "guimi60-bottleneck-final": null,
+        "codex-luna-timeouts": null,
+        "guimi60-resume-checkpoints": null,
+        "guimi60-discovery-parallel": null,
+        "guimi60-batch-parallel": null,
+        "guimi60-discovery-window": null,
+        "guimi60-eligible-window": "38aaed2cabf9e8e2b9dd80f79a387a6a115bdf254f65fb99ffb16168acd11618"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "presence",
+      "rationale": "保留新增/扩展的失败路径和恢复断言；旧版本未删除有效断言。G2扩大回归独立验证，历史通过数不累计为当前结果。"
+    },
+    {
+      "path": "backend/modules/imports/tests/test_scene_commit.py",
+      "hashes": {
+        "codex-luna-runtime": "a4c5ed9d3c4c91bf5d2a871d7c329bee8f4e3974f5ad7d00865a83850880f40a",
+        "guimi60-bottleneck-final": "a4c5ed9d3c4c91bf5d2a871d7c329bee8f4e3974f5ad7d00865a83850880f40a",
+        "codex-luna-timeouts": "a4c5ed9d3c4c91bf5d2a871d7c329bee8f4e3974f5ad7d00865a83850880f40a",
+        "guimi60-resume-checkpoints": "94509dd44d4ce77bfde234d1f0fc09ec8e66281151c3b9c3c0b39267aed06916",
+        "guimi60-discovery-parallel": "94509dd44d4ce77bfde234d1f0fc09ec8e66281151c3b9c3c0b39267aed06916",
+        "guimi60-batch-parallel": "94509dd44d4ce77bfde234d1f0fc09ec8e66281151c3b9c3c0b39267aed06916",
+        "guimi60-discovery-window": "94509dd44d4ce77bfde234d1f0fc09ec8e66281151c3b9c3c0b39267aed06916",
+        "guimi60-eligible-window": "94509dd44d4ce77bfde234d1f0fc09ec8e66281151c3b9c3c0b39267aed06916"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留新增/扩展的失败路径和恢复断言；旧版本未删除有效断言。G2扩大回归独立验证，历史通过数不累计为当前结果。"
+    },
+    {
+      "path": "backend/modules/imports/tests/test_scene_entity_llm_adapters.py",
+      "hashes": {
+        "codex-luna-runtime": "a3993cf5f02d883ad5ba2b48641284c1d50bb9e3d0662ac691edd946a2ac2d69",
+        "guimi60-bottleneck-final": "09fc21f5efedd9e779a02dfa3b2c0070c0d7388284c20ca9c54dbc42cc3736e9",
+        "codex-luna-timeouts": "09fc21f5efedd9e779a02dfa3b2c0070c0d7388284c20ca9c54dbc42cc3736e9",
+        "guimi60-resume-checkpoints": "09fc21f5efedd9e779a02dfa3b2c0070c0d7388284c20ca9c54dbc42cc3736e9",
+        "guimi60-discovery-parallel": "09fc21f5efedd9e779a02dfa3b2c0070c0d7388284c20ca9c54dbc42cc3736e9",
+        "guimi60-batch-parallel": "09fc21f5efedd9e779a02dfa3b2c0070c0d7388284c20ca9c54dbc42cc3736e9",
+        "guimi60-discovery-window": "09fc21f5efedd9e779a02dfa3b2c0070c0d7388284c20ca9c54dbc42cc3736e9",
+        "guimi60-eligible-window": "09fc21f5efedd9e779a02dfa3b2c0070c0d7388284c20ca9c54dbc42cc3736e9"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留新增/扩展的失败路径和恢复断言；旧版本未删除有效断言。G2扩大回归独立验证，历史通过数不累计为当前结果。"
+    },
+    {
+      "path": "backend/modules/imports/tests/test_scene_entity_workflow.py",
+      "hashes": {
+        "codex-luna-runtime": "2724f173db25ef9719acb2d471233186b690d0de6849a1285353c8f28bcead17",
+        "guimi60-bottleneck-final": "2724f173db25ef9719acb2d471233186b690d0de6849a1285353c8f28bcead17",
+        "codex-luna-timeouts": "c3b99a8fbcbab48771d4c72886743ac498cb6fee7d0ba2576641b4a6ef7404aa",
+        "guimi60-resume-checkpoints": "c3b99a8fbcbab48771d4c72886743ac498cb6fee7d0ba2576641b4a6ef7404aa",
+        "guimi60-discovery-parallel": "c3b99a8fbcbab48771d4c72886743ac498cb6fee7d0ba2576641b4a6ef7404aa",
+        "guimi60-batch-parallel": "c3b99a8fbcbab48771d4c72886743ac498cb6fee7d0ba2576641b4a6ef7404aa",
+        "guimi60-discovery-window": "c3b99a8fbcbab48771d4c72886743ac498cb6fee7d0ba2576641b4a6ef7404aa",
+        "guimi60-eligible-window": "c3b99a8fbcbab48771d4c72886743ac498cb6fee7d0ba2576641b4a6ef7404aa"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留新增/扩展的失败路径和恢复断言；旧版本未删除有效断言。G2扩大回归独立验证，历史通过数不累计为当前结果。"
+    },
+    {
+      "path": "backend/modules/imports/tests/test_workflow.py",
+      "hashes": {
+        "codex-luna-runtime": "6073a321ace2635904d42c907801ba7b4db3e46ea048e46328fe26e4818556be",
+        "guimi60-bottleneck-final": "6073a321ace2635904d42c907801ba7b4db3e46ea048e46328fe26e4818556be",
+        "codex-luna-timeouts": "75bd665ebd3434ad36229dcac196c67875f80134d9e93b289862b17be385dde4",
+        "guimi60-resume-checkpoints": "75bd665ebd3434ad36229dcac196c67875f80134d9e93b289862b17be385dde4",
+        "guimi60-discovery-parallel": "75bd665ebd3434ad36229dcac196c67875f80134d9e93b289862b17be385dde4",
+        "guimi60-batch-parallel": "75bd665ebd3434ad36229dcac196c67875f80134d9e93b289862b17be385dde4",
+        "guimi60-discovery-window": "75bd665ebd3434ad36229dcac196c67875f80134d9e93b289862b17be385dde4",
+        "guimi60-eligible-window": "75bd665ebd3434ad36229dcac196c67875f80134d9e93b289862b17be385dde4"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留新增/扩展的失败路径和恢复断言；旧版本未删除有效断言。G2扩大回归独立验证，历史通过数不累计为当前结果。"
+    },
+    {
+      "path": "backend/modules/imports/tests/test_workflow_orchestration.py",
+      "hashes": {
+        "codex-luna-runtime": "307bcb2eb64beac3e3adc893d48c9229bddf5f58f36195c3e8b851278a5b923a",
+        "guimi60-bottleneck-final": "307bcb2eb64beac3e3adc893d48c9229bddf5f58f36195c3e8b851278a5b923a",
+        "codex-luna-timeouts": "d24d85c66c367db13e3aa0e8c04551b4531787426ea4b38df802a497c987268c",
+        "guimi60-resume-checkpoints": "d24d85c66c367db13e3aa0e8c04551b4531787426ea4b38df802a497c987268c",
+        "guimi60-discovery-parallel": "d24d85c66c367db13e3aa0e8c04551b4531787426ea4b38df802a497c987268c",
+        "guimi60-batch-parallel": "d24d85c66c367db13e3aa0e8c04551b4531787426ea4b38df802a497c987268c",
+        "guimi60-discovery-window": "d24d85c66c367db13e3aa0e8c04551b4531787426ea4b38df802a497c987268c",
+        "guimi60-eligible-window": "d24d85c66c367db13e3aa0e8c04551b4531787426ea4b38df802a497c987268c"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留新增/扩展的失败路径和恢复断言；旧版本未删除有效断言。G2扩大回归独立验证，历史通过数不累计为当前结果。"
+    },
+    {
+      "path": "backend/modules/imports/workflow.py",
+      "hashes": {
+        "codex-luna-runtime": "78eaf19076f9825e28c0b2baa419949d5b0fa16f6e9afac7228ae92eaea11c5a",
+        "guimi60-bottleneck-final": "78eaf19076f9825e28c0b2baa419949d5b0fa16f6e9afac7228ae92eaea11c5a",
+        "codex-luna-timeouts": "41d878477c5a47f1aac375fcfd55a2bbf9069f098914fc484388d056973353f6",
+        "guimi60-resume-checkpoints": "41d878477c5a47f1aac375fcfd55a2bbf9069f098914fc484388d056973353f6",
+        "guimi60-discovery-parallel": "41d878477c5a47f1aac375fcfd55a2bbf9069f098914fc484388d056973353f6",
+        "guimi60-batch-parallel": "41d878477c5a47f1aac375fcfd55a2bbf9069f098914fc484388d056973353f6",
+        "guimi60-discovery-window": "41d878477c5a47f1aac375fcfd55a2bbf9069f098914fc484388d056973353f6",
+        "guimi60-eligible-window": "41d878477c5a47f1aac375fcfd55a2bbf9069f098914fc484388d056973353f6"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留W8增量配置/调用方适配及来源保护，沿实际调用链纳入当前回归；未删除旧树。"
+    },
+    {
+      "path": "backend/modules/imports/workflow_scene_phase.py",
+      "hashes": {
+        "codex-luna-runtime": "85bb14fa36fdfbc92b3669f42eca7b147f1f255bd18bf0166bdb0e344838b578",
+        "guimi60-bottleneck-final": "85bb14fa36fdfbc92b3669f42eca7b147f1f255bd18bf0166bdb0e344838b578",
+        "codex-luna-timeouts": "85bb14fa36fdfbc92b3669f42eca7b147f1f255bd18bf0166bdb0e344838b578",
+        "guimi60-resume-checkpoints": "eb465606f5102f63ef924ff9fedcfb0a851aa689f862a8bd46e30a23f3119e55",
+        "guimi60-discovery-parallel": "eb465606f5102f63ef924ff9fedcfb0a851aa689f862a8bd46e30a23f3119e55",
+        "guimi60-batch-parallel": "eb465606f5102f63ef924ff9fedcfb0a851aa689f862a8bd46e30a23f3119e55",
+        "guimi60-discovery-window": "eb465606f5102f63ef924ff9fedcfb0a851aa689f862a8bd46e30a23f3119e55",
+        "guimi60-eligible-window": "eb465606f5102f63ef924ff9fedcfb0a851aa689f862a8bd46e30a23f3119e55"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留已完成场景的正常恢复分支，失效前缀失败关闭，未完成工作沿用原路径。"
+    },
+    {
+      "path": "backend/modules/project/README.md",
+      "hashes": {
+        "codex-luna-runtime": "8109654ed456b32e190da9e377686ff5b1450d57a07445392037f9992eeaea07",
+        "guimi60-bottleneck-final": "8109654ed456b32e190da9e377686ff5b1450d57a07445392037f9992eeaea07",
+        "codex-luna-timeouts": "eb69d06b7aefc5d8831b45fa4b238420e96c733d6c3d50859a655f91973759a8",
+        "guimi60-resume-checkpoints": "eb69d06b7aefc5d8831b45fa4b238420e96c733d6c3d50859a655f91973759a8",
+        "guimi60-discovery-parallel": "eb69d06b7aefc5d8831b45fa4b238420e96c733d6c3d50859a655f91973759a8",
+        "guimi60-batch-parallel": "eb69d06b7aefc5d8831b45fa4b238420e96c733d6c3d50859a655f91973759a8",
+        "guimi60-discovery-window": "eb69d06b7aefc5d8831b45fa4b238420e96c733d6c3d50859a655f91973759a8",
+        "guimi60-eligible-window": "eb69d06b7aefc5d8831b45fa4b238420e96c733d6c3d50859a655f91973759a8"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留当前契约和未知缺口提示；历史进程内并发/v2描述由G2更新，旧原稿版本仍留私有快照。"
+    },
+    {
+      "path": "backend/modules/project/llm_runtime.py",
+      "hashes": {
+        "codex-luna-runtime": "6b4755028aaefdaf15da432adc9fa99033085078286a17463fe7c8b3374da007",
+        "guimi60-bottleneck-final": "6b4755028aaefdaf15da432adc9fa99033085078286a17463fe7c8b3374da007",
+        "codex-luna-timeouts": "b99c6ad661dd5a660cd0b1ef01a479c0e987ab67f25ae78005eb6310c672cb00",
+        "guimi60-resume-checkpoints": "b99c6ad661dd5a660cd0b1ef01a479c0e987ab67f25ae78005eb6310c672cb00",
+        "guimi60-discovery-parallel": "b99c6ad661dd5a660cd0b1ef01a479c0e987ab67f25ae78005eb6310c672cb00",
+        "guimi60-batch-parallel": "b99c6ad661dd5a660cd0b1ef01a479c0e987ab67f25ae78005eb6310c672cb00",
+        "guimi60-discovery-window": "b99c6ad661dd5a660cd0b1ef01a479c0e987ab67f25ae78005eb6310c672cb00",
+        "guimi60-eligible-window": "b99c6ad661dd5a660cd0b1ef01a479c0e987ab67f25ae78005eb6310c672cb00"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留W8增量配置/调用方适配及来源保护，沿实际调用链纳入当前回归；未删除旧树。"
+    },
+    {
+      "path": "backend/modules/project/tests/test_codex_runtime.py",
+      "hashes": {
+        "codex-luna-runtime": "f7fe8968ec297f88563d7f6d95e43442806f867d7c30567ca3fb34752e216a09",
+        "guimi60-bottleneck-final": "f7fe8968ec297f88563d7f6d95e43442806f867d7c30567ca3fb34752e216a09",
+        "codex-luna-timeouts": "ecc7fb3517f3633a210b301a01167b480649d370a9e1e99e554f0d5354222a4e",
+        "guimi60-resume-checkpoints": "ecc7fb3517f3633a210b301a01167b480649d370a9e1e99e554f0d5354222a4e",
+        "guimi60-discovery-parallel": "ecc7fb3517f3633a210b301a01167b480649d370a9e1e99e554f0d5354222a4e",
+        "guimi60-batch-parallel": "ecc7fb3517f3633a210b301a01167b480649d370a9e1e99e554f0d5354222a4e",
+        "guimi60-discovery-window": "ecc7fb3517f3633a210b301a01167b480649d370a9e1e99e554f0d5354222a4e",
+        "guimi60-eligible-window": "ecc7fb3517f3633a210b301a01167b480649d370a9e1e99e554f0d5354222a4e"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留新增/扩展的失败路径和恢复断言；旧版本未删除有效断言。G2扩大回归独立验证，历史通过数不累计为当前结果。"
+    },
+    {
+      "path": "backend/modules/story/README.md",
+      "hashes": {
+        "codex-luna-runtime": "7822a08734c7cfa550d6ab89580c237c7c3cf4769bc97ba57a5c7dea231100ef",
+        "guimi60-bottleneck-final": "7822a08734c7cfa550d6ab89580c237c7c3cf4769bc97ba57a5c7dea231100ef",
+        "codex-luna-timeouts": "7822a08734c7cfa550d6ab89580c237c7c3cf4769bc97ba57a5c7dea231100ef",
+        "guimi60-resume-checkpoints": "f34fa19eefc561b0fa01dbfdbbfdc3d304356685a2f536d67bd5fe3d588fe08c",
+        "guimi60-discovery-parallel": "f34fa19eefc561b0fa01dbfdbbfdc3d304356685a2f536d67bd5fe3d588fe08c",
+        "guimi60-batch-parallel": "f34fa19eefc561b0fa01dbfdbbfdc3d304356685a2f536d67bd5fe3d588fe08c",
+        "guimi60-discovery-window": "f34fa19eefc561b0fa01dbfdbbfdc3d304356685a2f536d67bd5fe3d588fe08c",
+        "guimi60-eligible-window": "f34fa19eefc561b0fa01dbfdbbfdc3d304356685a2f536d67bd5fe3d588fe08c"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留当前契约和未知缺口提示；历史进程内并发/v2描述由G2更新，旧原稿版本仍留私有快照。"
+    },
+    {
+      "path": "backend/modules/story/outline_state/services.py",
+      "hashes": {
+        "codex-luna-runtime": "2e616b6a854a7cc2b7d8a8c0bfb43f4128ce7f708c0bc79feb024bf3d504b90d",
+        "guimi60-bottleneck-final": "2e616b6a854a7cc2b7d8a8c0bfb43f4128ce7f708c0bc79feb024bf3d504b90d",
+        "codex-luna-timeouts": "2e616b6a854a7cc2b7d8a8c0bfb43f4128ce7f708c0bc79feb024bf3d504b90d",
+        "guimi60-resume-checkpoints": "c46e2d725d80168b60e44d48768746524188e6ac77d612466177dd738e9c31fd",
+        "guimi60-discovery-parallel": "c46e2d725d80168b60e44d48768746524188e6ac77d612466177dd738e9c31fd",
+        "guimi60-batch-parallel": "c46e2d725d80168b60e44d48768746524188e6ac77d612466177dd738e9c31fd",
+        "guimi60-discovery-window": "c46e2d725d80168b60e44d48768746524188e6ac77d612466177dd738e9c31fd",
+        "guimi60-eligible-window": "c46e2d725d80168b60e44d48768746524188e6ac77d612466177dd738e9c31fd"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留按part_no补齐缺失working跨度；已有失效working不能回退。"
+    },
+    {
+      "path": "backend/modules/story/outline_state/tests/test_partial_working_validation.py",
+      "hashes": {
+        "codex-luna-runtime": null,
+        "guimi60-bottleneck-final": null,
+        "codex-luna-timeouts": null,
+        "guimi60-resume-checkpoints": "8d040b01821442bb429f9d76c0f2911395635e3ea2b4543bafa79bd1b53d90af",
+        "guimi60-discovery-parallel": "8d040b01821442bb429f9d76c0f2911395635e3ea2b4543bafa79bd1b53d90af",
+        "guimi60-batch-parallel": "8d040b01821442bb429f9d76c0f2911395635e3ea2b4543bafa79bd1b53d90af",
+        "guimi60-discovery-window": "8d040b01821442bb429f9d76c0f2911395635e3ea2b4543bafa79bd1b53d90af",
+        "guimi60-eligible-window": "8d040b01821442bb429f9d76c0f2911395635e3ea2b4543bafa79bd1b53d90af"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "presence",
+      "rationale": "保留新增/扩展的失败路径和恢复断言；旧版本未删除有效断言。G2扩大回归独立验证，历史通过数不累计为当前结果。"
+    },
+    {
+      "path": "backend/prompts/alias_relation_extraction.md",
+      "hashes": {
+        "codex-luna-runtime": "eced1219d1b9ac2167ea2ec4842dd7c03ae2cf02f8c61f81a0433a067d8d26d6",
+        "guimi60-bottleneck-final": "11b62d052296307213c7a22dc5886c3dc40c1a504b0667aac2cdbc7f6f0d6bce",
+        "codex-luna-timeouts": "11b62d052296307213c7a22dc5886c3dc40c1a504b0667aac2cdbc7f6f0d6bce",
+        "guimi60-resume-checkpoints": "11b62d052296307213c7a22dc5886c3dc40c1a504b0667aac2cdbc7f6f0d6bce",
+        "guimi60-discovery-parallel": "11b62d052296307213c7a22dc5886c3dc40c1a504b0667aac2cdbc7f6f0d6bce",
+        "guimi60-batch-parallel": "11b62d052296307213c7a22dc5886c3dc40c1a504b0667aac2cdbc7f6f0d6bce",
+        "guimi60-discovery-window": "11b62d052296307213c7a22dc5886c3dc40c1a504b0667aac2cdbc7f6f0d6bce",
+        "guimi60-eligible-window": "11b62d052296307213c7a22dc5886c3dc40c1a504b0667aac2cdbc7f6f0d6bce"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留P14v6同场new_候选引用；冻结旧Prompt不静默改写。"
+    },
+    {
+      "path": "backend/shared/deep_import_settings.py",
+      "hashes": {
+        "codex-luna-runtime": "903c6b7e7ec51961d0801a3554a9bc335bd65a1a138096dc2d056c928a1ab99a",
+        "guimi60-bottleneck-final": "903c6b7e7ec51961d0801a3554a9bc335bd65a1a138096dc2d056c928a1ab99a",
+        "codex-luna-timeouts": "321e7a2c57f4ce43d89943677e443401c7db90b48bed4ad662d5b82f1a359ead",
+        "guimi60-resume-checkpoints": "321e7a2c57f4ce43d89943677e443401c7db90b48bed4ad662d5b82f1a359ead",
+        "guimi60-discovery-parallel": "321e7a2c57f4ce43d89943677e443401c7db90b48bed4ad662d5b82f1a359ead",
+        "guimi60-batch-parallel": "321e7a2c57f4ce43d89943677e443401c7db90b48bed4ad662d5b82f1a359ead",
+        "guimi60-discovery-window": "321e7a2c57f4ce43d89943677e443401c7db90b48bed4ad662d5b82f1a359ead",
+        "guimi60-eligible-window": "321e7a2c57f4ce43d89943677e443401c7db90b48bed4ad662d5b82f1a359ead"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留W8增量配置/调用方适配及来源保护，沿实际调用链纳入当前回归；未删除旧树。"
+    },
+    {
+      "path": "backend/tests/unit/test_config.py",
+      "hashes": {
+        "codex-luna-runtime": "6e9cc5ca8574b903b0be9d06cc093c3af9eb6c34c44fc568ed2a65dd37196fa8",
+        "guimi60-bottleneck-final": "6e9cc5ca8574b903b0be9d06cc093c3af9eb6c34c44fc568ed2a65dd37196fa8",
+        "codex-luna-timeouts": "6e9cc5ca8574b903b0be9d06cc093c3af9eb6c34c44fc568ed2a65dd37196fa8",
+        "guimi60-resume-checkpoints": "6e9cc5ca8574b903b0be9d06cc093c3af9eb6c34c44fc568ed2a65dd37196fa8",
+        "guimi60-discovery-parallel": "6e9cc5ca8574b903b0be9d06cc093c3af9eb6c34c44fc568ed2a65dd37196fa8",
+        "guimi60-batch-parallel": "6e9cc5ca8574b903b0be9d06cc093c3af9eb6c34c44fc568ed2a65dd37196fa8",
+        "guimi60-discovery-window": "6e9cc5ca8574b903b0be9d06cc093c3af9eb6c34c44fc568ed2a65dd37196fa8",
+        "guimi60-eligible-window": "92c39d2e56e6c2ed3934e910adacef788ec61032a177d743ed404ca70c9c7764"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留新增/扩展的失败路径和恢复断言；旧版本未删除有效断言。G2扩大回归独立验证，历史通过数不累计为当前结果。"
+    },
+    {
+      "path": "backend/tests/unit/test_deep_import_settings.py",
+      "hashes": {
+        "codex-luna-runtime": "309f2c3a2e5168f9cd0b1438bbc5282cb92e5994128a027f096b7169721bde41",
+        "guimi60-bottleneck-final": "309f2c3a2e5168f9cd0b1438bbc5282cb92e5994128a027f096b7169721bde41",
+        "codex-luna-timeouts": "4fe5b967b9a990a0f0eb58d64db8363ee86c2f5a7cb0df94c02c8dc76671c1da",
+        "guimi60-resume-checkpoints": "4fe5b967b9a990a0f0eb58d64db8363ee86c2f5a7cb0df94c02c8dc76671c1da",
+        "guimi60-discovery-parallel": "4fe5b967b9a990a0f0eb58d64db8363ee86c2f5a7cb0df94c02c8dc76671c1da",
+        "guimi60-batch-parallel": "4fe5b967b9a990a0f0eb58d64db8363ee86c2f5a7cb0df94c02c8dc76671c1da",
+        "guimi60-discovery-window": "4fe5b967b9a990a0f0eb58d64db8363ee86c2f5a7cb0df94c02c8dc76671c1da",
+        "guimi60-eligible-window": "4fe5b967b9a990a0f0eb58d64db8363ee86c2f5a7cb0df94c02c8dc76671c1da"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留新增/扩展的失败路径和恢复断言；旧版本未删除有效断言。G2扩大回归独立验证，历史通过数不累计为当前结果。"
+    },
+    {
+      "path": "development-guide.md",
+      "hashes": {
+        "codex-luna-runtime": "acb0183e51aa5f321cbc64fa7fb117e41e7b26f327cedc9d370f1e2ec90a9829",
+        "guimi60-bottleneck-final": "acb0183e51aa5f321cbc64fa7fb117e41e7b26f327cedc9d370f1e2ec90a9829",
+        "codex-luna-timeouts": "acb0183e51aa5f321cbc64fa7fb117e41e7b26f327cedc9d370f1e2ec90a9829",
+        "guimi60-resume-checkpoints": "acb0183e51aa5f321cbc64fa7fb117e41e7b26f327cedc9d370f1e2ec90a9829",
+        "guimi60-discovery-parallel": "acb0183e51aa5f321cbc64fa7fb117e41e7b26f327cedc9d370f1e2ec90a9829",
+        "guimi60-batch-parallel": "acb0183e51aa5f321cbc64fa7fb117e41e7b26f327cedc9d370f1e2ec90a9829",
+        "guimi60-discovery-window": "acb0183e51aa5f321cbc64fa7fb117e41e7b26f327cedc9d370f1e2ec90a9829",
+        "guimi60-eligible-window": "6a9a2d7ce8e9069c7684167696e4a6a3f09cfe206b3a7bd752712d4836330537"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留当前契约和未知缺口提示；历史进程内并发/v2描述由G2更新，旧原稿版本仍留私有快照。"
+    },
+    {
+      "path": "docs/00_整体设计.md",
+      "hashes": {
+        "codex-luna-runtime": "4735088d472ef1a0e139ec53cbf0adfbfa5df9a66d81811c898ff95505c442e9",
+        "guimi60-bottleneck-final": "4735088d472ef1a0e139ec53cbf0adfbfa5df9a66d81811c898ff95505c442e9",
+        "codex-luna-timeouts": "e14ff02f8a82bb3b4cc1d294199fad483fb45f690c137dde26feebd4afcf36cf",
+        "guimi60-resume-checkpoints": "e14ff02f8a82bb3b4cc1d294199fad483fb45f690c137dde26feebd4afcf36cf",
+        "guimi60-discovery-parallel": "e14ff02f8a82bb3b4cc1d294199fad483fb45f690c137dde26feebd4afcf36cf",
+        "guimi60-batch-parallel": "e14ff02f8a82bb3b4cc1d294199fad483fb45f690c137dde26feebd4afcf36cf",
+        "guimi60-discovery-window": "e14ff02f8a82bb3b4cc1d294199fad483fb45f690c137dde26feebd4afcf36cf",
+        "guimi60-eligible-window": "e14ff02f8a82bb3b4cc1d294199fad483fb45f690c137dde26feebd4afcf36cf"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留当前契约和未知缺口提示；历史进程内并发/v2描述由G2更新，旧原稿版本仍留私有快照。"
+    },
+    {
+      "path": "docs/acceptance/2026-10-13-guimi60-bottleneck-repairs.md",
+      "hashes": {
+        "codex-luna-runtime": "ded0dc83d15967754ec3e7efea572de3cfa16ad1509dc3e3cdfaaf079b6a667e",
+        "guimi60-bottleneck-final": "7565eee26a67addb2844cc2cd2d163803cfe31b4c76846afbb5b0c77c8d9bfa5",
+        "codex-luna-timeouts": "3f0c733cbecbcd407b8c67e409a374129dca03ee056a70e47d31aef2c94be19a",
+        "guimi60-resume-checkpoints": "5df7869ec3ea2162b13135e2bba71990cebd57c60cd11214740f517b6c5f3d31",
+        "guimi60-discovery-parallel": "972f84951222ea0c35f9dd763b27152263b570bd85230f73a302ab42084e65ab",
+        "guimi60-batch-parallel": "f46659de72ed34d57f833806fbc2d8bbd2212c665ae4a3e9c9c298088f0b55a0",
+        "guimi60-discovery-window": "8ebf4ef5ab5f175b073cb258ffd23bf6cd4f3cb6fceacbc9c5c84bec3ff583f0",
+        "guimi60-eligible-window": "8ebf4ef5ab5f175b073cb258ffd23bf6cd4f3cb6fceacbc9c5c84bec3ff583f0"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留各阶段历史证据及schema库存；不当作当前模型质量/全量验收。当前报告单列版本和未完成门禁。"
+    },
+    {
+      "path": "docs/acceptance/2026-10-13-guimi60-metric-inventory.json",
+      "hashes": {
+        "codex-luna-runtime": "2f69703d4e1277632311aa9bb3cb546d83f664563bdadcac4323435afd01bb6f",
+        "guimi60-bottleneck-final": "4936b4400149d7836c8a47e6646417a65bd74ef3db0b5a3ce5bdfe3f9f4b0f45",
+        "codex-luna-timeouts": "4936b4400149d7836c8a47e6646417a65bd74ef3db0b5a3ce5bdfe3f9f4b0f45",
+        "guimi60-resume-checkpoints": "4936b4400149d7836c8a47e6646417a65bd74ef3db0b5a3ce5bdfe3f9f4b0f45",
+        "guimi60-discovery-parallel": "4936b4400149d7836c8a47e6646417a65bd74ef3db0b5a3ce5bdfe3f9f4b0f45",
+        "guimi60-batch-parallel": "4936b4400149d7836c8a47e6646417a65bd74ef3db0b5a3ce5bdfe3f9f4b0f45",
+        "guimi60-discovery-window": "4936b4400149d7836c8a47e6646417a65bd74ef3db0b5a3ce5bdfe3f9f4b0f45",
+        "guimi60-eligible-window": "4936b4400149d7836c8a47e6646417a65bd74ef3db0b5a3ce5bdfe3f9f4b0f45"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留各阶段历史证据及schema库存；不当作当前模型质量/全量验收。当前报告单列版本和未完成门禁。"
+    },
+    {
+      "path": "docs/modules/01_project.md",
+      "hashes": {
+        "codex-luna-runtime": "c7fc1f63bd35e244170d137be727616820608f179b8b95cfbbfddc76c88e879f",
+        "guimi60-bottleneck-final": "c7fc1f63bd35e244170d137be727616820608f179b8b95cfbbfddc76c88e879f",
+        "codex-luna-timeouts": "95d36fe4897d34b79c05783782f247f9f96952476fba7f4f0df4fb724d30b699",
+        "guimi60-resume-checkpoints": "95d36fe4897d34b79c05783782f247f9f96952476fba7f4f0df4fb724d30b699",
+        "guimi60-discovery-parallel": "95d36fe4897d34b79c05783782f247f9f96952476fba7f4f0df4fb724d30b699",
+        "guimi60-batch-parallel": "95d36fe4897d34b79c05783782f247f9f96952476fba7f4f0df4fb724d30b699",
+        "guimi60-discovery-window": "95d36fe4897d34b79c05783782f247f9f96952476fba7f4f0df4fb724d30b699",
+        "guimi60-eligible-window": "95d36fe4897d34b79c05783782f247f9f96952476fba7f4f0df4fb724d30b699"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留当前契约和未知缺口提示；历史进程内并发/v2描述由G2更新，旧原稿版本仍留私有快照。"
+    },
+    {
+      "path": "docs/modules/12_infrastructure.md",
+      "hashes": {
+        "codex-luna-runtime": "9868041b0c055afc3704347abc6a10882cab28c81649f1b213f2a7106a604dce",
+        "guimi60-bottleneck-final": "9868041b0c055afc3704347abc6a10882cab28c81649f1b213f2a7106a604dce",
+        "codex-luna-timeouts": "9868041b0c055afc3704347abc6a10882cab28c81649f1b213f2a7106a604dce",
+        "guimi60-resume-checkpoints": "9868041b0c055afc3704347abc6a10882cab28c81649f1b213f2a7106a604dce",
+        "guimi60-discovery-parallel": "9868041b0c055afc3704347abc6a10882cab28c81649f1b213f2a7106a604dce",
+        "guimi60-batch-parallel": "9868041b0c055afc3704347abc6a10882cab28c81649f1b213f2a7106a604dce",
+        "guimi60-discovery-window": "9868041b0c055afc3704347abc6a10882cab28c81649f1b213f2a7106a604dce",
+        "guimi60-eligible-window": "799e3cc6fb1dcba6d5b0496897f105312ef7ffd038cbd53de61ce7e3c34fc9f3"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留当前契约和未知缺口提示；历史进程内并发/v2描述由G2更新，旧原稿版本仍留私有快照。"
+    },
+    {
+      "path": "docs/modules/22_evolution.md",
+      "hashes": {
+        "codex-luna-runtime": "a6a6fa8ad38df6763a9d4defc5175664cc673e25be0faa78b8403e835bdc3728",
+        "guimi60-bottleneck-final": "a6a6fa8ad38df6763a9d4defc5175664cc673e25be0faa78b8403e835bdc3728",
+        "codex-luna-timeouts": "3e256989314c17f176b8edc1f9a4ad88381a80edeca831fdc82b8abd2438dbd3",
+        "guimi60-resume-checkpoints": "1f255f599fdc41a4bac2e36080985f5b2870ac0f047ef2fe8d0cde9c032ab4de",
+        "guimi60-discovery-parallel": "25db6648a3c9cb0738ec5a9a4bd1c7ca1c54c6ca1823bf76e49c2e5659bd68e4",
+        "guimi60-batch-parallel": "b68f244cae3de8fda9fdcf8b6c5d289ca770fae3d55c21f918424f51a6889ecb",
+        "guimi60-discovery-window": "b85a54393dc6d36c51f0da615032ccca01afae833ffc3a0b1147512d4db88f72",
+        "guimi60-eligible-window": "369fdb9dc6427d72a9b44087a53574c8d3dc3690ad61e2c1eab2bff451ecfb9c"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留当前契约和未知缺口提示；历史进程内并发/v2描述由G2更新，旧原稿版本仍留私有快照。"
+    },
+    {
+      "path": "docs/prompts/Prompt体系设计.md",
+      "hashes": {
+        "codex-luna-runtime": "b4a0d5595a58e7509ee3fb5946e2084ba544821593e8789b70a52aba8ef6f5f0",
+        "guimi60-bottleneck-final": "79a401bb8d00c1abc23d6114858ef2dbbe592ce7dc3922ed4c682e094547eff2",
+        "codex-luna-timeouts": "79a401bb8d00c1abc23d6114858ef2dbbe592ce7dc3922ed4c682e094547eff2",
+        "guimi60-resume-checkpoints": "79a401bb8d00c1abc23d6114858ef2dbbe592ce7dc3922ed4c682e094547eff2",
+        "guimi60-discovery-parallel": "79a401bb8d00c1abc23d6114858ef2dbbe592ce7dc3922ed4c682e094547eff2",
+        "guimi60-batch-parallel": "79a401bb8d00c1abc23d6114858ef2dbbe592ce7dc3922ed4c682e094547eff2",
+        "guimi60-discovery-window": "79a401bb8d00c1abc23d6114858ef2dbbe592ce7dc3922ed4c682e094547eff2",
+        "guimi60-eligible-window": "79a401bb8d00c1abc23d6114858ef2dbbe592ce7dc3922ed4c682e094547eff2"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留当前契约和未知缺口提示；历史进程内并发/v2描述由G2更新，旧原稿版本仍留私有快照。"
+    },
+    {
+      "path": "frontend-console/tests/vue/assistant/ReadingFlow.test.js",
+      "hashes": {
+        "codex-luna-runtime": "81562a921f22f8602cdb5f2a7d4ca017043db5604d55c13352ccd4d5a3ff1b38",
+        "guimi60-bottleneck-final": "81562a921f22f8602cdb5f2a7d4ca017043db5604d55c13352ccd4d5a3ff1b38",
+        "codex-luna-timeouts": "81562a921f22f8602cdb5f2a7d4ca017043db5604d55c13352ccd4d5a3ff1b38",
+        "guimi60-resume-checkpoints": "81562a921f22f8602cdb5f2a7d4ca017043db5604d55c13352ccd4d5a3ff1b38",
+        "guimi60-discovery-parallel": "81562a921f22f8602cdb5f2a7d4ca017043db5604d55c13352ccd4d5a3ff1b38",
+        "guimi60-batch-parallel": "81562a921f22f8602cdb5f2a7d4ca017043db5604d55c13352ccd4d5a3ff1b38",
+        "guimi60-discovery-window": "81562a921f22f8602cdb5f2a7d4ca017043db5604d55c13352ccd4d5a3ff1b38",
+        "guimi60-eligible-window": "31117a436a820ee41a302b43268eb1eadd9c13c8383999ed3370c90f9fae256b"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留新增/扩展的失败路径和恢复断言；旧版本未删除有效断言。G2扩大回归独立验证，历史通过数不累计为当前结果。"
+    },
+    {
+      "path": "frontend-console/vue/components/ReadingFlow.vue",
+      "hashes": {
+        "codex-luna-runtime": "dddfe8c51240fe15a2031809c8dd19d7372b9438a9afc3657bf3c235fed081cf",
+        "guimi60-bottleneck-final": "dddfe8c51240fe15a2031809c8dd19d7372b9438a9afc3657bf3c235fed081cf",
+        "codex-luna-timeouts": "dddfe8c51240fe15a2031809c8dd19d7372b9438a9afc3657bf3c235fed081cf",
+        "guimi60-resume-checkpoints": "dddfe8c51240fe15a2031809c8dd19d7372b9438a9afc3657bf3c235fed081cf",
+        "guimi60-discovery-parallel": "dddfe8c51240fe15a2031809c8dd19d7372b9438a9afc3657bf3c235fed081cf",
+        "guimi60-batch-parallel": "dddfe8c51240fe15a2031809c8dd19d7372b9438a9afc3657bf3c235fed081cf",
+        "guimi60-discovery-window": "dddfe8c51240fe15a2031809c8dd19d7372b9438a9afc3657bf3c235fed081cf",
+        "guimi60-eligible-window": "418be7c1c78b79911254d08abc7fad3143943459e8be55081037e16fa7a71722"
+      },
+      "all_same": false,
+      "w8_present": true,
+      "disposition": "retained_w8_with_main_contract_and_g2_followup",
+      "difference_kind": "content",
+      "rationale": "保留当前契约和未知缺口提示；历史进程内并发/v2描述由G2更新，旧原稿版本仍留私有快照。"
+    }
+  ]
+}

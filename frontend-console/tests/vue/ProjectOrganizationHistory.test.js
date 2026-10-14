@@ -111,3 +111,21 @@ describe("深度整理回收站", () => {
     expect(wrapper.text()).toContain("回收站是空的")
   })
 })
+
+
+it("运行中显示实际阶段，结束前不冒称结束记录", async () => {
+  api.imports.recentWorkflows.mockResolvedValue({ can_continue: true, total: 1,
+    items: [{ ...cancelled, status: "running", message: "正在逐 Scene 补充叙事字段…" }] })
+  const wrapper = mount(ProjectOrganizationHistory, { props: { projectId: "project-1" } })
+  await flushPromises()
+  expect(wrapper.text()).toContain("补充叙事字段")
+  expect(wrapper.text()).toContain("当前记录")
+  expect(wrapper.text()).not.toContain("结束时记录")
+  expect(wrapper.text()).not.toContain("Scene")
+  api.imports.recentWorkflows.mockResolvedValue({ can_continue: true, total: 1,
+    items: [{ ...cancelled, status: "done", message: "整理已结束" }] })
+  await wrapper.findAll("button").find(button => button.text() === "刷新进度").trigger("click")
+  await flushPromises()
+  expect(wrapper.text()).toContain("整理已结束")
+  expect(wrapper.text()).toContain("结束时记录")
+})

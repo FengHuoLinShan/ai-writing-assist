@@ -1,5 +1,6 @@
 """Source-bound, independently reviewed discovery on the existing Scene journal."""
 
+import asyncio
 import json
 import re
 from copy import deepcopy
@@ -20,6 +21,7 @@ from modules.evolution.discovery_capacity import (
     identity_review_inputs,
     serialized_size,
 )
+from modules.evolution.discovery_gap import confirmed_discovery_gaps
 from modules.evolution.freshness import require_cached_prefix
 from modules.evolution.ledger import list_ledger, persist_discovery_claim
 from modules.evolution.ledger_contracts import (
@@ -218,6 +220,9 @@ def method_fingerprint():
                 "new_theme_identity_review": "all_index_and_scene_proposals_v2",
                 "review_capacity": "final_json_v1",
                 "theme_index_payload": "slim_sharded_v1",
+                "theme_evidence_scope": "all_bound_observations_v2",
+                "mention_projection": "surface_type_resolution_v2",
+                "context_packing": "remaining_capacity_review_headroom_12000_v2",
             },
         ]
     )
@@ -319,6 +324,20 @@ def _compact(item):
             "event_occurrence_id",
         )
     } | {"quotes": [evidence["quote"] for evidence in item["evidence_quotes"]]}
+    # The host binds mention identities; duplicate IDs are not model evidence.
+    compact["mentions"] = [
+        {key: mention[key] for key in ("surface", "entity_type") if key in mention}
+        | {
+            "resolution": {
+                key: resolution[key]
+                for key in ("outcome", "resolved_entity_id", "rationale")
+                if key in resolution
+            }
+            if (resolution := mention.get("resolution"))
+            else None
+        }
+        for mention in item["mentions"]
+    ]
     if item.get("utterance_attribution"):
         compact["utterance_attribution"] = item["utterance_attribution"]
     return compact
@@ -520,6 +539,24 @@ async def prepare_discovery(db, store, frozen):
         theme_scenes=theme_scenes,
     )
     by_id.update({item["observation_id"]: item for item in relevant})
+    # Bound historical evidence is mandatory even outside the recall quota.
+    by_id.update(
+        {
+            item["observation_id"]: item
+            for item in prior
+            if item["observation_id"] in theme_evidence
+        }
+    )
+    additional_bound = len(
+        set(by_id) - {item["observation_id"] for item in current + relevant}
+    )
+    recall_scope["additional_bound_observations"] = additional_bound
+    if additional_bound and recall_scope.get("omission_reason"):
+        recall_scope["omission_reason"] = (
+            f"候选召回未选 {recall_scope['omitted_candidates']} 条；"
+            f"其中 {additional_bound} 条"
+            "作为主题绑定证据另行完整回读，余下未选观察未检查。"
+        )
     for theme in themes:
         theme["claim"]["evidence"] = _normalized_evidence(theme["claim"]["evidence"])
     descriptors = [
@@ -566,15 +603,6 @@ async def prepare_discovery(db, store, frozen):
                 _compact(by_id[item_id])
                 for item_id in sorted(
                     {item["observation_id"] for item in theme["claim"]["evidence"]}
-                    | {
-                        item_id
-                        for item_id, observation in by_id.items()
-                        if observation["position"]["scene_id"]
-                        in {
-                            dependency["scene_id"]
-                            for dependency in theme["claim"]["dependencies"]
-                        }
-                    }
                 )
                 if item_id in by_id
             ],
@@ -781,6 +809,20 @@ def _has_unique_recall_identity_quote(
         item["occurrence_id"] for item in old_events if quote in item["quote"]
     }
     return matching_occurrences == {occurrence_id}
+
+
+def _no_permitted_action(batch):
+    return batch.get("allow_new_themes") is False and not any(
+        "theme" in unit for unit in batch["historical_context"]
+    )
+
+
+def _has_discovery_call(payload, index):
+    return any(
+        key in {f"scene_discovery_{index}", f"scene_discovery_review_{index}"}
+        or key.startswith(f"scene_discovery_identity_{index}_")
+        for key in payload
+    )
 
 
 def _compile_change(prepared, raw, batch):
@@ -1079,7 +1121,9 @@ def _identity_shards(frozen, prepared, index):
 def compile_discovery(frozen):
     payload, accepted, pending, inspected = frozen.payload, [], [], []
     prepared = payload["discovery_preparation"]
-    failed_batches, identity_gaps, identity_inspected = [], [], []
+    failed_batches, identity_gaps, identity_inspected, no_action_batches = [], [], [], []
+    unknown_gaps = confirmed_discovery_gaps(frozen)
+    excluded = {gap["scope"]["batch_index"]: gap for gap in unknown_gaps}
     category_attempts = {category: [] for category in LEDGER_CATEGORY_LABELS}
 
     def record_category_coverage(values):
@@ -1100,6 +1144,42 @@ def compile_discovery(frozen):
             pending.append({"reason": "capacity_unsupported", "batch": index})
             record_category_coverage(
                 {category: "partial" for category in category_attempts}
+            )
+            continue
+        if index in excluded:
+            gap = excluded[index]
+            pending.append({"reason": "author_confirmed_unknown_gap", "batch": index})
+            record_category_coverage({})
+            inspected.append(
+                {
+                    "batch": index,
+                    "coverage": "not_checked",
+                    "reason": "author_confirmed_unknown_gap",
+                    "note": gap["note"],
+                }
+            )
+            continue
+        no_action = payload.get(f"discovery_no_action_{index}")
+        if no_action is not None:
+            if (
+                not _no_permitted_action(batch)
+                or _has_discovery_call(payload, index)
+                or no_action.get("input_hash")
+                != content_hash(_discovery_envelope(frozen, prepared, batch))
+                or no_action.get("model_called") is not False
+            ):
+                raise ValueError("discovery_no_action_scope_changed")
+            no_action_batches.append(index)
+            record_category_coverage({})
+            inspected.append(
+                {
+                    "batch": index,
+                    "coverage": "not_checked",
+                    "reason": "no_permitted_action",
+                    "model_called": False,
+                    "note": "本批禁止新增且没有完整更新目标；未调用模型，"
+                    "不声称检查了历史语义。",
+                }
             )
             continue
         visible_observations = _visible_observation_ids(batch)
@@ -1535,6 +1615,8 @@ def compile_discovery(frozen):
         "coverage": {
             **prepared["coverage"],
             "failed_batches": failed_batches,
+            "author_confirmed_unknown_gaps": unknown_gaps,
+            "no_action_batches": no_action_batches,
             "identity_review_gaps": identity_gaps,
             "identity_inspected": identity_inspected,
             "category_coverage": category_coverage,
@@ -1563,8 +1645,6 @@ def _discovery_envelope(frozen, prepared, inputs):
 async def finish_scene_discovery(db, store, frozen, source, caller):
     if frozen.payload.get("discovery_version", 0) != 1:
         return frozen
-    from modules.evolution.pipeline import _run_scene_call
-
     frozen = await freeze_value(
         db,
         store,
@@ -1577,88 +1657,71 @@ async def finish_scene_discovery(db, store, frozen, source, caller):
     prepared = frozen.payload["discovery_preparation"]
     if prepared["method_fingerprint"] != method_fingerprint():
         raise ConflictError("发现方法已变化，请保留旧结果并重新核对")
+    gaps = confirmed_discovery_gaps(frozen)
+    if gaps:
+        run = await store.load_run(frozen.run_id)
+        if any(
+            gap["scope"]["model_fingerprint"] != content_hash(run.llm_snapshot_json or {})
+            for gap in gaps
+        ):
+            raise ConflictError("未检查缺口的冻结模型已变化")
     if frozen.payload.get("discovery_result"):
         return frozen
+    session_gate = getattr(caller, "session_gate", None)
+    parallelism = getattr(caller, "discovery_parallelism", 1)
+    if (
+        type(parallelism) is not int
+        or not 1 <= parallelism <= 8
+        or (parallelism > 1 and session_gate is None)
+    ):
+        raise ValueError("discovery parallelism requires a shared session gate")
+    _require_discovery_journals(frozen, prepared)
+    window = parallelism * 2 if parallelism > 1 else 1
+    excluded = {gap["scope"]["batch_index"] for gap in confirmed_discovery_gaps(frozen)}
+    all_plans = []
     for index, batch in enumerate(prepared["batches"]):
-        if index in prepared["unsupported_batches"]:
+        if index in prepared["unsupported_batches"] or index in excluded:
             continue
-        for reviewing in (False, True):
-            key = f"scene_discovery{'_review' if reviewing else ''}_{index}"
-            inputs = batch
-            if reviewing:
-                generated = DiscoveryOutput.model_validate(
-                    frozen.payload[f"scene_discovery_{index}"]["result"]
-                )
-                if not generated.changes:
-                    continue
-                inputs = _review_inputs(batch, generated)
-                if serialized_size(inputs) > REQUEST_CHARACTERS:
-                    break  # Frozen generation stays available; compiler exposes the gap.
-            envelope = _discovery_envelope(frozen, prepared, inputs)
-            journal = frozen.payload.get(key) or {}
-            if _settled_output_failure(journal):
-                if journal.get("input_hash") != content_hash(envelope):
-                    raise ConflictError("失败批次的冻结输入已变化，不能跳过核对")
-                break
-            try:
-                frozen = await _run_scene_call(
-                    db,
-                    store,
-                    frozen,
-                    source,
-                    journal_key=key,
-                    inputs=envelope,
-                    call_inputs={"inputs": inputs},
-                    call=partial(
-                        caller, "review_discovery" if reviewing else "discover_details"
-                    ),
-                )
-            except SceneCallFailedError:
-                frozen = await store.load_frozen(frozen.run_id, frozen.attempt_id)
-                if not _settled_output_failure(frozen.payload.get(key) or {}):
-                    raise
-                # Keep the settled failed batch visible; no result and no new paid retry.
-                break
+        if _no_permitted_action(batch) and not _has_discovery_call(frozen.payload, index):
 
-        generated_journal = frozen.payload.get(f"scene_discovery_{index}") or {}
-        review_journal = frozen.payload.get(f"scene_discovery_review_{index}") or {}
-        if _settled_output_failure(generated_journal) or _settled_output_failure(
-            review_journal
-        ):
+            async def prepare_no_action(payload):
+                if _has_discovery_call(payload, index):
+                    raise ConflictError("本批已有调用记录，请保留原结果并核对")
+                return {
+                    "input_hash": content_hash(
+                        _discovery_envelope(frozen, prepared, batch)
+                    ),
+                    "model_called": False,
+                }
+
+            frozen = await freeze_value(
+                db, store, frozen, f"discovery_no_action_{index}", prepare_no_action
+            )
             continue
-        generated = DiscoveryOutput.model_validate(generated_journal["result"])
-        if serialized_size(_review_inputs(batch, generated)) > REQUEST_CHARACTERS:
-            continue
-        if not any(change.action == "new" for change in generated.changes):
-            continue
-        for shard_index, shard in enumerate(
-            _identity_shards(frozen, prepared, index), start=1
-        ):
-            inputs = identity_review_inputs(batch, generated.changes, shard, shard_index)
-            if serialized_size(inputs) > REQUEST_CHARACTERS:
-                continue  # Compiler records an explicit gap; new themes cannot pass.
-            key = f"scene_discovery_identity_{index}_{shard_index}"
-            envelope = _discovery_envelope(frozen, prepared, inputs)
-            journal = frozen.payload.get(key) or {}
-            if _settled_output_failure(journal):
-                if journal.get("input_hash") != content_hash(envelope):
-                    raise ConflictError("主题身份审查的冻结输入已变化")
+        all_plans.append((index, batch))
+    # Empty/unsupported positions do not consume an executable window slot.
+    for start in range(0, len(all_plans), window):
+        plans = all_plans[start : start + window]
+        frozen = await _finish_primary_batches(
+            db, store, frozen, source, caller, prepared, plans
+        )
+        # Only strict earlier proposals enter identity checks, regardless of when
+        # independent generation/review completes. Never parallelize Scene apply.
+        for index, batch in plans:
+            generated_journal = frozen.payload.get(f"scene_discovery_{index}") or {}
+            review_journal = frozen.payload.get(f"scene_discovery_review_{index}") or {}
+            if _settled_output_failure(generated_journal) or _settled_output_failure(
+                review_journal
+            ):
                 continue
-            try:
-                frozen = await _run_scene_call(
-                    db,
-                    store,
-                    frozen,
-                    source,
-                    journal_key=key,
-                    inputs=envelope,
-                    call_inputs={"inputs": inputs},
-                    call=partial(caller, "review_discovery"),
-                )
-            except SceneCallFailedError:
-                frozen = await store.load_frozen(frozen.run_id, frozen.attempt_id)
-                if not _settled_output_failure(frozen.payload.get(key) or {}):
-                    raise
+            generated = DiscoveryOutput.model_validate(generated_journal["result"])
+            if serialized_size(_review_inputs(batch, generated)) > REQUEST_CHARACTERS:
+                continue
+            if not any(change.action == "new" for change in generated.changes):
+                continue
+            frozen = await _finish_identity_reviews(
+                db, store, frozen, source, caller, prepared, index, batch, generated
+            )
 
     return await freeze_value(
         db,
@@ -1667,6 +1730,225 @@ async def finish_scene_discovery(db, store, frozen, source, caller):
         "discovery_result",
         lambda payload: _compiled_result(frozen.model_copy(update={"payload": payload})),
     )
+
+
+def _require_discovery_journals(frozen, prepared):
+    from modules.evolution.pipeline import SamplePendingReconciliationError
+
+    excluded = {gap["scope"]["journal_key"] for gap in confirmed_discovery_gaps(frozen)}
+    for key, journal in frozen.payload.items():
+        if not key.startswith("scene_discovery_") or not journal or key in excluded:
+            continue
+        if journal.get("stage") != "sampled" and not _settled_output_failure(journal):
+            raise SamplePendingReconciliationError(key, "preserve original request")
+    for index, batch in enumerate(prepared["batches"]):
+        generated = frozen.payload.get(f"scene_discovery_{index}") or {}
+        review = frozen.payload.get(f"scene_discovery_review_{index}") or {}
+        expected = _discovery_envelope(frozen, prepared, batch)
+        if generated and generated.get("input_hash") != content_hash(expected):
+            raise ConflictError("发现批次的冻结输入已变化")
+        if review:
+            if generated.get("stage") != "sampled":
+                raise ConflictError("发现复核缺少原生成结果")
+            inputs = _review_inputs(
+                batch, DiscoveryOutput.model_validate(generated["result"])
+            )
+            if review.get("input_hash") != content_hash(
+                _discovery_envelope(frozen, prepared, inputs)
+            ):
+                raise ConflictError("发现复核的冻结输入已变化")
+        existing = {
+            key: journal
+            for key, journal in frozen.payload.items()
+            if key.startswith(f"scene_discovery_identity_{index}_")
+        }
+        if not existing:
+            continue
+        if generated.get("stage") != "sampled":
+            raise ConflictError("主题身份审查缺少原生成结果")
+        changes = DiscoveryOutput.model_validate(generated["result"]).changes
+        expected_identity = {
+            f"scene_discovery_identity_{index}_{ordinal}": content_hash(
+                _discovery_envelope(
+                    frozen,
+                    prepared,
+                    identity_review_inputs(batch, changes, shard, ordinal),
+                )
+            )
+            for ordinal, shard in enumerate(
+                _identity_shards(frozen, prepared, index), start=1
+            )
+        }
+        if any(
+            journal.get("input_hash") != expected_identity.get(key)
+            for key, journal in existing.items()
+        ):
+            raise ConflictError("主题身份审查的冻结输入已变化")
+
+
+async def _finish_primary_batches(db, store, frozen, source, caller, prepared, plans):
+    from modules.evolution.pipeline import _run_scene_call
+
+    gate = getattr(caller, "session_gate", None)
+    stop = asyncio.Event()
+    slots = asyncio.Semaphore(getattr(caller, "discovery_parallelism", 1))
+
+    async def finish(plan):
+        index, batch = plan
+        current = frozen
+        for reviewing in (False, True):
+            if stop.is_set():
+                return None
+            key = f"scene_discovery{'_review' if reviewing else ''}_{index}"
+            inputs = batch
+            if reviewing:
+                generated = DiscoveryOutput.model_validate(
+                    current.payload[f"scene_discovery_{index}"]["result"]
+                )
+                if not generated.changes:
+                    return None
+                inputs = _review_inputs(batch, generated)
+                if serialized_size(inputs) > REQUEST_CHARACTERS:
+                    return None  # Compiler exposes the preserved generation's gap.
+            envelope = _discovery_envelope(frozen, prepared, inputs)
+            journal = current.payload.get(key) or {}
+            if _settled_output_failure(journal):
+                if journal.get("input_hash") != content_hash(envelope):
+                    raise ConflictError("失败批次的冻结输入已变化，不能跳过核对")
+                return None
+            try:
+                current = await _run_scene_call(
+                    db,
+                    store,
+                    current,
+                    source,
+                    journal_key=key,
+                    inputs=envelope,
+                    call_inputs={"inputs": inputs},
+                    call=partial(
+                        caller, "review_discovery" if reviewing else "discover_details"
+                    ),
+                    session_gate=gate,
+                )
+            except SceneCallFailedError as error:
+                if not _settled_output_failure(
+                    {"stage": "failed", "paid_call_receipt": error.receipt}
+                ):
+                    stop.set()
+                return key  # Inspect only after all already-sent peers settle.
+            except Exception:
+                stop.set()
+                raise
+        return None
+
+    async def admitted(plan):
+        # A fast independent chain may use the free slot before a slow peer
+        # finishes. Waiting chains observe stop before reserving/sending.
+        async with slots:
+            return await finish(plan)
+
+    wave = asyncio.gather(*(admitted(plan) for plan in plans), return_exceptions=True)
+    try:
+        outcomes = await asyncio.shield(wave)
+    except asyncio.CancelledError:
+        stop.set()
+        await wave
+        raise
+    frozen = await store.load_frozen(frozen.run_id, frozen.attempt_id)
+    for outcome in outcomes:
+        if isinstance(outcome, BaseException):
+            raise outcome
+        if isinstance(outcome, str) and not _settled_output_failure(
+            frozen.payload.get(outcome) or {}
+        ):
+            raise SceneCallFailedError(
+                (frozen.payload.get(outcome) or {}).get("paid_call_receipt")
+            )
+    return frozen
+
+
+async def _finish_identity_reviews(
+    db, store, frozen, source, caller, prepared, index, batch, generated
+):
+    from modules.evolution.pipeline import (
+        SamplePendingReconciliationError,
+        _run_scene_call,
+    )
+
+    session_gate = getattr(caller, "session_gate", None)
+    parallelism = getattr(caller, "discovery_parallelism", 1)
+    if (
+        type(parallelism) is not int
+        or not 1 <= parallelism <= 8
+        or (parallelism > 1 and session_gate is None)
+    ):
+        raise ValueError("identity review parallelism requires a shared session gate")
+    plans = []
+    for shard_index, shard in enumerate(
+        _identity_shards(frozen, prepared, index), start=1
+    ):
+        inputs = identity_review_inputs(batch, generated.changes, shard, shard_index)
+        if serialized_size(inputs) > REQUEST_CHARACTERS:
+            continue  # Compiler records the gap; no change to evidence scope.
+        key = f"scene_discovery_identity_{index}_{shard_index}"
+        envelope = _discovery_envelope(frozen, prepared, inputs)
+        journal = frozen.payload.get(key) or {}
+        if _settled_output_failure(journal):
+            if journal.get("input_hash") != content_hash(envelope):
+                raise ConflictError("主题身份审查的冻结输入已变化")
+            continue
+        if journal and (
+            journal.get("stage") != "sampled"
+            or journal.get("input_hash") != content_hash(envelope)
+        ):
+            # Do not launch a peer around an existing unknown/stale request.
+            raise SamplePendingReconciliationError(
+                key, "preserve original identity request"
+            )
+        plans.append((key, inputs, envelope))
+
+    async def review(plan):
+        key, inputs, envelope = plan
+        try:
+            return await _run_scene_call(
+                db,
+                store,
+                frozen,
+                source,
+                journal_key=key,
+                inputs=envelope,
+                call_inputs={"inputs": inputs},
+                call=partial(caller, "review_discovery"),
+                session_gate=session_gate,
+            )
+        except SceneCallFailedError:
+            # _run_scene_call persisted the failure under the same shared gate.
+            # Read only after this wave drains, avoiding concurrent session I/O.
+            return key
+
+    for start in range(0, len(plans), parallelism):
+        wave = asyncio.gather(
+            *(review(plan) for plan in plans[start : start + parallelism]),
+            return_exceptions=True,
+        )
+        try:
+            outcomes = await asyncio.shield(wave)
+        except asyncio.CancelledError:
+            # Keep already-sent peers alive until their real results settle;
+            # caller shutdown must not manufacture unknown requests.
+            await wave
+            raise
+        frozen = await store.load_frozen(frozen.run_id, frozen.attempt_id)
+        for outcome in outcomes:
+            if isinstance(outcome, BaseException):
+                raise outcome
+            if isinstance(outcome, str) and not _settled_output_failure(
+                frozen.payload.get(outcome) or {}
+            ):
+                raise SceneCallFailedError(
+                    (frozen.payload.get(outcome) or {}).get("paid_call_receipt")
+                )
+    return frozen
 
 
 async def _compiled_result(frozen):

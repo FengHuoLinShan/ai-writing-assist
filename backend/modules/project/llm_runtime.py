@@ -133,6 +133,19 @@ async def build_project_llm_execution_snapshot(
         "extra_hash": _stable_hash(profile.extra),
         "creative_mode": getattr(profile, "creative_mode", None),
     }
+    if profile.provider_id == "codex":
+        from infrastructure.llm.cli_agent import (
+            CODEX_TEXT_ADAPTER_VERSION,
+            CODEX_TEXT_INSTRUCTIONS_HASH,
+        )
+
+        public_profile["native_wrapper"] = {
+            "version": CODEX_TEXT_ADAPTER_VERSION,
+            "instructions_hash": CODEX_TEXT_INSTRUCTIONS_HASH,
+        }
+        public_profile["connection_verified"] = bool(
+            profile.extra.get("codex_connection_fingerprint")
+        )
     payload: dict[str, Any] = {
         "version": PROJECT_LLM_EXECUTION_SNAPSHOT_VERSION,
         "novel_id": str(novel_id),
@@ -146,6 +159,7 @@ async def build_project_llm_execution_snapshot(
         "deep_import": materialize_effective_deep_import_settings(
             materialized,
             inherited_llm_max_tokens=profile.max_tokens,
+            provider_id=profile.provider_id,
         ),
         # B5：路由配置随快照固化（项目省钱开关 × 账户 verified 附加模型 ×
         # cheap 能力集），恢复任务按快照执行，不随账户当前配置漂移。
@@ -208,15 +222,29 @@ async def restore_project_llm_execution_settings(
     if "local_agent" in snapshot:
         # Local CLIs are reserved for image generation; frozen text tasks from
         # before that restriction fail closed instead of running on the host.
-        raise ProjectLLMConfigurationError(
-            "Local CLI no longer runs project text tasks"
-        )
+        raise ProjectLLMConfigurationError("Local CLI no longer runs project text tasks")
 
     public_profile = snapshot.get("profile")
     sources = snapshot.get("sources")
     if not isinstance(public_profile, dict) or not isinstance(sources, dict):
         raise ProjectLLMConfigurationError("Project LLM execution snapshot is invalid")
-    if public_profile.get("api_key_configured") is not True:
+    if public_profile.get("provider_id") == "codex":
+        from infrastructure.llm.cli_agent import (
+            CODEX_TEXT_ADAPTER_VERSION,
+            CODEX_TEXT_INSTRUCTIONS_HASH,
+        )
+
+        if public_profile.get("native_wrapper") != {
+            "version": CODEX_TEXT_ADAPTER_VERSION,
+            "instructions_hash": CODEX_TEXT_INSTRUCTIONS_HASH,
+        }:
+            raise ProjectLLMConfigurationError(
+                "Codex wrapper changed or is missing; the frozen text task cannot resume"
+            )
+    if public_profile.get("api_key_configured") is not True and not (
+        public_profile.get("provider_id") == "codex"
+        and public_profile.get("connection_verified") is True
+    ):
         raise ProjectLLMConfigurationError(
             "Project LLM API key was not configured when the task started"
         )
@@ -233,7 +261,10 @@ async def restore_project_llm_execution_settings(
         novel_id,
         provider_id=str(public_profile.get("provider_id") or ""),
     )
-    if not current_profile.api_key:
+    if not current_profile.api_key and not (
+        current_profile.provider_id == "codex"
+        and current_profile.extra.get("codex_connection_fingerprint")
+    ):
         raise ProjectLLMConfigurationError("Project LLM API key is not configured")
     if not current_profile.base_url or not public_profile.get("model"):
         raise ProjectLLMConfigurationError("Project LLM base_url and model are required")
@@ -286,6 +317,33 @@ async def restore_project_llm_execution_settings(
     }
 
 
+def _bind_codex_authorization(client, profile, novel_id, *, db=None):
+    if profile.provider_id != "codex" or novel_id is None:
+        return
+
+    async def authorize():
+        if db is None:
+            from core.database import get_manager
+
+            session = get_manager().session()
+        else:
+            session = AsyncSession(
+                bind=db.bind,
+                expire_on_commit=False,
+                join_transaction_mode="create_savepoint",
+            )
+        async with session as fresh:
+            _, current, _, _ = await _resolve_project_runtime_profile(
+                fresh, novel_id, provider_id="codex"
+            )
+            if current.model != profile.model or current.extra != profile.extra:
+                raise ProjectLLMConfigurationError(
+                    "Codex owner connection changed after client creation"
+                )
+
+    client.authorize_request = authorize
+
+
 def create_project_snapshot_llm_client(
     project_settings: dict,
     *,
@@ -314,7 +372,10 @@ def create_project_snapshot_llm_client(
         sources = dict(profile.sources)
         sources["timeout"] = "timeout_override"
         profile = replace(profile, timeout=timeout_override, sources=sources)
-    if not profile.api_key:
+    if not profile.api_key and not (
+        profile.provider_id == "codex"
+        and profile.extra.get("codex_connection_fingerprint")
+    ):
         raise ProjectLLMConfigurationError(
             "Project LLM API key is not configured",
         )
@@ -328,6 +389,7 @@ def create_project_snapshot_llm_client(
     client = LLMClient.from_resolved_profile(
         profile, **({"high_quality": True} if high_quality else {})
     )
+    _bind_codex_authorization(client, profile, novel_id)
     # B5：恢复任务按快照固化的路由配置执行；快照缺 cost_routing 键
     # （旧任务）时空路由回落主模型。
     client.cost_routing = dict(project_settings.get("cost_routing") or {})
@@ -358,6 +420,7 @@ async def open_project_snapshot_llm_client(
     if timeout_override is not None:
         client_kwargs["timeout_override"] = timeout_override
     client = create_project_snapshot_llm_client(settings, **client_kwargs)
+    _bind_codex_authorization(client, resolve_llm_profile(settings), novel_id, db=db)
     try:
         yield client
     finally:
@@ -400,7 +463,10 @@ async def open_project_llm_client(
         sources["timeout"] = "timeout_override"
     profile = replace(profile, sources=sources)
 
-    if not profile.api_key:
+    if not profile.api_key and not (
+        profile.provider_id == "codex"
+        and profile.extra.get("codex_connection_fingerprint")
+    ):
         raise ProjectLLMConfigurationError(
             "Project LLM API key is not configured",
         )
@@ -414,6 +480,7 @@ async def open_project_llm_client(
     client = LLMClient.from_resolved_profile(
         profile, **({"high_quality": True} if high_quality else {})
     )
+    _bind_codex_authorization(client, profile, novel_id, db=db)
     # B5：把生效的路由配置交给 client，由 managed step harness 按能力成本档
     # 覆盖 request.model；未启用时为空路由（永远回落主模型）。
     client.cost_routing = await build_cost_routing(

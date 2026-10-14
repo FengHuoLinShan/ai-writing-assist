@@ -16,6 +16,10 @@ workbench. Canonical characters remain owned by `world`; outline structure and
 Scenes are Story's `outline_state` subdomain. Story validates those IDs
 through its stable facade and never writes World, Memory, or Writing records.
 
+跨章 Scene 的工作稿来源锚点按章节生成，可能只有部分 `part_no`。边界验证按部分身份
+优先使用工作稿锚点，仅从原 canonical 映射补充尚未生成的部分；已有工作稿映射的漂移、
+缺失来源范围或原稿版本不符仍拒绝，不写入补出的映射或改变已确认范围。
+
 ## Stable seams
 
 - `contracts.py`: read contracts for character-card and script-file responses, plus the
@@ -278,3 +282,5 @@ consumption includes the inherited manuscript prefix. See [Memory contract](../.
 人工复核、合并/拆分。`scene_workbench_health.py` 提供健康诊断/区间重叠投影，
 `scene_workbench_fusion.py` 负责融合预览、来源重验和持久建议生命周期；
 共用定义在 `scene_workbench_support.py`。同一服务实例、repository和锁维持公开API与来源/CAS合同。
+
+Delta categories are source-bound descriptive strings, stored in `delta_log.category` as Text (20261013_delta_category_text). They are not truncated to32 characters. Downgrade refuses when longer history exists; it does not delete or shorten those records.

@@ -50,9 +50,7 @@ class _FakeClient:
                         "imported_assets",
                     )
                 ],
-                verdict=self.audit_verdicts.pop(0)
-                if self.audit_verdicts
-                else "pass",
+                verdict=self.audit_verdicts.pop(0) if self.audit_verdicts else "pass",
             )
         self.requests.append(request)
         return schema()
@@ -696,3 +694,40 @@ async def test_main_workflow_structured_call_closes_client(
         await call
 
     client.close.assert_awaited_once_with()
+
+
+def test_relation_request_preserves_same_scene_candidate_refs_without_private_ids():
+    import json
+
+    from modules.imports.entity_extraction.scene_entity_llm_adapters import (
+        build_alias_relation_request,
+    )
+    from modules.imports.scene_world import relation_context
+
+    context = relation_context(
+        {"identity_candidates": [], "_entity_ref_map": {}, "_identity_queries": []},
+        {
+            "entities": [
+                {
+                    "name": name,
+                    "entity_type": "character",
+                    "suggested_action": "create_new",
+                }
+                for name in ("甲", "乙")
+            ]
+        },
+    )
+    context["_new_entity_ids"] = {"new_0": "private-a", "new_1": "private-b"}
+    request = build_alias_relation_request("甲是乙的哥哥。", context_bundle=context)
+    body = request.messages[1].content
+    rendered = json.loads(
+        body.split("<untrusted_phase2b_context_json>\n", 1)[1].split(
+            "\n</untrusted_phase2b_context_json>", 1
+        )[0]
+    )
+    assert [
+        (item["prompt_ref"], item["name"]) for item in rendered["identity_candidates"]
+    ] == [("new_0", "甲"), ("new_1", "乙")]
+    assert rendered["current_scene_text"] == "甲是乙的哥哥。"
+    assert not any(key.startswith("_") for key in rendered)
+    assert "private-a" not in body and "private-b" not in body

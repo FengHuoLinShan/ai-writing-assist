@@ -63,12 +63,14 @@ async def test_llm_provider_templates_only_expose_supported_account_connections(
     assert resp.status_code == 200
     items = resp.json()["items"]
     ids = {item["id"] for item in items}
-    assert ids == {"deepseek", "kimi"}
+    assert ids == {"codex", "deepseek", "kimi"}
     by_id = {item["id"]: item for item in items}
     assert by_id["deepseek"]["default_model"] == "deepseek-flash"
     assert "deepseek-v4-flash" in by_id["deepseek"]["models"]
     assert by_id["deepseek"]["base_url"] == "https://api.deepseek.com"
     assert by_id["kimi"]["default_model"] == "kimi-k3"
+    assert by_id["codex"]["default_model"] == "gpt-6-luna"
+    assert by_id["codex"]["default_parameters"]["extra"]["reasoning_effort"] == "max"
     assert all("api_key" not in item for item in items)
 
 
@@ -279,11 +281,11 @@ async def test_effective_llm_settings_use_account_template_when_unconnected(
     body = r.json()
     for f in ("provider_id", "base_url", "model", "timeout", "max_tokens", "temperature"):
         assert body[f]["source"] == "global"
-    assert body["provider_id"]["value"] == "deepseek"
-    assert body["base_url"]["value"] == "https://api.deepseek.com"
-    assert body["model"]["value"] == "deepseek-flash"
-    assert body["timeout"]["value"] == 180
-    assert body["max_tokens"]["value"] == 12_000
+    assert body["provider_id"]["value"] == "codex"
+    assert body["base_url"]["value"] == "codex://local"
+    assert body["model"]["value"] == "gpt-6-luna"
+    assert body["timeout"]["value"] == 900
+    assert body["max_tokens"]["value"] == 32_768
     assert body["api_key_configured"]["source"] == "unset"
     assert body["api_key_configured"]["value"] is False
 
@@ -339,7 +341,7 @@ async def test_project_connection_fields_cannot_override_account_template(
     r = await async_client.get(f"/api/projects/{pid}/effective-llm-settings")
     body = r.json()
     assert body["provider_id"]["source"] == "global"
-    assert body["provider_id"]["value"] == "deepseek"
+    assert body["provider_id"]["value"] == "codex"
     await async_client.put(
         f"/api/projects/{pid}/llm-settings",
         headers=XHR_HEADERS,
@@ -352,7 +354,7 @@ async def test_project_connection_fields_cannot_override_account_template(
     r2 = await async_client.get(f"/api/projects/{pid}/effective-llm-settings")
     body2 = r2.json()
     assert body2["model"]["source"] == "global"
-    assert body2["model"]["value"] == "deepseek-flash"
+    assert body2["model"]["value"] == "gpt-6-luna"
     assert body2["provider_id"]["source"] == "global"
 
 
@@ -375,7 +377,7 @@ async def test_reset_legacy_llm_field_keeps_account_template(async_client, facto
     assert r.status_code == 200
     r2 = await async_client.get(f"/api/projects/{pid}/effective-llm-settings")
     assert r2.json()["provider_id"]["source"] == "global"
-    assert r2.json()["provider_id"]["value"] == "deepseek"
+    assert r2.json()["provider_id"]["value"] == "codex"
 
 
 @pytest.mark.asyncio
@@ -417,7 +419,7 @@ async def test_put_project_model_does_not_change_effective_account_model(
     r2 = await async_client.get(f"/api/projects/{pid}/effective-llm-settings")
     body = r2.json()
     assert body["model"]["source"] == "global"
-    assert body["model"]["value"] == "deepseek-flash"
+    assert body["model"]["value"] == "gpt-6-luna"
     assert body["provider_id"]["source"] == "global"
     assert body["base_url"]["source"] == "global"
 

@@ -217,3 +217,25 @@ async def test_govern_group_output_unverifiable_never_repairs() -> None:
     assert result["text"] == ""
     assert client.calls == 1
     assert repairs == []
+
+
+@pytest.mark.asyncio
+async def test_govern_group_retains_tail_counterevidence():
+    context = "已冻结的正文资料。" * 4000 + "【末尾反证：城门没有关闭】"
+
+    class TailCheckingClient(_GroupFakeClient):
+        async def generate_structured(self, request, schema, **kwargs):
+            assert context in request.messages[-1].content
+            return await super().generate_structured(request, schema, **kwargs)
+
+    result = await govern_group_output(
+        TailCheckingClient(["blocked"]),
+        capability="imports.entity_extraction",
+        novel_id="n1",
+        group_key="scene:1",
+        sources=_SOURCES,
+        output="城门关闭",
+        task_instruction="核对城门状态",
+        generator_context=context,
+    )
+    assert result["status"] == "blocked" and result["text"] == ""

@@ -55,6 +55,23 @@ from modules.account.settings_schemas import (
 _IMAGE_PROVIDER_ID = "openai-image"
 
 
+def _require_codex_owner(owner_id):
+    from modules.account.contracts import BOOTSTRAP_ACCOUNT_ID
+
+    if owner_id != BOOTSTRAP_ACCOUNT_ID:
+        raise ValueError("Codex 本机登录态不能用于其他账户")
+
+
+def _account_provider_order(owner_id):
+    from modules.account.contracts import BOOTSTRAP_ACCOUNT_ID
+
+    return tuple(
+        p
+        for p in enabled_account_llm_provider_order()
+        if p != "codex" or owner_id == BOOTSTRAP_ACCOUNT_ID
+    )
+
+
 def _current_owner_id(owner_id: uuid.UUID | None = None) -> uuid.UUID:
     """Resolve a browser owner while preserving the local bootstrap identity."""
     if owner_id is not None:
@@ -209,9 +226,9 @@ class SettingsService:
     def _require_account_provider(provider_id: str) -> dict:
         template = ACCOUNT_LLM_PROVIDER_TEMPLATES.get(provider_id)
         if template is None:
-            raise ValueError("仅支持 DeepSeek 和 Kimi")
+            raise ValueError("请选择可用的账户模型连接")
         if not account_llm_provider_enabled(provider_id):
-            raise ValueError("Kimi K3 仍在兼容验证中，暂不可用")
+            raise ValueError("当前环境暂不可使用这个模型连接")
         return template
 
     async def get_account_llm_connections(
@@ -221,10 +238,10 @@ class SettingsService:
     ) -> AccountLLMConnectionsResponse:
         resolved_owner = _current_owner_id(owner_id)
         defaults = await self._llm_repo.get(db, resolved_owner)
-        enabled_order = enabled_account_llm_provider_order()
+        enabled_order = _account_provider_order(resolved_owner)
         active_provider = (
             defaults.provider_id
-            if defaults is not None and account_llm_provider_enabled(defaults.provider_id)
+            if defaults is not None and defaults.provider_id in enabled_order
             else enabled_order[0]
         )
         rows = await self._credential_repo.list_for_owner(db, resolved_owner)
@@ -233,13 +250,24 @@ class SettingsService:
         for provider_id in enabled_order:
             template = ACCOUNT_LLM_PROVIDER_TEMPLATES[provider_id]
             row = by_provider.get(provider_id)
+            connected = row is not None
+            if provider_id == "codex" and row is not None:
+                from infrastructure.llm.codex_provider import codex_connection_fingerprint
+
+                try:
+                    connected = (
+                        bool(row.verified_at)
+                        and row.key_fingerprint == codex_connection_fingerprint()
+                    )
+                except ValueError:
+                    connected = False
             providers.append(
                 AccountLLMProviderState(
                     provider_id=provider_id,
                     label=str(template["label"]),
                     model=str(template["model"]),
-                    connected=row is not None,
-                    active=provider_id == active_provider,
+                    connected=connected,
+                    active=provider_id == active_provider and connected,
                     verified_at=row.verified_at if row is not None else None,
                 )
             )
@@ -252,11 +280,33 @@ class SettingsService:
         self,
         db: AsyncSession,
         provider_id: str,
-        api_key: str,
+        api_key: str | None,
     ) -> AccountLLMConnectionsResponse:
         template = self._require_account_provider(provider_id)
         owner_id = _current_owner_id()
-        fingerprint = fingerprint_secret(api_key, purpose="account-llm-api-key")
+        if provider_id == "codex":
+            _require_codex_owner(owner_id)
+            if api_key is not None:
+                raise ValueError("Codex 使用本机登录态，不接收 API Key")
+            from infrastructure.llm.codex_provider import verify_codex_connection
+
+            try:
+                fingerprint = await verify_codex_connection()
+            except Exception as exc:
+                failure = ValueError(
+                    "Codex 验证失败，请在本机检查 CLI 登录与 Luna 权限后重试"
+                )
+                # Keep safe native evidence without exposing the underlying message.
+                from infrastructure.llm.errors import LLMError
+
+                if isinstance(exc, LLMError):
+                    failure.error_kind = exc.error_kind
+                    failure.diagnostic = exc.diagnostic
+                raise failure from exc
+        else:
+            if not api_key:
+                raise ValueError("请填写并验证 API Key")
+            fingerprint = fingerprint_secret(api_key, purpose="account-llm-api-key")
         await self._credential_repo.lock_owner_provider(
             db,
             owner_id,
@@ -269,14 +319,16 @@ class SettingsService:
             and existing.key_fingerprint == fingerprint
             and existing.verified_at is not None
         )
-        if not unchanged_verified:
+        if not unchanged_verified and provider_id != "codex":
             await _validate_account_llm_connection(provider_id, api_key)
         now = datetime.now(UTC)
         if unchanged_verified:
             encrypted_api_key = existing.encrypted_api_key
             verified_at = existing.verified_at
         else:
-            encrypted_api_key = encrypt_secret(api_key)
+            encrypted_api_key = (
+                None if provider_id == "codex" else encrypt_secret(api_key)
+            )
             verified_at = now
         await self._credential_repo.upsert(
             db,
@@ -316,7 +368,13 @@ class SettingsService:
         await self._llm_repo.lock_owner_head(db, owner_id)
         credential = await self._credential_repo.get(db, owner_id, provider_id)
         if credential is None:
-            raise ValueError("请先填写并验证 API Key")
+            raise ValueError("请先验证模型连接")
+        if provider_id == "codex":
+            _require_codex_owner(owner_id)
+            from infrastructure.llm.codex_provider import codex_connection_fingerprint
+
+            if credential.key_fingerprint != codex_connection_fingerprint():
+                raise ValueError("Codex 本机连接已变化，请重新验证")
         await self._llm_repo.upsert(
             db,
             {
@@ -359,17 +417,38 @@ class SettingsService:
             provider_id = (
                 defaults.provider_id
                 if defaults is not None
-                and account_llm_provider_enabled(defaults.provider_id)
-                else enabled_account_llm_provider_order()[0]
+                and defaults.provider_id in _account_provider_order(resolved_owner)
+                else _account_provider_order(resolved_owner)[0]
             )
         template = self._require_account_provider(provider_id)
+        if provider_id == "codex":
+            _require_codex_owner(resolved_owner)
         credential = await self._credential_repo.get(
             db,
             resolved_owner,
             provider_id,
         )
-        if credential is None:
-            raise ValueError("账户模型尚未连接，请先在账户设置中填写 API Key")
+        if credential is None or credential.verified_at is None:
+            raise ValueError("账户模型尚未连接或验证，请先在账户设置中连接")
+        if provider_id == "codex":
+            _require_codex_owner(resolved_owner)
+            from infrastructure.llm.codex_provider import codex_connection_fingerprint
+
+            if (
+                credential.key_fingerprint != codex_connection_fingerprint()
+                or credential.encrypted_api_key is not None
+            ):
+                raise ValueError("Codex 本机连接已变化，请重新验证")
+            return AccountLLMRuntimeProfile(
+                api_key="",
+                **{
+                    **template,
+                    "extra": {
+                        **template["extra"],
+                        "codex_connection_fingerprint": credential.key_fingerprint,
+                    },
+                },
+            )
         try:
             api_key = decrypt_secret(credential.encrypted_api_key)
         except ValueError as exc:
@@ -398,6 +477,10 @@ class SettingsService:
         }
 
         async def query(provider_id: str) -> AccountLLMBalanceItem:
+            if provider_id == "codex":
+                return AccountLLMBalanceItem(
+                    provider_id=provider_id, status="unavailable"
+                )
             queried_at = datetime.now(UTC)
             row = credentials[provider_id]
             try:
@@ -575,8 +658,9 @@ class SettingsService:
         row = await self._llm_repo.get(db, resolved_owner)
         provider_id = (
             row.provider_id
-            if row is not None and account_llm_provider_enabled(row.provider_id)
-            else enabled_account_llm_provider_order()[0]
+            if row is not None
+            and row.provider_id in _account_provider_order(resolved_owner)
+            else _account_provider_order(resolved_owner)[0]
         )
         template = ACCOUNT_LLM_PROVIDER_TEMPLATES[provider_id]
         values = {
@@ -601,7 +685,7 @@ class SettingsService:
             sorted(
                 item.provider_id
                 for item in credentials
-                if account_llm_provider_enabled(item.provider_id)
+                if item.provider_id in _account_provider_order(resolved_owner)
             )
         )
         return AccountLLMSettingsContract(

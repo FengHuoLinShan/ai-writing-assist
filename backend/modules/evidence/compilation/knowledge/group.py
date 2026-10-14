@@ -200,7 +200,7 @@ async def govern_group_output(
         group_key=group_key,
         sources=sources,
     )
-    context = generator_context[:24000]
+    context = generator_context
 
     async def _audit(text: str):  # noqa: ANN202
         return await run_knowledge_audit(

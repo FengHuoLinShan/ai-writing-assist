@@ -12,6 +12,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from modules.imports.admission import propagate_run_envelope_error
+from modules.imports.env_helpers import bound_llm_concurrency
 from modules.imports.llm_schemas import SceneChunk
 from modules.imports.scene_fusion import FinalSceneCandidate
 from modules.story.contracts import (
@@ -67,6 +68,9 @@ class Phase1cSceneFusionService:
         self.llm = llm
         self.auto_merge_confidence = max(0.0, min(float(auto_merge_confidence), 1.0))
         self.concurrency = max(1, int(concurrency))
+        self.concurrency = bound_llm_concurrency(
+            getattr(llm, "project_settings", None), self.concurrency
+        )
 
     async def run(
         self,
@@ -104,7 +108,9 @@ class Phase1cSceneFusionService:
         completed = 0
         progress_lock = asyncio.Lock()
 
-        async def review_group(group: dict[str, Any]) -> tuple[
+        async def review_group(
+            group: dict[str, Any],
+        ) -> tuple[
             list[SceneBoundaryAssessmentContract],
             list[SceneCandidateConcernContract],
             list[dict[str, Any]],
@@ -298,9 +304,7 @@ class Phase1cSceneFusionService:
         output = [item[0] for item in sorted_output_with_members]
         member_sets = [item[1] for item in sorted_output_with_members]
 
-        component_edges = {
-            index for component in components for index in component[:-1]
-        }
+        component_edges = {index for component in components for index in component[:-1]}
         auto_component_edges = {
             index
             for component in components
@@ -377,10 +381,7 @@ class Phase1cSceneFusionService:
             diagnostics=[
                 *diagnostics,
                 *review_errors,
-                *(
-                    {"kind": "knowledge_review", **review}
-                    for review in knowledge_reviews
-                ),
+                *({"kind": "knowledge_review", **review} for review in knowledge_reviews),
             ],
             degraded=failures > 0,
             block_reason="phase1c_review_or_synthesis_failures" if failures else None,
@@ -410,9 +411,7 @@ def _boundary_review_groups(
         reference = window.get("reference_context") or {}
         range_payload = reference.get("range") or {}
         owned = {
-            int(value)
-            for value in range_payload.get("owned", [])
-            if str(value).isdigit()
+            int(value) for value in range_payload.get("owned", []) if str(value).isdigit()
         }
         owners.append((str(window.get("window_id") or index), owned, window))
     grouped: dict[str, list[int]] = defaultdict(list)
@@ -484,8 +483,7 @@ def _validate_boundary_review(
     visible_candidate_ids: set[str],
 ) -> list[SceneBoundaryAssessmentContract]:
     returned_order = [
-        (item.left_candidate_id, item.right_candidate_id)
-        for item in review.boundaries
+        (item.left_candidate_id, item.right_candidate_id) for item in review.boundaries
     ]
     if returned_order != expected_pairs:
         raise ValueError("boundary assessment order/coverage mismatch")

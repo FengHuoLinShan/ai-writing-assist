@@ -636,3 +636,30 @@ class TestLoadEnvFile:
         load_env_file(env_file)
 
         assert os.environ["CUSTOM_EXISTING_KEY"] == "existing"
+
+
+@pytest.mark.parametrize("cap", [1, 2, 3, 4, 6, 8])
+def test_native_text_concurrency_is_bounded_integer(monkeypatch, cap):
+    from core.config import get_codex_text_concurrency
+
+    monkeypatch.setenv("CODEX_TEXT_MAX_CONCURRENT_REQUESTS", str(cap))
+    assert get_codex_text_concurrency(Settings()) == cap
+
+
+@pytest.mark.parametrize("cap", [0, 9, -1, True, 2.5, "6"])
+def test_native_text_concurrency_rejects_unsafe_settings(cap):
+    from types import SimpleNamespace
+
+    from core.config import get_codex_text_concurrency
+
+    with pytest.raises(ValueError, match="integer from 1 to 8"):
+        get_codex_text_concurrency(
+            SimpleNamespace(codex_text_max_concurrent_requests=cap)
+        )
+
+
+def test_native_text_concurrency_defaults_to_two(monkeypatch):
+    from core.config import get_codex_text_concurrency
+
+    monkeypatch.delenv("CODEX_TEXT_MAX_CONCURRENT_REQUESTS", raising=False)
+    assert get_codex_text_concurrency(Settings()) == 2

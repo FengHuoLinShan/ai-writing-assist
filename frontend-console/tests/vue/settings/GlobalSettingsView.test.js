@@ -72,6 +72,44 @@ afterEach(() => {
 })
 
 describe("账户模型连接", () => {
+  it("Codex 验证失败后保持错误反馈并允许重试", async () => {
+    api.settings.connectLLMProvider.mockRejectedValueOnce(new Error("Codex 登录未通过"))
+    const wrapper = mount(GlobalSettingsView, { props: makeProps({ llmConnections: {
+      active_provider_id: "codex",
+      providers: [{ provider_id: "codex", label: "Codex", model: "gpt-6-luna", connected: false, active: false }],
+    } }) })
+    await flushPromises()
+    await wrapper.get("#account-llm-save").trigger("click")
+    await flushPromises()
+    expect(wrapper.text()).toContain("Codex 登录未通过")
+    expect(wrapper.get("#account-llm-save").attributes("disabled")).toBeUndefined()
+    expect(wrapper.text()).not.toContain("连接已验证并设为当前使用")
+    wrapper.unmount()
+  })
+
+  it("Codex 默认待验证，不需要密钥且保持真实忙碌与成功状态", async () => {
+    const pending = deferred()
+    api.settings.connectLLMProvider.mockReturnValueOnce(pending.promise)
+    const props = makeProps({ llmConnections: {
+      active_provider_id: "codex",
+      providers: [{ provider_id: "codex", label: "Codex Luna", model: "gpt-6-luna", connected: false, active: false }],
+    } })
+    const wrapper = mount(GlobalSettingsView, { props })
+    await flushPromises()
+    expect(wrapper.find("#account-llm-api-key").exists()).toBe(false)
+    expect(wrapper.find(".secondary-models-section").exists()).toBe(false)
+    expect(wrapper.text()).toContain("尚未连接")
+    expect(wrapper.text()).not.toContain("当前正在使用这个服务")
+    await wrapper.get("#account-llm-save").trigger("click")
+    expect(api.settings.connectLLMProvider).toHaveBeenCalledWith("codex")
+    expect(wrapper.get(".account-connection-section").attributes("aria-busy")).toBe("true")
+    pending.resolve({ active_provider_id: "codex", providers: [{ ...props.llmConnections.providers[0], connected: true, active: true }] })
+    await flushPromises()
+    expect(wrapper.text()).toContain("连接已验证并设为当前使用")
+    expect(wrapper.get("#account-llm-save").attributes("disabled")).toBeUndefined()
+    wrapper.unmount()
+  })
+
   it("正常进入回填附加模型，完成读取前不能保存", async () => {
     const pending = deferred()
     api.settings.listLLMDefaults.mockReturnValueOnce(pending.promise)

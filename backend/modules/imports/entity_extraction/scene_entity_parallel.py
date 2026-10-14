@@ -320,18 +320,26 @@ class ParallelSceneEntityExtractionMixin:
         cursor = 0
         while cursor < len(prepared):
             wave = prepared[cursor : cursor + concurrency]
-            pending = {asyncio.create_task(extract_scene(item)) for item in wave}
+            tasks = {asyncio.create_task(extract_scene(item)) for item in wave}
+            pending = tasks.copy()
             results: list[dict[str, Any]] = []
-            while pending:
-                done, pending = await asyncio.wait(
-                    pending,
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
-                for task in done:
-                    results.append(task.result())
-                    provider_completed += 1
-                    if on_scene_progress is not None:
-                        await on_scene_progress(provider_completed, len(scenes))
+            try:
+                while pending:
+                    done, pending = await asyncio.wait(
+                        pending,
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    for task in done:
+                        results.append(task.result())
+                        provider_completed += 1
+                        if on_scene_progress is not None:
+                            await on_scene_progress(provider_completed, len(scenes))
+            finally:
+                # Settle cancelled provider calls before the owning run closes.
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
             extracted.extend(results)
             cursor += len(wave)
             transport_errors = [
@@ -455,9 +463,10 @@ class ParallelSceneEntityExtractionMixin:
 
             raw_knowledge_review = getattr(extraction, "knowledge_review", None)
             knowledge_review = dict(raw_knowledge_review or {})
-            if raw_knowledge_review is not None and knowledge_review.get(
-                "status"
-            ) != "passed":
+            if (
+                raw_knowledge_review is not None
+                and knowledge_review.get("status") != "passed"
+            ):
                 failed_scene_indices.append(scene_index)
                 if snapshot_id is not None:
                     from modules.evidence.facade import fail_context_snapshot

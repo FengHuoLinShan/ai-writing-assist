@@ -6,13 +6,13 @@ import asyncio
 import logging
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from time import monotonic
 from typing import TypeVar
 from urllib.parse import urlsplit
 
-from core.config import get_settings
+from core.config import get_codex_text_concurrency, get_settings
 from infrastructure.llm.errors import (
     LLMAuthError,
     LLMConnectionError,
@@ -68,6 +68,7 @@ class LLMLimiterScope:
 @dataclass(frozen=True)
 class _LimiterConfig:
     max_concurrent_requests: int
+    codex_text_max_concurrent_requests: int
     rate_limit_per_minute: int
     circuit_breaker_failure_threshold: int
     circuit_breaker_reset_seconds: float
@@ -95,6 +96,7 @@ class LLMProcessLimiter:
         self._lock = asyncio.Lock()
         self._config: _LimiterConfig | None = None
         self._semaphore: asyncio.Semaphore | None = None
+        self._codex_semaphore: asyncio.Semaphore | None = None
         self._tokens = 0.0
         self._last_refill_at = monotonic()
         self._breakers: OrderedDict[LLMLimiterScope, _BreakerState] = OrderedDict()
@@ -119,7 +121,23 @@ class LLMProcessLimiter:
         await self._ensure_ready()
         bucket = limiter_scope or _LEGACY_SCOPE
         half_open_probe = await self._begin_breaker_request(bucket)
+        codex_admitted = False
+        codex_semaphore = None
+        account_admission = AsyncExitStack()
         try:
+            if bucket.endpoint == "codex://local":
+                codex_semaphore = self._codex_semaphore
+                if codex_semaphore is None:
+                    raise RuntimeError("Codex admission was not initialized")
+                await self._acquire_semaphore(codex_semaphore)
+                codex_admitted = True
+                from infrastructure.llm.codex_admission import codex_account_admission
+
+                await account_admission.enter_async_context(
+                    codex_account_admission(
+                        self._active_config().codex_text_max_concurrent_requests
+                    )
+                )
             await self._wait_for_rate_token()
             semaphore = self._semaphore
             if semaphore is None:
@@ -154,6 +172,10 @@ class LLMProcessLimiter:
                 half_open_probe=half_open_probe,
             )
             raise
+        finally:
+            await account_admission.aclose()
+            if codex_admitted:
+                codex_semaphore.release()
 
     async def record_success(
         self,
@@ -200,6 +222,9 @@ class LLMProcessLimiter:
                 return
             self._config = config
             self._semaphore = asyncio.Semaphore(config.max_concurrent_requests)
+            self._codex_semaphore = asyncio.Semaphore(
+                config.codex_text_max_concurrent_requests
+            )
             self._tokens = float(config.rate_limit_per_minute)
             self._last_refill_at = monotonic()
             self._breakers.clear()
@@ -420,6 +445,7 @@ def _settings_config() -> _LimiterConfig:
     settings = get_settings()
     return _LimiterConfig(
         max_concurrent_requests=max(1, int(settings.llm_max_concurrent_requests)),
+        codex_text_max_concurrent_requests=get_codex_text_concurrency(settings),
         rate_limit_per_minute=max(0, int(settings.llm_rate_limit_per_minute)),
         circuit_breaker_failure_threshold=max(
             0,

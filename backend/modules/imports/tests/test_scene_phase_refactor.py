@@ -1099,3 +1099,49 @@ async def test_phase1a_scene_slicing_uses_window_max_tokens_not_legacy_fixed_set
     )
 
     assert captured[0].max_tokens == 13_000
+
+
+@pytest.mark.asyncio
+async def test_codex_enrichment_admits_before_work_starts_and_keeps_every_scene(
+    monkeypatch,
+):
+    import asyncio
+
+    from modules.imports.scene_enrichment import _EnrichOneResult
+    from modules.imports.scene_fusion import FinalSceneCandidate
+
+    class CodexAdapter:
+        project_settings = {"llm": {"provider_id": "codex", "model": "gpt-6-luna"}}
+
+    enricher = Phase1bSceneEnricher(CodexAdapter(), concurrency=200)
+    active, peak = 0, 0
+
+    async def process(sequence, scene, chapters, **kwargs):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0.005)
+        active -= 1
+        return _EnrichOneResult(
+            candidate=FinalSceneCandidate(
+                candidate_id=scene.candidate_id, source_candidate_ids=[scene.candidate_id]
+            )
+        )
+
+    monkeypatch.setattr(enricher, "_process_scene", process)
+    scenes = [
+        SceneSliceCandidate(
+            candidate_id=f"scene-{index}",
+            source_window_id="w1",
+            source_window_index=1,
+            start_chapter=1,
+            end_chapter=1,
+        )
+        for index in range(12)
+    ]
+    result = await enricher.run(scenes=scenes, chapters=[])
+    assert peak == 2
+    assert [item.candidate_id for item in result.candidates] == [
+        item.candidate_id for item in scenes
+    ]
+    assert not result.degraded

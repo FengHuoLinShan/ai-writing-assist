@@ -499,6 +499,7 @@ async def test_project_remote_embedding_routes_once_with_project_scope(
 async def test_usage_stats_omit_complete_endpoint_and_credentials() -> None:
     client = LLMClient.__new__(LLMClient)
     client._high_quality = False
+    client.authorize_request = None
     client._provider = SimpleNamespace(
         name="openai",
         _base_url=(
@@ -1306,6 +1307,7 @@ async def test_client_accepts_real_provider_stream_coroutine_shape(monkeypatch) 
 
     client = LLMClient.__new__(LLMClient)
     client._high_quality = False
+    client.authorize_request = None
     client._provider = provider
     client._settings = _retry_settings(base_delay=0.0, max_delay=0.0)
     client._default_max_tokens = 12_000

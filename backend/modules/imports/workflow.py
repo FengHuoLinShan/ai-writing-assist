@@ -159,6 +159,9 @@ class DeepImportWorkflow:
                 if not health.ok:
                     progress.phase = "failed"
                     progress.quality_status = "failed"
+                    progress.interrupted = True
+                    progress.recoverable = True
+                    progress.recovery_required = True
                     progress.current_step = None
                     progress.degraded = True
                     progress.message = (

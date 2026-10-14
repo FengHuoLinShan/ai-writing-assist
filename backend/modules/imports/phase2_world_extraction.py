@@ -25,6 +25,7 @@ from modules.imports.entity_extraction.scene_entity_config import (
 from modules.imports.entity_extraction.scene_entity_extraction import (
     SceneEntityExtractionService,
 )
+from modules.imports.env_helpers import bound_llm_concurrency
 from modules.imports.llm_schemas import (
     DeltaEvent,
     ExtractedEntity,
@@ -105,6 +106,9 @@ class Phase2WorldExtractor(SceneEntityExtractionService):
                 env_name="PHASE2_WORLD_WINDOW_CONCURRENCY",
                 default=PHASE2_WORLD_WINDOW_CONCURRENCY,
             ),
+        )
+        self.concurrency = bound_llm_concurrency(
+            current_phase2_project_settings(), self.concurrency
         )
 
     async def run(

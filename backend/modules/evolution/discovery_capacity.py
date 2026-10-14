@@ -142,7 +142,6 @@ def build_batches(
         if primary is not None
         else [[], *index_shards]
     )
-    contexts = chunks(context_units, budget=PART_CHARACTERS) or [[]]
     batches, unsupported, scopes = [], [], []
     for start, end, observations in scene_windows(text, current):
         for group in chunks(observations, budget=PART_CHARACTERS) or [[]]:
@@ -150,18 +149,31 @@ def build_batches(
             # Theme updates see each context once. Routing shards are checked
             # exhaustively in separate new-theme identity reviews, not multiplied
             # into competing updates of the same existing theme.
+            base = {
+                "conditions_semantics": semantics,
+                "scene_text": text[start:end],
+                "scene_text_range": {"start_offset": start, "end_offset": end},
+                "theme_index": index_shards[0],
+                "scene_index": scene_index,
+                "current_observation_ids": [item["observation_id"] for item in group],
+                "current_observations": group,
+                "recall_scope": recall_scope,
+            }
+            # Reserve review headroom; the final review payload is still checked.
+            context_budget = max(
+                PART_CHARACTERS,
+                REQUEST_CHARACTERS
+                - serialized_size(
+                    {**base, "allow_new_themes": True, "partition_id": "0" * 64}
+                )
+                - 12000,
+            )
+            contexts = chunks(context_units, budget=context_budget) or [[]]
             for context in contexts:
                 batch = {
-                    "conditions_semantics": semantics,
-                    "scene_text": text[start:end],
-                    "scene_text_range": {"start_offset": start, "end_offset": end},
+                    **base,
                     "allow_new_themes": False,
-                    "theme_index": index_shards[0],
-                    "scene_index": scene_index,
-                    "current_observation_ids": [item["observation_id"] for item in group],
-                    "current_observations": group,
                     "historical_context": context,
-                    "recall_scope": recall_scope,
                 }
                 if (
                     not new_assigned

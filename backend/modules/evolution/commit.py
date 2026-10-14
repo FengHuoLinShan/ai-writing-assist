@@ -257,6 +257,18 @@ async def apply_frozen(
                 "state effects require a bound independent review",
             )
     result = await applier(db, frozen)
+    from modules.evolution.discovery_gap import confirmed_discovery_gaps
+
+    gaps = confirmed_discovery_gaps(frozen)
+    if gaps:
+        missing = [gap["scope"]["journal_key"] for gap in gaps]
+        for field in ("unknown", "excluded"):
+            values = getattr(result.coverage, field)
+            values.extend(key for key in missing if key not in values)
+        for gap in gaps:
+            original = frozen.payload[gap["scope"]["journal_key"]]["paid_call_receipt"]
+            if original not in result.paid_call_receipts:
+                result.paid_call_receipts.append(original)
 
     receipt = EvolutionReceipt(
         run_id=frozen.run_id,

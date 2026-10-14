@@ -9,6 +9,26 @@ World Authority 的规范字节夹具位于
 由 `test_world_authority.py` 读取；历史验收记录见 `docs/acceptance/`，不作为当前门禁结果。
 文档移动后运行 `make docs-check` 验证当前索引与用户指南的链接。
 
+## 开发阶段真实模型测试
+
+小说业务批量实测前读取[开发阶段模型约定](development-guide.md#开发阶段模型约定)：
+被测业务及其批量质量复核使用 Codex `gpt-6-luna/max`；代码审查、测试开发和工程诊断
+继续使用 Sol 或其他高级模型。先核验业务的 owner 已验证连接及恢复快照；
+开发宿主或教师参数不能证明被测业务也使用 Luna。
+当前检出/测试只支持付费 API 时，继续其离线契约测试，真实调用标为未执行；先完成
+原生 Codex 接入，不用 DeepSeek 替代，不为通过而删门禁或伪造结果。
+
+下表及后文保留的 DeepSeek/Kimi、图片和其他外部 API 专项命令，仅用于用户另行明确
+授权的供应商验收；小说程序的自动批量测试、周期业务任务不执行。用 `make -n <target>`
+核对命令和默认参数，检查实际调用链及后台副任务，再决定执行；不因已经配置 Key 而
+视为获得付费授权。未知请求、原始回执与既有付费账本继续保留，禁止自动重发或重置。
+Luna 任务不另统计额度/费用；产品必需回执与失败证据按原契约保存。
+
+当前 `evals.ask_world` 的教师契约仍固定 `gpt-6.1-sol/high`，参数不能任意替换；
+Luna 批量业务实测不执行该教师模式。迁移为 Luna/max 并重新完成教师校准、冻结配置核验前，
+可在被测项目已验证原生 Luna/max 后运行不带教师的诊断，不能宣称完成语义教师审查。
+旧教师校准与 holdout 证据按原模型保留，不直接用于证明 Luna 效果。
+
 ## 技术覆盖离线实验
 
 `make eval-technical-coverage` 使用 Python 3.13 与锁定的 `ci/eval/experiments` extras，
@@ -79,7 +99,7 @@ Evidence indexing/compilation 回归集中在 `backend/modules/evidence/`；
 | `make eval-ask-world` | Ask World project/API contracts, then retrieval, citation-fixture, refusal and integrity thresholds | None; targeted API tests plus deterministic synthetic evidence, not a semantic-answer quality claim |
 | `make eval-ask-world-model NOVEL_ID=<id> [PROBE_SPLIT=debug\|holdout] [LEDGER=<jsonl>] [DATASET=<jsonl>]` | 生产 `AskWorldService._generate` 的来源集合诊断（非主张忠实度）；旧教师参数仅保留冻结合同，教师模式当前暂停，预检在项目访问、SUT 调用和一次性 holdout 占用前拒绝 | 无教师的 SUT 实测仍须单独授权并核验 owner/Project 的 Luna/max 连接；旧 `gpt-6.1-sol/high` 教师及旧 DeepSeek reviewer 须完成迁移和重新校准后才能恢复，不能凭本地登录重启；旧元数据/缓存离线回放不改标，不进 CI，真实稿件输入输出留仓库外 |
 | `make eval-context-planner NOVEL_ID=<id> OUTPUT=<path>` | 冻结 RAG 数据上对比 task-direct 与确定性 Planner，输出 split/purpose、MRR/P@5/R@10、结果数、source hash、stale/跨项目与延迟 | 已建立同一冻结语料索引的本地项目；不调 LLM |
-| `make eval-context-planner NOVEL_ID=<id> LLM_PLANNER=1 OUTPUT=<path>` | 在上述对比中增加 `planner-v2-llm`，仅向当前项目模型发送 dev split 中达到复杂度门槛的查询 | 显式付费/外部模型验收；train/test 不发送给 Planner |
+| `make eval-context-planner NOVEL_ID=<id> LLM_PLANNER=1 OUTPUT=<path>` | 在上述对比中增加 `planner-v2-llm`，仅向当前项目模型发送 dev split 中达到复杂度门槛的查询 | 开发时核验项目原生 Codex Luna/max 连接；train/test 不发送给 Planner；付费供应商另行授权 |
 | `uv --directory backend run pytest -q evals/tests/test_rp_context.py` | RP source context 对照账本与盲评汇总契约；只保存 corpus/scenario hash、SourceRangeRef 和 rubric | None；该测试不调用模型，也不代表用户验证或实际减少出戏 |
 | `make docs-check` | Architecture registry, modules, ORM tables, API prefixes, AST-discovered `*tasks.py` handlers (including string constants), routes, Prompt/ADR inventory, links and Draw.io structure | Python 3.12 standard library only |
 | `make docs-check BASE_REF=origin/main` | Full inventory plus current-branch document-impact coverage | Local `origin/main` ref |
@@ -103,7 +123,7 @@ Evidence indexing/compilation 回归集中在 `backend/modules/evidence/`；
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:functional -- interaction.spec.js --workers=1 --retries=0` | RP 作品复用、导入恢复、关键歧义、剧情锚点、两种身份、资料抽屉与 390px 键盘流 | Same fresh dedicated stack; network responses use synthetic fixtures |
 | `npm --prefix frontend-console run test:e2e:functional -- themes.spec.js` | 本地主题资源、预览取消、持久化／配额失败、刷新／导出／删除、字体偏好与手机正文稳定性 | 同一专用 PostgreSQL 与全新服务门禁；不调用模型 |
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:map` | Focused local map regression, including touch/390px; already contained in the functional suite | Explicit dedicated PostgreSQL and fresh backend/frontend |
-| `make test-real-llm` | Explicit SQLite real-model acceptance | Configured provider credentials |
+| `make test-real-llm` | Explicit SQLite real-model acceptance | 先检查该用例是否支持原生 Codex Luna/max；仅支持 API Key 的用例不在开发阶段自动运行 |
 | `cd backend && RUN_E2E_TESTS=1 RUN_REAL_LLM_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run --locked --extra ci -- pytest tests/e2e/test_writing_conflict_real_llm.py -m 'e2e and real_llm'` | Writing conflict review and suggestion through queued task routes | Dedicated PostgreSQL with a verified owner provider connection; two paid calls |
 | `RUN_MAP_ATLAS_LIVE_IMAGE=1 MAP_ATLAS_LIVE_OPENAI_API_KEY='<temporary-key>' make test-map-atlas-live-image` | One paid GPT Image 2 smoke image; never part of aggregate gates | Explicit cost approval flag and temporary OpenAI key |
 | `RUN_INTERACTION_REAL_KIMI=1 KIMI_API_KEY='<temporary-key>' DEEPSEEK_API_KEY='<temporary-key>' make test-real-kimi` | Paid Kimi K3 account connection, balance, RP streaming/branch/summary, provider hot-switch, and fail-closed recovery gate | Explicit temporary Kimi Open Platform and DeepSeek keys; Kimi remains disabled outside the test process |
@@ -512,7 +532,8 @@ RP 长期约定与max兼容性用例位于 interaction 的 services/prompts/task
   合并领取、故障后的累计预算；`test_assistant_review_runtime.py` 验证父助手直接调用领域
   只读复核的双 lease 与共享预算。模型输入输出为合成数据。
 - `RUN_ASSISTANT_REAL_LLM=1 pytest infrastructure/llm/tests/test_agent_live.py -m real_llm`
-  显式调用 DeepSeek，验证工具、保存后的历史续接、原生联网、流关闭；报告只含计数/用量/耗时，
+  是须另行明确授权的 DeepSeek 专项，不属于开发阶段默认真实模型测试；
+  验证工具、保存后的历史续接、原生联网、流关闭；报告只含计数/用量/耗时，
   位于 `.test-artifacts/assistant-live-core.json`。未知费用不记为零，不能据此宣称 RP 质量通过。
 - `playwright.assistant.config.js` 需要独立、带 `agent_e2e` 标记的本地 PostgreSQL、
   `PW_REUSE_EXISTING_SERVER=0`。真实 API 与 worker 由 test-only harness 启动，模型 IO 合成；
@@ -618,3 +639,10 @@ P8 固定比较范围按指定 head 的 Git blob 计数，不读取其他 checko
 冻结元数据与 cache-only 重放，不得将旧分数改标为当前模型成绩。恢复新调用前
 须迁到经 owner 验证的 Project 运行时，并按当前 Luna/max 约定重新校准教师与
 judge；本地 CLI 登录不代替这项核验。隔离传输的单元测试使用合成替身，不调用模型。
+
+Codex 文本适配离线回归：`pytest infrastructure/llm/tests/test_codex_provider.py modules/project/tests/test_codex_runtime.py`。
+真实合成评测：显式设置 AUTH_MODE=local、CODEX_CLI_COMMAND、独立 DATABASE_URL（库名必须
+codex_luna_runtime_test）后运行 `python -m evals.codex_luna --output /private/tmp/<private-run>`。
+100 个来源与协议案例通过真实账户/project facade，默认 2 并发；未完成/未知案例不自动重发。
+不额外统计用量或费用，仅保留产品原生回执及评测结果。结果原文、耗时和分数在仓库外；
+合成质量分数、离线工程验证、真实文学/作者验收分别报告，不互相替代。

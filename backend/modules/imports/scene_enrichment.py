@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from infrastructure.stable_hash import stable_hash as _stable_hash
 from modules.imports.deep_import_retry import run_deep_import_llm_with_retry
-from modules.imports.env_helpers import positive_int_env
+from modules.imports.env_helpers import bound_llm_concurrency, positive_int_env
 from modules.imports.llm_schemas import SceneChunk, SceneEnrichmentOutput
 from modules.imports.scene_fusion import FinalSceneCandidate
 from modules.imports.scene_slicing import SceneSliceCandidate
@@ -59,6 +59,9 @@ class Phase1bSceneEnricher:
                 "PHASE1B_ENRICH_CONCURRENCY",
                 PHASE1B_ENRICH_CONCURRENCY,
             ),
+        )
+        self.concurrency = bound_llm_concurrency(
+            getattr(llm, "project_settings", None), self.concurrency
         )
         self.max_retries = max(0, min(max_retries, 1))
         self.max_tokens = (
@@ -199,9 +202,10 @@ class Phase1bSceneEnricher:
         diagnostics["source_integrity"] = _compact_source_integrity(source_integrity)
         diagnostics["context_fingerprint"] = context_fingerprint
         pop_review = getattr(self.llm, "pop_knowledge_review", None)
-        if callable(pop_review) and (
-            knowledge_review := pop_review(scene.candidate_id)
-        ) is not None:
+        if (
+            callable(pop_review)
+            and (knowledge_review := pop_review(scene.candidate_id)) is not None
+        ):
             diagnostics["knowledge_review"] = knowledge_review
 
         if retry_result.final_status != "success":

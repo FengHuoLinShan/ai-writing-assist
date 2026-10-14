@@ -1139,3 +1139,54 @@ async def test_summarize_ai_usage_returns_per_task_rows_for_attribution(
     # 聚合数字与每任务明细一致
     assert summary["capabilities"]["writing.generate"]["requests"] == 2
     assert summary["capabilities"]["writing.semantic_review"]["requests_unknown"] == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "status,allow_failed,expected",
+    [
+        ("failed", False, False),
+        ("failed", True, True),
+        ("done", True, False),
+        ("cancelled", True, False),
+    ],
+)
+async def test_projection_failed_repair_keeps_terminal_and_project_guards(
+    db_session, status, allow_failed, expected
+):
+    novel = uuid.uuid4()
+    task = AsyncTask(
+        id=uuid.uuid4(),
+        novel_id=novel,
+        task_type="deep_import",
+        status=status,
+        meta={"_ai_run_envelope": {"original": "unchanged"}},
+        result={"original": True},
+    )
+    db_session.add(task)
+    await db_session.flush()
+    service = TaskLifecycleService()
+    wrong_scope = await service.update_projection(
+        db_session,
+        task_id=str(task.id),
+        task_type="deep_import",
+        novel_id=str(uuid.uuid4()),
+        result={"recovery_required": True},
+        allow_failed=True,
+    )
+    assert wrong_scope is False
+    updated = await service.update_projection(
+        db_session,
+        task_id=str(task.id),
+        task_type="deep_import",
+        novel_id=str(novel),
+        result={"recovery_required": True},
+        meta_patch={"recovery_required": True},
+        allow_failed=allow_failed,
+    )
+    assert updated is expected
+    assert task.status == status
+    assert task.meta["_ai_run_envelope"] == {"original": "unchanged"}
+    assert task.result == (
+        {"recovery_required": True} if expected else {"original": True}
+    )
