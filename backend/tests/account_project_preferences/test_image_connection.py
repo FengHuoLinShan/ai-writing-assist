@@ -16,14 +16,14 @@ async def test_image_connection_is_separate_from_active_text_provider(db_session
         return_value=client,
     ):
         service = SettingsService()
+        text_before = await service.get_account_llm_connections(db_session)
         connected = await service.connect_account_image_provider(db_session, "sk-test")
         text_connections = await service.get_account_llm_connections(db_session)
 
     assert connected.connected is True
     assert connected.model == "gpt-image-2"
     assert connected.verification_scope == "credential_only"
-    assert text_connections.active_provider_id == "deepseek"
-    assert {item.provider_id for item in text_connections.providers} == {"deepseek"}
+    assert text_connections == text_before
     client.verify_connection.assert_awaited_once()
     client.close.assert_awaited_once()
 

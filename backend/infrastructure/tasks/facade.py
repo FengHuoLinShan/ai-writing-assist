@@ -159,8 +159,10 @@ async def update_task_projection(
     task_type: str,
     novel_id: str,
     result: dict[str, Any] | None = None,
+    result_patch: dict[str, Any] | None = None,
     meta_patch: dict[str, Any] | None = None,
     progress: float | None = None,
+    allow_failed: bool = False,
 ) -> bool:
     """Maintain one task API projection from its domain-owned workflow state."""
     return await TaskLifecycleService().update_projection(
@@ -169,8 +171,10 @@ async def update_task_projection(
         task_type=task_type,
         novel_id=novel_id,
         result=result,
+        **({"result_patch": result_patch} if result_patch is not None else {}),
         meta_patch=meta_patch,
         progress=progress,
+        **({"allow_failed": True} if allow_failed else {}),
     )
 
 

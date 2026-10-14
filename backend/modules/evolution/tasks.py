@@ -21,11 +21,13 @@ handler 走真实路径（返修 R2/R4/R6 + 2026-09-22 审查 A02/A08）：
 from __future__ import annotations
 
 import asyncio
+from contextlib import AsyncExitStack
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.config import get_codex_text_concurrency
 from infrastructure.tasks.facade import enqueue_coalesced_task
 from infrastructure.tasks.registry import task_handler
 from modules.evolution.state_review import has_unreconciled_scene_calls
@@ -146,7 +148,9 @@ async def handle_evolution_scene_step(db: AsyncSession, task) -> dict[str, Any]:
                         pending
                         and pending.payload.get("stage")
                         in {"sampled", "compiled", "verified"}
-                        and not has_unreconciled_scene_calls(pending.payload)
+                        and not has_unreconciled_scene_calls(
+                            pending.payload, frozen=pending
+                        )
                     )
                     or (
                         not pending and run.budget_remaining > 0 and run.llm_snapshot_json
@@ -182,6 +186,37 @@ async def handle_evolution_scene_step(db: AsyncSession, task) -> dict[str, Any]:
                 # revokes its lease and fails the checkpoint above instead.
                 raise RuntimeError("理解任务中断，已保存结果可恢复") from error
         raise
+
+
+class _SceneMethodCaller:
+    """Serialize connection reads with journals; provider I/O may overlap."""
+
+    def __init__(self, db, request, snapshot):
+        self.db = db
+        self.request = request
+        self.snapshot = snapshot
+        self.session_gate = asyncio.Lock()
+        self.discovery_parallelism = (
+            get_codex_text_concurrency()
+            if (snapshot or {}).get("profile", {}).get("provider_id") == "codex"
+            else 1
+        )
+
+    async def __call__(self, method, **inputs):
+        from modules.evolution.sampler import resolve_scene_sampler
+
+        async with AsyncExitStack() as stack:
+            async with self.session_gate:
+                sampler = await stack.enter_async_context(
+                    resolve_scene_sampler(
+                        provider=self.request.sampler_provider,
+                        novel_id=self.request.novel_id,
+                        db=self.db,
+                        llm_snapshot=self.snapshot,
+                    )
+                )
+                await self.db.commit()
+            return await getattr(sampler, method)(**inputs)
 
 
 async def _execute_scene_step(db: AsyncSession, task) -> dict[str, Any]:
@@ -484,15 +519,7 @@ async def _execute_scene_step(db: AsyncSession, task) -> dict[str, Any]:
             await db.commit()  # resolving the frozen project connection reads the DB
             return await reviewer.verify_state_events(**inputs)
 
-    async def call_scene_method(method, **inputs):
-        async with resolve_scene_sampler(
-            provider=request.sampler_provider,
-            novel_id=request.novel_id,
-            db=db,
-            llm_snapshot=run.llm_snapshot_json,
-        ) as caller:
-            await db.commit()
-            return await getattr(caller, method)(**inputs)
+    call_scene_method = _SceneMethodCaller(db, request, run.llm_snapshot_json)
 
     replayed = await recover_scene_step(
         db,

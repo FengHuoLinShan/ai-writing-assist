@@ -168,3 +168,7 @@ Story continuity 的在场读取供 World MapSceneContext 聚合：保留位置 
 或当前 World 名称回填；缺少旧数据来源绑定时保留 unverified。
 
 Scene payload 的章节锚统一由 story.contracts.scene_chapter_indices 提供，并通过 Story facade 导出。Writing 重算沿既有延迟 facade 访问以避免循环依赖；Evolution 使用同一合同。chapter_ids 与 scene_chunks 合并、无效值跳过等历史语义不变。
+
+### 2026-10-13 连续性自由类别
+
+`delta_log.category`使用Text存储来源化自由类别描述，避免已通过schema的长类别导致整个场景事务回滚。升级无损，降级先检查32字符边界并拒绝破坏历史；Story facades、六维连续性、确认及项目隔离不变。

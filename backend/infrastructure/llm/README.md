@@ -253,6 +253,12 @@ task status 或诊断响应前必须先做 secret redaction 和控制字符规�
 总吞吐；代码不替 provider 选择固定生产 RPM。关闭 RPM 时仍应保留并发上限以保护
 服务器资源。
 
+原生 Codex 文本调用另受本机同账户跨进程上限 `CODEX_TEXT_MAX_CONCURRENT_REQUESTS` 约束，
+默认2，仅允许整数1—8；非法设置在接纳前拒绝。Imports工作链及Evolution同场发现/
+身份分片使用同一设置，API提供方保持原调优行为。所有路径仍受
+`LLM_MAX_CONCURRENT_REQUESTS` 进程总上限；同账户API/worker共享OS槽，不能通过增加worker绕过。
+提高值须依据实际原生稳定性校准，不改变模型、来源、超时、预算或未知结果防重发。
+
 availability circuit breaker 不跨项目共享：它按
 `project/system + chat/embedding + normalized endpoint` 建立进程内桶。endpoint identity
 只包含 scheme、host、有效端口和 base path，不包含 userinfo、query、fragment、API Key
@@ -318,8 +324,10 @@ provider 等待至少900秒，仍受领域总 deadline/请求次数护栏约束�
 ## 本机 CLI Agent transport
 
 `cli_agent.py` 把 Codex、Claude、Kimi、DSH、Pi 的非交互输出解析为最终文本、可观测工具
-次数和用量。子进程设时限、输出上限和进程组取消；stderr 丢弃，不将供应商思考或本机
-诊断传给产品。CLI 登录态和 Key 留在作者 Mac，不从服务器 Project gateway 借用。
+次数和用量。子进程设时限、输出上限和进程组取消；stderr 原文丢弃，不将供应商思考、
+原稿或本机诊断传给产品。原生Codex文本非零退出仅从有界stderr片段提取固定错误标签
+（如output_schema、authentication、stream_disconnected、cli_configuration、unknown），
+与JSON错误事件共用分类；标签不构成完成回执或可重试资格，未知仍禁止重发。CLI 登录态和 Key 留在作者 Mac，不从服务器 Project gateway 借用。
 Kimi/Pi/DSH 通过 0600 任务文件接收正文，避免把作品资料放入进程参数；Codex/Claude
 使用 stdin。DSH headless 当前只有纯文本结果，不能从其 stdout 准确计数原生工具；
 产品工具仍由服务器限次，原生执行只受时限与输出上限约束，此限制须在验收中单列。
@@ -348,3 +356,28 @@ Kimi/Pi/DSH 通过 0600 任务文件接收正文，避免把作品资料放入�
 SDK完整消费后取公开终态snapshot，不用其自动结构解析丢弃已知length/filter用量；
 length仍交原截断/schema规则，content_filter在结构化入口明确拒绝并记录完整已知用量。
 迭代失败不得取partial snapshot；原始HTTPX迭代TransportError也经同一错误映射。
+
+
+Codex 普通文本连接见 ADR-0033：本机单用户默认 gpt-6-luna/max；CodexProvider 经账户/project seam 使用受限 CLI，不使用 OpenAI SDK 或假 Key。封闭 schema 原生约束，开放字典包封后 Pydantic 校验；业务工具仅返回提案。未知完成禁止重发，输出上限按字节/超时保障，流式延迟至完整结果。CODEX_CLI_COMMAND 可选择已验证的新版 CLI；未登记的模型容量保持保守预算。
+文本模式的原生 `item.completed/error` 与终端失败均只保留安全原因分类（如 `stream_disconnected`、`output_schema`）；任何未完成结果仍失败关闭且禁止自动重发，不返回原始错误正文。原生工具及未知事件守卫不变。
+
+
+旧大段正文及长合成请求的未知失败缺少原退出码与回合事件，且存在宿主执行环境差异；原因未定，不能归因为高并发。原未知请求保留且不重发。当前原生文本默认两路，CODEX_TEXT_MAX_CONCURRENT_REQUESTS 仅接受整数1—8；同一系统用户、同一ChatGPT登录账户在本机API/worker之间共享OS文件锁槽，配置不一致且有在途时失败关闭，容量改变只在全槽空闲时生效。等候在provider预算预留和请求超时前，并受run deadline约束；取消或进程死亡由OS释放槽。进程内LLM_MAX_CONCURRENT_REQUESTS总上限仍有效。它不跨主机共享，也不代表Luna的供应商并发能力；真实长篇高并发稳定性仍待验收。
+
+
+最终文本模式使用固定 model_instructions_file 替换默认编码指令、project_doc_max_bytes=0
+和 skip_host_skill_discovery 隔离 AGENTS/host skills；ignore-rules 仅指 execpolicy .rules。
+另外显式关闭 hooks、apps、浏览器、电脑操作、code_mode_host、goals、skill 自动安装与
+原生无限重连，避免工具之外的本机环境行为。codex-text-v3 写入账户模板的非敏感 extra，
+快照同时显式绑定 native_wrapper 的版本与固定指令SHA256，并由 extra_hash 固定连接；包装缺失/漂移不能静默沿旧快照恢复。历史快照和回执只读保留。
+
+完整原生结果的格式/包封失败仍携带原生usage，既有信封、工作流meter和有界Agent保存为已知失败；只有没有完整回执的结果才未知，不补造或另建用量统计。
+
+原生文本失败诊断只保留退出码和回合状态等固定字段，传入LLMError与结构化diagnostics；连接验证保留这些字段但仍返回原有安全错误文案。JSON事件、stderr、路径和认证Token均不进入该诊断。
+
+原生Codex确定性的模型/档位/包装拒绝发生在客户端请求预留前，既不计可用性熔断失败，也不当作供应商可用证明。未知原生执行失败仍保持原熔断/禁止重放规则。
+
+深度导入的原生 Codex 预检只核验已验证连接、当前登录身份和 Luna/max/包装配置，
+并经 Project 请求授权回读当前作品 owner 的连接。它返回
+`scope=project_configuration`、`remote_check=false`，不发送模型探针，也不证明远端可用。
+真实模型连接验证仅由账户设置中的显式验证入口执行；未知验证结果不被导入恢复重发。

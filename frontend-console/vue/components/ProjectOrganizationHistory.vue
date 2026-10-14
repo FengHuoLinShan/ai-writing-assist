@@ -97,7 +97,10 @@ function prepareRetry(item, selectedStage = null) {
 }
 
 function outcome(item) {
-  if (["pending", "running"].includes(item.status)) return "正在整理，可离开后继续查看"
+  if (["pending", "running"].includes(item.status)) {
+    const phase = item.message?.trim().replace(/\s*\bScene\b\s*/g, "场景") || (item.status === "pending" ? "等待开始整理" : "正在整理")
+    return `${phase}，可离开后继续查看`
+  }
   if (item.status === "cancelled") return "已停止。停止只会停止整理，已经产生的内容仍会保留。"
   if (item.workflow_type === "plot_structure_auto_extraction" && item.failed_stages?.includes("plot_structure") && !(item.asset_summary?.adopted || item.asset_summary?.review)) return "本次未得到可用结构；已有资料保留，可重新核对本阶段。"
   if (item.status === "failed" || item.quality_status === "failed") return "本次未完成，请核对原因或从检查点继续。"
@@ -220,7 +223,7 @@ onBeforeUnmount(() => {
       <strong>{{ labels[item.workflow_type] || '资料整理' }} · 第 {{ item.start_chapter }}—{{ item.end_chapter }} 章</strong>
       <template v-if="activeTab === 'history'">
         <p>{{ outcome(item) }}</p>
-        <p>结束时记录：采用 {{ item.asset_summary?.adopted || 0 }} · 待审 {{ item.asset_summary?.review || 0 }} · 未采用 {{ item.asset_summary?.not_adopted || 0 }}</p>
+        <p>{{ ["pending", "running"].includes(item.status) ? "当前记录" : "结束时记录" }}：采用 {{ item.asset_summary?.adopted || 0 }} · 待审 {{ item.asset_summary?.review || 0 }} · 未采用 {{ item.asset_summary?.not_adopted || 0 }}</p>
         <template v-if="canContinue">
           <button v-for="stage in item.failed_stages || []" :key="stage" type="button" class="btn btn-sm" @click="prepareRetry(item, stage)">重新核对{{ { scenes: '场景', world_objects: '世界资料', plot_structure: '剧情结构' }[stage] }}</button>
           <button v-if="item.recovery_required" type="button" class="btn btn-sm" :disabled="loading" @click="resumeRun(item)">从检查点继续这次整理</button>

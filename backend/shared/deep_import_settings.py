@@ -188,6 +188,7 @@ def materialize_effective_deep_import_settings(
     project_settings: dict[str, Any] | None,
     *,
     inherited_llm_max_tokens: int = DEFAULT_LLM_MAX_TOKENS,
+    provider_id: str | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Freeze effective task settings with env/project/default precedence.
 
@@ -197,7 +198,24 @@ def materialize_effective_deep_import_settings(
     """
 
     settings = deep_import_settings_for_response(project_settings)
-    project_view = {DEEP_IMPORT_SETTINGS_KEY: settings}
+    frozen = _settings_are_frozen(project_settings)
+    if provider_id == "codex" and not frozen:
+        raw = (project_settings or {}).get(DEEP_IMPORT_SETTINGS_KEY) or {}
+        explicit_phase2 = raw.get("phase2") if isinstance(raw, dict) else None
+        if not isinstance(explicit_phase2, dict):
+            explicit_phase2 = {}
+        # Luna/max needs its own defaults; explicit author limits remain binding.
+        for key, value in {
+            "parallel_provider_timeout_seconds": 900,
+            "parallel_llm_timeout_seconds": 1800,
+            "alias_relation_llm_timeout_seconds": 900,
+        }.items():
+            if key not in explicit_phase2:
+                settings["phase2"][key] = value
+    project_view = {
+        DEEP_IMPORT_SETTINGS_KEY: settings,
+        DEEP_IMPORT_FROZEN_SETTINGS_KEY: frozen,
+    }
     effective = deep_import_defaults()
     for phase, phase_defaults in DEEP_IMPORT_DEFAULT_SETTINGS.items():
         for key, default in phase_defaults.items():

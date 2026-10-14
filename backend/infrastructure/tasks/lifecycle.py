@@ -228,10 +228,12 @@ class TaskLifecycleService:
         task_type: str,
         novel_id: str,
         result: dict[str, Any] | None = None,
+        result_patch: dict[str, Any] | None = None,
         meta_patch: dict[str, Any] | None = None,
         progress: float | None = None,
+        allow_failed: bool = False,
     ) -> bool:
-        """Update the compatibility projection for one exactly scoped task."""
+        """Update a scoped projection; domains may explicitly repair failed runs."""
         try:
             parsed_id = uuid.UUID(str(task_id))
         except (TypeError, ValueError):
@@ -243,7 +245,11 @@ class TaskLifecycleService:
                     AsyncTask.id == parsed_id,
                     AsyncTask.task_type == task_type,
                     AsyncTask.novel_id == uuid.UUID(str(novel_id)),
-                    AsyncTask.status.in_(("pending", "running")),
+                    AsyncTask.status.in_(
+                        ("pending", "running", "failed")
+                        if allow_failed
+                        else ("pending", "running")
+                    ),
                 )
                 .with_for_update()
             )
@@ -252,6 +258,8 @@ class TaskLifecycleService:
             return False
         if result is not None:
             task.result = deepcopy(result)
+        if result_patch:
+            task.result = {**dict(task.result or {}), **deepcopy(result_patch)}
         if meta_patch:
             task.meta = {**dict(task.meta or {}), **deepcopy(meta_patch)}
         if progress is not None:
@@ -485,8 +493,7 @@ class TaskLifecycleService:
         self, db, *, task_id, task_type, novel_id, key, payload
     ):
         row = await db.scalar(
-            select(AsyncTask)
-            .where(
+            select(AsyncTask).where(
                 AsyncTask.id == uuid.UUID(str(task_id)),
                 AsyncTask.task_type == task_type,
                 AsyncTask.novel_id == uuid.UUID(str(novel_id)),

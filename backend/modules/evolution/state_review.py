@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from core.errors import ConflictError
 from infrastructure.llm.collaboration import content_hash
 from infrastructure.llm.schemas import LLMMessage
 
@@ -180,9 +181,20 @@ def settled_output_failure(journal):
     )
 
 
-def has_unreconciled_scene_calls(payload):
+def has_unreconciled_scene_calls(payload, *, frozen=None):
+    from modules.evolution.discovery_gap import confirmed_discovery_gaps
+
+    excluded = set()
+    if frozen is not None:
+        try:
+            excluded = {
+                gap["scope"]["journal_key"] for gap in confirmed_discovery_gaps(frozen)
+            }
+        except ConflictError:
+            return True
     return any(
-        (payload.get(key) or {}).get("stage") in {"sampling", "failed"}
+        key not in excluded
+        and (payload.get(key) or {}).get("stage") in {"sampling", "failed"}
         and not (
             key.startswith(("scene_world_review_group_", "scene_discovery_"))
             and settled_output_failure(payload.get(key) or {})

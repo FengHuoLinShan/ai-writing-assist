@@ -317,9 +317,7 @@ class Settings:
     )
     guided_flow_project_allowlist: tuple[str, ...] = field(
         default_factory=lambda: tuple(
-            filter(
-                None, _env("ASSISTANT_GUIDED_FLOWS_PROJECT_ALLOWLIST").split(",")
-            )
+            filter(None, _env("ASSISTANT_GUIDED_FLOWS_PROJECT_ALLOWLIST").split(","))
         )
     )
     interaction_forecast_enabled: bool = field(
@@ -390,6 +388,9 @@ class Settings:
     )
     llm_max_concurrent_requests: int = field(
         default_factory=lambda: _env_int("LLM_MAX_CONCURRENT_REQUESTS", 8)
+    )
+    codex_text_max_concurrent_requests: int = field(
+        default_factory=lambda: _env_int("CODEX_TEXT_MAX_CONCURRENT_REQUESTS", 2)
     )
     llm_rate_limit_per_minute: int = field(
         default_factory=lambda: _env_int("LLM_RATE_LIMIT_PER_MINUTE", 0)
@@ -629,3 +630,13 @@ def get_settings() -> Settings:
 # 模块级常量在 import 时立即求值，绕过 lru_cache，导致测试重置 Settings 时仍使用旧值。
 # 调用方应使用 get_settings().database_url / get_settings().embedding_dim 获取。
 # （Bug L2: 移除 import 时求值的模块级常量）
+
+
+def get_codex_text_concurrency(settings: Settings | None = None) -> int:
+    """Bound native text admission; never alter provider/model selection."""
+    value = getattr(settings or get_settings(), "codex_text_max_concurrent_requests", 2)
+    if type(value) is not int or not 1 <= value <= 8:
+        raise ValueError(
+            "CODEX_TEXT_MAX_CONCURRENT_REQUESTS must be an integer from 1 to 8"
+        )
+    return value

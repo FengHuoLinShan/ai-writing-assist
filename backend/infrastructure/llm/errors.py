@@ -6,6 +6,11 @@ LLM 自定义异常定义
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from infrastructure.llm.schemas import LLMUsage
+
 
 class LLMError(Exception):
     """LLM 调用基类异常"""
@@ -17,10 +22,12 @@ class LLMError(Exception):
         provider: str = "",
         model: str = "",
         error_kind: str = "",
+        diagnostic: dict | None = None,
     ) -> None:
         self.provider = provider
         self.model = model
         self.error_kind = error_kind
+        self.diagnostic = dict(diagnostic or {})
         super().__init__(message)
 
 
@@ -96,8 +103,10 @@ class LLMInvalidResponseError(LLMError):
         provider: str = "",
         model: str = "",
         raw_response: str = "",
+        usage: LLMUsage | None = None,
     ) -> None:
         self.raw_response = raw_response
+        self.usage = usage
         super().__init__(message, provider=provider, model=model)
 
 

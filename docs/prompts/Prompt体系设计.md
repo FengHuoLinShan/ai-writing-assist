@@ -256,7 +256,7 @@ preview 伪装成 manual revision，也不能引用其他项目的 task。
 - P13 v4 的既有身份只允许引用服务端生成的 `entity-xxx`，且 prompt 候选只含名称、已确认别名、类型和状态。实体名称、类型、summary/public/hidden 分别用 `field_evidence` 绑定当前 Scene 逐字证据；新对象名称必须原文出现，未命名幻象进入 `uncertain_items`。正文与项目资料都作为 fenced 不可信 JSON 注入，system prompt 保持静态
 - P13 v4 的合法类型清单与 JSON Schema enum 从同一校验集合生成，首轮与返修均明确三个顶层数组、字段证据对象及其字符串数组值；不放宽类型、身份或证据门禁。
 - P13 不按固定类别或数量凑结果，也不对输入做应用层字符/token 裁剪。直接名称/别名命中全部保留；其余人物 Top-6、非人物对象 Top-16 是相关性边界
-- `alias_relation_extraction.md`（P14 v5）独占新别名和对象关系，只读取来源明确且早于当前 Scene 的既有关系引用。共享序列名、职业或力量类别不是人物别名；完成交易、临时见证和会面固定按 `episodic` 处理。确定性 materializer 继续校验项目归属、冻结关系、逐字证据、持续性和快照来源，只写待复核候选或补充证据。
+- `alias_relation_extraction.md`（P14 v6）独占新别名和对象关系，只读取来源明确且早于当前 Scene 的既有关系引用。共享序列名、职业或力量类别不是人物别名；完成交易、临时见证和会面固定按 `episodic` 处理。确定性 materializer 继续校验项目归属、冻结关系、逐字证据、持续性和快照来源，只写待复核候选或补充证据。 同场关系引用逐字取自 `identity_candidates.prompt_ref`；允许已存对象的 `entity-xxx` 及本次已提出候选的 `new_数字`，不能因候选未入库而遗漏关系，也不能自行创造引用。临时候选仍需最终身份映射和世界审查通过才能落库。
 - 临时对象优先忽略或标记为临时
 - 深度导入只有在任务保存授权快照后才可执行允许的候选写入，并保留 `auto_ingested`、workflow、证据和回滚元数据；P13 的身份引用、类型和证据由确定性 materializer 校验，异常结果进入 `uncertain_items` 或待处理
 

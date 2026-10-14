@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any
 
+from modules.imports.env_helpers import bound_llm_concurrency
 from shared.deep_import_settings import (
     deep_import_bool_setting,
     deep_import_float_setting,
@@ -15,7 +16,7 @@ from shared.deep_import_settings import (
 
 MAX_PHASE2_SCENE_RETRIES = 3
 PHASE2A_PROMPT_CONTRACT_VERSION = "scene-entity-extraction-v4"
-PHASE2B_PROMPT_CONTRACT_VERSION = "alias-relation-extraction-v5"
+PHASE2B_PROMPT_CONTRACT_VERSION = "alias-relation-extraction-v6"
 MAX_PHASE2_CONSECUTIVE_TRANSPORT_FAILURES = 3
 PHASE2_SCENE_TIMEOUT_GRACE_SECONDS = 60
 PHASE2_BULK_MAX_SCENES = 12
@@ -117,13 +118,15 @@ def phase2_batch_size_scenes() -> int:
 
 
 def phase2_batch_concurrency() -> int:
-    return deep_import_int_setting(
+    requested = deep_import_int_setting(
         _project_settings(),
         "phase2",
         "batch_concurrency",
         env_name="PHASE2_BATCH_CONCURRENCY",
         default=PHASE2_BATCH_CONCURRENCY,
     )
+
+    return bound_llm_concurrency(_project_settings(), requested)
 
 
 def phase2_boundary_scenes() -> int:
@@ -144,13 +147,15 @@ def phase2_batch_tuning_group() -> str:
 
 
 def phase2_parallel_scene_concurrency() -> int:
-    return deep_import_int_setting(
+    requested = deep_import_int_setting(
         _project_settings(),
         "phase2",
         "parallel_scene_concurrency",
         env_name="PHASE2_PARALLEL_SCENE_CONCURRENCY",
         default=PHASE2_PARALLEL_SCENE_CONCURRENCY,
     )
+
+    return bound_llm_concurrency(_project_settings(), requested)
 
 
 def phase2_parallel_scene_max_tokens() -> int:
@@ -195,13 +200,15 @@ def phase2_alias_relation_total_timeout_seconds() -> int:
 
 
 def phase2_alias_relation_concurrency() -> int:
-    return deep_import_int_setting(
+    requested = deep_import_int_setting(
         _project_settings(),
         "phase2",
         "alias_relation_concurrency",
         env_name="PHASE2_ALIAS_RELATION_CONCURRENCY",
         default=PHASE2_ALIAS_RELATION_CONCURRENCY,
     )
+
+    return bound_llm_concurrency(_project_settings(), requested)
 
 
 def phase2_alias_relation_llm_timeout_seconds() -> int:

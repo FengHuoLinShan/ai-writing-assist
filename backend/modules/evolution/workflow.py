@@ -963,7 +963,7 @@ async def reading_status(db, novel_id, run_key=None):
                 pending
                 and (
                     pending.payload.get("stage") in {"sampling", "failed"}
-                    or has_unreconciled_scene_calls(pending.payload)
+                    or has_unreconciled_scene_calls(pending.payload, frozen=pending)
                 )
             )
             or any(
@@ -1026,6 +1026,7 @@ async def reading_status(db, novel_id, run_key=None):
                 for key, label in LEDGER_CATEGORY_LABELS.items()
             ],
             "discovery_enabled": plan.get("discovery_version", 0) == 1,
+            "unchecked_discovery_gaps": plan.get("author_confirmed_discovery_gaps", []),
             "category_rescans": await category_rescan_states(db, novel_id, run),
             "can_resume": run.status == "active"
             and not reconcile

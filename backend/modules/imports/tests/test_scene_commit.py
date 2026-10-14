@@ -784,3 +784,218 @@ async def test_reextract_allows_same_chapter_non_overlapping_exact_spans(
     assert result.created_count == 1
     assert result.replacement_suggestion_count == 0
     assert result.effective_scene_count == 2
+
+
+async def _committed_source_prefix(db, novel_id):
+    from modules.imports.scene_commit import SceneCommitter
+    from modules.writing.facade import create_published_draft_only
+
+    draft = await create_published_draft_only(
+        db, novel_id, 1, title="合成章节", content="合成正文"
+    )
+    candidate = make_final_scene_candidate(
+        candidate_id="resume-source", source_chapter_indices=[1]
+    )
+    candidate.scene_chunks = [
+        SceneChunk(
+            chapter_index=1,
+            start_offset=0,
+            end_offset=len(draft.content),
+            source_draft_id=draft.id,
+            source_content_hash=draft.content_hash,
+        )
+    ]
+    receipt = await SceneCommitter().commit(
+        db,
+        novel_id,
+        [candidate],
+        workflow_id="resume-prefix",
+        start_chapter=1,
+        end_chapter=1,
+    )
+    return draft, receipt
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("saved_checkpoint", [False, True])
+async def test_scene_resume_reuses_verified_prefix_without_provider_or_commit(
+    db_session, sample_novel_id, saved_checkpoint
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from modules.imports.scene_commit import validate_scene_commit_prefix
+    from modules.imports.workflow_phase_runner import SceneFullPipelineRequest
+    from modules.imports.workflow_scene_phase import ScenePhaseRunner
+    from modules.imports.workflow_schemas import DeepImportProgress
+
+    _, receipt = await _committed_source_prefix(db_session, sample_novel_id)
+    proof = await validate_scene_commit_prefix(
+        db_session,
+        novel_id=sample_novel_id,
+        workflow_id="resume-prefix",
+        start_chapter=1,
+        end_chapter=1,
+        scene_ids=receipt.created_scene_ids,
+    )
+    runtime = SimpleNamespace(
+        _run_phase0_plan=AsyncMock(),
+        _run_phase1a_scene_slicing=AsyncMock(),
+        _run_phase1b_enrichment=AsyncMock(),
+        _run_phase1c_scene_fusion=AsyncMock(),
+        _commit_fused_scenes=AsyncMock(),
+    )
+    progress = DeepImportProgress(
+        workflow_id="resume-prefix",
+        completed_steps=["scene_segmentation"],
+        quality_stats={"scene_commit": receipt.model_dump(mode="json")},
+        phase_artifacts={
+            "scene_commit": {
+                "status": "completed",
+                "chapter_range": {"start_chapter": 1, "end_chapter": 1},
+            }
+        },
+        checkpoints={"scene_commit": proof} if saved_checkpoint else {},
+    )
+    outcome = await ScenePhaseRunner(runtime).run_full_pipeline(
+        SceneFullPipelineRequest(
+            db=db_session,
+            novel_id=sample_novel_id,
+            workflow_id="resume-prefix",
+            start_chapter=1,
+            end_chapter=1,
+            progress=progress,
+        )
+    )
+    assert outcome.total_scenes == 1 and outcome.stopped is False
+    assert progress.checkpoints["scene_commit"] == proof
+    for method in vars(runtime).values():
+        method.assert_not_awaited()
+    assert await count_scenes_by_novel(db_session, sample_novel_id) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "change",
+    [
+        "wrong_project",
+        "wrong_workflow",
+        "missing_scene",
+        "inactive_scene",
+        "new_source_version",
+        "changed_asset",
+        "missing_source",
+        "source_hole",
+        "scope",
+    ],
+)
+async def test_scene_resume_prefix_rejects_unverified_or_drifted_work(
+    db_session, sample_novel_id, change
+):
+    from modules.imports.scene_commit import validate_scene_commit_prefix
+    from modules.writing.facade import create_draft_only
+
+    draft, receipt = await _committed_source_prefix(db_session, sample_novel_id)
+    kwargs = dict(
+        novel_id=sample_novel_id,
+        workflow_id="resume-prefix",
+        start_chapter=1,
+        end_chapter=1,
+        scene_ids=receipt.created_scene_ids,
+    )
+    proof = await validate_scene_commit_prefix(db_session, **kwargs)
+    kwargs["checkpoint"] = proof
+    repo = SceneRepository()
+    scene_id = uuid.UUID(receipt.created_scene_ids[0])
+    if change == "wrong_project":
+        kwargs["novel_id"] = str(uuid.uuid4())
+    elif change == "wrong_workflow":
+        kwargs["workflow_id"] = "another-workflow"
+    elif change == "missing_scene":
+        kwargs["scene_ids"] = [str(uuid.uuid4())]
+        kwargs["checkpoint"] = None
+    elif change == "inactive_scene":
+        await repo.update(db_session, scene_id, SceneUpdate(status="deprecated"))
+    elif change == "new_source_version":
+        await create_draft_only(db_session, sample_novel_id, 1, "新版本", draft.content)
+    elif change == "changed_asset":
+        await repo.update(db_session, scene_id, SceneUpdate(goal="作者的新目标"))
+    elif change == "missing_source":
+        await repo.update(db_session, scene_id, SceneUpdate(scene_chunks=[]))
+    elif change == "source_hole":
+        chunk = {
+            "chapter_index": 1,
+            "start_offset": 1,
+            "end_offset": len(draft.content),
+            "source_draft_id": draft.id,
+            "source_content_hash": draft.content_hash,
+        }
+        await repo.update(db_session, scene_id, SceneUpdate(scene_chunks=[chunk]))
+        kwargs["checkpoint"] = None
+    elif change == "scope":
+        kwargs["end_chapter"] = 2
+    with pytest.raises(ValueError):
+        await validate_scene_commit_prefix(db_session, **kwargs)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("in_scope", [True, False])
+async def test_scene_resume_prefix_rejects_only_extra_assets_in_its_source_range(
+    db_session, sample_novel_id, in_scope
+):
+    from modules.imports.scene_commit import validate_scene_commit_prefix
+
+    draft, receipt = await _committed_source_prefix(db_session, sample_novel_id)
+    await SceneRepository().create(
+        db_session,
+        uuid.UUID(sample_novel_id),
+        SceneCreate(
+            scene_index=2,
+            title="额外场景",
+            status="draft",
+            scene_chunks=[{"chapter_index": 1 if in_scope else 2}],
+            structure_meta={"workflow_id": "another-workflow"},
+        ),
+    )
+    kwargs = dict(
+        novel_id=sample_novel_id,
+        workflow_id="resume-prefix",
+        start_chapter=1,
+        end_chapter=1,
+        scene_ids=receipt.created_scene_ids,
+    )
+    if in_scope:
+        with pytest.raises(ValueError) as failure:
+            await validate_scene_commit_prefix(db_session, **kwargs)
+        assert failure.value.error_kind == "scene_commit_prefix_extra_active_scene"
+        assert "extra_active_scene" not in str(failure.value)
+    else:
+        proof = await validate_scene_commit_prefix(db_session, **kwargs)
+        assert proof["scene_ids"] == sorted(receipt.created_scene_ids)
+
+
+@pytest.mark.asyncio
+async def test_scene_resume_without_commit_receipt_does_not_recut(
+    db_session, sample_novel_id
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from modules.imports.workflow_phase_runner import SceneFullPipelineRequest
+    from modules.imports.workflow_scene_phase import ScenePhaseRunner
+    from modules.imports.workflow_schemas import DeepImportProgress
+
+    runtime = SimpleNamespace(_run_phase0_plan=AsyncMock())
+    request = SceneFullPipelineRequest(
+        db=db_session,
+        novel_id=sample_novel_id,
+        workflow_id="resume-prefix",
+        start_chapter=1,
+        end_chapter=1,
+        progress=DeepImportProgress(completed_steps=["scene_segmentation"]),
+    )
+    with pytest.raises(ValueError) as failure:
+        await ScenePhaseRunner(runtime).run_full_pipeline(request)
+    assert failure.value.error_kind == "scene_commit_prefix_receipt_missing"
+    assert "receipt_missing" not in str(failure.value)
+    runtime._run_phase0_plan.assert_not_awaited()

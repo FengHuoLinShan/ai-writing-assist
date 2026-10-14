@@ -67,6 +67,10 @@ ACCOUNT_LLM_PROVIDER_ORDER: tuple[str, ...] = tuple(ACCOUNT_LLM_PROVIDER_TEMPLAT
 def account_llm_provider_enabled(provider_id: str) -> bool:
     """Keep unverified account templates unreachable until their real gate passes."""
 
+    if provider_id == "codex":
+        from infrastructure.llm.codex_provider import codex_text_enabled
+
+        return codex_text_enabled()
     if provider_id == "deepseek":
         return True
     if provider_id == "kimi":

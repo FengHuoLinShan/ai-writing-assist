@@ -95,3 +95,6 @@ DeepSeek 新连接使用 `/models` 实测的 canonical `deepseek-flash`；已有
 ### 撤权时的 RP 缓存
 
 申请删除或封禁账户取消其项目任务时，同事务通过组合根注册的 Evidence 清理 port 删除所属项目作为 source/consumer 的私有 RP 派生缓存。恢复账户只恢复权限，不恢复旧缓存正文；永久清理仍走原项目删除边界。
+
+
+本机 AUTH_MODE=local 新账户默认 Codex Luna/max（ADR-0033）。连接真实验证后保存 verified_at 与本机版本指纹，encrypted_api_key 为 SQL NULL；检查约束只允许 Codex 无 secret，API 连接仍要求加密 Key。公开/其他 owner 不开放，已有显式连接保留。更换 CLI/Codex home 或ChatGPT登录账户需重新验证；API登录不接受，同账户Token刷新保持绑定。

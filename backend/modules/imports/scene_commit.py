@@ -380,6 +380,118 @@ async def _assert_complete_frozen_source_coverage(
     )
 
 
+class SceneCommitPrefixError(ValueError):
+    """Safe author message with a separate diagnostic reason."""
+
+    def __init__(self, error_kind: str):
+        self.error_kind = error_kind
+        super().__init__("已完成的场景记录或正文来源无法确认，请复核后再继续整理。")
+
+
+async def validate_scene_commit_prefix(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    workflow_id: str,
+    start_chapter: int,
+    end_chapter: int,
+    scene_ids: Sequence[str],
+    checkpoint: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Revalidate committed Scene assets without replaying provider work."""
+    ids = sorted(set(str(value) for value in scene_ids))
+    scope = {
+        "version": 1,
+        "workflow_id": workflow_id,
+        "start_chapter": start_chapter,
+        "end_chapter": end_chapter,
+        "scene_ids": ids,
+    }
+    if not ids or (
+        checkpoint is not None
+        and any(checkpoint.get(key) != value for key, value in scope.items())
+    ):
+        raise SceneCommitPrefixError("scene_commit_prefix_scope_mismatch")
+    scenes = await outline_facade.get_scenes_by_novel(
+        db, novel_id, status_filter=["candidate", "draft", "canonical"]
+    )
+    by_id = {str(scene["id"]): scene for scene in scenes}
+    if any(scene_id not in by_id for scene_id in ids):
+        raise SceneCommitPrefixError("scene_commit_prefix_missing_or_inactive")
+    for scene in scenes:
+        if str(scene["id"]) not in ids and any(
+            isinstance(chunk, dict)
+            and start_chapter <= int(chunk.get("chapter_index") or 0) <= end_chapter
+            for chunk in scene.get("scene_chunks") or []
+        ):
+            raise SceneCommitPrefixError("scene_commit_prefix_extra_active_scene")
+    drafts = await writing_facade.list_latest_drafts_for_chapters(
+        db, novel_id, list(range(start_chapter, end_chapter + 1))
+    )
+    latest = {int(draft.chapter_index): draft for draft in drafts}
+    records: list[tuple[str, int, int, int, str]] = []
+    fingerprints: dict[str, str] = {}
+    for scene_id in ids:
+        scene = by_id[scene_id]
+        if (scene.get("structure_meta") or {}).get("workflow_id") != workflow_id:
+            raise SceneCommitPrefixError("scene_commit_prefix_workflow_mismatch")
+        chunks = scene.get("scene_chunks") or []
+        if not chunks:
+            raise SceneCommitPrefixError("scene_commit_prefix_source_missing")
+        for chunk in chunks:
+            if not isinstance(chunk, dict) or any(
+                chunk.get(key) is None or chunk.get(key) == ""
+                for key in (
+                    "chapter_index",
+                    "start_offset",
+                    "end_offset",
+                    "source_draft_id",
+                    "source_content_hash",
+                )
+            ):
+                raise SceneCommitPrefixError("scene_commit_prefix_source_missing")
+            chapter = int(chunk["chapter_index"])
+            draft = latest.get(chapter)
+            if (
+                draft is None
+                or str(draft.id) != str(chunk["source_draft_id"])
+                or draft.content_hash != chunk["source_content_hash"]
+                or hashlib.sha256(str(draft.content or "").encode()).hexdigest()
+                != chunk["source_content_hash"]
+            ):
+                raise SceneCommitPrefixError("scene_commit_prefix_source_drift")
+            records.append(
+                (
+                    str(draft.id),
+                    int(chunk["start_offset"]),
+                    int(chunk["end_offset"]),
+                    chapter,
+                    draft.content_hash,
+                )
+            )
+        stable_scene = {
+            key: value
+            for key, value in scene.items()
+            if key not in {"created_at", "updated_at"}
+        }
+        fingerprints[scene_id] = hashlib.sha256(
+            json.dumps(stable_scene, sort_keys=True, default=str).encode()
+        ).hexdigest()
+    if checkpoint is not None and checkpoint.get("scene_fingerprints") != fingerprints:
+        raise SceneCommitPrefixError("scene_commit_prefix_asset_drift")
+    try:
+        await _assert_complete_frozen_intervals(
+            db,
+            novel_id=novel_id,
+            records=records,
+            start_chapter=start_chapter,
+            end_chapter=end_chapter,
+        )
+    except ValueError as error:
+        raise SceneCommitPrefixError("scene_commit_prefix_source_coverage") from error
+    return {**scope, "scene_fingerprints": fingerprints}
+
+
 async def _assert_complete_active_source_coverage(
     db: AsyncSession,
     *,

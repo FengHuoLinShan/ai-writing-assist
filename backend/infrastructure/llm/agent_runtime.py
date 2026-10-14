@@ -33,6 +33,7 @@ from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import RequestUsage, UsageLimits
 
 from infrastructure.llm.client import LLMClient
+from infrastructure.llm.errors import LLMInvalidResponseError
 from infrastructure.llm.schemas import (
     AIStepCallKind,
     LLMCallRequest,
@@ -462,7 +463,8 @@ class ProjectGatewayModel(Model):
             for t in [*params.function_tools, *params.output_tools]
         ]
         payload = self.template.model_dump(
-            exclude={"messages", "tools", "tool_choice", "response_format"}
+            exclude={"messages", "tools", "tool_choice", "response_format"},
+            exclude_unset=True,
         )
         request = LLMCallRequest(
             **payload,
@@ -508,6 +510,11 @@ class ProjectGatewayModel(Model):
             # 都不留下部分变更，异常按原类型继续向上传播。
             if not delegated:
                 self.budget.release_pending_request()
+                await self.save_budget()
+            raise
+        except LLMInvalidResponseError as exc:
+            if not delegated and exc.usage is not None:
+                self.budget.add_usage(exc.usage)
                 await self.save_budget()
             raise
         if not delegated:

@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Awaitable, Callable
+from contextlib import nullcontext
 from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -64,6 +65,7 @@ from modules.evolution.state_review import (
     reviewed_events,
 )
 from modules.evolution.store import BudgetExhaustedError, PostgresAttemptStore
+from modules.story import facade as story_facade
 
 
 class SceneSampler(Protocol):
@@ -1190,119 +1192,169 @@ async def recover_scene_step(
 
 
 async def _run_scene_call(
-    db, store, frozen, source, *, journal_key, inputs, call_inputs, call
+    db,
+    store,
+    frozen,
+    source,
+    *,
+    journal_key,
+    inputs,
+    call_inputs,
+    call,
+    session_gate=None,
 ):
-    """Execute one registered Scene call under its frozen source and root budget."""
-    await store.require_project_owner(frozen.run_id)
-    await store.load_run(frozen.run_id, for_update=True)
-    frozen = await store.load_frozen(frozen.run_id, frozen.attempt_id)
-    payload = dict(frozen.payload)
-    journal = payload.get(journal_key) or {}
-    if journal:
-        if journal.get("stage") != "sampled":
-            raise SamplePendingReconciliationError(
-                journal_key, "provider result requires reconciliation"
-            )
-        if journal.get("input_hash") != content_hash(inputs):
-            raise CommitConflictError(
-                "request_changed", "frozen scene call inputs changed"
-            )
-        await db.commit()
-        return frozen
-    # Source/parent/owner are rechecked BEFORE reserving and sending a second call.
-    await _source_verifier(source)(db, frozen)
-    current = await prepare_scene_input(
-        store,
-        run_key=frozen.run_id,
-        scene_index=payload.get("operation_parent_scene_index", payload["scene_index"]),
-        source_manifest_hash=frozen.source_manifest_hash,
-    )
-    if (
-        current.dependency_status != "committed"
-        or current.previous_scene_attempt_id != frozen.previous_receipt
-        or current.previous_committed_prefix != frozen.previous_committed_prefix
-    ):
-        raise CommitConflictError("parent_advanced", "scene call parent changed")
-    from modules.evolution.consumer_reuse import (
-        consumer_kind,
-        find_reusable,
-        observation_tokens,
-        read_set,
-    )
+    """Claim/settle serialized journals; never hold their gate over provider I/O."""
+    async with session_gate or nullcontext():
+        await store.require_project_owner(frozen.run_id)
+        await store.load_run(frozen.run_id, for_update=True)
+        frozen = await store.load_frozen(frozen.run_id, frozen.attempt_id)
+        payload = dict(frozen.payload)
+        journal = payload.get(journal_key) or {}
+        if journal:
+            if journal.get("stage") != "sampled":
+                raise SamplePendingReconciliationError(
+                    journal_key, "provider result requires reconciliation"
+                )
+            if journal.get("input_hash") != content_hash(inputs):
+                raise CommitConflictError(
+                    "request_changed", "frozen scene call inputs changed"
+                )
+            await db.commit()
+            return frozen
+        # Source/parent/owner are rechecked BEFORE reserving and sending a second call.
+        await _source_verifier(source)(db, frozen)
+        current = await prepare_scene_input(
+            store,
+            run_key=frozen.run_id,
+            scene_index=payload.get(
+                "operation_parent_scene_index", payload["scene_index"]
+            ),
+            source_manifest_hash=frozen.source_manifest_hash,
+        )
+        if (
+            current.dependency_status != "committed"
+            or current.previous_scene_attempt_id != frozen.previous_receipt
+            or current.previous_committed_prefix != frozen.previous_committed_prefix
+        ):
+            raise CommitConflictError("parent_advanced", "scene call parent changed")
+        from modules.evolution.consumer_reuse import (
+            consumer_kind,
+            find_reusable,
+            observation_tokens,
+            read_set,
+        )
 
-    run = await store.load_run(frozen.run_id)
-    tokens = observation_tokens(payload)
-    proof = read_set(
-        run,
-        consumer_kind(journal_key),
-        {
-            "method": inputs.get("method") or inputs.get("method_fingerprint"),
-            **call_inputs,
-        },
-        tokens=tokens,
-    )
-    reused = await find_reusable(
-        store, run, payload["scene_index"], payload.get("scene_id"), proof, tokens=tokens
-    )
-    if reused:
-        payload[journal_key] = {
-            "stage": "sampled",
+        run = await store.load_run(frozen.run_id)
+        tokens = observation_tokens(payload)
+        proof = read_set(
+            run,
+            consumer_kind(journal_key),
+            {
+                "method": inputs.get("method") or inputs.get("method_fingerprint"),
+                **call_inputs,
+            },
+            tokens=tokens,
+        )
+        reused = await find_reusable(
+            store,
+            run,
+            payload["scene_index"],
+            payload.get("scene_id"),
+            proof,
+            tokens=tokens,
+        )
+        if reused:
+            payload[journal_key] = {
+                "stage": "sampled",
+                "input_hash": content_hash(inputs),
+                "read_set": proof,
+                **reused,
+            }
+            frozen = frozen.model_copy(update={"payload": payload})
+            await store.replace_frozen_payload(frozen)
+            await db.commit()
+            return frozen
+        if payload.get("category_rescan_operation_id"):
+            operation_id = payload["category_rescan_operation_id"]
+            operations = list(run.reading_plan_json.get("category_rescans", []))
+            operation = next(
+                (item for item in operations if item["operation_id"] == operation_id),
+                None,
+            )
+            if operation is None or operation.get("calls_remaining", 0) <= 0:
+                raise BudgetExhaustedError("补扫确认的调用上限已用完")
+            run.reading_plan_json = {
+                **run.reading_plan_json,
+                "category_rescans": [
+                    {**item, "calls_remaining": item["calls_remaining"] - 1}
+                    if item["operation_id"] == operation_id
+                    else item
+                    for item in operations
+                ],
+            }
+        await store.reserve_budget(frozen.run_id, 1)
+        journal = {
+            "stage": "sampling",
             "input_hash": content_hash(inputs),
             "read_set": proof,
-            **reused,
         }
+        payload[journal_key] = journal
         frozen = frozen.model_copy(update={"payload": payload})
         await store.replace_frozen_payload(frozen)
         await db.commit()
-        return frozen
-    if payload.get("category_rescan_operation_id"):
-        operation_id = payload["category_rescan_operation_id"]
-        operations = list(run.reading_plan_json.get("category_rescans", []))
-        operation = next(
-            (item for item in operations if item["operation_id"] == operation_id), None
-        )
-        if operation is None or operation.get("calls_remaining", 0) <= 0:
-            raise BudgetExhaustedError("补扫确认的调用上限已用完")
-        run.reading_plan_json = {
-            **run.reading_plan_json,
-            "category_rescans": [
-                {**item, "calls_remaining": item["calls_remaining"] - 1}
-                if item["operation_id"] == operation_id
-                else item
-                for item in operations
-            ],
-        }
-    await store.reserve_budget(frozen.run_id, 1)
-    journal = {"stage": "sampling", "input_hash": content_hash(inputs), "read_set": proof}
-    payload[journal_key] = journal
-    frozen = frozen.model_copy(update={"payload": payload})
-    await store.replace_frozen_payload(frozen)
-    await db.commit()
     try:
         result = await call(**call_inputs)
     except Exception as error:
-        journal = {
-            **journal,
-            "stage": "failed",
-            "paid_call_receipt": error.receipt
-            if isinstance(error, SceneCallFailedError)
-            else None,
-        }
-        payload[journal_key] = journal
-        await store.replace_frozen_payload(frozen.model_copy(update={"payload": payload}))
-        await db.commit()
+        await _settle_scene_call(
+            db,
+            store,
+            frozen,
+            journal_key,
+            inputs,
+            {
+                "stage": "failed",
+                "paid_call_receipt": error.receipt
+                if isinstance(error, SceneCallFailedError)
+                else None,
+            },
+            session_gate=session_gate,
+        )
         raise
-    journal = {
-        **journal,
-        "stage": "sampled",
-        "result": result["result"],
-        "paid_call_receipt": result.get("paid_call_receipt"),
-    }
-    payload[journal_key] = journal
-    frozen = frozen.model_copy(update={"payload": payload})
-    await store.replace_frozen_payload(frozen)
-    await db.commit()
-    return frozen
+    return await _settle_scene_call(
+        db,
+        store,
+        frozen,
+        journal_key,
+        inputs,
+        {
+            "stage": "sampled",
+            "result": result["result"],
+            "paid_call_receipt": result.get("paid_call_receipt"),
+        },
+        session_gate=session_gate,
+    )
+
+
+async def _settle_scene_call(
+    db, store, frozen, journal_key, inputs, outcome, *, session_gate=None
+):
+    # Another independent review may already have settled. Reload under the run
+    # lock, preserving every peer's real result and any newer frozen fields.
+    async with session_gate or nullcontext():
+        await store.require_project_owner(frozen.run_id)
+        await store.load_run(frozen.run_id, for_update=True)
+        current = await store.load_frozen(frozen.run_id, frozen.attempt_id)
+        journal = (current.payload.get(journal_key) or {}) if current else {}
+        if journal.get("stage") != "sampling" or journal.get(
+            "input_hash"
+        ) != content_hash(inputs):
+            raise CommitConflictError("request_changed", "scene call claim changed")
+        current = current.model_copy(
+            update={"payload": {**current.payload, journal_key: {**journal, **outcome}}}
+        )
+        await store.replace_frozen_payload(current)
+        await db.commit()
+        return current
 
 
 async def _finish_scene_results(db, store, frozen, source, reviewer, caller):
@@ -1462,10 +1514,9 @@ def _shadow_applier(scene_index: int, source_revision: int):
 
 async def _verify_scene_binding(db, novel_id, scene_id, scene_index, source):
     from core.errors import ValidationError
-    from modules.story.outline_state.facade import validate_scene_source_ranges
 
     try:
-        await validate_scene_source_ranges(
+        await story_facade.validate_scene_source_ranges(
             db,
             novel_id,
             scene_id,
@@ -1504,9 +1555,9 @@ def _source_verifier(expected: SceneSourceBinding):
             if scene_card := frozen.payload.get("scene_card"):
                 from dataclasses import asdict
 
-                from modules.story.facade import get_scene_contract
-
-                current = await get_scene_contract(db, frozen.novel_id, scene_id)
+                current = await story_facade.get_scene_contract(
+                    db, frozen.novel_id, scene_id
+                )
                 if current is None or content_hash(asdict(current)) != content_hash(
                     scene_card
                 ):
