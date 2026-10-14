@@ -1,7 +1,5 @@
 # 开放任务
 
-- [T-20261014-codex-luna-convergence](tasks/2026/T-20261014-codex-luna-convergence/TASK.md) — G2 Codex Luna运行时收敛
-
 - [T-20261009-world-evolution-phase4-impl](tasks/2026/T-20261009-world-evolution-phase4-impl/TASK.md) — 世界演化第四阶段实施：长篇跑通、台账扩类与精细依赖
 
 - [T-20261010-evolution-209](tasks/2026/T-20261010-evolution-209/TASK.md) — Issue #209 世界演化账本缓存与发现容量专项优化
