@@ -264,6 +264,9 @@ WORLD_MAP_CAPABILITIES: ServiceKey[Callable[..., Any]] = ServiceKey(
 WORLD_REVIEW_TEAM_STRESS: ServiceKey[Callable[..., Any]] = ServiceKey(
     "world.review_team_stress"
 )
+WORLD_READ_MAP_CHAPTER_CONSUMERS: ServiceKey[Callable[..., Any]] = ServiceKey(
+    "world.read_map_chapter_consumers"
+)
 WORLD_LIST_ADOPTED_MAP_CONTINUITY_FACTS: ServiceKey[Callable[..., Any]] = ServiceKey(
     "world.list_adopted_map_continuity_facts"
 )
@@ -406,6 +409,7 @@ ALL_SERVICE_KEYS: tuple[ServiceKey[Any], ...] = (
     WORLD_MAP_CAPABILITIES,
     WORLD_REVIEW_TEAM_STRESS,
     WORLD_LIST_ADOPTED_MAP_CONTINUITY_FACTS,
+    WORLD_READ_MAP_CHAPTER_CONSUMERS,
     WORLD_WORLDBUILDING_REQUIRE_LEGACY_CANON_WRITE_ALLOWED,
     WORLD_WORLDBUILDING_MARK_SYNOPSIS_SOURCE_CHANGED,
     WORLD_WORLDBUILDING_FOCUSED_ADOPTION_AUTHORIZE,

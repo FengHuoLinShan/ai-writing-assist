@@ -39,6 +39,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.container import get
+from core.service_keys import WORLD_READ_MAP_CHAPTER_CONSUMERS
+from modules.evolution.map_consumption import MapChapterConsumptionPort
 from modules.evolution.store import PostgresAttemptStore
 from modules.story.continuity.contracts import SCENE_MEMORY_DIMENSIONS
 from modules.story.contracts import scene_chapter_indices as _scene_chapter_indices
@@ -48,8 +51,8 @@ UNSUPPORTED_CONSUMERS: tuple[dict[str, str], ...] = (
     {
         "consumer": "map_atlas",
         "reason": (
-            "Evolution 未消费地图册 revision；Map Atlas 有独立来源清单，"
-            "但历史页尚未接入本失效回执"
+            "地图册对象、世界书页来源与待审候选尚未接入本失效回执；"
+            "仅核对当前已保存版本的正史正文来源"
         ),
     },
     {
@@ -179,6 +182,7 @@ async def apply_source_invalidation(
     chapter_index: int,
     change: SourceChange,
     content_mode: str = "working",
+    published_changed: bool = False,
 ) -> InvalidationReceipt:
     """传播一次正文变更：证据索引重建触发 + Scene 派生投影软失效。
 
@@ -337,6 +341,34 @@ async def apply_source_invalidation(
         receipt.coverage_note = (
             "登记覆盖完整：变更区间未命中已登记 Story 场景字段，投影保持当前"
         )
+    if published_changed or content_mode == "canonical":
+        canonical = await request_chapter_index(
+            db, novel_id, chapter_index, content_mode="canonical"
+        )
+        receipt.invalidated_consumers["canonical_chapter_index"] = canonical
+        port: MapChapterConsumptionPort = get(WORLD_READ_MAP_CHAPTER_CONSUMERS)
+        try:
+            async with db.begin_nested():
+                maps = await port(
+                    db,
+                    novel_id,
+                    chapter_index=chapter_index,
+                    current_draft_id=canonical.get("requested_source_id"),
+                    current_source_hash=canonical.get("requested_hash"),
+                )
+        except SQLAlchemyError:
+            maps = {
+                "maps": [],
+                "checked": False,
+                "note": "地图册未核对：来源查询暂时失败",
+            }
+        receipt.invalidated_consumers["map_atlas"] = maps
+        if (
+            not maps.get("checked")
+            or maps.get("truncated")
+            or maps.get("unverified_sources")
+        ):
+            receipt.coverage_note += "；地图册未核对完整，请到地图核对来源"
     attach_impact_view(receipt, assessment)
     return receipt
 
@@ -356,16 +388,12 @@ async def record_writing_source_change(
     # Identical text in a new version still changes the authoritative source identity.
     change.changed = True
     receipt = await apply_source_invalidation(
-        db, novel_id, chapter_index=chapter_index, change=change
+        db,
+        novel_id,
+        chapter_index=chapter_index,
+        change=change,
+        published_changed=published_changed,
     )
-    if published_changed:
-        from modules.evidence.facade import request_chapter_index
-
-        receipt.invalidated_consumers[
-            "canonical_chapter_index"
-        ] = await request_chapter_index(
-            db, novel_id, chapter_index, content_mode="canonical"
-        )
     return receipt
 
 

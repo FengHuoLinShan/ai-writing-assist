@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import NotFoundError, ValidationError
+from modules.project.facade import require_active_project
 from modules.writing.contracts import (
     ManuscriptReadContract,
     ManuscriptScanCursor,
@@ -144,6 +145,29 @@ class ManuscriptSourceService:
             ]
             total = len(hits)
         return hits[skip : skip + limit], total, missing
+
+    async def historical_source_identities(
+        self, db: AsyncSession, novel_id: str, draft_ids: list[str]
+    ) -> list[dict]:
+        """Read only historical identity columns, never prose or full provenance."""
+        await require_active_project(db, novel_id, allow_demo_readonly=False)
+        nid = _uuid(novel_id, "novel_id")
+        ids = [_uuid(value, "draft_id") for value in draft_ids]
+        if not ids:
+            return []
+        rows = await db.execute(
+            select(
+                WritingDraft.id,
+                WritingDraft.chapter_index,
+                WritingDraft.version_number,
+                WritingDraft.content_hash,
+                WritingDraft.status,
+                WritingDraft.provenance_json["deprecated_from_status"]
+                .as_string()
+                .label("deprecated_from_status"),
+            ).where(WritingDraft.novel_id == nid, WritingDraft.id.in_(ids))
+        )
+        return [{**row, "id": str(row["id"])} for row in rows.mappings()]
 
     async def source_manifest(
         self,

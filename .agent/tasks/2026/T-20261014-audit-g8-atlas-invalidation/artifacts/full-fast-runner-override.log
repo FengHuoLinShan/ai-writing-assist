@@ -1,0 +1,813 @@
+cd /Users/tywww/Desktop/项目/ai-writing-assist/.worktrees/audit-g8-atlas-invalidation/backend && /Users/tywww/.codex/worktrees/codex-luna-runtime/ai-writing-assist/backend/.venv/bin/python -m pytest --timeout=120 -n 2 --dist=loadscope --cov=app --cov=core --cov=shared --cov=infrastructure --cov=modules --cov-report=term-missing:skip-covered -W error::RuntimeWarning
+============================= test session starts ==============================
+platform darwin -- Python 3.14.7, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/tywww/Desktop/项目/ai-writing-assist/.worktrees/audit-g8-atlas-invalidation/backend
+configfile: pyproject.toml
+testpaths: modules, infrastructure, evals/tests, tests/unit, tests/integration, tests/account_project_preferences, tests/modules, tests/prompt_contracts, tests/test_api.py, tests/test_outline_api.py, tests/test_world_testonly_route.py
+plugins: cov-7.1.0, xdist-3.8.0, timeout-2.4.0, asyncio-1.4.0, anyio-4.14.2
+timeout: 120.0s
+timeout method: signal
+timeout func_only: False
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+created: 2/2 workers
+2 workers [7755 items]
+
+........................................................................ [  0%]
+........................................................................ [  1%]
+........................................................................ [  2%]
+........................................................................ [  3%]
+........................................................................ [  4%]
+........................................................................ [  5%]
+........................................................................ [  6%]
+........................................................................ [  7%]
+........................................................................ [  8%]
+........................................................................ [  9%]
+........................................................................ [ 10%]
+........................................................................ [ 11%]
+........................................................................ [ 12%]
+........................................................................ [ 12%]
+........................................................................ [ 13%]
+........................................................................ [ 14%]
+........................................................................ [ 15%]
+........................................................................ [ 16%]
+........................................................................ [ 17%]
+........................................................................ [ 18%]
+........................................................................ [ 19%]
+........................................................................ [ 20%]
+........................................................................ [ 21%]
+........................................................................ [ 22%]
+........................................................................ [ 23%]
+........................................................................ [ 24%]
+........................................................................ [ 25%]
+........................................................................ [ 25%]
+........................................................................ [ 26%]
+........................................................................ [ 27%]
+........................................................................ [ 28%]
+........................................................................ [ 29%]
+........................................................................ [ 30%]
+........................................................................ [ 31%]
+........................................................................ [ 32%]
+........................................................................ [ 33%]
+........................................................................ [ 34%]
+........................................................................ [ 35%]
+........................................................................ [ 36%]
+........................................................................ [ 37%]
+........................................................................ [ 38%]
+........................................................................ [ 38%]
+........................................................................ [ 39%]
+........................................................................ [ 40%]
+........................................................................ [ 41%]
+........................................................................ [ 42%]
+........................................................................ [ 43%]
+........................................................................ [ 44%]
+........................................................................ [ 45%]
+........................................................................ [ 46%]
+..........................F............................................. [ 47%]
+........................................................................ [ 48%]
+........................................................................ [ 49%]
+........................................................................ [ 50%]
+........................................................................ [ 51%]
+........................................................................ [ 51%]
+........................................................................ [ 52%]
+........................................................................ [ 53%]
+........................................................................ [ 54%]
+........................................................................ [ 55%]
+........................................................................ [ 56%]
+........................................................................ [ 57%]
+........................................................................ [ 58%]
+........................................................................ [ 59%]
+........................................................................ [ 60%]
+........................................................................ [ 61%]
+........................................................................ [ 62%]
+........................................................................ [ 63%]
+........................................................................ [ 64%]
+........................................................................ [ 64%]
+........................................................................ [ 65%]
+........................................................................ [ 66%]
+........................................................................ [ 67%]
+........................................................................ [ 68%]
+........................................................................ [ 69%]
+........................................................................ [ 70%]
+........................................................................ [ 71%]
+........................................................................ [ 72%]
+........................................................................ [ 73%]
+........................................................................ [ 74%]
+........................................................................ [ 75%]
+........................................................................ [ 76%]
+........................................................................ [ 77%]
+........................................................................ [ 77%]
+........................................................................ [ 78%]
+........................................................................ [ 79%]
+........................................................................ [ 80%]
+........................................................................ [ 81%]
+........................................................................ [ 82%]
+........................................................................ [ 83%]
+........................................................................ [ 84%]
+........................................................................ [ 85%]
+........................................................................ [ 86%]
+........................................................................ [ 87%]
+........................................................................ [ 88%]
+........................................................................ [ 89%]
+........................................................................ [ 90%]
+........................................................................ [ 90%]
+........................................................................ [ 91%]
+........................................................................ [ 92%]
+........................................................................ [ 93%]
+........................................................................ [ 94%]
+........................................................................ [ 95%]
+........................................................................ [ 96%]
+........................................................................ [ 97%]
+........................................................................ [ 98%]
+........................................................................ [ 99%]
+.................................................../Users/tywww/.codex/worktrees/codex-luna-runtime/ai-writing-assist/backend/.venv/lib/python3.14/site-packages/_pytest/unraisableexception.py:33: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x1298005e0>
+  gc.collect()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+                      [100%]
+=================================== FAILURES ===================================
+_______ test_automated_backend_quality_targets_use_the_locked_ci_runner ________
+[gw0] darwin -- Python 3.14.7 /Users/tywww/.codex/worktrees/codex-luna-runtime/ai-writing-assist/backend/.venv/bin/python
+
+    def test_automated_backend_quality_targets_use_the_locked_ci_runner() -> None:
+        runner = "uv run --locked --extra ci --"
+        target_tools = {
+            "test": "pytest",
+            "test-fast-coverage": "pytest",
+            "test-e2e": "pytest",
+            "test-postgresql-critical": "pytest",
+            "test-deploy": "pytest",
+            "lint": "ruff",
+            "lint-fix": "ruff",
+            "format": "ruff",
+            "format-fix": "ruff",
+        }
+    
+        for target, tool in target_tools.items():
+            command = _make_dry_run(target)
+>           assert command.count(runner) == 1, target
+E           AssertionError: test
+E           assert 0 == 1
+E            +  where 0 = <built-in method count of str object at 0x9c141ea80>('uv run --locked --extra ci --')
+E            +    where <built-in method count of str object at 0x9c141ea80> = 'cd /Users/tywww/Desktop/项目/ai-writing-assist/.worktrees/audit-g8-atlas-invalidation/backend && /Users/tywww/.codex/worktrees/codex-luna-runtime/ai-writing-assist/backend/.venv/bin/python -m pytest  --timeout=120 -W error::RuntimeWarning'.count
+
+tests/unit/test_test_harness.py:328: AssertionError
+=============================== warnings summary ===============================
+modules/imports/tests/test_import_api.py::test_deep_import_recovery_openapi_uses_shared_typed_body
+tests/unit/test_active_project_route_closure.py::test_long_ai_compatibility_routes_are_deprecated_in_openapi
+  /Users/tywww/.codex/worktrees/codex-luna-runtime/ai-writing-assist/backend/.venv/lib/python3.14/site-packages/pydantic/json_schema.py:2463: PydanticJsonSchemaWarning: Default value typing.Annotated[str, Query(PydanticUndefined)] is not JSON serializable; excluding default from JSON schema [non-serializable-default]
+    warnings.warn(message, PydanticJsonSchemaWarning)
+
+tests/unit/test_task_novel_id_migration.py::test_migration_rejects_preexisting_column_metadata_conflict
+  /Users/tywww/.codex/worktrees/codex-luna-runtime/ai-writing-assist/backend/.venv/lib/python3.14/site-packages/sqlalchemy/sql/selectable.py:4753: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x12c4a4220>
+    def __init__(
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/unit/test_task_novel_id_migration.py::test_migration_rejects_preexisting_column_metadata_conflict
+  /Users/tywww/.codex/worktrees/codex-luna-runtime/ai-writing-assist/backend/.venv/lib/python3.14/site-packages/sqlalchemy/sql/selectable.py:4753: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x12c5a0a90>
+    def __init__(
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/unit/test_world_services_character_and_relation.py::TestCharacterServiceUpdateCharacterState::test_update_character_state_partial_fields
+  /Users/tywww/.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/unittest/mock.py:2259: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x12c4a73d0>
+    def __init__(self, name, parent):
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/unit/test_world_services_character_and_relation.py::TestCharacterServiceUpdateCharacterState::test_update_character_state_partial_fields
+  /Users/tywww/.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/unittest/mock.py:2259: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x12c5a0220>
+    def __init__(self, name, parent):
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/unit/test_world_services_character_and_relation.py::TestCharacterServiceUpdateCharacterState::test_update_character_state_partial_fields
+  /Users/tywww/.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/unittest/mock.py:2259: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x12c5a27a0>
+    def __init__(self, name, parent):
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/unit/test_squashed_schema_migrations.py::test_post_squash_migrations_tolerate_precreated_objects
+  /Users/tywww/.codex/worktrees/codex-luna-runtime/ai-writing-assist/backend/.venv/lib/python3.14/site-packages/sqlalchemy/pool/base.py:1494: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x12c662020>
+    return self.dbapi_connection.cursor(*args, **kwargs)
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/unit/test_relation_alias_kinds_migration.py::test_relation_kind_migration_queues_unknown_canonical_types
+  /Users/tywww/.codex/worktrees/codex-luna-runtime/ai-writing-assist/backend/.venv/lib/python3.14/site-packages/sqlalchemy/sql/elements.py:3933: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x16021c400>
+    def __init__(
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/unit/test_scene_spans_migration.py::test_backfill_scene_spans_from_existing_scene_chunks
+  /Users/tywww/.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/weakref.py:325: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x16021e3e0>
+    def __getitem__(self, key):
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/prompt_contracts/test_capability_bindings.py::test_real_code_tree_capability_bindings_are_complete
+  /Users/tywww/.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/pathlib/__init__.py:205: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x16021d7b0>
+    self._str_normcase_cached = str(self)
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/unit/test_story_outline_migration.py::test_story_outline_migration_is_idempotent_and_has_scoped_constraints
+  /Users/tywww/.codex/worktrees/codex-luna-runtime/ai-writing-assist/backend/.venv/lib/python3.14/site-packages/sqlalchemy/event/base.py:138: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x1601598a0>
+    def __init__(
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/account_project_preferences/test_image_connection.py::test_image_connection_is_separate_from_active_text_provider
+  /Users/tywww/.codex/worktrees/codex-luna-runtime/ai-writing-assist/backend/.venv/lib/python3.14/site-packages/sqlalchemy/orm/loading.py:957: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x1601588b0>
+    populators = {key: list(value) for key, value in cached_populators.items()}
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================================ tests coverage ================================
+_______________ coverage: platform darwin, python 3.14.7-final-0 _______________
+
+Name                                                                         Stmts   Miss  Cover   Missing
+----------------------------------------------------------------------------------------------------------
+app/bootstrap.py                                                               129      1  99.2%   618
+app/debug_api.py                                                                80      4  95.0%   52, 67, 71, 75
+app/http_rate_limit.py                                                          82      1  98.8%   47
+app/main.py                                                                    364     38  89.6%   103, 218-224, 269-278, 302-310, 428-438, 462-463, 520, 540, 820-829
+core/config.py                                                                 258      9  96.5%   80, 97-98, 100, 187, 190, 192, 213, 217
+core/container.py                                                               67      1  98.5%   109
+core/crud.py                                                                    75      2  97.3%   85, 133
+core/csrf.py                                                                     5      2  60.0%   10-11
+core/database.py                                                               136      9  93.4%   99-104, 149-151, 178-179
+core/logging_context.py                                                         58      1  98.3%   47
+infrastructure/embedding/client.py                                             230     22  90.4%   86, 105-112, 117, 206, 219, 223, 231-232, 263-267, 283, 298, 308-309, 397-411
+infrastructure/embedding/worker.py                                             330    118  64.2%   39, 43, 56-95, 137, 157-262, 345, 367, 408-410, 418-419, 425-426, 446-451, 459-460, 480-481, 487-488, 496-497, 503-504, 537-539, 545, 552
+infrastructure/llm/agent_runtime.py                                            347     22  93.7%   149, 166, 173, 178, 226, 253, 255, 285, 292, 387, 391, 425, 455, 479, 499-502, 612-615, 652, 715
+infrastructure/llm/agent_step_harness.py                                       433     31  92.8%   76-77, 163, 167, 232, 306, 426-427, 488, 501, 534, 551, 584, 623, 651, 741, 842, 969, 972, 981, 1002-1005, 1013, 1016-1017, 1045, 1095, 1097, 1099
+infrastructure/llm/balance.py                                                   55      2  96.4%   72, 101
+infrastructure/llm/capabilities.py                                              99      8  91.9%   63, 68, 81, 87, 89, 187, 193-194
+infrastructure/llm/cli_agent.py                                                227     38  83.3%   59, 130, 142, 196-197, 200-205, 217, 220, 224, 248, 255-260, 271, 284, 287-288, 291-296, 306, 308, 310, 335, 345-346, 348, 368, 371, 373, 376
+infrastructure/llm/client.py                                                   676     33  95.1%   97, 103, 109, 147, 149, 172, 176, 187, 195, 212, 254, 265, 305, 367-368, 426, 429, 432, 454, 551-552, 850, 926-928, 1048, 1150, 1521-1531, 1599-1601
+infrastructure/llm/collaboration.py                                            107      9  91.6%   28-30, 80, 94, 110-111, 118, 157
+infrastructure/llm/collaboration_v2.py                                          46      6  87.0%   10, 13, 18, 22, 26, 66
+infrastructure/llm/egress.py                                                    75     12  84.0%   66, 69-70, 81, 98, 101-102, 108, 118-119, 128-129
+infrastructure/llm/health.py                                                   223     64  71.3%   67, 87-88, 122-125, 144-146, 149-154, 157-168, 171-172, 175-176, 179-192, 195, 202, 260-277, 283, 377, 383-384, 387-388, 394, 401, 418, 425-426, 433-434, 440-446, 454, 456, 458, 460
+infrastructure/llm/image_client.py                                             166     62  62.7%   64-67, 71-78, 82-132, 151, 186-194, 228, 263-264, 268-275, 278-286, 329-334, 355-356, 360-361, 370-371, 378, 385-386, 392
+infrastructure/llm/limits.py                                                   244     10  95.9%   126, 175-176, 212, 259, 326, 398-401
+infrastructure/llm/native_search.py                                            181     20  89.0%   41, 75, 88, 122, 125, 135-137, 146, 205, 221, 247-248, 273, 374, 379, 389, 392, 395, 408
+infrastructure/llm/profiles.py                                                 210     15  92.9%   375, 405, 413, 471, 504, 507-508, 555, 587, 589, 592-593, 625-626, 631
+infrastructure/llm/providers.py                                                241     31  87.1%   131, 235-236, 286, 345-346, 358, 391-402, 429, 475, 481, 487, 501-502, 548, 550, 556, 558, 560, 562, 564, 580, 606, 623, 625, 627, 629
+infrastructure/llm/redaction.py                                                 35      5  85.7%   28, 31-32, 35-36
+infrastructure/llm/retry.py                                                    108      8  92.6%   164-166, 183, 218-224, 278-280
+infrastructure/llm/schemas.py                                                  368     17  95.4%   61, 63, 114, 124, 168, 218, 259, 263-264, 537, 539, 541, 551, 555, 557, 559, 572
+infrastructure/llm/secret_store.py                                              55     14  74.5%   22, 46, 57-63, 73-74, 85, 88-89
+infrastructure/llm/web_search.py                                               184     41  77.7%   51, 61-62, 80-81, 88-102, 141-165, 205-206, 209, 235, 240, 242, 246, 268, 282, 288, 314, 321, 324, 336, 349
+infrastructure/llm/workflow_budget.py                                          406     16  96.1%   329, 337, 510, 527, 529, 564, 582, 636, 657, 666, 709, 791-795
+infrastructure/schema_comparison.py                                             37     37   0.0%   3-103
+infrastructure/tasks/__init__.py                                                10      2  80.0%   16-18
+infrastructure/tasks/api.py                                                    169      5  97.0%   128, 130, 264, 281, 289
+infrastructure/tasks/enqueuer.py                                               117     16  86.3%   39, 80, 168-178, 286, 317-330
+infrastructure/tasks/facade.py                                                  82      3  96.3%   270, 282, 451
+infrastructure/tasks/identity.py                                                33      1  97.0%   38
+infrastructure/tasks/inline.py                                                 126     23  81.7%   46-47, 50, 58-67, 85, 88, 118, 150, 158-159, 184-200, 206, 247, 266-271
+infrastructure/tasks/lifecycle.py                                              666     72  89.2%   237-238, 274-275, 288, 294, 323, 362-363, 376, 395-396, 405, 430, 449, 452-453, 478, 481, 514-515, 547-548, 575, 581, 585, 612-613, 617, 651, 657-659, 664, 670, 795, 807-818, 950-952, 1031-1032, 1072, 1138, 1155, 1182, 1186, 1206, 1272-1273, 1294-1295, 1297-1300, 1315, 1382, 1400-1402, 1406, 1410, 1412, 1527-1532, 1548-1553, 1685
+infrastructure/tasks/liveness.py                                                66      6  90.9%   30, 48, 91-92, 94, 107
+infrastructure/tasks/models.py                                                  71      2  97.2%   161, 199
+infrastructure/tasks/registry.py                                               127     11  91.3%   103, 105, 163, 169, 177, 184, 192, 199, 207, 214, 221
+infrastructure/tasks/worker.py                                                 587     45  92.3%   146, 148, 206, 213-216, 218, 220, 341, 351, 438-439, 449, 459, 464, 670-674, 699-702, 731-739, 808, 815-818, 835, 842, 1164-1165, 1174, 1180-1181, 1236-1237, 1263
+modules/account/api.py                                                         126     53  57.9%   47, 83-84, 134-149, 158-160, 175, 187-190, 201, 220, 233-238, 247-250, 264-281, 286-292, 301-302, 311-320
+modules/account/email_sender.py                                                 32      3  90.6%   62-64
+modules/account/facade.py                                                       51      2  96.1%   34, 95
+modules/account/legal.py                                                        21     10  52.4%   16-26, 31-32, 42-43
+modules/account/middleware.py                                                  185     38  79.5%   87-91, 127, 155, 178, 212, 266-267, 270-271, 291-292, 294-295, 297-298, 304-311, 313-332, 343, 348-349, 351, 354-355, 379-380
+modules/account/oidc.py                                                        135     56  58.5%   48, 52-53, 64, 68-69, 71, 83-91, 136, 139-141, 145, 172, 203, 213-270
+modules/account/public_demo.py                                                  35      1  97.1%   28
+modules/account/services.py                                                    372    100  73.1%   67-68, 286-373, 393-396, 412, 422, 425-437, 462-465, 486-487, 505, 530-552, 556, 565, 614-627, 649, 653, 717-719, 741, 761, 764, 781, 796-841, 852, 896
+modules/account/settings_api.py                                                 70     15  78.6%   48, 59-62, 72, 116-119, 129, 161-164
+modules/account/settings_constants.py                                           35      1  97.1%   79
+modules/account/settings_repositories.py                                        81      8  90.1%   47, 147, 171-176
+modules/account/settings_schemas.py                                            117      5  95.7%   80, 125-128
+modules/account/settings_service.py                                            245     54  78.0%   73-92, 147-148, 191-205, 320-331, 375-376, 378, 437, 450-473, 539, 553
+modules/assistant/api.py                                                       207     45  78.3%   52-54, 147-150, 174-175, 265-269, 302-311, 339, 352-353, 374-400, 430-433, 438-441, 446-449, 454-457
+modules/assistant/comment_proposals.py                                          24      1  95.8%   47
+modules/assistant/creative_queue.py                                             85      9  89.4%   41, 43, 51, 70, 73, 99-108, 154
+modules/assistant/editorial.py                                                 676    155  77.1%   163, 166, 202-205, 224-232, 253, 284, 301, 306, 309-310, 321-322, 337, 603, 610, 615, 617, 631, 640, 682, 692, 695, 750, 758-771, 820, 823, 847, 865-867, 875-879, 886, 888, 890-898, 911-923, 931-933, 936, 948-950, 976, 981-982, 995-996, 1014-1031, 1041, 1049-1051, 1101, 1138, 1208, 1249-1337, 1342, 1346, 1351-1353, 1359, 1371-1373, 1403, 1446-1471, 1473, 1505-1513, 1529, 1545-1547, 1555-1557, 1561-1562, 1578-1580
+modules/assistant/editorial_bridge.py                                          114      6  94.7%   55, 100, 103, 109-110, 168
+modules/assistant/editorial_contracts.py                                        94      6  93.6%   33, 39, 41, 43, 45, 104
+modules/assistant/editorial_queue.py                                           152     24  84.2%   66, 98, 114, 117, 120, 160, 199, 202, 204-211, 214, 220, 224, 255-260, 295, 319-320, 349
+modules/assistant/evidence_tools.py                                            394    161  59.1%   58, 64, 136, 141-161, 165, 173, 196-204, 250-287, 304-315, 321-338, 344-384, 393, 405-406, 454-477, 487-504, 510-527, 546, 569-591, 606-607, 635, 651, 669, 683-684, 713, 723-724, 742-764, 775-794
+modules/assistant/facade.py                                                     75     11  85.3%   66-68, 148-150, 154-156, 160-162, 172, 177-179
+modules/assistant/forecast/analysis.py                                          42      5  88.1%   75, 80, 84, 86, 102
+modules/assistant/forecast/api.py                                              103     45  56.3%   60-67, 95-96, 101-102, 122, 128, 142-165, 179-209, 218-219, 234, 239-243, 248-251
+modules/assistant/forecast/context.py                                          190     33  82.6%   56, 69, 86, 90, 163, 170, 174-188, 195, 237-273, 288, 290, 300, 302, 319, 338, 386-387, 431-434, 518
+modules/assistant/forecast/contracts.py                                        379     27  92.9%   74, 146, 148, 150, 162, 208, 221, 259, 261, 304, 340, 343, 347, 351, 374, 376, 422, 424, 448, 465, 507, 509, 533-534, 536, 602, 604
+modules/assistant/forecast/deterministic.py                                     23      1  95.7%   34
+modules/assistant/forecast/domain.py                                            28     12  57.1%   24, 43, 61-79, 100-110, 130-131
+modules/assistant/forecast/maintenance.py                                       32     18  43.8%   33-44, 46, 60-87
+modules/assistant/forecast/policy.py                                            35     22  37.1%   26-30, 39-85
+modules/assistant/forecast/preparation.py                                      134     28  79.1%   50, 109, 152, 164, 170, 172, 179, 220, 230, 240, 265-270, 272-277, 286-287, 296-297, 304, 364-375
+modules/assistant/forecast/queue.py                                             73     45  38.4%   26, 32-87, 93, 109, 137-179
+modules/assistant/forecast/ranking.py                                           38     12  68.4%   34, 46, 52, 54, 57-69
+modules/assistant/forecast/registry.py                                          21      3  85.7%   43, 56, 67
+modules/assistant/forecast/runtime.py                                          240     64  73.3%   54, 60, 74, 92, 109, 123, 134, 186-201, 214, 259-260, 293-294, 298-313, 324, 327, 329, 340, 348, 352-360, 363, 378, 403, 405, 410, 417, 421-427, 439, 458-463, 531-532, 566, 606-622
+modules/assistant/forecast/service.py                                          210     25  88.1%   264-267, 331, 339, 350, 363, 382, 385, 388-394, 532, 553, 562, 566-567, 598, 607, 674-698
+modules/assistant/forecast/wake.py                                              65     18  72.3%   26, 30-37, 64, 66-73, 86, 93-95
+modules/assistant/guided_flow/api.py                                            37      6  83.8%   36-37, 48-49, 62-63
+modules/assistant/guided_flow/direction_cards.py                                67      2  97.0%   142, 203
+modules/assistant/guided_flow/flows.py                                         836    126  84.9%   377, 417-418, 424-425, 441-470, 530, 543-544, 571, 579, 600, 668, 774-775, 884-898, 925-934, 936-944, 981, 997, 999, 1016, 1019, 1027-1031, 1035, 1055, 1082, 1160, 1182, 1186, 1234, 1238, 1241, 1297, 1302, 1365, 1386, 1402-1403, 1408-1409, 1437-1444, 1446-1453, 1469-1486, 1488-1495, 1550, 1567-1568, 1570, 1577-1580, 1594, 1598, 1611, 1636, 1646, 1693, 1696, 1768, 1850-1851, 1855-1856, 1900-1902, 1950, 1952, 1966-1974, 2004, 2007, 2015-2018, 2022, 2042, 2052, 2056, 2093, 2101, 2105, 2145
+modules/assistant/guided_flow/registry.py                                       73      6  91.8%   58, 60, 67, 69, 81, 88
+modules/assistant/guided_flow/runtime.py                                       267     18  93.3%   40-41, 53, 106, 109, 154, 195, 209, 268, 341, 396, 401, 413, 418, 428, 503, 520, 539
+modules/assistant/operation_scope.py                                            33     10  69.7%   16, 20-44, 48, 56, 63, 77
+modules/assistant/operations.py                                                249     65  73.9%   56, 100, 121, 149, 159-160, 168, 180, 187, 192, 199, 206, 211-310, 316, 323, 343, 348, 375, 382, 384, 394, 396, 403, 405, 416, 460, 463, 471
+modules/assistant/proactive.py                                                 419     77  81.6%   88-89, 131, 144, 166-168, 188, 211, 217, 222, 280-286, 297, 312, 319-320, 328, 348-349, 355, 359-360, 380-397, 417, 453-462, 486-487, 522-543, 545-546, 564, 570, 585, 588, 595, 606, 631, 634, 640-641, 733-737, 773, 782, 797-800, 861, 863-865, 868, 883, 888, 898, 917, 935, 953
+modules/assistant/schemas.py                                                   171      9  94.7%   71, 129-130, 132, 134, 172, 224, 324-325
+modules/assistant/service.py                                                   515    131  74.6%   111, 180-181, 225, 248, 253, 258, 303, 305, 321, 324-327, 334, 384, 395, 405, 458, 464-466, 478-488, 495, 500, 506-511, 563-564, 575, 632-637, 639, 643-645, 658-664, 675-680, 691-697, 722-723, 756, 759, 761, 803, 808, 810, 816, 819-821, 860, 865, 885-892, 910, 915, 918, 945, 954, 971, 974, 987, 1023, 1117, 1119-1121, 1190-1198, 1233-1245, 1321, 1331, 1344-1351, 1395-1482
+modules/assistant/session_contracts.py                                          93      1  98.9%   24
+modules/assistant/sessions.py                                                  169      6  96.4%   133, 135, 137, 139, 143, 207
+modules/assistant/tasks.py                                                      21      7  66.7%   20, 32-34, 46-48, 60-62
+modules/assistant/teams/blind_reader.py                                         70     12  82.9%   23, 25, 29, 35, 38, 54, 61, 81-87, 119
+modules/assistant/teams/contracts.py                                            89     14  84.3%   38, 40, 44, 49, 59, 64, 66, 68, 72, 120, 122, 226, 230, 232
+modules/assistant/teams/plans.py                                               109     27  75.2%   23, 30, 39, 47, 78, 119, 123, 153-168, 219-241
+modules/assistant/teams/review_methods.py                                        8      1  87.5%   31
+modules/assistant/teams/runner.py                                              208    145  30.3%   68-70, 76, 189-636
+modules/collaboration/api.py                                                   122     48  60.7%   51-53, 80, 85-96, 118, 123-130, 135, 140, 145, 150-157, 167, 172, 179, 184, 191-197, 214, 223, 230-236, 253, 258, 263, 268, 275-277, 284-286, 294-297
+modules/collaboration/blind_reading.py                                          51      9  82.4%   19, 23, 42, 55-63, 78, 87
+modules/collaboration/cases.py                                                 225     91  59.6%   41, 60, 64, 69, 81, 86, 91-92, 112, 141-143, 145, 150, 152-158, 171, 176, 178, 180, 182, 196-198, 215, 227, 248-321, 325-339, 353-355, 357, 360, 372, 416, 427-449
+modules/collaboration/cognition.py                                             175     26  85.1%   46, 81, 83, 100, 153, 157, 184, 222, 272, 288, 305, 328, 333, 340, 355, 359, 383, 396, 401, 446-449, 462, 469, 517
+modules/collaboration/contracts.py                                             272     18  93.4%   111, 113, 115, 117, 123, 129, 132, 134, 138, 143, 145, 147, 191, 193, 226, 228, 302, 313
+modules/collaboration/creative_manifest.py                                     266     50  81.2%   70, 72, 92, 94, 107, 123, 157-163, 183-200, 206, 225-243, 246-260, 288, 298, 357-360, 386, 429, 466, 477, 500, 536, 579, 587, 592, 595-608
+modules/collaboration/facade.py                                                 24      3  87.5%   65-68
+modules/collaboration/maintenance.py                                            41      6  85.4%   53, 62, 73, 82, 90, 111
+modules/collaboration/merge.py                                                  79     15  81.0%   49-64, 95, 104, 112, 114, 120, 124, 126
+modules/collaboration/proactive.py                                              66     11  83.3%   40, 54-55, 78, 86, 103, 125, 134, 140, 145, 148
+modules/collaboration/recipes.py                                                 7      1  85.7%   57
+modules/collaboration/recovery.py                                              103     15  85.4%   41, 43, 71, 82, 105, 120-126, 129, 131, 141, 146, 150, 155
+modules/collaboration/research.py                                               62      8  87.1%   48, 63, 128-135
+modules/collaboration/runtime.py                                               376     69  81.6%   110, 116, 119, 129, 149, 153, 159, 166, 199, 202, 204, 206, 211, 247, 259, 264, 289, 326-344, 385, 417, 465, 471, 477, 484, 496, 512-513, 524-525, 547-548, 554, 773, 789-791, 817-833, 882, 936, 944-969, 996, 1006, 1039, 1041, 1043, 1045, 1075-1091
+modules/collaboration/state_impact.py                                           55      4  92.7%   49, 83-85
+modules/collaboration/tasks.py                                                  20     10  50.0%   22, 27-51
+modules/collaboration/views.py                                                  43     11  74.4%   23-35, 179-190
+modules/collaboration/workspaces.py                                            173     25  85.5%   65, 71, 92, 97, 110, 115, 130-143, 148, 197, 204, 207, 217, 242, 370, 378, 403, 409, 412
+modules/evidence/compilation/api.py                                            206     35  83.0%   393-429, 440-447, 462-471, 530, 541-542, 551-562, 570-582, 648-649, 667-668, 687-688, 836-837
+modules/evidence/compilation/facade.py                                         239     32  86.6%   245, 428-437, 612-616, 631-635, 653-657, 673-680, 708-730, 1020-1022, 1141-1142, 1482, 1496-1501
+modules/evidence/compilation/focused_contracts.py                              156     12  92.3%   25-28, 51, 57, 148, 173, 183, 187, 191, 194
+modules/evidence/compilation/focused_tasks.py                                  143     33  76.9%   77, 93-94, 192-199, 214-240, 259, 271, 282-292, 334
+modules/evidence/compilation/knowledge/contracts.py                            260      4  98.5%   35, 42, 230, 372
+modules/evidence/compilation/knowledge/group.py                                 70      2  97.1%   51, 258
+modules/evidence/compilation/knowledge/policies.py                              94      9  90.4%   1040, 1042, 1044, 1047, 1052, 1057, 1061, 1065, 1070
+modules/evidence/compilation/knowledge/projection.py                            64     11  82.8%   39, 53, 83, 117-122, 150-154
+modules/evidence/compilation/knowledge/scope.py                                220     14  93.6%   98, 163, 244, 248, 320-331, 420, 526, 566-568
+modules/evidence/compilation/knowledge/workflow.py                             160      5  96.9%   157, 159, 256, 340, 501
+modules/evidence/compilation/markdown_renderer.py                              414     56  86.5%   108, 145, 153, 155, 157, 159, 163-171, 195, 201-208, 210, 255, 304-305, 309-310, 315-320, 342, 346, 383, 403, 415, 446, 507-512, 521-526, 704, 713-715, 717
+modules/evidence/compilation/models.py                                         175      3  98.3%   47, 54, 438
+modules/evidence/compilation/novel_evidence.py                                 787    135  82.8%   45-48, 104, 109-110, 155, 163-164, 276, 287-295, 322, 400, 602-603, 605-606, 611-612, 733, 747, 811-813, 837-852, 854, 856, 866-869, 978, 987, 1000, 1080, 1085, 1118, 1188, 1198-1199, 1201-1202, 1204, 1207, 1293, 1390, 1403, 1420, 1450, 1457-1461, 1481, 1488, 1501, 1507-1526, 1534, 1539, 1543, 1546, 1550, 1585-1589, 1591-1598, 1630, 1652-1666, 1675, 1694, 1730-1731, 1776, 1787, 1789-1790, 1794-1795, 1802-1803, 1826, 1829-1852, 1928, 1930, 1932, 1948-1949, 2006-2007, 2029, 2031, 2033, 2051, 2060, 2086, 2110-2116, 2131, 2146, 2148, 2157, 2164
+modules/evidence/compilation/repositories.py                                   176     13  92.6%   97, 146, 210, 314, 356, 521, 592-604
+modules/evidence/compilation/schemas.py                                        668     19  97.2%   27, 31, 43, 45, 47, 49, 64, 556, 574, 576, 609, 621, 649, 681, 711, 723, 940, 942, 959
+modules/evidence/compilation/services/activation_profile_service.py            243     27  88.9%   75, 120, 143, 145, 154, 178-187, 212, 234, 285, 305, 313, 322, 406-409, 442, 478-487, 520, 522, 545, 644, 708, 726
+modules/evidence/compilation/services/author_question_evidence.py               40      8  80.0%   19, 21, 38-45, 47-48, 54-55
+modules/evidence/compilation/services/compiled_context.py                      195      5  97.4%   232-234, 349-350
+modules/evidence/compilation/services/confirmation_service.py                  271     17  93.7%   151, 239-240, 398, 446, 463, 522, 537, 556, 649, 692, 698, 794, 805, 809, 817, 821
+modules/evidence/compilation/services/constraint_engine.py                     103      8  92.2%   99, 144, 149, 156, 166, 174, 220, 237
+modules/evidence/compilation/services/context_compiler.py                      896     93  89.6%   319-321, 325-331, 337-340, 343-346, 483-491, 501-502, 551, 567, 570, 592, 611, 643, 646, 650, 656-657, 669, 707, 723, 785, 787-791, 799-801, 1212, 1217, 1219, 1221, 2025-2030, 2087, 2112, 2120-2121, 2136, 2154, 2158, 2177, 2190-2203, 2228, 2252, 2259, 2374-2384, 2399, 2418, 2421, 2431, 2475, 2498, 2562, 2564-2566, 2599, 2677, 2715-2718
+modules/evidence/compilation/services/evidence_health_service.py                31      6  80.6%   48, 50, 52, 54, 56, 58
+modules/evidence/compilation/services/focused_evidence.py                      703    130  81.5%   82, 130, 134-140, 162, 246-249, 280-283, 296-298, 300, 316, 322, 331, 346, 354, 379, 381, 388-389, 400, 417, 420, 422-424, 437, 448, 475, 493-497, 620, 673, 686, 708, 711, 737, 760, 780-781, 783, 788-789, 846-849, 853, 892, 916, 923-928, 947, 1005, 1059, 1080, 1097, 1105, 1114-1115, 1118-1119, 1121-1125, 1165-1169, 1197-1249, 1251-1254, 1268, 1283-1313, 1330-1334, 1371, 1439, 1471, 1493, 1522, 1538-1540, 1609, 1615-1631
+modules/evidence/compilation/services/generation_background.py                 132      2  98.5%   366, 405
+modules/evidence/compilation/services/hidden_guard.py                          123      5  95.9%   115, 137, 160, 162, 211
+modules/evidence/compilation/services/import_activation.py                     318     53  83.3%   57, 182, 205, 262-281, 296-321, 358, 387, 400, 418, 435-436, 446, 459, 477, 488, 502, 510-511, 522, 526, 567, 596, 627, 686, 763-765, 767-769, 861, 882, 919, 962-969, 1027
+modules/evidence/compilation/services/interaction_source_cache.py              140     14  90.0%   172, 209, 220-221, 224-225, 299, 319-337, 371, 425, 430
+modules/evidence/compilation/services/interaction_source_material.py            94      4  95.7%   180, 184, 186-187
+modules/evidence/compilation/services/interaction_story_context.py             211     22  89.6%   109, 113, 126, 220, 234, 378, 423, 460-475, 489, 563
+modules/evidence/compilation/services/loaders/author_examples_loader.py         33      1  97.0%   66
+modules/evidence/compilation/services/loaders/characters_loader.py             194      6  96.9%   77, 213-216, 218
+modules/evidence/compilation/services/loaders/memory_records_loader.py          83     14  83.1%   118-137, 147, 153, 169-171, 182, 196
+modules/evidence/compilation/services/loaders/outline_analysis_loader.py        42      8  81.0%   57-59, 61-63, 78-79
+modules/evidence/compilation/services/loaders/rag_chunks_loader.py             252     15  94.0%   177-188, 274, 276, 307-308, 471-472, 498-499, 526, 573, 576
+modules/evidence/compilation/services/loaders/world_entities_loader.py         167     10  94.0%   30, 33, 39, 100-102, 276, 289-291
+modules/evidence/compilation/services/parent_evidence.py                        89     11  87.6%   61, 75, 107-108, 121, 170-171, 185, 194-196
+modules/evidence/compilation/services/retrieval_query_planner.py               210      8  96.2%   194, 258, 273, 344-351, 447, 459
+modules/evidence/compilation/services/retrieval_trace_service.py                51      1  98.0%   147
+modules/evidence/compilation/services/review_resolution_sources.py              43     20  53.5%   23-28, 37-73, 84, 88, 105
+modules/evidence/compilation/services/scene_lens.py                            174     15  91.4%   196-202, 288, 291, 418-436
+modules/evidence/compilation/services/selection_proposal.py                    102     18  82.4%   60-61, 64, 144, 146, 152, 178, 189, 204-216, 233, 244-257
+modules/evidence/compilation/services/snapshot_service.py                      186     18  90.3%   405, 412, 516, 547, 556-565, 692, 701-703
+modules/evidence/facade.py                                                      30      7  76.7%   34-38, 50-55
+modules/evidence/forecast.py                                                    32     15  53.1%   20, 58, 71-93, 107-116
+modules/evidence/indexing/api.py                                                55      6  89.1%   166-169, 185-196
+modules/evidence/indexing/chunk_annotation.py                                   72     19  73.6%   23-34, 54, 59, 63, 67-68, 72, 89
+modules/evidence/indexing/chunking.py                                          145      5  96.6%   177, 195, 263, 328, 375
+modules/evidence/indexing/embedding_writer.py                                   92      3  96.7%   80, 127, 130
+modules/evidence/indexing/entity_activity.py                                    84      6  92.9%   43-44, 71, 132, 159, 167
+modules/evidence/indexing/facade.py                                             93     12  87.1%   95-97, 130-132, 174, 220-234, 398-400
+modules/evidence/indexing/index_state.py                                       303     43  85.8%   93, 101, 107-109, 180-181, 218, 235, 285, 301, 348-354, 369-387, 419-424, 500-502, 554, 564-567, 585-586, 651-656, 671, 673, 678, 688, 810, 838, 852-854
+modules/evidence/indexing/index_status.py                                       31      1  96.8%   54
+modules/evidence/indexing/indexing.py                                          337     24  92.9%   164, 187, 259-260, 297-298, 338-342, 368, 490, 642, 713-721, 750, 754-755, 766, 994
+modules/evidence/indexing/lexical_plan.py                                       94      1  98.9%   126
+modules/evidence/indexing/models.py                                             85      7  91.8%   35-36, 43, 56, 61, 66, 248
+modules/evidence/indexing/query_expansion.py                                    95      6  93.7%   39, 75-76, 119-120, 178
+modules/evidence/indexing/repositories.py                                      559    106  81.0%   50-52, 118, 136, 147, 151, 153, 157, 159, 165, 169, 286, 338-339, 343, 351, 383, 462-466, 477, 512, 521, 546, 557-558, 635-636, 647-648, 664-665, 683, 833-842, 858, 893, 917-933, 944-960, 981, 1087, 1097, 1150, 1154-1201, 1221-1230, 1295, 1299, 1303, 1307, 1311, 1313, 1315, 1358, 1362, 1366, 1376, 1378, 1437, 1460, 1482, 1564, 1566, 1568, 1571, 1731
+modules/evidence/indexing/reranker.py                                          132      6  95.5%   100, 102, 109, 123, 228, 374
+modules/evidence/indexing/retrieval.py                                         241     16  93.4%   53, 156, 164-180, 275, 295, 437, 445, 447, 449, 517-519, 619-622
+modules/evidence/indexing/scene_mapping_coverage.py                             53      1  98.1%   133
+modules/evidence/indexing/schemas.py                                           136      6  95.6%   130, 222, 256, 258, 311, 330
+modules/evidence/indexing/scoring.py                                           145     12  91.7%   41, 52-53, 67, 80, 136-141, 161
+modules/evidence/indexing/tasks.py                                              88     10  88.6%   64, 196-208, 230
+modules/evidence/indexing/tuning.py                                            207     21  89.9%   39, 97, 129, 212-213, 306, 393-420, 424
+modules/evidence/team_projection.py                                             12      2  83.3%   37-39
+modules/evolution/api.py                                                        75     12  84.0%   33, 78-80, 104, 130, 156, 165, 178, 187, 199, 206, 213
+modules/evolution/category_rescan.py                                           233     16  93.1%   60, 71, 106, 139, 149, 156, 207, 209, 251, 265, 351, 371, 376, 426, 505, 557
+modules/evolution/commit.py                                                    108     11  89.8%   126-131, 139, 197, 213, 220, 238, 244, 255, 302
+modules/evolution/consumer_reuse.py                                             93      6  93.5%   73, 78, 95, 148, 166, 189
+modules/evolution/consumers.py                                                  28      2  92.9%   61, 103
+modules/evolution/contracts.py                                                 213      4  98.1%   61, 98, 269, 271
+modules/evolution/discovery.py                                                 560     56  90.0%   392, 399, 413, 424-429, 431, 460, 738, 747, 779, 799, 809, 821, 823, 847, 854, 856, 924-946, 1052, 1056, 1100-1104, 1125, 1170, 1234-1237, 1250-1257, 1435, 1483, 1490, 1492, 1504, 1520, 1526, 1579, 1581, 1584, 1601, 1639, 1644-1646, 1661, 1685, 1719-1722
+modules/evolution/discovery_capacity.py                                         77      9  88.3%   47-61, 92, 96
+modules/evolution/enrichment.py                                                 37      2  94.6%   112-113
+modules/evolution/freshness.py                                                 112     59  47.3%   29, 33, 43, 50-62, 66, 89-90, 106-119, 140-155, 167-202
+modules/evolution/identity.py                                                   68      3  95.6%   159, 175-176
+modules/evolution/impact.py                                                     52      6  88.5%   74, 77-78, 115, 118-119
+modules/evolution/invalidation.py                                              146     12  91.8%   164-170, 242-243, 333, 432-435, 457-458
+modules/evolution/ledger.py                                                    307     27  91.2%   85, 87, 108, 299-300, 310-311, 314, 361-366, 414, 485, 578, 589-590, 681, 709-710, 714, 797, 856, 864, 869
+modules/evolution/ledger_contracts.py                                          137      8  94.2%   81, 83, 89, 197, 210, 218, 222, 352
+modules/evolution/llm_sampler.py                                               249      8  96.8%   216-217, 252, 347, 368, 404, 453, 470
+modules/evolution/ownership.py                                                  27      6  77.8%   23, 27, 29, 53, 55-56
+modules/evolution/pipeline.py                                                  527     36  93.2%   106, 245, 268, 272, 275, 395, 406, 457, 548, 555, 573, 575, 594, 600, 602, 604, 614, 664, 670, 839, 890-891, 894, 1101-1105, 1115, 1121, 1136, 1142, 1207, 1225, 1265, 1363-1364, 1366
+modules/evolution/preparation.py                                               153     29  81.0%   27, 78, 91, 100, 131, 133, 150, 155-158, 161-162, 186-199, 221-237, 250, 258
+modules/evolution/reading.py                                                   208     15  92.8%   33, 50, 106, 109, 119, 154, 308, 317, 351, 385, 395-396, 422, 430, 481
+modules/evolution/recovery.py                                                   67      5  92.5%   69, 78, 80, 132, 149
+modules/evolution/sampler.py                                                    38      1  97.4%   92
+modules/evolution/state_gate.py                                                 99      8  91.9%   188-190, 192-196, 230-231
+modules/evolution/store.py                                                     252     34  86.5%   95, 118-120, 225, 239, 262-263, 290, 304, 319, 340-345, 374, 379, 433, 479, 579, 586, 647-662
+modules/evolution/structure.py                                                 152     18  88.2%   78, 104, 107-110, 124, 148-150, 207, 212, 217, 243-251, 262
+modules/evolution/tasks.py                                                     217     30  86.2%   110-183, 220, 249, 331-334, 436, 467, 584, 615, 620-622
+modules/evolution/workflow.py                                                  510     63  87.6%   60, 62, 64, 92, 120, 128, 135, 138, 174, 178, 188, 193, 195, 205, 207, 230, 236, 238, 247, 254, 260, 262, 281-291, 371-373, 418, 429, 434, 451, 454, 461, 469, 493, 496, 504, 576, 686, 708, 771, 797, 803, 815, 820, 825, 853, 881, 939-941, 983, 1052, 1062-1070, 1084, 1114-1115, 1154, 1160
+modules/evolution/world.py                                                     529     80  84.9%   104, 122-124, 127, 138, 186, 192, 197, 249, 329-361, 364-371, 381, 515-522, 526, 531, 534-535, 575-582, 611, 659-683, 704-737, 740-754, 772, 867, 874, 1022, 1086, 1163-1169, 1171-1177, 1187-1194, 1269, 1280, 1282, 1285
+modules/evolution/world_audit_supplement.py                                    233     31  86.7%   79, 92, 94, 96, 98, 118, 149, 175, 188, 198, 203, 292, 303, 391, 395, 425, 427, 438, 459, 491-509, 559, 567, 649, 651
+modules/imports/adoption_policy.py                                              61      3  95.1%   25, 185-186
+modules/imports/api.py                                                         319     44  86.2%   196, 252-260, 336, 413, 420, 448, 471-472, 493-496, 506, 509-510, 520-524, 547-550, 573-576, 584-588, 623-628, 674-677
+modules/imports/assistant_tools.py                                             149     62  58.4%   27-29, 45-76, 89-103, 167, 170, 186, 197-212, 229-240, 258-276, 294-305, 321-343, 361-376, 432, 462
+modules/imports/completion_control.py                                          103     13  87.4%   37, 42, 50, 52, 58, 83, 115-121, 155, 324
+modules/imports/completion_hints.py                                             49     12  75.5%   35, 48-65, 93, 114-117
+modules/imports/consultation.py                                                 28      4  85.7%   28, 44, 50-51
+modules/imports/contracts.py                                                    54      2  96.3%   73, 75
+modules/imports/deep_import_dedup.py                                            72      8  88.9%   98, 114, 156-160, 196
+modules/imports/deep_import_retry.py                                           114     12  89.5%   82, 86, 88, 92, 94, 100, 108-110, 194, 211, 239
+modules/imports/entity_extraction/scene_entity_alias_relation.py               334     53  84.1%   145, 149-174, 231, 242, 391-412, 466, 491-492, 500, 517, 532, 544-551, 558, 564, 609, 649, 672, 693, 705-706, 739, 752-753, 785-787, 801-809, 816, 819, 822, 829
+modules/imports/entity_extraction/scene_entity_alias_relation_task.py          336     64  81.0%   61-63, 68, 70, 72, 74, 76, 117, 121, 124, 139, 141, 143, 145, 152, 177, 199, 204, 214, 231, 234, 259, 262, 302, 306, 322, 325, 328, 331, 335-336, 410, 426, 470, 489, 536-558, 571-581, 583, 682, 686, 697, 719, 725, 744-745, 796-829
+modules/imports/entity_extraction/scene_entity_bulk.py                         189     24  87.3%   115, 149-160, 174-184, 367-372, 396, 430-435, 443, 503, 524-528, 538, 548, 564
+modules/imports/entity_extraction/scene_entity_checkpoint.py                   126     16  87.3%   30, 36, 114-115, 158, 236, 285-286, 289-303
+modules/imports/entity_extraction/scene_entity_config.py                       106      4  96.2%   140-143
+modules/imports/entity_extraction/scene_entity_extraction.py                   576     66  88.5%   94-95, 147, 151, 159, 205, 210-217, 417-418, 450, 552, 557-572, 576, 652, 677, 680, 783, 786-787, 820, 928, 931, 1059, 1061-1062, 1192, 1203-1217, 1336-1342, 1346, 1370, 1415, 1550-1559, 1580-1588, 1657, 1679, 1827
+modules/imports/entity_extraction/scene_entity_llm_adapters.py                 140      8  94.3%   119, 353-354, 363-364, 411-421, 515
+modules/imports/entity_extraction/scene_entity_parallel.py                     220     37  83.2%   34-35, 74-128, 204-219, 271, 319, 361-365, 400-402, 453, 529-557, 701, 704, 707
+modules/imports/entity_extraction/scene_entity_persistence.py                  380     45  88.2%   49-50, 64-65, 88, 91, 113, 118, 129, 146, 151, 184-185, 280-289, 412, 414, 423, 521, 525, 527, 529, 535, 537, 550, 556, 694, 790, 813, 861-866, 964, 973, 1014-1019, 1065, 1074-1075, 1154, 1160, 1166
+modules/imports/entity_extraction/scene_entity_phase2b_context.py               97      7  92.8%   39, 57, 69, 87, 89, 101, 156
+modules/imports/entity_extraction/scene_entity_single_scene.py                  75      8  89.3%   22-23, 52, 197-198, 225, 228, 231
+modules/imports/entity_extraction/scene_entity_snapshots.py                     74     10  86.5%   96-115, 136-138, 187, 279
+modules/imports/entity_extraction/scene_entity_text.py                         169     24  85.8%   36, 39, 70-71, 82-83, 114-115, 137, 173, 176-177, 179, 198-199, 213, 232, 237, 243, 253-257
+modules/imports/env_helpers.py                                                  25     14  44.0%   12-16, 23-27, 31-34
+modules/imports/facade.py                                                      116     14  87.9%   37, 48-50, 59, 145, 180-181, 195-196, 206-208, 293, 303-305
+modules/imports/forecast.py                                                     43     28  34.9%   11, 17-61, 74-110
+modules/imports/llm_schemas.py                                                 678     37  94.5%   116, 118, 144-151, 165-170, 192, 222, 228, 247, 254, 259-260, 305-306, 388, 390, 438, 440, 444, 449, 478, 542, 636, 757, 759, 761, 826, 910, 921, 923
+modules/imports/models.py                                                       75      4  94.7%   100, 140, 235, 360
+modules/imports/orchestrator.py                                                760     96  87.4%   133, 136, 207, 275, 286, 330-332, 373, 435-492, 632-633, 654, 695-697, 709, 732-734, 798, 801-802, 878, 918, 925-927, 933-935, 937, 939, 979, 1007, 1018, 1061, 1066, 1098, 1110, 1114, 1172, 1210, 1212, 1214, 1321, 1331, 1345-1346, 1378, 1382, 1385, 1513-1521, 1641, 1696-1698, 1713-1715, 1738, 1740, 1742, 1887, 1893, 1897, 1974, 2112-2117, 2209-2210, 2212, 2221, 2233-2234
+modules/imports/parsers.py                                                     337     45  86.6%   120, 126, 156, 178, 203, 232, 236, 263, 286, 294, 298, 315, 317, 342, 347, 360, 413, 443, 456, 470-478, 528, 539, 546-566
+modules/imports/phase1a_context.py                                             194     16  91.8%   51-52, 258-260, 281-283, 320, 328, 334, 351-361, 480, 497-498, 508
+modules/imports/phase2_world_extraction.py                                     438    197  55.0%   122-228, 387, 415-418, 433, 446-535, 632-633, 655, 659, 670-700, 706-716, 727-731, 755, 889-890, 908-911, 942-944, 960, 971, 991-998, 1002-1013, 1017-1024, 1032, 1059-1063, 1106-1108, 1114-1115, 1123-1124, 1126-1131, 1133, 1153-1158, 1162-1167, 1174-1175, 1190-1219, 1226-1230
+modules/imports/review_resolution.py                                           618    389  37.1%   50, 54, 57, 85, 103-112, 121-124, 151-164, 170-256, 277-319, 339-341, 343, 345, 347, 360, 380-385, 439, 455, 461-487, 495-497, 512, 531, 544-590, 598, 606, 611, 637-638, 655-707, 710-715, 746-751, 768-830, 840-846, 862-927, 931-986, 992-1062, 1068-1163, 1169-1293, 1306, 1336-1419, 1439, 1447-1479, 1517, 1556-1640, 1673-1713
+modules/imports/review_resolution_schemas.py                                    78      5  93.6%   31-35
+modules/imports/scene_candidates.py                                             54     20  63.0%   64-107
+modules/imports/scene_commit.py                                                212     28  86.8%   164, 187, 198-199, 229, 247-255, 268, 313, 359, 399, 402, 410, 448-449, 458-459, 464-465, 471, 473, 476
+modules/imports/scene_enrichment.py                                            309     35  88.7%   104, 205, 208-218, 226, 248, 292, 297-298, 310, 314, 318, 327, 338-339, 483-484, 517, 520-521, 539-543, 573-574, 625-629, 634, 860
+modules/imports/scene_fusion.py                                                208     65  68.8%   86, 111, 113, 116, 122, 128-129, 166-171, 177, 180-182, 192, 207, 221, 225, 229, 268-297, 302, 306-335, 339-356
+modules/imports/scene_fusion_phase1c.py                                        317     37  88.3%   83, 173, 207, 246-248, 276, 290, 410-417, 491, 493, 498, 529-530, 660-661, 755-761, 791, 799-802, 823-824, 848, 852, 863, 867, 870, 872, 893, 947, 950
+modules/imports/scene_planning.py                                              106      8  92.5%   69, 171, 181-185, 187
+modules/imports/scene_preparation.py                                            71      1  98.6%   33
+modules/imports/scene_slicing.py                                               924     88  90.5%   72, 125, 153, 193-198, 370-377, 439-445, 505, 546, 560-562, 618, 661, 680, 719-732, 905, 944, 994, 1049, 1119, 1122, 1128, 1131, 1137, 1189, 1196, 1202, 1208, 1271, 1283, 1306, 1401, 1511, 1599, 1601, 1671, 1744, 1756, 1852, 1985, 1988, 2021-2022, 2046, 2049, 2051, 2053, 2073, 2094, 2143, 2158-2166, 2177, 2179, 2181, 2193, 2206, 2210, 2218, 2222, 2227, 2275-2285, 2426-2427, 2498, 2500, 2502
+modules/imports/scene_world.py                                                  94      8  91.5%   173-174, 178, 202-205, 221, 242
+modules/imports/service_phase_artifacts.py                                     182     31  83.0%   82, 84, 269, 274-275, 298, 324, 412, 441-442, 451-463, 467-480
+modules/imports/service_progress_limits.py                                      25      2  92.0%   57-58
+modules/imports/services.py                                                    103      1  99.0%   201
+modules/imports/source_update.py                                                85      5  94.1%   51, 54, 59, 62, 222
+modules/imports/spreadsheet_migration/ai.py                                    467    112  76.0%   220, 224-226, 253, 258, 275, 290, 309-339, 358-360, 376-381, 396-399, 445, 470-477, 522, 533, 542, 562-568, 574, 666, 698-701, 733-749, 808, 810, 836, 859-892, 903, 911, 925-942, 956-959, 963-966, 973-976, 1014, 1061-1064, 1074-1075, 1125, 1127-1130, 1132-1133, 1135-1136, 1143-1144, 1146-1147, 1160-1163
+modules/imports/spreadsheet_migration/api.py                                   145      6  95.9%   40-42, 151-154, 431
+modules/imports/spreadsheet_migration/classify.py                              252     36  85.7%   168, 188, 204, 246, 268, 272-295, 307, 334, 373, 397, 425, 435, 441-445
+modules/imports/spreadsheet_migration/parsing.py                               242     17  93.0%   104, 150, 152, 157, 211, 227-228, 235, 258-270, 320, 362, 386-387, 392, 429-430
+modules/imports/spreadsheet_migration/planning.py                              458    151  67.0%   136-139, 159, 224-225, 230, 249-251, 255-256, 272, 289, 322, 328, 332, 338, 340, 372, 377, 382, 390, 393, 403-430, 444-446, 491, 522, 538-539, 541, 598, 608-610, 612-614, 616, 618, 620, 622, 626, 631-633, 636-642, 658, 681-704, 722-739, 778-807, 816, 826, 833-836, 839, 844, 849, 856, 884-887
+modules/imports/spreadsheet_migration/repository.py                            101      4  96.0%   136, 163, 165, 210
+modules/imports/spreadsheet_migration/service.py                               392     50  87.2%   189, 210-211, 275, 343, 350, 468, 471, 528, 594-606, 657, 714, 733, 739, 749, 771, 822, 824, 854, 856, 863, 866-867, 898, 900, 902, 906, 928, 952-967, 1074-1075
+modules/imports/spreadsheet_migration/synonyms.py                               83     10  88.0%   113-114, 142-148, 154, 157
+modules/imports/targeted_completion.py                                         474     29  93.9%   46, 80, 205, 262-276, 305, 381, 459, 548, 678, 685, 690, 692, 761, 769, 822, 977, 1006-1007, 1015, 1066, 1070, 1129-1131, 1168, 1170, 1175, 1177
+modules/imports/tasks.py                                                        91     22  75.8%   47-49, 60-70, 105-106, 135-136, 161-162, 191-192, 219-221, 235-236, 244, 258-260
+modules/imports/workflow.py                                                    283     74  73.9%   227, 248, 274, 284-298, 334, 359-374, 388-415, 428-446, 553-554, 564-565, 611-613, 657-675, 709-710, 714-721, 779, 797-813
+modules/imports/workflow_entity_phase.py                                       363     73  79.9%   64-86, 157, 186, 304-307, 373-395, 442-446, 468-474, 485-489, 603, 651, 683, 687-688, 740, 862, 1002-1023, 1122, 1126, 1140-1142
+modules/imports/workflow_llm_adapters.py                                       276     27  90.2%   137, 158, 196, 200-204, 286-287, 372, 483, 485-487, 815, 892-894, 896, 916-917, 1104-1108, 1110, 1185
+modules/imports/workflow_progress.py                                           156     10  93.6%   123, 127-128, 256, 264, 268, 365-366, 375, 386
+modules/imports/workflow_runs.py                                               287     31  89.2%   34-35, 89, 201-202, 264-268, 297-299, 305, 369, 371, 418, 496, 522-523, 535, 538, 554, 556, 574-575, 596, 598-601
+modules/imports/workflow_scene_phase.py                                        246     18  92.7%   33-34, 63, 95, 397, 537, 574-578, 641, 751-752, 778-797
+modules/imports/workflow_structure_phase.py                                    210     30  85.7%   32-34, 110-127, 315-318, 399-404, 452-453, 473-474, 536, 627-629, 633-635, 639-641, 648-650
+modules/imports/worldbuilding_risk.py                                           26      3  88.5%   42, 48, 58
+modules/interaction/agent_runtime.py                                           311     63  79.7%   85, 98, 104, 109, 125, 171, 192, 201, 215, 221-277, 287, 301-302, 329-347, 446, 453, 500, 508, 539, 559-564, 582, 589, 594, 599, 607, 612
+modules/interaction/api.py                                                     275     74  73.1%   103, 108-110, 122-124, 131-133, 142-144, 159, 185, 190-192, 199-200, 205-206, 217, 232-233, 262-263, 265, 276, 319-320, 334, 345, 358, 375, 391, 411, 430, 445, 457, 473, 485, 495-497, 563-565, 587-589, 612, 631-633, 656, 715, 738-739, 766, 775-778, 805, 823, 841, 860, 878, 897, 908, 982, 994, 1009, 1021, 1039-1046
+modules/interaction/ensemble.py                                                 91     11  87.9%   23, 39-41, 50, 61, 123, 186, 222, 224, 238
+modules/interaction/ensemble_input.py                                           57      6  89.5%   48, 97, 105, 111, 115, 138
+modules/interaction/ensemble_v2.py                                             105     15  85.7%   36, 49, 75, 79, 86, 89, 92, 111-112, 123, 147, 175, 182-184
+modules/interaction/facade.py                                                   15      1  93.3%   17
+modules/interaction/forecast.py                                                 66      9  86.4%   37, 50, 71, 74, 90, 99, 104, 173, 213
+modules/interaction/forecast_api.py                                             69     11  84.1%   82-84, 120, 125, 132, 145, 155, 161, 168-170
+modules/interaction/framing.py                                                 110      8  92.7%   73-75, 88-89, 94-95, 107
+modules/interaction/generation.py                                              863    129  85.1%   82, 125, 253, 257, 269, 271, 292, 314, 327, 330, 334, 387, 460, 504, 517, 523, 555, 606, 620, 671, 705, 727, 750, 759, 780-815, 931, 1004, 1013, 1015-1016, 1022, 1040-1049, 1225, 1266-1267, 1284, 1316-1317, 1342, 1351, 1359-1369, 1379-1382, 1410, 1517, 1571, 1575-1577, 1586, 1595-1596, 1608, 1615-1621, 1629-1630, 1634, 1640, 1651, 1663, 1672, 1812-1813, 1847-1848, 1850, 1858-1859, 1885-1886, 1888, 1937-1938, 1940, 1942, 1951, 1955, 1957, 1973, 1975, 1977, 1979, 2127
+modules/interaction/journey_overview.py                                        236     33  86.0%   76, 80, 133, 139, 147, 162, 186, 195, 210, 245-261, 286, 290, 292, 314, 346, 363-364, 367, 373-374, 444, 480, 482, 501, 509, 511, 550, 563
+modules/interaction/journey_views.py                                           226     27  88.1%   86, 164, 175, 221, 238, 248, 323, 331, 337-341, 343, 428-437, 479, 610, 712-715, 775
+modules/interaction/openings.py                                                105      9  91.4%   44, 60, 94, 124, 152, 159, 174, 190, 203
+modules/interaction/proactive.py                                               152     28  81.6%   42, 58, 61, 99, 103, 109, 114, 117-151, 246, 260, 331, 340, 356-369
+modules/interaction/repositories.py                                            224     25  88.8%   45-46, 76, 197-198, 264-281, 320-329, 346, 357, 373, 423, 427, 458, 510, 515, 531, 647, 660, 739, 918, 945
+modules/interaction/runtime_policy.py                                           75      3  96.0%   56, 110, 228
+modules/interaction/schemas.py                                                 422     12  97.2%   14, 24, 26, 60, 97, 145, 147, 205, 224, 262, 488, 514
+modules/interaction/service_support.py                                          50      3  94.0%   86, 93-94
+modules/interaction/services.py                                                751    200  73.4%   108, 117, 119, 121, 153, 173, 282, 290, 303-350, 363, 382, 384, 391, 395-398, 409-443, 446-452, 471-472, 480, 535-589, 610, 622, 626, 629, 632, 685, 704, 711, 738, 749, 775-833, 874, 904, 950, 998, 1050, 1059, 1107-1116, 1125-1130, 1181, 1228, 1234, 1250-1253, 1263, 1321-1331, 1340-1349, 1395, 1410, 1428, 1457, 1459, 1466, 1478, 1506, 1524, 1591, 1593, 1620, 1656, 1678, 1680-1682, 1710, 1759-1762, 1774, 1776-1778, 1787, 1790, 1826, 1832, 1852-1853, 1895, 1946, 1954, 1966
+modules/interaction/source_service.py                                          600    161  73.2%   103, 123, 168, 171-172, 184, 200-205, 217-218, 224, 255, 259, 270, 289, 292, 313, 323-329, 336, 347, 372, 374, 407-415, 430, 437, 442, 460, 465-466, 508, 517-518, 578, 581, 596, 618, 621-630, 648-782, 793, 822, 825, 907, 913, 918, 1021-1025, 1036-1040, 1050-1054, 1092, 1121, 1150-1159, 1256, 1290-1292, 1351-1366, 1390-1393, 1478-1479, 1491-1492, 1502-1551, 1564-1572, 1604, 1607-1609
+modules/interaction/streaming.py                                               158     29  81.6%   155-159, 234-235, 249-250, 270, 272, 308, 333, 336, 344, 364-386, 412-420, 443-452, 479
+modules/interaction/tasks.py                                                   152     14  90.8%   60-65, 86-87, 92, 167-169, 201, 264, 332, 375
+modules/local_agent/api.py                                                     306     60  80.4%   104, 117, 121, 152, 204-214, 267-290, 310, 371, 411, 419, 427, 461-462, 476-477, 512-515, 525-546, 560, 562, 585, 601-611, 628, 652, 678, 702-703
+modules/local_agent/client.py                                                   31     31   0.0%   3-112
+modules/local_agent/companion.py                                               244    147  39.8%   31, 38-45, 56-74, 78-89, 93-109, 113-132, 136-140, 145, 166, 242-276, 321-322, 341, 393-418, 422-447, 451-462, 466
+modules/local_agent/executor_service.py                                         81     14  82.7%   48, 60, 108-109, 111, 123, 129, 133-134, 142, 151, 153, 163, 166
+modules/local_agent/image_runtime.py                                            77     10  87.0%   75, 77, 90, 165, 199-206
+modules/local_agent/images.py                                                   72      6  91.7%   58, 71, 80-81, 102, 112
+modules/local_agent/runtime.py                                                 136     49  64.0%   51, 97, 101, 150-154, 167, 170-171, 176-178, 195, 199-218, 231-259, 263, 265-266
+modules/project/account_lifecycle_service.py                                    45      4  91.1%   113-123
+modules/project/ai_usage.py                                                     72      3  95.8%   85, 123-125
+modules/project/api.py                                                         167     29  82.6%   93, 138-140, 151-153, 159-161, 170-172, 178-185, 200-202, 213-216, 355-356, 371, 387, 520-525, 536-539
+modules/project/assistant_dedup_tool.py                                         28     12  57.1%   44-48, 56-65, 75-84
+modules/project/assistant_tools.py                                              44      4  90.9%   26, 45, 48, 83
+modules/project/author_task_service.py                                         173     39  77.5%   40, 47-48, 54, 149-153, 155-157, 159-161, 163-176, 179, 258-263, 431-437, 493-494, 496
+modules/project/demo_copy.py                                                   337     40  88.1%   134, 149-150, 193, 237, 239, 270, 293, 405, 415, 445, 459, 513, 574, 650-652, 656-657, 692-694, 718-719, 729, 734, 753-754, 813-814, 824, 835-841, 846-847, 858-859
+modules/project/editorial_brief.py                                              66      1  98.5%   102
+modules/project/facade.py                                                      166      9  94.6%   95, 174, 185, 199-201, 213, 407, 414
+modules/project/forecast.py                                                     15      3  80.0%   8, 31, 43
+modules/project/image_runtime.py                                                53     32  39.6%   29-35, 39-47, 55-65, 73-94, 106-122
+modules/project/llm_runtime.py                                                 150     19  87.3%   162, 180-181, 196, 200, 206, 218, 224, 237, 239, 241, 245, 275-276, 305, 322, 404, 408, 413
+modules/project/model_routing.py                                                69     14  79.7%   48, 53, 116-128, 152-154
+modules/project/models.py                                                       54      1  98.1%   114
+modules/project/repositories.py                                                211     15  92.9%   189, 279-290, 321, 343, 384, 403-417
+modules/project/schemas.py                                                     394     18  95.4%   53, 77-82, 115, 122, 176, 199, 221-225, 230, 601
+modules/project/services.py                                                    394     40  89.8%   98, 224, 228, 233, 304, 308-309, 326, 338, 352, 367-368, 395, 444, 476, 524, 581, 585, 655, 662, 747, 760-770, 777-802, 814
+modules/project/settings_repository.py                                          30      2  93.3%   51, 54
+modules/project/settings_service.py                                             56      1  98.2%   64
+modules/project/smart_dedup.py                                                 412     41  90.0%   75, 296, 310, 313, 331, 342, 356, 362, 371, 406, 436-445, 454-466, 485, 547, 580-581, 587-588, 624-629, 707, 761, 789, 957, 981, 997, 1010, 1013, 1015, 1017
+modules/project/tasks.py                                                        40      2  95.0%   46, 51
+modules/project/understanding.py                                                48      9  81.2%   47, 72, 84, 89, 94, 97, 105, 115, 119
+modules/project/workspace_service.py                                           128      6  95.3%   90, 97-99, 164, 305
+modules/story/api.py                                                           285    178  37.5%   77-91, 115-116, 127-131, 144-148, 160-173, 186-206, 219-229, 242-252, 265-270, 286-295, 305-309, 322-326, 339-358, 371-381, 394-403, 415-424, 434-445, 465-468, 478, 504, 514-515, 523-524, 551-552, 565-574, 602-607, 620-622, 636-638, 651-653, 663, 676, 690-711, 725-738, 751-753, 766-768, 779-781, 788-793, 803-809, 818-821, 830-839
+modules/story/assistant_information_tools.py                                    56      6  89.3%   50, 57-74, 83, 122
+modules/story/assistant_planning_tools.py                                       61     15  75.4%   54, 66, 74-81, 89, 99, 107-115, 123-127, 139-151
+modules/story/assistant_structure_workflow.py                                  149     16  89.3%   67, 75, 113, 214, 242, 247, 259, 285, 311, 364, 392, 397, 400, 413, 425, 439
+modules/story/assistant_tools.py                                               130     25  80.8%   88-91, 160, 176-177, 239-240, 278, 281, 308-309, 320-340, 351-364
+modules/story/continuity/api.py                                                107     11  89.7%   176-177, 272, 289-290, 299-300, 318-319, 326-327
+modules/story/continuity/facade.py                                              56      9  83.9%   76, 223-245
+modules/story/continuity/field_provenance.py                                   132      1  99.2%   259
+modules/story/continuity/knowledge_contract.py                                 204      3  98.5%   252, 339, 384
+modules/story/continuity/models.py                                              86      3  96.5%   132, 176, 238
+modules/story/continuity/presence.py                                            76      6  92.1%   91, 95, 97, 100, 105, 152
+modules/story/continuity/reducer.py                                             73      3  95.9%   62, 72, 84
+modules/story/continuity/repositories.py                                       427     44  89.7%   86, 127, 140, 144-145, 173-195, 406, 440, 449, 515, 524, 563, 590, 621, 675, 700, 830-831, 908, 1121-1122, 1166, 1199, 1203, 1254, 1271-1272, 1296, 1312-1335, 1453
+modules/story/continuity/scene_projection.py                                   428    100  76.6%   54-55, 71, 139-148, 170, 188, 226, 241, 243, 247, 296-376, 404-408, 468-469, 499-508, 637, 642-643, 726-727, 799, 820, 823, 826, 846, 890, 939-962, 968-972, 980, 1015, 1020-1021, 1024, 1028-1029, 1062-1069
+modules/story/continuity/scene_state_view.py                                   444     39  91.2%   119, 148, 151, 161, 193, 199, 531, 546-548, 559, 579, 601-604, 617, 644, 705, 725-726, 770, 793, 806, 808, 830, 844, 853, 891, 907, 918, 962, 968, 1004, 1009, 1022, 1059, 1070-1071
+modules/story/continuity/schemas.py                                            261     31  88.1%   109, 111-113, 119, 284-287, 302-305, 310-312, 317-319, 324-326, 331-333, 387-392
+modules/story/continuity/services.py                                           434     41  90.6%   163, 165, 167, 175, 200, 243, 249, 252, 255, 259, 270, 275, 327, 346, 378, 381, 383, 400, 582-588, 611-621, 654-660, 664-667, 843, 856, 859, 862, 867, 934, 1205-1206
+modules/story/continuity/state_trial.py                                        121      9  92.6%   54, 87, 91, 93, 109, 112, 175, 181, 349
+modules/story/creative.py                                                       58     33  43.1%   26-65, 80, 84-86, 94-102, 106-128, 136-137
+modules/story/facade.py                                                         93     29  68.8%   119, 129, 142, 157, 178, 195, 212, 227, 231, 240, 258, 282, 298, 313, 328, 359, 380, 447-449, 453-455, 459-461, 465-467, 471-473, 484-486
+modules/story/forecast.py                                                       14      1  92.9%   38
+modules/story/generation.py                                                     86      6  93.0%   25, 167, 327-355
+modules/story/information_dependencies.py                                       37      2  94.6%   42-44
+modules/story/observations.py                                                  215     23  89.3%   54, 56, 58, 75, 77, 79, 92, 160, 223, 246, 270, 300, 359, 397, 400-403, 407, 413, 422-427
+modules/story/outline_state/ai_workflow_service.py                             254     28  89.0%   105-106, 110, 136-137, 179, 204, 229, 233, 235, 252, 256, 260, 279, 305, 451, 457, 465, 625, 634-637, 677, 690, 720, 761, 770, 787, 789
+modules/story/outline_state/analysis_context.py                                117     15  87.2%   41, 379-381, 408-413, 430-431, 463-464, 466
+modules/story/outline_state/api.py                                             433     71  83.6%   149-158, 184-185, 187, 220-221, 261-262, 270-280, 320-321, 381, 401-402, 404, 410-416, 437-438, 467, 724-725, 794-795, 811-812, 842-843, 905-906, 923-924, 927, 977-978, 1019-1024, 1058-1060, 1070-1072, 1117-1118, 1129-1130, 1178-1192, 1221-1227
+modules/story/outline_state/author_migration.py                                509     51  90.0%   265-266, 269-271, 276-277, 285-288, 320, 421, 473, 492, 512, 515, 532, 589, 661, 721, 734, 737, 745, 787, 834, 880, 883-884, 894-895, 897, 909-910, 916, 932, 956, 961, 971, 984-985, 990, 1019, 1022, 1103, 1112, 1131, 1134, 1167-1171, 1236
+modules/story/outline_state/contracts.py                                       378     14  96.3%   75, 77, 79, 149, 153, 155, 161, 174, 191, 193, 195, 200, 587, 593
+modules/story/outline_state/deep_import_repair_facade.py                        29     10  65.5%   77-81, 90-94, 98-102, 106-110, 120-124
+modules/story/outline_state/deep_import_repair_service.py                      159     46  71.1%   69, 94-115, 122-130, 142-167, 389, 463-472, 485, 490-496, 503, 510-522
+modules/story/outline_state/foreshadowing_repository.py                         38      1  97.4%   80
+modules/story/outline_state/generation/context_builder.py                      160     34  78.8%   112, 127-136, 185-193, 283-284, 289-291, 296, 298, 300, 302, 304, 306, 310-311, 340-341, 343-348
+modules/story/outline_state/generation/context_renderer.py                     104      4  96.2%   89, 94, 141, 180
+modules/story/outline_state/generation/models.py                               129      1  99.2%   21
+modules/story/outline_state/generation/parser.py                               299     33  89.0%   198, 229, 343-352, 391-392, 412-413, 449, 529, 585, 598-600, 699-710, 855, 859-860
+modules/story/outline_state/generation/persister.py                            291     25  91.4%   404, 536, 571, 611, 626-634, 658, 660, 673, 680, 725-733, 755-761, 763, 843, 874
+modules/story/outline_state/generator.py                                       202     61  69.8%   131-136, 179, 199-203, 207-209, 256-290, 295, 297-310, 336, 341-342, 365, 367-390, 560, 565, 567, 574, 576, 578, 625-689, 712-714, 729-730, 732-733, 736-737, 739-740, 767-769
+modules/story/outline_state/models.py                                          160      3  98.1%   242, 479, 531
+modules/story/outline_state/p20_context.py                                     283     43  84.8%   83, 92, 370-376, 568, 606, 699, 780-781, 850-851, 872-873, 904, 922-941, 949-950, 953, 956-957, 959
+modules/story/outline_state/p20_schemas.py                                     193      6  96.9%   63, 65, 111, 128, 294, 362
+modules/story/outline_state/p20_service.py                                     568     38  93.3%   77, 312, 496, 533, 542, 585, 588, 590, 599, 615, 619, 635, 675, 770, 852, 877, 880, 914, 916, 936, 938, 954, 999-1004, 1083, 1162, 1164-1169, 1321, 1348-1349, 1409-1410, 1487, 1490, 1512
+modules/story/outline_state/p20_window.py                                      112     11  90.2%   105, 123, 127-129, 140, 169, 187-188, 239-250
+modules/story/outline_state/planning_window_service.py                          36      1  97.2%   75
+modules/story/outline_state/repositories.py                                    767     74  90.4%   71-72, 173-178, 197-213, 223, 228, 246-250, 599, 670, 679-696, 726, 738, 958-976, 1117-1123, 1243, 1325, 1504, 1598-1605, 1727, 1751, 1815, 1865, 1964, 2035, 2049, 2060-2066
+modules/story/outline_state/reveal_repository.py                                34      3  91.2%   74, 76, 78
+modules/story/outline_state/reveal_visibility.py                                26      2  92.3%   45-46
+modules/story/outline_state/scene_draft_review.py                              184     15  91.8%   87, 128, 131, 213, 307, 315, 317, 319, 321, 361-364, 411-412
+modules/story/outline_state/scene_execution_bundle.py                           70     12  82.9%   38-39, 73-75, 81-93, 135
+modules/story/outline_state/scene_facade.py                                    122      6  95.1%   79, 225, 342-349, 434
+modules/story/outline_state/scene_fusion_draft.py                              238     28  88.2%   216, 227, 233, 241-242, 311-312, 380, 418, 461-466, 670, 684-694, 719-720, 837-850, 858
+modules/story/outline_state/scene_replacement.py                               194     28  85.6%   126-127, 139-149, 151-153, 167, 312-320, 323-329, 359-360, 390, 404, 425, 462
+modules/story/outline_state/scene_resolution.py                                178     17  90.4%   102, 107, 197, 209, 214-215, 237, 255, 262, 273-275, 286, 319, 336, 412, 467
+modules/story/outline_state/scene_source_service.py                            144     18  87.5%   170, 175, 186, 194-195, 199, 229-233, 252-253, 255, 282-283, 330-331
+modules/story/outline_state/scene_workbench.py                                 660     73  88.9%   147, 188, 223, 271, 273, 275, 277, 349-350, 422, 463, 562, 594, 627, 633, 640, 737, 782, 785, 796, 799, 818, 831, 833, 874, 881, 985, 1133, 1216, 1235, 1246, 1257, 1272, 1282-1290, 1329-1338, 1445, 1452, 1454, 1528, 1536, 1575, 1577, 1616, 1620, 1630, 1648-1653, 1659, 1665, 1667, 1672, 1718-1719, 1724
+modules/story/outline_state/scene_workbench_fusion.py                          350     52  85.1%   94, 183, 185, 197, 199, 212, 220, 222, 224, 228, 231-232, 242-244, 363, 372, 375, 377-396, 410-412, 446, 503, 592, 685, 687, 689, 691, 703, 717, 763, 817, 830, 880, 912, 923-924, 927, 937, 940, 956, 960
+modules/story/outline_state/scene_workbench_health.py                          204     28  86.3%   62-63, 71-75, 93, 102-111, 160, 175, 255, 360, 401, 417, 435, 443-447
+modules/story/outline_state/schemas.py                                         591      1  99.8%   15
+modules/story/outline_state/services.py                                        560     46  91.8%   108, 110, 237, 248, 257, 554, 636, 667, 676, 685, 691, 769-772, 800-801, 860, 902, 928-930, 990, 1016, 1026, 1047, 1056, 1134, 1198, 1211, 1242-1244, 1269, 1272-1273, 1290-1291, 1307-1308, 1314-1315, 1347, 1449-1450, 1487
+modules/story/outline_state/story_outline_generation.py                        300     35  88.3%   126-128, 177-194, 197, 199, 203, 212, 235, 244, 350, 479, 513, 516, 529, 539, 562, 646-652, 828, 866, 876, 891, 900, 920, 946, 955, 1067
+modules/story/outline_state/story_outline_repository.py                         41      3  92.7%   36-38
+modules/story/outline_state/story_outline_schemas.py                           133      2  98.5%   168, 174
+modules/story/outline_state/story_outline_service.py                           205     16  92.2%   56, 166, 169, 296-297, 316, 318, 362, 467, 471, 478, 483, 497, 519, 534, 544
+modules/story/outline_state/structure_dedup.py                                 375     99  73.6%   90, 134, 149, 162, 200, 202, 229, 232-242, 251, 255, 260, 267, 285, 289, 354-377, 401, 415-417, 419-421, 548-549, 553, 620-627, 659-670, 698-708, 717-730, 739-752, 788, 815, 828-834, 852, 860-864, 880, 900, 907-909, 952-964, 1071, 1073, 1075
+modules/story/outline_state/structure_dedup_facade.py                           13      4  69.2%   43-45, 64-66
+modules/story/outline_state/tasks.py                                           136     15  89.0%   34-36, 45, 50-52, 57, 106, 114, 125, 137, 163, 299, 344
+modules/story/outline_state/thread_facade.py                                    45     20  55.6%   65-84
+modules/story/outline_state/world_dependencies.py                               52      7  86.5%   122-127, 140, 158, 160
+modules/story/proactive.py                                                      89     13  85.4%   33-34, 43, 48-54, 88, 118, 128, 130, 141, 209, 213
+modules/story/rehearsals.py                                                    129     21  83.7%   32, 104, 120, 125, 185, 187, 258, 280, 311-334
+modules/story/repositories.py                                                   90      8  91.1%   37, 109, 118-129, 171, 243, 252-263
+modules/story/scene_source_port.py                                              27      1  96.3%   53
+modules/story/schemas.py                                                       324     16  95.1%   73, 85, 96, 173, 184, 194, 205, 276, 328, 330-332, 335, 340, 344, 346, 359
+modules/story/service.py                                                       457    154  66.3%   71-72, 82-86, 118, 129, 157, 180, 186-189, 297-303, 360, 429-450, 471-493, 518, 522, 525, 728, 737-743, 787, 855-857, 862-869, 885, 887, 889, 904-934, 944-958, 968-1006, 1081, 1085, 1087, 1092, 1135, 1274, 1288-1335
+modules/story/simulation.py                                                    104     11  89.4%   51, 89, 91, 127, 133, 142, 144, 176, 195, 289, 364
+modules/story/tasks.py                                                         216     19  91.2%   55-57, 86, 95, 193, 265, 267, 296, 320, 460, 565, 619, 657-669, 730, 741, 773
+modules/world/api/_shared.py                                                   117      1  99.1%   94
+modules/world/api/adoption.py                                                   53      8  84.9%   126, 140-148, 160-165
+modules/world/api/aliases.py                                                    27      2  92.6%   158, 198
+modules/world/api/bible.py                                                     134     36  73.1%   66, 72-73, 86-89, 117, 161, 171, 202-205, 228, 287, 302, 315-344, 362, 379-380, 393, 406, 474, 533-551, 565
+modules/world/api/canon.py                                                      32      4  87.5%   49, 79-91
+modules/world/api/characters.py                                                 22      1  95.5%   93
+modules/world/api/cocreation.py                                                 55      4  92.7%   197-200
+modules/world/api/entities.py                                                  145     39  73.1%   73, 166, 179-180, 182, 239-240, 280, 288-289, 362, 374-377, 493-542, 556-563, 594
+modules/world/api/events.py                                                     22      6  72.7%   35-36, 46, 56, 67, 77
+modules/world/api/generation_center.py                                         128     15  88.3%   74-76, 81, 102, 122-125, 147-150, 272-273, 276
+modules/world/api/knowledge.py                                                  34      7  79.4%   37-38, 58, 74, 134, 149, 168
+modules/world/api/opening_skeleton.py                                           15      6  60.0%   30-39
+modules/world/api/prompt_templates.py                                           48      2  95.8%   88-89
+modules/world/api/relations.py                                                  32      4  87.5%   53, 125, 160, 181
+modules/world/api/stress.py                                                     23     12  47.8%   16-22, 29-35
+modules/world/api/suggestions.py                                                56     17  69.6%   107, 132-147, 165-180, 199-200, 224-232, 243-250
+modules/world/api/validation.py                                                 86     32  62.8%   50, 80, 91-92, 95-96, 119, 136, 169, 192, 214, 228-229, 244-276, 289-290, 295-296, 309, 322
+modules/world/api/workspace.py                                                  75     18  76.0%   50-58, 68, 79, 92-93, 117-118, 152, 166, 179, 181, 187, 236-241, 253-254, 268
+modules/world/asset_state.py                                                    55      6  89.1%   46, 148-149, 173-175
+modules/world/assistant_cocreation_tools.py                                     57      5  91.2%   50, 60, 62, 84, 138
+modules/world/assistant_map_tools.py                                            83     28  66.3%   54, 75, 77, 106, 109, 149-172, 180-181, 185-212, 226-235
+modules/world/assistant_opening_tools.py                                        43      3  93.0%   40, 73, 111
+modules/world/assistant_outcome_tools.py                                        55     18  67.3%   55, 94, 110-123, 134-142
+modules/world/assistant_page_tools.py                                          111      8  92.8%   36, 38, 149, 176, 215, 230, 273, 294
+modules/world/assistant_ports.py                                                35      1  97.1%   60
+modules/world/assistant_review_tools.py                                         90     28  68.9%   50, 57-65, 138, 168-177, 213, 229-234, 245-263, 275, 306
+modules/world/assistant_tools.py                                               114     24  78.9%   96, 121, 146, 167-178, 190-206, 215-216, 226-237, 256, 271, 287-290, 298-308
+modules/world/authority.py                                                     519     40  92.3%   35, 39, 60, 107, 116, 161, 295, 298, 304, 310, 436-437, 528-530, 566, 568, 573, 585, 592, 598-600, 632, 645, 650, 653, 883, 886, 888, 899, 911, 915, 917, 927, 933, 945-949
+modules/world/canon_import.py                                                   58     10  82.8%   71, 74, 81-82, 104, 106, 133, 144, 166, 169
+modules/world/contracts.py                                                     342      2  99.4%   447, 453
+modules/world/creative.py                                                       35      5  85.7%   66, 72, 74, 76, 90
+modules/world/entity_facade.py                                                 108      9  91.7%   45-47, 426-428, 470-472, 493-495, 549
+modules/world/entity_fusion.py                                                 802    129  83.9%   97-101, 154-157, 214, 230, 238, 269, 317, 343, 431, 508-567, 837, 870, 909, 924, 982, 1027, 1032, 1050, 1068, 1092, 1095, 1105-1128, 1173, 1182-1190, 1196, 1201, 1203, 1225, 1232, 1254, 1260, 1270, 1383-1398, 1561-1563, 1565-1567, 1572-1574, 1601-1606, 1614-1634, 1708, 1710, 1720, 1756, 1799-1800, 1842, 1883, 2001, 2005, 2054, 2061, 2065, 2071-2073, 2086, 2099-2106, 2132, 2162, 2243, 2268, 2313-2314, 2326-2327
+modules/world/event_facade.py                                                   28      2  92.9%   128-130
+modules/world/forecast.py                                                       45     23  48.9%   17-34, 59, 64-73, 80-88, 101-118, 140-142
+modules/world/image_request_reuse.py                                            63      1  98.4%   160
+modules/world/llm_schemas.py                                                   283     11  96.1%   100, 185, 187, 381, 383, 431, 501, 528, 544, 594, 601
+modules/world/map_atlas_api.py                                                 164     54  67.1%   123, 133, 154, 168, 182, 193-195, 206, 220-226, 233, 237, 241-244, 257-278, 286, 291, 299, 312, 325, 338, 343, 359, 372, 389-399, 430, 443, 456, 469, 482, 495, 514, 538-545, 565, 570-571
+modules/world/map_atlas_facade.py                                               42      8  81.0%   43-46, 100-104, 109-111
+modules/world/map_atlas_schemas.py                                             329     22  93.3%   79, 102-109, 199, 204, 220-224, 252-255, 260, 409, 449, 471, 488
+modules/world/map_atlas_service.py                                             804    196  75.6%   110, 126, 143-162, 176, 191, 263-264, 271-283, 294, 312, 314, 319, 341-346, 351-353, 364, 371-385, 551, 554-555, 563, 570, 679, 689, 700, 711, 736, 738, 755-778, 783-786, 819, 835, 837, 839, 857-863, 868, 903-994, 1043, 1049, 1066, 1089, 1125, 1139-1140, 1164, 1170, 1180-1227, 1242, 1249, 1266, 1268, 1282, 1284, 1297-1299, 1371, 1428, 1447, 1460, 1504-1505, 1507, 1510, 1519, 1523, 1533, 1539, 1546, 1586, 1598, 1613, 1622, 1693, 1730, 1776, 1795, 1802-1811, 1817-1831, 1952-1960
+modules/world/map_atlas_storage.py                                             337     55  83.7%   43, 51, 70, 72, 85, 94, 98, 109, 111, 113, 117-119, 122, 131, 133, 149, 162, 171, 175, 180, 185, 193, 209, 223, 238, 246, 254, 276-277, 288, 342, 352, 360, 370, 382-386, 391, 393, 395, 407, 420, 422, 439, 471-477, 496
+modules/world/map_atlas_tasks.py                                                70     12  82.9%   35, 46, 50-51, 62, 71, 75, 110, 137, 151, 166, 178
+modules/world/map_atlas_workflow.py                                           1056    356  66.3%   174, 189, 199-200, 262, 281-282, 284, 307-315, 322, 326, 328, 356, 374-389, 394-406, 442, 452, 460, 463, 530, 546, 576, 594, 599-600, 616, 621, 636, 643-644, 791-796, 798, 805, 810, 812, 822, 855, 945, 981, 984, 991, 996, 1028, 1058, 1080-1109, 1154, 1200, 1217, 1241-1258, 1276-1278, 1288-1294, 1296, 1329-1330, 1355-1358, 1423-1613, 1655, 1670, 1699, 1714, 1728, 1786, 1804, 1867, 1942-1943, 1945, 1948, 1951-1952, 1970, 2004, 2021, 2043-2061, 2075-2077, 2147, 2154, 2165-2178, 2206, 2237-2307, 2326, 2357-2360, 2378-2379, 2381, 2385-2409, 2419-2461, 2465-2540, 2549-2562, 2594, 2596, 2626
+modules/world/map_scene_context.py                                              43      2  95.3%   69, 105
+modules/world/map_source_consumption.py                                         51      4  92.2%   56-58, 62
+modules/world/map_structure_geometry.py                                        237     13  94.5%   161, 187, 199, 269-270, 281, 297-298, 363, 394, 403, 468, 470
+modules/world/map_structure_images.py                                           65     24  63.1%   25, 28, 34, 54, 57-65, 67, 120, 124-160
+modules/world/map_structure_review.py                                           60      3  95.0%   86, 98-99
+modules/world/map_structure_schemas.py                                         323     27  91.6%   67, 72, 88, 91, 112, 119, 121, 156, 158, 160, 183, 185, 188, 213, 215, 217, 219, 223, 225, 227, 229, 249, 269, 271, 285, 383, 387
+modules/world/map_structure_service.py                                         491     76  84.5%   91, 109, 210, 243, 252, 276-292, 309, 325-327, 374, 380-391, 395-396, 423, 428, 441, 457, 533-545, 564, 623-627, 703-704, 790, 848-858, 864-872, 882, 892, 897, 911, 916, 992-1009, 1032, 1067, 1086, 1154, 1159-1164
+modules/world/map_structure_workflow.py                                        359     50  86.1%   81, 83, 85, 87-95, 102-140, 148, 180, 183-184, 191, 218, 232, 284, 317, 421, 617, 633, 644, 670-671, 729, 735, 753, 801-805, 828-832, 869-870, 879, 897
+modules/world/models/character.py                                               41      2  95.1%   140, 205
+modules/world/models/common.py                                                  18      3  83.3%   60-61, 70
+modules/world/models/core.py                                                    94      5  94.7%   171, 233, 346, 419, 510
+modules/world/relation_schemas.py                                               93      3  96.8%   149, 161, 166
+modules/world/repositories.py                                                  848    125  85.3%   44-50, 145, 163-178, 388, 401, 406, 411, 644, 651-675, 719, 721, 760, 833, 880-895, 936-937, 987, 1004-1006, 1023-1025, 1047, 1071-1097, 1222, 1226, 1441, 1471, 1538, 1540-1543, 1559, 1561, 1563, 1595, 1597, 1599, 1601-1604, 1620, 1622, 1624, 1651-1667, 1678-1694, 1703-1714, 1763-1777, 1789, 1817, 1875-1909, 1958, 2003, 2045, 2093-2100, 2121-2130, 2284, 2306, 2458, 2690
+modules/world/revision_history_schemas.py                                       82      4  95.1%   46, 49, 126-127
+modules/world/schemas/_common.py                                                28      2  92.9%   32, 48
+modules/world/schemas/adoption.py                                              287     25  91.3%   100, 131, 135, 151, 155, 157, 159, 165, 171, 225, 229, 276, 278, 282, 286, 290, 351, 357, 362, 364, 366, 418, 427, 430, 432
+modules/world/schemas/aliases.py                                               112      4  96.4%   135, 153, 156, 161
+modules/world/schemas/ask_world.py                                              79      4  94.9%   67, 69, 86, 88
+modules/world/schemas/bible.py                                                 281      9  96.8%   73, 129-130, 203, 209, 211, 308, 310, 312
+modules/world/schemas/cocreation.py                                             18      1  94.4%   46
+modules/world/schemas/design.py                                                136      3  97.8%   112, 125, 163
+modules/world/schemas/entities.py                                              142      1  99.3%   241
+modules/world/schemas/extraction.py                                             44      2  95.5%   104, 109
+modules/world/schemas/generation.py                                            429     11  97.4%   323, 327, 349, 365, 384, 386, 396, 398, 431, 433, 435
+modules/world/schemas/library.py                                               103      1  99.0%   84
+modules/world/schemas/relations.py                                             229     14  93.9%   108, 245, 274, 284, 286, 288, 291, 293, 296, 301, 303, 311, 329, 338
+modules/world/schemas/suggestions.py                                           172      7  95.9%   36, 38, 50-51, 70-71, 186
+modules/world/schemas/validation.py                                            340     25  92.6%   70, 74, 76, 85, 95, 99, 101, 109, 136-137, 140, 149, 159, 161, 213, 216, 219, 221, 323, 327, 329, 331, 333, 335, 339
+modules/world/schemas/workspace.py                                             248      9  96.4%   129, 168-171, 196, 223, 232, 340
+modules/world/schemas/worldstate.py                                            243     14  94.2%   72, 88, 119, 121, 137, 155, 183, 203, 205, 222, 224, 241, 257, 343
+modules/world/services/attention_summary_service.py                            186     10  94.6%   71, 97-98, 114, 163, 187, 207, 280, 408-409
+modules/world/services/common.py                                                83      5  94.0%   167, 176-179
+modules/world/services/core/character_knowledge_service.py                      68      2  97.1%   132, 156
+modules/world/services/core/character_service.py                               275     18  93.5%   76, 79, 95, 120, 132, 157, 180-181, 298, 464-465, 475-476, 555-556, 584, 650-651
+modules/world/services/core/dedup_scorer.py                                    189     35  81.5%   140-142, 151-153, 183, 222, 232, 237-238, 241, 246, 253-255, 275, 285, 292, 295-304, 326, 348, 351, 361, 388, 393
+modules/world/services/core/dedup_service.py                                   348     18  94.8%   101, 126-128, 139, 238, 336, 349, 497, 649-653, 669-673, 736-737, 749
+modules/world/services/core/entity_activity_invalidation.py                     23      6  73.9%   30-33, 36-37
+modules/world/services/core/entity_alias_service.py                            660    109  83.5%   103, 123, 131, 154, 163, 168, 188, 191, 259, 341, 480, 482, 484, 486, 488, 490, 495, 500, 504, 616, 659, 661, 668, 715-716, 736, 789, 796, 801, 892, 941, 950, 993, 1026, 1056, 1066, 1082, 1125, 1177, 1179, 1181, 1186, 1210, 1356, 1370, 1376-1396, 1437, 1493, 1510-1542, 1550-1569, 1590-1594, 1597
+modules/world/services/core/entity_context_service.py                          155     13  91.6%   32, 130-135, 227, 237, 239, 244-250, 308
+modules/world/services/core/entity_relation_service.py                         751     65  91.3%   68, 70, 72, 160, 222, 330, 449-451, 470, 477, 479, 481, 491, 531, 533, 535, 541, 547, 549-560, 562, 569, 575, 579, 581, 597, 661, 744-745, 747, 757-758, 903, 927, 1020, 1031, 1043, 1045, 1049-1054, 1089, 1115, 1242, 1251, 1263, 1292, 1315, 1337, 1463, 1473, 1580, 1643, 1658, 1662, 1676, 1744-1745, 1826-1841
+modules/world/services/core/entity_revision_service.py                         194     19  90.2%   366, 404-411, 449-459, 503-521, 543
+modules/world/services/core/entity_service.py                                  361     16  95.6%   99, 226, 229, 231, 233, 368, 372, 395, 417-418, 423, 498, 661, 674-675, 821
+modules/world/services/core/entity_type_transition_service.py                  175     12  93.1%   59, 62, 177-201, 240, 243, 423-427, 495, 518
+modules/world/services/core/event_service.py                                    96      2  97.9%   127, 204
+modules/world/services/core/focused_world_read.py                               68      2  97.1%   27, 70
+modules/world/services/core/knowledge_visibility_service.py                    136      7  94.9%   56, 136-138, 243, 265, 292
+modules/world/services/core/review_queue.py                                     56      4  92.9%   316, 325, 336, 347
+modules/world/services/core/review_resolution.py                               178     67  62.4%   107, 132-135, 163, 181, 197, 226, 241, 243, 253, 260-293, 297, 303, 330, 333, 335-340, 352, 385, 394, 432-555
+modules/world/services/revision_history_service.py                             100      4  96.0%   85, 101, 119, 281
+modules/world/services/revision_notes.py                                        73      7  90.4%   41, 113, 154-159
+modules/world/services/worldbuilding/activation_preview_service.py             111     20  82.0%   53, 79, 81, 143-144, 168-186, 206-215, 223-235, 243-244, 281, 301, 330-336
+modules/world/services/worldbuilding/activation_target_service.py              175     43  75.4%   55-56, 97-110, 156-157, 230-245, 296, 316-317, 356, 402-403, 427, 455-456, 462-465, 505-515, 536-542
+modules/world/services/worldbuilding/adoption_package_service.py               678     67  90.1%   77, 103, 140, 148, 199, 218, 222, 232, 247, 261, 269, 271, 279, 415, 417, 426-448, 467, 492, 528, 576-577, 633, 636, 639, 660-664, 697, 742, 894-918, 1034, 1048, 1052-1060, 1184, 1236, 1251, 1258, 1266, 1400, 1407, 1423, 1449, 1452, 1570, 1575, 1593, 1606, 1714, 1723, 1770, 1776, 1784, 1804, 1825
+modules/world/services/worldbuilding/applied_change_reversal.py                 96      2  97.9%   101, 112
+modules/world/services/worldbuilding/ask_world_retrieval.py                     32      1  96.9%   54
+modules/world/services/worldbuilding/ask_world_service.py                      266     28  89.5%   196-198, 250, 259, 279-288, 306, 335-351, 391, 395, 487-490, 802-803, 817
+modules/world/services/worldbuilding/author_migration.py                       596     74  87.6%   111, 133, 209, 253, 333, 348-359, 378-384, 388, 390, 393-394, 432-433, 440-453, 458, 466, 470, 473, 477-479, 497-499, 539-540, 564, 567-572, 587, 589, 607-608, 613-615, 624-626, 673-675, 742-750, 865, 885, 924, 1094
+modules/world/services/worldbuilding/cocreation_session_service.py              82     15  81.7%   29, 33, 37, 41, 43, 50, 62, 72, 99, 130-142, 160
+modules/world/services/worldbuilding/conflict_queue_service.py                  64     11  82.8%   158, 180-194
+modules/world/services/worldbuilding/focused_adoption.py                       263     57  78.3%   68, 76, 78, 80, 82, 87, 105, 109-127, 179-185, 200, 207, 212-213, 220, 261, 264, 287, 292, 310, 315, 334, 336-337, 348, 352, 360, 364, 375, 379, 383, 390, 392, 402, 418-419, 427, 430, 436, 483-484, 513, 541, 559
+modules/world/services/worldbuilding/generation_center/chat.py                  64      2  96.9%   159, 212
+modules/world/services/worldbuilding/generation_center/convergence.py          253     29  88.5%   93, 104-108, 169, 253-255, 303, 389, 393, 566, 568, 570, 573, 578, 585, 587, 593, 620, 647, 649, 651, 720, 726, 729, 746, 753, 759
+modules/world/services/worldbuilding/generation_center/design_iteration.py     227     11  95.2%   65, 67, 81, 117, 203, 235-239, 361, 380, 750
+modules/world/services/worldbuilding/generation_center/exploration.py          142     18  87.3%   104, 112-119, 145, 164, 177, 197, 224, 263-264, 285-293, 383, 461
+modules/world/services/worldbuilding/generation_center/inspection.py            64      8  87.5%   62, 68, 94, 102, 135-142, 249
+modules/world/services/worldbuilding/generation_center/llm_runs.py             136      4  97.1%   271-277, 392, 534
+modules/world/services/worldbuilding/generation_center/preparation.py          301     50  83.4%   186-189, 304-313, 347, 349, 354, 390-398, 546-557, 572-586, 609-612, 667-669, 704, 714, 730, 741-742, 839, 850-851
+modules/world/services/worldbuilding/generation_center/shared.py                54     11  79.6%   377-395
+modules/world/services/worldbuilding/generation_center/suggestions.py          237     16  93.2%   80, 102-103, 600, 657, 680, 683-684, 707, 771-779, 797, 804, 903
+modules/world/services/worldbuilding/generation_prompt_template_service.py     335     32  90.4%   212, 214, 247, 249, 251, 255, 257, 279, 293, 321-326, 432-456, 502, 543, 626, 733, 926, 937-945, 947
+modules/world/services/worldbuilding/knowledge_governance.py                    77      9  88.3%   44, 99, 225, 239-256
+modules/world/services/worldbuilding/knowledge_graph_service.py                101     13  87.1%   38, 42, 65-69, 77, 79, 116-118, 308
+modules/world/services/worldbuilding/knowledge_tag_service.py                  112     38  66.1%   40-55, 69-76, 89-103, 122, 151-153, 205-209, 269-276
+modules/world/services/worldbuilding/opening_skeleton.py                       412     50  87.9%   110-121, 145, 282, 355, 489-514, 671-672, 767-768, 774-777, 782-783, 844, 847, 866, 882-883, 898-900, 905-907, 914, 916, 919, 971, 976, 995, 1058, 1081-1090, 1099-1101
+modules/world/services/worldbuilding/page_template_service.py                  126     13  89.7%   125, 133, 188, 195, 251, 331-333, 343, 346-355
+modules/world/services/worldbuilding/profile_service.py                        120     36  70.0%   34-47, 55-56, 70, 92, 95, 145, 157, 228-249, 256-261, 265, 279-280
+modules/world/services/worldbuilding/reader_safety_service.py                   35     25  28.6%   30-80
+modules/world/services/worldbuilding/structured_reference_retry.py              15      1  93.3%   35
+modules/world/services/worldbuilding/suggestion_queue_service.py               435     45  89.7%   114, 133, 275-284, 310, 322-323, 352, 359, 364, 392, 398, 400, 458, 472-484, 518-521, 605, 640, 732, 747, 751, 753, 863, 898, 961-993, 1007, 1091-1097, 1123-1131, 1172, 1203
+modules/world/services/worldbuilding/world_authority_service.py                548    154  71.9%   105, 181, 237, 252, 311, 364, 366, 386-404, 446, 466, 498-525, 544, 628, 681, 774, 803, 810, 823, 834, 836, 841, 843-851, 853, 873-874, 876, 879-880, 960, 967, 970-971, 987, 1003, 1005, 1062-1065, 1067, 1069-1070, 1074, 1093-1181, 1190, 1199, 1202-1203, 1228, 1246, 1266, 1282, 1287, 1302, 1306-1307, 1324, 1326, 1333, 1385, 1391, 1411, 1425, 1446-1447, 1457, 1466-1495, 1509, 1529
+modules/world/services/worldbuilding/world_bible_lifecycle_service.py          685     49  92.8%   222, 353, 361, 363, 393, 410-420, 450, 511, 585, 631, 809, 888, 1045-1046, 1059-1063, 1123, 1128-1129, 1138, 1220-1222, 1334, 1343, 1432, 1456, 1572, 1691, 1713, 1798, 1809, 1813, 1821, 1827-1828, 1837, 1867, 2021-2022
+modules/world/services/worldbuilding/world_bible_service.py                     96     27  71.9%   57, 107, 147-157, 212-232
+modules/world/services/worldbuilding/world_bible_synopsis_service.py           571     83  85.5%   122, 147-151, 155-159, 170, 205-212, 236, 290, 317, 320, 341-342, 365, 442-482, 489-495, 502, 648, 664, 694, 697, 704-708, 768, 916, 939, 970, 983, 991-998, 1009-1016, 1033-1039, 1080-1081, 1147-1150, 1266, 1309, 1328-1329, 1405-1406, 1432, 1455
+modules/world/services/worldbuilding/world_design_iteration.py                 191     14  92.7%   57-62, 107, 238-240, 266, 269, 336-337, 371
+modules/world/services/worldbuilding/world_impact_service.py                   276     56  79.7%   60, 87, 96-119, 148, 168, 182, 234, 249, 262-270, 387, 402-417, 425-426, 467-468, 482, 485-486, 538, 540-544, 565-566, 614-615, 662-664, 701, 757-759, 789-790
+modules/world/services/worldbuilding/world_library_service.py                  645     42  93.5%   149, 151, 153, 160, 211, 638, 796, 1083, 1242, 1264, 1269, 1308, 1311, 1337, 1346, 1367, 1383, 1399, 1431, 1537-1538, 1626-1627, 1629, 1687, 1713, 1738-1745, 1756, 1770, 1826, 1835, 1847, 1849, 1858, 1902, 1941, 1968, 1971-1972
+modules/world/services/worldbuilding/world_validation_engine.py                432     89  79.4%   50-56, 58, 64, 66, 68, 71-76, 82, 103-105, 149, 275-276, 295, 324, 366, 396, 477, 516, 527, 538, 578, 591, 605, 628-670, 708-709, 711-714, 727-737, 803-813, 823, 834-844, 846, 870, 881, 883, 909, 992-1002, 1030-1036, 1053, 1064, 1079-1081, 1086-1095, 1114, 1128-1136, 1225, 1234, 1278, 1280, 1285
+modules/world/services/worldbuilding/world_validation_service.py               814    137  83.2%   164, 234, 298-306, 336-340, 346, 409, 422, 442-445, 458, 472, 597, 650, 652, 657, 702, 710, 723, 728-738, 751, 800, 802, 804, 844, 875, 888-930, 938, 951, 976, 1006-1025, 1055, 1064, 1087, 1100, 1113, 1137, 1165, 1167, 1186, 1198-1202, 1241-1297, 1345, 1366, 1392-1398, 1443, 1481-1483, 1489-1491, 1564, 1582, 1585, 1748, 1815, 1864, 1866, 1907, 2045, 2143, 2161, 2207, 2209, 2273-2282, 2329, 2340, 2380, 2382, 2388, 2390-2398, 2424, 2444
+modules/world/services/worldbuilding/worldbook_import_service.py               616     38  93.8%   214, 233, 248, 274, 312, 444, 550-551, 608, 611, 614, 682, 783, 1000-1001, 1003, 1011, 1014, 1018, 1025, 1030, 1033-1035, 1040, 1046, 1080, 1105, 1158, 1245, 1290, 1296, 1300, 1338, 1348, 1351, 1385, 1595
+modules/world/state_assembler.py                                                81      3  96.3%   174, 271, 287
+modules/world/tasks.py                                                         416     88  78.8%   89-90, 142-143, 182, 209, 215, 217, 219, 221, 226, 228, 231, 240, 258, 296, 332-333, 384, 390, 402, 404, 406-409, 461, 465, 482, 508, 525, 591, 637-682, 713, 740, 769-784, 794, 799-801, 854-904, 931, 960, 972-974, 1006
+modules/world/team_stress.py                                                   158     30  81.0%   99-107, 125-146, 178, 192, 198, 219, 234, 263, 265, 269, 276, 297, 312, 363, 366, 410
+modules/world/world_background.py                                               95     16  83.2%   51, 55, 182-183, 223, 294, 320-339
+modules/world/world_object_image_generation.py                                 297     26  91.2%   86, 89-90, 113, 168, 202, 230, 240, 244, 328-333, 424, 462, 510, 567, 581, 586, 602, 655, 659, 684, 686, 717-718
+modules/world/world_object_images.py                                           207     37  82.1%   51, 70, 86, 123, 126, 139, 145, 154-170, 196, 209, 235, 275, 299-300, 302-316, 338, 359-365, 383, 386, 428
+modules/world/worldbook_import_schemas.py                                      126      2  98.4%   178, 187
+modules/world/worldbuilding_facade.py                                           88     18  79.5%   34, 120-124, 197-201, 225-230, 267-271, 286-288, 310-312, 316-318, 322-324
+modules/writing/api.py                                                         280     47  83.2%   131-134, 234-235, 237-242, 266-267, 359-362, 383-386, 442, 469-470, 476-479, 492-496, 509-513, 527-533, 592-594, 669, 682-683, 719-724, 851-861
+modules/writing/assistant_candidate_tools.py                                    71     22  69.0%   38-57, 70-82, 92-106, 126, 129, 136, 139
+modules/writing/assistant_generation_tool.py                                    64     14  78.1%   47, 65-80, 89, 105, 122, 167-170
+modules/writing/assistant_tools.py                                             155     62  60.0%   72, 102-121, 142-161, 172-176, 186, 192, 203-233, 237-238, 244-245, 260, 267-275, 286-305, 322-354, 372, 379, 389, 399, 422
+modules/writing/author_example_stats.py                                         51      5  90.2%   43-46, 141, 147
+modules/writing/comment_run.py                                                 172     14  91.9%   93, 116, 151, 169, 214, 270, 287, 292, 348, 361-364, 367, 374, 386
+modules/writing/comments.py                                                    152     23  84.9%   97, 120-136, 173, 180, 214, 216, 218, 222, 224, 248, 250, 267, 303, 311
+modules/writing/conflict_ai.py                                                 338     52  84.6%   119, 121, 149, 190-191, 201, 205-206, 215-226, 233, 301, 328-329, 342, 349-350, 438, 491-492, 512, 519-520, 616, 620-651, 672-678, 686, 732, 760, 767, 772, 782, 803, 950, 958, 985, 1017
+modules/writing/conflict_check_service.py                                      551     75  86.4%   116, 118, 130-131, 139, 154-156, 173, 215, 267-273, 371, 413, 417, 422, 454, 458-465, 469, 472-476, 507, 617, 636-645, 661, 819-824, 841-846, 894, 926-940, 950, 1030-1033, 1038, 1046, 1050, 1098, 1184, 1188, 1193-1196, 1198, 1212-1226, 1263, 1301, 1305-1307, 1322, 1327-1328, 1330, 1347-1348, 1457
+modules/writing/conflict_evidence.py                                            20      1  95.0%   39
+modules/writing/creative.py                                                     37      5  86.5%   43, 52, 56, 58, 60
+modules/writing/draft_service.py                                               593     48  91.9%   86, 89, 243, 256-257, 275, 380, 383, 499, 505, 513, 545, 553, 647-648, 789-791, 797-799, 809-811, 813-815, 817-819, 906, 950, 986, 1008, 1021, 1054, 1057, 1078, 1098, 1145-1146, 1190, 1209, 1273, 1297, 1300, 1327, 1354
+modules/writing/facade.py                                                       71      5  93.0%   148, 346-348, 387-389
+modules/writing/forecast.py                                                     28      8  71.4%   22, 30, 49-59, 84-85
+modules/writing/generation_service.py                                          293     20  93.2%   93, 172-173, 247-248, 271, 381, 386, 459, 463, 479, 483, 485, 487, 489, 496, 523, 572, 606, 1032
+modules/writing/manuscript_source.py                                           218     23  89.4%   73, 77, 185, 225-226, 271, 279, 294, 396, 398, 407, 411, 413, 415, 418, 450, 469, 512, 516, 518, 535, 565-566
+modules/writing/models.py                                                       95      1  98.9%   99
+modules/writing/pov_generation.py                                              132      7  94.7%   82-83, 97, 100-101, 114, 194
+modules/writing/project_ports.py                                                70      5  92.9%   156, 183, 207, 210-211
+modules/writing/recompute.py                                                   204     13  93.6%   250-251, 293, 400, 451, 495-514, 585, 593
+modules/writing/repositories.py                                                474     25  94.7%   164, 167, 231, 639, 721, 844, 846, 865, 1039, 1060, 1296-1304, 1351-1354, 1449, 1490, 1529, 1544, 1596
+modules/writing/schemas.py                                                     572     17  97.0%   70, 74, 235-240, 247, 252, 362, 590, 598, 629, 631, 881, 905
+modules/writing/semantic_review.py                                             680    143  79.0%   60, 89, 129, 152, 159-161, 177, 196-204, 215-217, 225, 305, 308, 337, 395-408, 413-419, 435, 470-476, 479, 486, 494, 498, 534, 537-541, 543, 545-550, 623-624, 739, 741, 768, 967, 1052, 1055, 1106, 1130, 1168-1174, 1208-1209, 1226, 1235-1237, 1304-1355, 1388, 1393, 1574-1614, 1638, 1645, 1647, 1664, 1676-1690, 1717, 1727, 1730, 1741, 1748, 1750-1752, 1805, 1915, 1924, 1946, 1953
+modules/writing/service_support.py                                             213      7  96.7%   172, 405, 408-409, 412, 436, 456
+modules/writing/source_hashing.py                                               23      2  91.3%   22-23
+modules/writing/tasks.py                                                       194     21  89.2%   146, 242, 244, 246, 304, 306, 352, 372-374, 391-400, 425, 427, 429, 484
+modules/writing/text_sanitizer.py                                               61     10  83.6%   65, 68-70, 73, 80-81, 84, 87, 94
+shared/deep_import_settings.py                                                 149     17  88.6%   274, 278-279, 341-342, 358, 365-373, 393-394
+shared/target_ref.py                                                            42      2  95.2%   74, 76
+----------------------------------------------------------------------------------------------------------
+TOTAL                                                                       116409  15362  86.8%
+
+175 files skipped due to complete coverage.
+Required test coverage of 85.0% reached. Total coverage: 86.80%
+=========================== short test summary info ============================
+FAILED tests/unit/test_test_harness.py::test_automated_backend_quality_targets_use_the_locked_ci_runner
+====== 1 failed, 7754 passed, 2 skipped, 13 warnings in 194.06s (0:03:14) ======
+make: *** [test-fast-coverage] Error 1

@@ -122,6 +122,7 @@ async def list_manuscript_sources(db, novel_id, chapter_indices=None, *, content
 async def grep_manuscript(db, novel_id, pattern, *, content_mode="canonical", ...) -> ManuscriptSearchPageContract
 async def read_manuscript_range(db, novel_id, source_ref, *, before_paragraphs=0, after_paragraphs=0) -> ManuscriptReadContract
 async def build_manuscript_range_ref(db, novel_id, draft_id, start_offset, end_offset) -> SourceRangeRefContract
+async def get_historical_source_identities(db, novel_id, draft_ids) -> list[dict]
 async def submit_comment_revision(db, novel_id, *, operation_id, selections: list[CommentRevisionSelectionContract]) -> CommentRevisionReceiptContract
 ```
 
@@ -151,6 +152,8 @@ RP source revision 的 manifest 保存具体 draft ID/version/content hash。新
 和 offset。Evidence 对冻结 manifest 做批量回读时使用 novel-scoped `list_drafts_by_ids()`，避免逐条
 查询且仍逐项重验 content hash。`deprecate_chapter_versions()` 只供已二次确认的 RP 完整稿移除调用，
 不硬删历史正文。
+
+`get_historical_source_identities()` 供地图来源核对只读消费：在 owner + novel 门禁内，仅查询历史稿 ID、章号、版本、content_hash、status 与 provenance 的 `deprecated_from_status` 单键，不加载正文或完整 provenance。既有 `list_drafts_by_ids()` 原文回读契约不变。
 
 `facade.list_latest_drafts_for_chapters(..., content_limit=N)` 供跨模块批量加载正文时做 DB-side 截断；默认 `None` 保持返回完整最新正文。`content_limit` 必须为正整数，启用时仅投影跨模块契约必要字段，不加载完整 `WritingDraft` ORM。
 

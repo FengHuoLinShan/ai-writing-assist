@@ -2,6 +2,7 @@
   <details v-if="notice.coverageOnly" class="writing-coverage-note" aria-label="本次保存的资料核对范围">
     <summary>查看资料核对范围</summary>
     <p v-if="notice.hasUnknownScope">{{ notice.unknownScopeNote }}</p>
+    <p v-if="notice.coverageNote">{{ notice.coverageNote }}</p>
     <p>尚未确定有内容需要重算；你可以继续写作。</p>
     <button type="button" class="btn btn-sm" @click="$emit('open')">查看核对详情</button>
   </details>
@@ -13,6 +14,13 @@
     <p class="writing-invalidation-notice__hint">
       现在可以继续写作；需要时再从这里查看受影响的内容并选择重算。
     </p>
+    <ul v-if="notice.mapEntries?.length" class="writing-invalidation-notice__maps">
+      <li v-for="entry in notice.mapEntries" :key="entry.key">
+        <span>{{ entry.scopeLabel }}</span>
+        <button v-if="entry.mapNodeId" type="button" class="btn btn-sm" @click="getRouter()?.navigate('map', null, true, `node_id=${encodeURIComponent(entry.mapNodeId)}`)">去地图核对</button>
+      </li>
+    </ul>
+    <p v-if="notice.coverageNote">{{ notice.coverageNote }}</p>
     <button type="button" class="btn btn-sm writing-invalidation-notice__open" @click="$emit('open')">
       查看受影响与重算选项
     </button>
@@ -20,6 +28,7 @@
 </template>
 
 <script setup>
+import { getRouter } from "../../../bridge/index.js"
 defineProps({
   notice: { type: Object, required: true },
 })
@@ -41,6 +50,9 @@ defineEmits(["open"])
   gap: 4px;
   min-width: 0;
 }
+.writing-invalidation-notice__maps { margin: 0; padding-left: 18px; overflow-wrap: anywhere; }
+.writing-invalidation-notice__maps li { margin-top: 4px; }
+.writing-invalidation-notice__maps button { margin-left: 6px; white-space: normal; }
 .writing-invalidation-notice__headline,
 .writing-invalidation-notice__unknown,
 .writing-invalidation-notice__hint {

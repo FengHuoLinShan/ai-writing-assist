@@ -1,0 +1,2 @@
+cd /Users/tywww/Desktop/项目/ai-writing-assist/.worktrees/audit-g8-atlas-invalidation/backend && python -m tools.prompt_contracts check
+Prompt contracts passed (26 contracts).

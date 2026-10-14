@@ -87,7 +87,7 @@ _DEPENDENCY_BASELINE: dict[str, int] = {
     "directed_edges": 65,
     "bidirectional_pairs": 9,
     "top_level_bidirectional_pairs": 0,
-    "function_level_imports": 524,
+    "function_level_imports": 522,
     "world_core_to_worldbuilding": 0,
     "world_worldbuilding_to_core": 26,
 }

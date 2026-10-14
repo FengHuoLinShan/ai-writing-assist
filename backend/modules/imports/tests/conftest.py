@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import uuid
-
 import pytest
+import pytest_asyncio
 
 from modules.imports.repositories import ImportRecordRepository
 from modules.imports.services import ImportService
@@ -39,11 +38,11 @@ def sample_txt_no_chapters() -> bytes:
     return "这是一篇没有分章的纯文本内容。只有一段话。".encode()
 
 
-@pytest.fixture
-def imports_test_project_id() -> str:
-    return str(uuid.uuid4())
+@pytest_asyncio.fixture
+async def imports_test_project_id(project_factory) -> str:
+    return str(await project_factory.create_project())
 
 
-@pytest.fixture
-def sample_novel_id() -> str:
-    return str(uuid.uuid4())
+@pytest_asyncio.fixture
+async def sample_novel_id(project_factory) -> str:
+    return str(await project_factory.create_project())

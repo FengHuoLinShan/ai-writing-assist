@@ -74,7 +74,7 @@ V4 长期计划（`docs/plans/novelcraft-v4/plans/01-EVOLUTION.md`）的演化�
   场景更新/撤销/融合/拆分/重排均接相同边界；派生事件标 source_stale，演化 run
   推进 epoch 并记录待重算范围，不自动发起付费重算。作者确认与已提交回执保留。
   地图直接重读 Story 合法事件，不维护第二份事实；`world_knowledge` 在每次 Story 读取时按当前
-  ReaderRevealPolicy 重判。Map Atlas 与 `world_canon_revision` 尚无 Evolution 消费登记，仍在回执
+  ReaderRevealPolicy 重判。Map Atlas 当前已保存版本的正文来源已有建议性核对；其余来源与 `world_canon_revision` 仍在回执
   显式列为 unsupported，不以局部完成冒充全量失效。状态视图侧的读时基线比对
   见 [M4 契约](../plans/2026-10-07-m4-dependency-invalidation-contract.md)。
 - 消费登记与影响评估（P2-C，`consumption.py`/`registration.py`/`impact.py`）：
@@ -215,7 +215,7 @@ Scene 起点，若前序变化则保守扩大。继承场景还须是当前最�
 及来源首变位置确定保守后缀，实际目标、起点和扩大说明一起进入确认指纹与分段授权。
 这已覆盖目标选择、顺序编译和整场状态相等时的传播停止；P4 消费输入证明进一步在实际
 Scene/Discovery/World 组执行点复用输入未变的调用结果，未知依赖继续保守重做。
-World 正典修订、地图册与世界知识的来源版本失效闭包继续明确列为 unsupported，
+World 正典修订、地图册非正文/待审来源与世界知识的来源版本失效闭包继续明确列为 unsupported，
 不以读时可见性判断或调用复用冒充这些接线。
 
 ### 剧情结构阶段（Phase 3 迁移）
@@ -452,7 +452,7 @@ Discovery 仅对完整来源/资格/身份相同的观察做一对一引用映�
 回执只留原调用；缺 read-set、sampling/failed、schema/Prompt/配置变化均不复用。
 World 分组 scope 使用候选、来源及身份上下文的内容身份，组输入未变可独立复用；不复制
 已物化正史或旧认证，所有独立复核输出仍在当前 scope 重物化。原整场语义相等的早停继承
-继续保留。Story 按字段和实际区间登记失效；world_knowledge/map_atlas/world_canon_revision
+继续保留。Story 按字段和实际区间登记失效；world_knowledge、地图册非正文/待审来源与 world_canon_revision
 缺失来源版本闭包继续明确 unsupported，不据输入缓存宣称这些缝已完成。
 
 `POST /reading/{run_key}/category-rescan-preview` 按已读 Scene 区间及类别注册表选类，
@@ -467,3 +467,21 @@ World 分组 scope 使用候选、来源及身份上下文的内容身份，组�
 
 本轮只作合成数据的离线工程验证；语言习惯/外在特征是当前新增类别，重要物件/规则后果
 仍按原计划等待长篇分布裁定。P4-E 实际费用/质量、封存盲验与作者试用均未执行。
+
+## 已发布正文变化与地图核对（G8a）
+
+Writing 的 `published_changed` 在同事务内通过 `world.read_map_chapter_consumers` 只读 DI port
+核对最多 200 个 saved current head 和 1000 条正文来源。node/revision 同时按 novel 过滤，
+项目门禁验证当前 owner；Writing 的 `get_historical_source_identities` 仅投影同作品历史稿的
+ID、章节、版本、content_hash、status 与 `deprecated_from_status` 单键，不加载正文或完整
+provenance；来源须是
+published 或保留 published 来源标记的历史稿。当前地图引用与当前 canonical 身份不同才
+进入 `invalidated_consumers.map_atlas`，较旧历史引用也需核对；撤回/删除后的空 canonical
+同样披露旧引用，同章当前版本不误报，working 保存不触发。
+
+这是建议性登记，地图名与对应章节及“去地图核对”入口出现在写作回执中；地图内容、status、
+append-only revision/CAS、World 正史均不改。地图不置 chapter_registered、不进入
+Scene 窗口或重算选项；原 Scene 保守扩大语义保留。超出上限标 truncated，来源 ID/hash/章
+不能重验时计 unverified_sources 并说明未完整核对；DB 查询经 SAVEPOINT 失败可降级显示
+“地图册未核对”，不阻断正文失效。对象、世界书页来源与待审 candidate 仍为 map_atlas
+残余 unsupported，world_canon_revision 与 world_knowledge 不因此闭合。

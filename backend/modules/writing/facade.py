@@ -38,6 +38,7 @@ __all__ = [
     "get_project_writing_stats",
     "grep_manuscript",
     "get_manuscript_source_manifest",
+    "get_historical_source_identities",
     "scan_manuscript_terms",
     "list_chapter_indices",
     "list_creation_progress",
@@ -317,6 +318,13 @@ async def build_manuscript_range_ref(
         end_offset=end_offset,
         content_mode=content_mode,
     )
+
+
+async def get_historical_source_identities(
+    db: AsyncSession, novel_id: str, draft_ids: list[str]
+) -> list[dict]:
+    """Owner/novel-scoped historical draft identity without original text."""
+    return await _manuscript_source.historical_source_identities(db, novel_id, draft_ids)
 
 
 async def get_manuscript_source_manifest(

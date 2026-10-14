@@ -257,5 +257,5 @@ async def test_unsupported_dependencies_are_explicit(
 ) -> None:
     scene, _key = await _basis_scene(db_session, test_project_id)
     view = await _author_view(db_session, test_project_id, str(scene.id))
-    # 世界正典修订/地图册不自动失效本视图（观察层语义），必须显式列出
+    # 地图正文来源只提示作者核对，不回流本观察层；正典/地图依赖仍显式列出
     assert set(view.unsupported_dependencies) >= {"world_canon_revision", "map_atlas"}

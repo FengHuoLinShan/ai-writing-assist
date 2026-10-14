@@ -158,6 +158,8 @@ async def test_t08_same_length_edit_invalidates_index_and_projections(
         db, nid, chapter_index=1, change=change, content_mode="working"
     )
 
+    assert "map_atlas" not in receipt.invalidated_consumers  # working 不触发地图核对
+
     # 索引换源：请求 hash 不再是旧内容，旧结果不能冒充有效。
     state = await _index_state(db, nid, 1)
     assert state is not None

@@ -1,3 +1,4 @@
+import { setBridgeOverrides, resetBridgeOverrides } from "../../../vue/bridge/index.js"
 import { mount } from "@vue/test-utils"
 import { describe, expect, it } from "vitest"
 import { normalizeInvalidationNotice } from "../../../vue/views/writing/invalidationModel.js"
@@ -55,7 +56,7 @@ describe("InvalidationNotice", () => {
   const wrapper = mount(InvalidationNotice, { props: { notice: normalizeInvalidationNotice(raw) } })
   expect(wrapper.find(".writing-invalidation-notice").exists()).toBe(false)
   expect(wrapper.get("details").attributes("open")).toBeUndefined()
-  expect(wrapper.text()).toContain("地图集")
+  expect(wrapper.text()).toContain("地图册")
   expect(wrapper.text()).not.toContain("相关内容需要更新")
   await wrapper.get("button").trigger("click")
   expect(wrapper.emitted("open")).toHaveLength(1)
@@ -80,3 +81,17 @@ describe("InvalidationNotice", () => {
     expect(normalizeInvalidationNotice({ ...raw, invalidated: [...invalidated.slice(0, -1), { consumer: "story_state", detail }] }).coverageOnly).toBe(false)
   }
  })
+
+it("地图名和对应章节就地可见，内部标识不显示", async () => {
+  let target = null
+  setBridgeOverrides({ router: { navigate: (...args) => { target = args } } })
+  const notice = normalizeInvalidationNotice({ affected: [{ consumer: "map_atlas", node_id: "hidden-map-id", map_title: "东岸地图", chapter_index: 3, basis: "known" }] })
+  const wrapper = mount(InvalidationNotice, { props: { notice } })
+  expect(wrapper.text()).toContain("东岸地图 · 第 3 章")
+  expect(wrapper.text()).toContain("去地图核对")
+  expect(wrapper.text()).not.toContain("hidden-map-id")
+  await wrapper.findAll("button").find((button) => button.text() === "去地图核对").trigger("click")
+  expect(target.slice(0, 3)).toEqual(["map", null, true])
+  expect(new URLSearchParams(target[3]).get("node_id")).toBe("hidden-map-id")
+  resetBridgeOverrides()
+})

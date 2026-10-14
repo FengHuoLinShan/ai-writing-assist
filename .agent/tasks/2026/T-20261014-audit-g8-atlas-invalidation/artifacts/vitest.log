@@ -1,0 +1,9 @@
+
+ RUN  v5.0.2 /Users/tywww/Desktop/项目/ai-writing-assist/.worktrees/audit-g8-atlas-invalidation/frontend-console
+
+
+ Test Files  3 passed (3)
+      Tests  54 passed (54)
+   Start at  11:53:38
+   Duration  700ms (environment 55%, transform 21%, tests 12%, import 10%, setup 2%, worker 1%)
+

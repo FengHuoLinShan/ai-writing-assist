@@ -82,6 +82,7 @@ from core.service_keys import (
     WORLD_ENQUEUE_MAP_ATLAS_CLEANUP,
     WORLD_GET_CHARACTER_ID_BY_WORLD_ENTITY,
     WORLD_LIST_ADOPTED_MAP_CONTINUITY_FACTS,
+    WORLD_READ_MAP_CHAPTER_CONSUMERS,
     WORLD_LIST_CHARACTERS,
     WORLD_LIST_ENTITIES,
     WORLD_LIST_ENTITY_TERMS,
@@ -171,6 +172,7 @@ from modules.world.map_atlas_facade import (
     enqueue_map_atlas_project_cleanup as _map_atlas_cleanup,
     list_adopted_map_continuity_facts as _world_list_map_continuity_facts,
     map_capabilities as _world_map_capabilities,
+    read_map_chapter_consumers as _world_read_map_chapter_consumers,
 )
 from modules.imports.facade import (
     get_active_organization as _imports_get_active_organization,
@@ -448,6 +450,7 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
             WORLD_LIST_ADOPTED_MAP_CONTINUITY_FACTS,
             _world_list_map_continuity_facts,
         ),
+        (WORLD_READ_MAP_CHAPTER_CONSUMERS, _world_read_map_chapter_consumers),
         # AO-5: local_agent 设备确认回写 interaction 经此 DI port，反向顶层导入清零。
         (
             INTERACTION_MARK_TASK_LOCAL_APPROVED,

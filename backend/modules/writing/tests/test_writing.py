@@ -111,9 +111,9 @@ def service() -> WritingDraftService:
 
 
 @pytest.fixture
-def sample_draft_data() -> WritingDraftCreate:
+def sample_draft_data(test_project_id: str) -> WritingDraftCreate:
     return WritingDraftCreate(
-        novel_id=str(uuid.uuid4()),
+        novel_id=test_project_id,
         chapter_index=1,
         title="第一章：开端",
         content="这是一个测试正文的段落。",
@@ -1608,8 +1608,9 @@ class TestWritingFacade:
     async def test_list_latest_drafts_for_chapters_returns_latest_requested_versions(
         self,
         db_session: AsyncSession,
+        test_project_id: str,
     ) -> None:
-        novel_id = str(uuid.uuid4())
+        novel_id = test_project_id
         await create_published_draft_only(db_session, novel_id, 1, "第一章 v1", "旧内容")
         await create_published_draft_only(db_session, novel_id, 1, "第一章 v2", "新内容")
         await create_published_draft_only(db_session, novel_id, 2, "第二章", "不应返回")
@@ -1635,8 +1636,9 @@ class TestWritingFacade:
     async def test_list_latest_drafts_for_chapters_truncates_latest_content(
         self,
         db_session: AsyncSession,
+        test_project_id: str,
     ) -> None:
-        novel_id = str(uuid.uuid4())
+        novel_id = test_project_id
         service = WritingDraftService()
         await service.create_published_draft(
             db_session,
@@ -1697,8 +1699,9 @@ class TestWritingFacade:
     async def test_list_chapter_indices(
         self,
         db_session: AsyncSession,
+        test_project_id: str,
     ) -> None:
-        novel_id = str(uuid.uuid4())
+        novel_id = test_project_id
         for ch in (1, 1, 3, 5):
             await create_published_draft_only(
                 db_session, novel_id, ch, f"第{ch}章", "内容"
@@ -1718,8 +1721,9 @@ class TestWritingFacade:
     async def test_list_effective_chapter_indices(
         self,
         db_session: AsyncSession,
+        test_project_id: str,
     ) -> None:
-        novel_id = str(uuid.uuid4())
+        novel_id = test_project_id
         await create_published_draft_only(db_session, novel_id, 1, "占位", " \n\u3000")
         await create_published_draft_only(db_session, novel_id, 2, "正文", "有效正文")
 
@@ -1729,9 +1733,11 @@ class TestWritingFacade:
     async def test_list_project_writing_stats_batches_latest_versions(
         self,
         db_session: AsyncSession,
+        test_project_id: str,
+        project_factory,
     ) -> None:
-        novel_id = str(uuid.uuid4())
-        other_id = str(uuid.uuid4())
+        novel_id = test_project_id
+        other_id = str(await project_factory.create_project())
         missing_id = str(uuid.uuid4())
         await create_published_draft_only(db_session, novel_id, 1, "第一章 v1", "旧稿")
         await create_published_draft_only(
