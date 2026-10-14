@@ -220,7 +220,10 @@ async def test_unknown_cli_completion_is_not_retryable(provider):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("stream", [False, True])
-async def test_wrong_native_model_stops_before_reservation_or_io(provider, stream):
+@pytest.mark.parametrize("setting", ["model", "effort", "wrapper"])
+async def test_wrong_native_configuration_stops_before_reservation_or_io(
+    provider, stream, setting
+):
     from infrastructure.llm.client import LLMClient
 
     client = LLMClient(
@@ -236,7 +239,16 @@ async def test_wrong_native_model_stops_before_reservation_or_io(provider, strea
         patch("infrastructure.llm.codex_provider.run_cli_agent", autospec=True) as native,
     ):
         with pytest.raises(LLMError) as caught:
-            request = LLMCallRequest(model="gpt-6.1-sol")
+            request = LLMCallRequest(
+                model="gpt-6.1-sol" if setting == "model" else "gpt-6-luna",
+                extra=(
+                    {"reasoning_effort": "high"}
+                    if setting == "effort"
+                    else {"codex_text_adapter_version": "codex-text-v2"}
+                    if setting == "wrapper"
+                    else {}
+                ),
+            )
             if stream:
                 _ = [chunk async for chunk in client.generate_stream(request)]
             else:
