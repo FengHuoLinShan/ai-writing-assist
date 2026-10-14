@@ -3,7 +3,7 @@ id: T-20261014-audit-first-batch
 title: 能力审计首批实施与集成验收
 status: active
 created: 2026-10-14T11:30:04+08:00
-updated: 2026-10-14T14:26:10+08:00
+updated: 2026-10-14T14:37:02+08:00
 parent: T-20261014-audit-followup-batch
 ---
 
@@ -16,7 +16,7 @@ parent: T-20261014-audit-followup-batch
 - G3① 已集成本地两阶段 commit 131b4a515、00ba86b3c；G3③a 本地 commit fc94fcfca。G4a本地 commit 1b0f067d6；G8a本地 commit 89efddc6b；新main并入 commit bc16a29f2。各切片实现已审查、集成，最终增量门禁通过。
 - 主审容量问题均已闭合：G4临时PG数据用本次匿名私有卷，保留无网络/CPU/RAM限制和仅本次卷清理；G8历史来源只读六字段SQL投影，不加载正文或完整provenance。
 - 集成初轮后端36失败已定位：2个导入棘轮叠加调整至522；34个旧测试fixture缺真实Project或作者principal，已只修3份fixture，原断言与production owner门禁不变。子分支完整fast7755通过；父集成默认locked完整fast7748通过、coverage86.81%，两树范围不同，不混用分母。
-- 下一步：本地两项修复、309项部署回归、41项专题及真实隔离恢复已完成；提交推送并更新 PR #227 后派全新 GPT-6.1 Sol / xhigh 子代理独立 review，核查新 head CI；暂不合并。
+- 下一步：修复19faa270cb83f86759678ac045421de2e41c1d79已提交推送，PR #227已更新并保留draft；全新GPT-6.1 Sol/xhigh规范、计划、备份三路review进行中。等待并主审复核结果，核查该head CI，再更新PR验收状态；暂不合并。
 
 ## 目标与验收
 
@@ -121,3 +121,6 @@ parent: T-20261014-audit-followup-batch
 - 最终备份专题 41 passed /17.69s，完整部署 309 passed /123.31s；项目 Ruff 通过。额外将 backend lint 配置应用于部署文件发现 16 项既有问题，与4acf184c4逐项比对无新增，不伪称这项扩展检查全绿。shell语法、diff和文档库存检查通过。
 - 最终隔离无网络实恢复：7合成图片/2桶，缺图与流中断反例、元数据/权限/hash/size/解码通过，RPO2.586s/RTO4.774s；仅小合成集，非生产容量。日志 /private/tmp/audit227-repair-{deploy,focused,object-drill}.log，全部演练资源由原harness清理。
 - 收尾增量docs-check按现有无影响说明合同通过，保留裸make要求六份既有文档复核的提示；部署README、ADR-0034及12_infrastructure已同步损坏缓存与清理失败行为。shell收尾摘要改为operation incomplete，避免将只失败的保留清理误报为新快照不完整。
+- 19faa270c已推送本仓库origin，PR #227正文已更新。提交后的secret、repo-gates通过，二进制增量0、18生产文件尺寸、release证据、导入522/65边/9双向均通过。审查者为review_227_xhigh_standards/spec/backup，均全新Sol/xhigh、fork_turns=none、只读，不复用旧审查者；固定完整diff e02137f7...19faa270c及修复diff4acf184c4...19faa270c。
+- 三路19faa270c审查已完成：规范无P1/P2、仅P3 Protocol声明未放contracts.py；Spec无P1/P2，27项独立定向测试及IR固定hash通过；备份原两项已闭合，但发现新P1，两个正式ops入口未load_release_id，会选未发布的:local镜像。主审已读实际Compose/发布/状态helper并复现缺标签exit125、正确标签exit0的合成反例，继续修复正式入口及backup/restore镜像合同。
+- 最新远端main已是fdd3ec59886e29cc5c9189a1c0fefa225cdc997f（#226运行时、#228收尾）；PR当前CONFLICTING，新head只有GitGuardian，无Actions run，不能说CI全绿。下一步先在本主题分支整合已合入主干、手动保留两边改动，再完成入口标签修复/回归和独立再审；不会合并PR或改原G2工作树。
