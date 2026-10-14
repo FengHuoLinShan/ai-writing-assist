@@ -321,6 +321,9 @@ describe("ConflictDetailDialog 地图基线（G8b）", () => {
     status,
     map_staleness: mapStaleness,
   })
+  // navigate 的 query 参数必须是 URLSearchParams：裸字符串会污染 router 的
+  // _currentQuery，让地图页上的助手上下文采集在 .get() 上抛 TypeError。
+  afterEach(resetBridgeOverrides)
 
   it("completed 状态也提示检查基于旧版地图，可跳转变化节点，不与降级提示混同", async () => {
     let target = null
@@ -347,8 +350,8 @@ describe("ConflictDetailDialog 地图基线（G8b）", () => {
 
     await wrapper.findAll("button").find((button) => button.text() === "去地图核对").trigger("click")
     expect(target.slice(0, 3)).toEqual(["map", null, true])
-    expect(new URLSearchParams(target[3]).get("node_id")).toBe("map-node-1")
-    resetBridgeOverrides()
+    expect(target[3]).toBeInstanceOf(URLSearchParams)
+    expect(target[3].get("node_id")).toBe("map-node-1")
   })
 
   it("地图未变化或没有比较结果时不提示旧版地图", () => {

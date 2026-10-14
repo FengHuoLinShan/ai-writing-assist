@@ -367,7 +367,7 @@ const staleMapRemaining = computed(() => (
 ))
 function openMapNode(nodeId) {
   if (!nodeId) return
-  getRouter()?.navigate("map", null, true, `node_id=${encodeURIComponent(nodeId)}`)
+  getRouter()?.navigate("map", null, true, new URLSearchParams({ node_id: nodeId }))
 }
 // 续写原稿被改或不可用时，复读比对缺少基准，重新运行也补不上，不能只劝作者重跑
 const repetitionGapNote = computed(() => {
