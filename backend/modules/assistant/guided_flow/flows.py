@@ -1943,8 +1943,8 @@ def _apply_editorial_stop(
         failed = [item for item in tracked if item["kind"] in {"failed", "empty"}]
         unlocatable = [item for item in tracked if item["status"] == "unlocatable"]
         reason = (
-            f"已生成 {len(ready)} 个替换候选，待你在写作页审阅采用；"
-            f"已采用 {len(adopted)} 个。"
+            f"已生成 {len(ready)} 个替换候选；到写作页先完成独立审稿，"
+            f"通过后才能采用（已采用 {len(adopted)} 个）。"
         )
         if failed:
             reason += f" {len(failed)} 个修订没有生成候选。"
@@ -1955,7 +1955,7 @@ def _apply_editorial_stop(
             "kind": "author_choice",
             "reason": reason + " 采用后自动请求改后复核。",
             "actions": _actions(
-                ("open_candidate", "去审阅候选"),
+                ("open_candidate", "去写作页审阅候选"),
                 ("proceed", "对已采用的发起改后复核"),
                 ("abandon_flow", "结束流程"),
             ),

@@ -16,6 +16,9 @@ import { waitWritingReady } from "./helpers/workbench.js"
 
 const SLOW_SENTENCE = "这一段审读会刻意放慢，方便核对停止与继续。"
 const FAIL_SENTENCE = "这一段审读会失败，编辑拿不到有效结论。"
+// 合成 provider 对这句只回半个对象「{」：客户端截断恢复会补全成「{}」，
+// 收紧后的 schema 让空对象不合法，审读必须失败而不是“零意见完成”（G2）。
+const TRUNCATED_SENTENCE = "这一段审读会返回截断输出，模型只吐出半个对象。"
 const CLOSED_LOOP_BODY = "雾港的旧钟在午夜敲了十三下，码头没有人应答。\n信封上的地址指向旧港，却盖着新港的邮戳。"
 const EDITORIAL_JUDGMENT = "两处地名线索互相矛盾，建议统一口径"
 
@@ -110,9 +113,12 @@ test("保存正文交给编辑后走真实审读、处置、批注修订与改�
   await revisionPanel.getByLabel(/处置说明/).fill("把地址改成模糊表述，延后确认")
   await revisionPanel.getByRole("button", { name: "发起 1 条修订" }).click()
   await expect(revisionPanel.getByText("替换候选已生成")).toBeVisible({ timeout: 30000 })
-  await revisionPanel.getByRole("button", { name: "去写作页审阅并采用" }).click()
+  // 回执如实提示采用前置：先独立审稿，通过后才能采用（G1）
+  await expect(revisionPanel.getByText("写作页会先对这份候选做一次独立审稿")).toBeVisible()
+  await revisionPanel.getByRole("button", { name: "去写作页完成独立审稿并采用" }).click()
   await expect(page).toHaveURL(/writing/)
-  // 候选采用前的独立审稿门禁属写作页既有流程（本切片不闭环），这里回到编辑台继续处置。
+  // 候选采用的独立审稿→采用门禁属写作页既有流程，写作页会引导先「运行独立语义审查」。
+  // 这里回到编辑台继续处置。
 
   // 作者改稿后标记“已自行修改”，对真实新版本发起改后复核（真实 assistant_editorial_recheck worker）
   await createAutosavedDraft(project.id, 1, "雾港来信", `${CLOSED_LOOP_BODY}\n作者补写了一段，但地名表述未动。`)
@@ -141,7 +147,7 @@ test("保存正文交给编辑后走真实审读、处置、批注修订与改�
   expect(browserErrors).toEqual([])
 })
 
-test("审读失败落到未完成终态并保留继续入口", async ({ page, projectFactory, openProjectWorkbench, browserErrors }, testInfo) => {
+test("审读失败落到未完成终态：坏输出按失败处理，作者语言提示且诊断收进次级入口", async ({ page, projectFactory, openProjectWorkbench, browserErrors }, testInfo) => {
   const project = await projectFactory({ title: "编辑台闭环 · 审读失败" })
   await createAutosavedDraft(project.id, 1, "失败样章", FAIL_SENTENCE)
   await openProjectWorkbench(project, "writing")
@@ -152,11 +158,34 @@ test("审读失败落到未完成终态并保留继续入口", async ({ page, pr
   await expect(desk).toBeVisible()
   await desk.getByRole("button", { name: "开始审读已保存正文" }).click()
   await expect(desk.getByText(/未完成 · 已查 0 章，未查 1 章/)).toBeVisible({ timeout: 30000 })
-  await expect(desk.locator(".editorial-desk__error").first()).toBeVisible()
+  // 失败提示是作者语言，不直接透出英文内部诊断（G3）
+  await expect(desk.locator(".editorial-desk__error").first()).toHaveText(
+    "这次审读没有完成，已保存的分段仍保留，可点“继续未完成部分”重试。"
+  )
+  // 技术诊断只出现在折叠的次级入口里，展开后可见
+  const failureDetail = desk.locator(".editorial-desk__error-detail")
+  await expect(failureDetail).toHaveCount(1)
+  await expect(failureDetail).not.toHaveAttribute("open", "")
+  await failureDetail.locator("summary").click()
+  await expect(failureDetail.getByText(/attempts failed/)).toBeVisible()
   // 失败是终态：明确下一步是继续未完成部分，而不是永远“审读中”
   await expect(desk.getByRole("button", { name: "停止本次审读" })).toHaveCount(0)
   await expect(desk.getByRole("button", { name: "继续未完成部分" })).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath("editorial-failed.png"), fullPage: true })
+
+  // 截断输出被客户端恢复成空对象后不得算作“零意见完成”（G2）：
+  // 空对象违反收紧后的 ReviewPass schema，同样落到未完成终态。
+  await createAutosavedDraft(project.id, 2, "截断样章", TRUNCATED_SENTENCE)
+  await desk.getByLabel("起始章").fill("2")
+  await desk.getByRole("button", { name: "开始审读已保存正文" }).click()
+  await expect(desk.getByText(/未完成 · 已查 0 章，未查 1 章/)).toBeVisible({ timeout: 30000 })
+  await expect(desk.locator(".editorial-desk__error").first()).toHaveText(
+    "这次审读没有完成，已保存的分段仍保留，可点“继续未完成部分”重试。"
+  )
+  await expect(desk.getByText("所查范围内暂无值得打断作者的主要问题")).toHaveCount(0)
+  await expect(desk.getByText("先处理以下最有影响的意见；其他问题可展开查看")).toHaveCount(0)
+  await expect(desk.getByRole("button", { name: "继续未完成部分" })).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath("editorial-truncated-failed.png"), fullPage: true })
   expect(browserErrors).toEqual([])
 })
 

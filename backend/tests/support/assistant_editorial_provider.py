@@ -17,6 +17,9 @@ from infrastructure.llm.schemas import LLMCallResponse, LLMUsage
 # 章节正文里的脚本开关：E2E 用它们驱动慢速/失败路径。
 SLOW_MARKER = "这一段审读会刻意放慢"
 FAIL_MARKER = "这一段审读会失败"
+# 截断输出：内容只有一个 "{"，客户端截断恢复会补全成 "{}"；schema 收紧后
+# 空对象不合法，审读必须落到 failed 终态而不是“零意见完成”（G2 回归）。
+TRUNCATED_MARKER = "这一段审读会返回截断输出"
 # 意见与补丁的固定文案：E2E 按同一常量断言 UI 展示。
 EDITORIAL_JUDGMENT = "两处地名线索互相矛盾，建议统一口径"
 READER_JUDGMENT = "旧钟异象让读者过早期待超自然解释"
@@ -58,6 +61,10 @@ def _review_pass_reply(request, payload: dict) -> LLMCallResponse:
     text = str(payload.get("text") or "")
     if FAIL_MARKER in text:
         return _invalid_response()
+    if TRUNCATED_MARKER in text:
+        # 只有一个开括号的“截断”响应；不带 finish_reason/用量，避免被判定为
+        # 截断重试路径，让截断恢复策略把 "{" 补全成 "{}" 再撞收紧后的 schema。
+        return LLMCallResponse(content="{", usage=_USAGE)
     reader = any(
         "顺序初读者" in (message.content or "")
         for message in request.messages

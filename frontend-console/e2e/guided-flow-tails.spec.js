@@ -162,9 +162,9 @@ test.describe("引导流程集成尾部：三个入口", () => {
       stop: {
         step_id: "review_candidates",
         kind: "author_choice",
-        reason: "已生成 1 个替换候选，待你在写作页审阅采用；已采用 0 个。 采用后自动请求改后复核。",
+        reason: "已生成 1 个替换候选；到写作页先完成独立审稿，通过后才能采用（已采用 0 个）。 采用后自动请求改后复核。",
         actions: [
-          { action: "open_candidate", label: "去审阅候选" },
+          { action: "open_candidate", label: "去写作页审阅候选" },
           { action: "proceed", label: "对已采用的发起改后复核" },
           { action: "abandon_flow", label: "结束流程" },
         ],
@@ -227,7 +227,7 @@ test.describe("引导流程集成尾部：三个入口", () => {
     await expect(strip).toBeVisible()
     await expect(strip).toContainText("已生成 1 个替换候选")
     await expect(strip).not.toContainText("editorial_revision")
-    await expect(strip.getByRole("button", { name: "去审阅候选" })).toBeVisible()
+    await expect(strip.getByRole("button", { name: "去写作页审阅候选" })).toBeVisible()
   })
 
   test("写作页续写流程卡：采用后提「规划接下来几章」，确认后停在结构候选审阅", async ({ page, projectFactory, openProjectWorkbench }) => {
