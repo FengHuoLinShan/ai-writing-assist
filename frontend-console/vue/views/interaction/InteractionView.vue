@@ -210,22 +210,6 @@ const isGenerating = computed(() => (
     currentAttempt.value?.status,
   )
 ))
-const localApprovalPending = computed(() => currentAttempt.value?.status === "pending"
-  && currentAttempt.value?.local_agent && !currentAttempt.value.local_agent.approved)
-const localReceipts = ref([])
-watch(() => currentAttempt.value?.id, () => { localReceipts.value = [] })
-async function loadLocalReceipts() {
-  try {
-    localReceipts.value = (await getApi().localAgent.receipts(journey.value.novel_id, currentAttempt.value.task_id)).items || []
-  } catch (error) { getToast()(error.message || "本机运行记录暂时无法读取。", "error") }
-}
-async function approveLocalAttempt() {
-  if (!currentAttempt.value?.task_id || !getConfirm()("确认本轮 CLI 可使用当前 macOS 用户的文件与命令权限？")) return
-  try {
-    await getApi().localAgent.approve(journey.value.novel_id, currentAttempt.value.task_id)
-    currentAttempt.value = { ...currentAttempt.value, local_agent: { ...currentAttempt.value.local_agent, approved: true } }
-  } catch (error) { getToast()(error.message || "本轮授权未完成。", "error") }
-}
 const firstTextWaitLong = ref(false)
 watch(
   () => [currentAttempt.value?.id, isGenerating.value, Boolean(streamText.value)],
@@ -2276,10 +2260,6 @@ onBeforeUnmount(() => {
       </article>
 
       <article v-if="isGenerating || streamText" class="rp-message rp-message--assistant rp-message--streaming" :aria-busy="isGenerating">
-        <div v-if="localApprovalPending" role="status">
-          <p>本轮将使用 {{ currentAttempt.local_agent.kind }} CLI。它在你的 Mac 上直接运行，可访问当前 macOS 用户允许的文件和命令；专用工作目录不是沙箱。用量和费用可能无法准确估算。</p>
-          <button type="button" class="rp-mutation-button" @click="approveLocalAttempt">确认本轮在本机执行</button>
-        </div>
         <div class="rp-message__label">故事 · {{ isGenerating ? "正在生成" : "未完成" }}</div>
         <p v-if="currentAttempt?.status === 'preparing_context'" class="rp-stream-status" role="status">
           正在整理最近剧情…
@@ -2295,10 +2275,6 @@ onBeforeUnmount(() => {
         <div v-else class="rp-stream-wait"><i></i><i></i><i></i></div>
         <p v-if="streamError" class="rp-stream-status" :role="streamErrorRole">{{ streamError }}</p>
       </article>
-      <div v-if="currentAttempt?.local_agent && currentAttempt?.task_id && !isGenerating" class="rp-attempt-actions">
-        <button type="button" class="rp-mutation-button" @click="loadLocalReceipts">查看本机运行记录</button>
-        <pre v-for="receipt in localReceipts" :key="receipt.ordinal" style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:16rem;overflow:auto">{{ receipt.visible_text || receipt.error || receipt.status }}</pre>
-      </div>
 
       <div v-if="awaitingContinue" class="rp-attempt-actions">
         <p>这一段到达了模型的单次输出上限。</p>

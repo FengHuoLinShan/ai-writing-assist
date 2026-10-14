@@ -57,10 +57,10 @@ core↔worldbuilding；第二批 assistant 相关六对；第三批剩余 13 个
 | evidence ↔ writing | writing → evidence（evidence 是确认/编译枢纽；writing→evidence 消费确认与治理能力） | evidence 编译消费稿源区间/清单/字面扫描经 `writing.manuscript_source` DI port（ADR-0004：writing 保持原文事实源）；正文区间引用契约 `SourceRangeRefContract`/`ManuscriptScanCursor` 定义上移 `evidence/source_ref_contracts.py`（source_ref 是 evidence 编译产物的引用锚点），`writing.contracts` 兼容再出口 |
 | story ↔ world | story → world（world 是对象/设定事实库，story 叙事消费事实；ADR-0001、ADR-0022 先例） | world 地图在场投影/读者揭示消费 story 经 `story.scene_source` DI port；world→story 顶层导入清零 |
 | story ↔ writing | story → writing（既有先例：outline-writing ADR 的注入 provider + 只读 facade 边界） | writing→story 经既有函数内 provider/loader（Scene contract loader、continuity ingest），方向不变 |
-| interaction ↔ local_agent | interaction → local_agent（L3→L1） | local_agent 设备确认回写经 `interaction.mark_task_local_approved` DI 键 |
+| interaction ↔ local_agent | interaction → local_agent 边已消亡（G3③c 退役本机文字路径，仅 world 为图片生成保留 local_agent 入边） | `interaction.mark_task_local_approved` DI 键及实现随文字审批链路一并删除；图片任务的审批不经 interaction 回写 |
 | account ↔ assistant | assistant → account（L4→L0） | account forecast 事实改纯数据：`inspect` 返回纯 dict，assistant 消费侧以 `ForecastDomainFact.model_validate` 物化校验（原单点消费边界不变，校验等价）；无插件操作文件 |
 | assistant ↔ evidence | assistant → evidence（L4→L2） | evidence forecast 插件改纯数据：`OPERATIONS_SPEC` 声明 + `inspect` 返回纯 dict；`novel_evidence.py` 读取讨论经 `assistant.inspect_discussion` DI 键 |
-| assistant ↔ local_agent | assistant → local_agent（L4→L1，既有顶层方向） | local_agent api 的运行回写经 `assistant.mark_task_local_approved` DI 键（与第一批 `interaction.mark_task_local_approved` 是两个不同实现、两个键） |
+| assistant ↔ local_agent | assistant → local_agent 边已消亡（G3③c 退役本机文字路径） | `assistant.mark_task_local_approved` DI 键及实现随文字审批链路一并删除；local_agent 仍为图片生成保留 world 入边 |
 | assistant ↔ project | assistant → project（L4→L1） | project 两个操作插件与 forecast 插件改纯数据：`OPERATIONS_SPEC` 声明 + `inspect` 返回纯 dict |
 | assistant ↔ story | assistant → story（L4→L2） | story 四个操作插件改纯数据 `OPERATIONS_SPEC`；forecast `inspect` 返回纯 dict |
 | assistant ↔ writing | assistant → writing（L4→L2） | writing 三个操作插件改纯数据 `OPERATIONS_SPEC`；forecast `inspect` 返回纯 dict；`comment_run`/`services` 经 `assistant.submit_comment_proposals`、`assistant.mark_editorial_ready` DI 键 |
@@ -93,8 +93,9 @@ diff 为零，见 `backend/tests/unit/test_assistant_operation_registry.py`）�
   dict 直传校验等价。world/imports 插件文件因 world↔assistant、
   imports↔assistant 不构成本批顶层双向对而保持原样（后续如需可同法处理）。
 - **facade 能力消费改 DI 键**：evidence（`inspect_discussion`）、writing
-  （`submit_comment_proposals`、`mark_editorial_ready`）、local_agent
-  （`mark_task_local_approved`）经组合根注册的字符串键运行期解析。
+  （`submit_comment_proposals`、`mark_editorial_ready`）经组合根注册的字符串键
+  运行期解析（local_agent 的 `mark_task_local_approved` 键已随 G3③c 文字审批
+  链路退役删除）。
 
 **第三批机制**：顶层双向对清零后，剩余 22 个双向对全部只剩函数内反方向。
 第三批按"优先消灭低层→高层的非法方向、单侧导入量小者优先"消灭 13 对

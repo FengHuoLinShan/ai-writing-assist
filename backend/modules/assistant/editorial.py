@@ -49,6 +49,8 @@ from modules.writing.facade import (
 from shared.constants import TASK_MAX_HEARTBEAT_GAP
 
 _CHUNK = 12000
+# 审读失败终态的作者语言提示：只说明结果与下一步，内部诊断走 error_detail。
+_FAILED_AUTHOR_ERROR = "这次审读没有完成，已保存的分段仍保留，可点“继续未完成部分”重试。"
 _SYSTEM = (
     "你是作者的编辑。只给意见，不写替换正文、不修改资料，也不授予 AI 正文采用资格。"
     "只根据本轮可见的已保存原文判断；将来源观察、读者影响假设和改法分开。"
@@ -435,6 +437,12 @@ async def view(db, novel_id: str, review_id: UUID):
         "brief_version": row.brief_json["version"],
         "brief_changed": brief["version"] != row.brief_json["version"],
         "error": row.error,
+        # 次级入口专用：失败终态的内部诊断（已脱敏）；其余状态不透出。
+        "error_detail": (
+            row.progress_json.get("failure_detail")
+            if row.status == "failed" and row.error == _FAILED_AUTHOR_ERROR
+            else None
+        ),
     }
 
 
@@ -906,7 +914,12 @@ async def resume(db, novel_id: str, review_id: UUID):
     )
     row.status = "queued"
     row.error = None
-    row.progress_json = {**row.progress_json, "budget": None, "partial_reason": None}
+    row.progress_json = {
+        **row.progress_json,
+        "budget": None,
+        "partial_reason": None,
+        "failure_detail": None,
+    }
     if watch:
         from modules.assistant.models import AssistantRun
 
@@ -1469,6 +1482,15 @@ async def execute(db, task):
                         )
                     )
                     progress["reader_state"] = reader.reader_state
+                    # 读者层结论立即落盘：同一段的编辑层调用期间被停止或中断时，
+                    # 续跑从 pending 状态恢复，不再重复调用这一段的读者层。
+                    progress["pending_editorial"] = True
+                    progress["pending_findings"] = findings
+                    row.progress_json = {
+                        **progress,
+                        "budget": budget.model_dump(mode="json"),
+                    }
+                    await db.commit()
                 elif progress.get("pending_editorial"):
                     findings.extend(progress.get("pending_findings", []))
                 other = [key for key in dimensions if key != "reader"]
@@ -1563,12 +1585,20 @@ async def execute(db, task):
         if row.status in {"queued", "running"}:
             # Every exit is terminal: a changed source or brief is visibly stale
             # instead of an endless "running" that resume() refuses.
-            row.status = (
-                "stale"
-                if isinstance(exc, ConflictError) and exc.code == "SOURCE_STALE"
-                else "failed"
-            )
-            row.error = redact_diagnostic(exc, limit=300)
+            stale = isinstance(exc, ConflictError) and exc.code == "SOURCE_STALE"
+            row.status = "stale" if stale else "failed"
+            if isinstance(exc, ConflictError):
+                # 领域冲突文案本身就是作者语言，直接沿用。
+                row.error = redact_diagnostic(exc, limit=300)
+            else:
+                # 其余失败不给作者透出内部诊断：error 用作者语言说明结果与
+                # 下一步，技术细节收进次级入口（view 的 error_detail）。
+                row.error = _FAILED_AUTHOR_ERROR
+                failure_detail = redact_diagnostic(exc, limit=300)
+                row.progress_json = {
+                    **row.progress_json,
+                    "failure_detail": failure_detail,
+                }
         row.progress_json = {
             **row.progress_json,
             "budget": budget.model_dump(mode="json"),
