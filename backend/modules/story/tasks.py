@@ -9,6 +9,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
+from core.errors import ValidationError
 from infrastructure.llm.agent_step_harness import managed_llm_provenance_scope
 from infrastructure.stable_hash import stable_hash as _stable_hash
 from infrastructure.tasks.facade import require_task_checkpoint_session
@@ -292,6 +293,10 @@ async def _prepare_task_input(
     dict[str, dict[str, Any]],
 ]:
     meta = dict(task.meta or {})
+    if meta.get("_local_agent") or meta.get("agent_llm_execution_snapshot"):
+        raise ValidationError(
+            "本机设备只运行图片任务；历史文字任务请使用当前账户模型重新发起。"
+        )
     if meta.get("action") != action:
         raise ValueError(f"invalid action for {task.task_type}")
     data = _parse_task_request(meta, request_model)

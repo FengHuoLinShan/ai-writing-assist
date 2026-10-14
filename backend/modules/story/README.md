@@ -9,7 +9,8 @@ manual resume 累计同一 run；各 step/attempt 保留既有 timeout，串行�
 （reaction 3600s、one_click 7200s，只切病态挂起）。信封只作为任务私有审计元数据，不改变
 Scene、CAS 或采用回执。
 场景排演的全部步骤使用项目账户连接；按 [ADR-0029](../../../docs/adr/0029-local-cli-image-only.md)
-本机 CLI 不再承接人物意图 Agent。此前冻结为本机执行的排演任务在恢复本机快照时失败关闭。
+本机 CLI 不再承接人物意图 Agent。Story 执行入口在读取 Context 或调用模型前拒绝旧本机任务标记及
+`agent_llm_execution_snapshot` 副快照；即使同时保存了合法账户主快照，也不改用账户模型恢复旧排演。
 
 Story owns the author-editable, Scene-scoped projections used by the writing
 workbench. Canonical characters remain owned by `world`; outline structure and

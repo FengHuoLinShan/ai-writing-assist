@@ -4,8 +4,9 @@
 Codex、Claude、Kimi、DSH 或 Pi CLI。**当前正常新建的业务入口仅用于图片生成**：World 模块的世界对象
 图片与地图册页面在需要 AI 生成图片时调用本模块（`modules.local_agent.facade`）。
 项目助手、已登录 RP、前瞻分析、创作协作、连续性检查、场景排演等当前新建文本任务使用项目
-账户模型连接；可恢复任务快照中若带旧的本机文本执行器字段，Project 恢复会失败关闭，直接
-调用 `task_snapshot_client` 的旧文本设置也会被拒绝，不会静默回退或重放本机副作用。
+账户模型连接；可恢复任务快照中若带旧的本机文本执行器字段，Project 恢复会失败关闭。
+Story 执行入口额外拒绝旧本机任务标记及排演副快照；`task_snapshot_client` 已删除，
+不会因账户主快照可恢复而静默回退或重放本机副作用。
 
 旧文本兼容实现仍留在源码中：`run_local_agent` 仍能创建文本 invocation，`companion._job`
 对非图片请求仍走 `_run_text_job`。但服务端入口已缩面：待确认列表与批准只接受

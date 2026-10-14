@@ -654,7 +654,9 @@ Flash max 思考与至少65,536输出上限，provider 等待至少900秒。客�
 
 ## 本机 Agent CLI transport
 
-已登录项目可按作品选择配对 Mac 上的五种 CLI。PostgreSQL 队列仍是唯一调度与 lease；
+已登录项目可按作品选择配对 Mac 上的五种图片 CLI；文字步骤使用 Project 账户连接。
+文字审批 UI、领域批准回写和 local_agent 快照客户端已退役；历史任务仍须失败关闭。
+PostgreSQL 队列仍是唯一调度与 lease；
 `local_agent` 只增加设备、调用和工具回执，不引入常驻外部服务。设备通过出站连接领取
 已逐次确认的任务，原任务/调用双租约及 owner/`novel_id` 过滤拒绝迟到结果。
 客户端进程只报告可观测结果；无法核对的 token/价格记未知。CLI 原生工具按本机用户权限

@@ -12,8 +12,9 @@
 World 模块在需要世界对象图片或地图册页面时调用（见
 `backend/modules/world/README.md`）。项目助手、已登录 RP、前瞻分析、创作协作、
 连续性检查、场景排演等当前新建文本任务使用项目账户模型连接；旧的 `local_agent` 快照字段
-出现在可恢复任务里会失败关闭（`Local CLI no longer runs project text tasks`），直接调用
-`task_snapshot_client` 的旧文本设置也会被拒绝，不会静默回退到网关模型或重放本机副作用。
+出现在可恢复任务里会失败关闭（`Local CLI no longer runs project text tasks`）。
+Story 执行入口额外拒绝旧本机任务标记及排演副快照；`task_snapshot_client` 已删除，
+不会因账户主快照可恢复而静默回退到网关模型或重放本机副作用。
 
 源码仍保留旧文本兼容分支：`run_local_agent` 可创建文本 invocation，`companion._job`
 对非图片请求仍调用 `_run_text_job`。但批准与领取入口已按图片缩面（见下文“伴随进程协议”），

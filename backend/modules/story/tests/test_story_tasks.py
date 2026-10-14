@@ -6,6 +6,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from core.errors import ValidationError
+from infrastructure.tasks.models import AsyncTask
+from modules.project.facade import build_project_llm_execution_snapshot
 from modules.story import tasks as story_tasks
 from modules.story.generation import (
     STORY_CHARACTER_CARD_ACTION,
@@ -27,6 +30,50 @@ from modules.story.tasks import _character_card_source_hashes, _parse_task_reque
 NOVEL_ID = str(uuid.uuid4())
 SCENE_ID = str(uuid.uuid4())
 CHARACTER_ID = str(uuid.uuid4())
+
+
+@pytest.mark.parametrize(
+    "legacy_meta",
+    [
+        {
+            "_local_agent": True,
+            "_local_ready": True,
+            "_local_approved": True,
+            "agent_llm_execution_snapshot": {"local_agent": {"kind": "pi"}},
+        },
+        {"agent_llm_execution_snapshot": {"local_agent": {"kind": "pi"}}},
+        {"_local_agent": True, "_local_ready": True, "_local_approved": True},
+    ],
+)
+async def test_legacy_local_rehearsal_rejects_valid_account_snapshot(
+    db_session, test_project_id, account_llm_connection, monkeypatch, legacy_meta
+):
+    snapshot = await build_project_llm_execution_snapshot(db_session, test_project_id)
+    task = AsyncTask(
+        task_type="story_one_click",
+        novel_id=uuid.UUID(test_project_id),
+        meta={
+            "action": STORY_ONE_CLICK_ACTION,
+            "llm_execution_snapshot": snapshot,
+            "request": {
+                "novel_id": test_project_id,
+                "scene_id": SCENE_ID,
+                "character_ids": [CHARACTER_ID],
+                "context_confirmation_id": "legacy-confirmation",
+                "simulation_protocol": "rehearsal_v1",
+                "rehearsal_rounds": 1,
+            },
+            **legacy_meta,
+        },
+    )
+
+    async def unexpected_prepare(*args, **kwargs):
+        raise AssertionError("retired local task must stop before context or provider")
+
+    monkeypatch.setattr(story_tasks, "prepare_confirmed_ai_action", unexpected_prepare)
+    monkeypatch.setattr(db_session, "task_checkpoint_enabled", True, raising=False)
+    with pytest.raises(ValidationError, match="历史文字任务"):
+        await story_tasks.handle_story_one_click(db_session, task)
 
 
 @pytest.mark.parametrize(
