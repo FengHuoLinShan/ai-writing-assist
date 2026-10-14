@@ -384,6 +384,8 @@ def get_llm_limiter() -> LLMProcessLimiter:
 
 def _counts_toward_circuit_breaker(exc: Exception) -> bool:
     """Count provider availability failures, not deterministic request errors."""
+    if isinstance(exc, LLMError) and exc.error_kind == "codex_configuration":
+        return False
     if isinstance(
         exc,
         (

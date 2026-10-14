@@ -49,3 +49,5 @@ Guimi T-20261012保持paused、自动化60已删除，不恢复全量/确认缺�
 ## PR交付检查点
 
 G2提交c0cbb14815f74cd1d1081667ba82499f7541049a，安全并入仅模型文档main后1bce154c4；PR226已创建并附着本任务。未归档旧树，无业务进程或自动调度。最终审查补缺novel_id创建门、native模型/effort/version预算预留前拒绝，1554受影响回归通过；该补丁准备推送，CI旧head尚不能当新head证据。下一步最终Ruff/docs/module/secret→小补丁提交推送→只核验最终head全部CI/评审→按当前授权合入；Guimi原任务继续paused，旧v2不篡改、不自动续跑，不部署。
+
+最后补测发现6次错误配置导致假熔断（实际均零I/O/零预留）；limits只排除codex_configuration这一确定性类别，保留unknown计数。451 LLM/项目契约复验通过/2真实模型deselected，修复准备提交；PR226先前head测试失败不得当最终完成，待新head全部门禁。
