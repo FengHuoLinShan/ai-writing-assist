@@ -18,10 +18,6 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 from infrastructure.llm.cli_agent import CLIAgentError, CLIEvent, CLISpec, run_cli_agent
 
 _HOME = Path.home() / ".local" / "share" / "novelcraft-agent"
-_SHIM = """#!/usr/bin/env python3
-from modules.local_agent.companion import tool_main
-tool_main()
-"""
 _INPUT_NAME = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 _MAX_OUTPUT_BYTES = 20 * 1024 * 1024
 
@@ -219,100 +215,12 @@ async def _run_image_job(
     return True
 
 
-async def _run_text_job(
-    base: str,
-    token: str,
-    job: dict,
-    request: dict,
-    lease: str,
-    root: Path,
-    socket_path: Path,
-    job_path: str,
-    invocation: str,
-    on_event,
-    heartbeat,
-):
-    shim = root / "novelcraft-tool"
-    shim.write_text(_SHIM, encoding="utf-8")
-    shim.chmod(0o700)
-
-    async def relay_tool(
-        reader: asyncio.StreamReader, writer: asyncio.StreamWriter
-    ) -> None:
-        try:
-            line = await asyncio.wait_for(reader.readline(), timeout=10)
-            call = json.loads(line)
-            call_id = str(uuid.uuid4())
-            route = f"/api/local-agent/companion/jobs/{invocation}/tools"
-            payload = {
-                "lease_id": lease,
-                "call_id": call_id,
-                "name": call["name"],
-                "arguments": call["arguments"],
-            }
-            await asyncio.to_thread(
-                _request, base, "POST", route, token=token, payload=payload
-            )
-            for _ in range(45):
-                query = urlencode({"lease_id": lease})
-                state = await asyncio.to_thread(
-                    _request,
-                    base,
-                    "GET",
-                    f"{route}/{call_id}?{query}",
-                    token=token,
-                )
-                if not state["pending"]:
-                    writer.write((json.dumps(state, ensure_ascii=False) + "\n").encode())
-                    await writer.drain()
-                    return
-                await asyncio.sleep(1)
-            raise CLIAgentError("产品工具执行超时")
-        except Exception as exc:
-            writer.write((json.dumps({"error": str(exc)[:500]}) + "\n").encode())
-            await writer.drain()
-        finally:
-            writer.close()
-            await writer.wait_closed()
-
-    server = await asyncio.start_unix_server(relay_tool, path=str(socket_path))
-    try:
-        async with server:
-            async with asyncio.TaskGroup() as group:
-                running = group.create_task(
-                    run_cli_agent(
-                        CLISpec(
-                            kind=job["cli"],
-                            prompt=request["prompt"],
-                            workspace=root,
-                            timeout_seconds=float(request["timeout_seconds"]),
-                            max_tool_attempts=int(request["max_tool_attempts"]),
-                            model=_model_override(job["cli"]),
-                            env={
-                                "PATH": f"{root}{os.pathsep}{os.environ.get('PATH', '')}",
-                                "NOVELCRAFT_TOOL_SOCKET": str(socket_path),
-                            },
-                        ),
-                        on_event=on_event,
-                    )
-                )
-                watcher = group.create_task(heartbeat())
-                await running
-                watcher.cancel()
-        return running.result()
-    finally:
-        socket_path.unlink(missing_ok=True)
-        (root / ".novelcraft-task.md").unlink(missing_ok=True)
-
-
 async def _job(base: str, token: str, job: dict) -> None:
     invocation = str(uuid.UUID(job["id"]))
     lease = str(uuid.UUID(job["lease_id"]))
     request = job["request"]
-    is_image = request.get("mode") == "image"
     root = _HOME / "runs" / invocation
     root.mkdir(parents=True, exist_ok=False, mode=0o700)
-    socket_path = root / "tool.sock"
     job_path = f"/api/local-agent/companion/jobs/{invocation}"
     sequence = 0
 
@@ -347,27 +255,14 @@ async def _job(base: str, token: str, job: dict) -> None:
                 payload={"lease_id": lease},
             )
 
-    result = None
+    result = False
     error = None
     try:
-        if is_image:
-            result = await _run_image_job(
-                base, token, job, request, lease, root, job_path, on_event, heartbeat
-            )
-        else:
-            result = await _run_text_job(
-                base,
-                token,
-                job,
-                request,
-                lease,
-                root,
-                socket_path,
-                job_path,
-                invocation,
-                on_event,
-                heartbeat,
-            )
+        if request.get("mode") != "image":
+            raise CLIAgentError("本机伴随进程只运行图片任务")
+        result = await _run_image_job(
+            base, token, job, request, lease, root, job_path, on_event, heartbeat
+        )
     except BaseException as exc:
         error = str(exc)[:2000]
     finally:
@@ -381,10 +276,10 @@ async def _job(base: str, token: str, job: dict) -> None:
         payload={
             "lease_id": lease,
             "status": "completed" if result else "failed",
-            "answer": "" if is_image else (result.answer if result else ""),
+            "answer": "",
             "error": error or "",
-            "tool_attempts": 0 if is_image else (result.tool_attempts if result else 0),
-            "usage": None if is_image else (result.usage if result else None),
+            "tool_attempts": 0,
+            "usage": None,
         },
     )
 
@@ -416,35 +311,6 @@ async def run(device_id: str) -> None:
                 await asyncio.sleep(5)
         else:
             await asyncio.sleep(2)
-
-
-def tool_main() -> None:
-    if len(sys.argv) != 3:
-        raise SystemExit("usage: novelcraft-tool NAME JSON_ARGUMENTS")
-    socket = os.environ.get("NOVELCRAFT_TOOL_SOCKET")
-    if not socket:
-        raise SystemExit("本次任务没有产品工具通道")
-    try:
-        arguments = json.loads(sys.stdin.read() if sys.argv[2] == "-" else sys.argv[2])
-        if not isinstance(arguments, dict):
-            raise ValueError("arguments must be an object")
-
-        async def call() -> dict:
-            reader, writer = await asyncio.open_unix_connection(socket)
-            writer.write(
-                (
-                    json.dumps({"name": sys.argv[1], "arguments": arguments}) + "\n"
-                ).encode()
-            )
-            await writer.drain()
-            line = await asyncio.wait_for(reader.readline(), timeout=45)
-            writer.close()
-            await writer.wait_closed()
-            return json.loads(line)
-
-        print(json.dumps(asyncio.run(call()), ensure_ascii=False))
-    except (OSError, ValueError, TimeoutError) as exc:
-        raise SystemExit(str(exc)) from exc
 
 
 def main() -> None:

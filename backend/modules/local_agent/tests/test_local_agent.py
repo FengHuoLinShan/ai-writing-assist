@@ -151,7 +151,7 @@ async def test_companion_download_runs_without_source_checkout(
 
 
 @pytest.mark.asyncio
-async def test_companion_lease_tool_limit_and_receipt(
+async def test_companion_lease_heartbeat_finish_and_receipt(
     db_session, async_client, test_project_id
 ):
     created = await async_client.post(
@@ -202,20 +202,25 @@ async def test_companion_lease_tool_limit_and_receipt(
     headers = {"Authorization": f"Bearer {token}"}
     lease = invocation.lease_id
     route = f"/api/local-agent/companion/jobs/{invocation.id}"
-    call = {"lease_id": lease, "call_id": "one", "name": "read_fact", "arguments": {}}
-    first = await async_client.post(route + "/tools", json=call, headers=headers)
-    repeated = await async_client.post(route + "/tools", json=call, headers=headers)
-    overflow = await async_client.post(
-        route + "/tools", json={**call, "call_id": "two"}, headers=headers
+    # The DB tool relay is retired; tool calls no longer have an endpoint.
+    refused = await async_client.post(
+        route + "/tools",
+        json={"lease_id": lease, "call_id": "one", "name": "read_fact", "arguments": {}},
+        headers=headers,
     )
-    assert first.status_code == repeated.status_code == 200
-    assert overflow.status_code == 400
+    assert refused.status_code == 404
     stale = await async_client.post(
         route + "/heartbeat",
         json={"lease_id": str(uuid.uuid4())},
         headers=headers,
     )
     assert stale.status_code == 409
+    over_budget = await async_client.post(
+        route + "/finish",
+        json={"lease_id": lease, "status": "failed", "tool_attempts": 2},
+        headers=headers,
+    )
+    assert over_budget.status_code == 400
     finished = await async_client.post(
         route + "/finish",
         json={"lease_id": lease, "status": "failed", "error": "synthetic failure"},

@@ -4,10 +4,7 @@ from __future__ import annotations
 
 import io
 import os
-import shutil
-import tempfile
 import uuid
-from pathlib import Path
 
 import pytest
 from PIL import Image
@@ -148,21 +145,11 @@ async def test_image_job_without_output_file_finishes_failed(tmp_path, monkeypat
 
 
 @pytest.mark.asyncio
-async def test_text_job_still_removes_its_workspace(monkeypatch):
-    # AF_UNIX socket paths are limited to roughly 104 bytes on macOS/BSD;
-    # pytest's nested tmp_path would overflow that, so use a short /tmp root
-    # like the real companion (whose HOME-relative path is always short).
-    short_home = Path(tempfile.mkdtemp(prefix="nc-agent-", dir="/tmp"))
-    monkeypatch.setattr(companion, "_HOME", short_home)
-    try:
-        await _run_text_job_case(monkeypatch)
-    finally:
-        shutil.rmtree(short_home, ignore_errors=True)
+async def test_non_image_job_finishes_failed_and_cleans_workspace(tmp_path, monkeypatch):
+    monkeypatch.setattr(companion, "_HOME", tmp_path)
 
-
-async def _run_text_job_case(monkeypatch):
-    async def fake_run_cli_agent(spec, *, on_event=None):
-        return CLIResult(answer='{"ok": true}', tool_attempts=0, usage=None)
+    async def refuse_run_cli_agent(*_args, **_kwargs):
+        raise AssertionError("non-image jobs must not launch the local CLI")
 
     requests: list[tuple[str, str, dict | None]] = []
 
@@ -170,7 +157,7 @@ async def _run_text_job_case(monkeypatch):
         requests.append((method, path, payload))
         return {"accepted": True}
 
-    monkeypatch.setattr(companion, "run_cli_agent", fake_run_cli_agent)
+    monkeypatch.setattr(companion, "run_cli_agent", refuse_run_cli_agent)
     monkeypatch.setattr(companion, "_request", fake_request)
 
     invocation_id = str(uuid.uuid4())
@@ -179,7 +166,7 @@ async def _run_text_job_case(monkeypatch):
         "lease_id": str(uuid.uuid4()),
         "cli": "pi",
         "request": {
-            "prompt": "synthetic text task",
+            "prompt": "synthetic legacy text task",
             "tools": {},
             "timeout_seconds": 30,
             "max_tool_attempts": 4,
@@ -188,9 +175,9 @@ async def _run_text_job_case(monkeypatch):
 
     await companion._job("https://example.test", "device-token", job)
 
-    run_root = companion._HOME / "runs" / invocation_id
+    run_root = tmp_path / "runs" / invocation_id
     assert not run_root.exists()
     finish_calls = [item for item in requests if item[1].endswith("/finish")]
     assert len(finish_calls) == 1
-    assert finish_calls[0][2]["status"] == "completed"
-    assert finish_calls[0][2]["answer"] == '{"ok": true}'
+    assert finish_calls[0][2]["status"] == "failed"
+    assert "只运行图片任务" in finish_calls[0][2]["error"]

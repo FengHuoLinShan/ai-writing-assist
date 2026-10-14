@@ -52,6 +52,12 @@ CLI 的本机登录态不上传服务器，也不成为其他作者的统一凭�
 不能当作零，也不要与项目账户模型的 AI 用量诊断混为一项。
 本机任务的异步恢复策略统一为 `never_retry`。
 
+服务端工具中继端点（`POST/GET /companion/jobs/{id}/tools`）与文字客户端
+`local_agent/client.py` 已删除；伴随进程不再写 `novelcraft-tool` shim、不开产品
+工具 unix socket，非图片 job 直接失败。工具回执表 `local_agent_tool_calls` 与历史
+回执读取保留，服务端 `run_local_agent` 中继 worker 保留在代码中但无生产入口
+（重新开放须另立 ADR，见 ADR-0029 实施记录）。
+
 待确认列表与批准入口只处理 `world_object_image_generate` 和 `map_atlas_generate`；
 旧文字 pending task 置为 failed，提示使用当前账户模型重新发起。companion claim
 只下发 `request_json.mode == "image"` 的调用；旧文字或未知模式的 pending invocation

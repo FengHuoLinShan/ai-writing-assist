@@ -61,7 +61,7 @@ python3 novelcraft-agent.pyz pair https://example.invalid <一次性配对码>
 python3 novelcraft-agent.pyz run <返回的设备 ID>
 ```
 
-图片任务新增的伴随进程端点（复用既有 `/heartbeat`、`/tools`、`/finish` 的设备 bearer
+图片任务新增的伴随进程端点（复用既有 `/heartbeat`、`/finish` 的设备 bearer
 鉴权与 lease 校验）：
 
 - `GET /api/local-agent/companion/jobs/{invocation_id}/inputs/{ordinal}?lease_id=` —
