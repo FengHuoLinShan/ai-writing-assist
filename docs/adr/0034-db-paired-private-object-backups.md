@@ -20,7 +20,8 @@ PostgreSQL dump 不包含两个 MinIO bucket 的图片。数据库与对象各�
    `manifest.sha256` 保存配对记录。世界对象没有 DB hash，读取时流式计算；地图页面的 DB hash/size
    有值时必须一致。重复备份复用不超过 retention 的合法清单 hash，本地校验 hash/size 并对源 HEAD 验证存在、
    size 与 metadata；匹配时不做 GET、无重复磁盘复制，缺失/不符才流式获取。相同引用去重，hash/size
-   冲突失败关闭，不发布不可读取的重复清单。
+   冲突失败关闭，不发布不可读取的重复清单。损坏或发布中断的历史清单不提供缓存，输出脱敏告警，
+   但不阻断新快照复制和校验。
 3. 清单 schema 为 `ai-writing-object-backup/v1`，显式区分 `source_kind=server_snapshot/author_export`，
    共用 timestamp、每行对象清单与文件布局。server_snapshot 必须包含实际 DB timestamp、dump 文件名及 SHA-256；
    author_export 的这三项必须为空，不能伪造 DB 配对；包含
@@ -35,7 +36,8 @@ PostgreSQL dump 不包含两个 MinIO bucket 的图片。数据库与对象各�
    不接入 release 前置门禁，不改 backup.sh stdout 或 deployment-state dump 配对，不删发布回退对象。
 6. DB 本地 retention 上限 30 天；restic 用 `--keep-within 30d --prune`。对象清单按 DB timestamp 老化；
    镜像只删除不再被任何保留清单引用、且自身年龄超过 retention 的文件。不完整清单仍保护已复制对象；
-   清单损坏时停止垃圾回收。永久删除项目/账号前缀随清单老化，不在线提前移除历史恢复资料。
+   清单损坏时停止垃圾回收；新备份状态与保留清理结果分别报告，清理失败仍以非零退出码提示运维核对。
+   永久删除项目/账号前缀随清单老化，不在线提前移除历史恢复资料。
 7. 运维 `restore_objects.sh <private-directory> <timestamp>` 或单参数私有 ZIP 都先完成包与目标 DB 校验，
    然后重建桶配置并回灌；ZIP 用一次性 ops 解包至私有临时目录，退出清理；对账 hash、size、
    PNG/WebP 可解码、metadata 与 key 的 novel_id。两类来源共用恢复入口，先与目标 DB 的 novel_id/bucket/key/hash/size 引用核对，禁止跨项目导入；

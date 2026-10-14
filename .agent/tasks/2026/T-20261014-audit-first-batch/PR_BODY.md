@@ -2,25 +2,24 @@
 
 旧本机文字任务仍可进入批准/领取入口，RP 还会把图片执行器误判为文字连接。本批将这些入口限制为图片，旧文字快照明确失败并保留历史回执；RP 文字能力只读取当前账户连接。
 
-服务器图片现有数据库配对的备份/恢复路径，图片与数据库 restic 保留期统一为30天。修改已发布章节后，写作回执列出引用旧稿的当前已保存地图及核对入口；查询失败明确披露，正文保存、地图状态与 Scene 重算范围保持原契约。
+服务器图片新增数据库配对的备份/恢复路径，图片与数据库 restic 保留期统一为 30 天。修改已发布章节后，写作回执列出引用旧稿的当前已保存地图及核对入口；查询失败明确披露，正文保存、地图状态与 Scene 重算范围保持原契约。
 
-- G3①：两阶段退役旧 bundle Markdown renderer；保留活跃编译器/IR与渲染，固定输出/hash和隐藏真相断言迁移有证据。
-- G3③a：pending/approve/claim仅图片，旧文字task/invocation/snapshot失败关闭；图片正常、拒绝、取消、防重和owner隔离保留。
-- G4a：同机独立目录、最小只读备份用户、同份dump取对象清单、增量校验、缺图/中断报告不完整、30天老化；目录或作者ZIP运维恢复，ADR-0034。临时PG匿名数据卷仅清理本次资源，标准make演练使用既有locked runner；开发Compose/CI初始化均提供独立合成备份身份，动态核对全部实际YAML调用方。
-- G8a：同owner/novel真实历史来源ID/章/version/hash重验，只扫有限saved current head；SQL身份投影不读正文/大JSON，SAVEPOINT降级。旧测试只补真实Project/作者principal，保留原隔离/404/幂等断言。
+- G3①：两阶段退役旧 bundle Markdown renderer；活跃编译器/IR、输出/hash、隐藏真相与叙事义务断言保留。
+- G3③a：pending/approve/claim 仅图片，旧文字 task/invocation/snapshot 失败关闭；历史回执、图片确认/取消/防重和 owner 隔离保留。
+- G4a：同机独立私有目录、独立只读备份身份、同份 dump 取对象清单、增量校验、30 天老化、目录/作者 ZIP 运维恢复。正式 shell 入口使用共享发布器认可的 staging 名；损坏历史不提供缓存，新备份仍可完成，垃圾回收失败关闭并单独报告，退出码非零提醒运维核对。
+- G8a：同 owner/novel 历史来源身份重验，只扫有限 saved current head；SQL 投影不读正文/大 JSON，SAVEPOINT 降级，地图仅提示核对。
 
-- 影响模块：Evidence compilation、LocalAgent、Interaction、Evolution、World、Writing、部署运维与相关作者UI。
-- 稳定接口 / API / schema / wire 风险：退役明确无生产调用的旧renderer导出；旧文字入口不再批准/派发；新增地图失效回执键与窄DI口，无表/列/migration/outbox。恢复核对目标DB中的owner/novel/bucket/key引用，不导入跨项目数据。
-- 验证：
-  - 父集成默认locked后端：7748 passed /2 skipped，coverage86.81%，RuntimeWarning门禁通过。
-  - 父集成PG critical95、P2-C/地图SAVEPOINT/图片CLI专用9通过。
-  - 前端2980通过、ESLint/build通过；标准functional浏览器G3六例+G8两例，含390px、恢复和失败路径。
-  - 部署302通过；真实无网络合成恢复7对象/2桶，缺图和中断反例、解码/hash/size/权限/元数据通过。RPO2.894s/RTO4.803s只代表小合成集。
-  - 固定IR967bytes/hash不变、活跃6定义AST全等；26prompt合同、Ruff、secret、repo-gates/diff通过；实际导入预算522。
-  - 已授权本机ai_novel_engine READ ONLY盘点三类旧待处理数量均0；未查询Guimi或正文。
-  - 首次test-ci的36失败已按2项棘轮与34项fixture根因修复；总命令未冒称全绿，最终各受影响本地门禁独立复验通过。首次远端浏览器因初始化调用方缺备份参数而尚未执行；本次已补齐，须待远端实际浏览器验收，不将跳过视为通过。
+没有新增表、migration 或 outbox。退役入口无生产调用；旧文字不再批准/派发，新增地图回执与窄只读 DI 口。恢复核对目标 DB 的 novel/bucket/key/hash/size，不导入跨项目数据。生产部署与真实数据/模型验收不在本 PR 交付范围。
 
-完整恢复快照和父树日志：[首批TASK](.agent/tasks/2026/T-20261014-audit-first-batch/TASK.md)。
+## 验证
+
+- 本次备份修复：新增 7 项回归；六个故障反例修复前全失败、修复后通过，另验合法历史 hash 冲突仍失败关闭。真实 shell+publisher 覆盖复制成功/失败；清单故障覆盖空遗留目录、缺 SHA、SHA 不匹配、错误权限，以及连续新快照可读、有效缓存仍复用、老化旧对象不误删。
+- 最终备份专题 41 passed，完整部署 309 passed；项目 Ruff、shell 语法、diff 检查通过。部署文件套用额外 backend lint 规则与基线比较无新增问题。
+- 本次无网络合成实恢复 7 对象/2 桶，元数据、权限、hash/size、解码、缺图和流中断反例通过；RPO 2.586s / RTO 4.774s 仅代表小合成集。
+- 其余首批既有证据：后端 7748 passed /2 skipped，coverage 86.81%；PG critical 95+专项9；前端2980、浏览器受影响8例、build/ESLint；26 prompt 合同、固定IR/hash与活跃AST不变。备份修复未改这些生产路径。
+- 最新修复 head 的远端 CI 与全新 GPT-6.1 Sol / xhigh 独立审查正在等待完成；保持 draft，暂不合并。
+
+任务与本地验证记录：[TASK](.agent/tasks/2026/T-20261014-audit-first-batch/TASK.md)。此前固定 head 4acf184c4 的独立审查与反例：[REVIEW](.agent/tasks/2026/T-20261014-audit-first-batch/REVIEW.md)。
 
 ## 架构文档影响
 
@@ -32,9 +31,9 @@
 
 ## 合并检查
 
-- [x] 受影响测试和适用 lint 已通过
-- [x] `novel_id`、account/owner、Schema guard 和 API Key 边界未放宽
-- [x] 用户可见功能已覆盖适用的空态、失败/冲突、保存反馈、恢复和窄屏
-- [x] 危险操作仍保留确认，未直接提交到 `main`
+- [x] 受影响本地测试和适用 lint 已通过
+- [x] novel_id、account/owner、Schema guard 和 API Key 边界未放宽
+- [x] 受影响作者界面的空态、失败/冲突、保存/恢复和窄屏已有证据
+- [x] 危险操作保留确认，未直接提交 main
 
-本PR是首批候选，保留每切片独立回退commit；已并入main上的模型规则PR #225。G2运行时仍由原聊天单独收敛，不在此PR重复写入。第二/三波按前置继续，未合并本批、部署、开通B2或恢复真实评测。同机副本不能抵抗整盘故障，生产容量/只读对账与启用需发布授权。
+本 PR 保留每切片独立回退提交；G2 运行时由原聊天单独收敛。第二/三波按计划前置继续；本批未合并或部署、未开通 B2、未恢复真实评测。同机副本不能抵抗整盘故障，生产容量/对账与启用仍须另行验收和发布授权。

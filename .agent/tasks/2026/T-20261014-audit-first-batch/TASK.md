@@ -3,7 +3,7 @@ id: T-20261014-audit-first-batch
 title: 能力审计首批实施与集成验收
 status: active
 created: 2026-10-14T11:30:04+08:00
-updated: 2026-10-14T13:20:37+08:00
+updated: 2026-10-14T14:26:10+08:00
 parent: T-20261014-audit-followup-batch
 ---
 
@@ -16,7 +16,7 @@ parent: T-20261014-audit-followup-batch
 - G3① 已集成本地两阶段 commit 131b4a515、00ba86b3c；G3③a 本地 commit fc94fcfca。G4a本地 commit 1b0f067d6；G8a本地 commit 89efddc6b；新main并入 commit bc16a29f2。各切片实现已审查、集成，最终增量门禁通过。
 - 主审容量问题均已闭合：G4临时PG数据用本次匿名私有卷，保留无网络/CPU/RAM限制和仅本次卷清理；G8历史来源只读六字段SQL投影，不加载正文或完整provenance。
 - 集成初轮后端36失败已定位：2个导入棘轮叠加调整至522；34个旧测试fixture缺真实Project或作者principal，已只修3份fixture，原断言与production owner门禁不变。子分支完整fast7755通过；父集成默认locked完整fast7748通过、coverage86.81%，两树范围不同，不混用分母。
-- 下一步：审查 codex/audit-first-batch 的draft PR及远端CI，取得主干合并授权后再满足第二波对应开始条件；G2原聊天继续单独交付运行时PR。首批本地工程验收完成，不代表整份计划、生产启用或真实模型验收完成。
+- 下一步：本地两项修复、309项部署回归、41项专题及真实隔离恢复已完成；提交推送并更新 PR #227 后派全新 GPT-6.1 Sol / xhigh 子代理独立 review，核查新 head CI；暂不合并。
 
 ## 目标与验收
 
@@ -98,3 +98,26 @@ parent: T-20261014-audit-followup-batch
 - 精确错误：38514515133两个shard都在初始化步骤报Separate MinIO backup credentials are required，所有浏览器suite skipped。分类为本批新增必需参数未同步调用方的新回归，不是随机环境或页面失败。
 - G4原Sol/medium子代理仅补frontend-ci.yml与根docker-compose.yml的独立合成备份身份，新增test_minio_initializer_callers.py动态核对全部tracked YAML的实际初始化环境、必需字段和root/app/backup分离。生产门禁/policy未改，没有真实.env/MinIO操作；157相关+7既有CI/dev回归与语法/Compose通过。
 - 父集成已审查应用仅3文件小补丁；完整test-deploy302passed/118.62s，新调用方检查实际执行。既有7,748后端/2,980前端/PG95的生产代码未变，不为配置修复机械重跑，远端browser必须实际执行后再关闭。
+
+## 最终远端签收
+
+- PR #227保留draft，head4acf184c4426adca5d1f5bc883e2d7ab1ce75047；18项检查全部SUCCESS，含两个Frontend functional browser shard及聚合门禁、Backend quality/PG、镜像、前端unit、文档、repo-gates、CodeQL、GitGuardian。快照artifacts/ci-final.json；frontend run38516182906。初始化成功后浏览器实际执行，非skipped。
+- 用户授权范围是推送和draft PR；本批未合并main/部署。已提交推送的实现与修复保持4acf184c4；本段CI收尾记录和导航关闭在本地保存，不再为仅记录更新触发整套CI。
+- 首批G3①/G3③a/G4a/G8a完成工程验收。G2最新原线程状态：两路复核通过、三项问题闭合，PG/前端unit/镜像/文档通过，后端全量与浏览器仍待结束；不接管其工作或扩展合入授权。第二/三波依权威计划前置，不恢复真实评测。
+
+## 独立审查纠正
+
+- 2026-10-14T14:12:59+08:00：用户要求独立子代理 review，三名全新 GPT-6.1 Sol / medium 审查规范、计划和备份专项，固定 PR #227 head4acf184c4，排除未提交收尾记录。报告 [REVIEW.md](REVIEW.md)。
+- 规范轴无确认 P1/P2；计划轴 G3/G8 无确认 P1/P2，19 项定向合成测试通过。G4 专项经主 Agent 实际函数反例复核，确认 P1 正式备份入口临时名被 publisher 拒绝、P2 清单发布中断阻断后续新备份。原 completed 状态因新事实纠正为 active，既有 CI 全绿不能代替这两条调用链验证。
+- 第三个错误 DB 配对候选违反文档恢复前置，仅列非阻断防护建议；不声称正确配对也会缺图。本轮只增加报告与事实纠正，产品代码不改、无真实数据/模型、无提交/推送/合并/部署。
+- 审查文档与diff-check通过；增量docs-check沿用本PR已有逐项无影响说明，以官方--no-change-reason入口通过。报告中保留裸make的提示及实际验证边界。
+
+## 两项问题修复与再审
+
+- 用户明确授权修复 P1/P2、补齐回归测试并更新 PR #227，之后派独立 GPT-6.1 Sol / xhigh 子代理 review，暂不合并。该授权允许本任务分支提交、推送和 PR 更新，不扩展到生产或真实数据/模型。
+- 主 Agent 单一写入修复：backup_objects.sh 复用 .backup-stage/.backup-checksum-stage；历史损坏清单不提供缓存且脱敏告警，新镜像可继续生成。垃圾回收校验保持不变，清理失败退出 1 并分别报告新备份与保留清理结果。
+- 六项新增回归在修复前全部失败（2 个真实 shell 入口合同、4 个历史损坏反例），修复后 6 passed /31 deselected；场景包括复制成功/失败、空遗留目录、SHA 缺失/不匹配、错误权限，连续两次新快照可读且旧老化对象不误删。另补合法历史 hash 冲突仍失败关闭的保护回归。
+- 继续使用现有 uv locked runner；缓存 sandbox 拒绝后经正式 require_escalated 审核运行，无权限绕过。新审查仅在提交推送后派全新子代理，不复用旧审查者/实现者。
+- 最终备份专题 41 passed /17.69s，完整部署 309 passed /123.31s；项目 Ruff 通过。额外将 backend lint 配置应用于部署文件发现 16 项既有问题，与4acf184c4逐项比对无新增，不伪称这项扩展检查全绿。shell语法、diff和文档库存检查通过。
+- 最终隔离无网络实恢复：7合成图片/2桶，缺图与流中断反例、元数据/权限/hash/size/解码通过，RPO2.586s/RTO4.774s；仅小合成集，非生产容量。日志 /private/tmp/audit227-repair-{deploy,focused,object-drill}.log，全部演练资源由原harness清理。
+- 收尾增量docs-check按现有无影响说明合同通过，保留裸make要求六份既有文档复核的提示；部署README、ADR-0034及12_infrastructure已同步损坏缓存与清理失败行为。shell收尾摘要改为operation incomplete，避免将只失败的保留清理误报为新快照不完整。

@@ -4,8 +4,10 @@ import copy
 import hashlib
 import importlib.util
 import io
+import json
 import os
-from datetime import UTC, datetime
+import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -166,9 +168,7 @@ def test_manifest_key_and_novel_boundary(change):
 
 
 def test_corrupt_manifest_stops_retention_before_deletion(tmp_path):
-    root, directory, manifest, _, _ = setup_backup(
-        tmp_path, timestamp="20260801T000000Z"
-    )
+    root, directory, manifest, _, _ = setup_backup(tmp_path, timestamp="20260801T000000Z")
     (directory / "manifest.json").write_text("tampered")
     with pytest.raises(ValueError, match="checksum"):
         backup.prune(root, BUCKETS, 30)
@@ -177,9 +177,7 @@ def test_corrupt_manifest_stops_retention_before_deletion(tmp_path):
 
 
 def test_retention_removes_old_manifest_and_only_aged_unreferenced_objects(tmp_path):
-    root, old, manifest, _client, _ = setup_backup(
-        tmp_path, timestamp="20260901T000000Z"
-    )
+    root, old, manifest, _client, _ = setup_backup(tmp_path, timestamp="20260901T000000Z")
     current = root / "snapshots" / "20261014T000000Z"
     backup.private_dir(current)
     retained = copy.deepcopy(manifest)
@@ -287,3 +285,102 @@ def test_duplicate_db_references_collapse_but_conflicts_fail_closed():
     assert backup.unique_references([row(), row()]) == [row()]
     with pytest.raises(ValueError, match="Conflicting"):
         backup.unique_references([row(), row() | {"sha256": "0" * 64}])
+
+
+@pytest.mark.parametrize(
+    "failure",
+    ("empty_directory", "missing_checksum", "checksum_mismatch", "unsafe_permissions"),
+)
+def test_unreadable_history_keeps_new_backups_and_blocks_collection(
+    tmp_path, monkeypatch, capsys, failure
+):
+    root, old, manifest, _client, _ = setup_backup(tmp_path, timestamp="20260801T000000Z")
+    old_object = backup.object_path(root / "objects", manifest["objects"][0])
+    old_bytes = old_object.read_bytes()
+    old_time = datetime(2026, 8, 1, tzinfo=UTC).timestamp()
+    os.utime(old_object, (old_time, old_time))
+    old_json = old / "manifest.json"
+    old_sha = old / "manifest.sha256"
+    if failure == "empty_directory":
+        old_json.unlink()
+        old_sha.unlink()
+    elif failure == "unsafe_permissions":
+        old_sha.chmod(0o644)
+    else:
+        if failure == "missing_checksum":
+            old_sha.unlink()
+        original_write = backup.atomic_write
+
+        def interrupted_write(path, payload):
+            if path.name == "manifest.sha256":
+                raise OSError("synthetic checksum publication interruption")
+            original_write(path, payload)
+
+        with monkeypatch.context() as fault:
+            fault.setattr(backup, "atomic_write", interrupted_write)
+            with pytest.raises(OSError, match="synthetic"):
+                backup.publish(old, manifest | {"status": "incomplete"})
+
+    new_row = row() | {
+        "key": f"map-atlas/{NOVEL}/pages/44444444-4444-4444-8444-444444444444/image.png"
+    }
+    client = ObjectClient(
+        {(new_row["bucket"], new_row["key"]): (image_bytes(), "image/png", {})}
+    )
+    monkeypatch.setattr(backup, "s3_client", lambda *, backup: client)
+    monkeypatch.setenv("MAP_ATLAS_S3_BUCKET", BUCKETS["map"])
+    monkeypatch.setenv("WORLD_OBJECT_S3_BUCKET", BUCKETS["world"])
+    references = tmp_path / "references.json"
+    references.write_text(json.dumps([new_row]))
+    start = datetime.now(UTC) - timedelta(seconds=2)
+    for offset in range(2):
+        timestamp = (start + timedelta(seconds=offset)).strftime("%Y%m%dT%H%M%SZ")
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                str(SCRIPT),
+                "backup",
+                str(root),
+                "--references",
+                str(references),
+                "--timestamp",
+                timestamp,
+                "--db-sha256",
+                "e" * 64,
+            ],
+        )
+        assert backup.main() == 1  # Retention still requires operator reconciliation.
+        checked = backup.read_manifest(root / "snapshots" / timestamp, BUCKETS)
+        assert checked["status"] == "complete"
+        assert checked["objects"][0]["key"] == new_row["key"]
+        assert old.exists()
+        assert old_object.read_bytes() == old_bytes
+
+    assert client.reads == 1  # The second backup still reuses the first valid snapshot.
+    output = capsys.readouterr()
+    assert output.out.count("Object backup complete") == 2
+    assert "cache ignored" in output.err
+    assert output.err.count("Object retention incomplete") == 2
+    assert str(old) not in output.err
+    assert new_row["key"] not in output.err
+
+
+def test_valid_history_hash_conflicts_still_fail_closed(tmp_path):
+    start = datetime.now(UTC) - timedelta(seconds=2)
+    first_timestamp = start.strftime("%Y%m%dT%H%M%SZ")
+    root, _old, manifest, _client, _ = setup_backup(tmp_path, timestamp=first_timestamp)
+    second_timestamp = (start + timedelta(seconds=1)).strftime("%Y%m%dT%H%M%SZ")
+    second = root / "snapshots" / second_timestamp
+    backup.private_dir(second)
+    conflicting = copy.deepcopy(manifest)
+    conflicting.update(
+        timestamp=second_timestamp,
+        db_timestamp=second_timestamp,
+        db_dump=f"{second_timestamp}.dump",
+    )
+    conflicting["objects"][0]["sha256"] = "0" * 64
+    backup.publish(second, conflicting)
+
+    with pytest.raises(ValueError, match="conflicting hashes"):
+        backup.trusted_objects(root, BUCKETS, 30)

@@ -12,8 +12,8 @@ TIMESTAMP=$(date -u +%Y%m%dT%H%M%SZ)
 POSTGRES_USER=$(env_value POSTGRES_USER)
 POSTGRES_DB=$(env_value POSTGRES_DB)
 POSTGRES_IMAGE=$(env_value POSTGRES_IMAGE)
-STAGING=$(mktemp "$BACKUP_DIR/.object-db-stage.XXXXXX")
-CHECKSUM=$(mktemp "$BACKUP_DIR/.object-db-checksum.XXXXXX")
+STAGING=$(mktemp "$BACKUP_DIR/.backup-stage.XXXXXX")
+CHECKSUM=$(mktemp "$BACKUP_DIR/.backup-checksum-stage.XXXXXX")
 REFERENCES=$(mktemp "$OBJECT_ROOT/.references.XXXXXX")
 CONTAINER=
 cleanup() {
@@ -21,7 +21,7 @@ cleanup() {
     trap - EXIT HUP INT TERM
     if [ -n "$CONTAINER" ]; then docker rm -fv "$CONTAINER" >/dev/null 2>&1 || status=1; fi
     rm -f -- "$STAGING" "$CHECKSUM" "$REFERENCES"
-    if [ "$status" -ne 0 ]; then echo "Object backup incomplete." >&2; fi
+    if [ "$status" -ne 0 ]; then echo "Object backup operation incomplete." >&2; fi
     exit "$status"
 }
 trap cleanup EXIT

@@ -295,7 +295,18 @@ def trusted_objects(root: Path, buckets: dict[str, str], days: int) -> dict:
     now = datetime.now(UTC)
     trusted = {}
     for path in (root / "snapshots").iterdir():
-        manifest = read_manifest(path, buckets, complete=False)
+        try:
+            manifest = read_manifest(path, buckets, complete=False)
+            for row in manifest["objects"]:
+                if row.get("status") == "ok":
+                    validate_row(row, buckets, complete=True)
+        except Exception as exc:  # noqa: BLE001 - unreadable optional cache must not block new backups.
+            print(
+                f"Object backup history unreadable ({type(exc).__name__}); "
+                "cache ignored; retention requires reconciliation.",
+                file=sys.stderr,
+            )
+            continue
         timestamp = datetime.strptime(manifest["timestamp"], "%Y%m%dT%H%M%SZ").replace(
             tzinfo=UTC
         )
@@ -307,7 +318,6 @@ def trusted_objects(root: Path, buckets: dict[str, str], days: int) -> dict:
         for row in manifest["objects"]:
             if row.get("status") != "ok":
                 continue
-            validate_row(row, buckets, complete=True)
             identity = (row["bucket"], row["key"])
             previous = trusted.get(identity)
             if previous and (previous["sha256"], previous["byte_size"]) != (
@@ -558,10 +568,18 @@ def main() -> int:
                 manifest,
                 cache,
             )
-            prune(args.root, buckets, args.retention_days)
             print(
                 f"Object backup {'complete' if success else 'incomplete'}: objects={len(rows)}"
             )
+            try:
+                prune(args.root, buckets, args.retention_days)
+            except Exception as exc:  # noqa: BLE001 - preserve the new snapshot and signal failed retention.
+                print(
+                    f"Object retention incomplete ({type(exc).__name__}); "
+                    "private history requires reconciliation.",
+                    file=sys.stderr,
+                )
+                return 1
             return 0 if success else 1
         if args.operation == "prune":
             prune(args.root, buckets, args.retention_days)
