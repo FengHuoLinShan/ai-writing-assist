@@ -12,7 +12,7 @@ import logging
 import ssl
 import time
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from openai import (
@@ -51,6 +51,9 @@ from infrastructure.llm.schemas import (
     LLMToolDelta,
     LLMUsage,
 )
+
+if TYPE_CHECKING:
+    from infrastructure.llm.codex_provider import CodexProvider
 
 logger = logging.getLogger(__name__)
 
@@ -589,21 +592,25 @@ class OpenAIProvider:
 # ============================================================
 
 
-def get_provider(name: str = "openai", **kwargs: Any) -> OpenAIProvider:
+def get_provider(name: str = "openai", **kwargs: Any) -> OpenAIProvider | CodexProvider:
     """获取 Provider 实例
 
     Args:
-        name: Provider 名称（目前仅支持 "openai"）
+        name: Provider 名称（openai 或本机单用户 codex）
         **kwargs: 传递给 Provider 构造函数的参数
 
     Returns:
-        OpenAIProvider 实例
+        Provider 实例
 
     Raises:
         ValueError: 未知的 provider 名称
     """
+    if name == "codex":
+        from infrastructure.llm.codex_provider import CodexProvider
+
+        return CodexProvider(**kwargs)
     if name != "openai":
-        raise ValueError(f"Unknown provider: {name}. Available: ['openai']")
+        raise ValueError(f"Unknown provider: {name}. Available: ['openai', 'codex']")
     return OpenAIProvider(**kwargs)
 
 

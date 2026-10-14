@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlparse
 
+from infrastructure.llm.cli_agent import CODEX_TEXT_ADAPTER_VERSION
 from infrastructure.llm.secret_store import (
     decrypt_secret,
     secret_configured,
@@ -93,6 +94,28 @@ def _template(
 
 
 PROVIDER_TEMPLATES: list[dict[str, Any]] = [
+    {
+        **_template(
+            "codex",
+            "Codex 本机",
+            "codex://local",
+            "本机单用户登录态；关闭原生工具的普通文本步骤",
+            default_model="gpt-6-luna",
+            models=["gpt-6-luna"],
+            docs_url="https://learn.chatgpt.com/docs/non-interactive-mode",
+            category="本机登录",
+        ),
+        "default_parameters": {
+            "timeout": 900,
+            "max_tokens": 32768,
+            "temperature": None,
+            "top_p": None,
+            "extra": {
+                "reasoning_effort": "max",
+                "codex_text_adapter_version": CODEX_TEXT_ADAPTER_VERSION,
+            },
+        },
+    },
     _template(
         "deepseek",
         "DeepSeek",
@@ -278,7 +301,7 @@ PROVIDER_TEMPLATES: list[dict[str, Any]] = [
     ),
 ]
 
-_ACCOUNT_PROVIDER_IDS = frozenset({"deepseek", "kimi"})
+_ACCOUNT_PROVIDER_IDS = frozenset({"codex", "deepseek", "kimi"})
 
 
 @dataclass(frozen=True)
@@ -308,6 +331,10 @@ class ResolvedLLMProfile:
             kwargs["default_model"] = self.model
         if self.timeout:
             kwargs["timeout"] = int(self.timeout)
+        if self.provider_id == "codex":
+            kwargs["connection_fingerprint"] = self.extra.get(
+                "codex_connection_fingerprint"
+            )
         return kwargs
 
     def request_defaults(self) -> dict[str, Any]:

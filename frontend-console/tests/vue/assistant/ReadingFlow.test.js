@@ -299,3 +299,15 @@ it("补扫按选类范围预览、取消零启动、失联保持原授权、换�
   expect(wrapper.text()).not.toContain("启动结果失联")
   wrapper.unmount()
 })
+
+
+it("后续完成仍显示作者确认的未检查缺口", async () => {
+  const status = vi.fn().mockResolvedValue({ engine: { engine: "evolution", epoch: 1 }, run: { run_key: "same-run", status: "completed", completed_scenes: 63, total_scenes: 63, unchecked_discovery_gaps: [{ coverage: "not_checked" }] } })
+  setBridgeOverrides({ api: { evolution: { status } } })
+  const wrapper = mount(ReadingFlow, { props: { projectId: "isolated" } })
+  await open(wrapper)
+  expect(wrapper.text()).toContain("保留 1 处作者确认的未检查缺口")
+  expect(wrapper.text()).toContain("后续完成也不代表这部分已检查")
+  expect(status).toHaveBeenCalledTimes(1)
+  wrapper.unmount()
+})

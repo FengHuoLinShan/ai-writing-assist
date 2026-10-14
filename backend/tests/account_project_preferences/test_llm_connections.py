@@ -64,7 +64,9 @@ async def test_connect_validates_encrypts_and_activates_atomically(
 
     validate.assert_awaited_once_with("deepseek", "unit-test-account-key")
     assert response.active_provider_id == "deepseek"
-    assert response.providers[0].connected is True
+    deepseek = next(item for item in response.providers if item.provider_id == "deepseek")
+    assert deepseek.connected is True
+    assert deepseek.active is True
     row = (
         await db_session.execute(
             select(AccountLLMCredential).where(
@@ -154,7 +156,7 @@ async def test_failed_validation_does_not_store_or_activate(
     rows = (await db_session.execute(select(AccountLLMCredential))).scalars().all()
     assert rows == []
     state = await SettingsService().get_account_llm_connections(db_session)
-    assert state.active_provider_id == "deepseek"
+    assert state.active_provider_id == "codex"
     assert all(not provider.connected for provider in state.providers)
 
 
@@ -266,9 +268,12 @@ async def test_balance_failure_is_auxiliary_and_does_not_disconnect(
     assert balances.items[0].status == "unavailable"
     assert balances.items[0].amount is None
     assert balances.items[0].currency is None
-    assert (await service.get_account_llm_connections(db_session)).providers[
-        0
-    ].connected is True
+    connections = await service.get_account_llm_connections(db_session)
+    deepseek = next(
+        item for item in connections.providers if item.provider_id == "deepseek"
+    )
+    assert deepseek.connected is True
+    assert connections.active_provider_id == "deepseek"
 
 
 @pytest.mark.asyncio
@@ -353,7 +358,7 @@ async def test_unsupported_provider_is_rejected(
     )
 
     assert response.status_code == 400
-    assert "DeepSeek" in response.json()["detail"]
+    assert "账户模型连接" in response.json()["detail"]
     validate.assert_not_awaited()
 
 
@@ -371,6 +376,9 @@ async def test_kimi_is_hidden_and_rejected_until_real_compatibility_gate(
         json={"api_key": "unit-test-gated-key"},
     )
 
-    assert [item["provider_id"] for item in listing.json()["providers"]] == ["deepseek"]
+    assert [item["provider_id"] for item in listing.json()["providers"]] == [
+        "codex",
+        "deepseek",
+    ]
     assert connect.status_code == 400
     assert "兼容验证" in connect.json()["detail"]

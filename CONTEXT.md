@@ -269,3 +269,6 @@ Assistant 保留证据、范围、处置和改后复核，不授予 AI candidate
 本场状态视图只解释 Story 当前 checkpoint；人物 knowledge 的 subject/fields/known_values 匹配当前事实才授予读取，误信仍为 belief，今天 World 的状态不补历史。历史 checkpoint/event 可作为显式来源回读，不能冒充当前状态。
 
 本场钥匙/锁条件比较是内存假设，用原状态指纹与比较 digest 绑定 Collaboration 授权；原稿采用不把假设变成已发生事件。RP 来源包缓存由 Evidence 持有，是 ADR-0018 的窄私有派生例外，完整预算前材料与单版本编译正文不进入公开、导出或备份；匿名演示禁用，撤权或来源失效清理，恢复冷启动。
+
+
+本机单用户新增受限 Codex 文本 provider（ADR-0033），默认 Luna/max，沿用 account -> project facade -> LLMClient 与任务信封；不恢复旧 local_agent 文字路径，公开部署禁用。

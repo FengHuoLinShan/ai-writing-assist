@@ -1014,13 +1014,17 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
         chapters = set(self.repo.chapter_indices_for_scene(scene))
         if any(source["chapter_index"] not in chapters for source in sources):
             raise ValidationError("Source chapter is outside the Scene")
-        spans = await self.repo.get_scene_spans_for_scene(
+        working = await self.repo.get_scene_spans_for_scene(
             db, nid, scene.id, content_mode="working"
         )
-        if not spans:
-            spans = await self.repo.get_scene_spans_for_scene(db, nid, scene.id)
-        if not spans:
-            spans = self.repo.scene_spans_for_scene(scene)
+        canonical = await self.repo.get_scene_spans_for_scene(db, nid, scene.id)
+        if not canonical:
+            canonical = self.repo.scene_spans_for_scene(scene)
+        # Working anchors are materialized per chapter, so a cross-chapter Scene
+        # may have only some parts. Never let an invalid working part fall back.
+        by_part = {span.part_no: span for span in canonical}
+        by_part.update({span.part_no: span for span in working})
+        spans = [by_part[part] for part in sorted(by_part)]
         if any(span.mapping_status in {"exact", "reanchored"} for span in spans):
             if len(spans) != len(sources):
                 raise ValidationError(

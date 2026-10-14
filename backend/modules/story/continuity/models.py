@@ -199,7 +199,7 @@ class DeltaLog(Base, UUIDMixin, NovelMixin):
         comment="变更发生的 Scene",
     )
     category: Mapped[str] = mapped_column(
-        String(32),
+        Text,
         nullable=False,
         comment="变更类别",
     )

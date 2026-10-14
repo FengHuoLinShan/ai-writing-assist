@@ -8,6 +8,7 @@ from datetime import datetime
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     DateTime,
     Float,
     ForeignKey,
@@ -60,6 +61,10 @@ class AccountLLMCredential(Base, UUIDMixin, TimestampMixin):
 
     __tablename__ = "account_llm_credentials"
     __table_args__ = (
+        CheckConstraint(
+            "(provider_id = 'codex') = (encrypted_api_key IS NULL)",
+            name="ck_account_llm_connection_secret",
+        ),
         UniqueConstraint(
             "owner_id",
             "provider_id",
@@ -74,7 +79,9 @@ class AccountLLMCredential(Base, UUIDMixin, TimestampMixin):
         index=True,
     )
     provider_id: Mapped[str] = mapped_column(String(64), nullable=False)
-    encrypted_api_key: Mapped[dict] = mapped_column(JSON, nullable=False)
+    encrypted_api_key: Mapped[dict | None] = mapped_column(
+        JSON(none_as_null=True), nullable=True
+    )
     key_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
     verified_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

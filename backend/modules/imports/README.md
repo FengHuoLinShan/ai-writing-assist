@@ -117,6 +117,16 @@ fail closed。旧的本地任务若没有此字段，兼容路径在首次新 wo
 
 完成结果增加 `asset_summary={adopted, review, not_adopted, by_kind}`。主进度卡只展示证据门禁通过数、待复核数和章级降级数；完整 `quality_stats / phase_artifacts / acceptance_checks` 留在审计入口。Scene fallback、world candidate/关系/别名、证据门禁未通过结构和跨旧资产去重建议进入 review；低置信结果不会自动提升为 canonical。
 
+连接预检失败保留手动恢复入口，恢复时重新验证连接并续用原来源、检查点与累计账本；旧版本缺少恢复标记的已证实 preflight 连接失败，仅在显式恢复请求中修正标记。其它不可恢复终态、来源失效和撤销门禁不变。
+
+原生 Codex 的预检仅检查当前作品授权、已验证连接、登录身份和 Luna/max/包装配置，
+不发送额外模型请求；真实连接探针留在账户设置的显式验证入口。
+因此手动恢复可重复本机配置检查，不会重发未知的验证请求。
+
+普通深度导入恢复不会重复已完成的切分：正式 Scene 提交后保存同 workflow/章节范围的 Scene ID 与指纹检查点；恢复逐条回读本项目活跃 Scene，核对最新稿件 ID、正文 hash、完整无空洞/重叠区间和资产指纹，再继续 Phase 2。旧任务可用已完成的 scene_commit 回执中的 ID 重建来源证明；缺回执、缺资产、额外活跃场景或来源/资产漂移则失败关闭，不自动重切、不替作者认可边界。显式 replace_existing 流程继续使用原替换契约，不走普通前缀复用。
+
+Phase 2a 并发波次在预算错误、进度回写失败或取消时，先取消并等待所有波次请求结束，再把异常交回任务宿主；已发出而无可信结果的调用仍记为未知，不能自动重发。此收尾不扩大请求上限，不把未持久化的抽取结果视为完成检查点。
+
 完整 Deep Import 成功后，imports 以冻结的 Phase 2 Scene hash、实体/关系 result refs、workflow 与授权回执通过 world facade
 幂等创建 post-import `world_adoption_package.v1`。它不改变 Phase 2 的 adopted/review/checkpoint/
 resume/rollback/asset_summary；包创建失败仅记录诊断，导入仍保持成功。已写入 canonical 资产只作
@@ -554,3 +564,13 @@ Scene World身份入口复用World已批准的类型归一，查询、候选和�
 `_Phase2WorldExtractionLLM` 与专属 timeout/token 配置读取。window extractor
 暂按冻结试验保留，不能据其旧测试宣称当前 workflow 支持 window 抽取；
 其独立 schema/来源引用 probe 与转换面仍用于历史校验。
+
+## Codex 工作流接纳
+
+本机Codex文字连接沿账户验证与项目快照运行。Scene切分、逐场补全、融合、World窗口、并行实体与关系调度最多按进程内既有两路provider接纳启动工作，避免200个补全任务在等待CLI时提前消耗阶段超时；API provider原有并发配置不变。该边界不是账户额度或跨进程全局限制。独立组级知识复核使用完整冻结生成资料，不能先截为24000字符再宣称已核对全部正文。长类别变更通过Story连续性Text字段无损保存，不靠截断类别绕过校验。
+
+Codex/Luna max默认等待随Project execution snapshot冻结：未显式设置时Phase 2a provider为900秒、整场为1800秒，Phase 2b单场为900秒；关系阶段总时限仍按真实场景数与两路接纳计算。旧快照不追溯更改。超时产生的未知请求仍不自动重发。
+
+原生 Codex 的导入工作链并发在计时前受
+`CODEX_TEXT_MAX_CONCURRENT_REQUESTS`（默认2，整数1—8）限制，并与基础设施
+native接纳上限一致；API提供方沿用已有调优。提高配置不改变来源、恢复、预算或模型。

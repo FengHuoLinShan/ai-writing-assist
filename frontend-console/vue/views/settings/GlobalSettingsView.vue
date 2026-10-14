@@ -64,7 +64,7 @@ const authorDirty = computed(() => JSON.stringify(authorForm.value) !== authorBa
 const connectionState = computed(() => {
   if (connectionFeedback.value) return connectionFeedback.value
   if (apiKey.value) return { kind: "pending", message: "新密钥尚未保存" }
-  if (selectedProvider.value?.active) return { kind: "success", message: "当前正在使用这个服务" }
+  if (selectedProvider.value?.active && selectedProvider.value?.connected) return { kind: "success", message: "当前正在使用这个服务" }
   if (selectedProvider.value?.connected) return { kind: "success", message: "连接已验证，可以切换使用" }
   return { kind: "muted", message: "尚未连接" }
 })
@@ -251,7 +251,7 @@ async function saveConnection() {
   if (secondaryModelsSaving.value) return
   if (secondaryModelsDirty.value && !getConfirm()("切换或重新连接会清空尚未保存的附加模型，继续吗？")) return
   const key = apiKey.value.trim()
-  if (!key && !provider.connected) {
+  if (!key && !provider.connected && provider.provider_id !== "codex") {
     connectionError.value = "请填写服务密钥后再验证连接。"
     connectionFeedback.value = { kind: "error", message: "连接尚未保存" }
     getToast()("请先填写 API Key", "warning")
@@ -270,10 +270,12 @@ async function saveConnection() {
   connectionError.value = ""
   connectionFeedback.value = {
     kind: "pending",
-    message: key ? "正在验证并保存连接…" : "正在切换当前服务…",
+    message: providerId === "codex" ? "正在验证 Codex 连接…" : key ? "正在验证并保存连接…" : "正在切换当前服务…",
   }
   try {
-    const response = key
+    const response = providerId === "codex"
+      ? await getApi().settings.connectLLMProvider(providerId)
+      : key
       ? await getApi().settings.connectLLMProvider(providerId, key)
       : await getApi().settings.activateLLMProvider(providerId)
     if (!ownsForm()) return false
@@ -492,7 +494,7 @@ onBeforeUnmount(() => {
     <section class="settings-section account-connection-section" :aria-busy="connectionsLoading || connectionButton.saving.value || balanceLoading">
       <h2>AI 文本服务</h2>
       <p class="settings-section-hint">
-        选择服务并验证密钥。未连接时仍可正常手写，只有 AI 功能会暂停。
+        选择并验证 AI 服务。未连接时仍可正常手写，只有 AI 功能会暂停。
         <template v-if="returnTarget">连接成功后会回到刚才的旅程位置。</template>
       </p>
 
@@ -528,9 +530,9 @@ onBeforeUnmount(() => {
             <span class="account-provider-card__model">{{ provider.model }}</span>
             <span class="account-provider-card__status">
               {{ provider.connected ? "已连接" : "未连接" }}
-              <template v-if="provider.active"> · 当前使用</template>
+              <template v-if="provider.active"> · {{ provider.connected ? "当前使用" : "已选择" }}</template>
             </span>
-            <span v-if="provider.connected" class="account-provider-card__balance">
+            <span v-if="provider.connected && provider.provider_id !== 'codex'" class="account-provider-card__balance">
               <template v-if="balanceFor(provider.provider_id)?.status === 'available'">
                 余额 {{ balanceFor(provider.provider_id).amount }} {{ balanceFor(provider.provider_id).currency }}
               </template>
@@ -541,7 +543,7 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
-        <div class="form-group account-key-field">
+        <div v-if="selectedProvider?.provider_id !== 'codex'" class="form-group account-key-field">
           <label for="account-llm-api-key">服务密钥（API Key）</label>
           <input
             id="account-llm-api-key"
@@ -560,6 +562,11 @@ onBeforeUnmount(() => {
           <p v-if="connectionError" id="account-key-error" class="form-error" role="alert">{{ connectionError }}</p>
         </div>
 
+        <div v-else class="form-group account-codex-field">
+          <p>使用这台电脑已登录的 Codex，默认 Luna / max。文本步骤关闭本机工具；无需填写密钥。</p>
+          <p class="settings-field-help">先在本机安装并登录 Codex；验证成功后用于之后的新生成。</p>
+          <p v-if="connectionError" class="form-error" role="alert">{{ connectionError }}</p>
+        </div>
         <div class="settings-actions">
           <button
             id="account-llm-save"
@@ -568,18 +575,19 @@ onBeforeUnmount(() => {
               'settings-btn-loading': connectionButton.saving.value,
               'settings-btn-error': connectionButton.error.value,
             }"
-            :disabled="connectionButton.saving.value || !selectedProvider || (selectedProvider.active && !apiKey)"
+            :disabled="connectionButton.saving.value || !selectedProvider || (selectedProvider.active && selectedProvider.connected && !apiKey && selectedProvider.provider_id !== 'codex')"
             :aria-busy="connectionButton.saving.value"
             @click="saveConnection"
-          >{{ selectedProvider?.active && !apiKey ? "当前正在使用" : selectedProvider?.connected && !apiKey ? "切换并使用" : "验证、保存并使用" }}</button>
+          >{{ selectedProvider?.provider_id === "codex" ? "验证 Codex 并使用" : selectedProvider?.active && selectedProvider?.connected && !apiKey ? "当前正在使用" : selectedProvider?.connected && !apiKey ? "切换并使用" : "验证、保存并使用" }}</button>
           <button
             v-if="selectedProvider?.connected"
             id="account-llm-clear"
             class="btn btn-link"
             :disabled="connectionButton.saving.value"
             @click="clearConnection"
-          >清除这个 Key</button>
+          >断开这个连接</button>
           <button
+            v-if="selectedProvider?.provider_id !== 'codex'"
             id="account-balance-refresh"
             class="btn btn-link"
             :disabled="balanceLoading"
@@ -588,7 +596,7 @@ onBeforeUnmount(() => {
           >刷新余额</button>
           <p class="settings-save-state" :class="`is-${connectionState.kind}`" role="status">{{ connectionState.message }}</p>
         </div>
-        <details v-if="selectedProvider?.connected && selectedProvider?.active" class="settings-subsection secondary-models-section" :aria-busy="secondaryModelsLoading || secondaryModelsSaving">
+        <details v-if="selectedProvider?.connected && selectedProvider?.active && selectedProvider?.provider_id !== 'codex'" class="settings-subsection secondary-models-section" :aria-busy="secondaryModelsLoading || secondaryModelsSaving">
           <summary>附加模型（省钱模式候选）</summary>
           <p class="settings-section-hint">打开作品的「省钱模式」后，资料抽取与整理类任务会改用这里配置的低成本模型；主模型仍用于正文等重要任务。未登记或未校准的模型名会被忽略。</p>
           <label class="settings-field">

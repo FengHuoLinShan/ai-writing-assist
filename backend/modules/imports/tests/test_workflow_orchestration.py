@@ -712,6 +712,33 @@ class TestDeepImportOrchestrator:
         assert task.meta["recovery_required"] is False
 
     @pytest.mark.asyncio
+    async def test_resume_legacy_connection_failure_preserves_original_work(
+        self, db_session
+    ):
+        task = await _create_recoverable_deep_import_task(
+            db_session, recovery_required=False
+        )
+        task.meta = {**task.meta, "_ai_run_envelope": {"original": "unchanged"}}
+        task.result = {
+            **task.result,
+            "phase": "failed",
+            "completed_steps": ["scene_segmentation"],
+            "llm_health": {"ok": False, "error_kind": "codex_unavailable"},
+            "phase_errors": [{"phase": "preflight", "error_kind": "codex_unavailable"}],
+        }
+        run = await db_session.get(ImportWorkflowRun, task.id)
+        run.progress = dict(task.result)
+        run.checkpoints = {"source": "frozen-original"}
+        await db_session.flush()
+        result = await _unit_orchestrator().resume_interrupted(db_session, str(task.id))
+        assert result["status"] == "pending"
+        assert task.id == run.task_id
+        assert task.result["completed_steps"] == ["scene_segmentation"]
+        assert task.meta["_ai_run_envelope"] == {"original": "unchanged"}
+        assert run.checkpoints == {"source": "frozen-original"}
+        assert run.generation == 2
+
+    @pytest.mark.asyncio
     async def test_resume_reuses_original_recoverable_stage_task(
         self,
         db_session,

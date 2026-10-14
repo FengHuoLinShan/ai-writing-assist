@@ -548,7 +548,7 @@ async def test_deep_import_stage_endpoints_enqueue_expected_task(
 
 
 @pytest.mark.asyncio
-async def test_scene_stage_rejects_missing_llm_key_without_enqueue(
+async def test_scene_stage_rejects_missing_llm_connection_without_enqueue(
     async_client: AsyncClient,
     db_session,
 ) -> None:
@@ -569,7 +569,7 @@ async def test_scene_stage_rejects_missing_llm_key_without_enqueue(
     )
 
     assert resp.status_code == 400
-    assert "API Key" in resp.json()["detail"]
+    assert resp.json()["detail"] == "账户模型尚未连接或验证，请先在账户设置中连接"
     assert "账户设置" in resp.json()["detail"]
     result = await db_session.execute(
         select(AsyncTask).where(AsyncTask.meta["novel_id"].as_string() == novel_id)

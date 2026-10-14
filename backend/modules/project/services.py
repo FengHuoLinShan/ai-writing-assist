@@ -147,7 +147,17 @@ class ProjectService:
         self._source_reference_counter = source_reference_counter
 
     def list_llm_provider_templates(self) -> LLMProviderTemplateListResponse:
-        return LLMProviderTemplateListResponse(items=list_account_provider_templates())
+        from infrastructure.llm.codex_provider import codex_text_enabled
+        from modules.account.contracts import BOOTSTRAP_ACCOUNT_ID
+
+        return LLMProviderTemplateListResponse(
+            items=[
+                item
+                for item in list_account_provider_templates()
+                if item["id"] != "codex"
+                or (codex_text_enabled() and current_account_id() == BOOTSTRAP_ACCOUNT_ID)
+            ]
+        )
 
     async def create_project(
         self, db: AsyncSession, data: ProjectCreate

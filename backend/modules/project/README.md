@@ -385,3 +385,10 @@ writing.generate 作者视角注入，详见 writing 模块）与 `llm_cost_savi
 软删除/归档项目经 `CONTEXT_PURGE_PROJECT_INTERACTION_CACHE` 同事务清除该项目作为 source 或 consumer 的缓存；恢复项目冷编译。缓存清理不删除正文、版本、作者确认事件或领域历史，永久删除仍保留原 FK 清理语义。
 
 成果归因逐桶保留 usage_complete，历史不可考即使未知次数为零也不显示为零消耗。
+
+
+Codex 文本连接仍经 open_project_llm_client 获取 owner 已验证的账户配置，不构造旁路客户端。恢复快照用 connection_verified 和 extra_hash 固定无 Key 连接版本；断开或本机身份指纹变化后失败关闭。旧 local_agent 文本快照仍禁止恢复。
+
+Codex 新建执行快照在作者未显式配置时，深度导入 Phase 2a provider 等待默认900秒、整场生成/审查默认1800秒，Phase 2b单场默认900秒。显式项目参数和环境覆盖继续优先；旧冻结快照保持原参数，不因切换版本或环境漂移自动延长。API提供方的360/900/600秒默认值不变。这是有界等待配置，不保证模型语义正确或不会超时。
+
+Codex v3冻结快照显式保存包装版本和固定指令SHA256；旧/缺失包装stamp不恢复。每次原生请求在预留前回读当前Project owner已验证连接，断开或登录账户/CLI漂移后即使已打开客户端也停止。Token刷新可继续，旧local_agent文本快照仍关闭，读取历史回执不要求重启模型。

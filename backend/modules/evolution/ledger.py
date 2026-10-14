@@ -746,6 +746,8 @@ async def _read_discovery_coverage_base(db, novel_id, scene_id):
         ),
         "note": "本次召回范围已检查。未检出不代表正文中不存在。"
         if not partial
+        else "作者确认保留未检查缺口；原生请求结果未知。"
+        if result["coverage"].get("author_confirmed_unknown_gaps")
         else "仅完成部分发现，请核对未检范围。",
     }
 

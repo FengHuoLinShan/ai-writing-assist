@@ -233,3 +233,10 @@ NOWAIT 保证已持领域锁的入口不会等待项目锁升级；并发作者�
 软删除/归档项目经 `CONTEXT_PURGE_PROJECT_INTERACTION_CACHE` 同事务清除该项目作为 source 或 consumer 的缓存；恢复项目冷编译。缓存清理不删除正文、版本、作者确认事件或领域历史，永久删除仍保留原 FK 清理语义。
 
 AI 用量诊断的 totals/capabilities 均带 `usage_complete`；设置页明确展示已确认用量，历史不完整与未知请求数分别披露。
+
+
+ADR-0033 的 Codex 文本连接只在本机单用户 bootstrap owner 下开放，通过相同 project facade 固定账户版本、Luna/max、能力预算和恢复快照。无 API Key 但必须真实验证，恢复重新核验账户指纹；不接受旧 local_agent 文本快照。
+
+Codex执行快照对未设置的导入Phase 2超时采用本机Luna/max默认值：provider 900秒、Phase 2a整场1800秒、Phase 2b单场900秒。显式参数、环境优先级和冻结恢复保留；API默认值不变。
+
+Codex v3冻结快照显式保存包装版本和固定指令SHA256；旧/缺失包装stamp不恢复。每次原生请求在预留前回读当前Project owner已验证连接，断开或登录账户/CLI漂移后即使已打开客户端也停止。Token刷新可继续，旧local_agent文本快照仍关闭，读取历史回执不要求重启模型。

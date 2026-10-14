@@ -32,6 +32,7 @@ from modules.imports.workflow_llm_adapters import (
     DEEP_IMPORT_STRUCTURED_MAX_FIX_ATTEMPTS,
     DEEP_IMPORT_STRUCTURED_TIMEOUT_GRACE_SECONDS,
     PHASE1B_COMPACT_TEXT_LIMIT,
+    _llm_client_for_profile,
     _Phase1aSceneSlicingLLM,
     _Phase1bSceneEnrichmentLLM,
     _Phase1cSceneFusionLLM,
@@ -59,6 +60,7 @@ from modules.imports.workflow_structure_phase import (
     ensure_minimum_structure_outputs,
     minimum_structure_category_targets,
 )
+from modules.project.contracts import ProjectLLMConfigurationError
 from shared.deep_import_settings import (
     deep_import_float_setting,
     deep_import_int_setting,
@@ -159,6 +161,9 @@ class DeepImportWorkflow:
                 if not health.ok:
                     progress.phase = "failed"
                     progress.quality_status = "failed"
+                    progress.interrupted = True
+                    progress.recoverable = True
+                    progress.recovery_required = True
                     progress.current_step = None
                     progress.degraded = True
                     progress.message = (
@@ -285,6 +290,7 @@ class DeepImportWorkflow:
             check_llm_health,
             check_llm_health_for_project,
         )
+        from infrastructure.llm.profiles import resolve_llm_profile
 
         if db is None or not novel_id:
             return await check_llm_health()
@@ -295,7 +301,24 @@ class DeepImportWorkflow:
         )
         if effective_settings is None:
             effective_settings = await _project_settings_for_novel(db, novel_id)
-        return await check_llm_health_for_project(effective_settings)
+        health = await check_llm_health_for_project(effective_settings)
+        if health.ok and resolve_llm_profile(effective_settings).provider_id == "codex":
+            client = None
+            try:
+                client = _llm_client_for_profile(effective_settings, novel_id=novel_id)
+                await client.authorize_request()
+            except (ValueError, ProjectLLMConfigurationError):
+                return health.model_copy(
+                    update={
+                        "ok": False,
+                        "error_kind": "codex_configuration",
+                        "message": "当前作品的 Codex 连接已变化，请重新验证",
+                    }
+                )
+            finally:
+                if client is not None:
+                    await client.close()
+        return health
 
     def _phase3_timeout_seconds(self) -> int | float:
         project_settings = getattr(self, "_agent_project_settings", None)

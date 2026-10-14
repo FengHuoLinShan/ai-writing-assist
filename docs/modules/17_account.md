@@ -94,3 +94,8 @@ python scripts/manage_accounts.py smtp-smoke --to test@example.com
 ### 撤权时的 RP 缓存
 
 申请删除或封禁账户取消其项目任务时，同事务通过组合根注册的 Evidence 清理 port 删除所属项目作为 source/consumer 的私有 RP 派生缓存。恢复账户只恢复权限，不恢复旧缓存正文；永久清理仍走原项目删除边界。
+
+
+本机单用户文本连接扩展为 Codex Luna/max（ADR-0033），通过 PUT /api/account/settings/llm-connections/codex（无 api_key）进行真实生成验证；不共享服务器登录态给公开账户。account_llm_credentials 的 encrypted_api_key 可空但仅 provider_id=codex；其他 provider 必须保存加密 secret，数据库检查约束与服务门禁共同保证。
+
+Codex连接指纹包含当前ChatGPT登录账户哈希；API登录、注销、账户替换或CLI/home漂移失败关闭，同账户Token刷新保留。连接验证错误保留脱敏原生状态但不暴露原始事件/Token。

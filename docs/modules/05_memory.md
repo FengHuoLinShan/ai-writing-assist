@@ -198,3 +198,7 @@ Story facade 的 `validate_machine_event_snapshot` 复用全景物化 schema，�
 缺 basis 的旧系统行经 ensure 补登记，已有漂移 basis 不因投影 hash 相同而覆盖。作者确认历史始终保留。
 
 演化重跑的 World/relations 输入复用 sampler 已有的语义 manifest：排除宿主 run/manifest ID，保留来源内容与前缀观察读集。不变消费者可复用冻结结果，新 attempt 重新物化并在采用前重验来源；这不扩大 continuity 正史写入或正文修改后的失效范围。
+
+### 2026-10-13 来源类别长度
+
+Story连续性的`delta_log.category`改为Text，与导入/连续性自由类别契约一致；来源和before/after历史无损保留。迁移降级遇到超过32字符的历史记录拒绝执行，不截断或删除。事件、Scene确认、知识维度与项目隔离规则不变。

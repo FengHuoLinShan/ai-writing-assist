@@ -48,6 +48,8 @@ make docs-check BASE_REF=origin/main
 | [ADR-0031](0031-module-dependency-directions.md) | Accepted / 第一批已实现 | 模块依赖方向分层与逐对裁定：低层调高层只能经消费方 contracts 的 SPI Protocol + 组合根 DI port；非 assistant 七对与 world core↔worldbuilding 已按裁定解环，assistant 六对留待第二批。 |
 | [ADR-0032](0032-guided-flow-orchestration.md) | Accepted / 实施中（BR-3） | Assistant 内 guided_flow 确定性编排层：服务端注册带版本步骤表（模型不可改）、三种步骤类型、进度由领域产物推导不存步索引、复用 AssistantRun 与既有开关/白名单、不新增依赖边；流程任务一律确定性 operation_id。 |
 
+| [ADR-0033](0033-codex-text-runtime.md) | Accepted / Implementation in progress | 本机单用户账户文本连接默认 Luna/max，受限纯文本步骤与业务工具提案，沿用项目 facade 与信封；公开账户禁用，旧本机文字快照继续拒绝。 |
+
 2026-09-15 的运行信封实现补充：已冻结能力使用 `AIRunEnvelopeV1` 累计请求与恢复，未冻结规模的
 C3 任务仍按 ADR-0023/0025 的授权和领域边界暂停，不以通用临时额度替代产品裁决。
 

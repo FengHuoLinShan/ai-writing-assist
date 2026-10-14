@@ -269,6 +269,7 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer) })
     <p v-if="error" role="alert">{{ error }}</p>
     <template v-if="state">
       <p v-if="run" role="status">{{ statusText }} · {{ run.preparing_scenes ? "准备场景边界" : run.preparing_structure ? "整理剧情结构候选" : `${run.completed_scenes} / ${run.total_scenes} 场景` }}</p>
+      <p v-if="run?.unchecked_discovery_gaps?.length" role="status">保留 {{ run.unchecked_discovery_gaps.length }} 处作者确认的未检查缺口；原请求结果未知，后续完成也不代表这部分已检查。</p>
       <progress v-if="run?.total_scenes" :value="run.completed_scenes" :max="run.total_scenes" aria-label="理解进度" />
       <div class="reading-actions">
         <button class="btn btn-sm" type="button" :disabled="busy" @click="refresh">刷新进度</button>

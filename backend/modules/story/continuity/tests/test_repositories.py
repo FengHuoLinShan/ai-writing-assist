@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import Text, select
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -485,6 +485,24 @@ class TestEventRepository:
 
 
 class TestDeltaLogRepository:
+    async def test_long_source_category_round_trips_without_truncation(
+        self,
+        db_with_project: AsyncSession,
+        sample_novel_id: uuid.UUID,
+    ) -> None:
+        category = "source_bound_observation_" + "detail_" * 12
+        assert isinstance(DeltaLog.__table__.c.category.type, Text)
+        entry = DeltaLog(novel_id=sample_novel_id, category=category)
+        db_with_project.add(entry)
+        await db_with_project.flush()
+        db_with_project.expire(entry)
+        assert (
+            await db_with_project.scalar(
+                select(DeltaLog.category).where(DeltaLog.novel_id == sample_novel_id)
+            )
+            == category
+        )
+
     async def test_workflow_queries_filter_in_database_and_keep_novel_isolation(
         self,
         db_with_project: AsyncSession,

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -15,6 +16,105 @@ from infrastructure.llm.health import (
     check_llm_environment_health,
     check_llm_service_health,
 )
+
+
+def _native_project_settings():
+    from infrastructure.llm.cli_agent import CODEX_TEXT_ADAPTER_VERSION
+
+    return {
+        "llm": {
+            "provider_id": "codex",
+            "base_url": "codex://local",
+            "model": "gpt-6-luna",
+            "api_key": "",
+            "extra": {
+                "reasoning_effort": "max",
+                "codex_text_adapter_version": CODEX_TEXT_ADAPTER_VERSION,
+                "codex_connection_fingerprint": "test-host",
+            },
+        }
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "invalid", [None, "missing", "stale", "model", "effort", "wrapper", "secret"]
+)
+async def test_native_preflight_checks_configuration_without_model_requests(invalid):
+    settings = _native_project_settings()
+    llm = settings["llm"]
+    if invalid == "missing":
+        llm["extra"].pop("codex_connection_fingerprint")
+    elif invalid == "stale":
+        llm["extra"]["codex_connection_fingerprint"] = "old-host"
+    elif invalid == "model":
+        llm["model"] = "gpt-6-sol"
+    elif invalid == "effort":
+        llm["extra"]["reasoning_effort"] = "high"
+    elif invalid == "wrapper":
+        llm["extra"]["codex_text_adapter_version"] = "codex-text-v2"
+    elif invalid == "secret":
+        llm["api_key"] = "synthetic-unexpected-key"
+    with (
+        patch(
+            "infrastructure.llm.codex_provider.codex_connection_fingerprint",
+            autospec=True,
+            return_value="test-host",
+        ),
+        patch(
+            "infrastructure.llm.codex_provider.verify_codex_connection",
+            autospec=True,
+            side_effect=AssertionError("preflight must not dispatch"),
+        ) as verify,
+        patch(
+            "infrastructure.llm.codex_provider.CodexProvider.generate",
+            autospec=True,
+            side_effect=AssertionError("preflight must not dispatch"),
+        ) as generate,
+    ):
+        for _ in range(2):
+            result = await health_module.check_llm_health_for_project(settings)
+            assert result.ok is (invalid is None)
+            assert result.scope == "project_configuration"
+            assert result.remote_check is False
+            assert "synthetic-unexpected-key" not in str(result.model_dump())
+            assert result.error_kind == ("" if invalid is None else "codex_configuration")
+        verify.assert_not_awaited()
+        generate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_import_native_preflight_rechecks_current_project_authorization():
+    from modules.imports.workflow import DeepImportWorkflow
+    from modules.project.contracts import ProjectLLMConfigurationError
+
+    settings = _native_project_settings()
+    client = SimpleNamespace(
+        authorize_request=AsyncMock(
+            side_effect=ProjectLLMConfigurationError("connection revoked")
+        ),
+        close=AsyncMock(),
+    )
+    workflow = DeepImportWorkflow.__new__(DeepImportWorkflow)
+    with (
+        patch(
+            "infrastructure.llm.health.check_llm_health_for_project",
+            autospec=True,
+            return_value=LLMHealthResult(ok=True, remote_check=False),
+        ),
+        patch(
+            "modules.imports.workflow._llm_client_for_profile",
+            autospec=True,
+            return_value=client,
+        ) as create,
+    ):
+        result = await workflow._check_llm_health(object(), "test-project", settings)
+    assert result.ok is False
+    assert result.error_kind == "codex_configuration"
+    assert result.remote_check is False
+    create.assert_called_once_with(settings, novel_id="test-project")
+    client.authorize_request.assert_awaited_once()
+    client.close.assert_awaited_once()
 
 
 @pytest.mark.asyncio

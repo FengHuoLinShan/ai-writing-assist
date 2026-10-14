@@ -170,7 +170,10 @@ async def capabilities(db: DbSession, novel_id: UUID):
 
     try:
         snapshot = await build_project_llm_execution_snapshot(db, str(novel_id))
-        model_ready = bool(snapshot["profile"]["api_key_configured"])
+        model_ready = bool(
+            snapshot["profile"]["api_key_configured"]
+            or snapshot["profile"].get("connection_verified")
+        )
     except ProjectLLMConfigurationError:
         model_ready = False
     reason = (

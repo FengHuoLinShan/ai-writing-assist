@@ -2533,6 +2533,9 @@ class TestDeepImportWorkflowAutoRun:
         assert result.quality_status == "failed"
         assert result.current_step is None
         assert result.phase_errors[0]["phase"] == "preflight"
+        assert result.recovery_required is True
+        assert result.recoverable is True
+        assert result.interrupted is True
         assert result.phase_errors[0]["error_kind"] == "proxy_error"
         workflow._run_phase0_plan.assert_not_awaited()
         workflow._run_phase1a_scene_slicing.assert_not_awaited()

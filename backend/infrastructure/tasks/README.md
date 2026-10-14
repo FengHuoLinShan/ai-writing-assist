@@ -497,3 +497,5 @@ AI 用量汇总保留 `usage_complete`；旧恢复回执 `legacy_untracked` 即�
 
 `evolution_category_rescan_v1` 是已确认类别补扫的 manual_resume 任务，冻结结果恢复不重发；
 请求未知先核对，沿用原理解 run 的根预算，并限制本操作调用上限。
+
+兼容投影 `update_task_projection` 默认只写 pending/running；领域在显式恢复已证实的失败时可传 `allow_failed=True` 修正失败投影，仍校验同 task_id/type/novel_id 并加锁，不覆盖 done/cancelled，也不绕过 manual_resume 策略或重置 AI 账本。

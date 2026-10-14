@@ -739,3 +739,7 @@ scope 构建按 ContextItem 级 token 与 section 级 evicted/truncated 状态�
 来源按钮按同 novel 逐步回读当前/历史 checkpoint 与原 MemoryEvent；历史依据单独标记，不当作当前事实。GET 不 ensure；“重新整理已有状态记录”走显式原 ensure 接口，只补缺失 basis 或重放已登记事件，不编造来源。备份排除缓存数据，旧备份恢复后同样清空派生正文。
 
 确认记录的只读跨模块投影经 `evidence.confirmation_reads` 注册 port 消费：Writing读取确认失效信号，Project读取任务成果归属；保留 `novel_id` 范围，不重编译上下文或修改采用事实。
+
+## 完整组级复核资料
+
+`govern_group_output`完整传入冻结的generator_context与同一authority_context；审查请求只渲染一份相同正文，不做24K字符截断。provider容量或调用失败须明确阻断，不能把未见后半正文认证为已检；既有来源指纹、必查维度和采用门禁保留。

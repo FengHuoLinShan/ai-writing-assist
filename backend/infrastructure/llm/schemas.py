@@ -90,7 +90,7 @@ class LLMCallRequest(BaseModel):
     """生成温度；None 表示继承 client 解析出的 profile 默认"""
     max_tokens: int | None = None
     """最大输出 token 数；None 表示继承当前 LLMClient 的默认值"""
-    response_format: dict[str, str] | None = None
+    response_format: dict[str, Any] | None = None
     """响应格式约束，如 {"type": "json_object"}"""
     stop: list[str] | None = None
     """停止序列"""

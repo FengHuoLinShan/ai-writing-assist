@@ -305,3 +305,107 @@ async def test_theme_index_growth_shards_instead_of_dropping_all_batches(monkeyp
     assert all(
         {"subject_labels", "target_ids"} <= set(item) for item in result["theme_index"]
     )
+
+
+@pytest.mark.asyncio
+async def test_theme_keeps_all_bound_proof_without_copying_unrelated_scene_observations(
+    monkeypatch,
+):
+    prior_text = "甲留下线索。"
+    old_observations = [
+        _observation(
+            f"prior-{index:03d}",
+            prior_text + "资料" * 500,
+            scene_index=0,
+            chapter_index=1,
+            start=0,
+            end=len(prior_text),
+            quote=prior_text,
+        )
+        for index in range(80)
+    ]
+    parent = SimpleNamespace(
+        run_id="old",
+        attempt_id="old-attempt",
+        source_manifest_hash="a" * 64,
+        payload={
+            "scene_id": str(UUID(int=1)),
+            "scene_index": 0,
+            "compiled_observations": old_observations,
+        },
+    )
+    current_text = "甲返回。"
+    current = _observation(
+        "current",
+        current_text,
+        scene_index=1,
+        chapter_index=2,
+        start=0,
+        end=len(current_text),
+        quote=current_text,
+    )
+    frozen = SimpleNamespace(
+        novel_id=str(UUID(int=999)),
+        run_id="new",
+        attempt_id="new-attempt",
+        source_manifest_hash="b" * 64,
+        payload={
+            "scene_id": str(UUID(int=2)),
+            "scene_index": 1,
+            "scene_text": current_text,
+            "compiled_observations": [current],
+            "source_binding": {
+                "draft_id": "draft-2",
+                "chapter_index": 2,
+                "content_hash": f"{2:064x}",
+                "start_offset": 0,
+                "end_offset": len(current_text),
+                "additional_sources": [],
+            },
+        },
+    )
+    themes = [
+        _ledger_theme(index, old_observations[index]["observation_id"])
+        for index in range(80)
+    ]
+    for theme in themes:
+        theme["claim"]["dependencies"] = [{"scene_id": str(UUID(int=1))}]
+
+    class Store:
+        async def load_committed_pairs(self, run_id):
+            return [
+                (
+                    SimpleNamespace(
+                        committed_scene_index=0, run_key="old", attempt_key="old-attempt"
+                    ),
+                    None,
+                )
+            ]
+
+        async def load_frozen(self, run_key, attempt_key):
+            return parent
+
+    async def valid_prefix(*args, **kwargs):
+        pass
+
+    async def paged_ledger(db, novel_id, *, through_scene_index, offset, limit):
+        return {"items": themes[offset : offset + limit], "total": len(themes)}
+
+    monkeypatch.setattr(
+        "modules.evolution.discovery.require_current_prefix", valid_prefix
+    )
+    monkeypatch.setattr("modules.evolution.discovery.list_ledger", paged_ledger)
+    result = await prepare_discovery(None, Store(), frozen)
+    descriptors = [
+        unit["theme"]
+        for batch in result["batches"]
+        for unit in batch["historical_context"]
+        if "theme" in unit
+    ]
+    assert len(descriptors) == 80
+    assert not result["unsupported_batches"]
+    assert {
+        item["evidence_observations"][0]["observation_id"] for item in descriptors
+    } == {observation["observation_id"] for observation in old_observations}
+    assert all(len(item["evidence_observations"]) == 1 for item in descriptors)
+    assert result["coverage"]["recall_scope"]["omitted_candidates"] == 16

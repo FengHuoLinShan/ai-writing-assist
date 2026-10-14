@@ -112,6 +112,11 @@ def is_retryable_transport_error(error: Exception) -> bool:
         ),
     ):
         return False
+    if isinstance(error, LLMError) and error.error_kind in {
+        "codex_result_unknown",
+        "codex_configuration",
+    }:
+        return False
     return is_retryable_llm_error(error) or isinstance(error, LLMError)
 
 

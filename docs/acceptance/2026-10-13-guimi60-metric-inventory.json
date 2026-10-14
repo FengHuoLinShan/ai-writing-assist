@@ -1,0 +1,1482 @@
+{
+  "source_scope": "Guimi first 60 chapters; final native v2 comparison; inventory is not full metric execution",
+  "business_baseline": "2dce04f42a7d7eb41eaf0c025033c1eb4a051e50",
+  "adaptation_baseline": "974f0f5080d43472bc599d1d74782913c725057b",
+  "human_validated": false,
+  "metric_definitions": {
+    "version": "guimi60-comparison-v1",
+    "source_scope": "first 60 chapters, 212868 exact characters; source-bound assertions only",
+    "world_types": [
+      "character",
+      "location",
+      "faction",
+      "organization",
+      "species",
+      "group",
+      "item",
+      "object",
+      "event",
+      "rule",
+      "power_system",
+      "secret",
+      "legend",
+      "resource",
+      "concept",
+      "creature",
+      "skill",
+      "ability",
+      "artifact",
+      "other"
+    ],
+    "story_assets": [
+      "scenes",
+      "scene_spans",
+      "scene_chapter_links",
+      "plot_threads",
+      "outline_arcs",
+      "character_arcs",
+      "foreshadowing_plans",
+      "reveal_plans",
+      "turning_points",
+      "memory_events",
+      "character_knowledge",
+      "presence",
+      "causality"
+    ],
+    "ledger_categories": [
+      "conditional_behavior",
+      "clue",
+      "commitment",
+      "language_habit",
+      "external_appearance"
+    ],
+    "metrics": [
+      "generated_vs_persisted_vs_adopted_vs_pending",
+      "name_and_type_correctness",
+      "field_claim_support",
+      "source_quote_and_offset_exactness",
+      "alias_and_identity_consistency",
+      "relation_endpoint_and_persistence_correctness",
+      "duplicate_rate",
+      "temporal_cutoff_and_knowledge_leakage",
+      "partial_coverage_and_omissions",
+      "evidence_backlinks",
+      "cross_chapter_continuity",
+      "author_decision_protection",
+      "start_confirmations",
+      "adjudication_and_adoption_operations",
+      "lookup_clicks_and_navigation",
+      "progress_interpretability",
+      "error_recovery_operations",
+      "time_to_first_useful_result",
+      "wall_clock_duration",
+      "revision_impact_and_reuse"
+    ],
+    "fairness": {
+      "all_llm_steps": "gpt-6-luna/max",
+      "same_source": true,
+      "same_code": "974f0f5080d43472bc599d1d74782913c725057b plus frozen native-v2 production Python and Prompt fingerprints",
+      "no_model_fallback": true,
+      "no_external_embeddings": true,
+      "keep_native_pipeline_differences": true,
+      "cli_output_limit_not_native_api_cap": true,
+      "human_validated": false,
+      "do_not_equate_count_with_accuracy": true
+    },
+    "quality_sampling": "all persisted outputs get mechanical provenance/identity audit; semantic coverage and accuracy require independent source-bound review. Report actual sample denominators; do not claim full recall without exhaustive gold.",
+    "ux_tasks": [
+      "start full range",
+      "read progress and partial results",
+      "find person and source",
+      "find item/place/organization",
+      "inspect plot and clues",
+      "inspect historical state and character knowledge",
+      "correct one derived claim",
+      "edit source and preview recompute",
+      "recover a failure",
+      "leave and reopen"
+    ],
+    "usage_policy": "No extra token or cost statistics; keep product recovery receipts only."
+  },
+  "output_contracts": {
+    "SceneSliceItem": {
+      "path": "modules/imports/llm_schemas.py",
+      "line": 273,
+      "fields": [
+        "title",
+        "goal",
+        "core_conflict",
+        "core_conflict_status",
+        "start_chapter",
+        "end_chapter",
+        "start_anchor",
+        "end_anchor",
+        "boundary_status",
+        "boundary_basis",
+        "confidence"
+      ]
+    },
+    "SceneEnrichmentOutput": {
+      "path": "modules/imports/llm_schemas.py",
+      "line": 484,
+      "fields": [
+        "emotional_beat",
+        "must_happen",
+        "must_not_happen",
+        "narrative_tag",
+        "narrative_function",
+        "basis",
+        "field_evidence",
+        "uncertain_fields",
+        "confidence"
+      ]
+    },
+    "ExtractedAlias": {
+      "path": "modules/imports/llm_schemas.py",
+      "line": 671,
+      "fields": [
+        "entity_ref",
+        "alias",
+        "alias_kind",
+        "alias_type",
+        "identity_scope",
+        "identity_basis",
+        "evidence_quotes",
+        "confidence"
+      ]
+    },
+    "Phase2bRelationObservation": {
+      "path": "modules/imports/llm_schemas.py",
+      "line": 701,
+      "fields": [
+        "source_ref",
+        "target_ref",
+        "relation_kind",
+        "relation_type",
+        "persistence_scope",
+        "directionality",
+        "claim_status",
+        "previous_relation_ref",
+        "description",
+        "strength",
+        "basis",
+        "evidence_quotes",
+        "confidence"
+      ]
+    },
+    "Phase2aEntityObservation": {
+      "path": "modules/imports/llm_schemas.py",
+      "line": 833,
+      "fields": [
+        "name",
+        "entity_type",
+        "summary",
+        "public_info",
+        "hidden_truth",
+        "importance",
+        "identity_disposition",
+        "matched_existing_ref",
+        "basis",
+        "uncertainties",
+        "evidence_quotes",
+        "field_evidence",
+        "confidence"
+      ]
+    },
+    "Phase2aDeltaObservation": {
+      "path": "modules/imports/llm_schemas.py",
+      "line": 927,
+      "fields": [
+        "subject_name",
+        "category",
+        "dimension",
+        "field",
+        "old",
+        "new",
+        "description",
+        "basis",
+        "uncertainties",
+        "evidence_quotes",
+        "confidence"
+      ]
+    },
+    "Phase2WorldObject": {
+      "path": "modules/imports/llm_schemas.py",
+      "line": 1031,
+      "fields": [
+        "name",
+        "entity_type",
+        "summary",
+        "aliases",
+        "suggested_action",
+        "suggested_existing_name",
+        "importance",
+        "confidence",
+        "needs_review",
+        "review_reason",
+        "supporting_scene_ids"
+      ]
+    },
+    "Phase2WorldRelation": {
+      "path": "modules/imports/llm_schemas.py",
+      "line": 1072,
+      "fields": [
+        "source_name",
+        "target_name",
+        "relation_type",
+        "description",
+        "confidence",
+        "needs_review",
+        "review_reason",
+        "supporting_scene_ids"
+      ]
+    },
+    "GeneratedThread": {
+      "path": "modules/story/outline_state/generation/models.py",
+      "line": 13,
+      "fields": [
+        "name",
+        "thread_type",
+        "summary",
+        "visible_goal",
+        "hidden_truth",
+        "start_chapter",
+        "planned_payoff_chapter",
+        "current_stage",
+        "related_character_names",
+        "related_entity_names",
+        "confidence",
+        "needs_review",
+        "review_reason",
+        "supporting_scene_ids",
+        "evidence_gate"
+      ]
+    },
+    "GeneratedArc": {
+      "path": "modules/story/outline_state/generation/models.py",
+      "line": 46,
+      "fields": [
+        "title",
+        "arc_index",
+        "start_chapter",
+        "end_chapter",
+        "arc_goal",
+        "core_conflict",
+        "main_opposition",
+        "entry_hook",
+        "midpoint_turn",
+        "climax",
+        "result",
+        "next_hook",
+        "related_character_names",
+        "related_entity_names",
+        "related_thread_names",
+        "confidence",
+        "needs_review",
+        "review_reason",
+        "supporting_scene_ids",
+        "evidence_gate"
+      ]
+    },
+    "ForeshadowingPlan": {
+      "path": "modules/story/outline_state/generation/models.py",
+      "line": 69,
+      "fields": [
+        "name",
+        "summary",
+        "planned_seed_chapter",
+        "planned_payoff_chapter",
+        "status",
+        "confidence",
+        "needs_review",
+        "review_reason",
+        "supporting_scene_ids",
+        "evidence_gate"
+      ]
+    },
+    "RevealPlan": {
+      "path": "modules/story/outline_state/generation/models.py",
+      "line": 82,
+      "fields": [
+        "target_name",
+        "target_type",
+        "secret_summary",
+        "status",
+        "confidence",
+        "needs_review",
+        "review_reason",
+        "supporting_scene_ids",
+        "evidence_gate"
+      ]
+    },
+    "OffscreenProgress": {
+      "path": "modules/story/outline_state/generation/models.py",
+      "line": 94,
+      "fields": [
+        "thread_name",
+        "offscreen_description",
+        "importance"
+      ]
+    },
+    "Risk": {
+      "path": "modules/story/outline_state/generation/models.py",
+      "line": 100,
+      "fields": [
+        "risk_type",
+        "description",
+        "severity"
+      ]
+    },
+    "Question": {
+      "path": "modules/story/outline_state/generation/models.py",
+      "line": 106,
+      "fields": [
+        "question",
+        "context",
+        "suggested_options"
+      ]
+    },
+    "SimpleCharacterArc": {
+      "path": "modules/story/outline_state/generation/models.py",
+      "line": 156,
+      "fields": [
+        "character_name"
+      ]
+    },
+    "SimpleStructureOutput": {
+      "path": "modules/story/outline_state/generation/models.py",
+      "line": 160,
+      "fields": [
+        "plot_threads",
+        "arcs",
+        "foreshadowing",
+        "reveals",
+        "turning_points",
+        "uncertain_items"
+      ]
+    },
+    "ObservationEnvelope": {
+      "path": "modules/evolution/contracts.py",
+      "line": 151,
+      "fields": [
+        "observation_id",
+        "source_ref",
+        "observer_contract_version",
+        "mention_refs",
+        "predicate_or_description",
+        "modality",
+        "speaker_ref",
+        "valid_story_time",
+        "learned_at_position",
+        "evidence_quotes",
+        "unresolved_parts",
+        "disposition",
+        "producer_run_id",
+        "input_manifest_hash"
+      ]
+    },
+    "TypedStateOperation": {
+      "path": "modules/evolution/contracts.py",
+      "line": 323,
+      "fields": [
+        "schema_version",
+        "operation_kind",
+        "subject_ref",
+        "relation_or_field",
+        "before_precondition",
+        "value",
+        "story_position",
+        "valid_time",
+        "knowledge_subject",
+        "source_observation_ids",
+        "authority_basis",
+        "derivation_version"
+      ]
+    },
+    "EvolutionReceipt": {
+      "path": "modules/evolution/contracts.py",
+      "line": 417,
+      "fields": [
+        "run_id",
+        "attempt_id",
+        "owner_epoch",
+        "producer_version",
+        "source_manifest_hash",
+        "input_state_receipt",
+        "previous_receipt",
+        "previous_committed_prefix",
+        "observation_dispositions",
+        "world_result_refs",
+        "story_result_refs",
+        "evidence_result_refs",
+        "pending_decisions",
+        "coverage",
+        "committed_prefix",
+        "blocked_dependencies",
+        "paid_call_receipts",
+        "execution_status",
+        "outcome_status",
+        "freshness"
+      ]
+    },
+    "LedgerEvidence": {
+      "path": "modules/evolution/ledger_contracts.py",
+      "line": 53,
+      "fields": [
+        "observation_id",
+        "position",
+        "modality",
+        "quote",
+        "source_ref",
+        "role",
+        "occurrence_id",
+        "purpose",
+        "occurrence_kind",
+        "occurrence_origin",
+        "speaker_entity_id",
+        "speaker_label"
+      ]
+    },
+    "LedgerClaim": {
+      "path": "modules/evolution/ledger_contracts.py",
+      "line": 101,
+      "fields": [
+        "category",
+        "label",
+        "statement",
+        "conditions",
+        "realm",
+        "modality",
+        "confidence",
+        "competing_explanations",
+        "targets",
+        "unresolved_subjects",
+        "evidence",
+        "dependencies",
+        "method_fingerprint",
+        "method_version",
+        "contract_version"
+      ]
+    }
+  },
+  "domain_fields": {
+    "core_entities": {
+      "class": "CoreEntity",
+      "path": "modules/world/models/core.py",
+      "fields": [
+        "entity_type",
+        "name",
+        "summary",
+        "public_info",
+        "hidden_truth",
+        "content_json",
+        "importance",
+        "importance_level",
+        "reveal_level",
+        "embedding_text",
+        "search_text",
+        "pinyin_string",
+        "created_by",
+        "approved_by",
+        "image_version",
+        "image_updated_at"
+      ]
+    },
+    "events": {
+      "class": "Event",
+      "path": "modules/world/models/core.py",
+      "fields": [
+        "entity_id",
+        "source_chapter_id",
+        "location_entity_id",
+        "timeline_order",
+        "occurrence_time_label",
+        "status"
+      ]
+    },
+    "entity_relations": {
+      "class": "EntityRelation",
+      "path": "modules/world/models/core.py",
+      "fields": [
+        "source_id",
+        "target_id",
+        "relation_type",
+        "relation_kind",
+        "description",
+        "strength",
+        "source_chapter_id",
+        "caused_by_event_id",
+        "quote",
+        "review_meta",
+        "status"
+      ]
+    },
+    "entity_revisions": {
+      "class": "EntityRevision",
+      "path": "modules/world/models/core.py",
+      "fields": [
+        "entity_id",
+        "novel_id",
+        "snapshot",
+        "source_chapter_id",
+        "revision_reason",
+        "writing_chapter_index",
+        "change_summary",
+        "created_at"
+      ]
+    },
+    "world_revision_notes": {
+      "class": "WorldRevisionNote",
+      "path": "modules/world/models/core.py",
+      "fields": [
+        "target_kind",
+        "revision_id",
+        "note"
+      ]
+    },
+    "text_archive": {
+      "class": "TextArchive",
+      "path": "modules/world/models/core.py",
+      "fields": [
+        "entity_id",
+        "field_name",
+        "text_content",
+        "scene_index",
+        "source",
+        "meta",
+        "created_at"
+      ]
+    },
+    "characters": {
+      "class": "Character",
+      "path": "modules/world/models/character.py",
+      "fields": [
+        "entity_id",
+        "name",
+        "aliases",
+        "role",
+        "appearance",
+        "personality",
+        "desire",
+        "fear",
+        "secret",
+        "weakness",
+        "current_goal",
+        "current_state",
+        "current_emotion",
+        "stance",
+        "voice_style",
+        "behavior_rules",
+        "relationship_summary",
+        "meta"
+      ]
+    },
+    "character_knowledge": {
+      "class": "CharacterKnowledge",
+      "path": "modules/world/models/character.py",
+      "fields": [
+        "character_id",
+        "target_type",
+        "target_id",
+        "knowledge_level",
+        "known_content",
+        "misconception",
+        "source_chapter_index",
+        "is_public_baseline",
+        "source_memory_id"
+      ]
+    },
+    "story_outline_revisions": {
+      "class": "StoryOutlineRevision",
+      "path": "modules/story/outline_state/models.py",
+      "fields": [
+        "version_number",
+        "title",
+        "creative_core_json",
+        "outline_markdown",
+        "major_storylines_json",
+        "macro_movements_json",
+        "open_decisions_json",
+        "source",
+        "provenance_json",
+        "base_revision_id",
+        "restored_from_revision_id",
+        "idempotency_key",
+        "request_hash",
+        "content_hash"
+      ]
+    },
+    "story_outline_heads": {
+      "class": "StoryOutlineHead",
+      "path": "modules/story/outline_state/models.py",
+      "fields": [
+        "current_revision_id"
+      ]
+    },
+    "plot_threads": {
+      "class": "PlotThread",
+      "path": "modules/story/outline_state/models.py",
+      "fields": [
+        "name",
+        "thread_type",
+        "summary",
+        "visible_goal",
+        "hidden_truth",
+        "start_chapter",
+        "planned_payoff_chapter",
+        "current_stage",
+        "related_character_ids",
+        "related_entity_ids",
+        "related_memory_ids",
+        "reader_known_state",
+        "author_known_state",
+        "provenance_meta"
+      ]
+    },
+    "outline_arcs": {
+      "class": "OutlineArc",
+      "path": "modules/story/outline_state/models.py",
+      "fields": [
+        "title",
+        "arc_index",
+        "start_chapter",
+        "end_chapter",
+        "arc_goal",
+        "core_conflict",
+        "main_opposition",
+        "entry_hook",
+        "midpoint_turn",
+        "climax",
+        "result",
+        "next_hook",
+        "related_thread_ids",
+        "related_character_ids",
+        "related_entity_ids",
+        "provenance_meta"
+      ]
+    },
+    "scenes": {
+      "class": "Scene",
+      "path": "modules/story/outline_state/models.py",
+      "fields": [
+        "scene_index",
+        "title",
+        "goal",
+        "core_conflict",
+        "emotional_beat",
+        "must_happen",
+        "must_not_happen",
+        "narrative_tag",
+        "source",
+        "scene_chunks",
+        "chapter_ids",
+        "pov_character_id",
+        "structure_meta"
+      ]
+    },
+    "scene_spans": {
+      "class": "SceneSpan",
+      "path": "modules/story/outline_state/models.py",
+      "fields": [
+        "scene_id",
+        "chapter_index",
+        "content_mode",
+        "source_draft_id",
+        "source_content_hash",
+        "start_offset",
+        "end_offset",
+        "start_paragraph",
+        "end_paragraph",
+        "part_no",
+        "mapping_status",
+        "anchor_hash",
+        "anchor_excerpt",
+        "source",
+        "status"
+      ]
+    },
+    "scene_fusion_suggestions": {
+      "class": "SceneFusionSuggestion",
+      "path": "modules/story/outline_state/models.py",
+      "fields": [
+        "source_workflow_id",
+        "suggestion_kind",
+        "proposed_action",
+        "suggestion_key",
+        "source_fingerprint",
+        "source_scene_ids",
+        "chapter_span",
+        "proposed_scene",
+        "scan_trace",
+        "confidence",
+        "reason",
+        "status",
+        "result_scene_id",
+        "result_scene_ids"
+      ]
+    },
+    "scene_summary_checkpoints": {
+      "class": "SceneSummaryCheckpoint",
+      "path": "modules/story/outline_state/models.py",
+      "fields": [
+        "scene_id",
+        "content_mode",
+        "through_chapter",
+        "through_offset",
+        "summary",
+        "source_refs",
+        "based_on_hash",
+        "source",
+        "status"
+      ]
+    },
+    "scene_chapter_links": {
+      "class": "SceneChapterLink",
+      "path": "modules/story/outline_state/models.py",
+      "fields": [
+        "scene_id",
+        "chapter_index"
+      ]
+    },
+    "foreshadowing_plans": {
+      "class": "ForeshadowingPlan",
+      "path": "modules/story/outline_state/models.py",
+      "fields": [
+        "name",
+        "summary",
+        "surface_meaning",
+        "hidden_meaning",
+        "planned_seed_chapter",
+        "planned_reinforce_chapters",
+        "planned_payoff_chapter",
+        "planned_payoff_scene",
+        "related_entity_ids",
+        "related_thread_ids",
+        "provenance_meta"
+      ]
+    },
+    "reveal_plans": {
+      "class": "RevealPlan",
+      "path": "modules/story/outline_state/models.py",
+      "fields": [
+        "target_type",
+        "target_id",
+        "secret_summary",
+        "reveal_stages",
+        "related_thread_ids",
+        "provenance_meta",
+        "status"
+      ]
+    },
+    "memory_events": {
+      "class": "MemoryEvent",
+      "path": "modules/story/continuity/models.py",
+      "fields": [
+        "id",
+        "chapter_index",
+        "scene_id",
+        "scene_index",
+        "scene_sequence",
+        "dimension",
+        "sequence",
+        "event_type",
+        "entity_id",
+        "entity_type",
+        "snapshot_before",
+        "snapshot_after",
+        "source",
+        "source_stale",
+        "created_at"
+      ]
+    },
+    "memory_snapshots": {
+      "class": "MemorySnapshot",
+      "path": "modules/story/continuity/models.py",
+      "fields": [
+        "id",
+        "chapter_index",
+        "status",
+        "full_state",
+        "events_until",
+        "created_at"
+      ]
+    },
+    "delta_log": {
+      "class": "DeltaLog",
+      "path": "modules/story/continuity/models.py",
+      "fields": [
+        "entity_id",
+        "character_id",
+        "scene_index",
+        "category",
+        "field_path",
+        "old_value",
+        "new_value",
+        "source",
+        "meta",
+        "created_at"
+      ]
+    },
+    "memory_scene_checkpoints": {
+      "class": "MemorySceneCheckpoint",
+      "path": "modules/story/continuity/models.py",
+      "fields": [
+        "scene_id",
+        "scene_index",
+        "stage_index",
+        "dimension",
+        "status",
+        "source",
+        "confirmed",
+        "is_current",
+        "state_json",
+        "evidence_refs",
+        "display_summary",
+        "source_hash",
+        "basis_json",
+        "gap_reason",
+        "retry_count",
+        "decision_summary",
+        "supersedes_id",
+        "created_at"
+      ]
+    },
+    "memory_scene_snapshots": {
+      "class": "MemorySceneSnapshot",
+      "path": "modules/story/continuity/models.py",
+      "fields": [
+        "scene_id",
+        "scene_index",
+        "stage_index",
+        "snapshot_reasons",
+        "full_state",
+        "source_hash",
+        "is_current",
+        "is_latest",
+        "created_at"
+      ]
+    },
+    "evolution_source_epochs": {
+      "class": "EvolutionSourceEpoch",
+      "path": "modules/evolution/models.py",
+      "fields": [
+        "novel_id",
+        "scope_key",
+        "epoch"
+      ]
+    },
+    "evolution_runs": {
+      "class": "EvolutionRun",
+      "path": "modules/evolution/models.py",
+      "fields": [
+        "run_key",
+        "mode",
+        "owner_epoch",
+        "project_owner_epoch",
+        "active_engine",
+        "execution_mode",
+        "status",
+        "invalidation_json",
+        "llm_snapshot_json",
+        "reading_plan_json",
+        "committed_scene_index",
+        "committed_source_revision",
+        "head_attempt_id",
+        "budget_total",
+        "budget_remaining",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    "evolution_frozen_attempts": {
+      "class": "EvolutionFrozenAttempt",
+      "path": "modules/evolution/models.py",
+      "fields": [
+        "run_key",
+        "attempt_key",
+        "owner_epoch",
+        "producer_version",
+        "source_manifest_hash",
+        "previous_receipt",
+        "previous_prefix_json",
+        "payload_json",
+        "status",
+        "created_at"
+      ]
+    },
+    "evolution_receipts": {
+      "class": "EvolutionReceiptRecord",
+      "path": "modules/evolution/models.py",
+      "fields": [
+        "run_key",
+        "attempt_key",
+        "execution_status",
+        "committed_scene_index",
+        "committed_source_revision",
+        "receipt_json",
+        "created_at"
+      ]
+    },
+    "evolution_ledger_entries": {
+      "class": "EvolutionLedgerEntry",
+      "path": "modules/evolution/models.py",
+      "fields": [
+        "origin_key",
+        "category",
+        "head_revision",
+        "author_decision_json",
+        "created_at"
+      ]
+    },
+    "evolution_ledger_revisions": {
+      "class": "EvolutionLedgerRevision",
+      "path": "modules/evolution/models.py",
+      "fields": [
+        "entry_id",
+        "revision",
+        "operation_key",
+        "request_hash",
+        "scene_index",
+        "kind",
+        "body_json",
+        "created_at"
+      ]
+    },
+    "species_profiles": {
+      "class": "SpeciesProfile",
+      "path": "modules/world/models/profiles.py",
+      "fields": [
+        "entity_id",
+        "source",
+        "confidence",
+        "evidence_refs_json",
+        "extra_json",
+        "origin_summary",
+        "physiology_summary",
+        "lifespan",
+        "abilities_json",
+        "weaknesses_json",
+        "culture_summary",
+        "language_summary",
+        "public_baseline"
+      ],
+      "evaluation_scope": "workflow outputs or explicitly outside automatic import/evolution scope; empty is not automatically a defect"
+    },
+    "faction_profiles": {
+      "class": "FactionProfile",
+      "path": "modules/world/models/profiles.py",
+      "fields": [
+        "entity_id",
+        "source",
+        "confidence",
+        "evidence_refs_json",
+        "extra_json",
+        "ideology_summary",
+        "leader_entity_ids_json",
+        "member_rules",
+        "territory_refs_json",
+        "resources_json",
+        "public_baseline"
+      ],
+      "evaluation_scope": "workflow outputs or explicitly outside automatic import/evolution scope; empty is not automatically a defect"
+    },
+    "location_profiles": {
+      "class": "LocationProfile",
+      "path": "modules/world/models/profiles.py",
+      "fields": [
+        "entity_id",
+        "source",
+        "confidence",
+        "evidence_refs_json",
+        "extra_json",
+        "map_refs_json",
+        "climate",
+        "population_summary",
+        "resources_json",
+        "hazards_json",
+        "controlling_faction_ids_json"
+      ],
+      "evaluation_scope": "workflow outputs or explicitly outside automatic import/evolution scope; empty is not automatically a defect"
+    },
+    "rule_profiles": {
+      "class": "RuleProfile",
+      "path": "modules/world/models/profiles.py",
+      "fields": [
+        "entity_id",
+        "source",
+        "confidence",
+        "evidence_refs_json",
+        "extra_json",
+        "rule_domain",
+        "principle_summary",
+        "constraints_json",
+        "exceptions_json",
+        "consequences_json"
+      ],
+      "evaluation_scope": "workflow outputs or explicitly outside automatic import/evolution scope; empty is not automatically a defect"
+    },
+    "item_profiles": {
+      "class": "ItemProfile",
+      "path": "modules/world/models/profiles.py",
+      "fields": [
+        "entity_id",
+        "source",
+        "confidence",
+        "evidence_refs_json",
+        "extra_json",
+        "item_class",
+        "powers_json",
+        "limitations_json",
+        "owner_entity_ids_json",
+        "origin_summary"
+      ],
+      "evaluation_scope": "workflow outputs or explicitly outside automatic import/evolution scope; empty is not automatically a defect"
+    },
+    "secret_profiles": {
+      "class": "SecretProfile",
+      "path": "modules/world/models/profiles.py",
+      "fields": [
+        "entity_id",
+        "source",
+        "confidence",
+        "evidence_refs_json",
+        "extra_json",
+        "truth_summary",
+        "holder_entity_ids_json",
+        "risk_level",
+        "reveal_status",
+        "linked_target_refs_json"
+      ],
+      "evaluation_scope": "workflow outputs or explicitly outside automatic import/evolution scope; empty is not automatically a defect"
+    },
+    "entity_profile_templates": {
+      "class": "EntityProfileTemplate",
+      "path": "modules/world/models/profiles.py",
+      "fields": [
+        "profile_type",
+        "template_schema_json",
+        "display_schema_json",
+        "version_number"
+      ],
+      "evaluation_scope": "workflow outputs or explicitly outside automatic import/evolution scope; empty is not automatically a defect"
+    },
+    "generic_entity_profiles": {
+      "class": "GenericEntityProfile",
+      "path": "modules/world/models/profiles.py",
+      "fields": [
+        "entity_id",
+        "profile_type",
+        "template_id",
+        "data_json",
+        "extra_json",
+        "evidence_refs_json",
+        "source",
+        "confidence"
+      ],
+      "evaluation_scope": "workflow outputs or explicitly outside automatic import/evolution scope; empty is not automatically a defect"
+    },
+    "world_assertions": {
+      "class": "WorldAssertion",
+      "path": "modules/world/models/authority.py",
+      "fields": [
+        "regime",
+        "polarity",
+        "statement_json",
+        "schema_ref_json",
+        "time_scope_json",
+        "source_refs_json",
+        "hard_ground_refs_json",
+        "provenance_actor_ref_json",
+        "content_digest",
+        "created_at"
+      ],
+      "evaluation_scope": "workflow outputs or explicitly outside automatic import/evolution scope; empty is not automatically a defect"
+    },
+    "world_canon_revisions": {
+      "class": "WorldCanonRevision",
+      "path": "modules/world/models/authority.py",
+      "fields": [
+        "version_number",
+        "parent_revision_id",
+        "manifest_json",
+        "manifest_digest",
+        "receipt_json",
+        "decision_id",
+        "decision_digest",
+        "created_at"
+      ],
+      "evaluation_scope": "workflow outputs or explicitly outside automatic import/evolution scope; empty is not automatically a defect"
+    },
+    "world_canon_heads": {
+      "class": "WorldCanonHead",
+      "path": "modules/world/models/authority.py",
+      "fields": [
+        "novel_id",
+        "current_revision_id",
+        "updated_at"
+      ],
+      "evaluation_scope": "workflow outputs or explicitly outside automatic import/evolution scope; empty is not automatically a defect"
+    },
+    "entity_profile_template_revisions": {
+      "class": "EntityProfileTemplateRevision",
+      "path": "modules/world/models/authority.py",
+      "fields": [
+        "template_id",
+        "version_number",
+        "snapshot_json",
+        "revision_digest",
+        "revision_reason",
+        "created_by",
+        "created_at"
+      ],
+      "evaluation_scope": "workflow outputs or explicitly outside automatic import/evolution scope; empty is not automatically a defect"
+    },
+    "generation_prompt_templates": {
+      "class": "GenerationPromptTemplate",
+      "path": "modules/world/models/worldbuilding.py",
+      "fields": [
+        "target_kind",
+        "template_key",
+        "name",
+        "description",
+        "object_template",
+        "prompt_text",
+        "variables_json",
+        "validation_state",
+        "validation_issues_json",
+        "version_number",
+        "content_hash",
+        "created_by",
+        "updated_by"
+      ],
+      "evaluation_scope": "workflow outputs or explicitly outside automatic import/evolution scope; empty is not automatically a defect"
+    },
+    "generation_prompt_template_revisions": {
+      "class": "GenerationPromptTemplateRevision",
+      "path": "modules/world/models/worldbuilding.py",
+      "fields": [
+        "template_id",
+        "version_number",
+        "name",
+        "description",
+        "object_template",
+        "prompt_text",
+        "variables_json",
+        "validation_state",
+        "validation_issues_json",
+        "content_hash",
+        "snapshot_meta_json"
+      ],
+      "evaluation_scope": "workflow outputs or explicitly outside automatic import/evolution scope; empty is not automatically a defect"
+    },
+    "world_bible_pages": {
+      "class": "WorldBiblePage",
+      "path": "modules/world/models/worldbuilding.py",
+      "fields": [
+        "page_type",
+        "page_key",
+        "title",
+        "page_meta_json",
+        "free_text",
+        "sections_json",
+        "linked_asset_refs_json",
+        "activation_defaults_json",
+        "template_key",
+        "template_version",
+        "version_number",
+        "sort_order",
+        "created_by",
+        "updated_by"
+      ],
+      "evaluation_scope": "workflow outputs or explicitly outside automatic import/evolution scope; empty is not automatically a defect"
+    },
+    "world_bible_page_revisions": {
+      "class": "WorldBiblePageRevision",
+      "path": "modules/world/models/worldbuilding.py",
+      "fields": [
+        "page_id",
+        "version_number",
+        "snapshot_json",
+        "revision_digest",
+        "revision_reason",
+        "writing_chapter_index",
+        "change_summary"
+      ],
+      "evaluation_scope": "workflow outputs or explicitly outside automatic import/evolution scope; empty is not automatically a defect"
+    },
+    "world_bible_page_projections": {
+      "class": "WorldBiblePageProjection",
+      "path": "modules/world/models/worldbuilding.py",
+      "fields": [
+        "page_id",
+        "projection_type",
+        "source_page_version",
+        "source_hash",
+        "content",
+        "source_spans_json",
+        "token_estimate",
+        "omitted_reasons_json",
+        "sensitivity",
+        "stale",
+        "stale_checked_at",
+        "error_kind",
+        "error_summary"
+      ],
+      "evaluation_scope": "workflow outputs or explicitly outside automatic import/evolution scope; empty is not automatically a defect"
+    },
+    "world_bible_categories": {
+      "class": "WorldBibleCategory",
+      "path": "modules/world/models/worldbuilding.py",
+      "fields": [
+        "category_key",
+        "name",
+        "description",
+        "color",
+        "icon",
+        "sort_order",
+        "default_template_key"
+      ],
+      "evaluation_scope": "workflow outputs or explicitly outside automatic import/evolution scope; empty is not automatically a defect"
+    },
+    "world_bible_page_drafts": {
+      "class": "WorldBiblePageDraft",
+      "path": "modules/world/models/worldbuilding.py",
+      "fields": [
+        "page_id",
+        "base_version_number",
+        "title",
+        "page_type",
+        "page_meta_json",
+        "free_text",
+        "sections_json",
+        "linked_asset_refs_json",
+        "sort_order",
+        "template_key",
+        "template_version",
+        "created_by",
+        "updated_by"
+      ],
+      "evaluation_scope": "workflow outputs or explicitly outside automatic import/evolution scope; empty is not automatically a defect"
+    },
+    "world_bible_page_templates": {
+      "class": "WorldBiblePageTemplate",
+      "path": "modules/world/models/worldbuilding.py",
+      "fields": [
+        "template_key",
+        "name",
+        "description",
+        "category_key_hint",
+        "sections_schema_json",
+        "default_sections_json",
+        "validation_rules_json",
+        "version_number",
+        "created_by",
+        "updated_by"
+      ],
+      "evaluation_scope": "workflow outputs or explicitly outside automatic import/evolution scope; empty is not automatically a defect"
+    },
+    "world_bible_page_template_revisions": {
+      "class": "WorldBiblePageTemplateRevision",
+      "path": "modules/world/models/worldbuilding.py",
+      "fields": [
+        "template_id",
+        "version_number",
+        "snapshot_json",
+        "content_hash",
+        "revision_reason",
+        "created_by"
+      ],
+      "evaluation_scope": "workflow outputs or explicitly outside automatic import/evolution scope; empty is not automatically a defect"
+    },
+    "world_bible_synopsis_revisions": {
+      "class": "WorldBibleSynopsisRevision",
+      "path": "modules/world/models/worldbuilding.py",
+      "fields": [
+        "version_number",
+        "status",
+        "rendered_text",
+        "claims_json",
+        "source_manifest_json",
+        "source_hash",
+        "token_estimate",
+        "coverage_json",
+        "omitted_reasons_json",
+        "generation_meta_json"
+      ],
+      "evaluation_scope": "workflow outputs or explicitly outside automatic import/evolution scope; empty is not automatically a defect"
+    },
+    "world_bible_synopsis_heads": {
+      "class": "WorldBibleSynopsisHead",
+      "path": "modules/world/models/worldbuilding.py",
+      "fields": [
+        "desired_source_hash",
+        "current_revision_id",
+        "pinned_revision_id",
+        "active_task_id",
+        "stale",
+        "auto_refresh_enabled",
+        "authorization_json",
+        "enabled_by",
+        "enabled_at",
+        "disabled_at",
+        "last_error_kind",
+        "last_error_summary"
+      ],
+      "evaluation_scope": "workflow outputs or explicitly outside automatic import/evolution scope; empty is not automatically a defect"
+    },
+    "knowledge_tags": {
+      "class": "KnowledgeTag",
+      "path": "modules/world/models/worldbuilding.py",
+      "fields": [
+        "slug",
+        "name",
+        "source",
+        "description"
+      ],
+      "evaluation_scope": "workflow outputs or explicitly outside automatic import/evolution scope; empty is not automatically a defect"
+    },
+    "character_knowledge_tags": {
+      "class": "CharacterKnowledgeTag",
+      "path": "modules/world/models/worldbuilding.py",
+      "fields": [
+        "character_id",
+        "tag_id",
+        "grant_source",
+        "source_ref_type",
+        "source_ref_id",
+        "source_scene_id",
+        "source_chapter_index",
+        "source_memory_id",
+        "author_locked"
+      ],
+      "evaluation_scope": "workflow outputs or explicitly outside automatic import/evolution scope; empty is not automatically a defect"
+    },
+    "asset_knowledge_tags": {
+      "class": "AssetKnowledgeTag",
+      "path": "modules/world/models/worldbuilding.py",
+      "fields": [
+        "target",
+        "target_hash",
+        "tag_id"
+      ],
+      "evaluation_scope": "workflow outputs or explicitly outside automatic import/evolution scope; empty is not automatically a defect"
+    },
+    "knowledge_tag_exclusions": {
+      "class": "KnowledgeTagExclusion",
+      "path": "modules/world/models/worldbuilding.py",
+      "fields": [
+        "character_id",
+        "tag_id",
+        "reason",
+        "source"
+      ],
+      "evaluation_scope": "workflow outputs or explicitly outside automatic import/evolution scope; empty is not automatically a defect"
+    },
+    "knowledge_visibility_policies": {
+      "class": "KnowledgeVisibilityPolicy",
+      "path": "modules/world/models/worldbuilding.py",
+      "fields": [
+        "target",
+        "target_hash",
+        "visibility_mode",
+        "policy_json"
+      ],
+      "evaluation_scope": "workflow outputs or explicitly outside automatic import/evolution scope; empty is not automatically a defect"
+    },
+    "reader_reveal_policies": {
+      "class": "ReaderRevealPolicy",
+      "path": "modules/world/models/worldbuilding.py",
+      "fields": [
+        "target",
+        "target_hash",
+        "reveal_chapter_index",
+        "reveal_scene_id",
+        "reveal_plan_id",
+        "public_baseline"
+      ],
+      "evaluation_scope": "workflow outputs or explicitly outside automatic import/evolution scope; empty is not automatically a defect"
+    },
+    "creation_suggestion_queue": {
+      "class": "CreationSuggestion",
+      "path": "modules/world/models/worldbuilding.py",
+      "fields": [
+        "source_module",
+        "review_group",
+        "target_type",
+        "action_schema",
+        "payload_json",
+        "evidence_refs_json",
+        "risk_level",
+        "result_ref_json"
+      ],
+      "evaluation_scope": "workflow outputs or explicitly outside automatic import/evolution scope; empty is not automatically a defect"
+    },
+    "conflict_check_queue": {
+      "class": "ConflictCheckQueueItem",
+      "path": "modules/world/models/worldbuilding.py",
+      "fields": [
+        "conflict_type",
+        "severity",
+        "source_module",
+        "target",
+        "target_hash",
+        "summary",
+        "evidence_refs_json",
+        "resolution_json"
+      ],
+      "evaluation_scope": "workflow outputs or explicitly outside automatic import/evolution scope; empty is not automatically a defect"
+    },
+    "world_validation_runs": {
+      "class": "WorldValidationRun",
+      "path": "modules/world/models/worldbuilding.py",
+      "fields": [
+        "task_id",
+        "trigger",
+        "scope",
+        "scope_json",
+        "status",
+        "verdict",
+        "gate",
+        "policy_version",
+        "policy_hash",
+        "manifest_json",
+        "manifest_hash",
+        "dependency_hash",
+        "packet_hashes_json",
+        "findings_json",
+        "omissions_json",
+        "coverage_ledger_json",
+        "budget_ledger_json",
+        "model_snapshot_json",
+        "warning_receipt_json",
+        "attempt_count",
+        "impact_json",
+        "plan_json",
+        "stale_reason",
+        "continued_count",
+        "error_code",
+        "error_summary",
+        "started_at",
+        "finished_at"
+      ],
+      "evaluation_scope": "workflow outputs or explicitly outside automatic import/evolution scope; empty is not automatically a defect"
+    },
+    "world_validation_review_items": {
+      "class": "WorldValidationReviewItem",
+      "path": "modules/world/models/worldbuilding.py",
+      "fields": [
+        "novel_id",
+        "run_id",
+        "finding_id",
+        "disposition",
+        "note",
+        "finding_snapshot",
+        "reviewed_at"
+      ],
+      "evaluation_scope": "workflow outputs or explicitly outside automatic import/evolution scope; empty is not automatically a defect"
+    }
+  },
+  "evaluation_version": "guimi60_fixed_native_v2",
+  "runtime_worktree": "guimi60-bottleneck-final",
+  "phase2b_contract": "alias-relation-extraction-v6"
+}

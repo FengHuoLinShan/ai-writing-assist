@@ -645,3 +645,10 @@ P8 固定比较范围按指定 head 的 Git blob 计数，不读取其他 checko
 冻结元数据与 cache-only 重放，不得将旧分数改标为当前模型成绩。恢复新调用前
 须迁到经 owner 验证的 Project 运行时，并按当前 Luna/max 约定重新校准教师与
 judge；本地 CLI 登录不代替这项核验。隔离传输的单元测试使用合成替身，不调用模型。
+
+Codex 文本适配离线回归：`pytest infrastructure/llm/tests/test_codex_provider.py modules/project/tests/test_codex_runtime.py`。
+真实合成评测：显式设置 AUTH_MODE=local、CODEX_CLI_COMMAND、独立 DATABASE_URL（库名必须
+codex_luna_runtime_test）后运行 `python -m evals.codex_luna --output /private/tmp/<private-run>`。
+100 个来源与协议案例通过真实账户/project facade，默认 2 并发；未完成/未知案例不自动重发。
+不额外统计用量或费用，仅保留产品原生回执及评测结果。结果原文、耗时和分数在仓库外；
+合成质量分数、离线工程验证、真实文学/作者验收分别报告，不互相替代。

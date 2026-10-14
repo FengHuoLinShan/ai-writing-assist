@@ -15,7 +15,7 @@ from modules.imports.deep_import_retry import (
     DeepImportRetryResult,
     run_deep_import_llm_with_retry,
 )
-from modules.imports.env_helpers import positive_int_env
+from modules.imports.env_helpers import bound_llm_concurrency, positive_int_env
 from modules.imports.llm_schemas import (
     SceneAnchorRepairOutput,
     SceneChunk,
@@ -113,6 +113,9 @@ class Phase1aSceneSlicer:
                 "PHASE1A_SCENE_SLICING_CONCURRENCY",
                 PHASE1A_SCENE_SLICING_CONCURRENCY,
             ),
+        )
+        self.concurrency = bound_llm_concurrency(
+            getattr(llm, "project_settings", None), self.concurrency
         )
 
     async def run(

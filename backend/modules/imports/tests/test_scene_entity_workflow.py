@@ -1812,6 +1812,78 @@ async def test_parallel_llm_fallback_extracts_before_serial_persistence() -> Non
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("abort", ["budget", "cancel"])
+async def test_parallel_phase2_drains_provider_tasks_before_run_closes(abort) -> None:
+    from infrastructure.llm.workflow_budget import AIRunBudgetExceededError
+
+    svc = SceneEntityExtractionService()
+    scenes = [
+        {"id": f"scene-{index}", "scene_index": index, "chapter_ids": [str(index)]}
+        for index in (1, 2)
+    ]
+    started = asyncio.Event()
+    both_started = asyncio.Event()
+    settled = asyncio.Event()
+    release = asyncio.Event()
+    calls = 0
+
+    async def call_llm(text, *_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            both_started.set()
+        if text == "1" and abort == "budget":
+            await started.wait()
+            raise AIRunBudgetExceededError("request limit reached")
+        started.set()
+        try:
+            await release.wait()
+        finally:
+            # Represents the client settlement checkpoint, which must finish
+            # before the owner sees the abort and finalizes its run ledger.
+            await asyncio.sleep(0)
+            settled.set()
+
+    with (
+        patch.object(
+            svc,
+            "_load_scene_chapters",
+            autospec=True,
+            side_effect=lambda _db, scene: str(scene["scene_index"]),
+        ),
+        patch.object(
+            svc,
+            "_create_phase2_snapshot",
+            autospec=True,
+            return_value=SimpleNamespace(id="snapshot"),
+        ),
+        patch.object(svc, "_call_llm_extraction", autospec=True, side_effect=call_llm),
+        patch.object(svc, "_persist_entities", autospec=True) as persist,
+    ):
+        operation = asyncio.create_task(
+            svc._process_scenes_parallel_llm(
+                Mock(),
+                "00000000-0000-0000-0000-000000000001",
+                scenes,
+                "",
+                workflow_id="abort-test",
+                on_scene_progress=None,
+                bulk_error_kind=None,
+            )
+        )
+        await asyncio.wait_for(both_started.wait(), timeout=2)
+        if abort == "cancel":
+            operation.cancel()
+            expected = asyncio.CancelledError
+        else:
+            expected = AIRunBudgetExceededError
+        with pytest.raises(expected):
+            await asyncio.wait_for(operation, timeout=2)
+        assert settled.is_set()
+        persist.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_parallel_phase2_blocks_governance_failure_before_persistence() -> None:
     svc = SceneEntityExtractionService()
     scene = {

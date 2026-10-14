@@ -4,6 +4,10 @@ from modules.evolution.consumption import (
     CONSUMPTION_REGISTRY_STATE_KEY,
     read_consumption_records,
 )
+from modules.evolution.discovery_gap import (
+    DiscoveryGapConfirmation,
+    confirm_discovery_unknown_gap,
+)
 from modules.evolution.impact import receipt_view
 from modules.evolution.invalidation import (
     apply_scene_reorder_invalidation,
@@ -60,6 +64,8 @@ def register_scene_consumption(
 
 
 __all__ = [
+    "confirm_discovery_unknown_gap",
+    "DiscoveryGapConfirmation",
     "apply_scene_reorder_invalidation",
     "record_writing_source_change",
     "receipt_view",

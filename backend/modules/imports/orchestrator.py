@@ -1505,7 +1505,9 @@ class DeepImportOrchestrator:
             update_task_projection,
         )
 
-        run = await self._get_recoverable_deep_import_run(db, task_id)
+        run = await self._get_recoverable_deep_import_run(
+            db, task_id, allow_connection_retry=True
+        )
         result_data = dict(run.progress or {})
         if result_data.get("phase") == "failed":
             result_data["phase"] = "pending"
@@ -1855,6 +1857,8 @@ class DeepImportOrchestrator:
         self,
         db: AsyncSession,
         task_id: str,
+        *,
+        allow_connection_retry: bool = False,
     ) -> ImportWorkflowRun:
         # Lazy convergence closes the small window between TaskWorker terminal
         # finalization and the next startup reconciliation pass.
@@ -1895,6 +1899,30 @@ class DeepImportOrchestrator:
             raise ValueError("本次专项补全已开始撤销，请新建补全任务")
         if run.status != "failed":
             raise ValueError("only failed interrupted deep import tasks can recover")
+        if (
+            not run.recovery_required
+            and allow_connection_retry
+            and (run.progress or {}).get("phase") == "failed"
+            and ((run.progress or {}).get("llm_health") or {}).get("ok") is False
+            and any(
+                item.get("phase") == "preflight"
+                for item in (run.progress or {}).get("phase_errors") or []
+            )
+        ):
+            # Older connection failures omitted manual-recovery flags. Repair
+            # only this proven preflight failure on an explicit resume request.
+            from infrastructure.tasks.facade import update_task_projection
+
+            await update_task_projection(
+                db,
+                task_id=task_id,
+                task_type=run.workflow_type,
+                novel_id=str(run.novel_id),
+                result={**dict(run.progress), "recovery_required": True},
+                meta_patch={"recovery_required": True},
+                allow_failed=True,
+            )
+            await self._runs.reconcile_scoped_task_owners(db, task_id=task_id)
         if not run.recovery_required:
             raise ValueError("deep import task does not require recovery")
         return run
