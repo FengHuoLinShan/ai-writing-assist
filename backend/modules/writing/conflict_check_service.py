@@ -46,9 +46,11 @@ from modules.writing.schemas import (
 from modules.writing.service_support import (
     _CONTINUITY_DIMENSION_BY_KIND,
     MapContinuityLoader,
+    MapNodeHeadLoader,
     SceneCheckpointLoader,
     SceneContractLoader,
     _default_map_continuity_loader,
+    _default_map_node_head_loader,
     _default_scene_checkpoint_loader,
     _default_scene_contract_loader,
     _parse_uuid,
@@ -57,6 +59,14 @@ from modules.writing.service_support import (
     logger,
 )
 from modules.writing.source_hashing import hash_text
+
+#: summary_json 中检查时地图基线的键；只在创建时写一次，读时比较结果仅进响应。
+MAP_BASELINE_KEY = "map_baseline"
+#: 基线限量与世界侧事实 loader 的节点上限（limit 200）对齐；发布快照经
+#: public_conflict_summary 透传 summary_json，基线必须保持有界。
+_MAP_BASELINE_NODE_LIMIT = 200
+_MAP_BASELINE_SOURCE_HASH_LIMIT = 32
+_MAP_STALENESS_NODE_LIMIT = 20
 
 
 class WritingConflictCheckService:
@@ -69,6 +79,7 @@ class WritingConflictCheckService:
         scene_contract_loader: SceneContractLoader | None = None,
         scene_checkpoint_loader: SceneCheckpointLoader | None = None,
         map_continuity_loader: MapContinuityLoader | None = None,
+        map_node_head_loader: MapNodeHeadLoader | None = None,
         llm_client: LLMClient | None = None,
     ) -> None:
         self._repo = repo or WritingConflictCheckRepository()
@@ -85,6 +96,9 @@ class WritingConflictCheckService:
         )
         self._map_continuity_loader = (
             map_continuity_loader or _default_map_continuity_loader
+        )
+        self._map_node_head_loader = (
+            map_node_head_loader or _default_map_node_head_loader
         )
         self._ai_review_service = ConflictCheckAiReviewService(
             self._repo,
@@ -218,6 +232,7 @@ class WritingConflictCheckService:
         degraded_sources: list[str] = []
         omissions: list[dict[str, str]] = []
         continuity_coverage: dict[str, str] = {}
+        map_baseline: dict | None = None
         if data.scene_id:
             scene = await self._load_scene(db, data.novel_id, data.scene_id)
             if scene is None:
@@ -249,6 +264,7 @@ class WritingConflictCheckService:
                         data.novel_id,
                         checkpoint_set,
                     )
+                    map_baseline = self._map_baseline(map_facts)
                     continuity_items, continuity_coverage, continuity_omissions = (
                         self._continuity_rule_items(
                             scene,
@@ -295,6 +311,10 @@ class WritingConflictCheckService:
         summary_json = self._summary(items, degraded_sources, omissions)
         if continuity_coverage:
             summary_json["continuity_coverage"] = continuity_coverage
+        if map_baseline is not None:
+            # 基线在创建时写一次且此后不变：发布快照与 AI 复核语义指纹都会
+            # 读 summary_json，读时比较结果绝不能写回，否则指纹会漂移。
+            summary_json[MAP_BASELINE_KEY] = map_baseline
         content = data.content or ""
         check, created_items = await self._repo.create_check(
             db,
@@ -352,8 +372,17 @@ class WritingConflictCheckService:
             ai_review_only=ai_review_only,
             exact_scene_scope=ai_review_only,
         )
+        # 列表读取只做一次批量 head 查询（聚合全部检查的基线节点），不逐节点探查。
+        map_heads = await self._load_map_node_heads(
+            db,
+            novel_id,
+            [check.summary_json for check, _items in pairs],
+        )
         return WritingConflictCheckListResponse(
-            items=[self._to_check_response(check, items) for check, items in pairs],
+            items=[
+                self._to_check_response(check, items, map_heads=map_heads)
+                for check, items in pairs
+            ],
             total=total,
         )
 
@@ -370,7 +399,8 @@ class WritingConflictCheckService:
         if result is None:
             raise NotFoundError("Conflict check not found")
         check, items = result
-        return self._to_check_response(check, items)
+        map_heads = await self._load_map_node_heads(db, novel_id, [check.summary_json])
+        return self._to_check_response(check, items, map_heads=map_heads)
 
     async def update_item(
         self,
@@ -1463,10 +1493,153 @@ class WritingConflictCheckService:
             "omissions": omissions or [],
         }
 
+    @staticmethod
+    def _map_baseline(map_facts: list[dict[str, Any]] | None) -> dict | None:
+        """记录检查时**全部载入**的地图事实基线（不只是触发规则的事实）。
+
+        space_route_not_declared 靠“缺边”判定，未触发规则的事实同样构成检查
+        依据。按 (node_id, revision_id) 去重并限量；缺 node_id 的事实（测试
+        fake loader）无法锚定节点，跳过但不妨碍其余事实入基线。无任何可锚定
+        节点（not_applicable / loader 失败的 not_checked）返回 None，读时不提示。
+        """
+        nodes: dict[str, dict[str, Any]] = {}
+        for fact in map_facts or []:
+            if not isinstance(fact, dict):
+                continue
+            node_id = str(fact.get("node_id") or "").strip()
+            if not node_id:
+                continue
+            entry = nodes.setdefault(
+                node_id, {"revision_id": "", "source_hashes": set()}
+            )
+            revision_id = str(fact.get("revision_id") or "").strip()
+            if revision_id and not entry["revision_id"]:
+                entry["revision_id"] = revision_id
+            for value in fact.get("source_hashes") or []:
+                text = str(value or "").strip()
+                if text:
+                    entry["source_hashes"].add(text)
+        if not nodes:
+            return None
+        truncated = len(nodes) > _MAP_BASELINE_NODE_LIMIT
+        limited: dict[str, dict[str, Any]] = {}
+        for node_id in sorted(nodes)[:_MAP_BASELINE_NODE_LIMIT]:
+            entry = nodes[node_id]
+            hashes = sorted(entry["source_hashes"])
+            if len(hashes) > _MAP_BASELINE_SOURCE_HASH_LIMIT:
+                hashes = hashes[:_MAP_BASELINE_SOURCE_HASH_LIMIT]
+                truncated = True
+            limited[node_id] = {
+                "revision_id": entry["revision_id"],
+                "source_hashes": hashes,
+            }
+        return {"version": 1, "nodes": limited, "truncated": truncated}
+
+    @staticmethod
+    def _baseline_node_ids(summary: dict | None) -> list[str]:
+        baseline = summary.get(MAP_BASELINE_KEY) if isinstance(summary, dict) else None
+        nodes = baseline.get("nodes") if isinstance(baseline, dict) else None
+        if not isinstance(nodes, dict):
+            return []
+        return [
+            node_id
+            for node_id in (str(key).strip() for key in nodes)
+            if node_id
+        ]
+
+    async def _load_map_node_heads(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        summaries: list[dict | None],
+    ) -> dict[str, dict[str, Any]] | None:
+        """一次批量 head 查询聚合所有基线节点；失败返回 None（不提示、不阻断）。
+
+        失败必须与“空结果”区分：空结果意味着节点确已删除（算已变），
+        而读取失败时不得据此宣称地图已更新。
+        """
+        node_ids = sorted(
+            {
+                node_id
+                for summary in summaries
+                for node_id in self._baseline_node_ids(summary)
+            }
+        )
+        if not node_ids:
+            return {}
+        try:
+            return await self._map_node_head_loader(db, novel_id, node_ids)
+        except Exception as exc:
+            logger.warning(
+                "Failed to load map node heads for staleness check: %s",
+                redact_diagnostic(exc, limit=500),
+            )
+            return None
+
+    @classmethod
+    def _map_staleness(
+        cls,
+        summary: dict | None,
+        map_heads: Mapping[str, Any] | None,
+    ) -> dict | None:
+        """比较检查基线与当前地图 head；结果只进响应，绝不写回 summary_json。
+
+        以 revision_id 为主（geometry_hash 排除 sources 与生成任务，相同不代
+        表同版本），source_hashes 仅在 revision 缺失时作辅助；节点被取消采用、
+        删除（head 缺失）都算已变。无基线或 head 未预取（含预取失败）不提示。
+        """
+        baseline = (
+            summary.get(MAP_BASELINE_KEY) if isinstance(summary, dict) else None
+        )
+        nodes = baseline.get("nodes") if isinstance(baseline, dict) else None
+        if not isinstance(nodes, dict) or not nodes or map_heads is None:
+            return None
+        changed: list[dict[str, Any]] = []
+        for node_id in sorted(nodes):
+            entry = nodes.get(node_id)
+            entry = entry if isinstance(entry, dict) else {}
+            head = map_heads.get(node_id)
+            if not isinstance(head, Mapping):
+                changed.append({"node_id": node_id, "title": None})
+                continue
+            if str(head.get("status") or "") != "adopted":
+                changed.append(
+                    {"node_id": node_id, "title": head.get("title")}
+                )
+                continue
+            base_revision = str(entry.get("revision_id") or "")
+            head_revision = str(head.get("revision_id") or "")
+            if base_revision and head_revision:
+                if base_revision != head_revision:
+                    changed.append(
+                        {"node_id": node_id, "title": head.get("title")}
+                    )
+                continue
+            # revision 缺失（如测试 fake loader 容错）：退回 source_hashes 辅助
+            # 比较；基线是 head 文档来源的子集，仍无信号时不提示。
+            base_sources = {
+                str(value) for value in entry.get("source_hashes") or [] if value
+            }
+            head_sources = {
+                str(value) for value in head.get("source_hashes") or [] if value
+            }
+            if base_sources and not base_sources.issubset(head_sources):
+                changed.append(
+                    {"node_id": node_id, "title": head.get("title")}
+                )
+        return {
+            "changed": bool(changed),
+            "changed_count": len(changed),
+            "nodes": changed[:_MAP_STALENESS_NODE_LIMIT],
+            "truncated": len(changed) > _MAP_STALENESS_NODE_LIMIT,
+        }
+
     def _to_check_response(
         self,
         check: object,
         items: list[object],
+        *,
+        map_heads: Mapping[str, Any] | None = None,
     ) -> WritingConflictCheckResponse:
         return WritingConflictCheckResponse.model_validate(
             {
@@ -1480,6 +1653,9 @@ class WritingConflictCheckService:
                 "include_candidates": check.include_candidates,
                 "status": check.status,
                 "summary_json": public_conflict_summary(check.summary_json),
+                "map_staleness": self._map_staleness(
+                    check.summary_json, map_heads
+                ),
                 "ai_review_enabled": check.ai_review_enabled,
                 "ai_review_status": check.ai_review_status,
                 "ai_review_confirmation_id": check.ai_review_confirmation_id,

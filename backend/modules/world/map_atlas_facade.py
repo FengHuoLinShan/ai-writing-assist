@@ -17,6 +17,9 @@ from modules.world.map_structure_service import (
 from modules.world.map_structure_service import (
     list_adopted_map_continuity_facts as list_adopted_map_continuity_facts,
 )
+from modules.world.map_structure_service import (
+    read_map_node_heads as read_map_node_heads,
+)
 from modules.world.world_object_images import project_image_prefix
 
 

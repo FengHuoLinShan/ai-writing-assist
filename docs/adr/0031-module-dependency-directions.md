@@ -74,7 +74,7 @@ core↔worldbuilding；第二批 assistant 相关六对；第三批剩余 13 个
 | project ↔ writing | writing → project（L2→L1） | project 作者任务章节来源解析改用既有 `writing.list_latest_drafts_for_chapters` DI 键 |
 | project ↔ story | story → project（L2→L1） | project 作者任务 Scene 来源解析经 `story.get_scene_contract` DI 键 |
 | evidence ↔ interaction | interaction → evidence（L3→L2） | evidence 公共 demo 来源上下文校验经 `interaction.validate_public_demo_source_context` DI 键 |
-| world ↔ writing | world → writing（L2 内既有方向：world 是地图/实体事实源，writing 生成消费；同 story→world 裁定） | writing 地图连续性默认 loader 经 `world.list_adopted_map_continuity_facts` DI 键（注入 seam 语义不变） |
+| world ↔ writing | world → writing（L2 内既有方向：world 是地图/实体事实源，writing 生成消费；同 story→world 裁定） | writing 地图连续性默认 loader 经 `world.list_adopted_map_continuity_facts` DI 键（注入 seam 语义不变）；冲突检查读时核对地图基线经 `world.read_map_node_heads` 只读批量 head DI 键（G8b，消费方 Protocol 在 writing，棘轮零增量） |
 | imports ↔ world | imports → world（L3→L2，既有主导方向） | world 注意力摘要复核处置默认读取经 `imports.get_review_dispositions` DI 键（保留 `_resolution_reader` 注入 seam） |
 
 **第二批机制**：assistant 是 L4 最高层，`assistant→{account, evidence,

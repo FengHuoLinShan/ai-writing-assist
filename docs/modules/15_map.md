@@ -382,3 +382,10 @@ last_observed，缺少记录则 unknown；不从档案地址回填。
 地图不会自动更新或重算，查询失败与未覆盖来源明确提示。作者可继续写作并稍后核对。
 来源匹配、隔离、上限和降级见
 [权威合同](22_evolution.md#已发布正文变化与地图核对g8a)。
+
+## 改图后写作检查可核对（G8b）
+
+`read_map_node_heads`（`world.read_map_node_heads` DI 键）按 node_ids 一次批量返回各节点
+当前 head 的采用状态、head revision id 与来源 hash 集合，节点删除即缺行。该出口只读、
+不重验来源有效性、不返回坐标或图片；比较在 Writing 冲突检查的响应中完成，World 不保存
+核对结论。契约细节见 [Writing 文档](11_writing.md#剧情设定冲突检查)。
