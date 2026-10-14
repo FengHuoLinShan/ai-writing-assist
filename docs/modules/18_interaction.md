@@ -52,13 +52,18 @@ interaction 为 `我是 RP 用户` 路径保存私人互动故事。用户可直
 - `interaction_story_generate` 生成一次故事；普通错误不自动重放，`length` 最多续写一次。
 - 可见正文保存在 attempt，checkpoint 起点为约 2 秒或累计 512 个新字符；SSE 可按 offset
   重连。
-- 主动停止把已显示正文正式化为 partial 节点；技术失败残段仍留在 attempt，用户可保留或
-  重试。
+- `stop_attempt` 与 `keep_partial` 只把已写入 `visible_text` 的正文正式化为 partial 节点；
+  已可见的历史/兼容残段仍沿用这条路径。
+- 新运行的正文在知识边界审查通过前保存在 attempt 私有 `knowledge_hold`，SSE 不显示；
+  PASS 后才将完整正文写入 `visible_text`。审查未通过或生成失败时，未释放正文留在私有
+  hold，不能经 `keep_partial` 发布或正式化为 partial。主动停止会清除可恢复模型消息与运行状态，
+  但 checkpoint 仍保留私有 `knowledge_hold` 供审计，不经 API 返回；这不表示正文可以续跑或公开。
+  没有可见正文时 attempt 收敛为 cancelled，未释放正文不会写入 `visible_text` 或 partial。
 - pending、preparing、running 和等待 `length` 续写的 attempt 都视为未解决生成；在其
   正式收敛前禁止发送、编辑、重新生成或切换分支。
 - worker 启动与 stale-task scanner 会调用 interaction reconciler。任务已终止而 attempt
-  仍在运行时统一收敛为 failed；已有正文保留为待采用失败记录，只有用户确认后才进入
-  selected history。
+  仍在运行时统一收敛为 failed；只有已进入 `visible_text` 的正文可作为待采用失败记录，未释放
+  hold 不进入该路径。可见正文也只有用户确认后才进入 selected history。
 - 账户最多同时存在 8 个 active story attempt；同一旅程当前路径只有一个 active attempt。
 - 看海是前台 heartbeat 驱动的确定性有界 step 循环。显式离开故事页立即撤销 heartbeat，
   浏览器短暂隐藏才使用宽限期；关闭或离开后都不再创建后继。工具仅由 ADR-0023 有界运行时开放；看海循环仍由代码编排
@@ -173,7 +178,7 @@ RP 新运行 v2 使用显式的旅程 `web_search_enabled` 与冻结 SearXNG 后
 来源版本指纹；读取 freshness 不编译新 Context，不访问模型，也不跟随作者最新稿扩大知识。
 
 RP 正文使用 held 释放语义：审查前 SSE 不发 chunk，PASS 后一次释放，返修后 blocked 则仅显示安全错误与重试入口。
-审查消费生成器实际收到的完整消息，不再二次截断到 24K 字符；最新用户要求另作明确投影。
+停止、失败及兼容可见残段的保留边界见“生成与恢复”。审查消费生成器实际收到的完整消息，不再二次截断到 24K 字符；最新用户要求另作明确投影。
 详见 `backend/modules/interaction/README.md`。
 
 ## 多角色演绎（ADR-0027）

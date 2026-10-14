@@ -12,6 +12,7 @@ from evals.ask_world import (
     _ASK_WORLD_SYSTEM_PROMPT,
     _ASK_WORLD_TEACHER_RUBRIC,
     ASK_WORLD_TEACHER_MODEL,
+    ASK_WORLD_TEACHER_REASONING_EFFORT,
     DEFAULT_DATASET,
     MODEL_PROBE_DATASET,
     AskWorldEvalCase,
@@ -288,7 +289,7 @@ def _freeze_fixture(tmp_path, dataset=PROBE_V3):
     rubric_hash = sha(_ASK_WORLD_TEACHER_RUBRIC.encode())
     executor_hash = CodexStructuredExecutor(
         model=ASK_WORLD_TEACHER_MODEL,
-        reasoning_effort="high",
+        reasoning_effort=ASK_WORLD_TEACHER_REASONING_EFFORT,
         allowed_models=frozenset({ASK_WORLD_TEACHER_MODEL}),
     ).meta.executor_hash
     system_under_test = {
@@ -298,7 +299,7 @@ def _freeze_fixture(tmp_path, dataset=PROBE_V3):
     }
     teacher_meta = {
         "teacher_model": ASK_WORLD_TEACHER_MODEL,
-        "reasoning_effort": "high",
+        "reasoning_effort": ASK_WORLD_TEACHER_REASONING_EFFORT,
         "executor_hash": executor_hash,
         "rubric_hash": rubric_hash,
     }
@@ -333,7 +334,7 @@ def _freeze_fixture(tmp_path, dataset=PROBE_V3):
             Path(run_ask_world_model_probe_eval.__code__.co_filename).read_bytes()
         ),
         "teacher_model": ASK_WORLD_TEACHER_MODEL,
-        "teacher_reasoning_effort": "high",
+        "teacher_reasoning_effort": ASK_WORLD_TEACHER_REASONING_EFFORT,
         "teacher_executor_hash": executor_hash,
         "system_under_test": system_under_test,
     }
@@ -387,7 +388,7 @@ def test_holdout_cannot_start_twice_even_when_first_attempt_fails_before_model_a
     args = {
         "split": "holdout",
         "teacher_model": ASK_WORLD_TEACHER_MODEL,
-        "teacher_reasoning_effort": "high",
+        "teacher_reasoning_effort": ASK_WORLD_TEACHER_REASONING_EFFORT,
         "freeze_config": freeze,
     }
     with pytest.raises(RuntimeError, match="deliberately unavailable"):
@@ -1231,7 +1232,7 @@ def test_paused_teacher_rejects_before_project_or_holdout_side_effects(
                 PROBE_V3,
                 split=split,
                 teacher_model=ASK_WORLD_TEACHER_MODEL,
-                teacher_reasoning_effort="high",
+                teacher_reasoning_effort=ASK_WORLD_TEACHER_REASONING_EFFORT,
                 freeze_config=freeze if split == "holdout" else None,
             )
         )

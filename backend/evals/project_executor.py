@@ -1,4 +1,10 @@
-"""Structured eval execution through a novel's effective project LLM profile."""
+"""System-under-test structured execution through a novel's Project LLM profile.
+
+G6a 评测模型合同：本模块是被测业务生成的标准 seam——经 Project facade 使用项目
+owner 当前已验证的连接（产品侧 Luna/max，见 codex_provider.CODEX_MODEL）。教师、
+judge/复核与 scene-gold 永不经过此 seam（它们固定 Sol/xhigh 的独立 Codex 执行器），
+两类执行器不同模型，避免同模型自评。
+"""
 
 from __future__ import annotations
 
@@ -20,7 +26,7 @@ OpenClientFn = Callable[..., AbstractAsyncContextManager[Any]]
 
 
 class ProjectStructuredExecutor:
-    """HighQualityEvalLLM-compatible executor using project credentials."""
+    """HighQualityEvalLLM-compatible SUT executor using project credentials."""
 
     reasoning_effort = None
     cache_profile = "project_profile_structured"
@@ -35,7 +41,7 @@ class ProjectStructuredExecutor:
         open_client_fn: OpenClientFn = open_project_llm_client,
     ) -> None:
         if not profile.model:
-            raise ValueError("project eval reviewer model is required")
+            raise ValueError("project eval system-under-test model is required")
         self.db = db
         self.novel_id = novel_id
         self.profile = profile
@@ -80,7 +86,7 @@ class ProjectStructuredExecutor:
                 LLMMessage(
                     role="system",
                     content=(
-                        "你是评测数据审查员。只输出满足目标 JSON schema 的对象，"
+                        "你是评测被测业务的生成通道。只输出满足目标 JSON schema 的对象，"
                         "不要 Markdown，不要解释 schema 之外的内容。"
                     ),
                 ),

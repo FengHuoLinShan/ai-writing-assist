@@ -254,9 +254,9 @@ character 模式下，前端完整展示 `role_visible_knowledge`，并把它与
 世界对象”警告。context confirmation 和 snapshot 是调用审计，不表示建议已被采用。
 
 `POST /api/evidence/compilation/confirm` 会落库一条 `context_confirmations`，并在响应中返回本次编译的 `sections/items`、`selection_state`、`context_fingerprint` 和 `budget_events`。展示详情不持久化；持久化仍只保存 `selected_asset_ids`、`compile_options`、`warnings`、`result_refs`、`stale_reasons` 等摘要。
-对应 `GET /api/evidence/compilation/confirmations/{confirmation_id}` 先执行 owner 和
-`novel_id` 门禁，跨项目与不存在统一 404，且不返回 `compile_options`、Prompt、正文、
-provider、Key 或私有 checkpoint。`stale_reasons` 为来源有效性的权威事实；
+对应 `GET /api/evidence/compilation/confirmations/{confirmation_id}` 仅读取已存确认摘要，
+先执行 owner 和 `novel_id` 门禁，不重编译历史上下文；跨项目与不存在统一 404，
+且不返回 `compile_options`、Prompt、正文、provider、Key 或私有 checkpoint。`stale_reasons` 为来源有效性的权威事实；
 即使 `result_status` 后续变为 `done/adopted/rejected`，fresh gate 仍失败关闭。
 其中 `compile_options.chapter_index` 是实际检索锚点，而 `requested_chapter_index` 是作者确认的
 目标章节；两者在普通单章确认中相同。跨章 Scene 使用末章提高相关性时，必须保留后者，避免
@@ -386,6 +386,7 @@ POST /api/evidence/compilation/scene-lens
 POST /api/evidence/compilation/compile
 POST /api/evidence/compilation/render
 POST /api/evidence/compilation/confirm
+GET  /api/evidence/compilation/confirmations/{confirmation_id}
 POST /api/evidence/compilation/selection-proposals
 GET  /api/evidence/compilation/evidence-health
 GET  /api/evidence/compilation/retrieval-traces
@@ -397,6 +398,9 @@ POST /api/evidence/compilation/evidence/search
 POST /api/evidence/compilation/evidence/read
 POST /api/evidence/compilation/evidence/inspect
 POST /api/evidence/compilation/evidence/trace
+POST /api/evidence/compilation/focused-search
+GET  /api/evidence/compilation/focused-search/{task_id}
+POST /api/evidence/compilation/focused-search/{task_id}/resume
 GET/POST /api/evidence/compilation/activation-profiles
 PATCH /api/evidence/compilation/activation-profiles/{profile_id}
 POST /api/evidence/compilation/activation-profiles/{profile_id}/publish

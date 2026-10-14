@@ -1,4 +1,9 @@
-"""Opt-in real-provider probe of one frozen creative prefix through the worker."""
+"""Opt-in real-provider probe of one frozen creative prefix through the worker.
+
+Frozen history (G6a, 2026-10-14): this DeepSeek-only probe is frozen and not
+migrated to the Sol/Luna eval contract. Keep it only to explain the existing
+ledger; do not start new runs.
+"""
 
 from __future__ import annotations
 

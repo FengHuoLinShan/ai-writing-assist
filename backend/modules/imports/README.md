@@ -320,9 +320,8 @@ Phase 2 的 Scene 实体抽取实现位于 `entity_extraction/` 子包；
 `modules.imports.entity_extraction` 或其具体实现子模块。
 
 生产路径由 `SceneEntityExtractionService` 直接组合 single/parallel/bulk、Phase 2b task、
-alias/relation 和 persistence 内部 mixin；`Phase2WorldExtractor` 继承同一实现，不再创建
-第二个 legacy service。原先只描述唯一实现私有方法的 runtime Protocol 已删除；保留的
-helper 类仅用于旧测试/import 兼容，不是生产 DI seam。
+alias/relation 和 persistence 内部 mixin。原先只描述唯一实现私有方法的 runtime Protocol
+已删除；保留的 helper 类仅用于旧测试/import 兼容，不是生产 DI seam。
 
 - `entity_extraction/scene_entity_strategy.py` — 选择 empty / small-sample parallel / bulk / batched / checkpoint resume 路由
 - `entity_extraction/scene_entity_single_scene.py` — 单 Scene 串行 Phase 2a
@@ -561,13 +560,14 @@ Scene World身份入口复用World已批准的类型归一，查询、候选和�
 复核不能把全批未绑定句子的真实内容当成本项已引用的证明。
 
 审计收尾：生产实体阶段仍仅使用按 Scene 的抽取链。已删除无人调用的私有
-`_Phase2WorldExtractionLLM` 与专属 timeout/token 配置读取。window extractor
-暂按冻结试验保留，不能据其旧测试宣称当前 workflow 支持 window 抽取；
-其独立 schema/来源引用 probe 与转换面仍用于历史校验。
+`_Phase2WorldExtractionLLM` 与专属 timeout/token 配置读取；窗口抽取器
+`Phase2WorldExtractor` 及其设置键、probe 与旧测试也已整体退役删除，不能据历史
+测试宣称当前 workflow 支持 window 抽取。其独立 schema、Prompt 合同与 fixture
+仍保留用于历史校验，历史任务 artifact 中的窗口诊断键仍可读取展示。
 
 ## Codex 工作流接纳
 
-本机Codex文字连接沿账户验证与项目快照运行。Scene切分、逐场补全、融合、World窗口、并行实体与关系调度在计时前按独立模型池接纳启动工作（默认8），避免等待provider槽时提前消耗阶段超时；同宿主实际请求共享模型槽，订阅另绑定登录账户。独立组级知识复核使用完整冻结生成资料，不能先截为24000字符再宣称已核对全部正文。长类别变更通过Story连续性Text字段无损保存，不靠截断类别绕过校验。
+本机Codex文字连接沿账户验证与项目快照运行。Scene切分、逐场补全、融合、并行实体与关系调度在计时前按独立模型池接纳启动工作（默认8），避免等待provider槽时提前消耗阶段超时；同宿主实际请求共享模型槽，订阅另绑定登录账户。独立组级知识复核使用完整冻结生成资料，不能先截为24000字符再宣称已核对全部正文。长类别变更通过Story连续性Text字段无损保存，不靠截断类别绕过校验。
 
 Codex/Luna max默认等待随Project execution snapshot冻结：未显式设置时Phase 2a provider为900秒、整场为1800秒，Phase 2b单场为900秒；关系阶段总时限按真实场景数与生效模型并发计算。旧快照不追溯更改。超时产生的未知请求仍不自动重发。
 

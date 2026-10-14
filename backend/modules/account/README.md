@@ -71,8 +71,10 @@ HTTP 路由只从当前 account principal 解析 owner。跨模块 owner 查询�
 账号 ORM。
 
 账户连接由 `settings_service.py` 统一执行 provider 模板校验、凭据加解密、连接验证和余额查询。
-跨模块只能通过 facade 的 secret-free contract 获取运行时配置；API、日志、项目 settings 与任务
-snapshot 均不得包含 Key。图片连接同样归 account，但仍只通过 project 的图片运行时 seam 使用。
+跨模块通过 facade 获取仅服务端使用的瞬态 runtime profile，其中可包含解密后的 Key，
+供 Project 在内存中组合并打开 client；公开 API 响应、日志、持久项目 settings 与任务 snapshot
+均不得包含 Key。secret-free 是这些投影与快照的边界，不是内部 profile 的类型属性。
+图片连接同样归 account，但仍只通过 project 的图片运行时 seam 使用。
 DeepSeek 新连接使用 `/models` 实测的 canonical `deepseek-flash`；已有
 `deepseek-v4-flash` 连接及其冻结任务继续兼容，不在恢复时静默改名。
 

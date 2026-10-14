@@ -55,9 +55,13 @@ owner 门禁。account 域的前瞻分析需要项目 owner 事实时，经组�
 - `/api/auth/reauth/wechat`：微信重新认证。
 - `/api/account/settings/*`：账户连接、图片连接、余额与全局偏好的 canonical 路径；
 
-account facade 只向 project 暴露 secret-free 的运行时 contract。project 打开文本或图片 client 时
-再按已通过 owner 门禁的项目读取当前轮换后的账户 Key；Key 不进入 API、日志、项目 JSON 或任务
-snapshot。项目作者偏好和 effective composition 不属于 account。
+account facade 为 project 解析服务端瞬态运行时 profile；该内部对象可携带当前解密后的账户 Key，
+仅在服务端内存中传递。project 打开文本或图片 client 时，按已通过 owner 门禁的项目读取对应连接；
+Key 不进入公开 API 响应、日志、持久项目 JSON 或任务 snapshot。secret-free 描述的是这些公开/持久投影，
+不是内部 runtime profile。项目作者偏好和 effective composition 不属于 account。
+文本模型连接对新 Key 执行最小真实生成验证；同一已验证 fingerprint 重连可复用既有验证。
+图片连接单独报告 `verification_scope=credential_only`，其验证范围不代表已生成图片，也不等同于
+文本模型的最小生成验证。
 DeepSeek 模板的新默认模型为 canonical `deepseek-flash`；旧账户中的
 `deepseek-v4-flash` 是兼容别名，原任务 snapshot 保留提交时名称和能力档案。
 

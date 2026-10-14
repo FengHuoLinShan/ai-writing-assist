@@ -197,6 +197,13 @@ run 保存 context snapshot、来源 hash 和 source manifest；“补全/更新
 boto3 同步操作统一放在线程池。失败补偿只删精确对象，项目前缀仅用于永久删除。
 地图册与世界对象图片共用单机 MinIO 的连接和受限应用凭据，但使用各自私有 bucket；地图册 bucket
 硬配额为 8GiB，不能读取或写入对象图片 bucket（ADR-0014）。
+生产对象存储位于同一个 `minio-data` 单盘 named volume：地图册 8GiB、世界对象 24GiB，合计
+32GiB 是单盘对象数据硬上限。2026-10-14 起服务器按同批数据库快照在**同机独立目录**保存
+图片副本（保留最多 30 天，恢复与整盘故障边界见
+[ADR-0034](../adr/0034-db-paired-private-object-backups.md)）；整盘故障仍会同时丢失原件
+与该副本，异地对象备份未启用，数据库与常规 restic 备份自身不含图片。部署边界以
+[deploy/README.md](../../deploy/README.md) 为准；单盘拓扑是
+[ADR-0014](../adr/0014-world-object-images-and-single-node-minio.md) 已接受的首版风险。
 finalization 在短事务中取得项目 share lock 与 task lease，持锁上传后再次校验 lease 再写页状态；
 数据库提交失败就删除精确 key，补偿失败则排入全局清理。
 
