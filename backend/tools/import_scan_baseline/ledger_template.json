@@ -128,6 +128,28 @@
       "notes": null
     },
     {
+      "stage": "structure",
+      "units_total": null,
+      "units_processed": null,
+      "units_dropped": null,
+      "dropped_reasons": {},
+      "units_omitted": null,
+      "omitted_reasons": {},
+      "unknown_requests": null,
+      "notes": null
+    },
+    {
+      "stage": "writing_checks",
+      "units_total": null,
+      "units_processed": null,
+      "units_dropped": null,
+      "dropped_reasons": {},
+      "units_omitted": null,
+      "omitted_reasons": {},
+      "unknown_requests": null,
+      "notes": null
+    },
+    {
       "stage": "evolution",
       "units_total": null,
       "units_processed": null,

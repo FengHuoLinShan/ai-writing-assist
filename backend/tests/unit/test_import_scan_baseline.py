@@ -177,6 +177,12 @@ def test_ledger_template_keeps_dropped_and_omitted_in_the_denominator() -> None:
     )
     rule = template["denominator_rules"]["units_total"]
     assert "units_dropped" in rule and "units_omitted" in rule
+    documented_stages = next(
+        metric["stages"]
+        for metric in template["metric_definitions"]
+        if metric["id"] == "import.unit_coverage"
+    )
+    assert [stage["stage"] for stage in template["stages"]] == documented_stages
     for stage in template["stages"]:
         for column in (
             "units_total",
