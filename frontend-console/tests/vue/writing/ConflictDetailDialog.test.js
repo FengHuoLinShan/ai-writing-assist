@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest"
+import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 import { enableAutoUnmount, mount } from "@vue/test-utils"
 import ConflictDetailDialog from "../../../vue/views/writing/components/ConflictDetailDialog.vue"
 
@@ -311,5 +312,92 @@ describe("ConflictDetailDialog", () => {
 
     expect(wrapper.emitted("locate")).toEqual([["nested-range"], ["legacy-range"]])
     expect(wrapper.emitted("source")).toEqual([["nested-range"], ["world-source"], ["outline-source"], ["memory-source"]])
+  })
+})
+
+describe("ConflictDetailDialog 地图基线（G8b）", () => {
+  const staleCheck = (mapStaleness, status = "completed") => ({
+    ...model().check,
+    status,
+    map_staleness: mapStaleness,
+  })
+
+  it("completed 状态也提示检查基于旧版地图，可跳转变化节点，不与降级提示混同", async () => {
+    let target = null
+    setBridgeOverrides({ router: { navigate: (...args) => { target = args } } })
+    const wrapper = mount(ConflictDetailDialog, {
+      props: {
+        model: model({
+          check: staleCheck({
+            changed: true,
+            changed_count: 1,
+            nodes: [{ node_id: "map-node-1", title: "东岸地图" }],
+            truncated: false,
+          }),
+        }),
+      },
+    })
+
+    expect(wrapper.text()).toContain("检查结果基于旧版地图，建议重新检查")
+    expect(wrapper.text()).toContain("东岸地图")
+    expect(wrapper.text()).toContain("去地图核对")
+    // completed 无降级提示：两类提示不互相冒充。
+    expect(wrapper.find('[data-author-action="needs_decision"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain("map-node-1")
+
+    await wrapper.findAll("button").find((button) => button.text() === "去地图核对").trigger("click")
+    expect(target.slice(0, 3)).toEqual(["map", null, true])
+    expect(new URLSearchParams(target[3]).get("node_id")).toBe("map-node-1")
+    resetBridgeOverrides()
+  })
+
+  it("地图未变化或没有比较结果时不提示旧版地图", () => {
+    for (const mapStaleness of [
+      { changed: false, changed_count: 0, nodes: [], truncated: false },
+      null,
+      undefined,
+    ]) {
+      const wrapper = mount(ConflictDetailDialog, {
+        props: { model: model({ check: staleCheck(mapStaleness) }) },
+      })
+      expect(wrapper.find(".writing-conflict-map-stale").exists()).toBe(false)
+      expect(wrapper.text()).not.toContain("旧版地图")
+    }
+  })
+
+  it("变化节点过多时如实说明剩余数量，不列出全部", () => {
+    const wrapper = mount(ConflictDetailDialog, {
+      props: {
+        model: model({
+          check: staleCheck({
+            changed: true,
+            changed_count: 3,
+            nodes: [{ node_id: "map-node-1", title: "东岸地图" }],
+            truncated: true,
+          }),
+        }),
+      },
+    })
+    expect(wrapper.text()).toContain("还有 2 张地图也发生了变化")
+  })
+
+  it("降级来源标签识别 continuity.map 前缀为地图资料", () => {
+    const wrapper = mount(ConflictDetailDialog, {
+      props: {
+        model: model({
+          check: {
+            ...model().check,
+            status: "degraded",
+            items: [],
+            summary_json: {
+              degraded_sources: ["outline.scene_chunks", "continuity.map", "world.map.candidates"],
+              omissions: [],
+            },
+          },
+        }),
+      },
+    })
+    expect(wrapper.get('[role="status"][data-author-action="needs_decision"]').text())
+      .toContain("故事结构、地图资料")
   })
 })

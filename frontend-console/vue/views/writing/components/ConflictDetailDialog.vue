@@ -29,6 +29,30 @@
             <strong>需要决定</strong> · 本次检查未覆盖{{ degradedSourceLabels }}；{{ degradedAdvice }}
           </p>
 
+          <div
+            v-if="mapStale"
+            class="writing-conflict-map-stale"
+            role="status"
+            aria-label="检查依据的地图已更新"
+          >
+            <p class="writing-conflict-map-stale__headline">检查结果基于旧版地图，建议重新检查。</p>
+            <p class="writing-conflict-map-stale__hint">本次检查依据的地图在检查后发生了变化；重新运行检查会按新地图核对。</p>
+            <ul v-if="mapStale.nodes?.length" class="writing-conflict-map-stale__maps">
+              <li v-for="node in mapStale.nodes" :key="node.node_id">
+                <span>{{ node.title || "未命名地图" }}</span>
+                <button
+                  type="button"
+                  class="btn btn-sm"
+                  data-action="open-stale-map-node"
+                  @click="openMapNode(node.node_id)"
+                >去地图核对</button>
+              </li>
+            </ul>
+            <p v-if="mapStale.truncated" class="writing-conflict-map-stale__hint">
+              还有 {{ staleMapRemaining }} 张地图也发生了变化。
+            </p>
+          </div>
+
           <section class="writing-conflict-group">
             <div class="writing-conflict-group__head">
               <strong>字面预警</strong><button type="button" class="btn btn-sm" :disabled="model.busy || check.ai_review_status === 'running'" @click="$emit('rerun')">重新运行规则检查</button>
@@ -106,6 +130,7 @@
 
 <script setup>
 import { computed, defineComponent, h, nextTick, reactive, watch } from "vue"
+import { getRouter } from "../../../bridge/index.js"
 import { useModalDialog } from "../../../composables/useModalDialog.js"
 
 const props = defineProps({
@@ -325,13 +350,25 @@ const recheckScopeLabel = computed(() => (
 const degradedSourceLabels = computed(() => {
   const labels = (check.value?.summary_json?.degraded_sources || []).map((source) => {
     if (String(source).startsWith("outline")) return "故事结构"
-    if (String(source).startsWith("world.map")) return "地图资料"
+    if (String(source).startsWith("world.map") || String(source).startsWith("continuity.map")) return "地图资料"
     if (String(source).startsWith("memory")) return "场景记忆"
     if (String(source).startsWith("writing.repetition_check")) return "跨章复读检查"
     return "部分来源"
   })
   return Array.from(new Set(labels)).join("、") || "部分来源"
 })
+// G8b：检查依据的地图在检查后更新（与 G8a“章节改了、地图引用旧正文”的保存回执
+// 是两回事）；提示对 completed 与 degraded 都生效，跳转指向变化的地图节点。
+const mapStale = computed(() => (
+  check.value?.map_staleness?.changed === true ? check.value.map_staleness : null
+))
+const staleMapRemaining = computed(() => (
+  Math.max(0, Number(mapStale.value?.changed_count || 0) - (mapStale.value?.nodes?.length || 0))
+))
+function openMapNode(nodeId) {
+  if (!nodeId) return
+  getRouter()?.navigate("map", null, true, `node_id=${encodeURIComponent(nodeId)}`)
+}
 // 续写原稿被改或不可用时，复读比对缺少基准，重新运行也补不上，不能只劝作者重跑
 const repetitionGapNote = computed(() => {
   const reasons = new Set((check.value?.summary_json?.omissions || [])
@@ -407,3 +444,48 @@ async function copySuggestion(itemId) {
   try { await navigator.clipboard?.writeText?.(text) } catch { /* Clipboard availability is optional. */ }
 }
 </script>
+
+<style scoped>
+.writing-conflict-map-stale {
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border: 1px solid rgba(176, 132, 32, 0.4);
+  border-left: 3px solid rgba(176, 132, 32, 0.8);
+  border-radius: 7px;
+  background: rgba(176, 132, 32, 0.08);
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.writing-conflict-map-stale__headline {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.writing-conflict-map-stale__hint {
+  margin: 0;
+  color: var(--text-secondary, inherit);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.writing-conflict-map-stale__maps {
+  margin: 0;
+  padding-left: 18px;
+  overflow-wrap: anywhere;
+}
+.writing-conflict-map-stale__maps li {
+  margin-top: 4px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.writing-conflict-map-stale__maps span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.writing-conflict-map-stale__maps button {
+  white-space: normal;
+  min-height: 28px;
+}
+</style>
