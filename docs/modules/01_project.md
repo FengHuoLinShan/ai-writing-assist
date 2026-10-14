@@ -23,15 +23,19 @@ principal 的调用失败关闭（401）；无主查询仅允许出现在 worker
 JSONB 配置字段，存储项目级可调参数，如 `temporary_entity_expiry_chapters` 等。
 业务 LLM 的 provider/model/API Key 不再由项目拥有：Key 按 owner 加密保存在
 `account_llm_credentials`，当前 DeepSeek/Kimi 模板由 account 解析；project 只经 account facade
-读取 secret-free contract 并负责 effective composition。
+取得服务端瞬态 runtime profile 并负责 effective composition；该内部对象可含解密后的 Key，
+只在服务端内存中供 client 使用，不写回持久项目 settings。公开响应与持久执行快照不包含 Key。
 隐藏 consumer 可显式绑定同 owner author 项目的不可变 RP source revision，但这只是版本化
 只读 Evidence 例外；来源查询仍用 author `novel_id`，旅程写入仍用 interaction `novel_id`。
 `settings.llm` 只保留旧项目的非 secret 兼容字段，`settings.deep_import` 继续承载项目级
 深度导入参数；任何项目创建、通用更新或兼容 LLM 设置接口中的 Key 写入都会被拒绝。
 
 可恢复任务由 project facade 生成不含 secret 的执行快照，冻结提交时的
-provider/model/预算与配置哈希；执行时按项目 owner 重新读取该 provider 的当前账户 Key，
-因此轮换 Key 不要求重建既有任务，也不会把密钥写进任务 API、日志或项目详情。
+provider/model/预算与配置哈希；执行时校验快照版本、`novel_id` 和快照哈希，按项目 owner
+重新读取原 provider 的当前账户 Key。因此，同一 owner/provider 的 Key 轮换不要求重建既有任务；
+若原 provider 凭据已清除，或 Base URL / provider-specific `extra` 哈希变化，恢复会失败关闭。
+账户切换当前 active provider 不会把既有任务改派到新 provider。快照不保存 API Key、完整 Base URL
+或 `extra` 值。
 
 地图册图片运行时使用独立 `open_project_image_client()` 与 secret-free 图片快照，固定
 `gpt-image-2`，不改变文本 provider。账户级对象图片配额通过
@@ -69,13 +73,39 @@ provider/model/预算与配置哈希；执行时按项目 owner 重新读取该 
 
 ```python
 async def get_project_context(db, novel_id) -> ProjectContext | None
+async def require_active_project(db, novel_id, *, allow_demo_readonly=True) -> None
 async def lock_project_ids_for_owner(db, owner_id) -> list[UUID]
+
+@asynccontextmanager
+async def open_project_llm_client(db, novel_id, *, timeout_override=None, high_quality=False): ...
+async def build_project_llm_execution_snapshot(
+    db, novel_id, *, web_search_enabled=False, interaction_ensemble=False, provider_id=None
+) -> dict: ...
+async def restore_project_llm_execution_settings(db, novel_id, snapshot): ...
+@asynccontextmanager
+async def open_project_snapshot_llm_client(
+    db, novel_id, snapshot, *, timeout_override=None, injected_client=None
+): ...
+def create_project_snapshot_llm_client(
+    project_settings, *, timeout_override=None, novel_id=None, high_quality=False
+): ...
+
+@asynccontextmanager
+async def open_project_image_client(
+    db, novel_id, *, snapshot=None, envelope_capability_id=None
+): ...
+async def build_project_image_execution_snapshot(db, novel_id) -> dict: ...
+async def restore_project_image_runtime_profile(db, novel_id, snapshot): ...
 ```
 
 `ProjectContext` 只包含 project 拥有的非 secret 配置，并防御性清理遗留 Key；它不再
 物化账户运行时 provider/model/Key。LLM 调用通过 project 的 client 或 secret-free
 execution snapshot seam 解析当前 owner 凭据；snapshot 还一次冻结 infrastructure-owned
 model capability profile 与 hash，业务模块不得再维护平行窗口表。
+文本快照恢复沿用提交时的 provider、模型和能力档案，并从该项目 owner 读取该 provider 当前 Key；
+版本、`novel_id`、快照 hash、Base URL hash 或 `extra` hash 校验失败时拒绝恢复。图片快照独立校验
+`novel_id`、owner、provider、固定模型和 Base URL 后读取当前账户图片凭据；这些连接身份发生变化时
+拒绝恢复。
 
 `initialize_world_canon()` 是项目创建组合根唯一使用的窄 world facade；project
 不读写 Canon 表、manifest 或 receipt，后续准入仍完全归 world 拥有。

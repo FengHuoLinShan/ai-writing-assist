@@ -150,6 +150,11 @@ rg -n "<已移除模块或旧术语>" docs CONTEXT.md backend/modules
 `make docs-check` 已自动验证 Draw.io XML、重复 ID、edge endpoint 和业务模块覆盖；修改图源
 时仍需使用 Draw.io 结构校验/视觉预览确认无重叠、裁切和错误箭头，并核对 HTML 预览同步。
 
+跨模块确认/恢复的定位入口见 [Codebase 阅读与运行边界](codebase-reading-guide.md)。
+其 [运行图源](runtime-boundaries.drawio) 与 [HTML 预览](runtime-boundaries.html) 在相关
+入口、来源重验、采用或恢复语义改变时同步；这类辅助图不替代领域契约或权威目录。
+新增图源须单独核对 XML/ID/edge 和图源/预览节点标签，不能仅依赖模块图专用检查。
+
 ### E. 合并后的轻量复核
 
 PR CI 和 `main` push 都运行完整性门禁。合并或一批 PR 落地后，由该轮负责人只做一次轻量

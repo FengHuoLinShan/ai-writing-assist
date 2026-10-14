@@ -8,12 +8,18 @@
 `facade.py` 仅再导出稳定入口；执行器选择、设备归属校验与配置保存位于
 `executor_service.py`，保存配置仍在该服务提交事务。
 
-**当前范围仅图片生成。** 本机 CLI（Codex/Claude/Kimi/DSH/Pi）现在只用于生成图片，由
+**当前正常新建的业务入口仅用于图片生成。** 本机 CLI（Codex/Claude/Kimi/DSH/Pi）用于生成图片，由
 World 模块在需要世界对象图片或地图册页面时调用（见
 `backend/modules/world/README.md`）。项目助手、已登录 RP、前瞻分析、创作协作、
-连续性检查、场景排演等文本路径已与本机 CLI 断开，改为始终使用项目账户模型连接；旧的
-`local_agent` 快照字段一旦出现在可恢复任务里即失败关闭（`Local CLI no longer runs
-project text tasks`），不会静默回退到网关模型或重放本机副作用。
+连续性检查、场景排演等当前新建文本任务使用项目账户模型连接；旧的 `local_agent` 快照字段
+出现在可恢复任务里会失败关闭（`Local CLI no longer runs project text tasks`），直接调用
+`task_snapshot_client` 的旧文本设置也会被拒绝，不会静默回退到网关模型或重放本机副作用。
+
+源码仍保留旧文本兼容分支：`run_local_agent` 可创建文本 invocation，`companion._job`
+对非图片请求仍调用 `_run_text_job`。但批准与领取入口已按图片缩面（见下文“伴随进程协议”），
+旧文字 pending task/invocation 在这些入口置为 failed、不发放租约或提示词；旧文本分支只是
+兼容形状，正常入口与设备领取都不会执行旧文字 job。删除既有文字 job/receipt/schema 前
+仍需先确定历史任务的处置范围。
 
 ## 图片生成审查包装
 
@@ -42,8 +48,8 @@ invocation 的全部暂存文件，字节不会跨请求留存。`facade.py` 导
 图片任务不再写入 `novelcraft-tool` shim、也不打开产品工具 unix socket——服务器拼好的
 提示词禁止访问产品数据或调用产品工具，只允许 CLI 使用自己的原生工具（文件、shell、
 图片生成能力）生成 `output.png`/`output.jpg`。每个 invocation 使用独立工作目录，
-任务结束后（成功、失败、异常）伴随进程统一 `shutil.rmtree` 整个工作目录；文本路径
-（历史遗留、已在服务端失败关闭）同样清理工作目录。工作目录**不是沙箱**——CLI 仍可访问
+任务结束后（成功、失败、异常）伴随进程统一 `shutil.rmtree` 整个工作目录；保留的历史文本
+兼容分支也清理工作目录。工作目录**不是操作系统沙箱**——CLI 仍可访问
 当前 macOS 用户允许的其他文件和命令，界面必须如实告知。
 
 ## 伴随进程协议
@@ -84,5 +90,6 @@ Codex/Pi 可在启动伴随进程前通过 `NOVELCRAFT_CODEX_MODEL` / `NOVELCRAF
 
 旧文字快照的恢复只有 Project 恢复门一道失败关闭（`open_project_snapshot_llm_client`
 对含 `local_agent` 的快照一律拒绝），不再存在第二道 `task_snapshot_client` 门
-（该门已随本机文字路径删除）。图片执行与历史回执读取仍保留；
+（该门已随本机文字路径删除）。图片执行与历史回执读取仍保留；历史回执 `usage` 可能为
+`null`（未知），不能当作零，也不等同于 Project 账户模型 AI 用量诊断。
 删除既有文字 job/receipt/schema 前需先确定历史任务的处置范围。

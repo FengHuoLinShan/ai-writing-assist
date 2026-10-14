@@ -50,10 +50,9 @@ from evals.review import (
 )
 from evals.scene_gold import repair_scene_gold_cases
 from evals.schemas import (
-    ALLOWED_CODEX_REVIEW_MODELS,
-    EVAL_ADJUDICATOR_MODEL,
-    EVAL_REVIEWER_A_MODEL,
-    EVAL_REVIEWER_B_MODEL,
+    EVAL_TEACHER_MODEL,
+    EVAL_TEACHER_REASONING_EFFORT,
+    FROZEN_LEGACY_EVAL_MODELS,
     HIGH_QUALITY_LLM_FALLBACK_MODEL,
     DatasetCase,
     DatasetManifest,
@@ -156,15 +155,10 @@ def main() -> None:
     )
     model_review_parser.add_argument(
         "--model",
-        choices=(
-            "deepseek-v4-flash",
-            "gpt-5.6-luna",
-            "gpt-5.6-terra",
-        ),
+        choices=(EVAL_TEACHER_MODEL,),
         required=True,
     )
     model_review_parser.add_argument("--reviewer-role", required=True)
-    model_review_parser.add_argument("--novel-id")
     model_review_parser.add_argument(
         "--suite", choices=("rag", "scene", "world", "outline")
     )
@@ -180,13 +174,8 @@ def main() -> None:
     )
     scene_gold_parser.add_argument(
         "--model",
-        choices=("gpt-5.3-codex-spark", "gpt-5.6-luna"),
-        default="gpt-5.3-codex-spark",
-    )
-    scene_gold_parser.add_argument(
-        "--fallback-model",
-        choices=("gpt-5.6-luna",),
-        default="gpt-5.6-luna",
+        choices=(EVAL_TEACHER_MODEL,),
+        default=EVAL_TEACHER_MODEL,
     )
     scene_gold_parser.add_argument("--output", type=Path, required=True)
     scene_gold_parser.add_argument("--meta", type=Path, required=True)
@@ -368,7 +357,6 @@ def main() -> None:
                 model=args.model,
                 reviewer_role=args.reviewer_role,
                 suite=args.suite,
-                novel_id=args.novel_id,
                 output=args.output,
                 cache_dir=args.cache_dir,
             )
@@ -379,7 +367,6 @@ def main() -> None:
                 dataset=args.dataset,
                 variant=args.variant,
                 model=args.model,
-                fallback_model=args.fallback_model,
                 output=args.output,
                 meta_output=args.meta,
                 cache_dir=args.cache_dir,
@@ -532,7 +519,6 @@ async def _scene_gold_repair(
     dataset: Path,
     variant: str,
     model: str,
-    fallback_model: str,
     output: Path,
     meta_output: Path,
     cache_dir: Path,
@@ -543,11 +529,12 @@ async def _scene_gold_repair(
         source_path=source_path_for_variant(variant),
         source_alias=f"lotm-clown-{variant}",
         cache=EvalCache(cache_dir),
-        primary_executor=CodexStructuredExecutor(model=model),
-        fallback_executor=CodexStructuredExecutor(
-            model=fallback_model,
-            reasoning_effort="medium",
+        # scene-gold 参考答案固定 Sol/xhigh；旧 spark/luna 双档合同已冻结。
+        primary_executor=CodexStructuredExecutor(
+            model=model,
+            reasoning_effort=EVAL_TEACHER_REASONING_EFFORT,
         ),
+        fallback_executor=None,
         cache_only=cache_only,
     )
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -1139,6 +1126,7 @@ def _judge_run_provenance(cases: list[DatasetCase]) -> list[dict]:
                         reasoning_effort=(
                             str(reasoning_effort) if reasoning_effort else None
                         ),
+                        allowed_models=FROZEN_LEGACY_EVAL_MODELS,
                     ).meta.executor_hash
                 except ValueError:
                     executor_hash = "unavailable"
@@ -1201,7 +1189,10 @@ def _range_locator_run_provenance(cases: list[DatasetCase]) -> list[dict]:
         executor_hash = "unavailable"
         if model:
             try:
-                executor_hash = CodexStructuredExecutor(model=model).meta.executor_hash
+                executor_hash = CodexStructuredExecutor(
+                    model=model,
+                    allowed_models=FROZEN_LEGACY_EVAL_MODELS,
+                ).meta.executor_hash
             except ValueError:
                 pass
         records.append(
@@ -1300,9 +1291,15 @@ async def _generate(
     reference_records: list[dict] = []
     generation_runs: list[dict] = []
     evaluator = HighQualityEvalLLM(
-        CodexStructuredExecutor(),
+        # 数据集教师合同（G6a）：reference 标注与 case 生成固定 Sol/xhigh。
+        CodexStructuredExecutor(
+            model=EVAL_TEACHER_MODEL,
+            reasoning_effort=EVAL_TEACHER_REASONING_EFFORT,
+        ),
         cache=EvalCache(cache_dir),
         cache_only=cache_only,
+        # 新合同不复用冻结 spark 缓存判定，避免跨合同分数混入。
+        allow_primary_cache_fallback=False,
     )
     reference_output = output.with_suffix(".references.json")
     for batch_number, batch in enumerate(chapter_batches, start=1):
@@ -1504,9 +1501,15 @@ async def _judge(
     )
     errors = deterministic["errors"]
     evaluator = HighQualityEvalLLM(
-        CodexStructuredExecutor(),
+        # judge 合同（G6a）：质检判定固定 Sol/xhigh，与被测端分离。
+        CodexStructuredExecutor(
+            model=EVAL_TEACHER_MODEL,
+            reasoning_effort=EVAL_TEACHER_REASONING_EFFORT,
+        ),
         cache=EvalCache(cache_dir),
         cache_only=cache_only,
+        # 新合同不复用冻结 spark 缓存判定，避免跨合同分数混入。
+        allow_primary_cache_fallback=False,
     )
 
     eligible: list[DatasetCase] = []
@@ -1761,7 +1764,6 @@ async def _model_review(
     model: str,
     reviewer_role: str,
     suite: str | None,
-    novel_id: str | None,
     output: Path,
     cache_dir: Path,
 ) -> None:
@@ -1787,7 +1789,6 @@ async def _model_review(
         raise ValueError("model review template has no cases for requested suite")
     async with _open_model_review_evaluator(
         model=model,
-        novel_id=novel_id,
         cache_dir=cache_dir,
     ) as evaluator:
         await _execute_model_review(
@@ -1802,18 +1803,28 @@ async def _model_review(
 
 
 def _validate_review_model_assignment(reviewer_role: str, model: str) -> None:
+    """Review roles are pinned to the Sol/xhigh contract (G6a).
+
+    Legacy assignments (reviewer A DeepSeek, reviewer B Luna/medium, adjudicator
+    Terra) are frozen history: their outputs stay readable, but no new review
+    call may use them.
+    """
+
     normalized = reviewer_role.strip().lower().replace("_", "-")
-    if normalized == "reviewer-a" or normalized.endswith("-reviewer-a"):
-        expected = EVAL_REVIEWER_A_MODEL
-    elif normalized == "reviewer-b" or normalized.endswith("-reviewer-b"):
-        expected = EVAL_REVIEWER_B_MODEL
-    elif normalized == "adjudicator" or normalized.endswith("-adjudicator"):
-        expected = EVAL_ADJUDICATOR_MODEL
-    else:
+    known_role = (
+        normalized == "reviewer-a"
+        or normalized.endswith("-reviewer-a")
+        or normalized == "reviewer-b"
+        or normalized.endswith("-reviewer-b")
+        or normalized == "adjudicator"
+        or normalized.endswith("-adjudicator")
+    )
+    if not known_role:
         raise ValueError("reviewer role must be reviewer-a, reviewer-b, or adjudicator")
-    if model != expected:
+    if model != EVAL_TEACHER_MODEL:
         raise ValueError(
-            f"reviewer role {reviewer_role} requires model {expected}, got {model}"
+            f"reviewer role {reviewer_role} requires model {EVAL_TEACHER_MODEL}, "
+            f"got {model}"
         )
 
 
@@ -1821,25 +1832,17 @@ def _validate_review_model_assignment(reviewer_role: str, model: str) -> None:
 async def _open_model_review_evaluator(
     *,
     model: str,
-    novel_id: str | None,
     cache_dir: Path,
 ):
-    if model != "deepseek-v4-flash":
-        yield HighQualityEvalLLM(
-            CodexStructuredExecutor(
-                model=model,
-                allowed_models=ALLOWED_CODEX_REVIEW_MODELS,
-            ),
-            cache=EvalCache(cache_dir),
-            allow_primary_cache_fallback=False,
-        )
-        return
-    if not novel_id:
-        raise ValueError("deepseek-v4-flash reviewer requires --novel-id")
-
-    from evals.codex_executor import require_live_eval_calibration
-
-    require_live_eval_calibration()
+    del model  # validated against EVAL_TEACHER_MODEL before this point
+    yield HighQualityEvalLLM(
+        CodexStructuredExecutor(
+            model=EVAL_TEACHER_MODEL,
+            reasoning_effort=EVAL_TEACHER_REASONING_EFFORT,
+        ),
+        cache=EvalCache(cache_dir),
+        allow_primary_cache_fallback=False,
+    )
 
 
 async def _execute_model_review(
@@ -1941,8 +1944,14 @@ async def _judge_calibrate(
     corpus = load_corpus_snapshot(variant)
     source_text = source_path_for_variant(variant).read_text(encoding="utf-8-sig")
     evaluator = HighQualityEvalLLM(
-        CodexStructuredExecutor(model="gpt-5.3-codex-spark"),
+        # judge 校准（G6a）与 judge 合同一致，固定 Sol/xhigh；
+        # 旧 spark 校准轮次是冻结历史，不复用其模型与缓存判定。
+        CodexStructuredExecutor(
+            model=EVAL_TEACHER_MODEL,
+            reasoning_effort=EVAL_TEACHER_REASONING_EFFORT,
+        ),
         cache=EvalCache(cache_dir),
+        allow_primary_cache_fallback=False,
     )
     processed = 0
     for batch in _judge_batches(selected):

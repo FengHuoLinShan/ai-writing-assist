@@ -123,10 +123,10 @@ eval-corpus:  ## Build a local corpus manifest without copying source text
 eval-fixture-manifest:  ## Hash stable writing/outline/world fixtures without payloads
 	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_EVAL_RUN) python -m evals.cli fixture-manifest $(if $(OUTPUT),--output $(OUTPUT),)
 
-eval-generate:  ## Generate candidate semantic-eval cases with the explicitly configured local Codex model
+eval-generate:  ## Generate candidate semantic-eval cases with the pinned Sol/xhigh teacher executor (new calls paused until G6b)
 	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_EVAL_RUN) python -m evals.cli generate --suite $(SUITE) --variant $(or $(VARIANT),pilot) --size $(or $(SIZE),20) --output $(OUTPUT) $(if $(CACHE_ONLY),--cache-only,)
 
-eval-judge:  ## Judge a candidate dataset with the explicitly configured local Codex model and cache results
+eval-judge:  ## Judge a candidate dataset with the pinned Sol/xhigh judge executor and cache results (new calls paused until G6b)
 	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_EVAL_RUN) python -m evals.cli judge $(DATASET) --variant $(or $(VARIANT),pilot) --output $(OUTPUT) $(if $(CACHE_ONLY),--cache-only,)
 
 eval-qc:  ## Run deterministic QC for a local eval dataset

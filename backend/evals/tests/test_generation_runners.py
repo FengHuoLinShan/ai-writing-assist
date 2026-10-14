@@ -52,7 +52,7 @@ from evals.runners.rag import _calibrate_selection_thresholds, evaluate_rag_case
 from evals.runners.scene import evaluate_scene_cases, run_scene_workflow_cases
 from evals.runners.world import evaluate_world_cases, run_world_workflow_cases
 from evals.schemas import (
-    ALLOWED_CODEX_REVIEW_MODELS,
+    FROZEN_LEGACY_EVAL_MODELS,
     HIGH_QUALITY_LLM_MODEL,
     DatasetCase,
     DatasetManifest,
@@ -722,7 +722,7 @@ async def test_codex_executor_is_ephemeral_isolated_and_schema_guarded(
             assert b"fixture-step" in request
             output_index = self.args.index("--output-last-message") + 1
             Path(self.args[output_index]).write_text('{"cases": []}', encoding="utf-8")
-            return b"model: gpt-5.3-codex-spark", b""
+            return b"model: gpt-6.1-sol", b""
 
     async def fake_create_subprocess_exec(*args: str, **kwargs: object) -> FakeProcess:
         captured.extend(args)
@@ -801,26 +801,22 @@ def test_codex_executor_rejects_model_fallback() -> None:
         CodexStructuredExecutor(model="some-other-model")
 
 
-def test_codex_executor_allows_explicit_luna_fallback(monkeypatch) -> None:
+def test_codex_executor_rejects_frozen_legacy_env_override(monkeypatch) -> None:
     monkeypatch.setenv("EVAL_CODEX_MODEL", "gpt-5.6-luna")
 
-    executor = CodexStructuredExecutor()
-
-    assert executor.model == "gpt-5.6-luna"
-    assert executor.reasoning_effort == "medium"
-    assert executor.meta.model == "gpt-5.6-luna"
-    assert executor.meta.reasoning_effort == "medium"
+    with pytest.raises(ValueError, match="eval model must be"):
+        CodexStructuredExecutor()
 
 
 def test_codex_executor_rejects_reviewer_model_for_generator_judge() -> None:
     with pytest.raises(ValueError, match="eval model must be"):
         CodexStructuredExecutor(model="gpt-5.6-terra")
 
-    reviewer = CodexStructuredExecutor(
+    legacy = CodexStructuredExecutor(
         model="gpt-5.6-terra",
-        allowed_models=ALLOWED_CODEX_REVIEW_MODELS,
+        allowed_models=FROZEN_LEGACY_EVAL_MODELS,
     )
-    assert reviewer.model == "gpt-5.6-terra"
+    assert legacy.model == "gpt-5.6-terra"
 
 
 def test_codex_executor_normalizes_pydantic_schema_for_strict_output() -> None:

@@ -1,4 +1,9 @@
-"""Opt-in V4 handler probe using the existing verified default and spend ledger."""
+"""Opt-in V4 handler probe using the existing verified default and spend ledger.
+
+Frozen history (G6a, 2026-10-14): this DeepSeek-only probe is frozen and not
+migrated to the Sol/Luna eval contract. Keep it only to explain the existing
+ledger; do not start new runs.
+"""
 
 import argparse
 import asyncio
