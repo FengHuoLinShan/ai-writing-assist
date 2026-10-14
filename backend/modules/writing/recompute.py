@@ -100,25 +100,6 @@ def recompute_request_hash(request: WritingRecomputeRequest) -> str:
     )
 
 
-def _scene_chapter_indices(scene: dict[str, Any]) -> set[int]:
-    """Scene 的章节锚（chapter_ids + scene_chunks；口径同失效引擎）。"""
-    values: set[int] = set()
-    for raw in scene.get("chapter_ids") or []:
-        try:
-            values.add(int(raw))
-        except (TypeError, ValueError):
-            continue
-    for chunk in scene.get("scene_chunks") or []:
-        if not isinstance(chunk, dict):
-            continue
-        raw = chunk.get("chapter_index") or chunk.get("chapter_id")
-        try:
-            values.add(int(raw))
-        except (TypeError, ValueError):
-            continue
-    return values
-
-
 class WritingRecomputeService:
     """作者触发的失效重算编排（预览零写入；执行重验 + 幂等域动作）。"""
 
@@ -320,7 +301,7 @@ class WritingRecomputeService:
             if target.chapter_index is not None
         }
         for scene in roster:
-            if chapter_anchors & _scene_chapter_indices(scene):
+            if chapter_anchors & self._story().scene_chapter_indices(scene):
                 selected[str(scene["id"])] = scene
         return sorted(selected.values(), key=lambda item: int(item["scene_index"]))
 
@@ -342,7 +323,7 @@ class WritingRecomputeService:
             last = max(int(scene["scene_index"]) for scene in selected)
             consumed = [scene for scene in roster if int(scene["scene_index"]) <= last]
         for scene in consumed:
-            chapters |= _scene_chapter_indices(scene)
+            chapters |= self._story().scene_chapter_indices(scene)
         if request.scope == "rebuild_derived_state" and chapters:
             # basis reads the complete manuscript manifest between its endpoint chapters.
             chapters.update(range(min(chapters), max(chapters) + 1))
@@ -387,7 +368,7 @@ class WritingRecomputeService:
                 {
                     "id": str(scene["id"]),
                     "scene_index": int(scene["scene_index"]),
-                    "chapters": sorted(_scene_chapter_indices(scene)),
+                    "chapters": sorted(self._story().scene_chapter_indices(scene)),
                     "scene_chunks": scene.get("scene_chunks") or [],
                     "chapter_ids": scene.get("chapter_ids") or [],
                     "status": scene.get("status"),

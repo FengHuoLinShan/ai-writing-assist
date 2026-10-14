@@ -220,3 +220,43 @@ async def test_real_handlers_connect_understanding_cases_forecast_and_map(
             {},
             required=[CommittedUnderstanding.model_validate(ref) for ref in evolution],
         )
+
+
+def test_semantic_manifest_only_removes_host_identity_and_preserves_source_facts():
+    from copy import deepcopy
+
+    from modules.evolution.consumer_reuse import semantic_manifest
+
+    original = {
+        "run_key": "first-run",
+        "source_manifest_hash": "host-manifest",
+        "previous_scene_attempt_id": "first-receipt",
+        "source": {
+            "draft_id": "draft",
+            "content_hash": "source-hash",
+            "start": 2,
+            "end": 8,
+        },
+        "previous_observations": [
+            {
+                "observation_id": "host-observation",
+                "predicate": "known fact",
+                "quote": "exact source",
+            }
+        ],
+    }
+    before = deepcopy(original)
+    changed_host = {
+        **original,
+        "run_key": "second-run",
+        "source_manifest_hash": "new-host",
+        "previous_scene_attempt_id": "second-receipt",
+    }
+    assert semantic_manifest(original) == semantic_manifest(changed_host)
+    changed_source = deepcopy(changed_host)
+    changed_source["source"]["content_hash"] = "changed-source"
+    assert semantic_manifest(original) != semantic_manifest(changed_source)
+    changed_fact = deepcopy(changed_host)
+    changed_fact["previous_observations"][0]["predicate"] = "different fact"
+    assert semantic_manifest(original) != semantic_manifest(changed_fact)
+    assert original == before

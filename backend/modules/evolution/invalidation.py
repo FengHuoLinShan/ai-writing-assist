@@ -14,7 +14,7 @@
 
 已接线消费者：evidence 章节索引（重建触发带新 source hash，旧结果不再
 显示有效）、story Scene checkpoint 与稀疏快照（软 supersede）。未接线
-消费者（world 知识、地图册、助手建议）在回执中显式列为
+消费者（地图册、正典修订依赖）在回执中显式列为
 ``unsupported_consumers``——缺口可见，不以"局部完成"冒充全量失效。
 
 P2-C C2 细化：``apply_source_invalidation`` 组装
@@ -41,6 +41,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.evolution.store import PostgresAttemptStore
 from modules.story.continuity.contracts import SCENE_MEMORY_DIMENSIONS
+from modules.story.contracts import scene_chapter_indices as _scene_chapter_indices
 from modules.story.outline_state.facade import get_scenes_by_novel
 
 UNSUPPORTED_CONSUMERS: tuple[dict[str, str], ...] = (
@@ -144,24 +145,6 @@ class InvalidationReceipt(BaseModel):
     receipt_id: str = ""
     recompute_options: list[dict[str, Any]] = Field(default_factory=list)
     impact_assessment: Any = None
-
-
-def _scene_chapter_indices(scene: dict[str, Any]) -> set[int]:
-    values: set[int] = set()
-    for raw in scene.get("chapter_ids") or []:
-        try:
-            values.add(int(raw))
-        except (TypeError, ValueError):
-            continue
-    for chunk in scene.get("scene_chunks") or []:
-        if not isinstance(chunk, dict):
-            continue
-        raw = chunk.get("chapter_index") or chunk.get("chapter_id")
-        try:
-            values.add(int(raw))
-        except (TypeError, ValueError):
-            continue
-    return values
 
 
 async def affected_scene_window(

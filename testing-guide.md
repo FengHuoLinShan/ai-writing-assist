@@ -77,7 +77,7 @@ Evidence indexing/compilation 回归集中在 `backend/modules/evidence/`；
 | `make test-fast-coverage TEST_WORKERS=2` | Same fast layer with parallel production-code coverage and an 85% gate | None |
 | `make eval-fast` | The same locked deterministic eval toolkit tests without remote model calls | Locked backend CI dependencies and Python 3.14.7; no model calls |
 | `make eval-ask-world` | Ask World project/API contracts, then retrieval, citation-fixture, refusal and integrity thresholds | None; targeted API tests plus deterministic synthetic evidence, not a semantic-answer quality claim |
-| `make eval-ask-world-model NOVEL_ID=<id> [PROBE_SPLIT=debug\|holdout] [LEDGER=<jsonl>] [DATASET=<jsonl>] [TEACHER_MODEL=gpt-6.1-sol TEACHER_REASONING_EFFORT=high]` | 生产 `AskWorldService._generate` 的模型诊断：确定性来源集合指标（答/拒答、引用 precision/recall、冲突来源覆盖，非主张忠实度），加可选替代教师的逐主张语义审查；报告带 git/dirty、Prompt/dataset/rubric hash，未完成不记 complete；不覆盖检索、确认、知识审查、回开与保存 | 显式付费：项目 owner 已验证的模型连接，教师另需本地 Codex 登录；永远 `blocking=false`、`human_validated=false`，不进 CI，真实稿件的输入输出留仓库外 |
+| `make eval-ask-world-model NOVEL_ID=<id> [PROBE_SPLIT=debug\|holdout] [LEDGER=<jsonl>] [DATASET=<jsonl>]` | 生产 `AskWorldService._generate` 的来源集合诊断（非主张忠实度）；旧教师参数仅保留冻结合同，教师模式当前暂停，预检在项目访问、SUT 调用和一次性 holdout 占用前拒绝 | 无教师的 SUT 实测仍须单独授权并核验 owner/Project 的 Luna/max 连接；旧 `gpt-6.1-sol/high` 教师及旧 DeepSeek reviewer 须完成迁移和重新校准后才能恢复，不能凭本地登录重启；旧元数据/缓存离线回放不改标，不进 CI，真实稿件输入输出留仓库外 |
 | `make eval-context-planner NOVEL_ID=<id> OUTPUT=<path>` | 冻结 RAG 数据上对比 task-direct 与确定性 Planner，输出 split/purpose、MRR/P@5/R@10、结果数、source hash、stale/跨项目与延迟 | 已建立同一冻结语料索引的本地项目；不调 LLM |
 | `make eval-context-planner NOVEL_ID=<id> LLM_PLANNER=1 OUTPUT=<path>` | 在上述对比中增加 `planner-v2-llm`，仅向当前项目模型发送 dev split 中达到复杂度门槛的查询 | 显式付费/外部模型验收；train/test 不发送给 Planner |
 | `uv --directory backend run pytest -q evals/tests/test_rp_context.py` | RP source context 对照账本与盲评汇总契约；只保存 corpus/scenario hash、SourceRangeRef 和 rubric | None；该测试不调用模型，也不代表用户验证或实际减少出戏 |
@@ -606,3 +606,15 @@ P8 固定比较范围按指定 head 的 Git blob 计数，不读取其他 checko
 `evals.rp_matrix` 冻结 6 开发来源族和 3 独立留出来源族，各 30 轮，两臂独立旅程，基线 compiler/retrieval 固定 Git 来源、原准备包布局相同；记录关键原文回读、秘密/未来 canary、开场/重抽/分支/length续写和必需来源失效。质量与总费用门分开，含准备、审查与返修费用，裁判费另列；开发不过不打开留出，已用留出不可调参再当未见样本。
 
 用户授权的代理作者评阅使用 `human_validated=false`，必须看实际输出。旧 140 笔短程布局 smoke 不能核销完整矩阵。原始账本和正文留仓库外私有目录，仓库只提交脱敏哈希、计量与结论；未知用量保留上界与失败，累计 USD 20 不重置。
+
+### 离线实验的独立环境
+
+`make eval-technical-coverage`、其它 `BACKEND_LOCKED_EVAL_RUN` 目标与离线成本实验
+使用 `backend/.venv-eval`（可用 `BACKEND_EVAL_ENV` 指定隔离路径），不替换运行中的
+`backend/.venv`。Python 3.13 实验完成后开发/CI解释器和依赖保持原状。
+服务文件拆分需验证原类/方法行为、来源与事务、失败恢复及真实PG锁；共享导入名继续保留。
+
+独立 Codex eval 的新文字调用现已暂停：旧 Spark/Luna/教师配置仅保留用于
+冻结元数据与 cache-only 重放，不得将旧分数改标为当前模型成绩。恢复新调用前
+须迁到经 owner 验证的 Project 运行时，并按当前 Luna/max 约定重新校准教师与
+judge；本地 CLI 登录不代替这项核验。隔离传输的单元测试使用合成替身，不调用模型。

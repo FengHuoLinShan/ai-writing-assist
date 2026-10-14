@@ -29,8 +29,7 @@ test('完整编辑器跨尺寸保留正文、选区、资料草稿和桌面侧�
   await page.getByRole('button', { name: '批注选中内容', exact: true }).click()
   const note = page.getByLabel('希望怎么修改？')
   await note.fill('尚未保存的批注草稿')
-  for (const viewport of [{ width: 1024, height: 768 }, { width: 390, height: 844 }, { width: 844, height: 390 }]) {
-    await page.setViewportSize(viewport)
+  await runResponsiveMatrix(page, async () => {
     await expect(editor).toHaveValue('甲😀乙丙\n待保存正文')
     await expect.poll(() => editor.evaluate(element => [element.selectionStart, element.selectionEnd])).toEqual([1, 4])
     const trigger = page.getByRole('button', { name: '本章资料', exact: true })
@@ -43,7 +42,7 @@ test('完整编辑器跨尺寸保留正文、选区、资料草稿和桌面侧�
     await close.click()
     await expect(dialog).toBeHidden()
     await expect(trigger).toBeFocused()
-  }
+  }, [{ width: 1024, height: 768 }, { width: 390, height: 844 }, { width: 844, height: 390 }])
   await page.setViewportSize({ width: 1440, height: 900 })
   await expect(page.getByRole('button', { name: '章节', exact: true })).toHaveAttribute('aria-expanded', 'false')
   expect(await page.evaluate(id => sessionStorage.getItem(`workspace-rail:${id}:writing:chapters`), project.id)).toBe(preference)

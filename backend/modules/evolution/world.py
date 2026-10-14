@@ -9,6 +9,7 @@ from infrastructure.llm.collaboration import content_hash
 from infrastructure.llm.profiles import DEEPSEEK_THINKING_MODELS
 from modules.evidence.contracts import GroupSource
 from modules.evidence.facade import build_group_audit_request, materialize_group_audit
+from modules.evolution.consumer_reuse import semantic_manifest
 from modules.imports import facade as imports
 
 WORLD_AUDIT_INPUT_CHAR_LIMIT = 45_000
@@ -977,7 +978,7 @@ async def finish_scene_world(db, store, frozen, source, call):
         ]
         context = await imports.prepare_scene_world_context(db, frozen.novel_id, terms)
         context.update(
-            committed_parent=payload["input_manifest"],
+            committed_parent=semantic_manifest(payload["input_manifest"]),
             _current_scene_text=payload["scene_text"],
         )
         return {
@@ -1038,7 +1039,7 @@ async def finish_scene_world(db, store, frozen, source, call):
         terms += [(item["entity_type"], item["name"]) for item in world["entities"]]
         context = await imports.prepare_scene_world_context(db, frozen.novel_id, terms)
         context.update(
-            committed_parent=payload["input_manifest"],
+            committed_parent=semantic_manifest(payload["input_manifest"]),
             _current_scene_text=payload["scene_text"],
         )
         context["_initial_identity_queries"] = first["_identity_queries"]

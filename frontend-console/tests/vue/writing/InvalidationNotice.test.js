@@ -49,3 +49,34 @@ describe("InvalidationNotice", () => {
     expect(wrapper.emitted("open")).toHaveLength(1)
   })
 })
+
+ it("只有索引刷新和未知覆盖时收在详情，保留核对说明与入口", async () => {
+  const raw = { affected: [], invalidated: [{ consumer: "evidence_chapter_index" }, { consumer: "interaction_source_cache", detail: { purged_rows: 0 } }], unknown_scope: true, unsupported: [{ consumer: "map_atlas" }] }
+  const wrapper = mount(InvalidationNotice, { props: { notice: normalizeInvalidationNotice(raw) } })
+  expect(wrapper.find(".writing-invalidation-notice").exists()).toBe(false)
+  expect(wrapper.get("details").attributes("open")).toBeUndefined()
+  expect(wrapper.text()).toContain("地图集")
+  expect(wrapper.text()).not.toContain("相关内容需要更新")
+  await wrapper.get("button").trigger("click")
+  expect(wrapper.emitted("open")).toHaveLength(1)
+ })
+ it("实际清理缓存或已有受影响资产时保留显著失效提示", () => {
+  const raw = { affected: [], invalidated: [{ consumer: "interaction_source_cache", detail: { purged_rows: 1 } }], unknown_scope: true }
+  const wrapper = mount(InvalidationNotice, { props: { notice: normalizeInvalidationNotice(raw) } })
+  expect(wrapper.find(".writing-invalidation-notice").exists()).toBe(true)
+ })
+
+ it("真实空场景回执的零计数动作折叠，任何实际失效或缺失计数仍显著显示", () => {
+  const invalidated = [
+    { consumer: "evidence_chapter_index" },
+    { consumer: "interaction_source_cache", detail: { purged_rows: 0 } },
+    { consumer: "assistant_suggestion_validity", detail: { mode: "evidence_freshness" } },
+    { consumer: "evolution_runs", detail: { run_keys: [], recompute_required: false } },
+    { consumer: "story_state", detail: { stale_events: 0 } },
+  ]
+  const raw = { affected: [], invalidated, unknown_scope: true, unsupported: [{ consumer: "map_atlas" }] }
+  expect(normalizeInvalidationNotice(raw).coverageOnly).toBe(true)
+  for (const detail of [{ stale_events: 1 }, {}, { stale_events: 0, unknown_count: 0 }]) {
+    expect(normalizeInvalidationNotice({ ...raw, invalidated: [...invalidated.slice(0, -1), { consumer: "story_state", detail }] }).coverageOnly).toBe(false)
+  }
+ })

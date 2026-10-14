@@ -15,7 +15,8 @@ BACKEND_POSTGRESQL_CRITICAL_TESTS += tests/e2e/test_open_issue_contracts.py
 TEST_WORKERS ?= auto
 BACKEND_EVAL_PYTHON ?= 3.13
 BACKEND_LOCKED_CI_RUN := uv run --locked --extra ci --
-BACKEND_LOCKED_EVAL_RUN := uv run --python $(BACKEND_EVAL_PYTHON) --locked --
+BACKEND_EVAL_ENV ?= $(BACKEND_DIR)/.venv-eval
+BACKEND_LOCKED_EVAL_RUN := UV_PROJECT_ENVIRONMENT="$(BACKEND_EVAL_ENV)" uv run --python $(BACKEND_EVAL_PYTHON) --locked --
 
 # ─── Full Stack ─────────────────────────────────────
 
@@ -118,10 +119,10 @@ eval-corpus:  ## Build a local corpus manifest without copying source text
 eval-fixture-manifest:  ## Hash stable writing/outline/world fixtures without payloads
 	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_EVAL_RUN) python -m evals.cli fixture-manifest $(if $(OUTPUT),--output $(OUTPUT),)
 
-eval-generate:  ## Generate candidate semantic-eval cases with local Codex 5.3
+eval-generate:  ## Generate candidate semantic-eval cases with the explicitly configured local Codex model
 	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_EVAL_RUN) python -m evals.cli generate --suite $(SUITE) --variant $(or $(VARIANT),pilot) --size $(or $(SIZE),20) --output $(OUTPUT) $(if $(CACHE_ONLY),--cache-only,)
 
-eval-judge:  ## Judge a candidate dataset with local Codex 5.3 and cache results
+eval-judge:  ## Judge a candidate dataset with the explicitly configured local Codex model and cache results
 	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_EVAL_RUN) python -m evals.cli judge $(DATASET) --variant $(or $(VARIANT),pilot) --output $(OUTPUT) $(if $(CACHE_ONLY),--cache-only,)
 
 eval-qc:  ## Run deterministic QC for a local eval dataset
@@ -164,15 +165,15 @@ eval-rp-long-memory:  ## Compile the synthetic RP long-memory gate offline
 	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_EVAL_RUN) python -m evals.rp_long_memory compile $(or $(DATASET),evals/datasets/baselines/rp-long-memory-v2.jsonl) --split $(or $(SPLIT),dev) --output $(or $(OUTPUT),evals/artifacts/rp-long-memory/compile.json)
 
 eval-rp-cost-baseline:  ## Measure the RP compile-chain cost baseline (M0; local BGE chain, no paid calls; set DATABASE_URL for the disposable PG run)
-	cd $(BACKEND_DIR) && uv run --python 3.13 --locked --extra dev -- python -m evals.rp_cost_baseline run --scales $${SCALES:-s,m} --rounds $${ROUNDS:-6} --repeats $${REPEATS:-3} --output $(or $(OUTPUT),evals/artifacts/rp-cost-baseline/report.json)
+	cd $(BACKEND_DIR) && UV_PROJECT_ENVIRONMENT="$(BACKEND_EVAL_ENV)" uv run --python $(BACKEND_EVAL_PYTHON) --locked --extra dev -- python -m evals.rp_cost_baseline run --scales $${SCALES:-s,m} --rounds $${ROUNDS:-6} --repeats $${REPEATS:-3} --output $(or $(OUTPUT),evals/artifacts/rp-cost-baseline/report.json)
 
 .PHONY: eval-technical-coverage
 eval-technical-coverage:  ## Run synthetic coverage experiments; no database or paid model I/O
-	cd $(BACKEND_DIR) && uv run --python 3.13 --locked --extra ci --extra experiments -- python -m evals.retrieval_comparison --output evals/artifacts/technical-coverage/retrieval.json
-	cd $(BACKEND_DIR) && uv run --python 3.13 --locked --extra ci --extra experiments -- python -m evals.tool_selection --output evals/artifacts/technical-coverage/tools.json
-	cd $(BACKEND_DIR) && uv run --python 3.13 --locked --extra ci --extra experiments -- python -m evals.collaboration_comparison --output-dir evals/artifacts/technical-coverage
-	cd $(BACKEND_DIR) && uv run --python 3.13 --locked --extra ci --extra experiments -- python -m evals.rp_long_memory compile evals/datasets/baselines/rp-long-memory-v2.jsonl --split dev --output evals/artifacts/technical-coverage/memory-compile.json
-	cd $(BACKEND_DIR) && uv run --python 3.13 --locked --extra ci --extra experiments -- pytest evals/tests/test_experiment.py evals/tests/test_retrieval_comparison.py evals/tests/test_tool_selection.py evals/tests/test_mcp_reference_lab.py evals/tests/test_collaboration_comparison.py evals/tests/test_task_capacity.py -q --timeout=60
+	cd $(BACKEND_DIR) && UV_PROJECT_ENVIRONMENT="$(BACKEND_EVAL_ENV)" uv run --python $(BACKEND_EVAL_PYTHON) --locked --extra ci --extra experiments -- python -m evals.retrieval_comparison --output evals/artifacts/technical-coverage/retrieval.json
+	cd $(BACKEND_DIR) && UV_PROJECT_ENVIRONMENT="$(BACKEND_EVAL_ENV)" uv run --python $(BACKEND_EVAL_PYTHON) --locked --extra ci --extra experiments -- python -m evals.tool_selection --output evals/artifacts/technical-coverage/tools.json
+	cd $(BACKEND_DIR) && UV_PROJECT_ENVIRONMENT="$(BACKEND_EVAL_ENV)" uv run --python $(BACKEND_EVAL_PYTHON) --locked --extra ci --extra experiments -- python -m evals.collaboration_comparison --output-dir evals/artifacts/technical-coverage
+	cd $(BACKEND_DIR) && UV_PROJECT_ENVIRONMENT="$(BACKEND_EVAL_ENV)" uv run --python $(BACKEND_EVAL_PYTHON) --locked --extra ci --extra experiments -- python -m evals.rp_long_memory compile evals/datasets/baselines/rp-long-memory-v2.jsonl --split dev --output evals/artifacts/technical-coverage/memory-compile.json
+	cd $(BACKEND_DIR) && UV_PROJECT_ENVIRONMENT="$(BACKEND_EVAL_ENV)" uv run --python $(BACKEND_EVAL_PYTHON) --locked --extra ci --extra experiments -- pytest evals/tests/test_experiment.py evals/tests/test_retrieval_comparison.py evals/tests/test_tool_selection.py evals/tests/test_mcp_reference_lab.py evals/tests/test_collaboration_comparison.py evals/tests/test_task_capacity.py -q --timeout=60
 
 eval-ask-world:  ## Run Ask World API contracts, then the offline evidence-ranking gate
 	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) pytest modules/world/tests/test_world_generation_center_api.py -k ask_world -q

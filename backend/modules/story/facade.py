@@ -8,6 +8,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.story.contracts import scene_chapter_indices as scene_chapter_indices
 from modules.story.generation import (
     STORY_CARD_TASK,
     STORY_CHARACTER_CARD_ACTION,

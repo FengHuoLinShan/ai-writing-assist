@@ -181,8 +181,20 @@ class TestP2CInvalidationRecompute:
         reasons = {item.get("reason") for item in affected}
         assert reasons <= {
             "anchored_chapter_edited",
+            "offset_window_hit",
             "conservative_expansion_unregistered",
         }
+        offset_entries = [
+            item for item in affected if item.get("reason") == "offset_window_hit"
+        ]
+        assert offset_entries
+        assert all(item.get("basis") == "known" for item in offset_entries)
+        assert all(
+            item.get("scene_index") in {1, 2}
+            or (item.get("scene_index") is None and item.get("chapter_index") == 2)
+            for item in offset_entries
+        )
+        assert not any(item.get("scene_index") == 0 for item in affected)
         # 锚定章（第 2 章）的 Scene checkpoint 消费必须以 known 依据列出
         checkpoint_entries = [
             item for item in affected if item.get("consumer") == "story_scene_checkpoint"

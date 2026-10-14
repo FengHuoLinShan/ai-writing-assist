@@ -273,8 +273,8 @@ async def test_list_entity_terms_only_canonical(
     canonical = _make_entity(name="Canon", status="canonical")
     draft = _make_entity(name="Draft", status="draft")
     pending = _make_entity(name="Pending", status="pending")
-    entity_service._repo.list_by_novel = AsyncMock(
-        return_value=[canonical, draft, pending]
+    entity_service._repo.list_term_candidates = AsyncMock(
+        return_value=[_term_row(item) for item in [canonical, draft, pending]]
     )
     db = AsyncMock()
 
@@ -284,7 +284,7 @@ async def test_list_entity_terms_only_canonical(
     assert names == {"Canon"}
     assert "Draft" not in names
     assert "Pending" not in names
-    entity_service._repo.list_by_novel.assert_awaited_once()
+    entity_service._repo.list_term_candidates.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -301,7 +301,9 @@ async def test_list_entity_terms_extracts_aliases(
             ]
         },
     )
-    entity_service._repo.list_by_novel = AsyncMock(return_value=[entity])
+    entity_service._repo.list_term_candidates = AsyncMock(
+        return_value=[_term_row(entity)]
+    )
     db = AsyncMock()
 
     terms = await entity_service.list_entity_terms(db, novel_id)
@@ -326,7 +328,9 @@ async def test_list_entity_terms_excludes_inactive_aliases(
             ]
         },
     )
-    entity_service._repo.list_by_novel = AsyncMock(return_value=[entity])
+    entity_service._repo.list_term_candidates = AsyncMock(
+        return_value=[_term_row(entity)]
+    )
 
     terms = await entity_service.list_entity_terms(AsyncMock(), novel_id)
 
@@ -495,3 +499,13 @@ async def test_exact_identity_normalizes_known_types_without_losing_ambiguity(
     entity_service._repo.list_alias_sources.assert_awaited_once_with(
         db, uuid.UUID(novel_id)
     )
+
+
+def _term_row(entity):
+    return {
+        "id": entity.id,
+        "name": entity.name,
+        "entity_type": entity.entity_type,
+        "status": entity.status,
+        "aliases": (entity.content_json or {}).get("aliases"),
+    }

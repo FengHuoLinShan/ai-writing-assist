@@ -73,20 +73,8 @@ async def task_snapshot_client(db, task, settings, *, budget, checkpoint=None):
         from modules.project.facade import create_project_snapshot_llm_client
 
         return create_project_snapshot_llm_client(settings, novel_id=str(task.novel_id))
-    from modules.local_agent.client import LocalCLIClient
-
-    project = await get_any_project_context(db, str(task.novel_id))
-    if project is None:
-        raise NotFoundError("作品不可访问")
-    return LocalCLIClient(
-        db,
-        task_id=str(task.id),
-        novel_id=str(task.novel_id),
-        owner_id=str(project.owner_id),
-        device_id=local["device_id"],
-        kind=local["kind"],
-        budget=budget,
-        checkpoint=checkpoint,
+    raise ValidationError(
+        "本机设备只运行图片任务；历史文字任务请使用当前账户模型重新发起。"
     )
 
 

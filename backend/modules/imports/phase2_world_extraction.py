@@ -1,4 +1,7 @@
-"""Simplified window-level Phase 2 world extraction for deep import."""
+"""Frozen window Phase 2 experiment and historical source-reference probes.
+
+The active deep-import workflow extracts by Scene, not through this runner.
+"""
 
 from __future__ import annotations
 
@@ -15,9 +18,6 @@ from modules.imports.chapter_loader import load_chapter_range
 from modules.imports.deep_import_retry import (
     DeepImportRetryResult,
     run_deep_import_llm_with_retry,
-)
-from modules.imports.entity_extraction.scene_entity_checkpoint import (
-    scene_input_fingerprint,
 )
 from modules.imports.entity_extraction.scene_entity_config import (
     current_phase2_project_settings,
@@ -64,7 +64,7 @@ Phase2WorldLLMCallable = Callable[[dict[str, Any]], Awaitable[Any]]
 
 
 class Phase2WorldExtractionResult(BaseModel):
-    """Production Phase 2 result shape consumed by workflow quality stats."""
+    """Historical window experiment result shape; not an active workflow seam."""
 
     payload: dict[str, Any] = Field(default_factory=dict)
     diagnostics: list[dict[str, Any]] = Field(default_factory=list)
@@ -85,7 +85,7 @@ class _WindowWorldResult(BaseModel):
 
 
 class Phase2WorldExtractor(SceneEntityExtractionService):
-    """Extract durable world assets from Phase1b Scenes and chapter text."""
+    """Frozen window experiment; active workflow uses SceneEntityExtractionService."""
 
     def __init__(
         self,
@@ -1025,28 +1025,7 @@ def _candidate_reason(item: Phase2WorldObject) -> str:
 
 
 def _empty_world_output(output: Phase2WorldExtractionOutput) -> bool:
-    return not (
-        output.objects
-        or output.relations
-        or output.deltas
-    )
-
-
-def _scene_source_fingerprint(
-    scene: dict[str, Any],
-    chapters: Sequence[dict[str, Any]],
-) -> str:
-    """Hash semantic Scene input plus the exact chapter text consumed for it."""
-    scene_chapters = set(_scene_chapters(scene))
-    consumed_text = "\n\n".join(
-        str(chapter.get("content") or "")
-        for chapter in sorted(
-            chapters,
-            key=lambda item: int(item.get("chapter_index") or 0),
-        )
-        if int(chapter.get("chapter_index") or 0) in scene_chapters
-    )
-    return scene_input_fingerprint(scene, consumed_text)
+    return not (output.objects or output.relations or output.deltas)
 
 
 def _empty_result(total_scenes: int = 0) -> dict[str, Any]:

@@ -870,6 +870,12 @@ async def run_ask_world_model_probe_eval(
         frozen = _validate_holdout_freeze(path, freeze_config)
         if teacher_model != ASK_WORLD_TEACHER_MODEL:
             raise ValueError("holdout requires the frozen teacher")
+    if teacher_model is not None:
+        from evals.codex_executor import require_live_eval_calibration
+
+        require_live_eval_calibration()
+    if split == "holdout":
+        assert frozen is not None
         assert freeze_config is not None
         _HOLDOUT_RUNS.mkdir(parents=True, exist_ok=True)
         marker = _HOLDOUT_RUNS / (frozen["holdout_material_sha256"] + ".json")

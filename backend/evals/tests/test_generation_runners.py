@@ -734,13 +734,14 @@ async def test_codex_executor_is_ephemeral_isolated_and_schema_guarded(
         fake_create_subprocess_exec,
     )
     executor = CodexStructuredExecutor(command="python", attempts=1)
-    result = await executor.generate_structured(
+    payload = await executor._invoke(
+        "python",
         "fixture prompt",
-        GeneratedCaseBatch,
+        _strict_json_schema(GeneratedCaseBatch.model_json_schema()),
         step_name="fixture-step",
     )
 
-    assert result.cases == []
+    assert GeneratedCaseBatch.model_validate_json(payload).cases == []
     assert "--ephemeral" in captured
     assert "--ignore-user-config" in captured
     assert "--ignore-rules" in captured
@@ -783,13 +784,12 @@ async def test_codex_executor_timeout_kills_the_process_group(
         lambda pid, sig: killed.append((pid, sig)),
     )
 
-    executor = CodexStructuredExecutor(
-        command="python", timeout_seconds=0.01, attempts=1
-    )
+    executor = CodexStructuredExecutor(command="python", timeout_seconds=0.01, attempts=1)
     with pytest.raises(Exception, match="timed out"):
-        await executor.generate_structured(
+        await executor._invoke(
+            "python",
             "quota probe",
-            GeneratedCaseBatch,
+            _strict_json_schema(GeneratedCaseBatch.model_json_schema()),
             step_name="quota-probe",
         )
 

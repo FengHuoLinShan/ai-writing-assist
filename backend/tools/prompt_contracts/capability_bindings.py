@@ -51,7 +51,7 @@ EXEMPT_FILES = frozenset(
 # 首个为该文件的主能力；同一文件服务多个能力时全部列出。
 CAPABILITY_BINDINGS: dict[str, tuple[str, ...]] = {
     # Writing
-    "modules/writing/services.py": ("writing.generate",),
+    "modules/writing/generation_service.py": ("writing.generate",),
     "modules/writing/semantic_review.py": (
         "writing.semantic_review",
         "writing.targeted_revision",

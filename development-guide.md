@@ -438,3 +438,10 @@ API 与 worker 使用相同 Compose runtime 环境。回退不降级表、不撤
 离线成本入口：`make eval-rp-cost-baseline`，显式指定可丢弃 baseline/e2e 数据库，基线与候选报告保留来源/样本 hash；不要连接真实作者库做清理。
 
 完整真实对照入口：`cd backend && python -m evals.rp_matrix --ledger-dir <仓库外私有账本目录>`。只在已获真实调用授权且累计预算明确时运行；既有完整账本不可重置，脚本硬顶 USD 20，开发质量/费用不过不打开一次性独立留出。旧 `rp_real_pairs` 只作短程布局 smoke。协议见 [M6 契约](docs/plans/2026-10-07-m6-stable-input-rp-contract.md)，不能用 smoke 或工程测试替代作者质量。
+
+### 离线评测环境隔离
+
+`Makefile` 的 Python 3.13 评测目标使用 `backend/.venv-eval`，与 CI/开发的
+`backend/.venv` 分开，避免运行评测时替换已启动服务的依赖。
+可用 `BACKEND_EVAL_ENV` 指定本任务的独立环境路径；不要设为正在使用的服务环境。
+实验结果仅证明合成技术合同，不代表真实模型或作者验收。

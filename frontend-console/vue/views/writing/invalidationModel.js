@@ -113,6 +113,28 @@ function normalizeEntry(entry, fallbackChapterIndex) {
   }
 }
 
+function isCoverageAction(item) {
+  const detail = item?.detail
+  switch (item?.consumer) {
+    case "evidence_chapter_index":
+    case "canonical_chapter_index": return true
+    case "assistant_suggestion_validity": return detail?.mode === "evidence_freshness"
+    case "interaction_source_cache": return detail?.purged_rows === 0
+    case "evolution_runs": return detail?.recompute_required === false && Array.isArray(detail.run_keys) && detail.run_keys.length === 0
+    case "story_state":
+    case "story_scene_projections": {
+      if (!detail || detail.stale_events !== 0 || detail.from_scene_index != null) return false
+      const counters = ["stale_events", "stale_chapter_snapshots", "superseded_checkpoints", "pending_revalidation_checkpoints", "superseded_snapshots", "affected_scene_dimension_count"]
+      return Object.entries(detail).every(([key, value]) => (
+        counters.includes(key) ? value === 0
+          : key === "from_scene_index" ? value == null
+            : key === "dimensions" && Array.isArray(value) && value.length === 0
+      ))
+    }
+    default: return false
+  }
+}
+
 /**
  * 保存响应 `invalidation` 视图 → 作者语言提示模型。
  *
@@ -128,6 +150,7 @@ export function normalizeInvalidationNotice(raw, { chapterIndex = null } = {}) {
   const unsupported = Array.isArray(raw.unsupported) ? raw.unsupported : []
   const hasUnknownScope = raw.unknown_scope === true
   if (!affected.length && !hasUnknownScope && !invalidated.length && !unsupported.length) return null
+  const coverageOnly = affected.every(isCoverageAction) && invalidated.every(isCoverageAction)
   const editedChapterIndex = raw.chapter_index ?? chapterIndex
   const entries = affected
     .filter((entry) => entry && typeof entry === "object")
@@ -152,6 +175,7 @@ export function normalizeInvalidationNotice(raw, { chapterIndex = null } = {}) {
   else headlineParts.push("这次修改让部分场景状态需要更新")
   if (sceneIndexes.length) headlineParts.push(`（涉及场景 ${sceneIndexes.join("、")}）`)
   return {
+    coverageOnly,
     receiptId: typeof raw.receipt_id === "string" && raw.receipt_id ? raw.receipt_id : null,
     chapterIndex: editedChapterIndex != null ? Number(editedChapterIndex) : null,
     headline: `${headlineParts.join("")}。`,

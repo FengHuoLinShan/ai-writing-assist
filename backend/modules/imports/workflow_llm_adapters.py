@@ -21,7 +21,6 @@ from modules.evidence.contracts import (
     serialize_group_output,
 )
 from modules.imports.chapter_loader import build_chapters_text
-from modules.imports.env_helpers import positive_int_env
 from shared.deep_import_settings import (
     deep_import_int_setting,
 )
@@ -33,8 +32,6 @@ PHASE1B_SMALL_SAMPLE_TIMEOUT_SECONDS = 420
 PHASE1B_REDUCER_MAX_TOKENS = 128
 PHASE1B_REDUCER_TIMEOUT_SECONDS = 420
 PHASE1B_COMPACT_TEXT_LIMIT = 180
-PHASE0_SCENE_MAX_TOKENS = 8192
-PHASE0_SCENE_TIMEOUT_SECONDS = 420
 PHASE1A_SCENE_MAX_TOKENS = 8192
 PHASE1A_STRUCTURED_MAX_FIX_ATTEMPTS = 1
 PHASE1A_SCENE_SLICING_TIMEOUT_SECONDS = 900
@@ -42,43 +39,12 @@ PHASE1A_CHAPTER_RECOVERY_MAX_TOKENS = 32_768
 PHASE1B_ENRICH_MAX_TOKENS = 32_768
 PHASE1B_ENRICH_TIMEOUT_SECONDS = 1200
 PHASE1C_TIMEOUT_SECONDS = 1200
-PHASE2_WORLD_TIMEOUT_SECONDS = 1200
-PHASE2_WORLD_MIN_MAX_TOKENS = 32_768
 
 
 class ImportKnowledgeGovernanceBlockedError(ValueError):
     def __init__(self, review: dict[str, Any]) -> None:
         super().__init__("knowledge_governance_blocked")
         self.review = review
-
-
-def _phase0_scene_max_tokens(
-    default: int,
-    project_settings: dict[str, Any] | None = None,
-) -> int:
-    del default
-    return deep_import_int_setting(
-        project_settings,
-        "phase0",
-        "scene_max_tokens",
-        env_name="PHASE0_SCENE_MAX_TOKENS",
-        default=PHASE0_SCENE_MAX_TOKENS,
-    )
-
-
-def _phase0_scene_timeout_seconds(
-    default: int | None,
-    project_settings: dict[str, Any] | None = None,
-) -> int | None:
-    if default is not None:
-        return default
-    return deep_import_int_setting(
-        project_settings,
-        "phase0",
-        "scene_timeout_seconds",
-        env_name="PHASE0_SCENE_TIMEOUT_SECONDS",
-        default=positive_int_env("LLM_TIMEOUT", PHASE0_SCENE_TIMEOUT_SECONDS),
-    )
 
 
 def _phase1a_scene_max_tokens(
@@ -128,30 +94,6 @@ def _phase1b_enrich_timeout_seconds(
         "enrich_timeout_seconds",
         env_name="PHASE1B_ENRICH_TIMEOUT_SECONDS",
         default=PHASE1B_ENRICH_TIMEOUT_SECONDS,
-    )
-
-
-def _phase2_world_timeout_seconds(
-    project_settings: dict[str, Any] | None = None,
-) -> int:
-    return deep_import_int_setting(
-        project_settings,
-        "phase2",
-        "world_timeout_seconds",
-        env_name="PHASE2_WORLD_TIMEOUT_SECONDS",
-        default=PHASE2_WORLD_TIMEOUT_SECONDS,
-    )
-
-
-def _phase2_world_min_max_tokens(
-    project_settings: dict[str, Any] | None = None,
-) -> int:
-    return deep_import_int_setting(
-        project_settings,
-        "phase2",
-        "world_min_max_tokens",
-        env_name="PHASE2_WORLD_MIN_MAX_TOKENS",
-        default=PHASE2_WORLD_MIN_MAX_TOKENS,
     )
 
 
@@ -1169,181 +1111,6 @@ class _Phase1cSceneFusionLLM:
                 {"group_key": group_key, "task": task, **review}
             )
         return output
-
-
-class _Phase2WorldExtractionLLM:
-    """LLM adapter for simplified window-level Phase 2 world extraction."""
-
-    def __init__(
-        self,
-        project_settings: dict[str, Any] | None = None,
-        *,
-        novel_id: str | None = None,
-        high_quality: bool = False,
-    ) -> None:
-        self.project_settings = project_settings
-        self.novel_id = novel_id
-        self.high_quality = high_quality
-
-    async def __call__(self, payload: dict[str, Any]) -> Any:
-        from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
-        from modules.imports.llm_schemas import Phase2WorldExtractionOutput
-
-        profile = resolve_llm_profile(self.project_settings)
-        model = _phase_model(profile, high_quality=self.high_quality)
-        chapters = [
-            chapter
-            for chapter in payload.get("chapters", [])
-            if isinstance(chapter, dict)
-        ]
-        scenes = [scene for scene in payload.get("scenes", []) if isinstance(scene, dict)]
-        window = payload.get("window") or {}
-        max_tokens = int(
-            payload.get("max_tokens")
-            or _phase2_world_min_max_tokens(self.project_settings)
-        )
-        owned_scene_ids = [
-            str(scene_id)
-            for scene_id in payload.get("owned_scene_ids", [])
-            if str(scene_id).strip()
-        ]
-        all_scene_ids = [
-            str(scene_id)
-            for scene_id in payload.get("all_scene_ids", [])
-            if str(scene_id).strip()
-        ]
-        input_block = (
-            "【章节正文】\n"
-            f"{_chapters_text(chapters)}\n\n"
-            "【Scene卡片 JSON】\n"
-            f"{json.dumps(scenes, ensure_ascii=False)}"
-        )
-        request = LLMCallRequest(
-            model=model,
-            messages=[
-                LLMMessage(
-                    role="system",
-                    content="你只输出可解析 JSON。不要 Markdown，不要解释。",
-                ),
-                LLMMessage(
-                    role="user",
-                    content=(
-                        f"{input_block}\n\n"
-                        "你是小说世界资产抽取助手。上方是唯一证据来源。\n"
-                        f"当前输入范围：第{window.get('covered_start')}章到"
-                        f"第{window.get('covered_end')}章。\n"
-                        f"owned range：第{window.get('owned_start')}章到"
-                        f"第{window.get('owned_end')}章。\n"
-                        f"右侧 overlap：{_phase2_overlap_text(window)}。\n"
-                        "输入模式：scenes_plus_text。\n\n"
-                        "抽取原则：\n"
-                        "- 宁可少抽，不要污染资产库。\n"
-                        "- 只抽长期资产：主要人物、重复出现或明显重要的人物、"
-                        "组织、地点、关键物品、超凡概念、秘密、制度、能力。\n"
-                        "- 关系只抽对后续剧情理解有价值的稳定关系或关键互动。\n"
-                        "- 状态变化只抽会影响后续上下文的变化，例如身份确认、"
-                        "加入组织、获得物品、知识升级、秘密暴露、关系改变。\n"
-                        "- 每条 objects / relations / deltas 都必须有 "
-                        "supporting_scene_ids。\n"
-                        "- 无法明确对象、地点、线路或范围时放入 uncertain_items，"
-                        "不要用通用 delta 猜测。\n"
-                        "- supporting_scene_ids 只能逐字复制全部可用 Scene IDs "
-                        "列表中的完整 scene_id UUID。\n"
-                        "- 禁止把 display_index、scene_index、章节号、标题、序号"
-                        "或自造 ID 写进 supporting_scene_ids。\n"
-                        "- 如果依据不足，放入 uncertain_items，不要硬编。\n"
-                        "- 不要输出旁枝路人、普通菜品、普通马车、"
-                        "一次性背景名词。\n"
-                        "- 不要用输入范围之外的后文知识补全当前内容。\n"
-                        "- 不要输出完全只由 overlap Scene 支撑的新条目。\n\n"
-                        f"owned Scene IDs：{', '.join(owned_scene_ids)}\n"
-                        f"全部可用 Scene IDs：{', '.join(all_scene_ids)}\n\n"
-                        "只输出 JSON object：\n"
-                        "{\n"
-                        '  "objects": [\n'
-                        "    {\n"
-                        '      "name": "名称",\n'
-                        '      "entity_type": "character|organization|location|'
-                        'item|concept|ability|secret|other",\n'
-                        '      "summary": "当前输入中可证实的稳定意义",\n'
-                        '      "aliases": [],\n'
-                        '      "suggested_action": "create|merge|update|ignore",\n'
-                        '      "suggested_existing_name": "",\n'
-                        '      "importance": "high|medium|low",\n'
-                        '      "confidence": 0.0,\n'
-                        '      "needs_review": false,\n'
-                        '      "review_reason": "",\n'
-                        '      "supporting_scene_ids": []\n'
-                        "    }\n"
-                        "  ],\n"
-                        '  "relations": [\n'
-                        "    {\n"
-                        '      "source_name": "源对象",\n'
-                        '      "target_name": "目标对象",\n'
-                        '      "relation_type": "关系类型",\n'
-                        '      "description": "关系说明",\n'
-                        '      "confidence": 0.0,\n'
-                        '      "needs_review": false,\n'
-                        '      "review_reason": "",\n'
-                        '      "supporting_scene_ids": []\n'
-                        "    }\n"
-                        "  ],\n"
-                        '  "deltas": [\n'
-                        "    {\n"
-                        '      "subject_name": "对象",\n'
-                        '      "category": "knowledge|status|location|ownership|'
-                        'relationship|power|secret|other",\n'
-                        '      "field": "变化字段",\n'
-                        '      "old": "",\n'
-                        '      "new": "",\n'
-                        '      "description": "变化说明",\n'
-                        '      "confidence": 0.0,\n'
-                        '      "needs_review": false,\n'
-                        '      "review_reason": "",\n'
-                        '      "supporting_scene_ids": []\n'
-                        "    }\n"
-                        "  ],\n"
-                        '  "uncertain_items": [\n'
-                        "    {\n"
-                        '      "description": "不确定项",\n'
-                        '      "reason": "为什么不确定",\n'
-                        '      "supporting_scene_ids": []\n'
-                        "    }\n"
-                        "  ]\n"
-                        "}"
-                    ),
-                ),
-            ],
-            temperature=0.2,
-            max_tokens=max_tokens,
-            response_format={"type": "json_object"},
-            extra=_deepseek_request_extra(
-                profile,
-                model=model,
-                high_quality=self.high_quality,
-            ),
-        )
-        return await _call_structured(
-            _llm_client_for_profile(
-                self.project_settings,
-                novel_id=self.novel_id,
-                high_quality=self.high_quality,
-            ),
-            request,
-            Phase2WorldExtractionOutput,
-            step_name="phase2_world_extraction",
-            transport_retries=False,
-            timeout_seconds=_phase2_world_timeout_seconds(self.project_settings),
-            max_fix_attempts=1,
-            project_settings=self.project_settings,
-            fix_prompt=(
-                "上一轮输出无法通过 Phase2WorldExtractionOutput 校验。"
-                "只输出 JSON object，只包含 objects、relations、deltas、"
-                "uncertain_items。每条 objects/relations/deltas 必须包含 "
-                "supporting_scene_ids，且只能逐字复制给定 Scene ID UUID；"
-                "不要使用 display_index、章节号、标题或自造 ID。不要 Markdown。"
-            ),
-        )
 
 
 # 深度导入 step → canonical capability（B5 路由按能力成本档选模型）。

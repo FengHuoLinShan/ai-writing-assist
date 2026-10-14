@@ -1,5 +1,11 @@
 <template>
-  <section class="writing-invalidation-notice" aria-label="本次保存的影响范围" role="status">
+  <details v-if="notice.coverageOnly" class="writing-coverage-note" aria-label="本次保存的资料核对范围">
+    <summary>查看资料核对范围</summary>
+    <p v-if="notice.hasUnknownScope">{{ notice.unknownScopeNote }}</p>
+    <p>尚未确定有内容需要重算；你可以继续写作。</p>
+    <button type="button" class="btn btn-sm" @click="$emit('open')">查看核对详情</button>
+  </details>
+  <section v-else class="writing-invalidation-notice" aria-label="本次保存的影响范围" role="status">
     <p class="writing-invalidation-notice__headline">{{ notice.headline }}</p>
     <p v-if="notice.hasUnknownScope" class="writing-invalidation-notice__unknown">
       {{ notice.unknownScopeNote }}
@@ -21,6 +27,9 @@ defineEmits(["open"])
 </script>
 
 <style scoped>
+.writing-coverage-note { margin: 0 0 10px; color: var(--text-secondary); font-size: 12px; }
+.writing-coverage-note summary { cursor: pointer; padding: 4px 0; }
+.writing-coverage-note p { overflow-wrap: anywhere; }
 .writing-invalidation-notice {
   margin: 0 0 10px;
   padding: 10px 12px;

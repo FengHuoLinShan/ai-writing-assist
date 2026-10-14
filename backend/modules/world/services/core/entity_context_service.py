@@ -152,22 +152,22 @@ class EntityContextService:
         别名存储约定见 core_entities.content_json.aliases (per world/CLAUDE.md)。
         """
         nid = parse_uuid(novel_id, "novel_id")
-        entities = await self._repo.list_by_novel(db, nid, limit=limit)
+        entities = await self._repo.list_term_candidates(db, nid, limit=limit)
         terms: list[dict] = []
         for item in entities:
-            if item.status != "canonical" and not (
-                include_review and item.status in {"draft", "candidate", "conflicted"}
+            if item["status"] != "canonical" and not (
+                include_review and item["status"] in {"draft", "candidate", "conflicted"}
             ):
                 continue
-            item_terms = [item.name]
-            aliases = (item.content_json or {}).get("aliases", [])
+            item_terms = [item["name"]]
+            aliases = item.get("aliases") or []
             item_terms.extend(self._active_alias_term(alias) for alias in aliases)
             terms.append(
                 {
-                    "id": str(item.id),
-                    "name": item.name,
-                    "entity_type": item.entity_type,
-                    "status": item.status,
+                    "id": str(item["id"]),
+                    "name": item["name"],
+                    "entity_type": item["entity_type"],
+                    "status": item["status"],
                     "terms": [t for t in item_terms if t],
                 }
             )

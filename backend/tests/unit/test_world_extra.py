@@ -582,7 +582,11 @@ class TestEntityContextServiceListEntityTerms:
         merged = _mock_entity(name="Gone", status="merged")
         svc = EntityContextService()
         with patch.object(svc, "_repo", autospec=True) as mock_repo:
-            mock_repo.list_by_novel = AsyncMock(return_value=[canonical, draft, merged])
+            mock_repo.list_term_candidates = AsyncMock(
+                return_value=[
+                    _term_projection(item) for item in [canonical, draft, merged]
+                ]
+            )
             result = await svc.list_entity_terms(db, str(uuid.uuid4()))
             assert len(result) == 1
             assert result[0]["name"] == "Hero"
@@ -601,7 +605,9 @@ class TestEntityContextServiceListEntityTerms:
         )
         svc = EntityContextService()
         with patch.object(svc, "_repo", autospec=True) as mock_repo:
-            mock_repo.list_by_novel = AsyncMock(return_value=[ent1, ent2])
+            mock_repo.list_term_candidates = AsyncMock(
+                return_value=[_term_projection(item) for item in [ent1, ent2]]
+            )
             result = await svc.list_entity_terms(db, str(uuid.uuid4()))
 
             assert len(result) == 2
@@ -1788,3 +1794,13 @@ class TestContractsConstruction:
         assert r.merge_result is None
         assert r.promoted_entity_id is None
         assert r.suggestions == []
+
+
+def _term_projection(entity):
+    return {
+        "id": entity.id,
+        "name": entity.name,
+        "entity_type": entity.entity_type,
+        "status": entity.status,
+        "aliases": (entity.content_json or {}).get("aliases"),
+    }

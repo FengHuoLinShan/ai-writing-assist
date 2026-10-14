@@ -14,8 +14,8 @@ from modules.evolution.llm_sampler import (
 VERSION = "evolution.consumer_read_set.v1"
 
 
-def sample_inputs(scene_text, manifest, *, scene_id, versions):
-    # Receipt IDs change on re-extraction; all consumed facts and Scene anchors stay.
+def semantic_manifest(manifest):
+    """Keep consumed facts and anchors; omit host-only run/receipt identities."""
     manifest = deepcopy(manifest)
     manifest.pop("run_key", None)
     manifest.pop("source_manifest_hash", None)
@@ -24,6 +24,11 @@ def sample_inputs(scene_text, manifest, *, scene_id, versions):
         manifest["previous_scene_attempt_id"] = "committed-parent"
     for item in manifest.get("previous_observations", []):
         item.pop("observation_id", None)
+    return manifest
+
+
+def sample_inputs(scene_text, manifest, *, scene_id, versions):
+    manifest = semantic_manifest(manifest)
     return {
         "scene_text": scene_text,
         "scene_id": scene_id,

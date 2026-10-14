@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures.js"
-import { createAutosavedDraft } from "./helpers/api-client.js"
+import { API_BASE, createAutosavedDraft } from "./helpers/api-client.js"
 
 test("编辑台在桌面与 390px 下保留作者约定、完成标记和范围反馈", async ({ page, projectFactory, openProjectWorkbench, browserErrors }, testInfo) => {
   const project = await projectFactory({ title: "编辑台浏览器验收" })
@@ -61,5 +61,60 @@ test("编辑台在桌面与 390px 下保留作者约定、完成标记和范围�
   await desk.getByRole("button", { name: "保存主动跟进设置" }).click()
   await expect(desk.locator("summary").filter({ hasText: "主动跟进" })).toContainText("已开启")
   await page.screenshot({ path: testInfo.outputPath("editorial-390px.png"), fullPage: true })
+  expect(browserErrors).toEqual([])
+})
+
+
+test("章节排除可按章名保存、刷新恢复和撤销", async ({ page, projectFactory, openProjectWorkbench, browserErrors }) => {
+  const project = await projectFactory({ title: "章节排除回归" })
+  await createAutosavedDraft(project.id, 1, "雾港来信", "地址指向旧港。")
+  await createAutosavedDraft(project.id, 2, "桥上的约定", "他们约定在桥上碰面。")
+  await openProjectWorkbench(project, "writing")
+  await page.getByRole("button", { name: /^打开第 1 章/ }).click()
+  await page.getByRole("button", { name: "本章写完，交给编辑看" }).click()
+  const coverage = page.getByLabel("本次保存的资料核对范围", { exact: true })
+  await expect(coverage).toBeVisible()
+  await expect(coverage).not.toHaveAttribute("open", "")
+  await coverage.locator("summary").click()
+  await expect(coverage).toContainText("尚未接入自动核对")
+  const desk = page.getByLabel("编辑台", { exact: true })
+  const choice = desk.getByRole("checkbox", { name: /第 2 章.*桥上的约定/ })
+  await choice.check()
+  await desk.getByRole("button", { name: "保存编辑约定" }).click()
+  await expect(desk.getByText("编辑约定已保存。旧报告仍保留原依据。")).toBeVisible()
+  const saved = await page.request.get(`${API_BASE}/projects/${project.id}/editorial-brief`)
+  expect((await saved.json()).brief.excluded_targets).toEqual(["chapter:2"])
+  await desk.getByRole("button", { name: "刷新", exact: true }).click()
+  await desk.locator("summary").filter({ hasText: "编辑约定" }).click()
+  await expect(choice).toBeChecked()
+  await page.setViewportSize({ width: 390, height: 844 })
+  await choice.uncheck()
+  await desk.getByRole("button", { name: "保存编辑约定" }).click()
+  await expect.poll(async () => (await (await page.request.get(`${API_BASE}/projects/${project.id}/editorial-brief`)).json()).brief.excluded_targets).toEqual([])
+  expect(browserErrors).toEqual([])
+})
+
+
+test("历史前导零章引用在窄屏可撤销并真实保存", async ({ page, projectFactory, openProjectWorkbench, browserErrors }) => {
+  const project = await projectFactory({ title: "历史章排除回归" })
+  await createAutosavedDraft(project.id, 1, "雾港来信", "地址指向旧港。")
+  await createAutosavedDraft(project.id, 2, "桥上的约定", "他们约定在桥上碰面。")
+  const brief = await (await page.request.get(`${API_BASE}/projects/${project.id}/editorial-brief`)).json()
+  const seeded = await page.request.put(`${API_BASE}/projects/${project.id}/editorial-brief`, {
+    headers: { "X-Requested-With": "XMLHttpRequest" },
+    data: { expected_version: brief.version, brief: { ...brief.brief, excluded_targets: ["chapter:002"] } },
+  })
+  expect(seeded.ok(), await seeded.text()).toBe(true)
+  await openProjectWorkbench(project, "writing")
+  await page.getByRole("button", { name: /^打开第 1 章/ }).click()
+  await page.getByRole("button", { name: "本章写完，交给编辑看" }).click()
+  await page.setViewportSize({ width: 390, height: 844 })
+  const desk = page.getByLabel("编辑台", { exact: true })
+  await desk.locator("summary").filter({ hasText: "编辑约定" }).click()
+  const choice = desk.getByRole("checkbox", { name: /第 2 章.*桥上的约定/ })
+  await expect(choice).toBeChecked()
+  await choice.uncheck()
+  await desk.getByRole("button", { name: "保存编辑约定" }).click()
+  await expect.poll(async () => (await (await page.request.get(`${API_BASE}/projects/${project.id}/editorial-brief`)).json()).brief.excluded_targets).toEqual([])
   expect(browserErrors).toEqual([])
 })

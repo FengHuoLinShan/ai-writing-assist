@@ -33,6 +33,7 @@ let confirmMock
 beforeEach(() => {
   confirmMock = vi.fn(() => true)
   apiMock = {
+    writing: { listChapters: vi.fn(async () => [{ chapter_index: 1, title: "渡口" }, { chapter_index: 2, title: "钟楼" }]) },
     projects: {
       editorialBrief: vi.fn(async () => BRIEF),
       saveEditorialBrief: vi.fn(async (_projectId, body) => ({ version: 2, brief: body.brief })),
@@ -194,4 +195,82 @@ describe("EditorialDesk 写作开关", () => {
       vi.useRealTimers()
     }
   })
+})
+
+ it("用章节选择保留既有非章节排除项，并按原合同保存", async () => {
+  apiMock.assistant.editorialReviews.mockResolvedValue([])
+  apiMock.projects.editorialBrief.mockResolvedValue({ ...BRIEF, brief: { ...BRIEF.brief, excluded_targets: ["world:hidden", "chapter:9"] } })
+  const wrapper = await mountDesk()
+  const labels = wrapper.findAll("fieldset label")
+  const chapter = labels.find(item => item.text().includes("第 2 章"))
+  expect(wrapper.text()).toContain("第 9 章")
+  expect(wrapper.text()).not.toContain("chapter:12")
+  await chapter.get("input").setValue(true)
+  await saveBriefButton(wrapper).trigger("click")
+  await flushPromises()
+  expect(apiMock.projects.saveEditorialBrief.mock.calls[0][1].brief.excluded_targets).toEqual(["world:hidden", "chapter:9", "chapter:2"])
+ })
+ it("章节列表读取失败不丢既有选择，也不阻断约定读取", async () => {
+  apiMock.writing.listChapters.mockRejectedValue(new Error("offline"))
+  apiMock.projects.editorialBrief.mockResolvedValue({ ...BRIEF, brief: { ...BRIEF.brief, excluded_targets: ["chapter:9"] } })
+  const wrapper = await mountDesk()
+  expect(wrapper.text()).toContain("章节列表暂时无法读取")
+  expect(wrapper.text()).toContain("第 9 章")
+  expect(wrapper.text()).toContain("编辑约定")
+ })
+
+ it("可以明确重新纳入历史非章节资料而不取消章节选择", async () => {
+  apiMock.assistant.editorialReviews.mockResolvedValue([])
+  apiMock.projects.editorialBrief.mockResolvedValue({ ...BRIEF, brief: { ...BRIEF.brief, excluded_targets: ["world:hidden", "chapter:9"] } })
+  const wrapper = await mountDesk()
+  const button = wrapper.findAll("button").find(item => item.text() === "重新纳入资料 1")
+  await button.trigger("click")
+  await saveBriefButton(wrapper).trigger("click")
+  await flushPromises()
+  expect(apiMock.projects.saveEditorialBrief.mock.calls[0][1].brief.excluded_targets).toEqual(["chapter:9"])
+ })
+
+ it("旧章引用带前导零时仍显示已排除，取消后实际移除", async () => {
+  apiMock.assistant.editorialReviews.mockResolvedValue([])
+  apiMock.projects.editorialBrief.mockResolvedValue({ ...BRIEF, brief: { ...BRIEF.brief, excluded_targets: ["chapter:001", "world:hidden"] } })
+  const wrapper = await mountDesk()
+  const choice = wrapper.findAll("fieldset label").find(item => item.text().includes("第 1 章")).get("input")
+  expect(choice.element.checked).toBe(true)
+  await choice.setValue(false)
+  await saveBriefButton(wrapper).trigger("click")
+  await flushPromises()
+  expect(apiMock.projects.saveEditorialBrief.mock.calls[0][1].brief.excluded_targets).toEqual(["world:hidden"])
+ })
+ it("排除范围达到200项时明确拒绝追加，取消一项后可选择新章", async () => {
+  apiMock.assistant.editorialReviews.mockResolvedValue([])
+  const retained = Array.from({ length: 200 }, (_, index) => `world:item-${index}`)
+  apiMock.projects.editorialBrief.mockResolvedValue({ ...BRIEF, brief: { ...BRIEF.brief, excluded_targets: retained } })
+  const wrapper = await mountDesk()
+  const choice = wrapper.findAll("fieldset label").find(item => item.text().includes("第 2 章")).get("input")
+  await choice.setValue(true)
+  expect(choice.element.checked).toBe(false)
+  expect(wrapper.text()).toContain("最多排除 200 项资料")
+  await wrapper.findAll("button").find(item => item.text() === "重新纳入资料 1").trigger("click")
+  await choice.setValue(true)
+  await saveBriefButton(wrapper).trigger("click")
+  await flushPromises()
+  expect(apiMock.projects.saveEditorialBrief.mock.calls[0][1].brief.excluded_targets).toEqual([...retained.slice(1), "chapter:2"])
+ })
+
+it("回到同一项目时不会用旧请求的章节覆盖当前列表", async () => {
+ let resolveOld
+ apiMock.writing.listChapters.mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve }))
+ const wrapper = mount(EditorialDesk, { props: { projectId: "p1", active: true } })
+ await flushPromises()
+ expect(wrapper.text()).toContain("正在读取章节")
+ await wrapper.setProps({ projectId: "p2" })
+ await flushPromises()
+ apiMock.writing.listChapters.mockResolvedValueOnce([{ chapter_index: 3, title: "新章节" }])
+ await wrapper.setProps({ projectId: "p1" })
+ await flushPromises()
+ expect(wrapper.text()).toContain("新章节")
+ resolveOld([{ chapter_index: 4, title: "过时列表" }])
+ await flushPromises()
+ expect(wrapper.text()).toContain("新章节")
+ expect(wrapper.text()).not.toContain("过时列表")
 })
