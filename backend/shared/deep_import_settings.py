@@ -53,11 +53,6 @@ DEEP_IMPORT_DEFAULT_SETTINGS: dict[str, dict[str, Any]] = {
         "timeout_seconds": 1200,
     },
     "phase2": {
-        "world_timeout_seconds": 1200,
-        "world_min_max_tokens": 32_768,
-        "world_max_max_tokens": 32_768,
-        "world_max_tokens_per_source_char": 1.0,
-        "world_window_concurrency": 20,
         "parallel_scene_concurrency": 25,
         "parallel_scene_max_tokens": 32_768,
         "parallel_provider_timeout_seconds": 360,
@@ -109,11 +104,6 @@ DEEP_IMPORT_SETTING_LIMITS: dict[tuple[str, str], tuple[float, float]] = {
     ("phase1c", "concurrency"): (1, 100),
     ("phase1c", "decision_max_tokens"): (1, 200_000),
     ("phase1c", "timeout_seconds"): (1, 7200),
-    ("phase2", "world_timeout_seconds"): (1, 7200),
-    ("phase2", "world_min_max_tokens"): (1, 200_000),
-    ("phase2", "world_max_max_tokens"): (1, 200_000),
-    ("phase2", "world_max_tokens_per_source_char"): (0.05, 2),
-    ("phase2", "world_window_concurrency"): (1, 100),
     ("phase2", "parallel_scene_concurrency"): (1, 64),
     ("phase2", "parallel_scene_max_tokens"): (1, 200_000),
     ("phase2", "parallel_provider_timeout_seconds"): (1, 1800),
@@ -148,7 +138,6 @@ _FLOAT_SETTINGS = {
     ("phase1c", "auto_merge_confidence"),
     ("phase2", "boundary_total_timeout_seconds"),
     ("phase2", "postprocess_timeout_seconds"),
-    ("phase2", "world_max_tokens_per_source_char"),
 }
 
 
