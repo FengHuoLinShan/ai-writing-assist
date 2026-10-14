@@ -8,6 +8,18 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+# 评测模型合同（2026-10-14 用户裁定，G6a 生效）：
+# - 教师、judge/复核（reviewer、adjudicator）与 scene-gold 参考答案固定 Sol/xhigh，
+#   经 evals.codex_executor 的独立 schema 守卫 Codex 执行器；解除暂停前仍拒绝新调用。
+# - 被测业务生成经 evals.project_executor 的 ProjectStructuredExecutor 走 Project
+#   facade 的产品侧 Luna/max（见 infrastructure.llm.codex_provider.CODEX_MODEL）。
+# 两类执行器不同模型，避免同模型自评。
+EVAL_TEACHER_MODEL = "gpt-6.1-sol"
+EVAL_TEACHER_REASONING_EFFORT = "xhigh"
+ALLOWED_EVAL_TEACHER_MODELS = frozenset({EVAL_TEACHER_MODEL})
+
+# 以下旧合同常量自 G6a 起降级为冻结元数据：仅用于识别与校验历史数据集、账本和
+# executor hash 重建，不得用于新调用；旧合同分数与新合同分数不可直接比较。
 HIGH_QUALITY_LLM_MODEL = "gpt-5.3-codex-spark"
 HIGH_QUALITY_LLM_FALLBACK_MODEL = "gpt-5.6-luna"
 EVAL_REVIEWER_A_MODEL = "deepseek-v4-flash"
@@ -17,6 +29,20 @@ ALLOWED_HIGH_QUALITY_LLM_MODELS = frozenset(
     {HIGH_QUALITY_LLM_MODEL, HIGH_QUALITY_LLM_FALLBACK_MODEL}
 )
 ALLOWED_CODEX_REVIEW_MODELS = frozenset({EVAL_REVIEWER_B_MODEL, EVAL_ADJUDICATOR_MODEL})
+FROZEN_LEGACY_EVAL_MODELS = frozenset(
+    {
+        HIGH_QUALITY_LLM_MODEL,
+        HIGH_QUALITY_LLM_FALLBACK_MODEL,
+        EVAL_REVIEWER_A_MODEL,
+        EVAL_REVIEWER_B_MODEL,
+        EVAL_ADJUDICATOR_MODEL,
+    }
+)
+# 冻结与未来数据集的 generator/judge 溯源模型：旧 Spark/Luna 合同 + 新 Sol 教师
+# 合同；terra/DeepSeek 从未担任 dataset generator/judge，不在其中。
+ALLOWED_DATASET_PROVENANCE_MODELS = (
+    ALLOWED_HIGH_QUALITY_LLM_MODELS | ALLOWED_EVAL_TEACHER_MODELS
+)
 DATASET_SCHEMA_VERSION = "1.0"
 RUBRIC_VERSION = "v1"
 METRIC_VERSION = "v1"

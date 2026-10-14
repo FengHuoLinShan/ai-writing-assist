@@ -1,5 +1,9 @@
 """远景第一阶段 §7.4 真实成对阶段：RP 真实模型成对运行 harness。
 
+冻结历史（G6a，2026-10-14）：本脚本绑定 DeepSeek 专用真实凭据链，按审计裁定
+标为冻结历史，不迁移到 Sol/Luna 新评测合同，也不发起新调用；仅保留用于
+解释既有账本与脱敏快照。
+
 复用 v4_live 的 Meter/一次性库模式与 rp_cost_baseline 的冻结样本族（种子
 20261006），在一次性 e2e PG 库里走生产 story 链（create_journey →
 send_message/regenerate/continue_from_node → TaskWorker 执行真实 LLM），按
