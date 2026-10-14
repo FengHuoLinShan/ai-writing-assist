@@ -907,7 +907,7 @@ class LLMClient:
             if self.authorize_request is not None:
                 await self.authorize_request()
             if self.provider == "codex":
-                self._provider.validate_connection()
+                self._provider.validate_request(resolved_request)
             meter = current_workflow_budget()
             # 活动信封是权威请求闸门：先在信封预留；兼容预算随后预留，若它拒绝，
             # 立即撤销信封预留。任一预算在 provider I/O 前拒绝时，两个账本都不计数。
@@ -1002,7 +1002,7 @@ class LLMClient:
                 if self.authorize_request is not None:
                     await self.authorize_request()
                 if self.provider == "codex":
-                    self._provider.validate_connection()
+                    self._provider.validate_request(resolved_request)
                 # 只在 reserve/settle 附近声明 call_kind，避免在 yield 期间把
                 # step 覆盖留在消费者同一 task 的上下文里。
                 with _managed_step_overrides(call_kind=AIStepCallKind.stream):

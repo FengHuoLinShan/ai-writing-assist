@@ -3,7 +3,7 @@ id: T-20261014-codex-luna-convergence
 title: G2 Codex Luna运行时收敛
 status: active
 created: 2026-10-14T13:30:00+08:00
-updated: 2026-10-14T12:33:12.685101+08:00
+updated: 2026-10-14T12:47:36.995593+08:00
 ---
 
 # G2 Codex Luna运行时收敛
@@ -45,3 +45,7 @@ Guimi T-20261012保持paused、自动化60已删除，不恢复全量/确认缺�
 - 下一步：Evolution导入改动窄回归终态→最终文档与秘密检查→提交G2并同步main docs→单一G2 PR/CI/评审，门禁通过按当前授权合入；不部署、不发送其他线程消息。
 
 新增旧local_agent失败关闭/历史任务API原回执可读补测已通过，项目文件12项通过（仅其中1项是扩大3204之后的新增）。PG完整迁移/安全降级回升/check均通过，原生三请求已终态且不追加。准备提交到当前主题分支，随后并入仅文档新增main再建PR。
+
+## PR交付检查点
+
+G2提交c0cbb14815f74cd1d1081667ba82499f7541049a，安全并入仅模型文档main后1bce154c4；PR226已创建并附着本任务。未归档旧树，无业务进程或自动调度。最终审查补缺novel_id创建门、native模型/effort/version预算预留前拒绝，1554受影响回归通过；该补丁准备推送，CI旧head尚不能当新head证据。下一步最终Ruff/docs/module/secret→小补丁提交推送→只核验最终head全部CI/评审→按当前授权合入；Guimi原任务继续paused，旧v2不篡改、不自动续跑，不部署。

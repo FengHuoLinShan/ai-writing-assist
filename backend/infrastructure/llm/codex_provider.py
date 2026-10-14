@@ -109,7 +109,7 @@ class CodexProvider:
         if codex_connection_fingerprint() != self._connection_fingerprint:
             raise ValueError("Codex 本机登录身份或 CLI 已变化，请重新验证")
 
-    async def generate(self, request, *, complete_stream=False):
+    def validate_request(self, request) -> None:
         self.validate_connection()
         if (
             request.model != CODEX_MODEL
@@ -122,6 +122,9 @@ class CodexProvider:
                 provider=self.name,
                 error_kind="codex_configuration",
             )
+
+    async def generate(self, request, *, complete_stream=False):
+        self.validate_request(request)
         started = time.monotonic()
         format_schema = (request.response_format or {}).get("json_schema", {})
         if not isinstance(format_schema, dict):

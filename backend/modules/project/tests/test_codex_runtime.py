@@ -356,3 +356,21 @@ async def test_old_local_agent_text_blocks_resume_but_history_is_readable(
         assert response.json()["result"]["historical_receipt"] == receipt
         assert task.meta["llm_snapshot"] == original
         native.assert_not_called()
+
+
+def test_native_project_snapshot_requires_scope_before_provider_creation():
+    from modules.project.facade import create_project_snapshot_llm_client
+
+    profile = {
+        "llm": {
+            **ACCOUNT_LLM_PROVIDER_TEMPLATES["codex"],
+            "extra": {
+                **ACCOUNT_LLM_PROVIDER_TEMPLATES["codex"]["extra"],
+                "codex_connection_fingerprint": "test-host",
+            },
+        }
+    }
+    with patch("infrastructure.llm.providers.get_provider", autospec=True) as provider:
+        with pytest.raises(ProjectLLMConfigurationError, match="requires novel_id"):
+            create_project_snapshot_llm_client(profile)
+        provider.assert_not_called()

@@ -365,6 +365,8 @@ def create_project_snapshot_llm_client(
             f"{MAX_LLM_TIMEOUT_OVERRIDE_SECONDS} seconds"
         )
     profile = resolve_llm_profile(project_settings)
+    if profile.provider_id == "codex" and not novel_id:
+        raise ProjectLLMConfigurationError("Codex project text client requires novel_id")
     snapshot_sources = project_settings.get(_RUNTIME_SOURCES_KEY)
     if isinstance(snapshot_sources, dict):
         profile = replace(profile, sources=dict(snapshot_sources))
