@@ -34,6 +34,7 @@
 | assistant 档位全量 | 5/5 通过（含既有 assistant.spec.js） | 同上（不带用例过滤） |
 | assistant 模块测试 | 141 passed | `uv --directory backend run --locked --extra ci -- pytest modules/assistant/tests -q` |
 | 合成回复单元冒烟 | 通过（schema 路由、失败/慢速标记、三值复核、补丁、导演、未知回落 None） | 进程内脚本驱动 `editorial_reply` |
+| 文档门禁 | 通过 | `make docs-check`（开工前）与 `make docs-check BASE_REF=origin/main`（收尾） |
 
 环境：本机 PostgreSQL 17（localhost:5207）独占库 `agent_e2e_g5a_editorial`（库名含
 `agent_e2e` 以满足 harness 启动门禁），独占端口 18100/18101，专用后端 harness
