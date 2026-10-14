@@ -74,6 +74,22 @@
       text-decoration: none;
     }
     .toolbar-actions button:hover, .toolbar-actions a:hover { background: rgba(51, 65, 85, 0.8); color: white; border-color: #475569; }
+    button:focus-visible, a:focus-visible, .diagram-container:focus-visible {
+      outline: 2px solid #22d3ee; outline-offset: 4px;
+    }
+    .diagram-hint { margin-bottom: 0.75rem; color: #94a3b8; font-size: 0.75rem; }
+    @media (max-width: 700px) {
+      body { padding: 1rem; }
+      .header-row { flex-wrap: wrap; gap: 0.75rem; align-items: flex-start; }
+      h1 { flex: 1; min-width: 0; font-size: 1.25rem; }
+      .pulse-dot { flex-shrink: 0; margin-top: 0.5rem; }
+      .toolbar { flex-basis: 100%; flex-wrap: wrap; justify-content: flex-end; margin-left: 0; }
+      .toolbar-actions { flex-wrap: wrap; }
+      .toolbar-toggle { min-width: 44px; min-height: 44px; }
+      .subtitle { margin-left: 0; overflow-wrap: anywhere; }
+      .diagram-container { padding: 1rem; }
+    }
+    @media (prefers-reduced-motion: reduce) { .pulse-dot { animation: none; } }
     @media print { body { background: #020617; padding: 1rem; } .toolbar { display: none !important; } }
   </style>
 </head>
@@ -84,19 +100,20 @@
       <div class="pulse-dot"></div>
       <h1>AI 长篇小说结构化创作引擎 — 模块架构</h1>
       <div class="toolbar">
-        <div class="toolbar-actions">
+        <div class="toolbar-actions" id="export-actions">
           <a href="module-architecture.drawio" download>✏️ Draw.io</a>
           <button onclick="copyAsImage(this)">📋 Copy</button>
           <button onclick="downloadPNG(this)">🖼️ PNG</button>
           <button onclick="downloadPDF(this)">📄 PDF</button>
         </div>
-        <button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" title="Export options" aria-label="Export options">⋯</button>
+        <button class="toolbar-toggle" onclick="this.setAttribute('aria-expanded', this.parentElement.classList.toggle('expanded'))" title="Export options" aria-label="Export options" aria-controls="export-actions" aria-expanded="false">⋯</button>
       </div>
     </div>
     <p class="subtitle">浏览器兼容预览 · 12 个业务模块 + frontend / prompts 共享组件 · 含运行时拓扑 · 可编辑图源：module-architecture.drawio</p>
   </div>
 
-  <div class="diagram-container">
+  <p class="diagram-hint">完整架构图可在图内左右滚动；键盘可按 Tab 聚焦图，再用方向键移动。</p>
+  <div class="diagram-container" tabindex="0" role="region" aria-label="模块架构图，可左右滚动">
     <svg viewBox="0 0 1100 1290">
       <defs>
         <marker id="arrow-amber" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
@@ -328,10 +345,10 @@
       <!-- local_agent box -->
       <rect x="55" y="730" width="300" height="95" rx="6" fill="#0f172a" stroke="none"/>
       <rect x="55" y="730" width="300" height="95" rx="6" fill="rgba(76, 29, 149, 0.3)" stroke="#a78bfa" stroke-width="1.5"/>
-      <text x="205" y="753" fill="white" font-size="12" font-weight="600" text-anchor="middle">local_agent 本机 CLI 设备</text>
+      <text x="205" y="753" fill="white" font-size="12" font-weight="600" text-anchor="middle">local_agent 本机图片设备</text>
       <text x="205" y="773" fill="#94a3b8" font-size="8" text-anchor="middle">作者 Mac 出站领取 · 逐任务授权</text>
       <text x="205" y="789" fill="#94a3b8" font-size="8" text-anchor="middle">task + invocation 双租约</text>
-      <text x="205" y="809" fill="#a78bfa" font-size="8" text-anchor="middle">Codex / Claude / Kimi / DSH / Pi · cwd 非沙箱</text>
+      <text x="205" y="809" fill="#a78bfa" font-size="8" text-anchor="middle">图片入口 · 旧文字 job 置 failed · cwd 非沙箱</text>
 
       <!-- collaboration box -->
       <rect x="390" y="730" width="350" height="95" rx="6" fill="#172554" stroke="#60a5fa" stroke-width="1.5"/>
@@ -403,7 +420,7 @@
       <!-- outbound author Mac CLI box -->
       <rect x="890" y="1050" width="155" height="80" rx="6" fill="#0f172a" stroke="none"/>
       <rect x="890" y="1050" width="155" height="80" rx="6" fill="rgba(2, 132, 199, 0.1)" stroke="#38bdf8" stroke-width="1" stroke-dasharray="6,3"/>
-      <text x="967" y="1073" fill="white" font-size="11" font-weight="600" text-anchor="middle">作者 Mac CLI 租约</text>
+      <text x="967" y="1073" fill="white" font-size="11" font-weight="600" text-anchor="middle">作者 Mac 图片 CLI 租约</text>
       <text x="967" y="1093" fill="#94a3b8" font-size="8" text-anchor="middle">Codex·Claude·Kimi·DSH·Pi</text>
       <text x="967" y="1109" fill="#94a3b8" font-size="8" text-anchor="middle">task + invocation 双租约</text>
 
@@ -463,7 +480,7 @@
       </div>
       <ul>
         <li>• 12 个活动业务模块（indexing/compilation 归 evidence，outline_state/continuity 归 story；evolution 已有 Scene 运行与项目所有权门禁）</li>
-        <li>• local_agent：作者 Mac 上的五种 CLI（Codex / Claude / Kimi / DSH / Pi），task + invocation 双租约出站领取，工作目录不是沙箱</li>
+        <li>• local_agent：本机图片工具；task + invocation 双租约出站领取，文字 snapshot 拒绝，批准/领取入口将旧文字 job 置 failed；图片/设备/历史回执保留；工作目录不是沙箱</li>
         <li>• interaction 只读同 owner author source revision；私人旅程不写回原作</li>
         <li>• frontend-console（client）与 backend/prompts（runtime-contract）纳入运行时共享带，图上均有节点</li>
         <li>• Canonical API 使用 /api/evidence/* 与 account/project owner 路径；旧 /api/rag、/api/context、/api/settings 已退场</li>
@@ -499,7 +516,7 @@
     </div>
   </div>
 
-  <p class="footer">AI 长篇小说结构化创作引擎 · 当前模块架构兼容预览 · FastAPI + SQLAlchemy + PostgreSQL · 2026-10-12</p>
+  <p class="footer">AI 长篇小说结构化创作引擎 · 当前模块架构兼容预览 · FastAPI + SQLAlchemy + PostgreSQL · 2026-10-14</p>
 </div>
 
 <script>
