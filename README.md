@@ -207,6 +207,11 @@ RP 只使用选中分支和获准的固定来源版本，不反写原作。地�
 
 ## 本地运行
 
+AI 小说程序在开发阶段的大量业务 LLM 调用使用 **Codex GPT-6 Luna / max**；
+代码开发和代码审查继续使用 **Sol 或其他高级模型**。业务调用配置不符时停止，
+付费供应商不自动回退。配置核验与运行边界见
+[开发阶段模型约定](development-guide.md#开发阶段模型约定)，Agent 共享规则见 [AGENTS.md](AGENTS.md#运行时-llm)。
+
 ### 前置条件
 
 准备 Python 3.12+、uv、与前端锁定依赖兼容的 Node.js/npm、Docker Compose 和 Make。以下命令适用于 macOS/Linux shell；Windows 可在 WSL 等相应开发环境中执行。

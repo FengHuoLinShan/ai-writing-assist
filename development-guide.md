@@ -19,6 +19,37 @@ directory-local `AGENTS.md`, then the target module README. `CLAUDE.md` files on
 历史设计和审计见 `docs/archive/`。用户指南源文见
 [新用户指南](docs/product/new-user-guide.md)；目录整理不改变工程命令与运行边界。
 
+## 开发阶段模型约定
+
+AI 小说程序在开发阶段的大量业务 LLM 调用使用 Codex `gpt-6-luna`，推理档位 `max`，
+包括深度导入、世界演化、业务生成/抽取/补全及其批量质量复核与实测。
+代码开发、代码审查、工程诊断及已授权的工程子代理继续使用 Sol 或其他高级模型；
+开发 Agent 和小说程序调用的模型分别配置。共享约束以 [AGENTS.md](AGENTS.md#运行时-llm) 为准。
+
+启动或恢复小说程序的模型任务前，完成以下核验：
+
+1. 核验业务请求实际使用 Luna/max；仅在 Prompt 写模型名不算配置完成。后台跟进的
+   工程宿主可以使用 Sol 或其他高级模型，但它启动的小说业务请求仍须固定 Luna/max。
+   无法核实业务模型时停止对应调用，不用宿主模型或其他供应商代跑。
+2. 本机 Codex 已登录，CLI 支持当前文本适配契约；多版本时显式设置 `CODEX_CLI_COMMAND`。
+   业务测试使用独立开发项目与数据库，通过账户设置真实验证 Codex 连接，再从
+   `modules.project.facade.open_project_llm_client()` 或正常恢复快照入口解析模型。
+   核对 `provider_id=codex`、`model=gpt-6-luna`、已验证状态及有效 `reasoning_effort=max`。
+   不读取或填充 DeepSeek Key，不以假连接、传输替换或环境变量覆盖绕过 owner/facade。
+3. 当前检出尚未包含原生 Codex 适配、连接失效或模型配置不符时，停止对应模型调用，
+   继续离线实现和验证；先修复适配/重新验证连接，绝不自动切换到付费 API。
+   旧任务按冻结配置核验；非 Luna 快照只读保留，不能静默改模型续跑。
+
+小说程序的开发实测不自动调用 DeepSeek 或其他付费供应商；历史专项命令只是验收入口，不构成
+调用授权。确需供应商专项验收，先取得用户针对模型、范围和费用的明确授权。
+图片、embedding 等非文字能力不能冒称由 Luna 提供：使用已有离线/本机能力，
+需要付费外部调用时单独授权；文字批量运行不得顺带触发这些外部任务。
+
+Luna 实测按用户授权的任务范围充分执行，不额外建立额度或费用统计；仍保留产品所需
+的原生回执、状态、来源和错误证据，遵守请求预算、并发、超时及未知结果防重发。
+真实稿件和原始请求/输出放仓库外私有目录。离线测试、模型复核和作者验收分别报告。
+该开发约定不修改生产配置、其他账户已有连接、历史账本或在途冻结请求。
+
 ## Commands
 
 ### One-command dev start
@@ -38,7 +69,7 @@ cd backend
 pip install -e ".[dev]"          # Install dependencies
 python scripts/dev_server.py     # Process-level auto-reload (port 8000)
 python run_worker.py --reload    # Task worker with auto-reload
-python scripts/check_llm.py      # Env-only remote LLM diagnostic; not account state
+python scripts/check_llm.py      # Env-only remote API diagnostic; paid-provider-specific authorization required
 python scripts/manage_accounts.py smtp-smoke --to test@example.com  # SMTP smoke
 python scripts/manage_accounts.py claim-legacy --email test@example.com  # 认领存量数据
 
@@ -61,7 +92,7 @@ make schema-check                # Read-only fail-fast check: current DB must be
 # Local diagnostics
 make doctor                      # Read-only local Doctor: env/ports/Docker/API/DB/LLM config
 make doctor-json                 # Same diagnostics as stable JSON
-make doctor-llm                  # Explicitly includes remote LLM provider connectivity
+make doctor-llm                  # Remote API connectivity; paid-provider-specific authorization required
 
 # Testing & linting
 make test                        # Fast backend layer: no PostgreSQL, real LLM, or local corpus
@@ -83,7 +114,7 @@ make test-frontend FRONTEND_ARGS="stateTopbarHelp.test.js"  # Frontend Vitest
 npm --prefix frontend-console run test:e2e:functional -- interaction.spec.js --workers=1 --retries=0  # Requires the same dedicated DATABASE_URL/PW_REUSE_EXISTING_SERVER=0 gate
 uv --directory backend run pytest -q evals/tests/test_rp_context.py  # Hash/ref-only RP context comparison rubric contract; no copyrighted prose
 make eval-ask-world             # Offline Ask World retrieval/citation launch gate
-make eval-ask-world-model NOVEL_ID='<isolated-project-id>' PROBE_SPLIT=debug DATASET=evals/datasets/baselines/ask-world-model-probes-v2.jsonl  # Explicit paid, non-blocking Ask World model diagnostic; output stays under ignored evals/artifacts
+make eval-ask-world-model NOVEL_ID='<isolated-Codex-project-id>' PROBE_SPLIT=debug DATASET=evals/datasets/baselines/ask-world-model-probes-v2.jsonl OUTPUT='<仓库外私有JSON路径>'  # Verified project Luna/max; no teacher until its fixed contract is migrated
 make eval-technical-coverage    # Synthetic RAG/tools/collaboration/memory + stdio MCP; no paid models or DB
 make eval-context-planner NOVEL_ID='<fixture-project-id>' OUTPUT=/tmp/context-planner.json
 make eval-context-planner NOVEL_ID='<fixture-project-id>' LLM_PLANNER=1 OUTPUT=/tmp/context-planner-llm-dev.json  # explicit model calls; dev split only
@@ -413,9 +444,9 @@ API 与 worker 使用相同 Compose runtime 环境。回退不降级表、不撤
 ## 本机 Agent CLI 开发
 
 本机 CLI 伴随程序由作品设置页下载为 `novelcraft-agent.pyz`，需 Python 3 与所选 CLI
-已在作者 Mac 的 PATH 内；`pair` 使用一次性码，`run` 保持出站轮询。Codex 当前登录
-默认模型不可用时可在启动前设置 `NOVELCRAFT_CODEX_MODEL`；Pi 可用
-`NOVELCRAFT_PI_MODEL`，不修改项目账户连接。
+已在作者 Mac 的 PATH 内；`pair` 使用一次性码，`run` 保持出站轮询。
+伴随程序执行小说业务文字任务时遵守[开发阶段模型约定](#开发阶段模型约定)，选择 Luna/max；
+其模型覆盖变量不代替业务账户连接验证。仓库代码开发与审查使用 Sol 或其他高级模型。
 项目选择默认 gateway；本机执行需每个根 task 单独确认，离线不回退。开发时用本任务
 专用测试项目与 PostgreSQL 库，不把真实作品或本机 CLI 登录态放入服务端镜像。
 
