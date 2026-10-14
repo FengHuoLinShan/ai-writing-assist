@@ -8,7 +8,7 @@
  * 不写“已备份”；“校验通过”仅指点下的地图页与服务端记录的摘要、大小
  * 一致，世界对象图与蒙版为本机自算摘要且可解码，不声称与历史存储对账。
  */
-import { computed, onMounted, ref } from "vue"
+import { computed, onBeforeUnmount, onMounted, ref } from "vue"
 import { getApi, getConfirm } from "../../../bridge/index.js"
 import {
   buildExportFileName,
@@ -95,6 +95,7 @@ function downloadBlob(fileName, blob) {
 /* 部分失败语义（用户裁定）：失败项不入包；作者重试后仍失败时，确认生成
  * 不完整的包：清单只含成功行，文件名标明整轮缺几张。 */
 function finishDownload() {
+  if (cancelled) return
   const packages = accumulatedPackages.value
   if (!packages.length) {
     exportError.value = "没有可写入图片包的图片，未下载任何文件。"
@@ -135,6 +136,7 @@ async function runExport(items) {
       onUpdate: (update) => { progress.value = update },
       isCancelled: () => cancelled,
     })
+    if (cancelled) throw new ExportAbortedError()
     accumulatedPackages.value.push(...outcome.packages)
     if (outcome.failures.length) {
       failures.value = outcome.failures
@@ -196,6 +198,8 @@ function cancelExport() {
 }
 
 defineExpose({ busy })
+
+onBeforeUnmount(cancelExport)
 
 onMounted(() => {
   void loadManifest()

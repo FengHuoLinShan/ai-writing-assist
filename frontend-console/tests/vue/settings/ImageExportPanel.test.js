@@ -232,6 +232,29 @@ describe("ImageExportPanel", () => {
     expect(wrapper.find('[data-testid="image-export-failures"]').exists()).toBe(true)
   })
 
+  it("卸载面板中止慢请求，迟到的响应不会下载", async () => {
+    api.world.imageExportManifest.mockResolvedValue({
+      novel_id: NOVEL,
+      objects: [mapPageItem("慢图", 1)],
+    })
+    let releaseFetch
+    api.world.fetchMapAtlasImage.mockImplementation(() => new Promise((resolve) => {
+      releaseFetch = resolve
+    }))
+    const downloads = downloadSpy()
+    const wrapper = mountPanel()
+    await flushPromises()
+    await wrapper.find('[data-testid="image-export-start"]').trigger("click")
+    await waitFor(() => expect(api.world.fetchMapAtlasImage).toHaveBeenCalledOnce())
+    const signal = api.world.fetchMapAtlasImage.mock.calls[0][2].signal
+    wrapper.unmount()
+    expect(signal.aborted).toBe(true)
+    releaseFetch(pngBlob())
+    await waitFor(() => expect(globalThis.createImageBitmap).toHaveBeenCalledOnce())
+    await waitFor(() => expect(wrapper.vm.busy).toBe(false))
+    expect(downloads).toHaveLength(0)
+  })
+
   it("取消导出：中止请求且不下载任何文件", async () => {
     api.world.imageExportManifest.mockResolvedValue({
       novel_id: NOVEL,

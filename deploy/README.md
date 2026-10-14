@@ -94,7 +94,7 @@ initializer 就绪，之后才启动 API/worker。
 
 `minio-data` 是单盘 named volume，两个 bucket 的 32GiB 配额即生产对象数据硬上限。
 对象副本由独立脚本写到同机 `deploy/backups/objects/`，不在 MinIO 卷内；它覆盖误删和桶损坏，
-不能抵抗整盘故障。数据库/restic 本身不包含图片；作者本机导出（G4b，尚未实现）及以后 B2
+不能抵抗整盘故障。数据库/restic 本身不包含图片；作者本机导出（项目设置页 G4b 图片包）及以后 B2
 才提供独立设备副本。对象副本不上传 B2。独立 `MINIO_BACKUP_ACCESS_KEY` / `MINIO_BACKUP_SECRET_KEY`
 必须与 root、应用身份不同，initializer 只给备份身份两桶 List/Get。
 
@@ -342,12 +342,13 @@ MinIO。覆盖全部 candidate/adopted/rejected/deprecated 地图页与 mask、�
 本次容器及其匿名卷（`docker rm -fv`），不使用 MinIO 或生产 PG 卷。磁盘不足会失败并保留 DB pair，
 生产启用前须核验 Docker 数据盘剩余空间足以同时容纳源库、dump 与临时恢复库。
 
-目录布局和后续 G4b ZIP 完全一致：`snapshots/<timestamp>/manifest.json`、`manifest.sha256`，
+目录布局和 G4b ZIP 完全一致：`snapshots/<timestamp>/manifest.json`、`manifest.sha256`，
 以及 `objects/<bucket>/<immutable key>`（作者包允许每行 `file` 指向中文文件名）。清单 v1 以 `source_kind` 区分 server_snapshot（真实 DB timestamp/hash/dump 配对）与
 author_export（不包含 DB 配对）。共用 timestamp 和每行字段；可选 `file` 指向 objects 下中文
 相对文件名，缺省为 bucket/key。字段与状态以
 [ADR-0034](../docs/adr/0034-db-paired-private-object-backups.md) 和 `object_backup.py` 为准；
-清单/key 是私有运维资料，不通过浏览器 API 暴露。目录 0700、文件 0600，拒绝 symlink；镜像
+清单/key 是私有资料，不对非 owner 或经通用 API 暴露；唯一例外是 owner + novel_id 的只读图片导出清单，
+响应 no-store 且拒绝匿名演示。目录 0700、文件 0600，拒绝 symlink；镜像
 只在缺 key、hash 不符或没有可信缓存时流式复制；已有不超过 retention 的合法清单提供 hash，
 本地 hash/size 校验后用源 HEAD 校验存在/size/metadata，命中时不做 GET，仍能识别 dump 后删除。单个对象缺失或损坏记
 missing/failed 后继续复制其余对象，收尾摘要按状态计数；传输、权限或本地磁盘故障停止本轮，其余留 pending。读取失败/中断留下 incomplete；不完整
@@ -360,7 +361,9 @@ missing/failed 后继续复制其余对象，收尾摘要按状态计数；传�
 restore_objects.sh 可直接接收私有 ZIP，使用一次性 ops 服务白名单解包到 0700 临时目录，
 失败或退出清理临时文件；目录、ZIP 两种输入都先核对全部文件与目标 DB，再执行任何桶写入。
 独立运维工具也提供 `object_backup.py unpack`，只需两桶名称，不需 S3 凭据。ZIP 只允许清单与所列对象，拒绝缺项、
-额外项、重复路径和 hash 错误。G4b 作者打包 UI 尚未实现。图片包不恢复 DB；恢复前先读取目标 DB 引用并核对 novel_id/bucket/key 以及可用 hash/size，
+额外项、重复路径和 hash 错误。项目设置页可由作者在浏览器生成图片包；下载后须先 `chmod 600 <zip>`，
+再交给部署方使用本恢复入口。生成和浏览器校验不证明文件已保存到本机，界面不宣称“已备份”。
+图片包不恢复 DB；恢复前先读取目标 DB 引用并核对 novel_id/bucket/key 以及可用 hash/size，
 不匹配则失败关闭，不支持跨项目图片导入。server_snapshot 应先恢复配对 dump；author_export
 不得宣称具有 DB 快照一致性。恢复 initializer 先重建私有桶、
 versioning、8GiB/24GiB 配额；应用身份回灌并对账存在/hash/size/可解码/metadata/novel key。
@@ -509,3 +512,7 @@ ping 告警。operation lock 持有时 runtime 的无 ping skip 是预期行为�
 
 模型池升级时将旧 LLM 全局限流变量替换为 `.env.production.example` 中的 `LLM_MODEL_LIMITS_JSON`。
 API/worker 使用同一镜像 UID、同一 `llm-model-admission` 卷；此卷只有锁和非 secret 配置，不是业务数据。
+
+图片包恢复验收可在已安装 Playwright Chromium 与锁定 Docker 镜像的开发环境运行
+`python3 deploy/tests/run_browser_export_restore_drill.py --browser`：以合成数据操作真实 Vue 面板、
+390px 浏览器下载，再在隔离 PostgreSQL/MinIO 中通过恢复入口回读对账；不访问开发或生产数据。

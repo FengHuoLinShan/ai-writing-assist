@@ -328,6 +328,30 @@ describe("打包器 buildImagePackages", () => {
     await expect(promise).rejects.toBeInstanceOf(ExportAbortedError)
   })
 
+  it("最后清单摘要等待期间取消，不返回可下载的包", async () => {
+    let cancelled = false
+    let releaseManifestHash
+    let hashCalls = 0
+    const outcome = buildImagePackages({
+      items: [mapPageItem()],
+      fetchBytes: async () => pngBytes(),
+      verifyImage: passthroughVerify,
+      hash: async (bytes) => {
+        hashCalls += 1
+        if (hashCalls === 2) {
+          await new Promise((resolve) => { releaseManifestHash = resolve })
+        }
+        return passthroughHash(bytes)
+      },
+      isCancelled: () => cancelled,
+    })
+    const rejection = expect(outcome).rejects.toBeInstanceOf(ExportAbortedError)
+    await vi.waitFor(() => expect(releaseManifestHash).toBeTypeOf("function"))
+    cancelled = true
+    releaseManifestHash()
+    await rejection
+  })
+
   it("空清单返回空结果", async () => {
     const outcome = await buildImagePackages({
       items: [],

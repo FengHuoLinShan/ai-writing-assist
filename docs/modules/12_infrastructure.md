@@ -747,7 +747,9 @@ Evolution `budget_total`/`budget_remaining` 允许成对为空；旧有限行原
 DB timestamp/hash 配对，缺失/中断明确 incomplete；恢复重建私有桶 versioning/配额后对账。
 DB 本地配置上限 30 天，restic `--keep-within 30d`；对象按不超过 30 天清单及无引用对象年龄老化，
 损坏历史清单不提供缓存，新备份仍继续生成；垃圾回收失败关闭并以非零退出码要求运维介入。
-同机副本不能抵抗整盘故障，G4b 图片导出 UI 与 B2 对象副本未实现。
+同机副本不能抵抗整盘故障。G4b 已在项目设置页提供 owner 图片包导出，浏览器校验并打包地图页、蒙版
+及对象 full/thumbnail；唯一 owner 导出清单可返回私有 key，拒绝匿名演示且 no-store。B2 对象副本仍未启用。
 目录与 ZIP 共用 v1 清单，source_kind 显式区分配对 DB 的 server_snapshot 与无 DB 配对的
 author_export；每行支持 objects 下中文相对 file，拒绝穿越/重复/缺图。运维 ZIP 白名单解包后
-按目录恢复，先核对目标 DB 对象归属与可用 hash/size；图片包不恢复数据库或跨项目导入。生产启用仍须后续发布授权和只读对账。
+按目录恢复，先核对目标 DB 对象归属与可用 hash/size；作者 ZIP 恢复前须 chmod 600。
+图片包不恢复数据库或跨项目导入。生产启用仍须后续发布授权和只读对账。

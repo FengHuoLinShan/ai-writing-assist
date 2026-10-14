@@ -13,7 +13,8 @@ RAG/LLM 来源。地图册已使用私有 S3 语义；首版部署需要为对�
 ## 决策
 
 1. `core_entities` 只增加可空 `image_version` 与 `image_updated_at`；响应派生 `has_image`，不保存
-   或暴露 object key。浏览器通过 owner 与 `novel_id` 双门禁的上传/读取接口获得缩略图或完整图。
+   或在通用 API 暴露 object key。浏览器通过 owner 与 `novel_id` 双门禁的上传/读取接口获得缩略图或完整图；
+   唯一 key 读取例外是 ADR-0034 的单项目 owner 导出清单（拒绝匿名演示、no-store）。
 2. 上传只接受真实 PNG/JPEG（严格小于 6MiB、最大 4096×4096），去 EXIF/元数据后输出 WebP。
    完整图最长边 896px、最大 256KiB；缩略图 192×192、最大 16KiB。人物使用水平居中、上方约
    四分之一的头部优先裁切，其他类型居中裁切。
@@ -38,7 +39,7 @@ RAG/LLM 来源。地图册已使用私有 S3 语义；首版部署需要为对�
 ## 未采用方案
 
 - PostgreSQL BLOB：扩大数据库 I/O 与备份/恢复成本。
-- 公开 bucket、公开 URL 或将 object key 交给浏览器：绕过账户与项目边界。
+- 公开 bucket、公开 URL 或在 owner 导出清单以外将 object key 交给浏览器：绕过账户与项目边界。
 - 共享 root 凭据：运行时服务可越权改 bucket 或读取所有对象。
 - 多节点 MinIO、通用媒体平台：首版容量和恢复需求不足以证明其运行复杂度。对象备份现采用 ADR-0034
   的同机副本，B2 异地对象备份仍未启用。

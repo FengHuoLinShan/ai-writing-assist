@@ -310,6 +310,7 @@ export async function buildImagePackages(options) {
   }
   if (isCancelled()) throw new ExportAbortedError()
   await finalizePackage()
+  if (isCancelled()) throw new ExportAbortedError()
 
   return { packages, failures, totalItems: items.length }
 }
