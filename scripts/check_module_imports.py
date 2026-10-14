@@ -107,7 +107,7 @@ _DEPENDENCY_EDGES = frozenset(
         "interaction": "account assistant evidence imports project story world writing",
         "local_agent": "account project",
         "project": "account evidence world",
-        "story": "account evidence evolution local_agent project world writing",
+        "story": "account evidence evolution project world writing",
         "world": "account assistant evidence local_agent project story writing",
         "writing": "account evidence project story",
     }.items()
