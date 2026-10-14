@@ -319,7 +319,9 @@ Modules choose files by responsibility. Do not create empty contracts or pass-th
 - `modules/*` → `infrastructure/llm`, `infrastructure/tasks`
 - `modules/A` → `modules/B/contracts.py`
 - `modules/A` → `modules/B/facade.py`
-- `modules/A` → DI container port registered by `app.main` / worker startup
+- `modules/A` → DI port registered by `app.bootstrap.register_container_services()`, called by API and worker startup
+
+Production consumers use typed `core.service_keys.ServiceKey` constants; the container still indexes their stable `key.name` strings.
 
 **Forbidden in production business code:** cross-module imports of another module's `models.py`, `repositories.py`, or `services.py`.
 
@@ -375,7 +377,7 @@ Modules choose files by responsibility. Do not create empty contracts or pass-th
 - Public contract, user-visible behavior, data model, or cross-module call changes require updating authoritative docs and affected tests. Pure internal rearrangement does not require design-doc churn.
 - DB schema refactors may reset the demo database instead of carrying historical migrations; keep ORM/schema/tests/docs in sync
 - Each module owns its tests. Run that module's tests after modification. Cross-module flows go in tests/integration/
-- The system uses controlled structured LLM steps, not an autonomous multi-agent runtime. The active Prompt and contract catalogue is `docs/prompts/Prompt体系设计.md`.
+- Ordinary workflows use controlled structured LLM steps. The project assistant follows ADR-0023's bounded single agent; registered collaboration blueprints follow ADR-0027's limited members, shared budget and lease. Arbitrary autonomous teams are not exposed. The active Prompt and contract catalogue is `docs/prompts/Prompt体系设计.md`.
 - Entity extraction is NOT NER. Extract only "long-term creative assets."
 
 ## Frontend Principles

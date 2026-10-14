@@ -22,6 +22,8 @@
 
 ## 当前设计与契约
 
+- [Codebase 阅读与运行边界](architecture/codebase-reading-guide.md) — 从用户/API/worker 入口追到真实实现、资料拥有者与恢复回执；配套当前图源与 HTML。
+
 1. [`product/user-personas.md`](product/user-personas.md) — 两类核心用户、当前双入口，以及“用户会喜欢吗 / 前端舒服吗”判断门禁
 2. [`00_整体设计.md`](00_整体设计.md) — 项目定位、核心原则、三层架构、模块职责
 3. [`01_数据库设计.md`](01_数据库设计.md) — 当前数据库表、关系、约束与 schema 权威来源说明
@@ -77,7 +79,7 @@
 14. `modules/20_assistant.md` — 项目助手的有界运行时、操作回执与恢复语义
 15. `modules/21_collaboration.md` — 创作试验目标、授权、不可变试改与精确采用回执
 16. `modules/22_evolution.md` — `evolution` V4 演化引擎 E01 契约层：来源引用、观察、身份解析、类型化操作与回执游标（建设中）
-17. `modules/23_local_agent.md` — `local_agent` 作者 Mac 本机 CLI 的项目配对、逐任务权限与回执边界
+17. `modules/23_local_agent.md` — `local_agent` 本机图片 CLI 的项目配对、逐任务权限与历史文字 job 兼容边界
 
 `modules/` 只放当前模块的设计与稳定接口说明；已替代的模块文档位于
 `archive/modules/`，代码分析参考位于 `references/`。
@@ -100,6 +102,8 @@
   新增或调整 ADR 状态只维护这一份完整索引，不再在此复制容易漏项的子集
 
 ## 长程计划
+
+- [多 Luna/max 文档刷新计划](plans/2026-10-14-codebase-documentation-refresh.md) — 固定主干代码理解、分域文档更新、独立复核；本轮文档、Sol/high 独立复核及最终图形复验完成，结果与证据快照保存在该计划对应的 `.agent` 任务笔记中。
 
 `docs/plans/` 是新实施计划的唯一入口；计划完成后移入 `docs/archive/` 作为历史记录，不在
 `docs/plans/` 长期堆积已交付内容。
@@ -137,8 +141,8 @@
 - `archive/audit/` — 代码、性能、安全和文档审计的时间点记录；新审计直接带日期新增到该处。
 - [`acceptance/`](acceptance/) — 验收基线与历史验收记录；新的验收应新增带日期的记录。
 - [`security/content-sanitization-policy.md`](security/content-sanitization-policy.md) — 内容清理政策草案（Draft，不替代已采纳的 ADR 与安全边界）。
-- [`product/new-user-guide.md`](product/new-user-guide.md) — 新用户指南源文；[`product/NovelCraft-新用户指南.docx`](product/NovelCraft-新用户指南.docx) 为交付版，编辑时以 Markdown 源文为准重新生成。
-- [`product/word-guide-source.md`](product/word-guide-source.md) — Word 指南的可编辑源文。
+- [`product/new-user-guide.md`](product/new-user-guide.md) — 唯一当前用户指南内容源。现存 [`product/NovelCraft-新用户指南.docx`](product/NovelCraft-新用户指南.docx) 对应旧 Word 源稿，是历史导出，未随本轮刷新；不作为当前操作指南。
+- [`product/word-guide-source.md`](product/word-guide-source.md) — 历史 Word 源稿，保留追溯；当前编辑以 new-user-guide.md 为准。
 - [`references/典型用户路径_goal提示词.md`](references/典型用户路径_goal提示词.md) — Agent 验收与用户路径提示词参考。
 - `archive/superpowers/` — 历史实施计划、设计快照、报告和验收记录；见
   [`archive/superpowers/README.md`](archive/superpowers/README.md)。

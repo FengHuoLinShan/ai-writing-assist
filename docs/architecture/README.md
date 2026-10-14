@@ -16,6 +16,9 @@
 | `feature-map.html` | 浏览器兼容交互预览 | 与 `feature-map.drawio` 图源保持一致；不作为可编辑图源或代码 import 图。 |
 | `architecture-documents.toml` | 当前架构文档机器清单 | 登记中央文档、模块/组件文档、API 前缀和代码差异影响规则；新增、移动、归档文档时先改清单。 |
 | `documentation-maintenance.md` | 架构文档维护流程 | 每轮较大开发按变更影响矩阵更新当前文档，并保留验证证据。 |
+| `codebase-reading-guide.md` | Codebase 阅读与运行边界 | 入口、来源重验、采用或恢复语义变化时同步；不复制表/路由/任务权威目录。 |
+| `runtime-boundaries.drawio` | 运行边界的可编辑图源 | 正文候选、演化、私人互动与本机图片流程的确认/恢复路径变化时同步。 |
+| `runtime-boundaries.html` | 浏览器兼容预览 | 与 `runtime-boundaries.drawio` 图源保持一致；不作为可编辑图源或代码 import 图。 |
 | `../diagrams/rag-architecture.html` | RAG 视觉参考 | 仅说明历史 RAG 内部关系；具体接口和 schema 以 Evidence indexing 文档/代码为准。 |
 | `../diagrams/architecture.html` | 历史架构快照 | 包含已移除的 geo/review 等模块，不可用于当前设计或实现决策。 |
 | `../diagrams/system-architecture-slim.html` | 历史瘦身分析 | 记录过去的裁剪讨论，不可用于当前模块清单或数据库判断。 |
@@ -104,7 +107,8 @@ ADR-0027 的 V1 在当时九模块中加入注册蓝图的有限协作，不改�
 模块职责与采用/恢复边界见 `docs/modules/21_collaboration.md`、
 `backend/modules/collaboration/README.md`，前瞻见 `docs/modules/20_assistant.md`。
 
-`local_agent` 是作者 Mac 上五种 CLI 的项目设备与调用边界，复用现有任务租约。
+`local_agent` 是作者 Mac 上五种图片 CLI 的项目设备与调用边界，正常新建入口仅图片，
+复用现有任务租约；旧文字 job 在批准/领取入口失败关闭，兼容实现边界见模块说明。
 设备协议、非沙箱权限和数据边界见 [模块设计](../modules/23_local_agent.md)。
 
 
@@ -184,3 +188,18 @@ Scene 工作台的诊断与融合职责从主文件拆出，同一服务实例�
 详见对应模块README与 development-guide.md 的评测环境说明。
 
 LLM 的模型池与有限/已确认范围预算由基础设施和 ADR-0033 说明；图中服务节点及业务所有权保持原边界。
+
+### 本机图片与旧文字兼容
+
+当前新业务 local_agent 入口只供图片；Project 文本 snapshot 与直接任务客户端拒绝旧本机文字
+配置，待确认列表、批准与设备领取入口也只接受图片任务并将旧文字 pending 记录置为 failed。
+模块图中的 local_agent 节点表示图片设备/授权与历史回执，不是任意本机文字 Agent；
+源码保留的兼容分支不构成正常文字入口。图片候选和采用仍归 World；存储灾难恢复与
+真实模型质量不由图源或 XML 门禁证明。
+
+## Codebase 阅读入口
+
+新开发者从 [Codebase 阅读与运行边界](codebase-reading-guide.md) 选择实际执行入口，
+再看 [运行边界图](runtime-boundaries.html) 与 [可编辑图源](runtime-boundaries.drawio)。
+该图分开作者候选、演化、私人互动与本机图片的确认/恢复路径，不替代模块契约、
+现有模块/任务/表/路由目录，也不表示所有能力默认开启或完成真实质量验收。
