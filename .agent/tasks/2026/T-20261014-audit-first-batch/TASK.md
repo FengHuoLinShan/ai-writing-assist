@@ -3,7 +3,7 @@ id: T-20261014-audit-first-batch
 title: 能力审计首批实施与集成验收
 status: completed
 created: 2026-10-14T11:30:04+08:00
-updated: 2026-10-14T12:55:05+08:00
+updated: 2026-10-14T13:02:02+08:00
 parent: T-20261014-audit-followup-batch
 ---
 
@@ -80,3 +80,9 @@ parent: T-20261014-audit-followup-batch
 - 文档复核：CLAUDE仅导入AGENTS；Evidence根已只描述活跃renderer，IR/AST证明不变；indexing可见性/确认/队列不变；文档维护权威归属/流程不变；drawio/html的12模块和API/worker/MinIO常驻拓扑不变，G8复用既有依赖方向，G4为ops一次性程序/timer，细节由已更新deploy/12_infrastructure/ADR-0034维护。具体说明同时用于PR模板第三项。
 - 本目录artifacts保存最终父树日志，旧失败总日志保留/private/tmp及以上分类；归档日志仅去行尾空白/EOF空行以通过diff-check，原始日志仍在源子树或/private/tmp，IR与source inventory不改。任务记录只提交合成工程日志，不含真实稿件/原始模型请求或凭据。
 - 未做真实CLI生图或文学质量验证，未开通B2、自动同步或多用户运维，未部署或恢复原诡秘60章评测。
+
+## 远端交付状态
+
+- 已完成本地实现/验收，代码HEAD b532c3f92，工作树在推送前干净；PR正文已存PR_BODY.md供审查。
+- 自动审批拒绝 git push origin codex/audit-first-batch：认为私有仓库代码和验收资料将外发到origin，缺少这次具体推送/可信目的地的明确授权。没有通过其他工具或间接方式绕过。已向用户聚焦请求授权推送到本仓库origin并创建draft PR，不合并/部署；回答前仅继续本地工作。用户随后明确回答“授权推送并创建 draft PR”，本仓库origin已获该次外发授权，继续交付；此前“全部授权”只针对开发库只读计数。
+- 所有验证已结束，标签codex.task=audit-followup-20261014的本次合成PG容器已停止；保留数据卷和全部工作树，既有Guimi/MinIO不停止或清理。复验可docker start该容器，再用明确18647合成库参数运行。
