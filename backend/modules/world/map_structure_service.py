@@ -1102,6 +1102,73 @@ async def list_adopted_map_continuity_facts(
     return facts
 
 
+async def read_map_node_heads(
+    db: AsyncSession,
+    novel_id: str,
+    node_ids: list[str],
+) -> dict[str, dict[str, object]]:
+    """Batch-read each map node's current head identity in one query.
+
+    Read-only outlet for writing-side staleness checks: per node it reports the
+    adoption status, the current head revision id (the authoritative version
+    signal; geometry_hash alone excludes sources), and the head document's
+    source hashes as an auxiliary signal. Deleted nodes are simply absent.
+    """
+    from pydantic import ValidationError as SchemaValidationError
+
+    from modules.world.map_atlas_models import MapAtlasNode, MapAtlasRevision
+    from modules.world.map_structure_schemas import MapDocument
+    from shared.utils import parse_uuid
+
+    parsed = list(dict.fromkeys(str(value) for value in node_ids if str(value).strip()))
+    if not parsed:
+        return {}
+    rows = (
+        await db.execute(
+            select(MapAtlasNode, MapAtlasRevision)
+            .join(
+                MapAtlasRevision,
+                and_(
+                    MapAtlasRevision.id == MapAtlasNode.current_revision_id,
+                    MapAtlasRevision.novel_id == MapAtlasNode.novel_id,
+                    MapAtlasRevision.node_id == MapAtlasNode.id,
+                ),
+            )
+            .where(
+                MapAtlasNode.novel_id == parse_uuid(novel_id, "novel_id"),
+                MapAtlasNode.id.in_(
+                    [parse_uuid(value, "node_id") for value in parsed]
+                ),
+            )
+        )
+    ).all()
+    heads: dict[str, dict[str, object]] = {}
+    for node, revision in rows:
+        try:
+            document = MapDocument.model_validate(revision.document)
+        except SchemaValidationError:
+            source_hashes: tuple[str, ...] = ()
+        else:
+            source_hashes = tuple(
+                sorted(
+                    {
+                        source.source_hash
+                        for item in [*document.features, *document.constraints]
+                        for source in item.sources
+                    }
+                )
+            )
+        heads[str(node.id)] = {
+            "node_id": str(node.id),
+            "title": node.title,
+            "status": str(node.status or ""),
+            "revision_id": str(revision.id),
+            "geometry_hash": str(revision.geometry_hash or ""),
+            "source_hashes": source_hashes,
+        }
+    return heads
+
+
 async def inspect_map_node(db: AsyncSession, novel_id: str, node_id: str) -> dict:
     """Read the adopted structured map, never private image URLs or Prompt state."""
     from core.errors import ConflictError, ValidationError

@@ -628,6 +628,8 @@ creation_suggestion_queue 中保存封闭的 owner 授权 carrier；普通建议
 
 `world.read_map_chapter_consumers` 经只读 DI port 向写作回执提供需核对的地图名与章节，不修改地图/正史或 Scene 失效范围。完整来源与未覆盖契约见 [Evolution 文档](22_evolution.md#已发布正文变化与地图核对g8a)。
 
+`world.read_map_node_heads` 经只读 DI port（G8b）按 node_ids 一次批量返回各节点当前 head 的采用状态、head revision id 与来源 hash 集合，供 Writing 冲突检查在读时核对“检查依据的地图是否已更新”；比较结果只在 Writing 响应中计算，World 不保存任何核对结论。
+
 地图持续创作沿用 World 派生资产边界：区域至街道及显式室内示意的层级编辑、受限空间关系、`map-links` 只读定位、
 已有图元局部生成与依赖完整的逐项采用。来源与预算仍由 Evidence confirmation 决定，
 未采用的剩余候选继续等待确认。当前完整契约见 `docs/modules/15_map.md`。

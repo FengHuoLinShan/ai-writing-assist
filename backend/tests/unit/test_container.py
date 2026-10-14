@@ -101,6 +101,7 @@ def test_bootstrap_registers_app_and_worker_services():
         "story.get_scene_contract",
         "world.list_adopted_map_continuity_facts",
         "world.read_map_chapter_consumers",
+        "world.read_map_node_heads",
     ]
     for service_name in expected_services:
         assert get(service_name) is not None
@@ -159,6 +160,7 @@ def test_bootstrap_registers_app_and_worker_services():
         "story.get_scene_contract",
         "world.list_adopted_map_continuity_facts",
         "world.read_map_chapter_consumers",
+        "world.read_map_node_heads",
     ):
         assert callable(get(service_name))
 

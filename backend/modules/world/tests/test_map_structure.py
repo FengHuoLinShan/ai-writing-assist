@@ -1199,3 +1199,108 @@ async def test_save_records_writing_chapter_index_and_history_notes(
     assert saved_row.writing_chapter_index == 4
     assert saved_row.change_note == "补画黑石关"
     assert initial.change_note is None
+
+
+@pytest.mark.asyncio
+async def test_read_map_node_heads_returns_current_head_identity(
+    db_session, test_project_id
+):
+    """G8b：批量 head 出口的常态——revision/采用状态/来源 hash 一次查询可取。"""
+    from modules.world.facade import read_map_node_heads
+    from modules.world.map_structure_service import source_digest, source_payload
+    from modules.world.models import CoreEntity
+
+    source = CoreEntity(
+        novel_id=uuid.UUID(test_project_id),
+        entity_type="location",
+        name="道路志",
+        summary="甲城与乙城由北道相连。",
+        status="canonical",
+    )
+    start = CoreEntity(
+        novel_id=uuid.UUID(test_project_id),
+        entity_type="location",
+        name="甲城",
+        status="canonical",
+    )
+    end = CoreEntity(
+        novel_id=uuid.UUID(test_project_id),
+        entity_type="location",
+        name="乙城",
+        status="canonical",
+    )
+    db_session.add_all([source, start, end])
+    await db_session.flush()
+    node = await MapStructureService().create_node(
+        db_session,
+        test_project_id,
+        MapNodeCreate(title="北道", level="region"),
+    )
+    digest = source_digest(source_payload(source))
+    document = MapDocument(
+        features=[
+            {"id": "start", "kind": "location", "label": "甲城", "entity_id": start.id},
+            {"id": "end", "kind": "location", "label": "乙城", "entity_id": end.id},
+        ],
+        constraints=[
+            {
+                "id": "north-road",
+                "subject": "start",
+                "relation": "connects",
+                "target": "end",
+                "sources": [
+                    {"kind": "entity", "id": source.id, "source_hash": digest}
+                ],
+            }
+        ],
+    )
+    saved = await MapStructureService().save(
+        db_session,
+        test_project_id,
+        node["id"],
+        MapSaveRequest(base_revision_id=node["current_revision_id"], document=document),
+    )
+
+    heads = await read_map_node_heads(db_session, test_project_id, [node["id"]])
+
+    assert set(heads) == {node["id"]}
+    head = heads[node["id"]]
+    assert head["status"] == "adopted"
+    assert head["revision_id"] == saved.id != node["current_revision_id"]
+    assert head["title"] == "北道"
+    assert digest in head["source_hashes"]
+
+    # 再次保存产生新 head：批量读取报告新 revision_id（geometry_hash 不作版本信号）。
+    resaved = await MapStructureService().save(
+        db_session,
+        test_project_id,
+        node["id"],
+        MapSaveRequest(base_revision_id=saved.id, document=document),
+    )
+    heads = await read_map_node_heads(
+        db_session, test_project_id, [node["id"], node["id"]]
+    )
+    assert heads[node["id"]]["revision_id"] == resaved.id != saved.id
+
+
+@pytest.mark.asyncio
+async def test_read_map_node_heads_is_empty_for_unknown_unsaved_or_other_novel(
+    db_session, two_projects
+):
+    """G8b：空态与跨项目隔离——空列表、未知节点、未保存 head、别的项目都不返回。"""
+    from modules.world.facade import read_map_node_heads
+
+    novel_id, other_novel_id = two_projects
+    node = await MapStructureService().create_node(
+        db_session,
+        novel_id,
+        MapNodeCreate(title="尚无结构的区域", level="region"),
+    )
+
+    assert await read_map_node_heads(db_session, novel_id, []) == {}
+    assert await read_map_node_heads(db_session, novel_id, [str(uuid.uuid4())]) == {}
+    # create_node 即落一个空文档 head（无来源）；跨项目读取不返回该节点。
+    heads = await read_map_node_heads(db_session, novel_id, [node["id"]])
+    assert set(heads) == {node["id"]}
+    assert heads[node["id"]]["source_hashes"] == ()
+    assert await read_map_node_heads(db_session, other_novel_id, [node["id"]]) == {}
