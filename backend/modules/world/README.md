@@ -53,8 +53,11 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 
 ### 对象图片
 
-CoreEntity 的 `image_version` 和 `image_updated_at` 只记录可选图片的版本；API 响应派生
-`has_image` 与用于审核绑定的 opaque `image_version`，不保存或返回私有对象 key。`PUT /api/world/entities/{entity_id}/image` 在当前账户
+CoreEntity 的 `image_version` 和 `image_updated_at` 只记录可选图片的版本；通用 API 响应派生
+`has_image` 与用于审核绑定的 opaque `image_version`，不保存或返回私有对象 key；对象 key 的
+唯一例外是 G4b 的 owner 导出清单端点（`GET /api/world/{novel_id}/image-export`）：仅当前
+账户 owner + `novel_id` 可见（拒绝匿名演示），响应 `no-store` 且不写业务日志，返回打包
+author_export 备份行所需的 bucket/key/sha256 等字段（2026-10-14 用户裁定口径）。`PUT /api/world/entities/{entity_id}/image` 在当前账户
 owner 与 `novel_id` 双门禁内只接受真实 PNG/JPEG（严格小于 6MiB、最大 4096×4096）；服务端
 去 EXIF/元数据并生成有界 WebP；PNG 的透明通道在原图与缩略图中保留。`GET .../image?variant=thumbnail|full` 仅返回已鉴权的派生图；需要固定素材的 Scene 可附 UUID `expected_version`，对象图已替换时返回 404，不回退到新版本。
 
