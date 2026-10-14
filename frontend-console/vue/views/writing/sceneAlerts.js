@@ -135,6 +135,19 @@ function checkAlerts(check, current) {
       stale: true,
     })
   }
+  // G8b：检查依据的地图已更新（正文未必变化）。与 check-stale 的正文过期分开提示，
+  // 两者都计入 hasStaleCheck。
+  if (check?.map_staleness?.changed === true) {
+    alerts.push({
+      ...alert(
+        "check-map-stale",
+        "medium",
+        "最近校验",
+        "检查结果基于旧版地图，建议重新检查",
+      ),
+      stale: true,
+    })
+  }
 
   const openItems = Array.isArray(check.items)
     ? check.items.filter((item) => (item?.status || "open") === "open")
@@ -164,7 +177,7 @@ function checkAlerts(check, current) {
     alerts.push(alert("check-ai-partial", "low", "最近校验", "AI 深度校验仅完成部分结果"))
   }
 
-  if (!highCount && !mediumCount && !lowCount && !staleReason) {
+  if (!highCount && !mediumCount && !lowCount && !staleReason && !alerts.some((item) => item.stale)) {
     alerts.push(alert("check-clear", "info", "最近校验", "最近一次规则检查无未处理项"))
   }
   return alerts

@@ -822,6 +822,9 @@ class WritingConflictCheckResponse(BaseModel):
     include_candidates: bool = False
     status: str = "completed"
     summary_json: dict = Field(default_factory=dict)
+    #: 读时计算的地图基线比较结果（检查依据的地图是否已更新）。
+    #: 只出现在响应里，不入库，也不写入 summary_json。
+    map_staleness: dict | None = None
     ai_review_enabled: bool = False
     ai_review_status: str = "not_requested"
     ai_review_confirmation_id: str | None = None

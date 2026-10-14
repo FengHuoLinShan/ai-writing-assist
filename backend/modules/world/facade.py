@@ -80,6 +80,7 @@ from modules.world.event_facade import (  # noqa: F401
 )
 from modules.world.map_atlas_facade import (  # noqa: F401
     list_adopted_map_continuity_facts,
+    read_map_node_heads,
 )
 from modules.world.services.core.knowledge_visibility_service import (
     check_knowledge_visibility as _check_knowledge_visibility_impl,
@@ -190,6 +191,7 @@ __all__ = [
     "get_world_context",
     "list_auto_ingested_entities",
     "list_adopted_map_continuity_facts",
+    "read_map_node_heads",
     "list_characters",
     "list_entities",
     "list_entity_terms",

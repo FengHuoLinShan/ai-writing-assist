@@ -2080,3 +2080,536 @@ async def test_publish_normal_path_is_not_conflict_check_degraded(
 
     assert published.status_code == 201, published.text
     assert published.json()["conflict_check_degraded"] is False
+
+
+# ============================================================
+# G8b：改图 → 写作冲突检查可核对（地图基线与读时 staleness）
+# ============================================================
+
+
+def _map_fact(
+    node_id: str,
+    revision_id: str,
+    *,
+    subject: str = "11111111-1111-1111-1111-111111111111",
+    target: str = "22222222-2222-2222-2222-222222222222",
+    source_hashes: tuple[str, ...] = ("b" * 64,),
+    relation: str = "connects",
+) -> dict:
+    return {
+        "node_id": node_id,
+        "revision_id": revision_id,
+        "revision_hash": "a" * 64,
+        "relation": relation,
+        "subject_entity_id": subject,
+        "target_entity_id": target,
+        "via_entity_ids": (),
+        "source_hashes": list(source_hashes),
+    }
+
+
+def _scene_and_checkpoint_loaders(scene_id, start, end):
+    async def fake_scene_loader(*_args) -> object:
+        return SimpleNamespace(
+            id=str(scene_id),
+            scene_index=1,
+            title="跨城",
+            must_happen=None,
+            must_not_happen=None,
+            pov_character_id=None,
+            structure_meta={},
+            scene_chunks=[{"chapter_index": 1, "start_pos": 0, "end_pos": 4}],
+        )
+
+    async def fake_checkpoint_loader(*_args) -> dict:
+        return {
+            "items": [
+                {
+                    "id": "locations",
+                    "dimension": "locations",
+                    "status": "ready",
+                    "source": "system_generated",
+                    "state_json": {
+                        "character_locations": {},
+                        "changes": [{"old_value": str(start), "new_value": str(end)}],
+                    },
+                },
+                {
+                    "id": "timeline",
+                    "dimension": "timeline",
+                    "status": "ready",
+                    "source": "system_generated",
+                    "state_json": {"facts": []},
+                },
+                {
+                    "id": "causality",
+                    "dimension": "causality",
+                    "status": "ready",
+                    "source": "system_generated",
+                    "state_json": {"claims": []},
+                },
+            ]
+        }
+
+    return fake_scene_loader, fake_checkpoint_loader
+
+
+async def _create_check_with_map(
+    db_session,
+    novel_id,
+    scene_id,
+    facts,
+    *,
+    start=None,
+    end=None,
+) -> object:
+    start = start or uuid.uuid4()
+    end = end or uuid.uuid4()
+    scene_loader, checkpoint_loader = _scene_and_checkpoint_loaders(scene_id, start, end)
+
+    async def fake_map_loader(*_args) -> list[dict]:
+        return facts
+
+    return await WritingConflictCheckService(
+        scene_contract_loader=scene_loader,
+        scene_checkpoint_loader=checkpoint_loader,
+        map_continuity_loader=fake_map_loader,
+    ).create_check(
+        db_session,
+        WritingConflictCheckCreate(
+            novel_id=str(novel_id),
+            chapter_index=1,
+            scene_id=str(scene_id),
+            content="跨城而行",
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_conflict_check_records_full_loaded_map_fact_baseline(
+    db_session: AsyncSession,
+) -> None:
+    """基线记全部载入事实（含未触发规则的），按 (node_id, revision_id) 去重；
+    缺 node_id 的事实容错跳过，缺 source_hashes 也能记录。"""
+    novel_id = uuid.uuid4()
+    scene_id = uuid.uuid4()
+    db_session.add(Project(id=novel_id, title="Map baseline"))
+    await db_session.flush()
+
+    facts = [
+        _map_fact("node-1", "rev-1"),
+        # 同一节点的第二条事实：去重合并 source_hashes，不新增节点条目。
+        _map_fact("node-1", "rev-1", source_hashes=("c" * 64,)),
+        # 未触发规则的事实（无通行关系）同样是检查依据，必须入基线。
+        _map_fact("node-2", "rev-2", relation="inside"),
+        # 测试 fake loader 缺 node_id：跳过，不影响其余事实。
+        _map_fact("", "rev-3"),
+        {"revision_id": "rev-4"},
+    ]
+
+    result = await _create_check_with_map(db_session, novel_id, scene_id, facts)
+
+    baseline = result.summary_json["map_baseline"]
+    assert baseline["version"] == 1
+    assert baseline["truncated"] is False
+    assert set(baseline["nodes"]) == {"node-1", "node-2"}
+    assert baseline["nodes"]["node-1"] == {
+        "revision_id": "rev-1",
+        "source_hashes": ["b" * 64, "c" * 64],
+    }
+    assert baseline["nodes"]["node-2"]["revision_id"] == "rev-2"
+    # 覆盖为 checked：基线与覆盖说明一致。
+    assert result.summary_json["continuity_coverage"]["map"] == "checked"
+
+
+@pytest.mark.asyncio
+async def test_map_baseline_is_limited_for_publish_snapshot(
+    db_session: AsyncSession,
+) -> None:
+    """基线限量：节点数对齐 world loader 的 200 上限，来源 hash 每节点有界，
+    发布快照透传 summary_json 时保持有界。"""
+    novel_id = uuid.uuid4()
+    scene_id = uuid.uuid4()
+    db_session.add(Project(id=novel_id, title="Map baseline limit"))
+    await db_session.flush()
+
+    facts = [
+        _map_fact(
+            f"node-{idx:03d}",
+            f"rev-{idx:03d}",
+            source_hashes=("h" + f"{idx:063d}",),
+        )
+        for idx in range(205)
+    ]
+    facts.append(
+        _map_fact(
+            "node-000",
+            "rev-000",
+            source_hashes=tuple(f"{i:064d}" for i in range(40)),
+        )
+    )
+
+    await _create_check_with_map(db_session, novel_id, scene_id, facts)
+
+    snapshot = await WritingConflictCheckRepository().build_latest_snapshot(
+        db_session,
+        novel_id=novel_id,
+        chapter_index=1,
+        scene_id=scene_id,
+    )
+    baseline = snapshot["summary_json"]["map_baseline"]
+    assert len(baseline["nodes"]) == 200
+    assert "node-204" not in baseline["nodes"]
+    assert baseline["truncated"] is True
+    assert len(baseline["nodes"]["node-000"]["source_hashes"]) == 32
+
+
+@pytest.mark.asyncio
+async def test_map_staleness_compares_head_revision_and_adoption(
+    db_session: AsyncSession,
+) -> None:
+    """读时以 revision_id 为主比较；取消采用、删除（head 缺失）都算已变；
+    结果只进响应 map_staleness，不写回 summary_json。"""
+    novel_id = uuid.uuid4()
+    scene_id = uuid.uuid4()
+    db_session.add(Project(id=novel_id, title="Map staleness"))
+    await db_session.flush()
+    facts = [
+        _map_fact("node-same", "rev-a"),
+        _map_fact("node-revved", "rev-old"),
+        _map_fact("node-gone", "rev-c"),
+        _map_fact("node-unadopted", "rev-d"),
+        # revision 缺失（fake loader 容错）：source_hashes 辅助比较。
+        _map_fact("node-sources", "", source_hashes=("e" * 64,)),
+        _map_fact("node-sources-drifted", "", source_hashes=("f" * 64,)),
+    ]
+
+    def head(node_id, title, status, revision_id, source_hashes):
+        return {
+            "node_id": node_id,
+            "title": title,
+            "status": status,
+            "revision_id": revision_id,
+            "source_hashes": source_hashes,
+        }
+
+    heads = {
+        "node-same": head("node-same", "甲图", "adopted", "rev-a", []),
+        "node-revved": head("node-revved", "乙图", "adopted", "rev-new", []),
+        # node-gone 缺失：删除即已变。
+        "node-unadopted": head(
+            "node-unadopted", "丙图", "provisional", "rev-d", []
+        ),
+        "node-sources": head(
+            "node-sources", None, "adopted", "", ["e" * 64, "g" * 64]
+        ),
+        "node-sources-drifted": head(
+            "node-sources-drifted", None, "adopted", "", ["g" * 64]
+        ),
+    }
+    calls: list[tuple[str, tuple[str, ...]]] = []
+
+    async def fake_head_loader(_db, passed_novel_id, node_ids):
+        calls.append((passed_novel_id, tuple(node_ids)))
+        return {key: value for key, value in heads.items() if key in node_ids}
+
+    created = await _create_check_with_map(db_session, novel_id, scene_id, facts)
+    # 创建响应不预取 head，也不误报。
+    assert created.map_staleness is None
+
+    service = WritingConflictCheckService(map_node_head_loader=fake_head_loader)
+    fetched = await service.get_check(
+        db_session,
+        novel_id=str(novel_id),
+        check_id=str(created.id),
+    )
+
+    expected_nodes = (
+        "node-gone",
+        "node-revved",
+        "node-same",
+        "node-sources",
+        "node-sources-drifted",
+        "node-unadopted",
+    )
+    assert calls == [(str(novel_id), expected_nodes)]
+    staleness = fetched.map_staleness
+    assert staleness["changed"] is True
+    changed_ids = {node["node_id"] for node in staleness["nodes"]}
+    assert changed_ids == {
+        "node-revved",
+        "node-gone",
+        "node-unadopted",
+        "node-sources-drifted",
+    }
+    by_id = {node["node_id"]: node for node in staleness["nodes"]}
+    assert by_id["node-revved"]["title"] == "乙图"
+    assert by_id["node-gone"]["title"] is None
+    assert staleness["changed_count"] == 4
+    assert staleness["truncated"] is False
+    # 比较结果不落库：summary_json 只有创建时写入的基线。
+    stored = await WritingConflictCheckRepository().get_check(
+        db_session,
+        uuid.UUID(str(created.id)),
+        novel_id,
+    )
+    assert "map_staleness" not in (stored[0].summary_json or {})
+    assert set(stored[0].summary_json["map_baseline"]["nodes"]) == {
+        "node-same",
+        "node-revved",
+        "node-gone",
+        "node-unadopted",
+        "node-sources",
+        "node-sources-drifted",
+    }
+
+    # 全部与基线一致时不提示变更。
+    fresh = {
+        fact["node_id"]: {
+            "node_id": fact["node_id"],
+            "title": "图",
+            "status": "adopted",
+            "revision_id": fact["revision_id"],
+            "source_hashes": fact["source_hashes"],
+        }
+        for fact in facts
+        if fact["node_id"]
+    }
+    fresh["node-gone"] = {
+        "node_id": "node-gone",
+        "title": "复活的图",
+        "status": "adopted",
+        "revision_id": "rev-c",
+        "source_hashes": [],
+    }
+    steady = await WritingConflictCheckService(
+        map_node_head_loader=AsyncMock(return_value=fresh),
+    ).get_check(db_session, novel_id=str(novel_id), check_id=str(created.id))
+    assert steady.map_staleness is not None
+    assert steady.map_staleness["changed"] is False
+    assert steady.map_staleness["nodes"] == []
+
+
+@pytest.mark.asyncio
+async def test_map_staleness_silent_without_baseline_or_on_head_failure(
+    db_session: AsyncSession,
+) -> None:
+    """历史检查无基线、not_applicable、无事实的 not_checked、head 读取失败都不提示。"""
+    novel_id = uuid.uuid4()
+    scene_id = uuid.uuid4()
+    db_session.add(Project(id=novel_id, title="Map staleness silent"))
+    await db_session.flush()
+
+    # 少于两个地点：not_applicable，无基线。
+    same = uuid.uuid4()
+    created = await _create_check_with_map(
+        db_session,
+        novel_id,
+        scene_id,
+        [],
+        start=same,
+        end=same,
+    )
+    assert created.summary_json["continuity_coverage"]["map"] == "not_applicable"
+    assert "map_baseline" not in created.summary_json
+
+    async def failing_head_loader(*_args):
+        raise RuntimeError("world unavailable")
+
+    fetched = await WritingConflictCheckService(
+        map_node_head_loader=failing_head_loader,
+    ).get_check(db_session, novel_id=str(novel_id), check_id=str(created.id))
+    assert fetched.map_staleness is None
+
+    # head 读取失败：即使有基线也不提示，不阻断读取。
+    with_baseline = await _create_check_with_map(
+        db_session,
+        novel_id,
+        uuid.uuid4(),
+        [_map_fact("node-x", "rev-x")],
+    )
+    degraded_read = await WritingConflictCheckService(
+        map_node_head_loader=failing_head_loader,
+    ).get_check(db_session, novel_id=str(novel_id), check_id=str(with_baseline.id))
+    assert degraded_read.map_staleness is None
+    assert "map_baseline" in degraded_read.summary_json
+
+    # loader 抛错的 not_checked：同样无基线、无提示。
+    async def broken_map_loader(*_args):
+        raise RuntimeError("map unavailable")
+
+    scene_loader, checkpoint_loader = _scene_and_checkpoint_loaders(
+        scene_id, uuid.uuid4(), uuid.uuid4()
+    )
+    degraded = await WritingConflictCheckService(
+        scene_contract_loader=scene_loader,
+        scene_checkpoint_loader=checkpoint_loader,
+        map_continuity_loader=broken_map_loader,
+    ).create_check(
+        db_session,
+        WritingConflictCheckCreate(
+            novel_id=str(novel_id),
+            chapter_index=1,
+            scene_id=str(scene_id),
+            content="跨城而行",
+        ),
+    )
+    assert degraded.summary_json["continuity_coverage"]["map"] == "not_checked"
+    assert "map_baseline" not in degraded.summary_json
+    refetched = await WritingConflictCheckService(
+        map_node_head_loader=AsyncMock(return_value={}),
+    ).get_check(db_session, novel_id=str(novel_id), check_id=str(degraded.id))
+    assert refetched.map_staleness is None
+
+
+@pytest.mark.asyncio
+async def test_list_checks_batches_map_head_query_per_novel(
+    db_session: AsyncSession,
+) -> None:
+    """列表读取只做一次批量 head 查询（聚合全部基线节点），且按检查所属项目读取。"""
+    novel_id = uuid.uuid4()
+    other_novel_id = uuid.uuid4()
+    scene_id = uuid.uuid4()
+    db_session.add_all(
+        [
+            Project(id=novel_id, title="Batched heads A"),
+            Project(id=other_novel_id, title="Batched heads B"),
+        ]
+    )
+    await db_session.flush()
+
+    first = await _create_check_with_map(
+        db_session, novel_id, scene_id, [_map_fact("node-a", "rev-a")]
+    )
+    second_scene = uuid.uuid4()
+    second = await _create_check_with_map(
+        db_session, novel_id, second_scene, [_map_fact("node-b", "rev-b")]
+    )
+    # 另一项目的检查：读取时 head 必须按该项目查询，不串项目。
+    other_scene = uuid.uuid4()
+    other = await _create_check_with_map(
+        db_session, other_novel_id, other_scene, [_map_fact("node-c", "rev-c")]
+    )
+    assert first.id != second.id
+
+    calls: list[tuple[str, tuple[str, ...]]] = []
+
+    async def counting_head_loader(_db, passed_novel_id, node_ids):
+        calls.append((passed_novel_id, tuple(node_ids)))
+        if passed_novel_id == str(novel_id):
+            return {
+                "node-a": {
+                    "node_id": "node-a",
+                    "title": "甲",
+                    "status": "adopted",
+                    "revision_id": "rev-a2",
+                    "source_hashes": [],
+                },
+            }
+        return {
+            "node-c": {
+                "node_id": "node-c",
+                "title": "丙",
+                "status": "adopted",
+                "revision_id": "rev-c",
+                "source_hashes": [],
+            },
+        }
+
+    service = WritingConflictCheckService(map_node_head_loader=counting_head_loader)
+    listed = await service.list_checks(
+        db_session,
+        novel_id=str(novel_id),
+        chapter_index=1,
+        scene_id=None,
+        limit=10,
+    )
+
+    assert calls == [(str(novel_id), ("node-a", "node-b"))]
+    staleness_by_id = {item.id: item.map_staleness for item in listed.items}
+    assert {item.id for item in listed.items} == {first.id, second.id}
+    assert staleness_by_id[first.id]["changed"] is True
+    assert staleness_by_id[second.id]["changed"] is True  # node-b head 缺失
+
+    other_fetched = await service.get_check(
+        db_session,
+        novel_id=str(other_novel_id),
+        check_id=str(other.id),
+    )
+    assert other_fetched.map_staleness == {
+        "changed": False,
+        "changed_count": 0,
+        "nodes": [],
+        "truncated": False,
+    }
+    assert all(
+        novel in {str(novel_id), str(other_novel_id)} for novel, _ in calls
+    )
+
+    # 没有任何基线时列表读取不触发 head 查询。
+    calls.clear()
+    await WritingConflictCheckService(
+        map_node_head_loader=counting_head_loader,
+    ).list_checks(
+        db_session,
+        novel_id=str(novel_id),
+        chapter_index=2,
+        scene_id=None,
+        limit=10,
+    )
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_map_change_keeps_ai_review_fingerprint_and_public_summary(
+    db_session: AsyncSession,
+) -> None:
+    """地图变更前后 AI 复核语义指纹不变（基线创建时写一次、结果不写回），
+    public_conflict_summary 不外泄内部键。"""
+    from modules.writing.conflict_ai import _check_semantic_fingerprint
+    from modules.writing.repositories import public_conflict_summary
+
+    novel_id = uuid.uuid4()
+    scene_id = uuid.uuid4()
+    db_session.add(Project(id=novel_id, title="Fingerprint stable"))
+    await db_session.flush()
+    facts = [_map_fact("node-a", "rev-a")]
+
+    created = await _create_check_with_map(db_session, novel_id, scene_id, facts)
+    repo = WritingConflictCheckRepository()
+    check_row, items = await repo.get_check(
+        db_session,
+        uuid.UUID(str(created.id)),
+        novel_id,
+    )
+    before = _check_semantic_fingerprint(check_row, items)
+
+    async def changed_head_loader(_db, _novel_id, _node_ids):
+        return {
+            "node-a": {
+                "node_id": "node-a",
+                "title": "甲",
+                "status": "adopted",
+                "revision_id": "rev-z",
+                "source_hashes": [],
+            },
+        }
+
+    fetched = await WritingConflictCheckService(
+        map_node_head_loader=changed_head_loader,
+    ).get_check(db_session, novel_id=str(novel_id), check_id=str(created.id))
+    assert fetched.map_staleness["changed"] is True
+
+    check_row, items = await repo.get_check(
+        db_session,
+        uuid.UUID(str(created.id)),
+        novel_id,
+    )
+    assert _check_semantic_fingerprint(check_row, items) == before
+
+    # public 投影剥掉内部任务键，保留有界基线，绝不包含比较结果。
+    check_row.summary_json["_ai_review_task_id"] = "task-1"
+    public = public_conflict_summary(check_row.summary_json)
+    assert "_ai_review_task_id" not in public
+    assert "map_staleness" not in public
+    assert public["map_baseline"]["nodes"]["node-a"]["revision_id"] == "rev-a"

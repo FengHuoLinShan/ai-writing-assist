@@ -81,6 +81,7 @@ from core.service_keys import (
     WORLD_GET_CHARACTER_ID_BY_WORLD_ENTITY,
     WORLD_LIST_ADOPTED_MAP_CONTINUITY_FACTS,
     WORLD_READ_MAP_CHAPTER_CONSUMERS,
+    WORLD_READ_MAP_NODE_HEADS,
     WORLD_LIST_CHARACTERS,
     WORLD_LIST_ENTITIES,
     WORLD_LIST_ENTITY_TERMS,
@@ -171,6 +172,7 @@ from modules.world.map_atlas_facade import (
     list_adopted_map_continuity_facts as _world_list_map_continuity_facts,
     map_capabilities as _world_map_capabilities,
     read_map_chapter_consumers as _world_read_map_chapter_consumers,
+    read_map_node_heads as _world_read_map_node_heads,
 )
 from modules.imports.facade import (
     get_active_organization as _imports_get_active_organization,
@@ -445,6 +447,7 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
             _world_list_map_continuity_facts,
         ),
         (WORLD_READ_MAP_CHAPTER_CONSUMERS, _world_read_map_chapter_consumers),
+        (WORLD_READ_MAP_NODE_HEADS, _world_read_map_node_heads),
         # AO-5 第二批：evidence(L2)/writing(L2) 消费 assistant facade 能力经这些
         # DI 键，assistant 反方向顶层/函数内导入清零。
         (ASSISTANT_INSPECT_DISCUSSION, _assistant_inspect_discussion),

@@ -163,6 +163,8 @@ published，不因 RP 历史引用改变作者编辑心智。
 
 问题项的 `location_json` 保存轻量证据结构：`source` 描述来源模块、类型、标签、字段和摘录；`open_target` 描述前端可以打开的目标；`needs_review_reason` 描述候选证据复核原因。发布章节时，最近一次检查会归档到 `writing_drafts.conflict_check_snapshot_json`，快照保留 `source` / `open_target`，但不保留正文 `text_range`。
 
+改图后旧检查可核对（G8b）：创建检查时把全部载入的地图事实按 `(node_id, revision_id)` 去重后写入 `summary_json.map_baseline`（节点上限 200、每节点来源 hash 上限 32，随发布快照有界透传）。读取检查（列表为一次批量查询，不逐节点探查）时经 `world.read_map_node_heads` DI 键取当前 head，以 `revision_id` 为主比较，`source_hashes` 辅助；节点取消采用或删除也算已变。结果只出现在响应的 `map_staleness` 字段，不写回 `summary_json`，因此发布快照与 AI 复核语义指纹不受地图后续变化影响。无基线（历史检查、`not_applicable`、无事实的 `not_checked`）或 head 读取失败时不提示。前端在检查详情对 completed 与 degraded 都显示“检查结果基于旧版地图，建议重新检查”并指向变化的地图节点，与 G8a 保存回执（“章节改了、哪些地图引用旧正文”）是两个独立提示。
+
 作者可对三类 continuity 问题提交编辑后的 category/field/before/after，并以当前正文和问题时间戳显式确认。服务端锁定检查与问题，重验正文 hash、原 checkpoint，以及 AI 问题绑定的 Evidence confirmation；随后在 Scene 事件锁内按问题 ID 幂等追加 `author_confirmation` 事件，重建受影响维度并把旧 checkpoint confirmation 标为 stale。重复请求返回同一事件回执；它不覆盖 Scene 原事件流，也不自动采用其他 AI 判断。
 
 冲突详情把三类问题显示为“空间与位置风险 / 时间顺序风险 / 因果与前提风险”。作者点击“记录正确事实”后在问题行内填写正确情况，再经二次确认提交；确认中禁止重复操作，失败或 409 保留输入并提示刷新，成功后刷新检查与 Scene Lens。内部 category、field path、事件 ID 和 JSON 不作为主界面字段。

@@ -240,3 +240,57 @@ describe("sceneAlerts", () => {
     expect(buildSceneAlerts({ scene: null, content: "正文" })).toEqual([])
   })
 })
+
+describe("sceneAlerts 地图基线（G8b）", () => {
+  it("检查依据的地图已更新时单独提示，并计入待重查；不再宣称无未处理项", () => {
+    const alerts = buildSceneAlerts({
+      scene: completeScene,
+      chapterIndex: 12,
+      content: "正文",
+      latestCheck: {
+        id: "check-1",
+        draft_id: "d1",
+        version_number: 3,
+        scope: { content_char_count: 2, content_excerpt: "正文" },
+        items: [],
+        map_staleness: {
+          changed: true,
+          changed_count: 1,
+          nodes: [{ node_id: "map-node-1", title: "东岸地图" }],
+          truncated: false,
+        },
+      },
+      draftId: "d1",
+      versionNumber: 3,
+    })
+
+    expect(alerts).toContainEqual(expect.objectContaining({
+      id: "check-map-stale",
+      stale: true,
+      message: "检查结果基于旧版地图，建议重新检查",
+    }))
+    expect(summarizeSceneAlerts(alerts).hasStaleCheck).toBe(true)
+    expect(alerts.some((item) => item.id === "check-clear")).toBe(false)
+  })
+
+  it("地图未变化时不提示旧版地图", () => {
+    const alerts = buildSceneAlerts({
+      scene: completeScene,
+      chapterIndex: 12,
+      content: "正文",
+      latestCheck: {
+        id: "check-1",
+        draft_id: "d1",
+        version_number: 3,
+        scope: { content_char_count: 2, content_excerpt: "正文" },
+        items: [],
+        map_staleness: { changed: false, changed_count: 0, nodes: [], truncated: false },
+      },
+      draftId: "d1",
+      versionNumber: 3,
+    })
+
+    expect(alerts.some((item) => item.id === "check-map-stale")).toBe(false)
+    expect(alerts.some((item) => item.id === "check-clear")).toBe(true)
+  })
+})
