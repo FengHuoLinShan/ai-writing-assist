@@ -130,9 +130,9 @@ test("审读台按意见发起批注修订并跟踪候选与改后复核", async
   expect(reviseRequests[0].items).toHaveLength(2)
   expect(reviseRequests[0].items.every(item => item.instruction === "把地址线索改得更隐晦，保留悬念")).toBe(true)
 
-  // 任务完成后给出替换候选入口（候选仍需在写作页审阅采用）
+  // 任务完成后给出替换候选入口（写作页先独立审稿、通过后才能采用）
   await expect(panel.getByText("替换候选已生成")).toBeVisible({ timeout: 20000 })
-  await panel.getByRole("button", { name: "去写作页审阅并采用" }).click()
+  await panel.getByRole("button", { name: "去写作页完成独立审稿并采用" }).click()
   await expect(page).toHaveURL(/writing/)
 
   // 改后复核（采用后由系统触发或作者手动发起）：只允许三值结论

@@ -749,3 +749,62 @@ describe("作者偏好", () => {
     expect(globalThis.toast).toHaveBeenCalledWith("日更目标已恢复到全局默认", "success")
   })
 })
+
+describe("导出图片包", () => {
+  function stubExportManifest(objects) {
+    globalThis.api.world.imageExportManifest.mockImplementation(
+      async () => ({ novel_id: "p1", objects }),
+    )
+  }
+
+  it("作者页签在「导出作品」之后渲染图片包区块并区分两种导出", async () => {
+    stubExportManifest([])
+    const wrapper = mount(ProjectSettingsView, { props: makeProps() })
+    await flushPromises()
+    const html = wrapper.html()
+    expect(html).toContain("导出作品")
+    expect(html.indexOf('data-testid="image-export-panel"')).toBeGreaterThan(html.indexOf("导出作品"))
+    const panel = wrapper.find('[data-testid="image-export-panel"]')
+    expect(panel.text()).toContain("导出图片包")
+    expect(panel.text()).toContain("由浏览器在本机打包")
+    expect(panel.text()).toContain("「导出作品」导出的是文字，由服务端生成")
+  })
+
+  it("图片包生成中触发离开确认并说明不会留下半成品文件", async () => {
+    const confirm = vi.fn(() => false)
+    setBridgeOverrides({ confirm })
+    stubExportManifest([{
+      novel_id: "p1",
+      category: "map_page",
+      bucket: "maps",
+      key: "map-atlas/p1/pages/44444444-4444-4444-8444-000000000001/image.png",
+      content_type: "image/png",
+      sha256: null,
+      byte_size: null,
+      page_id: "44444444-4444-4444-8444-000000000001",
+      title: "封面",
+    }])
+    globalThis.api.world.fetchMapAtlasImage.mockImplementation(
+      () => new Promise(() => {}),
+    )
+    let guard = null
+    const wrapper = mount(ProjectSettingsView, {
+      props: makeProps(),
+      global: {
+        provide: {
+          [ISLAND_LEAVE_GUARD]: (fn) => {
+            guard = fn
+          },
+        },
+      },
+    })
+    await flushPromises()
+    expect(guard()).toBe(true)
+    await wrapper.get('[data-testid="image-export-start"]').trigger("click")
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="image-export-progress"]').exists()).toBe(true))
+    expect(guard()).toBe(false)
+    expect(confirm).toHaveBeenCalledWith(
+      "图片包还在生成中，离开会中止导出且不会留下文件。确定离开吗？",
+    )
+  })
+})

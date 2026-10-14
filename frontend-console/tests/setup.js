@@ -346,6 +346,8 @@ globalThis.api = {
     editMapAtlasPage: vi.fn(),
     updateMapAtlasAnnotation: vi.fn(),
     fetchMapAtlasImage: vi.fn(),
+    imageExportManifest: vi.fn(),
+    fetchMapAtlasMask: vi.fn(),
   },
   tasks: {
     submit: vi.fn(),

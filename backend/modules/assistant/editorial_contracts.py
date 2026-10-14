@@ -167,9 +167,16 @@ class ReviewFinding(BaseModel):
 
 
 class ReviewPass(BaseModel):
+    """一轮审读的结构化输出。
+
+    ``summary`` 必填且非空：LLM 客户端的截断恢复会把残缺输出补全成
+    ``{}``，若字段全默认值即可通过校验，一次彻底坏掉的输出会被当成
+    “零意见完成”的审读。收紧后空对象不合法，坏输出按失败处理。
+    """
+
     model_config = ConfigDict(extra="forbid")
 
-    summary: str = Field(default="", max_length=700)
+    summary: str = Field(min_length=1, max_length=700)
     reader_state: str = Field(default="", max_length=700)
     findings: list[ReviewFinding] = Field(default_factory=list, max_length=8)
 

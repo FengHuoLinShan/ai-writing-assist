@@ -58,6 +58,7 @@
           <p class="editorial-desk__status" role="status">{{ statusLabel(selectedReview.status) }} · 已查 {{ selectedReview.checked_chapters.length }} 章，未查 {{ selectedReview.unchecked_chapters.length }} 章</p>
           <p v-if="selectedReview.brief_changed || selectedReview.status === 'stale'" class="editorial-desk__error">依据已变化；旧意见保留供回看，请对当前正文重新审读。</p>
           <p v-if="selectedReview.error" class="editorial-desk__error">{{ selectedReview.error }}</p>
+          <details v-if="selectedReview.error_detail" class="editorial-desk__error-detail"><summary>查看技术详情</summary><p>{{ selectedReview.error_detail }}</p></details>
           <p v-if="selectedReview.report?.summary">{{ selectedReview.report.summary }}</p>
           <p v-if="selectedReview.unchecked_chapters.length">尚未检查：{{ selectedReview.unchecked_chapters.join('、') }} 章。</p>
           <p v-if="selectedReview.missing.length">缺失或排除：{{ selectedReview.missing.map(item => `${item.chapter_index}章${item.reason === 'excluded' ? '（已排除）' : '（缺稿）'}`).join('、') }}。</p>
@@ -75,7 +76,7 @@
               <h4 v-if="selectedIssueIds.length" id="editorial-revision-title">按选中的 {{ selectedIssueIds.length }} 条意见发起批注修订</h4>
               <h4 v-else id="editorial-revision-title">本轮批注修订</h4>
               <template v-if="selectedIssueIds.length">
-                <p>请勾选需要修改的原文位置，连同意见原文和下面的处置说明一起交给批注修订，只生成改动所选片段的替换候选；候选仍需你在写作页审阅采用。引文已不在当前稿的意见不会生成候选，会逐条说明原因。发起修订含生成、审查及必要返修，按实际调用计费。</p>
+                <p>请勾选需要修改的原文位置，连同意见原文和下面的处置说明一起交给批注修订，只生成改动所选片段的替换候选；候选到写作页要先通过独立审稿，通过后才能采用到工作稿。引文已不在当前稿的意见不会生成候选，会逐条说明原因。发起修订含生成、审查及必要返修，按实际调用计费。</p>
                 <fieldset v-for="issue in selectedRevisionIssues" :key="issue.id">
                   <legend>{{ issue.finding?.judgment }}：选择修改位置</legend>
                   <label v-for="(evidence, index) in issue.finding?.evidence || []" :key="index">
@@ -98,12 +99,13 @@
                 <p v-for="item in revisionItems" :key="`${item.issue_id}:${item.chapter_index}:${item.task_id || item.reason}`">
                   <template v-if="item.kind === 'queued'">
                     <template v-if="!item.done">修订进行中…</template>
-                    <template v-else-if="item.candidate_draft_id">替换候选已生成：<button type="button" class="btn btn-sm" @click="openRevisionCandidate(item)">去写作页审阅并采用</button></template>
+                    <template v-else-if="item.candidate_draft_id">替换候选已生成：<button type="button" class="btn btn-sm" @click="openRevisionCandidate(item)">去写作页完成独立审稿并采用</button></template>
                     <template v-else>修订未生成候选：{{ item.reason || '请查看写作页的任务提示' }}</template>
                   </template>
                   <template v-else-if="item.kind === 'unlocatable'">这条意见未能发起修订：{{ item.reason }}</template>
                   <template v-else>{{ item.reason || '这条意见未能发起修订' }}</template>
                 </p>
+                <p v-if="revisionCandidateReady" class="editorial-desk__note">采用前，写作页会先对这份候选做一次独立审稿；审稿通过前不能直接采用，这是为了防止未经检查的改写进入正文。</p>
               </div>
             </section>
           </div>
@@ -239,6 +241,7 @@ function revisionRequestItems(instruction) {
 watch(evidenceChoices, () => { overlapConfirmed.value = false }, { deep: true })
 const revisionInstruction = ref(""), revisionBusy = ref(false), revisionError = ref("")
 const revisionItems = ref([])
+const revisionCandidateReady = computed(() => revisionItems.value.some(item => item.kind === "queued" && item.done && item.candidate_draft_id))
 const scope = ref("chapter"), startChapter = ref(1), endChapter = ref(1)
 const selectedDimensions = ref(dimensions.map(item => item.id)), excludedText = ref("")
 const loading = ref(false), busy = ref(false), error = ref("")
@@ -604,6 +607,7 @@ onBeforeUnmount(() => { chapterChoicesRequest++; stopPoller() })
 <style scoped>
 .editorial-desk{display:grid;gap:16px;padding:16px;overflow-y:auto;min-height:0;color:var(--text-primary);line-height:1.55}.editorial-desk__heading,.editorial-desk__section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.editorial-desk__heading p,.editorial-desk__section p{margin:6px 0;color:var(--text-secondary)}.editorial-desk__section{border:1px solid var(--border);border-radius:12px;padding:14px;background:var(--surface)}.editorial-desk__section summary{cursor:pointer;font-weight:700}.editorial-desk__section summary small{font-weight:400;color:var(--text-secondary)}.editorial-desk__section h3,.editorial-desk__section h4{margin:0 0 8px}.editorial-desk__section label{display:grid;gap:4px;margin:10px 0;font-size:14px}.editorial-desk__section label small{font-weight:400;color:var(--text-secondary)}.editorial-desk__section input:not([type=checkbox]),.editorial-desk__section textarea,.editorial-desk__section select{width:100%;min-height:38px;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text-primary)}.editorial-desk__section fieldset{display:flex;flex-wrap:wrap;gap:6px 12px;border:0;padding:4px 0;margin:8px 0}.editorial-desk__section fieldset label,.editorial-desk__section>label:has(input[type=checkbox]){display:flex;align-items:center;gap:6px;margin:0}.editorial-desk__scope{display:flex;gap:10px;flex-wrap:wrap}.editorial-desk__scope label{flex:1 1 110px}.editorial-desk__actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px}.editorial-desk__error{color:var(--danger,#b42318);padding:8px;background:var(--danger-soft,#fff4f2);border-radius:8px}.editorial-desk__status{font-weight:700}.editorial-desk__issues{display:grid;gap:10px;margin-top:14px}.editorial-desk__revision{border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:12px;background:var(--surface)}.editorial-desk__revision h4{margin:0 0 8px}.editorial-desk__revision label{display:grid;gap:4px;margin:10px 0;font-size:14px}.editorial-desk__revision label small{font-weight:400;color:var(--text-secondary)}.editorial-desk__revision textarea{width:100%;min-height:38px;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text-primary)}.editorial-desk__revision-results{margin-top:8px;display:grid;gap:6px}.editorial-desk__revision-results p{margin:0;color:var(--text-primary)}
 .editorial-desk__note{font-size:12px;color:var(--text-secondary)}
+.editorial-desk__error-detail{font-size:12px;color:var(--text-secondary)}.editorial-desk__error-detail summary{cursor:pointer;font-weight:400}.editorial-desk__error-detail p{margin:6px 0;word-break:break-all}
 .editorial-desk__flowstrip{border:1px solid var(--border);border-radius:12px;padding:14px;margin-top:12px;background:var(--surface);display:grid;gap:10px}
 .editorial-desk__flowstrip header p{margin:4px 0 0;color:var(--text-secondary);font-size:13px}
 .editorial-desk__flow-status{font-size:12px;color:var(--text-secondary);white-space:nowrap}
