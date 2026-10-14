@@ -328,6 +328,30 @@ describe("打包器 buildImagePackages", () => {
     await expect(promise).rejects.toBeInstanceOf(ExportAbortedError)
   })
 
+  it("最后清单摘要等待期间取消，不返回可下载的包", async () => {
+    let cancelled = false
+    let releaseManifestHash
+    let hashCalls = 0
+    const outcome = buildImagePackages({
+      items: [mapPageItem()],
+      fetchBytes: async () => pngBytes(),
+      verifyImage: passthroughVerify,
+      hash: async (bytes) => {
+        hashCalls += 1
+        if (hashCalls === 2) {
+          await new Promise((resolve) => { releaseManifestHash = resolve })
+        }
+        return passthroughHash(bytes)
+      },
+      isCancelled: () => cancelled,
+    })
+    const rejection = expect(outcome).rejects.toBeInstanceOf(ExportAbortedError)
+    await vi.waitFor(() => expect(releaseManifestHash).toBeTypeOf("function"))
+    cancelled = true
+    releaseManifestHash()
+    await rejection
+  })
+
   it("空清单返回空结果", async () => {
     const outcome = await buildImagePackages({
       items: [],
@@ -336,6 +360,20 @@ describe("打包器 buildImagePackages", () => {
       hash: passthroughHash,
     })
     expect(outcome).toEqual({ packages: [], failures: [], totalItems: 0 })
+  })
+
+  it("浏览器无法读取暂存的 ZIP 时整轮失败，不返回损坏的包", async () => {
+    const slice = vi.spyOn(Blob.prototype, "slice").mockReturnValue({
+      arrayBuffer: async () => { throw new DOMException("Blob unavailable", "NotReadableError") },
+    })
+    try {
+      await expect(buildImagePackages({
+        items: [mapPageItem()], fetchBytes: async () => pngBytes(),
+        verifyImage: passthroughVerify, hash: passthroughHash,
+      })).rejects.toThrow("图片包暂存失败")
+    } finally {
+      slice.mockRestore()
+    }
   })
 })
 

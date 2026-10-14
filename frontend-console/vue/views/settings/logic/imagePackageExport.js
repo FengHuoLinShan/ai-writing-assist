@@ -263,9 +263,16 @@ export async function buildImagePackages(options) {
       { name: `${prefix}/manifest.sha256`, bytes: new TextEncoder().encode(`${manifestDigest}\n`) },
     ]
     const chunks = await zipEntries(packageEntries)
+    const blob = new Blob(chunks, { type: "application/zip" })
+    // Blob 暂存可能异步失败，确认可读后才交付下载。
+    try {
+      await blob.slice(-1).arrayBuffer()
+    } catch {
+      throw new Error("图片包暂存失败，请释放本机空间或使用普通浏览窗口后重试。")
+    }
     packages.push({
       timestamp,
-      blob: new Blob(chunks, { type: "application/zip" }),
+      blob,
       objectCount: rows.length,
       byteSize: packageBytes,
     })
@@ -310,6 +317,7 @@ export async function buildImagePackages(options) {
   }
   if (isCancelled()) throw new ExportAbortedError()
   await finalizePackage()
+  if (isCancelled()) throw new ExportAbortedError()
 
   return { packages, failures, totalItems: items.length }
 }

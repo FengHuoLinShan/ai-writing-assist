@@ -177,8 +177,16 @@ test("审读失败落到未完成终态：坏输出按失败处理，作者语�
   // 空对象违反收紧后的 ReviewPass schema，同样落到未完成终态。
   await createAutosavedDraft(project.id, 2, "截断样章", TRUNCATED_SENTENCE)
   await desk.getByLabel("起始章").fill("2")
+  const submission = page.waitForResponse(response => response.request().method() === "POST"
+    && new URL(response.url()).pathname === "/api/assistant/editorial/reviews")
   await desk.getByRole("button", { name: "开始审读已保存正文" }).click()
+  const receipt = await submission
+  expect(receipt.ok()).toBe(true)
+  const truncatedReview = await receipt.json()
+  // 绑定本次回执，避免相同失败文案误匹配上一份意见书。
+  await expect(desk.getByLabel("选择审稿记录")).toHaveValue(truncatedReview.id)
   await expect(desk.getByText(/未完成 · 已查 0 章，未查 1 章/)).toBeVisible({ timeout: 30000 })
+  await expect(desk.getByText("尚未检查：2 章。")).toBeVisible()
   await expect(desk.locator(".editorial-desk__error").first()).toHaveText(
     "这次审读没有完成，已保存的分段仍保留，可点“继续未完成部分”重试。"
   )

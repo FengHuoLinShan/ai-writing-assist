@@ -7,7 +7,7 @@ browser packing logic) through ``deploy/scripts/restore_objects.sh`` inside the
 same isolated Linux container topology as the G4a drill: docker ``none``
 network, synthetic MinIO/Postgres, compose shim, synthetic data only.
 
-Usage: python3 deploy/tests/run_browser_export_restore_drill.py [--keep]
+Usage: python3 deploy/tests/run_browser_export_restore_drill.py [--browser] [--keep]
 """
 
 from __future__ import annotations
@@ -59,8 +59,8 @@ def build_fixture(root: Path) -> tuple[list[dict], list[dict]]:
     seed.mkdir(mode=0o700)
     rows = []
     items = []
-    colors = ("blue", "green", "red", "purple")
-    titles = ("主世界", "主世界", "🗺️ 精灵领地", "备选大陆")
+    colors = ("blue", "green", "red", "purple", "yellow", "orange", "pink")
+    titles = ("主世界", "主世界", "🗺️ 精灵领地", "地" * 300 + "🐉", "ABC", "abc", "备选大陆")
     for index, (color, title) in enumerate(zip(colors, titles, strict=True), 1):
         page = f"44444444-4444-4444-8444-{index:012d}"
         payload = synthetic_image("PNG", color)
@@ -255,18 +255,12 @@ def host() -> None:
         browser_dir.mkdir(mode=0o700)
         spec_path = root / "browser-spec.json"
         spec_path.write_text(json.dumps({"items": items, "expect_failures": 0}))
-        generated = subprocess.run(
-            [
-                node,
-                "scripts/generate-image-export-fixture.mjs",
-                "--from",
-                str(spec_path),
-                str(browser_dir),
-            ],
-            cwd=frontend,
-            check=True,
-            capture_output=True,
-        ).stdout
+        generator = (
+            [node, "scripts/verify-image-export-browser.mjs", str(spec_path), str(browser_dir)]
+            if "--browser" in sys.argv
+            else [node, "scripts/generate-image-export-fixture.mjs", "--from", str(spec_path), str(browser_dir)]
+        )
+        generated = command(*generator, cwd=frontend)
         summary = json.loads(generated)
         assert summary["failures"] == 0, summary
         packages = sorted(browser_dir.glob("package-*.zip"))
@@ -586,7 +580,7 @@ def host() -> None:
                 str(packages[0]),
                 env=os.environ | {"ENV_FILE": str(env_file)},
             )
-            assert b"Object restore complete: objects=7" in output, output
+            assert f"Object restore complete: objects={len(rows)}".encode() in output, output
             print(output.decode().strip())
             reconciliation = json.loads(
                 runtime_command(
@@ -596,7 +590,7 @@ def host() -> None:
                     "/backup",
                 )
             )
-            assert reconciliation["objects"] == 7, reconciliation
+            assert reconciliation["objects"] == len(rows), reconciliation
             assert not list(backup_dir.glob(".object-restore.*"))
             assert not list(backup_dir.glob(".restore-object-references.*"))
             print(
@@ -605,7 +599,7 @@ def host() -> None:
                         "result": "complete",
                         "package": packages[0].name,
                         "package_mode": "0600",
-                        "objects": 7,
+                        "objects": len(rows),
                         "restore_entry": "restore_objects.sh <browser zip>",
                         "reconciled": reconciliation["objects"],
                         "unicode_duplicate_names": ["主世界", "主世界-2"],

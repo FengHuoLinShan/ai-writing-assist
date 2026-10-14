@@ -342,7 +342,9 @@ provider 等待至少900秒，仍受领域总 deadline/请求次数护栏约束�
 Kimi/Pi/DSH 通过 0600 任务文件接收正文，避免把作品资料放入进程参数；Codex/Claude
 使用 stdin。DSH headless 当前只有纯文本结果，不能从其 stdout 准确计数原生工具；
 产品工具仍由服务器限次，原生执行只受时限与输出上限约束，此限制须在验收中单列。
-产品的配对、领域工具与任务租约由 `modules/local_agent` 持有；现有 gateway 路径不变。
+产品图片任务的配对与租约由 `modules/local_agent` 持有；本段描述底层 CLI transport，
+不授权产品文字功能使用配对设备。文字功能统一经账户/project gateway，遗留本机文字任务
+失败关闭，不静默切换到账户客户端。
 
 
 ## 结构化输出能力声明与任务级路由（B5）

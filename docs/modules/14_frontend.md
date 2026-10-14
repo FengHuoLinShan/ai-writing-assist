@@ -157,7 +157,7 @@ map / rag / outline / settings / project-settings`，其主 DOM 全部由 Vue SF
 | `vue/views/generate/GenerateView.vue` / `vue/components/OwnerAiDrawer.vue` | owner 页 AI 抽屉内复用生成中心：world 共创与 POV 正文都使用表单内唯一主操作，长等待显示真实阶段，失败可聚焦原位重试并保留作者输入；任务资料按作者语言展示标题、状态、加入理由和来源，技术诊断渐进展开，预览按项目在当前标签页恢复；POV 选择/指令进入既有 512 KiB 项目会话，跨世界/写作 owner 时替换到正确所属页；矮窗口解除裁切，手机操作避开固定底栏；保留 checkpoint、continuation、target 与 preset，API/schema/wire 不变；旧 `generate` hash 仅作兼容重定向 |
 | `vue/views/project/components/SpreadsheetMigrationPanel.vue` / `spreadsheetMigration/*` | 导入抽屉「导入设定表格」页签（ADR-0030）：上传（多文件 xlsx/csv、10MB 校验）→ 逐表核对类型/表头/列映射 → AI 整理（大纲类默认预选、显式授权、进度轮询）→ 五分页签预览与逐条决策（conflict 摘录、相似名提示、validation policy 警示）→ 确认采用（confirmed+preview_hash，409 自动重取）→ 完成（跳世界库/整次撤销）；迁移记录列表支持继续/撤销/二次确认删除；「表格迁移」来源徽标与空态入口见世界库与大纲 |
 | `vue/views/settings/SettingsShellView.vue` / `GlobalSettingsView.vue` / `ProjectSettingsView.vue` | `settings` 与 `project-settings` 共用单标题的账户/当前作品设置外壳；加载失败可原位重试，字段错误和保存状态持续可见，图片连接按需展开，窄屏单栏且无横向溢出；账户级连接、余额、全局偏好和项目级导入参数/作者偏好的 API、保存载荷与离开保护不变，字体和专注模式只在显示层本地化 |
-| `vue/views/settings/components/ImageExportPanel.vue` + `logic/imagePackageExport.js` | 项目设置页「导出图片包」面板：经 owner 导出清单端点（`GET /api/world/{novel_id}/image-export`，拒绝匿名演示）列出可导出的地图页与世界对象图，浏览器用 fflate 流式打包为与 G4a 对象备份同格式的 ZIP（`manifest.json` + `manifest.sha256` + `objects/`）；`crypto.subtle` 不可用的非安全上下文禁用并说明，部分失败逐项列出、重试只补失败项，清单可能过期时提供「刷新清单」自愈；完成文案为「图片包已生成（N 张）」并明示不等于已备份，与「导出作品」的服务端文字导出在语义上区分 |
+| `vue/views/settings/components/ImageExportPanel.vue` + `logic/imagePackageExport.js` | 项目设置页「导出图片包」面板：经 owner 导出清单端点（`GET /api/world/{novel_id}/image-export`，拒绝匿名演示）列出可导出的地图页与世界对象图，浏览器用 fflate 流式打包为与 G4a 对象备份同格式的 ZIP（`manifest.json` + `manifest.sha256` + `objects/`）；`crypto.subtle` 不可用的非安全上下文禁用并说明，部分失败逐项列出、重试只补失败项，清单可能过期时提供「刷新清单」自愈；取消或卸载中止读取并丢弃迟到打包结果，最后清单摘要结束后也重验取消；单包自动下载，多包提供独立下载按钮并保留重试列表，离开、切换页签、刷新或重新生成前确认已保存全部分包；ZIP暂存不可读时整轮失败并提示释放空间或使用普通窗口；完成文案为「图片包已生成（N 张）」并明示不等于已备份，与「导出作品」的服务端文字导出在语义上区分 |
 
 公开演示有已发布正文时，Today 主操作显示「阅读正式正文」并进入专用只读阅读器；阅读器只请求 `published` 章节列表与按章最新正文，不挂载编辑器、版本历史、Scene、冲突检查或恢复本地工作稿。首页只从章节列表生成简化续读投影，不请求作者 `workspace-summary`、待办或世界工作稿。
 
@@ -734,7 +734,7 @@ RP 文字草稿与输入类型、人物/私语范围一起存储，失败保留�
 说明、必选确认与「允许本次生成」；生成中轮询，结果以候选预览并由作者「采用这张」或
 「放弃」，采用成功后才提示已保存，仍待处理的候选可稍后回来处理。地图册新建时在两种
 后端都可用时提供「出图方式」，账户图片连接不可用但本机可用时仍可新建；本机运行的任务
-同样经 `LocalRunApproval` 逐次允许。助手、RP、前瞻与协作里的旧本机确认只对遗留任务出现。
+同样经 `LocalRunApproval` 逐次允许。助手、RP、前瞻与协作已移除文字任务本机确认 UI；遗留任务提示使用当前账户模型重新发起。
 
 跨域确认（创作试验 merge 与助手 batch decide）成功后清除相关应用缓存代次，阻止旧 GET 回填；写作台使用带编辑修订校验的原安全载入路径显示采用后的新工作稿，未保存输入仍保留。
 
