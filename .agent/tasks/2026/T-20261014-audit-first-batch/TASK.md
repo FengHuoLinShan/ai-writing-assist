@@ -3,7 +3,7 @@ id: T-20261014-audit-first-batch
 title: 能力审计首批实施与集成验收
 status: active
 created: 2026-10-14T11:30:04+08:00
-updated: 2026-10-14T14:37:02+08:00
+updated: 2026-10-14T15:02:48+08:00
 parent: T-20261014-audit-followup-batch
 ---
 
@@ -16,7 +16,7 @@ parent: T-20261014-audit-followup-batch
 - G3① 已集成本地两阶段 commit 131b4a515、00ba86b3c；G3③a 本地 commit fc94fcfca。G4a本地 commit 1b0f067d6；G8a本地 commit 89efddc6b；新main并入 commit bc16a29f2。各切片实现已审查、集成，最终增量门禁通过。
 - 主审容量问题均已闭合：G4临时PG数据用本次匿名私有卷，保留无网络/CPU/RAM限制和仅本次卷清理；G8历史来源只读六字段SQL投影，不加载正文或完整provenance。
 - 集成初轮后端36失败已定位：2个导入棘轮叠加调整至522；34个旧测试fixture缺真实Project或作者principal，已只修3份fixture，原断言与production owner门禁不变。子分支完整fast7755通过；父集成默认locked完整fast7748通过、coverage86.81%，两树范围不同，不混用分母。
-- 下一步：修复19faa270cb83f86759678ac045421de2e41c1d79已提交推送，PR #227已更新并保留draft；全新GPT-6.1 Sol/xhigh规范、计划、备份三路review进行中。等待并主审复核结果，核查该head CI，再更新PR验收状态；暂不合并。
+- 下一步：已整合最新main fdd3ec598（合并提交2e50e24ca，仅3份文档追加冲突、两边内容均保留），补修正式ops镜像标签与Protocol契约位置。最终7964后端/2985前端/314部署及双桶+作者ZIP恢复通过；提交推送补修，再请三路独立Sol/xhigh审查者复核新固定head与CI，暂不合并。
 
 ## 目标与验收
 
@@ -124,3 +124,7 @@ parent: T-20261014-audit-followup-batch
 - 19faa270c已推送本仓库origin，PR #227正文已更新。提交后的secret、repo-gates通过，二进制增量0、18生产文件尺寸、release证据、导入522/65边/9双向均通过。审查者为review_227_xhigh_standards/spec/backup，均全新Sol/xhigh、fork_turns=none、只读，不复用旧审查者；固定完整diff e02137f7...19faa270c及修复diff4acf184c4...19faa270c。
 - 三路19faa270c审查已完成：规范无P1/P2、仅P3 Protocol声明未放contracts.py；Spec无P1/P2，27项独立定向测试及IR固定hash通过；备份原两项已闭合，但发现新P1，两个正式ops入口未load_release_id，会选未发布的:local镜像。主审已读实际Compose/发布/状态helper并复现缺标签exit125、正确标签exit0的合成反例，继续修复正式入口及backup/restore镜像合同。
 - 最新远端main已是fdd3ec59886e29cc5c9189a1c0fefa225cdc997f（#226运行时、#228收尾）；PR当前CONFLICTING，新head只有GitGuardian，无Actions run，不能说CI全绿。下一步先在本主题分支整合已合入主干、手动保留两边改动，再完成入口标签修复/回归和独立再审；不会合并PR或改原G2工作树。
+- main已整合到主题分支，三个追加文档冲突人工保留两边段落；生产代码无合并冲突。规范P3已将MapChapterConsumptionPort移入evolution/contracts.py，更新唯一内部调用方并删除原仅含Protocol的模块，DI键/注册/行为不变，导入522/65/9不变。
+- 两个正式对象ops入口在任何Compose前load_release_id，复用现有已完成部署状态/可达main校验，未引入环境兜底。7个真实shell镜像/状态反例修复前全失败、修复后全通过，原两个发布器入口用例移至已有finalized-state夹具并保留全部有效断言；新增5项（目录/ZIP镜像2、非法状态3）。HEAD漂移和错误外部RELEASE_ID均不能覆盖已完成发布标签。
+- 原作者ZIP实演练调用方也补齐私有合成Git/发布状态；第一次因macOS临时路径别名被既有状态边界拒绝，夹具Path.resolve后实际正式shell解包/verify/restore7图通过，不放宽状态校验。标准双桶恢复7图/2桶同样通过（RPO3.609s/RTO6.672s，仅小样本）。
+- 最终整合后本地默认locked fast：7964passed/2skipped、coverage86.85%、RuntimeWarning门禁通过/209.82s；前端237文件/2985passed/37.17s；完整部署314passed/148.01s；项目Ruff、shell、diff、文档库存、导入门禁通过。日志/private/tmp/audit227-integrated-{backend,frontend,deploy,object-drill,author-drill}.log。未访问真实数据或模型，未启动/更改原G2任务或生产服务。

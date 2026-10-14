@@ -41,7 +41,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.container import get
 from core.service_keys import WORLD_READ_MAP_CHAPTER_CONSUMERS
-from modules.evolution.map_consumption import MapChapterConsumptionPort
+from modules.evolution.contracts import MapChapterConsumptionPort
 from modules.evolution.store import PostgresAttemptStore
 from modules.story.continuity.contracts import SCENE_MEMORY_DIMENSIONS
 from modules.story.contracts import scene_chapter_indices as _scene_chapter_indices

@@ -103,9 +103,7 @@ def runtime(phase, path):
             app.put_object(
                 Bucket=row["bucket"],
                 Key=row["key"],
-                Body=image_bytes(
-                    "PNG" if row["category"].startswith("map_") else "WEBP"
-                ),
+                Body=image_bytes("PNG" if row["category"].startswith("map_") else "WEBP"),
                 ContentType="image/png"
                 if row["category"].startswith("map_")
                 else "image/webp",
@@ -389,9 +387,7 @@ def snapshot_volume_drill():
                 "fixture",
                 "-Fc",
             )
-            command(
-                "docker", "exec", container, "createdb", "-U", "fixture", "snapshot"
-            )
+            command("docker", "exec", container, "createdb", "-U", "fixture", "snapshot")
             restore = subprocess.run(
                 [
                     "docker",
@@ -513,7 +509,7 @@ def host():
     for image in (pg, minio, mc, runtime_image):
         command("docker", "image", "inspect", image)
     with tempfile.TemporaryDirectory(prefix="audit-g4a-object-drill-") as temporary:
-        path = Path(temporary)
+        path = Path(temporary).resolve()
         root = path / "backup"
         root.mkdir(mode=0o700)
 
@@ -691,7 +687,9 @@ def host():
             for row in fixture[:4]:
                 mask = "'" + fixture[4]["key"] + "'" if row is fixture[0] else "NULL"
                 sql += f"INSERT INTO map_atlas_pages VALUES ('{NOVEL}', '{row['page_id']}', '{row['key']}', {mask}, '{row['sha256']}', {row['byte_size']}, '{row['review_status']}');"
-            sql += f"INSERT INTO core_entities VALUES ('{NOVEL}', '{ENTITY}', '{VERSION}');"
+            sql += (
+                f"INSERT INTO core_entities VALUES ('{NOVEL}', '{ENTITY}', '{VERSION}');"
+            )
             command(
                 "docker",
                 "exec",
@@ -823,6 +821,40 @@ def host():
                     "\n".join(f"{key}={value}" for key, value in values.items()) + "\n"
                 )
                 env_file.chmod(0o600)
+                command("git", "init", "-q", str(path))
+                command(
+                    "git", "-C", str(path), "config", "user.email", "drill@example.com"
+                )
+                command(
+                    "git", "-C", str(path), "config", "user.name", "Object Restore Drill"
+                )
+                command("git", "-C", str(path), "add", "deploy/scripts")
+                command("git", "-C", str(path), "commit", "-qm", "synthetic release")
+                release_commit = (
+                    command("git", "-C", str(path), "rev-parse", "HEAD").decode().strip()
+                )
+                command(
+                    "git",
+                    "-C",
+                    str(path),
+                    "update-ref",
+                    "refs/remotes/origin/main",
+                    release_commit,
+                )
+                release_backup = backup_dir / "synthetic-release.dump"
+                release_backup.write_bytes(b"synthetic deployment state backup")
+                command(
+                    sys.executable,
+                    str(deploy / "scripts/deployment_state.py"),
+                    "write",
+                    str(deploy / ".state"),
+                    str(path),
+                    "a" * 32,
+                    "release",
+                    release_commit,
+                    release_commit,
+                    str(release_backup),
+                )
                 runtime_service = {
                     "image": runtime_image,
                     "entrypoint": ["python", "/ops/object_backup.py"],

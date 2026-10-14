@@ -34,6 +34,7 @@ PostgreSQL dump 不包含两个 MinIO bucket 的图片。数据库与对象各�
    恢复 ops 服务使用应用身份回灌图片，不得到 root。错误与收尾摘要不打印 SDK 敏感详情。
 5. 新 object backup timer 在每日 03:17（数据库 timer 02:17）发起，并与发布、DB 备份、恢复和清理共锁。
    不接入 release 前置门禁，不改 backup.sh stdout 或 deployment-state dump 配对，不删发布回退对象。
+   两个对象运维入口经既有 load_release_id 核验已完成部署状态，选择固定 SHA 镜像；非法状态在任何 Compose 调用前拒绝。
 6. DB 本地 retention 上限 30 天；restic 用 `--keep-within 30d --prune`。对象清单按 DB timestamp 老化；
    镜像只删除不再被任何保留清单引用、且自身年龄超过 retention 的文件。不完整清单仍保护已复制对象；
    清单损坏时停止垃圾回收；新备份状态与保留清理结果分别报告，清理失败仍以非零退出码提示运维核对。

@@ -322,6 +322,8 @@ checksum 后、safety backup 和任何数据库替换前走同一停服门槛。
 本地实现不等于生产已启用。生产仅在另获发布授权后走 `release.sh <40 位 origin/main SHA>`，
 配置独立备份凭据、运行 initializer、安装 object backup unit/timer，并做一次只读对账。
 DB timer 是 02:17，对象 timer 为 03:17；共用 production-operation.lock，不进入发布停机门禁。
+两个对象运维入口先经 `load_release_id` 核验已完成发布状态并加载固定 SHA 镜像标签，
+不依赖交互 shell 的 `RELEASE_ID`；状态损坏在任何 Compose 调用前拒绝。
 
 ```bash
 bash deploy/scripts/backup_objects.sh

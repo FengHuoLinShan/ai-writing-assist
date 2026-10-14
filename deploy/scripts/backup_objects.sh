@@ -5,6 +5,7 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 . "$SCRIPT_DIR/common.sh"
 acquire_production_operation_lock "$@"
 validate_environment >&2
+load_release_id
 ensure_private_backup_directory >&2
 OBJECT_ROOT="$BACKUP_DIR/objects"
 python3 "$SCRIPT_DIR/ensure_private_directory.py" "$OBJECT_ROOT"

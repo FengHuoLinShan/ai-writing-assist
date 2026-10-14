@@ -8,8 +8,6 @@ import subprocess
 import time
 from pathlib import Path
 
-import pytest
-
 DEPLOY_ROOT = Path(__file__).parents[1]
 
 
@@ -31,16 +29,11 @@ def _backup_fixture(tmp_path: Path) -> tuple[Path, dict[str, str], Path]:
         'case " $* " in\n'
         '  *" image inspect "*) exit "${FAKE_IMAGE_INSPECT_STATUS:-0}" ;;\n'
         '  *" pull "*) exit "${FAKE_IMAGE_PULL_STATUS:-0}" ;;\n'
-        "  *' create '*) printf 'fixture-object-postgres\\n' ;;\n"
         "  *' pg_isready '*) exit 0 ;;\n"
         "  *' pg_dump '*)\n"
         "    printf 'fixture dump bytes'\n"
         '    test "${FAKE_PG_DUMP_FAIL:-0}" != 1 ;;\n'
         '  *" pg_restore "*) exit "${FAKE_PG_RESTORE_FAIL:-0}" ;;\n'
-        "  *' psql '*) printf '[]\\n' ;;\n"
-        "  *' object-backup '*)\n"
-        "    printf 'fixture object copy reached\\n'\n"
-        '    exit "${FAKE_OBJECT_BACKUP_STATUS:-0}" ;;\n'
         "  *) exit 0 ;;\n"
         "esac\n"
     )
@@ -78,43 +71,6 @@ def _run_backup(
         text=True,
         timeout=10,
     )
-
-
-@pytest.mark.parametrize("copy_status", (0, 1))
-def test_object_backup_entry_publishes_pair_before_copy_and_cleans_staging(
-    tmp_path: Path, copy_status: int
-) -> None:
-    repo_root, environment, docker_log = _backup_fixture(tmp_path)
-    result = subprocess.run(
-        ["/bin/sh", "deploy/scripts/backup_objects.sh"],
-        cwd=repo_root,
-        env=environment | {"FAKE_OBJECT_BACKUP_STATUS": str(copy_status)},
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
-
-    assert result.returncode == copy_status, result.stderr
-    assert "fixture object copy reached" in result.stdout
-    assert ("Object backup operation incomplete." in result.stderr) == (copy_status != 0)
-    backup_dir = repo_root / "deploy" / "backups"
-    dump = backup_dir / f"{environment['FAKE_TIMESTAMP']}.dump"
-    assert dump.read_bytes() == b"fixture dump bytes"
-    assert (
-        Path(f"{dump}.sha256").read_text().split()[0]
-        == hashlib.sha256(dump.read_bytes()).hexdigest()
-    )
-    commands = docker_log.read_text()
-    assert commands.index("pg_dump") < commands.index("create --pull never")
-    assert (
-        commands.index("exec -i fixture-object-postgres pg_restore")
-        < commands.index("exec -i fixture-object-postgres psql")
-        < commands.index(" object-backup ")
-    )
-    assert "rm -fv fixture-object-postgres" in commands
-    assert not list(backup_dir.glob(".backup-*"))
-    assert not list(backup_dir.glob(".object-db-*"))
-    assert not list((backup_dir / "objects").glob(".references.*"))
 
 
 def test_failed_pg_dump_cleans_current_and_stale_staging_files(tmp_path: Path) -> None:

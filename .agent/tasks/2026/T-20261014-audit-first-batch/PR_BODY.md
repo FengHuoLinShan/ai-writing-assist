@@ -6,18 +6,19 @@
 
 - G3①：两阶段退役旧 bundle Markdown renderer；活跃编译器/IR、输出/hash、隐藏真相与叙事义务断言保留。
 - G3③a：pending/approve/claim 仅图片，旧文字 task/invocation/snapshot 失败关闭；历史回执、图片确认/取消/防重和 owner 隔离保留。
-- G4a：同机独立私有目录、独立只读备份身份、同份 dump 取对象清单、增量校验、30 天老化、目录/作者 ZIP 运维恢复。正式 shell 入口使用共享发布器认可的 staging 名；损坏历史不提供缓存，新备份仍可完成，垃圾回收失败关闭并单独报告，退出码非零提醒运维核对。
+- G4a：同机独立私有目录、独立只读备份身份、同份 dump 取对象清单、增量校验、30 天老化、目录/作者 ZIP 运维恢复。正式 shell 入口使用共享发布器认可的 staging 名、已完成发布状态的固定 SHA 镜像；损坏历史不提供缓存，新备份仍可完成，垃圾回收失败关闭并单独报告，退出码非零提醒运维核对。
 - G8a：同 owner/novel 历史来源身份重验，只扫有限 saved current head；SQL 投影不读正文/大 JSON，SAVEPOINT 降级，地图仅提示核对。
 
 没有新增表、migration 或 outbox。退役入口无生产调用；旧文字不再批准/派发，新增地图回执与窄只读 DI 口。恢复核对目标 DB 的 novel/bucket/key/hash/size，不导入跨项目数据。生产部署与真实数据/模型验收不在本 PR 交付范围。
 
 ## 验证
 
-- 本次备份修复：新增 7 项回归；六个故障反例修复前全失败、修复后通过，另验合法历史 hash 冲突仍失败关闭。真实 shell+publisher 覆盖复制成功/失败；清单故障覆盖空遗留目录、缺 SHA、SHA 不匹配、错误权限，以及连续新快照可读、有效缓存仍复用、老化旧对象不误删。
-- 最终备份专题 41 passed，完整部署 309 passed；项目 Ruff、shell 语法、diff 检查通过。部署文件套用额外 backend lint 规则与基线比较无新增问题。
-- 本次无网络合成实恢复 7 对象/2 桶，元数据、权限、hash/size、解码、缺图和流中断反例通过；RPO 2.586s / RTO 4.774s 仅代表小合成集。
-- 其余首批既有证据：后端 7748 passed /2 skipped，coverage 86.81%；PG critical 95+专项9；前端2980、浏览器受影响8例、build/ESLint；26 prompt 合同、固定IR/hash与活跃AST不变。备份修复未改这些生产路径。
-- 最新修复 head 的远端 CI 与全新 GPT-6.1 Sol / xhigh 独立审查正在等待完成；保持 draft，暂不合并。
+- 本次备份修复新增 12 项回归：发布器合同2、损坏历史4、合法hash冲突1、目录/ZIP镜像2、非法发布状态3。两组故障反例均先证明修复前失败，再验证修复后通过；保留完整发布器、清理、幂等和权限断言。
+- 正式入口以私有 finalized state 验证镜像标签；HEAD漂移、错误/未提供外部 RELEASE_ID 不改变已完成发布标签；非法状态在 Docker/数据库调用前拒绝。
+- 整合最新 main（含已合入的 G2）后：后端7964 passed /2 skipped，coverage86.85%，RuntimeWarning门禁通过；前端2985、完整部署314通过。项目Ruff、shell语法、diff与repo门禁通过；只有三份追加文档有主干冲突，内容均保留。
+- 最终隔离无网络合成实恢复7对象/2桶通过，另实际执行作者ZIP正式shell的解包/verify/restore7图。元数据/权限/hash/size/解码、缺图和流中断反例保留；RPO3.609s/RTO6.672s仅代表小合成集。
+- PG critical95+专项9、受影响浏览器8例、26prompt合同和固定IR/hash为此前首批证据；本次最终提交的PG/浏览器回归以远端CI结果为准。
+- 19faa270c 的全新 Sol/xhigh review 发现正式ops镜像标签遗漏及Protocol契约放置问题，已一并补修并请求同三名独立审查者复核最终head；新CI/再审等待完成。保持draft，暂不合并。
 
 任务与本地验证记录：[TASK](.agent/tasks/2026/T-20261014-audit-first-batch/TASK.md)。此前固定 head 4acf184c4 的独立审查与反例：[REVIEW](.agent/tasks/2026/T-20261014-audit-first-batch/REVIEW.md)。
 

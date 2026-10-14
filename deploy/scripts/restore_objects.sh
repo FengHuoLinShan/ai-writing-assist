@@ -9,6 +9,7 @@ if [ "$#" -ne 1 ] && [ "$#" -ne 2 ]; then
     exit 2
 fi
 validate_environment >&2
+load_release_id
 ensure_private_backup_directory >&2
 REFERENCES=
 TEMP_ROOT=
