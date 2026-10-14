@@ -54,6 +54,11 @@ async def _generate(_self, request, *, complete_stream=False):
     structured = structured_reply(request)
     if structured is not None:
         return structured
+    from tests.support.assistant_editorial_provider import editorial_reply
+
+    editorial = await editorial_reply(request)
+    if editorial is not None:
+        return editorial
     planning = next(
         (
             tool

@@ -4,6 +4,7 @@ export default createE2EConfig({
   profile: "test:e2e:functional",
   testIgnore: [
     "assistant.spec.js",
+    "assistant-editorial.spec.js",
     "creative-forecast.spec.js",
     "creative-rebase.spec.js",
     "editorial.spec.js",
