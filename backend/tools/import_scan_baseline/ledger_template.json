@@ -1,0 +1,174 @@
+{
+  "$comment": "G7 长篇质量验收单一账本模板。由 G7a（2026-10-14）定义，G7b（诡秘前 60 章新 v3 run）与并入的世界演化第四阶段 P4-E 指标按此填写。分母永远包含 dropped 与 omitted；unknown 与作者处置单列，不计入成功率或覆盖率。真实调用的费用账本对齐 backend/evals/v4_live.py Meter 与 testing-guide.md「付费实测账本与证据」：同一预算只用一份累计账本；受版权原文的完整账本留在仓库外私有目录，仓库内快照去 request/response、保留哈希与 payload_redacted 指针。",
+  "ledger_kind": "g7-longform-acceptance-ledger",
+  "ledger_version": "1",
+  "denominator_rules": {
+    "units_total": "units_total = units_processed + units_dropped + units_omitted（dropped/omitted 永远留在分母，不得从覆盖率或成功率中剔除）",
+    "unknown": "unknown 单列：状态未知/用量未知/超时的请求只进 unknown 列与 calls 账本，不得折算为成功或失败；费用按保留上界计",
+    "author_disposition": "作者处置单列：待裁定(pending)与其后续 adopted/rejected/edited_then_adopted/deferred/expired 分别计数，不并入模型侧成功率",
+    "spoiler_safety": "以 Scene-local 截止（visible_until_*）复核的结论单独标注；跨截止事实不得计入本 Scene 指标"
+  },
+  "metric_definitions": [
+    {
+      "id": "import.unit_coverage",
+      "definition": "每阶段 processed / units_total；按 章/来源/Scene 三种单位分别报告",
+      "stages": ["source_ingest", "scene_scan", "entity_extraction", "structure", "writing_checks", "evolution"]
+    },
+    {
+      "id": "import.dropped_units",
+      "definition": "被流水线丢弃的单位数及原因分布（解析失败/超长/空章/超时等）",
+      "column": "dropped（分母内）"
+    },
+    {
+      "id": "import.omitted_units",
+      "definition": "被有界选择省略的单位数及原因分布；深度导入至少包含 omitted_sources 的 phase2_identity_top_k（character 上限 6、world object 上限 16）",
+      "column": "omitted（分母内）"
+    },
+    {
+      "id": "import.unknown_requests",
+      "definition": "状态或用量未知的模型请求数；逐条指向 model_calls[].sequence",
+      "column": "unknown（单列）"
+    },
+    {
+      "id": "import.author_dispositions",
+      "definition": "待裁定量与作者处置流转（adopted/rejected/edited_then_adopted/deferred/expired）",
+      "column": "author_disposition（单列）"
+    },
+    {
+      "id": "import.per_chapter_cost",
+      "definition": "每章付费请求数、费用上界（USD）与耗时；G7b 经原生 Codex Luna（codex-text-v3）运行",
+      "column": "calls 账本聚合"
+    },
+    {
+      "id": "evolution.world_coverage_per_scene",
+      "definition": "每场与每候选的 World 覆盖（P4-E；与 2026-09-27 基线 66 场/4 通过/43 容量延后/471 待裁定对比）",
+      "origin": "P4-E"
+    },
+    {
+      "id": "evolution.category_discovery_coverage",
+      "definition": "每类别的发现覆盖与未检原因（P4-E）",
+      "origin": "P4-E"
+    },
+    {
+      "id": "evolution.pending_adjudications",
+      "definition": "期末待裁定数量与流转（P4-E，与 import.author_dispositions 同列制）",
+      "origin": "P4-E"
+    },
+    {
+      "id": "evolution.redo_scope_after_early_edit",
+      "definition": "早期改稿一次后的重读场景数、付费调用数与费用（P4-E）",
+      "origin": "P4-E"
+    },
+    {
+      "id": "stability.content_fingerprint",
+      "definition": "改动无关稿件时 context/内容指纹不变的抽查记录（P4-E）",
+      "origin": "P4-E"
+    },
+    {
+      "id": "import_scan.hotspot_sql_baseline",
+      "definition": "G7a 合成基线：prepare() 每次 limit=10_000 世界上下文+实体词项读的 SQL 数/耗时/内存规模曲线（本目录 baseline-*.json）",
+      "origin": "G7a"
+    }
+  ],
+  "run": {
+    "run_id": null,
+    "created_at": null,
+    "workflow": "deep-import-v3-scene",
+    "runtime": {
+      "provider": "native-codex-luna",
+      "wrapper": "codex-text-v3",
+      "owner_connection_verified": null
+    },
+    "baseline_commit": null,
+    "corpus_unit": {
+      "chapters": "1-60",
+      "sources": 63,
+      "characters": 212868,
+      "note": "G7b 只复用单位定义；旧 v2 run 的 8/63 前缀、账本与请求身份不拼接、不重发"
+    },
+    "cost_policy": {
+      "cap_usd": null,
+      "note": "用户 2026-10-14 裁定不设上限；不设上限不改变全量记账（请求、失败、unknown 照常入账）"
+    },
+    "human_validated": false,
+    "g7a_baseline_report": null
+  },
+  "stages": [
+    {
+      "stage": "source_ingest",
+      "units_total": null,
+      "units_processed": null,
+      "units_dropped": null,
+      "dropped_reasons": {},
+      "units_omitted": null,
+      "omitted_reasons": {},
+      "unknown_requests": null,
+      "notes": null
+    },
+    {
+      "stage": "scene_scan",
+      "units_total": null,
+      "units_processed": null,
+      "units_dropped": null,
+      "dropped_reasons": {},
+      "units_omitted": null,
+      "omitted_reasons": {},
+      "unknown_requests": null,
+      "notes": null
+    },
+    {
+      "stage": "entity_extraction",
+      "units_total": null,
+      "units_processed": null,
+      "units_dropped": null,
+      "dropped_reasons": {},
+      "units_omitted": null,
+      "omitted_reasons": {"phase2_identity_top_k": null},
+      "unknown_requests": null,
+      "notes": null
+    },
+    {
+      "stage": "evolution",
+      "units_total": null,
+      "units_processed": null,
+      "units_dropped": null,
+      "dropped_reasons": {},
+      "units_omitted": null,
+      "omitted_reasons": {"capacity_deferred": null},
+      "unknown_requests": null,
+      "notes": null
+    }
+  ],
+  "model_calls": {
+    "$comment": "对齐 v4_live Meter：同一预算一份累计账本；unknown 以 reserved cap 记账并阻断后续付费调用直到书面授权；仓库内快照去原文。",
+    "provider": "native-codex-luna",
+    "model": "gpt-6-luna/max",
+    "pricing_source": null,
+    "pricing_verified_at": null,
+    "cap_usd": null,
+    "calls": [
+      {
+        "sequence": 1,
+        "status": "settled",
+        "started_at": null,
+        "cost_upper_usd": null,
+        "request_hash": null,
+        "usage": {"prompt_tokens": null, "completion_tokens": null, "total_tokens": null},
+        "budget_resolution": null,
+        "$redaction_note": "受版权原文时删除 request/response 与正文，只留本表字段 + payload_redacted {location, sha256}"
+      }
+    ],
+    "payload_redacted": null
+  },
+  "author_dispositions": {
+    "pending_total": null,
+    "transitions": {"adopted": null, "rejected": null, "edited_then_adopted": null, "deferred": null, "expired": null},
+    "notes": null
+  },
+  "artifacts": {
+    "private_full_ledger": null,
+    "private_ledger_sha256": null,
+    "repo_snapshot": null,
+    "g7a_scale_curves": "backend/.test-artifacts/import_scan_baseline/baseline-latest.json"
+  }
+}
