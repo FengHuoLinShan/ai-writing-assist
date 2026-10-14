@@ -228,6 +228,8 @@ class SettingsService:
         if template is None:
             raise ValueError("请选择可用的账户模型连接")
         if not account_llm_provider_enabled(provider_id):
+            if provider_id == "kimi":
+                raise ValueError("Kimi K3 仍在兼容验证中，暂不可用")
             raise ValueError("当前环境暂不可使用这个模型连接")
         return template
 
@@ -267,7 +269,7 @@ class SettingsService:
                     label=str(template["label"]),
                     model=str(template["model"]),
                     connected=connected,
-                    active=provider_id == active_provider and connected,
+                    active=provider_id == active_provider,
                     verified_at=row.verified_at if row is not None else None,
                 )
             )
@@ -368,7 +370,9 @@ class SettingsService:
         await self._llm_repo.lock_owner_head(db, owner_id)
         credential = await self._credential_repo.get(db, owner_id, provider_id)
         if credential is None:
-            raise ValueError("请先验证模型连接")
+            if provider_id == "codex":
+                raise ValueError("请先验证本机 Codex 连接")
+            raise ValueError("请先填写并验证 API Key")
         if provider_id == "codex":
             _require_codex_owner(owner_id)
             from infrastructure.llm.codex_provider import codex_connection_fingerprint

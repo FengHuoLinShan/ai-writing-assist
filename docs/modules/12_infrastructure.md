@@ -694,6 +694,9 @@ Scene 发现日志；本操作最高调用额度与根预算发送前扣减，un
 
 ADR-0033：新增 CodexProvider 受限文本路径，默认 Luna/max。本机单用户账户验证后经 project facade 使用，纯文本 CLI 禁用原生工具并限制环境、事件、时限和字节输出；非零退出仅附有界stderr提取的固定错误类别，原文不外露且分类不改变未知结果或重试资格；未知完成不自动重发，封闭 schema 原生约束、开放字段包封后验证，流式延迟至终态。CODEX_CLI_COMMAND 选择已验证 CLI，不影响 ADR-0029 的旧本机 Agent/图片伴随进程范围。
 
+原生 Codex 的深度导入预检仅重验当前作品授权、已验证账户连接、登录与包装配置，
+返回 `project_configuration` / `remote_check=false`，不发送模型探针；账户显式验证仍执行真实探针。
+
 
 旧大段正文及长合成请求的未知失败缺少原退出码与回合事件，且存在宿主执行环境差异；原因未定，不能归因为高并发。原未知请求保留且不重发。当前原生文本默认两路，CODEX_TEXT_MAX_CONCURRENT_REQUESTS 仅接受整数1—8；同一系统用户、同一ChatGPT登录账户在本机API/worker之间共享OS文件锁槽，配置不一致且有在途时失败关闭，容量改变只在全槽空闲时生效。等候在provider预算预留和请求超时前，并受run deadline约束；取消或进程死亡由OS释放槽。进程内LLM_MAX_CONCURRENT_REQUESTS总上限仍有效。它不跨主机共享，也不代表Luna的供应商并发能力；真实长篇高并发稳定性仍待验收。
 

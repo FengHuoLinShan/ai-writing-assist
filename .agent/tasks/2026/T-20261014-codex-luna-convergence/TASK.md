@@ -2,52 +2,47 @@
 id: T-20261014-codex-luna-convergence
 title: G2 Codex Luna运行时收敛
 status: active
-created: 2026-10-14T13:30:00+08:00
-updated: 2026-10-14T12:47:36.995593+08:00
+created: 2026-10-14T11:36:30+08:00
+updated: 2026-10-14T13:26:21.867759+08:00
 ---
 
 # G2 Codex Luna运行时收敛
 
 ## 目标与授权
 
-用户在源线程01a1386b-f1a0-7550-b2f2-f3bfc1bb39eb的真实userMessage01a1386c-05e2-7282-aa01-d593dcd78648明确要求G2由Codex原线程执行，已通过read_thread核验。验收按原计划.worktrees/audit-followup/docs/plans/2026-10-14-audit-followup-batch.md §4：最新main上单一PR，ADR0033/迁移/权威文档/验收报告；owner/current authorization/wrapper snapshot/unknown不重放/timeout cancel/key login轮换/跨进程全账户并发均有证据。
+用户在源线程01a1386b-f1a0-7550-b2f2-f3bfc1bb39eb的真实userMessage01a1386c-05e2-7282-aa01-d593dcd78648明确要求G2由Codex原线程执行，已通过read_thread核验。规格为根.worktrees/audit-followup/docs/plans/2026-10-14-audit-followup-batch.md §4及§10：最新main上单一运行时PR，ADR0033/迁移/权威文档/验收报告；owner、当前授权、包装快照、未知不重放、取消/超时、Key/登录轮换、跨worker账户并发均有证据。
 
-Guimi T-20261012保持paused、自动化60已删除，不恢复全量/确认缺口，不重跑旧hash/case，不读付费API Key或回退其它供应商。工程Sol，必要新合成业务探针必须当前verified owner→Project facade/snapshot→原生Luna/max并单列新请求次数；旧稿件原始内容保留仓库外。提交/PR属于G2交付，合并/部署/旧树清理仍另有门禁。不向源线程发送消息（接收委派不等于回复授权）。
+当前会话用户“全部授权”覆盖G2实现、验证、提交、推送/PR和门禁后的合入。Guimi T-20261012仍paused，自动化60已删除；不恢复全量或确认真实缺口，不重放旧hash/case，不部署、不清理八旧树、不向源线程发送消息。工程使用Sol/高级模型；必要新业务探针仅verified owner→Project facade/snapshot→原生gpt-6-luna/max。无需记录Luna额度或费用；本G2规格要求的新探针次数单列，不读/调用付费API、Key或embedding。
 
-## 工作区与单一写入者
+## 工作树与版本
 
-新附着工作树 /Users/tywww/.codex/worktrees/g2-codex-luna-convergence/ai-writing-assist，codex/g2-codex-luna-convergence，基线origin/main22bb499789cba89fea92e918fd853ab768688e07，本次fetch成功。旧八树均基线974f0f5，不修改或归档。G2独占provider/migration及W8四README；不改G8a的core/service_keys.py、app/bootstrap.py、ADR0031/check_module_imports.py；G3③a独占local_agent API/RP旧snapshot/image误判。
+- 当前附着目录：/Users/tywww/.codex/worktrees/g2-codex-luna-convergence/ai-writing-assist，分支codex/g2-codex-luna-convergence。
+- 从main22bb499789cba89fea92e918fd853ab768688e07（PR222）新建；已并入模型规则main e02137f79fc4e8f5ba4f79f541b66b5dbaa47a05。
+- 模型规则PR225已squash合入该e02137f7，全部CI通过；六文档仅迁入原b22f7334e规则，保留main教师/holdout暂停记录。旧规则树未清理。
+- 单一运行时PR226：https://github.com/FengHuoLinShan/ai-writing-assist/pull/226，已附着。已推送HEAD904530e891d3ac2f0720cc5028f23b83eb6251a3，其CI存在8个账户测试失败及1个地图浏览器失败，不能合入。
+- 当前WIP只包含本轮复核修复、对应测试/文档及本任务记录。G2独占provider/migration/W8四README；不改G8a的DI键/注册/ADR0031/模块检查器或G3旧本机API/RP。
 
-## 进展与证据
+## 已完成及证据
 
-- 只读诊断旧~1.91sec unknown：旧calls/log仅error_kind、耗时，无exit_code/turn event。已保存的只读CLI0.160.0 help对照证实外宿主受限环境PATH aliases Operation not permitted，获准环境无警告，但旧请求不可重发因果验证，因此原因仍未定案。官方non-interactive-mode文档已打开，--ephemeral不存rollout。未来诊断必须metadata-only并保留退出码/turn事件，不放原文或secret。
-- /tmp/codex-luna-g2/inventory.json冻结W8最新118个WIP文件及全部旧七树hash，60路径内容不同；/tmp/codex-luna-g2/frozen保留每版内容，旧树零修改。全部旧WIP路径都在W8范围，尚待逐条差异裁定。没有凭文件名覆盖就认超集。
-- W8迁入新main；10个冲突已按实际主干处理，migration-resolutions.json记录。保留PR222语义manifest与服务拆分/退休合同；删除无调用且引用已删名的旧private helper。AskWorld测试文档保留主干暂停教师/holdout守卫，非简单选W8覆盖。
-- 非平凡编辑前新分支make docs-check通过。尚未做最终回归/真实新探针/PR。
+- /tmp/codex-luna-g2/inventory.json冻结118份W8及八旧树；OLD-TREE-REVIEW.json逐条裁定60路径差异（54内容、6presence），58相同。old-tree-preservation-proof.json再次核验八树全部记录文件hash零漂移，没有凭路径覆盖就认内容超集。
+- 迁入并手工解决10个主干冲突，保留PR222服务拆分、语义manifest和教师暂停；未调用的退休helper删除。八份纯格式改动已恢复。原稿、旧运行库、unknown及付费账本未变。
+- native v3固定Luna/max，当前owner连接/ChatGPT身份回读、显式包装版本/指令hash进入snapshot、本机同系统用户同账户API/worker共享fcntl槽（默认2、整数1..8、空闲才改容量）。metadata-only失败诊断；未知执行不自动重发；旧local_agent文本快照失败关闭、历史回执可读。确定性配置拒绝不计可用性熔断，仍不证明供应商可用。
+- 旧约1.91秒unknown仅能证实缺原退出码/回合事件及宿主环境差异，因果未定、不能归为并发过载；旧请求无重放。官方non-interactive-mode说明ephemeral无rollout留存，未来诊断保留白名单元数据。
+- 3204项扩大后端（3 real/external deselected）、9项PG领域/窗口门禁；专用migration库约束、危险降级拒绝、往返及alembic check通过；初版前端39项通过。后续517、1554、451回归集合重叠，不相加。旧API Key轮换、新登录身份、真实跨进程槽、源化resume均有测试。
+- 唯一新增真实native3请求：专用codex_luna_g2_probe_test中账户显式验证1次、facade/open-map和snapshot/closed合成提取各1次，全部完成；后两者10.91/11.62秒且exit0/turn.completed。私有terminal.json在/tmp/codex-luna-g2/native-probe-v3-config-fixed。首次脚本误标unknown的marker保留，pre-dispatch-proof.json证明它在provider构造前受平台auth644权限守卫拒绝、零I/O；修复后才首次发送。未重发实际unknown。小样本不证明长篇或八路稳定/文学质量。
 
-## 下一步与未完成
+## 当前复核修复
 
-1. 完成60条差异审查与未来CLI脱敏diagnostics；修复登录identity绑定和跨worker账户并发缺口，显式wrapper版本/输入包绑定进入snapshot，保持旧local_agent fail-closed/历史回执可读。
-2. 验证受影响调用链与PG/E2E，必要最少新合成探针只经verified facade，不重发旧未知。同步ADR/权威文档和真实验证范围。
-3. 单一G2 PR包含规则与收敛产物；保留八旧树及Guimi暂停记录，合并/部署不自行扩大授权。
+Code Review技能只读两路固定904530e，报告见REVIEW.md：Standards两项P2（独立图片Key误隐藏、预检丢未知元数据）；Spec一项P1（导入恢复会重复无journal的原生验证探针）。尚待修后复核，不能将原报告当通过。
 
-## 2026-10-14新授权与检查点
+- 图片Key与错误区域恢复独立显示，Codex文本无Key规则仅限文本；新增合成Vue失败/可操作检查，无实际图片API调用。
+- 账户active继续表示已选择，清Key保留选择且禁止运行；UI未连接显示“已选择”，不声称正在使用。连接测试按provider身份断言，新默认Codex与旧已选付费提供方/门禁契约分别保留。
+- Codex导入预检只检查已验证配置/登录/包装并通过Project当前授权回读，不再发送模型探针；scope=project_configuration、remote_check=false。真实验证仍只在账户显式入口。7种正常/漂移配置各重复预检两次均零派发，撤销授权关闭客户端，新增8项回归。
+- 账户66项、前端40项及最终受影响后端1619项通过/2 real deselected/1既有OpenAPIwarning；取消/unknown原规则未削弱。最后仅精简预检失败回传及稳定contracts导入，专用回归尚待终态。
+- 地图CI失效证据为刷新后编辑工具按产品规则折叠，旧用例漏掉展开操作；补一条用户点击，原移动持久化、城市图创建等断言完整保留，不改地图生产代码。真实浏览器重验待新HEAD CI。
 
-当前会话用户“全部授权”授权当前G2实现、验证、提交、PR和门禁后的合入；不恢复Guimi或重建自动任务，不扩大为部署/旧WIP清理。模型规则六文档独立PR225，head deaa45ee7369123eb6b3e1bce04a7d65d80c09be全部CI通过后已squash合入，待读取mergeSHA。G2运行时118继承文件仍未提交；新增ChatGPT login稳定identity、POSIX跨进程账户slot限制、v3 wrapper显式snapshot、每次请求前当前owner连接核验和metadata-only CLI diagnostics。新逻辑尚待测试，旧树/未知/原始账本未变。当前无业务调用；下一步隔离单元/多进程失败路径验证，再旧60条差异与全回归/真实最少新合成probe。
+## 恢复快照与一个下一步
 
-## 当前收尾快照
+所有新请求已终态，无业务driver/自动任务。根Guimi HANDOFF仍为暂停入口；旧v2快照不静默升级为v3，恢复需用户明确恢复并合法重验来源/请求/版本与成功前缀。
 
-- 模型规则PR225已合入e02137f79fc4e8f5ba4f79f541b66b5dbaa47a05，全部CI通过；未清理该树。用户当前“全部授权”允许G2门禁后的合入，但不扩为部署/Guimi恢复/清理或外发。
-- 主干新隔离G2实现v3身份/授权/跨worker槽/显式包装stamp/metadata-only diagnostics。OLD-TREE-REVIEW.json裁定60项（54内容、6presence）；8旧树逐hash重新核验零漂移。118份W8迁入保留PR222全部合同；8份本轮formatter-only且AST相同的改动已恢复，不动别人的WIP。
-- 全扩大后端3204 passed/3 real-external deselected/1既有OpenAPIwarning，9PG领域/窗口门禁和新专用migration库的约束/危险降级拒绝/往返/check通过。前端39项+ESLint通过，Ruff/diff/docs及module-imports通过。Story依赖导入合并后Evolution模块再验517 passed/1 deselected；不是业务请求。
-- 新native3请求在codex_luna_g2_probe_test完成：一次真实验证、普通facade/open-map和snapshot/closed来源提取各一，后两者10.91/11.62秒且CLI exit0/turn.completed，两项事实均通过；/tmp/codex-luna-g2/native-probe-v3-config-fixed/terminal.json。首次脚本marker误标unknown，实际在provider构造前对平台auth644的新守卫拒绝，pre-dispatch-proof.json证明零模型I/O；旧记录原样保留，修复兼容后才首次实际发送。没有重发真实unknown或旧hash。后续仅改失败metadata传递/导入消费与格式，不追加native重验。该小样本不是长篇/六路/全量质量。
-- Guimi原任务/自动化仍暂停/删除。未迁移或改连接任何旧运行库，原unknown/付费账本不变。G2报告docs/acceptance/2026-10-14-codex-luna-convergence.md收尾中。
-- 下一步：Evolution导入改动窄回归终态→最终文档与秘密检查→提交G2并同步main docs→单一G2 PR/CI/评审，门禁通过按当前授权合入；不部署、不发送其他线程消息。
-
-新增旧local_agent失败关闭/历史任务API原回执可读补测已通过，项目文件12项通过（仅其中1项是扩大3204之后的新增）。PG完整迁移/安全降级回升/check均通过，原生三请求已终态且不追加。准备提交到当前主题分支，随后并入仅文档新增main再建PR。
-
-## PR交付检查点
-
-G2提交c0cbb14815f74cd1d1081667ba82499f7541049a，安全并入仅模型文档main后1bce154c4；PR226已创建并附着本任务。未归档旧树，无业务进程或自动调度。最终审查补缺novel_id创建门、native模型/effort/version预算预留前拒绝，1554受影响回归通过；该补丁准备推送，CI旧head尚不能当新head证据。下一步最终Ruff/docs/module/secret→小补丁提交推送→只核验最终head全部CI/评审→按当前授权合入；Guimi原任务继续paused，旧v2不篡改、不自动续跑，不部署。
-
-最后补测发现6次错误配置导致假熔断（实际均零I/O/零预留）；limits只排除codex_configuration这一确定性类别，保留unknown计数。451 LLM/项目契约复验通过/2真实模型deselected，修复准备提交；PR226先前head测试失败不得当最终完成，待新head全部门禁。
+下一步：核验专用预检终态和模块依赖棘轮（仅将稳定contracts导入移到模块层，绝不升基线）→最终Ruff/docs/secret/diff→提交复核修复并推送PR226→两路只读复核新固定HEAD及最终CI→按当前授权合入、记录mergeSHA和交接；没有完整门禁前不合入，不启动Guimi，不部署。

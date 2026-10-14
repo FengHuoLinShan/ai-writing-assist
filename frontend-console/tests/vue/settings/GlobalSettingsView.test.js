@@ -76,7 +76,7 @@ describe("账户模型连接", () => {
     api.settings.connectLLMProvider.mockRejectedValueOnce(new Error("Codex 登录未通过"))
     const wrapper = mount(GlobalSettingsView, { props: makeProps({ llmConnections: {
       active_provider_id: "codex",
-      providers: [{ provider_id: "codex", label: "Codex", model: "gpt-6-luna", connected: false, active: false }],
+      providers: [{ provider_id: "codex", label: "Codex", model: "gpt-6-luna", connected: false, active: true }],
     } }) })
     await flushPromises()
     await wrapper.get("#account-llm-save").trigger("click")
@@ -92,7 +92,7 @@ describe("账户模型连接", () => {
     api.settings.connectLLMProvider.mockReturnValueOnce(pending.promise)
     const props = makeProps({ llmConnections: {
       active_provider_id: "codex",
-      providers: [{ provider_id: "codex", label: "Codex Luna", model: "gpt-6-luna", connected: false, active: false }],
+      providers: [{ provider_id: "codex", label: "Codex Luna", model: "gpt-6-luna", connected: false, active: true }],
     } })
     const wrapper = mount(GlobalSettingsView, { props })
     await flushPromises()
@@ -100,6 +100,7 @@ describe("账户模型连接", () => {
     expect(wrapper.find(".secondary-models-section").exists()).toBe(false)
     expect(wrapper.text()).toContain("尚未连接")
     expect(wrapper.text()).not.toContain("当前正在使用这个服务")
+    expect(wrapper.find(".account-provider-card.selected").text()).toMatch(/未连接\s*·\s*已选择/)
     await wrapper.get("#account-llm-save").trigger("click")
     expect(api.settings.connectLLMProvider).toHaveBeenCalledWith("codex")
     expect(wrapper.get(".account-connection-section").attributes("aria-busy")).toBe("true")
@@ -107,6 +108,24 @@ describe("账户模型连接", () => {
     await flushPromises()
     expect(wrapper.text()).toContain("连接已验证并设为当前使用")
     expect(wrapper.get("#account-llm-save").attributes("disabled")).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it("选择 Codex 文本时仍可独立连接图片服务并查看失败", async () => {
+    api.settings.connectImageProvider.mockRejectedValueOnce(new Error("图片连接验证失败"))
+    const wrapper = mount(GlobalSettingsView, { props: makeProps({ llmConnections: {
+      active_provider_id: "codex",
+      providers: [{ provider_id: "codex", label: "Codex", model: "gpt-6-luna", connected: false, active: true }],
+    } }) })
+    await flushPromises()
+    expect(wrapper.find("#account-llm-api-key").exists()).toBe(false)
+    await wrapper.get("#account-image-api-key").setValue("synthetic-image-key")
+    await wrapper.get(".settings-advanced-section .btn-primary").trigger("click")
+    await flushPromises()
+    expect(api.settings.connectImageProvider).toHaveBeenCalledWith("synthetic-image-key")
+    expect(wrapper.get("#account-image-error").text()).toContain("图片连接验证失败")
+    expect(wrapper.get("#account-image-api-key").element.value).toBe("synthetic-image-key")
+    expect(api.settings.connectLLMProvider).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 
@@ -468,6 +487,8 @@ describe("账户模型连接", () => {
     ))
     expect(globalThis.api.settings.clearLLMProvider).toHaveBeenCalledWith("deepseek")
     expect(wrapper.find(".account-provider-card.selected").text()).toContain("DeepSeek")
+    expect(wrapper.find(".account-provider-card.selected").text()).toMatch(/未连接\s*·\s*已选择/)
+    expect(wrapper.find(".account-provider-card.selected").text()).not.toContain("当前使用")
   })
 
   it("断开响应晚到时不清空新 provider 的 Key", async () => {

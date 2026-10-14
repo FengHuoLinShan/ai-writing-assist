@@ -262,21 +262,43 @@ async def check_llm_health_for_project(
         test_overrides=test_overrides,
     )
     if profile.provider_id == "codex":
-        from infrastructure.llm.codex_provider import verify_codex_connection
+        from infrastructure.llm.codex_provider import CodexProvider
+        from infrastructure.llm.errors import LLMError
+        from infrastructure.llm.schemas import LLMCallRequest
 
         try:
-            await verify_codex_connection()
+            fingerprint = profile.extra.get("codex_connection_fingerprint")
+            if not fingerprint:
+                raise ValueError("Codex connection is not verified")
+            provider = CodexProvider(
+                default_model=profile.model,
+                base_url=profile.base_url,
+                api_key=profile.api_key,
+                connection_fingerprint=fingerprint,
+            )
+            provider.validate_request(
+                LLMCallRequest(
+                    messages=[],
+                    **{**profile.request_defaults(), "extra": dict(profile.extra)},
+                )
+            )
             return LLMHealthResult(
                 ok=True,
-                message="Codex Luna/max 连接可用",
+                scope="project_configuration",
+                remote_check=False,
+                model=profile.model,
+                message="Codex 登录与 Luna/max 配置核验通过；未发送模型探针",
                 profile_sources=dict(profile.sources),
                 profile_summary=profile.sanitized_summary(),
             )
-        except Exception:
+        except (ValueError, LLMError):
             return LLMHealthResult(
                 ok=False,
-                error_kind="codex_unavailable",
-                message="请在本机检查 Codex 登录后重新验证",
+                scope="project_configuration",
+                remote_check=False,
+                model=profile.model,
+                error_kind="codex_configuration",
+                message="请在本机检查 Codex 登录与 Luna/max 配置后重新验证",
             )
     checker = LLMHealthChecker(
         api_key=profile.api_key,

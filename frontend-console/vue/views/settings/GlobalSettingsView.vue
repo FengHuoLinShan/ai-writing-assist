@@ -530,7 +530,7 @@ onBeforeUnmount(() => {
             <span class="account-provider-card__model">{{ provider.model }}</span>
             <span class="account-provider-card__status">
               {{ provider.connected ? "已连接" : "未连接" }}
-              <template v-if="provider.active"> · 当前使用</template>
+              <template v-if="provider.active"> · {{ provider.connected ? "当前使用" : "已选择" }}</template>
             </span>
             <span v-if="provider.connected && provider.provider_id !== 'codex'" class="account-provider-card__balance">
               <template v-if="balanceFor(provider.provider_id)?.status === 'available'">
@@ -631,7 +631,7 @@ onBeforeUnmount(() => {
         </div>
         <template v-else>
           <p class="settings-section-hint">地图册固定使用 <strong>gpt-image-2</strong>，不会改变文本模型。</p>
-          <div v-if="selectedProvider?.provider_id !== 'codex'" class="form-group account-key-field">
+          <div class="form-group account-key-field">
             <label for="account-image-api-key">OpenAI API Key</label>
             <input
               id="account-image-api-key"
