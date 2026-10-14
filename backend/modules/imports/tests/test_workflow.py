@@ -1509,7 +1509,6 @@ class TestDeepImportWorkflowAutoRun:
     def test_phase2_stats_keep_only_aggregated_diagnostics(self):
         stats = phase2_quality_stats(
             {
-                "phase2_world_window_concurrency": 20,
                 "phase2_batch_concurrency": 20,
                 "phase2_window_diagnostics": {
                     "samples": [
@@ -1539,7 +1538,8 @@ class TestDeepImportWorkflowAutoRun:
             }
         )
 
-        assert stats["phase2_world_window_concurrency"] == 20
+        assert stats["phase2_batch_concurrency"] == 20
+        assert "phase2_world_window_concurrency" not in stats
         assert stats["phase2_window_diagnostics"]["total"] == 2
         assert stats["phase2_window_diagnostics"]["elapsed_ms_total"] == 4200
         assert stats["phase2_window_diagnostics"]["failed_window_ids"] == ["W-2"]
