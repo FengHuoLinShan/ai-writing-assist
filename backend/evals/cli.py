@@ -1298,6 +1298,8 @@ async def _generate(
         ),
         cache=EvalCache(cache_dir),
         cache_only=cache_only,
+        # 新合同不复用冻结 spark 缓存判定，避免跨合同分数混入。
+        allow_primary_cache_fallback=False,
     )
     reference_output = output.with_suffix(".references.json")
     for batch_number, batch in enumerate(chapter_batches, start=1):
@@ -1506,6 +1508,8 @@ async def _judge(
         ),
         cache=EvalCache(cache_dir),
         cache_only=cache_only,
+        # 新合同不复用冻结 spark 缓存判定，避免跨合同分数混入。
+        allow_primary_cache_fallback=False,
     )
 
     eligible: list[DatasetCase] = []
@@ -1941,12 +1945,13 @@ async def _judge_calibrate(
     source_text = source_path_for_variant(variant).read_text(encoding="utf-8-sig")
     evaluator = HighQualityEvalLLM(
         # judge 校准（G6a）与 judge 合同一致，固定 Sol/xhigh；
-        # 旧 spark 校准轮次是冻结历史，不再复用其模型。
+        # 旧 spark 校准轮次是冻结历史，不复用其模型与缓存判定。
         CodexStructuredExecutor(
             model=EVAL_TEACHER_MODEL,
             reasoning_effort=EVAL_TEACHER_REASONING_EFFORT,
         ),
         cache=EvalCache(cache_dir),
+        allow_primary_cache_fallback=False,
     )
     processed = 0
     for batch in _judge_batches(selected):

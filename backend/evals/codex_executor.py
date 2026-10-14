@@ -34,8 +34,9 @@ def require_live_eval_calibration() -> NoReturn:
         "Standalone evaluation is paused until G6b re-calibration: teacher/judge "
         "roles are now pinned to gpt-6.1-sol/xhigh and the system under test runs "
         "through the verified owner/Project runtime on Luna/max. New standalone "
-        "model calls stay rejected in this phase. Frozen metadata and cache-only "
-        "replay remain available."
+        "model calls stay rejected in this phase. Frozen metadata remain available; "
+        "cache-only replay applies to the current contract only (legacy scene-gold "
+        "fallback cache keys no longer match)."
     )
 
 
