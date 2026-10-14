@@ -361,6 +361,20 @@ describe("打包器 buildImagePackages", () => {
     })
     expect(outcome).toEqual({ packages: [], failures: [], totalItems: 0 })
   })
+
+  it("浏览器无法读取暂存的 ZIP 时整轮失败，不返回损坏的包", async () => {
+    const slice = vi.spyOn(Blob.prototype, "slice").mockReturnValue({
+      arrayBuffer: async () => { throw new DOMException("Blob unavailable", "NotReadableError") },
+    })
+    try {
+      await expect(buildImagePackages({
+        items: [mapPageItem()], fetchBytes: async () => pngBytes(),
+        verifyImage: passthroughVerify, hash: passthroughHash,
+      })).rejects.toThrow("图片包暂存失败")
+    } finally {
+      slice.mockRestore()
+    }
+  })
 })
 
 describe("browserVerifyImage", () => {

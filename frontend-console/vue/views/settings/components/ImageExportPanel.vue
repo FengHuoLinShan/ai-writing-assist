@@ -28,6 +28,7 @@ const phase = ref("idle") // idle | packing | retry | done | cancelled | error
 const progress = ref({ done: 0, total: 0, packages: 0 })
 const failures = ref([])
 const accumulatedPackages = ref([])
+const downloadPackages = ref([])
 const result = ref(null)
 const exportError = ref("")
 let cancelled = false
@@ -52,6 +53,7 @@ const categoryCounts = computed(() => {
 const totalObjects = computed(() => manifest.value?.objects?.length || 0)
 const busy = computed(() => phase.value === "packing")
 const failureCount = computed(() => failures.value.length)
+const hasDownloadPackages = computed(() => downloadPackages.value.length > 0)
 
 async function loadManifest() {
   if (!props.projectId || manifestLoading.value) return
@@ -107,12 +109,13 @@ function finishDownload() {
   const missingCount = failures.value.length
   const stamp = packages[packages.length - 1].timestamp
   const baseName = buildExportFileName(props.projectTitle || "作品", stamp, missingCount)
-  packages.forEach((pkg, index) => {
-    const indexed = packages.length > 1
-      ? baseName.replace(/\.zip$/, `-${index + 1}.zip`)
-      : baseName
-    downloadBlob(indexed, pkg.blob)
-  })
+  if (packages.length === 1) downloadBlob(baseName, packages[0].blob)
+  else {
+    // 浏览器会拦截连续自动下载，分包由作者逐个点击并可重试。
+    downloadPackages.value = packages.map((pkg, index) => ({
+      ...pkg, fileName: baseName.replace(/\.zip$/, `-${index + 1}.zip`),
+    }))
+  }
   result.value = {
     count: packages.reduce((sum, pkg) => sum + pkg.objectCount, 0),
     packages: packages.length,
@@ -162,6 +165,7 @@ async function runExport(items) {
 async function startExport() {
   if (!manifest.value) await loadManifest()
   if (manifestError.value || !totalObjects.value) return
+  if (!clearDownloadPackages()) return
   accumulatedPackages.value = []
   failures.value = []
   await runExport(manifest.value.objects)
@@ -171,6 +175,7 @@ async function startExport() {
  * 清单已过期（期间新增或替换了图片），刷新后按新清单重新导出。 */
 async function refreshManifest() {
   if (busy.value || manifestLoading.value) return
+  if (!clearDownloadPackages()) return
   failures.value = []
   exportError.value = ""
   phase.value = "idle"
@@ -195,9 +200,16 @@ function confirmIncompleteExport() {
 function cancelExport() {
   cancelled = true
   activeController?.abort()
+  downloadPackages.value = []
 }
 
-defineExpose({ busy })
+function clearDownloadPackages() {
+  if (hasDownloadPackages.value && !getConfirm()("当前图片包下载列表将被清除，请确认已经保存全部文件。确定继续吗？")) return false
+  downloadPackages.value = []
+  return true
+}
+
+defineExpose({ busy, hasDownloadPackages })
 
 onBeforeUnmount(cancelExport)
 
@@ -264,9 +276,14 @@ onMounted(() => {
         </div>
       </div>
       <p v-else-if="phase === 'done' && result" role="status" data-testid="image-export-done">
-        图片包已生成（{{ result.count }} 张）{{ result.packages > 1 ? `，共 ${result.packages} 个文件，请全部保存` : "" }}{{ result.missing > 0 ? `，缺少 ${result.missing} 张（这些图片未写入图片包）` : "" }}。校验通过指点下地图页与服务端记录的摘要、大小一致，世界对象图与蒙版为本机计算摘要且可解码；这不等于已备份，请把文件妥善保存到本机。
+        图片包已生成（{{ result.count }} 张）{{ result.packages > 1 ? `，共 ${result.packages} 个文件，请逐个下载并全部保存；下载失败可再次点击` : "" }}{{ result.missing > 0 ? `，缺少 ${result.missing} 张（这些图片未写入图片包）` : "" }}。校验通过指点下地图页与服务端记录的摘要、大小一致，世界对象图与蒙版为本机计算摘要且可解码；这不等于已备份，请把文件妥善保存到本机。
       </p>
       <p v-else-if="phase === 'cancelled'" role="status">已取消导出，未下载任何文件。</p>
+      <div v-if="phase === 'done' && hasDownloadPackages" class="settings-actions">
+        <button v-for="(pkg, index) in downloadPackages" :key="pkg.fileName" type="button" class="btn btn-sm"
+          data-testid="image-export-package" @click="downloadBlob(pkg.fileName, pkg.blob)"
+        >下载第 {{ index + 1 }} 包（{{ pkg.objectCount }} 张）</button>
+      </div>
       <p v-if="phase === 'error' && exportError" class="settings-save-state is-error" role="alert">{{ exportError }}</p>
     </template>
   </div>

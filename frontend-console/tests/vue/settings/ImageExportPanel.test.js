@@ -161,7 +161,7 @@ describe("ImageExportPanel", () => {
     expect(done.text()).toContain("这不等于已备份，请把文件妥善保存到本机")
   })
 
-  it("部分失败：失败项列出，重试成功后合并下载", async () => {
+  it("部分失败重试成功后逐包下载，保留可重试的下载列表", async () => {
     api.world.imageExportManifest.mockResolvedValue({
       novel_id: NOVEL,
       objects: [mapPageItem("好图", 1), mapPageItem("坏图", 2)],
@@ -182,9 +182,28 @@ describe("ImageExportPanel", () => {
 
     api.world.fetchMapAtlasImage.mockResolvedValue(pngBlob())
     await findButton(wrapper, "重试失败项").trigger("click")
+    await waitFor(() => expect(wrapper.findAll('[data-testid="image-export-package"]')).toHaveLength(2))
+    expect(downloads).toHaveLength(0)
+    expect(wrapper.vm.hasDownloadPackages).toBe(true)
+    const buttons = wrapper.findAll('[data-testid="image-export-package"]')
+    for (const button of buttons) await button.trigger("click")
     await waitFor(() => expect(downloads).toHaveLength(2))
     expect(downloads.every(entry => !/缺/.test(entry.download))).toBe(true)
+    expect(downloads[0].download).toMatch(/-1\.zip$/)
+    expect(downloads[1].download).toMatch(/-2\.zip$/)
     expect(wrapper.find('[data-testid="image-export-done"]').text()).toContain("图片包已生成（2 张）")
+    await buttons[0].trigger("click")
+    expect(downloads).toHaveLength(3)
+    confirmImpl.mockReturnValue(false)
+    await wrapper.find('[data-testid="image-export-start"]').trigger("click")
+    expect(api.world.fetchMapAtlasImage).toHaveBeenCalledTimes(3)
+    await wrapper.find('[data-testid="image-export-refresh"]').trigger("click")
+    expect(api.world.imageExportManifest).toHaveBeenCalledTimes(1)
+    expect(wrapper.findAll('[data-testid="image-export-package"]')).toHaveLength(2)
+    confirmImpl.mockReturnValue(true)
+    await wrapper.find('[data-testid="image-export-refresh"]').trigger("click")
+    expect(wrapper.vm.hasDownloadPackages).toBe(false)
+    expect(api.world.imageExportManifest).toHaveBeenCalledTimes(2)
   })
 
   it("仍失败时确认生成不完整包并在文件名标明缺几张", async () => {
