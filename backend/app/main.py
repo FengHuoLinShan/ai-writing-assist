@@ -8,6 +8,7 @@ AI 长篇小说结构化创作引擎 v2.0
 
 from __future__ import annotations  # noqa: I001
 
+from infrastructure.llm.model_limits import get_model_limits
 import asyncio
 import hmac
 import logging
@@ -34,7 +35,6 @@ from core.config import (
     validate_auth_config,
     validate_cors_origins,
     validate_http_rate_limit_config,
-    validate_llm_rate_limit_config,
 )
 from core.database import get_manager
 from core.errors import DomainError
@@ -524,10 +524,7 @@ validate_http_rate_limit_config(
     _settings.http_rate_limit_burst,
     _settings.http_rate_limit_max_clients,
 )
-validate_llm_rate_limit_config(
-    _settings.app_env,
-    _settings.llm_rate_limit_per_minute,
-)
+get_model_limits("legacy", "legacy", settings=_settings)
 if not _origins or _origins == ["*"]:
     app.add_middleware(
         CORSMiddleware,

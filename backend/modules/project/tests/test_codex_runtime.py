@@ -247,12 +247,12 @@ async def test_cached_codex_client_rechecks_current_authorization_before_reserva
             return_value="test-host",
         ),
         patch(
-            "infrastructure.llm.codex_admission.codex_login_identity",
+            "infrastructure.llm.codex_identity.codex_login_identity",
             autospec=True,
             return_value="test-account",
         ),
         patch(
-            "infrastructure.llm.codex_admission._admission_directory",
+            "infrastructure.llm.model_admission._admission_directory",
             autospec=True,
             return_value=tmp_path,
         ),

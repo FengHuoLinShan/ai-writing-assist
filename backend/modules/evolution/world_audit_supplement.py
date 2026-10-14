@@ -13,6 +13,7 @@ from infrastructure.tasks.facade import (
     list_task_lifecycle_contracts,
     resume_manual_task,
 )
+from modules.evolution.budget import run_budget_meta
 from modules.evolution.commit import FrozenAttempt, new_attempt_id
 from modules.evolution.pipeline import SceneSourceBinding
 from modules.evolution.state_review import (
@@ -153,7 +154,9 @@ async def preview_world_audit_supplement(db, novel_id, run_key, origin_attempt_i
         "call_count": len(call_groups),
         "deferred_count": len(prepared["groups"]) - len(call_groups),
         "budget_remaining": run.budget_remaining,
-        "additional_budget": max(0, len(call_groups) - run.budget_remaining),
+        "additional_budget": max(0, len(call_groups) - run.budget_remaining)
+        if run.budget_remaining is not None
+        else 0,
         "groups": [
             {
                 "candidate_count": item["candidate_count"],
@@ -237,9 +240,14 @@ async def start_world_audit_supplement(
         },
     )
     await store.save_frozen(frozen)
-    added_budget = max(0, len(call_groups) - run.budget_remaining)
-    run.budget_total += added_budget
-    run.budget_remaining += added_budget
+    added_budget = (
+        max(0, len(call_groups) - run.budget_remaining)
+        if run.budget_remaining is not None
+        else 0
+    )
+    if run.budget_remaining is not None:
+        run.budget_total += added_budget
+        run.budget_remaining += added_budget
     queued = await enqueue_operation_task(
         db,
         operation_id=operation_id,
@@ -252,6 +260,7 @@ async def start_world_audit_supplement(
             "fingerprint": fingerprint,
         },
         meta={
+            **run_budget_meta(run),
             "novel_id": str(novel_id),
             "run_key": run_key,
             "origin_attempt_id": origin_attempt_id,
@@ -404,21 +413,100 @@ async def handle_world_audit_supplement(db, task) -> dict[str, Any]:
     frozen = await store.load_frozen(run_key, attempt_id)
     prepared = frozen.payload["world_review_preparation"]
 
-    async def call(**inputs):
-        from modules.evolution.sampler import resolve_scene_sampler
+    from types import SimpleNamespace
 
-        async with resolve_scene_sampler(
-            provider="project_llm",
-            novel_id=novel_id,
-            db=db,
-            llm_snapshot=run.llm_snapshot_json,
-        ) as caller:
-            await db.commit()
-            return await caller.execute_world_request(**inputs)
+    from modules.evolution.sampler import SceneMethodCaller
+
+    sampler_call = SceneMethodCaller(
+        db,
+        SimpleNamespace(sampler_provider="project_llm", novel_id=novel_id),
+        run.llm_snapshot_json,
+    )
+
+    async def call(**inputs):
+        return await sampler_call("execute_world_request", **inputs)
+
+    from functools import partial
+
+    from modules.evolution.ready import drain_ready
+
+    async def audit(planned):
+        key = f"scene_world_review_group_{planned['group_id']}"
+        journal = frozen.payload.get(key) or {}
+        if (
+            planned.get("deferred_reason")
+            or journal.get("stage") == "sampled"
+            or settled_output_failure(journal)
+        ):
+            return
+        try:
+            async with sampler_call.session_gate:
+                await require_current_world_candidate(
+                    db, novel_id, {"run_key": run_key, "attempt_id": origin_attempt_id}
+                )
+                await db.commit()
+            await _run_scene_call(
+                db,
+                store,
+                frozen,
+                source,
+                journal_key=key,
+                inputs={
+                    "method": "imports.scene_world_review.group.v3",
+                    "attempt_id": attempt_id,
+                    "source_manifest_hash": frozen.source_manifest_hash,
+                    "previous_receipt": frozen.previous_receipt,
+                    **planned["spec"],
+                },
+                call_inputs=planned["spec"],
+                call=call,
+                session_gate=sampler_call.session_gate,
+            )
+        except BudgetExhaustedError:
+            return
+        except SceneCallFailedError as error:
+            if not settled_output_failure(
+                {"stage": "failed", "paid_call_receipt": error.receipt}
+            ):
+                raise
 
     review_groups = dict(frozen.payload.get("world_audit_reviews") or {})
     budget_exhausted = False
     try:
+        from modules.evolution.pipeline import SamplePendingReconciliationError
+
+        if (
+            prepared.get("context_snapshot") is not None
+            and prepared["context_snapshot"] != run.llm_snapshot_json
+        ):
+            raise ConflictError("世界补审冻结上下文策略已变化")
+        for planned in prepared["groups"]:
+            key = f"scene_world_review_group_{planned['group_id']}"
+            journal = frozen.payload.get(key) or {}
+            if (
+                journal
+                and journal.get("stage") != "sampled"
+                and not settled_output_failure(journal)
+            ):
+                raise SamplePendingReconciliationError(
+                    key, "preserve original world review"
+                )
+            if journal and journal.get("input_hash") != content_hash(
+                {
+                    "method": "imports.scene_world_review.group.v3",
+                    "attempt_id": attempt_id,
+                    "source_manifest_hash": frozen.source_manifest_hash,
+                    "previous_receipt": frozen.previous_receipt,
+                    **planned["spec"],
+                }
+            ):
+                raise ConflictError("世界补审冻结输入已变化")
+        if sampler_call.discovery_parallelism > 1:
+            await drain_ready(
+                [partial(audit, group) for group in prepared["groups"]],
+                sampler_call.discovery_parallelism,
+            )
+            frozen = await store.load_frozen(run_key, attempt_id)
         for planned in prepared["groups"]:
             group_id = planned["group_id"]
             if group_id in review_groups:

@@ -20,11 +20,11 @@ from infrastructure.llm.schemas import LLMCallRequest, LLMToolDefinition
 @pytest.fixture(autouse=True)
 def isolated_account_admission(monkeypatch, tmp_path):
     monkeypatch.setattr(
-        "infrastructure.llm.codex_admission.codex_login_identity",
+        "infrastructure.llm.codex_identity.codex_login_identity",
         lambda: "synthetic-account",
     )
     monkeypatch.setattr(
-        "infrastructure.llm.codex_admission._admission_directory", lambda: tmp_path
+        "infrastructure.llm.model_admission._admission_directory", lambda: tmp_path
     )
 
 
@@ -487,7 +487,10 @@ async def test_codex_admission_is_shared_across_projects_and_precedes_provider_i
 
     from infrastructure.llm.limits import LLMLimiterScope, LLMProcessLimiter
 
-    monkeypatch.setenv("CODEX_TEXT_MAX_CONCURRENT_REQUESTS", str(cap))
+    monkeypatch.setenv(
+        "LLM_MODEL_LIMITS_JSON",
+        json.dumps({"subscription/codex/legacy": {"concurrency": cap}}),
+    )
     from core.config import get_settings
 
     get_settings.cache_clear()
@@ -515,7 +518,13 @@ async def test_codex_admission_is_shared_across_projects_and_precedes_provider_i
 
 
 @pytest.mark.asyncio
-async def test_cancelled_codex_waiter_does_not_leak_admission():
+async def test_cancelled_codex_waiter_does_not_leak_admission(monkeypatch):
+    from core.config import get_settings
+
+    monkeypatch.setenv(
+        "LLM_MODEL_LIMITS_JSON", '{"subscription/codex/legacy":{"concurrency":2}}'
+    )
+    get_settings.cache_clear()
     import asyncio
 
     from infrastructure.llm.limits import LLMLimiterScope, LLMProcessLimiter

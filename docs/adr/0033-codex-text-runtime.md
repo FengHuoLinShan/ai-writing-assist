@@ -41,7 +41,7 @@ codex_luna_runtime_test PostgreSQL 库，默认 100 个合成来源案例：十�
 或用量；真实稿件原始输入输出保持仓库外。合成分数不代表文学或作者验收。
 
 
-旧大段正文及长合成请求的未知失败缺少原退出码与回合事件，且存在宿主执行环境差异；原因未定，不能归因为高并发。原未知请求保留且不重发。当前原生文本默认两路，CODEX_TEXT_MAX_CONCURRENT_REQUESTS 仅接受整数1—8；同一系统用户、同一ChatGPT登录账户在本机API/worker之间共享OS文件锁槽，配置不一致且有在途时失败关闭，容量改变只在全槽空闲时生效。等候在provider预算预留和请求超时前，并受run deadline约束；取消或进程死亡由OS释放槽。进程内LLM_MAX_CONCURRENT_REQUESTS总上限仍有效。它不跨主机共享，也不代表Luna的供应商并发能力；真实长篇高并发稳定性仍待验收。
+旧原生未知结果原因未定，保留且不重发；历史两路/总池策略由下述 2026-10-14 用户授权修订取代。
 
 
 最终文本模式使用固定 model_instructions_file 替换默认编码指令、project_doc_max_bytes=0
@@ -53,3 +53,33 @@ codex_luna_runtime_test PostgreSQL 库，默认 100 个合成来源案例：十�
 完整原生结果的格式/包封失败仍携带原生usage，既有信封、工作流meter和有界Agent保存为已知失败；只有没有完整回执的结果才未知，不补造或另建用量统计。
 
 2026-10-14收敛证据见 [G2验收报告](../acceptance/2026-10-14-codex-luna-convergence.md)。未来失败仅记录退出码、是否观测到回合开始/完成/失败、是否由adapter停止及固定原因标签；标签不证明模型未执行，不改变unknown防重放。官方 [非交互事件文档](https://learn.chatgpt.com/docs/non-interactive-mode) 说明 JSON 事件与 ephemeral 会话边界，旧ephemeral答案无法据此补造。
+
+## 2026-10-14 已授权修订：模型池、输入与范围
+
+`LLM_MODEL_LIMITS_JSON` 按来源/provider/具体模型配置独立模型池，默认每池并发 8、RPM 0，
+不再有跨模型总 semaphore 或全局 LLM RPM。键 `default` → `api/deepseek/*` 等 provider 默认
+→ `subscription/codex/gpt-6-luna` 等精确型号依次覆盖；并发/输入预算为正整数，RPM 为非负整数。
+普通、流式、修复与远程 embedding 按最终模型和实际 endpoint 归池。同宿主 API/worker 共享 OS 文件锁槽，
+订阅池另绑定 ChatGPT 登录账户；配置改变等待本池已接纳请求结束，其他模型继续运行。
+生产 API/worker 挂载同一私有 `llm-model-admission` 卷；本地使用系统用户私有目录。
+RPM 是每模型的进程内 token bucket，默认关闭；正 RPM 部署仍按 worker 数核算 provider 总吞吐。
+取消/进程死亡释放槽，排队受已有 run deadline 约束，provider timeout 不被删除。
+
+新 Codex `gpt-6-luna` 能力配置声明总窗口 1,050,000、完整输入默认 500,000、输出预留 128,000、
+额外安全余量 32,000。CLI 显式覆盖 `model_context_window=1050000`、
+`model_auto_compact_token_limit=800000`，继续 `--ignore-user-config`，不修改桌面全局 catalog。
+完整执行输入计量包括指令、历史/身份/证据、JSON 包封和 schema；为不可观测 CLI 宿主包封另在输入内预留 32,000。
+未确认 tokenizer 映射时使用 UTF-8 字节上界，并在能力快照标明估算方法；这不是已实测输入能力。
+500k 是输入上限；超过时拆包或明确延期，复核超限保留生成及必要证据为待核对，禁止静默截断。
+其他 Luna 型号仍须单独登记。官方规格和配置定义见
+[模型规格](https://developers.openai.com/api/docs/models/gpt-6-luna) 与
+[配置参考](https://learn.chatgpt.com/docs/config-file/config-reference)。
+能力快照/方法/consumer read-set 固定策略；旧快照、字符规则、请求和原回执不扩大或重新盖章。
+订阅 500k 可用性、语义质量和持续高并发未实测。
+
+新 author-confirmed Luna 确定性流水线用 `confirmed_scope`，完成本次确认范围，
+不因固定请求数、累计 tokens 或金额暂停。AIRun envelope v2 显式记录模式、可空请求上限及范围指纹；
+未声明额度或授权策略不能把空值当放行。范围模式限已验证的冻结 Luna 模型，新队列仍经 owner、来源、
+active run 和 lease 检查；其他模型/有界 Agent 仍用有限预算，循环、工具和单次超时不变。
+Evolution `budget_total`/`budget_remaining` 允许成对为空；旧有限行原子扣减、旧信封保持原版本。
+存在范围数据时迁移拒绝降级。旧未跟踪队列明确保留领域预算 seam，不能冒充已完整跟踪。

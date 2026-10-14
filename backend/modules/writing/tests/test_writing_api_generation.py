@@ -1150,7 +1150,7 @@ async def test_writing_generate_task_records_task_provenance(
     monkeypatch.setattr(
         llm_runtime.LLMClient,
         "from_resolved_profile",
-        lambda _profile: FakeLLMClient(),
+        lambda _profile, *, execution_capability=None: FakeLLMClient(),
     )
 
     novel_id = "00000000-0000-0000-0000-00000000a202"

@@ -272,3 +272,6 @@ Assistant 保留证据、范围、处置和改后复核，不授予 AI candidate
 
 
 本机单用户新增受限 Codex 文本 provider（ADR-0033），默认 Luna/max，沿用 account -> project facade -> LLMClient 与任务信封；不恢复旧 local_agent 文字路径，公开部署禁用。
+
+新 Luna 确定性范围预算用 `confirmed_scope`：授权的是已确认的资料范围，额度为空不意味着无授权。
+有限 DS 与有界 Agent 预算保留；来源/owner/租约/采用门禁不变。上下文、模型池与恢复策略见 ADR-0033 及模块 README。

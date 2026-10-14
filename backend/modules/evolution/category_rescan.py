@@ -15,6 +15,7 @@ from infrastructure.tasks.facade import (
     list_task_lifecycle_contracts,
     resume_manual_task,
 )
+from modules.evolution.budget import run_budget_meta
 from modules.evolution.commit import new_attempt_id
 from modules.evolution.discovery import (
     apply_discovery,
@@ -50,7 +51,7 @@ class CategoryRescanRequest(BaseModel):
     categories: list[LedgerCategory] = Field(
         min_length=1, max_length=len(LEDGER_CATEGORY_LABELS)
     )
-    request_limit: int = Field(ge=1, le=1000)
+    request_limit: int | None = Field(default=None, ge=1, le=1000)
 
     @model_validator(mode="after")
     def valid_range(self):
@@ -157,8 +158,10 @@ async def _plan(db, novel_id, run_key, request):
         origin = await store.load_frozen(receipt.run_key, receipt.attempt_key)
         await require_current_prefix(db, store, origin, run_key=run_key)
         payload = deepcopy(origin.payload)
+        from infrastructure.llm.model_limits import confirmed_scope_eligible
+
         payload.update(
-            discovery_version=1,
+            discovery_version=2 if confirmed_scope_eligible(run.llm_snapshot_json) else 1,
             discovery_categories=sorted(request.categories),
             category_rescan=True,
             discovery_origin={
@@ -205,7 +208,9 @@ async def _plan(db, novel_id, run_key, request):
         )
     if len(plans) != request.through_scene_index - request.from_scene_index + 1:
         raise ConflictError("已读回执范围不完整，不能补扫")
-    if calls > request.request_limit:
+    if (request.request_limit is None) != (run.budget_remaining is None):
+        raise ConflictError("补扫须继承原运行预算模式")
+    if request.request_limit is not None and calls > request.request_limit:
         raise ConflictError("预计补扫调用超过上限，请缩小范围或增加额度")
     fingerprint = content_hash(
         {
@@ -237,7 +242,10 @@ async def preview_category_rescan(db, novel_id, run_key, request):
             {"key": key, "label": LEDGER_CATEGORY_LABELS[key]}
             for key in request.categories
         ],
-        "additional_budget": max(0, request.request_limit - run.budget_remaining),
+        "additional_budget": max(0, request.request_limit - run.budget_remaining)
+        if request.request_limit is not None
+        else 0,
+        "budget_mode": run.reading_plan_json.get("budget_mode", "bounded"),
         "maximum_calls": request.request_limit,
         "budget_remaining": run.budget_remaining,
     }
@@ -287,9 +295,14 @@ async def start_category_rescan(db, novel_id, run_key, request):
         )
         await store.save_frozen(frozen)
         attempts.append(frozen.attempt_id)
-    added = max(0, request.request_limit - run.budget_remaining)
-    run.budget_total += added
-    run.budget_remaining += added
+    added = (
+        max(0, request.request_limit - run.budget_remaining)
+        if request.request_limit is not None
+        else 0
+    )
+    if run.budget_remaining is not None:
+        run.budget_total += added
+        run.budget_remaining += added
     queued = await enqueue_operation_task(
         db,
         operation_id=str(request.operation_id),
@@ -297,6 +310,7 @@ async def start_category_rescan(db, novel_id, run_key, request):
         novel_id=str(novel_id),
         request_payload=request_body,
         meta={
+            **run_budget_meta(run),
             "novel_id": str(novel_id),
             "run_key": run_key,
             "operation_id": str(request.operation_id),
@@ -495,9 +509,15 @@ async def handle_category_rescan(db, task):
             db=db,
             llm_snapshot=run.llm_snapshot_json,
         ) as sampler:
+            from types import SimpleNamespace
 
-            async def call(method, **inputs):
-                return await getattr(sampler, method)(**inputs)
+            from modules.evolution.sampler import SceneMethodCaller
+
+            call = SceneMethodCaller(
+                db,
+                SimpleNamespace(sampler_provider="project_llm", novel_id=novel_id),
+                run.llm_snapshot_json,
+            )
 
             for attempt_id in entry["attempt_ids"]:
                 frozen = await store.load_frozen(run_key, attempt_id)

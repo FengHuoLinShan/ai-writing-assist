@@ -1,19 +1,22 @@
-"""One bounded native-Codex account queue shared by local API/worker processes."""
+"""Model pools shared by local API/worker processes; no aggregate quota."""
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import os
 import stat
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from infrastructure.llm.codex_identity import codex_login_identity
-from infrastructure.llm.errors import LLMError
-
 
 def _admission_directory() -> Path:
-    directory = Path("/tmp") / f"novelcraft-codex-admission-{os.getuid()}"
+    directory = (
+        Path(os.environ["LLM_MODEL_ADMISSION_DIRECTORY"])
+        if os.environ.get("LLM_MODEL_ADMISSION_DIRECTORY")
+        else Path("/tmp") / f"novelcraft-model-admission-{os.getuid()}"
+    )
     directory.mkdir(mode=0o700, exist_ok=True)
     info = directory.lstat()
     if (
@@ -22,7 +25,7 @@ def _admission_directory() -> Path:
         or info.st_mode & 0o077
     ):
         raise ValueError(
-            "Codex admission directory must be private and owned by this user"
+            "Model admission directory must be private and owned by this user"
         )
     return directory
 
@@ -36,11 +39,11 @@ def _open_lock(path: Path) -> int:
         or info.st_mode & 0o077
     ):
         os.close(fd)
-        raise ValueError("Codex admission file must be private and owned by this user")
+        raise ValueError("Model admission file must be private and owned by this user")
     return fd
 
 
-def _try_admit(directory: Path, identity: str, limit: int) -> int | None:
+def _try_admit(directory: Path, identity: str, limit: int, rpm: int = 0) -> int | None:
     import fcntl
 
     guard = _open_lock(directory / f"{identity}.limit")
@@ -50,24 +53,26 @@ def _try_admit(directory: Path, identity: str, limit: int) -> int | None:
             fcntl.flock(guard, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return None
-        saved = os.read(guard, 17)
-        if saved != str(limit).encode():
+        saved = os.read(guard, 256)
+        config = json.dumps({"concurrency": limit, "rpm": rpm}).encode()
+        if saved != config:
             # A capacity change is allowed only while every account slot is idle.
-            for i in range(8):
+            previous = (
+                json.loads(saved)["concurrency"]
+                if saved.startswith(b"{")
+                else int(saved or limit)
+            )
+            for i in range(max(previous, limit)):
                 fd = _open_lock(directory / f"{identity}.{i}")
                 try:
                     fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except BlockingIOError as exc:
+                except BlockingIOError:
                     os.close(fd)
-                    raise LLMError(
-                        "Codex worker 并发配置不一致；请等待在途结束后统一配置",
-                        provider="codex",
-                        error_kind="codex_admission_configuration",
-                    ) from exc
+                    return None
                 locked.append(fd)
             os.lseek(guard, 0, os.SEEK_SET)
             os.ftruncate(guard, 0)
-            os.write(guard, str(limit).encode())
+            os.write(guard, config)
             for fd in locked:
                 os.close(fd)
             locked.clear()
@@ -87,22 +92,24 @@ def _try_admit(directory: Path, identity: str, limit: int) -> int | None:
 
 
 @asynccontextmanager
-async def codex_account_admission(limit: int):
+async def model_admission(pool_key: tuple[str, ...], limit: int, *, rpm: int = 0):
     """OS releases slots on process death; cancellation never leaks an admission."""
-    if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 8:
-        raise ValueError("Codex admission limit must be an integer from 1 to 8")
-    identity = codex_login_identity()
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+        raise ValueError("Model admission limit must be a positive integer")
+    identity = hashlib.sha256(json.dumps(pool_key).encode()).hexdigest()
     directory = _admission_directory()
     from infrastructure.llm.limits import (
         _ai_run_remaining_seconds,
         _raise_ai_run_deadline,
+        require_request_admission,
     )
 
     while True:
+        require_request_admission()
         remaining = _ai_run_remaining_seconds()
         if remaining is not None and remaining <= 0:
             _raise_ai_run_deadline()
-        fd = _try_admit(directory, identity, limit)
+        fd = _try_admit(directory, identity, limit, rpm)
         if fd is not None:
             break
         await asyncio.sleep(min(0.025, remaining) if remaining is not None else 0.025)

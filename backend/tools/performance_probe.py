@@ -176,7 +176,7 @@ def configure() -> None:
             "SMTP_FROM": "diagnostic@example.invalid",
             "SUPPORT_EMAIL": "diagnostic@example.invalid",
             "LLM_HEALTH_REQUIRED": "false",
-            "LLM_RATE_LIMIT_PER_MINUTE": "0",
+            "LLM_MODEL_LIMITS_JSON": "{}",
             "LLM_RETRY_MAX_ATTEMPTS": "1",
             "LLM_TRUST_ENV": "false",
             "LLM_PROXY_URL": "",

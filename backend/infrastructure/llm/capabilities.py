@@ -35,6 +35,10 @@ class LLMCapabilityProfile:
     spec_verified_on: str | None = None
     interaction_reasoning_effort: str | None = None
     interaction_timeout_seconds: int | None = None
+    declared_input_ceiling_tokens: int | None = None
+    default_input_budget_tokens: int | None = None
+    native_auto_compact_tokens: int | None = None
+    token_estimation_method: str | None = None
     structured_output: str | None = "unverified"
     """json/response_format 支持声明：supported / unverified / unsupported。
 
@@ -47,7 +51,7 @@ class LLMCapabilityProfile:
     @property
     def hard_input_tokens(self) -> int:
         return min(
-            self.verified_input_ceiling_tokens,
+            self.declared_input_ceiling_tokens or self.verified_input_ceiling_tokens,
             self.context_limit_tokens
             - max(self.story_output_tokens, self.summary_output_tokens)
             - self.safety_margin_tokens,
@@ -68,7 +72,6 @@ class LLMCapabilityProfile:
             raise LLMCapabilityError("RP timeout requires a frozen thinking policy")
         positive = (
             self.context_limit_tokens,
-            self.verified_input_ceiling_tokens,
             self.normal_input_tokens,
             self.compact_trigger_tokens,
             self.summary_input_ceiling_tokens,
@@ -77,6 +80,12 @@ class LLMCapabilityProfile:
             self.summary_output_tokens,
             self.safety_margin_tokens,
         )
+        if self.verified_input_ceiling_tokens < 0:
+            raise LLMCapabilityError("Verified input ceiling cannot be negative")
+        if self.default_input_budget_tokens is not None and not (
+            0 < self.default_input_budget_tokens <= self.hard_input_tokens
+        ):
+            raise LLMCapabilityError("Configured input exceeds the context budget")
         if any(value <= 0 for value in positive):
             raise LLMCapabilityError("LLM capability budgets must be positive")
         if not (
@@ -90,7 +99,16 @@ class LLMCapabilityProfile:
         return self
 
     def to_snapshot(self) -> dict[str, Any]:
-        payload = {"version": LLM_CAPABILITY_VERSION, **asdict(self)}
+        fields = asdict(self)
+        for key in (
+            "declared_input_ceiling_tokens",
+            "default_input_budget_tokens",
+            "native_auto_compact_tokens",
+            "token_estimation_method",
+        ):
+            if fields[key] is None:
+                fields.pop(key)
+        payload = {"version": LLM_CAPABILITY_VERSION, **fields}
         payload["capability_hash"] = _stable_hash(payload)
         return payload
 
@@ -132,6 +150,35 @@ _DEEPSEEK_FLASH = LLMCapabilityProfile(
 ).validate()
 
 
+def _codex_luna_profile():
+    from infrastructure.llm.model_limits import get_model_limits
+    from infrastructure.llm.token_estimation import token_estimation_method
+
+    budget = get_model_limits("codex", "gpt-6-luna").input_budget_tokens or 500_000
+    return LLMCapabilityProfile(
+        profile_id="codex-luna-context-20261014-v1",
+        provider_id="codex",
+        model="gpt-6-luna",
+        context_limit_tokens=1_050_000,
+        verified_input_ceiling_tokens=0,
+        declared_input_ceiling_tokens=837_500,
+        default_input_budget_tokens=budget,
+        normal_input_tokens=min(budget, 500_000),
+        compact_trigger_tokens=600_000,
+        summary_input_ceiling_tokens=min(budget, 500_000),
+        story_output_tokens=128_000,
+        see_sea_output_tokens=128_000,
+        summary_output_tokens=64_000,
+        safety_margin_tokens=32_000,
+        native_auto_compact_tokens=800_000,
+        token_estimation_method=token_estimation_method("gpt-6-luna"),
+        calibration_status="official_spec_runtime_unverified",
+        official_spec_url="https://developers.openai.com/api/docs/models/gpt-6-luna",
+        spec_verified_on="2026-10-14",
+        structured_output="supported",
+    ).validate()
+
+
 def _short_fallback(
     provider_id: str, model: str, *, legacy: bool = False
 ) -> LLMCapabilityProfile:
@@ -160,19 +207,33 @@ def resolve_llm_capability_profile(
 ) -> LLMCapabilityProfile:
     provider = str(provider_id or "")
     model_name = str(model or "")
+    if (provider, model_name) == ("codex", "gpt-6-luna"):
+        return _codex_luna_profile()
     for profile in (_DEEPSEEK_FLASH, _DEEPSEEK_V4_FLASH):
         if (provider, model_name) == (profile.provider_id, profile.model):
-            if high_quality:
-                return profile
-            return replace(
-                profile,
-                profile_id=f"{model_name}-rp-balanced-20260921-v1",
-                normal_input_tokens=128_000,
-                compact_trigger_tokens=192_000,
-                interaction_reasoning_effort="high",
-                calibration_status="historical_evidence_tuning",
-            ).validate()
-    return _short_fallback(provider, model_name)
+            if not high_quality:
+                profile = replace(
+                    profile,
+                    profile_id=f"{model_name}-rp-balanced-20260921-v1",
+                    normal_input_tokens=128000,
+                    compact_trigger_tokens=192000,
+                    interaction_reasoning_effort="high",
+                    calibration_status="historical_evidence_tuning",
+                )
+            break
+    else:
+        profile = _short_fallback(provider, model_name)
+    from infrastructure.llm.model_limits import get_model_limits
+    from infrastructure.llm.token_estimation import token_estimation_method
+
+    budget = get_model_limits(provider, model_name).input_budget_tokens
+    if budget is not None:
+        profile = replace(
+            profile,
+            default_input_budget_tokens=budget,
+            token_estimation_method=token_estimation_method(model_name),
+        )
+    return profile.validate()
 
 
 def _profile_from_snapshot(

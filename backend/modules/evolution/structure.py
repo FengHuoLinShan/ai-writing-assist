@@ -5,6 +5,7 @@ import asyncio
 from core.errors import ConflictError
 from infrastructure.llm.collaboration import content_hash
 from infrastructure.tasks.facade import enqueue_coalesced_task
+from modules.evolution.budget import run_budget_meta
 from modules.evolution.pipeline import SceneSourceBinding, _source_verifier
 from modules.evolution.sampler import resolve_scene_sampler
 from modules.evolution.store import PostgresAttemptStore
@@ -21,7 +22,7 @@ async def enqueue_structure(db, novel_id, run):
     plan = run.reading_plan_json
     if plan.get("structure", {}).get("complete"):
         return {"reading_complete": True}
-    if run.budget_remaining <= 0:
+    if run.budget_remaining is not None and run.budget_remaining <= 0:
         run.reading_plan_json = {**plan, "pause_reason": "budget"}
         await db.flush()
         return {"reading_complete": False}
@@ -37,6 +38,7 @@ async def enqueue_structure(db, novel_id, run):
         ],
         mode="reuse_active",
         meta={
+            **run_budget_meta(run),
             "operation": "structure",
             "novel_id": novel_id,
             "run_key": run.run_key,

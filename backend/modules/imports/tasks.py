@@ -17,6 +17,31 @@ from modules.imports.orchestrator import DeepImportOrchestrator
 logger = logging.getLogger(__name__)
 
 
+def _scope_budget_policy(task):
+    from infrastructure.llm.collaboration import content_hash
+    from infrastructure.llm.model_limits import confirmed_scope_eligible
+
+    meta = task.meta or {}
+    snapshot = meta.get("llm_execution_snapshot")
+    authorization = meta.get("authorization_snapshot")
+    confirmed = bool(
+        authorization and authorization.get("authorization_confirmed") is True
+    )
+    if (
+        task.task_type == "spreadsheet_migration_ai"
+        and meta.get("session_id")
+        and meta.get("scope_hash")
+    ):
+        authorization = {key: meta[key] for key in ("session_id", "scope", "scope_hash")}
+        confirmed = True
+    if confirmed and confirmed_scope_eligible(snapshot):
+        return {
+            "budget_mode": "confirmed_scope",
+            "scope_fingerprint": content_hash([authorization, snapshot]),
+        }
+    return {"budget_mode": "bounded"}
+
+
 def _authorization(task: Any, key: str) -> dict[str, Any]:
     snapshot = (getattr(task, "meta", None) or {}).get("authorization_snapshot") or {}
     value = snapshot.get(key)
@@ -90,6 +115,7 @@ async def _project_task(task, result: dict[str, Any], progress: float) -> None:
     "deep_import",
     recovery_policy="manual_resume",
     root_capability_id="imports.deep_import",
+    run_budget_policy=_scope_budget_policy,
     run_request_limit=IMPORT_RUN_REQUEST_LIMIT,
 )
 async def handle_deep_import(db, task) -> dict[str, Any]:
@@ -126,6 +152,7 @@ async def handle_deep_import(db, task) -> dict[str, Any]:
     "scene_auto_extraction",
     recovery_policy="manual_resume",
     root_capability_id="imports.deep_import",
+    run_budget_policy=_scope_budget_policy,
     run_request_limit=IMPORT_RUN_REQUEST_LIMIT,
 )
 async def handle_scene_auto_extraction(db, task) -> dict[str, Any]:
@@ -152,6 +179,7 @@ async def handle_scene_auto_extraction(db, task) -> dict[str, Any]:
     "world_object_auto_extraction",
     recovery_policy="manual_resume",
     root_capability_id="imports.deep_import",
+    run_budget_policy=_scope_budget_policy,
     run_request_limit=IMPORT_RUN_REQUEST_LIMIT,
 )
 async def handle_world_object_auto_extraction(db, task) -> dict[str, Any]:
@@ -182,6 +210,7 @@ async def handle_world_object_auto_extraction(db, task) -> dict[str, Any]:
     "plot_structure_auto_extraction",
     recovery_policy="manual_resume",
     root_capability_id="imports.deep_import",
+    run_budget_policy=_scope_budget_policy,
     run_request_limit=IMPORT_RUN_REQUEST_LIMIT,
 )
 async def handle_plot_structure_auto_extraction(db, task) -> dict[str, Any]:
@@ -212,6 +241,7 @@ async def handle_plot_structure_auto_extraction(db, task) -> dict[str, Any]:
     "targeted_completion",
     recovery_policy="manual_resume",
     root_capability_id="imports.targeted_completion",
+    run_budget_policy=_scope_budget_policy,
     run_request_limit=_targeted_completion_run_request_limit,
 )
 async def handle_targeted_completion(db, task) -> dict[str, Any]:
@@ -229,6 +259,7 @@ async def handle_targeted_completion(db, task) -> dict[str, Any]:
     "import_review_resolution",
     recovery_policy="manual_resume",
     root_capability_id="imports.review_resolution",
+    run_budget_policy=_scope_budget_policy,
     run_request_limit=_review_resolution_run_request_limit,
 )
 async def handle_import_review_resolution(db, task):
@@ -251,6 +282,7 @@ def _spreadsheet_migration_request_limit(task) -> int:
     max_attempts=2,
     retry_transient_llm_errors=True,
     root_capability_id="imports.spreadsheet_migration",
+    run_budget_policy=_scope_budget_policy,
     run_request_limit=_spreadsheet_migration_request_limit,
 )
 async def handle_spreadsheet_migration_ai(db, task):

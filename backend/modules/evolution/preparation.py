@@ -4,6 +4,7 @@ from core.errors import ConflictError, ValidationError
 from infrastructure.llm.collaboration import content_hash
 from infrastructure.llm.workflow_budget import AIRunEnvelopeError
 from infrastructure.tasks.facade import enqueue_coalesced_task
+from modules.evolution.budget import run_budget_meta
 from modules.evolution.llm_sampler import build_call_receipt
 from modules.evolution.pipeline import SceneSourceBinding, load_current_source
 from modules.evolution.store import BudgetExhaustedError, PostgresAttemptStore
@@ -105,6 +106,7 @@ async def enqueue_preparation(db, novel_id, run):
         scope=["evolution", run.run_key, "prepare_scenes"],
         mode="reuse_active",
         meta={
+            **run_budget_meta(run),
             "operation": "prepare_scenes",
             "novel_id": novel_id,
             "run_key": run.run_key,
@@ -176,13 +178,16 @@ async def prepare_scenes(db, novel_id, run_key):
             # transaction before provider I/O while retaining the frozen model.
             await db.commit()
             try:
-                result = await client.generate_structured(
-                    request,
-                    schema,
-                    diagnostics=diagnostics,
-                    max_fix_attempts=0,
-                    transport_retries=False,
-                )
+                from modules.evolution.llm_sampler import scene_step_scope
+
+                with scene_step_scope(client, "evolution.boundaries.v1"):
+                    result = await client.generate_structured(
+                        request,
+                        schema,
+                        diagnostics=diagnostics,
+                        max_fix_attempts=0,
+                        transport_retries=False,
+                    )
             except Exception as exc:
                 frozen = {
                     **frozen,

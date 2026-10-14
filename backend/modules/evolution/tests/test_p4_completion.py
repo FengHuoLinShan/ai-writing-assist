@@ -1031,3 +1031,37 @@ async def test_world_group_exact_read_set_reuses_only_unaffected_group(
         frozen.payload["scene_world_review_group_current_1"]["reused_from"]["run_key"]
         == previous_run["run_key"]
     )
+
+
+@pytest.mark.parametrize("new_context", [False, True])
+async def test_first_rescan_uses_new_luna_context_without_upgrading_legacy(
+    read_project, new_context
+):
+    from infrastructure.llm.capabilities import legacy_capability_snapshot
+    from infrastructure.llm.tests.test_luna_context_scope import luna_snapshot
+    from modules.evolution.category_rescan import _plan
+
+    db, nid, run, _ = read_project
+    store = PostgresAttemptStore(db, nid)
+    row = await store.load_run(run["run_key"])
+    snapshot = luna_snapshot()
+    if not new_context:
+        snapshot["llm_capability_profile"] = legacy_capability_snapshot(
+            "codex", "gpt-6-luna"
+        )
+    row.llm_snapshot_json = snapshot
+    await db.commit()
+    before = await store.load_committed_pairs(run["run_key"])
+    original = deepcopy(before[0][1].payload_json)
+    assert original["discovery_version"] == 0
+    _, _, plans, _, _ = await _plan(
+        db,
+        nid,
+        run["run_key"],
+        rescan_request().model_copy(update={"request_limit": 100}),
+    )
+    assert plans[0]["frozen"].payload["discovery_version"] == (2 if new_context else 1)
+    assert (plans[0]["preparation"].get("context_snapshot") is not None) == new_context
+    assert (await store.load_committed_pairs(run["run_key"]))[0][
+        1
+    ].payload_json == original

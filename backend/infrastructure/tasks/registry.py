@@ -66,6 +66,7 @@ class TaskRegistry:
         retry_transient_llm_errors: bool = False,
         root_capability_id: str | None = None,
         run_request_limit: int | Any = None,
+        run_budget_policy: Any = None,
         run_token_limit: int | Any = None,
         run_deadline_seconds: float | Any = None,
         run_id: str | Any = None,
@@ -121,6 +122,7 @@ class TaskRegistry:
             owner_scope=owner_scope,
             retry_transient_llm_errors=retry_transient_llm_errors,
             run_request_limit=run_request_limit,
+            run_budget_policy=run_budget_policy,
             run_token_limit=run_token_limit,
             run_deadline_seconds=run_deadline_seconds,
             run_id=run_id,
@@ -161,6 +163,20 @@ class TaskRegistry:
         if callable(resolver):
             return resolver(task)
         raise ValueError(f"{field} must be a number or a callable")
+
+    def resolve_run_budget_policy(self, task_type: str, task: Any) -> dict | None:
+        definition = self._definitions.get(task_type)
+        if definition is None or definition.run_budget_policy is None:
+            return {"budget_mode": "bounded"}
+        policy = definition.run_budget_policy(task)
+        if policy is None:
+            return None  # Registered migration seam keeps old untracked tasks unchanged.
+        if not isinstance(policy, dict) or policy.get("budget_mode") not in {
+            "bounded",
+            "confirmed_scope",
+        }:
+            raise ValueError("invalid declared run budget policy")
+        return policy
 
     def resolve_run_request_limit(self, task_type: str, task: Any) -> int | None:
         """解析该任务一次 run 的请求额度；未声明返回 None（不建立信封）。"""
@@ -257,6 +273,7 @@ def task_handler(
     retry_transient_llm_errors: bool = False,
     root_capability_id: str | None = None,
     run_request_limit: int | Any = None,
+    run_budget_policy: Any = None,
     run_token_limit: int | Any = None,
     run_deadline_seconds: float | Any = None,
     run_id: str | Any = None,
@@ -281,6 +298,7 @@ def task_handler(
             retry_transient_llm_errors=retry_transient_llm_errors,
             root_capability_id=root_capability_id,
             run_request_limit=run_request_limit,
+            run_budget_policy=run_budget_policy,
             run_token_limit=run_token_limit,
             run_deadline_seconds=run_deadline_seconds,
             run_id=run_id,

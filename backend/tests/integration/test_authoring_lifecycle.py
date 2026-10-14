@@ -172,7 +172,7 @@ async def test_import_generate_publish_and_retrieve_serial_flow(
     monkeypatch.setattr(
         llm_runtime.LLMClient,
         "from_resolved_profile",
-        lambda _profile: writing_client,
+        lambda _profile, *, execution_capability=None: writing_client,
     )
     embedding = [0.05] * get_settings().embedding_dim
 

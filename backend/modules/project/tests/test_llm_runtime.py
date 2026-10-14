@@ -395,6 +395,23 @@ async def test_cost_routing_uses_the_snapshot_provider(
 
     primary = await build_project_llm_execution_snapshot(db_session, test_project_id)
     assert primary["cost_routing"]["enabled"] is True
+    from infrastructure.llm.capabilities import capability_from_execution_snapshot
+
+    routing = primary["cost_routing"]
+    secondary = capability_from_execution_snapshot(
+        {
+            "profile": {"provider_id": "deepseek", "model": routing["cheap_model"]},
+            "llm_capability_profile": routing["llm_capability_profile"],
+        }
+    )
+    assert secondary.model == "deepseek-v4-flash"
+    restored = await restore_project_llm_execution_settings(
+        db_session, test_project_id, primary
+    )
+    assert (
+        restored["cost_routing"]["llm_capability_profile"]
+        == routing["llm_capability_profile"]
+    )
     alternate = await build_project_llm_execution_snapshot(
         db_session,
         test_project_id,

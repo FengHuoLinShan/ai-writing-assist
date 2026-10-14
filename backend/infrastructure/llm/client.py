@@ -26,6 +26,7 @@ from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from core.config import get_settings
 from infrastructure.llm.errors import (
+    LLMAdmissionStoppedError,
     LLMContentFilterError,
     LLMError,
     LLMInvalidResponseError,
@@ -519,43 +520,54 @@ def _managed_step_overrides(
         yield
 
 
-async def _reserve_ai_run_request() -> tuple[
-    AIRunEnvelope | None, AIRunRequestReservation | None
-]:
+async def _reserve_ai_run_request(
+    *, provider_id: str, model: str
+) -> tuple[AIRunEnvelope | None, AIRunRequestReservation | None]:
     """在活动运行信封中预留一次 provider 请求。
 
     reserve 发生在真正 provider I/O 之前；账本因预算或 deadline 拒绝时不产生任何计数。
     没有活动信封时返回 (None, None)，调用链行为与改造前一致。
     """
+    from infrastructure.llm.limits import require_request_admission
     from infrastructure.llm.workflow_budget import current_ai_run_envelope
 
+    require_request_admission()
     ledger = current_ai_run_envelope()
     if ledger is None:
         return None, None
-    return ledger, await ledger.reserve()
+    return ledger, await ledger.reserve(provider_id=provider_id, model=model)
+
+
+async def _send_admitted_request(call, ledger, reservation, *, meter=None):
+    # Run inside the provider task, after all asynchronous budget checkpoints.
+    from infrastructure.llm.limits import require_request_admission
+
+    try:
+        require_request_admission()
+    except LLMAdmissionStoppedError:
+        if ledger is not None and reservation is not None:
+            await ledger.discard(reservation)
+        if meter is not None:
+            await meter.discard()
+        raise
+    return await call()
 
 
 @contextmanager
-def _embedding_step_scope():
-    """让没有受管 step 上下文的远程 embedding 调用可归属到信封。
-
-    已有 step 上下文时（如在受管文本 step 内触发 embedding）沿用原上下文，
-    避免覆盖调用方的 step 身份。
-    """
+def _embedding_step_scope(*, provider_id, model):
+    """Remote embedding always records its actual system source/model."""
     from infrastructure.llm.workflow_budget import (
         AIManagedStepContext,
-        current_managed_step_context,
         managed_step_scope,
     )
 
-    if current_managed_step_context() is not None:
-        yield
-        return
     with managed_step_scope(
         AIManagedStepContext(
             step_name="infrastructure.embedding",
             call_kind=AIStepCallKind.generate,
             capability_id="infrastructure.embedding",
+            profile_source="system_embedding",
+            profile_summary={"provider_id": provider_id, "model": model},
         )
     ):
         yield
@@ -578,6 +590,10 @@ async def _settle_ai_run_request(
     error: BaseException | None = None,
 ) -> None:
     """落定已预留请求；响应和完整失败都无原生 usage 才记 unknown，不补零。"""
+    if error is not None:
+        from infrastructure.llm.limits import stop_request_admission
+
+        stop_request_admission(error)
     if ledger is None or reservation is None:
         return
     if usage is None and isinstance(error, LLMInvalidResponseError):
@@ -659,6 +675,13 @@ class LLMClient:
 
     def __init__(self, provider_name: str = "openai", **provider_kwargs: Any) -> None:
         self._high_quality = bool(provider_kwargs.pop("high_quality", False))
+        capability = provider_kwargs.pop("execution_capability", None)
+        if provider_name == "codex":
+            if capability is None:
+                from infrastructure.llm.capabilities import resolve_llm_capability_profile
+
+                capability = resolve_llm_capability_profile("codex", "gpt-6-luna")
+            provider_kwargs["execution_capability"] = capability
         defaults = default_llm_profile()
         self._default_model = str(
             provider_kwargs.pop("default_model", None) or defaults["model"]
@@ -693,6 +716,7 @@ class LLMClient:
         self._uses_system_embedding_profile = False
         self._runtime_scope: dict[str, Any] = {"profile_source": "system"}
         self.authorize_request = None
+        self._execution_capability = capability
 
     @classmethod
     def from_project_settings(
@@ -761,6 +785,13 @@ class LLMClient:
         if hasattr(self, "_provider") and hasattr(self._provider, "close"):
             await self._provider.close()
         self._high_quality = bool(provider_kwargs.pop("high_quality", False))
+        capability = provider_kwargs.pop("execution_capability", None)
+        if provider_name == "codex":
+            if capability is None:
+                from infrastructure.llm.capabilities import resolve_llm_capability_profile
+
+                capability = resolve_llm_capability_profile("codex", "gpt-6-luna")
+            provider_kwargs["execution_capability"] = capability
         defaults = default_llm_profile()
         self._default_model = str(
             provider_kwargs.pop("default_model", None) or defaults["model"]
@@ -770,6 +801,7 @@ class LLMClient:
         )
         provider_kwargs["default_model"] = self._default_model
         self._provider = get_provider(provider_name, **provider_kwargs)
+        self._execution_capability = capability
         runtime_profile = resolve_llm_profile(
             test_overrides={
                 "provider_id": provider_name,
@@ -842,6 +874,58 @@ class LLMClient:
                 )
         return resolved
 
+    def _validate_input_budget(self, request):
+        if self.provider == "codex":
+            self._provider.validate_request(request)
+            return
+        from infrastructure.llm.capabilities import resolve_llm_capability_profile
+        from infrastructure.llm.token_estimation import (
+            estimate_token_count,
+            token_estimation_method,
+        )
+
+        capability = self._execution_capability
+        if capability is not None and capability.model != request.model:
+            from infrastructure.llm.capabilities import capability_from_execution_snapshot
+
+            routing = getattr(self, "cost_routing", {})
+            capability = capability_from_execution_snapshot(
+                {
+                    "profile": {
+                        "provider_id": self._limiter_provider_id,
+                        "model": request.model,
+                    },
+                    "llm_capability_profile": routing.get("llm_capability_profile")
+                    if routing.get("cheap_model") == request.model
+                    else None,
+                }
+            )
+        elif capability is None:
+            capability = resolve_llm_capability_profile(
+                self._limiter_provider_id, request.model
+            )
+        budget = capability.default_input_budget_tokens
+        if (
+            budget is not None
+            and capability.token_estimation_method
+            != token_estimation_method(request.model)
+        ):
+            raise LLMError(
+                "冻结的输入计量策略已变化，请重新确认范围",
+                error_kind="context_policy_changed",
+            )
+        if (
+            budget is not None
+            and estimate_token_count(
+                json.dumps(request.model_dump(mode="json"), ensure_ascii=False),
+                model=request.model,
+            )
+            > budget
+        ):
+            raise LLMError(
+                "完整请求超过冻结输入预算，请拆分资料", error_kind="input_budget_exceeded"
+            )
+
     def _provider_call_timeout(self, remaining_run_seconds: float | None) -> float | None:
         """单次 provider 调用上限 = profile timeout 与剩余 run deadline 的较小值。
 
@@ -857,7 +941,9 @@ class LLMClient:
             return _EXPIRED_DEADLINE_CALL_TIMEOUT_SECONDS
         return min(timeout, remaining) if timeout is not None else remaining
 
-    def _limiter_scope(self, operation_kind: str) -> LLMLimiterScope:
+    def _limiter_scope(
+        self, operation_kind: str, model: str | None = None
+    ) -> LLMLimiterScope:
         """Return the secret-free availability bucket for this client call."""
         base_url = (
             self._limiter_embedding_base_url
@@ -868,7 +954,15 @@ class LLMClient:
             novel_id=self._runtime_scope.get("novel_id"),
             operation_kind=operation_kind,
             base_url=base_url,
-            provider_id=self._limiter_provider_id,
+            provider_id=get_settings().embedding_provider
+            if operation_kind == "embedding"
+            else self._limiter_provider_id,
+            model=model
+            or (
+                get_settings().embedding_model
+                if operation_kind == "embedding"
+                else self._default_model
+            ),
         )
 
     async def generate(
@@ -906,12 +1000,13 @@ class LLMClient:
             attempts += 1
             if self.authorize_request is not None:
                 await self.authorize_request()
-            if self.provider == "codex":
-                self._provider.validate_request(resolved_request)
+            self._validate_input_budget(resolved_request)
             meter = current_workflow_budget()
             # 活动信封是权威请求闸门：先在信封预留；兼容预算随后预留，若它拒绝，
             # 立即撤销信封预留。任一预算在 provider I/O 前拒绝时，两个账本都不计数。
-            ledger, reservation = await _reserve_ai_run_request()
+            ledger, reservation = await _reserve_ai_run_request(
+                provider_id=self._limiter_provider_id, model=resolved_request.model
+            )
             try:
                 if meter is not None:
                     await meter.before_request()
@@ -922,13 +1017,24 @@ class LLMClient:
             await _record_ai_run_retry(ledger, reservation, attempt=attempts)
             try:
                 response = await asyncio.wait_for(
-                    self._provider.generate(resolved_request, complete_stream=True)
-                    if complete_stream
-                    else self._provider.generate(resolved_request),
+                    _send_admitted_request(
+                        lambda: (
+                            self._provider.generate(
+                                resolved_request, complete_stream=True
+                            )
+                            if complete_stream
+                            else self._provider.generate(resolved_request)
+                        ),
+                        ledger,
+                        reservation,
+                        meter=meter,
+                    ),
                     timeout=self._provider_call_timeout(
                         ledger.remaining_seconds() if ledger is not None else None
                     ),
                 )
+            except LLMAdmissionStoppedError:
+                raise
             except Exception as exc:
                 await _settle_ai_run_request(ledger, reservation, usage=None, error=exc)
                 if meter is not None:
@@ -970,7 +1076,9 @@ class LLMClient:
             async def call():
                 return await provider_request()
 
-        return await limiter.run(call, limiter_scope=self._limiter_scope("chat"))
+        return await limiter.run(
+            call, limiter_scope=self._limiter_scope("chat", resolved_request.model)
+        )
 
     async def generate_stream(
         self,
@@ -991,7 +1099,9 @@ class LLMClient:
         # 一旦流开始后断掉，由上层处理；已开始的流禁止自动重放
         resolved_request = self.resolve_request_defaults(request)
         limiter = get_llm_limiter()
-        async with limiter.scope(limiter_scope=self._limiter_scope("chat")):
+        async with limiter.scope(
+            limiter_scope=self._limiter_scope("chat", resolved_request.model)
+        ):
             from infrastructure.llm.retry import transport_retries_enabled
 
             open_attempts = 0
@@ -1001,20 +1111,30 @@ class LLMClient:
                 open_attempts += 1
                 if self.authorize_request is not None:
                     await self.authorize_request()
-                if self.provider == "codex":
-                    self._provider.validate_request(resolved_request)
+                self._validate_input_budget(resolved_request)
                 # 只在 reserve/settle 附近声明 call_kind，避免在 yield 期间把
                 # step 覆盖留在消费者同一 task 的上下文里。
                 with _managed_step_overrides(call_kind=AIStepCallKind.stream):
-                    ledger, reservation = await _reserve_ai_run_request()
+                    ledger, reservation = await _reserve_ai_run_request(
+                        provider_id=self._limiter_provider_id,
+                        model=resolved_request.model,
+                    )
                     await _record_ai_run_retry(ledger, reservation, attempt=open_attempts)
                 try:
                     stream = await asyncio.wait_for(
-                        self._provider.generate_stream(request=resolved_request),
+                        _send_admitted_request(
+                            lambda: self._provider.generate_stream(
+                                request=resolved_request
+                            ),
+                            ledger,
+                            reservation,
+                        ),
                         timeout=self._provider_call_timeout(
                             ledger.remaining_seconds() if ledger is not None else None
                         ),
                     )
+                except LLMAdmissionStoppedError:
+                    raise
                 except BaseException as exc:
                     await _settle_ai_run_request(
                         ledger, reservation, usage=None, error=exc
@@ -1080,9 +1200,14 @@ class LLMClient:
         pending: list[tuple[AIRunEnvelope, AIRunRequestReservation]] = []
 
         async def metered_before_request() -> None:
-            ledger, reservation = await _reserve_ai_run_request()
+            from infrastructure.llm.limits import require_request_admission
+
+            ledger, reservation = await _reserve_ai_run_request(
+                provider_id=provider_id, model=self.model_name
+            )
             try:
                 await before_request()
+                require_request_admission()
             except BaseException:
                 if ledger is not None and reservation is not None:
                     await ledger.discard(reservation)
@@ -1090,7 +1215,9 @@ class LLMClient:
             if ledger is not None and reservation is not None:
                 pending.append((ledger, reservation))
 
-        async with get_llm_limiter().scope(limiter_scope=self._limiter_scope("chat")):
+        async with get_llm_limiter().scope(
+            limiter_scope=self._limiter_scope("chat", self.model_name)
+        ):
             with _managed_step_overrides(call_kind=AIStepCallKind.research):
                 try:
                     result = await self._provider.research(
@@ -1660,17 +1787,27 @@ class LLMClient:
             finally:
                 await embedding_client.close()
 
+        model = model or settings.embedding_model
+
         # OpenAI / 其他远程 provider：与文本请求同一运行信封计量。provider 不返回
         # embedding 用量，因此按 honest-unknown 落账（requests_unknown / possible）。
         async def metered_embedding_request():
-            ledger, reservation = await _reserve_ai_run_request()
+            ledger, reservation = await _reserve_ai_run_request(
+                provider_id=provider, model=model
+            )
             try:
                 result = await asyncio.wait_for(
-                    self._provider.generate_embedding(text=text, model=model),
+                    _send_admitted_request(
+                        lambda: self._provider.generate_embedding(text=text, model=model),
+                        ledger,
+                        reservation,
+                    ),
                     timeout=self._provider_call_timeout(
                         ledger.remaining_seconds() if ledger is not None else None
                     ),
                 )
+            except LLMAdmissionStoppedError:
+                raise
             except BaseException as exc:
                 await _settle_ai_run_request(ledger, reservation, usage=None, error=exc)
                 raise
@@ -1679,7 +1816,7 @@ class LLMClient:
             )
             return result
 
-        with _embedding_step_scope():
+        with _embedding_step_scope(provider_id=provider, model=model):
             return await get_llm_limiter().run(
                 lambda: retry_with_backoff(
                     metered_embedding_request,
@@ -1687,7 +1824,7 @@ class LLMClient:
                     base_delay=self._settings.llm_retry_base_delay,
                     max_delay=self._settings.llm_retry_max_delay,
                 ),
-                limiter_scope=self._limiter_scope("embedding"),
+                limiter_scope=self._limiter_scope("embedding", model),
             )
 
     async def get_usage_stats(self) -> dict[str, Any]:

@@ -89,7 +89,7 @@ def rename(value, tokens):
     return value
 
 
-def request_contract(consumer, consumed, profile):
+def request_contract(consumer, consumed, profile, capability=None):
     registered = registered_scene_request(consumer, consumed, model=profile.get("model"))
     if registered is None:
         return None
@@ -101,6 +101,14 @@ def request_contract(consumer, consumed, profile):
             method,
             model=profile.get("model"),
             provider_id=profile.get("provider_id"),
+        )
+    if (capability or {}).get("default_input_budget_tokens") is not None:
+        request = request.model_copy(
+            update={
+                "max_tokens": min(
+                    request.max_tokens or profile.get("max_tokens") or 128000, 128000
+                )
+            }
         )
     return {
         "request": request.model_dump(mode="json"),
@@ -118,8 +126,16 @@ def read_set(run, consumer, inputs, *, tokens=None):
     consumed = rename(inputs, tokens or {})
     profile = (run.llm_snapshot_json or {}).get("profile") or {}
     fields = {key: content_hash(value) for key, value in consumed.items()}
-    contract = request_contract(consumer, consumed, profile)
+    contract = request_contract(
+        consumer,
+        consumed,
+        profile,
+        (run.llm_snapshot_json or {}).get("llm_capability_profile"),
+    )
     fields["request_contract"] = content_hash(contract)
+    capability = (run.llm_snapshot_json or {}).get("llm_capability_profile") or {}
+    if capability.get("default_input_budget_tokens") is not None:
+        fields["context_policy"] = content_hash(capability)
     return {
         "version": VERSION,
         "consumer": consumer,

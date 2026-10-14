@@ -2,6 +2,7 @@
 
 import json
 from copy import deepcopy
+from functools import partial
 from uuid import NAMESPACE_URL, uuid5
 
 from core.errors import ConflictError
@@ -655,7 +656,8 @@ def prepare_world_audit_groups(*, payload, source, run, novel_id, attempt_id):
     )
     initial = payload["world_preparation"]["context"]
     model = ((run.llm_snapshot_json or {}).get("profile") or {}).get("model")
-    if model not in DEEPSEEK_THINKING_MODELS:
+    native = payload.get("world_version") == 3
+    if model not in DEEPSEEK_THINKING_MODELS and not native:
         members = [
             {"path": path, "index": index}
             for path, items in (
@@ -681,6 +683,15 @@ def prepare_world_audit_groups(*, payload, source, run, novel_id, attempt_id):
             grouped=False,
         )
         return {"version": "full-package-v1", "groups": [group]}
+
+    def over_capacity(group):
+        if native and group["spec"]:
+            from modules.evolution.input_budget import fits
+
+            return not fits(
+                run.llm_snapshot_json, "scene_world_review_group", group["spec"]
+            )
+        return group["audit_input_chars"] > WORLD_AUDIT_INPUT_CHAR_LIMIT
 
     units_by_component = _world_claim_units(world, relations, context)
     groups = []
@@ -735,7 +746,7 @@ def prepare_world_audit_groups(*, payload, source, run, novel_id, attempt_id):
                 )
                 groups.append(group)
                 continue
-            if group["audit_input_chars"] > WORLD_AUDIT_INPUT_CHAR_LIMIT:
+            if over_capacity(group):
                 if current:
                     groups.append(
                         _make_world_audit_group(
@@ -764,7 +775,7 @@ def prepare_world_audit_groups(*, payload, source, run, novel_id, attempt_id):
                     attempt_id=attempt_id,
                     grouped=True,
                 )
-                if group["audit_input_chars"] > WORLD_AUDIT_INPUT_CHAR_LIMIT:
+                if over_capacity(group):
                     group["spec"] = None
                     group["deferred_reason"] = "candidate_over_capacity"
                     groups.append(group)
@@ -788,7 +799,13 @@ def prepare_world_audit_groups(*, payload, source, run, novel_id, attempt_id):
                 )
             )
     groups.sort(key=lambda item: item["group_id"])
-    return {"version": "object-source-groups-v1", "groups": groups}
+    return {
+        "version": "object-source-token-groups-v2"
+        if native
+        else "object-source-groups-v1",
+        "groups": groups,
+        **({"context_snapshot": deepcopy(run.llm_snapshot_json)} if native else {}),
+    }
 
 
 def world_group_apply_inputs(result, group, resolved_new_refs=()):
@@ -963,7 +980,7 @@ async def freeze_value(db, store, frozen, key, prepare):
 
 
 async def finish_scene_world(db, store, frozen, source, call):
-    if frozen.payload.get("world_version", 0) not in {1, 2} or frozen.payload.get(
+    if frozen.payload.get("world_version", 0) not in {1, 2, 3} or frozen.payload.get(
         "world_result"
     ):
         return frozen
@@ -1009,6 +1026,7 @@ async def finish_scene_world(db, store, frozen, source, call):
             },
             call_inputs=spec,
             call=execute,
+            session_gate=getattr(call, "session_gate", None),
         )
 
     from modules.evolution.state_review import SceneCallFailedError
@@ -1044,9 +1062,9 @@ async def finish_scene_world(db, store, frozen, source, call):
         )
         context["_initial_identity_queries"] = first["_identity_queries"]
         context = imports.prepare_scene_relations_context(context, world)
-        if payload["world_version"] == 2:
+        if payload["world_version"] in {2, 3}:
             context.update(await relation_history(store, frozen, context))
-        if payload["world_version"] == 2:
+        if payload["world_version"] in {2, 3}:
             context["_new_entity_ids"] = {
                 ref: str(
                     uuid5(
@@ -1118,12 +1136,66 @@ async def finish_scene_world(db, store, frozen, source, call):
                 "世界审查冻结范围或方法已变化，旧结果保留且不能重新盖章",
                 code="scene_world_review_scope_changed",
             )
+        from modules.evolution.pipeline import SamplePendingReconciliationError
+        from modules.evolution.state_review import settled_output_failure
+
+        # Validate every persisted review before admitting any independent peer.
+        for planned in spec["groups"]:
+            key = f"scene_world_review_group_{planned['group_id']}"
+            journal = frozen.payload.get(key) or {}
+            if (
+                journal
+                and journal.get("stage") != "sampled"
+                and not settled_output_failure(journal)
+            ):
+                raise SamplePendingReconciliationError(
+                    key, "preserve original world review"
+                )
+            if journal and journal.get("input_hash") != content_hash(
+                {
+                    "method": "imports.scene_world_review.group.v3",
+                    "attempt_id": frozen.attempt_id,
+                    "source_manifest_hash": frozen.source_manifest_hash,
+                    "previous_receipt": frozen.previous_receipt,
+                    **planned["spec"],
+                }
+            ):
+                raise ConflictError("世界审查冻结输入已变化")
+        from modules.evolution.ready import drain_ready
         from modules.evolution.state_review import (
             SceneCallFailedError,
             settled_output_failure,
         )
         from modules.evolution.store import BudgetExhaustedError
 
+        async def audit(planned):
+            key = f"scene_world_review_group_{planned['group_id']}"
+            if planned.get("deferred_reason"):
+                return
+            journal = frozen.payload.get(key) or {}
+            if journal.get("stage") == "sampled" or settled_output_failure(journal):
+                return
+            try:
+                await run_call(
+                    frozen,
+                    key,
+                    planned["spec"],
+                    method="imports.scene_world_review.group.v3",
+                )
+            except BudgetExhaustedError:
+                return
+            except SceneCallFailedError as error:
+                if not settled_output_failure(
+                    {"stage": "failed", "paid_call_receipt": error.receipt}
+                ):
+                    raise
+
+        parallelism = getattr(call, "discovery_parallelism", 1)
+        if parallelism > 1:
+            await drain_ready(
+                [partial(audit, group) for group in spec["groups"]], parallelism
+            )
+            frozen = await store.load_frozen(frozen.run_id, frozen.attempt_id)
         review_groups = []
         budget_exhausted = False
         for planned in spec["groups"]:

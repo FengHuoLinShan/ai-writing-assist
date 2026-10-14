@@ -15,7 +15,8 @@ import sys
 from pathlib import Path
 
 from app.task_runtime import register_task_handlers
-from core.config import get_settings, validate_llm_rate_limit_config
+from core.config import get_settings
+from infrastructure.llm.model_limits import get_model_limits
 from scripts.dev_schema_guard import schema_is_current, wait_for_schema_current
 
 BACKEND_ROOT = Path(__file__).resolve().parent
@@ -67,10 +68,7 @@ def _configure_worker_process() -> None:
 def _validate_worker_config() -> None:
     """Fail closed before a worker process or reload supervisor starts."""
     settings = get_settings()
-    validate_llm_rate_limit_config(
-        settings.app_env,
-        settings.llm_rate_limit_per_minute,
-    )
+    get_model_limits("legacy", "legacy", settings=settings)
 
 
 def _build_task_worker():

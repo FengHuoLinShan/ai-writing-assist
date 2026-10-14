@@ -36,9 +36,10 @@ def bool_env(name: str, default: bool) -> bool:
 
 def bound_llm_concurrency(project_settings: dict | None, requested: int) -> int:
     """Admit CLI work before step timers; preserve API provider tuning."""
-    from core.config import get_codex_text_concurrency
+    from infrastructure.llm.model_limits import get_model_limits
     from infrastructure.llm.profiles import resolve_llm_profile
 
-    if resolve_llm_profile(project_settings).provider_id == "codex":
-        return min(requested, get_codex_text_concurrency())
-    return requested
+    profile = resolve_llm_profile(project_settings)
+    return min(
+        requested, get_model_limits(profile.provider_id, profile.model).concurrency
+    )

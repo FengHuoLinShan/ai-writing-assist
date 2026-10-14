@@ -1245,6 +1245,16 @@ async def _run_scene_call(
         )
 
         run = await store.load_run(frozen.run_id)
+        from infrastructure.llm.model_limits import confirmed_scope_eligible
+
+        if confirmed_scope_eligible(run.llm_snapshot_json):
+            from modules.evolution.input_budget import fits
+
+            if not fits(run.llm_snapshot_json, consumer_kind(journal_key), call_inputs):
+                raise CommitConflictError(
+                    "input_budget_exceeded",
+                    "完整输入超过冻结预算，本请求尚未发出；请重新拆分范围",
+                )
         tokens = observation_tokens(payload)
         proof = read_set(
             run,
@@ -1281,12 +1291,20 @@ async def _run_scene_call(
                 (item for item in operations if item["operation_id"] == operation_id),
                 None,
             )
-            if operation is None or operation.get("calls_remaining", 0) <= 0:
+            if operation is None or (
+                operation.get("calls_remaining", 0) is not None
+                and operation.get("calls_remaining", 0) <= 0
+            ):
                 raise BudgetExhaustedError("补扫确认的调用上限已用完")
             run.reading_plan_json = {
                 **run.reading_plan_json,
                 "category_rescans": [
-                    {**item, "calls_remaining": item["calls_remaining"] - 1}
+                    {
+                        **item,
+                        "calls_remaining": item["calls_remaining"] - 1
+                        if item["calls_remaining"] is not None
+                        else None,
+                    }
                     if item["operation_id"] == operation_id
                     else item
                     for item in operations
@@ -1302,8 +1320,15 @@ async def _run_scene_call(
         frozen = frozen.model_copy(update={"payload": payload})
         await store.replace_frozen_payload(frozen)
         await db.commit()
+    from infrastructure.llm.errors import LLMAdmissionStoppedError
+
     try:
         result = await call(**call_inputs)
+    except LLMAdmissionStoppedError:
+        await _return_unissued_scene_call(
+            db, store, frozen, journal_key, inputs, session_gate=session_gate
+        )
+        raise
     except Exception as error:
         await _settle_scene_call(
             db,
@@ -1333,6 +1358,46 @@ async def _run_scene_call(
         },
         session_gate=session_gate,
     )
+
+
+async def _return_unissued_scene_call(
+    db, store, frozen, journal_key, inputs, *, session_gate=None
+):
+    """Return only this proven-zero-I/O claim; preserve every peer's journal."""
+    async with session_gate or nullcontext():
+        await store.require_project_owner(frozen.run_id)
+        run = await store.load_run(frozen.run_id, for_update=True)
+        current = await store.load_frozen(frozen.run_id, frozen.attempt_id)
+        payload = dict(current.payload)
+        journal = payload.get(journal_key)
+        if journal is None:
+            await db.commit()
+            return
+        if journal.get("stage") != "sampling" or journal.get(
+            "input_hash"
+        ) != content_hash(inputs):
+            raise CommitConflictError(
+                "request_changed", "unissued claim changed; budget was not returned"
+            )
+        if run.budget_remaining is not None:
+            run.budget_remaining += 1
+        operation_id = payload.get("category_rescan_operation_id")
+        if operation_id:
+            run.reading_plan_json = {
+                **run.reading_plan_json,
+                "category_rescans": [
+                    {**item, "calls_remaining": item["calls_remaining"] + 1}
+                    if item["operation_id"] == operation_id
+                    and item["calls_remaining"] is not None
+                    else item
+                    for item in run.reading_plan_json.get("category_rescans", [])
+                ],
+            }
+        payload.pop(journal_key)
+        await store.replace_frozen_payload(
+            current.model_copy(update={"payload": payload})
+        )
+        await db.commit()
 
 
 async def _settle_scene_call(
@@ -1366,7 +1431,7 @@ async def _finish_scene_results(db, store, frozen, source, reviewer, caller):
         frozen = await _finish_state_review(db, store, frozen, source, reviewer)
     frozen = await finish_scene_enrichment(db, store, frozen, source, caller)
     frozen = await finish_scene_world(db, store, frozen, source, caller)
-    if frozen.payload.get("world_version") == 2:
+    if frozen.payload.get("world_version") in {2, 3}:
         frozen = await _finish_state_review(db, store, frozen, source, reviewer)
     return await finish_scene_discovery(db, store, frozen, source, caller)
 
@@ -1381,7 +1446,7 @@ async def _finish_state_review(db, store, frozen, source, reviewer):
     if payload.get("stage") == "verified":
         await db.commit()  # apply_frozen takes its advisory lock before the run lock
         return frozen
-    if payload.get("world_version") == 2 and "state_event_candidates" not in payload:
+    if payload.get("world_version") in {2, 3} and "state_event_candidates" not in payload:
         from modules.evolution.world import bind_scene_identities
 
         payload.update(bind_scene_identities(payload))

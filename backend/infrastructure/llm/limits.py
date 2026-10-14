@@ -6,14 +6,16 @@ import asyncio
 import logging
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
-from contextlib import AsyncExitStack, asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from time import monotonic
 from typing import TypeVar
 from urllib.parse import urlsplit
 
-from core.config import get_codex_text_concurrency, get_settings
+from core.config import get_settings
 from infrastructure.llm.errors import (
+    LLMAdmissionStoppedError,
     LLMAuthError,
     LLMConnectionError,
     LLMContentFilterError,
@@ -23,12 +25,39 @@ from infrastructure.llm.errors import (
     LLMRateLimitError,
     LLMTimeoutError,
 )
+from infrastructure.llm.model_limits import get_model_limits, model_source
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 _MAX_BREAKER_BUCKETS = 256
 _HALF_OPEN_RETRY_SECONDS = 1.0
+
+
+_request_stops: ContextVar[tuple[asyncio.Event, ...]] = ContextVar(
+    "llm_request_stops", default=()
+)
+
+
+@contextmanager
+def request_admission_scope(stop: asyncio.Event):
+    token = _request_stops.set((*_request_stops.get(), stop))
+    try:
+        yield
+    finally:
+        _request_stops.reset(token)
+
+
+def require_request_admission():
+    if any(stop.is_set() for stop in _request_stops.get()):
+        raise LLMAdmissionStoppedError()
+
+
+def stop_request_admission(error=None):
+    if isinstance(error, LLMInvalidResponseError) and error.usage is not None:
+        return
+    for stop in _request_stops.get():
+        stop.set()
 
 
 class LLMCircuitBreakerOpenError(LLMError):
@@ -49,6 +78,8 @@ class LLMLimiterScope:
     owner: str
     operation_kind: str
     endpoint: str
+    provider_id: str = "legacy"
+    model: str = "legacy"
 
     @classmethod
     def for_call(
@@ -58,20 +89,34 @@ class LLMLimiterScope:
         operation_kind: str,
         base_url: str,
         provider_id: str,
+        model: str = "legacy",
     ) -> LLMLimiterScope:
         owner = f"project:{novel_id}" if novel_id else "system"
         operation = str(operation_kind or "chat").strip().lower() or "chat"
         endpoint = _normalize_endpoint(base_url, provider_id=provider_id)
-        return cls(owner=owner, operation_kind=operation, endpoint=endpoint)
+        return cls(
+            owner=owner,
+            operation_kind=operation,
+            endpoint=endpoint,
+            provider_id=provider_id,
+            model=model,
+        )
 
 
 @dataclass(frozen=True)
 class _LimiterConfig:
-    max_concurrent_requests: int
-    codex_text_max_concurrent_requests: int
-    rate_limit_per_minute: int
     circuit_breaker_failure_threshold: int
     circuit_breaker_reset_seconds: float
+
+
+@dataclass
+class _ModelPool:
+    concurrency: int
+    rpm: int
+    semaphore: asyncio.Semaphore
+    tokens: float
+    last_refill_at: float
+    users: int = 0
 
 
 @dataclass
@@ -90,15 +135,12 @@ _LEGACY_SCOPE = LLMLimiterScope(
 
 
 class LLMProcessLimiter:
-    """Process-local global admission control with scoped availability breakers."""
+    """Per-model admission with project/model availability breakers."""
 
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
         self._config: _LimiterConfig | None = None
-        self._semaphore: asyncio.Semaphore | None = None
-        self._codex_semaphore: asyncio.Semaphore | None = None
-        self._tokens = 0.0
-        self._last_refill_at = monotonic()
+        self._pools: OrderedDict[tuple[str, ...], _ModelPool] = OrderedDict()
         self._breakers: OrderedDict[LLMLimiterScope, _BreakerState] = OrderedDict()
 
     async def run(
@@ -107,7 +149,7 @@ class LLMProcessLimiter:
         *,
         limiter_scope: LLMLimiterScope | None = None,
     ) -> T:
-        """Run one provider operation under global and scoped limits."""
+        """Run one provider operation under its model pool limits."""
         async with self.scope(limiter_scope=limiter_scope):
             return await fn()
 
@@ -117,65 +159,62 @@ class LLMProcessLimiter:
         *,
         limiter_scope: LLMLimiterScope | None = None,
     ):
-        """Hold global admission limits for one scoped provider operation."""
+        """Hold one model pool admission for a provider operation."""
+        require_request_admission()
         await self._ensure_ready()
         bucket = limiter_scope or _LEGACY_SCOPE
         half_open_probe = await self._begin_breaker_request(bucket)
-        codex_admitted = False
-        codex_semaphore = None
+        key = (
+            model_source(bucket.provider_id),
+            bucket.provider_id,
+            bucket.endpoint,
+            bucket.model,
+        )
+        if bucket.provider_id == "codex":
+            from infrastructure.llm.codex_identity import codex_login_identity
+
+            key = (*key, codex_login_identity())
+        pool = None
+        admitted = False
         account_admission = AsyncExitStack()
         try:
-            if bucket.endpoint == "codex://local":
-                codex_semaphore = self._codex_semaphore
-                if codex_semaphore is None:
-                    raise RuntimeError("Codex admission was not initialized")
-                await self._acquire_semaphore(codex_semaphore)
-                codex_admitted = True
-                from infrastructure.llm.codex_admission import codex_account_admission
+            pool = await self._pool(key, bucket)
+            await self._acquire_semaphore(pool.semaphore)
+            admitted = True
+            require_request_admission()
+            from infrastructure.llm.model_admission import model_admission
 
-                await account_admission.enter_async_context(
-                    codex_account_admission(
-                        self._active_config().codex_text_max_concurrent_requests
-                    )
-                )
-            await self._wait_for_rate_token()
-            semaphore = self._semaphore
-            if semaphore is None:
-                raise RuntimeError("LLM limiter semaphore was not initialized")
-
-            try:
-                await self._acquire_semaphore(semaphore)
-            except BaseException:
-                await self._return_rate_token()
-                raise
-            try:
-                try:
-                    yield
-                except Exception as exc:
-                    if _counts_toward_circuit_breaker(exc):
-                        await self.record_failure(bucket)
-                    elif _proves_provider_available(exc):
-                        await self.record_success(bucket)
-                    else:
-                        await self._release_half_open_probe(
-                            bucket,
-                            half_open_probe=half_open_probe,
-                        )
-                    raise
-                else:
-                    await self.record_success(bucket)
-            finally:
-                semaphore.release()
-        except BaseException:
-            await self._release_half_open_probe(
-                bucket,
-                half_open_probe=half_open_probe,
+            await account_admission.enter_async_context(
+                model_admission(key, pool.concurrency, rpm=pool.rpm)
             )
+            await self._wait_for_rate_token(pool)
+            require_request_admission()
+            try:
+                yield
+            except Exception as exc:
+                stop_request_admission(exc)
+                if _counts_toward_circuit_breaker(exc):
+                    await self.record_failure(bucket)
+                elif _proves_provider_available(exc):
+                    await self.record_success(bucket)
+                else:
+                    await self._release_half_open_probe(
+                        bucket, half_open_probe=half_open_probe
+                    )
+                raise
+            else:
+                await self.record_success(bucket)
+        except BaseException as exc:
+            stop_request_admission(exc)
+            await self._release_half_open_probe(bucket, half_open_probe=half_open_probe)
             raise
         finally:
             await account_admission.aclose()
-            if codex_admitted:
-                codex_semaphore.release()
+            if admitted:
+                pool.semaphore.release()
+            if pool is not None:
+                async with self._lock:
+                    pool.users -= 1
 
     async def record_success(
         self,
@@ -216,66 +255,93 @@ class LLMProcessLimiter:
             self._breakers.move_to_end(bucket)
 
     async def _ensure_ready(self) -> None:
-        config = _settings_config()
         async with self._lock:
-            if config == self._config and self._semaphore is not None:
-                return
-            self._config = config
-            self._semaphore = asyncio.Semaphore(config.max_concurrent_requests)
-            self._codex_semaphore = asyncio.Semaphore(
-                config.codex_text_max_concurrent_requests
-            )
-            self._tokens = float(config.rate_limit_per_minute)
-            self._last_refill_at = monotonic()
-            self._breakers.clear()
+            self._config = _settings_config()
 
-    async def _return_rate_token(self) -> None:
-        """Provider admission failed before I/O; return a consumed RPM token."""
-        async with self._lock:
-            config = self._active_config()
-            if config.rate_limit_per_minute > 0:
-                self._tokens = min(
-                    float(config.rate_limit_per_minute), self._tokens + 1.0
-                )
-
-    async def _wait_for_rate_token(self) -> None:
+    async def _pool(self, key, bucket):
+        limits = get_model_limits(
+            bucket.provider_id, bucket.model, settings=get_settings()
+        )
         while True:
+            require_request_admission()
             async with self._lock:
-                config = self._active_config()
-                per_minute = config.rate_limit_per_minute
-                if per_minute <= 0:
-                    return
+                pool = self._pools.get(key)
+                if pool and (pool.concurrency, pool.rpm) != (
+                    limits.concurrency,
+                    limits.rpm,
+                ):
+                    if pool.users:
+                        pool = "waiting"
+                    else:
+                        pool = None
+                if pool != "waiting":
+                    if pool is None:
+                        if (
+                            key not in self._pools
+                            and len(self._pools) >= _MAX_BREAKER_BUCKETS
+                        ):
+                            idle = next(
+                                (k for k, v in self._pools.items() if not v.users), None
+                            )
+                            if idle is None:
+                                raise LLMError(
+                                    "模型池正在使用，请稍后重试",
+                                    error_kind="model_admission_capacity",
+                                )
+                            self._pools.pop(idle)
+                        pool = _ModelPool(
+                            limits.concurrency,
+                            limits.rpm,
+                            asyncio.Semaphore(limits.concurrency),
+                            float(limits.rpm),
+                            monotonic(),
+                        )
+                        self._pools[key] = pool
+                    pool.users += 1
+                    self._pools.move_to_end(key)
+                    return pool
 
+            remaining = _ai_run_remaining_seconds()
+            if remaining is not None and remaining <= 0:
+                _raise_ai_run_deadline()
+            await asyncio.sleep(min(0.025, remaining) if remaining is not None else 0.025)
+
+    async def _wait_for_rate_token(self, pool) -> None:
+        while pool.rpm > 0:
+            require_request_admission()
+            async with self._lock:
                 now = monotonic()
-                elapsed = now - self._last_refill_at
-                self._last_refill_at = now
-                self._tokens = min(
-                    float(per_minute),
-                    self._tokens + elapsed * (per_minute / 60.0),
-                )
-                if self._tokens >= 1.0:
-                    self._tokens -= 1.0
+                elapsed = now - pool.last_refill_at
+                pool.last_refill_at = now
+                pool.tokens = min(float(pool.rpm), pool.tokens + elapsed * pool.rpm / 60)
+                if pool.tokens >= 1:
+                    pool.tokens -= 1
                     return
-
-                wait_seconds = (1.0 - self._tokens) * 60.0 / per_minute
+                wait_seconds = (1 - pool.tokens) * 60 / pool.rpm
             remaining = _ai_run_remaining_seconds()
             if remaining is not None and wait_seconds >= remaining:
                 _raise_ai_run_deadline()
-            await asyncio.sleep(wait_seconds)
+            await asyncio.sleep(
+                min(wait_seconds, 0.025) if _request_stops.get() else wait_seconds
+            )
 
     @staticmethod
     async def _acquire_semaphore(semaphore: asyncio.Semaphore) -> None:
-        remaining = _ai_run_remaining_seconds()
-        if remaining is None:
-            await semaphore.acquire()
-            return
-        if remaining <= 0:
-            _raise_ai_run_deadline()
-        try:
-            async with asyncio.timeout(remaining):
-                await semaphore.acquire()
-        except TimeoutError as exc:
-            _raise_ai_run_deadline(cause=exc)
+        while True:
+            require_request_admission()
+            remaining = _ai_run_remaining_seconds()
+            if remaining is not None and remaining <= 0:
+                _raise_ai_run_deadline()
+            wait = min(0.025, remaining) if remaining is not None else 0.025
+            if not _request_stops.get():
+                wait = remaining
+            try:
+                async with asyncio.timeout(wait):
+                    await semaphore.acquire()
+                return
+            except TimeoutError as exc:
+                if not _request_stops.get():
+                    _raise_ai_run_deadline(cause=exc)
 
     async def _begin_breaker_request(self, bucket: LLMLimiterScope) -> bool:
         async with self._lock:
@@ -384,7 +450,13 @@ def get_llm_limiter() -> LLMProcessLimiter:
 
 def _counts_toward_circuit_breaker(exc: Exception) -> bool:
     """Count provider availability failures, not deterministic request errors."""
-    if isinstance(exc, LLMError) and exc.error_kind == "codex_configuration":
+    if isinstance(exc, LLMError) and exc.error_kind in {
+        "codex_configuration",
+        "input_budget_exceeded",
+        "context_policy_changed",
+        "request_admission_stopped",
+        "model_admission_configuration",
+    }:
         return False
     if isinstance(
         exc,
@@ -446,9 +518,6 @@ def reset_llm_limiter_for_tests() -> None:
 def _settings_config() -> _LimiterConfig:
     settings = get_settings()
     return _LimiterConfig(
-        max_concurrent_requests=max(1, int(settings.llm_max_concurrent_requests)),
-        codex_text_max_concurrent_requests=get_codex_text_concurrency(settings),
-        rate_limit_per_minute=max(0, int(settings.llm_rate_limit_per_minute)),
         circuit_breaker_failure_threshold=max(
             0,
             int(settings.llm_circuit_breaker_failure_threshold),

@@ -28,6 +28,8 @@ def _encoding_for_model(model: str | None) -> Encoding | None:
         try:
             encoding_name = tiktoken.encoding_name_for_model(model)
         except KeyError:
+            if model == "gpt-6-luna":
+                return None
             encoding_name = "cl100k_base"
     else:
         encoding_name = "cl100k_base"
@@ -45,3 +47,14 @@ def estimate_token_count(text: str | None, *, model: str | None = None) -> int:
         # a configured token budget while the tokenizer asset is unavailable.
         return max(1, len(text.encode("utf-8")))
     return max(1, len(encoding.encode(text)))
+
+
+def token_estimation_method(model: str | None) -> str:
+    encoding = _encoding_for_model(model)
+    if encoding is None:
+        return "utf8_byte_upper_bound"
+    try:
+        tiktoken.encoding_name_for_model(model or "")
+    except KeyError:
+        return "fallback_tokenizer_estimate"
+    return "known_model_tokenizer"

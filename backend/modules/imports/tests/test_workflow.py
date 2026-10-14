@@ -1707,7 +1707,7 @@ class TestDeepImportWorkflowAutoRun:
             DEEP_IMPORT_DEFAULT_SETTINGS["phase2"]["world_max_tokens_per_source_char"]
             == 1.0
         )
-        assert Phase2WorldExtractor(lambda payload: payload).concurrency == 20
+        assert Phase2WorldExtractor(lambda payload: payload).concurrency == 8
 
         with phase2_project_settings_context(
             {"deep_import": {"phase2": {"world_window_concurrency": 7}}}

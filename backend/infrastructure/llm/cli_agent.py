@@ -83,6 +83,8 @@ class CLISpec:
     env: dict[str, str] | None = None
     text_only: bool = False
     output_schema: dict[str, Any] | None = None
+    context_window_tokens: int | None = None
+    auto_compact_token_limit: int | None = None
 
 
 def _command(spec: CLISpec) -> tuple[list[str], bytes | None]:
@@ -140,6 +142,16 @@ def _command(spec: CLISpec) -> tuple[list[str], bytes | None]:
                 "skip_host_skill_discovery",
                 "-c",
                 "project_doc_max_bytes=0",
+                *(
+                    [
+                        "-c",
+                        f"model_context_window={spec.context_window_tokens}",
+                        "-c",
+                        f"model_auto_compact_token_limit={spec.auto_compact_token_limit}",
+                    ]
+                    if spec.context_window_tokens is not None
+                    else []
+                ),
                 "-c",
                 f"model_instructions_file={json.dumps(str(instructions_path))}",
                 "-c",

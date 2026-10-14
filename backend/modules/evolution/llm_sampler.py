@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -405,6 +406,26 @@ def registered_scene_request(consumer, consumed, *, model):
     return request, schema, method
 
 
+def scene_step_scope(client, method):
+    from infrastructure.llm.schemas import AIStepCallKind
+    from infrastructure.llm.workflow_budget import (
+        AIManagedStepContext,
+        current_ai_run_envelope,
+        managed_step_scope,
+    )
+
+    if current_ai_run_envelope() is None:
+        return nullcontext()
+    return managed_step_scope(
+        AIManagedStepContext(
+            step_name=method,
+            call_kind=AIStepCallKind.structured,
+            profile_source="project_snapshot",
+            profile_summary=client.profile_summary,
+        )
+    )
+
+
 class ProjectLLMSampler:
     """经项目 LLM 入口的场景采样器（E09 生产路径）。
 
@@ -483,15 +504,20 @@ class ProjectLLMSampler:
         )
         diagnostics: list[dict[str, Any]] = []
         try:
-            result = await self._client.generate_structured(
-                request,
-                schema,
-                diagnostics=diagnostics,
-                max_fix_attempts=0,
-                transport_retries=False,
-                **options,
-            )
+            with scene_step_scope(self._client, method):
+                result = await self._client.generate_structured(
+                    request,
+                    schema,
+                    diagnostics=diagnostics,
+                    max_fix_attempts=0,
+                    transport_retries=False,
+                    **options,
+                )
         except Exception as error:
+            from infrastructure.llm.errors import LLMAdmissionStoppedError
+
+            if isinstance(error, LLMAdmissionStoppedError):
+                raise
             raise SceneCallFailedError(
                 build_call_receipt(
                     self._client,
@@ -524,13 +550,14 @@ class ProjectLLMSampler:
         )
         diagnostics: list[dict[str, Any]] = []
         try:
-            result: SceneSample = await self._client.generate_structured(
-                request,
-                SceneSample,
-                diagnostics=diagnostics,
-                max_fix_attempts=0,
-                transport_retries=False,
-            )
+            with scene_step_scope(self._client, "evolution.scene_sample.v1"):
+                result: SceneSample = await self._client.generate_structured(
+                    request,
+                    SceneSample,
+                    diagnostics=diagnostics,
+                    max_fix_attempts=0,
+                    transport_retries=False,
+                )
         except Exception:
             # 最终失败也必须留下回执（A07）：请求可能已发出、可能已计费，
             # 回执先行固化再重抛，调用方据此进入待核对而非盲目重采样。

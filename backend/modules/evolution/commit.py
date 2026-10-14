@@ -238,7 +238,7 @@ async def apply_frozen(
         raise CommitConflictError(
             "enrichment_incomplete", "Scene enrichment is not yet frozen"
         )
-    if frozen.payload.get("world_version") in {1, 2} and not frozen.payload.get(
+    if frozen.payload.get("world_version") in {1, 2, 3} and not frozen.payload.get(
         "world_result"
     ):
         raise CommitConflictError(

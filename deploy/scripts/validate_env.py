@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import base64
 import binascii
 import os
@@ -332,15 +333,37 @@ def validate(values: dict[str, str]) -> list[str]:
         "HTTP_RATE_LIMIT_PER_MINUTE",
         "HTTP_RATE_LIMIT_BURST",
         "HTTP_RATE_LIMIT_MAX_CLIENTS",
-        "LLM_MAX_CONCURRENT_REQUESTS",
         "TASK_WORKER_MAX_CONCURRENT_TASKS",
         "EMBEDDING_MAX_CONCURRENT_REQUESTS",
     ):
         positive_int(name)
+    try:
+        limits = json.loads(values.get("LLM_MODEL_LIMITS_JSON", "{}"))
+        if not isinstance(limits, dict):
+            raise TypeError
+        for key, config in limits.items():
+            if (
+                not isinstance(key, str)
+                or not isinstance(config, dict)
+                or set(config) - {"concurrency", "rpm", "input_budget_tokens"}
+            ):
+                raise ValueError
+            if key != "default":
+                source, provider, model = key.split("/", 2)
+                if (source != ("subscription" if provider == "codex" else "api")
+                    or not provider or provider == "*" or not model
+                    or any(part != part.strip() for part in (provider, model))
+                    or ("*" in model and model != "*")):
+                    raise ValueError
+            for field, value in config.items():
+                if type(value) is not int or value < (0 if field == "rpm" else 1):
+                    raise ValueError
+    except (ValueError, TypeError):
+        errors.append("LLM_MODEL_LIMITS_JSON must contain valid per-model limits")
+
     retention = positive_int("BACKUP_RETENTION_DAYS")
     if retention is not None and retention > 30:
         errors.append("BACKUP_RETENTION_DAYS must be at most 30")
-    non_negative_int("LLM_RATE_LIMIT_PER_MINUTE")
 
     encryption_key = require("LLM_SETTINGS_ENCRYPTION_KEY")
     if not is_missing(encryption_key):

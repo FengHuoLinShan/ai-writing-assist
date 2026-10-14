@@ -181,7 +181,16 @@ REVIEW_PROMPT = (
 )
 
 
-def method_fingerprint():
+def method_fingerprint(version=1):
+    if version == 2:
+        return content_hash(
+            [
+                method_fingerprint(),
+                "discovery.token-budget.v2",
+                "review-headroom-128000",
+                "full-native-input",
+            ]
+        )
     return content_hash(
         [
             DISCOVERY_METHOD_VERSION,
@@ -647,6 +656,58 @@ async def prepare_discovery(db, store, frozen):
         {"observation": _compact(item)} for item in relevant
     ]
     text_ranges = current_text_ranges(payload, current)
+    capacity = {}
+    snapshot = None
+    if payload.get("discovery_version") == 2:
+        from infrastructure.llm.capabilities import capability_from_execution_snapshot
+        from infrastructure.llm.token_estimation import estimate_token_count
+        from modules.evolution.input_budget import fits, input_tokens
+
+        run = await store.load_run(frozen.run_id)
+        snapshot = run.llm_snapshot_json
+        budget = capability_from_execution_snapshot(snapshot).default_input_budget_tokens
+        if budget is None:
+            raise ConflictError("新版发现缺少冻结输入预算")
+        reserve = min(128000, budget // 3)
+
+        def measure(value):
+            return estimate_token_count(
+                json.dumps(value, ensure_ascii=False, sort_keys=True), model="gpt-6-luna"
+            )
+
+        def token_chunks(values, budget=budget):
+            groups, current = [], []
+            for value in values:
+                if current and measure([*current, value]) > budget:
+                    groups.append(current)
+                    current = []
+                current.append(value)
+            return [*groups, current] if current else groups
+
+        capacity = {
+            "chunks": token_chunks,
+            "part_budget": max(1, (budget - reserve) // 4),
+            "request_budget": budget,
+            "scene_characters": max(1, (budget - reserve) // 4),
+            "measure": lambda value: input_tokens(
+                snapshot, "scene_discovery", {"inputs": value}
+            ),
+            "fits": lambda batch: fits(
+                snapshot,
+                "scene_discovery",
+                {
+                    "inputs": {
+                        **batch,
+                        "selected_categories": payload.get(
+                            "discovery_categories", list(LEDGER_CATEGORY_LABELS)
+                        ),
+                    }
+                },
+                reserve=reserve,
+            ),
+            "review_headroom": reserve,
+        }
+
     batches, unsupported, scopes, index_shards = build_batches(
         payload["scene_text"],
         [
@@ -664,14 +725,15 @@ async def prepare_discovery(db, store, frozen):
             "historical_candidates": len(relevant),
             "total_prior_observations": all_prior,
         },
-        chunks=_chunks,
+        **({"chunks": _chunks} if not capacity else capacity),
     )
     selected = payload.get("discovery_categories", list(LEDGER_CATEGORY_LABELS))
     for batch in batches:
         batch["selected_categories"] = selected
     return {
         "selected_categories": selected,
-        "method_fingerprint": method_fingerprint(),
+        "method_fingerprint": method_fingerprint(payload.get("discovery_version", 1)),
+        **({"context_snapshot": snapshot} if snapshot else {}),
         "observations": by_id,
         "themes": {theme["entry_id"]: theme for theme in themes},
         "batches": batches,
@@ -1049,6 +1111,15 @@ def _compile_change(prepared, raw, batch):
     }
 
 
+def _input_fits(prepared, inputs):
+    snapshot = prepared.get("context_snapshot")
+    if snapshot:
+        from modules.evolution.input_budget import fits
+
+        return fits(snapshot, "scene_discovery_review", {"inputs": inputs})
+    return serialized_size(inputs) <= REQUEST_CHARACTERS
+
+
 def _review_inputs(batch, generated):
     visible_themes = {
         unit["theme"]["entry_id"]: unit["theme"]
@@ -1112,10 +1183,33 @@ def _identity_shards(frozen, prepared, index):
                     },
                 }
             )
-    return [
-        *prepared.get("theme_index_shards", [])[1:],
-        *_chunks(proposals, budget=PART_CHARACTERS),
-    ]
+    chunks = _chunks(proposals, budget=PART_CHARACTERS)
+    if prepared.get("context_snapshot"):
+        from infrastructure.llm.capabilities import capability_from_execution_snapshot
+        from infrastructure.llm.token_estimation import estimate_token_count
+
+        budget = (
+            capability_from_execution_snapshot(
+                prepared["context_snapshot"]
+            ).default_input_budget_tokens
+            // 4
+        )
+        chunks, current = [], []
+        for proposal in proposals:
+            if (
+                current
+                and estimate_token_count(
+                    json.dumps([*current, proposal], ensure_ascii=False),
+                    model="gpt-6-luna",
+                )
+                > budget
+            ):
+                chunks.append(current)
+                current = []
+            current.append(proposal)
+        if current:
+            chunks.append(current)
+    return [*prepared.get("theme_index_shards", [])[1:], *chunks]
 
 
 def compile_discovery(frozen):
@@ -1204,10 +1298,7 @@ def compile_discovery(frozen):
         if generated.get("stage") != "sampled":
             raise ValueError("discovery_batch_not_frozen")
         output = DiscoveryOutput.model_validate(generated["result"])
-        if (
-            output.changes
-            and serialized_size(_review_inputs(batch, output)) > REQUEST_CHARACTERS
-        ):
+        if output.changes and not _input_fits(prepared, _review_inputs(batch, output)):
             pending.append({"reason": "review_capacity_unsupported", "batch": index})
             inspected.append(
                 {
@@ -1276,7 +1367,7 @@ def compile_discovery(frozen):
                     expected = _discovery_envelope(frozen, prepared, inputs)
                     supported = False
                     if (
-                        serialized_size(inputs) <= REQUEST_CHARACTERS
+                        _input_fits(prepared, inputs)
                         and journal.get("stage") == "sampled"
                         and journal.get("input_hash") == content_hash(expected)
                     ):
@@ -1643,7 +1734,7 @@ def _discovery_envelope(frozen, prepared, inputs):
 
 
 async def finish_scene_discovery(db, store, frozen, source, caller):
-    if frozen.payload.get("discovery_version", 0) != 1:
+    if frozen.payload.get("discovery_version", 0) not in {1, 2}:
         return frozen
     frozen = await freeze_value(
         db,
@@ -1655,8 +1746,14 @@ async def finish_scene_discovery(db, store, frozen, source, caller):
         ),
     )
     prepared = frozen.payload["discovery_preparation"]
-    if prepared["method_fingerprint"] != method_fingerprint():
+    if prepared["method_fingerprint"] != method_fingerprint(
+        frozen.payload.get("discovery_version", 1)
+    ):
         raise ConflictError("发现方法已变化，请保留旧结果并重新核对")
+    if prepared.get("context_snapshot"):
+        run = await store.load_run(frozen.run_id)
+        if prepared["context_snapshot"] != run.llm_snapshot_json:
+            raise ConflictError("冻结上下文策略已变化，保留原结果并重新核对")
     gaps = confirmed_discovery_gaps(frozen)
     if gaps:
         run = await store.load_run(frozen.run_id)
@@ -1671,7 +1768,7 @@ async def finish_scene_discovery(db, store, frozen, source, caller):
     parallelism = getattr(caller, "discovery_parallelism", 1)
     if (
         type(parallelism) is not int
-        or not 1 <= parallelism <= 8
+        or parallelism < 1
         or (parallelism > 1 and session_gate is None)
     ):
         raise ValueError("discovery parallelism requires a shared session gate")
@@ -1699,29 +1796,36 @@ async def finish_scene_discovery(db, store, frozen, source, caller):
             )
             continue
         all_plans.append((index, batch))
-    # Empty/unsupported positions do not consume an executable window slot.
-    for start in range(0, len(all_plans), window):
-        plans = all_plans[start : start + window]
-        frozen = await _finish_primary_batches(
-            db, store, frozen, source, caller, prepared, plans
+    if frozen.payload.get("discovery_version") == 2:
+        frozen = await _finish_ready_batches(
+            db, store, frozen, source, caller, prepared, all_plans
         )
-        # Only strict earlier proposals enter identity checks, regardless of when
-        # independent generation/review completes. Never parallelize Scene apply.
-        for index, batch in plans:
-            generated_journal = frozen.payload.get(f"scene_discovery_{index}") or {}
-            review_journal = frozen.payload.get(f"scene_discovery_review_{index}") or {}
-            if _settled_output_failure(generated_journal) or _settled_output_failure(
-                review_journal
-            ):
-                continue
-            generated = DiscoveryOutput.model_validate(generated_journal["result"])
-            if serialized_size(_review_inputs(batch, generated)) > REQUEST_CHARACTERS:
-                continue
-            if not any(change.action == "new" for change in generated.changes):
-                continue
-            frozen = await _finish_identity_reviews(
-                db, store, frozen, source, caller, prepared, index, batch, generated
+    else:
+        # Empty/unsupported positions do not consume an executable window slot.
+        for start in range(0, len(all_plans), window):
+            plans = all_plans[start : start + window]
+            frozen = await _finish_primary_batches(
+                db, store, frozen, source, caller, prepared, plans
             )
+            # Only strict earlier proposals enter identity checks, regardless of when
+            # independent generation/review completes. Never parallelize Scene apply.
+            for index, batch in plans:
+                generated_journal = frozen.payload.get(f"scene_discovery_{index}") or {}
+                review_journal = (
+                    frozen.payload.get(f"scene_discovery_review_{index}") or {}
+                )
+                if _settled_output_failure(generated_journal) or _settled_output_failure(
+                    review_journal
+                ):
+                    continue
+                generated = DiscoveryOutput.model_validate(generated_journal["result"])
+                if not _input_fits(prepared, _review_inputs(batch, generated)):
+                    continue
+                if not any(change.action == "new" for change in generated.changes):
+                    continue
+                frozen = await _finish_identity_reviews(
+                    db, store, frozen, source, caller, prepared, index, batch, generated
+                )
 
     return await freeze_value(
         db,
@@ -1786,6 +1890,122 @@ def _require_discovery_journals(frozen, prepared):
             raise ConflictError("主题身份审查的冻结输入已变化")
 
 
+async def _finish_ready_batches(db, store, frozen, source, caller, prepared, plans):
+    from contextlib import nullcontext
+
+    from modules.evolution.pipeline import _run_scene_call
+
+    gate = getattr(caller, "session_gate", None)
+    slots = asyncio.Semaphore(getattr(caller, "discovery_parallelism", 1))
+    active = asyncio.Semaphore(2 * getattr(caller, "discovery_parallelism", 1))
+    stop = asyncio.Event()
+    generated_done = {index: asyncio.Event() for index, _ in plans}
+
+    async def dispatch(current, key, inputs, method):
+        if _settled_output_failure(current.payload.get(key) or {}):
+            return None
+        async with slots:
+            if stop.is_set():
+                return None
+            try:
+                return await _run_scene_call(
+                    db,
+                    store,
+                    current,
+                    source,
+                    journal_key=key,
+                    inputs=_discovery_envelope(frozen, prepared, inputs),
+                    call_inputs={"inputs": inputs},
+                    call=partial(caller, method),
+                    session_gate=gate,
+                )
+            except SceneCallFailedError as error:
+                if _settled_output_failure(
+                    {"stage": "failed", "paid_call_receipt": error.receipt}
+                ):
+                    return None
+                stop.set()
+                raise
+            except BaseException:
+                stop.set()
+                raise
+
+    async def finish(index, batch):
+        async with active:
+            try:
+                current = await dispatch(
+                    frozen, f"scene_discovery_{index}", batch, "discover_details"
+                )
+            finally:
+                generated_done[index].set()
+            if current is None:
+                return
+            generated = DiscoveryOutput.model_validate(
+                current.payload[f"scene_discovery_{index}"]["result"]
+            )
+            if not generated.changes or not _input_fits(
+                prepared, _review_inputs(batch, generated)
+            ):
+                return
+            current = await dispatch(
+                current,
+                f"scene_discovery_review_{index}",
+                _review_inputs(batch, generated),
+                "review_discovery",
+            )
+            if current is None or not any(
+                change.action == "new" for change in generated.changes
+            ):
+                return
+            for previous, event in generated_done.items():
+                if previous < index:
+                    await event.wait()
+            if stop.is_set():
+                return
+            async with gate or nullcontext():
+                current = await store.load_frozen(frozen.run_id, frozen.attempt_id)
+                shards = _identity_shards(current, prepared, index)
+
+            async def identity(ordinal, shard):
+                inputs = identity_review_inputs(batch, generated.changes, shard, ordinal)
+                if _input_fits(prepared, inputs):
+                    await dispatch(
+                        current,
+                        f"scene_discovery_identity_{index}_{ordinal}",
+                        inputs,
+                        "review_discovery",
+                    )
+
+            peers = asyncio.gather(
+                *(
+                    identity(ordinal, shard)
+                    for ordinal, shard in enumerate(shards, start=1)
+                ),
+                return_exceptions=True,
+            )
+            results = await peers
+            for result in results:
+                if isinstance(result, BaseException):
+                    raise result
+
+    from infrastructure.llm.limits import request_admission_scope
+
+    with request_admission_scope(stop):
+        peers = asyncio.gather(
+            *(finish(index, batch) for index, batch in plans), return_exceptions=True
+        )
+    try:
+        results = await asyncio.shield(peers)
+    except asyncio.CancelledError:
+        stop.set()
+        await peers
+        raise
+    for result in results:
+        if isinstance(result, BaseException):
+            raise result
+    return await store.load_frozen(frozen.run_id, frozen.attempt_id)
+
+
 async def _finish_primary_batches(db, store, frozen, source, caller, prepared, plans):
     from modules.evolution.pipeline import _run_scene_call
 
@@ -1808,7 +2028,7 @@ async def _finish_primary_batches(db, store, frozen, source, caller, prepared, p
                 if not generated.changes:
                     return None
                 inputs = _review_inputs(batch, generated)
-                if serialized_size(inputs) > REQUEST_CHARACTERS:
+                if not _input_fits(prepared, inputs):
                     return None  # Compiler exposes the preserved generation's gap.
             envelope = _discovery_envelope(frozen, prepared, inputs)
             journal = current.payload.get(key) or {}
@@ -1847,7 +2067,10 @@ async def _finish_primary_batches(db, store, frozen, source, caller, prepared, p
         async with slots:
             return await finish(plan)
 
-    wave = asyncio.gather(*(admitted(plan) for plan in plans), return_exceptions=True)
+    from infrastructure.llm.limits import request_admission_scope
+
+    with request_admission_scope(stop):
+        wave = asyncio.gather(*(admitted(plan) for plan in plans), return_exceptions=True)
     try:
         outcomes = await asyncio.shield(wave)
     except asyncio.CancelledError:
@@ -1876,10 +2099,11 @@ async def _finish_identity_reviews(
     )
 
     session_gate = getattr(caller, "session_gate", None)
+    stop = asyncio.Event()
     parallelism = getattr(caller, "discovery_parallelism", 1)
     if (
         type(parallelism) is not int
-        or not 1 <= parallelism <= 8
+        or parallelism < 1
         or (parallelism > 1 and session_gate is None)
     ):
         raise ValueError("identity review parallelism requires a shared session gate")
@@ -1888,7 +2112,7 @@ async def _finish_identity_reviews(
         _identity_shards(frozen, prepared, index), start=1
     ):
         inputs = identity_review_inputs(batch, generated.changes, shard, shard_index)
-        if serialized_size(inputs) > REQUEST_CHARACTERS:
+        if not _input_fits(prepared, inputs):
             continue  # Compiler records the gap; no change to evidence scope.
         key = f"scene_discovery_identity_{index}_{shard_index}"
         envelope = _discovery_envelope(frozen, prepared, inputs)
@@ -1921,21 +2145,32 @@ async def _finish_identity_reviews(
                 call=partial(caller, "review_discovery"),
                 session_gate=session_gate,
             )
-        except SceneCallFailedError:
+        except SceneCallFailedError as error:
             # _run_scene_call persisted the failure under the same shared gate.
             # Read only after this wave drains, avoiding concurrent session I/O.
+            if not _settled_output_failure(
+                {"stage": "failed", "paid_call_receipt": error.receipt}
+            ):
+                stop.set()
             return key
+        except BaseException:
+            stop.set()
+            raise
 
     for start in range(0, len(plans), parallelism):
-        wave = asyncio.gather(
-            *(review(plan) for plan in plans[start : start + parallelism]),
-            return_exceptions=True,
-        )
+        from infrastructure.llm.limits import request_admission_scope
+
+        with request_admission_scope(stop):
+            wave = asyncio.gather(
+                *(review(plan) for plan in plans[start : start + parallelism]),
+                return_exceptions=True,
+            )
         try:
             outcomes = await asyncio.shield(wave)
         except asyncio.CancelledError:
             # Keep already-sent peers alive until their real results settle;
             # caller shutdown must not manufacture unknown requests.
+            stop.set()
             await wave
             raise
         frozen = await store.load_frozen(frozen.run_id, frozen.attempt_id)
@@ -1957,13 +2192,12 @@ async def _compiled_result(frozen):
 
 async def apply_discovery(db, store, frozen):
     """Recompile frozen proof at commit; ledger rows share the original receipt."""
-    if frozen.payload.get("discovery_version", 0) != 1:
+    if frozen.payload.get("discovery_version", 0) not in {1, 2}:
         return []
     result = compile_discovery(frozen)
-    if (
-        result != frozen.payload.get("discovery_result")
-        or result["method_fingerprint"] != method_fingerprint()
-    ):
+    if result != frozen.payload.get("discovery_result") or result[
+        "method_fingerprint"
+    ] != method_fingerprint(frozen.payload.get("discovery_version", 1)):
         raise ConflictError("发现证明或方法已变化，不能提交旧结果")
     applied, pending = [], list(result["pending"])
     for item in result["changes"]:
