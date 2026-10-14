@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import AuthorPreferencesForm from "./components/AuthorPreferencesForm.vue"
 import DeepImportFields from "./components/DeepImportFields.vue"
+import ImageExportPanel from "./components/ImageExportPanel.vue"
 import ReadingFlow from "../../components/ReadingFlow.vue"
 import { getApi, getAppState, getConfirm, getRouter, getToast } from "../../bridge/index.js"
 import { useSaveButton } from "../../composables/useSaveButton.js"
@@ -551,6 +552,10 @@ function hasUnsavedChanges() {
     || JSON.stringify(deepImportForm.value) !== deepImportBaseline.value
 }
 
+function hasBlockingWork() {
+  return hasUnsavedChanges() || imageExportBusy()
+}
+
 watch(authorForm, () => {
   authorValidationError.value = ""
   authorFeedback.value = null
@@ -562,12 +567,16 @@ watch(deepImportForm, () => {
 }, { deep: true })
 
 useLeaveGuard(() => (
-  !hasUnsavedChanges()
-  || getConfirm()("项目偏好有未保存修改，确定放弃并离开吗？")
+  !hasBlockingWork()
+  || getConfirm()(
+    imageExportBusy() && !hasUnsavedChanges()
+      ? "图片包还在生成中，离开会中止导出且不会留下文件。确定离开吗？"
+      : "项目偏好有未保存修改，确定放弃并离开吗？",
+  )
 ))
 
 function beforeUnload(event) {
-  if (!hasUnsavedChanges()) return
+  if (!hasBlockingWork()) return
   event.preventDefault()
   event.returnValue = ""
 }
@@ -703,6 +712,11 @@ async function loadExampleStats() {
 
 const exportingBook = ref(false)
 const exportBookError = ref("")
+/* 图片包导出进行中时保留离开保护：取消或离开不留半成品下载 */
+const imageExportPanel = ref(null)
+function imageExportBusy() {
+  return Boolean(imageExportPanel.value?.busy)
+}
 async function exportBook(format) {
   if (!props.projectId || exportingBook.value) return
   exportingBook.value = true
@@ -1085,6 +1099,11 @@ onBeforeUnmount(() => {
               <p v-if="exportBookError" class="settings-save-state is-error" role="alert">{{ exportBookError }}</p>
             </div>
           </div>
+          <ImageExportPanel
+            ref="imageExportPanel"
+            :project-id="projectId"
+            :project-title="projectTitle"
+          />
         </section>
       </template>
       <p v-else role="status">正在加载当前作品的设置…</p>

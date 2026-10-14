@@ -858,10 +858,28 @@ export const world = {
     async updateMapAtlasAnnotation(novelId, annotationId, payload) {
       return patch(`/world/map-atlas/${novelId}/annotations/${annotationId}`, payload)
     },
-    async fetchMapAtlasImage(novelId, pageId) {
+    async fetchMapAtlasImage(novelId, pageId, options = {}) {
       return request(`/world/map-atlas/${novelId}/pages/${pageId}/image`, {
         cache: "no-store",
         _responseType: "blob",
+        ...options,
+      })
+    },
+
+    // ============================================================
+    // G4b 作者手动导出图片包：owner + novel_id 的只读清单与窄 mask 读取。
+    // object key 仅经这两个方法（含导出门禁）获取，响应 no-store。
+    async imageExportManifest(novelId, options = {}) {
+      return request(`/world/${novelId}/image-export`, {
+        cache: "no-store",
+        ...options,
+      })
+    },
+    async fetchMapAtlasMask(novelId, pageId, options = {}) {
+      return request(`/world/${novelId}/image-export/pages/${pageId}/mask`, {
+        cache: "no-store",
+        _responseType: "blob",
+        ...options,
       })
     },
 };
