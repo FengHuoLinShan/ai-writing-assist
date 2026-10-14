@@ -41,6 +41,7 @@ async def get_image_export_manifest(
     response: Response,
 ) -> ImageExportManifest:
     response.headers["Cache-Control"] = "private, no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
     return await build_image_export_manifest(db, novel_id)
 
 

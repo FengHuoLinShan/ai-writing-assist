@@ -38,6 +38,8 @@ def _fflate_available() -> bool:
 @pytest.fixture
 def browser_packages(tmp_path: Path) -> tuple[Path, dict]:
     if NODE is None or not _fflate_available():
+        # 覆盖边界：后端 CI 无 node，此跨语言合同在那里不生效；本地门禁与
+        # G4b 恢复演练（run_browser_export_restore_drill.py）承担实际验证。
         pytest.skip("node or frontend-console fflate dependency unavailable")
     target = tmp_path / "fixture"
     result = subprocess.run(

@@ -218,6 +218,12 @@ async def test_export_manifest_lists_readable_pages_masks_and_world_variants(
     by_category: dict[str, list[dict[str, Any]]] = {}
     for row in payload["objects"]:
         by_category.setdefault(row["category"], []).append(row)
+    # 行自带 novel_id：浏览器打包器直接把 API 行写入 manifest，行缺键会让
+    # object_backup.validate_row 在恢复期 KeyError。
+    assert all(
+        row["novel_id"] == str(uuid.UUID(test_project_id))
+        for row in payload["objects"]
+    )
     assert len(by_category["world_full"]) == 2  # 主角 + 归档旧反派
     assert len(by_category["world_thumbnail"]) == 2
     assert len(by_category["map_page"]) == 3
@@ -431,9 +437,48 @@ async def test_build_manifest_row_shape_matches_author_export_contract(
     )
     assert len(manifest.objects) == 1
     row: dict[str, Any] = manifest.objects[0].model_dump()
+    assert row["novel_id"] == str(uuid.UUID(test_project_id))
     assert row["category"] == "map_page"
     assert row["bucket"] == export_buckets["map"]
     assert row["key"] == object_key
     assert row["content_type"] == "image/png"
     assert row["sha256"] == _png_sha()
     assert row["byte_size"] == len(PNG_BYTES)
+
+
+async def test_export_manifest_map_only_project(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    test_project_id: str,
+    export_buckets: dict[str, str],
+) -> None:
+    """只有地图页（无任何世界对象图）的项目清单只含地图行。"""
+    nid = test_project_id
+    await _map_page(
+        db_session,
+        nid,
+        review_status="adopted",
+        object_key=page_object_key(nid, "55555555-5555-4555-8555-000000000001"),
+        sha256=_png_sha(),
+        byte_size=len(PNG_BYTES),
+    )
+    response = await async_client.get(f"/api/world/{nid}/image-export")
+    assert response.status_code == 200, response.text
+    rows = response.json()["objects"]
+    assert rows, "地图行不应为空"
+    assert {row["category"] for row in rows} == {"map_page"}
+
+
+async def test_export_manifest_world_images_only_project(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    test_project_id: str,
+    export_buckets: dict[str, str],
+) -> None:
+    """只有世界对象图（无地图页）的项目清单只含 world 行。"""
+    await _entity_with_image(db_session, test_project_id, "唯一对象")
+    response = await async_client.get(f"/api/world/{test_project_id}/image-export")
+    assert response.status_code == 200, response.text
+    rows = response.json()["objects"]
+    assert rows, "对象图行不应为空"
+    assert {row["category"] for row in rows} == {"world_full", "world_thumbnail"}

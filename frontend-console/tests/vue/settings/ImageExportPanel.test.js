@@ -108,6 +108,24 @@ describe("ImageExportPanel", () => {
     expect(wrapper.find('[data-testid="image-export-start"]').attributes("disabled")).toBeDefined()
   })
 
+  it("刷新清单重新请求并更新可导出数量", async () => {
+    api.world.imageExportManifest.mockResolvedValueOnce({
+      novel_id: NOVEL,
+      objects: [mapPageItem("封面", 1)],
+    })
+    const wrapper = mountPanel()
+    await flushPromises()
+    expect(wrapper.text()).toContain("可导出 1 个图片文件")
+    api.world.imageExportManifest.mockResolvedValueOnce({
+      novel_id: NOVEL,
+      objects: [mapPageItem("封面", 1), mapPageItem("内页", 2)],
+    })
+    await wrapper.find('[data-testid="image-export-refresh"]').trigger("click")
+    await flushPromises()
+    expect(api.world.imageExportManifest).toHaveBeenCalledTimes(2)
+    expect(wrapper.text()).toContain("可导出 2 个图片文件")
+  })
+
   it("非安全上下文（缺 crypto.subtle）给出降级提示并禁用", async () => {
     const ownSubtle = Object.getOwnPropertyDescriptor(globalThis.crypto, "subtle")
     Object.defineProperty(globalThis.crypto, "subtle", { value: undefined, configurable: true })

@@ -45,6 +45,7 @@ class ImageExportObject(BaseModel):
 
     model_config = {"extra": "forbid"}
 
+    novel_id: str
     category: ExportCategory
     bucket: str
     key: str
@@ -64,8 +65,9 @@ class ImageExportManifest(BaseModel):
     objects: list[ImageExportObject]
 
 
-def _map_page_row(page: MapAtlasPage, bucket: str) -> ImageExportObject:
+def _map_page_row(page: MapAtlasPage, novel_id: str, bucket: str) -> ImageExportObject:
     return ImageExportObject(
+        novel_id=novel_id,
         category="map_page",
         bucket=bucket,
         key=page.object_key or "",
@@ -77,8 +79,9 @@ def _map_page_row(page: MapAtlasPage, bucket: str) -> ImageExportObject:
     )
 
 
-def _map_mask_row(page: MapAtlasPage, bucket: str) -> ImageExportObject:
+def _map_mask_row(page: MapAtlasPage, novel_id: str, bucket: str) -> ImageExportObject:
     return ImageExportObject(
+        novel_id=novel_id,
         category="map_mask",
         bucket=bucket,
         key=page.mask_object_key or "",
@@ -130,9 +133,9 @@ async def build_image_export_manifest(
         if page.object_key and page.generation_status in (
             READABLE_PAGE_GENERATION_STATES
         ):
-            rows.append(_map_page_row(page, map_bucket))
+            rows.append(_map_page_row(page, novel_id, map_bucket))
         if page.mask_object_key:
-            rows.append(_map_mask_row(page, map_bucket))
+            rows.append(_map_mask_row(page, novel_id, map_bucket))
 
     entities = (
         (
@@ -152,6 +155,7 @@ async def build_image_export_manifest(
         for variant in ("full", "thumbnail"):
             rows.append(
                 ImageExportObject(
+                    novel_id=novel_id,
                     category=f"world_{variant}",  # type: ignore[arg-type]
                     bucket=world_bucket,
                     key=image_object_key(

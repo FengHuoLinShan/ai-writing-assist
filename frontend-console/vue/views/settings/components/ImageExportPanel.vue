@@ -165,6 +165,16 @@ async function startExport() {
   await runExport(manifest.value.objects)
 }
 
+/* 清单只在挂载与手动刷新时加载；导出失败若因内容与服务端不一致，多半是
+ * 清单已过期（期间新增或替换了图片），刷新后按新清单重新导出。 */
+async function refreshManifest() {
+  if (busy.value || manifestLoading.value) return
+  failures.value = []
+  exportError.value = ""
+  phase.value = "idle"
+  await loadManifest()
+}
+
 async function retryFailures() {
   const failedItems = failures.value.map(failure => failure.item)
   if (!failedItems.length || busy.value) return
@@ -219,6 +229,13 @@ onMounted(() => {
           @click="startExport"
         >{{ busy ? "正在打包…" : "生成图片包" }}</button>
         <button
+          v-if="!busy"
+          type="button"
+          class="btn btn-sm"
+          data-testid="image-export-refresh"
+          @click="refreshManifest"
+        >刷新清单</button>
+        <button
           v-if="busy"
           type="button"
           class="btn btn-sm"
@@ -231,6 +248,7 @@ onMounted(() => {
       </p>
       <div v-if="phase === 'retry'" class="image-export-failures" role="alert" data-testid="image-export-failures">
         <p>以下 {{ failureCount }} 张图片未能导出，未写入图片包（网络失败、内容校验不一致或无法解码都按失败处理）。可以先重试；仍失败时可确认生成缺少这些图片的包。</p>
+        <p class="settings-section-hint">若多项失败原因是「内容与服务端记录不一致」，说明清单可能已过期（期间新增或替换了图片）；请点「刷新清单」后重新导出。</p>
         <ul>
           <li v-for="failure in failures" :key="failure.item.key">
             {{ failure.item.title || failure.item.key }}（{{ CATEGORY_LABELS[failure.item.category] }}）：{{ failure.reason }}
