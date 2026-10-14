@@ -315,9 +315,10 @@ AssistantNotice，其余意见留在编辑台。联网不用于小说内审读�
 原创内容评测样本、固定量表和零费用预检见
 `backend/evals/datasets/editorial/README.md`；工程绿灯不代表真实模型内容质量通过。
 
-本机根任务的逐次批准通过 `mark_task_local_approved` facade 委托 Assistant
-service，按 owner + novel_id + task_id 锁定并更新 checkpoint；本机模块不能
-直接操作 AssistantRun ORM。确认授权范围和任务租约契约保持不变。
+本机文字根任务的逐次批准链已随本机文字审批路径退役删除，Assistant 不再提供
+`mark_task_local_approved` 入口；仅图片任务保留本机审批，由 `local_agent` 模块
+自身的 owner + novel_id 门禁端点处理。历史运行回执仍可经
+`/api/local-agent/tasks/{task_id}/receipts` 只读查询，确认授权范围和任务租约契约保持不变。
 
 编辑台的约定通过章节名称选择本轮不审范围，保存仍使用原版本化 excluded_targets
 合同；历史非章节排除项和已选但不在当前列表的章节不会被清空。章节列表失败可以重试，

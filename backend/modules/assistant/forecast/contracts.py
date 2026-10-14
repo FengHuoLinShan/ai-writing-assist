@@ -469,7 +469,6 @@ class UsageView(StrictModel):
 class RunView(StrictModel):
     run_id: UUID
     task_id: UUID | None = None
-    local_agent: dict | None = None
     status: RunStatus
     phase: Literal[
         "queued", "materializing", "analyzing", "validating", "publishing", "done"

@@ -10,7 +10,6 @@ import {
 } from "./_shared.js"
 
 export const localAgent = {
-    receipts: (novelId, taskId) => request(withQuery(`/local-agent/tasks/${taskId}/receipts`, { novel_id: novelId }), { cache: "no-store" }),
     download: (novelId) => request(withQuery("/local-agent/companion/download", { novel_id: novelId }), { cache: "no-store", _responseType: "blob" }),
     pending: (novelId) => request(withQuery("/local-agent/tasks/pending", { novel_id: novelId }), { cache: "no-store" }),
     devices: (novelId) => request(withQuery("/local-agent/devices", { novel_id: novelId }), { cache: "no-store" }),

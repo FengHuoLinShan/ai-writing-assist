@@ -70,9 +70,6 @@ ASSISTANT_PROACTIVE_FINDINGS: ServiceKey[dict[str, Callable[..., Any]]] = Servic
 ASSISTANT_SESSION_SERVICE: ServiceKey[AssistantSessionPort] = ServiceKey(
     "assistant.session_service"
 )
-ASSISTANT_MARK_TASK_LOCAL_APPROVED: ServiceKey[Callable[..., Any]] = ServiceKey(
-    "assistant.mark_task_local_approved"
-)
 ASSISTANT_INSPECT_DISCUSSION: ServiceKey[Callable[..., Any]] = ServiceKey(
     "assistant.inspect_discussion"
 )
@@ -162,9 +159,6 @@ INTERACTION_READ_CONTINUITY_REVIEW: ServiceKey[Callable[..., Any]] = ServiceKey(
 )
 INTERACTION_VALIDATE_PUBLIC_DEMO_SOURCE_CONTEXT: ServiceKey[Callable[..., Any]] = (
     ServiceKey("interaction.validate_public_demo_source_context")
-)
-INTERACTION_MARK_TASK_LOCAL_APPROVED: ServiceKey[Callable[..., Any]] = ServiceKey(
-    "interaction.mark_task_local_approved"
 )
 INTERACTION_COUNT_SOURCE_REFERENCES: ServiceKey[Callable[..., Any]] = ServiceKey(
     "interaction.count_source_references"
@@ -355,7 +349,6 @@ ALL_SERVICE_KEYS: tuple[ServiceKey[Any], ...] = (
     ASSISTANT_PROACTIVE_SUBMITTERS,
     ASSISTANT_PROACTIVE_FINDINGS,
     ASSISTANT_SESSION_SERVICE,
-    ASSISTANT_MARK_TASK_LOCAL_APPROVED,
     ASSISTANT_INSPECT_DISCUSSION,
     ASSISTANT_SUBMIT_COMMENT_PROPOSALS,
     ASSISTANT_MARK_EDITORIAL_READY,
@@ -380,7 +373,6 @@ ALL_SERVICE_KEYS: tuple[ServiceKey[Any], ...] = (
     IMPORTS_GET_REVIEW_DISPOSITIONS,
     INTERACTION_READ_CONTINUITY_REVIEW,
     INTERACTION_VALIDATE_PUBLIC_DEMO_SOURCE_CONTEXT,
-    INTERACTION_MARK_TASK_LOCAL_APPROVED,
     INTERACTION_COUNT_SOURCE_REFERENCES,
     ACCOUNT_PROJECT_OWNER_REF,
     ACCOUNT_PROJECT_CONTEXT,

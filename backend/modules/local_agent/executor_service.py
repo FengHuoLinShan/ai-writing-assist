@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import uuid
-from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 from core.errors import NotFoundError, ValidationError
@@ -24,14 +23,11 @@ __all__ = [
     "fit_cover",
     "limit_edge",
     "local_image_task_meta",
-    "local_task_meta",
-    "open_task_snapshot_client",
     "review_generated_image",
     "run_local_image",
     "save_executor",
     "selected_executor",
     "task_awaiting_local_approval",
-    "task_snapshot_client",
 ]
 
 
@@ -39,18 +35,6 @@ __all__ = [
 class AgentExecutor:
     kind: str = "gateway"
     device_id: str | None = None
-
-
-def local_task_meta(snapshot: dict | None) -> dict:
-    local = (snapshot or {}).get("local_agent") or {}
-    if not local.get("device_id"):
-        return {}
-    return {
-        "_local_agent": True,
-        "_local_ready": False,
-        "_local_approved": False,
-        "_local_device_id": local["device_id"],
-    }
 
 
 def local_image_task_meta(executor: AgentExecutor) -> dict:
@@ -64,34 +48,6 @@ def local_image_task_meta(executor: AgentExecutor) -> dict:
         "_local_approved": False,
         "_local_device_id": executor.device_id,
     }
-
-
-async def task_snapshot_client(db, task, settings, *, budget, checkpoint=None):
-    """Open the frozen project executor for one lease-fenced task."""
-    local = settings.get("_local_agent") or {}
-    if not local:
-        from modules.project.facade import create_project_snapshot_llm_client
-
-        return create_project_snapshot_llm_client(settings, novel_id=str(task.novel_id))
-    raise ValidationError(
-        "本机设备只运行图片任务；历史文字任务请使用当前账户模型重新发起。"
-    )
-
-
-@asynccontextmanager
-async def open_task_snapshot_client(db, task, snapshot, *, budget, checkpoint=None):
-    from modules.project.facade import restore_project_llm_execution_settings
-
-    settings = await restore_project_llm_execution_settings(
-        db, str(task.novel_id), snapshot
-    )
-    client = await task_snapshot_client(
-        db, task, settings, budget=budget, checkpoint=checkpoint
-    )
-    try:
-        yield client
-    finally:
-        await client.close()
 
 
 async def task_awaiting_local_approval(db, task_id: str) -> bool:

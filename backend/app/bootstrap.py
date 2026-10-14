@@ -23,7 +23,6 @@ from core.service_keys import (
     ASSISTANT_INSPECT_DISCUSSION,
     ASSISTANT_EDITORIAL_POST_ADOPTION_RECHECKS,
     ASSISTANT_MARK_EDITORIAL_READY,
-    ASSISTANT_MARK_TASK_LOCAL_APPROVED,
     ASSISTANT_OPERATIONS,
     ASSISTANT_PROACTIVE_FINDINGS,
     ASSISTANT_PROACTIVE_SUBMITTERS,
@@ -48,7 +47,6 @@ from core.service_keys import (
     IMPORTS_GET_ACTIVE_ORGANIZATION,
     IMPORTS_GET_REVIEW_DISPOSITIONS,
     INTERACTION_COUNT_SOURCE_REFERENCES,
-    INTERACTION_MARK_TASK_LOCAL_APPROVED,
     INTERACTION_READ_CONTINUITY_REVIEW,
     INTERACTION_VALIDATE_PUBLIC_DEMO_SOURCE_CONTEXT,
     MEMORY_SERVICE,
@@ -233,7 +231,6 @@ from modules.collaboration.facade import (
 from modules.assistant.facade import (
     inspect_discussion as _assistant_inspect_discussion,
     mark_editorial_ready as _assistant_mark_editorial_ready,
-    mark_task_local_approved as _assistant_mark_task_local_approved,
     submit_comment_proposals as _assistant_submit_comment_proposals,
 )
 from modules.assistant.facade import (
@@ -247,9 +244,6 @@ from modules.assistant.operation_scope import (
     require_operation_targets as _assistant_require_operation_targets,
 )
 from modules.assistant.sessions import AssistantSessionService as _AssistantSessions
-from modules.interaction.facade import (
-    mark_task_local_approved as _interaction_mark_task_local_approved,
-)
 from modules.evidence.confirmation_reads_port import (
     ConfirmationReadsPort as _EvidenceConfirmationReads,
 )
@@ -451,17 +445,8 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
             _world_list_map_continuity_facts,
         ),
         (WORLD_READ_MAP_CHAPTER_CONSUMERS, _world_read_map_chapter_consumers),
-        # AO-5: local_agent 设备确认回写 interaction 经此 DI port，反向顶层导入清零。
-        (
-            INTERACTION_MARK_TASK_LOCAL_APPROVED,
-            _interaction_mark_task_local_approved,
-        ),
-        # AO-5 第二批：local_agent(L1)/evidence(L2)/writing(L2) 消费 assistant
-        # facade 能力经这些 DI 键，assistant 反方向顶层/函数内导入清零。
-        (
-            ASSISTANT_MARK_TASK_LOCAL_APPROVED,
-            _assistant_mark_task_local_approved,
-        ),
+        # AO-5 第二批：evidence(L2)/writing(L2) 消费 assistant facade 能力经这些
+        # DI 键，assistant 反方向顶层/函数内导入清零。
         (ASSISTANT_INSPECT_DISCUSSION, _assistant_inspect_discussion),
         (
             ASSISTANT_SUBMIT_COMMENT_PROPOSALS,

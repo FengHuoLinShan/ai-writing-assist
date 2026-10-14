@@ -80,14 +80,17 @@ _WORLD_WORLDBUILDING_PKG = "modules.world.services.worldbuilding"
 # account/assistant/world/writing/project/evidence 的 18 处单点 facade 消费
 # 改 DI 键：directed_edges 79→65、bidirectional_pairs 22→9、
 # top_level_bidirectional_pairs 0→0、function_level_imports 544→525
-# （全部来自消除导入，无顶层降级）；删除未调用的 Ragas adapter 后 525→524）。
+# （全部来自消除导入，无顶层降级）；删除未调用的 Ragas adapter 后 525→524；
+# G3③c 退役本机文字路径后 assistant/collaboration/interaction/story→local_agent
+# 四条边随死分支消除（world 因图片生成保留），并连带消除 5 条函数内导入：
+# directed_edges 65→61、function_level_imports 522→517。
 # 分层目标态见 docs/architecture/README.md「模块依赖方向分层（目标态）」
 # 与 docs/adr/0031-module-dependency-directions.md。
 _DEPENDENCY_BASELINE: dict[str, int] = {
-    "directed_edges": 65,
+    "directed_edges": 61,
     "bidirectional_pairs": 9,
     "top_level_bidirectional_pairs": 0,
-    "function_level_imports": 522,
+    "function_level_imports": 517,
     "world_core_to_worldbuilding": 0,
     "world_worldbuilding_to_core": 26,
 }
@@ -96,20 +99,15 @@ _DEPENDENCY_BASELINE: dict[str, int] = {
 _DEPENDENCY_EDGES = frozenset(
     (source, target)
     for source, targets in {
-        "assistant": "account evidence local_agent project story writing",
-        "collaboration": (
-            "account assistant evidence evolution imports local_agent "
-            "project story writing"
-        ),
+        "assistant": "account evidence project story writing",
+        "collaboration": "account assistant evidence evolution imports project story writing",
         "evidence": "imports project story world writing",
         "evolution": "evidence imports project story world writing",
         "imports": "account assistant evidence project story world writing",
-        "interaction": (
-            "account assistant evidence imports local_agent project story world writing"
-        ),
+        "interaction": "account assistant evidence imports project story world writing",
         "local_agent": "account project",
         "project": "account evidence world",
-        "story": "account evidence evolution local_agent project world writing",
+        "story": "account evidence evolution project world writing",
         "world": "account assistant evidence local_agent project story writing",
         "writing": "account evidence project story",
     }.items()
@@ -679,10 +677,6 @@ EXEMPT_IMPORTS: dict[str, str] = {
     ),
     "modules/interaction/streaming.py:modules.account.context": (
         "账户主体读取 helper（读路径）"
-    ),
-    # 本机 CLI 客户端构造；local_agent 尚无 contracts 面。
-    "modules/interaction/tasks.py:modules.local_agent.client": (
-        "local_agent 无 contracts 面，CLI 客户端构造直引"
     ),
     # demo 项目复制需要对象级跨域复制（图片资产 deep-copy），已有专门
     # 集成测试；待各域提供复制 facade 后收敛。

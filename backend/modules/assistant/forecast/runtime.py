@@ -43,9 +43,9 @@ from modules.assistant.forecast.service import coverage, explicit_decisions, pub
 from modules.assistant.models import AssistantRun
 from modules.assistant.proactive import _watch
 from modules.evidence.contracts import GroupSource, govern_group_output
-from modules.local_agent.facade import local_task_meta, open_task_snapshot_client
 from modules.project.facade import (
     build_project_llm_execution_snapshot,
+    open_project_snapshot_llm_client,
 )
 
 
@@ -178,7 +178,6 @@ async def submit(
         meta={
             "run_id": str(run.id),
             "persona": persona,
-            **local_task_meta(snapshot),
             **({"_task_priority": "background"} if background else {}),
         },
     )
@@ -262,12 +261,6 @@ async def view(db, novel_id, run_id, *, persona="author"):
         can_resume=can_resume,
         run_id=run.id,
         task_id=run.task_id,
-        local_agent={
-            "kind": run.request_json["llm_snapshot"]["local_agent"]["kind"],
-            "approved": bool((run.checkpoint_json or {}).get("local_approved")),
-        }
-        if (run.request_json.get("llm_snapshot") or {}).get("local_agent")
-        else None,
         status=status,
         phase="done"
         if status != run.status
@@ -465,8 +458,8 @@ async def execute(db, task):
         calculated, missing = calculate(ctx, selected)
         semantic = [key for key in selected if key in SEMANTIC]
         if semantic and ctx.sources:
-            async with open_task_snapshot_client(
-                db, task, payload["llm_snapshot"], budget=budget, checkpoint=checkpoint
+            async with open_project_snapshot_llm_client(
+                db, novel_id, payload["llm_snapshot"]
             ) as client:
                 await db.commit()
 

@@ -366,7 +366,6 @@ def test_assistant_facade_di_keys_resolve():
 
     register_container_services()
     for key in (
-        "assistant.mark_task_local_approved",
         "assistant.inspect_discussion",
         "assistant.submit_comment_proposals",
         "assistant.mark_editorial_ready",

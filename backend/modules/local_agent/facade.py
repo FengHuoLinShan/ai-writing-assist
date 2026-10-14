@@ -16,12 +16,6 @@ from modules.local_agent.executor_service import (
     local_image_task_meta as local_image_task_meta,
 )
 from modules.local_agent.executor_service import (
-    local_task_meta as local_task_meta,
-)
-from modules.local_agent.executor_service import (
-    open_task_snapshot_client as open_task_snapshot_client,
-)
-from modules.local_agent.executor_service import (
     review_generated_image as review_generated_image,
 )
 from modules.local_agent.executor_service import (
@@ -36,9 +30,6 @@ from modules.local_agent.executor_service import (
 from modules.local_agent.executor_service import (
     task_awaiting_local_approval as task_awaiting_local_approval,
 )
-from modules.local_agent.executor_service import (
-    task_snapshot_client as task_snapshot_client,
-)
 
 __all__ = [
     "AgentExecutor",
@@ -46,12 +37,9 @@ __all__ = [
     "fit_cover",
     "limit_edge",
     "local_image_task_meta",
-    "local_task_meta",
-    "open_task_snapshot_client",
     "review_generated_image",
     "run_local_image",
     "save_executor",
     "selected_executor",
     "task_awaiting_local_approval",
-    "task_snapshot_client",
 ]

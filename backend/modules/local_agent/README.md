@@ -84,11 +84,12 @@ Codex/Pi 可在启动伴随进程前通过 `NOVELCRAFT_CODEX_MODEL` / `NOVELCRAF
 登录态/配置。端到端验证使用本任务专用 PostgreSQL 数据库，不使用真实作品。
 
 项目执行器配置经 Project context/facade 读取和保存，撤销设备仅在当前配置仍
-绑定该设备时清除。根任务批准通过 Assistant/Interaction facade 更新各域
-checkpoint，均过滤当前 owner + novel_id + task_id，并与队列授权同事务提交。
+绑定该设备时清除。历史根任务批准链（`mark_task_local_approved` 域 checkpoint
+回写）已随本机文字审批退役删除；图片任务的批准走图片审批端点与
+`task_awaiting_local_approval` 队列门，历史回执读取保留。
 
-旧文字快照除 Project 恢复门外，直接调用 task_snapshot_client 也会拒绝，
-不访问项目、设备或主机文字 runner。图片执行与历史回执读取仍保留；历史回执 `usage` 可能为
-`null`（未知），不能当作零，也不等同于 Project 账户模型 AI 用量诊断。旧 invocation 的
-兼容执行分支仍在源码中，但批准与领取入口已失败关闭；删除既有文字 job/receipt/schema 前
-需先确定历史任务的处置范围。
+旧文字快照的恢复只有 Project 恢复门一道失败关闭（`open_project_snapshot_llm_client`
+对含 `local_agent` 的快照一律拒绝），不再存在第二道 `task_snapshot_client` 门
+（该门已随本机文字路径删除）。图片执行与历史回执读取仍保留；历史回执 `usage` 可能为
+`null`（未知），不能当作零，也不等同于 Project 账户模型 AI 用量诊断。
+删除既有文字 job/receipt/schema 前需先确定历史任务的处置范围。

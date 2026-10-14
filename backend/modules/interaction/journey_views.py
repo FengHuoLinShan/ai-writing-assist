@@ -740,14 +740,6 @@ class JourneyViewsMixin:
             id=str(attempt.id),
             journey_id=str(attempt.journey_id),
             task_id=str(attempt.task_id) if attempt.task_id else None,
-            local_agent={
-                "kind": attempt.llm_execution_snapshot["local_agent"]["kind"],
-                "approved": bool(
-                    (attempt.agent_checkpoint_json or {}).get("local_approved")
-                ),
-            }
-            if (attempt.llm_execution_snapshot or {}).get("local_agent")
-            else None,
             response_to_node_id=str(attempt.response_to_node_id),
             status=attempt.status,
             visible_text=attempt.visible_text,
