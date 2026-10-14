@@ -15,8 +15,10 @@ from typing import NoReturn, TypeVar
 from pydantic import BaseModel
 
 from evals.schemas import (
-    ALLOWED_HIGH_QUALITY_LLM_MODELS,
-    HIGH_QUALITY_LLM_MODEL,
+    ALLOWED_EVAL_TEACHER_MODELS,
+    EVAL_TEACHER_MODEL,
+    EVAL_TEACHER_REASONING_EFFORT,
+    HIGH_QUALITY_LLM_FALLBACK_MODEL,
 )
 
 StructuredResultT = TypeVar("StructuredResultT", bound=BaseModel)
@@ -27,11 +29,14 @@ class CodexExecutionError(RuntimeError):
 
 
 def require_live_eval_calibration() -> NoReturn:
-    """Reject frozen legacy model execution before any irreversible side effects."""
+    """Reject new standalone model execution before any irreversible side effects."""
     raise CodexExecutionError(
-        "Standalone evaluation is paused: migrate through the verified "
-        "owner/Project runtime and recalibrate Luna/max before new model calls. "
-        "Frozen metadata and cache-only replay remain available."
+        "Standalone evaluation is paused until G6b re-calibration: teacher/judge "
+        "roles are now pinned to gpt-6.1-sol/xhigh and the system under test runs "
+        "through the verified owner/Project runtime on Luna/max. New standalone "
+        "model calls stay rejected in this phase. Frozen metadata remain available; "
+        "cache-only replay applies to the current contract only (legacy scene-gold "
+        "fallback cache keys no longer match)."
     )
 
 
@@ -45,6 +50,12 @@ class CodexExecutionMeta:
 class CodexStructuredExecutor:
     """Run one isolated structured request through the locally logged-in Codex CLI.
 
+    Evaluation teacher/judge contract: teacher, judge, reviewer/adjudicator and
+    scene-gold reference calls are pinned to gpt-6.1-sol/xhigh. The frozen legacy
+    models (spark/5.6-luna/terra) are accepted only through an explicit
+    ``allowed_models`` override so historical metadata and executor hashes can be
+    reconstructed; they must not be used for new calls.
+
     The executor deliberately ignores user config, plugins, project instructions, and
     workspace files. Authentication still comes from the local Codex login. Source text
     is supplied only through stdin and the final response must match a JSON Schema.
@@ -55,16 +66,19 @@ class CodexStructuredExecutor:
         *,
         model: str | None = None,
         reasoning_effort: str | None = None,
-        allowed_models: frozenset[str] = ALLOWED_HIGH_QUALITY_LLM_MODELS,
+        allowed_models: frozenset[str] = ALLOWED_EVAL_TEACHER_MODELS,
         command: str = "codex",
         timeout_seconds: float = 300.0,
         attempts: int = 2,
     ) -> None:
-        model = model or os.environ.get("EVAL_CODEX_MODEL", HIGH_QUALITY_LLM_MODEL)
+        model = model or os.environ.get("EVAL_CODEX_MODEL", EVAL_TEACHER_MODEL)
         if model not in allowed_models:
             allowed = ", ".join(sorted(allowed_models))
             raise ValueError(f"eval model must be one of: {allowed}")
-        if reasoning_effort is None and model == "gpt-5.6-luna":
+        if reasoning_effort is None and model == EVAL_TEACHER_MODEL:
+            reasoning_effort = EVAL_TEACHER_REASONING_EFFORT
+        if reasoning_effort is None and model == HIGH_QUALITY_LLM_FALLBACK_MODEL:
+            # Frozen legacy metadata rule: historical luna runs recorded medium.
             reasoning_effort = "medium"
         if reasoning_effort not in {None, "low", "medium", "high", "xhigh", "max"}:
             raise ValueError("unsupported eval reasoning effort")
