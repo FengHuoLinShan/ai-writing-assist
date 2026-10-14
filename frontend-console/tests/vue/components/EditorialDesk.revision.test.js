@@ -192,7 +192,9 @@ describe("EditorialDesk 批注修订桥接", () => {
       vi.advanceTimersByTime(8000)
       await flushPromises()
       expect(revisionPanel(wrapper).text()).toContain("替换候选已生成")
-      expect(revisionPanel(wrapper).text()).toContain("去写作页审阅并采用")
+      expect(revisionPanel(wrapper).text()).toContain("去写作页完成独立审稿并采用")
+      // 回执如实提示独立审稿前置，而不是承诺直接采用
+      expect(revisionPanel(wrapper).text()).toContain("写作页会先对这份候选做一次独立审稿")
     } finally {
       vi.useRealTimers()
     }
@@ -211,7 +213,7 @@ describe("EditorialDesk 批注修订桥接", () => {
     await revisionPanel(wrapper).findAll("button").find((item) => item.text().includes("发起 1 条修订")).trigger("click")
     await flushPromises()
     expect(revisionPanel(wrapper).text()).toContain("正文已变化，请重新提交批注任务")
-    expect(revisionPanel(wrapper).text()).not.toContain("去写作页审阅并采用")
+    expect(revisionPanel(wrapper).text()).not.toContain("去写作页完成独立审稿并采用")
   })
 
   it("提交失败时在面板内显示错误并保留选择", async () => {
@@ -239,9 +241,9 @@ describe("EditorialDesk 修订引导流程入口（BR-4 流程 3）", () => {
       stop: {
         step_id: "review_candidates",
         kind: "author_choice",
-        reason: "已生成 1 个替换候选，待你在写作页审阅采用；已采用 0 个。",
+        reason: "已生成 1 个替换候选；到写作页先完成独立审稿，通过后才能采用（已采用 0 个）。",
         actions: [
-          { action: "open_candidate", label: "去审阅候选" },
+          { action: "open_candidate", label: "去写作页审阅候选" },
           { action: "proceed", label: "对已采用的发起改后复核" },
           { action: "abandon_flow", label: "结束流程" },
         ],

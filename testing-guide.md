@@ -307,7 +307,7 @@ outputs, skipped shards, or any shard/auxiliary failure. `test:e2e:map` remains 
 local subset. Real-LLM and worker Playwright suites remain explicit/manual acceptance runs.
 Visual review uses diagnostic screenshots and recordings; there is no visual comparison suite.
 
-审读修订桥接与 `guided-flow-*.spec.js` 归入 `test:e2e:editorial`，在该套件的隔离助手、审读和引导流程开关下执行；功能套件不重复运行。CI 的第一分片已有独立 editorial 门，保留三流程入口与恢复断言。
+审读修订桥接与 `guided-flow-*.spec.js` 归入 `test:e2e:editorial`，在该套件的隔离助手、审读和引导流程开关下执行；功能套件不重复运行。CI 的第一分片已有独立 editorial 门，保留三流程入口与恢复断言。这两组用 page.route 模拟模型与任务；真实 API/worker + 合成 provider 的编辑闭环归 `test:e2e:assistant`（见上文项目助手验收）。
 The backend
 audit depends on OSV network data and the frontend audit on npm registry/advisory
 data; both complement rather than replace builds and tests, and a passing audit is
@@ -555,7 +555,7 @@ CI 显示名称或重复的工具版本常量。新增 facade/Prompt 合同不�
 前端遵守上方“前端重设计回归契约”，不维护 CSS 源码或像素门禁。
 后端覆盖率阈值由 pyproject.toml 唯一配置为 85%，不可用重试或吞 warning 隐藏失败。
 
-项目助手功能另由 `test:e2e:assistant` 使用已有的合成模型 harness 验证（专用库名含 `agent_e2e`）；普通 functional 不加载此用例。CI 两者都运行，仍无付费模型调用。
+项目助手功能另由 `test:e2e:assistant` 使用已有的合成模型 harness 验证（专用库名含 `agent_e2e`）；普通 functional 不加载此用例。CI 两者都运行，仍无付费模型调用。编辑审读闭环（保存正文交给编辑、真实审读/批注修订/改后复核 worker、失败与 stale 冲突、停止/继续、离开恢复与 390px）由同档位的 `assistant-editorial.spec.js` 覆盖；其模型回复脚本在 `backend/tests/support/assistant_editorial_provider.py`，失败注入须用合法 JSON 违反 schema（截断 JSON 会被客户端补全成默认值），证据与缺口见 `docs/acceptance/2026-10-14-editorial-closed-loop-g5a.md`。
 
 ### 知识治理验收
 

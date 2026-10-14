@@ -54,6 +54,11 @@ async def _generate(_self, request, *, complete_stream=False):
     structured = structured_reply(request)
     if structured is not None:
         return structured
+    from tests.support.assistant_editorial_provider import editorial_reply
+
+    editorial = await editorial_reply(request)
+    if editorial is not None:
+        return editorial
     planning = next(
         (
             tool
@@ -272,6 +277,35 @@ async def _stream(_self, request):
 OpenAIProvider.generate = _generate
 OpenAIProvider.research = _no_external_io
 OpenAIProvider.generate_stream = _stream
+
+
+async def _noop_storage_cleanup(db, task):
+    # 本 harness 不配置对象存储桶；真实清理 handler 会在无桶时失败并按
+    # auto_requeue 无限重排，刷屏日志还占用 worker 并发槽。E2E 项目清理
+    # 只关心数据库行删除，这里让这两类全局清理任务即时成功（G4）。
+    return {
+        "cleanup_kind": (task.meta or {}).get("cleanup_kind"),
+        "deleted_objects": 0,
+        "skipped": "browser harness without object storage",
+    }
+
+
+def _silence_storage_cleanup_tasks() -> None:
+    from infrastructure.tasks.registry import get_registry
+
+    registry = get_registry()
+    for task_type in ("map_atlas_storage_cleanup", "world_object_image_cleanup"):
+        registry.unregister(task_type)
+        registry.register(
+            task_type,
+            _noop_storage_cleanup,
+            recovery_policy="never_retry",
+            max_attempts=1,
+            owner_scope="global",
+        )
+
+
+_silence_storage_cleanup_tasks()
 _original_lifespan = app.router.lifespan_context
 
 

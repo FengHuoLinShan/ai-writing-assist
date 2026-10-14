@@ -5,14 +5,18 @@ import json
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from types import MethodType
 from uuid import UUID, uuid4
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import select
 
 from core.config import get_settings
 from core.errors import ConflictError
-from infrastructure.llm.schemas import LLMUsage
+from infrastructure.llm.client import LLMClient
+from infrastructure.llm.errors import LLMInvalidResponseError
+from infrastructure.llm.schemas import LLMCallResponse, LLMUsage
 from infrastructure.llm.workflow_budget import current_workflow_budget
 from infrastructure.tasks.models import AsyncTask
 from modules.account.context import bind_principal, reset_principal
@@ -161,6 +165,7 @@ async def test_book_manifest_and_exact_quote_guard(async_client, db_session, mon
     assert context["fingerprint"]
     valid = ReviewPass.model_validate(
         {
+            "summary": "本章记录了一条结构意见。",
             "findings": [
                 {
                     "category": "structure",
@@ -178,7 +183,7 @@ async def test_book_manifest_and_exact_quote_guard(async_client, db_session, mon
                         }
                     ],
                 }
-            ]
+            ],
         }
     )
     accepted = await editorial._validated_findings(
@@ -506,6 +511,184 @@ async def test_worker_keeps_advice_out_of_draft_and_marks_changed_source_stale(
         for target in editorial_queue.pending(watch).values()
     )
     assert (await db_session.get(EditorialReview, UUID(first["id"]))).status == "stale"
+
+
+def test_review_pass_empty_object_is_not_a_valid_pass():
+    """G2：截断恢复产出的空对象不得是合法审读结果。
+
+    LLM 客户端的 ``balanced_truncated_json`` 策略会把 "{" 补全成 "{}"；
+    schema 收紧后（summary 必填非空）空对象校验失败，坏输出按失败处理。
+    """
+    with pytest.raises(ValidationError):
+        ReviewPass.model_validate({})
+    with pytest.raises(ValidationError):
+        ReviewPass.model_validate({"summary": ""})
+    assert ReviewPass.model_validate({"summary": "没有值得打断的问题"}).findings == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "content",
+    ['{"summary": 0}', "{"],
+    ids=["schema-invalid-json", "truncated-json-recovered-empty"],
+)
+async def test_bad_structured_output_fails_the_review_not_empty_completion(
+    async_client, db_session, monkeypatch, content
+):
+    """G2 回归：走真实 generate_structured 解析链。
+
+    合法 JSON 违反 schema、或截断 JSON 被恢复成空对象，审读都必须落到
+    failed 终态（作者语言文案 + 次级诊断），不得当作“零意见完成”。
+    """
+    settings = replace(
+        get_settings(), assistant_enabled=True, assistant_editorial_enabled=True
+    )
+    monkeypatch.setattr(editorial, "get_settings", lambda: settings)
+
+    async def snapshot(_db, _novel_id):
+        return {"test_snapshot": True}
+
+    llm = LLMClient()
+
+    async def fake_generate(_self, _request, **_kwargs):
+        return LLMCallResponse(
+            content=content,
+            finish_reason="stop",
+            usage=LLMUsage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+            model="fake",
+            provider="fake",
+        )
+
+    llm.generate = MethodType(fake_generate, llm)  # type: ignore[method-assign]
+
+    @asynccontextmanager
+    async def client(_db, _novel_id, _snapshot):
+        yield llm
+
+    monkeypatch.setattr(editorial, "build_project_llm_execution_snapshot", snapshot)
+    monkeypatch.setattr(editorial, "open_project_snapshot_llm_client", client)
+    novel_id = (
+        await async_client.post("/api/projects", json={"title": "坏输出审读"})
+    ).json()["id"]
+    await async_client.post(
+        "/api/writing/drafts/autosave",
+        json={
+            "novel_id": novel_id,
+            "chapter_index": 1,
+            "content": "信上的地址指向旧港。",
+        },
+    )
+    submitted = (
+        await async_client.post(
+            "/api/assistant/editorial/reviews",
+            json={
+                "novel_id": novel_id,
+                "operation_id": str(uuid4()),
+                "scope": "chapter",
+                "start_chapter": 1,
+                "expected_brief_version": 0,
+                "dimensions": ["copy"],
+            },
+        )
+    ).json()
+    db_session.task_checkpoint_enabled = True
+    task = await db_session.get(AsyncTask, UUID(submitted["task_id"]))
+    with pytest.raises(LLMInvalidResponseError):
+        await editorial.execute(db_session, task)
+    result = await editorial.view(db_session, novel_id, UUID(submitted["id"]))
+    assert result["status"] == "failed"
+    assert result["error"] == editorial._FAILED_AUTHOR_ERROR
+    assert "attempts failed" in (result["error_detail"] or "")
+    assert not result["report"]
+    assert result["unchecked_chapters"] == [1]
+
+
+@pytest.mark.asyncio
+async def test_resumed_review_does_not_repeat_reader_layer_for_same_segment(
+    async_client, db_session, monkeypatch
+):
+    """G6：读者层结论分段落盘后，编辑层调用失败续跑不重复读者层调用。"""
+    settings = replace(
+        get_settings(), assistant_enabled=True, assistant_editorial_enabled=True
+    )
+    monkeypatch.setattr(editorial, "get_settings", lambda: settings)
+
+    async def snapshot(_db, _novel_id):
+        return {"test_snapshot": True}
+
+    @asynccontextmanager
+    async def client(_db, _novel_id, _snapshot):
+        yield type("Client", (), {"model_name": "test"})()
+
+    calls: list[str] = []
+    fail_editorial = True
+
+    async def model(_client, request, _schema, **_kwargs):
+        reader = any(
+            "顺序初读者" in (message.content or "")
+            for message in request.messages
+            if message.role == "system"
+        )
+        calls.append("reader" if reader else "editorial")
+        budget = current_workflow_budget().budget
+        budget.reserve(requests=1)
+        budget.add_usage(
+            LLMUsage(prompt_tokens=10, completion_tokens=10, total_tokens=20)
+        )
+        if not reader and fail_editorial:
+            raise RuntimeError("编辑层模拟故障")
+        return ReviewPass(
+            summary="读者层顺读完成" if reader else "编辑层审读完成",
+            reader_state="读者注意到地址线索" if reader else "",
+        )
+
+    monkeypatch.setattr(editorial, "build_project_llm_execution_snapshot", snapshot)
+    monkeypatch.setattr(editorial, "open_project_snapshot_llm_client", client)
+    monkeypatch.setattr(editorial, "run_managed_structured", model)
+    novel_id = (
+        await async_client.post("/api/projects", json={"title": "读者层去重"})
+    ).json()["id"]
+    await async_client.post(
+        "/api/writing/drafts/autosave",
+        json={
+            "novel_id": novel_id,
+            "chapter_index": 1,
+            "content": "信封上的地址指向旧港，却盖着新港的邮戳。",
+        },
+    )
+    submitted = (
+        await async_client.post(
+            "/api/assistant/editorial/reviews",
+            json={
+                "novel_id": novel_id,
+                "operation_id": str(uuid4()),
+                "scope": "chapter",
+                "start_chapter": 1,
+                "expected_brief_version": 0,
+                "dimensions": ["reader", "copy"],
+            },
+        )
+    ).json()
+    db_session.task_checkpoint_enabled = True
+    task = await db_session.get(AsyncTask, UUID(submitted["task_id"]))
+    with pytest.raises(RuntimeError, match="编辑层模拟故障"):
+        await editorial.execute(db_session, task)
+    failed = await editorial.view(db_session, novel_id, UUID(submitted["id"]))
+    assert failed["status"] == "failed"
+    # 读者层已落盘：progress 保留 pending 状态与读者认知
+    stored = await db_session.get(EditorialReview, UUID(submitted["id"]))
+    assert stored.progress_json["pending_editorial"] is True
+    assert stored.progress_json["reader_state"] == "读者注意到地址线索"
+
+    fail_editorial = False
+    resumed = await editorial.resume(db_session, novel_id, UUID(submitted["id"]))
+    task = await db_session.get(AsyncTask, UUID(resumed["task_id"]))
+    await editorial.execute(db_session, task)
+    completed = await editorial.view(db_session, novel_id, UUID(submitted["id"]))
+    assert completed["status"] == "completed"
+    assert completed["checked_chapters"] == [1]
+    # 同一分段读者层只调用一次；重试只补编辑层
+    assert calls == ["reader", "editorial", "editorial"]
 
 
 @pytest.mark.asyncio
