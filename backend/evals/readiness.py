@@ -7,7 +7,7 @@ from collections import Counter
 from typing import Any, Literal
 
 from evals.schemas import (
-    ALLOWED_HIGH_QUALITY_LLM_MODELS,
+    ALLOWED_DATASET_PROVENANCE_MODELS,
     DatasetCase,
     EvalSuite,
     RiskLevel,
@@ -81,7 +81,7 @@ def assess_baseline_readiness(
     invalid_generation_provenance = [
         case.case_id
         for case in eligible
-        if case.generation_meta.model not in ALLOWED_HIGH_QUALITY_LLM_MODELS
+        if case.generation_meta.model not in ALLOWED_DATASET_PROVENANCE_MODELS
         or not _is_sha256(case.generation_meta.profile_hash)
         or not _is_sha256(case.generation_meta.prompt_hash)
         or not _is_sha256(case.generation_meta.source_hash)
@@ -96,7 +96,7 @@ def assess_baseline_readiness(
         if len(case.qc.judge_decisions)
         < (2 if case.risk_level == RiskLevel.safety_critical else 1)
         or any(
-            decision.get("model") not in ALLOWED_HIGH_QUALITY_LLM_MODELS
+            decision.get("model") not in ALLOWED_DATASET_PROVENANCE_MODELS
             or not _is_sha256(str(decision.get("prompt_hash") or ""))
             for decision in case.qc.judge_decisions
         )

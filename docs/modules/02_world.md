@@ -17,8 +17,11 @@ imports 可通过 `world.facade.dedupe_deep_import_workflow_candidates` 调用�
 - 演示副本在目标 C0 后经 Project 的已授权复制流程追加一次 `demo_import`；World facade
   重写来源 manifest 的资源引用，Page/Template revision 摘要按目标身份和已重写快照计算。
   回执使用专用 demo-import 策略，公开 Admit 不接受这一输入类型。
-- Phase 0 只启用 C0、Page documentary selection 和追加式 revert；所有 formal
-  family 仍是 `formal-disabled`，`world_assertions` 没有准入入口。
+- Phase 0 只启用 C0、Page documentary selection 和追加式 revert；`name`、
+  `typed_scalar`、`binary_relation`、`event_time`、`belief` 五个 formal family
+  均为 `formal-disabled`。通用 Canon 准入路由仍存在，但公开 preview 仅接受 Page 发布和 revert；
+  正式提交侧也显式拒绝 Assertion 准入，尚不能写入 `world_assertions`。Assertion 准入与 family
+  cutover 尚未启用，详见 [ADR-0017](../adr/0017-world-fact-authority-and-canon-revisions.md)。
 - 对象抽取不是 NER，而是长期创作资产识别
 - 人工创建对象、关系和别名时，保存即表示采用；CoreEntity 默认写入 `canonical` 并记录 `created_by / approved_by`
 - 普通 AI 创设统一先写 `creation_suggestion_queue`。生成中心返回判别式 suggestion result，

@@ -24,10 +24,14 @@ World Authority 的规范字节夹具位于
 视为获得付费授权。未知请求、原始回执与既有付费账本继续保留，禁止自动重发或重置。
 Luna 任务不另统计额度/费用；产品必需回执与失败证据按原契约保存。
 
-当前 `evals.ask_world` 的教师契约仍固定 `gpt-6.1-sol/high`，参数不能任意替换；
-Luna 批量业务实测不执行该教师模式。迁移为 Luna/max 并重新完成教师校准、冻结配置核验前，
-可在被测项目已验证原生 Luna/max 后运行不带教师的诊断，不能宣称完成语义教师审查。
-旧教师校准与 holdout 证据按原模型保留，不直接用于证明 Luna 效果。
+评测模型合同（2026-10-14 用户裁定，G6a 生效）：教师与评分（judge、reviewer、
+adjudicator）及 scene-gold 参考答案固定 `gpt-6.1-sol/xhigh`，经独立 schema 守卫的
+Codex 执行器；被测业务生成经 `backend/evals/project_executor.py` 的 Project facade
+走产品侧 Luna/max，两类执行器不同模型，避免同模型自评。`evals.ask_world` 的教师
+契约与 `evals/schemas.py` 常量同源固定 Sol/xhigh，参数不能任意替换。G6b 重新校准
+完成前，新的独立教师/judge 调用仍被暂停守卫拒绝；可在被测项目已验证原生
+Luna/max 后运行不带教师的诊断，不能宣称完成语义教师审查。旧教师校准与 holdout
+证据按原模型保留，不直接用于证明 Luna 效果。
 
 ## 技术覆盖离线实验
 
@@ -97,7 +101,7 @@ Evidence indexing/compilation 回归集中在 `backend/modules/evidence/`；
 | `make test-fast-coverage TEST_WORKERS=2` | Same fast layer with parallel production-code coverage and an 85% gate | None |
 | `make eval-fast` | The same locked deterministic eval toolkit tests without remote model calls | Locked backend CI dependencies and Python 3.14.7; no model calls |
 | `make eval-ask-world` | Ask World project/API contracts, then retrieval, citation-fixture, refusal and integrity thresholds | None; targeted API tests plus deterministic synthetic evidence, not a semantic-answer quality claim |
-| `make eval-ask-world-model NOVEL_ID=<id> [PROBE_SPLIT=debug\|holdout] [LEDGER=<jsonl>] [DATASET=<jsonl>]` | 生产 `AskWorldService._generate` 的来源集合诊断（非主张忠实度）；旧教师参数仅保留冻结合同，教师模式当前暂停，预检在项目访问、SUT 调用和一次性 holdout 占用前拒绝 | 无教师的 SUT 实测仍须单独授权并核验 owner/Project 的 Luna/max 连接；旧 `gpt-6.1-sol/high` 教师及旧 DeepSeek reviewer 须完成迁移和重新校准后才能恢复，不能凭本地登录重启；旧元数据/缓存离线回放不改标，不进 CI，真实稿件输入输出留仓库外 |
+| `make eval-ask-world-model NOVEL_ID=<id> [PROBE_SPLIT=debug\|holdout] [LEDGER=<jsonl>] [DATASET=<jsonl>]` | 生产 `AskWorldService._generate` 的来源集合诊断（非主张忠实度）；教师模式暂停至 G6b 按 Sol/xhigh 合同重新校准，预检在项目访问、SUT 调用和一次性 holdout 占用前拒绝 | 无教师的 SUT 实测仍须单独授权并核验 owner/Project 的 Luna/max 连接；旧 DeepSeek reviewer 路径已删除并冻结为历史，不能凭本地登录重启；旧元数据/缓存离线回放不改标，不进 CI，真实稿件输入输出留仓库外 |
 | `make eval-context-planner NOVEL_ID=<id> OUTPUT=<path>` | 冻结 RAG 数据上对比 task-direct 与确定性 Planner，输出 split/purpose、MRR/P@5/R@10、结果数、source hash、stale/跨项目与延迟 | 已建立同一冻结语料索引的本地项目；不调 LLM |
 | `make eval-context-planner NOVEL_ID=<id> LLM_PLANNER=1 OUTPUT=<path>` | 在上述对比中增加 `planner-v2-llm`，仅向当前项目模型发送 dev split 中达到复杂度门槛的查询 | 开发时核验项目原生 Codex Luna/max 连接；train/test 不发送给 Planner；付费供应商另行授权 |
 | `uv --directory backend run pytest -q evals/tests/test_rp_context.py` | RP source context 对照账本与盲评汇总契约；只保存 corpus/scenario hash、SourceRangeRef 和 rubric | None；该测试不调用模型，也不代表用户验证或实际减少出戏 |
@@ -641,12 +645,23 @@ P8 固定比较范围按指定 head 的 Git blob 计数，不读取其他 checko
 `backend/.venv`。Python 3.13 实验完成后开发/CI解释器和依赖保持原状。
 服务文件拆分需验证原类/方法行为、来源与事务、失败恢复及真实PG锁；共享导入名继续保留。
 
-独立 Codex eval 的新文字调用现已暂停：旧 Spark/Luna/教师配置仅保留用于
-冻结元数据与 cache-only 重放，不得将旧分数改标为当前模型成绩。恢复新调用前
-须迁到经 owner 验证的 Project 运行时，并按当前 Luna/max 约定重新校准教师与
-judge；本地 CLI 登录不代替这项核验。隔离传输的单元测试使用合成替身，不调用模型。
+独立 Codex eval 的新文字调用现已暂停：旧 Spark/Luna/terra/DeepSeek 的教师与复核
+配置自 G6a 起降级为冻结元数据，仅保留用于冻结元数据与 cache-only 重放，不得将旧
+分数改标为当前模型成绩。教师与 judge 已固定 `gpt-6.1-sol/xhigh`，被测业务生成经
+owner 已验证的 Project 运行时走 Luna/max；G6b 解除暂停前守卫继续拒绝新的独立
+教师/judge 调用，本地 CLI 登录不代替这项核验。隔离传输的单元测试使用合成替身，
+不调用模型。
 
-Codex 文本适配离线回归：`pytest infrastructure/llm/tests/test_codex_provider.py modules/project/tests/test_codex_runtime.py`。
+### 与历史分数不可直接比较
+
+评测模型合同变更（教师/judge 由 Spark/Luna/terra/DeepSeek 改为 Sol/xhigh、被测端
+为 Luna/max）之后，新旧合同的分数、通过率与阈值结论不可直接比较，也不得把旧合同
+分数换算或改标为新合同成绩；跨合同对比只能作方向性参考并显式标注两侧模型。冻结
+数据集、账本与报告按产生它们的原模型保留身份，新合同运行须重新建立基准。
+
+### Codex 文本适配离线回归
+
+`pytest infrastructure/llm/tests/test_codex_provider.py modules/project/tests/test_codex_runtime.py`。
 真实合成评测：显式设置 AUTH_MODE=local、CODEX_CLI_COMMAND、独立 DATABASE_URL（库名必须
 codex_luna_runtime_test）后运行 `python -m evals.codex_luna --output /private/tmp/<private-run>`。
 100 个来源与协议案例通过真实账户/project facade，默认 2 并发；未完成/未知案例不自动重发。

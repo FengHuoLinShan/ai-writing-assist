@@ -15,34 +15,48 @@ local datasets, review packages, judge caches, and source-bearing reports belong
 under `evals/datasets/local`, `evals/artifacts`, or `evals/.cache`; all are
 gitignored. Committed manifests contain hashes and logical aliases only.
 
-## Approved models
+## Eval model contract (G6a, 2026-10-14)
 
-Every generation and judge step defaults to the locally installed
-Codex CLI pinned to `gpt-5.3-codex-spark`. A user-authorized, explicit
-`EVAL_CODEX_MODEL=gpt-5.6-luna` override is accepted for usage-limit recovery;
-that model is invoked with the separate `model_reasoning_effort="medium"` config;
-it is never selected automatically. Cache keys and provenance retain the model
-that actually produced each result. The generator/judge runner does not read project API
-keys or project LLM profiles and does not silently fall back to an unapproved model. It runs
+Teacher, judge, reviewer/adjudicator, and scene-gold reference answers are
+pinned to the locally installed Codex CLI on `gpt-6.1-sol` with reasoning
+effort `xhigh`, through the standalone schema-guarded executor. The system
+under test never uses that executor: it runs through the project owner's
+verified Project runtime (`evals.project_executor` /
+`open_project_llm_client`) on the product-side Luna/max contract, so
+teacher/judge and the system under test never share a model. New standalone
+teacher/judge calls stay rejected by the pause guard until the G6b
+re-calibration; frozen metadata and cache-only replay remain available.
+
+The legacy contract below is frozen metadata (G6a). Its constants still
+identify and validate historical datasets, ledgers, and executor-hash
+reconstruction, and are not used for new calls:
+
+- generator/judge `gpt-5.3-codex-spark`, with the user-authorized
+  `EVAL_CODEX_MODEL=gpt-5.6-luna` usage-limit override (`medium` effort);
+- reviewer A `deepseek-v4-flash` through a disposable project profile;
+- reviewer B `gpt-5.6-luna` (`medium`); disagreement adjudicator
+  `gpt-5.6-terra`.
+
+The generator/judge runner does not read project API keys or project LLM
+profiles and does not silently fall back to an unapproved model. It runs
 ephemerally, ignores user plugins/config/rules,
 explicitly disables plugins and model tools, uses a read-only empty temporary
 directory, and accepts source text only on stdin. Codex runs in a dedicated
 process group; timeout cleanup kills the whole group so model-refresh children
-cannot survive a cancelled eval call.
+cannot survive a cancelled eval call. Cache keys and provenance retain the
+model that actually produced each result. Surrogate review keeps its enforced
+role assignment (reviewer-a/reviewer-b/adjudicator); the CLI rejects a
+reviewer role/model mismatch.
 
-Surrogate review uses a separate, enforced assignment and does not change the
-generator/judge model contract:
+### Scores are not comparable across contracts
 
-- reviewer A: `deepseek-v4-flash`, through the disposable project's effective
-  project profile and previously configured API key (`--novel-id` is required);
-- reviewer B: local Codex `gpt-5.6-luna` with reasoning effort `medium`;
-- disagreement adjudicator: local Codex `gpt-5.6-terra`.
-
-Reviewer A is the only eval-data step allowed to read a project LLM profile. Its
-client is opened through the novel-scoped project runtime context and always
-closed; cache/provenance store only a sanitized profile hash, never the key.
-Reviewer B and the adjudicator remain isolated Codex CLI executions. The CLI
-rejects a reviewer role/model mismatch.
+Scores, pass rates, and thresholds produced under the frozen legacy contract
+(Spark/Luna/terra/DeepSeek) are not directly comparable with runs under the
+new Sol/xhigh teacher/judge + Luna/max system-under-test contract. Never
+relabel or convert old scores as current results; cross-contract comparisons
+are directional only and must name both models. Frozen datasets, ledgers, and
+reports keep the identity of the model that produced them; new runs need a
+fresh baseline.
 
 ## Commands
 
@@ -69,16 +83,15 @@ make eval-review-import DATASET=evals/datasets/local/pilot-reviewed-a.jsonl \
 python -m evals.cli review-model \
   evals/datasets/local/pilot-reviewed.jsonl evals/artifacts/review-a.jsonl \
   --variant pilot --suite scene --reviewer-role reviewer-a \
-  --model deepseek-v4-flash --novel-id <disposable-project-id> \
-  --output evals/artifacts/review-a.deepseek.jsonl
+  --model gpt-6.1-sol --output evals/artifacts/review-a.sol.jsonl
 python -m evals.cli review-model \
   evals/datasets/local/pilot-reviewed.jsonl evals/artifacts/review-b.jsonl \
   --variant pilot --suite scene --reviewer-role reviewer-b \
-  --model gpt-5.6-luna --output evals/artifacts/review-b.luna.jsonl
+  --model gpt-6.1-sol --output evals/artifacts/review-b.sol.jsonl
 python -m evals.cli review-model \
   evals/datasets/local/pilot-reviewed-ab.jsonl evals/artifacts/ambiguous.jsonl \
   --variant pilot --suite scene --reviewer-role adjudicator \
-  --model gpt-5.6-terra --output evals/artifacts/adjudication.terra.jsonl
+  --model gpt-6.1-sol --output evals/artifacts/adjudication.sol.jsonl
 make eval-rag DATASET=evals/datasets/local/pilot-v1.jsonl \
   NOVEL_ID=<isolated-project-id> DATASET_ID=pilot-v1 DATASET_VERSION=1.0.0
 make eval-rag-prepare NOVEL_ID=<isolated-project-id> \
@@ -399,11 +412,12 @@ Evidence 确认、知识审查（`_govern_answer`）、来源回开与建议保�
 并保留已完成的 case 结果。命令启动时先把 `--output` 覆盖为 `status=running`，被中断则为
 `aborted`，因此旧的完整报告不会被误当作本次结果；未完成时命令以退出码 2 结束。
 
-项目所有者可以显式增加一次隔离的 GPT-6.1 Sol high 替代教师校准（2026-10-04 用户指令，替代此前的 GPT-5.6 Sol medium）：
+项目所有者可以显式增加一次隔离的 GPT-6.1 Sol xhigh 替代教师校准（G6a 合同固定 Sol/xhigh；
+2026-10-04 的历史指令为 Sol high，更早为 GPT-5.6 Sol medium，均已成冻结历史）：
 
 ```bash
 make eval-ask-world-model NOVEL_ID=<isolated-project-id> \
-  TEACHER_MODEL=gpt-6.1-sol TEACHER_REASONING_EFFORT=high
+  TEACHER_MODEL=gpt-6.1-sol TEACHER_REASONING_EFFORT=xhigh
 ```
 
 教师在同一进程读取这 7 条合成证据与 DeepSeek 结构化输出，先检查参考标签，再逐条主张审查：

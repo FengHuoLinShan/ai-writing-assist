@@ -795,11 +795,6 @@ def phase2_quality_stats(phase2_result: dict[str, Any]) -> dict[str, Any]:
         "phase2_batch_concurrency": int(
             phase2_result.get("phase2_batch_concurrency", 0) or 0
         ),
-        "phase2_world_window_concurrency": int(
-            phase2_result.get("phase2_world_window_concurrency")
-            or phase2_result.get("phase2_batch_concurrency", 0)
-            or 0
-        ),
         "phase2_boundary_windows_total": int(
             phase2_result.get("phase2_boundary_windows_total", 0) or 0
         ),
