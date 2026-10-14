@@ -80,11 +80,6 @@ const DEEP_IMPORT_GROUPS = [
     when: "需要更多世界细节，或遇到限流、遗漏时调整。",
     cost: "并发和批量越大越快，但更容易限流；上下文越大越贵。",
     fields: [
-      { key: "world_timeout_seconds", label: "世界抽取超时（秒）", type: "int", min: 1, max: 7200, value: 1200 },
-      { key: "world_min_max_tokens", label: "设定整理的最小输出量", type: "int", min: 1, max: 200000, value: 32768 },
-      { key: "world_max_max_tokens", label: "设定整理的最大输出量", type: "int", min: 1, max: 200000, value: 32768 },
-      { key: "world_max_tokens_per_source_char", label: "每字允许的设定输出量", type: "float", min: 0.05, max: 2, step: "0.01", value: 1.0 },
-      { key: "world_window_concurrency", label: "同时整理的正文窗口数", type: "int", min: 1, max: 100, value: 20 },
       { key: "parallel_scene_concurrency", label: "同时整理的场景数", type: "int", min: 1, max: 64, value: 25 },
       { key: "parallel_scene_max_tokens", label: "每个场景的对象整理上限", type: "int", min: 1, max: 200000, value: 32768 },
       { key: "parallel_provider_timeout_seconds", label: "单个场景的模型等待", type: "int", min: 1, max: 1800, value: 360 },

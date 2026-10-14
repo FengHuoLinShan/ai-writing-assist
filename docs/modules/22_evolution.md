@@ -281,6 +281,53 @@ World 候选、状态、关系物化快照和回执同事务提交。新身份�
 同场同名竞争保持待决定。关系历史限定真实前缀回执（含继承），不从当前 World 描述
 倒推历史，最多注入最近64个相关场景并明确范围。旧 v1/v0 运行保持原调用顺序。
 
+#### 逐 Scene 候选、提交与恢复
+
+```mermaid
+sequenceDiagram
+    participant A as 作者
+    participant E as Evolution API / workflow
+    participant Q as 队列 worker / pipeline
+    participant P as 模型 provider
+    participant D as 领域资产与冻结回执
+    A->>E: 预览并确认范围、授权与预算
+    E->>D: 固定 Scene 来源、owner epoch 与模型快照
+    E->>Q: 顺序处理 Scene
+    Q->>D: 回读来源、准备实际消费者输入
+    alt 输入与方法证明相同，可复用
+        D-->>Q: 读取成功冻结结果
+    else 不可复用且有可用预算
+        Q->>P: 受控采样、抽取或独立复核
+        P-->>Q: 结果与用量回执
+        Q->>D: 冻结该步骤结果及 read-set
+    end
+    Q->>D: apply_frozen 重验来源、owner epoch、parent receipt
+    alt 重验失败
+        D-->>Q: 冲突；不提交候选或推进游标
+    else 重验通过
+        Q->>D: 同事务写候选、门控派生效果、receipt 与 cursor
+        Note over Q,D: 任一步失败，事务整体回滚
+    end
+    opt 中断且冻结结果、费用证明满足恢复条件
+        A->>E: resume 原 run
+        E->>Q: recover_attempt
+        Q->>D: 重验冻结结果后提交；不重发 provider 请求
+    end
+    A->>D: World 采用入口重验来源与候选资格，再显式采用
+```
+
+
+图中的 World 抽取先于关系准备；关系请求只在存在身份候选时发送，之后才规划独立审查组。
+`apply_frozen` 仅在重验通过后调用领域 applier；World 结果是待作者采用的 candidate，不是 Canon
+assertion。unknown billing 不属于可安全恢复的冻结结果，须先人工核对，不能按正常恢复分支重发。
+
+P4 的复用证明按消费者实际输入和方法逐项判断。`test_relation_history_uses_real_prefix_and_not_mutated_world_rows`
+断言总调用数仍为 8，且 scoped recompute 复用 sample、World、relation 和审查组；测试中改动的当前
+`EntityRelation` 行并不是 `relation_history` 的输入，实际冻结的关系前缀未变。因此该断言只证明固定
+关系历史输入可复用，不证明关系历史内容变化后的失效行为。`test_world_group_exact_read_set_reuses_only_unaffected_group`
+单独证明一个 World 审查组的 source read-set 改变时只重跑该组、另一未变组复用；这是审查组消费者的
+输入变化反例，不是 `relation_history` 的反例。
+
 ### 缓存清理故障隔离
 
 正文失效附带的 RP 缓存 purge 在 SAVEPOINT 内执行；真实 SQL 故障会回滚该清理并在失效回执明示，不使主事件/checkpoint 失效事务报成功却失效未落地。权限/来源重验独立于物理清理，旧缓存不能因清理失败获得使用资格。
@@ -452,8 +499,11 @@ Discovery 仅对完整来源/资格/身份相同的观察做一对一引用映�
 回执只留原调用；缺 read-set、sampling/failed、schema/Prompt/配置变化均不复用。
 World 分组 scope 使用候选、来源及身份上下文的内容身份，组输入未变可独立复用；不复制
 已物化正史或旧认证，所有独立复核输出仍在当前 scope 重物化。原整场语义相等的早停继承
-继续保留。Story 按字段和实际区间登记失效；world_knowledge、地图册非正文/待审来源与 world_canon_revision
-缺失来源版本闭包继续明确 unsupported，不据输入缓存宣称这些缝已完成。
+继续保留。Story 按字段和实际区间登记失效。Story 的 `world_knowledge` 展示在每次读取时按当前
+ReaderRevealPolicy 重判；这是读时披露策略检查，不等同于 Evolution 消费登记。地图册当前已保存
+版本的已发布正文来源已有建议性核对（G8a），其非正文/待审来源与 `world_canon_revision` 仍未登记为
+失效消费者，在回执中明确列为 unsupported；不能据局部输入缓存宣称这些来源已随 Story 变化自动
+失效或重算。
 
 `POST /reading/{run_key}/category-rescan-preview` 按已读 Scene 区间及类别注册表选类，
 预览不发请求；`category-rescan` 绑定操作 ID、完整来源/方法/模型/预算指纹与作者确认。

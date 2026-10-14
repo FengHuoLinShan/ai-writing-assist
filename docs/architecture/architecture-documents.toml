@@ -13,6 +13,9 @@ architecture_files = [
   "docs/architecture/module-architecture.html",
   "docs/architecture/feature-map.drawio",
   "docs/architecture/feature-map.html",
+  "docs/architecture/codebase-reading-guide.md",
+  "docs/architecture/runtime-boundaries.drawio",
+  "docs/architecture/runtime-boundaries.html",
 ]
 
 central_documents = [
@@ -28,6 +31,7 @@ central_documents = [
   "docs/01_数据库设计.md",
   "docs/architecture/README.md",
   "docs/architecture/documentation-maintenance.md",
+  "docs/architecture/codebase-reading-guide.md",
   "docs/adr/README.md",
   "docs/prompts/Prompt体系设计.md",
   "docs/核心业务场景与预期行为.md",

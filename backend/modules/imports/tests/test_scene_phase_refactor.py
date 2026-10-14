@@ -6,13 +6,8 @@ from typing import Any
 import pytest
 
 from modules.imports.llm_schemas import (
-    Phase2WorldExtractionOutput,
     SceneAnchorRepairOutput,
     SceneChunk,
-)
-from modules.imports.phase2_world_extraction import (
-    _normalize_world_output,
-    _phase2_window_max_tokens,
 )
 from modules.imports.scene_enrichment import Phase1bSceneEnricher
 from modules.imports.scene_planning import SceneWindowPlan, build_scene_import_plan
@@ -133,67 +128,6 @@ def test_phase0_plan_clamps_window_max_tokens_upper_bound() -> None:
 
     assert len(result.windows) == 1
     assert result.windows[0].max_tokens == 32_768
-
-
-def test_phase2_world_token_budget_uses_full_generation_bound() -> None:
-    assert _phase2_window_max_tokens(26_000) == 32_768
-    assert _phase2_window_max_tokens(70_000) == 32_768
-    assert _phase2_window_max_tokens(100_000) == 32_768
-
-
-def test_phase2_world_parser_filters_invalid_and_overlap_only_refs() -> None:
-    output = Phase2WorldExtractionOutput.model_validate(
-        {
-            "objects": [
-                {
-                    "name": "克莱恩",
-                    "entity_type": "character",
-                    "summary": "主角身份。",
-                    "supporting_scene_ids": ["s-owned"],
-                },
-                {
-                    "name": "重叠区对象",
-                    "entity_type": "item",
-                    "summary": "只在 overlap 中出现。",
-                    "supporting_scene_ids": ["s-overlap"],
-                },
-            ],
-            "relations": [
-                {
-                    "source_name": "克莱恩",
-                    "target_name": "值夜者",
-                    "relation_type": "加入",
-                    "description": "开始接触组织。",
-                    "supporting_scene_ids": ["s-owned", "missing"],
-                }
-            ],
-            "deltas": [
-                {
-                    "subject_name": "克莱恩",
-                    "description": "缺少有效 Scene 支撑，应丢弃。",
-                    "supporting_scene_ids": ["missing"],
-                }
-            ],
-        }
-    )
-
-    normalized, invalid_refs, overlap_only, diagnostic = _normalize_world_output(
-        output,
-        scenes_by_id={
-            "s-owned": {"id": "s-owned"},
-            "s-overlap": {"id": "s-overlap"},
-        },
-        owned_scene_ids={"s-owned"},
-    )
-
-    assert [item.name for item in normalized.objects] == ["克莱恩"]
-    assert len(normalized.relations) == 1
-    assert normalized.relations[0].needs_review is True
-    assert normalized.relations[0].supporting_scene_ids == ["s-owned"]
-    assert normalized.deltas == []
-    assert invalid_refs == 2
-    assert overlap_only == 1
-    assert diagnostic["total"] == 2
 
 
 def test_anchor_repair_output_trims_long_boundaries_toward_scene_edges() -> None:
