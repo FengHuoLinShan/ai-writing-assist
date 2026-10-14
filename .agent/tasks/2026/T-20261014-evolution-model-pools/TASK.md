@@ -3,7 +3,7 @@ id: T-20261014-evolution-model-pools
 title: 独立模型池、Luna 范围授权与 500k 输入预算
 status: active
 created: 2026-10-14T18:00:00+08:00
-updated: 2026-10-14T21:29:27+08:00
+updated: 2026-10-14T21:32:58+08:00
 ---
 
 # 世界演化模型池与范围授权
@@ -74,3 +74,9 @@ updated: 2026-10-14T21:29:27+08:00
 - 完整PG critical：固定镜像的独立容器中98通过。第一次专用角色91通过/7创建vector权限失败属于环境，不改变共享库权限，已隔离重验。
 - 合成测试资源待收尾：Docker容器novelcraft-model-pools-review-pg（49882）；共享开发PG中本轮仅创建的codex_model_pools_review_test库/角色待清理。原root WIP仍未修改。
 - 当前本地报告见REPORT.md；无真实模型、Guimi续跑、作者文学验收或部署。
+
+## 最新主干集成
+
+- PR #230已创建并附加： https://github.com/FengHuoLinShan/ai-writing-assist/pull/230 。实施提交3b942f942cd87f5332edaf26f0b0e400a28a2a27。
+- 提交期间主干更新至0e572c75ffba654cc117c502f91a489307589837（#227审计首批），正在正常merge，不重写已推送历史。9处文档/部署冲突已解决，保留独立只读图片备份身份、30天保留与新模型池。
+- 下一步：完成新基线部署/跨栈门禁及独立冲突复核，提交merge并推送，核验PR固定head全部检查后合并。

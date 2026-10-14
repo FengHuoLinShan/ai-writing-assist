@@ -1,0 +1,98 @@
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade  -> 20260703_scene_chapter_links, squashed current demo schema
+INFO  [alembic.runtime.migration] Running upgrade 20260703_scene_chapter_links -> 20260707_settings, create settings module tables
+INFO  [alembic.runtime.migration] Running upgrade 20260707_settings -> 20260707_gen_prompt_templates, add generation center prompt templates
+INFO  [alembic.runtime.migration] Running upgrade 20260707_gen_prompt_templates -> 20260707_writing_draft_provenance, ensure writing draft provenance column
+INFO  [alembic.runtime.migration] Running upgrade 20260707_writing_draft_provenance -> 20260707_core_entities_auto_ingested_recent_index, add recent auto-ingested core entity partial index
+INFO  [alembic.runtime.migration] Running upgrade 20260707_core_entities_auto_ingested_recent_index -> 20260708_entity_relation_review_meta, add relation review metadata
+INFO  [alembic.runtime.migration] Running upgrade 20260708_entity_relation_review_meta -> 20260708_security_performance_indexes, add security audit performance indexes
+INFO  [alembic.runtime.migration] Running upgrade 20260708_security_performance_indexes -> 20260709_scene_spans_rag_visibility, add scene spans and rag reader-progress fields
+INFO  [alembic.runtime.migration] Running upgrade 20260709_scene_spans_rag_visibility -> 20260710_novel_evidence, add stable manuscript sources and deterministic evidence provenance
+INFO  [alembic.runtime.migration] Running upgrade 20260710_novel_evidence -> 20260710_asset_state_simple, normalize legacy author-created world assets
+INFO  [alembic.runtime.migration] Running upgrade 20260710_asset_state_simple -> 20260710_scene_cross_suggestions, persist outline cross-chapter Scene suggestions
+INFO  [alembic.runtime.migration] Running upgrade 20260710_scene_cross_suggestions -> 20260712_p1_observe_lifecycle, add retrieval observability and fenced task lifecycle
+INFO  [alembic.runtime.migration] Running upgrade 20260712_p1_observe_lifecycle -> 20260712_llm_max_12000, normalize general LLM max tokens to 12000
+INFO  [alembic.runtime.migration] Running upgrade 20260712_llm_max_12000 -> 20260713_scene_fusion_suggestions, generalize Scene fusion suggestions for deep-import Phase 1c
+INFO  [alembic.runtime.migration] Running upgrade 20260713_scene_fusion_suggestions -> 20260713_schema_reconciliation, reconcile active ORM schema with the PostgreSQL development database
+INFO  [alembic.runtime.migration] Running upgrade 20260713_schema_reconciliation -> 20260713_drop_legacy_entity_aliases, drop the unused legacy core_entities.aliases column
+INFO  [alembic.runtime.migration] Running upgrade 20260713_drop_legacy_entity_aliases -> 20260713_restore_partial_unique_indexes, restore migration-managed partial uniqueness indexes
+INFO  [alembic.runtime.migration] Running upgrade 20260713_restore_partial_unique_indexes -> 20260713_scene_replacement_results, store all result Scenes for replacement suggestions
+INFO  [alembic.runtime.migration] Running upgrade 20260713_scene_replacement_results -> 20260714_world_bible_synopsis, add World Bible drafts, categories, and author synopsis revisions
+INFO  [alembic.runtime.migration] Running upgrade 20260714_world_bible_synopsis -> 20260714_smart_dedup_workbench, add smart dedup workbench decisions
+INFO  [alembic.runtime.migration] Running upgrade 20260714_smart_dedup_workbench -> 20260714_map_editor_layer_tree, map archive, editor revision, and recursive layer tree
+INFO  [alembic.runtime.migration] Running upgrade 20260714_map_editor_layer_tree -> 20260714_map_floor_paths, map floor modes and continuous path assets
+INFO  [alembic.runtime.migration] Running upgrade 20260714_map_floor_paths -> 20260714_map_dynamic_timeline, map dynamic timeline projection indexes
+INFO  [alembic.runtime.migration] Running upgrade 20260714_map_dynamic_timeline -> 20260715_world_bible_v2, add World Bible sections, page templates, and activation profiles
+INFO  [alembic.runtime.migration] Running upgrade 20260715_world_bible_v2 -> 20260716_story_outline, add immutable StoryOutline revisions and per-project heads
+INFO  [alembic.runtime.migration] Running upgrade 20260716_story_outline -> 20260716_rag_entity_appearances, add rebuildable RAG entity appearances
+INFO  [alembic.runtime.migration] Running upgrade 20260716_rag_entity_appearances -> 20260717_reveal_thread_links, add PlotThread links to reveal plans
+INFO  [alembic.runtime.migration] Running upgrade 20260717_reveal_thread_links -> 20260717_character_profiles, backfill minimum profiles for adopted character entities
+INFO  [alembic.runtime.migration] Running upgrade 20260717_character_profiles -> 20260722_context_confirm_refs, Add exact context confirmation asset references.
+INFO  [alembic.runtime.migration] Running upgrade 20260722_context_confirm_refs -> 20260722_map_fact_observation, Enforce one map fact for each project observation.
+INFO  [alembic.runtime.migration] Running upgrade 20260722_map_fact_observation -> 20260722_map_visual_history, Archive independent map assets and add reversible visual revisions.
+INFO  [alembic.runtime.migration] Running upgrade 20260722_map_visual_history -> 20260722_scene_memory, Add Scene-anchored memory events, checkpoints, and sparse snapshots.
+INFO  [alembic.runtime.migration] Running upgrade 20260722_scene_memory -> 20260723_account_system, Add public browser accounts, identities, sessions, OTPs, and project ownership.
+INFO  [alembic.runtime.migration] Running upgrade 20260723_account_system -> 20260724_task_owners, Add durable task coalescing and domain workflow owners.
+INFO  [alembic.runtime.migration] Running upgrade 20260724_task_owners -> 20260728_account_llm, Add account LLM credentials and remove legacy project API keys.
+INFO  [alembic.runtime.migration] Running upgrade 20260728_account_llm -> 20260728_interaction, Add isolated RP interaction projects and immutable journey history.
+INFO  [alembic.runtime.migration] Running upgrade 20260728_interaction -> 20260805_task_novel_id, Promote task project identity to an authoritative column.
+INFO  [alembic.runtime.migration] Running upgrade 20260805_task_novel_id -> 20260812_ai_map_atlas, Replace the legacy dynamic map with the author-reviewed AI map atlas.
+INFO  [alembic.runtime.migration] Running upgrade 20260812_ai_map_atlas -> 20260813_map_prompt_upload, Add map prompt review and external upload state.
+INFO  [alembic.runtime.migration] Running upgrade 20260813_map_prompt_upload -> 20260814_world_object_images, Add private images to world objects.
+INFO  [alembic.runtime.migration] Running upgrade 20260814_world_object_images -> 20260815_story_scene_assets, Persist Story character cards and multi-file Scene script revisions.
+INFO  [alembic.runtime.migration] Running upgrade 20260815_story_scene_assets -> 20260821_world_bible_draft_meta, Persist World Bible draft source metadata.
+INFO  [alembic.runtime.migration] Running upgrade 20260821_world_bible_draft_meta -> 20260821_world_validation_runs, Add durable World Bible validation runs.
+INFO  [alembic.runtime.migration] Running upgrade 20260821_world_validation_runs -> 20260822_relation_alias_kinds, Add minimal semantic kinds for relations and aliases.
+INFO  [alembic.runtime.migration] Running upgrade 20260822_relation_alias_kinds -> 20260827_world_authority_phase0, Add the accepted Phase 0 world authority kernel.
+INFO  [alembic.runtime.migration] Running upgrade 20260827_world_authority_phase0 -> 20260827_project_author_tasks, Add project-owned lightweight author tasks.
+INFO  [alembic.runtime.migration] Running upgrade 20260827_project_author_tasks -> 20260901_rp_source_context, Add versioned RP source context bindings.
+INFO  [alembic.runtime.migration] Running upgrade 20260901_rp_source_context -> 20260908_unified_map, Add structured revisions to the existing atlas without rewriting image assets.
+INFO  [alembic.runtime.migration] Running upgrade 20260908_unified_map -> 20260909_world_library_topics, Add world library topic directory and author workspace tables.
+INFO  [alembic.runtime.migration] Running upgrade 20260909_world_library_topics -> 20260909_world_cocreation_sessions, Add world co-creation session and message tables (ADR-0021).
+INFO  [alembic.runtime.migration] Running upgrade 20260909_world_cocreation_sessions -> 20260910_world_review_phase4, World review phase 4: review items + validation run impact/plan columns (ADR-0022).
+INFO  [alembic.runtime.migration] Running upgrade 20260910_world_review_phase4 -> 20260911_assistant_runtime, Assistant execution state; existing discussion rows retain their IDs and tables.
+INFO  [alembic.runtime.migration] Running upgrade 20260911_assistant_runtime -> 20260912_web_search_consent, Explicit RP consent for the self-hosted public research channel.
+INFO  [alembic.runtime.migration] Running upgrade 20260912_web_search_consent -> 20260913_schema_parity_repair, Repair schema invariants skipped by older live-metadata baselines.
+INFO  [alembic.runtime.migration] Running upgrade 20260913_schema_parity_repair -> 20260914_public_demo_copy, Persist idempotent owner copies of configured public demo revisions.
+INFO  [alembic.runtime.migration] Running upgrade 20260914_public_demo_copy -> 20260914_anonymous_rp_accounts, Add expiry tracking for disposable anonymous RP accounts.
+INFO  [alembic.runtime.migration] Running upgrade 20260914_anonymous_rp_accounts -> 20260920_story_simulation, Add isolated author rehearsal runs and immutable completed rounds.
+INFO  [alembic.runtime.migration] Running upgrade 20260920_story_simulation -> 20260920_interaction_ensemble, Add opt-in ensemble mode and immutable actor state owned by RP nodes.
+INFO  [alembic.runtime.migration] Running upgrade 20260920_interaction_ensemble -> 20260920_creative_engine, Add V2 creative execution and immutable trial/merge receipts.
+INFO  [alembic.runtime.migration] Running upgrade 20260920_creative_engine -> 20260920_assistant_forecast, Add immutable forecast assessments and compatible notice/run fields.
+INFO  [alembic.runtime.migration] Running upgrade 20260920_assistant_forecast -> 20260920_interaction_input, Preserve typed player stimuli with each immutable branch input.
+INFO  [alembic.runtime.migration] Running upgrade 20260920_interaction_input -> 20260920_creative_recovery, Keep author grant renewal history separate from goals and execution.
+INFO  [alembic.runtime.migration] Running upgrade 20260920_creative_recovery -> 20260921_evolution_tables, Add evolution run registry, frozen attempts and receipts.
+INFO  [alembic.runtime.migration] Running upgrade 20260921_evolution_tables -> 20260921_evolution_shadow, Add execution_mode to evolution runs (shadow isolation, V4 E07.b).
+INFO  [alembic.runtime.migration] Running upgrade 20260921_evolution_shadow -> 20260921_evolution_single_writer, Add project-level single live writer index to evolution runs (V4 R5).
+INFO  [alembic.runtime.migration] Running upgrade 20260921_evolution_single_writer -> 20260922_evolution_invalidation, Keep invalidated evolution inputs and Story events as non-current history.
+INFO  [alembic.runtime.migration] Running upgrade 20260922_evolution_invalidation -> 20260922_cognition, Durable author understanding, independent of short-lived collaboration runs.
+INFO  [alembic.runtime.migration] Running upgrade 20260922_cognition -> 20260922_cognition_history_guard, Protect understanding receipts and revisions, allowing only pointer retirement.
+INFO  [alembic.runtime.migration] Running upgrade 20260922_cognition_history_guard -> 20260922_understanding_owner, Fence legacy and evolution writers at the shared project and task boundaries.
+INFO  [alembic.runtime.migration] Running upgrade 20260922_understanding_owner -> 20260922_cognition_evolution, Keep the exact committed understanding read by retained interpretations.
+INFO  [alembic.runtime.migration] Running upgrade 20260922_cognition_evolution -> 20260922_evolution_model, Freeze one secret-free model connection for an Evolution run.
+INFO  [alembic.runtime.migration] Running upgrade 20260922_evolution_model -> 20260922_evolution_reading, Persist the authorized source plan independently of queue retention.
+INFO  [alembic.runtime.migration] Running upgrade 20260922_evolution_reading -> 20260924_editorial_assistant, Versioned editorial work and author decisions.
+INFO  [alembic.runtime.migration] Running upgrade 20260924_editorial_assistant -> 20260924_writing_comments, Saved manuscript comments anchored to exact ranges.
+INFO  [alembic.runtime.migration] Running upgrade 20260924_writing_comments -> 20260924_local_agent_cli, Add owner-bound local CLI devices and invocation receipts.
+INFO  [alembic.runtime.migration] Running upgrade 20260922_evolution_reading -> 20260923_rp_reference_refresh, Allow immutable RP reference revisions for unchanged manuscript versions.
+INFO  [alembic.runtime.migration] Running upgrade 20260923_rp_reference_refresh -> 20260923_rp_openings, Persist owner-curated source-bound RP entry cards.
+INFO  [alembic.runtime.migration] Running upgrade 20260923_rp_openings, 20260924_local_agent_cli -> 20260927_guimi_editorial_merge, Join guimi RP and author tooling migration branches.
+INFO  [alembic.runtime.migration] Running upgrade 20260927_guimi_editorial_merge -> 20260928_schema_drift_repair, Align hand-written migrations with the declared ORM schema.
+INFO  [alembic.runtime.migration] Running upgrade 20260928_schema_drift_repair -> 20260929_local_agent_files, Add transient binary staging table for local CLI image jobs.
+INFO  [alembic.runtime.migration] Running upgrade 20260929_local_agent_files -> 20260929_world_object_image_candidates, Add world object image generation candidates (local CLI, ADR-0029).
+INFO  [alembic.runtime.migration] Running upgrade 20260929_world_object_image_candidates -> 20261002_image_request_reuse, Add image request reuse registry (B9 idempotent image generation).
+INFO  [alembic.runtime.migration] Running upgrade 20261002_image_request_reuse -> 20261002_llm_secondary_models, Add secondary models to global LLM defaults (B5 model routing).
+INFO  [alembic.runtime.migration] Running upgrade 20261002_llm_secondary_models -> 20261002_candidate_request_hash, Freeze world object image candidate request hash (B9).
+INFO  [alembic.runtime.migration] Running upgrade 20260929_world_object_image_candidates -> 20261003_import_migration_sessions, Add import migration sessions for spreadsheet migration (ADR-0030).
+INFO  [alembic.runtime.migration] Running upgrade 20261002_candidate_request_hash, 20261003_import_migration_sessions -> 20261004_storyforge_spreadsheet_merge, Join storyforge-v6 and spreadsheet-migration migration branches.
+INFO  [alembic.runtime.migration] Running upgrade 20261002_candidate_request_hash -> 20261003_image_reuse_payload, Keep reusable object image bytes independent of candidate retention.
+INFO  [alembic.runtime.migration] Running upgrade 20261003_image_reuse_payload, 20261004_storyforge_spreadsheet_merge -> 20261004_image_reuse_spreadsheet_merge, Join image-reuse payload and spreadsheet-migration merge branches.
+INFO  [alembic.runtime.migration] Running upgrade 20261004_image_reuse_spreadsheet_merge -> 20261005_world_revision_metadata, Add world edit-history metadata columns and the revision notes table.
+INFO  [alembic.runtime.migration] Running upgrade 20261005_world_revision_metadata -> 20261006_event_soft_delete, Soft-delete world event extensions instead of hard-deleting them.
+INFO  [alembic.runtime.migration] Running upgrade 20261006_event_soft_delete -> 20261007_rag_lexical_terms, Add per-chunk lexical terms for indexed recall.
+INFO  [alembic.runtime.migration] Running upgrade 20261007_rag_lexical_terms -> 20261007_interaction_source_cache, Add the private RP interaction source cache table.
+INFO  [alembic.runtime.migration] Running upgrade 20261007_interaction_source_cache -> 20261007_scene_checkpoint_basis, Add source-basis registration to scene memory checkpoints.
+INFO  [alembic.runtime.migration] Running upgrade 20261007_scene_checkpoint_basis -> 20261008_writing_recompute_recovery, Persist recompute operation receipts and invalidation notices.
+INFO  [alembic.runtime.migration] Running upgrade 20261008_writing_recompute_recovery -> 20261008_evolution_ledger, Persist derived themes and immutable revisions; no Canon writes or backfill.
+INFO  [alembic.runtime.migration] Running upgrade 20261008_evolution_ledger -> 20261010_evolution_source_epoch, Guard ledger prefix proofs across sessions, writes and historical restores.

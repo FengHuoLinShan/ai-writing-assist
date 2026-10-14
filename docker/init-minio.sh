@@ -56,7 +56,22 @@ case "$MINIO_APP_ACCESS_KEY" in
         ;;
 esac
 
-mc alias set "$alias_name" "$endpoint" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+case "${MINIO_BACKUP_ACCESS_KEY:-}:${MINIO_BACKUP_SECRET_KEY:-}" in
+    :*|*:)
+        echo "Separate MinIO backup credentials are required." >&2
+        exit 1 ;;
+esac
+case "$MINIO_BACKUP_ACCESS_KEY" in
+    *[!A-Za-z0-9_-]*) echo "Unsafe backup access key." >&2; exit 1 ;;
+esac
+if [ "$MINIO_BACKUP_ACCESS_KEY" = "$MINIO_ROOT_USER" ] \
+    || [ "$MINIO_BACKUP_ACCESS_KEY" = "$MINIO_APP_ACCESS_KEY" ] \
+    || [ "$MINIO_BACKUP_SECRET_KEY" = "$MINIO_ROOT_PASSWORD" ] \
+    || [ "$MINIO_BACKUP_SECRET_KEY" = "$MINIO_APP_SECRET_KEY" ]; then
+    echo "Backup credentials must differ from root and application credentials." >&2
+    exit 1
+fi
+mc alias set "$alias_name" "$endpoint" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null
 
 # The two bucket quotas are intentionally the whole single-disk object-data cap.
 create_private_bucket "$MAP_ATLAS_S3_BUCKET" 8GiB
@@ -81,5 +96,20 @@ cat > /tmp/world-object-storage-policy.json <<EOF
 EOF
 mc admin policy create "$alias_name" world-object-storage \
     /tmp/world-object-storage-policy.json
-mc admin user add "$alias_name" "$MINIO_APP_ACCESS_KEY" "$MINIO_APP_SECRET_KEY"
-mc admin policy attach "$alias_name" world-object-storage --user "$MINIO_APP_ACCESS_KEY"
+mc admin user add "$alias_name" "$MINIO_APP_ACCESS_KEY" "$MINIO_APP_SECRET_KEY" >/dev/null
+mc admin policy attach "$alias_name" world-object-storage --user "$MINIO_APP_ACCESS_KEY" >/dev/null
+
+cat > /tmp/object-backup-policy.json <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {"Effect": "Allow", "Action": ["s3:GetBucketLocation", "s3:ListBucket"],
+     "Resource": ["arn:aws:s3:::$MAP_ATLAS_S3_BUCKET", "arn:aws:s3:::$WORLD_OBJECT_S3_BUCKET"]},
+    {"Effect": "Allow", "Action": ["s3:GetObject"],
+     "Resource": ["arn:aws:s3:::$MAP_ATLAS_S3_BUCKET/*", "arn:aws:s3:::$WORLD_OBJECT_S3_BUCKET/*"]}
+  ]
+}
+EOF
+mc admin policy create "$alias_name" object-backup /tmp/object-backup-policy.json
+mc admin user add "$alias_name" "$MINIO_BACKUP_ACCESS_KEY" "$MINIO_BACKUP_SECRET_KEY" >/dev/null
+mc admin policy attach "$alias_name" object-backup --user "$MINIO_BACKUP_ACCESS_KEY" >/dev/null

@@ -191,6 +191,8 @@ services:
     logging: *bounded-logging
     entrypoint: ["/bin/sh", "/usr/local/bin/init-minio.sh"]
     environment:
+      MINIO_BACKUP_ACCESS_KEY: ${MINIO_BACKUP_ACCESS_KEY:?Set MINIO_BACKUP_ACCESS_KEY}
+      MINIO_BACKUP_SECRET_KEY: ${MINIO_BACKUP_SECRET_KEY:?Set MINIO_BACKUP_SECRET_KEY}
       MC_CONFIG_DIR: /tmp/mc
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD}
@@ -325,6 +327,47 @@ services:
     networks:
       - data
       - egress
+
+  object-backup:
+    <<: *first-party-runtime-hardening
+    profiles: ["ops"]
+    image: ai-writing-assist-backend:${RELEASE_ID:-local}
+    entrypoint: ["python", "/ops/object_backup.py"]
+    environment:
+      MINIO_BACKUP_ACCESS_KEY: ${MINIO_BACKUP_ACCESS_KEY:?Set MINIO_BACKUP_ACCESS_KEY}
+      MINIO_BACKUP_SECRET_KEY: ${MINIO_BACKUP_SECRET_KEY:?Set MINIO_BACKUP_SECRET_KEY}
+      MAP_ATLAS_S3_ENDPOINT_URL: http://minio:9000
+      MAP_ATLAS_S3_BUCKET: ${MAP_ATLAS_S3_BUCKET:?Set MAP_ATLAS_S3_BUCKET}
+      WORLD_OBJECT_S3_BUCKET: ${WORLD_OBJECT_S3_BUCKET:?Set WORLD_OBJECT_S3_BUCKET}
+    volumes:
+      - ./scripts/object_backup.py:/ops/object_backup.py:ro
+      - ./backups/objects:/backup
+    tmpfs: [/tmp:mode=1777]
+    networks: [data]
+    restart: "no"
+    logging: *bounded-logging
+
+  object-restore:
+    <<: *first-party-runtime-hardening
+    profiles: ["ops"]
+    image: ai-writing-assist-backend:${RELEASE_ID:-local}
+    entrypoint: ["python", "/ops/object_backup.py"]
+    environment:
+      MAP_ATLAS_S3_ACCESS_KEY_ID: ${MAP_ATLAS_S3_ACCESS_KEY_ID:?Set MAP_ATLAS_S3_ACCESS_KEY_ID}
+      MAP_ATLAS_S3_SECRET_ACCESS_KEY: ${MAP_ATLAS_S3_SECRET_ACCESS_KEY:?Set MAP_ATLAS_S3_SECRET_ACCESS_KEY}
+      MAP_ATLAS_S3_ENDPOINT_URL: http://minio:9000
+      MAP_ATLAS_S3_BUCKET: ${MAP_ATLAS_S3_BUCKET:?Set MAP_ATLAS_S3_BUCKET}
+      WORLD_OBJECT_S3_BUCKET: ${WORLD_OBJECT_S3_BUCKET:?Set WORLD_OBJECT_S3_BUCKET}
+    volumes:
+      - ./scripts/object_backup.py:/ops/object_backup.py:ro
+      - type: bind
+        source: ${OBJECT_RESTORE_DIR:-./backups/objects}
+        target: /backup
+        read_only: true
+    tmpfs: [/tmp:mode=1777]
+    networks: [data]
+    restart: "no"
+    logging: *bounded-logging
 
   account-maintenance:
     <<: *first-party-runtime-hardening

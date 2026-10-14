@@ -1,0 +1,67 @@
+{
+  "sections": [
+    {
+      "key": "world_entities",
+      "tier": 2,
+      "content": "已采用对象与候选对象",
+      "sources": [
+        {
+          "status": "canonical"
+        },
+        {
+          "status": "review"
+        }
+      ]
+    },
+    {
+      "key": "writing_objective",
+      "tier": 0,
+      "content": "冻结目标"
+    },
+    {
+      "key": "scene_blueprint",
+      "tier": 1,
+      "content": "场景计划"
+    },
+    {
+      "key": "current_scene_evidence",
+      "tier": 1,
+      "content": "已采用证据"
+    },
+    {
+      "key": "world_bible_working_pages",
+      "tier": 3,
+      "content": "候选资料"
+    },
+    {
+      "key": "unknown_section",
+      "tier": 4,
+      "content": "扩展资料"
+    }
+  ],
+  "evicted_keys": [
+    "style_assets",
+    "unrecorded"
+  ],
+  "truncated_keys": [
+    "world_entities"
+  ],
+  "budget_events": [
+    {
+      "section_key": "world_entities",
+      "event_type": "truncate",
+      "reason": "budget_exceeded",
+      "before_tokens": 300,
+      "after_tokens": 100,
+      "tier": 2
+    },
+    {
+      "section_key": "style_assets",
+      "event_type": "evict",
+      "reason": "budget_exceeded",
+      "before_tokens": 200,
+      "after_tokens": 0,
+      "tier": 3
+    }
+  ]
+}

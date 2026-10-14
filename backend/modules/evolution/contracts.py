@@ -14,14 +14,28 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.collaboration import content_hash
 
 EVOLUTION_CONTRACT_VERSION = 1
 """本契约层的稳定版本；解释内核或字段语义变化必须提升版本并保留旧版本读取。"""
+
+
+class MapChapterConsumptionPort(Protocol):
+    async def __call__(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        chapter_index: int,
+        current_draft_id: str | None,
+        current_source_hash: str | None,
+    ) -> dict: ...
+
 
 # ---------------------------------------------------------------------------
 # 来源

@@ -98,7 +98,7 @@ STAGING_CHECKSUM=
 
 find "$BACKUP_DIR" -type f \
     \( -name "*.dump" -o -name "*.dump.sha256" \) \
-    -mtime "+$RETENTION_DAYS" -delete
+    -mmin "+$((RETENTION_DAYS * 1440))" -delete
 
 if ! command -v restic >/dev/null 2>&1; then
     echo "restic is required for encrypted off-site backups." >&2
@@ -124,9 +124,7 @@ restic backup \
     --tag ai-writing-assist-postgres >&2
 restic forget \
     --tag ai-writing-assist-postgres \
-    --keep-daily 7 \
-    --keep-weekly 4 \
-    --keep-monthly 6 \
+    --keep-within 30d \
     --prune >&2
 
 healthcheck_ping "$HEALTHCHECK_URL" || true

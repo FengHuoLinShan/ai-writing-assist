@@ -201,20 +201,8 @@ const activeProvider = computed(() => (
   props.llmConnections?.providers?.find((provider) => provider.active) || null
 ))
 const connectionStateKnown = computed(() => props.llmConnections !== null)
-const localExecutorAvailable = ref(false)
-watch(() => journey.value?.novel_id, async (novelId) => {
-  localExecutorAvailable.value = false
-  if (!novelId || globalThis.publicDemoRpMode) return
-  try {
-    const executor = await getApi().localAgent.executor(novelId)
-    if (journey.value?.novel_id === novelId) localExecutorAvailable.value = executor.kind !== "gateway"
-  } catch { /* Existing account connection status remains authoritative. */ }
-}, { immediate: true })
 const hasActiveConnection = computed(() => (
-  localExecutorAvailable.value || (
-    !connectionStateKnown.value
-    || Boolean(activeProvider.value?.connected)
-  )
+  (!connectionStateKnown.value || Boolean(activeProvider.value?.connected))
   && !connectionProblem.value
 ))
 const isGenerating = computed(() => (

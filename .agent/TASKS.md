@@ -1,5 +1,7 @@
 # 开放任务
 
+- [T-20261014-audit-first-batch](tasks/2026/T-20261014-audit-first-batch/TASK.md) — 能力审计首批实施与集成验收
+
 - [T-20261009-world-evolution-phase4-impl](tasks/2026/T-20261009-world-evolution-phase4-impl/TASK.md) — 世界演化第四阶段实施：长篇跑通、台账扩类与精细依赖
 
 - [T-20261010-evolution-209](tasks/2026/T-20261010-evolution-209/TASK.md) — Issue #209 世界演化账本缓存与发现容量专项优化

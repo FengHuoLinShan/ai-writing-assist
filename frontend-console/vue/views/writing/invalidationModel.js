@@ -31,7 +31,7 @@ const CONSUMER_LABELS = Object.freeze({
   scene_lens: "场景证据镜头",
   prose_generation: "正文重生成",
   world_knowledge: "世界书理解",
-  map_atlas: "地图集",
+  map_atlas: "地图册",
   world_canon_revision: "正典修订依赖",
 })
 
@@ -45,6 +45,7 @@ const STORY_DIMENSION_LABELS = Object.freeze({
 })
 
 const REASON_LABELS = Object.freeze({
+  canonical_map_source_changed: "引用的已发布正文已变化，请核对地图",
   anchored_chapter_edited: "依赖的这一章被修改",
   offset_window_hit: "改动落在它依赖的段落里",
   offset_window_miss: "与这次修改无关",
@@ -88,7 +89,14 @@ function consumerLabel(consumer) {
   return CONSUMER_LABELS[consumer] || "相关内容"
 }
 
+function unsupportedLabel(item) {
+  return item?.consumer === "map_atlas"
+    ? "地图册的世界对象、世界书页与待审来源"
+    : consumerLabel(item?.consumer)
+}
+
 function scopeLabel(entry, fallbackChapterIndex) {
+  if (entry.consumer === "map_atlas" && entry.map_title) return `${entry.map_title} · 第 ${entry.chapter_index} 章`
   if (entry.scene_index != null) {
     const dimension = STORY_DIMENSION_LABELS[entry.dimension]
     return dimension ? `场景 ${entry.scene_index} 的${dimension}` : `场景 ${entry.scene_index}`
@@ -102,9 +110,10 @@ function scopeLabel(entry, fallbackChapterIndex) {
 function normalizeEntry(entry, fallbackChapterIndex) {
   const consumer = String(entry?.consumer || "")
   return {
-    key: `${consumer}:${entry?.scene_index ?? entry?.chapter_index ?? ""}:${entry?.dimension ?? ""}:${entry?.reason ?? ""}`,
+    key: `${entry?.node_id || ""}:${consumer}:${entry?.scene_index ?? entry?.chapter_index ?? ""}:${entry?.dimension ?? ""}:${entry?.reason ?? ""}`,
     consumer,
     consumerLabel: consumerLabel(consumer),
+    mapNodeId: consumer === "map_atlas" && typeof entry?.node_id === "string" ? entry.node_id : null,
     scopeLabel: scopeLabel(entry, fallbackChapterIndex),
     reason: String(entry?.reason || ""),
     reasonLabel: REASON_LABELS[entry?.reason] || "依赖这次修改",
@@ -113,9 +122,18 @@ function normalizeEntry(entry, fallbackChapterIndex) {
   }
 }
 
+function mapCheckNote(invalidated) {
+  const detail = invalidated.find((item) => item?.consumer === "map_atlas")?.detail
+  if (!detail || typeof detail !== "object") return ""
+  if (detail.checked !== true) return "地图册未核对：这次没能检查哪些地图引用了本章，请到地图核对来源。"
+  if (detail.truncated || detail.unverified_sources) return "地图册未核对完整：部分地图来源无法自动核对，请到地图核对来源。"
+  return ""
+}
+
 function isCoverageAction(item) {
   const detail = item?.detail
   switch (item?.consumer) {
+    case "map_atlas": return detail?.checked === true && !detail?.truncated && !detail?.unverified_sources && Array.isArray(detail.maps) && detail.maps.length === 0
     case "evidence_chapter_index":
     case "canonical_chapter_index": return true
     case "assistant_suggestion_validity": return detail?.mode === "evidence_freshness"
@@ -184,14 +202,16 @@ export function normalizeInvalidationNotice(raw, { chapterIndex = null } = {}) {
       ? entries.some((entry) => entry.basis === "unknown")
         ? "部分影响范围待核实：系统按保守方式标记了更多可能受影响的内容，重算前会再核对。"
         : unsupported.length
-          ? `以下来源尚未接入自动核对：${unsupported.map((item) => consumerLabel(item?.consumer)).join("、")}。请手动检查。`
+          ? `以下来源尚未接入自动核对：${unsupported.map(unsupportedLabel).join("、")}。请手动检查。`
           : UNKNOWN_SCOPE_NOTE
       : "",
     entries,
+    mapEntries: entries.filter((entry) => entry.consumer === "map_atlas"),
+    mapCheckNote: mapCheckNote(invalidated),
     invalidatedLabels: invalidated.map((item) => (
       typeof item?.label === "string" && item.label ? item.label : consumerLabel(item?.consumer)
     )),
-    unsupportedLabels: unsupported.map((item) => consumerLabel(item?.consumer)),
+    unsupportedLabels: unsupported.map(unsupportedLabel),
     coverageNote: typeof raw.coverage_note === "string" ? raw.coverage_note : "",
     recomputeOptions: options,
     sceneIndexes,

@@ -697,8 +697,10 @@ RP 文字草稿与输入类型、人物/私语范围一起存储，失败保留�
 ## 本机 CLI Agent
 
 `ProjectSettingsView` 经 `api.js.localAgent` 管理设备配对、执行器选择与后台任务逐次确认。
-`ProjectAssistant` 和已登录 `InteractionView` 为各自根任务展示完整主机权限告知；
-设备离线时仍保持 pending，失败文本从授权回执读取，不能当作已保存产品成果。
+图片任务通过 `LocalRunApproval` 逐次确认完整主机权限，设备离线时仍等待。
+`ProjectAssistant` 和已登录 `InteractionView` 的旧文字批准 UI 仅为历史兼容；
+服务端拒绝新批准并提示使用当前账户模型重新发起。RP 文字可用性只看账户文字连接，
+不把图片执行器当作文字连接。失败文本从历史回执读取，不能当作已保存产品成果。
 
 ## 跨任务理解与地图场景
 

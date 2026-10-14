@@ -332,7 +332,7 @@ Scene 带计划章节范围、目标、必须发生/不得发生，采用后为 
 助手侧固定全书范围、只传起始章（`backend/modules/story/assistant_structure_workflow.py:79-91`），
 起止章只是上下文里的软提示，提示词不使用，输出章号不校验。未采用的规划只存在任务结果与确认里，
 不会进入写作上下文或检索；已采用的规划进入上下文时已标“计划/规划（不代表已发生）”
-（`backend/modules/evidence/compilation/services/markdown_renderer.py:637-684`）。
+（`backend/modules/evidence/compilation/markdown_renderer.py` 的 `_SECTION_FACT_LEVELS`）。
 
 流程：
 

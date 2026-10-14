@@ -66,8 +66,12 @@ python3 novelcraft-agent.pyz run <返回的设备 ID>
   `review_generated_image()`，替换该 invocation 之前的 output 行，返回
   `{"sha256", "width", "height"}`；无效图片 400，非图片模式 404/409。
 
-`pending-approvals` 列表新增标签 `world_object_image_generate`（对象图片生成）与
-`map_atlas_generate`（地图册生成），供作者在待确认任务列表里识别图片任务。
+`GET /tasks/pending` 与 `POST /tasks/{id}/approve` 只允许 `world_object_image_generate`（对象图片生成）与
+`map_atlas_generate`（地图册生成）。旧文字 pending task 在这些入口或设备 claim 时置为
+failed，并提示“本机设备只运行图片任务；历史文字任务请使用当前账户模型重新发起”。
+companion claim 仅下发 `request_json.mode == "image"` 的 invocation；旧文字或未知 mode
+的 pending invocation 置为 failed，不发放租约或提示词。历史回执端点与已分发任务的
+lease 校验保留。
 
 Codex/Pi 可在启动伴随进程前通过 `NOVELCRAFT_CODEX_MODEL` / `NOVELCRAFT_PI_MODEL`
 覆盖本机默认模型；DSH 可通过启动时的 `DSH_HOME` 使用独立配置目录。其他 CLI 采用本机

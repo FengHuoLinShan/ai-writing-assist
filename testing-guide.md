@@ -106,6 +106,7 @@ Evidence indexing/compilation 回归集中在 `backend/modules/evidence/`；
 | `make test-ci TEST_WORKERS=2` | Cross-stack local quality gate: docs, secrets, dependency audits, Ruff, deploy contracts, backend coverage/RuntimeWarning, and frontend Vitest | Locked backend/frontend dependencies; excludes PostgreSQL, browser, image, and paid/manual suites |
 | `make test-deploy` | Deployment static/CLI contract tests in `deploy/tests`, including committed Alembic graph and pre-checkout migration compatibility cases | Self-contained: `uv` resolves Python 3.14.7 from `backend/.python-version`, locked `backend/uv.lock` `ci` dependencies, and backend pytest config; no external service |
 | `make test-production-images` | Build the pinned backend/frontend production images; verify backend non-root/no-uv/no-pip/import and frontend nginx/assets | Docker daemon plus image registry access; intentionally outside `make test-ci` |
+| `make test-object-restore-drill-real` | Restore DB-paired synthetic images into two isolated private buckets; verify hashes, decoding, metadata, permissions, missing/interrupted controls and measured RPO/RTO | Docker daemon and cached pinned PG/MinIO/mc plus locked backend runtime image; no production data or network; outside `make test-ci` |
 | `make secret-hygiene` | Tracked/indexed runtime env, private-key, and high-confidence credential gate | Git working tree; no Python dependency install required |
 | `make audit-backend-deps` | Audit every package in `backend/uv.lock`, including optional extras; no advisories are suppressed | OSV advisory data and `uv`; Python 3.14/Linux target, with `--no-build` |
 | `make audit-frontend-deps` | Audit `frontend-console/package-lock.json`; fail only on high/critical dependency advisories | npm registry/advisory data |
@@ -355,6 +356,8 @@ builder 的层输出不承诺逐字节相同。
 `make test-deploy` 只验证部署文件、环境校验与 CLI 的静态合同，不启动 Compose、不会连接
 外部服务，也不等同于真实发布或备份恢复演练。本地等价聚合入口是
 `make test-ci TEST_WORKERS=2`；它不包含上述显式验收层。
+对象备份变更另跑 `make test-object-restore-drill-real`，使用标准 locked CI runner；
+小合成集的 RPO/RTO 仅是演练实测，不代表生产容量或整盘故障 SLA，详见 `deploy/README.md`。
 
 `make format` 暂未纳入 CI：当前仓库仍有历史格式债务，应先在独立机械变更中形成干净
 基线，避免新门禁因无关存量文件持续失败。
@@ -597,9 +600,12 @@ feed 门禁在每个样本前执行 `gc.collect()`，只衡量 feed 自身；进
 
 离线解析与有界进程监督运行 `backend/infrastructure/llm/tests/test_cli_agent.py`；
 配对、授权、租约、工具限次和 pyz 下载运行 `backend/modules/local_agent/tests/`。
+产品待确认/批准和 companion claim 仅允许图片；验证旧文字任务与快照失败关闭、历史回执读取，
+并覆盖图片的拒绝、取消、重复批准和 owner 隔离。通用 CLI transport 的历史文字测试不证明产品文字路径可用。
 独立 PostgreSQL 17/pgvector 库先迁移到 head，再运行
 `RUN_E2E_TESTS=1 E2E_DATABASE_URL=<专用 test/e2e 库> pytest backend/tests/e2e/test_local_agent_cli.py -m e2e`。
-前端变更运行受影响 Vue 用例、lint 与 build。真实五 CLI 只用合成数据单列验证，
+前端变更运行受影响 Vue 用例、lint 与 build，并检查图片批准和 RP 缺少账户文字连接的提示。
+真实 CLI 生图只用合成数据单列验证，
 同时记录本机模型/登录配置、最终结构化结果、工具次数、未知用量及 DSH 原生工具计数限制；
 离线通过不等于作品内容质量验收。
 

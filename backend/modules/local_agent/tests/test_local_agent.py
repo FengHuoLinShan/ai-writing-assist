@@ -7,6 +7,7 @@ import subprocess
 import sys
 import uuid
 from dataclasses import replace
+from datetime import UTC, datetime
 
 import pytest
 
@@ -32,7 +33,12 @@ def test_local_task_creation_disables_implicit_replay():
 
 
 @pytest.mark.asyncio
-async def test_pair_select_approve_and_claim(db_session, async_client, test_project_id):
+@pytest.mark.parametrize(
+    "task_type", ["world_object_image_generate", "map_atlas_generate"]
+)
+async def test_pair_select_approve_and_claim(
+    db_session, async_client, test_project_id, task_type
+):
     created = await async_client.post(
         "/api/local-agent/devices/pair",
         json={"novel_id": test_project_id, "name": "作者的 Mac"},
@@ -52,7 +58,7 @@ async def test_pair_select_approve_and_claim(db_session, async_client, test_proj
     assert selected.json()["kind"] == "pi"
 
     task = AsyncTask(
-        task_type="assistant_turn",
+        task_type=task_type,
         novel_id=uuid.UUID(test_project_id),
         status="pending",
         meta={
@@ -67,11 +73,27 @@ async def test_pair_select_approve_and_claim(db_session, async_client, test_proj
     lifecycle = TaskLifecycleService()
     assert await lifecycle.claim_next(db_session) is None
 
+    pending = await async_client.get(
+        "/api/local-agent/tasks/pending", params={"novel_id": test_project_id}
+    )
+    assert pending.json()["items"][0]["task_id"] == str(task.id)
+    refused = await async_client.post(
+        f"/api/local-agent/tasks/{task.id}/approve",
+        json={"novel_id": test_project_id, "acknowledge_full_host_access": False},
+    )
+    assert refused.status_code == 400
+    await db_session.refresh(task)
+    assert task.status == "pending" and not task.meta["_local_approved"]
     approved = await async_client.post(
         f"/api/local-agent/tasks/{task.id}/approve",
         json={"novel_id": test_project_id, "acknowledge_full_host_access": True},
     )
     assert approved.status_code == 200, approved.text
+    repeated = await async_client.post(
+        f"/api/local-agent/tasks/{task.id}/approve",
+        json={"novel_id": test_project_id, "acknowledge_full_host_access": True},
+    )
+    assert repeated.status_code == 200
     claimed = await lifecycle.claim_next(db_session)
     assert claimed is not None and claimed.id == task.id
     assert claimed.meta["_local_ready"] is False
@@ -152,15 +174,10 @@ async def test_companion_lease_tool_limit_and_receipt(
             "_local_device_id": device_id,
         },
     )
+    # Historical text already dispatched before the image-only claim gate.
+    task.mark_running(lease_id=str(uuid.uuid4()))
     db_session.add(task)
     await db_session.commit()
-    approved = await async_client.post(
-        f"/api/local-agent/tasks/{task.id}/approve",
-        json={"novel_id": test_project_id, "acknowledge_full_host_access": True},
-    )
-    assert approved.status_code == 200
-    running = await TaskLifecycleService().claim_next(db_session)
-    assert running is not None
     device = await db_session.get(LocalAgentDevice, uuid.UUID(device_id))
     invocation = LocalAgentInvocation(
         novel_id=uuid.UUID(test_project_id),
@@ -169,24 +186,21 @@ async def test_companion_lease_tool_limit_and_receipt(
         task_id=task.id,
         ordinal=1,
         cli="pi",
-        status="pending",
+        status="running",
+        lease_id=str(uuid.uuid4()),
+        heartbeat_at=datetime.now(UTC),
         request_json={
             "prompt": "synthetic",
             "tools": {"read_fact": {}},
             "timeout_seconds": 30,
             "max_tool_attempts": 1,
-            "task_lease_id": str(running.lease_id),
+            "task_lease_id": str(task.lease_id),
         },
     )
     db_session.add(invocation)
     await db_session.commit()
     headers = {"Authorization": f"Bearer {token}"}
-    claimed = await async_client.post(
-        "/api/local-agent/companion/claim", json={}, headers=headers
-    )
-    assert claimed.status_code == 200, claimed.text
-    job = claimed.json()["job"]
-    lease = job["lease_id"]
+    lease = invocation.lease_id
     route = f"/api/local-agent/companion/jobs/{invocation.id}"
     call = {"lease_id": lease, "call_id": "one", "name": "read_fact", "arguments": {}}
     first = await async_client.post(route + "/tools", json=call, headers=headers)

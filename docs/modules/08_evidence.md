@@ -67,11 +67,13 @@ snapshot、source manifest 与 hash，用于更新时识别来源变化。manife
 
 ### 1. 兼容 bundle
 
-`StructureContextBundle` 仍然保留一些历史字段名以兼容现有渲染器和测试，例如：
+`StructureContextBundle` 继续用于 loader/compiler，并保留一些历史字段名，例如：
 
 - `memory_records`：现在实际承载的是记忆全景/快照视图，不是旧表 `memory_records`
 - `timeline_events`：来源于 `world` 的事件上下文
 - `geo_locations`：当前通常为空，geo 模块已移除
+
+旧 `render_context_markdown(StructureContextBundle)` 与公开导出已退役；bundle 编译与 DI 保留，Markdown 输出统一走 `render_compiled_context(CompiledContext)`。
 
 ### 2. 分层编译器
 

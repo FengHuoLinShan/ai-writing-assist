@@ -1,0 +1,96 @@
+{
+  "head": "4acf184c4426adca5d1f5bc883e2d7ab1ce75047",
+  "pr": "https://github.com/FengHuoLinShan/ai-writing-assist/pull/227",
+  "checks": [
+    {
+      "link": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38516182906/job/115698263401",
+      "name": "Frontend functional browser",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/FengHuoLinShan/ai-writing-assist/runs/115695583528",
+      "name": "CodeQL",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38516182906/job/115695436149",
+      "name": "Frontend functional browser shard 1",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38516182906/job/115695436131",
+      "name": "Frontend functional browser shard 2",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38516182906/job/115695389526",
+      "name": "Frontend unit quality",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38516182877/job/115695389479",
+      "name": "file-size",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38516182877/job/115695389538",
+      "name": "binary-growth",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38516183814/job/115695395099",
+      "name": "Architecture docs",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38516182779/job/115695388995",
+      "name": "Backend quality",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38516182779/job/115695388796",
+      "name": "PostgreSQL critical",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38516182877/job/115695389397",
+      "name": "release-evidence",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38516182749/job/115695388854",
+      "name": "CodeQL (python)",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38516182906/job/115695389304",
+      "name": "Browser change classification",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38516182749/job/115695388631",
+      "name": "CodeQL (actions)",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38516182838/job/115695389052",
+      "name": "Production image contract",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38516182877/job/115695389249",
+      "name": "module-imports",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38516182749/job/115695388819",
+      "name": "CodeQL (javascript-typescript)",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://dashboard.gitguardian.com",
+      "name": "GitGuardian Security Checks",
+      "state": "SUCCESS"
+    }
+  ]
+}

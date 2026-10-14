@@ -623,6 +623,8 @@ creation_suggestion_queue 中保存封闭的 owner 授权 carrier；普通建议
 
 跨模块连续性检查只经 `list_adopted_map_continuity_facts` 读取当前 adopted node 的 saved revision，返回绑定目标地点且来源 hash/引文仍有效的受限关系；不返回坐标、图片或历史候选，不写 Scene memory。来源失效或没有采用地图时由 Writing 标记未检查，不据缺失信息推断矛盾。
 
+`world.read_map_chapter_consumers` 经只读 DI port 向写作回执提供需核对的地图名与章节，不修改地图/正史或 Scene 失效范围。完整来源与未覆盖契约见 [Evolution 文档](22_evolution.md#已发布正文变化与地图核对g8a)。
+
 地图持续创作沿用 World 派生资产边界：区域至街道及显式室内示意的层级编辑、受限空间关系、`map-links` 只读定位、
 已有图元局部生成与依赖完整的逐项采用。来源与预算仍由 Evidence confirmation 决定，
 未采用的剩余候选继续等待确认。当前完整契约见 `docs/modules/15_map.md`。

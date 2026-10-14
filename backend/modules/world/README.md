@@ -1401,3 +1401,10 @@ canonical + created_by=spreadsheet_migration + approved_by=owner、别名 confir
 不加载全文、隐藏设定或 ORM 实例；排序、limit 在状态过滤之前及别名退役规则与
 旧接口保持一致。Phase 2a 仍需枚举候选名称以识别全部直接提及并记录未入选来源，
 不能用任意 top-k 或跨 Scene 缓存替代当次来源回读。
+
+## 已发布正文变化与地图核对（G8a）
+
+World 的 `read_map_chapter_consumers` 只读核对当前 saved map head 与真实历史稿身份，
+不修改地图 revision/status 或 World 正史。正文只读身份来自 Writing facade，不加载整章。
+完整匹配、隔离和未覆盖边界见
+[权威合同](../../../docs/modules/22_evolution.md#已发布正文变化与地图核对g8a)。

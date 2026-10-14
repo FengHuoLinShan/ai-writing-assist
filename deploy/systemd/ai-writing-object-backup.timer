@@ -1,0 +1,11 @@
+[Unit]
+Description=Back up AI Writing Assist private images every day
+
+[Timer]
+OnCalendar=*-*-* 03:17:00
+Persistent=true
+RandomizedDelaySec=10m
+Unit=ai-writing-object-backup.service
+
+[Install]
+WantedBy=timers.target

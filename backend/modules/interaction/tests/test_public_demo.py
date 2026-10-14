@@ -89,13 +89,24 @@ async def _public_source(db_session, project_factory):  # noqa: ANN001
         owner_id=source_owner.id,
     )
     source_text = ("雾从海面涌来，林默听见远处的汽笛。" * 8)[:120]
-    draft = await create_published_draft_only(
-        db_session,
-        str(source_project_id),
-        1,
-        "第一章",
-        source_text,
+    token = bind_principal(
+        AccountPrincipal(
+            source_owner.id,
+            "active",
+            "local",
+            source_owner.support_code,
+        )
     )
+    try:
+        draft = await create_published_draft_only(
+            db_session,
+            str(source_project_id),
+            1,
+            "第一章",
+            source_text,
+        )
+    finally:
+        reset_principal(token)
     target_id = uuid.uuid4()
     await RagChunkRepository().replace_chapter_chunks(
         db_session,
@@ -376,13 +387,19 @@ async def test_public_demo_source_fails_closed_after_the_manuscript_changes(
         "modules.interaction.source_service.get_settings",
         lambda: _settings(revision.id, revision.source_novel_id),
     )
-    await create_published_draft_only(
-        db_session,
-        str(revision.source_novel_id),
-        1,
-        "第一章（已修订）",
-        "演示正文已发生变化。",
+    token = bind_principal(
+        AccountPrincipal(revision.owner_id, "active", "local", "source-author")
     )
+    try:
+        await create_published_draft_only(
+            db_session,
+            str(revision.source_novel_id),
+            1,
+            "第一章（已修订）",
+            "演示正文已发生变化。",
+        )
+    finally:
+        reset_principal(token)
 
     with pytest.raises(NotFoundError):
         await InteractionSourceService().public_demo_source(db_session)
