@@ -20,6 +20,7 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
+from modules.evidence.compilation.markdown_renderer import render_context_markdown
 from modules.evidence.compilation.schemas import (
     BudgetUsedItem,
     ContextCompileRequest,
@@ -58,7 +59,6 @@ from modules.evidence.contracts import (
 )
 from modules.evidence.facade import (
     compile_structure_context,
-    render_context_markdown,
 )
 
 _ALL_SCOPE_LOADER_NAMES = sorted(

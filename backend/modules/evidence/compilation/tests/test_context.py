@@ -34,8 +34,8 @@ from modules.evidence.compilation.contracts import (
 )
 from modules.evidence.compilation.facade import (
     compile_structure_context,
-    render_context_markdown,
 )
+from modules.evidence.compilation.markdown_renderer import render_context_markdown
 from modules.evidence.compilation.services import CompileOptions
 from modules.evidence.compilation.services.review_projection import (
     selected_asset_ids_from_compiled,

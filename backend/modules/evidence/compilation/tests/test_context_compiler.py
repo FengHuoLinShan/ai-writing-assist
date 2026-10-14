@@ -27,8 +27,8 @@ from modules.evidence.compilation.contracts import (
 )
 from modules.evidence.compilation.facade import (
     compile_structure_context,
-    render_context_markdown,
 )
+from modules.evidence.compilation.markdown_renderer import render_context_markdown
 from modules.evidence.compilation.markdown_renderer import (
     render_context_markdown as render_md,
 )

@@ -10,7 +10,6 @@ from modules.evidence.compilation.facade import (
     compile_structure_context,
     compile_with_tiers,
     render_compiled_context_markdown,
-    render_context_markdown,
 )
 from modules.evidence.compilation.schemas import (
     ContextCompileRequest,
@@ -31,5 +30,4 @@ __all__ = [
     "compile_structure_context",
     "compile_with_tiers",
     "render_compiled_context_markdown",
-    "render_context_markdown",
 ]

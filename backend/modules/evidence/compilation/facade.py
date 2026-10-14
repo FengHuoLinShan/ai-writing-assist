@@ -31,9 +31,6 @@ from modules.evidence.compilation.contracts import (
 from modules.evidence.compilation.markdown_renderer import (
     render_compiled_context as _render_compiled_context,
 )
-from modules.evidence.compilation.markdown_renderer import (
-    render_context_markdown as _render_markdown,
-)
 from modules.evidence.compilation.services import (
     ContextCompiler,
     ContextConfirmationService,
@@ -134,21 +131,6 @@ def _evidence_service():
     from modules.evidence.compilation.novel_evidence import NovelEvidenceService
 
     return NovelEvidenceService()
-
-
-def render_context_markdown(context: StructureContextBundle) -> str:
-    """将结构化上下文渲染为 Markdown
-
-    同步函数，将 StructureContextBundle 渲染为分层 Markdown，
-    适合直接放入 LLM Prompt。
-
-    Args:
-        context: Context Compiler 输出的结构化上下文包
-
-    Returns:
-        str: 渲染后的 Markdown 文本
-    """
-    return _render_markdown(context)
 
 
 def render_compiled_context(context: CompiledContext) -> str:
