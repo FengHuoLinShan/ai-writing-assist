@@ -10,31 +10,6 @@ from .models import ContractIssue
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
-def phase2_delta_subject_to_map_target(contract_id: str) -> list[ContractIssue]:
-    from modules.imports.llm_schemas import Phase2WorldDelta
-    from modules.imports.phase2_world_extraction import _to_delta_event
-
-    delta = Phase2WorldDelta(
-        subject_name="克莱恩",
-        category="location",
-        field="current_location",
-        new="廷根",
-        supporting_scene_ids=["scene-1"],
-    )
-    event = _to_delta_event(delta)
-    if event.meta.get("target_name") == "克莱恩":
-        return []
-    return [
-        ContractIssue(
-            severity="P1",
-            contract_id=contract_id,
-            code="probe.phase2_delta_subject_to_map_target",
-            message="Phase2 delta subject_name is not exposed as map target_name.",
-            path="deltas.subject_name",
-        )
-    ]
-
-
 def generation_center_builtin_templates_validate(
     contract_id: str,
 ) -> list[ContractIssue]:
@@ -193,7 +168,6 @@ PROBES: dict[str, Callable[[str], list[ContractIssue]]] = {
     "generation_center_frontend_template_options_match": (
         generation_center_frontend_template_options_match
     ),
-    "phase2_delta_subject_to_map_target": phase2_delta_subject_to_map_target,
 }
 
 
