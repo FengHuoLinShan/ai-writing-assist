@@ -334,10 +334,12 @@ def validate(values: dict[str, str]) -> list[str]:
         "HTTP_RATE_LIMIT_MAX_CLIENTS",
         "LLM_MAX_CONCURRENT_REQUESTS",
         "TASK_WORKER_MAX_CONCURRENT_TASKS",
-        "BACKUP_RETENTION_DAYS",
         "EMBEDDING_MAX_CONCURRENT_REQUESTS",
     ):
         positive_int(name)
+    retention = positive_int("BACKUP_RETENTION_DAYS")
+    if retention is not None and retention > 30:
+        errors.append("BACKUP_RETENTION_DAYS must be at most 30")
     non_negative_int("LLM_RATE_LIMIT_PER_MINUTE")
 
     encryption_key = require("LLM_SETTINGS_ENCRYPTION_KEY")
@@ -376,6 +378,27 @@ def validate(values: dict[str, str]) -> list[str]:
 
     minio_root_user = require("MINIO_ROOT_USER")
     minio_root_password = require("MINIO_ROOT_PASSWORD")
+
+    backup_access = require("MINIO_BACKUP_ACCESS_KEY")
+    backup_secret = require("MINIO_BACKUP_SECRET_KEY")
+    if not is_missing(backup_access) and not URL_SAFE_SECRET_RE.fullmatch(
+        backup_access
+    ):
+        errors.append("MINIO_BACKUP_ACCESS_KEY must contain only URL-safe characters")
+    for name, backup_value, other_values in (
+        (
+            "MINIO_BACKUP_ACCESS_KEY",
+            backup_access,
+            (minio_root_user, values.get("MAP_ATLAS_S3_ACCESS_KEY_ID")),
+        ),
+        (
+            "MINIO_BACKUP_SECRET_KEY",
+            backup_secret,
+            (minio_root_password, values.get("MAP_ATLAS_S3_SECRET_ACCESS_KEY")),
+        ),
+    ):
+        if not is_missing(backup_value) and backup_value in other_values:
+            errors.append(f"{name} must differ from root and application credentials")
 
     map_atlas_endpoint_url = require("MAP_ATLAS_S3_ENDPOINT_URL")
     if not is_valid_map_atlas_s3_endpoint_url(map_atlas_endpoint_url):

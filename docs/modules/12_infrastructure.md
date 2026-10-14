@@ -690,3 +690,16 @@ AI 用量汇总保留 `usage_complete`；旧恢复回执 `legacy_untracked` 即�
 
 `evolution_category_rescan_v1` 使用现有 operation task/manual_resume、run 根预算与独立冻结
 Scene 发现日志；本操作最高调用额度与根预算发送前扣减，unknown 不自动重试。
+
+## 数据库配对的对象恢复
+
+[ADR-0034](../adr/0034-db-paired-private-object-backups.md) 规定独立 `backup_objects.sh` / `restore_objects.sh`
+和两个一次性 ops 服务；object timer 03:17 在 DB timer 02:17 后发起，所有生产操作共锁，release
+不增加图片备份前置门禁。先 dump → 无网络临时 PG 恢复并查对象引用 → 只读 MinIO 身份流式复制，
+全部地图状态页/mask 与对象当前 full/thumbnail 都覆盖。同机独立目录的清单/镜像 0700/0600，
+DB timestamp/hash 配对，缺失/中断明确 incomplete；恢复重建私有桶 versioning/配额后对账。
+DB 本地配置上限 30 天，restic `--keep-within 30d`；对象按不超过 30 天清单及无引用对象年龄老化，
+清单损坏停止收集并要求运维介入。同机副本不能抵抗整盘故障，G4b 图片导出 UI 与 B2 对象副本未实现。
+目录与 ZIP 共用 v1 清单，source_kind 显式区分配对 DB 的 server_snapshot 与无 DB 配对的
+author_export；每行支持 objects 下中文相对 file，拒绝穿越/重复/缺图。运维 ZIP 白名单解包后
+按目录恢复，先核对目标 DB 对象归属与可用 hash/size；图片包不恢复数据库或跨项目导入。生产启用仍须后续发布授权和只读对账。

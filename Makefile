@@ -1,4 +1,4 @@
-.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-fast-coverage test-e2e test-postgresql-critical test-real-llm test-map-atlas-live-image test-real-kimi test-interaction-long-context test-manual test-deploy test-frontend test-production-images test-restore-drill-real audit-backend-deps audit-frontend-deps test-ci repo-gates binary-growth-gate file-size-gate release-evidence-gate module-import-gate scale-gate eval-corpus eval-fixture-manifest eval-generate eval-judge eval-qc eval-review-export eval-review-import eval-report eval-baseline-check eval-freeze eval-rag-prepare eval-run eval-rag eval-full eval-pilot eval-fast eval-rp-long-memory eval-rp-cost-baseline eval-ask-world eval-ask-world-model eval-context-planner lint lint-fix format format-fix secret-hygiene docs-check prompt-contracts prompt-contracts-json generate-e2e spreadsheet-e2e help db migrate schema-check doctor doctor-json doctor-llm
+.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-fast-coverage test-e2e test-postgresql-critical test-real-llm test-map-atlas-live-image test-real-kimi test-interaction-long-context test-manual test-deploy test-frontend test-production-images test-restore-drill-real test-object-restore-drill-real audit-backend-deps audit-frontend-deps test-ci repo-gates binary-growth-gate file-size-gate release-evidence-gate module-import-gate scale-gate eval-corpus eval-fixture-manifest eval-generate eval-judge eval-qc eval-review-export eval-review-import eval-report eval-baseline-check eval-freeze eval-rag-prepare eval-run eval-rag eval-full eval-pilot eval-fast eval-rp-long-memory eval-rp-cost-baseline eval-ask-world eval-ask-world-model eval-context-planner lint lint-fix format format-fix secret-hygiene docs-check prompt-contracts prompt-contracts-json generate-e2e spreadsheet-e2e help db migrate schema-check doctor doctor-json doctor-llm
 
 ROOT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 BACKEND_DIR := $(ROOT_DIR)backend
@@ -102,6 +102,10 @@ test-production-images:  ## Build and smoke-test the pinned production Docker im
 
 test-restore-drill-real:  ## Perform a real isolated PostgreSQL restore using a synthetic dump
 	bash deploy/tests/run_restore_drill_integration.sh
+
+
+test-object-restore-drill-real:  ## Restore real isolated MinIO/PG using synthetic images (cached images only)
+	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) python ../deploy/tests/run_object_restore_drill.py
 
 audit-backend-deps:  ## Audit every locked backend dependency for known advisories
 	cd $(BACKEND_DIR) && uv audit --locked --no-build --preview-features audit --python-version 3.14 --python-platform x86_64-unknown-linux-gnu

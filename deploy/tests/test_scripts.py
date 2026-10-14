@@ -342,6 +342,8 @@ def test_compose_uses_one_bounded_logging_extension_for_every_service() -> None:
         "worker",
         "frontend",
         "migrate",
+        "object-backup",
+        "object-restore",
         "account-maintenance",
     )
     assert compose.count("logging: *bounded-logging") == len(service_names)
@@ -375,6 +377,8 @@ def test_first_party_services_use_the_shared_read_only_runtime_policy() -> None:
         "worker",
         "frontend",
         "migrate",
+        "object-backup",
+        "object-restore",
         "account-maintenance",
     )
     backend_services = ("api", "worker", "migrate", "account-maintenance")
@@ -1821,10 +1825,12 @@ def _systemd_values(path: Path) -> dict[str, list[str]]:
 def test_backup_and_maintenance_systemd_units_are_network_ordered_and_bounded() -> None:
     service_expectations = {
         "ai-writing-backup.service": ("backup.sh", "4h"),
+        "ai-writing-object-backup.service": ("backup_objects.sh", "4h"),
         "ai-writing-account-maintenance.service": ("account_maintenance.sh", "1h"),
     }
     timer_expectations = {
         "ai-writing-backup.timer": ("*-*-* 02:17:00", "ai-writing-backup.service"),
+        "ai-writing-object-backup.timer": ("*-*-* 03:17:00", "ai-writing-object-backup.service"),
         "ai-writing-account-maintenance.timer": (
             "hourly",
             "ai-writing-account-maintenance.service",
@@ -2128,3 +2134,36 @@ def test_embedding_probe_keeps_release_defaults_and_runtime_budget_contract() ->
         "    --retry-delay-seconds 5"
     )
     assert runtime_embedding_probe in runtime_script
+
+
+def test_object_backup_has_separate_read_only_identity_and_no_release_gate():
+    compose = yaml.safe_load((DEPLOY_ROOT / "compose.production.yml").read_text())
+    backup = compose["services"]["object-backup"]
+    assert backup["profiles"] == ["ops"]
+    assert backup["networks"] == ["data"]
+    assert "ports" not in backup
+    assert "MINIO_ROOT_USER" not in backup["environment"]
+    assert "MAP_ATLAS_S3_ACCESS_KEY_ID" not in backup["environment"]
+    assert "MINIO_BACKUP_ACCESS_KEY" in backup["environment"]
+    init = (DEPLOY_ROOT.parent / "docker/init-minio.sh").read_text()
+    policy = init.split("cat > /tmp/object-backup-policy.json <<EOF", 1)[1].split("EOF", 1)[0]
+    assert "s3:GetObject" in policy and "s3:ListBucket" in policy
+    assert "Put" not in policy and "Delete" not in policy and "Admin" not in policy
+    for script in ("backup_objects.sh", "restore_objects.sh"):
+        assert 'acquire_production_operation_lock "$@"' in (DEPLOY_ROOT / "scripts" / script).read_text()
+    assert "backup_objects" not in (DEPLOY_ROOT / "scripts/release.sh").read_text()
+    assert "--keep-within 30d" in (DEPLOY_ROOT / "scripts/backup.sh").read_text()
+    assert "--keep-monthly" not in (DEPLOY_ROOT / "scripts/backup.sh").read_text()
+
+
+def test_object_snapshot_uses_only_its_anonymous_data_volume_and_cleans_both_paths():
+    script = (DEPLOY_ROOT / "scripts/backup_objects.sh").read_text()
+    creation = script.split("CONTAINER=$(docker create", 1)[1].split('docker start "$CONTAINER"', 1)[0]
+    assert "--volume /var/lib/postgresql/data" in creation
+    assert "--tmpfs /var/lib/postgresql/data" not in creation
+    assert "-e PGDATA=/var/lib/postgresql/data/pgdata" in creation
+    assert "--network none --read-only --cap-drop ALL" in creation
+    assert "--memory 2g --memory-swap 2g" in creation
+    assert "minio-data" not in creation
+    assert script.count('docker rm -fv "$CONTAINER"') == 2  # EXIT failure path and successful path.
+    assert "docker volume rm" not in script and "docker volume prune" not in script

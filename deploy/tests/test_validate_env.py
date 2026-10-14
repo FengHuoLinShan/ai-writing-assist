@@ -62,6 +62,8 @@ def _valid_values() -> dict[str, str]:
             "quay.io/minio/mc:RELEASE.2025-03-12T17-29-24Z@sha256:"
             "470f5546b596e16c7816b9c3fa7a78ce4076bb73c2c73f7faeec0c8043923123"
         ),
+        "MINIO_BACKUP_ACCESS_KEY": "fixture-backup-user",
+        "MINIO_BACKUP_SECRET_KEY": "fixture-backup-secret",
         "MINIO_ROOT_USER": "fixture-minio-root",
         "MINIO_ROOT_PASSWORD": "fixture-minio-root-secret",
         "EMBEDDING_DEPLOYMENT": "local_tei",
@@ -576,3 +578,28 @@ def test_get_preserves_output_for_safe_file(tmp_path: Path) -> None:
     )
 
     assert result.stdout == "fixture-value\n"
+
+
+@pytest.mark.parametrize("days", ("31", "180"))
+def test_backup_retention_never_exceeds_privacy_limit(days: str) -> None:
+    assert any(
+        "at most 30" in error
+        for error in validator.validate(
+            _valid_values() | {"BACKUP_RETENTION_DAYS": days}
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "key,other",
+    (
+        ("MINIO_BACKUP_ACCESS_KEY", "MINIO_ROOT_USER"),
+        ("MINIO_BACKUP_ACCESS_KEY", "MAP_ATLAS_S3_ACCESS_KEY_ID"),
+        ("MINIO_BACKUP_SECRET_KEY", "MINIO_ROOT_PASSWORD"),
+        ("MINIO_BACKUP_SECRET_KEY", "MAP_ATLAS_S3_SECRET_ACCESS_KEY"),
+    ),
+)
+def test_backup_identity_cannot_reuse_runtime_or_root(key: str, other: str) -> None:
+    values = _valid_values()
+    values[key] = values[other]
+    assert any(key in error for error in validator.validate(values))

@@ -78,3 +78,5 @@ C3 任务仍按 ADR-0023/0025 的授权和领域边界暂停，不以通用临�
 完整性由 `docs/architecture/architecture-documents.toml` 和
 `scripts/check_architecture_docs.py` 自动校验；`docs/README.md` 只链接本索引，不再手工维护
 一份容易漏项的 ADR 子集。
+
+- [ADR-0034 — 数据库配对的私有图片备份与恢复](0034-db-paired-private-object-backups.md)
