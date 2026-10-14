@@ -424,9 +424,7 @@ async def run_team(service, db, task, run_id, payload, deps, profile) -> Assista
         roles=set(frozen["roles"]),
         execute=investigate,
         checkpoint=save_items,
-        concurrency=(
-            1 if getattr(deps.client, "is_local_agent", False) else frozen["concurrency"]
-        ),
+        concurrency=frozen["concurrency"],
         retry_failed=True,
     )
     reports = []

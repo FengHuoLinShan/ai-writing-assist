@@ -24,7 +24,6 @@ from modules.collaboration.models import (
     CollaborationWorkItem,
 )
 from modules.collaboration.recipes import get_recipe
-from modules.local_agent.facade import local_task_meta
 from modules.project.facade import (
     build_project_llm_execution_snapshot,
     get_any_project_context,
@@ -408,7 +407,6 @@ async def submit_run(db, novel_id, case_id, data, *, background=False):
         request_payload={"case_id": str(case.id), **payload},
         meta={
             "run_id": str(run.id),
-            **local_task_meta(snapshot),
             **({"_task_priority": "background"} if background else {}),
         },
     )

@@ -95,7 +95,6 @@ def resolve_events(
 async def rehearse_round(
     *,
     client,
-    agent_client=None,
     packets: dict[str, str],
     state: dict,
     authority: str,
@@ -199,7 +198,7 @@ async def rehearse_round(
             AgentAllocation(item.key, request_limit=2, final_reserve=6)
         ):
             result = await run_project_agent(
-                agent_client or client,
+                client,
                 LLMCallRequest(
                     model=client.model_name,
                     messages=[
@@ -295,9 +294,7 @@ async def rehearse_round(
             roles={"actor"},
             execute=execute,
             checkpoint=persist,
-            concurrency=(
-                1 if getattr(agent_client or client, "is_local_agent", False) else 3
-            ),
+            concurrency=3,
         )
     intents = {
         actors[item.key]: (ObservationIntent if v2 else ActionIntent).model_validate(

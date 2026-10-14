@@ -305,7 +305,6 @@ class InteractionAttemptResponse(BaseModel):
     id: str
     journey_id: str
     task_id: str | None = None
-    local_agent: dict | None = None
     response_to_node_id: str
     status: str
     visible_text: str = ""

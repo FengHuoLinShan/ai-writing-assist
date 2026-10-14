@@ -710,3 +710,100 @@ async def test_two_verified_connections_share_one_case_budget(
     )
     owned = await db.get(CollaborationCase, UUID(case["id"]))
     assert owned.requests_used == len(seen) == 4
+
+
+async def test_run_restores_frozen_snapshot_after_account_key_rotation(
+    db_session, test_project_id, account_llm_connection, monkeypatch
+):
+    """G3③c：快照不含 secret，执行时经 Project 恢复门读当前账户 Key 重建客户端。"""
+    db, nid = db_session, test_project_id
+    case, _, drafts, _ = await setup_trial(db, nid, monkeypatch)
+    monkeypatch.setattr(db, "task_checkpoint_enabled", True, raising=False)
+    from modules.collaboration.recipes import RECIPES
+
+    case_row = await db.get(CollaborationCase, UUID(case["id"]))
+    case_row.recipe_json = RECIPES["deep_review"].model_dump(mode="json")
+    provider_keys = []
+
+    async def provider(self, request):
+        assert not db.in_transaction()
+        provider_keys.append(self._api_key)
+        schema = json.loads(request.messages[-1].content.split("schema: ", 1)[1])
+        if schema["title"] == "GraphDelta":
+            payload = json.loads(
+                next(m.content for m in request.messages if m.role == "user")
+            )
+            revision = payload["expected_plan_revision"]
+            result = {
+                "expected_plan_revision": revision,
+                "reason": "检验竞争解释",
+                "question_for_author": None,
+                "items": [
+                    {
+                        "logical_key": "investigate",
+                        "capability": "investigate",
+                        "question": "是否存在有限合作的解释？",
+                        "search_query": "帮助",
+                        "depends_on": [],
+                    }
+                ]
+                if revision == 0
+                else [],
+                "finish": revision >= 1,
+            }
+        elif schema["title"] == "WorkOutput":
+            result = {
+                "summary": "可能是有限合作，动机仍待表达。",
+                "claims": [
+                    {
+                        "kind": "source_statement",
+                        "text": "她接受了帮助。",
+                        "evidence_keys": [f"writing_draft:{drafts[0].id}"],
+                    }
+                ],
+            }
+        else:
+            result = {
+                "verdict": "pass",
+                "findings": [],
+                "dimensions": [
+                    {"dimension": value, "checked": True}
+                    for value in ("prior_prose", "world_rules", "outline")
+                ],
+            }
+        return LLMCallResponse(
+            content=json.dumps(result, ensure_ascii=False),
+            usage=LLMUsage(prompt_tokens=20, completion_tokens=10, total_tokens=30),
+            finish_reason="stop",
+        )
+
+    monkeypatch.setattr(OpenAIProvider, "generate", provider)
+    submission = await cases.submit_run(
+        db, nid, case["id"], RunCreate(operation_id=uuid4(), expected_goal_version=1)
+    )
+    await db.commit()
+
+    from datetime import UTC, datetime
+
+    from infrastructure.llm.secret_store import encrypt_secret, fingerprint_secret
+    from modules.account.settings_repositories import AccountLLMCredentialRepository
+
+    await AccountLLMCredentialRepository().upsert(
+        db,
+        {
+            "owner_id": account_llm_connection["owner_id"],
+            "provider_id": "deepseek",
+            "encrypted_api_key": encrypt_secret("rotated-account-key"),
+            "key_fingerprint": fingerprint_secret(
+                "rotated-account-key", purpose="account-llm-api-key"
+            ),
+            "verified_at": datetime.now(UTC),
+        },
+    )
+    await db.commit()
+
+    task = await db.get(AsyncTask, UUID(submission["task_id"]))
+    result = await runtime.execute(db, task)
+    assert result["status"] == "completed"
+    assert provider_keys, "run must reach the provider"
+    assert set(provider_keys) == {"rotated-account-key"}

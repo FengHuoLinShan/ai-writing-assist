@@ -1,17 +1,13 @@
-"""Retired text settings cannot reopen the host transport."""
+"""Retired text settings cannot reopen the host transport.
+
+含 local_agent 的文字快照的失败关闭由 Project 恢复门承担，覆盖测试：
+- modules/local_agent/tests/test_local_agent.py
+  ::test_legacy_local_text_snapshot_fails_closed
+- modules/project/tests/test_codex_runtime.py
+  ::test_old_local_agent_text_blocks_resume_but_history_is_readable
+"""
 
 import pytest
-
-from core.errors import ValidationError
-from modules.local_agent.executor_service import task_snapshot_client
-
-
-@pytest.mark.asyncio
-async def test_legacy_text_settings_fail_before_project_or_device_access():
-    with pytest.raises(ValidationError, match="只运行图片任务"):
-        await task_snapshot_client(
-            None, None, {"_local_agent": {"device_id": "old-device"}}, budget=None
-        )
 
 
 @pytest.mark.parametrize("entry", ["pending", "approve", "claim"])
