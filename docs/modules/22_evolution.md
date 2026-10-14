@@ -538,6 +538,7 @@ published 或保留 published 来源标记的历史稿。当前地图引用与�
 这是建议性登记，地图名与对应章节及“去地图核对”入口出现在写作回执中；地图内容、status、
 append-only revision/CAS、World 正史均不改。地图不置 chapter_registered、不进入
 Scene 窗口或重算选项；原 Scene 保守扩大语义保留。超出上限标 truncated，来源 ID/hash/章
-不能重验时计 unverified_sources 并说明未完整核对；DB 查询经 SAVEPOINT 失败可降级显示
-“地图册未核对”，不阻断正文失效。对象、世界书页来源与待审 candidate 仍为 map_atlas
+不能重验时计 unverified_sources 并说明未完整核对；DB 查询失败或项目/身份门禁拒绝经 SAVEPOINT
+降级显示“地图册未核对”，不阻断正文失效。写作主提示只给地图核对缺口的作者语言说明，
+范围诊断只在折叠说明中出现。对象、世界书页来源与待审 candidate 仍为 map_atlas
 残余 unsupported，world_canon_revision 与 world_knowledge 不因此闭合。

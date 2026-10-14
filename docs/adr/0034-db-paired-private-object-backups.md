@@ -29,6 +29,8 @@ PostgreSQL dump 不包含两个 MinIO bucket 的图片。数据库与对象各�
    map_mask、world_full、world_thumbnail）、状态、content_type 和原始对象 metadata；可选 `file` 是包内 objects 下相对路径，可用中文，
    不提供时使用 bucket/key。拒绝穿越、重复名、缺图和不匹配的 hash。清单本身也有 SHA-256。
    开始即写 incomplete，缺失/中断保留 missing/failed/pending；只有全量复制与校验通过才写 complete。
+   单个对象缺失或内容损坏只记该行 missing/failed，其余对象继续复制；传输、权限或本地磁盘故障停止本轮，
+   未处理行保留 pending。
 4. 备份 ops 服务只有独立的 List/Get-only MinIO 身份，不共享 root 或应用凭据；数据 network 无公网。
    initializer 以 root 建桶、去匿名访问、启用 versioning、设置 8GiB/24GiB 配额及应用/备份 policy。
    恢复 ops 服务使用应用身份回灌图片，不得到 root。错误与收尾摘要不打印 SDK 敏感详情。

@@ -243,10 +243,11 @@ def runtime(phase, path):
             client, path / "objects", references, directory, manifest
         )
         assert manifest["status"] == "incomplete"
-        assert any(
-            row["status"] == ("missing" if phase == "missing" else "failed")
-            for row in references
-        )
+        if phase == "missing":
+            # Every deleted object is reported; one loss must not stop later copies.
+            assert all(row["status"] == "missing" for row in references)
+        else:
+            assert any(row["status"] == "failed" for row in references)
         try:
             module.read_manifest(directory, buckets)
         except ValueError:

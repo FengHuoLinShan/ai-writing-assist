@@ -3,7 +3,7 @@ id: T-20261014-audit-first-batch
 title: 能力审计首批实施与集成验收
 status: active
 created: 2026-10-14T11:30:04+08:00
-updated: 2026-10-14T15:02:48+08:00
+updated: 2026-10-14T21:20:00+08:00
 parent: T-20261014-audit-followup-batch
 ---
 
@@ -16,7 +16,7 @@ parent: T-20261014-audit-followup-batch
 - G3① 已集成本地两阶段 commit 131b4a515、00ba86b3c；G3③a 本地 commit fc94fcfca。G4a本地 commit 1b0f067d6；G8a本地 commit 89efddc6b；新main并入 commit bc16a29f2。各切片实现已审查、集成，最终增量门禁通过。
 - 主审容量问题均已闭合：G4临时PG数据用本次匿名私有卷，保留无网络/CPU/RAM限制和仅本次卷清理；G8历史来源只读六字段SQL投影，不加载正文或完整provenance。
 - 集成初轮后端36失败已定位：2个导入棘轮叠加调整至522；34个旧测试fixture缺真实Project或作者principal，已只修3份fixture，原断言与production owner门禁不变。子分支完整fast7755通过；父集成默认locked完整fast7748通过、coverage86.81%，两树范围不同，不混用分母。
-- 下一步：已整合最新main fdd3ec598（合并提交2e50e24ca，仅3份文档追加冲突、两边内容均保留），补修正式ops镜像标签与Protocol契约位置。最终7964后端/2985前端/314部署及双桶+作者ZIP恢复通过；提交推送补修，再请三路独立Sol/xhigh审查者复核新固定head与CI，暂不合并。
+- 下一步：评审后补修已获用户同意提交推送（见“评审后补修”节），等新 head 同 head CI。保留 PR #227 为 draft、暂不合并；待用户明确合并指令时再核实基线与同 head 门禁，不自行推进第二波/生产。
 
 ## 目标与验收
 
@@ -128,3 +128,18 @@ parent: T-20261014-audit-followup-batch
 - 两个正式对象ops入口在任何Compose前load_release_id，复用现有已完成部署状态/可达main校验，未引入环境兜底。7个真实shell镜像/状态反例修复前全失败、修复后全通过，原两个发布器入口用例移至已有finalized-state夹具并保留全部有效断言；新增5项（目录/ZIP镜像2、非法状态3）。HEAD漂移和错误外部RELEASE_ID均不能覆盖已完成发布标签。
 - 原作者ZIP实演练调用方也补齐私有合成Git/发布状态；第一次因macOS临时路径别名被既有状态边界拒绝，夹具Path.resolve后实际正式shell解包/verify/restore7图通过，不放宽状态校验。标准双桶恢复7图/2桶同样通过（RPO3.609s/RTO6.672s，仅小样本）。
 - 最终整合后本地默认locked fast：7964passed/2skipped、coverage86.85%、RuntimeWarning门禁通过/209.82s；前端237文件/2985passed/37.17s；完整部署314passed/148.01s；项目Ruff、shell、diff、文档库存、导入门禁通过。日志/private/tmp/audit227-integrated-{backend,frontend,deploy,object-drill,author-drill}.log。未访问真实数据或模型，未启动/更改原G2任务或生产服务。
+- 最终补修5b5934262已提交推送，PR #227正文按最终实现与验收重写，GitGuardian/Actions只认该head。三名独立Sol/xhigh审查者收到固定完整diff fdd3ec598...5b5934262、补修diff2e50e24ca...5b5934262，仍不参与实现；后续本地收尾笔记不纳入产品review。提交后repo/secret门禁再次通过，工作树仅由根维护后续任务笔记。
+- 三路最终5b5934262独立审查均完成，无确认P1/P2；规范P3及备份新增P1也闭合。规范独立16项、计划34项、备份20项定向合成验证分别通过，不能相加作唯一用例数。完整报告REVIEW-XHIGH.md。新head已MERGEABLE且Actions实际运行，等待其最终后端/PG/浏览器状态，不以旧head签收代替。
+
+## 本轮最终交付
+
+- 5b5934262同head18项远端检查全部SUCCESS，含后端、PG critical、前端unit、镜像、repo/docs、安全与两浏览器分片及汇总；frontend run38526222044。快照artifacts/ci-final-5b5934262.json，三路最终审查报告REVIEW-XHIGH.md，原两项及xhigh发现的新增入口标签P1/Protocol P3均闭合。
+- PR #227正文更新最终验收，保持OPEN/draft/MERGEABLE，未合入main或部署。修复实现、回归及整合主干已提交推送；最后CI/审查收尾笔记与快照仅本地保存，不为记录更新再次触发全套CI。未查询真实DB/Guimi、未读取稿件或调用真实模型，未恢复原长篇评测。
+- 同机图片副本及小合成演练不证明生产恢复或容量；生产启用/真实容量/整盘故障/B2仍按原计划边界。第二三波不因本轮完成自动启动。
+
+## 评审后补修
+
+- 用户复审#227后要求修3项：G4a mirror逐行隔离，缺失/损坏对象记missing/failed后继续，传输/权限/本地盘故障仍停止并留pending，摘要按状态计数；G8a地图port的DomainError（401/非本人404）同SAVEPOINT降级为未核对；写作主提示改用mapCheckNote作者语言，coverage_note只留折叠说明。同步ADR-0034、deploy README、22_evolution。
+- 验证：新测试在旧实现上失败、修复后通过；部署316、后端fast7965通过/cov86.85%（codex_provider管道偶发1例，单独5次通过，与本次无关）、前端2987、ESLint/Ruff、repo-gates、secret、docs-check（复核清单与5b5934262相同，沿用PR正文无影响说明）；真实MinIO演练7图恢复且missing阶段全部记missing；专用库浏览器writing-map-invalidation 2例通过后已删库。
+- 2026-10-14 晚用户同意提交并推送补修（未授权合并）：单独 commit 推送到 codex/audit-first-batch，PR 正文补记补修与验证。
+- 下一步：等新 head 同 head CI；保持 draft、不合并、不部署，合并须用户另行明确指令。

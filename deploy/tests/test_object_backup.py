@@ -137,6 +137,108 @@ def test_interrupted_copy_is_incomplete_and_cannot_restore(tmp_path):
     assert not list((root / "objects").rglob(".stage-*"))
 
 
+def test_missing_and_damaged_objects_do_not_block_later_copies(
+    tmp_path, monkeypatch, capsys
+):
+    tmp_path.chmod(0o700)
+    root = tmp_path / "objects"
+    deleted = row() | {
+        "key": f"map-atlas/{NOVEL}/pages/{'4' * 8}-4444-4444-8444-{'4' * 12}/image.png"
+    }
+    image_id = "55555555-5555-4555-8555-555555555555"
+    damaged = {
+        "novel_id": NOVEL,
+        "bucket": BUCKETS["world"],
+        "key": f"world-objects/{NOVEL}/entities/{image_id}/images/{image_id}/full.webp",
+        "category": "world_full",
+    }
+    later = row()
+    client = ObjectClient(
+        {
+            (damaged["bucket"], damaged["key"]): (b"not an image", "image/webp", {}),
+            (later["bucket"], later["key"]): (image_bytes(), "image/png", {}),
+        }
+    )
+    get_object = client.get_object
+
+    def get_or_missing(**request):
+        if (request["Bucket"], request["Key"]) not in client.objects:
+            return client.head_object(**request)  # Deleted after the DB dump.
+        return get_object(**request)
+
+    client.get_object = get_or_missing
+    monkeypatch.setattr(backup, "s3_client", lambda *, backup: client)
+    monkeypatch.setenv("MAP_ATLAS_S3_BUCKET", BUCKETS["map"])
+    monkeypatch.setenv("WORLD_OBJECT_S3_BUCKET", BUCKETS["world"])
+    references = tmp_path / "references.json"
+    references.write_text(json.dumps([deleted, damaged, later]))
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(SCRIPT),
+            "backup",
+            str(root),
+            "--references",
+            str(references),
+            "--timestamp",
+            timestamp,
+            "--db-sha256",
+            "e" * 64,
+        ],
+    )
+
+    assert backup.main() == 1
+    directory = root / "snapshots" / timestamp
+    manifest = backup.read_manifest(directory, BUCKETS, complete=False)
+    assert manifest["status"] == "incomplete"
+    assert [item["status"] for item in manifest["objects"]] == [
+        "missing",
+        "failed",
+        "ok",
+    ]
+    assert manifest["objects"][1]["failure_kind"] == "ValueError"
+    copied = backup.object_path(root / "objects", manifest["objects"][2])
+    assert copied.read_bytes() == image_bytes()
+    assert not list((root / "objects").rglob("*.webp"))
+    assert "objects=3 failed=1 missing=1 ok=1" in capsys.readouterr().out
+    with pytest.raises(ValueError, match="incomplete"):
+        backup.read_manifest(directory, BUCKETS)
+
+
+def test_source_failure_stops_the_run_and_leaves_later_objects_pending(tmp_path):
+    tmp_path.chmod(0o700)
+    root = tmp_path / "objects"
+    backup.private_dir(root)
+    backup.private_dir(root / "snapshots")
+    directory = root / "snapshots" / "20261014T000000Z"
+    backup.private_dir(directory)
+    second = row() | {
+        "key": f"map-atlas/{NOVEL}/pages/{'4' * 8}-4444-4444-8444-{'4' * 12}/image.png"
+    }
+    rows = [row(), second]
+    client = ObjectClient(
+        {
+            (item["bucket"], item["key"]): (image_bytes(), "image/png", {})
+            for item in rows
+        },
+        fail_after=0,
+    )
+    manifest = {
+        "schema": backup.SCHEMA,
+        "source_kind": "server_snapshot",
+        "timestamp": directory.name,
+        "db_timestamp": directory.name,
+        "db_sha256": "f" * 64,
+        "db_dump": f"{directory.name}.dump",
+    }
+
+    assert not backup.mirror(client, root / "objects", rows, directory, manifest)
+    assert [item["status"] for item in rows] == ["failed", "pending"]
+    assert rows[0]["failure_kind"] == "OSError"
+
+
 def test_missing_file_and_hash_tamper_fail_before_remote_write(tmp_path):
     root, _directory, manifest, _, _ = setup_backup(tmp_path)
     path = backup.object_path(root / "objects", manifest["objects"][0])

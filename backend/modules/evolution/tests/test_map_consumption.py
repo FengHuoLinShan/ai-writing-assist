@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from core.container import container_scope
-from core.errors import NotFoundError
+from core.errors import DomainError, NotFoundError
 from core.service_keys import WORLD_READ_MAP_CHAPTER_CONSUMERS
 from modules.account.context import bind_principal, reset_principal
 from modules.account.contracts import AccountPrincipal
@@ -188,17 +188,38 @@ async def test_forged_chapter_or_hash_is_visible_unverified(db_session, test_pro
     assert "地图册未核对完整" in receipt_view(receipt)["coverage_note"]
 
 
+async def _query_failure(*args, **kwargs):
+    raise SQLAlchemyError("synthetic query failure")
+
+
+async def _unauthenticated(*args, **kwargs):
+    raise DomainError("Authentication required", status_code=401)
+
+
+async def _foreign_owner(db, novel_id, **kwargs):
+    # 真实 port 与项目门禁：附属核对时的身份与项目 owner 不符。
+    token = bind_principal(
+        AccountPrincipal(uuid.uuid4(), "active", "email", "OTHER-OWNER")
+    )
+    try:
+        return await read_map_chapter_consumers(db, novel_id, **kwargs)
+    finally:
+        reset_principal(token)
+
+
 @pytest.mark.asyncio
-async def test_map_query_failure_uses_savepoint_and_keeps_main_receipt(
+@pytest.mark.parametrize("port", [_query_failure, _unauthenticated, _foreign_owner])
+async def test_map_check_failure_uses_savepoint_and_keeps_main_receipt(
     db_session,
     test_project_id,
+    port,
 ):
-    async def fail(*args, **kwargs):
-        raise SQLAlchemyError("synthetic query failure")
-
-    with container_scope({WORLD_READ_MAP_CHAPTER_CONSUMERS: fail}):
+    old = await create_published_draft_only(db_session, test_project_id, 1, "旧", "东岸")
+    await saved_map(db_session, test_project_id, old)
+    with container_scope({WORLD_READ_MAP_CHAPTER_CONSUMERS: port}):
         receipt = await changed_receipt(db_session, test_project_id)
     assert receipt.invalidated_consumers["map_atlas"]["checked"] is False
+    assert receipt.invalidated_consumers["map_atlas"]["maps"] == []
     assert "地图册未核对" in receipt.coverage_note
     assert "evidence_chapter_index" in receipt.invalidated_consumers
     assert await db_session.scalar(select(1)) == 1

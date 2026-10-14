@@ -20,7 +20,7 @@
         <button v-if="entry.mapNodeId" type="button" class="btn btn-sm" @click="getRouter()?.navigate('map', null, true, `node_id=${encodeURIComponent(entry.mapNodeId)}`)">去地图核对</button>
       </li>
     </ul>
-    <p v-if="notice.coverageNote">{{ notice.coverageNote }}</p>
+    <p v-if="notice.mapCheckNote">{{ notice.mapCheckNote }}</p>
     <button type="button" class="btn btn-sm writing-invalidation-notice__open" @click="$emit('open')">
       查看受影响与重算选项
     </button>

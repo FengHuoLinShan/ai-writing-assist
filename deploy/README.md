@@ -349,7 +349,8 @@ author_export（不包含 DB 配对）。共用 timestamp 和每行字段；可�
 [ADR-0034](../docs/adr/0034-db-paired-private-object-backups.md) 和 `object_backup.py` 为准；
 清单/key 是私有运维资料，不通过浏览器 API 暴露。目录 0700、文件 0600，拒绝 symlink；镜像
 只在缺 key、hash 不符或没有可信缓存时流式复制；已有不超过 retention 的合法清单提供 hash，
-本地 hash/size 校验后用源 HEAD 校验存在/size/metadata，命中时不做 GET，仍能识别 dump 后删除。读取失败/中断留下 incomplete；不完整
+本地 hash/size 校验后用源 HEAD 校验存在/size/metadata，命中时不做 GET，仍能识别 dump 后删除。单个对象缺失或损坏记
+missing/failed 后继续复制其余对象，收尾摘要按状态计数；传输、权限或本地磁盘故障停止本轮，其余留 pending。读取失败/中断留下 incomplete；不完整
 清单不能用于恢复。保留清单按 timestamp 最多 30 天；无保留引用且年龄超 retention 的对象清理。
 损坏或发布中断的历史清单不提供缓存，输出脱敏告警，新快照仍继续复制和校验。垃圾回收仍失败关闭，
 不删除无法核实的历史清单或对象；新备份状态与保留清理结果分别报告，清理失败时命令退出码为 1，

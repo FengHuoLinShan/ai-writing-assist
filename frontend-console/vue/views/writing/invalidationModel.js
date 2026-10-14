@@ -122,6 +122,14 @@ function normalizeEntry(entry, fallbackChapterIndex) {
   }
 }
 
+function mapCheckNote(invalidated) {
+  const detail = invalidated.find((item) => item?.consumer === "map_atlas")?.detail
+  if (!detail || typeof detail !== "object") return ""
+  if (detail.checked !== true) return "地图册未核对：这次没能检查哪些地图引用了本章，请到地图核对来源。"
+  if (detail.truncated || detail.unverified_sources) return "地图册未核对完整：部分地图来源无法自动核对，请到地图核对来源。"
+  return ""
+}
+
 function isCoverageAction(item) {
   const detail = item?.detail
   switch (item?.consumer) {
@@ -199,6 +207,7 @@ export function normalizeInvalidationNotice(raw, { chapterIndex = null } = {}) {
       : "",
     entries,
     mapEntries: entries.filter((entry) => entry.consumer === "map_atlas"),
+    mapCheckNote: mapCheckNote(invalidated),
     invalidatedLabels: invalidated.map((item) => (
       typeof item?.label === "string" && item.label ? item.label : consumerLabel(item?.consumer)
     )),

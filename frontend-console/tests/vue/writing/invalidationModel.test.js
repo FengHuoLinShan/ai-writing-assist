@@ -450,3 +450,16 @@ it("地图只投影作者名称与章节，不进入Scene窗口或重算种类",
   expect(notice.recomputeOptions).toEqual(["reload_evidence", "rebuild_derived_state", "regenerate_prose"])
   expect(recomputeRequestPayload({ novelId: "p", scope: "rebuild_derived_state", notice, operationId: "op" }).targets).toEqual([{ chapter_index: 3 }])
 })
+
+it("地图核对缺口转成作者语言，完整核对时不提示", () => {
+  const mapNotice = (detail) => normalizeInvalidationNotice({
+    chapter_index: 3,
+    affected: [{ consumer: "story_scene_checkpoint", scene_index: 4, basis: "known" }],
+    invalidated: [{ consumer: "map_atlas", label: "地图册", detail }],
+  })
+  expect(mapNotice({ maps: [], checked: false }).mapCheckNote).toContain("地图册未核对：")
+  expect(mapNotice({ maps: [], checked: true, truncated: true }).mapCheckNote).toContain("地图册未核对完整")
+  expect(mapNotice({ maps: [], checked: true, unverified_sources: 2 }).mapCheckNote).toContain("地图册未核对完整")
+  expect(mapNotice({ maps: [], checked: true, truncated: false, unverified_sources: 0 }).mapCheckNote).toBe("")
+  expect(normalizeInvalidationNotice({ chapter_index: 3, unknown_scope: true }).mapCheckNote).toBe("")
+})

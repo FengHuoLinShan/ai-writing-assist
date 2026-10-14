@@ -18,7 +18,8 @@
 - 整合最新 main（含已合入的 G2）后：后端7964 passed /2 skipped，coverage86.85%，RuntimeWarning门禁通过；前端2985、完整部署314通过。项目Ruff、shell语法、diff与repo门禁通过；只有三份追加文档有主干冲突，内容均保留。
 - 最终隔离无网络合成实恢复7对象/2桶通过，另实际执行作者ZIP正式shell的解包/verify/restore7图。元数据/权限/hash/size/解码、缺图和流中断反例保留；RPO3.609s/RTO6.672s仅代表小合成集。
 - PG critical95+专项9、受影响浏览器8例、26prompt合同和固定IR/hash为此前首批证据；本次最终提交的PG/浏览器回归以远端CI结果为准。
-- 19faa270c 的全新 Sol/xhigh review 发现正式ops镜像标签遗漏及Protocol契约放置问题，已一并补修并请求同三名独立审查者复核最终head；新CI/再审等待完成。保持draft，暂不合并。
+- 最终head5b5934262的三路独立 GPT-6.1 Sol / xhigh 再审全部完成：规范轴、计划轴与G4专项均未发现确认P1/P2；独立定向验证分别16/34/20项通过。首轮额外发现的正式镜像标签与Protocol放置问题均已补修并复核闭合。远端同head18项检查全部SUCCESS，含后端、PG、两浏览器分片及汇总；保持draft，暂不合并。
+- 评审后补修（在 5b5934262 之上单独提交）：G4a mirror 逐行隔离，缺失/损坏对象记 missing/failed 后继续，传输/权限/本地盘故障仍停止，摘要按状态计数；G8a 地图 port 的 DomainError（401/非本人 404）同 SAVEPOINT 降级为未核对；写作主提示改用作者语言 mapCheckNote，coverage_note 只留折叠说明。新测试先在旧实现上失败；本地部署316、后端fast 7965 passed（cov86.85%）、前端2987、ESLint/Ruff、repo-gates、secret、docs-check 通过，真实 MinIO 演练7图恢复且 missing 阶段全部记 missing，专用库浏览器 writing-map-invalidation 2例通过。新 head 的远端检查以 CI 为准。
 
 任务与本地验证记录：[TASK](.agent/tasks/2026/T-20261014-audit-first-batch/TASK.md)。此前固定 head 4acf184c4 的独立审查与反例：[REVIEW](.agent/tasks/2026/T-20261014-audit-first-batch/REVIEW.md)。
 

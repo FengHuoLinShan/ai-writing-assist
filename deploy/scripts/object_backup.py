@@ -13,6 +13,7 @@ import sys
 import tempfile
 import uuid
 import zipfile
+from collections import Counter
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -191,6 +192,62 @@ def valid_image(path: Path, category: str) -> None:
         image.load()
 
 
+def mirror_row(client, root: Path, row: dict, cached: dict | None) -> None:
+    path = object_path(root, row, create=True)
+    if cached and path.exists():
+        # Immutable-key cache is trusted only after local hash and live HEAD checks.
+        head = client.head_object(Bucket=row["bucket"], Key=row["key"])
+        if (
+            digest_file(path) == (cached["sha256"], cached["byte_size"])
+            and head["ContentLength"] == cached["byte_size"]
+            and head.get("Metadata", {}) == cached.get("metadata", {})
+            and head.get("ContentType") == cached.get("content_type")
+            and (not row.get("sha256") or row["sha256"] == cached["sha256"])
+            and (not row.get("byte_size") or row["byte_size"] == cached["byte_size"])
+        ):
+            row.update(
+                sha256=cached["sha256"],
+                byte_size=cached["byte_size"],
+                metadata=cached.get("metadata", {}),
+                content_type=cached["content_type"],
+                status="ok",
+            )
+            return
+    response = client.get_object(Bucket=row["bucket"], Key=row["key"])
+    body = response["Body"]
+    fd, staging = tempfile.mkstemp(prefix=".stage-", dir=path.parent)
+    try:
+        hasher, size = hashlib.sha256(), 0
+        with os.fdopen(fd, "wb") as output:
+            for chunk in iter(lambda body=body: body.read(1024 * 1024), b""):
+                hasher.update(chunk)
+                size += len(chunk)
+                output.write(chunk)
+            output.flush()
+            os.fsync(output.fileno())
+        actual = hasher.hexdigest()
+        if (row.get("sha256") and row["sha256"] != actual) or (
+            row.get("byte_size") and row["byte_size"] != size
+        ):
+            raise ValueError("DB object checksum/size mismatch")
+        try:
+            valid_image(Path(staging), row["category"])
+        except Exception as exc:  # noqa: BLE001 - any undecodable body is damage to this one object.
+            raise ValueError("Object is not a valid image") from exc
+        if not path.exists() or digest_file(path) != (actual, size):
+            os.replace(staging, path)
+        row.update(
+            sha256=actual,
+            byte_size=size,
+            status="ok",
+            content_type=response.get("ContentType", "application/octet-stream"),
+            metadata=response.get("Metadata", {}),
+        )
+    finally:
+        body.close()
+        Path(staging).unlink(missing_ok=True)
+
+
 def mirror(
     client,
     root: Path,
@@ -199,7 +256,11 @@ def mirror(
     manifest: dict,
     trusted: dict | None = None,
 ) -> bool:
-    """A failed read never publishes a partial object or a complete manifest."""
+    """A failed read never publishes a partial object or a complete manifest.
+
+    A missing or damaged object is recorded and later objects are still copied;
+    transport, permission and local disk failures stop the run.
+    """
     private_dir(root)
     manifest["objects"] = rows
     manifest["status"] = "incomplete"
@@ -209,68 +270,19 @@ def mirror(
     success = True
     try:
         for row in rows:
-            path = object_path(root, row, create=True)
-            cached = (trusted or {}).get((row["bucket"], row["key"]))
-            if cached and path.exists():
-                # Immutable-key cache is trusted only after local hash and live HEAD checks.
-                head = client.head_object(Bucket=row["bucket"], Key=row["key"])
-                if (
-                    digest_file(path) == (cached["sha256"], cached["byte_size"])
-                    and head["ContentLength"] == cached["byte_size"]
-                    and head.get("Metadata", {}) == cached.get("metadata", {})
-                    and head.get("ContentType") == cached.get("content_type")
-                    and (not row.get("sha256") or row["sha256"] == cached["sha256"])
-                    and (
-                        not row.get("byte_size")
-                        or row["byte_size"] == cached["byte_size"]
-                    )
-                ):
-                    row.update(
-                        sha256=cached["sha256"],
-                        byte_size=cached["byte_size"],
-                        metadata=cached.get("metadata", {}),
-                        content_type=cached["content_type"],
-                        status="ok",
-                    )
-                    continue
-            response = client.get_object(Bucket=row["bucket"], Key=row["key"])
-            body = response["Body"]
-            fd, staging = tempfile.mkstemp(prefix=".stage-", dir=path.parent)
             try:
-                hasher, size = hashlib.sha256(), 0
-                with os.fdopen(fd, "wb") as output:
-                    for chunk in iter(lambda body=body: body.read(1024 * 1024), b""):
-                        hasher.update(chunk)
-                        size += len(chunk)
-                        output.write(chunk)
-                    output.flush()
-                    os.fsync(output.fileno())
-                actual = hasher.hexdigest()
-                if (row.get("sha256") and row["sha256"] != actual) or (
-                    row.get("byte_size") and row["byte_size"] != size
-                ):
-                    raise ValueError("DB object checksum/size mismatch")
-                valid_image(Path(staging), row["category"])
-                if not path.exists() or digest_file(path) != (actual, size):
-                    os.replace(staging, path)
-                row.update(
-                    sha256=actual,
-                    byte_size=size,
-                    status="ok",
-                    content_type=response.get(
-                        "ContentType", "application/octet-stream"
-                    ),
-                    metadata=response.get("Metadata", {}),
+                mirror_row(
+                    client, root, row, (trusted or {}).get((row["bucket"], row["key"]))
                 )
-            finally:
-                body.close()
-                Path(staging).unlink(missing_ok=True)
-    except Exception as exc:  # noqa: BLE001 - persist an incomplete receipt for any interrupted copy.
-        # SDK errors may embed endpoint/request details; only sanitized codes are saved.
-        code = getattr(exc, "response", {}).get("Error", {}).get("Code", "read_failed")
-        row["status"] = "missing" if code in {"NoSuchKey", "404"} else "failed"
-        row["failure_kind"] = type(exc).__name__
-        success = False
+            except Exception as exc:  # noqa: BLE001 - record any failed copy as incomplete.
+                # SDK errors may embed endpoint/request details; save sanitized codes only.
+                error = getattr(exc, "response", {}).get("Error", {})
+                code = error.get("Code", "read_failed")
+                row["status"] = "missing" if code in {"NoSuchKey", "404"} else "failed"
+                row["failure_kind"] = type(exc).__name__
+                success = False
+                if row["status"] == "failed" and not isinstance(exc, ValueError):
+                    break
     finally:
         manifest["status"] = "complete" if success else "incomplete"
         publish(directory, manifest)
@@ -568,8 +580,11 @@ def main() -> int:
                 manifest,
                 cache,
             )
+            counts = Counter(row["status"] for row in rows)
             print(
-                f"Object backup {'complete' if success else 'incomplete'}: objects={len(rows)}"
+                f"Object backup {'complete' if success else 'incomplete'}: "
+                f"objects={len(rows)} "
+                + " ".join(f"{status}={counts[status]}" for status in sorted(counts))
             )
             try:
                 prune(args.root, buckets, args.retention_days)

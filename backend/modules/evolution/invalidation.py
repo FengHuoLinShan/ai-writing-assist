@@ -40,6 +40,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.container import get
+from core.errors import DomainError
 from core.service_keys import WORLD_READ_MAP_CHAPTER_CONSUMERS
 from modules.evolution.contracts import MapChapterConsumptionPort
 from modules.evolution.store import PostgresAttemptStore
@@ -361,6 +362,13 @@ async def apply_source_invalidation(
                 "maps": [],
                 "checked": False,
                 "note": "地图册未核对：来源查询暂时失败",
+            }
+        except DomainError:
+            # 附属核对的项目/身份门禁拒绝只让地图标为未核对，不回滚正文与主回执。
+            maps = {
+                "maps": [],
+                "checked": False,
+                "note": "地图册未核对：当前无法读取地图来源",
             }
         receipt.invalidated_consumers["map_atlas"] = maps
         if (
