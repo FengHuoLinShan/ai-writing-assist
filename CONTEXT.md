@@ -246,10 +246,10 @@ ADR-0027 的 Assistant 工作项与调查成果是有界私有 checkpoint；Worl
 
 `local_agent` 持有作品绑定的设备、逐次图片运行授权和调用回执；不是世界事实或账户文本
 连接的 owner。当前正文、Assistant、Interaction 与协作文字步骤经 Project facade 使用
-owner 的已验证账户连接，不为文字任务选择本机 CLI。旧本机文字 Project snapshot 与
-task_snapshot_client 入口失败关闭；待确认列表、批准与设备领取入口只接受图片任务，
-旧文字 pending task/invocation 直接置为 failed，历史回执仍可读。源码保留的历史
-invocation 与 companion 文字兼容分支不构成正常文字入口开放的证明。
+owner 的已验证账户连接，不为文字任务选择本机 CLI。旧本机文字 Project snapshot 仅剩
+Project 恢复门一道失败关闭（第二道 task_snapshot_client 门与文字客户端已删除）；待确认
+列表、批准与设备领取入口只接受图片任务，旧文字 pending task/invocation 直接置为 failed，
+历史回执仍可读；runtime 保留的历史 invocation 形状不构成正常文字入口开放的证明。
 
 图片仍由 World 拥有候选与正式采用，进入产品的图片须经设备/owner/`novel_id`/双租约、
 重解码和领域采用。Assistant/Interaction/协作等领域保留各自的任务与正式写入权。Mac CLI

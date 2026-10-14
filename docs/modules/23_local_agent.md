@@ -4,15 +4,14 @@
 Codex、Claude、Kimi、DSH 或 Pi CLI。**当前正常新建的业务入口仅用于图片生成**：World 模块的世界对象
 图片与地图册页面在需要 AI 生成图片时调用本模块（`modules.local_agent.facade`）。
 项目助手、已登录 RP、前瞻分析、创作协作、连续性检查、场景排演等当前新建文本任务使用项目
-账户模型连接；可恢复任务快照中若带旧的本机文本执行器字段，Project 恢复会失败关闭，直接
-调用 `task_snapshot_client` 的旧文本设置也会被拒绝，不会静默回退或重放本机副作用。
+账户模型连接；Project 恢复快照中若带旧的本机文本执行器字段会失败关闭，旧
+`task_snapshot_client` 第二道门与文字客户端已删除。
 
-旧文本兼容实现仍留在源码中：`run_local_agent` 仍能创建文本 invocation，`companion._job`
-对非图片请求仍走 `_run_text_job`。但服务端入口已缩面：待确认列表与批准只接受
+服务端 `run_local_agent` 保留历史 invocation 形状，但已无生产入口；伴随进程的文字执行
+分支、产品工具 shim 和工具中继端点已删除，非图片 job 直接失败。待确认列表与批准只接受
 `world_object_image_generate`、`map_atlas_generate` 两类图片任务，companion claim 只下发
 `request_json.mode == "image"` 的调用；旧文字或未知模式的 pending task/invocation 在这些
-入口直接置为 failed，不发放租约或提示词。因此源码分支的保留只是兼容形状，不构成正常
-文字入口，也不表示旧文字 job 可领取。
+入口置为 failed，不发放租约或提示词。历史表与回执仍保留。
 CLI 的本机登录态不上传服务器，也不成为其他作者的统一凭据。
 
 ## 审查包装（review wrapper）
@@ -51,6 +50,12 @@ CLI 的本机登录态不上传服务器，也不成为其他作者的统一凭�
 这是历史结果查询，不代表当前新建文本任务仍走本机执行。回执 `usage` 可能为 `null`，表示用量未知，
 不能当作零，也不要与项目账户模型的 AI 用量诊断混为一项。
 本机任务的异步恢复策略统一为 `never_retry`。
+
+服务端工具中继端点（`POST/GET /companion/jobs/{id}/tools`）与文字客户端
+`local_agent/client.py` 已删除；伴随进程不再写 `novelcraft-tool` shim、不开产品
+工具 unix socket，非图片 job 直接失败。工具回执表 `local_agent_tool_calls` 与历史
+回执读取保留，服务端 `run_local_agent` 中继 worker 保留在代码中但无生产入口
+（重新开放须另立 ADR，见 ADR-0029 实施记录）。
 
 待确认列表与批准入口只处理 `world_object_image_generate` 和 `map_atlas_generate`；
 旧文字 pending task 置为 failed，提示使用当前账户模型重新发起。companion claim

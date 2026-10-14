@@ -12,14 +12,13 @@
 World 模块在需要世界对象图片或地图册页面时调用（见
 `backend/modules/world/README.md`）。项目助手、已登录 RP、前瞻分析、创作协作、
 连续性检查、场景排演等当前新建文本任务使用项目账户模型连接；旧的 `local_agent` 快照字段
-出现在可恢复任务里会失败关闭（`Local CLI no longer runs project text tasks`），直接调用
-`task_snapshot_client` 的旧文本设置也会被拒绝，不会静默回退到网关模型或重放本机副作用。
+出现在 Project 恢复快照里会失败关闭（`Local CLI no longer runs project text tasks`）；
+旧 `task_snapshot_client` 第二道门与文字客户端已删除。
 
-源码仍保留旧文本兼容分支：`run_local_agent` 可创建文本 invocation，`companion._job`
-对非图片请求仍调用 `_run_text_job`。但批准与领取入口已按图片缩面（见下文“伴随进程协议”），
-旧文字 pending task/invocation 在这些入口置为 failed、不发放租约或提示词；旧文本分支只是
-兼容形状，正常入口与设备领取都不会执行旧文字 job。删除既有文字 job/receipt/schema 前
-仍需先确定历史任务的处置范围。
+服务端 `run_local_agent` 的历史 invocation 实现仍保留，但已无生产入口。文字客户端、
+产品工具中继端点、伴随进程文字执行分支与工具 shim 已删除；伴随进程对非图片 job 直接失败。
+旧文字 pending task/invocation 在批准和领取入口置为 failed，不发放租约或提示词。
+历史 invocation/tool-call 表、迁移和回执读取保留，不因退役执行路径删除历史。
 
 ## 图片生成审查包装
 
@@ -61,7 +60,7 @@ python3 novelcraft-agent.pyz pair https://example.invalid <一次性配对码>
 python3 novelcraft-agent.pyz run <返回的设备 ID>
 ```
 
-图片任务新增的伴随进程端点（复用既有 `/heartbeat`、`/tools`、`/finish` 的设备 bearer
+图片任务新增的伴随进程端点（复用既有 `/heartbeat`、`/finish` 的设备 bearer
 鉴权与 lease 校验）：
 
 - `GET /api/local-agent/companion/jobs/{invocation_id}/inputs/{ordinal}?lease_id=` —

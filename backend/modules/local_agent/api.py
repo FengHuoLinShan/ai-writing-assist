@@ -15,7 +15,7 @@ from pathlib import Path
 from fastapi import APIRouter, Header, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from core.dependencies import DbSession
 from core.errors import ConflictError, DomainError, NotFoundError, ValidationError
@@ -27,7 +27,6 @@ from modules.local_agent.models import (
     LocalAgentDevice,
     LocalAgentFile,
     LocalAgentInvocation,
-    LocalAgentToolCall,
 )
 from modules.project.facade import (
     get_any_project_context,
@@ -80,12 +79,6 @@ class EventUpdate(LeaseUpdate):
     text: str = Field(default="", max_length=30000)
     tool_name: str = Field(default="", max_length=100)
     usage: dict[str, int] | None = None
-
-
-class ToolRequest(LeaseUpdate):
-    call_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,80}$")
-    name: str = Field(pattern=r"^[a-z][a-z0-9_]{1,99}$")
-    arguments: dict
 
 
 class FinishRequest(LeaseUpdate):
@@ -561,75 +554,6 @@ async def publish_event(
     invocation.result_json = state
     await db.commit()
     return {"sequence": data.sequence}
-
-
-@router.post("/companion/jobs/{invocation_id}/tools")
-async def request_tool(
-    db: DbSession,
-    invocation_id: uuid.UUID,
-    data: ToolRequest,
-    authorization: str | None = Header(None),
-):
-    device = await _device(db, authorization)
-    invocation = await _invocation(db, device, invocation_id, data.lease_id)
-    allowed = set(invocation.request_json.get("tools") or {})
-    if data.name not in allowed:
-        raise ValidationError("工具未在本次任务注册")
-    if len(str(data.arguments)) > 50000:
-        raise ValidationError("工具参数超过上限")
-    call = await db.scalar(
-        select(LocalAgentToolCall).where(
-            LocalAgentToolCall.invocation_id == invocation_id,
-            LocalAgentToolCall.call_id == data.call_id,
-        )
-    )
-    if call is None:
-        count = await db.scalar(
-            select(func.count(LocalAgentToolCall.id)).where(
-                LocalAgentToolCall.invocation_id == invocation_id
-            )
-        )
-        if int(count or 0) >= int(invocation.request_json["max_tool_attempts"]):
-            raise ValidationError("本次产品工具调用达到上限")
-        call = LocalAgentToolCall(
-            invocation_id=invocation_id,
-            call_id=data.call_id,
-            name=data.name,
-            arguments_json=data.arguments,
-        )
-        db.add(call)
-    elif call.name != data.name or call.arguments_json != data.arguments:
-        raise ConflictError("工具调用标识已用于其他参数", code="local_agent_call_changed")
-    await db.commit()
-    return {
-        "call_id": data.call_id,
-        "pending": call.result_json is None and call.error is None,
-    }
-
-
-@router.get("/companion/jobs/{invocation_id}/tools/{call_id}")
-async def tool_result(
-    db: DbSession,
-    invocation_id: uuid.UUID,
-    call_id: str,
-    lease_id: uuid.UUID,
-    authorization: str | None = Header(None),
-):
-    device = await _device(db, authorization)
-    await _invocation(db, device, invocation_id, lease_id)
-    call = await db.scalar(
-        select(LocalAgentToolCall).where(
-            LocalAgentToolCall.invocation_id == invocation_id,
-            LocalAgentToolCall.call_id == call_id,
-        )
-    )
-    if call is None:
-        raise NotFoundError("工具调用不存在")
-    return {
-        "pending": call.status in {"pending", "running"},
-        "result": call.result_json,
-        "error": call.error,
-    }
 
 
 @router.post("/companion/jobs/{invocation_id}/finish")

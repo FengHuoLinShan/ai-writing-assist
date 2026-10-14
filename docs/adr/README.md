@@ -44,7 +44,7 @@ make docs-check BASE_REF=origin/main
 | [ADR-0027](0027-bounded-collaboration.md) | Accepted / Implemented (experimental) | 注册业务蓝图的有限协作，单宿主三成员、受限投影、共享根预算和领域受理；角色排演保持观察与分支隔离。 |
 | [ADR-0028](0028-shared-demo-account-login.md) | Accepted / Implemented | 演示共享账号口令登录：fail-closed 配置、常时比较 + peer 节流 + 安全审计、单配置账号的等价会话；不引入通用口令体系。 |
 | [ADR-0030](0030-spreadsheet-migration.md) | Accepted | 表格迁移只走 `/api/imports/migrations`（仅 .xlsx/.csv），确认即采用并经 world/story 窄 facade 落为带来源、可撤销的已采用资产；AI 整理仅预览。 |
-| [ADR-0029](0029-local-cli-image-only.md) | Accepted / Implementation in progress | 决策目标为本机 CLI 仅生成图片，文字路径失败关闭；2026-10-14 收窄批准与领取入口、修正 RP 连接判断。服务端拼提示词、逐任务确认主机权限、无产品工具、复核重编码输出，结果只作候选；旧文字 job 兼容实现边界见 [Local Agent](../modules/23_local_agent.md)，不代表重新授权文字路径。 |
+| [ADR-0029](0029-local-cli-image-only.md) | Accepted / Implementation in progress | 本机 CLI 只用于世界对象图片与地图册页面生成；文字路径断开并失败关闭，2026-10-14 收窄批准与领取入口、修正 RP 连接判断，并删除文字客户端与工具中继端点（`run_local_agent` 保留但无生产入口）；服务端拼提示词、逐任务确认主机权限、无产品工具、复核重编码输出，结果只作候选；旧文字 job 兼容实现边界见 [Local Agent](../modules/23_local_agent.md)，不代表重新授权文字路径。 |
 | [ADR-0031](0031-module-dependency-directions.md) | Accepted / 第一、二、三批已实现 | 模块依赖方向分层与逐对裁定：低层调高层只能经消费方 contracts 的 SPI Protocol + 组合根 DI port；三批共消灭 24 个双向对（顶层双向对清零），G3③c 再随本机文字路径退役消除 4 条 local_agent 入边（world 图片入边保留），G8b 新增 `world.read_map_node_heads` 只读批量 head DI 键（棘轮零增量）。 |
 | [ADR-0032](0032-guided-flow-orchestration.md) | Accepted / 实施中（BR-3） | Assistant 内 guided_flow 确定性编排层：服务端注册带版本步骤表（模型不可改）、三种步骤类型、进度由领域产物推导不存步索引、复用 AssistantRun 与既有开关/白名单、不新增依赖边；流程任务一律确定性 operation_id。 |
 
