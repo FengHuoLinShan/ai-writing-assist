@@ -1,0 +1,6 @@
+cd /Users/tywww/Desktop/项目/ai-writing-assist/.worktrees/audit-first-batch/backend && uv run --locked --extra ci -- python ../deploy/tests/run_object_restore_drill.py
+Object backup complete: objects=7
+Negative control passed: interrupted=incomplete
+Negative control passed: missing=incomplete
+Object restore complete: objects=7
+{"buckets": 2, "controls": ["snapshot_after_live_delete", "missing_object_incomplete", "interrupted_stream_incomplete", "read_only_backup_identity", "private_versioned_quotas", "sha256_size_decode_metadata"], "db_sha256": "e58d94d8398ec7d7707771a734fe4ee1579d47c13b7f6c3178f0fccdd58b21c9", "isolated_network": "none", "measured_rpo_seconds": 2.894, "measured_rto_seconds": 4.803, "objects": 7, "result": "complete"}

@@ -612,3 +612,12 @@ describe("RecomputePanel", () => {
   })
 
 })
+
+it("地图核对入口与原三类重算共存，不显示内部标识", () => {
+  const value = { ...notice(), entries: [{ key: "map-entry", consumerLabel: "地图册", scopeLabel: "东岸地图 · 第 3 章", reasonLabel: "已发布正文变化", basis: "known", mapNodeId: "hidden-map-id" }] }
+  const wrapper = mount(RecomputePanel, { props: { notice: value, projectId: "p1" } })
+  expect(wrapper.text()).toContain("东岸地图 · 第 3 章")
+  expect(wrapper.text()).toContain("去地图核对")
+  expect(wrapper.text()).not.toContain("hidden-map-id")
+  expect(wrapper.findAll('input[type="radio"]')).toHaveLength(3)
+})

@@ -691,6 +691,7 @@ AI 用量汇总保留 `usage_complete`；旧恢复回执 `legacy_untracked` 即�
 `evolution_category_rescan_v1` 使用现有 operation task/manual_resume、run 根预算与独立冻结
 Scene 发现日志；本操作最高调用额度与根预算发送前扣减，unknown 不自动重试。
 
+## 受限 Codex 文字运行时
 
 ADR-0033：新增 CodexProvider 受限文本路径，默认 Luna/max。本机单用户账户验证后经 project facade 使用，纯文本 CLI 禁用原生工具并限制环境、事件、时限和字节输出；非零退出仅附有界stderr提取的固定错误类别，原文不外露且分类不改变未知结果或重试资格；未知完成不自动重发，封闭 schema 原生约束、开放字段包封后验证，流式延迟至终态。CODEX_CLI_COMMAND 选择已验证 CLI，不影响 ADR-0029 的旧本机 Agent/图片伴随进程范围。
 
@@ -708,3 +709,17 @@ ADR-0033：新增 CodexProvider 受限文本路径，默认 Luna/max。本机单
 快照同时显式绑定 native_wrapper 的版本与固定指令SHA256，并由 extra_hash 固定连接；包装缺失/漂移不能静默沿旧快照恢复。历史快照和回执只读保留。
 
 完整原生结果的格式/包封失败仍携带原生usage，既有信封、工作流meter和有界Agent保存为已知失败；只有没有完整回执的结果才未知，不补造或另建用量统计。
+
+## 数据库配对的对象恢复
+
+[ADR-0034](../adr/0034-db-paired-private-object-backups.md) 规定独立 `backup_objects.sh` / `restore_objects.sh`
+和两个一次性 ops 服务；object timer 03:17 在 DB timer 02:17 后发起，所有生产操作共锁，release
+不增加图片备份前置门禁。先 dump → 无网络临时 PG 恢复并查对象引用 → 只读 MinIO 身份流式复制，
+全部地图状态页/mask 与对象当前 full/thumbnail 都覆盖。同机独立目录的清单/镜像 0700/0600，
+DB timestamp/hash 配对，缺失/中断明确 incomplete；恢复重建私有桶 versioning/配额后对账。
+DB 本地配置上限 30 天，restic `--keep-within 30d`；对象按不超过 30 天清单及无引用对象年龄老化，
+损坏历史清单不提供缓存，新备份仍继续生成；垃圾回收失败关闭并以非零退出码要求运维介入。
+同机副本不能抵抗整盘故障，G4b 图片导出 UI 与 B2 对象副本未实现。
+目录与 ZIP 共用 v1 清单，source_kind 显式区分配对 DB 的 server_snapshot 与无 DB 配对的
+author_export；每行支持 objects 下中文相对 file，拒绝穿越/重复/缺图。运维 ZIP 白名单解包后
+按目录恢复，先核对目标 DB 对象归属与可用 hash/size；图片包不恢复数据库或跨项目导入。生产启用仍须后续发布授权和只读对账。

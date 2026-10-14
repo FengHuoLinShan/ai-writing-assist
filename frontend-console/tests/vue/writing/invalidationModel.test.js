@@ -92,7 +92,7 @@ describe("normalizeInvalidationNotice", () => {
       basis: "unknown",
     })
     expect(notice.invalidatedLabels).toEqual(["章节证据索引"])
-    expect(notice.unsupportedLabels).toEqual(["地图集", "正典修订依赖"])
+    expect(notice.unsupportedLabels).toEqual(["地图册的世界对象、世界书页与待审来源", "正典修订依赖"])
     expect(notice.coverageNote).toBe("细粒度依赖登记后可收窄")
     expect(notice.receiptId).toBe("receipt-abc")
     expect(notice.chapterIndex).toBe(3)
@@ -135,7 +135,7 @@ describe("normalizeInvalidationNotice", () => {
 
     expect(notice.headline).toContain("已定位 1 个受影响的场景字段")
     expect(notice.entries[0].scopeLabel).toBe("场景 4 的知识边界")
-    expect(notice.unknownScopeNote).toContain("地图集")
+    expect(notice.unknownScopeNote).toContain("地图册")
     expect(notice.unknownScopeNote).toContain("手动检查")
   })
 
@@ -436,4 +436,30 @@ describe("RECOMPUTE_SCOPES 三分类文案", () => {
     expect(RECOMPUTE_SCOPES[0].effectNote).toContain("不会变")
     expect(RECOMPUTE_SCOPES[1].effectNote).toContain("保留")
   })
+})
+
+it("地图只投影作者名称与章节，不进入Scene窗口或重算种类", () => {
+  const notice = normalizeInvalidationNotice({
+    chapter_index: 3, receipt_id: "map-receipt",
+    affected: [{ consumer: "map_atlas", node_id: "internal-map-id", revision_id: "revision-id", map_title: "东岸地图", chapter_index: 3, reason: "canonical_map_source_changed", basis: "known" }],
+    recompute_options: [{ kind: "reload_evidence" }, { kind: "rebuild_derived_state" }, { kind: "regenerate_prose" }],
+  })
+  expect(notice.mapEntries[0].scopeLabel).toBe("东岸地图 · 第 3 章")
+  expect(notice.mapEntries[0].consumerLabel).toBe("地图册")
+  expect(notice.sceneIndexes).toEqual([])
+  expect(notice.recomputeOptions).toEqual(["reload_evidence", "rebuild_derived_state", "regenerate_prose"])
+  expect(recomputeRequestPayload({ novelId: "p", scope: "rebuild_derived_state", notice, operationId: "op" }).targets).toEqual([{ chapter_index: 3 }])
+})
+
+it("地图核对缺口转成作者语言，完整核对时不提示", () => {
+  const mapNotice = (detail) => normalizeInvalidationNotice({
+    chapter_index: 3,
+    affected: [{ consumer: "story_scene_checkpoint", scene_index: 4, basis: "known" }],
+    invalidated: [{ consumer: "map_atlas", label: "地图册", detail }],
+  })
+  expect(mapNotice({ maps: [], checked: false }).mapCheckNote).toContain("地图册未核对：")
+  expect(mapNotice({ maps: [], checked: true, truncated: true }).mapCheckNote).toContain("地图册未核对完整")
+  expect(mapNotice({ maps: [], checked: true, unverified_sources: 2 }).mapCheckNote).toContain("地图册未核对完整")
+  expect(mapNotice({ maps: [], checked: true, truncated: false, unverified_sources: 0 }).mapCheckNote).toBe("")
+  expect(normalizeInvalidationNotice({ chapter_index: 3, unknown_scope: true }).mapCheckNote).toBe("")
 })

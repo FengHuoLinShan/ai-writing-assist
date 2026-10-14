@@ -66,6 +66,8 @@ services:
       MINIO_ROOT_PASSWORD: novel_minio_root_pass
       MINIO_APP_ACCESS_KEY: novelist
       MINIO_APP_SECRET_KEY: novel_minio_dev_pass
+      MINIO_BACKUP_ACCESS_KEY: synthetic-dev-backup
+      MINIO_BACKUP_SECRET_KEY: synthetic_dev_backup_pass
       MAP_ATLAS_S3_BUCKET: ai-writing-assist-map-atlas
       WORLD_OBJECT_S3_BUCKET: ai-writing-assist-world-objects
     volumes:

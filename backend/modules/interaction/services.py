@@ -1651,15 +1651,9 @@ class InteractionService(JourneyViewsMixin, JourneyOverviewMixin):
             "attempt_id": str(attempt.id),
             "llm_execution_snapshot": dict(attempt.llm_execution_snapshot or {}),
         }
-        local = (attempt.llm_execution_snapshot or {}).get("local_agent") or {}
-        if local.get("device_id"):
-            meta.update(
-                {
-                    "_local_agent": True,
-                    "_local_ready": False,
-                    "_local_approved": False,
-                    "_local_device_id": local["device_id"],
-                }
+        if "local_agent" in (attempt.llm_execution_snapshot or {}):
+            raise ValidationError(
+                "本机设备只运行图片任务；历史文字任务请使用当前账户模型重新发起。"
             )
         envelope = dict(attempt.agent_checkpoint_json or {}).get(AI_RUN_ENVELOPE_KEY)
         if isinstance(envelope, dict) and envelope:

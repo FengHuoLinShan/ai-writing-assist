@@ -1491,7 +1491,8 @@ describe("RP 故事页", () => {
     )
   })
 
-  it("没有连接时仍可阅读，但生成入口就地提示且保留草稿", async () => {
+  it("图片执行器不能替代文字连接，生成入口就地提示且保留草稿", async () => {
+    api.localAgent.executor.mockResolvedValue({ kind: "codex" })
     const disconnected = {
       active_provider_id: "deepseek",
       providers: [{
@@ -1504,10 +1505,12 @@ describe("RP 故事页", () => {
     }
     const wrapper = mount(InteractionView, {
       props: {
-        initialJourney: journey(),
+        initialJourney: journey({ novel_id: "image-project" }),
         llmConnections: disconnected,
       },
     })
+    await flushPromises()
+    expect(api.localAgent.executor).not.toHaveBeenCalled()
     const input = wrapper.get("textarea[aria-label='继续旅程']")
     await input.setValue("这条草稿不能丢")
 

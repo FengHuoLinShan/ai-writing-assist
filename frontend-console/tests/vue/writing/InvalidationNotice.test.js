@@ -1,3 +1,4 @@
+import { setBridgeOverrides, resetBridgeOverrides } from "../../../vue/bridge/index.js"
 import { mount } from "@vue/test-utils"
 import { describe, expect, it } from "vitest"
 import { normalizeInvalidationNotice } from "../../../vue/views/writing/invalidationModel.js"
@@ -55,7 +56,7 @@ describe("InvalidationNotice", () => {
   const wrapper = mount(InvalidationNotice, { props: { notice: normalizeInvalidationNotice(raw) } })
   expect(wrapper.find(".writing-invalidation-notice").exists()).toBe(false)
   expect(wrapper.get("details").attributes("open")).toBeUndefined()
-  expect(wrapper.text()).toContain("地图集")
+  expect(wrapper.text()).toContain("地图册")
   expect(wrapper.text()).not.toContain("相关内容需要更新")
   await wrapper.get("button").trigger("click")
   expect(wrapper.emitted("open")).toHaveLength(1)
@@ -80,3 +81,37 @@ describe("InvalidationNotice", () => {
     expect(normalizeInvalidationNotice({ ...raw, invalidated: [...invalidated.slice(0, -1), { consumer: "story_state", detail }] }).coverageOnly).toBe(false)
   }
  })
+
+it("地图名和对应章节就地可见，内部标识不显示", async () => {
+  let target = null
+  setBridgeOverrides({ router: { navigate: (...args) => { target = args } } })
+  const notice = normalizeInvalidationNotice({ affected: [{ consumer: "map_atlas", node_id: "hidden-map-id", map_title: "东岸地图", chapter_index: 3, basis: "known" }] })
+  const wrapper = mount(InvalidationNotice, { props: { notice } })
+  expect(wrapper.text()).toContain("东岸地图 · 第 3 章")
+  expect(wrapper.text()).toContain("去地图核对")
+  expect(wrapper.text()).not.toContain("hidden-map-id")
+  await wrapper.findAll("button").find((button) => button.text() === "去地图核对").trigger("click")
+  expect(target.slice(0, 3)).toEqual(["map", null, true])
+  expect(new URLSearchParams(target[3]).get("node_id")).toBe("hidden-map-id")
+  resetBridgeOverrides()
+})
+
+it("主提示只用作者语言说明地图未核对，范围诊断不展开", () => {
+  const coverage = "保守扩大：从锚定受影响章的最早 Scene（含）起的全部系统派生投影已失效；地图册未核对完整，请到地图核对来源"
+  const wrapper = mount(InvalidationNotice, {
+    props: {
+      notice: notice({
+        coverage_note: coverage,
+        invalidated: [{ consumer: "map_atlas", label: "地图册", detail: { maps: [], checked: false, note: "地图册未核对：来源查询暂时失败" } }],
+      }),
+    },
+  })
+  const status = wrapper.get(".writing-invalidation-notice")
+  expect(status.text()).toContain("地图册未核对：这次没能检查哪些地图引用了本章")
+  expect(status.text()).not.toContain("投影")
+  expect(status.text()).not.toContain("Scene")
+
+  const withoutMapGap = mount(InvalidationNotice, { props: { notice: notice({ coverage_note: coverage }) } })
+  expect(withoutMapGap.text()).not.toContain("保守扩大")
+  expect(withoutMapGap.text()).not.toContain("地图册未核对")
+})

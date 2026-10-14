@@ -470,7 +470,7 @@ def test_unsupported_consumers_are_always_listed_but_do_not_block_refinement() -
         earliest_affected_scene_index=1,
         scene_indexes=[0, 1],
     )
-    # P2-C 范围限定：map_atlas/world_canon_revision 留在 UNSUPPORTED_CONSUMERS
+    # map_atlas 残余对象/世界书页/候选与 world_canon_revision 保留 unsupported
     # 恒列出（缺口可见，对拍 invalidation.UNSUPPORTED_CONSUMERS，不扩），
     # 但它们对齐现状回执 unsupported_consumers 的角色：只展示、不参与
     # 投影窗口判定——登记覆盖完整时细化照常发生。
@@ -1506,3 +1506,16 @@ def test_invalidation_receipt_view_service_registered_and_callable() -> None:
     # 手写回执（无内嵌评估）退化为确定性键形态，键集仍是 C0 最小集。
     assert {"affected", "unknown_scope", "receipt_id"} <= set(view)
     assert view["receipt_id"] == receipt_fingerprint(_receipt())
+
+
+def test_map_consumer_label_matches_writing_and_stays_outside_recompute() -> None:
+    from pathlib import Path
+
+    from modules.evolution.consumption import RECOMPUTE_SCOPE_COVERS
+
+    frontend = (
+        Path(__file__).resolve().parents[4]
+        / "frontend-console/vue/views/writing/invalidationModel.js"
+    ).read_text()
+    assert f'map_atlas: "{CONSUMER_LABELS["map_atlas"]}"' in frontend
+    assert all("map_atlas" not in covers for covers in RECOMPUTE_SCOPE_COVERS.values())

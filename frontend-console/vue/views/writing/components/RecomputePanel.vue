@@ -23,6 +23,7 @@
           <strong>{{ entry.scopeLabel }}</strong> · {{ entry.consumerLabel }}
           <small>{{ entry.reasonLabel }}</small>
           <small v-if="entry.note">{{ entry.note }}</small>
+          <button v-if="entry.mapNodeId" type="button" class="btn btn-sm" :disabled="adopting" @click="getRouter()?.navigate('map', null, true, `node_id=${encodeURIComponent(entry.mapNodeId)}`)">去地图核对</button>
         </span>
       </li>
     </ul>
@@ -143,7 +144,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
-import { getApi, getToast, registerAuxiliaryLeaveGuard } from "../../../bridge/index.js"
+import { getApi, getRouter, getToast, registerAuxiliaryLeaveGuard } from "../../../bridge/index.js"
 import {
   RECOMPUTE_SCOPES,
   driftRowLabel,

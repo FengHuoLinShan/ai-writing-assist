@@ -1,0 +1,5 @@
+python3 /Users/tywww/Desktop/项目/ai-writing-assist/.worktrees/audit-g3-renderer/scripts/check_architecture_docs.py --base-ref origin/main --no-change-reason '已核对 backend/modules/evidence/README.md 与 backend/modules/evidence/indexing/README.md：根 README 描述当前 render_compiled_context 的 IR 输出和预算裁剪，未引用旧函数；indexing 负责索引/检索，不调用旧 bundle renderer，数据/API/task 契约未变；兼容面退役已同步 compilation README 和 08_evidence。'
+NOTE: inventory: 12 business modules, 152 ORM tables, 60 task handlers, 16 frontend routes, 40 ADR files
+NOTE: review user-facing behavior documentation if needed: module-production
+WARNING: impact rules module-contract require review of: backend/modules/evidence/README.md, backend/modules/evidence/indexing/README.md; explicitly acknowledged as no current-doc change: 已核对 backend/modules/evidence/README.md 与 backend/modules/evidence/indexing/README.md：根 README 描述当前 render_compiled_context 的 IR 输出和预算裁剪，未引用旧函数；indexing 负责索引/检索，不调用旧 bundle renderer，数据/API/task 契约未变；兼容面退役已同步 compilation README 和 08_evidence。
+Architecture documentation checks passed.

@@ -91,14 +91,17 @@ canonical world background，并以 RAG `map_atlas` purpose 补充已确认正�
 manifest 与 hash；manifest 按真实来源类型和 ID 记录 context/world loader 计算的内容 hash，
 不信任文本模型回传的来源 hash。候选图分别记录直接支持、AI 视觉补全和资料冲突。采用图片只改变地图册
 画廊，不会写回 World、Memory 或正文事实。
+已发布正文变化时，当前已保存地图的真实正文来源会进入写作失效回执，提示作者去地图核对；
+只作提示，不改变地图状态或 Scene 重算范围。其余未覆盖来源见 [Evolution 合同](docs/modules/22_evolution.md)。
 
-图片固定由 `gpt-image-2` 生成并存入私有 S3。浏览器通过 owner 与 `novel_id` 双门禁的后端
+账户图片连接固定使用 `gpt-image-2`，也可按 ADR-0029 逐次授权本机 CLI 生图；结果存入私有 S3。浏览器通过 owner 与 `novel_id` 双门禁的后端
 接口读取。项目永久删除以 share/exclusive project lock 封住晚到上传，并用不依赖项目 FK 的
 全局前缀清理任务移除对象。
 
 世界对象图片同样不进入 PostgreSQL：`core_entities` 只保存版本与更新时间，响应只公开
 `has_image`。单机 MinIO 将地图册和对象图片放在两个私有 bucket；对象软废弃、融合和别名化
 不移动或删除图片，项目永久删除才排入对应项目前缀清理。
+服务器图片备份从同批数据库快照取清单，存于同机独立目录，保留最多30天；恢复和整盘故障边界见 [ADR-0034](docs/adr/0034-db-paired-private-object-backups.md)。
 
 Evidence indexing 通过 nullable `scene_span_id` 关联 Scene 物理片段，但不建跨模块硬 FK；
 compilation 负责“选、裁、确认、追踪”。imports、writing 等模块只能通过 evidence facade 或
@@ -241,8 +244,9 @@ ADR-0027 的 Assistant 工作项与调查成果是有界私有 checkpoint；Worl
 
 ## 本机 Agent 执行器
 
-`local_agent` 持有作品绑定的设备、逐次本机运行授权和调用回执；它不是世界事实或
-作品模型连接的 owner。Project 保留默认执行器选择，Assistant/Interaction/协作等
+`local_agent` 持有作品绑定的设备、逐次图片运行授权和调用回执；它不是世界事实或
+作品模型连接的 owner。Project 只为生图选择本机执行器，文字任务使用当前账户连接；
+旧本机文字 task/invocation 与快照失败关闭，历史回执仍可读。Assistant/Interaction/协作等
 领域保留各自的任务与正式写入权。Mac CLI 本地文件变化只属于作者主机；进入产品的
 资料和修改仍经过 Evidence、owner/`novel_id`、确认、来源与事务门禁。
 

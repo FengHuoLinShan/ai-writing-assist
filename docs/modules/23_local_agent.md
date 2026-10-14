@@ -44,6 +44,11 @@ Codex、Claude、Kimi、DSH 或 Pi CLI。**当前唯一用途是图片生成**�
 设备撤销、心跳超时或租约替换后拒绝迟到结果，已见文本/回执可通过项目内接口读取。
 本机任务的异步恢复策略统一为 `never_retry`。
 
+待确认列表与批准入口只处理 `world_object_image_generate` 和 `map_atlas_generate`；
+旧文字 pending task 置为 failed，提示使用当前账户模型重新发起。companion claim
+只下发 `request_json.mode == "image"` 的调用；旧文字或未知模式的 pending invocation
+置为 failed，不返回提示词或新租约。历史回执继续按 owner + novel_id 读取。
+
 离线评测可显式使用 `evals.cli_executor.CLIStructuredExecutor`；既有严格隔离的
 `CodexStructuredExecutor` 默认与现有评测命令保持不变。新执行器仅使用合成/明确授权的
 输入，不能把旧评测结果直接与项目模型质量比较。

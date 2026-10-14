@@ -43,7 +43,7 @@ Imports 纯规划/切分/提交原语准备边界，不创建旧 workflow owner�
   消费。Story 真实投影已逐维度登记本场与继承前缀，重复 ensure 保持登记时间；登记完整时
   改稿只 supersede 命中的 Scene×维度 checkpoint/派生事件，缺登记仍保守扩大，作者确认行标为
   `needs_revalidation` 而不改内容。回执指纹包含来源摘要、消费者集合与影响范围，不包含清理数量、运行编号或时间等临时详情；连续等长改稿仍产生独立提示。
-  Map Atlas 与 `world_canon_revision` 保持显式 unsupported；Story 的 ReaderRevealPolicy 每次读取重判。
+  Map Atlas 的对象/世界书页/待审候选来源与 `world_canon_revision` 保持显式 unsupported；Story 的 ReaderRevealPolicy 每次读取重判。
   权威语义见 [docs/modules/22_evolution.md](../../../docs/modules/22_evolution.md)。
 - 来源身份：`SourceRevisionRef`（章节序号不独自承担来源身份；
   range_hash 由 content_hash + 偏移确定性推导）。场景步的来源绑定
@@ -472,7 +472,7 @@ Discovery 仅对完整来源/资格/身份相同的观察做一对一引用映�
 回执只留原调用；缺 read-set、sampling/failed、schema/Prompt/配置变化均不复用。
 World 分组 scope 使用候选、来源及身份上下文的内容身份，组输入未变可独立复用；不复制
 已物化正史或旧认证，所有独立复核输出仍在当前 scope 重物化。原整场语义相等的早停继承
-继续保留。Story 按字段和实际区间登记失效；world_knowledge/map_atlas/world_canon_revision
+继续保留。Story 按字段和实际区间登记失效；world_knowledge、地图册非正文/待审来源与 world_canon_revision
 缺失来源版本闭包继续明确 unsupported，不据输入缓存宣称这些缝已完成。
 
 `POST /reading/{run_key}/category-rescan-preview` 按已读 Scene 区间及类别注册表选类，
@@ -538,3 +538,9 @@ Prompt、完整证据、输入hash和 mandatory 审查资格不变。工作会�
 窗口准备范围有限，任一未知失败或正常宿主中断后，等待中的链在预留预算/发送前停止，
 已发链仍按原日志真实收尾。身份审查在窗口主复核结束后按批序推进，只见严格更早提案，
 不提前读取后序Scene，不改变Source、Prompt、schema、方法指纹、容量、预算或采用规则。
+
+## 已发布正文变化与地图核对（G8a）
+
+已发布正文变化的地图核对由 World 只读 DI port 推导，作为写作回执建议；不改变 Scene
+登记、失效窗口或重算选项。来源身份、上限、降级与残余覆盖见
+[权威合同](../../../docs/modules/22_evolution.md#已发布正文变化与地图核对g8a)。

@@ -15,7 +15,9 @@ Context 模块测试
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
+from dataclasses import asdict
 from types import SimpleNamespace
 
 import pytest
@@ -27,10 +29,6 @@ from modules.evidence.compilation.contracts import (
 )
 from modules.evidence.compilation.facade import (
     compile_structure_context,
-    render_context_markdown,
-)
-from modules.evidence.compilation.markdown_renderer import (
-    render_context_markdown as render_md,
 )
 from modules.evidence.compilation.services import CompileOptions
 from modules.evidence.compilation.services.context_compiler import ContextCompiler
@@ -847,10 +845,10 @@ class TestContextCompiler:
             viewpoint_character_id=str(char_id),
             visible_until_chapter=2,
         )
-        rendered = render_context_markdown(bundle)
+        serialized = json.dumps(asdict(bundle), ensure_ascii=False)
 
-        assert "错误认知" in rendered
-        assert "真实隐藏真相" not in rendered
+        assert "错误认知" in serialized
+        assert "真实隐藏真相" not in serialized
 
         # 强断言：summary 被 misconception 替换，hidden_truth 字段被移除
         assert bundle.world_entities, "应保留至少一个世界对象"
@@ -1460,191 +1458,12 @@ class TestCompileOptions:
 
 
 # ============================================================
-# Markdown 渲染测试
+# 开放叙事义务编译测试
 # ============================================================
 
 
-class TestMarkdownRenderer:
-    """测试 Markdown 渲染"""
-
-    def test_render_empty_bundle(self) -> None:
-        """空 bundle 应渲染为完整结构"""
-        bundle = StructureContextBundle(
-            novel_id="test-id",
-            task="测试任务",
-            scope="project",
-        )
-        md = render_md(bundle)
-        # 验证基本结构存在
-        assert "# 结构化创作上下文" in md
-        assert "一、当前任务" in md
-        assert "二、必须遵守的硬约束" in md
-        assert "三、当前剧情阶段" in md
-        assert "四、相关人物" in md
-        assert "五、相关世界对象" in md
-        assert "六、相关地理与历史" in md
-        assert "七、相关剧情线" in md
-        assert "八、相关 Memory" in md
-        assert "九、相关伏笔与信息揭示" in md
-        assert "十、禁止事项" in md
-        assert "十一、可用创作素材" in md
-        assert "十二、风险提示" in md
-
-    def test_render_task_section(self) -> None:
-        """任务段落应显示任务信息"""
-        bundle = StructureContextBundle(
-            novel_id="test-id",
-            task="生成第 5 章章节卡",
-            scope="chapter",
-            chapter_index=5,
-        )
-        md = render_md(bundle)
-        assert "生成第 5 章章节卡" in md
-        assert "第 5 章" in md
-
-    def test_render_with_project(self) -> None:
-        """项目信息应出现在当前剧情阶段段落"""
-        bundle = StructureContextBundle(
-            novel_id="test-id",
-            task="测试",
-            scope="project",
-            project={
-                "title": "星辰之旅",
-                "genre": "科幻",
-                "tone": "严肃",
-                "current_stage": "outlining",
-            },
-        )
-        md = render_md(bundle)
-        assert "星辰之旅" in md
-        assert "科幻" in md
-        assert "outlining" in md
-
-    def test_render_with_characters(self) -> None:
-        """人物信息应出现在相关人物段落"""
-        bundle = StructureContextBundle(
-            novel_id="test-id",
-            task="测试",
-            scope="world_character",
-            characters=[
-                {
-                    "name": "林明",
-                    "role": "protagonist",
-                    "current_goal": "寻找失落的文明",
-                    "current_state": "准备出发",
-                    "stance": "正义",
-                    "voice_style": "沉稳",
-                    "character_id": "c1",
-                },
-            ],
-        )
-        md = render_md(bundle)
-        assert "林明" in md
-        assert "protagonist" in md
-        assert "寻找失落的文明" in md
-        assert "知识边界" in md
-
-    def test_render_with_world_entities(self) -> None:
-        """世界对象应出现在相关世界对象段落"""
-        bundle = StructureContextBundle(
-            novel_id="test-id",
-            task="测试",
-            scope="world",
-            world_entities=[
-                {
-                    "name": "艾尔王国",
-                    "entity_type": "location",
-                    "summary": "大陆中央的古老王国",
-                    "public_info": "以魔法文明著称",
-                    "importance_level": "core",
-                },
-                {
-                    "name": "暗影组织",
-                    "entity_type": "faction",
-                    "summary": "秘密操控世界的组织",
-                    "hidden_truth": "幕后黑手是王室",
-                    "importance_level": "important",
-                },
-            ],
-        )
-        md = render_md(bundle)
-        assert "艾尔王国" in md
-        assert "暗影组织" in md
-        assert "大陆中央的古老王国" in md
-
-    def test_render_with_memory(self) -> None:
-        """记忆应出现在 Memory 段落"""
-        bundle = StructureContextBundle(
-            novel_id="test-id",
-            task="测试",
-            scope="full",
-            memory_records=[
-                {
-                    "memory_type": "event",
-                    "title": "主角出发",
-                    "summary": "林明离开村庄开始冒险",
-                    "chapter_index": 1,
-                },
-            ],
-        )
-        md = render_md(bundle)
-        assert "主角出发" in md
-        assert "林明离开村庄开始冒险" in md
-
-    def test_render_with_plot_threads(self) -> None:
-        """剧情线应出现在剧情线段落"""
-        bundle = StructureContextBundle(
-            novel_id="test-id",
-            task="测试",
-            scope="full",
-            plot_threads=[
-                {
-                    "name": "寻找神器",
-                    "thread_type": "main",
-                    "summary": "主角寻找失落神器的旅程",
-                    "current_stage": "启程阶段",
-                },
-            ],
-        )
-        md = render_md(bundle)
-        assert "寻找神器" in md
-        assert "main" in md
-        assert "启程阶段" in md
-
-    def test_render_plot_thread_overdue_notice(self) -> None:
-        """超过计划兑现章且未终结的线渲染超期提示；已终结/未超期不渲染"""
-        bundle = StructureContextBundle(
-            novel_id="test-id",
-            task="测试",
-            scope="full",
-            chapter_index=9,
-            plot_threads=[
-                {
-                    "name": "超期线",
-                    "thread_type": "sub",
-                    "current_stage": "active",
-                    "planned_payoff_chapter": 4,
-                },
-                {
-                    "name": "已收束线",
-                    "thread_type": "sub",
-                    "current_stage": "resolved",
-                    "planned_payoff_chapter": 4,
-                },
-                {
-                    "name": "未到期线",
-                    "thread_type": "background",
-                    "current_stage": "active",
-                    "planned_payoff_chapter": 12,
-                },
-            ],
-        )
-        md = render_md(bundle)
-        assert "已超过计划第 4 章，仍未收束" in md
-        resolved_block = md.split("### [sub] 已收束线", 1)[1].split("###", 1)[0]
-        pending_block = md.split("### [background] 未到期线", 1)[1]
-        assert "仍未收束" not in resolved_block
-        assert "仍未收束" not in pending_block
+class TestNarrativeObligations:
+    """测试编译后的开放叙事义务。"""
 
     def test_open_narrative_obligations_marks_overdue_threads(self) -> None:
         """open_narrative_obligations section 对超期未收束线附加提示"""
@@ -1679,55 +1498,6 @@ class TestMarkdownRenderer:
         assert "已超过计划第 3 章，仍未收束" in obligations.content
         pending_part = obligations.content.split("t-pending", 1)[1]
         assert "仍未收束" not in pending_part
-
-    def test_render_with_warnings(self) -> None:
-        """警告应出现在风险提示段落"""
-        bundle = StructureContextBundle(
-            novel_id="test-id",
-            task="测试",
-            scope="full",
-            warnings=["加载 geo_locations 时出错: 连接超时"],
-            budget_used={"core_entities": 8, "characters": 6},
-        )
-        md = render_md(bundle)
-        assert "加载 geo_locations" in md
-
-
-# ============================================================
-# Static Renderer Tests (no DB needed)
-# ============================================================
-
-
-class TestFacadeRenderContextMarkdown:
-    """测试 facade.render_context_markdown（静态渲染，无需 DB）"""
-
-    def test_facade_render(self) -> None:
-        """facade 的 render_context_markdown 应正常工作"""
-        bundle = StructureContextBundle(
-            novel_id="test-id",
-            task="静态渲染测试",
-            scope="project",
-        )
-        md = render_context_markdown(bundle)
-        assert isinstance(md, str)
-        assert "静态渲染测试" in md
-
-    def test_facade_render_with_data(self) -> None:
-        """带数据的渲染"""
-        bundle = StructureContextBundle(
-            novel_id="test-id",
-            task="带数据渲染",
-            scope="world_character",
-            project={"title": "测试", "genre": "玄幻"},
-            characters=[{"name": "张三", "role": "protagonist"}],
-            world_entities=[
-                {"name": "灵界", "entity_type": "location", "summary": "修炼世界"}
-            ],
-        )
-        md = render_context_markdown(bundle)
-        assert "测试" in md
-        assert "张三" in md
-        assert "灵界" in md
 
 
 # ============================================================

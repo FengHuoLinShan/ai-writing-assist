@@ -92,9 +92,11 @@ S3 凭据；运行时应用用户不能创建 bucket 或修改 bucket policy，�
 禁用管理控制台，只位于内部 data network。release 会先使 PostgreSQL、embedding、MinIO 和
 initializer 就绪，之后才启动 API/worker。
 
-`minio-data` 是单盘 named volume，两个 bucket 的 32GiB 配额即生产对象数据硬上限。首版没有
-外部图片备份；磁盘故障会丢失地图册与对象图片，这是已接受的上线风险，不能把 PostgreSQL 或
-restic 数据库备份当作图片恢复方案。
+`minio-data` 是单盘 named volume，两个 bucket 的 32GiB 配额即生产对象数据硬上限。
+对象副本由独立脚本写到同机 `deploy/backups/objects/`，不在 MinIO 卷内；它覆盖误删和桶损坏，
+不能抵抗整盘故障。数据库/restic 本身不包含图片；作者本机导出（G4b，尚未实现）及以后 B2
+才提供独立设备副本。对象副本不上传 B2。独立 `MINIO_BACKUP_ACCESS_KEY` / `MINIO_BACKUP_SECRET_KEY`
+必须与 root、应用身份不同，initializer 只给备份身份两桶 List/Get。
 
 ## 首次发布
 
@@ -315,6 +317,65 @@ checksum 后、safety backup 和任何数据库替换前走同一停服门槛。
 会让 application services 保持停止并需要人工恢复。代价是作者和读者在发布/恢复期间会短暂不可用，收益是避免
 旧代码与新 schema 或已替换依赖容器重叠；这不是零停机方案，也不表示生产演练已完成。
 
+## 私有图片副本与恢复（ADR-0034）
+
+本地实现不等于生产已启用。生产仅在另获发布授权后走 `release.sh <40 位 origin/main SHA>`，
+配置独立备份凭据、运行 initializer、安装 object backup unit/timer，并做一次只读对账。
+DB timer 是 02:17，对象 timer 为 03:17；共用 production-operation.lock，不进入发布停机门禁。
+两个对象运维入口先经 `load_release_id` 核验已完成发布状态并加载固定 SHA 镜像标签，
+不依赖交互 shell 的 `RELEASE_ID`；状态损坏在任何 Compose 调用前拒绝。
+
+```bash
+bash deploy/scripts/backup_objects.sh
+# 运维恢复；先按既有流程恢复与清单 timestamp/hash 匹配的 DB dump：
+bash deploy/scripts/restore_objects.sh deploy/backups/objects <timestamp>
+# 或直接校验、解包并恢复私有作者图片 ZIP（无 DB 配对）：
+bash deploy/scripts/restore_objects.sh /private/path/图片包.zip
+make test-object-restore-drill-real
+```
+
+备份先 pg_dump，再在 `--network none` 临时 PG 真实恢复和读取引用，最后一次性 ops 服务流式读取
+MinIO。覆盖全部 candidate/adopted/rejected/deprecated 地图页与 mask、当前对象 full/thumbnail。
+新增快照的清单与同批 DB dump 共享 timestamp 并保存 DB SHA-256；旧 dump 不可随意与新对象清单拼配。
+临时 PG 数据使用本次新建的匿名磁盘卷，PGDATA 0700、UID/GID 999，不用固定 2GiB tmpfs
+截断合法大库。无网络、只读根文件系统及 1 CPU/2GiB 内存上限仍保留；成功/失败仅清理
+本次容器及其匿名卷（`docker rm -fv`），不使用 MinIO 或生产 PG 卷。磁盘不足会失败并保留 DB pair，
+生产启用前须核验 Docker 数据盘剩余空间足以同时容纳源库、dump 与临时恢复库。
+
+目录布局和后续 G4b ZIP 完全一致：`snapshots/<timestamp>/manifest.json`、`manifest.sha256`，
+以及 `objects/<bucket>/<immutable key>`（作者包允许每行 `file` 指向中文文件名）。清单 v1 以 `source_kind` 区分 server_snapshot（真实 DB timestamp/hash/dump 配对）与
+author_export（不包含 DB 配对）。共用 timestamp 和每行字段；可选 `file` 指向 objects 下中文
+相对文件名，缺省为 bucket/key。字段与状态以
+[ADR-0034](../docs/adr/0034-db-paired-private-object-backups.md) 和 `object_backup.py` 为准；
+清单/key 是私有运维资料，不通过浏览器 API 暴露。目录 0700、文件 0600，拒绝 symlink；镜像
+只在缺 key、hash 不符或没有可信缓存时流式复制；已有不超过 retention 的合法清单提供 hash，
+本地 hash/size 校验后用源 HEAD 校验存在/size/metadata，命中时不做 GET，仍能识别 dump 后删除。单个对象缺失或损坏记
+missing/failed 后继续复制其余对象，收尾摘要按状态计数；传输、权限或本地磁盘故障停止本轮，其余留 pending。读取失败/中断留下 incomplete；不完整
+清单不能用于恢复。保留清单按 timestamp 最多 30 天；无保留引用且年龄超 retention 的对象清理。
+损坏或发布中断的历史清单不提供缓存，输出脱敏告警，新快照仍继续复制和校验。垃圾回收仍失败关闭，
+不删除无法核实的历史清单或对象；新备份状态与保留清理结果分别报告，清理失败时命令退出码为 1，
+需运维核对。失败、损坏或停用调度可能延迟删除，必须告警与修复，不能承诺
+无人维护时仍按时删除。项目/账号永久清除后，旧前缀按相同期限老化。
+
+restore_objects.sh 可直接接收私有 ZIP，使用一次性 ops 服务白名单解包到 0700 临时目录，
+失败或退出清理临时文件；目录、ZIP 两种输入都先核对全部文件与目标 DB，再执行任何桶写入。
+独立运维工具也提供 `object_backup.py unpack`，只需两桶名称，不需 S3 凭据。ZIP 只允许清单与所列对象，拒绝缺项、
+额外项、重复路径和 hash 错误。G4b 作者打包 UI 尚未实现。图片包不恢复 DB；恢复前先读取目标 DB 引用并核对 novel_id/bucket/key 以及可用 hash/size，
+不匹配则失败关闭，不支持跨项目图片导入。server_snapshot 应先恢复配对 dump；author_export
+不得宣称具有 DB 快照一致性。恢复 initializer 先重建私有桶、
+versioning、8GiB/24GiB 配额；应用身份回灌并对账存在/hash/size/可解码/metadata/novel key。
+恢复失败不回滚已写的精确 key，可修复原因后重跑；发布回退不删除图片。
+
+真实合成演练只使用缓存固定 image：环境变量 `OBJECT_DRILL_POSTGRES_IMAGE`、`OBJECT_DRILL_MINIO_IMAGE`、
+`OBJECT_DRILL_MC_IMAGE` 可指定缓存 digest，`OBJECT_DRILL_RUNTIME_IMAGE` 默认 `audit-g4a-runtime:locked`。
+先从未修改的 `backend/Dockerfile` 构建专用 runtime image，再运行目标；不拉取运行时测试镜像、
+不访问生产 env/数据/volume、不发布主机端口。PG/MinIO 为专用 `audit-g4a-*` 容器，network none；
+短期 client 共享其隔离 namespace，只能访问内部回环 S3。演练真实检查两桶权限/配额/versioning、
+七张合成 PNG/WebP、metadata、dump 后 live 删除、源对象缺失和流中断反例，并输出实测 RPO/RTO。
+`run_object_restore_drill.py --author-only` 复用真实环境另验 author_export ZIP（无 DB SHA、中文
+文件名、目标 DB 归属匹配），不用浏览器端点或 UI。`--snapshot-volume-only` 单独验证匿名卷 PGDATA 权限、真实 dump 恢复/
+引用 SQL，以及成功/坏归档失败后的本次容器与匿名卷删除；不重复图片演练。这些小样本时延不是生产容量 SLA。
+
 ## 备份、恢复和账号清理
 
 手动备份：
@@ -326,8 +387,8 @@ bash deploy/scripts/backup.sh
 备份写入 `deploy/backups/`，使用隔离、无网络且不挂载生产 volume 的一次性 `pg_restore --list`
 容器验证并生成 SHA-256 sidecar，然后由 restic 加密、去重后上传私有 Backblaze B2。该归档
 校验不依赖已经运行的 PostgreSQL，因此 restore 在冷启动主机上也能在破坏性确认前完成归档预检。
-保留 7 个 daily、4 个 weekly 和 6 个
-monthly 快照；超过 `BACKUP_RETENTION_DAYS` 的本地备份会自动清理。脚本在开始、成功
+restic 用 `--keep-within 30d --prune`；`BACKUP_RETENTION_DAYS` 必须为 1–30，
+超过这个时长的本地 dump/checksum 会自动清理。脚本在开始、成功
 或失败时 ping Healthchecks.io；告警收件人只由私有监控配置决定。
 
 备份与恢复都将 `deploy/backups/` 当作私有文件系统边界：脚本会以原子创建或打开的目录
@@ -402,12 +463,14 @@ bash deploy/scripts/restore.sh \
 ```bash
 systemctl daemon-reload
 systemctl enable --now ai-writing-backup.timer
+# 完成对象副本生产启用授权、凭据配置和只读对账后：
+systemctl enable --now ai-writing-object-backup.timer
 systemctl enable --now ai-writing-account-maintenance.timer
 systemctl enable --now ai-writing-runtime-health.timer
 systemctl list-timers 'ai-writing-*'
 ```
 
-backup oneshot 的保守 `TimeoutStartSec` 为 4 小时，account-maintenance 为 1 小时；两者都使用
+DB/object backup oneshot 的保守 `TimeoutStartSec` 为 4 小时，account-maintenance 为 1 小时；两者都使用
 `TimeoutStopSec=2m` 与 `KillMode=control-group`。超时会令该 service 失败，并在给予 shell/Docker CLI
 子进程 TERM/cleanup 窗口后由 systemd 结束整个 control group；Healthchecks 的 `/fail` 或 missed ping
 仍是告警路径，进程终止后 OS 会释放共享 operation lock。两项 service 还 `Wants`/`After=network-online.target`，这只保证启动排序，不证明 Internet、
@@ -431,7 +494,7 @@ ping 告警。operation lock 持有时 runtime 的无 ping skip 是预期行为�
 5. OpenResty 配置测试通过，只有 80/443 对公网开放。
 6. `verify_public.sh` 通过。
 7. B2 加密备份成功，并完成恢复演练。
-8. systemd 的 backup、account-maintenance 和 runtime-health 三个 timer 正常，Healthchecks
+8. systemd 的 backup、object-backup、account-maintenance 和 runtime-health 四个 timer 正常，Healthchecks
    邮件告警已完成 `/fail` 与 missed ping 演练。
 9. 一个真实账户在设置页完成文本与图片连接验证；首次付费生图另行确认权限和额度，验收记录和日志不保存 Key、请求正文或用户内容。
 

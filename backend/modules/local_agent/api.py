@@ -41,6 +41,8 @@ from modules.project.facade import (
 )
 
 _MAX_OUTPUT_BYTES = 20 * 1024 * 1024
+_IMAGE_TASK_TYPES = {"world_object_image_generate", "map_atlas_generate"}
+_TEXT_RETIRED_MESSAGE = "本机设备只运行图片任务；历史文字任务请使用当前账户模型重新发起。"
 
 router = APIRouter(prefix="/api/local-agent", tags=["local-agent"])
 
@@ -265,12 +267,29 @@ async def get_executor(db: DbSession, novel_id: uuid.UUID):
 @router.get("/tasks/pending")
 async def pending_approvals(db: DbSession, novel_id: uuid.UUID):
     await require_active_project(db, str(novel_id))
+    legacy_tasks = (
+        await db.scalars(
+            select(AsyncTask)
+            .where(
+                AsyncTask.novel_id == novel_id,
+                AsyncTask.status == "pending",
+                AsyncTask.meta["_local_agent"].as_boolean().is_(True),
+                AsyncTask.task_type.not_in(_IMAGE_TASK_TYPES),
+            )
+            .with_for_update()
+        )
+    ).all()
+    for task in legacy_tasks:
+        task.mark_failed(_TEXT_RETIRED_MESSAGE)
+    if legacy_tasks:
+        await db.commit()
     rows = (
         await db.scalars(
             select(AsyncTask)
             .where(
                 AsyncTask.novel_id == novel_id,
                 AsyncTask.status == "pending",
+                AsyncTask.task_type.in_(_IMAGE_TASK_TYPES),
                 AsyncTask.meta["_local_agent"].as_boolean().is_(True),
                 AsyncTask.meta["_local_approved"].as_boolean().is_(False),
             )
@@ -279,11 +298,6 @@ async def pending_approvals(db: DbSession, novel_id: uuid.UUID):
         )
     ).all()
     labels = {
-        "assistant_turn": "项目助手",
-        "assistant_forecast": "前瞻分析",
-        "collaboration_run": "创作协作",
-        "interaction_continuity_review": "旅程连续性检查",
-        "story_one_click": "场景排演",
         "world_object_image_generate": "对象图片生成",
         "map_atlas_generate": "地图册生成",
     }
@@ -417,6 +431,10 @@ async def approve_task(db: DbSession, task_id: uuid.UUID, data: LocalApproval):
         or not (task.meta or {}).get("_local_agent")
     ):
         raise NotFoundError("待确认的本机任务不存在")
+    if task.task_type not in _IMAGE_TASK_TYPES:
+        task.mark_failed(_TEXT_RETIRED_MESSAGE)
+        await db.commit()
+        raise ValidationError(_TEXT_RETIRED_MESSAGE)
     device = await db.get(LocalAgentDevice, uuid.UUID(task.meta["_local_device_id"]))
     if (
         device is None
@@ -459,12 +477,17 @@ async def claim_invocation(db: DbSession, authorization: str | None = Header(Non
     ).all()
     for task in waiting_tasks:
         if (task.meta or {}).get("_local_device_id") == str(device.id):
-            task.meta = {**task.meta, "_local_ready": True}
+            if task.task_type not in _IMAGE_TASK_TYPES:
+                task.mark_failed(_TEXT_RETIRED_MESSAGE)
+            else:
+                task.meta = {**task.meta, "_local_ready": True}
     invocation = (
         await db.execute(
             select(LocalAgentInvocation)
             .where(
                 LocalAgentInvocation.device_id == device.id,
+                LocalAgentInvocation.novel_id == device.novel_id,
+                LocalAgentInvocation.owner_id == device.owner_id,
                 LocalAgentInvocation.status == "pending",
             )
             .order_by(LocalAgentInvocation.created_at, LocalAgentInvocation.id)
@@ -475,9 +498,15 @@ async def claim_invocation(db: DbSession, authorization: str | None = Header(Non
     if invocation is None:
         await db.commit()
         return {"job": None}
+    if invocation.request_json.get("mode") != "image":
+        invocation.status = "failed"
+        invocation.error = _TEXT_RETIRED_MESSAGE
+        await db.commit()
+        return {"job": None}
     task = await db.get(AsyncTask, invocation.task_id)
     if (
         task is None
+        or task.novel_id != device.novel_id
         or task.status != "running"
         or str(task.lease_id) != invocation.request_json.get("task_lease_id")
     ):

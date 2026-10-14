@@ -65,3 +65,9 @@ account 拥有；项目作者偏好、项目覆盖与 effective composition 由 
 `(owner_id, source_project_id, source_version)` 幂等创建或恢复一个拥有新 UUID 的作者项目，复制
 可编辑资产及私有媒体，排除凭据、RP、任务/候选和可重建索引。此例外不改变普通项目的 owner +
 `novel_id` 门禁，也不建立跨项目写入或长期 source 引用。
+
+## 2026-10-14 图片备份与导出边界修订
+
+[ADR-0034](0034-db-paired-private-object-backups.md) 授权服务器对象副本和后续作者手动图片导出包，
+修订本 ADR 的数据导出非目标，仅限两个私有图片 bucket；本轮 G4a 无导出 UI。owner + novel_id 门禁、
+账户删除等待期与备份最多 30 天不变；不开放通用账号数据下载、自动设备同步或自助上传恢复。

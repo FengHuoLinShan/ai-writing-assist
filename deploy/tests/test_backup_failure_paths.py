@@ -17,9 +17,7 @@ def _backup_fixture(tmp_path: Path) -> tuple[Path, dict[str, str], Path]:
     scripts = deploy_root / "scripts"
     shutil.copytree(DEPLOY_ROOT / "scripts", scripts)
     environment_file = deploy_root / ".env.production"
-    shutil.copy2(
-        DEPLOY_ROOT / "tests" / "fixtures" / "closed-test.env", environment_file
-    )
+    shutil.copy2(DEPLOY_ROOT / "tests" / "fixtures" / "closed-test.env", environment_file)
     environment_file.chmod(0o600)
 
     fake_bin = tmp_path / "bin"
@@ -217,8 +215,7 @@ def test_archive_verifier_fails_closed_when_the_missing_image_cannot_be_pulled(
 
     result = _run_backup(
         repo_root,
-        environment
-        | {"FAKE_IMAGE_INSPECT_STATUS": "1", "FAKE_IMAGE_PULL_STATUS": "1"},
+        environment | {"FAKE_IMAGE_INSPECT_STATUS": "1", "FAKE_IMAGE_PULL_STATUS": "1"},
     )
 
     assert result.returncode != 0

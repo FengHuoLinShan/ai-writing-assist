@@ -6,10 +6,9 @@ Context 模块单元测试
 2. ContextCompiler 调度逻辑 (context_compiler.py)
 3. 各 Loader 加载逻辑 (services/loaders/*.py)
 4. Facade 入口函数 (facade.py)
-5. Markdown 渲染边界条件 (markdown_renderer.py)
-6. API 路由 (api.py)
-7. 契约边界条件 (contracts.py)
-8. Schema 校验 (schemas.py)
+5. API 路由 (api.py)
+6. 契约边界条件 (contracts.py)
+7. Schema 校验 (schemas.py)
 """
 
 from __future__ import annotations
@@ -58,7 +57,6 @@ from modules.evidence.contracts import (
 )
 from modules.evidence.facade import (
     compile_structure_context,
-    render_context_markdown,
 )
 
 _ALL_SCOPE_LOADER_NAMES = sorted(
@@ -1853,17 +1851,6 @@ class TestOutlineArcLoader:
 class TestFacade:
     """测试 facade 入口函数"""
 
-    def test_render_context_markdown_static(self) -> None:
-        """render_context_markdown 应委托给 markdown_renderer"""
-        bundle = StructureContextBundle(
-            novel_id="test-id",
-            task="测试渲染",
-            scope="project",
-        )
-        md = render_context_markdown(bundle)
-        assert "# 结构化创作上下文" in md
-        assert "测试渲染" in md
-
     @pytest.mark.asyncio
     async def test_compile_structure_context_delegates_to_compiler(self) -> None:
         """compile_structure_context 应构造 CompileOptions 并调用 compiler.compile"""
@@ -1890,199 +1877,6 @@ class TestFacade:
 
             assert result.novel_id == "id"
             mock_compile.assert_awaited_once()
-
-
-# ============================================================
-# 5. Markdown 渲染边界条件
-# ============================================================
-
-
-class TestMarkdownRendererEdgeCases:
-    """测试 Markdown 渲染器边界条件"""
-
-    def test_render_with_panorama_memory_format(self) -> None:
-        """全景 dict 格式的 memory_records 应被正确渲染"""
-        bundle = StructureContextBundle(
-            novel_id="test-id",
-            task="测试",
-            scope="full",
-            memory_records={
-                "entities": [
-                    {"name": "主角", "entity_type": "character", "importance": 0.9}
-                ],
-                "relations": [
-                    {"source_id": "s1", "target_id": "t1", "relation_type": "ally"}
-                ],
-                "character_locations": {
-                    "c1": {"location_id": "loc1", "text_state": "休息中"}
-                },
-                "chapter_index": 3,
-            },
-        )
-        md = render_context_markdown(bundle)
-        assert "第 3 章关系全景" in md
-        assert "主角" in md
-        assert "ally" in md
-
-    def test_render_with_budget_warnings(self) -> None:
-        """预算用尽或接近上限应在风险提示中显示"""
-        bundle = StructureContextBundle(
-            novel_id="test-id",
-            task="测试",
-            scope="full",
-            budget_used={"core_entities": 8, "characters": 5},
-        )
-        md = render_context_markdown(bundle)
-        assert "预算已用尽" in md
-        assert "core_entities" in md
-
-    def test_render_singleton_budget_used_without_budget_warnings(self) -> None:
-        """singleton 资源的 budget_used 不应触发预算用尽噪声"""
-        bundle = StructureContextBundle(
-            novel_id="test-id",
-            task="测试",
-            scope="full",
-            budget_used={"project": 1, "scene": 1, "outline_arc": 1},
-        )
-
-        md = render_context_markdown(bundle)
-
-        assert "预算已用尽" not in md
-
-    def test_render_with_hidden_plot_threads_in_forbidden(self) -> None:
-        """hidden 类型的剧情线应在禁止事项中列出"""
-        bundle = StructureContextBundle(
-            novel_id="test-id",
-            task="测试",
-            scope="full",
-            plot_threads=[
-                {
-                    "name": "暗线",
-                    "thread_type": "hidden",
-                    "hidden_truth": "幕后黑手是国王",
-                },
-            ],
-        )
-        md = render_context_markdown(bundle)
-        assert "暗线" in md
-        assert "幕后黑手是国王" in md
-
-    def test_render_with_geo_locations(self) -> None:
-        """地缘数据应正确渲染"""
-        mock_loc = MagicMock()
-        mock_loc.name = "王城"
-        mock_loc.location_level = "capital"
-        mock_loc.summary = "大陆中心"
-        mock_loc.terrain = "平原"
-        mock_loc.climate = "温带"
-        mock_loc.access_level = "public"
-
-        mock_edge = MagicMock()
-        mock_edge.relation_type = "road"
-        mock_edge.direction_label = "北门"
-        mock_edge.difficulty = "easy"
-
-        bundle = StructureContextBundle(
-            novel_id="test-id",
-            task="测试",
-            scope="full",
-            geo_locations=[
-                {
-                    "location": mock_loc,
-                    "edges": [mock_edge],
-                    "parent_locations": [],
-                    "child_locations": [],
-                    "current_era": None,
-                },
-            ],
-        )
-        md = render_context_markdown(bundle)
-        assert "王城" in md
-        assert "capital" in md
-        assert "平原" in md
-        assert "road" in md
-
-    def test_render_empty_geo_returns_no_data(self) -> None:
-        """空 geo_locations 应显示无相关数据"""
-        bundle = StructureContextBundle(
-            novel_id="test-id",
-            task="测试",
-            scope="full",
-            geo_locations=[],
-        )
-        md = render_context_markdown(bundle)
-        assert "无相关数据" in md
-
-    def test_render_foreshadowing_from_chapter_card(self) -> None:
-        """从 chapter_card 提取伏笔信息"""
-        bundle = StructureContextBundle(
-            novel_id="test-id",
-            task="测试",
-            scope="chapter",
-            chapter_card={
-                "foreshadowing_actions": [
-                    {"description": "埋下戒指伏笔"},
-                    {"action": "主角梦到未来"},
-                ],
-                "must_happen": ["主角必须到达王城"],
-                "must_not_happen": ["主角死亡"],
-            },
-        )
-        md = render_context_markdown(bundle)
-        assert "埋下戒指伏笔" in md
-        assert "主角必须到达王城" in md
-        assert "主角死亡" in md
-
-    def test_render_creative_materials_with_entity_tags(self) -> None:
-        """可用创作素材应包含实体标签"""
-        bundle = StructureContextBundle(
-            novel_id="test-id",
-            task="测试",
-            scope="full",
-            world_entities=[
-                {"id": "e1", "name": "王国"},
-                {"id": "e2", "name": "神器"},
-            ],
-            characters=[
-                {"character_id": "c1", "name": "英雄"},
-            ],
-            rag_chunks=[
-                {
-                    "text": "关于王国的古老传说",
-                    "score": 0.92,
-                    "source_type": "world_entity",
-                    "chapter_index": 3,
-                    "meta": {"arc_name": "第一卷"},
-                    "entity_ids": ["e1", "e2"],
-                    "character_ids": ["c1"],
-                },
-            ],
-        )
-        md = render_context_markdown(bundle)
-        assert "#王国" in md
-        assert "#神器" in md
-        assert "@英雄" in md
-        assert "0.92" in md
-        assert "第一卷" in md
-
-    def test_render_risks_no_warnings(self) -> None:
-        """无警告时应显示无相关风险"""
-        bundle = StructureContextBundle(
-            novel_id="test-id",
-            task="测试",
-            scope="project",
-        )
-        md = render_context_markdown(bundle)
-        assert "无相关风险" in md
-
-    def test_section_renderer_fallback(self) -> None:
-        """未识别的段落 key 应返回 fallback 内容"""
-        from modules.evidence.compilation.markdown_renderer import _get_section_renderer
-
-        bundle = StructureContextBundle(novel_id="id", task="t", scope="project")
-        renderer = _get_section_renderer("nonexistent_key")
-        result = renderer(bundle)
-        assert result == "无相关数据\n"
 
 
 # ============================================================

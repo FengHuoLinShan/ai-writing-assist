@@ -1,0 +1,4 @@
+Fixed IR: fixed-ir.json
+Byte comparison with render-before.md: identical
+SHA256: 6af9283cc8145bef1fe15466992580a07fa3d3474dadea7e78b86e2212d10d74
+UTF-8 byte length: 967

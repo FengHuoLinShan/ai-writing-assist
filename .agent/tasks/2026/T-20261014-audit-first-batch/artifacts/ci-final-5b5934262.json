@@ -1,0 +1,221 @@
+{
+  "baseRefOid": "fdd3ec59886e29cc5c9189a1c0fefa225cdc997f",
+  "headRefOid": "5b5934262dc030e8202883931e7b5d4e5c16ec28",
+  "isDraft": true,
+  "mergeStateStatus": "CLEAN",
+  "mergeable": "MERGEABLE",
+  "state": "OPEN",
+  "statusCheckRollup": [
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-14T07:06:30Z",
+      "conclusion": "CANCELLED",
+      "detailsUrl": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38526221991/job/115727080794",
+      "name": "Architecture docs",
+      "startedAt": "2026-10-14T07:06:29Z",
+      "status": "COMPLETED",
+      "workflowName": "Architecture docs"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-14T07:06:45Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38526223806/job/115727091407",
+      "name": "Architecture docs",
+      "startedAt": "2026-10-14T07:06:33Z",
+      "status": "COMPLETED",
+      "workflowName": "Architecture docs"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-14T07:16:12Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38527193437/job/115730222353",
+      "name": "Architecture docs",
+      "startedAt": "2026-10-14T07:15:54Z",
+      "status": "COMPLETED",
+      "workflowName": "Architecture docs"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-14T07:22:27Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38527870687/job/115732416632",
+      "name": "Architecture docs",
+      "startedAt": "2026-10-14T07:22:15Z",
+      "status": "COMPLETED",
+      "workflowName": "Architecture docs"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-14T07:11:07Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38526221987/job/115727081136",
+      "name": "Backend quality",
+      "startedAt": "2026-10-14T07:06:31Z",
+      "status": "COMPLETED",
+      "workflowName": "Backend CI"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-14T07:07:19Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38526222040/job/115727081157",
+      "name": "CodeQL (actions)",
+      "startedAt": "2026-10-14T07:06:31Z",
+      "status": "COMPLETED",
+      "workflowName": "CodeQL"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-14T07:07:49Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38526222044/job/115727082014",
+      "name": "Frontend unit quality",
+      "startedAt": "2026-10-14T07:06:31Z",
+      "status": "COMPLETED",
+      "workflowName": "Frontend CI"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-14T07:08:14Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38526221988/job/115727081148",
+      "name": "Production image contract",
+      "startedAt": "2026-10-14T07:06:31Z",
+      "status": "COMPLETED",
+      "workflowName": "Production Image CI"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-14T07:06:38Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38526221981/job/115727081351",
+      "name": "binary-growth",
+      "startedAt": "2026-10-14T07:06:31Z",
+      "status": "COMPLETED",
+      "workflowName": "repo-gates"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-14T07:08:21Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38526222040/job/115727081432",
+      "name": "CodeQL (javascript-typescript)",
+      "startedAt": "2026-10-14T07:06:31Z",
+      "status": "COMPLETED",
+      "workflowName": "CodeQL"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-14T07:09:20Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38526222040/job/115727081368",
+      "name": "CodeQL (python)",
+      "startedAt": "2026-10-14T07:06:30Z",
+      "status": "COMPLETED",
+      "workflowName": "CodeQL"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-14T07:09:33Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38526221987/job/115727081429",
+      "name": "PostgreSQL critical",
+      "startedAt": "2026-10-14T07:06:31Z",
+      "status": "COMPLETED",
+      "workflowName": "Backend CI"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-14T07:06:42Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38526222044/job/115727081678",
+      "name": "Browser change classification",
+      "startedAt": "2026-10-14T07:06:31Z",
+      "status": "COMPLETED",
+      "workflowName": "Frontend CI"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-14T07:06:42Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38526221981/job/115727081269",
+      "name": "file-size",
+      "startedAt": "2026-10-14T07:06:31Z",
+      "status": "COMPLETED",
+      "workflowName": "repo-gates"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-14T07:18:30Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38526222044/job/115727150163",
+      "name": "Frontend functional browser shard 1",
+      "startedAt": "2026-10-14T07:06:44Z",
+      "status": "COMPLETED",
+      "workflowName": "Frontend CI"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-14T07:06:38Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38526221981/job/115727081315",
+      "name": "release-evidence",
+      "startedAt": "2026-10-14T07:06:30Z",
+      "status": "COMPLETED",
+      "workflowName": "repo-gates"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-14T07:17:21Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38526222044/job/115727150262",
+      "name": "Frontend functional browser shard 2",
+      "startedAt": "2026-10-14T07:06:46Z",
+      "status": "COMPLETED",
+      "workflowName": "Frontend CI"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-14T07:18:42Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38526222044/job/115731133980",
+      "name": "Frontend functional browser",
+      "startedAt": "2026-10-14T07:18:33Z",
+      "status": "COMPLETED",
+      "workflowName": "Frontend CI"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-14T07:06:45Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38526221981/job/115727081012",
+      "name": "module-imports",
+      "startedAt": "2026-10-14T07:06:31Z",
+      "status": "COMPLETED",
+      "workflowName": "repo-gates"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-14T07:07:13Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/FengHuoLinShan/ai-writing-assist/runs/115727304722",
+      "name": "CodeQL",
+      "startedAt": "2026-10-14T07:07:10Z",
+      "status": "COMPLETED",
+      "workflowName": ""
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-14T07:06:36Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://dashboard.gitguardian.com",
+      "name": "GitGuardian Security Checks",
+      "startedAt": "2026-10-14T07:06:29Z",
+      "status": "COMPLETED",
+      "workflowName": ""
+    }
+  ],
+  "url": "https://github.com/FengHuoLinShan/ai-writing-assist/pull/227"
+}

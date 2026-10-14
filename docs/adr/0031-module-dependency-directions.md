@@ -69,7 +69,7 @@ core↔worldbuilding；第二批 assistant 相关六对；第三批剩余 13 个
 | assistant ↔ imports | imports → assistant（既有插件 SPI contracts 通道：`ForecastDomainFact`/`AssistantOperation` 纯类型导入，冻结事实；与理想分层相反，同法物化留待后续批次） | assistant proactive 活跃导入检查经 `imports.get_active_organization` DI 键 |
 | assistant ↔ interaction | interaction → assistant（既有主导方向：RP journey 经 assistant facade 消费 forecast/notices，persona 经组合根注册；L3→L4 与理想分层相反，冻结事实，完整反转留待后续批次） | assistant proactive 连续性复核经 `interaction.read_continuity_review` DI 键 |
 | assistant ↔ world | world → assistant（既有插件 SPI contracts 通道，冻结事实） | assistant capabilities 地图与 team stress 复核经 `world.map_capabilities`、`world.review_team_stress` DI 键 |
-| evolution ↔ world | evolution → world（L3→L2） | world 理解来源重验经 `evolution.require_current_world_candidate` DI 键 |
+| evolution ↔ world | evolution → world（L3→L2） | world 理解来源重验经 `evolution.require_current_world_candidate` DI 键；Evolution 核对当前地图已发布正文来源经 `world.read_map_chapter_consumers` 只读 DI 键，消费方 Protocol，组合根注册 |
 | evolution ↔ writing | evolution → writing（L3→L2） | writing 源变更失效经 `evolution.record_writing_source_change` DI 键 |
 | project ↔ writing | writing → project（L2→L1） | project 作者任务章节来源解析改用既有 `writing.list_latest_drafts_for_chapters` DI 键 |
 | project ↔ story | story → project（L2→L1） | project 作者任务 Scene 来源解析经 `story.get_scene_contract` DI 键 |

@@ -614,6 +614,7 @@ CONSUMER_LABELS: Mapping[str, str] = {
     "story_state": "场景派生状态",
     "story_scene_projections": "场景派生投影",
     "scene_event_order": "场景事件顺序",
+    "map_atlas": "地图册",
 }
 
 
@@ -646,11 +647,35 @@ def receipt_fingerprint(receipt: InvalidationReceipt) -> str:
                     "requested_hash",
                 }
             },
+            "canonical_source": {
+                key: receipt.invalidated_consumers.get("canonical_chapter_index", {}).get(
+                    key
+                )
+                for key in ("requested_source_id", "requested_hash")
+            },
+            "map_atlas": receipt.invalidated_consumers.get("map_atlas"),
             "earliest_affected_scene_index": receipt.earliest_affected_scene_index,
             "nothing_to_do": receipt.nothing_to_do,
             "coverage_note": receipt.coverage_note,
         }
     )
+
+
+def _map_affected_entries(receipt: InvalidationReceipt) -> list[dict[str, Any]]:
+    return [
+        {
+            "consumer": "map_atlas",
+            "scene_index": None,
+            "chapter_index": item["chapter_index"],
+            "map_title": item["title"],
+            "node_id": item["node_id"],
+            "revision_id": item["revision_id"],
+            "reason": "canonical_map_source_changed",
+            "basis": "known",
+            "note": "地图引用的已发布正文版本已变化，请手动核对；地图内容未改动",
+        }
+        for item in receipt.invalidated_consumers.get("map_atlas", {}).get("maps", [])
+    ]
 
 
 def affected_view_entries(
@@ -702,9 +727,10 @@ def affected_view_entries(
                     "note": f"场景 #{scene_index} 无消费登记，按保守扩大失效",
                 }
             )
+        entries.extend(_map_affected_entries(receipt))
         return entries
     for key, detail in receipt.invalidated_consumers.items():
-        if key in ("interaction_source_cache",):
+        if key in ("interaction_source_cache", "map_atlas"):
             continue  # 辅助清理动作不是"受影响消费者"
         entries.append(
             {
@@ -722,6 +748,7 @@ def affected_view_entries(
                 "detail": detail,
             }
         )
+    entries.extend(_map_affected_entries(receipt))
     return entries
 
 

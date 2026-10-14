@@ -1,0 +1,41 @@
+mkdir -p /Users/tywww/Desktop/项目/ai-writing-assist/.worktrees/audit-first-batch/backend/.test-artifacts
+cd /Users/tywww/Desktop/项目/ai-writing-assist/.worktrees/audit-first-batch/backend && RUN_E2E_TESTS=1 ./.venv/bin/python -m pytest tests/e2e/test_guided_flow_start_concurrency.py tests/e2e/test_00_fresh_migrations.py tests/e2e/test_event_soft_delete_concurrency.py tests/e2e/test_context_retrieval_trace_queries.py tests/e2e/test_context_terminal_concurrency.py tests/e2e/test_import_migrations_pg.py tests/e2e/test_import_upload_commit_visibility.py tests/e2e/test_interaction_generation_concurrency.py tests/e2e/test_project_task_gate_concurrency.py tests/e2e/test_rp_source_versions.py tests/e2e/test_scene_memory_checkpoint_concurrency.py tests/e2e/test_smart_dedup_group_savepoint.py tests/e2e/test_task_coalescing_concurrency.py tests/e2e/test_task_run_envelope_postgres.py tests/e2e/test_writing_route_commit_visibility.py tests/e2e/test_writing_version_concurrency.py tests/e2e/test_image_reuse_concurrency.py tests/e2e/test_world_relation_membership_concurrency.py tests/e2e/test_world_relation_grouping_perf_pg.py tests/e2e/test_worldbook_dataset_import_concurrency.py tests/e2e/test_evolution_issue209.py tests/e2e/test_open_issue_contracts.py -m "not real_llm and not external_data" --timeout=120 --junitxml=.test-artifacts/postgresql-critical.junit.xml --no-cov -p no:cacheprovider
+============================= test session starts ==============================
+platform darwin -- Python 3.14.7, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/tywww/Desktop/项目/ai-writing-assist/.worktrees/audit-first-batch/backend
+configfile: pyproject.toml
+plugins: cov-7.1.0, xdist-3.8.0, timeout-2.4.0, asyncio-1.4.0, anyio-4.14.2
+timeout: 120.0s
+timeout method: signal
+timeout func_only: False
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+collected 95 items
+
+tests/e2e/test_guided_flow_start_concurrency.py ......                   [  6%]
+tests/e2e/test_00_fresh_migrations.py .......                            [ 13%]
+tests/e2e/test_event_soft_delete_concurrency.py .....                    [ 18%]
+tests/e2e/test_context_retrieval_trace_queries.py ..                     [ 21%]
+tests/e2e/test_context_terminal_concurrency.py ...                       [ 24%]
+tests/e2e/test_import_migrations_pg.py ......                            [ 30%]
+tests/e2e/test_import_upload_commit_visibility.py .                      [ 31%]
+tests/e2e/test_interaction_generation_concurrency.py ..........          [ 42%]
+tests/e2e/test_project_task_gate_concurrency.py ....                     [ 46%]
+tests/e2e/test_rp_source_versions.py ..                                  [ 48%]
+tests/e2e/test_scene_memory_checkpoint_concurrency.py ..                 [ 50%]
+tests/e2e/test_smart_dedup_group_savepoint.py .                          [ 51%]
+tests/e2e/test_task_coalescing_concurrency.py ....                       [ 55%]
+tests/e2e/test_task_run_envelope_postgres.py ...                         [ 58%]
+tests/e2e/test_writing_route_commit_visibility.py .                      [ 60%]
+tests/e2e/test_writing_version_concurrency.py ..                         [ 62%]
+tests/e2e/test_image_reuse_concurrency.py .                              [ 63%]
+tests/e2e/test_world_relation_membership_concurrency.py .....            [ 68%]
+tests/e2e/test_world_relation_grouping_perf_pg.py ...                    [ 71%]
+tests/e2e/test_worldbook_dataset_import_concurrency.py ...               [ 74%]
+tests/e2e/test_evolution_issue209.py ..............{"issue209_native_scenes": 1, "baseline_queries": 65, "warm_queries": 5, "baseline_source_checks": 5, "warm_source_checks": 0, "baseline_page_queries": 34, "warm_page_queries": 128, "explain_shapes": 10}
+.{"issue209_native_scenes": 10, "baseline_queries": 425, "warm_queries": 5, "baseline_source_checks": 50, "warm_source_checks": 0, "baseline_page_queries": 519, "warm_page_queries": 128, "explain_shapes": 10}
+.{"issue209_native_scenes": 100, "baseline_queries": 4025, "warm_queries": 5, "baseline_source_checks": 500, "warm_source_checks": 0, "baseline_page_queries": 40908, "warm_page_queries": 128, "explain_shapes": 10}
+....                [ 95%]
+tests/e2e/test_open_issue_contracts.py ....                              [100%]
+
+- generated xml file: /Users/tywww/Desktop/项目/ai-writing-assist/.worktrees/audit-first-batch/backend/.test-artifacts/postgresql-critical.junit.xml -
+======================== 95 passed in 163.48s (0:02:43) ========================

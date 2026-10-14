@@ -204,7 +204,8 @@ jobs:
           PATH="$RUNNER_TEMP:$PATH" MC_CONFIG_DIR="$RUNNER_TEMP/mc-config" \
             MINIO_ENDPOINT_URL=http://127.0.0.1:9000 MINIO_ROOT_USER=novel-minio-root \
             MINIO_ROOT_PASSWORD=novel_minio_root_pass MINIO_APP_ACCESS_KEY=novelist \
-            MINIO_APP_SECRET_KEY=novel_minio_dev_pass sh docker/init-minio.sh
+            MINIO_APP_SECRET_KEY=novel_minio_dev_pass MINIO_BACKUP_ACCESS_KEY=synthetic-ci-backup \
+            MINIO_BACKUP_SECRET_KEY=synthetic_ci_backup_pass sh docker/init-minio.sh
 
       # Frontend changes run all behavior tests, including theme, reader and workspace flows.
       # Each marker file proves the suite actually executed; the verify step fails the

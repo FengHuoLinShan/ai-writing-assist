@@ -35,8 +35,7 @@ def _deployment_repo(tmp_path: Path) -> tuple[Path, str, str, dict[str, str], Pa
     migrations_dir = repo_root / "backend" / "alembic" / "versions"
     migrations_dir.mkdir(parents=True)
     (migrations_dir / "migration_a.py").write_text(
-        'revision = "migration_a"\n'
-        "down_revision = None\n"
+        'revision = "migration_a"\ndown_revision = None\n'
     )
     (repo_root / "revision.txt").write_text("a\n")
     _git(repo_root, "add", "deploy", "backend", "revision.txt")
@@ -57,9 +56,7 @@ def _deployment_repo(tmp_path: Path) -> tuple[Path, str, str, dict[str, str], Pa
 
     deploy_root = repo_root / "deploy"
     environment_file = deploy_root / ".env.production"
-    shutil.copy2(
-        DEPLOY_ROOT / "tests" / "fixtures" / "closed-test.env", environment_file
-    )
+    shutil.copy2(DEPLOY_ROOT / "tests" / "fixtures" / "closed-test.env", environment_file)
     environment_file.chmod(0o600)
     state_dir = deploy_root / ".state"
     state_dir.mkdir(mode=0o700)
@@ -78,6 +75,7 @@ def _deployment_repo(tmp_path: Path) -> tuple[Path, str, str, dict[str, str], Pa
         '  *" run --rm -i --pull never "*) cat >/dev/null; exit 0 ;;\n'
         '  *" create --name ai-writing-restore-drill-"*)\n'
         '    printf "fixture-restore-drill-id\\n"; exit 0 ;;\n'
+        '  *" create --pull never "*) printf "fixture-object-postgres\\n"; exit 0 ;;\n'
         '  *" start fixture-restore-drill-id "*) exit 0 ;;\n'
         '  *" exec fixture-restore-drill-id pg_isready "*) exit 0 ;;\n'
         '  *" exec -i fixture-restore-drill-id pg_restore "*)\n'
@@ -91,6 +89,18 @@ def _deployment_repo(tmp_path: Path) -> tuple[Path, str, str, dict[str, str], Pa
         '  *" rm -f fixture-restore-drill-id "*) exit 0 ;;\n'
         '  *" exec -T postgres pg_dump "*)\n'
         '    printf "fixture custom archive"; exit 0 ;;\n'
+        '  *" exec -i fixture-object-postgres psql "*) printf "[]\\n"; exit 0 ;;\n'
+        '  *" object-backup "*|*" object-restore "*)\n'
+        '    printf "ops-image=%s\\n" "${RELEASE_ID:-local}" >>"$FAKE_DOCKER_LOG"\n'
+        '    test "${RELEASE_ID:-local}" = "$FAKE_EXPECTED_RELEASE" || exit 125\n'
+        '    case " $* " in\n'
+        '      *" unpack "*) printf "%s\\n" "$FAKE_TIMESTAMP" ;;\n'
+        '      *" object-backup "*)\n'
+        '        printf "fixture object copy reached\\n"\n'
+        '        exit "${FAKE_OBJECT_BACKUP_STATUS:-0}" ;;\n'
+        "      *) exit 0 ;;\n"
+        "    esac ;;\n"
+        '  *" exec -T postgres psql "*"map_bucket="*) printf "[]\\n"; exit 0 ;;\n'
         '  *" exec -T postgres psql "*"information_schema.tables"*)\n'
         '    printf "%s\\n" "${FAKE_PUBLIC_TABLE_COUNT:-1}"; exit 0 ;;\n'
         '  *" exec -T -e PGCONNECT_TIMEOUT=5 postgres psql "*)\n'
@@ -108,8 +118,8 @@ def _deployment_repo(tmp_path: Path) -> tuple[Path, str, str, dict[str, str], Pa
         '      for snapshot in "$FAKE_BACKUP_DIR"/restore-input-*.dump; do\n'
         '        test -f "$snapshot" || continue\n'
         '        printf "attacker-replacement" >"$snapshot"\n'
-        '      done\n'
-        '    fi\n'
+        "      done\n"
+        "    fi\n"
         '    exit "${FAKE_DOCKER_STOP_STATUS:-0}" ;;\n'
         '  *" build "*) exit "${FAKE_DOCKER_BUILD_STATUS:-0}" ;;\n'
         '  *" up -d postgres embedding minio "*) exit '
@@ -158,9 +168,7 @@ def _write_private_backup(repo_root: Path) -> Path:
     backup_path.write_bytes(b"fixture backup")
     backup_path.chmod(0o600)
     checksum_path = Path(f"{backup_path}.sha256")
-    checksum_path.write_text(
-        f"{hashlib.sha256(backup_path.read_bytes()).hexdigest()}\n"
-    )
+    checksum_path.write_text(f"{hashlib.sha256(backup_path.read_bytes()).hexdigest()}\n")
     checksum_path.chmod(0o600)
     return backup_path
 
@@ -488,15 +496,15 @@ def test_release_postcheckout_guard_rejects_target_time_drift(tmp_path: Path) ->
     (fake_bin / "git").write_text(
         "#!/bin/sh\n"
         "checkout=false\n"
-        "for argument in \"$@\"; do\n"
-        "  test \"$argument\" = checkout && checkout=true\n"
+        'for argument in "$@"; do\n'
+        '  test "$argument" = checkout && checkout=true\n'
         "done\n"
-        "\"$FAKE_REAL_GIT\" \"$@\"\n"
+        '"$FAKE_REAL_GIT" "$@"\n'
         "status=$?\n"
-        "if test \"$status\" -eq 0 && test \"$checkout\" = true; then\n"
-        "  printf target-drift >\"$FAKE_GIT_DRIFT_PATH\"\n"
+        'if test "$status" -eq 0 && test "$checkout" = true; then\n'
+        '  printf target-drift >"$FAKE_GIT_DRIFT_PATH"\n'
         "fi\n"
-        "exit \"$status\"\n"
+        'exit "$status"\n'
     )
     (fake_bin / "git").chmod(0o755)
 
@@ -532,15 +540,15 @@ def test_restore_postcheckout_guard_rejects_target_time_drift(tmp_path: Path) ->
     (fake_bin / "git").write_text(
         "#!/bin/sh\n"
         "checkout=false\n"
-        "for argument in \"$@\"; do\n"
-        "  test \"$argument\" = checkout && checkout=true\n"
+        'for argument in "$@"; do\n'
+        '  test "$argument" = checkout && checkout=true\n'
         "done\n"
-        "\"$FAKE_REAL_GIT\" \"$@\"\n"
+        '"$FAKE_REAL_GIT" "$@"\n'
         "status=$?\n"
-        "if test \"$status\" -eq 0 && test \"$checkout\" = true; then\n"
-        "  printf target-drift >\"$FAKE_GIT_DRIFT_PATH\"\n"
+        'if test "$status" -eq 0 && test "$checkout" = true; then\n'
+        '  printf target-drift >"$FAKE_GIT_DRIFT_PATH"\n'
         "fi\n"
-        "exit \"$status\"\n"
+        'exit "$status"\n'
     )
     (fake_bin / "git").chmod(0o755)
 
@@ -893,9 +901,7 @@ def _write_manifest(
 def test_resolve_active_deployment_commit_validates_finalized_state(
     tmp_path: Path,
 ) -> None:
-    repo_root, commit_a, _commit_b, _environment, _docker_log = _deployment_repo(
-        tmp_path
-    )
+    repo_root, commit_a, _commit_b, _environment, _docker_log = _deployment_repo(tmp_path)
 
     valid = _resolve_active_commit(repo_root)
 
@@ -986,8 +992,8 @@ def test_exact_manifest_nonce_prevents_cleanup_rollback(tmp_path: Path) -> None:
         "set -eu\n"
         'SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)\n'
         '. "$SCRIPT_DIR/common.sh"\n'
-        'TARGET_COMMIT=$1\n'
-        'OPERATION_ID=$2\n'
+        "TARGET_COMMIT=$1\n"
+        "OPERATION_ID=$2\n"
         "DEPLOYMENT_COMMITTED=false\n"
         "DEPLOYMENT_STATE_WRITE_FAILED=false\n"
         'if [ "$DEPLOYMENT_COMMITTED" != "true" ] \\\n'
@@ -1021,9 +1027,7 @@ def test_exact_manifest_nonce_prevents_cleanup_rollback(tmp_path: Path) -> None:
 def test_resolve_active_deployment_commit_rejects_symlinked_state(
     tmp_path: Path,
 ) -> None:
-    repo_root, commit_a, _commit_b, _environment, _docker_log = _deployment_repo(
-        tmp_path
-    )
+    repo_root, commit_a, _commit_b, _environment, _docker_log = _deployment_repo(tmp_path)
     state_dir = repo_root / "deploy" / ".state"
     release_path = state_dir / "current-release"
     release_path.unlink()
@@ -1155,3 +1159,112 @@ def test_load_release_id_rejects_unreachable_first_release_head(tmp_path: Path) 
 
     assert result.returncode != 0
     assert result.stdout == ""
+
+
+@pytest.mark.parametrize("copy_status", (0, 1))
+def test_object_backup_entry_publishes_pair_before_copy_and_cleans_staging(
+    tmp_path: Path, copy_status: int
+) -> None:
+    repo_root, commit_a, commit_b, environment, docker_log = _deployment_repo(tmp_path)
+    _write_manifest(repo_root, commit_a, commit_a)
+    _git(repo_root, "checkout", "--detach", "-q", commit_b)
+    result = subprocess.run(
+        ["/bin/sh", "deploy/scripts/backup_objects.sh"],
+        cwd=repo_root,
+        env=environment
+        | {
+            "FAKE_OBJECT_BACKUP_STATUS": str(copy_status),
+            "FAKE_EXPECTED_RELEASE": commit_a[:12],
+            "RELEASE_ID": "wrong-tag",
+        },
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+    assert result.returncode == copy_status, result.stderr
+    assert "fixture object copy reached" in result.stdout
+    assert ("Object backup operation incomplete." in result.stderr) == (copy_status != 0)
+    backup_dir = repo_root / "deploy" / "backups"
+    (dump,) = [path for path in backup_dir.glob("*.dump") if path.name != "manifest.dump"]
+    assert dump.read_bytes() == b"fixture custom archive"
+    assert (
+        Path(f"{dump}.sha256").read_text().split()[0]
+        == hashlib.sha256(dump.read_bytes()).hexdigest()
+    )
+    commands = docker_log.read_text()
+    assert commands.index("pg_dump") < commands.index("create --pull never")
+    assert (
+        commands.index("exec -i fixture-object-postgres pg_restore")
+        < commands.index("exec -i fixture-object-postgres psql")
+        < commands.index(" object-backup ")
+    )
+    assert "rm -fv fixture-object-postgres" in commands
+    assert f"ops-image={commit_a[:12]}" in commands
+    assert "ops-image=local" not in commands
+    assert _git(repo_root, "rev-parse", "HEAD") == commit_b
+    assert not list(backup_dir.glob(".backup-*"))
+    assert not list(backup_dir.glob(".object-db-*"))
+    assert not list((backup_dir / "objects").glob(".references.*"))
+
+
+@pytest.mark.parametrize("kind", ("directory", "zip"))
+def test_object_restore_uses_finalized_image_without_external_release_id(tmp_path, kind):
+    repo_root, commit_a, commit_b, environment, docker_log = _deployment_repo(tmp_path)
+    _write_manifest(repo_root, commit_a, commit_a)
+    _git(repo_root, "checkout", "--detach", "-q", commit_b)
+    environment.pop("RELEASE_ID", None)
+    timestamp = "20261014T031700Z"
+    if kind == "directory":
+        source = tmp_path / "object-backup"
+        source.mkdir(mode=0o700)
+        arguments = [str(source), timestamp]
+    else:
+        source = tmp_path / "object-backup.zip"
+        source.write_bytes(
+            b"synthetic package; Docker adapter tests only image selection"
+        )
+        source.chmod(0o600)
+        arguments = [str(source)]
+
+    result = _run_script(
+        repo_root,
+        "restore_objects.sh",
+        arguments,
+        environment
+        | {"FAKE_EXPECTED_RELEASE": commit_a[:12], "FAKE_TIMESTAMP": timestamp},
+    )
+
+    assert result.returncode == 0, result.stderr
+    commands = docker_log.read_text()
+    assert f"ops-image={commit_a[:12]}" in commands
+    assert "ops-image=local" not in commands
+    assert " object-restore " in commands
+    if kind == "zip":
+        assert " object-backup unpack " in commands
+        assert not list((repo_root / "deploy/backups").glob(".object-restore.*"))
+    assert _git(repo_root, "rev-parse", "HEAD") == commit_b
+
+
+@pytest.mark.parametrize("operation", ("backup", "directory", "zip"))
+def test_object_operations_reject_invalid_release_state_before_docker(
+    tmp_path, operation
+):
+    repo_root, commit_a, _commit_b, environment, docker_log = _deployment_repo(tmp_path)
+    _write_manifest(repo_root, commit_a, commit_a)
+    (repo_root / "deploy/.state/deployment-state.json").write_text("{}")
+    script = "backup_objects.sh" if operation == "backup" else "restore_objects.sh"
+    source = tmp_path / "object-package"
+    arguments = []
+    if operation == "directory":
+        source.mkdir(mode=0o700)
+        arguments = [str(source), "20261014T031700Z"]
+    elif operation == "zip":
+        source.write_bytes(b"synthetic package")
+        source.chmod(0o600)
+        arguments = [str(source)]
+
+    result = _run_script(repo_root, script, arguments, environment)
+
+    assert result.returncode != 0
+    assert not docker_log.exists()

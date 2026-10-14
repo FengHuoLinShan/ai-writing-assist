@@ -1,0 +1,27 @@
+{
+  "review_head": "4acf184c4426adca5d1f5bc883e2d7ab1ce75047",
+  "publisher_contract": {
+    "exit_code": 1,
+    "stderr": "Backup pair publication refused: staging path is outside the private backup directory.",
+    "final_dump_exists": false
+  },
+  "interrupted_manifest_next_backups": [
+    {
+      "exit_code": 1,
+      "stderr": "Object operation incomplete (FileNotFoundError); private manifest/objects require reconciliation.",
+      "new_snapshot_created": false
+    },
+    {
+      "exit_code": 1,
+      "stderr": "Object operation incomplete (FileNotFoundError); private manifest/objects require reconciliation.",
+      "new_snapshot_created": false
+    }
+  ],
+  "server_snapshot_target_superset": {
+    "source_kind": "server_snapshot",
+    "manifest_objects": 1,
+    "target_references": 2,
+    "target_check": "accepted",
+    "adjudication": "nonblocking: mismatched DB violates documented restoration prerequisite"
+  }
+}

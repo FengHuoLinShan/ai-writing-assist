@@ -1,0 +1,33 @@
+{
+  "base": "22bb499789cba89fea92e918fd853ab768688e07",
+  "source": "/Users/tywww/Desktop/项目/ai-writing-assist/.worktrees/audit-g4-object-backup",
+  "files": {
+    "Makefile": "7fd7136081e11ac255b63f2b19c9ef2582fb49c357e5a518bb5e1d7f721dcfda",
+    "deploy/.env.production.example": "ef1d5b4995d64c348fe14c1e21505b9b5897f53f2fe22b77a735a59d68bdae2b",
+    "deploy/README.md": "a689ce450572241cabaf07938a6ce6640086d7857f0f5f75cb7beb93238d7025",
+    "deploy/compose.production.yml": "46f87d8a8d640043a54dd667edf3760a2793e752700ff3814c219d30ec765184",
+    "deploy/scripts/backup.sh": "9d6327f9d3ed9a4d77212b3a3c4ea5a0f0d392afecfa851ece0b6fabcf2cc0d8",
+    "deploy/scripts/validate_env.py": "84a8736fc5119587ca70486673df43b6026c8624e7e9fd8811984039ede98cf2",
+    "deploy/tests/fixtures/closed-test.env": "ca509f99e6ae5ae7cb1962a161b785d1167aaf3d98fc085b995ee759652ba3d4",
+    "deploy/tests/test_scripts.py": "132d6f4eedd31828ecb5941114d84ede03b0e186e1909fae4c87fdda91a1065d",
+    "deploy/tests/test_validate_env.py": "e771a39a1d00b7488e6e8b6fe27fd271bef6562b88deced452173e98188b500f",
+    "docker/init-minio.sh": "dac0b6dc02d0c61be9ab0e2bd79f3d169c5697bc42fffe8078e9029f5be7a517",
+    "docs/adr/0010-public-browser-account-system.md": "ec117e9025c704059759dfa6247c5d6a53374f931c6e3a013d2c0befc4bd2eb1",
+    "docs/adr/0014-world-object-images-and-single-node-minio.md": "41d5384b747e2726899f887502243af6b70936f1786f75ba5fc908558acc97bd",
+    "docs/adr/README.md": "65d2a858a64ccc8d443a0d615711ccd57296d0209bad921a8711ae0037a9f0ac",
+    "docs/modules/12_infrastructure.md": "cedaac2876b98cfe010332d128d3941917ebb947c13a6f72f24a6f9843d64e81",
+    ".agent/tasks/2026/T-20261014-audit-g4-object-backup/TASK.md": "890aa0b5c5f32ef122e57d06b5a52c619e9c8ebbdea2c0b1c08981410a4e26dd",
+    "deploy/scripts/backup_objects.sh": "f8bed4368cd4f8485dc1220a3fc28bf718abcdd638a510ae51bbd68fb85afa31",
+    "deploy/scripts/object_backup.py": "3797a61a44ab1d62f19318b66ff3fc7147f41d385eac72ac0db1de42d8cd027c",
+    "deploy/scripts/object_references.sql": "444912fa4705334df344499abe3e1b5d45e5a76cc5d97e07d3e17fc2d4b9e946",
+    "deploy/scripts/restore_objects.sh": "c6b22e773bb813acc3c9a0efca817f3a32d24a83fc5cab7cb607bb640a6d5701",
+    "deploy/systemd/ai-writing-object-backup.service": "c9dabcf794bfedd7bec8bc40566828a16cffb5acd391494f0cbf562ae445a682",
+    "deploy/systemd/ai-writing-object-backup.timer": "aadc07d1519e46898937b798755ae3bc2ccea32cbd73d4718ad462decb83910a",
+    "deploy/tests/run_object_restore_drill.py": "d6bd3699ece7c2e7d8a56f5f8cb0ca3d30f8d4630f771aa5984edff0ad882443",
+    "deploy/tests/test_object_backup.py": "c6b561beffc81e7c823dd936363b898437f8b7842a4db7ec1a3651bbfb0bc632",
+    "docs/adr/0034-db-paired-private-object-backups.md": "13b68f7b4634c40ebf6c95e0d68de480ad92822a4a5db4e2080b73314475bf0a"
+  },
+  "merged_documents": [
+    "docs/adr/README.md"
+  ]
+}

@@ -1,0 +1,2 @@
+cd /Users/tywww/Desktop/项目/ai-writing-assist/.worktrees/audit-first-batch/backend && uv run --locked --extra ci -- ruff check .
+All checks passed!

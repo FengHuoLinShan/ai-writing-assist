@@ -412,3 +412,93 @@ async def test_scan_ranges_and_cutoff_do_not_expand_author_selected_text(
     ref = batch.hits[0].source_ref
     assert ref.start_offset >= 5 and ref.end_offset <= 11
     assert batch.hits[0].match_count == 1
+
+
+@pytest.mark.asyncio
+async def test_historical_source_identity_projects_only_metadata_for_large_prose(
+    db_session,
+    test_project_id,
+    project_factory,
+):
+    from sqlalchemy import event
+
+    from core.errors import NotFoundError
+    from modules.account.context import bind_principal, reset_principal
+    from modules.account.contracts import AccountPrincipal
+    from modules.writing.facade import get_historical_source_identities
+    from modules.writing.models import WritingDraft
+
+    draft = WritingDraft(
+        novel_id=uuid.UUID(test_project_id),
+        chapter_index=3,
+        version_number=7,
+        title="大正文",
+        content="合成正文" * 250_000,
+        content_hash="a" * 64,
+        status="deprecated",
+        provenance_json={
+            "deprecated_from_status": "published",
+            "unrelated": "x" * 1_000_000,
+        },
+    )
+    foreign = WritingDraft(
+        novel_id=await project_factory.create_project(),
+        chapter_index=3,
+        version_number=7,
+        content="另一个作品",
+        content_hash="b" * 64,
+        status="published",
+    )
+    db_session.add_all([draft, foreign])
+    await db_session.flush()
+    projections = []
+
+    def capture(_conn, statement, _multiparams, _params, _options):
+        columns = getattr(statement, "selected_columns", None)
+        if columns is not None and "content_hash" in columns.keys():
+            projections.append(tuple(columns.keys()))
+
+    engine = db_session.bind.sync_engine
+    event.listen(engine, "before_execute", capture)
+    try:
+        rows = await get_historical_source_identities(
+            db_session, test_project_id, [str(draft.id), str(foreign.id)]
+        )
+    finally:
+        event.remove(engine, "before_execute", capture)
+    fields = (
+        "id",
+        "chapter_index",
+        "version_number",
+        "content_hash",
+        "status",
+        "deprecated_from_status",
+    )
+    assert projections == [fields]
+    assert rows == [
+        {
+            "id": str(draft.id),
+            "chapter_index": 3,
+            "version_number": 7,
+            "content_hash": "a" * 64,
+            "status": "deprecated",
+            "deprecated_from_status": "published",
+        }
+    ]
+    assert len(str(rows)) < 300
+    assert await get_historical_source_identities(db_session, test_project_id, []) == []
+    token = bind_principal(
+        AccountPrincipal(
+            account_id=uuid.uuid4(),
+            status="active",
+            identity_type="email",
+            support_code="IDENTITY-OTHER-OWNER",
+        )
+    )
+    try:
+        with pytest.raises(NotFoundError):
+            await get_historical_source_identities(
+                db_session, test_project_id, [str(draft.id)]
+            )
+    finally:
+        reset_principal(token)
