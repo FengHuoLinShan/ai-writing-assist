@@ -345,6 +345,7 @@ async def _prepare_task_input(
             "status": section.status,
             "token_count": section.token_count,
             "source_count": len(section.sources),
+            "retrieval_metadata": dict(section.retrieval_metadata or {}),
         }
         for section in compiled.sections
     }

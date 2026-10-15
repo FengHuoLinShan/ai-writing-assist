@@ -10,6 +10,9 @@ from modules.evidence.compilation.services.loaders.editorial_brief_loader import
     EditorialBriefLoader,
 )
 from modules.evidence.compilation.services.loaders.events_loader import EventsLoader
+from modules.evidence.compilation.services.loaders.map_spatial_loader import (
+    MapSpatialLoader,
+)
 from modules.evidence.compilation.services.loaders.memory_records_loader import (
     MemoryRecordsLoader,
 )
@@ -48,6 +51,7 @@ _AVAILABLE_LOADERS: dict[str, bool] = {
     "outline_arc": True,
     "outline_analysis": True,
     "scene": True,
+    "map_spatial": True,
 }
 
 
@@ -69,5 +73,6 @@ __all__ = [
     "RagChunksLoader",
     "MemoryRecordsLoader",
     "SceneLoader",
+    "MapSpatialLoader",
     "is_loader_available",
 ]

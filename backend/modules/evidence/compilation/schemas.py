@@ -844,6 +844,7 @@ class ContextSnapshotResponse(BaseModel):
     rendered_context_expires_at: str | None = None
     created_at: str
     updated_at: str | None = None
+    map_staleness: list[dict[str, Any]] | None = None
 
 
 class ContextSnapshotListItemResponse(BaseModel):

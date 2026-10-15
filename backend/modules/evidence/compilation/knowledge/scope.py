@@ -508,12 +508,18 @@ def build_scope_receipt(
         dimension = dimension_map.get(section.key, "")
         if dimension not in advisory_dimensions:
             continue
+        metadata = section.retrieval_metadata or {}
         if section.excluded and not any(
             source_key_of(source) for source in section.sources
         ):
             reason = "作者显式排除参考资料"
         elif section.truncated_reason:
             reason = section.truncated_reason
+        elif section.key == "map_spatial" and int(metadata.get("omitted_count") or 0):
+            reason = (
+                f"空间简报有 {int(metadata['omitted_count'])} 项因作者排除、"
+                "来源或时点核验、条数上限未纳入"
+            )
         else:
             continue
         advisory_omitted[(dimension, None)] = KnowledgeAdvisoryOmission(

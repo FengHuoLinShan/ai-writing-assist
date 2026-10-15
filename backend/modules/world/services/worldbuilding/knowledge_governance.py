@@ -46,6 +46,8 @@ def _ref_dimensions(source_type: str) -> tuple[str, ...]:
         return ("world_bible",)
     if source_type == "writing_chapter":
         return ("prior_prose",)
+    if source_type == "map_spatial":
+        return ("map_spatial",)
     return ("world_entities",)
 
 

@@ -9,14 +9,18 @@ import unicodedata
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import and_, select
 
+from core.container import get
 from core.errors import ConflictError, NotFoundError, ValidationError
+from core.service_keys import PROJECT_REQUIRE_ACTIVE
 from infrastructure.stable_hash import stable_hash
+from modules.evidence import facade as evidence_facade
 from modules.evidence.contracts import VisibilityContextContract
 from modules.world.map_spatial_brief_schemas import (
     MapSpatialBriefItem,
     MapSpatialBriefRequest,
     MapSpatialBriefResponse,
 )
+from modules.writing.contracts import SourceRangeRefContract
 
 _ACTIVE_SCENES = frozenset({"candidate", "draft", "canonical"})
 _SCENE_PRESENCE_KEYS = (
@@ -25,7 +29,26 @@ _SCENE_PRESENCE_KEYS = (
     "present_item_ids",
     "present_object_ids",
 )
-_ROUTE_RELATIONS = frozenset({"adjacent", "connects", "passes_through", "entrance_to"})
+_ROUTE_RELATIONS = frozenset(
+    {
+        "adjacent",
+        "connects",
+        "passes_through",
+        "entrance_to",
+        "north",
+        "south",
+        "east",
+        "west",
+        "northeast",
+        "northwest",
+        "southeast",
+        "southwest",
+        "faces",
+    }
+)
+_CONNECTION_RELATIONS = frozenset(
+    {"adjacent", "connects", "passes_through", "entrance_to"}
+)
 _MAX_NODES = 200
 _MAX_TYPES = 32
 
@@ -110,14 +133,15 @@ def _safe_json(value: dict) -> tuple[str, bool]:
         encoded = encode()
         if len(encoded) > 3000:
             break
-    return encoded[:3000], clipped
+    if len(encoded) > 3000:
+        return "{}", True
+    return encoded, clipped
 
 
 class MapSpatialBriefService:
     async def read(
         self, db, request: MapSpatialBriefRequest | dict
     ) -> MapSpatialBriefResponse:
-        from modules.project.facade import require_active_project
         from modules.world.map_atlas_models import MapAtlasNode, MapAtlasRevision
         from modules.world.map_structure_geometry import (
             _path_is_calculable,
@@ -137,7 +161,7 @@ class MapSpatialBriefService:
             if isinstance(request, MapSpatialBriefRequest)
             else MapSpatialBriefRequest.model_validate(request)
         )
-        await require_active_project(db, data.novel_id)
+        await get(PROJECT_REQUIRE_ACTIVE)(db, data.novel_id)
         if data.reveal_mode == "character" and not data.viewpoint_character_id:
             raise ValidationError("角色视角空间简报必须指定视角人物")
 
@@ -251,20 +275,35 @@ class MapSpatialBriefService:
                 data.viewpoint_character_id if visibility_mode == "character" else None
             ),
         )
-        excluded = set()
+        excluded_nodes = set()
+        excluded_entities = set()
+        excluded_pages = set()
+        excluded_source_ids = set()
+        excluded_types = set()
         for item in data.excluded_ids:
             value = str(item)
-            excluded.add(value)
-            if value.startswith("map_spatial:"):
-                parts = value.split(":")
-                if len(parts) > 1:
-                    excluded.add(parts[1])
+            parts = value.split(":")
+            kind = parts[0]
+            target_id = parts[1] if len(parts) > 1 else value
+            if kind in {"map_spatial", "map_spatial_node", "map_atlas_node"}:
+                excluded_nodes.add(target_id)
+            elif kind in {"world_entity", "world_object", "core_entity", "entity"}:
+                excluded_entities.add(target_id)
+            elif kind in {"world_bible_page", "world_bible"}:
+                excluded_pages.add(target_id)
+            elif kind in {"writing_draft", "writing_chapter", "source_range"}:
+                excluded_source_ids.add(target_id)
+            elif kind in {"project_vocabulary", "world_vocabulary", "vocabulary_term"}:
+                excluded_types.add(target_id)
             else:
-                excluded.add(value.rsplit(":", 1)[-1])
+                excluded_nodes.add(value)
+        scene_location_ids.difference_update(excluded_entities)
         checked_sources: dict[str, bool] = {}
         checked_targets: dict[str, bool] = {}
 
         async def knowledge_visible(target_type: str, target_id: str) -> bool:
+            if target_type == "world_entity" and target_id in excluded_entities:
+                return False
             from modules.world.contracts import KnowledgeVisibilityRequest
             from modules.world.facade import check_knowledge_visibility
 
@@ -297,9 +336,7 @@ class MapSpatialBriefService:
             if not await knowledge_visible(target_type, target_id):
                 checked_targets[cache_key] = False
                 return False
-            from modules.evidence.facade import inspect_novel_target
-
-            inspected = await inspect_novel_target(
+            inspected = await evidence_facade.inspect_novel_target(
                 db,
                 novel_id=data.novel_id,
                 target_ref={"target_type": evidence_type, "target_id": target_id},
@@ -314,17 +351,22 @@ class MapSpatialBriefService:
             cache_key = ref.model_dump_json()
             if cache_key in checked_sources:
                 return checked_sources[cache_key]
+            source_exclusions = {
+                "entity": excluded_entities,
+                "world_bible_page": excluded_pages,
+                "source_range": excluded_source_ids,
+            }[ref.kind]
+            if str(ref.id) in source_exclusions:
+                checked_sources[cache_key] = False
+                return False
             try:
                 await MapStructureService().source(db, data.novel_id, ref)
             except (ConflictError, NotFoundError, ValidationError, TypeError, ValueError):
                 checked_sources[cache_key] = False
                 return False
             if ref.kind == "source_range":
-                from modules.evidence.facade import read_novel_evidence
-                from modules.writing.contracts import SourceRangeRefContract
-
                 try:
-                    result = await read_novel_evidence(
+                    result = await evidence_facade.read_novel_evidence(
                         db,
                         novel_id=data.novel_id,
                         source_ref=SourceRangeRefContract(**ref.source_ref),
@@ -390,13 +432,10 @@ class MapSpatialBriefService:
                 ValueError,
             ):
                 return False
-            from modules.evidence.facade import read_novel_evidence
-            from modules.writing.contracts import SourceRangeRefContract
-
             for raw_ref in refs:
                 try:
                     source_ref = SourceRangeRefContract(**raw_ref)
-                    result = await read_novel_evidence(
+                    result = await evidence_facade.read_novel_evidence(
                         db,
                         novel_id=data.novel_id,
                         source_ref=source_ref,
@@ -442,7 +481,7 @@ class MapSpatialBriefService:
         rows = list((await db.execute(node_query)).all())
         omitted_count = max(0, len(rows) - _MAX_NODES)
         rows = rows[:_MAX_NODES]
-        excluded_node_ids = {value for value in excluded}
+        excluded_node_ids = {value for value in excluded_nodes}
         node_rows = [
             (node, revision)
             for node, revision in rows
@@ -471,6 +510,12 @@ class MapSpatialBriefService:
             # A stale vocabulary pin makes only its map item unavailable.
             resolved_types = {}
             omitted_count += 1
+
+        resolved_types = {
+            key: value
+            for key, value in resolved_types.items()
+            if str(key[0]) not in excluded_types
+        }
 
         traits = {
             key: value["traits"]
@@ -588,7 +633,8 @@ class MapSpatialBriefService:
                 and _exact_match(data.query_text, features[feature_id].label)
             }
             focus_features = location_features | query_features
-            moving_positions = []
+            moving_positions: dict[str, tuple[int, dict]] = {}
+            ambiguous_position_ids: set[str] = set()
             for feature_id in valid_features:
                 feature = features[feature_id]
                 pair = (feature.type_ref, feature.type_revision_id)
@@ -611,13 +657,9 @@ class MapSpatialBriefService:
                         or fact.get("layer") != "fact"
                         or fact.get("confidence") != "confirmed"
                         or not isinstance(occurred_at, dict)
-                        or not occurred_at
-                        or any(
-                            isinstance(value, bool) or not isinstance(value, int)
-                            for value in occurred_at.values()
-                        )
-                        or occurred_at.get("scene_index", scene_index + 1)
-                        > scene_index
+                        or isinstance(occurred_at.get("scene_index"), bool)
+                        or not isinstance(occurred_at.get("scene_index"), int)
+                        or occurred_at["scene_index"] > scene_index
                     ):
                         continue
                     provenance = (fact.get("source") or {}).get("provenance") or {}
@@ -655,13 +697,27 @@ class MapSpatialBriefService:
                     )
                     if not location_label:
                         continue
-                    moving_positions.append(
-                        {
-                            "object": feature_text[feature_id]["label"],
-                            "location": location_label[:300],
-                            "occurred_at": fact["occurred_at"],
-                        }
-                    )
+                    position = {
+                        "object": feature_text[feature_id]["label"],
+                        "location": location_label[:300],
+                        "occurred_at": fact["occurred_at"],
+                    }
+                    entity_id = str(feature.entity_id)
+                    scene_time = occurred_at["scene_index"]
+                    previous = moving_positions.get(entity_id)
+                    if previous is None or scene_time > previous[0]:
+                        moving_positions[entity_id] = (scene_time, position)
+                        ambiguous_position_ids.discard(entity_id)
+                    elif scene_time == previous[0] and position != previous[1]:
+                        ambiguous_position_ids.add(entity_id)
+
+            positions_for_node = [
+                position
+                for entity_id, (_scene_time, position) in sorted(
+                    moving_positions.items()
+                )
+                if entity_id not in ambiguous_position_ids
+            ]
 
             if not (focus_features or node_is_location or moving_positions):
                 continue
@@ -682,10 +738,18 @@ class MapSpatialBriefService:
                     or not endpoint_ids.issubset(valid_features)
                     or not endpoint_ids.intersection(focus_features)
                     or constraint.relation not in _ROUTE_RELATIONS
-                    or not constraint.sources
+                    or (
+                        not constraint.sources
+                        and (
+                            constraint.generated_by_task_id is not None
+                            or revision.task_id is not None
+                        )
+                    )
                 ):
                     continue
-                if not await all_sources_visible(constraint.sources):
+                if constraint.sources and not await all_sources_visible(
+                    constraint.sources
+                ):
                     omitted_count += 1
                     continue
                 included_source_hashes.update(
@@ -701,17 +765,17 @@ class MapSpatialBriefService:
                     for candidate in _spatial_item_type_pairs(constraint)
                     if candidate[0]
                 )
-                related_edges.append(
-                    {
-                        "relation": constraint.relation,
-                        "from": feature_text[constraint.subject]["label"],
-                        "to": feature_text[constraint.target]["label"],
-                        "via": [feature_text[key]["label"] for key in constraint.via],
-                        "type": type_text.get(pair) if constraint.type_ref else None,
-                        "path_label": constraint.path_label,
-                        "traversable": bool(computable and path_computable),
-                    }
-                )
+                edge = {
+                    "relation": constraint.relation,
+                    "from": feature_text[constraint.subject]["label"],
+                    "to": feature_text[constraint.target]["label"],
+                    "via": [feature_text[key]["label"] for key in constraint.via],
+                    "type": type_text.get(pair) if constraint.type_ref else None,
+                    "path_label": constraint.path_label,
+                }
+                if constraint.relation in _CONNECTION_RELATIONS:
+                    edge["traversable"] = bool(computable and path_computable)
+                related_edges.append(edge)
 
             journeys = []
             for journey in document.journeys:
@@ -761,7 +825,6 @@ class MapSpatialBriefService:
                     }
                 )
 
-            positions_for_node = moving_positions
             payload = {
                 "当前地点": current_labels,
                 "上级地点": ancestor_titles.get(str(node.id), [])
@@ -793,7 +856,14 @@ class MapSpatialBriefService:
             if not encoded or encoded == "{}":
                 continue
             selected_hashes = sorted(included_source_hashes)
-            revision_hash = stable_hash(revision.document)
+            revision_hash = stable_hash(
+                {
+                    "node_id": str(node.id),
+                    "title": str(node.title),
+                    "revision_id": str(revision.id),
+                    "document": revision.document,
+                }
+            )
             content_hash = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
             items.append(
                 MapSpatialBriefItem(

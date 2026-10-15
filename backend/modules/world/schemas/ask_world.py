@@ -19,7 +19,7 @@ class AskWorldQuestionRequest(BaseModel):
 
 class AskWorldCitation(BaseModel):
     citation_key: str = Field(..., min_length=1, max_length=160)
-    kind: Literal["world_bible_page", "world_object", "manuscript"]
+    kind: Literal["world_bible_page", "world_object", "manuscript", "map_spatial"]
     title: str = Field(..., min_length=1, max_length=255)
     snippet: str = Field(default="", max_length=2000)
     source_hash: str = Field(..., pattern=r"^[0-9a-f]{64}$")
@@ -29,6 +29,10 @@ class AskWorldCitation(BaseModel):
     source_ref: dict[str, Any] | None = None
     target_ref: dict[str, Any] | None = None
     index_fresh: bool = True
+    map_baseline: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
+    map_scene_id: str | None = None
+    map_chapter_index: int | None = Field(default=None, ge=1)
+    map_query_text: str = Field(default="", max_length=2000)
 
 
 class AskWorldClaim(BaseModel):
@@ -96,7 +100,7 @@ class AskWorldCitationOpenRequest(BaseModel):
 
 class AskWorldCitationOpenResponse(BaseModel):
     status: Literal["current", "stale", "unavailable"]
-    kind: Literal["world_bible_page", "world_object", "manuscript"]
+    kind: Literal["world_bible_page", "world_object", "manuscript", "map_spatial"]
     title: str
     text: str = ""
     source_hash: str | None = None

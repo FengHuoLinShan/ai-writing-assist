@@ -206,6 +206,33 @@ def test_author_excluded_advisory_dimension_is_recorded_without_blocking() -> No
     require_scope_complete(build)
 
 
+def test_spatial_loader_omissions_are_advisory_and_do_not_block() -> None:
+    section = _section("map_spatial", [_source("map_spatial", "map-1")]).model_copy(
+        update={"retrieval_metadata": {"omitted_count": 3}}
+    )
+    build = build_scope_receipt(
+        CompiledContext(
+            sections=[
+                _section("world_entities", [_source("world_entity", "a")]),
+                section,
+            ]
+        ),
+        _advisory_policy(),
+        _subject(),
+        novel_id="novel-1",
+    )
+
+    assert build.receipt.scope_complete is True
+    assert not build.receipt.omitted
+    assert any(
+        item.dimension == "map_spatial"
+        and item.source_key is None
+        and "3 项" in item.reason
+        for item in build.receipt.advisory_omitted
+    )
+    require_scope_complete(build)
+
+
 def test_advisory_omission_does_not_hide_required_omission_for_shared_source() -> None:
     shared = _source("world_entity", "shared")
     build = build_scope_receipt(

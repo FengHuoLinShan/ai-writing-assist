@@ -157,6 +157,21 @@ def display_sources(references, keys):
     return result
 
 
+def _assistant_evidence_dimensions(references: dict[str, dict]) -> tuple[str, ...]:
+    dimensions = (
+        "world_entities",
+        "world_rules",
+        "world_bible",
+        "prior_prose",
+        "outline",
+        "plot_threads",
+        "memory",
+    )
+    if any(item.get("map_spatial_guard") for item in references.values()):
+        return (*dimensions, "map_spatial")
+    return dimensions
+
+
 def history_visible(work: WorkContext, previous_context, confirmation_id) -> bool:
     if work.context_confirmation_id:
         return str(confirmation_id or "") == str(work.context_confirmation_id)
@@ -518,7 +533,7 @@ class AssistantService:
             request_json=frozen_payload
             | {
                 "llm_snapshot": snapshot,
-                "runtime_version": "4",
+                "runtime_version": "5",
                 **({"team": team} if team else {}),
                 "web_search": search_snapshot()
                 if data.allow_web and data.web_backend == "searxng-v1"
@@ -530,7 +545,7 @@ class AssistantService:
                 },
                 "read_tools": {
                     tool.name: fingerprint(tool.function_schema.json_schema)
-                    for tool in author_read_tools(allow_web=True, version="4")
+                    for tool in author_read_tools(allow_web=True, version="5")
                 },
             },
             budget_json=AgentRunBudget(
@@ -985,7 +1000,7 @@ class AssistantService:
                     payload.get("allow_web", False)
                     and (
                         search_snapshot_matches(payload.get("web_search"))
-                        if payload.get("runtime_version") in {"3", "4"}
+                        if payload.get("runtime_version") in {"3", "4", "5"}
                         else verified_native_search(profile.provider_id, profile.model)
                     )
                 ),
@@ -1226,6 +1241,9 @@ class AssistantService:
                     return review.output.model_dump_json()
 
                 evidence_hash = fingerprint(deps.evidence_refs)
+                evidence_dimensions = _assistant_evidence_dimensions(
+                    deps.evidence_refs
+                )
                 with workflow_budget(budget, checkpoint):
                     governed = await govern_group_output(
                         client,
@@ -1238,15 +1256,7 @@ class AssistantService:
                                 source_type="imported_assets",
                                 content_hash=evidence_hash,
                                 label="项目助手已查证资料",
-                                dimensions=(
-                                    "world_entities",
-                                    "world_rules",
-                                    "world_bible",
-                                    "prior_prose",
-                                    "outline",
-                                    "plot_threads",
-                                    "memory",
-                                ),
+                                dimensions=evidence_dimensions,
                             ),
                         ),
                         output=answer.model_dump_json(),

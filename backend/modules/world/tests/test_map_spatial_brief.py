@@ -51,6 +51,7 @@ def _scene_port(
     location_id: str | None,
     present_ids: list[str] | None = None,
     facts: list[dict] | None = None,
+    temporal_scenes: list[dict] | None = None,
 ):
     scene = {
         "id": scene_id,
@@ -69,7 +70,7 @@ def _scene_port(
             return scene
 
         async def read_temporal_anchor_scenes(self, _db, _novel_id):
-            return [
+            return temporal_scenes or [
                 {
                     "scene_id": scene_id,
                     "scene_index": 2,
@@ -161,6 +162,7 @@ async def test_spatial_brief_is_scene_bounded_and_uses_explicit_location_and_pre
     db_session, test_project_id, monkeypatch
 ):
     place = await _entity(db_session, test_project_id, "临江城")
+    old_place = await _entity(db_session, test_project_id, "旧码头")
     gate = await _entity(db_session, test_project_id, "黑石关")
     cart = await _entity(db_session, test_project_id, "运粮车", entity_type="item")
     future_place = await _entity(db_session, test_project_id, "未来城")
@@ -202,6 +204,12 @@ async def test_spatial_brief_is_scene_bounded_and_uses_explicit_location_and_pre
                     "label": "黑石关",
                     "entity_id": str(gate.id),
                     "sources": [map_source],
+                },
+                {
+                    "id": "old-dock",
+                    "kind": "location",
+                    "label": "旧码头",
+                    "entity_id": str(old_place.id),
                 },
                 {
                     "id": "cart",
@@ -278,12 +286,17 @@ async def test_spatial_brief_is_scene_bounded_and_uses_explicit_location_and_pre
             }
         },
     }
+    old_fact = {
+        **fact,
+        "value": {"location_id": str(old_place.id)},
+        "occurred_at": {"scene_index": 1},
+    }
     port = _scene_port(
         test_project_id,
         scene_id,
         location_id=str(place.id),
         present_ids=[str(cart.id)],
-        facts=[fact],
+        facts=[old_fact, fact],
     )
     _install_read_boundaries(monkeypatch, port, hidden_ids={str(hidden_place.id)})
 
@@ -302,14 +315,37 @@ async def test_spatial_brief_is_scene_bounded_and_uses_explicit_location_and_pre
 
     assert len(brief.items) == 1
     assert brief.items[0].revision_id == saved.id
-    assert brief.items[0].revision_hash == stable_hash(document.model_dump(mode="json"))
+    assert brief.items[0].revision_hash == stable_hash(
+        {
+            "node_id": node["id"],
+            "title": "临江区域",
+            "revision_id": saved.id,
+            "document": document.model_dump(mode="json"),
+        }
+    )
     payload = json.loads(brief.items[0].content)
     assert [item["label"] for item in payload["当前地点"]] == ["临江城"]
     assert payload["邻接与通路"][0]["relation"] == "connects"
     assert payload["行程与通行条件"][0]["access_conditions"][0]["label"] == "关门前通行"
-    assert payload["移动对象最后位置"][0]["location"] == "临江城"
+    assert payload["移动对象最后位置"] == [
+        {
+            "object": "运粮车",
+            "location": "临江城",
+            "occurred_at": {"scene_index": 2},
+        }
+    ]
     assert "未来城" not in brief.items[0].content
     assert "传闻地点" not in brief.items[0].content
+
+    earlier_cutoff = await read_map_spatial_brief(
+        db_session,
+        MapSpatialBriefRequest(
+            novel_id=test_project_id,
+            scene_id=scene_id,
+            chapter_index=1,
+        ),
+    )
+    assert earlier_cutoff.items == []
 
     hidden = await read_map_spatial_brief(
         db_session,
@@ -368,8 +404,311 @@ async def test_brief_never_guesses_scene_location_and_honors_node_exclusion(
             excluded_ids=[f"map_spatial:{node['id']}:{saved.id}"],
         ),
     )
+    excluded_entity = await read_map_spatial_brief(
+        db_session,
+        MapSpatialBriefRequest(
+            novel_id=test_project_id,
+            scene_id=scene_id,
+            query_text="临江城",
+            excluded_ids=[f"world_entity:{place.id}"],
+        ),
+    )
     assert empty.items == []
     assert excluded.items == []
+    assert excluded_entity.items == []
+
+
+@pytest.mark.asyncio
+async def test_project_without_a_map_returns_no_placeholder(
+    db_session, two_projects, monkeypatch
+):
+    _novel_id, empty_project_id = two_projects
+    scene_id = str(uuid.uuid4())
+    _install_read_boundaries(
+        monkeypatch,
+        _scene_port(empty_project_id, scene_id, location_id=None),
+    )
+
+    result = await read_map_spatial_brief(
+        db_session,
+        MapSpatialBriefRequest(novel_id=empty_project_id, scene_id=scene_id),
+    )
+
+    assert result.items == []
+    assert result.omitted_count == 0
+
+
+@pytest.mark.asyncio
+async def test_brief_applies_expired_and_replaced_scene_anchors(
+    db_session, test_project_id, monkeypatch
+):
+    current_place = await _entity(db_session, test_project_id, "白潮港")
+    old_pass = await _entity(db_session, test_project_id, "旧关")
+    service = MapStructureService()
+    node = await service.create_node(
+        db_session, test_project_id, MapNodeCreate(title="海港区域", level="region")
+    )
+    expired_scene_id = str(uuid.uuid4())
+    replaced_scene_id = str(uuid.uuid4())
+    current_scene_id = str(uuid.uuid4())
+    scene_rows = [
+        {
+            "scene_id": expired_scene_id,
+            "scene_index": 1,
+            "status": "canonical",
+            "chapter_ids": ["1"],
+            "replaced_by_scene_ids": [],
+        },
+        {
+            "scene_id": current_scene_id,
+            "scene_index": 2,
+            "status": "canonical",
+            "chapter_ids": ["2"],
+            "replaced_by_scene_ids": [],
+        },
+    ]
+    _install_read_boundaries(
+        monkeypatch,
+        _scene_port(
+            test_project_id,
+            current_scene_id,
+            location_id=str(current_place.id),
+            temporal_scenes=scene_rows,
+        ),
+    )
+    expired_document = MapDocument.model_validate(
+        {
+            "features": [
+                {
+                    "id": "harbor",
+                    "kind": "location",
+                    "label": "白潮港",
+                    "entity_id": str(current_place.id),
+                },
+                {
+                    "id": "old-pass",
+                    "kind": "location",
+                    "label": "旧关",
+                    "entity_id": str(old_pass.id),
+                    "effective": {
+                        "end": {"kind": "scene", "id": expired_scene_id}
+                    },
+                },
+            ],
+            "constraints": [
+                {
+                    "id": "old-road",
+                    "subject": "harbor",
+                    "relation": "connects",
+                    "target": "old-pass",
+                }
+            ],
+        }
+    )
+    expired_saved = await service.save(
+        db_session,
+        test_project_id,
+        node["id"],
+        MapSaveRequest(
+            base_revision_id=node["current_revision_id"], document=expired_document
+        ),
+    )
+    expired = await read_map_spatial_brief(
+        db_session,
+        MapSpatialBriefRequest(novel_id=test_project_id, scene_id=current_scene_id),
+    )
+    assert len(expired.items) == 1
+    assert "白潮港" in expired.items[0].content
+    assert "旧关" not in expired.items[0].content
+    assert "邻接与通路" in expired.items[0].content
+    assert json.loads(expired.items[0].content)["邻接与通路"] == []
+
+    replacement_document = MapDocument.model_validate(
+        {
+            "features": [
+                {
+                    "id": "harbor",
+                    "kind": "location",
+                    "label": "白潮港",
+                    "entity_id": str(current_place.id),
+                    "effective": {
+                        "start": {"kind": "scene", "id": replaced_scene_id}
+                    },
+                }
+            ]
+        }
+    )
+    replacement_rows = [
+        {
+            "scene_id": replaced_scene_id,
+            "scene_index": None,
+            "status": "replaced",
+            "chapter_ids": [],
+            "replaced_by_scene_ids": [current_scene_id],
+        },
+        scene_rows[1],
+    ]
+    _install_read_boundaries(
+        monkeypatch,
+        _scene_port(
+            test_project_id,
+            current_scene_id,
+            location_id=str(current_place.id),
+            temporal_scenes=replacement_rows,
+        ),
+    )
+    await service.save(
+        db_session,
+        test_project_id,
+        node["id"],
+        MapSaveRequest(
+            base_revision_id=expired_saved.id,
+            document=replacement_document,
+        ),
+    )
+    replaced = await read_map_spatial_brief(
+        db_session,
+        MapSpatialBriefRequest(novel_id=test_project_id, scene_id=current_scene_id),
+    )
+    assert len(replaced.items) == 1
+    assert "白潮港" in replaced.items[0].content
+
+
+@pytest.mark.asyncio
+async def test_brief_omits_hidden_and_stale_source_and_never_adds_empty_placeholder(
+    db_session, test_project_id, monkeypatch
+):
+    place = await _entity(db_session, test_project_id, "霜桥")
+    source = await _entity(db_session, test_project_id, "地方志")
+    service = MapStructureService()
+    node = await service.create_node(
+        db_session, test_project_id, MapNodeCreate(title="北岸", level="region")
+    )
+    source_ref = {
+        "kind": "entity",
+        "id": str(source.id),
+        "source_hash": source_digest(source_payload(source)),
+        "quote": "地方志 的已采用资料。",
+    }
+    await service.save(
+        db_session,
+        test_project_id,
+        node["id"],
+        MapSaveRequest(
+            base_revision_id=node["current_revision_id"],
+            document=MapDocument(
+                features=[
+                    {
+                        "id": "bridge",
+                        "kind": "location",
+                        "label": "霜桥",
+                        "entity_id": str(place.id),
+                        "sources": [source_ref],
+                    }
+                ]
+            ),
+        ),
+    )
+    scene_id = str(uuid.uuid4())
+    port = _scene_port(test_project_id, scene_id, location_id=str(place.id))
+    _install_read_boundaries(monkeypatch, port, hidden_ids={str(source.id)})
+
+    hidden_source = await read_map_spatial_brief(
+        db_session,
+        MapSpatialBriefRequest(novel_id=test_project_id, scene_id=scene_id),
+    )
+    assert hidden_source.items == []
+
+    from core.errors import ValidationError
+    from modules.world.map_structure_schemas import MapSource
+
+    with pytest.raises(ValidationError):
+        await service.source(
+            db_session,
+            test_project_id,
+            MapSource.model_validate({**source_ref, "quote": "不在原文中的引文"}),
+        )
+
+    source.summary = "来源资料已更新，原引文不再匹配。"
+    await db_session.flush()
+    _install_read_boundaries(monkeypatch, port)
+    stale_source = await read_map_spatial_brief(
+        db_session,
+        MapSpatialBriefRequest(novel_id=test_project_id, scene_id=scene_id),
+    )
+    assert stale_source.items == []
+    assert stale_source.omitted_count > 0
+
+
+@pytest.mark.asyncio
+async def test_brief_keeps_adopted_v1_manual_edges_without_sources_and_direction_text(
+    db_session, test_project_id, monkeypatch
+):
+    harbor = await _entity(db_session, test_project_id, "临江城")
+    pass_entity = await _entity(db_session, test_project_id, "黑石关")
+    service = MapStructureService()
+    node = await service.create_node(
+        db_session, test_project_id, MapNodeCreate(title="旧城图", level="region")
+    )
+    document = MapDocument.model_validate(
+        {
+            "schema_version": 1,
+            "features": [
+                {
+                    "id": "harbor",
+                    "kind": "location",
+                    "label": "临江城",
+                    "entity_id": str(harbor.id),
+                },
+                {
+                    "id": "pass",
+                    "kind": "location",
+                    "label": "黑石关",
+                    "entity_id": str(pass_entity.id),
+                },
+            ],
+            "constraints": [
+                {
+                    "id": "direction",
+                    "subject": "harbor",
+                    "relation": "north",
+                    "target": "pass",
+                },
+                {
+                    "id": "road",
+                    "subject": "harbor",
+                    "relation": "connects",
+                    "target": "pass",
+                    "path_label": "北道",
+                },
+            ],
+        }
+    )
+    saved = await service.save(
+        db_session,
+        test_project_id,
+        node["id"],
+        MapSaveRequest(
+            base_revision_id=node["current_revision_id"], document=document
+        ),
+    )
+    scene_id = str(uuid.uuid4())
+    port = _scene_port(
+        test_project_id, scene_id, location_id=str(harbor.id)
+    )
+    _install_read_boundaries(monkeypatch, port)
+
+    brief = await read_map_spatial_brief(
+        db_session,
+        MapSpatialBriefRequest(novel_id=test_project_id, scene_id=scene_id),
+    )
+
+    assert len(brief.items) == 1 and brief.items[0].revision_id == saved.id
+    edges = json.loads(brief.items[0].content)["邻接与通路"]
+    assert {item["relation"] for item in edges} == {"north", "connects"}
+    assert "traversable" not in next(
+        item for item in edges if item["relation"] == "north"
+    )
 
 
 def test_spatial_brief_handles_replaced_anchors_and_keeps_bounded_valid_json():

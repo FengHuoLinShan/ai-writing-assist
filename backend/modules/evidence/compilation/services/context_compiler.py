@@ -10,6 +10,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.config import get_settings
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.token_estimation import estimate_token_count
 from modules.evidence.compilation.contracts import (
@@ -33,6 +34,7 @@ from modules.evidence.compilation.services.loaders import (
     CharactersLoader,
     EditorialBriefLoader,
     EventsLoader,
+    MapSpatialLoader,
     MemoryRecordsLoader,
     OutlineAnalysisLoader,
     OutlineArcLoader,
@@ -182,6 +184,7 @@ class ContextCompiler:
             PlotThreadsLoader(),
             OutlineArcLoader(),
             SceneLoader(),
+            MapSpatialLoader(),
             OutlineAnalysisLoader(),
         ]
 
@@ -211,6 +214,20 @@ class ContextCompiler:
         )
 
         loader_names = list(SCOPE_LOADERS.get(options.scope, ["project"]))
+        from modules.evidence.compilation.services.loaders.map_spatial_loader import (
+            map_spatial_capability,
+        )
+
+        spatial_capability = map_spatial_capability(options.consumer_action)
+        if (
+            spatial_capability
+            and spatial_capability
+            in get_settings().map_spatial_enabled_capabilities
+        ):
+            if options.scene_id and "scene" not in loader_names:
+                loader_names.insert(0, "scene")
+            if "map_spatial" not in loader_names:
+                loader_names.append("map_spatial")
         if (
             "rag_chunks" in loader_names
             and isinstance(self._loaders.get("rag_chunks"), RagChunksLoader)
@@ -374,9 +391,23 @@ class ContextCompiler:
         ) = await self._build_activation_section(db, bundle, options)
         if activation_section is not None:
             sections.append(activation_section)
+        excluded_section_keys = set(
+            options.excluded_asset_ids.get("context_sections", [])
+        )
+        map_section_exclusions = [
+            item.model_copy(
+                update={
+                    "selection_state": "excluded",
+                    "omission_reason": "作者显式排除空间参考",
+                }
+            )
+            for section in sections
+            if section.key == "map_spatial" and section.key in excluded_section_keys
+            for item in section.materialize_items().items
+        ]
         sections, exclusion_warnings = self._apply_section_exclusions(
             sections,
-            options.excluded_asset_ids.get("context_sections", []),
+            list(excluded_section_keys),
         )
         sections = [section.materialize_items() for section in sections]
         sections, excluded_items, item_exclusion_warnings = self._apply_item_exclusions(
@@ -384,6 +415,7 @@ class ContextCompiler:
             options.excluded_refs,
             pinned_refs=options.pinned_refs,
         )
+        excluded_items.extend(map_section_exclusions)
         sections, pin_blockers = await self._apply_pinned_refs(
             db,
             sections,
@@ -890,10 +922,12 @@ class ContextCompiler:
 
         if options is not None and options.reveal_mode == "character":
             sections.extend(self._build_character_reveal_sections(bundle, options))
+            sections.extend(self._build_map_spatial_sections(bundle))
             return sections
 
         if options is not None and options.reveal_mode == "reader":
             sections.extend(self._build_reader_reveal_sections(bundle, options))
+            sections.extend(self._build_map_spatial_sections(bundle))
             return sections
 
         if bundle.world_bible_synopsis:
@@ -967,6 +1001,8 @@ class ContextCompiler:
                     can_exclude=True,
                 )
             )
+
+        sections.extend(self._build_map_spatial_sections(bundle))
 
         if bundle.scene:
             content = json.dumps(bundle.scene, ensure_ascii=False, indent=2)
@@ -1429,6 +1465,103 @@ class ContextCompiler:
             }
             sections.sort(key=lambda item: generation_order.get(item.key, 7))
         return sections
+
+    @staticmethod
+    def _build_map_spatial_sections(
+        bundle: StructureContextBundle,
+    ) -> list[ContextSection]:
+        brief = bundle.map_spatial_brief or {}
+        entries = brief.get("items") or []
+        if not entries:
+            return []
+        items: list[ContextItem] = []
+        sources = []
+        map_baseline = []
+        for raw in entries[:20]:
+            if not isinstance(raw, dict):
+                continue
+            node_id = str(raw.get("node_id") or "")
+            revision_id = str(raw.get("revision_id") or "")
+            content = str(raw.get("content") or "")
+            content_hash = str(raw.get("content_hash") or "")
+            revision_hash = str(raw.get("revision_hash") or "")
+            geometry_hash = str(raw.get("geometry_hash") or "")
+            if not (node_id and revision_id and content and content_hash):
+                continue
+            title = str(raw.get("title") or "已保存地图")[:200]
+            source = {
+                "type": "map_spatial",
+                "id": node_id,
+                "label": title,
+                "status": "adopted",
+                "content_hash": content_hash,
+                "revision_id": revision_id,
+                "revision_hash": revision_hash,
+                "geometry_hash": geometry_hash,
+                "source_hashes": list(raw.get("source_hashes") or [])[:64],
+            }
+            source_ref = {
+                "kind": "target",
+                "target_ref": {
+                    "target_type": "map_spatial",
+                    "target_id": node_id,
+                    "target_path": "",
+                },
+            }
+            items.append(
+                ContextItem(
+                    key=f"map_spatial:{node_id}:{revision_id}",
+                    content=content,
+                    token_count=estimate_token_count(content),
+                    title=title,
+                    preview=content[:160],
+                    status="adopted",
+                    activation_reason=(
+                        "当前 Scene 的地图参考；仅使用已保存、已采用且来源有效的声明"
+                    ),
+                    source=source,
+                    selection_ref=source_ref,
+                    can_exclude=True,
+                )
+            )
+            sources.append(source)
+            map_baseline.append(
+                {
+                    "node_id": node_id,
+                    "title": title,
+                    "revision_id": revision_id,
+                    "revision_hash": revision_hash,
+                    "geometry_hash": geometry_hash,
+                    "content_hash": content_hash,
+                    "source_hashes": list(raw.get("source_hashes") or [])[:64],
+                }
+            )
+        if not items:
+            return []
+        content = "\n".join(item.content for item in items)
+        section = ContextSection(
+            key="map_spatial",
+            tier=Tier.P3,
+            content=content,
+            token_count=estimate_token_count(content),
+            truncatable_per_item=True,
+            max_items=20,
+            title="空间简报",
+            preview=items[0].preview,
+            status="adopted",
+            activation_reason="可选空间参考；不构成正史事实或写作约束",
+            sources=sources,
+            can_exclude=True,
+            retrieval_metadata={
+                "scene_id": brief.get("scene_id"),
+                "scene_index": brief.get("scene_index"),
+                "chapter_index": brief.get("chapter_index"),
+                "map_baseline": map_baseline,
+                "omitted_count": int(brief.get("omitted_count") or 0),
+            },
+            items=items,
+        )
+        return [section]
 
     @staticmethod
     def _build_outline_analysis_sections(

@@ -14,8 +14,9 @@ resume 不重置累计账本；planner/nomination 的 step timeout 保持原样�
 `advisory_omitted`，不进入 `omitted`，不影响 `scope_complete` 或
 `require_scope_complete`；scope 与 audit receipt 均记录该字段，作者 review payload 投影原因并
 隐藏不可见 source key。审查 coverage 仍只要求必查维度完整。v1 receipt 继续按原字段和指纹语义
-回读。当前 `map_spatial` 仅登记为参考维度，地图简报 loader、上下文接入和逐能力开关尚未接入，
-因此本批不会向任何 LLM 上下文加载地图。
+回读。`map_spatial` 作为参考维度由独立 loader 接入写作、剧本、冲突审查与 `world.ask`；
+每个能力由 `MAP_SPATIAL_ENABLED_CAPABILITIES` 独立选择且默认关闭。只读取 World facade
+返回的已采用空间简报；预算、作者排除、来源失效与截止点过滤均只记录参考省略，不阻断必查范围。
 
 ## 定位
 

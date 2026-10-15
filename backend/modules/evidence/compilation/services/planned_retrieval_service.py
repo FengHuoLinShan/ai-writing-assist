@@ -31,4 +31,9 @@ class PlannedContextRetrievalService:
             budget_used={key: 0 for key in CONTEXT_BUDGET},
         )
         await self._loader.load(db, options, bundle)
+        from modules.evidence.compilation.services.loaders.map_spatial_loader import (
+            MapSpatialLoader,
+        )
+
+        await MapSpatialLoader().load(db, options, bundle)
         return bundle
