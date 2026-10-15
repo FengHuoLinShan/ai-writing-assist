@@ -113,8 +113,7 @@ class SimulationV3Context(SimulationV3Model):
                 for item in self.resources
             },
             "locations": {
-                item.subject.state_key: item.location.state_key
-                for item in self.positions
+                item.subject.state_key: item.location.state_key for item in self.positions
             },
             "location_catalog": [item.state_key for item in self.locations],
             "routes": [
@@ -215,9 +214,7 @@ class FiniteResolution(SimulationV3Model):
 
 
 class StateDelta(SimulationV3Model):
-    kind: Literal[
-        "resource_holder", "departed", "observation", "location", "belief"
-    ]
+    kind: Literal["resource_holder", "departed", "observation", "location", "belief"]
     key: str = Field(min_length=1)
     before: str | bool | dict | None = None
     after: str | bool | dict
@@ -255,7 +252,7 @@ def _observers_for(
     visible = {
         observer
         for observer in observers
-        if origin is None or locations.get(observer, origin) == origin
+        if origin is None or locations.get(observer) == origin
     }
     audience = {item.state_key for item in intent.audience}
     if actor not in visible or audience - visible:
@@ -304,6 +301,7 @@ def resolve_simulation_v3(
 
     holders = state.get("resource_holders", {})
     locations = state.get("locations", {})
+    known_participants = set(state.get("participants", []))
     catalog = set(state.get("location_catalog", []))
     routes = {tuple(route) for route in state.get("routes", [])}
     patches: list[StateDelta] = []
@@ -316,7 +314,15 @@ def resolve_simulation_v3(
         if outcome == "succeeded" and intent.effect == "resource_transfer":
             assert intent.resource is not None and intent.recipient is not None
             resource_key = intent.resource.state_key
-            if resource_key not in holders or holders[resource_key] != actor:
+            if (
+                resource_key not in holders
+                or holders[resource_key] != actor
+                or (
+                    known_participants
+                    and intent.recipient.kind in {"object", "map_node"}
+                    and intent.recipient.state_key not in known_participants
+                )
+            ):
                 outcome = outcomes[intent.intent_id] = "uncertain"
         if outcome == "succeeded" and intent.effect == "move":
             assert intent.destination is not None
@@ -346,9 +352,7 @@ def resolve_simulation_v3(
             "outcome": outcome,
             "visibility": intent.visibility,
             "observers": observers_for_event,
-            "truth": "spoken_claim"
-            if intent.kind == "speak"
-            else "simulated_outcome",
+            "truth": "spoken_claim" if intent.kind == "speak" else "simulated_outcome",
             "event_id": content_hash(
                 [content_hash(state), intent.model_dump(mode="json"), outcome]
             ),
@@ -430,9 +434,7 @@ def resolve_simulation_v3(
         protocol="simulation_v3",
         base_state_revision=state.get("revision", 0),
         base_state_hash=content_hash(state),
-        intents_hash=content_hash(
-            [intent.model_dump(mode="json") for intent in intents]
-        ),
+        intents_hash=content_hash([intent.model_dump(mode="json") for intent in intents]),
         rule_revision=rule_revision,
         events=events,
         state_patches=patches,

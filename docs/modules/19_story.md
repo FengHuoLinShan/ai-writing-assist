@@ -163,6 +163,8 @@ Story 生成预览与 Imports Phase 1c/3 均保留组级回执。P20/总纲采�
 ADR-0027 增加 `story_simulation_runs` / `story_simulation_steps` 两张领域历史表，复用原
 one-click task。Story 新建排演使用 `simulation_v3`，共用类型化身份、人物意图、有限结算、
 `StateDelta`、`ResolutionBatch` 与确定性回放；协议层没有参与者、地点、受众或回合数上限。
+新排演的现有对象/地图节点引用在公开入队和 worker 前后按当前作品的 canonical/adopted 身份重验；
+临时设定保留 candidate/text_label 身份，未知位置不推定旁观者同地。公开演示不能读取或重放作者私有排演。
 旧 `rehearsal_v1` / `observation_v2` 运行保持只读、按原协议展示，不迁移、不跨协议分叉；
 `observation_v2` 可用原差量校验回放，`rehearsal_v1` 只有历史事件视图。
 Interaction 的 `team_v1` 与 `observation_v2` 仍按原入口策略执行，`max_actors` 不变。通用 OneClick

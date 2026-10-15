@@ -22,8 +22,7 @@ def _object(identifier: str) -> SimulationReference:
 def test_simulation_v3_context_has_typed_identities_and_no_actor_or_location_caps():
     actors = [_object(f"actor-{index}") for index in range(8)]
     locations = [
-        SimulationReference(kind="map_node", id=f"node-{index}")
-        for index in range(6)
+        SimulationReference(kind="map_node", id=f"node-{index}") for index in range(6)
     ]
     candidate = SimulationReference(
         kind="candidate", id="candidate-1", label="临时登场者"
@@ -88,10 +87,38 @@ def test_simulation_v3_requires_typed_reference_shapes():
         )
 
 
+def test_public_event_does_not_assume_unknown_observer_is_at_known_location():
+    actor, witness = _object("actor-1"), _object("actor-2")
+    hall = SimulationReference(kind="map_node", id="hall")
+    state = {
+        "revision": 0,
+        "observations": {},
+        "locations": {actor.state_key: hall.state_key},
+    }
+    intent = SimulationIntent(
+        intent_id="say-1",
+        actor=actor,
+        kind="speak",
+        action="我持有钥匙",
+        visibility="public",
+    )
+    batch = resolve_simulation_v3(
+        [intent],
+        FiniteResolution(outcomes=[{"intent_id": "say-1", "outcome": "succeeded"}]),
+        state,
+        observers={actor.state_key, witness.state_key},
+        rule_revision="a" * 64,
+    )
+    assert batch.events[0]["observers"] == [actor.state_key]
+    replayed = replay_batch(state, batch)
+    assert witness.state_key not in replayed["observations"]
+
+
 def test_simulation_v3_applies_only_successful_transfer_and_replays_exactly():
     actor, recipient, resource = _object("actor-1"), _object("actor-2"), _object("key-1")
     state = {
         "revision": 4,
+        "participants": [actor.state_key, recipient.state_key],
         "observations": {},
         "resource_holders": {resource.state_key: actor.state_key},
         "departed": [],
@@ -138,6 +165,19 @@ def test_simulation_v3_applies_only_successful_transfer_and_replays_exactly():
     assert not any(delta.kind == "resource_holder" for delta in failed.state_patches)
     replayed_failed = replay_batch(state, failed)
     assert replayed_failed["resource_holders"][resource.state_key] == actor.state_key
+
+    invented_world_recipient = intent.model_copy(
+        update={"recipient": _object("not-a-declared-participant")}
+    )
+    unproven = resolve_simulation_v3(
+        [invented_world_recipient],
+        FiniteResolution(outcomes=[{"intent_id": "transfer-1", "outcome": "succeeded"}]),
+        state,
+        observers={actor.state_key, recipient.state_key},
+        rule_revision="a" * 64,
+    )
+    assert unproven.events[0]["outcome"] == "uncertain"
+    assert not any(delta.kind == "resource_holder" for delta in unproven.state_patches)
 
 
 def test_simulation_v3_move_conflict_and_belief_evidence_are_finite():

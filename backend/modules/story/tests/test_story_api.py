@@ -8,8 +8,11 @@ import pytest
 from httpx import AsyncClient
 from pydantic import ValidationError
 
+from modules.account.context import bind_principal, reset_principal
+from modules.account.contracts import BOOTSTRAP_ACCOUNT_ID, AccountPrincipal
 from modules.story.models import StorySimulationRun
 from modules.story.schemas import StoryOneClickTaskRequest, StoryTaskResponse
+from modules.world.models import CoreEntity
 
 
 async def _create_project(client: AsyncClient, title: str) -> str:
@@ -213,6 +216,47 @@ async def test_rehearsal_http_rejects_multi_round_submission_without_budget_prev
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("reference_kind", ["object", "map_node"])
+async def test_rehearsal_http_rejects_unowned_or_missing_world_identity_before_enqueue(
+    async_client: AsyncClient, db_session, test_project_id, reference_kind: str
+) -> None:
+    actor = CoreEntity(
+        novel_id=uuid.UUID(test_project_id),
+        entity_type="character",
+        name="已采用角色",
+        status="canonical",
+    )
+    db_session.add(actor)
+    await db_session.flush()
+    scene_id = str(uuid.uuid4())
+    with (
+        patch(
+            "core.config.get_settings",
+            autospec=True,
+            return_value=SimpleNamespace(story_rehearsal_enabled=True),
+        ),
+        patch("modules.story.api.require_fresh_confirmation", autospec=True) as fresh,
+    ):
+        response = await async_client.post(
+            f"/api/story/scenes/{scene_id}/rehearsals",
+            json={
+                "novel_id": test_project_id,
+                "scene_id": scene_id,
+                "character_ids": [str(actor.id)],
+                "context_confirmation_id": "v3-confirmation",
+                "simulation_protocol": "simulation_v3",
+                "simulation_seed": {
+                    "participants": [{"kind": "object", "id": str(actor.id)}],
+                    "locations": [{"kind": reference_kind, "id": str(uuid.uuid4())}],
+                },
+            },
+        )
+    assert response.status_code == 400
+    assert "不属于当前作品或尚未采用" in response.json()["detail"]
+    fresh.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_scene_rehearsal_route_returns_read_only_conflict_for_old_protocol(
     async_client: AsyncClient,
 ) -> None:
@@ -321,3 +365,38 @@ async def test_one_click_rejects_new_old_protocol_and_old_history_cannot_cross_f
     )
     assert fork.status_code == 409
     assert "不能跨协议重解释" in fork.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_demo_cannot_read_or_replay_private_rehearsal(
+    async_client: AsyncClient, test_project_id: str
+) -> None:
+    token = bind_principal(
+        AccountPrincipal(
+            account_id=BOOTSTRAP_ACCOUNT_ID,
+            status="active",
+            identity_type="demo_readonly",
+            support_code="story-demo",
+            access_scope="demo_readonly",
+            demo_project_id=uuid.UUID(test_project_id),
+        )
+    )
+    run_id = uuid.uuid4()
+    try:
+        with (
+            patch("modules.story.rehearsals.read_rehearsal", autospec=True) as read,
+            patch("modules.story.rehearsals.replay_rehearsal", autospec=True) as replay,
+        ):
+            shown = await async_client.get(
+                f"/api/story/rehearsals/{run_id}",
+                params={"novel_id": test_project_id},
+            )
+            replayed = await async_client.post(
+                f"/api/story/rehearsals/{run_id}/replay",
+                params={"novel_id": test_project_id},
+            )
+        assert shown.status_code == replayed.status_code == 404
+        read.assert_not_awaited()
+        replay.assert_not_awaited()
+    finally:
+        reset_principal(token)

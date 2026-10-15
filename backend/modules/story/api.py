@@ -476,6 +476,23 @@ async def _enqueue_confirmed_task(
         )
         if existing is not None:
             return StoryTaskResponse(task_id=existing.task_id, status=existing.status)
+        if (
+            isinstance(data, StoryOneClickTaskRequest)
+            and data.simulation_protocol == "simulation_v3"
+        ):
+            from modules.story.rehearsals import validate_simulation_context_refs
+            from modules.story.simulation_v3 import (
+                SimulationReference,
+                SimulationV3Context,
+            )
+
+            context = data.simulation_seed or SimulationV3Context(
+                participants=[
+                    SimulationReference(kind="object", id=actor)
+                    for actor in data.character_ids
+                ]
+            )
+            await validate_simulation_context_refs(db, data.novel_id, context)
         await require_fresh_confirmation(
             db,
             novel_id=data.novel_id,
@@ -562,7 +579,7 @@ async def api_submit_one_click_task(
     data: StoryOneClickTaskRequest,
     db: DbSession,
 ) -> StoryTaskResponse:
-    await require_active_project(db, data.novel_id)
+    await require_active_project(db, data.novel_id, allow_demo_readonly=False)
     if data.simulation_protocol in {"rehearsal_v1", "observation_v2"}:
         raise HTTPException(
             status_code=409,
@@ -825,7 +842,7 @@ async def replay_recorded_rehearsal(
 ):
     from modules.story.rehearsals import replay_rehearsal
 
-    await require_active_project(db, novel_id)
+    await require_active_project(db, novel_id, allow_demo_readonly=False)
     return await replay_rehearsal(db, novel_id, str(run_id))
 
 
@@ -837,7 +854,7 @@ async def fork_rehearsal(
 ):
     from modules.story.rehearsals import read_rehearsal
 
-    await require_active_project(db, data.novel_id)
+    await require_active_project(db, data.novel_id, allow_demo_readonly=False)
     parent = await read_rehearsal(db, data.novel_id, str(run_id))
     if parent["protocol"] != "simulation_v3":
         raise HTTPException(
