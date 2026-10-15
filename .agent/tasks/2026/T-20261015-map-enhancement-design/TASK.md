@@ -3,7 +3,7 @@ id: T-20261015-map-enhancement-design
 title: 地图系统增强设计与分批实施（自动冷启动、参与创作决策、题材鲁棒性）
 status: active
 created: 2026-10-15T10:54:00+08:00
-updated: 2026-10-16T03:04:00+08:00
+updated: 2026-10-16T03:18:00+08:00
 ---
 
 # 地图系统增强设计
@@ -13,14 +13,14 @@ updated: 2026-10-16T03:04:00+08:00
 - 当前授权：2026-10-15 用户 `/goal` 要求执行 `codex/map-enhancement-plan` 的计划；Luna/max 子代理并行实现，Sol/high 按批次 review 与修复。只做本地开发验证；没有发布、真实数据破坏或对外发送授权。用户16:43补充“修复由sol子代理直接修”：后续代码修复均由Sol/high子代理直接执行。用户曾要求“由你收尾”；其后明确答复范围为三份计划全部实施，包括操作目录、对象档案、导演、世界推进。root继续负责分批拆解、集成、验证、任务记录与实际隔离评测；已明确确认采用“模拟作者显式指定Scene地点后做辅助Writing对比”。
 - 主工作区：`/Users/tywww/项目/ai-writing-assist/.worktrees/map-enhancement-plan`，分支 `codex/map-enhancement-plan`。原 Desktop 路径已失效；仓库实际已迁至 `/Users/tywww/项目/ai-writing-assist`。
 - 恢复时基线：设计提交 `3fd5ca29e`；刚 fetch 的 `origin/main=00d861283` 已无冲突合并为 `b74d7c28d`（本地），包含 G8c 与第三批评测/HTTPX2 变更。开始时主工作区干净，其他 worktree/WIP 保留。
-- 当前里程碑：C2已审实现/预算桥及UI修复集成，primary业务352a45fa5，另0d3123444仅精确PG任务测试修复；root4492后端/3141前端/7专用PG及lint/build通过，390/1280真实V2卡保存和合成V2反应回执消费已验证，反应名字遇人物资料迟到仍待Sol核实修复。Goal初版90c4d077已结束Luna写入，由Sol在独立review树a948893c3后审修；已实证审批/取消账本自锁及小连接池耗尽并初修，后续真实R2恢复、预算/并发/付费子任务和UI待完整验收。Luna/max C0c在world-object-dossier-impl/codex/world-object-validity-impl从fd742实施；C4b在map-assistant-structure/codex/scene-director-impl继续导演及正式director_reference。A1章节排序/一般事实时间线、A3/A4、C3对齐尾项、C5仍在范围，C1长篇/M5势力/RP真实门禁单列。
+- 当前里程碑：C2已审实现/预算桥及UI修复集成，primary业务219a50aaa，另0d3123444仅精确PG任务测试修复；此前352a45fa5上root4492后端/3141前端/7专用PG及lint/build通过。219a50aaa修复反应人物资料迟到的姓名回填，root相关Vue62通过；390/1280真实V2卡保存、合成V2反应回执消费及700ms上下文迟到、选择/刷新/跨Scene隔离均已验证。Goal初版90c4d077已结束Luna写入，由Sol在独立review树a948893c3后审修；已实证审批/取消账本自锁及小连接池耗尽并初修，后续真实R2恢复、预算/并发/付费子任务和UI待完整验收。Luna/max C0c在world-object-dossier-impl/codex/world-object-validity-impl从fd742实施；C4b在map-assistant-structure/codex/scene-director-impl继续导演及正式director_reference。A1章节排序/一般事实时间线、A3/A4、C3对齐尾项、C5仍在范围，C1长篇/M5势力/RP真实门禁单列。
 - 下一步：Sol完成Goal A2独立审修及真实PG/API/UI，Luna并行完成C0c与C4b固定点；后续C5、A3/A4、C3尾项及A1缺项依依赖逐批交Sol直接审修。真实质量和条件依赖单列，R3封存、holdout不读。
 - 范围：用户已明确“该分支三份计划全部实施，包括操作目录、对象档案、导演和世界推进”。执行地图M0–M5及两个配套完整计划；既有计划的条件依赖和真实质量门禁仍有效，不能冒称完成。
 - 依赖：M5 依赖独立势力路线图阶段 1，现有计划明确阶段 1 前不提供领地图层；不得读取旧无时效势力字段冒充完成。
 - 已落地共享前置：`6fcce3bfd` 把7种ObservationModality上移shared并保持Evolution兼容再出口（16测）；`16f64570a` 在既有Story scene-source port提供按当前顺序的锚点/替换链只读数据（5测）。两者ruff通过，后续纳入Sol审查。
 - 验证环境：唯一primary/backend/.venv（Python3.14.8/Pydantic2.14.0），Node24.15.0/npm11.12.1；专用PG容器map-enhancement-test-20261015、loopback65202按专库分配。原map_enhancement_test保持旧head，root专库c2_browser_test_20261016保留且服务已停，Sol独占goal_review_test_20261016；默认开发库不作探测，早期A0是否写入不能从无证据推断。
 - 验证：实现前 `make docs-check` 已通过（152 ORM表、49ADR）；没有真实模型/真实稿件验证。
-- 最后核实：2026-10-16T03:04:00+08:00
+- 最后核实：2026-10-16T03:18:00+08:00
 
 ## 批次与分工
 
@@ -525,3 +525,9 @@ updated: 2026-10-16T03:04:00+08:00
 - 反应浏览器仅合成已完成AsyncTask，实际task GET→生产runtime manager→V2 normalizer/界面，非模型或worker生成。1280/390两方案键盘/鼠标保留互斥、完整performance与source IDs持久化、刷新恢复与跨Scene隔离通过，零generation提交；结果/tmp/map-c2-reaction-browser-result-20261016.json，截图/tmp/map-c2-reaction-{390,1280}-20261016.png。root看图发现人物资料迟到时名字可能固化为“本场人物1”，已交Sol复现/直接修，不以其余通过掩盖。
 - root Vite58190/backend36063已停止，18572/18573没有本轮运行时；QA脚本/合成专库/fixtures保留。默认开发库/R3/holdout/真实稿件与新增模型请求均未参与本批。
 - Goal Sol独立树a948893c3后正在审修，真实PG已复现审批/取消FOR UPDATE与独立checkpoint互等，以及主pool2耗尽；初修专用NullPool锁与provider前独立持久化，小pool1测试2 pass/0.37s。实际C2任务映射与场景+全部人物目标冻结也在修，以上只是阶段证据，不代表A2已集成或完成。
+
+## 2026-10-16T03:18:00+08:00 C2 延迟上下文复验完成
+
+- Sol净修72a78147e已进入primary219a50aaa，仅在同一Scene人物资料加载后按character_id回填V2反应姓名，保留旧协议行为。root两份相关Vue共62 passed（1.90s），日志/tmp/map-c2-primary-late-character-20261016.log；没有因这一窄前端修复重复整套后端测试。
+- root固定QA树2c8c11c26，真实Task GET回执先到、story-context人为延迟700ms；1280/390均最终显示“许照”，完整表演互斥选择、source IDs、本地恢复与跨Scene隔离通过，零生成POST/真实模型调用。结果/tmp/map-c2-reaction-browser-late-name-result-20261016.json，截图/tmp/map-c2-reaction-late-name-{390,1280}-20261016.png，两图已逐一目视确认。backend44977/Vite26033均已停止；合成专库/fixture保留。
+- Goal仍由Sol在独立树审修；新复现规划目录暴露14个执行不可用项，正在用同一能力判定贯穿规划、确认和恢复，并公开完整嵌套参数schema。C0c和C4b继续Luna初版实现，未把初步测试当完整交付。

@@ -3,7 +3,7 @@ id: T-20261015-character-world-progression
 title: 世界对象档案、场景导演、写作副驾驶与世界推进设计
 status: active
 created: 2026-10-15T16:00:00+08:00
-updated: 2026-10-16T03:04:00+08:00
+updated: 2026-10-16T03:18:00+08:00
 ---
 
 # 世界对象档案、场景导演、写作副驾驶与世界推进设计
@@ -22,7 +22,7 @@ updated: 2026-10-16T03:04:00+08:00
 ADR-0039 旧接口写回规则、共用词表与锚点、档案发现按 ADR-0036 §1 契约登记。
 修订经用户授权在第三个本地提交 `20d6f1eff` 中提交，未推送。
 2026-10-15 用户采纳 ADR-0039 至 ADR-0041（Accepted / 未实施）；ADR-0005、0025 补充说明与索引同步。
-用户已明确三份计划全部实施。C2已审实现/预算桥及UI修复集成，primary业务352a45fa5，另0d3123444仅精确PG任务测试修复；root4492后端/3141前端/7专用PG及lint/build通过，390/1280真实V2卡保存和合成V2反应回执消费已验证，反应名字遇人物资料迟到仍待Sol核实修复。Goal初版90c4d077已结束Luna写入，由Sol在独立review树a948893c3后审修；已实证审批/取消账本自锁及小连接池耗尽并初修，后续真实R2恢复、预算/并发/付费子任务和UI待完整验收。Luna/max C0c在world-object-dossier-impl/codex/world-object-validity-impl从fd742实施；C4b在map-assistant-structure/codex/scene-director-impl继续导演及正式director_reference。A1章节排序/一般事实时间线、A3/A4、C3对齐尾项、C5仍在范围，C1长篇/M5势力/RP真实门禁单列。
+用户已明确三份计划全部实施。C2已审实现/预算桥及UI修复集成，primary业务219a50aaa，另0d3123444仅精确PG任务测试修复；此前352a45fa5上root4492后端/3141前端/7专用PG及lint/build通过。219a50aaa修复反应人物资料迟到的姓名回填，root相关Vue62通过；390/1280真实V2卡保存、合成V2反应回执消费及700ms上下文迟到、选择/刷新/跨Scene隔离均已验证。Goal初版90c4d077已结束Luna写入，由Sol在独立review树a948893c3后审修；已实证审批/取消账本自锁及小连接池耗尽并初修，后续真实R2恢复、预算/并发/付费子任务和UI待完整验收。Luna/max C0c在world-object-dossier-impl/codex/world-object-validity-impl从fd742实施；C4b在map-assistant-structure/codex/scene-director-impl继续导演及正式director_reference。A1章节排序/一般事实时间线、A3/A4、C3对齐尾项、C5仍在范围，C1长篇/M5势力/RP真实门禁单列。
 
 ## 目标与验收
 
@@ -305,3 +305,9 @@ ADR-0039 旧接口写回规则、共用词表与锚点、档案发现按 ADR-003
 - 反应浏览器仅合成已完成AsyncTask，实际task GET→生产runtime manager→V2 normalizer/界面，非模型或worker生成。1280/390两方案键盘/鼠标保留互斥、完整performance与source IDs持久化、刷新恢复与跨Scene隔离通过，零generation提交；结果/tmp/map-c2-reaction-browser-result-20261016.json，截图/tmp/map-c2-reaction-{390,1280}-20261016.png。root看图发现人物资料迟到时名字可能固化为“本场人物1”，已交Sol复现/直接修，不以其余通过掩盖。
 - root Vite58190/backend36063已停止，18572/18573没有本轮运行时；QA脚本/合成专库/fixtures保留。默认开发库/R3/holdout/真实稿件与新增模型请求均未参与本批。
 - Goal Sol独立树a948893c3后正在审修，真实PG已复现审批/取消FOR UPDATE与独立checkpoint互等，以及主pool2耗尽；初修专用NullPool锁与provider前独立持久化，小pool1测试2 pass/0.37s。实际C2任务映射与场景+全部人物目标冻结也在修，以上只是阶段证据，不代表A2已集成或完成。
+
+## 2026-10-16T03:18:00+08:00 C2 延迟上下文复验完成
+
+- Sol净修72a78147e已进入primary219a50aaa，仅在同一Scene人物资料加载后按character_id回填V2反应姓名，保留旧协议行为。root两份相关Vue共62 passed（1.90s），日志/tmp/map-c2-primary-late-character-20261016.log；没有因这一窄前端修复重复整套后端测试。
+- root固定QA树2c8c11c26，真实Task GET回执先到、story-context人为延迟700ms；1280/390均最终显示“许照”，完整表演互斥选择、source IDs、本地恢复与跨Scene隔离通过，零生成POST/真实模型调用。结果/tmp/map-c2-reaction-browser-late-name-result-20261016.json，截图/tmp/map-c2-reaction-late-name-{390,1280}-20261016.png，两图已逐一目视确认。backend44977/Vite26033均已停止；合成专库/fixture保留。
+- Goal仍由Sol在独立树审修；新复现规划目录暴露14个执行不可用项，正在用同一能力判定贯穿规划、确认和恢复，并公开完整嵌套参数schema。C0c和C4b继续Luna初版实现，未把初步测试当完整交付。

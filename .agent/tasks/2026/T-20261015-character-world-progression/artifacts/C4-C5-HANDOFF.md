@@ -98,3 +98,11 @@ ADR-0040、ADR-0041 为准；不是新的授权或验收豁免。
 - Luna/max scene_director在map-assistant-structure/codex/scene-director-impl从ea8889f16（业务b318已审C4a）实施完整导演；primary已到A1审修6a31，后续由Sol统一组合。C2后端仍未固定，不直接依赖未审新符号，现有Evidence三层brief可用。
 - 现有公共AIRunEnvelope/new_ai_run_envelope/read_ai_run_envelope/ai_run_scope/managed_step_scope足以承载导演域内累计账本；Goal正在改共享schemas/workflow_budget新版本，导演不并行写。新task/router/migration/纯SPEC/NoticeSource等给精确接线清单，最终由Sol真实装配验证，清单本身不算产品闭环。
 - 原有有向态度RelationAttitude已含degree与端点配对基础schema；C0c需核验真实事件/来源/三视角读取，不能再声称完全没有态度模型。作者有效期读规则/开关、别名区间和项目自定义文字状态仍待实现。
+
+## 2026-10-16T03:18 C4b 当前组合清单（尚未交付）
+
+- Luna 工作树仍为 map-assistant-structure/codex/scene-director-impl，未固定最终提交。新 HTTP router 为 modules.story.director_api.router，暂未挂入 Story 旧聚合器；普通旧模块回归不覆盖这些新 HTTP。Sol 必须在同一审修批次登记下面四项操作后挂入路由并验证 app.main、真实 API 和 trace，不能以导出清单替代装配。
+- 纯 OPERATIONS_SPEC 在 modules.story.director_operations：story.scene_director.preview → POST /api/story/scenes/director/budget-preview（R0）；story.scene_director.start → POST /api/story/scenes/{scene_id}/director（R4）；story.scene_director.continue_preview → POST /api/story/director/roots/{root_id}/budget-preview（R0）；story.scene_director.continue → POST /api/story/director/roots/{root_id}/branches（R4）。历史管理仅作者 HTTP，必须逐项 trace 豁免并确认不暴露 AI 删除。
+- Task 名 story_scene_director，根能力 story.scene_director，never_retry/max_attempts=1/retry_transient=false；请求、token、时限来自作者冻结预算，run_id=director_root_id，checkpoint 镜像同一 root ledger。最终 TaskRegistry/root-capability/confirmation 与 NoticeSource story.scene_director 都由 Sol 组合，不扩旧 RP 能力或重置开始时间。
+- 正式 director_reference 已在 Luna 树实现独立 loader/section/KnowledgeScopeDimension/confirmation IDs 与写作提交时冻结副本。DI 接线：modules.evidence.compilation.contracts.EVIDENCE_READ_STORY_DIRECTOR_REFERENCES（键 evidence.read_story_director_references）→ modules.story.facade.read_scene_director_references_for_writing。默认空 NOVELCRAFT_DIRECTOR_REFERENCE_ENABLED_CAPABILITIES，只允许 writing.generate、writing.targeted_revision；缺失或陈旧副本只提示，不改变核心 stale 指纹或采用资格。
+- 独立 Sol 必审：新增未知费用不能继承旧 attempt 的确认而被绕过；80%时间、同根分支并发与原 deadline；旧人物卡任意自由文字不得绕过 Evidence 知情证明进入角色 packet；模型 fact/pattern IDs 必须属于该角色的当前可知 packet 和冻结来源。Luna 已自行收窄旧卡文本，不能因此省略独立验证。
