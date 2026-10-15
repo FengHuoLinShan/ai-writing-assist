@@ -1,0 +1,24 @@
+{
+  "version": "g7-calibration-v1",
+  "baseline": "4efe7f21a08646e7051923a40df989608f40a8ee",
+  "teacher": "gpt-6.1-sol/xhigh",
+  "sut_owner_runtime": "gpt-6-luna/max",
+  "scope": "synthetic only; no Guimi",
+  "seeded_required": "32/32 fixed labels, including correct/wrong/insufficient/empty; future and field-drift inputs rejected before IO",
+  "debug_required": "12 fixed-label fields, disagreements and failures retained",
+  "attempts": 1,
+  "unknown_policy": "never replay; stop dependent stages",
+  "human_validated": false,
+  "files": {
+    "backend/evals/g7_review/review_bindings.py": "8e767e9836d788a059e826b2e1c88f1ed904568ed4aa15ce492eb59c7dec787a",
+    "backend/evals/g7_review/__init__.py": "080fc70c0ae02f5edc8ce48f322d7588654c0381e035f9b850ca65f2d47c1b93",
+    "backend/evals/g7_review/reviewer.py": "7b2c04317d73b56ce5f673bc2a046228fbef911986dff5a8fbc12a8e189d6723",
+    "backend/evals/g7_review/review_validation.py": "adb0d63548ea1772a3b14d89399cf6e219986b39059a2d5f19468b2149b9f521",
+    "backend/evals/g7_review/coverage_audit.py": "d1a5db64c243ee8342c15efa9ddeaedc93f44e782f6514107b54e86d775349c8",
+    "backend/evals/g7_review/calibration.py": "5105ba4bcf8e4655e7258b01b129d2b6a4befd5ec0c671643252e98c8d556c1d",
+    "backend/evals/codex_executor.py": "a8d40f42562ea9ae493e3c65ae136ce0f6e897001d6d9242eca16fa143d99759",
+    ".agent/tasks/2026/T-20261015-audit-wave3/g7-run-calibration.py": "43643964b88d39280e8119951d0f23860b2eb1073e32b74afcd5c11e65db8dd8",
+    ".agent/tasks/2026/T-20261015-audit-wave3/g7-setup-isolated.py": "f05c85f75b4dc2d3916600c918bbd7b91993f429fb1b31849d1920a947d79907",
+    ".agent/tasks/2026/T-20261015-audit-wave3/g7-native-capture.py": "566ba1c9234e6580e3b4ee3aaa754d482a8e3d5972aee509d29552c674878dcb"
+  }
+}

@@ -257,7 +257,9 @@ async def api_get_story_outline(
 ):
     await require_active_project(db, novel_id)
     try:
-        return await _story_outline_service.get_current(db, novel_id)
+        return await _story_outline_service.get_current(
+            db, novel_id, include_canon_staleness=True
+        )
     except Exception as exc:
         raise _story_outline_error(exc) from exc
 
@@ -316,6 +318,7 @@ async def api_list_story_outline_revisions(
             novel_id,
             skip=skip,
             limit=limit,
+            include_canon_staleness=True,
         )
     except Exception as exc:
         raise _story_outline_error(exc) from exc
@@ -337,6 +340,7 @@ async def api_get_story_outline_revision(
             db,
             novel_id,
             revision_id,
+            include_canon_staleness=True,
         )
     except Exception as exc:
         raise _story_outline_error(exc) from exc

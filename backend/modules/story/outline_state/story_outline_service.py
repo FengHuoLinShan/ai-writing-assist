@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.stable_hash import stable_hash
 from modules.evidence.contracts import require_knowledge_review_for_adoption
+from modules.story.outline_state.canon_baseline import with_canon_staleness
 from modules.story.outline_state.models import StoryOutlineHead, StoryOutlineRevision
 from modules.story.outline_state.story_outline_repository import StoryOutlineRepository
 from modules.story.outline_state.story_outline_schemas import (
@@ -39,6 +40,8 @@ class StoryOutlineService:
         self,
         db: AsyncSession,
         novel_id: str,
+        *,
+        include_canon_staleness: bool = False,
     ) -> StoryOutlineCurrentResponse:
         nid = uuid.UUID(novel_id)
         head = await self.repository.get_head(db, nid)
@@ -56,9 +59,11 @@ class StoryOutlineService:
             raise StoryOutlineConflictError(
                 "StoryOutline head points to a missing project revision"
             )
+        response = self._response(revision, current_revision_id=revision.id)
+        if include_canon_staleness:
+            response = (await with_canon_staleness(db, novel_id, [response]))[0]
         return StoryOutlineCurrentResponse(
-            current_revision_id=revision.id,
-            revision=self._response(revision, current_revision_id=revision.id),
+            current_revision_id=revision.id, revision=response
         )
 
     async def get_revision(
@@ -66,16 +71,21 @@ class StoryOutlineService:
         db: AsyncSession,
         novel_id: str,
         revision_id: uuid.UUID,
+        *,
+        include_canon_staleness: bool = False,
     ) -> StoryOutlineRevisionResponse:
         nid = uuid.UUID(novel_id)
         revision = await self.repository.get_revision(db, nid, revision_id)
         if revision is None:
             raise StoryOutlineNotFoundError("StoryOutline revision not found")
         head = await self.repository.get_head(db, nid)
-        return self._response(
+        response = self._response(
             revision,
             current_revision_id=head.current_revision_id if head else None,
         )
+        if include_canon_staleness:
+            return (await with_canon_staleness(db, novel_id, [response]))[0]
+        return response
 
     async def list_revisions(
         self,
@@ -84,6 +94,7 @@ class StoryOutlineService:
         *,
         skip: int,
         limit: int,
+        include_canon_staleness: bool = False,
     ) -> StoryOutlineRevisionListResponse:
         nid = uuid.UUID(novel_id)
         head = await self.repository.get_head(db, nid)
@@ -94,10 +105,13 @@ class StoryOutlineService:
             limit=limit,
         )
         current_id = head.current_revision_id if head else None
+        responses = [
+            self._response(item, current_revision_id=current_id) for item in revisions
+        ]
+        if include_canon_staleness:
+            responses = await with_canon_staleness(db, novel_id, responses)
         return StoryOutlineRevisionListResponse(
-            items=[
-                self._response(item, current_revision_id=current_id) for item in revisions
-            ],
+            items=responses,
             total=total,
             skip=skip,
             limit=limit,
@@ -123,7 +137,18 @@ class StoryOutlineService:
 
         self._assert_base_revision(head, data.base_revision_id)
         content = self._content_payload(data)
-        provenance = self._with_execution_profile(data.provenance, content)
+        provenance = data.provenance
+        if data.base_revision_id and not provenance.world_bible_page_revisions:
+            base = await self.repository.get_revision(db, nid, data.base_revision_id)
+            if base is None:
+                raise StoryOutlineConflictError("StoryOutline base revision is missing")
+            inherited = StoryOutlineProvenance.model_validate(base.provenance_json)
+            provenance = provenance.model_copy(
+                update={
+                    "world_bible_page_revisions": inherited.world_bible_page_revisions
+                }
+            )
+        provenance = self._with_execution_profile(provenance, content)
         revision = StoryOutlineRevision(
             novel_id=nid,
             version_number=await self.repository.next_version_number(db, nid),
@@ -437,6 +462,12 @@ class StoryOutlineService:
                 "story_execution_profile_hash": cls._hash(
                     profile.model_dump(mode="json")
                 ),
+                "world_bible_page_revisions": (
+                    provenance.world_bible_page_revisions
+                    or StoryOutlineProvenance.model_validate(
+                        inherited or {}
+                    ).world_bible_page_revisions
+                ),
             }
         )
 
@@ -547,6 +578,9 @@ class StoryOutlineService:
             note="Adopted an author-edited StoryOutline AI preview.",
             client_ref="story-outline-generate/apply",
             source_refs=source_refs,
+            world_bible_page_revisions=context_provenance.get(
+                "world_bible_page_revisions", []
+            ),
         )
 
     @staticmethod

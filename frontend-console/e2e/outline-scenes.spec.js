@@ -834,6 +834,33 @@ test.describe("Outline View — 场景工作台", () => {
     expect(browserErrors).toEqual([])
   })
 
+  test("设定更新提示在390px保留总览与编辑入口", async ({ page }) => {
+    await createStoryOutlineRevision(testProjectId, {
+      title: "潮门初稿", source: "manual", provenance: { actor: "author" },
+      creative_core: { premise: "群岛共同应对退潮。", tone_and_reader_promise: "海洋奇幻。", story_engine: "每次退潮带来新选择。" },
+      outline_markdown: "主角寻找失踪的父亲。", major_storylines: [], macro_movements: [], open_decisions: [],
+      base_revision_id: null, idempotency_key: `canon-notice-${testProjectId}`,
+    })
+    // Backend tests exercise real revision changes; this isolates responsive notice rendering.
+    await page.route("**/api/outline/story-outline?*", async (route) => {
+      const response = await route.fetch()
+      const body = await response.json()
+      body.revision.canon_staleness = { changed: true, changed_page_ids: [] }
+      await route.fulfill({ response, json: body })
+    })
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.locator('[data-action="nav-story-outline"]').click()
+    const notice = page.getByTestId("story-outline-canon-notice")
+    await expect(notice).toContainText("这版总览参考的设定已更新")
+    await expect(notice).toContainText("当前内容保留，由你决定是否修改")
+    await expect(page.getByRole("heading", { name: "潮门初稿", exact: true })).toBeVisible()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    await page.screenshot({ path: test.info().outputPath("canon-notice-390.png"), fullPage: true })
+    await openWorkspaceTools(page)
+    await page.locator('[data-action="edit-story-outline"]').click()
+    await expect(page.locator(".story-outline-editor-page")).toBeVisible()
+  })
+
   test("手工编辑页可刷新恢复、按作品隔离并保存新版本", async ({ page, browserErrors, projectFactory }) => {
     const failedApiResponses = []
     page.on("response", (response) => {

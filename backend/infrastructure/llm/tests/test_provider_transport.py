@@ -8,7 +8,8 @@ import socket
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-import httpx
+import httpx as legacy_httpx
+import httpx2 as httpx
 import pytest
 from openai import (
     APIConnectionError,
@@ -36,7 +37,7 @@ from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 def test_provider_initialization_log_omits_dynamic_profile_values(caplog) -> None:
     query_secret = "fixture-query-secret"
     with (
-        patch("infrastructure.llm.providers.httpx.AsyncClient", autospec=True),
+        patch("infrastructure.llm.providers.httpx2.AsyncClient", autospec=True),
         patch("infrastructure.llm.providers.AsyncOpenAI", autospec=True),
         caplog.at_level(logging.INFO, logger="infrastructure.llm.providers"),
     ):
@@ -63,7 +64,7 @@ def test_provider_tracks_independent_embedding_endpoint_identity(monkeypatch) ->
     )
     monkeypatch.setattr("infrastructure.llm.providers.get_settings", lambda: settings)
     with (
-        patch("infrastructure.llm.providers.httpx.AsyncClient", autospec=True),
+        patch("infrastructure.llm.providers.httpx2.AsyncClient", autospec=True),
         patch("infrastructure.llm.providers.AsyncOpenAI", autospec=True),
     ):
         provider = OpenAIProvider(
@@ -198,7 +199,7 @@ def test_provider_disables_system_proxy_by_default(monkeypatch) -> None:
     get_settings.cache_clear()
     with (
         patch(
-            "infrastructure.llm.providers.httpx.AsyncClient", autospec=True
+            "infrastructure.llm.providers.httpx2.AsyncClient", autospec=True
         ) as http_client_cls,
         patch("infrastructure.llm.providers.AsyncOpenAI", autospec=True) as openai_cls,
     ):
@@ -279,7 +280,10 @@ def test_local_llm_base_url_preserves_loopback_http() -> None:
 
 
 @pytest.mark.asyncio
-async def test_public_request_guard_rejects_private_dns_result(monkeypatch) -> None:
+@pytest.mark.parametrize("transport", [httpx, legacy_httpx])
+async def test_public_request_guard_rejects_private_dns_result(
+    monkeypatch, transport
+) -> None:
     monkeypatch.setenv("AUTH_MODE", "public")
     get_settings.cache_clear()
     monkeypatch.setattr(
@@ -289,8 +293,8 @@ async def test_public_request_guard_rejects_private_dns_result(monkeypatch) -> N
             (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.8", 443))
         ],
     )
-    request = httpx.Request("POST", "https://api.deepseek.com/v1")
-    with pytest.raises(httpx.ConnectError, match="public destination"):
+    request = transport.Request("POST", "https://api.deepseek.com/v1")
+    with pytest.raises(transport.ConnectError, match="public destination"):
         await build_public_llm_request_guard(resolve_dns=True)(request)
     get_settings.cache_clear()
 
@@ -317,7 +321,7 @@ def test_provider_does_not_fall_back_to_llm_env_profile(monkeypatch) -> None:
     monkeypatch.setenv("LLM_BASE_URL", "https://env.example/v1")
     monkeypatch.setenv("LLM_MODEL", "env-model")
     with (
-        patch("infrastructure.llm.providers.httpx.AsyncClient", autospec=True),
+        patch("infrastructure.llm.providers.httpx2.AsyncClient", autospec=True),
         patch("infrastructure.llm.providers.AsyncOpenAI", autospec=True) as openai_cls,
     ):
         provider = OpenAIProvider()
@@ -332,7 +336,7 @@ def test_provider_uses_explicit_proxy_when_configured() -> None:
     """Explicit proxy configuration should be the only proxy path."""
     with (
         patch(
-            "infrastructure.llm.providers.httpx.AsyncClient", autospec=True
+            "infrastructure.llm.providers.httpx2.AsyncClient", autospec=True
         ) as http_client_cls,
         patch("infrastructure.llm.providers.AsyncOpenAI", autospec=True),
     ):
@@ -352,7 +356,7 @@ def test_provider_uses_explicit_proxy_when_configured() -> None:
 def test_provider_rejects_reserved_extra_fields() -> None:
     """Provider extra 不能覆盖模型、消息、流式、认证或传输字段。"""
     with (
-        patch("infrastructure.llm.providers.httpx.AsyncClient", autospec=True),
+        patch("infrastructure.llm.providers.httpx2.AsyncClient", autospec=True),
         patch("infrastructure.llm.providers.AsyncOpenAI", autospec=True),
     ):
         provider = OpenAIProvider(
@@ -373,7 +377,7 @@ def test_provider_rejects_reserved_extra_fields() -> None:
 
 def test_provider_allows_non_reserved_extra_fields() -> None:
     with (
-        patch("infrastructure.llm.providers.httpx.AsyncClient", autospec=True),
+        patch("infrastructure.llm.providers.httpx2.AsyncClient", autospec=True),
         patch("infrastructure.llm.providers.AsyncOpenAI", autospec=True),
     ):
         provider = OpenAIProvider(
@@ -396,7 +400,7 @@ def test_provider_allows_non_reserved_extra_fields() -> None:
 
 def test_provider_adds_json_keyword_for_json_object_mode() -> None:
     with (
-        patch("infrastructure.llm.providers.httpx.AsyncClient", autospec=True),
+        patch("infrastructure.llm.providers.httpx2.AsyncClient", autospec=True),
         patch("infrastructure.llm.providers.AsyncOpenAI", autospec=True),
     ):
         provider = OpenAIProvider(
@@ -422,7 +426,7 @@ def test_provider_adds_json_keyword_for_json_object_mode() -> None:
 
 def test_provider_does_not_duplicate_existing_json_object_instruction() -> None:
     with (
-        patch("infrastructure.llm.providers.httpx.AsyncClient", autospec=True),
+        patch("infrastructure.llm.providers.httpx2.AsyncClient", autospec=True),
         patch("infrastructure.llm.providers.AsyncOpenAI", autospec=True),
     ):
         provider = OpenAIProvider(
@@ -445,7 +449,7 @@ def test_provider_does_not_duplicate_existing_json_object_instruction() -> None:
 
 def test_provider_sends_thinking_through_extra_body() -> None:
     with (
-        patch("infrastructure.llm.providers.httpx.AsyncClient", autospec=True),
+        patch("infrastructure.llm.providers.httpx2.AsyncClient", autospec=True),
         patch("infrastructure.llm.providers.AsyncOpenAI", autospec=True),
     ):
         provider = OpenAIProvider(
@@ -625,3 +629,39 @@ async def test_native_complete_stream_requires_final_receipt_and_closes(outcome)
         assert closed == 1
     finally:
         await sdk.close()
+
+
+@pytest.mark.asyncio
+async def test_all_sdk_clients_use_native_httpx2_and_preserve_egress(monkeypatch):
+    from infrastructure.llm.image_client import OpenAIImageClient
+
+    settings = Settings(
+        auth_mode="public", embedding_base_url="https://api.openai.com/v1"
+    )
+    monkeypatch.setattr("infrastructure.llm.providers.get_settings", lambda: settings)
+    monkeypatch.setattr("infrastructure.llm.image_client.get_settings", lambda: settings)
+    monkeypatch.setattr("infrastructure.llm.egress.get_settings", lambda: settings)
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *_args, **_kwargs: [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.8", 443))
+        ],
+    )
+    provider = OpenAIProvider(
+        api_key="fixture-key", base_url="https://api.openai.com/v1", proxy_url=""
+    )
+    image = OpenAIImageClient(api_key="fixture-key")
+    try:
+        for sdk in (provider._client, provider._embedding_client, image._client):
+            assert isinstance(sdk._client, httpx.AsyncClient)
+            assert not isinstance(sdk._client, legacy_httpx.AsyncClient)
+            assert sdk.max_retries == 0
+            # Real SDK request construction reaches the guard and stops before IO.
+            with pytest.raises(APIConnectionError) as caught:
+                await sdk.models.list()
+            assert isinstance(caught.value.__cause__, httpx.ConnectError)
+            assert "public destination" in str(caught.value.__cause__)
+    finally:
+        await provider.close()
+        await image.close()

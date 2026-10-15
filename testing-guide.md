@@ -33,6 +33,13 @@ Codex 执行器；被测业务生成经 `backend/evals/project_executor.py` 的 
 Luna/max 后运行不带教师的诊断，不能宣称完成语义教师审查。旧教师校准与 holdout
 证据按原模型保留，不直接用于证明 Luna 效果。
 
+G6b 的显式 Ask World 校准可向 `CodexStructuredExecutor` 提供
+`AskWorldCalibrationScope`：每次调用重新通过 Project facade 构建和恢复同一已验证
+Luna/max 快照，只允许 Sol/xhigh 的 `eval.ask_world.teacher_calibration`，且
+`attempts=1`。其他入口仍被暂停守卫拒绝；此范围不解禁 reviewer、scene-gold 或 holdout。
+校准在独立开发库/合成项目执行，启动前先落仓库外 pending 请求账本，保留原生请求、
+输出及失败/unknown，禁止自动重发；结果与真人验收分开报告。
+
 ## 技术覆盖离线实验
 
 `make eval-technical-coverage` 使用 Python 3.13 与锁定的 `ci/eval/experiments` extras，
@@ -92,14 +99,14 @@ Evidence indexing/compilation 回归集中在 `backend/modules/evidence/`；
 ## Test execution layers
 
 下列自动化 backend 质量 Make 目标在进入 `backend/` 后自行使用 `uv run --locked --extra ci --`
-解析 Python `3.14.7` 与锁定 `ci` 工具链，不要求预先激活虚拟环境；首次运行仍要求 `uv` 与可用
+解析 Python `3.14.8` 与锁定 `ci` 工具链，不要求预先激活虚拟环境；首次运行仍要求 `uv` 与可用
 缓存或网络。该工具链约定不改变各层列出的数据库、凭据或浏览器等外部前提。
 
 | Command | Scope | External prerequisites |
 |---|---|---|
 | `make test` | Modules, infrastructure, deterministic eval toolkit tests, unit, SQLite integration, prompt contracts; narrow with `TESTS=<path>` or `ARGS=<pytest-args>` | None; excludes E2E, real LLM, external source data, and LLM-derived RAG metrics (unavailable until a maintained, calibrated adapter is connected) |
 | `make test-fast-coverage TEST_WORKERS=2` | Same fast layer with parallel production-code coverage and an 85% gate | None |
-| `make eval-fast` | The same locked deterministic eval toolkit tests without remote model calls | Locked backend CI dependencies and Python 3.14.7; no model calls |
+| `make eval-fast` | The same locked deterministic eval toolkit tests without remote model calls | Locked backend CI dependencies and Python 3.14.8; no model calls |
 | `make eval-ask-world` | Ask World project/API contracts, then retrieval, citation-fixture, refusal and integrity thresholds | None; targeted API tests plus deterministic synthetic evidence, not a semantic-answer quality claim |
 | `make eval-ask-world-model NOVEL_ID=<id> [PROBE_SPLIT=debug\|holdout] [LEDGER=<jsonl>] [DATASET=<jsonl>]` | 生产 `AskWorldService._generate` 的来源集合诊断（非主张忠实度）；教师模式暂停至 G6b 按 Sol/xhigh 合同重新校准，预检在项目访问、SUT 调用和一次性 holdout 占用前拒绝 | 无教师的 SUT 实测仍须单独授权并核验 owner/Project 的 Luna/max 连接；旧 DeepSeek reviewer 路径已删除并冻结为历史，不能凭本地登录重启；旧元数据/缓存离线回放不改标，不进 CI，真实稿件输入输出留仓库外 |
 | `make eval-context-planner NOVEL_ID=<id> OUTPUT=<path>` | 冻结 RAG 数据上对比 task-direct 与确定性 Planner，输出 split/purpose、MRR/P@5/R@10、结果数、source hash、stale/跨项目与延迟 | 已建立同一冻结语料索引的本地项目；不调 LLM |
@@ -108,7 +115,7 @@ Evidence indexing/compilation 回归集中在 `backend/modules/evidence/`；
 | `make docs-check` | Architecture registry, modules, ORM tables, API prefixes, AST-discovered `*tasks.py` handlers (including string constants), routes, Prompt/ADR inventory, links and Draw.io structure | Python 3.12 standard library only |
 | `make docs-check BASE_REF=origin/main` | Full inventory plus current-branch document-impact coverage | Local `origin/main` ref |
 | `make test-ci TEST_WORKERS=2` | Cross-stack local quality gate: docs, secrets, dependency audits, Ruff, deploy contracts, backend coverage/RuntimeWarning, and frontend Vitest | Locked backend/frontend dependencies; excludes PostgreSQL, browser, image, and paid/manual suites |
-| `make test-deploy` | Deployment static/CLI contract tests in `deploy/tests`, including committed Alembic graph and pre-checkout migration compatibility cases | Self-contained: `uv` resolves Python 3.14.7 from `backend/.python-version`, locked `backend/uv.lock` `ci` dependencies, and backend pytest config; no external service |
+| `make test-deploy` | Deployment static/CLI contract tests in `deploy/tests`, including committed Alembic graph and pre-checkout migration compatibility cases | Self-contained: `uv` resolves Python 3.14.8 from `backend/.python-version`, locked `backend/uv.lock` `ci` dependencies, and backend pytest config; no external service |
 | `make test-production-images` | Build the pinned backend/frontend production images; verify backend non-root/no-uv/no-pip/import and frontend nginx/assets | Docker daemon plus image registry access; intentionally outside `make test-ci` |
 | `make test-object-restore-drill-real` | Restore DB-paired synthetic images into two isolated private buckets; verify hashes, decoding, metadata, permissions, missing/interrupted controls and measured RPO/RTO | Docker daemon and cached pinned PG/MinIO/mc plus locked backend runtime image; no production data or network; outside `make test-ci` |
 | `make secret-hygiene` | Tracked/indexed runtime env, private-key, and high-confidence credential gate | Git working tree; no Python dependency install required |
@@ -260,7 +267,7 @@ workers=1、retries=0。完整功能套件在两个独立分片 runner 上执行
 
 它们与独立的 `Architecture docs` 分开运行，因此前端或镜像失败不会再以
 `Backend CI` 工作流失败呈现。后端快速 job checkout 后先用系统 Python 执行零依赖的 repository
-secret hygiene gate，再安装 uv `0.12.3` 与 Python `3.14.7`，
+secret hygiene gate，再安装 uv `0.13.1` 与 Python `3.14.8`，
 先运行 `make audit-backend-deps`，随后通过 `backend/uv.lock` 安装窄 `ci` 依赖
 （不安装本地 embedding 运行时），然后依次执行 `make lint`、`make test-deploy` 与
 `make test-fast-coverage TEST_WORKERS=2 ARGS="-W error::RuntimeWarning"`。
@@ -634,7 +641,8 @@ P8 固定比较范围按指定 head 的 Git blob 计数，不读取其他 checko
 
 作者控制链由 `frontend-console/e2e/creative-rebase.spec.js` 使用真实 API/PG/worker 与合成 provider 覆盖：历史来源、保管/所有权、有限条件比较与冻结授权、窄屏抽屉交接、改稿冲突三方重建采用。合成结果只验证控制与隔离，文学质量另记。
 
-`evals.rp_matrix` 冻结 6 开发来源族和 3 独立留出来源族，各 30 轮，两臂独立旅程，基线 compiler/retrieval 固定 Git 来源、原准备包布局相同；记录关键原文回读、秘密/未来 canary、开场/重抽/分支/length续写和必需来源失效。质量与总费用门分开，含准备、审查与返修费用，裁判费另列；开发不过不打开留出，已用留出不可调参再当未见样本。
+`evals.rp_matrix` 自 R3（2026-10-15）起标为冻结历史：绑定 DeepSeek 专用凭据链，
+不迁移、不发起新调用，仅用于解释既有账本与脱敏快照。其历史方案冻结 6 开发来源族和 3 独立留出来源族，各 30 轮，两臂独立旅程，基线 compiler/retrieval 固定 Git 来源、原准备包布局相同；记录关键原文回读、秘密/未来 canary、开场/重抽/分支/length续写和必需来源失效。质量与总费用门分开，含准备、审查与返修费用，裁判费另列；开发不过不打开留出，已用留出不可调参再当未见样本。
 
 用户授权的代理作者评阅使用 `human_validated=false`，必须看实际输出。旧 140 笔短程布局 smoke 不能核销完整矩阵。原始账本和正文留仓库外私有目录，仓库只提交脱敏哈希、计量与结论；未知用量保留上界与失败，累计 USD 20 不重置。
 
@@ -667,3 +675,15 @@ codex_luna_runtime_test）后运行 `python -m evals.codex_luna --output /privat
 100 个来源与协议案例通过真实账户/project facade，默认 2 并发；未完成/未知案例不自动重发。
 不额外统计用量或费用，仅保留产品原生回执及评测结果。结果原文、耗时和分数在仓库外；
 合成质量分数、离线工程验证、真实文学/作者验收分别报告，不互相替代。
+
+### G7 最终快照源化字段复核（G6d）
+
+`backend/evals/g7_review/` 提供 physical/JSON 覆盖清单、不可变快照/真实字段/来源区间绑定、
+结构化复核与引用校验。调用方显式传入新运行的 project manifest，并将 Scene-local
+`visible_until_*` 绑定为 `as_of`；通用校验器不替调用方证明该领域绑定。局部来源未提及只算材料不足，
+不能据此宣称抽取错误；presence 不等于 accuracy，0/false 非空。
+
+`G7ReviewScope` 仅放行 `eval.g7.source_field_review` 的 Sol/xhigh、attempts=1，每次重验同一已验证
+owner/Project Luna/max snapshot；与 Ask World 教师 scope 隔离，其余独立入口继续暂停。
+合成校准冻结与去原文回执见 `T-20261015-audit-wave3/G7-FREEZE.json`、`G7-CALIBRATION.json`，
+seeded 32/32、独立 debug 12/12，unknown=0。它不证明真实稿件质量，`human_validated=false`。

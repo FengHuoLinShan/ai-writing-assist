@@ -59,6 +59,7 @@ WORLD_FACADE_API = {
     "get_events_context",
     "get_full_state",
     "get_world_background",
+    "read_world_bible_page_revisions",
     "get_world_bible_page_source_manifest",
     "get_world_bible_projection_candidates",
     "get_world_bible_synopsis_context",

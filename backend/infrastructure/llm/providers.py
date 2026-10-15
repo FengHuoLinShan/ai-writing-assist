@@ -7,14 +7,13 @@ LLM Provider 管理
 
 from __future__ import annotations
 
-import inspect
 import logging
 import ssl
 import time
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
-import httpx
+import httpx2
 from openai import (
     APIConnectionError,
     APIError,
@@ -111,7 +110,7 @@ _OPENAI_PROVIDER_ERRORS = (
     ContentFilterFinishReasonError,
     APIConnectionError,
     APIError,
-    httpx.TransportError,
+    httpx2.TransportError,
 )
 
 _QUOTA_ERROR_MARKERS = (
@@ -200,7 +199,7 @@ class OpenAIProvider:
         *,
         api_key: str,
         base_url: str,
-        http_client: httpx.AsyncClient,
+        http_client: httpx2.AsyncClient,
     ) -> AsyncOpenAI:
         kwargs: dict[str, Any] = {
             "api_key": api_key,
@@ -212,10 +211,7 @@ class OpenAIProvider:
             # enabled would silently retry even when transport_retries=False.
             "max_retries": 0,
         }
-        if (
-            not api_key
-            and "_enforce_credentials" in inspect.signature(AsyncOpenAI).parameters
-        ):
+        if not api_key:
             kwargs["_enforce_credentials"] = False
         return AsyncOpenAI(**kwargs)
 
@@ -225,7 +221,7 @@ class OpenAIProvider:
 
     @property
     def request_timeout(self) -> int:
-        """单次 provider 调用的 httpx timeout（秒）；client 侧按 run 剩余时间裁剪。"""
+        """单次 provider 调用的 HTTPX2 timeout（秒）；client 侧按 run 剩余时间裁剪。"""
         return int(self._timeout)
 
     async def close(self) -> None:
@@ -238,7 +234,7 @@ class OpenAIProvider:
             await self._embedding_client.close()
             logger.debug("OpenAIProvider embedding HTTP connection closed")
 
-    def _build_http_client(self) -> httpx.AsyncClient:
+    def _build_http_client(self) -> httpx2.AsyncClient:
         kwargs: dict[str, Any] = {
             "timeout": self._timeout,
             "trust_env": self._trust_env,
@@ -252,7 +248,7 @@ class OpenAIProvider:
         }
         if self._proxy_url:
             kwargs["proxy"] = self._proxy_url
-        return httpx.AsyncClient(**kwargs)
+        return httpx2.AsyncClient(**kwargs)
 
     async def generate(
         self, request: LLMCallRequest, *, complete_stream: bool = False
@@ -449,7 +445,7 @@ class OpenAIProvider:
 
     def _map_provider_error(self, error: Exception, *, model: str) -> LLMError:
         """Translate SDK failures at every transport phase into stable errors."""
-        if isinstance(error, (APITimeoutError, httpx.TimeoutException)):
+        if isinstance(error, (APITimeoutError, httpx2.TimeoutException)):
             return LLMTimeoutError(
                 f"OpenAI API timeout after {self._timeout}s",
                 provider=self.name,
@@ -493,7 +489,7 @@ class OpenAIProvider:
                 model=model,
                 filter_reason=redact_diagnostic(error, limit=300),
             )
-        if isinstance(error, (APIConnectionError, httpx.TransportError)):
+        if isinstance(error, (APIConnectionError, httpx2.TransportError)):
             kind = _classify_connection_error(error)
             return LLMConnectionError(
                 f"OpenAI connection failed ({kind}): {redact_diagnostic(error)}",
@@ -615,7 +611,7 @@ def get_provider(name: str = "openai", **kwargs: Any) -> OpenAIProvider | CodexP
 
 
 def _classify_connection_error(error: BaseException) -> str:
-    """Classify OpenAI/httpx connection errors without logging secrets."""
+    """Classify OpenAI/HTTPX2 connection errors without logging secrets."""
     chain: list[BaseException] = []
     current: BaseException | None = error
     while current is not None and len(chain) < 8:

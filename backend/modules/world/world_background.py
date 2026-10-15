@@ -26,6 +26,7 @@ from modules.world.models import (
     SpeciesProfile,
     WorldBiblePage,
     WorldBiblePageProjection,
+    WorldBiblePageRevision,
 )
 from modules.world.services.worldbuilding.world_bible_lifecycle_service import (
     WorldBibleLifecycleService,
@@ -196,7 +197,15 @@ class WorldBackgroundAggregation:
             )
 
         pages = await db.execute(
-            select(WorldBiblePage, WorldBiblePageProjection)
+            select(WorldBiblePage, WorldBiblePageProjection, WorldBiblePageRevision)
+            .outerjoin(
+                WorldBiblePageRevision,
+                (WorldBiblePageRevision.page_id == WorldBiblePage.id)
+                & (WorldBiblePageRevision.novel_id == WorldBiblePage.novel_id)
+                & (
+                    WorldBiblePageRevision.version_number == WorldBiblePage.version_number
+                ),
+            )
             .outerjoin(
                 WorldBiblePageProjection,
                 (WorldBiblePageProjection.page_id == WorldBiblePage.id)
@@ -210,7 +219,7 @@ class WorldBackgroundAggregation:
             .order_by(WorldBiblePage.sort_order, WorldBiblePage.title)
             .limit(limit)
         )
-        for page, projection in pages.all():
+        for page, projection, revision in pages.all():
             current_projection = bool(
                 projection
                 and not projection.stale
@@ -233,6 +242,8 @@ class WorldBackgroundAggregation:
                     page.status,
                     "author_only",
                     [page.title, page.page_type],
+                    revision_id=str(revision.id) if revision else None,
+                    revision_digest=revision.revision_digest if revision else None,
                 )
             )
 
@@ -255,6 +266,9 @@ class WorldBackgroundAggregation:
         status: str,
         sensitivity: str,
         keywords: list[str],
+        *,
+        revision_id: str | None = None,
+        revision_digest: str | None = None,
     ) -> WorldBackgroundEntryContract:
         full_summary = " ".join(str(summary or "").split())
         clean_summary = full_summary[:1000]
@@ -283,6 +297,8 @@ class WorldBackgroundAggregation:
             keywords=[item for item in keywords if item][:12],
             source_ids=[{"type": asset_type, "id": asset_id, "source_hash": source_hash}],
             source_hash=source_hash,
+            revision_id=revision_id,
+            revision_digest=revision_digest,
             token_count=estimate_token_count(f"{title} {clean_summary}"),
         )
 

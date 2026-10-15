@@ -384,3 +384,17 @@ SceneWorkbenchService 按职责拆为 scene_workbench（主编排）、scene_wor
 ### 2026-10-13 Codex导入接纳与完整复核
 
 Codex Scene切分、补全、融合的调度遵守进程内既有两路CLI接纳，等待不提前吞掉大量逐场超时时间；API provider原并发参数保持。组级独立知识复核传入完整冻结正文，取消24K前缀截断；场景边界、来源区间、待核与作者确认契约不变，完整输入本身不代表语义审查通过。
+
+### 大纲生成的世界书修订基线（G8c）
+
+Story 总纲生成将实际进入 `world_bible_pages` 输入的页面 revision_id/revision_digest 保存到
+任务 context_provenance；采用预览时复制到总纲 revision 的 provenance，恢复历史时继承原基线。
+基线来自 World background 同一 SQL 读取的页面版本，Top-K 省略页不登记，旧数据缺少修订不补造。
+
+读取当前版本、单个历史版本和版本列表时，经 `world.read_bible_page_revisions` 批量比对，
+仅在响应 `canon_staleness` 提示“这版总览参考的设定已更新”。取消采用或页面消失视为变化。
+不写回、不降级、不改变总纲 content hash、execution profile、已发布快照或 Scene checkpoint。
+
+本片覆盖上述大纲直接页面输入；Evidence 确认资料内的额外页面、综合梗概、其他生成消费方、
+Story checkpoint 和 Evolution 台账未登记该基线，仍属于未覆盖依赖，不能据此声称全链正典追踪。
+SceneStateViewResponse 的 world_canon_revision unsupported 标记继续保留。

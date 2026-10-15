@@ -7,7 +7,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-import httpx
+import httpx2
 from openai import (
     APIConnectionError,
     APIStatusError,
@@ -152,7 +152,7 @@ class OpenAIImageClient:
         self._envelope_step_name = envelope_step_name
         self._envelope_capability_id = envelope_capability_id
         settings = get_settings()
-        self._http_client = httpx.AsyncClient(
+        self._http_client = httpx2.AsyncClient(
             timeout=timeout,
             trust_env=settings.llm_trust_env,
             event_hooks={
