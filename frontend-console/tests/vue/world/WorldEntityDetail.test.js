@@ -38,7 +38,7 @@ describe("WorldEntityDetail 人物档案", () => {
     section.element.open = true
     await section.trigger("toggle")
     await flushPromises()
-    expect(api.world.getEntityDossier).toHaveBeenCalledWith("character-1", "p1", { cache: "no-store" })
+    expect(api.world.getEntityDossier).toHaveBeenCalledWith("character-1", "p1", { cache: "no-store", asOfSceneId: null })
     expect(wrapper.text()).toContain("当前没有已确认的稳定档案条目")
     wrapper.findComponent({ name: "WorldObjectDossierEditor" }).vm.$emit("dirty", true)
     await wrapper.vm.$nextTick()
