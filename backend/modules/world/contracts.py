@@ -13,6 +13,45 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from modules.world.map_spatial_clue_schemas import (
+    MapSpatialClue as MapSpatialClue,
+)
+from modules.world.map_spatial_clue_schemas import (
+    MapSpatialClueBatch as MapSpatialClueBatch,
+)
+from modules.world.map_spatial_clue_schemas import (
+    MapSpatialClueCallRef as MapSpatialClueCallRef,
+)
+from modules.world.map_spatial_clue_schemas import (
+    MapSpatialClueContext as MapSpatialClueContext,
+)
+from modules.world.map_spatial_clue_schemas import (
+    MapSpatialClueDecisionRequest as MapSpatialClueDecisionRequest,
+)
+from modules.world.map_spatial_clue_schemas import (
+    MapSpatialClueEndpoint as MapSpatialClueEndpoint,
+)
+from modules.world.map_spatial_clue_schemas import (
+    MapSpatialClueEndpointIdentity as MapSpatialClueEndpointIdentity,
+)
+from modules.world.map_spatial_clue_schemas import (
+    MapSpatialClueListResponse as MapSpatialClueListResponse,
+)
+from modules.world.map_spatial_clue_schemas import (
+    MapSpatialClueResponse as MapSpatialClueResponse,
+)
+from modules.world.map_spatial_clue_schemas import (
+    MapSpatialClueResultRef as MapSpatialClueResultRef,
+)
+from modules.world.map_spatial_clue_schemas import (
+    MapSpatialClueReview as MapSpatialClueReview,
+)
+from modules.world.map_spatial_clue_schemas import (
+    MapSpatialClueSourceBinding as MapSpatialClueSourceBinding,
+)
+from modules.world.map_spatial_clue_schemas import (
+    MapSpatialClueStageResult as MapSpatialClueStageResult,
+)
 from modules.world.project_vocabulary_schemas import (
     ModelVocabularyProposal as ModelVocabularyProposal,
 )

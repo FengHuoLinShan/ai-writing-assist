@@ -298,6 +298,7 @@ def _register_orm_models() -> None:
     import modules.story.outline_state.models  # noqa: F401, I001
     import modules.project.settings_models  # noqa: F401, I001
     import modules.world.map_atlas_models  # noqa: F401, I001
+    import modules.world.map_spatial_clue_models  # noqa: F401, I001
     import modules.world.models  # noqa: F401, I001
 
 
