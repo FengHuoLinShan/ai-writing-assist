@@ -274,10 +274,12 @@ class MapSpatialBriefService:
             ),
         )
         excluded_nodes = set()
+        excluded_revisions = set()
         excluded_entities = set()
         excluded_pages = set()
         excluded_source_ids = set()
         excluded_types = set()
+        excluded_type_revisions = set()
         for item in data.excluded_ids:
             value = str(item)
             parts = value.split(":")
@@ -285,19 +287,36 @@ class MapSpatialBriefService:
             target_id = parts[1] if len(parts) > 1 else value
             if kind in {"map_spatial", "map_spatial_node", "map_atlas_node"}:
                 excluded_nodes.add(target_id)
+            elif kind == "map_atlas_revision":
+                excluded_revisions.add(target_id)
             elif kind in {"world_entity", "world_object", "core_entity", "entity"}:
                 excluded_entities.add(target_id)
             elif kind in {"world_bible_page", "world_bible"}:
                 excluded_pages.add(target_id)
             elif kind in {"writing_draft", "writing_chapter", "source_range"}:
                 excluded_source_ids.add(target_id)
-            elif kind in {"project_vocabulary", "world_vocabulary", "vocabulary_term"}:
+            elif kind in {
+                "project_vocabulary",
+                "project_vocabulary_term",
+                "world_vocabulary",
+                "vocabulary_term",
+            }:
                 excluded_types.add(target_id)
+            elif kind == "project_vocabulary_revision":
+                excluded_type_revisions.add(target_id)
             else:
                 excluded_nodes.add(value)
         scene_location_ids.difference_update(excluded_entities)
         checked_sources: dict[str, bool] = {}
         checked_targets: dict[str, bool] = {}
+
+        def range_is_excluded(ref: dict) -> bool:
+            if not isinstance(ref, dict):
+                return True
+            return any(
+                str(ref.get(key) or "") in excluded_source_ids
+                for key in ("draft_id", "chapter_index", "range_hash")
+            )
 
         async def knowledge_visible(target_type: str, target_id: str) -> bool:
             if target_type == "world_entity" and target_id in excluded_entities:
@@ -354,7 +373,9 @@ class MapSpatialBriefService:
                 "world_bible_page": excluded_pages,
                 "source_range": excluded_source_ids,
             }[ref.kind]
-            if str(ref.id) in source_exclusions:
+            if str(ref.id) in source_exclusions or (
+                ref.kind == "source_range" and range_is_excluded(ref.source_ref or {})
+            ):
                 checked_sources[cache_key] = False
                 return False
             try:
@@ -411,7 +432,12 @@ class MapSpatialBriefService:
             return True
 
         async def scene_ranges_are_visible(refs: list[dict]) -> bool:
-            if not refs or scene_index is None or not data.scene_id:
+            if (
+                not refs
+                or scene_index is None
+                or not data.scene_id
+                or any(range_is_excluded(ref) for ref in refs)
+            ):
                 return False
             try:
                 await _story_scene_port().validate_scene_source_ranges(
@@ -484,6 +510,7 @@ class MapSpatialBriefService:
             (node, revision)
             for node, revision in rows
             if str(node.id) not in excluded_node_ids
+            and str(revision.id) not in excluded_revisions
         ]
         omitted_count += len(rows) - len(node_rows)
         if cutoff_chapter is None:
@@ -521,6 +548,7 @@ class MapSpatialBriefService:
             key: value
             for key, value in resolved_types.items()
             if str(key[0]) not in excluded_types
+            and str(key[1]) not in excluded_type_revisions
         }
 
         traits = {

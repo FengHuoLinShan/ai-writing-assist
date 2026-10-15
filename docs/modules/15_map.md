@@ -554,6 +554,7 @@ canonical 变化继续检查已保存地图与相同模式草图；working 变�
 ## 写作参考空间简报（M3 v1）
 
 Evidence 通过 World `read_map_spatial_brief` 只读 facade 消费已采用节点的 saved head，绝不直接查询地图表。简报包含已知当前地点的上级链、明示的邻接/通路/方位、相关行程与条件，以及本场移动对象有精确来源和明确 `scene_index` 的最新位置；没有显式 Scene 地点时不推断，只能返回本场移动对象位置。来源引文/hash、World `check_knowledge_visibility`、ReaderReveal 与角色知识边界均在投影时重验；`author_full` 不跳过这些检查。类型仅使用固定修订的名称/描述作为文字，计算特性只读当前 active 类型。
+作者排除的正文 draft、章节或原文范围同时约束地图来源与移动位置的投影来源；精确地图修订和项目类型修订的排除同样生效，不因通过地图间接读取而重新纳入已排除资料。
 
 ## 空间提醒与地理前瞻（M4）
 
