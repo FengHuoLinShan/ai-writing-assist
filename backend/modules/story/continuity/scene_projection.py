@@ -22,6 +22,7 @@ from modules.story.continuity.field_provenance import (
     ProvenanceSourceRef,
     motif_fields_for_dimension,
     read_field_provenance,
+    state_fields_for_dimension,
     timeline_fact_instance_key,
 )
 from modules.story.continuity.knowledge_contract import read_knowledge_statement
@@ -756,12 +757,13 @@ class SceneMemoryProjectionService:
             source_refs = await self._event_source_refs(
                 db, novel_id, event, chapter_sources
             )
-            for field_key, subject_ref in assigned:
+            for field_key, subject_ref, object_type in assigned:
                 provenance.append(
                     FieldProvenance(
                         field_key=field_key,
                         value_hash=stable_hash(event.snapshot_after[field_key]),
                         dimension=dimension,
+                        object_type=object_type,
                         event_id=str(event.id),
                         subject_ref=subject_ref,
                         source_refs=source_refs,
@@ -780,24 +782,28 @@ class SceneMemoryProjectionService:
     @staticmethod
     def _assigned_motif_fields(
         state: dict[str, Any], dimension: str, event: Any
-    ) -> tuple[tuple[str, str | None], ...]:
-        """本次事件实际落入核心状态的受控母题字段 ``(field_key, subject_ref)`` 对。
+    ) -> tuple[tuple[str, str | None, str | None], ...]:
+        """落入核心状态的受控字段 (key, subject, optional object type).
 
-        只认 reducer 的核心状态落点（entities / character_locations / facts）：
+        只认 reducer 的核心状态落点（entities / relations / locations / facts）：
         进观察层 ``changes`` 的负载（manual_correction、未知实体的
         entity_updated 等）不算赋值，不挂链。判定 = 事件路由到达核心容器
         且注册字段的值与负载一致（重复断言同值也算一次赋值——该事件
-        就是当前值的最后陈述）。subject_ref 为实体锚（entities/locations
-        维度为实体 ID，timeline 无实体容器、改用该 fact 的实例键）——同维度
-        多实体（或多事实）的同名字段靠它隔离裁决链。
+        就是当前值的最后陈述）。对象类型字段要同时匹配 event.entity_type
+        （关系使用 relation），避免同名字段跨对象类型串链。
         """
-        registered = motif_fields_for_dimension(dimension)
-        if not registered:
-            return ()
+        motif_registered = motif_fields_for_dimension(dimension)
         payload = event.snapshot_after
         if not isinstance(payload, dict):
             return ()
         event_type = str(event.event_type)
+        object_type = str(getattr(event, "entity_type", None) or "")
+        typed_object_type = "relation" if dimension == "relations" else object_type
+        typed_registered = state_fields_for_dimension(
+            dimension, typed_object_type or None
+        )
+        if not motif_registered and not typed_registered:
+            return ()
         if dimension == "timeline":
             # timeline 每条事件都追加为 fact；以最后一条 fact 为落点。
             # subject_ref 取该 fact 的实例键：多条月相事实各挂各的赋值链，
@@ -805,6 +811,23 @@ class SceneMemoryProjectionService:
             facts = state.get("facts")
             landed = facts[-1] if isinstance(facts, list) and facts else None
             subject_ref = timeline_fact_instance_key(landed)
+        elif dimension == "relations":
+            if event_type != "relation_established":
+                return ()
+            relation_id = payload.get("id") or payload.get("relation_id")
+            if not relation_id:
+                return ()
+            subject_ref = str(relation_id)
+            relations = state.get("relations") or []
+            landed = next(
+                (
+                    item
+                    for item in reversed(relations)
+                    if isinstance(item, dict)
+                    and str(item.get("id") or item.get("relation_id")) == subject_ref
+                ),
+                None,
+            )
         else:
             entity_id = str(event.entity_id) if event.entity_id else None
             if not entity_id:
@@ -826,12 +849,19 @@ class SceneMemoryProjectionService:
                 return ()
         if not isinstance(landed, dict):
             return ()
-        return tuple(
-            (item.field_key, subject_ref)
-            for item in registered
+        assigned = [
+            (item.field_key, subject_ref, None)
+            for item in motif_registered
+            if item.field_key in payload
+            and landed.get(item.field_key) == payload[item.field_key]
+        ]
+        assigned.extend(
+            (item.field_key, subject_ref, item.object_type)
+            for item in typed_registered
             if item.field_key in payload
             and landed.get(item.field_key) == payload[item.field_key]
         )
+        return tuple(assigned)
 
     @staticmethod
     def _provenance_sequence(event: Any) -> int:

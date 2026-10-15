@@ -1,0 +1,1419 @@
+"""Authoritative World-layer storage and compatibility for object dossiers."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import uuid
+from datetime import UTC, datetime
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from core.container import get
+from core.errors import ConflictError, NotFoundError, ValidationError
+from core.service_keys import STORY_SCENE_SOURCE
+from modules.world.dossier_repository import WorldObjectDossierRepository
+from modules.world.map_spatial_anchors import resolve_anchor, resolve_validity
+from modules.world.models import (
+    Character,
+    CoreEntity,
+    EntityProfileTemplate,
+    EntityProfileTemplateRevision,
+    ProjectVocabularyRevision,
+    ProjectVocabularyTerm,
+    WorldObjectDossierEntry,
+)
+from modules.world.schemas.dossier import (
+    DossierAnchor,
+    DossierEntryCreate,
+    DossierEntryResponse,
+    DossierEntryRestore,
+    DossierEntryUpdate,
+    DossierEvidenceRef,
+    DossierFacetCatalog,
+    DossierFacetOption,
+    DossierFacingRef,
+    DossierHistoryResponse,
+    DossierReadResponse,
+    DossierTemplateField,
+    DossierTemplateHistoryResponse,
+    DossierTemplateResponse,
+    DossierTemplateUpsert,
+    DossierValidity,
+)
+from shared.utils import parse_uuid
+
+CORE_FACINGS: dict[str, dict[str, str]] = {
+    "character": {
+        "appearance": "外貌",
+        "expression": "表达方式",
+        "personality": "性格",
+        "speech_style": "说话方式",
+        "likes_dislikes": "喜好与厌恶",
+        "habits": "习惯",
+        "abilities_limits": "能力与限制",
+        "identity_position": "身份与社会位置",
+        "values_boundaries": "价值观与底线",
+        "desire_fear": "欲望与恐惧",
+        "secret": "秘密",
+        "history": "前史",
+        "relationship_summary": "关系摘要",
+    },
+    "location": {
+        "geography": "地理与空间",
+        "sensory_details": "感官细节",
+        "appearance_people": "风貌与人群",
+        "resources": "资源",
+        "dangers": "危险",
+        "rules_taboo": "规矩与禁忌",
+        "history": "历史",
+    },
+    "item": {
+        "form_appearance": "形制与外观",
+        "sensory_details": "感官细节",
+        "abilities_limits": "能力与限制",
+        "cost_side_effects": "代价与副作用",
+        "origin": "来历",
+        "meaning": "意义",
+    },
+    "faction": {
+        "form": "形态",
+        "ideology": "理念",
+        "structure_positions": "架构与职位",
+        "resources": "资源",
+        "rules": "规矩",
+        "external_relations": "对外关系",
+        "history": "历史",
+    },
+    "species": {
+        "appearance": "外观特征",
+        "physiology_lifespan": "生理与寿命",
+        "culture_customs": "文化与习俗",
+        "language": "语言",
+        "abilities_weaknesses": "能力与弱点",
+        "history": "历史",
+    },
+    "rule": {
+        "principle": "原理",
+        "constraints": "约束",
+        "exceptions": "例外",
+        "costs": "代价",
+        "consequences": "后果",
+        "known_scope": "已知范围",
+    },
+    "secret": {
+        "truth": "真相",
+        "knowledge_scope": "知情范围",
+        "reveal_plan": "揭示计划",
+        "risk": "风险",
+    },
+    "event": {"overview": "事件概述", "history": "事件经过"},
+}
+
+LEGACY_CHARACTER_FACINGS: dict[str, tuple[str, str]] = {
+    "role": ("identity_position", "角色定位"),
+    "appearance": ("appearance", "外貌"),
+    "personality": ("personality", "性格"),
+    "desire": ("desire_fear", "渴望／长期目标"),
+    "fear": ("desire_fear", "恐惧／软肋"),
+    "secret": ("secret", "作者秘密"),
+    "weakness": ("abilities_limits", "能力限制"),
+    "stance": ("values_boundaries", "价值观与立场"),
+    "voice_style": ("speech_style", "说话方式"),
+    "behavior_rules": ("habits", "习惯"),
+    "relationship_summary": ("relationship_summary", "关系摘要"),
+}
+LEGACY_CORE_ENTITY_FACINGS = {
+    "summary": ("overview", "概要", "public"),
+    "public_info": ("public_info", "公开信息", "public"),
+    "hidden_truth": ("truth", "隐藏真相", "secret"),
+}
+CORE_FACING_LABELS = {
+    key: value
+    for profile_fields in CORE_FACINGS.values()
+    for key, value in profile_fields.items()
+}
+CORE_FACING_LABELS.update(
+    {value[0]: value[1] for value in LEGACY_CORE_ENTITY_FACINGS.values()}
+)
+DOSSIER_SOURCES = frozenset(
+    {
+        "author",
+        "author_assistant",
+        "evolution_adoption",
+        "spreadsheet_migration",
+        "legacy_import",
+        "object_completion",
+    }
+)
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _display_value(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        parts = []
+        for item in value:
+            if isinstance(item, dict):
+                label = item.get("label") or item.get("name") or item.get("title")
+                description = item.get("description") or item.get("content")
+                parts.append(
+                    "：".join(str(part) for part in (label, description) if part)
+                    or "；".join(f"{key}：{part}" for key, part in item.items())
+                )
+            else:
+                parts.append(str(item))
+        return "；".join(part for part in parts if part)
+    if isinstance(value, dict):
+        return "；".join(f"{key}：{part}" for key, part in value.items())
+    return str(value)
+
+
+def _validity_values(
+    validity: DossierValidity | None,
+) -> dict[str, Any]:
+    return {
+        "start_anchor_kind": validity.start.kind if validity and validity.start else None,
+        "start_anchor_id": validity.start.id if validity and validity.start else None,
+        "end_anchor_kind": validity.end.kind if validity and validity.end else None,
+        "end_anchor_id": validity.end.id if validity and validity.end else None,
+    }
+
+
+def _validity_from_row(row: WorldObjectDossierEntry) -> DossierValidity | None:
+    if not any(
+        (
+            row.start_anchor_id,
+            row.end_anchor_id,
+            row.start_anchor_kind,
+            row.end_anchor_kind,
+        )
+    ):
+        return None
+    return DossierValidity(
+        start=(
+            DossierAnchor(kind=row.start_anchor_kind, id=row.start_anchor_id)
+            if row.start_anchor_kind and row.start_anchor_id
+            else None
+        ),
+        end=(
+            DossierAnchor(kind=row.end_anchor_kind, id=row.end_anchor_id)
+            if row.end_anchor_kind and row.end_anchor_id
+            else None
+        ),
+    )
+
+
+def _entry_response(
+    row: WorldObjectDossierEntry,
+    *,
+    facing_label: str,
+    anchor_problem: str | None = None,
+    effective_at_cutoff: bool | None = None,
+) -> DossierEntryResponse:
+    facing = DossierFacingRef(
+        kind=row.facing_kind,
+        key=row.facing_key if row.facing_kind == "core" else None,
+        term_id=row.vocabulary_term_id,
+    )
+    evidence = [
+        DossierEvidenceRef.model_validate(item) for item in row.source_refs_json or []
+    ]
+    return DossierEntryResponse(
+        id=row.id,
+        entry_group_id=row.entry_group_id,
+        revision_number=row.revision_number,
+        previous_revision_id=row.previous_revision_id,
+        entity_id=row.entity_id,
+        facing=facing,
+        facing_label=facing_label,
+        legacy_field_key=row.legacy_field_key,
+        content=row.content,
+        tags=row.tags_json or [],
+        evidence=evidence,
+        legacy_value=row.legacy_value_json,
+        source_metadata=row.metadata_json or {},
+        quote_text=row.quote_text,
+        source=row.source,
+        visibility=row.visibility,
+        status=row.status,
+        validity=_validity_from_row(row),
+        anchor_problem=anchor_problem,
+        effective_at_cutoff=effective_at_cutoff,
+        revision_reason=row.revision_reason,
+        restored_from_id=row.restored_from_id,
+        created_at=row.created_at,
+    )
+
+
+class WorldObjectDossierService:
+    repo = WorldObjectDossierRepository()
+
+    async def _entity(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        entity_id: str,
+        *,
+        lock: bool = False,
+        require_canonical: bool = False,
+    ) -> CoreEntity:
+        nid = parse_uuid(novel_id, "novel_id")
+        eid = parse_uuid(entity_id, "entity_id")
+        statement = select(CoreEntity).where(
+            CoreEntity.novel_id == nid,
+            CoreEntity.id == eid,
+        )
+        if lock:
+            statement = statement.with_for_update().execution_options(
+                populate_existing=True
+            )
+        entity = (await db.execute(statement)).scalar_one_or_none()
+        if entity is None:
+            raise NotFoundError("World object not found in this project")
+        if require_canonical and entity.status != "canonical":
+            raise ValidationError("仅已采用对象可以编辑档案")
+        return entity
+
+    async def _validate_facing(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        entity_type: str,
+        facing: DossierFacingRef,
+    ) -> tuple[str, str]:
+        if facing.kind == "core":
+            if facing.key not in CORE_FACINGS.get(entity_type, {}):
+                raise ValidationError("该对象类型不支持此内核面向")
+            return facing.key, CORE_FACINGS[entity_type][facing.key]
+        record = await self._vocabulary_record(db, novel_id, facing.term_id)
+        term, revision = record
+        if term.kind != "dossier_facing" or term.status != "active":
+            raise ValidationError("档案面向未启用，不能用于正式档案")
+        return str(term.id), str(revision.snapshot_json["name"])
+
+    @staticmethod
+    def _validate_legacy_field(
+        entity: CoreEntity,
+        facing: DossierFacingRef,
+        legacy_field_key: str | None,
+    ) -> None:
+        if legacy_field_key is None:
+            return
+        mapping = LEGACY_CHARACTER_FACINGS.get(legacy_field_key)
+        if (
+            entity.entity_type != "character"
+            or facing.kind != "core"
+            or mapping is None
+            or facing.key != mapping[0]
+        ):
+            raise ValidationError("旧人物字段只能映射到对应的人物内核面向")
+
+    async def _vocabulary_record(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        term_id: uuid.UUID | None,
+    ) -> tuple[ProjectVocabularyTerm, ProjectVocabularyRevision]:
+        if term_id is None:
+            raise ValidationError("项目面向缺少词条 ID")
+        statement = (
+            select(ProjectVocabularyTerm, ProjectVocabularyRevision)
+            .join(
+                ProjectVocabularyRevision,
+                ProjectVocabularyRevision.id == ProjectVocabularyTerm.current_revision_id,
+            )
+            .where(
+                ProjectVocabularyTerm.novel_id == novel_id,
+                ProjectVocabularyTerm.id == term_id,
+                ProjectVocabularyRevision.novel_id == novel_id,
+                ProjectVocabularyRevision.term_id == ProjectVocabularyTerm.id,
+            )
+        )
+        row = (await db.execute(statement)).one_or_none()
+        if row is None:
+            raise NotFoundError("项目面向不存在")
+        return row
+
+    async def _labels(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        entries: list[WorldObjectDossierEntry],
+    ) -> dict[uuid.UUID, str]:
+        ids = {row.vocabulary_term_id for row in entries if row.vocabulary_term_id}
+        if not ids:
+            return {}
+        records = await db.execute(
+            select(ProjectVocabularyTerm, ProjectVocabularyRevision)
+            .join(
+                ProjectVocabularyRevision,
+                ProjectVocabularyRevision.id == ProjectVocabularyTerm.current_revision_id,
+            )
+            .where(
+                ProjectVocabularyTerm.novel_id == novel_id,
+                ProjectVocabularyTerm.id.in_(ids),
+                ProjectVocabularyRevision.novel_id == novel_id,
+                ProjectVocabularyRevision.term_id == ProjectVocabularyTerm.id,
+            )
+        )
+        return {
+            term.id: revision.snapshot_json.get("name", "未知面向")
+            for term, revision in records
+        }
+
+    async def _anchor_scenes(
+        self, db: AsyncSession, novel_id: uuid.UUID
+    ) -> list[dict[str, Any]]:
+        return await get(STORY_SCENE_SOURCE).read_temporal_anchor_scenes(
+            db, str(novel_id)
+        )
+
+    async def _validate_validity(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        validity: DossierValidity | None,
+    ) -> None:
+        if validity is None or not (validity.start or validity.end):
+            return
+        scenes = await self._anchor_scenes(db, novel_id)
+        result = resolve_validity(validity, scenes)
+        if not result.valid:
+            raise ValidationError("生效范围的 Scene 或章节锚点无效，请核对后重试")
+
+    async def list_facets(
+        self, db: AsyncSession, novel_id: str, entity_type: str
+    ) -> DossierFacetCatalog:
+        nid = parse_uuid(novel_id, "novel_id")
+        options = [
+            DossierFacetOption(
+                facing=DossierFacingRef(kind="core", key=key),
+                label=label,
+                source="core",
+            )
+            for key, label in CORE_FACINGS.get(entity_type, {}).items()
+        ]
+        rows = await db.execute(
+            select(ProjectVocabularyTerm, ProjectVocabularyRevision)
+            .join(
+                ProjectVocabularyRevision,
+                ProjectVocabularyRevision.id == ProjectVocabularyTerm.current_revision_id,
+            )
+            .where(
+                ProjectVocabularyTerm.novel_id == nid,
+                ProjectVocabularyTerm.kind == "dossier_facing",
+                ProjectVocabularyTerm.status == "active",
+                ProjectVocabularyRevision.novel_id == nid,
+            )
+        )
+        project_options = []
+        for term, revision in rows:
+            snapshot = revision.snapshot_json
+            project_options.append(
+                DossierFacetOption(
+                    facing=DossierFacingRef(kind="project", term_id=term.id),
+                    label=snapshot.get("name", "未命名面向"),
+                    description=snapshot.get("description", ""),
+                    source="project",
+                )
+            )
+        options.extend(
+            sorted(
+                project_options, key=lambda item: (item.label, str(item.facing.term_id))
+            )
+        )
+        return DossierFacetCatalog(
+            entity_type=entity_type,
+            items=options,
+            total_count=len(options),
+        )
+
+    async def list_facets_for_entity(
+        self, db: AsyncSession, novel_id: str, entity_id: str
+    ) -> DossierFacetCatalog:
+        entity = await self._entity(db, novel_id, entity_id)
+        return await self.list_facets(db, novel_id, entity.entity_type)
+
+    async def read(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        entity_id: str,
+        *,
+        as_of_scene_id: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> DossierReadResponse:
+        entity = await self._entity(db, novel_id, entity_id)
+        nid = parse_uuid(novel_id, "novel_id")
+        entries = await self.repo.list_active_for_entity(db, nid, entity.id)
+        labels = await self._labels(db, nid, entries)
+        cutoff_index = None
+        cutoff_error = None
+        if as_of_scene_id is not None:
+            scenes = await self._anchor_scenes(db, nid)
+            cutoff_index, cutoff_error = resolve_anchor(
+                DossierAnchor(kind="scene", id=parse_uuid(as_of_scene_id, "scene_id")),
+                scenes,
+                endpoint="start",
+            )
+            if cutoff_error or cutoff_index is None:
+                raise ValidationError("截止 Scene 锚点无效，无法读取该时点档案")
+        result = []
+        for row in entries:
+            validity = _validity_from_row(row)
+            anchor_problem = cutoff_error
+            effective: bool | None = True if validity is None else None
+            if validity and as_of_scene_id is not None:
+                resolved = resolve_validity(validity, scenes)
+                if not resolved.valid:
+                    anchor_problem = resolved.reason
+                    effective = False
+                elif cutoff_index is None:
+                    effective = False
+                else:
+                    effective = (
+                        resolved.start_scene_index is None
+                        or resolved.start_scene_index <= cutoff_index
+                    ) and (
+                        resolved.end_scene_index is None
+                        or cutoff_index <= resolved.end_scene_index
+                    )
+                if not effective and anchor_problem is None:
+                    continue
+            result.append(
+                _entry_response(
+                    row,
+                    facing_label=(
+                        CORE_FACING_LABELS.get(row.facing_key, row.facing_key)
+                        if row.facing_kind == "core"
+                        else labels.get(row.vocabulary_term_id, "未知面向")
+                    ),
+                    anchor_problem=anchor_problem,
+                    effective_at_cutoff=effective,
+                )
+            )
+        total_count = len(result)
+        page_limit = min(max(limit, 1), 250)
+        page_offset = max(offset, 0)
+        result = result[page_offset : page_offset + page_limit]
+        omitted_count = max(0, total_count - len(result))
+        payload = [item.model_dump(mode="json") for item in result]
+        fingerprint = hashlib.sha256(
+            _canonical_json(
+                {
+                    "entity_id": str(entity.id),
+                    "as_of_scene_id": as_of_scene_id,
+                    "offset": page_offset,
+                    "limit": page_limit,
+                    "entries": payload,
+                    "omitted_count": omitted_count,
+                }
+            ).encode("utf-8")
+        ).hexdigest()
+        return DossierReadResponse(
+            entity_id=entity.id,
+            entity_type=entity.entity_type,
+            as_of_scene_id=parse_uuid(as_of_scene_id, "scene_id")
+            if as_of_scene_id
+            else None,
+            offset=page_offset,
+            limit=page_limit,
+            entries=result,
+            total_count=total_count,
+            omitted_count=omitted_count,
+            dossier_fingerprint=fingerprint,
+            layers=["world"],
+            unavailable_layers=["continuity", "evolution"],
+            unknown=not result,
+        )
+
+    async def history(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        entity_id: str,
+        *,
+        entry_group_id: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> DossierHistoryResponse:
+        entity = await self._entity(db, novel_id, entity_id)
+        nid = parse_uuid(novel_id, "novel_id")
+        page_limit = min(max(limit, 1), 500)
+        page_offset = max(offset, 0)
+        rows, total_count = await self.repo.list_history(
+            db,
+            nid,
+            entity.id,
+            entry_group_id=(
+                parse_uuid(entry_group_id, "entry_group_id") if entry_group_id else None
+            ),
+            offset=page_offset,
+            limit=page_limit,
+        )
+        labels = await self._labels(db, nid, rows)
+        items = [
+            _entry_response(
+                row,
+                facing_label=(
+                    CORE_FACING_LABELS.get(row.facing_key, row.facing_key)
+                    if row.facing_kind == "core"
+                    else labels.get(row.vocabulary_term_id, "未知面向")
+                ),
+            )
+            for row in rows
+        ]
+        return DossierHistoryResponse(
+            entity_id=entity.id,
+            offset=page_offset,
+            limit=page_limit,
+            entries=items,
+            total_count=int(total_count or 0),
+            omitted_count=max(0, int(total_count or 0) - len(items)),
+        )
+
+    async def _make_revision(
+        self,
+        db: AsyncSession,
+        previous: WorldObjectDossierEntry | None,
+        *,
+        novel_id: uuid.UUID,
+        entity_id: uuid.UUID,
+        entry_group_id: uuid.UUID,
+        revision_number: int,
+        facing_kind: str,
+        facing_key: str,
+        vocabulary_term_id: uuid.UUID | None,
+        legacy_field_key: str | None,
+        content: str,
+        tags: list[str],
+        evidence: list[dict[str, Any]],
+        quote_text: str | None,
+        visibility: str,
+        validity: DossierValidity | None,
+        source: str,
+        reason: str,
+        status: str = "active",
+        legacy_value_json: Any = None,
+        metadata_json: dict[str, Any] | None = None,
+        restored_from_id: uuid.UUID | None = None,
+    ) -> WorldObjectDossierEntry:
+        if source not in DOSSIER_SOURCES:
+            raise ValidationError("档案来源不在支持的来源类型中")
+        if metadata_json is not None:
+            revision_metadata = dict(metadata_json)
+        elif previous is not None:
+            revision_metadata = dict(previous.metadata_json or {})
+        else:
+            revision_metadata = {}
+        row = WorldObjectDossierEntry(
+            id=uuid.uuid4(),
+            novel_id=novel_id,
+            entity_id=entity_id,
+            entry_group_id=entry_group_id,
+            revision_number=revision_number,
+            previous_revision_id=previous.id if previous else None,
+            facing_kind=facing_kind,
+            facing_key=facing_key,
+            vocabulary_term_id=vocabulary_term_id,
+            legacy_field_key=legacy_field_key,
+            content=content,
+            tags_json=tags,
+            legacy_value_json=legacy_value_json,
+            metadata_json=revision_metadata,
+            source=source,
+            source_refs_json=evidence,
+            quote_text=quote_text,
+            visibility=visibility,
+            status=status,
+            **_validity_values(validity),
+            revision_reason=reason,
+            restored_from_id=restored_from_id,
+        )
+        return await self.repo.add_revision(db, row)
+
+    async def create_entry(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        entity_id: str,
+        data: DossierEntryCreate,
+        *,
+        source: str = "author",
+    ) -> DossierEntryResponse:
+        entity = await self._entity(
+            db, novel_id, entity_id, lock=True, require_canonical=True
+        )
+        nid = entity.novel_id
+        facing_key, facing_label = await self._validate_facing(
+            db, nid, entity.entity_type, data.facing
+        )
+        self._validate_legacy_field(entity, data.facing, data.legacy_field_key)
+        if data.legacy_field_key == "secret" and data.visibility != "secret":
+            raise ValidationError("人物秘密档案必须保持秘密可见性")
+        await self._validate_validity(db, nid, data.validity)
+        row = await self._make_revision(
+            db,
+            None,
+            novel_id=nid,
+            entity_id=entity.id,
+            entry_group_id=uuid.uuid4(),
+            revision_number=1,
+            facing_kind=data.facing.kind,
+            facing_key=facing_key,
+            vocabulary_term_id=data.facing.term_id,
+            legacy_field_key=data.legacy_field_key,
+            content=data.content,
+            tags=data.tags,
+            evidence=[ref.model_dump(mode="json") for ref in data.evidence],
+            quote_text=data.quote_text,
+            visibility=data.visibility,
+            validity=data.validity,
+            source=source,
+            reason="author_created",
+        )
+        if data.facing.kind == "project":
+            term, revision = await self._vocabulary_record(db, nid, data.facing.term_id)
+            facing_label = revision.snapshot_json.get("name", facing_label)
+        return _entry_response(row, facing_label=facing_label)
+
+    async def preview_create_entry(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        entity_id: str,
+        data: DossierEntryCreate,
+    ) -> dict[str, Any]:
+        """Validate an author-confirmed create without changing World state."""
+        entity = await self._entity(db, novel_id, entity_id, require_canonical=True)
+        _facing_key, facing_label = await self._validate_facing(
+            db, entity.novel_id, entity.entity_type, data.facing
+        )
+        self._validate_legacy_field(entity, data.facing, data.legacy_field_key)
+        if data.legacy_field_key == "secret" and data.visibility != "secret":
+            raise ValidationError("人物秘密档案必须保持秘密可见性")
+        await self._validate_validity(db, entity.novel_id, data.validity)
+        return {
+            "target_key": f"world_dossier:{entity.id}",
+            "entity_id": str(entity.id),
+            "facing_label": facing_label,
+            "legacy_field_key": data.legacy_field_key,
+            "content": data.content,
+            "visibility": data.visibility,
+            "validity": data.validity.model_dump(mode="json") if data.validity else None,
+            "effect": "作者确认后新增一条可恢复档案记录。",
+        }
+
+    async def _active_entry(
+        self,
+        db: AsyncSession,
+        entity: CoreEntity,
+        revision_id: str,
+        *,
+        lock: bool = False,
+    ) -> WorldObjectDossierEntry:
+        row = await self.repo.get_revision(
+            db,
+            entity.novel_id,
+            entity.id,
+            parse_uuid(revision_id, "revision_id"),
+            for_update=lock,
+        )
+        if row is None:
+            raise NotFoundError("当前档案条目不存在")
+        if row.status != "active":
+            raise ConflictError("档案已变化，请刷新后重试", code="dossier_revision_stale")
+        return row
+
+    async def preview_update_entry(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        entity_id: str,
+        revision_id: str,
+        data: DossierEntryUpdate,
+    ) -> dict[str, Any]:
+        """Validate a revision CAS and return a write preview without mutation."""
+        entity = await self._entity(db, novel_id, entity_id, require_canonical=True)
+        row = await self._active_entry(db, entity, revision_id)
+        if row.id != data.expected_revision_id:
+            raise ConflictError("档案已变化，请刷新后重试", code="dossier_revision_stale")
+        values = self._updated_values(row, data)
+        await self._validate_validity(db, entity.novel_id, values["validity"])
+        return {
+            "target_key": f"world_dossier:{entity.id}:{row.entry_group_id}",
+            "entity_id": str(entity.id),
+            "entry_group_id": str(row.entry_group_id),
+            "revision_id": str(row.id),
+            "before": {"content": row.content, "visibility": row.visibility},
+            "after": {
+                "content": values["content"],
+                "tags": values["tags"],
+                "visibility": values["visibility"],
+            },
+            "effect": "作者确认后追加修订；旧版本保留，可从历史恢复。",
+        }
+
+    @staticmethod
+    def _updated_values(
+        row: WorldObjectDossierEntry, data: DossierEntryUpdate
+    ) -> dict[str, Any]:
+        fields_set = data.model_fields_set
+        content = row.content
+        if "content" in fields_set:
+            content = data.content or ""
+            if not content.strip():
+                content = ""
+        tags = row.tags_json or []
+        if "tags" in fields_set:
+            tags = data.tags or []
+        evidence = row.source_refs_json or []
+        if "evidence" in fields_set:
+            evidence = [item.model_dump(mode="json") for item in data.evidence or []]
+        quote_text = row.quote_text
+        if "quote_text" in fields_set:
+            quote_text = data.quote_text
+        visibility = row.visibility
+        if "visibility" in fields_set:
+            if data.visibility is None:
+                raise ValidationError("档案可见性不能清空")
+            visibility = data.visibility
+        validity = data.validity if "validity" in fields_set else _validity_from_row(row)
+        return {
+            "content": content,
+            "tags": tags,
+            "evidence": evidence,
+            "quote_text": quote_text,
+            "visibility": visibility,
+            "validity": validity,
+        }
+
+    async def update_entry(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        entity_id: str,
+        revision_id: str,
+        data: DossierEntryUpdate,
+        *,
+        source: str = "author",
+    ) -> DossierEntryResponse:
+        entity = await self._entity(
+            db, novel_id, entity_id, lock=True, require_canonical=True
+        )
+        nid = entity.novel_id
+        row = await self._active_entry(db, entity, revision_id, lock=True)
+        if row.id != data.expected_revision_id:
+            raise ConflictError("档案已变化，请刷新后重试", code="dossier_revision_stale")
+        values = self._updated_values(row, data)
+        clearing = not values["content"].strip()
+        if clearing:
+            values.update(
+                content="",
+                tags=[],
+                evidence=[],
+                quote_text=None,
+            )
+        if (
+            values["content"] == row.content
+            and values["tags"] == (row.tags_json or [])
+            and values["evidence"] == (row.source_refs_json or [])
+            and values["quote_text"] == row.quote_text
+            and values["visibility"] == row.visibility
+            and values["validity"] == _validity_from_row(row)
+        ):
+            if row.facing_kind == "project":
+                _term, revision = await self._vocabulary_record(
+                    db, nid, row.vocabulary_term_id
+                )
+                label = revision.snapshot_json.get("name", "未知面向")
+            else:
+                label = CORE_FACING_LABELS.get(row.facing_key, row.facing_key)
+            return _entry_response(row, facing_label=label)
+        await self._validate_validity(db, nid, values["validity"])
+        if row.legacy_field_key == "secret" and values["visibility"] != "secret":
+            raise ValidationError("人物秘密档案必须保持秘密可见性")
+        if row.facing_kind == "project":
+            term, vocabulary_revision = await self._vocabulary_record(
+                db, nid, row.vocabulary_term_id
+            )
+            if term.status != "active" or term.kind != "dossier_facing":
+                raise ConflictError("档案面向已停用，请刷新后重试")
+            facing_label = vocabulary_revision.snapshot_json["name"]
+        else:
+            facing_label = CORE_FACING_LABELS.get(row.facing_key, row.facing_key)
+        row.status = "superseded"
+        new_row = await self._make_revision(
+            db,
+            row,
+            novel_id=nid,
+            entity_id=entity.id,
+            entry_group_id=row.entry_group_id,
+            revision_number=row.revision_number + 1,
+            facing_kind=row.facing_kind,
+            facing_key=row.facing_key,
+            vocabulary_term_id=row.vocabulary_term_id,
+            legacy_field_key=row.legacy_field_key,
+            content=values["content"],
+            tags=values["tags"],
+            evidence=values["evidence"],
+            quote_text=values["quote_text"],
+            visibility=values["visibility"],
+            validity=values["validity"],
+            source=source,
+            reason="author_cleared" if clearing else "author_edit",
+            status="cleared" if clearing else "active",
+            legacy_value_json=(
+                row.legacy_value_json if values["content"] == row.content else None
+            ),
+        )
+        await self._sync_legacy_storage(
+            db,
+            entity,
+            row.legacy_field_key,
+            None if clearing else new_row.content,
+            new_row.legacy_value_json,
+        )
+        return _entry_response(new_row, facing_label=facing_label)
+
+    async def preview_restore_entry(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        entity_id: str,
+        entry_group_id: str,
+        data: DossierEntryRestore,
+    ) -> dict[str, Any]:
+        entity = await self._entity(db, novel_id, entity_id, require_canonical=True)
+        group = parse_uuid(entry_group_id, "entry_group_id")
+        rows = await self.repo.list_group(db, entity.novel_id, entity.id, group)
+        selected = next((item for item in rows if item.id == data.revision_id), None)
+        if selected is None:
+            raise NotFoundError("档案历史版本不存在")
+        if not selected.content.strip() or selected.status == "cleared":
+            raise ValidationError("清除版本没有可恢复的档案内容")
+        current = next((item for item in rows if item.status == "active"), None)
+        if (current.id if current else None) != data.expected_current_revision_id:
+            raise ConflictError("档案已变化，请刷新后重试", code="dossier_revision_stale")
+        await self._validate_validity(db, entity.novel_id, _validity_from_row(selected))
+        return {
+            "target_key": f"world_dossier:{entity.id}:{group}",
+            "entity_id": str(entity.id),
+            "entry_group_id": str(group),
+            "restore_revision_id": str(selected.id),
+            "expected_current_revision_id": (
+                str(data.expected_current_revision_id)
+                if data.expected_current_revision_id
+                else None
+            ),
+            "content": selected.content,
+            "effect": "作者确认后追加恢复修订，原历史全部保留。",
+        }
+
+    async def restore_entry(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        entity_id: str,
+        entry_group_id: str,
+        data: DossierEntryRestore,
+        *,
+        source: str = "author",
+    ) -> DossierEntryResponse:
+        entity = await self._entity(
+            db, novel_id, entity_id, lock=True, require_canonical=True
+        )
+        nid = entity.novel_id
+        group = parse_uuid(entry_group_id, "entry_group_id")
+        rows = await self.repo.list_group(db, nid, entity.id, group, for_update=True)
+        selected = next((item for item in rows if item.id == data.revision_id), None)
+        if selected is None:
+            raise NotFoundError("档案历史版本不存在")
+        if not selected.content.strip() or selected.status == "cleared":
+            raise ValidationError("清除版本没有可恢复的档案内容")
+        current = next((item for item in rows if item.status == "active"), None)
+        actual_current = current.id if current else None
+        if actual_current != data.expected_current_revision_id:
+            raise ConflictError("档案已变化，请刷新后重试", code="dossier_revision_stale")
+        previous = current or rows[-1]
+        if current:
+            current.status = "superseded"
+        restored = await self._make_revision(
+            db,
+            previous,
+            novel_id=nid,
+            entity_id=entity.id,
+            entry_group_id=group,
+            revision_number=previous.revision_number + 1,
+            facing_kind=selected.facing_kind,
+            facing_key=selected.facing_key,
+            vocabulary_term_id=selected.vocabulary_term_id,
+            legacy_field_key=selected.legacy_field_key,
+            content=selected.content,
+            tags=selected.tags_json or [],
+            evidence=selected.source_refs_json or [],
+            quote_text=selected.quote_text,
+            visibility=selected.visibility,
+            validity=_validity_from_row(selected),
+            source=source,
+            reason="author_restore",
+            metadata_json=dict(selected.metadata_json or {}),
+            restored_from_id=selected.id,
+        )
+        await self._sync_legacy_storage(
+            db,
+            entity,
+            restored.legacy_field_key,
+            restored.content,
+            restored.legacy_value_json,
+        )
+        if restored.facing_kind == "project":
+            _term, revision = await self._vocabulary_record(
+                db, nid, restored.vocabulary_term_id
+            )
+            label = revision.snapshot_json["name"]
+        else:
+            label = CORE_FACING_LABELS.get(restored.facing_key, restored.facing_key)
+        return _entry_response(restored, facing_label=label)
+
+    async def sync_character_legacy_field(
+        self,
+        db: AsyncSession,
+        character: Character,
+        field: str,
+        value: Any,
+        *,
+        force_create: bool = False,
+    ) -> None:
+        mapping = LEGACY_CHARACTER_FACINGS.get(field)
+        if mapping is None:
+            return
+        value_text = _display_value(value) if value is not None else None
+        active_rows = await self.repo.list_active_legacy_field(
+            db,
+            character.novel_id,
+            character.entity_id,
+            field,
+            for_update=True,
+        )
+        current = (
+            self._legacy_value(field, active_rows)
+            if active_rows
+            else getattr(character, field)
+        )
+        if current == value and (active_rows or not force_create):
+            return
+        latest = active_rows[-1] if active_rows else None
+        if latest is None:
+            latest = await self.repo.latest_legacy_field(
+                db,
+                character.novel_id,
+                character.entity_id,
+                field,
+                for_update=True,
+            )
+        for active in active_rows:
+            active.status = "superseded"
+        if value is None or value == "":
+            if latest is not None:
+                await self._make_revision(
+                    db,
+                    latest,
+                    novel_id=character.novel_id,
+                    entity_id=character.entity_id,
+                    entry_group_id=latest.entry_group_id,
+                    revision_number=latest.revision_number + 1,
+                    facing_kind="core",
+                    facing_key=mapping[0],
+                    vocabulary_term_id=None,
+                    legacy_field_key=field,
+                    content="",
+                    tags=[],
+                    evidence=[],
+                    quote_text=None,
+                    visibility="secret" if field == "secret" else "public",
+                    validity=None,
+                    source="author",
+                    reason="legacy_field_cleared",
+                    status="cleared",
+                    legacy_value_json=None,
+                )
+            return
+        group = latest.entry_group_id if latest else uuid.uuid4()
+        await self._make_revision(
+            db,
+            latest,
+            novel_id=character.novel_id,
+            entity_id=character.entity_id,
+            entry_group_id=group,
+            revision_number=latest.revision_number + 1 if latest else 1,
+            facing_kind="core",
+            facing_key=mapping[0],
+            vocabulary_term_id=None,
+            legacy_field_key=field,
+            content=value_text,
+            tags=[],
+            evidence=[],
+            quote_text=None,
+            visibility="secret" if field == "secret" else "public",
+            validity=None,
+            source="author",
+            reason="legacy_api_writeback",
+            legacy_value_json=value if isinstance(value, (list, dict)) else None,
+        )
+
+    @staticmethod
+    def _legacy_value(field: str, rows: list[WorldObjectDossierEntry]) -> Any:
+        values = [
+            row.legacy_value_json if row.legacy_value_json is not None else row.content
+            for row in rows
+        ]
+        if field == "behavior_rules":
+            merged: list[dict] = []
+            for value in values:
+                if isinstance(value, list):
+                    merged.extend(item for item in value if isinstance(item, dict))
+                elif isinstance(value, dict):
+                    merged.append(value)
+                elif value:
+                    merged.append({"description": _display_value(value)})
+            return merged
+        if len(values) == 1:
+            return values[0]
+        return "\n".join(
+            display for value in values if (display := _display_value(value)).strip()
+        )
+
+    async def legacy_character_values(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        characters: list[Character],
+    ) -> dict[uuid.UUID, dict[str, Any]]:
+        if not characters:
+            return {}
+        ids = {item.entity_id for item in characters}
+        rows = await self.repo.list_active_legacy_character_fields(
+            db,
+            parse_uuid(novel_id, "novel_id"),
+            ids,
+            set(LEGACY_CHARACTER_FACINGS),
+        )
+        result = {item.entity_id: {} for item in characters}
+        grouped: dict[tuple[uuid.UUID, str], list[WorldObjectDossierEntry]] = {}
+        for row in rows:
+            if row.legacy_field_key:
+                grouped.setdefault((row.entity_id, row.legacy_field_key), []).append(row)
+        for (entity_id, field), field_rows in grouped.items():
+            result[entity_id][field] = self._legacy_value(field, field_rows)
+        return result
+
+    async def _sync_legacy_storage(
+        self,
+        db: AsyncSession,
+        entity: CoreEntity,
+        legacy_field_key: str | None,
+        content: str | None,
+        legacy_value: Any,
+    ) -> None:
+        if not legacy_field_key:
+            return
+        value = legacy_value if legacy_value is not None else content
+        if (
+            entity.entity_type == "character"
+            and legacy_field_key in LEGACY_CHARACTER_FACINGS
+        ):
+            character = (
+                await db.execute(
+                    select(Character)
+                    .where(
+                        Character.novel_id == entity.novel_id,
+                        Character.entity_id == entity.id,
+                    )
+                    .with_for_update()
+                )
+            ).scalar_one_or_none()
+            if character is None:
+                raise NotFoundError("Character profile not found")
+            setattr(character, legacy_field_key, value)
+            character.updated_at = datetime.now(UTC)
+            return
+        entity_field = next(
+            (
+                field
+                for field, (
+                    _facing,
+                    _label,
+                    _visibility,
+                ) in LEGACY_CORE_ENTITY_FACINGS.items()
+                if field == legacy_field_key
+            ),
+            None,
+        )
+        if entity_field:
+            setattr(entity, entity_field, value)
+            entity.updated_at = datetime.now(UTC)
+
+    async def upsert_template(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        profile_type: str,
+        data: DossierTemplateUpsert,
+        *,
+        source: str = "author",
+    ) -> DossierTemplateResponse:
+        if source not in DOSSIER_SOURCES:
+            raise ValidationError("档案模板来源不在支持的来源类型中")
+        nid = parse_uuid(novel_id, "novel_id")
+        normalized_type = profile_type.strip().lower()
+        if not normalized_type or len(normalized_type) > 64:
+            raise ValidationError("对象类型不能为空")
+        seen = set()
+        for item in data.fields:
+            facing_key, _label = await self._validate_facing(
+                db, nid, normalized_type, item.facing
+            )
+            identity = (item.facing.kind, facing_key)
+            if identity in seen:
+                raise ValidationError("模板不能重复登记同一面向")
+            seen.add(identity)
+        snapshot = {
+            "format_version": 1,
+            "fields": [field.model_dump(mode="json") for field in data.fields],
+            "display_schema": data.display_schema,
+        }
+        template = (
+            await db.execute(
+                select(EntityProfileTemplate)
+                .where(
+                    EntityProfileTemplate.novel_id == nid,
+                    EntityProfileTemplate.profile_type == normalized_type,
+                )
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if template is None:
+            if data.expected_version_number is not None:
+                raise ConflictError("模板不存在，请刷新后重试")
+            template = EntityProfileTemplate(
+                novel_id=nid,
+                profile_type=normalized_type,
+                template_schema_json={"format_version": 1, "fields": snapshot["fields"]},
+                display_schema_json=data.display_schema,
+                version_number=1,
+                status="active",
+            )
+            db.add(template)
+            await db.flush()
+            revision_number = 1
+        else:
+            if data.expected_version_number != template.version_number:
+                raise ConflictError(
+                    "模板已变化，请刷新后重试", code="dossier_template_stale"
+                )
+            current = await db.scalar(
+                select(EntityProfileTemplateRevision).where(
+                    EntityProfileTemplateRevision.novel_id == nid,
+                    EntityProfileTemplateRevision.template_id == template.id,
+                    EntityProfileTemplateRevision.version_number
+                    == template.version_number,
+                )
+            )
+            if (
+                template.template_schema_json.get("fields", []) == snapshot["fields"]
+                and template.display_schema_json == data.display_schema
+            ):
+                if current is None:
+                    raise ConflictError("模板当前修订缺失，请核对数据")
+                return DossierTemplateResponse(
+                    profile_type=normalized_type,
+                    template_id=template.id,
+                    revision_id=current.id,
+                    version_number=template.version_number,
+                    fields=data.fields,
+                    display_schema=template.display_schema_json or {},
+                    updated_at=template.updated_at,
+                )
+            revision_number = template.version_number + 1
+            template.template_schema_json = {
+                "format_version": 1,
+                "fields": snapshot["fields"],
+            }
+            template.display_schema_json = data.display_schema
+            template.version_number = revision_number
+            template.updated_at = datetime.now(UTC)
+        digest = hashlib.sha256(_canonical_json(snapshot).encode("utf-8")).hexdigest()
+        revision = EntityProfileTemplateRevision(
+            id=uuid.uuid4(),
+            novel_id=nid,
+            template_id=template.id,
+            version_number=revision_number,
+            snapshot_json=snapshot,
+            revision_digest=digest,
+            revision_reason="author_edit",
+            created_by=source,
+        )
+        db.add(revision)
+        await db.flush()
+        return DossierTemplateResponse(
+            profile_type=normalized_type,
+            template_id=template.id,
+            revision_id=revision.id,
+            version_number=revision_number,
+            fields=data.fields,
+            display_schema=data.display_schema,
+            updated_at=template.updated_at,
+        )
+
+    async def preview_template_upsert(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        profile_type: str,
+        data: DossierTemplateUpsert,
+    ) -> dict[str, Any]:
+        """Validate a template edit and return a preview without changing it."""
+        nid = parse_uuid(novel_id, "novel_id")
+        normalized_type = profile_type.strip().lower()
+        if not normalized_type or len(normalized_type) > 64:
+            raise ValidationError("对象类型不能为空")
+        identities = set()
+        for item in data.fields:
+            facing_key, _label = await self._validate_facing(
+                db, nid, normalized_type, item.facing
+            )
+            identity = (item.facing.kind, facing_key)
+            if identity in identities:
+                raise ValidationError("模板不能重复登记同一面向")
+            identities.add(identity)
+        template = await db.scalar(
+            select(EntityProfileTemplate).where(
+                EntityProfileTemplate.novel_id == nid,
+                EntityProfileTemplate.profile_type == normalized_type,
+            )
+        )
+        if template is None:
+            if data.expected_version_number is not None:
+                raise ConflictError("模板不存在，请刷新后重试")
+            current_version = None
+        else:
+            if data.expected_version_number != template.version_number:
+                raise ConflictError(
+                    "模板已变化，请刷新后重试", code="dossier_template_stale"
+                )
+            current_version = template.version_number
+        after = {
+            "fields": [item.model_dump(mode="json") for item in data.fields],
+            "display_schema": data.display_schema,
+        }
+        current_snapshot = (
+            {
+                "fields": (template.template_schema_json or {}).get("fields", []),
+                "display_schema": template.display_schema_json or {},
+            }
+            if template is not None
+            else None
+        )
+        return {
+            "target_key": f"world_dossier_template:{nid}:{normalized_type}",
+            "profile_type": normalized_type,
+            "expected_version_number": current_version,
+            "before": current_snapshot,
+            "after": after,
+            "effect": "作者确认后追加模板修订；相同内容不新增版本。",
+        }
+
+    async def get_template(
+        self, db: AsyncSession, novel_id: str, profile_type: str
+    ) -> DossierTemplateResponse:
+        nid = parse_uuid(novel_id, "novel_id")
+        normalized_type = profile_type.strip().lower()
+        template = (
+            await db.execute(
+                select(EntityProfileTemplate).where(
+                    EntityProfileTemplate.novel_id == nid,
+                    EntityProfileTemplate.profile_type == normalized_type,
+                )
+            )
+        ).scalar_one_or_none()
+        if template is None:
+            raise NotFoundError("档案模板不存在")
+        revision = await db.scalar(
+            select(EntityProfileTemplateRevision).where(
+                EntityProfileTemplateRevision.novel_id == nid,
+                EntityProfileTemplateRevision.template_id == template.id,
+                EntityProfileTemplateRevision.version_number == template.version_number,
+            )
+        )
+        if revision is None:
+            raise ConflictError("模板当前修订缺失，请核对数据")
+        fields = [
+            DossierTemplateField.model_validate(item)
+            for item in (revision.snapshot_json.get("fields") or [])
+        ]
+        return DossierTemplateResponse(
+            profile_type=normalized_type,
+            template_id=template.id,
+            revision_id=revision.id,
+            version_number=revision.version_number,
+            fields=fields,
+            display_schema=revision.snapshot_json.get("display_schema", {}),
+            updated_at=template.updated_at,
+        )
+
+    async def template_history(
+        self, db: AsyncSession, novel_id: str, profile_type: str
+    ) -> DossierTemplateHistoryResponse:
+        template = await db.scalar(
+            select(EntityProfileTemplate).where(
+                EntityProfileTemplate.novel_id == parse_uuid(novel_id, "novel_id"),
+                EntityProfileTemplate.profile_type == profile_type.strip().lower(),
+            )
+        )
+        if template is None:
+            raise NotFoundError("档案模板不存在")
+        revisions = list(
+            (
+                await db.execute(
+                    select(EntityProfileTemplateRevision)
+                    .where(
+                        EntityProfileTemplateRevision.novel_id == template.novel_id,
+                        EntityProfileTemplateRevision.template_id == template.id,
+                    )
+                    .order_by(EntityProfileTemplateRevision.version_number.desc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return DossierTemplateHistoryResponse(
+            profile_type=template.profile_type,
+            items=[
+                {
+                    "revision_id": str(row.id),
+                    "version_number": row.version_number,
+                    "revision_digest": row.revision_digest,
+                    "revision_reason": row.revision_reason,
+                    "snapshot": row.snapshot_json,
+                    "created_at": row.created_at.isoformat(),
+                }
+                for row in revisions
+            ],
+            total_count=len(revisions),
+        )
+
+
+__all__ = [
+    "CORE_FACINGS",
+    "LEGACY_CHARACTER_FACINGS",
+    "WorldObjectDossierService",
+]

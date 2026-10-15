@@ -4,6 +4,12 @@
 部分更新和删除；地点尚未解析时 `location_id` 可空，原文字位置继续供全景、Evidence
 和地图读取。类型检查不代替来源的语义证明。
 
+ADR-0039 的对象时点字段登记在 `continuity.field_provenance.STATE_FIELD_REGISTRY`
+中，按对象类型和 Scene-memory 维度匹配；字段来源仍沿用 `FieldProvenance` 的
+exact / unverified / conflict 判定。关系事件可携带 Story facade 导出的
+`RelationAttitude`，其来源对象、目标对象与分级态度共同构成有向关系态度。自由字段
+继续透传，但不会获得字段来源链或进入确定性字段检查。
+
 Story 的异步 AI handler 在 worker 领取时冻结 root capability 与 L0 请求额度，auto-requeue 和
 manual resume 累计同一 run；各 step/attempt 保留既有 timeout，串行长链补保守总墙钟护栏
 （reaction 3600s、one_click 7200s，只切病态挂起）。信封只作为任务私有审计元数据，不改变

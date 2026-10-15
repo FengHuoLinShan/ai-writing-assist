@@ -10,8 +10,9 @@ degraded + gap_reason，绕过失效钩子的正文/结构变更不再静默供�
 作者行豁免。世界正典修订不自动失效本视图（观察层记录「当时所见」），
 以 unsupported_dependencies 显式列出，核对待走 World 复核。
 
-P2-A 追加逐字段来源（field_provenance.py）：受控母题字段的 fact 在
-``source["provenance"]`` 携带单条记录 ``{field, event_id, source_refs, status}``；
+P2-A / ADR-0039 追加逐字段来源（field_provenance.py）：受控母题字段和已登记
+的类型化状态字段 fact 在 ``source["provenance"]`` 携带单条记录
+``{field, event_id, source_refs, status}``；类型化状态另带 ``object_type``；
 status 三态 exact/unverified/conflict，无记录（含旧格式 checkpoint）不冒充——
 不带 provenance，展示层显示「来源待核实」。历史 checkpoint 摘要与列表出口
 （``summarize_field_provenance`` / ``list_scene_checkpoints``）也由本模块提供。
@@ -170,7 +171,7 @@ def summarize_field_provenance(
 ) -> dict[tuple[str, str | None], dict[str, Any]]:
     """checkpoint 内嵌逐字段来源 → ``{(field_key, subject_ref): 单记录摘要}``。
 
-    摘要形态由 A0 夹具钉定，仅四键::
+    旧母题摘要形态由 A0 夹具钉定，类型化状态另带 ``object_type``::
 
         {"field": str, "status": "exact"|"unverified"|"conflict",
          "event_id": str | None, "source_refs": [SourceRangeRefContract 形态 dict]}
@@ -215,6 +216,8 @@ def summarize_field_provenance(
             if chosen
             else [],
         }
+        if chosen is not None and chosen.object_type is not None:
+            summaries[(field_key, subject_ref)]["object_type"] = chosen.object_type
         if include_value_hash:
             summaries[(field_key, subject_ref)]["value_hash"] = (
                 chosen.value_hash if chosen else None
@@ -601,6 +604,11 @@ class SceneStateViewService:
                 if not isinstance(payload, dict):
                     continue
                 relation_id = payload.get("id") or payload.get("relation_id")
+                attitude_provenance = (
+                    provenance_by_field.get(("attitude", str(relation_id)))
+                    if relation_id and isinstance(payload.get("attitude"), dict)
+                    else None
+                )
                 add(
                     subject_id=str(relation_id) if relation_id else None,
                     subject_label=str(
@@ -610,6 +618,7 @@ class SceneStateViewService:
                     value=_clean_payload(payload),
                     layer="fact",
                     payload=payload,
+                    provenance=attitude_provenance,
                 )
         elif dimension == "timeline":
             for payload in state.get("facts") or []:

@@ -91,17 +91,17 @@ class Character(Base, TimestampMixin, StatusMixin, NovelMixin):
     current_goal: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
-        comment="当前短期目标",
+        comment="作者备注的最新目标；不是按章状态，Story continuity 是按 Scene 真源",
     )
     current_state: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
-        comment="当前状态摘要",
+        comment="作者备注的最新状态；不是按章状态，Story continuity 是按 Scene 真源",
     )
     current_emotion: Mapped[str | None] = mapped_column(
         String(64),
         nullable=True,
-        comment="当前情绪",
+        comment="作者备注的最新情绪；不是按章状态，Story continuity 是按 Scene 真源",
     )
     stance: Mapped[str | None] = mapped_column(
         Text,

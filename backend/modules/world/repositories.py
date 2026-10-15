@@ -2305,6 +2305,21 @@ class CharacterRepository:
         if character is None:
             return None
 
+        clearable_fields = {
+            "role",
+            "appearance",
+            "personality",
+            "desire",
+            "fear",
+            "secret",
+            "weakness",
+            "current_goal",
+            "current_state",
+            "current_emotion",
+            "stance",
+            "voice_style",
+            "relationship_summary",
+        }
         update_values: dict[str, Any] = {}
         for field in (
             "name",
@@ -2324,15 +2339,17 @@ class CharacterRepository:
             "status",
         ):
             value = getattr(data, field, None)
-            if value is not None:
+            if field in data.model_fields_set and (
+                value is not None or field in clearable_fields
+            ):
                 update_values[field] = value
 
-        if data.aliases is not None:
-            update_values["aliases"] = data.aliases
-        if data.behavior_rules is not None:
-            update_values["behavior_rules"] = data.behavior_rules
-        if data.meta is not None:
-            update_values["meta"] = data.meta
+        if "aliases" in data.model_fields_set:
+            update_values["aliases"] = data.aliases or []
+        if "behavior_rules" in data.model_fields_set:
+            update_values["behavior_rules"] = data.behavior_rules or []
+        if "meta" in data.model_fields_set:
+            update_values["meta"] = data.meta or {}
 
         update_values = {
             key: value
