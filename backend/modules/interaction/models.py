@@ -235,6 +235,16 @@ class InteractionJourney(Base, UUIDMixin, TimestampMixin):
         nullable=False,
         default=dict,
     )
+    summary_refresh_task_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUIDType,
+        ForeignKey(
+            "async_tasks.id",
+            ondelete="SET NULL",
+            name="fk_interaction_journey_summary_task",
+        ),
+        nullable=True,
+        index=True,
+    )
     source_revision_id: Mapped[uuid.UUID | None] = mapped_column(
         UUIDType,
         ForeignKey("interaction_source_revisions.id", ondelete="RESTRICT"),

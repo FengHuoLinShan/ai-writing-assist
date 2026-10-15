@@ -190,14 +190,11 @@ async def edit_workspace(db, novel_id, workspace_id, data):
     workspace = await require_workspace(
         db, novel_id, workspace_id, lock=True, execute=True
     )
-    if (
-        workspace.status != "open"
-        or workspace.current_revision_id != data.expected_revision_id
-    ):
-        raise ConflictError(
-            "试改版本已变化或已封存，请从该版本另建试改", code="WORKSPACE_CHANGED"
-        )
-    _, parent = await require_revision(db, novel_id, data.expected_revision_id)
+    parent_workspace, parent = await require_revision(
+        db, novel_id, data.expected_revision_id
+    )
+    if parent_workspace.id != workspace.id:
+        raise NotFoundError("修订不属于此试改")
     case = await require_case(db, novel_id, workspace.case_id, execute=True)
     grant = Grant.model_validate(case.grant_json)
     if parent.goal_version != case.goal_version:
@@ -215,6 +212,22 @@ async def edit_workspace(db, novel_id, workspace_id, data):
     overlay(InputManifest.model_validate(parent.manifest_json), values)
     if len(values) > 16 or len(json.dumps(values, ensure_ascii=False).encode()) > 256000:
         raise ValidationError("本次试改超过小规模原子采用范围，请缩小修改")
+    replay = await _find_edit_replay(
+        db,
+        novel_id,
+        workspace_id=workspace.id,
+        parent_revision_id=parent.id,
+        patches=values,
+    )
+    if replay is not None:
+        return await workspace_view(db, novel_id, workspace.id, revision_id=replay.id)
+    if (
+        workspace.status != "open"
+        or workspace.current_revision_id != data.expected_revision_id
+    ):
+        raise ConflictError(
+            "试改版本已变化或已封存，请从该版本另建试改", code="WORKSPACE_CHANGED"
+        )
     revision = CreativeWorkspaceRevision(
         id=uuid4(),
         novel_id=workspace.novel_id,
@@ -231,6 +244,20 @@ async def edit_workspace(db, novel_id, workspace_id, data):
     workspace.current_revision_id = revision.id
     await db.flush()
     return await workspace_view(db, novel_id, workspace.id)
+
+
+async def _find_edit_replay(db, novel_id, *, workspace_id, parent_revision_id, patches):
+    candidates = await db.scalars(
+        select(CreativeWorkspaceRevision).where(
+            CreativeWorkspaceRevision.novel_id == UUID(novel_id),
+            CreativeWorkspaceRevision.workspace_id == workspace_id,
+            CreativeWorkspaceRevision.parent_revision_id == parent_revision_id,
+        )
+    )
+    return next(
+        (revision for revision in candidates if revision.patches_json == patches),
+        None,
+    )
 
 
 async def workspace_view(db, novel_id, workspace_id, *, revision_id=None):

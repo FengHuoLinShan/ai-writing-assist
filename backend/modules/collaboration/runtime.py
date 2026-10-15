@@ -76,6 +76,22 @@ _RULES = (
 )
 
 
+class _CollaborationRunBudget(AgentRunBudget):
+    """Keep this domain's persisted ledger from authorizing after unknown usage."""
+
+    def reserve(self, *, requests=0, tools=0, web=0, future_requests=0):
+        if self.usage_unknown:
+            raise AgentBudgetError(
+                "上次模型请求的用量未知；请核对原回执后再决定是否继续。"
+            )
+        return super().reserve(
+            requests=requests,
+            tools=tools,
+            web=web,
+            future_requests=future_requests,
+        )
+
+
 async def _items(db, novel_id, run_id):
     rows = (
         await db.scalars(
@@ -244,8 +260,8 @@ async def execute(db, task):
             }
         )
         planner_goal, planner_constraints = "仅根据已读正文列出理解、猜测和未知。", []
-    budget = AgentRunBudget.model_validate(run.budget_json)
-    if budget.pending_usage:
+    budget = _CollaborationRunBudget.model_validate(run.budget_json)
+    if budget.pending_usage or budget.usage_unknown:
         raise ConflictError(
             "上次请求的用量与结果未确认，请查看记录后重新发起", code="USAGE_UNKNOWN"
         )

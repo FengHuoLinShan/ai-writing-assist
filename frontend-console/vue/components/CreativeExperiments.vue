@@ -34,7 +34,26 @@
     <section v-if="currentCase" class="creative-history"><div class="creative-actions"><strong>这一目标的进展</strong><button class="btn btn-sm btn-ghost" type="button" :disabled="loading" @click="refreshCase">刷新</button></div><select v-if="runs.length" aria-label="查看一次调查" :value="run?.id || ''" @change="openRun($event.target.value)"><option v-for="item in runs" :key="item.id" :value="item.id">{{ dateLabel(item.created_at) }} · {{ statusLabel(item.status) }}</option></select><p v-if="run" role="status">{{ statusLabel(run.status) }}<template v-if="run.stale"> · 资料或目标已变化，请重新核对。</template></p><p v-for="missing in run?.missing_deliverables || []" :key="missing">尚未完成：{{ missing }}</p><button v-if="run?.can_resume" class="btn btn-sm" type="button" :disabled="busy" @click="resume">从已有成果继续</button><details><summary>本次授权</summary><button v-if="currentCase.recipe.id !== 'import_consult'" type="button" class="btn btn-sm" :disabled="busy || running" @click="grantEditing = true">重新选择本次资料</button><button v-else type="button" class="btn btn-sm" :disabled="busy || running" @click="refreshImportGrant">重新核对原组来源</button><p v-if="currentCase.grant.follow_changes">正在自动跟进资料变化，后台默认不联网。</p><button v-if="currentCase.grant.follow_changes" class="btn btn-sm" type="button" :disabled="busy" @click="pauseFollow">关闭后续自动跟进</button><p>累计已用 {{ currentCase.requests_used }} / {{ currentCase.grant.request_limit }} 次请求，截止 {{ dateLabel(currentCase.grant.expires_at) }}。</p><button type="button" class="btn btn-sm" :disabled="busy || running" @click="renewGrant">按原范围续期一天，保留用量</button></details><p v-if="run?.question_for_author">还需要你决定：{{ run.question_for_author }}</p><p v-if="run?.coverage">已完成本次 {{ run.coverage.completed }} / {{ run.coverage.total }} 项工作；这不代表穷尽全部文学问题。</p><article v-for="artifact in visibleReports" :key="artifact.id" class="creative-report"><p>{{ artifact.result.summary }}</p><details v-if="artifact.result.claims?.length"><summary>判断依据与保留解释</summary><p v-for="(claim, index) in artifact.result.claims" :key="index"><strong>{{ claimLabel(claim.kind) }}：</strong>{{ claim.text }}<small v-if="claim.uncertainty"> {{ claim.uncertainty }}</small></p></details><details v-if="artifact.result.beliefs"><summary>此刻已知、猜测与未解问题</summary><p v-for="belief in artifact.result.beliefs.known" :key="belief.belief">此刻理解：{{ belief.belief }}<br />依据：{{ belief.excerpt }}</p><p v-for="belief in artifact.result.beliefs.guesses" :key="belief.belief">仍是猜测：{{ belief.belief }}<br />依据：{{ belief.excerpt }}</p><p v-for="question in artifact.result.beliefs.unanswered" :key="question">仍未知：{{ question }}</p><p v-for="belief in artifact.result.beliefs.newly_revealed" :key="belief.belief">此处新揭示：{{ belief.belief }}</p></details><details v-if="artifact.result.scenarios?.length"><summary>冻结的检验情境</summary><article v-for="scenario in artifact.result.scenarios" :key="scenario.key"><strong>{{ scenario.title }}</strong><p>{{ scenario.invariant }}</p><p>期望：{{ { holds: "规则在这些条件下成立", violated: "保留这个明确反例", unchanged: "与原稿一致，可能保留既有例外" }[scenario.expected] }}</p><p v-for="action in scenario.actions" :key="action">{{ action }}</p><p v-if="scenario.assumptions.length">条件：{{ scenario.assumptions.join('；') }}</p></article></details><details v-if="artifact.evidence?.length"><summary>本次实际查阅的来源</summary><article v-for="source in artifact.evidence" :key="source.key"><strong>{{ source.label }}</strong><p v-if="source.excerpt">{{ source.excerpt }}</p><a v-if="publicUrl(source.url)" :href="publicUrl(source.url)" target="_blank" rel="noopener noreferrer">查看网页原文</a></article></details><p v-if="artifact.result.omissions?.length">尚未核对：{{ artifact.result.omissions.join('；') }}</p></article></section>
     <section v-if="workspaces.length" class="creative-trials" aria-label="试改方案"><h4>实际改法与原稿对照</h4><button v-for="item in workspaces" :key="item.id" class="creative-trial-button" type="button" :aria-pressed="trial?.id === item.id" :disabled="busy" @click="openTrial(item.id)"><strong>{{ item.label }}</strong><span>{{ { open: '可继续试改', sealed: '已核对，待采用', merged: '已采用', discarded: '已保留原稿' }[item.status] || '试改记录' }}</span></button></section>
     <CreativeTrialEditor v-if="trial" ref="trialEditor" :project-id="projectId" :trial="trial" :locked="busy || running || dirty" @updated="trialUpdated" />
-    <section v-if="trial" class="creative-diff" aria-label="所选试改对照"><h4>{{ trial.label }}</h4><p v-if="trial.stale" class="creative-note">参考资料或目标已变化，旧试改不能直接采用。<button type="button" class="btn btn-sm" :disabled="busy || running || dirty" @click="startRebase">基于当前稿重建试改</button></p><p v-else-if="!trial.changes.length">这一版尚无修改。</p><section v-if="rebaseConflict" class="creative-rebase" aria-label="重建冲突处理"><h5>当前稿与试改改了同一批字段</h5><p>逐字段选择保留哪一侧；其余差异会自动合并，然后基于当前稿重建这一版试改。</p><article v-for="(conflict, index) in rebaseConflict.conflicts" :key="conflict.resource.kind + ':' + conflict.resource.id"><strong>{{ conflict.label }}</strong><div v-for="field in conflict.fields" :key="field" class="creative-rebase-field"><p class="creative-rebase-name">{{ field }}</p><label><input type="radio" :name="'rebase-' + index + '-' + field" :checked="rebaseChoice(index, field) === 'current'" @change="setRebaseChoice(index, field, 'current')" /> 保留当前稿：{{ shortPreview(conflict.current[field]) }}</label><label><input type="radio" :name="'rebase-' + index + '-' + field" :checked="rebaseChoice(index, field) === 'trial'" @change="setRebaseChoice(index, field, 'trial')" /> 采用试改：{{ shortPreview(conflict.trial[field]) }}</label></div></article><div class="creative-actions"><button class="btn btn-primary" type="button" :disabled="busy || running || dirty" @click="applyRebaseChoices">按以上选择重建</button><button class="btn" type="button" :disabled="busy" @click="rebaseConflict = null">取消</button></div></section><article v-for="change in trial.changes" :key="change.resource.kind + change.resource.id"><strong>{{ change.label }}</strong><details v-if="change.field_changes?.length" class="creative-fields"><summary>字段级改动 {{ change.field_changes.length }} 项</summary><p v-for="entry in change.field_changes" :key="entry.field" class="creative-field-row"><strong>{{ entry.field }}</strong><em>{{ opLabel(entry.op) }}</em><span v-if="entry.op !== 'added'">原：{{ shortPreview(entry.before) }}</span><span v-if="entry.op !== 'removed'">新：{{ shortPreview(entry.after) }}</span></p></details><details v-if="hasImpact(change.state_impact)" class="creative-impact"><summary>状态影响</summary><ul v-if="change.state_impact.affected?.length"><li v-for="(item, impactIndex) in change.state_impact.affected" :key="impactIndex">{{ impactLabel(item.dimension) }}<small>已有记录 · {{ item.reason }}</small></li></ul><p v-for="(reason, impactIndex) in change.state_impact.not_checked || []" :key="'nc' + impactIndex">未核对：{{ reason }}</p><p v-for="(note, impactIndex) in change.state_impact.notes || []" :key="'note' + impactIndex">说明：{{ note }}</p></details><div class="creative-comparison"><div><small>原稿</small><AssistantValue :value="readable(change.before)" /></div><div><small>{{ change.operation === 'delete' ? '试验中移除' : '试改' }}</small><AssistantValue :value="readable(change.after)" /></div></div></article><p v-if="trial.check">{{ { passed: '这一版检查通过', blocked: '这一版还有需修复的问题', uncertain: '目前还不能确认通过' }[trial.check.verdict] }}</p><ul v-if="trial.check?.findings?.length"><li v-for="finding in trial.check.findings" :key="finding">{{ finding }}</li></ul><p v-if="trial.check?.omissions?.length">未检查：{{ trial.check.omissions.join('；') }}</p><div class="creative-actions"><button class="btn" type="button" :disabled="busy || running || dirty || trial.stale || !trial.changes.length" @click="testTrial">检查这一版</button><button class="btn" type="button" :disabled="busy || dirty || trial.stale" @click="forkTrial">另试一种改法</button><button v-if="trial.can_seal && trial.status !== 'merged'" class="btn btn-primary" type="button" :disabled="busy || dirty" @click="prepareMerge">采用这一版…</button></div><section v-if="mergePending && mergePending.workspaceId === trial.id" class="creative-confirm"><p>将把上方 {{ trial.changes.length }} 项修改一起保存到对应工作稿。请核对差异与保留项。</p><button class="btn btn-primary" type="button" :disabled="busy || dirty" @click="confirmMerge">确认保存这些修改</button><button class="btn" type="button" :disabled="busy" @click="discardMerge">暂不采用</button></section><p v-if="mergeReceipt" role="status">所选修改已保存，历史版本与采用记录已保留。</p></section>
+    <section v-if="trial" class="creative-diff" aria-label="所选试改对照"><h4>{{ trial.label }}</h4><p v-if="trial.stale" class="creative-note">参考资料或目标已变化，旧试改不能直接采用。<button type="button" class="btn btn-sm" :disabled="busy || running || dirty" @click="startRebase">基于当前稿重建试改</button></p><p v-else-if="!trial.changes.length">这一版尚无修改。</p><section v-if="rebaseConflict" class="creative-rebase" aria-label="重建冲突处理"><h5>当前稿与试改改了同一批字段</h5><p>逐字段选择保留哪一侧；其余差异会自动合并，然后基于当前稿重建这一版试改。</p><article v-for="(conflict, index) in rebaseConflict.conflicts" :key="conflict.resource.kind + ':' + conflict.resource.id"><strong>{{ conflict.label }}</strong><div v-for="field in conflict.fields" :key="field" class="creative-rebase-field"><p class="creative-rebase-name">{{ field }}</p><label><input type="radio" :name="'rebase-' + index + '-' + field" :checked="rebaseChoice(index, field) === 'current'" @change="setRebaseChoice(index, field, 'current')" /> 保留当前稿：{{ shortPreview(conflict.current[field]) }}</label><label><input type="radio" :name="'rebase-' + index + '-' + field" :checked="rebaseChoice(index, field) === 'trial'" @change="setRebaseChoice(index, field, 'trial')" /> 采用试改：{{ shortPreview(conflict.trial[field]) }}</label></div></article><div class="creative-actions"><button class="btn btn-primary" type="button" :disabled="busy || running || dirty" @click="applyRebaseChoices">按以上选择重建</button><button class="btn" type="button" :disabled="busy" @click="rebaseConflict = null">取消</button></div></section><article v-for="change in trial.changes" :key="change.resource.kind + change.resource.id"><strong>{{ change.label }}</strong><details v-if="change.field_changes?.length" class="creative-fields"><summary>字段级改动 {{ change.field_changes.length }} 项</summary><p v-for="entry in change.field_changes" :key="entry.field" class="creative-field-row"><strong>{{ entry.field }}</strong><em>{{ opLabel(entry.op) }}</em><span v-if="entry.op !== 'added'">原：{{ shortPreview(entry.before) }}</span><span v-if="entry.op !== 'removed'">新：{{ shortPreview(entry.after) }}</span></p></details><details v-if="hasImpact(change.state_impact)" class="creative-impact"><summary>状态影响</summary><ul v-if="change.state_impact.affected?.length"><li v-for="(item, impactIndex) in change.state_impact.affected" :key="impactIndex">{{ impactLabel(item.dimension) }}<small>已有记录 · {{ item.reason }}</small></li></ul><p v-for="(reason, impactIndex) in change.state_impact.not_checked || []" :key="'nc' + impactIndex">未核对：{{ reason }}</p><p v-for="(note, impactIndex) in change.state_impact.notes || []" :key="'note' + impactIndex">说明：{{ note }}</p></details><div class="creative-comparison"><div><small>原稿</small><AssistantValue :value="readable(change.before)" /></div><div><small>{{ change.operation === 'delete' ? '试验中移除' : '试改' }}</small><AssistantValue :value="readable(change.after)" /></div></div></article><p v-if="trial.check">{{ { passed: '这一版检查通过', blocked: '这一版还有需修复的问题', uncertain: '目前还不能确认通过' }[trial.check.verdict] }}</p><ul v-if="trial.check?.findings?.length"><li v-for="finding in trial.check.findings" :key="finding">{{ finding }}</li></ul><p v-if="trial.check?.omissions?.length">未检查：{{ trial.check.omissions.join('；') }}</p><div class="creative-actions"><button class="btn" type="button" :disabled="busy || running || dirty || trial.stale || !trial.changes.length" @click="testTrial">检查这一版</button><button class="btn" type="button" :disabled="busy || dirty || trial.stale" @click="forkTrial">另试一种改法</button><button v-if="trial.can_seal && trial.status !== 'merged'" class="btn btn-primary" type="button" :disabled="busy || dirty" @click="prepareMerge">采用这一版…</button></div><section v-if="mergePending && mergePending.workspaceId === trial.id" class="creative-confirm"><p>确认后将通过一次原子事务采用上方 {{ trial.changes.length }} 项修改；请核对差异、完整资料读集与保留项。</p><button v-if="!mergePending.attempted" class="btn btn-primary" type="button" :disabled="busy || dirty" @click="confirmMerge">确认原子采用这组修改</button><button v-else class="btn btn-primary" type="button" :disabled="busy" @click="recoverMerge">核对原采用回执</button><button class="btn" type="button" :disabled="busy || mergePending.attempted" @click="discardMerge">暂不采用</button></section><p v-if="mergeReceipt" role="status">所选修改已保存，历史版本与采用记录已保留。</p></section>
+    <section v-if="trial && trialCheckPending && trialCheckPending.workspaceId === trial.id" class="creative-confirm" aria-label="检查试改的预算确认">
+      <h4>检查这份试改</h4>
+      <p v-if="!trialCheckPending.preview" role="status">正在准备授权资料与预算…</p>
+      <template v-if="trialCheckPending.preview">
+        <p>本次固定 {{ trialCheckPending.preview.selected_material_count }} 项已授权资料；资料正文估算约 {{ Number(trialCheckPending.preview.estimated_selected_material_tokens || 0).toLocaleString() }} tokens（不含检查提示词）。资料指纹：{{ trialCheckPending.preview.manifest_fingerprint.slice(0, 12) }}…</p>
+        <p>累计已用 {{ trialCheckPending.preview.case_requests_used }} / {{ trialCheckPending.preview.case_request_limit }} 次；本轮最多 {{ trialCheckPending.preview.run_request_limit }} 次，至少预留 {{ trialCheckPending.preview.minimum_requests_required }} 次。Task root {{ trialCheckPending.preview.task_root_capability_id }}，上限 {{ trialCheckPending.preview.task_request_limit }} 次，截止 {{ trialCheckPending.preview.task_deadline_seconds }} 秒；恢复沿用原运行额度。可能产生模型费用。</p>
+        <p>{{ trialCheckPending.preview.provider }} · {{ trialCheckPending.preview.model }}；复核连接 {{ Object.keys(trialCheckPending.preview.role_snapshot_fingerprints || {}).join('、') || '当前默认连接' }}。准备阶段未创建运行、未排队、未调用模型。</p>
+        <div class="creative-actions">
+          <button v-if="!trialCheckPending.attempted" class="btn btn-primary" type="button" :disabled="busy || running || dirty" @click="confirmTrialCheck">单独确认并开始模型检查</button>
+          <button v-else class="btn btn-primary" type="button" :disabled="busy" @click="recoverTrialCheck">核对原检查回执</button>
+          <button v-if="!trialCheckPending.attempted" class="btn" type="button" :disabled="busy" @click="prepareTrialCheck">重新读取预算</button>
+          <button v-if="!trialCheckPending.attempted" class="btn" type="button" :disabled="busy" @click="trialCheckPending = null; saveDraft()">取消</button>
+        </div>
+      </template>
+    </section>
+    <section v-if="mergePending?.preview && mergePending.workspaceId === trial?.id" class="creative-confirm" aria-label="原子采用资料读集">
+      <p>这是 R3 跨域原子采用；每次采用都需要你明确确认。检查回执 {{ mergePending.preview.check_receipt_id }}，读集 {{ mergePending.preview.read_set.length }} 项，修改 {{ mergePending.preview.patch_set.length }} 项；任一资料、目标或检查结果变化都需重新准备。</p>
+      <details><summary>查看完整核对资料</summary><ul><li v-for="source in mergePending.preview.read_set" :key="source.key">{{ source.kind }} · {{ source.label }} · 修订 {{ source.revision }} · 指纹 {{ source.source_hash.slice(0, 12) }}…</li></ul></details>
+    </section>
     <CognitionPanel v-if="projectId" ref="cognitionPanel" :key="projectId" :project-id="projectId" />
   </section>
 </template>
@@ -55,7 +74,7 @@ const goal = ref(""), constraints = ref(""), recipeId = ref("revision"), selecte
 const followChanges = ref(false), retainUnderstanding = ref(false)
 const readScope = ref("selected"), allowWeb = ref(false), modelConnections = ref({}), customQuestions = ref(""), extraChecks = ref("")
 const importCandidates = ref([]), importKeys = ref([]), chapterFrom = ref(1), chapterTo = ref(1)
-const busy = ref(false), loading = ref(false), error = ref(""), backupError = ref(false), pending = ref(null), mergePending = ref(null), mergeReceipt = ref(null)
+const busy = ref(false), loading = ref(false), error = ref(""), backupError = ref(false), pending = ref(null), trialCheckPending = ref(null), mergePending = ref(null), mergeReceipt = ref(null)
 let generation = 0, disposed = false
 const api = () => getApi()?.collaboration
 const current = token => token === generation && !disposed
@@ -74,7 +93,7 @@ const resources = computed(() => {
   return [...new Map(values.map(item => [item.kind + ":" + item.id, item])).values()].filter(item => recipeId.value !== "blind_reader" || item.kind === "writing_draft")
 })
 function storageKey() { return `novel_creative_v2:${localStorage.getItem(ACCOUNT_MARKER_KEY) || 'local'}:${props.projectId}` }
-function saveDraft() { try { localStorage.setItem(storageKey(), JSON.stringify({ extraResources: extraResources.value, selectedResources: selectedResources.value, readingStops: readingStops.value, readingCutoff: readingCutoff.value, goal: goal.value, constraints: constraints.value, recipeId: recipeId.value, followChanges: followChanges.value, retainUnderstanding: retainUnderstanding.value, readScope: readScope.value, allowWeb: allowWeb.value, modelConnections: modelConnections.value, customQuestions: customQuestions.value, extraChecks: extraChecks.value, importKeys: importKeys.value, chapterFrom: chapterFrom.value, chapterTo: chapterTo.value, caseId: currentCase.value?.id, pending: pending.value, mergePending: mergePending.value })); backupError.value = false } catch { backupError.value = true } }
+function saveDraft() { try { localStorage.setItem(storageKey(), JSON.stringify({ extraResources: extraResources.value, selectedResources: selectedResources.value, readingStops: readingStops.value, readingCutoff: readingCutoff.value, goal: goal.value, constraints: constraints.value, recipeId: recipeId.value, followChanges: followChanges.value, retainUnderstanding: retainUnderstanding.value, readScope: readScope.value, allowWeb: allowWeb.value, modelConnections: modelConnections.value, customQuestions: customQuestions.value, extraChecks: extraChecks.value, importKeys: importKeys.value, chapterFrom: chapterFrom.value, chapterTo: chapterTo.value, caseId: currentCase.value?.id, pending: pending.value, trialCheckPending: trialCheckPending.value, mergePending: mergePending.value })); backupError.value = false } catch { backupError.value = true } }
 const statusLabel = status => ({ pending: "已提交，等待处理", running: "正在查证与试改，可以离开后回来", completed: "本轮处理完成", partial: "部分完成，仍有未定项", failed: "本轮未完成，已有成果仍保留", cancelled: "已停止后续工作", budget_exceeded: "本次额度已用尽" })[status] || "尚未开始"
 const claimLabel = kind => ({ source_statement: "来源所述", interpretation: "解释", hypothesis: "假设", proposal: "提案" })[kind] || "判断"
 function publicUrl(value) { try { const url = new URL(value); return ["https:", "http:"].includes(url.protocol) && !url.username && !url.password ? url.href : null } catch { return null } }
@@ -128,9 +147,10 @@ async function selectCase(id, { restoring = false } = {}) {
   if (!restoring && !canLeave()) return
   if (!restoring && pending.value) { error.value = "上次提交结果尚未确认，请先恢复原请求再切换目标。"; return }
   if (mergePending.value?.attempted && currentCase.value?.id !== id) { error.value = "上次采用结果未确认，请先恢复原确认。"; return }
+  if (trialCheckPending.value?.attempted && currentCase.value?.id !== id) { error.value = "上次试改检查结果未确认，请先核对原运行回执。"; return }
   const token = ++generation
   busy.value = false
-  workflow.resetMemoryScope(); run.value = trial.value = mergeReceipt.value = mergePending.value = null; rebaseConflict.value = null
+  workflow.resetMemoryScope(); run.value = trial.value = mergeReceipt.value = mergePending.value = null; trialCheckPending.value = null; rebaseConflict.value = null
   if (!id) { currentCase.value = null; goal.value = constraints.value = ""; workspaces.value = runs.value = []; saveDraft(); return }
   loading.value = true
   try { const value = await api().getCase(props.projectId, id); if (!current(token)) return; currentCase.value = value; goal.value = value.goal; constraints.value = value.constraints.join("\n"); recipeId.value = value.recipe.id; await refreshCase(); workflow.recover(props.projectId); saveDraft() }
@@ -150,14 +170,14 @@ async function load() {
     Object.assign(capabilities, available); cases.value = history.items
     selectedResources.value = resources.value.map(value => value.kind + ':' + value.id)
     let saved = {}
-    try { saved = JSON.parse(localStorage.getItem(storageKey()) || "{}"); extraResources.value = saved.extraResources || []; selectedResources.value = saved.selectedResources || selectedResources.value; readingStops.value = saved.readingStops || {}; readingCutoff.value = saved.readingCutoff || props.context.chapter_index || 1; goal.value = saved.goal || ""; constraints.value = saved.constraints || ""; recipeId.value = saved.recipeId || "revision"; followChanges.value = saved.followChanges === true; retainUnderstanding.value = saved.retainUnderstanding === true; readScope.value = saved.readScope || "selected"; allowWeb.value = saved.allowWeb === true; modelConnections.value = saved.modelConnections || {}; customQuestions.value = saved.customQuestions || ""; extraChecks.value = saved.extraChecks || ""; importKeys.value = saved.importKeys || []; chapterFrom.value = saved.chapterFrom || 1; chapterTo.value = saved.chapterTo || 1; pending.value = saved.pending || null; mergePending.value = saved.mergePending || null } catch { backupError.value = true }
-    if (saved.caseId) { await selectCase(saved.caseId, { restoring: true }); if (props.projectId === projectId && currentCase.value?.id === saved.caseId && !disposed) { goal.value = saved.goal || currentCase.value.goal; constraints.value = saved.constraints ?? currentCase.value.constraints.join("\n"); pending.value = saved.pending || null; mergePending.value = saved.mergePending || null; if (mergePending.value) await openTrial(mergePending.value.workspaceId); saveDraft() } }
+    try { saved = JSON.parse(localStorage.getItem(storageKey()) || "{}"); extraResources.value = saved.extraResources || []; selectedResources.value = saved.selectedResources || selectedResources.value; readingStops.value = saved.readingStops || {}; readingCutoff.value = saved.readingCutoff || props.context.chapter_index || 1; goal.value = saved.goal || ""; constraints.value = saved.constraints || ""; recipeId.value = saved.recipeId || "revision"; followChanges.value = saved.followChanges === true; retainUnderstanding.value = saved.retainUnderstanding === true; readScope.value = saved.readScope || "selected"; allowWeb.value = saved.allowWeb === true; modelConnections.value = saved.modelConnections || {}; customQuestions.value = saved.customQuestions || ""; extraChecks.value = saved.extraChecks || ""; importKeys.value = saved.importKeys || []; chapterFrom.value = saved.chapterFrom || 1; chapterTo.value = saved.chapterTo || 1; pending.value = saved.pending || null; trialCheckPending.value = saved.trialCheckPending || null; mergePending.value = saved.mergePending || null } catch { backupError.value = true }
+    if (saved.caseId) { await selectCase(saved.caseId, { restoring: true }); if (props.projectId === projectId && currentCase.value?.id === saved.caseId && !disposed) { goal.value = saved.goal || currentCase.value.goal; constraints.value = saved.constraints ?? currentCase.value.constraints.join("\n"); pending.value = saved.pending || null; trialCheckPending.value = saved.trialCheckPending || null; mergePending.value = saved.mergePending || null; if (mergePending.value) await openTrial(mergePending.value.workspaceId); if (trialCheckPending.value?.attempted) void recoverTrialCheck(); saveDraft() } }
   } catch (err) { if (current(token)) error.value = err.message || "暂时无法读取创作记录。" }
   finally { if (props.projectId === projectId && !disposed) loading.value = false }
 }
 async function recover() { if (!pending.value || busy.value || dirty.value) return; await start(true) }
 async function start(replay = false) {
-  if (busy.value || (!replay && running.value) || hasUnsavedInput() || !goal.value.trim()) return
+  if (busy.value || trialCheckPending.value?.attempted || (!replay && running.value) || hasUnsavedInput() || !goal.value.trim()) return
   const token = generation, projectId = props.projectId
   busy.value = true; error.value = ""; mergeReceipt.value = null
   try {
@@ -192,10 +212,147 @@ async function start(replay = false) {
 }
 async function stop() { const token = generation, id = ["pending", "running"].includes(run.value?.status) ? run.value.id : runs.value.find(item => ["pending", "running"].includes(item.status))?.id; if (!id) return; try { await api().stop(props.projectId, id); if (current(token)) { await openRun(id); await refreshCase() } } catch (err) { if (current(token)) error.value = err.message } }
 async function openTrial(id) { if (trial.value?.id !== id && !canLeave()) return; const token = generation, request = ++trialRequest; if (trial.value?.id !== id) { trial.value = null; rebaseConflict.value = null } try { const value = await api().diff(props.projectId, id); if (current(token) && request === trialRequest) { trial.value = value;  } } catch (err) { if (current(token)) error.value = err.message } }
-async function testTrial() { if (busy.value || hasUnsavedInput()) return; pending.value = { caseId: currentCase.value.id, run: { operation_id: crypto.randomUUID(), expected_goal_version: currentCase.value.goal_version, workspace_revision_id: trial.value.revision_id } }; saveDraft(); await start(true) }
-async function forkTrial() { if (busy.value || hasUnsavedInput()) return; const token = generation; busy.value = true; try { const value = await api().fork(props.projectId, trial.value.id, { operation_id: crypto.randomUUID(), parent_revision_id: trial.value.revision_id, label: "另一种改法" }); if (!current(token)) return; trial.value = value; await refreshCase() } catch (err) { if (current(token)) error.value = err.message } finally { if (current(token)) busy.value = false } }
-async function prepareMerge() { if (hasUnsavedInput() || busy.value || mergePending.value) return; const token = generation; busy.value = true; try { const value = await api().seal(props.projectId, trial.value.id, { revision_id: trial.value.revision_id, expected_digest: trial.value.digest }); if (!current(token)) return; trial.value = value; mergePending.value = { workspaceId: value.id, body: { operation_id: crypto.randomUUID(), revision_id: value.revision_id, expected_digest: value.digest, editor_state: "saved", confirmed: true } }; saveDraft() } catch (err) { if (current(token)) error.value = err.message } finally { if (current(token)) busy.value = false } }
-async function confirmMerge() { if (hasUnsavedInput() || busy.value || !mergePending.value) return; const token = generation, value = mergePending.value; busy.value = true; value.attempted = true; saveDraft(); try { const receipt = await api().merge(props.projectId, value.workspaceId, value.body); if (!current(token)) return; mergeReceipt.value = receipt; notifyCreativeMerged(props.projectId, receipt); mergePending.value = null; saveDraft(); await refreshCase(); if (current(token)) mergeReceipt.value = receipt } catch (err) { if (current(token)) error.value = err.message || "采用结果未确认，可重试原确认。" } finally { if (current(token)) busy.value = false } }
+async function testTrial() { return prepareTrialCheck() }
+async function prepareTrialCheck() {
+  if (busy.value || hasUnsavedInput() || running.value || trial.value?.stale || !trial.value?.changes?.length || !currentCase.value) return
+  const token = generation, projectId = props.projectId, caseId = currentCase.value.id
+  const request = { workspace_id: trial.value.id, operation_id: crypto.randomUUID(), expected_goal_version: currentCase.value.goal_version, workspace_revision_id: trial.value.revision_id, expected_preview_hash: null, confirmed: false }
+  trialCheckPending.value = { caseId, workspaceId: trial.value.id, request, preview: null, previewHash: null, attempted: false }
+  saveDraft(); busy.value = true; error.value = ""
+  try {
+    const response = await api().testPreview(projectId, request)
+    if (!current(token) || props.projectId !== projectId || currentCase.value?.id !== caseId || trial.value?.id !== request.workspace_id) return
+    trialCheckPending.value = { ...trialCheckPending.value, preview: response.preview, previewHash: response.preview_hash }
+    saveDraft()
+  } catch (err) {
+    if (current(token) && props.projectId === projectId) { error.value = err.message || "无法准备模型检查。"; trialCheckPending.value = null; saveDraft() }
+  } finally { if (current(token) && props.projectId === projectId) busy.value = false }
+}
+async function confirmTrialCheck() {
+  const pendingCheck = trialCheckPending.value
+  if (!pendingCheck?.preview || pendingCheck.attempted || busy.value || hasUnsavedInput() || dirty.value || running.value) return
+  const projectId = props.projectId, token = generation
+  const confirmBody = { ...pendingCheck.request, expected_preview_hash: pendingCheck.previewHash, confirmed: true }
+  trialCheckPending.value = { ...pendingCheck, attempted: true, confirmBody }
+  saveDraft(); busy.value = true; error.value = ""
+  try {
+    const response = await api().test(projectId, pendingCheck.workspaceId, confirmBody)
+    if (!current(token) || props.projectId !== projectId) return
+    const result = await api().run(projectId, response.run_id)
+    if (!current(token) || props.projectId !== projectId) return
+    run.value = result
+    if (["pending", "running"].includes(result.status)) workflow.adopt({ task_id: result.task_id }, { runId: response.run_id, caseId: pendingCheck.caseId }, projectId)
+    trialCheckPending.value = null
+    saveDraft()
+    await refreshCase()
+  } catch (err) {
+    if (current(token) && props.projectId === projectId) {
+      error.value = err.message || "检查提交结果未确认；请核对同一运行的回执。"
+      if (err.status === 409) trialCheckPending.value = { ...pendingCheck, attempted: false, confirmBody: null }
+      saveDraft()
+    }
+  } finally { if (current(token) && props.projectId === projectId) busy.value = false }
+}
+async function recoverTrialCheck() {
+  const pendingCheck = trialCheckPending.value
+  if (!pendingCheck?.attempted || busy.value || !currentCase.value) return
+  const projectId = props.projectId, token = generation
+  busy.value = true
+  try {
+    const receipt = await api().checkResult(projectId, {
+      ...pendingCheck.request,
+      expected_preview_hash: pendingCheck.previewHash,
+      confirmed: true,
+    })
+    if (!current(token) || props.projectId !== projectId || currentCase.value?.id !== pendingCheck.caseId) return
+    if (receipt.status === "not_submitted" || !receipt.run_id) {
+      trialCheckPending.value = { ...pendingCheck, attempted: false, confirmBody: null }
+      error.value = "没有找到已创建的运行；预算预览仍保留，可重新确认或读取最新预算。"
+      saveDraft()
+      return
+    }
+    const result = await api().run(projectId, receipt.run_id)
+    if (!current(token) || props.projectId !== projectId || currentCase.value?.id !== pendingCheck.caseId) return
+    run.value = result
+    if (["pending", "running"].includes(result.status)) workflow.adopt({ task_id: result.task_id }, { runId: result.id, caseId: pendingCheck.caseId }, projectId)
+    trialCheckPending.value = null
+    saveDraft()
+    await refreshCase()
+  } catch (err) {
+    if (current(token) && props.projectId === projectId) {
+      error.value = err.status === 404 ? "未找到原运行回执，当前没有可恢复的检查任务；请重新读取预算。" : (err.message || "暂时无法读取原运行回执。")
+      if (err.status === 404) trialCheckPending.value = null
+      saveDraft()
+    }
+  } finally { if (current(token) && props.projectId === projectId) busy.value = false }
+}
+async function forkTrial() { if (busy.value || hasUnsavedInput() || !currentCase.value) return; const token = generation; busy.value = true; try { const value = await api().fork(props.projectId, trial.value.id, { case_id: currentCase.value.id, operation_id: crypto.randomUUID(), parent_revision_id: trial.value.revision_id, label: "另一种改法" }); if (!current(token)) return; trial.value = value; await refreshCase() } catch (err) { if (current(token)) error.value = err.message } finally { if (current(token)) busy.value = false } }
+async function prepareMerge() {
+  if (hasUnsavedInput() || busy.value || mergePending.value) return
+  const token = generation, projectId = props.projectId
+  busy.value = true
+  try {
+    const sealed = await api().seal(projectId, trial.value.id, { revision_id: trial.value.revision_id, expected_digest: trial.value.digest })
+    if (!current(token) || props.projectId !== projectId) return
+    trial.value = sealed
+    const args = { workspace_id: sealed.id, revision_id: sealed.revision_id, expected_digest: sealed.digest, operation_id: crypto.randomUUID(), editor_state: "saved", expected_preview_hash: null, confirmed: false }
+    const prepared = await api().prepareAdoption(projectId, args)
+    if (!current(token) || props.projectId !== projectId) return
+    mergePending.value = {
+      workspaceId: sealed.id,
+      caseId: currentCase.value?.id,
+      preview: prepared.preview,
+      body: { ...args, expected_preview_hash: prepared.preview_hash, confirmed: true },
+    }
+    saveDraft()
+  } catch (err) { if (current(token) && props.projectId === projectId) error.value = err.message || "无法准备原子采用，请重新读取试改。" }
+  finally { if (current(token) && props.projectId === projectId) busy.value = false }
+}
+async function confirmMerge() {
+  if (hasUnsavedInput() || busy.value || !mergePending.value) return
+  const token = generation, projectId = props.projectId, value = mergePending.value
+  busy.value = true; value.attempted = true; saveDraft()
+  try {
+    const receipt = await api().merge(projectId, value.workspaceId, value.body)
+    if (!current(token) || props.projectId !== projectId) return
+    mergeReceipt.value = receipt
+    notifyCreativeMerged(projectId, receipt)
+    mergePending.value = null
+    saveDraft()
+    await refreshCase()
+    if (current(token) && props.projectId === projectId) mergeReceipt.value = receipt
+  } catch (err) {
+    if (current(token) && props.projectId === projectId) {
+      error.value = err.message || "采用结果未确认，可核对原确认回执。"
+      if (err.status === 409) mergePending.value = null
+      saveDraft()
+    }
+  }
+  finally { if (current(token) && props.projectId === projectId) busy.value = false }
+}
+async function recoverMerge() {
+  const value = mergePending.value
+  if (!value?.attempted || busy.value || !currentCase.value) return
+  const projectId = props.projectId, token = generation
+  busy.value = true
+  try {
+    const receipt = await api().adoptionResult(projectId, value.body)
+    if (!current(token) || props.projectId !== projectId || currentCase.value?.id !== value.caseId) return
+    if (receipt.status === "applied") {
+      mergeReceipt.value = receipt
+      notifyCreativeMerged(projectId, receipt)
+      mergePending.value = null
+      saveDraft()
+      await refreshCase()
+    } else {
+      mergePending.value = { ...value, attempted: false }
+      error.value = "没有找到采用回执；修改仍保留，可重新确认同一份预览。"
+      saveDraft()
+    }
+  } catch (err) {
+    if (current(token) && props.projectId === projectId) error.value = err.message || "暂时无法读取原采用回执。"
+  } finally { if (current(token) && props.projectId === projectId) busy.value = false }
+}
 async function trialUpdated(value) { const token = generation, projectId = props.projectId, caseId = currentCase.value?.id; if (!caseId) return; trial.value = value; const next = await api().getCase(projectId, caseId); if (!current(token) || currentCase.value?.id !== caseId) return; currentCase.value = next; await refreshCase() }
 function discardMerge() { if (mergePending.value?.attempted) { error.value = "采用请求已发出，请先恢复原确认以核对结果。"; return } mergePending.value = null; saveDraft() }
 async function resume() { if (busy.value || !run.value) return; busy.value = true; const token = generation; try { const value = await api().resume(props.projectId, run.value.id); if (current(token)) { workflow.adopt({ task_id: value.task_id }, { runId: value.run_id, caseId: currentCase.value.id }, props.projectId); await openRun(value.run_id) } } catch (err) { if (current(token)) error.value = err.message } finally { if (current(token)) busy.value = false } }
@@ -205,7 +362,7 @@ function importLabel(item, index) { const label = item.fields?.name || item.fiel
 async function loadImportGroups() { const token = generation; try { const value = await getApi().imports.reviewSummary(props.projectId); if (current(token)) { importCandidates.value = value.candidates || []; importKeys.value = importKeys.value.filter(key => importCandidates.value.some(item => item.key === key)) } } catch (err) { if (current(token)) error.value = err.message } }
 async function loadResources(offset = 0) { const token = generation, kind = recipeId.value === "blind_reader" ? "writing_draft" : resourceKind.value; try { const value = await api().resources(props.projectId, { kind, offset }); if (!current(token)) return; extraResources.value = [...new Map([...extraResources.value, ...value.items].map(item => [item.kind + ":" + item.id, item])).values()]; nextResourceOffset.value = value.next_offset; saveDraft() } catch (err) { if (current(token)) error.value = err.message } }
 function chooseConnection(role, value) { const choices = { ...modelConnections.value }; if (value) choices[role] = value; else delete choices[role]; modelConnections.value = choices; saveDraft() }
-function invalidated() { generation++; workflow.resetMemoryScope(); cases.value = runs.value = workspaces.value = []; currentCase.value = run.value = trial.value = pending.value = mergePending.value = mergeReceipt.value = null; rebaseConflict.value = null; goal.value = constraints.value = ""; capabilities.enabled = false; importCandidates.value = importKeys.value = []; modelConnections.value = {}; allowWeb.value = false; retainUnderstanding.value = false; customQuestions.value = extraChecks.value = "" }
+function invalidated() { generation++; workflow.resetMemoryScope(); cases.value = runs.value = workspaces.value = []; currentCase.value = run.value = trial.value = pending.value = trialCheckPending.value = mergePending.value = mergeReceipt.value = null; rebaseConflict.value = null; goal.value = constraints.value = ""; capabilities.enabled = false; importCandidates.value = importKeys.value = []; modelConnections.value = {}; allowWeb.value = false; retainUnderstanding.value = false; customQuestions.value = extraChecks.value = "" }
 const grantEditing = ref(false)
 async function saveGrantSelection() {
   if (busy.value || running.value || !currentCase.value) return
@@ -234,9 +391,9 @@ async function refreshImportGrant() {
 watch(() => [props.projectId, currentCase.value?.id], () => { grantEditing.value = false })
 const trialEditor = ref(null)
 const cognitionPanel = ref(null)
-function canLeave() { return cognitionPanel.value?.canLeave?.() !== false && trialEditor.value?.canLeave?.() !== false && (!backupError.value || !(goal.value || constraints.value || pending.value) || globalThis.confirm("创作目标暂未备份，离开可能丢失输入。仍要离开吗？")) }
-const unregisterGuard = registerAuxiliaryLeaveGuard(() => !backupError.value || !(goal.value || constraints.value || pending.value) || globalThis.confirm("创作目标暂未备份，离开可能丢失输入。仍要离开吗？"))
-function beforeUnload(event) { if (props.active && backupError.value && (goal.value || constraints.value || pending.value)) { event.preventDefault(); event.returnValue = "" } }
+function canLeave() { return cognitionPanel.value?.canLeave?.() !== false && trialEditor.value?.canLeave?.() !== false && !trialCheckPending.value?.attempted && (!backupError.value || !(goal.value || constraints.value || pending.value) || globalThis.confirm("创作目标暂未备份，离开可能丢失输入。仍要离开吗？")) }
+const unregisterGuard = registerAuxiliaryLeaveGuard(() => !trialCheckPending.value?.attempted && (!backupError.value || !(goal.value || constraints.value || pending.value || trialCheckPending.value) || globalThis.confirm("创作目标暂未备份，离开可能丢失输入。仍要离开吗？")))
+function beforeUnload(event) { if (props.active && backupError.value && (goal.value || constraints.value || pending.value || trialCheckPending.value?.attempted)) { event.preventDefault(); event.returnValue = "" } }
 defineExpose({ canLeave })
 watch(selectedResources, saveDraft)
 globalThis.addEventListener?.("beforeunload", beforeUnload)

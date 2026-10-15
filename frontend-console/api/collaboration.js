@@ -29,10 +29,38 @@ export const collaboration = {
     run: (novelId, id) => request(withQuery(`/collaboration/runs/${encodeURIComponent(id)}`, { novel_id: novelId }), { cache: "no-store" }),
     stop: (novelId, id) => post(withQuery(`/collaboration/runs/${encodeURIComponent(id)}/stop`, { novel_id: novelId })),
     workspaces: (novelId, id) => request(withQuery(`/collaboration/cases/${encodeURIComponent(id)}/workspaces`, { novel_id: novelId }), { cache: "no-store" }),
-    diff: (novelId, id) => request(withQuery(`/collaboration/workspaces/${encodeURIComponent(id)}/diff`, { novel_id: novelId }), { cache: "no-store" }),
-    test: (novelId, id, body) => post(withQuery(`/collaboration/workspaces/${encodeURIComponent(id)}/test`, { novel_id: novelId }), body),
-    seal: (novelId, id, body) => post(withQuery(`/collaboration/workspaces/${encodeURIComponent(id)}/seal`, { novel_id: novelId }), body),
-    merge: (novelId, id, body) => post(withQuery(`/collaboration/workspaces/${encodeURIComponent(id)}/merge`, { novel_id: novelId }), body),
-    fork: (novelId, id, body) => post(withQuery(`/collaboration/workspaces/${encodeURIComponent(id)}/fork`, { novel_id: novelId }), body),
-    edit: (novelId, id, body) => post(withQuery(`/collaboration/workspaces/${encodeURIComponent(id)}/revisions`, { novel_id: novelId }), body),
+    diff: async (novelId, id) => {
+      const value = await post(withQuery("/collaboration/author-operations/workspaces/inspect", { novel_id: novelId }), { workspace_id: id, revision_id: null }, { cache: "no-store" })
+      return value.preview
+    },
+    testPreview: (novelId, body) => post(withQuery("/collaboration/author-operations/workspaces/check/prepare", { novel_id: novelId }), body, { cache: "no-store" }),
+    test: async (novelId, _id, body) => {
+      const value = await post(withQuery("/collaboration/author-operations/workspaces/check/confirm", { novel_id: novelId }), body)
+      return value.result
+    },
+    checkResult: (novelId, body) => post(withQuery("/collaboration/author-operations/workspaces/check/result", { novel_id: novelId }), body, { cache: "no-store" }),
+    seal: async (novelId, id, body) => {
+      const args = { ...body, workspace_id: id, expected_preview_hash: null, confirmed: false }
+      const prepared = await post(withQuery("/collaboration/author-operations/workspaces/seal/prepare", { novel_id: novelId }), args, { cache: "no-store" })
+      const value = await post(withQuery("/collaboration/author-operations/workspaces/seal/confirm", { novel_id: novelId }), { ...args, expected_preview_hash: prepared.preview_hash, confirmed: true })
+      return value.result
+    },
+    prepareAdoption: (novelId, body) => post(withQuery("/collaboration/author-operations/workspaces/adoption/prepare", { novel_id: novelId }), body, { cache: "no-store" }),
+    merge: async (novelId, _id, body) => {
+      const value = await post(withQuery("/collaboration/author-operations/workspaces/adoption/confirm", { novel_id: novelId }), body)
+      return value.result
+    },
+    adoptionResult: (novelId, body) => post(withQuery("/collaboration/author-operations/workspaces/adoption/result", { novel_id: novelId }), body, { cache: "no-store" }),
+    fork: async (novelId, _id, body) => {
+      const args = { ...body, expected_preview_hash: null, confirmed: false }
+      const prepared = await post(withQuery("/collaboration/author-operations/workspaces/create/prepare", { novel_id: novelId }), args, { cache: "no-store" })
+      const value = await post(withQuery("/collaboration/author-operations/workspaces/create/confirm", { novel_id: novelId }), { ...args, expected_preview_hash: prepared.preview_hash, confirmed: true })
+      return value.result
+    },
+    edit: async (novelId, id, body) => {
+      const args = { ...body, workspace_id: id, expected_preview_hash: null, confirmed: false }
+      const prepared = await post(withQuery("/collaboration/author-operations/workspaces/edit/prepare", { novel_id: novelId }), args, { cache: "no-store" })
+      const value = await post(withQuery("/collaboration/author-operations/workspaces/edit/confirm", { novel_id: novelId }), { ...args, expected_preview_hash: prepared.preview_hash, confirmed: true })
+      return value.result
+    },
 };

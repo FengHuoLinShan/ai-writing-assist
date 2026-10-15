@@ -3,6 +3,12 @@
 Interaction 已迁移的连续性复核与摘要任务在领取时冻结统一运行信封；重启或重排累计同一 run，
 私有回执不进入消息节点、attempt wire 或作者项目。
 
+作者工作台可通过 `/api/interactions/author` 管理由当前作者项目资料显式开启的 RP 旅程；
+作者项目、隐藏的旅程消费者项目与只读来源修订分别校验当前账户和相互关联。设置只允许调整
+可选行动展示，不触碰持续续写、联网或团队能力。摘要整理先冻结选定路径、来源指纹、模型快照
+并显示预算/潜在费用；当前 V1 Interaction Task 缺少 unknown 用量停点，故仅提供预览且拒绝
+排队，直到 Task/handler 适配完成。
+
 `interaction_story_generate` / `interaction_agent_story_generate` 的同一 generation attempt 可因
 `length/看海` 续写更换 task id；统一信封以 `InteractionGenerationAttempt.id` 作为 `run_id`，在
 task 私有 meta 与 attempt 私有 `agent_checkpoint_json` 双向窄同步。续写只更换 task 载体，不重置
@@ -34,7 +40,7 @@ interaction 为 `我是 RP 用户` 路径保存私人互动故事。用户可直
 
 | 表 | 职责 |
 |---|---|
-| `interaction_journeys` | 标题、模式、当前选中叶、selection/overview epoch、归档状态 |
+| `interaction_journeys` | 标题、模式、当前选中叶、selection/overview epoch、归档状态、摘要 Task 状态指针 |
 | `interaction_source_revisions` | 不可变 Writing draft/hash manifest、剧情锚点、对象引用目录、关键歧义决议、整体 fingerprint 和整理就绪状态 |
 | `interaction_message_nodes` | 不可变的用户/模型 setup/story 节点 |
 | `interaction_branch_selections` | 每个分岔父节点当前选中的子节点 |

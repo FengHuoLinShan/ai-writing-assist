@@ -17,11 +17,27 @@ Workspace 将冻结来源与增量修订组成可见试改，保留删除覆盖�
 目标、规则和查询集合。正文与试改原文超过可完整复核的上下文上限时明确拒绝缩略冒充。
 “试改与比较”完整结束需要两种不同修改、各自检查与比较；缺项呈现为部分完成。
 
+作者操作目录复用这些 Workspace 服务：检查先预览当前授权读集、冻结 manifest 与模型快照，
+给出 Case 累计/单轮额度、Task 根 30 请求上限、1800 秒 deadline 和可能费用；预览不建 run、不
+排队。作者单独确认后，仍由 `cases.submit_run` 建立 exact operation run。Case 运行预算在
+每个模型请求前保存，unknown usage 阻断后续 reserve，恢复接口也拒绝未知用量。目标运行不能
+借该独立 `collaboration.run` 根执行。
+
+作者侧操作 HTTP 由独立 `author_operations_api.router` 导出到
+`/api/collaboration/author-operations`；应用组合根需先注册本模块 `OPERATIONS_SPEC`，再挂载
+router，使共享 trace adapter 能按 schema 校验每个操作 ID、阶段、确认字段和完整 trace 字段。
+创建、修订、封存、检查与采用都走同一份操作目录；准备只读，R4 确认复用精确 Task 操作 ID，
+R3 确认复用原 merge receipt/outbox/CAS。旧领域 router 仍保留现有 `/api/collaboration` 路径。
+
 ## 采用与恢复
 
 采用前校验作者、novel_id、授权、来源集合、当前工作稿、修订摘要及最新检查。支持的
 Writing/Story/World 修改经原操作 port，在同一个数据库事务写入，receipt/outbox 与变更
 一同提交。原确认不能被新的材料或无关授权替代。UI 有未保存输入时禁止开始采用。
+
+封存只冻结隔离版本。R3 采用预览列出精确 revision/digest、检查回执、Grant 指纹和全部只读
+资源 read set；每次 HTTP/AI 执行都再次校验，且要求当前作者对该预览明确确认。纯空格变化或
+grant 的 `whitespace_only` 策略也不能免除这次确认。
 
 重新定位同一章节的新保存版本会创建新试改基线，保留原修订关联。三方比较自动保留
 非重叠字段修改，重叠字段由作者明确选择；不会重新写回旧基线。撤回采用生成反向试改，

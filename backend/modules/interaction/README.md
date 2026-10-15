@@ -58,7 +58,7 @@ RP 文字可用性只取账户文字模型连接；已配对的本机图片 CLI 
 
 | 表 | 责任 |
 |---|---|
-| `interaction_journeys` | 旅程、标题、模式、当前选中叶、selection/overview epoch |
+| `interaction_journeys` | 旅程、标题、模式、当前选中叶、selection/overview epoch、当前摘要 Task 状态投影 |
 | `interaction_source_revisions` | 作者项目的不可变 draft/hash manifest、剧情锚点、对象目录、歧义决议、整体 fingerprint 与就绪状态；不复制全文 |
 | `interaction_message_nodes` | 不可变 setup/story 节点和 complete/partial 正文 |
 | `interaction_branch_selections` | 每个分岔父节点当前选中的 child |
@@ -194,7 +194,9 @@ selection epoch 仍匹配的第一个结果可成为当前路径。Prompt、回�
 
 ## API 分组
 
-路由前缀 `/api/interactions`；公开演示冻结资料只读入口为 `/api/demo`：
+路由前缀 `/api/interactions`；公开演示冻结资料只读入口为 `/api/demo`；作者侧关联旅程
+操作由独立 `author_api.router` 导出，待应用组合根先注册本模块 `OPERATIONS_SPEC` 后挂载到
+`/api/interactions/author`：
 
 - 旅程：创建/列表/详情、标题、归档/恢复/永久删除、导出；
 - 作品资料：作者项目列表、两次文件校验导入、完整整理进度/恢复、关键歧义、章节内
@@ -204,6 +206,15 @@ selection epoch 仍匹配的第一个结果可成为当前路径。Prompt、回�
 - attempt：状态、SSE、停止、保留失败残段、length 续写、重试；
 - 记忆：读取/保存总回顾；
 - 看海：旅程模式、前台 heartbeat、账户级费用提示确认。
+
+作者侧只列出来源修订显式指向当前作者项目、且作者/旅程消费者/来源修订均属于当前账户的旅程。
+可切换可选行动提示、重命名、归档和恢复；不开放持续续写、联网、多角色配置、历史删除、分享
+或公开导出。归档仍保留旅程历史。摘要整理预览冻结当前选定路径、来源修订指纹、项目模型快照，
+展示真实输入估算、模型费用类别、Interaction 根请求额度和恢复语义；预览不排队。当前
+`interaction_summary_refresh` 是 V1 envelope，虽然保留 8 请求、2 次 Task attempt 与同一
+`started_at`，但未知用量后的 task 专属作者核对停点尚不可用；确认入口因此返回
+`ROOT_BUDGET_ADAPTER_UNAVAILABLE`，不入队、不调用模型。Sol 完成局部 Task/handler 适配后才能
+开放该执行入口。
 
 所有浏览器 API 从当前 account principal 解析 owner；跨 owner、错误 kind、已归档不可写和
 不属于该旅程的 node/attempt 统一拒绝。永久删除必须先归档并提交完整标题确认。

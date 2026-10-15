@@ -73,7 +73,7 @@ kind = "business"
 source_roots = ["backend/modules/collaboration"]
 design_docs = ["docs/modules/21_collaboration.md"]
 code_docs = ["backend/modules/collaboration/README.md"]
-api_prefixes = ["/api/collaboration"]
+api_prefixes = ["/api/collaboration", "/api/collaboration/author-operations"]
 
 [[components]]
 name = "account"
@@ -158,7 +158,7 @@ kind = "business"
 source_roots = ["backend/modules/interaction"]
 design_docs = ["docs/modules/18_interaction.md"]
 code_docs = ["backend/modules/interaction/README.md"]
-api_prefixes = ["/api/interactions", "/api/demo", "/api/interactions/journeys/{journey_id}/forecasts"]
+api_prefixes = ["/api/interactions", "/api/demo", "/api/interactions/author", "/api/interactions/journeys/{journey_id}/forecasts"]
 
 [[components]]
 name = "evolution"
