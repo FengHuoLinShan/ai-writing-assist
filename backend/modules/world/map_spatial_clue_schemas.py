@@ -186,6 +186,10 @@ class MapSpatialClueAttributes(SpatialClueModel):
 
     @model_validator(mode="after")
     def validate_access_conditions(self) -> MapSpatialClueAttributes:
+        if self.transport_type is not None and self.transport_type.kind != "transport":
+            raise ValueError("transport_type must reference a transport vocabulary kind")
+        if self.traveler_type is not None and self.traveler_type.kind != "traveler":
+            raise ValueError("traveler_type must reference a traveler vocabulary kind")
         if any(not item.strip() for item in self.access_conditions):
             raise ValueError("access conditions must not be blank")
         return self
@@ -216,6 +220,13 @@ class MapSpatialClue(SpatialClueModel):
         if self.kind in {"contains", "bearing", "adjacency", "connection", "journey"}:
             if self.target is None:
                 raise ValueError("this spatial clue kind requires a target endpoint")
+        if (
+            self.target is not None
+            and self.subject.entity_id is not None
+            and self.subject.entity_id == self.target.entity_id
+            and self.subject.state != self.target.state
+        ):
+            raise ValueError("one endpoint identity cannot have conflicting states")
         type_fields = (self.type_ref, self.type_revision_id, self.type_kind)
         if any(item is not None for item in type_fields) and not all(
             item is not None for item in type_fields
@@ -260,9 +271,7 @@ class MapSpatialClueBatch(SpatialClueModel):
     def unique_batch_identities(self) -> MapSpatialClueBatch:
         if len({item.clue_key for item in self.clues}) != len(self.clues):
             raise ValueError("clue_key values must be unique within a batch")
-        endpoint_keys = {
-            (item.entity_id, item.state) for item in self.allowed_endpoint_ids
-        }
+        endpoint_keys = {item.entity_id for item in self.allowed_endpoint_ids}
         if len(endpoint_keys) != len(self.allowed_endpoint_ids):
             raise ValueError("allowed endpoint identities must be unique")
         type_keys = {
@@ -286,6 +295,7 @@ class MapSpatialClueContextType(SpatialClueModel):
     traits: VocabularyTraits = Field(default_factory=VocabularyTraits)
     evidence: list[VocabularyEvidence] = Field(default_factory=list, max_length=32)
     proposal_run_id: UUID | None = None
+    redirect_to_id: UUID | None = None
 
 
 class MapSpatialClueContextItem(SpatialClueModel):
@@ -415,7 +425,6 @@ __all__ = [
     "MapSpatialClueReview",
     "MapSpatialClueSourceBinding",
     "MapSpatialClueSourceRange",
-    "MapSpatialClueStageResult",
     "MapSpatialClueStageResult",
     "MapSpatialClueStatus",
     "MapSpatialClueTypeRef",

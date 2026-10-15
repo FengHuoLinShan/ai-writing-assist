@@ -186,11 +186,13 @@ async def validate_scene_source_ranges(
     scene_id: str,
     scene_index: int,
     sources: list[dict],
+    *,
+    content_mode: str | None = None,
 ) -> None:
     from modules.story.outline_state.services import SceneService
 
     await SceneService().validate_source_ranges(
-        db, novel_id, scene_id, scene_index, sources
+        db, novel_id, scene_id, scene_index, sources, content_mode=content_mode
     )
 
 
