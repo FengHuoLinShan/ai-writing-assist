@@ -3,7 +3,7 @@ id: T-20261015-agent-operation-surface
 title: 全模块 AI 操作入口、目标运行与操作留痕设计
 status: active
 created: 2026-10-15T14:30:00+08:00
-updated: 2026-10-16T03:30:00+08:00
+updated: 2026-10-16T04:07:17+08:00
 ---
 
 # 全模块 AI 操作入口、目标运行与操作留痕设计
@@ -19,7 +19,13 @@ updated: 2026-10-16T03:30:00+08:00
 2026-10-15 技术评审后按推荐修订 ADR-0038：目录项事务形态、目标运行 `goal` 模式与每项目唯一索引、
 高频操作留痕合并或豁免。修订经用户授权在第三个本地提交 `20d6f1eff` 中提交，未推送。
 2026-10-15 用户采纳 ADR-0038（Accepted / 未实施）；ADR-0023 补充说明与索引同步。
-用户已明确三份计划全部实施。C2已审实现/预算桥及UI修复集成，primary业务219a50aaa，另0d3123444仅精确PG任务测试修复；此前352a45fa5上root4492后端/3141前端/7专用PG及lint/build通过。219a50aaa修复反应人物资料迟到的姓名回填，root相关Vue62通过；390/1280真实V2卡保存、合成V2反应回执消费及700ms上下文迟到、选择/刷新/跨Scene隔离均已验证。Goal初版90c4d077已结束Luna写入，由Sol在独立review树a948893c3后审修；已实证审批/取消账本自锁及小连接池耗尽并初修，后续真实R2恢复、预算/并发/付费子任务和UI待完整验收。Luna/max C0c在world-object-dossier-impl/codex/world-object-validity-impl从fd742实施；C4b Luna已固定1628717107，Sol/high在map-assistant-vocab-review/codex/scene-director-review从a14a119e6独立组合审修；新HTTP/四操作/Task/DI/Notice/迁移及真实PG/API/浏览器仍待完成。A1章节排序/一般事实时间线、A3/A4、C3对齐尾项、C5仍在范围，C1长篇/M5势力/RP真实门禁单列。
+用户已明确三份计划全部实施。primary固定105dca0bfd，已合入A2完整实现和Sol审修7c2/605a2985。root首轮扩大回归4700通过/4失败，四项为任务身份、路由active guard、输出上限继承、能力绑定，已由原Sol直接修复；root复跑4704通过/1地图CAS间歇失败/1deselected，原四项均消失；该地图用例孤立通过，expected与DB时间差2微秒，已交C4 Sol顺序查证，不能靠时间容差或重跑冒称全绿。前端249文件/3150测试、lint/build通过。root新专库goal_primary_test_20261016 fresh迁移、metadata parity、17项PG均通过；Sol原专库17项PG及真实HTTP批准完成回读/409保草稿/旧请求跨项目隔离有证据，浏览器断言文件明确为原stdout转录。
+
+C2业务219a50aaa及精确PG测试0d3123444已集成；此前root4492后端/3141前端/7PG通过，390/1280真实V2卡保存、合成反应回执消费、700ms姓名迟到、选择/刷新/跨Scene隔离已验证。C0c Luna/max在world-object-dossier-impl固定首片89b34c1ee（93后端/121前端与门禁），仍继续第二个独立提交：地图声明可信Story字段契约与剧情覆盖；不能把暂缺契约当永久范围豁免。完整有效期接线与真实PG须Sol独立审修。
+
+C4b Luna1628717107正由Sol/high在map-assistant-vocab-review独立审修；Root FK顺序、人物分页、来源指纹及旧账本覆盖风险已实证并直接修，1151普通回归与首6项PG仅代表相应固定点。实际TaskWorker已完成一整轮：4次受控本地provider请求、round持久化及started=settled=4；Sol直接修复内部mode校验、client.timeout、检查点expire后的读取/事务、state_delta序列化四项运行期问题。同根续轮/80%/unknown/checkpoint仍继续验证，零真实模型调用。正式目录除初始4操作还须history、现有额度单轮推进、实际一致性检查、参考剧本保存；将顺序组合105dca0后用fresh director_combined_review_test_20261016核迁移/metadata，旧库保留。曾怀疑Round删除trigger阻断级联的结论已撤回，原实现允许合法嵌套级联，不能记作已修缺陷。
+
+A3 Luna/max在map-assistant-review/codex/author-interaction-operations-impl已启动，临时让槽给A2四修后已恢复；专库仅author_operations_impl_test_20261016。A1章节排序/精确时间线覆盖、A4独立报表工程、C3机制对齐尾项、C5仍需执行。C1长篇/M5势力/RP迁移/数周真实留痕数据为条件门禁，不能用合成测试代替。R3保持诊断封存，holdout不解码；仅本地提交，无推送/PR/main合并/部署。
 
 ## 目标与验收
 
