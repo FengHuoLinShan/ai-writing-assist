@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
     from modules.evidence.compilation.services.compiled_context import CompiledContext
 
 
@@ -27,6 +29,20 @@ class SceneMemoryContractPort(Protocol):
     def scene_memory_v1_version(self) -> int: ...
 
     def scene_memory_dimensions(self, contract_version: int) -> tuple[str, ...]: ...
+
+
+class EvolutionObjectPatternReadPort(Protocol):
+    """Read-only L3 ledger projection; Evidence owns POV and budget filtering."""
+
+    async def __call__(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        scene_id: str,
+        entity_ids: list[str],
+        only_adopted: bool = False,
+    ) -> dict: ...
 
 
 INTERACTION_SOURCE_CONTEXT_MAX_TOKENS = 16_000
@@ -506,6 +522,8 @@ class StructureContextBundle:
     """地理地点列表"""
     map_spatial_brief: dict | None = None
     """来自 World adopted-map facade 的有界只读空间参考。"""
+    object_dossier_brief: dict | None = None
+    """Evidence-owned projection of World dossiers, Story cutoff state and L3 patterns."""
     memory_records: list = field(default_factory=list)
     """长期记忆记录列表"""
     scene_checkpoint_set: dict | None = None

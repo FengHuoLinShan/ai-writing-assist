@@ -105,11 +105,19 @@ class DossierEntryRestore(BaseModel):
 class DossierTemplateField(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    key: str | None = Field(default=None, min_length=1, max_length=96)
     facing: DossierFacingRef
     label: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=500)
     required: bool = False
     value_kind: Literal["text", "text_list"] = "text"
+
+    @field_validator("key")
+    @classmethod
+    def nonblank_key(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("模板字段 key 不能为空白")
+        return value.strip() if value is not None else None
 
 
 class DossierTemplateUpsert(BaseModel):
@@ -177,6 +185,22 @@ class DossierEntryResponse(BaseModel):
     created_at: datetime | None = None
 
 
+class DossierLegacyProfileField(BaseModel):
+    """Read-only projection of GenericEntityProfile.data_json through its template."""
+
+    profile_id: uuid.UUID
+    profile_type: str
+    profile_status: str
+    template_id: uuid.UUID | None = None
+    template_version_number: int | None = None
+    field_key: str
+    label: str
+    facing: DossierFacingRef | None = None
+    value: Any
+    mapped: bool = False
+    source_metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class DossierReadResponse(BaseModel):
     entity_id: uuid.UUID
     entity_type: str
@@ -184,6 +208,7 @@ class DossierReadResponse(BaseModel):
     offset: int = Field(default=0, ge=0)
     limit: int = Field(default=100, ge=1, le=250)
     entries: list[DossierEntryResponse] = Field(default_factory=list)
+    legacy_profile_fields: list[DossierLegacyProfileField] = Field(default_factory=list)
     total_count: int = Field(ge=0)
     omitted_count: int = Field(ge=0)
     dossier_fingerprint: str

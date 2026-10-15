@@ -280,6 +280,101 @@ async def test_dossier_template_is_versioned_and_same_value_is_idempotent(
 
 
 @pytest.mark.asyncio
+async def test_generic_profile_fields_map_by_template_key_and_keep_unknown_values(
+    async_client: AsyncClient,
+) -> None:
+    project = await async_client.post("/api/projects", json={"title": "通用档案映射"})
+    assert project.status_code == 201, project.text
+    novel_id = project.json()["id"]
+    entity_response = await async_client.post(
+        "/api/world/entities",
+        params={"novel_id": novel_id},
+        json={"entity_type": "spirit_beast", "name": "山灵", "status": "canonical"},
+    )
+    assert entity_response.status_code == 201, entity_response.text
+    entity = entity_response.json()
+    term_response = await async_client.post(
+        f"/api/world/project-vocabulary/{novel_id}/terms",
+        json={"kind": "dossier_facing", "name": "栖居地"},
+    )
+    assert term_response.status_code == 201, term_response.text
+    term_id = term_response.json()["id"]
+    template_url = "/api/world/dossier-templates/spirit_beast"
+    template = await async_client.put(
+        template_url,
+        params={"novel_id": novel_id},
+        json={
+            "fields": [
+                {
+                    "key": "origin_place",
+                    "facing": {"kind": "project", "term_id": term_id},
+                    "label": "起源地点",
+                }
+            ]
+        },
+    )
+    assert template.status_code == 200, template.text
+    profile = await async_client.put(
+        f"/api/world/profiles/{entity['id']}",
+        params={"novel_id": novel_id},
+        json={
+            "status": "canonical",
+            "data_json": {
+                "origin_place": "被废弃的根洞",
+                "legacy_unknown": {"untouched": [1, 2]},
+            },
+        },
+    )
+    assert profile.status_code == 200, profile.text
+
+    dossier = await async_client.get(
+        f"/api/world/entities/{entity['id']}/dossier",
+        params={"novel_id": novel_id},
+    )
+    assert dossier.status_code == 200, dossier.text
+    fields = {item["field_key"]: item for item in dossier.json()["legacy_profile_fields"]}
+    assert fields["origin_place"]["mapped"] is True
+    assert fields["origin_place"]["facing"] == {
+        "kind": "project",
+        "key": None,
+        "term_id": term_id,
+    }
+    assert fields["origin_place"]["value"] == "被废弃的根洞"
+    assert fields["legacy_unknown"]["mapped"] is False
+    assert fields["legacy_unknown"]["value"] == {"untouched": [1, 2]}
+
+    second_term = await async_client.post(
+        f"/api/world/project-vocabulary/{novel_id}/terms",
+        json={"kind": "dossier_facing", "name": "迁徙地"},
+    )
+    assert second_term.status_code == 201, second_term.text
+    changed_mapping = await async_client.put(
+        template_url,
+        params={"novel_id": novel_id},
+        json={
+            "expected_version_number": 1,
+            "fields": [
+                {
+                    "key": "origin_place",
+                    "facing": {
+                        "kind": "project",
+                        "term_id": second_term.json()["id"],
+                    },
+                    "label": "错误重绑",
+                }
+            ],
+        },
+    )
+    assert changed_mapping.status_code == 400, changed_mapping.text
+
+    raw_profile = await async_client.get(
+        f"/api/world/profiles/{entity['id']}", params={"novel_id": novel_id}
+    )
+    assert raw_profile.status_code == 200, raw_profile.text
+    assert raw_profile.json()["data_json"]["legacy_unknown"] == {"untouched": [1, 2]}
+
+
+@pytest.mark.asyncio
 async def test_invalid_temporal_cutoff_fails_closed(async_client: AsyncClient) -> None:
     novel_id, entity = await _project_and_character(async_client)
     response = await async_client.get(
