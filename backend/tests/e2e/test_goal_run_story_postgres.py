@@ -83,7 +83,7 @@ async def test_story_card_goal_reuses_approved_root_and_replays_without_new_char
     async def execution_snapshot(*_args, **_kwargs):
         return {
             "novel_id": str(novel_id),
-            "profile": {"model": "deepseek-flash"},
+            "profile": {"model": "deepseek-flash", "max_tokens": 8192},
             "llm": {"model": "deepseek-flash"},
         }
 

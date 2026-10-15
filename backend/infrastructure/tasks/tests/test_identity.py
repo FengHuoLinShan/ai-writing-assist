@@ -9,7 +9,11 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.contracts import TASK_SUBMISSION_MODE_META_KEY
-from infrastructure.tasks.enqueuer import enqueue_coalesced_task, enqueue_task
+from infrastructure.tasks.enqueuer import (
+    enqueue_coalesced_task,
+    enqueue_inline_parent_task,
+    enqueue_task,
+)
 from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.registry import TaskRegistry
 from tests.support.inventory import production_python_files
@@ -73,6 +77,32 @@ def test_ordinary_enqueue_rejects_metadata_only_or_mismatched_identity() -> None
         )
     with pytest.raises(ValueError, match="UUID"):
         enqueue_task(db, "unknown-task", novel_id="not-a-uuid")
+
+
+def test_inline_parent_receipt_has_explicit_identity_and_worker_exclusion() -> None:
+    db = MagicMock()
+    project_id, task_id = uuid.uuid4(), uuid.uuid4()
+    receipt = enqueue_inline_parent_task(
+        db,
+        task_type="assistant_goal_parent",
+        novel_id=str(project_id),
+        task_id=str(task_id),
+        meta={"goal_run_id": str(uuid.uuid4())},
+    )
+    task = db.add.call_args.args[0]
+    assert receipt == str(task_id)
+    assert task.novel_id == project_id
+    assert task.meta["_execution_mode"] == "inline_only"
+    assert task.recovery_policy == "manual_resume"
+    assert task.max_attempts == 1
+    with pytest.raises(ValueError, match="owned by the task enqueuer"):
+        enqueue_inline_parent_task(
+            db,
+            task_type="assistant_goal_parent",
+            novel_id=str(project_id),
+            task_id=str(uuid.uuid4()),
+            meta={"_execution_mode": "queued"},
+        )
 
 
 def test_ordinary_enqueue_canonicalizes_project_identity() -> None:

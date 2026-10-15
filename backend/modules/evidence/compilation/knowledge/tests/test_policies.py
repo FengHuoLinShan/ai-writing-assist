@@ -81,6 +81,7 @@ EXPECTED_CAPABILITIES = (
     "interaction.anonymous_story",
     # Assistant
     "assistant.turn",
+    "assistant.goal.plan",
     "assistant.guided_flow.direction_cards",
     "assistant.forecast",
     "assistant.editorial",
