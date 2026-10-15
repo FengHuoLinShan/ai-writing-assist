@@ -3,7 +3,7 @@ id: T-20261015-character-world-progression
 title: 世界对象档案、场景导演、写作副驾驶与世界推进设计
 status: active
 created: 2026-10-15T16:00:00+08:00
-updated: 2026-10-16T02:02:37+08:00
+updated: 2026-10-16T02:14:59+08:00
 ---
 
 # 世界对象档案、场景导演、写作副驾驶与世界推进设计
@@ -269,3 +269,11 @@ ADR-0039 旧接口写回规则、共用词表与锚点、档案发现按 ADR-003
 - C4b继续使用相同根信封；root只读指出旧unknown确认不能豁免后来新增unknown/incomplete，Luna已确认当前WIP需按新增provider attempt状态实现，待Sol最终独立审查。
 - C0c后续交接见 ../T-20261015-character-world-progression/artifacts/C0C-HANDOFF.md；A3/A4交接见 ../T-20261015-agent-operation-surface/artifacts/A3-A4-HANDOFF.md。尚未派发不等于范围移出，真实数周数据与未到势力依赖如实保留。
 - 无新模型调用、默认开发库访问、holdout解码、R3重跑或后台任务排空；未推送、未创建PR、未合并main、未部署。
+
+## 2026-10-16T02:14:59+08:00 C2 新 PG 链与 A2 离线恢复检查点
+
+- Sol C2报告专用dossier_consumers_review_test_20261016已升级head；新增真实HTTP旧PUT→档案编辑→旧GET/清空、CAS冲突不改值、两独立PG session同基线1成功1冲突、旧无expected行锁串行last-writer已通过。窄目录HTTP read/两prepare留痕、foreign404、prepare不入队也通过；仍在补Assistant→inline worker同根预算与浏览器V2卡/反应验证，未集成primary。
+- Goal Luna离线service已跑通规划/显式审批/R0执行及v3同根预算、SQLite唯一索引；两条真实R2服务apply→manifest→恢复及后续作者编辑CAS保护通过，前端仍在实施。以上为子代理阶段报告，PG与Sol独立审修仍待完成，不视为交付。
+- Node验证口径已纠正：唯一primary是map-enhancement-plan，不是原repo checkout；与Goal树package/lock SHA一致，使用/bin/bash login=false的Node24.15.0/npm11.12.1。不得对原checkout依赖做同步或安装。
+- 后续C3机制缺口已补交接 ../T-20261015-character-world-progression/artifacts/C3-ALIGNMENT-TAIL.md：短期前瞻人物反应的简报/表演格式、人物弧线计划与实际对照、演化阅读状态提醒、依赖正式下线的Imports替换；不能因C2/首批C3已通过而遗漏。
+- PG队列仍Sol独占65202，Goal下一窗口未发放；R3封存/holdout/默认开发库/真模型/外部交付边界不变。
