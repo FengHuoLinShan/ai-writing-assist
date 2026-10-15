@@ -845,12 +845,15 @@ async def read_spatial_discovery_context(
     endpoint_surfaces: list[str],
     type_limit: int,
     clue_limit: int,
+    run_id: str | None = None,
 ) -> MapSpatialClueContext:
     """Return bounded, same-project, strictly earlier spatial context."""
     await require_active_project(db, novel_id)
     await _scene_contract(db, novel_id, scene_id, scene_index)
     if not 0 <= type_limit <= 64 or not 0 <= clue_limit <= 128:
         raise ValidationError("Spatial discovery context limit is out of range")
+    if run_id is not None and (not run_id.strip() or len(run_id) > 120):
+        raise ValidationError("Spatial discovery run identity is invalid")
     nid = parse_uuid(novel_id, "novel_id")
     endpoint_uuid_ids = [parse_uuid(item, "endpoint_id") for item in endpoint_ids]
     endpoint_surfaces = [
@@ -886,8 +889,14 @@ async def read_spatial_discovery_context(
     selected_clues: list[tuple[int, MapSpatialClueRecord, MapSpatialClue]] = []
     omitted_stale = 0
     requested_entities = {str(item) for item in endpoint_uuid_ids}
+    working_evidence_keys: set[tuple[str, str, str]] = set()
     for row in clue_rows:
-        if row.source_content_mode != "canonical":
+        same_run_working = (
+            run_id is not None
+            and row.run_id == run_id
+            and row.source_content_mode == "working"
+        )
+        if row.source_content_mode != "canonical" and not same_run_working:
             omitted_stale += 1
             continue
         try:
@@ -900,10 +909,12 @@ async def read_spatial_discovery_context(
                 row.scene_index,
                 binding,
             )
-            _matching_source_hash(clue, resolved)
+            source_hash = _matching_source_hash(clue, resolved)
         except (ConflictError, NotFoundError, ValidationError, ValueError, TypeError):
             omitted_stale += 1
             continue
+        if same_run_working and clue.review.verdict == "supported":
+            working_evidence_keys.add((row.scene_id, clue.quote, source_hash))
         bound_ids = {
             str(endpoint.entity_id)
             for endpoint in (clue.subject, clue.target)
@@ -984,8 +995,17 @@ async def read_spatial_discovery_context(
                     and parse_uuid(evidence_scene.novel_id, "novel_id") == nid
                     and evidence_scene.scene_index < scene_index
                     and evidence_scene.status in {"draft", "canonical"}
-                    and await _evidence_is_current(
-                        db, novel_id, item, content_mode="canonical"
+                    and (
+                        await _evidence_is_current(
+                            db, novel_id, item, content_mode="canonical"
+                        )
+                        or (
+                            (str(item.scene_id), item.quote, item.source_hash)
+                            in working_evidence_keys
+                            and await _evidence_is_current(
+                                db, novel_id, item, content_mode="working"
+                            )
+                        )
                     )
                 ):
                     evidence.append(item)

@@ -15,6 +15,7 @@ from modules.world.map_spatial_clue_models import MapSpatialClueRecord
 from modules.world.map_spatial_clue_schemas import (
     MapSpatialClueDecisionRequest,
     MapSpatialClueSourceBinding,
+    MapSpatialClueTypeProposalDraft,
 )
 from modules.world.map_spatial_clue_service import (
     _evidence_is_current,
@@ -134,6 +135,60 @@ async def test_exact_mode_binding_and_legacy_working_overlay(
             scene.scene_index,
             [canonical[3].ranges()[0].model_dump()],
         )
+
+
+async def test_working_context_requires_same_run_and_current_prior_scene(
+    db_session, project_novel_id
+):
+    scene, draft, _, binding, evidence = await _source(
+        db_session, project_novel_id, mode="working"
+    )
+    current, _, _, _, _ = await _source(db_session, project_novel_id, index=2, chapter=2)
+    proposed = _clue(
+        scene_id=str(scene.id),
+        clue_key="d" * 64,
+        quote=QUOTE_ONE,
+        type_proposal_draft=MapSpatialClueTypeProposalDraft(
+            kind="relation",
+            name="暗桥",
+            description="本作中的隐藏连接",
+            proposal_run_id=uuid.uuid4(),
+        ),
+    )
+    proposed.review.evidence_hash = vocabulary_evidence_hash([evidence])
+    batch = _batch(project_novel_id, str(scene.id), scene.scene_index, [proposed])
+    batch.source_binding = binding
+    result = await stage_spatial_discovery(db_session, project_novel_id, batch)
+    assert len(result.accepted) == 1
+
+    async def context(run_id):
+        return await read_spatial_discovery_context(
+            db_session,
+            project_novel_id,
+            scene_id=str(current.id),
+            scene_index=2,
+            endpoint_ids=[],
+            endpoint_surfaces=[],
+            type_limit=64,
+            clue_limit=128,
+            run_id=run_id,
+        )
+
+    for run_id in (None, "different-run"):
+        outside = await context(run_id)
+        assert outside.clues == []
+        assert not any(item.name == "暗桥" for item in outside.types)
+    inside = await context(batch.run_id)
+    assert len(inside.clues) == 1
+    term = next(item for item in inside.types if item.name == "暗桥")
+    assert term.status == "emerging"
+    assert term.evidence == [evidence]
+    draft.content += "来源改动"
+    draft.content_hash = hashlib.sha256(draft.content.encode()).hexdigest()
+    await db_session.flush()
+    stale = await context(batch.run_id)
+    assert stale.clues == []
+    assert not any(item.name == "暗桥" for item in stale.types)
 
 
 @pytest.mark.parametrize(
