@@ -452,6 +452,12 @@ class AssistantService:
         if session is None or session.status != "active":
             raise NotFoundError("助手会话不存在或已归档")
         payload = data.model_dump(mode="json") | {"session_id": session_id}
+        from modules.account.facade import is_demo_readonly_principal
+
+        payload["operation_trace_enabled"] = bool(
+            get_settings().assistant_operation_trace_enabled
+            and not is_demo_readonly_principal()
+        )
         if regression_targets:
             payload["regression_targets"] = regression_targets
         if quoted_discussion:

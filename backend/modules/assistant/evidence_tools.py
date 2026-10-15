@@ -83,6 +83,7 @@ class AssistantToolContext:
     llm_snapshot: dict | None = None
     operations: dict | None = None
     operation_catalog_snapshot: dict | None = None
+    operation_trace_incomplete: bool = False
     final_requests: int = 1
     session_id: str | None = None
     web_snapshot: dict | None = None
