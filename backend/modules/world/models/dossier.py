@@ -136,6 +136,7 @@ class WorldObjectDossierEntry(Base, UUIDMixin, TimestampMixin, NovelMixin):
         PG_UUID(as_uuid=True), nullable=True
     )
     legacy_field_key: Mapped[str | None] = mapped_column(String(96), nullable=True)
+    story_field_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     tags_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     legacy_value_json: Mapped[object | None] = mapped_column(JSON, nullable=True)

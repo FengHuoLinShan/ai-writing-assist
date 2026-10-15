@@ -108,6 +108,12 @@ Scene 时点状态归 Story，演化理解归 Evolution；World 的读取结果�
 
 `GET /api/world/entities/{id}/dossier` 支持当前设定或 `as_of_scene_id`，附条目来源、有效期、
 未知与省略、稳定指纹；分页空页不等于对象没有档案。`/dossier/history` 提供修订历史。
+有效期读取默认按作者区间；项目开关显式开启后，只有同对象、同登记字段且早于截止
+Scene 的可信 Story 确认来源可覆盖。关系使用稳定关系 ID，地图使用当前已采用节点的
+保存修订、声明种类及 FeatureKey；旧修订、删除/替换节点与同值错字段均保持缺口。
+`world.object_validity` 只读 NoticeSource 投影上述冲突和缺口，导演作者侧经 typed port
+读取并固定来源指纹；角色视角不借作者提醒取得秘密。新目录 v11 的 World 关系读取
+与 Story 状态确认不改变旧 v1–v10 冻结操作。
 新增、编辑、恢复分别使用 POST `/dossier/entries`、PATCH `/dossier/entries/{revision_id}`、
 POST `/dossier/groups/{entry_group_id}/restore`；编辑使用 `expected_revision_id`，恢复重新
 校验对象、面向与 Scene/章节锚点，追加修订而不覆盖旧内容。公开 demo 在服务入口拒写。

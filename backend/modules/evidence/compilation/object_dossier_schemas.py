@@ -71,6 +71,11 @@ class ObjectDossierWorldItem(BaseModel):
     source_refs: list[dict[str, Any]] = Field(default_factory=list)
     source_metadata: dict[str, Any] = Field(default_factory=dict)
     validity: dict[str, Any] | None = None
+    story_field_key: str | None = None
+    validity_conflict: bool = False
+    story_override_applied: bool = False
+    validity_gap: str | None = None
+    story_observation: dict[str, Any] | None = None
     dossier_fingerprint: str | None = None
 
     @model_validator(mode="after")
@@ -80,8 +85,10 @@ class ObjectDossierWorldItem(BaseModel):
         ):
             raise ValueError("world_dossier items require a revision and content")
         legacy_fields = (self.profile_id, self.template_id, self.field_key, self.facing)
-        if self.kind == "legacy_profile_field" and any(legacy_fields) and not all(
-            legacy_fields
+        if (
+            self.kind == "legacy_profile_field"
+            and any(legacy_fields)
+            and not all(legacy_fields)
         ):
             raise ValueError("mapped legacy fields require profile/template/key/facing")
         return self
@@ -133,6 +140,7 @@ class ObjectDossierBriefResponse(BaseModel):
     scene_index: int | None = None
     viewpoint: dict[str, Any]
     world_items: list[ObjectDossierWorldItem] = Field(default_factory=list)
+    validity_notices: list[dict[str, Any]] = Field(default_factory=list)
     continuity_items: list[ObjectDossierStoryStateItem] = Field(default_factory=list)
     pattern_items: list[ObjectDossierPatternItem] = Field(default_factory=list)
     checkpoint_refs: list[dict[str, Any]] = Field(default_factory=list)

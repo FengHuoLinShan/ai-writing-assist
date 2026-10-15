@@ -74,6 +74,11 @@ beforeEach(() => {
     select: vi.fn(async () => ({ kind: "claude", device_id: "mac-1" })),
     revoke: vi.fn(async () => ({ revoked: true })),
   }
+  globalThis.api.projects.getObjectDossierSettings = vi.fn(async () => ({ version: 0, allow_story_override: false }))
+  globalThis.api.projects.setObjectDossierSettings = vi.fn(async (_projectId, payload) => ({
+    version: payload.expected_version + 1,
+    allow_story_override: payload.allow_story_override,
+  }))
 })
 
 afterEach(() => {
@@ -261,6 +266,74 @@ describe("结构与导航", () => {
     save.resolve()
     await flushPromises()
     expect(wrapper.get("#project-settings-tab-panel").attributes("aria-busy")).toBe("false")
+  })
+})
+
+describe("世界对象有效期设置", () => {
+  it("默认作者区间优先，并在保存成功后才显示剧情覆盖已开启", async () => {
+    const wrapper = mount(ProjectSettingsView, { props: makeProps() })
+    await flushPromises()
+
+    const toggle = wrapper.get("#project-object-dossier-override")
+    expect(toggle.element.checked).toBe(false)
+    expect(wrapper.text()).toContain("已保存：作者区间优先")
+    await toggle.setValue(true)
+    await flushPromises()
+
+    expect(globalThis.api.projects.setObjectDossierSettings).toHaveBeenCalledWith("p1", {
+      expected_version: 0,
+      allow_story_override: true,
+    })
+    expect(wrapper.get("#project-object-dossier-override").element.checked).toBe(true)
+    expect(wrapper.text()).toContain("已保存：剧情覆盖已开启")
+    wrapper.unmount()
+  })
+
+  it("409 保留选择并重读版本，重试后以新的 CAS 版本保存", async () => {
+    const conflict = Object.assign(new Error("设置版本已变化"), { status: 409 })
+    globalThis.api.projects.getObjectDossierSettings
+      .mockResolvedValueOnce({ version: 0, allow_story_override: false })
+      .mockResolvedValueOnce({ version: 2, allow_story_override: false })
+    globalThis.api.projects.setObjectDossierSettings
+      .mockRejectedValueOnce(conflict)
+      .mockResolvedValueOnce({ version: 3, allow_story_override: true })
+    const wrapper = mount(ProjectSettingsView, { props: makeProps() })
+    await flushPromises()
+
+    await wrapper.get("#project-object-dossier-override").setValue(true)
+    await flushPromises()
+    expect(wrapper.get("#project-object-dossier-override").element.checked).toBe(true)
+    expect(wrapper.text()).toContain("你的选择仍保留")
+    await wrapper.get(".settings-save-state.is-error button").trigger("click")
+    await flushPromises()
+
+    expect(globalThis.api.projects.setObjectDossierSettings).toHaveBeenNthCalledWith(2, "p1", {
+      expected_version: 2,
+      allow_story_override: true,
+    })
+    expect(wrapper.text()).toContain("已保存：剧情覆盖已开启")
+    wrapper.unmount()
+  })
+
+  it("项目切换后忽略旧项目的迟到读取", async () => {
+    const oldRead = deferred()
+    globalThis.api.projects.getObjectDossierSettings.mockImplementation((projectId) => (
+      projectId === "p1"
+        ? oldRead.promise
+        : Promise.resolve({ version: 7, allow_story_override: false })
+    ))
+    const wrapper = mount(ProjectSettingsView, { props: makeProps() })
+    await Promise.resolve()
+    appState.currentProjectId = "p2"
+    await wrapper.setProps({ projectId: "p2" })
+    await flushPromises()
+    oldRead.resolve({ version: 99, allow_story_override: true })
+    await flushPromises()
+
+    expect(wrapper.get("#project-object-dossier-override").element.checked).toBe(false)
+    expect(wrapper.text()).toContain("已保存：作者区间优先")
+    expect(wrapper.text()).not.toContain("已保存：剧情覆盖已开启")
+    wrapper.unmount()
   })
 })
 

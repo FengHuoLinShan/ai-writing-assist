@@ -23,6 +23,13 @@ Scene 锚点按当前顺序读取，退役替换链的起点取最早、终点�
 待核对。M0 仅保存、解析与报告时效问题：尚无可靠截止位置的全书静态布局和读者预览
 暂不消费带生效范围的内容；M3 空间简报按当前 Scene 的实际 cutoff 筛选并解析替换锚点。
 稳定章节 UUID 与数字章节序号尚无映射，章节 UUID 锚点在简报中保持待核对。
+地图结构化声明的有效期也遵循 ADR-0039 §4.6：项目“允许剧情覆盖作者有效期”默认关闭，默认按作者区间
+读取。显式开启后，只有作者确认的 Story `map_declaration.effective_status`，且精确绑定同一项目、地图节点、
+当前已保存 revision、声明种类和原始 FeatureKey，并早于读取 Scene cutoff，才可覆盖该次作者端读取。
+旧事件缺少 typed identity、地图删除/替换或 revision 变化、Story 投影降级、来源不可信和未来观察均返回缺口，
+不从位置、相似文本或同值推断。`POST /api/novels/{novel_id}/memories/map-declaration-state` 只追加 Story
+作者确认事件；随后显式 ensure 当前 Scene 投影。读取简报与 NoticeSource 均只读，不写 continuity；人物和读者视角
+不因作者确认状态自动取得地图知识。
 `vertical/directed/movable/independent_space/qualitative_distance` 当前保留声明，
 主 Scene 回执后的空间 context 可接收本场已物化 World 候选端点；World 重验原理解回执与最新来源前缀，并要求实体来源元数据的 run、Scene、index 和 attempt 全部一致。未物化提案、其他运行或未来 Scene 的候选不因冻结 UUID 提名进入输入；这不会采用实体、线索或地图。
 

@@ -1135,16 +1135,16 @@ def author_read_tools(*, allow_web: bool, version: str = "2") -> list[Tool]:
     if allow_web:
         functions.extend(
             [search_general_fact, read_web_source]
-            if version in {"3", "4", "5", "6", "7", "8", "9", "10"}
+            if version in {"3", "4", "5", "6", "7", "8", "9", "10", "11"}
             else [research_fact]
         )
-    if version in {"3", "4", "5", "6", "7", "8", "9", "10"}:
+    if version in {"3", "4", "5", "6", "7", "8", "9", "10", "11"}:
         functions.extend([world_page_history, review_resolution_result])
-    if version in {"4", "5", "6", "7", "8", "9", "10"}:
+    if version in {"4", "5", "6", "7", "8", "9", "10", "11"}:
         functions.append(project_vocabulary)
-    if version in {"5", "6", "7", "8", "9", "10"}:
+    if version in {"5", "6", "7", "8", "9", "10", "11"}:
         functions.append(map_spatial_brief)
-    if version in {"6", "7", "8", "9", "10"}:
+    if version in {"6", "7", "8", "9", "10", "11"}:
         from modules.assistant.map_spatial_advisories import map_spatial_advisories
 
         functions.extend([map_spatial_advisories, map_journey, map_object_position])

@@ -33,6 +33,16 @@
           <label>从哪个场景开始生效<select :value="selected.effective?.start?.kind === 'scene' ? selected.effective.start.id : ''" class="form-select" :disabled="selected.effective?.start?.kind === 'chapter'" @change="setAnchor('start', $event.target.value)"><option value="">未限定开始</option><option v-if="missingAnchor('start')" :value="selected.effective.start.id">原固定场景（未在本页）</option><option v-for="scene in scenes" :key="scene.id" :value="scene.id">{{ scene.label }}</option></select></label>
           <label>到哪个场景结束生效<select :value="selected.effective?.end?.kind === 'scene' ? selected.effective.end.id : ''" class="form-select" :disabled="selected.effective?.end?.kind === 'chapter'" @change="setAnchor('end', $event.target.value)"><option value="">未限定结束</option><option v-if="missingAnchor('end')" :value="selected.effective.end.id">原固定场景（未在本页）</option><option v-for="scene in scenes" :key="scene.id" :value="scene.id">{{ scene.label }}</option></select></label>
           <p v-if="selected.effective?.start?.kind === 'chapter' || selected.effective?.end?.kind === 'chapter'">此条目含章节身份锚点，当前场景选项不替换它。请先核对原锚点。</p>
+          <section v-if="selected.effective && selected.modality === 'event_observed'" class="map-state-confirmation" aria-label="记录地图状态观察">
+            <h4>记录某场已确认的地图状态</h4>
+            <p>这会把作者确认的状态写入所选 Scene 的 Story 记录，不改地图版本。它只供作者核对地图有效期，至少从后续 Scene 起参与读取；人物和读者视角不会因此自动知道。</p>
+            <label>在哪个场景确认<select v-model="stateSceneId" class="form-select" :disabled="disabled || stateSaving"><option value="">选择场景</option><option v-if="stateSceneId && !scenes.some(scene => scene.id === stateSceneId)" :value="stateSceneId">草稿关联场景（切换场景页后可保存）</option><option v-for="scene in scenes" :key="scene.id" :value="scene.id">{{ scene.label }}</option></select></label>
+            <label>该声明在此场的状态<select :value="stateDraft.status" class="form-select" :disabled="disabled || stateSaving" @change="setStateStatus($event.target.value)"><option value="active">仍然生效</option><option value="inactive">已不再生效</option></select></label>
+            <p v-if="stateDisabled" class="map-state-hint">请先保存当前地图，并确保它是已采用版本，再记录剧情状态。</p>
+            <p v-if="stateDraft.error" class="map-error" role="alert">{{ stateDraft.error }}</p>
+            <p v-else-if="stateSavedKey === stateDraftKey" class="map-state-success" role="status">Story 状态已记录，当前场景投影已更新。</p>
+            <button type="button" class="btn btn-sm btn-primary" :disabled="!canSaveState" @click="saveMapState">{{ stateSaving ? '正在记录…' : stateDraft.story_saved ? '重试更新场景投影' : '确认并记录此场状态' }}</button>
+          </section>
           <nav v-if="sceneTotal > 50" class="map-actions" aria-label="生效范围场景翻页"><button type="button" class="btn btn-sm" :disabled="loading || sceneOffset === 0" @click="loadScenes(sceneOffset - 50)">上一页场景</button><span>场景 {{ sceneOffset + 1 }}–{{ Math.min(sceneOffset + 50, sceneTotal) }} / {{ sceneTotal }}</span><button type="button" class="btn btn-sm" :disabled="loading || sceneOffset + 50 >= sceneTotal" @click="loadScenes(sceneOffset + 50)">下一页场景</button></nav>
         </template>
       </fieldset>
@@ -45,10 +55,10 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { getApi, getConfirmAction } from '../../bridge/index.js'
 import { confirmAsync } from '../../../shared/confirmAsync.js'
-const props = defineProps({ projectId: { type: String, required: true }, document: { type: Object, required: true }, selectedFeatureId: { type: String, default: '' }, disabled: Boolean })
+const props = defineProps({ projectId: { type: String, required: true }, document: { type: Object, required: true }, selectedFeatureId: { type: String, default: '' }, nodeId: { type: String, default: '' }, revisionId: { type: String, default: '' }, stateDisabled: Boolean, disabled: Boolean })
 const emit = defineEmits(['change', 'state'])
 const api = getApi(), terms = ref([]), scenes = ref([]), omitted = ref(0), loading = ref(false), loaded = ref(false), error = ref(''), confirming = ref(false), selection = ref('')
-const sceneOffset = ref(0), sceneTotal = ref(0)
+const sceneOffset = ref(0), sceneTotal = ref(0), stateSceneId = ref(''), stateSaving = ref(false), mapStateDrafts = ref({}), stateSelectionByDeclaration = ref({}), stateSavedKey = ref('')
 let active = true, epoch = 0
 const modalities = { event_observed: '已发生或作者确认', character_statement: '人物陈述', belief: '主观认知', hypothesis: '假设', author_plan: '作者计划', figurative: '比喻', unclear: '含义待核对' }
 const journeyTypes = [{ key: 'transport', kind: 'transport', label: '交通类型' }, { key: 'traveler', kind: 'traveler', label: '旅行者类别' }, { key: 'connection', kind: 'relation', label: '连接类型' }]
@@ -61,9 +71,22 @@ const choices = computed(() => [
 const collection = computed(() => selection.value.split('/')[0])
 const selected = computed(() => props.document[collection.value]?.find(item => selection.value === collection.value + '/' + item.id))
 const typeKind = computed(() => collection.value === 'features' ? 'feature' : 'relation')
+const declarationKind = computed(() => ({ features: 'feature', constraints: 'constraint', journeys: 'journey' })[collection.value] || '')
+const stateSelectionKey = computed(() => JSON.stringify([props.projectId, props.nodeId, props.revisionId, declarationKind.value, selected.value?.id || '']))
+const stateDraftKey = computed(() => JSON.stringify([props.projectId, props.nodeId, props.revisionId, declarationKind.value, selected.value?.id || '', stateSceneId.value]))
+const stateDraft = computed(() => mapStateDrafts.value[stateDraftKey.value] || { status: 'active', idempotency_key: '', story_saved: false, error: '' })
+const stateDisabled = computed(() => props.stateDisabled || !props.nodeId || !props.revisionId)
+const canSaveState = computed(() => Boolean(
+  !props.disabled && !stateDisabled.value && !stateSaving.value && loaded.value
+  && scenes.value.some(scene => scene.id === stateSceneId.value)
+  && selected.value?.effective && selected.value.modality === 'event_observed'
+  && ['feature', 'constraint', 'journey'].includes(declarationKind.value)
+))
 watch(() => props.selectedFeatureId, value => { if (value) selection.value = 'features/' + value }, { immediate: true })
-watch([loading, confirming], () => emit('state', { busy: loading.value || confirming.value }), { immediate: true, flush: 'sync' })
-watch(() => props.projectId, () => { epoch++; terms.value = []; scenes.value = []; sceneTotal.value = 0; sceneOffset.value = 0; loaded.value = false; loading.value = false; confirming.value = false; error.value = ''; selection.value = '' })
+watch([loading, confirming, stateSaving], () => emit('state', { busy: loading.value || confirming.value || stateSaving.value }), { immediate: true, flush: 'sync' })
+watch(() => props.projectId, () => { epoch++; terms.value = []; scenes.value = []; sceneTotal.value = 0; sceneOffset.value = 0; loaded.value = false; loading.value = false; confirming.value = false; stateSaving.value = false; error.value = ''; selection.value = '' })
+watch([() => props.projectId, () => props.nodeId, () => props.revisionId, selection], () => { stateSceneId.value = stateSelectionByDeclaration.value[stateSelectionKey.value] || ''; stateSavedKey.value = '' }, { flush: 'sync' })
+watch([stateSelectionKey, stateSceneId], ([key, sceneId]) => { if (sceneId) stateSelectionByDeclaration.value = { ...stateSelectionByDeclaration.value, [key]: sceneId } }, { flush: 'sync' })
 onBeforeUnmount(() => { active = false; epoch++; emit('state', { busy: false }) })
 function types(kind) { return terms.value.filter(term => term.kind === kind && term.status === 'active') }
 function oldType(item, kind, prefix = '') {
@@ -93,6 +116,79 @@ function setAnchor(side, id) {
   if (id && !scenes.value.some(scene => scene.id === id)) return
   const effective = { ...(selected.value.effective || {}), [side]: id ? { kind: 'scene', id } : null }
   patch(collection.value, selected.value.id, { effective: effective.start || effective.end ? effective : null })
+}
+function idempotencyKey() { return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}` }
+function updateStateDraft(key, update) {
+  mapStateDrafts.value = {
+    ...mapStateDrafts.value,
+    [key]: {
+      ...(mapStateDrafts.value[key] || { status: 'active', idempotency_key: '', story_saved: false, error: '' }),
+      ...update,
+    },
+  }
+}
+function setStateStatus(status) {
+  if (!['active', 'inactive'].includes(status)) return
+  const key = stateDraftKey.value, prior = stateDraft.value
+  mapStateDrafts.value = {
+    ...mapStateDrafts.value,
+    [key]: {
+      ...prior,
+      status,
+      idempotency_key: prior.status === status ? prior.idempotency_key : idempotencyKey(),
+      story_saved: prior.status === status ? prior.story_saved : false,
+      error: '',
+    },
+  }
+  stateSavedKey.value = ''
+}
+async function saveMapState() {
+  if (!canSaveState.value || !selected.value || !stateSceneId.value) return
+  const token = epoch
+  const projectId = props.projectId, sceneId = stateSceneId.value
+  const nodeId = props.nodeId, revisionId = props.revisionId
+  const kind = declarationKind.value, declarationId = selected.value.id
+  const key = stateDraftKey.value
+  let draft = stateDraft.value
+  if (!draft.idempotency_key) {
+    draft = { ...draft, idempotency_key: idempotencyKey() }
+    updateStateDraft(key, draft)
+  }
+  stateSaving.value = true
+  updateStateDraft(key, { error: '' })
+  try {
+    if (!draft.story_saved) {
+      await api.story.confirmMapDeclarationState(projectId, {
+        confirmed: true,
+        scene_id: sceneId,
+        node_id: nodeId,
+        revision_id: revisionId,
+        declaration_kind: kind,
+        declaration_id: declarationId,
+        status: draft.status,
+        idempotency_key: draft.idempotency_key,
+      })
+      if (!active || token !== epoch) return
+      updateStateDraft(key, { story_saved: true })
+    }
+    await api.story.ensureSceneCheckpoints(projectId, sceneId)
+    if (!active || token !== epoch) return
+    const latest = mapStateDrafts.value[key]
+    if (latest?.idempotency_key === draft.idempotency_key) {
+      const next = { ...mapStateDrafts.value }
+      delete next[key]
+      mapStateDrafts.value = next
+      stateSavedKey.value = key
+    }
+  } catch (failure) {
+    if (active && token === epoch) {
+      updateStateDraft(key, {
+        error: failure?.message || '保存失败；草稿仍保留，可以重试。',
+      })
+    }
+  } finally {
+    if (active && token === epoch) stateSaving.value = false
+  }
 }
 function missingAnchor(side) { const anchor = selected.value?.effective?.[side]; return anchor?.kind === 'scene' && !scenes.value.some(scene => scene.id === anchor.id) }
 function setConditions(value) {
@@ -145,5 +241,10 @@ function onToggle(event) { if (event.target.open && !loaded.value) load() }
 .spatial-metadata label { display: block; margin-block: .65rem; }
 .spatial-metadata fieldset { border: 0; padding: .75rem 0; min-width: 0; }
 .spatial-metadata p { color: var(--text-secondary); overflow-wrap: anywhere; }
+.map-state-confirmation { border-top: 1px solid var(--border); margin-block: 1rem; padding-top: .75rem; }
+.map-state-confirmation h4 { margin-block: .5rem; }
+.map-state-confirmation label { display: block; margin-block: .65rem; }
+.map-state-hint { font-size: .9rem; }
+.map-state-success { color: var(--success, #276749); }
 .space-row { border-bottom: 1px solid var(--border); padding-block: .5rem; }
 </style>

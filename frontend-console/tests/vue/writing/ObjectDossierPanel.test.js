@@ -164,3 +164,107 @@ it("台账倾向默认为关闭，作者勾选后可独立选择是否只看已�
   expect(wrapper.text()).toContain("遇到压力时先确认账目")
   wrapper.unmount()
 })
+
+it("只对自定义类型声明字段展示 Story 作者确认编辑器并在重读后清除已保存草稿", async () => {
+  const entityId = id(8)
+  const customEntity = { id: entityId, name: "灰隼号", entity_type: "airship" }
+  const response = briefResponse([entityId], {
+    continuity_items: [],
+    validity_notices: [{
+      entity_id: entityId,
+      entry_id: "entry-validity-1",
+      story_field_key: "hull_condition",
+      status: "gap",
+      gap: "story_source_unverified",
+      world_evidence: [],
+      story_observation: null,
+    }],
+  })
+  const updated = briefResponse([entityId], {
+    continuity_items: [{
+      entity_id: entityId,
+      subject_id: entityId,
+      subject_label: "灰隼号",
+      dimension: "entities",
+      field: "hull_condition",
+      value: "船腹有一道新裂口",
+      layer: "fact",
+      confidence: "confirmed",
+      checkpoint_id: "checkpoint-custom",
+      source_refs: [],
+    }],
+  })
+  const objectDossierBrief = vi.fn()
+    .mockResolvedValueOnce(response)
+    .mockResolvedValueOnce(updated)
+  const confirmCustomTextState = vi.fn(async () => ({ created: true }))
+  const ensureSceneCheckpoints = vi.fn(async () => ({}))
+  setBridgeOverrides({ api: {
+    world: {
+      getEntity: vi.fn(async () => customEntity),
+      getEntityDossierTemplate: vi.fn(async () => ({
+        profile_type: "airship",
+        version_number: 3,
+        state_fields: [{ key: "hull_condition", label: "船体状况", value_kind: "text" }],
+      })),
+    },
+    context: { objectDossierBrief },
+    story: { confirmCustomTextState, ensureSceneCheckpoints },
+  } })
+  const wrapper = mountPanel({ scene: scene("scene-a", [entityId]) })
+  await flushPromises()
+
+  await wrapper.get(".object-dossier__selection input").setValue(true)
+  await wrapper.get(".object-dossier__header button").trigger("click")
+  await flushPromises()
+  expect(wrapper.text()).toContain("自定义文字状态")
+  expect(wrapper.find("textarea").exists()).toBe(true)
+  expect(wrapper.text()).toContain("作者有效期核对")
+  expect(wrapper.text()).toContain("Story 观察的来源暂不可核实")
+  await wrapper.get("textarea").setValue("船腹有一道新裂口")
+  await wrapper.get(".object-dossier__custom-state-actions button").trigger("click")
+  await flushPromises()
+
+  expect(confirmCustomTextState).toHaveBeenCalledWith("project-a", expect.objectContaining({
+    confirmed: true,
+    scene_id: "scene-a",
+    entity_id: entityId,
+    field_key: "hull_condition",
+    value: "船腹有一道新裂口",
+    expected_template_version_number: 3,
+    idempotency_key: expect.any(String),
+  }))
+  expect(ensureSceneCheckpoints).toHaveBeenCalledWith("project-a", "scene-a")
+  expect(wrapper.text()).toContain("本场已有作者确认记录：船腹有一道新裂口")
+  wrapper.unmount()
+})
+
+it("Story 写入失败时保留自定义文字状态草稿", async () => {
+  const entityId = id(9)
+  const stale = Object.assign(new Error("模板已更新，请重读后重试"), { status: 409 })
+  const confirmCustomTextState = vi.fn().mockRejectedValue(stale)
+  setBridgeOverrides({ api: {
+    world: {
+      getEntity: vi.fn(async () => ({ id: entityId, name: "灰隼号", entity_type: "airship" })),
+      getEntityDossierTemplate: vi.fn(async () => ({
+        profile_type: "airship",
+        version_number: 3,
+        state_fields: [{ key: "hull_condition", label: "船体状况", value_kind: "text" }],
+      })),
+    },
+    context: { objectDossierBrief: vi.fn(async (payload) => briefResponse(payload.entity_ids, { continuity_items: [] })) },
+    story: { confirmCustomTextState, ensureSceneCheckpoints: vi.fn(async () => ({})) },
+  } })
+  const wrapper = mountPanel({ scene: scene("scene-a", [entityId]) })
+  await flushPromises()
+  await wrapper.get(".object-dossier__selection input").setValue(true)
+  await wrapper.get(".object-dossier__header button").trigger("click")
+  await flushPromises()
+  await wrapper.get("textarea").setValue("船腹仍然完好")
+  await wrapper.get(".object-dossier__custom-state-actions button").trigger("click")
+  await flushPromises()
+
+  expect(wrapper.get("textarea").element.value).toBe("船腹仍然完好")
+  expect(wrapper.get('[role="alert"]').text()).toContain("模板已更新")
+  wrapper.unmount()
+})

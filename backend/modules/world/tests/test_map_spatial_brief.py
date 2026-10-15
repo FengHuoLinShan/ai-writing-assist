@@ -8,16 +8,20 @@ from types import SimpleNamespace
 import pytest
 
 from infrastructure.stable_hash import stable_hash
+from modules.world.map_declaration_state import map_declaration_subject_id
 from modules.world.map_spatial_anchors import resolve_validity
 from modules.world.map_spatial_brief_schemas import MapSpatialBriefRequest
 from modules.world.map_spatial_brief_service import (
     _safe_json,
+    _within_cutoff,
     read_map_spatial_brief,
 )
 from modules.world.map_structure_schemas import (
     MapDocument,
     MapNodeCreate,
     MapSaveRequest,
+    SpatialAnchor,
+    SpatialValidity,
 )
 from modules.world.map_structure_service import (
     MapStructureService,
@@ -43,6 +47,142 @@ def _range_ref() -> dict:
         "source_hash": "a" * 64,
         "range_hash": "b" * 64,
     }
+
+
+def test_map_validity_keeps_author_interval_when_story_identity_contract_is_missing() -> (
+    None
+):
+    scene_id = str(uuid.uuid4())
+    novel_id = str(uuid.uuid4())
+    node_id = str(uuid.uuid4())
+    revision_id = str(uuid.uuid4())
+    item = SimpleNamespace(
+        id="map-declaration-1",
+        effective=SpatialValidity(start=SpatialAnchor(kind="scene", id=scene_id)),
+    )
+    notices = {}
+
+    active = _within_cutoff(
+        item,
+        scenes=[
+            {
+                "scene_id": scene_id,
+                "scene_index": 2,
+                "status": "canonical",
+                "replaced_by_scene_ids": [],
+            }
+        ],
+        scene_index=2,
+        validity_notices=notices,
+        novel_id=novel_id,
+        node_id=node_id,
+        revision_id=revision_id,
+        declaration_kind="feature",
+    )
+
+    assert active is True
+    assert notices[
+        f"{node_id}:feature:map-declaration-1:gap:story_map_declaration_unavailable"
+    ] == {
+        "node_id": node_id,
+        "revision_id": revision_id,
+        "item_id": "map-declaration-1",
+        "item_kind": "feature",
+        "status": "gap",
+        "gap": "story_map_declaration_unavailable",
+        "author_active": True,
+        "story_observation": None,
+    }
+
+
+def test_map_cutoff_uses_exact_story_identity_only_when_project_override_is_enabled():
+    novel_id, node_id, revision_id = (
+        str(uuid.uuid4()),
+        str(uuid.uuid4()),
+        str(uuid.uuid4()),
+    )
+    observed_scene_id, cutoff_scene_id = str(uuid.uuid4()), str(uuid.uuid4())
+    declaration_id = "feature:harbor"
+    subject_id = map_declaration_subject_id(novel_id, node_id, "feature", declaration_id)
+    fact = {
+        "subject_id": subject_id,
+        "field": "effective_status",
+        "value": "active",
+        "confidence": "confirmed",
+        "occurred_at": {"scene_index": 1, "scene_sequence": 1},
+        "source": {
+            "provenance": {
+                "object_type": "map_declaration",
+                "field": "effective_status",
+                "event_id": "map-event-1",
+                "author_confirmed": True,
+                "identity_ref": {
+                    "contract_version": 1,
+                    "novel_id": novel_id,
+                    "node_id": node_id,
+                    "revision_id": revision_id,
+                    "subject_id": subject_id,
+                    "declaration_kind": "feature",
+                    "declaration_id": declaration_id,
+                    "field_key": "effective_status",
+                },
+            }
+        },
+    }
+    view = {
+        "novel_id": novel_id,
+        "scene_id": cutoff_scene_id,
+        "scene_index": 2,
+        "dimensions": [{"dimension": "entities", "status": "ok", "facts": [fact]}],
+    }
+    item = SimpleNamespace(
+        id=declaration_id,
+        effective=SpatialValidity(end=SpatialAnchor(kind="scene", id=observed_scene_id)),
+    )
+    scenes = [
+        {
+            "scene_id": observed_scene_id,
+            "scene_index": 1,
+            "status": "canonical",
+            "replaced_by_scene_ids": [],
+        },
+        {
+            "scene_id": cutoff_scene_id,
+            "scene_index": 2,
+            "status": "canonical",
+            "replaced_by_scene_ids": [],
+        },
+    ]
+    default_notices = {}
+    assert not _within_cutoff(
+        item,
+        scenes=scenes,
+        scene_index=2,
+        validity_notices=default_notices,
+        story_view=view,
+        novel_id=novel_id,
+        cutoff_scene_id=cutoff_scene_id,
+        node_id=node_id,
+        revision_id=revision_id,
+        declaration_kind="feature",
+    )
+    assert next(iter(default_notices.values()))["status"] == "author_priority"
+
+    enabled_notices = {}
+    assert _within_cutoff(
+        item,
+        scenes=scenes,
+        scene_index=2,
+        validity_notices=enabled_notices,
+        story_view=view,
+        novel_id=novel_id,
+        cutoff_scene_id=cutoff_scene_id,
+        node_id=node_id,
+        revision_id=revision_id,
+        declaration_kind="feature",
+        allow_story_override=True,
+    )
+    assert next(iter(enabled_notices.values()))["status"] == "story_override"
 
 
 def _scene_port(

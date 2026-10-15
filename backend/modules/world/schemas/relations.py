@@ -19,6 +19,7 @@ from modules.world.schemas._common import (
     RelationKind,
     _optional_uuid_validator,
 )
+from modules.world.schemas.dossier import DossierValidity
 
 # EntityRelation Schema
 # ============================================================
@@ -75,6 +76,7 @@ class EntityRelationCreate(BaseModel):
         default=None,
         description="来源与人工复核审计元数据",
     )
+    validity: DossierValidity | None = None
 
 
 class EntityRelationUpdate(BaseModel):
@@ -85,6 +87,7 @@ class EntityRelationUpdate(BaseModel):
     description: Annotated[str | None, Field(None)]
     strength: Annotated[float | None, Field(None, ge=0.0, le=1.0)]
     status: Annotated[str | None, Field(None, max_length=16)]
+    validity: DossierValidity | None = None
 
 
 class EntityRelationReviewEditRequest(BaseModel):
@@ -96,6 +99,7 @@ class EntityRelationReviewEditRequest(BaseModel):
     relation_kind: RelationKind | None = None
     description: str | None = None
     strength: Annotated[float | None, Field(None, ge=0.0, le=1.0)] = None
+    validity: DossierValidity | None = None
     confirm_review: bool = True
     expected_execution_fingerprint: Annotated[
         str | None, Field(None, min_length=64, max_length=64)
@@ -135,6 +139,14 @@ class EntityRelationResponse(BaseModel):
     quote: str | None = None
     review_meta: dict | None = None
     status: str = "canonical"
+    validity: DossierValidity | None = Field(
+        default=None, validation_alias="validity_json"
+    )
+    effective_at_cutoff: bool | None = None
+    validity_conflict: bool = False
+    story_override_applied: bool = False
+    validity_gap: str | None = None
+    story_observation: dict[str, Any] | None = None
     display_state: Literal["active", "review", "archived"] | None = None
     source: str | None = Field(default=None, validation_alias="author_source")
     attention_reasons: list[str] = Field(default_factory=list)
@@ -166,6 +178,8 @@ class EntityRelationListResponse(BaseModel):
 
     items: list[EntityRelationResponse]
     total: int
+    as_of_scene_id: str | None = None
+    allow_story_override: bool = False
 
 
 class ReviewTypeCatalogItem(BaseModel):
@@ -236,6 +250,7 @@ class EntityRelationSeparateReviewItem(BaseModel):
     relation_kind: RelationKind | None = None
     description: str | None = None
     strength: float | None = Field(None, ge=0.0, le=1.0)
+    validity: DossierValidity | None = None
 
     @field_validator("relation_type")
     @classmethod
@@ -261,6 +276,7 @@ class EntityRelationReviewBatchDecision(BaseModel):
     relation_kind: RelationKind | None = None
     description: str | None = None
     strength: float | None = Field(None, ge=0.0, le=1.0)
+    validity: DossierValidity | None = None
     separate_relations: list[EntityRelationSeparateReviewItem] = Field(
         default_factory=list,
         max_length=50,

@@ -15,6 +15,8 @@ from core.service_keys import PROJECT_REQUIRE_ACTIVE
 from infrastructure.stable_hash import stable_hash
 from modules.evidence import facade as evidence_facade
 from modules.evidence.contracts import VisibilityContextContract
+from modules.project.facade import read_object_dossier_settings
+from modules.world.map_declaration_state import MapDeclarationKind
 from modules.world.map_merge_lineage import (
     EXCLUDED_MERGE_UNKNOWN,
     excluded_merge_targets,
@@ -24,6 +26,7 @@ from modules.world.map_spatial_brief_schemas import (
     MapSpatialBriefRequest,
     MapSpatialBriefResponse,
 )
+from modules.world.validity_policy import resolve_map_declaration_validity
 from modules.writing.contracts import SourceRangeRefContract
 
 _ACTIVE_SCENES = frozenset({"candidate", "draft", "canonical"})
@@ -82,25 +85,93 @@ def _exact_match(query: str, label: str) -> bool:
     return bool(label_key and label_key in query_key)
 
 
-def _within_cutoff(item, *, scenes: list[dict], scene_index: int | None) -> bool:
+def _within_cutoff(
+    item,
+    *,
+    scenes: list[dict],
+    scene_index: int | None,
+    validity_notices: dict[str, dict] | None = None,
+    story_view=None,
+    novel_id: str | None = None,
+    cutoff_scene_id: str | None = None,
+    node_id: str | None = None,
+    revision_id: str | None = None,
+    declaration_kind: MapDeclarationKind | None = None,
+    allow_story_override: bool = False,
+    policy_gap: str | None = None,
+) -> bool:
     if item.effective is None:
         return True
-    if scene_index is None:
-        return False
     from modules.world.map_spatial_anchors import resolve_validity
 
     resolution = resolve_validity(item.effective, scenes)
-    return bool(
-        resolution.valid
-        and (
-            resolution.start_scene_index is None
-            or resolution.start_scene_index <= scene_index
+    if not resolution.valid:
+        author_active = False
+        gap = resolution.reason or "author_interval_anchor_invalid"
+    elif scene_index is None:
+        author_active = False
+        gap = "scene_cutoff_unavailable"
+    else:
+        author_active = bool(
+            (
+                resolution.start_scene_index is None
+                or resolution.start_scene_index <= scene_index
+            )
+            and (
+                resolution.end_scene_index is None
+                or scene_index <= resolution.end_scene_index
+            )
         )
-        and (
-            resolution.end_scene_index is None
-            or scene_index <= resolution.end_scene_index
-        )
+        gap = None
+    if validity_notices is None:
+        return author_active
+    item_id = str(getattr(item, "id", ""))
+    decision = resolve_map_declaration_validity(
+        author_active=author_active,
+        anchor_gap=gap,
+        story_view=story_view,
+        novel_id=str(novel_id or ""),
+        cutoff_scene_id=str(cutoff_scene_id or ""),
+        node_id=str(node_id or ""),
+        revision_id=str(revision_id or ""),
+        declaration_kind=declaration_kind or "feature",
+        declaration_id=item_id,
+        cutoff_scene_index=scene_index,
+        allow_story_override=allow_story_override,
+        policy_gap=policy_gap,
     )
+    if decision.status != "consistent":
+        observation = decision.observation
+        key = ":".join(
+            (
+                str(node_id or ""),
+                declaration_kind or "feature",
+                item_id,
+                decision.status or "gap",
+                decision.gap or "",
+            )
+        )
+        validity_notices[key] = {
+            "node_id": str(node_id or ""),
+            "revision_id": str(revision_id or ""),
+            "item_id": item_id,
+            "item_kind": declaration_kind or "feature",
+            "status": decision.status,
+            "gap": decision.gap,
+            "author_active": decision.author_active,
+            "story_observation": (
+                {
+                    "status": observation.status,
+                    "event_id": observation.event_id,
+                    "scene_index": observation.scene_index,
+                    "source_refs": observation.source_refs or [],
+                    "author_confirmed": observation.author_confirmed,
+                }
+                if observation is not None and observation.gap is None
+                else None
+            ),
+        }
+    return decision.effective
 
 
 def _safe_json(value: dict) -> tuple[str, bool]:
@@ -176,6 +247,11 @@ class MapSpatialBriefService:
         scene_location_ids: set[str] = set()
         state_facts: list[dict] = []
         temporal_scenes: list[dict] = []
+        validity_notices: dict[str, dict] = {}
+        map_story_view = None
+        allow_story_override = False
+        policy_gap = None
+        author_view = data.reveal_mode == "author_full"
         if data.scene_id:
             raw_scene = await _story_scene_port().get_scene_contract(
                 db, data.novel_id, data.scene_id
@@ -222,9 +298,18 @@ class MapSpatialBriefService:
                 data.novel_id,
                 data.scene_id,
                 viewpoint={"kind": "author"},
-                include_dimensions=["locations"],
+                include_dimensions=(
+                    ["locations", "entities"] if author_view else ["locations"]
+                ),
             )
             state_view = _as_dict(view)
+            if author_view:
+                try:
+                    settings = await read_object_dossier_settings(db, data.novel_id)
+                    allow_story_override = settings["allow_story_override"] is True
+                except (TypeError, ValueError):
+                    policy_gap = "project_override_setting_unavailable"
+                map_story_view = view
             scene_chapters = [
                 int(value)
                 for value in scene.get("chapter_ids") or []
@@ -530,6 +615,7 @@ class MapSpatialBriefService:
             return MapSpatialBriefResponse(
                 scene_id=data.scene_id,
                 scene_index=scene_index,
+                validity_notices=list(validity_notices.values()),
                 unknowns=["尚未选择 Scene 或截止章节，空间资料未核对；请选择范围后重试。"]
                 if node_rows
                 else [],
@@ -647,7 +733,18 @@ class MapSpatialBriefService:
                         or feature.reader_from_chapter > cutoff_chapter
                     )
                     or not _within_cutoff(
-                        feature, scenes=temporal_scenes, scene_index=scene_index
+                        feature,
+                        scenes=temporal_scenes,
+                        scene_index=scene_index,
+                        validity_notices=validity_notices if author_view else None,
+                        story_view=map_story_view,
+                        novel_id=data.novel_id,
+                        cutoff_scene_id=data.scene_id,
+                        node_id=str(node.id),
+                        revision_id=str(revision.id),
+                        declaration_kind="feature",
+                        allow_story_override=allow_story_override,
+                        policy_gap=policy_gap,
                     )
                     or feature.entity_id
                     and not await target_visible(
@@ -800,7 +897,18 @@ class MapSpatialBriefService:
                 if (
                     constraint.modality != "event_observed"
                     or not _within_cutoff(
-                        constraint, scenes=temporal_scenes, scene_index=scene_index
+                        constraint,
+                        scenes=temporal_scenes,
+                        scene_index=scene_index,
+                        validity_notices=validity_notices if author_view else None,
+                        story_view=map_story_view,
+                        novel_id=data.novel_id,
+                        cutoff_scene_id=data.scene_id,
+                        node_id=str(node.id),
+                        revision_id=str(revision.id),
+                        declaration_kind="constraint",
+                        allow_story_override=allow_story_override,
+                        policy_gap=policy_gap,
                     )
                     or not endpoint_ids.issubset(valid_features)
                     or not endpoint_ids.intersection(focus_features)
@@ -855,7 +963,18 @@ class MapSpatialBriefService:
                         if pair[0] is not None
                     )
                     or not _within_cutoff(
-                        journey, scenes=temporal_scenes, scene_index=scene_index
+                        journey,
+                        scenes=temporal_scenes,
+                        scene_index=scene_index,
+                        validity_notices=validity_notices if author_view else None,
+                        story_view=map_story_view,
+                        novel_id=data.novel_id,
+                        cutoff_scene_id=data.scene_id,
+                        node_id=str(node.id),
+                        revision_id=str(revision.id),
+                        declaration_kind="journey",
+                        allow_story_override=allow_story_override,
+                        policy_gap=policy_gap,
                     )
                     or not endpoints.issubset(valid_features)
                     or not endpoints.intersection(focus_features)
@@ -957,6 +1076,7 @@ class MapSpatialBriefService:
             scene_index=int(scene_index) if isinstance(scene_index, int) else None,
             chapter_index=cutoff_chapter,
             items=items,
+            validity_notices=list(validity_notices.values()),
             omitted_count=omitted_count,
             unknowns=[EXCLUDED_MERGE_UNKNOWN] if excluded_merges else [],
         )

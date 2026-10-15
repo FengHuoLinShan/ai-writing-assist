@@ -300,13 +300,16 @@ Story 导演根、分支、不可变回合、预算续算、作者历史操作�
 `story.scene_director.advance`、`story.scene_director.check_consistency` 和
 `story.scene_director.save_reference`。独立 `story_scene_director` Task 在任务 manifest 中注册，
 使用 `never_retry` 和持久化根账本。`20261016_story_scene_director.py`
-在当前基线上是单 head；后续与其他批次合并时须重新串接。Story 提供
+后串接 C0c 的关系有效期和档案字段迁移；当前 Alembic 单 head 为
+`20261016_dossier_story_field_key`。Story 提供
 `read_scene_director_references_for_writing` typed facade，按作品与当前 Scene 读取作者保存的内容副本；Evidence
 `director_reference` loader/section/policy 与 Writing generate、targeted-revision 请求已实现，环境白名单
 `NOVELCRAFT_DIRECTOR_REFERENCE_ENABLED_CAPABILITIES` 默认关闭。组合根已将
 `EVIDENCE_READ_STORY_DIRECTOR_REFERENCES` 已绑定 Story facade。
-该参考不是 SceneScriptFile、采用资格或正文约束。对象一致性未覆盖的生死、外观和 C0c 作者有效期仍明确返回
-unknown/partial，不代表已完成事实审查。
+该参考不是 SceneScriptFile、采用资格或正文约束。导演通过 World 只读端口按当前 Scene
+读取对象档案、关系及地图的作者有效期提醒，精确确认来源可报告作者优先或剧情覆盖；
+缺锚、旧来源及超过读取上限仍报告 unknown。未有结构化证明的生死、外观与其他语义推断
+仍保持 unknown/partial，不代表已完成事实审查。
 
 场景工作台与写作副驾驶 Director 标签共用 `SceneDirectorPanel.vue`；旧 rehearsal 面板只读且不能续跑。
 真实模型质量与作者验收仍须在最终固定代码上单独完成。

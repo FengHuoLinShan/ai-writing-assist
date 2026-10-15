@@ -218,6 +218,21 @@ def summarize_field_provenance(
         }
         if chosen is not None and chosen.object_type is not None:
             summaries[(field_key, subject_ref)]["object_type"] = chosen.object_type
+        if chosen is not None and chosen.identity_ref is not None:
+            summaries[(field_key, subject_ref)]["identity_ref"] = (
+                chosen.identity_ref.model_dump(mode="json")
+            )
+        if chosen is not None and chosen.author_confirmed:
+            summaries[(field_key, subject_ref)]["author_confirmed"] = True
+        if chosen is not None and chosen.event_scene_index is not None:
+            summaries[(field_key, subject_ref)]["occurred_at"] = {
+                "scene_index": chosen.event_scene_index,
+                **(
+                    {"scene_sequence": chosen.event_scene_sequence}
+                    if chosen.event_scene_sequence is not None
+                    else {}
+                ),
+            }
         if include_value_hash:
             summaries[(field_key, subject_ref)]["value_hash"] = (
                 chosen.value_hash if chosen else None
@@ -494,6 +509,8 @@ class SceneStateViewService:
             payload: dict[str, Any] | None = None,
             possibly_false: bool = False,
             provenance: dict[str, Any] | None = None,
+            field_provenance: dict[str, dict[str, Any]] | None = None,
+            confidence_override: str | None = None,
         ) -> None:
             entries.append(
                 SceneStateFactEntry(
@@ -502,7 +519,11 @@ class SceneStateViewService:
                     field=field,
                     value=value,
                     layer=layer,
-                    occurred_at=_occurred_at(payload or {}),
+                    occurred_at=(
+                        provenance.get("occurred_at")
+                        if provenance and provenance.get("occurred_at") is not None
+                        else _occurred_at(payload or {})
+                    ),
                     source={
                         **source,
                         **(
@@ -522,8 +543,13 @@ class SceneStateViewService:
                             else {}
                         ),
                         **({"provenance": provenance} if provenance else {}),
+                        **(
+                            {"field_provenance": field_provenance}
+                            if field_provenance
+                            else {}
+                        ),
                     },
-                    confidence=confidence,
+                    confidence=confidence_override or confidence,
                     possibly_false=possibly_false,
                 )
             )
@@ -534,6 +560,7 @@ class SceneStateViewService:
                     continue
                 label = cls._entity_label(payload, str(entity_id))
                 for field, value in cls._flatten_fields(payload):
+                    provenance = provenance_by_field.get((field, str(entity_id)))
                     add(
                         subject_id=str(entity_id),
                         subject_label=label,
@@ -543,7 +570,12 @@ class SceneStateViewService:
                         payload=payload,
                         # 逐字段来源按受控 payload 键登记；查询键带实体锚，
                         # 多实体同名字段各走各的链。未登记键查不到摘要。
-                        provenance=provenance_by_field.get((field, str(entity_id))),
+                        provenance=provenance,
+                        confidence_override=(
+                            "confirmed"
+                            if provenance and provenance.get("author_confirmed") is True
+                            else None
+                        ),
                     )
             for payload in state.get("changes") or []:
                 if not isinstance(payload, dict):
@@ -609,6 +641,19 @@ class SceneStateViewService:
                     if relation_id and isinstance(payload.get("attitude"), dict)
                     else None
                 )
+                relation_status_provenance = (
+                    provenance_by_field.get(("relation_status", str(relation_id)))
+                    if relation_id
+                    else None
+                )
+                relation_field_provenance = {
+                    key: value
+                    for key, value in (
+                        ("attitude", attitude_provenance),
+                        ("relation_status", relation_status_provenance),
+                    )
+                    if value is not None
+                }
                 add(
                     subject_id=str(relation_id) if relation_id else None,
                     subject_label=str(
@@ -619,6 +664,29 @@ class SceneStateViewService:
                     layer="fact",
                     payload=payload,
                     provenance=attitude_provenance,
+                    field_provenance=relation_field_provenance,
+                )
+            for payload in state.get("changes") or []:
+                if (
+                    not isinstance(payload, dict)
+                    or payload.get("relation_status") != "ended"
+                ):
+                    continue
+                relation_id = payload.get("id") or payload.get("relation_id")
+                add(
+                    subject_id=str(relation_id) if relation_id else None,
+                    subject_label=str(
+                        payload.get("label") or payload.get("kind") or "关系"
+                    ),
+                    field="relation_status",
+                    value=_clean_payload(payload),
+                    layer="observation",
+                    payload=payload,
+                    provenance=(
+                        provenance_by_field.get(("relation_status", str(relation_id)))
+                        if relation_id
+                        else None
+                    ),
                 )
         elif dimension == "timeline":
             for payload in state.get("facts") or []:

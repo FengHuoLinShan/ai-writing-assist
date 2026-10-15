@@ -106,6 +106,18 @@
               <ul v-if="reportFor(choice.id).omissions.length" class="object-dossier__omissions">
                 <li v-for="(reason, index) in reportFor(choice.id).omissions" :key="index">{{ reason }}</li>
               </ul>
+              <section v-if="reportFor(choice.id).validityNotices.length" class="object-dossier__validity-notices" aria-label="作者有效期核对" role="status">
+                <h6>作者有效期核对</h6>
+                <article v-for="notice in reportFor(choice.id).validityNotices" :key="notice.entry_id">
+                  <p>{{ validityNoticeLabel(notice) }}</p>
+                  <p v-if="notice.status === 'gap'" class="object-dossier__meta">{{ validityGapLabel(notice.gap) }}</p>
+                  <details v-if="notice.world_evidence?.length || notice.story_observation?.source_refs?.length">
+                    <summary>查看双方依据</summary>
+                    <ul v-if="notice.world_evidence?.length"><li v-for="(ref, index) in notice.world_evidence" :key="`world:${index}`">作者档案：{{ sourceLabel(ref) }}</li></ul>
+                    <ul v-if="notice.story_observation?.source_refs?.length"><li v-for="(ref, index) in notice.story_observation.source_refs" :key="`story:${index}`">Story 观察：{{ sourceLabel(ref) }}</li></ul>
+                  </details>
+                </article>
+              </section>
 
               <section class="object-dossier__layer-section" aria-label="World 稳定设定">
                 <h6>稳定设定 <small>World</small></h6>
@@ -133,7 +145,7 @@
                 <h6>本场时点状态 <small>Story</small></h6>
                 <article v-for="(item, index) in reportFor(choice.id).continuityItems" :key="`${item.checkpoint_id}:${item.dimension}:${item.field}:${index}`" class="object-dossier__entry">
                   <header>
-                    <strong>{{ item.subject_label || sceneStateDimensionLabel(item.dimension) }} · {{ sceneStateFieldLabel(item.field, item.dimension) }}</strong>
+                    <strong>{{ item.subject_label || sceneStateDimensionLabel(item.dimension) }} · {{ customStateFieldLabel(choice, item) }}</strong>
                     <span v-if="item.possibly_false" class="object-dossier__uncertain">可能不真实</span>
                   </header>
                   <p>{{ displayValue(item.value) }}</p>
@@ -146,6 +158,37 @@
                 <p v-if="!reportFor(choice.id).continuityItems.length" class="object-dossier__empty-layer">
                   {{ layerStateMessage(reportFor(choice.id), "continuity", "本场时点状态") }}
                 </p>
+                <section v-if="customStateFieldsFor(choice).length" class="object-dossier__custom-state" :aria-label="`${choice.entity?.name || '对象'}自定义状态`">
+                  <div>
+                    <h6>自定义文字状态 <small>Story · 作者确认</small></h6>
+                    <p>字段由对象类型模板定义；提交会追加本场状态记录，保留每次记录的来源，并按阅读视角显示。</p>
+                  </div>
+                  <div v-for="field in customStateFieldsFor(choice)" :key="field.key" class="object-dossier__custom-state-field">
+                    <label :for="customStateEditorId(choice, field)">
+                      <span>{{ field.label }}</span>
+                      <textarea
+                        :id="customStateEditorId(choice, field)"
+                        :value="customStateValue(choice, field)"
+                        rows="2"
+                        maxlength="4000"
+                        :disabled="Boolean(customStateSaving[customStateKey(choice, field)]) || loadingBrief"
+                        :aria-describedby="`${customStateEditorId(choice, field)}-hint`"
+                        @input="updateCustomStateDraft(choice, field, $event.target.value)"
+                      />
+                    </label>
+                    <div class="object-dossier__custom-state-actions">
+                      <button
+                        type="button"
+                        class="btn btn-sm"
+                        :disabled="!String(customStateValue(choice, field) || '').trim() || Boolean(customStateSaving[customStateKey(choice, field)]) || loadingBrief"
+                        @click="saveCustomTextState(choice, field)"
+                      >{{ customStateSaving[customStateKey(choice, field)] ? '正在保存…' : '确认记录本场状态' }}</button>
+                      <span :id="`${customStateEditorId(choice, field)}-hint`" class="object-dossier__meta">保存后会重新读取当前 Scene；失败或版本冲突时保留输入。</span>
+                    </div>
+                    <p v-if="customStateErrors[customStateKey(choice, field)]" class="object-dossier__error" role="alert">{{ customStateErrors[customStateKey(choice, field)] }}</p>
+                    <p v-else-if="customStateFact(choice, field) && !customStateDrafts[customStateKey(choice, field)]" class="object-dossier__meta" role="status">本场已有作者确认记录：{{ displayValue(customStateFact(choice, field).value) }}</p>
+                  </div>
+                </section>
               </section>
 
               <section v-if="includePatterns" class="object-dossier__layer-section" aria-label="Evolution 解释性倾向">
@@ -177,6 +220,7 @@
 import { computed, onBeforeUnmount, ref, watch } from "vue"
 import { getApi } from "../../../bridge/index.js"
 import { sceneStateDimensionLabel, sceneStateFieldLabel } from "../sceneLensModel.js"
+import { validityGapLabel } from "../../world/logic/validityLabels.js"
 
 const props = defineProps({
   projectId: { type: String, default: null },
@@ -187,6 +231,10 @@ const invalidReferenceCount = computed(() => references.value.filter((item) => !
 const validReferences = computed(() => references.value.filter((item) => isUuid(item.id)))
 const choices = ref([])
 const reports = ref({})
+const customStateTemplates = ref({})
+const customStateDrafts = ref({})
+const customStateSaving = ref({})
+const customStateErrors = ref({})
 const failedBatches = ref([])
 const includePatterns = ref(false)
 const onlyAdoptedPatterns = ref(false)
@@ -216,6 +264,7 @@ function resetScope() {
   generation += 1
   choices.value = []
   reports.value = {}
+  customStateTemplates.value = {}
   failedBatches.value = []
   loadingEntities.value = false
   loadingBrief.value = false
@@ -245,6 +294,8 @@ async function loadEntities() {
         selected: result.status === "fulfilled",
       }
     })
+    await loadCustomStateTemplates(scope, choices.value)
+    if (!current(scope.token, scope.projectId, scope.sceneId)) return
     if (results.every((item) => item.status === "rejected")) {
       entityLoadError.value = "所有本场关联对象暂时无法核对；这不代表没有对象档案。"
     } else if (results.some((item) => item.status === "rejected")) {
@@ -257,6 +308,27 @@ async function loadEntities() {
   } finally {
     if (current(scope.token, scope.projectId, scope.sceneId)) loadingEntities.value = false
   }
+}
+
+async function loadCustomStateTemplates(scope, entityChoices) {
+  const entityTypes = [...new Set(entityChoices
+    .filter((item) => item.entity?.entity_type)
+    .map((item) => String(item.entity.entity_type)))]
+  const loaded = await Promise.allSettled(entityTypes.map((profileType) =>
+    getApi().world.getEntityDossierTemplate(profileType, scope.projectId, {
+      cache: "no-store",
+      signal: scope.controller.signal,
+    }),
+  ))
+  if (!current(scope.token, scope.projectId, scope.sceneId)) return
+  const next = {}
+  for (let index = 0; index < entityTypes.length; index += 1) {
+    const result = loaded[index]
+    next[entityTypes[index]] = result.status === "fulfilled"
+      ? result.value
+      : { state_fields: [], unavailable: true }
+  }
+  customStateTemplates.value = next
 }
 
 async function loadBrief() {
@@ -320,6 +392,111 @@ function groupChoices(items) {
 }
 
 function reportFor(entityId) { return reports.value[entityId] || null }
+function validityNoticeLabel(notice) {
+  const field = notice.story_field_key ? `Story 字段 ${notice.story_field_key}` : "尚未声明 Story 字段对应"
+  const title = notice.facing_label || "作者档案"
+  if (notice.status === "story_override") return `${title}（${field}）已被截止 Scene 之前的可信观察覆盖。`
+  if (notice.status === "author_priority") return `${title}（${field}）与剧情观察冲突；项目设置关闭时按作者有效期读取。`
+  return `${title}（${field}）暂时无法与 Story 观察核对。`
+}
+function customStateFieldsFor(choice) {
+  return customStateTemplates.value[choice.entity?.entity_type]?.state_fields || []
+}
+function customStateKey(choice, field) {
+  return [props.projectId, props.scene?.id || "", choice.id, field.key].join(":")
+}
+function customStateEditorId(choice, field) {
+  return `custom-state-${[props.projectId, props.scene?.id, choice.id, field.key].join("-")}`
+}
+function customStateFact(choice, field) {
+  return (reportFor(choice.id)?.continuityItems || []).find((item) =>
+    String(item.subject_id || item.entity_id || "") === String(choice.id)
+    && item.field === field.key,
+  ) || null
+}
+function customStateValue(choice, field) {
+  const draft = customStateDrafts.value[customStateKey(choice, field)]
+  if (draft) return draft.value
+  return displayValue(customStateFact(choice, field)?.value)
+}
+function customStateFieldLabel(choice, item) {
+  const match = customStateFieldsFor(choice).find((field) => field.key === item.field)
+  return match?.label || sceneStateFieldLabel(item.field, item.dimension)
+}
+function idempotencyKey() {
+  return globalThis.crypto?.randomUUID?.()
+    || `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+function updateCustomStateDraft(choice, field, value) {
+  const key = customStateKey(choice, field)
+  const prior = customStateDrafts.value[key]
+  customStateDrafts.value = {
+    ...customStateDrafts.value,
+    [key]: {
+      value,
+      idempotency_key: prior?.value === value ? prior.idempotency_key : idempotencyKey(),
+    },
+  }
+  const errors = { ...customStateErrors.value }
+  delete errors[key]
+  customStateErrors.value = errors
+}
+
+async function saveCustomTextState(choice, field) {
+  const projectId = props.projectId
+  const sceneId = props.scene?.id
+  const token = generation
+  const key = customStateKey(choice, field)
+  const template = customStateTemplates.value[choice.entity?.entity_type]
+  let draft = customStateDrafts.value[key]
+  const value = String(draft?.value ?? customStateValue(choice, field)).trim()
+  if (!projectId || !sceneId || !value || !template?.version_number) return
+  if (!draft) {
+    draft = { value, idempotency_key: idempotencyKey() }
+    customStateDrafts.value = { ...customStateDrafts.value, [key]: draft }
+  }
+  customStateSaving.value = { ...customStateSaving.value, [key]: true }
+  customStateErrors.value = { ...customStateErrors.value, [key]: "" }
+  try {
+    await getApi().story.confirmCustomTextState(projectId, {
+      confirmed: true,
+      scene_id: sceneId,
+      entity_id: choice.id,
+      field_key: field.key,
+      value,
+      expected_template_version_number: template.version_number,
+      idempotency_key: draft.idempotency_key,
+    })
+    if (!current(token, projectId, sceneId)) return
+    await getApi().story.ensureSceneCheckpoints(projectId, sceneId)
+    if (!current(token, projectId, sceneId)) return
+    await loadBrief()
+    const refreshedToken = generation
+    if (!current(refreshedToken, projectId, sceneId)) return
+    const saved = customStateFact(choice, field)
+    const latestDraft = customStateDrafts.value[key]
+    if (saved && displayValue(saved.value) === value) {
+      if (latestDraft?.idempotency_key === draft.idempotency_key) {
+        const drafts = { ...customStateDrafts.value }
+        delete drafts[key]
+        customStateDrafts.value = drafts
+      }
+      customStateErrors.value = { ...customStateErrors.value, [key]: "" }
+    } else {
+      customStateErrors.value = {
+        ...customStateErrors.value,
+        [key]: "已提交，但重新读取尚未显示这条状态；草稿仍保留。",
+      }
+    }
+  } catch (error) {
+    customStateErrors.value = {
+      ...customStateErrors.value,
+      [key]: error?.message || "保存失败；草稿仍保留，可以重试。",
+    }
+  } finally {
+    customStateSaving.value = { ...customStateSaving.value, [key]: false }
+  }
+}
 function layerStateMessage(report, layer, label) {
   if (!includePatterns.value && layer === "evolution") return "默认未读取 Evolution 倾向；可勾选后按需查看解释性参考。"
   if (!report?.layers?.includes(layer)) return `${label}尚未确认可读。`
@@ -388,6 +565,7 @@ function projectReport(result, entityId) {
     unknownLayers: result?.unknown_layers || [],
     omittedCount: Number(result?.omitted_count || 0),
     omissions: result?.omissions || [],
+    validityNotices: (result?.validity_notices || []).filter((item) => String(item.entity_id) === id),
     fingerprint: result?.fingerprint || null,
     worldItems: (result?.world_items || []).filter((item) => String(item.entity_id) === id),
     continuityItems: (result?.continuity_items || []).filter((item) => String(item.entity_id) === id),
@@ -410,6 +588,11 @@ onBeforeUnmount(() => { generation += 1; controller?.abort() })
 .object-dossier__warning { border-left: 3px solid var(--warning, #a66a00); background: var(--warning-soft, rgba(176, 132, 32, .08)); color: var(--text-primary); }
 .object-dossier__error { border-left: 3px solid var(--danger, #b42318); background: var(--danger-soft, rgba(180, 35, 24, .06)); color: var(--text-primary); }
 .object-dossier__error button { margin-left: 6px; }
+.object-dossier__validity-notices { display: grid; gap: 6px; padding: 9px; border: 1px solid var(--warning, #a66a00); border-radius: 8px; background: var(--warning-soft, rgba(176, 132, 32, .08)); }
+.object-dossier__validity-notices h6, .object-dossier__validity-notices p { margin: 0; font-size: 11px; line-height: 1.5; }
+.object-dossier__validity-notices article { display: grid; gap: 4px; padding-top: 5px; border-top: 1px solid var(--border-color, var(--border)); }
+.object-dossier__validity-notices summary { cursor: pointer; font-size: 11px; }
+.object-dossier__validity-notices ul { margin: 4px 0 0; padding-left: 17px; color: var(--text-secondary); font-size: 10px; overflow-wrap: anywhere; }
 .object-dossier__actions, .object-dossier__choice, .object-dossier__option { display: flex; align-items: center; gap: 8px; }
 .object-dossier__selection, .object-dossier__reports { display: grid; gap: 9px; }
 .object-dossier__type-group, .object-dossier__report-group { display: grid; gap: 6px; }
@@ -445,10 +628,22 @@ onBeforeUnmount(() => { generation += 1; controller?.abort() })
 .object-dossier__entry summary { cursor: pointer; }
 .object-dossier__entry ul, .object-dossier__omissions { margin: 4px 0 0; padding-left: 17px; color: var(--text-secondary); font-size: 11px; }
 .object-dossier__interpretation { margin: 0; color: var(--warning, #8a5b00); font-size: 11px; line-height: 1.5; }
+.object-dossier__custom-state { display: grid; gap: 8px; padding: 9px; border: 1px solid var(--border-color, var(--border)); border-radius: 8px; background: var(--bg-muted, rgba(120, 110, 90, .04)); }
+.object-dossier__custom-state h6 { margin: 0 0 3px; font-size: 12px; }
+.object-dossier__custom-state h6 small { margin-left: 5px; color: var(--text-secondary); font-size: 10px; font-weight: 400; }
+.object-dossier__custom-state > div:first-child p { margin: 0; color: var(--text-secondary); font-size: 11px; line-height: 1.5; }
+.object-dossier__custom-state-field { display: grid; gap: 6px; min-width: 0; }
+.object-dossier__custom-state-field label { display: grid; gap: 4px; min-width: 0; font-size: 11px; font-weight: 600; }
+.object-dossier__custom-state-field textarea { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; padding: 8px; border: 1px solid var(--border-color, var(--border)); border-radius: 6px; background: var(--bg-primary, var(--surface)); color: var(--text-primary); font: inherit; font-weight: 400; line-height: 1.5; resize: vertical; }
+.object-dossier__custom-state-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+.object-dossier__custom-state-actions button { min-height: 40px; }
+.object-dossier__custom-state-field > p { margin: 0; overflow-wrap: anywhere; }
 @media (max-width: 520px) {
   .object-dossier__header { align-items: flex-start; }
   .object-dossier__header > button { max-width: 48%; white-space: normal; }
   .object-dossier__choice { flex-wrap: wrap; }
   .object-dossier__choice-main { flex-basis: calc(100% - 28px); }
+  .object-dossier__custom-state-actions { align-items: stretch; }
+  .object-dossier__custom-state-actions button { width: 100%; min-height: 42px; white-space: normal; }
 }
 </style>

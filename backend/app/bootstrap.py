@@ -93,6 +93,9 @@ from core.service_keys import (
     WORLD_READ_MAP_CHAPTER_CONSUMERS,
     WORLD_READ_MAP_NODE_HEADS,
     WORLD_READ_MAP_SPATIAL_BRIEF,
+    WORLD_REQUIRE_CUSTOM_TEXT_STATE_FIELD,
+    WORLD_REQUIRE_MAP_DECLARATION_STATE,
+    WORLD_READ_OBJECT_VALIDITY_NOTICES,
     WORLD_READ_MAP_SPATIAL_ADVISORIES,
     WORLD_READ_PROJECT_VOCABULARY,
     WORLD_STAGE_SPATIAL_DISCOVERY,
@@ -176,6 +179,7 @@ from modules.world.facade import (
     list_entity_terms as _world_list_entity_terms,
     review_team_stress as _world_review_team_stress,
 )
+from modules.world.notice_sources import list_object_validity_notices
 from modules.evidence.facade import (
     purge_project_interaction_cache as _purge_project_interaction_cache,
 )
@@ -218,6 +222,8 @@ from modules.story.facade import read_scene_director_references_for_writing
 from modules.world import assistant_ports as _world_assistant
 from modules.world.facade import (
     read_world_object_dossier,
+    require_custom_text_state_field as _world_require_custom_text_state_field,
+    require_map_declaration_state as _world_require_map_declaration_state,
     read_spatial_discovery_context as _world_read_spatial_discovery_context,
     stage_spatial_discovery as _world_stage_spatial_discovery,
     build_map_auto_drafts as _world_build_map_auto_drafts,
@@ -231,16 +237,19 @@ from app.assistant_operation_registry import (
     assistant_notice_operations,
     imports_operations,
     world_dossier_operations,
+    world_validity_operations,
 )
 from app.notice_source_registry import notice_sources as _assistant_notice_sources
 from app.assistant_operation_registry import project_dedup_operations
 from app.assistant_operation_registry import evidence_read_operations
 from app.assistant_operation_registry import evidence_object_dossier_operations
 from app.assistant_operation_registry import project_operations
+from app.assistant_operation_registry import project_validity_operations
 from app.assistant_operation_registry import story_information_operations
 from app.assistant_operation_registry import story_operations
 from app.assistant_operation_registry import story_planning_operations
 from app.assistant_operation_registry import story_scene_operations
+from app.assistant_operation_registry import story_state_operations
 from app.assistant_operation_registry import story_director_operations
 from app.assistant_operation_registry import story_generation_operations
 from app.assistant_operation_registry import story_structure_operations
@@ -437,10 +446,12 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
                 **writing_generation_operations,
                 **writing_candidate_operations,
                 **project_operations,
+                **project_validity_operations,
                 **story_operations,
                 **story_structure_operations,
                 **story_planning_operations,
                 **story_scene_operations,
+                **story_state_operations,
                 **story_director_operations,
                 **story_generation_operations,
                 **world_opening_operations,
@@ -456,6 +467,7 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
                 **world_author_operations,
                 **assistant_notice_operations,
                 **world_dossier_operations,
+                **world_validity_operations,
                 **writing_a1_operations,
             },
         ),
@@ -471,6 +483,9 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
             read_scene_director_references_for_writing,
         ),
         (EVIDENCE_READ_WORLD_OBJECT_DOSSIER, read_world_object_dossier),
+        (WORLD_REQUIRE_CUSTOM_TEXT_STATE_FIELD, _world_require_custom_text_state_field),
+        (WORLD_REQUIRE_MAP_DECLARATION_STATE, _world_require_map_declaration_state),
+        (WORLD_READ_OBJECT_VALIDITY_NOTICES, list_object_validity_notices),
         (WORLD_READ_MAP_COLD_START_DRAFTS, _read_map_cold_start_drafts),
         (WORLD_READ_MAP_NOTIFICATION_SIGNALS, _read_map_notification_signals),
         (

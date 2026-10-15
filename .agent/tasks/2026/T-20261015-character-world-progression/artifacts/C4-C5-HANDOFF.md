@@ -121,3 +121,11 @@ ADR-0040、ADR-0041 为准；不是新的授权或验收豁免。
 - 共享组合根、keys、操作目录冻结、TaskRegistry与migration祖先当前由C0 Sol单写。C5先独立服务/schema/router/task/纯SPEC/组件，报告精确接线；完成实现后仍须Sol真实注册、API/trace/PG/worker与浏览器审修。root独占三TASK。
 - 复用director_budget/tasks已审durable checkpoint、原root start/deadline与账本单调合并，避免重演expire_all异步失效、client.timeout、内部mode误校验和续轮preview漏branch_kind等实际缺陷。普通Assistant的R1域内推进必须验证确为author turn并记原领域根；Goal未适配不得伪造根身份。
 - C0 Sol正补Map/Relation/自定义状态真实typed有效期读取及director consistency，不把尚未接线写成永久unknown。C5先从稳定接口准备明确依赖，不抢写该批composition。
+
+
+## 2026-10-16T04:49:15+08:00 C5已审产品起点与组合复验
+
+- C5独立树已快进primary07264f17a，新增仅测试资源归属修复616e9d474；根源是HTTP fixture经留痕创建背景manager后未回收，未改生产隔离guard。root原组合最终5102通过/1 deselected/已知warning，183.84s；Sol逐测modules5751与Editorial→Notice→Evals同序34通过，原8299广覆盖尚待最终结果。
+- 原先3个Writing隔离失败已在root最终组合中消失，前端3157、24专用PG与真实worker/UI证据继续有效，不因仅测试夹具改动重复付费或浏览器流程。C0c仍由另一个Sol独占接线，完整C0另有模板借用、题材包与互通尾项，见C0-TEMPLATE-INTERCHANGE-TAIL.md。
+
+- 2026-10-16T04:51:59+08:00 Sol原8299最终通过/8 deselected/已知warning，323.76s，两个Director专库已释放使用权、数据保留；Luna/max luna_world_progression已启动上述072树，完整C5实施中，不再等待C4。当前其余活动为Luna A3与Sol C0c。

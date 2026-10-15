@@ -2,7 +2,7 @@
  * WorldRelationsTab 测试 — 渲染契约、分页、批量操作。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
-import { enableAutoUnmount, mount } from "@vue/test-utils"
+import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils"
 
 import WorldRelationsTab from "../../../vue/views/world/components/WorldRelationsTab.vue"
 import { resetWorldSession, worldSession } from "../../../vue/views/world/worldSession.js"
@@ -14,6 +14,7 @@ const RELATIONS = [
 ]
 
 let router
+let api
 
 function mountTab(propOverrides = {}) {
   return mount(WorldRelationsTab, {
@@ -34,13 +35,16 @@ beforeEach(() => {
   localStorage.clear()
   resetWorldSession()
   router = { navigate: vi.fn(), refresh: vi.fn(async () => true) }
-  setBridgeOverrides({
-    api: {
-      world: {
-        deleteRelationship: vi.fn(async () => ({})),
-        reviewEditRelationship: vi.fn(async () => ({})),
-      },
+  api = {
+    world: {
+      deleteRelationship: vi.fn(async () => ({})),
+      reviewEditRelationship: vi.fn(async () => ({})),
+      listRelationships: vi.fn(async () => ({ items: [], total: 0, allow_story_override: false })),
     },
+    outline: { listScenesOrdered: vi.fn(async () => []) },
+  }
+  setBridgeOverrides({
+    api,
     state: { currentProjectId: "p-rel", currentView: "world" },
     router,
     toast: vi.fn(),
@@ -168,6 +172,68 @@ describe("搜索", () => {
     await wrapper.get('[role="search"] button[type="button"]').trigger("click")
     expect(worldSession.relationListFilters.q).toBe("")
     expect(router.navigate.mock.calls[1][3].toString()).toBe("")
+  })
+})
+
+describe("按 Scene 核对有效期", () => {
+  it("读取稳定 Scene 截止并呈现冲突与来源缺口", async () => {
+    const sceneId = "scene-validity-a"
+    api.outline.listScenesOrdered.mockResolvedValueOnce([
+      { id: sceneId, scene_index: 3, title: "旧港决裂" },
+    ])
+    api.world.listRelationships.mockResolvedValueOnce({
+      items: [{
+        ...RELATIONS[0],
+        validity: { start: { kind: "scene", id: sceneId }, end: null },
+        effective_at_cutoff: true,
+        validity_conflict: true,
+        story_override_applied: false,
+        validity_gap: null,
+      }],
+      total: 1,
+      allow_story_override: false,
+    })
+    const wrapper = mountTab()
+    await flushPromises()
+    await wrapper.get("#world-relation-validity-scene").setValue(sceneId)
+    await flushPromises()
+
+    expect(api.world.listRelationships).toHaveBeenCalledWith(expect.objectContaining({
+      novel_id: "p-rel",
+      as_of_scene_id: sceneId,
+    }))
+    expect(wrapper.findAll("tbody tr[data-id]")).toHaveLength(1)
+    expect(wrapper.text()).toContain("当前按作者有效期读取")
+    wrapper.unmount()
+  })
+
+  it("切换项目或 Scene 后忽略旧关系读取响应", async () => {
+    const sceneA = "scene-validity-a"
+    const sceneB = "scene-validity-b"
+    let resolveOld
+    api.outline.listScenesOrdered.mockResolvedValueOnce([
+      { id: sceneA, scene_index: 1, title: "第一场" },
+      { id: sceneB, scene_index: 2, title: "第二场" },
+    ])
+    api.world.listRelationships
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve }))
+      .mockResolvedValueOnce({
+        items: [{ ...RELATIONS[1], description: "仅属于第二场" }],
+        total: 1,
+        allow_story_override: false,
+      })
+    const wrapper = mountTab()
+    await flushPromises()
+    await wrapper.get("#world-relation-validity-scene").setValue(sceneA)
+    await flushPromises()
+    await wrapper.get("#world-relation-validity-scene").setValue(sceneB)
+    await flushPromises()
+    resolveOld({ items: [{ ...RELATIONS[0], description: "迟到的第一场" }], total: 1 })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain("仅属于第二场")
+    expect(wrapper.text()).not.toContain("迟到的第一场")
+    wrapper.unmount()
   })
 })
 

@@ -55,6 +55,9 @@ from modules.project.editorial_brief import (
 from modules.project.editorial_brief import (
     set_editorial_brief_for_writing as set_editorial_brief_for_writing,
 )
+from modules.project.object_dossier_settings import (
+    read_object_dossier_settings as read_object_dossier_settings,
+)
 from modules.project.repositories import ProjectRepository
 from modules.project.schemas import ProjectContext, ProjectCreate
 from modules.project.services import ProjectService
