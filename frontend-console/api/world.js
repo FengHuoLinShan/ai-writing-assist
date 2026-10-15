@@ -123,6 +123,63 @@ export const world = {
       return contractFetch("world.getEntity", { id }, { novel_id: novelId }, options)
     },
 
+    async getEntityDossier(entityId, novelId, options = {}) {
+      const { asOfSceneId = null, limit = 100, offset = 0, ...requestOptions } = options
+      return request(withQuery(`/world/entities/${encodeURIComponent(entityId)}/dossier`, {
+        novel_id: novelId,
+        as_of_scene_id: asOfSceneId,
+        limit,
+        offset,
+      }), { cache: "no-store", ...requestOptions })
+    },
+
+    async listEntityDossierFacets(entityId, novelId, options = {}) {
+      return request(
+        withQuery(`/world/entities/${encodeURIComponent(entityId)}/dossier/facets`, { novel_id: novelId }),
+        { cache: "no-store", ...options },
+      )
+    },
+
+    async listEntityDossierHistory(entityId, novelId, options = {}) {
+      const { entryGroupId = null, limit = 100, offset = 0, ...requestOptions } = options
+      return request(withQuery(`/world/entities/${encodeURIComponent(entityId)}/dossier/history`, {
+        novel_id: novelId,
+        entry_group_id: entryGroupId,
+        limit,
+        offset,
+      }), { cache: "no-store", ...requestOptions })
+    },
+
+    async createEntityDossierEntry(entityId, novelId, payload, options = {}) {
+      return post(withQuery(`/world/entities/${encodeURIComponent(entityId)}/dossier/entries`, { novel_id: novelId }), payload, options)
+    },
+
+    async updateEntityDossierEntry(entityId, revisionId, novelId, payload, options = {}) {
+      return patch(withQuery(`/world/entities/${encodeURIComponent(entityId)}/dossier/entries/${encodeURIComponent(revisionId)}`, { novel_id: novelId }), payload, options)
+    },
+
+    async restoreEntityDossierEntry(entityId, entryGroupId, novelId, payload, options = {}) {
+      return post(withQuery(`/world/entities/${encodeURIComponent(entityId)}/dossier/groups/${encodeURIComponent(entryGroupId)}/restore`, { novel_id: novelId }), payload, options)
+    },
+
+    async getEntityDossierTemplate(profileType, novelId, options = {}) {
+      return request(
+        withQuery(`/world/dossier-templates/${encodeURIComponent(profileType)}`, { novel_id: novelId }),
+        { cache: "no-store", ...options },
+      )
+    },
+
+    async listEntityDossierTemplateHistory(profileType, novelId, options = {}) {
+      return request(
+        withQuery(`/world/dossier-templates/${encodeURIComponent(profileType)}/history`, { novel_id: novelId }),
+        { cache: "no-store", ...options },
+      )
+    },
+
+    async saveEntityDossierTemplate(profileType, novelId, payload, options = {}) {
+      return put(withQuery(`/world/dossier-templates/${encodeURIComponent(profileType)}`, { novel_id: novelId }), payload, options)
+    },
+
     async getCharacter(id, novelId) {
       return contractFetch("world.getCharacter", { id }, { novel_id: novelId })
     },

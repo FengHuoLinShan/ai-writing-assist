@@ -302,6 +302,7 @@
           @clear-evidence="vm.focusedSelection.clear"
           @organize="vm.navigateSceneWorkbench"
           @open-notice="openCockpitNotice"
+          @open-world-object="openWorldObject"
           @toggle-collapse="toggleRail('reference')"
         />
       </div>
@@ -603,6 +604,11 @@ async function focusForecastDock() {
   }
   dock.scrollIntoView?.({ block: "nearest", behavior: "smooth" })
   dock.querySelector("button:not([disabled])")?.focus({ preventScroll: true })
+}
+
+function openWorldObject(entityId) {
+  if (!entityId) return
+  router?.navigate("world", "objects", true, new URLSearchParams({ entity_id: entityId }))
 }
 
 async function openCockpitNotice(item) {

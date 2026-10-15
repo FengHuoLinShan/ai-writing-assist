@@ -39,7 +39,7 @@ describe("SceneCockpit", () => {
     expect(wrapper.findAll('[role="tab"]').map((tab) => tab.text())).toEqual(["本场", "对象", "提醒", "导演"])
 
     await wrapper.findAll('[role="tab"]').find((tab) => tab.text() === "对象").trigger("click")
-    expect(wrapper.text()).toContain("对象档案暂不可用")
+    expect(wrapper.text()).toContain("没有明确的 POV 或对象关联")
     expect(wrapper.text()).not.toContain("阿青")
     expect(wrapper.findAll("button").some((button) => button.text() === "打开查证资料")).toBe(true)
 

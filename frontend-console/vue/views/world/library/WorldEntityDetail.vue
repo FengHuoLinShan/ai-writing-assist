@@ -6,6 +6,7 @@ import { updateEntityWithBaseline } from "../logic/worldEntityOps.js"
 import { showRelationReviewEditForm, syncRelationsAliasesRegistry } from "../logic/worldRelationsAliasesOps.js"
 import WorldEntityImage from "../components/WorldEntityImage.vue"
 import WorldEntityRevisionHistory from "./WorldEntityRevisionHistory.vue"
+import WorldObjectDossierEditor from "./WorldObjectDossierEditor.vue"
 import TargetedCompletionPanel from "../../../components/TargetedCompletionPanel.vue"
 
 const props = defineProps({
@@ -38,6 +39,9 @@ async function loadInfo() {
 watch(() => [props.projectId, props.entity.id || props.entity.entity_id], () => { infoEpoch += 1; related.value = []; relatedError.value = ''; infoLoading.value = false })
 onBeforeUnmount(() => { infoEpoch += 1 })
 const profileOpen = ref(false)
+const worldDossierOpen = ref(false)
+const dossierDirty = ref(false)
+const publicDemoReadOnly = computed(() => Boolean(globalThis.publicDemoMode && !globalThis.publicDemoRpMode))
 const profileLoading = ref(false)
 const profileSaving = ref(false)
 const profileLoaded = ref(false)
@@ -213,7 +217,7 @@ async function saveProfile() {
   }
 }
 
-watch([profileDirty, basicDirty], ([profile, basic]) => emit("profile-dirty", Boolean(profile || basic)), { immediate: true })
+watch([profileDirty, basicDirty, dossierDirty], ([profile, basic, dossier]) => emit("profile-dirty", Boolean(profile || basic || dossier)), { immediate: true })
 watch(() => props.entity?.id || props.entity?.entity_id, () => {
   basicGeneration += 1
   basicSaving.value = false
@@ -228,6 +232,8 @@ watch(() => props.entity?.id || props.entity?.entity_id, () => {
   profileLoaded.value = false
   profileError.value = ""
   fillProfile()
+  worldDossierOpen.value = false
+  dossierDirty.value = false
 })
 onBeforeUnmount(() => { basicGeneration += 1; profileGeneration += 1; emit("profile-dirty", false) })
 </script>
@@ -315,8 +321,19 @@ onBeforeUnmount(() => { basicGeneration += 1; profileGeneration += 1; emit("prof
       @restored="emit('refresh', entity.id || entity.entity_id)"
     />
     <TargetedCompletionPanel :project-id="projectId" :entity-id="entity.id || entity.entity_id" :initial-name="entity.name || ''" @applied="emit('refresh', entity.id || entity.entity_id)" />
+    <details class="world-entity-dossier" @toggle="worldDossierOpen = $event.target.open">
+      <summary>对象档案 <span>稳定设定、有效范围与模板</span></summary>
+      <WorldObjectDossierEditor
+        v-if="worldDossierOpen"
+        :entity="entity"
+        :project-id="projectId"
+        :read-only="publicDemoReadOnly"
+        @dirty="dossierDirty = $event"
+        @saved="emit('refresh', $event)"
+      />
+    </details>
     <section v-if="isCharacter" class="world-character-profile">
-      <header><div><h3>人物档案</h3><p>按需补充人物动机、状态和声音；名称与别名仍在基本资料中管理。</p></div><button type="button" class="btn btn-sm" @click="profileOpen ? (profileOpen = false) : openProfile()">{{ profileOpen ? '收起' : '完善人物档案' }}</button></header>
+      <header><div><h3>人物旧档案字段</h3><p>保留既有人物字段；场景中的时点状态以 Story 记录为准。</p></div><button type="button" class="btn btn-sm" @click="profileOpen ? (profileOpen = false) : openProfile()">{{ profileOpen ? '收起' : '查看旧档案字段' }}</button></header>
       <div v-if="profileOpen" class="world-character-profile__form" :aria-busy="profileLoading || profileSaving">
         <p v-if="profileLoading" role="status">正在读取人物档案…</p>
         <div v-else-if="profileError && !profileLoaded" class="error-card" role="alert">
@@ -377,6 +394,9 @@ onBeforeUnmount(() => { basicGeneration += 1; profileGeneration += 1; emit("prof
 .world-entity-detail__actions { display: flex; flex-wrap: wrap; justify-content: end; gap: 8px; }
 .world-entity-detail__aliases { border: 1px solid var(--border); border-radius: var(--radius-md); padding: 12px; }
 .world-entity-detail__aliases summary { cursor: pointer; font-weight: 600; }
+.world-entity-dossier { display: grid; gap: 12px; border: 1px solid var(--border-color, var(--border)); border-radius: var(--radius-md); padding: 12px; }
+.world-entity-dossier > summary { cursor: pointer; font-weight: 650; }
+.world-entity-dossier > summary span { margin-left: 6px; color: var(--text-secondary); font-size: 12px; font-weight: 400; }
 .world-entity-detail__aliases ul { display: grid; gap: 6px; padding: 0; list-style: none; }
 .world-entity-detail__aliases li { display: flex; min-height: 40px; align-items: center; justify-content: space-between; gap: 12px; }
 .world-character-profile { border: 1px solid var(--border); border-radius: var(--radius-md); padding: 14px; }

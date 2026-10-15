@@ -51,10 +51,14 @@
           <SceneLensSummary :scene="scene" :lens="lens" :project-id="projectId" @load="$emit('load-lens')" @start-trial="$emit('start-trial', $event)" />
         </section>
 
-        <section v-else-if="activeTab === 'objects'" class="cockpit-panel cockpit-panel--unavailable" data-panel="objects">
-          <h3>对象档案暂不可用</h3>
-          <p>这里不会把场景引用或单层资料拼成完整档案。你仍可从下方“查证”面板按来源查找对象资料。</p>
-          <button type="button" class="btn btn-sm" @click="openEvidenceSearch">打开查证资料</button>
+        <section v-else-if="activeTab === 'objects'" class="cockpit-panel" data-panel="objects">
+          <ObjectDossierPanel
+            :project-id="projectId"
+            :scene="scene"
+            @open-evidence="openEvidenceSearch"
+            @open-object="$emit('open-world-object', $event)"
+            @organize="$emit('organize')"
+          />
         </section>
 
         <section v-else-if="activeTab === 'notices'" class="cockpit-panel" data-panel="notices">
@@ -143,6 +147,7 @@
 import { computed, nextTick, reactive, ref } from "vue"
 import { useModalDialog } from "../../../composables/useModalDialog.js"
 import SceneLensSummary from "./SceneLensSummary.vue"
+import ObjectDossierPanel from "./ObjectDossierPanel.vue"
 import UnifiedNoticesPanel from "./UnifiedNoticesPanel.vue"
 import FocusedEvidencePanel from "../../../components/FocusedEvidencePanel.vue"
 
@@ -160,7 +165,7 @@ const props = defineProps({
   lens: { type: Object, default: () => ({ loading: false, data: null, error: null }) },
   evidenceRefs: { type: Array, default: () => [] },
 })
-const emit = defineEmits(["organize", "toggle-collapse", "select-scene", "load-lens", "start-trial", "pin-evidence", "clear-evidence", "open-notice"])
+const emit = defineEmits(["organize", "toggle-collapse", "select-scene", "load-lens", "start-trial", "pin-evidence", "clear-evidence", "open-notice", "open-world-object"])
 
 const tabs = [
   { key: "main", label: "本场" }, { key: "objects", label: "对象" },

@@ -139,6 +139,12 @@ Vite 开发与预览服务通过 HTTP 响应头发送 CSP，并用 `frame-ancest
 `open=change-history` 由 `worldIsland` 解析。纯文本对比统一走 `VersionTextDiff.vue`
 共享组件（插值渲染，无 v-html）；`versionDiff.js` 已移至 `shared/`。
 
+## 世界对象档案与场景简报
+
+对象详情的“对象档案”面板按需读取 World 档案、面向目录和修订历史；作者可新增/编辑带可见性与 Scene 有效范围的修订、确认后恢复历史版本，并维护该对象类型的档案模板。写入使用当前修订或模板版本做 CAS；遇到 409 时保留草稿并让作者选择载入服务器版本或基于新版本重试。只读演示不显示这些写入操作。
+
+写作台 Scene“对象”标签只从 `pov_character_id` 和 `structure_meta.related_entity_ids`、`world_entity_ids`、`item_ids` 读取明确关联，不从其他元数据或正文抽取 ID。Evidence 简报固定使用 `author_safe` 与 `canonical`，每批最多 16 个对象，数量更多时分批读取；Evolution 倾向默认不读，作者主动开启后可继续选择是否只看已采用项，所有倾向均标注为解释性参考。
+
 ## 写作台导出与审查展示（2026-10）
 
 写作台“检查与导出”菜单区分「编辑器当前文字 / 已采用版本」两种单章导出口径，并提供
