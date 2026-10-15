@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, reactive, ref, watch } from "vue"
 import { displayStateBadgeClass, worldAssetDisplay } from "../../../../shared/assetDisplayState.js"
-import { getApi, getConfirm, getToast } from "../../../bridge/index.js"
+import { getApi, getConfirm, getPublicDemoReadOnly, getToast } from "../../../bridge/index.js"
 import { updateEntityWithBaseline } from "../logic/worldEntityOps.js"
 import { showRelationReviewEditForm, syncRelationsAliasesRegistry } from "../logic/worldRelationsAliasesOps.js"
 import WorldEntityImage from "../components/WorldEntityImage.vue"
@@ -41,7 +41,7 @@ onBeforeUnmount(() => { infoEpoch += 1 })
 const profileOpen = ref(false)
 const worldDossierOpen = ref(false)
 const dossierDirty = ref(false)
-const publicDemoReadOnly = computed(() => Boolean(globalThis.publicDemoMode && !globalThis.publicDemoRpMode))
+const publicDemoReadOnly = computed(() => getPublicDemoReadOnly())
 const profileLoading = ref(false)
 const profileSaving = ref(false)
 const profileLoaded = ref(false)

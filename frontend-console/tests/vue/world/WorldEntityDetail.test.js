@@ -24,8 +24,6 @@ beforeEach(() => {
 
 afterEach(() => {
   resetBridgeOverrides()
-  delete globalThis.publicDemoMode
-  delete globalThis.publicDemoRpMode
 })
 
 function mountDetail(entity = character) {
@@ -49,7 +47,7 @@ describe("WorldEntityDetail 人物档案", () => {
   })
 
   it("公开演示中的对象档案不挂载写入操作", async () => {
-    globalThis.publicDemoMode = true
+    setBridgeOverrides({ publicDemoReadOnly: true })
     const wrapper = mountDetail()
     const section = wrapper.get("details.world-entity-dossier")
     section.element.open = true
