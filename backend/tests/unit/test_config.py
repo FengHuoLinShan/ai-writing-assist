@@ -72,6 +72,20 @@ class TestSettingsEffectiveDefaults:
     def test_effective_reranker(self):
         assert Settings().reranker_enabled is False
 
+    def test_goal_runs_default_to_disabled_and_empty_allowlist(self, monkeypatch):
+        monkeypatch.delenv("ASSISTANT_GOAL_RUNS_ENABLED", raising=False)
+        monkeypatch.delenv("ASSISTANT_GOAL_RUNS_PROJECT_ALLOWLIST", raising=False)
+        settings = Settings()
+        assert settings.assistant_goal_runs_enabled is False
+        assert settings.assistant_goal_runs_project_allowlist == ()
+
+    def test_production_example_keeps_goal_runs_closed_by_default(self):
+        sample = (
+            Path(__file__).resolve().parents[3] / "deploy/.env.production.example"
+        ).read_text(encoding="utf-8")
+        assert "ASSISTANT_GOAL_RUNS_ENABLED=false" in sample
+        assert "ASSISTANT_GOAL_RUNS_PROJECT_ALLOWLIST=" in sample
+
     def test_effective_rag_prewarm_on_startup(self):
         assert Settings().rag_prewarm_on_startup is False
 
@@ -206,6 +220,7 @@ class TestSettingsFromEnvFactoryFields:
             ("POOL_SIZE", "17", "pool_size", 17),
             ("MAX_OVERFLOW", "23", "max_overflow", 23),
             ("ECHO_SQL", "true", "echo_sql", True),
+            ("ASSISTANT_GOAL_RUNS_ENABLED", "true", "assistant_goal_runs_enabled", True),
             ("EMBEDDING_DIM", "1024", "embedding_dim", 1024),
             (
                 "INFERENCE_WORKER_MAX_BATCH",
@@ -280,6 +295,15 @@ class TestSettingsFromEnvFactoryFields:
     def test_allowed_origins_trims_whitespace(self, monkeypatch):
         monkeypatch.setenv("ALLOWED_ORIGINS", " http://a.com , http://b.com ")
         assert Settings().allowed_origins == ["http://a.com", "http://b.com"]
+
+    def test_goal_run_project_allowlist_trims_and_drops_empty_values(self, monkeypatch):
+        monkeypatch.setenv(
+            "ASSISTANT_GOAL_RUNS_PROJECT_ALLOWLIST", " novel-a, ,novel-b  "
+        )
+        assert Settings().assistant_goal_runs_project_allowlist == (
+            "novel-a",
+            "novel-b",
+        )
 
     def test_vector_index_type_from_env(self, monkeypatch):
         monkeypatch.setenv("VECTOR_INDEX_TYPE", "ivfflat")
