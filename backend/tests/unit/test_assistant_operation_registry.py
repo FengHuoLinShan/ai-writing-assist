@@ -26,7 +26,7 @@ def teardown_function():
 OPERATION_SNAPSHOT = {
     "map.prepare_tray_placement": (
         "准备托盘地点放置入口（由作者选点）",
-        "confirm",
+        "read",
         "1",
         "eb2c87e328aa537139a57b79240dc17319a67e067aad0d254705964d9ebecd48",
     ),
@@ -382,7 +382,7 @@ OPERATION_SNAPSHOT.update(
             "编辑空间、关系或行程",
             "confirm",
             "1",
-            "90aa2b611611e07cc436ad1d5a736996b911fc1088e306d2685059535fa0cf95",
+            "194c8fd2550060201812363154cfac67e40b553b6536c31f1fb6eae13d224ccd",
         ),
         "map.merge_nodes": (
             "合并两个已保存的地图节点",
@@ -467,6 +467,71 @@ def test_registry_materializes_spec_fields_and_rejects_unknown_fields():
 
     with pytest.raises(ValueError, match="未知字段"):
         _materialize({"x.bad": {"label": "坏声明", "nope": 1}})
+
+
+def test_catalog_v2_metadata_and_trace_inventory_match_runtime_schemas():
+    from app.bootstrap import register_container_services
+    from core.container import get
+    from modules.assistant.operations import operation_manifest
+
+    register_container_services()
+    operations = get("assistant.operations")
+    manifest = operation_manifest()
+    assert len(operations) == len(manifest) == 64
+    assert set(operations) == set(manifest)
+    for op_id, operation in operations.items():
+        frozen = manifest[op_id]
+        assert frozen["metadata"]["op_id"] == op_id
+        assert frozen["metadata_hash"] == fingerprint(frozen["metadata"])
+        assert operation.trace_rule.parameter_fields == tuple(
+            operation.schema.model_fields
+        )
+        assert set(frozen) == {
+            "schema_hash",
+            "revision",
+            "op_version",
+            "metadata_hash",
+            "metadata",
+            "schema",
+        }
+
+
+def test_inline_operation_metadata_requires_an_explicit_schema_trace_policy():
+    import pytest
+
+    from app.assistant_operation_registry import _materialize
+
+    class Args:
+        model_fields = {"value": object()}
+
+    async def prepare(*_args, **_kwargs):
+        return {}
+
+    async def apply(*_args, **_kwargs):
+        return {}
+
+    with pytest.raises(ValueError, match="留痕字段"):
+        _materialize(
+            {
+                "sample.write": {
+                    "label": "写入",
+                    "schema": Args,
+                    "prepare": prepare,
+                    "apply": apply,
+                    "op_version": "1",
+                    "description": "写入示例",
+                    "risk_level": "R2",
+                    "fee_category": "free",
+                    "reversibility": "restore",
+                    "preconditions": (),
+                    "produces": ("sample",),
+                    "target_type": "sample",
+                    "ai_available": True,
+                    "transaction_mode": "single_transaction",
+                    "trace_rule": {"parameter_fields": (), "mode": "per_call"},
+                }
+            }
+        )
 
 
 def test_assistant_facade_di_keys_resolve():

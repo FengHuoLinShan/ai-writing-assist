@@ -96,7 +96,7 @@ def test_runtime_v4_freezes_new_operations_without_widening_old_manifests():
         apply=OPERATIONS_SPEC["world.vocabulary.create"]["apply"],
     )
     with container_scope({"assistant.operations": dict(project_operations)}):
-        old_manifest = operation_manifest()
+        old_manifest = operation_manifest(legacy=True)
     with container_scope(
         {
             "assistant.operations": {
@@ -105,7 +105,7 @@ def test_runtime_v4_freezes_new_operations_without_widening_old_manifests():
             }
         }
     ):
-        new_manifest = operation_manifest()
+        new_manifest = operation_manifest(legacy=True)
         assert "world.vocabulary.create" not in resolve_operations(old_manifest)
         assert "world.vocabulary.create" in resolve_operations(new_manifest)
         payload = {"runtime_version": "4", "operations": new_manifest}
@@ -219,12 +219,12 @@ def test_new_merge_operation_does_not_widen_frozen_v6_runs():
     with container_scope({"assistant.operations": old}):
         frozen = {
             "runtime_version": "6",
-            "operations": operation_manifest(),
+            "operations": operation_manifest(legacy=True),
             "read_tools": {},
         }
     with container_scope({"assistant.operations": dict(world_map_operations)}):
         restored = resolve_operations(runtime_protocol(frozen)["operations"])
-        fresh = operation_manifest()
+        fresh = operation_manifest(legacy=True)
     assert "map.merge_nodes" not in restored
     assert "map.preview_node_merge" in restored
     assert fresh["map.merge_nodes"] == {
@@ -234,3 +234,124 @@ def test_new_merge_operation_does_not_widen_frozen_v6_runs():
     assert (
         fresh["map.preview_node_merge"] == frozen["operations"]["map.preview_node_merge"]
     )
+
+
+def test_legacy_run_manifest_stays_two_fields_and_replays_after_v7_catalog():
+    from app.assistant_operation_registry import world_map_operations
+
+    with container_scope({"assistant.operations": dict(world_map_operations)}):
+        legacy = operation_manifest(legacy=True)
+        fresh = operation_manifest()
+        restored = resolve_operations(legacy)
+    assert set(legacy["map.merge_nodes"]) == {"schema_hash", "revision"}
+    assert set(fresh["map.merge_nodes"]) == {
+        "schema_hash",
+        "revision",
+        "op_version",
+        "metadata_hash",
+        "metadata",
+        "schema",
+    }
+    assert restored["map.merge_nodes"].schema.model_fields.keys() == (
+        world_map_operations["map.merge_nodes"].schema.model_fields.keys()
+    )
+    assert restored["map.prepare_tray_placement"].permission == "confirm"
+    with container_scope({"assistant.operations": dict(world_map_operations)}):
+        assert resolve_operations(operation_manifest())[
+            "map.prepare_tray_placement"
+        ].permission == "read"
+
+
+def test_v7_frozen_operation_can_be_described_but_not_executed_after_change():
+    from dataclasses import replace
+    from types import SimpleNamespace
+
+    from modules.assistant.operations import describe_operation
+
+    original = dict(project_operations)
+    with container_scope({"assistant.operations": original}):
+        frozen = operation_manifest()
+    changed = {
+        **original,
+        "project.add_task": replace(
+            original["project.add_task"], description="用途已变化"
+        ),
+    }
+    with container_scope({"assistant.operations": changed}):
+        executable = resolve_operations(frozen, allow_stale=True)
+        ctx = SimpleNamespace(
+            deps=SimpleNamespace(
+                operations=executable,
+                operation_catalog_snapshot=frozen,
+            )
+        )
+        description = __import__("asyncio").run(
+            describe_operation(ctx, "project.add_task")
+        )
+    assert "project.add_task" not in executable
+    assert description["executable"] is False
+    assert description["unavailable_reason"] == "操作已下线或已变更"
+    assert description["schema"] == frozen["project.add_task"]["schema"]
+
+
+def test_find_operations_is_small_and_never_embeds_schema():
+    from types import SimpleNamespace
+
+    from modules.assistant.operations import find_operations
+
+    with container_scope({"assistant.operations": dict(project_operations)}):
+        operations = resolve_operations(operation_manifest())
+        ctx = SimpleNamespace(
+            deps=SimpleNamespace(
+                operations=operations,
+                operation_catalog_snapshot=operation_manifest(),
+            )
+        )
+        result = __import__("asyncio").run(find_operations(ctx, query="待办"))
+    assert len(result["operations"]) <= 8
+    assert all("schema" not in item for item in result["operations"])
+
+
+def test_read_operation_only_calls_prepare_never_apply():
+    import asyncio
+    from types import SimpleNamespace
+
+    from pydantic import BaseModel
+
+    from modules.assistant.operations import read_operation
+    from modules.assistant.schemas import WorkContext
+
+    class Args(BaseModel):
+        value: str
+
+    calls = []
+
+    async def guard():
+        return None
+
+    async def prepare(_db, _novel_id, args, *, context):
+        calls.append(args.value)
+        return {"status": "read"}
+
+    async def apply(*_args, **_kwargs):
+        raise AssertionError("read_operation must never invoke apply")
+
+    operation = AssistantOperation(
+        "读取示例", Args, prepare, apply, permission="read", risk_level="R0"
+    )
+    ctx = SimpleNamespace(
+        deps=SimpleNamespace(
+            guard=guard,
+            operations={"sample.read": operation},
+            operation_catalog_snapshot={},
+            run_id="run",
+            owner_id="owner",
+            work=WorkContext(),
+            db=object(),
+            novel_id="novel",
+        )
+    )
+    assert asyncio.run(read_operation(ctx, "sample.read", {"value": "safe"})) == {
+        "status": "read"
+    }
+    assert calls == ["safe"]

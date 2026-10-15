@@ -3,11 +3,11 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from app.assistant_operation_registry import world_page_operations
 from core.errors import ConflictError
 from modules.account.facade import current_account_id
 from modules.assistant.contracts import AssistantOperationContext
 from modules.assistant.schemas import WorkContext
-from modules.world.assistant_page_tools import OPERATIONS
 from modules.world.schemas import WorldBiblePageDraftCreate, WorldBiblePageDraftUpdate
 from modules.world.services.worldbuilding.world_authority_service import (
     WorldAuthorityService,
@@ -29,7 +29,7 @@ async def test_edit_publish_and_restore_use_original_world_baselines(
     draft = await service.create_draft(
         db, WorldBiblePageDraftCreate(novel_id=nid, title="潮汐", free_text="旧说明")
     )
-    edit = OPERATIONS["world.edit_page_draft"]
+    edit = world_page_operations["world.edit_page_draft"]
     args = edit.schema(
         draft_id=draft.id,
         free_text="新说明",
@@ -41,7 +41,7 @@ async def test_edit_publish_and_restore_use_original_world_baselines(
     await edit.apply(db, nid, args, preview, context=context)
     with pytest.raises(ConflictError):
         await edit.apply(db, nid, args, preview, context=context)
-    publish = OPERATIONS["world.publish_page_draft"]
+    publish = world_page_operations["world.publish_page_draft"]
     args = publish.schema(draft_id=draft.id)
     preview = await publish.prepare(db, nid, args, context=context)
     json.dumps(preview)
@@ -85,7 +85,7 @@ async def test_edit_publish_and_restore_use_original_world_baselines(
     edit_preview = await edit.prepare(db, nid, edit_args, context=context)
     assert not await service.has_active_draft(db, UUID(nid), UUID(page_id))
     result = await edit.apply(db, nid, edit_args, edit_preview, context=context)
-    restore = OPERATIONS["world.restore_page_revision"]
+    restore = world_page_operations["world.restore_page_revision"]
     restore_args = restore.schema(page_id=page_id, version_number=1)
     with pytest.raises(ConflictError, match="工作稿"):
         await restore.prepare(db, nid, restore_args, context=context)

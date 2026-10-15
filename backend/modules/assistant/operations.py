@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from copy import copy
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
@@ -39,18 +40,49 @@ def catalog() -> dict[str, AssistantOperation]:
     return get(ASSISTANT_OPERATIONS)
 
 
-def operation_manifest() -> dict:
+def _catalog_metadata(operation: AssistantOperation) -> dict:
     return {
-        name: {
-            "schema_hash": fingerprint(operation.schema.model_json_schema()),
-            "revision": operation.revision,
-        }
-        for name, operation in catalog().items()
+        "op_id": operation.op_id,
+        "op_version": operation.op_version,
+        "label": operation.label,
+        "permission": operation.permission,
+        "description": operation.description,
+        "risk_level": operation.risk_level,
+        "fee_category": operation.fee_category,
+        "reversibility": operation.reversibility,
+        "preconditions": operation.preconditions,
+        "produces": operation.produces,
+        "target_type": operation.target_type,
+        "ai_available": operation.ai_available,
+        "transaction_mode": operation.transaction_mode,
+        "trace_rule": asdict(operation.trace_rule),
     }
 
 
+def operation_manifest(*, legacy: bool = False) -> dict:
+    """Return a v7 frozen directory or the exact pre-v7 two-field shape."""
+    result = {}
+    for name, operation in catalog().items():
+        entry = {
+            "schema_hash": fingerprint(operation.schema.model_json_schema()),
+            "revision": operation.revision,
+        }
+        if not legacy:
+            metadata = _catalog_metadata(operation)
+            entry.update(
+                {
+                    "op_version": operation.op_version,
+                    "metadata_hash": fingerprint(metadata),
+                    "metadata": metadata,
+                    "schema": operation.schema.model_json_schema(),
+                }
+            )
+        result[name] = entry
+    return result
+
+
 def runtime_protocol(payload: dict) -> dict:
-    if payload.get("runtime_version") in {"2", "3", "4", "5", "6"}:
+    if payload.get("runtime_version") in {"2", "3", "4", "5", "6", "7"}:
         return payload
     if payload.get("runtime_version") == "1":
         frozen = json.loads(Path(__file__).with_name("runtime_v1.json").read_text())
@@ -61,7 +93,9 @@ def runtime_protocol(payload: dict) -> dict:
     )
 
 
-def resolve_operations(manifest: dict) -> dict[str, AssistantOperation]:
+def resolve_operations(
+    manifest: dict, *, allow_stale: bool = False
+) -> dict[str, AssistantOperation]:
     current = operation_manifest()
     # MapNodeCreate only widened: "interior" was added to level, then two
     # optional pinned type-reference fields. Legacy inputs remain valid; pin
@@ -85,22 +119,66 @@ def resolve_operations(manifest: dict) -> dict[str, AssistantOperation]:
             {"schema_hash": map_node_hashes[2], "revision": "1"},
         ),
     ]
-    if any(
-        current.get(name) != value
-        and not (
-            name == "map.create_node"
-            and (value, current.get(name)) in compatible_map_node
+    stale = []
+    resolved = {}
+    for name, frozen in manifest.items():
+        if not isinstance(frozen, dict) or frozenset(frozen) not in {
+            frozenset({"schema_hash", "revision"}),
+            frozenset(
+                {
+                    "schema_hash",
+                    "revision",
+                    "op_version",
+                    "metadata_hash",
+                    "metadata",
+                    "schema",
+                }
+            ),
+        }:
+            stale.append(name)
+            continue
+        current_entry = current.get(name)
+        frozen_legacy = set(frozen) == {"schema_hash", "revision"}
+        if current_entry is None:
+            stale.append(name)
+            continue
+        matches = all(
+            (
+                fingerprint(current_entry.get(key)) == fingerprint(value)
+                if key in {"metadata", "schema"}
+                else current_entry.get(key) == value
+            )
+            for key, value in frozen.items()
         )
-        for name, value in manifest.items()
-    ):
+        map_node_compatible = (
+            name == "map.create_node"
+            and frozen_legacy
+            and any(
+                (
+                    frozen,
+                    {key: current_entry[key] for key in ("schema_hash", "revision")},
+                )
+                == pair
+                for pair in compatible_map_node
+            )
+        )
+        if not matches and not map_node_compatible:
+            stale.append(name)
+            continue
+        operation = catalog()[name]
+        if frozen_legacy and name == "map.prepare_tray_placement":
+            # The pre-v7 catalog exposed this navigation helper as a confirm
+            # action. Preserve that behavior for frozen legacy runs while v7
+            # can invoke it through the dedicated R0 read tool.
+            operation = replace(operation, permission="confirm")
+        resolved[name] = operation
+    if stale and not allow_stale:
         raise ConflictError(
             "本次运行需要的工具版本不可用，请重新提交", code="assistant_runtime_changed"
         )
-    resolved = {name: catalog()[name] for name in manifest}
-    if (
-        "map.create_node" in resolved
-        and manifest["map.create_node"] != current["map.create_node"]
-    ):
+    if "map.create_node" in resolved and manifest["map.create_node"].get(
+        "schema_hash"
+    ) != current["map.create_node"].get("schema_hash"):
         operation = resolved["map.create_node"]
         fields = {
             name: (field.annotation, copy(field))
@@ -166,6 +244,141 @@ def operation_tool() -> Tool:
     return Tool(available_operations, sequential=True)
 
 
+MAX_OPERATION_SEARCH_RESULTS = 8
+
+
+def _run_catalog_snapshot(ctx: RunContext[AssistantToolContext]) -> dict | None:
+    return getattr(ctx.deps, "operation_catalog_snapshot", None)
+
+
+def _metadata_result(operation: AssistantOperation) -> dict:
+    return _catalog_metadata(operation)
+
+
+async def find_operations(
+    ctx: RunContext[AssistantToolContext],
+    query: str = "",
+    module: str | None = None,
+    target_type: str | None = None,
+) -> dict:
+    """Find a few frozen operations by words, module, or target kind."""
+    query = query.strip()[:160].casefold()
+    module = module.strip().casefold() if module else None
+    target_type = target_type.strip().casefold() if target_type else None
+    terms = [term for term in re.findall(r"[\w.]+", query) if term]
+    operations = _run_operations(ctx)
+    manifest = _run_catalog_snapshot(ctx)
+    matches = []
+    for op_id, operation in operations.items():
+        if not operation.ai_available:
+            continue
+        if module and op_id.split(".", 1)[0].casefold() != module:
+            continue
+        if target_type and operation.target_type.casefold() != target_type:
+            continue
+        haystack = " ".join(
+            (op_id, operation.label, operation.description, operation.target_type)
+        ).casefold()
+        if terms and not any(term in haystack for term in terms):
+            continue
+        frozen = manifest.get(op_id) if manifest else None
+        if frozen and (
+            frozen.get("metadata_hash") != fingerprint(frozen.get("metadata"))
+            or frozen.get("schema_hash")
+            != fingerprint(operation.schema.model_json_schema())
+        ):
+            continue
+        score = sum(1 for term in terms if term in haystack)
+        matches.append((score, op_id, operation))
+    matches.sort(key=lambda item: (-item[0], item[1]))
+    return {
+        "operations": [
+            {
+                "op_id": operation.op_id,
+                "label": operation.label,
+                "summary": operation.description[:240],
+                "risk_level": operation.risk_level,
+                "fee_category": operation.fee_category,
+            }
+            for _score, _op_id, operation in matches[:MAX_OPERATION_SEARCH_RESULTS]
+        ],
+        "truncated": len(matches) > MAX_OPERATION_SEARCH_RESULTS,
+    }
+
+
+async def describe_operation(ctx: RunContext[AssistantToolContext], op_id: str) -> dict:
+    """Describe one frozen operation, including whether this run can execute it."""
+    manifest = _run_catalog_snapshot(ctx)
+    frozen = manifest.get(op_id) if manifest else None
+    operation = _run_operations(ctx).get(op_id)
+    if frozen is not None:
+        current = operation_manifest().get(op_id)
+        executable = bool(
+            operation
+            and current
+            and frozen.get("metadata_hash") == fingerprint(frozen.get("metadata"))
+            and current.get("metadata_hash") == frozen.get("metadata_hash")
+            and current.get("schema_hash") == frozen.get("schema_hash")
+        )
+        metadata = frozen.get("metadata") or (
+            _catalog_metadata(operation) if operation else {}
+        )
+        label = metadata.get("label") or (operation.label if operation else op_id)
+        return {
+            **metadata,
+            "label": label,
+            "schema": frozen.get("schema")
+            or (operation.schema.model_json_schema() if operation else {}),
+            "executable": executable,
+            **({"unavailable_reason": "操作已下线或已变更"} if not executable else {}),
+        }
+    if operation is None:
+        raise ValidationError("操作不在本次运行的冻结目录中")
+    return {
+        **_metadata_result(operation),
+        "schema": operation.schema.model_json_schema(),
+        "executable": True,
+    }
+
+
+async def read_operation(
+    ctx: RunContext[AssistantToolContext], op_id: str, arguments: dict
+) -> dict:
+    """Execute only a registered R0 read projection; never call its apply handler."""
+    deps = ctx.deps
+    await deps.guard()
+    operation = _run_operations(ctx).get(op_id)
+    if operation is None:
+        frozen = (_run_catalog_snapshot(ctx) or {}).get(op_id)
+        if frozen:
+            raise ConflictError("操作已下线或已变更", code="assistant_operation_changed")
+        raise ModelRetry("请先查找并说明本次运行提供的只读操作")
+    if operation.permission != "read" or operation.risk_level != "R0":
+        raise ModelRetry("只读工具只能调用风险等级 R0 的目录操作")
+    try:
+        args = operation.schema.model_validate(arguments)
+    except SchemaValidationError as error:
+        raise ModelRetry(
+            f"只读操作参数不正确：{error.errors(include_input=False, include_url=False)}"
+        ) from None
+    context = AssistantOperationContext(deps.run_id or "", deps.owner_id, deps.work)
+    return await operation.prepare(deps.db, deps.novel_id, args, context=context)
+
+
+def operation_discovery_tools(
+    *, legacy: bool, operations: dict[str, AssistantOperation]
+) -> list[Tool]:
+    if legacy:
+        return [operation_tool()]
+    tools = [
+        Tool(find_operations, sequential=True),
+        Tool(describe_operation, sequential=True),
+    ]
+    if any(operation.permission == "read" for operation in operations.values()):
+        tools.append(Tool(read_operation, sequential=True))
+    return tools
+
+
 def validate_agent_answer(
     ctx: RunContext[AssistantToolContext], answer: AssistantAnswer
 ) -> AssistantAnswer:
@@ -199,7 +412,10 @@ def validate_agent_answer(
     for action in answer.actions:
         operation = _run_operations(ctx).get(action.capability)
         if operation is None:
-            raise ModelRetry("请先查 available_operations，只能提出已经提供的业务操作")
+            frozen = (_run_catalog_snapshot(ctx) or {}).get(action.capability)
+            if frozen:
+                raise ModelRetry("操作已下线或已变更，请停止该步骤并请作者重新规划")
+            raise ModelRetry("请先查找并说明本次运行提供的操作")
         if operation.permission != "confirm":
             raise ModelRetry(
                 "查证和建议生成请直接调用相应工具；只有具体资料修改放入确认方案"

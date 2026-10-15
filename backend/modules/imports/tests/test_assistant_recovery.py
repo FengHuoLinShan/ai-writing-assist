@@ -2,13 +2,10 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from app.assistant_operation_registry import imports_operations
 from modules.account.facade import current_account_id
 from modules.assistant.contracts import AssistantOperationContext, WorkContext
-from modules.imports.assistant_tools import (
-    OPERATIONS,
-    ResumeOrganization,
-    read_organization_status,
-)
+from modules.imports.assistant_tools import ResumeOrganization, read_organization_status
 from modules.imports.tests.test_workflow_runs import _create_pending_run
 
 
@@ -27,7 +24,10 @@ async def test_assistant_recovers_same_import_scope_without_recreating_task(
     context = AssistantOperationContext(
         str(uuid4()), str(current_account_id()), WorkContext(scope="project")
     )
-    operation, args = OPERATIONS["imports.resume"], ResumeOrganization(task_id=task.id)
+    operation, args = (
+        imports_operations["imports.resume"],
+        ResumeOrganization(task_id=task.id),
+    )
     preview = await operation.prepare(db, nid, args, context=context)
     assert "1～3" in preview["after"]
     result = await operation.apply(db, nid, args, preview, context=context)

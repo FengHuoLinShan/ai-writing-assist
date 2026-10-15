@@ -213,11 +213,11 @@ from modules.world.facade import (
     read_map_spatial_brief as _world_read_map_spatial_brief,
     read_map_spatial_advisories as _world_read_map_spatial_advisories,
 )
-from modules.world.assistant_tools import OPERATIONS as _WORLD_OPERATIONS
 from app.assistant_operation_registry import (
     evidence_forecast_operations,
     evolution_operations,
     assistant_spatial_advisory_operations,
+    imports_operations,
 )
 from app.assistant_operation_registry import project_dedup_operations
 from app.assistant_operation_registry import project_operations
@@ -230,18 +230,16 @@ from app.assistant_operation_registry import writing_generation_operations
 from app.assistant_operation_registry import writing_operations
 from app.assistant_operation_registry import world_opening_operations
 from app.assistant_operation_registry import world_map_operations
+from app.assistant_operation_registry import world_cocreation_operations
+from app.assistant_operation_registry import world_outcome_operations
+from app.assistant_operation_registry import world_page_operations
+from app.assistant_operation_registry import world_review_operations
+from app.assistant_operation_registry import world_operations
 from app.assistant_operation_registry import world_vocabulary_operations
-from modules.world.assistant_page_tools import OPERATIONS as _WORLD_PAGE_OPERATIONS
-from modules.world.assistant_outcome_tools import OPERATIONS as _WORLD_OUTCOME_OPERATIONS
-from modules.world.assistant_cocreation_tools import (
-    OPERATIONS as _WORLD_COCREATION_OPERATIONS,
-)
 from modules.story.proactive import schedule_proactive_review as _story_proactive_review
-from modules.imports.assistant_tools import OPERATIONS as _IMPORTS_OPERATIONS
 from modules.imports.assistant_tools import (
     schedule_proactive_review as _imports_proactive_review,
 )
-from modules.world.assistant_review_tools import OPERATIONS as _WORLD_REVIEW_OPERATIONS
 from modules.world.assistant_review_tools import (
     schedule_proactive_review as _world_proactive_review,
     review_findings as _world_review_findings,
@@ -402,12 +400,12 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
         (
             ASSISTANT_OPERATIONS,
             {
-                **_WORLD_OPERATIONS,
+                **world_operations,
                 **project_dedup_operations,
                 **story_information_operations,
-                **_WORLD_PAGE_OPERATIONS,
-                **_WORLD_OUTCOME_OPERATIONS,
-                **_WORLD_COCREATION_OPERATIONS,
+                **world_page_operations,
+                **world_outcome_operations,
+                **world_cocreation_operations,
                 **writing_operations,
                 **writing_generation_operations,
                 **writing_candidate_operations,
@@ -416,13 +414,13 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
                 **story_structure_operations,
                 **story_planning_operations,
                 **world_opening_operations,
-                **_IMPORTS_OPERATIONS,
+                **imports_operations,
                 **evidence_forecast_operations,
                 **world_map_operations,
                 **evolution_operations,
                 **assistant_spatial_advisory_operations,
                 **world_vocabulary_operations,
-                **_WORLD_REVIEW_OPERATIONS,
+                **world_review_operations,
             },
         ),
         (SOURCE_CHANGED, _assistant_mark_changed),

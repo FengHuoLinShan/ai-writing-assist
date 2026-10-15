@@ -545,6 +545,28 @@ async def run_team(service, db, task, run_id, payload, deps, profile) -> Assista
         if state["unread_chapters"]:
             state["completion"] = "partial"
     await save()
+    runtime_version = str(payload.get("runtime_version", "2"))
+    discovery_tools = []
+    previous_operations = deps.operations
+    previous_catalog_snapshot = deps.operation_catalog_snapshot
+    if runtime_version == "7":
+        from modules.assistant.operations import operation_discovery_tools
+
+        plan_operations = {
+            key: operation
+            for key, operation in (deps.operations or {}).items()
+            if operation.permission == "confirm"
+            and (frozen["id"] != "import_consult" or key == "imports.accept_review")
+        }
+        deps.operations = plan_operations
+        deps.operation_catalog_snapshot = {
+            key: value
+            for key, value in (previous_catalog_snapshot or {}).items()
+            if key in plan_operations
+        }
+        discovery_tools = operation_discovery_tools(
+            legacy=False, operations=plan_operations
+        )
     try:
         result = await run_project_agent(
             deps.client,
@@ -567,7 +589,14 @@ async def run_team(service, db, task, run_id, payload, deps, profile) -> Assista
                         "研究报告分清现实事实、推论与虚构选择，"
                         "引用已读原文；导入会诊尊重已有作者裁定。"
                         "用作者语言说明哪些问题查清、哪些仍未验证、"
-                        "证据与可选修法。",
+                        "证据与可选修法。"
+                        + (
+                            "先用 find_operations 和 describe_operation 查找并核对"
+                            "方案操作，"
+                            "只提出本轮可执行目录中的能力。"
+                            if runtime_version == "7"
+                            else ""
+                        ),
                     ),
                     LLMMessage(
                         role="user",
@@ -590,7 +619,8 @@ async def run_team(service, db, task, run_id, payload, deps, profile) -> Assista
                                         or key == "imports.accept_review"
                                     )
                                 }
-                                if frozen["id"]
+                                if runtime_version != "7"
+                                and frozen["id"]
                                 in {"cross_revision", "world_stress", "import_consult"}
                                 else {},
                                 "reports": reports,
@@ -605,7 +635,7 @@ async def run_team(service, db, task, run_id, payload, deps, profile) -> Assista
                     ),
                 ],
             ),
-            tools=[],
+            tools=discovery_tools,
             deps=deps,
             output_type=TeamAnswer,
             output_validator=validate_team_answer,
@@ -625,6 +655,9 @@ async def run_team(service, db, task, run_id, payload, deps, profile) -> Assista
             evidence_ids=[domain["evidence_id"]] if domain.get("evidence_id") else [],
             omissions=["未完成团队汇总，不签署完整通过，也不提供可采用的修改方案。"],
         )
+    finally:
+        deps.operations = previous_operations
+        deps.operation_catalog_snapshot = previous_catalog_snapshot
     if result.output.actions or (
         frozen["id"] in {"deep_review", "research"} and result.output.plans
     ):

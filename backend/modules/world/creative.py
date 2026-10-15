@@ -12,7 +12,7 @@ from core.service_keys import (
     COLLABORATION_RESOURCE_SNAPSHOT,
 )
 from infrastructure.llm.collaboration import content_hash
-from modules.world.assistant_page_tools import OPERATIONS, EditPage
+from modules.world.assistant_page_tools import OPERATIONS_SPEC, EditPage
 from modules.world.models import WorldBiblePageDraft
 
 
@@ -80,14 +80,14 @@ async def validate(db, novel_id, baseline, patch, *, context):
         free_text=patch.value["free_text"],
         sections=patch.value["sections_json"],
     )
-    preview = await OPERATIONS["world.edit_page_draft"].prepare(
-        db, novel_id, args, context=context
-    )
+    operation = OPERATIONS_SPEC["world.edit_page_draft"]
+    preview = await operation["prepare"](db, novel_id, args, context=context)
     return {"arguments": args.model_dump(mode="json"), "preview": preview}
 
 
 async def apply(db, novel_id, prepared, *, context):
-    return await OPERATIONS["world.edit_page_draft"].apply(
+    operation = OPERATIONS_SPEC["world.edit_page_draft"]
+    return await operation["apply"](
         db,
         novel_id,
         EditPage.model_validate(prepared["arguments"]),

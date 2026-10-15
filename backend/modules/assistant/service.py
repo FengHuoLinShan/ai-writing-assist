@@ -46,8 +46,8 @@ from modules.assistant.models import (
 from modules.assistant.operations import (
     generate_candidate,
     generate_structure,
+    operation_discovery_tools,
     operation_manifest,
-    operation_tool,
     prepare_actions,
     resolve_operations,
     review_assets,
@@ -97,6 +97,16 @@ _INSTRUCTIONS = """你是作者的项目助手。理解当前工作位置，主�
 查现实通用事实可按需使用已开放联网工具；不要发送私人正文、原作剧情、密钥或项目标识。
 回答使用作者语言，简洁给结论、证据和可操作下一步，不展示工具名、内部 ID、JSON 或思考过程。
 讨论历史不代表最新作品事实；当前证据和作者最新明确要求优先。"""
+
+_V7_INSTRUCTIONS = _INSTRUCTIONS.replace(
+    "先通过 available_operations 查看能力与参数。",
+    "先通过 find_operations 按任务查找能力，再用 describe_operation "
+    "查看完整参数、风险和费用。",
+).replace(
+    "只读复核直接调用 review_assets，生成领域回执，",
+    "R0 只读目录操作可通过 read_operation 读取；其余只读复核直接调用 "
+    "review_assets，生成领域回执，",
+)
 
 
 def display_sources(references, keys):
@@ -569,7 +579,7 @@ class AssistantService:
             request_json=frozen_payload
             | {
                 "llm_snapshot": snapshot,
-                "runtime_version": "6",
+                "runtime_version": "7",
                 **({"team": team} if team else {}),
                 "web_search": search_snapshot()
                 if data.allow_web and data.web_backend == "searxng-v1"
@@ -581,7 +591,7 @@ class AssistantService:
                 },
                 "read_tools": {
                     tool.name: fingerprint(tool.function_schema.json_schema)
-                    for tool in author_read_tools(allow_web=True, version="6")
+                    for tool in author_read_tools(allow_web=True, version="7")
                     if tool.name
                     not in {
                         "map_spatial_brief",
@@ -969,7 +979,10 @@ class AssistantService:
             or (payload.get("cocreation_intent") or {}).get("quality_mode") == "pro"
         )
         protocol = runtime_protocol(payload)
-        operations = resolve_operations(protocol["operations"])
+        runtime_version = str(payload.get("runtime_version", "2"))
+        operations = resolve_operations(
+            protocol["operations"], allow_stale=runtime_version == "7"
+        )
         read_tools = {
             tool.name: tool
             for tool in author_read_tools(
@@ -1044,7 +1057,7 @@ class AssistantService:
                     payload.get("allow_web", False)
                     and (
                         search_snapshot_matches(payload.get("web_search"))
-                        if payload.get("runtime_version") in {"3", "4", "5", "6"}
+                        if payload.get("runtime_version") in {"3", "4", "5", "6", "7"}
                         else verified_native_search(profile.provider_id, profile.model)
                     )
                 ),
@@ -1054,6 +1067,7 @@ class AssistantService:
                 task_id=str(task.id),
                 llm_snapshot=payload["llm_snapshot"],
                 operations=operations,
+                operation_catalog_snapshot=protocol["operations"],
                 final_requests=2 if quality_review else 1,
                 session_id=str(run.session_id) if run.session_id else None,
             )
@@ -1068,7 +1082,9 @@ class AssistantService:
             messages = [
                 LLMMessage(
                     role="system",
-                    content=_INSTRUCTIONS
+                    content=(
+                        _V7_INSTRUCTIONS if runtime_version == "7" else _INSTRUCTIONS
+                    )
                     + f"\n本次请求的日历日期为 {today}（{work.timezone}）。"
                     + "相对日期待办据此换算，这不是故事内时间。",
                 )
@@ -1182,7 +1198,10 @@ class AssistantService:
                         not in {"research_fact", "search_general_fact", "read_web_source"}
                         or deps.allow_web
                     ]
-                    + [operation_tool(), Tool(review_assets, sequential=True)]
+                    + operation_discovery_tools(
+                        legacy=runtime_version != "7", operations=operations
+                    )
+                    + [Tool(review_assets, sequential=True)]
                     + (
                         [Tool(generate_candidate, sequential=True)]
                         if "writing.generate_candidate" in operations
