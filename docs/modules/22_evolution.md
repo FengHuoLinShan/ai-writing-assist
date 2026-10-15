@@ -477,7 +477,8 @@ question即使复核确认“问题有依据”，仍另存绑定原主题/修�
 `discover_details` 的旧 API 默认、journal、方法版本和写入链保持原行为；空间步骤另用
 `spatial_version=1`，API 开关默认关闭。新 UI 在授权预览显式提交开关，预览冻结空间子额度和
 主理解必需请求保留额；空间运行中 `details` 与 `spatial` 各自扣独立子额度，任一步耗尽只记该步缺口。
-`append`、`continue` 继承冻结版本，重新核对不能静默切换旧运行的空间授权。
+`append`、`continue` 继承冻结版本和方法指纹，保留既有补扫 journal 登记与草图游标；
+方法变化只记空间缺口，不能通过恢复或新补扫操作重发未核清请求。
 
 空间抽取与复核分别使用 `scene_spatial_discovery` / `scene_spatial_review` journal，方法标识为
 `evolution.spatial_discover.v1` / `evolution.spatial_review.v1`。调用前冻结当前 Scene 正文、身份候选、
@@ -487,7 +488,8 @@ question即使复核确认“问题有依据”，仍另存绑定原主题/修�
 独立复核按提案与精确引文绑定；新类型首场只形成涌现草案，至少第二场的累计 prior+current 原文证据
 全部经复核后才可提交激活提案。World stage 还会重验来源、端点和类型修订；写入的只是地图域线索候选，
 不会写 World 关系或地图 head。空间失败、缺额度、未知请求、部分覆盖和来源冲突只影响该步骤覆盖，
-未知 journal 不自动重发。
+未知 journal 不自动重发。输入超限与已落失败 journal 的 provider 异常保留为空间缺口；
+主理解的 owner、来源或父回执冲突仍按原门禁拒绝。旧 Scene 的补扫 journal 不抵扣后续新 Scene 的主理解保留额。
 
 覆盖汇总使用 `inspected`、`density_skipped`、`gap`、`not_checked` 四态，并保留可见的原因与覆盖信息；
 不向界面暴露内部 journal key。旧阅读的空间补扫通过
@@ -496,7 +498,8 @@ question即使复核确认“问题有依据”，仍另存绑定原主题/修�
 的工作稿/正式稿合同精确校验；只有唯一模式与冻结正文及范围相符才允许补扫。
 
 阅读批次结束或补扫结束时，Evolution 聚合该运行截止 Scene 并经 `world.build_map_auto_drafts` 请求一次
-幂等草图批次；已返回的 running 游标不会被自动重发。草图仍是作者审核候选，不自动保存或采用；
+幂等草图批次；每次调用有界推进，running 在相同 build key 下恢复下一片，completed 重放原结果。
+失败或缺少构建 port 会保存可见状态，不把未构建算作完成。草图仍是作者审核候选，不自动保存或采用；
 World 端负责依据同一 run、截止 Scene 和逐条重验后的可用线索构建候选。
 
 ## #209 派生账本读取与发现容量
@@ -637,12 +640,15 @@ ID、章节、版本、content_hash、status 与 `deprecated_from_status` 单键
 provenance；来源须是
 published 或保留 published 来源标记的历史稿。当前地图引用与当前 canonical 身份不同才
 进入 `invalidated_consumers.map_atlas`，较旧历史引用也需核对；撤回/删除后的空 canonical
-同样披露旧引用，同章当前版本不误报，working 保存不触发。
+同样披露旧引用，同章当前版本不误报。working 保存仅核对工作稿自动草图，不扫描正式地图；
+published_changed 时分别使用 working/canonical 的当前稿身份核对后合并回执。
 
 这是建议性登记，地图名与对应章节及“去地图核对”入口出现在写作回执中；地图内容、status、
 append-only revision/CAS、World 正史均不改。地图不置 chapter_registered、不进入
 Scene 窗口或重算选项；原 Scene 保守扩大语义保留。超出上限标 truncated，来源 ID/hash/章
 不能重验时计 unverified_sources 并说明未完整核对；DB 查询失败或项目/身份门禁拒绝经 SAVEPOINT
 降级显示“地图册未核对”，不阻断正文失效。写作主提示只给地图核对缺口的作者语言说明，
-范围诊断只在折叠说明中出现。对象、世界书页来源与待审 candidate 仍为 map_atlas
-残余 unsupported，world_canon_revision 与 world_knowledge 不因此闭合。
+范围诊断只在折叠说明中出现。World 返回的 `auto_drafts` 单独投影为“待核自动草图”，不冒充正式地图；
+`auto_draft_unverified` 与 `auto_draft_truncated` 明确保留未核数量与覆盖缺口。
+对象、世界书页来源与非自动草图的待审 candidate 仍为 map_atlas 残余 unsupported，
+world_canon_revision 与 world_knowledge 不因此闭合。

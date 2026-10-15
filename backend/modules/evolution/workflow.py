@@ -18,6 +18,7 @@ from modules.evolution.models import EvolutionRun
 from modules.evolution.optional_step_budget import optional_quotas
 from modules.evolution.optional_steps import optional_step_enabled
 from modules.evolution.pipeline import SceneSourceBinding, load_current_source
+from modules.evolution.spatial import spatial_method_fingerprint
 from modules.evolution.state_review import has_unreconciled_scene_calls
 from modules.evolution.store import PostgresAttemptStore
 from modules.project.facade import (
@@ -111,15 +112,16 @@ def _configure_spatial_authorization(
 ):
     if plan.get("spatial_version") != 1:
         return
+    plan.setdefault("spatial_method_fingerprint", spatial_method_fingerprint())
+    if plan["spatial_method_fingerprint"] != spatial_method_fingerprint():
+        raise ConflictError("空间发现方法已变化，请单独预览补扫，原运行不能静默升级")
     start = int(plan.get("recompute_from_scene_index", 0))
     specs = _mandatory_scene_call_specs(scenes, plan, from_scene_index=start)
     previous = plan.get("mandatory_scene_calls", []) if preserve_previous else []
     indexed = {int(item["scene_index"]): item for item in previous}
     indexed.update({int(item["scene_index"]): item for item in specs})
     plan["mandatory_scene_calls"] = [indexed[key] for key in sorted(indexed)]
-    prep_windows = len(
-        (plan.get("preparation") or {}).get("plan", {}).get("windows", [])
-    )
+    prep_windows = len((plan.get("preparation") or {}).get("plan", {}).get("windows", []))
     # Boundary preparation can create multiple Scenes per planned input window.
     # A finite quota is shown in preview; root-budget reserve is recomputed from
     # exact source-pinned Scenes once preparation materializes them.
@@ -136,12 +138,9 @@ def _planned_mandatory_request_count(plan, *, from_scene_index=0):
         for item in plan.get("mandatory_scene_calls", [])
         if int(item["scene_index"]) >= from_scene_index
     )
-    preparation = len(
-        (plan.get("preparation") or {}).get("plan", {}).get("windows", [])
-    )
+    preparation = len((plan.get("preparation") or {}).get("plan", {}).get("windows", []))
     steps = sum(
-        int(item["scene_index"]) >= from_scene_index
-        for item in plan.get("steps", [])
+        int(item["scene_index"]) >= from_scene_index for item in plan.get("steps", [])
     )
     structure = (steps + 15) // 16 if plan.get("structure_version") == 1 else 0
     return scene_calls + preparation + structure
@@ -208,6 +207,13 @@ async def _plan(db, novel_id, request):
         )
         mandatory_reserve = None
         if run.reading_plan_json.get("spatial_version") == 1:
+            if (
+                run.reading_plan_json.get("spatial_method_fingerprint")
+                != spatial_method_fingerprint()
+            ):
+                raise ConflictError(
+                    "空间发现方法已变化，请单独预览补扫，原运行不能静默升级"
+                )
             from modules.evolution.optional_step_budget import (
                 mandatory_requests_remaining,
             )
@@ -275,11 +281,7 @@ async def _plan(db, novel_id, request):
         "structure_version": previous.get("structure_version", 0) if run else 1,
         "discovery_version": previous.get("discovery_version", 0)
         if run
-        else (
-            (2 if native else 1)
-            if optional_step_enabled(request, "details")
-            else 0
-        ),
+        else ((2 if native else 1) if optional_step_enabled(request, "details") else 0),
         "request": _request_payload(request),
         "steps": [],
         "model_profile": snapshot["profile"],
@@ -289,6 +291,8 @@ async def _plan(db, novel_id, request):
     }
     if request.discover_spatial:
         plan["spatial_version"] = 1
+        if run and previous.get("spatial_method_fingerprint"):
+            plan["spatial_method_fingerprint"] = previous["spatial_method_fingerprint"]
         plan["optional_step_quotas"] = (
             dict(previous.get("optional_step_quotas", {})) if run else {}
         )
@@ -745,9 +749,7 @@ async def preview_reading(db, novel_id, request):
         },
         **(
             {
-                "mandatory_request_reserve": plan.get(
-                    "mandatory_request_reserve"
-                )
+                "mandatory_request_reserve": plan.get("mandatory_request_reserve")
                 if plan.get("mandatory_request_reserve") is not None
                 else _planned_mandatory_request_count(
                     plan,
@@ -854,12 +856,18 @@ async def start_reading(db, novel_id, request):
         **(
             {
                 "spatial_version": plan["spatial_version"],
+                "spatial_method_fingerprint": plan["spatial_method_fingerprint"],
                 "optional_step_quotas": plan["optional_step_quotas"],
                 "mandatory_scene_calls": plan["mandatory_scene_calls"],
             }
             if plan.get("spatial_version") == 1
             else {}
         ),
+        **{
+            field: previous[field]
+            for field in ("spatial_rescans", "spatial_auto_draft_builds")
+            if field in previous
+        },
         "preparation_history": [
             *previous.get("preparation_history", []),
             *(
@@ -1035,7 +1043,7 @@ async def _build_spatial_auto_draft_batch(
         return None
     builds = list(plan.get("spatial_auto_draft_builds", []))
     existing = next((item for item in builds if item.get("build_key") == build_key), None)
-    if existing is not None:
+    if existing is not None and existing.get("status") == "completed":
         return existing
 
     from core.container import get
@@ -1044,9 +1052,6 @@ async def _build_spatial_auto_draft_batch(
 
     try:
         port = get(WORLD_BUILD_MAP_AUTO_DRAFTS)
-    except KeyError:
-        return None
-    try:
         async with db.begin_nested():
             result = await request_spatial_auto_drafts(
                 db,
@@ -1081,7 +1086,10 @@ async def _build_spatial_auto_draft_batch(
         }
     run.reading_plan_json = {
         **plan,
-        "spatial_auto_draft_builds": [*builds, summary],
+        "spatial_auto_draft_builds": [
+            *(item for item in builds if item.get("build_key") != build_key),
+            summary,
+        ],
     }
     await db.flush()
     return summary
@@ -1426,9 +1434,7 @@ async def reading_status(db, novel_id, run_key=None):
         step["scene_index"] <= run.committed_scene_index for step in plan["steps"]
     )
     store = PostgresAttemptStore(db, novel_id)
-    pending = await store.load_pending_frozen(
-        run.run_key, run.committed_scene_index + 1
-    )
+    pending = await store.load_pending_frozen(run.run_key, run.committed_scene_index + 1)
     reconcile = bool(
         (
             (

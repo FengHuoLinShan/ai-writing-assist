@@ -13,8 +13,12 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from infrastructure.llm.collaboration import content_hash
+from infrastructure.llm.errors import LLMAdmissionStoppedError
+from modules.evolution.commit import CommitConflictError
 from modules.evolution.contracts import ObservationModality
 from modules.world.contracts import (
+    MapAutoDraftBuildRequest,
+    MapAutoDraftBuildResult,
     MapSpatialClue,
     MapSpatialClueBatch,
     MapSpatialClueCallRef,
@@ -439,6 +443,11 @@ def _make_clues(*, frozen, source, content_mode, context, discovery, review, pre
                 {"reason": "quote_missing_ambiguous_or_cross_source", "clue_index": index}
             )
             continue
+        if raw.subject_surface not in scene_text or (
+            raw.target_surface is not None and raw.target_surface not in scene_text
+        ):
+            gaps.append({"reason": "endpoint_surface_not_in_scene", "clue_index": index})
+            continue
         subject = _endpoint_from_output(
             raw.subject_ref, raw.subject_surface, endpoint_ref_map
         )
@@ -693,6 +702,19 @@ async def finish_scene_spatial(db, store, frozen, source, caller):
     if frozen.payload.get("spatial_discovery_result"):
         return frozen
     payload = dict(frozen.payload)
+    run = await store.load_run(frozen.run_id)
+    authorized_method = payload.get("spatial_method_fingerprint") or (
+        run.reading_plan_json or {}
+    ).get("spatial_method_fingerprint")
+    if authorized_method != spatial_method_fingerprint():
+        return await _persist_result(
+            db,
+            store,
+            frozen,
+            {},
+            status="stale",
+            gaps=[{"reason": "spatial_method_authorization_changed"}],
+        )
     content_mode = payload.get("source_content_mode")
     if content_mode not in {"working", "canonical"}:
         return await _persist_result(
@@ -718,17 +740,18 @@ async def finish_scene_spatial(db, store, frozen, source, caller):
     by_id, surfaces = _current_endpoints(payload)
     try:
         read_context = get(WORLD_READ_SPATIAL_DISCOVERY_CONTEXT)
-        context = await read_context(
-            db,
-            frozen.novel_id,
-            run_id=frozen.run_id,
-            scene_id=str(payload["scene_id"]),
-            scene_index=int(payload["scene_index"]),
-            endpoint_ids=sorted(by_id)[:SPATIAL_ENDPOINT_LIMIT],
-            endpoint_surfaces=sorted(surfaces)[:SPATIAL_ENDPOINT_LIMIT],
-            type_limit=SPATIAL_TYPE_LIMIT,
-            clue_limit=SPATIAL_CLUE_LIMIT,
-        )
+        async with db.begin_nested():
+            context = await read_context(
+                db,
+                frozen.novel_id,
+                run_id=frozen.run_id,
+                scene_id=str(payload["scene_id"]),
+                scene_index=int(payload["scene_index"]),
+                endpoint_ids=sorted(by_id)[:SPATIAL_ENDPOINT_LIMIT],
+                endpoint_surfaces=sorted(surfaces)[:SPATIAL_ENDPOINT_LIMIT],
+                type_limit=SPATIAL_TYPE_LIMIT,
+                clue_limit=SPATIAL_CLUE_LIMIT,
+            )
         context = MapSpatialClueContext.model_validate(context)
         current_scene_index = int(payload["scene_index"])
         earlier_clues = [
@@ -807,8 +830,16 @@ async def finish_scene_spatial(db, store, frozen, source, caller):
         context = MapSpatialClueContext.model_validate(preparation["context"])
         ref_map = preparation["endpoint_ref_map"]
         read_set = content_hash(preparation)
-    if preparation["method_fingerprint"] != spatial_method_fingerprint():
-        raise ValueError("spatial discovery method changed after authorization")
+    if preparation["method_fingerprint"] != authorized_method:
+        return await _persist_result(
+            db,
+            store,
+            latest,
+            {},
+            status="stale",
+            gaps=[{"reason": "spatial_method_authorization_changed"}],
+            read_set=read_set,
+        )
     density = _density_hits(payload["scene_text"], preparation["endpoints"], context)
     if density["count"] < SPATIAL_DENSITY_THRESHOLD:
         return await _persist_result(
@@ -848,25 +879,42 @@ async def finish_scene_spatial(db, store, frozen, source, caller):
 
     async def run(key, method, request_inputs):
         nonlocal latest
-        latest = await _run_scene_call(
-            db,
-            store,
-            latest,
-            source,
-            journal_key=key,
-            inputs={
-                "method": method,
-                "method_fingerprint": preparation["method_fingerprint"],
-                "source_manifest_hash": frozen.source_manifest_hash,
-                "attempt_id": frozen.attempt_id,
-                "inputs": request_inputs,
-            },
-            call_inputs={"inputs": request_inputs},
-            call=(lambda **kwargs: caller("discover_spatial", **kwargs))
-            if key == "scene_spatial_discovery"
-            else (lambda **kwargs: caller("review_spatial", **kwargs)),
-            session_gate=getattr(caller, "session_gate", None),
-        )
+        try:
+            latest = await _run_scene_call(
+                db,
+                store,
+                latest,
+                source,
+                journal_key=key,
+                inputs={
+                    "method": method,
+                    "method_fingerprint": preparation["method_fingerprint"],
+                    "source_manifest_hash": frozen.source_manifest_hash,
+                    "attempt_id": frozen.attempt_id,
+                    "inputs": request_inputs,
+                },
+                call_inputs={"inputs": request_inputs},
+                call=(lambda **kwargs: caller("discover_spatial", **kwargs))
+                if key == "scene_spatial_discovery"
+                else (lambda **kwargs: caller("review_spatial", **kwargs)),
+                session_gate=getattr(caller, "session_gate", None),
+            )
+        except LLMAdmissionStoppedError:
+            raise
+        except CommitConflictError as exc:
+            if exc.code != "input_budget_exceeded":
+                raise
+            raise OptionalStepQuotaExhaustedError(
+                "spatial", key, "input_budget_exceeded"
+            ) from exc
+        except Exception as exc:
+            current = await store.load_frozen(frozen.run_id, frozen.attempt_id)
+            journal = current.payload.get(key) or {}
+            if journal.get("stage") != "failed":
+                raise
+            # The call journal already records possible provider I/O. Keep its
+            # unknown billing isolated from the mandatory Scene commit.
+            raise SceneCallFailedError(journal.get("paid_call_receipt")) from exc
         return latest.payload[key]
 
     gaps = []
@@ -1106,8 +1154,6 @@ async def request_spatial_auto_drafts(
     port,
 ):
     """Ask World to build one idempotent aggregate candidate batch."""
-    from modules.world.contracts import MapAutoDraftBuildRequest, MapAutoDraftBuildResult
-
     request = MapAutoDraftBuildRequest(
         run_id=run_id,
         build_key=build_key,

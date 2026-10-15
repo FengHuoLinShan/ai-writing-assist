@@ -314,6 +314,11 @@ def test_type_review_cannot_claim_complete_support_without_all_evidence():
 
 
 class _FakeDb:
+    def begin_nested(self):
+        from contextlib import nullcontext
+
+        return nullcontext()
+
     async def commit(self):
         return None
 
@@ -322,7 +327,11 @@ class _FakeStore:
     def __init__(self, frozen):
         self.frozen = frozen
         self.run = SimpleNamespace(
-            reading_plan_json={"optional_step_quotas": {}}, llm_snapshot_json={}
+            reading_plan_json={
+                "optional_step_quotas": {},
+                "spatial_method_fingerprint": spatial_method_fingerprint(),
+            },
+            llm_snapshot_json={},
         )
 
     async def require_project_owner(self, run_id):
@@ -468,10 +477,10 @@ async def test_auto_draft_builder_runs_once_at_aggregate_scene_cutoff():
         calls.append((novel_id, request))
         return {
             "batch_id": str(uuid4()),
-            "status": "running",
-            "cursor": 0,
+            "status": "completed",
+            "cursor": 1,
             "total_chunks": 1,
-            "completed_chunks": 0,
+            "completed_chunks": 1,
         }
 
     class Savepoint:
@@ -519,7 +528,7 @@ async def test_auto_draft_builder_runs_once_at_aggregate_scene_cutoff():
     assert request.through_scene_index == 5
     assert request.clue_ids is None
     assert first == second
-    assert run.reading_plan_json["spatial_auto_draft_builds"][0]["status"] == "running"
+    assert run.reading_plan_json["spatial_auto_draft_builds"][0]["status"] == "completed"
 
 
 def test_rescan_confirmation_requires_true_and_unknown_journals_block_reissue():
@@ -596,3 +605,248 @@ async def test_unknown_rescan_attempt_blocks_a_new_operation_for_its_scene():
         {"spatial_rescans": [{"attempt_ids": [frozen.attempt_id]}]},
     )
     assert unresolved == {3}
+
+
+@pytest.mark.parametrize(
+    "journal_key", ["scene_spatial_discovery", "scene_spatial_review"]
+)
+@pytest.mark.parametrize("failure", ["provider", "input_budget"])
+async def test_optional_spatial_call_failures_do_not_block_scene(
+    monkeypatch, journal_key, failure
+):
+    import modules.evolution.pipeline as pipeline
+    from modules.evolution.commit import CommitConflictError
+
+    frozen = _frozen()
+    store = _FakeStore(frozen)
+    calls = []
+
+    async def context(*args, **kwargs):
+        return MapSpatialClueContext()
+
+    async def execute(db, store, attempt, source, **kwargs):
+        key = kwargs["journal_key"]
+        calls.append(key)
+        if key == journal_key and failure == "input_budget":
+            raise CommitConflictError("input_budget_exceeded", "完整输入超过冻结预算")
+        if key == journal_key:
+            await store.replace_frozen_payload(
+                attempt.model_copy(
+                    update={"payload": {**attempt.payload, key: {"stage": "failed"}}}
+                )
+            )
+            raise TimeoutError("provider result unknown")
+        result = _clue_output().model_dump(mode="json")
+        updated = attempt.model_copy(
+            update={
+                "payload": {
+                    **attempt.payload,
+                    key: {"stage": "sampled", "result": result},
+                }
+            }
+        )
+        await store.replace_frozen_payload(updated)
+        return updated
+
+    monkeypatch.setattr(pipeline, "_run_scene_call", execute)
+    with container_scope({WORLD_READ_SPATIAL_DISCOVERY_CONTEXT: context}):
+        result = await finish_scene_spatial(_FakeDb(), store, frozen, _source(), object())
+        replay = await finish_scene_spatial(_FakeDb(), store, result, _source(), object())
+    assert calls.count(journal_key) == 1
+    discovery = result.payload["spatial_discovery_result"]
+    assert discovery["status"] == (
+        "unknown"
+        if failure == "provider"
+        else "not_run"
+        if journal_key == "scene_spatial_discovery"
+        else "inspected"
+    )
+    assert discovery["gaps"]
+    assert replay == result
+    if failure == "provider":
+        assert result.payload[journal_key]["stage"] == "failed"
+
+
+async def test_spatial_method_change_never_sends_new_request():
+    frozen = _frozen()
+    store = _FakeStore(frozen)
+    store.run.reading_plan_json["spatial_method_fingerprint"] = "0" * 64
+    result = await finish_scene_spatial(_FakeDb(), store, frozen, _source(), object())
+    assert result.payload["spatial_discovery_result"]["status"] == "stale"
+    assert result.payload["spatial_discovery_result"]["gaps"] == [
+        {"reason": "spatial_method_authorization_changed"}
+    ]
+    assert "scene_spatial_discovery" not in result.payload
+
+
+async def test_spatial_source_conflict_still_blocks_obsolete_scene(monkeypatch):
+    import modules.evolution.pipeline as pipeline
+    from modules.evolution.commit import CommitConflictError
+
+    frozen = _frozen()
+    store = _FakeStore(frozen)
+
+    async def context(*args, **kwargs):
+        return MapSpatialClueContext()
+
+    async def stale(*args, **kwargs):
+        raise CommitConflictError("source_changed", "source changed")
+
+    monkeypatch.setattr(pipeline, "_run_scene_call", stale)
+    with container_scope({WORLD_READ_SPATIAL_DISCOVERY_CONTEXT: context}):
+        with pytest.raises(CommitConflictError, match="source_changed"):
+            await finish_scene_spatial(_FakeDb(), store, frozen, _source(), object())
+
+
+async def test_auto_draft_nonterminal_progress_reenters_same_request():
+    from contextlib import nullcontext
+
+    from modules.evolution.workflow import _build_spatial_auto_draft_batch
+
+    calls = []
+    batch_id, scene_id = uuid4(), uuid4()
+
+    async def build(db, novel_id, request):
+        calls.append(request)
+        return {
+            "batch_id": batch_id,
+            "status": "running" if len(calls) == 1 else "completed",
+            "cursor": len(calls),
+            "total_chunks": 2,
+            "completed_chunks": len(calls),
+        }
+
+    class Db:
+        def begin_nested(self):
+            return nullcontext()
+
+        async def flush(self):
+            pass
+
+    run = SimpleNamespace(
+        run_key="reading",
+        committed_scene_index=1,
+        reading_plan_json={
+            "steps": [{"scene_index": 1, "scene_id": str(scene_id)}],
+        },
+    )
+    with container_scope({WORLD_BUILD_MAP_AUTO_DRAFTS: build}):
+        first = await _build_spatial_auto_draft_batch(
+            Db(), "novel", run, build_key="batch"
+        )
+        second = await _build_spatial_auto_draft_batch(
+            Db(), "novel", run, build_key="batch"
+        )
+        third = await _build_spatial_auto_draft_batch(
+            Db(), "novel", run, build_key="batch"
+        )
+    assert first["status"] == "running"
+    assert second["status"] == "completed" and third == second
+    assert calls[0] == calls[1] and len(calls) == 2
+    assert len(run.reading_plan_json["spatial_auto_draft_builds"]) == 1
+
+
+async def test_missing_auto_draft_port_is_visible_and_can_recover():
+    from modules.evolution.workflow import _build_spatial_auto_draft_batch
+
+    class Db:
+        async def flush(self):
+            pass
+
+    run = SimpleNamespace(
+        run_key="reading",
+        committed_scene_index=0,
+        reading_plan_json={
+            "steps": [{"scene_index": 0, "scene_id": str(uuid4())}],
+        },
+    )
+    with container_scope({}):
+        result = await _build_spatial_auto_draft_batch(
+            Db(), "novel", run, build_key="batch"
+        )
+    assert result["status"] == "failed" and result["failure_kind"] == "KeyError"
+    assert run.reading_plan_json["spatial_auto_draft_builds"] == [result]
+
+
+async def test_density_skipped_rescan_attempt_is_durably_completed(monkeypatch):
+    import modules.evolution.spatial_rescan as rescan
+
+    frozen = _frozen()
+    frozen = frozen.model_copy(
+        update={
+            "payload": {
+                **frozen.payload,
+                "spatial_rescan_status": "pending",
+                "spatial_discovery_result": {
+                    "status": "inspected",
+                    "gaps": [{"reason": "low_spatial_density"}],
+                },
+            }
+        }
+    )
+    store = _FakeStore(frozen)
+    writes = []
+
+    async def project(*args, **kwargs):
+        pass
+
+    class Db(_FakeDb):
+        async def execute(self, statement):
+            writes.append(statement)
+
+    monkeypatch.setattr(rescan, "require_active_project_exclusive", project)
+    result = await rescan._stage_rescan_result(Db(), store, frozen)
+    assert result.payload["spatial_rescan_status"] == "completed"
+    assert len(writes) == 1
+
+
+async def test_spatial_context_query_failure_rolls_back_savepoint_before_gap():
+    from sqlalchemy.exc import SQLAlchemyError
+
+    events = []
+
+    class Savepoint:
+        async def __aenter__(self):
+            events.append("enter")
+
+        async def __aexit__(self, exc_type, exc, tb):
+            events.append("rollback" if exc_type else "release")
+            return False
+
+    class Db(_FakeDb):
+        def begin_nested(self):
+            return Savepoint()
+
+        async def commit(self):
+            assert events[-1] == "rollback"
+            events.append("gap_committed")
+
+    async def broken_context(*args, **kwargs):
+        raise SQLAlchemyError("context query failed")
+
+    frozen = _frozen()
+    with container_scope({WORLD_READ_SPATIAL_DISCOVERY_CONTEXT: broken_context}):
+        result = await finish_scene_spatial(
+            Db(), _FakeStore(frozen), frozen, _source(), object()
+        )
+    assert events == ["enter", "rollback", "gap_committed"]
+    assert result.payload["spatial_discovery_result"]["status"] == "stale"
+
+
+@pytest.mark.parametrize(
+    "field,surface", [("subject_surface", "不存在的城"), ("target_surface", "门 外")]
+)
+def test_spatial_endpoint_surface_must_be_literal_current_scene_text(field, surface):
+    discovery = _clue_output()
+    discovery.clues[0] = discovery.clues[0].model_copy(update={field: surface})
+    batch, gaps = _make_clues(
+        frozen=_frozen(),
+        source=_source(),
+        content_mode="working",
+        context=MapSpatialClueContext(),
+        discovery=discovery,
+        review=_review(),
+        preparation={"endpoint_ref_map": {}, "allowed_endpoints": {}},
+    )
+    assert batch.clues == []
+    assert gaps == [{"reason": "endpoint_surface_not_in_scene", "clue_index": 0}]

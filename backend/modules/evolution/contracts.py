@@ -35,6 +35,7 @@ class MapChapterConsumptionPort(Protocol):
         chapter_index: int,
         current_draft_id: str | None,
         current_source_hash: str | None,
+        content_mode: Literal["working", "canonical"] = "canonical",
     ) -> dict: ...
 
 

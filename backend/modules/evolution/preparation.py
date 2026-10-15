@@ -328,9 +328,7 @@ async def finish_preparation(db, novel_id, run):
         indexed.update(
             {
                 int(item["scene_index"]): item
-                for item in _mandatory_scene_call_specs(
-                    selected, run.reading_plan_json
-                )
+                for item in _mandatory_scene_call_specs(selected, run.reading_plan_json)
             }
         )
         mandatory_scene_calls = [indexed[key] for key in sorted(indexed)]

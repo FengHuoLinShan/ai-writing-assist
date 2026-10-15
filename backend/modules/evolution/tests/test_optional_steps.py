@@ -366,3 +366,103 @@ async def test_spatial_coverage_projects_four_states_without_journal_identifiers
             "coverage": "gap",
         }
     ]
+
+
+def test_spatial_rescan_cannot_treat_old_scene_journals_as_current_core_reserve():
+    run = SimpleNamespace(
+        committed_scene_index=3,
+        reading_plan_json={
+            "mandatory_scene_calls": [
+                {
+                    "scene_index": 4,
+                    "calls": {"scene_sample": 1, "world": 1, "state_review": 1},
+                }
+            ],
+        },
+    )
+    old_scene = {
+        "scene_index": 0,
+        "stage": "verified",
+        "world_result": {"context": {}},
+        "scene_world": {"stage": "sampled"},
+        "state_review": {"stage": "sampled"},
+    }
+    assert mandatory_requests_remaining(run, old_scene) == 3
+
+
+@pytest.mark.parametrize("mode", ["append", "continue"])
+async def test_reading_reauthorization_keeps_unknown_rescan_and_draft_progress(
+    monkeypatch, mode
+):
+    import modules.evolution.workflow as workflow
+    from infrastructure.llm.collaboration import content_hash
+    from modules.evolution.workflow import ReadingStart
+
+    previous = {
+        "spatial_rescans": [
+            {"operation_id": "unknown-operation", "status": "needs_reconciliation"}
+        ],
+        "spatial_auto_draft_builds": [
+            {"build_key": "batch", "status": "running", "cursor": 20}
+        ],
+        "steps": [{"scene_index": 0, "scene_id": "scene"}],
+    }
+    run = SimpleNamespace(
+        mode="bootstrap",
+        reading_plan_json=previous,
+        budget_remaining=None,
+    )
+    plan = {
+        **previous,
+        "version": "evolution_reading.v1",
+        "budget_mode": "confirmed_scope",
+        "state_review_version": 0,
+        "enrichment_version": 0,
+        "world_version": 0,
+        "discovery_version": 0,
+        "project_owner": "owner",
+    }
+
+    class Store:
+        def __init__(self, *args):
+            pass
+
+        async def load_run(self, key):
+            return run
+
+        async def register_run(self, *args, **kwargs):
+            return run
+
+    async def noop(*args, **kwargs):
+        pass
+
+    async def planned(*args, **kwargs):
+        return plan, {}
+
+    class Db:
+        async def flush(self):
+            pass
+
+    monkeypatch.setattr(workflow, "PostgresAttemptStore", Store)
+    monkeypatch.setattr(workflow, "require_active_project_exclusive", noop)
+    monkeypatch.setattr(workflow, "_plan", planned)
+    monkeypatch.setattr(workflow, "advance_reading", noop)
+    monkeypatch.setattr(workflow, "reading_status", noop)
+    import modules.evolution.world_audit_supplement as audit
+
+    monkeypatch.setattr(audit, "require_no_active_world_audit_supplement", noop)
+    request = ReadingStart(
+        operation_id="f16f8017-f7b1-4d0a-a88e-7cffb6759f6a",
+        mode=mode,
+        run_key="reading",
+        end_chapter=2,
+        budget_mode="confirmed_scope",
+        expected_fingerprint=content_hash(plan),
+        authorization_confirmed=True,
+    )
+    await workflow.start_reading(Db(), "novel", request)
+    assert run.reading_plan_json["spatial_rescans"] == previous["spatial_rescans"]
+    assert (
+        run.reading_plan_json["spatial_auto_draft_builds"]
+        == previous["spatial_auto_draft_builds"]
+    )

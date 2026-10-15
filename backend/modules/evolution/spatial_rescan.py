@@ -264,6 +264,7 @@ async def _plan(db, novel_id, run_key, request):
             {
                 "stage": "verified",
                 "spatial_version": SPATIAL_VERSION,
+                "spatial_method_fingerprint": spatial_method_fingerprint(),
                 "source_content_mode": content_mode,
                 "spatial_rescan": True,
                 "spatial_rescan_operation_id": str(request.operation_id),
@@ -500,8 +501,6 @@ async def resume_spatial_rescan(db, novel_id, run_key, operation_id):
 async def _stage_rescan_result(db, store, frozen):
     from modules.evolution.spatial import apply_spatial_discovery
 
-    if not (frozen.payload.get("spatial_discovery_result") or {}).get("batch"):
-        return frozen
     await require_active_project_exclusive(db, frozen.novel_id)
     stage_result = None
     stage_error = None

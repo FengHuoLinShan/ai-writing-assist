@@ -1295,8 +1295,7 @@ def compile_discovery(frozen):
 
         batch_quota_gap = any(belongs_to_batch(gap) for gap in quota_gaps)
         if not generated and any(
-            gap.get("journal_key") == f"scene_discovery_{index}"
-            for gap in quota_gaps
+            gap.get("journal_key") == f"scene_discovery_{index}" for gap in quota_gaps
         ):
             pending.append({"reason": "optional_quota_exhausted", "batch": index})
             partial = {category: "partial" for category in category_attempts}

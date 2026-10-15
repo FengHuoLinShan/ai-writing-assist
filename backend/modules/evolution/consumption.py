@@ -662,7 +662,8 @@ def receipt_fingerprint(receipt: InvalidationReceipt) -> str:
 
 
 def _map_affected_entries(receipt: InvalidationReceipt) -> list[dict[str, Any]]:
-    return [
+    maps = receipt.invalidated_consumers.get("map_atlas", {})
+    entries = [
         {
             "consumer": "map_atlas",
             "scene_index": None,
@@ -674,8 +675,43 @@ def _map_affected_entries(receipt: InvalidationReceipt) -> list[dict[str, Any]]:
             "basis": "known",
             "note": "地图引用的已发布正文版本已变化，请手动核对；地图内容未改动",
         }
-        for item in receipt.invalidated_consumers.get("map_atlas", {}).get("maps", [])
+        for item in maps.get("maps", [])
     ]
+    entries.extend(
+        {
+            "consumer": "map_atlas",
+            "scene_index": None,
+            "chapter_index": item["chapter_index"],
+            "map_title": item["title"],
+            "node_id": item["node_id"],
+            "revision_id": item["revision_id"],
+            "map_kind": "auto_draft",
+            "status": "candidate",
+            "reason": "auto_draft_source_changed",
+            "basis": "known",
+            "note": "待核自动草图：引用的正文来源已变化，请重新核对后审核",
+        }
+        for item in maps.get("auto_drafts", [])
+    )
+    if (
+        maps.get("auto_draft_unverified")
+        or maps.get("auto_draft_truncated")
+        or (maps and not maps.get("checked"))
+    ):
+        entries.append(
+            {
+                "consumer": "map_atlas",
+                "scene_index": None,
+                "chapter_index": receipt.chapter_index,
+                "map_kind": "auto_draft",
+                "reason": "auto_draft_sources_unverified",
+                "basis": "unknown",
+                "unverified_count": int(maps.get("auto_draft_unverified", 0)),
+                "truncated": bool(maps.get("auto_draft_truncated")),
+                "note": "自动草图来源未核对完整，请到地图核对来源",
+            }
+        )
+    return entries
 
 
 def affected_view_entries(

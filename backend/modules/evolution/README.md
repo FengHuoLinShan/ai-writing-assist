@@ -579,10 +579,10 @@ World v3 审查准备含冻结 `context_snapshot`，即使分组相同，上下�
 ### 空间可选阅读步骤（ADR-0036）
 
 空间发现由 `optional_steps.py` 登记，抽取与独立复核分属 `spatial.py` 的两项 capability 和独立 journal。
-来源、端点、词表与严格更早的线索构成冻结 consumer read-set；候选只经 World stage 写入地图域，不写 World 关系或地图 head。旧运行通过独立空间补扫授权启动，不修改原阅读开关或方法版本；批次结束时只请求一个幂等 auto-draft build，候选仍待作者审核。覆盖四态、预算保留、来源核验和 World ports 见 [ADR-0036 实施合同](../../../docs/modules/22_evolution.md#adr-0036-空间可选阅读步骤m1)。
+授权固定空间方法指纹；append/continue 保留未核清补扫登记和草图游标。来源、端点、词表与严格更早的线索构成冻结 consumer read-set；候选只经 World stage 写入地图域，不写 World 关系或地图 head。旧运行通过独立空间补扫授权启动，不修改原阅读开关或方法版本；批次结束时只请求一个幂等 auto-draft build，候选仍待作者审核。覆盖四态、预算保留、来源核验和 World ports 见 [ADR-0036 实施合同](../../../docs/modules/22_evolution.md#adr-0036-空间可选阅读步骤m1)。
 
 ## 已发布正文变化与地图核对（G8a）
 
-已发布正文变化的地图核对由 World 只读 DI port 推导，作为写作回执建议；不改变 Scene
+已发布正文的正式地图、以及工作稿/正式稿的自动草图来源核对由 World 只读 DI port 推导，作为写作回执建议；不改变 Scene
 登记、失效窗口或重算选项。来源身份、上限、降级与残余覆盖见
 [权威合同](../../../docs/modules/22_evolution.md#已发布正文变化与地图核对g8a)。

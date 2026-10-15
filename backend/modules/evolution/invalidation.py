@@ -52,8 +52,8 @@ UNSUPPORTED_CONSUMERS: tuple[dict[str, str], ...] = (
     {
         "consumer": "map_atlas",
         "reason": (
-            "地图册对象、世界书页来源与待审候选尚未接入本失效回执；"
-            "仅核对当前已保存版本的正史正文来源"
+            "地图册对象、世界书页来源与非自动草图的待审候选尚未接入本失效回执；"
+            "已核对已保存版本与自动草图的正文来源"
         ),
     },
     {
@@ -342,41 +342,68 @@ async def apply_source_invalidation(
         receipt.coverage_note = (
             "登记覆盖完整：变更区间未命中已登记 Story 场景字段，投影保持当前"
         )
+    map_scopes = [(content_mode, index_state)]
     if published_changed or content_mode == "canonical":
         canonical = await request_chapter_index(
             db, novel_id, chapter_index, content_mode="canonical"
         )
         receipt.invalidated_consumers["canonical_chapter_index"] = canonical
-        port: MapChapterConsumptionPort = get(WORLD_READ_MAP_CHAPTER_CONSUMERS)
+        map_scopes = [("canonical", canonical)]
+        if content_mode == "working":
+            map_scopes.append(("working", index_state))
+    maps = {
+        "maps": [],
+        "auto_drafts": [],
+        "checked": True,
+        "truncated": False,
+        "unverified_sources": 0,
+        "auto_draft_unverified": 0,
+        "auto_draft_truncated": False,
+    }
+    port: MapChapterConsumptionPort = get(WORLD_READ_MAP_CHAPTER_CONSUMERS)
+    for scope_mode, source_state in map_scopes:
         try:
             async with db.begin_nested():
-                maps = await port(
+                checked = await port(
                     db,
                     novel_id,
                     chapter_index=chapter_index,
-                    current_draft_id=canonical.get("requested_source_id"),
-                    current_source_hash=canonical.get("requested_hash"),
+                    current_draft_id=source_state.get("requested_source_id"),
+                    current_source_hash=source_state.get("requested_hash"),
+                    content_mode=scope_mode,
                 )
         except SQLAlchemyError:
-            maps = {
+            checked = {
                 "maps": [],
                 "checked": False,
                 "note": "地图册未核对：来源查询暂时失败",
             }
         except DomainError:
-            # 附属核对的项目/身份门禁拒绝只让地图标为未核对，不回滚正文与主回执。
-            maps = {
+            # An auxiliary owner/source check cannot roll back the prose receipt.
+            checked = {
                 "maps": [],
                 "checked": False,
                 "note": "地图册未核对：当前无法读取地图来源",
             }
-        receipt.invalidated_consumers["map_atlas"] = maps
-        if (
-            not maps.get("checked")
-            or maps.get("truncated")
-            or maps.get("unverified_sources")
-        ):
-            receipt.coverage_note += "；地图册未核对完整，请到地图核对来源"
+        if scope_mode == "canonical":
+            maps["maps"].extend(checked.get("maps", []))
+        maps["auto_drafts"].extend(checked.get("auto_drafts", []))
+        maps["checked"] &= bool(checked.get("checked"))
+        for field in ("truncated", "auto_draft_truncated"):
+            maps[field] |= bool(checked.get(field))
+        for field in ("unverified_sources", "auto_draft_unverified"):
+            maps[field] += int(checked.get(field, 0))
+        if checked.get("note"):
+            maps["note"] = checked["note"]
+    receipt.invalidated_consumers["map_atlas"] = maps
+    if (
+        not maps["checked"]
+        or maps["truncated"]
+        or maps["unverified_sources"]
+        or maps["auto_draft_unverified"]
+        or maps["auto_draft_truncated"]
+    ):
+        receipt.coverage_note += "；地图册未核对完整，请到地图核对来源"
     attach_impact_view(receipt, assessment)
     return receipt
 

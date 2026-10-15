@@ -70,8 +70,7 @@ def optional_quotas(
             "used": used,
             "remaining": max(0, limit - used),
             "per_scene_limit": per_scene,
-            "authorized_scene_count": int(old.get("authorized_scene_count", 0))
-            + scenes,
+            "authorized_scene_count": int(old.get("authorized_scene_count", 0)) + scenes,
         }
     return result
 
@@ -172,7 +171,11 @@ def mandatory_requests_remaining(run, payload: dict[str, Any] | None = None) -> 
     for scene_index, calls in calls_by_scene.items():
         if scene_index <= run.committed_scene_index:
             continue
-        if payload is not None and scene_index == pending_index:
+        if (
+            payload is not None
+            and scene_index == pending_index
+            and payload.get("scene_index", pending_index) == pending_index
+        ):
             reserve += _current_scene_reserve(payload, calls)
         else:
             reserve += sum(calls.values())
@@ -180,9 +183,7 @@ def mandatory_requests_remaining(run, payload: dict[str, Any] | None = None) -> 
     preparation = plan.get("preparation") or {}
     if preparation.get("stage") not in {None, "complete"}:
         calls = preparation.get("calls") or {}
-        reserve += sum(
-            item.get("stage") == "planned" for item in calls.values()
-        )
+        reserve += sum(item.get("stage") == "planned" for item in calls.values())
         if not calls:
             reserve += len((preparation.get("plan") or {}).get("windows", []))
 

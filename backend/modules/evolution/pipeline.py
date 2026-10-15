@@ -1326,9 +1326,7 @@ async def _run_scene_call(
                     frozen.model_copy(update={"payload": payload})
                 )
                 await db.commit()
-                raise OptionalStepQuotaExhaustedError(
-                    optional_step, journal_key, reason
-                )
+                raise OptionalStepQuotaExhaustedError(optional_step, journal_key, reason)
             run.reading_plan_json = adjust_optional_quota(plan, optional_step, 1)
         if payload.get("category_rescan_operation_id"):
             operation_id = payload["category_rescan_operation_id"]

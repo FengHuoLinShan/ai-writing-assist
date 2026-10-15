@@ -196,10 +196,7 @@ def has_unreconciled_scene_calls(payload, *, frozen=None):
             return True
     return any(
         key not in excluded
-        and not (
-            payload.get("spatial_version") == 1
-            and key.startswith("scene_spatial_")
-        )
+        and not (payload.get("spatial_version") == 1 and key.startswith("scene_spatial_"))
         and (payload.get(key) or {}).get("stage") in {"sampling", "failed"}
         and not (
             key.startswith(("scene_world_review_group_", "scene_discovery_"))
