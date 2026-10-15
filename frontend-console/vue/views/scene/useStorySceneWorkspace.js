@@ -639,6 +639,19 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
             : []
       }
       characters.value = cardItems.map((item, index) => normalizeCharacter(item, index, worldById))
+      // A completed reaction task can be restored before the character context
+      // arrives. V2 results carry only character_id, so replace the temporary
+      // display fallback once this Scene's authoritative names are loaded.
+      if (simulation.value?.reactions?.length) {
+        const names = new Map(characters.value.map((item) => [item.id, item.name]))
+        const reactions = simulation.value.reactions.map((item) => {
+          const name = item.schemaVersion === "story.reaction.v2" && names.get(String(item.characterId))
+          return name && name !== item.name ? { ...item, name } : item
+        })
+        if (reactions.some((item, index) => item !== simulation.value.reactions[index])) {
+          simulation.value = { ...simulation.value, reactions }
+        }
+      }
 
       let scriptItems = listItems(context?.script_files)
       if (!scriptItems.length && typeof api.story?.listSceneScripts === "function") {
