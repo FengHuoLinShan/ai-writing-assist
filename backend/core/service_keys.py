@@ -43,6 +43,7 @@ if TYPE_CHECKING:
         WorldAliasRelationTaskPort,
         WorldBuildMapAutoDraftsPort,
         WorldReadMapSpatialBriefPort,
+        MapAuthorDecisionReaderPort,
     )
     from modules.world.services.worldbuilding.adoption_package_service import (
         WorldAdoptionPackageService,
@@ -64,6 +65,9 @@ ASSISTANT_FORECAST_SOURCES: ServiceKey[dict[str, Any]] = ServiceKey(
     "assistant.forecast.sources"
 )
 ASSISTANT_OPERATIONS: ServiceKey[dict[str, Any]] = ServiceKey("assistant.operations")
+ASSISTANT_READ_MAP_AUTHOR_DECISION: ServiceKey[MapAuthorDecisionReaderPort] = ServiceKey(
+    "assistant.read_map_author_decision"
+)
 SOURCE_CHANGED: ServiceKey[Callable[..., Any]] = ServiceKey("source.changed")
 ASSISTANT_PROACTIVE_SUBMITTERS: ServiceKey[dict[str, Callable[..., Any]]] = ServiceKey(
     "assistant.proactive.submitters"
