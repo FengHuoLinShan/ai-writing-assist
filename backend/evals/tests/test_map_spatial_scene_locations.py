@@ -10,7 +10,6 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from evals.map_spatial import (
@@ -22,7 +21,6 @@ from evals.map_spatial import (
 )
 from evals.map_spatial_guard import digest
 from evals.tests.test_map_spatial import _fixture
-from infrastructure.tasks.models import AsyncTask
 from modules.world.map_structure_schemas import MapDocument, MapNodeCreate, MapSaveRequest
 from modules.world.map_structure_service import MapStructureService
 from modules.world.models import CoreEntity
@@ -132,18 +130,17 @@ async def _case_project(tmp_path, monkeypatch, async_client, db_session, test_pr
             ),
         ),
     )
-    # The draft API queues indexing; the synthetic completed-Evolution boundary
-    # has no active model/index writer, so settle only those test-owned tasks.
-    for task in (
-        await db_session.scalars(
-            select(AsyncTask).where(
-                AsyncTask.novel_id == uuid.UUID(test_project_id),
-                AsyncTask.task_type == "rag_index_chapter",
-            )
-        )
-    ).all():
-        task.status = "done"
-    await db_session.flush()
+    tasks = await async_client.get(f"/api/tasks?novel_id={test_project_id}")
+    assert tasks.status_code == 200, tasks.text
+    assert all(
+        item["task_type"] in {"publish_chapter", "rag_index_chapter"}
+        and item["status"] == "pending"
+        and item["attempt"] == 0
+        for item in tasks.json()["items"]
+    ), [
+        (item["task_type"], item["status"], item["attempt"])
+        for item in tasks.json()["items"]
+    ]
     for choice in choices:
         current = await async_client.get(
             f"/api/outline/scenes/{choice['scene_id']}?novel_id={test_project_id}"
@@ -278,6 +275,9 @@ async def test_explicit_location_preserves_scene_meta_and_exact_sources(
     )
     _bind(monkeypatch, helper, root, common, async_client, db_session)
     path, sha = _manifest(root, common, choices)
+    tasks_before = (
+        await async_client.get(f"/api/tasks?novel_id={test_project_id}")
+    ).json()["items"]
     result = await helper.apply_scene_locations(
         private_root=root,
         family_id=common["family_id"],
@@ -292,6 +292,32 @@ async def test_explicit_location_preserves_scene_meta_and_exact_sources(
     record = _read_private_json(helper.ledger_path(root, common["family_id"]))
     assert record["status"] == "completed"
     assert len(record["cases"]) == 5
+    assert record["deferred_index_tasks_executed"] == 0
+    assert record["deferred_index_tasks_may_reanchor_or_embed_if_run"] is True
+    tasks_after = (
+        await async_client.get(f"/api/tasks?novel_id={test_project_id}")
+    ).json()["items"]
+    task_fields = ("task_id", "task_type", "status", "attempt")
+    expected_tasks = sorted(
+        ({key: task[key] for key in task_fields} for task in tasks_before),
+        key=lambda task: task["task_id"],
+    )
+    assert (
+        sorted(
+            ({key: task[key] for key in task_fields} for task in tasks_after),
+            key=lambda task: task["task_id"],
+        )
+        == expected_tasks
+    )
+    for event in record["cases"].values():
+        assert (
+            sorted(event["deferred_index_tasks"], key=lambda task: task["task_id"])
+            == expected_tasks
+        )
+        assert event["before_scene_hash"] == digest(event["before"])
+        assert event["request_sha256"] == digest(event["request"])
+        assert event["response_sha256"] == digest(event["response"])
+        assert event["after_scene_hash"] == digest(event["after"])
     final_cases = deepcopy(common["case_bindings"])
     for index, choice in enumerate(choices, 1):
         scene = (
