@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -736,17 +736,30 @@ async def test_edit_alias_move_and_type_change_preserve_scene_interval(
     alias_service.repo.get_many_for_update = AsyncMock(return_value=[source, target])
     db = AsyncMock()
 
-    await alias_service.edit_alias(
-        db,
-        novel_id,
-        str(source.id),
-        "灰鸦",
-        target_entity_id=str(target.id),
-        alias_type="title",
-        alias_kind="title",
-        validity=validity,
-        update_validity=True,
+    scene_source = MagicMock()
+    scene_source.read_temporal_anchor_scenes = AsyncMock(
+        return_value=[
+            {
+                "scene_id": validity["start"]["id"],
+                "scene_index": 0,
+                "status": "canonical",
+            }
+        ]
     )
+    with patch("modules.world.validity.get", autospec=True) as get_port:
+        get_port.return_value = scene_source
+        await alias_service.edit_alias(
+            db,
+            novel_id,
+            str(source.id),
+            "灰鸦",
+            target_entity_id=str(target.id),
+            alias_type="title",
+            alias_kind="title",
+            validity=validity,
+            update_validity=True,
+        )
+    scene_source.read_temporal_anchor_scenes.assert_awaited()
 
     moved = target.content_json["aliases"][0]
     assert moved["alias"] == "灰鸦"

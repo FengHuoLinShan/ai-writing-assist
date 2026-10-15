@@ -1183,7 +1183,7 @@ onBeforeUnmount(() => {
           <div class="settings-section">
             <h3>世界对象有效期</h3>
             <p class="settings-section-hint">
-              默认由作者设定的有效区间决定该时点的读法。开启后，只有结构化字段精确对齐且正文观察有可信来源证明时，剧情变化才会从观察场景起覆盖读取；它不会改写作者档案或历史记录。
+              默认由作者设定的有效区间决定该时点的读法。开启后，只有结构化字段精确对齐，且有作者确认的剧情状态或可信正文来源时，剧情变化才会从后续场景起覆盖读取；它不会改写作者档案或历史记录。
             </p>
             <div class="settings-actions">
               <label class="settings-inline-toggle">

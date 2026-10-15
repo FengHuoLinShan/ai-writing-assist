@@ -281,7 +281,24 @@ async def get_scene_state_view(
     )
 
 
-@router.post("/custom-text-state")
+@router.post(
+    "/custom-text-state",
+    openapi_extra={
+        "x-novelcraft-operation-id": "story.custom_text_state.confirm",
+        "x-novelcraft-operation-confirmation-field": "request.confirmed",
+        "x-novelcraft-operation-trace-fields": {
+            "scene_id": "request.scene_id",
+            "entity_id": "request.entity_id",
+            "field_key": "request.field_key",
+            "value": "request.value",
+            "expected_template_version_number": (
+                "request.expected_template_version_number"
+            ),
+            "idempotency_key": "request.idempotency_key",
+            "confirmed": "request.confirmed",
+        },
+    },
+)
 async def write_custom_text_state(
     db: DbSession,
     novel_id: NovelIdPath,
@@ -303,7 +320,20 @@ async def write_custom_text_state(
 
 @router.post(
     "/map-declaration-state",
-    openapi_extra={"x-novelcraft-operation-id": "story.map_declaration_state.confirm"},
+    openapi_extra={
+        "x-novelcraft-operation-id": "story.map_declaration_state.confirm",
+        "x-novelcraft-operation-confirmation-field": "request.confirmed",
+        "x-novelcraft-operation-trace-fields": {
+            "scene_id": "request.scene_id",
+            "node_id": "request.node_id",
+            "revision_id": "request.revision_id",
+            "declaration_kind": "request.declaration_kind",
+            "declaration_id": "request.declaration_id",
+            "status": "request.status",
+            "idempotency_key": "request.idempotency_key",
+            "confirmed": "request.confirmed",
+        },
+    },
 )
 async def write_map_declaration_state(
     db: DbSession,

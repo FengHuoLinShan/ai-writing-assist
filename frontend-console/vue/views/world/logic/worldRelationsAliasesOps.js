@@ -64,7 +64,7 @@ function validitySelectHtml(id, anchor, emptyLabel, options, esc) {
   if (selected && !choices.some((item) => item.value === selected)) {
     choices.unshift({
       value: selected,
-      label: `当前锚点待核对 · ${anchor.kind} ${String(anchor.id).slice(0, 8)}`,
+      label: anchor.kind === "scene" ? "原场景锚点待核对" : "原章节锚点待核对",
     })
   }
   const optionHtml = choices.map((item) => (
@@ -344,8 +344,9 @@ export function deleteRelation(relId) {
   const scope = captureWorldOperationScope()
   const projectId = scope.projectId
   confirmAction("确定删除此关系？", async () => {
-    if (!(await confirmEditorialImpact(projectId, { kind: "world" }))) return
     const modalOwner = captureModalOwner()
+    if (!(await confirmEditorialImpact(projectId, { kind: "world" }))) return
+    if (!ownsWorldOperationScope(scope) || !ownsModalOwner(modalOwner)) return true
     try {
       await api.world.deleteRelationship(relId, { novel_id: projectId })
       if (!ownsWorldOperationScope(scope) || !ownsModalOwner(modalOwner)) return true
@@ -373,8 +374,9 @@ export function deleteAlias(entityId, alias) {
     return
   }
   confirmAction(`确定删除别名 "${esc(alias)}"？`, async () => {
-    if (!(await confirmEditorialImpact(projectId, { kind: "world" }))) return
     const modalOwner = captureModalOwner()
+    if (!(await confirmEditorialImpact(projectId, { kind: "world" }))) return
+    if (!ownsWorldOperationScope(scope) || !ownsModalOwner(modalOwner)) return true
     try {
       const api = getApi()
       await api.world.deleteAlias(entityId, alias, { novel_id: projectId })
@@ -495,6 +497,7 @@ export async function showAliasEditForm(entityId, aliasText) {
   const showModalHtml = getShowModalHtml()
   const scope = captureWorldOperationScope()
   const projectId = scope.projectId
+  let pending = false
   const alias = listRegistry.aliases.find((item) => item.entity_id === entityId && item.alias === aliasText)
   if (!alias) {
     toast("未找到目标别名", "error")
@@ -538,13 +541,14 @@ export async function showAliasEditForm(entityId, aliasText) {
         <label for="alias-edit-validity-end">到</label>
         ${validitySelectHtml("alias-edit-validity-end", alias.validity?.end, "持续至今", anchorOptions, esc)}
       </div>
-      <div class="form-help">按稳定 Scene ID 保存；失效锚点会保留并标为待核对。</div>
+      <div class="form-help">按所选场景保存；失效锚点会保留并标为待核对。</div>
     </div>
   `
   showModalHtml("编辑别名", formHtml, [{
     text: "保存",
     class: "btn-primary",
     handler: async () => {
+      if (pending) return false
       const targetId = document.getElementById("alias-edit-target")?.value || ""
       const text = document.getElementById("alias-edit-text")?.value?.trim() || ""
       const aliasKind = document.getElementById("alias-edit-kind")?.value || ""
@@ -554,9 +558,11 @@ export async function showAliasEditForm(entityId, aliasText) {
         toast("请选择所属对象、别名分类并填写别名和详细类型", "warning")
         return false
       }
-      if (!(await confirmEditorialImpact(projectId, { kind: "world" }))) return false
       const modalOwner = captureModalOwner(document.getElementById("alias-edit-text"))
+      pending = true
       try {
+        if (!(await confirmEditorialImpact(projectId, { kind: "world" }))) return false
+        if (!ownsWorldOperationScope(scope) || !ownsModalOwner(modalOwner)) return true
         await getApi().world.editAlias(entityId, aliasText, {
           target_entity_id: targetId,
           alias: text,
@@ -573,6 +579,8 @@ export async function showAliasEditForm(entityId, aliasText) {
         if (!ownsWorldOperationScope(scope) || !ownsModalOwner(modalOwner)) return true
         toast(err?.message || "保存失败", "error")
         return false
+      } finally {
+        pending = false
       }
     },
   }])
@@ -609,6 +617,7 @@ export async function showRelationReviewEditForm(relationId, options = {}) {
   const api = getApi()
   const scope = captureWorldOperationScope()
   const projectId = scope.projectId
+  let pending = false
   const executionFingerprint = options.executionFingerprint || null
   const relation = listRegistry.relations.find((r) => (r.id || r.relationship_id) === relationId)
     || options.relation
@@ -672,6 +681,7 @@ export async function showRelationReviewEditForm(relationId, options = {}) {
     text: isCanonical ? "保存" : "采用",
     class: "btn-primary",
     handler: async () => {
+      if (pending) return false
       const sourceId = document.getElementById("rel-review-source")?.value || ""
       const targetId = document.getElementById("rel-review-target")?.value || ""
       const relationKind = document.getElementById("rel-review-kind")?.value || ""
@@ -680,9 +690,11 @@ export async function showRelationReviewEditForm(relationId, options = {}) {
         toast("请填写源对象、目标对象、关系分类和详细类型", "warning")
         return false
       }
-      if (!(await confirmEditorialImpact(projectId, { kind: "world" }))) return false
       const modalOwner = captureModalOwner(document.getElementById("rel-review-type"))
+      pending = true
       try {
+        if (!(await confirmEditorialImpact(projectId, { kind: "world" }))) return false
+        if (!ownsWorldOperationScope(scope) || !ownsModalOwner(modalOwner)) return true
         await api.world.reviewEditRelationship(relationId, {
           source_id: sourceId,
           target_id: targetId,
@@ -704,6 +716,8 @@ export async function showRelationReviewEditForm(relationId, options = {}) {
         if (!ownsWorldOperationScope(scope) || !ownsModalOwner(modalOwner)) return true
         toast(err?.message || "采用关系失败", "error")
         return false
+      } finally {
+        pending = false
       }
     },
   }])

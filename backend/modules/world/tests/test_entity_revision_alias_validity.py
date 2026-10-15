@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -23,7 +23,8 @@ async def test_retained_alias_interval_rechecks_a_removed_scene_anchor() -> None
     }
     with patch(
         "modules.world.validity.validate_scene_validity",
-        new=AsyncMock(side_effect=ValidationError("Scene anchor removed")),
+        autospec=True,
+        side_effect=ValidationError("Scene anchor removed"),
     ) as validate:
         with pytest.raises(ValidationError, match="Scene anchor removed"):
             await validate_changed_alias_intervals(None, "novel-id", [alias])

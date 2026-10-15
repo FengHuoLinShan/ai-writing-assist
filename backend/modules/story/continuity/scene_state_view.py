@@ -224,6 +224,15 @@ def summarize_field_provenance(
             )
         if chosen is not None and chosen.author_confirmed:
             summaries[(field_key, subject_ref)]["author_confirmed"] = True
+        if chosen is not None and chosen.event_scene_index is not None:
+            summaries[(field_key, subject_ref)]["occurred_at"] = {
+                "scene_index": chosen.event_scene_index,
+                **(
+                    {"scene_sequence": chosen.event_scene_sequence}
+                    if chosen.event_scene_sequence is not None
+                    else {}
+                ),
+            }
         if include_value_hash:
             summaries[(field_key, subject_ref)]["value_hash"] = (
                 chosen.value_hash if chosen else None
@@ -510,7 +519,11 @@ class SceneStateViewService:
                     field=field,
                     value=value,
                     layer=layer,
-                    occurred_at=_occurred_at(payload or {}),
+                    occurred_at=(
+                        provenance.get("occurred_at")
+                        if provenance and provenance.get("occurred_at") is not None
+                        else _occurred_at(payload or {})
+                    ),
                     source={
                         **source,
                         **(

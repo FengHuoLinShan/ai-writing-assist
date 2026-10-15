@@ -6,6 +6,7 @@ from uuid import uuid4
 import pytest
 
 from core.errors import ValidationError
+from core.service_keys import WORLD_REQUIRE_MAP_DECLARATION_STATE
 from modules.story.continuity.field_provenance import (
     STATE_FIELD_REGISTRY,
     FieldProvenance,
@@ -104,7 +105,7 @@ async def test_map_declaration_confirmation_revalidates_world_and_records_typed_
         }
 
     def service_get(key):
-        if key == "world.require_map_declaration_state":
+        if key == WORLD_REQUIRE_MAP_DECLARATION_STATE:
             return require_map
         if key == "story.get_scene_contract":
             return lambda _db, _novel_id, _scene_id: _async_value(scene)
@@ -140,7 +141,7 @@ async def test_map_declaration_confirmation_revalidates_world_and_records_typed_
         )
     ]
     assert event_repo.row["entity_type"] == "map_declaration"
-    assert event_repo.row["entity_id"] == subject_id
+    assert str(event_repo.row["entity_id"]) == subject_id
     assert event_repo.row["source"] == "author_confirmation"
     assert event_repo.row["snapshot_after"]["effective_status"] == "inactive"
     identity = event_repo.row["snapshot_after"]["meta"]["map_declaration_state"]

@@ -90,6 +90,7 @@ def _notice(
 ) -> dict[str, Any]:
     return {
         "notice_key": key,
+        "validity_decision": status,
         "source_id": SOURCE_ID,
         "category": category,
         "severity": "medium"

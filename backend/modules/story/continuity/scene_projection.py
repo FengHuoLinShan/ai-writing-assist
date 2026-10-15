@@ -783,6 +783,8 @@ class SceneMemoryProjectionService:
                         source_refs=source_refs,
                         version=source_refs[0].version_number if source_refs else 0,
                         recorded_at_sequence=self._provenance_sequence(event),
+                        event_scene_index=event.scene_index,
+                        event_scene_sequence=event.scene_sequence,
                         author_confirmed=(
                             getattr(event, "source", None) == "author_confirmation"
                             and (event.snapshot_after.get("meta") or {}).get(

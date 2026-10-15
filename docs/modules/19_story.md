@@ -184,6 +184,10 @@ Interaction 的 `team_v1` 与 `observation_v2` 仍按原入口策略执行，`ma
 Task manifest、v10 操作目录、HTTP trace、Notice 来源、Writing 参考 port 与路由已在应用组合根接线；导演专用迁移在当前基线为单 head。
 导演角色意图只收到当前 Evidence 角色 POV 简报，Story 卡自由文本仅留在作者侧；Writing `director_reference` Evidence 维度接入 generate/targeted-revision，默认白名单为空。
 导演结果全为候选，不写入 Scene、World、continuity 或正文。
+World 作者有效期提醒现经 typed 只读端口进入导演作者侧一致性核对和来源指纹：
+精确同对象、同字段、当前 Scene 以前的确认事实可报告作者优先或已启用的剧情覆盖；
+旧来源、锚点失效及读取上限返回缺口，角色 POV 不收到作者提醒。Story 状态确认
+只追加 MemoryEvent，并把原事件的 Scene 时间带入逐字段来源链；旧链缺时间不推断。
 排演的人物意图、环境裁决与剧本生成均使用项目账户连接；本机 CLI 按
 [ADR-0029](../adr/0029-local-cli-image-only.md) 只用于图片生成。共享 Story 输入入口在 Context 重物化与账户客户端恢复前拒绝带
 `_local_agent` 或 `agent_llm_execution_snapshot` 的遗留任务，包含同时保留有效账户快照的

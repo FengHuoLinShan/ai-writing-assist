@@ -298,7 +298,14 @@ def test_v7_frozen_operation_can_be_described_but_not_executed_after_change():
     assert description["schema"] == frozen["project.add_task"]["schema"]
 
 
-def test_old_dossier_template_schema_stays_frozen_and_fails_closed():
+@pytest.mark.parametrize(
+    ("revision", "schema_hash"),
+    [
+        ("1", "db350f7f859917fd69288cfe848f3b66bfc3262bf1e121c0b34657b9f62e952c"),
+        ("2", "c4ff8a3587de5a80460cbd51b7eb16cf63886b87133b467763b923ed56371d43"),
+    ],
+)
+def test_old_dossier_template_schema_stays_frozen_and_fails_closed(revision, schema_hash):
     from asyncio import run
     from copy import deepcopy
 
@@ -308,14 +315,15 @@ def test_old_dossier_template_schema_stays_frozen_and_fails_closed():
 
     op_id = "world.dossier.template.edit"
     current = operation_manifest()[op_id]
-    assert current["revision"] == current["op_version"] == "2"
+    assert current["revision"] == current["op_version"] == "3"
     old = deepcopy(current)
-    old["schema"]["$defs"]["DossierTemplateField"]["properties"].pop("key")
+    old["schema"]["$defs"]["DossierTemplateUpsert"]["properties"].pop("state_fields")
+    old["schema"]["$defs"].pop("DossierStateField")
+    if revision == "1":
+        old["schema"]["$defs"]["DossierTemplateField"]["properties"].pop("key")
     old["schema_hash"] = fingerprint(old["schema"])
-    assert old["schema_hash"] == (
-        "db350f7f859917fd69288cfe848f3b66bfc3262bf1e121c0b34657b9f62e952c"
-    )
-    old["revision"] = old["op_version"] = old["metadata"]["op_version"] = "1"
+    assert old["schema_hash"] == schema_hash
+    old["revision"] = old["op_version"] = old["metadata"]["op_version"] = revision
     old["metadata_hash"] = fingerprint(old["metadata"])
     frozen = {op_id: old}
 
@@ -325,9 +333,7 @@ def test_old_dossier_template_schema_stays_frozen_and_fails_closed():
     description = run(
         describe_operation(
             SimpleNamespace(
-                deps=SimpleNamespace(
-                    operations={}, operation_catalog_snapshot=frozen
-                )
+                deps=SimpleNamespace(operations={}, operation_catalog_snapshot=frozen)
             ),
             op_id,
         )

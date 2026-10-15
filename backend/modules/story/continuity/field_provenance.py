@@ -253,6 +253,8 @@ class FieldProvenance(BaseModel):
     source_refs: tuple[ProvenanceSourceRef, ...] = ()
     version: int = Field(ge=0)
     recorded_at_sequence: int = Field(ge=0)
+    event_scene_index: int | None = Field(default=None, ge=0)
+    event_scene_sequence: int | None = Field(default=None, ge=0)
     author_confirmed: bool = False
     identity_ref: MapDeclarationIdentityRef | None = None
 

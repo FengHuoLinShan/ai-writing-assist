@@ -17,6 +17,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.container import get
 from core.errors import ValidationError
+from core.service_keys import (
+    WORLD_REQUIRE_CUSTOM_TEXT_STATE_FIELD,
+    WORLD_REQUIRE_MAP_DECLARATION_STATE,
+)
 from modules.story.continuity.contracts import (
     SCENE_MEMORY_DIMENSIONS,
     ConfirmedContinuityEventIngest,
@@ -448,7 +452,7 @@ class MemoryService:
         idempotency_key: str,
     ) -> dict[str, Any]:
         """Append one author-confirmed custom status after World revalidation."""
-        world_field = await get("world.require_custom_text_state_field")(
+        world_field = await get(WORLD_REQUIRE_CUSTOM_TEXT_STATE_FIELD)(
             db,
             novel_id,
             entity_id,
@@ -488,7 +492,7 @@ class MemoryService:
         idempotency_key: str,
     ) -> dict[str, Any]:
         """Append an author-confirmed state bound to an exact current map item."""
-        raw_binding = await get("world.require_map_declaration_state")(
+        raw_binding = await get(WORLD_REQUIRE_MAP_DECLARATION_STATE)(
             db,
             novel_id,
             node_id=node_id,

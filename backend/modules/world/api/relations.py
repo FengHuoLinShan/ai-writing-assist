@@ -30,7 +30,25 @@ from modules.world.schemas import (
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 
-@router.get("/relations", response_model=EntityRelationListResponse)
+@router.get(
+    "/relations",
+    response_model=EntityRelationListResponse,
+    openapi_extra={
+        "x-novelcraft-operation-id": "world.relations.read",
+        "x-novelcraft-operation-trace-fields": {
+            "status": "status",
+            "relation_type": "relation_type",
+            "relation_kind": "relation_kind",
+            "q": "q",
+            "source_chapter_id": "source_chapter_id",
+            "as_of_scene_id": "as_of_scene_id",
+            "strength_min": "strength_min",
+            "strength_max": "strength_max",
+            "skip": "skip",
+            "limit": "limit",
+        },
+    },
+)
 async def list_relations(
     db: DbSession,
     *,
