@@ -113,6 +113,7 @@ def _omit_changed_map_reference(
         compiled.sections = [
             item for item in compiled.sections if item.key != "map_spatial"
         ]
+        compiled.total_tokens = sum(item.token_count for item in compiled.sections)
     compiled.warnings = list(
         dict.fromkeys(
             [
@@ -242,9 +243,7 @@ class ContextConfirmationService:
         compile_options_json.update(
             {
                 "map_spatial_baseline": _map_spatial_baseline(compiled),
-                "compiled_context_core_fingerprint": _core_context_fingerprint(
-                    compiled
-                ),
+                "compiled_context_core_fingerprint": _core_context_fingerprint(compiled),
             }
         )
         record = await self._repo.create(
@@ -370,6 +369,7 @@ class ContextConfirmationService:
         novel_id: str,
         action: str,
         confirmation_id: str | uuid.UUID,
+        consumer_action: str | None = None,
     ) -> CompiledContext:
         confirmation = await self.require_confirmation(
             db,
@@ -387,6 +387,8 @@ class ContextConfirmationService:
             _scene_memory_port().scene_memory_v1_version(),
         )
         options = CompileOptions(**compile_options)
+        if consumer_action:
+            options.map_spatial_consumer_action = consumer_action
         compiled = await self._compiler.compile_with_tiers(
             db,
             options,
@@ -421,7 +423,9 @@ class ContextConfirmationService:
                     code="context_changed",
                 )
             current_map_baseline = _map_spatial_baseline(compiled)
-            if current_map_baseline != (expected_map_baseline or []):
+            if current_map_baseline != (expected_map_baseline or []) and (
+                not consumer_action or consumer_action == action or expected_map_baseline
+            ):
                 _omit_changed_map_reference(
                     compiled,
                     expected=expected_map_baseline or [],

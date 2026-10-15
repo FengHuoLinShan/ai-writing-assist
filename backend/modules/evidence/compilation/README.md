@@ -17,6 +17,9 @@ resume 不重置累计账本；planner/nomination 的 step timeout 保持原样�
 回读。`map_spatial` 作为参考维度由独立 loader 接入写作、剧本、冲突审查与 `world.ask`；
 每个能力由 `MAP_SPATIAL_ENABLED_CAPABILITIES` 独立选择且默认关闭。只读取 World facade
 返回的已采用空间简报；预算、作者排除、来源失效与截止点过滤均只记录参考省略，不阻断必查范围。
+空间参考仅使用核心资料编译后的剩余预算，不驱逐必查来源。语义审查、定向返修复用原生成
+confirmation 时仍保留其核心资料、排除项和知识边界，仅由服务端指定当前消费者的地图开关；
+地图变化或被省略不会改变核心资料指纹。已确认的 `world.ask` 直接消费其确认内简报，不再额外加载全书地图。
 
 ## 定位
 

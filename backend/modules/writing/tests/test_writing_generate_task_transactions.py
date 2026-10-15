@@ -242,6 +242,9 @@ async def test_generation_wait_parse_and_sanitize_run_without_transaction(
     assert db.commit_count == 1
     assert db.expire_all_count == 1
     assert guard.await_count == 2
+    assert all(
+        call.kwargs["action"] == "writing.generate" for call in prepared.await_args_list
+    )
     assert "for_update" not in prepared.await_args_list[0].kwargs
     assert prepared.await_args_list[1].kwargs["for_update"] is True
     bound.assert_awaited_once()

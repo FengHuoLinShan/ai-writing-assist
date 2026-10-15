@@ -328,15 +328,12 @@ class AskWorldService:
                 baseline_by_id = {
                     str(item.get("node_id") or ""): item for item in baseline
                 }
-                current_by_id = {
-                    item.node_id: item for item in current.items
-                }
+                current_by_id = {item.node_id: item for item in current.items}
                 unchanged = bool(baseline) and all(
                     (item := current_by_id.get(node_id)) is not None
                     and item.title == str(expected.get("title") or "")
                     and item.revision_id == str(expected.get("revision_id") or "")
-                    and item.revision_hash
-                    == str(expected.get("revision_hash") or "")
+                    and item.revision_hash == str(expected.get("revision_hash") or "")
                     and item.content_hash == str(expected.get("content_hash") or "")
                     for node_id, expected in baseline_by_id.items()
                 )
@@ -351,9 +348,7 @@ class AskWorldService:
                     title=citation.title,
                     text=text,
                     source_hash=(
-                        hashlib.sha256(text.encode("utf-8")).hexdigest()
-                        if text
-                        else None
+                        hashlib.sha256(text.encode("utf-8")).hexdigest() if text else None
                     ),
                 )
         except (NotFoundError, ValidationError, PydanticValidationError, ValueError):
@@ -388,6 +383,7 @@ class AskWorldService:
             consumer_action="world.ask",
             content_mode="canonical",
             top_k=top_k,
+            include_map_spatial=include_map_spatial,
         )
         candidates = await self._page_candidates(db, data)
         entity_candidates, entity_limited = await self._entity_candidates(db, data)
@@ -453,8 +449,11 @@ class AskWorldService:
             revision_id = str(item.get("revision_id") or "")
             content = str(item.get("content") or "")
             source_hash = str(item.get("content_hash") or "")
-            if not node_id or not revision_id or not content or not re.fullmatch(
-                r"[0-9a-f]{64}", source_hash
+            if (
+                not node_id
+                or not revision_id
+                or not content
+                or not re.fullmatch(r"[0-9a-f]{64}", source_hash)
             ):
                 continue
             title = str(item.get("title") or "已保存地图")
@@ -510,8 +509,11 @@ class AskWorldService:
                 revision_id = str(source.get("revision_id") or "")
                 content_hash = str(source.get("content_hash") or "")
                 content = str(context_item.content or "")
-                if not node_id or not revision_id or not content or not re.fullmatch(
-                    r"[0-9a-f]{64}", content_hash
+                if (
+                    not node_id
+                    or not revision_id
+                    or not content
+                    or not re.fullmatch(r"[0-9a-f]{64}", content_hash)
                 ):
                     continue
                 title = str(source.get("label") or "已保存地图")

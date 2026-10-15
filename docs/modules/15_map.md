@@ -520,3 +520,7 @@ canonical 变化继续检查已保存地图与相同模式草图；working 变�
 Evidence 通过 World `read_map_spatial_brief` 只读 facade 消费已采用节点的 saved head，绝不直接查询地图表。简报包含已知当前地点的上级链、明示的邻接/通路/方位、相关行程与条件，以及本场移动对象有精确来源和明确 `scene_index` 的最新位置；没有显式 Scene 地点时不推断，只能返回本场移动对象位置。来源引文/hash、World `check_knowledge_visibility`、ReaderReveal 与角色知识边界均在投影时重验；`author_full` 不跳过这些检查。类型仅使用固定修订的名称/描述作为文字，计算特性只读当前 active 类型。
 
 七个 Evidence consumer 与 Assistant v5 的只读地图工具各有独立 `MAP_SPATIAL_ENABLED_CAPABILITIES` 开关，默认空集合。简报最多 20 个地图节点、每节点 3000 字符；作者排除、失效来源、超出预算或范围的参考写入 advisory 省略信息，不使必查知识范围阻断。Context confirmation 保存节点 revision/hash；地图变化时沿用 G8b `read_map_node_heads` 读时提示，不回写核对状态。五题材 paired eval 尚未运行，`human_validated=false`，因此所有消费开关保持关闭。
+
+空间参考只使用核心上下文的剩余预算；语义审查与定向返修复用生成确认时按各自开关读取地图，
+保持原核心资料与排除范围。隐藏地点绑定的地图节点整体不可见，固定类型修订无法读取或被作者排除时，
+携带该类型的内容也不会进入简报；来源排除同时覆盖资产选择和精确引用选择。

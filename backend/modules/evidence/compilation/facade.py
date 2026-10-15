@@ -133,9 +133,11 @@ def _evidence_service():
     return NovelEvidenceService()
 
 
-def render_compiled_context(context: CompiledContext) -> str:
+def render_compiled_context(
+    context: CompiledContext, *, include_map_spatial: bool = True
+) -> str:
     """将已编译的上下文 IR 渲染为 Markdown。"""
-    return _render_compiled_context(context)
+    return _render_compiled_context(context, include_map_spatial=include_map_spatial)
 
 
 async def load_scene_lens(
@@ -271,6 +273,7 @@ async def retrieve_planned_context_evidence(
     character_ids: list[str] | None = None,
     thread_ids: list[str] | None = None,
     top_k: int = 5,
+    include_map_spatial: bool = True,
 ) -> StructureContextBundle:
     """Run only the context-owned planner/RAG/rehydrate path for a consumer."""
     from modules.evidence.compilation.services.planned_retrieval_service import (
@@ -291,7 +294,9 @@ async def retrieve_planned_context_evidence(
         content_mode=content_mode,
         top_k=max(1, min(top_k, 50)),
     )
-    return await PlannedContextRetrievalService().retrieve(db, options)
+    return await PlannedContextRetrievalService().retrieve(
+        db, options, include_map_spatial=include_map_spatial
+    )
 
 
 def compile_author_question_evidence(
@@ -963,6 +968,7 @@ async def prepare_confirmed_ai_action(
     action: str,
     confirmation_id: str,
     for_update: bool = False,
+    consumer_action: str | None = None,
 ) -> ConfirmedAIActionContext:
     """Return validated context, optionally locking its confirmation row."""
     return await _confirmed_ai_action_service.prepare(
@@ -971,6 +977,7 @@ async def prepare_confirmed_ai_action(
         action=action,
         confirmation_id=confirmation_id,
         for_update=for_update,
+        **({"consumer_action": consumer_action} if consumer_action else {}),
     )
 
 

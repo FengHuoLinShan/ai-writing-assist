@@ -218,14 +218,13 @@ class ContextCompiler:
             map_spatial_capability,
         )
 
-        spatial_capability = map_spatial_capability(options.consumer_action)
+        spatial_capability = map_spatial_capability(
+            options.map_spatial_consumer_action or options.consumer_action
+        )
         if (
             spatial_capability
-            and spatial_capability
-            in get_settings().map_spatial_enabled_capabilities
+            and spatial_capability in get_settings().map_spatial_enabled_capabilities
         ):
-            if options.scene_id and "scene" not in loader_names:
-                loader_names.insert(0, "scene")
             if "map_spatial" not in loader_names:
                 loader_names.append("map_spatial")
         if (
@@ -415,6 +414,14 @@ class ContextCompiler:
             options.excluded_refs,
             pinned_refs=options.pinned_refs,
         )
+        for section in sections:
+            if section.key == "map_spatial":
+                selected_nodes = {str(item.source.get("id")) for item in section.items}
+                section.retrieval_metadata["map_baseline"] = [
+                    item
+                    for item in section.retrieval_metadata.get("map_baseline", [])
+                    if str(item.get("node_id")) in selected_nodes
+                ]
         excluded_items.extend(map_section_exclusions)
         sections, pin_blockers = await self._apply_pinned_refs(
             db,
@@ -446,7 +453,30 @@ class ContextCompiler:
             excluded_items=excluded_items,
             blockers=pin_blockers,
         )
+        # Optional map detail cannot evict confirmed core sources from the budget.
+        map_sections = [
+            section for section in ctx.sections if section.key == "map_spatial"
+        ]
+        ctx.sections = [
+            section for section in ctx.sections if section.key != "map_spatial"
+        ]
+        ctx.total_tokens = sum(section.token_count for section in ctx.sections)
         compiled = ctx.enforce_budget()
+        for section in map_sections:
+            if compiled.total_tokens + section.token_count <= budget_tokens:
+                compiled.sections.append(section)
+                compiled.total_tokens += section.token_count
+            else:
+                compiled.evicted_keys.append(section.key)
+                compiled.omitted_items.extend(
+                    item.model_copy(
+                        update={
+                            "selection_state": "omitted",
+                            "omission_reason": "空间参考超出剩余预算",
+                        }
+                    )
+                    for item in section.materialize_items().items
+                )
         if activation_trace:
             self._apply_global_activation_budget_trace(compiled)
         return compiled

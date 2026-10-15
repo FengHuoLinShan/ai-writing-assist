@@ -264,9 +264,7 @@ class MapSpatialBriefService:
                 ]
                 break
 
-        visibility_mode = (
-            "character" if data.reveal_mode == "character" else "reader"
-        )
+        visibility_mode = "character" if data.reveal_mode == "character" else "reader"
         visibility = VisibilityContextContract(
             mode=visibility_mode,
             cutoff_chapter=cutoff_chapter,
@@ -384,14 +382,14 @@ class MapSpatialBriefService:
                     checked_sources[cache_key] = False
                     return False
                 decision = result.get("visibility_decision")
-                visible = bool(result.get("text")) and isinstance(decision, dict) and (
-                    decision.get("visible") is True
+                visible = (
+                    bool(result.get("text"))
+                    and isinstance(decision, dict)
+                    and (decision.get("visible") is True)
                 )
                 checked_sources[cache_key] = visible
                 return visible
-            check_type = (
-                "world_entity" if ref.kind == "entity" else "world_bible_page"
-            )
+            check_type = "world_entity" if ref.kind == "entity" else "world_bible_page"
             if ref.kind == "world_bible_page":
                 visible = await self._page_source_visible(
                     db,
@@ -564,13 +562,30 @@ class MapSpatialBriefService:
         for node, revision, document in documents:
             if str(node.id) in excluded_node_ids:
                 continue
+            if node.location_entity_id and not await target_visible(
+                "world_entity", str(node.location_entity_id), "world_entity"
+            ):
+                omitted_count += 1
+                continue
             features = {feature.id: feature for feature in document.features}
+            spaces = {space.id: space for space in document.spaces}
             feature_text: dict[str, dict] = {}
             valid_features = set()
             included_source_hashes: set[str] = set()
             for feature in document.features:
                 if (
                     feature.modality != "event_observed"
+                    or not feature.sources
+                    and revision.task_id is not None
+                    or feature.type_ref is not None
+                    and (feature.type_ref, feature.type_revision_id) not in resolved_types
+                    or feature.space_id in spaces
+                    and spaces[feature.space_id].type_ref is not None
+                    and (
+                        spaces[feature.space_id].type_ref,
+                        spaces[feature.space_id].type_revision_id,
+                    )
+                    not in resolved_types
                     or feature.reader_from_chapter is not None
                     and (
                         cutoff_chapter is None
@@ -692,8 +707,7 @@ class MapSpatialBriefService:
                             None,
                         )
                     location_label = (
-                        location_label
-                        or str(value.get("text_state") or "").strip()
+                        location_label or str(value.get("text_state") or "").strip()
                     )
                     if not location_label:
                         continue
@@ -713,9 +727,7 @@ class MapSpatialBriefService:
 
             positions_for_node = [
                 position
-                for entity_id, (_scene_time, position) in sorted(
-                    moving_positions.items()
-                )
+                for entity_id, (_scene_time, position) in sorted(moving_positions.items())
                 if entity_id not in ambiguous_position_ids
             ]
 
@@ -782,6 +794,11 @@ class MapSpatialBriefService:
                 endpoints = {journey.origin, journey.destination}
                 if (
                     journey.modality != "event_observed"
+                    or any(
+                        pair not in resolved_types
+                        for pair in _spatial_item_type_pairs(journey)
+                        if pair[0] is not None
+                    )
                     or not _within_cutoff(
                         journey, scenes=temporal_scenes, scene_index=scene_index
                     )
@@ -836,13 +853,10 @@ class MapSpatialBriefService:
                 "空间类型": [
                     {
                         "label": space.label,
-                        "type": type_text.get(
-                            (space.type_ref, space.type_revision_id)
-                        ),
+                        "type": type_text.get((space.type_ref, space.type_revision_id)),
                     }
                     for space in document.spaces
-                    if space.id
-                    in {features[key].space_id for key in focus_features}
+                    if space.id in {features[key].space_id for key in focus_features}
                 ],
                 "项目类型": [
                     type_text[key]

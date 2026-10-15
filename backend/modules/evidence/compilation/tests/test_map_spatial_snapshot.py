@@ -247,9 +247,7 @@ async def test_snapshot_compares_map_head_at_read_time_without_mutating_snapshot
     )
     assert current.map_staleness[0]["status"] == "current"
 
-    current_heads = {
-        expected["node_id"]: {**head, "revision_id": "revision-b"}
-    }
+    current_heads = {expected["node_id"]: {**head, "revision_id": "revision-b"}}
     changed = await service.get_context_snapshot(
         object(), novel_id=str(novel_id), snapshot_id=snapshot_id
     )
@@ -264,3 +262,104 @@ async def test_snapshot_compares_map_head_at_read_time_without_mutating_snapshot
     )
     assert offline.map_staleness[0]["status"] == "unavailable"
     assert record.section_metadata == metadata
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "consumer", ["writing.semantic_review", "writing.targeted_revision"]
+)
+@pytest.mark.parametrize("enabled", [False, True])
+async def test_reused_generation_confirmation_obeys_current_consumer_map_switch(
+    db_session, test_project_id, monkeypatch, consumer, enabled
+):
+    from dataclasses import replace
+
+    from core.config import get_settings
+    from modules.evidence.compilation.contracts import CompileOptions
+    from modules.evidence.compilation.services.confirmed_ai_action import (
+        ConfirmedAIActionService,
+    )
+    from modules.evidence.compilation.services.context_compiler import ContextCompiler
+    from modules.evidence.compilation.services.loaders import map_spatial_loader
+    from modules.evidence.compilation.services.loaders.map_spatial_loader import (
+        MapSpatialLoader,
+    )
+    from modules.world.map_spatial_brief_schemas import (
+        MapSpatialBriefItem,
+        MapSpatialBriefResponse,
+    )
+
+    calls = []
+
+    async def read(_db, request):
+        calls.append(request)
+        return MapSpatialBriefResponse(
+            items=[
+                MapSpatialBriefItem(
+                    node_id="map-node",
+                    revision_id="revision-b",
+                    title="港口",
+                    content="当前能力的空间参考",
+                    content_hash="a" * 64,
+                    revision_hash="b" * 64,
+                    geometry_hash="c" * 64,
+                )
+            ]
+        )
+
+    settings = replace(
+        get_settings(),
+        map_spatial_enabled_capabilities=(consumer,)
+        if enabled
+        else ("writing.generate",),
+    )
+    monkeypatch.setattr(map_spatial_loader, "get_settings", lambda: settings)
+    monkeypatch.setattr(map_spatial_loader, "get", lambda _key: read)
+    monkeypatch.setattr(
+        "modules.evidence.compilation.services.context_compiler.get_settings",
+        lambda: settings,
+    )
+    options = CompileOptions(
+        novel_id=test_project_id,
+        task="港口",
+        scope="project",
+        scene_id=str(uuid4()),
+        consumer_action="writing.generate",
+        budget_tokens=20000,
+    )
+    compiler = ContextCompiler([MapSpatialLoader()])
+    original = await compiler.compile_with_tiers(db_session, options, budget_tokens=20000)
+    confirmation = SimpleNamespace(
+        compile_options={
+            "novel_id": test_project_id,
+            "task": options.task,
+            "scope": options.scope,
+            "scene_id": options.scene_id,
+            "consumer_action": "writing.generate",
+            "budget_tokens": 20000,
+            "compiled_context_core_fingerprint": _core_context_fingerprint(original),
+            "map_spatial_baseline": _map_spatial_baseline(original),
+        },
+        result_refs=[],
+    )
+    service = ContextConfirmationService(compiler=compiler)
+
+    async def require(_db, **kwargs):
+        assert kwargs["action"] == "writing.generate"
+        return confirmation
+
+    monkeypatch.setattr(service, "require_fresh_confirmation", require)
+    monkeypatch.setattr(service, "require_confirmation", require)
+    calls.clear()
+    result = await ConfirmedAIActionService(service).prepare(
+        db_session,
+        novel_id=test_project_id,
+        action="writing.generate",
+        confirmation_id=str(uuid4()),
+        consumer_action=consumer,
+    )
+    assert len(calls) == int(enabled)
+    assert _core_context_fingerprint(result.compiled) == _core_context_fingerprint(
+        original
+    )
+    assert ("当前能力的空间参考" in result.rendered_markdown) == enabled

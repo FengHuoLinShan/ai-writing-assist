@@ -66,7 +66,7 @@ from modules.assistant.schemas import (
     work_directive,
 )
 from modules.assistant.sessions import AssistantSessionService
-from modules.evidence.contracts import GroupSource, govern_group_output
+from modules.evidence.contracts import GroupSource, build_group_scope, govern_group_output
 from modules.project.facade import (
     build_project_llm_execution_snapshot,
     create_project_snapshot_llm_client,
@@ -170,6 +170,34 @@ def _assistant_evidence_dimensions(references: dict[str, dict]) -> tuple[str, ..
     if any(item.get("map_spatial_guard") for item in references.values()):
         return (*dimensions, "map_spatial")
     return dimensions
+
+
+def _assistant_evidence_sources(references: dict[str, dict]):
+    # Keep optional map evidence separate from required facts during adjudication.
+    core = {
+        key: item for key, item in references.items() if not item.get("map_spatial_guard")
+    }
+    return (
+        GroupSource(
+            source_key="assistant_evidence",
+            source_type="imported_assets",
+            content_hash=fingerprint(core),
+            label="项目助手已查证资料",
+            dimensions=_assistant_evidence_dimensions(core),
+        ),
+        *(
+            GroupSource(
+                source_key=key,
+                source_type="map_spatial",
+                source_id=str((item.get("target_ref") or {}).get("target_id") or ""),
+                content_hash=fingerprint(item),
+                label=item.get("title") or "地图空间参考",
+                dimensions=("map_spatial",),
+            )
+            for key, item in references.items()
+            if item.get("map_spatial_guard")
+        ),
+    )
 
 
 def history_visible(work: WorkContext, previous_context, confirmation_id) -> bool:
@@ -546,6 +574,8 @@ class AssistantService:
                 "read_tools": {
                     tool.name: fingerprint(tool.function_schema.json_schema)
                     for tool in author_read_tools(allow_web=True, version="5")
+                    if tool.name != "map_spatial_brief"
+                    or "assistant.turn" in get_settings().map_spatial_enabled_capabilities
                 },
             },
             budget_json=AgentRunBudget(
@@ -1240,25 +1270,13 @@ class AssistantService:
                     )
                     return review.output.model_dump_json()
 
-                evidence_hash = fingerprint(deps.evidence_refs)
-                evidence_dimensions = _assistant_evidence_dimensions(
-                    deps.evidence_refs
-                )
                 with workflow_budget(budget, checkpoint):
                     governed = await govern_group_output(
                         client,
                         capability="assistant.turn",
                         novel_id=novel_id,
                         group_key=f"run:{run_id}",
-                        sources=(
-                            GroupSource(
-                                source_key="assistant_evidence",
-                                source_type="imported_assets",
-                                content_hash=evidence_hash,
-                                label="项目助手已查证资料",
-                                dimensions=evidence_dimensions,
-                            ),
-                        ),
+                        sources=_assistant_evidence_sources(deps.evidence_refs),
                         output=answer.model_dump_json(),
                         task_instruction=payload["message"]
                         + (
@@ -1312,6 +1330,14 @@ class AssistantService:
             if run.status != "running" or str(run.task_id) != str(task.id):
                 return {"status": "superseded"}
             result_json = answer.model_dump(mode="json")
+            if any(item.get("map_spatial_guard") for item in deps.evidence_refs.values()):
+                scope, _plan = build_group_scope(
+                    capability="assistant.turn",
+                    novel_id=novel_id,
+                    group_key=f"run:{run_id}",
+                    sources=_assistant_evidence_sources(deps.evidence_refs),
+                )
+                result_json["knowledge_scope_receipt"] = scope.receipt.to_dict()
             if payload.get("team"):
                 from modules.assistant.teams.runner import public_collaboration
 

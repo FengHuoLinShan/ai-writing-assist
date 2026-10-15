@@ -242,7 +242,7 @@ async def test_author_turn_preview_confirm_and_replay(
     assert {"search_general_fact", "read_web_source"}.issubset(
         run.request_json["read_tools"]
     )
-    assert "map_spatial_brief" in run.request_json["read_tools"]
+    assert "map_spatial_brief" not in run.request_json["read_tools"]
     if runtime_version == "1":
         frozen = json.loads(
             Path(__file__).parents[1].joinpath("runtime_v1.json").read_text()

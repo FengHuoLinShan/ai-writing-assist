@@ -331,3 +331,29 @@ async def test_project_vocabulary_reads_current_ids_and_revisions_with_scope_gua
     deps.work = WorkContext(scope="current", chapter_index=1)
     with pytest.raises(ModelRetry, match="全书"):
         await project_vocabulary(SimpleNamespace(deps=deps))
+
+
+def test_map_evidence_keeps_its_own_advisory_scope_and_version_hash():
+    from modules.assistant.service import _assistant_evidence_sources
+    from modules.evidence.compilation.knowledge.group import build_group_scope
+
+    references = {
+        "read-entity": {
+            "target_ref": {"target_type": "world_entity", "target_id": "entity"}
+        },
+        "read-map": {
+            "title": "海港",
+            "target_ref": {"target_type": "map_spatial", "target_id": "node"},
+            "map_spatial_guard": {"baseline": [{"node_id": "node", "revision_id": "v1"}]},
+        },
+    }
+    sources = _assistant_evidence_sources(references)
+    scope, _plan = build_group_scope(
+        capability="assistant.turn", novel_id="novel", group_key="run", sources=sources
+    )
+    by_key = {entry.source_key: entry for entry in scope.receipt.included}
+    assert by_key["read-map"].dimensions == ("map_spatial",)
+    assert "map_spatial" not in by_key["assistant_evidence"].dimensions
+    original = by_key["read-map"].content_hash
+    references["read-map"]["map_spatial_guard"]["baseline"][0]["revision_id"] = "v2"
+    assert _assistant_evidence_sources(references)[-1].content_hash != original

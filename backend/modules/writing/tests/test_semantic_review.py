@@ -158,8 +158,12 @@ async def test_generated_candidate_requires_context_aware_review(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "consumer_action", ["writing.semantic_review", "writing.targeted_revision"]
+)
 async def test_review_materializes_context_without_sending_hidden_guard_terms(
     monkeypatch: pytest.MonkeyPatch,
+    consumer_action: str,
 ) -> None:
     from modules.evidence import facade as evidence_facade
 
@@ -229,6 +233,15 @@ async def test_review_materializes_context_without_sending_hidden_guard_terms(
         novel_id=novel_id,
         draft=draft,
         provenance=draft.provenance_json,
+        consumer_action=consumer_action,
+    )
+    assert (
+        evidence_facade.prepare_confirmed_ai_action.await_args.kwargs["consumer_action"]
+        == consumer_action
+    )
+    assert (
+        evidence_facade.prepare_confirmed_ai_action.await_args.kwargs["action"]
+        == "writing.generate"
     )
     item = {
         "draft_id": "00000000-0000-0000-0000-000000000002",
@@ -981,6 +994,10 @@ async def test_targeted_revision_requires_and_reuses_review_context(
     assert provenance["pov_validation"]["status"] == "passed"
     assert provenance["independent_review"] is None
     assert materialize.await_count == 2
+    assert all(
+        call.kwargs["consumer_action"] == "writing.targeted_revision"
+        for call in materialize.await_args_list
+    )
 
 
 # ============================================================
@@ -1527,3 +1544,64 @@ async def test_review_locks_all_targets_in_one_query_and_rejects_hash_drift(
 
     # N+1 消除：无论目标数多少，只发一次批量加锁查询。
     assert db.lock_queries == 1
+
+
+@pytest.mark.anyio
+async def test_map_only_change_or_budget_omission_keeps_review_core_fingerprint(
+    monkeypatch,
+):
+    from modules.evidence import facade as evidence
+    from modules.evidence.compilation.markdown_renderer import render_compiled_context
+    from modules.evidence.compilation.services.compiled_context import (
+        CompiledContext,
+        ContextSection,
+        Tier,
+    )
+
+    core = ContextSection(
+        key="world_entities", tier=Tier.P1, content="角色已经知道的事实"
+    )
+    mapped = CompiledContext(
+        sections=[
+            core,
+            ContextSection(key="map_spatial", tier=Tier.P3, content="旧空间参考"),
+        ]
+    )
+    omitted = CompiledContext(sections=[core], evicted_keys=["map_spatial"])
+    confirmation = SimpleNamespace(
+        id="confirmation",
+        action="writing.generate",
+        selected_asset_ids={},
+        excluded_asset_ids={},
+        warnings=[],
+    )
+    prepared = [
+        SimpleNamespace(
+            compiled=compiled,
+            rendered_markdown=render_compiled_context(compiled),
+            compile_options={},
+            confirmation=confirmation,
+        )
+        for compiled in [mapped, omitted]
+    ]
+    monkeypatch.setattr(
+        evidence, "prepare_confirmed_ai_action", mock.AsyncMock(side_effect=prepared)
+    )
+    monkeypatch.setattr(
+        evidence, "build_hidden_guard_context", mock.AsyncMock(return_value=[])
+    )
+    service = WritingSemanticWorkflowService()
+    contexts = []
+    for _ in range(2):
+        context, _guards = await service._materialize_review_context(
+            None,
+            novel_id="novel",
+            draft=SimpleNamespace(content="正文"),
+            provenance={
+                "source": "writing_generate",
+                "context_confirmation_id": "confirmation",
+            },
+        )
+        contexts.append(context)
+    assert contexts[0]["context_fingerprint"] == contexts[1]["context_fingerprint"]
+    assert contexts[0]["confirmed_context"] != contexts[1]["confirmed_context"]

@@ -34,6 +34,7 @@ class ConfirmedAIActionService:
         action: str,
         confirmation_id: str,
         for_update: bool = False,
+        consumer_action: str | None = None,
     ) -> ConfirmedAIActionContext:
         confirmation_kwargs = {
             "novel_id": novel_id,
@@ -51,6 +52,7 @@ class ConfirmedAIActionService:
             novel_id=novel_id,
             action=action,
             confirmation_id=confirmation_id,
+            **({"consumer_action": consumer_action} if consumer_action else {}),
         )
         return ConfirmedAIActionContext(
             confirmation=confirmation,

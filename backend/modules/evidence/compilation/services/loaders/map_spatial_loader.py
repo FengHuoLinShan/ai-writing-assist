@@ -34,11 +34,12 @@ class MapSpatialLoader(Loader):
         options: CompileOptions,
         bundle: StructureContextBundle,
     ) -> None:
-        capability = map_spatial_capability(options.consumer_action)
+        action = options.map_spatial_consumer_action or options.consumer_action
+        capability = map_spatial_capability(action)
         enabled = get_settings().map_spatial_enabled_capabilities
         if capability is None or capability not in enabled:
             return
-        if not options.scene_id and options.consumer_action != "world.ask":
+        if not options.scene_id and action != "world.ask":
             return
 
         excluded_id_kinds = {
@@ -51,37 +52,37 @@ class MapSpatialLoader(Loader):
         }
         excluded_ids = list(
             dict.fromkeys(
-                value
-                if ":" in value
-                else f"{excluded_id_kinds.get(kind, kind)}:{value}"
+                value if ":" in value else f"{excluded_id_kinds.get(kind, kind)}:{value}"
                 for kind, values in options.excluded_asset_ids.items()
                 for value in (str(item) for item in values)
             )
-        )[:200]
+        )
+        for ref in options.excluded_refs:
+            target = ref.get("target_ref") or {}
+            if target.get("target_type") and target.get("target_id"):
+                excluded_ids.append(f"{target['target_type']}:{target['target_id']}")
+            source = ref.get("source_ref") or {}
+            if source.get("draft_id"):
+                excluded_ids.append(f"writing_draft:{source['draft_id']}")
+        excluded_ids = list(dict.fromkeys(excluded_ids))
+        # Never silently drop an exclusion to fit the facade's request limit.
+        if len(excluded_ids) > 200:
+            return
         result = await get(WORLD_READ_MAP_SPATIAL_BRIEF)(
             db,
             {
                 "novel_id": options.novel_id,
                 "scene_id": options.scene_id,
-                "chapter_index": options.visible_until_chapter
-                or options.chapter_index,
+                "chapter_index": options.visible_until_chapter or options.chapter_index,
                 "reveal_mode": (
                     options.reveal_mode
                     if options.reveal_mode in {"reader", "character"}
                     else "author_safe"
                 ),
                 "viewpoint_character_id": options.viewpoint_character_id,
-                "query_text": (
-                    options.task if options.consumer_action == "world.ask" else ""
-                ),
+                "query_text": (options.task if action == "world.ask" else ""),
                 "excluded_ids": excluded_ids,
             },
         )
         if result.items:
             bundle.map_spatial_brief = result.model_dump(mode="json")
-            if result.omitted_count:
-                bundle.warnings.append(
-                    f"空间简报有 {result.omitted_count} 项未纳入，"
-                    "已在空间参考省略记录中披露"
-                )
-

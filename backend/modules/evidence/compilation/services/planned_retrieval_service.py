@@ -22,6 +22,8 @@ class PlannedContextRetrievalService:
         self,
         db: AsyncSession,
         options: CompileOptions,
+        *,
+        include_map_spatial: bool = True,
     ) -> StructureContextBundle:
         bundle = StructureContextBundle(
             novel_id=options.novel_id,
@@ -35,5 +37,6 @@ class PlannedContextRetrievalService:
             MapSpatialLoader,
         )
 
-        await MapSpatialLoader().load(db, options, bundle)
+        if include_map_spatial:
+            await MapSpatialLoader().load(db, options, bundle)
         return bundle

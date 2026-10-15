@@ -23,6 +23,7 @@ from infrastructure.llm.client import LLMClient
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from infrastructure.stable_hash import stable_hash as _stable_hash
+from modules.evidence.facade import render_compiled_context
 from modules.writing.models import WritingDraft
 from modules.writing.pov_generation import CharacterRevealGuard
 from modules.writing.repositories import WritingDraftRepository
@@ -587,6 +588,7 @@ class WritingSemanticWorkflowService:
         novel_id: str,
         draft: object,
         provenance: dict[str, Any],
+        consumer_action: str = "writing.semantic_review",
     ) -> tuple[dict[str, Any], tuple[Any, ...]]:
         if not _requires_confirmed_context(provenance):
             return (
@@ -619,6 +621,7 @@ class WritingSemanticWorkflowService:
                 novel_id=novel_id,
                 action="writing.generate",
                 confirmation_id=confirmation_id,
+                consumer_action=consumer_action,
             )
         except (LookupError, ValueError) as exc:
             raise ConflictError(
@@ -697,7 +700,16 @@ class WritingSemanticWorkflowService:
                     "excluded_asset_ids": deepcopy(confirmation.excluded_asset_ids or {}),
                     "warnings": list(confirmation.warnings or []),
                 },
-                "rendered_markdown": confirmed.rendered_markdown,
+                "rendered_markdown": render_compiled_context(
+                    confirmed.compiled,
+                    include_map_spatial=False,
+                )
+                if any(
+                    section.key == "map_spatial"
+                    for section in confirmed.compiled.sections
+                )
+                or "map_spatial" in getattr(confirmed.compiled, "evicted_keys", [])
+                else confirmed.rendered_markdown,
                 "hidden_guard_fingerprint": guard_fingerprint,
                 "generation_profile": provenance.get("generation_profile"),
                 "viewpoint_character_id": viewpoint_character_id or None,
@@ -1736,6 +1748,7 @@ class WritingSemanticWorkflowService:
             novel_id=novel_id,
             draft=base,
             provenance=provenance,
+            consumer_action="writing.targeted_revision",
         )
         if review_context.get("context_fingerprint") != expected_context_fingerprint:
             raise ConflictError("审查后 AI 参考资料已变化，请重新审查后再返修。")
@@ -1931,6 +1944,7 @@ class WritingSemanticWorkflowService:
             novel_id=novel_id,
             draft=current,
             provenance=current_provenance,
+            consumer_action="writing.targeted_revision",
         )
         if (
             current_review_context.get("context_fingerprint")

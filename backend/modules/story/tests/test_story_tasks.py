@@ -185,6 +185,7 @@ class _Compiled:
                 content="safe scene context",
                 status="ready",
                 token_count=10,
+                retrieval_metadata={},
                 sources=[],
             )
         ]
@@ -251,7 +252,10 @@ async def test_all_story_handlers_start_from_v1_envelope(monkeypatch) -> None:
     async def _compile(*_args, **_kwargs):
         return compiled
 
+    prepared_actions = []
+
     async def _prepare(_db, **_kwargs):
+        prepared_actions.append(_kwargs["action"])
         return SimpleNamespace(
             compiled=compiled,
             compile_options={"context_mode": "working", "reveal_mode": "author_safe"},
@@ -343,9 +347,9 @@ async def test_all_story_handlers_start_from_v1_envelope(monkeypatch) -> None:
             {
                 "novel_id": NOVEL_ID,
                 "scene_id": SCENE_ID,
-                    "character_ids": [CHARACTER_ID],
-                    "context_confirmation_id": "one-click-confirmation",
-                    "submit_authorized": True,
+                "character_ids": [CHARACTER_ID],
+                "context_confirmation_id": "one-click-confirmation",
+                "submit_authorized": True,
             },
         ),
     ]
@@ -366,3 +370,4 @@ async def test_all_story_handlers_start_from_v1_envelope(monkeypatch) -> None:
         result = await handler(_Db(), task)
         assert result["context_snapshot_id"] == str(snapshot_id)
         assert task.progress[-1] == 1.0
+        assert prepared_actions[-1] == action

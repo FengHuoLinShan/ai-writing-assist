@@ -57,6 +57,8 @@ class CompileOptions:
     scope: str
     consumer_action: str | None = None
     """后端确定的消费动作，如 writing.generate；不接受前端伪造"""
+    map_spatial_consumer_action: str | None = None
+    """Reuse the original core confirmation with the downstream consumer's map switch."""
     retrieval_purpose: str = "generic_context"
     """确定性检索用途；未知调用方使用 generic_context"""
     chapter_index: int | None = None

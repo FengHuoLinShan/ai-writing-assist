@@ -266,9 +266,7 @@ async def test_spatial_brief_is_scene_bounded_and_uses_explicit_location_and_pre
         db_session,
         test_project_id,
         node["id"],
-        MapSaveRequest(
-            base_revision_id=node["current_revision_id"], document=document
-        ),
+        MapSaveRequest(base_revision_id=node["current_revision_id"], document=document),
     )
     scene_id = str(uuid.uuid4())
     fact = {
@@ -490,9 +488,7 @@ async def test_brief_applies_expired_and_replaced_scene_anchors(
                     "kind": "location",
                     "label": "旧关",
                     "entity_id": str(old_pass.id),
-                    "effective": {
-                        "end": {"kind": "scene", "id": expired_scene_id}
-                    },
+                    "effective": {"end": {"kind": "scene", "id": expired_scene_id}},
                 },
             ],
             "constraints": [
@@ -531,9 +527,7 @@ async def test_brief_applies_expired_and_replaced_scene_anchors(
                     "kind": "location",
                     "label": "白潮港",
                     "entity_id": str(current_place.id),
-                    "effective": {
-                        "start": {"kind": "scene", "id": replaced_scene_id}
-                    },
+                    "effective": {"start": {"kind": "scene", "id": replaced_scene_id}},
                 }
             ]
         }
@@ -688,14 +682,10 @@ async def test_brief_keeps_adopted_v1_manual_edges_without_sources_and_direction
         db_session,
         test_project_id,
         node["id"],
-        MapSaveRequest(
-            base_revision_id=node["current_revision_id"], document=document
-        ),
+        MapSaveRequest(base_revision_id=node["current_revision_id"], document=document),
     )
     scene_id = str(uuid.uuid4())
-    port = _scene_port(
-        test_project_id, scene_id, location_id=str(harbor.id)
-    )
+    port = _scene_port(test_project_id, scene_id, location_id=str(harbor.id))
     _install_read_boundaries(monkeypatch, port)
 
     brief = await read_map_spatial_brief(
@@ -747,3 +737,81 @@ def test_spatial_brief_handles_replaced_anchors_and_keeps_bounded_valid_json():
     assert clipped
     assert len(text) <= 3000
     assert isinstance(json.loads(text), dict)
+
+
+@pytest.mark.asyncio
+async def test_hidden_node_binding_cannot_leak_its_title_via_visible_feature(
+    db_session, test_project_id, monkeypatch
+):
+    hidden = await _entity(db_session, test_project_id, "秘密洞天")
+    visible = await _entity(db_session, test_project_id, "渡口")
+    service = MapStructureService()
+    node = await service.create_node(
+        db_session,
+        test_project_id,
+        MapNodeCreate(title="秘密洞天", level="region", location_entity_id=hidden.id),
+    )
+    await service.save(
+        db_session,
+        test_project_id,
+        node["id"],
+        MapSaveRequest(
+            base_revision_id=node["current_revision_id"],
+            document=MapDocument(
+                features=[
+                    {
+                        "id": "pier",
+                        "kind": "location",
+                        "label": "渡口",
+                        "entity_id": visible.id,
+                    }
+                ]
+            ),
+        ),
+    )
+    _install_read_boundaries(
+        monkeypatch,
+        _scene_port(test_project_id, str(uuid.uuid4()), location_id=None),
+        hidden_ids={str(hidden.id)},
+    )
+    result = await read_map_spatial_brief(
+        db_session,
+        MapSpatialBriefRequest(
+            novel_id=test_project_id, query_text="渡口在哪里", reveal_mode="author_full"
+        ),
+    )
+    assert result.items == []
+
+
+@pytest.mark.asyncio
+async def test_model_generated_feature_needs_source_even_after_adoption(
+    db_session, test_project_id, monkeypatch
+):
+    from modules.world.map_atlas_models import MapAtlasRevision
+
+    service = MapStructureService()
+    node = await service.create_node(
+        db_session, test_project_id, MapNodeCreate(title="北岸", level="region")
+    )
+    saved = await service.save(
+        db_session,
+        test_project_id,
+        node["id"],
+        MapSaveRequest(
+            base_revision_id=node["current_revision_id"],
+            document=MapDocument(
+                features=[{"id": "pier", "kind": "location", "label": "没有引文的渡口"}]
+            ),
+        ),
+    )
+    revision = await db_session.get(MapAtlasRevision, uuid.UUID(saved.id))
+    revision.task_id = uuid.uuid4()
+    _install_read_boundaries(
+        monkeypatch, _scene_port(test_project_id, str(uuid.uuid4()), location_id=None)
+    )
+    with db_session.no_autoflush:
+        result = await read_map_spatial_brief(
+            db_session,
+            MapSpatialBriefRequest(novel_id=test_project_id, query_text="没有引文的渡口"),
+        )
+    assert result.items == []

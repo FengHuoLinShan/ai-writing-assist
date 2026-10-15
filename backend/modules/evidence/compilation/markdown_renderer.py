@@ -141,8 +141,27 @@ def _section_fact_level(section: ContextSection) -> str | None:
     return _SECTION_FACT_LEVELS.get(section.key)
 
 
-def render_compiled_context(ctx: CompiledContext) -> str:
+def render_compiled_context(
+    ctx: CompiledContext, *, include_map_spatial: bool = True
+) -> str:
     """从 CompiledContext IR 渲染为 Markdown，保持 Tier 顺序"""
+    if not include_map_spatial:
+        ctx = ctx.model_copy(
+            update={
+                "sections": [
+                    section for section in ctx.sections if section.key != "map_spatial"
+                ],
+                "evicted_keys": [key for key in ctx.evicted_keys if key != "map_spatial"],
+                "truncated_keys": [
+                    key for key in ctx.truncated_keys if key != "map_spatial"
+                ],
+                "budget_events": [
+                    event
+                    for event in ctx.budget_events
+                    if event.section_key != "map_spatial"
+                ],
+            }
+        )
     parts = []
     for section in sorted(ctx.sections, key=lambda s: s.tier):
         header = _TIER_HEADERS.get(section.key, section.key)
