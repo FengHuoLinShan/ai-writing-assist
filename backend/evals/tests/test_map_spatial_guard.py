@@ -584,6 +584,8 @@ async def test_lifecycle_default_refuses_before_manager_or_binding(tmp_path, mon
         (False, "attempted"),
         (False, "author_baseline_missing"),
         (False, "author_baseline_selected"),
+        (False, "omission_control"),
+        (False, "omission_unexpected_baseline"),
     ],
 )
 async def test_pair_freezes_both_confirmations_before_exact_worker_claim(
@@ -599,6 +601,9 @@ async def test_pair_freezes_both_confirmations_before_exact_worker_claim(
     family = matrix["families"][0]
     case_id = next(iter(binding["case_bindings"]))
     case_scope = binding["case_bindings"][case_id]
+    if outcome.startswith("omission"):
+        case_scope["writing_role"] = "omission_control"
+        binding["writing_roles"] = {"cases": {case_id: {"role": "omission_control"}}}
     if outcome.startswith("author_baseline"):
         from evals.map_spatial_scene_locations import ledger_path
 
@@ -627,6 +632,8 @@ async def test_pair_freezes_both_confirmations_before_exact_worker_claim(
     binding["source_sha256"] = family["source_sha256"]
 
     async def preflight(**kwargs):
+        if outcome.startswith("omission"):
+            assert kwargs["writing_role"] == "omission_control"
         return case_scope.copy()
 
     monkeypatch.setattr(map_spatial, "preflight_project", preflight)
@@ -665,6 +672,8 @@ async def test_pair_freezes_both_confirmations_before_exact_worker_claim(
             if drift and enabled
             else "same-core",
         }
+        if outcome == "omission_control":
+            options["map_spatial_baseline"] = []
         if enabled and outcome == "author_baseline_selected":
             options["map_spatial_baseline"] = [
                 {"node_id": "selected-node", "revision_id": "head"}
@@ -745,6 +754,10 @@ async def test_pair_freezes_both_confirmations_before_exact_worker_claim(
         assert ledger["runs"][f"{family['family_id']}/{case_id}"]["status"] == "unknown"
         with pytest.raises(MapSpatialEvalError, match="不自动重发"):
             await map_spatial.run_writing_pair(**args)
+    elif outcome == "omission_unexpected_baseline":
+        with pytest.raises(MapSpatialEvalError, match="omission_control实际确认"):
+            await map_spatial.run_writing_pair(**args)
+        assert not any(name == "run_exact" for name, _ in calls)
     elif outcome == "author_baseline_missing":
         with pytest.raises(MapSpatialEvalError, match="未实际消费所选地图"):
             await map_spatial.run_writing_pair(**args)

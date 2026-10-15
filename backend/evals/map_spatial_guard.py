@@ -183,6 +183,113 @@ def private_ref(root: Path, relative: str) -> Path:
     return path
 
 
+class WritingRoleCase(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    role: Literal["positive", "omission_control"]
+    source_excerpt_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+class WritingRoles(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    schema_version: Literal[1]
+    origin: Literal["agent_simulated"]
+    human_validated: Literal[False]
+    family_id: str
+    source_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    cases: dict[str, WritingRoleCase]
+
+
+def _role_manifest(root: Path, path: Path) -> tuple[dict, str]:
+    from evals.map_spatial import MapSpatialEvalError, _read_private_json
+
+    try:
+        relative = str(path.absolute().relative_to(root.absolute()))
+    except ValueError as error:
+        raise MapSpatialEvalError("Writing roles必须留在private-root") from error
+    path = private_ref(root, relative)
+    if not path.is_file() or path.stat().st_mode & 0o777 != 0o600:
+        raise MapSpatialEvalError("Writing roles必须是0600私有JSON")
+    value = _read_private_json(path)
+    try:
+        WritingRoles.model_validate(value)
+    except ValueError as error:
+        raise MapSpatialEvalError("Writing roles预声明schema不符") from error
+    if value.get("human_validated") is not False:
+        raise MapSpatialEvalError("Writing roles不得声称人类验证")
+    return value, relative
+
+
+def freeze_writing_roles(root, family, source, cases, path):
+    """Optional operator declaration, frozen with the common baseline before SUT."""
+    from evals.map_spatial import MapSpatialEvalError, _sha256_file
+
+    if path is None:
+        return None
+    manifest, relative = _role_manifest(root, path)
+    excerpts = {row["case_id"]: row["source_excerpt"] for row in source["cases"]}
+    if (
+        manifest["family_id"] != family["family_id"]
+        or manifest["source_sha256"] != family["source_sha256"]
+        or set(manifest["cases"]) != set(cases)
+        or any(
+            item["source_excerpt_sha256"]
+            != hashlib.sha256(excerpts[case_id].encode("utf-8")).hexdigest()
+            for case_id, item in manifest["cases"].items()
+        )
+    ):
+        raise MapSpatialEvalError("Writing roles必须绑定原source与全部五case")
+    return {
+        "manifest_path": relative,
+        "manifest_file_sha256": _sha256_file(private_ref(root, relative)),
+        "manifest_sha256": digest(manifest),
+        "cases": {
+            case_id: {
+                **item,
+                "scene_id": cases[case_id]["scene_id"],
+                "source_snapshot_hash": cases[case_id]["source_snapshot_hash"],
+            }
+            for case_id, item in manifest["cases"].items()
+        },
+    }
+
+
+def read_writing_roles(root: Path, common: dict) -> dict | None:
+    from evals.map_spatial import MapSpatialEvalError, _sha256_file
+
+    frozen = common.get("writing_roles")
+    if frozen is None:
+        return None
+    manifest, relative = _role_manifest(root, private_ref(root, frozen["manifest_path"]))
+    cases = common["case_bindings"]
+    if (
+        manifest["family_id"] != common["family_id"]
+        or manifest["source_sha256"] != common["source_sha256"]
+        or set(manifest["cases"]) != set(cases)
+        or frozen
+        != {
+            "manifest_path": relative,
+            "manifest_file_sha256": _sha256_file(private_ref(root, relative)),
+            "manifest_sha256": digest(manifest),
+            "cases": {
+                case_id: {
+                    **item,
+                    "scene_id": cases[case_id]["scene_id"],
+                    "source_snapshot_hash": cases[case_id]["source_snapshot_hash"],
+                }
+                for case_id, item in manifest["cases"].items()
+            },
+        }
+    ):
+        raise MapSpatialEvalError("Writing roles预声明文件/来源/Scene已漂移")
+    return frozen
+
+
+def writing_role(common: dict, case_id: str) -> str:
+    frozen = common.get("writing_roles")
+    return frozen["cases"][case_id]["role"] if frozen else "positive"
+
+
 def binding_path(root: Path, family_id: str) -> Path:
     return private_ref(root, f"bindings/{family_id}.json")
 
@@ -299,6 +406,7 @@ def read_common_binding(root: Path, family_id: str) -> dict:
         "vocabulary_snapshot_hash"
     ):
         raise MapSpatialEvalError("初始空间词表与共同Scene基线不一致")
+    read_writing_roles(root, value)
     return value
 
 
@@ -365,6 +473,7 @@ def read_binding(root: Path, family_id: str) -> dict:
             "genre": family["genre"],
             "private_root_sha256": digest(str(root.resolve())),
             "common_binding_sha256": digest(common),
+            "writing_roles": common.get("writing_roles"),
             "setup_record_sha256": _sha256_file(setup_path),
             "scopes_sha256": common["scopes_sha256"],
             "human_validated": False,
@@ -392,7 +501,12 @@ def read_binding(root: Path, family_id: str) -> dict:
         baseline = baseline_cases[case_id]
         if (
             not isinstance(case, dict)
-            or case.get("map_revision_count", 0) < 1
+            or (
+                case.get("map_revision_count", 0) < 1
+                if writing_role(common, case_id) == "positive"
+                else case.get("map_revision_count") != 0
+            )
+            or case.get("writing_role", "positive") != writing_role(common, case_id)
             or not case.get("map_snapshot_hash")
             or digest(case.get("vocabulary_snapshot"))
             != case.get("vocabulary_snapshot_hash")
@@ -936,6 +1050,7 @@ async def product_evidence(db, root: Path, binding: dict, case_id: str) -> dict:
             "human_validated": review.get("human_validated"),
         },
         "writing_paired": writing,
+        "writing_role": writing_role(binding, case_id),
         "assistant": assistant_evidence,
         "telemetry_limits": {
             "evolution_operation_attempt_membership": "unknown",
@@ -1411,6 +1526,7 @@ def judge_prompt(root: Path, binding: dict, case_id: str, evidence: dict) -> str
         "phase": "judge",
         "binding_sha256": digest(binding),
         "case_id": case_id,
+        "writing_role": writing_role(binding, case_id),
         "source": source,
         "expected": expected,
         "evidence": evidence,
@@ -1426,6 +1542,8 @@ def judge_prompt(root: Path, binding: dict, case_id: str, evidence: dict) -> str
             "author_review_steps与author_review_seconds必须逐字采用本case代理审核events的计数/秒数；"
             "这是隔离合成作品的代理作者HTTP回执耗时，不是人类写作/审核时间。作者类型改名/合并/归档"
             "必须逐字采用持久词表revision lineage计数。"
+            "omission_control只预声明两臂地图上下文均空，仍必须逐正文检查空间事实、错误断言和质量。"
+            "该role不是零观察机会证明，不得自动判not_applicable或正收益。"
             "成本只接受实际费用，不从token猜测。"
             "evidence_task_ids只能引用task_ids_by_group中的真实ID；没有必要的任务或来源则unknown。"
             "类型涌现的activation可参考全部五个独立Scene，"

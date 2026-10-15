@@ -31,7 +31,8 @@ root 仅在明确开始 pilot 后，通过正常 `PUT /api/account/settings/llm-
 
 ```bash
 .venv/bin/python -m evals.map_spatial setup-family --private-root "$MAP_EVAL_PRIVATE_ROOT" --family-id map-xianxia-development-v1 --execute
-.venv/bin/python -m evals.map_spatial freeze-common --private-root "$MAP_EVAL_PRIVATE_ROOT" --family-id map-xianxia-development-v1 --execute
+.venv/bin/python -m evals.map_spatial freeze-common --private-root "$MAP_EVAL_PRIVATE_ROOT" --family-id map-xianxia-development-v1 \
+  --writing-roles "$MAP_EVAL_PRIVATE_ROOT/roles/map-xianxia-development-v1.json" --execute
 .venv/bin/python -m evals.map_spatial score --private-root "$MAP_EVAL_PRIVATE_ROOT" --family-id map-xianxia-development-v1 \
   --phase teacher_calibration --case-id seeded-v1 --execute
 # 只读 preview，先获得实际 mandatory reserve M 与完整空间 quota Q。
@@ -47,7 +48,7 @@ root 仅在明确开始 pilot 后，通过正常 `PUT /api/account/settings/llm-
 .venv/bin/python -m evals.map_spatial run-evolution --private-root "$MAP_EVAL_PRIVATE_ROOT" --family-id map-xianxia-development-v1 --max-tasks 2 --execute
 .venv/bin/python -m evals.map_spatial run-evolution --private-root "$MAP_EVAL_PRIVATE_ROOT" --family-id map-xianxia-development-v1 --max-tasks 2 --execute
 .venv/bin/python -m evals.map_spatial review-map --private-root "$MAP_EVAL_PRIVATE_ROOT" --family-id map-xianxia-development-v1 --max-actions 20 --execute
-# 可选author-assisted变体：root逐例提供完整5个显式决定；未提供则保持source-only评测。
+# 可选author-assisted变体：root逐例提供全部positive case显式决定（未声明roles时为5个）；未提供则保持source-only评测。
 # manifest canonical digest用 evals.map_spatial_guard.digest(原JSON)，文件0600且在本private-root。
 .venv/bin/python -m evals.map_spatial apply-scene-locations --private-root "$MAP_EVAL_PRIVATE_ROOT" --family-id map-xianxia-development-v1 \
   --decisions "$MAP_EVAL_PRIVATE_ROOT/decisions/map-xianxia-development-v1.json" \
@@ -85,6 +86,8 @@ CLI 整命令 deadline 包含数据库及准备：setup300、共同/最终freeze
 Writing eligibility已显式报告：setup 的 manual canonical Scene 只有来源 spans，没有 location metadata，也不会自动语义 enrichment。采用地图不等于该 Scene 已有可用地图参考；只有原正式来源支持的 Scene 地点、在场/位置事实满足正常 Brief/Evidence 门，才能形成带地图 baseline。缺可信位置且实际brief为空时记录 `unavailable/scene_location_unavailable`（有地点但无brief为 `no_usable_map_brief`）。任一case不可达时只生成私有 `bindings/<family>-writing-eligibility.json`，Writing pair=`not_run`，不生成可执行最终binding/任何两臂任务；report与开发gate记录覆盖阻断，不能把not_run当质量下降。正常开臂baseline非空与core相等守卫仍保留；不得猜地点、补填 location ID 或把省略冒称为地图增强质量通过。
 
 可选author-assisted条件另有5个明确 `author_added_scene_setting`，固定agent_simulated/human_validated=false，未声称原文自动推得Scene地点。root先冻结作者意图，之后仅用明确UUID，不按名称/alias/gold代选。normal GET canonical location和adopted/saved map node/head、actual review receipt与Brief当前地点必须对齐；完整Scene hash和exact source均验证，两location key已有任一值拒绝覆盖。正常Scene PATCH整meta无CAS；只增location_entity_id且再GET核对其余字段/source未变。记录私有独立manifest/request/response/pre-post hash、计数、耗时，至多5 PATCH。未知/漂移不重发、不推进模型；final binding/reader固定这些hash。允许保留pending/attempt0的publish_chapter和rag_index_chapter索引任务，逐例ledger记录其ID/状态，不运行/取消/排空；其他写者停止。索引执行可embedding并重锚SceneSpan来源，允许保留依据为隔离进程无后台worker及精确task执行，不能声称handler无来源副作用。一般mover-only合法Brief不受该实验焦点限制。完整manifest字段见dataset README。
+
+Writing role文件须在common首次冻结时通过`--writing-roles`提供，早于seed/Evolution/pair，schema见dataset README。完整五case按原source.json hash及逐source_excerpt UTF-8 hash绑定，role只可positive或omission_control，文件hash/digest和Scene/source身份进入common，后改拒绝。positive须真实非空地图；omission须无Scene地点且实际无Brief（mover-only也拒），不加地点输入并保存原卡hash。所有case仍各跑2正式Writing task；omission开臂baseline为空且两臂非Map core相同，judge仍评正文/空间错误，不能由role强制0/0、正收益或跳过。全genre严格改善、prose不降低、全N/A失败及BOUNDS不变；没有角色预声明保留旧严格路径。此项只改变实验设计，不改变ADR或产品默认行为。
 
 ## Sol 工程审修证据
 

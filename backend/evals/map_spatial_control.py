@@ -1794,11 +1794,17 @@ async def review_map_family(
 
 
 async def freeze_common_binding(
-    *, private_root: Path, family_id: str, execute: bool
+    *,
+    private_root: Path,
+    family_id: str,
+    execute: bool,
+    writing_roles: Path | None = None,
 ) -> dict:
     """Freeze the common empty-map source baseline before seeded calibration."""
     explicit_execution(execute)
     root = require_private_directory(private_root)
+    if common_binding_path(root, family_id).exists():
+        raise MapSpatialEvalError("共同基线已冻结，不能追加或替换Writing roles")
     matrix = load_matrix()
     family = _family_for(matrix, family_id)
     if family["split"] == "holdout":
@@ -1855,6 +1861,11 @@ async def freeze_common_binding(
         human_validated=False,
         frozen_at=datetime.now(UTC).isoformat(),
     )
+    from evals.map_spatial_guard import freeze_writing_roles
+
+    roles = freeze_writing_roles(root, family, source, cases, writing_roles)
+    if roles is not None:
+        common["writing_roles"] = roles
     path = common_binding_path(root, family_id)
     with private_lock(root):
         if path.exists():
@@ -1897,10 +1908,17 @@ async def freeze_binding(
         if set(scope) != {"novel_id", "scene_id", "chapter_index"}:
             raise MapSpatialEvalError("scope只能指定项目、Scene、章截止")
         case = _case_for(source, case_id)
+        from evals.map_spatial_guard import writing_role
+
         cases[case_id] = await preflight_project(
             private_root=root,
             family=family,
             source_excerpt=case["source_excerpt"],
+            **(
+                {"writing_role": writing_role(common, case_id)}
+                if common.get("writing_roles")
+                else {}
+            ),
             **scope,
         )
         baseline = common["case_bindings"][case_id]
@@ -1932,6 +1950,7 @@ async def freeze_binding(
         "map_revision_count",
         "map_brief_eligibility",
         "map_source_refs",
+        "writing_role",
     )
     case_globals = {
         key: value

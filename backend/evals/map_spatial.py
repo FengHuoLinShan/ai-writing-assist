@@ -716,11 +716,25 @@ async def scene_source_refs(
     return matched_refs
 
 
-def writing_brief_eligibility(scene: dict, brief: dict) -> dict:
+def writing_brief_eligibility(
+    scene: dict, brief: dict, writing_role: str = "positive"
+) -> dict:
     """Classify actual Brief availability without inferring a Scene location."""
     available = bool(brief.get("items"))
     metadata = scene.get("structure_meta") or {}
     has_location = bool(metadata.get("location_id") or metadata.get("location_entity_id"))
+    if writing_role == "omission_control":
+        if has_location or available:
+            raise MapSpatialEvalError(
+                "omission_control必须无Scene地点且真实地图brief为空"
+            )
+        return {
+            "status": "available",
+            "reason": "predeclared_omission_control",
+            "writing_pair_status": "not_run",
+        }
+    if writing_role != "positive":
+        raise MapSpatialEvalError("未冻结的Writing role")
     return {
         "status": "available" if available else "unavailable",
         "reason": None
@@ -740,6 +754,7 @@ async def preflight_project(
     scene_id: str,
     chapter_index: int,
     source_excerpt: str,
+    writing_role: str = "positive",
 ) -> dict[str, Any]:
     """Freeze a post-review map head for the two Writing arms."""
     result = await _preflight_project_state(
@@ -750,6 +765,7 @@ async def preflight_project(
         chapter_index=chapter_index,
         source_excerpt=source_excerpt,
         expected_map_state="reviewed",
+        writing_role=writing_role,
     )
     return result
 
@@ -784,6 +800,7 @@ async def _preflight_project_state(
     chapter_index: int,
     source_excerpt: str,
     expected_map_state: str,
+    writing_role: str = "positive",
 ) -> dict[str, Any]:
     """Read the actual owner/Project/Scene and spatial map through product facades."""
     _database_target(os.environ.get("DATABASE_URL", ""))
@@ -903,8 +920,10 @@ async def _preflight_project_state(
         }
         if expected_map_state == "reviewed":
             result["map_brief_eligibility"] = writing_brief_eligibility(
-                scene_data, brief_data
+                scene_data, brief_data, writing_role
             )
+        if writing_role == "omission_control":
+            result["writing_role"] = writing_role
         await db.rollback()
         return result
 
@@ -949,6 +968,11 @@ async def run_writing_pair(
         scene_id=scene_id,
         chapter_index=chapter_index,
         source_excerpt=case["source_excerpt"],
+        **(
+            {"writing_role": case_binding.get("writing_role", "positive")}
+            if binding.get("writing_roles")
+            else {}
+        ),
     )
     if preflight != case_binding:
         raise MapSpatialEvalError("隔离预检、来源、prompt或项目快照漂移")
@@ -1019,9 +1043,12 @@ async def run_writing_pair(
                         raise MapSpatialEvalError("冻结原文没有进入实际Writing确认上下文")
                     options = dict(confirmation.compile_options or {})
                     baseline = list(options.get("map_spatial_baseline") or [])
-                    if enabled and not baseline:
+                    omission = case_binding.get("writing_role") == "omission_control"
+                    if omission and baseline:
+                        raise MapSpatialEvalError("omission_control实际确认意外消费地图")
+                    if enabled and not omission and not baseline:
                         raise MapSpatialEvalError("带地图臂的Writing确认未加载空间版本")
-                    if enabled and binding.get("author_assistance"):
+                    if enabled and not omission and binding.get("author_assistance"):
                         from evals.map_spatial_scene_locations import ledger_path
 
                         selected = _read_private_json(
@@ -1252,6 +1279,11 @@ async def run_writing_pair(
                 scene_id=scene_id,
                 chapter_index=chapter_index,
                 source_excerpt=case["source_excerpt"],
+                **(
+                    {"writing_role": case_binding.get("writing_role", "positive")}
+                    if binding.get("writing_roles")
+                    else {}
+                ),
             )
             if after != case_binding:
                 raise MapSpatialEvalError("配对臂之间Project/Scene/map版本漂移，停止评测")
@@ -1314,6 +1346,19 @@ def build_report(private_root: Path, output: Path) -> dict[str, Any]:
                     "atomic_cas",
                 )
             }
+            report["author_assisted_inputs"][family["family_id"]].update(
+                extra_author_decisions=record.get("extra_author_decisions"),
+                omission_control_count=record.get("omission_control_count", 0),
+                omission_controls={
+                    case_id: {
+                        "extra_author_decisions": 0,
+                        "original_card_hash": item["before_scene_hash"],
+                        "scene_hash": item["scene_contract_hash"],
+                    }
+                    for case_id, item in record.get("cases", {}).items()
+                    if item.get("writing_role") == "omission_control"
+                },
+            )
     report["status"] = "prepared"
     report["output_written_at"] = datetime.now(UTC).isoformat()
     _write_private_json(output, report)
@@ -1376,6 +1421,7 @@ def main() -> None:
     common.add_argument("--private-root", type=Path, default=DEFAULT_PRIVATE_ROOT)
     common.add_argument("--family-id", required=True)
     common.add_argument("--execute", action="store_true")
+    common.add_argument("--writing-roles", type=Path)
     evolution_preview = commands.add_parser(
         "preview-evolution", help="freeze a bounded Evolution preview for root inspection"
     )

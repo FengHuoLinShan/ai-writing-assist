@@ -30,6 +30,7 @@ from evals.map_spatial_guard import (
     require_development_gate,
     verify_runtime,
     writing_eligibility_path,
+    writing_role,
 )
 
 
@@ -53,7 +54,7 @@ class LocationDecisions(BaseModel):
     origin: Literal["agent_simulated"]
     human_validated: Literal[False]
     family_id: str
-    decisions: list[LocationDecision] = Field(min_length=5, max_length=5)
+    decisions: list[LocationDecision] = Field(min_length=0, max_length=5)
 
 
 def ledger_path(root: Path, family_id: str) -> Path:
@@ -75,7 +76,7 @@ def _manifest(root: Path, path: Path, expected: str) -> tuple[dict, str]:
         LocationDecisions.model_validate(value)
     except ValueError as error:
         raise MapSpatialEvalError(
-            "作者决定必须显式提供五case的完整稳定UUID决定"
+            "作者决定必须显式提供positive case的完整稳定UUID决定"
         ) from error
     if digest(value) != expected:
         raise MapSpatialEvalError("作者决定canonical digest已漂移")
@@ -91,16 +92,21 @@ def author_binding(root: Path, common: dict, cases: dict) -> dict | None:
     manifest, _ = _manifest(
         root, private_ref(root, record["manifest_path"]), record["manifest_sha256"]
     )
+    positives = {
+        case_id for case_id in cases if writing_role(common, case_id) == "positive"
+    }
     if (
         record.get("status") != "completed"
         or record.get("origin") != "agent_simulated"
         or record.get("input_kind") != "author_added_scene_setting"
         or record.get("human_validated") is not False
-        or record.get("patch_attempt_count") != 5
+        or record.get("patch_attempt_count") != len(positives)
         or record.get("common_binding_sha256") != digest(common)
         or record.get("manifest_file_sha256")
         != _sha256_file(private_ref(root, record["manifest_path"]))
         or manifest["family_id"] != common["family_id"]
+        or {item["case_id"] for item in manifest["decisions"]} != positives
+        or len(manifest["decisions"]) != len(positives)
         or set(record.get("cases", {})) != set(cases)
     ):
         raise MapSpatialEvalError("模拟作者输入未完成或冻结hash已漂移")
@@ -111,8 +117,14 @@ def author_binding(root: Path, common: dict, cases: dict) -> dict | None:
             or result.get("scene_contract_hash") != case.get("scene_hash")
             or result.get("source_snapshot_hash") != case.get("source_snapshot_hash")
             or result.get("brief_sha256") != case.get("map_snapshot_hash")
-            or {"node_id": result["node_id"], "revision_id": result["revision_id"]}
-            not in case.get("map_source_refs", [])
+            or (
+                {"node_id": result["node_id"], "revision_id": result["revision_id"]}
+                not in case.get("map_source_refs", [])
+                if case_id in positives
+                else result.get("extra_author_decisions") != 0
+                or result.get("before_scene_hash") != result.get("after_scene_hash")
+                or bool(case.get("map_source_refs"))
+            )
         ):
             raise MapSpatialEvalError("模拟作者Scene或所消费地图node/head已漂移")
     return {
@@ -123,7 +135,16 @@ def author_binding(root: Path, common: dict, cases: dict) -> dict | None:
         "manifest_sha256": record["manifest_sha256"],
         "manifest_file_sha256": record["manifest_file_sha256"],
         "ledger_sha256": _sha256_file(path),
-        "extra_author_decisions": 5,
+        "extra_author_decisions": len(positives),
+        "omission_controls": {
+            case_id: {
+                "extra_author_decisions": 0,
+                "original_card_hash": record["cases"][case_id]["before_scene_hash"],
+                "scene_hash": cases[case_id]["scene_hash"],
+            }
+            for case_id in cases
+            if case_id not in positives
+        },
         "patch_attempt_count": record["patch_attempt_count"],
         "elapsed_seconds": record["elapsed_seconds"],
         "model_requests": 0,
@@ -308,6 +329,29 @@ async def _location(client, common, decision, review):
     }
 
 
+async def _scene_brief(common, case_id):
+    from core.database import get_manager
+    from modules.world.contracts import MapSpatialBriefRequest
+    from modules.world.facade import read_map_spatial_brief
+
+    case = common["case_bindings"][case_id]
+    async with get_manager().session() as db:
+        await verify_runtime(db, common)
+        brief = _as_plain(
+            await read_map_spatial_brief(
+                db,
+                MapSpatialBriefRequest(
+                    novel_id=common["novel_id"],
+                    scene_id=case["scene_id"],
+                    chapter_index=case["chapter_index"],
+                    reveal_mode="author_safe",
+                ),
+            )
+        )
+        await db.rollback()
+    return brief
+
+
 async def apply_scene_locations(
     *,
     private_root: Path,
@@ -338,8 +382,19 @@ async def apply_scene_locations(
         require_calibration(root, common)
     manifest, relative = _manifest(root, decisions, manifest_sha256)
     choices = {item["case_id"]: item for item in manifest["decisions"]}
-    if manifest["family_id"] != family_id or set(choices) != set(common["case_bindings"]):
-        raise MapSpatialEvalError("作者决定必须恰好覆盖同common的五case，不得虚构缺例")
+    positives = {
+        case_id
+        for case_id in common["case_bindings"]
+        if writing_role(common, case_id) == "positive"
+    }
+    if (
+        manifest["family_id"] != family_id
+        or set(choices) != positives
+        or len(manifest["decisions"]) != len(positives)
+    ):
+        raise MapSpatialEvalError(
+            "作者决定必须恰好覆盖同common的positive case，不得虚构缺例"
+        )
     for case_id, choice in choices.items():
         case = common["case_bindings"][case_id]
         if any(
@@ -368,6 +423,8 @@ async def apply_scene_locations(
         "manifest_file_sha256": _sha256_file(decisions),
         "cases": {},
         "patch_attempt_count": 0,
+        "extra_author_decisions": len(positives),
+        "omission_control_count": len(common["case_bindings"]) - len(positives),
         "elapsed_seconds": 0.0,
         "model_requests": 0,
         "atomic_cas": False,
@@ -386,20 +443,23 @@ async def apply_scene_locations(
     started = time.monotonic()
     try:
         async with _product_client(api_base_url, timeout_seconds) as client:
-            for case_id, choice in choices.items():
+            for case_id, case in common["case_bindings"].items():
+                choice = choices.get(case_id) or {**case, "case_id": case_id}
                 _manifest(root, decisions, manifest_sha256)
                 if _sha256_file(decisions) != record["manifest_file_sha256"]:
                     raise MapSpatialEvalError("作者决定原文件在执行期间已漂移")
                 observation = await _idle(client, common, evolution)
-                await _source_and_contract(common, choice)
-                proof = await _location(client, common, choice, review)
+                original_contract_hash = await _source_and_contract(common, choice)
                 route = (
                     f"/api/outline/scenes/{choice['scene_id']}"
                     f"?novel_id={common['novel_id']}"
                 )
                 before = await _json(client, "GET", route)
                 if (
-                    digest(before) != choice["current_scene_hash"]
+                    (
+                        case_id in positives
+                        and digest(before) != choice["current_scene_hash"]
+                    )
                     or before.get("id") != choice["scene_id"]
                     or before.get("novel_id") != common["novel_id"]
                     or before.get("status") != "canonical"
@@ -408,6 +468,31 @@ async def apply_scene_locations(
                 metadata = before.get("structure_meta") or {}
                 if metadata.get("location_id") or metadata.get("location_entity_id"):
                     raise MapSpatialEvalError("Scene已有地点，不得覆盖任一location key")
+                if case_id not in positives:
+                    from evals.map_spatial import writing_brief_eligibility
+
+                    brief = await _scene_brief(common, case_id)
+                    writing_brief_eligibility(before, brief, "omission_control")
+                    after = await _json(client, "GET", route)
+                    current_contract_hash = await _source_and_contract(common, choice)
+                    if before != after or original_contract_hash != current_contract_hash:
+                        raise MapSpatialEvalError("omission_control未写入卡仍发生漂移")
+                    record["cases"][case_id] = {
+                        "status": "completed",
+                        "writing_role": "omission_control",
+                        "extra_author_decisions": 0,
+                        "before": before,
+                        "after": after,
+                        "before_scene_hash": digest(before),
+                        "after_scene_hash": digest(after),
+                        "scene_contract_hash": current_contract_hash,
+                        "source_snapshot_hash": case["source_snapshot_hash"],
+                        "brief_sha256": digest(brief),
+                        **observation,
+                    }
+                    _write_private_json(path, record)
+                    continue
+                proof = await _location(client, common, choice, review)
                 payload = {
                     "structure_meta": {
                         **metadata,
@@ -416,6 +501,7 @@ async def apply_scene_locations(
                 }
                 event = {
                     "status": "started",
+                    "extra_author_decisions": 1,
                     "before": before,
                     "before_scene_hash": digest(before),
                     "request": payload,
@@ -448,26 +534,7 @@ async def apply_scene_locations(
                         "Scene PATCH出现非目标metadata/source变化；无CAS保证，停止"
                     )
                 event["scene_contract_hash"] = await _source_and_contract(common, choice)
-                from core.database import get_manager
-                from modules.world.contracts import MapSpatialBriefRequest
-                from modules.world.facade import read_map_spatial_brief
-
-                async with get_manager().session() as db:
-                    await verify_runtime(db, common)
-                    brief = _as_plain(
-                        await read_map_spatial_brief(
-                            db,
-                            MapSpatialBriefRequest(
-                                novel_id=common["novel_id"],
-                                scene_id=choice["scene_id"],
-                                chapter_index=common["case_bindings"][case_id][
-                                    "chapter_index"
-                                ],
-                                reveal_mode="author_safe",
-                            ),
-                        )
-                    )
-                    await db.rollback()
+                brief = await _scene_brief(common, case_id)
                 focused = False
                 for item in brief["items"]:
                     if (item["node_id"], item["revision_id"]) != (
@@ -506,6 +573,8 @@ async def apply_scene_locations(
         "origin": "agent_simulated",
         "human_validated": False,
         "patch_attempt_count": record["patch_attempt_count"],
+        "extra_author_decisions": record["extra_author_decisions"],
+        "omission_control_count": record["omission_control_count"],
         "model_requests": 0,
         "atomic_cas": False,
         "manifest_sha256": manifest_sha256,
