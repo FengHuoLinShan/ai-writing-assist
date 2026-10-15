@@ -33,6 +33,10 @@
 - 每个后端组件的 API 前缀；
 - 代码路径到必查文档的差异影响规则。
 
+子路由声明的完整前缀也必须登记。例如 Assistant 新增独立统一提醒 router 时，需同时更新
+Assistant component 的 `api_prefixes`、`docs/modules/20_assistant.md`、代码邻近 README，
+并运行完整性与 `BASE_REF` 差异门禁；只登记父 `/api/assistant` 不代表新 router 已被清单覆盖。
+
 `scripts/check_architecture_docs.py` 提供两层门禁：
 
 1. **完整性门禁**：无须 Git base。验证清单文件存在、模块目录与模块文档一一对应、所有 ORM

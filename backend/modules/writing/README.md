@@ -14,6 +14,17 @@ Writing 模块是章节正文的事实源，同时负责在 fresh context confir
 世界对象、人物档案、剧情线和 Scene 等结构化资产仍由各自领域模块拥有；writing
 只消费其稳定 context/contract，不复制结构正史。
 
+## Unified author notices (ADR-0040 §13)
+
+`notice_sources.py` exports pure source specs for Assistant's composition root. The conflict
+provider projects the current saved draft check, open rule/AI items, degraded/failed/running/partial
+AI state, stale saved-body checks, and G8b map-baseline drift. Scene-only focus resolves the matching
+check without requiring a chapter parameter. The source-invalidation provider adapts the existing
+`WritingRecomputeService.list_pending_notices()` author-language view; it does not create another
+invalidation ledger. Existing item decisions continue through `WritingConflictCheckService`; read
+state uses the separate unified presentation disposition. Neither provider includes an unsaved editor
+buffer in the server's saved-body basis; the editor retains its local dirty/stale indicator.
+
 ## 职责
 
 - 手写正文草稿的存储与管理

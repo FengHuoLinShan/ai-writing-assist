@@ -123,6 +123,14 @@ ADR-0023 注册 Story 自有的版本化总纲、场景规划、人物卡和剧�
 既有 v1 按原算法回验，新增 hash 字段不会使旧剧本自动失效。开放结尾的剧情线从已知起点延续。
 结构采用/退役/移动保存旧受影响 Scene，再合并新范围到同事务待检标记，结果注明实际检查上限。
 
+### Unified structural notices (ADR-0040 §13)
+
+`story.structure` is a Story-owned read-only provider for Assistant's notice registry. It projects
+SceneWorkbench structure and health without an Assistant dependency or a second issue ledger. It
+preserves trusted semantic-field rules (`not_applicable` is complete; `uncertain` needs confirmation),
+review/organization health, and the Scene–chapter many-to-many mapping. The aggregate API validates
+the active project and Scene's novel ownership before invoking the provider.
+
 ### 滚动规划窗口（BR-6）
 
 story.plan_structure 的滚动推进携带起止章窗口：篇章/剧情线窗口默认 3 章、上限 5 章，
