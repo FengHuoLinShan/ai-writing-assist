@@ -550,8 +550,10 @@ omitted）与哈希基底标记；可得正文参与 hash，预算逐出保留�
 写入独立 `advisory_omitted`，不进入必查 `omitted`，不影响 `scope_complete` /
 `require_scope_complete`。scope 与 audit receipt 均记录省略，作者 review payload 显示预算省略
 提示并按可见范围隐藏 source key。旧 v1 receipt 仍按旧字段与指纹回读。审查 coverage 会显示
-参考维度未检查，但只有必查维度缺失、重复或 `checked=false` 才能降为 `unverifiable`；参考维度
-finding 的阻断级别由服务端压为提示。首个登记项 `map_spatial` 尚未接入 loader 或生成上下文，
+参考维度未检查；漏报、重复或 `checked=false` 会追加独立参考省略，只有必查维度覆盖不完整
+才降低覆盖裁决。纯参考一致性 finding 的阻断级别由服务端压为提示，但不得覆盖必查来源的
+无法核验裁决，提前揭示和越权知识仍遵守原可见性门禁。公开 coverage 来源和省略原因也按当前
+可见范围脱敏。首个登记项 `map_spatial` 尚未接入 loader 或生成上下文，
 不代表功能已开启。
 
 ### 第一阶段整改后的读取边界

@@ -19,6 +19,8 @@ from typing import Any
 from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from modules.evidence.compilation.knowledge.contracts import (
+    AUDIT_FINDING_OUT_OF_SCOPE,
+    AUDIT_FINDING_PREMATURE_REVEAL,
     AUDIT_SEVERITY_BLOCKER,
     AUDIT_SEVERITY_MAJOR,
     AUDIT_VERDICT_BLOCKED,
@@ -28,6 +30,7 @@ from modules.evidence.compilation.knowledge.contracts import (
     BLOCKING_SEVERITIES,
     DIRECTOR_DISPOSITION_ALLOWED,
     DIRECTOR_DISPOSITION_REQUIRED,
+    KnowledgeAdvisoryOmission,
     KnowledgeAuditFinding,
     KnowledgeAuditReceipt,
     KnowledgeContractError,
@@ -99,8 +102,9 @@ AUDIT_SYSTEM_PROMPT = """\
    参考维度缺失、为空、作者排除或预算省略都不是阻断或 unverifiable 理由。
    note 只写结论和核对范围，
    每项最多 120 字，禁止重复抄录输入；具体问题另放 findings；
-5. 每条 finding 尽量填写 dimension。仅涉及参考维度的问题 severity 必须为 minor，
-   不得用它要求阻断；必查维度的问题仍按原严重度规则处理；
+5. 每条 finding 尽量填写 dimension。仅涉及参考维度的一致性问题 severity 必须为 minor，
+   不得用它要求阻断；越权知识和提前揭示仍遵守知识可见性门禁，不因来源是参考资料而降级；
+   必查维度的问题仍按原严重度规则处理；
 6. 没有阻断项时 verdict 才允许 pass；无法核验必查知识时用 unverifiable。
 7. 只检查当前任务实际依赖的资料；范围内没有某类资料时如实说明，不为补齐百科而要求新增。
    明示未知、候选假设与作者未决项不是虚假事实；只有冒充已确认事实、违反明确要求或
@@ -337,6 +341,9 @@ async def run_knowledge_director(
 def _is_advisory_finding(
     finding, *, policy: CapabilityKnowledgePolicy, scope_build: KnowledgeScopeBuild
 ) -> bool:
+    # 参考资料可以偏离，但不能扩大角色/读者知识或泄漏隐藏真相。
+    if finding.kind in {AUDIT_FINDING_OUT_OF_SCOPE, AUDIT_FINDING_PREMATURE_REVEAL}:
+        return False
     dimension = finding.dimension
     if dimension in policy.required_dimensions:
         return False
@@ -378,10 +385,10 @@ def _normalize_audit_findings(
     verdict_output: AuditVerdictOutput,
 ) -> tuple[tuple[KnowledgeAuditFinding, ...], bool]:
     findings: list[KnowledgeAuditFinding] = []
-    has_advisory_finding = False
+    advisory_flags: list[bool] = []
     for item in verdict_output.findings:
         advisory = _is_advisory_finding(item, policy=policy, scope_build=scope_build)
-        has_advisory_finding = has_advisory_finding or advisory
+        advisory_flags.append(advisory)
         findings.append(
             KnowledgeAuditFinding(
                 kind=item.kind,
@@ -391,7 +398,8 @@ def _normalize_audit_findings(
                 source_key=item.source_key,
             )
         )
-    return tuple(findings), has_advisory_finding
+    # 只有全部 finding 都是参考提示时，才能把模型的拒绝归因于参考维度。
+    return tuple(findings), bool(advisory_flags) and all(advisory_flags)
 
 
 def _server_verdict(
@@ -472,11 +480,7 @@ def _build_audit_coverage(
                 if item.checked
                 else (item.note or "未检查")
             ),
-            omitted=not item.checked
-            or (
-                item.dimension in duplicates
-                and item.dimension in policy.required_dimensions
-            ),
+            omitted=not item.checked or item.dimension in duplicates,
         )
         for item in verdict_output.dimensions
     ]
@@ -515,7 +519,7 @@ def _build_audit_receipt(
     output: str,
     verdict_output: AuditVerdictOutput,
 ) -> KnowledgeAuditReceipt:
-    findings, has_advisory_finding = _normalize_audit_findings(
+    findings, only_advisory_findings = _normalize_audit_findings(
         policy=policy,
         scope_build=scope_build,
         verdict_output=verdict_output,
@@ -526,12 +530,14 @@ def _build_audit_receipt(
         for item in verdict_output.dimensions
         if item.dimension in advisory_dimensions
     ]
-    advisory_signal = (
-        has_advisory_finding
-        or any(not item.checked for item in advisory_reports)
-        or any(
-            sum(check.dimension == item.dimension for check in advisory_reports) > 1
-            for item in advisory_reports
+    advisory_signal = only_advisory_findings or (
+        not verdict_output.findings
+        and (
+            any(not item.checked for item in advisory_reports)
+            or any(
+                sum(check.dimension == item.dimension for check in advisory_reports) > 1
+                for item in advisory_reports
+            )
         )
     )
     coverage, coverage_complete = _build_audit_coverage(
@@ -539,6 +545,23 @@ def _build_audit_receipt(
         scope_build=scope_build,
         verdict_output=verdict_output,
     )
+    advisory_omitted = list(scope_build.receipt.advisory_omitted)
+    if scope_build.receipt.policy_version >= 2:
+        recorded = {(item.dimension, item.source_key) for item in advisory_omitted}
+        for item in coverage:
+            if item.dimension not in advisory_dimensions or not item.omitted:
+                continue
+            for source_key in item.covered_by or (None,):
+                if (item.dimension, source_key) in recorded:
+                    continue
+                advisory_omitted.append(
+                    KnowledgeAdvisoryOmission(
+                        dimension=item.dimension,
+                        source_key=source_key,
+                        reason="参考维度未检查",
+                    )
+                )
+                recorded.add((item.dimension, source_key))
     return KnowledgeAuditReceipt(
         policy_version=scope_build.receipt.policy_version,
         capability=policy.capability_id,
@@ -554,7 +577,7 @@ def _build_audit_receipt(
         findings=findings,
         coverage=coverage,
         checked_at=_now(),
-        advisory_omitted=scope_build.receipt.advisory_omitted,
+        advisory_omitted=tuple(advisory_omitted),
     )
 
 

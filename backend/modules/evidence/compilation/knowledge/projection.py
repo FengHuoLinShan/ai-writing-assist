@@ -7,6 +7,7 @@ issue 展示按当前用户可见性脱敏：隐藏来源不外泄 key，隐藏�
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
+from dataclasses import replace
 from typing import Any
 
 from modules.evidence.compilation.knowledge.contracts import (
@@ -23,6 +24,15 @@ from modules.evidence.compilation.knowledge.contracts import (
 )
 
 _REDACTED = "［已隐藏］"
+
+
+def _audit_redaction_phrases(
+    audit: KnowledgeAuditReceipt, visible: set[str], hidden_phrases: Iterable[str]
+) -> tuple[str, ...]:
+    keys = {key for item in audit.coverage for key in item.covered_by} | {
+        item.source_key for item in (*audit.findings, *audit.advisory_omitted)
+    }
+    return (*hidden_phrases, *(key for key in keys if key and key not in visible))
 
 
 def redact_hidden_phrases(
@@ -52,6 +62,7 @@ def sanitize_audit_receipt(
     if audit is None:
         return KnowledgeReviewProjection(status=REVIEW_STATUS_CHECKING)
     visible = set(visible_keys)
+    phrases = _audit_redaction_phrases(audit, visible, hidden_phrases)
     issues: list[dict[str, str]] = []
     for finding in audit.findings:
         open_target = None
@@ -61,14 +72,25 @@ def sanitize_audit_receipt(
             {
                 "kind": finding.kind,
                 "severity": finding.severity,
-                "message": redact_hidden_phrases(finding.message, hidden_phrases),
+                "message": redact_hidden_phrases(finding.message, phrases),
                 "open_target": open_target or "",
             }
         )
     return KnowledgeReviewProjection(
         status=_projection_status(audit),
         repaired=False,
-        coverage=audit.coverage,
+        coverage=tuple(
+            replace(
+                item,
+                covered_by=tuple(key for key in item.covered_by if key in visible),
+                omission_reason=(
+                    redact_hidden_phrases(item.omission_reason, phrases)
+                    if item.omission_reason is not None
+                    else None
+                ),
+            )
+            for item in audit.coverage
+        ),
         issue_counts=audit.finding_counts(),
         issues=tuple(issues),
     )
@@ -107,13 +129,14 @@ def knowledge_review_payload(
         payload["output_hash"] = audit.output_hash
         if audit.policy_version >= 2:
             visible = set(visible_keys)
+            phrases = _audit_redaction_phrases(audit, visible, hidden_phrases)
             payload["advisory_omitted"] = [
                 {
                     "dimension": item.dimension,
                     "dimension_label": KNOWLEDGE_DIMENSIONS.get(
                         item.dimension, item.dimension
                     ),
-                    "reason": item.reason,
+                    "reason": redact_hidden_phrases(item.reason, phrases),
                     "message": (
                         "参考信息因预算未全部使用"
                         if "预算" in item.reason or "截断" in item.reason

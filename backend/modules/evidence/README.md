@@ -150,9 +150,11 @@ World 使用确认后保留的 compiled items 作为实际语义输入，Focused
 
 知识策略 v2 增加 `advisory_dimensions` 与独立的 `advisory_omitted` 回执字段：
 参考资料缺失、被排除、因预算省略或审查未检查均只留提示，不进必查 `omitted`，
-也不改变范围完整性或服务端 verdict；参考维度 finding 的 blocker/major 会降为 minor。
+也不改变范围完整性或服务端 verdict；纯参考一致性 finding 的 blocker/major 会降为 minor，
+提前揭示与越权知识仍按原知识可见性门禁阻断。参考提示不能覆盖必查来源的无法核验裁决。
 审查回执和作者 review payload 会公开参考省略原因（预算省略提示“参考信息因预算未全部使用”，
-隐藏来源 key 按可见范围脱敏）；coverage 对参考维度照样记录是否检查，但裁决完整性只看必查维度。
+隐藏来源 key、coverage 来源与原因文字按可见范围脱敏）；参考维度漏报、重复或未检查时，
+audit 单独追加 `advisory_omitted`，裁决完整性仍只看必查维度。
 v1 receipt 的字段和指纹保持不变。当前地图空间参考只完成治理机制和能力登记，地图简报 loader
 与写作接线仍待后续批次。
 
