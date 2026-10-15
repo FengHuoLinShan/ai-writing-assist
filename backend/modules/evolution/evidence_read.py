@@ -104,7 +104,8 @@ async def read_evolution_object_patterns(
     state_payload = _mapping(state_view)
     checkpoint_index = state_payload.get("scene_index")
     if (
-        str(state_payload.get("scene_id") or "") != scene_id
+        str(state_payload.get("novel_id") or "") != novel_id
+        or str(state_payload.get("scene_id") or "") != scene_id
         or checkpoint_index != scene_index
     ):
         return {
@@ -168,6 +169,10 @@ async def read_evolution_object_patterns(
         except (TypeError, ValueError):
             omitted_count += 1
             omissions.append("存在无法校验的台账主张")
+            continue
+        if claim.category != entry.category:
+            omitted_count += 1
+            omissions.append("台账主张类别与条目身份不一致")
             continue
         targets = [
             target
@@ -257,11 +262,21 @@ async def read_evolution_object_patterns(
                 "modality": item.modality,
                 "role": item.role,
                 "source": {
-                    "draft_id": item.source_ref.draft_id,
-                    "content_hash": item.source_ref.content_hash,
-                    "start_offset": item.source_ref.start_offset,
-                    "end_offset": item.source_ref.end_offset,
-                    "source_visibility": item.source_ref.source_visibility,
+                    key: value
+                    for key, value in item.source_ref.model_dump(mode="json").items()
+                    if key
+                    in {
+                        "source_kind",
+                        "draft_id",
+                        "content_hash",
+                        "chapter_identity",
+                        "start_offset",
+                        "end_offset",
+                        "range_hash",
+                        "source_revision",
+                        "segmentation_version",
+                        "source_visibility",
+                    }
                 },
             }
             for item in claim.evidence
@@ -302,7 +317,7 @@ async def read_evolution_object_patterns(
         "scene_index": scene_index,
         "checkpoint_identities": sorted(
             {
-                str(fact.source.get("checkpoint_id"))
+                str(fact.get("source", {}).get("checkpoint_id"))
                 for dimension in state_payload.get("dimensions") or []
                 for fact in dimension.get("facts") or []
                 if isinstance(fact, dict) and fact.get("source", {}).get("checkpoint_id")
