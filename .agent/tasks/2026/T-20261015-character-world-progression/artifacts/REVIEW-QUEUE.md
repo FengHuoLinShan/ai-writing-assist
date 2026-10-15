@@ -92,3 +92,18 @@ C3b审查准备树仍保留，后续需先接已审A0b再作真实API联调。
   C0作者有效期管理契约直接补最小UI与关键回归，保留旧锚点且不把未改日期静默清空。
 - 项目词表现有ProjectVocabularyPanel已支持dossier_facing，勿重复造面向系统；核对档案编辑器到
   该共享管理入口的可达性，按真实可用路径说明，不仅显示项目面向列表。
+
+
+## 2026-10-16 后续审修检查点
+
+- UI Sol首净fix73d3cadb14fc9a35a12234953ea11b56ca41d2bc，树干净，已结束本轮释放槽。
+  真实接入assistant.editorial/world.map_source；修report kind、busy/reload、草稿覆盖、409晚响应、
+  已有条目有效期重设/清空、作者Panel full请求，去新组件裸demo全局与主界面JSON。前端3134、
+  后端27定向通过，真实PG HTTP待续；root尚未集成UI。
+- C0b原633/30d +78808780f/582955cd3仍在审查树未进primary；root复核隐藏条数/排序会影响
+  limit250后过滤的safe覆盖，Sol正改分页前可见过滤。UI Sol另指出demo可自报full的API候选，
+  已交C0b独占者以真实ASGI裁定/修复；Story author_safe仅field黑名单是否足够也是待核线索。
+- backend f6 WIP已接初版净fix为3c556dfd0/b5beb7131、35相邻测试通过；等C0b最终安全补丁和
+  已审primary完整组合，由Sol解冲突后才恢复Luna。此处不把初版35通过当最终C2验收。
+- SQLite StaticPool/外层savepoint不支持统一提醒真实7来源并行独立session，Sol删除无效试验；
+  必须在专用工程PG完成真实HTTP验证，不因此删除该验收要求或连接默认开发库。

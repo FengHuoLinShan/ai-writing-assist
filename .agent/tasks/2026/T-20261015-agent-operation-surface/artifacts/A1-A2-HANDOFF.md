@@ -77,3 +77,19 @@ ADR-0038 为准，不改变三份计划全部实施的范围。
 A3 作者侧 Interaction / Collaboration、地图与势力后续能力仍需实施。A4 可以先实现去标识
 报表，但至少数周真实数据和前三高频模式选择不能用合成数据冒充；真实门禁单列。
 新批次依然 Luna/max 实现、Sol/high 审查并直接修复；root 负责集成、最终检查和唯一 TASK 写入。
+
+
+## 2026-10-16 A1新批次已启动
+
+- A0b与扩大回归Sol净修复已在primary32e63b630；root原扩大套2178通过、RuntimeWarning转error
+  无失败，只有既有Pydantic schema warning。该基线优先于本文开头的旧A0b审查中描述。
+- luna_high_frequency_ops（Luna/max）在map-assistant-operations/codex/high-frequency-operations-impl，
+  从dbdd88715启动A1第一波纯插件。旧codex/map-assistant-operations/748分支保留。
+- map-operation-catalog-impl仍有旧A0未提交WIP（bootstrap/core/config/keys/trace等），仅核对过状态，
+  没有切分支/覆盖/清理；不可拿它当新批工作树。
+- C0b Sol仍独占Evidence compilation、World dossier、keys/bootstrap；C4a Luna只动Story OneClick
+  simulation片段。A1不改Assistant已有核心、app/main/bootstrap、共享route表或Alembic env，提供
+  精确注册、route binding与冻结版本清单，后续Sol直接装配。不得引入function import预算增长。
+- UI Sol已在map-clue-review/codex/copilot-ui-integration-review提交73d3cadb第一轮C3b/C2b审修；
+  248文件/3134前端、27后端source/unified定向与lint/build门通过。待C0b分页/demo安全净fix和
+  工程PG再followup同Sol做真实HTTP/并行独立session联调，当前暂结束释放实施槽。
