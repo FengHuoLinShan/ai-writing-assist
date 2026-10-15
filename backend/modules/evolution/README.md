@@ -579,6 +579,12 @@ World v3 审查准备含冻结 `context_snapshot`，即使分组相同，上下�
 ### 空间可选阅读步骤（ADR-0036）
 
 空间发现由 `optional_steps.py` 登记，抽取与独立复核分属 `spatial.py` 的两项 capability 和独立 journal。
+新空间阅读冻结 `optional_stage_version=1`：主 Scene/身份/World 先提交，同一持久任务再完成
+`optional_scene_stage` 中的 details/spatial 阶段；挂起期间主回执已可读，恢复已提交分支仍继续未收尾阶段。
+各步骤付费 journal 留在原 attempt，经 `optional_scene_stage.receipt_attempt_id` 关联主回执；
+后置结果不改写主回执的 `paid_call_receipts`。费用未知只记本步骤缺口且不重发；
+原阶段未收尾先恢复，补扫不复制其主阶段身份。
+旧冻结和 append/continue 不升级，shadow 可选阶段明确 not_run。精确阶段字段及覆盖见下述实施合同。
 授权固定空间方法指纹；append/continue 保留未核清补扫登记和草图游标。来源、端点、词表与严格更早的线索构成冻结 consumer read-set；候选只经 World stage 写入地图域，不写 World 关系或地图 head。旧运行通过独立空间补扫授权启动，不修改原阅读开关或方法版本；批次结束时只请求一个幂等 auto-draft build，候选仍待作者审核。覆盖四态、预算保留、来源核验和 World ports 见 [ADR-0036 实施合同](../../../docs/modules/22_evolution.md#adr-0036-空间可选阅读步骤m1)。
 
 ## 已发布正文变化与地图核对（G8a）

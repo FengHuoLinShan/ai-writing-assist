@@ -474,6 +474,8 @@ AnyIO 重复取消直到连接归还，仍执行原 lease fence；模型与网�
 live/shadow 模式及来源指纹；已提交结果重放原回执，sampled/compiled 复用冻结结果，
 sampling/failed 保留计量待核对，不能由通用重试静默再次付费。恢复请求变化返回
 request_changed。当前没有把 deep_import 的生产入口重定向到此 handler。
+新空间阅读仍使用同一个 Scene 任务：领域先提交主回执，再按持久阶段执行可选步骤；已提交分支
+恢复未收尾阶段，不改写主回执、不重发未知请求。阶段与兼容边界见 [Evolution 合同](../../../docs/modules/22_evolution.md#adr-0036-空间可选阅读步骤m1)。
 
 旧版 World 整场容量延后由作者预览、确认后进入独立补审任务。已冻结的分组结果可从原任务检查点继续，
 不重发已采样请求；unknown 费用或请求结果只允许人工核对，不能使用 manual resume。

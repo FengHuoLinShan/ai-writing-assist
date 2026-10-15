@@ -677,6 +677,8 @@ PostgreSQL 队列仍是唯一调度与 lease；
 合并；来源/Scene 身份、live/shadow 模式与阶段化免采样恢复由 Evolution 校验。
 未取得结果的请求保留费用待核对，不由队列盲目重采样；旧 deep_import 入口尚未切换。
 契约见 [Evolution](22_evolution.md) 和 [tasks README](../../backend/infrastructure/tasks/README.md)。
+新空间阅读的主 Scene 提交与持久可选阶段沿同一任务恢复，不新增任务、预算或基础设施协议；
+主回执先可读且保持不可变，具体阶段由 [Evolution](22_evolution.md#adr-0036-空间可选阅读步骤m1) 持有。
 
 理解任务的 project preflight/commit guard 同时验证 engine/epoch/schema token；项目切换只
 取消理解任务，保留预算和结果。PG trigger 对旧 v1 任务和失效 owner 失败关闭，以 NOWAIT
