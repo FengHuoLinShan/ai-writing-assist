@@ -334,6 +334,14 @@ class MapAtlasPageResponse(BaseModel):
     updated_at: datetime | None = None
 
 
+class MapAtlasLevelTypeResponse(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    name: str
+    description: str
+    status: Literal["active", "emerging", "archived", "merged"]
+
+
 class MapAtlasNodeResponse(BaseModel):
     model_config = {"from_attributes": True, "extra": "forbid"}
 
@@ -346,6 +354,7 @@ class MapAtlasNodeResponse(BaseModel):
     level: AtlasLevel
     level_type_ref: UUID | None = None
     level_type_revision_id: UUID | None = None
+    level_type: MapAtlasLevelTypeResponse | None = None
     status: Literal["provisional", "adopted"]
     summary: str | None = None
     sort_order: int

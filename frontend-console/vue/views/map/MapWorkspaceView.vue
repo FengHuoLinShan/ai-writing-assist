@@ -1,7 +1,7 @@
 <template>
   <main ref="toolsRoot" class="atlas-workspace" :class="{ 'atlas-focused': structureState.focused }">
     <WorkspaceToolCard title="地图工具" :context="mapToolContext" :status="currentMapToolbar?.status || ''" :actions="mapToolActions" :more-actions="mapMoreTools" action-prefix="map-tool" @select="runMapTool" />
-    <button class="btn btn-sm atlas-rp-entry" :disabled="loading || busy || structureState.dirty || vocabularyLocked" @click="startSourceRp">从本作品开始 RP</button>
+    <button class="btn btn-sm atlas-rp-entry" :disabled="loading || busy || structureState.dirty || vocabularyLocked || nodeTypeDirty || nodeTypesLoading" @click="startSourceRp">从本作品开始 RP</button>
     <button v-if="fromChapter" class="btn btn-sm atlas-writing-return" @click="returnToWriting">回到第 {{ fromChapter }} 章写作</button>
     <header v-if="!structureState.focused" class="atlas-header">
       <div>
@@ -12,9 +12,9 @@
       </div>
 
     </header>
-    <ProjectVocabularyPanel v-if="projectId" v-show="!structureState.reader && !structureState.focused" :key="projectId + ':vocabulary'" :project-id="projectId" :disabled="busy || loading || structureState.dirty || structureState.busy || annotationDirty || promptDirty || uploadDraftDirty || uploading || spatialClueState.dirty || spatialClueState.busy || autoDraftState.dirty || autoDraftState.busy" @state="vocabularyState = $event" @changed="vocabularyRevision++" />
-    <MapSpatialCluePanel v-if="projectId" v-show="!structureState.reader && !structureState.focused" :key="projectId + ':clues'" :project-id="projectId" :disabled="busy || loading || structureState.dirty || structureState.busy || annotationDirty || promptDirty || uploadDraftDirty || uploading || vocabularyState.dirty || vocabularyState.busy || autoDraftState.dirty || autoDraftState.busy" @state="spatialClueState = $event" />
-    <MapAutoDraftPanel v-if="projectId" v-show="!structureState.reader && !structureState.focused" :key="projectId + ':auto-drafts'" ref="autoDraftPanel" :project-id="projectId" :disabled="busy || loading || structureState.dirty || structureState.busy || annotationDirty || promptDirty || uploadDraftDirty || uploading || vocabularyState.dirty || vocabularyState.busy || spatialClueState.dirty || spatialClueState.busy" @state="autoDraftState = $event" @review="reviewAutoDraft" @changed="onAutoDraftChanged" />
+    <ProjectVocabularyPanel v-if="projectId" v-show="!structureState.reader && !structureState.focused" :key="projectId + ':vocabulary'" :project-id="projectId" :disabled="busy || loading || structureState.dirty || structureState.busy || annotationDirty || promptDirty || uploadDraftDirty || uploading || spatialClueState.dirty || spatialClueState.busy || autoDraftState.dirty || autoDraftState.busy || nodeTypeDirty || nodeTypesLoading" @state="vocabularyState = $event" @changed="vocabularyRevision++" />
+    <MapSpatialCluePanel v-if="projectId" v-show="!structureState.reader && !structureState.focused" :key="projectId + ':clues'" :project-id="projectId" :disabled="busy || loading || structureState.dirty || structureState.busy || annotationDirty || promptDirty || uploadDraftDirty || uploading || vocabularyState.dirty || vocabularyState.busy || autoDraftState.dirty || autoDraftState.busy || nodeTypeDirty || nodeTypesLoading" @state="spatialClueState = $event" />
+    <MapAutoDraftPanel v-if="projectId" v-show="!structureState.reader && !structureState.focused" :key="projectId + ':auto-drafts'" ref="autoDraftPanel" :project-id="projectId" :disabled="busy || loading || structureState.dirty || structureState.busy || annotationDirty || promptDirty || uploadDraftDirty || uploading || vocabularyState.dirty || vocabularyState.busy || spatialClueState.dirty || spatialClueState.busy || nodeTypeDirty || nodeTypesLoading" @state="autoDraftState = $event" @review="reviewAutoDraft" @changed="onAutoDraftChanged" />
     <p v-if="vocabularyLocked" role="status">{{ autoDraftState.dirty || autoDraftState.busy ? '请先完成或取消托盘地点定位，再继续修改地图。' : spatialClueState.dirty || spatialClueState.busy ? '请先提交或收起空间线索复核，再继续修改地图。' : '请先保存或收起项目类型编辑，再继续修改地图。' }}</p>
     <p v-if="mapCapabilities?.upload?.available === false" class="atlas-alert" role="status">{{ mapCapabilities.upload.reason }} 空间示意仍可编辑，画面说明可复制后在外部使用。</p>
 
@@ -112,19 +112,19 @@
           :style="{ paddingLeft: `${12 + Math.min(item.depth, 3) * 8}px` }"
           @click="selectNode(item.node)"
         >
-          <span>{{ levelLabel(item.node.level) }}</span>{{ item.node.title }}
+          <span>{{ levelLabel(item.node) }}</span>{{ item.node.title }}
           <small>{{ item.node.pages.length || '' }}</small>
         </button>
       </aside>
 
       <article v-if="activeNode" class="card atlas-page">
         <header v-if="!structureState.focused" class="atlas-page-header">
-          <div><p>{{ levelLabel(activeNode?.level) }}</p><h2>{{ structureEnabled ? activeNode.title : (activePage?.title || activeNode.title) }}</h2></div>
+          <div><p>{{ levelLabel(activeNode) }}<span v-if="activeNode.level_type"> · {{ typeStatus(activeNode.level_type.status) }}</span></p><p v-if="activeNode.level_type?.description" class="muted">{{ activeNode.level_type.description }}</p><h2>{{ structureEnabled ? activeNode.title : (activePage?.title || activeNode.title) }}</h2></div>
           <label v-if="!structureEnabled || referenceVisible" class="atlas-zoom">缩放 <input v-model="zoom" type="range" min="60" max="150" step="10" /></label>
         </header>
 
         <button v-if="!structureEnabled && structureLevels.includes(activeNode.level)" class="btn btn-sm" @click="editStructureNodeId = activeNode.id">补建空间示意</button>
-        <div v-if="structureEnabled" :inert="vocabularyLocked || undefined">
+        <div v-if="structureEnabled" :inert="vocabularyLocked || nodeTypeDirty || nodeTypesLoading || undefined">
           <MapStructureEditor :key="projectId + ':' + activeNode.id + ':' + vocabularyRevision" ref="structureEditor" external-tools :project-id="projectId" :node="activeNode" :known-nodes="adoptedNodes" :images="nodeImages" :has-reference="Boolean(activePage)" :initial-feature-id="initialFeatureId" :initial-revision-id="selectedAutoDraft?.revision_id || initialRevisionId" :review-image-id="tab === 'review' && activePage?.review_status === 'candidate' ? activePage.id : ''" :evidence-refs="focusedSelection.refs.value" @pin-evidence="focusedSelection.add" @clear-evidence="focusedSelection.clear" @saved="onMapSaved" @open-node="openMapNode" @select-feature="persistFeatureFocus" @reference-visible="referenceVisible = $event" @state="updateStructureState" />
         </div>
         <template v-if="activePage && !structureState.reader">
@@ -260,7 +260,7 @@
         <button v-if="structureEnabled && nodeImages.length" class="btn" @click="structureEditor?.runToolbarAction('image-settings')">设置底图与地点配图</button>
       </div>
     </details>
-    <details v-if="!structureState.reader && !structureState.focused && (tab === 'atlas' || currentRun?.run_kind === 'upload')" class="atlas-edit"><summary class="btn btn-sm">调整地图层级与位置</summary><div class="atlas-node-form"><label v-if="canEditNodeTitle">地图名称<input v-model="nodeEdit.title" class="form-input" maxlength="200" /></label><label>上级地图<select v-model="nodeEdit.parent_id" class="form-select"><option :value="null">无（顶层）</option><option v-for="item in nodeParentChoices" :key="item.id" :value="item.id">{{ item.title }}</option></select></label><label>层级<select v-model="nodeEdit.level" class="form-select"><option v-for="item in nodeLevelChoices" :key="item.value" :value="item.value">{{ item.label }}</option></select></label><label>同级位置<select v-model="nodeEdit.before_node_id" class="form-select"><option value="__keep__">保持当前位置</option><option value="__append__">放在最后</option><option v-for="item in siblingChoices" :key="item.id" :value="item.id">放在“{{ item.title }}”之前</option></select></label><button class="btn btn-sm" :disabled="writeLocked" @click="saveNodePosition">保存调整</button></div></details>
+    <details v-if="!structureState.reader && !structureState.focused && (tab === 'atlas' || currentRun?.run_kind === 'upload')" class="atlas-edit" @toggle="loadNodeLevelTypes"><summary class="btn btn-sm">调整地图层级与位置</summary><div class="atlas-node-form"><label v-if="canEditNodeTitle">地图名称<input v-model="nodeEdit.title" class="form-input" maxlength="200" /></label><label>上级地图<select v-model="nodeEdit.parent_id" class="form-select"><option :value="null">无（顶层）</option><option v-for="item in nodeParentChoices" :key="item.id" :value="item.id">{{ item.title }}</option></select></label><label>层级<select v-model="nodeEdit.level" class="form-select"><option v-for="item in nodeLevelChoices" :key="item.value" :value="item.value">{{ item.label }}</option></select></label><label>项目层级类型<select v-model="nodeEdit.level_type" class="form-select" :disabled="writeLocked || nodeTypesLoading" aria-label="项目层级类型"><option value="">使用系统层级名称</option><option v-if="nodeTypeBaseline && !nodeLevelTypes.some(term => typeKey(term) === nodeTypeBaseline)" :value="nodeTypeBaseline">{{ nodePinnedType?.name || '原固定类型' }}（原修订保留）</option><option v-for="term in nodeLevelTypes" :key="term.revision_id" :value="typeKey(term)">{{ term.name }}</option></select></label><p v-if="selectedLevelType?.description">{{ selectedLevelType.description }}</p><p v-if="selectedLevelType" role="status">{{ typeStatus(selectedLevelType.status) }} · 保存时固定此修订；系统层级与父子规则保持不变。</p><p v-if="nodeTypesLoading" role="status">正在读取项目层级类型…</p><p v-if="nodeTypesError" role="alert">{{ nodeTypesError }} <button class="btn btn-sm" :disabled="nodeTypesLoading" @click="loadNodeLevelTypes()">重试类型读取</button></p><p v-if="nodeTypesOmitted">另有 {{ nodeTypesOmitted }} 项未列出，请先在项目类型中整理。</p><label>同级位置<select v-model="nodeEdit.before_node_id" class="form-select"><option value="__keep__">保持当前位置</option><option value="__append__">放在最后</option><option v-for="item in siblingChoices" :key="item.id" :value="item.id">放在“{{ item.title }}”之前</option></select></label><button class="btn btn-sm" :disabled="writeLocked || nodeTypesLoading" @click="saveNodePosition">保存调整</button><button v-if="nodeTypeDirty" class="btn btn-sm" :disabled="busy" @click="nodeEdit.level_type = nodeTypeBaseline">取消层级类型选择</button></div></details>
       </article>
     </section>
 
@@ -393,7 +393,12 @@ const uploading = ref(false)
 const uploadError = ref("")
 const uploadForm = reactive({ node_id: "", title: "", parent_id: "", level: "world" })
 const uploadFormBaseline = ref(uploadFormSnapshot())
-const nodeEdit = reactive({ title: "", parent_id: null, level: "world", before_node_id: "__keep__" })
+const nodeEdit = reactive({ title: "", parent_id: null, level: "world", level_type: "", before_node_id: "__keep__" })
+const nodeLevelTypes = ref([]), nodeTypesLoading = ref(false), nodeTypesError = ref(''), nodeTypesOmitted = ref(0)
+const nodeTypeBaseline = ref(''), nodePinnedType = ref(null), nodeEditExpectedUpdatedAt = ref(null)
+const nodeTypeDirty = computed(() => nodeEdit.level_type !== nodeTypeBaseline.value)
+const selectedLevelType = computed(() => nodeEdit.level_type === nodeTypeBaseline.value ? nodePinnedType.value : nodeLevelTypes.value.find(term => typeKey(term) === nodeEdit.level_type))
+let nodeTypesEpoch = 0
 let promptTimer = null
 let promptSavePromise = null
 let uploadController = null
@@ -431,7 +436,7 @@ const canResume = computed(() => currentRun.value?.status === "paused"
   || (currentRun.value?.status === "partial" && ["retry_requires_confirmation", "worker_interrupted"].includes(currentRun.value?.error_code)))
 const runUnfinished = computed(() => runActive.value || canResume.value || currentRun.value?.status === "prompt_review")
 const pausedPromptReview = computed(() => currentRun.value?.status === "paused" && currentRun.value?.review_image_prompts)
-const writeLocked = computed(() => vocabularyLocked.value || (structureEnabled.value && structureState.value.dirty) || loading.value || busy.value || (runActive.value && Boolean(currentRun.value?.stop_requested)))
+const writeLocked = computed(() => vocabularyLocked.value || (structureEnabled.value && (structureState.value.dirty || structureState.value.busy)) || nodeTypesLoading.value || loading.value || busy.value || (runActive.value && Boolean(currentRun.value?.stop_requested)))
 const connectionError = computed(() => ["image_connection_required", "image_auth_failed"].includes(errorCode.value))
 const localCliAvailable = computed(() => mapCapabilities.value?.local_cli?.available === true)
 // 与原逻辑一致：仅在能力已加载且明确不可用时才提示/禁用；加载中或未知状态默认按可用处理。
@@ -490,7 +495,9 @@ const referenceChoices = computed(() => flattenNodes(atlas.value.nodes || []).fl
     .map(page => ({ id: page.id, label: `${node.title} · ${formatDate(page.created_at)}` }))
 )))
 
-async function canLeaveStructure() {
+async function canLeaveStructure(skipNodeType = false) {
+  if (nodeTypesLoading.value) return false
+  if (!skipNodeType && nodeTypeDirty.value && !await confirmAsync("项目层级类型尚未保存，放弃这次选择吗？", "确认离开", { confirmAction: getConfirmAction() })) return false
   if (annotationEdit.value && busy.value) return false
   if (annotationDirty.value && !await confirmAsync('标注位置尚未保存，放弃这次调整吗？', '确认离开', { confirmAction: getConfirmAction() })) return false
   return (await structureEditor.value?.canLeave?.()) !== false
@@ -542,7 +549,26 @@ function flattenNodes(nodes, depth = 0, result = []) {
   }
   return result
 }
-function levelLabel(level) { return levelChoices.find(item => item.value === level)?.label || "地图" }
+function levelLabel(node) { return node?.level_type?.name || levelChoices.find(item => item.value === node?.level)?.label || "地图" }
+function typeKey(term) { return term ? term.id + '@' + term.revision_id : '' }
+function typeStatus(status) { return ({ active: '使用中', emerging: '涌现中，仅作文字', archived: '已归档，仅作文字', merged: '已合并，保留原名称' })[status] || '状态待核对' }
+function resetNodeEdit(node) {
+  nodeEdit.title = node.title; nodeEdit.parent_id = node.parent_id || null; nodeEdit.level = node.level; nodeEdit.before_node_id = "__keep__"
+  nodeTypeBaseline.value = node.level_type_ref ? node.level_type_ref + '@' + node.level_type_revision_id : ''
+  nodeEdit.level_type = nodeTypeBaseline.value; nodePinnedType.value = node.level_type || null; nodeEditExpectedUpdatedAt.value = node.updated_at
+}
+async function loadNodeLevelTypes(event) {
+  if (event && !event.target.open || nodeTypesLoading.value || !props.projectId) return
+  const token = ++nodeTypesEpoch, projectId = props.projectId
+  nodeTypesLoading.value = true; nodeTypesError.value = ''
+  try {
+    const result = await api.world.listProjectVocabulary(projectId, { kind: 'level', limit: 500 })
+    if (!mounted || token !== nodeTypesEpoch || projectId !== props.projectId) return
+    nodeLevelTypes.value = result.items.filter(term => term.kind === 'level' && term.status === 'active')
+    nodeTypesOmitted.value = result.omitted_count || 0
+  } catch (failure) { if (mounted && token === nodeTypesEpoch) nodeTypesError.value = failure.message || '层级类型未读取，原固定修订保留。' }
+  finally { if (mounted && token === nodeTypesEpoch) nodeTypesLoading.value = false }
+}
 function formatDate(value) { return value ? new Date(value).toLocaleString() : "已有图片" }
 function pageChoiceLabel(page) {
   const document = structureState.value.revision?.document
@@ -839,10 +865,13 @@ async function submitUpload() {
 function cancelUpload() { uploadController?.abort() }
 async function saveNodePosition() {
   if (!activeNode.value) return
-  if (!await canLeaveStructure() || writeLocked.value || !activeNode.value) return
+  if (!await canLeaveStructure(true) || writeLocked.value || !activeNode.value) return
   busy.value = true
   try {
-    await api.world.updateMapAtlasNode(props.projectId, activeNode.value.id, { ...(canEditNodeTitle.value ? { title: nodeEdit.title.trim() } : {}), parent_id: nodeEdit.parent_id, level: nodeEdit.level, ...(nodeEdit.before_node_id === "__keep__" ? {} : { before_node_id: nodeEdit.before_node_id === "__append__" ? null : nodeEdit.before_node_id }), expected_updated_at: activeNode.value.updated_at })
+    const type = nodeLevelTypes.value.find(term => typeKey(term) === nodeEdit.level_type)
+    if (nodeTypeDirty.value && nodeEdit.level_type && !type) throw new Error("请选择当前可用的层级类型，原固定修订保留。")
+    await api.world.updateMapAtlasNode(props.projectId, activeNode.value.id, { ...(canEditNodeTitle.value ? { title: nodeEdit.title.trim() } : {}), parent_id: nodeEdit.parent_id, level: nodeEdit.level, ...(nodeEdit.before_node_id === "__keep__" ? {} : { before_node_id: nodeEdit.before_node_id === "__append__" ? null : nodeEdit.before_node_id }), ...(nodeTypeDirty.value ? { level_type_ref: type?.id || null, level_type_revision_id: type?.revision_id || null } : {}), expected_updated_at: nodeEditExpectedUpdatedAt.value })
+    nodeTypeBaseline.value = nodeEdit.level_type
     await loadAll(); toast("地图层级与位置已保存", "success")
   } catch (err) { setError(err) } finally { busy.value = false }
 }
@@ -1040,7 +1069,7 @@ function returnToWriting() {
   if (fromChapter) getRouter()?.navigate('writing', null, true, new URLSearchParams({ novel_id: props.projectId, chapter_index: String(fromChapter) }))
 }
 watch([activeNodeId, tab], persistMapFocus)
-watch(() => props.projectId, () => { selectedAutoDraft.value = null; autoDraftState.value = { dirty: false, busy: false } })
+watch(() => props.projectId, () => { nodeTypesEpoch++; nodeLevelTypes.value = []; nodeTypesLoading.value = false; nodeTypesError.value = ''; nodeTypesOmitted.value = 0; nodeTypeBaseline.value = nodeEdit.level_type = ''; selectedAutoDraft.value = null; autoDraftState.value = { dirty: false, busy: false } })
 watch([() => props.projectId, activePageId, tab, compareAdopted], () => { annotationEdit.value = null; annotationEditError.value = '' })
 watch(tab, () => { compareAdopted.value = false; syncSelection(); nextTick(loadImages) })
 watch(activePageId, () => { activeNodeId.value = activePage.value?.node_id || activeNodeId.value; nextTick(loadImages) })
@@ -1053,7 +1082,7 @@ watch(oldPageId, loadImages)
 watch(activeNode, (node, previous) => {
   if (node?.id !== previous?.id) { structureState.value = { dirty: false, revision: null, reader: false, focused: false }; compareAdopted.value = false }
   if (!node) return
-  nodeEdit.title = node.title; nodeEdit.parent_id = node.parent_id || null; nodeEdit.level = node.level; nodeEdit.before_node_id = "__keep__"
+  if (node?.id !== previous?.id || !nodeTypeDirty.value) resetNodeEdit(node)
 })
 useLeaveGuard(async () => {
   if (vocabularyState.value.busy || spatialClueState.value.busy || autoDraftState.value.busy) return false
@@ -1065,7 +1094,7 @@ useLeaveGuard(async () => {
   if (promptDirty.value && !await confirmAsync("画面说明还没有保存，确定离开吗？", "确认离开", { confirmAction: getConfirmAction() })) return false
   return !uploadDraftDirty.value || await confirmAsync("放弃未上传的地图？", "确认放弃", { confirmAction: getConfirmAction() })
 })
-function warnBeforeUnload(event) { if (!vocabularyLocked.value && !annotationDirty.value && !promptDirty.value && !uploadDraftDirty.value && !uploading.value) return; event.preventDefault(); event.returnValue = "" }
+function warnBeforeUnload(event) { if (!nodeTypeDirty.value && !vocabularyLocked.value && !annotationDirty.value && !promptDirty.value && !uploadDraftDirty.value && !uploading.value) return; event.preventDefault(); event.returnValue = "" }
 onMounted(() => loadAll(getRouteQuery().get('run_id')))
 onMounted(() => globalThis.addEventListener("beforeunload", warnBeforeUnload))
 onBeforeUnmount(() => { mounted = false; clearTimeout(pollTimer); clearTimeout(promptTimer); uploadController?.abort(); globalThis.removeEventListener("beforeunload", warnBeforeUnload); globalThis.removeEventListener("pointermove", dragAnnotation); globalThis.removeEventListener("pointerup", endAnnotationDrag); if (uploadPreview.value) URL.revokeObjectURL(uploadPreview.value); for (const pageId of Object.keys(imageUrls)) releaseImage(pageId) })
@@ -1083,6 +1112,7 @@ const mapMoreTools = computed(() => {
   ].filter(item => !mapToolActions.value.some(action => action.key === item.key))
 })
 const mapToolActions = computed(() => {
+  if (nodeTypeDirty.value || nodeTypesLoading.value) return [{ key: "node-type", label: "请先保存或取消层级类型选择", primary: true, disabled: true }]
   if (vocabularyLocked.value) return [{ key: "vocabulary", label: autoDraftState.value.dirty || autoDraftState.value.busy ? "请先完成托盘地点定位" : spatialClueState.value.dirty || spatialClueState.value.busy ? "请先完成空间线索复核" : "请先完成项目类型编辑", primary: true, disabled: true }]
   if (loading.value) return [{ key: "loading", label: "正在读取地图…", primary: true, disabled: true }]
   const child = currentMapToolbar.value

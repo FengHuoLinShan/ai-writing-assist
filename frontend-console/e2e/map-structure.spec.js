@@ -144,9 +144,15 @@ test("旧图片上传采用后可校准到同一画布，阅读预览保守排�
   await selectors.nth(1).selectOption("place1")
   await selectors.nth(2).selectOption("place2")
   const scale = 728 / 840
+  const calibration = controls.getByRole('img', { name: '点击图片标记校准锚点' })
+  await expect(calibration).toBeVisible()
+  const imageBounds = await calibration.boundingBox()
   for (const [index, [x, y]] of [[140, 420], [350, 120], [730, 160]].entries()) {
-    await controls.getByLabel("锚点" + (index + 1) + "横向比例").fill(String((20 + x * scale) / 1024))
-    await controls.getByLabel("锚点" + (index + 1) + "纵向比例").fill(String((20 + (y + 10) * scale) / 768))
+    const imageX = (20 + x * scale) / 1024, imageY = (20 + (y + 10) * scale) / 768
+    await controls.getByRole('button', { name: `标记第 ${index + 1} 点`, exact: true }).click()
+    await calibration.click({ position: { x: imageX * imageBounds.width, y: imageY * imageBounds.height } })
+    expect(Number(await controls.getByLabel("锚点" + (index + 1) + "横向比例").inputValue())).toBeCloseTo(imageX, 2)
+    expect(Number(await controls.getByLabel("锚点" + (index + 1) + "纵向比例").inputValue())).toBeCloseTo(imageY, 2)
   }
   await controls.getByLabel("已人工核对整张图片，最早在第几章开始时展示").fill("8")
   await controls.getByRole("button", { name: "预览图片设置" }).click()

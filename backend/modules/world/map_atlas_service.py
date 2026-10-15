@@ -334,9 +334,7 @@ class MapAtlasService:
             .scalars()
             .all()
         )
-        duplicate_charge_confirmed = bool(
-            in_flight and confirm_possible_duplicate_charge
-        )
+        duplicate_charge_confirmed = bool(in_flight and confirm_possible_duplicate_charge)
         if in_flight and not confirm_possible_duplicate_charge:
             for page in in_flight:
                 page.generation_status = "retry_requires_confirmation"
@@ -579,6 +577,10 @@ class MapAtlasService:
             parent = node.parent_id if node.parent_id in nodes_by_id else None
             children.setdefault(parent, []).append(node)
 
+        level_types = await self._node_level_types(
+            db, novel_id, list(nodes_by_id.values())
+        )
+
         def project(node: MapAtlasNode) -> dict[str, Any]:
             return self._node_dict(
                 node,
@@ -590,6 +592,7 @@ class MapAtlasService:
                         key=lambda item: (item.sort_order, item.title),
                     )
                 ],
+                level_type=level_types.get(node.id),
             )
 
         roots = [
@@ -1018,10 +1021,7 @@ class MapAtlasService:
             raise NotFoundError("地图节点不存在")
         if node.updated_at != data.expected_updated_at:
             raise ConflictError("地图层级已在别处更新，请刷新后重试")
-        if (
-            "level_type_ref" in data.model_fields_set
-            and data.level_type_ref is not None
-        ):
+        if "level_type_ref" in data.model_fields_set and data.level_type_ref is not None:
             from modules.world.map_structure_service import (
                 resolve_spatial_vocabulary_references,
             )
@@ -1029,9 +1029,7 @@ class MapAtlasService:
             await resolve_spatial_vocabulary_references(
                 db,
                 novel_id,
-                {
-                    (data.level_type_ref, data.level_type_revision_id): "level"
-                },
+                {(data.level_type_ref, data.level_type_revision_id): "level"},
             )
         if node.status == "provisional":
             if node.created_by_run_id is None:
@@ -1165,7 +1163,8 @@ class MapAtlasService:
                     base_node_updated_at=node.updated_at,
                 ).model_dump(mode="json")
         await db.flush()
-        return self._node_dict(node, [], [])
+        level_types = await self._node_level_types(db, novel_id, [node])
+        return self._node_dict(node, [], [], level_type=level_types.get(node.id))
 
     async def read_page_image(
         self,
@@ -1729,14 +1728,18 @@ class MapAtlasService:
         envelope = read_ai_run_envelope(context_snapshot.get(AI_RUN_ENVELOPE_KEY))
         task_envelope = None
         if envelope is None:
-            task_envelope = new_ai_run_envelope(
-                operation_id=str(run.id),
-                run_id=str(run.id),
-                root_capability_id="world.map_atlas.generate",
-                novel_id=str(run.novel_id),
-                request_limit=segment_limit,
-                legacy_untracked=run.task_id is not None,
-            ).snapshot().model_dump(mode="json")
+            task_envelope = (
+                new_ai_run_envelope(
+                    operation_id=str(run.id),
+                    run_id=str(run.id),
+                    root_capability_id="world.map_atlas.generate",
+                    novel_id=str(run.novel_id),
+                    request_limit=segment_limit,
+                    legacy_untracked=run.task_id is not None,
+                )
+                .snapshot()
+                .model_dump(mode="json")
+            )
             context_snapshot[AI_RUN_ENVELOPE_KEY] = task_envelope
             run.context_snapshot = context_snapshot
         else:
@@ -1944,10 +1947,37 @@ class MapAtlasService:
         }
 
     @staticmethod
+    async def _node_level_types(db, novel_id, nodes):
+        from modules.world.project_vocabulary_service import (
+            resolve_vocabulary_type_revisions,
+        )
+
+        refs = {
+            (node.level_type_ref, node.level_type_revision_id)
+            for node in nodes
+            if node.level_type_ref is not None
+        }
+        if not refs:
+            return {}
+        resolved = await resolve_vocabulary_type_revisions(db, novel_id, refs)
+        if any(value["kind"] != "level" for value in resolved.values()):
+            raise ValidationError("地图层级必须引用层级类型")
+        return {
+            node.id: {
+                key: resolved[(node.level_type_ref, node.level_type_revision_id)][key]
+                for key in ("name", "description", "status")
+            }
+            for node in nodes
+            if node.level_type_ref is not None
+        }
+
+    @staticmethod
     def _node_dict(
         node: MapAtlasNode,
         pages: list[dict[str, Any]],
         children: list[dict[str, Any]],
+        *,
+        level_type: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return {
             "id": str(node.id),
@@ -1959,6 +1989,7 @@ class MapAtlasService:
             "level": node.level,
             "level_type_ref": _uuid(node.level_type_ref),
             "level_type_revision_id": _uuid(node.level_type_revision_id),
+            "level_type": level_type,
             "status": node.status,
             "summary": node.summary,
             "sort_order": node.sort_order,

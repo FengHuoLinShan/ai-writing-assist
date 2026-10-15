@@ -1443,3 +1443,11 @@ version_number 对应的 revision_id/revision_digest；页面和 revision 联接
 `project_vocabulary_api.router` 挂载 `/api/world/project-vocabulary`；跨模块仅经 contracts/facade
 导出的有界读取、固定修订解析、复核提案持久化与证据失效窄口。详见
 [项目词表实现](project_vocabulary.md) 与 [World模块](../../../docs/modules/02_world.md)。
+
+
+### 地图节点层级名称
+
+地图树与节点调整回执以现有固定词表修订解析 `level_type` 的名称、说明及当前生命周期；
+作者改名、合并或归档词条不替换节点原修订的文本。项目层级类型只改变作者显示语义，
+系统粗 `level`、父链规则和 `expected_updated_at` 并发校验保持不变。详见
+[地图模块](../../../docs/modules/15_map.md#空间类型词表基础m0)。

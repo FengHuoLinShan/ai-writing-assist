@@ -15,7 +15,7 @@ from modules.world.map_atlas_models import (
     MapAtlasRevision,
     MapAtlasRun,
 )
-from modules.world.map_atlas_schemas import MapAtlasNodeUpdate
+from modules.world.map_atlas_schemas import MapAtlasNodeResponse, MapAtlasNodeUpdate
 from modules.world.map_atlas_service import MapAtlasService, _path_part
 from modules.world.map_structure_geometry import (
     affine_transform,
@@ -274,6 +274,46 @@ async def test_atlas_node_persists_a_revision_pinned_custom_level(
     assert stored.level_type_ref == level_type.id
     assert stored.level_type_revision_id == level_type.revision_id
     assert node["level_type_ref"] == str(level_type.id)
+    changed = await update_project_vocabulary_term(
+        db_session,
+        test_project_id,
+        str(level_type.id),
+        VocabularyTermUpdate(
+            expected_revision_id=level_type.revision_id,
+            name="浮空领域",
+            description="新修订的说明",
+        ),
+    )
+    await archive_project_vocabulary_term(
+        db_session, test_project_id, str(level_type.id), changed.revision_id
+    )
+    atlas = MapAtlasService()
+    projected = (await atlas.get_tree(db_session, test_project_id))["nodes"][0]
+    assert projected["level_type"] == {
+        "name": "浮空群岛",
+        "description": "",
+        "status": "archived",
+    }
+    MapAtlasNodeResponse.model_validate(projected)
+    refreshed = await atlas.update_node(
+        db_session,
+        test_project_id,
+        node["id"],
+        MapAtlasNodeUpdate(expected_updated_at=stored.updated_at, before_node_id=None),
+    )
+    assert refreshed["level_type"] == projected["level_type"]
+    assert stored.level == "region" and stored.parent_id is None
+    cleared = await atlas.update_node(
+        db_session,
+        test_project_id,
+        node["id"],
+        MapAtlasNodeUpdate(
+            expected_updated_at=stored.updated_at,
+            level_type_ref=None,
+            level_type_revision_id=None,
+        ),
+    )
+    assert cleared["level_type"] is None
 
 
 def test_contradictory_directions_stay_unplaced():

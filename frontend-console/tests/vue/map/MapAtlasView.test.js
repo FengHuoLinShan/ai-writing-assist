@@ -63,6 +63,7 @@ describe("AI 地图册工作台", () => {
       "uploadMapAtlasPage", "updateMapAtlasNode",
       "fetchMapAtlasImage",
     ]) api.world[name].mockReset()
+    api.world.listProjectVocabulary = vi.fn(async () => ({ items: [], omitted_count: 0 }))
     setBridgeOverrides({ api, toast, confirm, router })
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:atlas")
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {})
@@ -412,6 +413,31 @@ describe("AI 地图册工作台", () => {
     expect(api.world.updateMapAtlasNode.mock.calls[0][2]).not.toHaveProperty("title")
   })
 
+  it('节点按固定层级类型显示旧名称，选择新修订并保存双UUID，冲突保留选择', async () => {
+    const manual = { id: 'typed-node', title: '天穹群岛', level: 'region', status: 'adopted', parent_id: null, current_revision_id: 'spatial', updated_at: 'v1', pages: [], children: [], level_type_ref: 'type', level_type_revision_id: 'old', level_type: { name: '浮空群岛', description: '旧修订的群岛层级', status: 'archived' } }
+    api.world.getMapAtlas.mockResolvedValue({ nodes: [manual], total_pages: 0 })
+    api.world.listProjectVocabulary.mockResolvedValue({ items: [{ id: 'type', revision_id: 'new', name: '浮空领域', kind: 'level', status: 'active', description: '当前可选说明' }], omitted_count: 2 })
+    const wrapper = mount(MapWorkspaceView, { props: { projectId: 'p' }, global: { stubs: { MapStructureEditor: true } } }); await flushPromises()
+    expect(wrapper.get('.atlas-tree').text()).toContain('浮空群岛')
+    expect(wrapper.get('.atlas-page-header').text()).toContain('旧修订的群岛层级')
+    expect(wrapper.get('.atlas-page-header').text()).toContain('已归档')
+    const details = wrapper.get('.atlas-edit'); details.element.open = true; await details.trigger('toggle'); await flushPromises()
+    expect(api.world.listProjectVocabulary).toHaveBeenCalledWith('p', { kind: 'level', limit: 500 })
+    const choice = wrapper.get('[aria-label="项目层级类型"]')
+    expect(choice.element.value).toBe('type@old')
+    expect(choice.text()).toContain('浮空群岛（原修订保留）')
+    await choice.setValue('type@new')
+    expect(wrapper.get('.atlas-page-header').text()).not.toContain('浮空领域')
+    expect(wrapper.get('.atlas-node-form').text()).toContain('当前可选说明')
+    expect(wrapper.get('.atlas-rp-entry').attributes('disabled')).toBeDefined()
+    api.world.updateMapAtlasNode.mockRejectedValueOnce(Object.assign(new Error('地图层级已在别处更新'), { status: 409 }))
+    await wrapper.findAll('button').find(button => button.text() === '保存调整').trigger('click'); await flushPromises()
+    expect(api.world.updateMapAtlasNode).toHaveBeenCalledWith('p', 'typed-node', expect.objectContaining({ level_type_ref: 'type', level_type_revision_id: 'new', level: 'region', parent_id: null, expected_updated_at: 'v1' }))
+    expect(choice.element.value).toBe('type@new')
+    await wrapper.findAll('button').find(button => button.text() === '取消层级类型选择').trigger('click')
+    expect(choice.element.value).toBe('type@old')
+  })
+
   it("没有图片或生图任务的手工地图可改标题并保留并发基准", async () => {
     const manual = { id: "manual-map", title: "城市示意", level: "city", status: "adopted", location_entity_id: null, parent_id: null, current_revision_id: "spatial-version", updated_at: "v1", pages: [], children: [] }
     const legacy = { ...manual, id: 'legacy-map', title: '旧街区图', level: 'district', current_revision_id: null }
@@ -503,7 +529,7 @@ describe("AI 地图册工作台", () => {
     const wrapper = mount(MapWorkspaceView, { props: { projectId: "novel-1" } }); await flushPromises(); await wrapper.findAll(".atlas-tabs button")[1].trigger("click"); await flushPromises()
     await wrapper.get(".atlas-page > .atlas-edit summary").trigger("click"); await wrapper.get(".atlas-node-form button").trigger("click"); await flushPromises()
     expect(api.world.updateMapAtlasNode.mock.calls[0][2]).not.toHaveProperty("before_node_id")
-    await wrapper.findAll(".atlas-node-form select")[2].setValue("__append__"); await wrapper.get(".atlas-node-form button").trigger("click"); await flushPromises()
+    await wrapper.findAll(".atlas-node-form label").find(label => label.text().startsWith("同级位置")).get("select").setValue("__append__"); await wrapper.get(".atlas-node-form button").trigger("click"); await flushPromises()
     expect(api.world.updateMapAtlasNode.mock.calls[1][2]).toMatchObject({ before_node_id: null })
   })
 
@@ -1232,6 +1258,21 @@ describe("地图图片复用提示", () => {
     await wrapper.findAll(".atlas-tabs button")[0].trigger("click")
     await flushPromises()
     expect(wrapper.find(".atlas-reuse-note").exists()).toBe(false)
+  })
+
+  it('编辑器读取期间采用图片按钮等待就绪，不吞掉作者点击', async () => {
+    const candidate = tree([page({ evidence: {} })], 'review')
+    candidate.nodes[0].current_revision_id = 'revision-1'
+    api.world.getMapAtlasRunResults.mockResolvedValue(candidate)
+    api.world.getLatestMapAtlasRun.mockResolvedValue({ id: 'run-1', status: 'completed', run_kind: 'upload' })
+    const wrapper = mount(MapWorkspaceView, { props: { projectId: 'novel-1' }, global: { stubs: { MapStructureEditor: true } } })
+    await flushPromises()
+    const editor = wrapper.getComponent({ name: 'MapStructureEditor' })
+    const adopt = () => wrapper.findAll('button').find(button => button.text() === '加入地图册')
+    editor.vm.$emit('state', { nodeId: 'node-1', busy: true, dirty: false }); await flushPromises()
+    expect(adopt().element.disabled).toBe(true)
+    editor.vm.$emit('state', { nodeId: 'node-1', busy: false, dirty: false }); await flushPromises()
+    expect(adopt().element.disabled).toBe(false)
   })
 
   it('项目类型有未保存编辑时锁住地图，地图有修改时反向锁住类型', async () => {
