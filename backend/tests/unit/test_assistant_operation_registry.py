@@ -532,6 +532,7 @@ A3_AUTHOR_OPERATIONS = {
     "collaboration.workspace.check",
     "collaboration.workspace.atomic_adopt",
 }
+C4_TRANSFER_OPERATIONS = {"story.scene_director.transfer_world_candidate"}
 # Preserve the pre-C0c snapshot above. These seven contracts were deliberately
 # versioned after the response or nested request shape changed.
 C0C_REVISED_SNAPSHOT = {
@@ -583,10 +584,11 @@ C0C_REVISED_SNAPSHOT = {
 def _pre_c0c_manifest():
     from modules.assistant.operations import operation_manifest
 
+    excluded = C0C_VALIDITY_OPERATIONS | A3_AUTHOR_OPERATIONS | C4_TRANSFER_OPERATIONS
     frozen = {
         name: value
         for name, value in operation_manifest().items()
-        if name not in C0C_VALIDITY_OPERATIONS | A3_AUTHOR_OPERATIONS
+        if name not in excluded
     }
     for name in C0C_REVISED_SNAPSHOT:
         old = OPERATION_SNAPSHOT[name]
@@ -607,6 +609,7 @@ def test_bootstrap_operation_catalog_matches_snapshot():
         | C4_SCENE_DIRECTOR_OPERATIONS
         | C0C_VALIDITY_OPERATIONS
         | A3_AUTHOR_OPERATIONS
+        | C4_TRANSFER_OPERATIONS
     )
     mismatches = {
         name: {
@@ -670,6 +673,7 @@ def test_catalog_v2_metadata_and_trace_inventory_match_runtime_schemas():
         + len(C4_SCENE_DIRECTOR_OPERATIONS)
         + len(C0C_VALIDITY_OPERATIONS)
         + len(A3_AUTHOR_OPERATIONS)
+        + len(C4_TRANSFER_OPERATIONS)
     )
     assert set(operations) == set(manifest)
     for op_id, operation in operations.items():
@@ -767,10 +771,34 @@ def test_v12_author_operations_do_not_enter_a_frozen_v11_directory():
     frozen_v11 = {
         name: value
         for name, value in operation_manifest().items()
-        if name not in A3_AUTHOR_OPERATIONS
+        if name not in A3_AUTHOR_OPERATIONS | C4_TRANSFER_OPERATIONS
     }
     assert not (set(resolve_operations(frozen_v11)) & A3_AUTHOR_OPERATIONS)
-    assert set(operation_manifest()) - set(frozen_v11) == A3_AUTHOR_OPERATIONS
+    assert set(operation_manifest()) - set(frozen_v11) == (
+        A3_AUTHOR_OPERATIONS | C4_TRANSFER_OPERATIONS
+    )
+
+
+def test_v13_transfer_is_r3_and_absent_from_a_frozen_v12_directory():
+    from app.bootstrap import register_container_services
+    from core.container import get
+    from modules.assistant.operations import operation_manifest, resolve_operations
+
+    register_container_services()
+    manifest = operation_manifest()
+    frozen_v12 = {
+        name: value
+        for name, value in manifest.items()
+        if name not in C4_TRANSFER_OPERATIONS
+    }
+    assert set(manifest) - set(frozen_v12) == C4_TRANSFER_OPERATIONS
+    assert not (set(resolve_operations(frozen_v12)) & C4_TRANSFER_OPERATIONS)
+    operation = get("assistant.operations")[
+        "story.scene_director.transfer_world_candidate"
+    ]
+    assert operation.permission == "confirm"
+    assert operation.risk_level == "R3"
+    assert operation.fee_category == "free"
 
 
 def test_inline_operation_metadata_requires_an_explicit_schema_trace_policy():

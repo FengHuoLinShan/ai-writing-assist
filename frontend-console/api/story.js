@@ -63,6 +63,9 @@ export const story = {
     async updateSceneDirectorRound(roundId, payload = {}) {
       return patch(`/story/director/rounds/${roundId}`, payload)
     },
+    async transferDirectorCandidate(roundId, payload = {}) {
+      return post(`/story/director/rounds/${roundId}/world-candidates`, payload)
+    },
     async updateSceneDirectorBranch(branchId, payload = {}) {
       return patch(`/story/director/branches/${branchId}`, payload)
     },

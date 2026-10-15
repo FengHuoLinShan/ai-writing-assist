@@ -290,18 +290,26 @@ Story 导演根、分支、不可变回合、预算续算、作者历史操作�
 角色意图各自读取 Evidence `character` POV 简报，并在运行时按角色实际收到且未因上下文容量省略的来源 ID 与
 当前来源指纹核验表演依据。对象和地点先经 Story/World canonical/current 校验，再叠加角色可知对象集；全知
 作者资料、未来约束、Story 人物卡自由文本只留在作者侧，不作为角色知识。内心素材只属于本人视角；其他素材
-的感知者由角色简报来源或模拟事件观察回执推导，模型声明本身不作权限证明。新登场对象和事件均进入
-`candidate_events`，不应用到模拟状态、World、continuity 或正文。
+的感知者由角色简报来源或模拟事件观察回执推导，模型声明本身不作权限证明。新对象用
+`kind=candidate` 的结构化引用，新事件用 `candidate_events`，均不自动进入 World、正史或正文。
+历史把同一回合素材与事件中的候选引用按精确 ID 去重，单独列出事件。作者为对象引用选定类别并
+逐项确认后，`director_candidate_transfer.py` 才以冻结标签（不是整句事件文案）和来源指纹经
+World facade 创建 `status=candidate` 对象；事件只能转为事件。分支锁和独立转入回执按
+`(novel_id, round_id, candidate_ref)` 保证重复点击与并发不重复写；改选类型或来源冲突返回 409。
+转入不采用正史，也不写入 Scene、continuity、剧本或正文；删除导演历史后回执与已转入的
+World 待审对象仍保持独立。`20261016_story_director_candidate_transfer.py` 串在
+`20261016_operation_trace_archive_days.py` 后。
 
 `director_notice_sources.py` 的 `story.scene_director` 只读来源、`director_operations.py`
-的八项纯操作声明与 `director_api.router` 已经在应用组合根注册：
+的九项纯操作声明与 `director_api.router` 已经在应用组合根注册：
 `story.scene_director.preview`、`story.scene_director.continue_preview`、`story.scene_director.start`、
 `story.scene_director.continue`、`story.scene_director.history`、
 `story.scene_director.advance`、`story.scene_director.check_consistency` 和
-`story.scene_director.save_reference`。独立 `story_scene_director` Task 在任务 manifest 中注册，
+`story.scene_director.save_reference`、R3 `story.scene_director.transfer_world_candidate`。
+作者直接点击转入也经相同领域服务并在启用操作留痕时记录 UI 调用；新助手运行冻结 v13 目录，
+旧目录保持精确原范围。独立 `story_scene_director` Task 在任务 manifest 中注册，
 使用 `never_retry` 和持久化根账本。`20261016_story_scene_director.py`
-后串接 C0c 的关系有效期和档案字段迁移；当前 Alembic 单 head 为
-`20261016_dossier_story_field_key`。Story 提供
+后串接 C0c 的关系有效期和档案字段迁移。Story 提供
 `read_scene_director_references_for_writing` typed facade，按作品与当前 Scene 读取作者保存的内容副本；Evidence
 `director_reference` loader/section/policy 与 Writing generate、targeted-revision 请求已实现，环境白名单
 `NOVELCRAFT_DIRECTOR_REFERENCE_ENABLED_CAPABILITIES` 默认关闭。组合根已将

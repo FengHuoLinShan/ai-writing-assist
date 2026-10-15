@@ -90,3 +90,15 @@ PG DB；不访问默认开发库、封存 R3、holdout、65302 或真实模型�
   分批与一次归档等价、旧摘要incomplete覆盖；不能永久保存组哈希或延迟删除raw规避。
   可评估首次到期前汇总整个已闭合UTC日、记录无ID完成窗口，再精确删除过期raw与按窗口
   去重的窄方案；这是审修方向，不是已实现结果。不得在Luna活跃树共享写入。
+
+
+## A4 Sol已固定并合入（当前优先于历史WIP）
+
+Luna b554→Sol bb6d27a46b9bb94d970dc4f22ce0791b313e7871→primary3caf1288b。
+精确180天/UTC闭日匿名快照、GET只读、partial retry去重和跨日恢复比例已由Sol直接修。
+root新库operation_trace_report_primary_test_20261016迁移/head/parity及43PG通过，
+全后端在/tmp/map-a4-primary-backend-all-20261016.log尚运行；前端3179pass/1旧用例超时，
+单例1pass、lint/build通过，待全套复验。root已看两图并读真实HTTP/browser日志。
+所有raw证据在/tmp，专库保留，18588/18589已停。原CREATE脚本已执行不能盲重跑。
+当前Sol转C4候选桥接，ordinary/Goal共享槽暂仍该Sol，C5 Sol先只审独立域。
+数周真实数据/实际Top3仍缺，工程采样不替代真实样本。

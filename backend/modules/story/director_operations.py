@@ -9,10 +9,15 @@ from modules.story.director_budget import (
     preview_director_budget,
     preview_director_continuation,
 )
+from modules.story.director_candidate_transfer import (
+    preview_director_candidate_transfer,
+    transfer_director_candidate,
+)
 from modules.story.director_context import read_director_source
 from modules.story.director_schemas import (
     DirectorAdvanceRequest,
     DirectorBudgetPreviewRequest,
+    DirectorCandidateTransferOperationRequest,
     DirectorConsistencyCheckRequest,
     DirectorContinueBudgetPreviewRequest,
     DirectorContinueRequest,
@@ -283,7 +288,43 @@ async def _apply_save_reference(db, novel_id, args, preview, *, context=None):
     )
 
 
+async def _prepare_transfer_candidate(db, novel_id, args, *, context=None):
+    _require_project(novel_id, args)
+    await require_active_project(db, novel_id, allow_demo_readonly=False)
+    return await preview_director_candidate_transfer(db, str(args.round_id), args)
+
+
+async def _apply_transfer_candidate(db, novel_id, args, preview, *, context=None):
+    _require_project(novel_id, args)
+    await require_active_project(db, novel_id, allow_demo_readonly=False)
+    receipt = await transfer_director_candidate(db, str(args.round_id), args)
+    return receipt.model_dump(mode="json")
+
+
 OPERATIONS_SPEC = {
+    "story.scene_director.transfer_world_candidate": {
+        "label": "转入 World 待审核候选",
+        "schema": DirectorCandidateTransferOperationRequest,
+        "prepare": _prepare_transfer_candidate,
+        "apply": _apply_transfer_candidate,
+        "permission": "confirm",
+        **_metadata(
+            description=(
+                "作者逐项确认冻结导演事件或对象引用后，创建一个有来源的 World "
+                "待审核候选；不会成为正史。"
+            ),
+            risk="R3",
+            fee="free",
+            produces=("world_entity_candidate", "director_transfer_receipt"),
+            preconditions=(
+                "精确导演回合及输出指纹仍有效",
+                "作者确认对象引用的类别；剧情事件只能转为事件",
+                "当前 Scene 来源未变化",
+            ),
+            reversibility="candidate_review_required",
+        ),
+        "trace_rule": _trace(DirectorCandidateTransferOperationRequest),
+    },
     "story.scene_director.history": {
         "label": "查看场景导演历史",
         "schema": DirectorHistoryReadRequest,

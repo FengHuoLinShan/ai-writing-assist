@@ -33,10 +33,13 @@ from modules.story.director_budget import (
     preview_director_budget,
     preview_director_continuation,
 )
+from modules.story.director_candidate_transfer import transfer_director_candidate
 from modules.story.director_context import read_director_source
 from modules.story.director_schemas import (
     DirectorAdvanceRequest,
     DirectorBudgetPreviewRequest,
+    DirectorCandidateTransferReceipt,
+    DirectorCandidateTransferRequest,
     DirectorContinueBudgetPreviewRequest,
     DirectorContinueRequest,
     DirectorDeleteBranchRequest,
@@ -961,5 +964,29 @@ async def api_set_director_preferences(data: DirectorPreferenceUpdate, db: DbSes
     await require_active_project(db, data.novel_id)
     try:
         return await set_director_preferences(db, data.novel_id, data.cliche_phrases)
+    except Exception as error:
+        raise _raise_http(error) from error
+
+
+@router.post(
+    "/director/rounds/{round_id}/world-candidates",
+    response_model=DirectorCandidateTransferReceipt,
+    status_code=http_status.HTTP_201_CREATED,
+    openapi_extra={
+        "x-novelcraft-operation-id": "story.scene_director.transfer_world_candidate",
+        "x-novelcraft-operation-phase": "execute",
+        "x-novelcraft-operation-confirmation-field": "data.confirmed",
+        "x-novelcraft-operation-trace-fields": {
+            **_trace_fields(DirectorCandidateTransferRequest),
+            "round_id": "round_id",
+        },
+    },
+)
+async def api_transfer_director_candidate(
+    round_id: str, data: DirectorCandidateTransferRequest, db: DbSession
+):
+    await require_active_project(db, data.novel_id, allow_demo_readonly=False)
+    try:
+        return await transfer_director_candidate(db, round_id, data)
     except Exception as error:
         raise _raise_http(error) from error
