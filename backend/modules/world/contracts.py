@@ -267,6 +267,8 @@ class WorldBackgroundEntryContract:
     source_ids: list[dict[str, str]] = field(default_factory=list)
     source_hash: str = ""
     token_count: int = 0
+    revision_id: str | None = None
+    revision_digest: str | None = None
 
 
 @dataclass(frozen=True)

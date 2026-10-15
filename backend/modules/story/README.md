@@ -285,3 +285,11 @@ consumption includes the inherited manuscript prefix. See [Memory contract](../.
 共用定义在 `scene_workbench_support.py`。同一服务实例、repository和锁维持公开API与来源/CAS合同。
 
 Delta categories are source-bound descriptive strings, stored in `delta_log.category` as Text (20261013_delta_category_text). They are not truncated to32 characters. Downgrade refuses when longer history exists; it does not delete or shorten those records.
+
+Story outline generation records only the revisions of World Bible pages actually
+placed in its direct `world_bible_pages` input. Current/history reads compare these
+baselines through the World DI reader and return `canon_staleness` without changing
+content hashes, execution profiles, checkpoints, or publication snapshots. Legacy
+records remain silent. Extra pages inside Evidence confirmations and other World
+consumers remain explicitly outside this first slice; Scene checkpoint unsupported
+dependencies are unchanged. See `docs/modules/07_outline.md` for the covered boundary.

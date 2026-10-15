@@ -54,6 +54,9 @@
 
       </div>
       <p v-if="!hasCurrentRevision" class="story-outline-primary__note">AI 只生成可编辑预览，由你确认采用后才会成为新版本。</p>
+      <aside v-if="currentRevision?.canon_staleness?.changed" class="story-outline-editor-notice story-outline-editor-notice--warning" role="status" data-testid="story-outline-canon-notice">
+        <div><strong>这版总览参考的设定已更新</strong><p>可以对照最新设定检查故事方向。当前内容保留，由你决定是否修改。</p></div>
+      </aside>
       <p v-if="assetLoadError" class="form-error" role="status">{{ assetLoadError }}</p>
       <p v-if="taskNotice" class="form-error" role="alert">{{ taskNotice }}</p>
     </section>

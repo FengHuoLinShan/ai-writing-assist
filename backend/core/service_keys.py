@@ -267,6 +267,9 @@ WORLD_LIST_ADOPTED_MAP_CONTINUITY_FACTS: ServiceKey[Callable[..., Any]] = Servic
 WORLD_READ_MAP_NODE_HEADS: ServiceKey[Callable[..., Any]] = ServiceKey(
     "world.read_map_node_heads"
 )
+WORLD_READ_BIBLE_PAGE_REVISIONS: ServiceKey[Callable[..., Any]] = ServiceKey(
+    "world.read_bible_page_revisions"
+)
 WORLD_WORLDBUILDING_REQUIRE_LEGACY_CANON_WRITE_ALLOWED: ServiceKey[Callable[..., Any]] = (
     ServiceKey("world.worldbuilding.require_legacy_canon_write_allowed")
 )
@@ -406,6 +409,7 @@ ALL_SERVICE_KEYS: tuple[ServiceKey[Any], ...] = (
     WORLD_LIST_ADOPTED_MAP_CONTINUITY_FACTS,
     WORLD_READ_MAP_CHAPTER_CONSUMERS,
     WORLD_READ_MAP_NODE_HEADS,
+    WORLD_READ_BIBLE_PAGE_REVISIONS,
     WORLD_WORLDBUILDING_REQUIRE_LEGACY_CANON_WRITE_ALLOWED,
     WORLD_WORLDBUILDING_MARK_SYNOPSIS_SOURCE_CHANGED,
     WORLD_WORLDBUILDING_FOCUSED_ADOPTION_AUTHORIZE,

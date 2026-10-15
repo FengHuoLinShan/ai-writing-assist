@@ -1413,3 +1413,12 @@ World 的 `read_map_chapter_consumers` 只读核对当前 saved map head 与真�
 不修改地图 revision/status 或 World 正史。正文只读身份来自 Writing facade，不加载整章。
 完整匹配、隔离和未覆盖边界见
 [权威合同](../../../docs/modules/22_evolution.md#已发布正文变化与地图核对g8a)。
+
+### 下游页面修订基线只读出口（G8c）
+
+`facade.read_world_bible_page_revisions(db, novel_id, page_ids)` 一次查询已采用页面当前
+version_number 对应的 revision_id/revision_digest；页面和 revision 联接均校验 novel_id/page_id。
+取消采用、删除或不存在的页面不返回。DI 键 `world.read_bible_page_revisions` 的消费方 Protocol
+在 Story，总纲读取只比较响应，不回写任何 World/Story 状态。World background 的页面输入
+在同一查询附带 revision 元数据，避免消费后再查最新版本导致登记错误。该元数据不进入原 source_hash。
+现有公开 API owner 门禁、append-only 修订和 CAS 机制不变；内部批量出口不新增公开路由。

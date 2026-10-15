@@ -361,6 +361,17 @@ class StoryOutlineGenerationService:
             entity_selection_reason=entity_selection_reason,
         )
         provenance = {
+            "world_bible_page_revisions": [
+                {
+                    "page_id": entry.asset_id,
+                    "revision_id": entry.revision_id,
+                    "revision_digest": entry.revision_digest,
+                }
+                for entry in included_automatic
+                if entry.asset_type == "world_bible_page"
+                and entry.revision_id
+                and entry.revision_digest
+            ],
             "compiled_context_fingerprint": (
                 confirmed.confirmation.context_fingerprint
                 if confirmed is not None
