@@ -477,6 +477,7 @@ async def test_auto_draft_builder_runs_once_at_aggregate_scene_cutoff():
         calls.append((novel_id, request))
         return {
             "batch_id": str(uuid4()),
+            "fingerprint": "d" * 64,
             "status": "completed",
             "cursor": 1,
             "total_chunks": 1,
@@ -710,6 +711,7 @@ async def test_auto_draft_nonterminal_progress_reenters_same_request():
         calls.append(request)
         return {
             "batch_id": batch_id,
+            "fingerprint": "d" * 64,
             "status": "running" if len(calls) == 1 else "completed",
             "cursor": len(calls),
             "total_chunks": 2,

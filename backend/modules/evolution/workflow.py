@@ -1076,6 +1076,7 @@ async def _build_spatial_auto_draft_batch(
             "through_scene_id": step["scene_id"],
             "through_scene_index": through,
             "batch_id": str(result.batch_id),
+            "fingerprint": result.fingerprint,
             "status": result.status,
             "cursor": result.cursor,
             "total_chunks": result.total_chunks,

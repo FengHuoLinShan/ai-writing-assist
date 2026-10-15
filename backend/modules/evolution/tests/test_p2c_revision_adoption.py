@@ -573,7 +573,7 @@ async def test_p2c_unregistered_dependency_expands_conservatively_without_hiding
     }
     assert set(unsupported) == {"map_atlas", "world_canon_revision"}
     assert all(unsupported.values())
-    assert "对象、世界书页来源与待审候选" in unsupported["map_atlas"]
+    assert "对象、世界书页来源与非自动草图的待审候选" in unsupported["map_atlas"]
     # 保守扩大事实写进 coverage 说明（结构化 unknown_scope 见 xfail 用例）。
     assert "保守扩大" in receipt.coverage_note
 
