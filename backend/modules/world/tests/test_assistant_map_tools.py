@@ -2,11 +2,11 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from app.assistant_operation_registry import world_map_operations
 from core.errors import ConflictError
 from modules.account.facade import current_account_id
 from modules.assistant.contracts import AssistantOperationContext, WorkContext
 from modules.world.assistant_map_tools import (
-    OPERATIONS,
     AddKnownLocation,
     EditFeatureLabel,
 )
@@ -54,7 +54,7 @@ async def test_known_place_stays_unpositioned_and_label_edit_preserves_locked_ge
         str(uuid4()), str(current_account_id()), WorkContext(page="map", scope="project")
     )
     args = AddKnownLocation(node_id=node["id"], entity_id=entity.id)
-    op = OPERATIONS["map.add_known_location"]
+    op = world_map_operations["map.add_known_location"]
     preview = await op.prepare(db, nid, args, context=context)
     result = await op.apply(db, nid, args, preview, context=context)
     current = await service.revision(db, nid, node["id"], UUID(result["revision_id"]))
@@ -67,7 +67,7 @@ async def test_known_place_stays_unpositioned_and_label_edit_preserves_locked_ge
     edit = EditFeatureLabel(
         node_id=node["id"], feature_id="harbor", note="作者补充的说明"
     )
-    op = OPERATIONS["map.edit_feature_label"]
+    op = world_map_operations["map.edit_feature_label"]
     preview = await op.prepare(db, nid, edit, context=context)
     result = await op.apply(db, nid, edit, preview, context=context)
     edited = await service.revision(db, nid, node["id"], UUID(result["revision_id"]))

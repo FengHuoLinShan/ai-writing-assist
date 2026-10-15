@@ -10,7 +10,6 @@ from core.errors import ConflictError
 from core.service_keys import (
     ASSISTANT_REQUIRE_OPERATION_TARGETS,
 )
-from modules.assistant.contracts import AssistantOperation
 from modules.world.map_structure_schemas import (
     MapDocument,
     MapFeature,
@@ -242,20 +241,29 @@ async def _review_apply(db, novel_id, args, preview, *, context=None):
     }
 
 
-OPERATIONS = {
-    "map.add_known_location": AssistantOperation(
-        "把已知地点加入地图（保留未知位置）",
-        AddKnownLocation,
-        _location_preview,
-        _save_document,
-    ),
-    "map.edit_feature_label": AssistantOperation(
-        "修改图元名称或备注", EditFeatureLabel, _feature_preview, _save_document
-    ),
-    "map.create_node": AssistantOperation(
-        "创建空白地图", MapNodeCreate, _node_preview, _node_apply
-    ),
-    "map.review_revision": AssistantOperation(
-        "处理已有地图版本", ReviewMapRevision, _review_preview, _review_apply
-    ),
+OPERATIONS_SPEC = {
+    "map.add_known_location": {
+        "label": "把已知地点加入地图（保留未知位置）",
+        "schema": AddKnownLocation,
+        "prepare": _location_preview,
+        "apply": _save_document,
+    },
+    "map.edit_feature_label": {
+        "label": "修改图元名称或备注",
+        "schema": EditFeatureLabel,
+        "prepare": _feature_preview,
+        "apply": _save_document,
+    },
+    "map.create_node": {
+        "label": "创建空白地图",
+        "schema": MapNodeCreate,
+        "prepare": _node_preview,
+        "apply": _node_apply,
+    },
+    "map.review_revision": {
+        "label": "处理已有地图版本",
+        "schema": ReviewMapRevision,
+        "prepare": _review_preview,
+        "apply": _review_apply,
+    },
 }

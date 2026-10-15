@@ -20,6 +20,7 @@ from modules.story.assistant_structure_workflow import (
     OPERATIONS_SPEC as _STORY_STRUCTURE,
 )
 from modules.story.assistant_tools import OPERATIONS_SPEC as _STORY
+from modules.world.assistant_map_tools import OPERATIONS_SPEC as _WORLD_MAP
 from modules.world.assistant_opening_tools import (
     OPERATIONS_SPEC as _WORLD_OPENING,
 )
@@ -56,4 +57,5 @@ story_operations = _materialize(_STORY)
 story_structure_operations = _materialize(_STORY_STRUCTURE)
 story_planning_operations = _materialize(_STORY_PLANNING)
 world_opening_operations = _materialize(_WORLD_OPENING)
+world_map_operations = _materialize(_WORLD_MAP)
 evidence_forecast_operations = _materialize(_EVIDENCE_FORECAST)

@@ -207,6 +207,7 @@ from app.assistant_operation_registry import writing_candidate_operations
 from app.assistant_operation_registry import writing_generation_operations
 from app.assistant_operation_registry import writing_operations
 from app.assistant_operation_registry import world_opening_operations
+from app.assistant_operation_registry import world_map_operations
 from modules.world.assistant_page_tools import OPERATIONS as _WORLD_PAGE_OPERATIONS
 from modules.world.assistant_outcome_tools import OPERATIONS as _WORLD_OUTCOME_OPERATIONS
 from modules.world.assistant_cocreation_tools import (
@@ -217,7 +218,6 @@ from modules.imports.assistant_tools import OPERATIONS as _IMPORTS_OPERATIONS
 from modules.imports.assistant_tools import (
     schedule_proactive_review as _imports_proactive_review,
 )
-from modules.world.assistant_map_tools import OPERATIONS as _MAP_OPERATIONS
 from modules.world.assistant_review_tools import OPERATIONS as _WORLD_REVIEW_OPERATIONS
 from modules.world.assistant_review_tools import (
     schedule_proactive_review as _world_proactive_review,
@@ -387,7 +387,7 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
                 **world_opening_operations,
                 **_IMPORTS_OPERATIONS,
                 **evidence_forecast_operations,
-                **_MAP_OPERATIONS,
+                **world_map_operations,
                 **_WORLD_REVIEW_OPERATIONS,
             },
         ),
