@@ -46,6 +46,7 @@ from modules.story.assistant_structure_workflow import (
     OPERATIONS_SPEC as _STORY_STRUCTURE,
 )
 from modules.story.assistant_tools import OPERATIONS_SPEC as _STORY
+from modules.story.continuity.operations import OPERATIONS_SPEC as _STORY_FACT_TIMELINE
 from modules.story.director_operations import OPERATIONS_SPEC as _STORY_DIRECTOR
 from modules.story.world_progression_operations import (
     OPERATIONS_SPEC as _STORY_WORLD_PROGRESSION,
@@ -73,6 +74,9 @@ from modules.writing.assistant_generation_tool import (
     OPERATIONS_SPEC as _WRITING_GENERATION,
 )
 from modules.writing.assistant_tools import OPERATIONS_SPEC as _WRITING
+from modules.writing.chapter_order_operations import (
+    OPERATIONS_SPEC as _WRITING_CHAPTER_ORDER,
+)
 
 _FIELDS = frozenset(AssistantOperation.__dataclass_fields__)
 _CATALOG_FIELDS = frozenset(
@@ -365,6 +369,7 @@ story_scene_operations = _materialize(_STORY_SCENE)
 story_state_operations = _materialize(_STORY_STATE)
 story_director_operations = _materialize(_STORY_DIRECTOR)
 story_world_progression_operations = _materialize(_STORY_WORLD_PROGRESSION)
+story_fact_timeline_operations = _materialize(_STORY_FACT_TIMELINE)
 story_generation_operations = _materialize(_STORY_GENERATION)
 world_opening_operations = _materialize(_WORLD_OPENING)
 world_map_operations = _materialize(_WORLD_MAP)
@@ -387,5 +392,6 @@ world_dossier_operations = _materialize(_WORLD_DOSSIER)
 assistant_spatial_advisory_operations = _materialize(_SPATIAL_ADVISORIES)
 assistant_notice_operations = _materialize(_NOTICE_DISPOSITIONS)
 writing_a1_operations = _materialize(_WRITING_A1)
+writing_chapter_order_operations = _materialize(_WRITING_CHAPTER_ORDER)
 interaction_author_operations = _materialize(_INTERACTION_AUTHOR)
 collaboration_author_operations = _materialize(_COLLABORATION_AUTHOR)
