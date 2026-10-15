@@ -499,6 +499,8 @@ async def test_author_safe_secret_changes_do_not_leak_values_or_fingerprints(
     full = await brief("author_full")
     assert secret["value"] not in str(safe_first.model_dump())
     assert secret["value"] in str(full.model_dump())
+    assert all(item.field != "identity_position" for item in safe_first.continuity_items)
+    assert any(item.field == "identity_position" for item in full.continuity_items)
     assert all(item.kind != "legacy_profile_field" for item in safe_first.world_items)
     assert any(item.field_key == "hidden_truth" for item in full.world_items)
     assert safe_first.checkpoint_refs == []
@@ -509,6 +511,18 @@ async def test_author_safe_secret_changes_do_not_leak_values_or_fingerprints(
     assert safe_first.world_fingerprint == safe_second.world_fingerprint
     assert safe_first.checkpoint_fingerprint == safe_second.checkpoint_fingerprint
     assert safe_first.omitted_count == safe_second.omitted_count
+
+
+async def test_author_safe_rejects_story_reader_that_returns_author_view(facade_reads):
+    facade_reads["story"] = lambda **_kwargs: _story_view()
+    result = await ObjectDossierBriefService().load(
+        None,
+        _options(),
+        entity_ids=[ENTITY_ID],
+        include_patterns=False,
+    )
+    assert result["world_items"] == result["continuity_items"] == []
+    assert result["unknown_layers"] == ["world", "continuity"]
 
 
 async def test_missing_story_port_reports_unknown_without_reading_world(
