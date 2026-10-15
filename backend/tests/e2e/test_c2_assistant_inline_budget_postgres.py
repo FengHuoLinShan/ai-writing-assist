@@ -218,6 +218,14 @@ async def test_assistant_c2_inline_story_uses_one_parent_run(monkeypatch, provid
             "authorized_step_capabilities": ["story.character_card"],
         }
         async with sessions.begin() as db:
+            unrelated_id = uuid.UUID(
+                enqueue_task(
+                    db,
+                    "test_unrelated_pending",
+                    novel_id=str(novel_id),
+                    meta={"purpose": "queue-isolation-proof"},
+                )
+            )
             task_id = uuid.UUID(
                 enqueue_task(
                     db,
@@ -228,9 +236,14 @@ async def test_assistant_c2_inline_story_uses_one_parent_run(monkeypatch, provid
             )
         returned = await TaskWorker(
             db_manager=_TaskManager(engine, sessions), heartbeat_interval=60.0
-        ).run_once()
+        ).run_once(task_id=task_id, novel_id=novel_id)
         assert returned is not None and returned.id == task_id
         async with sessions() as db:
+            unrelated = await db.get(AsyncTask, unrelated_id)
+            assert unrelated is not None
+            assert unrelated.status == "pending"
+            assert unrelated.attempt == 0
+            assert unrelated.meta["purpose"] == "queue-isolation-proof"
             parent = await db.get(AsyncTask, task_id)
             assert parent is not None
             envelope = read_ai_run_envelope(parent.meta["_ai_run_envelope"])
@@ -241,6 +254,7 @@ async def test_assistant_c2_inline_story_uses_one_parent_run(monkeypatch, provid
                     select(AsyncTask).where(
                         AsyncTask.novel_id == novel_id,
                         AsyncTask.id != task_id,
+                        AsyncTask.id != unrelated_id,
                     )
                 )
             ).all()
