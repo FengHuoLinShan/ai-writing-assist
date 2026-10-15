@@ -165,3 +165,5 @@ ADR-0039 旧接口写回规则、共用词表与锚点、档案发现按 ADR-003
 - Sol在A0b真实PG/HTTP先失败后修复两个P1：main读取未赋值trace context；当前FastAPI include_router有效route派发绕过source APIRoute wrapper。已直接修并3项PG E2E通过，含成功/最终commit失败回滚/原文不入trace；其它审查仍在进行，未集成。另修任意result/preview id泄露、纯flush操作事务形态误报、新Vocabulary绑定与空间线索单项真实豁免。没有将新增写路由藏入旧baseline。
 - C3b统一提醒前端及G8a/editorial纯来源继续实施，共享装配仍由A0/Sol单一写入。A1/A2源码、状态机和验证交接见操作任务artifacts/A1-A2-HANDOFF.md；C4/C5交接仍见对应任务artifacts。所有剩余阶段继续属于本次范围。
 - R3和holdout未动；没有新增模型请求、push、PR、main合并或部署。主树本次仍只更新任务记录，不提前纳入未审代码。
+
+- 下一批C0b审查树已准备：map-spatial-eval-review/codex/object-dossier-evidence-review，从258ed7b23 cherry633293ee2在world/dossier_service.py遇到同一legacy projection/total_count冲突，已停住，未由root改代码；后续Sol直接解决并继续cherry30d5b0698。原codex/world-object-dossier-review/c99分支保留。Luna实现树不受影响，仍推进C2/Generic桥接。

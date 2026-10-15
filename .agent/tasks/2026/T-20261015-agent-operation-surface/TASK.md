@@ -130,3 +130,5 @@ updated: 2026-10-15T23:31:00+08:00
 - Sol在A0b真实PG/HTTP先失败后修复两个P1：main读取未赋值trace context；当前FastAPI include_router有效route派发绕过source APIRoute wrapper。已直接修并3项PG E2E通过，含成功/最终commit失败回滚/原文不入trace；其它审查仍在进行，未集成。另修任意result/preview id泄露、纯flush操作事务形态误报、新Vocabulary绑定与空间线索单项真实豁免。没有将新增写路由藏入旧baseline。
 - C3b统一提醒前端及G8a/editorial纯来源继续实施，共享装配仍由A0/Sol单一写入。A1/A2源码、状态机和验证交接见操作任务artifacts/A1-A2-HANDOFF.md；C4/C5交接仍见对应任务artifacts。所有剩余阶段继续属于本次范围。
 - R3和holdout未动；没有新增模型请求、push、PR、main合并或部署。主树本次仍只更新任务记录，不提前纳入未审代码。
+
+- A0b新增进展：Sol在operation_trace_review_test_20261015验证fresh单head升级/ORM parity及4项真实PG E2E（成功/最终commit失败、included route、append-only与181天聚合删除）。180天归档原实现只在aggregate/export读时触发，闲置项目无法保证清理；Sol正在复用现有maintenance调度直接补齐，不引入新服务。当前仍未集成。
