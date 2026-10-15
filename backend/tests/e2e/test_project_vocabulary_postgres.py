@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from core.errors import ConflictError
 from modules.project.models import Project
+from modules.world.map_atlas_models import MapAtlasNode
 from modules.world.project_vocabulary_models import (
     ProjectVocabularyRevision,
     ProjectVocabularyTerm,
@@ -26,6 +27,51 @@ from tests.e2e.config import DATABASE_URL
 from tests.utils import _create_project
 
 pytestmark = pytest.mark.e2e
+
+
+async def test_map_node_type_revision_is_paired_and_scoped(db_session, test_project_id):
+    db = db_session
+    first = await create_project_vocabulary_term(
+        db, test_project_id, VocabularyTermCreate(kind="level", name="楼层")
+    )
+    second = await create_project_vocabulary_term(
+        db, test_project_id, VocabularyTermCreate(kind="level", name="舱段")
+    )
+    foreign_novel = uuid4()
+    await _create_project(db, str(foreign_novel))
+    foreign = await create_project_vocabulary_term(
+        db, str(foreign_novel), VocabularyTermCreate(kind="level", name="外部层级")
+    )
+    for type_ref, revision_ref, constraint in (
+        (first.id, None, "ck_map_node_level_type_pair"),
+        (None, first.revision_id, "ck_map_node_level_type_pair"),
+        (first.id, second.revision_id, "fk_map_node_level_type_revision"),
+        (foreign.id, foreign.revision_id, "fk_map_node_level_type_revision"),
+    ):
+        with pytest.raises(DBAPIError, match=constraint):
+            async with db.begin_nested():
+                await db.execute(
+                    insert(MapAtlasNode).values(
+                        id=uuid4(),
+                        novel_id=UUID(test_project_id),
+                        semantic_key=str(uuid4()),
+                        title="合成地图",
+                        level="region",
+                        level_type_ref=type_ref,
+                        level_type_revision_id=revision_ref,
+                    )
+                )
+    await db.execute(
+        insert(MapAtlasNode).values(
+            id=uuid4(),
+            novel_id=UUID(test_project_id),
+            semantic_key=str(uuid4()),
+            title="合成地图",
+            level="region",
+            level_type_ref=first.id,
+            level_type_revision_id=first.revision_id,
+        )
+    )
 
 
 async def test_history_rejects_mutation_and_cross_term_revision_links(

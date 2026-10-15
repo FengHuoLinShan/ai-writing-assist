@@ -112,6 +112,19 @@ class MapAtlasNode(Base, UUIDMixin, TimestampMixin, NovelMixin):
             "status IN ('provisional', 'adopted')",
             name="ck_map_atlas_nodes_status",
         ),
+        CheckConstraint(
+            "(level_type_ref IS NULL) = (level_type_revision_id IS NULL)",
+            name="ck_map_node_level_type_pair",
+        ),
+        ForeignKeyConstraint(
+            ["novel_id", "level_type_ref", "level_type_revision_id"],
+            [
+                "project_vocabulary_revisions.novel_id",
+                "project_vocabulary_revisions.term_id",
+                "project_vocabulary_revisions.id",
+            ],
+            name="fk_map_node_level_type_revision",
+        ),
         Index(
             "ix_map_atlas_nodes_novel_parent_order",
             "novel_id",
