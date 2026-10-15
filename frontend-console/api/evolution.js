@@ -76,3 +76,6 @@ export const evolution = {
 evolution.categoryRescanPreview = (novelId, runKey, body) => post(withQuery(`/evolution/reading/${encodeURIComponent(runKey)}/category-rescan-preview`, { novel_id: novelId }), body)
 evolution.categoryRescanStart = (novelId, runKey, body) => post(withQuery(`/evolution/reading/${encodeURIComponent(runKey)}/category-rescan`, { novel_id: novelId }), body)
 evolution.categoryRescanResume = (novelId, runKey, operationId) => post(withQuery(`/evolution/reading/${encodeURIComponent(runKey)}/category-rescan/${encodeURIComponent(operationId)}/resume`, { novel_id: novelId }))
+evolution.spatialRescanPreview = (novelId, runKey, body) => post(withQuery(`/evolution/reading/${encodeURIComponent(runKey)}/spatial-rescan-preview`, { novel_id: novelId }), body)
+evolution.spatialRescanStart = (novelId, runKey, body) => post(withQuery(`/evolution/reading/${encodeURIComponent(runKey)}/spatial-rescan`, { novel_id: novelId }), body)
+evolution.spatialRescanResume = (novelId, runKey, operationId) => post(withQuery(`/evolution/reading/${encodeURIComponent(runKey)}/spatial-rescan/${encodeURIComponent(operationId)}/resume`, { novel_id: novelId }))

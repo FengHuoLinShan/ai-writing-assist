@@ -14,7 +14,7 @@
     </header>
     <ProjectVocabularyPanel v-if="projectId" v-show="!structureState.reader && !structureState.focused" :key="projectId" :project-id="projectId" :disabled="busy || loading || structureState.dirty || annotationDirty || promptDirty || uploadDraftDirty || uploading || spatialClueState.dirty || spatialClueState.busy" @state="vocabularyState = $event" @changed="vocabularyRevision++" />
     <MapSpatialCluePanel v-if="projectId" v-show="!structureState.reader && !structureState.focused" :key="projectId" :project-id="projectId" :disabled="busy || loading || structureState.dirty || annotationDirty || promptDirty || uploadDraftDirty || uploading || vocabularyState.dirty || vocabularyState.busy" @state="spatialClueState = $event" />
-    <p v-if="vocabularyLocked" role="status">请先保存或收起项目类型、空间线索的编辑，再继续修改地图。</p>
+    <p v-if="vocabularyLocked" role="status">{{ spatialClueState.dirty || spatialClueState.busy ? '请先提交或收起空间线索复核，再继续修改地图。' : '请先保存或收起项目类型编辑，再继续修改地图。' }}</p>
     <p v-if="mapCapabilities?.upload?.available === false" class="atlas-alert" role="status">{{ mapCapabilities.upload.reason }} 空间示意仍可编辑，画面说明可复制后在外部使用。</p>
 
 
@@ -1049,7 +1049,7 @@ const mapMoreTools = computed(() => {
   ].filter(item => !mapToolActions.value.some(action => action.key === item.key))
 })
 const mapToolActions = computed(() => {
-  if (vocabularyLocked.value) return [{ key: "vocabulary", label: "请先完成项目类型编辑", primary: true, disabled: true }]
+  if (vocabularyLocked.value) return [{ key: "vocabulary", label: spatialClueState.value.dirty || spatialClueState.value.busy ? "请先完成空间线索复核" : "请先完成项目类型编辑", primary: true, disabled: true }]
   if (loading.value) return [{ key: "loading", label: "正在读取地图…", primary: true, disabled: true }]
   const child = currentMapToolbar.value
   if (child?.protected) return child.actions

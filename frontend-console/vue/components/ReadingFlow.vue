@@ -15,6 +15,9 @@ const worldAuditSupplementPreview = ref(null)
 const rescanFrom = ref(1), rescanThrough = ref(1), rescanCategories = ref([])
 const rescanPreview = ref(null), rescanPending = ref(null)
 const rescanActive = computed(() => run.value?.category_rescans?.some(item => ["pending", "running"].includes(item.status)))
+const spatialRescanFrom = ref(1), spatialRescanThrough = ref(1)
+const spatialRescanPreview = ref(null), spatialRescanPending = ref(null)
+const spatialRescanActive = computed(() => run.value?.spatial_rescans?.some(item => ["pending", "running"].includes(item.status)))
 const opened = ref(false)
 let generation = 0, timer = null
 const run = computed(() => state.value?.run)
@@ -43,7 +46,7 @@ async function perform(action) {
 }
 function schedule() {
   clearTimeout(timer)
-  if (opened.value && (["pending", "running"].includes(run.value?.status) || rescanActive.value)) {
+  if (opened.value && (["pending", "running"].includes(run.value?.status) || rescanActive.value || spatialRescanActive.value)) {
     timer = setTimeout(() => { void refresh() }, 5000)
   }
 }
@@ -231,6 +234,36 @@ async function resumeRescan(item) {
     if (current()) await read(current)
   })
 }
+async function prepareSpatialRescan() {
+  await perform(async current => {
+    const key = run.value.run_key
+    const request = { operation_id: crypto.randomUUID(), from_scene_index: Number(spatialRescanFrom.value) - 1,
+      through_scene_index: Number(spatialRescanThrough.value) - 1, request_limit: run.value.budget_mode === "confirmed_scope" ? null : Number(requestLimit.value) }
+    const result = await api().spatialRescanPreview(props.projectId, key, request)
+    if (current() && key === run.value?.run_key) spatialRescanPreview.value = { ...result, request }
+  })
+}
+async function startSpatialRescan() {
+  await perform(async current => {
+    const key = run.value.run_key
+    spatialRescanPending.value ||= { ...spatialRescanPreview.value.request, expected_fingerprint: spatialRescanPreview.value.fingerprint, authorization_confirmed: true }
+    try { await api().spatialRescanStart(props.projectId, key, spatialRescanPending.value) }
+    catch (err) {
+      if (current() && [400, 403, 404, 409, 422].includes(err.status)) spatialRescanPreview.value = spatialRescanPending.value = null
+      throw err
+    }
+    if (!current() || key !== run.value?.run_key) return
+    spatialRescanPreview.value = spatialRescanPending.value = null
+    await read(current)
+  })
+}
+async function resumeSpatialRescan(item) {
+  await perform(async current => {
+    await api().spatialRescanResume(props.projectId, run.value.run_key, item.operation_id)
+    if (current()) await read(current)
+  })
+}
+watch([spatialRescanFrom, spatialRescanThrough, requestLimit], () => { if (!spatialRescanPending.value) spatialRescanPreview.value = null })
 watch([rescanFrom, rescanThrough, rescanCategories, requestLimit], () => { if (!rescanPending.value) rescanPreview.value = null }, { deep: true })
 watch(() => run.value?.run_key, () => {
   proposals.value = null
@@ -238,6 +271,8 @@ watch(() => run.value?.run_key, () => {
   discoverDetails.value = !!run.value?.discovery_enabled
   discoverSpatial.value = run.value ? run.value.spatial_discovery_enabled === true : true
   rescanPreview.value = rescanPending.value = null
+  spatialRescanPreview.value = spatialRescanPending.value = null
+  spatialRescanFrom.value = 1; spatialRescanThrough.value = Math.max(1, run.value?.completed_scenes || 1)
   rescanFrom.value = 1; rescanThrough.value = Math.max(1, run.value?.completed_scenes || 1)
   rescanCategories.value = (run.value?.discovery_categories || []).filter(item => ["language_habit", "external_appearance"].includes(item.key)).map(item => item.key)
 })
@@ -256,6 +291,8 @@ watch(() => props.projectId, () => {
   state.value = preview.value = pending.value = proposals.value = null
   worldAuditSupplementPreview.value = null
   rescanPreview.value = rescanPending.value = null
+  spatialRescanPreview.value = spatialRescanPending.value = null
+  spatialRescanFrom.value = spatialRescanThrough.value = 1
   rescanCategories.value = []; rescanFrom.value = rescanThrough.value = 1
   error.value = ""; busy.value = false; endChapter.value = 1
   recomputeCompleted.value = false; fromScene.value = 1
@@ -307,6 +344,29 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer) })
         <p v-for="item in run.category_rescans || []" :key="item.operation_id" role="status">
           第 {{ item.from_scene_index + 1 }}—{{ item.through_scene_index + 1 }} 场：{{ ({ pending: "补扫等待开始", running: "正在补扫，已完成结果保留", completed: "补扫完成，可查看类别覆盖与来源", failed: "补扫中断，结果保留", needs_reconciliation: "请求结果与费用尚未核清，不能重发" })[item.status] || "请刷新核对补扫状态" }}
           <button v-if="item.can_resume" type="button" class="btn btn-sm" :disabled="busy || rescanActive" @click="resumeRescan(item)">恢复类别补扫</button>
+        </p>
+      </details>
+      <details v-if="run?.completed_scenes" class="reading-spatial-rescan">
+        <summary>补扫空间线索</summary>
+        <p>在已读范围中补查未执行、来源变化或旧方法留下的空间缺口，抽取后独立核对。已读正文和理解回执保留；草图只作为候选，不自动生成图片。</p>
+        <p v-if="!run.spatial_discovery_enabled">这次阅读未开启空间发现。补扫需要单独确认范围及模型费用，不改变原阅读授权。</p>
+        <fieldset :disabled="busy || rescanActive || spatialRescanActive || !!spatialRescanPending">
+          <legend>空间补扫范围</legend>
+          <label>从第几场<input v-model.number="spatialRescanFrom" type="number" min="1" :max="run.completed_scenes" aria-label="空间补扫起始场景"></label>
+          <label>读到第几场<input v-model.number="spatialRescanThrough" type="number" :min="spatialRescanFrom" :max="run.completed_scenes" aria-label="空间补扫截止场景"></label>
+          <button type="button" class="btn btn-sm" :disabled="run.status !== 'completed'" @click="prepareSpatialRescan">预览空间补扫</button>
+        </fieldset>
+        <div v-if="spatialRescanPreview" class="reading-confirmation">
+          <p>补扫 {{ spatialRescanPreview.scene_count }} 场中仍需检查的空间线索；抽取和独立核对最多 {{ spatialRescanPreview.request_range.maximum }} 次模型调用，空间独立额度 {{ spatialRescanPreview.quota }} 次。</p>
+          <p v-if="spatialRescanPreview.budget_remaining !== null">现有总额度剩余 {{ spatialRescanPreview.budget_remaining }} 次，为主阅读保留 {{ spatialRescanPreview.mandatory_request_reserve }} 次；本次需增加 {{ spatialRescanPreview.additional_budget }} 次调用额度。</p>
+          <p v-else>本次按确认范围执行，保留模型调用与费用记录。</p>
+          <p>冻结模型：{{ spatialRescanPreview.model || '未记录名称，请重新核对阅读配置' }}。</p>
+          <button type="button" class="btn btn-primary" :disabled="busy" @click="startSpatialRescan">{{ spatialRescanPending ? '确认空间补扫启动结果' : '确认范围与费用并补扫空间' }}</button>
+          <button v-if="!spatialRescanPending" type="button" class="btn btn-sm" :disabled="busy" @click="spatialRescanPreview = null">取消空间补扫</button>
+        </div>
+        <p v-for="item in run.spatial_rescans || []" :key="item.operation_id" role="status">
+          第 {{ item.from_scene_index + 1 }}—{{ item.through_scene_index + 1 }} 场：{{ ({ pending: '空间补扫等待开始', running: '正在补扫空间，已完成结果保留', completed: '空间补扫完成，请到地图核对线索与草图', failed: '空间补扫中断，结果保留', needs_reconciliation: '空间请求结果与费用尚未核清，不能重发' })[item.status] || '请刷新核对空间补扫状态' }}
+          <button v-if="item.can_resume" type="button" class="btn btn-sm" :disabled="busy || rescanActive || spatialRescanActive" @click="resumeSpatialRescan(item)">恢复空间补扫</button>
         </p>
       </details>
       <section v-if="run" class="reading-proposals" aria-label="本次世界资料提案">
@@ -420,6 +480,7 @@ label { display: grid; gap: .35rem; flex: 1 1 12rem; min-width: 0; }
 .reading-recompute-toggle { display: flex; align-items: center; gap: .5rem; }
 input:not([type="checkbox"]), select { width: 100%; max-width: 100%; box-sizing: border-box; }
 .reading-category-rescan fieldset { display: flex; flex-wrap: wrap; gap: .75rem; min-width: 0; padding: .75rem; border: 1px solid var(--border-color, #ddd); border-radius: .5rem; }
+.reading-spatial-rescan fieldset { display: flex; flex-wrap: wrap; gap: .75rem; min-width: 0; padding: .75rem; border: 1px solid var(--border-color, #ddd); border-radius: .5rem; }
 progress { width: 100%; }
 .reading-confirmation { padding-block-start: .75rem; }
 </style>
