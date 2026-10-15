@@ -16,6 +16,8 @@
 - LOG_LEVEL: 日志级别（默认 INFO）
 - HTTP_RATE_LIMIT_*: 进程级 HTTP direct-peer 限流配置
 - LLM_MODEL_LIMITS_JSON: 按来源/provider/model 的独立限流配置
+- ASSISTANT_GOAL_RUNS_ENABLED / ASSISTANT_GOAL_RUNS_PROJECT_ALLOWLIST: 目标运行
+  试点开关与项目白名单
 """
 
 from __future__ import annotations
@@ -286,6 +288,21 @@ class Settings:
     llm_model: str = "deepseek-flash"
     assistant_enabled: bool = field(
         default_factory=lambda: _env_bool("ASSISTANT_ENABLED", False)
+    )
+    # ADR-0038 §6：目标运行需显式总开关和项目白名单；不随 Assistant 总开关自动开放。
+    assistant_goal_runs_enabled: bool = field(
+        default_factory=lambda: _env_bool("ASSISTANT_GOAL_RUNS_ENABLED", False)
+    )
+    assistant_goal_runs_project_allowlist: tuple[str, ...] = field(
+        default_factory=lambda: tuple(
+            filter(
+                None,
+                (
+                    value.strip()
+                    for value in _env("ASSISTANT_GOAL_RUNS_PROJECT_ALLOWLIST").split(",")
+                ),
+            )
+        )
     )
     assistant_operation_trace_enabled: bool = field(
         default_factory=lambda: _env_bool("ASSISTANT_OPERATION_TRACE_ENABLED", True)

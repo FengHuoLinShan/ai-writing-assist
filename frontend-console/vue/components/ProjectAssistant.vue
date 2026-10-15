@@ -9,11 +9,13 @@
         <button type="button" :aria-pressed="activeTab === 'editorial'" @click="switchTab('editorial')">编辑台</button>
         <button type="button" :aria-pressed="activeTab === 'forecast'" @click="openForecast">下一步</button>
         <button type="button" :aria-pressed="activeTab === 'creative'" @click="openCreative">试改</button>
+        <button v-if="goalAvailable" type="button" :aria-pressed="activeTab === 'goal'" @click="switchTab('goal')">目标</button>
       </div>
       <ProactiveCare v-show="activeTab === 'care'" :target-id="projectId" standalone @locate="locateAssistantSource" @editorial="openEditorialFromNotice" />
       <EditorialDesk v-show="activeTab === 'editorial'" :project-id="projectId" :active="open && activeTab === 'editorial'" :focus-chapter="editorialFocusChapter" :focus-issue-id="editorialFocusIssueId" />
       <div v-if="activeTab === 'forecast'" class="project-assistant-history"><ForecastDock :project-id="projectId" :context="experimentContext" :active="open" standalone /></div>
       <div v-if="activeTab === 'creative'" class="project-assistant-history"><CreativeExperiments ref="creativeRef" :project-id="projectId" :context="experimentContext" :active="open" /></div>
+      <div v-show="activeTab === 'goal'" class="project-assistant-goal"><GoalRunsPanel :project-id="projectId" :source-session-id="state.sessionId" :active="open && activeTab === 'goal'" @availability="goalAvailable = $event" /></div>
       <div v-show="activeTab === 'chat'" class="project-assistant-chat">
       <div class="project-assistant-sessions"><label for="assistant-session">讨论</label><select id="assistant-session" :value="state.sessionId || ''" :disabled="state.busy || state.loading" @change="assistant.selectSession($event.target.value)"><option v-if="!state.sessionId" value="">新的讨论</option><option v-for="session in state.sessions" :key="session.id" :value="session.id">{{ session.title }}</option></select><button type="button" class="btn btn-sm" :disabled="state.busy" @click="assistant.newSession">新讨论</button></div>
       <div v-if="state.error" class="project-assistant-error" role="alert">{{ state.error }}</div>
@@ -75,6 +77,7 @@ import ProactiveCare from "./ProactiveCare.vue"
 import EditorialDesk from "./EditorialDesk.vue"
 import ForecastDock from "./ForecastDock.vue"
 import CreativeExperiments from "./CreativeExperiments.vue"
+import GoalRunsPanel from "./GoalRunsPanel.vue"
 import { locateAssistantSource, openAssistantDestination } from "../shared/assistantNavigation.js"
 
 const props = defineProps({ projectId: { type: String, default: null }, page: { type: String, default: "today" }, open: Boolean, initialContext: { type: Object, default: null } })
@@ -84,6 +87,7 @@ const state = assistant.state
 const receiptMessageIds = computed(() => new Set(new Map(state.messages.filter(message => message.assistant_run_id).map(message => [message.assistant_run_id, message.id])).values()))
 const narrow = ref(false)
 const activeTab = ref("chat")
+const goalAvailable = ref(false)
 const editorialFocusChapter = ref(null)
 const editorialFocusIssueId = ref(null)
 const experimentContext = ref({ page: "today" })
@@ -160,7 +164,7 @@ const removeOpener = registerProjectAssistantOpener(async request => {
   activeTab.value = "chat"
   emit("open")
 })
-watch(() => props.projectId, value => { activeTab.value = "chat"; loadPromise = assistant.load(value) }, { immediate: true })
+watch(() => props.projectId, value => { activeTab.value = "chat"; goalAvailable.value = false; loadPromise = assistant.load(value) }, { immediate: true })
 watch(() => state.enabled, value => emit("availability", value))
 watch(() => props.open, async value => { if (value && !state.input && !state.context) { try { state.context = capture() } catch (error) { state.error = error.message } } if (value) await nextTick() })
 onMounted(() => { media = globalThis.matchMedia?.("(max-width: 1100px)"); syncMedia(); media?.addEventListener?.("change", syncMedia) })
@@ -171,6 +175,7 @@ onBeforeUnmount(() => { disposed = true; removeOpener(); assistant.dispose(); me
 .project-assistant-scope{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;margin-top:8px}.project-assistant-scope select{min-height:40px;padding:6px;background:var(--bg-muted);color:inherit;border:1px solid var(--border);border-radius:6px}
 .project-assistant{flex:0 0 min(25rem,36vw);min-width:0;border-left:1px solid var(--border-color,var(--border));background:var(--bg-primary,var(--bg-base));color:var(--text-primary);height:100%;overflow:hidden}
 .project-assistant-chat{display:flex;flex-direction:column;flex:1;min-height:0}.project-assistant-tabs{display:flex;padding:6px 16px;gap:8px;border-bottom:1px solid var(--border-color,var(--border))}.project-assistant-tabs button{border:0;background:transparent;color:var(--text-secondary);padding:8px 16px;min-height:40px;cursor:pointer}.project-assistant-tabs button[aria-pressed=true]{color:var(--text-primary);background:var(--bg-muted);border-radius:6px;font-weight:600}.project-assistant-panel{height:100%;display:flex;flex-direction:column;min-width:0;outline:none}
+.project-assistant-goal{display:flex;flex:1;min-height:0;overflow:hidden}
 .project-assistant-header,.project-assistant-sessions,.project-assistant-composer{padding:14px 16px;border-bottom:1px solid var(--border-color,var(--border))}
 .project-assistant-header,.project-assistant-sessions,.project-assistant-actions,.project-assistant-context{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .project-assistant-header p,.project-assistant-context{font-size:12px;color:var(--text-secondary);margin:4px 0}
