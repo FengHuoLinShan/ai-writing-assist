@@ -486,6 +486,14 @@ class MapSpatialBriefService:
             if str(node.id) not in excluded_node_ids
         ]
         omitted_count += len(rows) - len(node_rows)
+        if cutoff_chapter is None:
+            return MapSpatialBriefResponse(
+                scene_id=data.scene_id,
+                scene_index=scene_index,
+                unknowns=["尚未选择 Scene 或截止章节，空间资料未核对；请选择范围后重试。"]
+                if node_rows
+                else [],
+            )
         documents = []
         type_refs = {}
         for node, revision in node_rows:

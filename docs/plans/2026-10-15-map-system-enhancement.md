@@ -1,11 +1,11 @@
 # 地图系统增强：自动冷启动、参与创作决策与题材鲁棒性
 
-日期：2026-10-15。状态：设计稿，配套 ADR 已采纳，未排期；执行者由用户安排。
+日期：2026-10-15。状态：实施中，配套 ADR 已采纳；M0–M4 工程验证、评测与作者验收状态见下列主任务记录，M5 仍依赖势力路线图前置能力。
 任务记录：[T-20261015-map-enhancement-design](../../.agent/tasks/2026/T-20261015-map-enhancement-design/TASK.md)。
 前提：假设审计后续 g 系列计划已完成。与地图相关的是 G8a（正文变化 → 地图册来源核对）和
 G8b（地图变化 → 冲突检查可核对），两者均已实现；第三批 G8c 是正典修订基线，与地图无关。
 本文基于 main `d2ab2dbf3` 核对现状。
-配套 ADR（2026-10-15 由用户采纳，未实施）：[ADR-0035 空间模型 v2 与按项目涌现的空间类型](../adr/0035-genre-neutral-spatial-model-and-custom-vocabulary.md)、
+配套 ADR（2026-10-15 由用户采纳，实施范围及未验项见主任务）：[ADR-0035 空间模型 v2 与按项目涌现的空间类型](../adr/0035-genre-neutral-spatial-model-and-custom-vocabulary.md)、
 [ADR-0036 世界演化可选阅读步骤契约与空间发现](../adr/0036-evolution-optional-reading-steps-and-spatial-discovery.md)、
 [ADR-0037 地图空间信息以参考维度进入创作](../adr/0037-map-spatial-advisory-dimension.md)、
 [ADR-0038 AI 操作目录：风险分级、目标运行与操作留痕](../adr/0038-ai-operation-catalog-goal-runs-and-trace.md)（§10 地图与势力）。

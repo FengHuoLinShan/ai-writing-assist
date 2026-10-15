@@ -11,6 +11,12 @@ Story 是作者工作台的 Scene 级派生层，保存人物卡的时点状态�
 World 仍拥有 canonical Character，Outline 仍拥有 Scene；Story 通过 facade 校验二者，不把
 人物卡或剧本写回 World、Memory、Writing。
 
+Story 前瞻注册 `story.spatial_planning.v1` 地理视角：仅在
+`MAP_SPATIAL_ENABLED_CAPABILITIES` 包含 `story.spatial_planning` 时，经 World 的
+`read_map_spatial_brief` typed port 读取本场显式地点相关的已采用地图。前瞻记录 node/revision/hash
+及来源，提示旅程分段、地点分布和转场；无显式地点或相关简报时不猜测，不推算坐标距离和
+耗时，也不在缺少领地资料时判断势力接壤。此能力默认关闭，只出建议，不修改大纲或 Scene。
+
 ## 物理 owner 融合
 
 Story 同时拥有原 Outline 与 Memory 的唯一生产实现，内部子域位于

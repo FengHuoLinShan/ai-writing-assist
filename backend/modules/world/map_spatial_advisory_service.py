@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import asdict, is_dataclass
 from typing import Any
 
 from sqlalchemy import and_, select
@@ -15,6 +16,7 @@ from modules.evidence import facade as evidence_facade
 from modules.evidence.contracts import VisibilityContextContract
 from modules.world.map_spatial_advisory_schemas import (
     MapSpatialAdvisoryItem,
+    MapSpatialAdvisoryMapRevision,
     MapSpatialAdvisoryRequest,
     MapSpatialAdvisoryResponse,
 )
@@ -41,6 +43,8 @@ def _as_dict(value: object) -> dict[str, Any]:
         return value
     if hasattr(value, "model_dump"):
         return value.model_dump(mode="python")
+    if is_dataclass(value) and not isinstance(value, type):
+        return asdict(value)
     return {}
 
 
@@ -206,6 +210,13 @@ class MapSpatialAdvisoryService:
             else MapSpatialAdvisoryRequest.model_validate(request)
         )
         await get(PROJECT_REQUIRE_ACTIVE)(db, data.novel_id)
+        if data.reveal_mode == "character" and not data.viewpoint_character_id:
+            raise ValidationError("角色视角空间提醒必须指定视角人物")
+        excluded = {
+            part
+            for value in data.excluded_ids
+            for part in (str(value).split(":")[1:] or [str(value)])
+        }
         story_port = get(STORY_SCENE_SOURCE)
         scene = await story_port.get_scene_contract(db, data.novel_id, data.scene_id)
         scene_data = _as_dict(scene)
@@ -217,13 +228,37 @@ class MapSpatialAdvisoryService:
         ):
             return MapSpatialAdvisoryResponse(scene_id=data.scene_id)
         scene_index = scene_data.get("scene_index")
-        if isinstance(scene_index, bool) or not isinstance(scene_index, int):
+        if (
+            isinstance(scene_index, bool)
+            or not isinstance(scene_index, int)
+            or scene_index < 0
+        ):
             return MapSpatialAdvisoryResponse(scene_id=data.scene_id)
+        metadata = scene_data.get("structure_meta") or {}
+        scene_locations = {
+            str(metadata[key])
+            for key in ("location_id", "location_entity_id")
+            if metadata.get(key)
+        }
+        scene_locations.update(
+            location
+            for transition in data.transitions
+            for location in (transition.from_location_id, transition.to_location_id)
+        )
+        scene_locations.difference_update(excluded)
+        if not scene_locations:
+            return MapSpatialAdvisoryResponse(
+                scene_id=data.scene_id,
+                scene_index=scene_index,
+                unknowns=[
+                    "本场没有显式地点身份，无法核对地图；未根据名称或坐标猜测地点。"
+                ],
+            )
         temporal_scenes = await story_port.read_temporal_anchor_scenes(db, data.novel_id)
         temporal_scenes = [
             _as_dict(item)
             for item in temporal_scenes
-            if isinstance(item, dict) or hasattr(item, "model_dump")
+            if isinstance(item, dict) or hasattr(item, "model_dump") or is_dataclass(item)
         ]
         scene_chapters = [
             int(value)
@@ -265,16 +300,29 @@ class MapSpatialAdvisoryService:
                         MapAtlasRevision.status == "saved",
                     )
                     .order_by(MapAtlasNode.sort_order, MapAtlasNode.id)
-                    .limit(_MAX_MAP_NODES)
+                    .limit(_MAX_MAP_NODES + 1)
                 )
             ).all()
         )
+        if cutoff_chapter is None:
+            return MapSpatialAdvisoryResponse(
+                scene_id=data.scene_id,
+                scene_index=scene_index,
+                unknowns=["本场没有可核对的截止章节，空间资料未核对。"] if rows else [],
+            )
         docs: list[tuple[object, object, MapDocument]] = []
         type_refs: dict[tuple, str] = {}
-        omitted = 0
-        for node, revision in rows:
+        omitted = max(0, len(rows) - _MAX_MAP_NODES)
+        for node, revision in rows[:_MAX_MAP_NODES]:
+            if str(node.id) in excluded or str(revision.id) in excluded:
+                continue
             try:
                 document = MapDocument.model_validate(revision.document)
+                if not any(
+                    str(feature.entity_id or "") in scene_locations
+                    for feature in document.features
+                ):
+                    continue
                 for pair, kind in _document_type_references(document).items():
                     prior = type_refs.setdefault(pair, kind)
                     if prior != kind:
@@ -295,10 +343,27 @@ class MapSpatialAdvisoryService:
         def type_is_active(ref, revision_id) -> bool:
             if ref is None:
                 return True
+            if str(ref) in excluded or str(revision_id) in excluded:
+                return False
             value = resolved_types.get((ref, revision_id))
             return bool(value and value.get("status") == "active")
 
+        source_checks: dict[tuple, bool] = {}
+
         async def sources_current(item, *, revision_has_task: bool) -> bool:
+            decision = getattr(item, "author_decision", None)
+            key = (
+                revision_has_task,
+                getattr(decision, "statement_hash", None),
+                tuple(source.model_dump_json() for source in item.sources),
+            )
+            if key not in source_checks:
+                source_checks[key] = await check_sources(
+                    item, revision_has_task=revision_has_task
+                )
+            return source_checks[key]
+
+        async def check_sources(item, *, revision_has_task: bool) -> bool:
             sources = list(getattr(item, "sources", None) or [])
             author_decision = getattr(item, "author_decision", None)
             if not sources and revision_has_task and author_decision is None:
@@ -307,6 +372,11 @@ class MapSpatialAdvisoryService:
                 return bool(getattr(author_decision, "statement_hash", None))
             service = MapStructureService()
             for source in sources:
+                if str(source.id) in excluded or (
+                    source.kind == "source_range"
+                    and (source.source_ref or {}).get("content_mode") != "canonical"
+                ):
+                    return False
                 try:
                     await service.source(db, data.novel_id, source)
                 except (
@@ -320,7 +390,31 @@ class MapSpatialAdvisoryService:
                 if source.kind == "entity":
                     if not await entity_visible(str(source.id)):
                         return False
+                    inspected = await evidence_facade.inspect_novel_target(
+                        db,
+                        novel_id=data.novel_id,
+                        target_ref={
+                            "target_type": "world_entity",
+                            "target_id": str(source.id),
+                        },
+                        content_mode="canonical",
+                        visibility=VisibilityContextContract(
+                            mode="character"
+                            if data.reveal_mode == "character"
+                            else "reader",
+                            character_id=data.viewpoint_character_id
+                            if data.reveal_mode == "character"
+                            else None,
+                            cutoff_chapter=cutoff_chapter,
+                            cutoff_scene_id=data.scene_id,
+                        ),
+                    )
+                    safe_text = str(inspected.get("item") or {})
+                    if source.quote and source.quote not in safe_text:
+                        return False
                 elif source.kind == "world_bible_page":
+                    if data.reveal_mode in {"reader", "character"}:
+                        return False
                     decisions = await check_knowledge_visibility(
                         db,
                         data.novel_id,
@@ -331,6 +425,9 @@ class MapSpatialAdvisoryService:
                                 apply_reader_reveal=True,
                                 cutoff_chapter=cutoff_chapter,
                                 cutoff_scene_id=data.scene_id,
+                                character_id=data.viewpoint_character_id
+                                if data.reveal_mode == "character"
+                                else None,
                             )
                         ],
                     )
@@ -372,7 +469,12 @@ class MapSpatialAdvisoryService:
                         novel_id=data.novel_id,
                         source_ref=SourceRangeRefContract(**source.source_ref),
                         visibility=VisibilityContextContract(
-                            mode="reader",
+                            mode="character"
+                            if data.reveal_mode == "character"
+                            else "reader",
+                            character_id=data.viewpoint_character_id
+                            if data.reveal_mode == "character"
+                            else None,
                             cutoff_chapter=cutoff_chapter,
                             cutoff_scene_id=data.scene_id,
                         ),
@@ -389,6 +491,8 @@ class MapSpatialAdvisoryService:
             return True
 
         async def entity_visible(entity_id: str) -> bool:
+            if entity_id in excluded:
+                return False
             decisions = await check_knowledge_visibility(
                 db,
                 data.novel_id,
@@ -399,12 +503,32 @@ class MapSpatialAdvisoryService:
                         apply_reader_reveal=True,
                         cutoff_chapter=cutoff_chapter,
                         cutoff_scene_id=data.scene_id,
+                        character_id=data.viewpoint_character_id
+                        if data.reveal_mode == "character"
+                        else None,
                     )
                 ],
             )
-            return bool(decisions and decisions[0].visible)
+            if not (decisions and decisions[0].visible):
+                return False
+            inspected = await evidence_facade.inspect_novel_target(
+                db,
+                novel_id=data.novel_id,
+                target_ref={"target_type": "world_entity", "target_id": entity_id},
+                content_mode="canonical",
+                visibility=VisibilityContextContract(
+                    mode="character" if data.reveal_mode == "character" else "reader",
+                    character_id=data.viewpoint_character_id
+                    if data.reveal_mode == "character"
+                    else None,
+                    cutoff_chapter=cutoff_chapter,
+                    cutoff_scene_id=data.scene_id,
+                ),
+            )
+            return bool(inspected.get("visible") and inspected.get("item"))
 
         items: list[MapSpatialAdvisoryItem] = []
+        baselines: list[MapSpatialAdvisoryMapRevision] = []
         for node, revision, document in docs:
             feature_by_id = {feature.id: feature for feature in document.features}
             unavailable_spaces = {
@@ -431,6 +555,7 @@ class MapSpatialAdvisoryService:
                         feature, revision_has_task=bool(revision.task_id)
                     )
                 ):
+                    omitted += 1
                     continue
                 pair = (feature.type_ref, feature.type_revision_id)
                 resolved = resolved_types.get(pair) if feature.type_ref else None
@@ -440,11 +565,8 @@ class MapSpatialAdvisoryService:
                     feature, scenes=temporal_scenes, scene_index=scene_index
                 ):
                     valid_features[feature.id] = feature
-                elif (
-                    feature.entity_id is not None
-                    and _excluded_by_validity(
-                        feature, scenes=temporal_scenes, scene_index=scene_index
-                    )
+                elif feature.entity_id is not None and _excluded_by_validity(
+                    feature, scenes=temporal_scenes, scene_index=scene_index
                 ):
                     inactive_location_features[str(feature.entity_id)] = feature
                     continue
@@ -456,6 +578,15 @@ class MapSpatialAdvisoryService:
                     and "movable" in resolved["traits"].other
                 ):
                     movable_entity_ids.add(str(feature.entity_id))
+
+            if not any(
+                str(feature.entity_id or "") in scene_locations
+                for feature in [
+                    *valid_features.values(),
+                    *inactive_location_features.values(),
+                ]
+            ):
+                continue
 
             valid_constraints = []
             expired_connections = []
@@ -493,6 +624,7 @@ class MapSpatialAdvisoryService:
                         },
                     )
                 ):
+                    omitted += 1
                     continue
                 endpoints_active = endpoints.issubset(valid_features)
                 if not endpoints_active:
@@ -574,6 +706,7 @@ class MapSpatialAdvisoryService:
                         )
                     )
                 ):
+                    omitted += 1
                     continue
                 if (
                     valid_features[journey.origin].space_id
@@ -622,7 +755,25 @@ class MapSpatialAdvisoryService:
                     )
                 )
 
+            baselines.append(
+                MapSpatialAdvisoryMapRevision(
+                    node_id=str(node.id),
+                    revision_id=str(revision.id),
+                    revision_hash=str(
+                        revision.geometry_hash or stable_hash(revision.document)
+                    ),
+                    source_hashes=_source_hashes(
+                        [*valid_features.values(), *valid_constraints, *valid_journeys]
+                    ),
+                )
+            )
             for transition in data.transitions:
+                if {
+                    transition.from_location_id,
+                    transition.to_location_id,
+                    transition.mover_id,
+                } & excluded:
+                    continue
                 endpoint_features = {
                     str(feature.entity_id): feature
                     for feature in valid_features.values()
@@ -633,15 +784,11 @@ class MapSpatialAdvisoryService:
                 inactive_target = inactive_location_features.get(
                     transition.to_location_id
                 )
-                if (
-                    inactive_target is not None
-                    and transition.to_location_id
-                    not in {
-                        str(feature.entity_id)
-                        for feature in valid_features.values()
-                        if feature.entity_id
-                    }
-                ):
+                if inactive_target is not None and transition.to_location_id not in {
+                    str(feature.entity_id)
+                    for feature in valid_features.values()
+                    if feature.entity_id
+                }:
                     items.append(
                         MapSpatialAdvisoryItem(
                             rule_code="location_not_effective",
@@ -661,6 +808,13 @@ class MapSpatialAdvisoryService:
                         )
                     )
                 if start is None or end is None:
+                    continue
+                if any(
+                    (journey.origin, journey.destination) == (start.id, end.id)
+                    for journey in valid_journeys
+                ):
+                    # A declared journey is route evidence, even without a drawn edge.
+                    # It still does not prove timing or suitability for this traveler.
                     continue
                 if start.space_id != end.space_id:
                     if transition.mover_id not in movable_entity_ids:
@@ -779,7 +933,8 @@ class MapSpatialAdvisoryService:
                 if (
                     (
                         disconnected_known_network
-                        or expired_match and not has_active_connection
+                        or expired_match
+                        and not has_active_connection
                     )
                     and transition.from_location_id in known_route_endpoints
                     and transition.to_location_id in known_route_endpoints
@@ -820,6 +975,10 @@ class MapSpatialAdvisoryService:
             scene_index=scene_index,
             items=ordered[:_MAX_ADVISORIES],
             omitted_count=omitted + max(0, len(ordered) - _MAX_ADVISORIES),
+            map_revisions=baselines,
+            unknowns=["未提供正文明确的场景间时间间隔，无法判断移动是否来得及。"]
+            if data.transitions
+            else [],
         )
 
 

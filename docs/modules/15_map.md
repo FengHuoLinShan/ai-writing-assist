@@ -533,6 +533,15 @@ Evidence 通过 World `read_map_spatial_brief` 只读 facade 消费已采用节�
 
 Writing 的确定性空间提醒能力 `writing.conflict_check.spatial_advisory` 与 Story 大纲地理前瞻能力 `story.spatial_planning` 通过 `MAP_SPATIAL_ENABLED_CAPABILITIES` 分别开启，默认关闭。两者只提供建议，不修改正文或阻止写作；Story 只读取场景显式地点相关的 M3 空间简报，用来检查旅程分段和地点分布，地图未覆盖不证明地点/路线不存在，当前也不根据地图推断势力边界。
 
+提醒请求可携带角色视角与排除项；缺少角色身份时拒绝角色视角，所有路径仍重验当前
+canonical 对象、精确原文模式及可见投影。没有显式 Scene 地点或受信位置转换时只返回
+unknown。响应的 `map_revisions` 包含实际核对过但未触发提醒的版本，供 Writing 写入 G8b
+基线；查询在 Savepoint 内失败时只回报 `not_checked`，检查仍可保存。
+
+Ask World 没有明确 Scene 或截止章节时不猜范围，已有地图会在参考回执提示先选择范围，
+无地图则不添加提示。作者可在现有参考确认弹窗输入章节；已确认 Context 按冻结的
+Scene/章节、选择与排除范围取得地图参考，回答引用携带同一时点并在打开或保存前重新核对。
+
 七个 Evidence consumer 与 Assistant v5 的只读地图工具各有独立 `MAP_SPATIAL_ENABLED_CAPABILITIES` 开关，默认空集合。简报最多 20 个地图节点、每节点 3000 字符；作者排除、失效来源、超出预算或范围的参考写入 advisory 省略信息，不使必查知识范围阻断。Context confirmation 保存节点 revision/hash；地图变化时沿用 G8b `read_map_node_heads` 读时提示，不回写核对状态。五题材 paired eval 尚未运行，`human_validated=false`，因此所有消费开关保持关闭。
 
 空间参考只使用核心上下文的剩余预算；语义审查与定向返修复用生成确认时按各自开关读取地图，

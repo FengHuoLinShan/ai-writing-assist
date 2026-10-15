@@ -759,6 +759,8 @@ __all__ = [
     "MapSpatialBriefItem",
     "MapSpatialBriefRequest",
     "MapSpatialBriefResponse",
+    "MapSpatialAdvisoryRequest",
+    "MapSpatialAdvisoryResponse",
     "MergeResult",
     "ResolveResult",
     "WorldBackgroundBundleContract",
@@ -770,6 +772,7 @@ __all__ = [
     "WorldBibleSynopsisContextContract",
     "WorldAliasRelationTaskPort",
     "WorldReadMapSpatialBriefPort",
+    "WorldReadMapSpatialAdvisoriesPort",
     "normalize_author_entity_type",
 ]
 

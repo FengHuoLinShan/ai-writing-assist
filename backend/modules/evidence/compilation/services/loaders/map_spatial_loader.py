@@ -86,3 +86,5 @@ class MapSpatialLoader(Loader):
         )
         if result.items:
             bundle.map_spatial_brief = result.model_dump(mode="json")
+        if unknowns := getattr(result, "unknowns", None):
+            bundle.warnings.extend(str(value) for value in unknowns)

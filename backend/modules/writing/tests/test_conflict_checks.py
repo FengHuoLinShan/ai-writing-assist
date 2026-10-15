@@ -2478,12 +2478,8 @@ async def test_map_staleness_compares_head_revision_and_adoption(
         "node-same": head("node-same", "甲图", "adopted", "rev-a", []),
         "node-revved": head("node-revved", "乙图", "adopted", "rev-new", []),
         # node-gone 缺失：删除即已变。
-        "node-unadopted": head(
-            "node-unadopted", "丙图", "provisional", "rev-d", []
-        ),
-        "node-sources": head(
-            "node-sources", None, "adopted", "", ["e" * 64, "g" * 64]
-        ),
+        "node-unadopted": head("node-unadopted", "丙图", "provisional", "rev-d", []),
+        "node-sources": head("node-sources", None, "adopted", "", ["e" * 64, "g" * 64]),
         "node-sources-drifted": head(
             "node-sources-drifted", None, "adopted", "", ["g" * 64]
         ),
@@ -2723,9 +2719,7 @@ async def test_list_checks_batches_map_head_query_per_novel(
         "nodes": [],
         "truncated": False,
     }
-    assert all(
-        novel in {str(novel_id), str(other_novel_id)} for novel, _ in calls
-    )
+    assert all(novel in {str(novel_id), str(other_novel_id)} for novel, _ in calls)
 
     # 没有任何基线时列表读取不触发 head 查询。
     calls.clear()

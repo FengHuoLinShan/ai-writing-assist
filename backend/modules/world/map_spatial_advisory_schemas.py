@@ -21,6 +21,9 @@ class MapSpatialAdvisoryRequest(BaseModel):
     novel_id: str
     scene_id: str
     transitions: list[MapSpatialTransition] = Field(default_factory=list, max_length=50)
+    reveal_mode: Literal["author_safe", "reader", "character"] = "author_safe"
+    viewpoint_character_id: str | None = None
+    excluded_ids: list[str] = Field(default_factory=list, max_length=200)
 
 
 class MapSpatialAdvisoryItem(BaseModel):
@@ -44,6 +47,15 @@ class MapSpatialAdvisoryItem(BaseModel):
     unknowns: list[str] = Field(default_factory=list, max_length=4)
 
 
+class MapSpatialAdvisoryMapRevision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    node_id: str
+    revision_id: str
+    revision_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    source_hashes: list[str] = Field(default_factory=list, max_length=32)
+
+
 class MapSpatialAdvisoryResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -51,3 +63,7 @@ class MapSpatialAdvisoryResponse(BaseModel):
     scene_index: int | None = None
     items: list[MapSpatialAdvisoryItem] = Field(default_factory=list, max_length=100)
     omitted_count: int = Field(default=0, ge=0)
+    map_revisions: list[MapSpatialAdvisoryMapRevision] = Field(
+        default_factory=list, max_length=200
+    )
+    unknowns: list[str] = Field(default_factory=list, max_length=4)

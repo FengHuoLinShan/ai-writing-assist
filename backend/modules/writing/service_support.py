@@ -204,11 +204,7 @@ async def _default_map_spatial_advisory_loader(
 
     return await get(WORLD_READ_MAP_SPATIAL_ADVISORIES)(
         db,
-        {
-            "novel_id": novel_id,
-            "scene_id": scene_id,
-            "transitions": transitions,
-        },
+        {"novel_id": novel_id, "scene_id": scene_id, "transitions": transitions},
     )
 
 

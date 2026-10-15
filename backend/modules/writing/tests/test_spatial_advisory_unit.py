@@ -42,14 +42,21 @@ def test_spatial_transitions_require_a_trusted_checkpoint_at_this_scene() -> Non
     checkpoint["items"][0]["confirmed"] = False
     assert WritingConflictCheckService._map_spatial_transitions(checkpoint, scene) == []
     checkpoint["items"][0]["confirmed"] = True
-    assert WritingConflictCheckService._map_spatial_transitions(
-        checkpoint, SimpleNamespace(scene_index=4)
-    ) == []
+    assert (
+        WritingConflictCheckService._map_spatial_transitions(
+            checkpoint, SimpleNamespace(scene_index=4)
+        )
+        == []
+    )
 
 
 def test_same_object_in_two_scene_locations_remains_an_advisory() -> None:
     scene = SimpleNamespace(
-        id=str(uuid.uuid4()), title="同场多地", pov_character_id=None, structure_meta={}
+        id=str(uuid.uuid4()),
+        scene_index=3,
+        title="同场多地",
+        pov_character_id=None,
+        structure_meta={},
     )
     subject_id = str(uuid.uuid4())
     checkpoint = {
@@ -80,3 +87,10 @@ def test_same_object_in_two_scene_locations_remains_an_advisory() -> None:
         for item in items
     )
     assert all(item["needs_review"] is True for item in items)
+
+    # Earlier checkpoint history cannot become a contradiction in the current Scene.
+    scene.scene_index = 4
+    assert (
+        WritingConflictCheckService()._space_rule_items(scene, checkpoint, map_facts=[])
+        == []
+    )

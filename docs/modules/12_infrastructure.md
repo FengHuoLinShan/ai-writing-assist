@@ -465,7 +465,13 @@ bucket。这不是分布式或全局 DDoS 防护，也不表示当前外部 Clou
 | writing | `publish_chapter`、`writing_generate`、`writing_semantic_review`、`writing_targeted_revision`、`writing_comment_run`、`writing_conflict_ai_review`、`writing_conflict_item_ai_suggestion` |
 | imports | `deep_import`、`scene_auto_extraction`、`world_object_auto_extraction`、`plot_structure_auto_extraction` |
 | interaction | `interaction_story_generate`、`interaction_summary_refresh` |
-| evolution | `evolution_scene_step_v2`、`evolution_world_audit_supplement_v1` |
+| evolution | `evolution_scene_step_v2`、`evolution_world_audit_supplement_v1`、`evolution_category_rescan_v1`、`evolution_spatial_rescan_v1` |
+
+`evolution_spatial_rescan_v1` 使用 `manual_resume` 恢复策略，根能力为
+`evolution.spatial_discover`，沿用 Evolution 的任务预算与请求额度计算；它不是新队列。
+地图只读组合根分别注册 `world.read_map_spatial_brief` 与
+`world.read_map_spatial_advisories` typed port。后者接收显式 Scene 请求并返回提醒、覆盖省略
+与实际核对的地图版本；Writing 在 Savepoint 内读取，可选查询失败不污染检查保存事务。
 
 任务处理器仍由 owning 模块的 `tasks.py` 声明；`app.task_runtime` 拥有 API 与 worker 共同
 消费的显式启动 manifest，并负责在两个组合根注册这些声明。`infrastructure/tasks` 不导入或

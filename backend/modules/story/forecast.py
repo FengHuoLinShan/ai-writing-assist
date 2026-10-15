@@ -41,6 +41,8 @@ def _spatial_planning_fact(scene, brief) -> dict | None:
             content = json.loads(str(getattr(item, "content", "")))
         except (TypeError, ValueError):
             continue
+        if not isinstance(content, dict) or not content.get("当前地点"):
+            continue
         revisions.append(
             {
                 "node_id": str(getattr(item, "node_id", "")),

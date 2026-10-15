@@ -33,6 +33,10 @@ def rollout_available(novel_id, capability):
     from core.config import get_settings
 
     settings = get_settings()
+    if capability == "story.spatial_planning.v1" and "story.spatial_planning" not in set(
+        settings.map_spatial_enabled_capabilities
+    ):
+        return False
     return capability not in settings.forecast_disabled_capabilities and (
         not settings.forecast_project_allowlist
         or str(novel_id) in settings.forecast_project_allowlist
