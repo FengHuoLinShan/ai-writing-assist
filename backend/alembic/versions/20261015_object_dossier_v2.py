@@ -1,7 +1,7 @@
 """create revisioned World object dossier entries and preserve legacy profiles
 
 Revision ID: 20261015_object_dossier_v2
-Revises: 20261015_map_node_merge
+Revises: 20261015_notice_dispositions
 Create Date: 2026-10-15
 """
 
@@ -17,7 +17,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20261015_object_dossier_v2"
-down_revision: str | None = "20261015_map_node_merge"
+down_revision: str | None = "20261015_notice_dispositions"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -48,8 +48,18 @@ def upgrade() -> None:
         sa.Column("end_anchor_id", sa.UUID(), nullable=True),
         sa.Column("revision_reason", sa.String(length=48), nullable=True),
         sa.Column("restored_from_id", sa.UUID(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.timezone("utc", sa.func.now()),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.timezone("utc", sa.func.now()),
+            nullable=True,
+        ),
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("novel_id", sa.UUID(), nullable=False),
         sa.CheckConstraint(
@@ -320,7 +330,6 @@ def _backfill_legacy_profiles() -> None:
             "population_summary": ("appearance_people", "public"),
             "resources_json": ("resources", "public"),
             "hazards_json": ("dangers", "public"),
-            "controlling_faction_ids_json": ("control", "public"),
         },
         "rule_profiles": {
             "rule_domain": ("known_scope", "public"),
@@ -333,14 +342,11 @@ def _backfill_legacy_profiles() -> None:
             "item_class": ("form_appearance", "public"),
             "powers_json": ("abilities_limits", "public"),
             "limitations_json": ("abilities_limits", "public"),
-            "owner_entity_ids_json": ("meaning", "public"),
             "origin_summary": ("origin", "public"),
         },
         "secret_profiles": {
             "truth_summary": ("truth", "secret"),
-            "holder_entity_ids_json": ("knowledge_scope", "secret"),
             "risk_level": ("risk", "secret"),
-            "reveal_status": ("reveal_plan", "secret"),
             "linked_target_refs_json": ("reveal_plan", "secret"),
         },
     }

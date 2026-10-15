@@ -254,15 +254,17 @@ async def _template_history(db, novel_id, args, *, context=None):
     return result.model_dump(mode="json")
 
 
-def _trace(schema: type[BaseModel]) -> dict:
+def _trace(parameter_fields: tuple[str, ...]) -> dict:
     return {
-        "parameter_fields": tuple(schema.model_fields),
+        "parameter_fields": parameter_fields,
         "mode": "per_call",
         "parameter_policy": "schema_safe",
     }
 
 
-def _read_metadata(schema: type[BaseModel], description: str, target_type: str) -> dict:
+def _read_metadata(
+    parameter_fields: tuple[str, ...], description: str, target_type: str
+) -> dict:
     return {
         "op_version": "1",
         "description": description,
@@ -274,12 +276,14 @@ def _read_metadata(schema: type[BaseModel], description: str, target_type: str) 
         "target_type": target_type,
         "ai_available": True,
         "transaction_mode": "single_transaction",
-        "trace_rule": _trace(schema),
+        "trace_rule": _trace(parameter_fields),
         "permission": "read",
     }
 
 
-def _write_metadata(schema: type[BaseModel], description: str, target_type: str) -> dict:
+def _write_metadata(
+    parameter_fields: tuple[str, ...], description: str, target_type: str
+) -> dict:
     return {
         "op_version": "1",
         "description": description,
@@ -295,7 +299,7 @@ def _write_metadata(schema: type[BaseModel], description: str, target_type: str)
         "target_type": target_type,
         "ai_available": True,
         "transaction_mode": "single_transaction",
-        "trace_rule": _trace(schema),
+        "trace_rule": _trace(parameter_fields),
         "permission": "confirm",
     }
 
@@ -306,7 +310,9 @@ OPERATIONS_SPEC = {
         "schema": ReadDossier,
         "prepare": _read_dossier,
         **_read_metadata(
-            ReadDossier, "读取本项目对象的 World 设定层档案。", "core_entity"
+            ("entity_id", "as_of_scene_id", "limit", "offset"),
+            "读取本项目对象的 World 设定层档案。",
+            "core_entity",
         ),
     },
     "world.dossier.history.read": {
@@ -314,7 +320,9 @@ OPERATIONS_SPEC = {
         "schema": ReadDossierHistory,
         "prepare": _read_history,
         **_read_metadata(
-            ReadDossierHistory, "读取本项目对象的可恢复档案修订历史。", "core_entity"
+            ("entity_id", "entry_group_id", "limit", "offset"),
+            "读取本项目对象的可恢复档案修订历史。",
+            "core_entity",
         ),
     },
     "world.dossier.template.read": {
@@ -322,7 +330,7 @@ OPERATIONS_SPEC = {
         "schema": ReadDossierTemplate,
         "prepare": _read_template,
         **_read_metadata(
-            ReadDossierTemplate,
+            ("profile_type",),
             "读取本项目对象类型使用的面向模板。",
             "world_dossier_template",
         ),
@@ -333,7 +341,9 @@ OPERATIONS_SPEC = {
         "prepare": _create_preview,
         "apply": _create_apply,
         **_write_metadata(
-            CreateDossierEntry, "预览并在作者确认后新增一条对象档案。", "core_entity"
+            ("entity_id", "entry"),
+            "预览并在作者确认后新增一条对象档案。",
+            "core_entity",
         ),
     },
     "world.dossier.entry.edit": {
@@ -342,7 +352,9 @@ OPERATIONS_SPEC = {
         "prepare": _edit_preview,
         "apply": _edit_apply,
         **_write_metadata(
-            EditDossierEntry, "预览并在作者确认后追加对象档案修订。", "core_entity"
+            ("entity_id", "revision_id", "update"),
+            "预览并在作者确认后追加对象档案修订。",
+            "core_entity",
         ),
     },
     "world.dossier.entry.restore": {
@@ -351,7 +363,7 @@ OPERATIONS_SPEC = {
         "prepare": _restore_preview,
         "apply": _restore_apply,
         **_write_metadata(
-            RestoreDossierEntry,
+            ("entity_id", "entry_group_id", "restore"),
             "预览并在作者确认后把历史内容恢复为新修订。",
             "core_entity",
         ),
@@ -362,7 +374,7 @@ OPERATIONS_SPEC = {
         "prepare": _template_edit_preview,
         "apply": _template_edit_apply,
         **_write_metadata(
-            EditDossierTemplate,
+            ("profile_type", "update"),
             "预览并在作者确认后追加对象档案模板修订。",
             "world_dossier_template",
         ),

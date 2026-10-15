@@ -88,6 +88,15 @@ class RelationInPanorama(BaseModel):
     status: str = "canonical"
     attitude: RelationAttitude | None = None
 
+    @model_validator(mode="after")
+    def attitude_matches_relation(self) -> RelationInPanorama:
+        if self.attitude is not None and (
+            self.attitude.source_entity_id != self.source_id
+            or self.attitude.target_entity_id != self.target_id
+        ):
+            raise ValueError("attitude direction must match relation endpoints")
+        return self
+
 
 class CharacterLocationInPanorama(BaseModel):
     """全景中的角色位置"""

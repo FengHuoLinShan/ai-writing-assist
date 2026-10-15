@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.container import get
 from core.errors import ConflictError, NotFoundError, ValidationError
 from core.service_keys import STORY_SCENE_SOURCE
+from modules.project.facade import require_active_project
 from modules.world.dossier_repository import WorldObjectDossierRepository
 from modules.world.map_spatial_anchors import resolve_anchor, resolve_validity
 from modules.world.models import (
@@ -264,6 +265,8 @@ class WorldObjectDossierService:
         lock: bool = False,
         require_canonical: bool = False,
     ) -> CoreEntity:
+        if lock:
+            await require_active_project(db, novel_id, allow_demo_readonly=False)
         nid = parse_uuid(novel_id, "novel_id")
         eid = parse_uuid(entity_id, "entity_id")
         statement = select(CoreEntity).where(
@@ -532,7 +535,7 @@ class WorldObjectDossierService:
             dossier_fingerprint=fingerprint,
             layers=["world"],
             unavailable_layers=["continuity", "evolution"],
-            unknown=not result,
+            unknown=total_count == 0,
         )
 
     async def history(
@@ -900,6 +903,12 @@ class WorldObjectDossierService:
             raise NotFoundError("档案历史版本不存在")
         if not selected.content.strip() or selected.status == "cleared":
             raise ValidationError("清除版本没有可恢复的档案内容")
+        if selected.facing_kind == "project":
+            term, _revision = await self._vocabulary_record(
+                db, entity.novel_id, selected.vocabulary_term_id
+            )
+            if term.status != "active" or term.kind != "dossier_facing":
+                raise ConflictError("档案面向已停用，请刷新后重试")
         current = next((item for item in rows if item.status == "active"), None)
         if (current.id if current else None) != data.expected_current_revision_id:
             raise ConflictError("档案已变化，请刷新后重试", code="dossier_revision_stale")
@@ -939,6 +948,13 @@ class WorldObjectDossierService:
             raise NotFoundError("档案历史版本不存在")
         if not selected.content.strip() or selected.status == "cleared":
             raise ValidationError("清除版本没有可恢复的档案内容")
+        await self._validate_validity(db, nid, _validity_from_row(selected))
+        if selected.facing_kind == "project":
+            term, _revision = await self._vocabulary_record(
+                db, nid, selected.vocabulary_term_id
+            )
+            if term.status != "active" or term.kind != "dossier_facing":
+                raise ConflictError("档案面向已停用，请刷新后重试")
         current = next((item for item in rows if item.status == "active"), None)
         actual_current = current.id if current else None
         if actual_current != data.expected_current_revision_id:
@@ -965,6 +981,7 @@ class WorldObjectDossierService:
             validity=_validity_from_row(selected),
             source=source,
             reason="author_restore",
+            legacy_value_json=selected.legacy_value_json,
             metadata_json=dict(selected.metadata_json or {}),
             restored_from_id=selected.id,
         )
@@ -1171,6 +1188,7 @@ class WorldObjectDossierService:
         *,
         source: str = "author",
     ) -> DossierTemplateResponse:
+        await require_active_project(db, novel_id, allow_demo_readonly=False)
         if source not in DOSSIER_SOURCES:
             raise ValidationError("档案模板来源不在支持的来源类型中")
         nid = parse_uuid(novel_id, "novel_id")
