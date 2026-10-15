@@ -146,6 +146,9 @@ request messages。需要主动裁剪上下文时，应显式使用 `ContextBudg
 `schemas.py` 定义版本化内部契约 `AIRunEnvelopeV1` 与 `AIStepReceiptV1`；
 `workflow_budget.py` 的 `AIRunEnvelope` 是运行期累计账本，`ai_run_scope()` 与
 `managed_step_scope()` 用 ContextVar 把运行身份和当前受管 step 注入调用链。
+Goal v3 仅接受作者冻结的 Goal 范围；Assistant 目录 v4 只接受服务端冻结的
+`story.character_card`、`story.reaction` 子能力，且沿用父任务账本与启动时间。
+v4 的未知扣费或 80% 请求阈值在下一次 provider 预留前拒绝；v1/v2 能力规则不变。
 一次权威领域运行只有一个 run：自动重试、恢复、requeue 与 manual resume 都累加同一账本，
 只有作者明确续算或确认可能重复扣费时才通过 `authorize_additional_requests()` 增加请求额度，
 且不移动既有 deadline。

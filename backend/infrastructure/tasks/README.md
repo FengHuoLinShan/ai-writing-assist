@@ -324,6 +324,9 @@ worker 与 inline 在 handler 执行前为 attempt 注入 `task_id/attempt/lease
 自动 requeue、stale 恢复与 manual resume 只更换执行载体，不重置累计计数、冻结额度或 deadline；
 inline 子任务复用父 run，不另开账本。快照通过 `TaskLifecycleService.checkpoint_run_envelope()` 的
 窄 lease-fenced merge 落库，只合并该私有键，不提交或覆盖 handler 的业务事务；lease 丢失时拒绝写入。
+`assistant_turn` 的新 v9 任务从冻结目录派生 C2 Story 子能力与指纹，私有任务范围和 v4 信封
+在恢复时逐项核对；旧 v1/v2 信封与旧运行不因此获得跨域能力。子任务只能沿父任务内联执行，
+同一累计请求账本达到 80% 或出现未知扣费即停止新 provider 预留。
 终态快照由 `finalize(envelope=...)` 与任务终态在同一事务提交，stale 扫描与 cancel 路径在同一事务内
 把未 settle 的请求收敛为 unknown/possible。没有信封且已领取过一次（`attempt > 1`）的旧在途任务标记
 `legacy_untracked` 且 `usage_complete=false`，不回填猜测计数；首次领取的新任务从本 attempt 开始完整跟踪。
