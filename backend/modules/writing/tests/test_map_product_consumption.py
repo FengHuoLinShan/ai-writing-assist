@@ -6,6 +6,7 @@ import hashlib
 import json
 import uuid
 from contextlib import asynccontextmanager
+from dataclasses import asdict
 from datetime import UTC, datetime
 
 import pytest
@@ -71,7 +72,7 @@ async def _seed_five_scenes(manager):
             content=text,
             content_hash=hashlib.sha256(text.encode()).hexdigest(),
             version_number=1,
-            status="canonical",
+            status="published",
         )
         db.add(draft)
         await db.flush()
@@ -94,6 +95,15 @@ async def _seed_five_scenes(manager):
                 status="canonical",
                 source="manual",
                 chapter_ids=["1"],
+                scene_chunks=[
+                    {
+                        "chapter_index": 1,
+                        "start_offset": start,
+                        "end_offset": end,
+                        "source_draft_id": str(draft.id),
+                        "source_content_hash": draft.content_hash,
+                    }
+                ],
                 structure_meta={},
             )
             db.add(scene)
@@ -252,6 +262,20 @@ async def test_five_scene_writing_without_location_reaches_real_worker(
         client,
     ):
         novel_id, scenes = await _seed_five_scenes(manager)
+        async with manager.session() as db:
+            from modules.writing.facade import build_manuscript_range_ref
+
+            span = await db.scalar(
+                select(SceneSpan).where(SceneSpan.scene_id == uuid.UUID(scenes[-1]))
+            )
+            source_ref = await build_manuscript_range_ref(
+                db,
+                novel_id,
+                draft_id=str(span.source_draft_id),
+                start_offset=span.start_offset,
+                end_offset=span.end_offset,
+                content_mode="canonical",
+            )
         confirmed = await client.post(
             "/api/evidence/compilation/confirm",
             json={
@@ -263,14 +287,25 @@ async def test_five_scene_writing_without_location_reaches_real_worker(
                 "scene_id": scenes[-1],
                 "content_mode": "canonical",
                 "context_mode": "canonical",
+                "pinned_refs": [
+                    {"kind": "source_range", "source_ref": asdict(source_ref)}
+                ],
             },
         )
         assert confirmed.status_code == 201, confirmed.text
         async with manager.session() as db:
             from modules.evidence.compilation.models import ContextConfirmation
+            from modules.evidence.facade import prepare_confirmed_ai_action
 
             row = await db.get(ContextConfirmation, uuid.UUID(confirmed.json()["id"]))
             assert row.compile_options["map_spatial_baseline"] == []
+            context = await prepare_confirmed_ai_action(
+                db,
+                novel_id=novel_id,
+                action="writing.generate",
+                confirmation_id=confirmed.json()["id"],
+            )
+            assert "第五场：暮色。" in context.rendered_markdown
         submitted = await client.post(
             "/api/writing/generate",
             json={
