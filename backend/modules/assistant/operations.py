@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import uuid
 from copy import copy
@@ -19,6 +20,7 @@ from sqlalchemy import select
 from core.container import get
 from core.errors import ConflictError, DomainError, NotFoundError, ValidationError
 from core.service_keys import (
+    ASSISTANT_OPERATION_TRACE,
     ASSISTANT_OPERATIONS,
 )
 from infrastructure.llm.agent_runtime import AgentRunBudget
@@ -34,6 +36,8 @@ from modules.assistant.schemas import (
     WorkContext,
 )
 from modules.project.facade import require_active_project
+
+logger = logging.getLogger(__name__)
 
 
 def catalog() -> dict[str, AssistantOperation]:
@@ -625,19 +629,70 @@ def _ordered(actions: list[dict]) -> list[dict]:
     return ordered
 
 
+async def _record_trace_event(
+    db,
+    *,
+    enabled: bool,
+    novel_id: str,
+    owner_id: str,
+    operation: AssistantOperation,
+    event_type: str,
+    arguments: object,
+    actor_type: str,
+    entrypoint: str,
+    run_id: str,
+    session_id: str | None,
+    call_id: str,
+    parent_call_id: str | None,
+    preview: object = None,
+    result: object = None,
+    error_code: str | None = None,
+    duration_ms: int | None = None,
+    metadata: object = None,
+    trace_status: dict | None = None,
+) -> bool:
+    if not enabled:
+        return True
+    try:
+        saved = await get(ASSISTANT_OPERATION_TRACE)(
+            db,
+            enabled=True,
+            novel_id=novel_id,
+            owner_id=owner_id,
+            operation=operation,
+            event_type=event_type,
+            arguments=arguments,
+            preview=preview,
+            result=result,
+            error_code=error_code,
+            duration_ms=duration_ms,
+            actor_type=actor_type,
+            entrypoint=entrypoint,
+            run_id=run_id,
+            session_id=session_id,
+            call_id=call_id,
+            parent_call_id=parent_call_id,
+            metadata=metadata,
+        )
+    except Exception as exc:
+        logger.warning(
+            "assistant operation trace adapter unavailable",
+            extra={
+                "op_id": operation.op_id,
+                "event_type": event_type,
+                "error_type": type(exc).__name__,
+            },
+        )
+        saved = False
+    if saved is False and isinstance(trace_status, dict):
+        trace_status["incomplete_count"] = trace_status.get("incomplete_count", 0) + 1
+    return saved is not False
+
+
 async def _record_batch_event(db, run, item, operation, event_type, *, error_code=None):
     if not run.request_json.get("operation_trace_enabled"):
         return
-    from core.container import get
-    from core.service_keys import ASSISTANT_OPERATION_TRACE
-
-    context = {
-        "trace_call_id": str(
-            uuid.uuid5(uuid.NAMESPACE_URL, f"{run.id}:action:{item['key']}")
-        ),
-        "trace_parent_call_id": str(run.id),
-    }
-    saved = await get(ASSISTANT_OPERATION_TRACE)(
+    saved = await _record_trace_event(
         db,
         enabled=True,
         novel_id=str(run.novel_id),
@@ -651,8 +706,8 @@ async def _record_batch_event(db, run, item, operation, event_type, *, error_cod
         entrypoint="assistant.batch.confirm",
         run_id=str(run.id),
         session_id=str(run.session_id) if run.session_id else None,
-        call_id=context["trace_call_id"],
-        parent_call_id=context["trace_parent_call_id"],
+        call_id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"{run.id}:action:{item['key']}")),
+        parent_call_id=str(run.id),
     )
     if saved is False:
         checkpoint = dict(run.checkpoint_json or {})
@@ -681,11 +736,13 @@ async def prepare_actions(
         if operation is None:
             raise ValidationError("提案包含当前未提供的操作")
         args = operation.schema.model_validate(proposal.arguments)
+        normalized_arguments = args.model_dump(mode="json")
+        call_id = str(
+            uuid.uuid5(uuid.NAMESPACE_URL, f"{context.run_id}:action:{proposal.key}")
+        )
         action_context = replace(
             context,
-            trace_call_id=str(
-                uuid.uuid5(uuid.NAMESPACE_URL, f"{context.run_id}:action:{proposal.key}")
-            ),
+            trace_call_id=call_id,
         )
         preview = await operation.prepare(db, novel_id, args, context=action_context)
         action_targets = set(
@@ -701,7 +758,7 @@ async def prepare_actions(
         prepared.append(
             {
                 **proposal.model_dump(mode="json"),
-                "arguments": args.model_dump(mode="json"),
+                "arguments": normalized_arguments,
                 "preview": preview,
                 "baseline_hash": fingerprint(preview),
                 "operation_manifest": {
@@ -864,17 +921,18 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
                 "待修改的资料已变化，请重新生成方案", code="assistant_source_stale"
             )
         confirmation_meta["confirmed_previews"].append(fingerprint(preview))
-    for item in batch.actions_json:
-        operation = available.get(item["capability"])
-        if operation is None:
-            continue
-        await _record_batch_event(
-            db,
-            run,
-            item,
-            operation,
-            "confirmed" if item["key"] in keys else "declined",
-        )
+    if not batch.authorization_json:
+        for item in batch.actions_json:
+            operation = available.get(item["capability"])
+            if operation is None:
+                continue
+            await _record_batch_event(
+                db,
+                run,
+                item,
+                operation,
+                "confirmed" if item["key"] in keys else "declined",
+            )
     batch.authorization_json = batch.authorization_json or {
         "owner_id": owner_id,
         "selected": decision.selected,

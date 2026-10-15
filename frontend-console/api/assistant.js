@@ -22,6 +22,14 @@ export const assistant = {
     recheckEditorialIssue: (id, body) => post(`/assistant/editorial/issues/${encodeURIComponent(id)}/recheck`, body),
     reviseEditorialIssues: (body) => post("/assistant/editorial/issues/revise", body),
     capabilities: (novelId) => request(withQuery("/assistant/capabilities", { novel_id: novelId }), { cache: "no-store" }),
+    operationTraceReport: (novelId, period = "180d", options = {}) => request(
+      withQuery("/assistant/operation-traces/aggregate", { novel_id: novelId, period }),
+      { ...options, cache: "no-store" },
+    ),
+    exportOperationTraceReport: (novelId, period = "180d", format = "csv", options = {}) => request(
+      withQuery("/assistant/operation-traces/export", { novel_id: novelId, period, format }),
+      { ...options, cache: "no-store", _responseType: "blob" },
+    ),
     sessions: (novelId, params = {}) => request(withQuery("/assistant/sessions", { ...params, novel_id: novelId }), { cache: "no-store" }),
     createSession: (novelId, title = "项目助手") => post("/assistant/sessions", { novel_id: novelId, title }),
     session: (novelId, sessionId) => request(withQuery(`/assistant/sessions/${sessionId}`, { novel_id: novelId }), { cache: "no-store" }),

@@ -4,6 +4,7 @@ import AuthorPreferencesForm from "./components/AuthorPreferencesForm.vue"
 import DeepImportFields from "./components/DeepImportFields.vue"
 import ImageExportPanel from "./components/ImageExportPanel.vue"
 import ReadingFlow from "../../components/ReadingFlow.vue"
+import OperationTraceReport from "./components/OperationTraceReport.vue"
 import { getApi, getAppState, getConfirm, getRouter, getToast } from "../../bridge/index.js"
 import { useSaveButton } from "../../composables/useSaveButton.js"
 import { useLeaveGuard } from "../../composables/useLeaveGuard.js"
@@ -27,6 +28,7 @@ const TABS = [
   { key: "author", label: "创作偏好" },
   { key: "deep", label: "高级导入" },
   { key: "ai", label: "AI 能力" },
+  { key: "operation-traces", label: "操作留痕" },
 ]
 
 function deepImportSettingsSource(llm) {
@@ -874,7 +876,7 @@ onBeforeUnmount(() => {
       >{{ item.label }}</button>
     </nav>
 
-    <aside v-if="dataReady" class="settings-account-model-notice">
+    <aside v-if="dataReady && tab !== 'operation-traces'" class="settings-account-model-notice">
       <span>AI 文本服务：{{ activeModelLabel }}</span>
       <button
         id="project-settings-goto-global"
@@ -890,7 +892,11 @@ onBeforeUnmount(() => {
       :aria-labelledby="tabId(tab)"
       :aria-busy="loadPending || activeTabSaving"
     >
-      <div v-if="projectLoadError" class="error-card settings-load-error" role="alert">
+      <OperationTraceReport
+        v-if="tab === 'operation-traces'"
+        :project-id="props.projectId"
+      />
+      <div v-else-if="projectLoadError" class="error-card settings-load-error" role="alert">
         <div>
           <strong>当前作品的设置暂时无法加载</strong>
           <p>已有偏好和导入设置没有改变，可以重新加载。</p>

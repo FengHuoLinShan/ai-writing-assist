@@ -7,6 +7,7 @@ import hashlib
 import json
 import math
 import re
+import time
 import uuid
 from collections.abc import Callable, Mapping
 from contextlib import asynccontextmanager
@@ -22,7 +23,11 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from core.config import get_settings
 from core.container import get
 from core.errors import ConflictError, DomainError, NotFoundError, ValidationError
-from core.service_keys import ASSISTANT_OPERATIONS, ASSISTANT_REQUIRE_OPERATION_TARGETS
+from core.service_keys import (
+    ASSISTANT_OPERATION_TRACE,
+    ASSISTANT_OPERATIONS,
+    ASSISTANT_REQUIRE_OPERATION_TARGETS,
+)
 from infrastructure.llm.schemas import (
     AIChargeState,
     AIRunEnvelopeV1,
@@ -310,8 +315,8 @@ def _operation_context(
     goal: dict[str, Any],
     *,
     operation_id: str | None = None,
-    trace_enabled: bool = False,
     entrypoint: str = "assistant.goal",
+    trace_call_id: str | None = None,
 ) -> AssistantOperationContext:
     return AssistantOperationContext(
         run_id=str(run.id),
@@ -323,11 +328,160 @@ def _operation_context(
             "_execution_mode": "inline_only",
             "_parent_task_id": str(run.task_id) if run.task_id else None,
         },
-        trace_enabled=trace_enabled,
+        # Goal records proposal, preview, decision, and terminal evidence only
+        # after its owning lifecycle transition is known. Do not let the
+        # generic callback wrapper emit a second, earlier terminal event.
+        trace_enabled=False,
         trace_actor_type="goal",
         trace_entrypoint=entrypoint,
+        trace_call_id=trace_call_id or operation_id or str(run.id),
         trace_parent_call_id=str(run.id),
         trace_session_id=goal.get("source_session_id"),
+    )
+
+
+def _goal_trace_call_id(run: AssistantRun, goal: dict[str, Any], step_id: str) -> str:
+    epoch = max(1, int(goal.get("operation_trace_plan_epoch") or 1))
+    return str(uuid.uuid5(uuid.UUID(str(run.id)), f"goal-trace:{epoch}:{step_id}"))
+
+
+def _manifest_trace_call_id(run: AssistantRun, manifest: Mapping[str, Any]) -> str:
+    step_id = manifest.get("step_id")
+    epoch = manifest.get("trace_plan_epoch")
+    if isinstance(step_id, str) and type(epoch) is int and epoch > 0:
+        return str(uuid.uuid5(uuid.UUID(str(run.id)), f"goal-trace:{epoch}:{step_id}"))
+    # Older manifests did not preserve a proposal epoch. Their restore receipt
+    # is visible, but cannot be claimed as paired with an old execution event.
+    operation_id = manifest.get("operation_id")
+    try:
+        return str(uuid.UUID(str(operation_id)))
+    except (ValueError, TypeError, AttributeError):
+        return str(uuid.uuid5(uuid.UUID(str(run.id)), "goal-restore:unlinked"))
+
+
+def _goal_usage_delta(before, after) -> dict[str, int | bool] | None:
+    if before.legacy_untracked or after.legacy_untracked:
+        return {"usage_complete": False, "usage_unknown": True}
+    requests = after.requests_started - before.requests_started
+    settled = after.requests_settled - before.requests_settled
+    unknown = after.requests_unknown - before.requests_unknown
+    prompt_tokens = after.usage.prompt_tokens - before.usage.prompt_tokens
+    completion_tokens = after.usage.completion_tokens - before.usage.completion_tokens
+    if min(requests, settled, unknown, prompt_tokens, completion_tokens) < 0:
+        return {"usage_complete": False, "usage_unknown": True}
+    pending = max(0, requests - settled - unknown)
+    if not any((requests, settled, unknown, prompt_tokens, completion_tokens)):
+        return None
+    return {
+        "requests": requests,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "pending_usage": pending,
+        "usage_unknown": bool(unknown or pending),
+        "usage_complete": not bool(unknown or pending),
+    }
+
+
+async def _record_goal_trace_event(
+    db: AsyncSession,
+    run: AssistantRun,
+    goal: dict[str, Any],
+    operation: AssistantOperation,
+    event_type: str,
+    *,
+    step_id: str,
+    arguments: Any = None,
+    preview: Any = None,
+    result: Any = None,
+    error_code: str | None = None,
+    duration_ms: int | None = None,
+    usage: dict[str, int | bool] | None = None,
+    changed_fields: list[str] | None = None,
+    trace_call_id: str | None = None,
+) -> bool:
+    if (
+        not run.request_json.get("operation_trace_enabled")
+        or operation.trace_rule.mode == "exempt"
+    ):
+        return True
+    if isinstance(arguments, BaseModel):
+        arguments = arguments.model_dump(mode="json")
+    metadata: dict[str, Any] = {}
+    if changed_fields:
+        metadata["changed_fields"] = changed_fields
+    if usage is not None:
+        metadata["usage_scope"] = "goal_step_phase"
+    call_id = trace_call_id or _goal_trace_call_id(run, goal, step_id)
+    try:
+        saved = await get(ASSISTANT_OPERATION_TRACE)(
+            db,
+            enabled=True,
+            novel_id=str(run.novel_id),
+            owner_id=str(run.owner_id),
+            operation=operation,
+            event_type=event_type,
+            arguments=arguments,
+            preview=preview,
+            result=result,
+            error_code=error_code,
+            duration_ms=duration_ms,
+            actor_type="goal",
+            entrypoint=f"assistant.goal.{event_type}"[:80],
+            run_id=str(run.id),
+            session_id=str(goal.get("source_session_id") or "") or None,
+            call_id=call_id,
+            parent_call_id=str(run.id),
+            usage=usage,
+            metadata=metadata,
+        )
+    except Exception:
+        saved = False
+    if saved is False:
+        goal["operation_trace_incomplete_count"] = (
+            int(goal.get("operation_trace_incomplete_count") or 0) + 1
+        )
+        goal["operation_trace_incomplete"] = True
+        return False
+    return True
+
+
+async def _record_goal_restore_event(
+    db: AsyncSession,
+    run: AssistantRun,
+    goal: dict[str, Any],
+    manifest: Mapping[str, Any],
+    operations: Mapping[str, AssistantOperation],
+    *,
+    restore_operation: AssistantOperation,
+    restore_arguments: Any,
+    receipt: Any,
+) -> None:
+    source_operation = operations.get(str(manifest.get("source_operation_id") or ""))
+    step_id = manifest.get("step_id")
+    arguments = restore_arguments
+    if source_operation is not None and isinstance(step_id, str):
+        source_record = _step_records(goal).get(step_id) or {}
+        source_arguments = source_record.get("resolved_parameters")
+        if isinstance(source_arguments, Mapping):
+            arguments = source_arguments
+        else:
+            source_operation = None
+    operation = source_operation or restore_operation
+    resolved_step_id = (
+        step_id
+        if isinstance(step_id, str)
+        else str(manifest.get("operation_id") or "restore")
+    )
+    await _record_goal_trace_event(
+        db,
+        run,
+        goal,
+        operation,
+        "restored",
+        step_id=resolved_step_id,
+        arguments=arguments,
+        result=receipt,
+        trace_call_id=_manifest_trace_call_id(run, manifest),
     )
 
 
@@ -796,8 +950,8 @@ async def _prepare_step(
         run,
         goal,
         operation_id=stable_operation_id,
-        trace_enabled=bool(run.request_json.get("operation_trace_enabled")),
         entrypoint="assistant.goal.step.prepare",
+        trace_call_id=_goal_trace_call_id(run, goal, step.step_id),
     )
     await get(ASSISTANT_REQUIRE_OPERATION_TARGETS)(
         db,
@@ -809,10 +963,41 @@ async def _prepare_step(
     meter = GoalWorkflowCounter(
         envelope, budget, time_80_acknowledged=bool(goal.get("time_80_acknowledged"))
     )
-    with ai_run_scope(envelope), workflow_budget(meter, _noop_checkpoint):
-        preview = await operation.prepare(db, str(run.novel_id), parsed, context=context)
+    usage_before = envelope.snapshot()
+    started = time.perf_counter()
+    try:
+        with ai_run_scope(envelope), workflow_budget(meter, _noop_checkpoint):
+            preview = await operation.prepare(
+                db, str(run.novel_id), parsed, context=context
+            )
+    except Exception as error:
+        await _record_goal_trace_event(
+            db,
+            run,
+            goal,
+            operation,
+            "failed",
+            step_id=step.step_id,
+            arguments=normalized,
+            error_code=_error_code(error),
+            duration_ms=int((time.perf_counter() - started) * 1000),
+            usage=_goal_usage_delta(usage_before, envelope.snapshot()),
+        )
+        raise
     if not isinstance(preview, dict):
         raise ConflictError("操作没有返回可核对的基线，已暂停")
+    await _record_goal_trace_event(
+        db,
+        run,
+        goal,
+        operation,
+        "executed" if operation.permission == "read" else "previewed",
+        step_id=step.step_id,
+        arguments=normalized,
+        preview=preview,
+        duration_ms=int((time.perf_counter() - started) * 1000),
+        usage=_goal_usage_delta(usage_before, envelope.snapshot()),
+    )
     return parsed, _json_copy(preview), target_pairs, context
 
 
@@ -884,6 +1069,11 @@ async def _save_goal(
         max(int(goal.get("revision") or 1), int(persisted_goal.get("revision") or 1)) + 1
     )
     checkpoint["goal"] = _json_copy(goal)
+    if int(goal.get("operation_trace_incomplete_count") or 0):
+        checkpoint["operation_trace_incomplete_count"] = int(
+            goal["operation_trace_incomplete_count"]
+        )
+        checkpoint["operation_trace_incomplete"] = True
     current.checkpoint_json = checkpoint
     if status is not None:
         current.status = status
@@ -1277,6 +1467,23 @@ async def _generate_plan_for_run(
             goal["stop_code"] = "budget_80" if "80%" in stop_reason else "deadline"
         goal["planning_mode"] = ""
         goal["planning_context"] = None
+        goal["operation_trace_plan_epoch"] = (
+            int(goal.get("operation_trace_plan_epoch") or 0) + 1
+        )
+        for step in plan.steps:
+            operation = operations.get(step.operation_id)
+            if operation is None:
+                continue
+            await _record_goal_trace_event(
+                db,
+                current,
+                goal,
+                operation,
+                "proposed",
+                step_id=step.step_id,
+                arguments=step.parameters,
+                trace_call_id=_goal_trace_call_id(current, goal, step.step_id),
+            )
         current = await _save_goal(db, current, goal, status=status)
         return current
     except asyncio.CancelledError:
@@ -2077,6 +2284,108 @@ def _reset_records_for_plan(plan: GoalPlan, records: dict[str, dict[str, Any]]) 
         }
 
 
+async def _record_goal_plan_approval(
+    db: AsyncSession,
+    run: AssistantRun,
+    goal: dict[str, Any],
+    previous_plan: GoalPlan | None,
+    accepted_plan: GoalPlan,
+    operations: Mapping[str, AssistantOperation],
+) -> None:
+    previous = (
+        {step.step_id: step for step in previous_plan.steps} if previous_plan else {}
+    )
+    accepted = {step.step_id: step for step in accepted_plan.steps}
+    for step_id, old_step in previous.items():
+        new_step = accepted.get(step_id)
+        old_operation = operations.get(old_step.operation_id)
+        if old_operation is None:
+            continue
+        old_arguments = old_operation.schema.model_validate(
+            old_step.parameters
+        ).model_dump(mode="json")
+        call_id = _goal_trace_call_id(run, goal, step_id)
+        if new_step is None or new_step.operation_id != old_step.operation_id:
+            await _record_goal_trace_event(
+                db,
+                run,
+                goal,
+                old_operation,
+                "declined",
+                step_id=step_id,
+                arguments=old_arguments,
+                trace_call_id=call_id,
+            )
+        if new_step is None:
+            continue
+        if new_step.operation_id != old_step.operation_id:
+            new_operation = operations.get(new_step.operation_id)
+            if new_operation is not None:
+                await _record_goal_trace_event(
+                    db,
+                    run,
+                    goal,
+                    new_operation,
+                    "confirmed",
+                    step_id=step_id,
+                    arguments=new_operation.schema.model_validate(
+                        new_step.parameters
+                    ).model_dump(mode="json"),
+                    trace_call_id=call_id,
+                )
+            continue
+
+        new_arguments = old_operation.schema.model_validate(
+            new_step.parameters
+        ).model_dump(mode="json")
+        changed_fields = sorted(
+            name
+            for name in old_operation.schema.model_fields
+            if canonical(old_arguments.get(name)) != canonical(new_arguments.get(name))
+        )
+        if changed_fields:
+            await _record_goal_trace_event(
+                db,
+                run,
+                goal,
+                old_operation,
+                "edited",
+                step_id=step_id,
+                arguments=new_arguments,
+                changed_fields=changed_fields,
+                trace_call_id=call_id,
+            )
+        await _record_goal_trace_event(
+            db,
+            run,
+            goal,
+            old_operation,
+            "confirmed",
+            step_id=step_id,
+            arguments=new_arguments,
+            trace_call_id=call_id,
+        )
+
+    for step_id, new_step in accepted.items():
+        if step_id in previous:
+            continue
+        operation = operations.get(new_step.operation_id)
+        if operation is None:
+            continue
+        await _record_goal_trace_event(
+            db,
+            run,
+            goal,
+            operation,
+            "confirmed",
+            step_id=step_id,
+            arguments=operation.schema.model_validate(new_step.parameters).model_dump(
+                mode="json"
+            ),
+            trace_call_id=_goal_trace_call_id(run, goal, step_id),
+        )
+
+
 async def approve_goal_plan(
     db: AsyncSession,
     novel_id: str,
@@ -2095,6 +2404,11 @@ async def approve_goal_plan(
             "planning_stopped",
         }:
             raise ConflictError("当前目标没有等待确认的计划")
+        previous_plan = (
+            GoalPlan.model_validate(goal["plan"])
+            if isinstance(goal.get("plan"), dict)
+            else None
+        )
         operations = _operation_registry()
         catalog_fingerprint = operation_catalog_fingerprint(operations)
         if catalog_fingerprint != goal.get("plan_catalog_fingerprint"):
@@ -2151,6 +2465,14 @@ async def approve_goal_plan(
             sorted(capabilities), scope_fingerprint=digest(scope)
         )
         _reset_records_for_plan(plan, records)
+        await _record_goal_plan_approval(
+            db,
+            run,
+            goal,
+            previous_plan,
+            plan,
+            operations,
+        )
         goal["plan"] = plan.model_dump(mode="json")
         goal["approved_plan_fingerprint"] = digest(plan.model_dump(mode="json"))
         goal["approved_scope"] = scope
@@ -2230,6 +2552,8 @@ async def _build_r2_manifest(
         return {
             "kind": "world_dossier_entry",
             "label": operation.label,
+            "source_operation_id": step.operation_id,
+            "trace_plan_epoch": int(goal.get("operation_trace_plan_epoch") or 1),
             "operation_id": str(context.operation_id),
             "restore_operation": R2_RESTORE_OPERATIONS[step.operation_id],
             "entity_id": str(parameters.entity_id),
@@ -2271,6 +2595,8 @@ async def _build_r2_manifest(
     return {
         "kind": "project_author_task",
         "label": operation.label,
+        "source_operation_id": step.operation_id,
+        "trace_plan_epoch": int(goal.get("operation_trace_plan_epoch") or 1),
         "operation_id": str(context.operation_id),
         "restore_operation": R2_RESTORE_OPERATIONS[step.operation_id],
         "task_id": str(parameters.task_id),
@@ -2379,8 +2705,39 @@ async def _execute_task_step(
     parent_task_id = str(run.task_id)
     record = _step_records(goal).setdefault(step.step_id, {})
     reference = record.get("reference")
+
+    usage_before = envelope.snapshot()
+    started = time.perf_counter()
+
+    async def trace_terminal(
+        current_run: AssistantRun,
+        current_goal: dict[str, Any],
+        event_type: str,
+        *,
+        error_code: str | None = None,
+        result_value: Any = None,
+    ) -> None:
+        await _record_goal_trace_event(
+            db,
+            current_run,
+            current_goal,
+            operation,
+            event_type,
+            step_id=step.step_id,
+            arguments=parsed,
+            preview=preview,
+            result=result_value,
+            error_code=error_code,
+            duration_ms=int((time.perf_counter() - started) * 1000),
+            usage=_goal_usage_delta(usage_before, envelope.snapshot()),
+            trace_call_id=context.trace_call_id,
+        )
+
     if reference is not None:
         if reference.get("task_id") != task_id or reference.get("task_type") != task_type:
+            await trace_terminal(
+                run, goal, "outcome_unknown", error_code="task_receipt_mismatch"
+            )
             return await _record_step_failure(
                 db,
                 run,
@@ -2393,6 +2750,9 @@ async def _execute_task_step(
     task = await _stable_task_for_step(db, run, task_type, task_id)
     if task is None:
         if record.get("status") in {"applying", "executing", "outcome_unknown"}:
+            await trace_terminal(
+                run, goal, "outcome_unknown", error_code="task_receipt_missing"
+            )
             return await _record_step_failure(
                 db,
                 run,
@@ -2436,6 +2796,9 @@ async def _execute_task_step(
             record = _step_records(goal).setdefault(step.step_id, {})
             task = await _stable_task_for_step(db, run, task_type, task_id)
             if task is None:
+                await trace_terminal(
+                    run, goal, "outcome_unknown", error_code="task_receipt_missing"
+                )
                 return await _record_step_failure(
                     db,
                     run,
@@ -2468,6 +2831,10 @@ async def _execute_task_step(
 
     task = await _stable_task_for_step(db, run, task_type, task_id)
     if task is None:
+        current_goal = _goal_state(run)
+        await trace_terminal(
+            run, current_goal, "outcome_unknown", error_code="task_receipt_missing"
+        )
         return await _record_step_failure(
             db,
             run,
@@ -2478,6 +2845,10 @@ async def _execute_task_step(
             status="outcome_unknown",
         )
     if task.status == "running":
+        current_goal = _goal_state(run)
+        await trace_terminal(
+            run, current_goal, "outcome_unknown", error_code="task_running"
+        )
         return await _record_step_failure(
             db,
             run,
@@ -2524,6 +2895,9 @@ async def _execute_task_step(
         task = await _stable_task_for_step(db, run, task_type, task_id)
     if task is None or task.status not in {"done", "failed", "cancelled"}:
         goal = _goal_state(run)
+        await trace_terminal(
+            run, goal, "outcome_unknown", error_code="task_outcome_unknown"
+        )
         return await _record_step_failure(
             db,
             run,
@@ -2549,6 +2923,13 @@ async def _execute_task_step(
             )
         unknown = envelope.snapshot().charge_state is AIChargeState.possible or bool(
             envelope.snapshot().requests_unknown
+        )
+        await trace_terminal(
+            run,
+            goal,
+            "outcome_unknown" if unknown else "failed",
+            error_code="task_outcome_unknown" if unknown else "task_failed",
+            result_value=result,
         )
         return await _record_step_failure(
             db,
@@ -2582,6 +2963,7 @@ async def _execute_task_step(
     goal["stop_code"] = None
     goal["phase"] = "executing"
     goal["envelope"] = envelope.snapshot().model_dump(mode="json")
+    await trace_terminal(run, goal, "executed", result_value=result)
     return await _save_goal(db, run, goal, status="running")
 
 
@@ -2600,6 +2982,8 @@ async def _execute_single_step(
     target_pairs: list[tuple[str, str]],
 ) -> AssistantRun:
     record = _step_records(goal).setdefault(step.step_id, {})
+    usage_before = envelope.snapshot()
+    started = time.perf_counter()
     try:
         async with db.begin_nested():
             meter = GoalWorkflowCounter(
@@ -2636,6 +3020,20 @@ async def _execute_single_step(
                     )
                     if manifest is None:
                         raise ConflictError("自动修改没有形成真实可恢复清单")
+            await _record_goal_trace_event(
+                db,
+                run,
+                goal,
+                operation,
+                "executed",
+                step_id=step.step_id,
+                arguments=parsed,
+                preview=preview,
+                result=reference,
+                duration_ms=int((time.perf_counter() - started) * 1000),
+                usage=_goal_usage_delta(usage_before, envelope.snapshot()),
+                trace_call_id=context.trace_call_id,
+            )
             if len(canonical(reference).encode("utf-8")) > 64_000:
                 raise ConflictError("操作回执过大，不能安全保存")
             record = _step_records(goal).setdefault(step.step_id, {})
@@ -2666,11 +3064,27 @@ async def _execute_single_step(
         await db.rollback()
         raise
     except Exception as error:
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        usage = _goal_usage_delta(usage_before, envelope.snapshot())
         await db.rollback()
         saved = await _load_goal_run(
             db, str(run.novel_id), str(run.id), str(run.owner_id)
         )
         current_goal = _goal_state(saved)
+        await _record_goal_trace_event(
+            db,
+            saved,
+            current_goal,
+            operation,
+            "failed",
+            step_id=step.step_id,
+            arguments=parsed,
+            preview=preview,
+            error_code=_error_code(error),
+            duration_ms=duration_ms,
+            usage=usage,
+            trace_call_id=context.trace_call_id,
+        )
         code = (
             "operation_conflict"
             if isinstance(error, ConflictError)
@@ -2939,8 +3353,8 @@ async def _advance_steps_locked(
             run,
             goal,
             operation_id=operation_id,
-            trace_enabled=bool(run.request_json.get("operation_trace_enabled")),
             entrypoint="assistant.goal.step.apply",
+            trace_call_id=_goal_trace_call_id(run, goal, step.step_id),
         )
         try:
             _check_step_targets(step, operation, params, target_pairs)
@@ -3052,6 +3466,18 @@ async def approve_goal_step(
             raise ConflictError("地图作者决定必须在原地图工作台确认")
         if operation.risk_level not in {"R2", "R3"}:
             raise ConflictError("该步骤不属于目标内逐步确认范围")
+        await _record_goal_trace_event(
+            db,
+            run,
+            goal,
+            operation,
+            "confirmed" if data.approve else "declined",
+            step_id=step.step_id,
+            arguments=operation.schema.model_validate(step.parameters).model_dump(
+                mode="json"
+            ),
+            trace_call_id=_goal_trace_call_id(run, goal, step.step_id),
+        )
         if not data.approve:
             record["status"] = "skipped"
             record["author_confirmed"] = False
@@ -3368,8 +3794,8 @@ async def _restore_world_dossier_manifest(
         operation_id=str(
             uuid.uuid5(uuid.UUID(str(run.id)), f"goal-restore:{manifest['operation_id']}")
         ),
-        trace_enabled=bool(run.request_json.get("operation_trace_enabled")),
         entrypoint="assistant.goal.restore.world_dossier",
+        trace_call_id=_manifest_trace_call_id(run, manifest),
     )
     preview = await operation.prepare(db, str(run.novel_id), parameters, context=context)
     reference = await operation.apply(
@@ -3390,6 +3816,16 @@ async def _restore_world_dossier_manifest(
         or str(restored_active.get("id")) != str(reference.get("id"))
     ):
         raise ConflictError("档案恢复没有返回可核对的领域版本")
+    await _record_goal_restore_event(
+        db,
+        run,
+        goal,
+        manifest,
+        operations,
+        restore_operation=operation,
+        restore_arguments=parameters,
+        receipt=reference,
+    )
     return {
         **manifest,
         "state": "restored",
@@ -3425,8 +3861,8 @@ async def _restore_project_task_manifest(
         operation_id=str(
             uuid.uuid5(uuid.UUID(str(run.id)), f"goal-restore:{manifest['operation_id']}")
         ),
-        trace_enabled=bool(run.request_json.get("operation_trace_enabled")),
         entrypoint="assistant.goal.restore.project_task",
+        trace_call_id=_manifest_trace_call_id(run, manifest),
     )
     current = await operation.prepare(
         db, str(run.novel_id), current_parameters, context=context
@@ -3466,6 +3902,16 @@ async def _restore_project_task_manifest(
     restored_updated_at = restored.get("expected_updated_at")
     if not isinstance(restored_updated_at, str):
         raise ConflictError("待办恢复缺少实际版本回执")
+    await _record_goal_restore_event(
+        db,
+        run,
+        goal,
+        manifest,
+        operations,
+        restore_operation=operation,
+        restore_arguments=restore_parameters,
+        receipt={"updated_at": restored_updated_at},
+    )
     return {
         **manifest,
         "state": "restored",

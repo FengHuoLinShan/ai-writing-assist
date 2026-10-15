@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 import pytest
 from httpx import ASGITransport
 from pydantic import BaseModel
-from sqlalchemy import event, select, text
+from sqlalchemy import event, func, select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
@@ -267,6 +267,10 @@ async def test_pg_append_only_and_expired_detail_aggregation():
 async def test_idle_worker_tick_archives_expired_trace_without_owner_read():
     novel_id = uuid4()
     async with get_manager().session_factory() as db:
+        earliest = await db.scalar(select(func.min(AssistantOperationTrace.occurred_at)))
+        oldest_due = datetime.now(UTC) - timedelta(days=181)
+        if earliest is not None:
+            oldest_due = min(oldest_due, earliest - timedelta(days=1))
         if await db.get(Account, BOOTSTRAP_ACCOUNT_ID) is None:
             db.add(Account(id=BOOTSTRAP_ACCOUNT_ID, support_code="trace-review-owner"))
         db.add(Project(id=novel_id, owner_id=BOOTSTRAP_ACCOUNT_ID, title="idle trace"))
@@ -286,7 +290,8 @@ async def test_idle_worker_tick_archives_expired_trace_without_owner_read():
                 target_refs=[],
                 parameter_summary={},
                 result_refs=[],
-                occurred_at=datetime.now(UTC) - timedelta(days=181),
+                # The worker selects one oldest due project per tick.
+                occurred_at=oldest_due,
             )
         )
         await db.commit()
