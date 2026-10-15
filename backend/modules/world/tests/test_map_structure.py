@@ -1972,7 +1972,7 @@ async def test_reader_image_keeps_its_coordinate_space_without_private_space_nam
         "state": "ready",
         "image_hash": "a" * 64,
     }
-    with patch.object(service, "image_layers", return_value=[layer]):
+    with patch.object(service, "image_layers", return_value=[layer], autospec=True):
         projection = await service.reader_preview(
             db_session, test_project_id, node["id"], chapter=1
         )

@@ -46,8 +46,8 @@ from modules.assistant.models import (
 from modules.assistant.operations import (
     generate_candidate,
     generate_structure,
+    operation_discovery_tools,
     operation_manifest,
-    operation_tool,
     prepare_actions,
     resolve_operations,
     review_assets,
@@ -97,6 +97,16 @@ _INSTRUCTIONS = """你是作者的项目助手。理解当前工作位置，主�
 查现实通用事实可按需使用已开放联网工具；不要发送私人正文、原作剧情、密钥或项目标识。
 回答使用作者语言，简洁给结论、证据和可操作下一步，不展示工具名、内部 ID、JSON 或思考过程。
 讨论历史不代表最新作品事实；当前证据和作者最新明确要求优先。"""
+
+_V7_INSTRUCTIONS = _INSTRUCTIONS.replace(
+    "先通过 available_operations 查看能力与参数。",
+    "先通过 find_operations 按任务查找能力，再用 describe_operation "
+    "查看完整参数、风险和费用。",
+).replace(
+    "只读复核直接调用 review_assets，生成领域回执，",
+    "R0 只读目录操作可通过 read_operation 读取；其余只读复核直接调用 "
+    "review_assets，生成领域回执，",
+)
 
 
 def display_sources(references, keys):
@@ -258,8 +268,12 @@ async def expire_run_histories(db):
         COLLABORATION_STOP_UNAVAILABLE_RUNS,
     )
     from modules.assistant.forecast.maintenance import expire_assessments
+    from modules.assistant.operation_trace_service import (
+        archive_one_expired_operation_trace_project,
+    )
 
     await expire_assessments(db)
+    await archive_one_expired_operation_trace_project(db)
     await get(COLLABORATION_STOP_UNAVAILABLE_RUNS)(db)
     rows = await db.scalars(
         select(AssistantRun)
@@ -442,6 +456,9 @@ class AssistantService:
         if session is None or session.status != "active":
             raise NotFoundError("助手会话不存在或已归档")
         payload = data.model_dump(mode="json") | {"session_id": session_id}
+        from modules.assistant.operation_trace_service import operation_trace_enabled
+
+        payload["operation_trace_enabled"] = await operation_trace_enabled(db, owner_id)
         if regression_targets:
             payload["regression_targets"] = regression_targets
         if quoted_discussion:
@@ -569,7 +586,7 @@ class AssistantService:
             request_json=frozen_payload
             | {
                 "llm_snapshot": snapshot,
-                "runtime_version": "6",
+                "runtime_version": "7",
                 **({"team": team} if team else {}),
                 "web_search": search_snapshot()
                 if data.allow_web and data.web_backend == "searxng-v1"
@@ -581,7 +598,7 @@ class AssistantService:
                 },
                 "read_tools": {
                     tool.name: fingerprint(tool.function_schema.json_schema)
-                    for tool in author_read_tools(allow_web=True, version="6")
+                    for tool in author_read_tools(allow_web=True, version="7")
                     if tool.name
                     not in {
                         "map_spatial_brief",
@@ -653,11 +670,17 @@ class AssistantService:
 
     def view(self, run, *, can_resume: bool = False):
         executor = (run.request_json or {}).get("agent_executor") or {}
+        result = dict(run.result_json or {})
+        if (
+            (run.request_json or {}).get("runtime_version") == "7"
+            and (run.checkpoint_json or {}).get("operation_trace_incomplete")
+        ):
+            result["operation_trace_incomplete"] = True
         return {
             "id": str(run.id),
             "session_id": str(run.session_id) if run.session_id else None,
             "status": run.status,
-            "result": run.result_json or {},
+            "result": result,
             "usage": run.budget_json or {},
             "error": run.error,
             "task_id": str(run.task_id) if run.task_id else None,
@@ -969,7 +992,10 @@ class AssistantService:
             or (payload.get("cocreation_intent") or {}).get("quality_mode") == "pro"
         )
         protocol = runtime_protocol(payload)
-        operations = resolve_operations(protocol["operations"])
+        runtime_version = str(payload.get("runtime_version", "2"))
+        operations = resolve_operations(
+            protocol["operations"], allow_stale=runtime_version == "7"
+        )
         read_tools = {
             tool.name: tool
             for tool in author_read_tools(
@@ -1004,6 +1030,28 @@ class AssistantService:
         await db.commit()
         client = None
         deps = None
+        from modules.assistant.operation_trace_service import (
+            bind_operation_trace_context,
+            reset_operation_trace_context,
+        )
+
+        trace_status = {
+            "incomplete_count": int(
+                saved_state.get("operation_trace_incomplete_count") or 0
+            )
+        }
+        trace_token = bind_operation_trace_context(trace_status)
+
+        def trace_incomplete_marker():
+            count = trace_status["incomplete_count"]
+            return (
+                {
+                    "operation_trace_incomplete_count": count,
+                    "operation_trace_incomplete": True,
+                }
+                if count
+                else {}
+            )
 
         async def checkpoint(values):
             row = await self.require_run(db, novel_id, run_id, lock=True)
@@ -1017,6 +1065,7 @@ class AssistantService:
                 row.checkpoint_json = {
                     **(row.checkpoint_json or {}),
                     "evidence_refs": dict(deps.evidence_refs),
+                    **trace_incomplete_marker(),
                 }
             record_run_event(row, "checking")
             await db.commit()
@@ -1025,7 +1074,11 @@ class AssistantService:
             row = await self.require_run(db, novel_id, run_id, lock=True)
             if row.status != "running" or str(row.task_id) != str(task.id):
                 raise ConflictError("任务已停止或被替代", code="assistant_superseded")
-            row.checkpoint_json = {**(row.checkpoint_json or {}), "model_history": state}
+            row.checkpoint_json = {
+                **(row.checkpoint_json or {}),
+                "model_history": state,
+                **trace_incomplete_marker(),
+            }
             await db.commit()
 
         try:
@@ -1044,7 +1097,7 @@ class AssistantService:
                     payload.get("allow_web", False)
                     and (
                         search_snapshot_matches(payload.get("web_search"))
-                        if payload.get("runtime_version") in {"3", "4", "5", "6"}
+                        if payload.get("runtime_version") in {"3", "4", "5", "6", "7"}
                         else verified_native_search(profile.provider_id, profile.model)
                     )
                 ),
@@ -1054,6 +1107,8 @@ class AssistantService:
                 task_id=str(task.id),
                 llm_snapshot=payload["llm_snapshot"],
                 operations=operations,
+                operation_catalog_snapshot=protocol["operations"],
+                operation_trace_enabled=bool(payload.get("operation_trace_enabled")),
                 final_requests=2 if quality_review else 1,
                 session_id=str(run.session_id) if run.session_id else None,
             )
@@ -1068,7 +1123,9 @@ class AssistantService:
             messages = [
                 LLMMessage(
                     role="system",
-                    content=_INSTRUCTIONS
+                    content=(
+                        _V7_INSTRUCTIONS if runtime_version == "7" else _INSTRUCTIONS
+                    )
                     + f"\n本次请求的日历日期为 {today}（{work.timezone}）。"
                     + "相对日期待办据此换算，这不是故事内时间。",
                 )
@@ -1182,7 +1239,10 @@ class AssistantService:
                         not in {"research_fact", "search_general_fact", "read_web_source"}
                         or deps.allow_web
                     ]
-                    + [operation_tool(), Tool(review_assets, sequential=True)]
+                    + operation_discovery_tools(
+                        legacy=runtime_version != "7", operations=operations
+                    )
+                    + [Tool(review_assets, sequential=True)]
                     + (
                         [Tool(generate_candidate, sequential=True)]
                         if "writing.generate_candidate" in operations
@@ -1337,7 +1397,13 @@ class AssistantService:
                 db,
                 novel_id,
                 answer.actions,
-                context=AssistantOperationContext(run_id, owner_id, work),
+                context=AssistantOperationContext(
+                    run_id,
+                    owner_id,
+                    work,
+                    trace_enabled=bool(payload.get("operation_trace_enabled")),
+                    trace_session_id=str(run.session_id) if run.session_id else None,
+                ),
                 operations=operations,
             )
             run = await self.require_run(db, novel_id, run_id, lock=True)
@@ -1380,7 +1446,15 @@ class AssistantService:
                         db,
                         novel_id,
                         plan.actions,
-                        context=AssistantOperationContext(run_id, owner_id, work),
+                        context=AssistantOperationContext(
+                            run_id,
+                            owner_id,
+                            work,
+                            trace_enabled=bool(payload.get("operation_trace_enabled")),
+                            trace_session_id=str(run.session_id)
+                            if run.session_id
+                            else None,
+                        ),
                         operations=operations,
                     )
                     option = {**plan.model_dump(mode="json"), "actions": actions}
@@ -1408,7 +1482,10 @@ class AssistantService:
                 key: value
                 for key, value in (run.checkpoint_json or {}).items()
                 if key not in {"model_history", "planned_answer"}
-            } | {"evidence_refs": dict(deps.evidence_refs)}
+            } | {
+                "evidence_refs": dict(deps.evidence_refs),
+                **trace_incomplete_marker(),
+            }
             run.status = "waiting_approval" if prepared else "completed"
             record_run_event(run, run.status)
             if run.session_id:
@@ -1437,6 +1514,10 @@ class AssistantService:
                     key: value
                     for key, value in (row.checkpoint_json or {}).items()
                     if key != "model_history"
+                }
+                row.checkpoint_json = {
+                    **row.checkpoint_json,
+                    **trace_incomplete_marker(),
                 }
                 record_run_event(row, "budget_exceeded")
                 row.error = "本轮已达到执行上限，讨论和过程资料已保留。"
@@ -1509,6 +1590,7 @@ class AssistantService:
                 row.checkpoint_json = {
                     **(row.checkpoint_json or {}),
                     "failure": {"kind": type(error).__name__, "frames": frames[-12:]},
+                    **trace_incomplete_marker(),
                 }
                 row.error = (
                     "本次处理未完成，原有作品没有被修改；请核对资料或模型连接后重试。"
@@ -1517,5 +1599,6 @@ class AssistantService:
                 await db.commit()
             raise RuntimeError("Assistant run failed; see its scoped receipt") from None
         finally:
+            reset_operation_trace_context(trace_token)
             if client is not None:
                 await client.close()

@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from copy import copy
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
@@ -39,18 +40,49 @@ def catalog() -> dict[str, AssistantOperation]:
     return get(ASSISTANT_OPERATIONS)
 
 
-def operation_manifest() -> dict:
+def _catalog_metadata(operation: AssistantOperation) -> dict:
     return {
-        name: {
-            "schema_hash": fingerprint(operation.schema.model_json_schema()),
-            "revision": operation.revision,
-        }
-        for name, operation in catalog().items()
+        "op_id": operation.op_id,
+        "op_version": operation.op_version,
+        "label": operation.label,
+        "permission": operation.permission,
+        "description": operation.description,
+        "risk_level": operation.risk_level,
+        "fee_category": operation.fee_category,
+        "reversibility": operation.reversibility,
+        "preconditions": operation.preconditions,
+        "produces": operation.produces,
+        "target_type": operation.target_type,
+        "ai_available": operation.ai_available,
+        "transaction_mode": operation.transaction_mode,
+        "trace_rule": asdict(operation.trace_rule),
     }
 
 
+def operation_manifest(*, legacy: bool = False) -> dict:
+    """Return a v7 frozen directory or the exact pre-v7 two-field shape."""
+    result = {}
+    for name, operation in catalog().items():
+        entry = {
+            "schema_hash": fingerprint(operation.schema.model_json_schema()),
+            "revision": operation.revision,
+        }
+        if not legacy:
+            metadata = _catalog_metadata(operation)
+            entry.update(
+                {
+                    "op_version": operation.op_version,
+                    "metadata_hash": fingerprint(metadata),
+                    "metadata": metadata,
+                    "schema": operation.schema.model_json_schema(),
+                }
+            )
+        result[name] = entry
+    return result
+
+
 def runtime_protocol(payload: dict) -> dict:
-    if payload.get("runtime_version") in {"2", "3", "4", "5", "6"}:
+    if payload.get("runtime_version") in {"2", "3", "4", "5", "6", "7"}:
         return payload
     if payload.get("runtime_version") == "1":
         frozen = json.loads(Path(__file__).with_name("runtime_v1.json").read_text())
@@ -61,7 +93,9 @@ def runtime_protocol(payload: dict) -> dict:
     )
 
 
-def resolve_operations(manifest: dict) -> dict[str, AssistantOperation]:
+def resolve_operations(
+    manifest: dict, *, allow_stale: bool = False
+) -> dict[str, AssistantOperation]:
     current = operation_manifest()
     # MapNodeCreate only widened: "interior" was added to level, then two
     # optional pinned type-reference fields. Legacy inputs remain valid; pin
@@ -85,22 +119,66 @@ def resolve_operations(manifest: dict) -> dict[str, AssistantOperation]:
             {"schema_hash": map_node_hashes[2], "revision": "1"},
         ),
     ]
-    if any(
-        current.get(name) != value
-        and not (
-            name == "map.create_node"
-            and (value, current.get(name)) in compatible_map_node
+    stale = []
+    resolved = {}
+    for name, frozen in manifest.items():
+        if not isinstance(frozen, dict) or frozenset(frozen) not in {
+            frozenset({"schema_hash", "revision"}),
+            frozenset(
+                {
+                    "schema_hash",
+                    "revision",
+                    "op_version",
+                    "metadata_hash",
+                    "metadata",
+                    "schema",
+                }
+            ),
+        }:
+            stale.append(name)
+            continue
+        current_entry = current.get(name)
+        frozen_legacy = set(frozen) == {"schema_hash", "revision"}
+        if current_entry is None:
+            stale.append(name)
+            continue
+        matches = all(
+            (
+                fingerprint(current_entry.get(key)) == fingerprint(value)
+                if key in {"metadata", "schema"}
+                else current_entry.get(key) == value
+            )
+            for key, value in frozen.items()
         )
-        for name, value in manifest.items()
-    ):
+        map_node_compatible = (
+            name == "map.create_node"
+            and frozen_legacy
+            and any(
+                (
+                    frozen,
+                    {key: current_entry[key] for key in ("schema_hash", "revision")},
+                )
+                == pair
+                for pair in compatible_map_node
+            )
+        )
+        if not matches and not map_node_compatible:
+            stale.append(name)
+            continue
+        operation = catalog()[name]
+        if frozen_legacy and name == "map.prepare_tray_placement":
+            # The pre-v7 catalog exposed this navigation helper as a confirm
+            # action. Preserve that behavior for frozen legacy runs while v7
+            # can invoke it through the dedicated R0 read tool.
+            operation = replace(operation, permission="confirm")
+        resolved[name] = operation
+    if stale and not allow_stale:
         raise ConflictError(
             "本次运行需要的工具版本不可用，请重新提交", code="assistant_runtime_changed"
         )
-    resolved = {name: catalog()[name] for name in manifest}
-    if (
-        "map.create_node" in resolved
-        and manifest["map.create_node"] != current["map.create_node"]
-    ):
+    if "map.create_node" in resolved and manifest["map.create_node"].get(
+        "schema_hash"
+    ) != current["map.create_node"].get("schema_hash"):
         operation = resolved["map.create_node"]
         fields = {
             name: (field.annotation, copy(field))
@@ -166,6 +244,147 @@ def operation_tool() -> Tool:
     return Tool(available_operations, sequential=True)
 
 
+MAX_OPERATION_SEARCH_RESULTS = 8
+
+
+def _run_catalog_snapshot(ctx: RunContext[AssistantToolContext]) -> dict | None:
+    return getattr(ctx.deps, "operation_catalog_snapshot", None)
+
+
+def _metadata_result(operation: AssistantOperation) -> dict:
+    return _catalog_metadata(operation)
+
+
+async def find_operations(
+    ctx: RunContext[AssistantToolContext],
+    query: str = "",
+    module: str | None = None,
+    target_type: str | None = None,
+) -> dict:
+    """Find a few frozen operations by words, module, or target kind."""
+    query = query.strip()[:160].casefold()
+    module = module.strip().casefold() if module else None
+    target_type = target_type.strip().casefold() if target_type else None
+    terms = [term for term in re.findall(r"[\w.]+", query) if term]
+    operations = _run_operations(ctx)
+    manifest = _run_catalog_snapshot(ctx)
+    matches = []
+    for op_id, operation in operations.items():
+        if not operation.ai_available:
+            continue
+        if module and op_id.split(".", 1)[0].casefold() != module:
+            continue
+        if target_type and operation.target_type.casefold() != target_type:
+            continue
+        haystack = " ".join(
+            (op_id, operation.label, operation.description, operation.target_type)
+        ).casefold()
+        if terms and not any(term in haystack for term in terms):
+            continue
+        frozen = manifest.get(op_id) if manifest else None
+        if frozen and (
+            frozen.get("metadata_hash") != fingerprint(frozen.get("metadata"))
+            or frozen.get("schema_hash")
+            != fingerprint(operation.schema.model_json_schema())
+        ):
+            continue
+        score = sum(1 for term in terms if term in haystack)
+        matches.append((score, op_id, operation))
+    matches.sort(key=lambda item: (-item[0], item[1]))
+    return {
+        "operations": [
+            {
+                "op_id": operation.op_id,
+                "label": operation.label,
+                "summary": operation.description[:240],
+                "risk_level": operation.risk_level,
+                "fee_category": operation.fee_category,
+            }
+            for _score, _op_id, operation in matches[:MAX_OPERATION_SEARCH_RESULTS]
+        ],
+        "truncated": len(matches) > MAX_OPERATION_SEARCH_RESULTS,
+    }
+
+
+async def describe_operation(ctx: RunContext[AssistantToolContext], op_id: str) -> dict:
+    """Describe one frozen operation, including whether this run can execute it."""
+    manifest = _run_catalog_snapshot(ctx)
+    frozen = manifest.get(op_id) if manifest else None
+    operation = _run_operations(ctx).get(op_id)
+    if frozen is not None:
+        current = operation_manifest().get(op_id)
+        executable = bool(
+            operation
+            and current
+            and frozen.get("metadata_hash") == fingerprint(frozen.get("metadata"))
+            and current.get("metadata_hash") == frozen.get("metadata_hash")
+            and current.get("schema_hash") == frozen.get("schema_hash")
+        )
+        metadata = frozen.get("metadata") or (
+            _catalog_metadata(operation) if operation else {}
+        )
+        label = metadata.get("label") or (operation.label if operation else op_id)
+        return {
+            **metadata,
+            "label": label,
+            "schema": frozen.get("schema")
+            or (operation.schema.model_json_schema() if operation else {}),
+            "executable": executable,
+            **({"unavailable_reason": "操作已下线或已变更"} if not executable else {}),
+        }
+    if operation is None:
+        raise ValidationError("操作不在本次运行的冻结目录中")
+    return {
+        **_metadata_result(operation),
+        "schema": operation.schema.model_json_schema(),
+        "executable": True,
+    }
+
+
+async def read_operation(
+    ctx: RunContext[AssistantToolContext], op_id: str, arguments: dict
+) -> dict:
+    """Execute only a registered R0 read projection; never call its apply handler."""
+    deps = ctx.deps
+    await deps.guard()
+    operation = _run_operations(ctx).get(op_id)
+    if operation is None:
+        frozen = (_run_catalog_snapshot(ctx) or {}).get(op_id)
+        if frozen:
+            raise ConflictError("操作已下线或已变更", code="assistant_operation_changed")
+        raise ModelRetry("请先查找并说明本次运行提供的只读操作")
+    if operation.permission != "read" or operation.risk_level != "R0":
+        raise ModelRetry("只读工具只能调用风险等级 R0 的目录操作")
+    try:
+        args = operation.schema.model_validate(arguments)
+    except SchemaValidationError as error:
+        raise ModelRetry(
+            f"只读操作参数不正确：{error.errors(include_input=False, include_url=False)}"
+        ) from None
+    context = AssistantOperationContext(
+        deps.run_id or "",
+        deps.owner_id,
+        deps.work,
+        trace_enabled=deps.operation_trace_enabled,
+        trace_session_id=deps.session_id,
+    )
+    return await operation.prepare(deps.db, deps.novel_id, args, context=context)
+
+
+def operation_discovery_tools(
+    *, legacy: bool, operations: dict[str, AssistantOperation]
+) -> list[Tool]:
+    if legacy:
+        return [operation_tool()]
+    tools = [
+        Tool(find_operations, sequential=True),
+        Tool(describe_operation, sequential=True),
+    ]
+    if any(operation.permission == "read" for operation in operations.values()):
+        tools.append(Tool(read_operation, sequential=True))
+    return tools
+
+
 def validate_agent_answer(
     ctx: RunContext[AssistantToolContext], answer: AssistantAnswer
 ) -> AssistantAnswer:
@@ -199,7 +418,10 @@ def validate_agent_answer(
     for action in answer.actions:
         operation = _run_operations(ctx).get(action.capability)
         if operation is None:
-            raise ModelRetry("请先查 available_operations，只能提出已经提供的业务操作")
+            frozen = (_run_catalog_snapshot(ctx) or {}).get(action.capability)
+            if frozen:
+                raise ModelRetry("操作已下线或已变更，请停止该步骤并请作者重新规划")
+            raise ModelRetry("请先查找并说明本次运行提供的操作")
         if operation.permission != "confirm":
             raise ModelRetry(
                 "查证和建议生成请直接调用相应工具；只有具体资料修改放入确认方案"
@@ -276,7 +498,13 @@ async def execute_suggestion(ctx, capability, arguments):
         raise ModelRetry(
             f"复核参数不正确：{error.errors(include_input=False, include_url=False)}"
         ) from None
-    context = AssistantOperationContext(deps.run_id, deps.owner_id, deps.work)
+    context = AssistantOperationContext(
+        deps.run_id,
+        deps.owner_id,
+        deps.work,
+        trace_enabled=deps.operation_trace_enabled,
+        trace_session_id=deps.session_id,
+    )
     preview = await operation.prepare(deps.db, deps.novel_id, args, context=context)
     operation_id = str(
         uuid.uuid5(
@@ -291,6 +519,8 @@ async def execute_suggestion(ctx, capability, arguments):
         operation_id=operation_id,
         llm_snapshot=deps.llm_snapshot,
         internal_meta={"_execution_mode": "inline_only", "_parent_task_id": deps.task_id},
+        trace_enabled=deps.operation_trace_enabled,
+        trace_session_id=deps.session_id,
     )
     reference = await operation.apply(
         deps.db, deps.novel_id, args, preview, context=context
@@ -383,6 +613,44 @@ def _ordered(actions: list[dict]) -> list[dict]:
     return ordered
 
 
+async def _record_batch_event(db, run, item, operation, event_type, *, error_code=None):
+    if not run.request_json.get("operation_trace_enabled"):
+        return
+    from core.container import get
+    from core.service_keys import ASSISTANT_OPERATION_TRACE
+
+    context = {
+        "trace_call_id": str(
+            uuid.uuid5(uuid.NAMESPACE_URL, f"{run.id}:action:{item['key']}")
+        ),
+        "trace_parent_call_id": str(run.id),
+    }
+    saved = await get(ASSISTANT_OPERATION_TRACE)(
+        db,
+        enabled=True,
+        novel_id=str(run.novel_id),
+        owner_id=str(run.owner_id),
+        operation=operation,
+        event_type=event_type,
+        arguments=item.get("arguments"),
+        preview=item.get("preview"),
+        error_code=error_code,
+        actor_type="ui",
+        entrypoint="assistant.batch.confirm",
+        run_id=str(run.id),
+        session_id=str(run.session_id) if run.session_id else None,
+        call_id=context["trace_call_id"],
+        parent_call_id=context["trace_parent_call_id"],
+    )
+    if saved is False:
+        checkpoint = dict(run.checkpoint_json or {})
+        checkpoint["operation_trace_incomplete_count"] = (
+            int(checkpoint.get("operation_trace_incomplete_count") or 0) + 1
+        )
+        checkpoint["operation_trace_incomplete"] = True
+        run.checkpoint_json = checkpoint
+
+
 async def prepare_actions(
     db,
     novel_id: str,
@@ -401,7 +669,13 @@ async def prepare_actions(
         if operation is None:
             raise ValidationError("提案包含当前未提供的操作")
         args = operation.schema.model_validate(proposal.arguments)
-        preview = await operation.prepare(db, novel_id, args, context=context)
+        action_context = replace(
+            context,
+            trace_call_id=str(
+                uuid.uuid5(uuid.NAMESPACE_URL, f"{context.run_id}:action:{proposal.key}")
+            ),
+        )
+        preview = await operation.prepare(db, novel_id, args, context=action_context)
         action_targets = set(
             preview.get("target_keys")
             or ([preview["target_key"]] if preview.get("target_key") else [])
@@ -465,7 +739,15 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
             )
         retry_id = str(decision.retry_operation_id or "")
         if not retry_id or retry_id in batch.authorization_json.get("retries", []):
-            return {"status": batch.status, "results": batch.results_json}
+            return {
+                "status": batch.status,
+                "results": batch.results_json,
+                **(
+                    {"operation_trace_incomplete": True}
+                    if (run.checkpoint_json or {}).get("operation_trace_incomplete")
+                    else {}
+                ),
+            }
         if batch.status != "partial":
             raise ConflictError("只有未完成的操作可重试")
     elif decision.retry_operation_id:
@@ -474,7 +756,10 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
         item["key"]: item for item in batch.results_json if item["status"] == "completed"
     }
     available = (
-        resolve_operations(runtime_protocol(run.request_json)["operations"])
+        resolve_operations(
+            runtime_protocol(run.request_json)["operations"],
+            allow_stale=run.request_json.get("runtime_version") == "7",
+        )
         if run.request_json.get("runtime_version")
         else catalog()
     )
@@ -491,6 +776,7 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
         AgentRunBudget.model_validate(run.budget_json or {}),
         unused_checkpoint,
         evidence_refs=dict((run.checkpoint_json or {}).get("evidence_refs") or {}),
+        operation_trace_enabled=bool(run.request_json.get("operation_trace_enabled")),
     )
     postconditions = (batch.authorization_json or {}).get("postconditions") or {}
     if completed and postconditions:
@@ -511,8 +797,10 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
         )
     )
     confirmation_meta = {"confirmation_preflight": True, "confirmed_previews": []}
+    trace_status = {"incomplete_count": 0}
     operation_context = AssistantOperationContext(
-        str(run.id), owner_id, context.work, internal_meta=confirmation_meta
+        str(run.id), owner_id, context.work, internal_meta=confirmation_meta,
+        trace_status=trace_status,
     )
     if run.request_json.get("forecast_parent"):
         from modules.assistant.forecast.preparation import require_parent
@@ -524,6 +812,7 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
             context.work,
             operation_id=str(run.id),
             internal_meta=confirmation_meta,
+            trace_status=trace_status,
         )
     if sum(item["preview"].get("affected_count", 1) for item in selected) > 20:
         raise ValidationError("一次确认最多涉及 20 项，请拆分整理方案")
@@ -538,17 +827,38 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
         operation = available.get(item["capability"])
         if operation is None:
             raise ConflictError("操作不在本次运行的工具范围内")
+        item_context = replace(
+            operation_context,
+            trace_call_id=str(
+                uuid.uuid5(uuid.NAMESPACE_URL, f"{run.id}:action:{item['key']}")
+            ),
+            trace_actor_type="ui",
+            trace_entrypoint="assistant.batch.confirm",
+            trace_enabled=bool(run.request_json.get("operation_trace_enabled")),
+            trace_session_id=str(run.session_id) if run.session_id else None,
+        )
         preview = await operation.prepare(
             db,
             novel_id,
             operation.schema.model_validate(item["arguments"]),
-            context=operation_context,
+            context=item_context,
         )
         if fingerprint(preview) != item["baseline_hash"]:
             raise ConflictError(
                 "待修改的资料已变化，请重新生成方案", code="assistant_source_stale"
             )
         confirmation_meta["confirmed_previews"].append(fingerprint(preview))
+    for item in batch.actions_json:
+        operation = available.get(item["capability"])
+        if operation is None:
+            continue
+        await _record_batch_event(
+            db,
+            run,
+            item,
+            operation,
+            "confirmed" if item["key"] in keys else "declined",
+        )
     batch.authorization_json = batch.authorization_json or {
         "owner_id": owner_id,
         "selected": decision.selected,
@@ -566,6 +876,7 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
         }
     results = []
     failed: set[str] = set()
+    outcome_unknown = False
     for item in selected:
         key = item["key"]
         if key in completed:
@@ -580,18 +891,48 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
             async with db.begin_nested():
                 confirmation_meta["prepared_preview"] = item["preview"]
                 operation = available[item["capability"]]
+                item_context = replace(
+                    operation_context,
+                    trace_call_id=str(
+                        uuid.uuid5(uuid.NAMESPACE_URL, f"{run.id}:action:{item['key']}")
+                    ),
+                    trace_actor_type="ui",
+                    trace_entrypoint="assistant.batch.confirm",
+                    trace_enabled=bool(run.request_json.get("operation_trace_enabled")),
+                    trace_session_id=str(run.session_id) if run.session_id else None,
+                    trace_parent_call_id=str(run.id),
+                )
                 result = await operation.apply(
                     db,
                     novel_id,
                     operation.schema.model_validate(item["arguments"]),
                     item["preview"],
-                    context=operation_context,
+                    context=item_context,
                 )
                 await db.flush()
                 await context.record_confirmed_write(result)
         except DomainError:
             context.work, context.evidence_refs = previous_work, previous_refs
             failed.add(key)
+            operation = available[item["capability"]]
+            if operation.transaction_mode == "multi_stage":
+                await _record_batch_event(
+                    db, run, item, operation, "outcome_unknown",
+                    error_code="operation_apply_failed",
+                )
+                results.append(
+                    {"key": key, "status": "outcome_unknown", "message": "请核对领域回执"}
+                )
+                outcome_unknown = True
+                break
+            await _record_batch_event(
+                db,
+                run,
+                item,
+                operation,
+                "failed",
+                error_code="operation_apply_failed",
+            )
             results.append(
                 {
                     "key": key,
@@ -599,6 +940,29 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
                     "message": "资料或操作条件已变化，请到来源位置核对",
                 }
             )
+        except Exception:
+            context.work, context.evidence_refs = previous_work, previous_refs
+            failed.add(key)
+            operation = available[item["capability"]]
+            if operation.transaction_mode == "multi_stage":
+                await _record_batch_event(
+                    db, run, item, operation, "outcome_unknown",
+                    error_code="operation_apply_failed",
+                )
+                results.append(
+                    {"key": key, "status": "outcome_unknown", "message": "请核对领域回执"}
+                )
+                outcome_unknown = True
+                break
+            await _record_batch_event(
+                db,
+                run,
+                item,
+                operation,
+                "failed",
+                error_code="operation_apply_failed",
+            )
+            raise
         else:
             results.append({"key": key, "status": "completed", "result": result})
     batch.authorization_json = {
@@ -613,7 +977,19 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
         },
     }
     batch.results_json = results
-    batch.status = "partial" if failed else "completed" if selected else "declined"
+    if trace_status["incomplete_count"]:
+        checkpoint = dict(run.checkpoint_json or {})
+        checkpoint["operation_trace_incomplete_count"] = (
+            int(checkpoint.get("operation_trace_incomplete_count") or 0)
+            + trace_status["incomplete_count"]
+        )
+        checkpoint["operation_trace_incomplete"] = True
+        run.checkpoint_json = checkpoint
+    batch.status = (
+        "outcome_unknown"
+        if outcome_unknown
+        else "partial" if failed else "completed" if selected else "declined"
+    )
     run.status = "completed"
     if run.session_id:
         from modules.assistant.sessions import AssistantSessionService
@@ -637,4 +1013,12 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
             + ("。部分操作尚未完成。" if failed else "。"),
         )
     await db.flush()
-    return {"status": batch.status, "results": results}
+    return {
+        "status": batch.status,
+        "results": results,
+        **(
+            {"operation_trace_incomplete": True}
+            if (run.checkpoint_json or {}).get("operation_trace_incomplete")
+            else {}
+        ),
+    }

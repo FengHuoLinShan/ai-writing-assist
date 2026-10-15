@@ -4,11 +4,17 @@ from __future__ import annotations
 
 import ast
 import inspect
-from dataclasses import dataclass
+import uuid
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
+import pytest
 from fastapi.routing import APIRoute
+from sqlalchemy import event, func, select
+from sqlalchemy.orm import Session
 
 from app.main import app
 from tests.support.inventory import python_ast
@@ -436,3 +442,157 @@ def test_active_project_guard_inventory_is_closed() -> None:
     }
     assert required_modules <= covered_modules
     assert not failures, "\n" + "\n".join(failures)
+
+
+@pytest.mark.parametrize("project_state", ["missing", "foreign", "recycled"])
+@pytest.mark.parametrize("trace_enabled", [True, False])
+async def test_new_scoped_http_routes_reject_before_trace_or_business_write(
+    async_client, db_session, test_project_id, project_state, trace_enabled, monkeypatch
+):
+    if not trace_enabled:
+        from core.config import get_settings
+        from modules.assistant import operation_trace_service
+
+        monkeypatch.setattr(
+            operation_trace_service,
+            "get_settings",
+            lambda: replace(get_settings(), assistant_operation_trace_enabled=False),
+        )
+
+    from modules.account.context import bind_principal, reset_principal
+    from modules.account.contracts import AccountPrincipal
+    from modules.account.models import Account
+    from modules.assistant.operation_trace_models import (
+        AssistantOperationTrace,
+        AssistantOperationTraceProjectSalt,
+    )
+    from modules.project.models import Project
+    from modules.world.project_vocabulary_models import ProjectVocabularyTerm
+
+    novel_id = uuid.uuid4() if project_state == "missing" else uuid.UUID(test_project_id)
+    token = None
+    if project_state == "foreign":
+        stranger = Account(id=uuid.uuid4(), status="active", support_code="ROUTE-FOREIGN")
+        db_session.add(stranger)
+        await db_session.flush()
+        token = bind_principal(
+            AccountPrincipal(
+                account_id=stranger.id,
+                status="active",
+                identity_type="email",
+                support_code=stranger.support_code,
+            )
+        )
+    elif project_state == "recycled":
+        project = await db_session.get(Project, novel_id)
+        project.deleted_at = datetime.now(UTC)
+        await db_session.flush()
+
+    pending_trace_rows = []
+
+    def observe_trace(_session, _context, _instances):
+        pending_trace_rows.extend(
+            type(row).__name__
+            for row in _session.new
+            if isinstance(
+                row, (AssistantOperationTrace, AssistantOperationTraceProjectSalt)
+            )
+        )
+
+    event.listen(Session, "before_flush", observe_trace)
+    try:
+        base = f"/api/world/project-vocabulary/{novel_id}"
+        requests = (
+            (
+                "GET",
+                "/api/assistant/operation-traces/aggregate",
+                {"params": {"novel_id": str(novel_id)}},
+            ),
+            (
+                "GET",
+                "/api/assistant/operation-traces/export",
+                {"params": {"novel_id": str(novel_id)}},
+            ),
+            (
+                "GET",
+                "/api/assistant/unified-notices",
+                {"params": {"novel_id": str(novel_id), "chapter_index": 1}},
+            ),
+            ("GET", base, {}),
+            ("POST", f"{base}/terms", {"json": {"kind": "feature", "name": "合成词条"}}),
+            (
+                "POST",
+                f"/api/world/map-atlas/{novel_id}/spatial-clues/{uuid.uuid4()}/review",
+                {
+                    "json": {
+                        "action": "reject",
+                        "expected_fingerprint": "f" * 64,
+                        "confirmed": True,
+                    }
+                },
+            ),
+        )
+        for method, path, options in requests:
+            response = await async_client.request(method, path, **options)
+            assert response.status_code == 404, (
+                project_state,
+                method,
+                path,
+                response.text,
+            )
+    finally:
+        event.remove(Session, "before_flush", observe_trace)
+        if token is not None:
+            reset_principal(token)
+
+    assert pending_trace_rows == []
+    assert (
+        await db_session.scalar(
+            select(func.count())
+            .select_from(AssistantOperationTrace)
+            .where(AssistantOperationTrace.novel_id == novel_id)
+        )
+        == 0
+    )
+    assert await db_session.get(AssistantOperationTraceProjectSalt, novel_id) is None
+    assert (
+        await db_session.scalar(
+            select(func.count())
+            .select_from(ProjectVocabularyTerm)
+            .where(ProjectVocabularyTerm.novel_id == novel_id)
+        )
+        == 0
+    )
+
+
+async def test_http_terminal_trace_never_opens_a_different_database(
+    async_client, db_session, test_project_id, monkeypatch
+):
+    """A traced 4xx must not use the global pool behind a test DB override."""
+    from core import database
+
+    attempted_sessions = []
+
+    def forbidden_session_factory():
+        attempted_sessions.append(True)
+        raise AssertionError("terminal trace must not open the unrelated pool")
+
+    wrong_engine = object()
+    assert wrong_engine is not db_session.get_bind().engine
+    monkeypatch.setattr(
+        database,
+        "get_manager",
+        lambda: SimpleNamespace(
+            engine=SimpleNamespace(sync_engine=wrong_engine),
+            session_factory=forbidden_session_factory,
+        ),
+    )
+
+    response = await async_client.patch(
+        f"/api/world/project-vocabulary/{test_project_id}/terms/{uuid.uuid4()}",
+        json={"name": "不存在的词条", "expected_revision_id": str(uuid.uuid4())},
+    )
+
+    assert response.status_code == 404
+    assert response.headers["x-novelcraft-operation-trace-incomplete"] == "true"
+    assert attempted_sessions == []

@@ -50,6 +50,7 @@ async def get_unified_notices(
 ):
     if scene_id is None and chapter_index is None:
         raise HTTPException(status_code=422, detail="需要选择场景或章节")
+    await require_active_project(db, str(novel_id))
     scope = NoticeScope(scene_id=scene_id, chapter_index=chapter_index)
     await _authorize_scope(db, novel_id, scope)
     return await list_notices(db, str(novel_id), scope)

@@ -26,7 +26,7 @@ def teardown_function():
 OPERATION_SNAPSHOT = {
     "map.prepare_tray_placement": (
         "准备托盘地点放置入口（由作者选点）",
-        "confirm",
+        "read",
         "1",
         "eb2c87e328aa537139a57b79240dc17319a67e067aad0d254705964d9ebecd48",
     ),
@@ -414,6 +414,66 @@ OPERATION_SNAPSHOT.update(
             "1",
             "de83bb98ac25d3e8b0e352d13b6849c340dede8e467045f35bebff0e3317591c",
         ),
+        "assistant.notice.mute_category": (
+            "静默这一类提醒",
+            "confirm",
+            "1",
+            "21330dd4d44f49119544c5e900fa099574ba6f6bc89ff1b984bbce500ec3bd2b",
+        ),
+        "assistant.notice.set_disposition": (
+            "处理提醒",
+            "confirm",
+            "1",
+            "2800f7f6c80fb20ac0ab98c0e8080d6ab0bd92a584368fa89bdd44137db00a9a",
+        ),
+        "assistant.notice.unmute_category": (
+            "恢复这一类提醒",
+            "confirm",
+            "1",
+            "21330dd4d44f49119544c5e900fa099574ba6f6bc89ff1b984bbce500ec3bd2b",
+        ),
+        "world.dossier.entry.create": (
+            "新增对象档案条目",
+            "confirm",
+            "1",
+            "1621cab68c2573e27dda545a5bd3cfe356c145d05c7c7cb79ee8c7177b3d8746",
+        ),
+        "world.dossier.entry.edit": (
+            "修订对象档案条目",
+            "confirm",
+            "1",
+            "0bae31d9664252c31020b2bd7b5db6aee09f5d9f5d11530300bf06f4db745d56",
+        ),
+        "world.dossier.entry.restore": (
+            "恢复对象档案历史版本",
+            "confirm",
+            "1",
+            "b4169b8499b5f94b51fef9ed0dad43b05adc3ec62d4414d1bbf06875dc60cb65",
+        ),
+        "world.dossier.history.read": (
+            "读取对象档案历史",
+            "read",
+            "1",
+            "5556705289373ce29fc0458583b2da5b775b0083bd867e34f10af9223e4d1368",
+        ),
+        "world.dossier.read": (
+            "读取对象档案",
+            "read",
+            "1",
+            "c6fa145e02df9d5ee1a91df7998c6db46d6f3dc7caa7072f63eacf44159e7f59",
+        ),
+        "world.dossier.template.edit": (
+            "修订对象档案模板",
+            "confirm",
+            "1",
+            "db350f7f859917fd69288cfe848f3b66bfc3262bf1e121c0b34657b9f62e952c",
+        ),
+        "world.dossier.template.read": (
+            "读取对象档案模板",
+            "read",
+            "1",
+            "f701fcd49fdb3a4ac35e21066d7905bc8c271b89d84289a46bf61428f5e749e8",
+        ),
     }
 )
 
@@ -467,6 +527,71 @@ def test_registry_materializes_spec_fields_and_rejects_unknown_fields():
 
     with pytest.raises(ValueError, match="未知字段"):
         _materialize({"x.bad": {"label": "坏声明", "nope": 1}})
+
+
+def test_catalog_v2_metadata_and_trace_inventory_match_runtime_schemas():
+    from app.bootstrap import register_container_services
+    from core.container import get
+    from modules.assistant.operations import operation_manifest
+
+    register_container_services()
+    operations = get("assistant.operations")
+    manifest = operation_manifest()
+    assert len(operations) == len(manifest) == 74
+    assert set(operations) == set(manifest)
+    for op_id, operation in operations.items():
+        frozen = manifest[op_id]
+        assert frozen["metadata"]["op_id"] == op_id
+        assert frozen["metadata_hash"] == fingerprint(frozen["metadata"])
+        assert operation.trace_rule.parameter_fields == tuple(
+            operation.schema.model_fields
+        )
+        assert set(frozen) == {
+            "schema_hash",
+            "revision",
+            "op_version",
+            "metadata_hash",
+            "metadata",
+            "schema",
+        }
+
+
+def test_inline_operation_metadata_requires_an_explicit_schema_trace_policy():
+    import pytest
+
+    from app.assistant_operation_registry import _materialize
+
+    class Args:
+        model_fields = {"value": object()}
+
+    async def prepare(*_args, **_kwargs):
+        return {}
+
+    async def apply(*_args, **_kwargs):
+        return {}
+
+    with pytest.raises(ValueError, match="留痕字段"):
+        _materialize(
+            {
+                "sample.write": {
+                    "label": "写入",
+                    "schema": Args,
+                    "prepare": prepare,
+                    "apply": apply,
+                    "op_version": "1",
+                    "description": "写入示例",
+                    "risk_level": "R2",
+                    "fee_category": "free",
+                    "reversibility": "restore",
+                    "preconditions": (),
+                    "produces": ("sample",),
+                    "target_type": "sample",
+                    "ai_available": True,
+                    "transaction_mode": "single_transaction",
+                    "trace_rule": {"parameter_fields": (), "mode": "per_call"},
+                }
+            }
+        )
 
 
 def test_assistant_facade_di_keys_resolve():

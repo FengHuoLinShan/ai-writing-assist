@@ -428,6 +428,7 @@ async def persist_one_click_character_cards(
 
 
 __all__ = [
+    "read_object_dossier_state",
     "STORY_CARD_TASK",
     "STORY_CHARACTER_CARD_ACTION",
     "STORY_ONE_CLICK_ACTION",

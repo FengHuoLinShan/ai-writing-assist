@@ -42,6 +42,9 @@ def operation_context(case, *, run_id, operation_id=None):
             context_confirmation_id=grant.context_confirmation_id,
             context_confirmation_action=grant.context_confirmation_action,
         ),
+        trace_enabled=True,
+        trace_actor_type="background",
+        trace_entrypoint="collaboration.merge",
     )
 
 

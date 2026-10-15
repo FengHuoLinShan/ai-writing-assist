@@ -395,6 +395,12 @@ async def enqueue_conflict_item_ai_suggestion(
     "/drafts/autosave",
     response_model=WritingDraftResponse,
     status_code=201,
+    openapi_extra={
+        "x-novelcraft-operation-exemption": (
+            "High-frequency autosaves are represented by versioned draft history; "
+            "operation trace intentionally does not duplicate each saved prose revision."
+        )
+    },
 )
 async def create_autosaved_draft(
     db: DbSession,

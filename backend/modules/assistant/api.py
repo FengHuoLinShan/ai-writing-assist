@@ -2,14 +2,15 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Response
+from pydantic import BaseModel
 from sqlalchemy import select
 
 from core.config import get_settings
 from core.dependencies import DbSession
 from core.errors import NotFoundError
 from infrastructure.tasks.facade import cancel_exact_task
-from modules.account.facade import current_account_id
+from modules.account.facade import current_account_id, is_demo_readonly_principal
 from modules.assistant.editorial_contracts import (
     EditorialPolicyUpdate,
     IssueDecision,
@@ -18,6 +19,16 @@ from modules.assistant.editorial_contracts import (
     ReviewSubmit,
 )
 from modules.assistant.models import AssistantRun
+from modules.assistant.operation_trace_models import (
+    AssistantOperationSequenceAggregate,
+    AssistantOperationTrace,
+    AssistantOperationTraceAggregate,
+)
+from modules.assistant.operation_trace_service import (
+    archive_expired_operation_traces,
+    operation_trace_enabled,
+    set_operation_trace_preference,
+)
 from modules.assistant.operations import catalog, decide_batch
 from modules.assistant.schemas import (
     CONTROLLED_DESTINATIONS,
@@ -34,7 +45,7 @@ from modules.assistant.schemas import (
 )
 from modules.assistant.service import AssistantService, record_run_event
 from modules.assistant.teams.contracts import BLUEPRINTS, TeamPlanSelection, TeamRunCreate
-from modules.project.facade import require_active_project
+from modules.project.facade import get_any_project_context, require_active_project
 
 router = APIRouter(prefix="/api/assistant", tags=["assistant"])
 service = AssistantService()
@@ -44,6 +55,145 @@ router.include_router(forecast_router)
 from modules.assistant.guided_flow.api import router as guided_flow_router  # noqa: E402
 
 router.include_router(guided_flow_router)
+
+
+class OperationTracePreferenceUpdate(BaseModel):
+    enabled: bool
+
+
+@router.get("/operation-traces/preference")
+async def get_operation_trace_preference(db: DbSession):
+    owner_id = str(current_account_id())
+    from modules.assistant.operation_trace_models import AssistantOperationTracePreference
+
+    preference = await db.get(AssistantOperationTracePreference, UUID(owner_id))
+    return {
+        "enabled": await operation_trace_enabled(db, owner_id),
+        "explicit": preference is not None and preference.enabled is not None,
+    }
+
+
+@router.put(
+    "/operation-traces/preference",
+    openapi_extra={
+        "x-novelcraft-operation-exemption": (
+            "Account-level privacy switch; controls tracing and is outside "
+            "assistant domain operations."
+        )
+    },
+)
+async def update_operation_trace_preference(
+    db: DbSession, data: OperationTracePreferenceUpdate
+):
+    from fastapi import HTTPException
+
+    if is_demo_readonly_principal():
+        raise HTTPException(status_code=403, detail="演示账户不可更改留痕设置")
+    owner_id = str(current_account_id())
+    await set_operation_trace_preference(db, owner_id, data.enabled)
+    return {"enabled": await operation_trace_enabled(db, owner_id), "explicit": True}
+
+
+async def _operation_trace_aggregate(db, novel_id: UUID, owner_id: str) -> dict:
+    from collections import Counter
+    from datetime import UTC, datetime, timedelta
+
+    await require_active_project(db, str(novel_id), allow_demo_readonly=False)
+    if is_demo_readonly_principal():
+        raise NotFoundError("项目不可访问")
+    project = await get_any_project_context(db, str(novel_id))
+    if (
+        project is None
+        or str(project.owner_id) != owner_id
+        or project.project_kind != "author"
+    ):
+        raise NotFoundError("项目不可访问")
+    await archive_expired_operation_traces(db, str(novel_id))
+    event_counts = Counter()
+    archived = (
+        await db.scalars(
+            select(AssistantOperationTraceAggregate).where(
+                AssistantOperationTraceAggregate.novel_id == novel_id
+            )
+        )
+    ).all()
+    for row in archived:
+        event_counts[(row.occurred_on.isoformat(), row.op_id, row.event_type)] += (
+            row.event_count
+        )
+
+    cutoff = datetime.now(UTC) - timedelta(days=180)
+    details = (
+        await db.scalars(
+            select(AssistantOperationTrace).where(
+                AssistantOperationTrace.novel_id == novel_id,
+                AssistantOperationTrace.occurred_at >= cutoff,
+            )
+        )
+    ).all()
+    for row in details:
+        event_counts[(row.occurred_at.date().isoformat(), row.op_id, row.event_type)] += 1
+
+    sequence_counts = Counter()
+    sequences = (
+        await db.scalars(
+            select(AssistantOperationSequenceAggregate).where(
+                AssistantOperationSequenceAggregate.novel_id == novel_id
+            )
+        )
+    ).all()
+    for row in sequences:
+        sequence_counts[(row.occurred_on.isoformat(), tuple(row.operation_sequence))] += (
+            row.sequence_count
+        )
+    return {
+        "events": [
+            {"date": day, "operation": op_id, "event": event, "count": count}
+            for (day, op_id, event), count in sorted(event_counts.items())
+        ],
+        "sequences": [
+            {"date": day, "operations": list(sequence), "count": count}
+            for (day, sequence), count in sorted(sequence_counts.items())
+        ],
+    }
+
+
+@router.get(
+    "/operation-traces/aggregate",
+    openapi_extra={
+        "x-novelcraft-operation-exemption": (
+            "Owner-only aggregate read; folds expired detail into ID-free counts."
+        )
+    },
+)
+async def operation_trace_aggregate(db: DbSession, novel_id: UUID):
+    return await _operation_trace_aggregate(db, novel_id, str(current_account_id()))
+
+
+@router.get(
+    "/operation-traces/export",
+    openapi_extra={
+        "x-novelcraft-operation-exemption": (
+            "Owner-only aggregate export without run, session, target, "
+            "or content identifiers."
+        )
+    },
+)
+async def export_operation_trace_aggregate(db: DbSession, novel_id: UUID):
+    import csv
+    from io import StringIO
+
+    data = await _operation_trace_aggregate(db, novel_id, str(current_account_id()))
+    output = StringIO()
+    writer = csv.writer(output)
+    writer.writerow(("date", "operation", "event", "count"))
+    for row in data["events"]:
+        writer.writerow((row["date"], row["operation"], row["event"], row["count"]))
+    writer.writerow(())
+    writer.writerow(("date", "operation_sequence", "count"))
+    for row in data["sequences"]:
+        writer.writerow((row["date"], " → ".join(row["operations"]), row["count"]))
+    return Response(output.getvalue(), media_type="text/csv; charset=utf-8")
 
 
 @router.get("/editorial/policy")

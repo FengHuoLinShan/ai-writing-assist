@@ -321,7 +321,7 @@ async def prepare(db, novel_id, candidate_id, data):
         request_json={
             "runtime_version": "3",
             "protocol": "forecast_prepare_v1",
-            "operations": {capability: operation_manifest()[capability]},
+            "operations": {capability: operation_manifest(legacy=True)[capability]},
             "context": work.model_dump(mode="json"),
             "forecast_parent": parent,
         },
@@ -339,7 +339,13 @@ async def prepare(db, novel_id, candidate_id, data):
             )
         ],
         context=AssistantOperationContext(
-            str(run.id), str(run.owner_id), work, operation_id=str(run.id)
+            str(run.id),
+            str(run.owner_id),
+            work,
+            operation_id=str(run.id),
+            trace_enabled=True,
+            trace_entrypoint="assistant.forecast.prepare",
+            trace_session_id=str(run.session_id) if run.session_id else None,
         ),
     )
     try:

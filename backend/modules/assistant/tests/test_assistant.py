@@ -238,7 +238,7 @@ async def test_author_turn_preview_confirm_and_replay(
     from modules.assistant.operations import catalog, resolve_operations
 
     run = await db_session.get(AssistantRun, uuid.UUID(operation))
-    assert run.request_json["runtime_version"] == "6"
+    assert run.request_json["runtime_version"] == "7"
     assert {"search_general_fact", "read_web_source"}.issubset(
         run.request_json["read_tools"]
     )

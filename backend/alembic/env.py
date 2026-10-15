@@ -24,6 +24,8 @@ import modules.account.models  # noqa: E402, F401
 import modules.account.settings_models  # noqa: E402, F401
 import modules.assistant.forecast.models  # noqa: F401, E402
 import modules.assistant.models  # noqa: F401, E402
+import modules.assistant.notice_models  # noqa: F401, E402
+import modules.assistant.operation_trace_models  # noqa: F401, E402
 import modules.collaboration.models  # noqa: F401, E402
 
 # character 模块已删除，模型在 modules.world.models

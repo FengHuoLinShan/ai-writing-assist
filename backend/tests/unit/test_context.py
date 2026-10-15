@@ -38,6 +38,7 @@ from modules.evidence.compilation.services.context_compiler import SCOPE_LOADERS
 from modules.evidence.compilation.services.loaders import (
     CharactersLoader,
     EventsLoader,
+    MapSpatialLoader,
     MemoryRecordsLoader,
     OutlineAnalysisLoader,
     OutlineArcLoader,
@@ -89,6 +90,7 @@ class TestLoaderProtocol:
             PlotThreadsLoader(),
             OutlineArcLoader(),
             SceneLoader(),
+            MapSpatialLoader(),
             OutlineAnalysisLoader(),
         ]
         expected_names = [
@@ -102,6 +104,7 @@ class TestLoaderProtocol:
             "plot_threads",
             "outline_arc",
             "scene",
+            "map_spatial",
             "outline_analysis",
         ]
         for loader, expected_name in zip(loaders, expected_names):
@@ -125,6 +128,7 @@ class TestLoaderProtocol:
             "plot_threads",
             "outline_arc",
             "scene",
+            "map_spatial",
             "outline_analysis",
         ]
 
@@ -295,7 +299,8 @@ class TestContextCompilerDispatch:
     def test_default_loaders_created(self) -> None:
         """默认 loaders 应覆盖各 scope 声明的全部 loader"""
         compiler = ContextCompiler()
-        assert set(compiler._loaders) == set(_ALL_SCOPE_LOADER_NAMES)
+        assert set(compiler._loaders) == set(_ALL_SCOPE_LOADER_NAMES) | {"map_spatial"}
+        assert "map_spatial" not in _ALL_SCOPE_LOADER_NAMES
 
 
 class TestCompileWithTiers:

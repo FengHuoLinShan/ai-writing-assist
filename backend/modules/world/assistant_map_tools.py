@@ -1182,6 +1182,7 @@ OPERATIONS_SPEC = {
     "map.prepare_tray_placement": {
         "label": "准备托盘地点放置入口（由作者选点）",
         "schema": PrepareTrayPlacement,
+        "permission": "read",
         "prepare": _tray_navigation_preview,
         "apply": _tray_navigation_apply,
     },

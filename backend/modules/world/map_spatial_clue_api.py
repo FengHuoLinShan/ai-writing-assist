@@ -54,10 +54,16 @@ async def get_spatial_clues(
 @router.post(
     "/{novel_id}/spatial-clues/{clue_id}/review",
     response_model=MapSpatialClueResponse,
+    openapi_extra={
+        "x-novelcraft-operation-exemption": (
+            "This single-clue author review has a different input and CAS contract "
+            "from the map.review_spatial_clues batch operation."
+        )
+    },
 )
 async def review_spatial_clue_endpoint(
     db: DbSession,
-    novel_id: str,
+    novel_id: ActiveNovelId,
     clue_id: UUID,
     data: MapSpatialClueDecisionRequest,
 ):

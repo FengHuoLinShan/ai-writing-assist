@@ -72,6 +72,7 @@ WORLD_FACADE_API = {
     "list_entity_terms",
     "list_adopted_map_continuity_facts",
     "read_map_spatial_brief",
+    "prepare_map_demo_copy_rows",
     "list_world_bible_working_page_ids",
     "mark_worldbuilding_context_stale",
     "mark_world_bible_synopsis_stale",

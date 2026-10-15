@@ -9,7 +9,6 @@ from sqlalchemy import select
 from core.errors import ConflictError, NotFoundError
 from infrastructure.tasks.facade import update_task_projection
 from modules.assistant.contracts import (
-    AssistantOperation,
     AssistantOperationContext,
     WorkContext,
 )
@@ -259,6 +258,8 @@ async def schedule_proactive_review(db, novel_id, change, internal_meta):
         WorkContext(
             scope="project", excluded_targets=policy.get("excluded_targets") or []
         ),
+        trace_enabled=True,
+        trace_entrypoint="assistant.review",
     )
     return await _submit(
         db,
@@ -325,13 +326,13 @@ async def _review_result(db, novel_id, reference):
     }
 
 
-OPERATIONS = {
-    "world.review": AssistantOperation(
-        "复核世界资料",
-        ReviewWorld,
-        _prepare,
-        _apply,
-        permission="suggest",
-        read_result=_review_result,
-    )
+OPERATIONS_SPEC = {
+    "world.review": {
+        "label": "复核世界资料",
+        "schema": ReviewWorld,
+        "prepare": _prepare,
+        "apply": _apply,
+        "permission": "suggest",
+        "read_result": _review_result,
+    }
 }

@@ -11,7 +11,6 @@ from core.service_keys import (
     ASSISTANT_REQUIRE_OPERATION_TARGETS,
     ASSISTANT_RUN_DISCUSSION_SCOPE,
 )
-from modules.assistant.contracts import AssistantOperation
 from modules.world.schemas import (
     WorldAdoptionPackageItem,
     WorldAdoptionPackagePayload,
@@ -146,14 +145,17 @@ async def _apply_page(db, novel_id, args, preview, *, context=None):
     }
 
 
-OPERATIONS = {
-    "world.prepare_package": AssistantOperation(
-        "准备可独立校验和采用的世界资料包",
-        PreparePackage,
-        _package_preview,
-        _save_package,
-    ),
-    "world.apply_page_suggestion": AssistantOperation(
-        "将整页建议保存为工作稿", ApplyPageSuggestion, _page_preview, _apply_page
-    ),
+OPERATIONS_SPEC = {
+    "world.prepare_package": {
+        "label": "准备可独立校验和采用的世界资料包",
+        "schema": PreparePackage,
+        "prepare": _package_preview,
+        "apply": _save_package,
+    },
+    "world.apply_page_suggestion": {
+        "label": "将整页建议保存为工作稿",
+        "schema": ApplyPageSuggestion,
+        "prepare": _page_preview,
+        "apply": _apply_page,
+    },
 }

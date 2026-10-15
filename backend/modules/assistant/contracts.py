@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from pydantic import BaseModel, Field
 
@@ -78,6 +78,25 @@ class AssistantOperationContext:
     operation_id: str | None = None
     llm_snapshot: dict | None = None
     internal_meta: dict | None = None
+    trace_enabled: bool = False
+    trace_actor_type: str = "assistant"
+    trace_entrypoint: str = "assistant.turn"
+    trace_call_id: str | None = None
+    trace_parent_call_id: str | None = None
+    trace_session_id: str | None = None
+    trace_usage: dict | None = None
+    trace_status: dict | None = None
+
+
+@dataclass(frozen=True)
+class AssistantOperationTraceRule:
+    """Declarative operation trace policy; parameter values are always redacted."""
+
+    parameter_fields: tuple[str, ...] = ()
+    mode: Literal["per_call", "coalesce", "exempt"] = "per_call"
+    parameter_policy: Literal["schema_safe"] = "schema_safe"
+    window_seconds: int | None = None
+    exemption_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -87,10 +106,26 @@ class AssistantOperation:
     label: str
     schema: type[BaseModel]
     prepare: Callable[..., Awaitable[dict[str, Any]]]
-    apply: Callable[..., Awaitable[dict[str, Any]]]
-    permission: str = "confirm"
+    apply: Callable[..., Awaitable[dict[str, Any]]] | None = None
+    permission: Literal["read", "suggest", "confirm"] = "confirm"
     read_result: Callable[..., Awaitable[dict[str, Any]]] | None = None
     revision: str = "1"
+    op_id: str = ""
+    op_version: str = "1"
+    description: str = ""
+    risk_level: Literal["R0", "R1", "R2", "R3", "R4"] = "R2"
+    fee_category: Literal["free", "possible_model_charge", "possible_image_charge"] = (
+        "free"
+    )
+    reversibility: str = "history_restore"
+    preconditions: tuple[str, ...] = ()
+    produces: tuple[str, ...] = ()
+    target_type: str = "unknown"
+    ai_available: bool = True
+    transaction_mode: Literal["single_transaction", "multi_stage"] = "single_transaction"
+    trace_rule: AssistantOperationTraceRule = field(
+        default_factory=AssistantOperationTraceRule
+    )
 
 
 class ForecastDomainFact(BaseModel):

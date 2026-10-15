@@ -253,6 +253,7 @@ __all__ = [
     "read_map_node_heads",
     "read_map_spatial_advisories",
     "read_map_spatial_brief",
+    "prepare_map_demo_copy_rows",
     "read_spatial_discovery_context",
     "stage_spatial_discovery",
     "build_map_auto_drafts",
