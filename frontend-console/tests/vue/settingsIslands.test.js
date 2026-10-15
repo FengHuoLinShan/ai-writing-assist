@@ -184,7 +184,8 @@ describe("project-settings island（项目设置）", () => {
 
     expect(content.querySelector(".project-settings-view")).toBeTruthy()
     expect(content.textContent).toContain("测试项目")
-    expect(content.querySelectorAll(".settings-tab-nav .tab-btn")).toHaveLength(3)
+    expect(content.querySelectorAll(".settings-tab-nav .tab-btn")).toHaveLength(4)
+    expect(content.textContent).toContain("操作留痕")
     expect(content.querySelector(".settings-shell h1")?.textContent).toBe("当前作品设置")
     island.onLeave()
   })
