@@ -82,6 +82,8 @@ from core.service_keys import (
     WORLD_LIST_ADOPTED_MAP_CONTINUITY_FACTS,
     WORLD_READ_MAP_CHAPTER_CONSUMERS,
     WORLD_READ_MAP_NODE_HEADS,
+    WORLD_STAGE_SPATIAL_DISCOVERY,
+    WORLD_READ_SPATIAL_DISCOVERY_CONTEXT,
     WORLD_READ_BIBLE_PAGE_REVISIONS,
     WORLD_LIST_CHARACTERS,
     WORLD_LIST_ENTITIES,
@@ -195,6 +197,10 @@ from modules.evolution.facade import (
 )
 from modules.story.facade import get_scene_contract as _story_get_scene_contract
 from modules.world import assistant_ports as _world_assistant
+from modules.world.facade import (
+    read_spatial_discovery_context as _world_read_spatial_discovery_context,
+    stage_spatial_discovery as _world_stage_spatial_discovery,
+)
 from modules.world.assistant_tools import OPERATIONS as _WORLD_OPERATIONS
 from app.assistant_operation_registry import evidence_forecast_operations
 from app.assistant_operation_registry import project_dedup_operations
@@ -453,6 +459,8 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
         ),
         (WORLD_READ_MAP_CHAPTER_CONSUMERS, _world_read_map_chapter_consumers),
         (WORLD_READ_MAP_NODE_HEADS, _world_read_map_node_heads),
+        (WORLD_STAGE_SPATIAL_DISCOVERY, _world_stage_spatial_discovery),
+        (WORLD_READ_SPATIAL_DISCOVERY_CONTEXT, _world_read_spatial_discovery_context),
         (WORLD_READ_BIBLE_PAGE_REVISIONS, _world_read_bible_page_revisions),
         # AO-5 第二批：evidence(L2)/writing(L2) 消费 assistant facade 能力经这些
         # DI 键，assistant 反方向顶层/函数内导入清零。

@@ -35,6 +35,9 @@ from modules.world.map_spatial_clue_schemas import (
     MapSpatialClueEndpointIdentity as MapSpatialClueEndpointIdentity,
 )
 from modules.world.map_spatial_clue_schemas import (
+    MapSpatialClueEvidenceResponse as MapSpatialClueEvidenceResponse,
+)
+from modules.world.map_spatial_clue_schemas import (
     MapSpatialClueListResponse as MapSpatialClueListResponse,
 )
 from modules.world.map_spatial_clue_schemas import (
@@ -51,6 +54,12 @@ from modules.world.map_spatial_clue_schemas import (
 )
 from modules.world.map_spatial_clue_schemas import (
     MapSpatialClueStageResult as MapSpatialClueStageResult,
+)
+from modules.world.map_spatial_clue_schemas import (
+    MapSpatialClueTypeProposalDraft as MapSpatialClueTypeProposalDraft,
+)
+from modules.world.map_spatial_clue_schemas import (
+    MapSpatialClueTypeProposalResponse as MapSpatialClueTypeProposalResponse,
 )
 from modules.world.project_vocabulary_schemas import (
     ModelVocabularyProposal as ModelVocabularyProposal,
