@@ -14,6 +14,7 @@ from typing import Any
 
 from sqlalchemy import (
     JSON,
+    CheckConstraint,
     DateTime,
     ForeignKeyConstraint,
     Index,
@@ -455,6 +456,112 @@ class StorySceneDirectorPreference(Base, UUIDMixin, TimestampMixin, NovelMixin):
     )
 
     cliche_phrases_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+
+
+class CharacterArcPlanHead(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """Current author-confirmed, director-only plan for one World character."""
+
+    __tablename__ = "story_character_arc_plan_heads"
+    __table_args__ = (
+        UniqueConstraint(
+            "novel_id",
+            "character_id",
+            name="uq_story_character_arc_plan_character",
+        ),
+        UniqueConstraint(
+            "novel_id", "id", name="uq_story_character_arc_plan_head_novel"
+        ),
+        ForeignKeyConstraint(
+            ["current_revision_id", "novel_id"],
+            ["story_character_arc_plan_revisions.id", "story_character_arc_plan_revisions.novel_id"],
+            name="fk_story_character_arc_plan_head_current_revision",
+            use_alter=True,
+        ),
+        Index(
+            "ix_story_character_arc_plan_novel_character",
+            "novel_id",
+            "character_id",
+        ),
+        {"comment": "Story author-confirmed director-only character arc plan"},
+    )
+
+    character_id: Mapped[uuid.UUID] = mapped_column(UUIDType, nullable=False, index=True)
+    owner_id: Mapped[uuid.UUID] = mapped_column(UUIDType, nullable=False, index=True)
+    current_revision_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUIDType, nullable=True
+    )
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_by: Mapped[uuid.UUID | None] = mapped_column(UUIDType, nullable=True)
+
+
+class CharacterArcPlanRevision(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """Immutable author-confirmed plan revision; never a continuity fact."""
+
+    __tablename__ = "story_character_arc_plan_revisions"
+    __table_args__ = (
+        UniqueConstraint(
+            "novel_id",
+            "head_id",
+            "version_number",
+            name="uq_story_character_arc_plan_revision_version",
+        ),
+        UniqueConstraint(
+            "novel_id",
+            "character_id",
+            "operation_id",
+            name="uq_story_character_arc_plan_operation",
+        ),
+        UniqueConstraint(
+            "id", "novel_id", name="uq_story_character_arc_plan_revision_novel"
+        ),
+        ForeignKeyConstraint(
+            ["head_id", "novel_id"],
+            ["story_character_arc_plan_heads.id", "story_character_arc_plan_heads.novel_id"],
+            name="fk_story_character_arc_plan_revision_head",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["base_revision_id", "novel_id"],
+            ["story_character_arc_plan_revisions.id", "story_character_arc_plan_revisions.novel_id"],
+            name="fk_story_character_arc_plan_revision_base",
+        ),
+        ForeignKeyConstraint(
+            ["restored_from_revision_id", "novel_id"],
+            ["story_character_arc_plan_revisions.id", "story_character_arc_plan_revisions.novel_id"],
+            name="fk_story_character_arc_plan_revision_restored_from",
+        ),
+        CheckConstraint(
+            "audience = 'director_only'",
+            name="ck_story_character_arc_plan_director_only",
+        ),
+        CheckConstraint(
+            "source IN ('author_confirmed','author_restore')",
+            name="ck_story_character_arc_plan_revision_source",
+        ),
+        Index(
+            "ix_story_character_arc_plan_revision_history",
+            "novel_id",
+            "character_id",
+            "version_number",
+        ),
+        {"comment": "Immutable Story character arc plan revisions"},
+    )
+
+    head_id: Mapped[uuid.UUID] = mapped_column(UUIDType, nullable=False, index=True)
+    character_id: Mapped[uuid.UUID] = mapped_column(UUIDType, nullable=False, index=True)
+    owner_id: Mapped[uuid.UUID] = mapped_column(UUIDType, nullable=False, index=True)
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    plan_text: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    audience: Mapped[str] = mapped_column(String(32), nullable=False, default="director_only")
+    operation_id: Mapped[uuid.UUID] = mapped_column(UUIDType, nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    base_revision_id: Mapped[uuid.UUID | None] = mapped_column(UUIDType, nullable=True)
+    restored_from_revision_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUIDType, nullable=True
+    )
 
 
 # A model import from ``story.models`` is part of the app's ORM discovery contract.

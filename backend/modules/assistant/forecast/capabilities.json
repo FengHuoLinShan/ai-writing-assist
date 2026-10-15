@@ -101,6 +101,21 @@
       "default_enabled": false
     },
     {
+      "capability_id": "story.character_response.v2",
+      "owner_domain": "story",
+      "title": "人物表演选项",
+      "trigger": "作者从场景中选择人物，或为当前 POV 请求即时反应",
+      "required_inputs": "人物档案与按角色知识过滤的截止 Scene 简报；作者条件只作为写作约束，不视为人物所知",
+      "expected_output": "2 至 3 个动机不同的候选，覆盖行为、神态、肢体、声音台词、潜台词、心理触发与防御、注意与忽略、变化、来源和缺口",
+      "controlled_action": "逐条暂缓，复制为写作参考，或在当前草稿上准备待确认的写作候选",
+      "boundary": "按被选人物的角色视角编译知识；不读取作者未来安排或其他人物秘密；候选动作不是事实；缺资料披露缺口但不虚构依据",
+      "phase": "C3",
+      "status": "implemented_gated",
+      "protocol": "forecast_v1",
+      "output_contract": "character_response.v2",
+      "default_enabled": false
+    },
+    {
       "capability_id": "story.information_window.v1",
       "owner_domain": "story",
       "title": "信息推进窗口",

@@ -22,7 +22,22 @@
         <h4>{{ item.title }}</h4><p>{{ item.why_now }}</p>
         <details @toggle="hold($event)"><summary>依据、选择与未知</summary>
           <p v-for="(statement, index) in item.statements" :key="index"><strong>{{ { observed: '原文观察', inferred: '可能解释', proposed: '创作选项' }[statement.basis] }}：</strong>{{ statement.text }}</p>
-          <div v-for="direction in item.directions" :key="direction.direction_id" class="forecast-direction"><strong>{{ direction.title }}</strong><p>{{ direction.condition }}</p><p>{{ direction.proposal }}</p><ul v-if="direction.possible_effects?.length"><li v-for="effect in direction.possible_effects" :key="effect">{{ effect }}</li></ul><small v-if="direction.assumptions?.length">需要的前提：{{ direction.assumptions.join('；') }}</small><button class="btn btn-sm btn-ghost" type="button" :disabled="state.busy || state.stale" @click="forecast.decide(item, 'not_this_direction', { direction_id: direction.direction_id })">暂不走这个方向</button></div>
+          <p v-if="item.character_response" class="forecast-cutoff">{{ item.character_response.character_name }} · {{ item.character_response.cutoff_label }} · 以下动作均未发生</p>
+          <article v-for="option in item.character_response?.options || []" :key="option.direction_id" class="forecast-direction">
+            <strong>{{ motiveLabel(option.motive) }}：{{ option.motive_reason }}</strong>
+            <p><b>触发：</b>{{ option.trigger }}</p>
+            <p><b>动作顺序：</b>{{ option.behavior.join('；') }}</p>
+            <p><b>神态：</b>{{ option.expression }} <b>肢体：</b>{{ option.body_language }}</p>
+            <p><b>声音：</b>{{ option.voice.delivery }}<template v-if="option.voice.line"> <b>台词：</b>{{ option.voice.line }}</template> <b>潜台词：</b>{{ option.voice.subtext }}</p>
+            <p><b>心理：</b>{{ option.psychology }} <b>触发：</b>{{ option.psychological_trigger }} <b>防御：</b>{{ option.defense }}</p>
+            <p><b>注意：</b>{{ option.notices.join('；') || '未说明' }} <b>忽略：</b>{{ option.overlooks.join('；') || '未说明' }}</p>
+            <p><b>变化：</b>情绪 {{ option.change.emotion }}；关系 {{ option.change.relationship }}；目标 {{ option.change.goal }}</p>
+            <small v-for="(basis, index) in option.basis" :key="index" class="forecast-basis"><b>{{ basisKindLabel(basis.kind) }}：</b><template v-if="basis.quote">“{{ basis.quote }}” · </template>{{ basis.note }}</small>
+            <small v-if="option.assumptions.length">假设：{{ option.assumptions.join('；') }}</small>
+            <div class="forecast-actions"><button class="btn btn-sm btn-ghost" type="button" :aria-label="`复制${item.character_response.character_name}的${motiveLabel(option.motive)}候选为写作参考`" :disabled="state.stale" @click="copyPerformance(item, option)">复制为写作参考</button><button class="btn btn-sm btn-ghost" type="button" :disabled="state.busy || state.stale" @click="forecast.decide(item, 'not_this_direction', { direction_id: option.direction_id })">暂不走这个方向</button></div>
+          </article>
+          <p v-if="item.character_response?.source_gaps?.length">资料缺口：{{ item.character_response.source_gaps.join('；') }}</p>
+          <template v-if="!item.character_response"><div v-for="direction in item.directions" :key="direction.direction_id" class="forecast-direction"><strong>{{ direction.title }}</strong><p>{{ direction.condition }}</p><p>{{ direction.proposal }}</p><ul v-if="direction.possible_effects?.length"><li v-for="effect in direction.possible_effects" :key="effect">{{ effect }}</li></ul><small v-if="direction.assumptions?.length">需要的前提：{{ direction.assumptions.join('；') }}</small><button class="btn btn-sm btn-ghost" type="button" :disabled="state.busy || state.stale" @click="forecast.decide(item, 'not_this_direction', { direction_id: direction.direction_id })">暂不走这个方向</button></div></template>
           <p v-if="item.unknowns.length">仍未知：{{ item.unknowns.join('；') }}</p>
           <small>{{ item.basis_label }}</small>
           <div v-for="reference in item.evidence" :key="reference.evidence_id" class="forecast-reference"><span>{{ reference.label }}</span><button v-if="reference.source_range" class="btn btn-sm btn-ghost" type="button" :disabled="dirty" @click="locate(reference)">定位原文</button></div>
@@ -74,6 +89,45 @@ const canAnalyze = computed(() => !state.value.loading && !state.value.stale && 
 const emptyLabel = computed(() => ({ ready: "这次没有其他需要提示的内容。", empty: "本轮没有需要提示的内容，可以继续写作。", not_checked: "还没有分析这一处。已有保存资料可以直接查看。", disabled: "前瞻暂未开启，普通写作与已有成果仍保留。", unavailable: "当前能力不可用，仍可继续编辑。", stale: "资料版本已变化，重新分析后会给出当前建议。" })[state.value.feed?.state] || "打开章节或资料后，可以从当前任务出发。")
 const runLabel = computed(() => ({ failed: "这次分析未完成，原稿与已保存结果仍保留。", cancelled: "已停止后续分析。", budget_exceeded: "本次分析已达到额度，已有结果仍保留。" })[state.value.run?.status] || "")
 const kindLabel = kind => ({ prepared_reference: "相关资料", next_step: "下一步", creative_opportunity: "创作选项", impact_preview: "影响预览", decision_prompt: "一个待定问题" })[kind] || "建议"
+const motiveLabel = motive => ({ protect: "保护", understand: "先弄清楚", assert: "表明立场", withdraw: "暂时退开", connect: "寻求连接", deceive: "隐瞒或误导", delay: "拖延决定", repair: "修复关系", escape: "脱身", delegate: "交给别人", accept: "接受", resist: "抵抗" })[motive] || "表演选择"
+const basisKindLabel = kind => ({ world_dossier: "角色可见人物档案", scene_state: "截止场景状态", manuscript: "正文刺激", author_condition: "作者写作约束", creative_choice: "创意发挥" })[kind] || "依据"
+function performanceText(item, option) {
+  const voice = option.voice
+  return [
+    `${item.character_response.character_name}｜${item.character_response.cutoff_label}｜未发生的表演候选`,
+    `动机：${motiveLabel(option.motive)}。${option.motive_reason}`,
+    `触发：${option.trigger}`,
+    `动作顺序：${option.behavior.join("；")}`,
+    `神态：${option.expression}`,
+    `肢体：${option.body_language}`,
+    `声音：${voice.delivery}`,
+    voice.line ? `台词：${voice.line}` : "",
+    `潜台词：${voice.subtext}`,
+    `心理：${option.psychology}`,
+    `心理触发：${option.psychological_trigger}`,
+    `防御：${option.defense}`,
+    `注意：${option.notices.join("；") || "未说明"}`,
+    `忽略：${option.overlooks.join("；") || "未说明"}`,
+    `变化：情绪 ${option.change.emotion}；关系 ${option.change.relationship}；目标 ${option.change.goal}`,
+    ...option.basis.map(basis => `依据（${basisKindLabel(basis.kind)}）：${basis.quote ? `“${basis.quote}” · ` : ""}${basis.note}`),
+    option.assumptions.length ? `假设：${option.assumptions.join("；")}` : "",
+    item.character_response.source_gaps.length ? `资料缺口：${item.character_response.source_gaps.join("；")}` : "",
+  ].filter(Boolean).join("\n")
+}
+async function copyPerformance(item, option) {
+  const text = performanceText(item, option)
+  try {
+    if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text)
+    else {
+      const field = document.createElement("textarea")
+      field.value = text; field.setAttribute("readonly", ""); field.style.position = "fixed"; field.style.opacity = "0"
+      document.body.appendChild(field); field.select()
+      const copied = document.execCommand("copy"); field.remove()
+      if (!copied) throw new Error("当前环境无法访问剪贴板")
+    }
+    getToast()("已复制，可粘贴到写作输入中作为参考。", "success")
+  } catch (error) { state.value.error = error.message || "复制失败，请手动选择候选内容。" }
+}
 function hold(event) { state.value.hold = [...event.currentTarget.closest(".forecast-items").querySelectorAll("details")].some(item => item.open) }
 async function evaluate() { if (await subscription.activate()) await forecast.value.evaluate() }
 async function refresh() { try { await forecast.value.refresh() } catch (error) { state.value.error = error.message || "资料暂时无法刷新。" } }
@@ -87,5 +141,5 @@ onBeforeUnmount(() => subscription.release())
 </script>
 
 <style scoped>
-.forecast-dock{padding:18px 16px;color:var(--text-primary);min-width:0;font-size:13px;line-height:1.65}.forecast-dock header{display:flex;justify-content:space-between;align-items:start;gap:8px}.forecast-kicker,.forecast-kind{font-size:11px;letter-spacing:.08em;color:var(--text-secondary)}.forecast-dock h3{font-size:17px;margin:3px 0}.forecast-dock h4{font-size:15px;line-height:1.5;margin:5px 0}.forecast-subtitle,.forecast-note,.forecast-empty{color:var(--text-secondary);margin:8px 0 14px}.forecast-instruction{display:block}.forecast-instruction span{color:var(--text-secondary);font-size:11px}.forecast-instruction textarea{width:100%;box-sizing:border-box;resize:vertical;min-height:64px;padding:9px;border:1px solid var(--border-color,var(--border));border-radius:7px;font:inherit;color:inherit;background:var(--bg-primary,var(--bg-base));margin-top:6px}.forecast-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}.forecast-card{border-top:1px solid var(--border-color,var(--border));padding:16px 0}.forecast-card p{margin:7px 0;white-space:pre-wrap;overflow-wrap:anywhere}.forecast-card details{margin-top:10px}.forecast-card summary,.forecast-settings summary{cursor:pointer;min-height:32px}.forecast-direction{padding:12px;border-left:2px solid var(--accent,var(--primary));background:var(--bg-muted);margin:10px 0}.forecast-reference{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px}.forecast-decisions{display:flex;flex-wrap:wrap;gap:12px;margin-top:12px}.forecast-decisions button{border:0;background:transparent;color:var(--text-secondary);font:inherit;cursor:pointer;padding:4px 0;min-height:32px}.forecast-settings{border-top:1px solid var(--border-color,var(--border));padding-top:12px;margin-top:16px;font-size:12px;color:var(--text-secondary)}.forecast-settings label{display:flex;align-items:center;gap:8px;min-height:38px}.forecast-preview{border:1px solid var(--border-color,var(--border));border-radius:8px;padding:12px;margin:16px 0;background:var(--bg-muted)}.forecast-error{color:var(--danger);overflow-wrap:anywhere}.forecast-dock button:focus-visible,.forecast-dock summary:focus-visible,.forecast-dock textarea:focus-visible{outline:2px solid var(--accent,var(--primary));outline-offset:3px}@media(max-width:700px){.forecast-dock button{min-height:42px}.forecast-instruction textarea{font-size:16px}}
+.forecast-dock{padding:18px 16px;color:var(--text-primary);min-width:0;font-size:13px;line-height:1.65}.forecast-dock header{display:flex;justify-content:space-between;align-items:start;gap:8px}.forecast-kicker,.forecast-kind{font-size:11px;letter-spacing:.08em;color:var(--text-secondary)}.forecast-dock h3{font-size:17px;margin:3px 0}.forecast-dock h4{font-size:15px;line-height:1.5;margin:5px 0}.forecast-subtitle,.forecast-note,.forecast-empty{color:var(--text-secondary);margin:8px 0 14px}.forecast-instruction{display:block}.forecast-instruction span{color:var(--text-secondary);font-size:11px}.forecast-instruction textarea{width:100%;box-sizing:border-box;resize:vertical;min-height:64px;padding:9px;border:1px solid var(--border-color,var(--border));border-radius:7px;font:inherit;color:inherit;background:var(--bg-primary,var(--bg-base));margin-top:6px}.forecast-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}.forecast-card{border-top:1px solid var(--border-color,var(--border));padding:16px 0}.forecast-card p{margin:7px 0;white-space:pre-wrap;overflow-wrap:anywhere}.forecast-card details{margin-top:10px}.forecast-card summary,.forecast-settings summary{cursor:pointer;min-height:32px}.forecast-direction{padding:12px;border-left:2px solid var(--accent,var(--primary));background:var(--bg-muted);margin:10px 0}.forecast-cutoff{color:var(--text-secondary)}.forecast-basis{display:block;margin-top:5px;color:var(--text-secondary)}.forecast-reference{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px}.forecast-decisions{display:flex;flex-wrap:wrap;gap:12px;margin-top:12px}.forecast-decisions button{border:0;background:transparent;color:var(--text-secondary);font:inherit;cursor:pointer;padding:4px 0;min-height:32px}.forecast-settings{border-top:1px solid var(--border-color,var(--border));padding-top:12px;margin-top:16px;font-size:12px;color:var(--text-secondary)}.forecast-settings label{display:flex;align-items:center;gap:8px;min-height:38px}.forecast-preview{border:1px solid var(--border-color,var(--border));border-radius:8px;padding:12px;margin:16px 0;background:var(--bg-muted)}.forecast-error{color:var(--danger);overflow-wrap:anywhere}.forecast-dock button:focus-visible,.forecast-dock summary:focus-visible,.forecast-dock textarea:focus-visible{outline:2px solid var(--accent,var(--primary));outline-offset:3px}@media(max-width:700px){.forecast-dock button{min-height:42px}.forecast-instruction textarea{font-size:16px}}
 </style>
