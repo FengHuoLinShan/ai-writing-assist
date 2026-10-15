@@ -316,7 +316,7 @@ async def test_agreements_survive_three_real_reducer_passes_and_clear(db_session
             index > 0
         )
         assert "用户当前确认的活动基线" not in prepared.messages[0].content
-        task = SimpleNamespace(id=uuid.uuid4(), update_progress=lambda _: None)
+        task = SimpleNamespace(id=uuid.uuid4(), meta={}, update_progress=lambda _: None)
         db_session.task_checkpoint_enabled = True
         result = await workflow.finalize_summary_task(
             db_session,

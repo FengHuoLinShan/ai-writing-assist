@@ -13,9 +13,9 @@ from fastapi import APIRouter, Depends
 from core.dependencies import DbSession
 from core.errors import ConflictError
 from modules.collaboration import assistant_tools as ops
+from modules.project.facade import require_active_project
 from modules.project.facade import (
-    require_active_project,
-    require_active_project_exclusive,
+    require_active_project_exclusive as _require_active_project_exclusive,
 )
 
 router = APIRouter(
@@ -26,6 +26,10 @@ router = APIRouter(
 
 async def _active_project(db: DbSession, novel_id: UUID):
     await require_active_project(db, str(novel_id))
+
+
+async def _exclusive_active_project(db: DbSession, novel_id: UUID):
+    await _require_active_project_exclusive(db, str(novel_id))
 
 
 def _hash_preview(preview: dict) -> str:
@@ -54,7 +58,6 @@ async def _confirm(db, novel_id: UUID, op_id: str, data):
         raise ConflictError("执行前需要明确确认", code="CONFIRMATION_REQUIRED")
     if not args.expected_preview_hash:
         raise ConflictError("缺少本次预览指纹", code="PREVIEW_REQUIRED")
-    await require_active_project_exclusive(db, str(novel_id))
     if op_id in {
         "collaboration.workspace.create",
         "collaboration.workspace.check",
@@ -105,6 +108,7 @@ async def prepare_workspace_create(
 
 @router.post(
     "/workspaces/create/confirm",
+    dependencies=[Depends(_exclusive_active_project)],
     openapi_extra={
         "x-novelcraft-operation-id": "collaboration.workspace.create",
         "x-novelcraft-operation-confirmation-field": "data.confirmed",
@@ -153,6 +157,7 @@ async def prepare_workspace_edit(
 
 @router.post(
     "/workspaces/edit/confirm",
+    dependencies=[Depends(_exclusive_active_project)],
     openapi_extra={
         "x-novelcraft-operation-id": "collaboration.workspace.edit",
         "x-novelcraft-operation-confirmation-field": "data.confirmed",
@@ -182,6 +187,7 @@ async def prepare_workspace_seal(
 
 @router.post(
     "/workspaces/seal/confirm",
+    dependencies=[Depends(_exclusive_active_project)],
     openapi_extra={
         "x-novelcraft-operation-id": "collaboration.workspace.seal",
         "x-novelcraft-operation-confirmation-field": "data.confirmed",
@@ -213,6 +219,7 @@ async def prepare_workspace_check(
 
 @router.post(
     "/workspaces/check/confirm",
+    dependencies=[Depends(_exclusive_active_project)],
     openapi_extra={
         "x-novelcraft-operation-id": "collaboration.workspace.check",
         "x-novelcraft-operation-confirmation-field": "data.confirmed",
@@ -263,6 +270,7 @@ async def prepare_workspace_adoption(
 
 @router.post(
     "/workspaces/adoption/confirm",
+    dependencies=[Depends(_exclusive_active_project)],
     openapi_extra={
         "x-novelcraft-operation-id": "collaboration.workspace.atomic_adopt",
         "x-novelcraft-operation-confirmation-field": "data.confirmed",
