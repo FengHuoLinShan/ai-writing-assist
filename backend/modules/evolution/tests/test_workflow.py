@@ -268,6 +268,32 @@ async def request_start(db, nid, **kwargs):
     )
 
 
+async def test_spatial_preview_freezes_child_quotas_and_main_reserve(
+    db_session, evolution_project_id, account_llm_connection
+):
+    db, nid = db_session, evolution_project_id
+    await seed(db, nid, 1, "天亮了。")
+    request = ReadingRequest(
+        operation_id=uuid4(),
+        request_limit=10,
+        end_chapter=1,
+        discover_details=True,
+        discover_spatial=True,
+    )
+
+    preview = await preview_reading(db, nid, request)
+
+    assert preview["spatial_discovery_enabled"] is True
+    assert preview["mandatory_request_reserve"] >= 5
+    assert preview["optional_steps"]["details"]["quota"] == 8
+    assert preview["optional_steps"]["spatial"]["quota"] == 2
+    assert (
+        preview["optional_steps"]["details"]["quota"]
+        != preview["optional_steps"]["spatial"]["quota"]
+    )
+    assert preview["fingerprint"]
+
+
 async def test_reading_entry_sequences_replays_and_appends_without_resampling(
     db_session,
     evolution_project_id,

@@ -34,6 +34,7 @@ from modules.evolution.ledger_contracts import (
     LedgerDependency,
     LedgerEvidence,
 )
+from modules.evolution.optional_step_budget import OptionalStepQuotaExhaustedError
 from modules.evolution.reading import require_current_prefix
 from modules.evolution.sampler import (
     DISCOVERY_OUTPUT_TOKENS,
@@ -1279,6 +1280,37 @@ def compile_discovery(frozen):
         visible_observations = _visible_observation_ids(batch)
         generated = payload.get(f"scene_discovery_{index}") or {}
         review_journal = payload.get(f"scene_discovery_review_{index}") or {}
+        quota_gaps = (
+            (payload.get("optional_step_coverage") or {})
+            .get("details", {})
+            .get("gaps", [])
+        )
+
+        def belongs_to_batch(gap):
+            key = gap.get("journal_key", "")
+            return key in {
+                f"scene_discovery_{index}",
+                f"scene_discovery_review_{index}",
+            } or key.startswith(f"scene_discovery_identity_{index}_")
+
+        batch_quota_gap = any(belongs_to_batch(gap) for gap in quota_gaps)
+        if not generated and any(
+            gap.get("journal_key") == f"scene_discovery_{index}"
+            for gap in quota_gaps
+        ):
+            pending.append({"reason": "optional_quota_exhausted", "batch": index})
+            partial = {category: "partial" for category in category_attempts}
+            record_category_coverage(partial)
+            inspected.append(
+                {
+                    "batch": index,
+                    "coverage": "not_checked",
+                    "category_coverage": partial,
+                    "reason": "optional_quota_exhausted",
+                    "note": "本批未发出可选发现请求，额度保留给主理解。",
+                }
+            )
+            continue
         if _settled_output_failure(generated) or _settled_output_failure(review_journal):
             failed_batches.append(index)
             pending.append({"reason": "settled_output_failure", "batch": index})
@@ -1314,6 +1346,11 @@ def compile_discovery(frozen):
             else "not_checked"
             for category in category_attempts
         }
+        if batch_quota_gap:
+            batch_category_coverage = {
+                category: "partial" for category in category_attempts
+            }
+            pending.append({"reason": "optional_quota_exhausted", "batch": index})
         quarantined = (generated.get("paid_call_receipt") or {}).get(
             "validation_quarantine", []
         )
@@ -1343,7 +1380,9 @@ def compile_discovery(frozen):
         inspected.append(
             {
                 "batch": index,
-                "coverage": "partial" if quarantined else output.coverage,
+                "coverage": "partial"
+                if quarantined or batch_quota_gap
+                else output.coverage,
                 "category_coverage": batch_category_coverage,
                 "note": output.coverage_note,
             }
@@ -1926,6 +1965,9 @@ async def _finish_ready_batches(db, store, frozen, source, caller, prepared, pla
                     return None
                 stop.set()
                 raise
+            except OptionalStepQuotaExhaustedError:
+                stop.set()
+                return None
             except BaseException:
                 stop.set()
                 raise
@@ -2056,6 +2098,9 @@ async def _finish_primary_batches(db, store, frozen, source, caller, prepared, p
                 ):
                     stop.set()
                 return key  # Inspect only after all already-sent peers settle.
+            except OptionalStepQuotaExhaustedError:
+                stop.set()
+                return None
             except Exception:
                 stop.set()
                 raise
@@ -2153,6 +2198,9 @@ async def _finish_identity_reviews(
             ):
                 stop.set()
             return key
+        except OptionalStepQuotaExhaustedError:
+            stop.set()
+            return None
         except BaseException:
             stop.set()
             raise

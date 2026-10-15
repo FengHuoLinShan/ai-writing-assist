@@ -15,6 +15,7 @@ from infrastructure.tasks.facade import (
 )
 from modules.evolution.ledger_contracts import LEDGER_CATEGORY_LABELS
 from modules.evolution.models import EvolutionRun
+from modules.evolution.optional_step_budget import optional_quotas
 from modules.evolution.optional_steps import optional_step_enabled
 from modules.evolution.pipeline import SceneSourceBinding, load_current_source
 from modules.evolution.state_review import has_unreconciled_scene_calls
@@ -53,6 +54,7 @@ class ReadingRequest(BaseModel):
     request_limit: int | None = Field(default=None, ge=1, le=1000)
     budget_mode: Literal["auto", "bounded", "confirmed_scope"] = "auto"
     discover_details: bool = False
+    discover_spatial: bool = False
 
     @model_validator(mode="after")
     def validate_scope(self):
@@ -72,6 +74,74 @@ class ReadingRequest(BaseModel):
 class ReadingStart(ReadingRequest):
     expected_fingerprint: str = Field(min_length=64, max_length=64)
     authorization_confirmed: Literal[True]
+
+
+def _request_payload(request):
+    """Keep legacy request snapshots byte-shape stable when spatial is disabled."""
+    payload = request.model_dump(
+        mode="json", exclude={"expected_fingerprint", "authorization_confirmed"}
+    )
+    if not request.discover_spatial:
+        payload.pop("discover_spatial", None)
+    return payload
+
+
+def _mandatory_scene_call_specs(scenes, plan, *, from_scene_index=0):
+    from modules.evolution.enrichment import needs_enrichment
+
+    specs = []
+    for scene in scenes:
+        index = int(scene["scene_index"])
+        if index < from_scene_index:
+            continue
+        calls = {"scene_sample": 1}
+        if plan.get("world_version") in {1, 2, 3}:
+            calls["world"] = 1
+            calls["world_relations"] = 1
+        if plan.get("state_review_version") == 1:
+            calls["state_review"] = 1
+        if plan.get("enrichment_version") == 1 and needs_enrichment(scene):
+            calls["enrichment"] = 2
+        specs.append({"scene_index": index, "calls": calls})
+    return specs
+
+
+def _configure_spatial_authorization(plan, request, scenes, *, append=False):
+    if plan.get("spatial_version") != 1:
+        return
+    start = int(plan.get("recompute_from_scene_index", 0))
+    specs = _mandatory_scene_call_specs(scenes, plan, from_scene_index=start)
+    previous = plan.get("mandatory_scene_calls", []) if append else []
+    indexed = {int(item["scene_index"]): item for item in previous}
+    indexed.update({int(item["scene_index"]): item for item in specs})
+    plan["mandatory_scene_calls"] = [indexed[key] for key in sorted(indexed)]
+    prep_windows = len(
+        (plan.get("preparation") or {}).get("plan", {}).get("windows", [])
+    )
+    # Boundary preparation can create multiple Scenes per planned input window.
+    # A finite quota is shown in preview; root-budget reserve is recomputed from
+    # exact source-pinned Scenes once preparation materializes them.
+    quota_scenes = len(specs) + 16 * prep_windows
+    plan["optional_step_quotas"] = optional_quotas(
+        plan, additional_scenes=quota_scenes
+    )
+
+
+def _planned_mandatory_request_count(plan, *, from_scene_index=0):
+    scene_calls = sum(
+        sum(item.get("calls", {}).values())
+        for item in plan.get("mandatory_scene_calls", [])
+        if int(item["scene_index"]) >= from_scene_index
+    )
+    preparation = len(
+        (plan.get("preparation") or {}).get("plan", {}).get("windows", [])
+    )
+    steps = sum(
+        int(item["scene_index"]) >= from_scene_index
+        for item in plan.get("steps", [])
+    )
+    structure = (steps + 15) // 16 if plan.get("structure_version") == 1 else 0
+    return scene_calls + preparation + structure
 
 
 def _last_chapter(steps):
@@ -115,6 +185,11 @@ async def _plan(db, novel_id, request):
             raise ConflictError("当前理解不需要追加额度，请读取最新进度")
         if request.end_chapter != state["run"]["end_chapter"]:
             raise ConflictError("追加额度不能改变已确认的正文范围")
+        if (
+            bool(run.reading_plan_json.get("spatial_version", 0))
+            != request.discover_spatial
+        ):
+            raise ConflictError("追加额度不能改变已确认的可选步骤版本")
         await store.require_project_owner(run.run_key)
         for step in run.reading_plan_json["steps"]:
             await _read_step(db, novel_id, step)
@@ -125,6 +200,21 @@ async def _plan(db, novel_id, request):
                 db, novel_id, run.reading_plan_json["preparation"]
             )
         _budget_mode(request, run.llm_snapshot_json, run.reading_plan_json)
+        pending = await store.load_pending_frozen(
+            run.run_key, run.committed_scene_index + 1
+        )
+        mandatory_reserve = None
+        if run.reading_plan_json.get("spatial_version") == 1:
+            from modules.evolution.optional_step_budget import (
+                mandatory_requests_remaining,
+            )
+
+            mandatory_reserve = mandatory_requests_remaining(
+                run, pending.payload if pending else None
+            )
+            needed = max(0, mandatory_reserve - int(run.budget_remaining or 0))
+            if request.request_limit is not None and request.request_limit < needed:
+                raise ConflictError("追加额度低于主理解必需调用需求，请提高上限")
         return {
             **run.reading_plan_json,
             "state_review_version": run.reading_plan_json.get("state_review_version", 0),
@@ -132,20 +222,25 @@ async def _plan(db, novel_id, request):
             "world_version": run.reading_plan_json.get("world_version", 0),
             "structure_version": run.reading_plan_json.get("structure_version", 0),
             "discovery_version": run.reading_plan_json.get("discovery_version", 0),
-            "request": request.model_dump(
-                mode="json", exclude={"expected_fingerprint", "authorization_confirmed"}
-            ),
+            "request": _request_payload(request),
             "model_profile": run.llm_snapshot_json["profile"],
             "project_owner": await require_understanding_writer(
                 db, novel_id, engine="evolution"
             ),
             "budget_remaining": run.budget_remaining,
+            **(
+                {"mandatory_request_reserve": mandatory_reserve}
+                if mandatory_reserve is not None
+                else {}
+            ),
         }, run.llm_snapshot_json
     if request.mode == "append":
         if not run or not run.reading_plan_json or run.status != "active":
             raise ConflictError("原理解已失效或不支持继续，请重新准备正文范围")
         await store.require_project_owner(run.run_key)
         previous = run.reading_plan_json
+        if bool(previous.get("spatial_version", 0)) != request.discover_spatial:
+            raise ConflictError("追加章节不能静默启用或关闭空间发现")
         if (
             not previous["steps"]
             or run.committed_scene_index != previous["steps"][-1]["scene_index"]
@@ -182,15 +277,21 @@ async def _plan(db, novel_id, request):
             if optional_step_enabled(request, "details")
             else 0
         ),
-        "request": request.model_dump(
-            mode="json", exclude={"expected_fingerprint", "authorization_confirmed"}
-        ),
+        "request": _request_payload(request),
         "steps": [],
         "model_profile": snapshot["profile"],
         "project_owner": await require_understanding_writer(
             db, novel_id, engine="evolution"
         ),
     }
+    if request.discover_spatial:
+        plan["spatial_version"] = 1
+        plan["optional_step_quotas"] = (
+            dict(previous.get("optional_step_quotas", {})) if run else {}
+        )
+        plan["mandatory_scene_calls"] = (
+            list(previous.get("mandatory_scene_calls", [])) if run else []
+        )
     start_chapter = _last_chapter(previous["steps"]) + 1 if run else 1
     expected_chapters = [
         index
@@ -231,6 +332,17 @@ async def _plan(db, novel_id, request):
             raise ConflictError("仅准备场景已超过本次调用上限，请缩小章节范围或调整上限")
     elif request.request_limit is not None and len(selected) > request.request_limit:
         raise ConflictError("所选场景超过本次调用上限，请缩小章节范围或调整上限")
+    if request.discover_spatial:
+        _configure_spatial_authorization(
+            plan, request, selected, append=bool(run)
+        )
+        mandatory_calls = _planned_mandatory_request_count(
+            plan, from_scene_index=start_index
+        )
+        if request.request_limit is not None and mandatory_calls > request.request_limit:
+            raise ConflictError(
+                "主理解必需调用超过本次上限；可选步骤额度不会占用主理解保留额"
+            )
     return plan, snapshot
 
 
@@ -392,9 +504,7 @@ async def _plan_recompute(db, novel_id, request, run, store):
             if optional_step_enabled(request, "details")
             else 0
         ),
-        "request": request.model_dump(
-            mode="json", exclude={"expected_fingerprint", "authorization_confirmed"}
-        ),
+        "request": _request_payload(request),
         "steps": steps,
         "inherited_receipts": inherited,
         "recompute_baseline": {
@@ -414,15 +524,23 @@ async def _plan_recompute(db, novel_id, request, run, store):
             db, novel_id, engine="evolution"
         ),
     }
+    if request.discover_spatial:
+        plan["spatial_version"] = 1
     if missing:
         from modules.evolution.preparation import plan_preparation
 
         plan["preparation"] = await plan_preparation(db, novel_id, missing, len(steps))
-    planned_calls = (
-        len(steps)
-        - start_index
-        + len(plan.get("preparation", {}).get("plan", {}).get("windows", []))
-    )
+    if request.discover_spatial:
+        _configure_spatial_authorization(plan, request, selected)
+        planned_calls = _planned_mandatory_request_count(
+            plan, from_scene_index=start_index
+        )
+    else:
+        planned_calls = (
+            len(steps)
+            - start_index
+            + len(plan.get("preparation", {}).get("plan", {}).get("windows", []))
+        )
     if request.request_limit is not None and planned_calls > request.request_limit:
         raise ConflictError("依赖后续场景也需重新核对，请增大调用上限或缩小原范围")
     return plan, snapshot
@@ -570,9 +688,42 @@ async def preview_reading(db, novel_id, request):
 
             await require_no_active_world_audit_supplement(db, novel_id, source_run)
     plan, _ = await _plan(db, novel_id, request)
+    quotas = plan.get("optional_step_quotas", {})
     return {
         "fingerprint": content_hash(plan),
         "discovery_enabled": plan.get("discovery_version", 0) in {1, 2},
+        "spatial_discovery_enabled": plan.get("spatial_version", 0) == 1,
+        "optional_steps": {
+            key: {
+                "request_range": {"minimum": 0, "maximum": int(item["limit"])},
+                "quota": int(item["limit"]),
+                "used": int(item["used"]),
+                "remaining": int(item["remaining"]),
+                "per_scene_limit": int(item["per_scene_limit"]),
+            }
+            for key, item in quotas.items()
+        },
+        **(
+            {
+                "mandatory_request_reserve": plan.get(
+                    "mandatory_request_reserve"
+                )
+                if plan.get("mandatory_request_reserve") is not None
+                else _planned_mandatory_request_count(
+                    plan,
+                    from_scene_index=int(
+                        plan.get(
+                            "recompute_from_scene_index",
+                            plan["steps"][0]["scene_index"],
+                        )
+                        if plan.get("steps")
+                        else 0
+                    ),
+                )
+            }
+            if plan.get("spatial_version") == 1
+            else {}
+        ),
         "recompute_from_scene_index": plan.get("recompute_from_scene_index"),
         "inherited_scene_count": len(plan.get("inherited_receipts", [])),
         "expanded_scope": plan.get("expanded_scope", False),
@@ -660,6 +811,15 @@ async def start_reading(db, novel_id, request):
         "world_version": plan["world_version"],
         "structure_version": plan.get("structure_version", 0),
         "discovery_version": plan.get("discovery_version", 0),
+        **(
+            {
+                "spatial_version": plan["spatial_version"],
+                "optional_step_quotas": plan["optional_step_quotas"],
+                "mandatory_scene_calls": plan["mandatory_scene_calls"],
+            }
+            if plan.get("spatial_version") == 1
+            else {}
+        ),
         "preparation_history": [
             *previous.get("preparation_history", []),
             *(
@@ -696,7 +856,11 @@ async def start_reading(db, novel_id, request):
             *segments,
             {
                 "operation_id": str(request.operation_id),
-                "request": request.model_dump(mode="json"),
+                "request": _request_payload(request)
+                | {
+                    "expected_fingerprint": request.expected_fingerprint,
+                    "authorization_confirmed": True,
+                },
                 "project_owner": plan["project_owner"],
                 "recompute_target": plan.get("recompute_target"),
                 "expanded_scope": plan.get("expanded_scope", False),
@@ -778,6 +942,11 @@ async def advance_reading(db, novel_id, run_key):
         enrichment_version=plan.get("enrichment_version", 0),
         world_version=plan.get("world_version", 0),
         discovery_version=plan.get("discovery_version", 0),
+        **(
+            {"spatial_version": plan["spatial_version"]}
+            if plan.get("spatial_version") == 1
+            else {}
+        ),
         chapter_index=parts[0].chapter_index,
         start_offset=parts[0].start_offset,
         end_offset=parts[0].end_offset,
@@ -974,6 +1143,75 @@ async def _inherit_recompute_suffix_if_stable(db, novel_id, store, run):
     return True
 
 
+async def _optional_coverage_summary(store, run, pending):
+    plan = run.reading_plan_json or {}
+    quotas = plan.get("optional_step_quotas") or {}
+    if not quotas:
+        return {}
+    pairs = await store.load_committed_pairs(run.run_key)
+    frozen_by_index = {
+        int(frozen.payload_json["scene_index"]): frozen.payload_json
+        for _, frozen in pairs
+        if frozen.payload_json.get("scene_index") is not None
+    }
+    if pending and pending.payload.get("scene_index") is not None:
+        frozen_by_index[int(pending.payload["scene_index"])] = pending.payload
+    first = int(plan.get("recompute_from_scene_index", 0))
+    scenes = [step for step in plan.get("steps", []) if step["scene_index"] >= first]
+    result = {}
+    for step, quota in quotas.items():
+        counts = {key: 0 for key in ("inspected", "not_run", "unknown", "stale")}
+        gaps = []
+        for scene in scenes:
+            index = int(scene["scene_index"])
+            payload = frozen_by_index.get(index)
+            state = (payload or {}).get("optional_step_coverage", {}).get(step, {})
+            status = state.get("status")
+            if status not in counts:
+                if run.status == "source_stale":
+                    status = "stale"
+                elif step == "details" and payload and payload.get("discovery_result"):
+                    status = "inspected"
+                elif step == "spatial" and payload and payload.get(
+                    "spatial_discovery_result"
+                ):
+                    status = "inspected"
+                else:
+                    status = "not_run"
+            counts[status] += 1
+            for gap in state.get("gaps", []):
+                gaps.append({"scene_index": index, **gap})
+            if step == "details" and payload:
+                discovery = payload.get("discovery_result") or {}
+                coverage = discovery.get("coverage") or {}
+                for batch in coverage.get("failed_batches", []):
+                    gaps.append(
+                        {
+                            "scene_index": index,
+                            "reason": "settled_output_failure",
+                            "batch": batch,
+                        }
+                    )
+                for item in coverage.get("identity_review_gaps", []):
+                    gaps.append(
+                        {
+                            "scene_index": index,
+                            "reason": "identity_review_gap",
+                            **item,
+                        }
+                    )
+        result[step] = {
+            "counts": counts,
+            "gaps": gaps,
+            "quota": {
+                "limit": int(quota.get("limit", 0)),
+                "used": int(quota.get("used", 0)),
+                "remaining": int(quota.get("remaining", 0)),
+            },
+        }
+    return result
+
+
 async def reading_status(db, novel_id, run_key=None):
     await require_active_project(db, novel_id)
     engine = await get_understanding_engine(db, novel_id)
@@ -1010,7 +1248,8 @@ async def reading_status(db, novel_id, run_key=None):
     completed = sum(
         step["scene_index"] <= run.committed_scene_index for step in plan["steps"]
     )
-    pending = await PostgresAttemptStore(db, novel_id).load_pending_frozen(
+    store = PostgresAttemptStore(db, novel_id)
+    pending = await store.load_pending_frozen(
         run.run_key, run.committed_scene_index + 1
     )
     reconcile = bool(
@@ -1084,6 +1323,10 @@ async def reading_status(db, novel_id, run_key=None):
                 for key, label in LEDGER_CATEGORY_LABELS.items()
             ],
             "discovery_enabled": plan.get("discovery_version", 0) in {1, 2},
+            "spatial_discovery_enabled": plan.get("spatial_version", 0) == 1,
+            "optional_step_coverage": await _optional_coverage_summary(
+                store, run, pending
+            ),
             "unchecked_discovery_gaps": plan.get("author_confirmed_discovery_gaps", []),
             "category_rescans": await category_rescan_states(db, novel_id, run),
             "can_resume": run.status == "active"

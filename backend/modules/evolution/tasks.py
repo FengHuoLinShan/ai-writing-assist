@@ -76,6 +76,7 @@ class EvolutionSceneStepRequest(EvolutionSourceRange):
     enrichment_version: Literal[0, 1] = 0
     world_version: Literal[0, 1, 2, 3] = 0
     discovery_version: Literal[0, 1, 2] = 0
+    spatial_version: Literal[0, 1] = 0
 
 
 @task_handler(
@@ -550,6 +551,7 @@ async def _execute_scene_step(db: AsyncSession, task) -> dict[str, Any]:
             enrichment_version=1 if enrich else 0,
             world_version=request.world_version,
             discovery_version=request.discovery_version,
+            spatial_version=request.spatial_version,
             scene_card=card if enrich else None,
             scene_method_caller=call_scene_method,
         )
@@ -579,7 +581,10 @@ async def enqueue_evolution_scene_step(
         require_understanding_writer,
     )
 
-    meta = request.model_dump(mode="json")
+    meta = request.model_dump(
+        mode="json",
+        exclude={"spatial_version"} if request.spatial_version == 0 else None,
+    )
     if request.execution_mode == "live":
         meta["_understanding_owner"] = await require_understanding_writer(
             db, request.novel_id, engine="evolution"
