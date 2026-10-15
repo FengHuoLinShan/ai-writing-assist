@@ -639,6 +639,10 @@ async def test_pair_freezes_both_confirmations_before_exact_worker_claim(
     confirmations = {}
 
     async def confirm(db, request):
+        assert request.pinned_refs == [
+            {"kind": "source_range", "source_ref": ref}
+            for ref in case_scope["source_refs"]
+        ]
         enabled = "writing.generate" in get_settings().map_spatial_enabled_capabilities
         options = {
             "map_spatial_baseline": ["saved-version"] if enabled else [],

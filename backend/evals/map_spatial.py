@@ -970,6 +970,10 @@ async def run_writing_pair(
                             reveal_mode="author_safe",
                             content_mode="canonical",
                             context_mode="canonical",
+                            pinned_refs=[
+                                {"kind": "source_range", "source_ref": ref}
+                                for ref in preflight["source_refs"]
+                            ],
                         ),
                     )
                     confirmed = await prepare_confirmed_ai_action(

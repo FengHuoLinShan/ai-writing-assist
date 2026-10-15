@@ -1,6 +1,6 @@
 # 地图空间题材评测
 
-冻结矩阵覆盖修仙、西幻、都市、科幻、悬疑：10 资料族、每族 5 case，development / holdout 各 25 case。正文、gold、prompt、输出及操作账本仅保存在仓库外私有目录 `/Users/tywww/.codex/private/map-spatial-evaluation-20261015/`（目录 0700，文件 0600）。Git 仅保留 hash、契约和脱敏结果；`human_validated=false`。
+冻结矩阵覆盖修仙、西幻、都市、科幻、悬疑：10 资料族、每族 5 case，development / holdout 各 25 case。正文、gold、prompt、输出及操作账本仅保存在仓库外私有目录 `/Users/tywww/.codex/private/map-spatial-evaluation-20261015-r2/`（目录 0700，文件 0600）。原无 `-r2` 目录只封存 d8 诊断，禁止复用其 binding/请求。Git 仅保留 hash、契约和脱敏结果；`human_validated=false`。
 
 ## 证据与质量门
 
@@ -18,7 +18,7 @@ owner 必须正常 active，Project 标题以 `MAP-EVAL:<family-id>:` 开头，�
 
 `setup-family` 经 Project、词表预设、Writing draft 与 Scene API 建立一个项目、一个 canonical draft、同章五个不同 Scene 与精确 spans。创建 Project 后先正常 GET `/api/evolution/reading` 读取 epoch、确认没有 run，再 POST `/api/evolution/engine` 切到 Evolution（`expected_epoch`、`stop_active=false`、`authorization_confirmed=true`）；私有 setup 保存实际切换回执，已有流程或不符回执直接停止。`freeze-common` 冻结空地图、owner、snapshot、Scene 身份与来源，随后每族一次四 seed Sol/xhigh 校准。Evolution 正常 enrichment 可以改变 Scene card，不得改变来源。演化完成后，代理作者只通过原 clue review、World promote（正式 can_adopt/source hash/来源前缀门）、auto-draft 与独立地图 preview/CAS 做合成项目决定。World 地点采用与地图采用分别记账，不采用真实作者数据。
 
-最终 `freeze-binding` 冻结 post-Evolution Scene/card 和地图 head。Writing 两臂先同时入队并固定相同 source、Project、Scene、指令和非地图 context，再各运行精确 task，候选不采用。每次只接管 `pending/attempt=0` 的同项目 task，不 drain 队列；started/unknown/已执行 task 永不重发。方法 fingerprint 覆盖实际 Evolution、auto-draft、Assistant prompt/tool schema 和 Writing/Evidence；项目动态词表按状态冻结，不混入方法 hash。
+最终 `freeze-binding` 冻结 post-Evolution Scene/card 和地图 head。Writing 两臂通过正常 Evidence `pinned_refs` 共同选择已验证的同一 canonical `source_range`，先同时入队并固定相同 source、Project、Scene、指令和非地图 context，再各运行精确 task，候选不采用。每次只接管 `pending/attempt=0` 的同项目 task，不 drain 队列；started/unknown/已执行 task 永不重发。方法 fingerprint 覆盖实际 Evolution、auto-draft、Assistant prompt/tool schema 和 Writing/Evidence；项目动态词表按状态冻结，不混入方法 hash。
 
 管线 hash 也覆盖实际 Scene pipeline/task、主提交后的 optional stage、World 候选物化、最终结构 task 与可选额度实现。attempt 保存原计划授权的空间方法指纹；证据读取重新验证 canonical 切片。Writing 的 `range_hash` 是原文切片 hash，Evolution 的可选同名字段是整稿 hash 与 offsets 的身份 hash，两者按正式契约分别验证；draft、章节、整稿 hash、精确 offsets 和 content mode 必须全部一致。
 
@@ -28,9 +28,9 @@ owner 必须正常 active，Project 标题以 `MAP-EVAL:<family-id>:` 开头，�
 
 ```bash
 # backend，使用现有锁定 Python，不 uv sync。
-.venv/bin/python -m evals.map_spatial verify
-.venv/bin/python -m evals.map_spatial report \
-  --output /Users/tywww/.codex/private/map-spatial-evaluation-20261015/reports/template.json
+.venv/bin/python -m evals.map_spatial verify --private-root /Users/tywww/.codex/private/map-spatial-evaluation-20261015-r2
+.venv/bin/python -m evals.map_spatial report --private-root /Users/tywww/.codex/private/map-spatial-evaluation-20261015-r2 \
+  --output /Users/tywww/.codex/private/map-spatial-evaluation-20261015-r2/reports/template.json
 ```
 
 所有 live 命令只运行一个选定 development family。顺序：setup → freeze-common → seeded score → preview（先读 M、Q，再冻结精确 M+Q）→ root 检查后 start → run-evolution（2、2、2 个串行 task）→ review-map → freeze-binding → 五 case 各 pair-writing / assistant-turn / judge。五个 Scene 完成后只接管同 run/operation 正式回执返回的一个结构 task；该 task 完成后同次读取正式完成状态。

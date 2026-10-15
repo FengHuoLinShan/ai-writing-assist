@@ -4,7 +4,7 @@ Sol 工程审修使用受控替身/SQLite/ASGI，不连接评测 PG、不验证�
 
 ## 环境和正常账户连接
 
-root 独占专用容器 `map-spatial-eval-20261015`、loopback PostgreSQL 65302、数据库 `map_spatial_eval_20261015`。root 已正常升级至 `20261015_map_node_merge`；正常 bootstrap owner 存在，尚无 Project/连接/模型请求。私有环境文件实际为 `/tmp/map-spatial-eval-runtime-20261015/app.env`（0600）；不要打印、提交或复制内容。禁止连接工程 65202、真实作品、Guimi 或其他运行账本。
+root 独占专用容器 `map-spatial-eval-20261015`、loopback PostgreSQL 65302、数据库 `map_spatial_eval_20261015`。root 已正常升级至 `20261015_map_node_merge`；正常 bootstrap owner 和已验证连接存在。旧 d8 诊断项目已通过正常引擎 API 停止，原私有目录只保留诊断，不能复用。新运行固定 `/Users/tywww/.codex/private/map-spatial-evaluation-20261015-r2`，仅逐字节复制冻结 source/expected；不复制 binding、seed、请求或账本，截至本次交接尚无 r2 Project/模型请求。每条命令必须显式传该 `--private-root`。私有环境文件实际为 `/tmp/map-spatial-eval-runtime-20261015/app.env`（0600）；不要打印、提交或复制内容。禁止连接工程 65202、真实作品、Guimi 或其他运行账本。
 
 所有 API 通过同进程真实 app + ASGITransport，配置/实际 manager 在首写前校验。**不启动 uvicorn、lifespan、embedding、后台 worker 或 drain**。任何网络 `--api-base-url` 会被拒绝。CLI 正常 import composition 后才调用 facade，避免先注册 DI 再 import app 的 duplicate。不同 CLI 进程都重新绑定同一环境的隔离 DB。
 
@@ -16,7 +16,7 @@ set +a
 export APP_ENV=test AUTH_MODE=local MAP_SPATIAL_EVAL_ALLOW_LIVE=1
 export ASSISTANT_ENABLED=true
 export LLM_MODEL_LIMITS_JSON='{"subscription/codex/gpt-6-luna":{"concurrency":2}}'
-.venv/bin/python -m evals.map_spatial verify
+.venv/bin/python -m evals.map_spatial verify --private-root /Users/tywww/.codex/private/map-spatial-evaluation-20261015-r2
 ```
 
 root 仅在明确开始 pilot 后，通过正常 `PUT /api/account/settings/llm-connections/codex`（JSON `{}`，无需 API Key）连接并验证当前本地 Codex。使用 `evals.map_spatial_control._product_client("http://map-spatial-eval.internal", 30)`，请求包一层 `asyncio.wait_for(..., timeout=60)`；保存私有结果/hash，只输出 connected/verified 状态。该步骤是独立 **1 次实际验证请求**，先检查现有正常连接，已 verified 时不重复验证。任何 unknown/失败停止，不手写 verified 标记，不回退别的 provider。Project facade / snapshot 必须验证 active owner、Codex `gpt-6-luna/max`，后续每个 task 前重验并释放读事务。`ASSISTANT_ENABLED=true` 与 Codex 并发≤2
@@ -29,25 +29,25 @@ root 仅在明确开始 pilot 后，通过正常 `PUT /api/account/settings/llm-
 `setup-family` 创建 Project 后通过正常 GET `/api/evolution/reading` 读取 epoch、确认没有 run，再 POST `/api/evolution/engine`（`engine=evolution`、读取的 `expected_epoch`、`stop_active=false`、`authorization_confirmed=true`），保存真实切换回执。不会停止已有流程。该步骤不调用模型；源文、LLM snapshot 与地图未改变。随后才创建 canonical 正文与五 Scene，并冻结 common。
 
 ```bash
-.venv/bin/python -m evals.map_spatial setup-family --family-id map-xianxia-development-v1 --execute
-.venv/bin/python -m evals.map_spatial freeze-common --family-id map-xianxia-development-v1 --execute
-.venv/bin/python -m evals.map_spatial score --family-id map-xianxia-development-v1 \
+.venv/bin/python -m evals.map_spatial setup-family --private-root /Users/tywww/.codex/private/map-spatial-evaluation-20261015-r2 --family-id map-xianxia-development-v1 --execute
+.venv/bin/python -m evals.map_spatial freeze-common --private-root /Users/tywww/.codex/private/map-spatial-evaluation-20261015-r2 --family-id map-xianxia-development-v1 --execute
+.venv/bin/python -m evals.map_spatial score --private-root /Users/tywww/.codex/private/map-spatial-evaluation-20261015-r2 --family-id map-xianxia-development-v1 \
   --phase teacher_calibration --case-id seeded-v1 --execute
 # 只读 preview，先获得实际 mandatory reserve M 与完整空间 quota Q。
-.venv/bin/python -m evals.map_spatial preview-evolution --family-id map-xianxia-development-v1 \
+.venv/bin/python -m evals.map_spatial preview-evolution --private-root /Users/tywww/.codex/private/map-spatial-evaluation-20261015-r2 --family-id map-xianxia-development-v1 \
   --request-limit 30 --execute
 # 若 30 != M+Q，使用精确整数重新 preview；start 拒绝超出/不足 M+Q 的版本。
-.venv/bin/python -m evals.map_spatial preview-evolution --family-id map-xianxia-development-v1 \
+.venv/bin/python -m evals.map_spatial preview-evolution --private-root /Users/tywww/.codex/private/map-spatial-evaluation-20261015-r2 --family-id map-xianxia-development-v1 \
   --request-limit '<M+Q>' --execute
 # root 检查实际 response/fingerprint 和总请求硬上界 297+M+Q 后只启动该 operation。
-.venv/bin/python -m evals.map_spatial start-evolution --family-id map-xianxia-development-v1 \
+.venv/bin/python -m evals.map_spatial start-evolution --private-root /Users/tywww/.codex/private/map-spatial-evaluation-20261015-r2 --family-id map-xianxia-development-v1 \
   --operation-id '<精确preview UUID>' --execute
-.venv/bin/python -m evals.map_spatial run-evolution --family-id map-xianxia-development-v1 --max-tasks 2 --execute
-.venv/bin/python -m evals.map_spatial run-evolution --family-id map-xianxia-development-v1 --max-tasks 2 --execute
-.venv/bin/python -m evals.map_spatial run-evolution --family-id map-xianxia-development-v1 --max-tasks 2 --execute
-.venv/bin/python -m evals.map_spatial review-map --family-id map-xianxia-development-v1 --max-actions 20 --execute
-.venv/bin/python -m evals.map_spatial freeze-binding --family-id map-xianxia-development-v1 \
-  --scopes /Users/tywww/.codex/private/map-spatial-evaluation-20261015/scopes/map-xianxia-development-v1.json --execute
+.venv/bin/python -m evals.map_spatial run-evolution --private-root /Users/tywww/.codex/private/map-spatial-evaluation-20261015-r2 --family-id map-xianxia-development-v1 --max-tasks 2 --execute
+.venv/bin/python -m evals.map_spatial run-evolution --private-root /Users/tywww/.codex/private/map-spatial-evaluation-20261015-r2 --family-id map-xianxia-development-v1 --max-tasks 2 --execute
+.venv/bin/python -m evals.map_spatial run-evolution --private-root /Users/tywww/.codex/private/map-spatial-evaluation-20261015-r2 --family-id map-xianxia-development-v1 --max-tasks 2 --execute
+.venv/bin/python -m evals.map_spatial review-map --private-root /Users/tywww/.codex/private/map-spatial-evaluation-20261015-r2 --family-id map-xianxia-development-v1 --max-actions 20 --execute
+.venv/bin/python -m evals.map_spatial freeze-binding --private-root /Users/tywww/.codex/private/map-spatial-evaluation-20261015-r2 --family-id map-xianxia-development-v1 \
+  --scopes /Users/tywww/.codex/private/map-spatial-evaluation-20261015-r2/scopes/map-xianxia-development-v1.json --execute
 ```
 
 共同基线必须空地图、同章五个独立 Scene/真实 canonical spans。正常 Evolution enrichment 允许，源身份/精确 offsets/hash 不能变。完成必须同 task 的可选阶段收尾；details disabled 及 spatial coverage/gaps 如实报告。attempt→operation 关系缺持久证明仍为 unknown，不造已知。每次只执行正式回执指出的同项目 `pending/attempt=0` 精确 task；全族最多五个 Scene task 加一个正式结构 task（共六个），unknown/超时不重发。World 代理作者最多 20 个决定/批，地点采用走原 promote/source-hash/source-prefix 校验，地图另外 preview/CAS；0 模型请求。pending 续批先由 root 检查并显式计入额外 wall 预算，unknown/stale 不重试。
@@ -55,16 +55,16 @@ root 仅在明确开始 pilot 后，通过正常 `PUT /api/account/settings/llm-
 每个 case 从 setup scopes 读真实 novel_id、scene_id、chapter_index，分别运行下面三个命令；p1 至 p5 串行，不采用任何 Writing 候选：
 
 ```bash
-.venv/bin/python -m evals.map_spatial pair-writing --family-id map-xianxia-development-v1 \
+.venv/bin/python -m evals.map_spatial pair-writing --private-root /Users/tywww/.codex/private/map-spatial-evaluation-20261015-r2 --family-id map-xianxia-development-v1 \
   --case-id map-xianxia-development-v1-p1 --novel-id '<setup ID>' --scene-id '<scope ID>' \
   --chapter-index 1 --timeout-seconds 900 --execute
-.venv/bin/python -m evals.map_spatial assistant-turn --family-id map-xianxia-development-v1 \
+.venv/bin/python -m evals.map_spatial assistant-turn --private-root /Users/tywww/.codex/private/map-spatial-evaluation-20261015-r2 --family-id map-xianxia-development-v1 \
   --case-id map-xianxia-development-v1-p1 --timeout-seconds 900 --execute
-.venv/bin/python -m evals.map_spatial score --family-id map-xianxia-development-v1 \
+.venv/bin/python -m evals.map_spatial score --private-root /Users/tywww/.codex/private/map-spatial-evaluation-20261015-r2 --family-id map-xianxia-development-v1 \
   --phase development_judge --case-id map-xianxia-development-v1-p1 --execute
 ```
 
-Writing 两臂先共同冻结非地图 context 后精确执行；每臂 root registry ≤14（K≤64），不足/超出在模型前停止。Assistant 提交与 worker 同时临时启用 `assistant.turn`，只传真实原请求、Scene 位置与 task_hint=unknown，退出恢复默认。工具历史 unknown 是辅助限制，答复/计划/action/权限实际证据必须保留。
+Writing 两臂共同通过正常 Evidence `pinned_refs` 选择 preflight 已验证的同一 canonical `source_range`，不扩大区间；保留原文进入 rendered 及非地图 context 相同断言，再精确执行。每臂 root registry ≤14（K≤64），不足/超出在模型前停止。Assistant 提交与 worker 同时临时启用 `assistant.turn`，只传真实原请求、Scene 位置与 task_hint=unknown，退出恢复默认。工具历史 unknown 是辅助限制，答复/计划/action/权限实际证据必须保留。
 
 ## 冻结预算与门禁
 
