@@ -377,6 +377,29 @@ describe("Story Scene workspace panels", () => {
     expect(JSON.stringify(accepted)).not.toContain("story:watch")
   })
 
+  it("replaces a restored V2 reaction fallback after its character context arrives", async () => {
+    let resolveContext
+    story.getSceneContext.mockReturnValue(new Promise((resolve) => { resolveContext = resolve }))
+    const performance = {
+      option_id: "watch", motivation: "先核对", source_fact_ids: [], source_pattern_ids: [],
+      action: "观察门闩", facial_expression: "皱眉", body_language: "侧身",
+      voice_and_dialogue: "低声提醒", inner_response: "警觉", attention: "门闩",
+      change: "决定等待", confidence: 0.8,
+    }
+    tasks.get.mockResolvedValue({ task_id: "reaction-early", status: "done", result: { preview: {
+      schema_version: "story.reaction.v2",
+      proposals: [{ schema_version: "story.reaction.v2", character_id: "c1", internal_pressure: "时间紧迫", performances: [performance] }],
+    } } })
+    createWrapper({ selectedSceneId: "s1" })
+    await wrapper.get('[data-action="scene-runtime-tab-simulation"]').trigger("click")
+    sceneRuntimeManager.adopt({ task_id: "reaction-early", status: "pending" }, { sceneId: "s1", stage: "reaction" }, "p1", "s1")
+    await vi.waitFor(() => expect(sceneRuntimeSession("p1", "s1").simulation?.reactions?.[0]?.name).toBe("本场人物 1"))
+
+    resolveContext({ character_cards: [{ character_id: "c1", name: "阿遥" }], script_files: [] })
+    await vi.waitFor(() => expect(wrapper.get(".scene-reaction-card").text()).toContain("阿遥"))
+    expect(wrapper.get(".scene-reaction-card").text()).not.toContain("本场人物 1")
+  })
+
   it("stores a genuinely bounded multi-file draft while keeping the active draft", () => {
     const activeDraft = "甲".repeat(200000)
     persistSceneRuntimeDraft("p1", "s1", {
