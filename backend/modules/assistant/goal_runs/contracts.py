@@ -13,10 +13,16 @@ class GoalModel(BaseModel):
 
 
 class GoalBudget(GoalModel):
-    requests: int = Field(ge=1, le=100)
-    possible_charge_requests: int = Field(default=0, ge=0, le=100)
-    tokens: int = Field(ge=256, le=500_000)
+    requests: int = Field(ge=2, le=100)
+    possible_charge_requests: int = Field(ge=1, le=100)
+    tokens: int = Field(ge=512, le=500_000)
     time_limit_seconds: int = Field(ge=60, le=7_200)
+
+    @model_validator(mode="after")
+    def charge_budget_fits_requests(self) -> GoalBudget:
+        if self.possible_charge_requests > self.requests:
+            raise ValueError("可能产生费用的请求数不能超过总请求数")
+        return self
 
 
 class GoalReference(GoalModel):
@@ -25,9 +31,10 @@ class GoalReference(GoalModel):
     value_type: Literal[
         "string", "identifier", "integer", "number", "boolean", "object", "array"
     ]
-    item_type: Literal[
-        "string", "identifier", "integer", "number", "boolean", "object", "array"
-    ] | None = None
+    item_type: (
+        Literal["string", "identifier", "integer", "number", "boolean", "object", "array"]
+        | None
+    ) = None
     max_items: int | None = Field(default=None, ge=1, le=20)
 
     @model_validator(mode="after")
@@ -39,10 +46,7 @@ class GoalReference(GoalModel):
             raise ValueError("只有数组引用可以声明元素类型或展开上限")
         for part in self.path:
             if isinstance(part, str) and (
-                not part
-                or len(part) > 64
-                or part.startswith("_")
-                or "__" in part
+                not part or len(part) > 64 or part.startswith("_") or "__" in part
             ):
                 raise ValueError("引用路径只能使用公开字段名")
             if isinstance(part, int) and part < 0:
@@ -102,6 +106,16 @@ class GoalPlanApproval(GoalModel):
 class GoalStepApproval(GoalModel):
     expected_revision: int = Field(ge=1)
     step_id: str = Field(min_length=1, max_length=64)
+    approve: bool = True
+
+
+class GoalResume(GoalModel):
+    expected_revision: int = Field(ge=1)
+    budget: GoalBudget
+
+
+class GoalAction(GoalModel):
+    expected_revision: int = Field(ge=1)
 
 
 class GoalReplanRequest(GoalModel):

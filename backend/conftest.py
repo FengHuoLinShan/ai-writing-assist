@@ -21,6 +21,8 @@ os.environ.setdefault(
 # 不覆盖已存在的环境变量，先 setdefault 即可让本机 backend/.env 的开关不进入测试。
 # 新增布尔开关须同步此处；tests/unit/test_config.py 的守护用例会指出遗漏。
 os.environ.setdefault("ASSISTANT_ENABLED", "false")
+os.environ.setdefault("ASSISTANT_GOAL_RUNS_ENABLED", "false")
+os.environ.setdefault("ASSISTANT_GOAL_RUNS_PROJECT_ALLOWLIST", "")
 os.environ.setdefault("ASSISTANT_EDITORIAL_ENABLED", "false")
 os.environ.setdefault("ASSISTANT_EDITORIAL_AUTOMATIC_ENABLED", "false")
 os.environ.setdefault("ASSISTANT_FORECAST_ENABLED", "false")

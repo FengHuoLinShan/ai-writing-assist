@@ -1,0 +1,329 @@
+import { afterEach, expect, it, vi } from "vitest"
+import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils"
+import GoalRunsPanel from "../../../vue/components/GoalRunsPanel.vue"
+import GoalPlanField from "../../../vue/components/GoalPlanField.vue"
+
+const mocks = vi.hoisted(() => ({ api: null }))
+
+vi.mock("../../../vue/bridge/index.js", () => ({
+  getApi: () => ({ assistant: mocks.api }),
+}))
+
+enableAutoUnmount(afterEach)
+
+const capabilities = {
+  enabled: true,
+  max_steps: 30,
+  budget_limits: {
+    requests_max: 100,
+    possible_charge_requests_max: 100,
+    tokens_max: 500000,
+    time_limit_seconds_max: 7200,
+  },
+}
+
+function goalView(overrides = {}) {
+  return {
+    run_id: "internal-run-id",
+    created_at: "2026-10-16T09:00:00Z",
+    status: "waiting_approval",
+    phase: "plan_review",
+    revision: 3,
+    title: "整理作者待办",
+    summary: "更新选定待办",
+    goal: "更新项目中的作者待办",
+    plan: {
+      title: "整理作者待办",
+      summary: "更新选定待办",
+      steps: [
+        {
+          step_id: "internal-step-id",
+          operation_id: "project.update_task",
+          depends_on: [],
+          targets: [{ target_type: "author_task", target_id: "internal-target-id" }],
+          parameters: {
+            task_id: "internal-target-id",
+            changes: { title: "更新后的标题" },
+          },
+          intent: "更新作者待办标题",
+        },
+      ],
+    },
+    steps: [
+      {
+        step_id: "internal-step-id",
+        operation_id: "project.update_task",
+        label: "更新作者待办",
+        description: "只修改作者待办，不改变作品事实。",
+        risk: "R2",
+        risk_label: "可恢复的修改",
+        fee_category: "free",
+        fee_label: "不调用模型",
+        target_type: "author_task",
+        target_count: 1,
+        dependency_labels: [],
+        status: "pending",
+        status_label: "待执行",
+        preview_summary: "更新待办标题",
+        diff: [{ field: "标题", before: "原始标题", after: "更新后的标题" }],
+        fields: [
+          {
+            name: "task_id",
+            label: "待办",
+            kind: "identifier",
+            value: "internal-target-id",
+            editable: false,
+            children: [],
+          },
+          {
+            name: "changes",
+            label: "修改内容",
+            kind: "object",
+            value: { title: "更新后的标题" },
+            editable: true,
+            children: [],
+          },
+        ],
+        can_confirm: false,
+      },
+    ],
+    progress: { completed: 0, total: 1 },
+    budget: {
+      initial_limits: {
+        requests: 8,
+        possible_charge_requests: 8,
+        tokens: 12000,
+        time_limit_seconds: 1200,
+      },
+      limits: {
+        requests: 8,
+        possible_charge_requests: 8,
+        tokens: 12000,
+        time_limit_seconds: 1200,
+      },
+      used: {
+        requests: 1,
+        possible_charge_requests: 1,
+        tokens: 20,
+        charge_state: "recorded",
+      },
+    },
+    auto_r2: false,
+    can_approve_plan: true,
+    can_resume: false,
+    can_advance: false,
+    can_pause: true,
+    can_replan: false,
+    can_cancel: true,
+    can_restore: false,
+    changes: [],
+    replan_changes: [],
+    diagnostics: { planning_error: null },
+    ...overrides,
+  }
+}
+
+function setupApi(overrides = {}) {
+  mocks.api = {
+    goalCapabilities: vi.fn().mockResolvedValue(capabilities),
+    recentGoals: vi.fn().mockResolvedValue([]),
+    goal: vi.fn(),
+    startGoal: vi.fn(),
+    approveGoal: vi.fn(),
+    approveGoalStep: vi.fn(),
+    advanceGoal: vi.fn(),
+    pauseGoal: vi.fn(),
+    resumeGoal: vi.fn(),
+    cancelGoal: vi.fn(),
+    replanGoal: vi.fn(),
+    restoreGoal: vi.fn(),
+    ...overrides,
+  }
+  return mocks.api
+}
+
+async function mountedPanel(_api = setupApi(), props = {}) {
+  const wrapper = mount(GoalRunsPanel, {
+    props: { projectId: "project-1", active: true, ...props },
+  })
+  await flushPromises()
+  return wrapper
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+  mocks.api = null
+})
+
+it("uses translated plan option labels and hides unsupported internal enum values", () => {
+  const translated = mount(GoalPlanField, {
+    props: {
+      field: {
+        name: "action",
+        label: "处理方式",
+        kind: "text",
+        enum_options: [{ value: "adopt", label: "采用" }],
+        editable: true,
+      },
+      value: "adopt",
+      fieldId: "action",
+    },
+  })
+  expect(translated.text()).toContain("采用")
+  expect(translated.text()).not.toContain("adopt")
+
+  const unsupported = mount(GoalPlanField, {
+    props: {
+      field: {
+        name: "private_mode",
+        label: "处理范围",
+        kind: "text",
+        locked_reason: "此选项需在原工作台处理",
+        editable: false,
+      },
+      value: "internal_only",
+      fieldId: "private-mode",
+    },
+  })
+  expect(unsupported.text()).toContain("此选项需在原工作台处理")
+  expect(unsupported.text()).not.toContain("internal_only")
+})
+
+it("blocks plan approval when an option cannot be reviewed safely in this panel", async () => {
+  const current = goalView()
+  current.steps[0].fields.push({
+    name: "private_mode",
+    label: "范围",
+    kind: "text",
+    value: "internal_only",
+    editable: false,
+    locked_reason: "此选项需在原工作台处理",
+  })
+  const api = setupApi({ recentGoals: vi.fn().mockResolvedValue([current]) })
+  const wrapper = await mountedPanel(api)
+
+  expect(wrapper.text()).toContain("有些目录选项还不能在此确认")
+  expect(wrapper.text()).not.toContain("internal_only")
+  expect(wrapper.get("form.goal-runs-plan button[type=submit]").element.disabled).toBe(true)
+})
+
+it("requires explicit budget acknowledgement and sends an idempotent goal request", async () => {
+  vi.stubGlobal("crypto", { randomUUID: () => "request-id-1" })
+  const planReview = goalView()
+  const api = setupApi({ startGoal: vi.fn().mockResolvedValue(planReview) })
+  const wrapper = await mountedPanel(api, { sourceSessionId: "source-session" })
+
+  await wrapper.get("#goal-run-prompt").setValue("更新当前项目的作者待办")
+  const startForm = wrapper.get("form.goal-runs-start")
+  expect(startForm.get("button[type='submit']").attributes("disabled")).toBeDefined()
+  await wrapper.find(".goal-runs-consent input").setValue(true)
+  await startForm.trigger("submit")
+  await flushPromises()
+
+  expect(api.startGoal).toHaveBeenCalledExactlyOnceWith({
+    novel_id: "project-1",
+    request_id: "request-id-1",
+    goal: "更新当前项目的作者待办",
+    budget: {
+      requests: 8,
+      possible_charge_requests: 8,
+      tokens: 12000,
+      time_limit_seconds: 1200,
+    },
+    source_session_id: "source-session",
+  })
+  expect(wrapper.text()).toContain("审阅计划")
+  expect(wrapper.text()).not.toContain("internal-run-id")
+  expect(wrapper.text()).not.toContain("internal-step-id")
+  expect(wrapper.text()).not.toContain("internal-target-id")
+  expect(wrapper.text()).not.toContain("project.update_task")
+})
+
+it("submits edited plan fields and an explicit R2 automation choice", async () => {
+  const planReview = goalView()
+  const completed = goalView({
+    status: "completed",
+    phase: "completed",
+    can_approve_plan: false,
+    can_pause: false,
+    can_cancel: false,
+    can_replan: false,
+  })
+  const api = setupApi({
+    recentGoals: vi.fn().mockResolvedValue([planReview]),
+    approveGoal: vi.fn().mockResolvedValue(completed),
+  })
+  const wrapper = await mountedPanel(api)
+
+  await wrapper.get(".goal-runs-plan input").setValue("重新整理待办")
+  await wrapper.get(".goal-runs-consent--r2 input").setValue(true)
+  await wrapper.get(".goal-runs-plan").trigger("submit")
+  await flushPromises()
+
+  const [, , body] = api.approveGoal.mock.calls[0]
+  expect(body.expected_revision).toBe(3)
+  expect(body.plan.title).toBe("重新整理待办")
+  expect(body.plan.steps[0].parameters.changes.title).toBe("更新后的标题")
+  expect(body.auto_r2).toBe(true)
+  expect(wrapper.text()).toContain("已完成")
+})
+
+it("retains an unsent replan reason when the server returns 409", async () => {
+  const stale = goalView({
+    phase: "stopped",
+    can_approve_plan: false,
+    can_replan: true,
+    can_cancel: true,
+  })
+  const latest = goalView({ ...stale, revision: 4, stop_reason: "状态刚刚更新" })
+  let reads = 0
+  const api = setupApi({
+    recentGoals: vi.fn().mockImplementation(async () => (++reads === 1 ? [stale] : [latest])),
+    replanGoal: vi.fn().mockRejectedValue(Object.assign(new Error("conflict"), { status: 409 })),
+  })
+  const wrapper = await mountedPanel(api)
+  await wrapper.get(".goal-runs-replan textarea").setValue("把依赖缩小到一个待办")
+  await wrapper.get(".goal-runs-replan").trigger("submit")
+  await flushPromises()
+
+  expect(wrapper.get(".goal-runs-error").text()).toContain("目标状态已更新")
+  expect(wrapper.get(".goal-runs-replan textarea").element.value).toBe("把依赖缩小到一个待办")
+  expect(api.recentGoals).toHaveBeenCalledTimes(2)
+})
+
+it("shows a confirmed R3 stop and keeps recovery options visible", async () => {
+  const waitingStep = goalView({
+    phase: "step_review",
+    stop_reason: "这一步需要单独确认。",
+    stop_reason_label: "这一步需要单独确认。",
+    can_approve_plan: false,
+    can_pause: true,
+    can_cancel: true,
+    can_restore: true,
+    steps: [
+      {
+        ...goalView().steps[0],
+        risk: "R3",
+        risk_label: "影响采用或正式内容",
+        can_confirm: true,
+        status: "prepared",
+        status_label: "已准备，等待作者确认",
+      },
+    ],
+    changes: [
+      {
+        label: "更新作者待办",
+        state: "applied",
+        state_label: "已自动修改",
+        summary: "待办字段更新；恢复前会检查作者后续编辑。",
+        can_restore: true,
+      },
+    ],
+  })
+  const api = setupApi({ recentGoals: vi.fn().mockResolvedValue([waitingStep]) })
+  const wrapper = await mountedPanel(api)
+
+  expect(wrapper.text()).toContain("确认并执行这一步")
+  expect(wrapper.text()).toContain("恢复可恢复的修改")
+  expect(wrapper.text()).toContain("取消不会撤销已完成修改")
+})

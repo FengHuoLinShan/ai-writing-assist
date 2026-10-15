@@ -7,15 +7,12 @@ import json
 from collections.abc import Mapping
 from typing import Any
 
-from pydantic import BaseModel
-
 from core.errors import ConflictError, ValidationError
 from modules.assistant.contracts import AssistantOperation
 from modules.assistant.goal_runs.contracts import (
     GoalBudget,
     GoalPlan,
     GoalReference,
-    GoalStep,
 )
 
 MAX_PLAN_STEPS = 30
@@ -95,7 +92,13 @@ def _validate_reference_graph(plan: GoalPlan) -> None:
             raise ValidationError("步骤不能依赖自身")
         if set(step.depends_on) - by_id.keys():
             raise ValidationError("计划引用了不存在的前置步骤")
-        for reference in _references(step.parameters):
+        references = _references(step.parameters)
+        references.extend(
+            target.target_id
+            for target in step.targets
+            if isinstance(target.target_id, GoalReference)
+        )
+        for reference in references:
             if reference.step_id not in by_id:
                 raise ValidationError("参数引用了不存在的前置步骤")
             if reference.step_id not in step.depends_on:
@@ -104,9 +107,7 @@ def _validate_reference_graph(plan: GoalPlan) -> None:
     complete: set[str] = set()
     while remaining:
         ready = {
-            step_id
-            for step_id in remaining
-            if set(by_id[step_id].depends_on) <= complete
+            step_id for step_id in remaining if set(by_id[step_id].depends_on) <= complete
         }
         if not ready:
             raise ValidationError("步骤依赖存在循环")
@@ -158,18 +159,15 @@ def validate_plan(
     return plan
 
 
-def _target_key(step_id: str, target_type: str, target_id: Any) -> str:
+def _target_key(target_type: str, target_id: Any) -> str:
     if isinstance(target_id, GoalReference):
         return canonical(
             {
-                "step_id": step_id,
                 "target_type": target_type,
                 "reference": target_id.model_dump(mode="json"),
             }
         )
-    return canonical(
-        {"step_id": step_id, "target_type": target_type, "target_id": str(target_id)}
-    )
+    return canonical({"target_type": target_type, "target_id": str(target_id)})
 
 
 def plan_scope(
@@ -184,7 +182,7 @@ def plan_scope(
     modules = sorted({module_for(operation_id) for operation_id in operation_ids})
     risks = [operations[item].risk_level for item in operation_ids]
     targets = sorted(
-        _target_key(step.step_id, target.target_type, target.target_id)
+        _target_key(target.target_type, target.target_id)
         for step in plan.steps
         for target in step.targets
     )
@@ -202,6 +200,38 @@ def plan_scope(
 def compare_scope(proposed: dict[str, Any], approved: dict[str, Any]) -> list[str]:
     """Return deterministic expansion reasons; model judgments are never read."""
     reasons: list[str] = []
+    required = {
+        "operation_ids",
+        "modules",
+        "targets",
+        "max_risk",
+        "budget",
+        "auto_r2",
+        "catalog_fingerprint",
+    }
+    if not required <= proposed.keys() or not required <= approved.keys():
+        return ["unknown_scope"]
+    if not all(
+        isinstance(value, list)
+        for value in (
+            proposed["operation_ids"],
+            proposed["modules"],
+            proposed["targets"],
+            approved["operation_ids"],
+            approved["modules"],
+            approved["targets"],
+        )
+    ):
+        return ["unknown_scope"]
+    if (
+        proposed.get("max_risk") not in _RISK_ORDER
+        or approved.get("max_risk") not in _RISK_ORDER
+    ):
+        reasons.append("unknown_risk")
+    if not isinstance(proposed.get("auto_r2"), bool) or not isinstance(
+        approved.get("auto_r2"), bool
+    ):
+        reasons.append("unknown_auto_limit")
     if not set(proposed.get("operation_ids", ())) <= set(
         approved.get("operation_ids", ())
     ):
@@ -222,8 +252,12 @@ def compare_scope(proposed: dict[str, Any], approved: dict[str, Any]) -> list[st
         "tokens",
         "time_limit_seconds",
     ):
-        if int(proposed_budget.get(key) or 0) > int(approved_budget.get(key) or 0):
-            reasons.append("larger_budget")
+        try:
+            if int(proposed_budget[key]) > int(approved_budget[key]):
+                reasons.append("larger_budget")
+                break
+        except (KeyError, TypeError, ValueError):
+            reasons.append("unknown_budget")
             break
     if proposed.get("auto_r2") and not approved.get("auto_r2"):
         reasons.append("higher_auto_limit")
@@ -241,7 +275,11 @@ def resolve_reference(value: Any, results: Mapping[str, Any]) -> Any:
         for part in reference.path:
             if isinstance(part, str) and isinstance(current, Mapping) and part in current:
                 current = current[part]
-            elif isinstance(part, int) and isinstance(current, list) and part < len(current):
+            elif (
+                isinstance(part, int)
+                and isinstance(current, list)
+                and part < len(current)
+            ):
                 current = current[part]
             else:
                 raise ConflictError("前置产物已变化，引用字段不可用")
@@ -262,7 +300,9 @@ def _validate_reference_value(reference: GoalReference, value: Any) -> None:
         "number": lambda x: type(x) in {int, float},
         "boolean": lambda x: type(x) is bool,
         "object": lambda x: isinstance(x, dict),
-        "array": lambda x: isinstance(x, list) and len(x) <= int(reference.max_items or 0),
+        "array": lambda x: (
+            isinstance(x, list) and len(x) <= int(reference.max_items or 0)
+        ),
     }
     if not matches[reference.value_type](value):
         raise ConflictError("前置产物类型与参数引用不一致")
@@ -272,7 +312,9 @@ def _validate_reference_value(reference: GoalReference, value: Any) -> None:
             _validate_reference_value(item_probe, item)
 
 
-def parameter_fingerprint(operation: AssistantOperation, parameters: dict[str, Any]) -> str:
+def parameter_fingerprint(
+    operation: AssistantOperation, parameters: dict[str, Any]
+) -> str:
     try:
         validated = operation.schema.model_validate(parameters)
     except Exception as error:
@@ -283,8 +325,4 @@ def parameter_fingerprint(operation: AssistantOperation, parameters: dict[str, A
 def step_operation_id(run_id: str, step_id: str, params_fingerprint: str) -> str:
     import uuid
 
-    return str(
-        uuid.uuid5(
-            uuid.UUID(run_id), f"goal-step:{step_id}:{params_fingerprint}"
-        )
-    )
+    return str(uuid.uuid5(uuid.UUID(run_id), f"goal-step:{step_id}:{params_fingerprint}"))
