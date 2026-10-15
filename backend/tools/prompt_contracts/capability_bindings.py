@@ -109,6 +109,7 @@ CAPABILITY_BINDINGS: dict[str, tuple[str, ...]] = {
     ),
     "modules/story/outline_state/structure_dedup.py": ("story.structure_dedup",),
     "modules/story/outline_state/scene_fusion_draft.py": ("story.scene_fusion",),
+    "modules/story/director_tasks.py": ("story.scene_director",),
     # Imports
     "modules/imports/workflow_scene_phase.py": (
         "imports.scene_plan",

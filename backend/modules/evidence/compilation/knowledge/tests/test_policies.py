@@ -54,6 +54,7 @@ EXPECTED_CAPABILITIES = (
     "story.reaction",
     "story.script",
     "story.one_click",
+    "story.scene_director",
     "story.scene_fusion",
     "story.structure_dedup",
     # Imports
@@ -173,11 +174,11 @@ def test_optional_reference_dimensions_are_advisory_for_selected_capabilities() 
     for capability in capabilities:
         policy = require_capability_policy(capability)
         expected = (
-            ("map_spatial", "object_dossier", "character_pattern")
+            ("map_spatial", "object_dossier", "character_pattern", "director_reference")
+            if capability in {"writing.generate", "writing.targeted_revision"}
+            else ("map_spatial", "object_dossier", "character_pattern")
             if capability
             in {
-                "writing.generate",
-                "writing.targeted_revision",
                 "writing.semantic_review",
                 "writing.conflict_check.ai_review",
                 "story.one_click",
@@ -195,6 +196,7 @@ def test_optional_reference_dimensions_are_advisory_for_selected_capabilities() 
         "map_spatial",
         "object_dossier",
         "character_pattern",
+        "director_reference",
     }
     assert not set(writing.advisory_dimensions) & set(writing.required_dimensions)
 

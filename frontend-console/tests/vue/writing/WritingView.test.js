@@ -232,7 +232,7 @@ describe("WritingView", () => {
     expect(wrapper.findAll("button").some((button) => button.text() === "进入专注")).toBe(true)
     expect(wrapper.findAll('[data-action="open-owner-ai-drawer"]')).toHaveLength(0)
     expect(wrapper.findAll('[data-action="writing-ai-menu"]')).toHaveLength(1)
-    expect(wrapper.findAll(".btn-primary")).toHaveLength(1)
+    expect(wrapper.findAll(".btn-primary").filter((button) => button.isVisible())).toHaveLength(1)
     wrapper.unmount()
   })
 

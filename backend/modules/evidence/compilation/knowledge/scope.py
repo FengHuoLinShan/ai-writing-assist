@@ -44,6 +44,7 @@ _MAX_TOKEN_GROUPS_PER_SOURCE = 32
 
 SECTION_DIMENSION_MAP: dict[str, str] = {
     "map_spatial": "map_spatial",
+    "director_reference": "director_reference",
     "world_entities": "world_entities",
     "reader_visible_world": "reader_reveal",
     "reader_visible_manuscript": "prior_prose",

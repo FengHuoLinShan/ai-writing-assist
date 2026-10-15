@@ -239,7 +239,7 @@ async def test_author_turn_preview_confirm_and_replay(
     from modules.assistant.operations import catalog, resolve_operations
 
     run = await db_session.get(AssistantRun, uuid.UUID(operation))
-    assert run.request_json["runtime_version"] == "9"
+    assert run.request_json["runtime_version"] == "10"
     assert {"search_general_fact", "read_web_source"}.issubset(
         run.request_json["read_tools"]
     )
@@ -265,7 +265,7 @@ async def test_author_turn_preview_confirm_and_replay(
             },
         }
         frozen = run.request_json
-    # This fixture rewrites a new v9 run into a historic runtime; its v9-only
+    # This fixture rewrites a new v10 run into a historic runtime; its v10-only
     # server-issued child scope must leave with the rewritten runtime.
     task.meta = {
         key: value

@@ -778,6 +778,7 @@ from modules.project.settings_api import (  # noqa: E402
 )
 from modules.story import api as story_api  # noqa: E402
 from modules.story.continuity import api as memory_api  # noqa: E402
+from modules.story.director_api import router as story_director_router  # noqa: E402
 from modules.story.outline_state import api as outline_api  # noqa: E402
 from modules.world import api as world_api  # noqa: E402
 from modules.world import map_atlas_api as world_map_atlas_api  # noqa: E402
@@ -810,6 +811,7 @@ app.include_router(evidence_api.router)
 app.include_router(evolution_api.router)
 app.include_router(writing_api.router)
 app.include_router(story_api.router)
+app.include_router(story_director_router)
 app.include_router(tasks_api.router)
 if not _public_mode:
     app.include_router(debug_api.router)

@@ -131,6 +131,7 @@ class TestLoaderProtocol:
             "map_spatial",
             "object_dossier",
             "outline_analysis",
+            "director_reference",
         ]
 
     def test_all_loaders_available(self) -> None:
@@ -303,6 +304,7 @@ class TestContextCompilerDispatch:
         assert set(compiler._loaders) == set(_ALL_SCOPE_LOADER_NAMES) | {
             "map_spatial",
             "object_dossier",
+            "director_reference",
         }
         assert "map_spatial" not in _ALL_SCOPE_LOADER_NAMES
         assert "object_dossier" not in _ALL_SCOPE_LOADER_NAMES

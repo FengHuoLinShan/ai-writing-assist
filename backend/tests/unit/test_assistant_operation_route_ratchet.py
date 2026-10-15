@@ -67,6 +67,34 @@ C2_PREVIEW_ROUTES = {
     ),
     "/api/assistant/operation-http/previews/story/reactions": ("story.reaction.generate"),
 }
+C4_DIRECTOR_ROUTES = {
+    "/api/story/scenes/director/budget-preview": ("story.scene_director.preview", "POST"),
+    "/api/story/scenes/{scene_id}/director": ("story.scene_director.start", "POST"),
+    "/api/story/director/roots/{root_id}/budget-preview": (
+        "story.scene_director.continue_preview",
+        "POST",
+    ),
+    "/api/story/director/roots/{root_id}/branches": (
+        "story.scene_director.continue",
+        "POST",
+    ),
+    "/api/story/director/roots/{root_id}/advance": (
+        "story.scene_director.advance",
+        "POST",
+    ),
+    "/api/story/scenes/{scene_id}/director/history": (
+        "story.scene_director.history",
+        "GET",
+    ),
+    "/api/story/director/rounds/{round_id}/consistency": (
+        "story.scene_director.check_consistency",
+        "GET",
+    ),
+    "/api/story/director/rounds/{round_id}/references": (
+        "story.scene_director.save_reference",
+        "POST",
+    ),
+}
 
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 BASELINE_PATH = (
@@ -151,6 +179,28 @@ def test_c2_http_routes_bind_read_and_previews_without_enqueueing():
         if path in C2_PREVIEW_ROUTES:
             assert extra.get("x-novelcraft-operation-phase") == "prepare"
             assert "x-novelcraft-operation-confirmation-field" not in extra
+
+
+def test_c4_director_http_routes_bind_the_frozen_catalog():
+    operations = get(ASSISTANT_OPERATIONS)
+    routes = dict(_route_entries(app.routes))
+    assert len(C4_DIRECTOR_ROUTES) == 8
+    for path, (operation_id, method) in C4_DIRECTOR_ROUTES.items():
+        route = routes[path]
+        extra = route.openapi_extra or {}
+        assert method in route.methods
+        assert extra.get("x-novelcraft-operation-id") == operation_id
+        assert set(extra.get("x-novelcraft-operation-trace-fields") or {}) == set(
+            operations[operation_id].schema.model_fields
+        )
+        if method == "POST":
+            assert all(
+                source.startswith("data.")
+                for source in extra["x-novelcraft-operation-trace-fields"].values()
+            )
+    for path, route in routes.items():
+        if path.startswith("/api/story/director/") and path not in C4_DIRECTOR_ROUTES:
+            assert (route.openapi_extra or {}).get("x-novelcraft-operation-exemption")
 
 
 def test_trace_extracts_declared_pydantic_request_fields_without_raw_request():

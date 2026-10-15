@@ -63,6 +63,39 @@ from modules.story.schemas import (
 )
 
 
+class StoryDirectorReferenceForWritingContract(BaseModel):
+    """Author-selected, copied director material for an allowed Writing action."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reference_id: str
+    scene_id: str
+    name: str
+    content_copy: dict[str, Any]
+    material_ids: list[str]
+    angle: dict[str, Any]
+    source_round_id: str | None = None
+    source_deleted: bool = False
+    source_basis_hash: str
+    source_changed: bool = False
+    current_basis_available: bool = True
+    annotation: str = ""
+    warnings: list[str] = Field(default_factory=list)
+    advisory_only: Literal[True] = True
+    adoption_status: Literal["not_adopted"] = "not_adopted"
+
+
+class StoryDirectorReferencesForWritingContract(BaseModel):
+    """Bounded Story read response; missing copies are advisory omissions."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[StoryDirectorReferenceForWritingContract] = Field(default_factory=list)
+    omitted: list[str] = Field(default_factory=list)
+    omission_reasons: dict[str, str] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+
+
 @dataclass(frozen=True)
 class StoryWorldDependencyContract:
     kind: Literal["story_thread", "outline_arc", "outline_scene", "story_outline"]
@@ -77,6 +110,8 @@ class StoryWorldDependencyContract:
 __all__ = [
     "STATE_EVENT_DIMENSIONS",
     "StoryWorldDependencyContract",
+    "StoryDirectorReferenceForWritingContract",
+    "StoryDirectorReferencesForWritingContract",
     "CharacterCardResponse",
     "CharacterCardRevisionResponse",
     "SceneScriptFileResponse",

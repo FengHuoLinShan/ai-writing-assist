@@ -37,6 +37,7 @@ from core.service_keys import (
     ASSISTANT_PROACTIVE_SUBMITTERS,
     ASSISTANT_REQUIRE_OPERATION_TARGETS,
     ASSISTANT_RUN_DISCUSSION_SCOPE,
+    ASSISTANT_IS_AUTHOR_TURN_RUN,
     ASSISTANT_SESSION_SERVICE,
     ASSISTANT_SUBMIT_COMMENT_PROPOSALS,
     COLLABORATION_CHANGED_CASES,
@@ -118,6 +119,7 @@ from core.service_keys import (
     WRITING_MANUSCRIPT_SOURCE,
 )
 from modules.evidence.facade import compile_structure_context as _ctx_compile
+from modules.evidence.compilation.contracts import EVIDENCE_READ_STORY_DIRECTOR_REFERENCES
 from modules.evidence.facade import (
     compile_generation_background as _ctx_generation_background,
 )
@@ -212,6 +214,7 @@ from modules.evolution.facade import (
 from modules.evolution.evidence_read import read_evolution_object_patterns
 from modules.story.facade import get_scene_contract as _story_get_scene_contract
 from modules.story.facade import read_object_dossier_state
+from modules.story.facade import read_scene_director_references_for_writing
 from modules.world import assistant_ports as _world_assistant
 from modules.world.facade import (
     read_world_object_dossier,
@@ -238,6 +241,7 @@ from app.assistant_operation_registry import story_information_operations
 from app.assistant_operation_registry import story_operations
 from app.assistant_operation_registry import story_planning_operations
 from app.assistant_operation_registry import story_scene_operations
+from app.assistant_operation_registry import story_director_operations
 from app.assistant_operation_registry import story_generation_operations
 from app.assistant_operation_registry import story_structure_operations
 from app.assistant_operation_registry import writing_candidate_operations
@@ -265,6 +269,7 @@ from modules.writing.assistant_tools import (
     schedule_proactive_review as _writing_proactive_review,
 )
 from modules.assistant.facade import mark_changed as _assistant_mark_changed
+from modules.assistant.facade import is_author_turn_run as _assistant_is_author_turn_run
 from modules.assistant.facade import read_map_author_decision as _read_map_author_decision
 from modules.evolution.facade import (
     read_map_cold_start_status as _read_map_cold_start_status,
@@ -436,6 +441,7 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
                 **story_structure_operations,
                 **story_planning_operations,
                 **story_scene_operations,
+                **story_director_operations,
                 **story_generation_operations,
                 **world_opening_operations,
                 **imports_operations,
@@ -460,6 +466,10 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
         (EVOLUTION_READ_MAP_COLD_START_STATUS, _read_map_cold_start_status),
         (EVIDENCE_READ_EVOLUTION_OBJECT_PATTERNS, read_evolution_object_patterns),
         (EVIDENCE_READ_STORY_OBJECT_STATE, read_object_dossier_state),
+        (
+            EVIDENCE_READ_STORY_DIRECTOR_REFERENCES,
+            read_scene_director_references_for_writing,
+        ),
         (EVIDENCE_READ_WORLD_OBJECT_DOSSIER, read_world_object_dossier),
         (WORLD_READ_MAP_COLD_START_DRAFTS, _read_map_cold_start_drafts),
         (WORLD_READ_MAP_NOTIFICATION_SIGNALS, _read_map_notification_signals),
@@ -577,6 +587,7 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
             _WorldAdoptionPackageService,
         ),
         (ASSISTANT_RUN_DISCUSSION_SCOPE, _assistant_run_discussion_scope),
+        (ASSISTANT_IS_AUTHOR_TURN_RUN, _assistant_is_author_turn_run),
         (
             ASSISTANT_REQUIRE_OPERATION_TARGETS,
             _assistant_require_operation_targets,

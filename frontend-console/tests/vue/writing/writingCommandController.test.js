@@ -86,6 +86,52 @@ describe("writingCommandController", () => {
     expect(confirmAiReference).toHaveBeenCalledWith(expect.objectContaining({ content_mode: "working", context_mode: "working", pinned_refs: pinned }))
   })
 
+  it("正文生成只把作者勾选的导演副本放进同一 Evidence confirmation", async () => {
+    const selected = ["director-reference-1"]
+    const { api, controller } = setup({ getDirectorReferenceIds: () => selected })
+    await controller.generateDraft()
+    expect(confirmAiReference).toHaveBeenCalledWith(expect.objectContaining({
+      action: "writing.generate",
+      scene_id: "scene-1",
+      director_reference_ids: selected,
+    }))
+    expect(api.writing.generate).toHaveBeenCalledWith(expect.objectContaining({
+      context_confirmation_id: "confirmation-1",
+      director_reference_ids: selected,
+    }))
+  })
+
+  it("定向返修为作者选中的导演副本创建独立 confirmation", async () => {
+    const selected = ["director-reference-2"]
+    const { api, editor, controller } = setup({ getDirectorReferenceIds: () => selected })
+    editor.getStatus.mockReturnValue("candidate")
+    editor.getProvenance.mockReturnValue({
+      scene_id: "scene-1",
+      generation_profile: "pov_character",
+      viewpoint_character_id: "character-1",
+      independent_review: { review_task_id: "review-1", finding_ids: ["finding-1"] },
+    })
+    api.writing.targetedRevision.mockResolvedValue({ task_id: "revision-task" })
+    api.tasks.get.mockResolvedValue({
+      task_id: "revision-task",
+      task_type: "writing_targeted_revision",
+      status: "done",
+      result: { draft_id: "revision-candidate" },
+    })
+    await controller.reviseCandidate()
+    expect(confirmAiReference).toHaveBeenCalledWith(expect.objectContaining({
+      action: "writing.targeted_revision",
+      scene_id: "scene-1",
+      reveal_mode: "character",
+      viewpoint_character_id: "character-1",
+      director_reference_ids: selected,
+    }))
+    expect(api.writing.targetedRevision).toHaveBeenCalledWith(expect.objectContaining({
+      context_confirmation_id: "confirmation-1",
+      director_reference_ids: selected,
+    }))
+  })
+
   it("只读候选可重新确认原选择生成新版，不重绑旧候选或送审", async () => {
     const onProgress = vi.fn()
     const { api, editor, controller } = setup({ onProgress })

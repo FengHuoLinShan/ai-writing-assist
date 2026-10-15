@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     )
     from modules.evidence.compilation.contracts import (
         EvolutionObjectPatternReadPort,
+        StoryDirectorReferencesForWritingPort,
         StoryObjectStateReadPort,
         WorldObjectDossierReadPort,
     )
@@ -89,12 +90,15 @@ EVOLUTION_READ_MAP_COLD_START_STATUS: ServiceKey[EvolutionReadMapColdStartStatus
 EVIDENCE_READ_EVOLUTION_OBJECT_PATTERNS: ServiceKey[EvolutionObjectPatternReadPort] = (
     ServiceKey("evidence.read_evolution_object_patterns")
 )
-EVIDENCE_READ_WORLD_OBJECT_DOSSIER: ServiceKey[WorldObjectDossierReadPort] = (
-    ServiceKey("evidence.read_world_object_dossier")
+EVIDENCE_READ_WORLD_OBJECT_DOSSIER: ServiceKey[WorldObjectDossierReadPort] = ServiceKey(
+    "evidence.read_world_object_dossier"
 )
 EVIDENCE_READ_STORY_OBJECT_STATE: ServiceKey[StoryObjectStateReadPort] = ServiceKey(
     "evidence.read_story_object_state"
 )
+EVIDENCE_READ_STORY_DIRECTOR_REFERENCES: ServiceKey[
+    StoryDirectorReferencesForWritingPort
+] = ServiceKey("evidence.read_story_director_references")
 WORLD_READ_MAP_COLD_START_DRAFTS: ServiceKey[WorldReadMapColdStartDraftsPort] = (
     ServiceKey("world.read_map_cold_start_drafts")
 )
@@ -122,6 +126,9 @@ ASSISTANT_MARK_EDITORIAL_READY: ServiceKey[Callable[..., Any]] = ServiceKey(
 )
 ASSISTANT_RUN_DISCUSSION_SCOPE: ServiceKey[Callable[..., Any]] = ServiceKey(
     "assistant.run_discussion_scope"
+)
+ASSISTANT_IS_AUTHOR_TURN_RUN: ServiceKey[Callable[..., Any]] = ServiceKey(
+    "assistant.is_author_turn_run"
 )
 ASSISTANT_REQUIRE_OPERATION_TARGETS: ServiceKey[Callable[..., Any]] = ServiceKey(
     "assistant.require_operation_targets"
@@ -409,6 +416,7 @@ ALL_SERVICE_KEYS: tuple[ServiceKey[Any], ...] = (
     EVIDENCE_READ_EVOLUTION_OBJECT_PATTERNS,
     EVIDENCE_READ_WORLD_OBJECT_DOSSIER,
     EVIDENCE_READ_STORY_OBJECT_STATE,
+    EVIDENCE_READ_STORY_DIRECTOR_REFERENCES,
     WORLD_READ_MAP_COLD_START_DRAFTS,
     WORLD_READ_MAP_NOTIFICATION_SIGNALS,
     EVIDENCE_CONFIRMATION_READS,
@@ -427,6 +435,7 @@ ALL_SERVICE_KEYS: tuple[ServiceKey[Any], ...] = (
     ASSISTANT_SUBMIT_COMMENT_PROPOSALS,
     ASSISTANT_MARK_EDITORIAL_READY,
     ASSISTANT_RUN_DISCUSSION_SCOPE,
+    ASSISTANT_IS_AUTHOR_TURN_RUN,
     ASSISTANT_REQUIRE_OPERATION_TARGETS,
     ASSISTANT_EDITORIAL_POST_ADOPTION_RECHECKS,
     COLLABORATION_RESOURCES,

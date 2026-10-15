@@ -579,6 +579,14 @@ Assistant v5 的只读工具单独受 `assistant.turn` 开关控制。八项能�
 语义审查、定向返修沿用原生成确认与核心指纹，但分别读取自身开关控制的空间参考；
 地图版本变化或参考省略不使核心资料失效。
 
+C4b 增加独立 `director_reference` advisory dimension，只供作者确认中显式选择副本的
+`writing.generate` 与 `writing.targeted_revision`。能力由默认空的
+`NOVELCRAFT_DIRECTOR_REFERENCE_ENABLED_CAPABILITIES` 环境白名单控制。Evidence 经
+`EVIDENCE_READ_STORY_DIRECTOR_REFERENCES` typed port 读取 Story 的当前 Scene 副本：作者视角可见所选内容，
+character POV 只保留本人表演及有感知回执的素材，reader view 不使用。素材缺失、来源变化、POV 过滤或预算省略
+写入 `advisory_omitted` 并提示作者，不影响核心 `scope_complete`；任务冻结已确认副本，后续删除或来源漂移不会
+改写当前任务输入。参考副本不是已采用剧本，也不进入 Story basis hash。app bootstrap 已注册该 DI port。
+
 ### 第一阶段整改后的读取边界
 
 Scene Lens 完整返回对象字段、位置/知识来源、逐项未知、新鲜度与状态指纹；POV 知识只读本 Scene 的角色投影，World 名称不能补今天事实。来源可沿同项目父 checkpoint 和 event 回读，历史依据不是当前事实。私有 RP 缓存的全行容量、PG 并发、匿名禁用、撤权清理与备份恢复冷启动见 [compilation README](../../backend/modules/evidence/compilation/README.md)；冻结来源的检索保留不同原文范围，关键证据与知识边界独立验收。

@@ -998,3 +998,8 @@ async def handle_story_one_click(db, task):
         preview_only_writes=[],
     )
     return result.model_dump(mode="json")
+
+
+# Importing the Story task module registers the independent Scene Director
+# worker alongside the existing card/script handlers.
+from modules.story import director_tasks as _director_tasks  # noqa: E402,F401

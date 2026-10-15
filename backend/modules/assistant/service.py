@@ -118,7 +118,7 @@ def _assistant_catalog_budget_scope(
     runtime_version: str, frozen_operations: dict
 ) -> dict | None:
     """Derive child steps only from C2 operations actually frozen for this run."""
-    if runtime_version != "9" or not isinstance(frozen_operations, dict):
+    if runtime_version not in {"9", "10"} or not isinstance(frozen_operations, dict):
         return None
     current = operation_manifest()
     children = sorted(
@@ -613,7 +613,7 @@ class AssistantService:
             for name, value in operation_manifest().items()
             if operation_names is None or name in operation_names
         }
-        catalog_budget_scope = _assistant_catalog_budget_scope("9", frozen_operations)
+        catalog_budget_scope = _assistant_catalog_budget_scope("10", frozen_operations)
         run = AssistantRun(
             id=data.operation_id,
             novel_id=data.novel_id,
@@ -623,7 +623,7 @@ class AssistantService:
             request_json=frozen_payload
             | {
                 "llm_snapshot": snapshot,
-                "runtime_version": "9",
+                "runtime_version": "10",
                 **({"team": team} if team else {}),
                 "web_search": search_snapshot()
                 if data.allow_web and data.web_backend == "searxng-v1"
@@ -631,7 +631,7 @@ class AssistantService:
                 "operations": frozen_operations,
                 "read_tools": {
                     tool.name: fingerprint(tool.function_schema.json_schema)
-                    for tool in author_read_tools(allow_web=True, version="9")
+                    for tool in author_read_tools(allow_web=True, version="10")
                     if tool.name
                     not in {
                         "map_spatial_brief",
@@ -711,7 +711,7 @@ class AssistantService:
     def view(self, run, *, can_resume: bool = False):
         executor = (run.request_json or {}).get("agent_executor") or {}
         result = dict(run.result_json or {})
-        if (run.request_json or {}).get("runtime_version") in {"7", "8", "9"} and (
+        if (run.request_json or {}).get("runtime_version") in {"7", "8", "9", "10"} and (
             run.checkpoint_json or {}
         ).get("operation_trace_incomplete"):
             result["operation_trace_incomplete"] = True
@@ -1053,7 +1053,7 @@ class AssistantService:
                     code="assistant_runtime_changed",
                 )
         operations = resolve_operations(
-            protocol["operations"], allow_stale=runtime_version in {"7", "8", "9"}
+            protocol["operations"], allow_stale=runtime_version in {"7", "8", "9", "10"}
         )
         read_tools = {
             tool.name: tool
@@ -1157,7 +1157,7 @@ class AssistantService:
                     and (
                         search_snapshot_matches(payload.get("web_search"))
                         if payload.get("runtime_version")
-                        in {"3", "4", "5", "6", "7", "8", "9"}
+                        in {"3", "4", "5", "6", "7", "8", "9", "10"}
                         else verified_native_search(profile.provider_id, profile.model)
                     )
                 ),
@@ -1185,7 +1185,7 @@ class AssistantService:
                     role="system",
                     content=(
                         _V7_INSTRUCTIONS
-                        if runtime_version in {"7", "8", "9"}
+                        if runtime_version in {"7", "8", "9", "10"}
                         else _INSTRUCTIONS
                     )
                     + f"\n本次请求的日历日期为 {today}（{work.timezone}）。"
@@ -1302,7 +1302,7 @@ class AssistantService:
                         or deps.allow_web
                     ]
                     + operation_discovery_tools(
-                        legacy=runtime_version not in {"7", "8", "9"},
+                        legacy=runtime_version not in {"7", "8", "9", "10"},
                         operations=operations,
                     )
                     + [Tool(review_assets, sequential=True)]

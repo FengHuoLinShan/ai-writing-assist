@@ -13,3 +13,6 @@
 `backend/modules/collaboration/README.md`；共享规则仍只从 `AGENTS.md` 导入。
 本机 CLI Agent 的设备与任务协议见 `backend/modules/local_agent/README.md`，
 Claude Code 的仓库协作规则仍只从 `AGENTS.md` 导入。
+场景导演的跨模块入口与预算、资料、正文参考边界见
+`backend/modules/story/README.md`、`backend/modules/evidence/compilation/README.md`
+和 `backend/modules/writing/README.md`。

@@ -55,6 +55,7 @@ _ASSET_TYPE_ALIASES = {
 _MAP_CONFIRMATION_METADATA = frozenset(
     {"map_spatial_baseline", "compiled_context_core_fingerprint"}
 )
+_ADVISORY_REFERENCE_SECTION_KEYS = frozenset({"map_spatial", "director_reference"})
 
 
 def execution_compile_options(options: Mapping[str, Any]) -> dict[str, Any]:
@@ -84,7 +85,7 @@ def _core_context_fingerprint(compiled: CompiledContext) -> str:
                 "sections": [
                     section
                     for section in compiled.sections
-                    if section.key != "map_spatial"
+                    if section.key not in _ADVISORY_REFERENCE_SECTION_KEYS
                 ]
             }
         )
@@ -210,6 +211,7 @@ class ContextConfirmationService:
             user_note=request.user_note,
             include_world_synopsis=request.include_world_synopsis,
             selected_world_bible_draft_ids=request.selected_world_bible_draft_ids or [],
+            director_reference_ids=request.director_reference_ids or [],
             activation_profile_id=request.activation_profile_id,
             activation_profile_version=request.activation_profile_version,
             scene_memory_contract_version=(
@@ -699,6 +701,7 @@ class ContextConfirmationService:
             "user_note": options.user_note,
             "include_world_synopsis": options.include_world_synopsis,
             "selected_world_bible_draft_ids": options.selected_world_bible_draft_ids,
+            "director_reference_ids": options.director_reference_ids,
             "world_synopsis_revision_id": options.world_synopsis_revision_id,
             "world_synopsis_source_hash": options.world_synopsis_source_hash,
             "world_synopsis_block_hash": options.world_synopsis_block_hash,

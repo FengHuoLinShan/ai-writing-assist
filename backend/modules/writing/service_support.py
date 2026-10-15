@@ -105,6 +105,8 @@ class _WritingGenerationTaskPlan:
     scene_execution_bundle_hash: str | None
     confirm_stale_story_assets: bool
     story_asset_basis: tuple[dict[str, Any], ...]
+    director_reference_context_snapshot: dict[str, Any] = field(default_factory=dict)
+    director_reference_usage: dict[str, Any] = field(default_factory=dict)
     knowledge_policy_id: str = ""
     knowledge_scope_receipt: dict[str, Any] = field(default_factory=dict)
     knowledge_generator_keys: tuple[str, ...] = ()
@@ -359,6 +361,8 @@ def _generation_task_source_fingerprint(
     scene_execution_bundle_hash: str | None,
     confirm_stale_story_assets: bool,
     story_asset_basis: list[dict[str, Any]],
+    director_reference_context_snapshot: dict[str, Any] | None = None,
+    director_reference_usage: dict[str, Any] | None = None,
 ) -> str:
     return _generation_stable_fingerprint(
         {
@@ -371,6 +375,10 @@ def _generation_task_source_fingerprint(
             "scene_execution_bundle_hash": scene_execution_bundle_hash,
             "confirm_stale_story_assets": confirm_stale_story_assets,
             "story_asset_basis": story_asset_basis,
+            "director_reference_context_snapshot": deepcopy(
+                director_reference_context_snapshot or {}
+            ),
+            "director_reference_usage": deepcopy(director_reference_usage or {}),
             "base_draft": (
                 {
                     "id": str(getattr(base_draft, "id", "")),

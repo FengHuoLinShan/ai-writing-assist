@@ -28,6 +28,7 @@ export function createWritingCommandController({
   getChapter,
   getScene = () => null,
   getPinnedRefs = () => [],
+  getDirectorReferenceIds = () => [],
   editor,
   onResult,
   onLoadingChange = () => {},
@@ -183,6 +184,10 @@ export function createWritingCommandController({
   async function runCandidateWorkflow(workflowType, { contractItemIds = [] } = {}) {
     const projectId = getProjectId()
     const draftId = editor.getDraftId()
+    const scene = getScene()
+    const directorReferenceIds = workflowType === "writing_targeted_revision"
+      ? [...getDirectorReferenceIds()]
+      : []
     const provenance = editor.getProvenance?.() || {}
     if (!projectId || !draftId || editor.getStatus?.() !== "candidate") {
       toast("请先打开一份待处理正文建议", "warning")
@@ -207,12 +212,48 @@ export function createWritingCommandController({
     const chapter = getChapter()
     const label = workflowType === "writing_semantic_review" ? "独立语义审查" : "定向返修"
     const meta = { chapter, draftId }
-    persistActiveWorkflow({ taskId: operationId, workflowType, label, projectId, view: "writing", meta }, receiptStorage)
-    onProgress({ taskId: operationId, progress: normalizeTaskProgress({ id: operationId, task_type: workflowType, status: "pending" }, workflowType), result: null })
     try {
+      let directorConfirmation = null
+      if (directorReferenceIds.length) {
+        if (!scene?.id || String(provenance.scene_id || "") !== String(scene.id)) {
+          toast("请先切回这份正文建议对应的场景，再选择导演参考。", "warning")
+          return null
+        }
+        const viewpoint = String(provenance.viewpoint_character_id || "")
+        const characterPov = provenance.generation_profile === "pov_character"
+        if (characterPov && !viewpoint) {
+          toast("原正文建议缺少视角人物记录，无法安全确认导演参考。", "warning")
+          return null
+        }
+        directorConfirmation = await confirmAiReference({
+          novel_id: projectId,
+          action: "writing.targeted_revision",
+          task: "按审查问题修订选定范围；可选导演参考只提供思路",
+          scope: "chapter",
+          chapter_index: chapter,
+          scene_id: scene.id,
+          visible_until_scene_id: scene.id,
+          reveal_mode: characterPov ? "character" : "author_safe",
+          viewpoint_character_id: characterPov ? viewpoint : undefined,
+          character_ids: characterPov ? [viewpoint] : undefined,
+          include_pending_objects: false,
+          director_reference_ids: directorReferenceIds,
+        })
+        if (
+          !directorConfirmation
+          || disposed
+          || token !== generation
+          || getProjectId() !== projectId
+          || getChapter() !== chapter
+          || getScene()?.id !== scene.id
+          || JSON.stringify(getDirectorReferenceIds()) !== JSON.stringify(directorReferenceIds)
+        ) return null
+      }
+      persistActiveWorkflow({ taskId: operationId, workflowType, label, projectId, view: "writing", meta }, receiptStorage)
+      onProgress({ taskId: operationId, progress: normalizeTaskProgress({ id: operationId, task_type: workflowType, status: "pending" }, workflowType), result: null })
       const payload = workflowType === "writing_semantic_review"
         ? { novel_id: projectId, draft_ids: [draftId], scope: "selection", operation_id: operationId }
-        : { novel_id: projectId, draft_id: draftId, review_task_id: review.review_task_id, finding_ids: review.finding_ids, contract_item_ids: contractItemIds, operation_id: operationId }
+        : { novel_id: projectId, draft_id: draftId, review_task_id: review.review_task_id, finding_ids: review.finding_ids, contract_item_ids: contractItemIds, operation_id: operationId, ...(directorReferenceIds.length ? { context_confirmation_id: directorConfirmation.id, director_reference_ids: directorReferenceIds } : {}) }
       const submitted = workflowType === "writing_semantic_review"
         ? await api.writing.semanticReview(payload)
         : await api.writing.targetedRevision(payload)
@@ -277,6 +318,7 @@ export function createWritingCommandController({
 
   async function generate(mode = "draft", { confirmStaleStoryAssets = false, regenerateCandidate = false } = {}) {
     const { projectId, chapter, scene } = context()
+    const directorReferenceIds = [...getDirectorReferenceIds()]
     if (!projectId || !chapter) {
       toast("请先选择章节", "warning")
       return null
@@ -325,6 +367,7 @@ export function createWritingCommandController({
       const stillHere = () => !disposed && token === generation && getProjectId() === projectId
         && getChapter() === chapter && editor.getDraftId() === sourceDraftId
         && (getScene()?.id || null) === (scene?.id || null)
+        && JSON.stringify(getDirectorReferenceIds()) === JSON.stringify(directorReferenceIds)
       const regenerationContext = regenerateCandidate
         ? await api.writing.regenerationContext(sourceDraftId, projectId) : null
       if (!stillHere()) return null
@@ -340,6 +383,7 @@ export function createWritingCommandController({
         character_ids: pov ? [scene.pov_character_id] : undefined,
         include_pending_objects: false,
         pinned_refs: pinnedRefs,
+        ...(directorReferenceIds.length ? { director_reference_ids: directorReferenceIds } : {}),
         ...(pinnedRefs.some(ref => ref.source_ref?.content_mode === "working") ? { content_mode: "working", context_mode: "working" } : {}),
         ...(regenerationContext ? regenerationContext.reference_options : {}),
       })
@@ -358,7 +402,7 @@ export function createWritingCommandController({
       persistActiveWorkflow({ taskId: operationId, workflowType: "writing_generate", label: pov ? "AI 角色视角建议" : mode === "continue" ? "AI 续写" : "AI 正文建议", projectId, view: "writing", meta: workflowMeta }, receiptStorage)
       onProgress({ taskId: operationId, progress: normalizeTaskProgress({ id: operationId, task_type: "writing_generate", status: "pending" }, "writing_generate") })
       let submitted
-      try { submitted = await api.writing.generate({ novel_id: projectId, chapter_index: chapter, title: editor.getTitle() || `第 ${chapter} 章`, instruction, context_confirmation_id: confirmation.id, generation_mode: mode === "continue" ? "continue" : undefined, base_draft_id: mode === "continue" ? editor.getDraftId() : undefined, operation_id: operationId, ...(confirmStaleStoryAssets ? { confirm_stale_story_assets: true } : {}) }) } catch (err) {
+      try { submitted = await api.writing.generate({ novel_id: projectId, chapter_index: chapter, title: editor.getTitle() || `第 ${chapter} 章`, instruction, context_confirmation_id: confirmation.id, generation_mode: mode === "continue" ? "continue" : undefined, base_draft_id: mode === "continue" ? editor.getDraftId() : undefined, operation_id: operationId, ...(confirmStaleStoryAssets ? { confirm_stale_story_assets: true } : {}), ...(directorReferenceIds.length ? { director_reference_ids: directorReferenceIds } : {}) }) } catch (err) {
         if (staleStoryScriptError(err)) {
           clearActiveWorkflow(operationId, receiptStorage)
           reportStaleStoryScript(mode, err)
