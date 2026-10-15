@@ -29,7 +29,40 @@ INSTRUCTIONS = {
 }
 
 
-def _spatial_planning_fact(scene, brief) -> dict | None:
+def _one_visible_place(brief):
+    """Count a Scene only when its visible saved-map brief has one place identity."""
+    places = {}
+    for item in list(getattr(brief, "items", None) or [])[:5]:
+        try:
+            content = json.loads(str(getattr(item, "content", "")))
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(content, dict):
+            continue
+        for place in content.get("当前地点") or []:
+            if not isinstance(place, dict) or not place.get("label"):
+                continue
+            identity = (
+                f"entity:{place['entity_id']}"
+                if place.get("entity_id")
+                else f"node:{item.node_id}:{place['label']}"
+            )
+            places[identity] = (
+                str(place["label"])[:200],
+                {
+                    "node_id": str(item.node_id),
+                    "revision_id": str(item.revision_id),
+                    "revision_hash": str(item.revision_hash),
+                    "source_hashes": list(item.source_hashes or [])[:32],
+                },
+            )
+    if len(places) != 1:
+        return None
+    identity, (label, revision) = next(iter(places.items()))
+    return identity, label, revision
+
+
+def _spatial_planning_fact(scene, brief, *, recent=()) -> dict | None:
     items = list(getattr(brief, "items", None) or [])
     if not items:
         return None
@@ -59,15 +92,49 @@ def _spatial_planning_fact(scene, brief) -> dict | None:
     if not revisions:
         return None
     angle = "旅程分段" if journey_count else "地点分布与转场"
+    # A gentle pacing hint, never a continuity judgment: five of the last six
+    # Scenes must have one visible place, and at least five must share it.
+    known = []
+    for scene_id, scene_brief in [*recent, (str(scene.id), brief)]:
+        place = _one_visible_place(scene_brief)
+        if place is not None:
+            known.append((scene_id, *place))
+    concentration = None
+    if len(known) >= 5:
+        counts = {}
+        for _scene_id, identity, _label, _revision in known:
+            counts[identity] = counts.get(identity, 0) + 1
+        dominant, hits = max(counts.items(), key=lambda pair: pair[1])
+        if hits >= 5 and hits / len(known) >= 0.8:
+            label = next(label for _, key, label, _ in reversed(known) if key == dominant)
+            concentration = {
+                "label": label,
+                "hits": hits,
+                "known": len(known),
+                "scenes": [
+                    {"scene_id": scene_id, **revision}
+                    for scene_id, key, _label, revision in known
+                    if key == dominant
+                ],
+            }
+    summary = (
+        f"可结合当前已标注的 {location_count} 处地点与 {journey_count} 条行程，"
+        f"检查{angle}是否服务剧情节奏。"
+    )
+    if concentration:
+        summary += (
+            f"最近 {concentration['known']} 个已标注场景中有 {concentration['hits']} 场"
+            f"位于{concentration['label']}，可能过于集中；建议核对场景变化是否服务剧情。"
+        )
+    source = {"scene_id": str(scene.id), "map_revisions": revisions}
+    if concentration:
+        source["concentration_scenes"] = concentration["scenes"]
     return {
         "capability_id": "story.spatial_planning.v1",
         "subject": str(scene.id),
         "title": "核对本场的地理视角",
-        "summary": (
-            f"可结合当前已标注的 {location_count} 处地点与 {journey_count} 条行程，"
-            f"检查{angle}是否服务剧情节奏。"
-        ),
-        "source": {"scene_id": str(scene.id), "map_revisions": revisions},
+        "summary": summary,
+        "source": source,
         "scope_label": "本场显式地点相关的已采用地图与行程",
         "unknowns": [
             "地图未覆盖不代表地点或路线不存在。",
@@ -144,10 +211,14 @@ def _enabled_map_spatial_capabilities() -> set[str]:
 
 
 async def _read_spatial_planning_fact(db, novel_id, scene):
+    from sqlalchemy import select
+
     from core.container import get
     from core.service_keys import WORLD_READ_MAP_SPATIAL_BRIEF
+    from modules.story.outline_state.models import Scene
 
-    brief = await get(WORLD_READ_MAP_SPATIAL_BRIEF)(
+    read_brief = get(WORLD_READ_MAP_SPATIAL_BRIEF)
+    brief = await read_brief(
         db,
         MapSpatialBriefRequest(
             novel_id=str(novel_id),
@@ -156,4 +227,30 @@ async def _read_spatial_planning_fact(db, novel_id, scene):
             limit=5,
         ),
     )
-    return _spatial_planning_fact(scene, brief)
+    if not brief.items or _one_visible_place(brief) is None:
+        return _spatial_planning_fact(scene, brief)
+    prior = (
+        await db.scalars(
+            select(Scene)
+            .where(
+                Scene.novel_id == scene.novel_id,
+                Scene.scene_index < scene.scene_index,
+                Scene.status != "deprecated",
+            )
+            .order_by(Scene.scene_index.desc(), Scene.id.desc())
+            .limit(5)
+        )
+    ).all()
+    recent = []
+    for previous in reversed(prior):
+        previous_brief = await read_brief(
+            db,
+            MapSpatialBriefRequest(
+                novel_id=str(novel_id),
+                scene_id=str(previous.id),
+                reveal_mode="author_safe",
+                limit=5,
+            ),
+        )
+        recent.append((str(previous.id), previous_brief))
+    return _spatial_planning_fact(scene, brief, recent=recent)
