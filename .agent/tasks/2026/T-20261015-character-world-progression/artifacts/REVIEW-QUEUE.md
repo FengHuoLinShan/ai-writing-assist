@@ -82,3 +82,13 @@ C3b审查准备树仍保留，后续需先接已审A0b再作真实API联调。
   bridge/作者语言规则；由Sol按实际影响最小修正，不为过检删除功能断言。
 - root实际看图为/tmp/c2-scene-390.png与/tmp/c2-world-1280.png；其余390/1280截图仅Luna报告。
   mock组件截图不能代替真实API+app装配验收。
+
+
+- 新审查准备树（C3b+C2b）：map-clue-review/codex/copilot-ui-integration-review，从1682f8dcd
+  取原53/a212为a52159a47、91fd0902f，准备时干净。原da21审查分支保留；后续Sol先接A0净fix，
+  C0b实际接线就绪再接，不重复取父提交。原Luna树继续保留。
+- root静态功能缺口候选：编辑已存档案条目的表单/请求只有content、tags、visibility，现有有效期
+  只能在新增时填写，无法修订或清空；后端update已有validity的exclude_unset/null语义。请Sol按
+  C0作者有效期管理契约直接补最小UI与关键回归，保留旧锚点且不把未改日期静默清空。
+- 项目词表现有ProjectVocabularyPanel已支持dossier_facing，勿重复造面向系统；核对档案编辑器到
+  该共享管理入口的可达性，按真实可用路径说明，不仅显示项目面向列表。
