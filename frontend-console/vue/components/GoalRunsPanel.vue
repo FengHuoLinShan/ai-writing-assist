@@ -46,10 +46,10 @@
           <input v-model.number="startBudget.requests" type="number" min="2" :max="budgetLimits.requests_max || 100" :disabled="busy || Boolean(pendingStart)" />
         </label>
         <label>可能产生费用的请求数
-          <input v-model.number="startBudget.possible_charge_requests" type="number" min="1" :max="budgetLimits.possible_charge_requests_max || 100" :disabled="busy || Boolean(pendingStart)" />
+          <input v-model.number="startBudget.possible_charge_requests" type="number" min="2" :max="budgetLimits.possible_charge_requests_max || 100" :disabled="busy || Boolean(pendingStart)" />
         </label>
         <label>模型令牌上限
-          <input v-model.number="startBudget.tokens" type="number" min="512" :max="budgetLimits.tokens_max || 500000" step="256" :disabled="busy || Boolean(pendingStart)" />
+          <input v-model.number="startBudget.tokens" type="number" min="512" :max="budgetLimits.tokens_max || 500000" step="1" :disabled="busy || Boolean(pendingStart)" />
         </label>
         <label>最长运行时间（分钟）
           <input v-model.number="startBudget.time_limit_minutes" type="number" min="1" :max="Math.floor((budgetLimits.time_limit_seconds_max || 7200) / 60)" :disabled="busy || Boolean(pendingStart)" />
@@ -57,12 +57,18 @@
       </fieldset>
       <label class="goal-runs-consent">
         <input v-model="budgetAcknowledged" type="checkbox" :disabled="busy || Boolean(pendingStart)" />
-        <span>我确认上面的额度。生成计划会使用模型请求，并计入本目标预算。</span>
+        <span>我确认上面的额度。生成计划通常需要两次模型请求（选操作、编计划），并计入本目标预算；生成步骤另计。</span>
       </label>
       <button class="goal-runs-button goal-runs-button--primary" type="submit" :disabled="busy || loading || !goalText.trim() || !budgetAcknowledged">
         {{ busy ? '正在准备计划…' : pendingStart ? '恢复上次提交' : '生成并审阅计划' }}
       </button>
-      <p v-if="capabilities.max_steps" class="goal-runs-help">最多 {{ capabilities.max_steps }} 步。R2 自动修改默认关闭；R3 与独立授权步骤仍会停下来等你。</p>
+      <p v-if="capabilities.max_steps" class="goal-runs-help">最多 {{ capabilities.max_steps }} 步。可恢复的修改默认逐步确认；影响采用或正式内容的决定始终逐步确认。</p>
+      <details v-if="capabilities.unavailable_operations?.length" class="goal-runs-help">
+        <summary>{{ capabilities.unavailable_operations.length }} 项操作暂不能纳入目标计划</summary>
+        <ul>
+          <li v-for="item in capabilities.unavailable_operations" :key="item.operation_id">{{ item.label }}：{{ item.reason }}</li>
+        </ul>
+      </details>
     </form>
 
     <section v-if="goal" class="goal-runs-current" aria-label="当前目标">
@@ -132,10 +138,10 @@
             <input v-model.number="planBudget.requests" type="number" min="2" :max="budgetLimits.requests_max || 100" :disabled="busy" />
           </label>
           <label>可能产生费用的请求数
-            <input v-model.number="planBudget.possible_charge_requests" type="number" min="1" :max="budgetLimits.possible_charge_requests_max || 100" :disabled="busy" />
+            <input v-model.number="planBudget.possible_charge_requests" type="number" min="2" :max="budgetLimits.possible_charge_requests_max || 100" :disabled="busy" />
           </label>
           <label>模型令牌上限
-            <input v-model.number="planBudget.tokens" type="number" min="512" :max="budgetLimits.tokens_max || 500000" step="256" :disabled="busy" />
+            <input v-model.number="planBudget.tokens" type="number" min="512" :max="budgetLimits.tokens_max || 500000" step="1" :disabled="busy" />
           </label>
           <label>最长运行时间（分钟）
             <input v-model.number="planBudget.time_limit_minutes" type="number" min="1" :max="approvalTimeLimitMinutes" :disabled="busy" />
@@ -143,7 +149,7 @@
         </fieldset>
         <label class="goal-runs-consent goal-runs-consent--r2">
           <input v-model="autoR2" type="checkbox" :disabled="busy" />
-          <span>允许本目标自动执行确有恢复入口的 R2 修改；其他步骤仍会停下来单独确认。</span>
+          <span>允许本目标自动执行有明确恢复入口的修改；其他修改仍会停下来逐步确认。</span>
         </label>
         <button class="goal-runs-button goal-runs-button--primary" type="submit" :disabled="busy || !planCanSubmit">
           {{ busy ? '正在重新核对…' : '确认计划并开始' }}
@@ -177,10 +183,10 @@
             <input v-model.number="resumeBudget.requests" type="number" :min="goal.budget?.used?.requests || 2" :max="budgetLimits.requests_max || 100" :disabled="busy" />
           </label>
           <label>可能产生费用的请求数
-            <input v-model.number="resumeBudget.possible_charge_requests" type="number" :min="goal.budget?.used?.requests || 1" :max="budgetLimits.possible_charge_requests_max || 100" :disabled="busy" />
+            <input v-model.number="resumeBudget.possible_charge_requests" type="number" :min="Math.max(2, goal.budget?.used?.requests || 0)" :max="budgetLimits.possible_charge_requests_max || 100" :disabled="busy" />
           </label>
           <label>模型令牌上限
-            <input v-model.number="resumeBudget.tokens" type="number" :min="goal.budget?.used?.tokens || 512" :max="budgetLimits.tokens_max || 500000" step="256" :disabled="busy" />
+            <input v-model.number="resumeBudget.tokens" type="number" :min="goal.budget?.used?.tokens || 512" :max="budgetLimits.tokens_max || 500000" step="1" :disabled="busy" />
           </label>
           <label>最长运行时间（分钟）
             <input v-model.number="resumeBudget.time_limit_minutes" type="number" min="1" :max="Math.floor((goal.budget?.initial_limits?.time_limit_seconds || 7200) / 60)" :disabled="busy" />

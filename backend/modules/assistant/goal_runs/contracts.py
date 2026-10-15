@@ -14,7 +14,7 @@ class GoalModel(BaseModel):
 
 class GoalBudget(GoalModel):
     requests: int = Field(ge=2, le=100)
-    possible_charge_requests: int = Field(ge=1, le=100)
+    possible_charge_requests: int = Field(ge=2, le=100)
     tokens: int = Field(ge=512, le=500_000)
     time_limit_seconds: int = Field(ge=60, le=7_200)
 
@@ -80,6 +80,10 @@ class GoalPlan(GoalModel):
     title: str = Field(min_length=1, max_length=180)
     summary: str = Field(default="", max_length=1600)
     steps: list[GoalStep] = Field(min_length=1, max_length=30)
+
+
+class GoalOperationSelection(GoalModel):
+    operation_ids: list[str] = Field(min_length=1, max_length=30)
 
 
 class GoalRunStart(GoalModel):

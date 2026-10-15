@@ -155,6 +155,35 @@ afterEach(() => {
   mocks.api = null
 })
 
+it("explains operations that the goal planner cannot execute", async () => {
+  const api = setupApi({
+    goalCapabilities: vi.fn().mockResolvedValue({
+      ...capabilities,
+      unavailable_operations: [
+        {
+          operation_id: "story.plan_structure",
+          label: "准备故事结构",
+          reason: "模型费用尚未接入目标根预算",
+        },
+      ],
+    }),
+  })
+  const wrapper = await mountedPanel(api)
+
+  expect(wrapper.get(".goal-runs-start details summary").text()).toContain("1 项操作暂不能纳入目标计划")
+  expect(wrapper.get(".goal-runs-start details li").text()).toContain("准备故事结构：模型费用尚未接入目标根预算")
+})
+
+it("accepts the default and saved integer token budgets in native forms", async () => {
+  const start = await mountedPanel()
+  expect(start.get('.goal-runs-start input[type="number"][step="1"]').element.value).toBe("12000")
+  expect(start.get(".goal-runs-start").element.checkValidity()).toBe(true)
+
+  const api = setupApi({ recentGoals: vi.fn().mockResolvedValue([goalView()]) })
+  const review = await mountedPanel(api)
+  expect(review.get(".goal-runs-plan").element.checkValidity()).toBe(true)
+})
+
 it("uses translated plan option labels and hides unsupported internal enum values", () => {
   const translated = mount(GoalPlanField, {
     props: {

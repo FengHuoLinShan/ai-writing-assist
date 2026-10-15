@@ -43,7 +43,11 @@ provider 独占 DB session；任一 provider 失败或超时以不可用来源�
 范围扩张或未知即停下请求作者重审。进度、目录步骤、候选产物、停点原因、恢复清单和版本冲突通过同一路由读取，
 不展示 raw JSON 或内部运行 ID。部署需显式开启 `ASSISTANT_GOAL_RUNS_ENABLED` 并配置
 `ASSISTANT_GOAL_RUNS_PROJECT_ALLOWLIST`；默认关闭，演示身份和非 author 项目拒绝。目标运行不绑定对话会话；
-助手入口只把来源会话作为来源引用传入，不把其消息伪装成 goal 的作者审批。R3 与独立 R4 领域授权仍保留各自停点。
+助手入口只把来源会话作为来源引用传入，不把其消息伪装成 goal 的作者审批。规划先以轻量目录选择所需的
+Goal 可执行操作（至多与 30 步计划同量），第二次请求仅提供选中项的完整嵌套参数 schema；两次均从同一根预算扣除，
+超出剩余输入/输出额度时在调用前要求缩小目标或增额。能力接口列出暂不可纳入的操作及原因，审批与恢复执行按同一
+策略重验。R3 逐步确认；需独立领域授权的 R4 仍在原工作台执行。预算四维在 80% 停点供作者复核，
+续批保留原开始时间及硬截止。
 
 Assistant 是 `world_cocreation_sessions`、`world_cocreation_messages` 的唯一通用会话实现所有者；
 `assistant_runs` 保存运行，`assistant_action_batches` 保存预览与决定，`assistant_notices`

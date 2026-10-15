@@ -3,7 +3,7 @@
 import uuid
 from contextlib import asynccontextmanager
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -18,6 +18,7 @@ from modules.assistant.contracts import AssistantOperation
 from modules.assistant.goal_runs.contracts import (
     GoalAction,
     GoalBudget,
+    GoalOperationSelection,
     GoalPlan,
     GoalPlanApproval,
     GoalResume,
@@ -80,9 +81,10 @@ class _PlanningClient:
         "model": "offline-goal-plan-stub",
     }
 
-    def __init__(self, plan, *, unknown_charge=False):
+    def __init__(self, plan, *, unknown_charge=False, selection_ids=None):
         self.plan = plan
         self.unknown_charge = unknown_charge
+        self.selection_ids = selection_ids
 
     async def generate_structured(self, _request, _response_schema, **_kwargs):
         from infrastructure.llm.schemas import AIRequestOutcome, LLMUsage
@@ -102,13 +104,18 @@ class _PlanningClient:
             raise
         if self.unknown_charge:
             raise TimeoutError("offline unknown result")
-        usage = LLMUsage(prompt_tokens=12, completion_tokens=8)
+        usage = LLMUsage(prompt_tokens=12, completion_tokens=8, total_tokens=20)
         await envelope.settle(
             reservation,
             usage=usage,
             outcome=AIRequestOutcome.succeeded,
         )
         await budget.completed(usage)
+        if _response_schema is GoalOperationSelection:
+            return GoalOperationSelection(
+                operation_ids=self.selection_ids
+                or list(dict.fromkeys(step.operation_id for step in self.plan.steps))
+            )
         return self.plan
 
 
@@ -298,7 +305,7 @@ async def test_goal_start_plan_approval_and_read_step_share_one_checkpointed_bud
         prepared = await service.start_goal(db_session, request, owner_id)
         assert prepared["status"] == "waiting_approval"
         assert prepared["phase"] == "plan_review", prepared
-        assert prepared["budget"]["used"]["requests"] == 1
+        assert prepared["budget"]["used"]["requests"] == 2
         run_id = uuid.UUID(prepared["run_id"])
 
         stored = await db_session.scalar(
@@ -308,11 +315,11 @@ async def test_goal_start_plan_approval_and_read_step_share_one_checkpointed_bud
         assert stored.mode == "goal"
         assert stored.session_id is None
         assert stored.checkpoint_json["goal"]["envelope"]["version"] == 3
-        assert stored.checkpoint_json["goal"]["envelope"]["requests_started"] == 1
+        assert stored.checkpoint_json["goal"]["envelope"]["requests_started"] == 2
 
         repeated = await service.start_goal(db_session, request, owner_id)
         assert repeated["run_id"] == prepared["run_id"]
-        assert repeated["budget"]["used"]["requests"] == 1
+        assert repeated["budget"]["used"]["requests"] == 2
 
         completed = await service.approve_goal_plan(
             db_session,
@@ -329,7 +336,7 @@ async def test_goal_start_plan_approval_and_read_step_share_one_checkpointed_bud
 
     assert completed["status"] == "completed"
     assert completed["progress"] == {"completed": 1, "total": 1}
-    assert completed["budget"]["used"]["requests"] == 1
+    assert completed["budget"]["used"]["requests"] == 2
     assert completed["steps"][0]["status"] == "completed"
     replayed = await service.advance_goal(
         db_session,
@@ -339,7 +346,78 @@ async def test_goal_start_plan_approval_and_read_step_share_one_checkpointed_bud
         GoalAction(expected_revision=completed["revision"]),
     )
     assert replayed["status"] == "completed"
-    assert replayed["budget"]["used"]["requests"] == 1
+    assert replayed["budget"]["used"]["requests"] == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("token_budget", "expected_phase", "expected_requests"),
+    [(12000, "plan_review", 2), (512, "planning_stopped", 0)],
+)
+async def test_goal_selection_allows_nine_small_operations_without_extra_cap(
+    db_session,
+    test_project_id,
+    monkeypatch,
+    token_budget,
+    expected_phase,
+    expected_requests,
+):
+    from modules.assistant.goal_runs import service
+
+    owner_id = str(current_account_id())
+    operation_ids = [f"project.goal_test.read_{index}" for index in range(9)]
+    operations = {key: replace(_read_operation(), op_id=key) for key in operation_ids}
+    plan = GoalPlan(
+        title="合成目录选择",
+        steps=[
+            {
+                "step_id": "read",
+                "operation_id": operation_ids[0],
+                "parameters": {"query": "合成资料"},
+                "intent": "检查选中资料",
+            }
+        ],
+    )
+
+    async def owned(*_args, **_kwargs):
+        return None
+
+    async def project(*_args, **_kwargs):
+        return SimpleNamespace(
+            title="合成项目",
+            genre="奇幻",
+            tone="简洁",
+            language="zh",
+            current_stage="writing",
+        )
+
+    async def snapshot(*_args, **_kwargs):
+        return _offline_snapshot()
+
+    async def no_trace(*_args, **_kwargs):
+        return False
+
+    @asynccontextmanager
+    async def planner(*_args, **_kwargs):
+        yield _PlanningClient(plan, selection_ids=operation_ids)
+
+    monkeypatch.setattr(service, "_require_goal_project", owned)
+    monkeypatch.setattr(service, "get_any_project_context", project)
+    monkeypatch.setattr(service, "build_project_llm_execution_snapshot", snapshot)
+    monkeypatch.setattr(service, "_trace_enabled", no_trace)
+    monkeypatch.setattr(service, "open_project_snapshot_llm_client", planner)
+    monkeypatch.setattr(service, "_operation_registry", lambda: operations)
+    request = _start_request(uuid.UUID(test_project_id))
+    request.budget.tokens = token_budget
+    with container_scope({"assistant.operations": operations}):
+        prepared = await service.start_goal(db_session, request, owner_id)
+    assert prepared["status"] == "waiting_approval"
+    assert prepared["phase"] == expected_phase
+    assert prepared["budget"]["used"]["requests"] == expected_requests
+    if token_budget == 512:
+        assert prepared["stop_code"] == "planning_scope_too_large"
+        assert prepared["can_replan"] is False
+        assert "增加预算" in prepared["stop_reason"]
 
 
 @pytest.mark.asyncio
@@ -402,9 +480,9 @@ async def test_cancel_goal_keeps_usage_and_repeated_cancel_is_idempotent(
 
     assert cancelled["status"] == "cancelled"
     assert cancelled["stop_code"] == "cancelled"
-    assert cancelled["budget"]["used"]["requests"] == 1
+    assert cancelled["budget"]["used"]["requests"] == 2
     assert repeated["status"] == "cancelled"
-    assert repeated["budget"]["used"]["requests"] == 1
+    assert repeated["budget"]["used"]["requests"] == 2
     assert parent is not None and parent.status == "cancelled"
 
 
@@ -414,6 +492,63 @@ def _offline_snapshot():
         "model": "offline-goal-plan-stub",
         "verified": True,
     }
+
+
+def test_goal_time_80_stops_before_provider_without_resetting_original_deadline():
+    from infrastructure.llm.workflow_budget import (
+        AIRunBudgetExceededError,
+        AIRunEnvelope,
+        new_ai_run_envelope,
+    )
+    from modules.assistant.goal_runs import service
+
+    started_at = datetime(2026, 10, 16, tzinfo=UTC)
+    now = started_at + timedelta(seconds=81)
+    budget = GoalBudget(
+        requests=10,
+        possible_charge_requests=10,
+        tokens=4096,
+        time_limit_seconds=100,
+    )
+    frozen = new_ai_run_envelope(
+        operation_id=str(uuid.uuid4()),
+        run_id=str(uuid.uuid4()),
+        root_capability_id="assistant.goal.run",
+        novel_id=str(uuid.uuid4()),
+        request_limit=budget.requests,
+        token_limit=budget.tokens,
+        deadline_at=started_at + timedelta(seconds=100),
+        budget_mode="goal",
+        scope_fingerprint="a" * 64,
+        authorized_step_capabilities=["assistant.goal.plan"],
+        started_at=started_at,
+    ).snapshot()
+    envelope = AIRunEnvelope(frozen, clock=lambda: now)
+    meter = service.GoalWorkflowCounter(envelope, budget, clock=lambda: now)
+    with pytest.raises(AIRunBudgetExceededError, match="80% 时间"):
+        meter.reserve(requests=1)
+    goal = {
+        "protocol": service.PROTOCOL,
+        "started_at": started_at.isoformat(),
+        "requested_budget": budget.model_dump(mode="json"),
+        "envelope": frozen.model_dump(mode="json"),
+    }
+    run = SimpleNamespace(checkpoint_json={"goal": goal})
+    assert "80% 时间" in service._usage_stop_reason(run, goal, clock=lambda: now)
+
+    goal["time_80_acknowledged"] = True
+    resumed = service.GoalWorkflowCounter(
+        envelope, budget, time_80_acknowledged=True, clock=lambda: now
+    )
+    resumed.reserve(requests=1)
+    assert service._usage_stop_reason(run, goal, clock=lambda: now) is None
+    assert envelope.snapshot().started_at == started_at
+    assert envelope.snapshot().deadline_at == started_at + timedelta(seconds=100)
+
+    now = started_at + timedelta(seconds=101)
+    with pytest.raises(AIRunBudgetExceededError, match="时限"):
+        resumed.reserve(requests=1)
+    assert "时限已到" in service._usage_stop_reason(run, goal, clock=lambda: now)
 
 
 async def _settle_goal_requests(service, db, run, budget, count):
@@ -530,6 +665,8 @@ async def test_goal_80_percent_stop_and_resume_keep_the_original_root_ledger(
 
     with container_scope({"assistant.operations": {"project.goal_test.edit": operation}}):
         request = _start_request(uuid.UUID(test_project_id))
+        request.budget.requests = 3
+        request.budget.possible_charge_requests = 3
         prepared = await service.start_goal(db_session, request, owner_id)
         approved = await service.approve_goal_plan(
             db_session,
@@ -549,7 +686,7 @@ async def test_goal_80_percent_stop_and_resume_keep_the_original_root_ledger(
         )
         goal = service._goal_state(run)
         original_started_at = goal["envelope"]["started_at"]
-        await _settle_goal_requests(service, db_session, run, request.budget, 3)
+        await _settle_goal_requests(service, db_session, run, request.budget, 1)
         run = await service._load_goal_run(
             db_session, test_project_id, prepared["run_id"], owner_id
         )
@@ -569,7 +706,7 @@ async def test_goal_80_percent_stop_and_resume_keep_the_original_root_ledger(
         assert stopped["status"] == "waiting_approval"
         assert stopped["stop_code"] == "budget_80"
         assert stopped["can_resume"] is True
-        assert stopped["budget"]["used"]["requests"] == 4
+        assert stopped["budget"]["used"]["requests"] == 3
 
         resumed = await service.resume_goal(
             db_session,
@@ -588,7 +725,7 @@ async def test_goal_80_percent_stop_and_resume_keep_the_original_root_ledger(
         )
 
     assert resumed["status"] == "completed"
-    assert resumed["budget"]["used"]["requests"] == 4
+    assert resumed["budget"]["used"]["requests"] == 3
     stored = await service._load_goal_run(
         db_session, test_project_id, prepared["run_id"], owner_id
     )

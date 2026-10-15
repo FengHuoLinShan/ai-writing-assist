@@ -19,6 +19,17 @@ MAX_PLAN_STEPS = 30
 MAX_PLAN_BYTES = 96_000
 MAX_REFERENCE_ITEMS = 20
 _RISK_ORDER = {f"R{index}": index for index in range(5)}
+_SOURCE_TARGET_TYPES = {
+    "story.character_card.generate": ("outline_scene", "core_entity"),
+    "story.reaction.generate": ("outline_scene", "core_entity"),
+}
+
+
+def goal_target_types(
+    operation_id: str, operation: AssistantOperation
+) -> tuple[str, ...]:
+    """The source objects an approved goal step may read or act upon."""
+    return _SOURCE_TARGET_TYPES.get(operation_id, (operation.target_type,))
 
 
 def canonical(value: Any) -> str:
@@ -50,6 +61,7 @@ def operation_catalog_fingerprint(
                 "preconditions": list(operation.preconditions),
                 "produces": list(operation.produces),
                 "target_type": operation.target_type,
+                "goal_target_types": list(goal_target_types(operation_id, operation)),
                 "transaction_mode": operation.transaction_mode,
             }
         )
@@ -141,7 +153,8 @@ def validate_plan(
             raise ConflictError("目录建议操作的风险声明已变化")
         if operation.permission == "confirm" and operation.risk_level == "R0":
             raise ConflictError("目录确认操作的风险声明已变化")
-        if any(target.target_type != operation.target_type for target in step.targets):
+        allowed_target_types = goal_target_types(step.operation_id, operation)
+        if any(target.target_type not in allowed_target_types for target in step.targets):
             raise ValidationError("目标类型与操作目录不一致")
         if validate_parameters and not _references(step.parameters):
             try:
