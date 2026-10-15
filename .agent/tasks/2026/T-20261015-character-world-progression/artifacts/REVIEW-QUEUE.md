@@ -51,5 +51,12 @@ Sol/high 独立审查和直接修复；root 不手改 review 问题或 Git 冲�
 
 唯一后端解释器是 primary 的 `backend/.venv/bin/python`（3.14.8/Pydantic2.14.0），配审查树
 backend cwd。不要使用原 repo venv、安装依赖或改 golden。工程 PG 65202 由 root 串行分配；
-当前 A0b Sol 独占 operation_trace_review_test_20261015，其余库与评测 65302 保持不动。
+当前 C0b Sol 独占新 dossier_evidence_review_test_20261015，原 A0 Sol仅做扩大回归修复，不并用 PG；其余库与评测 65302 保持不动。
 不得发模型请求、读 holdout、重试 R3、推送/PR/main 合并或部署。root 唯一写 TASK。
+
+## 最新调度（23:58）
+
+A0b已入primary d20d27517但扩大套9fail/2162pass，原Sol在新回归修复分支直接修；
+C0b Sol已把两原提交接到d20并解冲突，继续typed DI与知识边界。Luna C2新功能/DI试探完整
+WIP f6f559f9已checkpoint，当前import失败且未过517门，禁止直接集成；待Sol净fix安全移入后恢复。
+C3b审查准备树仍保留，后续需先接已审A0b再作真实API联调。

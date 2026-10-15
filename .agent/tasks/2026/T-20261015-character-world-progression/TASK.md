@@ -3,7 +3,7 @@ id: T-20261015-character-world-progression
 title: 世界对象档案、场景导演、写作副驾驶与世界推进设计
 status: active
 created: 2026-10-15T16:00:00+08:00
-updated: 2026-10-15T23:31:00+08:00
+updated: 2026-10-15T23:58:00+08:00
 ---
 
 # 世界对象档案、场景导演、写作副驾驶与世界推进设计
@@ -22,7 +22,7 @@ updated: 2026-10-15T23:31:00+08:00
 ADR-0039 旧接口写回规则、共用词表与锚点、档案发现按 ADR-0036 §1 契约登记。
 修订经用户授权在第三个本地提交 `20d6f1eff` 中提交，未推送。
 2026-10-15 用户采纳 ADR-0039 至 ADR-0041（Accepted / 未实施）；ADR-0005、0025 补充说明与索引同步。
-用户已明确三份计划全部实施，执行C0–C5。primary当前4344b5f5c（生产代码b81ba6887），A0a/C3a/C0a经Sol审修集成；root正确3.14.8环境相关回归1217/797/2978通过。C0b冲突已由Sol解为4cb98784d并恢复Luna，首个Evidence三层聚合/API独立提交30d5b0698（需连同633293ee2，45目标回归通过）待Sol审查，C2卡片/Reaction及Generic profile新旧读写闭环继续实施。C3b真实统一提醒UI与G8a/editorial薄来源接近独立提交。A0b三提交在Sol独立审修，已复现并直接修复两个真实HTTP追踪失效P1，尚未集成，不能称接线闭环。C0/C2/C3未标全完成；C4/C5待批次继续，C1长期P4/势力/RP真实门禁仍保留。root只负责集成验证及唯一TASK写入。
+用户已明确三份计划全部实施，执行C0–C5。primary当前d20d27517已集成C0a/C3a/A0b审修；rootA0扩大回归9fail/2162pass正交原Sol修复。C0b首633293ee2+30d5b0698由新Sol/high sol_review_dossier_brief在map-spatial-eval-review独立审修，已解total_count冲突，负责World/Story/Evolution typed read DI实际接线与知识边界。Luna C2全部WIP已checkpoint f6f559f9（含未完成DI试探、当前import循环，严禁直接集成）后结束释放槽；等Sol净DI修复后恢复卡片/Reaction/目录与Generic桥接。C3b 53aaec35c已在map-clue-review/da21d3f05准备审查，root已看mock API 390/1280截图；尚未真实装配审修。原Luna继续C2对象/World档案真实界面。C0/C2/C3均未标完成，C4/C5与C1/P4/势力/RP条件门禁仍保留。
 
 ## 目标与验收
 
@@ -167,3 +167,12 @@ ADR-0039 旧接口写回规则、共用词表与锚点、档案发现按 ADR-003
 - R3和holdout未动；没有新增模型请求、push、PR、main合并或部署。主树本次仍只更新任务记录，不提前纳入未审代码。
 
 - 下一批C0b审查树已准备：map-spatial-eval-review/codex/object-dossier-evidence-review，从258ed7b23 cherry633293ee2在world/dossier_service.py遇到同一legacy projection/total_count冲突，已停住，未由root改代码；后续Sol直接解决并继续cherry30d5b0698。原codex/world-object-dossier-review/c99分支保留。Luna实现树不受影响，仍推进C2/Generic桥接。
+
+## 2026-10-15T23:58:00+08:00 A0b集成与扩大回归失败处理
+
+- A0b原f9a/8775/2030三笔与Sol df668净fix已集成primary为98cbdced9、1f77bf4dc、5d7b270ff、d20d27517；真实HTTP派发、事务、隐私、缺口标记、180天worker归档均有Sol112目标与6PG证据。原74项当前无live multi_stage成功路径，只有未知异常fail-closed测试，不宣称未来内部commit成功路径已实测。
+- root在d20正确3.14.8环境扩大Assistant/全部tests/unit/Collaboration/World助手-空间-档案/Writing API助手及API闭环：9 failed、2162 passed、4 warnings，90.71s。失败含3个guided_flow run fixture缺session_id、R0 read fixture缺trace字段、13条active-project guard识别或入口问题、map_spatial loader期望列表、World facade __all__、一处autospec。另有3个Connection._cancel未await RuntimeWarning待triage。完整日志/tmp/map-a0b-primary-regression-20261015.log；原Sol已恢复直接修，root不手改。
+- root module-import-gate 61/61、517/517通过；docs inventory164表/61任务/16路由/49ADR通过。BASE直接仅剩CLAUDE.md需审阅，root已读其仅@AGENTS导入/导航，按脚本支持no-change-reason逐项说明通过。World档案文档d7c6f45d3、架构HTML/Drawio 2c57b99bb已同步并浏览器看图，不能说未经说明的直接make BASE全绿。
+- C0b新Sol/high在map-spatial-eval-review接到d20，已解633冲突再取30d，独占World/Story/Evolution narrow read ports的core keys/bootstrap与65202新review DB。原A0回归Sol不并行用PG；C3b准备树da21d3f05仍待下一批真实装配与busy/reload问题审修。
+- Luna C2等待DI闭环，全部新功能和试探安全checkpoint为f6f559f922c946ba7ee7bc4e4c40103d7b0a005c，树干净、明确不可直接集成；DI前79相关测试/26prompt通过不适用于当前import失败状态，当前gate520/517。已结束该子代理释放宿主槽给Sol回归修复。待Sol净修复后由Sol安全移入该WIP再恢复Luna，继续C2验证/审修与尚未开始的Generic旧写/读桥接；修复仍Sol直接写。
+- 目标跟踪读取为空后，依用户已有/goal指令建立active tracker，未改三份计划范围、授权或预算；不因工程切片通过标整套完成。封存R3/holdout/原库未动，无新模型请求、push/PR/main合并/部署。
