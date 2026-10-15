@@ -82,6 +82,7 @@ from core.service_keys import (
     WORLD_LIST_ADOPTED_MAP_CONTINUITY_FACTS,
     WORLD_READ_MAP_CHAPTER_CONSUMERS,
     WORLD_READ_MAP_NODE_HEADS,
+    WORLD_READ_MAP_SPATIAL_BRIEF,
     WORLD_READ_PROJECT_VOCABULARY,
     WORLD_STAGE_SPATIAL_DISCOVERY,
     WORLD_READ_SPATIAL_DISCOVERY_CONTEXT,
@@ -202,6 +203,7 @@ from modules.world import assistant_ports as _world_assistant
 from modules.world.facade import (
     read_spatial_discovery_context as _world_read_spatial_discovery_context,
     stage_spatial_discovery as _world_stage_spatial_discovery,
+    read_map_spatial_brief as _world_read_map_spatial_brief,
 )
 from modules.world.assistant_tools import OPERATIONS as _WORLD_OPERATIONS
 from app.assistant_operation_registry import evidence_forecast_operations
@@ -249,8 +251,7 @@ from modules.assistant.facade import (
     submit_comment_proposals as _assistant_submit_comment_proposals,
 )
 from modules.assistant.facade import (
-    trigger_editorial_post_adoption_rechecks
-    as _assistant_editorial_post_adoption_rechecks,
+    trigger_editorial_post_adoption_rechecks as _assistant_editorial_post_adoption_rechecks,
 )
 from modules.assistant.facade import (
     run_discussion_scope as _assistant_run_discussion_scope,
@@ -463,6 +464,7 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
         ),
         (WORLD_READ_MAP_CHAPTER_CONSUMERS, _world_read_map_chapter_consumers),
         (WORLD_READ_MAP_NODE_HEADS, _world_read_map_node_heads),
+        (WORLD_READ_MAP_SPATIAL_BRIEF, _world_read_map_spatial_brief),
         (WORLD_READ_PROJECT_VOCABULARY, _world_read_project_vocabulary),
         (WORLD_STAGE_SPATIAL_DISCOVERY, _world_stage_spatial_discovery),
         (WORLD_READ_SPATIAL_DISCOVERY_CONTEXT, _world_read_spatial_discovery_context),

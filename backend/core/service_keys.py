@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     from modules.world.contracts import (
         WorldAliasRelationTaskPort,
         WorldBuildMapAutoDraftsPort,
+        WorldReadMapSpatialBriefPort,
     )
     from modules.world.services.worldbuilding.adoption_package_service import (
         WorldAdoptionPackageService,
@@ -276,7 +277,7 @@ WORLD_STAGE_SPATIAL_DISCOVERY: ServiceKey[Callable[..., Any]] = ServiceKey(
 WORLD_BUILD_MAP_AUTO_DRAFTS: ServiceKey[WorldBuildMapAutoDraftsPort] = ServiceKey(
     "world.build_map_auto_drafts"
 )
-WORLD_READ_MAP_SPATIAL_BRIEF: ServiceKey[Callable[..., Any]] = ServiceKey(
+WORLD_READ_MAP_SPATIAL_BRIEF: ServiceKey[WorldReadMapSpatialBriefPort] = ServiceKey(
     "world.read_map_spatial_brief"
 )
 WORLD_READ_SPATIAL_DISCOVERY_CONTEXT: ServiceKey[Callable[..., Any]] = ServiceKey(
@@ -427,6 +428,7 @@ ALL_SERVICE_KEYS: tuple[ServiceKey[Any], ...] = (
     WORLD_LIST_ADOPTED_MAP_CONTINUITY_FACTS,
     WORLD_READ_MAP_CHAPTER_CONSUMERS,
     WORLD_READ_MAP_NODE_HEADS,
+    WORLD_READ_MAP_SPATIAL_BRIEF,
     WORLD_READ_PROJECT_VOCABULARY,
     WORLD_STAGE_SPATIAL_DISCOVERY,
     WORLD_READ_SPATIAL_DISCOVERY_CONTEXT,
