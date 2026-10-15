@@ -864,6 +864,7 @@ async def start_reading(db, novel_id, request):
         **(
             {
                 "spatial_version": plan["spatial_version"],
+                "optional_stage_version": plan.get("optional_stage_version", 0),
                 "spatial_method_fingerprint": plan["spatial_method_fingerprint"],
                 "optional_step_quotas": plan["optional_step_quotas"],
                 "mandatory_scene_calls": plan["mandatory_scene_calls"],

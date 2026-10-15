@@ -907,6 +907,18 @@ async def run_scene_step(
     # 执行模式以 run 登记为准，并盖章进冻结负载（A01：恢复与提交边界
     # 都以协议内标记为准，不依赖调用方自觉换 applier）。
     execution_mode = run_row.execution_mode if run_row else "live"
+    plan = run_row.reading_plan_json or {}
+    scene_protocol = {}
+    if plan.get("optional_stage_version") == 1:
+        scene_protocol["optional_stage_version"] = 1
+    if spatial_version == 1:
+        scene_protocol["spatial_version"] = 1
+        if "spatial_method_fingerprint" in plan:
+            scene_protocol["spatial_method_fingerprint"] = plan[
+                "spatial_method_fingerprint"
+            ]
+        if source_content_mode is not None:
+            scene_protocol["source_content_mode"] = source_content_mode
 
     # A07 请求前冻结：attempt 身份、来源绑定、预算关系（run 行已扣减）在
     # provider 请求发出**之前**耐久化。此后任何一点崩溃，恢复按阶段区分
@@ -945,17 +957,7 @@ async def run_scene_step(
             "enrichment_version": enrichment_version,
             "world_version": world_version,
             "discovery_version": discovery_version,
-            **(
-                {"optional_stage_version": 1}
-                if (run_row.reading_plan_json or {}).get("optional_stage_version") == 1
-                else {}
-            ),
-            **({"spatial_version": spatial_version} if spatial_version == 1 else {}),
-            **(
-                {"source_content_mode": source_content_mode}
-                if spatial_version == 1 and source_content_mode is not None
-                else {}
-            ),
+            **scene_protocol,
             "scene_card": scene_card,
             "input_manifest": input_manifest.model_dump(mode="json"),
         },
@@ -1022,17 +1024,7 @@ async def run_scene_step(
             "enrichment_version": enrichment_version,
             "world_version": world_version,
             "discovery_version": discovery_version,
-            **(
-                {"optional_stage_version": 1}
-                if (run_row.reading_plan_json or {}).get("optional_stage_version") == 1
-                else {}
-            ),
-            **({"spatial_version": spatial_version} if spatial_version == 1 else {}),
-            **(
-                {"source_content_mode": source_content_mode}
-                if spatial_version == 1 and source_content_mode is not None
-                else {}
-            ),
+            **scene_protocol,
             "scene_card": scene_card,
             "input_manifest": input_manifest.model_dump(mode="json"),
         }
