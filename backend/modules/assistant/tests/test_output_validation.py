@@ -107,6 +107,46 @@ def test_runtime_v4_freezes_new_operations_without_widening_old_manifests():
         assert runtime_protocol(payload) is payload
 
 
+@pytest.mark.parametrize(
+    "schema_hash,interior",
+    [
+        ("afb6aa06a68c39a27026fc50565cdc87d72e266e569b362d95fdd23a428c2bc8", False),
+        ("061686f1c3f683f833a391f1515de6fea596a0403a38f357390d53b5bc54e5e7", True),
+    ],
+)
+def test_frozen_map_node_schema_keeps_original_fields(schema_hash, interior):
+    from uuid import uuid4
+
+    from pydantic import ValidationError
+
+    from app.assistant_operation_registry import world_map_operations
+    from modules.assistant.evidence_tools import fingerprint
+
+    with container_scope({"assistant.operations": world_map_operations}):
+        resolved = resolve_operations(
+            {"map.create_node": {"schema_hash": schema_hash, "revision": "1"}}
+        )
+        schema = resolved["map.create_node"].schema
+        assert fingerprint(schema.model_json_schema()) == schema_hash
+        assert schema.model_validate({"title": "旧运行"}).title == "旧运行"
+        with pytest.raises(ValidationError):
+            schema.model_validate(
+                {
+                    "title": "旧运行",
+                    "level_type_ref": str(uuid4()),
+                    "level_type_revision_id": str(uuid4()),
+                }
+            )
+        if interior:
+            assert (
+                schema.model_validate({"title": "室内", "level": "interior"}).level
+                == "interior"
+            )
+        else:
+            with pytest.raises(ValidationError):
+                schema.model_validate({"title": "室内", "level": "interior"})
+
+
 @pytest.mark.asyncio
 async def test_invalid_domain_arguments_are_corrected_once_inside_sdk_budget():
     class Client:

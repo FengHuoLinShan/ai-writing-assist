@@ -6,12 +6,16 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
+from sqlalchemy.exc import DBAPIError
 
 from core.container import get
 from core.errors import ConflictError, NotFoundError, ValidationError
 from core.service_keys import ASSISTANT_REQUIRE_OPERATION_TARGETS
 from infrastructure.stable_hash import stable_hash
-from modules.project.facade import get_any_project_context
+from modules.project.facade import (
+    get_any_project_context,
+    require_active_project_exclusive,
+)
 from modules.world.project_vocabulary_models import ProjectVocabularyTerm
 from modules.world.project_vocabulary_presets import PRESETS
 from modules.world.project_vocabulary_schemas import (
@@ -95,6 +99,8 @@ async def _project_scope(db, novel_id: str, context) -> None:
 
 async def _baseline(db, novel_id: str, context) -> tuple[dict, dict[str, dict]]:
     await _project_scope(db, novel_id, context)
+    if (getattr(context, "internal_meta", None) or {}).get("confirmation_preflight"):
+        await _lock_project(db, novel_id)
     response: ProjectVocabularyReadResponse = await read_project_vocabulary(
         db, novel_id, limit=500, include_archived=True
     )
@@ -170,9 +176,21 @@ def _ensure_unique(
             raise ConflictError("同一词表种类中已存在同名或等价别名")
 
 
-def _preview(base: dict, *, title: str, before=None, after=None, effect: str) -> dict:
+def _preview(
+    base: dict,
+    *,
+    title: str,
+    before=None,
+    after=None,
+    effect: str,
+    targets: list[str],
+    affected_count: int = 1,
+) -> dict:
     return {
         **base,
+        "target_key": targets[0],
+        "target_keys": targets,
+        "affected_count": affected_count,
         "title": title,
         "before": before,
         "after": after,
@@ -186,6 +204,7 @@ async def _create_preview(db, novel_id, args, *, context=None):
     return _preview(
         base,
         title=f"新增项目词条：{args.name}",
+        targets=[f"vocabulary_name:{args.kind}:{key}" for key in sorted(_keys(args))],
         after=args.model_dump(mode="json"),
         effect="作者确认后以作者来源创建稳定词条和首个不可变修订。",
     )
@@ -207,6 +226,7 @@ async def _edit_preview(db, novel_id, args, *, context=None):
     return _preview(
         base,
         title=f"编辑项目词条：{current['name']}",
+        targets=[f"vocabulary:{args.type_ref}"],
         before=before,
         after=after,
         effect="作者确认后追加不可变修订；稳定词条身份及旧地图固定引用保持不变。",
@@ -221,6 +241,7 @@ async def _archive_preview(db, novel_id, args, *, context=None):
     return _preview(
         base,
         title=f"归档项目词条：{current['name']}",
+        targets=[f"vocabulary:{args.type_ref}"],
         before={"status": current["status"], "revision_id": current["revision_id"]},
         after={"status": "archived"},
         effect="作者确认后保留墓碑修订；模型不能以同名重建，可由作者恢复。",
@@ -243,6 +264,7 @@ async def _restore_preview(db, novel_id, args, *, context=None):
     return _preview(
         base,
         title=f"恢复项目词条：{current['name']}",
+        targets=[f"vocabulary:{args.type_ref}"],
         before={"status": current["status"]},
         after={"status": "active"},
         effect="作者确认后追加新修订并恢复原稳定身份；如名称已被占用则拒绝。",
@@ -292,6 +314,8 @@ async def _merge_preview(db, novel_id, args, *, context=None):
     return _preview(
         base,
         title=f"合并 {len(refs)} 个项目词条到「{target['name']}」",
+        targets=[f"vocabulary:{ref}" for ref in sorted(refs, key=str)],
+        affected_count=len(refs),
         before={
             "terms": [
                 {"type_ref": str(ref), "name": item["name"]}
@@ -319,6 +343,8 @@ async def _split_preview(db, novel_id, args, *, context=None):
     return _preview(
         base,
         title=f"拆分项目词条：{current['name']}",
+        targets=[f"vocabulary:{args.type_ref}"],
+        affected_count=2,
         before={"type_ref": str(args.type_ref), "name": current["name"]},
         after={
             "retained": args.retained.model_dump(mode="json"),
@@ -367,6 +393,8 @@ async def _preset_preview(db, novel_id, args, *, context=None):
     return _preview(
         base,
         title=f"复制 {len(args.preset_ids)} 个题材预设",
+        targets=[f"vocabulary_preset:{preset_id}" for preset_id in args.preset_ids],
+        affected_count=create_count,
         before={"preset_ids": list(args.preset_ids)},
         after={"expected_created_count": create_count},
         effect="只复制当前预设版本；同一项目重复应用幂等，同名或等价名称会跳过。",
@@ -458,11 +486,37 @@ async def _apply_presets(db, novel_id, args, preview, *, context=None):
     }
 
 
-async def _confirm_preview(db, novel_id, args, preview, prepare, context):
-    from modules.project.facade import require_active_project_exclusive
+async def _lock_project(db, novel_id):
+    try:
+        async with db.begin_nested():
+            await require_active_project_exclusive(db, novel_id, nowait=True)
+    except DBAPIError as error:
+        if getattr(error.orig, "sqlstate", None) == "55P03":
+            raise ConflictError("作品正在更新，请稍后重试词表确认") from None
+        raise
 
-    await require_active_project_exclusive(db, novel_id)
+
+async def _confirm_preview(db, novel_id, args, preview, prepare, context):
+    await _lock_project(db, novel_id)
     current = await prepare(db, novel_id, args, context=context)
+    # Confirmation preflight already checked the complete vocabulary under the
+    # project lock. Earlier writes in this batch may change only that guard.
+    checked = (getattr(context, "internal_meta", None) or {}).get(
+        "confirmed_previews", ()
+    )
+    if _fingerprint(preview) in checked:
+        current = {
+            **current,
+            **{
+                key: preview[key]
+                for key in (
+                    "baseline_hash",
+                    "total_count",
+                    "omitted_count",
+                    "revision_manifest",
+                )
+            },
+        }
     if current != preview:
         raise ConflictError("项目词表已变化，请重新查看方案")
 

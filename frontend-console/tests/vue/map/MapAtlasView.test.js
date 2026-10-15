@@ -1201,4 +1201,23 @@ describe("地图图片复用提示", () => {
     await flushPromises()
     expect(wrapper.find(".atlas-reuse-note").exists()).toBe(false)
   })
+
+  it('项目类型有未保存编辑时锁住地图，地图有修改时反向锁住类型', async () => {
+    const atlas = tree([page({ review_status: 'adopted' })], 'atlas')
+    atlas.nodes[0].current_revision_id = 'revision-1'
+    api.world.getMapAtlas.mockResolvedValue(atlas)
+    const wrapper = mount(MapWorkspaceView, { props: { projectId: 'novel-1' }, global: { stubs: { MapStructureEditor: true, ProjectVocabularyPanel: true } } })
+    await flushPromises()
+    const vocabulary = wrapper.getComponent({ name: 'ProjectVocabularyPanel' })
+    await wrapper.findAll('.atlas-tabs button')[1].trigger('click'); await flushPromises()
+    const editor = wrapper.getComponent({ name: 'MapStructureEditor' })
+    vocabulary.vm.$emit('state', { dirty: true, busy: false }); await flushPromises()
+    expect(editor.element.parentElement.hasAttribute('inert')).toBe(true)
+    expect(wrapper.text()).toContain('请先保存或收起项目类型编辑')
+    expect(wrapper.get('[data-action="map-tool-vocabulary"]').element.disabled).toBe(true)
+    vocabulary.vm.$emit('state', { dirty: false, busy: false }); await flushPromises()
+    expect(editor.element.parentElement.hasAttribute('inert')).toBe(false)
+    editor.vm.$emit('state', { nodeId: 'node-1', dirty: true, revision: { id: 'revision-1' } }); await flushPromises()
+    expect(vocabulary.props('disabled')).toBe(true)
+  })
 })

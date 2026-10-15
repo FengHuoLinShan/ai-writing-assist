@@ -27,6 +27,247 @@ from modules.world.project_vocabulary_service import (
 )
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("external_change", [False, True])
+@pytest.mark.parametrize("operation_kind", ["create", "edit"])
+async def test_vocabulary_batch_confirms_multiple_targets_and_replays_without_writes(
+    db_session, test_project_id, external_change, operation_kind
+):
+    from uuid import UUID
+
+    from modules.assistant.contracts import AssistantOperationContext
+    from modules.assistant.evidence_tools import fingerprint
+    from modules.assistant.models import AssistantActionBatch, AssistantRun
+    from modules.assistant.operations import (
+        decide_batch,
+        operation_manifest,
+        prepare_actions,
+    )
+    from modules.assistant.schemas import BatchDecision, ProposedAction
+    from modules.world.project_vocabulary_service import read_project_vocabulary
+
+    db, nid = db_session, test_project_id
+    context = AssistantOperationContext(
+        str(uuid4()), str(current_account_id()), WorkContext(scope="project")
+    )
+    targets = (
+        [
+            await create_project_vocabulary_term(
+                db, nid, VocabularyTermCreate(kind="space", name=f"原名{i}")
+            )
+            for i in range(2)
+        ]
+        if operation_kind == "edit"
+        else []
+    )
+    actions = await prepare_actions(
+        db,
+        nid,
+        [
+            ProposedAction(
+                key=f"create-{i}",
+                capability=f"world.vocabulary.{operation_kind}",
+                title=name,
+                arguments={"kind": "space", "name": name}
+                if operation_kind == "create"
+                else {
+                    "type_ref": str(targets[i].id),
+                    "expected_revision_id": str(targets[i].revision_id),
+                    "name": name,
+                },
+            )
+            for i, name in enumerate(["星港", "月城"])
+        ],
+        context=context,
+    )
+    run = AssistantRun(
+        id=UUID(context.run_id),
+        novel_id=UUID(nid),
+        owner_id=current_account_id(),
+        request_hash="a" * 64,
+        status="waiting_approval",
+        request_json={
+            "runtime_version": "4",
+            "operations": operation_manifest(),
+            "context": context.work.model_dump(mode="json"),
+        },
+    )
+    db.add(run)
+    await db.flush()
+    batch = AssistantActionBatch(
+        novel_id=run.novel_id,
+        run_id=run.id,
+        fingerprint=fingerprint(actions),
+        actions_json=actions,
+    )
+    db.add(batch)
+    await db.flush()
+    decision = BatchDecision(
+        novel_id=nid,
+        fingerprint=batch.fingerprint,
+        selected=[item["key"] for item in actions],
+        confirmed=True,
+    )
+    if external_change:
+        await create_project_vocabulary_term(
+            db, nid, VocabularyTermCreate(kind="space", name="外部改动")
+        )
+        with pytest.raises(ConflictError, match="资料已变化"):
+            await decide_batch(db, str(batch.id), decision, context.owner_id)
+        assert not batch.authorization_json
+        assert not {"星港", "月城"}.intersection(
+            item.name for item in (await read_project_vocabulary(db, nid)).items
+        )
+        return
+    result = await decide_batch(db, str(batch.id), decision, context.owner_id)
+    assert result["status"] == "completed", result
+    assert len(result["results"]) == 2
+    before = (await read_project_vocabulary(db, nid)).model_dump(mode="json")
+    assert {item["name"] for item in before["items"]} == {"星港", "月城"}
+    assert await decide_batch(db, str(batch.id), decision, context.owner_id) == result
+    assert (await read_project_vocabulary(db, nid)).model_dump(mode="json") == before
+
+
+@pytest.mark.asyncio
+async def test_legacy_map_batch_keeps_frozen_schema_through_confirmation(
+    db_session, test_project_id
+):
+    from uuid import UUID
+
+    from modules.assistant.contracts import AssistantOperationContext
+    from modules.assistant.evidence_tools import fingerprint
+    from modules.assistant.models import AssistantActionBatch, AssistantRun
+    from modules.assistant.operations import (
+        decide_batch,
+        prepare_actions,
+        resolve_operations,
+    )
+    from modules.assistant.schemas import BatchDecision, ProposedAction
+
+    manifest = {
+        "map.create_node": {
+            "schema_hash": (
+                "afb6aa06a68c39a27026fc50565cdc87d72e266e569b362d95fdd23a428c2bc8"
+            ),
+            "revision": "1",
+        }
+    }
+    context = AssistantOperationContext(
+        str(uuid4()), str(current_account_id()), WorkContext(scope="project")
+    )
+    actions = await prepare_actions(
+        db_session,
+        test_project_id,
+        [
+            ProposedAction(
+                key="map",
+                capability="map.create_node",
+                title="旧地图",
+                arguments={"title": "旧地图"},
+            )
+        ],
+        context=context,
+        operations=resolve_operations(manifest),
+    )
+    assert "level_type_ref" not in actions[0]["arguments"]
+    assert actions[0]["operation_manifest"] == manifest["map.create_node"]
+    run = AssistantRun(
+        id=UUID(context.run_id),
+        novel_id=UUID(test_project_id),
+        owner_id=current_account_id(),
+        request_hash="a" * 64,
+        request_json={
+            "runtime_version": "3",
+            "operations": manifest,
+            "context": context.work.model_dump(mode="json"),
+        },
+    )
+    db_session.add(run)
+    await db_session.flush()
+    batch = AssistantActionBatch(
+        novel_id=run.novel_id,
+        run_id=run.id,
+        fingerprint=fingerprint(actions),
+        actions_json=actions,
+    )
+    db_session.add(batch)
+    await db_session.flush()
+    result = await decide_batch(
+        db_session,
+        str(batch.id),
+        BatchDecision(
+            novel_id=test_project_id,
+            fingerprint=batch.fingerprint,
+            selected=["map"],
+            confirmed=True,
+        ),
+        context.owner_id,
+    )
+    assert result["status"] == "completed", result
+
+
+@pytest.mark.asyncio
+async def test_vocabulary_batch_counts_split_targets_and_rejects_overlapping_merge(
+    db_session, test_project_id
+):
+    from core.errors import ValidationError
+    from modules.assistant.contracts import AssistantOperationContext
+    from modules.assistant.operations import prepare_actions
+    from modules.assistant.schemas import ProposedAction
+
+    context = AssistantOperationContext(
+        str(uuid4()), str(current_account_id()), WorkContext(scope="project")
+    )
+    terms = [
+        await create_project_vocabulary_term(
+            db_session,
+            test_project_id,
+            VocabularyTermCreate(kind="feature", name=f"星门{i}"),
+        )
+        for i in range(11)
+    ]
+    proposals = [
+        ProposedAction(
+            key=f"split-{i}",
+            capability="world.vocabulary.split",
+            title="拆分",
+            arguments={
+                "type_ref": str(term.id),
+                "expected_revision_id": str(term.revision_id),
+                "retained": {"name": term.name},
+                "split_off": {"name": f"城市星门{i}"},
+            },
+        )
+        for i, term in enumerate(terms)
+    ]
+    assert (
+        len(
+            await prepare_actions(
+                db_session, test_project_id, proposals[:10], context=context
+            )
+        )
+        == 10
+    )
+    with pytest.raises(ValidationError, match="20 项"):
+        await prepare_actions(db_session, test_project_id, proposals, context=context)
+    merge = ProposedAction(
+        key="merge",
+        capability="world.vocabulary.merge",
+        title="合并",
+        arguments={
+            "target_id": str(terms[1].id),
+            "source_ids": [str(terms[0].id)],
+            "expected_revision_ids": {
+                str(term.id): str(term.revision_id) for term in terms[:2]
+            },
+        },
+    )
+    with pytest.raises(ValidationError, match="同一资产"):
+        await prepare_actions(
+            db_session, test_project_id, [merge, proposals[0]], context=context
+        )
+
+
 def _context():
     return SimpleNamespace(
         run_id=str(uuid4()),

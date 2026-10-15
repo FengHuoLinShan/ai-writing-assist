@@ -98,8 +98,43 @@ describe('项目类型管理', () => {
     await wrapper.findAll('input[maxlength="120"]').at(-1).setValue('城市星门')
     api.world.splitVocabularyTerm.mockResolvedValue({ retained: term(), split_off: term({ id: 'new-type', name: '城市星门' }) })
     await button(wrapper, '保留当前类型并拆出新类型').trigger('click'); await flushPromises()
+    expect(confirmAction).toHaveBeenCalledWith(expect.stringContaining('城市星门'), expect.any(Function), '确认拆分')
     expect(api.world.splitVocabularyTerm).toHaveBeenCalledWith('novel-1', 'type-1', expect.objectContaining({ expected_revision_id: 'revision-1', retained: expect.objectContaining({ name: '星门' }), split_off: expect.objectContaining({ name: '城市星门', aliases: [] }) }))
     expect(wrapper.get('input[maxlength="120"]').element.value).toBe('城市星门')
+  })
+
+  it('拆分确认前不提交，确认期间锁定编辑和重复操作', async () => {
+    let approve
+    confirmAction.mockImplementation((message, callback) => { approve = callback })
+    const wrapper = await open(); await selectFirst(wrapper)
+    await wrapper.findAll('input[maxlength="120"]').at(-1).setValue('城市星门')
+    api.world.splitVocabularyTerm.mockResolvedValue({ split_off: term({ id: 'new-type', name: '城市星门' }) })
+    await button(wrapper, '保留当前类型并拆出新类型').trigger('click'); await flushPromises()
+    expect(api.world.splitVocabularyTerm).not.toHaveBeenCalled()
+    expect(wrapper.get('form fieldset').element.disabled).toBe(true)
+    expect(button(wrapper, '保留当前类型并拆出新类型').element.disabled).toBe(true)
+    expect(wrapper.emitted('state').at(-1)[0].busy).toBe(true)
+    approve(); await flushPromises()
+    expect(api.world.splitVocabularyTerm).toHaveBeenCalledTimes(1)
+  })
+
+  it('切项目后忽略迟到保存回执，也不向新项目提交旧确认', async () => {
+    let resolve, approve
+    const wrapper = await open(); await selectFirst(wrapper)
+    await wrapper.get('input[maxlength="120"]').setValue('旧项目改名')
+    api.world.updateVocabularyTerm.mockImplementation(() => new Promise(done => { resolve = done }))
+    await wrapper.get('form').trigger('submit')
+    api.world.listProjectVocabulary.mockResolvedValue({ items: [term({ name: '新项目类型' })], total_count: 1, omitted_count: 0 })
+    await wrapper.setProps({ projectId: 'novel-2' }); await flushPromises()
+    resolve(term({ name: '旧项目改名' })); await flushPromises()
+    expect(wrapper.text()).not.toContain('旧项目改名')
+    expect(wrapper.text()).not.toContain('类型已保存。')
+    await selectFirst(wrapper)
+    confirmAction.mockImplementation((message, callback) => { approve = callback })
+    await button(wrapper, '归档类型').trigger('click')
+    await wrapper.setProps({ projectId: 'novel-3' }); await flushPromises()
+    approve(); await flushPromises()
+    expect(api.world.archiveVocabularyTerm).not.toHaveBeenCalled()
   })
 
   it('预设可以混搭并报告真实新增/重复计数', async () => {

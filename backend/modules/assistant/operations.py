@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import json
 import uuid
+from copy import copy
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
 from pydantic import ValidationError as SchemaValidationError
+from pydantic import create_model, field_validator
 from pydantic_ai import ModelRetry, RunContext, Tool
 from sqlalchemy import select
 
@@ -93,7 +96,54 @@ def resolve_operations(manifest: dict) -> dict[str, AssistantOperation]:
         raise ConflictError(
             "本次运行需要的工具版本不可用，请重新提交", code="assistant_runtime_changed"
         )
-    return {name: catalog()[name] for name in manifest}
+    resolved = {name: catalog()[name] for name in manifest}
+    if (
+        "map.create_node" in resolved
+        and manifest["map.create_node"] != current["map.create_node"]
+    ):
+        operation = resolved["map.create_node"]
+        fields = {
+            name: (field.annotation, copy(field))
+            for name, field in operation.schema.model_fields.items()
+            if name not in {"level_type_ref", "level_type_revision_id"}
+        }
+        if manifest["map.create_node"]["schema_hash"] == map_node_hashes[0]:
+            fields["level"] = (
+                Literal["region", "city", "district", "street"],
+                fields["level"][1],
+            )
+        frozen_schema = create_model(
+            "MapNodeCreate",
+            __config__=operation.schema.model_config,
+            __validators__={
+                "readable_title": field_validator("title")(
+                    operation.schema.readable_title.__func__
+                )
+            },
+            **fields,
+        )
+
+        async def prepare(db, novel_id, args, *, context=None):
+            return await operation.prepare(
+                db,
+                novel_id,
+                operation.schema.model_validate(args.model_dump()),
+                context=context,
+            )
+
+        async def apply(db, novel_id, args, preview, *, context=None):
+            return await operation.apply(
+                db,
+                novel_id,
+                operation.schema.model_validate(args.model_dump()),
+                preview,
+                context=context,
+            )
+
+        resolved["map.create_node"] = replace(
+            operation, schema=frozen_schema, prepare=prepare, apply=apply
+        )
+    return resolved
 
 
 def _run_operations(ctx: RunContext[AssistantToolContext]):
@@ -339,27 +389,39 @@ async def prepare_actions(
     proposals: list[ProposedAction],
     *,
     context: AssistantOperationContext,
+    operations: dict[str, AssistantOperation] | None = None,
 ) -> list[dict]:
     prepared = []
     targets: set[str] = set()
+    affected_count = 0
     for proposal in proposals:
-        operation = catalog().get(proposal.capability)
+        operation = (catalog() if operations is None else operations).get(
+            proposal.capability
+        )
         if operation is None:
             raise ValidationError("提案包含当前未提供的操作")
         args = operation.schema.model_validate(proposal.arguments)
         preview = await operation.prepare(db, novel_id, args, context=context)
-        target = preview.get("target_key")
-        if target and target in targets:
+        action_targets = set(
+            preview.get("target_keys")
+            or ([preview["target_key"]] if preview.get("target_key") else [])
+        )
+        if targets.intersection(action_targets):
             raise ValidationError("同一资产的修改请合并为一个操作")
-        if target:
-            targets.add(target)
+        targets.update(action_targets)
+        affected_count += preview.get("affected_count", 1)
+        if affected_count > 20:
+            raise ValidationError("一次确认最多涉及 20 项，请拆分整理方案")
         prepared.append(
             {
                 **proposal.model_dump(mode="json"),
                 "arguments": args.model_dump(mode="json"),
                 "preview": preview,
                 "baseline_hash": fingerprint(preview),
-                "operation_manifest": operation_manifest()[proposal.capability],
+                "operation_manifest": {
+                    "schema_hash": fingerprint(operation.schema.model_json_schema()),
+                    "revision": operation.revision,
+                },
             }
         )
     return _ordered(prepared)
@@ -448,14 +510,23 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
             )
         )
     )
-    operation_context = AssistantOperationContext(str(run.id), owner_id, context.work)
+    confirmation_meta = {"confirmation_preflight": True, "confirmed_previews": []}
+    operation_context = AssistantOperationContext(
+        str(run.id), owner_id, context.work, internal_meta=confirmation_meta
+    )
     if run.request_json.get("forecast_parent"):
         from modules.assistant.forecast.preparation import require_parent
 
         await require_parent(db, novel_id, run)
         operation_context = AssistantOperationContext(
-            str(run.id), owner_id, context.work, operation_id=str(run.id)
+            str(run.id),
+            owner_id,
+            context.work,
+            operation_id=str(run.id),
+            internal_meta=confirmation_meta,
         )
+    if sum(item["preview"].get("affected_count", 1) for item in selected) > 20:
+        raise ValidationError("一次确认最多涉及 20 项，请拆分整理方案")
     for item in selected:
         if item["key"] in completed:
             continue
@@ -476,6 +547,7 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
             raise ConflictError(
                 "待修改的资料已变化，请重新生成方案", code="assistant_source_stale"
             )
+        confirmation_meta["confirmed_previews"].append(fingerprint(preview))
     batch.authorization_json = batch.authorization_json or {
         "owner_id": owner_id,
         "selected": decision.selected,
@@ -505,7 +577,7 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
         previous_work, previous_refs = context.work, dict(context.evidence_refs)
         try:
             async with db.begin_nested():
-                operation = catalog()[item["capability"]]
+                operation = available[item["capability"]]
                 result = await operation.apply(
                     db,
                     novel_id,

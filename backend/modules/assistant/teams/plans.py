@@ -9,7 +9,11 @@ from infrastructure.llm.agent_runtime import AgentRunBudget
 from modules.assistant.contracts import AssistantOperationContext
 from modules.assistant.evidence_tools import AssistantToolContext, fingerprint
 from modules.assistant.models import AssistantActionBatch
-from modules.assistant.operations import prepare_actions
+from modules.assistant.operations import (
+    prepare_actions,
+    resolve_operations,
+    runtime_protocol,
+)
 from modules.assistant.schemas import ProposedAction, WorkContext
 from modules.assistant.service import AssistantService
 from modules.project.facade import require_active_project
@@ -73,6 +77,9 @@ async def select_plan(db, run_id, selection, owner_id):
         selection.novel_id,
         proposals,
         context=AssistantOperationContext(run_id, owner_id, work),
+        operations=resolve_operations(runtime_protocol(run.request_json)["operations"])
+        if run.request_json.get("runtime_version")
+        else None,
     )
     if actions != plan["actions"]:
         raise ConflictError(

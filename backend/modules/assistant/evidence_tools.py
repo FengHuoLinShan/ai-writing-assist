@@ -9,10 +9,13 @@ from uuid import UUID
 
 from pydantic_ai import ModelRetry, RunContext, Tool
 
+from core.container import get
 from core.errors import ConflictError, NotFoundError
+from core.service_keys import WORLD_READ_PROJECT_VOCABULARY
 from infrastructure.llm.agent_runtime import AgentRunBudget
 from infrastructure.llm.workflow_budget import budgeted_tool
 from infrastructure.stable_hash import stable_hash
+from modules.assistant.operation_scope import require_operation_targets
 from modules.assistant.schemas import WorkContext
 from modules.evidence import facade as evidence
 from modules.evidence.contracts import VisibilityContextContract
@@ -138,7 +141,6 @@ class AssistantToolContext:
                 )
             item = self.evidence_refs[key]
             if item.get("source_guard"):
-                from core.container import get
                 from core.service_keys import (
                     ASSISTANT_OPERATIONS,
                 )
@@ -739,8 +741,6 @@ async def world_page_history(
     ctx: RunContext[AssistantToolContext], page_id: str, version_number: int | None = None
 ) -> dict:
     """查看世界书页面最近二十个版本；指定版本可读历史摘录，恢复仍需具体修改确认。"""
-    from modules.assistant.operation_scope import require_operation_targets
-
     deps = ctx.deps
     await deps.guard()
     await require_operation_targets(
@@ -794,6 +794,48 @@ async def review_resolution_result(
     return result or {}
 
 
+@budgeted_tool
+async def project_vocabulary(
+    ctx: RunContext[AssistantToolContext], kind: str | None = None, limit: int = 100
+) -> dict:
+    """读取本项目词条身份和当前修订，为类型修改准备参数；省略项不代表不存在。
+
+    仅全书资料范围可读。返回词表维护资料，不作为正文或世界事实证据。
+    """
+    deps = ctx.deps
+    await deps.guard()
+    await require_operation_targets(deps.db, deps.novel_id, deps, [], aggregate=True)
+    if deps.work.scope == "current" and (deps.work.chapter_index or deps.work.scene_id):
+        raise ModelRetry("项目词表属于全书范围，请切换到项目资料范围后再读取")
+    if not 1 <= limit <= 500:
+        raise ModelRetry("一次读取词表的上限须为 1 至 500 项")
+    response = await get(WORLD_READ_PROJECT_VOCABULARY)(
+        deps.db, deps.novel_id, kind=kind, limit=limit, include_archived=True
+    )
+    fields = {
+        "id",
+        "revision_id",
+        "kind",
+        "name",
+        "description",
+        "aliases",
+        "traits",
+        "status",
+        "source",
+        "author_confirmed",
+        "redirect_to_id",
+    }
+    result = {
+        "items": [
+            item.model_dump(mode="json", include=fields) for item in response.items
+        ],
+        "total_count": response.total_count,
+        "omitted_count": response.omitted_count,
+    }
+    await deps.db.commit()
+    return result
+
+
 def author_read_tools(*, allow_web: bool, version: str = "2") -> list[Tool]:
     functions = [
         search_project,
@@ -814,4 +856,6 @@ def author_read_tools(*, allow_web: bool, version: str = "2") -> list[Tool]:
         )
     if version in {"3", "4"}:
         functions.extend([world_page_history, review_resolution_result])
+    if version == "4":
+        functions.append(project_vocabulary)
     return [Tool(function, sequential=True) for function in functions]

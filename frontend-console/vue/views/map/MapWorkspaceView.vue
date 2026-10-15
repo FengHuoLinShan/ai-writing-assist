@@ -1,7 +1,7 @@
 <template>
   <main ref="toolsRoot" class="atlas-workspace" :class="{ 'atlas-focused': structureState.focused }">
     <WorkspaceToolCard title="地图工具" :context="mapToolContext" :status="currentMapToolbar?.status || ''" :actions="mapToolActions" :more-actions="mapMoreTools" action-prefix="map-tool" @select="runMapTool" />
-    <button class="btn btn-sm atlas-rp-entry" :disabled="loading || busy || structureState.dirty" @click="startSourceRp">从本作品开始 RP</button>
+    <button class="btn btn-sm atlas-rp-entry" :disabled="loading || busy || structureState.dirty || vocabularyLocked" @click="startSourceRp">从本作品开始 RP</button>
     <button v-if="fromChapter" class="btn btn-sm atlas-writing-return" @click="returnToWriting">回到第 {{ fromChapter }} 章写作</button>
     <header v-if="!structureState.focused" class="atlas-header">
       <div>
@@ -12,7 +12,8 @@
       </div>
 
     </header>
-    <ProjectVocabularyPanel v-if="projectId" v-show="!structureState.reader && !structureState.focused" :key="projectId" :project-id="projectId" :disabled="busy || loading || structureState.dirty" @state="vocabularyState = $event" @changed="vocabularyRevision++" />
+    <ProjectVocabularyPanel v-if="projectId" v-show="!structureState.reader && !structureState.focused" :key="projectId" :project-id="projectId" :disabled="busy || loading || structureState.dirty || annotationDirty || promptDirty || uploadDraftDirty || uploading" @state="vocabularyState = $event" @changed="vocabularyRevision++" />
+    <p v-if="vocabularyLocked" role="status">请先保存或收起项目类型编辑，再继续修改地图。</p>
     <p v-if="mapCapabilities?.upload?.available === false" class="atlas-alert" role="status">{{ mapCapabilities.upload.reason }} 空间示意仍可编辑，画面说明可复制后在外部使用。</p>
 
 
@@ -20,7 +21,7 @@
       <label>地图名称<input v-model="newMap.title" class="form-input" maxlength="200" required /></label>
       <label>范围<select v-model="newMap.level" class="form-select"><option value="region">区域</option><option value="city">城市</option><option value="district">街区</option><option value="street">街道</option><option value="interior">室内</option></select></label>
       <label>上级地图<select v-model="newMap.parent_id" class="form-select"><option value="">无（顶层）</option><option v-for="item in adoptedNodes.filter(item => levelChoices.findIndex(level => level.value === item.level) < levelChoices.findIndex(level => level.value === newMap.level))" :key="item.id" :value="item.id">{{ item.title }}</option></select></label>
-      <button class="btn btn-primary" :disabled="busy || !newMap.title.trim()">建立地图</button><button type="button" class="btn btn-sm" @click="creatingMap = false">取消</button>
+      <button class="btn btn-primary" :disabled="busy || vocabularyLocked || !newMap.title.trim()">建立地图</button><button type="button" class="btn btn-sm" @click="creatingMap = false">取消</button>
     </form>
 
 
@@ -120,7 +121,9 @@
         </header>
 
         <button v-if="!structureEnabled && structureLevels.includes(activeNode.level)" class="btn btn-sm" @click="editStructureNodeId = activeNode.id">补建空间示意</button>
-        <MapStructureEditor v-if="structureEnabled" :key="projectId + ':' + activeNode.id + ':' + vocabularyRevision" ref="structureEditor" external-tools :project-id="projectId" :node="activeNode" :known-nodes="adoptedNodes" :images="nodeImages" :has-reference="Boolean(activePage)" :initial-feature-id="initialFeatureId" :initial-revision-id="initialRevisionId" :review-image-id="tab === 'review' && activePage?.review_status === 'candidate' ? activePage.id : ''" :evidence-refs="focusedSelection.refs.value" @pin-evidence="focusedSelection.add" @clear-evidence="focusedSelection.clear" @saved="refreshAtlasOnly" @open-node="openMapNode" @select-feature="persistFeatureFocus" @reference-visible="referenceVisible = $event" @state="updateStructureState" />
+        <div v-if="structureEnabled" :inert="vocabularyLocked || undefined">
+          <MapStructureEditor :key="projectId + ':' + activeNode.id + ':' + vocabularyRevision" ref="structureEditor" external-tools :project-id="projectId" :node="activeNode" :known-nodes="adoptedNodes" :images="nodeImages" :has-reference="Boolean(activePage)" :initial-feature-id="initialFeatureId" :initial-revision-id="initialRevisionId" :review-image-id="tab === 'review' && activePage?.review_status === 'candidate' ? activePage.id : ''" :evidence-refs="focusedSelection.refs.value" @pin-evidence="focusedSelection.add" @clear-evidence="focusedSelection.clear" @saved="refreshAtlasOnly" @open-node="openMapNode" @select-feature="persistFeatureFocus" @reference-visible="referenceVisible = $event" @state="updateStructureState" />
+        </div>
         <template v-if="activePage && !structureState.reader">
         <label v-if="tab === 'atlas' && oldPages.length && (!structureEnabled || referenceVisible)" class="atlas-compare-toggle"><input v-model="compareAdopted" :disabled="Boolean(annotationEdit)" type="checkbox" />对比已有图片</label>
         <div v-if="!structureEnabled || referenceVisible" :class="['atlas-images', { compare: comparingImages }]">
@@ -331,6 +334,7 @@ const newMap = reactive({ title: "", level: "region", parent_id: "" })
 const structureEditor = ref(null)
 const structureState = ref({ dirty: false, revision: null })
 const vocabularyState = ref({ dirty: false, busy: false })
+const vocabularyLocked = computed(() => vocabularyState.value.dirty || vocabularyState.value.busy)
 const vocabularyRevision = ref(0)
 const editStructureNodeId = ref(null)
 const toolsRoot = ref(null)
@@ -418,7 +422,7 @@ const canResume = computed(() => currentRun.value?.status === "paused"
   || (currentRun.value?.status === "partial" && ["retry_requires_confirmation", "worker_interrupted"].includes(currentRun.value?.error_code)))
 const runUnfinished = computed(() => runActive.value || canResume.value || currentRun.value?.status === "prompt_review")
 const pausedPromptReview = computed(() => currentRun.value?.status === "paused" && currentRun.value?.review_image_prompts)
-const writeLocked = computed(() => (structureEnabled.value && structureState.value.dirty) || loading.value || busy.value || (runActive.value && Boolean(currentRun.value?.stop_requested)))
+const writeLocked = computed(() => vocabularyLocked.value || (structureEnabled.value && structureState.value.dirty) || loading.value || busy.value || (runActive.value && Boolean(currentRun.value?.stop_requested)))
 const connectionError = computed(() => ["image_connection_required", "image_auth_failed"].includes(errorCode.value))
 const localCliAvailable = computed(() => mapCapabilities.value?.local_cli?.available === true)
 // 与原逻辑一致：仅在能力已加载且明确不可用时才提示/禁用；加载中或未知状态默认按可用处理。
@@ -484,6 +488,7 @@ async function canLeaveStructure() {
 }
 function startCreateMap() { creatingMap.value = true }
 async function createMap() {
+  if (vocabularyLocked.value || busy.value) return
   if (!await canLeaveStructure()) return
   busy.value = true
   try {
@@ -1030,6 +1035,7 @@ onBeforeUnmount(() => { mounted = false; clearTimeout(pollTimer); clearTimeout(p
 const currentMapToolbar = computed(() => structureState.value.nodeId === activeNode.value?.id ? structureState.value.toolbar : null)
 const mapToolContext = computed(() => currentMapToolbar.value?.context || activeNode.value?.title || "我的地图")
 const mapMoreTools = computed(() => {
+  if (vocabularyLocked.value) return []
   if (currentMapToolbar.value?.restricted) return currentMapToolbar.value.moreActions || []
   return [
     { key: "new-map", label: "新建地图", disabled: loading.value || busy.value },
@@ -1039,6 +1045,7 @@ const mapMoreTools = computed(() => {
   ].filter(item => !mapToolActions.value.some(action => action.key === item.key))
 })
 const mapToolActions = computed(() => {
+  if (vocabularyLocked.value) return [{ key: "vocabulary", label: "请先完成项目类型编辑", primary: true, disabled: true }]
   if (loading.value) return [{ key: "loading", label: "正在读取地图…", primary: true, disabled: true }]
   const child = currentMapToolbar.value
   if (child?.protected) return child.actions
@@ -1059,7 +1066,7 @@ function updateStructureState(value) {
   if (value.nodeId === activeNode.value?.id) structureState.value = value
 }
 function startSourceRp() {
-  if (loading.value || busy.value || structureState.value.dirty) return
+  if (loading.value || busy.value || structureState.value.dirty || vocabularyLocked.value) return
   return getRouter().navigate('journeys', 'new', true, new URLSearchParams({ project_id: props.projectId }))
 }
 async function runMapTool(key) {

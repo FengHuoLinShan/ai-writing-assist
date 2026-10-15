@@ -11,6 +11,7 @@ from modules.account.facade import current_account_id
 from modules.assistant.evidence_tools import (
     AssistantToolContext,
     author_read_tools,
+    project_vocabulary,
     read_web_source,
     search_general_fact,
 )
@@ -110,7 +111,63 @@ def test_old_tool_catalog_does_not_acquire_new_search_tools():
 def test_runtime_v4_preserves_the_v3_read_tool_catalog():
     v3 = author_read_tools(allow_web=True, version="3")
     v4 = author_read_tools(allow_web=True, version="4")
-    assert {tool.name for tool in v4} == {tool.name for tool in v3}
-    assert {tool.name: tool.function_schema.json_schema for tool in v4} == {
-        tool.name: tool.function_schema.json_schema for tool in v3
+    assert {tool.name for tool in v4} == {tool.name for tool in v3} | {
+        "project_vocabulary"
     }
+    assert {
+        tool.name: tool.function_schema.json_schema
+        for tool in v4
+        if tool.name != "project_vocabulary"
+    } == {tool.name: tool.function_schema.json_schema for tool in v3}
+    for version in ("1", "2", "3"):
+        assert "project_vocabulary" not in {
+            tool.name for tool in author_read_tools(allow_web=True, version=version)
+        }
+
+
+@pytest.mark.asyncio
+async def test_project_vocabulary_reads_current_ids_and_revisions_with_scope_guards(
+    db_session, test_project_id
+):
+    from uuid import uuid4
+
+    from core.errors import ConflictError, NotFoundError
+    from modules.world.project_vocabulary_schemas import VocabularyTermCreate
+    from modules.world.project_vocabulary_service import create_project_vocabulary_term
+
+    term = await create_project_vocabulary_term(
+        db_session,
+        test_project_id,
+        VocabularyTermCreate(kind="space", name="星海", traits={"geometry": ["area"]}),
+    )
+    await create_project_vocabulary_term(
+        db_session, test_project_id, VocabularyTermCreate(kind="space", name="秘境")
+    )
+    deps = AssistantToolContext(
+        db_session,
+        test_project_id,
+        str(current_account_id()),
+        WorkContext(scope="project"),
+        None,
+        AgentRunBudget(),
+        None,
+    )
+    result = await project_vocabulary(SimpleNamespace(deps=deps), kind="space", limit=1)
+    assert result["total_count"] == 2 and result["omitted_count"] == 1
+    assert set(result["items"][0]) >= {"id", "revision_id", "name", "traits"}
+    all_items = await project_vocabulary(SimpleNamespace(deps=deps), kind="space")
+    assert any(
+        item["id"] == str(term.id) and item["revision_id"] == str(term.revision_id)
+        for item in all_items["items"]
+    )
+    assert not deps.evidence_refs
+    deps.owner_id = str(uuid4())
+    with pytest.raises(NotFoundError):
+        await project_vocabulary(SimpleNamespace(deps=deps))
+    deps.owner_id = str(current_account_id())
+    deps.work = WorkContext(scope="project", excluded_targets=[f"term:{term.id}"])
+    with pytest.raises(ConflictError):
+        await project_vocabulary(SimpleNamespace(deps=deps))
+    deps.work = WorkContext(scope="current", chapter_index=1)
+    with pytest.raises(ModelRetry, match="全书"):
+        await project_vocabulary(SimpleNamespace(deps=deps))

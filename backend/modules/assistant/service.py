@@ -1296,6 +1296,7 @@ class AssistantService:
                 novel_id,
                 answer.actions,
                 context=AssistantOperationContext(run_id, owner_id, work),
+                operations=operations,
             )
             run = await self.require_run(db, novel_id, run_id, lock=True)
             if run.status != "running" or str(run.task_id) != str(task.id):
@@ -1327,6 +1328,7 @@ class AssistantService:
                         novel_id,
                         plan.actions,
                         context=AssistantOperationContext(run_id, owner_id, work),
+                        operations=operations,
                     )
                     option = {**plan.model_dump(mode="json"), "actions": actions}
                     options.append({**option, "fingerprint": fingerprint(option)})

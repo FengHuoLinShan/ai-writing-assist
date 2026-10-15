@@ -2,7 +2,7 @@
   <details class="card vocabulary" @toggle="onToggle">
     <summary>本作品的空间类型<span v-if="loaded"> · {{ total }} 项</span></summary>
     <p>为这部作品命名空间、图元、关系与旅行方式。已有地图保留原类型版本；改动不会自动改写已保存地图。</p>
-    <p v-if="error" class="alert alert-warning" role="alert">{{ error }} <button class="btn btn-sm" :disabled="busy" @click="load">重新读取</button></p>
+    <p v-if="error" class="alert alert-warning" role="alert">{{ error }} <button class="btn btn-sm" :disabled="locked" @click="load">重新读取</button></p>
     <p v-if="message" role="status">{{ message }}</p>
     <p v-if="loading" role="status">正在读取项目类型…</p>
     <template v-if="loaded">
@@ -75,13 +75,22 @@ const traitGroups = [
 const items = ref([]), total = ref(0), omitted = ref(0), loaded = ref(false), loading = ref(false), busy = ref(false)
 const error = ref(''), message = ref(''), query = ref(''), filter = ref(''), selectedPresets = ref([])
 const selected = ref(null), editor = ref(null), original = ref(''), mergeTarget = ref(''), splitName = ref('')
-let active = true, readSequence = 0
+const confirming = ref(false)
+let active = true, readSequence = 0, operationSequence = 0
 const dirty = computed(() => editor.value !== null && JSON.stringify(editor.value) !== original.value)
-const locked = computed(() => props.disabled || busy.value || loading.value)
+const locked = computed(() => props.disabled || busy.value || loading.value || confirming.value)
 const readOnly = computed(() => ['archived', 'merged'].includes(selected.value?.status))
 const filtered = computed(() => items.value.filter(term => (!filter.value || term.kind === filter.value) && [term.name, ...term.aliases].some(text => text.toLocaleLowerCase().includes(query.value.trim().toLocaleLowerCase()))))
 const mergeChoices = computed(() => items.value.filter(term => term.id !== selected.value?.id && term.kind === selected.value?.kind && !['merged', 'archived'].includes(term.status)))
-watch([dirty, busy], () => emit('state', { dirty: dirty.value, busy: busy.value }), { immediate: true })
+watch([dirty, busy, confirming, loading], () => emit('state', { dirty: dirty.value, busy: busy.value || confirming.value || loading.value }), { immediate: true })
+watch(() => props.projectId, () => {
+  readSequence++; operationSequence++
+  items.value = []; total.value = 0; omitted.value = 0; loaded.value = false
+  loading.value = false; busy.value = false; confirming.value = false
+  editor.value = null; selected.value = null; original.value = ''
+  error.value = ''; message.value = ''; selectedPresets.value = []
+  load()
+})
 onBeforeUnmount(() => { active = false; readSequence++ })
 function fields(value) {
   return { name: value.name, description: value.description, aliases: value.aliasText.split('\n').map(text => text.trim()).filter(Boolean), traits: JSON.parse(JSON.stringify(value.traits)) }
@@ -93,11 +102,18 @@ function edit(term) {
   mergeTarget.value = ''; splitName.value = ''
 }
 async function discard() {
-  return !dirty.value || await confirmAsync('类型编辑尚未保存，放弃这次编辑吗？', '确认放弃', { confirmAction: getConfirmAction() })
+  return !dirty.value || await confirmIntent('类型编辑尚未保存，放弃这次编辑吗？', '确认放弃')
 }
-async function select(term) { if (!locked.value && await discard()) edit(term) }
-async function beginNew() { if (!locked.value && await discard()) edit(null) }
-async function cancelEdit() { if (await discard()) { editor.value = null; selected.value = null } }
+async function confirmIntent(message, label) {
+  if (!active || locked.value) return false
+  const projectId = props.projectId, sequence = operationSequence
+  confirming.value = true
+  try { return await confirmAsync(message, label, { confirmAction: getConfirmAction() }) && active && props.projectId === projectId && operationSequence === sequence && !props.disabled }
+  finally { if (sequence === operationSequence) confirming.value = false }
+}
+async function select(term) { if (!locked.value && await discard() && active && !locked.value) edit(term) }
+async function beginNew() { if (!locked.value && await discard() && active && !locked.value) edit(null) }
+async function cancelEdit() { if (!locked.value && await discard() && active && !locked.value) { editor.value = null; selected.value = null } }
 async function load() {
   if (loading.value || busy.value) return
   const sequence = ++readSequence, projectId = props.projectId
@@ -112,16 +128,18 @@ async function load() {
 function onToggle(event) { if (event.target.open && !loaded.value) load() }
 async function run(action, success) {
   if (!active || locked.value) return
+  const sequence = ++operationSequence, projectId = props.projectId
+  const current = () => active && sequence === operationSequence && props.projectId === projectId
   busy.value = true; error.value = ''; message.value = ''
   try {
     const result = await action()
-    if (!active) return
+    if (!current()) return
     if (result?.id) edit(result)
     message.value = typeof success === 'function' ? success(result) : success
     emit('changed')
-  } catch (failure) { if (active) error.value = failure.status === 409 ? '类型版本已变化，编辑内容已保留。重新读取后，请核对列表中的当前版本；复制需要的修改，再选择该类型重新编辑。' : failure.message || '操作未完成，编辑内容已保留。' }
-  finally { if (active) busy.value = false }
-  if (active && !error.value) await load()
+  } catch (failure) { if (current()) error.value = failure.status === 409 ? '类型版本已变化，编辑内容已保留。重新读取后，请核对列表中的当前版本；复制需要的修改，再选择该类型重新编辑。' : failure.message || '操作未完成，编辑内容已保留。' }
+  finally { if (current()) busy.value = false }
+  if (current() && !error.value) await load()
 }
 async function save() {
   if (!editor.value || !dirty.value || readOnly.value) return
@@ -131,7 +149,7 @@ async function save() {
 }
 async function archive() {
   const term = selected.value
-  if (!term || !await confirmAsync(`归档“${term.name}”？历史引用会保留，计算将暂停使用此类型。`, '确认归档', { confirmAction: getConfirmAction() })) return
+  if (!term || !await confirmIntent(`归档“${term.name}”？历史引用会保留，计算将暂停使用此类型。`, '确认归档')) return
   await run(() => api.world.archiveVocabularyTerm(props.projectId, term.id, { expected_revision_id: term.revision_id, confirmed: true }), '类型已归档，可以恢复。')
 }
 async function restore() {
@@ -140,13 +158,15 @@ async function restore() {
 }
 async function merge() {
   const source = selected.value, target = mergeChoices.value.find(term => term.id === mergeTarget.value)
-  if (!source || !target || !await confirmAsync(`将“${source.name}”合并到“${target.name}”？来源名称会保留为别名，旧身份指向目标。`, '确认合并', { confirmAction: getConfirmAction() })) return
+  if (!source || !target || !await confirmIntent(`将“${source.name}”合并到“${target.name}”？来源名称会保留为别名，旧身份指向目标。`, '确认合并')) return
   await run(() => api.world.mergeVocabularyTerms(props.projectId, { target_id: target.id, source_ids: [source.id], expected_revision_ids: { [target.id]: target.revision_id, [source.id]: source.revision_id }, confirmed: true }), '类型已合并，历史引用仍保留。')
 }
 async function split() {
   const term = selected.value, name = splitName.value.trim()
   if (!term || !name) return
-  await run(async () => (await api.world.splitVocabularyTerm(props.projectId, term.id, { expected_revision_id: term.revision_id, retained: fields(editor.value), split_off: { name, description: '', aliases: [], traits: fields(editor.value).traits } })).split_off, '已保留原类型并创建拆出的类型，请继续完善新类型说明。')
+  const retained = fields(editor.value)
+  if (!await confirmIntent(`保留“${term.name}”，并拆出“${name}”？新类型将使用当前计算特性；历史地图仍保留原类型版本。`, '确认拆分')) return
+  await run(async () => (await api.world.splitVocabularyTerm(props.projectId, term.id, { expected_revision_id: term.revision_id, retained, split_off: { name, description: '', aliases: [], traits: retained.traits } })).split_off, '已保留原类型并创建拆出的类型，请继续完善新类型说明。')
 }
 async function applyPresets() {
   await run(() => api.world.applyVocabularyPresets(props.projectId, { preset_ids: [...selectedPresets.value] }), result => `预设已处理：新增 ${result.applied} 项，已添加 ${result.already_applied} 项，重名跳过 ${result.duplicate_skipped} 项。`)
