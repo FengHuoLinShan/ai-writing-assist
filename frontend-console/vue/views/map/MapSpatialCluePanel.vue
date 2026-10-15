@@ -51,6 +51,7 @@ const statuses = { pending_review: '待审核', pending_verification: '待核对
 const kinds = { contains: '包含', bearing: '方位', adjacency: '相邻', connection: '连接', journey: '行程', access_condition: '通行条件', effective_change: '生效变化' }
 const modalities = { event_observed: '原文已发生', character_statement: '人物陈述', belief: '主观认知', hypothesis: '假设', author_plan: '作者计划', figurative: '比喻', unclear: '含义待核对' }
 const items = ref([]), total = ref(0), offset = ref(0), filter = ref('pending'), loaded = ref(false), loading = ref(false), busy = ref(false), confirming = ref(false)
+const requestedOffset = ref(0)
 const selected = ref(null), reason = ref(''), mergeTarget = ref(''), error = ref(''), message = ref('')
 let active = true, sequence = 0
 const dirty = computed(() => Boolean(reason.value.trim() || mergeTarget.value))
@@ -58,7 +59,7 @@ const locked = computed(() => props.disabled || busy.value || loading.value || c
 const reviewable = clue => ['pending_review', 'pending_verification'].includes(clue.status)
 const mergeChoices = computed(() => items.value.filter(item => item.id !== selected.value?.id && item.kind === selected.value?.kind && ['pending_review', 'adopted'].includes(item.status)))
 watch([dirty, busy, confirming, loading], () => emit('state', { dirty: dirty.value, busy: busy.value || confirming.value || loading.value }), { immediate: true })
-watch(() => props.projectId, () => { sequence++; items.value = []; total.value = 0; offset.value = 0; loaded.value = false; loading.value = false; busy.value = false; confirming.value = false; selected.value = null; reason.value = ''; mergeTarget.value = ''; error.value = ''; message.value = '' })
+watch(() => props.projectId, () => { sequence++; items.value = []; total.value = 0; offset.value = 0; requestedOffset.value = 0; loaded.value = false; loading.value = false; busy.value = false; confirming.value = false; selected.value = null; reason.value = ''; mergeTarget.value = ''; error.value = ''; message.value = '' })
 onBeforeUnmount(() => { active = false; sequence++ })
 function endpointLabel(endpoint) { return endpoint.surface || (endpoint.state === 'canonical' ? '已采用实体（原文见上）' : '候选实体（原文见上）') }
 async function confirmIntent(text, label) {
@@ -74,18 +75,23 @@ async function close() { if (!locked.value && await discard() && active && !lock
 async function load() {
   if (locked.value || dirty.value) return
   const token = ++sequence, projectId = props.projectId
+  let pageOffset = requestedOffset.value
   loading.value = true; error.value = ''
   const status = filter.value === 'pending' ? ['pending_review', 'pending_verification'] : filter.value === 'all' ? undefined : [filter.value]
   try {
-    const result = await api.world.listSpatialClues(projectId, { status, limit, offset: offset.value })
+    let result = await api.world.listSpatialClues(projectId, { status, limit, offset: pageOffset })
+    if (active && token === sequence && pageOffset > 0 && pageOffset >= result.total_count) {
+      requestedOffset.value = pageOffset = Math.max(0, Math.floor((result.total_count - 1) / limit) * limit)
+      result = await api.world.listSpatialClues(projectId, { status, limit, offset: pageOffset })
+    }
     if (!active || token !== sequence || projectId !== props.projectId) return
-    items.value = result.items; total.value = result.total_count; loaded.value = true; selected.value = null
+    offset.value = pageOffset; items.value = result.items; total.value = result.total_count; loaded.value = true; selected.value = null
   } catch (failure) { if (active && token === sequence) error.value = failure.message || '线索读取失败，请重试。' }
   finally { if (active && token === sequence) loading.value = false }
 }
 function onToggle(event) { if (event.target.open && !loaded.value) load() }
-function changeFilter() { offset.value = 0; load() }
-function page(delta) { offset.value = Math.max(0, offset.value + delta * limit); load() }
+function changeFilter() { requestedOffset.value = 0; load() }
+function page(delta) { if (locked.value || dirty.value) return; requestedOffset.value = Math.max(0, offset.value + delta * limit); load() }
 async function decide(action) {
   const clue = selected.value, target = mergeChoices.value.find(item => item.id === mergeTarget.value)
   if (!clue || !reviewable(clue) || (action === 'adopt' && clue.status !== 'pending_review') || (action === 'merge' && !target)) return

@@ -69,6 +69,36 @@ describe("统一地图编辑器", () => {
     return wrapper
   }
 
+  it('确认移出期间锁住编辑与离开，取消保留已有草稿', async () => {
+    let finish
+    confirm.mockImplementation(() => new Promise(resolve => { finish = resolve }))
+    const wrapper = await render()
+    const label = wrapper.findAll('input').find(input => input.element.value === '临江城')
+    await label.setValue('保留的草稿名')
+    await button(wrapper, '移出地图').trigger('click'); await flushPromises()
+    expect(wrapper.emitted('state').at(-1)[0].busy).toBe(true)
+    expect(await wrapper.vm.canLeave()).toBe(false)
+    expect(wrapper.findComponent({ name: 'MapSpatialMetadataPanel' }).props('disabled')).toBe(true)
+    expect(button(wrapper, '保存地图').attributes('disabled')).toBeDefined()
+    finish(false); await flushPromises()
+    expect(wrapper.emitted('state').at(-1)[0].busy).toBe(false)
+    expect(wrapper.get('.map-feature.selected').text()).toContain('保留的草稿名')
+    expect(wrapper.vm.dirty).toBe(true)
+    expect(api.world.saveMapRevision).not.toHaveBeenCalled()
+  })
+
+  it('候选确认后若已离开组件，不再发送旧作品的决定', async () => {
+    let finish
+    confirm.mockImplementation(() => new Promise(resolve => { finish = resolve }))
+    const candidate = { ...record(document(), nextId), status: 'candidate', base_revision_id: revisionId }
+    api.world.getNodeMap.mockResolvedValue({ ...state(record()), candidates: [candidate] })
+    const wrapper = await render()
+    await button(wrapper, '不使用').trigger('click'); await flushPromises()
+    expect(wrapper.emitted('state').at(-1)[0].busy).toBe(true)
+    wrapper.unmount(); finish(true); await flushPromises()
+    expect(api.world.reviewMapRevision).not.toHaveBeenCalled()
+  })
+
   it('街道地点可创建室内子图并保存跳转关系', async () => {
     api.world.createMapNode.mockResolvedValue({ id: nextId })
     const wrapper = await render({ node: { id: nodeId, title: '街道', level: 'street' } })

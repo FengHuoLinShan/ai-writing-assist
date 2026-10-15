@@ -859,7 +859,9 @@ class MapStructureService:
         )
         return MapReviewPreview(
             candidate_revision_id=str(row.id),
-            base_revision_id=str(data.base_revision_id) if data.base_revision_id else None,
+            base_revision_id=(
+                str(data.base_revision_id) if data.base_revision_id else None
+            ),
             applied_change_keys=applied,
             expanded_change_keys=expanded,
         )
@@ -918,7 +920,11 @@ class MapStructureService:
                     problems=list(row.problems),
                     confirmation_id=row.confirmation_id,
                     context_fingerprint=row.context_fingerprint,
-                    task_id=uuid.uuid4(),
+                    task_id=(
+                        uuid.uuid4()
+                        if (row.context_fingerprint or "").startswith("auto-draft:")
+                        else None
+                    ),
                     writing_chapter_index=result.writing_chapter_index,
                     change_summary={
                         "auto_draft_review_base_revision_id": result.id,

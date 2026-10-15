@@ -18,6 +18,7 @@ const rescanActive = computed(() => run.value?.category_rescans?.some(item => ["
 const spatialRescanFrom = ref(1), spatialRescanThrough = ref(1)
 const spatialRescanPreview = ref(null), spatialRescanPending = ref(null)
 const spatialRescanActive = computed(() => run.value?.spatial_rescans?.some(item => ["pending", "running"].includes(item.status)))
+const authorizationLocked = computed(() => Boolean(pending.value || rescanPending.value || spatialRescanPending.value))
 const opened = ref(false)
 let generation = 0, timer = null
 const run = computed(() => state.value?.run)
@@ -78,6 +79,7 @@ function toggle(event) {
   else clearTimeout(timer)
 }
 async function changeEngine(engine) {
+  if (authorizationLocked.value) return
   const token = generation, projectId = props.projectId, epoch = state.value?.engine?.epoch
   const stop = engine === "read_only"
   const message = stop
@@ -96,6 +98,7 @@ async function changeEngine(engine) {
   })
 }
 async function prepare() {
+  if (authorizationLocked.value) return
   await perform(async current => {
     const append = run.value?.status === "completed"
     const continuing = run.value?.status === "needs_budget"
@@ -116,6 +119,7 @@ async function prepare() {
   })
 }
 async function start() {
+  if (rescanPending.value || spatialRescanPending.value) return
   await perform(async current => {
     pending.value ||= {
       ...preview.value.request, expected_fingerprint: preview.value.fingerprint,
@@ -136,6 +140,7 @@ async function start() {
   })
 }
 async function resume() {
+  if (authorizationLocked.value) return
   await perform(async current => {
     const result = await api().resume(props.projectId, run.value.run_key)
     if (current()) { state.value = result; schedule() }
@@ -206,17 +211,19 @@ async function resumeWorldAuditSupplement(item) {
   })
 }
 async function prepareRescan() {
+  if (authorizationLocked.value) return
   await perform(async current => {
     const key = run.value.run_key
     const request = { operation_id: crypto.randomUUID(), from_scene_index: Number(rescanFrom.value) - 1,
       through_scene_index: Number(rescanThrough.value) - 1, categories: [...rescanCategories.value], request_limit: run.value.budget_mode === "confirmed_scope" ? null : Number(requestLimit.value) }
     const result = await api().categoryRescanPreview(props.projectId, key, request)
-    if (current() && key === run.value?.run_key) rescanPreview.value = { ...result, request }
+    if (current() && key === run.value?.run_key) rescanPreview.value = { ...result, runKey: key, request }
   })
 }
 async function startRescan() {
+  if (pending.value || spatialRescanPending.value) return
   await perform(async current => {
-    const key = run.value.run_key
+    const key = rescanPreview.value.runKey
     rescanPending.value ||= { ...rescanPreview.value.request, expected_fingerprint: rescanPreview.value.fingerprint, authorization_confirmed: true }
     try { await api().categoryRescanStart(props.projectId, key, rescanPending.value) }
     catch (err) {
@@ -229,35 +236,39 @@ async function startRescan() {
   })
 }
 async function resumeRescan(item) {
+  if (authorizationLocked.value) return
   await perform(async current => {
     await api().categoryRescanResume(props.projectId, run.value.run_key, item.operation_id)
     if (current()) await read(current)
   })
 }
 async function prepareSpatialRescan() {
+  if (authorizationLocked.value) return
   await perform(async current => {
     const key = run.value.run_key
     const request = { operation_id: crypto.randomUUID(), from_scene_index: Number(spatialRescanFrom.value) - 1,
       through_scene_index: Number(spatialRescanThrough.value) - 1, request_limit: run.value.budget_mode === "confirmed_scope" ? null : Number(requestLimit.value) }
     const result = await api().spatialRescanPreview(props.projectId, key, request)
-    if (current() && key === run.value?.run_key) spatialRescanPreview.value = { ...result, request }
+    if (current() && key === run.value?.run_key) spatialRescanPreview.value = { ...result, runKey: key, request }
   })
 }
 async function startSpatialRescan() {
+  if (pending.value || rescanPending.value) return
   await perform(async current => {
-    const key = run.value.run_key
+    const key = spatialRescanPreview.value.runKey
     spatialRescanPending.value ||= { ...spatialRescanPreview.value.request, expected_fingerprint: spatialRescanPreview.value.fingerprint, authorization_confirmed: true }
     try { await api().spatialRescanStart(props.projectId, key, spatialRescanPending.value) }
     catch (err) {
       if (current() && [400, 403, 404, 409, 422].includes(err.status)) spatialRescanPreview.value = spatialRescanPending.value = null
       throw err
     }
-    if (!current() || key !== run.value?.run_key) return
+    if (!current()) return
     spatialRescanPreview.value = spatialRescanPending.value = null
     await read(current)
   })
 }
 async function resumeSpatialRescan(item) {
+  if (authorizationLocked.value) return
   await perform(async current => {
     await api().spatialRescanResume(props.projectId, run.value.run_key, item.operation_id)
     if (current()) await read(current)
@@ -270,8 +281,8 @@ watch(() => run.value?.run_key, () => {
   worldAuditSupplementPreview.value = null
   discoverDetails.value = !!run.value?.discovery_enabled
   discoverSpatial.value = run.value ? run.value.spatial_discovery_enabled === true : true
-  rescanPreview.value = rescanPending.value = null
-  spatialRescanPreview.value = spatialRescanPending.value = null
+  if (!rescanPending.value) rescanPreview.value = null
+  if (!spatialRescanPending.value) spatialRescanPreview.value = null
   spatialRescanFrom.value = 1; spatialRescanThrough.value = Math.max(1, run.value?.completed_scenes || 1)
   rescanFrom.value = 1; rescanThrough.value = Math.max(1, run.value?.completed_scenes || 1)
   rescanCategories.value = (run.value?.discovery_categories || []).filter(item => ["language_habit", "external_appearance"].includes(item.key)).map(item => item.key)
@@ -321,52 +332,53 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer) })
       </details>
       <div class="reading-actions">
         <button class="btn btn-sm" type="button" :disabled="busy" @click="refresh">刷新进度</button>
-        <button v-if="!enabled" class="btn btn-sm" type="button" :disabled="busy" @click="changeEngine('evolution')">启用逐场景理解…</button>
-        <button v-else class="btn btn-sm" type="button" :disabled="busy" @click="changeEngine('read_only')">暂停自动理解…</button>
-        <button v-if="run?.can_resume" class="btn btn-primary" type="button" :disabled="busy" @click="resume">恢复理解</button>
+        <button v-if="!enabled" class="btn btn-sm" type="button" :disabled="busy || authorizationLocked" @click="changeEngine('evolution')">启用逐场景理解…</button>
+        <button v-else class="btn btn-sm" type="button" :disabled="busy || authorizationLocked" @click="changeEngine('read_only')">暂停自动理解…</button>
+        <button v-if="run?.can_resume" class="btn btn-primary" type="button" :disabled="busy || authorizationLocked" @click="resume">恢复理解</button>
       </div>
-      <details v-if="run?.completed_scenes && run.discovery_categories?.length" class="reading-category-rescan">
+      <details v-if="rescanPending || (run?.completed_scenes && run.discovery_categories?.length)" class="reading-category-rescan">
         <summary>补扫细节类别</summary>
         <p>对已读范围补查选定类别。旧场景回执保留，只新增有来源、经复核的细节记录；未选择的类别不算已检查。</p>
-        <fieldset :disabled="busy || rescanActive || !!rescanPending">
+        <fieldset :disabled="busy || rescanActive || spatialRescanActive || authorizationLocked">
           <legend>范围与类别</legend>
-          <label>从第几场<input v-model.number="rescanFrom" type="number" min="1" :max="run.completed_scenes" aria-label="补扫起始场景"></label>
-          <label>读到第几场<input v-model.number="rescanThrough" type="number" :min="rescanFrom" :max="run.completed_scenes" aria-label="补扫截止场景"></label>
-          <label v-for="item in run.discovery_categories" :key="item.key" class="reading-recompute-toggle"><input v-model="rescanCategories" type="checkbox" :value="item.key">{{ item.label }}</label>
-          <button type="button" class="btn btn-sm" :disabled="!rescanCategories.length || run.status !== 'completed'" @click="prepareRescan">预览类别补扫</button>
+          <label>从第几场<input v-model.number="rescanFrom" type="number" min="1" :max="run?.completed_scenes" aria-label="补扫起始场景"></label>
+          <label>读到第几场<input v-model.number="rescanThrough" type="number" :min="rescanFrom" :max="run?.completed_scenes" aria-label="补扫截止场景"></label>
+          <label v-for="item in run?.discovery_categories || []" :key="item.key" class="reading-recompute-toggle"><input v-model="rescanCategories" type="checkbox" :value="item.key">{{ item.label }}</label>
+          <button type="button" class="btn btn-sm" :disabled="!rescanCategories.length || run?.status !== 'completed'" @click="prepareRescan">预览类别补扫</button>
         </fieldset>
         <div v-if="rescanPreview" class="reading-confirmation">
           <p v-if="rescanPreview.budget_mode === 'confirmed_scope'">完成本次确认范围：补扫 {{ rescanPreview.scene_count }} 场的所选类别，并核对发现结果。</p>
           <p v-else>预计 {{ rescanPreview.scene_count }} 场，基础发现与复核约 {{ rescanPreview.call_count }} 次调用，含去重核对最多 {{ rescanPreview.maximum_calls }} 次；现有额度 {{ rescanPreview.budget_remaining }} 次，需增加 {{ rescanPreview.additional_budget }} 次。</p>
-          <button type="button" class="btn btn-primary" :disabled="busy" @click="startRescan">{{ rescanPending ? "确认补扫启动结果" : "确认并开始补扫" }}</button>
+          <button type="button" class="btn btn-primary" :disabled="busy || !!pending || !!spatialRescanPending" @click="startRescan">{{ rescanPending ? "确认补扫启动结果" : "确认并开始补扫" }}</button>
           <button v-if="!rescanPending" type="button" class="btn btn-sm" :disabled="busy" @click="rescanPreview = null">取消补扫</button>
         </div>
-        <p v-for="item in run.category_rescans || []" :key="item.operation_id" role="status">
+        <p v-for="item in run?.category_rescans || []" :key="item.operation_id" role="status">
           第 {{ item.from_scene_index + 1 }}—{{ item.through_scene_index + 1 }} 场：{{ ({ pending: "补扫等待开始", running: "正在补扫，已完成结果保留", completed: "补扫完成，可查看类别覆盖与来源", failed: "补扫中断，结果保留", needs_reconciliation: "请求结果与费用尚未核清，不能重发" })[item.status] || "请刷新核对补扫状态" }}
-          <button v-if="item.can_resume" type="button" class="btn btn-sm" :disabled="busy || rescanActive" @click="resumeRescan(item)">恢复类别补扫</button>
+          <button v-if="item.can_resume" type="button" class="btn btn-sm" :disabled="busy || rescanActive || spatialRescanActive || authorizationLocked" @click="resumeRescan(item)">恢复类别补扫</button>
         </p>
       </details>
-      <details v-if="run?.completed_scenes" class="reading-spatial-rescan">
+      <details v-if="run?.completed_scenes || spatialRescanPending" class="reading-spatial-rescan">
         <summary>补扫空间线索</summary>
         <p>在已读范围中补查未执行、来源变化或旧方法留下的空间缺口，抽取后独立核对。已读正文和理解回执保留；草图只作为候选，不自动生成图片。</p>
-        <p v-if="!run.spatial_discovery_enabled">这次阅读未开启空间发现。补扫需要单独确认范围及模型费用，不改变原阅读授权。</p>
-        <fieldset :disabled="busy || rescanActive || spatialRescanActive || !!spatialRescanPending">
+        <p v-if="!run?.spatial_discovery_enabled">这次阅读未开启空间发现。补扫需要单独确认范围及模型费用，不改变原阅读授权。</p>
+        <fieldset :disabled="busy || rescanActive || spatialRescanActive || authorizationLocked">
           <legend>空间补扫范围</legend>
-          <label>从第几场<input v-model.number="spatialRescanFrom" type="number" min="1" :max="run.completed_scenes" aria-label="空间补扫起始场景"></label>
-          <label>读到第几场<input v-model.number="spatialRescanThrough" type="number" :min="spatialRescanFrom" :max="run.completed_scenes" aria-label="空间补扫截止场景"></label>
-          <button type="button" class="btn btn-sm" :disabled="run.status !== 'completed'" @click="prepareSpatialRescan">预览空间补扫</button>
+          <label>从第几场<input v-model.number="spatialRescanFrom" type="number" min="1" :max="run?.completed_scenes" aria-label="空间补扫起始场景"></label>
+          <label>读到第几场<input v-model.number="spatialRescanThrough" type="number" :min="spatialRescanFrom" :max="run?.completed_scenes" aria-label="空间补扫截止场景"></label>
+          <button type="button" class="btn btn-sm" :disabled="run?.status !== 'completed'" @click="prepareSpatialRescan">预览空间补扫</button>
         </fieldset>
         <div v-if="spatialRescanPreview" class="reading-confirmation">
+          <p v-if="spatialRescanPending" role="status">本次启动结果尚待核对；确认时会使用原阅读范围和原操作编号，不新增授权。</p>
           <p>补扫 {{ spatialRescanPreview.scene_count }} 场中仍需检查的空间线索；抽取和独立核对最多 {{ spatialRescanPreview.request_range.maximum }} 次模型调用，空间独立额度 {{ spatialRescanPreview.quota }} 次。</p>
           <p v-if="spatialRescanPreview.budget_remaining !== null">现有总额度剩余 {{ spatialRescanPreview.budget_remaining }} 次，为主阅读保留 {{ spatialRescanPreview.mandatory_request_reserve }} 次；本次需增加 {{ spatialRescanPreview.additional_budget }} 次调用额度。</p>
           <p v-else>本次按确认范围执行，保留模型调用与费用记录。</p>
           <p>冻结模型：{{ spatialRescanPreview.model || '未记录名称，请重新核对阅读配置' }}。</p>
-          <button type="button" class="btn btn-primary" :disabled="busy" @click="startSpatialRescan">{{ spatialRescanPending ? '确认空间补扫启动结果' : '确认范围与费用并补扫空间' }}</button>
+          <button type="button" class="btn btn-primary" :disabled="busy || !!pending || !!rescanPending" @click="startSpatialRescan">{{ spatialRescanPending ? '确认空间补扫启动结果' : '确认范围与费用并补扫空间' }}</button>
           <button v-if="!spatialRescanPending" type="button" class="btn btn-sm" :disabled="busy" @click="spatialRescanPreview = null">取消空间补扫</button>
         </div>
-        <p v-for="item in run.spatial_rescans || []" :key="item.operation_id" role="status">
+        <p v-for="item in run?.spatial_rescans || []" :key="item.operation_id" role="status">
           第 {{ item.from_scene_index + 1 }}—{{ item.through_scene_index + 1 }} 场：{{ ({ pending: '空间补扫等待开始', running: '正在补扫空间，已完成结果保留', completed: '空间补扫完成，请到地图核对线索与草图', failed: '空间补扫中断，结果保留', needs_reconciliation: '空间请求结果与费用尚未核清，不能重发' })[item.status] || '请刷新核对空间补扫状态' }}
-          <button v-if="item.can_resume" type="button" class="btn btn-sm" :disabled="busy || rescanActive || spatialRescanActive" @click="resumeSpatialRescan(item)">恢复空间补扫</button>
+          <button v-if="item.can_resume" type="button" class="btn btn-sm" :disabled="busy || rescanActive || spatialRescanActive || authorizationLocked" @click="resumeSpatialRescan(item)">恢复空间补扫</button>
         </p>
       </details>
       <section v-if="run" class="reading-proposals" aria-label="本次世界资料提案">
@@ -424,30 +436,30 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer) })
       <form v-if="canStart || pending" @submit.prevent="prepare">
         <div class="reading-fields">
           <p v-if="['needs_budget', 'source_changed', 'failed'].includes(run?.status) || recomputeCompleted">沿已确认范围读到第 {{ run.end_chapter }} 章。</p>
-          <label v-else>读到第几章<input v-model.number="endChapter" type="number" min="1" required :disabled="busy || !!pending"></label>
+          <label v-else>读到第几章<input v-model.number="endChapter" type="number" min="1" required :disabled="busy || authorizationLocked"></label>
           <p v-if="scopeBudget">完成本次确认范围</p>
-          <label v-else>{{ run?.status === 'needs_budget' ? "本次追加调用上限" : "本次最多调用模型" }}<input v-model.number="requestLimit" type="number" min="1" max="1000" required :disabled="busy || !!pending"></label>
+          <label v-else>{{ run?.status === 'needs_budget' ? "本次追加调用上限" : "本次最多调用模型" }}<input v-model.number="requestLimit" type="number" min="1" max="1000" required :disabled="busy || authorizationLocked"></label>
         </div>
-        <label v-if="run?.status === 'completed'" class="reading-recompute-toggle"><input v-model="recomputeCompleted" type="checkbox" :disabled="busy || !!pending">重新核对已有场景</label>
-        <label v-if="!run || recomputeCompleted || ['source_changed', 'failed'].includes(run.status)"><input v-model="discoverDetails" type="checkbox" :disabled="busy || !!pending">同时发现条件行为、线索与承诺，持续更新细节台账</label>
+        <label v-if="run?.status === 'completed'" class="reading-recompute-toggle"><input v-model="recomputeCompleted" type="checkbox" :disabled="busy || authorizationLocked">重新核对已有场景</label>
+        <label v-if="!run || recomputeCompleted || ['source_changed', 'failed'].includes(run.status)"><input v-model="discoverDetails" type="checkbox" :disabled="busy || authorizationLocked">同时发现条件行为、线索与承诺，持续更新细节台账</label>
         <p v-else>细节发现：{{ run.discovery_enabled ? '已启用' : '本轮未启用，可选择重新核对已有场景时开启' }}</p>
-        <label v-if="!run || recomputeCompleted || ['source_changed', 'failed'].includes(run.status)" class="reading-recompute-toggle"><input v-model="discoverSpatial" type="checkbox" aria-label="同时发现空间线索" :disabled="busy || !!pending">同时发现地点、空间关系与行程线索，整理为待审地图资料</label>
+        <label v-if="!run || recomputeCompleted || ['source_changed', 'failed'].includes(run.status)" class="reading-recompute-toggle"><input v-model="discoverSpatial" type="checkbox" aria-label="同时发现空间线索" :disabled="busy || authorizationLocked">同时发现地点、空间关系与行程线索，整理为待审地图资料</label>
         <p v-else>空间发现：{{ run.spatial_discovery_enabled ? '已启用，沿用本轮设置' : '本轮未启用，可选择重新核对已有场景时开启' }}</p>
         <template v-if="run?.status === 'failed' || recomputeCompleted">
-          <label>重新核对什么<select v-model="scopeKind" :disabled="busy || !!pending"><option value="scene">一段场景</option><option value="entity">人物或世界对象</option><option value="observation">一条已有观察</option></select></label>
-          <label v-if="scopeKind === 'scene'">从第几场重新核对<input v-model.number="fromScene" type="number" min="1" :max="run?.total_scenes" required :disabled="busy || !!pending"></label>
+          <label>重新核对什么<select v-model="scopeKind" :disabled="busy || authorizationLocked"><option value="scene">一段场景</option><option value="entity">人物或世界对象</option><option value="observation">一条已有观察</option></select></label>
+          <label v-if="scopeKind === 'scene'">从第几场重新核对<input v-model.number="fromScene" type="number" min="1" :max="run?.total_scenes" required :disabled="busy || authorizationLocked"></label>
           <div v-else>
             <p>从已提交理解中选择。人物陈述、推测等仍保留原性质；选择不会将其确认为事实。</p>
-            <label>查找名称或观察文字<input v-model="targetQuery" type="search" maxlength="200" :disabled="busy || !!pending"></label>
-            <button class="btn" type="button" :disabled="busy || !!pending" @click="loadTargets()">查找已读内容</button>
-            <label v-if="targets.length">核对目标<select v-model="targetId" required :disabled="busy || !!pending"><option disabled value="">请选择</option><option v-for="item in targets" :key="item.id" :value="item.id">第 {{ item.scene_index + 1 }} 场 · {{ item.label }}</option></select></label>
+            <label>查找名称或观察文字<input v-model="targetQuery" type="search" maxlength="200" :disabled="busy || authorizationLocked"></label>
+            <button class="btn" type="button" :disabled="busy || authorizationLocked" @click="loadTargets()">查找已读内容</button>
+            <label v-if="targets.length">核对目标<select v-model="targetId" required :disabled="busy || authorizationLocked"><option disabled value="">请选择</option><option v-for="item in targets" :key="item.id" :value="item.id">第 {{ item.scene_index + 1 }} 场 · {{ item.label }}</option></select></label>
             <p v-if="targetId">原文：{{ targets.find(item => item.id === targetId)?.quote }}</p>
             <p role="status">找到 {{ targetTotal }} 项。{{ targetTotal === 0 ? '没有找到不代表正文中不存在；可改用场景范围核对。' : '' }}</p>
-            <button v-if="targetOffset > 0" class="btn" type="button" :disabled="busy || !!pending" @click="loadTargets(Math.max(0, targetOffset - 50))">上一页</button>
-            <button v-if="targetOffset + targets.length < targetTotal" class="btn" type="button" :disabled="busy || !!pending" @click="loadTargets(targetOffset + 50)">下一页</button>
+            <button v-if="targetOffset > 0" class="btn" type="button" :disabled="busy || authorizationLocked" @click="loadTargets(Math.max(0, targetOffset - 50))">上一页</button>
+            <button v-if="targetOffset + targets.length < targetTotal" class="btn" type="button" :disabled="busy || authorizationLocked" @click="loadTargets(targetOffset + 50)">下一页</button>
           </div>
         </template>
-        <button class="btn" type="submit" :disabled="busy || !!pending || ((run?.status === 'failed' || recomputeCompleted) && scopeKind !== 'scene' && !targetId)">查看理解范围</button>
+        <button class="btn" type="submit" :disabled="busy || authorizationLocked || ((run?.status === 'failed' || recomputeCompleted) && scopeKind !== 'scene' && !targetId)">查看理解范围</button>
         <div v-if="preview" class="reading-confirmation">
           <p v-if="preview.recompute_target">核对目标：{{ preview.recompute_target.label }}。以它最早出现的场景定位，重新读取该场及依赖它的后续场景。</p>
           <p v-if="preview.budget_mode === 'confirmed_scope'">完成本次确认范围：准备边界、逐场理解、独立复核和整理。已完成结果保留，有疑问时留待核对。</p>
@@ -461,7 +473,7 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer) })
           </ul>
           <p v-if="preview.spatial_discovery_enabled">可选步骤额度用完会留下未检查缺口；不会自动追加额度，也不会因空间发现失败中断主阅读。</p>
           <p>本次使用模型：{{ preview.model }}</p>
-          <button class="btn btn-primary" type="button" :disabled="busy" @click="start">{{ pending ? "确认启动结果" : "确认并开始理解" }}</button>
+          <button class="btn btn-primary" type="button" :disabled="busy || !!rescanPending || !!spatialRescanPending" @click="start">{{ pending ? "确认启动结果" : "确认并开始理解" }}</button>
         </div>
       </form>
     </template>

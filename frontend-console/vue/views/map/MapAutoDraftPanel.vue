@@ -2,7 +2,7 @@
   <details class="card auto-drafts" @toggle="onToggle">
     <summary>阅读生成的地图草图<span v-if="loaded"> · {{ total }} 个版本</span></summary>
     <p>按空间和层级分片整理，原地图位置与锁定点会保留。草图需要单独审核。</p>
-    <button class="btn btn-sm" :disabled="locked" @click="load">{{ loading ? '正在读取…' : '重新读取草图' }}</button>
+    <button class="btn btn-sm" :disabled="locked || Boolean(selected)" @click="load">{{ loading ? '正在读取…' : '重新读取草图' }}</button>
     <p v-if="error" class="atlas-error" role="alert">{{ error }}</p>
     <p v-if="message" role="status">{{ message }}</p>
     <p v-if="loaded && !batches.length && !items.length">还没有阅读草图。空间发现或补扫完成后，可在这里核对。</p>
@@ -10,8 +10,8 @@
     <nav v-if="total > pageSize" class="draft-actions" aria-label="草图候选分页"><button class="btn btn-sm" :disabled="locked || Boolean(selected) || offset === 0" @click="changePage(-1)">上一页草图</button><span>{{ offset + 1 }}–{{ offset + items.length }} / {{ total }}</span><button class="btn btn-sm" :disabled="locked || Boolean(selected) || offset + items.length >= total" @click="changePage(1)">下一页草图</button></nav>
     <ul class="draft-batches"><li v-for="batch in batches" :key="batch.batch_id">
       <span>{{ statuses[batch.status] }} · {{ batch.completed_chunks }} / {{ batch.total_chunks }} 片</span>
-      <button v-if="batch.status === 'running'" class="btn btn-sm" :disabled="locked" @click="resume(batch)">继续整理分片</button>
-      <button v-else class="btn btn-sm" :disabled="locked" @click="redo(batch)">重新整理这一批</button>
+      <button v-if="batch.status === 'running'" class="btn btn-sm" :disabled="locked || Boolean(selected)" @click="resume(batch)">继续整理分片</button>
+      <button v-else class="btn btn-sm" :disabled="locked || Boolean(selected)" @click="redo(batch)">重新整理这一批</button>
       <p v-if="batch.status === 'stale'">来源或身份已变化，请先补扫或核对，再重新整理。</p>
     </li></ul>
     <article v-for="draft in items" :key="draft.revision_id" class="draft-item">
@@ -24,7 +24,7 @@
         <ul class="draft-tray"><li v-for="tray in draft.pending_tray" :key="tray.item_id">
           <strong>{{ tray.endpoint.surface || (tray.endpoint.state === 'candidate' ? '候选地点' : '已绑定地点') }}</strong><p>{{ reasons[tray.reason] || '需要核对后放置' }}</p><blockquote>{{ tray.quote }}</blockquote>
           <p v-if="tray.source_mode === 'working'">工作稿线索；正式采用前仍需核对原文与地点身份。</p>
-          <button class="btn btn-sm" :disabled="locked || draft.stale || draft.status !== 'candidate' || batchStatus(draft.batch_id) !== 'completed'" @click="selectTray(draft, tray)">在草图上选择位置</button>
+          <button class="btn btn-sm" :disabled="locked || Boolean(selected) || draft.stale || draft.status !== 'candidate' || draft.batch_status !== 'completed'" @click="selectTray(draft, tray)">在草图上选择位置</button>
         </li></ul>
       </details>
     </article>
@@ -62,6 +62,7 @@ const props = defineProps({ projectId: { type: String, required: true }, disable
 const emit = defineEmits(['state', 'changed', 'review'])
 const api = getApi(), items = ref([]), batches = ref([]), total = ref(0), truncated = ref(false), offset = ref(0), loaded = ref(false), loading = ref(false), busy = ref(false), confirming = ref(false), error = ref(''), message = ref('')
 const pageSize = 20
+const requestedOffset = ref(0)
 const selected = ref(null), spaceId = ref('main'), point = ref(null), preview = ref(null), canvas = ref(null)
 const expanded = ref(false), refreshPending = ref(false)
 let active = true, epoch = 0
@@ -71,9 +72,8 @@ const reasons = { unresolved_endpoint: '地点身份未确定', endpoint_not_loc
 const locked = computed(() => props.disabled || busy.value || loading.value || confirming.value)
 const visibleFeatures = computed(() => (selected.value?.draft.document.features || []).filter(feature => (feature.space_id || 'main') === spaceId.value))
 const bounds = computed(() => mapBounds(visibleFeatures.value))
-const batchStatus = id => batches.value.find(item => item.batch_id === id)?.status
 watch([busy, loading, confirming, selected], () => emit('state', { dirty: Boolean(selected.value), busy: busy.value || loading.value || confirming.value }), { immediate: true, flush: 'sync' })
-watch(() => props.projectId, () => { epoch++; items.value = []; batches.value = []; total.value = 0; offset.value = 0; truncated.value = false; loaded.value = false; loading.value = false; busy.value = false; confirming.value = false; selected.value = null; resetPoint(); error.value = ''; message.value = '' })
+watch(() => props.projectId, () => { epoch++; items.value = []; batches.value = []; total.value = 0; offset.value = 0; requestedOffset.value = 0; truncated.value = false; loaded.value = false; loading.value = false; busy.value = false; confirming.value = false; selected.value = null; resetPoint(); error.value = ''; message.value = '' })
 onBeforeUnmount(() => { active = false; epoch++; emit('state', { dirty: false, busy: false }) })
 watch([locked, selected], flushRefresh)
 defineExpose({ refresh: requestRefresh })
@@ -84,12 +84,19 @@ function onToggle(event) { expanded.value = event.target.open; if (expanded.valu
 async function load() {
   if (locked.value || selected.value) return
   const token = ++epoch, projectId = props.projectId
+  let pageOffset = requestedOffset.value
   loading.value = true; error.value = ''
-  try { const result = await api.world.listMapAutoDrafts(projectId, { limit: pageSize, offset: offset.value }); if (active && token === epoch && projectId === props.projectId) { items.value = result.items; total.value = result.total_count; batches.value = result.batches || []; truncated.value = Boolean(result.batches_truncated); loaded.value = true; resetPoint() } }
+  try {
+    let result = await api.world.listMapAutoDrafts(projectId, { limit: pageSize, offset: pageOffset })
+    if (active && token === epoch && pageOffset > 0 && pageOffset >= result.total_count) {
+      requestedOffset.value = pageOffset = Math.max(0, Math.floor((result.total_count - 1) / pageSize) * pageSize)
+      result = await api.world.listMapAutoDrafts(projectId, { limit: pageSize, offset: pageOffset })
+    }
+    if (active && token === epoch && projectId === props.projectId) { offset.value = pageOffset; items.value = result.items; total.value = result.total_count; batches.value = result.batches || []; truncated.value = Boolean(result.batches_truncated); loaded.value = true; resetPoint() } }
   catch (failure) { if (active && token === epoch) error.value = failure.message || '草图读取失败，请重试。' }
   finally { if (active && token === epoch) loading.value = false }
 }
-function changePage(delta) { if (locked.value || selected.value) return; offset.value = Math.max(0, offset.value + delta * pageSize); void load() }
+function changePage(delta) { if (locked.value || selected.value) return; requestedOffset.value = Math.max(0, offset.value + delta * pageSize); void load() }
 async function confirmIntent(text, label) {
   if (locked.value || !active) return false
   const token = epoch, projectId = props.projectId
@@ -101,17 +108,22 @@ async function run(action, success) {
   if (locked.value || !active) return
   const token = ++epoch, projectId = props.projectId
   busy.value = true; error.value = ''; message.value = ''
-  try { await action(); if (!active || token !== epoch || projectId !== props.projectId) return; selected.value = null; resetPoint(); message.value = success; emit('changed') }
+  try { const result = await action(); if (!active || token !== epoch || projectId !== props.projectId) return; selected.value = null; resetPoint(); message.value = typeof success === 'function' ? success(result) : success; emit('changed') }
   catch (failure) { if (active && token === epoch) { error.value = failure.status === 409 ? '地图、来源或托盘已变化，请重新读取后核对。' : failure.message || '草图操作未完成，请重新读取核对结果。'; preview.value = null } }
   finally { if (active && token === epoch) busy.value = false }
   if (active && token === epoch && !error.value) await load()
 }
-async function resume(batch) { await run(() => api.world.resumeMapAutoDrafts(props.projectId, batch.batch_id, { expected_fingerprint: batch.fingerprint, confirmed: true }), '本片已整理，已完成候选保留。可继续下一片或打开地图审核。') }
-async function redo(batch) {
-  if (!await confirmIntent('重新整理这一批草图？将保留原候选历史和已保存地图，重新核对线索与排布。', '确认重新整理')) return
-  await run(() => api.world.redoMapAutoDrafts(props.projectId, batch.batch_id, { expected_fingerprint: batch.fingerprint, reason: 'author_requested', confirmed: true }), '已提交重新整理，请核对新草图。')
+function buildMessage(result) {
+  if (result.status === 'stale') return '来源或方法已变化，草图未继续整理。请核对来源后重新整理。'
+  return result.status === 'completed' ? '本批草图已整理完成，请继续单独审核候选。' : '本片已整理，已完成候选保留。可继续下一片。'
 }
-function selectTray(draft, tray) { if (locked.value || draft.stale || draft.status !== 'candidate' || batchStatus(draft.batch_id) !== 'completed') return; selected.value = { draft, tray }; spaceId.value = draft.document.spaces?.[0]?.id || 'main'; resetPoint() }
+async function resume(batch) { if (selected.value) return; await run(() => api.world.resumeMapAutoDrafts(props.projectId, batch.batch_id, { expected_fingerprint: batch.fingerprint, confirmed: true }), buildMessage) }
+async function redo(batch) {
+  if (selected.value) return
+  if (!await confirmIntent('重新整理这一批草图？将保留原候选历史和已保存地图，重新核对线索与排布。', '确认重新整理')) return
+  await run(() => api.world.redoMapAutoDrafts(props.projectId, batch.batch_id, { expected_fingerprint: batch.fingerprint, reason: 'author_requested', confirmed: true }), buildMessage)
+}
+function selectTray(draft, tray) { if (locked.value || selected.value || draft.stale || draft.status !== 'candidate' || draft.batch_status !== 'completed') return; selected.value = { draft, tray }; spaceId.value = draft.document.spaces?.[0]?.id || 'main'; resetPoint() }
 function choosePoint(event) {
   if (locked.value || !canvas.value) return
   const transform = canvas.value.getScreenCTM()

@@ -504,7 +504,8 @@ World 入口 `build_map_auto_drafts(db, novel_id, request)` 聚合一次阅读�
 自动草图 API 位于 `/api/world/map-atlas/{novel_id}/auto-drafts`：GET 按 `offset`/`limit` 返回候选，
 `total_count` 为完整条目数，`truncated` 表示后面还有候选页。每条携带真实节点元数据 `node`，
 供仅有候选的 provisional 节点在独立审核入口打开，不加入正式地图目录。进度列表最多返回最新
-200 批，超出时 `batches_truncated=true`；候选分页仍能访问这些较早批次。
+200 批，超出时 `batches_truncated=true`；候选分页仍能访问这些较早批次，每条的
+`batch_status` 来自关联批次，托盘操作不依赖截断的批次摘要。
 POST `/build` 创建/续跑聚合批次，`/{batch_id}/resume` 兼容作者续跑，`/{batch_id}/redo` 确认整片重做。
 待放置地点通过 `/{batch_id}/nodes/{node_id}/revisions/{revision_id}/tray/{item_id}/preview|place`
 预览和确认。线索审核仍用上节的 `/spatial-clues/{clue_id}/review`，草图审核仍用

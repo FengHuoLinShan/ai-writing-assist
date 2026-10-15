@@ -2179,6 +2179,7 @@ async def list_map_auto_drafts(
         items.append(
             MapAutoDraftListItem(
                 batch_id=batch.id,
+                batch_status=batch.status,
                 node_id=node.id,
                 node_title=node.title,
                 node=MapAtlasService._node_dict(node, [], []),

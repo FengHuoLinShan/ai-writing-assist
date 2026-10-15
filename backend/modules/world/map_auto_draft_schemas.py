@@ -119,6 +119,7 @@ class MapAutoDraftBatchProgress(MapAutoDraftModel):
 
 class MapAutoDraftListItem(MapAutoDraftModel):
     batch_id: UUID
+    batch_status: MapAutoDraftStatus
     node_id: UUID
     node_title: str
     node: MapAtlasNodeResponse

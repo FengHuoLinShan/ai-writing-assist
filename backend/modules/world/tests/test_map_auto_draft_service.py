@@ -994,6 +994,8 @@ async def test_long_build_key_can_redo_and_old_batches_remain_reachable(
     assert second.truncated is False
     assert listed.items[0].batch_id == rebuilt.batch_id
     assert second.items[0].batch_id == first.batch_id
+    assert first.batch_id not in {batch.batch_id for batch in second.batches}
+    assert second.items[0].batch_status == "completed"
 
 
 @pytest.mark.asyncio
