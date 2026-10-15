@@ -25,6 +25,7 @@ from modules.world.map_spatial_clue_service import (
     review_spatial_clue,
 )
 from modules.world.map_structure_schemas import (
+    MapAuthorDecision,
     MapDocument,
     MapFeature,
     MapNodeCreate,
@@ -794,12 +795,10 @@ async def _read_author_decision(db, novel_id, context):
     frozen = (context.internal_meta or {}).get("prepared_preview") or {}
     frozen_decision = frozen.get("author_decision") or {}
     reader = get(ASSISTANT_READ_MAP_AUTHOR_DECISION)
-    return await reader(
-        db,
-        novel_id,
-        context.run_id,
-        message_id=frozen_decision.get("message_id"),
+    reference = await reader(
+        db, novel_id, context.run_id, message_id=frozen_decision.get("message_id")
     )
+    return MapAuthorDecision.model_validate(reference)
 
 
 async def _structure_edit_preview(db, novel_id, args, *, context=None):

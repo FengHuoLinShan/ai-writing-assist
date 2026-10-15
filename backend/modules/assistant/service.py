@@ -88,6 +88,9 @@ _INSTRUCTIONS = """你是作者的项目助手。理解当前工作位置，主�
 只有 permission=confirm 的业务修改可提出 actions。
 如果提供 revise_candidate，可按 writing.targeted_revision 只修复原审稿的指定问题。
 返修后重新审稿。
+若提供地图工具，作者直接给出的安排经预览确认后保存为作者安排；从正文推断的信息仅进入带逐字引文和模态的候选线索。
+不猜坐标，不把缺少行程或位置记录解释为可通行或已到达。空间提醒只作建议，可准备正文候选或地图修改预览，也可逐条静默。
+演化入口只准备授权预览；费用确认由作者在演化页独立完成，未知请求结果不能自行重发。
 不能声称已经修改或保存。
 每个操作给具体内容和影响，同一资产的修改合并，依赖用同批次 key。
 不要自行指定身份或确认字段。
@@ -167,7 +170,10 @@ def _assistant_evidence_dimensions(references: dict[str, dict]) -> tuple[str, ..
         "plot_threads",
         "memory",
     )
-    if any(item.get("map_spatial_guard") for item in references.values()):
+    if any(
+        (item.get("map_spatial_guard") or item.get("spatial_advisory"))
+        for item in references.values()
+    ):
         return (*dimensions, "map_spatial")
     return dimensions
 
@@ -175,7 +181,9 @@ def _assistant_evidence_dimensions(references: dict[str, dict]) -> tuple[str, ..
 def _assistant_evidence_sources(references: dict[str, dict]):
     # Keep optional map evidence separate from required facts during adjudication.
     core = {
-        key: item for key, item in references.items() if not item.get("map_spatial_guard")
+        key: item
+        for key, item in references.items()
+        if not (item.get("map_spatial_guard") or item.get("spatial_advisory"))
     }
     return (
         GroupSource(
@@ -195,7 +203,7 @@ def _assistant_evidence_sources(references: dict[str, dict]):
                 dimensions=("map_spatial",),
             )
             for key, item in references.items()
-            if item.get("map_spatial_guard")
+            if (item.get("map_spatial_guard") or item.get("spatial_advisory"))
         ),
     )
 
@@ -574,7 +582,13 @@ class AssistantService:
                 "read_tools": {
                     tool.name: fingerprint(tool.function_schema.json_schema)
                     for tool in author_read_tools(allow_web=True, version="6")
-                    if tool.name != "map_spatial_brief"
+                    if tool.name
+                    not in {
+                        "map_spatial_brief",
+                        "map_spatial_advisories",
+                        "map_journey",
+                        "map_object_position",
+                    }
                     or "assistant.turn" in get_settings().map_spatial_enabled_capabilities
                 },
             },
@@ -1330,7 +1344,10 @@ class AssistantService:
             if run.status != "running" or str(run.task_id) != str(task.id):
                 return {"status": "superseded"}
             result_json = answer.model_dump(mode="json")
-            if any(item.get("map_spatial_guard") for item in deps.evidence_refs.values()):
+            if any(
+                (item.get("map_spatial_guard") or item.get("spatial_advisory"))
+                for item in deps.evidence_refs.values()
+            ):
                 scope, _plan = build_group_scope(
                     capability="assistant.turn",
                     novel_id=novel_id,

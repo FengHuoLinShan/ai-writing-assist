@@ -70,3 +70,49 @@ async def test_rescan_operation_never_starts_spatial_rescan(monkeypatch):
     assert len(calls) == 2
     assert result["authorization_required"] is True
     assert result["authorization_preview"]["call_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_registered_map_status_reads_authorized_segment_and_unknown_journal(
+    db_session, evolution_project_id, account_llm_connection
+):
+    from uuid import UUID
+
+    from core.container import get
+    from core.errors import ConflictError
+    from core.service_keys import EVOLUTION_READ_MAP_COLD_START_STATUS
+    from modules.evolution.models import EvolutionRun
+
+    operation_id = str(uuid4())
+    run = EvolutionRun(
+        novel_id=UUID(evolution_project_id),
+        run_key="map-guide-read",
+        mode="bootstrap",
+        reading_plan_json={
+            "steps": [],
+            "spatial_version": 1,
+            "segments": [
+                {
+                    "operation_id": operation_id,
+                    "request": {
+                        "discover_spatial": True,
+                        "expected_fingerprint": "a" * 64,
+                    },
+                }
+            ],
+            "preparation": {
+                "stage": "complete",
+                "sources": [{"chapter_index": 1}],
+                "calls": {"window": {"stage": "sampling"}},
+            },
+        },
+    )
+    db_session.add(run)
+    await db_session.flush()
+    reader = get(EVOLUTION_READ_MAP_COLD_START_STATUS)
+    result = await reader(db_session, evolution_project_id, run.run_key, operation_id)
+    assert result["status"] == "needs_reconciliation"
+    assert result["can_start_or_resume"] is False
+    assert result["request"]["expected_fingerprint"] == "a" * 64
+    with pytest.raises(ConflictError, match="不属于当前地图流程"):
+        await reader(db_session, evolution_project_id, run.run_key, str(uuid4()))

@@ -330,9 +330,22 @@ ADR-0023 经 Evidence author-only inspection 读取当前采用的空间版本�
 地图助手新操作以双阶段预览和确认进入 World 操作目录：可按层级或空间审核自动草图，
 确认批次覆盖完整候选修订 ID、批次指纹与正式 head 基线，实际改动最多 20 项；空间线索按
 精确引文和可选 Scene 位置定位，歧义时停止，处置仍复用 World 的来源重验。空间与层级节点
-支持创建、移动和改名；合并尚无地图域原语。空间、关系和行程编辑沿用 `MapDocument` 校验，
+支持创建、移动和改名；空间可合并并按实际图元变更计数，节点合并仅提供绑定两个版本的受控候选预览，
+尚不执行节点合并或原节点处置。空间、关系和行程编辑沿用 `MapDocument` 校验，
 助手输入不含点坐标。行程可以保留原文逐字来源，也可带服务端验证的 `author_decision`；
-助手从当前 run 绑定的作者消息取 ID 与正文哈希，不把对话写成正文 canonical 引文。
+助手从当前 run 绑定的作者消息取 ID 与正文哈希，并将作者决定保存到空间版本；预览、确认和保存均重验，
+不把对话写成正文 canonical 引文。候选地点采用地图时保留实体绑定；地点经 World 原入口采用前，
+读者预览、空间简报与检查排除该图元及依赖路线，拒绝或删除地点才降级为文字标签。
+
+新作者运行使用 v6，旧 v1–v5 的操作和读取工具清单保持冻结，旧 MapNodeCreate schema 保持原字段与哈希。
+v6 提供明确的两地行程和对象当前 Scene 最后位置查询，缺失或同名歧义返回 `unknown`；
+空间提醒通过已注册 World typed port 读取，保留地图修订和来源，提供 Writing 候选入口或地图结构预览。
+逐条静默写入 Assistant notice，指纹绑定当前提醒与修订；不改变 World 结论。地图参考消费开关仍默认关闭。
+
+`map_cold_start` v1 复用默认关闭的 Guided Flow 开关与项目白名单。流程冻结阅读或补扫范围和授权预览，
+作者到演化页独立确认计费后，以相同 operation_id、请求与预览指纹绑定领域运行；助手不能开始、确认或重发付费请求。
+未知结果停在演化回执核对；完成后汇总该运行的草图，按空间或层级每批最多 20 项审核，再到 World 原采用入口
+可选处理地点。所有领域写入仍独立确认，不做跨域原子采用；完成停在“地图可用”。
 
 
 Assistant 地图读取/修改结果保留 node 与 revision，图片状态摘要保留 run 与 page。前端按指定
@@ -546,7 +559,7 @@ Ask World 没有明确 Scene 或截止章节时不猜范围，已有地图会在
 无地图则不添加提示。作者可在现有参考确认弹窗输入章节；已确认 Context 按冻结的
 Scene/章节、选择与排除范围取得地图参考，回答引用携带同一时点并在打开或保存前重新核对。
 
-七个 Evidence consumer 与 Assistant v5 的只读地图工具各有独立 `MAP_SPATIAL_ENABLED_CAPABILITIES` 开关，默认空集合。简报最多 20 个地图节点、每节点 3000 字符；作者排除、失效来源、超出预算或范围的参考写入 advisory 省略信息，不使必查知识范围阻断。Context confirmation 保存节点 revision/hash；地图变化时沿用 G8b `read_map_node_heads` 读时提示，不回写核对状态。五题材 paired eval 尚未运行，`human_validated=false`，因此所有消费开关保持关闭。
+七个 Evidence consumer 与 Assistant v5/v6 的只读地图工具各有独立 `MAP_SPATIAL_ENABLED_CAPABILITIES` 开关，默认空集合。简报最多 20 个地图节点、每节点 3000 字符；作者排除、失效来源、超出预算或范围的参考写入 advisory 省略信息，不使必查知识范围阻断。Context confirmation 保存节点 revision/hash；地图变化时沿用 G8b `read_map_node_heads` 读时提示，不回写核对状态。五题材 paired eval 尚未运行，`human_validated=false`，因此所有消费开关保持关闭。
 
 空间参考只使用核心上下文的剩余预算；语义审查与定向返修复用生成确认时按各自开关读取地图，
 保持原核心资料与排除范围。隐藏地点绑定的地图节点整体不可见，固定类型修订无法读取或被作者排除时，

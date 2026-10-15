@@ -329,7 +329,7 @@ def test_journey_requires_ordered_units_and_a_quoted_source():
                 ],
             }
         )
-    with pytest.raises(ValidationError, match="quoted source"):
+    with pytest.raises(ValidationError, match="quoted evidence or an author decision"):
         MapDocument.model_validate(
             {
                 "schema_version": 2,

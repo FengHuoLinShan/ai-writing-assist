@@ -45,11 +45,11 @@ async def test_reader_returns_hash_and_identity_for_current_run_author_message(
     decision = await service.read_map_author_decision(
         reader_db, str(novel_id), str(run_id)
     )
-    assert decision.origin == "assistant"
-    assert decision.run_id == run_id
-    assert decision.message_id == message_id
+    assert decision["origin"] == "assistant"
+    assert decision["run_id"] == str(run_id)
+    assert decision["message_id"] == str(message_id)
     assert (
-        decision.statement_hash
+        decision["statement_hash"]
         == hashlib.sha256(message.content.encode("utf-8")).hexdigest()
     )
 

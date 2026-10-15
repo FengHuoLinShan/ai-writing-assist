@@ -85,9 +85,7 @@ def test_v2_review_promotes_schema_and_implicitly_restores_default_space():
         }
     )
 
-    adopted, applied, _ = apply_revision_changes(
-        baseline, candidate, ["feature:a"]
-    )
+    adopted, applied, _ = apply_revision_changes(baseline, candidate, ["feature:a"])
 
     assert adopted.schema_version == 2
     assert {space.id for space in adopted.spaces} == {"main", "dream"}

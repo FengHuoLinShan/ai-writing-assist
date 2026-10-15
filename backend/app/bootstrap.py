@@ -11,6 +11,9 @@ from core.container import ensure_registered, get as _get
 from core.container import register as _register
 from core.service_keys import (
     ALL_SERVICE_KEYS,
+    ASSISTANT_READ_MAP_AUTHOR_DECISION,
+    EVOLUTION_READ_MAP_COLD_START_STATUS,
+    WORLD_READ_MAP_COLD_START_DRAFTS,
     CONDITIONALLY_REGISTERED,
     ACCOUNT_PROJECT_CONTEXT,
     ACCOUNT_PROJECT_IDS_FOR_OWNER,
@@ -210,7 +213,11 @@ from modules.world.facade import (
     read_map_spatial_advisories as _world_read_map_spatial_advisories,
 )
 from modules.world.assistant_tools import OPERATIONS as _WORLD_OPERATIONS
-from app.assistant_operation_registry import evidence_forecast_operations
+from app.assistant_operation_registry import (
+    evidence_forecast_operations,
+    evolution_operations,
+    assistant_spatial_advisory_operations,
+)
 from app.assistant_operation_registry import project_dedup_operations
 from app.assistant_operation_registry import project_operations
 from app.assistant_operation_registry import story_information_operations
@@ -242,6 +249,11 @@ from modules.writing.assistant_tools import (
     schedule_proactive_review as _writing_proactive_review,
 )
 from modules.assistant.facade import mark_changed as _assistant_mark_changed
+from modules.assistant.facade import read_map_author_decision as _read_map_author_decision
+from modules.evolution.facade import (
+    read_map_cold_start_status as _read_map_cold_start_status,
+)
+from modules.world.facade import read_map_cold_start_drafts as _read_map_cold_start_drafts
 from modules.collaboration.facade import (
     changed_cases as _collab_changed_cases,
     collect_forecast_understanding as _collab_collect_forecast_understanding,
@@ -403,11 +415,16 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
                 **_IMPORTS_OPERATIONS,
                 **evidence_forecast_operations,
                 **world_map_operations,
+                **evolution_operations,
+                **assistant_spatial_advisory_operations,
                 **world_vocabulary_operations,
                 **_WORLD_REVIEW_OPERATIONS,
             },
         ),
         (SOURCE_CHANGED, _assistant_mark_changed),
+        (ASSISTANT_READ_MAP_AUTHOR_DECISION, _read_map_author_decision),
+        (EVOLUTION_READ_MAP_COLD_START_STATUS, _read_map_cold_start_status),
+        (WORLD_READ_MAP_COLD_START_DRAFTS, _read_map_cold_start_drafts),
         (
             ASSISTANT_PROACTIVE_SUBMITTERS,
             {

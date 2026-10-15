@@ -351,6 +351,61 @@ OPERATION_SNAPSHOT = {
 }
 
 
+# Map enhancement v6 adds new names; historical entries retain their fingerprints.
+OPERATION_SNAPSHOT.update(
+    {
+        "assistant.silence_spatial_advisory": (
+            "静默这一条空间提醒",
+            "confirm",
+            "1",
+            "f2bf04ee2fe269255a6f123b00a2c1d0803def47d99587b28a8db06678b11d1e",
+        ),
+        "evolution.prepare_spatial_reading": (
+            "准备空间发现阅读授权预览",
+            "confirm",
+            "1",
+            "1c7251ee14a9925fb78b65f353b806398960259014c199cb5b272fcde2e0d781",
+        ),
+        "evolution.prepare_spatial_rescan": (
+            "准备空间补扫授权预览",
+            "confirm",
+            "1",
+            "678c25ac32e9651b29916458fca9d0e83ed70036aa72af3f26ac55b3eb196675",
+        ),
+        "map.edit_spatial_structure": (
+            "编辑空间、关系或行程",
+            "confirm",
+            "1",
+            "90aa2b611611e07cc436ad1d5a736996b911fc1088e306d2685059535fa0cf95",
+        ),
+        "map.preview_node_merge": (
+            "准备地图节点合并候选",
+            "confirm",
+            "1",
+            "2c04c4b212a0dda6e4c71a0dd64688599bd566b9c9e3cdad9d8922c088cecce9",
+        ),
+        "map.review_auto_draft_group": (
+            "按空间或层级审核自动草图",
+            "confirm",
+            "1",
+            "3ac0b9c84c66e0856b332827c6ac0ab31493f75ff9492ce5d3f5f381d68abc7b",
+        ),
+        "map.review_spatial_clues": (
+            "审核空间线索",
+            "confirm",
+            "1",
+            "be91cdd4ab7db2bf1d9ef67bd6dfb5daad875e6f55c220b4a1816bc87acea337",
+        ),
+        "map.update_node": (
+            "移动或改名地图节点",
+            "confirm",
+            "1",
+            "de83bb98ac25d3e8b0e352d13b6849c340dede8e467045f35bebff0e3317591c",
+        ),
+    }
+)
+
+
 def test_bootstrap_operation_catalog_matches_snapshot():
     from app.bootstrap import register_container_services
     from core.container import get

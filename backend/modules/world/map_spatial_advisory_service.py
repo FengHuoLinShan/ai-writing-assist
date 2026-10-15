@@ -354,7 +354,7 @@ class MapSpatialAdvisoryService:
             decision = getattr(item, "author_decision", None)
             key = (
                 revision_has_task,
-                getattr(decision, "statement_hash", None),
+                decision.model_dump_json() if decision is not None else None,
                 tuple(source.model_dump_json() for source in item.sources),
             )
             if key not in source_checks:
@@ -369,7 +369,20 @@ class MapSpatialAdvisoryService:
             if not sources and revision_has_task and author_decision is None:
                 return False
             if not sources and author_decision is not None:
-                return bool(getattr(author_decision, "statement_hash", None))
+                if author_decision.origin == "manual":
+                    return not revision_has_task
+                from core.service_keys import ASSISTANT_READ_MAP_AUTHOR_DECISION
+                from modules.world.map_structure_schemas import MapAuthorDecision
+
+                verified = MapAuthorDecision.model_validate(
+                    await get(ASSISTANT_READ_MAP_AUTHOR_DECISION)(
+                        db,
+                        data.novel_id,
+                        str(author_decision.run_id),
+                        message_id=str(author_decision.message_id),
+                    )
+                )
+                return verified == author_decision
             service = MapStructureService()
             for source in sources:
                 if str(source.id) in excluded or (

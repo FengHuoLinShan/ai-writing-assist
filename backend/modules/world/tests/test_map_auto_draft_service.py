@@ -314,9 +314,8 @@ async def test_auto_adoption_preserves_candidate_binding_until_canonical(
     features = saved.document["features"]
     assert len(features) == 3  # Two bound places and the program-built route.
     assert sum(item["entity_id"] is not None for item in features) == 2
-    from modules.world.map_structure_service import canonical_map_feature_ids
-
     from modules.world.map_structure_schemas import MapDocument
+    from modules.world.map_structure_service import canonical_map_feature_ids
 
     document = MapDocument.model_validate(saved.document)
     assert (
@@ -332,15 +331,10 @@ async def test_auto_adoption_preserves_candidate_binding_until_canonical(
         item.id for item in document.features
     }
     original = await db_session.get(MapAtlasRevision, revision.id)
-    assert original.status == "rejected"
-    with pytest.raises(ConflictError, match="只能恢复已保存"):
-        await MapStructureService().review(
-            db_session,
-            project_novel_id,
-            str(original.node_id),
-            str(original.id),
-            MapRevisionReview(action="restore", base_revision_id=saved.id),
-        )
+    assert original.status == "saved"
+    assert {item.get("entity_id") for item in original.document["features"]} == {
+        item.get("entity_id") for item in saved.document["features"]
+    }
 
 
 @pytest.mark.asyncio

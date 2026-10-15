@@ -2197,3 +2197,11 @@ AUTO_STEPS = {
     OPENING_FLOW_ID: run_opening_auto_step,
     EDITORIAL_FLOW_ID: run_editorial_auto_step,
 }
+
+# Map cold start has no automatic domain writes or paid-task submissions.
+from modules.assistant.guided_flow import map_cold_start as _map_cold_start  # noqa: E402
+
+START_CHECKS[_map_cold_start.FLOW.flow_id] = _map_cold_start.start_check
+DERIVERS[_map_cold_start.FLOW.flow_id] = _map_cold_start.derive
+CHOICE_INPUT[_map_cold_start.FLOW.flow_id] = _map_cold_start.choice
+AUTO_STEPS[_map_cold_start.FLOW.flow_id] = _map_cold_start.auto_step

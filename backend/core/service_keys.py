@@ -23,6 +23,7 @@ if TYPE_CHECKING:
         ResourceSnapshot,
     )
     from modules.evidence.confirmation_reads_port import ConfirmationReadsPort
+    from modules.evolution.contracts import EvolutionReadMapColdStartStatusPort
     from modules.project.contracts import (
         StoryDedupSuggestionProvider,
         StoryWorkspaceStatsProvider,
@@ -43,6 +44,7 @@ if TYPE_CHECKING:
         MapAuthorDecisionReaderPort,
         WorldAliasRelationTaskPort,
         WorldBuildMapAutoDraftsPort,
+        WorldReadMapColdStartDraftsPort,
         WorldReadMapSpatialAdvisoriesPort,
         WorldReadMapSpatialBriefPort,
     )
@@ -68,6 +70,12 @@ ASSISTANT_FORECAST_SOURCES: ServiceKey[dict[str, Any]] = ServiceKey(
 ASSISTANT_OPERATIONS: ServiceKey[dict[str, Any]] = ServiceKey("assistant.operations")
 ASSISTANT_READ_MAP_AUTHOR_DECISION: ServiceKey[MapAuthorDecisionReaderPort] = ServiceKey(
     "assistant.read_map_author_decision"
+)
+EVOLUTION_READ_MAP_COLD_START_STATUS: ServiceKey[EvolutionReadMapColdStartStatusPort] = (
+    ServiceKey("evolution.read_map_cold_start_status")
+)
+WORLD_READ_MAP_COLD_START_DRAFTS: ServiceKey[WorldReadMapColdStartDraftsPort] = (
+    ServiceKey("world.read_map_cold_start_drafts")
 )
 SOURCE_CHANGED: ServiceKey[Callable[..., Any]] = ServiceKey("source.changed")
 ASSISTANT_PROACTIVE_SUBMITTERS: ServiceKey[dict[str, Callable[..., Any]]] = ServiceKey(
@@ -372,6 +380,9 @@ WRITING_MANUSCRIPT_SOURCE: ServiceKey[ManuscriptSourcePort] = ServiceKey(
 
 #: 组合根登记的全部键（与 ``app/bootstrap.py`` 一一对应）。
 ALL_SERVICE_KEYS: tuple[ServiceKey[Any], ...] = (
+    ASSISTANT_READ_MAP_AUTHOR_DECISION,
+    EVOLUTION_READ_MAP_COLD_START_STATUS,
+    WORLD_READ_MAP_COLD_START_DRAFTS,
     EVIDENCE_CONFIRMATION_READS,
     ASSISTANT_FORECAST_INSTRUCTIONS,
     ASSISTANT_FORECAST_PERSONAS,

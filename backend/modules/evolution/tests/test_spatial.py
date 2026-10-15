@@ -748,26 +748,50 @@ async def test_auto_draft_nonterminal_progress_reenters_same_request():
     assert len(run.reading_plan_json["spatial_auto_draft_builds"]) == 1
 
 
-async def test_missing_auto_draft_port_is_visible_and_can_recover():
+async def test_missing_auto_draft_port_is_visible_and_can_recover(monkeypatch):
+    from contextlib import nullcontext
+
+    import core.container as di
     from modules.evolution.workflow import _build_spatial_auto_draft_batch
 
     class Db:
+        def begin_nested(self):
+            return nullcontext()
+
         async def flush(self):
             pass
 
     run = SimpleNamespace(
         run_key="reading",
         committed_scene_index=0,
-        reading_plan_json={
-            "steps": [{"scene_index": 0, "scene_id": str(uuid4())}],
-        },
+        reading_plan_json={"steps": [{"scene_index": 0, "scene_id": str(uuid4())}]},
     )
-    with container_scope({}):
+    # An empty override scope retains application services; remove exactly this
+    # provider so the fixture exercises the actual missing-key lookup.
+    with monkeypatch.context() as missing:
+        missing.delitem(di._container, WORLD_BUILD_MAP_AUTO_DRAFTS.name, raising=False)
         result = await _build_spatial_auto_draft_batch(
             Db(), "novel", run, build_key="batch"
         )
     assert result["status"] == "failed" and result["failure_kind"] == "KeyError"
     assert run.reading_plan_json["spatial_auto_draft_builds"] == [result]
+
+    async def restored(db, novel_id, request):
+        return {
+            "batch_id": uuid4(),
+            "fingerprint": "d" * 64,
+            "status": "completed",
+            "cursor": 1,
+            "total_chunks": 1,
+            "completed_chunks": 1,
+        }
+
+    with container_scope({WORLD_BUILD_MAP_AUTO_DRAFTS: restored}):
+        recovered = await _build_spatial_auto_draft_batch(
+            Db(), "novel", run, build_key="batch"
+        )
+    assert recovered["status"] == "completed"
+    assert run.reading_plan_json["spatial_auto_draft_builds"] == [recovered]
 
 
 async def test_density_skipped_rescan_attempt_is_durably_completed(monkeypatch):

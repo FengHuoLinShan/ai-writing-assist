@@ -79,6 +79,9 @@ from modules.world.event_facade import (  # noqa: F401
     get_full_state,
     rollback_to_revision,
 )
+from modules.world.map_assistant_read_service import (
+    read_map_cold_start_drafts as read_map_cold_start_drafts,
+)
 from modules.world.map_atlas_facade import (  # noqa: F401
     list_adopted_map_continuity_facts,
     read_map_node_heads,
@@ -214,6 +217,7 @@ __all__ = [
     "read_spatial_discovery_context",
     "stage_spatial_discovery",
     "build_map_auto_drafts",
+    "read_map_cold_start_drafts",
     "read_world_bible_page_revisions",
     "read_project_vocabulary",
     "resolve_vocabulary_type_revisions",

@@ -481,6 +481,7 @@ __all__ = [
     "EvidenceQuote",
     "EvidenceKind",
     "EvolutionReceipt",
+    "EvolutionReadMapColdStartStatusPort",
     "ExecutionStatus",
     "FreshnessStatus",
     "IdentityCandidate",
@@ -499,3 +500,9 @@ __all__ = [
     "TypedStateOperation",
     "operation_changes_state",
 ]
+
+
+class EvolutionReadMapColdStartStatusPort(Protocol):
+    async def __call__(
+        self, db: AsyncSession, novel_id: str, run_key: str, operation_id: str
+    ) -> dict: ...

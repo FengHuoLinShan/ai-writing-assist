@@ -640,3 +640,39 @@ async def test_journey_comparison_and_route_evidence_ignore_drawn_connection_gap
     assert ("journey_duration_conflict" in codes) is conflict
     assert "route_no_active_connection" not in codes
     assert result.unknowns  # A declared route still cannot prove arrival timing.
+
+
+@pytest.mark.asyncio
+async def test_manual_author_journeys_are_checked_but_plans_are_not(
+    db_session, test_project_id
+):
+    from copy import deepcopy
+
+    scene, node, revision, _places, _ = await seed(db_session, test_project_id)
+    document = deepcopy(revision.document)
+    document["constraints"] = []
+    document["journeys"] = [
+        {
+            "id": key,
+            "origin": "east",
+            "destination": "west",
+            "transport_label": "步行",
+            "duration": {"minimum": low, "maximum": high, "unit": "日"},
+            "sources": [],
+            "author_decision": {"origin": "manual"},
+        }
+        for key, low, high in (("short", 2, 3), ("long", 5, 6))
+    ]
+    revision.document = document
+    await db_session.flush()
+    reader = get(WORLD_READ_MAP_SPATIAL_ADVISORIES)
+    request = {"novel_id": test_project_id, "scene_id": str(scene.id)}
+    result = await reader(db_session, request)
+    assert "journey_duration_conflict" in {item.rule_code for item in result.items}
+    document = deepcopy(document)
+    for journey in document["journeys"]:
+        journey["modality"] = "author_plan"
+    revision.document = document
+    await db_session.flush()
+    result = await reader(db_session, request)
+    assert "journey_duration_conflict" not in {item.rule_code for item in result.items}

@@ -1148,9 +1148,6 @@ async def _project_candidate_entities(
             feature.entity_id = current.id
             warnings.append("部分地点已融合，草图绑定跟随融合目标")
         if current is not None and current.status != "canonical":
-            feature.note = (
-                f"{feature.note}\n地点尚未采用；保留身份绑定，采用地点前不进入读者预览、写作简报或空间检查。"
-            )[-1000:]
             warnings.append("部分地点尚未采用，地图草图保留候选身份绑定")
     return projected, list(dict.fromkeys(warnings))
 
@@ -2118,6 +2115,9 @@ async def list_map_auto_drafts(
             .limit(limit)
         )
     ).all()
+    level_types = await MapAtlasService._node_level_types(
+        db, novel_id, [node for _, node in rows]
+    )
     items: list[MapAutoDraftListItem] = []
     for revision, node in rows:
         batch_id = _marker_batch_id(revision.context_fingerprint)
@@ -2182,7 +2182,9 @@ async def list_map_auto_drafts(
                 batch_status=batch.status,
                 node_id=node.id,
                 node_title=node.title,
-                node=MapAtlasService._node_dict(node, [], []),
+                node=MapAtlasService._node_dict(
+                    node, [], [], level_type=level_types.get(node.id)
+                ),
                 revision_id=revision.id,
                 base_revision_id=revision.base_revision_id,
                 review_base_revision_id=auto_draft_review_base(revision),

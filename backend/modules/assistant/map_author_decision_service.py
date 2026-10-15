@@ -10,7 +10,6 @@ from sqlalchemy import select
 from core.errors import ConflictError, NotFoundError
 from modules.assistant.models import AssistantMessage, AssistantRun
 from modules.project.facade import get_any_project_context, require_active_project
-from modules.world.contracts import MapAuthorDecision
 
 
 async def read_map_author_decision(
@@ -19,7 +18,7 @@ async def read_map_author_decision(
     run_id: str,
     *,
     message_id: str | None = None,
-) -> MapAuthorDecision:
+) -> dict:
     """Return only the verified message identity and exact-text digest."""
     await require_active_project(db, novel_id, allow_demo_readonly=False)
     project = await get_any_project_context(db, novel_id)
@@ -56,12 +55,12 @@ async def read_map_author_decision(
         raise ConflictError("助手运行中没有可核验的作者安排来源")
     if message_id is not None and str(message.id) != str(message_id):
         raise ConflictError("作者安排消息不属于这次助手运行")
-    return MapAuthorDecision(
-        origin="assistant",
-        run_id=run.id,
-        message_id=message.id,
-        statement_hash=hashlib.sha256(message.content.encode("utf-8")).hexdigest(),
-    )
+    return {
+        "origin": "assistant",
+        "run_id": str(run.id),
+        "message_id": str(message.id),
+        "statement_hash": hashlib.sha256(message.content.encode("utf-8")).hexdigest(),
+    }
 
 
 __all__ = ["read_map_author_decision"]

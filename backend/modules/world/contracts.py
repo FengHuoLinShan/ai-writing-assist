@@ -82,7 +82,6 @@ from modules.world.map_spatial_clue_schemas import (
 from modules.world.map_spatial_clue_schemas import (
     MapSpatialClueTypeProposalResponse as MapSpatialClueTypeProposalResponse,
 )
-from modules.world.map_structure_schemas import MapAuthorDecision as MapAuthorDecision
 from modules.world.project_vocabulary_schemas import (
     ModelVocabularyProposal as ModelVocabularyProposal,
 )
@@ -150,7 +149,7 @@ class MapAuthorDecisionReaderPort(Protocol):
         run_id: str,
         *,
         message_id: str | None = None,
-    ) -> MapAuthorDecision: ...
+    ) -> dict[str, Any]: ...
 
 
 ENTITY_FUSION_CHECKPOINT_PAIR_BATCH_SIZE = 12
@@ -728,7 +727,6 @@ class WorldAliasRelationTaskPort(Protocol):
 
 
 __all__ = [
-    "MapAuthorDecision",
     "MapAuthorDecisionReaderPort",
     "MapAutoDraftBuildRequest",
     "MapAutoDraftBuildResult",
@@ -771,6 +769,7 @@ __all__ = [
     "WorldBibleSynopsisContextContract",
     "WorldAliasRelationTaskPort",
     "WorldReadMapSpatialBriefPort",
+    "WorldReadMapColdStartDraftsPort",
     "WorldReadMapSpatialAdvisoriesPort",
     "normalize_author_entity_type",
 ]

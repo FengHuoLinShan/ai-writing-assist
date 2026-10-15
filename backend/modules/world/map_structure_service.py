@@ -49,6 +49,7 @@ from modules.world.map_structure_geometry import (
 )
 from modules.world.map_structure_schemas import (
     STRUCTURE_LEVELS,
+    MapAuthorDecision,
     MapDocument,
     MapExtractionSummary,
     MapLayoutResponse,
@@ -442,7 +443,12 @@ class MapStructureService:
                 )
             )
             if existing:
-                return MapAtlasService._node_dict(existing, [], [])
+                level_types = await MapAtlasService._node_level_types(
+                    db, novel_id, [existing]
+                )
+                return MapAtlasService._node_dict(
+                    existing, [], [], level_type=level_types.get(existing.id)
+                )
         else:
             semantic_key = f"manual:{uuid.uuid4()}"
         node = MapAtlasNode(
@@ -464,7 +470,10 @@ class MapStructureService:
             str(node.id),
             MapSaveRequest(base_revision_id=None, document=MapDocument()),
         )
-        return MapAtlasService._node_dict(node, [], [])
+        level_types = await MapAtlasService._node_level_types(db, novel_id, [node])
+        return MapAtlasService._node_dict(
+            node, [], [], level_type=level_types.get(node.id)
+        )
 
     async def source(self, db, novel_id: str, ref: MapSource) -> str:
         if ref.kind == "source_range":
@@ -512,12 +521,13 @@ class MapStructureService:
             if decision is None or decision.origin != "assistant":
                 continue
             reader = get(ASSISTANT_READ_MAP_AUTHOR_DECISION)
-            verified = await reader(
+            reference = await reader(
                 db,
                 novel_id,
                 str(decision.run_id),
                 message_id=str(decision.message_id),
             )
+            verified = MapAuthorDecision.model_validate(reference)
             if verified != decision:
                 raise ConflictError("作者安排来源已变化，请重新核对")
         type_refs = _document_type_references(document)

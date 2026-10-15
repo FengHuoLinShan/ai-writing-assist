@@ -9,7 +9,11 @@
 """
 
 from modules.assistant.contracts import AssistantOperation
+from modules.assistant.map_spatial_advisories import (
+    OPERATIONS_SPEC as _SPATIAL_ADVISORIES,
+)
 from modules.evidence.forecast import OPERATIONS_SPEC as _EVIDENCE_FORECAST
+from modules.evolution.assistant_tools import OPERATIONS_SPEC as _EVOLUTION
 from modules.project.assistant_dedup_tool import OPERATIONS_SPEC as _PROJECT_DEDUP
 from modules.project.assistant_tools import OPERATIONS_SPEC as _PROJECT
 from modules.story.assistant_information_tools import (
@@ -63,3 +67,7 @@ world_opening_operations = _materialize(_WORLD_OPENING)
 world_map_operations = _materialize(_WORLD_MAP)
 world_vocabulary_operations = _materialize(_WORLD_VOCABULARY)
 evidence_forecast_operations = _materialize(_EVIDENCE_FORECAST)
+
+evolution_operations = _materialize(_EVOLUTION)
+
+assistant_spatial_advisory_operations = _materialize(_SPATIAL_ADVISORIES)
