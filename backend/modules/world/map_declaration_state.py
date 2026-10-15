@@ -11,7 +11,6 @@ from sqlalchemy import select
 from core.errors import ConflictError, NotFoundError, ValidationError
 from modules.world.map_atlas_models import MapAtlasNode, MapAtlasRevision
 from modules.world.map_structure_schemas import MapDocument
-from modules.world.map_structure_service import canonical_map_feature_ids
 from shared.utils import parse_uuid
 
 MapDeclarationKind = Literal["feature", "constraint", "journey"]
@@ -65,6 +64,10 @@ async def require_map_declaration_state(
     locks the project-owned map node while the same transaction appends the
     Story event, so a concurrent save cannot replace the checked revision.
     """
+    # map_structure_service imports the World service package, which imports
+    # validity_policy; keep this dependency below module initialization.
+    from modules.world.map_structure_service import canonical_map_feature_ids
+
     novel_uuid = parse_uuid(novel_id, "novel_id")
     node_uuid = parse_uuid(node_id, "node_id")
     requested_revision = parse_uuid(revision_id, "revision_id")

@@ -27,6 +27,21 @@ SOURCE_ID = "world.object_validity"
 NOTICE_LIMIT = 100
 
 
+async def _paged_rows(db, statement, *, scalar: bool = False):
+    """Apply the output cap after evaluating validity, not before it."""
+    offset = 0
+    while True:
+        result = await db.execute(statement.offset(offset).limit(NOTICE_LIMIT))
+        rows = result.scalars().all() if scalar else result.all()
+        if not rows:
+            return
+        for row in rows:
+            yield row
+        if len(rows) < NOTICE_LIMIT:
+            return
+        offset += len(rows)
+
+
 def _anchor_interval(row: WorldObjectDossierEntry) -> DossierValidity | None:
     if not any(
         (
@@ -130,36 +145,31 @@ async def list_object_validity_notices(
     )
     notices: list[dict[str, Any]] = []
 
-    entry_rows = (
-        await db.execute(
-            select(WorldObjectDossierEntry, CoreEntity.entity_type)
-            .join(
-                CoreEntity,
-                (CoreEntity.id == WorldObjectDossierEntry.entity_id)
-                & (CoreEntity.novel_id == WorldObjectDossierEntry.novel_id),
-            )
-            .where(
-                WorldObjectDossierEntry.novel_id == novel_uuid,
-                WorldObjectDossierEntry.status == "active",
-                CoreEntity.status == "canonical",
-                or_(
-                    WorldObjectDossierEntry.start_anchor_kind.is_not(None),
-                    WorldObjectDossierEntry.end_anchor_kind.is_not(None),
-                ),
-            )
-            .order_by(WorldObjectDossierEntry.created_at, WorldObjectDossierEntry.id)
-            .limit(NOTICE_LIMIT + 1)
+    entry_statement = (
+        select(WorldObjectDossierEntry, CoreEntity.entity_type)
+        .join(
+            CoreEntity,
+            (CoreEntity.id == WorldObjectDossierEntry.entity_id)
+            & (CoreEntity.novel_id == WorldObjectDossierEntry.novel_id),
         )
-    ).all()
-    for row, entity_type in entry_rows[:NOTICE_LIMIT]:
+        .where(
+            WorldObjectDossierEntry.novel_id == novel_uuid,
+            WorldObjectDossierEntry.status == "active",
+            CoreEntity.status == "canonical",
+            or_(
+                WorldObjectDossierEntry.start_anchor_kind.is_not(None),
+                WorldObjectDossierEntry.end_anchor_kind.is_not(None),
+            ),
+        )
+        .order_by(WorldObjectDossierEntry.created_at, WorldObjectDossierEntry.id)
+    )
+    async for row, entity_type in _paged_rows(db, entry_statement):
         if len(notices) >= NOTICE_LIMIT:
             break
         interval = _anchor_interval(row)
         if interval is None:
             continue
         author_active, anchor_gap = _author_active(interval, temporal_scenes, cutoff)
-        if anchor_gap is None and author_active is False:
-            continue
         observation = (
             exact_story_field_observation(
                 story_view,
@@ -179,9 +189,9 @@ async def list_object_validity_notices(
         )
         if (
             gap is None
-            and author_active is True
+            and author_active is not None
             and observation is not None
-            and observation.value != row.content
+            and (observation.value == row.content) != author_active
         ):
             status = "story_override" if allow_override else "author_priority"
         elif gap is None:
@@ -239,19 +249,16 @@ async def list_object_validity_notices(
             )
         )
 
-    relation_rows = (
-        await db.scalars(
-            select(EntityRelation)
-            .where(
-                EntityRelation.novel_id == novel_uuid,
-                EntityRelation.status == "canonical",
-                EntityRelation.validity_json.is_not(None),
-            )
-            .order_by(EntityRelation.created_at, EntityRelation.id)
-            .limit(NOTICE_LIMIT + 1)
+    relation_statement = (
+        select(EntityRelation)
+        .where(
+            EntityRelation.novel_id == novel_uuid,
+            EntityRelation.status == "canonical",
+            EntityRelation.validity_json.is_not(None),
         )
-    ).all()
-    for relation in relation_rows[:NOTICE_LIMIT]:
+        .order_by(EntityRelation.created_at, EntityRelation.id)
+    )
+    async for relation in _paged_rows(db, relation_statement, scalar=True):
         if len(notices) >= NOTICE_LIMIT:
             break
         try:
@@ -322,26 +329,23 @@ async def list_object_validity_notices(
             )
         )
 
-    map_rows = (
-        await db.execute(
-            select(MapAtlasNode, MapAtlasRevision)
-            .join(
-                MapAtlasRevision,
-                (MapAtlasRevision.id == MapAtlasNode.current_revision_id)
-                & (MapAtlasRevision.node_id == MapAtlasNode.id)
-                & (MapAtlasRevision.novel_id == MapAtlasNode.novel_id),
-            )
-            .where(
-                MapAtlasNode.novel_id == novel_uuid,
-                MapAtlasNode.status == "adopted",
-                MapAtlasNode.merged_into_node_id.is_(None),
-                MapAtlasRevision.status == "saved",
-            )
-            .order_by(MapAtlasNode.updated_at.desc(), MapAtlasNode.id)
-            .limit(100)
+    map_statement = (
+        select(MapAtlasNode, MapAtlasRevision)
+        .join(
+            MapAtlasRevision,
+            (MapAtlasRevision.id == MapAtlasNode.current_revision_id)
+            & (MapAtlasRevision.node_id == MapAtlasNode.id)
+            & (MapAtlasRevision.novel_id == MapAtlasNode.novel_id),
         )
-    ).all()
-    for node, revision in map_rows:
+        .where(
+            MapAtlasNode.novel_id == novel_uuid,
+            MapAtlasNode.status == "adopted",
+            MapAtlasNode.merged_into_node_id.is_(None),
+            MapAtlasRevision.status == "saved",
+        )
+        .order_by(MapAtlasNode.updated_at.desc(), MapAtlasNode.id)
+    )
+    async for node, revision in _paged_rows(db, map_statement):
         if len(notices) >= NOTICE_LIMIT:
             break
         try:

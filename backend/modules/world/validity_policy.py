@@ -307,6 +307,8 @@ def exact_story_field_observation(
     )
     if status in {"missing", "unsupported"}:
         return StoryFieldObservation(None, "story_observation_missing")
+    if status != "ok":
+        return StoryFieldObservation(None, "story_state_degraded")
     facts = (
         entities.get("facts", [])
         if isinstance(entities, dict)
@@ -324,7 +326,27 @@ def exact_story_field_observation(
         matching.append(fact)
     if not matching:
         return StoryFieldObservation(None, "story_observation_missing")
-    fact = matching[-1]
+
+    def order(fact: Any) -> tuple[int, int]:
+        occurred = (
+            fact.get("occurred_at", {})
+            if isinstance(fact, dict)
+            else getattr(fact, "occurred_at", {})
+        ) or {}
+        index = occurred.get("scene_index") if isinstance(occurred, dict) else None
+        sequence = occurred.get("scene_sequence") if isinstance(occurred, dict) else None
+        return (
+            index if isinstance(index, int) and not isinstance(index, bool) else -1,
+            sequence
+            if isinstance(sequence, int) and not isinstance(sequence, bool)
+            else -1,
+        )
+
+    latest_order = max(order(fact) for fact in matching)
+    latest = [fact for fact in matching if order(fact) == latest_order]
+    if len(latest) != 1:
+        return StoryFieldObservation(None, "story_field_identity_ambiguous")
+    fact = latest[0]
     get = (
         fact.get
         if isinstance(fact, dict)
@@ -393,6 +415,15 @@ def exact_story_relation_observation(
     )
     if relations is None:
         return StoryRelationObservation(None, "story_state_unavailable")
+    relation_status = (
+        relations.get("status")
+        if isinstance(relations, dict)
+        else getattr(relations, "status", None)
+    )
+    if relation_status in {"missing", "unsupported"}:
+        return StoryRelationObservation(None, "story_observation_missing")
+    if relation_status != "ok":
+        return StoryRelationObservation(None, "story_state_degraded")
     facts = (
         relations.get("facts", [])
         if isinstance(relations, dict)

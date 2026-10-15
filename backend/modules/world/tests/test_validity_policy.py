@@ -175,6 +175,48 @@ def test_custom_field_observation_rejects_derived_and_cutoff_or_future_proof() -
     assert observation.gap == "story_observation_not_before_cutoff"
 
 
+def test_custom_field_uses_latest_time_and_rejects_degraded_or_tied_proof() -> None:
+    def fact(value: str, scene_index: int) -> dict:
+        return {
+            "subject_id": "airship-1",
+            "field": "hull_condition",
+            "value": value,
+            "confidence": "confirmed",
+            "occurred_at": {"scene_index": scene_index, "scene_sequence": 1},
+            "source": {
+                "provenance": {
+                    "field": "hull_condition",
+                    "object_type": "airship",
+                    "author_confirmed": True,
+                }
+            },
+        }
+
+    params = {
+        "entity_id": "airship-1",
+        "entity_type": "airship",
+        "field_key": "hull_condition",
+        "cutoff_scene_index": 5,
+    }
+    older, newer = fact("intact", 1), fact("breached", 3)
+    assert (
+        exact_story_field_observation(_view("entities", [newer, older]), **params).value
+        == "breached"
+    )
+    assert (
+        exact_story_field_observation(
+            _view("entities", [older, newer], dimension_status="degraded"), **params
+        ).gap
+        == "story_state_degraded"
+    )
+    assert (
+        exact_story_field_observation(
+            _view("entities", [newer, fact("lost", 3)]), **params
+        ).gap
+        == "story_field_identity_ambiguous"
+    )
+
+
 def test_relation_observation_requires_same_stable_relation_id() -> None:
     provenance = {
         "field": "relation_status",

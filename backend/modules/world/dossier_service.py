@@ -561,6 +561,9 @@ class WorldObjectDossierService:
         cutoff_error = None
         story_view = None
         allow_story_override = False
+        author_full = visibility_filter is None and (
+            story_viewpoint is None or story_viewpoint.get("kind") == "author"
+        )
         if as_of_scene_id is not None:
             scenes = await self._anchor_scenes(db, nid)
             cutoff_index, cutoff_error = resolve_anchor(
@@ -570,9 +573,10 @@ class WorldObjectDossierService:
             )
             if cutoff_error or cutoff_index is None:
                 raise ValidationError("截止 Scene 锚点无效，无法读取该时点档案")
-            settings = await read_object_dossier_settings(db, str(nid))
-            allow_story_override = bool(settings["allow_story_override"])
-            if any(
+            if author_full:
+                settings = await read_object_dossier_settings(db, str(nid))
+                allow_story_override = bool(settings["allow_story_override"])
+            if author_full and any(
                 _validity_from_row(row) is not None and row.story_field_key
                 for row in entries
             ):
@@ -608,7 +612,7 @@ class WorldObjectDossierService:
                         resolved.end_scene_index is None
                         or cutoff_index <= resolved.end_scene_index
                     )
-                if validity and effective and anchor_problem is None:
+                if validity and author_full and anchor_problem is None:
                     if not row.story_field_key:
                         validity_gap = "story_field_alignment_not_declared"
                     elif story_view is None:
@@ -622,7 +626,10 @@ class WorldObjectDossierService:
                             cutoff_scene_index=int(cutoff_index),
                         )
                         validity_gap = observation.gap
-                        if observation.gap is None and observation.value != row.content:
+                        if (
+                            observation.gap is None
+                            and (observation.value == row.content) != effective
+                        ):
                             validity_conflict = True
                             story_observation = {
                                 "event_id": observation.event_id,
@@ -631,7 +638,7 @@ class WorldObjectDossierService:
                                 "author_confirmed": observation.author_confirmed,
                             }
                             if allow_story_override:
-                                effective = False
+                                effective = observation.value == row.content
                                 story_override_applied = True
                                 validity_gap = None
                 if (
