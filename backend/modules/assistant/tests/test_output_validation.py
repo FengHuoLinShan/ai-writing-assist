@@ -298,6 +298,44 @@ def test_v7_frozen_operation_can_be_described_but_not_executed_after_change():
     assert description["schema"] == frozen["project.add_task"]["schema"]
 
 
+def test_old_dossier_template_schema_stays_frozen_and_fails_closed():
+    from asyncio import run
+    from copy import deepcopy
+
+    from core.errors import ConflictError
+    from modules.assistant.evidence_tools import fingerprint
+    from modules.assistant.operations import describe_operation
+
+    op_id = "world.dossier.template.edit"
+    current = operation_manifest()[op_id]
+    assert current["revision"] == current["op_version"] == "2"
+    old = deepcopy(current)
+    old["schema"]["$defs"]["DossierTemplateField"]["properties"].pop("key")
+    old["schema_hash"] = fingerprint(old["schema"])
+    assert old["schema_hash"] == (
+        "db350f7f859917fd69288cfe848f3b66bfc3262bf1e121c0b34657b9f62e952c"
+    )
+    old["revision"] = old["op_version"] = old["metadata"]["op_version"] = "1"
+    old["metadata_hash"] = fingerprint(old["metadata"])
+    frozen = {op_id: old}
+
+    assert resolve_operations(frozen, allow_stale=True) == {}
+    with pytest.raises(ConflictError, match="工具版本不可用"):
+        resolve_operations(frozen)
+    description = run(
+        describe_operation(
+            SimpleNamespace(
+                deps=SimpleNamespace(
+                    operations={}, operation_catalog_snapshot=frozen
+                )
+            ),
+            op_id,
+        )
+    )
+    assert description["schema"] == old["schema"]
+    assert description["executable"] is False
+
+
 def test_find_operations_is_small_and_never_embeds_schema():
     from types import SimpleNamespace
 

@@ -16,7 +16,9 @@ def test_dossier_operations_declare_inline_catalog_metadata() -> None:
     assert set(OPERATIONS_SPEC) == set(traced_fields)
     for name, operation in OPERATIONS_SPEC.items():
         schema = operation["schema"]
-        assert operation["op_version"] == "1"
+        expected_version = "2" if name == "world.dossier.template.edit" else "1"
+        assert operation["op_version"] == expected_version
+        assert operation.get("revision", "1") == expected_version
         assert operation["fee_category"] == "free"
         assert operation["transaction_mode"] == "single_transaction"
         assert operation["trace_rule"] == {
