@@ -1,7 +1,7 @@
 """Persist isolated Scene Director roots, branches, immutable rounds and references.
 
 Revision ID: 20261016_story_scene_director
-Revises: 20261015_operation_trace_v2
+Revises: 20261016_assistant_goal_runs
 Create Date: 2026-10-16
 """
 
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20261016_story_scene_director"
-down_revision: str | None = "20261015_operation_trace_v2"
+down_revision: str | None = "20261016_assistant_goal_runs"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

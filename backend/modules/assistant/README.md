@@ -31,6 +31,29 @@ Evidence 读取；业务写入需具体批次确认与来源重验。
 HTTP 入口为 `/api/assistant`；账户与项目身份由服务端验证。RP 提醒通过 Interaction 路由
 接入，调用方只传 journey ID，不接受由浏览器指定隐藏项目或 owner。
 
+### 目标运行（ADR-0038 §6，`goal_run_v1`）
+
+`goal_runs.api.router` 以 `/goals` 挂在 `/api/assistant` 下，提供能力、活动/最近运行、计划审批、推进、
+暂停/继续/取消、受限重规划、逐步确认和恢复清单。目标复用 `assistant_runs`，`mode='goal'`、
+`session_id=NULL`；计划、版本、逐步回执与预算信封仅在私有检查点中。模型规划请求由作者在发起目标时
+明确确认预算后执行，并计入同一根 `AIRunEnvelope`；目标审批只冻结已注册 operation 的范围与服务端
+映射出的 task capability，不开放任意工具或 capability。规划先从 Goal 当前可执行操作中，
+用一次轻量目录选择请求挑选所需操作（至多 30 类），再用第二次请求仅查看选中操作的完整参数 schema；
+两次均记入同一根账本，输入和输出按冻结的项目模型输出上限及剩余 80% token 额度预检；
+冻结上限缺失或额度不足时停止，请作者核对模型设置、缩小目标或增额。未接入根预算/稳定领域
+回执的模型操作和需独立授权的 R4 操作会在能力接口列明原因，并在计划确认及恢复执行时按同一
+规则重验。单轮助手的完整目录不受此过滤影响。
+
+能力默认关闭：需同时开启 `ASSISTANT_ENABLED`、`ASSISTANT_GOAL_RUNS_ENABLED`，并把项目 ID 列入
+`ASSISTANT_GOAL_RUNS_PROJECT_ALLOWLIST`。请求仍须通过作者 owner、活跃 author project 和非 demo 门禁。
+Goal 父任务经统一 enqueuer 保存为确定 ID 的 `inline_only` / `manual_resume` 回执，普通 worker 不领取。
+每项目活动目标由 `uq_assistant_goal_run_active` 保证唯一；计划审批、预算停点和暂停沿用
+`waiting_approval`，原因留在检查点。R0/R1按目录和实际 task adapter 自动推进；R2 默认逐步确认，只有本目标
+显式开启且存在真实恢复入口的操作才可自动执行；R3 仍逐步确认，R4 需要独立领域授权。地图作者决定读取
+仍需原工作台的作者决定凭据，goal 不伪造会话消息身份。恢复清单只支持已有领域 CAS/版本回执的待办更新和
+世界档案版本编辑；未知领域回执停止核对，不盲目重试。
+请求数、可能费用、令牌与耗时在 80% 使用点暂停供作者复核；续批不重置原始开始时间或硬截止。
+
 - `assistant_runs`：owner/project/session、请求与冻结上下文、任务、预算、私有检查点和结果。
 - `assistant_action_batches`：具体操作预览、基线指纹、确认、依赖与执行回执。
 - `assistant_notices`：领域结果引用及已读/暂缓/忽略；不替代领域问题处置。

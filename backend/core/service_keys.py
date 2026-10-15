@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     )
     from modules.evidence.compilation.contracts import (
         EvolutionObjectPatternReadPort,
+        StoryDirectorReferencesForWritingPort,
         StoryObjectStateReadPort,
         WorldObjectDossierReadPort,
     )
@@ -95,6 +96,9 @@ EVIDENCE_READ_WORLD_OBJECT_DOSSIER: ServiceKey[WorldObjectDossierReadPort] = Ser
 EVIDENCE_READ_STORY_OBJECT_STATE: ServiceKey[StoryObjectStateReadPort] = ServiceKey(
     "evidence.read_story_object_state"
 )
+EVIDENCE_READ_STORY_DIRECTOR_REFERENCES: ServiceKey[
+    StoryDirectorReferencesForWritingPort
+] = ServiceKey("evidence.read_story_director_references")
 WORLD_READ_MAP_COLD_START_DRAFTS: ServiceKey[WorldReadMapColdStartDraftsPort] = (
     ServiceKey("world.read_map_cold_start_drafts")
 )
@@ -412,6 +416,7 @@ ALL_SERVICE_KEYS: tuple[ServiceKey[Any], ...] = (
     EVIDENCE_READ_EVOLUTION_OBJECT_PATTERNS,
     EVIDENCE_READ_WORLD_OBJECT_DOSSIER,
     EVIDENCE_READ_STORY_OBJECT_STATE,
+    EVIDENCE_READ_STORY_DIRECTOR_REFERENCES,
     WORLD_READ_MAP_COLD_START_DRAFTS,
     WORLD_READ_MAP_NOTIFICATION_SIGNALS,
     EVIDENCE_CONFIRMATION_READS,

@@ -45,6 +45,8 @@ infrastructure/tasks/
 普通队列不领取 `_execution_mode=inline_only` 子任务。该类领域复核由助手在原 task scope
 内调用既有 inline executor；父子 lease 同时约束提交，共享累计预算。inline 的 progress
 与 worker 一样脱离 ORM identity map，领域 `expire_all()` 不得丢失 lease/进度身份。
+Goal 的确定 ID 父任务也通过 enqueuer 创建为 `inline_only` / `manual_resume`；其状态由 Goal
+检查点控制，普通 worker 不领取，也不以队列重试代替作者恢复。
 
 父子关系在子任务创建时写入 `_parent_task_id`，取消按该关系查找，不能依赖领域稍后投影的
 结果引用。取消按子任务→父任务锁序收敛；失联扫描清理终态父任务的遗留子任务，可恢复父任务

@@ -175,6 +175,13 @@ async def test_consistency_recheck_uses_current_exact_source_without_editing_his
     )
     assert result["source_changed"] is True
     assert result["consistency"]["coverage"] == "unknown"
+    assert (
+        "被引用对象/地图地点身份与采用状态" not in result["consistency"]["checked_facts"]
+    )
+    assert (
+        "动作效果通过 simulation_v3 的有限结算与状态回放"
+        not in result["consistency"]["checked_facts"]
+    )
     assert any(
         item["field"] == "location:place" and item["severity"] == "conflict"
         for item in result["consistency"]["findings"]

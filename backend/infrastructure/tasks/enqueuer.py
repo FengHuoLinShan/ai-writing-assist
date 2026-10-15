@@ -232,6 +232,32 @@ def enqueue_task(
     return str(task.id)
 
 
+def enqueue_inline_parent_task(
+    db: AsyncSession,
+    *,
+    task_type: str,
+    novel_id: str,
+    task_id: str,
+    meta: dict[str, Any],
+) -> str:
+    """Persist one deterministic parent receipt that workers never claim."""
+    if "_execution_mode" in meta:
+        raise ValueError("inline execution mode is owned by the task enqueuer")
+    task = _new_task(
+        task_id=uuid.UUID(str(task_id)),
+        task_type=task_type,
+        novel_id=novel_id,
+        meta={**meta, "_execution_mode": "inline_only"},
+        status="pending",
+        progress=0.0,
+        coalescing_key=None,
+    )
+    task.recovery_policy = "manual_resume"
+    task.max_attempts = 1
+    db.add(task)
+    return str(task.id)
+
+
 async def _get_active_coalesced_task(
     db: AsyncSession,
     *,

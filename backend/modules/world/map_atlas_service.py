@@ -1124,6 +1124,7 @@ class MapAtlasService:
             node.level_type_revision_id = data.level_type_revision_id
         if data.title is not None:
             node.title = data.title.strip()
+        rewritten_ids: set[uuid.UUID] = set()
         if old_semantic.startswith("path:") and (
             new_parent_id != old_parent_id or data.title is not None
         ):
@@ -1144,6 +1145,7 @@ class MapAtlasService:
             for item in nodes:
                 if item.id in rewrites:
                     item.semantic_key = rewrites[item.id]
+            rewritten_ids = set(rewrites)
         target_adopted = [
             item
             for item in nodes
@@ -1203,6 +1205,23 @@ class MapAtlasService:
                     base_node_updated_at=node.updated_at,
                 ).model_dump(mode="json")
         await db.flush()
+        if rewritten_ids:
+            # A path rename updates descendant rows in the same flush. The
+            # timestamp generated for each UPDATE can differ from the value
+            # held by an already-loaded descendant, so refresh the exact rows
+            # before a subsequent edit uses their optimistic-lock baseline.
+            list(
+                (
+                    await db.scalars(
+                        select(MapAtlasNode)
+                        .where(
+                            MapAtlasNode.novel_id == nid,
+                            MapAtlasNode.id.in_(rewritten_ids),
+                        )
+                        .execution_options(populate_existing=True)
+                    )
+                ).all()
+            )
         level_types = await self._node_level_types(db, novel_id, [node])
         return self._node_dict(node, [], [], level_type=level_types.get(node.id))
 

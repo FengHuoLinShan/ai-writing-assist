@@ -249,7 +249,7 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
                 "timeline",
                 "plot_threads",
             ),
-            advisory_dimensions=_WRITING_REFERENCE_ADVISORY,
+            advisory_dimensions=(*_MAP_SPATIAL_ADVISORY, *_OBJECT_REFERENCE_ADVISORY),
             confirmation=CONFIRMATION_REQUIRED,
             snapshot=SNAPSHOT_OPTIONAL,
             outputs=(OUTPUT_FINDING,),
@@ -626,6 +626,23 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             notes="完成持久化前重验 context_hash 与 character_card_source_hashes。",
         ),
         _policy(
+            "story.scene_director",
+            DOMAIN_STORY,
+            "场景导演候选排演",
+            subjects=("author", "character"),
+            dimensions=(
+                "character_knowledge",
+                "world_entities",
+                "outline",
+                "scene_state",
+            ),
+            advisory_dimensions=_OBJECT_REFERENCE_ADVISORY,
+            confirmation=CONFIRMATION_REQUIRED,
+            outputs=(OUTPUT_PROPOSAL,),
+            gate=ADOPTION_DISPLAY_ONLY,
+            notes="逐人物可知资料与导演层分离；输出仅为冻结候选历史，不写正文或正史。",
+        ),
+        _policy(
             "story.scene_fusion",
             DOMAIN_STORY,
             "Scene 融合草稿",
@@ -890,6 +907,21 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             snapshot=SNAPSHOT_NONE,
             gate=ADOPTION_DISPLAY_ONLY,
             notes="只使用作者构想提出方向候选；选定前不作为资产或进入其他生成上下文。",
+        ),
+        _policy(
+            "assistant.goal.plan",
+            DOMAIN_ASSISTANT,
+            "作者目标的目录选择与计划候选",
+            subjects=("author",),
+            dimensions=("author_intent",),
+            confirmation=CONFIRMATION_REQUIRED,
+            snapshot=SNAPSHOT_REQUIRED,
+            outputs=(OUTPUT_PROPOSAL,),
+            gate=ADOPTION_DISPLAY_ONLY,
+            notes=(
+                "只提出目录内计划；已完成领域读取回执沿原操作权限引用，"
+                "作者确认前不执行修改或授予领域任务根能力。"
+            ),
         ),
         _policy(
             "assistant.turn",

@@ -8,7 +8,7 @@
       </div>
     </header>
 
-    <SceneDirectorPanel :project-id="projectId" :scene="scene" :characters="characters" />
+    <SceneDirectorPanel :project-id="projectId" :scene="scene" :characters="characters" :selected-writing-reference-ids="selectedWritingReferenceIds" @update:writing-reference-ids="setWritingReferenceIds" />
     <SceneRehearsalPanel v-if="scene && projectId && simulation?.rehearsalId" :project-id="projectId" :characters="characters" :rehearsal-id="simulation.rehearsalId" :running="false" />
     <div v-if="!scene" class="scene-runtime-empty">
       <strong>请先从“管理”选择一个场景</strong>
@@ -73,7 +73,7 @@
 </template>
 
 <script setup>
-import { computed } from "vue"
+import { computed, ref, watch } from "vue"
 import SceneDirectorPanel from "./SceneDirectorPanel.vue"
 import SceneRehearsalPanel from "./SceneRehearsalPanel.vue"
 
@@ -88,6 +88,30 @@ const props = defineProps({
 })
 defineEmits(["reaction"])
 const keptCount = computed(() => (props.simulation?.reactions || []).filter((item) => item.status === "kept").length)
+const selectedWritingReferenceIds = ref([])
+function storedSelections() {
+  try {
+    const saved = JSON.parse(globalThis.sessionStorage?.getItem(`writing-director-reference-ids-v1:${props.projectId}`) || "{}")
+    return saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {}
+  } catch { return {} }
+}
+watch(() => [props.projectId, props.scene?.id], () => {
+  const values = storedSelections()[props.scene?.id]
+  selectedWritingReferenceIds.value = Array.isArray(values)
+    ? [...new Set(values.map(String))].slice(0, 20)
+    : []
+}, { immediate: true })
+function setWritingReferenceIds(values) {
+  if (!props.projectId || !props.scene?.id) return
+  const ids = [...new Set((Array.isArray(values) ? values : []).map(String))].slice(0, 20)
+  selectedWritingReferenceIds.value = ids
+  try {
+    globalThis.sessionStorage?.setItem(
+      `writing-director-reference-ids-v1:${props.projectId}`,
+      JSON.stringify({ ...storedSelections(), [props.scene.id]: ids }),
+    )
+  } catch { /* The current view still keeps the selection until navigation. */ }
+}
 </script>
 
 <style scoped>

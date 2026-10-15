@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC
 from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError as SchemaError
+from sqlalchemy import select
 
 from core.container import container_scope
 from core.errors import ConflictError, NotFoundError, ValidationError
@@ -579,6 +581,12 @@ async def test_path_node_rename_and_move_rewrite_only_actual_path_descendants(
     assert root.semantic_key == f"path:root:{_path_part('新世界')}"
     assert region.semantic_key == f"path:{root.semantic_key}:{_path_part('地区')}"
     assert city.semantic_key == f"path:{region.semantic_key}:{_path_part('城')}"
+    persisted_city_updated_at = await db_session.scalar(
+        select(MapAtlasNode.updated_at).where(MapAtlasNode.id == city.id)
+    )
+    assert city.updated_at.replace(tzinfo=UTC) == persisted_city_updated_at.replace(
+        tzinfo=UTC
+    )
     await service.update_node(
         db_session,
         test_project_id,

@@ -16,18 +16,16 @@ import pytest
 from httpx import ASGITransport
 from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
-from sqlalchemy.ext.asyncio import create_async_engine
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from core.errors import ConflictError
+from infrastructure.llm.workflow_budget import AIRunEnvelope
 from modules.account.contracts import BOOTSTRAP_ACCOUNT_ID
 from modules.account.models import Account
 from modules.project.models import Project
+from modules.story.director_budget import budget_stop_reason, preview_director_budget
 from modules.story.director_context import read_director_source
-from modules.story.director_budget import preview_director_budget
-from modules.story.director_schemas import DirectorStartRequest
-from modules.story.outline_state.models import Scene
-from modules.world.models import CoreEntity
-from modules.world.models.character import Character
+from modules.story.director_schemas import DirectorContinueRequest, DirectorStartRequest
 from modules.story.director_service import (
     delete_director_branch,
     delete_unstarred_director_branches,
@@ -41,6 +39,9 @@ from modules.story.models import (
     StorySceneDirectorRoot,
     StorySceneDirectorRound,
 )
+from modules.story.outline_state.models import Scene
+from modules.world.models import CoreEntity
+from modules.world.models.character import Character
 from tests.support.http import XhrAsyncClient
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
@@ -49,7 +50,7 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
 @pytest.fixture
 async def director_pg_engine():
     url = os.environ["DATABASE_URL"]
-    assert url.endswith("/director_review_test_20261016")
+    assert url == os.environ["E2E_DATABASE_URL"]
     engine = create_async_engine(url, pool_size=2, max_overflow=0)
     try:
         yield engine
@@ -506,15 +507,16 @@ async def test_assistant_bridge_accepts_only_owned_ordinary_author_turn(
         await db.rollback()
 
 
-async def test_exact_worker_completes_one_round_with_offline_client(
+async def test_exact_worker_continues_same_root_and_stops_new_unknown(
     director_pg_engine, monkeypatch
 ):
     from app.main import app as _app  # noqa: F401 - production task registration
     from infrastructure.llm.client import LLMClient
     from infrastructure.llm.schemas import LLMCallResponse, LLMUsage, read_ai_run_envelope
-    from infrastructure.tasks.worker import TaskWorker
     from infrastructure.tasks.registry import TaskRegistry
-    from modules.story.director_api import submit_director_start
+    from infrastructure.tasks.worker import TaskWorker
+    from modules.story.director_api import continue_director_root, submit_director_start
+    from modules.story.director_operations import _continuation_preview
     from modules.story.tests.test_run_envelope_story import _NullLimiter
 
     novel_id, scene_id, actor_id = (uuid4() for _ in range(3))
@@ -524,31 +526,54 @@ async def test_exact_worker_completes_one_round_with_offline_client(
             db.add(Account(id=BOOTSTRAP_ACCOUNT_ID, support_code="director-worker"))
         db.add(Project(id=novel_id, owner_id=BOOTSTRAP_ACCOUNT_ID, title="导演离线整轮"))
         await db.flush()
-        db.add(CoreEntity(
-            id=actor_id, novel_id=novel_id, entity_type="character", name="阿澄",
-            summary="谨慎的守夜人", status="canonical",
-        ))
+        db.add(
+            CoreEntity(
+                id=actor_id,
+                novel_id=novel_id,
+                entity_type="character",
+                name="阿澄",
+                summary="谨慎的守夜人",
+                status="canonical",
+            )
+        )
         await db.flush()
-        db.add(Character(
-            entity_id=actor_id, novel_id=novel_id, name="阿澄", status="canonical",
-        ))
+        db.add(
+            Character(
+                entity_id=actor_id,
+                novel_id=novel_id,
+                name="阿澄",
+                status="canonical",
+            )
+        )
         db.add(Scene(id=scene_id, novel_id=novel_id, scene_index=0, title="北门对峙"))
     async with sessions() as db:
         source = await read_director_source(
-            db, novel_id=str(novel_id), scene_id=str(scene_id),
-            character_ids=[str(actor_id)], related_object_ids=[],
+            db,
+            novel_id=str(novel_id),
+            scene_id=str(scene_id),
+            character_ids=[str(actor_id)],
+            related_object_ids=[],
         )
     start = DirectorStartRequest(
-        operation_id=uuid4(), novel_id=str(novel_id), scene_id=str(scene_id),
-        character_ids=[str(actor_id)], rounds=1, request_limit=10,
-        token_limit=20_000, time_budget_seconds=120,
-        context_confirmation_id=str(uuid4()), budget_preview_hash="0" * 64,
+        operation_id=uuid4(),
+        novel_id=str(novel_id),
+        scene_id=str(scene_id),
+        character_ids=[str(actor_id)],
+        rounds=1,
+        request_limit=10,
+        token_limit=20_000,
+        time_budget_seconds=120,
+        context_confirmation_id=str(uuid4()),
+        budget_preview_hash="0" * 64,
     )
     start.budget_preview_hash = preview_director_budget(start, source)["preview_hash"]
-    confirmation = SimpleNamespace(compile_options={
-        "scene_id": str(scene_id), "character_ids": [str(actor_id)],
-        "entity_ids": [],
-    })
+    confirmation = SimpleNamespace(
+        compile_options={
+            "scene_id": str(scene_id),
+            "character_ids": [str(actor_id)],
+            "entity_ids": [],
+        }
+    )
 
     async def confirmed(*_args, **_kwargs):
         return confirmation
@@ -562,48 +587,96 @@ async def test_exact_worker_completes_one_round_with_offline_client(
     class Provider:
         name = "offline-director"
         calls = 0
+        fail_next = False
 
         async def generate(self, request):
             self.calls += 1
-            data = json.loads(next(
-                message.content for message in reversed(request.messages)
-                if message.role == "user"
-            ))
+            if self.fail_next:
+                self.fail_next = False
+                raise TimeoutError("offline synthetic unknown charge")
+            data = json.loads(
+                next(
+                    message.content
+                    for message in reversed(request.messages)
+                    if message.role == "user"
+                )
+            )
             if self.calls % 4 == 1:
                 payload = {"kind": "observe", "action": "听门外风声", "effect": "none"}
             elif self.calls % 4 == 2:
-                payload = {"outcomes": [
-                    {"intent_id": item["intent_id"], "outcome": "succeeded"}
-                    for item in data["intents"]
-                ]}
+                payload = {
+                    "outcomes": [
+                        {"intent_id": item["intent_id"], "outcome": "succeeded"}
+                        for item in data["intents"]
+                    ]
+                }
             elif self.calls % 4 == 3:
                 payload = {
-                    "character_id": str(actor_id), "action": "停下脚步",
-                    "expression": "眉间收紧", "body_language": "侧身倾听",
-                    "voice_and_dialogue": "低声说：等等。", "subtext": "判断门外是谁",
-                    "motive_and_emotion": "谨慎", "trigger_and_defense": "风声骤停",
-                    "attention": "门外", "ignored": "桌面", "change_from_previous": "初次",
+                    "character_id": str(actor_id),
+                    "action": "停下脚步",
+                    "expression": "眉间收紧",
+                    "body_language": "侧身倾听",
+                    "voice_and_dialogue": "低声说：等等。",
+                    "subtext": "判断门外是谁",
+                    "motive_and_emotion": "谨慎",
+                    "trigger_and_defense": "风声骤停",
+                    "attention": "门外",
+                    "ignored": "桌面",
+                    "change_from_previous": "初次",
                     "basis": [{"source_kind": "director_inference", "note": "合成候选"}],
                 }
             else:
                 payload = {
-                    "materials": [],
+                    "materials": [
+                        {
+                            "material_id": "north-gate-wind",
+                            "category": "environment",
+                            "content": "北门的风声突然停了",
+                            "senses": ["sound"],
+                            "source_kind": "director_inference",
+                        }
+                    ],
                     "recommended_angles": [
-                        {"angle_id": "close", "label": "阿澄视角", "viewpoint_kind": "character",
-                         "viewpoint_character_id": str(actor_id), "narrative_distance": "close",
-                         "focus": "门外", "detail_and_pacing": "放慢", "material_ids": []},
-                        {"angle_id": "wide", "label": "全知视角", "viewpoint_kind": "omniscient",
-                         "narrative_distance": "omniscient", "focus": "全场", "detail_and_pacing": "简洁",
-                         "material_ids": []},
+                        {
+                            "angle_id": "close",
+                            "label": "阿澄视角",
+                            "viewpoint_kind": "character",
+                            "viewpoint_character_id": str(actor_id),
+                            "narrative_distance": "close",
+                            "focus": "门外",
+                            "detail_and_pacing": "放慢",
+                            "material_ids": ["north-gate-wind"],
+                        },
+                        {
+                            "angle_id": "wide",
+                            "label": "全知视角",
+                            "viewpoint_kind": "omniscient",
+                            "narrative_distance": "omniscient",
+                            "focus": "全场",
+                            "detail_and_pacing": "简洁",
+                            "material_ids": ["north-gate-wind"],
+                        },
                     ],
                     "alternatives": [
-                        {"alternative_id": "a", "label": "谨慎", "branch_instruction": "维持沉默", "divergence": "conservative"},
-                        {"alternative_id": "b", "label": "行动", "branch_instruction": "走向北门", "divergence": "balanced"},
+                        {
+                            "alternative_id": "a",
+                            "label": "谨慎",
+                            "branch_instruction": "维持沉默",
+                            "divergence": "conservative",
+                        },
+                        {
+                            "alternative_id": "b",
+                            "label": "行动",
+                            "branch_instruction": "走向北门",
+                            "divergence": "balanced",
+                        },
                     ],
                 }
             return LLMCallResponse(
-                content=json.dumps(payload, ensure_ascii=False), finish_reason="stop",
-                model="deepseek-flash", provider=self.name,
+                content=json.dumps(payload, ensure_ascii=False),
+                finish_reason="stop",
+                model="deepseek-flash",
+                provider=self.name,
                 usage=LLMUsage(prompt_tokens=5, completion_tokens=5, total_tokens=10),
             )
 
@@ -617,28 +690,41 @@ async def test_exact_worker_completes_one_round_with_offline_client(
     async def offline_client(*_args, **_kwargs):
         yield client
 
-    monkeypatch.setattr("infrastructure.llm.client.get_llm_limiter", lambda: _NullLimiter())
-    monkeypatch.setattr("modules.story.director_api.require_fresh_confirmation", confirmed)
+    monkeypatch.setattr(
+        "infrastructure.llm.client.get_llm_limiter", lambda: _NullLimiter()
+    )
+    monkeypatch.setattr(
+        "modules.story.director_api.require_fresh_confirmation", confirmed
+    )
     monkeypatch.setattr("modules.story.director_api.attach_result_ref", confirmed)
-    monkeypatch.setattr("modules.story.director_api.build_project_llm_execution_snapshot",
-                        llm_snapshot)
-    monkeypatch.setattr("modules.story.director_tasks.prepare_confirmed_ai_action", confirmed)
-    monkeypatch.setattr("modules.story.director_tasks.open_project_snapshot_llm_client", offline_client)
+    monkeypatch.setattr(
+        "modules.story.director_api.build_project_llm_execution_snapshot", llm_snapshot
+    )
+    monkeypatch.setattr(
+        "modules.story.director_tasks.prepare_confirmed_ai_action", confirmed
+    )
+    monkeypatch.setattr(
+        "modules.story.director_tasks.open_project_snapshot_llm_client", offline_client
+    )
     async with sessions.begin() as db:
         accepted = await submit_director_start(db, start)
+
     class Manager:
         engine = director_pg_engine
         session_factory = sessions
+
     worker = TaskWorker(db_manager=Manager(), heartbeat_interval=60.0)
     registry = TaskRegistry()
     original_handler = registry._handlers["story_scene_director"]
     captured_errors = []
+
     async def capture_error(db, task):
         try:
             return await original_handler(db, task)
         except Exception as error:
             captured_errors.append(error)
             raise
+
     monkeypatch.setitem(registry._handlers, "story_scene_director", capture_error)
     result = await asyncio.wait_for(
         worker.run_once(task_id=accepted.task_id, novel_id=novel_id), timeout=12
@@ -650,18 +736,133 @@ async def test_exact_worker_completes_one_round_with_offline_client(
             if "/modules/story/" in frame.filename
             or "/infrastructure/tasks/" in frame.filename
         ]
-        if captured_errors else result.error_message if result else "no task"
+        if captured_errors
+        else result.error_message
+        if result
+        else "no task"
     )
     assert provider.calls == 4, result.result
     async with sessions() as db:
         root = await db.get(StorySceneDirectorRoot, accepted.root_id)
-        rounds = list((await db.scalars(select(StorySceneDirectorRound).where(
-            StorySceneDirectorRound.root_id == accepted.root_id
-        ))).all())
+        rounds = list(
+            (
+                await db.scalars(
+                    select(StorySceneDirectorRound).where(
+                        StorySceneDirectorRound.root_id == accepted.root_id
+                    )
+                )
+            ).all()
+        )
         assert len(rounds) == 1
         assert rounds[0].output_json["performances"][0]["character_id"] == str(actor_id)
         envelope = read_ai_run_envelope(root.run_envelope_json)
         assert envelope.run_id == str(accepted.root_id)
         assert envelope.requests_started == 4
         assert envelope.requests_settled == 4
+        original_started_at = envelope.started_at
+        original_deadline_at = envelope.deadline_at
+        parent_round_id = rounds[0].id
+    continuation = DirectorContinueRequest(
+        novel_id=str(novel_id),
+        context_confirmation_id=start.context_confirmation_id,
+        operation_id=uuid4(),
+        parent_round_id=parent_round_id,
+        basis_choice="frozen",
+        budget_preview_hash="0" * 64,
+    )
+    async with sessions() as db:
+        _root, _parent, preview = await _continuation_preview(
+            db, str(novel_id), continuation
+        )
+    continuation.budget_preview_hash = preview["preview_hash"]
+    async with sessions.begin() as db:
+        accepted_continuation = await continue_director_root(
+            db, root_id=str(accepted.root_id), data=continuation
+        )
+    continued = await asyncio.wait_for(
+        worker.run_once(task_id=accepted_continuation.task_id, novel_id=novel_id),
+        timeout=12,
+    )
+    assert continued is not None and continued.status == "done", (
+        continued.error_message if continued else "no task"
+    )
+    assert provider.calls == 8
+    async with sessions() as db:
+        root = await db.get(StorySceneDirectorRoot, accepted.root_id)
+        rounds = list(
+            (
+                await db.scalars(
+                    select(StorySceneDirectorRound).where(
+                        StorySceneDirectorRound.root_id == accepted.root_id
+                    )
+                )
+            ).all()
+        )
+        assert len(rounds) == 2
+        envelope = read_ai_run_envelope(root.run_envelope_json)
+        assert envelope.run_id == str(accepted.root_id)
+        assert envelope.requests_started == envelope.requests_settled == 8
+        assert envelope.usage.total_tokens == 80
+        assert envelope.started_at == original_started_at
+        assert envelope.deadline_at == original_deadline_at
+        assert budget_stop_reason(AIRunEnvelope(envelope)) == "request_budget_80_percent"
+    continuation.operation_id = uuid4()
+    continuation.parent_round_id = rounds[-1].id
+    async with sessions() as db:
+        _root, _parent, preview = await _continuation_preview(
+            db, str(novel_id), continuation
+        )
+    continuation.budget_preview_hash = preview["preview_hash"]
+    with pytest.raises(ConflictError):
+        async with sessions.begin() as db:
+            await continue_director_root(
+                db, root_id=str(accepted.root_id), data=continuation
+            )
+    assert provider.calls == 8
+
+    # Reconstruct one explicitly labelled synthetic prior unknown receipt. The
+    # next request still goes through the real worker/LLMClient path: accepting
+    # the old possible charge must never waive a newly unknown provider result.
+    async with sessions.begin() as db:
+        root = await db.get(StorySceneDirectorRoot, accepted.root_id)
+        receipt = read_ai_run_envelope(root.run_envelope_json).model_dump(mode="json")
+        receipt["requests_started"] += 1
+        receipt["requests_unknown"] += 1
+        receipt["usage_complete"] = False
+        receipt["charge_state"] = "possible"
+        receipt["steps"][-1]["requests_started"] += 1
+        receipt["steps"][-1]["requests_unknown"] += 1
+        receipt["steps"][-1]["usage_complete"] = False
+        receipt["steps"][-1]["charge_state"] = "possible"
+        old_attempt = dict(receipt["recent_attempts"][-1])
+        old_attempt.update(
+            request_index=9,
+            outcome="unknown",
+            charge_state="possible",
+            error_kind="SyntheticPriorUnknown",
+        )
+        receipt["recent_attempts"].append(old_attempt)
+        root.run_envelope_json = read_ai_run_envelope(receipt).model_dump(mode="json")
+    continuation.operation_id = uuid4()
+    continuation.allow_possible_duplicate_charge = True
+    continuation.additional_requests = 10
+    provider.fail_next = True
+    async with sessions.begin() as db:
+        accepted_unknown = await continue_director_root(
+            db, root_id=str(accepted.root_id), data=continuation
+        )
+    paused = await asyncio.wait_for(
+        worker.run_once(task_id=accepted_unknown.task_id, novel_id=novel_id), timeout=12
+    )
+    assert paused is not None and paused.status == "done"
+    assert paused.result["status"] == "paused_unknown"
+    assert provider.calls == 9
+    async with sessions() as db:
+        root = await db.get(StorySceneDirectorRoot, accepted.root_id)
+        envelope = read_ai_run_envelope(root.run_envelope_json)
+        assert envelope.requests_started == 10
+        assert envelope.requests_unknown == 2
+        assert envelope.started_at == original_started_at
+        assert envelope.deadline_at == original_deadline_at
+        assert envelope.run_id == str(accepted.root_id)
     await client.close()

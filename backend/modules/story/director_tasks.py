@@ -168,7 +168,9 @@ async def handle_scene_director(db, task):
         raise ValueError("导演分支与运行根不匹配")
     request_payload = meta.get("request") or {}
     is_start = request_payload.get("mode") == "start"
-    schema_payload = {key: value for key, value in request_payload.items() if key != "mode"}
+    schema_payload = {
+        key: value for key, value in request_payload.items() if key != "mode"
+    }
     data = (
         DirectorStartRequest.model_validate(schema_payload)
         if is_start
@@ -300,6 +302,9 @@ async def handle_scene_director(db, task):
         intervention=data.intervention,
         public_stimulus=data.public_stimulus,
         selected_alternative=data.selected_alternative if not is_start else None,
+        branch_kind=data.branch_kind if not is_start else "start",
+        basis_choice=data.basis_choice if not is_start else "current",
+        rewrite_character_id=data.rewrite_character_id if not is_start else None,
     )
     if is_start:
         expected_preview = preview_director_budget(preview_request, source)[
@@ -334,7 +339,10 @@ async def handle_scene_director(db, task):
     if not branch.pending_round_json:
         branch.pending_round_json = {"source_snapshot": source}
     await _checkpoint_rows(
-        db, root, branch, extra=parent_round,
+        db,
+        root,
+        branch,
+        extra=parent_round,
         error_message="导演来源准备没有提交，不能开始模型请求",
     )
 
@@ -453,7 +461,9 @@ async def handle_scene_director(db, task):
                 root.current_task_id = None
                 branch.current_task_id = None
                 root.run_envelope_json = snapshot.model_dump(mode="json")
-                await _checkpoint_rows(db, root, branch, error_message="不确定用量状态未保存")
+                await _checkpoint_rows(
+                    db, root, branch, error_message="不确定用量状态未保存"
+                )
                 return {
                     "status": "paused_unknown",
                     "completed_rounds": total_completed,
@@ -506,7 +516,9 @@ async def handle_scene_director(db, task):
         branch.pending_round_json = {}
         branch.status = "complete"
         root.run_envelope_json = envelope.snapshot().model_dump(mode="json")
-        await _checkpoint_rows(db, root, branch, extra=round_row, error_message="导演回合结果未持久化")
+        await _checkpoint_rows(
+            db, root, branch, extra=round_row, error_message="导演回合结果未持久化"
+        )
         parent_round = round_row
         base_state = result.state_after
         total_completed += 1
@@ -523,7 +535,9 @@ async def handle_scene_director(db, task):
             root.status = branch.status
             root.current_task_id = None
             branch.current_task_id = None
-            await _checkpoint_rows(db, root, branch, error_message="导演预算暂停状态未保存")
+            await _checkpoint_rows(
+                db, root, branch, error_message="导演预算暂停状态未保存"
+            )
             return {
                 "status": "paused_budget",
                 "completed_rounds": total_completed,
@@ -576,6 +590,9 @@ def _preview_input(
     intervention="",
     public_stimulus="",
     selected_alternative=None,
+    branch_kind="start",
+    basis_choice="current",
+    rewrite_character_id=None,
 ):
     from types import SimpleNamespace
 
@@ -589,6 +606,9 @@ def _preview_input(
         intervention=intervention,
         public_stimulus=public_stimulus,
         selected_alternative=selected_alternative,
+        branch_kind=branch_kind,
+        basis_choice=basis_choice,
+        rewrite_character_id=rewrite_character_id,
     )
 
 
@@ -1150,7 +1170,9 @@ async def _run_one_round(
             pending["performances"] = performances
             pending["packet_omissions"] = prompt_omitted
             branch.pending_round_json = pending
-            await _checkpoint_rows(db, root, branch, error_message="人物表演卡检查点未提交")
+            await _checkpoint_rows(
+                db, root, branch, error_message="人物表演卡检查点未提交"
+            )
 
         stop = budget_stop_reason(
             envelope,
@@ -1519,7 +1541,10 @@ async def _checkpoint_rows(db, root, branch, *, error_message, extra=None):
 async def _checkpoint_before_provider(db, root=None, branch=None, *, extra=None):
     if root is not None and branch is not None:
         await _checkpoint_rows(
-            db, root, branch, extra=extra,
+            db,
+            root,
+            branch,
+            extra=extra,
             error_message="导演 provider 请求需要先提交数据库检查点",
         )
         return
@@ -1670,7 +1695,9 @@ async def _rewrite_one_character(
     root.current_task_id = None
     branch.current_task_id = None
     root.run_envelope_json = envelope.snapshot().model_dump(mode="json")
-    await _checkpoint_rows(db, root, branch, extra=row, error_message="单人物表演卡重写没有保存")
+    await _checkpoint_rows(
+        db, root, branch, extra=row, error_message="单人物表演卡重写没有保存"
+    )
     return {
         "status": "complete",
         "completed_rounds": 1,

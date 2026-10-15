@@ -7,7 +7,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from infrastructure.llm.collaboration import content_hash
-from modules.evidence.compilation.facade import read_object_dossier_brief
+from modules.evidence.facade import read_object_dossier_brief
 from modules.project.facade import read_author_examples_for_writing
 from modules.story.director_state import build_scene_simulation_context
 from modules.story.facade import get_scene_story_context

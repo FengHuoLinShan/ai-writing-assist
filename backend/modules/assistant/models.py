@@ -60,7 +60,13 @@ class AssistantRun(Base, UUIDMixin, TimestampMixin, NovelMixin):
             "'waiting_approval','budget_exceeded')",
             name="ck_assistant_run_status",
         ),
-        CheckConstraint("mode IN ('author','background')", name="ck_assistant_run_mode"),
+        CheckConstraint(
+            "mode IN ('author','background','goal')", name="ck_assistant_run_mode"
+        ),
+        CheckConstraint(
+            "mode != 'goal' OR session_id IS NULL",
+            name="ck_assistant_goal_run_without_session",
+        ),
         Index(
             "uq_assistant_session_active",
             "session_id",
@@ -70,6 +76,19 @@ class AssistantRun(Base, UUIDMixin, TimestampMixin, NovelMixin):
             ),
             sqlite_where=text(
                 "status IN ('pending','running') AND session_id IS NOT NULL"
+            ),
+        ),
+        Index(
+            "uq_assistant_goal_run_active",
+            "novel_id",
+            unique=True,
+            postgresql_where=text(
+                "mode = 'goal' AND status IN "
+                "('pending','running','waiting_approval')"
+            ),
+            sqlite_where=text(
+                "mode = 'goal' AND status IN "
+                "('pending','running','waiting_approval')"
             ),
         ),
     )

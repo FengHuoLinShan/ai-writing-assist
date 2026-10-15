@@ -90,6 +90,10 @@ async def recheck_director_round_consistency(db, novel_id: str, round_id: str) -
     materials = [
         DirectorMaterial.model_validate(item) for item in output.get("materials") or []
     ]
+    for material in materials:
+        # The frozen round's material verdict is historical evidence, not a
+        # verdict produced by this recheck against today's sources.
+        material.conflict_status = "unknown"
     consistency = build_consistency(
         source=current,
         intents=[],
@@ -101,6 +105,10 @@ async def recheck_director_round_consistency(db, novel_id: str, round_id: str) -
         ],
         object_ids=set(),
         map_node_ids=set(),
+        state_replayed=False,
+    )
+    consistency.unavailable_checks.append(
+        "冻结回合的对象身份、人物感知、动作结算与状态回放本次未重新执行；原回执仅作为历史依据。"
     )
     source_changed = current["source_hash"] != row.source_hash
     if source_changed:

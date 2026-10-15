@@ -109,6 +109,7 @@ CAPABILITY_BINDINGS: dict[str, tuple[str, ...]] = {
     ),
     "modules/story/outline_state/structure_dedup.py": ("story.structure_dedup",),
     "modules/story/outline_state/scene_fusion_draft.py": ("story.scene_fusion",),
+    "modules/story/director_tasks.py": ("story.scene_director",),
     # Imports
     "modules/imports/workflow_scene_phase.py": (
         "imports.scene_plan",
@@ -179,6 +180,7 @@ CAPABILITY_BINDINGS: dict[str, tuple[str, ...]] = {
     "modules/world/team_stress.py": ("assistant.turn", "world.team_stress"),
     # Assistant
     "modules/assistant/service.py": ("assistant.turn",),
+    "modules/assistant/goal_runs/service.py": ("assistant.goal.plan",),
     "modules/assistant/evidence_tools.py": ("assistant.turn",),
     # Evidence 内部 helper（登记为基础设施豁免能力）
     "modules/evidence/compilation/services/retrieval_query_planner.py": (

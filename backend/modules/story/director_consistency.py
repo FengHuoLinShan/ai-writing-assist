@@ -320,6 +320,7 @@ def build_consistency(
     candidate_events: list[DirectorCandidateEvent],
     object_ids: set[str],
     map_node_ids: set[str],
+    state_replayed: bool = True,
 ) -> DirectorConsistency:
     findings = [
         DirectorConsistencyFinding(
@@ -423,8 +424,16 @@ def build_consistency(
         checked_facts=[
             "当前作品与 Scene 身份",
             "已选人物的 canonical World 身份",
-            "被引用对象/地图地点身份与采用状态",
-            "动作效果通过 simulation_v3 的有限结算与状态回放",
+            *(
+                ["被引用对象/地图地点身份与采用状态"]
+                if object_ids or map_node_ids
+                else []
+            ),
+            *(
+                ["动作效果通过 simulation_v3 的有限结算与状态回放"]
+                if state_replayed
+                else []
+            ),
             *[f"当前精确来源字段：{item}" for item in sorted(checked_fields)],
         ],
         unavailable_checks=list(dict.fromkeys(unknown_checks)),

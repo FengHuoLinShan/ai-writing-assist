@@ -535,9 +535,6 @@ class WritingSemanticWorkflowService:
         }:
             raise ValueError("Unsupported internal review metadata")
         payload = data.model_dump(mode="json", exclude={"operation_id"})
-        if not data.director_reference_ids:
-            payload.pop("director_reference_ids", None)
-            payload.pop("context_confirmation_id", None)
         if investigation_hypotheses:
             if len(investigation_hypotheses) > 24 or any(
                 len(value) > 4000 for value in investigation_hypotheses

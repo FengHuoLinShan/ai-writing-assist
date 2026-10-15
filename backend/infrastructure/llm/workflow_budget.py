@@ -30,6 +30,7 @@ from infrastructure.llm.schemas import (
     AIRunEnvelopeV2,
     AIRunEnvelopeV3,
     AIRunEnvelopeV4,
+    AIGoalScopeAuthorizationV1,
     AIRunStatus,
     AIStepAttemptV1,
     AIStepCallKind,

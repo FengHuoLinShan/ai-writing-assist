@@ -55,6 +55,9 @@ router.include_router(forecast_router)
 from modules.assistant.guided_flow.api import router as guided_flow_router  # noqa: E402
 
 router.include_router(guided_flow_router)
+from modules.assistant.goal_runs.api import router as goal_runs_router  # noqa: E402
+
+router.include_router(goal_runs_router)
 
 
 class OperationTracePreferenceUpdate(BaseModel):
