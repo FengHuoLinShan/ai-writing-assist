@@ -164,9 +164,20 @@
                 </article>
               </section>
 
-              <section v-if="round.candidate_events?.length" class="scene-director__candidate-events" aria-label="导演新增候选事件">
-                <h5>候选事件 <span>未写入模拟状态</span></h5>
-                <article v-for="event in round.candidate_events" :key="event.candidate_id"><strong>{{ event.label }}</strong><p>{{ event.description }}</p><small>{{ event.timepoint === "later" ? "后续可能" : "本场候选" }} · 作者确认前不作为事实</small></article>
+              <section v-if="round.candidate_transfer_choices?.length" class="scene-director__candidate-events" aria-label="导演引入候选">
+                <h5>导演引入（候选） <span>未写入模拟状态</span></h5>
+                <article v-for="choice in round.candidate_transfer_choices" :key="choice.candidate_id">
+                  <div><strong>{{ choice.label }}</strong></div><p v-if="choice.description">{{ choice.description }}</p>
+                  <div><small>{{ choice.source_kind === "event" ? "剧情事件" : "导演提出的对象引用" }} · 作者确认前不作为事实</small></div>
+                  <p v-if="transferredCandidate(round, choice)" class="scene-director__help">已转入 World 候选，仍待审核采用。</p>
+                  <div v-else class="scene-director__actions">
+                    <span v-if="choice.source_kind === 'event'">事件</span>
+                    <label v-else><span>候选类型</span><select v-model="candidateTypes[candidateKey(round, choice)]" :disabled="readOnly || busy"><option value="">请选择</option><option value="character">人物</option><option value="item">物件</option><option value="location">地点</option><option value="concept">设定</option></select></label>
+                    <button type="button" class="btn btn-sm" :disabled="readOnly || busy || choice.conflict || !candidateTypes[candidateKey(round, choice)] || round.basis_status !== 'current'" @click="transferCandidate(round, choice)">{{ candidateTransferBusy ? "正在转入…" : "转为 World 候选" }}</button>
+                  </div>
+                  <small v-if="choice.conflict">同一候选引用有不同名称，需重新生成并核对。</small>
+                  <small v-else-if="!transferredCandidate(round, choice) && round.basis_status !== 'current'">来源已变化或暂不可核实；请先刷新并重新生成候选。</small>
+                </article>
               </section>
 
               <section class="scene-director__materials" :aria-label="`第 ${round.round_number} 回合场景素材`">
@@ -317,6 +328,8 @@ const editingRoundId = ref("")
 const editingBranchId = ref("")
 const roundMetadata = reactive({ name: "", note: "" })
 const branchMetadata = reactive({ name: "", note: "" })
+const candidateTypes = reactive({})
+const candidateTransferBusy = ref(false)
 const localDrafts = new Map()
 const contextTasks = new Map()
 const contextProgress = new Map()
@@ -366,7 +379,7 @@ const canPreview = computed(() => Boolean(
   props.projectId && props.scene?.id && draft.characterIds.length && Number.isInteger(Number(draft.rounds)) && Number(draft.rounds) >= 1,
 ))
 const canSubmitStart = computed(() => Number(draft.requestLimit) >= 1 && Number(draft.tokenLimit) >= 1 && Number(draft.timeBudgetMinutes) >= 1)
-const busy = computed(() => submitting.value || startPreviewLoading.value || continuationPreviewLoading.value || Boolean(taskProgress.value && !taskProgress.value.terminal))
+const busy = computed(() => submitting.value || startPreviewLoading.value || continuationPreviewLoading.value || candidateTransferBusy.value || Boolean(taskProgress.value && !taskProgress.value.terminal))
 const orderedRounds = computed(() => [...(history.value?.rounds || [])].sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")) || Number(a.round_number) - Number(b.round_number)))
 const comparison = computed(() => {
   const left = history.value?.rounds?.find((item) => item.id === compareLeft.value)
@@ -374,6 +387,10 @@ const comparison = computed(() => {
   return left && right && left.id !== right.id ? [left, right] : null
 })
 const unstarredBranchCount = computed(() => (history.value?.branches || []).filter((item) => !item.starred).length)
+function candidateKey(round, choice) { return `${round.id}:${choice.candidate_id}` }
+function transferredCandidate(round, choice) {
+  return (history.value?.candidate_transfers || []).find((item) => item.round_id === round.id && item.candidate_id === choice.candidate_id)
+}
 const parentAlternatives = computed(() => roundById(continuation.parentRoundId)?.alternatives || [])
 const canPreviewContinuation = computed(() => Boolean(
   continuation.parentRoundId && Number.isInteger(Number(continuation.rounds)) && Number(continuation.rounds) >= 1,
@@ -475,6 +492,10 @@ async function loadHistory() {
     if (!owns(token, key)) return
     history.value = result
     for (const round of result.rounds || []) {
+      for (const choice of round.candidate_transfer_choices || []) {
+        const key = candidateKey(round, choice)
+        if (!(key in candidateTypes)) candidateTypes[key] = choice.source_kind === "event" ? "event" : ""
+      }
       if (!(round.id in selectedMaterials)) selectedMaterials[round.id] = []
       if (!(round.id in selectedAngles)) selectedAngles[round.id] = round.recommended_angles?.[0]?.angle_id || ""
       if (!(round.id in customAngles)) customAngles[round.id] = { viewpoint: "omniscient", distance: "close", focus: "", detail: "" }
@@ -852,6 +873,37 @@ async function saveRoundMeta(round, changes) {
   } catch (cause) { error.value = cause?.message || "回合标记保存失败。" }
 }
 
+async function transferCandidate(round, choice) {
+  if (busy.value || props.readOnly || choice.conflict || transferredCandidate(round, choice)) return
+  const token = requestGeneration
+  const key = currentContextKey
+  candidateTransferBusy.value = true
+  error.value = ""
+  try {
+    const receipt = await getApi().story.transferDirectorCandidate(round.id, {
+      novel_id: props.projectId,
+      scene_id: props.scene.id,
+      confirmed: true,
+      candidate_id: choice.candidate_id,
+      entity_type: candidateTypes[candidateKey(round, choice)],
+      expected_source_hash: round.source_hash,
+      expected_output_hash: round.output_hash,
+    })
+    if (!owns(token, key)) return
+    history.value.candidate_transfers = [...(history.value.candidate_transfers || []), {
+      round_id: round.id, candidate_id: choice.candidate_id,
+      world_candidate_id: receipt.world_candidate_id, entity_type: receipt.entity_type,
+    }]
+    message.value = "已转入 World 待审核候选；还未成为正史。"
+  } catch (cause) {
+    if (owns(token, key)) error.value = cause?.status === 409
+      ? "来源已变化或 World 有相似对象，请核对后再转入；原选择已保留。"
+      : cause?.message || "转入 World 候选失败，请重试。"
+  } finally {
+    if (owns(token, key)) candidateTransferBusy.value = false
+  }
+}
+
 function editRoundMeta(round) {
   editingRoundId.value = round.id
   roundMetadata.name = round.name || ""
@@ -930,6 +982,7 @@ watch(() => [props.projectId, props.scene?.id], async ([projectId, sceneId]) => 
   history.value = null
   historyError.value = ""
   historyLoading.value = false
+  candidateTransferBusy.value = false
   startPreview.value = null
   continuationPreview.value = null
   if (!projectId || !sceneId || !props.visible) return

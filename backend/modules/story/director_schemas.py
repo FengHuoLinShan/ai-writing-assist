@@ -381,3 +381,31 @@ class DirectorMutationRequest(DirectorModel):
     @classmethod
     def normalize_project(cls, value: str) -> str:
         return _uuid(value)
+
+
+class DirectorCandidateTransferRequest(DirectorModel):
+    novel_id: str
+    scene_id: uuid.UUID
+    confirmed: Literal[True]
+    candidate_id: str = Field(min_length=1, max_length=120)
+    entity_type: Literal["character", "item", "location", "concept", "event"]
+    expected_source_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    expected_output_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @field_validator("novel_id")
+    @classmethod
+    def normalize_project(cls, value: str) -> str:
+        return _uuid(value)
+
+
+class DirectorCandidateTransferOperationRequest(DirectorCandidateTransferRequest):
+    round_id: uuid.UUID
+
+
+class DirectorCandidateTransferReceipt(DirectorModel):
+    round_id: uuid.UUID
+    candidate_id: str
+    world_candidate_id: uuid.UUID
+    entity_type: str
+    status: Literal["candidate"] = "candidate"
+    repeated: bool = False

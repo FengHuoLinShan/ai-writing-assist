@@ -418,6 +418,34 @@ class StorySceneDirectorReference(Base, UUIDMixin, TimestampMixin, NovelMixin):
     )
 
 
+class StorySceneDirectorCandidateTransfer(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """One author-approved World candidate from an immutable Director event."""
+
+    __tablename__ = "story_scene_director_candidate_transfers"
+    __table_args__ = (
+        UniqueConstraint(
+            "novel_id",
+            "round_id",
+            "candidate_ref",
+            name="uq_story_director_candidate_transfer_source",
+        ),
+        UniqueConstraint(
+            "novel_id",
+            "world_candidate_id",
+            name="uq_story_director_candidate_transfer_world",
+        ),
+    )
+
+    # Weak source reference survives author deletion of the Director history.
+    round_id: Mapped[uuid.UUID] = mapped_column(UUIDType, nullable=False)
+    candidate_ref: Mapped[str] = mapped_column(String(120), nullable=False)
+    scene_id: Mapped[uuid.UUID] = mapped_column(UUIDType, nullable=False)
+    source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    output_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    world_candidate_id: Mapped[uuid.UUID] = mapped_column(UUIDType, nullable=False)
+
+
 class StorySceneDirectorPreference(Base, UUIDMixin, TimestampMixin, NovelMixin):
     """Project-local, author-editable anti-cliché phrase list."""
 

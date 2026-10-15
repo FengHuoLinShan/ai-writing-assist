@@ -94,6 +94,10 @@ C4_DIRECTOR_ROUTES = {
         "story.scene_director.save_reference",
         "POST",
     ),
+    "/api/story/director/rounds/{round_id}/world-candidates": (
+        "story.scene_director.transfer_world_candidate",
+        "POST",
+    ),
 }
 
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
@@ -184,7 +188,7 @@ def test_c2_http_routes_bind_read_and_previews_without_enqueueing():
 def test_c4_director_http_routes_bind_the_frozen_catalog():
     operations = get(ASSISTANT_OPERATIONS)
     routes = dict(_route_entries(app.routes))
-    assert len(C4_DIRECTOR_ROUTES) == 8
+    assert len(C4_DIRECTOR_ROUTES) == 9
     for path, (operation_id, method) in C4_DIRECTOR_ROUTES.items():
         route = routes[path]
         extra = route.openapi_extra or {}
@@ -194,10 +198,15 @@ def test_c4_director_http_routes_bind_the_frozen_catalog():
             operations[operation_id].schema.model_fields
         )
         if method == "POST":
+            fields = extra["x-novelcraft-operation-trace-fields"]
             assert all(
                 source.startswith("data.")
-                for source in extra["x-novelcraft-operation-trace-fields"].values()
+                for field, source in fields.items()
+                if field != "round_id"
             )
+            if "round_id" in fields:
+                assert path.endswith("/rounds/{round_id}/world-candidates")
+                assert fields["round_id"] == "round_id"
     for path, route in routes.items():
         if path.startswith("/api/story/director/") and path not in C4_DIRECTOR_ROUTES:
             assert (route.openapi_extra or {}).get("x-novelcraft-operation-exemption")
@@ -270,3 +279,18 @@ def test_route_adapter_handles_included_and_late_routes_without_changing_openapi
         assert client.post("/api/probe/unbound").json() == {"ok": True}
         assert client.post("/api/probe/bound").json() == {"ok": True}
         assert client.post("/api/late/bound").json() == {"ok": True}
+
+
+def test_director_candidate_route_binds_r3_confirmation_and_exact_trace_fields():
+    operation_id = "story.scene_director.transfer_world_candidate"
+    operation = get(ASSISTANT_OPERATIONS)[operation_id]
+    path = "/api/story/director/rounds/{round_id}/world-candidates"
+    route = dict(_route_entries(app.routes))[path]
+    extra = route.openapi_extra or {}
+    assert extra["x-novelcraft-operation-id"] == operation_id
+    assert extra["x-novelcraft-operation-phase"] == "execute"
+    assert extra["x-novelcraft-operation-confirmation-field"] == "data.confirmed"
+    assert set(extra["x-novelcraft-operation-trace-fields"]) == set(
+        operation.schema.model_fields
+    )
+    assert extra["x-novelcraft-operation-trace-fields"]["round_id"] == "round_id"
