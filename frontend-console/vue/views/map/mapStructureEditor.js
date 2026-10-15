@@ -26,6 +26,10 @@ export function mapSourceSelections(features, constraints = []) {
 
 const equal = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
 const featureKinds = { location: '地点', landmark: '地标', road: '道路', river: '河流', area: '区域' }
+const modalityLabels = { event_observed: '已观察事件', character_statement: '人物说法', belief: '人物认知', hypothesis: '待核实理解', figurative: '修辞', author_plan: '作者计划', unclear: '尚不明确' }
+const pinnedType = (ref, revision) => ref ? `词条 ${ref} · 修订 ${revision}` : '未关联类型'
+const validityLabel = value => value ? [value.start ? `从${value.start.kind === 'scene' ? '场景' : '章节'} ${value.start.id} 开始` : '', value.end ? `至${value.end.kind === 'scene' ? '场景' : '章节'} ${value.end.id} 结束` : ''].filter(Boolean).join('；') : '全书有效'
+const quantityLabel = value => value ? `${value.minimum ?? '未定'}—${value.maximum ?? '未定'} ${value.unit}` : '没有声明'
 export const mapFeatureCenter = feature => feature?.points?.length ? feature.points.reduce((sum, p) => ({ x: sum.x + p.x / feature.points.length, y: sum.y + p.y / feature.points.length }), { x: 0, y: 0 }) : null
 
 function positionChange(before, after) {
@@ -44,8 +48,10 @@ export function mapChangeDetails(before, after) {
   const sources = items => (items || []).map(ref => ref.kind === 'source_range' ? `第 ${ref.source_ref.chapter_index} 章${ref.quote ? '：' + ref.quote : ''}` : ref.quote || '世界资料').join('；') || '没有引用'
   const rows = []
   const groups = [
+    ['space', 'spaces', 'id', item => item.label, item => [...before.features, ...after.features].filter(feature => (feature.space_id || 'main') === item.id).map(feature => feature.id)],
     ['feature', 'features', 'id', item => item.label, item => [item.id]],
     ['constraint', 'constraints', 'id', item => `${name(item.subject)} · ${mapRelationLabels[item.relation] || '空间关系'} · ${name(item.target)}`, item => [item.subject, ...(item.via || []), item.target]],
+    ['journey', 'journeys', 'id', item => `${name(item.origin)} → ${name(item.destination)} · ${item.transport_label}`, item => [item.origin, item.destination]],
     ['image', 'images', 'page_id', item => item.role === 'background' ? '图片底图' : `${name(item.feature_id)}配图`, item => [item.feature_id, ...(item.anchors || []).map(anchor => anchor.feature_id)].filter(Boolean)],
     ['binding', 'annotation_bindings', 'annotation_id', item => `${name(item.feature_id)}的图片标注`, item => [item.feature_id]],
   ]
@@ -57,7 +63,9 @@ export function mapChangeDetails(before, after) {
       if (equal(old, item)) continue
       const fields = []
       const add = (key, title, describe) => { if (!equal(old?.[key], item?.[key])) fields.push({ title, before: old ? describe(old[key], old) : '尚未加入', after: item ? describe(item[key], item) : '已移出' }) }
-      if (category === 'feature') {
+      if (category === 'space') {
+        add('label', '空间名称', value => value)
+      } else if (category === 'feature') {
         add('label', '名称', value => value)
         add('kind', '类型', value => featureKinds[value] || '地图内容')
         add('points', '位置 / 轮廓', (value, entry) => entry === item && old ? positionChange(old, item) : value?.length ? `${value.length} 个已定位控制点` : '待定位')
@@ -67,12 +75,22 @@ export function mapChangeDetails(before, after) {
         add('target_node_id', '子图', value => value ? '已关联子图' : '没有子图')
         add('reader_from_chapter', '阅读展示', chapter)
         add('depends_on', '依赖地点', values => (values || []).map(name).join('、') || '无')
+        add('space_id', '所属空间', value => [...(before.spaces || []), ...(after.spaces || [])].find(space => space.id === (value || 'main'))?.label || value || '主空间')
       } else if (category === 'constraint') {
         add('relation', '关系', value => mapRelationLabels[value] || '空间关系')
         add('subject', '起点', name); add('target', '目标', name)
         add('via', '经过顺序', values => (values || []).map(name).join(' → ') || '无中间地点')
         add('path_kind', '线路类型', value => value === 'river' ? '河流' : '道路')
         add('path_label', '线路名称', value => value || '未命名路线')
+      } else if (category === 'journey') {
+        add('origin', '出发地', name); add('destination', '目的地', name)
+        add('transport_label', '交通方式', value => value)
+        add('duration', '声明耗时', quantityLabel); add('distance', '声明距离', quantityLabel)
+        add('access_conditions', '通行条件', values => (values || []).map(value => `${value.label}${value.type_ref ? `（${pinnedType(value.type_ref, value.type_revision_id)}）` : ''}`).join('；') || '没有声明')
+        for (const [prefix, title] of [['transport', '交通方式类型'], ['traveler', '旅行者类型'], ['connection', '连接类型']]) {
+          const key = `${prefix}_type_ref`, revision = `${prefix}_type_revision_id`
+          if (!equal([old?.[key], old?.[revision]], [item?.[key], item?.[revision]])) fields.push({ title, before: old ? pinnedType(old[key], old[revision]) : '尚未加入', after: item ? pinnedType(item[key], item[revision]) : '已移出' })
+        }
       } else if (category === 'image') {
         add('role', '用途', value => value === 'background' ? '地图底图' : '地点配图')
         add('feature_id', '关联地点', name)
@@ -80,7 +98,13 @@ export function mapChangeDetails(before, after) {
         add('anchors', '校准点', value => (value || []).map(anchor => name(anchor.feature_id)).join('、') || '未校准')
         add('reader_from_chapter', '阅读展示', chapter)
       } else add('feature_id', '关联地点', name)
-      if (category === 'feature' || category === 'constraint') add('sources', '来源依据', sources)
+      if (['space', 'feature', 'constraint'].includes(category) && !equal([old?.type_ref, old?.type_revision_id], [item?.type_ref, item?.type_revision_id])) fields.push({ title: '固定项目类型', before: old ? pinnedType(old.type_ref, old.type_revision_id) : '尚未加入', after: item ? pinnedType(item.type_ref, item.type_revision_id) : '已移出' })
+      if (['feature', 'constraint', 'journey'].includes(category)) {
+        add('modality', '可信度', value => modalityLabels[value || 'event_observed'] || '尚不明确')
+        add('effective', '生效范围', validityLabel)
+        add('sources', '来源依据', sources)
+      }
+      if (category === 'constraint' && !equal([old?.path_type_ref, old?.path_type_revision_id], [item?.path_type_ref, item?.path_type_revision_id])) fields.push({ title: '路线类型', before: old ? pinnedType(old.path_type_ref, old.path_type_revision_id) : '尚未加入', after: item ? pinnedType(item.path_type_ref, item.path_type_revision_id) : '已移出' })
       if (!fields.length) fields.push({ title: '记录', before: '原记录', after: '依据或展示配置已更新' })
       rows.push({ key: `${category}:${id}`, category, action: !old ? '新增' : !item ? '移出' : '调整', label: label(item || old), featureIds: [...new Set([...(old ? ids(old) : []), ...(item ? ids(item) : [])])], fields })
     }
@@ -176,6 +200,8 @@ export function mapChanges(before, after) {
       const names = new Map([...before.features, ...after.features].map(feature => [feature.id, feature.label]))
       return `空间关系：${names.get(item.subject) || '地点'} → ${names.get(item.target) || '地点'}`
     }),
+    ...collectionChanges(before.spaces || [], after.spaces || [], 'id', item => `空间：${item.label}`),
+    ...collectionChanges(before.journeys || [], after.journeys || [], 'id', item => `行程声明：${item.transport_label}`),
     ...collectionChanges(before.images || [], after.images || [], 'page_id', item => item.role === 'background' ? '图片底图设置' : '地点配图设置'),
     ...collectionChanges(before.annotation_bindings || [], after.annotation_bindings || [], 'annotation_id', () => '图片标注绑定'),
   ]

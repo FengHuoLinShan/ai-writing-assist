@@ -69,3 +69,21 @@ describe('空间 v2 的本地排演边界', () => {
     expect(rehearseMapRoute(document, ['旅馆', '码头']).legs).toEqual([])
   })
 })
+
+it('v2空间、行程、模态、范围与固定词表修订均可逐项比较采用', () => {
+  const before = map(), after = structuredClone(before)
+  after.schema_version = 2
+  after.spaces = [{ id: 'dream', label: '梦境' }]
+  after.features[0].modality = 'author_plan'
+  after.features[0].type_ref = 'type-a'; after.features[0].type_revision_id = 'revision-a'
+  after.features[0].effective = { start: { kind: 'scene', id: 'scene-a' } }
+  after.journeys = [{ id: 'j1', origin: '旅馆', destination: '码头', transport_label: '步行', duration: { minimum: 0, maximum: 20, unit: '分钟' }, access_conditions: [{ label: '凭通行牌' }], sources: [{ quote: '沿桥步行二十分钟到码头。' }], modality: 'character_statement' }]
+  const changes = mapChangeDetails(before, after)
+  expect(changes.map(item => item.key)).toEqual(['space:dream', 'feature:旅馆', 'journey:j1'])
+  expect(changes[1].fields).toContainEqual({ title: '可信度', before: '已观察事件', after: '作者计划' })
+  expect(changes[1].fields.find(item => item.title === '固定项目类型').after).toContain('revision-a')
+  expect(changes[1].fields.find(item => item.title === '生效范围').after).toContain('scene-a')
+  expect(changes[2].fields).toContainEqual({ title: '声明耗时', before: '尚未加入', after: '0—20 分钟' })
+  expect(changes[2].fields.find(item => item.title === '通行条件').after).toBe('凭通行牌')
+  expect(changes[2].featureIds).toEqual(['旅馆', '码头'])
+})
