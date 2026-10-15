@@ -60,3 +60,25 @@ A0b已入primary d20d27517但扩大套9fail/2162pass，原Sol在新回归修复�
 C0b Sol已把两原提交接到d20并解冲突，继续typed DI与知识边界。Luna C2新功能/DI试探完整
 WIP f6f559f9已checkpoint，当前import失败且未过517门，禁止直接集成；待Sol净fix安全移入后恢复。
 C3b审查准备树仍保留，后续需先接已审A0b再作真实API联调。
+
+
+## 2026-10-16T00:10 C2b就绪与新增审查线索
+
+- C0b实际已在d20基线上完成633/30d两原提交的cherry（3e9468f1b、ef3a00f41），
+  不再处于准备冲突；Sol当前直接修DI/知识隔离，不能重复cherry或改main。
+- C2b原提交a212d9faa4aaaff28e9597fa19d64ec77d709651，在simulation-v3-director-impl/
+  codex/copilot-unified-ui，父C3b 53aaec35c。保留已提交原树，后续审查树取C3b+C2b并接
+  已审A0/C0实际装配。backend C2 WIP f6f559f9是另一树，禁止混同。
+- 后端Sol裁定：author_safe排除secret/无法证明公开的台账；author_full是owner/novel
+  门禁后的作者管理读取，支持显式patterns/only_adopted；character不调台账/作者checkpoint。
+  前端Sol应直接把作者管理Panel的请求与文案对齐，并证明full响应不会被复用进角色/默认生成。
+- root静态候选P2，尚待Sol复现：WorldObjectDossierEditor.saveTemplate在409后await服务器GET，
+  返回后未重验scope便写templateConflict；confirmRestore在409后await reloadDossier后也未重验
+  便写restoreError。用deferred二次GET/切项目对象回归，避免旧对象冲突污染新对象。
+- root静态候选P2，尚待Sol复现：模板有未保存草稿时“读取模板”可以直接覆盖templateFields；
+  loadAll若更新当前修订ID，editingOriginal消失可能让编辑表单与脏状态消失。需核对父组件离开
+  保护是否覆盖手动重读，不得静默丢草稿。
+- C2 UI还需核对使用globalThis demo标记和主界面直接暴露display_schema JSON是否违反既有
+  bridge/作者语言规则；由Sol按实际影响最小修正，不为过检删除功能断言。
+- root实际看图为/tmp/c2-scene-390.png与/tmp/c2-world-1280.png；其余390/1280截图仅Luna报告。
+  mock组件截图不能代替真实API+app装配验收。
