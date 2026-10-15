@@ -248,6 +248,10 @@ async def _plan(db, novel_id, request):
             raise ConflictError("原理解已失效或不支持继续，请重新准备正文范围")
         await store.require_project_owner(run.run_key)
         previous = run.reading_plan_json
+        from modules.evolution.optional_scene import load_pending_optional_stage
+
+        if await load_pending_optional_stage(store, run):
+            raise ConflictError("请先完成或恢复当前 Scene 的可选阶段")
         if bool(previous.get("spatial_version", 0)) != request.discover_spatial:
             raise ConflictError("追加章节不能静默启用或关闭空间发现")
         if (
@@ -291,6 +295,9 @@ async def _plan(db, novel_id, request):
     }
     if request.discover_spatial:
         plan["spatial_version"] = 1
+        plan["optional_stage_version"] = (
+            previous.get("optional_stage_version", 0) if run else 1
+        )
         if run and previous.get("spatial_method_fingerprint"):
             plan["spatial_method_fingerprint"] = previous["spatial_method_fingerprint"]
         plan["optional_step_quotas"] = (
@@ -551,6 +558,7 @@ async def _plan_recompute(db, novel_id, request, run, store):
     }
     if request.discover_spatial:
         plan["spatial_version"] = 1
+        plan["optional_stage_version"] = 1
     if missing:
         from modules.evolution.preparation import plan_preparation
 
@@ -946,6 +954,11 @@ async def advance_reading(db, novel_id, run_key):
     if run.status != "active":
         raise ConflictError("理解已停止或来源变化，请重新准备")
     plan = run.reading_plan_json
+    from modules.evolution.optional_scene import load_pending_optional_stage
+
+    if await load_pending_optional_stage(store, run):
+        # Only the durable Scene task may drain its committed optional stage.
+        return {"next_task_id": plan.get("task_id"), "reading_complete": False}
     if plan.get("recompute_baseline"):
         await _inherit_recompute_suffix_if_stable(db, novel_id, store, run)
         plan = run.reading_plan_json
@@ -1319,7 +1332,13 @@ async def _optional_coverage_summary(store, run, pending):
                     if gap not in combined_gaps:
                         combined_gaps.append(gap)
                 if not payload or not discovery:
-                    status = "gap" if run.status == "source_stale" else "not_checked"
+                    status = (
+                        "gap"
+                        if run.status == "source_stale"
+                        or state.get("status") in {"unknown", "not_run", "stale"}
+                        or combined_gaps
+                        else "not_checked"
+                    )
                 elif any(
                     item.get("reason") == "low_spatial_density" for item in combined_gaps
                 ):
@@ -1436,6 +1455,9 @@ async def reading_status(db, novel_id, run_key=None):
     )
     store = PostgresAttemptStore(db, novel_id)
     pending = await store.load_pending_frozen(run.run_key, run.committed_scene_index + 1)
+    from modules.evolution.optional_scene import load_pending_optional_stage
+
+    optional_pending = await load_pending_optional_stage(store, run)
     reconcile = bool(
         (
             (
@@ -1470,6 +1492,7 @@ async def reading_status(db, novel_id, run_key=None):
         )
     elif (
         completed == len(plan["steps"])
+        and optional_pending is None
         and preparation.get("stage") in {None, "complete"}
         and (plan.get("structure_version", 0) == 0 or structure.get("complete"))
     ):

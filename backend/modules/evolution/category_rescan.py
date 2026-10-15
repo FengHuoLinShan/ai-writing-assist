@@ -139,6 +139,10 @@ async def _plan(db, novel_id, run_key, request):
     if not run or not run.reading_plan_json:
         raise NotFoundError("未找到已读范围")
     await store.require_project_owner(run_key)
+    from modules.evolution.optional_scene import load_pending_optional_stage
+
+    if await load_pending_optional_stage(store, run):
+        raise ConflictError("请先恢复原理解的可选阶段，再发起补扫")
     if (
         run.status != "active"
         or run.execution_mode != "live"
@@ -156,6 +160,13 @@ async def _plan(db, novel_id, run_key, request):
         if not request.from_scene_index <= index <= request.through_scene_index:
             continue
         origin = await store.load_frozen(receipt.run_key, receipt.attempt_key)
+        details_journals = {
+            key: value
+            for key, value in origin.payload.items()
+            if key.startswith("scene_discovery_")
+        }
+        if has_unreconciled_scene_calls(details_journals, frozen=origin):
+            raise ConflictError("原发现请求结果尚未核清，不能重新发送")
         await require_current_prefix(db, store, origin, run_key=run_key)
         payload = deepcopy(origin.payload)
         from infrastructure.llm.model_limits import confirmed_scope_eligible
@@ -175,6 +186,8 @@ async def _plan(db, novel_id, run_key, request):
         for key in scene_call_journals(payload):
             payload.pop(key, None)
         for key in {
+            "optional_stage_version",
+            "optional_scene_stage",
             "paid_call_receipt",
             "scene_sample",
             "discovery_preparation",

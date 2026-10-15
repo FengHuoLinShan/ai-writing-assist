@@ -945,6 +945,11 @@ async def run_scene_step(
             "enrichment_version": enrichment_version,
             "world_version": world_version,
             "discovery_version": discovery_version,
+            **(
+                {"optional_stage_version": 1}
+                if (run_row.reading_plan_json or {}).get("optional_stage_version") == 1
+                else {}
+            ),
             **({"spatial_version": spatial_version} if spatial_version == 1 else {}),
             **(
                 {"source_content_mode": source_content_mode}
@@ -1017,6 +1022,11 @@ async def run_scene_step(
             "enrichment_version": enrichment_version,
             "world_version": world_version,
             "discovery_version": discovery_version,
+            **(
+                {"optional_stage_version": 1}
+                if (run_row.reading_plan_json or {}).get("optional_stage_version") == 1
+                else {}
+            ),
             **({"spatial_version": spatial_version} if spatial_version == 1 else {}),
             **(
                 {"source_content_mode": source_content_mode}
@@ -1073,7 +1083,14 @@ async def run_scene_step(
         source_verifier=_source_verifier(source),
         owner_epoch_provider=store.owner_epoch_provider(run_key),
     )
+    from modules.evolution.optional_scene import (
+        finish_committed_optional_steps,
+        initialize_optional_stage,
+    )
+
+    frozen = await initialize_optional_stage(db, store, frozen, receipt)
     await db.commit()
+    await finish_committed_optional_steps(db, store, frozen, source, scene_method_caller)
     return PipelineStepResult(
         receipt_attempt_id=receipt.attempt_id,
         committed_prefix=receipt.committed_prefix,
@@ -1206,7 +1223,14 @@ async def recover_scene_step(
         source_verifier=_source_verifier(source),
         owner_epoch_provider=store.owner_epoch_provider(run_key),
     )
+    from modules.evolution.optional_scene import (
+        finish_committed_optional_steps,
+        initialize_optional_stage,
+    )
+
+    frozen = await initialize_optional_stage(db, store, frozen, receipt)
     await db.commit()
+    await finish_committed_optional_steps(db, store, frozen, source, scene_method_caller)
     return receipt
 
 
@@ -1241,21 +1265,32 @@ async def _run_scene_call(
             await db.commit()
             return frozen
         # Source/parent/owner are rechecked BEFORE reserving and sending a second call.
-        await _source_verifier(source)(db, frozen)
-        current = await prepare_scene_input(
-            store,
-            run_key=frozen.run_id,
-            scene_index=payload.get(
-                "operation_parent_scene_index", payload["scene_index"]
-            ),
-            source_manifest_hash=frozen.source_manifest_hash,
-        )
-        if (
-            current.dependency_status != "committed"
-            or current.previous_scene_attempt_id != frozen.previous_receipt
-            or current.previous_committed_prefix != frozen.previous_committed_prefix
+        if payload.get("optional_stage_version") == 1 and payload.get(
+            "optional_scene_stage"
         ):
-            raise CommitConflictError("parent_advanced", "scene call parent changed")
+            from modules.evolution.optional_scene import (
+                require_committed_optional_parent,
+                verify_optional_source,
+            )
+
+            await verify_optional_source(db, frozen, source)
+            await require_committed_optional_parent(store, frozen)
+        else:
+            await _source_verifier(source)(db, frozen)
+            current = await prepare_scene_input(
+                store,
+                run_key=frozen.run_id,
+                scene_index=payload.get(
+                    "operation_parent_scene_index", payload["scene_index"]
+                ),
+                source_manifest_hash=frozen.source_manifest_hash,
+            )
+            if (
+                current.dependency_status != "committed"
+                or current.previous_scene_attempt_id != frozen.previous_receipt
+                or current.previous_committed_prefix != frozen.previous_committed_prefix
+            ):
+                raise CommitConflictError("parent_advanced", "scene call parent changed")
         from modules.evolution.consumer_reuse import (
             consumer_kind,
             find_reusable,
@@ -1534,6 +1569,8 @@ async def _finish_scene_results(db, store, frozen, source, reviewer, caller):
     frozen = await finish_scene_world(db, store, frozen, source, caller)
     if frozen.payload.get("world_version") in {2, 3}:
         frozen = await _finish_state_review(db, store, frozen, source, reviewer)
+    if frozen.payload.get("optional_stage_version") == 1:
+        return frozen
     frozen = await finish_scene_discovery(db, store, frozen, source, caller)
     return await finish_scene_spatial(db, store, frozen, source, caller)
 

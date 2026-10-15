@@ -479,6 +479,20 @@ question即使复核确认“问题有依据”，仍另存绑定原主题/修�
 ## ADR-0036 空间可选阅读步骤（M1）
 
 `discover_details` 与 `discover_spatial` 按 `optional_steps.py` 的纯数据规格登记。
+新建且开启空间发现的阅读计划冻结 `optional_stage_version=1`，同值进入 Scene attempt。
+主采样、身份、World 候选和状态在原事务内先提交不可变 Scene 回执；同一持久 Scene 任务随后
+按 details、spatial 顺序执行可选阶段，再推进下一 Scene。可选 provider 慢或挂起时，其他会话已能读取
+主回执和 World 结果。`optional_scene_stage` 关联 `receipt_attempt_id`、提交后的 Scene 指纹和
+主状态指纹，各步骤记录 pending/running/complete/failed/unknown/not_run（关闭步骤为 not_run/step_disabled）；
+可选领域结果和计费仍保存在
+原 attempt 的 materialization/coverage/journal 中，完成后不改写主回执。恢复原任务时，已提交分支继续
+未收尾阶段；sampling/failed 未知费用只记本步骤缺口，不重发，其他步骤与后续 Scene 继续。
+阶段发送和物化前重验原 Scene 回执/head、owner、正文及提交后的 Scene 指纹；取消保留持久阶段待恢复。
+主游标已推进但可选阶段未收尾时，进度不提前显示全部完成，append 不越过该阶段。
+shadow 阶段明确标记 `not_run/shadow_isolated`，不写正式领域。补扫不复制原 Scene 的主提交阶段身份；
+原可选阶段未收尾时先恢复原任务，原发现请求费用未知时禁止用类别补扫重发。
+旧冻结负载、旧计划追加/继续均不升级此协议。
+
 `discover_details` 的旧 API 默认、journal、方法版本和写入链保持原行为；空间步骤另用
 `spatial_version=1`，API 开关默认关闭。新 UI 在授权预览显式提交开关，预览冻结空间子额度和
 主理解必需请求保留额；空间运行中 `details` 与 `spatial` 各自扣独立子额度，任一步耗尽只记该步缺口。

@@ -165,6 +165,10 @@ async def spatial_rescan_states(db, novel_id, run):
 
 async def _idle(db, novel_id, run):
     await require_no_active_world_audit_supplement(db, novel_id, run)
+    from modules.evolution.optional_scene import load_pending_optional_stage
+
+    if await load_pending_optional_stage(PostgresAttemptStore(db, novel_id), run):
+        raise ConflictError("请先恢复原理解的可选阶段，再发起补扫")
     task_id = (run.reading_plan_json or {}).get("task_id")
     if task_id:
         status = (
@@ -252,6 +256,8 @@ async def _plan(db, novel_id, run_key, request):
         for key in ("scene_spatial_discovery", "scene_spatial_review"):
             clone_payload.pop(key, None)
         for key in (
+            "optional_stage_version",
+            "optional_scene_stage",
             "spatial_preparation",
             "spatial_discovery_result",
             "spatial_stage_result",

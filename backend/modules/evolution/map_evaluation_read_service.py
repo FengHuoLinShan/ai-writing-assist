@@ -188,8 +188,11 @@ async def read_map_spatial_evaluation_receipts(
                             "source_binding",
                             "source_content_mode",
                             "spatial_method_fingerprint",
+                            "optional_stage_version",
+                            "optional_scene_stage",
                             "optional_step_coverage",
                             "spatial_discovery_result",
+                            "spatial_stage_result",
                         )
                     },
                     "journals": {

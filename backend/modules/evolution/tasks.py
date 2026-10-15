@@ -400,79 +400,11 @@ async def _execute_scene_step(db: AsyncSession, task) -> dict[str, Any]:
                 )
             )
 
-        spatial_pending = []
-        if (frozen.payload.get("spatial_discovery_result") or {}).get("batch"):
-            from modules.evolution.spatial import apply_spatial_discovery
+        from modules.evolution.optional_scene import apply_spatial_result
 
-            stage_result = None
-            stage_error = None
-            try:
-                async with db_session.begin_nested():
-                    stage_result = await apply_spatial_discovery(
-                        db_session, request.novel_id, frozen
-                    )
-            except Exception as error:
-                stage_error = error
-            latest = await store.load_frozen(frozen.run_id, frozen.attempt_id)
-            latest_payload = dict(latest.payload)
-            coverage = dict(latest_payload.get("optional_step_coverage") or {})
-            spatial_coverage = dict(coverage.get("spatial") or {})
-            if stage_error is not None:
-                spatial_coverage.update(
-                    status="inspected",
-                    gaps=[
-                        *spatial_coverage.get("gaps", []),
-                        {
-                            "reason": "world_stage_failed",
-                            "detail": str(stage_error)[:300],
-                        },
-                    ],
-                )
-                latest_payload["spatial_stage_result"] = {
-                    "status": "failed",
-                    "reason": f"{type(stage_error).__name__}: {stage_error}"[:500],
-                }
-                result = dict(latest_payload.get("spatial_discovery_result") or {})
-                result["gaps"] = [
-                    *result.get("gaps", []),
-                    {
-                        "reason": "world_stage_failed",
-                        "detail": str(stage_error)[:300],
-                    },
-                ]
-                latest_payload["spatial_discovery_result"] = result
-            elif stage_result is not None:
-                dumped = stage_result.model_dump(mode="json")
-                stale = any(
-                    item.get("code") == "source_binding_invalid"
-                    for item in dumped.get("rejected", [])
-                )
-                if dumped.get("rejected"):
-                    spatial_coverage["gaps"] = [
-                        *spatial_coverage.get("gaps", []),
-                        *(
-                            {
-                                "reason": "world_stage_rejected",
-                                "clue_key": item.get("clue_key"),
-                                "code": item.get("code"),
-                            }
-                            for item in dumped["rejected"]
-                        ),
-                    ]
-                if stale:
-                    spatial_coverage["status"] = "stale"
-                latest_payload["spatial_stage_result"] = dumped
-                spatial_pending = [
-                    "spatial_clue_requires_review" for _ in dumped.get("accepted", [])
-                ] + [
-                    "spatial_clue_requires_verification"
-                    for _ in dumped.get("pending", [])
-                ]
-            coverage["spatial"] = spatial_coverage
-            latest_payload["optional_step_coverage"] = coverage
-            await store.replace_frozen_payload(
-                latest.model_copy(update={"payload": latest_payload})
-            )
+        spatial_pending = await apply_spatial_result(
+            db_session, store, frozen, request.novel_id
+        )
 
         events = [
             {**event, "source": "evolution"}
@@ -489,7 +421,11 @@ async def _execute_scene_step(db: AsyncSession, task) -> dict[str, Any]:
         )
         from modules.evolution.discovery import apply_discovery
 
-        discovery_pending = await apply_discovery(db_session, store, frozen)
+        discovery_pending = (
+            []
+            if frozen.payload.get("optional_stage_version") == 1
+            else await apply_discovery(db_session, store, frozen)
+        )
         from modules.evolution.pipeline import scene_state_fingerprint
 
         committed_frozen = await store.load_frozen(frozen.run_id, frozen.attempt_id)
@@ -560,6 +496,16 @@ async def _execute_scene_step(db: AsyncSession, task) -> dict[str, Any]:
             raise CommitConflictError(
                 "request_changed", "receipt belongs to another scene"
             )
+        from modules.evolution.optional_scene import finish_committed_optional_steps
+
+        await db.commit()
+        await finish_committed_optional_steps(
+            db,
+            store,
+            frozen,
+            binding,
+            SceneMethodCaller(db, request, run.llm_snapshot_json),
+        )
         return {
             "run_key": request.run_key,
             "attempt_id": committed.attempt_id,

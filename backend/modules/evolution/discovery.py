@@ -497,6 +497,13 @@ async def prepare_discovery(db, store, frozen):
     payload = frozen.payload
     current = _records(payload, _dependency(frozen, payload))
     pairs = await store.load_committed_pairs(frozen.run_id)
+    if payload.get("optional_stage_version") == 1:
+        # Core receipt already exists; it is not prior-Scene evidence.
+        pairs = [
+            pair
+            for pair in pairs
+            if pair[0].committed_scene_index < payload["scene_index"]
+        ]
     if pairs:
         parent = await store.load_frozen(pairs[-1][0].run_key, pairs[-1][0].attempt_key)
         if parent.run_id == frozen.run_id:
