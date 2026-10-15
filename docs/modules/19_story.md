@@ -13,9 +13,14 @@ World 仍拥有 canonical Character，Outline 仍拥有 Scene；Story 通过 fac
 
 Story 前瞻注册 `story.spatial_planning.v1` 地理视角：仅在
 `MAP_SPATIAL_ENABLED_CAPABILITIES` 包含 `story.spatial_planning` 时，经 World 的
-`read_map_spatial_brief` typed port 读取本场显式地点相关的已采用地图。前瞻记录 node/revision/hash
-及来源，提示旅程分段、地点分布和转场；无显式地点或相关简报时不猜测，不推算坐标距离和
-耗时，也不在缺少领地资料时判断势力接壤。此能力默认关闭，只出建议，不修改大纲或 Scene。
+`read_map_spatial_brief` typed port 读取本场显式地点相关的已采用地图，提示旅程分段、
+地点分布和转场。地点集中提示还会读取此前最多五个未废弃 Scene 的已采用、可见简报，
+不读取后续 Scene；当前场景和至少四个此前场景各有唯一且绑定稳定 World 身份的地点，
+同一地点出现在至少五场、占有明确地点的场景至少八成时，才建议核对节奏。
+未知、多地点及未绑定身份的同名图元不计作集中。前瞻记录本场与参与集中判断的地图
+node/revision/hash 及来源；无显式地点或相关简报时不猜测，不推算坐标距离和耗时，
+也不在缺少领地资料时判断势力接壤。此能力默认关闭，只出建议，不修改大纲或 Scene。
+详细投影边界见[地图模块的 M4 地理前瞻](15_map.md#空间提醒与地理前瞻m4)。
 
 ## 物理 owner 融合
 
