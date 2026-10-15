@@ -277,3 +277,22 @@ ADR-0039 旧接口写回规则、共用词表与锚点、档案发现按 ADR-003
 - Node验证口径已纠正：唯一primary是map-enhancement-plan，不是原repo checkout；与Goal树package/lock SHA一致，使用/bin/bash login=false的Node24.15.0/npm11.12.1。不得对原checkout依赖做同步或安装。
 - 后续C3机制缺口已补交接 ../T-20261015-character-world-progression/artifacts/C3-ALIGNMENT-TAIL.md：短期前瞻人物反应的简报/表演格式、人物弧线计划与实际对照、演化阅读状态提醒、依赖正式下线的Imports替换；不能因C2/首批C3已通过而遗漏。
 - PG队列仍Sol独占65202，Goal下一窗口未发放；R3封存/holdout/默认开发库/真模型/外部交付边界不变。
+
+## 2026-10-16T02:46:00+08:00 C2 集成与真实 UI 检查点
+
+- primary已集成C2实现cb3e93238、Sol审修1b9afc7b1、同根预算桥fd742097c；集成后干净。v9共92项，旧冻结目录保持；Assistant.turn使用服务器冻结的V4精确子能力，Goal V3仍严格goal根，旧v1/v2不扩权。
+- Sol报告571定向/5PG/Vue20及后续377定向/2PG通过；后者为真实TaskWorker→Assistant.execute_suggestion→Story inline worker离线provider成功/认证失败，父子同run/started_at、子无独立预算。root正在固定fd742跑组合回归，日志/tmp/map-c2-primary-combined-20261016.log，尚未判定结果。
+- root复用干净map-assistant-operations建立codex/c2-ui-acceptance，固定b85f4373c6。专用c2_browser_test_20261016已迁移，仅合成作者手工V2卡；1280真实界面键盘保存201及GET全content相等。发现V2只展示interpretations引用的fact，未引用fact_basis和无interpretations骨架不可读，已交Sol直接修复；不据API完整回读宣称展示完成。
+- root浏览器应用仍运行：backend session67609在127.0.0.1:18572（lifespan off），Vite session17943在18573，同源proxy；临时QA /tmp/map-c2-browser-acceptance-20261016.mjs，backend日志/tmp/map-c2-browser-backend-20261016.log。390初次点击超时已定位正常场景编辑modal使tab inert，QA应等待并通过真实“返回列表”关闭，不强制点击或报产品缺陷。
+- PG65202所有权收窄为每库隔离：root独占c2_browser_test_20261016；Sol的dossier_consumers_review_test_20261016本批已释放。Goal专库goal_review_test_20261016尚未创建/分配；其他库、角色和原map_enhancement_test不变，不允许连接默认开发库。后续每代理仅用明确专库，可并行使用独立数据库。
+- Goal Luna正完成初版固定提交，真实PG/API/UI与独立审修待交Sol；不等待空闲窗口冒称完成。C4b Luna继续服务/API/UI，新路由缺共享registry接线导致普通app导入仍未通过，固定点由Sol实际登记，不能把confcutdir纯测当应用门禁。根预算unknown新增与旧卡自由文本绕过角色知情均列Sol必审。
+- C0c、A3/A4、C3尾项、C4b/C5及地图条件项继续在全范围内；未新增真实模型请求、R3重跑、holdout解码、默认库操作、push/PR/main合并或部署。
+
+## 2026-10-16T02:52:00+08:00 C2 扩大回归与后续派发
+
+- root固定fd742组合套完成：6 failed/4486 passed/1 deselected/1既有Pydantic warning，151.61s；并非通过。Sol直接审修为e3bf61ec8（共创手调测试补真实V4 scope、默认可选loader、Scene截止文案及搬迁后真实确认边界inventory），相关101后端/原6fail通过；root原扩大套待净fix集成后重跑。
+- 390实际流程确认“返回列表”会clearSelectedScene导致人物卡/推演/剧本无上下文，先前只把遮挡归为modal的判断不完整。Sol c482b7ed9直接修关闭详情保留Scene/脏稿与焦点保护，并展示全部V2事实/模式依据和空解释；Vue61/ESLint/build过，root真实390/1280仍待复验。两笔净fix尚未集成primary。
+- root临时Vite17943/backend67609已停止，18572/18573可供下一固定点重启；c2_browser_test_20261016及合成fixtures保留。不得对其他DB做清理。
+- Goal Luna固定90c4d077e0138f93adefd7343439fcc85309b178，map-assistant-review/codex/assistant-goal-run-impl干净；报告379后端/8Vue/lint/build/docs通过。现结束写入交Sol直接完成C2组合、真实PG/API/UI和独立审修；未称A2完成。Sol获新goal_review_test_20261016专库独占创建/迁移授权，其他库不动；root指出approve/cancel持FOR UPDATE再触发独立Session checkpoint可能自锁，待Sol真实PG短timeout实证/直接修。
+- 新Luna/max luna_c0c_validity复用干净world-object-dossier-impl新建codex/world-object-validity-impl，从fd742实施C0c全部交接范围；旧object-dossier-evidence-impl分支保留。C4b Luna获Evidence director_reference正式维度独立文件写槽，不能以缺少C2接口延期；shared bootstrap/key/catalog组合仍交Sol。
+- root文档inventory及受支持BASE/no-change-reason门通过，12模块/164表/61任务/16前端路由/49ADR；日志/tmp/map-c2-root-checkpoint-docs-20261016.log与docs-impact同前缀。所有真实质量/人工验收、R3/holdout和外部交付边界不变。
