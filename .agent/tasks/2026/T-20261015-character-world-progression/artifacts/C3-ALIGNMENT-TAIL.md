@@ -8,6 +8,10 @@
   指令尚未接统一对象简报/表演卡。需核对 forecast context、Story 来源提供者、输出校验与真实
   前端动作，按对象简报提供受约束且动机不同的表演方案。不能仅更新文案或让入口跳到另一个
   新面板就称该生成链已对齐；旧 forecast 运行的冻结与历史输出保持兼容。
+  当前实际清单是assistant/forecast/capabilities.json（不是capabilities.py），
+  registry.py默认场景能力仍为v1，contracts.py声明Frozen forecast v1，ForecastDock.vue
+  只渲染通用directions。应版本化新增输入/输出并切换新请求的真实生成与展示；不覆写旧快照，
+  不把已有C2独立reaction.v2的绿色测试冒充forecast链已改造。
 - “故事结构浮窗增加人物弧线：作者计划与实际对照”尚未核验交付。现有 OutlineArc 是篇章纲，
   不能直接当人物弧。先查 PlotThread 的人物关联、作者计划、已确认 Story 事件/时点来源及
   前端结构入口，复用真实可证明的数据；计划、正文发生与模型解释分别显示，无资料显示缺口，

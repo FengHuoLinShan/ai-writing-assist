@@ -3,6 +3,9 @@
 核实时间：2026-10-16。状态：待实施；属于用户明确要求的三份计划全部执行范围。
 实现用 Luna/max，Sol/high 独立 review 并直接修复。真实数周使用数据依赖不伪造。
 
+当前状态优先见主TASK恢复快照：A3 Luna候选e68已交Sol独立审修，A4 Luna正实施，
+并非尚未启动；本文早期描述保留为验收要求，不能把未接线候选算交付。
+
 ## A3 作者侧 Interaction 与 Collaboration
 
 - 先核对 ADR-0018、ADR-0027、ADR-0038 与真实服务。作者项目、隔离 RP 旅程项目及其只读
@@ -71,3 +74,19 @@ PG DB；不访问默认开发库、封存 R3、holdout、65302 或真实模型�
   冻结源版本/路径/Project profile及finalizer stale fence也须实际worker验证。
 - 收窄到该摘要任务，不全局放宽或迁移旧V1运行；原冻结运行与旅程只读来源边界保持。
   以精确TaskFacade任务回执证明幂等与恢复，overview的task pointer仅是当前投影，不代替回执账本。
+
+## 2026-10-16 root复核的当前审修点
+
+- A3 Sol已复现并修真实ProjectContext的novel_id误用、归档consumer导致旅程不可恢复、
+  项目助手未开启时作者RP管理不可达。专库HTTP/worker、390/1280与组件草稿/409回归正在收尾。
+  root已看两张RP面板截图；它们是设置变更前状态，不冒称保存后的视觉证明。
+- root进一步发现A3 WIP把同一interaction_summary_refresh注册的deadline改1800、
+  unknown/80%常开，实际影响了没有author_project_id的旧RP任务。Sol已确认并直接收窄，
+  正按新作者任务的冻结绑定启用，旧RP的deadline=None及旧V1恢复合同保持；最终固定点
+  仍须新作者/旧RP两类实际TaskWorker对照，不把一类绿色测试当整体兼容证据。
+- A4 WIP的operation_trace_cutoff把now-180d向UTC午夜取整，归档只删该时点以前，
+  原始标识会超180天多留不足一天。root已按实际源码确认，Luna明确将它列作Sol直接审修项，
+  没有改写ADR0038到期后ID-free的口径。后续Sol必须修精确保留边界，且保当前/归档去重、
+  分批与一次归档等价、旧摘要incomplete覆盖；不能永久保存组哈希或延迟删除raw规避。
+  可评估首次到期前汇总整个已闭合UTC日、记录无ID完成窗口，再精确删除过期raw与按窗口
+  去重的窄方案；这是审修方向，不是已实现结果。不得在Luna活跃树共享写入。

@@ -129,3 +129,13 @@ ADR-0040、ADR-0041 为准；不是新的授权或验收豁免。
 - 原先3个Writing隔离失败已在root最终组合中消失，前端3157、24专用PG与真实worker/UI证据继续有效，不因仅测试夹具改动重复付费或浏览器流程。C0c仍由另一个Sol独占接线，完整C0另有模板借用、题材包与互通尾项，见C0-TEMPLATE-INTERCHANGE-TAIL.md。
 
 - 2026-10-16T04:51:59+08:00 Sol原8299最终通过/8 deselected/已知warning，323.76s，两个Director专库已释放使用权、数据保留；Luna/max luna_world_progression已启动上述072树，完整C5实施中，不再等待C4。当前其余活动为Luna A3与Sol C0c。
+
+
+## 当前C5实施环境补充
+
+C5 Luna仍独占world-progression-impl/codex/world-progression-impl的新独立模块。
+root已分配新专库world_progression_impl_test_20261016（是否创建待实际回报）与空闲端口
+18590/18591；原凭据0600、仅loopback65202严格守卫和替换该新库，不探默认/他库。
+准备PG前先checkpoint独立WIP，再仅在无冲突时合C0c固定9b9c022a5，迁移接实际单head；
+有Git冲突停下交Sol直接处理。当前起点072没有C0c真实有效期代码，阅读新源码不算运行已覆盖。
+共享keys/bootstrap/catalog/TaskRegistry仍归A3 Sol，不在Luna树争写。
