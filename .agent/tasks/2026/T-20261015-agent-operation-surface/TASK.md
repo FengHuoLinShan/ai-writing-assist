@@ -3,7 +3,7 @@ id: T-20261015-agent-operation-surface
 title: 全模块 AI 操作入口、目标运行与操作留痕设计
 status: active
 created: 2026-10-15T14:30:00+08:00
-updated: 2026-10-16T05:04:09+08:00
+updated: 2026-10-16T05:44:34+08:00
 ---
 
 # 全模块 AI 操作入口、目标运行与操作留痕设计
@@ -19,17 +19,26 @@ updated: 2026-10-16T05:04:09+08:00
 2026-10-15 技术评审后按推荐修订 ADR-0038：目录项事务形态、目标运行 `goal` 模式与每项目唯一索引、
 高频操作留痕合并或豁免。修订经用户授权在第三个本地提交 `20d6f1eff` 中提交，未推送。
 2026-10-15 用户采纳 ADR-0038（Accepted / 未实施）；ADR-0023 补充说明与索引同步。
-用户已明确三份计划全部实施。primary业务固定07264f17a（其后仅root笔记提交），已无冲突合入C4b完整Sol审修10b5f6f及测试归属修复b085c0ffa/616e9d474（父1bcbe7df6+105dca0bfd）及Goal A2；产品内容与10b相同，root仅另维护三TASK。目录v10实测100项/导演8项，旧v1-v9和map.edit_spatial_structure哈希90aa保持。root新专库director_primary_test_20261016从空库升级/check通过，Director+Goal联合24项PG通过6.79s；原goal_primary的17项亦已通过。root前端全集250文件3157项、lint/build通过；6ad的make docs-check BASE_REF=origin/main通过（169表/62任务/16路由/49ADR）；加入Writing的组合后端首轮5099通过/3失败，b085后第二轮仍5099通过/3同序隔离失败；再合616e9d474后原范围最终5102通过/1 deselected/已知Pydantic warning，183.84s。前两失败日志保留；最终/tmp/map-c4-primary-combined-final-20261016.log。Sol最终普通广覆盖8299通过/8 deselected/已知warning，323.76s，/tmp/director_combined_backend_app_scope_manager_fixed_final.log。
+用户确认的三份计划仍全部实施，任务保持active。primary当前产品固定`eab7b3400986b6e98347bde2f9477d02c79e13b1`：已无冲突合入A3 Sol最终`fb62a4c668f757bd239d56fa299c15f1c64bd183`（含Luna da0a035c8与v12冻结a647f1265），此前C0c为9b9c022a5/bd31d959d。目录v12新增作者Interaction/Collaboration十二项，旧冻结与map.edit哈希保持；新合入组合仍在root验证，不能直接沿用上一固定点绿色结论。
 
-A2原4700通过/4失败已经原Sol605a2985修复；之后4704通过/1地图CAS间歇失败，Sol实证批量UPDATE后内存与DB的子节点时间戳相差1–2微秒，已在C4组合中按真实改名子树批量回读，保留精确CAS、12次独立重复通过，root三轮扩大复验均覆盖并通过地图CAS；616后原组合范围全绿。C2业务219a50aaa及精确PG测试0d3123444已集成；卡/反应、700ms姓名迟到、390/1280保存回读及选择/刷新/Scene隔离证据保留。
+root当前eab固定点：前端251文件3175项、lint/build、docs-check与repo-gates通过，依赖棘轮仍61/61、9/9、0/0、517/517。新独占库author_operations_primary_test_20261016已创建并fresh upgrade/head/ORM parity均通过；30项Goal/Director/C0c/A3 PG组合为29通过/1失败，12.45s。失败是test_goal_run_http_postgres.py::test_goal_http_plan_receives_only_executable_catalog在tokens12000时返回planning_stopped而非plan_review；具体根因待Sol复现，不提高预算或删目录改弱断言。日志/tmp/map-a3-primary-pg-20261016.log。Sol已被重新派回author-operations-review直接修；其原author_operations_review专库重新独占，不借root库。root全modules+tasks/llm基础设施+unit/prompt扩大普通后端尚运行（session86064，/tmp/map-a3-primary-combined-20261016.log）。
 
-C4实际TaskWorker精确task_id/novel_id已完成同根两轮：8次受控本地provider、tokens80、run_id/started_at/deadline不变；80%入队前409且零新增provider，旧unknown确认后新unknown再次暂停。Sol已直接修mode校验、client.timeout、检查点expire/事务、state_delta序列化、续轮preview漏字段、账本旧快照覆盖及重核误称检查。真实HTTP/history/完整表演素材角度/独立参考保存回读、390恢复选择与Writing同Scene选中已验；root已看图，Writing236px窄栏输入挤压也由Sol修并实际键盘保存。零真实模型。Sol上一轮后端广覆盖8296通过/3同Writing隔离失败；b085修Notice创建者，616修test_editorial经async_client触发operation trace创建manager后未回收。生产guard未放宽，逐测modules probe5751通过且无残留、Editorial→Notice→Evals同序34通过。原8299范围最后已全部通过，18582/18583均已停，两个专库使用权已释放、数据保留。
+上一C0c产品bd31固定点仍有5133后端/1 deselected/已知Pydantic warning、27专库PG、3173前端与门禁全绿证据（/tmp/map-c0c-primary-*20261016.log）；只用于该旧固定点，不代替eab当前组合。根脚本/tmp/map-a3-root-primary-run-pg-20261016.py已执行CREATE，后续不得盲重跑或重建专库。
 
-C0c Luna固定89b34c1ee+371ab21d4、专属笔记ee51f869a，自有前端/静态通过；新增op未注册使backend pytest加载被硬拒，未绕过。原Sol现复用map-clue-review/codex/world-object-validity-review，已取完整候选并合7b为197e91bcd；本域5b9b/c8ab等直接修有效期先过滤、safe视角私有对照、时序/歧义/degraded、Notice先截断漏报、循环导入及失效别名区间写入重验。新map Story确认应按事实采用定R3。共享bootstrap/keys/catalog已正式转该Sol独占；当前未提交接线使app.main可导入、目录v11/105项、44定向与设置HTTP/真实双Session CAS两PG通过；Story FieldProvenance补真实MemoryEvent时点后，专库地图confirm→ensure→Notice已验默认作者优先、CAS开覆盖后Story优先、旧地图revision409，新专库累计3PG、settings真实390/1280键盘保存/刷新/跨项目与390的409保草稿重试已过（root已看3图和结果JSON）；独立扩大3943通过/2旧测试失败已由Sol修，56定向再过、原扩大待复验，最终门禁/导演消费仍待，不能称装配完成；专库validity_review_test_20261016已fresh升级单head dossier_story_field_key，后续真实API/PG/浏览器待接线。
+C0c已完成作者有效期与Story覆盖、严格同对象/字段/时点/地图版本身份、三视角脱敏、关系稳定ID、别名有效区间写入重验和导演只读消费；自定义字段与地图事实确认真实R3，GET零事件。Sol先复现并直接修过有效期提前过滤、safe视角私有对照、来源时点/歧义/降级、Notice先截断漏报和循环导入。真实HTTP设置/独立Session CAS/地图确认合计3PG，390/1280键盘保存刷新、跨项目与390的409保稿重试有JSON证据，root已看3图；409图片是重试后保存状态，不冒称冲突画面。Sol树 `map-clue-review/codex/world-object-validity-review` 已干净结束，validity_review专库释放使用权、数据保留，18584/18585已无监听。
 
-A3 Luna/max已固定e68e35308dc71078060390cbb60365e78ed1bf82（父105dca0bfd），map-assistant-review/codex/author-interaction-operations-impl干净，12项Interaction/Collaboration纯SPEC与独立router尚未共享装配；自检28后端、3150前端/lint/build/docs通过，author_operations_impl_test_20261016迁移及pointer FK SET NULL核实，未跑完整app/worker/browser。旧interaction_summary_refresh虽跨attempt累计，但V1允许unknown后继续reserve且handler内部重试；新入口暂以ROOT_BUDGET_ADAPTER_UNAVAILABLE拒绝入队，后续Sol必须直接补任务级冻结/unknown-stop并完成真实执行，不是最终范围豁免。task pointer仅overview投影，幂等仍exact TaskFacade回执。root已准备author-operations-review/codex/author-operations-review树，尚未派Sol/未取候选。A4 Luna/max luna_operation_trace_reports已从9f在operation-trace-report-impl实施真实report/边界序列/前向可证明采集；专库仅operation_trace_report_impl_test_20261016已分配、尚未报告创建。真实数周数据与Top3代码化不造样本替代。
+A3 Sol独立审修已固定fb62a4c66且原树净，root已合eab。新增十二项真实SPEC/router注册与v12冻结、摘要R4真实入队与TaskFacade幂等、Collab试改/原子R3采用已接通；原ROOT_BUDGET_ADAPTER_UNAVAILABLE临时停点已解除。Sol直接修ProjectContext novel_id、归档consumer恢复、RP管理在助手未开启时不可达；还按root复核把摘要unknown/80%/1800秒限制收窄到冻结author_project_id的新作者任务，并由Interaction注册可调用策略，worker没有业务type/metadata硬编码。旧RP无deadline且原重试保留，真实新/旧Worker对照已验。Sol证据79后端定向、3独立PG（真实HTTP→精确Worker→offline LLMClient成功/前后来源漂移；Collab独立Session CAS与R3采用回读）、3175前端/lint/build/docs/repo-gates、single head/metadata diff0。root已看390/1280两图（设置变更前），原始浏览器日志/tmp/map-a3-browser-acceptance-20261016.log记录390 true→false确认刷新读回、Escape及无溢出/错误；不能将两张图当保存后证明。18586/18587已无监听、专库数据保留。当前A3因root组合PG的Goal停点回归正在Sol追加直接审修，不能标整批验收完成。
 
-C4审修收尾且已释放槽；已启动Luna/max luna_world_progression，从072的world-progression-impl/codex/world-progression-impl实施完整C5。C0 Sol继续独占共享装配；A1章节排序/精确时间线、A4独立报表工程、C3机制对齐与C0模板/互通尾项仍在范围；新交接见character-world-progression/artifacts/C0-TEMPLATE-INTERCHANGE-TAIL.md（同级任务目录），当前未派发。C1长篇/M5势力/RP迁移/数周真实留痕数据为条件门禁，不能以合成测试代替。R3继续诊断封存，holdout不解码；未push/PR/main合并/部署。
+A4 Luna/max在operation-trace-report-impl/codex/operation-trace-report-impl已合9b并只取a647中operations.py三行v12补丁。继续统计报表、前向真实edited/restore/undo/用量归属和Goal留痕；本域与ordinary operations.py、goal_runs/service.py归其写。root已在WIP确认now-180d向UTC午夜取整会使原始标识超窗保留不足一天，Luna明确保留为后续Sol直接修复项，不改ADR追认；未合primary、不能声称隐私边界已过。专库operation_trace_report_impl_test_20261016仅分配、创建尚未报告。历史缺覆盖与至少数周真实Top3依赖不造样本。
+
+C5 Luna/max在world-progression-impl/codex/world-progression-impl继续完整实现；checkpoint4c13f5df0合C0c 9b时world/facade.py冲突，已短时全树移交Sol直接解决为9ed9426bef6d7a24ab5648a72af46b6076a34e94，双导入/静态/diff通过、MERGE_HEAD清除、净树后归还Luna；不混入A3。自有新迁移将接C0c实际head，世界推进API/任务/GuidedFlow/Notice顶层尚未装配。Luna拥有architecture-documents.toml的Story prefix窄写权，其余顶层装配仍归Sol；新专库world_progression_impl_test_20261016及18590/18591已分配，未把分配当已创建。C0模板互通树world-object-dossier-impl已在干净新分支codex/dossier-template-interchange-impl/978a14e2d准备，旧分支保留，尚未派代理。
+
+后续仍在范围：C0自定义类型借用内核/五题材档案模板/表格与JSON互通、C3前瞻表演格式/人物弧计划实际对照/演化阅读提醒、A1章节真实重排与一般Story时间线，分别见 artifacts/C0-TEMPLATE-INTERCHANGE-TAIL.md、C3-ALIGNMENT-TAIL.md、A1-A2-HANDOFF.md，待空槽逐批Luna实施、Sol审修。C1长篇、M5势力、RP迁移、A4数周真实留痕为条件门禁，不能用合成测试替代。C4此前Sol8299普通回归与实际TaskWorker同根两轮/8本地provider受控调用/80%零新IO、历史与参考剧本390/1280证据保留，原组合5102已由当前5133范围扩大复验覆盖；此前Writing测试manager泄漏由Sol测试归属修复，生产guard未放宽。R3继续诊断封存，holdout不解码；零新真实模型请求，未push/PR/main合并/部署。
+
+下一步：Sol优先复现并直接修A3组合Goal规划停点；root收齐eab普通后端结果后按净fix重验。A4/C5继续独立实现，空槽后启动已准备的C0模板互通，再C3/A1尾项；外部条件门禁仍保留。
+
+批次验收见[完整范围对账](../T-20261015-character-world-progression/artifacts/FULL-SCOPE-ACCEPTANCE.md)。
+
 ## 目标与验收
 
 - 目标：各模块开放或增加 AI 操作入口，让 AI 能自主规划、操作，完成作者的目标；
