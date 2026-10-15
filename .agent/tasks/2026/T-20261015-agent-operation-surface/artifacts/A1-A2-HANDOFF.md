@@ -120,3 +120,10 @@ A3 作者侧 Interaction / Collaboration、地图与势力后续能力仍需实�
   报表实施需正确聚合当前明细序列（按会话/DB序号及声明窗口）并与归档合并，
   还要给接受/拒绝/先改后接受、恢复率、耗时用量与留痕缺口；无法测量的分母标未知。
   不能把“没有明细序列”当无人使用，更不能用合成测试假装已累积数周真实数据或选择真实top3。
+
+## 2026-10-16T01:44 当前实际接线与下一轮
+
+- A1首批已在primary6a31ba327：实现20635fde5、Sol净审修3441ab980及API边界命名修复6a31。root2123扩大回归与2专用PG通过；目录v8/89项，旧v1–v7冻结保留。HTTP router在modules/assistant/operation_api.py，app仅挂载/通用trace，不再用app业务编排规避依赖。
+- Evidence有原confirmation时整目标inspect失败关闭，精确source.read保留；不能只凭资产ID重读已省略的字段或正文。A1剩余章节重排/一般事实时间线仍未落地，不修改chapter_index假装排序。
+- Goal Luna已无损接新基线（1d2c2f137+af3b00836），现有Assistant/core/config必要Goal接线由其单写；新AIRunEnvelope版本的跨域allowlist从审批冻结范围确定，不能全局放宽旧信封。World地图author decision当前绑定真实conversation/message，Goal不可伪造来源；map R2不在本批自动allowlist。
+- C2预审确认两个对象参考Settings字段尚缺以及generic legacy时点证明同值不同field误匹配，待固定点由Sol直接修；不要把原WIP已测说成已审投产。A4仍需live序列/接受与恢复分母/耗时用量/缺口覆盖，不造数周数据或真实top3。

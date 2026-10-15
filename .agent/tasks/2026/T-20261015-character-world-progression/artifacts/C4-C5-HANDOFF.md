@@ -92,3 +92,9 @@ ADR-0040、ADR-0041 为准；不是新的授权或验收豁免。
 - C4a现已在primary b3182b2c5，root1034后端/1专用PG/23Vue/lint/build通过；Luna原4cbc与Sol净fix均保留。身份、seed参与者一致、未知位置观察者及接收者保护已闭合，旧RP/state_trial未迁移协议语义。
 - C4b从该审修后协议开始，仍需完整预算/历史/表演/素材/参考/一致性/UI，不保留C4a多轮409作最终限制。C2后端尚在另树自检，拟提供ReactionPreviewV2/ReactionProposalV2每人物2–4 performances完整表演结构，可复用；未获审不能直接当已发布API。
 - A2新Luna在map-assistant-review独立实施目标引擎，Assistant现有核心仍由Sol A1组合单写。新migration需最终由Sol串成单head；不要抢写keys/bootstrap/既有Assistant状态机。
+
+## 2026-10-16T01:44 C4b已启动
+
+- Luna/max scene_director在map-assistant-structure/codex/scene-director-impl从ea8889f16（业务b318已审C4a）实施完整导演；primary已到A1审修6a31，后续由Sol统一组合。C2后端仍未固定，不直接依赖未审新符号，现有Evidence三层brief可用。
+- 现有公共AIRunEnvelope/new_ai_run_envelope/read_ai_run_envelope/ai_run_scope/managed_step_scope足以承载导演域内累计账本；Goal正在改共享schemas/workflow_budget新版本，导演不并行写。新task/router/migration/纯SPEC/NoticeSource等给精确接线清单，最终由Sol真实装配验证，清单本身不算产品闭环。
+- 原有有向态度RelationAttitude已含degree与端点配对基础schema；C0c需核验真实事件/来源/三视角读取，不能再声称完全没有态度模型。作者有效期读规则/开关、别名区间和项目自定义文字状态仍待实现。

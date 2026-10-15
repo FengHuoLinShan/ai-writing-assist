@@ -3,7 +3,7 @@ id: T-20261015-map-enhancement-design
 title: 地图系统增强设计与分批实施（自动冷启动、参与创作决策、题材鲁棒性）
 status: active
 created: 2026-10-15T10:54:00+08:00
-updated: 2026-10-16T01:17:50+08:00
+updated: 2026-10-16T01:44:49+08:00
 ---
 
 # 地图系统增强设计
@@ -13,14 +13,14 @@ updated: 2026-10-16T01:17:50+08:00
 - 当前授权：2026-10-15 用户 `/goal` 要求执行 `codex/map-enhancement-plan` 的计划；Luna/max 子代理并行实现，Sol/high 按批次 review 与修复。只做本地开发验证；没有发布、真实数据破坏或对外发送授权。用户16:43补充“修复由sol子代理直接修”：后续代码修复均由Sol/high子代理直接执行。用户曾要求“由你收尾”；其后明确答复范围为三份计划全部实施，包括操作目录、对象档案、导演、世界推进。root继续负责分批拆解、集成、验证、任务记录与实际隔离评测；已明确确认采用“模拟作者显式指定Scene地点后做辅助Writing对比”。
 - 主工作区：`/Users/tywww/项目/ai-writing-assist/.worktrees/map-enhancement-plan`，分支 `codex/map-enhancement-plan`。原 Desktop 路径已失效；仓库实际已迁至 `/Users/tywww/项目/ai-writing-assist`。
 - 恢复时基线：设计提交 `3fd5ca29e`；刚 fetch 的 `origin/main=00d861283` 已无冲突合并为 `b74d7c28d`（本地），包含 G8c 与第三批评测/HTTPX2 变更。开始时主工作区干净，其他 worktree/WIP 保留。
-- 当前里程碑：primary b3182b2c5 已集成 C4a 共用simulation_v3及Sol身份/观察边界修复（50c0feb54、b4cd55c78、b3182b2c5），均无冲突；root扩大Story+Interaction+助手目录/路由验证1034 passed/2 deselected/1既有Pydantic warning（28.70s）、1专用PG、23Vue/ESLint/build通过，RuntimeWarning转error无失败。C3b/C2b前批86后端/3PG/3134前端与C0b3030证据保留。连续轮次409仍仅C4a过渡，C4b/C5未实施；C2/Generic由Luna dossier_consumers继续，ReactionV2与修订桥接已写但未固定点验收。A1 Luna首批15插件335349f08（307测试）已交Sol在map-clue-review组合审修/接线，尚未集成。新Luna goal_runs在map-assistant-review/codex/assistant-goal-run-impl从1656353fe实施A2独立目标引擎/前端，暂不并行写Sol的既有Assistant核心。C0c、A1剩余、A3/A4及外部真实/势力/RP门禁保留，全部TASK仍active。
-- 下一步：收Sol A1组合审修与Luna C2/Generic固定点；Goal独立模块同步推进，A1核心接线结束后再开放其共享写入。C2可审后启动C4b导演及C0c有效期等剩余切片，随后C5/A3/A4。R3封存、holdout不读。
+- 当前里程碑：A1首批15项纯插件335349f08经Sol实际组合/独立修复已在primary20635fde5/3441ab980；扩大回归发现API文件命名边界错误，由Sol原样重命名operation_api.py并提交6a31ba327。root在6a31重跑原组合2123 passed/1既有Pydantic warning（82.99s），RuntimeWarning转error无失败，专用A1 PG2 passed（0.46s）。v8冻结目录89项，旧v1–v7保留。新Luna scene_director已在map-assistant-structure/codex/scene-director-impl从ea8889f16（已审C4a业务b318）实施完整C4b；C2/Generic Luna仍在固定点自检，未审/未集成，已确认待Sol补Settings启用入口及同值不同字段的历史证明缺陷。Goal Luna checkpoint981819ec5经Sol无损合primary为1d2c2f137，再取已审命名修复af3b00836，继续A2专属引擎/真实组合与前端；不是已交付。C0c、A1后续、A3/A4、C5与真实/势力/RP门禁仍在范围，所有TASK保持active。
+- 下一步：收C2/Generic固定点后交Sol直接审修配置与时点证明并实际接线；C4b导演和A2目标引擎继续并行，随后C0c/C5/A3/A4。真实质量和条件依赖单列，R3封存、holdout不读。
 - 范围：用户已明确“该分支三份计划全部实施，包括操作目录、对象档案、导演和世界推进”。执行地图M0–M5及两个配套完整计划；既有计划的条件依赖和真实质量门禁仍有效，不能冒称完成。
 - 依赖：M5 依赖独立势力路线图阶段 1，现有计划明确阶段 1 前不提供领地图层；不得读取旧无时效势力字段冒充完成。
 - 已落地共享前置：`6fcce3bfd` 把7种ObservationModality上移shared并保持Evolution兼容再出口（16测）；`16f64570a` 在既有Story scene-source port提供按当前顺序的锚点/替换链只读数据（5测）。两者ruff通过，后续纳入Sol审查。
 - 验证环境：主树独立backend/.venv（Python3.14.8、locked ci）及frontend node_modules；本任务专用PostgreSQL容器 `map-enhancement-test-20261015`、loopback65202、数据库 `map_enhancement_test`，基线完整Alembic升级已通过，未接触真实库。
 - 验证：实现前 `make docs-check` 已通过（152 ORM表、49ADR）；没有真实模型/真实稿件验证。
-- 最后核实：2026-10-16T01:17:50+08:00
+- 最后核实：2026-10-16T01:44:49+08:00
 
 ## 批次与分工
 
@@ -471,3 +471,12 @@ updated: 2026-10-16T01:17:50+08:00
 
 - 配套协议C4a已审修集成，root1034后端+1专用PG+23Vue/lint/build通过；C4b/C5仍待实施。地图typed引用现在按本作品当前adopted head核验，不能凭字符串ID冒充来源；未知位置不能让角色获知公开事件。
 - 工程PG65202在root本批验证结束后分配Sol A1独占新a1_operations_review_test_20261016；其他review库/原库保留，C2与Goal待排队。默认dev DB/评测65302/R3/holdout不访问，无新付费请求、push/PR/main合并/部署。
+
+## 2026-10-16T01:44:49+08:00 A1组合回归通过与导演实施
+
+- A1 Luna原335349f08经Sol独立审查/实际app注册/HTTP路由/trace接线，主树实现20635fde5、净审修3441ab980。15项新增为v8/89 operations，保留旧冻结目录。Sol修复有原confirmation时知识范围inspect可按资产ID扩读整对象，现失败关闭；精确SourceRange回读仍受原selected/excluded/omitted限制。非平凡HTTP编排已归Assistant而非app组合根。
+- root在3441扩大回归1 failed/2122 passed（82.71s），唯一失败为纯路由文件operation_http.py不符合HTTP边界识别；Sol原样重命名operation_api.py为6a31ba327，未改测试、规则或棘轮。root在6a31用正确3.14.8/Pydantic2.14.0、显式不可达unit DB与RuntimeWarning转error重跑2123 passed/1既有Pydantic warning（82.99s），日志/tmp/map-a1-primary-regression-fixed-20261016.log。root专用a1_operations_review_test_20261016真实HTTP/事务/越权/trace复验2 passed（0.46s），日志/tmp/map-a1-primary-pg-20261016.log。本批未改前端，不机械重复全前端。
+- Goal专属WIP checkpoint981819ec5由Sol无冲突合primary3441为1d2c2f137，8个自有模型/infra/服务/迁移文件与checkpoint零差异；26focused+61/517通过。Luna再无冲突取已审命名修复为af3b00836，现继续实现。现有Assistant核心写槽给Goal，跨域根预算用显式版本化allowlist，旧v1/v2不全局放宽；两条真实R2恢复适配拟为World Dossier与Project author task，尚未验收。
+- 新Luna/max scene_director已在独立map-assistant-structure/codex/scene-director-impl从ea8889f16恢复，完整C4b预算/角色packet/表演/素材/参考/历史/一致性/UI在实施，不能把C4a过渡的一轮409作为最终上限。C2字段与Evidence编译正在另一树写，优先独立director模块；共享infra预算由Goal单写，接线与冲突由Sol处理。
+- C2仍未提交审修固定点。只读预审已确认Settings缺object_dossier_enabled_capabilities/character_pattern_enabled_capabilities导致真实env不能启用；generic legacy时点证明只比同对象同值而不比field/dimension，现有origin_place对Story state同值fixture也有问题，交Sol直接修复，不冒称安全时点链已闭合。C0c作者有效期规则/别名区间/动态文字状态仍另排；有向分级态度已存在基础schema，需按实际调用链核验而不重复建模。
+- root全部测试进程已结束，工程PG65202释放且保留所有专用DB；原map_enhancement_test仍旧head不改。无默认开发DB/评测65302/R3/holdout访问，无新增模型、push/PR/main合并/部署。
