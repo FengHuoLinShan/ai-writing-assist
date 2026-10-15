@@ -601,7 +601,7 @@ Evidence 通过 World `read_map_spatial_brief` 只读 facade 消费已采用节�
 
 `read_map_spatial_advisories` 在明确 Scene 时点读取当前已采用地图版本，仅计算 `event_observed`、有效期覆盖该 Scene、来源仍有效且类型固定修订仍为 active 的声明；只有 Scene 锚点可解析的未来/过期地点才会触发“位置不在有效期”提醒。它提示直接矛盾的方位、已知通路网络中的无有效路径、同一交通方式/旅行者/通行条件下互不相交的行程耗时区间，以及移动对象跨空间却没有已声明连接。无地图覆盖或无相关对象时不推断；未明确故事内间隔时标记 unknown，不按几何坐标猜距离或时间。提醒均带地图版本和来源 hash，正文与地图两种处理路径可供作者选择，逐条静默复用冲突检查项的 `ignored / later` 状态。Writing 既有 Scene 时点规则也会提示同一对象在同一 Scene 时点被记录在多个地点；只有 ready 且系统生成或作者确认的位置 checkpoint 会参与地图行程提醒。
 
-Writing 的确定性空间提醒能力 `writing.conflict_check.spatial_advisory` 与 Story 大纲地理前瞻能力 `story.spatial_planning` 通过 `MAP_SPATIAL_ENABLED_CAPABILITIES` 分别开启，默认关闭。两者只提供建议，不修改正文或阻止写作；Story 只读取场景显式地点相关的 M3 空间简报，用来检查旅程分段和地点分布。地理视角最多读取当前 Scene 和此前五个未废弃 Scene 的已采用、可见简报；至少五场各有唯一明确地点且其中至少五场（占已标注场景至少八成）为同一地点时，提示作者核对节奏。此阈值只是启发式建议，不把未标注场景计作集中，不读取后续 Scene；地图未覆盖不证明地点/路线不存在，当前也不根据地图推断势力边界。
+Writing 的确定性空间提醒能力 `writing.conflict_check.spatial_advisory` 与 Story 大纲地理前瞻能力 `story.spatial_planning` 通过 `MAP_SPATIAL_ENABLED_CAPABILITIES` 分别开启，默认关闭。两者只提供建议，不修改正文或阻止写作；Story 只读取场景显式地点相关的 M3 空间简报，用来检查旅程分段和地点分布。地理视角最多读取当前 Scene 和此前五个未废弃 Scene 的已采用、可见简报；只有当前场景及至少四个此前场景各有唯一、绑定稳定 World 对象身份的明确地点，且同一地点至少出现在五场（占这些已标注场景至少八成）时，提示作者核对节奏。未绑定对象的图元即使同名，也不参与跨 Scene 集中统计；单场地图提示仍可使用。此阈值只是启发式建议，不把未标注或多地点场景计作集中，不读取后续 Scene；地图未覆盖不证明地点/路线不存在，当前也不根据地图推断势力边界。
 
 提醒请求可携带角色视角与排除项；缺少角色身份时拒绝角色视角，所有路径仍重验当前
 canonical 对象、精确原文模式及可见投影。没有显式 Scene 地点或受信位置转换时只返回

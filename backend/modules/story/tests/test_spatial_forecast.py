@@ -95,6 +95,33 @@ def test_spatial_planning_does_not_treat_missing_map_coverage_as_concentration()
     assert fact["source"].get("concentration_scenes") is None
 
 
+def test_spatial_planning_does_not_merge_same_name_unbound_features():
+    scene = SimpleNamespace(id="scene-6")
+
+    def unbound_brief(feature_number):
+        # World brief exposes no stable feature ID for these distinct markers.
+        return SimpleNamespace(
+            items=[
+                SimpleNamespace(
+                    node_id="shared-map-node",
+                    revision_id=f"map-revision-{feature_number}",
+                    revision_hash="a" * 64,
+                    source_hashes=[],
+                    content=json.dumps(
+                        {"当前地点": [{"label": "北门", "entity_id": None}]}
+                    ),
+                )
+            ]
+        )
+
+    current = unbound_brief(6)
+    recent = [(f"scene-{index}", unbound_brief(index)) for index in range(1, 6)]
+    fact = _spatial_planning_fact(scene, current, recent=recent)
+    assert fact is not None  # The existing one-Scene map advice remains available.
+    assert "过于集中" not in fact["summary"]
+    assert fact["source"].get("concentration_scenes") is None
+
+
 @pytest.mark.asyncio
 async def test_spatial_planning_reads_only_current_and_five_previous_scenes(
     db_session, test_project_id, monkeypatch

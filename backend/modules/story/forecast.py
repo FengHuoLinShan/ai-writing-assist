@@ -41,12 +41,12 @@ def _one_visible_place(brief):
             continue
         for place in content.get("当前地点") or []:
             if not isinstance(place, dict) or not place.get("label"):
-                continue
-            identity = (
-                f"entity:{place['entity_id']}"
-                if place.get("entity_id")
-                else f"node:{item.node_id}:{place['label']}"
-            )
+                return None
+            # The brief has no stable feature ID for an unbound map marker.
+            # Its label and node can name different markers in different Scenes.
+            if not place.get("entity_id"):
+                return None
+            identity = f"entity:{place['entity_id']}"
             places[identity] = (
                 str(place["label"])[:200],
                 {
@@ -95,10 +95,13 @@ def _spatial_planning_fact(scene, brief, *, recent=()) -> dict | None:
     # A gentle pacing hint, never a continuity judgment: five of the last six
     # Scenes must have one visible place, and at least five must share it.
     known = []
-    for scene_id, scene_brief in [*recent, (str(scene.id), brief)]:
-        place = _one_visible_place(scene_brief)
-        if place is not None:
-            known.append((scene_id, *place))
+    current_place = _one_visible_place(brief)
+    if current_place is not None:
+        for scene_id, scene_brief in recent:
+            place = _one_visible_place(scene_brief)
+            if place is not None:
+                known.append((scene_id, *place))
+        known.append((str(scene.id), *current_place))
     concentration = None
     if len(known) >= 5:
         counts = {}
@@ -135,7 +138,10 @@ def _spatial_planning_fact(scene, brief, *, recent=()) -> dict | None:
         "title": "核对本场的地理视角",
         "summary": summary,
         "source": source,
-        "scope_label": "本场显式地点相关的已采用地图与行程",
+        "scope_label": (
+            "本场显式地点相关的已采用地图与行程；地点集中提示仅核对本场及此前"
+            "最多五个未废弃Scene的可见、已采用且有稳定World身份的单一地点"
+        ),
         "unknowns": [
             "地图未覆盖不代表地点或路线不存在。",
             "地图没有真实比例，不据此推算距离或耗时。",
