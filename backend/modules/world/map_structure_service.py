@@ -32,12 +32,16 @@ from modules.world.map_atlas_models import (
 )
 from modules.world.map_atlas_schemas import ATLAS_LEVEL_RANK
 from modules.world.map_atlas_service import MapAtlasService
-from modules.world.map_spatial_anchors import validity_problems
+from modules.world.map_spatial_anchors import (
+    SPATIAL_ANCHOR_PROBLEM_CODES,
+    validity_problems,
+)
 from modules.world.map_structure_geometry import (
+    GEOMETRY_PROBLEM_CODES,
     affine_transform,
+    calculable_features,
     constraint_is_calculable,
     diagnose,
-    feature_has_calculable_geometry,
     geometry_hash,
     layout,
 )
@@ -108,9 +112,7 @@ async def resolve_spatial_vocabulary_references(
     )
 
     try:
-        resolved = await resolve_vocabulary_type_revisions(
-            db, novel_id, set(references)
-        )
+        resolved = await resolve_vocabulary_type_revisions(db, novel_id, set(references))
     except NotFoundError as exc:
         raise ValidationError("空间类型引用无效或不属于当前作品") from exc
     result = {}
@@ -157,9 +159,7 @@ def _document_type_references(document: MapDocument):
 
 def _active_spatial_type_traits(resolved_types):
     return {
-        key: item["traits"]
-        for key, item in resolved_types.items()
-        if item["computable"]
+        key: item["traits"] for key, item in resolved_types.items() if item["computable"]
     }
 
 
@@ -226,10 +226,7 @@ def _spatial_type_problems(document: MapDocument, resolved_types) -> list[MapPro
             )
     features = {feature.id: feature for feature in document.features}
     for constraint in document.constraints:
-        if (
-            features[constraint.subject].space_id
-            == features[constraint.target].space_id
-        ):
+        if features[constraint.subject].space_id == features[constraint.target].space_id:
             continue
         pair = (constraint.type_ref, constraint.type_revision_id)
         resolved = resolved_types.get(pair)
@@ -246,10 +243,7 @@ def _spatial_type_problems(document: MapDocument, resolved_types) -> list[MapPro
                 )
             )
     for journey in document.journeys:
-        if (
-            features[journey.origin].space_id
-            == features[journey.destination].space_id
-        ):
+        if features[journey.origin].space_id == features[journey.destination].space_id:
             continue
         pair = (journey.connection_type_ref, journey.connection_type_revision_id)
         resolved = resolved_types.get(pair)
@@ -276,8 +270,7 @@ async def spatial_anchor_problems(db, novel_id: str, document: MapDocument):
         return []
     scenes = await _story_scene_port().read_temporal_anchor_scenes(db, novel_id)
     return [
-        MapProblem.model_validate(item)
-        for item in validity_problems(document, scenes)
+        MapProblem.model_validate(item) for item in validity_problems(document, scenes)
     ]
 
 
@@ -416,9 +409,7 @@ class MapStructureService:
         await resolve_spatial_vocabulary_references(
             db,
             novel_id,
-            {
-                (data.level_type_ref, data.level_type_revision_id): "level"
-            }
+            {(data.level_type_ref, data.level_type_revision_id): "level"}
             if data.level_type_ref is not None
             else {},
         )
@@ -750,12 +741,21 @@ class MapStructureService:
         problems = [
             problem
             for problem in row.problems
-            if problem.get("code") != "spatial_type_not_computable"
+            if problem.get("code")
+            not in {
+                "spatial_type_not_computable",
+                *SPATIAL_ANCHOR_PROBLEM_CODES,
+                *GEOMETRY_PROBLEM_CODES,
+            }
         ]
         resolved_types = await resolve_spatial_vocabulary_references(
             db, novel_id, _document_type_references(document)
         )
         problems.extend(_spatial_type_problems(document, resolved_types))
+        problems.extend(
+            diagnose(document, type_traits=_active_spatial_type_traits(resolved_types))
+        )
+        problems.extend(await spatial_anchor_problems(db, novel_id, document))
         for item in [*document.features, *document.constraints, *document.journeys]:
             for source in item.sources:
                 try:
@@ -1024,13 +1024,24 @@ class MapStructureService:
                 problem
                 for problem in response.problems
                 if problem.code
-                not in {"source_stale", "spatial_type_not_computable"}
+                not in {
+                    "source_stale",
+                    "spatial_type_not_computable",
+                    *SPATIAL_ANCHOR_PROBLEM_CODES,
+                    *GEOMETRY_PROBLEM_CODES,
+                }
             ]
             resolved_types = await resolve_spatial_vocabulary_references(
                 db, novel_id, _document_type_references(response.document)
             )
             response.problems.extend(
                 _spatial_type_problems(response.document, resolved_types)
+            )
+            response.problems.extend(
+                diagnose(
+                    response.document,
+                    type_traits=_active_spatial_type_traits(resolved_types),
+                )
             )
             for item in [
                 *response.document.features,
@@ -1173,6 +1184,7 @@ class MapStructureService:
             db, novel_id, _document_type_references(document)
         )
         type_traits = _active_spatial_type_traits(resolved_types)
+        static_features = calculable_features(document, type_traits=type_traits)
         visibility = VisibilityContextContract(
             mode="reader", cutoff_chapter=chapter, cutoff_offset=0
         )
@@ -1195,9 +1207,7 @@ class MapStructureService:
                 # chapter/Scene identity; keep timed facts author-only until that
                 # seam exists.
                 or feature.effective is not None
-                or not feature_has_calculable_geometry(
-                    feature, type_traits=type_traits
-                )
+                or feature.id not in static_features
                 or feature.reader_from_chapter is None
                 or feature.reader_from_chapter > chapter
             ):
@@ -1242,9 +1252,7 @@ class MapStructureService:
             if (
                 constraint.modality != "event_observed"
                 or constraint.effective is not None
-                or not constraint_is_calculable(
-                    constraint, type_traits=type_traits
-                )
+                or not constraint_is_calculable(constraint, type_traits=type_traits)
             ):
                 continue
             group = {constraint.subject, constraint.target, *constraint.via}
@@ -1262,6 +1270,7 @@ class MapStructureService:
         features = [
             {
                 "id": f.id,
+                "space_id": f.space_id,
                 "kind": f.kind,
                 "label": public_labels.get(f.id, f.label),
                 "points": [p.model_dump() for p in f.points],
@@ -1276,6 +1285,20 @@ class MapStructureService:
                 or journey.effective is not None
                 or journey.origin not in eligible
                 or journey.destination not in eligible
+                or any(
+                    type_ref is not None
+                    and not resolved_types[(type_ref, revision_id)]["computable"]
+                    for type_ref, revision_id in _spatial_item_type_pairs(journey)
+                )
+            ):
+                continue
+            if (
+                static_features[journey.origin].space_id
+                != static_features[journey.destination].space_id
+                and "cross_space"
+                not in resolved_types[
+                    (journey.connection_type_ref, journey.connection_type_revision_id)
+                ]["traits"].connection
             ):
                 continue
             if not all(
@@ -1389,19 +1412,25 @@ async def list_adopted_map_continuity_facts(
     seen: set[tuple[str, str, str, str]] = set()
     for node, revision, document in documents:
         features = {item.id: item for item in document.features}
+        static_features = calculable_features(document, type_traits=type_traits)
         for constraint in document.constraints:
             if (
                 constraint.modality != "event_observed"
                 or constraint.effective is not None
-                or not constraint_is_calculable(
-                    constraint, type_traits=type_traits
+                or not constraint_is_calculable(constraint, type_traits=type_traits)
+                or not {constraint.subject, constraint.target, *constraint.via}.issubset(
+                    static_features
                 )
-                or not feature_has_calculable_geometry(
-                    features[constraint.subject], type_traits=type_traits
-                )
-                or not feature_has_calculable_geometry(
-                    features[constraint.target], type_traits=type_traits
-                )
+            ):
+                continue
+            if features[constraint.subject].space_id != features[
+                constraint.target
+            ].space_id and (
+                constraint.relation != "connects"
+                or "cross_space"
+                not in resolved_types[(constraint.type_ref, constraint.type_revision_id)][
+                    "traits"
+                ].connection
             ):
                 continue
             subject = features[constraint.subject].entity_id
@@ -1483,9 +1512,7 @@ async def read_map_node_heads(
             )
             .where(
                 MapAtlasNode.novel_id == parse_uuid(novel_id, "novel_id"),
-                MapAtlasNode.id.in_(
-                    [parse_uuid(value, "node_id") for value in parsed]
-                ),
+                MapAtlasNode.id.in_([parse_uuid(value, "node_id") for value in parsed]),
             )
         )
     ).all()
@@ -1578,10 +1605,21 @@ async def inspect_map_node(db: AsyncSession, novel_id: str, node_id: str) -> dic
     response.problems = [
         problem
         for problem in response.problems
-        if problem.code != "spatial_type_not_computable"
+        if problem.code
+        not in {
+            "spatial_type_not_computable",
+            *SPATIAL_ANCHOR_PROBLEM_CODES,
+            *GEOMETRY_PROBLEM_CODES,
+        }
     ]
+    response.problems.extend(_spatial_type_problems(response.document, resolved_types))
     response.problems.extend(
-        _spatial_type_problems(response.document, resolved_types)
+        diagnose(
+            response.document, type_traits=_active_spatial_type_traits(resolved_types)
+        )
+    )
+    response.problems.extend(
+        await spatial_anchor_problems(db, novel_id, response.document)
     )
     warnings = []
     for item in [

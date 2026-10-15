@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
+
 from modules.world.map_spatial_anchors import resolve_validity
 from modules.world.map_structure_schemas import SpatialAnchor, SpatialValidity
 
@@ -56,6 +58,20 @@ def test_replaced_scene_start_uses_earliest_and_end_uses_latest_replacement():
 def test_missing_scene_anchor_without_replacement_is_pending():
     validity = SpatialValidity(start=SpatialAnchor(kind="scene", id=sid(9)))
     result = resolve_validity(validity, [scene(1, 0)])
+    assert not result.valid
+    assert result.reason == "scene_anchor_unavailable"
+
+
+@pytest.mark.parametrize("unavailable", [sid(9), sid(1)])
+def test_partial_replacement_graph_with_missing_or_cyclic_branch_is_pending(unavailable):
+    validity = SpatialValidity(start=SpatialAnchor(kind="scene", id=sid(1)))
+    result = resolve_validity(
+        validity,
+        [
+            scene(1, 0, status="deprecated", replaced_by_scene_ids=[sid(2), unavailable]),
+            scene(2, 4),
+        ],
+    )
     assert not result.valid
     assert result.reason == "scene_anchor_unavailable"
 

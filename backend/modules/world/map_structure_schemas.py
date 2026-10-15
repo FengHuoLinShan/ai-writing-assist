@@ -644,6 +644,7 @@ class MapTaskResponse(SpatialModel):
 
 class MapReaderFeature(SpatialModel):
     id: FeatureKey
+    space_id: FeatureKey = "main"
     kind: Literal["location", "landmark", "road", "river", "area"]
     label: str = Field(min_length=1, max_length=200)
     points: list[MapPoint] = Field(max_length=128)

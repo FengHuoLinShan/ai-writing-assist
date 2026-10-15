@@ -8,6 +8,13 @@ from typing import Any
 from modules.world.map_structure_schemas import SpatialAnchor, SpatialValidity
 
 _ACTIVE_SCENE_STATUSES = {"candidate", "draft", "canonical"}
+SPATIAL_ANCHOR_PROBLEM_CODES = frozenset(
+    {
+        "scene_anchor_unavailable",
+        "chapter_identity_unavailable",
+        "spatial_anchor_order_reversed",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -29,24 +36,29 @@ def _scene_anchor_index(
     scene_id: str, scenes: list[dict[str, Any]], *, endpoint: str
 ) -> int | None:
     by_id = {str(item.get("scene_id")): item for item in scenes}
-    def descendants(current_id: str, path: frozenset[str] = frozenset()) -> list[int]:
+
+    def descendants(
+        current_id: str, path: frozenset[str] = frozenset()
+    ) -> list[int] | None:
         if current_id in path:
-            return []
+            return None
         path = path | {current_id}
         scene = by_id.get(current_id)
         if scene is None:
-            return []
+            return None
         index = _active_index(scene)
         if index is not None:
             return [index]
         replacement_ids = scene.get("replaced_by_scene_ids") or []
-        if not isinstance(replacement_ids, list):
-            return []
-        return [
-            index
-            for replacement_id in replacement_ids
-            for index in descendants(str(replacement_id), path)
-        ]
+        if not isinstance(replacement_ids, list) or not replacement_ids:
+            return None
+        candidates = []
+        for replacement_id in replacement_ids:
+            resolved = descendants(str(replacement_id), path)
+            if resolved is None:
+                return None
+            candidates.extend(resolved)
+        return candidates
 
     candidates = descendants(scene_id)
     if not candidates:
@@ -92,11 +104,7 @@ def resolve_validity(
         end_index, reason = resolve_anchor(validity.end, scenes, endpoint="end")
         if reason is not None:
             return SpatialValidityResolution(start_index, None, False, reason)
-    if (
-        start_index is not None
-        and end_index is not None
-        and start_index > end_index
-    ):
+    if start_index is not None and end_index is not None and start_index > end_index:
         return SpatialValidityResolution(
             start_index, end_index, False, "spatial_anchor_order_reversed"
         )

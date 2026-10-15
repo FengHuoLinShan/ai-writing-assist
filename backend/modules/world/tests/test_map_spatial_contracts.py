@@ -6,8 +6,18 @@ import pytest
 from pydantic import ValidationError
 
 from modules.world.map_atlas_schemas import MapAtlasNodeUpdate
-from modules.world.map_structure_geometry import diagnose, layout
-from modules.world.map_structure_schemas import MapDocument, MapNodeCreate
+from modules.world.map_structure_geometry import (
+    affine_transform,
+    calculable_features,
+    diagnose,
+    layout,
+    route_key,
+)
+from modules.world.map_structure_schemas import (
+    MapDocument,
+    MapImagePlacement,
+    MapNodeCreate,
+)
 from modules.world.project_vocabulary_schemas import VocabularyTraits
 
 _PROJECT_TYPE = "00000000-0000-0000-0000-000000000011"
@@ -110,11 +120,73 @@ def test_layout_uses_independent_space_frames_and_skips_cross_space_routes():
     )
     without_portal_result = layout(without_portal).document
     without_portal_by_id = {item.id: item for item in without_portal_result.features}
-    assert {
-        key: item.points for key, item in by_id.items()
-    } == {key: item.points for key, item in without_portal_by_id.items()}
+    assert {key: item.points for key, item in by_id.items()} == {
+        key: item.points for key, item in without_portal_by_id.items()
+    }
     assert len(result.features) == 3
     assert by_id["dream-west"].points != by_id["dream-entry"].points
+
+
+@pytest.mark.parametrize("feature_count", [4, 199, 200])
+def test_multispace_layout_retains_local_routes_with_one_global_feature_limit(
+    feature_count,
+):
+    features = [feature("a"), feature("b")]
+    features += [feature("c", space_id="dream"), feature("d", space_id="dream")]
+    features += [feature(f"extra-{index}") for index in range(feature_count - 4)]
+    document = MapDocument(
+        spaces=[{"id": "dream", "label": "梦境"}],
+        features=features,
+        constraints=[
+            {"id": "main-road", "subject": "a", "target": "b", "relation": "connects"},
+            {"id": "dream-road", "subject": "c", "target": "d", "relation": "connects"},
+        ],
+    )
+    result = layout(document).document
+    routes = [item for item in result.features if item.id.startswith("route:")]
+    assert len(routes) == min(2, 200 - feature_count)
+    assert len(result.features) <= 200
+    by_id = {item.id: item for item in result.features}
+    for route in routes:
+        assert route.points
+        assert {by_id[key].space_id for key in route.depends_on} == {route.space_id}
+    assert layout(result).document == result
+
+
+def test_old_route_is_not_objective_after_its_relation_becomes_a_belief():
+    document = layout(
+        MapDocument(
+            features=[feature("a"), feature("b")],
+            constraints=[
+                {"id": "road", "subject": "a", "target": "b", "relation": "connects"}
+            ],
+        )
+    ).document
+    document.constraints[0].modality = "belief"
+    assert route_key("road") not in calculable_features(document)
+    assert route_key("road") in {item.id for item in layout(document).document.features}
+
+
+def test_calibration_cannot_mix_independent_space_coordinates():
+    document = MapDocument(
+        spaces=[{"id": "dream", "label": "梦境"}],
+        features=[
+            feature("a") | {"points": [{"x": 0, "y": 0}]},
+            feature("b") | {"points": [{"x": 100, "y": 0}]},
+            feature("c", space_id="dream") | {"points": [{"x": 0, "y": 100}]},
+        ],
+    )
+    placement = MapImagePlacement(
+        page_id="00000000-0000-0000-0000-000000000099",
+        role="background",
+        anchors=[
+            {"feature_id": "a", "image_x": 0, "image_y": 0},
+            {"feature_id": "b", "image_x": 1, "image_y": 0},
+            {"feature_id": "c", "image_x": 0, "image_y": 1},
+        ],
+    )
+    with pytest.raises(ValueError, match="同一空间"):
+        affine_transform(placement, document)
 
 
 def test_cross_space_relations_need_a_pinned_relation_type_and_no_via():
@@ -280,10 +352,7 @@ def test_v2_type_reference_requires_pinned_revision_and_known_modality():
         MapDocument.model_validate(
             {
                 "schema_version": 2,
-                "features": [
-                    feature("a")
-                    | {"type_ref": _PROJECT_TYPE}
-                ],
+                "features": [feature("a") | {"type_ref": _PROJECT_TYPE}],
             }
         )
 
@@ -351,9 +420,7 @@ def test_only_pinned_computational_traits_enable_typed_geometry_and_relations():
 
     type_traits = {
         (feature_ref, feature_revision): VocabularyTraits(geometry=["point"]),
-        (relation_ref, relation_revision): VocabularyTraits(
-            orientation=["compass"]
-        ),
+        (relation_ref, relation_revision): VocabularyTraits(orientation=["compass"]),
     }
     with_traits = layout(document, type_traits=type_traits)
     positions = {item.id: item.points[0] for item in with_traits.document.features}
@@ -377,10 +444,8 @@ def test_non_event_and_time_scoped_relations_do_not_create_static_conflicts():
             {
                 "schema_version": 2,
                 "features": [
-                    feature("south", space_id="main")
-                    | {"points": [{"x": 0, "y": 100}]},
-                    feature("north", space_id="main")
-                    | {"points": [{"x": 0, "y": 0}]},
+                    feature("south", space_id="main") | {"points": [{"x": 0, "y": 100}]},
+                    feature("north", space_id="main") | {"points": [{"x": 0, "y": 0}]},
                 ],
                 "constraints": [
                     {
