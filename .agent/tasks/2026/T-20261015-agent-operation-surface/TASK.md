@@ -3,7 +3,7 @@ id: T-20261015-agent-operation-surface
 title: 全模块 AI 操作入口、目标运行与操作留痕设计
 status: active
 created: 2026-10-15T14:30:00+08:00
-updated: 2026-10-15T23:00:00+08:00
+updated: 2026-10-15T22:16:25+08:00
 ---
 
 # 全模块 AI 操作入口、目标运行与操作留痕设计
@@ -19,7 +19,7 @@ updated: 2026-10-15T23:00:00+08:00
 2026-10-15 技术评审后按推荐修订 ADR-0038：目录项事务形态、目标运行 `goal` 模式与每项目唯一索引、
 高频操作留痕合并或豁免。修订经用户授权在第三个本地提交 `20d6f1eff` 中提交，未推送。
 2026-10-15 用户采纳 ADR-0038（Accepted / 未实施）；ADR-0023 补充说明与索引同步。
-下一步：推送与 PR 按用户授权。实施由用户另行安排执行者，本任务只负责设计与文档。
+用户现明确授权三份计划全部实施；本任务进入A0–A4分批实现。主树HEAD ba20dc79388133ee903e5522e9cf30ceae2905ba暂为地图真实评测固定版本，代码先在隔离树 /Users/tywww/项目/ai-writing-assist/.worktrees/map-operation-catalog-impl（codex/map-operation-catalog-impl，同base）实现。Luna/max负责A0，之后Sol/high review并直接修复；root负责集成验证，TASK唯一写入。当前下一步：完成六legacy插件纯SPEC收口、目录v2、find/describe、写路由绑定棘轮、隐私trace生命周期闭环；A1/A2/A3依批次继续。A4报表可以实现，基于数周真实数据选前三模式不能虚构。
 
 ## 目标与验收
 
@@ -85,3 +85,10 @@ updated: 2026-10-15T23:00:00+08:00
 ## 风险与待决
 
 - 无待用户裁定项。ADR-0038 已采纳；若其他分支先合入同号 ADR，顺延编号并同步引用。
+
+## 2026-10-15T21:56:18+08:00 实施检查点
+
+- runtime目录已实调用register_container_services核实64项唯一操作：assistant1/evidence1/evolution2/imports5/map11/project3/story11/world21/writing9。旧55项只是snapshot初次赋值，后续update不可漏算。A0独占bootstrap/main/registry/service_keys和Assistant既有核心；档案、提醒子代理仅提供新纯SPEC与接线需求。只新migration operation_trace_v2，最终Sol统一链。
+- 仅本地提交与隔离验证授权；未push/PR/main合并/部署。无新的真实模型/私有评测根/真实数据库访问授权给这些实现代理。工程检查与真实作者验收分开报告。
+
+- 2026-10-15T22:16:25+08:00：地图R3五Scene完成后结构任务严格目标解析失败，已正常停止封存，真实质量未通过；当前无live runner，新功能首批提交审查后可集成，后续评测需新pipeline身份，不复用旧实验。
