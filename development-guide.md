@@ -169,7 +169,7 @@ namespace 并只连其 loopback，因此可从并行 worktree 重用既有开发
 `http://minio:9000`。
 
 上述自动化 backend 质量目标会在进入 `backend/` 后自行通过 `uv run --locked --extra ci --`
-解析 `backend/.python-version` 的 Python `3.14.7` 与 `backend/uv.lock` 的 `ci` 工具链；无需预先
+解析 `backend/.python-version` 的 Python `3.14.8` 与 `backend/uv.lock` 的 `ci` 工具链；无需预先
 激活虚拟环境。首次运行仍需要可用的 `uv` 以及本地缓存或网络来取得锁定环境；这不移除 E2E
 目标的专用 PostgreSQL 等外部前提。
 
@@ -224,7 +224,7 @@ facade/contracts、任务、前端路由/wire 或 Prompt 的分支必须在收�
 ## Pinned production toolchains
 
 Production Dockerfiles and PostgreSQL service declarations use reviewed image tags plus
-immutable SHA-256 digests. The backend image uses Python `3.14.7`, uv `0.12.3`, and
+immutable SHA-256 digests. The backend image uses Python `3.14.8`, uv `0.13.1`, and
 the frontend build uses Node `24.21.0` LTS; `backend/.python-version` and
 `frontend-console/.node-version` record the matching local-tooling versions. CI runs on
 `ubuntu-24.04` and installs those exact interpreter/tool versions before its relevant

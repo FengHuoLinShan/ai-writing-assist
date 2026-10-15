@@ -14,6 +14,7 @@ from evals.codex_executor import (
     AskWorldCalibrationScope,
     CodexExecutionError,
     CodexStructuredExecutor,
+    G7ReviewScope,
 )
 
 
@@ -22,9 +23,16 @@ class Answer(BaseModel):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "scope_class,step",
+    [
+        (AskWorldCalibrationScope, "eval.ask_world.teacher_calibration"),
+        (G7ReviewScope, "eval.g7.source_field_review"),
+    ],
+)
 @pytest.mark.parametrize("problem", [None, "stale", "provider", "effort", "unverified"])
 async def test_calibration_revalidates_owner_runtime_before_native_call(
-    monkeypatch, problem
+    monkeypatch, problem, scope_class, step
 ):
     snapshot = {
         "profile": {
@@ -70,15 +78,11 @@ async def test_calibration_revalidates_owner_runtime_before_native_call(
     executor = CodexStructuredExecutor(
         command="python3",
         attempts=1,
-        calibration=AskWorldCalibrationScope(
-            SimpleNamespace(rollback=rollback), "isolated", snapshot
-        ),
+        calibration=scope_class(SimpleNamespace(rollback=rollback), "isolated", snapshot),
     )
     monkeypatch.setattr(executor, "_invoke", invoke)
     with pytest.raises(CodexExecutionError) if problem else nullcontext():
-        answer = await executor.generate_structured(
-            "synthetic", Answer, step_name="eval.ask_world.teacher_calibration"
-        )
+        answer = await executor.generate_structured("synthetic", Answer, step_name=step)
         assert answer.ready
     assert events == (
         ["owner_runtime"] if problem else ["owner_runtime", "rollback", "native"]
@@ -163,3 +167,20 @@ async def test_teacher_cancellation_stops_and_reaps_native_process(monkeypatch):
     with pytest.raises(asyncio.CancelledError):
         await executor._invoke("codex", "synthetic", {}, step_name="test")
     assert events == ["stopped", "reaped"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "scope_class,step",
+    [
+        (AskWorldCalibrationScope, "eval.g7.source_field_review"),
+        (G7ReviewScope, "eval.ask_world.teacher_calibration"),
+        (G7ReviewScope, "reviewer"),
+    ],
+)
+async def test_scopes_cannot_open_each_others_roles(scope_class, step):
+    executor = CodexStructuredExecutor(
+        calibration=scope_class(None, "isolated", {}), attempts=1
+    )
+    with pytest.raises(CodexExecutionError, match="only permits"):
+        await executor.generate_structured("synthetic", Answer, step_name=step)

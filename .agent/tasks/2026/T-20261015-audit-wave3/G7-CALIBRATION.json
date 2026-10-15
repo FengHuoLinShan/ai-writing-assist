@@ -1,0 +1,396 @@
+{
+  "version": "g7-calibration-v1",
+  "seeded": {
+    "stage": "seeded",
+    "status": "settled",
+    "human_validated": false,
+    "input_hash": "83a2570c429ab5d79d968d76ac897f300d4f6b6a7c66d6d78f281381b4bac8d0",
+    "rows": [
+      {
+        "unit_id": "u0",
+        "path": "correct",
+        "expected": "supported",
+        "actual": "supported",
+        "matched": true
+      },
+      {
+        "unit_id": "u0",
+        "path": "incorrect",
+        "expected": "unsupported",
+        "actual": "unsupported",
+        "matched": true
+      },
+      {
+        "unit_id": "u0",
+        "path": "insufficient",
+        "expected": "uncertain",
+        "actual": "uncertain",
+        "matched": true
+      },
+      {
+        "unit_id": "u0",
+        "path": "empty",
+        "expected": "not_populated",
+        "actual": "not_populated",
+        "matched": true
+      },
+      {
+        "unit_id": "u1",
+        "path": "correct",
+        "expected": "supported",
+        "actual": "supported",
+        "matched": true
+      },
+      {
+        "unit_id": "u1",
+        "path": "incorrect",
+        "expected": "unsupported",
+        "actual": "unsupported",
+        "matched": true
+      },
+      {
+        "unit_id": "u1",
+        "path": "insufficient",
+        "expected": "uncertain",
+        "actual": "uncertain",
+        "matched": true
+      },
+      {
+        "unit_id": "u1",
+        "path": "empty",
+        "expected": "not_populated",
+        "actual": "not_populated",
+        "matched": true
+      },
+      {
+        "unit_id": "u2",
+        "path": "correct",
+        "expected": "supported",
+        "actual": "supported",
+        "matched": true
+      },
+      {
+        "unit_id": "u2",
+        "path": "incorrect",
+        "expected": "unsupported",
+        "actual": "unsupported",
+        "matched": true
+      },
+      {
+        "unit_id": "u2",
+        "path": "insufficient",
+        "expected": "uncertain",
+        "actual": "uncertain",
+        "matched": true
+      },
+      {
+        "unit_id": "u2",
+        "path": "empty",
+        "expected": "not_populated",
+        "actual": "not_populated",
+        "matched": true
+      },
+      {
+        "unit_id": "u3",
+        "path": "correct",
+        "expected": "supported",
+        "actual": "supported",
+        "matched": true
+      },
+      {
+        "unit_id": "u3",
+        "path": "incorrect",
+        "expected": "unsupported",
+        "actual": "unsupported",
+        "matched": true
+      },
+      {
+        "unit_id": "u3",
+        "path": "insufficient",
+        "expected": "uncertain",
+        "actual": "uncertain",
+        "matched": true
+      },
+      {
+        "unit_id": "u3",
+        "path": "empty",
+        "expected": "not_populated",
+        "actual": "not_populated",
+        "matched": true
+      },
+      {
+        "unit_id": "u4",
+        "path": "correct",
+        "expected": "supported",
+        "actual": "supported",
+        "matched": true
+      },
+      {
+        "unit_id": "u4",
+        "path": "incorrect",
+        "expected": "unsupported",
+        "actual": "unsupported",
+        "matched": true
+      },
+      {
+        "unit_id": "u4",
+        "path": "insufficient",
+        "expected": "uncertain",
+        "actual": "uncertain",
+        "matched": true
+      },
+      {
+        "unit_id": "u4",
+        "path": "empty",
+        "expected": "not_populated",
+        "actual": "not_populated",
+        "matched": true
+      },
+      {
+        "unit_id": "u5",
+        "path": "correct",
+        "expected": "supported",
+        "actual": "supported",
+        "matched": true
+      },
+      {
+        "unit_id": "u5",
+        "path": "incorrect",
+        "expected": "unsupported",
+        "actual": "unsupported",
+        "matched": true
+      },
+      {
+        "unit_id": "u5",
+        "path": "insufficient",
+        "expected": "uncertain",
+        "actual": "uncertain",
+        "matched": true
+      },
+      {
+        "unit_id": "u5",
+        "path": "empty",
+        "expected": "not_populated",
+        "actual": "not_populated",
+        "matched": true
+      },
+      {
+        "unit_id": "u6",
+        "path": "correct",
+        "expected": "supported",
+        "actual": "supported",
+        "matched": true
+      },
+      {
+        "unit_id": "u6",
+        "path": "incorrect",
+        "expected": "unsupported",
+        "actual": "unsupported",
+        "matched": true
+      },
+      {
+        "unit_id": "u6",
+        "path": "insufficient",
+        "expected": "uncertain",
+        "actual": "uncertain",
+        "matched": true
+      },
+      {
+        "unit_id": "u6",
+        "path": "empty",
+        "expected": "not_populated",
+        "actual": "not_populated",
+        "matched": true
+      },
+      {
+        "unit_id": "u7",
+        "path": "correct",
+        "expected": "supported",
+        "actual": "supported",
+        "matched": true
+      },
+      {
+        "unit_id": "u7",
+        "path": "incorrect",
+        "expected": "unsupported",
+        "actual": "unsupported",
+        "matched": true
+      },
+      {
+        "unit_id": "u7",
+        "path": "insufficient",
+        "expected": "uncertain",
+        "actual": "uncertain",
+        "matched": true
+      },
+      {
+        "unit_id": "u7",
+        "path": "empty",
+        "expected": "not_populated",
+        "actual": "not_populated",
+        "matched": true
+      }
+    ],
+    "checked": {
+      "actual_rows_bound": 8,
+      "actual_draft_sources_bound": true,
+      "cutoff_enforcement_scope": "caller horizon; requires domain binding",
+      "status": "model_review_bound_and_citations_checked",
+      "snapshot_hash": "2bc0fd7e9f92430466ced7b9becb34456182a1b10168774f7492891477d1d345",
+      "units_reviewed": 8,
+      "fields_reviewed": 32,
+      "exact_citations": 16,
+      "semantic_quality_verified_by_host": false,
+      "same_model_bias": true,
+      "human_validated": false,
+      "review_hash": "8e050f3cdcdcd8ae7501ecb2d90e496ec393ce63d10737c26ee00421f4446ec9"
+    },
+    "matched": 32,
+    "total": 32,
+    "all_matched": true
+  },
+  "debug": {
+    "stage": "debug",
+    "status": "settled",
+    "human_validated": false,
+    "input_hash": "cb9f1dbcbf1c71b6521edd382f830b5823e37b595d22dafc9aef30ef81ec8f71",
+    "rows": [
+      {
+        "unit_id": "u0",
+        "path": "correct",
+        "expected": "supported",
+        "actual": "supported",
+        "matched": true
+      },
+      {
+        "unit_id": "u0",
+        "path": "incorrect",
+        "expected": "unsupported",
+        "actual": "unsupported",
+        "matched": true
+      },
+      {
+        "unit_id": "u0",
+        "path": "insufficient",
+        "expected": "uncertain",
+        "actual": "uncertain",
+        "matched": true
+      },
+      {
+        "unit_id": "u0",
+        "path": "empty",
+        "expected": "not_populated",
+        "actual": "not_populated",
+        "matched": true
+      },
+      {
+        "unit_id": "u1",
+        "path": "correct",
+        "expected": "supported",
+        "actual": "supported",
+        "matched": true
+      },
+      {
+        "unit_id": "u1",
+        "path": "incorrect",
+        "expected": "unsupported",
+        "actual": "unsupported",
+        "matched": true
+      },
+      {
+        "unit_id": "u1",
+        "path": "insufficient",
+        "expected": "uncertain",
+        "actual": "uncertain",
+        "matched": true
+      },
+      {
+        "unit_id": "u1",
+        "path": "empty",
+        "expected": "not_populated",
+        "actual": "not_populated",
+        "matched": true
+      },
+      {
+        "unit_id": "u2",
+        "path": "correct",
+        "expected": "supported",
+        "actual": "supported",
+        "matched": true
+      },
+      {
+        "unit_id": "u2",
+        "path": "incorrect",
+        "expected": "unsupported",
+        "actual": "unsupported",
+        "matched": true
+      },
+      {
+        "unit_id": "u2",
+        "path": "insufficient",
+        "expected": "uncertain",
+        "actual": "uncertain",
+        "matched": true
+      },
+      {
+        "unit_id": "u2",
+        "path": "empty",
+        "expected": "not_populated",
+        "actual": "not_populated",
+        "matched": true
+      }
+    ],
+    "checked": {
+      "actual_rows_bound": 3,
+      "actual_draft_sources_bound": true,
+      "cutoff_enforcement_scope": "caller horizon; requires domain binding",
+      "status": "model_review_bound_and_citations_checked",
+      "snapshot_hash": "e4943310d12e39a4db331b4be56a274665a75eee8e1775884d1e56774d1ee68e",
+      "units_reviewed": 3,
+      "fields_reviewed": 12,
+      "exact_citations": 6,
+      "semantic_quality_verified_by_host": false,
+      "same_model_bias": true,
+      "human_validated": false,
+      "review_hash": "8ccd10dd6c4c265bc60e702262ffcee82d38c0cb66afa1744e006c5080c01550"
+    },
+    "matched": 12,
+    "total": 12,
+    "all_matched": true
+  },
+  "native_calls": [
+    {
+      "status": "native_exit",
+      "exit_code": 0,
+      "model": "gpt-6.1-sol",
+      "reasoning_effort": "xhigh",
+      "started_at": "2026-10-15T03:04:04.139613+00:00",
+      "finished_at": "2026-10-15T03:04:30.142714+00:00",
+      "request_sha256": "35d2c4050007a3cf81109150a98734fd3f785b1db333dc943b4c36bcdecb5ebf"
+    },
+    {
+      "status": "native_exit",
+      "exit_code": 0,
+      "model": "gpt-6.1-sol",
+      "reasoning_effort": "xhigh",
+      "started_at": "2026-10-15T03:03:04.505711+00:00",
+      "finished_at": "2026-10-15T03:03:45.046281+00:00",
+      "request_sha256": "a56033c560135abdb477c7b1900ac1556f1441ccd8a87f274fbc20c640cb7549"
+    },
+    {
+      "status": "native_exit",
+      "exit_code": 0,
+      "model": "gpt-6-luna",
+      "reasoning_effort": "max",
+      "started_at": "2026-10-15T03:02:28.026440+00:00",
+      "finished_at": "2026-10-15T03:02:39.665912+00:00",
+      "request_sha256": "9cd6b8bb7736841224d073fbc91aa8e14f84275bca4df2150a74ff8a8a9bd6b1"
+    }
+  ],
+  "unknown": 0,
+  "nonzero_exit": 0,
+  "human_validated": false,
+  "semantic_scope": "synthetic source-bound fields only",
+  "private_root": "/Users/tywww/.codex/private/g7-review-calibration-20261015",
+  "freeze_sha256": "b3348212741e6505d2db5274fd50b1485e5b9a489b1aa151b5e3d060ef6be026"
+}
