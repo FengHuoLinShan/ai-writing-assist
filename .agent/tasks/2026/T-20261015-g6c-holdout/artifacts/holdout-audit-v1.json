@@ -1,0 +1,101 @@
+{
+  "created_at": "2026-10-15T02:07:32.309026+00:00",
+  "raw_teacher_pass": {
+    "baseline": 30,
+    "candidate": 32
+  },
+  "composite_pass": {
+    "baseline": 28,
+    "candidate": 31
+  },
+  "retained_failures": [
+    {
+      "arm": "baseline",
+      "scenario_id": "ask-g6c-cedar-token-positive",
+      "semantic_status": "fail",
+      "failed_checks": [
+        "answerability_mismatch",
+        "conflict_sources_not_covered",
+        "answerability_unjustified",
+        "conflict_not_presented"
+      ],
+      "teacher_verdict": "fail",
+      "uncertainty_empty": true,
+      "all_cited_sources_covered": false,
+      "explanation": "Over-refusal: source conflict could have been cited side by side."
+    },
+    {
+      "arm": "baseline",
+      "scenario_id": "ask-g6c-tin-road-draft-positive",
+      "semantic_status": "fail",
+      "failed_checks": [
+        "conflict_sources_not_covered"
+      ],
+      "teacher_verdict": "pass",
+      "uncertainty_empty": true,
+      "all_cited_sources_covered": true,
+      "explanation": "Explicit uncertainty field is empty; frozen deterministic conflict gate fails despite cited source coverage and teacher approval."
+    },
+    {
+      "arm": "candidate",
+      "scenario_id": "ask-g6c-tin-road-draft-positive",
+      "semantic_status": "fail",
+      "failed_checks": [
+        "conflict_sources_not_covered"
+      ],
+      "teacher_verdict": "pass",
+      "uncertainty_empty": true,
+      "all_cited_sources_covered": true,
+      "explanation": "Explicit uncertainty field is empty; frozen deterministic conflict gate fails despite cited source coverage and teacher approval."
+    },
+    {
+      "arm": "baseline",
+      "scenario_id": "ask-g6c-quartz-kiln-positive",
+      "semantic_status": "fail",
+      "failed_checks": [
+        "conflict_sources_not_covered"
+      ],
+      "teacher_verdict": "pass",
+      "uncertainty_empty": true,
+      "all_cited_sources_covered": true,
+      "explanation": "Explicit uncertainty field is empty; frozen deterministic conflict gate fails despite cited source coverage and teacher approval."
+    },
+    {
+      "arm": "baseline",
+      "scenario_id": "ask-g6c-ash-wind-watch-positive",
+      "semantic_status": "fail",
+      "failed_checks": [
+        "answerability_mismatch",
+        "conflict_sources_not_covered",
+        "answerability_unjustified",
+        "conflict_not_presented"
+      ],
+      "teacher_verdict": "fail",
+      "uncertainty_empty": true,
+      "all_cited_sources_covered": false,
+      "explanation": "Over-refusal: source conflict could have been cited side by side."
+    }
+  ],
+  "raw_teacher_vs_deterministic_disagreements": [
+    {
+      "arm": "baseline",
+      "scenario_id": "ask-g6c-tin-road-draft-positive",
+      "teacher_verdict": "pass",
+      "deterministic_passed": false
+    },
+    {
+      "arm": "candidate",
+      "scenario_id": "ask-g6c-tin-road-draft-positive",
+      "teacher_verdict": "pass",
+      "deterministic_passed": false
+    },
+    {
+      "arm": "baseline",
+      "scenario_id": "ask-g6c-quartz-kiln-positive",
+      "teacher_verdict": "pass",
+      "deterministic_passed": false
+    }
+  ],
+  "note": "Frozen scores and rules remain unchanged. Existing deterministic_teacher_agreement compares the composite semantic status (which already includes deterministic checks); it is not raw-teacher agreement.",
+  "raw_teacher_deterministic_agreement": 0.953125
+}
