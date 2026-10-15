@@ -19,13 +19,18 @@ from modules.story.generation import (
 from modules.story.schemas import (
     CardPreview,
     CharacterCardContent,
-    ReactionPreview,
+    ReactionPreviewV2,
     ScriptPreview,
     StoryCardTaskRequest,
     StoryOneClickTaskRequest,
     StoryTaskRequest,
 )
-from modules.story.tasks import _character_card_source_hashes, _parse_task_request
+from modules.story.tasks import (
+    _card_reference_basis,
+    _character_card_source_hashes,
+    _parse_task_request,
+    _require_character_reveal,
+)
 
 NOVEL_ID = str(uuid.uuid4())
 SCENE_ID = str(uuid.uuid4())
@@ -172,6 +177,68 @@ def test_character_card_source_hash_uses_stable_per_character_reveal() -> None:
     assert first[CHARACTER_ID] != changed[CHARACTER_ID]
 
 
+def test_story_generation_fails_closed_when_pov_scope_is_missing() -> None:
+    with pytest.raises(ValueError, match="缺少该人物的 POV 可见资料"):
+        _require_character_reveal({}, CHARACTER_ID)
+    with pytest.raises(ValueError, match="缺少该人物的 POV 可见资料"):
+        _require_character_reveal({CHARACTER_ID: {"markdown": "  "}}, CHARACTER_ID)
+
+
+def test_card_basis_keeps_profile_notes_out_of_scene_time_and_preserves_refs():
+    compiled = SimpleNamespace(
+        sections=[
+            SimpleNamespace(
+                key="role_profile",
+                excluded=False,
+                retrieval_metadata={
+                    "fact_basis": [
+                        {
+                            "fact_id": f"character_profile:{CHARACTER_ID}:personality",
+                            "kind": "character_profile",
+                            "value": "谨慎",
+                        }
+                    ]
+                },
+            ),
+            SimpleNamespace(
+                key="object_dossier",
+                excluded=False,
+                retrieval_metadata={
+                    "fact_basis": [
+                        {
+                            "fact_id": "story:checkpoint-fact",
+                            "kind": "story_state",
+                            "value": "北门关闭",
+                        }
+                    ],
+                    "reference_dimensions": ["object_dossier"],
+                },
+            ),
+            SimpleNamespace(
+                key="character_pattern",
+                excluded=False,
+                retrieval_metadata={
+                    "pattern_basis": [
+                        {
+                            "pattern_id": "pattern:entry:revision",
+                            "statement": "倾向先核对门闩",
+                        }
+                    ],
+                    "reference_dimensions": ["character_pattern"],
+                },
+            ),
+        ]
+    )
+
+    facts, patterns, dimensions = _card_reference_basis(compiled, scene_id=SCENE_ID)
+    profile = next(item for item in facts if item["kind"] == "character_profile")
+    state = next(item for item in facts if item["kind"] == "story_state")
+    assert "as_of_scene_id" not in profile
+    assert state["as_of_scene_id"] == SCENE_ID
+    assert patterns[0]["pattern_id"] == "pattern:entry:revision"
+    assert dimensions == ("character_pattern", "object_dossier")
+
+
 class _Compiled:
     budget_tokens = 6000
     total_tokens = 10
@@ -224,7 +291,43 @@ class _StoryGeneration:
         )
 
     async def reaction_preview(self, _client, *, scene_context, character_ids, **_kwargs):
-        return ReactionPreview(scene_id=scene_context["scene_id"], proposals=[])
+        character_id = character_ids[0]
+        option = {
+            "option_id": "protect_first",
+            "motivation": "先保护同伴",
+            "source_fact_ids": ["story:goal"],
+            "action": "把同伴拉到门后",
+            "facial_expression": "眉心收紧",
+            "body_language": "侧身挡住门口",
+            "voice_and_dialogue": "压低声音说：先退后",
+            "inner_response": "担心门后还有人",
+            "attention": "盯着门闩的松动处",
+            "change": "由观察转为保护同伴",
+        }
+        return ReactionPreviewV2(
+            scene_id=scene_context["scene_id"],
+            proposals=[
+                {
+                    "character_id": character_id,
+                    "internal_pressure": "来不及确认两侧",
+                    "performances": [
+                        option,
+                        {
+                            **option,
+                            "option_id": "control_risk",
+                            "motivation": "抢先控制风险",
+                            "action": "先压住门闩",
+                            "facial_expression": "目光紧盯锁舌",
+                            "body_language": "一手按门一手护住工具",
+                            "voice_and_dialogue": "短促地说：我来压门",
+                            "inner_response": "害怕门被推开",
+                            "attention": "留意门外脚步",
+                            "change": "由观察转为抢险",
+                        },
+                    ],
+                }
+            ],
+        )
 
     async def script_preview(self, _client, *, scene_context, **_kwargs):
         return ScriptPreview(
@@ -272,7 +375,12 @@ async def test_all_story_handlers_start_from_v1_envelope(monkeypatch) -> None:
 
     async def _reveals(*_args, **kwargs):
         return {
-            str(character_id): {"markdown": "character-safe", "hash": "r" * 64}
+            str(character_id): {
+                "markdown": "character-safe",
+                "hash": "r" * 64,
+                "deterministic_facts": [{"fact_id": "story:goal", "value": "先保护同伴"}],
+                "reference_patterns": [],
+            }
             for character_id in kwargs["character_ids"]
         }
 

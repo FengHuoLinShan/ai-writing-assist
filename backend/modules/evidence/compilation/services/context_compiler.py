@@ -45,6 +45,14 @@ from modules.evidence.compilation.services.loaders import (
     WorldBibleLoader,
     WorldEntitiesLoader,
 )
+from modules.evidence.compilation.services.loaders.object_dossier_loader import (
+    ObjectDossierLoader,
+    enabled_object_reference_capabilities,
+    object_dossier_capability,
+)
+from modules.evidence.compilation.services.object_dossier_sections import (
+    ObjectDossierSectionBuilder,
+)
 from modules.evidence.compilation.services.protocol import Loader
 
 logger = logging.getLogger(__name__)
@@ -185,6 +193,7 @@ class ContextCompiler:
             OutlineArcLoader(),
             SceneLoader(),
             MapSpatialLoader(),
+            ObjectDossierLoader(),
             OutlineAnalysisLoader(),
         ]
 
@@ -227,6 +236,16 @@ class ContextCompiler:
         ):
             if "map_spatial" not in loader_names:
                 loader_names.append("map_spatial")
+        dossier_capability = object_dossier_capability(options.consumer_action)
+        dossier_capabilities, pattern_capabilities = (
+            enabled_object_reference_capabilities(get_settings())
+        )
+        if dossier_capability and (
+            dossier_capability in dossier_capabilities
+            or dossier_capability in pattern_capabilities
+        ):
+            if "object_dossier" not in loader_names:
+                loader_names.append("object_dossier")
         if (
             "rag_chunks" in loader_names
             and isinstance(self._loaders.get("rag_chunks"), RagChunksLoader)
@@ -415,6 +434,37 @@ class ContextCompiler:
             pinned_refs=options.pinned_refs,
         )
         for section in sections:
+            if section.key == "object_dossier":
+                included_items = [
+                    item
+                    for item in section.items
+                    if item.selection_state not in {"excluded", "omitted"}
+                ]
+                selected_ids = {
+                    str(item.source.get("fact_id") or item.key) for item in included_items
+                }
+                section.retrieval_metadata["fact_basis"] = [
+                    item
+                    for item in section.retrieval_metadata.get("fact_basis", [])
+                    if str(item.get("fact_id")) in selected_ids
+                ]
+                if not included_items:
+                    section.retrieval_metadata["reference_dimensions"] = []
+            elif section.key == "character_pattern":
+                included_items = [
+                    item
+                    for item in section.items
+                    if item.selection_state not in {"excluded", "omitted"}
+                ]
+                selected_ids = {str(item.key) for item in included_items}
+                section.retrieval_metadata["pattern_basis"] = [
+                    item
+                    for item in section.retrieval_metadata.get("pattern_basis", [])
+                    if str(item.get("pattern_id")) in selected_ids
+                ]
+                if not included_items:
+                    section.retrieval_metadata["reference_dimensions"] = []
+        for section in sections:
             if section.key == "map_spatial":
                 selected_nodes = {str(item.source.get("id")) for item in section.items}
                 section.retrieval_metadata["map_baseline"] = [
@@ -455,10 +505,14 @@ class ContextCompiler:
         )
         # Optional map detail cannot evict confirmed core sources from the budget.
         map_sections = [
-            section for section in ctx.sections if section.key == "map_spatial"
+            section
+            for section in ctx.sections
+            if section.key in {"map_spatial", "object_dossier", "character_pattern"}
         ]
         ctx.sections = [
-            section for section in ctx.sections if section.key != "map_spatial"
+            section
+            for section in ctx.sections
+            if section.key not in {"map_spatial", "object_dossier", "character_pattern"}
         ]
         ctx.total_tokens = sum(section.token_count for section in ctx.sections)
         compiled = ctx.enforce_budget()
@@ -472,7 +526,11 @@ class ContextCompiler:
                     item.model_copy(
                         update={
                             "selection_state": "omitted",
-                            "omission_reason": "空间参考超出剩余预算",
+                            "omission_reason": (
+                                "空间参考超出剩余预算"
+                                if section.key == "map_spatial"
+                                else "对象或人物参考超出剩余预算"
+                            ),
                         }
                     )
                     for item in section.materialize_items().items
@@ -953,6 +1011,7 @@ class ContextCompiler:
         if options is not None and options.reveal_mode == "character":
             sections.extend(self._build_character_reveal_sections(bundle, options))
             sections.extend(self._build_map_spatial_sections(bundle))
+            sections.extend(self._build_object_dossier_sections(bundle, options))
             return sections
 
         if options is not None and options.reveal_mode == "reader":
@@ -1033,6 +1092,7 @@ class ContextCompiler:
             )
 
         sections.extend(self._build_map_spatial_sections(bundle))
+        sections.extend(self._build_object_dossier_sections(bundle, options))
 
         if bundle.scene:
             content = json.dumps(bundle.scene, ensure_ascii=False, indent=2)
@@ -1594,6 +1654,13 @@ class ContextCompiler:
         return [section]
 
     @staticmethod
+    def _build_object_dossier_sections(
+        bundle: StructureContextBundle,
+        options: CompileOptions | None,
+    ) -> list[ContextSection]:
+        return ObjectDossierSectionBuilder.build(bundle, options)
+
+    @staticmethod
     def _build_outline_analysis_sections(
         bundle: StructureContextBundle,
         options: CompileOptions | None,
@@ -1833,6 +1900,73 @@ class ContextCompiler:
 
         if bundle.characters:
             content = self._format_role_profile(bundle.characters, options)
+            profile_facts = []
+            profile_fields = (
+                "name",
+                "role",
+                "appearance",
+                "personality",
+                "desire",
+                "fear",
+                "weakness",
+                "stance",
+                "voice_style",
+                "behavior_rules",
+            )
+            for raw in bundle.characters:
+                if isinstance(raw, dict):
+                    item = raw
+                else:
+                    dump = getattr(raw, "model_dump", None)
+                    item = (
+                        dump(mode="python")
+                        if callable(dump)
+                        else getattr(raw, "__dict__", {})
+                    )
+                entity_id = str(
+                    item.get("character_id")
+                    or item.get("entity_id")
+                    or item.get("id")
+                    or ""
+                )
+                if not entity_id or (
+                    options.viewpoint_character_id
+                    and self._id_key(entity_id)
+                    != self._id_key(options.viewpoint_character_id)
+                ):
+                    continue
+                for field_name in profile_fields:
+                    value = item.get(field_name)
+                    if value is None or value == "" or value == [] or value == {}:
+                        continue
+                    profile_facts.append(
+                        {
+                            "fact_id": f"character_profile:{entity_id}:{field_name}",
+                            "kind": "character_profile",
+                            "layer": "fact",
+                            "subject_id": entity_id,
+                            "dimension": "character_profile",
+                            "field": field_name,
+                            "value": (
+                                value
+                                if isinstance(value, str)
+                                else json.dumps(
+                                    value,
+                                    ensure_ascii=False,
+                                    sort_keys=True,
+                                    default=str,
+                                )
+                            ),
+                            "source_refs": [
+                                {
+                                    "source_type": "character_profile",
+                                    "source_id": entity_id,
+                                    "revision_id": item.get("revision_id"),
+                                }
+                            ],
+                            "possibly_false": False,
+                        }
+                    )
             sections.append(
                 self._make_section(
                     key="role_profile",
@@ -1846,6 +1980,7 @@ class ContextCompiler:
                         default_type="character",
                         status=status,
                     ),
+                    retrieval_metadata={"fact_basis": profile_facts},
                     can_exclude=False,
                 )
             )
@@ -2476,9 +2611,9 @@ class ContextCompiler:
                 ("渴望", item.get("desire")),
                 ("恐惧", item.get("fear")),
                 ("弱点", item.get("weakness")),
-                ("当前目标", item.get("current_goal")),
-                ("当前状态", item.get("current_state")),
-                ("当前情绪", item.get("current_emotion")),
+                ("作者备注·当前目标（非本场时点真源）", item.get("current_goal")),
+                ("作者备注·当前状态（非本场时点真源）", item.get("current_state")),
+                ("作者备注·当前情绪（非本场时点真源）", item.get("current_emotion")),
                 ("立场", item.get("stance")),
                 ("语气", item.get("voice_style")),
                 (

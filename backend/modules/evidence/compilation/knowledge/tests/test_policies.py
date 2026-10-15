@@ -158,7 +158,7 @@ def test_world_cocreation_can_propose_but_source_questions_remain_answers() -> N
     assert chat.adoption_gate == ask.adoption_gate == "display_only"
 
 
-def test_map_spatial_is_advisory_only_for_creation_and_question_capabilities() -> None:
+def test_optional_reference_dimensions_are_advisory_for_selected_capabilities() -> None:
     capabilities = (
         "writing.generate",
         "writing.targeted_revision",
@@ -171,8 +171,31 @@ def test_map_spatial_is_advisory_only_for_creation_and_question_capabilities() -
     )
     for capability in capabilities:
         policy = require_capability_policy(capability)
-        assert policy.advisory_dimensions == ("map_spatial",)
+        expected = (
+            ("map_spatial", "object_dossier", "character_pattern")
+            if capability
+            in {
+                "writing.generate",
+                "writing.targeted_revision",
+                "writing.semantic_review",
+                "writing.conflict_check.ai_review",
+                "story.one_click",
+            }
+            else ("map_spatial",)
+        )
+        assert policy.advisory_dimensions == expected
         assert "map_spatial" not in policy.required_dimensions
+    for capability in ("story.character_card", "story.reaction"):
+        policy = require_capability_policy(capability)
+        assert policy.advisory_dimensions == ("object_dossier", "character_pattern")
+        assert not set(policy.advisory_dimensions) & set(policy.required_dimensions)
+    writing = require_capability_policy("writing.generate")
+    assert set(writing.advisory_dimensions) == {
+        "map_spatial",
+        "object_dossier",
+        "character_pattern",
+    }
+    assert not set(writing.advisory_dimensions) & set(writing.required_dimensions)
 
     map_generation = require_capability_policy("world.map_structure.generate")
     assert "map_spatial" in map_generation.required_dimensions

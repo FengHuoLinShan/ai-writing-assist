@@ -87,6 +87,9 @@ class ContextSelectionRequest(BaseModel):
         "import_scene_activation",
         "reader_context",
         "character_context",
+        "story_character_card",
+        "story_character_reaction",
+        "story_scene_script",
         "manual_search",
         "generic_context",
     ] = "generic_context"

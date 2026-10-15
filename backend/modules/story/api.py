@@ -10,15 +10,7 @@ from fastapi import status as http_status
 
 from core.api_params import NovelIdQuery
 from core.dependencies import DbSession
-from infrastructure.tasks.facade import (
-    enqueue_task_with_optional_operation,
-    get_operation_task,
-)
-from modules.evidence.facade import attach_result_ref, require_fresh_confirmation
-from modules.project.facade import (
-    build_project_llm_execution_snapshot,
-    require_active_project,
-)
+from modules.project.facade import require_active_project
 from modules.story.facade import (
     STORY_CARD_TASK,
     STORY_CHARACTER_CARD_ACTION,
@@ -36,6 +28,7 @@ from modules.story.facade import (
     create_manual_character_card,
     create_scene_script_file,
     create_scene_script_revision,
+    enqueue_confirmed_story_task,
     get_character_card,
     get_scene_script_file,
     get_scene_story_context,
@@ -452,82 +445,17 @@ async def _enqueue_confirmed_task(
     action: str,
     task_type: str,
     extra_meta: dict | None = None,
+    llm_execution_snapshot: dict | None = None,
 ) -> StoryTaskResponse:
-    request_payload = data.model_dump(
-        mode="json",
-        exclude_none=True,
-        exclude={"operation_id"},
-    )
-    if (
-        isinstance(data, StoryOneClickTaskRequest)
-        and data.simulation_protocol == "legacy"
-    ):
-        for key in ("simulation_protocol", "rehearsal_rounds", "fork_round"):
-            request_payload.pop(key, None)
-        if not data.use_round_candidates:
-            request_payload.pop("use_round_candidates", None)
     try:
-        existing = await get_operation_task(
+        return await enqueue_confirmed_story_task(
             db,
-            operation_id=str(data.operation_id) if data.operation_id else None,
-            task_type=task_type,
-            novel_id=data.novel_id,
-            request_payload=request_payload,
-        )
-        if existing is not None:
-            return StoryTaskResponse(task_id=existing.task_id, status=existing.status)
-        if (
-            isinstance(data, StoryOneClickTaskRequest)
-            and data.simulation_protocol == "simulation_v3"
-        ):
-            from modules.story.rehearsals import validate_simulation_context_refs
-            from modules.story.simulation_v3 import (
-                SimulationReference,
-                SimulationV3Context,
-            )
-
-            context = data.simulation_seed or SimulationV3Context(
-                participants=[
-                    SimulationReference(kind="object", id=actor)
-                    for actor in data.character_ids
-                ]
-            )
-            await validate_simulation_context_refs(db, data.novel_id, context)
-        await require_fresh_confirmation(
-            db,
-            novel_id=data.novel_id,
+            data,
             action=action,
-            confirmation_id=data.context_confirmation_id,
-        )
-        meta = {
-            "meta_version": 1,
-            "request": request_payload,
-            "action": action,
-            **(extra_meta or {}),
-            "llm_execution_snapshot": await build_project_llm_execution_snapshot(
-                db,
-                data.novel_id,
-            ),
-        }
-        receipt = await enqueue_task_with_optional_operation(
-            db,
-            operation_id=str(data.operation_id) if data.operation_id else None,
             task_type=task_type,
-            novel_id=data.novel_id,
-            request_payload=request_payload,
-            meta=meta,
+            extra_meta=extra_meta,
+            llm_execution_snapshot=llm_execution_snapshot,
         )
-        if not receipt.reused:
-            await attach_result_ref(
-                db,
-                novel_id=data.novel_id,
-                confirmation_id=data.context_confirmation_id,
-                result_type="task",
-                result_id=receipt.task_id,
-                status="running",
-            )
-        await db.flush()
-        return StoryTaskResponse(task_id=receipt.task_id, status=receipt.status)
     except Exception as exc:
         raise _error(exc) from exc
 

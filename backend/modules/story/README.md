@@ -111,6 +111,24 @@ World, Memory, or Writing changes. One-click card freshness is based on a
 source hash of the outline projection, stable compiled-context sections/text,
 and character ID, excluding the card itself.
 
+Generated CharacterCards use `character_card.v2`: the server fixes a deterministic fact basis with
+World entry/revision, Story checkpoint/source and stable character-profile references; the model may
+only add interpretations citing IDs from that basis. The task rematerializes the confirmed per-character
+scope before returning the preview and rejects stale or unknown source IDs. Optional reviewed Evolution
+patterns remain a separate interpretation basis, never facts. Legacy `character_card.v1` payloads remain readable.
+New reaction output is explicitly versioned as `story.reaction.v2`: each character has 2–4 complete
+`performances`, each with a distinct motivation, source IDs, action, facial expression, body language,
+voice/dialogue, inner response, attention, and change. The schema rejects repeated motivations or
+behavior signatures; generation and task output both revalidate each source against that character's
+independently compiled POV scope. Legacy v1 reaction payloads remain readable for history. Character
+`current_goal`, `current_state`, and `current_emotion` remain author notes and are not substituted for
+Story's Scene-time state. The R1 Assistant operations keep card generation at operation version 1 and
+version the new reaction wire at operation version 2; both prepare without creating a task, then recheck
+the preview scope before confirming and enqueueing one preview-only task under the current run's model
+snapshot and usage envelope. Confirmation binds each Story action to its retrieval purpose and same-Scene
+cutoff; card also requires its target as the in-project POV. Enqueue rejects stale snapshots with a wider
+chapter/offset or token budget before creating a task.
+
 Scene asset reads batch-load card and script revisions with two bounded `IN`
 queries. The common Story baseline is hashed once, then per-script exclusion
 hashes are derived in memory; basis hashes and stale decisions remain identical.

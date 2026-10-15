@@ -555,6 +555,8 @@ class StructureContextBundle:
     """来自 World adopted-map facade 的有界只读空间参考。"""
     object_dossier_brief: dict | None = None
     """Evidence-owned projection of World dossiers, Story cutoff state and L3 patterns."""
+    object_reference_dimensions: list[str] = field(default_factory=list)
+    """Optional reference dimensions explicitly enabled for this consumer action."""
     memory_records: list = field(default_factory=list)
     """长期记忆记录列表"""
     scene_checkpoint_set: dict | None = None

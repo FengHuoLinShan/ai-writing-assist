@@ -25,6 +25,9 @@ from modules.story.service import (
     StoryNotFoundError,
     StoryService,
 )
+from modules.story.task_submission import (
+    enqueue_confirmed_story_task as _enqueue_confirmed_story_task,
+)
 
 _service = StoryService()
 
@@ -146,6 +149,11 @@ async def get_character_card(
     card_id: str,
 ):
     return await _service.get_card(db, novel_id, card_id)
+
+
+async def enqueue_confirmed_story_task(db: AsyncSession, data, **options):
+    """Submit a fresh-confirmation-bound Story task from HTTP or Assistant."""
+    return await _enqueue_confirmed_story_task(db, data, **options)
 
 
 async def list_character_cards(
@@ -439,7 +447,9 @@ __all__ = [
     "create_manual_character_card",
     "create_scene_script_file",
     "create_scene_script_revision",
+    "enqueue_confirmed_story_task",
     "get_character_card",
+    "read_object_dossier_state",
     "get_scene_script_file",
     "get_scene_story_assets",
     "get_scene_story_basis_hash",
