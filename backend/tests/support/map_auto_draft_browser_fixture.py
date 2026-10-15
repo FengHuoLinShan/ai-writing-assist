@@ -26,6 +26,7 @@ async def seed(
     *,
     candidate_locations: bool = False,
     mutate_entity_id: str | None = None,
+    tray_navigation: bool = False,
 ) -> None:
     settings = get_settings()
     url = make_url(settings.database_url)
@@ -66,6 +67,33 @@ async def seed(
             )
             built = await build_map_auto_drafts(db, novel_id, _build_request(scene, clue))
             result = {"batch_id": str(built.batch_id)}
+            if tray_navigation:
+                from app.assistant_operation_registry import world_map_operations
+                from modules.assistant.contracts import (
+                    AssistantOperationContext,
+                    WorkContext,
+                )
+                from modules.world.assistant_map_tools import PrepareTrayPlacement
+
+                tray = built.tray_items[0]
+                revision = next(
+                    item for item in built.revisions if item.node_id == tray.node_id
+                )
+                args = PrepareTrayPlacement(
+                    node_id=tray.node_id,
+                    revision_id=revision.revision_id,
+                    item_ids=[tray.item_id],
+                )
+                context = AssistantOperationContext(
+                    str(uuid.uuid4()),
+                    str(BOOTSTRAP_ACCOUNT_ID),
+                    WorkContext(page="map", scope="project"),
+                )
+                operation = world_map_operations["map.prepare_tray_placement"]
+                preview = await operation.prepare(db, novel_id, args, context=context)
+                result = await operation.apply(
+                    db, novel_id, args, preview, context=context
+                )
     finally:
         await engine.dispose()
     print(json.dumps(result))
@@ -77,5 +105,6 @@ if __name__ == "__main__":
             sys.argv[1],
             candidate_locations=sys.argv[2:] == ["candidate-locations"],
             mutate_entity_id=sys.argv[3] if sys.argv[2:3] == ["mutate-entity"] else None,
+            tray_navigation=sys.argv[2:] == ["tray-navigation"],
         )
     )

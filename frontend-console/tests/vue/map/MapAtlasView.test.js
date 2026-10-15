@@ -82,6 +82,15 @@ describe("AI 地图册工作台", () => {
     vi.restoreAllMocks()
   })
 
+  it('草图写入后目录刷新失败会显示原错误而不丢失回执', async () => {
+    const wrapper = mount(MapWorkspaceView, { props: { projectId: 'novel-1' } })
+    await flushPromises()
+    api.world.getMapAtlas.mockRejectedValueOnce(new Error('目录刷新未完成，请重试'))
+    wrapper.findComponent({ name: 'MapAutoDraftPanel' }).vm.$emit('changed')
+    await flushPromises()
+    expect(wrapper.get('.atlas-alert[role="alert"]').text()).toContain('目录刷新未完成，请重试')
+  })
+
   it("图片存储缺配置时保留空间新建，提前解释上传不可用", async () => {
     api.world.getMapCapabilities = vi.fn(async () => ({ upload: { available: false, reason: "图片存储尚未配置" }, image_generation: { available: false, reason: "图片存储尚未配置" } }))
     api.world.getMapAtlas.mockResolvedValue(tree([page({ review_status: "adopted" })], "atlas"))

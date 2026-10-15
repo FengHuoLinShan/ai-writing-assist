@@ -11,7 +11,7 @@ const rechecks = new Map(), statusMessage = ref("")
 let generation = 0
 const api = () => getApi()?.[props.interaction ? "interactions" : "assistant"]
 const unread = computed(() => notices.value.filter(item => item.status === "unread" && !item.needs_recheck).length)
-const choices = computed(() => props.interaction ? [["interaction", "旅程连续性"]] : [["writing", "正文"], ["world", "世界资料"], ["story", "故事结构"], ["imports", "导入整理"]])
+const choices = computed(() => props.interaction ? [["interaction", "旅程连续性"]] : [["writing", "正文"], ["world", "世界资料（含地图托盘、新类型、待核对与空间提醒）"], ["story", "故事结构"], ["imports", "导入整理"]])
 async function load() {
   const token = ++generation, target = props.targetId
   available.value = false; notices.value = []; policy.value = null; saved.value = false; error.value = ""

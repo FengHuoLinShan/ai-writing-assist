@@ -2069,6 +2069,7 @@ async def list_map_auto_drafts(
     novel_id: str,
     *,
     node_id: str | None = None,
+    revision_id: str | None = None,
     limit: int = 100,
     offset: int = 0,
 ) -> MapAutoDraftListResponse:
@@ -2098,6 +2099,8 @@ async def list_map_auto_drafts(
     ]
     if node_id:
         conditions.append(MapAtlasRevision.node_id == parse_uuid(node_id, "node_id"))
+    if revision_id:
+        conditions.append(MapAtlasRevision.id == parse_uuid(revision_id, "revision_id"))
     total_count = await db.scalar(
         select(func.count()).select_from(MapAtlasRevision).where(*conditions)
     )

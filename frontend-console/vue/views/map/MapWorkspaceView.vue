@@ -15,7 +15,7 @@
     <MapColdStartPanel v-if="projectId" v-show="!structureState.reader && !structureState.focused" :key="projectId + ':cold-start'" :project-id="projectId" :disabled="busy || loading || structureState.dirty || structureState.busy || annotationDirty || promptDirty || uploadDraftDirty || uploading || vocabularyState.dirty || vocabularyState.busy || spatialClueState.dirty || spatialClueState.busy || autoDraftState.dirty || autoDraftState.busy || nodeTypeDirty || nodeTypesLoading" @state="coldStartState = $event" @review="focusWorkspaceTool(toolsRoot, '.auto-drafts')" />
     <ProjectVocabularyPanel v-if="projectId" v-show="!structureState.reader && !structureState.focused" :key="projectId + ':vocabulary'" :project-id="projectId" :disabled="busy || loading || structureState.dirty || structureState.busy || annotationDirty || promptDirty || uploadDraftDirty || uploading || spatialClueState.dirty || spatialClueState.busy || autoDraftState.dirty || autoDraftState.busy || nodeTypeDirty || nodeTypesLoading || coldStartState.dirty || coldStartState.busy" @state="vocabularyState = $event" @changed="vocabularyRevision++" />
     <MapSpatialCluePanel v-if="projectId" v-show="!structureState.reader && !structureState.focused" :key="projectId + ':clues'" :project-id="projectId" :disabled="busy || loading || structureState.dirty || structureState.busy || annotationDirty || promptDirty || uploadDraftDirty || uploading || vocabularyState.dirty || vocabularyState.busy || autoDraftState.dirty || autoDraftState.busy || nodeTypeDirty || nodeTypesLoading || coldStartState.dirty || coldStartState.busy" @state="spatialClueState = $event" />
-    <MapAutoDraftPanel v-if="projectId" v-show="!structureState.reader && !structureState.focused" :key="projectId + ':auto-drafts'" ref="autoDraftPanel" :project-id="projectId" :disabled="busy || loading || structureState.dirty || structureState.busy || annotationDirty || promptDirty || uploadDraftDirty || uploading || vocabularyState.dirty || vocabularyState.busy || spatialClueState.dirty || spatialClueState.busy || nodeTypeDirty || nodeTypesLoading || coldStartState.dirty || coldStartState.busy" @state="autoDraftState = $event" @review="reviewAutoDraft" @changed="onAutoDraftChanged" />
+    <MapAutoDraftPanel v-if="projectId" v-show="!structureState.reader && !structureState.focused" :key="projectId + ':auto-drafts'" ref="autoDraftPanel" :project-id="projectId" :navigation-query="getRouteQuery().get('tray_placement') || ''" :disabled="busy || loading || structureState.dirty || structureState.busy || annotationDirty || promptDirty || uploadDraftDirty || uploading || vocabularyState.dirty || vocabularyState.busy || spatialClueState.dirty || spatialClueState.busy || nodeTypeDirty || nodeTypesLoading || coldStartState.dirty || coldStartState.busy" @state="autoDraftState = $event" @review="reviewAutoDraft" @changed="onAutoDraftChanged" />
     <p v-if="vocabularyLocked" role="status">{{ coldStartState.dirty || coldStartState.busy ? '请先完成地图引导的范围或费用确认。' : autoDraftState.dirty || autoDraftState.busy ? '请先完成或取消托盘地点定位，再继续修改地图。' : spatialClueState.dirty || spatialClueState.busy ? '请先提交或收起空间线索复核，再继续修改地图。' : '请先保存或收起项目类型编辑，再继续修改地图。' }}</p>
     <p v-if="mapCapabilities?.upload?.available === false" class="atlas-alert" role="status">{{ mapCapabilities.upload.reason }} 空间示意仍可编辑，画面说明可复制后在外部使用。</p>
 
@@ -536,8 +536,10 @@ async function onMapSaved() {
   await autoDraftPanel.value?.refresh?.()
 }
 async function onAutoDraftChanged() {
-  await refreshAtlasOnly()
-  if (selectedAutoDraft.value) { selectedAutoDraft.value = null; initialRevisionId.value = ''; syncSelection() }
+  try {
+    await refreshAtlasOnly()
+    if (selectedAutoDraft.value) { selectedAutoDraft.value = null; initialRevisionId.value = ''; syncSelection() }
+  } catch (failure) { if (mounted) setError(failure) }
 }
 async function openMapNode(nodeId) {
   if (!await canLeaveStructure()) return

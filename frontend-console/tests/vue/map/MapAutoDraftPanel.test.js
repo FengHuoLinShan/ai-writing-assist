@@ -29,6 +29,33 @@ async function open() {
 async function select(wrapper) { await button(wrapper, '在草图上选择位置').trigger('click'); await flushPromises() }
 
 describe('阅读自动草图与待放置托盘', () => {
+  const navigation = () => ({ novel_id: 'novel', node_id: 'node', revision_id: 'candidate', batch_id: 'batch', base_revision_id: null, items: [{ item_id: 'tray', fingerprint: 'tray-fp' }] })
+  it('助手入口读取精确目标，排除其他托盘且实际选点前不预览', async () => {
+    const value = listing(); value.items[0].pending_tray.push({ ...value.items[0].pending_tray[0], item_id: 'other' })
+    api.world.listMapAutoDrafts.mockResolvedValue(value)
+    const wrapper = mount(MapAutoDraftPanel, { props: { projectId: 'novel', navigationQuery: JSON.stringify(navigation()) } })
+    await flushPromises()
+    expect(api.world.listMapAutoDrafts).toHaveBeenCalledWith('novel', { node_id: 'node', revision_id: 'candidate', limit: 1, offset: 0 })
+    expect(wrapper.findAll('.draft-tray li')).toHaveLength(1)
+    await select(wrapper)
+    expect(button(wrapper, '预览放置影响').attributes('disabled')).toBeDefined()
+    expect(api.world.previewAutoDraftTrayPlacement).not.toHaveBeenCalled()
+  })
+  it.each([
+    ['其他作品', value => { value.novel_id = 'other' }],
+    ['目标变化', value => { value.node_id = 'other' }],
+    ['候选变化', value => { value.revision_id = 'other' }],
+    ['正式基线变化', value => { value.base_revision_id = 'new-head' }],
+    ['指纹变化', value => { value.items[0].fingerprint = 'stale-fp' }],
+    ['超过20项', value => { value.items = Array.from({ length: 21 }, (_, i) => ({ item_id: String(i), fingerprint: 'fp' })) }],
+  ])('助手入口%s时阻止错误目标而不回退首项', async (_name, change) => {
+    const value = navigation(); change(value)
+    const wrapper = mount(MapAutoDraftPanel, { props: { projectId: 'novel', navigationQuery: JSON.stringify(value) } })
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').exists()).toBe(true)
+    expect(wrapper.findAll('.draft-item')).toHaveLength(0)
+    expect(api.world.placeAutoDraftTrayItem).not.toHaveBeenCalled()
+  })
   it('折叠不读取，真实分片进度与分页独立显示', async () => {
     const value = listing(); value.total_count = 21; value.truncated = true; value.items[0].batch_status = 'running'; value.batches[0] = { ...value.batches[0], status: 'running', completed_chunks: 20, total_chunks: 25 }
     api.world.listMapAutoDrafts.mockResolvedValue(value)

@@ -535,6 +535,8 @@ POST `/build` 创建/续跑聚合批次，`/{batch_id}/resume` 兼容作者续�
 预览和确认。线索审核仍用上节的 `/spatial-clues/{clue_id}/review`，草图审核仍用
 `/nodes/{node_id}/revisions/{revision_id}/review-preview|review`。
 
+助手 `map.prepare_tray_placement` 只准备原候选节点的有界导航（最多 20 项），不接受坐标或人类选点回执。作者读取节点时可见独立候选托盘身份；导航准备与打开时分别重验项目、候选、正式基线和项目指纹。列表支持 `node_id` + `revision_id` 精确过滤，旧入口不自动换成最新候选。工作台仍由作者选点并通过上述原接口预览、确认；放置后需重新准备入口。
+
 G8a 在 `maps[]` 继续只报告已保存地图；另有 `auto_drafts[]` 单独报告引用变更章节的待审自动草图，
 并返回 `auto_draft_unverified` 与 `auto_draft_truncated`。端口按 `content_mode` 精确分开核对：
 canonical 变化继续检查已保存地图与相同模式草图；working 变化只检查相同模式草图，不把 working

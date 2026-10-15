@@ -1,10 +1,11 @@
 <template>
-  <details class="card auto-drafts" @toggle="onToggle">
+  <details class="card auto-drafts" :open="Boolean(navigationQuery)" @toggle="onToggle">
     <summary>阅读生成的地图草图<span v-if="loaded"> · {{ total }} 个版本</span></summary>
     <p>按空间和层级分片整理，原地图位置与锁定点会保留。草图需要单独审核。</p>
     <button class="btn btn-sm" :disabled="locked || Boolean(selected)" @click="load">{{ loading ? '正在读取…' : '重新读取草图' }}</button>
     <p v-if="error" class="atlas-error" role="alert">{{ error }}</p>
     <p v-if="message" role="status">{{ message }}</p>
+    <p v-if="navigationQuery" role="status">助手准备的托盘入口：请在目标草图中选点，预览后再确认放置。放置后原入口失效，可重新准备其余地点。</p>
     <p v-if="loaded && !batches.length && !items.length">还没有阅读草图。空间发现或补扫完成后，可在这里核对。</p>
     <p v-if="truncated">本次批次摘要未全部列出，请按候选分页继续核对。</p>
     <nav v-if="total > pageSize" class="draft-actions" aria-label="草图候选分页"><button class="btn btn-sm" :disabled="locked || Boolean(selected) || offset === 0" @click="changePage(-1)">上一页草图</button><span>{{ offset + 1 }}–{{ offset + items.length }} / {{ total }}</span><button class="btn btn-sm" :disabled="locked || Boolean(selected) || offset + items.length >= total" @click="changePage(1)">下一页草图</button></nav>
@@ -20,8 +21,8 @@
       <p v-for="warning in draft.warnings" :key="warning">{{ warning }}</p>
       <button class="btn btn-sm" :disabled="locked || Boolean(selected)" @click="emit('review', draft)">打开地图逐项审核</button>
       <details v-if="draft.conflicts.length"><summary>{{ draft.conflicts.length }} 处层级来源冲突</summary><p v-for="conflict in draft.conflicts" :key="conflict.fingerprint">按{{ hierarchySources[conflict.chosen_source] || '已核对来源' }}保留父级；另有 {{ conflict.alternatives.length }} 个不同来源，需要人工核对。</p></details>
-      <details v-if="draft.pending_tray.length"><summary>待放置托盘 · {{ draft.pending_tray.length }} 项</summary>
-        <ul class="draft-tray"><li v-for="tray in draft.pending_tray" :key="tray.item_id">
+      <details v-if="scopedTray(draft).length" :open="Boolean(navigationQuery)"><summary>待放置托盘 · {{ scopedTray(draft).length }} 项</summary>
+        <ul class="draft-tray"><li v-for="tray in scopedTray(draft)" :key="tray.item_id">
           <strong>{{ tray.endpoint.surface || (tray.endpoint.state === 'candidate' ? '候选地点' : '已绑定地点') }}</strong><p>{{ reasons[tray.reason] || '需要核对后放置' }}</p><blockquote>{{ tray.quote }}</blockquote>
           <p v-if="tray.source_mode === 'working'">工作稿线索；正式采用前仍需核对原文与地点身份。</p>
           <button class="btn btn-sm" :disabled="locked || Boolean(selected) || draft.stale || draft.status !== 'candidate' || draft.batch_status !== 'completed'" @click="selectTray(draft, tray)">在草图上选择位置</button>
@@ -58,13 +59,15 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { getApi, getConfirmAction } from '../../bridge/index.js'
 import { confirmAsync } from '../../../shared/confirmAsync.js'
 import { mapBounds, pointsAttribute } from './mapStructureEditor.js'
-const props = defineProps({ projectId: { type: String, required: true }, disabled: Boolean })
+import { parseMapTrayNavigation } from '../../shared/mapTrayNavigation.js'
+const props = defineProps({ projectId: { type: String, required: true }, disabled: Boolean, navigationQuery: { type: String, default: '' } })
 const emit = defineEmits(['state', 'changed', 'review'])
 const api = getApi(), items = ref([]), batches = ref([]), total = ref(0), truncated = ref(false), offset = ref(0), loaded = ref(false), loading = ref(false), busy = ref(false), confirming = ref(false), error = ref(''), message = ref('')
 const pageSize = 20
 const requestedOffset = ref(0)
 const selected = ref(null), spaceId = ref('main'), point = ref(null), preview = ref(null), canvas = ref(null)
 const expanded = ref(false), refreshPending = ref(false)
+let navigationAttempted = false
 let active = true, epoch = 0
 const statuses = { running: '分片整理中', completed: '分片整理完成', stale: '待核对来源' }
 const hierarchySources = { world_adopted: '已采用世界关系', saved_map: '已保存地图', reviewed_clue: '已复核线索', world_candidate: '候选世界关系' }
@@ -76,24 +79,40 @@ watch([busy, loading, confirming, selected], () => emit('state', { dirty: Boolea
 watch(() => props.projectId, () => { epoch++; items.value = []; batches.value = []; total.value = 0; offset.value = 0; requestedOffset.value = 0; truncated.value = false; loaded.value = false; loading.value = false; busy.value = false; confirming.value = false; selected.value = null; resetPoint(); error.value = ''; message.value = '' })
 onBeforeUnmount(() => { active = false; epoch++; emit('state', { dirty: false, busy: false }) })
 watch([locked, selected], flushRefresh)
+watch([locked, () => props.navigationQuery], () => {
+  if (props.navigationQuery && !locked.value && !navigationAttempted) { navigationAttempted = true; expanded.value = true; void load() }
+}, { immediate: true })
 defineExpose({ refresh: requestRefresh })
 function requestRefresh() { loaded.value = false; refreshPending.value = true; flushRefresh() }
 function flushRefresh() { if (refreshPending.value && expanded.value && !locked.value && !selected.value) { refreshPending.value = false; void load() } }
 function resetPoint() { point.value = null; preview.value = null }
 function onToggle(event) { expanded.value = event.target.open; if (expanded.value && !loaded.value) { refreshPending.value = false; void load() } }
+function scopedTray(draft) {
+  if (!props.navigationQuery) return draft.pending_tray
+  try { const navigation = parseMapTrayNavigation(props.navigationQuery); return draft.pending_tray.filter(item => navigation.items.some(expected => expected.item_id === item.item_id)) } catch { return [] }
+}
 async function load() {
   if (locked.value || selected.value) return
   const token = ++epoch, projectId = props.projectId
   let pageOffset = requestedOffset.value
   loading.value = true; error.value = ''
   try {
-    let result = await api.world.listMapAutoDrafts(projectId, { limit: pageSize, offset: pageOffset })
-    if (active && token === epoch && pageOffset > 0 && pageOffset >= result.total_count) {
+    const navigation = props.navigationQuery ? parseMapTrayNavigation(props.navigationQuery) : null
+    if (navigation && navigation.novel_id !== projectId) throw new Error('此托盘入口属于其他作品，请从当前作品重新准备。')
+    if (navigation) pageOffset = 0
+    const options = navigation ? { node_id: navigation.node_id, revision_id: navigation.revision_id, limit: 1, offset: 0 } : { limit: pageSize, offset: pageOffset }
+    let result = await api.world.listMapAutoDrafts(projectId, options)
+    if (navigation) {
+      const draft = result.items[0]
+      if (!draft || draft.node_id !== navigation.node_id || draft.revision_id !== navigation.revision_id || draft.batch_id !== navigation.batch_id || draft.node.current_revision_id !== navigation.base_revision_id || draft.stale || draft.status !== 'candidate' || draft.batch_status !== 'completed' || navigation.items.some(expected => !draft.pending_tray.some(item => item.item_id === expected.item_id && item.fingerprint === expected.fingerprint))) throw new Error('助手准备后草图或托盘已变化，请重新准备放置入口。')
+      result.batches = []
+    }
+    if (!navigation && active && token === epoch && pageOffset > 0 && pageOffset >= result.total_count) {
       requestedOffset.value = pageOffset = Math.max(0, Math.floor((result.total_count - 1) / pageSize) * pageSize)
       result = await api.world.listMapAutoDrafts(projectId, { limit: pageSize, offset: pageOffset })
     }
     if (active && token === epoch && projectId === props.projectId) { offset.value = pageOffset; items.value = result.items; total.value = result.total_count; batches.value = result.batches || []; truncated.value = Boolean(result.batches_truncated); loaded.value = true; resetPoint() } }
-  catch (failure) { if (active && token === epoch) error.value = failure.message || '草图读取失败，请重试。' }
+  catch (failure) { if (active && token === epoch) { error.value = failure.message || '草图读取失败，请重试。'; if (props.navigationQuery) { items.value = []; batches.value = []; total.value = 0; loaded.value = false; truncated.value = false } } }
   finally { if (active && token === epoch) loading.value = false }
 }
 function changePage(delta) { if (locked.value || selected.value) return; requestedOffset.value = Math.max(0, offset.value + delta * pageSize); void load() }

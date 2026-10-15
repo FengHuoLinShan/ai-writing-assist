@@ -24,6 +24,12 @@ def teardown_function():
 
 # name → (label, permission, revision, schema_json_schema 指纹)
 OPERATION_SNAPSHOT = {
+    "map.prepare_tray_placement": (
+        "准备托盘地点放置入口（由作者选点）",
+        "confirm",
+        "1",
+        "eb2c87e328aa537139a57b79240dc17319a67e067aad0d254705964d9ebecd48",
+    ),
     "world.add_alias": (
         "附加对象别名",
         "confirm",

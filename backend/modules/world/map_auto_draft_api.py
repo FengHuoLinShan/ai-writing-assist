@@ -45,6 +45,7 @@ async def get_map_auto_drafts(
     db: DbSession,
     novel_id: ActiveNovelId,
     node_id: UUID | None = None,
+    revision_id: UUID | None = None,
     limit: int = Query(default=100, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ):
@@ -52,6 +53,7 @@ async def get_map_auto_drafts(
         db,
         novel_id,
         node_id=str(node_id) if node_id else None,
+        revision_id=str(revision_id) if revision_id else None,
         limit=limit,
         offset=offset,
     )

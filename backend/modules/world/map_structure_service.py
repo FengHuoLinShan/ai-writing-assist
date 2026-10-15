@@ -1722,6 +1722,9 @@ async def inspect_map_node(db: AsyncSession, novel_id: str, node_id: str) -> dic
         "id": str(node.id),
         "title": node.title,
         "level": node.level,
+        "tray_placement_targets": await _map_tray_placement_targets(
+            db, novel_id, node_id
+        ),
         "revision": None,
         "image_results": [
             {
@@ -1788,4 +1791,42 @@ async def inspect_map_node(db: AsyncSession, novel_id: str, node_id: str) -> dic
         **material,
         "revision": response.model_dump(mode="json"),
         "warnings": sorted(set(warnings)),
+    }
+
+
+async def _map_tray_placement_targets(db, novel_id, node_id):
+    from modules.world.map_auto_draft_service import list_map_auto_drafts
+
+    page = await list_map_auto_drafts(db, novel_id, node_id=node_id, limit=20)
+    remaining, targets = 20, []
+    pending_count = sum(
+        len(item.pending_tray) for item in page.items if item.status == "candidate"
+    )
+    for draft in page.items:
+        if draft.status != "candidate" or not draft.pending_tray or not remaining:
+            continue
+        selected = draft.pending_tray[:remaining]
+        remaining -= len(selected)
+        targets.append(
+            {
+                "node_id": str(draft.node_id),
+                "revision_id": str(draft.revision_id),
+                "ready": not draft.stale
+                and draft.batch_status == "completed"
+                and draft.node.current_revision_id == draft.review_base_revision_id,
+                "items": [
+                    {
+                        "item_id": str(item.item_id),
+                        "label": item.endpoint.surface or "待放置地点",
+                        "quote": item.quote,
+                    }
+                    for item in selected
+                ],
+            }
+        )
+    return {
+        "capability": "map.prepare_tray_placement",
+        "targets": targets,
+        "truncated": page.truncated or pending_count > 20,
+        "authority": "仅供作者工作台定位；坐标须由作者实际选点",
     }

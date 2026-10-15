@@ -88,11 +88,20 @@ async def read_map_cold_start_drafts(db, novel_id: str, run_key: str):
                 ],
                 "warnings": item.warnings,
                 "tray_count": len(item.pending_tray),
+                "pending_tray": [
+                    {
+                        "item_id": str(tray.item_id),
+                        "label": tray.endpoint.surface or "待放置地点",
+                    }
+                    for tray in item.pending_tray[:20]
+                ],
+                "pending_tray_truncated": len(item.pending_tray) > 20,
             }
             for item in relevant
             if item.status == "candidate"
         ],
         "review_capability": "map.review_auto_draft_group",
+        "tray_placement_capability": "map.prepare_tray_placement",
         "batch_limit": 20,
         "location_adoption_page": "world",
         "cross_domain_atomic": False,

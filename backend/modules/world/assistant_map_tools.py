@@ -991,6 +991,82 @@ class PreviewMapNodeMerge(BaseModel):
     target_node_id: UUID
 
 
+class PrepareTrayPlacement(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    node_id: UUID
+    revision_id: UUID
+    item_ids: list[UUID] = Field(min_length=1, max_length=20)
+
+    @model_validator(mode="after")
+    def unique_items(self):
+        if len(self.item_ids) != len(set(self.item_ids)):
+            raise ValueError("同一托盘项目不能重复选择")
+        return self
+
+
+async def _tray_navigation_preview(db, novel_id, args, *, context=None):
+    _require_workbench_scope(context)
+    await get(ASSISTANT_REQUIRE_OPERATION_TARGETS)(
+        db, novel_id, context, [("map_atlas_node", args.node_id)], aggregate=True
+    )
+    page = await list_map_auto_drafts(
+        db,
+        novel_id,
+        node_id=str(args.node_id),
+        revision_id=str(args.revision_id),
+        limit=1,
+    )
+    draft = next(iter(page.items), None)
+    if (
+        draft is None
+        or draft.status != "candidate"
+        or draft.stale
+        or draft.batch_status != "completed"
+        or draft.node.current_revision_id != draft.review_base_revision_id
+    ):
+        raise ConflictError("目标草图不可放置，请到地图工作台重新核对")
+    pending = {item.item_id: item for item in draft.pending_tray}
+    if any(item_id not in pending for item_id in args.item_ids):
+        raise ConflictError("托盘项目不属于目标草图或已放置，请重新核对")
+    return {
+        "target_key": f"map:{args.node_id}",
+        "novel_id": str(UUID(novel_id)),
+        "node_id": str(args.node_id),
+        "revision_id": str(args.revision_id),
+        "batch_id": str(draft.batch_id),
+        "base_revision_id": str(draft.node.current_revision_id)
+        if draft.node.current_revision_id
+        else None,
+        "items": [
+            {
+                "item_id": str(item_id),
+                "fingerprint": pending[item_id].fingerprint,
+                "label": pending[item_id].endpoint.surface
+                or (
+                    "候选地点"
+                    if pending[item_id].endpoint.state == "candidate"
+                    else "已绑定地点"
+                ),
+            }
+            for item_id in args.item_ids
+        ],
+        "title": f"前往 {draft.node_title} 放置托盘地点",
+        "effect": "打开原地图托盘，由作者点选坐标、预览并独立确认；不自动放置",
+        "affected_count": len(args.item_ids),
+    }
+
+
+async def _tray_navigation_apply(db, novel_id, args, preview, *, context=None):
+    if await _tray_navigation_preview(db, novel_id, args, context=context) != preview:
+        raise ConflictError("草图或托盘已变化，请重新准备放置入口")
+    return {
+        "type": "map_tray_placement",
+        "id": str(args.node_id),
+        **preview,
+        "label": "打开地图托盘选择位置（尚未放置）",
+    }
+
+
 async def _node_merge_preview(db, novel_id, args, *, context=None):
     if args.source_node_id == args.target_node_id:
         raise ValidationError("不能将地图节点合并到自身")
@@ -1027,6 +1103,12 @@ async def _node_merge_candidate(db, novel_id, args, preview, *, context=None):
 
 
 OPERATIONS_SPEC = {
+    "map.prepare_tray_placement": {
+        "label": "准备托盘地点放置入口（由作者选点）",
+        "schema": PrepareTrayPlacement,
+        "prepare": _tray_navigation_preview,
+        "apply": _tray_navigation_apply,
+    },
     "map.preview_node_merge": {
         "label": "准备地图节点合并候选",
         "schema": PreviewMapNodeMerge,
