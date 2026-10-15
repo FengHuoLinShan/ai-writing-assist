@@ -17,6 +17,10 @@ class PrepareSpatialReading(workflow.ReadingRequest):
         return self
 
 
+class PrepareReading(workflow.ReadingRequest):
+    """Prepare any existing Evolution read mode without starting its run."""
+
+
 class PrepareSpatialRescan(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -91,6 +95,43 @@ async def _rescan_apply(db, novel_id, args, preview, *, context=None):
 
 
 OPERATIONS_SPEC = {
+    "evolution.prepare_reading": {
+        "label": "准备演化阅读授权预览",
+        "schema": PrepareReading,
+        "prepare": _reading_preview,
+        "apply": _reading_apply,
+        "permission": "confirm",
+        "op_version": "1",
+        "description": (
+            "为初读、追加、续读或重读计算演化范围与预算；"
+            "作者仍须在演化工作台单独确认，助手不会启动运行。"
+        ),
+        "risk_level": "R4",
+        "fee_category": "free",
+        "reversibility": "discard_preview",
+        "preconditions": ("作品正文和原运行基线仍有效",),
+        "produces": ("reading_authorization_preview",),
+        "target_type": "evolution_reading",
+        "ai_available": True,
+        "transaction_mode": "single_transaction",
+        "trace_rule": {
+            "parameter_fields": (
+                "operation_id",
+                "mode",
+                "run_key",
+                "from_scene_index",
+                "entity_id",
+                "observation_id",
+                "end_chapter",
+                "request_limit",
+                "budget_mode",
+                "discover_details",
+                "discover_spatial",
+            ),
+            "mode": "per_call",
+            "parameter_policy": "schema_safe",
+        },
+    },
     "evolution.prepare_spatial_reading": {
         "label": "准备空间发现阅读授权预览",
         "schema": PrepareSpatialReading,
