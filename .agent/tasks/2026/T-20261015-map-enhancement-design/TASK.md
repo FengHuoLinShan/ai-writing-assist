@@ -3,19 +3,20 @@ id: T-20261015-map-enhancement-design
 title: 地图系统增强设计（自动冷启动、参与创作决策、题材鲁棒性）
 status: active
 created: 2026-10-15T10:54:00+08:00
-updated: 2026-10-15T13:30:00+08:00
+updated: 2026-10-15T23:00:00+08:00
 ---
 
 # 地图系统增强设计
 
 ## 恢复快照
 
-设计稿与四份 Proposed ADR（0035–0038）已按用户第二、三轮裁定改写或新增（冷启动改挂世界演化、
-类型按项目涌现、助手同步支持地图与势力），2026-10-15 经用户授权本地提交，未推送。工作树
-`.worktrees/map-enhancement-plan`（主仓库内），分支 `codex/map-enhancement-plan`，基于 main `d2ab2dbf3`，
-无 upstream（ADR-0036 由起草时的 `0036-deep-import-map-cold-start.md` 改名而来）。
-下一步：用户评审 ADR-0035 至 ADR-0038；推送或开 PR 按用户安排。
-实施（M0 起）由用户另行安排执行者，本任务只负责设计与文档。
+设计稿与 ADR-0035 至 ADR-0037（Proposed）已于 2026-10-15 经用户授权本地提交 `87e56f241`，未推送。
+之后按用户要求核对 33 条外部评审并修正（几何指纹白名单、7 种模态处置、层级存储、G8c 误引、
+API 默认值措辞、层级来源优先级、Scene 无位置身份等）；原 ADR-0038 已并入新 ADR-0038
+（操作目录，见 T-20261015-agent-operation-surface）。修正经用户授权在第二个本地提交中提交，未推送。工作树
+`.worktrees/map-enhancement-plan`，分支 `codex/map-enhancement-plan`，基于 main `d2ab2dbf3`，无 upstream。
+世界演化第四阶段计划 §6 已加承接说明，指向 ADR-0036。
+下一步：技术评审 ADR-0035 至 ADR-0038 后转 Accepted；推送与 PR 按用户授权。实施（M0 起）由用户另行安排执行者。
 
 ## 目标与验收
 
@@ -32,27 +33,24 @@ updated: 2026-10-15T13:30:00+08:00
 - 势力路线图先单独推进，后续合入地图；领地要多形态（海上按船），势力可多层嵌套；
   船可以是势力单元，小船也可以只是物品，要能灵活转换。
 - 未列举的情况预留用户自定义；首批验收题材：修仙、西幻、都市、科幻、悬疑。
-- 第二轮：深度导入即将被世界演化替代并下线；内置基础语义不够，对齐演化的“涌现”思想，
-  允许模型在演化中总结常用类型，按项目维护。
+- 第二轮：深度导入即将被世界演化替代并下线；允许模型在演化中总结常用类型，按项目维护。
 - 第三轮：同步增强助手，帮助作者使用地图修改、势力控制等功能（不限于这两项）。
 
 ## 关键决定与理由
 
-- 小型封闭的计算特性内核加开放的项目类型（ADR-0035）：程序只读特性，类型由作者自定义或模型
-  涌现；没有特性的类型只当文字进入显示和模型上下文。内核扩充走台账扩类那样的方法版本与评测。
-- 模型读取项目已有类型并优先复用 ID，新类型需两个 Scene 证据加独立复核，作者判断优先：
-  对齐演化发现回读既有主题的做法；这是空间类型对 ADR-0005 的有意偏离，World 对象类型不变。
-- 可信度直接复用 `ObservationModality`，只有 `event_observed` 参与计算和简报。
-- 几何指纹在 v1 升级到 v2 时保持不变，避免底图校准和读者白名单失效。
-- 冷启动改为演化阅读的 `discover_spatial` 步骤（ADR-0036）：复用 journal、独立复核、方法指纹、
-  `consumer_read_set` 和类别补扫机制；新阅读默认开、可在授权预览取消；不阻断主理解提交；
-  从不自动采用。弃用初稿“深度导入新增 spatial 阶段”。
-- `map_spatial` 作为参考维度进入创作（ADR-0037）：必查维度在没有地图时会阻断写作，
-  与“示意与提醒”的裁定冲突。
-- 助手同步（ADR-0038）：现状只有 4 个有界地图操作（`world/assistant_map_tools.py`），势力只能用通用
-  建对象/加关系，类型转换和演化无入口。决定每项新能力同期注册助手操作；作者指令经确认后
-  与手动编辑同权（可新增地理），模型推断必须附引文、只作线索候选，均不给坐标；付费演化运行
-  由演化自己的授权预览确认，不占助手预算；势力操作等势力路线图阶段 1 的 ADR，之前不模拟。
+- 小型封闭的计算特性内核加开放的项目类型（ADR-0035）：程序只读特性，类型由作者自定义或模型涌现；
+  特性在作者采用引用该类型的地图版本后才参与提醒；归档类型保留墓碑，模型不得重建。
+- 层级保留 `level` 列与 CHECK 作系统粗层，新增可选 `level_type_ref`，深度由父链推导。
+- 可信度复用 `ObservationModality` 7 种值：只有 `event_observed` 参与计算；`author_plan` 只进作者视图，
+  `unclear` 进待核对。v1 已采用约束视为作者确认、全书有效。
+- 几何指纹：现有 `geometry_hash` 对约束用排除名单，新增字段会改指纹；落地前先冻结为 v1 字段白名单。
+- 冷启动改为演化阅读的 `discover_spatial` 步骤（ADR-0036）：API 默认关、新界面显式开启；层级来源冲突按
+  已采用 World 关系 > 已采用地图父子 > 复核线索 > 候选 World 关系取舍；扩展 G8a 地图册消费端口；
+  演化成为默认导入入口前保留手动生成回退。
+- `map_spatial` 作为参考维度（ADR-0037）；地图变化沿用 G8b 读时比对，正文变化沿用 G8a；
+  Scene 无位置身份时不猜；v1 地图即可做最小切片；`check_knowledge_visibility()` 将是首个生产接入。
+- G8c（第三批）是正典修订基线（main #248 已落地），与地图无关；地图设计只依赖已实现的 G8a、G8b。
+- 现有 `territory_refs_json`、`controlling_faction_ids_json` 保留原样，迁移由势力路线图阶段 1 决定。
 
 ## 交付
 
@@ -60,20 +58,19 @@ updated: 2026-10-15T13:30:00+08:00
 - `docs/adr/0035-genre-neutral-spatial-model-and-custom-vocabulary.md`
 - `docs/adr/0036-evolution-spatial-discovery-map-cold-start.md`
 - `docs/adr/0037-map-spatial-advisory-dimension.md`
-- `docs/adr/0038-assistant-spatial-and-faction-operations.md`
+- 助手地图与势力操作：`docs/adr/0038-ai-operation-catalog-goal-runs-and-trace.md` §10
 - `docs/adr/README.md` 与 `docs/README.md` 索引
 
 ## 验证
 
-- 2026-10-15 第一轮：`make docs-check BASE_REF=origin/main` 与 `git diff --check` 通过。
-- 2026-10-15 第二轮改写后：`make docs-check BASE_REF=origin/main` 通过（45 个 ADR 文件，
-  架构决策规则所需文档均已更新）；`git diff --cached --check` 通过。
-- 2026-10-15 第三轮（新增 ADR-0038 与设计稿 §9）：origin/main 已前进到 `4efe7f21a`（#245，
-  未触及 ADR、地图、助手、演化相关文件）；`make docs-check BASE_REF=origin/main` 通过
-  （46 个 ADR 文件）；`git diff --cached --check` 通过。
+- 2026-10-15 第一至三轮：`make docs-check BASE_REF=origin/main` 与 `git diff --cached --check` 均通过。
+- 2026-10-15 评审核对与合并后（未提交）：origin/main 已前进到 `00d861283`（含 G8c #248，未占用
+  0035–0041 编号）；`make docs-check BASE_REF=origin/main` 通过（49 个 ADR 文件）；
+  `git diff --cached --check` 通过。
+- 2026-10-15 写入用户裁定与第四阶段承接说明后：上述两项检查再次通过。
 
 ## 风险与待决
 
-- ADR 编号 0035–0038：起草时 main（含 `4efe7f21a`）和本机 worktree 中没有占用；若其他分支先合入同号 ADR，需要顺延。
+- 若其他分支先合入同号 ADR，需要顺延编号并同步索引与引用。
 - 空间发现改动演化链路，需要与世界演化第四阶段实施、#209 容量优化等任务划分写入者。
 - 移动可行性检查的完整版依赖故事内时间能力（势力路线图、世界演化后续阶段）。
