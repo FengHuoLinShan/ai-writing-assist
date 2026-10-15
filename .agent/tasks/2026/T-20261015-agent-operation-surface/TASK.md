@@ -3,7 +3,7 @@ id: T-20261015-agent-operation-surface
 title: 全模块 AI 操作入口、目标运行与操作留痕设计
 status: active
 created: 2026-10-15T14:30:00+08:00
-updated: 2026-10-16T01:44:49+08:00
+updated: 2026-10-16T01:50:53+08:00
 ---
 
 # 全模块 AI 操作入口、目标运行与操作留痕设计
@@ -19,7 +19,7 @@ updated: 2026-10-16T01:44:49+08:00
 2026-10-15 技术评审后按推荐修订 ADR-0038：目录项事务形态、目标运行 `goal` 模式与每项目唯一索引、
 高频操作留痕合并或豁免。修订经用户授权在第三个本地提交 `20d6f1eff` 中提交，未推送。
 2026-10-15 用户采纳 ADR-0038（Accepted / 未实施）；ADR-0023 补充说明与索引同步。
-用户已明确三份计划全部实施。A1首批15项纯插件335349f08经Sol实际组合/独立修复已在primary20635fde5/3441ab980；扩大回归发现API文件命名边界错误，由Sol原样重命名operation_api.py并提交6a31ba327。root在6a31重跑原组合2123 passed/1既有Pydantic warning（82.99s），RuntimeWarning转error无失败，专用A1 PG2 passed（0.46s）。v8冻结目录89项，旧v1–v7保留。新Luna scene_director已在map-assistant-structure/codex/scene-director-impl从ea8889f16（已审C4a业务b318）实施完整C4b；C2/Generic Luna仍在固定点自检，未审/未集成，已确认待Sol补Settings启用入口及同值不同字段的历史证明缺陷。Goal Luna checkpoint981819ec5经Sol无损合primary为1d2c2f137，再取已审命名修复af3b00836，继续A2专属引擎/真实组合与前端；不是已交付。C0c、A1后续、A3/A4、C5与真实/势力/RP门禁仍在范围，所有TASK保持active。
+用户已明确三份计划全部实施。A1首批15项纯插件335349f08经Sol实际组合/独立修复已在primary20635fde5/3441ab980；扩大回归发现API文件命名边界错误，由Sol原样重命名operation_api.py并提交6a31ba327。root在6a31重跑原组合2123 passed/1既有Pydantic warning（82.99s），RuntimeWarning转error无失败，专用A1 PG2 passed（0.46s）。v8冻结目录89项，旧v1–v7保留。新Luna scene_director已在map-assistant-structure/codex/scene-director-impl从ea8889f16（已审C4a业务b318）实施完整C4b；C2/Generic固定f6c3790ccb已交Sol在map-clue-review/codex/object-dossier-consumer-review独立合入/审修，尚未集成primary；除Settings启用与字段对齐证明外，还须修复现有Scene前端对V2表演选项/人物卡的消费与保存保真。Goal Luna checkpoint981819ec5经Sol无损合primary为1d2c2f137，再取已审命名修复af3b00836，继续A2专属引擎/真实组合与前端；不是已交付。C0c、A1后续、A3/A4、C5与真实/势力/RP门禁仍在范围，所有TASK保持active。
 
 ## 目标与验收
 
