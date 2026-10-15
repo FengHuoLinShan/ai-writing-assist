@@ -39,7 +39,10 @@ if TYPE_CHECKING:
         SceneService,
     )
     from modules.story.scene_source_port import SceneSourcePort
-    from modules.world.contracts import WorldAliasRelationTaskPort
+    from modules.world.contracts import (
+        WorldAliasRelationTaskPort,
+        WorldBuildMapAutoDraftsPort,
+    )
     from modules.world.services.worldbuilding.adoption_package_service import (
         WorldAdoptionPackageService,
     )
@@ -269,6 +272,12 @@ WORLD_READ_MAP_NODE_HEADS: ServiceKey[Callable[..., Any]] = ServiceKey(
 )
 WORLD_STAGE_SPATIAL_DISCOVERY: ServiceKey[Callable[..., Any]] = ServiceKey(
     "world.stage_spatial_discovery"
+)
+WORLD_BUILD_MAP_AUTO_DRAFTS: ServiceKey[WorldBuildMapAutoDraftsPort] = ServiceKey(
+    "world.build_map_auto_drafts"
+)
+WORLD_READ_MAP_SPATIAL_BRIEF: ServiceKey[Callable[..., Any]] = ServiceKey(
+    "world.read_map_spatial_brief"
 )
 WORLD_READ_SPATIAL_DISCOVERY_CONTEXT: ServiceKey[Callable[..., Any]] = ServiceKey(
     "world.read_spatial_discovery_context"
