@@ -3,7 +3,7 @@ id: T-20261015-character-world-progression
 title: 世界对象档案、场景导演、写作副驾驶与世界推进设计
 status: active
 created: 2026-10-15T16:00:00+08:00
-updated: 2026-10-15T23:20:08+08:00
+updated: 2026-10-15T23:31:00+08:00
 ---
 
 # 世界对象档案、场景导演、写作副驾驶与世界推进设计
@@ -22,7 +22,7 @@ updated: 2026-10-15T23:20:08+08:00
 ADR-0039 旧接口写回规则、共用词表与锚点、档案发现按 ADR-0036 §1 契约登记。
 修订经用户授权在第三个本地提交 `20d6f1eff` 中提交，未推送。
 2026-10-15 用户采纳 ADR-0039 至 ADR-0041（Accepted / 未实施）；ADR-0005、0025 补充说明与索引同步。
-用户已明确三份计划全部实施，包括档案、导演和世界推进；本任务执行C0–C5。主树1d503209b（代码b81ba6887）已集成C3a审修、R3严格解析修复、C0a审修，root跨域2978pass，Sol有空库/非空PG升级和独立CAS/回滚证据；新服务组合根仍待A0b。C0b/C2 Luna在world-object-dossier-impl新分支做三层聚合，WIP633293ee2接审修发生dossier_service冲突，现暂由Sol直接解决再恢复Luna。C3b Luna在simulation-v3-director-impl/codex/copilot-unified-ui做真实提醒与ReadingFlow待核候选展示、G8a/editorial来源。GenericEntityProfile迁移与消费者切换仍欠，C0/C2/C3不得提前标全完成。共享composition由A0b独占，root仅集成验证及唯一TASK写入；C4/C5继续待批次，C1长期P4/势力/RP门禁保留。
+用户已明确三份计划全部实施，执行C0–C5。primary当前4344b5f5c（生产代码b81ba6887），A0a/C3a/C0a经Sol审修集成；root正确3.14.8环境相关回归1217/797/2978通过。C0b冲突已由Sol解为4cb98784d并恢复Luna，首个Evidence三层聚合/API独立提交30d5b0698（需连同633293ee2，45目标回归通过）待Sol审查，C2卡片/Reaction及Generic profile新旧读写闭环继续实施。C3b真实统一提醒UI与G8a/editorial薄来源接近独立提交。A0b三提交在Sol独立审修，已复现并直接修复两个真实HTTP追踪失效P1，尚未集成，不能称接线闭环。C0/C2/C3未标全完成；C4/C5待批次继续，C1长期P4/势力/RP真实门禁仍保留。root只负责集成验证及唯一TASK写入。
 
 ## 目标与验收
 
@@ -157,3 +157,11 @@ ADR-0039 旧接口写回规则、共用词表与锚点、档案发现按 ADR-003
 - C0b冲突已解4cb98784d并恢复Luna，继续首个可独立导入的Evidence聚合/brief/API切片；C3b UI及G8a/editorial真实来源仍在实施。后续A1–A4、C2/C4/C5和外部门禁保留；无新真实模型请求、push/PR/main合并/部署。
 
 - 后续协议/导演/推进批次的具体源文件、共享写入边界与验收切片见 [C4-C5交接](artifacts/C4-C5-HANDOFF.md)；原三份计划范围不因拆批缩小。
+
+## 2026-10-15T23:31:00+08:00 三层简报提交与真实 HTTP 追踪审修
+
+- C0b首切片30d5b0698已独立提交，需连同前置633293ee2审查；C3/C0a父提交不重复cherry。新增Evidence三层聚合facade/API、只读Evolution provider与明确省略；角色投影不调演化台账。Luna已在唯一正确3.14.8/Pydantic2.14.0下跑45目标测试、Ruff/diff通过。未集成，也不等于C0/C2完成。
+- GenericEntityProfile旧PUT仍直接写data_json/evidence_refs；旧GET/list与WorldBackground仍读旧表；类型转换snapshot/restore和generic→strong迁移仍需bridge。Luna继续C2卡片/Reaction后独立实现事务修订桥接、兼容读投影、未知字段/证据及转换恢复保真。不能把新增只读projection当新旧真相闭环。
+- Sol在A0b真实PG/HTTP先失败后修复两个P1：main读取未赋值trace context；当前FastAPI include_router有效route派发绕过source APIRoute wrapper。已直接修并3项PG E2E通过，含成功/最终commit失败回滚/原文不入trace；其它审查仍在进行，未集成。另修任意result/preview id泄露、纯flush操作事务形态误报、新Vocabulary绑定与空间线索单项真实豁免。没有将新增写路由藏入旧baseline。
+- C3b统一提醒前端及G8a/editorial纯来源继续实施，共享装配仍由A0/Sol单一写入。A1/A2源码、状态机和验证交接见操作任务artifacts/A1-A2-HANDOFF.md；C4/C5交接仍见对应任务artifacts。所有剩余阶段继续属于本次范围。
+- R3和holdout未动；没有新增模型请求、push、PR、main合并或部署。主树本次仍只更新任务记录，不提前纳入未审代码。

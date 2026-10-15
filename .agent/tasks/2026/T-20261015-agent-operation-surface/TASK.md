@@ -3,7 +3,7 @@ id: T-20261015-agent-operation-surface
 title: 全模块 AI 操作入口、目标运行与操作留痕设计
 status: active
 created: 2026-10-15T14:30:00+08:00
-updated: 2026-10-15T23:20:08+08:00
+updated: 2026-10-15T23:31:00+08:00
 ---
 
 # 全模块 AI 操作入口、目标运行与操作留痕设计
@@ -19,7 +19,7 @@ updated: 2026-10-15T23:20:08+08:00
 2026-10-15 技术评审后按推荐修订 ADR-0038：目录项事务形态、目标运行 `goal` 模式与每项目唯一索引、
 高频操作留痕合并或豁免。修订经用户授权在第三个本地提交 `20d6f1eff` 中提交，未推送。
 2026-10-15 用户采纳 ADR-0038（Accepted / 未实施）；ADR-0023 补充说明与索引同步。
-用户已明确三份计划全部实施；本任务执行A0–A4。当前主树1d503209b（代码b81ba6887）：A0a原f7ba经Sol审修已集成63ad693df/dabc0b319，1217项相关回归通过。A0b原WIP完整留在map-operation-catalog-impl/f7ba；Sol只读复制至map-advisory-review，新分支codex/map-operation-trace-impl、净基线8d936b517，六tracked与三new文件哈希一致、17烟测通过。Luna/max只在新目标树继续A0b，独占共享composition/Assistant core；需接C3真实来源/API/处置SPEC及C0后续SPEC。root负责集成验证与唯一TASK写入，Sol/high独立review并直接修。A1/A2/A3后续继续；A4可做报表，但数周真实数据和前三模式选择不可虚构。
+用户已明确三份计划全部实施，本任务执行A0–A4。primary当前4344b5f5c（生产代码b81ba6887）：A0a已审修并集成，1217相关回归通过。A0b原自有三提交f9a9d8f14/87752e8fd/203018dfd在Sol/high的map-assistant-review/codex/operation-trace-review独立审修；已复现并直接修复trace context未绑定及FastAPI included effective route未包装两个真实HTTP P1，另修任意id泄露和新route ratchet，仍未集成。Sol独占65202独立operation_trace_review_test_20261015，原测试库/评测库不变。A1/A2可用artifacts/A1-A2-HANDOFF.md恢复，待本批审修集成后继续；A3仍在范围，A4数周真实数据与前三模式不可虚构。root唯一写TASK，所有review代码问题与Git冲突由Sol直接修。
 
 ## 目标与验收
 
@@ -122,3 +122,11 @@ updated: 2026-10-15T23:20:08+08:00
 - A0b原实现三笔自有提交 f9a9d8f14、87752e8fd、203018dfd，Luna目标树map-advisory-review/codex/map-operation-trace-impl已干净；C3/C0父提交已在主树，不能重复取。已交Sol/high sol_review_operation_catalog在map-assistant-review/codex/operation-trace-review，以dd13268fb为基线独立审修，含真实HTTP最终commit失败时序/PG事务/隐私/路由ratchet/装配/单head+parity。当前还未集成主树，不能标A0或产品接线完成。Sol独占工程PG65202新review DB，原库与C0两review库保留，禁止eval65302。
 - 实证纠正验证环境：唯一正确解释器是 /Users/tywww/项目/ai-writing-assist/.worktrees/map-enhancement-plan/backend/.venv/bin/python（3.14.8/Pydantic2.14.0/core2.50）；原repo/backend/.venv为3.14.7/2.13.5/core2.46.5，不用于最终验证。原环境Decimal schema多pattern导致194c，正确环境schema90aa；两树用正确解释器完整schema逐字段相同，golden未改。Luna A0b在正确环境重跑组合13pass与Ruff。C0b Luna承认早期定向误用原环境，已要求首commit前用正确环境重跑；root前述1217/797/2978全部使用正确worktree解释器，仍为有效证据。
 - C0b冲突已解4cb98784d并恢复Luna，继续首个可独立导入的Evidence聚合/brief/API切片；C3b UI及G8a/editorial真实来源仍在实施。后续A1–A4、C2/C4/C5和外部门禁保留；无新真实模型请求、push/PR/main合并/部署。
+
+## 2026-10-15T23:31:00+08:00 三层简报提交与真实 HTTP 追踪审修
+
+- C0b首切片30d5b0698已独立提交，需连同前置633293ee2审查；C3/C0a父提交不重复cherry。新增Evidence三层聚合facade/API、只读Evolution provider与明确省略；角色投影不调演化台账。Luna已在唯一正确3.14.8/Pydantic2.14.0下跑45目标测试、Ruff/diff通过。未集成，也不等于C0/C2完成。
+- GenericEntityProfile旧PUT仍直接写data_json/evidence_refs；旧GET/list与WorldBackground仍读旧表；类型转换snapshot/restore和generic→strong迁移仍需bridge。Luna继续C2卡片/Reaction后独立实现事务修订桥接、兼容读投影、未知字段/证据及转换恢复保真。不能把新增只读projection当新旧真相闭环。
+- Sol在A0b真实PG/HTTP先失败后修复两个P1：main读取未赋值trace context；当前FastAPI include_router有效route派发绕过source APIRoute wrapper。已直接修并3项PG E2E通过，含成功/最终commit失败回滚/原文不入trace；其它审查仍在进行，未集成。另修任意result/preview id泄露、纯flush操作事务形态误报、新Vocabulary绑定与空间线索单项真实豁免。没有将新增写路由藏入旧baseline。
+- C3b统一提醒前端及G8a/editorial纯来源继续实施，共享装配仍由A0/Sol单一写入。A1/A2源码、状态机和验证交接见操作任务artifacts/A1-A2-HANDOFF.md；C4/C5交接仍见对应任务artifacts。所有剩余阶段继续属于本次范围。
+- R3和holdout未动；没有新增模型请求、push、PR、main合并或部署。主树本次仍只更新任务记录，不提前纳入未审代码。
