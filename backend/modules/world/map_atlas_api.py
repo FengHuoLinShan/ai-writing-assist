@@ -30,6 +30,7 @@ from modules.world.map_atlas_schemas import (
 )
 from modules.world.map_atlas_service import MapAtlasService, parse_reference_page_ids
 from modules.world.map_atlas_storage import MAX_IMAGE_BYTES
+from modules.world.map_spatial_clue_api import router as _spatial_clue_router
 from modules.world.map_structure_schemas import (
     MapGenerateRequest,
     MapLayoutResponse,
@@ -576,3 +577,6 @@ async def read_page_image(db: DbSession, novel_id: ActiveNovelId, page_id: str):
             "X-Content-Type-Options": "nosniff",
         },
     )
+
+
+router.include_router(_spatial_clue_router)

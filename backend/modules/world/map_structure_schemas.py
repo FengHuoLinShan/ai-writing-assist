@@ -519,7 +519,7 @@ class MapRevisionResponse(SpatialModel):
     id: str
     node_id: str
     base_revision_id: str | None
-    status: Literal["candidate", "saved", "rejected"]
+    status: Literal["candidate", "saved", "rejected", "superseded"]
     document: MapDocument
     geometry_hash: str
     problems: list[MapProblem]

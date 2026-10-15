@@ -399,3 +399,30 @@ last_observed，缺少记录则 unknown；不从档案地址回填。
 五题材预设可复制并混搭。作者可以维护、合并、拆分与归档类型，墓碑阻止模型重新创建等价词条。
 项目类型独立于已采用地图：词表启用不等于采用地图或启用空间提醒。
 词表入口为 `/api/world/project-vocabulary/{novel_id}`，详见 [World模块](02_world.md#统一项目词表)。
+
+## Evolution 空间线索（M1 World 存储与作者复核）
+
+World 通过 `stage_spatial_discovery(db, novel_id, batch)` 接收 Evolution 的逐 Scene 线索，
+重读当前 Scene、SceneSpan 与绑定的稿件区间，核对 novel、draft、内容 hash、精确引文、端点状态、
+词条修订和独立复核身份。坏项逐条拒绝；复核不支持或不确定的项目留在 `pending_verification`，
+通过项进入 `pending_review`。`(novel_id, run_id, attempt_id, clue_key)` 唯一约束保证重放幂等；
+不同载荷复用同一 key 会冲突。线索只写 `map_spatial_clues`，不直接写 World 关系或地图 head。
+
+首 Scene 的 `type_proposal_draft` 将经线索独立复核的名称、含义和 traits 存为 emerging 词条，
+不产生计算效果；后续 `ModelVocabularyProposal` 必须携带原 proposal identity、全部先前证据和当前
+Scene 的新证据，World 逐条重读引文并校验累计 evidence hash。只有完整证据通过独立复核、覆盖至少
+两个不同 Scene 时，项目词条服务才可将类型提升为 active。
+
+`read_spatial_discovery_context` 只读取同 novel、严格早于当前 `scene_index` 的候选和词条；候选
+来源需仍有效且为 canonical，working 内容不会进入此上下文。端点状态由 World 实查，`draft` 折叠为
+`candidate`。类型投影只附带可重验的先前证据；未来 Scene 的证据和据此产生的 active 状态不泄露，
+超出上限返回 `omitted_types` / `omitted_clues`。
+
+作者可通过 `GET /api/world/map-atlas/{novel_id}/spatial-clues` 查看线索，并用
+`POST /api/world/map-atlas/{novel_id}/spatial-clues/{clue_id}/review` 采用、拒绝或合并。接口只返回
+作者审核所需的端点、关系、类型含义和引文，不返回 run、journal、source hash 或原始复核载荷。
+`adopt` 表示作者确认线索候选；它本身不修改正式地图版本，正式地图写入仍需后续通过 Map 的基线、
+canonical 来源与审核门禁。合并只允许语义签名相同的线索，源行保留并指向目标，不删除证据。
+
+此切片只交付 World 存储、受限读取和作者复核 API；Evolution 调用接线和地图增量草图尚未启用，
+不调用模型，也不自动采用线索或地图。
