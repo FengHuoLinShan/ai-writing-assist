@@ -6,6 +6,7 @@ const props = defineProps({ projectId: { type: String, required: true }, entry: 
 const emit = defineEmits(["state"])
 const state = ref(null), busy = ref(false), error = ref(""), preview = ref(null), pending = ref(null)
 const endChapter = ref(1), requestLimit = ref(20), discoverDetails = ref(false)
+const discoverSpatial = ref(true)
 const recomputeCompleted = ref(false), fromScene = ref(1)
 const scopeKind = ref("scene"), targetId = ref(""), targetQuery = ref("")
 const targets = ref([]), targetTotal = ref(0), targetOffset = ref(0)
@@ -103,6 +104,7 @@ async function prepare() {
         ? { from_scene_index: Number(fromScene.value) - 1 }
         : { [scopeKind.value === "entity" ? "entity_id" : "observation_id"]: targetId.value } : {}),
       discover_details: discoverDetails.value,
+      ...(discoverSpatial.value ? { discover_spatial: true } : {}),
       end_chapter: continuing || revising || scoped ? run.value.end_chapter : Number(endChapter.value), request_limit: scopeBudget.value ? null : Number(requestLimit.value),
     }
     const result = await api().preview(props.projectId, request)
@@ -233,6 +235,7 @@ watch(() => run.value?.run_key, () => {
   proposals.value = null
   worldAuditSupplementPreview.value = null
   discoverDetails.value = !!run.value?.discovery_enabled
+  discoverSpatial.value = run.value ? run.value.spatial_discovery_enabled === true : true
   rescanPreview.value = rescanPending.value = null
   rescanFrom.value = 1; rescanThrough.value = Math.max(1, run.value?.completed_scenes || 1)
   rescanCategories.value = (run.value?.discovery_categories || []).filter(item => ["language_habit", "external_appearance"].includes(item.key)).map(item => item.key)
@@ -246,7 +249,7 @@ async function loadTargets(offset = 0) {
   })
 }
 watch(scopeKind, () => { targets.value = []; targetId.value = ""; targetTotal.value = 0; targetOffset.value = 0 })
-watch([endChapter, requestLimit, recomputeCompleted, fromScene, scopeKind, targetId], () => { if (!pending.value) preview.value = null })
+watch([endChapter, requestLimit, recomputeCompleted, fromScene, scopeKind, targetId, discoverDetails, discoverSpatial], () => { if (!pending.value) preview.value = null })
 watch(() => props.projectId, () => {
   generation++; clearTimeout(timer)
   state.value = preview.value = pending.value = proposals.value = null
@@ -255,6 +258,7 @@ watch(() => props.projectId, () => {
   rescanCategories.value = []; rescanFrom.value = rescanThrough.value = 1
   error.value = ""; busy.value = false; endChapter.value = 1
   recomputeCompleted.value = false; fromScene.value = 1
+  discoverDetails.value = false; discoverSpatial.value = true
   scopeKind.value = "scene"; targetId.value = ""; targets.value = []; targetQuery.value = ""; targetTotal.value = 0; targetOffset.value = 0
   if (opened.value || props.entry) void refresh()
 })
@@ -361,6 +365,8 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer) })
         <label v-if="run?.status === 'completed'" class="reading-recompute-toggle"><input v-model="recomputeCompleted" type="checkbox" :disabled="busy || !!pending">重新核对已有场景</label>
         <label v-if="!run || recomputeCompleted || ['source_changed', 'failed'].includes(run.status)"><input v-model="discoverDetails" type="checkbox" :disabled="busy || !!pending">同时发现条件行为、线索与承诺，持续更新细节台账</label>
         <p v-else>细节发现：{{ run.discovery_enabled ? '已启用' : '本轮未启用，可选择重新核对已有场景时开启' }}</p>
+        <label v-if="!run || recomputeCompleted || ['source_changed', 'failed'].includes(run.status)" class="reading-recompute-toggle"><input v-model="discoverSpatial" type="checkbox" aria-label="同时发现空间线索" :disabled="busy || !!pending">同时发现地点、空间关系与行程线索，整理为待审地图资料</label>
+        <p v-else>空间发现：{{ run.spatial_discovery_enabled ? '已启用，沿用本轮设置' : '本轮未启用，可选择重新核对已有场景时开启' }}</p>
         <template v-if="run?.status === 'failed' || recomputeCompleted">
           <label>重新核对什么<select v-model="scopeKind" :disabled="busy || !!pending"><option value="scene">一段场景</option><option value="entity">人物或世界对象</option><option value="observation">一条已有观察</option></select></label>
           <label v-if="scopeKind === 'scene'">从第几场重新核对<input v-model.number="fromScene" type="number" min="1" :max="run?.total_scenes" required :disabled="busy || !!pending"></label>
@@ -383,6 +389,11 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer) })
           <p v-else-if="Number.isInteger(preview.recompute_from_scene_index)">保留前 {{ preview.inherited_scene_count }} 场已核实的理解，从第 {{ preview.recompute_from_scene_index + 1 }} 场起重新核对后续场景；最多调用模型 {{ preview.request_limit }} 次。旧结果与费用记录保留。<template v-if="preview.expanded_scope">前面的来源或场景已变化，范围已向前扩大。</template></p>
           <p v-else>本次{{ preview.request.mode === 'continue' ? "继续读取" : "读取" }} {{ preview.scene_count }} 个场景，理解、独立复核与剧情结构整理合计最多调用模型 {{ preview.request_limit }} 次。理解结果可追溯来源，冲突留待确认；不会改写正文或覆盖作者确认。</p>
           <p v-if="preview.discovery_enabled">细节发现及独立核对{{ preview.budget_mode === 'confirmed_scope' ? '包含在本次确认范围内' : '也使用本次调用额度' }}。台账只保留有据理解，作者判断另行保存。</p>
+          <p v-if="preview.spatial_discovery_enabled">空间线索抽取和独立核对可能产生模型费用，共用本次额度。资料只作为候选，需作者审核后采用；不会自动生成地图图片。</p>
+          <ul v-if="Object.keys(preview.optional_steps || {}).length" aria-label="可选步骤调用额度">
+            <li v-for="(step, name) in preview.optional_steps" :key="name">{{ name === 'spatial' ? '空间发现' : name === 'details' ? '细节发现' : name }}：预计 {{ step.request_range?.minimum ?? 0 }}—{{ step.request_range?.maximum ?? step.quota }} 次调用，独立额度 {{ step.quota }} 次{{ step.used ? `，已使用 ${step.used} 次` : '' }}。</li>
+          </ul>
+          <p v-if="preview.spatial_discovery_enabled">可选步骤额度用完会留下未检查缺口；不会自动追加额度，也不会因空间发现失败中断主阅读。</p>
           <p>本次使用模型：{{ preview.model }}</p>
           <button class="btn btn-primary" type="button" :disabled="busy" @click="start">{{ pending ? "确认启动结果" : "确认并开始理解" }}</button>
         </div>

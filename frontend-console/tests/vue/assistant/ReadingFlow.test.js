@@ -345,3 +345,54 @@ it.each([
   expect(categoryRescanPreview.mock.calls[0][2].request_limit).toBe(expectedLimit)
   wrapper.unmount()
 })
+
+it("新阅读显式开启空间发现，预览披露费用、子额度与候选边界，可取消", async () => {
+  const status = vi.fn().mockResolvedValue({ engine: { engine: "evolution", epoch: 1 }, run: null })
+  const preview = vi.fn().mockResolvedValue({ fingerprint: "f".repeat(64), spatial_discovery_enabled: true, optional_steps: { spatial: { quota: 8, used: 0, request_range: { minimum: 0, maximum: 8 } }, details: { quota: 16, used: 0, request_range: { minimum: 0, maximum: 16 } } } })
+  setBridgeOverrides({ api: { evolution: { status, preview } } })
+  const wrapper = mount(ReadingFlow, { props: { projectId: "p", entry: true } })
+  await flushPromises()
+  const checkbox = wrapper.get('[aria-label="同时发现空间线索"]')
+  expect(checkbox.element.checked).toBe(true)
+  await wrapper.get("form").trigger("submit"); await flushPromises()
+  expect(preview.mock.calls[0][1].discover_spatial).toBe(true)
+  expect(wrapper.text()).toContain("可能产生模型费用")
+  expect(wrapper.text()).toContain("独立额度 8 次")
+  expect(wrapper.text()).toContain("需作者审核后采用")
+  await checkbox.setValue(false); await flushPromises()
+  expect(button(wrapper, "确认并开始理解")).toBeUndefined()
+  await wrapper.get("form").trigger("submit"); await flushPromises()
+  expect(preview.mock.calls[1][1]).not.toHaveProperty("discover_spatial")
+  wrapper.unmount()
+})
+
+it.each([
+  ["completed", undefined, "append", false],
+  ["needs_budget", false, "continue", false],
+  ["completed", true, "append", true],
+])("%s读取继承冻结空间开关%s", async (statusName, spatialEnabled, mode, expected) => {
+  const status = vi.fn().mockResolvedValue({ engine: { engine: "evolution", epoch: 1 }, run: {
+    run_key: "old", status: statusName, completed_scenes: 1, total_scenes: 1,
+    end_chapter: 1, spatial_discovery_enabled: spatialEnabled,
+  } })
+  const preview = vi.fn().mockResolvedValue({ fingerprint: "f".repeat(64) })
+  setBridgeOverrides({ api: { evolution: { status, preview } } })
+  const wrapper = mount(ReadingFlow, { props: { projectId: "p", entry: true } })
+  await flushPromises()
+  expect(wrapper.find('[aria-label="同时发现空间线索"]').exists()).toBe(false)
+  await wrapper.get("form").trigger("submit"); await flushPromises()
+  const request = preview.mock.calls[0][1]
+  expect(request.mode).toBe(mode)
+  expect(request.discover_spatial === true).toBe(expected)
+  wrapper.unmount()
+})
+
+it("从旧运行切换到新项目恢复新阅读的空间选项", async () => {
+  const status = vi.fn().mockImplementation(projectId => Promise.resolve({ engine: { engine: "evolution", epoch: 1 }, run: projectId === "old" ? { run_key: "old-run", status: "completed", completed_scenes: 1, total_scenes: 1, end_chapter: 1 } : null }))
+  setBridgeOverrides({ api: { evolution: { status } } })
+  const wrapper = mount(ReadingFlow, { props: { projectId: "old", entry: true } })
+  await flushPromises()
+  await wrapper.setProps({ projectId: "new" }); await flushPromises()
+  expect(wrapper.get('[aria-label="同时发现空间线索"]').element.checked).toBe(true)
+  wrapper.unmount()
+})
