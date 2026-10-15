@@ -476,6 +476,23 @@ async def _enqueue_confirmed_task(
         )
         if existing is not None:
             return StoryTaskResponse(task_id=existing.task_id, status=existing.status)
+        if (
+            isinstance(data, StoryOneClickTaskRequest)
+            and data.simulation_protocol == "simulation_v3"
+        ):
+            from modules.story.rehearsals import validate_simulation_context_refs
+            from modules.story.simulation_v3 import (
+                SimulationReference,
+                SimulationV3Context,
+            )
+
+            context = data.simulation_seed or SimulationV3Context(
+                participants=[
+                    SimulationReference(kind="object", id=actor)
+                    for actor in data.character_ids
+                ]
+            )
+            await validate_simulation_context_refs(db, data.novel_id, context)
         await require_fresh_confirmation(
             db,
             novel_id=data.novel_id,
@@ -562,15 +579,22 @@ async def api_submit_one_click_task(
     data: StoryOneClickTaskRequest,
     db: DbSession,
 ) -> StoryTaskResponse:
-    await require_active_project(db, data.novel_id)
+    await require_active_project(db, data.novel_id, allow_demo_readonly=False)
     if data.simulation_protocol in {"rehearsal_v1", "observation_v2"}:
+        raise HTTPException(
+            status_code=409,
+            detail="旧协议排演只读；请使用 simulation_v3 新建排演",
+        )
+    if data.simulation_protocol == "simulation_v3":
         from core.config import get_settings
 
-        if not get_settings().story_rehearsal_enabled or (
-            data.simulation_protocol == "observation_v2"
-            and not get_settings().collaboration_v2_enabled
-        ):
+        if not get_settings().story_rehearsal_enabled:
             raise HTTPException(status_code=409, detail="场景排演尚未开启")
+        if data.rehearsal_rounds != 1:
+            raise HTTPException(
+                status_code=409,
+                detail="当前一次只提交一回合；连续推进需新的预算与授权入口",
+            )
     return await _enqueue_confirmed_task(
         db,
         data,
@@ -785,10 +809,11 @@ async def api_scene_simulate(
     "/scenes/{scene_id}/rehearsals", response_model=StoryTaskResponse, status_code=202
 )
 async def start_rehearsal(scene_id: str, data: StoryOneClickTaskRequest, db: DbSession):
-    if data.scene_id != scene_id or data.simulation_protocol not in {
-        "rehearsal_v1",
-        "observation_v2",
-    }:
+    if data.scene_id != scene_id:
+        raise HTTPException(status_code=422, detail="请选择当前场景的排演方式")
+    if data.simulation_protocol in {"rehearsal_v1", "observation_v2"}:
+        return await api_submit_one_click_task(data, db)
+    if data.simulation_protocol != "simulation_v3":
         raise HTTPException(status_code=422, detail="请选择当前场景的排演方式")
     return await api_submit_one_click_task(data, db)
 
@@ -817,7 +842,7 @@ async def replay_recorded_rehearsal(
 ):
     from modules.story.rehearsals import replay_rehearsal
 
-    await require_active_project(db, novel_id)
+    await require_active_project(db, novel_id, allow_demo_readonly=False)
     return await replay_rehearsal(db, novel_id, str(run_id))
 
 
@@ -829,11 +854,13 @@ async def fork_rehearsal(
 ):
     from modules.story.rehearsals import read_rehearsal
 
-    await require_active_project(db, data.novel_id)
-    await read_rehearsal(db, data.novel_id, str(run_id))
-    if data.parent_rehearsal_id != run_id or data.simulation_protocol not in {
-        "rehearsal_v1",
-        "observation_v2",
-    }:
+    await require_active_project(db, data.novel_id, allow_demo_readonly=False)
+    parent = await read_rehearsal(db, data.novel_id, str(run_id))
+    if parent["protocol"] != "simulation_v3":
+        raise HTTPException(
+            status_code=409,
+            detail="旧协议历史只读；不能跨协议重解释或分叉",
+        )
+    if data.parent_rehearsal_id != run_id or data.simulation_protocol != "simulation_v3":
         raise HTTPException(status_code=422, detail="分叉必须绑定准确的原排演")
     return await api_submit_one_click_task(data, db)

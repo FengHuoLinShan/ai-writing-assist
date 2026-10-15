@@ -1,54 +1,68 @@
 <template>
   <section v-if="available" class="scene-rehearsal" aria-label="多人物场景排演">
     <h3>多人物排演 <small>实验</small></h3><p>人物分别提出行动，环境裁决后再推进下一回合。最终剧本仍须你审阅与采用。</p>
-    <fieldset :disabled="running"><legend>参与人物（最多三名）</legend><label v-for="actor in characters" :key="actor.id"><input v-model="selected" type="checkbox" :value="actor.id" :disabled="selected.length >= 3 && !selected.includes(actor.id)" /> {{ actor.name }}</label></fieldset>
-    <label v-if="observationAvailable">记录方式<select v-model="protocol" :disabled="running"><option value="observation_v2">逐轮观察与状态</option><option value="rehearsal_v1">基础排演</option></select></label>
-    <details v-if="protocol === 'observation_v2'"><summary>设置这次试验的初始条件</summary><p>这些条件只作为本次试验假设，不写入世界设定。</p><label>唯一物品（每行一个，初始无人持有）<textarea v-model="items" rows="2" :disabled="running" /></label><label>开始地点<input v-model="location" :disabled="running" /></label><label>可直接前往的地点（每行一个）<textarea v-model="destinations" rows="2" :disabled="running || !location.trim()" /></label></details>
-    <label>回合数 <input v-model.number="rounds" type="number" min="1" max="3" :disabled="running" /></label>
-    <button type="button" class="btn" :disabled="running || !selected.length || rounds < 1 || rounds > 3" @click="start()">排演场景</button>
+    <fieldset :disabled="running"><legend>参与人物</legend><label v-for="actor in characters" :key="actor.id"><input v-model="selected" type="checkbox" :value="actor.id" :disabled="!hasWorldIdentity(actor)" /> {{ actor.name }}</label></fieldset>
+    <p v-if="characters.some(actor => !hasWorldIdentity(actor))">未关联到作品人物的条目暂时不能参与。</p>
+    <details><summary>设置本次场景假设</summary><p>选中的人物沿用现有身份；输入的物品和地点只作为本次试验中的临时设定，不会匹配或写入世界对象。</p><label>临时物品（每行一个，初始无人持有）<textarea v-model="items" rows="2" :disabled="running" /></label><label>共同起点<input v-model="location" :disabled="running" /></label><label>可直接前往的地点（每行一个）<textarea v-model="destinations" rows="2" :disabled="running || !location.trim()" /></label></details>
+    <p>每次提交一回合；继续后续发展时由你再次发起。</p>
+    <button type="button" class="btn" :disabled="running || !selected.length" @click="start()">排演一回合</button>
     <p v-if="error" role="alert">{{ error }}</p>
-    <button v-if="rehearsal?.protocol === 'observation_v2'" class="btn btn-sm" type="button" :disabled="running" @click="replay">核对已记录回合（不重新推演）</button><p v-if="replayStatus" role="status">{{ replayStatus }}</p>
+    <button v-if="canReplay" class="btn btn-sm" type="button" :disabled="running" @click="replay">核对已记录回合（不重新推演）</button><p v-if="replayStatus" role="status">{{ replayStatus }}</p>
     <template v-if="rehearsal"><p>完成 {{ rehearsal.rounds.length }} 回合。{{ rehearsal.parent_id ? '这是独立分叉，原结果仍保留。' : '' }}</p>
+      <p v-if="!canFork">这份旧记录仅供查看，不能从中创建新分支。</p>
       <label>观察视角 <select v-model="observer" @change="load"><option value="">作者查看</option><option v-for="actor in characters" :key="actor.id" :value="actor.id">{{ actor.name }}</option></select></label>
-      <article v-for="round in rehearsal.rounds" :key="round.number"><h4>第 {{ round.number }} 回合</h4><ul><li v-for="(event, index) in round.events" :key="index">{{ actorName(event.actor_id) }}：{{ event.action }}（{{ outcomes[event.outcome] || '尚未裁定' }}）</li></ul><button type="button" class="btn btn-sm" :disabled="running" @click="start(round)">从这一回合另试一种发展</button></article>
+      <article v-for="round in rehearsal.rounds" :key="round.number"><h4>第 {{ round.number }} 回合</h4><ul><li v-for="(event, index) in round.events" :key="index">{{ actorName(event.actor_id) }}：{{ event.action }}（{{ outcomes[event.outcome] || '尚未裁定' }}）</li></ul><button type="button" class="btn btn-sm" :disabled="running || !canFork" @click="start(round)">从这一回合另试一种发展</button></article>
     </template>
   </section>
 </template>
 
 <script setup>
-import { ref, watch } from "vue"
+import { computed, ref, watch } from "vue"
 import { getApi } from "../../bridge/index.js"
 const props = defineProps({ projectId: { type: String, required: true }, characters: { type: Array, default: () => [] }, rehearsalId: { type: String, default: null }, running: Boolean })
 const emit = defineEmits(["run"])
-const selected = ref([]), rounds = ref(2), observer = ref(""), rehearsal = ref(null), error = ref(""), available = ref(false)
+const selected = ref([]), observer = ref(""), rehearsal = ref(null), error = ref(""), available = ref(false)
 const outcomes = { succeeded: "完成", failed: "未能完成", uncertain: "结果未定" }
-const observationAvailable = ref(false), protocol = ref("rehearsal_v1"), items = ref(""), location = ref(""), destinations = ref(""), replayStatus = ref("")
+const items = ref(""), location = ref(""), destinations = ref(""), replayStatus = ref("")
+const canFork = computed(() => rehearsal.value?.protocol === "simulation_v3" && Array.isArray(rehearsal.value?.scenario_seed?.participants))
+const canReplay = computed(() => ["observation_v2", "simulation_v3"].includes(rehearsal.value?.protocol))
 let generation = 0
 function actorName(id) { return props.characters.find(actor => actor.id === id)?.name || "人物" }
+function hasWorldIdentity(actor) { return Boolean(actor?.id && !String(actor.id).startsWith("character-")) }
 function start(round = null) {
+  if (round && !canFork.value) return
+  const actorIds = round
+    ? rehearsal.value.scenario_seed.participants.filter(reference => reference.kind === "object").map(reference => reference.id)
+    : selected.value.filter(id => id && !String(id).startsWith("character-"))
+  if (!actorIds.length) return
   const names = [...new Set(items.value.split("\n").map(value => value.trim()).filter(Boolean))]
   const startLocation = location.value.trim()
-  const places = [...new Set(destinations.value.split("\n").map(value => value.trim()).filter(Boolean))]
-  const seed = round ? rehearsal.value.scenario_seed : protocol.value === "observation_v2" ? {
-    resource_holders: Object.fromEntries(names.map(name => [name, null])),
-    locations: startLocation ? Object.fromEntries(selected.value.map(id => [id, startLocation])) : {},
-    location_catalog: startLocation ? [...new Set([startLocation, ...places])] : [],
-    routes: startLocation ? places.map(place => [startLocation, place]) : [],
+  const places = [...new Set(destinations.value.split("\n").map(value => value.trim()).filter(value => value && value !== startLocation))]
+  const candidate = (id, label) => ({ kind: "candidate", id, label })
+  const origin = startLocation ? candidate("location-origin", startLocation) : null
+  const destinationsForRun = places.map((label, index) => candidate(`location-destination-${index + 1}`, label))
+  const seed = round ? rehearsal.value.scenario_seed : {
+    participants: actorIds.map(id => ({ kind: "object", id })),
+    locations: origin ? [origin, ...destinationsForRun] : [],
+    positions: origin ? actorIds.map(id => ({ subject: { kind: "object", id }, location: origin })) : [],
+    resources: names.map((label, index) => ({ resource: candidate(`item-${index + 1}`, label), holder: null })),
+    routes: origin ? destinationsForRun.map(destination => ({ origin, destination })) : [],
     assumptions: ["作者为本次独立试验提供的初始条件，不等于正史。"],
-  } : null
-  emit("run", { rehearsal: true, protocol: round ? rehearsal.value.protocol : protocol.value, seed, characterIds: [...selected.value], rounds: rounds.value, ...(round ? { parentId: props.rehearsalId, forkRound: round.number, parentHash: round.hash } : {}) }) }
+  }
+  emit("run", { rehearsal: true, protocol: "simulation_v3", seed, characterIds: actorIds, rounds: 1, ...(round ? { parentId: props.rehearsalId, forkRound: round.number, parentHash: round.hash } : {}) })
+}
 async function replay() { try { const result = await getApi().story.replayRehearsal(props.projectId, props.rehearsalId); replayStatus.value = result.verified ? "已按原记录重放，状态一致，没有调用模型。" : "状态核对未通过。" } catch (cause) { error.value = cause.message } }
 async function load() {
   const token = ++generation
   if (!props.rehearsalId) { rehearsal.value = null; return }
-  try { const result = await getApi().story.rehearsal(props.projectId, props.rehearsalId, observer.value || null); if (token === generation) { rehearsal.value = result; error.value = "" } }
+  try { const result = await getApi().story.rehearsal(props.projectId, props.rehearsalId, observer.value || null); if (token === generation) { rehearsal.value = result; if (canFork.value) { selected.value = result.scenario_seed.participants.filter(reference => reference.kind === "object").map(reference => reference.id) }; error.value = "" } }
   catch (cause) { if (token === generation) error.value = cause.message || "回合暂不可读取。" }
 }
 watch(() => props.projectId, async projectId => {
   available.value = false
-  try { const result = await getApi().assistant.capabilities(projectId); if (projectId === props.projectId) { available.value = result.rehearsal?.available === true; observationAvailable.value = result.rehearsal?.observation_v2_available === true; protocol.value = observationAvailable.value ? "observation_v2" : "rehearsal_v1" } } catch { /* ordinary simulation remains available */ }
+  try { const result = await getApi().assistant.capabilities(projectId); if (projectId === props.projectId) available.value = result.rehearsal?.available === true } catch { /* ordinary simulation remains available */ }
 }, { immediate: true })
-watch(() => props.characters, actors => { selected.value = selected.value.filter(id => actors.some(actor => actor.id === id)); if (!selected.value.length) selected.value = actors.slice(0, 3).map(actor => actor.id) }, { immediate: true })
+watch(() => props.characters, actors => { const eligible = actors.filter(hasWorldIdentity); selected.value = selected.value.filter(id => eligible.some(actor => actor.id === id)); if (!selected.value.length) selected.value = eligible.map(actor => actor.id) }, { immediate: true })
 watch(() => [props.projectId, props.rehearsalId], load, { immediate: true })
 </script>
 

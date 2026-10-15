@@ -72,6 +72,13 @@ async def rollback_entity(
 @router.post(
     "/entities/{entity_id}/rollback-by-revision",
     response_model=CoreEntityResponse,
+    openapi_extra={
+        "x-novelcraft-operation-id": "world.entity.restore_revision",
+        "x-novelcraft-operation-trace-fields": {
+            "entity_id": "entity_id",
+            "revision_id": "data.revision_id",
+        },
+    },
 )
 async def rollback_entity_by_revision(
     db: DbSession,

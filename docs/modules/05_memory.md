@@ -180,9 +180,9 @@ World 的变更复核只消费 Story 结构来源并保存 World 回执，不写
 ## 创作试验的结构与观察边界
 
 Story 为 Collaboration 提供 Scene、伏笔/揭示安排的冻结可编辑字段与原领域操作 port。
-试改独立保存，采用仍验证当前结构版本。`observations.py` 区分输入刺激、私有意图、
-可观察事件和可重放的 ResolutionBatch；说法不是事实，未知资源或唯一资源冲突不宣告成功。
-`observation_v2` 不重新解释旧 rehearsal_v1。读者推测与作者安排分开，派生前瞻不是新信息计划。
+试改独立保存，采用仍验证当前结构版本。`observations.py` 保留 RP `observation_v2` 的输入刺激与观察语义；
+Story 的 `simulation_v3.py` 共用意图、有限结算、`StateDelta`、`ResolutionBatch` 与回放。
+说法不是事实，未知资源、路线或唯一资源冲突不宣告成功；旧协议历史按原协议只读。
 
 ## 软失效与有效场景投影
 
@@ -201,7 +201,7 @@ Story facade 的 `validate_machine_event_snapshot` 复用全景物化 schema，�
 
 ### 条件比较与历史依据
 
-`POST /memories/scene-state-trial` 只比较钥匙转交与三条件锁，返回原状态/有限假设的当前值、所需值、来源和失败/未知/通过。候选只用内存 ResolutionBatch 重放，不写事件或正史；状态指纹与比较 digest 绑定试改授权，采用前重新核对。
+`POST /memories/scene-state-trial` 只比较钥匙转交与三条件锁，返回原状态/有限假设的当前值、所需值、来源和失败/未知/通过。候选只用 `simulation_v3` ResolutionBatch 内存重放，不写事件或正史；HTTP 条件、owner、来源归因及零事件写入保持。协议字段变化使 `resolution.protocol` 与比较 digest 更新，方法指纹从 `scene-key-lock-v1` 升为 `scene-key-lock-v2:simulation_v3`（`e324598864c4b73c79a6abd5794a3f7ac183d0480f6ecf05fd5a3ad9ecdc764e` → `c12dae97d3cfd40e8095e9fbafa1592ece96acb412f595f0c6a470ac73cea5b3`）；旧 digest 不可复用。状态指纹与比较 digest 继续绑定试改授权，采用前重新核对。
 
 `GET /memories/scene-checkpoints/{checkpoint_id}` 及 `GET /memories/events/by-id?event_ids=…` 校验 owner + novel，显式读取历史来源，父 checkpoint 链按需回开。当前视图仍只消费 current checkpoint。历史回开是作者诊断用途：知识维度的条目在响应中逐条补 `knowledge_class` 方言标注（known/unknown/false_belief，`knowledge_contract.read_knowledge_statement` 判定，深拷贝副本不改 ORM 载荷），历史行的分类不被事件流改写或重建洗掉；面向角色/读者的视角边界在 `get_view` 承载。人物仅自己的位置可默认读；其他字段需明确知识值，误信或仅提到人物不授予事实。读者 timeline/causality 缺逐条揭示粒度，返回 unsupported；受限视角不返回整维来源或隐藏名称。机器断言（evolution producer）在信任边界剥离值绑定键（state_gate 亦显式拒绝 `value_binding_not_machine_grounded`），读入统一方言恒为 unknown 文本知识，不冒充值绑定。
 

@@ -165,6 +165,7 @@ async def prepare_ensemble(run):
             save_items=save_items,
             actor_labels={key: value["label"] for key, value in actor_refs.items()},
             known_actor_ids=known_actor_ids,
+            protocol="rehearsal_v1",
         )
         visible = [
             event

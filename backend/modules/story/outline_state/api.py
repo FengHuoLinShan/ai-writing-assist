@@ -816,7 +816,18 @@ async def api_preview_scene_merge(
         raise _workbench_error(exc) from exc
 
 
-@router.post("/scene-workbench/merge", response_model=SceneWorkbenchItem)
+@router.post(
+    "/scene-workbench/merge",
+    response_model=SceneWorkbenchItem,
+    openapi_extra={
+        "x-novelcraft-operation-id": "story.scene.merge",
+        "x-novelcraft-operation-confirmation-field": "data.confirmed",
+        "x-novelcraft-operation-trace-fields": {
+            "target_scene_id": "data.target_scene_id",
+            "source_scene_ids": "data.source_scene_ids",
+        },
+    },
+)
 async def api_merge_scene(
     data: SceneMergeRequest,
     db: DbSession,
@@ -1110,7 +1121,14 @@ async def api_delete_scene(
     await _scene_workbench_service.delete_scene(db, novel_id, scene_id)
 
 
-@router.post("/scenes/reorder", response_model=SceneReorderResponse)
+@router.post(
+    "/scenes/reorder",
+    response_model=SceneReorderResponse,
+    openapi_extra={
+        "x-novelcraft-operation-id": "story.scene.reorder",
+        "x-novelcraft-operation-trace-fields": {"scene_ids": "data.scene_ids"},
+    },
+)
 async def api_reorder_scenes(
     data: SceneReorderRequest,
     db: DbSession,

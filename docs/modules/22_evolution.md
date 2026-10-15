@@ -11,6 +11,8 @@
 写作侧栏及场景工作台接入表格、截止场景、来源、历史和作者判断；阶段验收仍在进行。
 World 候选采用现重验实际传递回执前缀（含继承），避免 drained/stopped 旧运行遗漏前序来源变化。
 append 保留已完成结构批次与游标，重新开放新增场景范围的结构阶段。
+Assistant v8 A1 的 `evolution.prepare_reading` 仅返回 `workflow.preview_reading` 的授权预览，
+不启动任务或模型；正式阅读仍由 Evolution 工作台独立确认。空间阅读/补扫的既有准备入口不变。
 
 V4 长期计划（`docs/plans/novelcraft-v4/plans/01-EVOLUTION.md`）的演化引擎：
 "读取正文 → 观察 → 身份解析 → 状态解释 → 校验 → 窄批次提交"的运行所有权。

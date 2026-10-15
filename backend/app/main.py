@@ -756,6 +756,7 @@ from modules.account.oidc import (  # noqa: E402
 from modules.account.oidc import router as account_oidc_router  # noqa: E402
 from modules.assistant import api as assistant_api  # noqa: E402
 from modules.assistant.notices_api import router as assistant_notices_router  # noqa: E402
+from modules.assistant.operation_http import router as assistant_operation_http_router  # noqa: E402
 from modules.collaboration import api as collaboration_api  # noqa: E402
 from modules.evidence import api as evidence_api  # noqa: E402
 from modules.evolution import api as evolution_api  # noqa: E402
@@ -784,6 +785,7 @@ from modules.world import project_vocabulary_api as world_vocabulary_api  # noqa
 from modules.writing import api as writing_api  # noqa: E402
 
 app.include_router(assistant_api.router)
+app.include_router(assistant_operation_http_router)
 app.include_router(assistant_notices_router)
 app.include_router(collaboration_api.router)
 app.include_router(project_router)
@@ -817,10 +819,36 @@ app.include_router(
 )
 
 
-def _trace_route_arguments(values: dict, argument_map: dict | None = None) -> dict:
+def _trace_route_arguments(
+    values: dict,
+    argument_map: dict | None = None,
+    trace_fields: dict[str, str] | None = None,
+) -> dict:
+    if trace_fields is not None:
+        arguments = {}
+        missing = object()
+        for field, source in trace_fields.items():
+            value = values
+            for part in source.split("."):
+                value = (
+                    value.get(part, missing)
+                    if isinstance(value, dict)
+                    else getattr(value, part, missing)
+                )
+                if value is missing:
+                    break
+            if value is not missing:
+                arguments[field] = (
+                    value.model_dump(mode="json")
+                    if hasattr(value, "model_dump")
+                    else value
+                )
+        return arguments
     arguments = {}
     for name, value in values.items():
-        if name in {"db", "request", "response"}:
+        if name in {"db", "response"} or (
+            name == "request" and isinstance(value, Request)
+        ):
             continue
         if hasattr(value, "model_dump"):
             rendered = value.model_dump(mode="json")
@@ -886,6 +914,23 @@ def _install_operation_trace_route_adapters(application: FastAPI) -> None:
         argument_map = (route.openapi_extra or {}).get(
             "x-novelcraft-operation-argument-map", {}
         )
+        trace_fields = (route.openapi_extra or {}).get(
+            "x-novelcraft-operation-trace-fields"
+        )
+        operation_phase = (route.openapi_extra or {}).get(
+            "x-novelcraft-operation-phase", "execute"
+        )
+        if operation_phase not in {"execute", "prepare"}:
+            raise RuntimeError(f"Invalid HTTP operation phase: {operation_id}")
+        confirmation_field = (route.openapi_extra or {}).get(
+            "x-novelcraft-operation-confirmation-field"
+        )
+        if trace_fields is not None and set(trace_fields) != set(
+            operation.schema.model_fields
+        ):
+            raise RuntimeError(
+                f"HTTP route trace fields differ from operation schema: {operation_id}"
+            )
 
         @wraps(original_endpoint)
         async def traced_endpoint(
@@ -893,6 +938,9 @@ def _install_operation_trace_route_adapters(application: FastAPI) -> None:
             __endpoint=original_endpoint,
             __operation=operation,
             __argument_map=argument_map,
+            __trace_fields=trace_fields,
+            __operation_phase=operation_phase,
+            __confirmation_field=confirmation_field,
             **kwargs,
         ):
             trace_context = current_operation_trace_context()
@@ -905,10 +953,19 @@ def _install_operation_trace_route_adapters(application: FastAPI) -> None:
                 owner_id = str(current_account_id())
             except Exception:
                 return await __endpoint(*args, **kwargs)
-            arguments = _trace_route_arguments(kwargs, __argument_map)
+            arguments = _trace_route_arguments(kwargs, __argument_map, __trace_fields)
+            body_novel_id = next(
+                (
+                    getattr(value, "novel_id", None)
+                    for value in kwargs.values()
+                    if hasattr(value, "novel_id")
+                ),
+                None,
+            )
             novel_id = str(
                 kwargs.get("novel_id")
                 or kwargs.get("project_id")
+                or body_novel_id
                 or arguments.get("novel_id")
                 or arguments.get("project_id")
                 or ""
@@ -931,7 +988,19 @@ def _install_operation_trace_route_adapters(application: FastAPI) -> None:
             if not novel_id or not await operation_trace_enabled(db, owner_id):
                 return await __endpoint(*args, **kwargs)
             trace_context["enabled"] = True
-            if __operation.permission == "confirm":
+            explicitly_confirmed = (
+                _trace_route_arguments(
+                    kwargs, trace_fields={"confirmed": __confirmation_field}
+                ).get("confirmed")
+                is True
+                if __confirmation_field
+                else True
+            )
+            if (
+                __operation.permission == "confirm"
+                and __operation_phase == "execute"
+                and explicitly_confirmed
+            ):
                 await record_operation_trace(
                     db,
                     enabled=True,
@@ -970,7 +1039,9 @@ def _install_operation_trace_route_adapters(application: FastAPI) -> None:
                     .where(
                         AssistantOperationTrace.call_id == UUID(trace_context["call_id"]),
                         AssistantOperationTrace.event_type.in_(
-                            ("executed", "outcome_unknown")
+                            ("previewed", "executed", "outcome_unknown")
+                            if __operation_phase == "prepare"
+                            else ("executed", "outcome_unknown")
                         ),
                     )
                     .limit(1)
@@ -982,7 +1053,9 @@ def _install_operation_trace_route_adapters(application: FastAPI) -> None:
                         novel_id=novel_id,
                         owner_id=owner_id,
                         operation=__operation,
-                        event_type="executed",
+                        event_type=(
+                            "previewed" if __operation_phase == "prepare" else "executed"
+                        ),
                         arguments=arguments,
                         result=trace_context["result"],
                         actor_type="ui",

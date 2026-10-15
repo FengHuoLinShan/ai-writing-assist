@@ -19,6 +19,10 @@ Story outline_state 子域负责把事实层资产组织成“可执行的剧情
 Scene stage 负责。旧 `candidate` 仅兼容读取，不再允许
 作为新 Scene 写入状态；`needs_review` 是注意原因，不是第二套生命周期。
 
+Assistant v8 首批登记 Scene 完整重排、合并与受限拆分：排序需覆盖当前作品全部有效 Scene，
+合并/拆分经作者 R3 确认且重验预览。窄拆分不接受任意 `draft_scenes`；伏笔/揭示操作只改
+计划章节，不写入已发生事实时间线。
+
 当前活跃对象：
 
 - `story_outline_heads` / `story_outline_revisions`：小说总纲当前指针与不可变版本
@@ -359,9 +363,9 @@ P20、总纲生成与 Scene fusion 现在保存知识复核回执；采用必须
 ## 创作试验的结构与观察边界
 
 Story 为 Collaboration 提供 Scene、伏笔/揭示安排的冻结可编辑字段与原领域操作 port。
-试改独立保存，采用仍验证当前结构版本。`observations.py` 区分输入刺激、私有意图、
-可观察事件和可重放的 ResolutionBatch；说法不是事实，未知资源或唯一资源冲突不宣告成功。
-`observation_v2` 不重新解释旧 rehearsal_v1。读者推测与作者安排分开，派生前瞻不是新信息计划。
+试改独立保存，采用仍验证当前结构版本。`observations.py` 保留 RP `observation_v2` 的输入刺激与观察语义；
+Story 的 `simulation_v3.py` 共用意图、有限结算、`StateDelta`、`ResolutionBatch` 与回放。
+说法不是事实，未知资源、路线或唯一资源冲突不宣告成功；旧协议历史按原协议只读。
 
 ### DS Flash 档位调优（2026-09-21）
 

@@ -85,3 +85,10 @@ ADR-0040、ADR-0041 为准；不是新的授权或验收豁免。
   DossierValidity锚点过滤当这些能力已实现。C2/Generic首切片后另排C0c，仍属本次范围。
 - C1真实长篇前置、M5势力阶段1与RP迁移评测仍未通过；工程可用切片与这些门禁分列。
   R3和holdout封存，不添加模型请求；新真实评测只在最终固定代码及完整预算预检后由root协调。
+
+
+## 2026-10-16T01:17 当前协议已通过独立审修
+
+- C4a现已在primary b3182b2c5，root1034后端/1专用PG/23Vue/lint/build通过；Luna原4cbc与Sol净fix均保留。身份、seed参与者一致、未知位置观察者及接收者保护已闭合，旧RP/state_trial未迁移协议语义。
+- C4b从该审修后协议开始，仍需完整预算/历史/表演/素材/参考/一致性/UI，不保留C4a多轮409作最终限制。C2后端尚在另树自检，拟提供ReactionPreviewV2/ReactionProposalV2每人物2–4 performances完整表演结构，可复用；未获审不能直接当已发布API。
+- A2新Luna在map-assistant-review独立实施目标引擎，Assistant现有核心仍由Sol A1组合单写。新migration需最终由Sol串成单head；不要抢写keys/bootstrap/既有Assistant状态机。

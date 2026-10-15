@@ -467,6 +467,9 @@ bucket。这不是分布式或全局 DDoS 防护，也不表示当前外部 Clou
 | interaction | `interaction_story_generate`、`interaction_summary_refresh` |
 | evolution | `evolution_scene_step_v2`、`evolution_world_audit_supplement_v1`、`evolution_category_rescan_v1`、`evolution_spatial_rescan_v1` |
 
+新建 `simulation_v3` Scene 排演复用 `story_one_click` 任务：Story 在确认入队前与 worker
+生成／落盘时核对当前项目的 World 身份引用；基础设施任务类型、lease 和队列语义不变。
+
 `evolution_spatial_rescan_v1` 使用 `manual_resume` 恢复策略，根能力为
 `evolution.spatial_discover`，沿用 Evolution 的任务预算与请求额度计算；它不是新队列。
 地图只读组合根分别注册 `world.read_map_spatial_brief` 与

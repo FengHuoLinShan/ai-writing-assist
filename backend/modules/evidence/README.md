@@ -22,6 +22,11 @@
   trace、Activation Profile 和 hidden guard。
 
 两条流水线只共享本模块的 ORM、contracts 和 facade，不建立第二套服务、表或双写。
+Assistant v8 的 `evidence.project.search`、`evidence.source.read`、
+`evidence.knowledge.preview_scope` 是 R0 只读插件：按当前作者/作品、确认选定范围及 Scene
+截止回读；精确来源不扩前后窗口。独立 HTTP 窄入口不接受调用方指定 owner、visibility 或原文。
+原 confirmation 只选了对象/草稿某个片段时，`preview_scope` 拒绝展开整目标；仍可用
+`evidence.source.read` 精确回读 selected 且未排除/省略的来源。
 对象简报由 compilation 子域按 Scene 截止点汇总 World 档案、Story 时点投影和可选的
 Evolution 台账参考；三个跨域读取均经组合根只读端口，角色视角只投影 Story 可见事实。
 接口与未知/省略语义见 [compilation README](compilation/README.md)。

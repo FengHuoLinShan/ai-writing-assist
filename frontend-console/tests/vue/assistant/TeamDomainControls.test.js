@@ -19,14 +19,60 @@ it("keeps an intentional rule flaw when retesting only its selected scenario", a
   unregister(); wrapper.unmount()
 })
 it("passes exact immutable parent round into a new rehearsal fork", async () => {
-  const rehearsal = { id: "run", rounds: [{ number: 1, hash: "frozen-round", events: [{ actor_id: "actor", action: "等候", outcome: "succeeded" }] }] }
+  const scenarioSeed = { participants: [{ kind: "object", id: "actor" }], locations: [], positions: [], resources: [], routes: [], assumptions: [] }
+  const rehearsal = { id: "run", protocol: "simulation_v3", scenario_seed: scenarioSeed, rounds: [{ number: 1, hash: "frozen-round", events: [{ actor_id: "actor", action: "等候", outcome: "succeeded" }] }] }
   setBridgeOverrides({ api: { assistant: { capabilities: vi.fn(async () => ({ rehearsal: { available: true } })) }, story: { rehearsal: vi.fn(async () => rehearsal) } } })
   const wrapper = mount(SceneRehearsalPanel, { props: { projectId: "p1", rehearsalId: "run", characters: [{ id: "actor", name: "阿澄" }] } })
   await flushPromises()
   await wrapper.findAll("button").find(button => button.text().includes("另试一种发展")).trigger("click")
-  expect(wrapper.emitted("run")[0][0]).toMatchObject({ rehearsal: true, characterIds: ["actor"], parentId: "run", forkRound: 1, parentHash: "frozen-round" })
+  expect(wrapper.emitted("run")[0][0]).toMatchObject({ rehearsal: true, protocol: "simulation_v3", seed: scenarioSeed, rounds: 1, characterIds: ["actor"], parentId: "run", forkRound: 1, parentHash: "frozen-round" })
   await wrapper.setProps({ running: true })
   expect(wrapper.findAll("button").every(button => button.attributes("disabled") !== undefined)).toBe(true)
+  wrapper.unmount()
+})
+
+it("submits one v3 round with selected object IDs and typed temporary candidates", async () => {
+  setBridgeOverrides({ api: { assistant: { capabilities: vi.fn(async () => ({ rehearsal: { available: true } })) } } })
+  const actors = ["a", "b", "c", "d"].map(id => ({ id, name: `人物${id}` }))
+  actors.push({ id: "character-placeholder", name: "未关联人物" })
+  const wrapper = mount(SceneRehearsalPanel, { props: { projectId: "p1", characters: actors } })
+  await flushPromises()
+
+  expect(wrapper.findAll('input[type="checkbox"]')).toHaveLength(5)
+  expect(wrapper.findAll('input[type="checkbox"]').slice(0, 4).every(input => input.attributes("disabled") === undefined)).toBe(true)
+  expect(wrapper.findAll('input[type="checkbox"]')[4].attributes("disabled")).toBeDefined()
+  await wrapper.findAll("textarea")[0].setValue("密信")
+  await wrapper.find("input:not([type])").setValue("雾渡港")
+  await wrapper.findAll("textarea")[1].setValue("旧桥")
+  await wrapper.findAll("button").find(button => button.text() === "排演一回合").trigger("click")
+
+  const payload = wrapper.emitted("run")[0][0]
+  expect(payload).toMatchObject({ rehearsal: true, protocol: "simulation_v3", rounds: 1, characterIds: ["a", "b", "c", "d"] })
+  expect(payload.seed.participants).toEqual(actors.filter(actor => !actor.id.startsWith("character-")).map(actor => ({ kind: "object", id: actor.id })))
+  expect(payload.seed.resources).toEqual([{ resource: { kind: "candidate", id: "item-1", label: "密信" }, holder: null }])
+  expect(payload.seed.locations[0]).toEqual({ kind: "candidate", id: "location-origin", label: "雾渡港" })
+  expect(payload.seed.routes[0]).toEqual({
+    origin: payload.seed.locations[0],
+    destination: { kind: "candidate", id: "location-destination-1", label: "旧桥" },
+  })
+  wrapper.unmount()
+})
+
+it("keeps historical v1 and v2 runs readable without offering a fork", async () => {
+  const rehearsal = { id: "old-run", protocol: "observation_v2", rounds: [{ number: 1, hash: "old-hash", events: [] }] }
+  setBridgeOverrides({
+    api: {
+      assistant: { capabilities: vi.fn(async () => ({ rehearsal: { available: true } })) },
+      story: { rehearsal: vi.fn(async () => rehearsal) },
+    },
+  })
+  const wrapper = mount(SceneRehearsalPanel, { props: { projectId: "p1", rehearsalId: "old-run", characters: [{ id: "actor", name: "阿澄" }] } })
+  await flushPromises()
+
+  const fork = wrapper.findAll("button").find(button => button.text().includes("另试一种发展"))
+  expect(wrapper.text()).toContain("这份旧记录仅供查看")
+  expect(fork.attributes("disabled")).toBeDefined()
+  expect(wrapper.emitted("run")).toBeUndefined()
   wrapper.unmount()
 })
 

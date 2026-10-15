@@ -479,6 +479,34 @@ describe("Story Scene workspace panels", () => {
     expect(wrapper.find(".scene-reaction-card").exists()).toBe(false)
   })
 
+  it("submits the author's rehearsal through the typed v3 one-round route", async () => {
+    const characterCards = ["c1", "c2", "c3", "c4"].map((id, index) => ({
+      character_id: id,
+      name: `阿${index + 1}`,
+      content: { personality: "谨慎" },
+    }))
+    story.getSceneContext.mockResolvedValue({ character_cards: characterCards, script_files: [] })
+    story.startRehearsal.mockResolvedValue({ task_id: "task-rehearsal", status: "pending" })
+    assistant.capabilities.mockResolvedValue({ rehearsal: { available: true } })
+    createWrapper({ selectedSceneId: "s1" })
+    await wrapper.get('[data-action="scene-runtime-tab-simulation"]').trigger("click")
+    await flushPromises()
+
+    const run = wrapper.find(".scene-rehearsal").findAll("button").find(button => button.text() === "排演一回合")
+    await run.trigger("click")
+    await flushPromises()
+
+    expect(story.startRehearsal).toHaveBeenCalledWith("s1", expect.objectContaining({
+      scene_id: "s1",
+      simulation_protocol: "simulation_v3",
+      rehearsal_rounds: 1,
+      character_ids: ["c1", "c2", "c3", "c4"],
+      simulation_seed: expect.objectContaining({
+        participants: ["c1", "c2", "c3", "c4"].map(id => ({ kind: "object", id })),
+      }),
+    }))
+  })
+
   it("keeps a clear error and no fake reactions when the Story task is unavailable", async () => {
     story.getSceneContext.mockResolvedValue({
       character_cards: [{ character_id: "c1", name: "阿遥", content: { personality: "谨慎" } }],

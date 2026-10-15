@@ -8,6 +8,13 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from infrastructure.llm.collaboration import content_hash
+from modules.story.simulation_v3 import (
+    ResolutionBatch,
+    StateDelta,
+)
+from modules.story.simulation_v3 import (
+    replay_batch as replay_batch,
+)
 
 
 class ObservationModel(BaseModel):
@@ -126,25 +133,6 @@ class ResolutionOutcome(ObservationModel):
 
 class ResolutionProposal(ObservationModel):
     outcomes: list[ResolutionOutcome] = Field(default_factory=list, max_length=4)
-
-
-class StateDelta(ObservationModel):
-    kind: Literal["resource_holder", "departed", "observation", "location", "belief"]
-    key: str
-    before: str | bool | dict | None = None
-    after: str | bool | dict
-
-
-class ResolutionBatch(ObservationModel):
-    protocol: Literal["observation_v2"] = "observation_v2"
-    base_state_revision: int = Field(ge=0)
-    base_state_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
-    intents_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
-    rule_revision: str = Field(pattern=r"^[a-f0-9]{64}$")
-    events: list[dict] = Field(max_length=16)
-    state_patches: list[StateDelta] = Field(max_length=100)
-    unresolved_outcomes: list[str] = Field(default_factory=list, max_length=4)
-    assumptions: list[str] = Field(default_factory=list, max_length=12)
 
 
 def recipients(actor, visibility, audience, observers, state=None):
@@ -365,6 +353,7 @@ def resolve_batch(intents, resolution, state, *, observers, rule_revision):
                 )
             )
     return ResolutionBatch(
+        protocol="observation_v2",
         base_state_revision=state.get("revision", 0),
         base_state_hash=content_hash(state),
         intents_hash=content_hash(
@@ -378,51 +367,3 @@ def resolve_batch(intents, resolution, state, *, observers, rule_revision):
         ],
         assumptions=["这是给定资料与规则下的一次模拟裁决，不是事实证明。"],
     )
-
-
-def replay_batch(state, batch: ResolutionBatch):
-    """Replay stored events/deltas exactly; no provider call or random re-sampling."""
-    if (
-        state.get("revision", 0) != batch.base_state_revision
-        or content_hash(state) != batch.base_state_hash
-    ):
-        raise ValueError("Resolution batch belongs to a different state revision")
-    updated = deepcopy(state)
-    updated.setdefault("resource_holders", {})
-    updated.setdefault("observations", {})
-    updated.setdefault("departed", [])
-    for patch in batch.state_patches:
-        if patch.kind == "resource_holder":
-            if updated["resource_holders"].get(patch.key) != patch.before:
-                raise ValueError("Resource state changed before resolution")
-            updated["resource_holders"][patch.key] = patch.after
-        elif patch.kind == "departed":
-            if (patch.key in updated["departed"]) != patch.before:
-                raise ValueError("Presence changed before resolution")
-            if patch.after and patch.key not in updated["departed"]:
-                updated["departed"].append(patch.key)
-        elif patch.kind == "location":
-            locations = updated.setdefault("locations", {})
-            if locations.get(patch.key) != patch.before:
-                raise ValueError("Location changed before resolution")
-            locations[patch.key] = patch.after
-        elif patch.kind == "belief":
-            value = patch.after
-            beliefs = updated.setdefault("beliefs", {}).setdefault(value["actor_id"], {})
-            if beliefs.get(value["key"]) != patch.before:
-                raise ValueError("Belief changed before resolution")
-            beliefs[value["key"]] = value
-        else:
-            updated["observations"].setdefault(patch.key, []).append(patch.after)
-    updated["revision"] = batch.base_state_revision + 1
-    # ponytail: keep 128 recent observations per subject; older immutable state
-    # revisions remain the audit trail. A reader must not assume full recall.
-    for actor, events in updated["observations"].items():
-        if len(events) > 128:
-            history = updated.setdefault("observation_history", {})
-            history[actor] = {
-                "complete": False,
-                "omitted": history.get(actor, {}).get("omitted", 0) + len(events) - 128,
-            }
-            updated["observations"][actor] = events[-128:]
-    return updated

@@ -121,7 +121,26 @@ async def change_engine(db: DbSession, novel_id: UUID, data: EngineSwitch):
     )
 
 
-@router.post("/reading/preview")
+@router.post(
+    "/reading/preview",
+    openapi_extra={
+        "x-novelcraft-operation-id": "evolution.prepare_reading",
+        "x-novelcraft-operation-phase": "prepare",
+        "x-novelcraft-operation-trace-fields": {
+            "operation_id": "data.operation_id",
+            "mode": "data.mode",
+            "run_key": "data.run_key",
+            "from_scene_index": "data.from_scene_index",
+            "entity_id": "data.entity_id",
+            "observation_id": "data.observation_id",
+            "end_chapter": "data.end_chapter",
+            "request_limit": "data.request_limit",
+            "budget_mode": "data.budget_mode",
+            "discover_details": "data.discover_details",
+            "discover_spatial": "data.discover_spatial",
+        },
+    },
+)
 async def preview_reading(db: DbSession, novel_id: UUID, data: workflow.ReadingRequest):
     return await workflow.preview_reading(db, str(novel_id), data)
 

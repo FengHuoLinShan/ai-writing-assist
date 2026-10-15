@@ -45,7 +45,18 @@ async def list_world_change_history(
     )
 
 
-@router.put("/revision-notes", response_model=RevisionNoteResponse)
+@router.put(
+    "/revision-notes",
+    response_model=RevisionNoteResponse,
+    openapi_extra={
+        "x-novelcraft-operation-id": "world.history.set_note",
+        "x-novelcraft-operation-trace-fields": {
+            "target_kind": "data.target_kind",
+            "revision_id": "data.revision_id",
+            "note": "data.note",
+        },
+    },
+)
 async def put_revision_note(
     db: DbSession,
     data: RevisionNoteUpdateRequest,

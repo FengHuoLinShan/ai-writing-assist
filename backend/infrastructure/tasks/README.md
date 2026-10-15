@@ -63,6 +63,7 @@ infrastructure/tasks/
   `story_character_card_generate`、`story_reaction_propose`、`story_scene_script_generate`、`story_one_click`。
   `plot_structure_generate`、`chapter_card_extraction`、`chapter_scene_generate` 仅为存量任务返回
   `unsupported` 的兼容注册，不是当前生产生成入口
+
 - evidence（持久化 type 保留 `rag_*`）：`rag_index_chapter`、`rag_reindex_novel`、`rag_retry_embeddings`、
   `rag_reannotate_entities`
 - writing：`publish_chapter`、`writing_generate`、`writing_semantic_review`、
@@ -71,6 +72,10 @@ infrastructure/tasks/
 - imports：`deep_import`、`scene_auto_extraction`、`world_object_auto_extraction`、`spreadsheet_migration_ai`、
   `plot_structure_auto_extraction`
 - interaction：`interaction_story_generate`、`interaction_summary_refresh`
+
+`story_one_click` 同时承载新建的 `simulation_v3` Scene 排演；通用入口仍默认旧版请求形状。
+Story 在入队前核对当前项目的 World 身份引用，worker 在生成前及每回合落盘前重验；
+没有新增任务类型、队列或基础设施处理器。
 
 `deep_import` 完成时可把 post-import adoption package 的 compact receipt 写入既有
 `result.phase_artifacts`；这不是新任务类型或队列状态。包组装失败不得覆盖已完成的
