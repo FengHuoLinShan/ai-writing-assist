@@ -174,7 +174,7 @@ async def object_dossier_brief(
     request: ObjectDossierBriefRequest,
 ) -> ObjectDossierBriefResponse:
     """Read one Scene-bounded, visibility-filtered object reference projection."""
-    await require_active_project(db, request.novel_id)
+    await require_active_project(db, request.novel_id, allow_demo_readonly=False)
     result = await _read_object_dossier_brief(
         db,
         novel_id=request.novel_id,

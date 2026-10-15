@@ -456,12 +456,27 @@ class WorldObjectDossierService:
         as_of_scene_id: str | None = None,
         limit: int = 100,
         offset: int = 0,
+        visibility_filter: str | None = None,
+        visible_contents: list[str] | None = None,
     ) -> DossierReadResponse:
+        if visibility_filter not in {None, "public"}:
+            raise ValidationError("档案可见性筛选仅支持 public")
+        if visible_contents is not None and visibility_filter != "public":
+            raise ValidationError("内容证明筛选只能用于公开档案读取")
         entity = await self._entity(db, novel_id, entity_id)
         nid = parse_uuid(novel_id, "novel_id")
-        entries = await self.repo.list_active_for_entity(db, nid, entity.id)
+        entries = await self.repo.list_active_for_entity(
+            db, nid, entity.id, visibility_filter=visibility_filter
+        )
+        if visible_contents is not None:
+            allowed = set(visible_contents)
+            entries = [row for row in entries if row.content in allowed]
         labels = await self._labels(db, nid, entries)
-        legacy_profile_fields = await self._legacy_profile_fields(db, entity)
+        legacy_profile_fields = (
+            await self._legacy_profile_fields(db, entity)
+            if visibility_filter is None
+            else []
+        )
         cutoff_index = None
         cutoff_error = None
         if as_of_scene_id is not None:
@@ -523,6 +538,7 @@ class WorldObjectDossierService:
                 {
                     "entity_id": str(entity.id),
                     "entity_status": entity.status,
+                    "visibility_filter": visibility_filter,
                     "as_of_scene_id": as_of_scene_id,
                     "offset": page_offset,
                     "limit": page_limit,
@@ -535,6 +551,7 @@ class WorldObjectDossierService:
             entity_id=entity.id,
             entity_type=entity.entity_type,
             entity_status=entity.status,
+            visibility_filter=visibility_filter,
             as_of_scene_id=parse_uuid(as_of_scene_id, "scene_id")
             if as_of_scene_id
             else None,

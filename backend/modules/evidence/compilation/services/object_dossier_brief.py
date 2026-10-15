@@ -154,7 +154,9 @@ class ObjectDossierBriefService:
         include_patterns: bool,
         only_adopted_patterns: bool = False,
     ) -> dict[str, Any]:
-        await require_active_project(db, options.novel_id)
+        # The brief can expose author-only Story and Evolution references. A
+        # configured public demo is never an author, even for its own project.
+        await require_active_project(db, options.novel_id, allow_demo_readonly=False)
         scene_id = options.scene_id
         if not scene_id:
             return self._empty(
@@ -174,6 +176,8 @@ class ObjectDossierBriefService:
         viewpoint = (
             {"kind": "character", "target_id": str(options.viewpoint_character_id)}
             if role_view and options.viewpoint_character_id
+            else {"kind": "reader"}
+            if safe_view
             else {"kind": "author"}
         )
         if role_view and not options.viewpoint_character_id:
@@ -217,6 +221,15 @@ class ObjectDossierBriefService:
             != str(options.viewpoint_character_id)
         ):
             return self._empty(options, ["Story POV 与请求人物不匹配，已排除对象参考"])
+        if (
+            options.reveal_mode == "author_safe"
+            and (state_view.get("viewpoint") or {}).get("kind") != "reader"
+        ):
+            return self._empty(
+                options,
+                ["Story 公开事实投影未经核实，已排除对象参考"],
+                unknown_layers=["world", "continuity"],
+            )
 
         checkpoint_refs: list[dict[str, Any]] = []
         checkpoint_omissions: list[str] = []
@@ -250,10 +263,10 @@ class ObjectDossierBriefService:
                 checkpoint_omissions.append("Story checkpoint 引用暂时无法读取")
 
         facts = _visible_facts(state_view)
+        # Reader/character omissions may count hidden facts. Do not let their
+        # existence change a safe brief's metadata or fingerprint.
         omissions = (
-            ["部分时点状态未获得可见证明"]
-            if safe_view and state_view.get("omissions")
-            else [] if safe_view else list(state_view.get("omissions") or [])
+            [] if safe_view else list(state_view.get("omissions") or [])
         ) + checkpoint_omissions
         unknown_layers = list(
             dict.fromkeys(
@@ -304,6 +317,22 @@ class ObjectDossierBriefService:
                     as_of_scene_id=scene_id,
                     limit=250,
                     offset=0,
+                    visibility_filter="public" if safe_view else None,
+                    visible_contents=(
+                        sorted(
+                            {
+                                fact["value"]
+                                for fact in facts
+                                if str(fact.get("subject_id") or "") == entity_id
+                                and fact.get("layer") == "fact"
+                                and fact.get("confidence") == "confirmed"
+                                and fact.get("possibly_false") is not True
+                                and isinstance(fact.get("value"), str)
+                            }
+                        )
+                        if role_view
+                        else None
+                    ),
                 )
             )
             if (
@@ -316,6 +345,10 @@ class ObjectDossierBriefService:
             if dossier.get("entity_status") != "canonical":
                 unknown_layers.append("world")
                 omissions.append("对象尚未采用或状态无法核实，未进入简报")
+                continue
+            if safe_view and dossier.get("visibility_filter") != "public":
+                unknown_layers.append("world")
+                omissions.append("World 公开档案筛选未得到确认")
                 continue
             dossier_fingerprint = str(dossier.get("dossier_fingerprint") or "").strip()
             if not dossier_fingerprint:
@@ -390,7 +423,7 @@ class ObjectDossierBriefService:
             for raw in dossier.get("legacy_profile_fields") or []:
                 if not isinstance(raw, dict):
                     continue
-                if options.reveal_mode == "author_safe":
+                if safe_view:
                     # Legacy JSON has no trustworthy public/secret marker.
                     continue
                 if raw.get("profile_status") != "canonical":
@@ -504,6 +537,8 @@ class ObjectDossierBriefService:
             for raw in dimension.get("facts") or []:
                 if not isinstance(raw, dict):
                     continue
+                # Even a revealed reader fact cannot override the existing
+                # author_safe exclusion of explicitly private fields.
                 if options.reveal_mode == "author_safe" and str(
                     raw.get("field") or ""
                 ).casefold() in {"hidden_truth", "secret"}:
@@ -595,9 +630,7 @@ class ObjectDossierBriefService:
         pattern_fingerprint = None
         if include_patterns:
             if safe_view:
-                omissions.append(
-                    "当前视角未能逐条证明台账条件与来源可见，已排除人物倾向"
-                )
+                omissions.append("当前视角未能逐条证明台账条件与来源可见，已排除人物倾向")
                 omitted_count += 1
             else:
                 try:

@@ -13,6 +13,8 @@ async def read_world_object_dossier(
     as_of_scene_id: str | None = None,
     limit: int = 100,
     offset: int = 0,
+    visibility_filter: str | None = None,
+    visible_contents: list[str] | None = None,
 ):
     return await _service.read(
         db,
@@ -21,6 +23,8 @@ async def read_world_object_dossier(
         as_of_scene_id=as_of_scene_id,
         limit=limit,
         offset=offset,
+        visibility_filter=visibility_filter,
+        visible_contents=visible_contents,
     )
 
 
